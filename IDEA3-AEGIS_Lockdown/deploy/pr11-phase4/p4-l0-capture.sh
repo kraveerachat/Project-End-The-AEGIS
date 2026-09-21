@@ -47,8 +47,8 @@ P4_LOG_FILE="$EVID_DIR/capture.log"
 REQUIRED_TOOLS="ip sysctl nft ss systemctl journalctl df timedatectl nmcli iw rfkill"
 OPTIONAL_TOOLS="chronyc twingate hostnamectl"
 SERVICE_UNITS="NetworkManager.service systemd-networkd.service systemd-resolved.service systemd-timesyncd.service
-chronyd.service nftables.service mosquitto.service dnsmasq.service hostapd.service wpa_supplicant.service
-twingate.service aegis-idea3-core.service aegis-idea3.service"
+chronyd.service nftables.service mosquitto.service aegis-idea3-mosquitto.service dnsmasq.service hostapd.service wpa_supplicant.service
+twingate.service aegis-idea3-core.service aegis-idea3.service aegis-idea3-nftables-load.service aegis-idea3-dnsmasq.service"
 UNIT_PROPS="LoadState ActiveState SubState UnitFileState MainPID NRestarts Result ExecMainStartTimestamp"
 IDEA2_ENGINE_UNIT=aegis-detection-engine.service
 IDEA2_TUNNEL_UNIT=aegis-detection-tunnel.service
@@ -135,9 +135,11 @@ done
 for t in $REQUIRED_TOOLS; do p4_have "$t" || partial=1; done
 
 # ── network ──────────────────────────────────────────────────────────────────
+IFACE_LIST=""
 if run_ro 1 ip-br-addr ip -br addr show; then
   while read -r ifname _ addrs; do
     [ -n "$ifname" ] || continue
+    IFACE_LIST="$IFACE_LIST $ifname"
     sorted=$(printf '%s\n' $addrs | sed '/^$/d' | LC_ALL=C sort | tr '\n' ' ')
     p4_rec "$NET" "net.addr.$ifname" "${sorted:-none}"
   done <<< "$P4_OUT"
@@ -146,7 +148,9 @@ else
 fi
 if run_ro 1 ip-br-link ip -br link show; then
   while read -r ifname state _; do
-    [ -n "$ifname" ] && p4_rec "$NET" "net.link.$ifname" "$state"
+    [ -n "$ifname" ] || continue
+    IFACE_LIST="$IFACE_LIST $ifname"
+    p4_rec "$NET" "net.link.$ifname" "$state"
   done <<< "$P4_OUT"
 else
   p4_rec "$NET" net.link UNAVAILABLE
@@ -157,9 +161,31 @@ for fam in 4 6; do
     default=$(join_sorted "$(printf '%s\n' "$routes" | grep '^default' || true)")
     p4_rec "$NET" "net.route$fam.default" "${default:-none}"
     p4_rec "$NET" "net.route$fam.sha256" "$(text_sha "$(printf '%s\n' "$routes" | LC_ALL=C sort)")"
+    all_ifaces=$(printf '%s\n' $IFACE_LIST $(printf '%s\n' "$routes" | grep -oE '\bdev [^ ]+' | awk '{print $2}') | sed '/^$/d' | LC_ALL=C sort -u)
+    for ifn in $all_ifaces; do
+      [ -n "$ifn" ] || continue
+      ifroutes=$(printf '%s\n' "$routes" | grep -v '^default' | grep -E "(^|[[:space:]])dev $ifn([[:space:]]|$)" || true)
+      if [ -n "$ifroutes" ]; then
+        sorted_ifroutes=$(join_sorted "$ifroutes")
+        p4_rec "$NET" "net.route$fam.iface.$ifn" "$sorted_ifroutes"
+      else
+        p4_rec "$NET" "net.route$fam.iface.$ifn" none
+      fi
+    done
+    unscoped=$(printf '%s\n' "$routes" | sed '/^[[:space:]]*$/d' | grep -v '^default' | awk '
+      /^(blackhole|unreachable|prohibit|throw)([[:space:]]|$)/ { print; next }
+      !/(^|[[:space:]])dev[[:space:]]+[^[:space:]]+/ { print; next }
+    ')
+    if [ -n "$unscoped" ]; then
+      sorted_unscoped=$(join_sorted "$unscoped")
+      p4_rec "$NET" "net.route$fam.unscoped" "$sorted_unscoped"
+    else
+      p4_rec "$NET" "net.route$fam.unscoped" none
+    fi
   else
     p4_rec "$NET" "net.route$fam.default" UNAVAILABLE
     p4_rec "$NET" "net.route$fam.sha256" UNAVAILABLE
+    p4_rec "$NET" "net.route$fam.unscoped" UNAVAILABLE
   fi
   if run_ro 1 "ip-$fam-rule" ip "-$fam" rule show; then
     p4_rec "$NET" "net.rule$fam.sha256" "$(text_sha "$P4_OUT")"
@@ -176,18 +202,70 @@ for k in net.ipv4.ip_forward net.ipv4.conf.all.forwarding net.ipv6.conf.all.forw
     p4_rec "$NET" "sysctl.$k" UNAVAILABLE
   fi
 done
+[ -f "$(p4_fs /etc/aegis-idea3/dnsmasq-ap.conf)" ] && rec_file "$NET" net.idea3_dnsmasq_conf "$(p4_fs /etc/aegis-idea3/dnsmasq-ap.conf)"
 [ -f "$(p4_fs /etc/sysctl.conf)" ] && rec_file "$NET" net.sysctl_conf "$(p4_fs /etc/sysctl.conf)"
 rec_tree "$NET" net.sysctl_conf /etc/sysctl.d
+resolv_conf="$(p4_fs /etc/resolv.conf)"
+if [ -f "$resolv_conf" ] || [ -L "$resolv_conf" ]; then
+  rec_file "$NET" net.dns "$resolv_conf"
+  ns=$(grep -E '^[[:space:]]*nameserver[[:space:]]+' "$resolv_conf" 2>/dev/null | awk '{print $2}')
+  p4_rec "$NET" "net.dns.nameservers" "$(join_sorted "$ns")"
+fi
 
 # ── Wi-Fi / AP prerequisites ─────────────────────────────────────────────────
-if run_ro 1 rfkill rfkill --noheadings --output ID,TYPE,SOFT,HARD; then
-  while IFS=$'\t' read -r type states; do
-    p4_rec "$WIFI" "wifi.rfkill.$type" "$states"
-  done < <(printf '%s\n' "$P4_OUT" | awk 'NF >= 4 { s[$2] = (s[$2] == "" ? "" : s[$2] ";") "soft=" $3 " hard=" $4 }
-    END { for (t in s) print t "\t" s[t] }' | LC_ALL=C sort)
+declare -A wifi_ifaces=()
+if run_ro 1 iw-dev iw dev; then
+  while IFS=$'\t' read -r iface field value; do
+    [ -n "$iface" ] && wifi_ifaces["$iface"]=1
+    p4_rec "$WIFI" "wifi.iface.$iface.$field" "$value"
+  done < <(printf '%s\n' "$P4_OUT" | awk '$1 == "Interface" { i = $2 }
+    $1 == "type" && i != "" { print i "\ttype\t" $2 }
+    $1 == "channel" && i != "" { print i "\tchannel\t" $2 " " $3 " " $4 }
+    $1 == "ssid" && i != "" { print i "\tssid\t" $2 }')
 else
-  p4_rec "$WIFI" wifi.rfkill UNAVAILABLE
+  p4_rec "$WIFI" wifi.iface UNAVAILABLE
 fi
+
+declare -A iface_rfk_seen=()
+sys_net="$(p4_fs /sys/class/net)"
+if [ -d "$sys_net" ]; then
+  for iface_dir in "$sys_net"/*; do
+    [ -d "$iface_dir" ] || continue
+    iface="${iface_dir##*/}"
+    for rfk in "$iface_dir"/phy80211/rfkill* "$iface_dir"/rfkill*; do
+      [ -d "$rfk" ] || continue
+      id=$(cat "$rfk/index" 2>/dev/null || true)
+      soft_raw=$(cat "$rfk/soft" 2>/dev/null || true)
+      hard_raw=$(cat "$rfk/hard" 2>/dev/null || true)
+      [ -n "$id" ] || continue
+      soft="unblocked"
+      [ "$soft_raw" = "1" ] || [ "$soft_raw" = "blocked" ] && soft="blocked"
+      hard="unblocked"
+      [ "$hard_raw" = "1" ] || [ "$hard_raw" = "blocked" ] && hard="blocked"
+      p4_rec "$WIFI" "wifi.rfkill.iface.$iface.id" "$id"
+      p4_rec "$WIFI" "wifi.rfkill.iface.$iface.soft" "$soft"
+      p4_rec "$WIFI" "wifi.rfkill.iface.$iface.hard" "$hard"
+      iface_rfk_seen["$iface"]=1
+    done
+  done
+fi
+
+if run_ro 1 rfkill rfkill --noheadings --output ID,TYPE,SOFT,HARD; then
+  if [ "${#iface_rfk_seen[@]}" = 0 ]; then
+    while read -r r_id r_type r_soft r_hard; do
+      [ -n "$r_id" ] && [ "$r_type" = "wlan" ] || continue
+      for iface in "${!wifi_ifaces[@]}"; do
+        p4_rec "$WIFI" "wifi.rfkill.iface.$iface.id" "$r_id"
+        p4_rec "$WIFI" "wifi.rfkill.iface.$iface.soft" "$r_soft"
+        p4_rec "$WIFI" "wifi.rfkill.iface.$iface.hard" "$r_hard"
+        iface_rfk_seen["$iface"]=1
+      done
+    done <<< "$P4_OUT"
+  fi
+else
+  [ "${#iface_rfk_seen[@]}" -gt 0 ] || p4_rec "$WIFI" wifi.rfkill UNAVAILABLE
+fi
+
 if run_ro 1 iw-reg iw reg get; then
   global=$(printf '%s\n' "$P4_OUT" | awk '/^global/ { g = 1 } /^country/ && g { sub(":", "", $2); print $2; exit }')
   p4_rec "$WIFI" wifi.reg.global "${global:-none}"
@@ -198,15 +276,6 @@ if run_ro 1 iw-reg iw reg get; then
   p4_rec "$WIFI" wifi.reg.sha256 "$(text_sha "$P4_OUT")"
 else
   p4_rec "$WIFI" wifi.reg.global UNAVAILABLE
-fi
-if run_ro 1 iw-dev iw dev; then
-  while IFS=$'\t' read -r iface field value; do
-    p4_rec "$WIFI" "wifi.iface.$iface.$field" "$value"
-  done < <(printf '%s\n' "$P4_OUT" | awk '$1 == "Interface" { i = $2 } $1 == "type" && i != "" { print i "\ttype\t" $2 }
-    $1 == "channel" && i != "" { print i "\tchannel\t" $2 " " $3 " " $4 }')
-  p4_rec "$WIFI" wifi.dev.sha256 "$(text_sha "$P4_OUT")"
-else
-  p4_rec "$WIFI" wifi.dev.sha256 UNAVAILABLE
 fi
 if run_ro 1 iw-phy iw phy; then
   if printf '%s\n' "$P4_OUT" | grep -qE '^[[:space:]]+\* AP$'; then ap=supported; else ap=not-listed; fi
@@ -221,15 +290,31 @@ if run_ro 1 nmcli-general nmcli -t -f STATE,CONNECTIVITY,WIFI-HW,WIFI general st
 else
   p4_rec "$WIFI" nm.general UNAVAILABLE
 fi
+
+declare -A known_devs=()
+if run_ro 1 nmcli-devices nmcli -t -f DEVICE,TYPE,STATE device status; then
+  while IFS=':' read -r dev type state; do
+    [ -n "$dev" ] || continue
+    known_devs["$dev"]=1
+    p4_rec "$WIFI" "nm.device.$dev.type" "${type:-unknown}"
+    p4_rec "$WIFI" "nm.device.$dev.state" "${state:-unknown}"
+  done <<< "$P4_OUT"
+else
+  p4_rec "$WIFI" nm.device UNAVAILABLE
+fi
+
 if run_ro 1 nmcli-active nmcli -t -f NAME,TYPE,DEVICE connection show --active; then
-  p4_rec "$WIFI" nm.active "$(join_sorted "$P4_OUT")"
+  declare -A active_devs=()
+  while IFS=':' read -r name type dev; do
+    [ -n "$dev" ] || continue
+    active_devs["$dev"]="${name}:${type}"
+  done <<< "$P4_OUT"
+  for d in $(printf '%s\n' "${!known_devs[@]}" "${!active_devs[@]}" | LC_ALL=C sort -u); do
+    [ -n "$d" ] || continue
+    p4_rec "$WIFI" "nm.active.device.$d" "${active_devs[$d]:-none}"
+  done
 else
   p4_rec "$WIFI" nm.active UNAVAILABLE
-fi
-if run_ro 1 nmcli-devices nmcli -t -f DEVICE,TYPE,STATE device status; then
-  p4_rec "$WIFI" nm.devices "$(join_sorted "$P4_OUT")"
-else
-  p4_rec "$WIFI" nm.devices UNAVAILABLE
 fi
 rec_tree "$WIFI" nm.profile /etc/NetworkManager/system-connections meta
 
@@ -262,6 +347,7 @@ else
   p4_rec "$FW" fw.nftables_conf./etc/nftables.conf absent
 fi
 rec_tree "$FW" fw.nftables_d /etc/nftables.d
+[ -f "$(p4_fs /etc/aegis-idea3/aegis-idea3.nft)" ] && rec_file "$FW" fw.idea3_nft "$(p4_fs /etc/aegis-idea3/aegis-idea3.nft)"
 
 # ── time ─────────────────────────────────────────────────────────────────────
 if run_ro 1 timedatectl timedatectl show -p NTP -p NTPSynchronized -p CanNTP -p Timezone; then
@@ -502,7 +588,24 @@ for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /opt/aegis-idea3/current /var/lib
   /var/log/aegis-idea3; do
   if [ -e "$(p4_fs "$p")" ]; then p4_rec "$HOST" "host.path.$p" present; else p4_rec "$HOST" "host.path.$p" absent; fi
 done
-rec_tree "$HOST" host.aegis_idea3.file /etc/aegis-idea3 meta
+if [ -L "$(p4_fs /opt/aegis-idea3/current)" ]; then
+  if run_ro 0 readlink-current readlink -- "$(p4_fs /opt/aegis-idea3/current)"; then
+    p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target "$P4_OUT"
+  else
+    p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target UNAVAILABLE
+  fi
+else
+  p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target absent
+fi
+if [ -f "$(p4_fs /etc/systemd/system/aegis-idea3-core.service)" ]; then
+  rec_file "$HOST" host.unit_file "$(p4_fs /etc/systemd/system/aegis-idea3-core.service)"
+fi
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  [ "$(p4_hostpath "$f")" = "/etc/aegis-idea3/aegis-idea3.nft" ] && continue
+  [ "$(p4_hostpath "$f")" = "/etc/aegis-idea3/dnsmasq-ap.conf" ] && continue
+  rec_file "$HOST" host.aegis_idea3.file "$f" meta
+done < <(tree_files /etc/aegis-idea3)
 
 # ── meta, ordering, checksums ────────────────────────────────────────────────
 if [ "$partial" = 0 ]; then status=COMPLETE; else status=PARTIAL; fi

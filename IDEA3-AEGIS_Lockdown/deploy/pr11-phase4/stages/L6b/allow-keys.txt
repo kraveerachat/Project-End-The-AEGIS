@@ -1,0 +1,8 @@
+svc.aegis-idea3-mosquitto.service.LoadState
+svc.aegis-idea3-mosquitto.service.ActiveState
+svc.aegis-idea3-mosquitto.service.SubState
+svc.aegis-idea3-mosquitto.service.UnitFileState
+svc.aegis-idea3-mosquitto.service.MainPID
+svc.aegis-idea3-mosquitto.service.NRestarts
+svc.aegis-idea3-mosquitto.service.Result
+svc.aegis-idea3-mosquitto.service.ExecMainStartTimestamp

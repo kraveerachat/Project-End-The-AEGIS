@@ -33,14 +33,19 @@ def render_acl(device_id: str, output: Path) -> None:
 
 
 def read_secret(path: Path) -> str:
+    if path.is_symlink():
+        raise ValueError(f"secret path must not be a symlink: {path}")
+
     metadata = path.stat()
 
     if not stat.S_ISREG(metadata.st_mode):
-        raise ValueError("secret path must be a regular file")
+        raise ValueError(f"secret path must be a regular file: {path}")
 
     mode = stat.S_IMODE(metadata.st_mode)
-    if mode & 0o077:
-        raise ValueError("secret file must not grant group or other permissions")
+    if mode not in (0o600, 0o400):
+        raise ValueError(
+            f"secret file mode {oct(mode)} invalid: must be exact mode 0600 or 0400"
+        )
 
     value = path.read_text(encoding="utf-8")
     if value.endswith("\n"):

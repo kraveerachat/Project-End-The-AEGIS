@@ -51,30 +51,72 @@ meta() { awk -F '\t' -v k="$2" '$1 == k { print $2 }' "$1/meta.tsv"; }
 [ "$(meta "$BEFORE" meta.evidence_class)" = "$(meta "$AFTER" meta.evidence_class)" ] \
   || stop "evidence classes differ; test fixtures and host evidence are never compared"
 
+EVID_CLASS="$(meta "$BEFORE" meta.evidence_class)"
+
 # Keys whose change is never approvable (S-03, S-04, S-09, host identity, §10 IDEA2).
-PROTECTED='^(sysctl\.|idea2\.|net\.route[46]\.default|host\.|meta\.|cap\.|listen\.|disk\.)'
+# Option A: host.* is default-deny except for exact host.aegis_idea3.file, host.path, host.symlink, and host.unit_file keys.
+PROTECTED='^(sysctl\.|idea2\.|net\.route[46]\.(default|sha256|unscoped)|net\.dns|meta\.|cap\.|listen\.|disk\.|nm\.general$|wifi\.reg\.|wifi\.rfkill\..*\.(id|hard)$)'
 ALLOW_KEYS=""
 if [ -n "${ALLOW_KEYS_FILE:-}" ]; then
   [ -r "$ALLOW_KEYS_FILE" ] || stop "ALLOW_KEYS_FILE unreadable"
   ALLOW_KEYS=$(grep -vE '^[[:space:]]*(#|$)' "$ALLOW_KEYS_FILE" || true)
+  ALLOW_KEY_PAT='^[-A-Za-z0-9@._:/]+$'
   while IFS= read -r k; do
     [ -n "$k" ] || continue
-    [[ "$k" =~ ^[A-Za-z0-9@._:/\[\]-]+$ ]] || stop "malformed allow key"
+    [[ "$k" =~ $ALLOW_KEY_PAT ]] || stop "malformed allow key"
     [[ "$k" =~ $PROTECTED ]] && stop "protected key cannot be approved: $k"
+    if [[ "$k" =~ ^host\. ]]; then
+      if ! [[ "$k" =~ ^host\.(aegis_idea3\.file\.|path\.|symlink\.|unit_file\.) ]]; then
+        stop "protected key cannot be approved: $k"
+      fi
+    fi
   done <<< "$ALLOW_KEYS"
 fi
 ALLOW_LISTENERS=""
 if [ -n "${ALLOW_LISTENERS_FILE:-}" ]; then
   [ -r "$ALLOW_LISTENERS_FILE" ] || stop "ALLOW_LISTENERS_FILE unreadable"
   ALLOW_LISTENERS=$(grep -vE '^[[:space:]]*(#|$)' "$ALLOW_LISTENERS_FILE" || true)
+  RESOLVED_ALLOW_LISTENERS=""
   while IFS= read -r k; do
     [ -n "$k" ] || continue
+
+    placeholder="<AEGIS_AP_ADDRESS>"
+    if [[ "$k" == *"$placeholder"* ]]; then
+      [[ "${AEGIS_AP_ADDRESS:-}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] \
+        || stop "AEGIS_AP_ADDRESS is required for listener contract"
+      k=${k//$placeholder/$AEGIS_AP_ADDRESS}
+    fi
+
+    if_placeholder="<AEGIS_AP_INTERFACE>"
+    if [[ "$k" == *"$if_placeholder"* ]]; then
+      ap_if="${AEGIS_AP_INTERFACE:-wlp0s20f3}"
+      k=${k//$if_placeholder/$ap_if}
+    fi
+
+    [[ "$k" != *"<AEGIS_"* ]] || stop "unresolved allowed-listener placeholder"
     [[ "$k" =~ ^listen\.(tcp|udp)\.(.+):([0-9]{1,5})$ ]] || stop "malformed allowed listener"
-    addr=${BASH_REMATCH[2]} port=${BASH_REMATCH[3]}
-    [[ "$addr" =~ ^(0\.0\.0\.0|\[::\]|::|\*|\[::\]%.*|0\.0\.0\.0%.*|\*%.*)$ ]] \
-      && stop "wildcard listener cannot be approved (S-05): $k"
+    proto=${BASH_REMATCH[1]} addr=${BASH_REMATCH[2]} port=${BASH_REMATCH[3]}
+    if [ "$EVID_CLASS" = "TEST_FIXTURE" ]; then
+      allowed_dhcp_if="${AEGIS_AP_INTERFACE:-wlp0s20f3}"
+    else
+      allowed_dhcp_if="wlp0s20f3"
+    fi
+    if [ "$port" = 67 ] && [ "$proto" = "udp" ] && [ "$addr" = "0.0.0.0%$allowed_dhcp_if" ]; then
+      # PF-02 reviewed exception: exactly interface-bound UDP/67 on target AP interface
+      :
+    else
+      [[ "$addr" =~ ^(0\.0\.0\.0|\[::\]|::|\*|\[::\]%.*|0\.0\.0\.0%.*|\*%.*)$ ]] \
+        && stop "wildcard listener cannot be approved (S-05): $k"
+    fi
     [ "$port" = 1883 ] && stop "a plaintext 1883 listener cannot be approved (S-12): $k"
+
+    if [ -n "$RESOLVED_ALLOW_LISTENERS" ]; then
+      RESOLVED_ALLOW_LISTENERS+=$'\n'
+    fi
+    RESOLVED_ALLOW_LISTENERS+="$k"
   done <<< "$ALLOW_LISTENERS"
+
+  ALLOW_LISTENERS="$RESOLVED_ALLOW_LISTENERS"
 fi
 
 read -r -d '' COMPARE_AWK <<'AWK'
@@ -118,6 +160,30 @@ END {
     if (B[t] == "0" && isnum(A[t]) && A[t] + 0 > 0) new_class = 1
   }
 
+  fam_unapproved[4] = 0; fam_approved[4] = 0
+  fam_unapproved[6] = 0; fam_approved[6] = 0
+  for (f = 4; f <= 6; f += 2) {
+    pat = "^net\\.route" f "\\.iface\\."
+    for (k in K) {
+      if (k ~ pat) {
+        bv = (k in B) ? B[k] : "<absent>"
+        av = (k in A) ? A[k] : "<absent>"
+        if (bv != av) {
+          if (k in AK) fam_approved[f]++
+          else fam_unapproved[f]++
+        }
+      }
+    }
+    def_k = "net.route" f ".default"
+    def_b = (def_k in B) ? B[def_k] : "<absent>"
+    def_a = (def_k in A) ? A[def_k] : "<absent>"
+    fam_def_changed[f] = (def_b != def_a)
+    unscoped_k = "net.route" f ".unscoped"
+    unscoped_b = (unscoped_k in B) ? B[unscoped_k] : "<absent>"
+    unscoped_a = (unscoped_k in A) ? A[unscoped_k] : "<absent>"
+    fam_unscoped_changed[f] = (unscoped_b != unscoped_a)
+  }
+
   for (key in K) {
     b = (key in B) ? B[key] : "<absent>"
     a = (key in A) ? A[key] : "<absent>"
@@ -156,10 +222,28 @@ END {
       emit("NEW_OR_WORSENED_DRIFT", (a != "0" ? "FORWARDING_ENABLED" : "FORWARDING_CHANGED"), key, b, a)
     } else if (key ~ /^net\.route[46]\.default$/) {
       emit("NEW_OR_WORSENED_DRIFT", "DEFAULT_ROUTE_DRIFT", key, b, a)
+    } else if (key ~ /^net\.route[46]\.unscoped$/) {
+      emit("NEW_OR_WORSENED_DRIFT", "UNSCOPED_ROUTE_DRIFT", key, b, a)
+    } else if (key == "net.route4.sha256") {
+      if (fam_unapproved[4] == 0 && fam_approved[4] > 0 && !fam_def_changed[4] && !fam_unscoped_changed[4]) {
+        emit("APPROVED_CHANGE", "ROUTE_CHANGES_ACCOUNTED_BY_APPROVED_IFACE", key, b, a)
+      } else {
+        emit("NEW_OR_WORSENED_DRIFT", "ROUTE_TABLE_DRIFT", key, b, a)
+      }
+    } else if (key == "net.route6.sha256") {
+      if (fam_unapproved[6] == 0 && fam_approved[6] > 0 && !fam_def_changed[6] && !fam_unscoped_changed[6]) {
+        emit("APPROVED_CHANGE", "ROUTE_CHANGES_ACCOUNTED_BY_APPROVED_IFACE", key, b, a)
+      } else {
+        emit("NEW_OR_WORSENED_DRIFT", "ROUTE_TABLE_DRIFT", key, b, a)
+      }
     } else if (key ~ /^net\.route[46]\./) {
       emit("NEW_OR_WORSENED_DRIFT", "ROUTE_TABLE_DRIFT", key, b, a)
     } else if (key ~ /^net\.rule/) {
       emit("NEW_OR_WORSENED_DRIFT", "ROUTING_RULE_DRIFT", key, b, a)
+    } else if (key ~ /^net\.idea3_dnsmasq_conf\./) {
+      emit("NEW_OR_WORSENED_DRIFT", "DNSMASQ_CONFIG_DRIFT", key, b, a)
+    } else if (key ~ /^net\.dns/) {
+      emit("NEW_OR_WORSENED_DRIFT", "DNS_CONFIGURATION_DRIFT", key, b, a)
     } else if (key ~ /^net\.addr/) {
       emit("NEW_OR_WORSENED_DRIFT", "INTERFACE_ADDRESS_DRIFT", key, b, a)
     } else if (key ~ /^net\.link/) {
@@ -174,14 +258,22 @@ END {
       emit("NEW_OR_WORSENED_DRIFT", "NFT_RULESET_DRIFT", key, b, a)
     } else if (key ~ /^fw\.nftables_/) {
       emit("NEW_OR_WORSENED_DRIFT", "NFT_PERSISTENT_CONF_DRIFT", key, b, a)
+    } else if (key ~ /^wifi\.rfkill\..*\.hard$/) {
+      emit("NEW_OR_WORSENED_DRIFT", "RFKILL_HARD_DRIFT", key, b, a)
     } else if (key ~ /^wifi\.rfkill/) {
       emit("NEW_OR_WORSENED_DRIFT", "RFKILL_STATE_DRIFT", key, b, a)
     } else if (key ~ /^wifi\.reg/) {
       emit("NEW_OR_WORSENED_DRIFT", "REGULATORY_DRIFT", key, b, a)
     } else if (key ~ /^wifi\./) {
       emit("NEW_OR_WORSENED_DRIFT", "WIFI_STATE_DRIFT", key, b, a)
+    } else if (key == "nm.general") {
+      emit("NEW_OR_WORSENED_DRIFT", "NM_GENERAL_DRIFT", key, b, a)
     } else if (key ~ /^nm\.profile\./) {
       emit("NEW_OR_WORSENED_DRIFT", "NM_PROFILE_DRIFT", key, b, a)
+    } else if (key ~ /^nm\.active\./) {
+      emit("NEW_OR_WORSENED_DRIFT", "NM_ACTIVE_DRIFT", key, b, a)
+    } else if (key ~ /^nm\.device\./) {
+      emit("NEW_OR_WORSENED_DRIFT", "NM_DEVICE_DRIFT", key, b, a)
     } else if (key ~ /^nm\./) {
       emit("NEW_OR_WORSENED_DRIFT", "NM_STATE_DRIFT", key, b, a)
     } else if (key == "time.NTPSynchronized") {
@@ -251,7 +343,7 @@ END {
       emit("NEW_OR_WORSENED_DRIFT", "HOST_KERNEL_CHANGED", key, b, a)
     } else if (key ~ /^host\.twingate\./) {
       emit("NEW_OR_WORSENED_DRIFT", "TWINGATE_STATE_DRIFT", key, b, a)
-    } else if (key ~ /^host\.(path|aegis_idea3)\./) {
+    } else if (key ~ /^host\.(path|aegis_idea3|symlink|unit_file)\./) {
       emit("NEW_OR_WORSENED_DRIFT", "IDEA3_HOST_PATH_DRIFT", key, b, a)
     } else {
       emit("NEW_OR_WORSENED_DRIFT", "UNCLASSIFIED_DRIFT", key, b, a)

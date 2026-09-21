@@ -1,0 +1,12 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L8 allowed host state drift.
+#
+# Stage L8 provisions and flashes the ESP32 relay device. It changes the
+# device, never the Core host, so this file carries ZERO active keys by
+# contract (OD-L8-07).
+#
+# An empty allow-list is what enforces the owner requirement
+# HOST_PRE_TO_RB_ZERO_DRIFT=YES: p4-compare.sh fails on any Core host drift
+# whatsoever between the PRE and POST/RB captures.
+#
+# Wildcards are forbidden. Adding a key here requires a separate reviewed
+# change to the L8 operational design.

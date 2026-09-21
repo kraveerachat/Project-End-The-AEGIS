@@ -4,10 +4,10 @@ Repository framework only. **Nothing here has run on the Core or Production.**
 
 ```text
 T1_SCOPE                       = G-15 repository framework (capture / compare / stage gate / rollback contract)
-G15_CLOSED                     = NO — human review and closeout pending
+G15_CLOSED                     = YES — repository framework closed; live rollout remains separate
 PRODUCTION_MUTATION            = NO (no script in this directory changes host state)
 LIVE_STAGE_AUTHORIZED          = NO (the gate always prints NO)
-STAGE_ROLLBACK_HANDLERS        = NONE REGISTERED (contract only)
+STAGE_ROLLBACK_HANDLERS        = L2, L3, L4, L5, L6a, L6b, L7, L8, L9 REGISTERED (repository only; live execution NOT authorized)
 PHASE4_LIVE_READINESS          = NOT READY
 IDEA2_TUNNEL_HEALTHY           = NO    IDEA2_RUNTIME_HEALTHY = NO   (owner-run, 2026-09-17)
 ```
@@ -140,9 +140,9 @@ mutating stage fails with `ROLLBACK_HANDLER_NOT_REGISTERED` until a reviewed
 handler exists. L0 needs a same-day authorization but no K3
 (`STAGE_GATE=PASS_READ_ONLY`).
 
-## 4. Rollback handler contract (no handler implemented)
+## 4. Rollback handler contract and registered handlers
 
-A later, separately reviewed task may register a stage under
+T1 defined the handler contract. A separately reviewed task may register a stage under
 `stages/<STAGE>/` with `apply.sh`, `verify.sh`, `rollback.sh`,
 `allow-keys.txt`, and `allow-listeners.txt`. A stage runner must then:
 
@@ -156,8 +156,115 @@ A later, separately reviewed task may register a stage under
 
 `rollback.sh` must be idempotent and undo only its own stage. It must never
 remove a whole firewall ruleset, send RESTORE, reopen plaintext MQTT as a
-fallback, or touch IDEA1/IDEA2 state. T1 ships no `stages/` directory; the tests
-assert that.
+fallback, or touch IDEA1/IDEA2 state. T1 originally shipped no `stages/`
+directory. T4 registered the separately reviewed L6b handler under
+`stages/L6b/`. Separately reviewed repository tasks registered L2 under
+`stages/L2/`, L3 under `stages/L3/`, L4 under `stages/L4/`, L5 under `stages/L5/`,
+and L6a under `stages/L6a/`. Separately reviewed task registers L7 under
+`stages/L7/`. All seven stage handlers (L2, L3, L4, L5, L6a, L6b, L7) are now
+registered in the repository framework.
+
+### L2 handler (firewall & forwarding persistence)
+
+- L2 owns only dedicated IDEA3 firewall and forwarding persistence: table `inet aegis_idea3`, `/etc/aegis-idea3/aegis-idea3.nft`, `aegis-idea3-nftables-load.service`, and `/etc/sysctl.d/90-aegis-idea3-forwarding.conf`.
+- Forwarding target remains strictly zero (`= 0`) across all interfaces.
+- Zero NAT (no masquerade, SNAT, or DNAT), zero bridge creation, and zero listener additions (`allow-listeners.txt` has no active entries).
+- Live mode requires explicit `AEGIS_L2_LIVE_AUTHORIZED=YES` and root.
+- `/etc/aegis-idea3` must already exist as a non-symlink directory in live mode (`IDEA3_PARENT_DIR_REQUIRED`).
+- Fixture mode (`AEGIS_P4_FS_ROOT`) never performs live host mutation.
+- L2 has NOT been run live; live execution is NOT authorized.
+
+### L3 handler (AP radio runtime)
+
+- L3 owns only AP-radio state on dedicated interface `wlp0s20f3`: NetworkManager AP profile materialization (`aegis-idea3-ap.nmconnection`), 2.4 GHz AP mode, WPA2-PSK security, regulatory domain verification, and target-specific rfkill soft unblock.
+- AP addressing, DHCP, and DNS service are NOT part of L3 (these belong to L4).
+- Zero NAT, zero masquerade, zero bridge creation, zero forwarding enable, zero nftables mutation, zero sysctl mutation, zero Mosquitto/NTP mutation, and zero listener additions (`allow-listeners.txt` has 0 active entries).
+- Management-path fail-closed checks prevent isolation of host control paths; hard-rfkill and regulatory drift fail closed and cannot be approved.
+- PSK accepted only from private regular file (mode 0600/0400; never from CLI argument); no secret or PSK committed.
+- Live mode requires explicit `AEGIS_L3_LIVE_AUTHORIZED=YES` and root. Live target interface is strictly `wlp0s20f3`.
+- Fixture mode (`AEGIS_P4_FS_ROOT`) never performs live host mutation.
+- L3 is repository-registered only; live execution is NOT authorized and L3 has NOT been run live.
+
+### L4 handler (AP addressing & DHCP/Core-local DNS)
+
+- Registered the reviewed L4 stage handler (`stages/L4/`) with the T1 stage framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`).
+- L4 transitions the L3 NetworkManager AP connection profile (`aegis-idea3-ap.nmconnection`) from `ipv4.method=disabled` to `ipv4.method=manual` with `never-default=true`. AP IPv4 addressing is applied without creating default gateways, NAT/masquerade, or routing bridges.
+- L4 deploys a dedicated `dnsmasq` instance (`/etc/aegis-idea3/dnsmasq-ap.conf`, `aegis-idea3-dnsmasq.service`) serving the AP DHCP pool and Core-local DNS mapping the owner-supplied broker hostname to the Core AP address on `wlp0s20f3` using the merged T5 template.
+- Read-only L2 firewall preconditions: `apply.sh` and `verify.sh` verify dedicated table `inet aegis_idea3`, UDP/67 permitted, UDP/53 permitted, TCP/53 permitted, explicit TCP/1883 drop rule present, forward policy `drop`, zero NAT/masquerade, and zero forwarding sysctls (`net.ipv4.ip_forward=0`), with comment lines stripped before parsing.
+- Hardening against listener drift (PF-02): on real/host evidence, the wildcard listener exception strictly permits only `udp/67` on `0.0.0.0%wlp0s20f3`. Synthetic interfaces are rejected unless running under `TEST_FIXTURE`.
+- Hardening against route drift: `net.route[46].unscoped` captures unscoped routes; unauthorized unscoped routes cause `UNSCOPED_ROUTE_DRIFT` and reject `ROUTE_TABLE_DRIFT` approval.
+- Rollback: `stages/L4/rollback.sh` is idempotent. It removes only L4-owned addressing/DHCP/DNS state and restores the L3 IPv4-disabled AP profile (`method=disabled`) without deleting the L3 AP profile or invoking L3 rollback. Specifically, it stops and disables `aegis-idea3-dnsmasq.service`, deletes `/etc/aegis-idea3/dnsmasq-ap.conf` and its service unit, reloads and reconnects the NetworkManager connection profile in disabled-IPv4 mode (`nmcli connection reload && nmcli connection up`), verifies zero remaining IPv4 address on `wlp0s20f3`, and preserves existing firewall rules and L3 AP radio state.
+- Fixture mode (`AEGIS_P4_FS_ROOT`) operates cleanly without live host mutation.
+- Live gates required: L4 is repository-registered only. Live execution has NOT run and live readiness remains `NOT READY`. Live execution requires L2 and L3 live PASS, fresh same-day A-L4 authorization, fresh K3 key, primary owner network value OV-03 (AP subnet and Core AP address, required by L2 and L4) plus owner-supplied runtime values (DHCP pool and broker hostname under the implemented T5 contract), management-path proof, and §10 preservation PASS.
+- L5 and L6a are repository-registered; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
+
+### L5 handler (Core-local trusted NTP runtime handler)
+
+- Registered the reviewed L5 stage handler (`stages/L5/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`).
+- L5 transitions time serving from `systemd-timesyncd.service` to `chronyd.service` on dedicated AP interface `wlp0s20f3` (`/etc/chrony.conf`, `root:root`, mode `0640`).
+- Runtime-only service mutation: L5 mutates `ActiveState` only (`systemctl stop systemd-timesyncd`, `systemctl start chronyd`). `UnitFileState` is strictly untouched and protected for both services. Zero `systemctl enable` or `systemctl disable`.
+- Atomic configuration placement: creates temporary regular file in same directory (`mktemp ${target_conf}.tmp.XXXXXX`), validates rendered content before activation, syncs, and atomically renames (`mv -f`).
+- Read-only chronyd unit inspection: verifies effective ExecStart relies on default `/etc/chrony.conf`; fails closed on non-default `-f <path>` or unexpected drop-in overrides with `CONFIG_PATH_AUTHORITY_MISMATCH`.
+- Time synchronization contract: requires pre-handoff `systemd-timesyncd.service` active and running with `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`. Enforces bounded holdover <= 300 s during handoff. Post-apply verification requires final `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`; final `HOLDOVER`, `UNTRUSTED`, or `UNKNOWN` is strictly rejected.
+- Strict listener contract: requires `udp <AEGIS_AP_ADDRESS>:123`, permits loopback-only `udp 127.0.0.1:323` and `udp [::1]:323` if observed; wildcard (`0.0.0.0`, `[::]`), non-AP NTP, non-loopback 323, and TCP/123 are strictly rejected.
+- Rollback: `stages/L5/rollback.sh` is idempotent. It stops `chronyd.service`, restores captured pre-L5 `/etc/chrony.conf` bytes, uid, gid, and mode (or removes `/etc/chrony.conf` if absent pre-L5), restores captured pre-L5 `systemd-timesyncd.service` runtime `ActiveState` without altering `UnitFileState`, and verifies `TrustedClock = SYNCED`.
+- Preserves L4 AP addressing/DHCP/DNS, L2 firewall rules, zero forwarding (`net.ipv4.ip_forward=0`), zero NAT/masquerade, and existing network routes.
+- Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
+- Provenance disclosure: `RED_FIRST_PROVEN = NO`. There is no retained evidence proving L5 focused tests were observed failing before candidate handler files were created. The candidate was treated as untrusted existing work, independently audited, corrected for deterministic regression assertions, hardened, and verified.
+- Live gates required: L5 is repository-registered only. Live execution has NOT run and live readiness remains `NOT READY`. Live execution requires L2, L3, and L4 live PASS, fresh same-day A-L5 authorization, fresh K3 key, owner-supplied trusted upstream value, external AP/non-AP query evidence, and §10 preservation PASS.
+- L6a is repository-registered; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
+
+### L6a handler (isolated TLS / PKI validation)
+
+- Registered the reviewed L6a stage handler (`stages/L6a/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to approved operational design OD-L6A-01 through OD-L6A-07.
+- Operates strictly under **Option B (temporary test broker)**: launches an ephemeral Mosquitto instance on loopback for isolated TLS/PKI validation, verifies the contract, and terminates the temporary broker before `apply.sh` returns. POST capture expects zero listener or configuration drift.
+- All five required stage handler files are present; `allow-keys.txt` and `allow-listeners.txt` contain **zero active entries**.
+- Input contracts: `AEGIS_L6A_INPUT_DIR`, `AEGIS_L6A_WORK_DIR`, and `AEGIS_L6A_PORT` are required with no defaults.
+- Port authority: strictly unprivileged integer range `1025..65535`. Standard ports `1883` and `8883` are strictly forbidden.
+- Security & process boundaries: binds strictly to loopback (`127.0.0.1`), validates canonical TLS hostname `mqtt.aegis.home.arpa`, enforces exact DNS-only SAN profile, proves negotiated TLS version >= 1.2, validates Core and device authentication, proves rejection of wrong Core password, wrong device password, anonymous access, and retained publish, and enforces exact T2 ACL matrix.
+- Secret & material handling: `p4-broker-material.py` creates a private temporary plaintext password file (mode 0600), then executes `mosquitto_passwd -U <temporary-file-path>`; the password itself is NOT present in argv. No secrets are emitted in outputs by construction (`NO SECRET OUTPUT BY CONSTRUCTION`). Temporary plaintext and runtime configuration material is unlinked/removed on completion (unlink does not claim forensic secure erase).
+- Process ownership & rollback: records detailed process metadata (PID, start-time ticks from `/proc/<pid>/stat` field 22, boot ID, canonical config path, executable path) to prevent PID reuse kills. Rollback verifies process identity before signaling and enters `S-11 HOLD` on mismatch; zero generic kill commands (`pkill`, `killall`, `pgrep`). Non-secret validation evidence (`validation-evidence.tsv`) is retained.
+- Preserves all existing services: zero mutation to the legacy Mosquitto service (`mosquitto.service`), plaintext 1883 listener, `/etc/mosquitto`, or L6b production-candidate configuration.
+- Fixture mode operates cleanly beneath test fixtures without host mutation.
+- Live gates required: L6a is repository-registered only (`RED_FIRST_PROVEN = YES`). Live execution has NOT run and live readiness remains `NOT READY`. Live execution requires L2, L3, L4, and L5 live PASS, fresh same-day A-L6a authorization, fresh K3 key, resolution of the open IDEA2 §10 preservation caveat, and all authoritative prerequisites.
+- All stage handlers (L2, L3, L4, L5, L6a, L6b) are now registered in the repository; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
+
+### L7 handler (Core credential delivery & service startup)
+
+- Registered the reviewed L7 stage handler (`stages/L7/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to approved operational design OD-L7-01 through OD-L7-08.
+- Owner-supplied Production credentials: `k_c2d`, `k_d2c`, `mqtt-core.pass`, `admin.pin`, `restore.credential` are ingested exclusively from a private input directory (`AEGIS_L7_INPUT_DIR`, mode 0600 or 0400, regular files only, no symlinks).
+- Zero repository Production key generator: production keys are generated owner-controlled offline. The repository contains only fixture keys and protocol validators proving byte-for-byte parity with ESP32 NVS provisioning (`p4-nvs-provision.py`).
+- D4 local restore prerequisite: `restore.credential` must be present and pass cryptographic format validation before the first Core service start.
+- File staging & permissions: stages `/etc/aegis-idea3/credentials/` (directory mode 0700, secret files mode 0600), `/etc/aegis-idea3/core.env` (mode 0600), `/etc/systemd/system/aegis-idea3-core.service` (mode 0644), and immutable release pointer `/opt/aegis-idea3/current` symlink.
+- Shared G-15 capture & compare amendment: implements Option A narrow exact host-file exception (`^host\.(aegis_idea3\.file\.|path\.|symlink\.|unit_file\.)`) permitting approved stage file changes while maintaining default-deny on host identity, kernel, boot ID, and twingate; captures `/opt/aegis-idea3/current` symlink target and `/etc/systemd/system/aegis-idea3-core.service` unit content sha256/metadata.
+- L6b regression compatibility: L6b `allow-keys.txt` is validated regression-free under the Option A amendment.
+- Listener contract: `allow-listeners.txt` has zero active entries (`L7_ALLOW_LISTENERS_EMPTY = YES`). Core daemon opens no listening sockets.
+- Safety & boundary verification: zero relay actuation (`CUT_UPLINK`, `RESTORE_UPLINK`) in `core-audit.sqlite3`. Fails closed if audit SQLite DB is corrupt or unreadable.
+- Rollback: `stages/L7/rollback.sh` is idempotent. Restores pre-state captured in `prestate.manifest` (unit file, core.env, credentials, symlink). Strictly preserves durable SQLite databases (`/var/lib/aegis-idea3/data/core-audit.sqlite3`) and logs.
+- Provenance: `RED_FIRST_PROVEN = YES` (28 expected failing tests before implementation).
+- Live execution: `L7_LIVE_AUTHORIZED = NO`, `LIVE_L7 = NOT_RUN`. Predecessor live stages remain NOT RUN. IDEA2 §10 blocker remains open.
+- All stage handlers (L2, L3, L4, L5, L6a, L6b, L7) are now registered in the repository; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
+
+### L8 handler (ESP32 inspection / NVS provisioning / firmware flash)
+
+- Registered the reviewed L8 stage handler (`stages/L8/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to operational design OD-L8-01 through OD-L8-09.
+- Device backend: repository fixture backend only; hardware backend fails closed at two independent layers (`LIVE_L8=NOT_AUTHORIZED`).
+- Input contracts: `device.identity`, `d4.attestation`, `k_c2d`, `k_d2c`, `wifi.psk`, `mqtt.pass` from private owner-only files (mode 0600 or 0400).
+- Zero host drift: `allow-keys.txt` and `allow-listeners.txt` carry zero active entries.
+- Rollback: splits at first hardware write; holds fail-secure (`D4_ONLY`).
+
+### L9 handler (authentication without actuation)
+
+- Registered the reviewed L9 stage handler (`stages/L9/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to operational design OD-L9-01 through OD-L9-09.
+- Backend: fixture backend only (`LIVE_L9=NOT_AUTHORIZED`); live backend refused at two independent layers (`apply.sh` and `p4-l9-auth.py`).
+- Inbound & outbound contracts: verified authenticated HEARTBEAT (Core -> device) with dead-man reset only; verified authenticated BOOT and PERIODIC STATUS (device -> Core) with liveness beginning only after first authenticated status.
+- Fail-closed rejections: negative probes (replay, wrong key foreign/cross-direction, tampered MAC/field, zero MAC, stale/future skew, device/topic mismatch, untrusted time, malformed/legacy v0) rejected with no liveness and no replay row.
+- Zero actuation: zero COMMAND, CUT, or RESTORE issued; zero relay actuation (`relay_actuation=NONE`); zero command rows in store.
+- Zero host drift: `allow-keys.txt` and `allow-listeners.txt` carry zero active entries (`HOST_PRE_TO_RB_ZERO_DRIFT=YES`).
+- Evidence: private write-once bundle (`l9-auth-evidence.json`, mode 0600) with strict 19-field allowlist; zero key material, MAC, or `msg_id` emitted.
+- Rollback: removes stage-local fixture store (`fixture-protocol.sqlite3*`) and preserves evidence; takes no Core or device action (idempotent).
+- Live execution: `L9_LIVE_AUTHORIZED=NO`, `LIVE_L9=NOT_RUN`. Predecessor live stages remain NOT RUN.
+- All stage handlers (L2, L3, L4, L5, L6a, L6b, L7, L8, L9) are now registered in the repository; L1 remains the unregistered mutating stage fixture; `PHASE4_LIVE_READINESS` remains `NOT READY`.
 
 ## 5. Repository-safe ESP32 NVS provisioning material
 
@@ -283,3 +390,44 @@ PHASE4_LIVE_READINESS     = NOT READY
 L5 remains a separate future live stage requiring fresh authorization,
 fresh preservation evidence, required predecessor stages, and
 owner-supplied live values.
+
+## 8. T4 / G-07 separate broker migration — repository implementation
+
+T4 implements OD-08 as a separate TLS-only Mosquitto instance for IDEA3.
+It does not replace or modify the legacy `mosquitto.service`, its plaintext
+1883 listener, or the legacy `aegis` user.
+
+Repository artifacts:
+
+- `p4-broker-migration.py` deterministically renders and validates the separate
+  IDEA3 broker configuration.
+- `../mosquitto/aegis-idea3-mosquitto.service.example` directly launches the
+  separate IDEA3 broker instance.
+- `stages/L6b/` registers the L6b `apply`, read-only `verify`, idempotent
+  `rollback`, and exact allow-key/listener contracts with the T1 framework.
+- L0 capture includes `aegis-idea3-mosquitto.service`.
+- the compare harness resolves `<AEGIS_AP_ADDRESS>` at run time and permits
+  only loopback:8883 plus the approved AP-address:8883 listener additions.
+
+The repository contract forbids 1883 in the IDEA3 instance, wildcard 8883,
+8883 on the uplink address, reuse of `/etc/mosquitto/passwd`, legacy `aegis`
+as an IDEA3 identity, unresolved placeholders, anonymous access, retained
+message availability, and commands that mutate the legacy Mosquitto service.
+
+The future L6b verification also requires the explicit PF-01 AP-side TCP/1883
+drop already defined by the T5 firewall contract. Repository registration does
+not authorize or execute L6b.
+
+```text
+T4_REPOSITORY_IMPLEMENTED = YES
+T4_FINAL_VALIDATION = PASS — 242 focused/regression tests
+T4_REPOSITORY_CLOSEOUT = COMPLETE / ACCEPTANCE PASS
+G07_REPOSITORY_CONTRACT = CLOSED
+L6B_HANDLER = REGISTERED
+
+L6A = NOT RUN
+L6B = NOT RUN
+PRODUCTION_MUTATION = NO
+PHASE4_RUNTIME_COMPLETE = NO
+PHASE4_LIVE_READINESS = NOT READY
+```

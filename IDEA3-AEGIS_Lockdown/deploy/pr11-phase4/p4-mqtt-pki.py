@@ -22,8 +22,10 @@ BROKER_EXTENSIONS = "\n".join(
 
 
 def _require_regular_file(path: Path, label: str) -> None:
+    if path.is_symlink():
+        raise ValueError(f"{label} must not be a symlink: {path}")
     if not path.is_file():
-        raise ValueError(f"{label} must be a regular file")
+        raise ValueError(f"{label} must be a regular file: {path}")
 
 
 def _run_openssl(*args: str) -> subprocess.CompletedProcess[str]:
@@ -80,6 +82,22 @@ def validate_broker_certificate(ca_file: Path, cert_file: Path) -> None:
         raise RuntimeError("broker certificate is missing serverAuth EKU")
     if f"DNS:{BROKER_HOSTNAME}" not in leaf_text.stdout:
         raise RuntimeError("broker certificate SAN does not match the approved hostname")
+
+    san_out = _run_openssl("x509", "-in", str(cert_file), "-noout", "-ext", "subjectAltName")
+    if san_out.returncode != 0:
+        raise RuntimeError("broker certificate SAN extension missing or invalid")
+    san_lines = [
+        line.strip()
+        for line in san_out.stdout.splitlines()
+        if line.strip() and not line.strip().startswith("X509v3")
+    ]
+    san_entries = [entry.strip() for line in san_lines for entry in line.split(",") if entry.strip()]
+    if any(entry.startswith("IP Address:") or entry.startswith("IP:") for entry in san_entries):
+        raise RuntimeError("broker certificate profile violation: extra IP SAN detected")
+    if san_entries != [f"DNS:{BROKER_HOSTNAME}"]:
+        raise RuntimeError(
+            f"broker certificate profile violation: expected exactly [DNS:{BROKER_HOSTNAME}], got {san_entries}"
+        )
 
     print("MQTT_PKI_CHAIN=PASS")
     print("MQTT_PKI_HOSTNAME=PASS")

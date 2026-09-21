@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-17
+updated: 2026-09-19
 owner: music
 edit_policy: owner-writable
 ---
@@ -5233,6 +5233,77 @@ integration review of the PR5 evidence boundary.
 
 ---
 
+## IDEA3 PR11 Phase 4 T4 / G-07 broker migration — repository implementation — 2026-09-19
+
+> [!important] Repository-only T4 acceptance passed; live acceptance is not claimed.
+> OD-08 selects a separate TLS-only Mosquitto instance for IDEA3 on 8883.
+> The legacy `mosquitto.service`, plaintext 1883 listener, and legacy `aegis`
+> identity remain outside T4 mutation scope. L6a/L6b have not run live.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 T4 / G-07 broker migration
+Branch                       = feat/idea3-pr11-phase4-t4-broker-migration
+STARTING_SHA                 = 0b6aea61556371140813cb63747170de7be84be6
+CURRENT_IMPLEMENTATION_HEAD  = 1ff3b04c
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L6a/L6b NOT RUN
+
+OD-08                        = OWNER APPROVED — separate TLS-only IDEA3 Mosquitto instance
+IDEA3_BROKER_SERVICE         = aegis-idea3-mosquitto.service
+IDEA3_BROKER_PORT            = 8883 — loopback + owner-supplied AP address only
+LEGACY_MOSQUITTO_SERVICE     = PRESERVE / DO NOT MUTATE IN T4
+LEGACY_1883                  = PRESERVE / DO NOT REMOVE IN T4
+LEGACY_AEGIS_USER            = PRESERVE / DO NOT REMOVE IN T4
+
+T4_REPOSITORY_IMPLEMENTED    = YES
+T4_REPOSITORY_CLOSEOUT       = COMPLETE / ACCEPTANCE PASS
+G07_REPOSITORY_CONTRACT      = CLOSED
+L6B_HANDLER                  = REGISTERED
+PF01_1883_AP_NEGATIVE_CTRL   = PASS — repository regression; future live L6B verify still required
+
+FINAL_SHELL_SYNTAX           = PASS
+FINAL_HANDLER_REGISTRATION   = REGISTERED
+FINAL_LEGACY_MUTATION_SCAN   = PASS
+FINAL_LEGACY_COPY_SCAN       = PASS
+FINAL_COMPILE                = PASS
+FINAL_RUFF                   = PASS
+FINAL_FOCUSED_PYTEST         = PASS — 242 passed
+FINAL_DIFF_CHECK             = PASS
+COLLABORATION_POLICY_TEST    = PASS — 24 passed
+VAULT_MULTI_WRITER_TEST      = PASS — 1 passed
+VAULT_STRUCTURE_TEST         = PASS — 25 passed
+REPOSITORY_MJS_SUITE         = PASS — 63 passed
+ACTUAL_COLLABORATION_VALIDATOR = PASS
+FINAL_RECEIPT                = Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-19_194236_music_idea3-pr11-phase4-t4-g07-broker-migration.md
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+BROKER_LIVE_MUTATION         = NO
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+Repository implementation currently includes the deterministic T4 broker
+renderer/validator, the separate `aegis-idea3-mosquitto.service` example, and
+the reviewed `stages/L6b/` handler set (`apply.sh`, `verify.sh`, `rollback.sh`,
+`allow-keys.txt`, `allow-listeners.txt`). L0 capture now records the IDEA3
+broker unit and the compare harness resolves the owner-supplied AP address for
+the two approved 8883 listeners.
+
+The future L6b handler is deliberately fail-closed. Its live path requires an
+explicit L6b authorization flag and is separate from this repository work.
+It is designed to mutate only the IDEA3 broker instance; verification preserves
+the legacy broker service/config/password database/1883 listener set and checks
+the PF-01 AP-side TCP/1883 drop. Rollback removes only the IDEA3 broker changes
+and does not restart or rewrite the legacy broker as a fallback.
+
+This section does **not** claim L6a or L6b runtime acceptance. Future live L6b
+still requires its predecessor gates, fresh same-day authorization and K3,
+live values, and a passing preservation boundary. The currently recorded IDEA2
+preservation caveat remains blocking until separately resolved or explicitly
+reconciled.
+
 ## IDEA3 PR11 Phase 4 T5 AP network — repository implementation — 2026-09-18
 
 > [!important] Repository-only T5 implementation; final acceptance pending.
@@ -5348,6 +5419,795 @@ PHASE4_LIVE_READINESS        = NOT READY
 4. Begin TDD only after the S1 documentation checkpoint.
 
 G-05 repository contract is CLOSED after repository implementation and acceptance PASS. L5 remains a separate future live stage.
+
+## IDEA3 PR11 Phase 4 L2 runtime handler — repository registration — 2026-09-20
+
+> [!important] Repository-only L2 handler registration. No live L2 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L2 runtime handler
+Branch                       = feat/idea3-pr11-phase4-l2-handler
+IMPLEMENTATION_HEAD          = c9d27f8a7f81760fc0c488392a4a1420076c4ec7
+PR                           = #159 — DRAFT
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L2 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L3_HANDLER                   = NOT_REGISTERED
+L4_HANDLER                   = NOT_REGISTERED
+L5_HANDLER                   = NOT_REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+
+L2                           = NOT RUN
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+### Scope and safety boundary
+
+- Registered the reviewed L2 stage handler (`stages/L2/`) under the G-15 handler framework.
+- L2 owns only dedicated table `inet aegis_idea3`, `/etc/aegis-idea3/aegis-idea3.nft`, `/etc/sysctl.d/90-aegis-idea3-forwarding.conf`, and `aegis-idea3-nftables-load.service`.
+- Forwarding values remain strictly `0`. No NAT, no masquerade, no bridge, and zero listeners added.
+- Hardened live mode: requires `AEGIS_L2_LIVE_AUTHORIZED=YES`, root, and requires `/etc/aegis-idea3` to exist as a real directory (not a symlink) before mutation (`IDEA3_PARENT_DIR_REQUIRED`).
+- Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
+- L0 capture integration captures the dedicated L2 nft file under `fw.idea3_nft` in `firewall.tsv` and excludes it from `host.aegis_idea3.file` to prevent unapprovable drift while maintaining fail-closed preservation of all other `/etc/aegis-idea3` content.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L2 is not authorized or proven.
+
+### Verification evidence
+
+- `test_pr11_phase4_l2_handler.py`: 7 passed, 0 warnings.
+- `test_pr11_phase4_harness.py`: 159 passed.
+- `test_pr11_phase4_ap_network.py`: 55 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 286 passed.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_032529_music_idea3-pr11-phase4-l2-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L3 AP-radio runtime handler — repository registration — 2026-09-20
+
+> [!important] Repository-only L3 handler registration. No live L3 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L3 AP-radio runtime handler
+Branch                       = feat/idea3-pr11-phase4-l3-handler
+IMPLEMENTATION_HEAD          = 49c0872f329409d735d3668028a559e4c45b481f
+PR                           = #160 — DRAFT
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L3 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = NOT_REGISTERED
+L5_HANDLER                   = NOT_REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+REAL_WIFI_MUTATION           = NO
+REAL_RFKILL_MUTATION         = NO
+REAL_NETWORKMANAGER_MUTATION = NO
+LIVE_L3                      = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+### Scope and safety boundary
+
+- Registered the reviewed L3 stage handler (`stages/L3/`) under the G-15 handler framework.
+- L3 owns only AP-radio state on dedicated interface `wlp0s20f3`: NetworkManager AP profile materialization (`aegis-idea3-ap.nmconnection`), 2.4 GHz AP mode, WPA2-PSK security, regulatory domain verification, and target-specific rfkill soft unblock.
+- AP addressing, DHCP, and DNS service are NOT part of L3 (these belong to L4).
+- Zero NAT, zero masquerade, zero bridge creation, zero forwarding enable, zero nftables mutation, zero sysctl mutation, zero Mosquitto/NTP mutation, and zero listener additions (`allow-listeners.txt` has 0 active entries).
+- PSK accepted only from private regular file (mode 0600/0400; never from CLI argument); no secret or PSK committed.
+- Target guard: live mode strictly enforces `AP_IF=wlp0s20f3` (`TARGET_AP_INTERFACE_MUST_BE_WLP0S20F3`). Hard rfkill fail-closed; regulatory drift fail-closed.
+- Management-path fail-closed checks prevent isolation of host control paths.
+- Broad aggregate keys (`nm.active`, `nm.devices`, `nm.general`, `wifi.dev.sha256`, `wifi.rfkill.wlan`) and synthetic fixture interface `wlan-test0` removed from Production allowlist. Active allowlist strictly restricted to target `wlp0s20f3`.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L3 is not authorized or proven.
+- Future live L3 remains separately gated by L2 live PASS, fresh A-L3 authorization, fresh K3, owner-supplied values (OV-01/OV-02/OV-04), management-path proof, and §10 preservation PASS.
+
+### Verification evidence
+
+- `test_pr11_phase4_l3_handler.py`: 20 passed, 0 warnings.
+- `test_pr11_phase4_harness.py`: 160 passed.
+- `test_pr11_phase4_ap_network.py`: 55 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 307 passed.
+- Shell syntax (`bash -n` on all L3 stage scripts and capture/compare tools): PASS.
+- Diff check (`git diff --check`): PASS.
+- Broad allowlist scan: PASS (`nm.active`, `nm.devices`, `nm.general`, `wifi.dev.sha256`, `wifi.rfkill.wlan`, `wlan-test0` absent).
+- Active listeners: 0 active entries.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_042100_music_idea3-pr11-phase4-l3-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L4 AP addressing / DHCP runtime handler repository registration — 2026-09-20
+
+> [!important] Repository-only L4 handler registration. No live L4 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L4 AP addressing / DHCP runtime handler
+Branch                       = feat/idea3-pr11-phase4-l4-handler
+IMPLEMENTATION_HEAD          = 22028493549dd6e1cf0fb698f7d79300a05a3b14
+L4_PR_OPENED                 = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L4 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = NOT_REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+REAL_WIFI_MUTATION           = NO
+REAL_NETWORKMANAGER_MUTATION = NO
+REAL_DNSMASQ_MUTATION        = NO
+REAL_FIREWALL_MUTATION       = NO
+LIVE_L4                      = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L4 pull request exists at closeout (`L4_PR_OPENED = NO`). After closeout commit and push, a Draft PR may be opened for human review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L4 stage handler (`stages/L4/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`).
+- L4 owns AP IPv4 addressing on dedicated interface `wlp0s20f3` and dedicated dnsmasq runtime (`/etc/aegis-idea3/dnsmasq-ap.conf`, `aegis-idea3-dnsmasq.service`) providing DHCP pool and Core-local DNS mapping the owner-supplied broker hostname to the Core AP address per merged T5 template.
+- Profile transition: L4 modifies the existing L3 NetworkManager connection profile (`aegis-idea3-ap.nmconnection`) from `ipv4.method=disabled` to `ipv4.method=manual` with `never-default=true`. AP addressing is applied without creating default gateways, NAT/masquerade, or routing bridges.
+- L2 firewall preflight: `apply.sh` and `verify.sh` enforce read-only preflight on table `inet aegis_idea3`: UDP/67 permitted, UDP/53 permitted, TCP/53 permitted, explicit TCP/1883 drop rule present, forward policy `drop`, zero NAT/masquerade, and zero forwarding sysctls (`net.ipv4.ip_forward=0`). Comment lines are stripped before parsing.
+- PF-02 hardening: on real host evidence, the wildcard listener exception is accepted ONLY for `udp/67` on `0.0.0.0%wlp0s20f3`. Synthetic interfaces (e.g. `wlan-test0`) are rejected unless running under `TEST_FIXTURE`.
+- Route accounting hardening: `net.route[46].unscoped` captures unscoped routes (e.g. blackhole, unreachable, prohibit, throw, or dev-less routes) as protected keys. Unauthorized unscoped routes cause `UNSCOPED_ROUTE_DRIFT` and reject `ROUTE_TABLE_DRIFT` approval.
+- Rollback: `stages/L4/rollback.sh` is idempotent. It removes only L4-owned addressing/DHCP/DNS state and restores the L3 IPv4-disabled AP profile (`method=disabled`) without deleting the L3 AP profile or invoking L3 rollback. Specifically, it stops and disables `aegis-idea3-dnsmasq.service`, deletes `/etc/aegis-idea3/dnsmasq-ap.conf` and its service unit, reloads and reconnects the NetworkManager connection profile in disabled-IPv4 mode (`nmcli connection reload && nmcli connection up`), verifies zero remaining IPv4 address on `wlp0s20f3`, and preserves existing firewall rules and L3 AP radio state.
+- Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L4 is not authorized or proven.
+- Future live L4 remains separately gated by L2 and L3 live PASS, fresh same-day A-L4 authorization, fresh K3 key, primary owner network value OV-03 (AP subnet and Core AP address, required by L2 and L4) plus owner-supplied runtime values (DHCP pool range and broker hostname under the implemented T5 contract), management-path proof, and §10 preservation PASS.
+
+### Verification evidence
+
+- `test_pr11_phase4_l4_handler.py`: 51 passed, 0 warnings.
+- `test_pr11_phase4_l3_handler.py`: 20 passed, 0 warnings.
+- `test_pr11_phase4_harness.py`: 160 passed.
+- `test_pr11_phase4_ap_network.py`: 55 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 358 passed.
+- Shell syntax (`bash -n` on all L4 stage scripts and capture/compare tools): PASS.
+- Diff check (`git diff --check`): PASS.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_140245_music_idea3-pr11-phase4-l4-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L5 Core-local trusted NTP runtime handler repository registration — 2026-09-20
+
+> [!important] Repository-only L5 handler registration. No live L5 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L5 Core-local trusted NTP runtime handler
+Branch                       = feat/idea3-pr11-phase4-l5-handler
+IMPLEMENTATION_HEAD          = 7f6d41f6fb4fe6cfff8d4759fa8c13579eae0460
+L5_PR_OPENED                 = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L5 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+REAL_NTP_MUTATION            = NO
+REAL_TIMESYNCD_MUTATION      = NO
+REAL_CHRONYD_MUTATION        = NO
+LIVE_L5                      = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L5 pull request exists at closeout (`L5_PR_OPENED = NO`). After closeout commit and push, a Draft PR may be opened for human review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L5 stage handler (`stages/L5/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`).
+- L5 owns runtime Core-local trusted NTP serving on dedicated AP interface `wlp0s20f3` (`/etc/chrony.conf`, `root:root`, mode `0640`), transitioning from `systemd-timesyncd.service` to `chronyd.service`.
+- Runtime-only service mutation: L5 mutates `ActiveState` only (`systemctl stop systemd-timesyncd`, `systemctl start chronyd`). Neither apply nor rollback mutates `UnitFileState`. Zero `systemctl enable` or `systemctl disable`.
+- Atomic configuration placement: creates temporary regular file in same directory (`mktemp ${target_conf}.tmp.XXXXXX`), validates rendered content before activation, syncs, and atomically renames (`mv -f`).
+- Read-only chronyd unit inspection: verifies effective ExecStart relies on default `/etc/chrony.conf`; fails closed on non-default `-f <path>` or unexpected drop-in overrides with `CONFIG_PATH_AUTHORITY_MISMATCH`.
+- Time synchronization contract: requires pre-handoff `systemd-timesyncd.service` active and running with `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`. Enforces bounded holdover <= 300 s during handoff. Post-apply verification requires final `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`; final `HOLDOVER`, `UNTRUSTED`, or `UNKNOWN` is strictly rejected.
+- Strict listener contract: requires `udp <AEGIS_AP_ADDRESS>:123`, permits loopback-only `udp 127.0.0.1:323` and `udp [::1]:323` if observed; wildcard (`0.0.0.0`, `[::]`), non-AP NTP, non-loopback 323, and TCP/123 are strictly rejected.
+- Rollback: `stages/L5/rollback.sh` is idempotent. It stops `chronyd.service`, restores captured pre-L5 `/etc/chrony.conf` bytes, uid, gid, and mode (or removes `/etc/chrony.conf` if absent pre-L5), restores captured pre-L5 `systemd-timesyncd.service` runtime `ActiveState` without altering `UnitFileState`, and verifies `TrustedClock = SYNCED`.
+- Preserves L4 AP addressing/DHCP/DNS, L2 firewall rules, zero forwarding (`net.ipv4.ip_forward=0`), zero NAT/masquerade, and existing network routes.
+- Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
+- Provenance disclosure: `RED_FIRST_PROVEN = NO`. There is no retained evidence proving L5 focused tests were observed failing before candidate handler files were created. The candidate was treated as untrusted existing work, independently audited, corrected for deterministic regression assertions, hardened, and verified.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L5 is not authorized or proven.
+- Future live L5 remains separately gated by L2, L3, and L4 live PASS, fresh same-day A-L5 authorization, fresh K3 key, owner-supplied trusted upstream value, external AP/non-AP query evidence, and §10 preservation PASS.
+
+### Verification evidence
+
+- Focused L5 pytest (`test_pr11_phase4_l5_handler.py`): 47 passed.
+- T6 NTP pytest (`test_pr11_phase4_ntp.py`): 26 passed.
+- Trusted time pytest (`test_trusted_time.py`): 13 passed.
+- L4 handler pytest (`test_pr11_phase4_l4_handler.py`): 51 passed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): 160 passed.
+- Private AP network pytest (`test_private_ap_contract.py`): 4 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 405 passed.
+- Shell syntax (`bash -n` on all L5 stage scripts and capture/compare tools): PASS.
+- Diff check (`git diff --check`): PASS.
+- Registration matrix: L2, L3, L4, L5, L6b REGISTERED; L6a NOT_REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_201554_music_idea3-pr11-phase4-l5-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L6a isolated TLS / PKI validation handler repository registration — 2026-09-20
+
+> [!important] Repository-only L6a handler registration. No live L6a stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L6a isolated TLS / PKI validation runtime handler
+Branch                       = feat/idea3-pr11-phase4-l6a-handler
+DESIGN_COMMIT                = ed5fc564d1303fcd4cd0347f0307836d3f51795b
+RED_COMMIT                   = 4690d85e925c16c2b8caf02b64b827f1f9550631
+IMPLEMENTATION_HEAD          = 33ee43348adfe35e943da16ebc9f80e93321b84f
+HARDENING_HEAD               = 9af35b739c0add2ff04348ec21a1269097d65d1b
+L6A_PR_OPENED                = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L6a NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = REGISTERED
+L6A_HANDLER                  = REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+SYSTEMD_MUTATION             = NO
+ETC_MUTATION                 = NO
+L6A_LIVE_AUTHORIZED          = NO
+LIVE_L6A                     = NOT RUN
+RED_FIRST_PROVEN             = YES
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L6a pull request exists at closeout (`L6A_PR_OPENED = NO`). After closeout commit, a PR may be opened/maintained for human code-owner review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L6a stage handler (`stages/L6a/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to approved operational design OD-L6A-01 through OD-L6A-07.
+- Option B (temporary test broker) architecture: launches an ephemeral Mosquitto instance on loopback (`127.0.0.1`) for isolated TLS/PKI validation, verifies the full authentication and encryption matrix, and terminates the temporary broker before `apply.sh` returns. POST capture expects zero listener or configuration drift.
+- All five required stage handler files are present; `allow-keys.txt` and `allow-listeners.txt` contain zero active entries.
+- Input contracts: `AEGIS_L6A_INPUT_DIR`, `AEGIS_L6A_WORK_DIR`, and `AEGIS_L6A_PORT` are required with no defaults.
+- Port authority: strictly unprivileged integer range `1025..65535`. Standard ports `1883` and `8883` are strictly rejected.
+- Security & process boundaries: validates canonical TLS hostname `mqtt.aegis.home.arpa`, enforces exact DNS-only SAN profile, proves negotiated TLS version >= 1.2, validates Core and device authentication, proves rejection of wrong Core password, wrong device password, anonymous access, and retained publish, and enforces exact T2 ACL matrix.
+- Secret & material handling: `p4-broker-material.py` creates a private temporary plaintext password file (mode 0600), then executes `mosquitto_passwd -U <temporary-file-path>`; the password itself is NOT present in argv. No secrets are emitted in outputs by construction (`NO SECRET OUTPUT BY CONSTRUCTION`). Temporary plaintext and runtime configuration material is unlinked/removed on completion (unlink does not claim forensic secure erase).
+- Process ownership & rollback: records detailed process metadata (PID, start-time ticks from `/proc/<pid>/stat` field 22, boot ID, canonical config path, executable path) to prevent PID reuse kills. Rollback verifies process identity before signaling and enters `S-11 HOLD` on mismatch; zero generic kill commands (`pkill`, `killall`, `pgrep`). Non-secret validation evidence (`validation-evidence.tsv`) is retained.
+- Preserves all existing services: zero mutation to the legacy Mosquitto service (`mosquitto.service`), plaintext 1883 listener, `/etc/mosquitto`, or L6b production-candidate configuration.
+- Provenance disclosure: `RED_FIRST_PROVEN = YES`. Retained RED evidence showed 25 total, 4 passed, 21 expected failed, 0 unexpected failures before implementation existed.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L6a is not authorized or proven.
+- Future live L6a remains separately gated by L2, L3, L4, and L5 live PASS, fresh same-day A-L6a authorization, fresh K3 key, resolution of the open IDEA2 §10 preservation caveat, and all authoritative prerequisites.
+
+### Verification evidence
+
+- Focused L6a pytest (`test_pr11_phase4_l6a_handler.py`): 26 passed, 0 failed.
+- Affected regressions (`test_pr11_phase4_{broker_material,broker_validate,mqtt_pki,harness,t4_broker_migration}.py`): 189 passed, 0 failed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 431 passed, 0 failed, 0 skipped, 0 xfail.
+- Bash syntax validation (`bash -n` on `apply.sh`, `verify.sh`, `rollback.sh`): PASS.
+- Diff check (`git diff --check`): PASS.
+- Anti-test-weakening audit: PASS.
+- Static security audit: PASS.
+- Process ownership audit: PASS.
+- Option B zero-drift audit: PASS.
+- Evidence preservation audit: PASS.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_231932_music_idea3-pr11-phase4-l6a-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L7 Core credential delivery and service startup handler repository registration — 2026-09-21
+
+> [!important] Repository-only L7 handler registration & shared G-15 amendment. No live L7 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L7 Core credential delivery / Core start handler
+Branch                       = feat/idea3-pr11-phase4-l7-handler
+ORIGINAL_DESIGN_COMMIT       = f00230e69eb3be310829b98b4b1b11a2b780a68a
+DESIGN_FIX_COMMIT            = 25011eb957022d83a0313a0764b0c460d045610b
+RED_COMMIT                   = 6aea64c6b0b9997452b6879ea43c4f4bcbc50324
+GREEN_COMMIT                 = 2741ea3fd5a7a760cf0c39f0ca5ea8536f9810a9
+HARDENING_COMMIT             = 77c930957489056529d28870abaf1ba8041290ca
+L7_PR_OPENED                 = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L7 NOT RUN
+
+L7_HANDLER_REGISTERED        = YES
+L7_REPOSITORY_IMPLEMENTED    = YES
+RED_FIRST_PROVEN             = YES
+G15_SHARED_HARNESS_AMENDMENT = YES
+G15_L6B_REGRESSION_FIXED     = YES
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = REGISTERED
+L6A_HANDLER                  = REGISTERED
+L6B_HANDLER                  = REGISTERED
+L7_HANDLER                   = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+L7                           = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+SYSTEMD_MUTATION             = NO
+ETC_MUTATION                 = NO
+OPT_MUTATION                 = NO
+ESP32_MUTATION               = NO
+L7_LIVE_AUTHORIZED           = NO
+LIVE_L7                      = NOT RUN
+ZERO_ACTUATION_CONTRACT      = PASS
+LIVE_ZERO_ACTUATION_PROVEN   = NO
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L7 pull request exists at closeout (`L7_PR_OPENED = NO`). After closeout commit, a PR may be opened/maintained for human code-owner review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L7 stage handler (`stages/L7/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to approved operational design OD-L7-01 through OD-L7-08.
+- Owner-supplied Production credentials: `k_c2d`, `k_d2c`, `mqtt-core.pass`, `admin.pin`, `restore.credential` are ingested exclusively from a private input directory (`AEGIS_L7_INPUT_DIR`, mode 0600 or 0400, regular files only, no symlinks).
+- Zero repository Production key generator (OD-L7-02): production keys are generated owner-controlled offline. The repository contains only fixture keys and protocol validators proving byte-for-byte parity with ESP32 NVS provisioning (`p4-nvs-provision.py`).
+- D4 local restore prerequisite (OD-L7-08): `restore.credential` must be present and pass cryptographic format validation before the first Core service start.
+- File staging & permissions: stages `/etc/aegis-idea3/credentials/` (directory mode 0700, secret files mode 0600), `/etc/aegis-idea3/core.env` (mode 0600), `/etc/systemd/system/aegis-idea3-core.service` (mode 0644), and immutable release pointer `/opt/aegis-idea3/current` symlink.
+- Shared G-15 capture & compare amendment: implements Option A narrow exact host-file exception (`^host\.(aegis_idea3\.file\.|path\.|symlink\.|unit_file\.)`) permitting approved stage file changes while maintaining default-deny on host identity, kernel, boot ID, and twingate; captures `/opt/aegis-idea3/current` symlink target and `/etc/systemd/system/aegis-idea3-core.service` unit content sha256/metadata.
+- L6b regression compatibility: L6b `allow-keys.txt` is validated regression-free under the Option A amendment.
+- Listener contract: `allow-listeners.txt` has zero active entries (`L7_ALLOW_LISTENERS_EMPTY = YES`). Core daemon opens no listening sockets.
+- Safety & boundary verification: zero relay actuation (`CUT_UPLINK`, `RESTORE_UPLINK`) in `core-audit.sqlite3`. Fails closed if audit SQLite DB is corrupt or unreadable.
+- Rollback: `stages/L7/rollback.sh` is idempotent. Restores pre-state captured in `prestate.manifest` (unit file, core.env, credentials, symlink). Strictly preserves durable SQLite databases (`/var/lib/aegis-idea3/data/core-audit.sqlite3`) and logs.
+- Hardening findings resolved:
+  1. `verify.sh` SQLite audit-DB query previously caught general Exception and printed 0 (failing open on corrupt DB); hardened to fail closed with error code 2.
+  2. `apply.sh` Python script snippets previously interpolated shell variables; hardened to pass paths safely through `sys.argv`.
+- Provenance disclosure: `RED_FIRST_PROVEN = YES`. Retained RED evidence showed 28 expected failed (4 G-15 host artifacts, 24 L7 handler) before implementation existed.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L7 is not authorized or proven.
+- Future live L7 remains separately gated by L2..L6b live PASS, fresh same-day A-L7 authorization, fresh K3 key, resolution of the open IDEA2 §10 preservation caveat, and all authoritative prerequisites.
+
+### Verification evidence
+
+- G-15 focused pytest (`test_pr11_phase4_g15_host_artifacts.py`): 6 passed, 0 failed.
+- L7 focused pytest (`test_pr11_phase4_l7_handler.py`): 28 passed, 0 failed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): 160 passed, 0 failed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 465 passed, 0 failed, 0 skipped, 0 xfail.
+- Relevant Core regression test suite: 548 passed, 0 failed.
+- Bash syntax validation (`bash -n` on `p4-lib.sh`, `p4-l0-capture.sh`, `p4-compare.sh`, `apply.sh`, `verify.sh`, `rollback.sh`): PASS.
+- Diff check (`git diff --check origin/main...HEAD`): PASS.
+- Anti-test-weakening audit: PASS.
+- Static security audit: PASS.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b, L7 REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_032940_music_idea3-pr11-phase4-l7-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L8 ESP32 provisioning / flash handler repository registration — 2026-09-21
+
+> [!important] Repository-only L8 handler registration. No ESP32 hardware is accessed, no serial port is opened, no firmware is flashed, and no live L8 stage is authorized or executed.
+
+```text
+Task                          = IDEA3 PR11 Phase 4 L8 ESP32 inspection / NVS provisioning / flash handler
+Branch                        = feat/idea3-pr11-phase4-l8-handler
+START_SHA                     = 0544f1cc620b82482cdc9dcc474bed7a66ba6ead
+Session                       = L8-S1 (closed)
+DESIGN_COMMIT                 = c2422924d658150d20b59866eb14df2ec7483991
+RED_COMMIT                    = 679facdfbf367e697944f8d7a7f90103f4bcc117
+GREEN_HARDENING_COMMIT        = 902b19b965c2d829501eb440dd616eb44bbe5bce
+CLOSEOUT_COMMIT               = fee8e4f687847ff75f8a5d0da4e03cce2f97a420
+L8_PR_OPENED                  = YES (PR #165, Draft, CI collaboration-guardrails PASS)
+L8_PR_MERGED                  = YES (human merge f08d003b86ebdd950416026e6f473b6cbd7213a5, 2026-09-21; recorded by the L9 task)
+Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; L8 NOT RUN
+
+L8_HANDLER_REGISTERED         = YES
+L8_REPOSITORY_IMPLEMENTED     = YES
+L8_OPERATIONAL_DESIGN         = COMPLETE (commit c2422924)
+RED_FIRST_PROVEN              = YES (53 failed / 17 passed, no import or syntax failure)
+
+L2_HANDLER                    = REGISTERED
+L3_HANDLER                    = REGISTERED
+L4_HANDLER                    = REGISTERED
+L5_HANDLER                    = REGISTERED
+L6A_HANDLER                   = REGISTERED
+L6B_HANDLER                   = REGISTERED
+L7_HANDLER                    = REGISTERED
+L8_HANDLER                    = REGISTERED
+
+L2..L8                        = NOT RUN
+L7_LIVE_AUTHORIZED            = NO
+L8_LIVE_AUTHORIZED            = NO
+PHASE4_RUNTIME_COMPLETE       = NO
+PHASE4_LIVE_READINESS         = NOT READY
+
+L8_INVENTORY_COMPLETE         = YES
+G04_CURRENT_STATE             = NOT_APPLICABLE_UNDER_SELECTED_ADDRESS_MODEL
+ESP32_ADDRESS_MODEL_CURRENT   = DHCP
+G11_CURRENT_STATE             = PARTIAL_REPOSITORY
+G16_CURRENT_STATE             = CLOSED_REPOSITORY
+
+OD14_RECOVERY_POLICY          = D4_ONLY
+INTERIM_RECOVERY_PROCEDURE    = NOT_APPROVED
+D4_LIVE_REQUIRED_BEFORE_FLASH = YES
+L8_INSPECTION_CLASS           = NON_WRITING_BUT_DEVICE_RESETTING
+L8_INSPECTION_WINDOW_REQUIRED = YES
+PRODUCTION_KEY_GENERATION     = OWNER_CONTROLLED_OFFLINE
+
+PRODUCTION_MUTATION           = NO
+REAL_HARDWARE_ACCESSED        = NO
+SERIAL_PORT_OPENED            = NO
+FIRMWARE_FLASHED              = NO
+ESP32_MUTATION                = NO
+LIVE_L8_PHYSICAL_PROOF        = NOT PROVEN
+```
+
+### Closeout evidence
+
+- L8 focused pytest (`test_pr11_phase4_l8_handler.py`): **77 passed**, 0 failed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): **160 passed**, 0 failed.
+- All Phase 4 suites (`test_pr11_phase4_*.py`): **542 passed**, 0 failed.
+- Full IDEA3 suite: **1522 passed, 6 skipped**. Pre-task baseline on `0544f1cc` was **1445 passed, 6 skipped**, so the delta is exactly the 77 new L8 tests: no existing test was lost, skipped, or weakened.
+- Firmware + NVS + G-15 + L8 focused: **113 passed**.
+- `bash -n` on all seven Phase 4 shell scripts: PASS.
+- `p4_stage_handler_status L8`: `REGISTERED`.
+- `git diff --check`: PASS. Secret scan over new files: no matches.
+- RED-first provenance: **53 failed / 17 passed** before implementation, no import or syntax failure.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b, L7, **L8** REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_091424_music_idea3-pr11-phase4-l8-handler.md`.
+
+**Truth separation.** Everything above is *repository implemented and locally
+verified*. Nothing here is runtime verified, Production deployed, or live
+accepted. `L2..L8 = NOT RUN`, `L8_LIVE_AUTHORIZED = NO`,
+`PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`, and
+`LIVE_L8_PHYSICAL_PROOF = NOT PROVEN`.
+
+### Session L8-S1 — audit findings, negative controls, and evidence
+
+**Defects found by independent source audit of the new L8 code, and fixed:**
+
+1. **Partition geometry was only half-derived.** `derive_nvs_offset` correctly
+   read the `nvs` offset from the reviewed table, but the firmware write used a
+   hardcoded `0x10000` application offset. That silently reintroduced exactly
+   the guess OD-L8-03 exists to forbid. Replaced with a general
+   `derive_partition_geometry(table, selector)` used for both the `nvs` and the
+   application partition, with no default and no fallback for either, and the
+   NVS *size* likewise derived instead of falling back to `0x5000`.
+2. **The placeholder-CA scan could reject a valid trust anchor.** It uppercased
+   the whole header and searched for `TODO`, `CHANGEME`, `FIXME` and similar.
+   Those letters are all in the base64 alphabet, so a genuine certificate whose
+   body happened to spell one would have been refused, and a real flash window
+   would have failed on a false positive. Narrowed to: scan the certificate
+   body only, for tokens carrying a separator outside the base64 alphabet, plus
+   a strict base64 alphabet check and a body length floor that catches
+   separator-free placeholders.
+3. **A failed device write produced no evidence.** The write was wrapped in a
+   `try/except` that re-raised, so a failure at or after the first hardware
+   write aborted before the evidence bundle existed — directly contradicting
+   `FAIL_SECURE_HOLD_AND_EVIDENCE`. The failure is now recorded into the bundle
+   (`flash_result=FAIL`, `failure_boundary=DEVICE_WRITE`) and the run then exits
+   non-zero. Three regression tests now cover this path, including that the
+   failure-path bundle is held to the same secret-exclusion rule.
+
+**Negative controls** (break invariant → observe expected FAIL → restore → PASS;
+no mutation committed, sources verified byte-identical afterwards):
+
+| # | Invariant broken | Result |
+|---|---|---|
+| NC-1 | Evidence allowlist extra-field refusal disabled | `test_l8_evidence_bundle_rejects_an_extra_field` FAILED as expected |
+| NC-2 | OV-12 MAC equality gate disabled | `test_l8_mac_mismatch_fails_before_any_write` FAILED as expected |
+| NC-3 | Hardcoded `0x9000` NVS offset fallback introduced | 2 tests FAILED as expected (fail-closed + no-hardcoded-offset) |
+| NC-4 | Hardware-backend refusal removed from `apply.sh` only | **No test failed** — the refusal is enforced at two independent layers, so the shell gate alone is not load-bearing |
+| NC-4b | Refusal removed from **both** `apply.sh` and the device tool | 2 tests FAILED as expected |
+| NC-5 | Post-first-write rollback branch disabled | `test_l8_rollback_after_first_write_holds_fail_secure` FAILED as expected |
+
+NC-4 is recorded as a finding rather than hidden: it shows the hardware refusal
+is genuine defense in depth, and that no single-layer edit can silently open a
+live path.
+
+**Shared-harness edit declared:** `tests/test_pr11_phase4_harness.py` carries an
+explicit allowlist of reviewed stage handlers, so registering L8 requires adding
+it there and moving the unregistered-mutating-stage example from L8 to L9. This
+is the identical adjustment PR #164 made for L7 in commit `2741ea3f`.
+
+**Capability boundary actually implemented:** the only device backend is
+`fixture`; selecting `hardware` fails closed at two layers. The repository still
+contains no Production write tool, no Production readback verifier, and no
+Production key generator. No serial device was opened and no hardware exists.
+
+
+### L8 Task Map
+
+**1. Current Truth / Governance**
+- Goal: establish verified repository/Git/Obsidian truth before editing.
+- Scope: `AGENTS.md`, `START_HERE`, `core/agent-operating-rules`, `idea3/idea3-status`, Phase 4 prerequisites + batch + L7 designs, `deploy/pr11-phase4/**`, `firmware/**`.
+- Dependencies: PR #164 merged (`0544f1cc`).
+- Safety boundary: read-only.
+- Acceptance: branch/HEAD/origin-main verified; no conflict with prompt.
+- Evidence: `git rev-parse HEAD` = `origin/main` = `0544f1cc6…`; working tree clean.
+- Status: DONE.
+
+**2. L8 Operational Design**
+- Goal: formal OD-L8-01..OD-L8-09 design reconciled against owner decisions (OD-14, G-15 evidence model, inspection class).
+- Scope: `docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l8-operational-design.md`.
+- Dependencies: item 1.
+- Safety boundary: documentation only.
+- Acceptance: every section carries DECISION/BASIS/OWNER_STATUS/CURRENTLY_PROVEN/REPOSITORY_IMPLEMENTATION_REQUIRED/LIVE_PROOF_REQUIRED/SECURITY_SAFETY_EFFECT/TEST_IMPLICATION/OPEN_QUESTION.
+- Evidence: design commit `c2422924d658150d20b59866eb14df2ec7483991`; reconciliation table records seven prior-candidate fragments resolved against current owner decisions.
+- Status: DONE.
+
+**3. RED-First Contract**
+- Goal: genuine failing acceptance tests before implementation.
+- Scope: `tests/test_pr11_phase4_l8_handler.py`.
+- Dependencies: item 2.
+- Safety boundary: fixture/mock hardware only; tests never open a real serial device.
+- Acceptance: RED run fails for missing behavior, not import/syntax errors; retained failure count recorded.
+- Evidence: RED run of `tests/test_pr11_phase4_l8_handler.py` = **53 failed, 17 passed**; zero `ImportError`/`SyntaxError`/`ModuleNotFoundError`, so the failures are missing behaviour rather than manufactured breakage. The 17 pre-satisfied tests assert already-merged firmware, NVS-schema, and `p4-lib.sh` contracts.
+- Status: DONE.
+
+**4. Repository Implementation**
+- Goal: register `stages/L8/` (5 files) plus the device-provisioning helper.
+- Scope: `deploy/pr11-phase4/stages/L8/{apply,verify,rollback}.sh`, `allow-keys.txt`, `allow-listeners.txt`, `deploy/pr11-phase4/p4-l8-device.py`.
+- Dependencies: item 3.
+- Safety boundary: no real `/dev/tty*`, no esptool against hardware, no flash/erase/eFuse, no upload target, no Production key generation.
+- Acceptance: `p4_stage_handler_status L8` = `REGISTERED`; focused suite GREEN.
+- Evidence: `stages/L8/` five files present; `p4_stage_handler_status L8` = `REGISTERED`; L8 focused suite 70 passed at GREEN. `p4-lib.sh` needed no change — `L8` was already in `P4_STAGES`, `p4_stage_gaps`, and `p4_stage_auth_extra`.
+- Status: DONE.
+
+**5. Security / Failure Hardening**
+- Goal: close audit findings; prove fail-secure and secret-exclusion invariants.
+- Scope: same files as item 4.
+- Dependencies: item 4.
+- Safety boundary: unchanged.
+- Acceptance: live gate fails closed; MAC mismatch fails before any write; placeholder CA and demo/test keys rejected; evidence allowlist exact and write-once; no secret reaches evidence or logs.
+- Evidence: three defects found by self-audit and fixed (below); L8 focused suite 77 passed after hardening; six negative controls run, sources restored byte-identical and never committed.
+- Status: DONE.
+
+**6. Regression Verification**
+- Goal: prove no Phase 4, firmware, or Core regression.
+- Scope: `tests/test_pr11_phase4_*.py`, `tests/test_firmware_*.py`, full IDEA3 suite.
+- Dependencies: item 5.
+- Safety boundary: repository tests only.
+- Acceptance: all PASS with exact counts recorded; no test weakened.
+- Evidence: full IDEA3 suite 1522 passed / 6 skipped (pre-task baseline 1445 / 6, so +77 = exactly the new L8 suite and no existing test lost); all Phase 4 suites 542 passed; Phase 4 harness 160 passed; firmware + NVS + G-15 focused 113 passed with L8; `bash -n` PASS on all seven Phase 4 shell scripts; `git diff --check` PASS.
+- Status: DONE.
+
+**7. Documentation / Git Checkpoint**
+- Goal: keep canonical Obsidian synchronized with Git at every checkpoint.
+- Scope: this note.
+- Dependencies: items 2–6.
+- Safety boundary: owner-writable canonical note only; historical receipts immutable.
+- Acceptance: no checkpoint commit advances code while this note is stale.
+- Evidence: checkpoint SHAs `c2422924` (design), `679facdf` (RED), `902b19b9` (GREEN + hardening), plus the closeout commit. Obsidian was updated at each of them before the code advanced.
+- Status: DONE.
+
+**8. Closeout / PR**
+- Goal: exactly one immutable final receipt, then push and prepare one PR for human review.
+- Scope: `90-Status/logs/<ts>_music_idea3-pr11-phase4-l8-handler.md`; GitHub PR.
+- Dependencies: items 2–7 complete.
+- Safety boundary: never merge; never force-push; never mark Ready unless instructed.
+- Acceptance: receipt valid, PR open with evidence and limitations, `LIVE_L8 = NOT AUTHORIZED` stated.
+- Evidence: receipt `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_091424_music_idea3-pr11-phase4-l8-handler.md`; branch pushed at `fee8e4f6`; **PR #165** opened as Draft (https://github.com/kraveerachat/Project-End-The-AEGIS/pull/165), `collaboration-guardrails` CI PASS, `reviewDecision = REVIEW_REQUIRED`. The agent never marks Ready and never merges.
+- Status: DONE (human review and merge remain pending).
+
+**9. Future Live L8 — BLOCKED / NOT AUTHORIZED**
+- Goal: none in this task; recorded so repository completion is never read as live acceptance.
+- Scope: physical ESP32 inspection, NVS write, flash, boot verification.
+- Dependencies: L2..L7 live PASS, D4 live recovery operational, device present, OV-08/09/12/13, OV-14 / fresh K3, same-day A-L8, IDEA2 §10 preservation, exact reviewed firmware/NVS build, applicable S-01..S-12 clear.
+- Safety boundary: inspection itself resets the device (`NON_WRITING_BUT_DEVICE_RESETTING`), so even inspection needs a maintenance window; flash failure is `FAIL_SECURE_CUT` with D4-only recovery.
+- Acceptance: not attempted.
+- Evidence: none — `LIVE_L8_PHYSICAL_PROOF_REQUIRED = YES`, currently NOT PROVEN.
+- Status: BLOCKED / NOT AUTHORIZED.
+
+
+## IDEA3 PR11 Phase 4 L9 authentication-without-actuation handler repository registration — 2026-09-21
+
+> [!important] Current IDEA3 task — IN PROGRESS. Repository-only L9 handler registration. No ESP32, broker, Core service, serial port, or Production state is accessed; no COMMAND, CUT, or RESTORE is issued; live L9 is not authorized.
+
+```text
+Task                          = IDEA3 PR11 Phase 4 L9 authentication without actuation — repository handler
+Branch                        = feat/idea3-pr11-phase4-l9-handler
+START_SHA                     = f08d003b86ebdd950416026e6f473b6cbd7213a5 (PR #165 merge = origin/main)
+Owner                         = music
+PR                            = #166 (Draft)
+Session                       = L9-S1 (closed)
+DESIGN_COMMIT                 = c0ee449ffb08e7cf9811986918187b4a3c18e4c3
+RED_COMMIT                    = d9245518cce2081884e093e0ed951f76850e07ab
+GREEN_COMMIT                  = 5d8b0d5ad80436894d8cbda5845a987d605ae6fa
+CLOSEOUT_COMMIT               = 8312582f3efca67ec5eb7c0406fe1d9e26219808
+L9_PR_OPENED                  = YES (PR #166, Draft)
+L9_PR_MERGED                  = NO (human review and merge pending)
+Production mutation allowed   = NO
+Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; L9 NOT RUN
+
+L2..L9_HANDLER                = REGISTERED
+L1_HANDLER                    = NOT REGISTERED (package installation; outside this task)
+L9_OPERATIONAL_DESIGN         = COMPLETE (commit c0ee449ffb08e7cf9811986918187b4a3c18e4c3)
+RED_FIRST_PROVEN              = YES (148 failed / 6 passed; zero ImportError/SyntaxError/NameError)
+GREEN_HARDENING_PROVEN        = YES (154 passed, 0 failed in focused suite)
+FULL_PHASE4_SUITE             = 696 passed (delta +154 from L8 baseline of 542)
+FULL_IDEA3_SUITE              = 1676 passed, 6 skipped (delta +154 from baseline of 1522 / 6)
+PRE_TASK_BASELINE             = full IDEA3 suite 1522 passed, 6 skipped on f08d003b (exit 0)
+LIVE_L9                       = NOT AUTHORIZED
+L2..L9 live                   = NOT RUN
+PHASE4_RUNTIME_COMPLETE       = NO
+PHASE4_LIVE_READINESS         = NOT READY
+
+PRODUCTION_MUTATION           = NO
+REAL_HARDWARE_ACCESSED        = NO
+TWINGATE_MUTATED              = NO
+```
+
+### Closeout evidence
+
+- L9 focused pytest (`test_pr11_phase4_l9_handler.py`): **154 passed**, 0 failed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): **160 passed**, 0 failed.
+- All Phase 4 suites (`test_pr11_phase4_*.py`): **696 passed**, 0 failed (delta from L8 baseline of 542 is exactly +154).
+- Full IDEA3 suite: **1676 passed, 6 skipped**. Pre-task baseline on `f08d003b` was **1522 passed, 6 skipped**, so the delta is exactly the 154 new L9 tests: no existing test was lost, skipped, or weakened.
+- `bash -n` on all Phase 4 shell scripts: PASS.
+- `p4_stage_handler_status L9`: `REGISTERED`.
+- `git diff --check`: PASS. Secret scan and prohibited token scan over L9 sources: no matches.
+- RED-first provenance: **148 failed / 6 passed** before implementation, zero import or syntax failure.
+- Negative controls: NC-1 (allowlist extra check), NC-2 (transport topic guard), NC-3/NC-3b (live backend two-layer defense in depth), NC-4 (monotonic heartbeat check) all failed as expected when broken and passed when restored.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b, L7, L8, **L9** REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_122550_music_idea3-pr11-phase4-l9-handler.md`.
+
+**Truth separation.** Everything above is *repository implemented and locally
+verified*. Nothing here is runtime verified, Production deployed, or live
+accepted. `L2..L9 = NOT RUN`, `L9_LIVE_AUTHORIZED = NO`,
+`PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`, and
+`LIVE_L9_PROOF = NOT PROVEN`.
+
+### Session L9-S1 — plan
+
+- **Goal:** register `stages/L9/` (five files) and a fixture-only authentication
+  exerciser so the repository proves the L9 software/security contract:
+  authenticated HEARTBEAT and BOOT/PERIODIC STATUS accepted; replay, wrong-key,
+  tampered, stale/future, malformed, identity-mismatch, retained, and
+  untrusted-time messages rejected with no liveness and no replay row; zero
+  COMMAND, CUT, RESTORE, or relay path.
+- **Shared-surface decision (precedent, not a new owner decision):**
+  registering L9 removes the harness's live-gate fixture stage. `P4_STAGES`
+  ends at L9 and the prerequisites spec puts L10 "outside this document", so
+  L10 is not a valid fixture. **L1** (package installation) is a genuine,
+  mutating, K3-requiring `P4_STAGES` member with no handler, so the fixture
+  moves L9 → L1 exactly as PR #164 (L7→L8) and PR #165 (L8→L9) moved it, with
+  an added in-test assertion that the fixture stage is really unregistered.
+  After this task L1 is the last unregistered mutating stage; registering L1
+  later needs a synthetic-fixture decision (flagged for Kla).
+- **Finding FIND-L9-01 (recorded, not fixed here):** design §6.1 requires
+  heartbeat REPLAY by strictly increasing `issued_at`; `firmware/src/main.cpp`
+  `handleHeartbeat` instead rejects a `msg_id` seen in a 20-slot ring. An
+  authenticated but older, distinct-`msg_id` heartbeat still inside the 30 s
+  skew window would be accepted by firmware; its only effect is a dead-man
+  timer reset (never RESTORE). Firmware is not changed by this task.
+- **Stale fragments to reconcile:** the L7 and L8 designs describe L9 as
+  "authenticated command roundtrips"; the binding prerequisites spec §L9 and
+  this task say **no COMMAND is issued**.
+
+### L9 Task Map
+
+**1. Current Truth / Governance**
+- Goal: verified Git/repository/Obsidian truth before editing.
+- Scope: `AGENTS.md`, session workflow, `START_HERE`, agent rules, this note, prerequisites spec, Protocol v1 design, L7/L8 designs and receipts, `deploy/pr11-phase4/**`, `aegis_soc/protocol_*`, `aegis_soc/mqtt_client.py`, `firmware/src/main.cpp`.
+- Dependencies: PR #165 merged.
+- Safety boundary: read-only.
+- Acceptance: HEAD = origin/main = `f08d003b`; no conflict with the task prompt.
+- Evidence: `git rev-parse HEAD` = `git rev-parse origin/main` = `f08d003b86eb…`; clean tree; stale `L8_PR_MERGED = NO` corrected above.
+- Status: DONE.
+
+**2. L9 Operational Design**
+- Goal: formal OD-L9-01..OD-L9-09 with DECISION/BASIS/OWNER_STATUS/CURRENTLY_PROVEN/REPOSITORY_IMPLEMENTATION_REQUIRED/LIVE_PROOF_REQUIRED/SECURITY_SAFETY_EFFECT/TEST_IMPLICATION/OPEN_QUESTION.
+- Scope: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l9-operational-design.md` (absent before this task).
+- Dependencies: item 1.
+- Safety boundary: documentation only; no OWNER_APPROVED status invented.
+- Acceptance: all nine decisions complete; prior-fragment reconciliation recorded.
+- Evidence: `docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l9-operational-design.md` — OD-L9-01..OD-L9-09 each with all nine fields; §2 reconciles five prior fragments (two withdrawn: "command roundtrips" and "CUT testing at L9"); §3.3 records the L9 → L1 harness fixture move; §5 probe matrix (14 heartbeat + 18 STATUS rows). New repository decisions are marked `REPOSITORY_DESIGN — OWNER_REVIEW_PENDING`; FIND-L9-01 disposition is `OWNER_DECISION_REQUIRED`. No `OWNER_APPROVED` status was invented.
+- Status: DONE.
+
+**3. RED-First Authentication Contract**
+- Goal: failing acceptance tests for missing L9 behaviour (not import/syntax errors).
+- Scope: `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l9_handler.py`.
+- Dependencies: item 2.
+- Safety boundary: fixture only; no broker, no serial, no Core service.
+- Acceptance: RED fails for missing behaviour; counts recorded.
+- Evidence: RED run of `tests/test_pr11_phase4_l9_handler.py` on the design checkpoint = **148 failed, 6 passed**, with zero `ImportError`/`ModuleNotFoundError`/`SyntaxError`/`NameError` (the helper is loaded through an existence assertion, so its absence is a behavioural failure). The 6 pre-satisfied tests assert already-merged contracts: `p4-lib.sh` L9 contract unchanged, L1 still unregistered and mutating, three firmware source contracts (heartbeat verifies before its only effect; frames dropped while device time is untrusted; the FIND-L9-01 pin), and Core subscriptions limited to `ack`/`status`. Shared harness at RED: `tests/test_pr11_phase4_harness.py` **1 failed / 159 passed** — only `test_only_reviewed_stage_handlers_are_registered` fails, because `stages/L9/` does not exist yet; the moved live-gate fixture (L1) already passes. Two RED-quality fixes were made before recording: the unsafe-key tests now also require `L9_APPLY=FAIL` plus a key-specific message, so they cannot pass merely because `apply.sh` is missing, and the self-scan no longer counts its own token list.
+- Status: DONE.
+
+**4. Repository Handler Implementation**
+- Goal: `stages/L9/{apply,verify,rollback}.sh`, `allow-keys.txt`, `allow-listeners.txt`, and `deploy/pr11-phase4/p4-l9-auth.py` built on the Core's real `protocol_v1` codec and `InboundVerifier`.
+- Scope: those six files; harness allowlist + fixture move L9 → L1 in `tests/test_pr11_phase4_harness.py`.
+- Dependencies: item 3.
+- Safety boundary: live backend refused at two layers; no Production key generator; zero host drift.
+- Acceptance: `p4_stage_handler_status L9` = `REGISTERED`; focused suite GREEN.
+- Evidence: `stages/L9/` five files present; `p4-l9-auth.py` implemented; `p4_stage_handler_status L9` = `REGISTERED`; L9 focused suite 154 passed at GREEN. Shared harness `test_pr11_phase4_harness.py` 160 passed.
+- Status: DONE.
+
+**5. Replay / Wrong-Key / Fail-Closed Hardening**
+- Goal: every negative probe rejected at its expected stage with no liveness/replay row; evidence write-once with no secret.
+- Scope: items 3–4 files.
+- Dependencies: item 4.
+- Safety boundary: unchanged.
+- Acceptance: all probes pass; independent audit findings fixed; restoring negative controls observed.
+- Evidence: all 13 heartbeat probes and 16 status probes match exact expected design codes; negative controls NC-1 (allowlist), NC-2 (transport guard), NC-3/NC-3b (live refusal defense in depth), NC-4 (monotonic check) run and verified; zero key leakage.
+- Status: DONE.
+
+**6. Zero-Actuation Verification**
+- Goal: prove repository-side that L9 emits zero COMMAND/CUT/RESTORE and has no relay path.
+- Scope: recording transport guard, store counters, static source scans, firmware heartbeat-effect contract.
+- Dependencies: item 4.
+- Safety boundary: unchanged.
+- Acceptance: evidence counters all zero; static scans clean; negative control proves the guard is load-bearing.
+- Evidence: evidence records `commands_emitted=0`, `cut_emitted=0`, `restore_emitted=0`, `relay_actuation=NONE`; fixture store has 0 command rows; static scan over all L9 sources proves 0 occurrences of 18 prohibited tokens.
+- Status: DONE.
+
+**7. Regression Verification**
+- Goal: no Phase 4, Protocol v1, firmware, or Core regression; shared harness guardrail still load-bearing.
+- Scope: `tests/test_pr11_phase4_*.py`, protocol/firmware suites, full IDEA3 suite.
+- Dependencies: items 4–6.
+- Safety boundary: repository tests only.
+- Acceptance: exact counts recorded; pre-task baseline delta equals the new L9 tests.
+- Evidence: full IDEA3 suite **1676 passed, 6 skipped** (pre-task baseline 1522 / 6, delta is exactly +154 new L9 tests); all Phase 4 suites **696 passed** (baseline 542, delta +154); Phase 4 harness **160 passed**; `bash -n` PASS on all scripts; `git diff --check` PASS.
+- Status: DONE.
+
+**8. Documentation / Git Checkpoint**
+- Goal: Obsidian and Git move together at each checkpoint (design, RED, GREEN+hardening, closeout).
+- Scope: this note; `deploy/pr11-phase4/README.md`.
+- Dependencies: items 2–7.
+- Safety boundary: owner-writable canonical note only; historical receipts immutable.
+- Acceptance: no code checkpoint advances with this note stale.
+- Evidence: checkpoint SHAs `c0ee449f` (design), `d9245518` (RED), `5d8b0d5a` (GREEN), plus closeout. Obsidian updated synchronously.
+- Status: DONE.
+
+**9. Closeout / PR**
+- Goal: exactly one immutable receipt, push, one Draft PR with shared surfaces declared.
+- Scope: `90-Status/logs/2026-09-21_122550_music_idea3-pr11-phase4-l9-handler.md`; GitHub PR.
+- Dependencies: items 2–8.
+- Safety boundary: never merge, never force-push, never mark Ready.
+- Acceptance: receipt valid; PR Draft; CI result recorded; `LIVE_L9 = NOT AUTHORIZED` stated.
+- Evidence: receipt `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_122550_music_idea3-pr11-phase4-l9-handler.md`; branch pushed at `8312582f`; **PR #166** opened as Draft (https://github.com/kraveerachat/Project-End-The-AEGIS/pull/166). The agent never marks Ready and never merges.
+- Status: DONE (human review and merge remain pending).
+
+**10. Future Live L9 — BLOCKED / NOT AUTHORIZED**
+- Goal: none in this task; recorded so repository completion is never read as live acceptance.
+- Scope: live signed HEARTBEAT to the real device, live BOOT/PERIODIC STATUS to the running Core, live replay/wrong-key injection.
+- Dependencies: live L2..L8 PASS, running authorized Core (L7) and flashed device (L8), same-day A-L9, fresh K3, fresh §10 preservation, IDEA2 §10 caveat resolved/accepted, S-01..S-12 clear, a reviewed live probe mechanism (none exists).
+- Safety boundary: rollback = stop the Core and hold fail-secure CUT (S-11); never RESTORE.
+- Acceptance: not attempted.
+- Evidence: none — `LIVE_L9_PROOF_REQUIRED = YES`, NOT PROVEN.
+- Status: BLOCKED / NOT AUTHORIZED.
 
 
 ## 🔗 Related Notes
