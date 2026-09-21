@@ -827,3 +827,110 @@ def test_l1_sources_never_reintroduce_static_token_or_boolean_gate() -> None:
         content = path.read_text(encoding="utf-8")
         for token in banned:
             assert token not in content, f"stale boolean/token gate reference {token!r} found in {path.name}"
+
+
+# ---------------------------------------------------------------------------
+# Evidence-integrity: no handler may claim an unproven state
+# ---------------------------------------------------------------------------
+
+
+def _fake_python_logging_verify(tmp_path: Path, verify_exit: int = 0) -> tuple[Path, Path]:
+    """A python3 stub for apply.sh that logs every invocation's argv and
+    lets the test control whether the internal live post-install
+    `verify` subcommand succeeds or fails, without ever touching pacman."""
+    call_log = tmp_path / "calls.log"
+    script = tmp_path / "fake_python3.sh"
+    script.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s\\n" "$*" >> "{call_log}"\n'
+        'case "$2" in\n'
+        f'  verify) exit {verify_exit} ;;\n'
+        "  *) exit 0 ;;\n"
+        "esac\n"
+    )
+    script.chmod(0o755)
+    return script, call_log
+
+
+def test_apply_sh_live_invokes_post_install_verify_before_success(tmp_path: Path) -> None:
+    """Requirement: apply live cannot report service-none markers without
+    actually invoking the post-install verification first."""
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    auth, k3 = valid_auth_k3_files(tmp_path)
+    fake_python, call_log = _fake_python_logging_verify(tmp_path, verify_exit=0)
+    env = os.environ.copy()
+    env.pop("AEGIS_P4_FS_ROOT", None)
+    env["AEGIS_L1_BACKEND"] = "live"
+    env["AEGIS_L1_WORK_DIR"] = str(work_dir)
+    env["AEGIS_PYTHON_BIN"] = str(fake_python)
+    env[LIVE_AUTH_FILE_ENV] = auth
+    env[LIVE_K3_FILE_ENV] = k3
+    proc = subprocess.run(
+        ["bash", str(L1_STAGE / "apply.sh")], cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    log_lines = call_log.read_text().splitlines()
+    assert any("verify" in line.split() for line in log_lines), "verify subcommand was never invoked"
+    assert "L1_SERVICES_STARTED=NONE" in proc.stdout
+    assert "L1_SERVICES_ENABLED=NONE" in proc.stdout
+
+
+def test_apply_sh_live_fails_if_post_install_verify_fails(tmp_path: Path) -> None:
+    """Requirement: a failed post-install service verification makes live
+    apply fail, and it must not print the service-none success markers."""
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    auth, k3 = valid_auth_k3_files(tmp_path)
+    fake_python, call_log = _fake_python_logging_verify(tmp_path, verify_exit=1)
+    env = os.environ.copy()
+    env.pop("AEGIS_P4_FS_ROOT", None)
+    env["AEGIS_L1_BACKEND"] = "live"
+    env["AEGIS_L1_WORK_DIR"] = str(work_dir)
+    env["AEGIS_PYTHON_BIN"] = str(fake_python)
+    env[LIVE_AUTH_FILE_ENV] = auth
+    env[LIVE_K3_FILE_ENV] = k3
+    proc = subprocess.run(
+        ["bash", str(L1_STAGE / "apply.sh")], cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode != 0
+    assert "POST_INSTALL_SERVICE_VERIFICATION_FAILED" in proc.stderr
+    assert "L1_SERVICES_STARTED=NONE" not in proc.stdout
+    assert "L1_APPLY=COMPLETE" not in proc.stdout
+    log_lines = call_log.read_text().splitlines()
+    assert any("verify" in line.split() for line in log_lines), "verify subcommand was never invoked"
+
+
+def test_apply_sh_never_claims_pre_rb_zero_drift() -> None:
+    content = (L1_STAGE / "apply.sh").read_text(encoding="utf-8")
+    assert "HOST_PRE_TO_RB_ZERO_DRIFT" not in content
+    assert "HOST_PRE_TO_RB_COMPARE=REQUIRED" in content
+
+
+def test_verify_sh_never_claims_pre_rb_zero_drift() -> None:
+    content = (L1_STAGE / "verify.sh").read_text(encoding="utf-8")
+    assert "HOST_PRE_TO_RB_ZERO_DRIFT" not in content
+    assert "HOST_PRE_TO_RB_COMPARE=REQUIRED" in content
+
+
+def test_rollback_sh_never_claims_unverified_service_state() -> None:
+    content = (L1_STAGE / "rollback.sh").read_text(encoding="utf-8")
+    assert "L1_SERVICES_LEFT_ACTIVE" not in content
+    assert "L1_SERVICES_LEFT_ENABLED" not in content
+    assert "HOST_PRE_TO_RB_ZERO_DRIFT" not in content
+
+
+def test_rollback_sh_emits_compare_required_and_capture_required_markers(tmp_path: Path) -> None:
+    fs_root = tmp_path / "fs"
+    fs_root.mkdir()
+    (fs_root / "usr" / "bin").mkdir(parents=True)
+    (fs_root / "usr" / "bin" / "chronyd").write_text("#!/bin/sh\nexit 0\n")
+    env = os.environ.copy()
+    env["AEGIS_P4_FS_ROOT"] = str(fs_root)
+    proc = subprocess.run(
+        ["bash", str(L1_STAGE / "rollback.sh")], cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "L1_ROLLBACK_PACKAGE_STATE=ABSENT" in proc.stdout
+    assert "POST_ROLLBACK_CAPTURE_REQUIRED=YES" in proc.stdout
+    assert "HOST_PRE_TO_RB_COMPARE=REQUIRED" in proc.stdout

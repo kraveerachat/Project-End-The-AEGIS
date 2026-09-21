@@ -120,18 +120,31 @@ else
   fi
 fi
 
-# 6. Verify service was not enabled or started (OD-L1-04, fixture-path check;
-#    live-mode service state is independently verified by verify.sh against
-#    the real host, never through FS_ROOT).
-if [ "$BACKEND" = "fixture" ] \
-  && [ -e "$FS_ROOT/etc/systemd/system/multi-user.target.wants/chronyd.service" ]; then
-  fail "SERVICE_MUTATION_REFUSED (chronyd.service enabled)"
+# 6. Verify service was not enabled or started (OD-L1-04). Fixture mode
+#    checks the fixture path directly (nothing else can prove fixture state).
+#    Live mode performs the actual read-only post-install service
+#    verification (package installed, ActiveState=inactive,
+#    UnitFileState=disabled/static) BEFORE this script is allowed to claim
+#    "no service was started/enabled" — it never asserts that without having
+#    checked it. A verification failure here fails the whole apply; the
+#    normal stage-runner rollback path is required afterward.
+if [ "$BACKEND" = "fixture" ]; then
+  if [ -e "$FS_ROOT/etc/systemd/system/multi-user.target.wants/chronyd.service" ]; then
+    fail "SERVICE_MUTATION_REFUSED (chronyd.service enabled)"
+  fi
+else
+  if ! "$PYTHON_BIN" "$P4_HERE/p4-l1-packages.py" verify --backend "$BACKEND"; then
+    fail "POST_INSTALL_SERVICE_VERIFICATION_FAILED"
+  fi
 fi
 
-# 7. Output markers
+# 7. Output markers. A PRE-to-RB zero-drift claim is NOT made here: that
+#    proof belongs exclusively to the stage runner's own PRE/RB capture and
+#    p4-compare.sh step (p4-lib.sh rollback-handler contract), never to an
+#    individual apply/verify/rollback handler asserting it by construction.
 printf 'L1_SERVICES_STARTED=NONE\n'
 printf 'L1_SERVICES_ENABLED=NONE\n'
-printf 'HOST_PRE_TO_RB_ZERO_DRIFT=YES\n'
+printf 'HOST_PRE_TO_RB_COMPARE=REQUIRED\n'
 if [ "$BACKEND" = "live" ]; then
   printf 'LIVE_L1=EXECUTED\n'
 else

@@ -52,6 +52,10 @@ fi
 active_listeners=$(grep -cvE '^[[:space:]]*(#|$)' "$HERE/allow-listeners.txt" || true)
 [ "$active_listeners" = "0" ] || fail "allow-listeners.txt must have zero active entries (found $active_listeners)"
 
-printf 'HOST_PRE_TO_RB_ZERO_DRIFT=YES\n'
+# PRE-to-RB zero-drift is NOT claimed here: this handler proves stage-local
+# package/service state, not host-wide preservation. That proof belongs
+# exclusively to the stage runner's PRE/RB capture and p4-compare.sh step
+# (p4-lib.sh rollback-handler contract).
+printf 'HOST_PRE_TO_RB_COMPARE=REQUIRED\n'
 printf 'L1_VERIFY=PASS\n'
 exit 0

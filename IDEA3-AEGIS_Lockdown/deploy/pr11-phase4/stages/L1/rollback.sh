@@ -78,7 +78,15 @@ else
   fi
 fi
 
-printf 'L1_SERVICES_LEFT_ACTIVE=NONE\n'
-printf 'L1_SERVICES_LEFT_ENABLED=NONE\n'
+# Truthful post-condition only: rollback succeeded, which by construction
+# (helper either removed chrony or found it already absent, per OD-L1-08
+# idempotence) means the package is now absent. This script does NOT
+# independently re-query live service ActiveState/UnitFileState after
+# removal, and does NOT claim PRE-to-RB zero drift — that proof belongs
+# exclusively to the stage runner's RB capture + p4-compare.sh step
+# (p4-lib.sh rollback-handler contract).
+printf 'L1_ROLLBACK_PACKAGE_STATE=ABSENT\n'
+printf 'POST_ROLLBACK_CAPTURE_REQUIRED=YES\n'
+printf 'HOST_PRE_TO_RB_COMPARE=REQUIRED\n'
 printf 'L1_ROLLBACK=COMPLETE\n'
 exit 0
