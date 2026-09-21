@@ -7,11 +7,13 @@
 #
 # Fails closed on any constraint violation. Fixture backend runs unconditionally
 # in an isolated filesystem root. Live backend is repository-implemented but
-# requires explicit live-authorization environment variables; without them it
-# fails closed identically to before (LIVE_L1=NOT_AUTHORIZED). This script does
-# not itself validate K3/A-L1/D6 — that remains p4-stage-gate.sh's exclusive
-# responsibility; the live-authorization variables checked here are an
-# additional, independent, in-process fail-closed check, not a replacement.
+# requires the CANONICAL p4-stage-gate.sh to accept a real, same-day,
+# stage=L1 authorization record (AEGIS_L1_LIVE_AUTHORIZATION_FILE) and K3
+# confirmation record (AEGIS_L1_LIVE_K3_FILE) — this script re-invokes that
+# exact gate script itself rather than trusting a boolean flag or a static
+# token, so there is exactly one record parser in the repository. Missing,
+# malformed, stale, wrong-stage, or wrong-field records all fail closed here
+# exactly as they would fail the gate directly (LIVE_L1=NOT_AUTHORIZED).
 set -euo pipefail
 
 fail() {
@@ -37,15 +39,26 @@ PYTHON_BIN="${AEGIS_PYTHON_BIN:-python3}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 P4_HERE="$(cd "$HERE/../.." && pwd)"
 
-LIVE_AUTH_TOKEN_REQUIRED="AEGIS_P4_LIVE_L1_EXPLICIT_OWNER_AUTHORIZED"
-
-# 2. Backend and live-authorization gate (OD-L1-02, OD-L1-10, D2)
+# 2. Backend and live-authorization gate (OD-L1-02, OD-L1-10, D2): re-invokes
+#    the canonical p4-stage-gate.sh with the real record files. No boolean
+#    flag or static token is accepted in place of valid records.
 case "$BACKEND" in
   fixture)
     ;;
   live)
-    if [ "${AEGIS_L1_LIVE_AUTHORIZATION_TOKEN:-}" != "$LIVE_AUTH_TOKEN_REQUIRED" ] \
-      || [ "${AEGIS_L1_LIVE_K3_CONFIRMED:-}" != "YES" ]; then
+    AUTH_FILE="${AEGIS_L1_LIVE_AUTHORIZATION_FILE:-}"
+    K3_FILE="${AEGIS_L1_LIVE_K3_FILE:-}"
+    if [ -z "$AUTH_FILE" ] || [ -z "$K3_FILE" ] || [ ! -f "$AUTH_FILE" ] || [ ! -f "$K3_FILE" ]; then
+      fail "LIVE_AUTHORIZATION_MISSING (LIVE_L1=NOT_AUTHORIZED)"
+    fi
+    set +e
+    GATE_OUT=$(bash "$P4_HERE/p4-stage-gate.sh" --stage L1 --mode live \
+      --authorization "$AUTH_FILE" --k3 "$K3_FILE" 2>&1)
+    GATE_RC=$?
+    set -e
+    if [ "$GATE_RC" -ne 0 ] \
+      || ! printf '%s\n' "$GATE_OUT" | grep -q '^AUTHORIZATION_RECORD=VALID$' \
+      || ! printf '%s\n' "$GATE_OUT" | grep -q '^K3_CONFIRMATION=VALID$'; then
       fail "LIVE_AUTHORIZATION_MISSING (LIVE_L1=NOT_AUTHORIZED)"
     fi
     ;;

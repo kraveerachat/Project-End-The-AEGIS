@@ -9,9 +9,12 @@ Authority:
 
 Dual-layer backend:
   - fixture: isolated filesystem root (AEGIS_P4_FS_ROOT) only.
-  - live: repository-implemented, fail-closed unless explicit live
-    authorization environment variables are present (LIVE_AUTHORIZATION_MISSING
-    otherwise). Live mode invokes the canonical Production pacman binary only
+  - live: repository-implemented, fail-closed unless the CANONICAL
+    p4-stage-gate.sh accepts a real, same-day, stage=L1 A-L1 authorization
+    record and K3 confirmation record (LIVE_AUTHORIZATION_MISSING otherwise).
+    This module never re-implements record parsing; it shells out to
+    p4-stage-gate.sh itself, so there is exactly one parser for these
+    records. Live mode invokes the canonical Production pacman binary only
     via long-form flags (--sync/--remove/--print/--noconfirm) and never with
     -y/--refresh, -u/--sysupgrade, or recursive/cascade removal. Live mode is
     never executed by this repository's own test suite or CI.
@@ -40,17 +43,45 @@ HOST_SYSTEM_PREFIXES = ("/etc/", "/opt/", "/var/", "/run/", "/dev/", "/usr/", "/
 # can substitute an arbitrary executable for it.
 PACMAN_BIN = "/usr/bin/pacman"
 
-LIVE_AUTH_TOKEN_ENV = "AEGIS_L1_LIVE_AUTHORIZATION_TOKEN"
-LIVE_AUTH_TOKEN_REQUIRED = "AEGIS_P4_LIVE_L1_EXPLICIT_OWNER_AUTHORIZED"
-LIVE_K3_ENV = "AEGIS_L1_LIVE_K3_CONFIRMED"
+# The environment carries only FILE PATHS to the real, same-day authorization
+# and K3 confirmation records (AEGIS_P4_AUTHORIZATION_V1 / _K3_CONFIRMATION_V1
+# format, per p4-stage-gate.sh). No boolean flag or static token is trusted:
+# the records themselves are validated, every invocation, by the canonical
+# gate script.
+LIVE_AUTH_FILE_ENV = "AEGIS_L1_LIVE_AUTHORIZATION_FILE"
+LIVE_K3_FILE_ENV = "AEGIS_L1_LIVE_K3_FILE"
+GATE_SCRIPT = Path(__file__).resolve().parent / "p4-stage-gate.sh"
+LIVE_STAGE = "L1"
 
 
 def live_authorization_present() -> bool:
-    """Independent, in-process fail-closed check. Does not replace or weaken
-    p4-stage-gate.sh's K3/A-L1/D6 validation; this is an additional gate."""
+    """Reuses the canonical p4-stage-gate.sh validator (single parser, no
+    duplicate/divergent re-implementation). Requires the gate to exit 0 AND
+    report both records VALID for stage=L1 (which itself requires
+    d6_notice=pub and a valid same-day K3 confirmation with
+    idea1_window_overlap=NONE). Absent, missing, malformed, stale,
+    wrong-stage, or wrong-field records all fail closed here exactly as they
+    would fail the gate directly."""
+    auth_file = os.environ.get(LIVE_AUTH_FILE_ENV, "")
+    k3_file = os.environ.get(LIVE_K3_FILE_ENV, "")
+    if not auth_file or not k3_file:
+        return False
+    if not Path(auth_file).is_file() or not Path(k3_file).is_file():
+        return False
+    proc = subprocess.run(
+        [
+            "bash", str(GATE_SCRIPT),
+            "--stage", LIVE_STAGE, "--mode", "live",
+            "--authorization", auth_file,
+            "--k3", k3_file,
+        ],
+        capture_output=True, text=True, check=False,
+    )
+    if proc.returncode != 0:
+        return False
     return (
-        os.environ.get(LIVE_AUTH_TOKEN_ENV) == LIVE_AUTH_TOKEN_REQUIRED
-        and os.environ.get(LIVE_K3_ENV) == "YES"
+        "AUTHORIZATION_RECORD=VALID" in proc.stdout
+        and "K3_CONFIRMATION=VALID" in proc.stdout
     )
 
 
@@ -90,39 +121,79 @@ def live_install_package(target: str) -> None:
         die(f"INSTALL_COMMAND_FAILED: exit {proc.returncode}: {proc.stderr.strip()}")
 
 
+def pacman_query_installed(target: str) -> bool:
+    """Read-only presence check. True if installed. False ONLY when pacman's
+    own not-found message confirms the package is genuinely absent. Any
+    other query error (corrupt db, permission, unexpected message) fails
+    closed rather than being treated as absence."""
+    proc = run_pacman(["--query", target])
+    if proc.returncode == 0:
+        return True
+    stderr = proc.stderr or ""
+    if re.search(rf"\b{re.escape(target)}\b.*not found", stderr, re.IGNORECASE):
+        return False
+    die(f"ROLLBACK_QUERY_FAILED: pacman query exited {proc.returncode}: {stderr.strip()}")
+    raise AssertionError("unreachable")  # die() always exits
+
+
 def live_rollback_package(target: str) -> None:
-    """D3: removes ONLY target. Never passes any recursive or cascade removal
-    flag, so a dependency conflict causes pacman itself to refuse the
-    removal and this function surfaces that as a failure rather than
-    escalating to a broader removal."""
+    """D3 + OD-L1-08 idempotence: removes ONLY target, and only if present.
+    Never passes any recursive or cascade removal flag, so a dependency
+    conflict causes pacman itself to refuse the removal and this function
+    surfaces that as a failure rather than escalating to a broader removal.
+    If target is already absent, this is a successful no-op (idempotent),
+    not a failure."""
+    if not pacman_query_installed(target):
+        print(f"L1_LIVE_ROLLBACK_TARGET={target}=ALREADY_ABSENT")
+        return
     proc = run_pacman(["--remove", "--noconfirm", target])
     if proc.returncode != 0:
         die(f"ROLLBACK_COMMAND_FAILED: exit {proc.returncode}: {proc.stderr.strip()}")
 
 
+ACCEPTED_ACTIVE_STATES = {"inactive"}
+ACCEPTED_UNIT_FILE_STATES = {"disabled", "static"}
+
+
+def _systemctl_show_value(unit: str, prop: str) -> str:
+    """Fails closed on any query error or empty/unexpected result; never
+    silently treats a failed query as an acceptable state."""
+    proc = subprocess.run(
+        ["systemctl", "show", unit, "-p", prop, "--value"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        die(
+            f"SERVICE_QUERY_FAILED: systemctl show {unit} -p {prop} "
+            f"exited {proc.returncode}: {proc.stderr.strip()}"
+        )
+    value = proc.stdout.strip()
+    if not value:
+        die(f"SERVICE_QUERY_EMPTY: systemctl show {unit} -p {prop} returned no value")
+    return value
+
+
 def live_verify_package(target: str) -> None:
-    query = run_pacman(["--query", target])
-    if query.returncode != 0:
+    if not pacman_query_installed(target):
         die(f"PACKAGE_NOT_INSTALLED: {target}")
 
     unit = f"{target}d.service" if target == "chrony" else f"{target}.service"
-    active = subprocess.run(
-        ["systemctl", "show", unit, "-p", "ActiveState", "--value"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if active.returncode == 0 and active.stdout.strip() == "active":
-        die(f"SERVICE_MUTATION_REFUSED: {unit} is active")
 
-    enabled = subprocess.run(
-        ["systemctl", "show", unit, "-p", "UnitFileState", "--value"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if enabled.returncode == 0 and enabled.stdout.strip() == "enabled":
-        die(f"SERVICE_MUTATION_REFUSED: {unit} is enabled")
+    active_state = _systemctl_show_value(unit, "ActiveState")
+    if active_state not in ACCEPTED_ACTIVE_STATES:
+        die(
+            f"SERVICE_MUTATION_REFUSED: {unit} ActiveState={active_state!r} "
+            f"(only {sorted(ACCEPTED_ACTIVE_STATES)} accepted)"
+        )
+
+    unit_file_state = _systemctl_show_value(unit, "UnitFileState")
+    if unit_file_state not in ACCEPTED_UNIT_FILE_STATES:
+        die(
+            f"SERVICE_MUTATION_REFUSED: {unit} UnitFileState={unit_file_state!r} "
+            f"(only {sorted(ACCEPTED_UNIT_FILE_STATES)} accepted)"
+        )
 
 
 def die(msg: str, code: int = 1) -> None:

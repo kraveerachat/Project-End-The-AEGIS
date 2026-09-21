@@ -5,22 +5,29 @@ Authoritative design:
   2026-09-22-idea3-pr11-phase4-l1-live-backend-owner-decision.md
 Decisions: D1 (disk threshold=90), D2 (pacman/chrony contract), D3 (rollback).
 
-Every test in this file runs against a mocked `run_pacman` seam (a Python
-module-level function monkeypatch) or exercises the fail-closed path that
-never reaches pacman at all. No test in this file invokes a real package
-manager, mutates /etc or /opt, starts/enables a service, or contacts any
-live host service. Live execution is never authorized here.
+Live authorization is coupled to the CANONICAL p4-stage-gate.sh: this module
+never re-implements record parsing, it writes real
+AEGIS_P4_AUTHORIZATION_V1 / AEGIS_P4_K3_CONFIRMATION_V1 record files and lets
+the actual gate script validate them, exactly as a real stage runner would.
+
+Every test in this file runs against a mocked `run_pacman`/`subprocess.run`
+seam or exercises the fail-closed path that never reaches pacman at all. No
+test in this file invokes a real package manager, mutates /etc or /opt,
+starts/enables a service, or contacts any live host service. Live execution
+is never authorized here.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import types
 from pathlib import Path
-from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -29,10 +36,58 @@ DEPLOY = ROOT / "deploy" / "pr11-phase4"
 STAGES = DEPLOY / "stages"
 L1_STAGE = STAGES / "L1"
 L1_PACKAGES = DEPLOY / "p4-l1-packages.py"
+GATE = DEPLOY / "p4-stage-gate.sh"
 
-LIVE_AUTH_TOKEN_ENV = "AEGIS_L1_LIVE_AUTHORIZATION_TOKEN"
-LIVE_AUTH_TOKEN_REQUIRED = "AEGIS_P4_LIVE_L1_EXPLICIT_OWNER_AUTHORIZED"
-LIVE_K3_ENV = "AEGIS_L1_LIVE_K3_CONFIRMED"
+LIVE_AUTH_FILE_ENV = "AEGIS_L1_LIVE_AUTHORIZATION_FILE"
+LIVE_K3_FILE_ENV = "AEGIS_L1_LIVE_K3_FILE"
+
+WINDOW_TZ = ZoneInfo("Asia/Bangkok")
+
+
+def today(offset: int = 0) -> str:
+    return (dt.datetime.now(WINDOW_TZ).date() + dt.timedelta(days=offset)).isoformat()
+
+
+def auth_record(stage: str = "L1", date: str | None = None, **overrides: str) -> str:
+    fields = {
+        "stage": stage,
+        "date": date or today(),
+        "authorizer": "music",
+        "scope": "test-only placeholder authorization record",
+        "reference": "https://example.invalid/aegis-p4-test-authorization",
+        "d6_notice": "pub",
+    }
+    fields.update(overrides)
+    body = "".join(f"{k}={v}\n" for k, v in fields.items() if v is not None)
+    return "AEGIS_P4_AUTHORIZATION_V1\n" + body
+
+
+def k3_record(stage: str = "L1", date: str | None = None, **overrides: str) -> str:
+    fields = {
+        "stage": stage,
+        "date": date or today(),
+        "confirmed_by": "kraveerachat",
+        "idea1_window_overlap": "NONE",
+        "reference": "https://example.invalid/aegis-p4-test-k3",
+    }
+    fields.update(overrides)
+    return "AEGIS_P4_K3_CONFIRMATION_V1\n" + "".join(
+        f"{k}={v}\n" for k, v in fields.items() if v is not None
+    )
+
+
+def _write(path: Path, content: str) -> str:
+    path.write_text(content)
+    return str(path)
+
+
+def valid_auth_k3_files(tmp_path: Path) -> tuple[str, str]:
+    # Distinct filenames from any test-local "auth.txt"/"k3.txt" so a test
+    # customizing one side never has it silently overwritten by this helper.
+    return (
+        _write(tmp_path / "valid_auth.txt", auth_record()),
+        _write(tmp_path / "valid_k3.txt", k3_record()),
+    )
 
 
 def _load_module() -> types.ModuleType:
@@ -45,9 +100,8 @@ def _load_module() -> types.ModuleType:
 
 @pytest.fixture()
 def mod(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
-    # Ensure a clean environment: no accidental live authorization leaks in.
-    monkeypatch.delenv(LIVE_AUTH_TOKEN_ENV, raising=False)
-    monkeypatch.delenv(LIVE_K3_ENV, raising=False)
+    monkeypatch.delenv(LIVE_AUTH_FILE_ENV, raising=False)
+    monkeypatch.delenv(LIVE_K3_FILE_ENV, raising=False)
     return _load_module()
 
 
@@ -55,13 +109,8 @@ def _fake_completed(returncode: int, stdout: str = "", stderr: str = "") -> subp
     return subprocess.CompletedProcess(args=["pacman"], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
-def _authorize(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(LIVE_AUTH_TOKEN_ENV, LIVE_AUTH_TOKEN_REQUIRED)
-    monkeypatch.setenv(LIVE_K3_ENV, "YES")
-
-
 # ---------------------------------------------------------------------------
-# Authorization gate
+# Gate-coupled authorization: exact scenarios required by the hardening pass
 # ---------------------------------------------------------------------------
 
 
@@ -69,23 +118,131 @@ def test_live_authorization_absent_by_default(mod: types.ModuleType) -> None:
     assert mod.live_authorization_present() is False
 
 
-def test_live_authorization_requires_both_vars(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(LIVE_AUTH_TOKEN_ENV, LIVE_AUTH_TOKEN_REQUIRED)
-    assert mod.live_authorization_present() is False  # K3 var missing
-    monkeypatch.delenv(LIVE_AUTH_TOKEN_ENV, raising=False)
-    monkeypatch.setenv(LIVE_K3_ENV, "YES")
-    assert mod.live_authorization_present() is False  # token var missing
+def test_live_authorization_valid_records_pass(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth, k3 = valid_auth_k3_files(tmp_path)
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, auth)
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, k3)
+    assert mod.live_authorization_present() is True
 
 
-def test_live_authorization_wrong_token_rejected(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(LIVE_AUTH_TOKEN_ENV, "some-other-value")
-    monkeypatch.setenv(LIVE_K3_ENV, "YES")
+def test_live_authorization_missing_auth_file_fails(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _, k3 = valid_auth_k3_files(tmp_path)
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, str(tmp_path / "does-not-exist.txt"))
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, k3)
     assert mod.live_authorization_present() is False
 
 
-def test_live_authorization_present_when_both_correct(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
-    _authorize(monkeypatch)
-    assert mod.live_authorization_present() is True
+def test_live_authorization_malformed_auth_fails(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth = _write(tmp_path / "auth.txt", "NOT_A_VALID_RECORD\nfoo=bar\n")
+    _, k3 = valid_auth_k3_files(tmp_path)
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, auth)
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, k3)
+    assert mod.live_authorization_present() is False
+
+
+def test_live_authorization_stale_auth_fails(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth = _write(tmp_path / "auth.txt", auth_record(date=today(offset=-1)))
+    _, k3 = valid_auth_k3_files(tmp_path)
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, auth)
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, k3)
+    assert mod.live_authorization_present() is False
+
+
+def test_live_authorization_wrong_stage_auth_fails(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth = _write(tmp_path / "auth.txt", auth_record(stage="L2", d6_notice=None, integration_review="kla"))
+    _, k3 = valid_auth_k3_files(tmp_path)
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, auth)
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, k3)
+    assert mod.live_authorization_present() is False
+
+
+def test_live_authorization_missing_d6_notice_fails(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth = _write(tmp_path / "auth.txt", auth_record(d6_notice=None))
+    _, k3 = valid_auth_k3_files(tmp_path)
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, auth)
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, k3)
+    assert mod.live_authorization_present() is False
+
+
+def test_live_authorization_wrong_d6_notice_fails(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth = _write(tmp_path / "auth.txt", auth_record(d6_notice="kla"))
+    _, k3 = valid_auth_k3_files(tmp_path)
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, auth)
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, k3)
+    assert mod.live_authorization_present() is False
+
+
+def test_live_authorization_missing_k3_file_fails(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth, _ = valid_auth_k3_files(tmp_path)
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, auth)
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, str(tmp_path / "missing-k3.txt"))
+    assert mod.live_authorization_present() is False
+
+
+def test_live_authorization_malformed_k3_fails(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth, _ = valid_auth_k3_files(tmp_path)
+    k3 = _write(tmp_path / "k3.txt", "NOT_A_K3_RECORD\nfoo=bar\n")
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, auth)
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, k3)
+    assert mod.live_authorization_present() is False
+
+
+def test_live_authorization_stale_k3_fails(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth, _ = valid_auth_k3_files(tmp_path)
+    k3 = _write(tmp_path / "k3.txt", k3_record(date=today(offset=-1)))
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, auth)
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, k3)
+    assert mod.live_authorization_present() is False
+
+
+def test_live_authorization_wrong_stage_k3_fails(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth, _ = valid_auth_k3_files(tmp_path)
+    k3 = _write(tmp_path / "k3.txt", k3_record(stage="L2"))
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, auth)
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, k3)
+    assert mod.live_authorization_present() is False
+
+
+def test_live_authorization_k3_overlap_not_none_fails(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    auth, _ = valid_auth_k3_files(tmp_path)
+    k3 = _write(tmp_path / "k3.txt", k3_record(idea1_window_overlap="0900-1000"))
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, auth)
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, k3)
+    assert mod.live_authorization_present() is False
+
+
+def test_live_authorization_forged_env_vars_without_real_files_fail(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plausible-looking but nonexistent path must fail closed — no boolean
+    or static token can substitute for real, gate-validated records."""
+    monkeypatch.setenv(LIVE_AUTH_FILE_ENV, "/tmp/forged-auth-does-not-exist.txt")
+    monkeypatch.setenv(LIVE_K3_FILE_ENV, "/tmp/forged-k3-does-not-exist.txt")
+    assert mod.live_authorization_present() is False
 
 
 def test_pacman_bin_is_fixed_canonical_path(mod: types.ModuleType) -> None:
@@ -101,16 +258,19 @@ def test_pacman_bin_not_overridable_by_environment(
     assert reloaded.PACMAN_BIN == "/usr/bin/pacman"
 
 
-# ---------------------------------------------------------------------------
-# CLI entry points fail closed without live authorization (no pacman call)
-# ---------------------------------------------------------------------------
-
-
-def test_cli_simulate_install_live_without_authorization_never_calls_pacman(
-    tmp_path: Path,
+def test_live_authorization_uses_real_gate_script_not_a_duplicate_parser(
+    mod: types.ModuleType,
 ) -> None:
-    """Subprocess-level check: the authorization gate must reject before any
-    pacman invocation could occur, regardless of process boundary."""
+    assert mod.GATE_SCRIPT == GATE.resolve()
+    assert mod.GATE_SCRIPT.is_file()
+
+
+# ---------------------------------------------------------------------------
+# CLI / shell entry points fail closed without live authorization
+# ---------------------------------------------------------------------------
+
+
+def test_cli_simulate_install_live_without_authorization_fails_closed(tmp_path: Path) -> None:
     work_dir = tmp_path / "work"
     work_dir.mkdir()
     fs_root = tmp_path / "fs"
@@ -154,7 +314,9 @@ def test_cli_verify_live_without_authorization_fails_closed(tmp_path: Path) -> N
     assert "NOT_AUTHORIZED" in proc.stderr
 
 
-def test_apply_sh_live_without_authorization_fails_closed(tmp_path: Path) -> None:
+def test_apply_sh_live_direct_invocation_with_forged_env_cannot_proceed(tmp_path: Path) -> None:
+    """Requirement #1/#2: direct apply.sh live invocation with forged/boolean
+    env vars (no real gate-validatable files) cannot reach pacman."""
     work_dir = tmp_path / "work"
     work_dir.mkdir()
     fs_root = tmp_path / "fs"
@@ -164,6 +326,9 @@ def test_apply_sh_live_without_authorization_fails_closed(tmp_path: Path) -> Non
     env["AEGIS_L1_WORK_DIR"] = str(work_dir)
     env["AEGIS_P4_FS_ROOT"] = str(fs_root)
     env["DISK_THRESHOLD_PCT"] = "90"
+    # Forged legacy-style boolean vars must have no effect at all.
+    env["AEGIS_L1_LIVE_AUTHORIZATION_TOKEN"] = "AEGIS_P4_LIVE_L1_EXPLICIT_OWNER_AUTHORIZED"
+    env["AEGIS_L1_LIVE_K3_CONFIRMED"] = "YES"
     proc = subprocess.run(
         ["bash", str(L1_STAGE / "apply.sh")], cwd=ROOT, env=env, capture_output=True, text=True, check=False,
     )
@@ -172,31 +337,43 @@ def test_apply_sh_live_without_authorization_fails_closed(tmp_path: Path) -> Non
     assert "NOT_AUTHORIZED" in proc.stderr
 
 
-def test_apply_sh_live_partial_authorization_still_fails(tmp_path: Path) -> None:
-    """Token present but K3 var missing must still fail closed."""
+def test_apply_sh_live_with_valid_records_reaches_gate_pass(tmp_path: Path) -> None:
+    """Requirement #14: a fully valid same-day L1 authorization + K3 pair
+    must pass the in-script gate re-invocation. To prove this WITHOUT ever
+    invoking real pacman, AEGIS_PYTHON_BIN is pointed at a stub that never
+    touches pacman and simply records that it was reached — proving the
+    authorization gate itself passed and control flow continued past it."""
     work_dir = tmp_path / "work"
     work_dir.mkdir()
     fs_root = tmp_path / "fs"
     fs_root.mkdir()
+    auth, k3 = valid_auth_k3_files(tmp_path)
+    fake_python = tmp_path / "fake_python3.sh"
+    fake_python.write_text("#!/usr/bin/env bash\necho FAKE_PYTHON_INVOKED \"$@\"\nexit 0\n")
+    fake_python.chmod(0o755)
     env = os.environ.copy()
     env["AEGIS_L1_BACKEND"] = "live"
     env["AEGIS_L1_WORK_DIR"] = str(work_dir)
     env["AEGIS_P4_FS_ROOT"] = str(fs_root)
-    env["DISK_THRESHOLD_PCT"] = "90"
-    env[LIVE_AUTH_TOKEN_ENV] = LIVE_AUTH_TOKEN_REQUIRED
+    env["AEGIS_PYTHON_BIN"] = str(fake_python)
+    env[LIVE_AUTH_FILE_ENV] = auth
+    env[LIVE_K3_FILE_ENV] = k3
     proc = subprocess.run(
         ["bash", str(L1_STAGE / "apply.sh")], cwd=ROOT, env=env, capture_output=True, text=True, check=False,
     )
-    assert proc.returncode != 0
-    assert "NOT_AUTHORIZED" in proc.stderr
+    assert "LIVE_AUTHORIZATION_MISSING" not in proc.stderr
+    assert "FAKE_PYTHON_INVOKED" in proc.stdout  # proves the gate passed and flow continued
+    assert proc.returncode == 0
 
 
-def test_rollback_sh_live_without_authorization_fails_closed(tmp_path: Path) -> None:
+def test_rollback_sh_live_direct_invocation_with_forged_env_cannot_proceed(tmp_path: Path) -> None:
     fs_root = tmp_path / "fs"
     fs_root.mkdir()
     env = os.environ.copy()
     env["AEGIS_L1_BACKEND"] = "live"
     env["AEGIS_P4_FS_ROOT"] = str(fs_root)
+    env["AEGIS_L1_LIVE_AUTHORIZATION_TOKEN"] = "AEGIS_P4_LIVE_L1_EXPLICIT_OWNER_AUTHORIZED"
+    env["AEGIS_L1_LIVE_K3_CONFIRMED"] = "YES"
     proc = subprocess.run(
         ["bash", str(L1_STAGE / "rollback.sh")], cwd=ROOT, env=env, capture_output=True, text=True, check=False,
     )
@@ -216,8 +393,6 @@ def test_preflight_accepts_exact_chrony(mod: types.ModuleType, monkeypatch: pyte
 
 def test_preflight_rejects_dependency_addition(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mod, "run_pacman", lambda args: _fake_completed(0, stdout="chrony\nlibedit\n"))
-    names = mod.pacman_preflight_transaction("chrony")
-    assert names == {"chrony", "libedit"}
     with pytest.raises(SystemExit):
         mod.live_install_package("chrony")
 
@@ -310,24 +485,60 @@ def test_no_install_without_preflight_match(mod: types.ModuleType, monkeypatch: 
 
 
 # ---------------------------------------------------------------------------
-# Rollback contract (mocked pacman)
+# Rollback contract (mocked pacman) — idempotence per OD-L1-08
 # ---------------------------------------------------------------------------
 
 
-def test_live_rollback_removes_target_only(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_live_rollback_removes_target_when_present(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []
 
     def fake_run_pacman(args: list[str]) -> subprocess.CompletedProcess:
         calls.append(list(args))
-        return _fake_completed(0)
+        return _fake_completed(0)  # --query succeeds (installed); --remove succeeds
 
     monkeypatch.setattr(mod, "run_pacman", fake_run_pacman)
     mod.live_rollback_package("chrony")
-    assert len(calls) == 1
-    joined = " ".join(calls[0])
-    assert "chrony" in calls[0]
+    assert len(calls) == 2
+    query_call, remove_call = calls
+    assert "--query" in query_call
+    joined = " ".join(remove_call)
+    assert "chrony" in remove_call
     for forbidden in ("-Rns", "-Rs", "-Rc", "--recursive", "--cascade"):
         assert forbidden not in joined
+
+
+def test_live_rollback_already_absent_is_idempotent_no_remove_call(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OD-L1-08: rollback is idempotent. If chrony is already absent, this
+    must succeed without ever invoking a removal command."""
+    calls: list[list[str]] = []
+
+    def fake_run_pacman(args: list[str]) -> subprocess.CompletedProcess:
+        calls.append(list(args))
+        return _fake_completed(1, stderr="error: package 'chrony' was not found")
+
+    monkeypatch.setattr(mod, "run_pacman", fake_run_pacman)
+    mod.live_rollback_package("chrony")  # must not raise
+    assert len(calls) == 1
+    assert "--query" in calls[0]
+
+
+def test_live_rollback_ambiguous_query_failure_fails_closed(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A query failure that is NOT pacman's own not-found message is
+    ambiguous and must fail closed rather than being treated as absence."""
+    calls: list[list[str]] = []
+
+    def fake_run_pacman(args: list[str]) -> subprocess.CompletedProcess:
+        calls.append(list(args))
+        return _fake_completed(1, stderr="error: could not open database")
+
+    monkeypatch.setattr(mod, "run_pacman", fake_run_pacman)
+    with pytest.raises(SystemExit):
+        mod.live_rollback_package("chrony")
+    assert len(calls) == 1  # never attempted removal
 
 
 def test_live_rollback_dependency_conflict_fails_closed_no_escalation(
@@ -337,33 +548,62 @@ def test_live_rollback_dependency_conflict_fails_closed_no_escalation(
 
     def fake_run_pacman(args: list[str]) -> subprocess.CompletedProcess:
         calls.append(list(args))
+        if "--query" in args:
+            return _fake_completed(0)  # installed
         return _fake_completed(1, stderr="error: failed to remove chrony (could not satisfy dependencies)")
 
     monkeypatch.setattr(mod, "run_pacman", fake_run_pacman)
     with pytest.raises(SystemExit):
         mod.live_rollback_package("chrony")
-    # Must not have retried with a recursive/cascade flag.
-    assert len(calls) == 1
-
-
-def test_rollback_idempotent_second_call_still_fails_closed_not_silently(
-    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A second rollback after package is already gone must not error loudly
-    in a way that implies mutation occurred; pacman's own not-installed exit
-    is treated as a rollback command failure and surfaced, not swallowed."""
-    monkeypatch.setattr(mod, "run_pacman", lambda args: _fake_completed(1, stderr="error: target not found: chrony"))
-    with pytest.raises(SystemExit):
-        mod.live_rollback_package("chrony")
+    assert len(calls) == 2  # query + one remove attempt, never a second/escalated call
 
 
 # ---------------------------------------------------------------------------
-# Verify contract (mocked pacman + systemctl)
+# Verify contract (mocked pacman + systemctl) — fail-closed service queries
 # ---------------------------------------------------------------------------
 
 
 def test_live_verify_fails_if_package_not_installed(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(mod, "run_pacman", lambda args: _fake_completed(1))
+    monkeypatch.setattr(mod, "run_pacman", lambda args: _fake_completed(1, stderr="error: package 'chrony' was not found"))
+    with pytest.raises(SystemExit):
+        mod.live_verify_package("chrony")
+
+
+def test_live_verify_active_state_query_failure_fails_closed(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(mod, "run_pacman", lambda args: _fake_completed(0))
+
+    def fake_systemctl(cmd, **kwargs):
+        return _fake_completed(1, stderr="Failed to get properties: Unit not loaded")
+
+    monkeypatch.setattr(subprocess, "run", fake_systemctl)
+    with pytest.raises(SystemExit):
+        mod.live_verify_package("chrony")
+
+
+def test_live_verify_unit_file_state_query_failure_fails_closed(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(mod, "run_pacman", lambda args: _fake_completed(0))
+
+    def fake_systemctl(cmd, **kwargs):
+        if "ActiveState" in cmd:
+            return _fake_completed(0, stdout="inactive\n")
+        return _fake_completed(1, stderr="Failed to get properties")
+
+    monkeypatch.setattr(subprocess, "run", fake_systemctl)
+    with pytest.raises(SystemExit):
+        mod.live_verify_package("chrony")
+
+
+def test_live_verify_empty_state_fails_closed(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mod, "run_pacman", lambda args: _fake_completed(0))
+
+    def fake_systemctl(cmd, **kwargs):
+        return _fake_completed(0, stdout="")
+
+    monkeypatch.setattr(subprocess, "run", fake_systemctl)
     with pytest.raises(SystemExit):
         mod.live_verify_package("chrony")
 
@@ -394,15 +634,16 @@ def test_live_verify_fails_if_service_enabled(mod: types.ModuleType, monkeypatch
         mod.live_verify_package("chrony")
 
 
-def test_live_verify_passes_when_installed_inactive_disabled(
-    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("unit_file_state", ["disabled", "static"])
+def test_live_verify_passes_when_installed_inactive_and_accepted_unit_state(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, unit_file_state: str
 ) -> None:
     monkeypatch.setattr(mod, "run_pacman", lambda args: _fake_completed(0))
 
     def fake_systemctl(cmd, **kwargs):
         if "ActiveState" in cmd:
             return _fake_completed(0, stdout="inactive\n")
-        return _fake_completed(0, stdout="disabled\n")
+        return _fake_completed(0, stdout=f"{unit_file_state}\n")
 
     monkeypatch.setattr(subprocess, "run", fake_systemctl)
     mod.live_verify_package("chrony")  # must not raise
@@ -422,8 +663,6 @@ def test_l1_live_sources_never_pass_forbidden_pacman_flags_as_literals() -> None
     """Checks only quoted string-literal argv tokens (the only form that can
     actually reach subprocess), not prose in comments/docstrings that merely
     names a forbidden flag for documentation purposes."""
-    import re
-
     sources = (
         L1_PACKAGES,
         L1_STAGE / "apply.sh",
@@ -438,8 +677,6 @@ def test_l1_live_sources_never_pass_forbidden_pacman_flags_as_literals() -> None
 
 
 def test_l1_live_sources_never_enable_or_start_services() -> None:
-    import re
-
     sources = (
         L1_PACKAGES,
         L1_STAGE / "apply.sh",
@@ -453,8 +690,6 @@ def test_l1_live_sources_never_enable_or_start_services() -> None:
 
 
 def test_l1_live_sources_read_only_systemctl_is_show_only() -> None:
-    import re
-
     content = L1_PACKAGES.read_text(encoding="utf-8")
     for match in re.finditer(r"\bsystemctl\s+(\S+)", content):
         assert match.group(1) == "show", f"unexpected systemctl subcommand: {match.group(1)}"
@@ -463,3 +698,24 @@ def test_l1_live_sources_read_only_systemctl_is_show_only() -> None:
 def test_pacman_bin_constant_appears_exactly_once_and_is_canonical() -> None:
     content = L1_PACKAGES.read_text(encoding="utf-8")
     assert content.count('PACMAN_BIN = "/usr/bin/pacman"') == 1
+
+
+def test_l1_sources_never_reintroduce_static_token_or_boolean_gate() -> None:
+    """The prior boolean/static-token gate must not reappear anywhere in the
+    executable sources — only file-path env vars validated by the real
+    gate script are acceptable."""
+    banned = (
+        "AEGIS_L1_LIVE_AUTHORIZATION_TOKEN",
+        "AEGIS_L1_LIVE_K3_CONFIRMED",
+        "AEGIS_P4_LIVE_L1_EXPLICIT_OWNER_AUTHORIZED",
+    )
+    sources = (
+        L1_PACKAGES,
+        L1_STAGE / "apply.sh",
+        L1_STAGE / "verify.sh",
+        L1_STAGE / "rollback.sh",
+    )
+    for path in sources:
+        content = path.read_text(encoding="utf-8")
+        for token in banned:
+            assert token not in content, f"stale boolean/token gate reference {token!r} found in {path.name}"
