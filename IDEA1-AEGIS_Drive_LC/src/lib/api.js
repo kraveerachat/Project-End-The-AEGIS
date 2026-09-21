@@ -11,6 +11,8 @@
 //     (ไม่มี redirect ตายตัว — App เป็นคนตัดสินว่า "กลับประตู" หน้าตาเป็นอย่างไร)
 
 const TIMEOUT_MS = 10_000
+import { notifySessionEnded, SESSION_END_REASONS } from './sessionEnded.js'
+
 export const PASSWORD_RESET_REQUIRED = 'PASSWORD_RESET_REQUIRED'
 
 // เติม import.meta.env.BASE_URL (Vite `base`, ดู vite.config.js) นำหน้า path
@@ -19,7 +21,8 @@ export const PASSWORD_RESET_REQUIRED = 'PASSWORD_RESET_REQUIRED'
 // (dev แบบ standalone) — ไม่ต้องแก้ path ตายตัวที่จุดเรียกทุกจุดทั่วแอป
 function withBase(path) {
   if (!path.startsWith('/')) return path
-  return import.meta.env.BASE_URL + path.slice(1)
+  // import.meta.env มีเฉพาะใต้ Vite; โค้ดที่รันนอก Vite (เทสต์ node --test) ใช้ base ว่าง
+  return (import.meta.env?.BASE_URL ?? '') + path.slice(1)
 }
 
 // URL เต็ม (รวม base) สำหรับกรณีที่ต้องให้ "เบราว์เซอร์" เป็นคนไปเอาเอง ไม่ใช่ fetch —
@@ -36,6 +39,9 @@ export const clearCsrfToken = () => { csrfToken = null }
 // 401 handler — App ลงทะเบียนไว้ตอน mount; เรียกเมื่อเซสชันหมดอายุกลางคัน
 let onUnauthorized = null
 export const registerUnauthorizedHandler = (fn) => { onUnauthorized = fn }
+// PR #157 Task 5.4: เซสชันจบ (401 ที่ไม่ถูก suppress / PASSWORD_RESET_REQUIRED) → แจ้งผู้ฟังทุกคน — จอ Vault ใช้
+//   purgeUnlockedVaultState(SESSION_INVALIDATED) ทิ้งทุกอย่างที่ถอดรหัสไว้ (ดู sessionEnded.js: ไม่มีวงจร import)
+const sessionInvalidated = () => notifySessionEnded(SESSION_END_REASONS.SESSION_INVALIDATED)
 
 /**
  * อัปโหลดด้วย XHR เพราะ fetch ไม่มี upload-progress event ที่ใช้ได้ข้าม browser
@@ -86,7 +92,7 @@ export function apiUpload(path, {
         return
       }
       if (xhr.status === 401) {
-        if (!suppressAuthHandler) onUnauthorized?.()
+        if (!suppressAuthHandler) { onUnauthorized?.(); sessionInvalidated() }
         finish({ ok: false, status: 401, data, errorKind: 'unauthorized' })
         return
       }
@@ -96,6 +102,7 @@ export function apiUpload(path, {
           return
         }
         if (data?.error === PASSWORD_RESET_REQUIRED) {
+          sessionInvalidated()
           finish({ ok: false, status: 403, data, errorKind: 'password-reset-required', errorCode: PASSWORD_RESET_REQUIRED })
           return
         }
@@ -153,6 +160,7 @@ export async function apiFetchBytes(path, { signal, timeoutMs = 120_000 } = {}) 
   if (!res.ok) {
     if (res.status === 401) {
       onUnauthorized?.()
+      sessionInvalidated()
       return { ok: false, status: 401, bytes: null, headers: res.headers, errorKind: 'unauthorized' }
     }
     if (res.status === 403) return { ok: false, status: 403, bytes: null, headers: res.headers, errorKind: 'forbidden' }
@@ -184,9 +192,15 @@ export async function apiFetch(path, { method = 'GET', body, signal, suppressAut
   // ถูกสร้างโดยเบราว์เซอร์ ถ้าเซ็ตทับ multer จะ parse ไม่ออก ส่วน CSRF token ยังแนบ
   // ทาง header เหมือนเดิม (session cookie ยัง HttpOnly — ไม่มีอะไรย้ายไป browser storage)
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
+  // Uint8Array = bytes ดิบ (เช่น PUT ciphertext ของ tree revision) — ส่งตรง ห้าม JSON.stringify ทับ
+  const isBytes = typeof Uint8Array !== 'undefined' && body instanceof Uint8Array
 
   const headers = {}
-  if (body && !isFormData) headers['Content-Type'] = 'application/json'
+  if (body && !isFormData && !isBytes) headers['Content-Type'] = 'application/json'
+  // Uint8Array = ciphertext ดิบ (เช่น PUT ciphertext ของ tree revision) — เซิร์ฟเวอร์บังคับ
+  // application/octet-stream (415 INVALID_INPUT ถ้าขาด/ผิด) — เดียวกับ vaultChunkedUpload;
+  // JSON ยังเป็น application/json, FormData ยังให้ browser สร้าง boundary เอง
+  if (isBytes) headers['Content-Type'] = 'application/octet-stream'
   if (method !== 'GET' && csrfToken) headers['X-CSRF-Token'] = csrfToken
 
   let res
@@ -194,7 +208,7 @@ export async function apiFetch(path, { method = 'GET', body, signal, suppressAut
     res = await fetch(withBase(path), {
       method,
       headers,
-      body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
+      body: body ? (isFormData || isBytes ? body : JSON.stringify(body)) : undefined,
       credentials: 'include',
       signal: ctrl.signal,
     })
@@ -218,7 +232,7 @@ export async function apiFetch(path, { method = 'GET', body, signal, suppressAut
   if (res.status === 401) {
     // เซสชันหมด/ถูกทำลายฝั่งเซิร์ฟเวอร์ — เคลียร์ state กลับประตู
     // (ยกเว้น endpoint ตรวจสถานะอย่าง /api/me ที่ 401 คือคำตอบปกติก่อน login)
-    if (!suppressAuthHandler) onUnauthorized?.()
+    if (!suppressAuthHandler) { onUnauthorized?.(); sessionInvalidated() }
     return { ok: false, status: 401, data, errorKind: 'unauthorized' }
   }
   if (res.status === 403) {
@@ -231,6 +245,7 @@ export async function apiFetch(path, { method = 'GET', body, signal, suppressAut
     // บัญชีที่ยังใช้รหัสผ่านชั่วคราวถูกยืนยันตัวตนแล้ว แต่ยังไม่มีสิทธิ์เข้าแอป
     // เก็บรหัสนี้ไว้เป็นสถานะเฉพาะ ห้ามลดทอนเป็น forbidden จน UI แปลผิดว่า RBAC ปฏิเสธ
     if (data?.error === PASSWORD_RESET_REQUIRED) {
+      sessionInvalidated()
       return {
         ok: false,
         status: 403,

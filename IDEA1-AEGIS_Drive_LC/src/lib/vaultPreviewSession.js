@@ -186,6 +186,7 @@ export async function openPreviewSession({
   base = import.meta.env?.BASE_URL ?? '/',
   controller: providedController,
   isUnlocked = () => true,
+  unlockedState = null, // PR #157 Task 5.4: token ถูกลงทะเบียนให้ purgeUnlockedVaultState ปิดได้ (closeAllPreviewSessions)
 }) {
   const worker = providedController
     ? { ok: true, controller: providedController }
@@ -229,6 +230,11 @@ export async function openPreviewSession({
   // then the screen cannot know/revoke this provisional token, so exposing it
   // through the page registry would leave a close/replacement race.
   activePreviewSessions.set(token, sessionPayload)
+  try { unlockedState?.registerPreviewToken?.(token) } catch {
+    // state ถูก purge ระหว่างรอ worker (ล็อกแล้ว) — ห้ามปล่อย token ที่ถอดไฟล์ได้ทิ้งไว้
+    activePreviewSessions.delete(token)
+    return { ok: false, reason: PREVIEW_FAILURE_REASON.VAULT_LOCKED }
+  }
   return { ok: true, token, url: previewUrlFor(token, base) }
 }
 

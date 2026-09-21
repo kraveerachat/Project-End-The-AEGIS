@@ -21,6 +21,15 @@ const backendStub = normalizePath(path.join(rootDir, 'tests/fixtures/vaultScreen
 const STUBBED = new Set([
   '../lib/hooks.js', '../lib/api.js', '../lib/vaultCrypto.js',
   '../lib/vaultChunkCrypto.js', '../lib/vaultChunkedUpload.js', '../lib/vaultChunkedDownload.js',
+  // ⚠️ TREE (PR #157 Task 3.3): vaultTreeApi/vaultTreeMigration (ตัวจริง) import พี่น้องด้วย
+  //    specifier แบบ './' ต่างจากที่จอเขียน ('../lib/') — ถ้าไม่เพิ่มสามรูปแบบนี้ โมดูล tree
+  //    ตัวจริงจะดึง api.js/vaultCrypto.js/vaultChunkCrypto.js ตัวจริงและยิงเครือข่ายจริงจาก jsdom
+  './api.js', './vaultCrypto.js', './vaultChunkCrypto.js',
+  // PR #157 Task 6.3: vaultTreeUpload imports the chunked uploader with a './' specifier —
+  // stub it too so tree-screen tests can drive uploads through ctl.uploadImpl.
+  './vaultChunkedUpload.js',
+  // PR #157: tests that need the stub KEK directly load it by absolute id — map that form too
+  '/src/lib/vaultCrypto.js',
 ])
 
 export async function startVaultScreenEnv() {
@@ -85,6 +94,8 @@ export async function startVaultScreenEnv() {
   return {
     dom,
     Vault,
+    /** PR #157: โหลดโมดูลผ่าน vite ตัวเดียวกับที่โหลดจอ — ให้เทสต์ได้ instance เดียวกับที่จอ import (เช่น sessionEnded.js) */
+    load: (id) => vite.ssrLoadModule(id),
     objectUrls,
     revokedUrls,
     /**
@@ -127,10 +138,19 @@ export async function startVaultScreenEnv() {
 
 /* ── interaction helpers ──────────────────────────────────────────── */
 
-/** Let queued promise chains (apiFetch → setState → effect) finish. */
+/**
+ * Let queued promise chains (apiFetch → setState → effect) finish.
+ *
+ * ⚠️ TREE (PR #157): เส้นทาง tree รัน WebCrypto จริง (subtle.importKey/encrypt ของ Node)
+ * ผลของมันส่งกลับผ่าน threadpool ของ libuv — การหมุน microtask อย่างเดียวไม่มีวันได้รับผล
+ * จึงต้องเว้นจังหวะ event loop จริง ๆ หลายรอบต่อการเรียกครั้งหนึ่ง (พอสำหรับสาย crypto
+ * เต็มของ genesis ทั้งสายจบในรอบ settle เดียว) ชุดเก่าที่ใช้ crypto สตับไม่ผิดจากเดิม
+ * เพราะรอบ setTimeout เหล่านี้ไม่มีงานอื่นค้างให้เก็บ
+ */
 export async function settle() {
   await act(async () => {
     for (let i = 0; i < 6; i += 1) await Promise.resolve()
+    for (let i = 0; i < 12; i += 1) await new Promise((r) => setTimeout(r, 0))
   })
 }
 
