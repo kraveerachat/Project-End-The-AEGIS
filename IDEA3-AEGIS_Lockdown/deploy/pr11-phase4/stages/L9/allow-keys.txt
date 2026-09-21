@@ -1,0 +1,7 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L9 allowed host state drift.
+#
+# Stage L9 is observational authentication without actuation (OD-L9-01).
+# It changes no Core host state, unit, or network configuration.
+# This file carries ZERO active keys by contract (OD-L9-01, OD-L9-07).
+#
+# HOST_PRE_TO_RB_ZERO_DRIFT=YES.
