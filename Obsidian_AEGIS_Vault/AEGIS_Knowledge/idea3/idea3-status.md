@@ -6579,11 +6579,14 @@ L10 does NOT exist. The following operations are strictly post-Phase-4 gates and
 ```text
 TASK                          = Phase 4 L0 harness portability and fail-closed repair
 BRANCH                        = fix/idea3-pr11-phase4-l0-harness-portability
-BASE_SHA                      = b962a570c9dd9bbf59b43e5fb31be038df72e2cf
+BASE_SHA                      = b962a570db774ffe75af587a0c5f6e447f422207
 SCOPE                         = repository harness repair only
 DEFECT_1_LOCALE_FIX           = export LC_ALL=C in validation scripts; regex evaluates deterministically in ASCII byte order
 DEFECT_2_SPACES_FIX           = argv-aware filesystem read validation for stat, sha256sum, readlink, find; safe paths with spaces accepted
 DEFECT_3_PARTIAL_FIX          = rec_file and rec_pwfile set partial=1 on UNREADABLE metadata/digest (L0_CAPTURE=PARTIAL, exit 3)
+FOCUSED_HARNESS_RESULT        = PASS (167 passed in 43.34s)
+FULL_PHASE4_RESULT            = FAIL (7 failed, 724 passed; local paho-mqtt 1.6.1 missing CallbackAPIVersion)
+FULL_PHASE4_FAILURE_CLASS     = LOCAL_DEPENDENCY_ENVIRONMENT
 DIAGNOSTIC_L0_OFFICIAL        = NO — diagnostic evidence only; official L0 requires fresh run after repair
 PRODUCTION_MUTATION           = NO
 PR                            = DRAFT pending review
@@ -6598,7 +6601,7 @@ Owner: `music`
 PR: Draft
 Current state: IN PROGRESS — local implementation & verification complete; human review pending
 Started: 2026-09-21
-Base SHA: `b962a570c9dd9bbf59b43e5fb31be038df72e2cf`
+Base SHA: `b962a570db774ffe75af587a0c5f6e447f422207`
 Production mutation allowed: NO
 
 - **Goal:** Repair the three observed harness defects (locale determinism, safe paths with spaces in argv-aware filesystem read commands, and fail-closed handling of unreadable required metadata) so that subsequent live L0 baseline capture is deterministic, robust to safe filenames with spaces, and fail-closed.
@@ -6610,7 +6613,7 @@ Production mutation allowed: NO
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| P4-L0-R1 | TDD RED→GREEN repair of L0 harness defects 1, 2, 3 (repository only) | PASS | 3 RED tests failed for defects 1, 2, 3; 167 GREEN tests passed after fix; `bash -n` PASS; `git diff --check` PASS; vault validation PASS | `03d9f9d8` | PASS — LOCAL VERIFIED | human review & draft PR maintenance | fresh owner-run A-L0 and live L0 baseline |
+| P4-L0-R1 | TDD RED→GREEN repair of L0 harness defects 1, 2, 3 (repository only) | PASS | 3 RED tests failed for defects 1, 2, 3; 167 GREEN harness tests passed; full phase 4 suite has 7 environmental failures from local paho-mqtt 1.6.1; `bash -n` PASS; `git diff --check` PASS; vault validation PASS | `03d9f9d8` | PASS — LOCAL VERIFIED | human review & draft PR maintenance | fresh owner-run A-L0 and live L0 baseline |
 
 
 ## 🔗 Related Notes
