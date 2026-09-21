@@ -6044,12 +6044,13 @@ Owner                         = music
 PR                            = not yet opened
 Session                       = L9-S1 (IN PROGRESS)
 Production mutation allowed   = NO
-Current state                 = IN PROGRESS — design complete; RED contract next
+Current state                 = IN PROGRESS — RED contract committed; GREEN implementation next
 
 L2..L8_HANDLER                = REGISTERED
 L9_HANDLER                    = NOT REGISTERED (target of this task)
 L1_HANDLER                    = NOT REGISTERED (package installation; not in scope)
-L9_OPERATIONAL_DESIGN         = COMPLETE (design checkpoint; SHA recorded at the RED checkpoint)
+L9_OPERATIONAL_DESIGN         = COMPLETE (commit c0ee449ffb08e7cf9811986918187b4a3c18e4c3)
+RED_FIRST_PROVEN              = YES (148 failed / 6 passed; zero ImportError/SyntaxError/NameError)
 PRE_TASK_BASELINE             = full IDEA3 suite 1522 passed, 6 skipped on f08d003b (exit 0)
 LIVE_L9                       = NOT AUTHORIZED
 L2..L9 live                   = NOT RUN
@@ -6114,8 +6115,8 @@ TWINGATE_MUTATED              = NO
 - Dependencies: item 2.
 - Safety boundary: fixture only; no broker, no serial, no Core service.
 - Acceptance: RED fails for missing behaviour; counts recorded.
-- Evidence: pending.
-- Status: NOT STARTED.
+- Evidence: RED run of `tests/test_pr11_phase4_l9_handler.py` on the design checkpoint = **148 failed, 6 passed**, with zero `ImportError`/`ModuleNotFoundError`/`SyntaxError`/`NameError` (the helper is loaded through an existence assertion, so its absence is a behavioural failure). The 6 pre-satisfied tests assert already-merged contracts: `p4-lib.sh` L9 contract unchanged, L1 still unregistered and mutating, three firmware source contracts (heartbeat verifies before its only effect; frames dropped while device time is untrusted; the FIND-L9-01 pin), and Core subscriptions limited to `ack`/`status`. Shared harness at RED: `tests/test_pr11_phase4_harness.py` **1 failed / 159 passed** — only `test_only_reviewed_stage_handlers_are_registered` fails, because `stages/L9/` does not exist yet; the moved live-gate fixture (L1) already passes. Two RED-quality fixes were made before recording: the unsafe-key tests now also require `L9_APPLY=FAIL` plus a key-specific message, so they cannot pass merely because `apply.sh` is missing, and the self-scan no longer counts its own token list.
+- Status: DONE.
 
 **4. Repository Handler Implementation**
 - Goal: `stages/L9/{apply,verify,rollback}.sh`, `allow-keys.txt`, `allow-listeners.txt`, and `deploy/pr11-phase4/p4-l9-auth.py` built on the Core's real `protocol_v1` codec and `InboundVerifier`.
