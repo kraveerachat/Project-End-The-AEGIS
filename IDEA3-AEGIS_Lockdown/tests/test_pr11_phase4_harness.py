@@ -610,8 +610,8 @@ def test_flush_ruleset_never_appears_in_t1(path: Path) -> None:
 def test_only_reviewed_stage_handlers_are_registered() -> None:
     stages = DEPLOY / "stages"
     assert stages.is_dir()
-    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"}
-    for name in ("L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"):
+    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"}
+    for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"):
         assert {p.name for p in (stages / name).iterdir() if p.is_file()} == {
             "apply.sh",
             "verify.sh",
@@ -943,7 +943,7 @@ def k3_record(stage: str, date: str | None = None, **overrides: str) -> str:
     return "AEGIS_P4_K3_CONFIRMATION_V1\n" + "".join(f"{k}={v}\n" for k, v in fields.items() if v is not None)
 
 
-def gate(tmp_path: Path, *args: str, auth: str | None = None, k3: str | None = None) -> subprocess.CompletedProcess:
+def gate(tmp_path: Path, *args: str, auth: str | None = None, k3: str | None = None, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     root = tmp_path / "gate"
     root.mkdir(exist_ok=True)
     bindir = root / "bin"
@@ -958,9 +958,12 @@ def gate(tmp_path: Path, *args: str, auth: str | None = None, k3: str | None = N
     if k3 is not None:
         (root / "k3.txt").write_text(k3)
         argv += ["--k3", str(root / "k3.txt")]
+    env = {"PATH": str(bindir), "HOME": str(root), "LC_ALL": "C", "P4_CALL_LOG": str(calls),
+           "P4_FIX": str(root)}
+    if extra_env:
+        env.update(extra_env)
     result = subprocess.run(["bash", str(GATE), *argv], capture_output=True, text=True,
-                            env={"PATH": str(bindir), "HOME": str(root), "LC_ALL": "C", "P4_CALL_LOG": str(calls),
-                                 "P4_FIX": str(root)}, stdin=subprocess.DEVNULL, timeout=30,
+                            env=env, stdin=subprocess.DEVNULL, timeout=30,
                             check=False)
     assert calls.read_text() == "", "the stage gate must not call any host command"
     return result
@@ -1062,13 +1065,46 @@ def test_gate_simulation_with_valid_records_never_authorizes_live(tmp_path: Path
 
 
 def test_gate_live_mode_for_mutating_stage_fails_without_registered_handler(tmp_path: Path) -> None:
-    # L1 is the last mutating P4 stage without a handler; L10 is not a P4 stage at all.
-    assert not (DEPLOY / "stages" / "L1").exists()
-    result = gate(tmp_path, "--stage", "L1", "--mode", "live", auth=auth_record("L1"), k3=k3_record("L1"))
+    # All mutating P4 stages (L1..L9) have reviewed handlers registered.
+    # Synthetic test fixture isolates a stages directory where a real mutating stage (L1)
+    # has no handler directory, proving fail-closed ROLLBACK_HANDLER_NOT_REGISTERED.
+    synthetic_stages = tmp_path / "synthetic_stages_empty"
+    synthetic_stages.mkdir(parents=True, exist_ok=True)
+    result = gate(
+        tmp_path,
+        "--stage",
+        "L1",
+        "--mode",
+        "live",
+        auth=auth_record("L1"),
+        k3=k3_record("L1"),
+        extra_env={"AEGIS_P4_HANDLER_DIR": str(synthetic_stages)},
+    )
     assert "STAGE_MUTATES_PRODUCTION=YES" in result.stdout
     assert "ROLLBACK_HANDLER=NOT_REGISTERED" in result.stdout
     gate_fail(result, "ROLLBACK_HANDLER_NOT_REGISTERED")
     assert "AUTHORIZATION_RECORD=VALID" in result.stdout
+
+
+def test_gate_live_mode_fails_if_handler_file_is_missing(tmp_path: Path) -> None:
+    # Proves that if even one of the five required handler files is missing, handler status is NOT_REGISTERED.
+    synthetic_stages = tmp_path / "synthetic_stages_partial"
+    stage_dir = synthetic_stages / "L1"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    for f in ("apply.sh", "verify.sh", "allow-keys.txt", "allow-listeners.txt"):
+        (stage_dir / f).touch()
+    result = gate(
+        tmp_path,
+        "--stage",
+        "L1",
+        "--mode",
+        "live",
+        auth=auth_record("L1"),
+        k3=k3_record("L1"),
+        extra_env={"AEGIS_P4_HANDLER_DIR": str(synthetic_stages)},
+    )
+    assert "ROLLBACK_HANDLER=NOT_REGISTERED" in result.stdout
+    gate_fail(result, "ROLLBACK_HANDLER_NOT_REGISTERED")
 
 
 @pytest.mark.parametrize("mode", ["simulate", "live"])
@@ -1120,3 +1156,152 @@ def test_capture_calls_only_read_only_commands_through_the_guard(tmp_path: Path)
         assert scan(argv) == [], argv
     compare(cap, cap)
     assert cap.calls.read_text().splitlines() == calls, "compare must not call host commands"
+
+
+# ── P. Phase 4 L0 harness portability and fail-closed repair regressions ──────
+
+def find_utf8_locale() -> str:
+    res = subprocess.run(["locale", "-a"], capture_output=True, text=True, check=False)
+    locales = set(res.stdout.splitlines())
+    for cand in ("en_US.UTF-8", "en_US.utf8", "C.UTF-8", "C.utf8"):
+        if cand in locales or cand.lower() in {l.lower() for l in locales}:
+            return cand
+    return "C.UTF-8"
+
+
+def test_gate_l0_authorization_passes_under_utf8_locale(tmp_path: Path) -> None:
+    loc = find_utf8_locale()
+    auth = auth_record("L0", scope="read-only baseline preflight capture",
+                       reference="PR11-L0-PREFLIGHT-2026-09-21")
+    result = gate(tmp_path, "--stage", "L0", "--mode", "simulate",
+                  auth=auth, extra_env={"LC_ALL": loc, "LANG": loc})
+    assert result.returncode == 0, f"Failed under locale {loc}: {result.stdout}\n{result.stderr}"
+    assert "AUTHORIZATION_RECORD=VALID" in result.stdout
+    assert "READ_ONLY_CAPTURE_ALLOWED=YES" in result.stdout
+    assert "STAGE_GATE=PASS_READ_ONLY" in result.stdout
+    assert "GATE_FAIL" not in result.stdout
+
+
+def test_capture_nm_profile_with_spaces_captured_safely(tmp_path: Path) -> None:
+    secret = canary()
+    fs = fs_fixture(secret)
+    fs["etc/NetworkManager/system-connections/Wired connection 1.nmconnection"] = f"[wifi-security]\npsk={secret}\n"
+    cap = capture(tmp_path, "spaces", fs=fs, secret=secret)
+    assert cap.result.returncode == 0, cap.result.stdout + cap.result.stderr
+    assert "L0_CAPTURE=COMPLETE" in cap.result.stdout
+    assert "REFUSED non-read-only command: stat" not in cap.result.stderr
+    log = (cap.evid / "capture.log").read_text()
+    assert "REFUSED non-read-only command: stat" not in log
+    rec = cap.records()
+    meta_key = "nm.profile./etc/NetworkManager/system-connections/Wired_connection_1.nmconnection.meta"
+    assert meta_key in rec, f"Expected {meta_key} in records: {list(rec.keys())}"
+    assert rec[meta_key] != "UNREADABLE", f"{meta_key} is UNREADABLE"
+    assert rec[meta_key].startswith("mode=")
+
+
+def test_read_only_guard_refuses_extra_argv_boundary_violation(tmp_path: Path) -> None:
+    bindir = make_bin(tmp_path)
+    calls = tmp_path / "calls.log"
+    calls.touch()
+    extra_argv_cases = [
+        ["stat", "-c", "%a:%u:%g:%s:%Y", "--", "/valid/path", "/extra/arg"],
+        ["stat", "-c", "%a:%u:%g:%s:%Y", "--", "/path with space", "extra"],
+        ["sha256sum", "--", "/valid/path", "/extra/arg"],
+        ["sha256sum", "--", "/path with space", "extra"],
+        ["readlink", "--", "/valid/path", "/extra/arg"],
+        ["readlink", "-f", "--", "/valid/path", "/extra/arg"],
+        ["find", "/valid/path", "-xdev", "-type", "f", "-delete"],
+        ["find", "/valid/path", "/extra/path", "-xdev", "-type", "f"],
+    ]
+    for argv in extra_argv_cases:
+        words = " ".join(f"'{w}'" for w in argv)
+        result = ro(f"p4_ro {words}", bindir, calls)
+        assert result.returncode == 126, f"Expected 126 for {argv}, got {result.returncode}"
+        assert "REFUSED non-read-only command:" in (result.stdout + result.stderr)
+
+
+def test_read_only_guard_refuses_control_characters_in_paths(tmp_path: Path) -> None:
+    bindir = make_bin(tmp_path)
+    calls = tmp_path / "calls.log"
+    calls.touch()
+    bad_paths = [
+        "/path/with\nnewline",
+        "/path/with\rCR",
+        "/path/with\ttab",
+        "/path/with\x1bescape",
+        "/path/with\x07bell",
+    ]
+    for bp in bad_paths:
+        for cmd in [
+            ["stat", "-c", "%a:%u:%g:%s:%Y", "--", bp],
+            ["sha256sum", "--", bp],
+            ["readlink", "--", bp],
+            ["find", bp, "-xdev", "-type", "f"],
+        ]:
+            words = " ".join(f"'{w}'" for w in cmd)
+            result = ro(f"p4_ro {words}", bindir, calls)
+            assert result.returncode == 126, f"Expected 126 for {cmd}, got {result.returncode}"
+            assert "REFUSED non-read-only command:" in (result.stdout + result.stderr)
+
+
+def test_capture_required_metadata_read_failure_results_in_partial_and_exit_3(tmp_path: Path) -> None:
+    # Simulate an unreadable metadata failure on a required capture surface by intercepting stat
+    root = tmp_path / "meta_fail"
+    root.mkdir(parents=True)
+    fix = root / "fix"
+    write_tree(fix, healthy_fixtures())
+    fsroot = root / "fsroot"
+    write_tree(fsroot, fs_fixture("canary_meta_fail"))
+    bindir = make_bin(root)
+    # Create a wrapper stat that fails specifically when called on the NM connection profile
+    real_stat = shutil.which("stat")
+    wrapper = bindir / "stat"
+    wrapper.unlink()
+    wrapper.write_text(f"""#!/usr/bin/env bash
+for arg in "$@"; do
+  if [[ "$arg" == *"ap-test.nmconnection"* ]]; then
+    echo "simulated stat I/O failure" >&2
+    exit 1
+  fi
+done
+exec {real_stat} "$@"
+""")
+    wrapper.chmod(0o755)
+
+    calls = root / "calls.log"
+    calls.touch()
+    evid = root / "evidence"
+    base = {
+        "PATH": str(bindir), "HOME": str(root), "LC_ALL": "C", "P4_FIX": str(fix), "P4_CALL_LOG": str(calls),
+        "EVID_DIR": str(evid), "CAPTURE_LABEL": "meta-fail", "JOURNAL_SINCE": JOURNAL_SINCE,
+        "AEGIS_P4_FS_ROOT": str(fsroot),
+    }
+    result = subprocess.run(["bash", str(CAPTURE)], capture_output=True, text=True, env=base,
+                            stdin=subprocess.DEVNULL, timeout=120, check=False)
+    assert result.returncode == 3, f"Expected exit code 3, got {result.returncode}\n{result.stdout}\n{result.stderr}"
+    assert "L0_CAPTURE=PARTIAL" in result.stdout
+    rec: dict[str, str] = {}
+    for tsv in evid.glob("*.tsv"):
+        for line in tsv.read_text().splitlines():
+            k, _, v = line.partition("\t")
+            rec[k] = v
+    assert rec.get("meta.capture_status") == "PARTIAL"
+    assert rec.get("nm.profile./etc/NetworkManager/system-connections/ap-test.nmconnection.meta") == "UNREADABLE"
+
+
+def test_secret_hygiene_nm_profile_with_spaces_never_emitted(tmp_path: Path) -> None:
+    secret = canary()
+    fs = fs_fixture(secret)
+    fs["etc/NetworkManager/system-connections/Wired connection 1.nmconnection"] = f"[wifi-security]\npsk={secret}\n"
+    cap = capture(tmp_path, "spaces_secret", fs=fs, secret=secret)
+    rec = cap.records()
+    profile_class = rec.get("nm.profile./etc/NetworkManager/system-connections/Wired_connection_1.nmconnection.class")
+    assert profile_class == "secret-metadata-only"
+    assert "nm.profile./etc/NetworkManager/system-connections/Wired_connection_1.nmconnection.sha256" not in rec
+
+    streams = [cap.result.stdout, cap.result.stderr]
+    for p in cap.evid.rglob("*"):
+        if p.is_file():
+            streams.append(p.read_text(errors="replace"))
+    for s in streams:
+        assert secret not in s, "Secret leaked into capture output or bundle files"

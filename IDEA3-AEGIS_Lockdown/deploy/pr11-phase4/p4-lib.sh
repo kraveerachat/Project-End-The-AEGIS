@@ -8,6 +8,7 @@
 #   2026-09-17-idea3-pr11-phase4-runtime-prerequisites.md (§6 G-15, §9–§12)
 # Regression tests: IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_harness.py
 
+export LC_ALL=C
 readonly P4_SCHEMA=1
 readonly P4_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -73,7 +74,9 @@ p4_stage_auth_extra() {
 # rollback.sh must be idempotent, must only undo its own stage, and must never
 # delete an entire firewall ruleset, send RESTORE, reopen plaintext MQTT as a
 # fallback, or change IDEA1/IDEA2 state.
-readonly P4_HANDLER_DIR="$P4_HERE/stages"
+# AEGIS_P4_HANDLER_DIR is a TEST-ONLY override for testing missing/unregistered
+# stage handler directory branches in test fixtures. A real run leaves it unset.
+readonly P4_HANDLER_DIR="${AEGIS_P4_HANDLER_DIR:-$P4_HERE/stages}"
 readonly P4_HANDLER_FILES="apply.sh verify.sh rollback.sh allow-keys.txt allow-listeners.txt"
 
 p4_stage_handler_status() {
@@ -98,8 +101,18 @@ p4_log() {
 # single spaces) must match one of these anchored patterns, or the command is
 # refused with status 126 and never executed. There is deliberately no pattern
 # for any change verb.
+# Safe absolute filesystem path: starts with '/', allows ordinary spaces and
+# standard path characters. Rejects newline, CR, tab, escape, or any control
+# bytes (0x01-0x1F, 0x7F).
+p4_is_safe_fs_path() {
+  local p="$1"
+  [ -n "$p" ] || return 1
+  [[ "$p" == *$'\n'* || "$p" == *$'\r'* || "$p" == *$'\t'* || "$p" =~ [$'\x01'-$'\x1f'$'\x7f'] ]] && return 1
+  [[ "$p" =~ ^/[A-Za-z0-9@._+:\ /-]+$ ]] || return 1
+  return 0
+}
+
 readonly P4_P='[A-Za-z0-9@._-]+'
-readonly P4_PATH='/[A-Za-z0-9@._+:/-]*'
 P4_RO_ALLOW=(
   "^ip -br (addr|link) show$"
   "^ip -[46] (route|rule) show$"
@@ -117,13 +130,47 @@ P4_RO_ALLOW=(
   "^hostnamectl --static$"
   "^uname -r$"
   "^twingate status$"
-  "^find ${P4_PATH} -xdev -type f$"
-  "^stat -c %a:%u:%g:%s:%Y -- ${P4_PATH}$"
-  "^sha256sum -- ${P4_PATH}$"
-  "^readlink( -f)? -- ${P4_PATH}$"
 )
 
 p4_ro_allowed() {
+  case "${1:-}" in
+    stat)
+      [ $# -eq 5 ] || return 1
+      [ "$2" = "-c" ] || return 1
+      [ "$3" = "%a:%u:%g:%s:%Y" ] || return 1
+      [ "$4" = "--" ] || return 1
+      p4_is_safe_fs_path "$5" || return 1
+      return 0
+      ;;
+    sha256sum)
+      [ $# -eq 3 ] || return 1
+      [ "$2" = "--" ] || return 1
+      p4_is_safe_fs_path "$3" || return 1
+      return 0
+      ;;
+    readlink)
+      if [ $# -eq 3 ]; then
+        [ "$2" = "--" ] || return 1
+        p4_is_safe_fs_path "$3" || return 1
+        return 0
+      elif [ $# -eq 4 ]; then
+        [ "$2" = "-f" ] || return 1
+        [ "$3" = "--" ] || return 1
+        p4_is_safe_fs_path "$4" || return 1
+        return 0
+      fi
+      return 1
+      ;;
+    find)
+      [ $# -eq 5 ] || return 1
+      p4_is_safe_fs_path "$2" || return 1
+      [ "$3" = "-xdev" ] || return 1
+      [ "$4" = "-type" ] || return 1
+      [ "$5" = "f" ] || return 1
+      return 0
+      ;;
+  esac
+
   local argv="$*" re
   for re in "${P4_RO_ALLOW[@]}"; do
     [[ "$argv" =~ $re ]] && return 0
