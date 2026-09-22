@@ -3,7 +3,7 @@ title: IDEA3 AEGIS Lockdown MOC
 tags: [aegis, idea3, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-09-16
+updated: 2026-09-22
 owner: music
 edit_policy: owner-writable
 ---
@@ -13,40 +13,27 @@ edit_policy: owner-writable
 ## Start here
 
 Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. Its
-newest section is the PR11 Phase 2 runtime final closeout (2026-09-17, PR #146
-Draft). Owner-run T3 (wrong CA) and T4 (revoked certificate) are PASS, so
-`PHASE2_RUNTIME_COMPLETE = YES`; T5 is not claimed, and K12, Phase 3, Phase 4,
-D4 live, and PR11 remain open. The section before it is the PR11 Phase 2 runtime
-live evidence reconciliation (2026-09-16), whose T3/T4 SKIP state is superseded. It recorded Phase 2A PASS, Phase 2B
-activated live without a HUB recreate, and K8, K9, and K10 PASS. Neither
-reconciliation made a Production change. The section before that is Music's approve-only K3/K7 pre-mutation owner package (2026-09-16). Owner-run read-only evidence explained why the running HUB's
-config-hash differs from the current base Compose: the base pinned the HUB's
-`aegis_internal` address on 2026-09-12, and Phase 2A adds only the IDEA3
-network. Music proposes accepting the current base HUB semantics for the next
-HUB recreate. K3 is not proven clear, so Kla is asked to confirm in writing that
-the IDEA1 window is closed. Before that, PR #139 merged at `8cf917bf` with Kla's
-APPROVED review, so the K1/K3/K7 decisions are accepted. Nothing in Production
-changed, and Stage B is not allowed.
-Next is the D4 Core-local RESTORE repository implementation, merged as PR #138
-at `3fd8d4d1`. It is COMPLETE and LOCAL VERIFIED and was never run live. Web,
-Telegram, and automatic RESTORE remain unavailable. PR #137 merged at
-`7a805963` with an empty-body Kla approval that decided nothing. A later section
-records the owner-run P2-E1 read-only Production evidence
-(2026-09-15): the live HUB NGINX artifact differs from the reviewed Git
-artifact (K1 FAIL / live drift), the `172.31.243.0/29` live collision recheck
-passed (K4), the running HUB was created from one Compose file (K7 BLOCKED),
-and K8/K9/K10 remain BLOCKED. Nothing in Production changed. PR #133
-merged the Phase 3 Core-only repository package at `2742be27`; Phase 3 runtime
-remains incomplete. PR #135 merged the Phase 4 Protocol v1 repository package
-at `f0a87ee1`: independent per-device keys, durable
-sequence/replay storage, trusted-time gates, TLS-only MQTT and exact ACL
-contracts, Python/firmware golden-vector parity, compile-verified ESP32 code,
-and repository-safe negative controls are locally verified. This is not live
-evidence: no Production service, broker, AP, certificate, key, board, relay,
-CUT, or RESTORE was changed. PR #132's container remains the sole Production
-Web owner. Phase 2/3 runtime, live/hardware values, D4 recovery authority, and
-explicit rollout authorization remain blocking. `PHASE4_LIVE_ALLOWED = NO` and
-`PRODUCTION_MUTATION_AUTHORIZED = NO`.
+newest section is the IDEA3 Final Project — PR11 MVP Scope Freeze (2026-09-22).
+Following the merge of PR #178 (`7f30b9ca` / `3b91fc40`), IDEA3 Final Project scope
+is formally frozen as **Security Orchestrator + Physical Containment MVP**.
+The core flow connects attack detection, incident logging, source-IP extraction,
+dynamic software IP blocking for HIGH severity, authenticated Protocol v1
+containment and ESP32 physical network CUT for CRITICAL severity, and authorized
+administrator recovery. PR11 exit criteria and PR12 A1–A7 final acceptance scenarios
+are defined in `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-22-idea3-pr11-mvp-scope-freeze.md`.
+Software IP blocking/unblocking on Arch Linux Core remains an open implementation
+gap (`SOFTWARE_IP_BLOCKING = OPEN_NEEDS_IMPLEMENTATION`), live cross-IDEA integrations
+remain open, IDEA2 narrowed preservation is pending owner decision
+(`IDEA2_NARROWED_PRESERVATION = OWNER_DECISION_PENDING`), and post-production
+hardening items are deferred (`POST_PRODUCTION_HARDENING = DEFER_FUTURE_WORK`).
+`PR11_MVP_COMPLETE = NO` and `PR12_FINAL_ACCEPTANCE = OPEN`.
+The section before it is the PR11 Phase 4 L1 disk-threshold owner decision
+reconciliation (2026-09-22, PR #178 merged), which set canonical disk threshold to
+90% and resolved the PR #174 conflict for repository purposes while keeping live
+L1 blocked on disk usage (96%), IDEA2 §10, and required authorizations.
+The section before that is the official post-repair read-only baseline acceptance
+(2026-09-21), and earlier sections document the Phase 4 harness and Phase 2 runtime
+closeout.
 
 ## Owned source and canonical notes
 
@@ -54,7 +41,9 @@ Owner: **Music**. The owned code area is `IDEA3-AEGIS_Lockdown/`; the canonical 
 
 ## Current state and open work
 
-The Headless Python Core, authenticated MQTT command lifecycle, correlated ACK/STATUS firmware contract, dry-run safeguards, and automated regressions are established on `main`. Project-sequence PR5 preserves the firmware contract `GPIO27 LOW = LOCKDOWN/CUT` and `GPIO27 HIGH = NORMAL/RESTORE`; external ULN2003 inversion plus pull-down/pull-up biasing produced the required relay behavior. RJ45 continuity, powered EN/reset, reconnect-without-auto-restore, explicit recovery, and real Ethernet traffic interruption/recovery were observed by the owner. Total-control-power-loss fail-secure behavior remains unproven, the breadboard prototype requires deployment-grade mechanical stabilization, and final relay-cycle Twingate auto-recovery is not claimed. PR10 server-hosted Web and Arch Linux Core deployment, PR11 live cross-IDEA and authorized E2E, and PR12 final acceptance remain open; the Windows standalone (PR8) is historical and not the final deployment target. `PRODUCTION_DEPLOYED = NO`; `IDEA3_PRODUCTION_COMPLETE = NO`. See [[idea3/idea3-status]] for the exact evidence boundary.
+The Headless Python Core, authenticated MQTT command lifecycle, correlated ACK/STATUS firmware contract, dry-run safeguards, and automated regressions are established on `main`. Project-sequence PR5 preserves the firmware contract `GPIO27 LOW = LOCKDOWN/CUT` and `GPIO27 HIGH = NORMAL/RESTORE`; external ULN2003 inversion plus pull-down/pull-up biasing produced the required relay behavior. RJ45 continuity, powered EN/reset, reconnect-without-auto-restore, explicit recovery, and real Ethernet traffic interruption/recovery were observed by the owner. Total-control-power-loss fail-secure behavior remains unproven, the breadboard prototype requires deployment-grade mechanical stabilization, and final relay-cycle Twingate auto-recovery is not claimed.
+
+PR #178 is merged on `main` (`PR178_MERGED = YES`). IDEA3 scope is formally frozen as a Security Orchestrator + Physical Containment MVP (`PR11_MVP_SCOPE = SECURITY_ORCHESTRATOR_PHYSICAL_CONTAINMENT`, `SCOPE_FREEZE_OWNER_APPROVED = YES`). Dynamic nftables software IP blocking on the Arch Core remains an open repository implementation gap (`SOFTWARE_IP_BLOCKING = OPEN_NEEDS_IMPLEMENTATION`, `SOFTWARE_IP_UNBLOCK = OPEN_NEEDS_IMPLEMENTATION`). All Phase 4 handlers L1..L9 are registered and merged (`L2_L9_REPOSITORY_HANDLERS = ALREADY_CLOSED`, `L2_L9_LIVE_EXECUTION = OPEN_NEEDS_EVIDENCE`). PR10 server-hosted Web and Arch Linux Core deployment, PR11 live cross-IDEA and authorized E2E (`PR11_MVP_COMPLETE = NO`), and PR12 final acceptance (`PR12_FINAL_ACCEPTANCE = OPEN`) remain open. Extended production hardening and full DR certification are deferred (`POST_PRODUCTION_HARDENING = DEFER_FUTURE_WORK`). `PRODUCTION_DEPLOYED = NO`; `IDEA3_PRODUCTION_COMPLETE = NO`. See [[idea3/idea3-status]] for the exact evidence boundary.
 
 ## Shared dependencies
 
