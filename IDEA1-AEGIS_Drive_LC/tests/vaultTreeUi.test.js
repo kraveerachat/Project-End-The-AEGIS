@@ -3,7 +3,7 @@
 // สิ่งที่ชุดนี้ตรึงไว้:
 //   UI-1  folder/file tiles: testid/ไอคอนต่างกัน; โฟลเดอร์โชว์จำนวนลูก (active view) ไม่โชว์ขนาด;
 //         ไฟล์โชว์ขนาด/ชนิดจาก manifest node (ไม่ใช่ซองเลกาซี)
-//   UI-2  ล็อกอยู่: จอต้นไม้ไม่มีอยู่เลย — ม่านทึบแสดงแค่ `${id}.aegisenc` + ขนาด ciphertext (มรดกเดิม)
+//   UI-2  ล็อกอยู่: จอต้นไม้ไม่มีอยู่เลย — fixed ambient preview ไม่เผยจำนวน/ชื่อ/id/metadata ของ ciphertext
 //   UI-3  breadcrumbs วาด root → … → current; คลิก/Enter/Space เรียก onNavigate; crumb ปัจจุบัน aria-current="page"
 //   UI-4  Ctrl/Cmd-click บนตัวไทล์ = เลือกเพิ่ม (additive); คลิกช่องติ๊ก = สลับ; คลิกตัวไทล์เปล่า ๆ = เปิดโฟลเดอร์ / พรีวิวไฟล์
 //   UI-5  เมนูครบตามสัญญาต่อชนิด; Preview หายไปเมื่อ previewKindFor(mime) เป็น null; ข้อความที่ปิดใช้งานมีเหตุผลจริง
@@ -157,25 +157,66 @@ test('FOLDER_NAME_2: Folder node name="Folder B" visibly renders "Folder B" with
 })
 
 /* ── UI-2 ─────────────────────────────────────────────────────────────────── */
-test('UI-2 locked vault with TREE_V1 + treeUiEnabled: no tree UI exists; the locked veil shows only opaque inventory', async () => {
+test('LOCKED-VAULT-UI-TEST-1..3 locked preview is fixed, decorative, and reveals no inventory-derived content', async () => {
   const backend = makeVaultTreeBackend({ flags: { treeUiEnabled: true } })
   backend.tree.protocolState = 'TREE_V1'
-  backend.state['/api/vault'] = {
-    loading: false,
-    data: { configured: true, blobs: [serverBlob({ id: 'lockedblob1'.padEnd(22, 'x'), name: 'secret-notes.txt', plainSize: 128, size: 256 })] },
-    error: null,
-  }
   globalThis.__VAULT_BACKEND__ = backend
   const { Vault } = await env.load('/src/screens/Vault.jsx')
-  const h = env.mount()
-  try {
+  const renderLocked = async (count) => {
+    backend.state['/api/vault'] = {
+      loading: false,
+      data: {
+        configured: true,
+        blobs: Array.from({ length: count }, (_, index) => serverBlob({
+          id: `locked-${index}`.padEnd(22, 'x'),
+          name: `real-secret-${index}.txt`,
+          plainSize: 128 + index,
+          size: 256 + index,
+        })),
+      },
+      error: null,
+    }
+    const h = env.mount()
     await h.render(React.createElement(Vault, { t }))
+    const preview = q('[data-testid="locked-vault-preview"]')
+    assert.ok(preview, 'dedicated locked preview renders')
     assert.ok(!q('[data-testid="vault-tree-screen"]'), 'a locked vault renders no tree screen')
-    assert.ok(!q('[data-testid="vault-folder-tile"]') && !q('[data-testid="vault-file-tile"]'), 'locked: no tiles at all')
-    const veil = doc().body.textContent
-    assert.ok(veil.includes('.aegisenc'), 'the locked veil still renders the opaque inventory (`${id}.aegisenc`)')
-    assert.ok(veil.includes('256'), 'the veil shows the ciphertext size')
-    assert.ok(!veil.includes('secret-notes.txt'), 'no plaintext name is rendered while locked')
+    assert.ok(!q('[data-testid="vault-folder-tile"]') && !q('[data-testid="vault-file-tile"]'), 'locked: no real tree tiles')
+    assert.equal(qa('[data-vault-tile-menu]').length, 0, 'locked preview has no per-item actions')
+    assert.ok(!preview.textContent.includes('.aegisenc'), 'opaque ids are not enumerated')
+    assert.ok(!preview.textContent.includes('real-secret-'), 'plaintext names never render')
+    assert.ok(preview.textContent.includes(t('vaultLocked')), 'locked semantics remain explicit')
+    assert.ok(preview.textContent.includes(t('vaultKeyNote')), 'encryption explanation remains clear')
+    assert.ok(qa('[data-testid="locked-vault-ambient"]').every((el) => el.getAttribute('aria-hidden') === 'true'), 'ambient blocks are decorative')
+    const ambientCount = qa('[data-testid="locked-vault-ambient"]').length
+    await h.unmount()
+    return ambientCount
+  }
+
+  const oneItemCount = await renderLocked(1)
+  const manyItemCount = await renderLocked(11)
+  assert.equal(oneItemCount, manyItemCount, 'ambient composition never scales with inventory count')
+  assert.equal(oneItemCount, 7, 'the approved composition has a bounded fixed block count')
+})
+
+test('VAULT-FILE-DRAG-WIRING-1 VaultFileTile calls its onDragStart prop exactly once', async () => {
+  const { VaultFileTile } = await env.load('/src/components/vault/VaultFileTile.jsx')
+  const h = env.mount()
+  let calls = 0
+  try {
+    await h.render(React.createElement(VaultFileTile, {
+      t,
+      node: { nodeId: 'drag-file'.padEnd(22, 'f'), name: 'drag.png', kind: 'file', mediaType: 'image/png', plainSize: 2048 },
+      selected: true,
+      onSelect: () => {},
+      onPreview: () => {},
+      onAction: () => {},
+      onDragStart: () => { calls += 1 },
+    }))
+    await act(async () => {
+      q('[data-testid="vault-file-tile"]').dispatchEvent(new dom.window.Event('dragstart', { bubbles: true, cancelable: true }))
+    })
+    assert.equal(calls, 1, 'the callback reaches the screen drag pipeline exactly once')
   } finally {
     await h.unmount()
   }

@@ -641,7 +641,7 @@ test('TS-14 bulk download runs sequentially, skips folders, and stops on lock', 
   }
 })
 
-test('TS-15 locked-state details show the opaque id; unlocked details show manifest fields only', async () => {
+test('TS-15 locked state exposes no per-item details or inventory identifiers', async () => {
   backend = makeVaultTreeBackend()
   wireBridge()
   globalThis.__VAULT_BACKEND__ = backend
@@ -654,14 +654,10 @@ test('TS-15 locked-state details show the opaque id; unlocked details show manif
   const h = env.mount()
   try {
     await h.render(React.createElement((await env.load('/src/screens/Vault.jsx')).Vault, { t }))
-    const lockedMenu = qa('[data-vault-tile-menu]')[0]
-    await click(dom, lockedMenu)
-    await click(dom, qa('[role="menuitem"]').find((el) => el.textContent.trim() === t('vaultEncryptedDetails')))
-    await tick(2)
-    const modal = q('[role="dialog"]')
-    assert.ok(modal, 'the details modal opens')
-    assert.ok(modal.textContent.includes(opaqueId), 'the opaque id shows in the LOCKED details (existing behaviour)')
-    assert.ok(!modal.textContent.includes('secret.txt'), 'the plaintext name never shows while locked')
+    assert.ok(q('[data-testid="locked-vault-preview"]'), 'the fixed locked preview replaces inventory tiles')
+    assert.equal(qa('[data-vault-tile-menu]').length, 0, 'there is no per-item detail entry while locked')
+    assert.ok(!doc().body.textContent.includes(opaqueId), 'the opaque inventory id is not exposed')
+    assert.ok(!doc().body.textContent.includes('secret.txt'), 'the plaintext name never shows while locked')
     assert.ok(!q('[data-testid="vault-tree-screen"]'), 'the FLAT screen has no tree region')
   } finally {
     await h.unmount()
@@ -970,6 +966,64 @@ test('REAL-DRAG-1..10 multi-item drag payload, breadcrumb/folder drop, atomic mo
     await settle()
     const singlePayload = readDragPayload(dtSingle)
     assert.equal(singlePayload.length, 1, 'unselected drag carries only 1 item')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('VAULT-FILE-DRAG-WIRING-2/3 selected file drag writes the complete payload and folder dragover accepts move', async () => {
+  const ids = ['FD1', 'FD2', 'FD3'].map((prefix) => prefix.padEnd(22, prefix.at(-1)))
+  fakeTree = await createFakeTreeServer({ kek, blobs: ids.map((id) => ({ formatVersion: 2, id })) })
+  backend.state['/api/vault'] = {
+    loading: false,
+    data: { configured: true, blobs: ids.map((id, index) => serverBlobV2({ id, name: `drag-${index + 1}.png`, type: 'image/png', plainSize: 64 })) },
+    error: null,
+  }
+  wireBridge()
+  const seed = modules.sync.createTreeSession({ kek, api: modules.api })
+  const start = await seed.loadHead()
+  const rootId = start.manifest.rootNodeId
+  await seed.commit(modules.ops.intents.createFolder({ parentNodeId: rootId, name: 'Drop Target' }))
+  for (const [index, id] of ids.entries()) {
+    await seed.commit(modules.ops.intents.attachBlob({
+      parentNodeId: rootId,
+      name: `drag-${index + 1}.png`,
+      mediaType: 'image/png',
+      plainSize: 64,
+      blobRef: { formatVersion: 2, id },
+    }))
+  }
+
+  const { isInternalItemDrag, readDragPayload } = await env.load('/src/lib/fileDragDrop.js')
+  const h = await mountUnlocked()
+  try {
+    const files = fileTiles().filter((tile) => tile.textContent.includes('drag-'))
+    assert.equal(files.length, 3, 'three file tiles render')
+    for (const tile of files) await click(dom, tile.querySelector('[data-testid="vault-tree-tile-checkbox"]'))
+
+    const values = {}
+    const dt = {
+      types: [],
+      dropEffect: 'none',
+      effectAllowed: 'none',
+      setData(type, value) { if (!this.types.includes(type)) this.types.push(type); values[type] = String(value) },
+      getData(type) { return values[type] ?? '' },
+    }
+    const dragStart = new dom.window.Event('dragstart', { bubbles: true, cancelable: true })
+    Object.defineProperty(dragStart, 'dataTransfer', { value: dt })
+    await act(async () => files[0].dispatchEvent(dragStart))
+    await settle()
+
+    assert.equal(isInternalItemDrag(dt), true, 'file drag is classified as internal')
+    assert.equal(readDragPayload(dt).length, 3, 'payload contains the full selected file set')
+    assert.equal(dt.effectAllowed, 'move', 'source declares move semantics')
+
+    const destination = folderTiles().find((tile) => tile.textContent.includes('Drop Target'))
+    const dragOver = new dom.window.Event('dragover', { bubbles: true, cancelable: true })
+    Object.defineProperty(dragOver, 'dataTransfer', { value: dt })
+    await act(async () => destination.dispatchEvent(dragOver))
+    assert.equal(dragOver.defaultPrevented, true, 'valid folder target accepts dragover')
+    assert.equal(dt.dropEffect, 'move', 'folder target presents move cursor semantics')
   } finally {
     await h.unmount()
   }

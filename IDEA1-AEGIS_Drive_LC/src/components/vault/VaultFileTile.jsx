@@ -75,7 +75,7 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
       onDragStart={(event) => {
         if (touchGestureRef.current) { event.preventDefault(); return }
         dragOccurredRef.current = true
-        rest.onDragStart?.(event)
+        onDragStart?.(event)
       }}
       onDragEnd={(event) => {
         setTimeout(() => { dragOccurredRef.current = false }, 100)
