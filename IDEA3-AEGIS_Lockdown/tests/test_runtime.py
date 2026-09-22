@@ -1463,3 +1463,21 @@ class TestSafeRuntimeProjection:
         assert projection["status"] == "UNKNOWN"
         assert projection["generatedAt"] is None
         assert projection["evidenceSource"] == "RUNTIME_STATUS_ABSENT"
+
+
+@pytest.mark.parametrize("response", [
+    {"ok": True, "changed": True, "operation": "block", "ip": "203.0.113.70", "reason_code": "BLOCKED"},
+    {"ok": False, "changed": False, "operation": "block", "ip": None, "reason_code": "NFT_FAILED"},
+])
+def test_generic_attacker_callback_never_calls_issue_command(tmp_path, response):
+    """Neither success nor failure of software containment escalates to physical CUT."""
+    supervisor, mqtt, _ = _live_supervisor(tmp_path, containment=FakeContainment(response))
+    issued = []
+    supervisor.issue_command = lambda *args, **kwargs: issued.append((args, kwargs))
+
+    supervisor._on_attacker("203.0.113.70")
+    supervisor._on_attacker("not-an-ip")
+    supervisor._on_attacker("2001:db8::70")
+
+    assert issued == []
+    assert mqtt.published == []

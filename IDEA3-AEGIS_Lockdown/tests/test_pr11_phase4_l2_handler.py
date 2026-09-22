@@ -332,3 +332,35 @@ def test_l2_fixture_roundtrip_manages_containment_and_rollback_is_idempotent(tmp
 
     for artifact in CONTAINMENT_ARTIFACTS:
         assert not (fs_root / artifact).exists(), artifact
+
+
+def test_l2_fixture_apply_installs_exactly_the_idea3_owned_artifacts(tmp_path: Path) -> None:
+    render_dir = render_t5_material(tmp_path)
+    fs_root = tmp_path / "root"
+    result = run_handler(
+        HANDLER / "apply.sh", fs_root=fs_root, render_dir=render_dir, work_dir=tmp_path / "work"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    installed = sorted(str(p.relative_to(fs_root)) for p in fs_root.rglob("*") if p.is_file())
+    assert installed == sorted([
+        "etc/aegis-idea3/aegis-idea3.nft",
+        "etc/aegis-idea3/containment.env",
+        "etc/sysctl.d/90-aegis-idea3-forwarding.conf",
+        "etc/systemd/system/aegis-idea3-containment.service",
+        "etc/systemd/system/aegis-idea3-containment.socket",
+        "etc/systemd/system/aegis-idea3-nftables-load.service",
+    ])
+
+
+def test_l2_handlers_never_touch_routes_or_other_tables() -> None:
+    combined = "\n".join(
+        code_text(HANDLER / name) for name in ("apply.sh", "verify.sh", "rollback.sh")
+    )
+    assert re.search(r"\bip\s+(-[46]\s+)?route\b", combined) is None
+    mutations = re.findall(r"nft\s+(?:add|delete|flush|insert|replace|create)\b[^\n|]*", combined)
+    assert mutations
+    for mutation in mutations:
+        assert [t.strip("\"") for t in mutation.split()[:5]] == ["nft", "delete", "table", "inet", "aegis_idea3"], mutation
+    assert "sysctl -w \"$key=0\"" in combined
+    assert re.search(r"sysctl\s+-w\s+\S+=1", combined) is None

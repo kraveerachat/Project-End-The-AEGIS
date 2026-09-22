@@ -380,3 +380,169 @@ def test_containment_units_keep_core_unprivileged():
     assert "EnvironmentFile=/etc/aegis-idea3/containment.env" in service
     assert "-m aegis_soc.ip_containment" in service
     assert "RestrictAddressFamilies=AF_UNIX AF_NETLINK" in service
+
+
+# Hardening -------------------------------------------------------------------
+
+def test_listing_without_reviewed_set_is_a_failure():
+    def other_set(argv, **kwargs):
+        body = {"nftables": [{"set": {"family": "inet", "table": "other", "name": "blocked_ipv4", "elem": []}}]}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+
+    service = ipc.ContainmentService(ipc.NftBlockSet(runner=other_set), PROTECTED)
+    response = service.handle({"op": "block", "ip": "203.0.113.10"})
+    assert response["ok"] is False and response["reason_code"] == "NFT_FAILED"
+
+
+def test_add_that_nft_accepts_but_does_not_apply_is_not_success():
+    class SilentAdd(FakeNft):
+        def __call__(self, argv, **kwargs):
+            if argv[1] == "add":
+                self.calls.append((list(argv), kwargs))
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            return super().__call__(argv, **kwargs)
+
+    service, _nft = _service(SilentAdd())
+    response = service.handle({"op": "block", "ip": "203.0.113.10"})
+    assert response["ok"] is False and response["reason_code"] == "NFT_FAILED"
+
+
+@pytest.mark.parametrize(
+    "request_body",
+    [
+        {"op": "block", "ip": "203.0.113.10"},
+        {"op": "unblock", "ip": "203.0.113.10"},
+        {"op": "contains", "ip": "203.0.113.10"},
+        {"op": "list"},
+    ],
+)
+def test_every_nft_call_targets_only_the_reviewed_set(request_body):
+    service, nft = _service(FakeNft({"203.0.113.10"}))
+    service.handle(request_body)
+    assert nft.calls
+    for argv, kwargs in nft.calls:
+        assert argv[0] == "/usr/bin/nft"
+        tail = argv[argv.index("inet"):argv.index("inet") + 3]
+        assert tail == ["inet", "aegis_idea3", "blocked_ipv4"]
+        assert "shell" not in kwargs
+
+
+@pytest.mark.parametrize("key", ["table", "set", "family"])
+def test_caller_cannot_select_table_or_set(key):
+    service, nft = _service()
+    response = service.handle({"op": "block", "ip": "203.0.113.10", key: "filter"})
+    assert response["ok"] is False and response["reason_code"] == "MALFORMED_REQUEST"
+    assert nft.calls == []
+
+
+def test_concurrent_requests_are_serialized():
+    import time
+
+    active = []
+    overlaps = []
+
+    class SlowNft(FakeNft):
+        def __call__(self, argv, **kwargs):
+            active.append(1)
+            if len(active) > 1:
+                overlaps.append(list(argv))
+            time.sleep(0.005)
+            try:
+                return super().__call__(argv, **kwargs)
+            finally:
+                active.pop()
+
+    service, nft = _service(SlowNft())
+    ips = [f"203.0.113.{n}" for n in range(10, 20)]
+    threads = [threading.Thread(target=service.handle, args=({"op": op, "ip": ip},))
+               for ip in ips for op in ("block", "unblock", "block")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+    assert overlaps == []
+    assert nft.elements <= set(ips)
+
+
+def _raw_exchange(tmp_path, payload: bytes, *, close_write=True):
+    service, nft = _service()
+    path, listener, thread = _serve_once(tmp_path, service)
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.settimeout(3)
+    client.connect(str(path))
+    client.sendall(payload)
+    if close_write:
+        client.shutdown(socket.SHUT_WR)
+    reply = client.makefile("rb").readline()
+    client.close()
+    thread.join(3)
+    listener.close()
+    return json.loads(reply), nft
+
+
+@pytest.mark.parametrize(
+    ("payload", "code"),
+    [
+        (b"not json\n", "MALFORMED_REQUEST"),
+        (b'{"op":"drop-table"}\n', "UNKNOWN_OPERATION"),
+        (b'{"op":"block","ip":"' + b"9" * 4096 + b'"}\n', "REQUEST_TOO_LARGE"),
+        (b"x" * 10_000, "REQUEST_TOO_LARGE"),
+        (b"", "MALFORMED_REQUEST"),
+    ],
+)
+def test_socket_rejects_malformed_and_oversized_payloads(tmp_path, payload, code):
+    response, nft = _raw_exchange(tmp_path, payload)
+    assert response["ok"] is False and response["reason_code"] == code
+    assert nft.calls == []
+
+
+def test_server_survives_client_that_disconnects_early(tmp_path):
+    service, _nft = _service()
+    path, listener, thread = _serve_once(tmp_path, service)
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.connect(str(path))
+    client.close()
+    thread.join(3)
+    listener.close()
+    assert not thread.is_alive()
+
+
+def test_client_rejects_non_json_reply(tmp_path):
+    path = tmp_path / "bogus.sock"
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(path))
+    listener.listen(1)
+
+    def reply_garbage():
+        connection, _ = listener.accept()
+        with connection:
+            connection.recv(1024)
+            connection.sendall(b"garbage\n")
+
+    thread = threading.Thread(target=reply_garbage, daemon=True)
+    thread.start()
+    try:
+        client = ipc.ContainmentClient(path, timeout=2, expected_server_uid=os.geteuid())
+        with pytest.raises(ipc.ContainmentUnavailable):
+            client.block("203.0.113.10")
+    finally:
+        thread.join(2)
+        listener.close()
+
+
+def test_only_the_containment_helper_unit_holds_cap_net_admin():
+    holders = sorted(
+        path.name for path in (ROOT / "deploy").rglob("*")
+        if path.is_file()
+        and (".service" in path.name or ".socket" in path.name)
+        and "CAP_NET_ADMIN" in path.read_text(encoding="utf-8", errors="ignore")
+    )
+    assert holders == ["aegis-idea3-containment.service.example"]
+
+
+def test_socket_unit_is_not_world_accessible():
+    sock = SOCKET_UNIT.read_text(encoding="utf-8")
+    mode = re.search(r"^SocketMode=0([0-7]{3})$", sock, re.MULTILINE)
+    assert mode is not None and mode.group(1)[2] == "0"
+    assert "SocketUser=root" in sock
+    assert "ListenStream=0.0.0.0" not in sock and "ListenStream=[" not in sock
