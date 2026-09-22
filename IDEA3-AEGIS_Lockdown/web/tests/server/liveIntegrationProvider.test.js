@@ -34,9 +34,15 @@ function rawEvent(source, overrides = {}) {
   }
 }
 
-function feed(events, generatedAt = '2026-09-08T08:00:00.000Z', status) {
+// `status` defaults to a healthy producer report so every pre-existing
+// fixture (written before the status contract existed) keeps representing "a
+// normal, fully-functioning upstream" rather than silently becoming an
+// untested producer-never-reported-status case. Pass `null` explicitly to
+// build a feed with NO status field at all (the real omitted-status
+// scenario).
+function feed(events, generatedAt = '2026-09-08T08:00:00.000Z', status = { ok: true }) {
   const base = { schema_version: 1, generated_at: generatedAt, events }
-  return status === undefined ? base : { ...base, status }
+  return status === null ? base : { ...base, status }
 }
 
 function providerWith({ idea1, idea2, runtime = () => jsonResponse({ ...healthyRuntimeRaw, generatedAt: NOW.toISOString() }) }) {
@@ -254,17 +260,42 @@ describe('live integration provider failure and freshness semantics', () => {
 })
 
 describe('real producer-reported service/daemon status (IDEA3 PR11 finding 3: status visibility gap)', () => {
-  it('does not claim HEALTHY from transport alone when the producer has not reported status', async () => {
+  it('does not claim HEALTHY from transport alone when the producer has not reported status — UNKNOWN, not HEALTHY', async () => {
     const { provider } = providerWith({
-      idea1: () => jsonResponse(feed([])),
-      idea2: () => jsonResponse(feed([])),
+      idea1: () => jsonResponse(feed([], undefined, null)),
+      idea2: () => jsonResponse(feed([], undefined, null)),
     })
 
     const snapshot = await provider.getSnapshot()
 
-    // Unchanged pre-existing behavior: no regression from adding the field.
-    expect(sourceById(snapshot, 'idea1')).toEqual(expect.objectContaining({ status: 'HEALTHY' }))
+    expect(sourceById(snapshot, 'idea1')).toEqual(expect.objectContaining({ status: 'UNKNOWN' }))
     expect(snapshot.integration.idea1.serviceOk).toBeNull()
+  })
+
+  it('reports HEALTHY only when the producer explicitly confirms ok:true on a fresh envelope', async () => {
+    const { provider } = providerWith({
+      idea1: () => jsonResponse(feed([], '2026-09-08T08:00:00.000Z', { ok: true, detail: { db: 'postgres' } })),
+      idea2: () => jsonResponse(feed([], undefined, null)),
+    })
+
+    const snapshot = await provider.getSnapshot()
+
+    expect(sourceById(snapshot, 'idea1')).toEqual(expect.objectContaining({ status: 'HEALTHY', freshness: 'FRESH' }))
+    expect(snapshot.integration.idea1.serviceOk).toBe(true)
+  })
+
+  it('lifecycle never reports STEADY/RECOVERED from a producer-reported degraded or unreported status', async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      if (url === liveConfig.adapters.idea1Url) return jsonResponse(feed([], '2026-09-08T08:00:00.000Z', { ok: false }))
+      if (url === liveConfig.adapters.idea2Url) return jsonResponse(feed([], undefined, null))
+      return jsonResponse({ ...healthyRuntimeRaw, generatedAt: NOW.toISOString() })
+    })
+    const provider = createLiveProvider({ config: liveConfig, clock: () => NOW, fetchImpl })
+
+    const snapshot = await provider.getSnapshot()
+
+    expect(sourceById(snapshot, 'idea1').lifecycle).toBe('FAILING')
+    expect(sourceById(snapshot, 'idea2').lifecycle).toBe('FAILING')
   })
 
   it('downgrades IDEA1 to DEGRADED when Drive reports its own daemon/db as unhealthy, even with fresh transport', async () => {

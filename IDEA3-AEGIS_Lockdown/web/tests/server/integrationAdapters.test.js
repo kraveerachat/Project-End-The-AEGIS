@@ -26,9 +26,14 @@ function jsonResponse(body, { ok = true, redirected = false } = {}) {
   return { ok, redirected, status: ok ? 200 : 500, text: async () => (typeof body === 'string' ? body : JSON.stringify(body)) }
 }
 
-function envelope(events, generatedAt = '2026-09-08T08:00:00.000Z', status) {
+// `status` defaults to a healthy producer report so every pre-existing fixture
+// (written before the status contract existed) keeps representing "a normal,
+// fully-functioning upstream" rather than silently becoming an untested
+// producer-never-reported-status case. Pass `null` explicitly to build an
+// envelope with NO status field at all (the real omitted-status scenario).
+function envelope(events, generatedAt = '2026-09-08T08:00:00.000Z', status = { ok: true }) {
   const base = { schema_version: 1, generated_at: generatedAt, events }
-  return status === undefined ? base : { ...base, status }
+  return status === null ? base : { ...base, status }
 }
 
 function rawEvent(source, overrides = {}) {
@@ -122,7 +127,12 @@ describe('read-only IDEA1 and IDEA2 adapters', () => {
       events: [expect.objectContaining({ source: 'IDEA1', event_id: 'idea1-event-1', freshness: 'FRESH', dedup_count: 1 })],
       rejectedCount: 0,
       conflicts: [],
-      serviceOk: null,
+      // envelope()'s default status ({ ok: true }) represents a normal,
+      // fully-functioning upstream — this test predates the status contract
+      // and isn't testing it, so it keeps that default rather than the real
+      // "producer never reported status" case (see the dedicated describe
+      // block below for that).
+      serviceOk: true,
       serviceDetail: null,
     })
   })
@@ -230,7 +240,7 @@ describe('read-only IDEA1 and IDEA2 adapters', () => {
   describe('optional producer-reported service status (IDEA3 PR11 finding 3)', () => {
     it('is null when the producer has not reported it — never assumed healthy', async () => {
       const result = await fetchIdea1Events({
-        config: adapterConfig, clock, fetchImpl: async () => jsonResponse(envelope([])),
+        config: adapterConfig, clock, fetchImpl: async () => jsonResponse(envelope([], undefined, null)),
       })
 
       expect(result.serviceOk).toBeNull()
