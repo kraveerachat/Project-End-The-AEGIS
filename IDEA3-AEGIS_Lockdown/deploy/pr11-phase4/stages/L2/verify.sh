@@ -12,6 +12,12 @@ UNIT="aegis-idea3-nftables-load.service"
 NFT_DEST="/etc/aegis-idea3/aegis-idea3.nft"
 SYSCTL_DEST="/etc/sysctl.d/90-aegis-idea3-forwarding.conf"
 UNIT_DEST="/etc/systemd/system/aegis-idea3-nftables-load.service"
+# Dynamic IP containment helper: L2 owns it because it only edits L2's table.
+CONTAINMENT_SOCKET_UNIT="aegis-idea3-containment.socket"
+CONTAINMENT_SERVICE_UNIT="aegis-idea3-containment.service"
+CONTAINMENT_SOCKET_DEST="/etc/systemd/system/aegis-idea3-containment.socket"
+CONTAINMENT_SERVICE_DEST="/etc/systemd/system/aegis-idea3-containment.service"
+CONTAINMENT_ENV_DEST="/etc/aegis-idea3/containment.env"
 
 ROOT="${AEGIS_P4_FS_ROOT:-}"
 RENDER="${AEGIS_L2_RENDER_DIR:-}"
@@ -50,6 +56,15 @@ cmp -s "$RENDER/aegis-idea3-sysctl.conf" "$sysctl_dest" \
 cmp -s "$RENDER/aegis-idea3-nftables-load.service" "$unit_dest" \
   || fail UNIT_CHANGED
 
+cmp -s "$RENDER/aegis-idea3-containment.socket" "$(host_path "$CONTAINMENT_SOCKET_DEST")" \
+  || fail CONTAINMENT_SOCKET_CHANGED
+
+cmp -s "$RENDER/aegis-idea3-containment.service" "$(host_path "$CONTAINMENT_SERVICE_DEST")" \
+  || fail CONTAINMENT_SERVICE_CHANGED
+
+cmp -s "$RENDER/aegis-idea3-containment.env" "$(host_path "$CONTAINMENT_ENV_DEST")" \
+  || fail CONTAINMENT_ENV_CHANGED
+
 grep -Eq '^[[:space:]]*table[[:space:]]+inet[[:space:]]+aegis_idea3' \
   "$nft_dest" || fail IDEA3_TABLE_CONFIG_INVALID
 
@@ -62,6 +77,15 @@ if [ -z "$ROOT" ]; then
 
   nft list table inet aegis_idea3 >/dev/null 2>&1 \
     || fail IDEA3_TABLE_NOT_LOADED
+
+  nft list set inet aegis_idea3 blocked_ipv4 >/dev/null 2>&1 \
+    || fail CONTAINMENT_SET_NOT_LOADED
+
+  systemctl is-active --quiet "$CONTAINMENT_SOCKET_UNIT" \
+    || fail CONTAINMENT_SOCKET_NOT_ACTIVE
+
+  systemctl is-enabled --quiet "$CONTAINMENT_SOCKET_UNIT" \
+    || fail CONTAINMENT_SOCKET_NOT_ENABLED
 
   for key in \
     net.ipv4.ip_forward \

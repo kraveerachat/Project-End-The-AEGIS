@@ -1,0 +1,43 @@
+# AEGIS IDEA3 dynamic IP containment helper — TEMPLATE, NOT DEPLOYED.
+# The only IDEA3 process holding CAP_NET_ADMIN. It runs exact nft argv against
+# the elements of inet aegis_idea3 blocked_ipv4 and nothing else. The Core
+# service stays unprivileged and reaches it through the socket unit.
+# /opt/aegis-idea3/current must be root-owned and not writable by aegis-idea3.
+
+[Unit]
+Description=AEGIS IDEA3 dynamic IP containment helper
+Requires=aegis-idea3-containment.socket
+After=aegis-idea3-containment.socket aegis-idea3-nftables-load.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+WorkingDirectory=/opt/aegis-idea3/current
+EnvironmentFile=/etc/aegis-idea3/containment.env
+ExecStart=/opt/aegis-idea3/current/venv/bin/python -E -s -m aegis_soc.ip_containment
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native

@@ -13,6 +13,12 @@ UNIT="aegis-idea3-nftables-load.service"
 NFT_DEST="/etc/aegis-idea3/aegis-idea3.nft"
 SYSCTL_DEST="/etc/sysctl.d/90-aegis-idea3-forwarding.conf"
 UNIT_DEST="/etc/systemd/system/aegis-idea3-nftables-load.service"
+# Dynamic IP containment helper: L2 owns it because it only edits L2's table.
+CONTAINMENT_SOCKET_UNIT="aegis-idea3-containment.socket"
+CONTAINMENT_SERVICE_UNIT="aegis-idea3-containment.service"
+CONTAINMENT_SOCKET_DEST="/etc/systemd/system/aegis-idea3-containment.socket"
+CONTAINMENT_SERVICE_DEST="/etc/systemd/system/aegis-idea3-containment.service"
+CONTAINMENT_ENV_DEST="/etc/aegis-idea3/containment.env"
 
 ROOT="${AEGIS_P4_FS_ROOT:-}"
 RENDER="${AEGIS_L2_RENDER_DIR:-}"
@@ -36,13 +42,18 @@ host_path() {
 NFT_SOURCE="$RENDER/aegis-idea3-nftables.conf"
 SYSCTL_SOURCE="$RENDER/aegis-idea3-sysctl.conf"
 UNIT_SOURCE="$RENDER/aegis-idea3-nftables-load.service"
+CONTAINMENT_SOCKET_SOURCE="$RENDER/aegis-idea3-containment.socket"
+CONTAINMENT_SERVICE_SOURCE="$RENDER/aegis-idea3-containment.service"
+CONTAINMENT_ENV_SOURCE="$RENDER/aegis-idea3-containment.env"
 
-for f in "$NFT_SOURCE" "$SYSCTL_SOURCE" "$UNIT_SOURCE"; do
+for f in "$NFT_SOURCE" "$SYSCTL_SOURCE" "$UNIT_SOURCE" \
+  "$CONTAINMENT_SOCKET_SOURCE" "$CONTAINMENT_SERVICE_SOURCE" "$CONTAINMENT_ENV_SOURCE"; do
   [ -f "$f" ] && [ ! -L "$f" ] || fail "RENDERED_FILE_INVALID:${f}"
 done
 
 ! grep -Rq '<AEGIS_' \
   "$NFT_SOURCE" "$SYSCTL_SOURCE" "$UNIT_SOURCE" \
+  "$CONTAINMENT_SOCKET_SOURCE" "$CONTAINMENT_SERVICE_SOURCE" "$CONTAINMENT_ENV_SOURCE" \
   || fail UNRESOLVED_PLACEHOLDER
 
 grep -Eq '^[[:space:]]*table[[:space:]]+inet[[:space:]]+aegis_idea3[[:space:]]*\{' \
@@ -50,6 +61,18 @@ grep -Eq '^[[:space:]]*table[[:space:]]+inet[[:space:]]+aegis_idea3[[:space:]]*\
 
 [ "$(grep -Ec '^[[:space:]]*table[[:space:]]+' "$NFT_SOURCE")" = 1 ] \
   || fail NFT_TABLE_COUNT_INVALID
+
+grep -Eq '^[[:space:]]*set[[:space:]]+blocked_ipv4[[:space:]]*\{' "$NFT_SOURCE" \
+  || fail CONTAINMENT_SET_MISSING
+
+grep -Eq '^AEGIS_CONTAINMENT_PROTECTED_CIDRS=[0-9./]+(,[0-9./]+)*$' "$CONTAINMENT_ENV_SOURCE" \
+  || fail CONTAINMENT_PROTECTION_INVALID
+
+grep -Fqx "CapabilityBoundingSet=CAP_NET_ADMIN" "$CONTAINMENT_SERVICE_SOURCE" \
+  || fail CONTAINMENT_SERVICE_INVALID
+
+grep -Fqx "ListenStream=/run/aegis-idea3-containment/containment.sock" "$CONTAINMENT_SOCKET_SOURCE" \
+  || fail CONTAINMENT_SOCKET_INVALID
 
 grep -Fqx "net.ipv4.ip_forward = 0" "$SYSCTL_SOURCE" \
   || fail IPV4_FORWARD_POLICY_INVALID
@@ -90,7 +113,8 @@ if [ -z "$ROOT" ]; then
   nft list table inet aegis_idea3 >/dev/null 2>&1 \
     && fail IDEA3_TABLE_ALREADY_EXISTS
 
-  for dest in "$NFT_DEST" "$SYSCTL_DEST" "$UNIT_DEST"; do
+  for dest in "$NFT_DEST" "$SYSCTL_DEST" "$UNIT_DEST" \
+    "$CONTAINMENT_SOCKET_DEST" "$CONTAINMENT_SERVICE_DEST" "$CONTAINMENT_ENV_DEST"; do
     [ ! -e "$dest" ] || fail "DESTINATION_ALREADY_EXISTS:${dest}"
   done
 fi
@@ -113,6 +137,15 @@ install -D -m 0644 "$SYSCTL_SOURCE" "$sysctl_dest" \
 
 install -D -m 0644 "$UNIT_SOURCE" "$unit_dest" \
   || fail UNIT_INSTALL_FAILED
+
+install -D -m 0644 "$CONTAINMENT_SOCKET_SOURCE" "$(host_path "$CONTAINMENT_SOCKET_DEST")" \
+  || fail CONTAINMENT_SOCKET_INSTALL_FAILED
+
+install -D -m 0644 "$CONTAINMENT_SERVICE_SOURCE" "$(host_path "$CONTAINMENT_SERVICE_DEST")" \
+  || fail CONTAINMENT_SERVICE_INSTALL_FAILED
+
+install -D -m 0644 "$CONTAINMENT_ENV_SOURCE" "$(host_path "$CONTAINMENT_ENV_DEST")" \
+  || fail CONTAINMENT_ENV_INSTALL_FAILED
 
 if [ -z "$ROOT" ]; then
   while IFS='=' read -r raw_key raw_value; do
@@ -146,6 +179,10 @@ if [ -z "$ROOT" ]; then
 
   systemctl enable --now "$UNIT" \
     || fail FIREWALL_UNIT_START_FAILED
+
+  # Socket only: the root helper starts on the first containment request.
+  systemctl enable --now "$CONTAINMENT_SOCKET_UNIT" \
+    || fail CONTAINMENT_SOCKET_START_FAILED
 else
   printf 'FIXTURE_ONLY\n' > "$WORK/mode"
 fi
