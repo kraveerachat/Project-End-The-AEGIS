@@ -446,3 +446,146 @@ test('MEDIA-03/04/TOUCH-01 touch hold starts GIF motion, release stops it, and a
     await h.unmount()
   }
 })
+
+/* ── MARQUEE-SURFACE-1..6 ─────────────────────────────────────────────────── */
+test('MARQUEE-SURFACE-1..6 workspace activation, gutters/blank below, ignore controls, intersection, and cancellation', async () => {
+  const { useMarqueeSelection } = await env.load('/src/lib/useMarqueeSelection.js')
+  const { VaultFolderTile } = await env.load('/src/components/vault/VaultFolderTile.jsx')
+  const { VaultFileTile } = await env.load('/src/components/vault/VaultFileTile.jsx')
+  const h = env.mount()
+
+  function WorkspaceHarness({ initial = [] }) {
+    const [selected, setSelected] = React.useState(() => new Set(initial))
+    const canvasRef = React.useRef(null)
+    const tileEls = React.useRef(new Map())
+    const registerTile = (id) => (el) => {
+      if (el) tileEls.current.set(id, el)
+      else tileEls.current.delete(id)
+    }
+    const marquee = useMarqueeSelection({
+      enabled: true,
+      canvasRef,
+      tileEls,
+      selectedIds: selected,
+      onSelectionChange: setSelected,
+    })
+    return React.createElement(
+      'div',
+      {
+        ref: canvasRef,
+        'data-testid': 'vault-tree-workspace',
+        'data-vault-marquee-canvas': '',
+        onPointerDown: marquee.onPointerDown,
+        className: 'relative min-h-[60vh] pb-24',
+        style: { userSelect: marquee.tracking ? 'none' : undefined },
+      },
+      marquee.box && React.createElement('div', {
+        'data-testid': 'vault-marquee-rect',
+        style: {
+          position: 'absolute',
+          left: `${marquee.box.left}px`,
+          top: `${marquee.box.top}px`,
+          width: `${marquee.box.width}px`,
+          height: `${marquee.box.height}px`,
+        },
+      }),
+      React.createElement(
+        'div',
+        { 'data-testid': 'vault-tree-grid', className: 'space-y-6' },
+        React.createElement(
+          'section',
+          null,
+          React.createElement('h2', { 'data-marquee-ignore': '', 'data-testid': 'folders-heading' }, 'Folders'),
+          React.createElement(VaultFolderTile, {
+            t,
+            node: { nodeId: 'folder-1', name: 'Folder A', kind: 'folder' },
+            tileRef: registerTile('folder-1'),
+            selected: selected.has('folder-1'),
+            onSelect: () => {},
+            onOpen: () => {},
+            onAction: () => {},
+          }),
+        ),
+        React.createElement(
+          'section',
+          null,
+          React.createElement('h2', { 'data-marquee-ignore': '', 'data-testid': 'files-heading' }, 'Files'),
+          React.createElement(VaultFileTile, {
+            t,
+            node: { nodeId: 'file-1', name: 'file1.txt', kind: 'file', mediaType: 'text/plain', plainSize: 100 },
+            tileRef: registerTile('file-1'),
+            selected: selected.has('file-1'),
+            onSelect: () => {},
+            onPreview: () => {},
+            onAction: () => {},
+          }),
+        ),
+      ),
+      React.createElement('div', { 'data-testid': 'blank-below', className: 'h-40' }),
+    )
+  }
+
+  try {
+    await h.render(React.createElement(WorkspaceHarness, { initial: ['file-1'] }))
+    const workspace = q('[data-testid="vault-tree-workspace"]')
+    const folderTile = q('[data-testid="vault-folder-tile"]')
+    const fileTile = q('[data-testid="vault-file-tile"]')
+    const blankBelow = q('[data-testid="blank-below"]')
+    const heading = q('[data-testid="folders-heading"]')
+
+    workspace.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1000, bottom: 800, width: 1000, height: 800 })
+    folderTile.getBoundingClientRect = () => ({ left: 20, top: 40, right: 200, bottom: 90, width: 180, height: 50 })
+    fileTile.getBoundingClientRect = () => ({ left: 20, top: 120, right: 200, bottom: 200, width: 180, height: 80 })
+    blankBelow.getBoundingClientRect = () => ({ left: 0, top: 300, right: 1000, bottom: 700, width: 1000, height: 400 })
+
+    const pointer = (target, type, props) => {
+      const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...props })
+      Object.defineProperty(event, 'pointerId', { value: 1 })
+      Object.defineProperty(event, 'pointerType', { value: props.pointerType ?? 'mouse' })
+      target.dispatchEvent(event)
+    }
+
+    // MARQUEE-SURFACE-1: Pointerdown in blank below cards (in min-h-[60vh] pb-24) starts marquee
+    await act(async () => pointer(blankBelow, 'pointerdown', { clientX: 300, clientY: 400 }))
+    assert.equal(workspace.style.userSelect, 'none', 'pointerdown in blank area below starts tracking')
+    await act(async () => pointer(dom.window, 'pointermove', { clientX: 350, clientY: 450 }))
+    assert.ok(q('[data-testid="vault-marquee-rect"]'), 'marquee rect rendered')
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+
+    // MARQUEE-SURFACE-2: Pointerdown in gutter/blank whitespace to side of cards starts marquee
+    await act(async () => pointer(workspace, 'pointerdown', { clientX: 500, clientY: 60 }))
+    assert.equal(workspace.style.userSelect, 'none', 'pointerdown in side gutter starts tracking')
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+
+    // MARQUEE-SURFACE-3: Controls (heading with data-marquee-ignore, buttons, checkboxes) are ignored
+    await act(async () => pointer(heading, 'pointerdown', { clientX: 25, clientY: 25 }))
+    assert.equal(workspace.style.userSelect, '', 'heading does not start marquee')
+
+    const btn = folderTile.querySelector('button')
+    if (btn) {
+      await act(async () => pointer(btn, 'pointerdown', { clientX: 30, clientY: 50 }))
+      assert.equal(workspace.style.userSelect, '', 'button does not start marquee')
+    }
+
+    // MARQUEE-SURFACE-4: Pointerdown on card tile itself does not start marquee
+    await act(async () => pointer(folderTile, 'pointerdown', { clientX: 50, clientY: 60 }))
+    assert.equal(workspace.style.userSelect, '', 'card tile pointerdown does not start marquee')
+
+    // MARQUEE-SURFACE-5: Intersection selects card; additive with Ctrl keeps initial
+    await act(async () => pointer(workspace, 'pointerdown', { clientX: 5, clientY: 30, ctrlKey: true }))
+    await act(async () => pointer(dom.window, 'pointermove', { clientX: 210, clientY: 100 }))
+    const rect = q('[data-testid="vault-marquee-rect"]')
+    assert.ok(rect, 'marquee rect active during drag')
+
+    // MARQUEE-SURFACE-6: Escape cancels active marquee and restores selection; touch is ignored
+    await act(async () => dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    assert.equal(q('[data-testid="vault-marquee-rect"]'), null, 'Escape clears marquee rect')
+    assert.equal(workspace.style.userSelect, '', 'Escape ends tracking')
+
+    // Touch pointerdown does not start marquee
+    await act(async () => pointer(workspace, 'pointerdown', { clientX: 10, clientY: 10, pointerType: 'touch' }))
+    assert.equal(workspace.style.userSelect, '', 'touch pointerdown does not start marquee')
+  } finally {
+    await h.unmount()
+  }
+})

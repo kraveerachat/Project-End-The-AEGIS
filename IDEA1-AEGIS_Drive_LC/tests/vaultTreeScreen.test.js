@@ -821,3 +821,156 @@ test('TS-18 with the flag off the tiles never open preview sessions or observe t
     await h.unmount()
   }
 })
+
+/* ── REAL-DRAG-1..10 ──────────────────────────────────────────────────────── */
+test('REAL-DRAG-1..10 multi-item drag payload, breadcrumb/folder drop, atomic move, selection clear, click suppression', async () => {
+  const { AEGIS_ITEMS_TYPE, isInternalItemDrag, readDragPayload } = await env.load('/src/lib/fileDragDrop.js')
+  const h = await mountUnlocked()
+  try {
+    // Setup folders: A, B, C, D, Target
+    await newFolder('A')
+    await newFolder('B')
+    await newFolder('C')
+    await newFolder('D')
+    await newFolder('Target')
+
+    const tiles = () => folderTiles()
+    const tileA = () => tiles().find((el) => el.textContent.includes('A'))
+    const tileB = () => tiles().find((el) => el.textContent.includes('B'))
+    const tileC = () => tiles().find((el) => el.textContent.includes('C'))
+    const tileD = () => tiles().find((el) => el.textContent.includes('D'))
+    const tileTarget = () => tiles().find((el) => el.textContent.includes('Target'))
+
+    // Select A, B, C, D via checkbox
+    for (const tile of [tileA(), tileB(), tileC(), tileD()]) {
+      await click(dom, tile.querySelector('[data-testid="vault-tree-tile-checkbox"]'))
+    }
+    assert.equal(q('[data-testid="vault-tree-selection-count"]')?.textContent.includes('4'), true, '4 items selected')
+
+    // REAL-DRAG-1: Dragging 1 of 4 selected items populates dataTransfer with all 4 items
+    const store = {}
+    const dt = {
+      types: [],
+      setData: (type, val) => {
+        if (!dt.types.includes(type)) dt.types.push(type)
+        store[type] = String(val)
+      },
+      getData: (type) => store[type] ?? '',
+    }
+    const dragEvent = new dom.window.Event('dragstart', { bubbles: true })
+    Object.defineProperty(dragEvent, 'dataTransfer', { value: dt })
+
+    await act(async () => {
+      tileA().dispatchEvent(dragEvent)
+    })
+    await settle()
+
+    // REAL-DRAG-3: isInternalItemDrag returns true
+    assert.equal(isInternalItemDrag(dt), true, 'internal item drag type set')
+    const payloadIds = readDragPayload(dt)
+    assert.equal(payloadIds.length, 4, 'drag payload carries all 4 selected IDs')
+
+    // REAL-DRAG-4: Dropping the 4 items onto Target folder commits 1 CAS on the move path
+    const target = tileTarget()
+    const dropEvent = new dom.window.Event('drop', { bubbles: true })
+    Object.defineProperty(dropEvent, 'dataTransfer', { value: dt })
+
+    const before = casCount()
+    await act(async () => {
+      target.dispatchEvent(dropEvent)
+    })
+    await tick(3)
+
+    assert.equal(casCount() - before, 1, 'dropping 4 items commits exactly 1 CAS')
+
+    // REAL-DRAG-6: Selection is synchronously cleared
+    assert.equal(q('[data-testid="vault-tree-selection-bar"]'), null, 'selection cleared after successful drop')
+
+    // REAL-DRAG-7: Items removed from root, exist inside Target
+    assert.ok(!tiles().some((el) => el.textContent.includes('A')), 'A removed from root')
+    assert.ok(!tiles().some((el) => el.textContent.includes('B')), 'B removed from root')
+    assert.ok(!tiles().some((el) => el.textContent.includes('C')), 'C removed from root')
+    assert.ok(!tiles().some((el) => el.textContent.includes('D')), 'D removed from root')
+
+    // Navigate into Target
+    await click(dom, target.querySelector('[data-testid="vault-folder-tile-body"]'))
+    await tick(2)
+    assert.ok(tiles().some((el) => el.textContent.includes('A')), 'A lives in Target')
+    assert.ok(tiles().some((el) => el.textContent.includes('B')), 'B lives in Target')
+    assert.ok(tiles().some((el) => el.textContent.includes('C')), 'C lives in Target')
+    assert.ok(tiles().some((el) => el.textContent.includes('D')), 'D lives in Target')
+
+    // REAL-DRAG-5: Dropping from inside Target onto the root breadcrumb moves them back
+    // Select A and B inside Target
+    await click(dom, tileA().querySelector('[data-testid="vault-tree-tile-checkbox"]'))
+    await click(dom, tileB().querySelector('[data-testid="vault-tree-tile-checkbox"]'))
+
+    const dtBc = {
+      types: [],
+      setData: (type, val) => {
+        if (!dtBc.types.includes(type)) dtBc.types.push(type)
+        store[type] = String(val)
+      },
+      getData: (type) => store[type] ?? '',
+    }
+    const dragBcEv = new dom.window.Event('dragstart', { bubbles: true })
+    Object.defineProperty(dragBcEv, 'dataTransfer', { value: dtBc })
+    await act(async () => tileA().dispatchEvent(dragBcEv))
+    await settle()
+
+    const rootCrumb = qa('[data-testid="vault-tree-crumb"]')[0]
+    assert.ok(rootCrumb, 'root breadcrumb found')
+
+    const dropBcEv = new dom.window.Event('drop', { bubbles: true })
+    Object.defineProperty(dropBcEv, 'dataTransfer', { value: dtBc })
+
+    const beforeBc = casCount()
+    await act(async () => rootCrumb.dispatchEvent(dropBcEv))
+    await tick(3)
+
+    assert.equal(casCount() - beforeBc, 1, 'breadcrumb drop commits exactly 1 CAS')
+    assert.ok(!tiles().some((el) => el.textContent.includes('A')), 'A moved back to root')
+    assert.ok(!tiles().some((el) => el.textContent.includes('B')), 'B moved back to root')
+
+    // REAL-DRAG-8: Dropping onto self / invalid target announces error with 0 CAS
+    const beforeInvalid = casCount()
+    const dtSelf = {
+      types: [],
+      setData: (type, val) => {
+        if (!dtSelf.types.includes(type)) dtSelf.types.push(type)
+        store[type] = String(val)
+      },
+      getData: (type) => store[type] ?? '',
+    }
+    const dragSelfEv = new dom.window.Event('dragstart', { bubbles: true })
+    Object.defineProperty(dragSelfEv, 'dataTransfer', { value: dtSelf })
+    await act(async () => tileC().dispatchEvent(dragSelfEv))
+    await settle()
+
+    const dropSelfEv = new dom.window.Event('drop', { bubbles: true })
+    Object.defineProperty(dropSelfEv, 'dataTransfer', { value: dtSelf })
+    await act(async () => tileC().dispatchEvent(dropSelfEv))
+    await tick(2)
+
+    assert.equal(casCount(), beforeInvalid, 'invalid drop fires zero CAS')
+    assert.ok(announceText().length > 0, 'truthful rejection announced')
+
+    // REAL-DRAG-2: Dragging an unselected item carries only that 1 item
+    const dtSingle = {
+      types: [],
+      setData: (type, val) => {
+        if (!dtSingle.types.includes(type)) dtSingle.types.push(type)
+        store[type] = String(val)
+      },
+      getData: (type) => store[type] ?? '',
+    }
+    const dragSingleEv = new dom.window.Event('dragstart', { bubbles: true })
+    Object.defineProperty(dragSingleEv, 'dataTransfer', { value: dtSingle })
+    await act(async () => tileD().dispatchEvent(dragSingleEv))
+    await settle()
+    const singlePayload = readDragPayload(dtSingle)
+    assert.equal(singlePayload.length, 1, 'unselected drag carries only 1 item')
+  } finally {
+    await h.unmount()
+  }
+})

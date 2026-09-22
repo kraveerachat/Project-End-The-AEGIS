@@ -7,6 +7,7 @@
 //   • crumb ปัจจุบัน = ชิ้นสุดท้าย มี aria-current="page" (ผู้ใช้โปรแกรมอ่านจอรู้ว่าอยู่ตรงไหน)
 // ⚠️ ชื่อโฟลเดอร์ทั้งหมดมาจาก manifest ที่ถอดรหัสในหน่วยความจำ — ล็อก = จอนี้ไม่มีอยู่เลย
 import { useState } from 'react'
+import { isInternalItemDrag, isExternalFileDrag } from '../../lib/fileDragDrop.js'
 
 export function VaultBreadcrumbs({ t, items, onNavigate, canDrop = false, onDropTarget }) {
   const [dropTarget, setDropTarget] = useState(null)
@@ -28,20 +29,24 @@ export function VaultBreadcrumbs({ t, items, onNavigate, canDrop = false, onDrop
               onClick={() => onNavigate(c.nodeId)}
               data-drop-target={dropTarget === c.nodeId ? 'yes' : undefined}
               onDragOver={(event) => {
-                const hasFiles = [...(event.dataTransfer?.types ?? [])].includes('Files')
-                if (isCurrent || !canDrop || hasFiles) return
+                const dt = event.dataTransfer
+                const isInternal = isInternalItemDrag(dt)
+                const isExt = !isInternal && isExternalFileDrag(dt)
+                if (isCurrent || (!canDrop && !isInternal) || isExt) return
                 event.preventDefault()
-                event.dataTransfer.dropEffect = 'move'
+                if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
                 setDropTarget(c.nodeId)
               }}
               onDragLeave={() => setDropTarget(null)}
               onDrop={(event) => {
-                const hasFiles = [...(event.dataTransfer?.types ?? [])].includes('Files')
-                if (isCurrent || !canDrop || hasFiles) return
+                const dt = event.dataTransfer
+                const isInternal = isInternalItemDrag(dt)
+                const isExt = !isInternal && isExternalFileDrag(dt)
+                if (isCurrent || (!canDrop && !isInternal) || isExt) return
                 event.preventDefault()
                 event.stopPropagation()
                 setDropTarget(null)
-                onDropTarget?.(c.nodeId)
+                onDropTarget?.(c.nodeId, dt)
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {

@@ -148,9 +148,10 @@ export function createThumbScheduler({
   function cancel(key) {
     const e = entries.get(key)
     if (!e) return
-    if (e.state === 'running') { e.ctrl?.abort(); e.ctrl = null; e.state = 'failed' }
-    else if (e.state === 'queued') e.state = 'failed'
-    else if (e.state === 'ready') revokeKey(key)
+    if (e.state === 'running') { e.ctrl?.abort(); e.ctrl = null }
+    if (e.url) revokeKey(key)
+    entries.delete(key)
+    onChange?.()
   }
 
   /** เปลี่ยนโฟลเดอร์/นำทาง (TSC-4) — ปล่อยทุกรายการที่อยู่ในโฟลเดอร์ที่ถูกทิ้งไป */

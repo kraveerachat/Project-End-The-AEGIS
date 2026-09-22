@@ -24,6 +24,7 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
   const menuBtnRef = useRef(null)
   const holdTimerRef = useRef(0)
   const touchGestureRef = useRef(false)
+  const dragOccurredRef = useRef(false)
   const consumeClickRef = useRef(false)
   const motionActiveRef = useRef(false)
   const mediaRef = useRef(media)
@@ -67,14 +68,19 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
       data-icon="file"
       data-layout={layout}
       title={media?.reason ?? undefined}
-      onDragStart={(event) => {
-        if (touchGestureRef.current) { event.preventDefault(); return }
-        onDragStart?.(event)
-      }}
       className={`group cursor-pointer ${layout === 'list' ? '' : 'flex flex-col items-start gap-2'}`}
       onMouseEnter={() => setCardHovered(true)}
       onMouseLeave={() => { setCardHovered(false); stopMotion() }}
       {...rest}
+      onDragStart={(event) => {
+        if (touchGestureRef.current) { event.preventDefault(); return }
+        dragOccurredRef.current = true
+        rest.onDragStart?.(event)
+      }}
+      onDragEnd={(event) => {
+        setTimeout(() => { dragOccurredRef.current = false }, 100)
+        rest.onDragEnd?.(event)
+      }}
     >
       <FileCardCheckbox
         data-testid="vault-tree-tile-checkbox"
@@ -110,6 +116,7 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
         } : undefined}
         data-motion-active={hovering && media?.motionUrl ? 'true' : undefined}
         onClick={(e) => {
+          if (dragOccurredRef.current) { dragOccurredRef.current = false; return }
           if (consumeClickRef.current) { consumeClickRef.current = false; return }
           if (e.ctrlKey || e.metaKey) { onSelect(node.nodeId, { additive: true }); return }
           onPreview(node)
@@ -119,9 +126,9 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
           {media?.motionUrl && hovering && media?.motionKind === 'video' ? (
             <video src={media.motionUrl} autoPlay muted loop playsInline preload="metadata" tabIndex={-1} aria-hidden="true" data-testid="vault-tree-tile-motion" className="size-full object-cover pointer-events-none" />
           ) : media?.motionUrl && hovering ? (
-            <img src={media.motionUrl} alt="" data-testid="vault-tree-tile-motion" className="size-full object-cover" />
+            <img src={media.motionUrl} alt="" draggable={false} data-testid="vault-tree-tile-motion" className="size-full object-cover pointer-events-none" />
           ) : media?.posterUrl ? (
-            <img src={media.posterUrl} alt="" data-testid="vault-tree-tile-poster" className="size-full object-cover" />
+            <img src={media.posterUrl} alt="" draggable={false} data-testid="vault-tree-tile-poster" className="size-full object-cover pointer-events-none" />
           ) : (
             <span className="text-[var(--accent)]">
               <FileIcon size={layout === 'list' ? 24 : 42} strokeWidth={1.2} />

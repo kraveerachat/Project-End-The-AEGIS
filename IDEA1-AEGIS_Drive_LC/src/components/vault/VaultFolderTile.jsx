@@ -11,6 +11,7 @@ export function VaultFolderTile({ t, node, tileRef = null, layout = 'grid', view
   const [menuOpen, setMenuOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
   const menuBtnRef = useRef(null)
+  const dragOccurredRef = useRef(false)
   const items = menuOpen ? vaultTreeMenuItems({ t, kind: 'folder', view, keyDegraded }) : []
 
   return (
@@ -29,6 +30,14 @@ export function VaultFolderTile({ t, node, tileRef = null, layout = 'grid', view
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       {...rest}
+      onDragStart={(event) => {
+        dragOccurredRef.current = true
+        rest.onDragStart?.(event)
+      }}
+      onDragEnd={(event) => {
+        setTimeout(() => { dragOccurredRef.current = false }, 100)
+        rest.onDragEnd?.(event)
+      }}
     >
       <FileCardCheckbox
         data-testid="vault-tree-tile-checkbox"
@@ -42,6 +51,7 @@ export function VaultFolderTile({ t, node, tileRef = null, layout = 'grid', view
         data-testid="vault-folder-tile-body"
         className="min-w-0 w-full text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent flex items-center gap-2.5 pr-14"
         onClick={(e) => {
+          if (dragOccurredRef.current) { dragOccurredRef.current = false; return }
           if (e.ctrlKey || e.metaKey) { onSelect(node.nodeId, { additive: true }); return }
           onOpen(node.nodeId)
         }}

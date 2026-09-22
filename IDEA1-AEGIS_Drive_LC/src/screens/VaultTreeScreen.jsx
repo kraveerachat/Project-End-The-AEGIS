@@ -43,6 +43,7 @@ import { apiFetchBytes } from '../lib/api.js'
 import { DEFAULT_VAULT_SORT, deriveVaultWorkspace, VAULT_SORT_MODES, VAULT_TYPE_FILTERS } from '../lib/vaultWorkspace.js'
 import { readFolderHistory, resolveFolderHistoryTarget, writeFolderHistory } from '../lib/folderHistory.js'
 import { useMarqueeSelection } from '../lib/useMarqueeSelection.js'
+import { isInternalItemDrag, isExternalFileDrag, writeDragPayload, readDragPayload } from '../lib/fileDragDrop.js'
 import { decryptFileContent, decryptBlobMeta } from '../lib/vaultCrypto.js'
 import { decryptVaultV2Meta, unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
 import {
@@ -791,48 +792,80 @@ export function VaultTreeScreen({
     return [{ nodeId: rootId, name: rootCopy, depth: 0 }, ...options]
   }, [head, dialog, tree.selection, t])
 
+  const executeDropMove = useCallback(async (destinationNodeId, dt) => {
+    let nodeIds = readDragPayload(dt)
+    if (!nodeIds.length && tree.drag?.nodeIds) {
+      nodeIds = tree.drag.nodeIds
+    }
+    if (!nodeIds.length && tree.selection.size) {
+      nodeIds = [...tree.selection]
+    }
+    if (!nodeIds.length) return false
+    const validRoots = normalizeRootsSafe(head?.index, nodeIds).map((n) => n.nodeId)
+    if (!validRoots.length) return false
+    const intent = intents.move({ nodeIds: validRoots, destinationNodeId })
+    const plan = planDrop(tree.state, destinationNodeId, { intentOverride: intent })
+    if (!plan.ok) {
+      if (plan.reason !== 'NO_OP') {
+        const reason = plan.reason ?? 'INVALID'
+        const k = REJECT_COPY[reason] ?? 'vaultTreeDropDefault'
+        announce(k, REJECT_COPY[reason] ? undefined : { reason })
+      }
+      tree.drop(destinationNodeId)
+      return false
+    }
+    try {
+      tree.drop(destinationNodeId, plan.intent)
+      const res = await tree.run(plan.intent)
+      tree.clear()
+      return Boolean(res && !res.conflict)
+    } catch {
+      return false
+    }
+  }, [head, tree, announce])
+
   const dragPropsFor = (node) => ({
     draggable: true,
     onDragStart: (e) => {
-      tree.dragStart(node.nodeId)
+      const selected = tree.selection.has(node.nodeId) ? [...tree.selection] : [node.nodeId]
+      const nodeIds = normalizeRootsSafe(head?.index, selected).map((n) => n.nodeId)
       try {
+        writeDragPayload(e.dataTransfer, nodeIds)
         e.dataTransfer.setData('text/plain', 'aegis-internal-move')
         e.dataTransfer.effectAllowed = 'move'
       } catch { /* jsdom has no DataTransfer behaviors beyond setters */ }
+      tree.dragStart(node.nodeId)
     },
     onDragEnd: () => tree.dragEnd(),
   })
   const dropPropsFor = (node) => ({
     onDragOver: (e) => {
       const dt = e.dataTransfer ?? e.nativeEvent?.dataTransfer
-      const hasFiles = [...(dt?.types ?? [])].includes('Files')
-      if ((hasFiles && node.kind === 'folder') || tree.drag) e.preventDefault()
+      if (isInternalItemDrag(dt) || tree.drag) {
+        if (node.kind === 'folder') {
+          e.preventDefault()
+          if (dt) dt.dropEffect = 'move'
+        }
+        return
+      }
+      const hasFiles = isExternalFileDrag(dt)
+      if (hasFiles && node.kind === 'folder') e.preventDefault()
     },
     onDrop: (e) => {
       const dt = e.dataTransfer ?? e.nativeEvent?.dataTransfer
-      const hasFiles = [...(dt?.types ?? [])].includes('Files')
-      if (hasFiles) {
+      if (isInternalItemDrag(dt) || tree.drag) {
+        e.preventDefault()
+        e.stopPropagation()
         if (node.kind !== 'folder') return
-        // external OS files → the upload path, NEVER the tree move path (TS-5)
+        void executeDropMove(node.nodeId, dt)
+        return
+      }
+      if (isExternalFileDrag(dt)) {
+        if (node.kind !== 'folder') return
         e.preventDefault()
         e.stopPropagation()
         const files = [...(dt.files ?? [])]
         if (files.length) void uploadFiles(files, node.nodeId)
-        return
-      }
-      // internal move: ONE commit path — planDrop decides, tree.run commits; an invalid
-      // target goes through the reducer's reject path so the announcement fires with zero CAS
-      e.preventDefault()
-      const plan = tree.planDropFromSnapshot(node.nodeId)
-      if (plan.ok) {
-        tree.drop(node.nodeId, plan.intent)
-        void tree.run(plan.intent)
-      } else {
-        // announce through the screen channel too — the reducer's reject is the source of truth,
-        // the local notice makes the reason visible immediately (TS-4)
-        const k = REJECT_COPY[plan.reason] ?? 'vaultTreeDropDefault'
-        announce(k, REJECT_COPY[plan.reason] ? undefined : { reason: plan.reason })
-        tree.drop(node.nodeId)
       }
     },
   })
@@ -846,11 +879,11 @@ export function VaultTreeScreen({
       className="mb-6"
       onDragOver={(e) => {
         const dt = e.dataTransfer ?? e.nativeEvent?.dataTransfer
-        if ([...(dt?.types ?? [])].includes('Files') && !isTrashView) e.preventDefault()
+        if (!isInternalItemDrag(dt) && isExternalFileDrag(dt) && !isTrashView) e.preventDefault()
       }}
       onDrop={(e) => {
         const dt = e.dataTransfer ?? e.nativeEvent?.dataTransfer
-        if (![...(dt?.types ?? [])].includes('Files') || isTrashView) return
+        if (isInternalItemDrag(dt) || !isExternalFileDrag(dt) || isTrashView) return
         e.preventDefault()
         const files = [...(dt.files ?? [])]
         if (files.length) void uploadFiles(files)
@@ -870,12 +903,8 @@ export function VaultTreeScreen({
             items={tree.breadcrumbs.map((c) => ({ nodeId: c.nodeId, name: displayNodeName(t, c, rootId) }))}
             onNavigate={(id) => navigateTo(id)}
             canDrop={Boolean(tree.drag)}
-            onDropTarget={(nodeId) => {
-              const plan = tree.planDropFromSnapshot(nodeId)
-              if (plan.ok) {
-                tree.drop(nodeId, plan.intent)
-                void tree.run(plan.intent)
-              } else tree.drop(nodeId)
+            onDropTarget={(nodeId, dt) => {
+              void executeDropMove(nodeId, dt)
             }}
           />
         )}
@@ -1046,11 +1075,10 @@ export function VaultTreeScreen({
         ) : (
           <div
             ref={marqueeCanvasRef}
-            data-testid="vault-tree-grid"
+            data-testid="vault-tree-workspace"
             data-vault-marquee-canvas=""
-            data-layout={layout}
             onPointerDown={marquee.onPointerDown}
-            className="relative space-y-6 min-h-[40vh]"
+            className="relative min-h-[60vh] pb-24"
             style={{ userSelect: marquee.tracking ? 'none' : undefined }}
           >
             {marquee.box && (
@@ -1065,61 +1093,67 @@ export function VaultTreeScreen({
                 }}
               />
             )}
-            {workspace.folders.length > 0 && (
-              <section data-testid="vault-folders-section" aria-labelledby="vault-folders-heading">
-                <h2 id="vault-folders-heading" data-marquee-ignore="" className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3 mb-2.5">
-                  {t('sectionFolders')}
-                </h2>
-                <div className={layout === 'grid' ? 'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(180px,1fr))]' : 'flex flex-col gap-2'}>
-                  {workspace.folders.map((n) => (
-                <VaultFolderTile
-                  key={n.nodeId}
-                  t={t}
-                  node={n}
-                  tileRef={registerMarqueeTile(n.nodeId)}
-                  layout={layout}
-                  view={tree.view}
-                  childCount={childCountOf(head.index, n.nodeId)}
-                  selected={tree.selection.has(n.nodeId)}
-                  onSelect={tree.select}
-                  onOpen={navigateTo}
-                  onAction={actionFor}
-                  keyDegraded={tree.keyDegraded}
-                  {...dragPropsFor(n)}
-                  {...dropPropsFor(n)}
-                />
-                  ))}
-                </div>
-              </section>
-            )}
-            {workspace.files.length > 0 && (
-              <section data-testid="vault-files-section" aria-labelledby="vault-files-heading">
-                <h2 id="vault-files-heading" data-marquee-ignore="" className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3 mb-2.5">
-                  {t('sectionFiles')}
-                </h2>
-                <div data-testid={layout === 'list' ? 'vault-tree-list' : undefined} className={layout === 'grid' ? 'grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(210px,1fr))]' : 'flex flex-col gap-2'}>
-                  {workspace.files.map((n) => (
-                <VaultFileTile
-                  key={n.nodeId}
-                  t={t}
-                  node={n}
-                  tileRef={registerMarqueeTile(n.nodeId)}
-                  layout={layout}
-                  view={tree.view}
-                  previewKind={previewKindFor(n.mediaType)}
-                  media={mediaFor(n)}
-                  selected={tree.selection.has(n.nodeId)}
-                  onSelect={tree.select}
-                  onPreview={actionPreview}
-                  onAction={actionFor}
-                  keyDegraded={tree.keyDegraded}
-                  {...dragPropsFor(n)}
-                  {...dropPropsFor(n)}
-                />
-                  ))}
-                </div>
-              </section>
-            )}
+            <div
+              data-testid="vault-tree-grid"
+              data-layout={layout}
+              className="space-y-6"
+            >
+              {workspace.folders.length > 0 && (
+                <section data-testid="vault-folders-section" aria-labelledby="vault-folders-heading">
+                  <h2 id="vault-folders-heading" data-marquee-ignore="" className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3 mb-2.5">
+                    {t('sectionFolders')}
+                  </h2>
+                  <div className={layout === 'grid' ? 'grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(180px,1fr))]' : 'flex flex-col gap-2'}>
+                    {workspace.folders.map((n) => (
+                  <VaultFolderTile
+                    key={n.nodeId}
+                    t={t}
+                    node={n}
+                    tileRef={registerMarqueeTile(n.nodeId)}
+                    layout={layout}
+                    view={tree.view}
+                    childCount={childCountOf(head.index, n.nodeId)}
+                    selected={tree.selection.has(n.nodeId)}
+                    onSelect={tree.select}
+                    onOpen={navigateTo}
+                    onAction={actionFor}
+                    keyDegraded={tree.keyDegraded}
+                    {...dragPropsFor(n)}
+                    {...dropPropsFor(n)}
+                  />
+                    ))}
+                  </div>
+                </section>
+              )}
+              {workspace.files.length > 0 && (
+                <section data-testid="vault-files-section" aria-labelledby="vault-files-heading">
+                  <h2 id="vault-files-heading" data-marquee-ignore="" className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-3 mb-2.5">
+                    {t('sectionFiles')}
+                  </h2>
+                  <div data-testid={layout === 'list' ? 'vault-tree-list' : undefined} className={layout === 'grid' ? 'grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(210px,1fr))]' : 'flex flex-col gap-2'}>
+                    {workspace.files.map((n) => (
+                  <VaultFileTile
+                    key={n.nodeId}
+                    t={t}
+                    node={n}
+                    tileRef={registerMarqueeTile(n.nodeId)}
+                    layout={layout}
+                    view={tree.view}
+                    previewKind={previewKindFor(n.mediaType)}
+                    media={mediaFor(n)}
+                    selected={tree.selection.has(n.nodeId)}
+                    onSelect={tree.select}
+                    onPreview={actionPreview}
+                    onAction={actionFor}
+                    keyDegraded={tree.keyDegraded}
+                    {...dragPropsFor(n)}
+                    {...dropPropsFor(n)}
+                  />
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
           </div>
         )
       )}
