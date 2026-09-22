@@ -107,7 +107,7 @@ All system functions, tasks, and historical aspirations are categorized under si
 8. **Dynamic Software IP Unblock / Recovery**: Administrator-driven unblock restoring expected communication.
 9. **Bounded IDEA1 Status / Security Visibility**: Ingestion and display of IDEA1 health and security alerts.
 10. **Bounded IDEA2 Status / Security Visibility**: Ingestion and display of IDEA2 health and security alerts.
-11. **Secure Core ↔ ESP32 Communication**: Protocol v1 encrypted, tamper-evident transport and frames.
+11. **Secure Core ↔ ESP32 Communication**: TLS-protected MQTT transport plus application-layer HMAC-SHA256 authenticated frames.
 12. **Stage L1 Prerequisite**: Minimal package prerequisites (`chrony`) needed by the live stack.
 13. **Stage L2 Firewall / Isolation**: Baseline host isolation and interface protection.
 14. **Stage L3 AP**: Dedicated wireless Access Point infrastructure for ESP32 connectivity.
@@ -141,18 +141,18 @@ All system functions, tasks, and historical aspirations are categorized under si
 - PR11 Phase 4 T0: Prerequisites reconciliation and stage breakdown (`PR #151`).
 - PR11 Phase 4 T1: Stage-gate and comparison harness (`PR #152`).
 - PR11 Phase 4 L1 Live Backend: Repository implementation of guarded pacman backend (`7f30b9ca`, PR #178 merged at `3b91fc40`).
+- Phase 4 Stage Handlers (L1..L9): All repository stage handlers registered and merged (`L2_L9_REPOSITORY_HANDLERS = ALREADY_CLOSED`).
 - Official L0 Baseline: Read-only live host state capture and durable acceptance (`2026-09-21`).
 
 ### 3.3 OPEN_NEEDS_IMPLEMENTATION
 - Dynamic Software IP Blocking (`SOFTWARE_IP_BLOCKING = OPEN_NEEDS_IMPLEMENTATION`).
 - Dynamic Software IP Unblock / Recovery (`SOFTWARE_IP_UNBLOCK = OPEN_NEEDS_IMPLEMENTATION`).
-- Live Stage Execution Handlers (Live execution scripts for Stages L2..L9).
 
 ### 3.4 OPEN_NEEDS_EVIDENCE
 - IDEA1 Live MVP Integration (`IDEA1_LIVE_MVP_INTEGRATION = OPEN`).
 - IDEA2 Live MVP Integration (`IDEA2_LIVE_MVP_INTEGRATION = OPEN`).
 - Stage L1 Live Execution Evidence (chrony installation on Arch Linux Core).
-- Stages L2 through L9 Live Host and Hardware Evidence.
+- Stages L2 through L9 Live Host and Hardware Evidence (`L2_L9_LIVE_EXECUTION = OPEN_NEEDS_EVIDENCE`).
 - Out-of-band Disk Remediation (resolution of 96% disk usage, PR #175).
 - Out-of-band IDEA2 §10 Health Restoration (PR #176) or formal owner approval of narrowed preservation.
 
@@ -163,11 +163,11 @@ All system functions, tasks, and historical aspirations are categorized under si
 
 ### 3.6 DEFER_FUTURE_WORK (Post-Project Enterprise Scope)
 The following items are categorized as `DESIGNED_OR_IMPLEMENTED_WHERE_APPLICABLE; NOT_REQUIRED_FOR_FINAL_PROJECT_MVP_ACCEPTANCE`:
-1. ESP32 Flash/NVS hardware encryption (mitigated by isolated AP and dedicated VLAN).
+1. ESP32 NVS encryption remains optional physical-extraction hardening and is not an MVP blocker. Residual physical extraction risk remains explicitly acknowledged.
 2. Automated CRL renewal and lifecycle daemons.
 3. Advanced Linux cgroup resource quota and accounting fine-tuning.
 4. Enterprise Mosquitto High Availability (HA) clustering.
-5. Total retirement of plaintext port 1883 (remains bound to localhost/isolated interface).
+5. Full retirement of legacy plaintext 1883 is deferred. Phase 4 intentionally preserves the existing legacy listener, while L2/L4 firewall policy must prevent TCP/1883 access from the IDEA3 AP.
 6. Repeated stress/endurance life-cycle testing of relay physical contacts.
 7. Full enterprise Disaster Recovery (DR) formal certification.
 8. K12 cold bare-metal reboot persistence verification of all multi-service containers.
@@ -337,7 +337,7 @@ PR12 is preserved as the **FINAL SYSTEM ACCEPTANCE** phase. Final acceptance is 
   - State change is logged across Core, Web, and audit records.
 
 ### Scenario A5: Physical Recovery & Restoration
-- **Execution**: Administrator executes the physical recovery procedure via authenticated local CLI or authorized portal.
+- **Execution**: Administrator executes the physical recovery procedure via authenticated local CLI / approved local recovery path.
 - **Pass Criteria**:
   - Recovery authorization credentials validate successfully.
   - Authenticated Protocol v1 `RESTORE` command is accepted by ESP32.

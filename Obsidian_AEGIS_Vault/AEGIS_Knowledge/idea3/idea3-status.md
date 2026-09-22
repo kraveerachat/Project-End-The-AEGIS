@@ -7054,6 +7054,10 @@ All IDEA3 functions and tasks are classified under six binding categories:
 - `OPEN_NEEDS_IMPLEMENTATION`: Code or configuration gap requiring a dedicated PR.
 - `OPEN_NEEDS_EVIDENCE`: Implementation exists in repository, but live host/hardware evidence is open.
 
+#### Handler & Stage Execution Status:
+- `L2_L9_REPOSITORY_HANDLERS = ALREADY_CLOSED` (all Phase 4 handlers L1..L9 are registered and merged in the repository)
+- `L2_L9_LIVE_EXECUTION = OPEN_NEEDS_EVIDENCE` (live host execution and hardware evidence remains open)
+
 #### MVP_MUST Requirements:
 - Live IDEA3 Web/dashboard
 - Live IDEA3 Core
@@ -7065,7 +7069,7 @@ All IDEA3 functions and tasks are classified under six binding categories:
 - Dynamic IP unblock/recovery
 - Bounded IDEA1 status/security visibility
 - Bounded IDEA2 status/security visibility
-- Secure Core ↔ ESP32 communication
+- Secure Core ↔ ESP32 communication: TLS-protected MQTT transport plus application-layer HMAC-SHA256 authenticated frames
 - L1 prerequisite needed by the live stack (`chrony`)
 - L2 firewall/isolation needed by the live stack
 - L3 AP needed by ESP32
@@ -7145,17 +7149,17 @@ PR12 is preserved as **FINAL SYSTEM ACCEPTANCE**. Only controlled, authorized te
 - **A2 RECON / SCAN**: PASS = controlled test scan/event detected, source IP identified, event type recorded, timestamp recorded, incident visible in UI/log.
 - **A3 SOFTWARE CONTAINMENT**: PASS = HIGH event identifies source IP, dynamic BLOCK_IP applied, blocking verified, action audited, Admin unblock restores expected connectivity, recovery audited.
 - **A4 CRITICAL PHYSICAL CONTAINMENT**: PASS = controlled CRITICAL scenario reaches containment decision, authenticated CUT command issued, ESP32 validates command, relay physically interrupts protected Ethernet path, result logged.
-- **A5 RECOVERY**: PASS = authorized Admin recovery, relay returns to NORMAL, Ethernet connectivity restored, recovery audit recorded.
+- **A5 RECOVERY**: PASS = authorized Admin recovery (authenticated local CLI / approved local recovery path), relay returns to NORMAL, Ethernet connectivity restored, recovery audit recorded.
 - **A6 CROSS-IDEA VISIBILITY**: PASS = IDEA1 security/health state visible, IDEA2 security/health state visible, IDEA3 incident/containment state visible.
 - **A7 FINAL EVIDENCE**: PASS = screenshots, logs, timestamps, acceptance matrix, immutable evidence/receipts, report baseline frozen.
 
 #### Future Work / Deferred Items:
 The following items are explicitly categorized as `DESIGNED_OR_IMPLEMENTED_WHERE_APPLICABLE; NOT_REQUIRED_FOR_FINAL_PROJECT_MVP_ACCEPTANCE`:
-- ESP32 NVS encryption
+- ESP32 NVS encryption (remains optional physical-extraction hardening and is not an MVP blocker; residual physical extraction risk remains explicitly acknowledged)
 - Automated CRL renewal
 - Resource/cgroup tuning
 - Enterprise HA / broker clustering
-- Full plaintext 1883 retirement
+- Full retirement of legacy plaintext 1883 is deferred (Phase 4 intentionally preserves the existing legacy listener, while L2/L4 firewall policy must prevent TCP/1883 access from the IDEA3 AP)
 - Repeated/stress CUT endurance certification
 - Full disaster-recovery certification
 - K12 full production reboot certification
