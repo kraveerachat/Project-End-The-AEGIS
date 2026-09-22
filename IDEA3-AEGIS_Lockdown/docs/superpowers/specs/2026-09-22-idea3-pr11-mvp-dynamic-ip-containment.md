@@ -5,7 +5,7 @@ Owner: Music (Pub reviewing)
 Task: Close the MVP software containment gap recorded by the PR11 MVP scope freeze
 Branch: `feat/idea3-mvp-dynamic-ip-containment`
 Base: `origin/main` (`70082d317b77a7d52a88997f5111c496263f04e7`)
-Status: SOURCE_IMPLEMENTED — awaiting human content review
+Status: SOURCE_IMPLEMENTED — MERGED as PR #181 (`21d7b7824e6edf1950a7bd914f5d780366fd13c7`, 2026-09-22); receipt recovered post-merge by PR #182
 Production Mutation: NO
 Live Firewall Mutation: NO
 Live L-Stage Execution: NO
@@ -163,6 +163,8 @@ Repository and isolated evidence only:
 ## 10. Open
 
 - Host verification on the Arch Linux Core (L2 live) — requires owner authorization.
+  See the exact host-verification contract in `idea3-status.md`, "IDEA3 PR11
+  Post-Containment Reconciliation + Live-Readiness Contract — 2026-09-23".
 - Owner management CIDRs in `containment.env`.
 - IPv6 containment — Future Work.
 - Persistence of blocks across L2 reload/reboot — not provided (runtime state only).
