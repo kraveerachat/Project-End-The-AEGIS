@@ -6,13 +6,20 @@
 //   • V1 = V1_DOWNLOAD_ONLY เสมอ (bounded fallback: พรีวิวไฟล์เต็มได้เฉพาะใต้เพดาน input กับ V1 ceiling —
 //     ตัวจอเลือกปลายทางจริง โมดูลนี้ตัดสิน "ความสามารถ")
 //   • ไม่ใช่ video/* = UNSUPPORTED
-// โปสเตอร์/motion ต่อ session (VP-2/VP-3): เปิด session เดียว muted preload=metadata → seek เฟรมแรก →
+// โปสเตอร์/motion ต่อ session (VP-2/VP-3): เปิด session เดียว muted preload=metadata → seek เฟรมตัวแทน →
 // วาดโปสเตอร์ → ปิด session; hover = session ค้างไว้จน pointer ออก แล้วปิด + ลบ element
 // ⚠️ เพดาน plaintext cache ของ worker คือ MAX_PREVIEW_PLAINTEXT_CACHE_BYTES เดิม — ไม่มี cache ใหม่ใด ๆ
 import { PREVIEW_IMAGE_TYPES, PREVIEW_VIDEO_TYPES, normalizeMimeType } from './vaultPreview.js'
 import { planChunkReads } from './vaultPreviewRange.js'
 
 export const VIDEO_CAPABILITY = Object.freeze({ RANGE_V2: 'RANGE_V2', V1_DOWNLOAD_ONLY: 'V1_DOWNLOAD_ONLY', UNSUPPORTED: 'UNSUPPORTED' })
+
+/** Matches the accepted Production Files poster-frame policy without importing server dependencies. */
+export function vaultVideoPosterSeekSeconds(durationSeconds) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 0
+  const clamped = Math.min(3, Math.max(0.5, durationSeconds * 0.05))
+  return Math.min(clamped, durationSeconds)
+}
 
 /** VP-1: ความสามารถพรีวิววิดีโอของไฟล์หนึ่ง */
 export function videoPreviewCapability({ variant, mediaType, supportsLarge = false, plainSize = 0, maxPreviewBytes = Infinity }) {
@@ -38,7 +45,7 @@ export function chunkReadsForSeek({ position, totalBytes, plaintextChunkSize, ma
  */
 export async function openVideoPoster({
   variant, plainSize, mediaType, supportsLarge = false, maxPreviewBytes = Infinity,
-  openSession, closeSession, attachVideo, drawFrame, posterAtSeconds = 0,
+  openSession, closeSession, attachVideo, drawFrame, posterAtSeconds = null,
   createObjectUrl = (b) => URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })),
   registerObjectUrl = null, signal = null, returnBytes = false,
 }) {
@@ -51,7 +58,10 @@ export async function openVideoPoster({
     token = session.token
     const { element, seekTo, cleanup } = await attachVideo({ url: session.url, muted: true, preload: 'metadata', signal })
     try {
-      await seekTo(posterAtSeconds)
+      const seekSeconds = posterAtSeconds == null
+        ? vaultVideoPosterSeekSeconds(element?.duration)
+        : posterAtSeconds
+      await seekTo(seekSeconds)
       const bytes = await drawFrame(element)
       if (returnBytes) return { ok: true, posterBytes: bytes, token }
       const url = createObjectUrl(bytes)

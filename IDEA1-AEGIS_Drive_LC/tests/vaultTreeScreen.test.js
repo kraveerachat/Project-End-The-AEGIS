@@ -971,7 +971,7 @@ test('REAL-DRAG-1..10 multi-item drag payload, breadcrumb/folder drop, atomic mo
   }
 })
 
-test('VIDEO-POSTER-INITIAL-1..4 a new video gets its poster before hover without requeueing ready media', async () => {
+test('VIDEO-POSTER-INITIAL-1..4 / VIDEO-POSTER-FRAME-4/5 a new video gets its poster before hover without requeueing ready media', async () => {
   backend.treeFlags.mediaPreviewEnabled = true
   backend.reducedMotion = false
   const existingIds = ['VP1', 'VP2', 'VP3', 'VP4'].map((prefix) => prefix.padEnd(22, prefix.at(-1)))
@@ -1004,11 +1004,20 @@ test('VIDEO-POSTER-INITIAL-1..4 a new video gets its poster before hover without
   const canvasProto = dom.window.HTMLCanvasElement.prototype
   const loadDescriptor = Object.getOwnPropertyDescriptor(mediaProto, 'load')
   const pauseDescriptor = Object.getOwnPropertyDescriptor(mediaProto, 'pause')
+  const currentTimeDescriptor = Object.getOwnPropertyDescriptor(mediaProto, 'currentTime')
   const getContextDescriptor = Object.getOwnPropertyDescriptor(canvasProto, 'getContext')
   const toBlobDescriptor = Object.getOwnPropertyDescriptor(canvasProto, 'toBlob')
   let phase = 'initial'
   let afterUploadLoads = 0
   Object.defineProperty(mediaProto, 'pause', { configurable: true, value() {} })
+  Object.defineProperty(mediaProto, 'currentTime', {
+    configurable: true,
+    get() { return this.__posterCurrentTime ?? 0 },
+    set(value) {
+      this.__posterCurrentTime = value
+      queueMicrotask(() => this.dispatchEvent(new dom.window.Event('seeked')))
+    },
+  })
   Object.defineProperty(mediaProto, 'load', {
     configurable: true,
     value() {
@@ -1055,6 +1064,7 @@ test('VIDEO-POSTER-INITIAL-1..4 a new video gets its poster before hover without
     await h.unmount()
     if (loadDescriptor) Object.defineProperty(mediaProto, 'load', loadDescriptor)
     if (pauseDescriptor) Object.defineProperty(mediaProto, 'pause', pauseDescriptor)
+    if (currentTimeDescriptor) Object.defineProperty(mediaProto, 'currentTime', currentTimeDescriptor)
     if (getContextDescriptor) Object.defineProperty(canvasProto, 'getContext', getContextDescriptor)
     if (toBlobDescriptor) Object.defineProperty(canvasProto, 'toBlob', toBlobDescriptor)
   }

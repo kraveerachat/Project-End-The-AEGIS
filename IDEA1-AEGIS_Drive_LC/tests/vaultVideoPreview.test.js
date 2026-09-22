@@ -12,11 +12,96 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  videoPreviewCapability, chunkReadsForSeek, openVideoPoster, openVideoMotion, VIDEO_CAPABILITY,
+  videoPreviewCapability, chunkReadsForSeek, openVideoPoster, openVideoMotion,
+  vaultVideoPosterSeekSeconds, VIDEO_CAPABILITY,
 } from '../src/lib/vaultVideoPreview.js'
 import { createUnlockedVaultState } from '../src/lib/vaultUnlockedState.js'
 
 const supportsLarge = () => true
+
+test('VIDEO-POSTER-SEEK-1 invalid and non-positive durations keep the safe zero fallback', () => {
+  for (const duration of [Number.NaN, Number.POSITIVE_INFINITY, 0, -1]) {
+    assert.equal(vaultVideoPosterSeekSeconds(duration), 0)
+  }
+})
+
+test('VIDEO-POSTER-SEEK-2 a four-second video selects the 0.5-second minimum', () => {
+  assert.equal(vaultVideoPosterSeekSeconds(4), 0.5)
+})
+
+test('VIDEO-POSTER-SEEK-3 a twenty-second video selects five percent at one second', () => {
+  assert.equal(vaultVideoPosterSeekSeconds(20), 1)
+})
+
+test('VIDEO-POSTER-SEEK-4 a sixty-second video selects the three-second maximum', () => {
+  assert.equal(vaultVideoPosterSeekSeconds(60), 3)
+})
+
+test('VIDEO-POSTER-SEEK-5 long videos remain capped at three seconds', () => {
+  assert.equal(vaultVideoPosterSeekSeconds(300), 3)
+})
+
+test('VIDEO-POSTER-SEEK-6 the selected time never exceeds a short video duration', () => {
+  assert.equal(vaultVideoPosterSeekSeconds(0.2), 0.2)
+})
+
+test('VIDEO-POSTER-FRAME-1 the normal poster path seeks by duration before drawing', async () => {
+  const events = []
+  const res = await openVideoPoster({
+    variant: 2, plainSize: 1 << 20, mediaType: 'video/mp4', supportsLarge: true,
+    openSession: async () => ({ token: 'T-frame-policy', url: 'virtual://T-frame-policy' }),
+    closeSession: async () => {},
+    attachVideo: async () => ({
+      element: { duration: 20 },
+      seekTo: async (seconds) => { events.push(`seek:${seconds}`) },
+      cleanup: () => {},
+    }),
+    drawFrame: async () => { events.push('draw'); return new Uint8Array([1]) },
+    returnBytes: true,
+  })
+  assert.equal(res.ok, true)
+  assert.deepEqual(events, ['seek:1', 'draw'])
+})
+
+test('VIDEO-POSTER-FRAME-2 drawing waits until the representative-frame seek resolves', async () => {
+  let releaseSeek
+  const seekGate = new Promise((resolve) => { releaseSeek = resolve })
+  const events = []
+  const pending = openVideoPoster({
+    variant: 2, plainSize: 1 << 20, mediaType: 'video/mp4', supportsLarge: true,
+    openSession: async () => ({ token: 'T-frame-order', url: 'virtual://T-frame-order' }),
+    closeSession: async () => {},
+    attachVideo: async () => ({
+      element: { duration: 20 },
+      seekTo: async () => { events.push('seek-start'); await seekGate; events.push('seek-complete') },
+      cleanup: () => {},
+    }),
+    drawFrame: async () => { events.push('draw'); return new Uint8Array([2]) },
+    returnBytes: true,
+  })
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.deepEqual(events, ['seek-start'], 'draw cannot run while seek is pending')
+  releaseSeek()
+  const res = await pending
+  assert.equal(res.ok, true)
+  assert.deepEqual(events, ['seek-start', 'seek-complete', 'draw'])
+})
+
+test('VIDEO-POSTER-FRAME-3 an explicit poster timestamp remains deterministic', async () => {
+  const seeks = []
+  const res = await openVideoPoster({
+    variant: 2, plainSize: 1 << 20, mediaType: 'video/mp4', supportsLarge: true,
+    openSession: async () => ({ token: 'T-frame-override', url: 'virtual://T-frame-override' }),
+    closeSession: async () => {},
+    attachVideo: async () => ({ element: { duration: 20 }, seekTo: async (seconds) => seeks.push(seconds), cleanup: () => {} }),
+    drawFrame: async () => new Uint8Array([3]),
+    posterAtSeconds: 2.25,
+    returnBytes: true,
+  })
+  assert.equal(res.ok, true)
+  assert.deepEqual(seeks, [2.25])
+})
 
 test('VP-1 the capability maps V2+SW to the range session and V1 to the truthful bounded fallback', () => {
   assert.equal(videoPreviewCapability({ variant: 2, mediaType: 'video/mp4', supportsLarge: true }).capability, VIDEO_CAPABILITY.RANGE_V2)
