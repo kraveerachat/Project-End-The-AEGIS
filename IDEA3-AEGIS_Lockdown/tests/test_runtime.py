@@ -182,15 +182,126 @@ def test_supervisor_state_transitions_never_assume_device_normal(tmp_path):
     assert supervisor.evaluate_state(now=4) == RuntimeState.LOCKDOWN
 
 
+class FakeContainment:
+    """Stands in for the root helper's Unix-socket client."""
+
+    def __init__(self, response=None, error=None):
+        self.calls = []
+        self.response = response
+        self.error = error
+
+    def block(self, ip):
+        self.calls.append(("block", ip))
+        if self.error is not None:
+            raise self.error
+        return self.response or {
+            "ok": True, "changed": True, "operation": "block", "ip": ip, "reason_code": "BLOCKED",
+        }
+
+
+def _events(tmp_path):
+    path = tmp_path / "logs" / "aegis-events.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def _event_names(tmp_path):
+    return [event["event"] for event in _events(tmp_path)]
+
+
+def _live_supervisor(tmp_path, *, auto_contain=True, containment=None):
+    mqtt = FakeMQTT()
+    mqtt.is_connected = True
+    mqtt.online = True
+    settings = replace(_settings(tmp_path), dry_run=False, auto_contain=auto_contain)
+    containment = containment if containment is not None else FakeContainment()
+    supervisor = AegisSupervisor(settings, mqtt_manager=mqtt, containment_client=containment)
+    supervisor.status.uplink = "NORMAL"
+    return supervisor, mqtt, containment
+
+
 def test_dry_run_auto_containment_does_not_publish(tmp_path):
     mqtt = FakeMQTT()
+    containment = FakeContainment()
     settings = replace(_settings(tmp_path), auto_contain=True)
-    supervisor = AegisSupervisor(settings, mqtt_manager=mqtt)
+    supervisor = AegisSupervisor(settings, mqtt_manager=mqtt, containment_client=containment)
     supervisor._on_attacker("203.0.113.50")
+    assert mqtt.published == []
+    assert containment.calls == []
+
+
+def test_generic_attacker_without_auto_contain_only_logs(tmp_path):
+    supervisor, mqtt, containment = _live_supervisor(tmp_path, auto_contain=False)
+    supervisor._on_attacker("203.0.113.52")
+    assert containment.calls == []
+    assert mqtt.published == []
+    assert "detector_alert" in _event_names(tmp_path)
+
+
+def test_generic_attacker_while_disarmed_is_not_blocked(tmp_path):
+    supervisor, mqtt, containment = _live_supervisor(tmp_path)
+    supervisor.set_armed(False, origin="test")
+    supervisor._on_attacker("203.0.113.53")
+    assert containment.calls == []
     assert mqtt.published == []
 
 
-def test_live_auto_containment_ack_timeout_degrades_runtime(tmp_path):
+def test_generic_attacker_armed_auto_contain_uses_software_block_not_cut(tmp_path):
+    supervisor, mqtt, containment = _live_supervisor(tmp_path)
+    supervisor._on_attacker("203.0.113.54")
+    assert containment.calls == [("block", "203.0.113.54")]
+    assert mqtt.published == []
+    assert supervisor.pending_command is None
+    names = _event_names(tmp_path)
+    assert "detector_alert" in names and "software_containment_success" in names
+    assert "auto_containment" not in names
+
+
+def test_generic_attacker_repeat_block_is_logged_as_noop(tmp_path):
+    containment = FakeContainment({
+        "ok": True, "changed": False, "operation": "block", "ip": "203.0.113.55", "reason_code": "ALREADY_BLOCKED",
+    })
+    supervisor, mqtt, _ = _live_supervisor(tmp_path, containment=containment)
+    supervisor._on_attacker("203.0.113.55")
+    names = _event_names(tmp_path)
+    assert "software_containment_noop" in names
+    assert "software_containment_success" not in names
+    assert mqtt.published == []
+
+
+@pytest.mark.parametrize(
+    "containment",
+    [
+        FakeContainment({"ok": False, "changed": False, "operation": "block", "ip": None,
+                         "reason_code": "PROTECTED_ADDRESS"}),
+        FakeContainment({"ok": False, "changed": False, "operation": "block", "ip": "203.0.113.56",
+                         "reason_code": "NFT_FAILED"}),
+        FakeContainment({"ok": True, "changed": True, "operation": "unblock", "ip": "203.0.113.56",
+                         "reason_code": "UNBLOCKED"}),
+    ],
+)
+def test_generic_attacker_helper_refusal_is_never_logged_as_success(tmp_path, containment):
+    supervisor, mqtt, _ = _live_supervisor(tmp_path, containment=containment)
+    supervisor._on_attacker("203.0.113.56")
+    names = _event_names(tmp_path)
+    assert "software_containment_failed" in names
+    assert "software_containment_success" not in names
+    assert mqtt.published == []
+
+
+def test_generic_attacker_helper_unavailable_fails_clearly(tmp_path):
+    from aegis_soc.ip_containment import ContainmentUnavailable
+
+    containment = FakeContainment(error=ContainmentUnavailable("containment helper unavailable: FileNotFoundError"))
+    supervisor, mqtt, _ = _live_supervisor(tmp_path, containment=containment)
+    supervisor._on_attacker("203.0.113.57")
+    failed = [event for event in _events(tmp_path) if event["event"] == "software_containment_failed"]
+    assert failed and failed[0]["detail"]["reason_code"] == "HELPER_UNAVAILABLE"
+    assert mqtt.published == []
+
+
+def test_explicit_critical_cut_ack_timeout_degrades_runtime(tmp_path):
     mqtt = FakeMQTT()
     mqtt.is_connected = True
     mqtt.online = True
@@ -198,7 +309,7 @@ def test_live_auto_containment_ack_timeout_degrades_runtime(tmp_path):
     supervisor = AegisSupervisor(settings, mqtt_manager=mqtt, monotonic=lambda: 0)
     supervisor.status.uplink = "NORMAL"
 
-    supervisor._on_attacker("203.0.113.51")
+    supervisor.issue_command("CUT_UPLINK", "explicit critical containment", critical=True, origin="test")
 
     assert len(mqtt.published) == 1
     assert supervisor.pending_command["action"] == "CUT_UPLINK"
@@ -361,8 +472,8 @@ def test_supervisor_issue_command_owns_pending_command(tmp_path):
     assert supervisor.ack_timed_out is False
 
 
-def test_auto_containment_pending_tracks_command_nonce(tmp_path):
-    """Automatic containment uses the same Core command lifecycle as manual commands."""
+def test_explicit_cut_pending_tracks_command_nonce(tmp_path):
+    """Explicit CRITICAL containment uses the same Core command lifecycle as manual commands."""
     mqtt = FakeMQTT()
     mqtt.is_connected = True
     mqtt.online = True
@@ -378,7 +489,7 @@ def test_auto_containment_pending_tracks_command_nonce(tmp_path):
         monotonic=lambda: 55.0,
     )
 
-    supervisor._on_attacker("203.0.113.61")
+    supervisor.issue_command("CUT_UPLINK", "explicit critical containment", critical=True, origin="test")
 
     assert len(mqtt.published) == 1
 
