@@ -21,7 +21,7 @@ import { makeT } from '../src/lib/strings.js'
 import { CORRECT_PASSPHRASE, serverBlob, serverBlobV2 } from './fixtures/vaultScreenBackend.js'
 import { makeVaultTreeBackend } from './fixtures/vaultTreeBackend.js'
 import { createFakeTreeServer } from './helpers/vaultTreeFakeServer.mjs'
-import { startVaultScreenEnv, settle, click, type, unlock } from './helpers/vaultScreenHarness.js'
+import { startVaultScreenEnv, settle, click, type, unlock, uploadFile } from './helpers/vaultScreenHarness.js'
 
 const t = makeT('en')
 
@@ -968,6 +968,95 @@ test('REAL-DRAG-1..10 multi-item drag payload, breadcrumb/folder drop, atomic mo
     assert.equal(singlePayload.length, 1, 'unselected drag carries only 1 item')
   } finally {
     await h.unmount()
+  }
+})
+
+test('VIDEO-POSTER-INITIAL-1..4 a new video gets its poster before hover without requeueing ready media', async () => {
+  backend.treeFlags.mediaPreviewEnabled = true
+  backend.reducedMotion = false
+  const existingIds = ['VP1', 'VP2', 'VP3', 'VP4'].map((prefix) => prefix.padEnd(22, prefix.at(-1)))
+  const newId = 'VP5'.padEnd(22, '5')
+  const allIds = [...existingIds, newId]
+  fakeTree = await createFakeTreeServer({ kek, blobs: allIds.map((id) => ({ formatVersion: 2, id })) })
+  const existingBlobs = existingIds.map((id, index) => serverBlobV2({
+    id, name: `existing-${index + 1}.mp4`, type: 'video/mp4', plainSize: 64,
+  }))
+  const newBlob = serverBlobV2({ id: newId, name: 'new-upload.mp4', type: 'video/mp4', plainSize: 64 })
+  backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: existingBlobs }, error: null }
+  backend.uploadImpl = async () => {
+    backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: [...existingBlobs, newBlob] }, error: null }
+    return { ok: true, stage: 'complete', blob: { id: newId, formatVersion: 2 } }
+  }
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+
+  const seed = modules.sync.createTreeSession({ kek, api: modules.api })
+  const start = await seed.loadHead()
+  for (const [index, id] of existingIds.entries()) {
+    await seed.commit(modules.ops.intents.attachBlob({
+      parentNodeId: start.manifest.rootNodeId,
+      name: `existing-${index + 1}.mp4`, mediaType: 'video/mp4', plainSize: 64,
+      blobRef: { formatVersion: 2, id },
+    }))
+  }
+
+  const mediaProto = dom.window.HTMLMediaElement.prototype
+  const canvasProto = dom.window.HTMLCanvasElement.prototype
+  const loadDescriptor = Object.getOwnPropertyDescriptor(mediaProto, 'load')
+  const pauseDescriptor = Object.getOwnPropertyDescriptor(mediaProto, 'pause')
+  const getContextDescriptor = Object.getOwnPropertyDescriptor(canvasProto, 'getContext')
+  const toBlobDescriptor = Object.getOwnPropertyDescriptor(canvasProto, 'toBlob')
+  let phase = 'initial'
+  let afterUploadLoads = 0
+  Object.defineProperty(mediaProto, 'pause', { configurable: true, value() {} })
+  Object.defineProperty(mediaProto, 'load', {
+    configurable: true,
+    value() {
+      if (!this.getAttribute('src')) return
+      Object.defineProperty(this, 'videoWidth', { configurable: true, value: 320 })
+      Object.defineProperty(this, 'videoHeight', { configurable: true, value: 180 })
+      Object.defineProperty(this, 'duration', { configurable: true, value: 1 })
+      const shouldComplete = phase === 'initial' || ++afterUploadLoads === 1
+      if (shouldComplete) queueMicrotask(() => this.dispatchEvent(new dom.window.Event('loadeddata')))
+    },
+  })
+  Object.defineProperty(canvasProto, 'getContext', { configurable: true, value: () => ({ drawImage() {} }) })
+  Object.defineProperty(canvasProto, 'toBlob', {
+    configurable: true,
+    value(callback) { callback(new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' })) },
+  })
+
+  const h = await mountUnlocked()
+  try {
+    await tick(8)
+    assert.equal(
+      qa('[data-testid="vault-tree-tile-poster"]').length,
+      4,
+      `the existing ready media establish the pre-upload scheduler state (urls=${env.objectUrls.length}, titles=${fileTiles().map((el) => el.getAttribute('title')).join(',')})`,
+    )
+
+    phase = 'after-upload'
+    await uploadFile(dom, { name: 'new-upload.mp4', type: 'video/mp4', body: 'video-bytes' })
+    await tick(8)
+
+    const tile = tileByName('new-upload.mp4')
+    assert.ok(tile, 'the newly uploaded video card appears')
+    assert.ok(tile.querySelector('[data-testid="vault-tree-tile-poster"]'), 'poster renders automatically before any hover')
+
+    const body = tile.querySelector('[data-testid="vault-file-tile-body"]')
+    const props = body[Object.keys(body).find((key) => key.startsWith('__reactProps'))]
+    await act(async () => props.onMouseEnter(new dom.window.Event('mouseover', { bubbles: true })))
+    await tick(2)
+    assert.ok(tile.querySelector('[data-testid="vault-tree-tile-motion"]'), 'hover promotes the video motion path')
+    await act(async () => props.onMouseLeave(new dom.window.Event('mouseout', { bubbles: true })))
+    await tick(2)
+    assert.ok(tile.querySelector('[data-testid="vault-tree-tile-poster"]'), 'mouse leave restores the already-created static poster')
+  } finally {
+    await h.unmount()
+    if (loadDescriptor) Object.defineProperty(mediaProto, 'load', loadDescriptor)
+    if (pauseDescriptor) Object.defineProperty(mediaProto, 'pause', pauseDescriptor)
+    if (getContextDescriptor) Object.defineProperty(canvasProto, 'getContext', getContextDescriptor)
+    if (toBlobDescriptor) Object.defineProperty(canvasProto, 'toBlob', toBlobDescriptor)
   }
 })
 

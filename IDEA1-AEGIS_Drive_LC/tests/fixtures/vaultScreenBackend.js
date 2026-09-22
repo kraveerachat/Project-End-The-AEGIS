@@ -53,7 +53,7 @@ export function useApi(path) {
     refresh: () => ctl?.requests.push({ path, method: 'REFRESH' }),
   }
 }
-export function useReducedMotion() { return true }
+export function useReducedMotion() { return backend()?.reducedMotion ?? true }
 export function useNow() { return Date.UTC(2026, 7, 27, 9, 0, 0) }
 export function useCountUp(target) { return target }
 

@@ -528,16 +528,27 @@ export function VaultTreeScreen({
     return decryptFileContent(kek, blob, r.bytes)
   }, [kek])
 
+  // Inventory and manifest refresh independently after upload. Keep one bounded
+  // scheduler alive and let its jobs read the latest render state; rebuilding it
+  // for every inventory response would revoke ready posters and requeue the
+  // whole folder ahead of the newly uploaded video.
+  const mediaHeadRef = useRef(head)
+  const mediaBlobIndexRef = useRef(blobIndex)
+  const readNodeBytesRef = useRef(readNodeBytes)
+  mediaHeadRef.current = head
+  mediaBlobIndexRef.current = blobIndex
+  readNodeBytesRef.current = readNodeBytes
+
   const scheduler = useMemo(() => {
     if (!mediaEnabled || !unlockedState || !head) return null
     const nextScheduler = createThumbScheduler({
       limits: mediaLimitsRef.current,
       unlockedState,
       load: async (key, { signal } = {}) => {
-        const node = head.index.nodes.get(key)
+        const node = mediaHeadRef.current?.index.nodes.get(key)
         if (!node?.blobRef) throw new Error('NOT_FOUND')
-        const blob = blobIndex.get(refKey(node.blobRef))
-        if (!blob) throw new Error('BLOB_NOT_READY')
+        const blob = mediaBlobIndexRef.current.get(refKey(node.blobRef))
+        if (!blob) throw Object.assign(new Error('BLOB_NOT_READY'), { code: 'BLOB_NOT_READY' })
         const kind = previewKindFor(node.mediaType)
         if (kind === 'video') {
           const variant = node.blobRef.formatVersion ?? 1
@@ -558,7 +569,7 @@ export function VaultTreeScreen({
                 return session
               }
               if (plainSize > MAX_PREVIEW_CEILING_BYTES) throw new Error('TOO_LARGE')
-              const bytes = await readNodeBytes({ node, blob, signal })
+              const bytes = await readNodeBytesRef.current({ node, blob, signal })
               const url = URL.createObjectURL(new Blob([bytes], { type: node.mediaType || 'video/mp4' }))
               localUrls.add(url)
               unlockedState?.registerObjectUrl?.(url)
@@ -580,7 +591,7 @@ export function VaultTreeScreen({
           if (!poster.ok) throw new Error(poster.unsupported ?? 'VIDEO_POSTER')
           return { width: 640, height: 360, bytes: poster.posterBytes, mime: 'image/jpeg' }
         }
-        const bytes = await readNodeBytes({ node, blob, signal })
+        const bytes = await readNodeBytesRef.current({ node, blob, signal })
         const thumb = await makeImageThumb({
           plainSize: node.plainSize ?? bytes.length, limits: mediaLimitsRef.current,
           variant: node.blobRef?.formatVersion ?? 1,
@@ -595,7 +606,7 @@ export function VaultTreeScreen({
       onChange: () => setMediaMap(nextScheduler.snapshot()),
     })
     return nextScheduler
-  }, [mediaEnabled, unlockedState, head, kek, blobIndex, readNodeBytes])
+  }, [mediaEnabled, unlockedState, Boolean(head), kek])
   schedulerRef.current = scheduler
 
   useEffect(() => () => { void scheduler?.releaseAll?.() }, [scheduler])
@@ -609,10 +620,14 @@ export function VaultTreeScreen({
     prevFolderRef.current = tree.current
     for (const n of tree.children) {
       if (n.kind === 'file' && (previewKindFor(n.mediaType) === 'image' || previewKindFor(n.mediaType) === 'video')) {
-        scheduler.observe(n.nodeId, { folderId: tree.current, estimateBytes: n.plainSize ?? 0 })
+        scheduler.observe(n.nodeId, {
+          folderId: tree.current,
+          estimateBytes: n.plainSize ?? 0,
+          eligible: Boolean(n.blobRef && blobIndex.has(refKey(n.blobRef))),
+        })
       }
     }
-  }, [scheduler, head, tree.children, tree.current])
+  }, [scheduler, head, tree.children, tree.current, blobIndex])
 
   const motionRequestRef = useRef(0)
   useEffect(() => () => { void motionState?.release?.() }, [motionState])

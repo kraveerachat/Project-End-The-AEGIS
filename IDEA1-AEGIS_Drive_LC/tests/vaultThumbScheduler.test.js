@@ -190,3 +190,37 @@ test('TSC-4 navigation releases entries outside the current folder', async () =>
   await sched.releaseAll()
   assert.equal(revoked.length, 3, 'every URL revoked exactly once overall')
 })
+
+test('VIDEO-POSTER-INITIAL-5/6 a blob-readiness transition retries once without a polling storm', async () => {
+  let blobReady = false
+  let attempts = 0
+  const sched = createThumbScheduler({
+    limits,
+    load: async () => {
+      attempts += 1
+      if (!blobReady) throw Object.assign(new Error('BLOB_NOT_READY'), { code: 'BLOB_NOT_READY' })
+      return { width: 16, height: 9, bytes: new Uint8Array([1, 2, 3]), mime: 'image/jpeg' }
+    },
+    createObjectUrl: () => 'blob:mock/video-poster',
+  })
+
+  sched.observe('new-video', { folderId: 'root', estimateBytes: 1024, eligible: false })
+  for (let i = 0; i < 8; i += 1) await Promise.resolve()
+  assert.equal(attempts, 1, 'transient inventory absence makes one bounded attempt')
+  assert.equal(sched.snapshot().get('new-video')?.state, 'failed', 'the key waits in a truthful transient-failure state')
+
+  for (let i = 0; i < 5; i += 1) sched.observe('new-video', { folderId: 'root', estimateBytes: 1024, eligible: false })
+  for (let i = 0; i < 8; i += 1) await Promise.resolve()
+  assert.equal(attempts, 1, 'repeated renders while unavailable do not create a retry storm')
+
+  blobReady = true
+  sched.observe('new-video', { folderId: 'root', estimateBytes: 1024, eligible: true })
+  for (let i = 0; i < 8; i += 1) await Promise.resolve()
+  assert.equal(attempts, 2, 'the unavailable → available transition triggers exactly one retry')
+  assert.equal(sched.snapshot().get('new-video')?.url, 'blob:mock/video-poster', 'the recovered job publishes its poster URL')
+
+  for (let i = 0; i < 5; i += 1) sched.observe('new-video', { folderId: 'root', estimateBytes: 1024, eligible: true })
+  for (let i = 0; i < 8; i += 1) await Promise.resolve()
+  assert.equal(attempts, 2, 'stable eligibility never repeats the completed job')
+  await sched.releaseAll()
+})
