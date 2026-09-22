@@ -4,10 +4,20 @@
 Authority:
   docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l1-operational-design.md
   Decisions: OD-L1-01 .. OD-L1-10.
+  docs/superpowers/specs/2026-09-22-idea3-pr11-phase4-l1-live-backend-owner-decision.md
+  Decisions: D1 (disk threshold=90), D2 (pacman/chrony contract), D3 (rollback contract).
 
 Dual-layer backend:
   - fixture: isolated filesystem root (AEGIS_P4_FS_ROOT) only.
-  - live: REFUSED fail-closed (LIVE_L1=NOT_AUTHORIZED).
+  - live: repository-implemented, fail-closed unless the CANONICAL
+    p4-stage-gate.sh accepts a real, same-day, stage=L1 A-L1 authorization
+    record and K3 confirmation record (LIVE_AUTHORIZATION_MISSING otherwise).
+    This module never re-implements record parsing; it shells out to
+    p4-stage-gate.sh itself, so there is exactly one parser for these
+    records. Live mode invokes the canonical Production pacman binary only
+    via long-form flags (--sync/--remove/--print/--noconfirm) and never with
+    -y/--refresh, -u/--sysupgrade, or recursive/cascade removal. Live mode is
+    never executed by this repository's own test suite or CI.
 """
 
 from __future__ import annotations
@@ -27,6 +37,163 @@ APPROVED_PACKAGES = {"chrony"}
 STAGE_OWNED_PACKAGE = "chrony"
 
 HOST_SYSTEM_PREFIXES = ("/etc/", "/opt/", "/var/", "/run/", "/dev/", "/usr/", "/bin/", "/sbin/")
+
+# D2/D3 live-backend contract. The Production pacman binary is a fixed
+# constant, never sourced from the environment, so no environment variable
+# can substitute an arbitrary executable for it.
+PACMAN_BIN = "/usr/bin/pacman"
+
+# The environment carries only FILE PATHS to the real, same-day authorization
+# and K3 confirmation records (AEGIS_P4_AUTHORIZATION_V1 / _K3_CONFIRMATION_V1
+# format, per p4-stage-gate.sh). No boolean flag or static token is trusted:
+# the records themselves are validated, every invocation, by the canonical
+# gate script.
+LIVE_AUTH_FILE_ENV = "AEGIS_L1_LIVE_AUTHORIZATION_FILE"
+LIVE_K3_FILE_ENV = "AEGIS_L1_LIVE_K3_FILE"
+GATE_SCRIPT = Path(__file__).resolve().parent / "p4-stage-gate.sh"
+LIVE_STAGE = "L1"
+
+
+def live_authorization_present() -> bool:
+    """Reuses the canonical p4-stage-gate.sh validator (single parser, no
+    duplicate/divergent re-implementation). Requires the gate to exit 0 AND
+    report both records VALID for stage=L1 (which itself requires
+    d6_notice=pub and a valid same-day K3 confirmation with
+    idea1_window_overlap=NONE). Absent, missing, malformed, stale,
+    wrong-stage, or wrong-field records all fail closed here exactly as they
+    would fail the gate directly."""
+    auth_file = os.environ.get(LIVE_AUTH_FILE_ENV, "")
+    k3_file = os.environ.get(LIVE_K3_FILE_ENV, "")
+    if not auth_file or not k3_file:
+        return False
+    if not Path(auth_file).is_file() or not Path(k3_file).is_file():
+        return False
+    proc = subprocess.run(
+        [
+            "bash", str(GATE_SCRIPT),
+            "--stage", LIVE_STAGE, "--mode", "live",
+            "--authorization", auth_file,
+            "--k3", k3_file,
+        ],
+        capture_output=True, text=True, check=False,
+    )
+    if proc.returncode != 0:
+        return False
+    return (
+        "AUTHORIZATION_RECORD=VALID" in proc.stdout
+        and "K3_CONFIRMATION=VALID" in proc.stdout
+    )
+
+
+def run_pacman(pacman_args: list[str]) -> subprocess.CompletedProcess:
+    """Invoke the canonical Production pacman binary. Never overridable via
+    environment. Callers must never pass -y/--refresh, -u/--sysupgrade, or
+    recursive/cascade removal flags."""
+    return subprocess.run(
+        [PACMAN_BIN, *pacman_args], capture_output=True, text=True, check=False
+    )
+
+
+def pacman_preflight_transaction(target: str) -> set[str]:
+    """Non-mutating preflight: print the exact package transaction pacman
+    would perform for target, without refreshing sync databases or
+    installing anything."""
+    proc = run_pacman(
+        ["--sync", "--print", "--print-format", "%n", "--noconfirm", target]
+    )
+    if proc.returncode != 0:
+        die(f"PREFLIGHT_COMMAND_FAILED: exit {proc.returncode}: {proc.stderr.strip()}")
+    names = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    if not names:
+        die("PREFLIGHT_EMPTY_OR_UNPARSEABLE_TRANSACTION")
+    return names
+
+
+def live_install_package(target: str) -> None:
+    names = pacman_preflight_transaction(target)
+    if names != {target}:
+        die(
+            f"PREFLIGHT_TRANSACTION_REFUSED: expected exact set {{'{target}'}}, "
+            f"got {sorted(names)}"
+        )
+    proc = run_pacman(["--sync", "--noconfirm", target])
+    if proc.returncode != 0:
+        die(f"INSTALL_COMMAND_FAILED: exit {proc.returncode}: {proc.stderr.strip()}")
+
+
+def pacman_query_installed(target: str) -> bool:
+    """Read-only presence check. True if installed. False ONLY when pacman's
+    own not-found message confirms the package is genuinely absent. Any
+    other query error (corrupt db, permission, unexpected message) fails
+    closed rather than being treated as absence."""
+    proc = run_pacman(["--query", target])
+    if proc.returncode == 0:
+        return True
+    stderr = proc.stderr or ""
+    if re.search(rf"\b{re.escape(target)}\b.*not found", stderr, re.IGNORECASE):
+        return False
+    die(f"ROLLBACK_QUERY_FAILED: pacman query exited {proc.returncode}: {stderr.strip()}")
+    raise AssertionError("unreachable")  # die() always exits
+
+
+def live_rollback_package(target: str) -> None:
+    """D3 + OD-L1-08 idempotence: removes ONLY target, and only if present.
+    Never passes any recursive or cascade removal flag, so a dependency
+    conflict causes pacman itself to refuse the removal and this function
+    surfaces that as a failure rather than escalating to a broader removal.
+    If target is already absent, this is a successful no-op (idempotent),
+    not a failure."""
+    if not pacman_query_installed(target):
+        print(f"L1_LIVE_ROLLBACK_TARGET={target}=ALREADY_ABSENT")
+        return
+    proc = run_pacman(["--remove", "--noconfirm", target])
+    if proc.returncode != 0:
+        die(f"ROLLBACK_COMMAND_FAILED: exit {proc.returncode}: {proc.stderr.strip()}")
+
+
+ACCEPTED_ACTIVE_STATES = {"inactive"}
+ACCEPTED_UNIT_FILE_STATES = {"disabled", "static"}
+
+
+def _systemctl_show_value(unit: str, prop: str) -> str:
+    """Fails closed on any query error or empty/unexpected result; never
+    silently treats a failed query as an acceptable state."""
+    proc = subprocess.run(
+        ["systemctl", "show", unit, "-p", prop, "--value"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        die(
+            f"SERVICE_QUERY_FAILED: systemctl show {unit} -p {prop} "
+            f"exited {proc.returncode}: {proc.stderr.strip()}"
+        )
+    value = proc.stdout.strip()
+    if not value:
+        die(f"SERVICE_QUERY_EMPTY: systemctl show {unit} -p {prop} returned no value")
+    return value
+
+
+def live_verify_package(target: str) -> None:
+    if not pacman_query_installed(target):
+        die(f"PACKAGE_NOT_INSTALLED: {target}")
+
+    unit = f"{target}d.service" if target == "chrony" else f"{target}.service"
+
+    active_state = _systemctl_show_value(unit, "ActiveState")
+    if active_state not in ACCEPTED_ACTIVE_STATES:
+        die(
+            f"SERVICE_MUTATION_REFUSED: {unit} ActiveState={active_state!r} "
+            f"(only {sorted(ACCEPTED_ACTIVE_STATES)} accepted)"
+        )
+
+    unit_file_state = _systemctl_show_value(unit, "UnitFileState")
+    if unit_file_state not in ACCEPTED_UNIT_FILE_STATES:
+        die(
+            f"SERVICE_MUTATION_REFUSED: {unit} UnitFileState={unit_file_state!r} "
+            f"(only {sorted(ACCEPTED_UNIT_FILE_STATES)} accepted)"
+        )
 
 
 def die(msg: str, code: int = 1) -> None:
@@ -78,9 +245,33 @@ def cmd_check_headroom(args: argparse.Namespace) -> None:
 def cmd_simulate_install(args: argparse.Namespace) -> None:
     backend = args.backend or os.environ.get("AEGIS_L1_BACKEND", "fixture")
     if backend == "live":
-        die("LIVE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY (LIVE_L1=NOT_AUTHORIZED)")
+        if args.fs_root:
+            die("LIVE_MODE_FS_ROOT_REFUSED: --fs-root is a TEST-ONLY fixture prefix and must not be passed in live mode")
+        if not live_authorization_present():
+            die("LIVE_AUTHORIZATION_MISSING (LIVE_L1=NOT_AUTHORIZED)")
+        packages = [p.strip() for p in args.packages.split(",") if p.strip()]
+        if packages != [STAGE_OWNED_PACKAGE]:
+            die(
+                "UNAPPROVED_PACKAGE_REFUSED: live backend accepts only the exact "
+                f"list [{STAGE_OWNED_PACKAGE!r}]"
+            )
+        work_dir = validate_work_dir(args.work_dir)
+        live_install_package(STAGE_OWNED_PACKAGE)
+        manifest = {
+            "stage": "L1",
+            "backend": "live",
+            "installed_packages": packages,
+            "timestamp": int(time.time()),
+        }
+        (work_dir / "l1-installed-packages.json").write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
+        )
+        print("L1_SIMULATE_INSTALL=COMPLETE")
+        return
     if backend != "fixture":
         die(f"unknown backend: {backend}")
+    if not args.fs_root:
+        die("--fs-root is required for fixture backend")
 
     work_dir = validate_work_dir(args.work_dir)
     fs_root = Path(args.fs_root).resolve()
@@ -160,6 +351,22 @@ def cmd_simulate_install(args: argparse.Namespace) -> None:
 
 
 def cmd_verify(args: argparse.Namespace) -> None:
+    backend = args.backend or "fixture"
+    if backend == "live":
+        if args.fs_root:
+            die("LIVE_MODE_FS_ROOT_REFUSED: --fs-root is a TEST-ONLY fixture prefix and must not be passed in live mode")
+        if not live_authorization_present():
+            die("LIVE_AUTHORIZATION_MISSING (LIVE_L1=NOT_AUTHORIZED)")
+        live_verify_package(STAGE_OWNED_PACKAGE)
+        print("L1_VERIFY=PASS")
+        return
+    if backend != "fixture":
+        die(f"unknown backend: {backend}")
+    if not args.fs_root:
+        die("--fs-root is required for fixture backend")
+    if not args.work_dir:
+        die("--work-dir is required for fixture backend")
+
     fs_root = Path(args.fs_root).resolve()
     work_dir = validate_work_dir(args.work_dir)
 
@@ -197,6 +404,26 @@ def cmd_verify(args: argparse.Namespace) -> None:
 
 
 def cmd_rollback(args: argparse.Namespace) -> None:
+    backend = args.backend or "fixture"
+    if backend == "live":
+        if args.fs_root:
+            die("LIVE_MODE_FS_ROOT_REFUSED: --fs-root is a TEST-ONLY fixture prefix and must not be passed in live mode")
+        if not live_authorization_present():
+            die("LIVE_AUTHORIZATION_MISSING (LIVE_L1=NOT_AUTHORIZED)")
+        live_rollback_package(STAGE_OWNED_PACKAGE)
+        if args.work_dir:
+            work_dir = Path(args.work_dir).resolve()
+            if work_dir.is_dir():
+                manifest = work_dir / "l1-installed-packages.json"
+                if manifest.exists():
+                    manifest.unlink()
+        print("L1_ROLLBACK=COMPLETE")
+        return
+    if backend != "fixture":
+        die(f"unknown backend: {backend}")
+    if not args.fs_root:
+        die("--fs-root is required for fixture backend")
+
     fs_root = Path(args.fs_root).resolve()
     work_dir = Path(args.work_dir).resolve() if args.work_dir else None
 
@@ -233,20 +460,22 @@ def main() -> None:
     p_install = subparsers.add_parser("simulate-install")
     p_install.add_argument("--backend", default="fixture")
     p_install.add_argument("--work-dir", required=True)
-    p_install.add_argument("--fs-root", required=True)
+    p_install.add_argument("--fs-root", default="", help="Required for fixture backend only; live never uses it")
     p_install.add_argument("--packages", default="chrony")
     p_install.add_argument("--transaction-diff", default="")
     p_install.set_defaults(func=cmd_simulate_install)
 
     p_verify = subparsers.add_parser("verify")
-    p_verify.add_argument("--work-dir", required=True)
-    p_verify.add_argument("--fs-root", required=True)
+    p_verify.add_argument("--backend", default="fixture")
+    p_verify.add_argument("--work-dir", default="", help="Required for fixture backend only; live never uses it")
+    p_verify.add_argument("--fs-root", default="", help="Required for fixture backend only; live never uses it")
     p_verify.add_argument("--inject-listener", default="")
     p_verify.set_defaults(func=cmd_verify)
 
     p_rb = subparsers.add_parser("rollback")
+    p_rb.add_argument("--backend", default="fixture")
     p_rb.add_argument("--work-dir", default="")
-    p_rb.add_argument("--fs-root", required=True)
+    p_rb.add_argument("--fs-root", default="", help="Required for fixture backend only; live never uses it")
     p_rb.set_defaults(func=cmd_rollback)
 
     args = parser.parse_args()

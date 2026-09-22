@@ -6923,6 +6923,36 @@ FINAL_RECEIPT                             = NONE (Draft PR; no final receipt yet
 |---|---|---|---|---|---|---|---|
 | P4-L0-C1 | Durable recording of owner-run Official L0 live read-only baseline (documentation only) | PASS | Owner-run Official L0 window `20260921-212314-official-l0` (exit 0, COMPLETE, checksums PASS, 0 duplicates, 0 refused, 0 unreadable/unavailable); disk 96% used; IDEA2 process active, engine NRestarts=0, tunnel NRestarts=6, heartbeat failed, tunnel/runtime healthy NO; L1 live backend NOT_IMPLEMENTED_FAIL_CLOSED | commit | PASS — OFFICIAL L0 ACCEPTED / DURABLE CLOSEOUT IN PROGRESS | reconcile disk threshold (95% vs 90%) and perform out-of-band disk cleanup; IDEA2 §10 resolution; implement L1 live package backend; issue fresh K3 and A-L1 | open Draft PR |
 
+## IDEA3 PR11 Phase 4 L1 disk-threshold owner decision reconciliation — 2026-09-22
+
+> [!important] Threshold conflict resolved for repository purposes
+> The disk-threshold conflict recorded above (item 2 of the 2026-09-21
+> Consolidated Phase 4 Live Readiness State, and PR #174's historical
+> documentation of it) is **resolved by owner decision on 2026-09-22**.
+> PR #174 remains the unaltered historical record of the prior conflict;
+> this entry supersedes only the "unresolved" characterization for current
+> readers, not PR #174 itself.
+
+```text
+DISK_THRESHOLD_PCT_CANONICAL              = 90
+DISK_THRESHOLD_PASS_CONDITION             = usage < 90%
+DISK_THRESHOLD_OWNER_DECISION_DATE        = 2026-09-22
+L1_DISK_THRESHOLD_RECONCILIATION_REQUIRED = NO
+OD_L1_07_CITATION_STATUS                  = TYPO_CONFIRMED (disk gate is OD-L1-05, not OD-L1-07)
+PRIOR_95_PERCENT_READINESS_VALUE          = SUPERSEDED_AS_NUMERIC_L1_THRESHOLD
+
+# Current remaining blockers (unchanged by this decision — threshold choice
+# alone does not make L1 live-ready):
+DISK_CURRENT_STATE                        = BLOCKING (last fresh proof 2026-09-21: 96% used, still >= 90%)
+IDEA2_S10                                 = BLOCKING (see PR #176)
+L1_LIVE_BACKEND_REPOSITORY_STATUS         = IMPLEMENTED_PENDING_REVIEW (PR #178, repository-only, never executed live)
+K3                                        = NOT_ISSUED
+A_L1                                      = NOT_AUTHORIZED
+LIVE_L1_ALLOWED                           = NO
+PRODUCTION_MUTATION                       = NO
+```
+
+Full detail: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-22-idea3-pr11-phase4-l1-live-backend-owner-decision.md` (D1-D3) and Draft PR #178.
 
 ## 🔗 Related Notes
 * [[core/system-overview]]
