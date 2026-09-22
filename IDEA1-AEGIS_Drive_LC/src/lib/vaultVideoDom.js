@@ -23,8 +23,35 @@ export async function attachPosterVideo({ url, muted = true, preload = 'metadata
   video.muted = muted
   video.preload = preload
   video.playsInline = true
-  video.src = url
-  await waitFor(video, 'loadeddata', signal)
+  video.tabIndex = -1
+  video.setAttribute?.('aria-hidden', 'true')
+  if (video.style) {
+    video.style.position = 'fixed'
+    video.style.width = '1px'
+    video.style.height = '1px'
+    video.style.opacity = '0'
+    video.style.pointerEvents = 'none'
+  }
+  // Some browser engines will not advance a detached media element far enough
+  // to expose a drawable frame. Connect the decoder off-screen, and arm the
+  // readiness listeners before assigning src so tiny local blobs cannot win
+  // the event race.
+  document.body.append(video)
+  const cleanup = () => {
+    try { video.pause() } catch { /* best effort */ }
+    video.removeAttribute('src')
+    try { video.load() } catch { /* best effort */ }
+    try { video.remove() } catch { /* best effort */ }
+  }
+  const ready = waitFor(video, 'loadeddata', signal)
+  try {
+    video.src = url
+    try { video.load() } catch { /* assigning src already initiated loading */ }
+    await ready
+  } catch (err) {
+    cleanup()
+    throw err
+  }
   return {
     element: video,
     seekTo: async (seconds) => {
@@ -32,11 +59,7 @@ export async function attachPosterVideo({ url, muted = true, preload = 'metadata
       video.currentTime = Math.min(seconds, Math.max(0, video.duration - 0.01))
       await waitFor(video, 'seeked', signal)
     },
-    cleanup: () => {
-      try { video.pause() } catch { /* best effort */ }
-      video.removeAttribute('src')
-      try { video.load() } catch { /* best effort */ }
-    },
+    cleanup,
   }
 }
 

@@ -386,7 +386,11 @@ test('TS-7 Trash view lists the trashed root; Restore returns it to place', asyn
     await click(dom, q('[data-testid="vault-dialog-submit"]'))
     await tick(3)
     assert.ok(!folderTiles().some((el) => el.textContent.includes('Docs')), 'the trashed folder leaves the active view')
-    await click(dom, qa('[data-testid="vault-tree-screen"] button').find((b) => b.textContent.trim() === t('vaultTreeMenuTrash')))
+    const view = q('[data-testid="vault-workspace-view"]')
+    await act(async () => {
+      view.value = 'trash'
+      view.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
     await tick()
     assert.ok(folderTiles().some((el) => el.textContent.includes('Docs')), 'the trash view lists the trashed root')
     const trashed = folderTiles().find((el) => el.textContent.includes('Docs'))
@@ -394,7 +398,10 @@ test('TS-7 Trash view lists the trashed root; Restore returns it to place', asyn
     await click(dom, menuItem('restore'))
     await tick(3)
     assert.ok(!folderTiles().some((el) => el.textContent.includes('Docs')) === false || true, 'restore committed')
-    await click(dom, qa('[data-testid="vault-tree-screen"] button').find((b) => b.textContent.trim() === t('vaultTreeViewActive')))
+    await act(async () => {
+      view.value = 'active'
+      view.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
     await tick()
     assert.ok(folderTiles().some((el) => el.textContent.includes('Docs')), 'the restored folder is back in the active view')
   } finally {
@@ -615,7 +622,7 @@ test('TS-14 bulk download runs sequentially, skips folders, and stops on lock', 
     }
     dl.names.length = 0
     // clear the surviving selection first — the checkboxes toggle, so re-clicking would deselect
-    await click(dom, qa('button').find((b) => b.textContent.trim() === t('vaultTreeClearSelection')))
+    await click(dom, q(`button[aria-label="${t('vaultTreeClearSelection')}"]`))
     await tick()
     const tiles = names.map((n) => fileTiles().find((el) => el.textContent.includes(n)))
     for (const tile of tiles) await click(dom, tile.querySelector('[data-testid="vault-tree-tile-checkbox"]'))

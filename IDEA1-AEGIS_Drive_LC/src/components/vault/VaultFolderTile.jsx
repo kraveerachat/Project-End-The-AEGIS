@@ -2,44 +2,52 @@
 // Folder tile: Folder icon + name + child count (active view) — folders carry no size by structure.
 // Body click = open; Ctrl/Cmd-click = additive select; checkbox toggles; three-dot = menu.
 import { useState, useRef } from 'react'
-import { Folder, MoreVertical } from 'lucide-react'
+import { Folder } from 'lucide-react'
 import { AnchoredMenu } from '../ui.jsx'
+import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../FileCardPresentation.jsx'
 import { VaultTileMenu, vaultTreeMenuItems } from './VaultTileMenu.jsx'
 
 export function VaultFolderTile({ t, node, tileRef = null, layout = 'grid', view = 'active', childCount = null, selected = false, onSelect, onOpen, onAction, keyDegraded = false, ...rest }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
   const menuBtnRef = useRef(null)
   const items = menuOpen ? vaultTreeMenuItems({ t, kind: 'folder', view, keyDegraded }) : []
 
   return (
-    <div
+    <FileCardShell
       ref={tileRef}
+      kind="folder"
+      layout={layout}
+      selected={selected}
+      menuOpen={menuOpen}
+      hovered={hovered}
       data-testid="vault-folder-tile"
       data-node-id={node.nodeId}
       data-icon="folder"
       data-layout={layout}
-      className={`relative group rounded-[var(--r-tile)] border bg-card transition-[border-color,background-color] duration-[var(--dur-fast)] ${selected ? 'border-accent bg-[var(--accent-soft)]' : 'border-line'} ${layout === 'list' ? 'min-h-14 px-3 py-2 flex items-center gap-3' : 'p-3 flex flex-col items-start gap-2'}`}
+      className="group cursor-pointer"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       {...rest}
     >
-      <input
-        type="checkbox"
+      <FileCardCheckbox
         data-testid="vault-tree-tile-checkbox"
-        checked={selected}
-        onChange={() => onSelect(node.nodeId, { additive: true })}
-        aria-label={t('vaultTreeSelectLabel', { name: node.name })}
-        className="size-4 accent-[var(--accent)] cursor-pointer shrink-0"
+        selected={selected}
+        label={t('vaultTreeSelectLabel', { name: node.name })}
+        onClick={(event) => { event.stopPropagation(); onSelect(node.nodeId, { additive: true }) }}
+        className="absolute right-10 top-1/2 -translate-y-1/2 z-20"
       />
       <button
         type="button"
         data-testid="vault-folder-tile-body"
-        className={`min-w-0 w-full text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${layout === 'list' ? 'flex items-center gap-3' : 'flex flex-col items-start gap-1.5'}`}
+        className="min-w-0 w-full text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent flex items-center gap-2.5 pr-14"
         onClick={(e) => {
           if (e.ctrlKey || e.metaKey) { onSelect(node.nodeId, { additive: true }); return }
           onOpen(node.nodeId)
         }}
       >
         <span className="text-[var(--accent)] shrink-0">
-          <Folder size={layout === 'list' ? 28 : 40} strokeWidth={1.2} />
+          <Folder size={20} strokeWidth={1.4} fill="var(--accent-soft)" />
         </span>
         <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-ink">{node.name}</span>
         {childCount !== null && childCount !== undefined && (
@@ -48,21 +56,18 @@ export function VaultFolderTile({ t, node, tileRef = null, layout = 'grid', view
           </span>
         )}
       </button>
-      <button
-        type="button"
+      <FileCardMenuButton
         ref={menuBtnRef}
         data-vault-tile-menu={node.nodeId}
-        aria-label={t('vaultTreeMenuLabel', { name: node.name })}
-        aria-haspopup="menu"
+        label={t('vaultTreeMenuLabel', { name: node.name })}
+        menuOpen={menuOpen}
         data-visible={selected || menuOpen ? 'true' : undefined}
-        className="tile-hover-control absolute top-2 right-2 ui-icon-button size-8 rounded-full text-ink-2 hover:bg-sunken cursor-pointer"
+        className="absolute right-2 top-1/2 -translate-y-1/2 z-20"
         onClick={(e) => { e.stopPropagation(); setMenuOpen(true) }}
-      >
-        <MoreVertical size={16} strokeWidth={1.5} />
-      </button>
+      />
       <AnchoredMenu open={menuOpen} anchorRef={menuBtnRef} onClose={() => setMenuOpen(false)} label={t('vaultTreeMenuLabel', { name: node.name })}>
         <VaultTileMenu items={items} onAction={(id) => { setMenuOpen(false); onAction(node, id) }} />
       </AnchoredMenu>
-    </div>
+    </FileCardShell>
   )
 }

@@ -98,7 +98,9 @@ test('REC-01 recovery copy is explicit and the Thai security note states traffic
 test('AUDIT-01 tile overflow controls remain available to touch and selected items avoid hover-only motion', () => {
   for (const fileName of ['VaultFileTile.jsx', 'VaultFolderTile.jsx']) {
     const source = fs.readFileSync(new URL(`../src/components/vault/${fileName}`, import.meta.url), 'utf8')
-    assert.match(source, /tile-hover-control/)
+    assert.match(source, /FileCardMenuButton/)
+    assert.match(source, /FileCardCheckbox/)
+    assert.match(source, /FileCardShell/)
     assert.match(source, /data-visible=\{selected \|\| menuOpen \? 'true' : undefined\}/)
     assert.doesNotMatch(source, /hover:-translate/)
   }

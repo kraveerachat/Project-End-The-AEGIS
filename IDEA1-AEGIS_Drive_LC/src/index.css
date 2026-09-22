@@ -1484,3 +1484,23 @@ textarea:focus-visible {
     opacity: 1;
   }
 }
+
+/* Files is the presentation source of truth for Files + TREE_V1 Vault cards.
+   Fine pointers get a quiet idle card; touch/coarse pointers keep both controls
+   visible. Selection, an open menu, and keyboard focus always reveal controls. */
+.file-card-control {
+  opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .file-card-control {
+    opacity: 0;
+  }
+  [data-file-card-shell]:hover .file-card-control,
+  [data-file-card-shell][data-selected="true"] .file-card-control,
+  [data-file-card-shell][data-menu-open="true"] .file-card-control,
+  [data-file-card-shell]:focus-within .file-card-control,
+  .file-card-control[data-visible="true"],
+  .file-card-control:focus-visible {
+    opacity: 1;
+  }
+}

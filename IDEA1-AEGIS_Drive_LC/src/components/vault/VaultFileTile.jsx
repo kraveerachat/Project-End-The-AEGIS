@@ -1,8 +1,9 @@
 // src/components/vault/VaultFileTile.jsx — AEGIS Drive (IDEA1) · PR #157 Task 6.1 · file tile (UI-1/UI-4)
 // File tile: icon or poster slot (Phase 7 fills it), name, size/type from the manifest node — never envelope metadata.
 import { useEffect, useState, useRef } from 'react'
-import { File, FileArchive, FileImage, FileText, FileVideo, MoreVertical } from 'lucide-react'
+import { File, FileArchive, FileImage, FileText, FileVideo } from 'lucide-react'
 import { AnchoredMenu } from '../ui.jsx'
+import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../FileCardPresentation.jsx'
 import { VaultTileMenu, vaultTreeMenuItems } from './VaultTileMenu.jsx'
 import { fmtBytes } from '../../lib/format.js'
 
@@ -18,6 +19,7 @@ export const VAULT_MEDIA_HOLD_MS = 250
 
 export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view = 'active', previewKind = null, selected = false, onSelect, onPreview, onAction, keyDegraded = false, media = null, onDragStart, ...rest }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [cardHovered, setCardHovered] = useState(false)
   const [hovering, setHovering] = useState(false)
   const menuBtnRef = useRef(null)
   const holdTimerRef = useRef(0)
@@ -53,8 +55,13 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
   }, [])
 
   return (
-    <div
+    <FileCardShell
       ref={tileRef}
+      kind="file"
+      layout={layout}
+      selected={selected}
+      menuOpen={menuOpen}
+      hovered={cardHovered}
       data-testid="vault-file-tile"
       data-node-id={node.nodeId}
       data-icon="file"
@@ -64,16 +71,18 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
         if (touchGestureRef.current) { event.preventDefault(); return }
         onDragStart?.(event)
       }}
-      className={`relative group rounded-[var(--r-tile)] border bg-card transition-[border-color,background-color] duration-[var(--dur-fast)] ${selected ? 'border-accent bg-[var(--accent-soft)]' : 'border-line'} ${layout === 'list' ? 'min-h-16 px-3 py-2 flex items-center gap-3' : 'p-3 flex flex-col items-start gap-2'}`}
+      className={`group cursor-pointer ${layout === 'list' ? '' : 'flex flex-col items-start gap-2'}`}
+      onMouseEnter={() => setCardHovered(true)}
+      onMouseLeave={() => { setCardHovered(false); stopMotion() }}
       {...rest}
     >
-      <input
-        type="checkbox"
+      <FileCardCheckbox
         data-testid="vault-tree-tile-checkbox"
-        checked={selected}
-        onChange={() => onSelect(node.nodeId, { additive: true })}
-        aria-label={t('vaultTreeSelectLabel', { name: node.name })}
-        className="size-4 accent-[var(--accent)] cursor-pointer shrink-0"
+        selected={selected}
+        label={t('vaultTreeSelectLabel', { name: node.name })}
+        onClick={(event) => { event.stopPropagation(); onSelect(node.nodeId, { additive: true }) }}
+        onPointerDown={(event) => event.stopPropagation()}
+        className="absolute top-2 left-2 z-20"
       />
       <button
         type="button"
@@ -107,10 +116,12 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
         }}
       >
         <span data-testid="vault-file-preview-slot" className={previewClass}>
-          {media?.motionUrl && hovering ? (
-            <img src={media.motionUrl} alt="" data-testid="vault-tree-tile-poster" className="size-full object-contain" />
+          {media?.motionUrl && hovering && media?.motionKind === 'video' ? (
+            <video src={media.motionUrl} autoPlay muted loop playsInline preload="metadata" tabIndex={-1} aria-hidden="true" data-testid="vault-tree-tile-motion" className="size-full object-cover pointer-events-none" />
+          ) : media?.motionUrl && hovering ? (
+            <img src={media.motionUrl} alt="" data-testid="vault-tree-tile-motion" className="size-full object-cover" />
           ) : media?.posterUrl ? (
-            <img src={media.posterUrl} alt="" data-testid="vault-tree-tile-poster" className="size-full object-contain" />
+            <img src={media.posterUrl} alt="" data-testid="vault-tree-tile-poster" className="size-full object-cover" />
           ) : (
             <span className="text-[var(--accent)]">
               <FileIcon size={layout === 'list' ? 24 : 42} strokeWidth={1.2} />
@@ -124,21 +135,18 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
           </span>
         </span>
       </button>
-      <button
-        type="button"
+      <FileCardMenuButton
         ref={menuBtnRef}
         data-vault-tile-menu={node.nodeId}
-        aria-label={t('vaultTreeMenuLabel', { name: node.name })}
-        aria-haspopup="menu"
+        label={t('vaultTreeMenuLabel', { name: node.name })}
+        menuOpen={menuOpen}
         data-visible={selected || menuOpen ? 'true' : undefined}
-        className="tile-hover-control absolute top-2 right-2 ui-icon-button size-8 rounded-full text-ink-2 hover:bg-sunken cursor-pointer"
+        className="absolute top-2 right-2 z-20"
         onClick={(e) => { e.stopPropagation(); setMenuOpen(true) }}
-      >
-        <MoreVertical size={16} strokeWidth={1.5} />
-      </button>
+      />
       <AnchoredMenu open={menuOpen} anchorRef={menuBtnRef} onClose={() => setMenuOpen(false)} label={t('vaultTreeMenuLabel', { name: node.name })}>
         <VaultTileMenu items={items} onAction={(id) => { setMenuOpen(false); onAction(node, id) }} />
       </AnchoredMenu>
-    </div>
+    </FileCardShell>
   )
 }

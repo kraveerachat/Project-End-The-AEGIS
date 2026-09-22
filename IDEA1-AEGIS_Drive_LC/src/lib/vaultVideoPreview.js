@@ -76,17 +76,25 @@ export async function openVideoPoster({
 export async function openVideoMotion({
   variant, mediaType, openSession, closeSession, attachVideo, signal = null,
 }) {
+  let session = null
   try {
     if (signal?.aborted) return { ok: false, unsupported: 'ABORTED' }
-    const session = await openSession({ signal })
-    const { element, cleanup } = await attachVideo({ url: session.url, muted: true, preload: 'metadata', signal })
+    session = await openSession({ signal })
+    const attached = attachVideo
+      ? await attachVideo({ url: session.url, muted: true, preload: 'metadata', signal })
+      : { element: null, cleanup: null }
+    const { element, cleanup } = attached
+    let released = false
     return {
       ok: true, url: session.url, token: session.token, element,
       release: async () => {
+        if (released) return
+        released = true
         try { cleanup?.() } finally { await closeSession(session.token) }
       },
     }
   } catch (err) {
+    if (session?.token) { try { await closeSession(session.token) } catch { /* best effort */ } }
     if (signal?.aborted || err?.name === 'AbortError') return { ok: false, unsupported: 'ABORTED' }
     return { ok: false, unsupported: 'INTEGRITY' }
   }

@@ -85,6 +85,19 @@ test('VP-3 hover motion keeps its session open; release closes it and removes th
   assert.equal(cleaned, true, 'release removes the element')
 })
 
+test('VP-3b a failed motion attachment still closes the opened preview session', async () => {
+  let closed = 0
+  const res = await openVideoMotion({
+    variant: 2, mediaType: 'video/mp4',
+    openSession: async () => ({ token: 'T-motion-failed', url: 'virtual://T-motion-failed' }),
+    closeSession: async () => { closed += 1 },
+    attachVideo: async () => { throw new Error('PREVIEW_FAILURE: attach') },
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.unsupported, 'INTEGRITY')
+  assert.equal(closed, 1, 'the failed motion session cannot survive off-screen')
+})
+
 test('VP-4 any seek maps to exactly the chunks that cover it (one-chunk-bounded re-assert)', () => {
   const plaintextChunkSize = 1024
   const totalBytes = 10 * plaintextChunkSize

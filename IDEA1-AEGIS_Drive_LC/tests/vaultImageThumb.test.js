@@ -116,6 +116,23 @@ test('IT-3 the poster scales to posterMaxEdge and the URL registers with the unl
   assert.deepEqual(registered, created, 'the URL was registered with the unlocked state')
 })
 
+test('IT-V3 async browser poster encoding is awaited before returning bytes', async () => {
+  const encodedBytes = new Uint8Array([11, 22, 33, 44])
+  const res = await makeImageThumb({
+    plainSize: 900,
+    limits,
+    readWhole: async () => syntheticPng({ width: 8, height: 8 }),
+    decode: async () => ({ width: 8, height: 8, close: () => {} }),
+    poster: async () => ({ bytes: encodedBytes, width: 8, height: 8 }),
+    variant: 1,
+    skipUrl: true,
+  })
+  assert.equal(res.ok, true)
+  assert.deepEqual(res.posterBytes, encodedBytes, 'the scheduler receives the encoded poster bytes, not an unresolved Promise')
+  assert.equal(res.width, 8)
+  assert.equal(res.height, 8)
+})
+
 test('IT-4 a tampered chunk decrypts as an integrity failure', async () => {
   const res = await makeImageThumb({
     plainSize: 900,

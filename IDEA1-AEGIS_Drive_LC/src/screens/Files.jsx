@@ -6,7 +6,7 @@ import {
   Folder, FolderOpen, ChevronRight, Eye,
 } from 'lucide-react'
 import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, DependencyUnavailableState, SkeletonLoader, Modal, ModalClose, Field, PillInput, AnchoredMenu } from '../components/ui.jsx'
-import { useApi, useCoarsePointer, useNow, useReducedMotion } from '../lib/hooks.js'
+import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
@@ -14,6 +14,8 @@ import { UploadDrawer } from '../components/UploadDrawer.jsx'
 import { AEGIS_ITEMS_TYPE, canDropOn, dragPayloadFor, isExternalFileDrag, readDragPayload, writeDragPayload } from '../lib/fileDragDrop.js'
 import { DEFAULT_SORT, SORT_LABEL_KEYS, SORT_MODES, filterItems, previewKindFor, previewPathFor, sectionItems } from '../lib/filesView.js'
 import { MediaProvider, MediaThumb, useOwnedMediaRuntime } from '../components/MediaThumb.jsx'
+import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../components/FileCardPresentation.jsx'
+import { SelectionAction, SelectionActionBar } from '../components/SelectionActionBar.jsx'
 import { readFolderHistory, writeFolderHistory } from '../lib/folderHistory.js'
 
 const EXT_ICONS = {
@@ -328,7 +330,6 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
   const menuBtnRef = useRef(null)
   const media = useMediaPointer()
   const hover = media.hoverStyle
-  const coarse = useCoarsePointer()
   const [dropTarget, setDropTarget] = useState(false)
   const isFolder = file.kind === 'folder'
   // เปิดโฟลเดอร์ขณะที่มีของลอยอยู่เหนือมัน — ไอคอนที่เปลี่ยนคือคำตอบว่า "วางตรงนี้ได้"
@@ -338,10 +339,15 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
   //    ตอนชี้ (Round 9), poster นิ่งตอน idle (Round 10) และ reduced-motion ปิดการเล่นอัตโนมัติ อยู่ใน state machine
   //    ของไทล์ (lib/mediaTile.js) ไม่ใช่ที่นี่; ต้นฉบับ (/preview) ใช้เฉพาะ FilePreviewModal เมื่อผู้ใช้กด Preview
   // จอสัมผัสไม่มี hover: ปุ่มเลือก/เมนูต้องมองเห็นได้ตั้งแต่แรก
-  const showControls = hover || selected || anySelected || menuOpen || coarse
   return (
-    <div
+    <FileCardShell
       ref={tileRef}
+      kind="file"
+      layout="grid"
+      selected={selected}
+      menuOpen={menuOpen}
+      hovered={hover}
+      dropTarget={dropTarget}
       data-file-kind={isFolder ? 'folder' : 'file'}
       data-file-id={file.id}
       data-tile-variant="file-card"
@@ -368,17 +374,8 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
       }}
       {...media.props}
       onClick={() => { if (media.consumeClick()) return; onOpen(file) }}
-      className="relative bg-card border rounded-[var(--r-tile)] p-3 cursor-pointer select-none transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur-fast)]"
-      style={{
-        WebkitTouchCallout: 'none',
-        borderColor: dropTarget ? 'var(--accent)' : selected ? 'var(--accent)' : hover ? 'var(--accent-soft)' : 'var(--line)',
-        background: dropTarget
-          ? 'color-mix(in srgb, var(--accent) 10%, var(--card))'
-          : selected ? 'color-mix(in srgb, var(--accent) 4%, var(--card))' : 'var(--card)',
-        transform: hover && !dropTarget ? 'translateY(-2px)' : 'none',
-        boxShadow: hover ? 'var(--elev-1)' : 'none',
-        transitionTimingFunction: 'var(--ease)',
-      }}
+      className="cursor-pointer"
+      style={{ WebkitTouchCallout: 'none' }}
     >
       {/* ── media frame: MediaThumb (z-0) + ปุ่มเลือก/เมนู (z-20) วางสัมพัทธ์กับกรอบสื่อ ห่างขอบ 8px ──
           ⚠️ ปุ่มอยู่ "นอก" กล่อง overflow-hidden ของ MediaThumb และมีชั้นซ้อนชัดเจน — poster/video ทับปุ่มไม่ได้
@@ -393,37 +390,23 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
         className={`relative z-0 h-24 rounded-[9px] ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}
       />
       {/* selection checkbox */}
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={selected}
-        aria-label={`${t('selected')}: ${file.name}`}
+      <FileCardCheckbox
+        selected={selected}
+        label={`${t('selected')}: ${file.name}`}
         onClick={(e) => { e.stopPropagation(); onSelect(file.id) }}
         onPointerDown={(e) => e.stopPropagation()}
-        className="absolute top-2 left-2 z-20 size-5 rounded-[6px] border flex items-center justify-center transition-[opacity,background-color,border-color] duration-[var(--dur-fast)] cursor-pointer"
-        style={{
-          opacity: showControls ? 1 : 0,
-          background: selected ? 'var(--accent)' : 'var(--card)',
-          borderColor: selected ? 'var(--accent)' : 'var(--line)',
-        }}
-      >
-        {selected && <Check size={12} strokeWidth={2.5} color="#fff" />}
-      </button>
+        className="absolute top-2 left-2 z-20"
+      />
 
       {/* overflow */}
-      <button
+      <FileCardMenuButton
         ref={menuBtnRef}
-        type="button"
-        aria-label={t('moreActions')}
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
+        label={t('moreActions')}
+        menuOpen={menuOpen}
         onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
         onPointerDown={(e) => e.stopPropagation()}
-        className="absolute top-2 right-2 z-20 size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-[opacity,color] duration-[var(--dur-fast)] cursor-pointer"
-        style={{ opacity: showControls ? 1 : 0 }}
-      >
-        <MoreHorizontal size={14} strokeWidth={1.5} />
-      </button>
+        className="absolute top-2 right-2 z-20"
+      />
       </div>
       {/* ⚠️ เมนูถูก portal ออกไปนอกไทล์ — ไทล์ยกตัวด้วย transform ตอน hover ซึ่ง
           สร้าง stacking context ทำให้ไทล์ถัดไปทับเมนูของไทล์ก่อนหน้าได้ และเมนู
@@ -450,7 +433,7 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
         </div>
             <StorageBadge vault={file.vault} t={t} />
       </div>
-    </div>
+    </FileCardShell>
   )
 }
 
@@ -464,10 +447,15 @@ export function FolderTile({ t, file, selected, anySelected, onSelect, onOpen, o
   const [hover, setHover] = useState(false)
   const [dropTarget, setDropTarget] = useState(false)
   const Icon = dropTarget ? FolderOpen : Folder
-  const showControls = hover || selected || anySelected || menuOpen
   return (
-    <div
+    <FileCardShell
       ref={tileRef}
+      kind="folder"
+      layout="grid"
+      selected={selected}
+      menuOpen={menuOpen}
+      hovered={hover}
+      dropTarget={dropTarget}
       data-file-kind="folder"
       data-file-id={file.id}
       data-tile-variant="folder-compact"
@@ -493,54 +481,29 @@ export function FolderTile({ t, file, selected, anySelected, onSelect, onOpen, o
       onMouseLeave={() => setHover(false)}
       onClick={() => onOpen(file)}
       title={t('openFolder')}
-      className="relative bg-card border rounded-[var(--r-tile)] h-12 pl-3 pr-16 flex items-center gap-2.5 cursor-pointer transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur-fast)]"
-      style={{
-        borderColor: dropTarget ? 'var(--accent)' : selected ? 'var(--accent)' : hover ? 'var(--accent-soft)' : 'var(--line)',
-        background: dropTarget
-          ? 'color-mix(in srgb, var(--accent) 10%, var(--card))'
-          : selected ? 'color-mix(in srgb, var(--accent) 4%, var(--card))' : 'var(--card)',
-        transform: hover && !dropTarget ? 'translateY(-1px)' : 'none',
-        boxShadow: hover ? 'var(--elev-1)' : 'none',
-        transitionTimingFunction: 'var(--ease)',
-      }}
+      className="cursor-pointer"
     >
       <Icon size={20} strokeWidth={1.4} className="shrink-0 text-accent" fill="var(--accent-soft)" />
       <p className="min-w-0 flex-1 text-[13.5px] font-medium text-ink truncate" title={file.name}>{file.name}</p>
 
       {/* selection checkbox + overflow — ชิดขวา แทนที่จะลอยอยู่มุมบนเหมือนการ์ด */}
       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={selected}
-          aria-label={`${t('selected')}: ${file.name}`}
+        <FileCardCheckbox
+          selected={selected}
+          label={`${t('selected')}: ${file.name}`}
           onClick={(e) => { e.stopPropagation(); onSelect(file.id) }}
-          className="size-5 rounded-[6px] border flex items-center justify-center transition-[opacity,background-color,border-color] duration-[var(--dur-fast)] cursor-pointer"
-          style={{
-            opacity: showControls ? 1 : 0,
-            background: selected ? 'var(--accent)' : 'var(--card)',
-            borderColor: selected ? 'var(--accent)' : 'var(--line)',
-          }}
-        >
-          {selected && <Check size={12} strokeWidth={2.5} color="#fff" />}
-        </button>
-        <button
+        />
+        <FileCardMenuButton
           ref={menuBtnRef}
-          type="button"
-          aria-label={t('moreActions')}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
+          label={t('moreActions')}
+          menuOpen={menuOpen}
           onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
-          className="size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-[opacity,color] duration-[var(--dur-fast)] cursor-pointer"
-          style={{ opacity: showControls ? 1 : 0 }}
-        >
-          <MoreHorizontal size={14} strokeWidth={1.5} />
-        </button>
+        />
       </div>
       <AnchoredMenu open={menuOpen} anchorRef={menuBtnRef} onClose={() => setMenuOpen(false)} label={t('moreActions')}>
         <FileMenu t={t} file={file} onClose={() => setMenuOpen(false)} onAction={(a) => onMenuAction(a, file)} />
       </AnchoredMenu>
-    </div>
+    </FileCardShell>
   )
 }
 
@@ -1355,56 +1318,41 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
       )}
       </div>
 
-      {/* floating multi-select action bar — black pill, slides up */}
+      {/* shared semantic selection surface; actions remain Files-specific */}
       {selectedIds.size > 0 && (
-        <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-ink text-card rounded-full pl-4 pr-1.5 h-12"
-          style={{ zIndex: 'var(--z-toast)', boxShadow: 'var(--elev-2)', animation: 'bar-up var(--dur-base) var(--ease) both' }}
+        <SelectionActionBar
+          label={`${selectedIds.size} ${t('selected')}`}
+          clearLabel={t('close')}
+          onClear={() => setSelectedIds(new Set())}
+          data-testid="files-selection-bar"
         >
-          <span className="text-[13px] font-semibold mr-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
-            {selectedIds.size} {t('selected')}
-          </span>
           {/* ⚠️ เดิมปุ่มสองตัวนี้ถูกวาดโดยไม่มี onClick เลย — ปุ่มที่กดแล้วไม่เกิดอะไร
               คือปุ่มที่โกหกผู้ใช้ ตอนนี้ทั้งคู่ผูกกับคำสั่งจริง */}
-          <button
-            type="button"
+          <SelectionAction
             onClick={() => {
               for (const id of selectedIds) {
                 const picked = files.find((f) => f.id === id)
                 if (picked && picked.kind !== 'folder') downloadFile(picked)
               }
             }}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-full text-[13px] font-medium hover:bg-white/12 transition-colors duration-[var(--dur-fast)] cursor-pointer"
           >
             <Download size={14} strokeWidth={1.5} />
             {t('download')}
-          </button>
-          <button
-            type="button"
+          </SelectionAction>
+          <SelectionAction
             onClick={() => { setMoveTarget({ ids: [...selectedIds], label: `${selectedIds.size} ${t('selected')}` }); setActionError(null) }}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-full text-[13px] font-medium hover:bg-white/12 transition-colors duration-[var(--dur-fast)] cursor-pointer"
           >
             <FolderInput size={14} strokeWidth={1.5} />
             {t('move')}
-          </button>
-          <button
-            type="button"
+          </SelectionAction>
+          <SelectionAction
             onClick={deleteSelected}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-full text-[13px] font-medium hover:bg-white/12 transition-colors duration-[var(--dur-fast)] cursor-pointer"
-            style={{ color: '#fca5a5' }}
+            danger
           >
             <Trash2 size={14} strokeWidth={1.5} />
             {t('delete')}
-          </button>
-          <button
-            type="button"
-            aria-label={t('close')}
-            onClick={() => setSelectedIds(new Set())}
-            className="size-9 flex items-center justify-center rounded-full hover:bg-white/12 transition-colors duration-[var(--dur-fast)] cursor-pointer"
-          >
-            <XIcon size={15} strokeWidth={1.5} />
-          </button>
-        </div>
+          </SelectionAction>
+        </SelectionActionBar>
       )}
 
       <FlipGhost ghost={ghost} onDone={() => setGhost(null)} />

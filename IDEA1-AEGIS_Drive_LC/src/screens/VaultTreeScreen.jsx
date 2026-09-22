@@ -10,7 +10,8 @@
 //   • dialog/pending/announcement ทั้งหมดถือ plaintext จึงลงทะเบียน disposer กับ unlockedState — ล็อก = จอสะอาด
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronUp, FolderPlus, LayoutGrid, List, Lock, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
-import { Btn, Card, Chip, EmptyState, ErrorState, IconBtn, Modal, ModalClose, PillSelect } from '../components/ui.jsx'
+import { Btn, Card, EmptyState, ErrorState, IconBtn, Modal, ModalClose, PillSelect } from '../components/ui.jsx'
+import { SelectionAction, SelectionActionBar } from '../components/SelectionActionBar.jsx'
 import { VaultBreadcrumbs } from '../components/vault/VaultBreadcrumbs.jsx'
 import { VaultFolderTile } from '../components/vault/VaultFolderTile.jsx'
 import { VaultFileTile } from '../components/vault/VaultFileTile.jsx'
@@ -28,9 +29,10 @@ import { childrenOf, effectiveState } from '../lib/vaultTreeManifest.js'
 import { createThumbScheduler } from '../lib/vaultThumbScheduler.js'
 import { makeImageThumb } from '../lib/vaultImageThumb.js'
 import { gifMotionCapability, openGifMotion } from '../lib/vaultGifPreview.js'
-import { openVideoPoster, videoPreviewCapability, VIDEO_CAPABILITY } from '../lib/vaultVideoPreview.js'
+import { openVideoMotion, openVideoPoster, videoPreviewCapability, VIDEO_CAPABILITY } from '../lib/vaultVideoPreview.js'
 import { attachPosterVideo, drawPosterFrame } from '../lib/vaultVideoDom.js'
 import { closePreviewSession, openPreviewSession, supportsLargeVideoPreview } from '../lib/vaultPreviewSession.js'
+import { createVaultPreviewBlob } from '../lib/vaultPreviewBlob.js'
 import { normalizeMimeType } from '../lib/vaultPreview.js'
 import { useReducedMotion } from '../lib/hooks.js'
 import { VAULT_TREE_CLIENT_LIMITS } from '../lib/vaultTreeLimits.js'
@@ -221,6 +223,9 @@ export function VaultTreeScreen({
   const [notice, setNotice] = useState(null)
   const [uploadState, setUploadState] = useState(null)
   const [preview, setPreview] = useState(null)
+  const previewUrlRef = useRef(null)
+  const previewStreamToken = useRef(null)
+  const previewRequestRef = useRef(0)
   const [detailsCipher, setDetailsCipher] = useState(null)
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -229,6 +234,22 @@ export function VaultTreeScreen({
   const purgeRef = useRef(() => {})
   const fileRef = useRef(null)
   const head = tree.state.head
+
+  const releaseTreePreview = useCallback(() => {
+    previewRequestRef.current += 1
+    if (previewStreamToken.current) {
+      const token = previewStreamToken.current
+      previewStreamToken.current = null
+      void closePreviewSession(token)
+    }
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
+    setPreview(null)
+  }, [])
+
+  useEffect(() => releaseTreePreview, [releaseTreePreview])
 
   /* plaintext บนจอทั้งหมด (dialog/pending/notice/upload/preview/orphans) ตายพร้อมกุญแจ (TS-10) */
   useEffect(() => {
@@ -244,7 +265,7 @@ export function VaultTreeScreen({
     setDialog(null)
     setNotice(null)
     setUploadState(null)
-    setPreview(null)
+    releaseTreePreview()
     setDetailsCipher(null)
     setQuery('')
     setTypeFilter('all')
@@ -287,7 +308,13 @@ export function VaultTreeScreen({
     if (res && successKey) announce(successKey)
     return res
   }, [tree])
-  const refreshAfter = () => { void load({ quiet: true }) }
+  const refreshAfter = () => {
+    void load({ quiet: true })
+    // Upload commit and encrypted-manifest CAS are separate opaque server facts.
+    // Refresh both so a freshly attached blob can be decrypted for its card in
+    // this session instead of waiting for a full-page reload.
+    vaultApi.refresh()
+  }
 
   const historyReadyRef = useRef(false)
   const navigateTo = useCallback((nodeId, { replace = false, fromHistory = false } = {}) => {
@@ -397,26 +424,58 @@ export function VaultTreeScreen({
   const openPreviewModal = async (node, kind) => {
     if (!kek || !node?.blobRef) return
     const blob = blobIndex.get(refKey(node.blobRef))
+    if (!blob) { announce('vaultTreePreviewFailed'); return }
     const ref = { formatVersion: node.blobRef.formatVersion, id: String(node.blobRef.id) }
+    releaseTreePreview()
+    const request = previewRequestRef.current
+    const plainSize = node.plainSize ?? Math.max(0, (blob?.size ?? 0) - (blob?.chunkCount ?? 0) * 16)
+    setPreview({ node, kind, url: null, loading: true, failed: false, tooLarge: false, streamed: false })
     try {
+      // Preserve the proven PR157 range-decryption path for large V2 video.
+      // The worker receives a non-extractable key and serves only requested ranges;
+      // no plaintext route or whole-file fallback is introduced.
+      if (ref.formatVersion === 2 && kind === 'video' && plainSize > MAX_PREVIEW_CEILING_BYTES) {
+        if (!supportsLargeVideoPreview()) {
+          if (request === previewRequestRef.current) setPreview({ node, kind, url: null, loading: false, failed: false, tooLarge: true, streamed: false })
+          return
+        }
+        const dek = await unwrapVaultV2Dek(kek, blob)
+        if (request !== previewRequestRef.current) return
+        const secureSession = await openPreviewSession({
+          dek, blob, contentType: node.mediaType || 'video/mp4', plainSize,
+          isUnlocked: () => !unlockedState?.isPurged?.(), unlockedState,
+        })
+        if (request !== previewRequestRef.current || unlockedState?.isPurged?.()) {
+          if (secureSession?.token) await closePreviewSession(secureSession.token)
+          return
+        }
+        if (!secureSession?.ok) throw new Error(secureSession?.reason ?? 'PREVIEW_SESSION')
+        previewStreamToken.current = secureSession.token
+        setPreview({ node, kind, url: secureSession.url, loading: false, failed: false, tooLarge: false, streamed: true })
+        return
+      }
+      if (ref.formatVersion === 2 && plainSize > MAX_PREVIEW_CEILING_BYTES) {
+        if (request === previewRequestRef.current) setPreview({ node, kind, url: null, loading: false, failed: false, tooLarge: true, streamed: false })
+        return
+      }
       let bytes = null
       if (ref.formatVersion === 2) {
-        const plainSize = node.plainSize ?? Math.max(0, (blob?.size ?? 0) - (blob?.chunkCount ?? 0) * 16)
-        if (plainSize > MAX_PREVIEW_CEILING_BYTES) { announce('vaultTreePreviewTooLarge'); return }
         const sink = createBufferedSink()
         const res = await downloadVaultV2({ kek, blob, sink })
-        if (!res.ok) { announce('vaultTreePreviewFailed'); return }
+        if (!res.ok) throw new Error(res.reason ?? 'PREVIEW')
         bytes = res.result
       } else {
         const r = await apiFetchBytes(`/api/vault/blobs/${encodeURIComponent(ref.id)}`)
-        if (!r.ok) { announce('vaultTreePreviewFailed'); return }
+        if (!r.ok) throw new Error('PREVIEW')
         bytes = await decryptFileContent(kek, blob, r.bytes)
       }
-      const url = URL.createObjectURL(new Blob([bytes], { type: node.mediaType || 'application/octet-stream' }))
+      if (request !== previewRequestRef.current || unlockedState?.isPurged?.()) return
+      const url = URL.createObjectURL(createVaultPreviewBlob(bytes, node.mediaType || 'application/octet-stream'))
       unlockedState?.registerObjectUrl?.(url)
-      setPreview({ node, kind, url })
+      previewUrlRef.current = url
+      setPreview({ node, kind, url, loading: false, failed: false, tooLarge: false, streamed: false })
     } catch {
-      announce('vaultTreePreviewFailed')
+      if (request === previewRequestRef.current) setPreview({ node, kind, url: null, loading: false, failed: true, tooLarge: false, streamed: false })
     }
   }
   /* ── กู้คืน (DG-6): ที่เดิมถ้าแผนผ่าน; ถูกปฏิเสธฝั่ง client = เปิดตัวเลือกที่ให้ผู้ใช้ตัดสิน ── */
@@ -470,13 +529,14 @@ export function VaultTreeScreen({
 
   const scheduler = useMemo(() => {
     if (!mediaEnabled || !unlockedState || !head) return null
-    return createThumbScheduler({
+    const nextScheduler = createThumbScheduler({
       limits: mediaLimitsRef.current,
       unlockedState,
       load: async (key, { signal } = {}) => {
         const node = head.index.nodes.get(key)
         if (!node?.blobRef) throw new Error('NOT_FOUND')
         const blob = blobIndex.get(refKey(node.blobRef))
+        if (!blob) throw new Error('BLOB_NOT_READY')
         const kind = previewKindFor(node.mediaType)
         if (kind === 'video') {
           const variant = node.blobRef.formatVersion ?? 1
@@ -522,16 +582,22 @@ export function VaultTreeScreen({
         const bytes = await readNodeBytes({ node, blob, signal })
         const thumb = await makeImageThumb({
           plainSize: node.plainSize ?? bytes.length, limits: mediaLimitsRef.current,
-          variant: node.blobRef?.formatVersion ?? 1, readWhole: async () => bytes,
+          variant: node.blobRef?.formatVersion ?? 1,
+          chunkCount: 1,
+          readChunk: async () => bytes,
+          readWhole: async () => bytes,
           unlockedState, signal, skipUrl: true,
         })
         if (!thumb.ok) throw new Error(thumb.unsupported)
         return { width: thumb.width, height: thumb.height, bytes: thumb.posterBytes }
       },
-      onChange: () => setMediaMap(schedulerRef.current?.snapshot() ?? new Map()),
+      onChange: () => setMediaMap(nextScheduler.snapshot()),
     })
+    return nextScheduler
   }, [mediaEnabled, unlockedState, head, kek, blobIndex, readNodeBytes])
   schedulerRef.current = scheduler
+
+  useEffect(() => () => { void scheduler?.releaseAll?.() }, [scheduler])
 
   const prevFolderRef = useRef(null)
   useEffect(() => {
@@ -547,23 +613,73 @@ export function VaultTreeScreen({
     }
   }, [scheduler, head, tree.children, tree.current])
 
-  const gifHoverStart = useCallback(async (node) => {
-    if (!mediaEnabled || reducedMotion || node.kind !== 'file' || normalizeMimeType(node.mediaType) !== 'image/gif') return
-    const cap = gifMotionCapability({ plainSize: node.plainSize ?? 0, limits: mediaLimitsRef.current, schedulerMemBytes: schedulerRef.current?.stats().estMemBytes ?? 0 })
-    if (!cap.ok) { setMediaMap((prev) => new Map(prev).set(node.nodeId, { state: 'failed', url: null, failed: true, reason: cap.unsupported })); return }
+  const motionRequestRef = useRef(0)
+  useEffect(() => () => { void motionState?.release?.() }, [motionState])
+
+  const openNodeVideoSession = useCallback(async (node, blob, signal = null) => {
+    const variant = node.blobRef?.formatVersion ?? 1
+    const plainSize = node.plainSize ?? 0
+    if (variant === 2 && supportsLargeVideoPreview()) {
+      const dek = await unwrapVaultV2Dek(kek, blob)
+      const secureSession = await openPreviewSession({
+        dek, blob, contentType: node.mediaType || 'video/mp4', plainSize,
+        isUnlocked: () => !unlockedState?.isPurged?.(), unlockedState,
+      })
+      if (!secureSession?.ok) throw new Error(secureSession?.reason ?? 'PREVIEW_SESSION')
+      return secureSession
+    }
+    if (plainSize > MAX_PREVIEW_CEILING_BYTES) throw new Error('TOO_LARGE')
+    const bytes = await readNodeBytes({ node, blob, signal })
+    const url = URL.createObjectURL(new Blob([bytes], { type: node.mediaType || 'video/mp4' }))
+    unlockedState?.registerObjectUrl?.(url)
+    return { ok: true, token: `local:${url}`, url }
+  }, [kek, readNodeBytes, unlockedState])
+
+  const closeNodeVideoSession = useCallback(async (token) => {
+    if (String(token).startsWith('local:')) {
+      URL.revokeObjectURL(String(token).slice(6))
+      return
+    }
+    await closePreviewSession(token)
+  }, [])
+
+  const mediaMotionStart = useCallback(async (node) => {
+    if (!mediaEnabled || reducedMotion || node.kind !== 'file') return
+    const mime = normalizeMimeType(node.mediaType)
+    const isGif = mime === 'image/gif'
+    const isVideo = previewKindFor(mime) === 'video'
+    if (!isGif && !isVideo) return
+    const request = ++motionRequestRef.current
+    setMotionState(null)
     try {
       const node0 = head.index.nodes.get(node.nodeId)
       const blob = blobIndex.get(refKey(node.blobRef))
-      const bytes = await readNodeBytes({ node: node0, blob })
-      const res = await openGifMotion({ plainSize: node.plainSize ?? 0, limits: mediaLimitsRef.current, readWhole: async () => bytes, unlockedState })
-      if (!res.ok) { setMediaMap((prev) => new Map(prev).set(node.nodeId, { state: 'failed', url: null, failed: true, reason: res.unsupported })); return }
-      setMotionState({ nodeId: node.nodeId, url: res.url, release: res.release })
-    } catch {
-      setMediaMap((prev) => new Map(prev).set(node.nodeId, { state: 'failed', url: null, failed: true, reason: 'INTEGRITY' }))
-    }
-  }, [mediaEnabled, reducedMotion, head, blobIndex, readNodeBytes, unlockedState])
-  const gifHoverEnd = useCallback(() => {
-    setMotionState((prev) => { try { prev?.release?.() } catch { /* best effort */ } return null })
+      if (!node0 || !blob) return
+      let res
+      if (isGif) {
+        const cap = gifMotionCapability({ plainSize: node.plainSize ?? 0, limits: mediaLimitsRef.current, schedulerMemBytes: schedulerRef.current?.stats().estMemBytes ?? 0 })
+        if (!cap.ok) return
+        const bytes = await readNodeBytes({ node: node0, blob })
+        res = await openGifMotion({ plainSize: node.plainSize ?? 0, limits: mediaLimitsRef.current, readWhole: async () => bytes, unlockedState })
+      } else {
+        res = await openVideoMotion({
+          variant: node.blobRef?.formatVersion ?? 1,
+          mediaType: mime,
+          openSession: ({ signal } = {}) => openNodeVideoSession(node0, blob, signal),
+          closeSession: closeNodeVideoSession,
+        })
+      }
+      if (!res?.ok) return
+      if (request !== motionRequestRef.current || unlockedState?.isPurged?.()) {
+        await res.release?.()
+        return
+      }
+      setMotionState({ nodeId: node.nodeId, kind: isVideo ? 'video' : 'gif', url: res.url, release: res.release })
+    } catch { /* poster remains the truthful fallback */ }
+  }, [mediaEnabled, reducedMotion, head, blobIndex, readNodeBytes, unlockedState, openNodeVideoSession, closeNodeVideoSession])
+  const mediaMotionEnd = useCallback(() => {
+    motionRequestRef.current += 1
+    setMotionState(null)
   }, [])
 
   const mediaFor = (node) => {
@@ -576,10 +692,11 @@ export function VaultTreeScreen({
     return {
       posterUrl: entry?.url ?? null,
       reason: null,
-      hoverEnabled: Boolean(isGif && !reducedMotion),
+      hoverEnabled: Boolean((isGif || isVideo) && !reducedMotion),
       motionUrl: motionState?.nodeId === node.nodeId ? motionState.url : null,
-      onHoverStart: isGif ? () => void gifHoverStart(node) : undefined,
-      onHoverEnd: isGif ? () => gifHoverEnd() : undefined,
+      motionKind: motionState?.nodeId === node.nodeId ? motionState.kind : null,
+      onHoverStart: (isGif || isVideo) ? () => void mediaMotionStart(node) : undefined,
+      onHoverEnd: (isGif || isVideo) ? () => mediaMotionEnd() : undefined,
       videoCapability: isVideo ? videoPreviewCapability({ variant: node.blobRef?.formatVersion ?? 1, mediaType: mime, supportsLarge: false, plainSize: node.plainSize ?? 0, maxPreviewBytes: MAX_PREVIEW_CEILING_BYTES }).capability : null,
     }
   }
@@ -670,7 +787,8 @@ export function VaultTreeScreen({
     const rootId = head.manifest.rootNodeId
     const excluded = dialog?.kind === 'move' ? dialog.nodeIds : tree.selection
     const options = vaultTreeFolderOptions(head.index, rootId, [...excluded])
-    return [{ nodeId: rootId, name: t('vaultTreeRootName'), depth: 0 }, ...options]
+    const rootCopy = dialog?.kind === 'move' ? t('vaultTreeMoveRootName') : t('vaultTreeRootName')
+    return [{ nodeId: rootId, name: rootCopy, depth: 0 }, ...options]
   }, [head, dialog, tree.selection, t])
 
   const dragPropsFor = (node) => ({
@@ -761,12 +879,6 @@ export function VaultTreeScreen({
         <IconBtn label={t('vaultTreeRefresh')} onClick={() => void load()} data-testid="vault-tree-refresh">
           <RefreshCw size={15} strokeWidth={1.6} />
         </IconBtn>
-        <Btn variant="outline" size="sm" onClick={() => tree.setView('trash')} aria-pressed={isTrashView}>
-          {t('vaultTreeMenuTrash')}
-        </Btn>
-        <Btn variant="outline" size="sm" onClick={() => tree.setView('active')} aria-pressed={!isTrashView}>
-          {t('vaultTreeViewActive')}
-        </Btn>
         <Btn variant="outline" size="sm" onClick={() => onLock?.()}>
           <Lock size={14} strokeWidth={1.5} />
           {t('lockVault')}
@@ -828,6 +940,17 @@ export function VaultTreeScreen({
             ))}
           </PillSelect>
         </div>
+        <div className="w-36 max-md:flex-1">
+          <PillSelect
+            data-testid="vault-workspace-view"
+            aria-label={t('vaultTreeViewActive')}
+            value={tree.view}
+            onChange={(event) => tree.setView(event.target.value)}
+          >
+            <option value="active">{t('vaultTreeViewActive')}</option>
+            <option value="trash">{t('vaultTreeMenuTrash')}</option>
+          </PillSelect>
+        </div>
         {tree.keyDegraded === false && !isTrashView && (
           <Btn variant="outline" data-testid="vault-tree-new-folder" onClick={() => setDialog({ kind: 'createFolder' })}>
             <FolderPlus size={15} strokeWidth={1.6} />
@@ -872,34 +995,36 @@ export function VaultTreeScreen({
         </p>
       )}
       {tree.selection.size > 0 && (
-        <div data-testid="vault-tree-selection-bar" role="region" aria-label={t('selected')} className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-2rem)] flex items-center justify-center gap-2 flex-wrap rounded-full border border-line bg-ink p-2 shadow-[var(--elev-2)]">
-          <Chip tone="ok" data-testid="vault-tree-selection-count">
+        <SelectionActionBar
+          data-testid="vault-tree-selection-bar"
+          label={tree.selection.size === 1 ? t('vaultTreeSelectedCountOne') : t('vaultTreeSelectedCount', { n: tree.selection.size })}
+          clearLabel={t('vaultTreeClearSelection')}
+          onClear={() => tree.clear()}
+        >
+          <span className="sr-only" data-testid="vault-tree-selection-count">
             {tree.selection.size === 1 ? t('vaultTreeSelectedCountOne') : t('vaultTreeSelectedCount', { n: tree.selection.size })}
-          </Chip>
+          </span>
           {caps?.move && (
-            <Btn size="sm" variant="outline" data-testid="vault-tree-bulk-move" onClick={() => setDialog({ kind: 'move', nodeIds: selectionRoots.map((n) => n.nodeId), names: selectionNames })}>
+            <SelectionAction data-testid="vault-tree-bulk-move" onClick={() => setDialog({ kind: 'move', nodeIds: selectionRoots.map((n) => n.nodeId), names: selectionNames })}>
               {t('vaultTreeMenuMove')}
-            </Btn>
+            </SelectionAction>
           )}
           {caps?.trash && (
-            <Btn size="sm" variant="outline" data-testid="vault-tree-bulk-trash" onClick={() => setDialog({ kind: 'trash', nodeIds: selectionRoots.map((n) => n.nodeId), count: selectionRoots.length })}>
+            <SelectionAction danger data-testid="vault-tree-bulk-trash" onClick={() => setDialog({ kind: 'trash', nodeIds: selectionRoots.map((n) => n.nodeId), count: selectionRoots.length })}>
               {t('vaultTreeMenuTrash')}
-            </Btn>
+            </SelectionAction>
           )}
           {caps?.download && (
-            <Btn size="sm" variant="outline" data-testid="vault-tree-bulk-download" onClick={() => void startBulkDownload(selectionRoots)}>
+            <SelectionAction data-testid="vault-tree-bulk-download" onClick={() => void startBulkDownload(selectionRoots)}>
               {t('vaultTreeMenuDownload')}
-            </Btn>
+            </SelectionAction>
           )}
           {caps?.restore && (
-            <Btn size="sm" variant="outline" data-testid="vault-tree-bulk-restore" onClick={() => { const n = selectionRoots[0]; if (n) void runRestore(n.nodeId, null, n) }}>
+            <SelectionAction data-testid="vault-tree-bulk-restore" onClick={() => { const n = selectionRoots[0]; if (n) void runRestore(n.nodeId, null, n) }}>
               {t('vaultTreeMenuRestore')}
-            </Btn>
+            </SelectionAction>
           )}
-          <Btn size="sm" variant="ghost" className="text-card hover:bg-white/10" onClick={() => tree.clear()}>
-            {t('vaultTreeClearSelection')}
-          </Btn>
-        </div>
+        </SelectionActionBar>
       )}
       {loadState === 'ready' && head && (
         workspace.folders.length === 0 && workspace.files.length === 0 ? (
@@ -1036,14 +1161,28 @@ export function VaultTreeScreen({
         />
       )}
       {preview && (
-        <Modal open onClose={() => { URL.revokeObjectURL(preview.url); setPreview(null) }} width={720} labelledBy="vault-tree-preview-title">
-          <ModalClose onClose={() => { URL.revokeObjectURL(preview.url); setPreview(null) }} label={t('close')} />
+        <Modal open onClose={releaseTreePreview} width={720} labelledBy="vault-tree-preview-title">
+          <ModalClose onClose={releaseTreePreview} label={t('close')} />
           <h2 id="vault-tree-preview-title" className="text-[15px] font-semibold mb-3 truncate">{preview.node.name}</h2>
-          <div data-testid="vault-tree-preview" className="flex items-center justify-center">
-            {preview.kind === 'image' ? (
+          <div data-testid="vault-tree-preview" className="min-h-56 rounded-[var(--r-tile)] border border-line bg-sunken flex items-center justify-center overflow-hidden">
+            {preview.loading ? (
+              <p role="status" className="text-[13px] text-ink-3 px-6 py-10">{t('vaultDecrypting')}</p>
+            ) : preview.tooLarge ? (
+              <p role="status" data-vault-preview-too-large="1" className="text-[13px] text-ink-2 px-6 py-10 text-center max-w-md">{t('vaultPreviewTooLarge')}</p>
+            ) : preview.failed ? (
+              <p role="alert" className="text-[13px] font-medium px-6 py-10 text-center max-w-md" style={{ color: 'var(--danger)' }}>{t('vaultPreviewUnavailable')}</p>
+            ) : preview.kind === 'image' ? (
               <img src={preview.url} alt={preview.node.name} className="max-h-[60vh] rounded-[10px]" />
             ) : (
-              <video src={preview.url} controls muted playsInline className="max-h-[60vh] rounded-[10px]" />
+              <video
+                src={preview.url}
+                controls
+                muted
+                playsInline
+                preload={preview.streamed ? 'metadata' : 'auto'}
+                data-vault-preview-streamed={preview.streamed ? '1' : '0'}
+                className="max-h-[60vh] rounded-[10px]"
+              />
             )}
           </div>
         </Modal>
