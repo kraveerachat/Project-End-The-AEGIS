@@ -113,17 +113,19 @@ def test_l1_sources_contain_no_prohibited_tokens() -> None:
 
 
 def test_l1_apply_refuses_live_backend(tmp_path: Path) -> None:
-    """OD-L1-02 / OD-L1-10: Live backend must fail closed at the shell layer."""
+    """OD-L1-02 / OD-L1-10: Live backend must fail closed at the shell layer.
+
+    AEGIS_P4_FS_ROOT is a TEST-ONLY fixture prefix (p4-lib.sh) and must never
+    be set in live mode, so this scenario (no live-authorization files
+    either) deliberately omits it."""
     assert (L1_STAGE / "apply.sh").is_file()
     work_dir = tmp_path / "work"
     work_dir.mkdir()
-    fs_root = tmp_path / "fs"
-    fs_root.mkdir()
 
     env = os.environ.copy()
+    env.pop("AEGIS_P4_FS_ROOT", None)
     env["AEGIS_L1_BACKEND"] = "live"
     env["AEGIS_L1_WORK_DIR"] = str(work_dir)
-    env["AEGIS_P4_FS_ROOT"] = str(fs_root)
     env["DISK_THRESHOLD_PCT"] = "90"
 
     proc = subprocess.run(
@@ -139,12 +141,13 @@ def test_l1_apply_refuses_live_backend(tmp_path: Path) -> None:
 
 
 def test_l1_helper_refuses_live_backend(tmp_path: Path) -> None:
-    """OD-L1-02 / OD-L1-10: Live backend must fail closed at the Python layer."""
+    """OD-L1-02 / OD-L1-10: Live backend must fail closed at the Python layer.
+
+    AEGIS_P4_FS_ROOT/--fs-root is a TEST-ONLY fixture prefix (p4-lib.sh) and
+    must never be passed in live mode, so this scenario omits it."""
     assert L1_PACKAGES.is_file(), "p4-l1-packages.py must exist"
     work_dir = tmp_path / "work"
     work_dir.mkdir()
-    fs_root = tmp_path / "fs"
-    fs_root.mkdir()
 
     proc = subprocess.run(
         [
@@ -155,8 +158,6 @@ def test_l1_helper_refuses_live_backend(tmp_path: Path) -> None:
             "live",
             "--work-dir",
             str(work_dir),
-            "--fs-root",
-            str(fs_root),
             "--packages",
             "chrony",
         ],
@@ -444,7 +445,7 @@ def test_l1_verify_passes_when_installed_and_inactive(tmp_path: Path) -> None:
         check=False,
     )
     assert proc.returncode == 0, f"verify failed: {proc.stderr}\n{proc.stdout}"
-    assert "HOST_PRE_TO_RB_ZERO_DRIFT=YES" in proc.stdout
+    assert "HOST_PRE_TO_RB_COMPARE=REQUIRED" in proc.stdout
     assert "L1_VERIFY=PASS" in proc.stdout
 
 
@@ -568,8 +569,9 @@ def test_l1_rollback_removes_only_stage_owned_package_delta(tmp_path: Path) -> N
         check=False,
     )
     assert proc.returncode == 0, f"rollback failed: {proc.stderr}\n{proc.stdout}"
-    assert "L1_SERVICES_LEFT_ACTIVE=NONE" in proc.stdout
-    assert "L1_SERVICES_LEFT_ENABLED=NONE" in proc.stdout
+    assert "L1_ROLLBACK_PACKAGE_STATE=ABSENT" in proc.stdout
+    assert "POST_ROLLBACK_CAPTURE_REQUIRED=YES" in proc.stdout
+    assert "HOST_PRE_TO_RB_COMPARE=REQUIRED" in proc.stdout
     assert "L1_ROLLBACK=COMPLETE" in proc.stdout
 
     # chrony artifacts removed
