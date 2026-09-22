@@ -188,6 +188,8 @@ export function viewSelectors(state) {
 export function useVaultTree({ session, unlockedState = null, limits = VAULT_TREE_CLIENT_LIMITS }) {
   const [state, dispatch] = useReducer(vaultTreeReducer, undefined, initialTreeViewState)
   const alive = useRef(true)
+  const stateRef = useRef(state); stateRef.current = state
+  const dragPayloadRef = useRef(null)
   const sessionRef = useRef(session); sessionRef.current = session
   const safeDispatch = useCallback((a) => { if (alive.current && !(unlockedState?.isPurged?.())) dispatch(a) }, [unlockedState])
 
@@ -231,8 +233,29 @@ export function useVaultTree({ session, unlockedState = null, limits = VAULT_TRE
     open: (nodeId) => safeDispatch({ type: 'open', nodeId }),
     up: () => safeDispatch({ type: 'up' }),
     setView: (view) => safeDispatch({ type: 'view', view }),
-    dragStart: (nodeId) => safeDispatch({ type: 'dragStart', nodeId }),
-    dragEnd: () => safeDispatch({ type: 'dragEnd' }),
+    dragStart: (nodeId) => {
+      const s = stateRef.current
+      if (s.head && has(s.head, nodeId)) {
+        const set = s.selection.has(nodeId) ? [...s.selection] : [nodeId]
+        try { dragPayloadRef.current = normalizeSelectionRoots(s.head.index, set) } catch { dragPayloadRef.current = null }
+      }
+      safeDispatch({ type: 'dragStart', nodeId })
+    },
+    dragEnd: () => {
+      dragPayloadRef.current = null
+      safeDispatch({ type: 'dragEnd' })
+    },
+    planDropFromSnapshot: (destinationNodeId) => {
+      const s = stateRef.current
+      if (!s.head || !dragPayloadRef.current) return { ok: false, reason: 'NO_DRAG' }
+      const intent = intents.move({ nodeIds: dragPayloadRef.current, destinationNodeId })
+      try {
+        applyIntent(s.head.manifest, intent, { limits })
+        return { ok: true, intent }
+      } catch (e) {
+        return { ok: false, reason: e.code ?? 'INVALID' }
+      }
+    },
     drop: (destinationNodeId) => safeDispatch({ type: 'drop', destinationNodeId }),
     resolveConflict: (choice, extra = {}) => safeDispatch({ type: 'resolveConflict', choice, ...extra }),
     refreshHead: (head) => safeDispatch({ type: 'head', head }),

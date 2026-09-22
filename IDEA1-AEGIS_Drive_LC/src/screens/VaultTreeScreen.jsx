@@ -823,9 +823,11 @@ export function VaultTreeScreen({
       // internal move: ONE commit path — planDrop decides, tree.run commits; an invalid
       // target goes through the reducer's reject path so the announcement fires with zero CAS
       e.preventDefault()
-      const plan = planDrop(tree.state, node.nodeId)
-      if (plan.ok) void tree.run(plan.intent)
-      else {
+      const plan = tree.planDropFromSnapshot(node.nodeId)
+      if (plan.ok) {
+        tree.drop(node.nodeId)
+        void tree.run(plan.intent)
+      } else {
         // announce through the screen channel too — the reducer's reject is the source of truth,
         // the local notice makes the reason visible immediately (TS-4)
         const k = REJECT_COPY[plan.reason] ?? 'vaultTreeDropDefault'
@@ -869,9 +871,11 @@ export function VaultTreeScreen({
             onNavigate={(id) => navigateTo(id)}
             canDrop={Boolean(tree.drag)}
             onDropTarget={(nodeId) => {
-              const plan = planDrop(tree.state, nodeId)
-              if (plan.ok) void tree.run(plan.intent)
-              else tree.drop(nodeId)
+              const plan = tree.planDropFromSnapshot(nodeId)
+              if (plan.ok) {
+                tree.drop(nodeId)
+                void tree.run(plan.intent)
+              } else tree.drop(nodeId)
             }}
           />
         )}

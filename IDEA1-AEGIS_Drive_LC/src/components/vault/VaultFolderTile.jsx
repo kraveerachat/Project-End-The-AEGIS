@@ -7,7 +7,7 @@ import { AnchoredMenu } from '../ui.jsx'
 import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../FileCardPresentation.jsx'
 import { VaultTileMenu, vaultTreeMenuItems } from './VaultTileMenu.jsx'
 
-export function VaultFolderTile({ t, node, tileRef = null, layout = 'grid', view = 'active', childCount = null, selected = false, onSelect, onOpen, onAction, keyDegraded = false, ...rest }) {
+export function VaultFolderTile({ t, node, tileRef = null, layout = 'grid', view = 'active', selected = false, onSelect, onOpen, onAction, keyDegraded = false, ...rest }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
   const menuBtnRef = useRef(null)
@@ -50,11 +50,6 @@ export function VaultFolderTile({ t, node, tileRef = null, layout = 'grid', view
           <Folder size={20} strokeWidth={1.4} fill="var(--accent-soft)" />
         </span>
         <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-ink">{node.name}</span>
-        {childCount !== null && childCount !== undefined && (
-          <span data-testid="vault-folder-child-count" className="text-[12px] text-ink-3">
-            {childCount === 0 ? t('vaultTreeFolderEmpty') : childCount === 1 ? t('vaultTreeChildCountOne') : t('vaultTreeChildCount', { n: childCount })}
-          </span>
-        )}
       </button>
       <FileCardMenuButton
         ref={menuBtnRef}

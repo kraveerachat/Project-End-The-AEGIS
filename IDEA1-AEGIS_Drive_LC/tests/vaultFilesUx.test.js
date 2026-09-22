@@ -113,3 +113,14 @@ test('MEDIA-05 Vault schedules video posters through the existing encrypted prev
   assert.match(source, /previewKindFor\(n\.mediaType\) === 'video'/)
   assert.match(source, /unwrapVaultV2Dek/)
 })
+
+test('FOLDER-NAME-1: VaultFolderTile renders only folder icon and name, matching normal Files parity without child counts', () => {
+  const source = fs.readFileSync(new URL('../src/components/vault/VaultFolderTile.jsx', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /childCount/)
+})
+
+test('DRAG-SET-2: VaultTreeScreen drag pipeline uses synchronous snapshot to avoid stale React closures', () => {
+  const source = fs.readFileSync(new URL('../src/screens/VaultTreeScreen.jsx', import.meta.url), 'utf8')
+  assert.match(source, /planDropFromSnapshot/)
+  assert.doesNotMatch(source, /planDrop\(tree\.state/)
+})
