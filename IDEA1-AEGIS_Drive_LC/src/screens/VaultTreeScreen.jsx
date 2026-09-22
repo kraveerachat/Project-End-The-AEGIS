@@ -825,7 +825,7 @@ export function VaultTreeScreen({
       e.preventDefault()
       const plan = tree.planDropFromSnapshot(node.nodeId)
       if (plan.ok) {
-        tree.drop(node.nodeId)
+        tree.drop(node.nodeId, plan.intent)
         void tree.run(plan.intent)
       } else {
         // announce through the screen channel too — the reducer's reject is the source of truth,
@@ -873,7 +873,7 @@ export function VaultTreeScreen({
             onDropTarget={(nodeId) => {
               const plan = tree.planDropFromSnapshot(nodeId)
               if (plan.ok) {
-                tree.drop(nodeId)
+                tree.drop(nodeId, plan.intent)
                 void tree.run(plan.intent)
               } else tree.drop(nodeId)
             }}

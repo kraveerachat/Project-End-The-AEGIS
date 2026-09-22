@@ -179,3 +179,25 @@ test('VR-7 drag: dragging a selected node drags the normalized selected set; dro
   const same = planDrop(s, ID(0))
   assert.deepEqual({ ok: same.ok, reason: same.reason }, { ok: false, reason: 'NO_OP' })
 })
+
+test('DRAG-SET-2 / DRAG-SET-3 / MOVE-ATOMIC-1 / MOVE-NOCOPY-1: planDrop accepts intentOverride from snapshot and moves atomically', () => {
+  const s0 = load(base())
+  // Use F(1) and D(4) which are top level items, move them into D(1)
+  const intentOverride = intents.move({ nodeIds: [F(1), D(4)], destinationNodeId: D(1) })
+  const dropPlan = planDrop(s0, D(1), { intentOverride })
+  assert.ok(dropPlan.ok, dropPlan.reason)
+  assert.equal(dropPlan.intent.operationId, intentOverride.operationId) // ONE authoritative intent
+  assert.deepEqual(dropPlan.intent.nodeIds, [F(1), D(4)])
+  
+  const nextResult = applyIntent(s0.head.manifest, dropPlan.intent)
+  const nextNodes = nextResult.manifest.nodes
+  
+  assert.equal(nextNodes.get(F(1)).parentNodeId, D(1))
+  assert.equal(nextNodes.get(D(4)).parentNodeId, D(1))
+  
+  // ensure they don't exist twice
+  const f1Count = [...nextNodes.values()].filter(n => n.nodeId === F(1)).length
+  const d4Count = [...nextNodes.values()].filter(n => n.nodeId === D(4)).length
+  assert.equal(f1Count, 1)
+  assert.equal(d4Count, 1)
+})

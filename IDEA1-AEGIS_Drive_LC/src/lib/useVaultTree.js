@@ -117,7 +117,7 @@ export function vaultTreeReducer(state, action) {
     }
     case 'dragEnd': return state.drag ? { ...state, drag: null } : state
     case 'drop': {
-      const plan = planDrop(state, action.destinationNodeId)
+      const plan = planDrop(state, action.destinationNodeId, { intentOverride: action.intentOverride })
       if (!plan.ok) return plan.reason === 'NO_OP' ? { ...state, drag: null } : reject(state, plan.reason, action.destinationNodeId)
       return { ...state, drag: null, pending: plan.intent, announcement: null }
     }
@@ -140,16 +140,17 @@ export function planRun(state, intent, { limits = VAULT_TREE_CLIENT_LIMITS } = {
 }
 
 /** drop ปัจจุบันลงโฟลเดอร์ปลายทาง → move intent หรือเหตุผลที่ปฏิเสธ (ไม่แตะ state) */
-export function planDrop(state, destinationNodeId, { limits = VAULT_TREE_CLIENT_LIMITS } = {}) {
-  if (!state.head || !state.drag) return { ok: false, reason: 'NO_DRAG' }
+export function planDrop(state, destinationNodeId, { limits = VAULT_TREE_CLIENT_LIMITS, intentOverride = null } = {}) {
+  if (!state.head || (!state.drag && !intentOverride)) return { ok: false, reason: 'NO_DRAG' }
   const index = state.head.index
   const dest = index.nodes.get(destinationNodeId)
   if (!dest) return { ok: false, reason: 'NOT_FOUND' }
   if (dest.kind !== 'folder') return { ok: false, reason: 'NOT_FOLDER' }
   if (effectiveState(index, destinationNodeId) !== 'active') return { ok: false, reason: 'EFFECTIVELY_TRASHED' }
-  for (const id of state.drag.nodeIds) if (id === destinationNodeId || isDescendant(index, destinationNodeId, id)) return { ok: false, reason: 'CYCLE' }
-  if (state.drag.nodeIds.every((id) => index.nodes.get(id)?.parentNodeId === destinationNodeId)) return { ok: false, reason: 'NO_OP' }
-  const intent = intents.move({ nodeIds: state.drag.nodeIds, destinationNodeId })
+  const payloadIds = intentOverride ? intentOverride.nodeIds : state.drag.nodeIds
+  for (const id of payloadIds) if (id === destinationNodeId || isDescendant(index, destinationNodeId, id)) return { ok: false, reason: 'CYCLE' }
+  if (payloadIds.every((id) => index.nodes.get(id)?.parentNodeId === destinationNodeId)) return { ok: false, reason: 'NO_OP' }
+  const intent = intentOverride || intents.move({ nodeIds: payloadIds, destinationNodeId })
   const plan = planRun({ ...state, keyStatus: 'HEALTHY' }, intent, { limits })
   if (!plan.ok) return { ok: false, reason: plan.error.code }
   if (state.keyStatus === 'DEGRADED') return { ok: false, reason: 'KEY_DEGRADED' }
@@ -256,7 +257,7 @@ export function useVaultTree({ session, unlockedState = null, limits = VAULT_TRE
         return { ok: false, reason: e.code ?? 'INVALID' }
       }
     },
-    drop: (destinationNodeId) => safeDispatch({ type: 'drop', destinationNodeId }),
+    drop: (destinationNodeId, intentOverride = null) => safeDispatch({ type: 'drop', destinationNodeId, intentOverride }),
     resolveConflict: (choice, extra = {}) => safeDispatch({ type: 'resolveConflict', choice, ...extra }),
     refreshHead: (head) => safeDispatch({ type: 'head', head }),
     setKeyStatus: (keyStatus, badSlot = null) => safeDispatch({ type: 'keyStatus', keyStatus, badSlot }),
