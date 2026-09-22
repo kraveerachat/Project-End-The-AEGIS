@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-21
+updated: 2026-09-22
 owner: music
 edit_policy: owner-writable
 ---
@@ -12,7 +12,7 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. K1 is now reconciled in the repository and merged (PR #144 at `e4183fefd83727eba82cdb6c0d94d14b4bf349e4`); the Phase 2B overlay form is merged (PR #145 at `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`); neither merge changed the running HUB or enabled Phase 2B. The K1 reconciliation: the owner-captured live HUB artifact (`16cee162…`) is the reviewed baseline, the IR-1 `/security` browser route is added on top, the Phase 2B mTLS block is reviewed but not included, and a HUB routing contract test proves preservation plus the additions. K3 is CLEAR on the merged IDEA1 PR #141 closeout. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 PR11 Phase 4 Official L0 live baseline — durable closeout — 2026-09-21" first (official post-repair read-only baseline accepted; disk 96% used blocks L1, disk threshold contract reconciliation required, IDEA2 §10 remains freshly blocking, L1 live backend not implemented fail-closed; `PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`), then "IDEA3 PR11 Phase 4 L0 harness portability and fail-closed repair — 2026-09-21" (repository repair of locale determinism, paths with spaces in argv-aware filesystem reads, and fail-closed metadata handling), then "IDEA3 PR11 Phase 4 live-readiness reconciliation — 2026-09-21", then "IDEA3 PR11 Phase 4 L1 package installation handler repository registration — 2026-09-21", then "IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17" (repository-only systemd 261 unit correction; `PHASE3_RUNTIME_COMPLETE = NO`), then "IDEA3 PR11 Phase 2 runtime — final closeout — 2026-09-17" (owner-run T3 wrong-CA and T4 revoked-certificate gates PASS; `PHASE2_RUNTIME_COMPLETE = YES`; K12, Phase 3, Phase 4, D4 live, and PR11 remain open), then "IDEA3 PR11 Phase 2 runtime — live evidence reconciliation — 2026-09-16" (Phase 2A PASS and Phase 2B activated live; its T3/T4 SKIP state is superseded), then "IDEA3 PR11 K10 server-held client CA amendment — 2026-09-16," then "IDEA3 PR11 Phase 2 runtime completion — post-#144/#145 reconciliation — 2026-09-16," then "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. K1 is now reconciled in the repository and merged (PR #144 at `e4183fefd83727eba82cdb6c0d94d14b4bf349e4`); the Phase 2B overlay form is merged (PR #145 at `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`); neither merge changed the running HUB or enabled Phase 2B. The K1 reconciliation: the owner-captured live HUB artifact (`16cee162…`) is the reviewed baseline, the IR-1 `/security` browser route is added on top, the Phase 2B mTLS block is reviewed but not included, and a HUB routing contract test proves preservation plus the additions. K3 is CLEAR on the merged IDEA1 PR #141 closeout. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 Final Project — PR11 MVP Scope Freeze — 2026-09-22" first (PR #178 merged at `3b91fc40`; IDEA3 Final Project scope formally frozen as Security Orchestrator + Physical Containment MVP; PR11 exit criteria and PR12 A1–A7 acceptance defined; software IP blocking and live cross-IDEA integrations open; IDEA2 narrowed preservation decision pending; production hardening deferred; `PR11_MVP_COMPLETE = NO`, `PR12_FINAL_ACCEPTANCE = OPEN`), then "IDEA3 PR11 Phase 4 L1 disk-threshold owner decision reconciliation — 2026-09-22" (PR #178 merged; canonical threshold 90%, PR #174 conflict resolved for repository purposes; live L1 blocked on disk usage 96%, IDEA2 §10, and authorizations), then "IDEA3 PR11 Phase 4 Official L0 live baseline — durable closeout — 2026-09-21" (official post-repair read-only baseline accepted; disk 96% used blocks L1, disk threshold contract reconciliation required, IDEA2 §10 remains freshly blocking, L1 live backend not implemented fail-closed; `PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`), then "IDEA3 PR11 Phase 4 L0 harness portability and fail-closed repair — 2026-09-21" (repository repair of locale determinism, paths with spaces in argv-aware filesystem reads, and fail-closed metadata handling), then "IDEA3 PR11 Phase 4 live-readiness reconciliation — 2026-09-21", then "IDEA3 PR11 Phase 4 L1 package installation handler repository registration — 2026-09-21", then "IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17" (repository-only systemd 261 unit correction; `PHASE3_RUNTIME_COMPLETE = NO`), then "IDEA3 PR11 Phase 2 runtime — final closeout — 2026-09-17" (owner-run T3 wrong-CA and T4 revoked-certificate gates PASS; `PHASE2_RUNTIME_COMPLETE = YES`; K12, Phase 3, Phase 4, D4 live, and PR11 remain open), then "IDEA3 PR11 Phase 2 runtime — live evidence reconciliation — 2026-09-16" (Phase 2A PASS and Phase 2B activated live; its T3/T4 SKIP state is superseded), then "IDEA3 PR11 K10 server-held client CA amendment — 2026-09-16," then "IDEA3 PR11 Phase 2 runtime completion — post-#144/#145 reconciliation — 2026-09-16," then "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
@@ -6952,7 +6952,244 @@ LIVE_L1_ALLOWED                           = NO
 PRODUCTION_MUTATION                       = NO
 ```
 
-Full detail: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-22-idea3-pr11-phase4-l1-live-backend-owner-decision.md` (D1-D3) and Draft PR #178.
+Full detail: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-22-idea3-pr11-phase4-l1-live-backend-owner-decision.md` (D1-D3) and Draft PR #178 (merged at `3b91fc40`).
+
+---
+
+## IDEA3 Final Project — PR11 MVP Scope Freeze — 2026-09-22
+
+> [!important] Scope freeze — owner approved (2026-09-22)
+> Following the merge of PR #178 (`7f30b9ca` / `3b91fc40`), the IDEA3 Final
+> Project scope is formally frozen as **Security Orchestrator + Physical Containment MVP**.
+> The project is **NOT** required to become a full-scale enterprise/production SOC.
+> This reconciliation performs documentation and scope alignment only. Zero
+> production mutation, zero live L-stage execution, zero package installation,
+> zero sudo operations, zero IDEA1/IDEA2 mutation, zero ESP32 operation, and
+> zero CUT/RESTORE operations are performed. Dynamic nftables source-IP blocking
+> on Arch Linux Core is an open implementation gap documented for a separate PR.
+> Full specification: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-22-idea3-pr11-mvp-scope-freeze.md`.
+
+```text
+PR178_MERGED                           = YES
+PR11_MVP_SCOPE                         = SECURITY_ORCHESTRATOR_PHYSICAL_CONTAINMENT
+SCOPE_FREEZE_OWNER_APPROVED            = YES
+
+PR11_MVP_COMPLETE                      = NO
+PR12_FINAL_ACCEPTANCE                  = OPEN
+
+SOFTWARE_IP_BLOCKING                   = OPEN_NEEDS_IMPLEMENTATION
+SOFTWARE_IP_UNBLOCK                    = OPEN_NEEDS_IMPLEMENTATION
+
+IDEA1_LIVE_MVP_INTEGRATION             = OPEN
+IDEA2_LIVE_MVP_INTEGRATION             = OPEN
+
+IDEA2_NARROWED_PRESERVATION            = OWNER_DECISION_PENDING
+
+POST_PRODUCTION_HARDENING              = DEFER_FUTURE_WORK
+PRODUCTION_MUTATION                    = NO
+LIVE_STAGE_EXECUTED                    = NO
+```
+
+### 1. Owner-Approved Final Project Core Flow
+
+The system lifecycle and demonstration path for the final project follows this sequential flow:
+
+```text
+NORMAL
+  │
+  ▼
+Detect Suspicious / Security Event
+  │
+  ▼
+Identify Source IP / Target Device / Event Type / Timestamp
+  │
+  ▼
+Record Security Incident
+  │
+  ▼
+Determine Severity Classification
+  │
+  ├── [Severity = HIGH]
+  │     │
+  │     ▼
+  │   Software Containment (Dynamic Source-IP Blocking)
+  │     │
+  │     ▼
+  │   Audit Log Containment Action
+  │     │
+  │     ▼
+  │   Administrator Recovery / Unblock
+  │     │
+  │     ▼
+  │   Return to NORMAL
+  │
+  └── [Severity = CRITICAL]
+        │
+        ▼
+      Software Containment + Authenticated Hardware Containment Decision
+        │
+        ▼
+      Issue Authenticated Protocol v1 CUT Command to ESP32
+        │
+        ▼
+      ESP32 Relay Actuation (Physical Network Interruption)
+        │
+        ▼
+      Log Action, Result & State Change
+        │
+        ▼
+      Authorized Administrator Physical Recovery (RESTORE)
+        │
+        ▼
+      Return to NORMAL
+```
+
+### 2. Binding MVP Classification
+
+All IDEA3 functions and tasks are classified under six binding categories:
+- `MVP_MUST`: Mandatory for PR11/PR12 delivery.
+- `MVP_SUPPORTING`: Supporting tools, fixtures, or baseline mechanisms.
+- `DEFER_FUTURE_WORK`: Out-of-scope enterprise features not required for course project completion (`DESIGNED_OR_IMPLEMENTED_WHERE_APPLICABLE; NOT_REQUIRED_FOR_FINAL_PROJECT_MVP_ACCEPTANCE`).
+- `ALREADY_CLOSED`: Merged and verified milestones.
+- `OPEN_NEEDS_IMPLEMENTATION`: Code or configuration gap requiring a dedicated PR.
+- `OPEN_NEEDS_EVIDENCE`: Implementation exists in repository, but live host/hardware evidence is open.
+
+#### Handler & Stage Execution Status:
+- `L2_L9_REPOSITORY_HANDLERS = ALREADY_CLOSED` (all Phase 4 handlers L1..L9 are registered and merged in the repository)
+- `L2_L9_LIVE_EXECUTION = OPEN_NEEDS_EVIDENCE` (live host execution and hardware evidence remains open)
+
+#### MVP_MUST Requirements:
+- Live IDEA3 Web/dashboard
+- Live IDEA3 Core
+- Event detection
+- Source IP/device/event/time identification
+- Incident logging
+- Severity/correlation engine
+- Dynamic software IP block
+- Dynamic IP unblock/recovery
+- Bounded IDEA1 status/security visibility
+- Bounded IDEA2 status/security visibility
+- Secure Core ↔ ESP32 communication: TLS-protected MQTT transport plus application-layer HMAC-SHA256 authenticated frames
+- L1 prerequisite needed by the live stack (`chrony`)
+- L2 firewall/isolation needed by the live stack
+- L3 AP needed by ESP32
+- L4 addressing/DHCP needed by ESP32
+- L5 trusted time needed by protocol/runtime
+- L6a isolated MQTT/TLS validation
+- L6b live MQTT/TLS broker
+- L7 Core service
+- L8 ESP32 provisioning/flash
+- L9 authenticated STATUS/HEARTBEAT
+- Authenticated CUT readiness
+- Physical relay containment readiness
+- Admin recovery readiness
+- Final E2E evidence readiness
+
+> [!important] Stage L9 Transport and Authentication Definition
+> Do **NOT** claim mutual TLS (mTLS) for the ESP32.
+> The binding architecture is: **TLS-protected MQTT transport plus application-layer HMAC-SHA256 authenticated STATUS/HEARTBEAT frames**.
+> Stage L9 itself remains strictly **AUTHENTICATION WITHOUT ACTUATION**. CUT and RESTORE actuation commands are intentionally excluded from L9 acceptance.
+
+#### Software BLOCK_IP Implementation Gap:
+```text
+SOFTWARE_IP_BLOCKING                   = OPEN_NEEDS_IMPLEMENTATION
+SOFTWARE_IP_UNBLOCK                    = OPEN_NEEDS_IMPLEMENTATION
+```
+- Existing repository source provides attack/event detection, offending source-IP extraction, incident/correlation logic, containment decision/audit logic, static nftables/AP isolation, and legacy GUI UFW path.
+- The Arch Linux headless Core relies on `nftables` and does **not** currently provide the required dynamic nftables source-IP block/unblock path.
+- This is an open implementation gap. It is not marked as implemented and is not implemented in this scope-freeze PR; planned later implementation will be a separate PR.
+
+#### Bounded Cross-IDEA MVP Boundaries:
+- **IDEA1 (AEGIS Drive LC)**:
+  - Required for MVP: health/status visible in IDEA3; security-relevant event/status feed visible in IDEA3; honest `ONLINE` / `DEGRADED` / `UNKNOWN` state; sufficient evidence to correlate/display security events.
+  - Not required: control of every IDEA1 feature; file-management orchestration; storage administration from IDEA3; unrelated Drive workflows.
+  - Status: `IDEA1_LIVE_MVP_INTEGRATION = OPEN` until live upstream evidence is exercised.
+- **IDEA2 (AEGIS Monitor / CCTV)**:
+  - Required for MVP: health/status visible in IDEA3; security-relevant alert/status feed visible in IDEA3; honest `ONLINE` / `DEGRADED` / `UNKNOWN` state; IDEA2 event visible as an IDEA3 incident candidate.
+  - Not required: control of every IDEA2 feature; CCTV streaming control from IDEA3; model administration from IDEA3; unrelated camera-management workflows.
+  - Status: `IDEA2_LIVE_MVP_INTEGRATION = OPEN` until live upstream evidence is exercised.
+
+#### IDEA2 Preservation Governance:
+```text
+IDEA2_NARROWED_PRESERVATION            = OWNER_DECISION_PENDING
+```
+- Do not claim the narrowed preservation criterion is approved yet.
+- **Proposal**: An IDEA3 live stage may pass IDEA2 preservation if it causes **NO NEW DEGRADATION** relative to the immediate pre-stage IDEA2 baseline.
+- Pre/post evidence should compare only relevant preserved surfaces: detection engine runtime state, local detector API availability (`:8077`), physical management/uplink addressing and routing, tunnel state/restart observations, and confirmation that IDEA3 modified no IDEA2-owned files/services/configuration.
+- A pre-existing IDEA2 degradation must remain honestly visible.
+- The stage must fail if IDEA3 causes measurable new degradation.
+- This is a proposal only until explicit owner approval by Pub (`pubpup2006p-design`) and Kla (`kraveerachat`).
+
+#### Network Addressing Authority:
+- Do **NOT** hardcode `192.168.40.1`, `192.168.40.0/24`, or any historical VLAN40 values as the Phase 4 AP deployment value.
+- Current Phase 4 authority preserves: `OV-03 = owner-supplied AP subnet and Core AP address`.
+- Historical VLAN40 information is referenced only as historical context.
+
+#### PR11 MVP Exit Criteria:
+The condition `PR11_MVP_COMPLETE = YES` defines readiness for PR12 final attack acceptance:
+```text
+WEB_LIVE                               = YES
+CORE_LIVE                              = YES
+IDEA1_MVP_VISIBILITY                   = LIVE_PROVEN
+IDEA2_MVP_VISIBILITY                   = LIVE_PROVEN
+DETECTION_PIPELINE                     = READY
+INCIDENT_LOGGING                       = READY
+SOFTWARE_BLOCK_IP                      = IMPLEMENTED_AND_HOST_VERIFIED
+SOFTWARE_UNBLOCK                       = IMPLEMENTED_AND_HOST_VERIFIED
+ESP32_CONNECTED                        = YES
+ESP32_AUTHENTICATED_STATUS_HEARTBEAT   = PASS
+HARDWARE_CUT_PATH                      = READY_FOR_PR12
+RECOVERY_PATH                          = READY_FOR_PR12
+```
+PR11 itself does not need to execute the final attack demonstration.
+
+#### PR12 Final System Acceptance Scenarios (A1–A7):
+PR12 is preserved as **FINAL SYSTEM ACCEPTANCE**. Only controlled, authorized test scenarios against project-owned systems are executed during PR12:
+- **A1 NORMAL BASELINE**: PASS = Web/Core healthy, IDEA1 status visible, IDEA2 status visible, ESP32 authenticated, relay/network NORMAL.
+- **A2 RECON / SCAN**: PASS = controlled test scan/event detected, source IP identified, event type recorded, timestamp recorded, incident visible in UI/log.
+- **A3 SOFTWARE CONTAINMENT**: PASS = HIGH event identifies source IP, dynamic BLOCK_IP applied, blocking verified, action audited, Admin unblock restores expected connectivity, recovery audited.
+- **A4 CRITICAL PHYSICAL CONTAINMENT**: PASS = controlled CRITICAL scenario reaches containment decision, authenticated CUT command issued, ESP32 validates command, relay physically interrupts protected Ethernet path, result logged.
+- **A5 RECOVERY**: PASS = authorized Admin recovery (authenticated local CLI / approved local recovery path), relay returns to NORMAL, Ethernet connectivity restored, recovery audit recorded.
+- **A6 CROSS-IDEA VISIBILITY**: PASS = IDEA1 security/health state visible, IDEA2 security/health state visible, IDEA3 incident/containment state visible.
+- **A7 FINAL EVIDENCE**: PASS = screenshots, logs, timestamps, acceptance matrix, immutable evidence/receipts, report baseline frozen.
+
+#### Future Work / Deferred Items:
+The following items are explicitly categorized as `DESIGNED_OR_IMPLEMENTED_WHERE_APPLICABLE; NOT_REQUIRED_FOR_FINAL_PROJECT_MVP_ACCEPTANCE`:
+- ESP32 NVS encryption (remains optional physical-extraction hardening and is not an MVP blocker; residual physical extraction risk remains explicitly acknowledged)
+- Automated CRL renewal
+- Resource/cgroup tuning
+- Enterprise HA / broker clustering
+- Full retirement of legacy plaintext 1883 is deferred (Phase 4 intentionally preserves the existing legacy listener, while L2/L4 firewall policy must prevent TCP/1883 access from the IDEA3 AP)
+- Repeated/stress CUT endurance certification
+- Full disaster-recovery certification
+- K12 full production reboot certification
+- Production hardening edge cases not required for MVP E2E
+
+Unfinished work is not marked COMPLETE.
+
+#### Existing PR #147:
+- PR #147 remains supporting PR12 backup/restore work (`MVP_SUPPORTING`).
+- It must **not** define the whole PR12 Final Acceptance scope.
+- PR #147 is not modified or rebased in this task.
+- When its reconciliation window is reached: `git fetch origin && git merge origin/main`, resolving real conflicts normally.
+- Full DR certification is `DEFER_FUTURE_WORK`.
+
+### Current Task
+
+Task: IDEA3 PR11 MVP Scope Freeze — Security Orchestrator + Physical Containment MVP
+Branch: `docs/idea3-pr11-mvp-scope-freeze`
+Owner: `music`
+PR: Draft pending
+Current state: DOCUMENTATION / SCOPE RECONCILIATION COMPLETE — Human Content Review Pending
+Started: 2026-09-22
+Base SHA: `3b91fc40cc173f9a2e820d5510374432687bedfd`
+Production mutation allowed: NO
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| P11-SF1 | PR11 MVP Scope Freeze & Final Project Boundary Specification (documentation only) | PASS | Spec file `2026-09-22-idea3-pr11-mvp-scope-freeze.md` created; `idea3-moc.md` and `idea3-status.md` reconciled; vault validation PASS; diff check PASS; zero production mutation; zero live execution | commit | PASS — SCOPE_FREEZE_OWNER_APPROVED (DOCUMENTATION ONLY) | human content review by pubpup2006p-design; separate PR for dynamic software IP block; live L-stages | push branch, open Draft PR |
 
 ## 🔗 Related Notes
 * [[core/system-overview]]
