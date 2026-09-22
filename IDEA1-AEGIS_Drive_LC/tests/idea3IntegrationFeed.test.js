@@ -106,6 +106,17 @@ test('IDEA3-FEED-5 authenticated GET returns the versioned bounded envelope', as
   assert.deepEqual(event.evidence, { result: 'DENIED' })
 })
 
+test('IDEA3-FEED-11 envelope reports Drive daemon/db health honestly, reusing the same signal /healthz uses', async () => {
+  const res = await fetch(`${baseUrl}/api/integration/events`, {
+    headers: { authorization: `Bearer ${TOKEN}` },
+  })
+  const body = await res.json()
+  assert.equal(typeof body.status.ok, 'boolean')
+  assert.deepEqual(Object.keys(body.status).sort(), ['detail', 'ok'])
+  assert.deepEqual(Object.keys(body.status.detail).sort(), ['db'])
+  assert.equal(typeof body.status.detail.db, 'string')
+})
+
 test('IDEA3-FEED-6 BLOCKED results are surfaced as HIGH severity', async () => {
   await seedDeniedEvent({ action: 'SHARE_ACCESS', result: 'BLOCKED' })
   const res = await fetch(`${baseUrl}/api/integration/events`, {

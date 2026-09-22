@@ -34,8 +34,9 @@ function rawEvent(source, overrides = {}) {
   }
 }
 
-function feed(events, generatedAt = '2026-09-08T08:00:00.000Z') {
-  return { schema_version: 1, generated_at: generatedAt, events }
+function feed(events, generatedAt = '2026-09-08T08:00:00.000Z', status) {
+  const base = { schema_version: 1, generated_at: generatedAt, events }
+  return status === undefined ? base : { ...base, status }
 }
 
 function providerWith({ idea1, idea2, runtime = () => jsonResponse({ ...healthyRuntimeRaw, generatedAt: NOW.toISOString() }) }) {
@@ -249,5 +250,88 @@ describe('live integration provider failure and freshness semantics', () => {
     expect(idea1Call[1].headers.authorization).toBe('Bearer idea1-integration-credential')
     expect(JSON.stringify(snapshot)).not.toContain('idea1-integration-credential')
     expect(JSON.stringify(snapshot)).not.toContain('idea2-integration-credential')
+  })
+})
+
+describe('real producer-reported service/daemon status (IDEA3 PR11 finding 3: status visibility gap)', () => {
+  it('does not claim HEALTHY from transport alone when the producer has not reported status', async () => {
+    const { provider } = providerWith({
+      idea1: () => jsonResponse(feed([])),
+      idea2: () => jsonResponse(feed([])),
+    })
+
+    const snapshot = await provider.getSnapshot()
+
+    // Unchanged pre-existing behavior: no regression from adding the field.
+    expect(sourceById(snapshot, 'idea1')).toEqual(expect.objectContaining({ status: 'HEALTHY' }))
+    expect(snapshot.integration.idea1.serviceOk).toBeNull()
+  })
+
+  it('downgrades IDEA1 to DEGRADED when Drive reports its own daemon/db as unhealthy, even with fresh transport', async () => {
+    const { provider } = providerWith({
+      idea1: () => jsonResponse(feed([], '2026-09-08T08:00:00.000Z', { ok: false, detail: { db: 'postgres' } })),
+      idea2: () => jsonResponse(feed([])),
+    })
+
+    const snapshot = await provider.getSnapshot()
+
+    expect(sourceById(snapshot, 'idea1')).toEqual(expect.objectContaining({ status: 'DEGRADED', freshness: 'FRESH' }))
+    expect(snapshot.integration.idea1.serviceOk).toBe(false)
+  })
+
+  it('surfaces IDEA2 detector status honestly, separate from transport health', async () => {
+    const { provider } = providerWith({
+      idea1: () => jsonResponse(feed([])),
+      idea2: () => jsonResponse(feed([], '2026-09-08T08:00:00.000Z', {
+        ok: false,
+        detail: { db: 'postgres', detector: 'lost', detectorAgeMs: 999_000, detectorCameras: 4 },
+      })),
+    })
+
+    const snapshot = await provider.getSnapshot()
+
+    expect(sourceById(snapshot, 'idea2')).toEqual(expect.objectContaining({ status: 'DEGRADED' }))
+    expect(snapshot.integration.idea2.serviceDetail).toEqual({
+      db: 'postgres', detector: 'lost', detectorAgeMs: 999_000, detectorCameras: 4,
+    })
+  })
+
+  it('never lets a definite service problem hide behind stale-evidence UNKNOWN precedence, but stale still wins when both are present', async () => {
+    const { provider } = providerWith({
+      idea1: () => jsonResponse(feed([], '2026-09-08T07:50:00.000Z', { ok: false })),
+      idea2: () => jsonResponse(feed([])),
+    })
+
+    const snapshot = await provider.getSnapshot()
+
+    // Stale envelope evidence is a stronger "we can't trust this" signal than
+    // a service flag riding on that same stale envelope — UNKNOWN, not DEGRADED.
+    expect(sourceById(snapshot, 'idea1')).toEqual(expect.objectContaining({ status: 'UNKNOWN' }))
+  })
+
+  it('a malformed status rejects the whole cycle (fail closed) rather than silently keeping stale service data', async () => {
+    const { provider } = providerWith({
+      idea1: () => jsonResponse(feed([rawEvent('IDEA1')], '2026-09-08T08:00:00.000Z', { ok: 'not-a-boolean' })),
+      idea2: () => jsonResponse(feed([])),
+    })
+
+    const snapshot = await provider.getSnapshot()
+
+    expect(sourceById(snapshot, 'idea1')).toEqual(expect.objectContaining({ status: 'UNKNOWN' }))
+    expect(snapshot.integration.idea1.serviceOk).toBeNull()
+    expect(snapshot.integration.events).toEqual([])
+  })
+
+  it('never leaks the status detail as a mutation or command surface — it is read-only reporting only', async () => {
+    const { provider } = providerWith({
+      idea1: () => jsonResponse(feed([], '2026-09-08T08:00:00.000Z', { ok: true, detail: { db: 'postgres' } })),
+      idea2: () => jsonResponse(feed([], '2026-09-08T08:00:00.000Z', {
+        ok: true, detail: { db: 'postgres', detector: 'online', detectorAgeMs: 500, detectorCameras: 2 },
+      })),
+    })
+
+    const snapshot = await provider.getSnapshot()
+
+    expect(JSON.stringify(snapshot)).not.toMatch(/"cut"|"restore"|command_published/i)
   })
 })

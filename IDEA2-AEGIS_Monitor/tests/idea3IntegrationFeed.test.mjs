@@ -96,6 +96,18 @@ test('IDEA3-FEED-5 authenticated GET returns the versioned bounded envelope (emp
   assert.equal(body.events.length, 0) // dev fallback: no Postgres in this environment
 })
 
+test('IDEA3-FEED-7 envelope reports Monitor service + detector status honestly (dev fallback without Postgres: detector cannot be observed, so it is never reported online)', async () => {
+  const res = await fetch(`${baseUrl}/api/integration/events`, {
+    headers: { authorization: `Bearer ${TOKEN}` },
+  })
+  const body = await res.json()
+  assert.equal(typeof body.status.ok, 'boolean')
+  assert.deepEqual(Object.keys(body.status).sort(), ['detail', 'ok'])
+  assert.deepEqual(Object.keys(body.status.detail).sort(), ['db', 'detector', 'detectorAgeMs', 'detectorCameras'])
+  assert.equal(body.status.detail.detector, 'lost')
+  assert.equal(body.status.ok, false) // no Postgres in this environment => detector truthfully not observable as online
+})
+
 test('IDEA3-FEED-6 response schema never carries snapshot_path, matched_name, title, or Telegram routing', async () => {
   const res = await fetch(`${baseUrl}/api/integration/events`, {
     headers: { authorization: `Bearer ${TOKEN}` },

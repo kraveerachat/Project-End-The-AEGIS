@@ -26,20 +26,33 @@ function feedOperationalError(feed, now, component) {
 }
 
 /**
- * Transport success is not evidence freshness. A feed is only reported HEALTHY
- * when the envelope itself is inside the configured window; a successful fetch of
- * stale or future evidence stays visible but drops out of containment eligibility.
+ * Transport success is not evidence freshness, and is not service health.
+ * A feed is only reported HEALTHY when the envelope itself is inside the
+ * configured window AND (when the producer reports it) its own real
+ * service/daemon status is `ok`. `serviceOk === false` is a definite,
+ * producer-reported problem (e.g. IDEA1's DB unreachable, IDEA2's detector
+ * heartbeat lost) and downgrades an otherwise-healthy transport to DEGRADED.
+ * `serviceOk === null` (the producer didn't report it) never downgrades —
+ * it just means this signal contributes nothing, same as before this field
+ * existed.
  */
 function feedSourceState(id, name, feed, lifecycle) {
   const stale = !feed.code && STALE_FRESHNESS.has(feed.envelopeFreshness)
+  const serviceDown = !feed.code && !stale && feed.serviceOk === false
+  const status = feed.status === 'HEALTHY'
+    ? (stale ? 'UNKNOWN' : serviceDown ? 'DEGRADED' : 'HEALTHY')
+    : feed.status
   return {
     id,
     name,
-    status: feed.status === 'HEALTHY' && stale ? 'UNKNOWN' : feed.status,
+    status,
     freshness: feed.code ? 'ABSENT' : feed.envelopeFreshness,
     generatedAt: feed.generatedAt,
     latencyMs: null,
-    detail: feed.code || (stale ? 'Validated response with stale evidence' : 'Validated response'),
+    detail: feed.code
+      || (stale ? 'Validated response with stale evidence'
+        : serviceDown ? 'Upstream reports degraded service'
+          : 'Validated response'),
     lifecycle,
   }
 }
@@ -55,6 +68,10 @@ function feedSummary(feed, lifecycle) {
     rejectedCount: feed.rejectedCount,
     conflictCount: feed.conflicts.length,
     lifecycle,
+    // Real, producer-reported service/daemon status — null means the
+    // producer hasn't reported it (never assumed healthy from that).
+    serviceOk: feed.serviceOk,
+    serviceDetail: feed.serviceDetail,
   }
 }
 

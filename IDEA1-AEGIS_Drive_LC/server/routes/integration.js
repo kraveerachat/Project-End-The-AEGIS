@@ -13,9 +13,14 @@
 //   - Emits only DENIED/BLOCKED audit rows (already stripped of actor_label,
 //     role, and target_hash by readIntegrationSecurityEvents) as the single
 //     event_type the current IDEA3 contract accepts: ACCESS_DENIED.
+//   - `status` reuses the SAME checkDb() the unauthenticated /healthz route
+//     already calls (server/app.js) — no new health logic, no duplicated
+//     business rule. This exists because IDEA3's honest ONLINE/DEGRADED/
+//     UNKNOWN requirement (PR11 MVP scope freeze §5.1) needs Drive's OWN
+//     daemon/db truth, not merely "did this HTTP request succeed".
 import { Router } from 'express'
 import { requireIdea3IntegrationKey } from '../middleware/requireIdea3IntegrationKey.js'
-import { readIntegrationSecurityEvents } from '../db/connection.js'
+import { readIntegrationSecurityEvents, checkDb } from '../db/connection.js'
 
 export const integrationRouter = Router()
 
@@ -24,7 +29,10 @@ const MAX_EVENTS = 200
 
 integrationRouter.get('/api/integration/events', requireIdea3IntegrationKey, async (req, res, next) => {
   try {
-    const rows = await readIntegrationSecurityEvents({ limit: MAX_EVENTS })
+    const [rows, db] = await Promise.all([
+      readIntegrationSecurityEvents({ limit: MAX_EVENTS }),
+      checkDb(),
+    ])
     const events = rows.map((row) => ({
       source: 'IDEA1',
       event_id: `idea1-audit-${row.id}`,
@@ -38,6 +46,7 @@ integrationRouter.get('/api/integration/events', requireIdea3IntegrationKey, asy
     res.json({
       schema_version: 1,
       generated_at: new Date().toISOString(),
+      status: { ok: db.ok, detail: { db: db.mode } },
       events,
     })
   } catch (err) {

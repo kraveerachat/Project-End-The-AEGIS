@@ -16,9 +16,18 @@
 //   - Emits the single event_type the current IDEA3 contract accepts:
 //     ACCESS_DENIED (an unauthorized/unrecognized-person detection is the
 //     IDEA2 analogue of an access-denied event).
+//   - `status` reuses the SAME checkDb() /healthz already calls (server/
+//     index.js) plus readDetectorStatus() (server/db/store.js), which reuses
+//     the SAME statusFromAge()/heartbeat-age logic /api/link already uses —
+//     no new health logic, no duplicated business rule, aggregated across
+//     all cameras instead of one operator's visible subset. This exists
+//     because IDEA3's honest ONLINE/DEGRADED/UNKNOWN requirement (PR11 MVP
+//     scope freeze §5.2) needs Monitor's OWN service AND detector-engine
+//     truth, not merely "did this HTTP request succeed".
 import { Router } from 'express'
 import { requireIdea3IntegrationKey } from '../middleware/requireIdea3IntegrationKey.js'
-import { readIntegrationSecurityEvents } from '../db/store.js'
+import { readIntegrationSecurityEvents, readDetectorStatus } from '../db/store.js'
+import { checkDb } from '../db/connection.js'
 
 export const integrationRouter = Router()
 
@@ -27,7 +36,11 @@ const MAX_EVENTS = 200
 
 integrationRouter.get('/api/integration/events', requireIdea3IntegrationKey, async (req, res, next) => {
   try {
-    const rows = await readIntegrationSecurityEvents({ limit: MAX_EVENTS })
+    const [rows, db, detector] = await Promise.all([
+      readIntegrationSecurityEvents({ limit: MAX_EVENTS }),
+      checkDb(),
+      readDetectorStatus(),
+    ])
     const events = rows.map((row) => ({
       source: 'IDEA2',
       event_id: `idea2-alert-${row.id}`,
@@ -41,6 +54,15 @@ integrationRouter.get('/api/integration/events', requireIdea3IntegrationKey, asy
     res.json({
       schema_version: 1,
       generated_at: new Date().toISOString(),
+      status: {
+        ok: db.ok && detector.status === 'online',
+        detail: {
+          db: db.mode,
+          detector: detector.status,
+          detectorAgeMs: detector.ageMs,
+          detectorCameras: detector.cameras,
+        },
+      },
       events,
     })
   } catch (err) {

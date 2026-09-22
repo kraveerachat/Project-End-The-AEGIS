@@ -464,6 +464,24 @@ export async function listAlerts(visibleIds, limit = 15) {
 }
 
 /**
+ * สถานะรวมของ Detection Engine ทั้งระบบ (ไม่กรองตาม visibleIds) — คำนวณจาก
+ * heartbeat ล่าสุดที่สุดของกล้องใด ๆ ก็ได้ ใช้ logic เดียวกับ statusFromAge ที่
+ * /api/link ใช้อยู่แล้ว (ไม่สร้างตรรกะใหม่ซ้ำ) เพียงแต่มองภาพรวมทั้ง engine แทน
+ * รายกล้อง — ใช้โดย GET /api/integration/events (IDEA3 "detector status")
+ */
+export async function readDetectorStatus() {
+  if (!usingPostgres) return { status: 'lost', ageMs: null, cameras: 0 }
+  const { rows } = await query(
+    `SELECT count(*)::int AS cameras,
+            EXTRACT(EPOCH FROM (now() - max(last_seen_at))) * 1000 AS age_ms
+       FROM camera_heartbeat`,
+  )
+  const r = rows[0] ?? {}
+  const ageMs = r.age_ms == null ? null : Math.round(Number(r.age_ms))
+  return { status: statusFromAge(ageMs), ageMs, cameras: Number(r.cameras ?? 0) }
+}
+
+/**
  * อ่านการแจ้งเตือนความปลอดภัย (alerts) แบบจำกัดจำนวน ข้าม-กล้องทั้งหมด — ใช้โดย
  * GET /api/integration/events (credential เฉพาะทางของ IDEA3 เท่านั้น ไม่ใช่ session SOC)
  * ⚠️ Privacy-safe โดยเจตนา: ไม่ส่ง snapshot_path / matched_name / title / telegram
