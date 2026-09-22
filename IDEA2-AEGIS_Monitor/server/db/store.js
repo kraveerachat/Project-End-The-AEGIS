@@ -463,6 +463,30 @@ export async function listAlerts(visibleIds, limit = 15) {
   }))
 }
 
+/**
+ * อ่านการแจ้งเตือนความปลอดภัย (alerts) แบบจำกัดจำนวน ข้าม-กล้องทั้งหมด — ใช้โดย
+ * GET /api/integration/events (credential เฉพาะทางของ IDEA3 เท่านั้น ไม่ใช่ session SOC)
+ * ⚠️ Privacy-safe โดยเจตนา: ไม่ส่ง snapshot_path / matched_name / title / telegram
+ *    ข้ามระบบ — external consumer เห็นแค่ id, เวลา, ความรุนแรง, และกล้องที่เกี่ยวข้อง
+ */
+export async function readIntegrationSecurityEvents({ limit = 200 } = {}) {
+  if (!usingPostgres) return []
+  const bounded = Math.min(200, Math.max(1, Number(limit) || 200))
+  const { rows } = await query(
+    `SELECT id, EXTRACT(EPOCH FROM at) * 1000 AS at_ms, severity, camera_id
+       FROM alerts
+      ORDER BY at DESC
+      LIMIT $1`,
+    [bounded],
+  )
+  return rows.map((r) => ({
+    id: String(r.id),
+    at: new Date(Math.round(Number(r.at_ms))),
+    severity: r.severity,
+    cameraId: r.camera_id,
+  }))
+}
+
 /** ack — การเขียนเดียวที่ console มี; เก็บ acked_by เป็น user id (FK) */
 export async function ackAlert(id, user) {
   if (!usingPostgres) return null
