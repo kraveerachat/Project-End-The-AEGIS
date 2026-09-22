@@ -7,8 +7,16 @@
 // เปลี่ยน — ไม่ใช่ cookie + CSRF ของผู้ใช้ทั่วไป ไม่มีการรวม/ผูก identity กับ Admin
 // session ของ IDEA1 (คนละพื้นผิว คนละ trust boundary)
 //
+// ⚠️ Source-specific credential (K3 review fix): IDEA3's config.js already keys
+// this per-source (config.adapters.idea1Token ← AEGIS_IDEA1_INTEGRATION_TOKEN,
+// idea2Token ← AEGIS_IDEA2_INTEGRATION_TOKEN — see web/server/config.js). A
+// single shared token here would let one leaked credential authenticate to
+// BOTH IDEA1 and IDEA2, which breaks that existing per-source contract. This
+// middleware therefore reads only AEGIS_IDEA1_INTEGRATION_TOKEN; it must never
+// accept the IDEA2 token or any shared/generic token name.
+//
 // หลักการเดียวกับด่าน auth อื่นทุกจุดในโปรเจกต์นี้ — ไม่มี "trust by default":
-//   1. Fail-secure: ถ้าไม่ตั้งค่า AEGIS_IDEA3_INTEGRATION_TOKEN ฝั่งเซิร์ฟเวอร์ →
+//   1. Fail-secure: ถ้าไม่ตั้งค่า AEGIS_IDEA1_INTEGRATION_TOKEN ฝั่งเซิร์ฟเวอร์ →
 //      endpoint นี้ถูกปิดตายทั้งหมด (503) ไม่ใช่ "เปิดให้ผ่านชั่วคราว"
 //   2. เทียบแบบ timing-safe (crypto.timingSafeEqual)
 //   3. key หาย/ผิด → 401 เสมอ พร้อมข้อความ generic
@@ -30,7 +38,7 @@ function bearerToken(req) {
 }
 
 export function requireIdea3IntegrationKey(req, res, next) {
-  const expected = process.env.AEGIS_IDEA3_INTEGRATION_TOKEN
+  const expected = process.env.AEGIS_IDEA1_INTEGRATION_TOKEN
   if (!expected) {
     return res.status(503).json({ error: 'Integration feed disabled' })
   }

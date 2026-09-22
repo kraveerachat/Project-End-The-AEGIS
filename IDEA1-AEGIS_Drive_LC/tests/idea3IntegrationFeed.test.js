@@ -13,20 +13,20 @@ process.env.COOKIE_SECURE = 'false'
 const { createApp } = await import('../server/app.js')
 const { recordAudit } = await import('../server/db/connection.js')
 
-const TOKEN = 'idea3-integration-test-token'
+const TOKEN = 'idea1-integration-test-token'
 
 let server
 let baseUrl
 
 before(async () => {
-  process.env.AEGIS_IDEA3_INTEGRATION_TOKEN = TOKEN
+  process.env.AEGIS_IDEA1_INTEGRATION_TOKEN = TOKEN
   server = createApp().listen(0)
   await new Promise((resolve) => server.once('listening', resolve))
   baseUrl = `http://127.0.0.1:${server.address().port}`
 })
 
 after(async () => {
-  delete process.env.AEGIS_IDEA3_INTEGRATION_TOKEN
+  delete process.env.AEGIS_IDEA1_INTEGRATION_TOKEN
   await new Promise((resolve) => server.close(resolve))
 })
 
@@ -42,14 +42,14 @@ async function seedDeniedEvent(overrides = {}) {
 }
 
 test('IDEA3-FEED-1 no credential configured server-side fails secure (503), not open', async () => {
-  delete process.env.AEGIS_IDEA3_INTEGRATION_TOKEN
+  delete process.env.AEGIS_IDEA1_INTEGRATION_TOKEN
   try {
     const res = await fetch(`${baseUrl}/api/integration/events`, {
       headers: { authorization: 'Bearer anything' },
     })
     assert.equal(res.status, 503)
   } finally {
-    process.env.AEGIS_IDEA3_INTEGRATION_TOKEN = TOKEN
+    process.env.AEGIS_IDEA1_INTEGRATION_TOKEN = TOKEN
   }
 })
 
@@ -61,6 +61,13 @@ test('IDEA3-FEED-2 missing/incorrect key is rejected with a generic 401', async 
     headers: { authorization: 'Bearer not-the-token' },
   })
   assert.equal(wrong.status, 401)
+})
+
+test('IDEA3-FEED-2b the IDEA2 credential must not authenticate to IDEA1 (independent per-source tokens)', async () => {
+  const res = await fetch(`${baseUrl}/api/integration/events`, {
+    headers: { authorization: 'Bearer idea2-integration-test-token' },
+  })
+  assert.equal(res.status, 401)
 })
 
 test('IDEA3-FEED-3 no browser-session credential path: cookies alone never authenticate this route', async () => {
