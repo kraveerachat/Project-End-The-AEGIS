@@ -1135,7 +1135,7 @@ READ_ONLY_CALLS = (
     r"nft (list tables|--stateless list ruleset|--stateless list table [a-z0-9]+ [A-Za-z0-9_-]+)",
     r"timedatectl (show|show-timesync)( -p [A-Za-z]+)+",
     r"ss -H (-ltnu|-tn state established)",
-    r"systemctl show( -p [A-Za-z]+)+ [A-Za-z0-9@._-]+\.service",
+    r"systemctl show( -p [A-Za-z]+)+ [A-Za-z0-9@._-]+\.(service|socket)",
     r"journalctl -u [A-Za-z0-9@._-]+\.service --since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]{8} UTC --no-pager -o cat",
     r"df -P -k /[a-z]*",
     r"hostnamectl --static",

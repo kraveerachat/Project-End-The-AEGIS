@@ -188,6 +188,20 @@ def render_nftables_service() -> str:
     return template_path.read_text(encoding="utf-8")
 
 
+def render_network_template(name: str) -> str:
+    template_path = Path(__file__).resolve().parents[1] / "network" / name
+    return template_path.read_text(encoding="utf-8")
+
+
+def render_containment_env(values: dict[str, str]) -> str:
+    # The private AP subnet is always protected so the ESP32 controller link
+    # can never be software-blocked; operators append management CIDRs.
+    return render_network_template("aegis-idea3-containment.env.example").replace(
+        "<AEGIS_AP_SUBNET>",
+        values["ap_subnet"],
+    )
+
+
 def render_sysctl_config(values: dict[str, str]) -> str:
     template_path = (
         Path(__file__).resolve().parents[1]
@@ -255,6 +269,21 @@ def render(values: dict[str, str], output_dir: Path) -> None:
 
     (output_dir / "aegis-idea3-nftables-load.service").write_text(
         render_nftables_service(),
+        encoding="utf-8",
+    )
+
+    (output_dir / "aegis-idea3-containment.socket").write_text(
+        render_network_template("aegis-idea3-containment.socket.example"),
+        encoding="utf-8",
+    )
+
+    (output_dir / "aegis-idea3-containment.service").write_text(
+        render_network_template("aegis-idea3-containment.service.example"),
+        encoding="utf-8",
+    )
+
+    (output_dir / "aegis-idea3-containment.env").write_text(
+        render_containment_env(values),
         encoding="utf-8",
     )
 

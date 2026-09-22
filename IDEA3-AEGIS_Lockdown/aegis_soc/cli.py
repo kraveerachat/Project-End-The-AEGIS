@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from . import config
+from . import ip_containment as ipc
 from . import local_restore as lr
 from .runtime import RuntimeSettings, read_status
 
@@ -286,6 +287,30 @@ def command_restore_credential(args, *, isatty=None, read_secret=getpass.getpass
     return 0
 
 
+def _containment_request(body, client) -> int:
+    client = client or ipc.ContainmentClient()
+    try:
+        response = client.request(body)
+    except ipc.ContainmentUnavailable as error:
+        print(f"IP containment unavailable: {error}", file=sys.stderr)
+        return 1
+    print(json.dumps(response, sort_keys=True))
+    return 0 if response.get("ok") is True else 2
+
+
+def command_block_ip(args, *, client=None) -> int:
+    return _containment_request({"op": "block", "ip": args.ip}, client)
+
+
+def command_unblock_ip(args, *, client=None) -> int:
+    # Software recovery only; this never sends the physical RESTORE_UPLINK command.
+    return _containment_request({"op": "unblock", "ip": args.ip}, client)
+
+
+def command_blocked_ips(args, *, client=None) -> int:
+    return _containment_request({"op": "list"}, client)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aegisctl", description="AEGIS IDEA3 autonomous runtime")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -317,6 +342,14 @@ def build_parser() -> argparse.ArgumentParser:
     credential = sub.add_parser("restore-credential", help="provision a private local RESTORE credential")
     credential.add_argument("--output")
     credential.set_defaults(handler=command_restore_credential)
+    block_ip = sub.add_parser("block-ip", help="block one IPv4 source through the containment helper")
+    block_ip.add_argument("ip")
+    block_ip.set_defaults(handler=command_block_ip)
+    unblock_ip = sub.add_parser("unblock-ip", help="remove one IPv4 software block (not RESTORE_UPLINK)")
+    unblock_ip.add_argument("ip")
+    unblock_ip.set_defaults(handler=command_unblock_ip)
+    blocked_ips = sub.add_parser("blocked-ips", help="list IPv4 sources in the software block set")
+    blocked_ips.set_defaults(handler=command_blocked_ips)
     return parser
 
 

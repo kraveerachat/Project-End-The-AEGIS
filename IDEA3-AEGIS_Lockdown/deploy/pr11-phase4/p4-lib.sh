@@ -124,7 +124,7 @@ P4_RO_ALLOW=(
   "^timedatectl (show|show-timesync)( -p [A-Za-z]+)+$"
   "^chronyc -n tracking$"
   "^ss -H (-ltnu|-tn state established)$"
-  "^systemctl show( -p [A-Za-z]+)+ ${P4_P}\.service$"
+  "^systemctl show( -p [A-Za-z]+)+ ${P4_P}\.(service|socket)$"
   "^journalctl -u ${P4_P}\.service --since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC --no-pager -o cat$"
   "^df -P -k /[a-z]*$"
   "^hostnamectl --static$"

@@ -1,10 +1,22 @@
 #!/usr/sbin/nft -f
 # AEGIS IDEA3 private AP isolation — TEMPLATE, NOT DEPLOYED.
-# This table affects only traffic arriving from the IDEA3 AP interface.
+# The AP rules affect only traffic arriving from the IDEA3 AP interface.
+# blocked_ipv4 is the dynamic software-containment set. Its elements are owned
+# by aegis-idea3-containment.service (IPv4 only); L2 owns the table lifecycle.
+# Elements are runtime state: reloading or deleting this table clears them.
 
 table inet aegis_idea3 {
+    set blocked_ipv4 {
+        type ipv4_addr
+        size 4096
+    }
+
     chain input {
         type filter hook input priority filter; policy accept;
+
+        # Software containment precedes every accept in this table. A drop is
+        # final across all tables, so other tables' accepts cannot undo it.
+        ip saddr @blocked_ipv4 drop
 
         # DHCP must also allow the pre-lease client state.
         iifname "<AEGIS_AP_INTERFACE>" udp dport 67 accept
@@ -20,6 +32,8 @@ table inet aegis_idea3 {
 
     chain forward {
         type filter hook forward priority filter; policy accept;
+
+        ip saddr @blocked_ipv4 drop
 
         iifname "<AEGIS_AP_INTERFACE>" drop
     }
