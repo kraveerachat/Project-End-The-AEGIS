@@ -42,7 +42,7 @@ const q = (sel) => doc().querySelector(sel)
 const qa = (sel) => [...doc().querySelectorAll(sel)]
 
 /* ── UI-1 ─────────────────────────────────────────────────────────────────── */
-test('UI-1 folder/file tiles: distinct testids and icons; folder child count without size; file size/type from the manifest node', async () => {
+test('UI-1 folder/file tiles: distinct testids and icons; folder without child count; file size/type from the manifest node', async () => {
   const { VaultFolderTile } = await env.load('/src/components/vault/VaultFolderTile.jsx')
   const { VaultFileTile } = await env.load('/src/components/vault/VaultFileTile.jsx')
   const h = env.mount()
@@ -62,7 +62,7 @@ test('UI-1 folder/file tiles: distinct testids and icons; folder child count wit
     const body = q('[data-testid="vault-folder-tile-body"]')
     assert.ok(body, 'the folder tile has a clickable body')
     assert.ok(body.textContent.includes('Docs'), 'the folder name is rendered')
-    assert.ok(q('[data-testid="vault-folder-child-count"]'), 'the folder shows its child count')
+    assert.equal(q('[data-testid="vault-folder-child-count"]'), null, 'the folder child count is removed per Files card parity')
     assert.ok(!/[0-9.]+ (B|KB|MB)/.test(q('[data-testid="vault-folder-tile"]').textContent), 'the folder tile shows no byte size')
 
     await act(async () => {
@@ -98,6 +98,59 @@ test('UI-1 folder/file tiles: distinct testids and icons; folder child count wit
     })
     await settle()
     assert.deepEqual(fileCalls.preview, ['f'.repeat(22)], 'a plain file body click previews the file')
+  } finally {
+    await h.unmount()
+  }
+})
+
+/* ── FOLDER_NAME_1 / FOLDER_NAME_2 ────────────────────────────────────────── */
+test('FOLDER_NAME_1: Folder node name="Folder A" visibly renders "Folder A" without child count or placeholder replacement', async () => {
+  const { VaultFolderTile } = await env.load('/src/components/vault/VaultFolderTile.jsx')
+  const h = env.mount()
+  try {
+    await h.render(
+      React.createElement(VaultFolderTile, {
+        t,
+        node: { nodeId: 'A'.repeat(22), name: 'Folder A', kind: 'folder' },
+        childCount: 0,
+        selected: false,
+        onSelect: () => {},
+        onOpen: () => {},
+        onAction: () => {},
+      }),
+    )
+    const body = q('[data-testid="vault-folder-tile-body"]')
+    assert.ok(body, 'folder tile body exists')
+    const nameSpan = body.querySelector('.text-ink')
+    assert.equal(nameSpan?.textContent?.trim(), 'Folder A', 'visibly displays Folder A')
+    assert.equal(q('[data-testid="vault-folder-child-count"]'), null, 'child count must not be present')
+    assert.ok(!body.textContent.includes('โฟลเดอร์ว่าง'), 'placeholder does not replace node.name')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('FOLDER_NAME_2: Folder node name="Folder B" visibly renders "Folder B" without child count or placeholder replacement', async () => {
+  const { VaultFolderTile } = await env.load('/src/components/vault/VaultFolderTile.jsx')
+  const h = env.mount()
+  try {
+    await h.render(
+      React.createElement(VaultFolderTile, {
+        t,
+        node: { nodeId: 'B'.repeat(22), name: 'Folder B', kind: 'folder' },
+        childCount: 7,
+        selected: false,
+        onSelect: () => {},
+        onOpen: () => {},
+        onAction: () => {},
+      }),
+    )
+    const body = q('[data-testid="vault-folder-tile-body"]')
+    assert.ok(body, 'folder tile body exists')
+    const nameSpan = body.querySelector('.text-ink')
+    assert.equal(nameSpan?.textContent?.trim(), 'Folder B', 'visibly displays Folder B')
+    assert.equal(q('[data-testid="vault-folder-child-count"]'), null, 'child count must not be present')
+    assert.ok(!body.textContent.includes('โฟลเดอร์ว่าง'), 'placeholder does not replace node.name')
   } finally {
     await h.unmount()
   }
