@@ -117,6 +117,13 @@ services:
       MEDIA_WORKERS: ${MEDIA_WORKERS:-1}
       MEDIA_STILL_ENGINE: ${MEDIA_STILL_ENGINE:-sharp}
       MEDIA_CACHE_POLICY: ${MEDIA_CACHE_POLICY:-immutable}
+      # IDEA3 (AEGIS Lockdown) cross-IDEA visibility feed — dedicated
+      # read-only service credential; empty disables GET /api/integration/events
+      # fail-secure (503), matching every other service-to-service key here.
+      # ⚠️ Source-specific: must be a DIFFERENT secret from the monitor
+      # service's AEGIS_IDEA2_INTEGRATION_TOKEN below — one token must never
+      # authenticate to both IDEA1 and IDEA2.
+      AEGIS_IDEA1_INTEGRATION_TOKEN: ${AEGIS_IDEA1_INTEGRATION_TOKEN:-}
     volumes:
       - drive_storage:/datalake
       - aegis_drive_media_cache:/var/cache/aegis-media
@@ -149,6 +156,13 @@ services:
       ENFORCE_PASSWORD_RESET: "false"
       DATABASE_URL: postgresql://monitor_app:${MONITOR_DB_PASSWORD:-monitor-app-dev-password-change-me}@postgres:5432/aegis_monitor
       DETECTION_ENGINE_API_KEY: ${DETECTION_ENGINE_API_KEY:-}
+      # IDEA3 (AEGIS Lockdown) cross-IDEA visibility feed — dedicated
+      # read-only service credential; empty disables GET /api/integration/events
+      # fail-secure (503), matching DETECTION_ENGINE_API_KEY's pattern above.
+      # ⚠️ Source-specific: must be a DIFFERENT secret from the drive
+      # service's AEGIS_IDEA1_INTEGRATION_TOKEN above — one token must never
+      # authenticate to both IDEA1 and IDEA2.
+      AEGIS_IDEA2_INTEGRATION_TOKEN: ${AEGIS_IDEA2_INTEGRATION_TOKEN:-}
       # Development-only local recording volume. A file in this volume is not
       # "stored on NAS"; Monitor serves only clip rows created after a verified
       # NAS transfer. Production NAS mounting remains a separate deployment task.

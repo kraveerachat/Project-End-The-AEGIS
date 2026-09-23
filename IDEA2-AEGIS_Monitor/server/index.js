@@ -16,6 +16,7 @@ import { csrfProtection } from './middleware/csrf.js'
 import { errorHandler, apiNotFound } from './middleware/errorHandler.js'
 import { apiRouter } from './routes/api.js'
 import { internalRouter } from './routes/internal.js'
+import { integrationRouter } from './routes/integration.js'
 import { requireDetectionEngineKey } from './middleware/requireDetectionEngineKey.js'
 import { usingPostgres, checkDb } from './db/connection.js'
 
@@ -38,6 +39,12 @@ app.get('/healthz', async (req, res) => {
   const db = await checkDb()
   res.status(db.ok ? 200 : 503).json({ service: 'aegis-monitor', ok: db.ok, db: db.mode })
 })
+
+// IDEA3 cross-IDEA visibility feed (service-to-service, read-only): mounted
+// before the CSRF+session /api chain, same reasoning as /internal below — this
+// caller has no browser, no cookie, and no CSRF token; its own dedicated
+// credential (requireIdea3IntegrationKey) is the entire auth boundary.
+app.use(integrationRouter)
 
 app.use('/api', csrfProtection, apiRouter)
 app.use('/api', apiNotFound)
