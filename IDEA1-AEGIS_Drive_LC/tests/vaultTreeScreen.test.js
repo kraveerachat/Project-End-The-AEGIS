@@ -21,7 +21,7 @@ import { makeT } from '../src/lib/strings.js'
 import { CORRECT_PASSPHRASE, serverBlob, serverBlobV2 } from './fixtures/vaultScreenBackend.js'
 import { makeVaultTreeBackend } from './fixtures/vaultTreeBackend.js'
 import { createFakeTreeServer } from './helpers/vaultTreeFakeServer.mjs'
-import { startVaultScreenEnv, settle, click, type, unlock } from './helpers/vaultScreenHarness.js'
+import { startVaultScreenEnv, settle, click, type, unlock, uploadFile } from './helpers/vaultScreenHarness.js'
 
 const t = makeT('en')
 
@@ -261,6 +261,101 @@ test('TS-5 an external OS file drop goes to the upload path (attachBlob), never 
   }
 })
 
+test('DND-03 an external OS drop on a folder uploads once into that folder', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id: 'D3'.padEnd(22, 'D') }] })
+  backend.uploadImpl = async () => ({ ok: true, stage: 'complete', blob: { id: 'D3'.padEnd(22, 'D'), formatVersion: 2 } })
+  const h = await mountUnlocked()
+  try {
+    await newFolder('Target')
+    const target = tileByName('Target')
+    const before = casCount()
+    const dropEvent = new dom.window.Event('drop', { bubbles: true })
+    Object.defineProperty(dropEvent, 'dataTransfer', {
+      value: { types: ['Files'], files: [new dom.window.File(['x'], 'inside.png', { type: 'image/png' })] },
+    })
+    await act(async () => target.dispatchEvent(dropEvent))
+    await tick(4)
+    assert.equal(casCount() - before, 1, 'a folder-target upload attaches exactly once')
+    await click(dom, target.querySelector('[data-testid="vault-folder-tile-body"]'))
+    await tick(2)
+    assert.ok(tileByName('inside.png'), 'the uploaded file belongs to the drop-target folder')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('BC-03/04/05 a non-current breadcrumb is an internal move target with one CAS', async () => {
+  const h = await mountUnlocked()
+  try {
+    await newFolder('Parent')
+    await click(dom, tileByName('Parent').querySelector('[data-testid="vault-folder-tile-body"]'))
+    await tick(2)
+    await newFolder('Child')
+    const child = tileByName('Child')
+    const rootCrumb = q('[data-testid="vault-tree-crumb"]')
+    const before = casCount()
+    await act(async () => child.dispatchEvent(new dom.window.Event('dragstart', { bubbles: true })))
+    await act(async () => rootCrumb.dispatchEvent(new dom.window.Event('drop', { bubbles: true })))
+    await tick(3)
+    assert.equal(casCount() - before, 1, 'breadcrumb move uses the same single-CAS intent path')
+    await click(dom, rootCrumb)
+    await tick(2)
+    assert.ok(tileByName('Child'), 'the child moved to the selected ancestor')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('SEL-01/02/03 SCREEN-INTEGRATION-1/2 expanded Vault surface selects, ignores controls, and blank click clears', async () => {
+  const h = await mountUnlocked()
+  try {
+    await newFolder('A')
+    await newFolder('B')
+    const canvas = q('[data-vault-marquee-canvas]')
+    const workspace = q('[data-testid="vault-tree-workspace"]')
+    const toolbar = q('[data-testid="vault-workspace-toolbar"]')
+    const [a, b] = folderTiles()
+    assert.ok(canvas, 'Vault grid exposes an empty-canvas marquee surface')
+    assert.ok(canvas.hasAttribute('data-vault-marquee-surface'), 'one semantic expanded surface owns marquee input')
+    assert.ok(canvas.contains(toolbar) && canvas.contains(workspace), 'expanded surface contains toolbar gaps and the old lower workspace')
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 500, width: 600, height: 500 })
+    a.getBoundingClientRect = () => ({ left: 20, top: 80, right: 180, bottom: 160, width: 160, height: 80 })
+    b.getBoundingClientRect = () => ({ left: 220, top: 80, right: 380, bottom: 160, width: 160, height: 80 })
+    const pointer = (target, type, props) => {
+      const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...props })
+      Object.defineProperty(event, 'pointerId', { value: 1 })
+      Object.defineProperty(event, 'pointerType', { value: 'mouse' })
+      target.dispatchEvent(event)
+    }
+
+    await act(async () => pointer(canvas, 'pointerdown', { button: 0, pointerType: 'mouse', clientX: 5, clientY: 65 }))
+    assert.equal(canvas.style.userSelect, 'none', 'primary mouse down on blank canvas starts marquee tracking')
+    await act(async () => pointer(dom.window, 'pointermove', { clientX: 190, clientY: 175 }))
+    await tick()
+    assert.ok(q('[data-testid="vault-marquee-rect"]'), 'the marquee rectangle is visible while dragging')
+    assert.equal(q('[data-testid="vault-marquee-rect"]').style.width, '185px')
+    assert.equal(q('[data-testid="vault-tree-selection-count"]')?.textContent.includes('1'), true)
+    assert.ok(q('[data-testid="vault-tree-selection-bar"]')?.classList.contains('fixed'), 'Vault selection actions float like the Files action bar')
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+
+    await act(async () => pointer(canvas, 'pointerdown', { button: 0, pointerType: 'mouse', clientX: 5, clientY: 65 }))
+    await act(async () => pointer(dom.window, 'pointermove', { clientX: 390, clientY: 175 }))
+    await act(async () => dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    assert.equal(q('[data-testid="vault-tree-selection-count"]')?.textContent.includes('1'), true, 'Escape restores the pre-drag selection')
+
+    const search = q('[data-testid="vault-workspace-search"]')
+    await act(async () => pointer(search, 'pointerdown', { clientX: 30, clientY: 30 }))
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+    assert.ok(q('[data-testid="vault-tree-selection-bar"]'), 'interactive child pointerdown is not a blank clear')
+
+    await act(async () => pointer(canvas, 'pointerdown', { clientX: 580, clientY: 450 }))
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+    assert.equal(q('[data-testid="vault-tree-selection-bar"]'), null, 'blank click clears selection and hides the action bar')
+  } finally {
+    await h.unmount()
+  }
+})
+
 /* ── TS-6 ─────────────────────────────────────────────────────────────────── */
 test('TS-6 bulk Move and bulk Trash commit one CAS for a multi-root selection', async () => {
   const h = await mountUnlocked()
@@ -304,7 +399,11 @@ test('TS-7 Trash view lists the trashed root; Restore returns it to place', asyn
     await click(dom, q('[data-testid="vault-dialog-submit"]'))
     await tick(3)
     assert.ok(!folderTiles().some((el) => el.textContent.includes('Docs')), 'the trashed folder leaves the active view')
-    await click(dom, qa('[data-testid="vault-tree-screen"] button').find((b) => b.textContent.trim() === t('vaultTreeMenuTrash')))
+    const view = q('[data-testid="vault-workspace-view"]')
+    await act(async () => {
+      view.value = 'trash'
+      view.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
     await tick()
     assert.ok(folderTiles().some((el) => el.textContent.includes('Docs')), 'the trash view lists the trashed root')
     const trashed = folderTiles().find((el) => el.textContent.includes('Docs'))
@@ -312,7 +411,10 @@ test('TS-7 Trash view lists the trashed root; Restore returns it to place', asyn
     await click(dom, menuItem('restore'))
     await tick(3)
     assert.ok(!folderTiles().some((el) => el.textContent.includes('Docs')) === false || true, 'restore committed')
-    await click(dom, qa('[data-testid="vault-tree-screen"] button').find((b) => b.textContent.trim() === t('vaultTreeViewActive')))
+    await act(async () => {
+      view.value = 'active'
+      view.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
     await tick()
     assert.ok(folderTiles().some((el) => el.textContent.includes('Docs')), 'the restored folder is back in the active view')
   } finally {
@@ -533,7 +635,7 @@ test('TS-14 bulk download runs sequentially, skips folders, and stops on lock', 
     }
     dl.names.length = 0
     // clear the surviving selection first — the checkboxes toggle, so re-clicking would deselect
-    await click(dom, qa('button').find((b) => b.textContent.trim() === t('vaultTreeClearSelection')))
+    await click(dom, q(`button[aria-label="${t('vaultTreeClearSelection')}"]`))
     await tick()
     const tiles = names.map((n) => fileTiles().find((el) => el.textContent.includes(n)))
     for (const tile of tiles) await click(dom, tile.querySelector('[data-testid="vault-tree-tile-checkbox"]'))
@@ -552,7 +654,7 @@ test('TS-14 bulk download runs sequentially, skips folders, and stops on lock', 
   }
 })
 
-test('TS-15 locked-state details show the opaque id; unlocked details show manifest fields only', async () => {
+test('TS-15 locked state exposes no per-item details or inventory identifiers', async () => {
   backend = makeVaultTreeBackend()
   wireBridge()
   globalThis.__VAULT_BACKEND__ = backend
@@ -565,15 +667,104 @@ test('TS-15 locked-state details show the opaque id; unlocked details show manif
   const h = env.mount()
   try {
     await h.render(React.createElement((await env.load('/src/screens/Vault.jsx')).Vault, { t }))
-    const lockedMenu = qa('[data-vault-tile-menu]')[0]
-    await click(dom, lockedMenu)
-    await click(dom, qa('[role="menuitem"]').find((el) => el.textContent.trim() === t('vaultEncryptedDetails')))
-    await tick(2)
-    const modal = q('[role="dialog"]')
-    assert.ok(modal, 'the details modal opens')
-    assert.ok(modal.textContent.includes(opaqueId), 'the opaque id shows in the LOCKED details (existing behaviour)')
-    assert.ok(!modal.textContent.includes('secret.txt'), 'the plaintext name never shows while locked')
+    assert.ok(q('[data-testid="locked-vault-preview"]'), 'the fixed locked preview replaces inventory tiles')
+    assert.equal(qa('[data-vault-tile-menu]').length, 0, 'there is no per-item detail entry while locked')
+    assert.ok(!doc().body.textContent.includes(opaqueId), 'the opaque inventory id is not exposed')
+    assert.ok(!doc().body.textContent.includes('secret.txt'), 'the plaintext name never shows while locked')
     assert.ok(!q('[data-testid="vault-tree-screen"]'), 'the FLAT screen has no tree region')
+  } finally {
+    await h.unmount()
+  }
+})
+
+/* ── Successor PR · Files-style workspace RED/GREEN coverage ─────────────── */
+
+test('UX-01/03/05/06/07/09 unlocked Vault renders the Files-style toolbar and physical folder/file sections', async () => {
+  const blobId = 'UX1'.padEnd(22, 'U')
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id: blobId }] })
+  backend.state['/api/vault'] = {
+    loading: false,
+    data: { configured: true, blobs: [serverBlobV2({ id: blobId, name: 'opaque.bin', type: 'image/jpeg', plainSize: 64 })] },
+    error: null,
+  }
+  wireBridge()
+  const seed = modules.sync.createTreeSession({ kek, api: modules.api })
+  const start = await seed.loadHead()
+  const rootId = start.manifest.rootNodeId
+  await seed.commit(modules.ops.intents.createFolder({ parentNodeId: rootId, name: 'Photos' }))
+  await seed.commit(modules.ops.intents.attachBlob({
+    parentNodeId: rootId, name: 'Holiday.jpg', mediaType: 'image/jpeg', plainSize: 64,
+    blobRef: { formatVersion: 2, id: blobId },
+  }))
+
+  const h = await mountUnlocked()
+  try {
+    const toolbar = q('[data-testid="vault-workspace-toolbar"]')
+    assert.ok(toolbar, 'workspace toolbar renders')
+    assert.ok(q('[data-testid="vault-workspace-search"]'), 'client-only search renders')
+    assert.ok(q('[data-testid="vault-workspace-type-filter"]'), 'type filter renders')
+    assert.ok(q('[data-testid="vault-workspace-sort"]'), 'sort control renders')
+    assert.ok(q('[data-testid="vault-workspace-grid"]'), 'grid control renders')
+    assert.ok(q('[data-testid="vault-workspace-list"]'), 'list control renders')
+    const folderSection = q('[data-testid="vault-folders-section"]')
+    const fileSection = q('[data-testid="vault-files-section"]')
+    assert.ok(folderSection && fileSection, 'folders and files are physically separate sections')
+    assert.ok(folderSection.compareDocumentPosition(fileSection) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING, 'folders precede files')
+
+    await click(dom, q('[data-testid="vault-workspace-list"]'))
+    assert.ok(q('[data-testid="vault-tree-list"]'), 'list view renders from the same manifest')
+    assert.equal(q('[data-testid="vault-folder-tile"]').getAttribute('data-layout'), 'list')
+    assert.equal(q('[data-testid="vault-file-tile"]').getAttribute('data-layout'), 'list')
+    assert.ok(q('[data-testid="vault-file-preview-slot"]'), 'file presentation retains a dedicated truthful preview slot')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('UX-02 client search filters decrypted names without any server request or CAS', async () => {
+  const h = await mountUnlocked()
+  try {
+    await newFolder('Visible Folder')
+    await newFolder('Hidden Folder')
+    const beforeLog = fakeTree.state.log.length
+    const beforeCas = casCount()
+    await type(dom, q('[data-testid="vault-workspace-search"]'), 'Visible')
+    await tick()
+    assert.ok(tileByName('Visible Folder'))
+    assert.equal(tileByName('Hidden Folder'), undefined)
+    assert.equal(fakeTree.state.log.length, beforeLog, 'search emits no server request')
+    assert.equal(casCount(), beforeCas, 'search emits no CAS')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('REC-02 the recovery surface is absent when there are no orphan files and no degraded key', async () => {
+  const h = await mountUnlocked()
+  try {
+    await tick(4)
+    assert.equal(q('[data-testid="vault-tree-recovery"]'), null)
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('VHIST-01/02/03/05 Vault folder navigation pushes opaque history and popstate restores root', async () => {
+  const h = await mountUnlocked()
+  try {
+    await newFolder('Secret Folder Name')
+    const rootState = dom.window.history.state
+    const folderTile = tileByName('Secret Folder Name')
+    const opaqueId = folderTile.getAttribute('data-node-id')
+    await click(dom, folderTile.querySelector('[data-testid="vault-folder-tile-body"]'))
+    await tick()
+    assert.equal(dom.window.location.pathname.includes('Secret'), false)
+    assert.equal(JSON.stringify(dom.window.history.state).includes('Secret Folder Name'), false)
+    assert.ok(JSON.stringify(dom.window.history.state).includes(opaqueId), 'only the opaque node id is stored')
+
+    await act(async () => dom.window.dispatchEvent(new dom.window.PopStateEvent('popstate', { state: rootState })))
+    await tick()
+    assert.ok(q('[data-testid="vault-tree-crumb-current"]')?.textContent.includes('Vault'), 'popstate restores root')
   } finally {
     await h.unmount()
   }
@@ -635,6 +826,316 @@ test('TS-18 with the flag off the tiles never open preview sessions or observe t
     assert.ok(!q('[data-testid="vault-tree-recovery"] [data-testid="vault-tree-orphans"] [data-testid="vault-tree-orphan-row"]'), 'no media activity on the recovery panel either')
     // the modal Preview still works as before (flag off = icons only on tiles)
     assert.ok(qa('[data-testid="vault-file-tile"]').length + qa('[data-testid="vault-folder-tile"]').length >= 0, 'the screen renders normally')
+  } finally {
+    await h.unmount()
+  }
+})
+
+/* ── REAL-DRAG-1..10 ──────────────────────────────────────────────────────── */
+test('REAL-DRAG-1..10 multi-item drag payload, breadcrumb/folder drop, atomic move, selection clear, click suppression', async () => {
+  const { AEGIS_ITEMS_TYPE, isInternalItemDrag, readDragPayload } = await env.load('/src/lib/fileDragDrop.js')
+  const h = await mountUnlocked()
+  try {
+    // Setup folders: A, B, C, D, Target
+    await newFolder('A')
+    await newFolder('B')
+    await newFolder('C')
+    await newFolder('D')
+    await newFolder('Target')
+
+    const tiles = () => folderTiles()
+    const tileA = () => tiles().find((el) => el.textContent.includes('A'))
+    const tileB = () => tiles().find((el) => el.textContent.includes('B'))
+    const tileC = () => tiles().find((el) => el.textContent.includes('C'))
+    const tileD = () => tiles().find((el) => el.textContent.includes('D'))
+    const tileTarget = () => tiles().find((el) => el.textContent.includes('Target'))
+
+    // Select A, B, C, D via checkbox
+    for (const tile of [tileA(), tileB(), tileC(), tileD()]) {
+      await click(dom, tile.querySelector('[data-testid="vault-tree-tile-checkbox"]'))
+    }
+    assert.equal(q('[data-testid="vault-tree-selection-count"]')?.textContent.includes('4'), true, '4 items selected')
+
+    // REAL-DRAG-1: Dragging 1 of 4 selected items populates dataTransfer with all 4 items
+    const store = {}
+    const dt = {
+      types: [],
+      setData: (type, val) => {
+        if (!dt.types.includes(type)) dt.types.push(type)
+        store[type] = String(val)
+      },
+      getData: (type) => store[type] ?? '',
+    }
+    const dragEvent = new dom.window.Event('dragstart', { bubbles: true })
+    Object.defineProperty(dragEvent, 'dataTransfer', { value: dt })
+
+    await act(async () => {
+      tileA().dispatchEvent(dragEvent)
+    })
+    await settle()
+
+    // REAL-DRAG-3: isInternalItemDrag returns true
+    assert.equal(isInternalItemDrag(dt), true, 'internal item drag type set')
+    const payloadIds = readDragPayload(dt)
+    assert.equal(payloadIds.length, 4, 'drag payload carries all 4 selected IDs')
+
+    // REAL-DRAG-4: Dropping the 4 items onto Target folder commits 1 CAS on the move path
+    const target = tileTarget()
+    const dropEvent = new dom.window.Event('drop', { bubbles: true })
+    Object.defineProperty(dropEvent, 'dataTransfer', { value: dt })
+
+    const before = casCount()
+    await act(async () => {
+      target.dispatchEvent(dropEvent)
+    })
+    await tick(3)
+
+    assert.equal(casCount() - before, 1, 'dropping 4 items commits exactly 1 CAS')
+
+    // REAL-DRAG-6: Selection is synchronously cleared
+    assert.equal(q('[data-testid="vault-tree-selection-bar"]'), null, 'selection cleared after successful drop')
+
+    // REAL-DRAG-7: Items removed from root, exist inside Target
+    assert.ok(!tiles().some((el) => el.textContent.includes('A')), 'A removed from root')
+    assert.ok(!tiles().some((el) => el.textContent.includes('B')), 'B removed from root')
+    assert.ok(!tiles().some((el) => el.textContent.includes('C')), 'C removed from root')
+    assert.ok(!tiles().some((el) => el.textContent.includes('D')), 'D removed from root')
+
+    // Navigate into Target
+    await click(dom, target.querySelector('[data-testid="vault-folder-tile-body"]'))
+    await tick(2)
+    assert.ok(tiles().some((el) => el.textContent.includes('A')), 'A lives in Target')
+    assert.ok(tiles().some((el) => el.textContent.includes('B')), 'B lives in Target')
+    assert.ok(tiles().some((el) => el.textContent.includes('C')), 'C lives in Target')
+    assert.ok(tiles().some((el) => el.textContent.includes('D')), 'D lives in Target')
+
+    // REAL-DRAG-5: Dropping from inside Target onto the root breadcrumb moves them back
+    // Select A and B inside Target
+    await click(dom, tileA().querySelector('[data-testid="vault-tree-tile-checkbox"]'))
+    await click(dom, tileB().querySelector('[data-testid="vault-tree-tile-checkbox"]'))
+
+    const dtBc = {
+      types: [],
+      setData: (type, val) => {
+        if (!dtBc.types.includes(type)) dtBc.types.push(type)
+        store[type] = String(val)
+      },
+      getData: (type) => store[type] ?? '',
+    }
+    const dragBcEv = new dom.window.Event('dragstart', { bubbles: true })
+    Object.defineProperty(dragBcEv, 'dataTransfer', { value: dtBc })
+    await act(async () => tileA().dispatchEvent(dragBcEv))
+    await settle()
+
+    const rootCrumb = qa('[data-testid="vault-tree-crumb"]')[0]
+    assert.ok(rootCrumb, 'root breadcrumb found')
+
+    const dropBcEv = new dom.window.Event('drop', { bubbles: true })
+    Object.defineProperty(dropBcEv, 'dataTransfer', { value: dtBc })
+
+    const beforeBc = casCount()
+    await act(async () => rootCrumb.dispatchEvent(dropBcEv))
+    await tick(3)
+
+    assert.equal(casCount() - beforeBc, 1, 'breadcrumb drop commits exactly 1 CAS')
+    assert.ok(!tiles().some((el) => el.textContent.includes('A')), 'A moved back to root')
+    assert.ok(!tiles().some((el) => el.textContent.includes('B')), 'B moved back to root')
+
+    // REAL-DRAG-8: Dropping onto self / invalid target announces error with 0 CAS
+    const beforeInvalid = casCount()
+    const dtSelf = {
+      types: [],
+      setData: (type, val) => {
+        if (!dtSelf.types.includes(type)) dtSelf.types.push(type)
+        store[type] = String(val)
+      },
+      getData: (type) => store[type] ?? '',
+    }
+    const dragSelfEv = new dom.window.Event('dragstart', { bubbles: true })
+    Object.defineProperty(dragSelfEv, 'dataTransfer', { value: dtSelf })
+    await act(async () => tileC().dispatchEvent(dragSelfEv))
+    await settle()
+
+    const dropSelfEv = new dom.window.Event('drop', { bubbles: true })
+    Object.defineProperty(dropSelfEv, 'dataTransfer', { value: dtSelf })
+    await act(async () => tileC().dispatchEvent(dropSelfEv))
+    await tick(2)
+
+    assert.equal(casCount(), beforeInvalid, 'invalid drop fires zero CAS')
+    assert.ok(announceText().length > 0, 'truthful rejection announced')
+
+    // REAL-DRAG-2: Dragging an unselected item carries only that 1 item
+    const dtSingle = {
+      types: [],
+      setData: (type, val) => {
+        if (!dtSingle.types.includes(type)) dtSingle.types.push(type)
+        store[type] = String(val)
+      },
+      getData: (type) => store[type] ?? '',
+    }
+    const dragSingleEv = new dom.window.Event('dragstart', { bubbles: true })
+    Object.defineProperty(dragSingleEv, 'dataTransfer', { value: dtSingle })
+    await act(async () => tileD().dispatchEvent(dragSingleEv))
+    await settle()
+    const singlePayload = readDragPayload(dtSingle)
+    assert.equal(singlePayload.length, 1, 'unselected drag carries only 1 item')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('VIDEO-POSTER-INITIAL-1..4 / VIDEO-POSTER-FRAME-4/5 a new video gets its poster before hover without requeueing ready media', async () => {
+  backend.treeFlags.mediaPreviewEnabled = true
+  backend.reducedMotion = false
+  const existingIds = ['VP1', 'VP2', 'VP3', 'VP4'].map((prefix) => prefix.padEnd(22, prefix.at(-1)))
+  const newId = 'VP5'.padEnd(22, '5')
+  const allIds = [...existingIds, newId]
+  fakeTree = await createFakeTreeServer({ kek, blobs: allIds.map((id) => ({ formatVersion: 2, id })) })
+  const existingBlobs = existingIds.map((id, index) => serverBlobV2({
+    id, name: `existing-${index + 1}.mp4`, type: 'video/mp4', plainSize: 64,
+  }))
+  const newBlob = serverBlobV2({ id: newId, name: 'new-upload.mp4', type: 'video/mp4', plainSize: 64 })
+  backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: existingBlobs }, error: null }
+  backend.uploadImpl = async () => {
+    backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: [...existingBlobs, newBlob] }, error: null }
+    return { ok: true, stage: 'complete', blob: { id: newId, formatVersion: 2 } }
+  }
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+
+  const seed = modules.sync.createTreeSession({ kek, api: modules.api })
+  const start = await seed.loadHead()
+  for (const [index, id] of existingIds.entries()) {
+    await seed.commit(modules.ops.intents.attachBlob({
+      parentNodeId: start.manifest.rootNodeId,
+      name: `existing-${index + 1}.mp4`, mediaType: 'video/mp4', plainSize: 64,
+      blobRef: { formatVersion: 2, id },
+    }))
+  }
+
+  const mediaProto = dom.window.HTMLMediaElement.prototype
+  const canvasProto = dom.window.HTMLCanvasElement.prototype
+  const loadDescriptor = Object.getOwnPropertyDescriptor(mediaProto, 'load')
+  const pauseDescriptor = Object.getOwnPropertyDescriptor(mediaProto, 'pause')
+  const currentTimeDescriptor = Object.getOwnPropertyDescriptor(mediaProto, 'currentTime')
+  const getContextDescriptor = Object.getOwnPropertyDescriptor(canvasProto, 'getContext')
+  const toBlobDescriptor = Object.getOwnPropertyDescriptor(canvasProto, 'toBlob')
+  let phase = 'initial'
+  let afterUploadLoads = 0
+  Object.defineProperty(mediaProto, 'pause', { configurable: true, value() {} })
+  Object.defineProperty(mediaProto, 'currentTime', {
+    configurable: true,
+    get() { return this.__posterCurrentTime ?? 0 },
+    set(value) {
+      this.__posterCurrentTime = value
+      queueMicrotask(() => this.dispatchEvent(new dom.window.Event('seeked')))
+    },
+  })
+  Object.defineProperty(mediaProto, 'load', {
+    configurable: true,
+    value() {
+      if (!this.getAttribute('src')) return
+      Object.defineProperty(this, 'videoWidth', { configurable: true, value: 320 })
+      Object.defineProperty(this, 'videoHeight', { configurable: true, value: 180 })
+      Object.defineProperty(this, 'duration', { configurable: true, value: 1 })
+      const shouldComplete = phase === 'initial' || ++afterUploadLoads === 1
+      if (shouldComplete) queueMicrotask(() => this.dispatchEvent(new dom.window.Event('loadeddata')))
+    },
+  })
+  Object.defineProperty(canvasProto, 'getContext', { configurable: true, value: () => ({ drawImage() {} }) })
+  Object.defineProperty(canvasProto, 'toBlob', {
+    configurable: true,
+    value(callback) { callback(new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' })) },
+  })
+
+  const h = await mountUnlocked()
+  try {
+    await tick(8)
+    assert.equal(
+      qa('[data-testid="vault-tree-tile-poster"]').length,
+      4,
+      `the existing ready media establish the pre-upload scheduler state (urls=${env.objectUrls.length}, titles=${fileTiles().map((el) => el.getAttribute('title')).join(',')})`,
+    )
+
+    phase = 'after-upload'
+    await uploadFile(dom, { name: 'new-upload.mp4', type: 'video/mp4', body: 'video-bytes' })
+    await tick(8)
+
+    const tile = tileByName('new-upload.mp4')
+    assert.ok(tile, 'the newly uploaded video card appears')
+    assert.ok(tile.querySelector('[data-testid="vault-tree-tile-poster"]'), 'poster renders automatically before any hover')
+
+    const body = tile.querySelector('[data-testid="vault-file-tile-body"]')
+    const props = body[Object.keys(body).find((key) => key.startsWith('__reactProps'))]
+    await act(async () => props.onMouseEnter(new dom.window.Event('mouseover', { bubbles: true })))
+    await tick(2)
+    assert.ok(tile.querySelector('[data-testid="vault-tree-tile-motion"]'), 'hover promotes the video motion path')
+    await act(async () => props.onMouseLeave(new dom.window.Event('mouseout', { bubbles: true })))
+    await tick(2)
+    assert.ok(tile.querySelector('[data-testid="vault-tree-tile-poster"]'), 'mouse leave restores the already-created static poster')
+  } finally {
+    await h.unmount()
+    if (loadDescriptor) Object.defineProperty(mediaProto, 'load', loadDescriptor)
+    if (pauseDescriptor) Object.defineProperty(mediaProto, 'pause', pauseDescriptor)
+    if (currentTimeDescriptor) Object.defineProperty(mediaProto, 'currentTime', currentTimeDescriptor)
+    if (getContextDescriptor) Object.defineProperty(canvasProto, 'getContext', getContextDescriptor)
+    if (toBlobDescriptor) Object.defineProperty(canvasProto, 'toBlob', toBlobDescriptor)
+  }
+})
+
+test('VAULT-FILE-DRAG-WIRING-2/3 selected file drag writes the complete payload and folder dragover accepts move', async () => {
+  const ids = ['FD1', 'FD2', 'FD3'].map((prefix) => prefix.padEnd(22, prefix.at(-1)))
+  fakeTree = await createFakeTreeServer({ kek, blobs: ids.map((id) => ({ formatVersion: 2, id })) })
+  backend.state['/api/vault'] = {
+    loading: false,
+    data: { configured: true, blobs: ids.map((id, index) => serverBlobV2({ id, name: `drag-${index + 1}.png`, type: 'image/png', plainSize: 64 })) },
+    error: null,
+  }
+  wireBridge()
+  const seed = modules.sync.createTreeSession({ kek, api: modules.api })
+  const start = await seed.loadHead()
+  const rootId = start.manifest.rootNodeId
+  await seed.commit(modules.ops.intents.createFolder({ parentNodeId: rootId, name: 'Drop Target' }))
+  for (const [index, id] of ids.entries()) {
+    await seed.commit(modules.ops.intents.attachBlob({
+      parentNodeId: rootId,
+      name: `drag-${index + 1}.png`,
+      mediaType: 'image/png',
+      plainSize: 64,
+      blobRef: { formatVersion: 2, id },
+    }))
+  }
+
+  const { isInternalItemDrag, readDragPayload } = await env.load('/src/lib/fileDragDrop.js')
+  const h = await mountUnlocked()
+  try {
+    const files = fileTiles().filter((tile) => tile.textContent.includes('drag-'))
+    assert.equal(files.length, 3, 'three file tiles render')
+    for (const tile of files) await click(dom, tile.querySelector('[data-testid="vault-tree-tile-checkbox"]'))
+
+    const values = {}
+    const dt = {
+      types: [],
+      dropEffect: 'none',
+      effectAllowed: 'none',
+      setData(type, value) { if (!this.types.includes(type)) this.types.push(type); values[type] = String(value) },
+      getData(type) { return values[type] ?? '' },
+    }
+    const dragStart = new dom.window.Event('dragstart', { bubbles: true, cancelable: true })
+    Object.defineProperty(dragStart, 'dataTransfer', { value: dt })
+    await act(async () => files[0].dispatchEvent(dragStart))
+    await settle()
+
+    assert.equal(isInternalItemDrag(dt), true, 'file drag is classified as internal')
+    assert.equal(readDragPayload(dt).length, 3, 'payload contains the full selected file set')
+    assert.equal(dt.effectAllowed, 'move', 'source declares move semantics')
+
+    const destination = folderTiles().find((tile) => tile.textContent.includes('Drop Target'))
+    const dragOver = new dom.window.Event('dragover', { bubbles: true, cancelable: true })
+    Object.defineProperty(dragOver, 'dataTransfer', { value: dt })
+    await act(async () => destination.dispatchEvent(dragOver))
+    assert.equal(dragOver.defaultPrevented, true, 'valid folder target accepts dragover')
+    assert.equal(dt.dropEffect, 'move', 'folder target presents move cursor semantics')
   } finally {
     await h.unmount()
   }

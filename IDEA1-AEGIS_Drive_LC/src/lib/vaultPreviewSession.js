@@ -64,6 +64,7 @@ export function previewUrlFor(token, base = import.meta.env?.BASE_URL ?? '/') {
 export async function ensurePreviewWorkerResult({
   scope = globalThis,
   scriptUrl = previewWorkerUrl(),
+  scopeUrl = import.meta.env?.BASE_URL ?? '/',
   timeoutMs = 10_000,
   claimTimeoutMs = 5_000,
   isUnlocked = () => true,
@@ -75,7 +76,7 @@ export async function ensurePreviewWorkerResult({
 
   let registration = null
   try {
-    registration = await container.register(scriptUrl, { type: 'module' })
+    registration = await container.register(scriptUrl, { type: 'module', scope: scopeUrl })
   } catch {
     return { ok: false, reason: PREVIEW_FAILURE_REASON.WORKER_REGISTRATION_FAILED }
   }
