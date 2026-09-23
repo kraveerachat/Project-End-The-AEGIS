@@ -15,9 +15,13 @@
 #   INFO                              recorded for review, not a preservation check  (passes)
 #
 # BASELINE_UNHEALTHY_BUT_UNCHANGED is shown separately so a reviewer can tell a
-# persisting IDEA2 tunnel regression from a new one. It never passes: §10 stays
-# as written until the IDEA2 owners restore the tunnel or accept a narrowed
-# criterion in writing, and this tool accepts none (IDEA2_NARROWED_CRITERION).
+# persisting IDEA2 tunnel regression from a new one. It never passes.
+#
+# IDEA2_NARROWED_CRITERION (candidate, pending IDEA2 owner acceptance in PR review):
+# a historical absolute idea2.tunnel.NRestarts > 0 is not by itself an unhealthy
+# baseline. The preservation dimension is the window delta: NRestarts and MainPID
+# unchanged between BEFORE and AFTER pass; any increase or MainPID change fails,
+# as do a new failure class, :8077/:18002 loss, and a currently unhealthy tunnel.
 #
 # Exit 0 = COMPARE_RESULT=PASS, 1 = COMPARE_RESULT=FAIL, 2 = STOP (usage/integrity).
 set -uo pipefail
@@ -358,7 +362,7 @@ END {
   for (i = 1; i <= 5; i++) printf "SUMMARY\tFINDINGS_%s=%d\n", CL[i], count[CL[i]] + 0
   drift = (count["NEW_OR_WORSENED_DRIFT"] + count["INCOMPARABLE"] == 0) ? "PASS" : "FAIL"
   s10 = (drift == "PASS" && count["BASELINE_UNHEALTHY_BUT_UNCHANGED"] + 0 == 0) ? "PASS" : "FAIL"
-  printf "SUMMARY\tIDEA2_NARROWED_CRITERION=NOT_ACCEPTED\n"
+  printf "SUMMARY\tIDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE\n"
   printf "SUMMARY\tDRIFT_RESULT=%s\n", drift
   printf "SUMMARY\tPRESERVATION_S10=%s\n", s10
   printf "SUMMARY\tCOMPARE_RESULT=%s\n", s10

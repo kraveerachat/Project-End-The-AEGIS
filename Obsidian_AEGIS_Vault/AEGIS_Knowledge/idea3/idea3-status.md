@@ -18,6 +18,32 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 IDEA2 §10 window-delta criterion — candidate — 2026-09-23
+
+> [!important] Candidate repository change — owner acceptance PENDING
+> Branch `fix/idea3-pr11-s10-window-delta-criterion` (Draft PR, base `baf0a94e`)
+> reconciles the IDEA2 §10 preservation contract with observed reality. A
+> historical absolute `idea2.tunnel.NRestarts > 0` is no longer, by itself, an
+> unhealthy L0 tunnel baseline; the recorded count is never normalized. The
+> preservation dimension is the window delta: `NRestarts` and `MainPID` unchanged
+> pass, any increase or PID change fails. A new failure class, `:8077`/`:18002`
+> loss, and a currently unhealthy tunnel (inactive, `:18002` absent, journal
+> failure class) still fail. Focused RED→GREEN tests cover cases A–F; the PR11
+> suite passes (885). The compare summary prints
+> `IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE`.
+>
+> Fresh read-only evidence (owner-run, no lifecycle action):
+> `FRESH_DISK_USE = 88%`, `DISK_L1_GATE = PASS` (threshold 90%),
+> `FRESH_IDEA2_OBSERVATION_SECONDS = 821`, `ENGINE_NRESTARTS = 0->0`,
+> `TUNNEL_NRESTARTS = 15->15`, `TUNNEL_MAINPID_UNCHANGED = YES`,
+> `LISTEN_8077 = YES`, `LISTEN_18002 = YES`, `MONITOR_HEALTHZ = PASS`.
+>
+> `CONTRACT_REALITY_MISMATCH = RESOLVED_IN_CANDIDATE_CODE`
+> `IDEA2_OWNER_ACCEPTANCE = PENDING_PR_REVIEW` (Pub, `pubpup2006p-design`)
+> `S10_IDEA2_CAVEAT = OPEN` (stage gate unchanged until acceptance)
+> `L1_LIVE_EXECUTION = NOT_RUN`, `PRODUCTION_MUTATION = NO`.
+> `IDEA2_S10_FINAL_ACCEPTED` is not claimed. No receipt yet (Draft).
+
 ## IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17
 
 > [!important] Current IDEA3 task — IN PROGRESS
@@ -7341,6 +7367,192 @@ Current state: DOCUMENTATION RECONCILIATION COMPLETE — Human Content Review Pe
 Started: 2026-09-23
 Base SHA: `f2f92425...` (`origin/main` at task start)
 Production mutation allowed: NO
+
+## IDEA3 PR11 Issue #186 Post-Merge Recovery Closeout — 2026-09-23
+
+Task: IDEA3 PR11 Issue #186 Post-Merge Recovery Closeout
+Branch: `docs/idea3-pr11-issue186-recovery-closeout`
+Owner: `kittipat`
+Issue: GitHub Issue #186 ("PR11 Post-Merge Recovery — Twingate Persistence +
+IDEA2 Tunnel Recovery"), not yet closed
+Base SHA: `e61e76ac` (`origin/main` at task start, the PR #184 merge commit)
+Production mutation allowed in this documentation task: NO
+Evidence log: `90-Status/logs/2026-09-23_162700_kittipat_issue186-twingate-tunnel-recovery.md`
+
+This section reconciles GitHub Issue #186, opened after GitHub PR #184
+merged, into the canonical record. It distinguishes historical incident
+evidence, pre-authorization runtime recovery, revised owner authorization,
+the one authorized persistence mutation, and formal acceptance. It does not
+claim the originally planned controlled-Tunnel-restart model passed — that
+model was explicitly superseded by revised authorization before any
+controlled restart was performed.
+
+### 1. Historical incident evidence (not acceptance evidence)
+
+At approximately 2026-09-23 13:37 +07, an operator command-entry incident
+administratively restarted `aegis-detection-engine.service` and
+`aegis-detection-tunnel.service`. `twingate.service` was not started or
+enabled by that incident. This restart is preserved here as historical
+evidence only and was never treated as, or reused as, acceptance evidence
+for any later recovery step.
+
+### 2. Pre-authorization runtime recovery (historical evidence only)
+
+A later boot occurred (`CURRENT_BOOT_ID=c26bb08e-2776-4f27-a109-04aedd5a323d`,
+boot start ≈2026-09-23 14:54:48 +07). At approximately 14:57:29 +07, before
+fresh Issue #186 authorization existed, the operator manually ran
+`sudo systemctl start twingate.service` (confirmed via
+`journalctl`/`sudo` log provenance). Twingate reached Online, `sdwan0`
+appeared, and the overlay route to `192.168.10.10` appeared, but the remote
+path (TCP/22, TCP/80, TCP/443) initially remained unreachable, and
+`aegis-detection-tunnel.service` entered/continued its `Restart=always`
+auto-restart loop. `PRE_AUTH_TWINGATE_RUNTIME_START=HISTORICAL_EVIDENCE_ONLY`
+— this start was never claimed as an authorized acceptance action.
+
+Targeted read-only diagnosis at that time proved TCP/22, TCP/80, and TCP/443
+to `192.168.10.10` were all unreachable via direct Python socket probes.
+`ROOT_CAUSE_PROVEN=NO`; classification was
+`REMOTE_NETWORK_OR_CONNECTOR_PATH_SUSPECTED`, not an SSH
+authentication/configuration fault (both the SSH-only and the HTTP-only
+Twingate resources failed identically, and Twingate's own per-flow
+`authorize_flow` entries showed policy-authorized flows that never reached
+a connected state).
+
+### 3. Remote-path recovery and Tunnel self-recovery
+
+The remote path later became reachable. `aegis-detection-tunnel.service`
+self-recovered automatically through its existing `Restart=always` /
+`RestartSec=5` policy — no controlled manual Tunnel restart was performed
+by any session. Recovered runtime state at that point:
+
+```text
+Twingate:          PID=2972  NRestarts=0
+Detection Engine:  PID=868   NRestarts=0
+Detection Tunnel:  PID=7821  NRestarts=14
+LISTEN_8077 = present
+LISTEN_18002 = present
+ENGINE_HEALTH = OK
+MONITOR_HEALTHZ = OK
+```
+
+A bounded, diagnostic-only 15-minute pre-authorization read-only stability
+observation was then run:
+
+```text
+START_TS = 2026-09-23T15:29:31+07:00
+FINAL_TS = 2026-09-23T15:44:38+07:00
+OBSERVATION_DURATION_SECONDS = 907
+TWINGATE_STABLE = YES
+ENGINE_STABLE = YES
+TUNNEL_STABLE = YES
+MONITOR_FORWARD_STABLE = YES
+```
+
+This 15-minute window was diagnostic/pre-authorization evidence only — it
+was explicitly not treated as the formal acceptance boundary.
+
+### 4. Revised owner authorization (Issue #186)
+
+Because the Tunnel had already self-recovered and was stable, the original
+Issue #186 plan (start Twingate, then perform exactly one controlled
+Detection Tunnel restart) was reconciled and superseded. Kla
+(`kraveerachat`, OWNER) and Pub (`pubpup2006p-design`, COLLABORATOR) posted
+revised authorization on Issue #186:
+
+```text
+Kla: REVISED_RECOVERY_SCOPE=APPROVED
+     CONTROLLED_TUNNEL_RESTART_REQUIRED=NO
+     ACCEPTANCE_BOUNDARY=POST_TWINGATE_ENABLE_PRESERVATION_PLUS_15M_STABILITY
+
+Pub: IDEA2_NO_RESTART_RECOVERY_SCOPE=APPROVED
+     CONTROLLED_TUNNEL_RESTART_REQUIRED=NO
+```
+
+### 5. Authorized persistence mutation
+
+Under this revised authorization, the operator executed exactly one
+Production mutation:
+
+```text
+sudo systemctl enable twingate.service        # WITHOUT --now
+```
+
+Result: created symlink
+`/etc/systemd/system/multi-user.target.wants/twingate.service` →
+`/usr/lib/systemd/system/twingate.service`. No other Production mutation
+(no service start/stop/restart, no firewall/route change, no Twingate
+credential/policy/configuration change) was performed.
+
+Post-enable preservation was verified read-only immediately after:
+
+```text
+POST_ENABLE_PRESERVATION = PASS
+
+Twingate:  PRE PID=2972 / POST PID=2972   PRE NRestarts=0 / POST NRestarts=0
+Engine:    PRE PID=868  / POST PID=868    PRE NRestarts=0 / POST NRestarts=0
+Tunnel:    PRE PID=7821 / POST PID=7821   PRE NRestarts=14 / POST NRestarts=14
+```
+
+### 6. Formal acceptance window
+
+```text
+FORMAL_START_TS = 2026-09-23T16:00:31+07:00
+FORMAL_FINAL_TS = 2026-09-23T16:16:09+07:00
+FORMAL_OBSERVATION_SECONDS = 938
+
+Twingate:  PID=2972  NRestarts=0  UnitFileState=enabled  status=online
+Engine:    PID=868   NRestarts=0  stable=YES
+Tunnel:    PID=7821  NRestarts=14 stable=YES
+
+LISTEN_8077_FINAL = YES
+LISTEN_18002_FINAL = YES
+ENGINE_HEALTH_FINAL = OK
+MONITOR_HEALTHZ_FINAL = OK
+SDWAN0_FINAL = present/up
+OVERLAY_ROUTE_FINAL = present
+```
+
+No Detection Engine or Detection Tunnel lifecycle event occurred anywhere in
+the formal window (unit journals: no entries).
+
+### 7. Canonical status block
+
+```text
+ISSUE_186_RECOVERY_RESULT=PASS
+TWINGATE_BOOT_PERSISTENCE=ENABLED
+POST_ENABLE_PRESERVATION=PASS
+CONTROLLED_TUNNEL_RESTART_PERFORMED=NO
+DETECTION_ENGINE_LIFECYCLE_ACTION_PERFORMED=NO
+FORMAL_ACCEPTANCE=PASS
+LIVE_ACCEPTANCE=PROVEN
+FINAL_RECEIPT_CREATED=YES
+FINAL_RECEIPT_PATH=Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-23_200305_music_idea3-pr11-issue186-recovery-closeout.md
+```
+
+`LIVE_ACCEPTANCE=PROVEN` is scoped exactly to the revised, owner-authorized
+acceptance boundary (`POST_TWINGATE_ENABLE_PRESERVATION_PLUS_15M_STABILITY`)
+— it is not a claim that the original controlled-Tunnel-restart model was
+executed or passed; that model was explicitly superseded before any
+controlled restart occurred.
+
+### 8. Remaining gate
+
+The final receipt for this recovery has been created (see
+`FINAL_RECEIPT_PATH` above), under explicit owner authorization recorded on
+Issue #186:
+
+```text
+ISSUE_186_FINAL_RECEIPT_AUTH=APPROVED
+FINAL_RECEIPT_AUTH=APPROVED
+FINAL_RECEIPT_OWNER=music
+FINAL_RECEIPT_AREA=idea3
+```
+
+(https://github.com/kraveerachat/Project-End-The-AEGIS/issues/186#issuecomment-5795299734,
+`Kittipat050871`, repository owner.) Issue #186 remains open pending PR #188
+merge and final closeout being recorded there; this authorization did not
+extend to any further Production mutation, service lifecycle action, or
+reboot.
 
 ## 🔗 Related Notes
 * [[core/system-overview]]
