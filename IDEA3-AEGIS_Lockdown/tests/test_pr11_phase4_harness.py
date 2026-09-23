@@ -611,14 +611,23 @@ def test_only_reviewed_stage_handlers_are_registered() -> None:
     stages = DEPLOY / "stages"
     assert stages.is_dir()
     assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"}
+    core_handler_files = {
+        "apply.sh",
+        "verify.sh",
+        "rollback.sh",
+        "allow-keys.txt",
+        "allow-listeners.txt",
+    }
+    # L2 additionally owns a repository-side functional verifier for the
+    # dynamic IPv4 containment behavioral contract. It is additive to, not
+    # part of, the apply/verify/rollback/allow-* stage-gate contract that
+    # p4-lib.sh's P4_HANDLER_FILES checks by exact name.
+    expected_by_stage = {
+        "L2": core_handler_files | {"verify-containment-functional.sh"},
+    }
     for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"):
-        assert {p.name for p in (stages / name).iterdir() if p.is_file()} == {
-            "apply.sh",
-            "verify.sh",
-            "rollback.sh",
-            "allow-keys.txt",
-            "allow-listeners.txt",
-        }
+        expected = expected_by_stage.get(name, core_handler_files)
+        assert {p.name for p in (stages / name).iterdir() if p.is_file()} == expected
 
 
 def ro(snippet: str, bindir: Path, calls: Path) -> subprocess.CompletedProcess:

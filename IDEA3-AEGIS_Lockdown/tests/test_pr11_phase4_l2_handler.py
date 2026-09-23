@@ -19,6 +19,12 @@ REQUIRED_HANDLER_FILES = {
     "rollback.sh",
     "allow-keys.txt",
     "allow-listeners.txt",
+    # Repository-side functional verifier for the dynamic IPv4 containment
+    # behavioral contract (block/unblock/idempotency/traffic-denial/audit/
+    # rollback). Not part of the p4-lib.sh stage-gate handler contract
+    # (apply/verify/rollback/allow-*); the stage runner globs those five
+    # names only, so this file is additive and inert to it.
+    "verify-containment-functional.sh",
 }
 
 
