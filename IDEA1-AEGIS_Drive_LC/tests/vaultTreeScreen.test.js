@@ -306,14 +306,18 @@ test('BC-03/04/05 a non-current breadcrumb is an internal move target with one C
   }
 })
 
-test('SEL-01/02/03 desktop marquee selects intersecting Vault tiles and Escape restores the snapshot', async () => {
+test('SEL-01/02/03 SCREEN-INTEGRATION-1/2 expanded Vault surface selects, ignores controls, and blank click clears', async () => {
   const h = await mountUnlocked()
   try {
     await newFolder('A')
     await newFolder('B')
     const canvas = q('[data-vault-marquee-canvas]')
+    const workspace = q('[data-testid="vault-tree-workspace"]')
+    const toolbar = q('[data-testid="vault-workspace-toolbar"]')
     const [a, b] = folderTiles()
     assert.ok(canvas, 'Vault grid exposes an empty-canvas marquee surface')
+    assert.ok(canvas.hasAttribute('data-vault-marquee-surface'), 'one semantic expanded surface owns marquee input')
+    assert.ok(canvas.contains(toolbar) && canvas.contains(workspace), 'expanded surface contains toolbar gaps and the old lower workspace')
     canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 500, width: 600, height: 500 })
     a.getBoundingClientRect = () => ({ left: 20, top: 80, right: 180, bottom: 160, width: 160, height: 80 })
     b.getBoundingClientRect = () => ({ left: 220, top: 80, right: 380, bottom: 160, width: 160, height: 80 })
@@ -338,6 +342,15 @@ test('SEL-01/02/03 desktop marquee selects intersecting Vault tiles and Escape r
     await act(async () => pointer(dom.window, 'pointermove', { clientX: 390, clientY: 175 }))
     await act(async () => dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
     assert.equal(q('[data-testid="vault-tree-selection-count"]')?.textContent.includes('1'), true, 'Escape restores the pre-drag selection')
+
+    const search = q('[data-testid="vault-workspace-search"]')
+    await act(async () => pointer(search, 'pointerdown', { clientX: 30, clientY: 30 }))
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+    assert.ok(q('[data-testid="vault-tree-selection-bar"]'), 'interactive child pointerdown is not a blank clear')
+
+    await act(async () => pointer(canvas, 'pointerdown', { clientX: 580, clientY: 450 }))
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+    assert.equal(q('[data-testid="vault-tree-selection-bar"]'), null, 'blank click clears selection and hides the action bar')
   } finally {
     await h.unmount()
   }

@@ -890,8 +890,13 @@ export function VaultTreeScreen({
   const isTrashView = tree.view === 'trash'
   return (
     <div
+      ref={marqueeCanvasRef}
       data-testid="vault-tree-screen"
-      className="mb-6"
+      data-vault-marquee-surface=""
+      data-vault-marquee-canvas=""
+      onPointerDown={marquee.onPointerDown}
+      className="relative mb-6"
+      style={{ userSelect: marquee.tracking ? 'none' : undefined }}
       onDragOver={(e) => {
         const dt = e.dataTransfer ?? e.nativeEvent?.dataTransfer
         if (!isInternalItemDrag(dt) && isExternalFileDrag(dt) && !isTrashView) e.preventDefault()
@@ -904,11 +909,23 @@ export function VaultTreeScreen({
         if (files.length) void uploadFiles(files)
       }}
     >
+      {marquee.box && (
+        <div
+          data-testid="vault-marquee-rect"
+          aria-hidden="true"
+          className="pointer-events-none absolute z-10 rounded-[4px] border border-accent"
+          style={{
+            left: `${marquee.box.left}px`, top: `${marquee.box.top}px`,
+            width: `${marquee.box.width}px`, height: `${marquee.box.height}px`,
+            background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+          }}
+        />
+      )}
       {/* aria-live: การนำทาง/ถูกปฏิเสธ/reconcile ประกาศที่นี่เสมอ (TS-4/TS-9) */}
-      <p role="status" aria-live="polite" data-testid="vault-tree-announce" className="sr-only">
+      <p role="status" aria-live="polite" data-testid="vault-tree-announce" data-marquee-ignore="" className="sr-only">
         {announcementText ?? ''}
       </p>
-      <p role="alert" data-testid="vault-tree-notice" className="text-[12.5px] text-ink-3 mb-3 min-h-[16px]">
+      <p role="alert" data-testid="vault-tree-notice" data-marquee-ignore="" className="text-[12.5px] text-ink-3 mb-3 min-h-[16px]">
         {announcementText ?? ''}
       </p>
       <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -933,7 +950,7 @@ export function VaultTreeScreen({
         </Btn>
       </div>
 
-      <div data-testid="vault-workspace-toolbar" className="flex items-center gap-2.5 mb-5 flex-wrap">
+      <div data-testid="vault-workspace-toolbar" data-marquee-ignore="" className="flex items-center gap-2.5 mb-5 flex-wrap">
         <label className="relative flex-1 min-w-[220px] max-w-md">
           <span className="sr-only">{t('searchFilesPlaceholder')}</span>
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" aria-hidden="true" />
@@ -1020,7 +1037,7 @@ export function VaultTreeScreen({
         </Btn>
       </div>
 
-      {loadState === 'loading' && <p className="text-[12.5px] text-ink-3 mb-4">{t('vaultTreeLoading')}</p>}
+      {loadState === 'loading' && <p data-marquee-ignore="" className="text-[12.5px] text-ink-3 mb-4">{t('vaultTreeLoading')}</p>}
       {loadState === 'error' && (
         <Card className="p-5">
           <ErrorState t={t} kind="server" onRetry={() => void load()} />
@@ -1038,13 +1055,14 @@ export function VaultTreeScreen({
         />
       )}
       {uploadState && (
-        <p data-testid="vault-tree-upload-progress" className="text-[12.5px] text-ink-2 mb-3">
+        <p data-testid="vault-tree-upload-progress" data-marquee-ignore="" className="text-[12.5px] text-ink-2 mb-3">
           {t('vaultTreeUploadRunning', { name: uploadState.name, p: uploadState.percent })}
         </p>
       )}
       {tree.selection.size > 0 && (
         <SelectionActionBar
           data-testid="vault-tree-selection-bar"
+          data-marquee-ignore=""
           label={tree.selection.size === 1 ? t('vaultTreeSelectedCountOne') : t('vaultTreeSelectedCount', { n: tree.selection.size })}
           clearLabel={t('vaultTreeClearSelection')}
           onClear={() => tree.clear()}
@@ -1089,25 +1107,9 @@ export function VaultTreeScreen({
           </Card>
         ) : (
           <div
-            ref={marqueeCanvasRef}
             data-testid="vault-tree-workspace"
-            data-vault-marquee-canvas=""
-            onPointerDown={marquee.onPointerDown}
-            className="relative min-h-[60vh] pb-24"
-            style={{ userSelect: marquee.tracking ? 'none' : undefined }}
+            className="min-h-[60vh] pb-24"
           >
-            {marquee.box && (
-              <div
-                data-testid="vault-marquee-rect"
-                aria-hidden="true"
-                className="pointer-events-none absolute z-10 rounded-[4px] border border-accent"
-                style={{
-                  left: `${marquee.box.left}px`, top: `${marquee.box.top}px`,
-                  width: `${marquee.box.width}px`, height: `${marquee.box.height}px`,
-                  background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
-                }}
-              />
-            )}
             <div
               data-testid="vault-tree-grid"
               data-layout={layout}

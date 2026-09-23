@@ -489,7 +489,7 @@ test('MEDIA-03/04/TOUCH-01 touch hold starts GIF motion, release stops it, and a
 })
 
 /* ── MARQUEE-SURFACE-1..6 ─────────────────────────────────────────────────── */
-test('MARQUEE-SURFACE-1..6 workspace activation, gutters/blank below, ignore controls, intersection, and cancellation', async () => {
+test('MARQUEE-SURFACE-1..6 expanded surface geometry, ignore contract, intersection, cancellation, and blank clear', async () => {
   const { useMarqueeSelection } = await env.load('/src/lib/useMarqueeSelection.js')
   const { VaultFolderTile } = await env.load('/src/components/vault/VaultFolderTile.jsx')
   const { VaultFileTile } = await env.load('/src/components/vault/VaultFileTile.jsx')
@@ -514,7 +514,7 @@ test('MARQUEE-SURFACE-1..6 workspace activation, gutters/blank below, ignore con
       'div',
       {
         ref: canvasRef,
-        'data-testid': 'vault-tree-workspace',
+        'data-testid': 'vault-marquee-surface',
         'data-vault-marquee-canvas': '',
         onPointerDown: marquee.onPointerDown,
         className: 'relative min-h-[60vh] pb-24',
@@ -530,9 +530,18 @@ test('MARQUEE-SURFACE-1..6 workspace activation, gutters/blank below, ignore con
           height: `${marquee.box.height}px`,
         },
       }),
+      React.createElement('div', { 'data-testid': 'blank-above', className: 'h-16' }),
       React.createElement(
         'div',
-        { 'data-testid': 'vault-tree-grid', className: 'space-y-6' },
+        { 'data-testid': 'mock-toolbar' },
+        React.createElement('input', { 'data-testid': 'mock-search' }),
+        React.createElement('button', { 'data-testid': 'mock-button' }, 'Upload'),
+        React.createElement('p', { 'data-testid': 'mock-help', 'data-marquee-ignore': '' }, 'Help text'),
+      ),
+      React.createElement('output', { 'data-testid': 'selection-size' }, String(selected.size)),
+      React.createElement(
+        'div',
+        { 'data-testid': 'vault-tree-workspace', className: 'space-y-6' },
         React.createElement(
           'section',
           null,
@@ -568,16 +577,18 @@ test('MARQUEE-SURFACE-1..6 workspace activation, gutters/blank below, ignore con
 
   try {
     await h.render(React.createElement(WorkspaceHarness, { initial: ['file-1'] }))
-    const workspace = q('[data-testid="vault-tree-workspace"]')
+    const surface = q('[data-testid="vault-marquee-surface"]')
     const folderTile = q('[data-testid="vault-folder-tile"]')
     const fileTile = q('[data-testid="vault-file-tile"]')
     const blankBelow = q('[data-testid="blank-below"]')
+    const blankAbove = q('[data-testid="blank-above"]')
     const heading = q('[data-testid="folders-heading"]')
 
-    workspace.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1000, bottom: 800, width: 1000, height: 800 })
-    folderTile.getBoundingClientRect = () => ({ left: 20, top: 40, right: 200, bottom: 90, width: 180, height: 50 })
-    fileTile.getBoundingClientRect = () => ({ left: 20, top: 120, right: 200, bottom: 200, width: 180, height: 80 })
-    blankBelow.getBoundingClientRect = () => ({ left: 0, top: 300, right: 1000, bottom: 700, width: 1000, height: 400 })
+    surface.getBoundingClientRect = () => ({ left: 100, top: 50, right: 1100, bottom: 850, width: 1000, height: 800 })
+    folderTile.getBoundingClientRect = () => ({ left: 120, top: 140, right: 300, bottom: 190, width: 180, height: 50 })
+    fileTile.getBoundingClientRect = () => ({ left: 120, top: 220, right: 300, bottom: 300, width: 180, height: 80 })
+    blankAbove.getBoundingClientRect = () => ({ left: 100, top: 50, right: 1100, bottom: 120, width: 1000, height: 70 })
+    blankBelow.getBoundingClientRect = () => ({ left: 100, top: 400, right: 1100, bottom: 800, width: 1000, height: 400 })
 
     const pointer = (target, type, props) => {
       const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...props })
@@ -586,46 +597,78 @@ test('MARQUEE-SURFACE-1..6 workspace activation, gutters/blank below, ignore con
       target.dispatchEvent(event)
     }
 
-    // MARQUEE-SURFACE-1: Pointerdown in blank below cards (in min-h-[60vh] pb-24) starts marquee
+    // MARQUEE-SURFACE-1: blank space above the old workspace can select a registered tile.
+    await act(async () => pointer(blankAbove, 'pointerdown', { clientX: 110, clientY: 60 }))
+    await act(async () => pointer(dom.window, 'pointermove', { clientX: 310, clientY: 200 }))
+    assert.equal(q('[data-testid="selection-size"]').textContent, '1')
+    // MARQUEE-SURFACE-2: coordinates are relative to the expanded surface.
+    assert.equal(q('[data-testid="vault-marquee-rect"]').style.left, '10px')
+    assert.equal(q('[data-testid="vault-marquee-rect"]').style.top, '10px')
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+
+    // Blank below cards starts marquee.
     await act(async () => pointer(blankBelow, 'pointerdown', { clientX: 300, clientY: 400 }))
-    assert.equal(workspace.style.userSelect, 'none', 'pointerdown in blank area below starts tracking')
+    assert.equal(surface.style.userSelect, 'none', 'pointerdown in blank area below starts tracking')
     await act(async () => pointer(dom.window, 'pointermove', { clientX: 350, clientY: 450 }))
     assert.ok(q('[data-testid="vault-marquee-rect"]'), 'marquee rect rendered')
     await act(async () => pointer(dom.window, 'pointerup', {}))
 
-    // MARQUEE-SURFACE-2: Pointerdown in gutter/blank whitespace to side of cards starts marquee
-    await act(async () => pointer(workspace, 'pointerdown', { clientX: 500, clientY: 60 }))
-    assert.equal(workspace.style.userSelect, 'none', 'pointerdown in side gutter starts tracking')
+    // Side gutter starts tracking.
+    await act(async () => pointer(surface, 'pointerdown', { clientX: 500, clientY: 160 }))
+    assert.equal(surface.style.userSelect, 'none', 'pointerdown in side gutter starts tracking')
     await act(async () => pointer(dom.window, 'pointerup', {}))
 
-    // MARQUEE-SURFACE-3: Controls (heading with data-marquee-ignore, buttons, checkboxes) are ignored
+    // MARQUEE-SURFACE-3: controls and marked text are ignored.
     await act(async () => pointer(heading, 'pointerdown', { clientX: 25, clientY: 25 }))
-    assert.equal(workspace.style.userSelect, '', 'heading does not start marquee')
+    assert.equal(surface.style.userSelect, '', 'heading does not start marquee')
+    for (const target of [q('[data-testid="mock-search"]'), q('[data-testid="mock-button"]'), q('[data-testid="mock-help"]')]) {
+      await act(async () => pointer(target, 'pointerdown', { clientX: 130, clientY: 125 }))
+      assert.equal(surface.style.userSelect, '', `${target.dataset.testid} does not start marquee`)
+    }
 
     const btn = folderTile.querySelector('button')
     if (btn) {
       await act(async () => pointer(btn, 'pointerdown', { clientX: 30, clientY: 50 }))
-      assert.equal(workspace.style.userSelect, '', 'button does not start marquee')
+      assert.equal(surface.style.userSelect, '', 'button does not start marquee')
     }
 
     // MARQUEE-SURFACE-4: Pointerdown on card tile itself does not start marquee
     await act(async () => pointer(folderTile, 'pointerdown', { clientX: 50, clientY: 60 }))
-    assert.equal(workspace.style.userSelect, '', 'card tile pointerdown does not start marquee')
+    assert.equal(surface.style.userSelect, '', 'card tile pointerdown does not start marquee')
 
     // MARQUEE-SURFACE-5: Intersection selects card; additive with Ctrl keeps initial
-    await act(async () => pointer(workspace, 'pointerdown', { clientX: 5, clientY: 30, ctrlKey: true }))
-    await act(async () => pointer(dom.window, 'pointermove', { clientX: 210, clientY: 100 }))
+    await act(async () => pointer(surface, 'pointerdown', { clientX: 105, clientY: 130, ctrlKey: true }))
+    await act(async () => pointer(dom.window, 'pointermove', { clientX: 310, clientY: 200 }))
     const rect = q('[data-testid="vault-marquee-rect"]')
     assert.ok(rect, 'marquee rect active during drag')
 
     // MARQUEE-SURFACE-6: Escape cancels active marquee and restores selection; touch is ignored
     await act(async () => dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
     assert.equal(q('[data-testid="vault-marquee-rect"]'), null, 'Escape clears marquee rect')
-    assert.equal(workspace.style.userSelect, '', 'Escape ends tracking')
+    assert.equal(surface.style.userSelect, '', 'Escape ends tracking')
+
+    // BLANK-CLICK-1/2: primary blank click, including sub-threshold motion, clears.
+    await act(async () => pointer(surface, 'pointerdown', { clientX: 110, clientY: 210 }))
+    await act(async () => pointer(dom.window, 'pointermove', { clientX: 310, clientY: 310 }))
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+    assert.equal(q('[data-testid="selection-size"]').textContent, '1')
+    await act(async () => pointer(surface, 'pointerdown', { clientX: 900, clientY: 700 }))
+    await act(async () => pointer(dom.window, 'pointermove', { clientX: 902, clientY: 703 }))
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+    assert.equal(q('[data-testid="selection-size"]').textContent, '0')
+
+    // BLANK-CLICK-3/4: real drag keeps hits; modifier blank click preserves them.
+    await act(async () => pointer(surface, 'pointerdown', { clientX: 110, clientY: 210 }))
+    await act(async () => pointer(dom.window, 'pointermove', { clientX: 310, clientY: 310 }))
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+    assert.equal(q('[data-testid="selection-size"]').textContent, '1')
+    await act(async () => pointer(surface, 'pointerdown', { clientX: 900, clientY: 700, metaKey: true }))
+    await act(async () => pointer(dom.window, 'pointerup', {}))
+    assert.equal(q('[data-testid="selection-size"]').textContent, '1')
 
     // Touch pointerdown does not start marquee
-    await act(async () => pointer(workspace, 'pointerdown', { clientX: 10, clientY: 10, pointerType: 'touch' }))
-    assert.equal(workspace.style.userSelect, '', 'touch pointerdown does not start marquee')
+    await act(async () => pointer(surface, 'pointerdown', { clientX: 110, clientY: 60, pointerType: 'touch' }))
+    assert.equal(surface.style.userSelect, '', 'touch pointerdown does not start marquee')
   } finally {
     await h.unmount()
   }

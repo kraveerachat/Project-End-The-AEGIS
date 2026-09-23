@@ -32,6 +32,9 @@ export function useMarqueeSelection({ enabled, canvasRef, tileEls, selectedIds, 
       const current = drag.current
       drag.current = null
       if (cancelled && current?.active) latest.current.onSelectionChange?.(new Set(current.snapshot))
+      if (!cancelled && current && !current.active && !current.additive && current.snapshot.size > 0) {
+        latest.current.onSelectionChange?.(new Set())
+      }
       setBox(null)
       setTracking(false)
     }

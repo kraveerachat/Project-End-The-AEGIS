@@ -83,14 +83,14 @@ export function VaultRecoveryPanel({
 
   if (!bothBad && !tree.keyDegraded && (!orphans || orphans.length === 0)) {
     return (
-      <p data-testid="vault-tree-security-note" className="text-[12px] text-ink-3 leading-relaxed mb-5">
+      <p data-testid="vault-tree-security-note" data-marquee-ignore="" className="text-[12px] text-ink-3 leading-relaxed mb-5">
         {t('vaultTreeSecurityNote')}
       </p>
     )
   }
 
   return (
-    <div data-testid="vault-tree-recovery" className="rounded-[var(--r-tile)] border border-line bg-card p-4 mb-5">
+    <div data-testid="vault-tree-recovery" data-marquee-ignore="" className="rounded-[var(--r-tile)] border border-line bg-card p-4 mb-5">
       {bothBad && (
         <p data-testid="vault-tree-key-fail-closed" className="text-[12.5px] font-medium mb-2" style={{ color: 'var(--danger)' }}>
           {t('vaultTreeKeyBothSlotsCorrupt')}
