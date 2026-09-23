@@ -18,7 +18,7 @@ edit_policy: owner-writable
 ## Current Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `feat/idea1-private-vault-production-rollout`; Draft PR: pending creation from the initial documentation checkpoint.
+- Branch: `feat/idea1-private-vault-production-rollout`; Draft PR: #187.
 - State: **IN PROGRESS**.
 - Deployment start SHA: `0051cceb4927220446fbb12a7e730b43af777b71` (merged PR #171 on exact `origin/main`).
 - Goal: deploy the merged PR #157 Private Vault TREE_V1 security foundation and PR #171 Files-like Vault UX to the real Production Drive service using staged activation, reversible fail-closed feature flags, additive migration 011, and destructive purge disabled.
@@ -32,7 +32,7 @@ edit_policy: owner-writable
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PVPR-S1 | Governance, exact merged-source verification, isolated rollout worktree, Production safety freeze, initial task registration | IN PROGRESS / PREFLIGHT GATE | PR #171 is merged as `0051cceb4927220446fbb12a7e730b43af777b71`; source head `1b1c10b07e815c3527d04c8461e7d6dc339d92a1`; application source `32936b93f1535ac280f92e9947be2ce36654bffc`; new isolated branch starts exactly at merged main; Production untouched | Initial documentation checkpoint | Rollout registered; Draft PR creation and live read-only discovery pending | Live compose/container/database/migration-011 truth, backup, candidate, staged cutover, Human acceptance, one final receipt | Publish Draft PR, then provide one read-only Production preflight block and wait for Human Owner output |
+| PVPR-S1 | Governance, exact merged-source verification, isolated rollout worktree, Production safety freeze, initial task registration | IN PROGRESS / PREFLIGHT GATE | PR #171 is merged as `0051cceb4927220446fbb12a7e730b43af777b71`; source head `1b1c10b07e815c3527d04c8461e7d6dc339d92a1`; application source `32936b93f1535ac280f92e9947be2ce36654bffc`; new isolated branch starts exactly at merged main; Draft PR #187; Production untouched | `f63d15ff` initial checkpoint; PR #187 Draft | Rollout registered; live read-only discovery pending | Live compose/container/database/migration-011 truth, backup, candidate, staged cutover, Human acceptance, one final receipt | Provide one read-only Production preflight block and wait for Human Owner output |
 
 ## Completed Task — VAULT-FILES-UX-NAVIGATION-1
 
