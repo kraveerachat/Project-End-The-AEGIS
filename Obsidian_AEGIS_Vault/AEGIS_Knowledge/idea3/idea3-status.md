@@ -18,7 +18,38 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L1 live rerun2 — ACCEPTED — 2026-09-24
+
+> [!important] L1 live acceptance PROVEN in a fresh preservation window (owner-run; results as reported by the owner)
+> `L1_LIVE_RERUN2 = PASS`, `L1_VERIFY = PASS`, `L1_POST_CAPTURE = COMPLETE`,
+> `L1_PRE_POST_COMPARE = PASS`, `L1_S10_PRESERVATION = PASS`, `L1_LIVE_ACCEPTANCE = PROVEN`
+> `CHRONY_INSTALLED = YES` (`chrony 4.8-3`), `CHRONYD_ACTIVE = NO`, `CHRONYD_ENABLED = NO`
+> (`LoadState=loaded`, `ActiveState=inactive`, `SubState=dead`, `UnitFileState=disabled`, `MainPID=0`, `NRestarts=0`)
+> `L2_LIVE_EXECUTED = NO`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`
+>
+> History (kept, not rewritten): (1) the first L1 live attempt executed; (2) its PRE→POST/S10 formal proof was blocked by
+> the old evidence harness and the reviewed L1 rollback restored chrony to ABSENT (section below); (3) PR #192 fixed the
+> harness and a human merged it at `e614e7f17bd50531297c12d9cbbd5e862ac12dc4`; (4) rerun2 used the merged harness in a new
+> window and namespace; (5) rerun2 passed. The first attempt's evidence (`2026-09-24-l1/{pre,post,rb}-root`) is historical and untouched.
+>
+> Rerun2 window: `JOURNAL_SINCE = 2026-09-23 19:34:46 UTC`; evidence under `~/idea3-p4-evidence/2026-09-24-l1-rerun2/`
+> (`pre-root`, `post-root`, `compare-pre-post.txt`, `stage-work`); both bundles `SHA256SUMS = PASS`.
+> Apply (owner-run, reviewed handler, `AEGIS_L1_BACKEND=live`, `AEGIS_P4_FS_ROOT` unset): `L1_SIMULATE_INSTALL=COMPLETE`,
+> `L1_VERIFY=PASS`, `L1_SERVICES_STARTED=NONE`, `L1_SERVICES_ENABLED=NONE`, `LIVE_L1=EXECUTED`, `L1_APPLY=COMPLETE`.
+> Compare (L1 allow files, threshold 90): `NEW_OR_WORSENED_DRIFT=0`, `BASELINE_UNHEALTHY_BUT_UNCHANGED=0`,
+> `INCOMPARABLE=0`, `APPROVED_CHANGE=6`, `INFO=3`; `DRIFT_RESULT=PASS`, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`.
+> Preservation PRE=POST: Engine `MainPID=868`/`NRestarts=0`; Tunnel `MainPID=398125`/`NRestarts=16`; Twingate
+> `MainPID=2972`/`NRestarts=0`; all active; `:8077` and `:18002` present; `sdwan0` route to 192.168.10.10 present; root disk 88%.
+> Harness proof on the live host: `listen.udp.ephemeral_filter = kernel-range-32768-60999` (PRE and POST);
+> `time.chrony.leap` `not-installed` → `installed-inactive`.
+> The compare line `PRODUCTION_MUTATION_PERFORMED=NO` describes the comparison step only, not the L1 apply.
+> `runtime_healthy = NOT_PROVEN` remains the read-only L0 limitation. L2 and later stages are not executed and need their own windows.
+
+---
+
 ## IDEA3 PR11 Phase 4 L1 live attempt — ROLLED BACK — evidence-harness fix — 2026-09-24
+
+> [!note] Historical first attempt — superseded by the rerun2 section above; `L1_COMPLETE = NO` below describes the state before rerun2.
 
 > [!important] L1 live attempt rolled back; formal S10 proof blocked by the evidence harness
 > `L1_LIVE_ATTEMPT = ROLLED_BACK` (owner-reported: L1 apply and verify passed, PRE→POST compare FAILED,
