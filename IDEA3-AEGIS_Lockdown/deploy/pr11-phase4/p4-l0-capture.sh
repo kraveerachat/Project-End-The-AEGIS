@@ -375,7 +375,19 @@ if p4_have chronyc; then
     leap=$(printf '%s\n' "$P4_OUT" | awk -F' : ' '$1 ~ /^Leap status/ { print $2 }')
     p4_rec "$TIME" time.chrony.leap "${leap:-UNAVAILABLE}"
   else
-    p4_rec "$TIME" time.chrony.leap UNAVAILABLE
+    # chronyc cannot query a daemon that is not running. That is the expected
+    # passive-package state (L1: chrony installed, chronyd inactive), not a
+    # read failure, so it gets its own comparable sentinel. It requires
+    # positive proof: chronyd.service loaded AND ActiveState=inactive. Any
+    # other failed query (daemon active, unit state unreadable) stays
+    # UNAVAILABLE and fails closed in the comparison.
+    chrony_state=UNAVAILABLE
+    if run_ro 0 chronyd-state systemctl show -p LoadState -p ActiveState chronyd.service; then
+      cl=$(printf '%s\n' "$P4_OUT" | awk -F= '$1 == "LoadState" { print $2; exit }')
+      ca=$(printf '%s\n' "$P4_OUT" | awk -F= '$1 == "ActiveState" { print $2; exit }')
+      [ "$cl" = loaded ] && [ "$ca" = inactive ] && chrony_state=installed-inactive
+    fi
+    p4_rec "$TIME" time.chrony.leap "$chrony_state"
   fi
 else
   p4_rec "$TIME" time.chrony.leap not-installed
@@ -387,8 +399,29 @@ rec_tree "$TIME" time.file /etc/systemd/timesyncd.conf.d
 
 # ── listeners and MQTT ───────────────────────────────────────────────────────
 listeners=""
+# ss -l lists every unconnected UDP socket, including client sockets the kernel
+# autobound to an ephemeral port (resolvers, NTP/mDNS clients, ...). Those
+# rotate continuously and are not services, so UDP sockets inside the kernel's
+# own local port range are excluded from the per-port listener inventory (the
+# raw ss output is still kept under raw/). The range is read from the host and
+# recorded, so a changed range is itself drift. If the range cannot be read
+# and validated, nothing is filtered (fail-safe: churn, never a hidden service).
+# TCP is never filtered. Residual risk: a real UDP service bound inside the
+# ephemeral range is not distinguishable from a client socket by ss alone.
+eph_lo="" eph_hi=""
+if read -r eph_lo eph_hi < "$(p4_fs /proc/sys/net/ipv4/ip_local_port_range)" 2>/dev/null \
+  && [[ "$eph_lo" =~ ^[0-9]{1,5}$ ]] && [[ "$eph_hi" =~ ^[0-9]{1,5}$ ]] \
+  && [ "$eph_lo" -ge 1024 ] && [ "$eph_lo" -le "$eph_hi" ] && [ "$eph_hi" -le 65535 ]; then
+  udp_filter="kernel-range-$eph_lo-$eph_hi"
+else
+  eph_lo="" eph_hi="" udp_filter="none-range-unreadable"
+fi
 if run_ro 1 ss-listen ss -H -ltnu; then
-  listeners=$(printf '%s\n' "$P4_OUT" | awk 'NF >= 5 { print $1 "\t" $5 }' | LC_ALL=C sort -u)
+  listeners=$(printf '%s\n' "$P4_OUT" | awk -v lo="$eph_lo" -v hi="$eph_hi" 'NF >= 5 {
+      port = $5; sub(/.*:/, "", port)
+      if ($1 == "udp" && lo != "" && port ~ /^[0-9]+$/ && port + 0 >= lo + 0 && port + 0 <= hi + 0) next
+      print $1 "\t" $5 }' | LC_ALL=C sort -u)
+  p4_rec "$LISTEN" listen.udp.ephemeral_filter "$udp_filter"
   while IFS=$'\t' read -r netid local; do
     [ -n "$netid" ] && p4_rec "$LISTEN" "listen.$netid.$local" present
   done <<< "$listeners"

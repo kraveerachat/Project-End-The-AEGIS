@@ -18,6 +18,27 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L1 live attempt — ROLLED BACK — evidence-harness fix — 2026-09-24
+
+> [!important] L1 live attempt rolled back; formal S10 proof blocked by the evidence harness
+> `L1_LIVE_ATTEMPT = ROLLED_BACK` (owner-reported: L1 apply and verify passed, PRE→POST compare FAILED,
+> the reviewed L1 rollback completed with `L1_ROLLBACK_PACKAGE_STATE=ABSENT`, RB capture COMPLETE,
+> PRE→RB compare FAILED with only UDP listener churn: 56 findings, 0 incomparable)
+> `L1_COMPLETE = NO`, `FORMAL_S10_PROOF = BLOCKED_BY_EVIDENCE_HARNESS`
+> `PRODUCTION_HOST_STATE = ROLLED_BACK` (chrony absent again; no L2 executed)
+> `L2_EXECUTED = NO`, `PRODUCTION_MUTATION_BY_THIS_TASK = NO`
+> Root causes (repository-only fix on `fix/idea3-pr11-phase4-evidence-harness`, Draft PR):
+> (A) `p4-l0-capture.sh` recorded transient UDP client sockets on kernel-assigned ephemeral ports as listeners;
+> UDP sockets inside the host's `ip_local_port_range` are now excluded from the per-port inventory (range recorded as
+> `listen.udp.ephemeral_filter`; unreadable range = no filtering; TCP unfiltered).
+> (B) passive L1 chrony was recorded as `UNAVAILABLE`; it is now `installed-inactive` only with proof
+> (`chronyd.service` loaded and inactive), any other failed query stays `UNAVAILABLE` and fails closed.
+> The original live evidence (`pre-root`, `post-root`, `rb-root`) is preserved unchanged and is not comparable
+> under the fixed semantics. Production resumes only after human merge and a fresh L1 PRE window.
+> Residual risk: a real UDP service bound inside the ephemeral range is not distinguishable by `ss` alone.
+
+---
+
 ## IDEA3 PR11 Phase 4 IDEA2 §10 window-delta criterion — ACCEPTED — 2026-09-24
 
 > [!important] Post-merge reconciliation (2026-09-24) — owner acceptance APPROVED
