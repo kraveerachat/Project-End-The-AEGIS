@@ -76,6 +76,15 @@ export function vaultTreeReducer(state, action) {
       if (action.additive && selection.has(action.nodeId)) selection.delete(action.nodeId); else selection.add(action.nodeId)
       return { ...state, selection }
     }
+    case 'setSelection': {
+      if (!state.head) return state
+      const selection = new Set()
+      for (const id of action.nodeIds ?? []) {
+        const allowed = has(state.head, id) && (state.view === 'trash' ? effectiveState(state.head.index, id) !== 'active' : active(state.head, id))
+        if (allowed) selection.add(id)
+      }
+      return { ...state, selection }
+    }
     case 'clear': return state.selection.size ? { ...state, selection: new Set() } : state
     case 'pending': return { ...state, pending: action.intent, announcement: null }
     case 'committed': return { ...reconcile(state, action.head), pending: null, conflict: null }
@@ -108,7 +117,7 @@ export function vaultTreeReducer(state, action) {
     }
     case 'dragEnd': return state.drag ? { ...state, drag: null } : state
     case 'drop': {
-      const plan = planDrop(state, action.destinationNodeId)
+      const plan = planDrop(state, action.destinationNodeId, { intentOverride: action.intentOverride })
       if (!plan.ok) return plan.reason === 'NO_OP' ? { ...state, drag: null } : reject(state, plan.reason, action.destinationNodeId)
       return { ...state, drag: null, pending: plan.intent, announcement: null }
     }
@@ -131,16 +140,17 @@ export function planRun(state, intent, { limits = VAULT_TREE_CLIENT_LIMITS } = {
 }
 
 /** drop ปัจจุบันลงโฟลเดอร์ปลายทาง → move intent หรือเหตุผลที่ปฏิเสธ (ไม่แตะ state) */
-export function planDrop(state, destinationNodeId, { limits = VAULT_TREE_CLIENT_LIMITS } = {}) {
-  if (!state.head || !state.drag) return { ok: false, reason: 'NO_DRAG' }
+export function planDrop(state, destinationNodeId, { limits = VAULT_TREE_CLIENT_LIMITS, intentOverride = null } = {}) {
+  if (!state.head || (!state.drag && !intentOverride)) return { ok: false, reason: 'NO_DRAG' }
   const index = state.head.index
   const dest = index.nodes.get(destinationNodeId)
   if (!dest) return { ok: false, reason: 'NOT_FOUND' }
   if (dest.kind !== 'folder') return { ok: false, reason: 'NOT_FOLDER' }
   if (effectiveState(index, destinationNodeId) !== 'active') return { ok: false, reason: 'EFFECTIVELY_TRASHED' }
-  for (const id of state.drag.nodeIds) if (id === destinationNodeId || isDescendant(index, destinationNodeId, id)) return { ok: false, reason: 'CYCLE' }
-  if (state.drag.nodeIds.every((id) => index.nodes.get(id)?.parentNodeId === destinationNodeId)) return { ok: false, reason: 'NO_OP' }
-  const intent = intents.move({ nodeIds: state.drag.nodeIds, destinationNodeId })
+  const payloadIds = intentOverride ? intentOverride.nodeIds : state.drag.nodeIds
+  for (const id of payloadIds) if (id === destinationNodeId || isDescendant(index, destinationNodeId, id)) return { ok: false, reason: 'CYCLE' }
+  if (payloadIds.every((id) => index.nodes.get(id)?.parentNodeId === destinationNodeId)) return { ok: false, reason: 'NO_OP' }
+  const intent = intentOverride || intents.move({ nodeIds: payloadIds, destinationNodeId })
   const plan = planRun({ ...state, keyStatus: 'HEALTHY' }, intent, { limits })
   if (!plan.ok) return { ok: false, reason: plan.error.code }
   if (state.keyStatus === 'DEGRADED') return { ok: false, reason: 'KEY_DEGRADED' }
@@ -179,6 +189,8 @@ export function viewSelectors(state) {
 export function useVaultTree({ session, unlockedState = null, limits = VAULT_TREE_CLIENT_LIMITS }) {
   const [state, dispatch] = useReducer(vaultTreeReducer, undefined, initialTreeViewState)
   const alive = useRef(true)
+  const stateRef = useRef(state); stateRef.current = state
+  const dragPayloadRef = useRef(null)
   const sessionRef = useRef(session); sessionRef.current = session
   const safeDispatch = useCallback((a) => { if (alive.current && !(unlockedState?.isPurged?.())) dispatch(a) }, [unlockedState])
 
@@ -217,13 +229,35 @@ export function useVaultTree({ session, unlockedState = null, limits = VAULT_TRE
     state, ...selectors,
     view: state.view, current: state.current, selection: state.selection, conflict: state.conflict, pending: state.pending, drag: state.drag, announcement: state.announcement,
     select: (nodeId, { additive = false } = {}) => safeDispatch({ type: 'select', nodeId, additive }),
+    setSelection: (nodeIds) => safeDispatch({ type: 'setSelection', nodeIds: [...(nodeIds ?? [])] }),
     clear: () => safeDispatch({ type: 'clear' }),
     open: (nodeId) => safeDispatch({ type: 'open', nodeId }),
     up: () => safeDispatch({ type: 'up' }),
     setView: (view) => safeDispatch({ type: 'view', view }),
-    dragStart: (nodeId) => safeDispatch({ type: 'dragStart', nodeId }),
-    dragEnd: () => safeDispatch({ type: 'dragEnd' }),
-    drop: (destinationNodeId) => safeDispatch({ type: 'drop', destinationNodeId }),
+    dragStart: (nodeId) => {
+      const s = stateRef.current
+      if (s.head && has(s.head, nodeId)) {
+        const set = s.selection.has(nodeId) ? [...s.selection] : [nodeId]
+        try { dragPayloadRef.current = normalizeSelectionRoots(s.head.index, set) } catch { dragPayloadRef.current = null }
+      }
+      safeDispatch({ type: 'dragStart', nodeId })
+    },
+    dragEnd: () => {
+      dragPayloadRef.current = null
+      safeDispatch({ type: 'dragEnd' })
+    },
+    planDropFromSnapshot: (destinationNodeId) => {
+      const s = stateRef.current
+      if (!s.head || !dragPayloadRef.current) return { ok: false, reason: 'NO_DRAG' }
+      const intent = intents.move({ nodeIds: dragPayloadRef.current, destinationNodeId })
+      try {
+        applyIntent(s.head.manifest, intent, { limits })
+        return { ok: true, intent }
+      } catch (e) {
+        return { ok: false, reason: e.code ?? 'INVALID' }
+      }
+    },
+    drop: (destinationNodeId, intentOverride = null) => safeDispatch({ type: 'drop', destinationNodeId, intentOverride }),
     resolveConflict: (choice, extra = {}) => safeDispatch({ type: 'resolveConflict', choice, ...extra }),
     refreshHead: (head) => safeDispatch({ type: 'head', head }),
     setKeyStatus: (keyStatus, badSlot = null) => safeDispatch({ type: 'keyStatus', keyStatus, badSlot }),

@@ -587,6 +587,53 @@ test('R9-SORT-12 · every sort label exists in en/th/zh and the grid exposes all
   assert.match(STRINGS.en[view.SORT_LABEL_KEYS['uploaded-desc']], /Upload/i)
   assert.match(STRINGS.en[view.SORT_LABEL_KEYS['size-asc']], /Small/i)
 })
+
+test('HIST-02/03/05 Files folders push browser history and popstate restores the previous folder', async () => {
+  const m = await mountRoot()
+  try {
+    const folder = folderItem({ id: 'folder-a', name: 'Client Plans' })
+    const rootFile = fileItem({ id: 'root-file', name: 'root.pdf' })
+    const child = fileItem({ id: 'child-file', name: 'child.pdf' })
+    const json = (body) => ({ ok: true, status: 200, json: async () => body, headers: new Map() })
+    m.W.history.replaceState({ screen: 'files' }, '', '/drive/files')
+    m.W.fetch = async (url) => String(url).includes('parentId=folder-a')
+      ? json({ files: [child], ancestors: [{ id: 'folder-a', name: 'Client Plans' }] })
+      : json({ files: [folder, rootFile], ancestors: [] })
+    globalThis.fetch = m.W.fetch
+
+    await m.render(React.createElement(files.Files, { t, lang: 'en', go: noop, userId: '2' }))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)) })
+    const rootState = m.W.history.state
+    await m.mouse(document.querySelector('[data-file-id="folder-a"]'), 'click')
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)) })
+    assert.ok(document.querySelector('[data-file-id="child-file"]'))
+    assert.ok(JSON.stringify(m.W.history.state).includes('folder-a'))
+    assert.equal(m.W.location.href.includes('Client'), false, 'folder names never enter the URL')
+
+    await act(async () => m.W.dispatchEvent(new m.W.PopStateEvent('popstate', { state: rootState })))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)) })
+    assert.ok(document.querySelector('[data-file-id="root-file"]'), 'back restores the previous folder dataset')
+  } finally { await m.unmount() }
+})
+
+test('HIST-06 a stale Files folder history entry falls back to root without crashing', async () => {
+  const m = await mountRoot()
+  try {
+    const { folderHistoryState } = await import('../src/lib/folderHistory.js')
+    const rootFile = fileItem({ id: 'safe-root', name: 'safe.pdf' })
+    const response = (status, body) => ({ ok: status < 400, status, json: async () => body, headers: new Map() })
+    m.W.history.replaceState(folderHistoryState('files', 'deleted-folder', { screen: 'files' }), '', '/drive/files')
+    m.W.fetch = async (url) => String(url).includes('parentId=deleted-folder')
+      ? response(404, { error: 'not found' })
+      : response(200, { files: [rootFile], ancestors: [] })
+    globalThis.fetch = m.W.fetch
+
+    await m.render(React.createElement(files.Files, { t, lang: 'en', go: noop, userId: '2' }))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+    assert.ok(document.querySelector('[data-file-id="safe-root"]'), 'root content replaces the stale folder')
+    assert.equal(JSON.stringify(m.W.history.state).includes('deleted-folder'), false, 'the invalid entry is replaced')
+  } finally { await m.unmount() }
+})
 /* ══ Round 9 · review correction 1 ═════════════════════════════════════════ */
 
 /**

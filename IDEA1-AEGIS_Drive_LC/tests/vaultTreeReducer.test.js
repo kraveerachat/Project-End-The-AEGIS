@@ -72,6 +72,7 @@ test('VR-3 select: additive toggles, non-additive replaces, range is not require
   s = r(s, { type: 'select', nodeId: F(1), additive: true }); assert.deepEqual([...s.selection], [D(1)], 'additive toggles off')
   s = r(s, { type: 'select', nodeId: D(4) }); assert.deepEqual([...s.selection], [D(4)], 'non-additive replaces')
   s = r(s, { type: 'select', nodeId: ID(404), additive: true }); assert.deepEqual([...s.selection], [D(4)])
+  s = r(s, { type: 'setSelection', nodeIds: [F(1), D(1), ID(404)] }); assert.deepEqual([...s.selection], [F(1), D(1)], 'bulk selection keeps only nodes in the loaded manifest')
   s = r(s, { type: 'clear' }); assert.equal(s.selection.size, 0)
 })
 
@@ -177,4 +178,93 @@ test('VR-7 drag: dragging a selected node drags the normalized selected set; dro
   // dropping into the folder the nodes already live in is a no-op, not a collision
   const same = planDrop(s, ID(0))
   assert.deepEqual({ ok: same.ok, reason: same.reason }, { ok: false, reason: 'NO_OP' })
+})
+
+test('DRAG-SET-2 / DRAG-SET-3 / MOVE-ATOMIC-1 / MOVE-NOCOPY-1: planDrop accepts intentOverride from snapshot and moves atomically', () => {
+  const s0 = load(base())
+  // Use F(1) and D(4) which are top level items, move them into D(1)
+  const intentOverride = intents.move({ nodeIds: [F(1), D(4)], destinationNodeId: D(1) })
+  const dropPlan = planDrop(s0, D(1), { intentOverride })
+  assert.ok(dropPlan.ok, dropPlan.reason)
+  assert.equal(dropPlan.intent.operationId, intentOverride.operationId) // ONE authoritative intent
+  assert.deepEqual(dropPlan.intent.nodeIds, [F(1), D(4)])
+  
+  const nextResult = applyIntent(s0.head.manifest, dropPlan.intent)
+  const nextNodes = nextResult.manifest.nodes
+  
+  assert.equal(nextNodes.get(F(1)).parentNodeId, D(1))
+  assert.equal(nextNodes.get(D(4)).parentNodeId, D(1))
+  
+  // ensure they don't exist twice
+  const f1Count = [...nextNodes.values()].filter(n => n.nodeId === F(1)).length
+  const d4Count = [...nextNodes.values()].filter(n => n.nodeId === D(4)).length
+  assert.equal(f1Count, 1)
+  assert.equal(d4Count, 1)
+})
+
+test('DRAG-CONTRACT: multi-item selection, single-item unselected, breadcrumb drop, same operationId, zero commit on invalid, and atomic stability', () => {
+  let s = load(base())
+  // A. Selected drag: 4 items selected: D(1), F(1), D(4), and F(3) (which is in D(1))
+  s = r(s, { type: 'select', nodeId: D(1) })
+  s = r(s, { type: 'select', nodeId: F(1), additive: true })
+  s = r(s, { type: 'select', nodeId: D(4), additive: true })
+  s = r(s, { type: 'select', nodeId: F(3), additive: true })
+  assert.equal(s.selection.size, 4, '4 items selected')
+
+  // Dragging selected node D(1) captures normalized selected set (F3 normalized away under D1)
+  s = r(s, { type: 'dragStart', nodeId: D(1) })
+  assert.deepEqual(s.drag.nodeIds, [D(1), F(1), D(4)], 'DRAG_SET_SELECTED: full normalized selection payload')
+
+  // B. Unselected drag: start dragging an unselected node D(2)
+  const unselectedState = r(r(s, { type: 'dragEnd' }), { type: 'dragStart', nodeId: D(2) })
+  assert.deepEqual(unselectedState.drag.nodeIds, [D(2)], 'DRAG_SET_UNSELECTED: only dragged item')
+
+  // C. Folder drop: selected payload moved into D(1)'s sibling or D(2)
+  // Let's create an intent for the snapshot payload
+  const snapshotIntent = intents.move({ nodeIds: s.drag.nodeIds, destinationNodeId: D(2) })
+  // Wait, D(1) is an ancestor of D(2), so moving D(1) into D(2) is a cycle!
+  // Move into D(4) instead: D(1) and F(1) into D(4)
+  const validSnapshotIntent = intents.move({ nodeIds: [D(1), F(1)], destinationNodeId: D(4) })
+  const folderPlan = planDrop(s, D(4), { intentOverride: validSnapshotIntent })
+  assert.equal(folderPlan.ok, true, 'FOLDER_DROP: valid plan')
+  assert.equal(folderPlan.intent.operationId, validSnapshotIntent.operationId, 'FOLDER_DROP: uses snapshot intent')
+  assert.deepEqual(folderPlan.intent.nodeIds, [D(1), F(1)])
+
+  // E. Operation identity: reducer pending must have exact same operationId
+  const droppedState = r(s, { type: 'drop', destinationNodeId: D(4), intentOverride: validSnapshotIntent })
+  assert.equal(droppedState.pending.operationId, validSnapshotIntent.operationId, 'SAME_OPERATION_ID: reducer pending matches session.commit intent')
+
+  // Head resolution clears pending and selection when operationId matches
+  const applied = applyIntent(s.head.manifest, validSnapshotIntent)
+  const resolvedState = r(droppedState, {
+    type: 'committed',
+    result: { manifest: applied.manifest, intent: validSnapshotIntent },
+    head: headOf(applied.manifest, 3),
+  })
+  assert.equal(resolvedState.pending, null, 'pending cleared')
+  const clearedState = r(resolvedState, { type: 'clear' })
+  assert.equal(clearedState.selection.size, 0, 'selection cleared')
+
+  // D. Breadcrumb/root drop: dropping back to root breadcrumb
+  const rootDropIntent = intents.move({ nodeIds: [D(1), F(1)], destinationNodeId: ID(0) })
+  const bcPlan = planDrop(resolvedState, ID(0), { intentOverride: rootDropIntent })
+  assert.equal(bcPlan.ok, true, 'BREADCRUMB_DROP: valid plan to root')
+  assert.equal(bcPlan.intent.operationId, rootDropIntent.operationId, 'BREADCRUMB_DROP: same complete nodeIds set')
+  assert.deepEqual(bcPlan.intent.nodeIds, [D(1), F(1)])
+
+  // F. Invalid target: self or descendant -> zero commit, zero CAS
+  const cyclePlan = planDrop(s, D(1))
+  assert.equal(cyclePlan.ok, false, 'INVALID_DROP_ZERO_COMMIT: rejected cycle')
+  const cycleDropState = r(s, { type: 'drop', destinationNodeId: D(1) })
+  assert.equal(cycleDropState.pending, null, 'INVALID_DROP_ZERO_COMMIT: pending is null, zero commit')
+
+  // G. Atomicity & No copy / duplicate:
+  const rootApplied = applyIntent(applied.manifest, rootDropIntent)
+  const rootNodes = rootApplied.manifest.nodes
+  assert.equal(rootNodes.get(D(1)).parentNodeId, ID(0), 'ATOMIC_MOVE: parent updated to destination')
+  assert.equal(rootNodes.get(F(1)).parentNodeId, ID(0), 'ATOMIC_MOVE: parent updated to destination')
+  assert.deepEqual(rootNodes.get(F(1)).blobRef, s.head.manifest.nodes.get(F(1)).blobRef, 'blobRef remains stable')
+  assert.equal(rootNodes.get(F(1)).nodeId, F(1), 'nodeId remains stable')
+  const occurrences = [...rootNodes.values()].filter(n => n.nodeId === F(1)).length
+  assert.equal(occurrences, 1, 'NO_COPY_DUPLICATE: exactly one node')
 })

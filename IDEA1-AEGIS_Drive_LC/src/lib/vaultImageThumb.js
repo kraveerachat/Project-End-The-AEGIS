@@ -98,7 +98,7 @@ export async function makeImageThumb({
       full = concatBytes(parts)
     }
     const bitmap = await decode(full)
-    const encoded = poster(full, bitmap.width, bitmap.height, limits.posterMaxEdge)
+    const encoded = await poster(full, bitmap.width, bitmap.height, limits.posterMaxEdge)
     try { bitmap.close?.() } catch { /* injected decoder may have nothing to close */ }
     const url = skipUrl ? null : createObjectUrl(encoded.bytes)
     if (url) registerObjectUrl?.(url)

@@ -10,7 +10,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { createMediaCache } from '../server/media/cache.js'
+import { createMediaCache, renameWithRetry } from '../server/media/cache.js'
 
 const SHA_A = 'a'.repeat(64)
 const SHA_B = 'b'.repeat(64)
@@ -104,6 +104,39 @@ test('CC-5 writeAtomic: tmp under <root>/tmp; final appears only after the produ
   }), /encoder exploded/)
   await assert.rejects(fs.access(failTarget), { code: 'ENOENT' })
   await assert.rejects(fs.access(failTmp), { code: 'ENOENT' }, 'no tmp file remains after failure')
+})
+
+test('CC-5b Windows cache publish tolerates a sustained transient EBUSY window', async () => {
+  let calls = 0
+  const waits = []
+  const result = await renameWithRetry('from', 'to', {
+    attempts: 40,
+    delayMs: 50,
+    rename: async () => {
+      calls += 1
+      if (calls <= 12) throw Object.assign(new Error('busy'), { code: 'EBUSY' })
+      return 'published'
+    },
+    sleep: async (ms) => { waits.push(ms) },
+  })
+  assert.equal(result, 'published')
+  assert.equal(calls, 13)
+  assert.equal(waits.length, 12)
+  assert.ok(waits.every((ms) => ms === 50), 'retry remains bounded and predictable')
+})
+
+test('CC-5c persistent Windows EBUSY falls back to an atomic same-volume hard link', async () => {
+  const calls = []
+  const result = await renameWithRetry('from', 'to', {
+    attempts: 2,
+    delayMs: 1,
+    rename: async () => { throw Object.assign(new Error('busy'), { code: 'EBUSY' }) },
+    sleep: async () => {},
+    link: async (from, to) => { calls.push(['link', from, to]) },
+    unlink: async (from) => { calls.push(['unlink', from]) },
+  })
+  assert.equal(result, undefined)
+  assert.deepEqual(calls, [['link', 'from', 'to'], ['unlink', 'from']])
 })
 
 test('CC-6 writeAtomic concurrent: last rename wins and a reader never observes a partial file', async () => {

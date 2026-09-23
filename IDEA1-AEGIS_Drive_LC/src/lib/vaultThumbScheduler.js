@@ -81,10 +81,19 @@ export function createThumbScheduler({
     pump()
   }
 
-  function failJob(key, { permanent = false } = {}) {
+  function failJob(key, { permanent = false, reason = null, waitForEligibility = false } = {}) {
     const e = entries.get(key)
     if (!e || e.state !== 'running') return
     e.attempts = (e.attempts ?? 0) + 1
+    e.reason = reason
+    if (waitForEligibility) {
+      e.state = 'failed'
+      e.ctrl = null
+      failures += 1
+      onChange?.()
+      pump()
+      return
+    }
     if (!permanent && e.attempts <= 1 && !e.ctrl?.signal?.aborted) {
       // หนึ่งครั้งพอ — ไม่มี retry storm (TSC-3)
       e.state = 'queued'
@@ -116,7 +125,12 @@ export function createThumbScheduler({
       (err) => {
         if (e.ctrl !== ctrl) return
         e.ctrl = null
-        failJob(key, { permanent: err?.name === 'AbortError' || /abort/i.test(String(err?.message ?? '')) })
+        const reason = String(err?.code ?? err?.message ?? 'THUMB_FAILED')
+        failJob(key, {
+          permanent: err?.name === 'AbortError' || /abort/i.test(reason),
+          reason,
+          waitForEligibility: reason === 'BLOB_NOT_READY',
+        })
       },
     )
   }
@@ -138,9 +152,24 @@ export function createThumbScheduler({
   }
 
   /** ขอพรีวิวสำหรับโหนดหนึ่ง (dedupe ตาม key) */
-  function observe(key, { folderId = null, estimateBytes = 0 } = {}) {
-    if (entries.has(key)) return
-    entries.set(key, { state: 'queued', folderId, estimateBytes, attempts: 0, url: null, ctrl: null })
+  function observe(key, { folderId = null, estimateBytes = 0, eligible = true } = {}) {
+    const existing = entries.get(key)
+    if (existing) {
+      const becameEligible = existing.eligible === false && eligible === true
+      existing.eligible = eligible
+      existing.folderId = folderId
+      existing.estimateBytes = estimateBytes
+      if (existing.state === 'failed' && existing.reason === 'BLOB_NOT_READY' && becameEligible) {
+        existing.state = 'queued'
+        existing.reason = null
+        existing.attempts = 0
+        failures = Math.max(0, failures - 1)
+        onChange?.()
+        pump()
+      }
+      return
+    }
+    entries.set(key, { state: 'queued', folderId, estimateBytes, eligible, attempts: 0, reason: null, url: null, ctrl: null })
     pump()
   }
 
@@ -148,9 +177,10 @@ export function createThumbScheduler({
   function cancel(key) {
     const e = entries.get(key)
     if (!e) return
-    if (e.state === 'running') { e.ctrl?.abort(); e.ctrl = null; e.state = 'failed' }
-    else if (e.state === 'queued') e.state = 'failed'
-    else if (e.state === 'ready') revokeKey(key)
+    if (e.state === 'running') { e.ctrl?.abort(); e.ctrl = null }
+    if (e.url) revokeKey(key)
+    entries.delete(key)
+    onChange?.()
   }
 
   /** เปลี่ยนโฟลเดอร์/นำทาง (TSC-4) — ปล่อยทุกรายการที่อยู่ในโฟลเดอร์ที่ถูกทิ้งไป */
@@ -180,7 +210,7 @@ export function createThumbScheduler({
   /** ภาพรวมต่อรายการสำหรับจอ: state/url/เหตุผล — onChange แจ้งทุกครั้งที่เปลี่ยน */
   function snapshot() {
     const out = new Map()
-    for (const [key, e] of entries) out.set(key, { state: e.state, url: e.url ?? null, failed: e.state === 'failed', folderId: e.folderId })
+    for (const [key, e] of entries) out.set(key, { state: e.state, url: e.url ?? null, failed: e.state === 'failed', reason: e.reason ?? null, folderId: e.folderId })
     return out
   }
 

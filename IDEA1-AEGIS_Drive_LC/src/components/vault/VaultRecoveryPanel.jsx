@@ -81,8 +81,16 @@ export function VaultRecoveryPanel({
     ? [{ nodeId: head.manifest.rootNodeId, name: t('vaultTreeRootName'), depth: 0 }, ...vaultTreeFolderOptions(head.index, head.manifest.rootNodeId, [])]
     : []
 
+  if (!bothBad && !tree.keyDegraded && (!orphans || orphans.length === 0)) {
+    return (
+      <p data-testid="vault-tree-security-note" data-marquee-ignore="" className="text-[12px] text-ink-3 leading-relaxed mb-5">
+        {t('vaultTreeSecurityNote')}
+      </p>
+    )
+  }
+
   return (
-    <div data-testid="vault-tree-recovery" className="rounded-[var(--r-tile)] border border-line bg-card p-4 mb-5">
+    <div data-testid="vault-tree-recovery" data-marquee-ignore="" className="rounded-[var(--r-tile)] border border-line bg-card p-4 mb-5">
       {bothBad && (
         <p data-testid="vault-tree-key-fail-closed" className="text-[12.5px] font-medium mb-2" style={{ color: 'var(--danger)' }}>
           {t('vaultTreeKeyBothSlotsCorrupt')}
@@ -106,6 +114,9 @@ export function VaultRecoveryPanel({
               <RefreshCw size={13} strokeWidth={1.6} />
             </IconBtn>
           </div>
+          {orphans?.length > 0 && (
+            <p className="text-[12px] text-ink-3 leading-relaxed mb-2">{t('vaultTreeOrphansDescription')}</p>
+          )}
           {orphans === null ? null : orphans.length === 0 ? (
             <p className="text-[12px] text-ink-3">{t('vaultTreeOrphansEmpty')}</p>
           ) : (

@@ -69,6 +69,56 @@ const MIN_PASSPHRASE = 12
 // อ้างอิงคงที่ — ป้องกัน useMemo ด้านล่างถูก invalidate ทุก render เพราะ `?? []` สร้าง array ใหม่
 const EMPTY_BLOBS = Object.freeze([])
 
+// Fixed, decorative composition: its shape count and geometry never depend on
+// ciphertext inventory. The locked screen therefore communicates protection
+// without enumerating server-visible objects, ids, sizes, or plaintext metadata.
+const LOCKED_VAULT_AMBIENT_BLOCKS = Object.freeze([
+  'left-[4%] top-[12%] h-20 w-[28%] rounded-[14px] rotate-[-2deg]',
+  'right-[5%] top-[8%] h-14 w-[20%] rounded-full',
+  'left-[10%] bottom-[9%] h-16 w-[18%] rounded-[12px] rotate-[3deg]',
+  'right-[4%] bottom-[10%] h-24 w-[29%] rounded-[14px] rotate-[-2deg]',
+  'left-[2%] top-[48%] h-8 w-[19%] rounded-full',
+  'right-[18%] top-[36%] size-16 rounded-full',
+  'left-[34%] bottom-[4%] h-8 w-[24%] rounded-full',
+])
+
+function LockedVaultPreview({ t, onUnlock }) {
+  return (
+    <section
+      data-testid="locked-vault-preview"
+      aria-labelledby="locked-vault-preview-title"
+      className="relative isolate min-h-[340px] overflow-hidden rounded-[var(--r-card)] bg-sunken px-5 py-8 sm:px-8"
+    >
+      <div aria-hidden="true" className="absolute inset-0 overflow-hidden opacity-70">
+        {LOCKED_VAULT_AMBIENT_BLOCKS.map((shape, index) => (
+          <span
+            key={index}
+            aria-hidden="true"
+            data-testid="locked-vault-ambient"
+            className={`absolute bg-card blur-[2px] shadow-[0_3px_8px_rgb(15_23_42_/_0.05)] ${shape}`}
+          />
+        ))}
+      </div>
+
+      <div className="relative z-10 mx-auto flex min-h-[276px] max-w-[520px] flex-col items-center justify-center text-center">
+        <span aria-hidden="true" className="flex size-14 items-center justify-center rounded-[16px] bg-card text-accent shadow-[0_3px_8px_rgb(15_23_42_/_0.08)]">
+          <Lock size={24} strokeWidth={1.6} />
+        </span>
+        <h2 id="locked-vault-preview-title" className="mt-5 text-[18px] font-semibold tracking-[-0.01em] text-ink">
+          {t('vaultLocked')}
+        </h2>
+        <p className="mt-2 max-w-[56ch] text-[13.5px] leading-relaxed text-ink-2">
+          {t('vaultKeyNote')}
+        </p>
+        <Btn variant="primary" className="mt-5" onClick={onUnlock}>
+          <LockOpen size={14} strokeWidth={1.6} />
+          {t('unlockVault')}
+        </Btn>
+      </div>
+    </section>
+  )
+}
+
 const EXT_ICONS = { docx: FileText, pdf: FileText, pptx: FileImage, png: FileImage, jpg: FileImage, jpeg: FileImage }
 const iconFor = (name = '') => EXT_ICONS[name.split('.').pop()?.toLowerCase()] ?? FileIcon
 
@@ -367,7 +417,10 @@ function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss }) {
   )
 }
 
-export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFactory = createUnlockedVaultState }) {
+export function Vault({
+  t, lang = 'en', placeholderMode = false, unlockedStateFactory = createUnlockedVaultState,
+  marqueeSurfaceRef = null, registerMarqueePointerDown = null,
+}) {
   const reduced = useReducedMotion()
   const vaultApi = useApi('/api/vault')
   // ⚠️ อ่านอย่างเดียว: จอนี้ไม่เคยเขียนค่า auto-lock กลับไป การตั้งค่าอยู่ที่จอ Settings
@@ -1185,8 +1238,10 @@ export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFa
   /* Task 6.3: the tree screen replaces the legacy body when treeUiEnabled */
   if (treeUiActive) {
     return (
-      <div>
-        {vaultCallout}
+      <div className="flex flex-1 flex-col">
+        <div className="vault-pane-content">
+          {vaultCallout}
+        </div>
         <VaultTreeScreen
           t={t}
           lang={lang}
@@ -1194,6 +1249,8 @@ export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFa
           treeState={treeState}
           unlockedState={unlockedState.current}
           onLock={() => lock(false)}
+          marqueeSurfaceRef={marqueeSurfaceRef}
+          registerMarqueePointerDown={registerMarqueePointerDown}
         />
       </div>
     )
@@ -1234,12 +1291,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFa
               {t('lockVault')}
             </Btn>
           </>
-        ) : configured ? (
-          <Btn variant="primary" onClick={() => openModal('unlock')}>
-            <LockOpen size={14} strokeWidth={1.5} />
-            {t('unlockVault')}
-          </Btn>
-        ) : (
+        ) : configured ? null : (
           <Btn variant="primary" onClick={() => openModal('setup')}>
             <KeyRound size={14} strokeWidth={1.5} />
             {t('vaultSetupCta')}
@@ -1304,6 +1356,8 @@ export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFa
         <Card className="p-5"><SkeletonLoader type="files" /></Card>
       ) : fetchError ? (
         <Card><ErrorState t={t} kind={fetchError} onRetry={vaultApi.retry} /></Card>
+      ) : !unlocked && configured ? (
+        <LockedVaultPreview t={t} onUnlock={() => openModal('unlock')} />
       ) : list.length === 0 ? (
         <Card>
           <EmptyState

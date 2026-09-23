@@ -17,6 +17,22 @@ const driveBackendProxy = () => ({
   },
 })
 
+const driveBase = '/drive/'
+const previewWorkerDevPath = `${driveBase}src/vaultPreviewServiceWorker.js`
+const previewWorkerDevScope = () => ({
+  name: 'aegis-preview-worker-dev-scope',
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      if (String(req.url ?? '').split('?')[0] === previewWorkerDevPath) {
+        // The dev module lives under /src, but its encrypted-range route lives
+        // at the application base. Grant only this worker the matching scope.
+        res.setHeader('Service-Worker-Allowed', driveBase)
+      }
+      next()
+    })
+  },
+})
+
 // base '/drive/' — nginx STRIPS the /drive prefix before proxying to this app.
 // Every asset URL and apiFetch() call is built from import.meta.env.BASE_URL
 // (src/lib/api.js) so the same bundle works standalone at '/' (dev) and mounted
@@ -42,8 +58,8 @@ const driveBackendProxy = () => ({
 const previewWorkerEntry = fileURLToPath(new URL('./src/vaultPreviewServiceWorker.js', import.meta.url))
 
 export default defineConfig({
-  base: '/drive/',
-  plugins: [react(), tailwindcss()],
+  base: driveBase,
+  plugins: [previewWorkerDevScope(), react(), tailwindcss()],
   build: {
     rollupOptions: {
       input: {
