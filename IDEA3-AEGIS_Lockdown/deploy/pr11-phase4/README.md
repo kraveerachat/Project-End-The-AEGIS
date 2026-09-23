@@ -117,14 +117,22 @@ capture (inactive, `:18002` absent, or a journal failure class) yields
 `PRESERVATION_S10=FAIL` and `COMPARE_RESULT=FAIL`, and every live stage stays
 blocked.
 
-**Candidate narrowed criterion (window delta).** A historical absolute
+**Accepted narrowed criterion (window delta).** A historical absolute
 `idea2.tunnel.NRestarts > 0` that arose before the preservation window is recorded
 in evidence but is not by itself a current-health failure. Within the window,
 `NRestarts` and `MainPID` must be unchanged; any increase or PID change, a new
 failure class, or loss of `:8077`/`:18002` still fails. The compare summary prints
-`IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE`; final
-acceptance (`IDEA2_OWNER_ACCEPTANCE=PENDING_PR_REVIEW`) requires IDEA2 owner Pub's
-PR approval, and `S10_IDEA2_CAVEAT=OPEN` in the stage gate is unchanged until then.
+`IDEA2_NARROWED_CRITERION=WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER`.
+
+Post-merge status: `PR189=MERGED` (`PR189_MERGE_SHA=9f6a0f4167d814cd090c47916d12d7b10397cb0e`),
+`IDEA2_OWNER_ACCEPTANCE=APPROVED` (Pub, `pubpup2006p-design`),
+`IDEA2_S10_WINDOW_DELTA_CRITERION=ACCEPTED`. Acceptance covers the criterion only;
+fresh BEFORE/AFTER preservation evidence is still needed per stage
+(`S10_STAGE_PRESERVATION_EVIDENCE=REQUIRED_PER_STAGE`).
+Last fresh evidence (owner-run): `FRESH_DISK_USE=88%`,
+`LAST_FRESH_IDEA2_OBSERVATION_SECONDS=821`, `ENGINE_NRESTARTS=0->0`,
+`TUNNEL_NRESTARTS=15->15`. `L1_LIVE_EXECUTION=NOT_RUN`, `A_L1=NOT_ISSUED`,
+`FRESH_K3_L1=NOT_ISSUED`, `PRODUCTION_MUTATION=NO`.
 
 ## 3. Stage gate
 
@@ -144,7 +152,8 @@ use `example.invalid` placeholders only.
 Output always includes `LIVE_STAGE_AUTHORIZED=NO` and
 `PRODUCTION_MUTATION_PERFORMED=NO`. The gate cannot verify that the stage's
 repository gaps are merged (`REPOSITORY_GAP_MERGE_STATE=NOT_VERIFIED_BY_GATE`) or
-that the IDEA2 caveat is resolved (`S10_IDEA2_CAVEAT=OPEN`). In `live` mode, a
+that fresh stage-local IDEA2 preservation evidence exists
+(`S10_CRITERION_OWNER_ACCEPTANCE=APPROVED`, `S10_PRESERVATION_EVIDENCE=REQUIRED_PER_STAGE`). In `live` mode, a
 mutating stage fails with `ROLLBACK_HANDLER_NOT_REGISTERED` until a reviewed
 handler exists. L0 needs a same-day authorization but no K3
 (`STAGE_GATE=PASS_READ_ONLY`).
