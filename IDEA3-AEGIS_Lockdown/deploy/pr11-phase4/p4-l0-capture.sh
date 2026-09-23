@@ -548,7 +548,11 @@ if [ "$e_active" = UNAVAILABLE ] || [ "$t_active" = UNAVAILABLE ]; then process=
 elif [ "$e_active" = active ] && [ "$t_active" = active ]; then process=YES
 else process=NO; fi
 if [ "$t_active" = UNAVAILABLE ] || [ "$t_fail" = UNKNOWN ] || [ "$l18002" = UNAVAILABLE ]; then tunnel=UNKNOWN
-elif [ "$t_active" != active ] || [ "$t_restarts" != 0 ] || [ "$l18002" != present ] || [ "$t_fail" != 0 ]; then tunnel=NO
+elif ! [[ "$t_restarts" =~ ^[0-9]+$ ]]; then tunnel=UNKNOWN
+# NRestarts is a historical counter, recorded above and never normalized. It is not a
+# current-health failure by itself; a restart inside the preservation window is caught
+# by p4-compare.sh (NRestarts/MainPID must be unchanged). IDEA2_NARROWED_CRITERION.
+elif [ "$t_active" != active ] || [ "$l18002" != present ] || [ "$t_fail" != 0 ]; then tunnel=NO
 else tunnel=NO_FAILURE_OBSERVED; fi
 # The runtime verdict is never better than NOT_PROVEN: L0 does not probe a heartbeat.
 if [ "$tunnel" = NO ] || { [ "$e_active" != active ] && [ "$e_active" != UNAVAILABLE ]; } || [ "$l8077" = absent ] \

@@ -814,6 +814,70 @@ def test_idea2_tunnel_restart_on_healthy_baseline_is_new_drift(tmp_path: Path) -
     assert_fail(result, "IDEA2_TUNNEL_RESTART_DRIFT")
 
 
+def historical_restarts(f: dict[str, str], pid: int = 123, restarts: int = 15) -> dict[str, str]:
+    f[f"units/{TUNNEL}"] = unit(pid=pid, restarts=restarts)
+    return f
+
+
+def test_s10_case_a_historical_restart_count_healthy_baseline_passes(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before", fixtures=historical_restarts(healthy_fixtures()))
+    after = capture(tmp_path, "after", fixtures=historical_restarts(healthy_fixtures()))
+    assert before.records()["idea2.tunnel.NRestarts"] == "15"  # history stays visible, never normalized to 0
+    assert before.records()["idea2.verdict.tunnel_healthy"] == "NO_FAILURE_OBSERVED"
+    result = compare(before, after)
+    assert result.returncode == 0, result.stdout
+    assert "PRESERVATION_S10=PASS" in result.stdout
+    assert codes(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED") == set()
+    assert after.records()["idea2.tunnel.NRestarts"] == "15"
+    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE" in result.stdout
+
+
+def test_s10_case_b_restart_during_window_fails(tmp_path: Path) -> None:
+    result = drift(tmp_path, lambda f: historical_restarts(f, pid=123, restarts=16),
+                   base=lambda: historical_restarts(healthy_fixtures()))
+    assert_fail(result, "IDEA2_TUNNEL_RESTART_DRIFT")
+
+
+def test_s10_case_c_mainpid_change_same_counter_fails(tmp_path: Path) -> None:
+    result = drift(tmp_path, lambda f: historical_restarts(f, pid=124, restarts=15),
+                   base=lambda: historical_restarts(healthy_fixtures()))
+    assert_fail(result, "IDEA2_TUNNEL_RESTART_DRIFT")
+
+
+def test_s10_case_d_18002_disappears_with_historical_restarts_fails(tmp_path: Path) -> None:
+    without = "".join(line + "\n" for line in LISTENERS_HEALTHY.splitlines() if ":18002 " not in line)
+    result = drift(tmp_path, lambda f: historical_restarts(f).__setitem__(fx("ss", "-H", "-ltnu"), without),
+                   base=lambda: historical_restarts(healthy_fixtures()))
+    assert_fail(result, "IDEA2_18002_STATE_CHANGED")
+
+
+def test_s10_case_e_new_tunnel_failure_class_with_historical_restarts_fails(tmp_path: Path) -> None:
+    def mutate(f):
+        historical_restarts(f)
+        f[f"journal/{TUNNEL}"] = "Host key verification failed.\n"
+    result = drift(tmp_path, mutate, base=lambda: historical_restarts(healthy_fixtures()))
+    assert_fail(result, "IDEA2_TUNNEL_NEW_FAILURE_CLASS")
+
+
+@pytest.mark.parametrize("shape", ["18002_absent", "tunnel_inactive"])
+def test_s10_case_f_currently_unhealthy_baseline_fails(tmp_path: Path, shape: str) -> None:
+    def base():
+        f = historical_restarts(healthy_fixtures())
+        if shape == "18002_absent":
+            f[fx("ss", "-H", "-ltnu")] = "".join(
+                line + "\n" for line in LISTENERS_HEALTHY.splitlines() if ":18002 " not in line)
+        else:
+            f[f"units/{TUNNEL}"] = unit(active="inactive", sub="dead", pid=0, restarts=15)
+        return f
+    before = capture(tmp_path, "before", fixtures=base())
+    after = capture(tmp_path, "after", fixtures=base())
+    assert before.records()["idea2.verdict.tunnel_healthy"] == "NO"
+    result = compare(before, after)
+    assert result.returncode == 1
+    assert "IDEA2_TUNNEL_BASELINE_UNHEALTHY" in codes(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED")
+    assert "PRESERVATION_S10=FAIL" in result.stdout
+
+
 def test_unhealthy_baseline_unchanged_is_distinguished_but_still_blocks_s10(tmp_path: Path) -> None:
     def base():
         return live_like_unhealthy(healthy_fixtures())
@@ -827,7 +891,7 @@ def test_unhealthy_baseline_unchanged_is_distinguished_but_still_blocks_s10(tmp_
     assert {"IDEA2_TUNNEL_BASELINE_UNHEALTHY", "IDEA2_TUNNEL_RESTART_DRIFT", "IDEA2_TUNNEL_FAILURE_COUNT"} <= unchanged
     assert not any(code.startswith("IDEA2_TUNNEL") for code in codes(result, "NEW_OR_WORSENED_DRIFT"))
     assert "PRESERVATION_S10=FAIL" in result.stdout
-    assert "IDEA2_NARROWED_CRITERION=NOT_ACCEPTED" in result.stdout
+    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE" in result.stdout
     assert "COMPARE_RESULT=FAIL" in result.stdout
 
 
