@@ -48,15 +48,11 @@ PR11_COMPLETE=NO
 
 ## Verification evidence
 
-Fresh final-tree verification, run after fast-forwarding this branch to its
-current remote head (`df834d2f`) and merging current `origin/main`
-(`0051cceb`), from `IDEA3-AEGIS_Lockdown/` unless noted:
-
-- `PYTHONDONTWRITEBYTECODE=1 ~/.venvs/aegis-idea3-core/bin/python3 -m pytest -p no:cacheprovider -q tests/test_l2_containment_functional_verify.py` — **passed**: 8 passed in 3.68s.
-- `bash deploy/pr11-phase4/stages/L2/verify-containment-functional.sh` — **passed**: `L2_CONTAINMENT_FUNCTIONAL_VERIFY=PASS`; items `07,08,09,10,11,12,13,14,15,17` all `PASS`; `LIVE_HOST_ACCEPTANCE=NO`; `PRODUCTION_MUTATION_PERFORMED=NO`.
-- `PYTHONDONTWRITEBYTECODE=1 ~/.venvs/aegis-idea3-core/bin/python3 -m pytest -p no:cacheprovider -q tests/` — **passed**: 1890 passed, 6 skipped in 125.88s.
-- `git diff --check` (repository root, post-merge tree) — **passed**: no output, exit 0.
-- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` (repository root) — **passed**: "Vault validation passed with 2 warning(s)." (both warnings are pre-existing, on unrelated `.canvas` files, not touched by this task).
+- `PYTHONDONTWRITEBYTECODE=1 ~/.venvs/aegis-idea3-core/bin/python3 -m pytest -p no:cacheprovider -q tests/test_l2_containment_functional_verify.py` (`IDEA3-AEGIS_Lockdown/`, branch fast-forwarded to remote head `df834d2f` and merged with `origin/main` `0051cceb`) — pass: 8 passed in 3.68s.
+- `bash deploy/pr11-phase4/stages/L2/verify-containment-functional.sh` — pass: `L2_CONTAINMENT_FUNCTIONAL_VERIFY=PASS`; items `07,08,09,10,11,12,13,14,15,17` all `PASS`; `LIVE_HOST_ACCEPTANCE=NO`; `PRODUCTION_MUTATION_PERFORMED=NO`.
+- `PYTHONDONTWRITEBYTECODE=1 ~/.venvs/aegis-idea3-core/bin/python3 -m pytest -p no:cacheprovider -q tests/` — pass: 1890 passed, 6 skipped in 125.88s.
+- `git diff --check` (repository root, post-merge tree) — pass: no output, exit 0.
+- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` (repository root) — pass: "Vault validation passed with 2 warning(s)." (both pre-existing, on unrelated `.canvas` files, not touched by this task).
 
 Development evidence already preserved in PR #185 (distinct from the fresh
 final-tree verification above, recorded here for continuity):
