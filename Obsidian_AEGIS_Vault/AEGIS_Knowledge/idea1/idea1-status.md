@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-21
+updated: 2026-09-24
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -14,6 +14,53 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
+
+## Current Task — PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-vault-qhd-locked-layout`; PR: pending.
+- Base: `origin/main` at `3751bf16b2d195cb2578df7fd0085343020cc945`.
+- Current state: **IN PROGRESS**.
+- Started: 2026-09-24.
+- Last checkpoint: pending initial task registration.
+- Production mutation allowed: **NO**.
+
+### Goal
+
+Constrain the locked and legacy-FLAT Private Vault visual body to the established centered Vault content measure at QHD while preserving the full-main-pane TREE interaction/marquee surface introduced by PR #171 V10.
+
+### Scope
+
+- `IDEA1-AEGIS_Drive_LC/src/screens/Vault.jsx`
+- Focused semantic/layout regression tests under `IDEA1-AEGIS_Drive_LC/tests/`
+- This owner-maintained IDEA1 status note
+- Exactly one final `kla` receipt at source-fix closeout
+
+### Out of scope
+
+- Normal Files max-width and grid behavior
+- Production, PR #187 rollout overlays, migration 011, TREE protocol semantics, crypto, genesis, media-preview gating, and destructive purge
+- The full-pane TREE marquee interaction surface and accepted PR #171 V10 geometry
+
+### Safety boundaries
+
+- TDD is mandatory: observe RED before changing application source.
+- Use the existing `vault-pane-content` primitive; no viewport-specific fixed-width workaround.
+- Preserve the locked fixed seven-block, inventory-independent privacy presentation with no filename, blob-ID, thumbnail, metadata, or count leakage.
+- `PRODUCTION_TOUCHED=NO`.
+
+### Acceptance criteria
+
+- Locked Vault and unlocked legacy FLAT visual content are centered/constrained at 2560×1440 and 1920×1080.
+- TREE_V1 outer surface remains full-pane and marquee behavior remains unchanged.
+- Existing locked privacy, Vault UX/tree, Files regression, build, collaboration policy, validator, and diff checks pass.
+- `FILES_LAYOUT_CHANGED=NO`.
+
+### Session Register — PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| VQHD-S1 | Governance, current-main isolation, PR187 blocker context, source/test inspection, task registration | IN PROGRESS | Branch created from current `origin/main`; exact accepted Vault source unchanged from `0051cceb`; confirmed defect and fix boundary reproduced at QHD/FHD before task start | Pending | No application source changed | TDD RED, minimal source correction, focused/full verification, browser geometry, receipt, PR review handoff | Commit registration, then add failing semantic/layout regressions |
 
 ## Completed Task — VAULT-FILES-UX-NAVIGATION-1
 
