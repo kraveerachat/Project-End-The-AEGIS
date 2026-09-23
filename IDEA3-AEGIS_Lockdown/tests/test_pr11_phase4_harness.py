@@ -829,7 +829,7 @@ def test_s10_case_a_historical_restart_count_healthy_baseline_passes(tmp_path: P
     assert "PRESERVATION_S10=PASS" in result.stdout
     assert codes(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED") == set()
     assert after.records()["idea2.tunnel.NRestarts"] == "15"
-    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE" in result.stdout
+    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER" in result.stdout
 
 
 def test_s10_case_b_restart_during_window_fails(tmp_path: Path) -> None:
@@ -891,7 +891,7 @@ def test_unhealthy_baseline_unchanged_is_distinguished_but_still_blocks_s10(tmp_
     assert {"IDEA2_TUNNEL_BASELINE_UNHEALTHY", "IDEA2_TUNNEL_RESTART_DRIFT", "IDEA2_TUNNEL_FAILURE_COUNT"} <= unchanged
     assert not any(code.startswith("IDEA2_TUNNEL") for code in codes(result, "NEW_OR_WORSENED_DRIFT"))
     assert "PRESERVATION_S10=FAIL" in result.stdout
-    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE" in result.stdout
+    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER" in result.stdout
     assert "COMPARE_RESULT=FAIL" in result.stdout
 
 
@@ -1132,7 +1132,10 @@ def test_gate_simulation_with_valid_records_never_authorizes_live(tmp_path: Path
     assert "STAGE_MUTATES_PRODUCTION=YES" in out
     assert "REQUIRED_REPOSITORY_GAPS=G-06,G-15" in out
     assert "ROLLBACK_HANDLER=REGISTERED" in out
-    assert "S10_IDEA2_CAVEAT=OPEN" in out
+    assert "S10_CRITERION_OWNER_ACCEPTANCE=APPROVED" in out
+    assert "S10_PRESERVATION_EVIDENCE=REQUIRED_PER_STAGE" in out
+    assert "S10_IDEA2_CAVEAT=OPEN" not in out
+    assert "PENDING" not in out.split("S10_CRITERION_OWNER_ACCEPTANCE")[1].splitlines()[0]
     assert "LIVE_STAGE_AUTHORIZED=NO" in out
     assert "PRODUCTION_MUTATION_PERFORMED=NO" in out
 

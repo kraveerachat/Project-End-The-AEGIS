@@ -18,9 +18,22 @@ edit_policy: owner-writable
 
 ---
 
-## IDEA3 PR11 Phase 4 IDEA2 §10 window-delta criterion — candidate — 2026-09-23
+## IDEA3 PR11 Phase 4 IDEA2 §10 window-delta criterion — ACCEPTED — 2026-09-24
 
-> [!important] Candidate repository change — owner acceptance PENDING
+> [!important] Post-merge reconciliation (2026-09-24) — owner acceptance APPROVED
+> `PR189 = MERGED`, `PR189_MERGE_SHA = 9f6a0f4167d814cd090c47916d12d7b10397cb0e`
+> `IDEA2_OWNER_ACCEPTANCE = APPROVED` (Pub, `pubpup2006p-design`)
+> `IDEA2_S10_WINDOW_DELTA_CRITERION = ACCEPTED`
+> `IDEA2_NARROWED_CRITERION = WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER`
+> `S10_STAGE_PRESERVATION_EVIDENCE = REQUIRED_PER_STAGE` (the stage gate now prints
+> `S10_CRITERION_OWNER_ACCEPTANCE=APPROVED` and `S10_PRESERVATION_EVIDENCE=REQUIRED_PER_STAGE`;
+> it cannot itself prove fresh BEFORE/AFTER preservation, so `S10_IDEA2_CAVEAT=OPEN` is retired.)
+> `FRESH_DISK_USE = 88%`, `LAST_FRESH_IDEA2_OBSERVATION_SECONDS = 821`,
+> `ENGINE_NRESTARTS = 0->0`, `TUNNEL_NRESTARTS = 15->15`
+> `L1_LIVE_EXECUTION = NOT_RUN`, `A_L1 = NOT_ISSUED`, `FRESH_K3_L1 = NOT_ISSUED`,
+> `PRODUCTION_MUTATION = NO`. The text below is the historical PR #189 candidate record.
+
+> [!note] Historical — candidate state at PR #189 creation
 > Branch `fix/idea3-pr11-s10-window-delta-criterion` (Draft PR, base `baf0a94e`)
 > reconciles the IDEA2 §10 preservation contract with observed reality. A
 > historical absolute `idea2.tunnel.NRestarts > 0` is no longer, by itself, an
@@ -30,7 +43,7 @@ edit_policy: owner-writable
 > loss, and a currently unhealthy tunnel (inactive, `:18002` absent, journal
 > failure class) still fail. Focused RED→GREEN tests cover cases A–F; the PR11
 > suite passes (885). The compare summary prints
-> `IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE`.
+> `IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE` (now `WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER`).
 >
 > Fresh read-only evidence (owner-run, no lifecycle action):
 > `FRESH_DISK_USE = 88%`, `DISK_L1_GATE = PASS` (threshold 90%),
@@ -39,10 +52,10 @@ edit_policy: owner-writable
 > `LISTEN_8077 = YES`, `LISTEN_18002 = YES`, `MONITOR_HEALTHZ = PASS`.
 >
 > `CONTRACT_REALITY_MISMATCH = RESOLVED_IN_CANDIDATE_CODE`
-> `IDEA2_OWNER_ACCEPTANCE = PENDING_PR_REVIEW` (Pub, `pubpup2006p-design`)
-> `S10_IDEA2_CAVEAT = OPEN` (stage gate unchanged until acceptance)
+> `IDEA2_OWNER_ACCEPTANCE = PENDING_PR_REVIEW` at that time (now APPROVED, see above)
+> `S10_IDEA2_CAVEAT = OPEN` at that time (superseded by `S10_PRESERVATION_EVIDENCE = REQUIRED_PER_STAGE`)
 > `L1_LIVE_EXECUTION = NOT_RUN`, `PRODUCTION_MUTATION = NO`.
-> `IDEA2_S10_FINAL_ACCEPTED` is not claimed. No receipt yet (Draft).
+> Superseded: owner acceptance was later given on PR #189.
 
 ## IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17
 
