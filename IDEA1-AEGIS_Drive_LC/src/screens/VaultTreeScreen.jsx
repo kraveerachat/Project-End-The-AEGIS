@@ -211,6 +211,7 @@ export function VaultTreeRollback({ t, lang = 'en', kek, unlockedState = null, s
 export function VaultTreeScreen({
   t, lang = 'en', kek, treeState = null, unlockedState = null, onLock,
   sessionFactory = createTreeSession, defaultApi = treeApi, mediaPreviewEnabled = false,
+  marqueeSurfaceRef = null, registerMarqueePointerDown = null,
 }) {
   const session = useMemo(
     () => (kek ? sessionFactory({ kek, api: defaultApi, unlockedState }) : null),
@@ -764,7 +765,8 @@ export function VaultTreeScreen({
     () => deriveVaultWorkspace(tree.children, { query, typeFilter, sort }),
     [tree.children, query, typeFilter, sort],
   )
-  const marqueeCanvasRef = useRef(null)
+  const localMarqueeCanvasRef = useRef(null)
+  const marqueeCanvasRef = marqueeSurfaceRef ?? localMarqueeCanvasRef
   const marqueeTilesRef = useRef(new Map())
   const registerMarqueeTile = (nodeId) => (element) => {
     if (element) marqueeTilesRef.current.set(nodeId, element)
@@ -782,6 +784,17 @@ export function VaultTreeScreen({
     selectedIds: tree.selection,
     onSelectionChange: setMarqueeSelection,
   })
+  useEffect(() => {
+    if (!registerMarqueePointerDown) return undefined
+    registerMarqueePointerDown(marquee.onPointerDown)
+    return () => registerMarqueePointerDown(null)
+  }, [registerMarqueePointerDown, marquee.onPointerDown])
+  useEffect(() => {
+    const surface = marqueeCanvasRef.current
+    if (!surface) return undefined
+    surface.style.userSelect = marquee.tracking ? 'none' : ''
+    return () => { surface.style.userSelect = '' }
+  }, [marquee.tracking, marqueeCanvasRef])
   const selectionRoots = head && tree.selection.size ? (() => {
     try {
       return normalizeRootsSafe(head.index, [...tree.selection])
@@ -888,14 +901,17 @@ export function VaultTreeScreen({
   /* ── render ──────────────────────────────────────────────────────────────── */
   const rootId = head?.manifest.rootNodeId ?? null
   const isTrashView = tree.view === 'trash'
+  const ownsMarqueeSurface = !marqueeSurfaceRef
   return (
     <div
-      ref={marqueeCanvasRef}
+      ref={ownsMarqueeSurface ? marqueeCanvasRef : null}
       data-testid="vault-tree-screen"
-      data-vault-marquee-surface=""
-      data-vault-marquee-canvas=""
-      onPointerDown={marquee.onPointerDown}
-      className="relative mb-6"
+      data-vault-marquee-surface={ownsMarqueeSurface ? '' : undefined}
+      data-vault-marquee-canvas={ownsMarqueeSurface ? '' : undefined}
+      onPointerDown={ownsMarqueeSurface ? marquee.onPointerDown : undefined}
+      className={ownsMarqueeSurface
+        ? 'vault-full-pane-surface vault-pane-content vault-tree-content relative flex-1'
+        : 'vault-pane-content vault-tree-content flex-1'}
       style={{ userSelect: marquee.tracking ? 'none' : undefined }}
       onDragOver={(e) => {
         const dt = e.dataTransfer ?? e.nativeEvent?.dataTransfer

@@ -417,7 +417,10 @@ function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss }) {
   )
 }
 
-export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFactory = createUnlockedVaultState }) {
+export function Vault({
+  t, lang = 'en', placeholderMode = false, unlockedStateFactory = createUnlockedVaultState,
+  marqueeSurfaceRef = null, registerMarqueePointerDown = null,
+}) {
   const reduced = useReducedMotion()
   const vaultApi = useApi('/api/vault')
   // ⚠️ อ่านอย่างเดียว: จอนี้ไม่เคยเขียนค่า auto-lock กลับไป การตั้งค่าอยู่ที่จอ Settings
@@ -1235,8 +1238,10 @@ export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFa
   /* Task 6.3: the tree screen replaces the legacy body when treeUiEnabled */
   if (treeUiActive) {
     return (
-      <div>
-        {vaultCallout}
+      <div className="flex flex-1 flex-col">
+        <div className="vault-pane-content">
+          {vaultCallout}
+        </div>
         <VaultTreeScreen
           t={t}
           lang={lang}
@@ -1244,6 +1249,8 @@ export function Vault({ t, lang = 'en', placeholderMode = false, unlockedStateFa
           treeState={treeState}
           unlockedState={unlockedState.current}
           onLock={() => lock(false)}
+          marqueeSurfaceRef={marqueeSurfaceRef}
+          registerMarqueePointerDown={registerMarqueePointerDown}
         />
       </div>
     )

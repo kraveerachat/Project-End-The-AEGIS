@@ -673,3 +673,24 @@ test('MARQUEE-SURFACE-1..6 expanded surface geometry, ignore contract, intersect
     await h.unmount()
   }
 })
+
+test('V10-FULL-PANE-1..10 Vault owns one full-main-pane marquee surface without stretching its visual content', () => {
+  const root = path.dirname(fileURLToPath(import.meta.url))
+  const appSource = fs.readFileSync(path.join(root, '../src/App.jsx'), 'utf8')
+  const vaultSource = fs.readFileSync(path.join(root, '../src/screens/Vault.jsx'), 'utf8')
+  const treeSource = fs.readFileSync(path.join(root, '../src/screens/VaultTreeScreen.jsx'), 'utf8')
+  const cssSource = fs.readFileSync(path.join(root, '../src/index.css'), 'utf8')
+
+  assert.match(appSource, /screen === 'vault' \? 'vault-full-pane-surface relative min-h-full flex flex-col'/, 'Vault removes the ordinary centered page-shell constraint')
+  assert.match(appSource, /ref=\{screen === 'vault' \? vaultMarqueeSurfaceRef : null\}/, 'the App-level full pane supplies marquee geometry')
+  assert.match(appSource, /data-vault-marquee-surface=\{screen === 'vault' \? '' : undefined\}/, 'the App-level full pane is the one named interaction surface')
+  assert.match(appSource, /vaultMarqueePointerDownRef\.current\?\.\(event\)/, 'the App-level full pane owns pointer input')
+  assert.match(appSource, /vault-pane-content pt-7 max-md:pt-5/, 'the existing page header stays centered and keeps its vertical position')
+  assert.match(appSource, /fade-in.*flex flex-1 flex-col/, 'the Vault route receives the remaining main-pane height')
+  assert.match(vaultSource, /className="flex flex-1 flex-col"/, 'the Vault route passes remaining height to the tree screen')
+  assert.match(vaultSource, /className="vault-pane-content"/, 'the warning callout remains on the existing centered content line')
+  assert.match(treeSource, /canvasRef:\s*marqueeCanvasRef/, 'selection geometry uses the App-level surface ref')
+  assert.match(treeSource, /registerMarqueePointerDown\(marquee\.onPointerDown\)/, 'the tree controller registers its handler with that surface')
+  assert.match(cssSource, /\.vault-full-pane-surface\s*\{[\s\S]*min-height:\s*100%/, 'surface height derives from the App main pane')
+  assert.match(cssSource, /\.vault-pane-content\s*\{[\s\S]*padding-inline:\s*max\(2rem,\s*calc\(\(100% - 1440px\) \/ 2 \+ 2rem\)\)/, 'wide layouts retain the 1440px centered visual measure while the surface spans the pane')
+})

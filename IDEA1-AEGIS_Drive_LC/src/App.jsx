@@ -218,6 +218,11 @@ export default function App() {
   const t = useMemo(() => makeT(lang), [lang])
   const reduced = useReducedMotion()
   const mainRef = useRef(null)
+  const vaultMarqueeSurfaceRef = useRef(null)
+  const vaultMarqueePointerDownRef = useRef(null)
+  const registerVaultMarqueePointerDown = useCallback((handler) => {
+    vaultMarqueePointerDownRef.current = handler
+  }, [])
 
   /* ⚠️ ต้องอยู่เหนือ early return ทุกอันของคอมโพเนนต์นี้ (ตรวจ auth / หน้า login /
      บังคับรีเซ็ตรหัสผ่าน) — hook ที่ถูกเรียกบ้างไม่เรียกบ้างทำให้ลำดับ hook ของ
@@ -457,7 +462,15 @@ export default function App() {
     //    ผูกบันทึกกู้คืนการอัปโหลดในเครื่องกับบัญชี — เบราว์เซอร์เครื่องเดียวถูกใช้หลาย
     //    บัญชีได้ และบันทึกนั้นมีชื่อไฟล์ที่ยังอัปโหลดไม่เสร็จอยู่ในนั้น
     files: <Files t={t} lang={lang} go={go} userId={session?.id ?? null} navigationParams={navigationParams} placeholderMode={placeholderMode} />,
-    vault: <Vault t={t} lang={lang} placeholderMode={placeholderMode} />,
+    vault: (
+      <Vault
+        t={t}
+        lang={lang}
+        placeholderMode={placeholderMode}
+        marqueeSurfaceRef={vaultMarqueeSurfaceRef}
+        registerMarqueePointerDown={registerVaultMarqueePointerDown}
+      />
+    ),
     shares: <Shares t={t} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
     versions: <FileHistory t={t} lang={lang} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
     trash: <Trash t={t} lang={lang} />,
@@ -519,9 +532,17 @@ export default function App() {
           onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 4)}
           className="flex-1 overflow-y-auto"
         >
-          <div key={screen} className="px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto">
+          <div
+            key={screen}
+            data-testid="app-page-content"
+            ref={screen === 'vault' ? vaultMarqueeSurfaceRef : null}
+            data-vault-marquee-surface={screen === 'vault' ? '' : undefined}
+            data-vault-marquee-canvas={screen === 'vault' ? '' : undefined}
+            onPointerDown={screen === 'vault' ? (event) => vaultMarqueePointerDownRef.current?.(event) : undefined}
+            className={screen === 'vault' ? 'vault-full-pane-surface relative min-h-full flex flex-col' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
+          >
             {/* One composed header: breadcrumb + title on the left, search/actions on the right. */}
-            <div className="dashboard-page-header flex flex-col gap-2 mb-6 rise-in">
+            <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${screen === 'vault' ? 'vault-pane-content pt-7 max-md:pt-5' : ''}`}>
               <nav aria-label={t('breadcrumb')} className="flex items-center gap-2 text-xs font-mono font-medium tracking-wider text-slate-400 dark:text-slate-500 uppercase select-none">
                 <span>AEGIS</span>
                 <span className="opacity-40">/</span>
@@ -558,7 +579,7 @@ export default function App() {
               <SkeletonLoader type={getSkeletonType(loadingScreen)} />
             ) : (
               <Suspense fallback={<SkeletonLoader type={getSkeletonType(screen)} />}>
-                <div className="fade-in">{screenEl}</div>
+                <div className={`fade-in ${screen === 'vault' ? 'flex flex-1 flex-col' : ''}`}>{screenEl}</div>
               </Suspense>
             )}
           </div>
