@@ -15,6 +15,25 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Current Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `feat/idea1-private-vault-production-rollout`; Draft PR: pending creation from the initial documentation checkpoint.
+- State: **IN PROGRESS**.
+- Deployment start SHA: `0051cceb4927220446fbb12a7e730b43af777b71` (merged PR #171 on exact `origin/main`).
+- Goal: deploy the merged PR #157 Private Vault TREE_V1 security foundation and PR #171 Files-like Vault UX to the real Production Drive service using staged activation, reversible fail-closed feature flags, additive migration 011, and destructive purge disabled.
+- Human authorization: `AUTHORIZED_BY_HUMAN_OWNER=YES`; every privileged Production mutation remains **Human Owner copy/paste only**. The agent may inspect, plan, build, verify, render Compose, prepare exact commands, analyze owner-provided output, and update repository documentation. The agent must not autonomously run Production `sudo`, apply the migration, recreate containers, or edit Production files.
+- Scope: deployment/runbook and owner-maintained IDEA1 status documentation only unless Production exposes a source defect. A source defect stops rollout for a separate TDD-reviewed correction; no Production hot-edit.
+- Safety boundary: Drive-scoped operations only; never `docker compose down`, prune, remove or recreate database volumes, use `--remove-orphans`, recreate the whole stack, edit active Compose files in place, print secrets, enable destructive purge, alter Public Share/HUB/Monitor/IDEA2/IDEA3, or touch PR #154.
+- Required rollout order: read-only live discovery → verified fresh backup → exact-SHA candidate and regression → Stage A image-only → migration 011 → Stage C schema/protocol → Stage D genesis/UI/client media → Human Owner Production browser acceptance → post-cutover evidence and closeout.
+- Current gate: **HUMAN OWNER READ-ONLY PRODUCTION PREFLIGHT OUTPUT PENDING**. No Production mutation has occurred in this task.
+
+### Session Register — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PVPR-S1 | Governance, exact merged-source verification, isolated rollout worktree, Production safety freeze, initial task registration | IN PROGRESS / PREFLIGHT GATE | PR #171 is merged as `0051cceb4927220446fbb12a7e730b43af777b71`; source head `1b1c10b07e815c3527d04c8461e7d6dc339d92a1`; application source `32936b93f1535ac280f92e9947be2ce36654bffc`; new isolated branch starts exactly at merged main; Production untouched | Initial documentation checkpoint | Rollout registered; Draft PR creation and live read-only discovery pending | Live compose/container/database/migration-011 truth, backup, candidate, staged cutover, Human acceptance, one final receipt | Publish Draft PR, then provide one read-only Production preflight block and wait for Human Owner output |
+
 ## Completed Task — VAULT-FILES-UX-NAVIGATION-1
 
 - Owner: Kla (`kla`); area: IDEA1.
