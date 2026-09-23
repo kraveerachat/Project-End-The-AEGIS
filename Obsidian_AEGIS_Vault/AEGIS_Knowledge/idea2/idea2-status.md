@@ -21,9 +21,9 @@ Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
 PR: NOT CREATED — blocked until full automated verification and Human Machine A local acceptance pass
-Current state: IN PROGRESS — isolated implementation plan recorded; runtime source implementation not started
+Current state: PRE-TASK-12/N12 VERIFIED — permanent endpoint source/config contract is ready for a local checkpoint; original Task 12 and Machine A installation remain not started
 Started: 2026-09-19
-Last checkpoint: task baseline `c5468c520f24d29fb37fefcf7c4411b91d4087f4` (`origin/main` at start)
+Last checkpoint: Task 11 `cb17caeecbc09b5cab224ae9369e3a29b860cbf8` (`fix(idea2): preserve physical camera demand lifecycle`)
 Production mutation allowed: NO
 
 ### Goal
@@ -36,13 +36,14 @@ heartbeat-loop, or diagnostic-bridge steps.
 
 ### Scope
 
-Implement the approved dedicated Ed25519 Identity Agent architecture, strict
-browser association, server-side verified-node session binding, authenticated
-physical heartbeat and ingest provenance, account-to-logical-alias policy,
-physical stream routing, demand lifecycle symmetry, and Windows install/status/
-repair/uninstall tooling. Verify locally with deterministic TDD, disposable
-PostgreSQL, production-like built-app integration, and a scoped security review
-before stopping at the explicit Human Machine A installation gate.
+Tasks 1–11 implemented the dedicated Ed25519 Identity Agent architecture,
+strict browser association, server-side verified-node session binding,
+authenticated physical heartbeat and ingest provenance, account-to-logical-
+alias policy, physical routing, and demand lifecycle symmetry. The active
+PRE-TASK-12/N12 gate now replaces the rejected diagnostic `:18078` bridge and
+rejected hard-coded Docker gateway candidate with a stable deployment-owned,
+server-controlled Machine A stream endpoint before the original Windows
+install/status/repair/uninstall/autostart task may begin.
 
 ### Out of scope
 
@@ -78,7 +79,9 @@ before that acceptance.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| MACHINE-A-NO-POWERSHELL-S1 | Isolated planning, current-main reconciliation, and Windows capability preflight | IN PROGRESS | `origin/main` `c5468c520f24d29fb37fefcf7c4411b91d4087f4`; PR #134 merged; no newer IDEA2 overlap; Windows PowerShell/Python/DPAPI/8078/cryptography preflight accepted; pywin32 isolated-Agent dependency action identified | planning checkpoint pending | source implementation not started; Production unchanged | execute Tasks 2–14, then stop before privileged installation | checkpoint plan/status, begin protocol TDD |
+| PRE-TASK-12-N12 | Permanent Machine A stream endpoint contract | VERIFIED / CHECKPOINT PENDING | Task 11 base `cb17caeecbc09b5cab224ae9369e3a29b860cbf8`; stable `aegis-stream-host.internal` application endpoint; server-owned Node/physical mapping; explicit non-loopback IPv4 SSH bind; Monitor 140 passed with 3 conditional PostgreSQL skips; Engine/Agent 139 tests, 0 failures, 2 pywin32 skips; endpoint 18/18; Agent 9/9; Windows 19/19; UI freeze 5/5; governance 50/50; Vite build PASS; refreshed `origin/main` `3a015c99d81b1315ceea23a197567ec8b1aa4d17` has no newer overlap | this checkpoint commit | PASS at source/static/config evidence level; Production and installed Machine A runtime unchanged | create the exact local checkpoint, then stop before original Task 12 |
+| MACHINE-A-NO-POWERSHELL-T1-T11 | Agent identity through physical camera demand lifecycle | CLOSED | Tasks 1–11 committed from `cc2ffff` through `cb17caee`; single physical heartbeat supports both account aliases; account switching requires no heartbeat switch; startup/auth/heartbeat create no demand; final demanding release closes the camera | `cb17caeecbc09b5cab224ae9369e3a29b860cbf8` | PASS — source/test checkpoints only; not installed Machine A acceptance | permanent endpoint prerequisite and original Tasks 12–16 | PRE-TASK-12/N12 |
+| MACHINE-A-NO-POWERSHELL-S1 | Isolated planning, current-main reconciliation, and Windows capability preflight | CLOSED | task-start `origin/main` `c5468c520f24d29fb37fefcf7c4411b91d4087f4`; PR #134 merged; Windows PowerShell/Python/DPAPI/8078/cryptography preflight accepted; pywin32 isolated-Agent dependency action identified | `cc2ffff` | PASS — planning/preflight; Production unchanged | superseded by implementation sessions above | historical record |
 | CP2 cleanup | Dispose isolated PostgreSQL resources and restore local Docker management | CLOSED | Human-run cleanup: exact CP2 container/volume absent, port 55433 released, Docker responsive, Git clean | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS | none | CP3-S0 |
 | CP3-S0 | Read-only repository and runtime-auth reconnaissance | CLOSED | CP2 registry/key-version/physical-camera foundation exists; runtime still uses shared key/body identity; no Agent auth/session/DPAPI path exists | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS | freshness comparison | CP3-S0.5 |
 | CP3-S0.5 | Fetch and inspect newer `origin/main` for CP3 overlap | CLOSED | fetched `origin/main` `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`; 69 newer commits do not touch IDEA2/CP3 interfaces | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS — no reconciliation required | architecture specification | CP3-S1 |
@@ -87,6 +90,47 @@ before that acceptance.
 | CF-S1-DESIGN | Camera-First Machine A browser-session association architecture | CLOSED | First broken boundary addressed in design: authenticated session -> verified local Node -> registered physical camera -> existing stream; CP3 preserved/paused; CP5 and final SOC remediation deferred | this documentation checkpoint | PASS — design only; no runtime/test/Production mutation | owner review and shortest TDD implementation plan | stop for human design review |
 | CF-S1-PLAN | Bounded TDD implementation plan for Camera-First Slice 1 | CLOSED | Five reviewable tasks with exact file/interface maps, RED/GREEN commands, S1-H1–H5 human gates, protected camera boundaries, and CP3/CP5 exclusions | this documentation checkpoint | PASS — planning only; implementation not started | owner review and authorization for Task 1 RED | stop for human plan review |
 | CAM-RUNTIME-UNBLOCKER | Monitor MJPEG idle-watchdog cancellation crash | PASS | RED reproduced the strict unhandled `AbortError`; focused lifecycle 12/12, Monitor 32 pass / 0 fail / 2 conditional PostgreSQL skips, browser 18/18, UI freeze 4/4, Vite build PASS; Engine targeted 18/18; full Engine 74/76 with two unchanged current-main generation failures; human LOCAL Machine A idle/open/sustain/stall/recover/release acceptance PASS | `733fb5d40810f0620082672efc783d5aba8242c2`; runtime evidence `0ca4e655b666bf843c1a9be5773248af59569ea9`; main sync `3be340b0f8acccae8bba0a74e049dbdba0e3dae1` | PASS — source and LOCAL runtime; NOT Production | human code/integration review | keep undeployed; human merge only |
+
+## Machine A No-PowerShell Task Status Dashboard
+
+| Plan boundary | State | Current truth |
+|---|---|---|
+| Tasks 1–11 | COMPLETE | Agent identity, verified session, physical provenance/routing, one physical heartbeat, and demanding-viewer lifecycle are committed through `cb17caee`. History is preserved. |
+| PRE-TASK-12 / N12 | VERIFIED / CHECKPOINT PENDING | Stable named/configured endpoint, server-owned source mapping, and explicit SSH-bind contract pass source/static/config gates. Live container hop and Machine A acceptance remain later evidence. |
+| Original Task 12 | NOT STARTED | Still owns Windows install/status/repair/uninstall/autostart. It has not been renumbered or redefined. |
+| Original Tasks 13–16 | NOT STARTED | Integration, full verification, human installation/acceptance, final receipt, push, and PR remain later gates. |
+
+### Planned / Completed / Remaining
+
+- **Completed:** Original Tasks 1–11, ending at Task 11 SHA `cb17caeecbc09b5cab224ae9369e3a29b860cbf8`.
+- **Completed in this gate:** PRE-TASK-12/N12 TDD for a deployment-owned stable hostname, explicit container host mapping, explicit SSH tunnel bind/port, and server-owned Node/physical-camera endpoint authorization.
+- **Remaining after this gate:** Original Task 12 Windows lifecycle, Tasks 13–14 integration/full verification, Task 15 human installation gate, and Task 16 human acceptance/final receipt/PR.
+
+### PRE-TASK-12 verified contract and known limitations
+
+- The rejected `:18078` bridge and hard-coded `172.18.x.x` application destination are absent from the accepted runtime contract. Negative tests reject loopback, runtime IP, port zero, malformed URL, wrong Node, wrong physical camera, and heartbeat override candidates.
+- Monitor uses the deployment-owned `aegis-stream-host.internal` name plus an explicit Compose host mapping. Windows tooling requires an explicit non-loopback SSH reverse-listener bind and port. Deployment preflight must still prove those two deployment values identify the same reachable interface.
+- No live container-to-host hop was run because Docker CLI/runtime is unavailable in this Codex environment. No real Machine A camera, Production network, Production Compose, SSH tunnel, database, or installed runtime was changed or claimed verified.
+- Playwright was not rerun because the existing dependency set does not contain `@playwright/test`; no package/dependency mutation was made to hide that environment limitation. UI freeze 5/5 and Vite production build passed.
+- Machine A is the only later runtime-acceptance target. Machines B/C are intentionally deferred; the source is generic by deployment hostname, Node, physical-camera ID, and port, so later provisioning does not require an application rewrite.
+
+### PRE-TASK-12 final verification evidence
+
+- Endpoint/physical routing: `node --test tests/physicalCameraStreamRouting.test.mjs tests/physicalLinkRoute.test.mjs tests/machineAAccountSymmetry.test.mjs` — 18 passed, 0 failed, including a real cross-origin redirect/credential containment test.
+- Agent endpoint contract: `python tests/test_agent_session.py -v` — 9 passed, 0 failed.
+- Windows deployment contract: `python tests/test_windows_autostart.py -v` — 19 passed, 0 failed; modified PowerShell files parse with 0 errors.
+- Full Monitor: `npm test` — 140 passed, 0 failed, 3 conditional PostgreSQL skips.
+- Full Engine/Agent: `python -m unittest discover -s tests -p 'test_*.py' -v` — 139 tests, 0 failures, 2 expected pywin32 environment skips.
+- UI/build/governance: UI freeze 5/5; Vite production build PASS; Vault/collaboration test matrix 50/50.
+- Security/infrastructure: an independent review found and TDD closed redirect credential forwarding, IPv6 bind formatting, trailing-dot parity, and explicit-port-80 parity defects; final re-review is Critical 0 / Important 0 / Minor 0. Strict source rejects redirects and fails closed; no browser/heartbeat destination authority; no embedded secret; root Compose change is a declared shared dev/test infrastructure surface requiring later integration review.
+
+### Handoff / Next Action
+
+Create the exact reviewed PRE-TASK-12/N12 local checkpoint and stop. The next
+owner-approved action is original Task 12 Windows lifecycle work, preceded by
+deployment preflight that proves the stable container hostname reaches the
+explicit SSH listener. Do not install the Machine A runtime, push, open a PR,
+deploy, or create the final immutable receipt in this gate.
 
 ## PR #134 Machine A LOCAL runtime acceptance — 2026-09-15
 

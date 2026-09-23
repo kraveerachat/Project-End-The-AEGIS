@@ -6,7 +6,7 @@ import * as api from '../server/routes/api.js'
 
 const physicalSource = {
   nodeId: 'machine-a-node',
-  url: 'http://127.0.0.1:8077/stream.mjpg',
+  url: 'http://aegis-stream-host.internal:18077/stream.mjpg',
   ageMs: 1_000,
   cameraConnected: false,
 }
@@ -30,11 +30,13 @@ test('one physical heartbeat advertises both account aliases without logical hea
 
   const operator = await api.resolveOperatorPhysicalLinkStatus(
     { userId: 2 }, 10_000,
-    { resolveOperatorCameraAccess, streamSourceForPhysicalCamera },
+    { resolveOperatorCameraAccess, streamSourceForPhysicalCamera,
+      approvedStreamUrlForPhysicalCamera: async () => physicalSource.url },
   )
   const operator2 = await api.resolveOperatorPhysicalLinkStatus(
     { userId: 3 }, 11_000,
-    { resolveOperatorCameraAccess, streamSourceForPhysicalCamera },
+    { resolveOperatorCameraAccess, streamSourceForPhysicalCamera,
+      approvedStreamUrlForPhysicalCamera: async () => physicalSource.url },
   )
 
   assert.deepEqual(physicalLookups, [41, 41])
@@ -59,6 +61,7 @@ test('account switching changes only logical alias and never physical heartbeat 
       physicalLookups.push(physicalCameraId)
       return physicalSource
     },
+    approvedStreamUrlForPhysicalCamera: async () => physicalSource.url,
   }
 
   for (const logicalCameraId of ['CAM-01', 'CAM-02', 'CAM-01']) {

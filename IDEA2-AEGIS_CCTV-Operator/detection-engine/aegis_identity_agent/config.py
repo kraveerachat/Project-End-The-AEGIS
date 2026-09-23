@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from ipaddress import ip_address
 import os
 import re
 from typing import Mapping
@@ -13,6 +14,19 @@ from .browser_server import normalize_allowed_origins
 
 _NODE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _SID_RE = re.compile(r"^S-[0-9]+(?:-[0-9]+)+$")
+_DNS_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+
+
+def _deployment_hostname(value: str) -> bool:
+    if not value or len(value) > 253 or value.endswith(".") or value.lower() == "localhost":
+        return False
+    try:
+        ip_address(value)
+        return False
+    except ValueError:
+        pass
+    labels = value.rstrip(".").split(".")
+    return len(labels) >= 2 and all(_DNS_LABEL_RE.fullmatch(label) for label in labels)
 
 
 def _number(env: Mapping[str, str], name: str, default: str, low: float, high: float) -> float:
@@ -97,8 +111,10 @@ class AgentConfig:
             raise ValueError("AEGIS_AGENT_ENGINE_STREAM_URL has an invalid port") from exc
         if (
             stream_url.scheme != "http"
-            or stream_url.hostname != "127.0.0.1"
-            or stream_port != 18077
+            or not _deployment_hostname(stream_url.hostname or "")
+            or stream_port is None
+            or stream_port < 1
+            or stream_port == 80
             or stream_url.path != "/stream.mjpg"
             or stream_url.username is not None
             or stream_url.password is not None
@@ -107,9 +123,15 @@ class AgentConfig:
         ):
             raise ValueError(
                 "AEGIS_AGENT_ENGINE_STREAM_URL must be the credential-free "
-                "http://127.0.0.1:18077/stream.mjpg tunnel endpoint"
+                "http://<deployment-hostname>:<explicit-non-default-port>/stream.mjpg tunnel endpoint"
             )
-        engine_stream_url = urlunsplit(("http", "127.0.0.1:18077", "/stream.mjpg", "", ""))
+        engine_stream_url = urlunsplit((
+            "http",
+            f"{stream_url.hostname.lower()}:{stream_port}",
+            "/stream.mjpg",
+            "",
+            "",
+        ))
         pipe_name = str(
             env.get("AEGIS_AGENT_PIPE_NAME", r"\\.\pipe\AEGIS.IdentityAgent.v1")
         ).strip()

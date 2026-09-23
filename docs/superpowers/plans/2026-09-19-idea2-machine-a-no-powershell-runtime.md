@@ -559,6 +559,88 @@ fix(idea2): preserve physical camera demand lifecycle
 
 ---
 
+### PRE-TASK-12 / N12 Network Gate: Permanent Machine A Stream Endpoint Contract
+
+> **Approved plan refinement:** This prerequisite was inserted after Tasks 1–11
+> exposed a deployment-network gap. It does not renumber, redefine, or rewrite
+> any original task. Original Task 12 remains the Windows install/status/repair/
+> uninstall/autostart lifecycle below.
+
+```text
+PLAN_REFINEMENT=APPROVED
+TASKS_1_11_HISTORY_PRESERVED=YES
+PRE_TASK12_GATE_ADDED=YES
+PRE_TASK12_GATE_NAME=Permanent Machine A Stream Endpoint Contract
+ORIGINAL_TASK12_RENUMBERED=NO
+ORIGINAL_TASK12=Windows install/status/repair/uninstall/autostart lifecycle
+```
+
+**Files:**
+- Modify: `IDEA2-AEGIS_CCTV-Operator/detection-engine/.env.example`
+- Modify: `IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_identity_agent/config.py`
+- Modify: `IDEA2-AEGIS_CCTV-Operator/detection-engine/windows/install_autostart.ps1`
+- Modify: `IDEA2-AEGIS_CCTV-Operator/detection-engine/windows/run_detection_tunnel.ps1`
+- Modify: focused Agent and Windows contract tests as proven by RED evidence
+- Modify: `IDEA2-AEGIS_Monitor/.env.example`
+- Create: `IDEA2-AEGIS_Monitor/server/auth/physicalStreamSource.js`
+- Modify: `IDEA2-AEGIS_Monitor/server/auth/cameraAccess.js`
+- Modify: `IDEA2-AEGIS_Monitor/server/routes/api.js`
+- Modify: focused Monitor endpoint/routing/lifecycle tests as proven by RED evidence
+- Modify: `docker-compose.yml` (shared dev/test infrastructure surface only)
+- Modify: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/idea2-status.md`
+
+**Interfaces:**
+- Strict Operator routing remains `verified Node -> registered physical camera -> server-owned stream destination`; browser, heartbeat, logical alias, account name, query/header values, and client physical-camera claims never select the upstream URL.
+- The application-facing destination uses a deployment-owned stable hostname. The root dev/test Compose file maps that hostname explicitly into the Monitor container; it never embeds a `172.18.x.x` gateway as application configuration.
+- The server-side SSH reverse-forward bind remains a deployment value and must be explicitly supplied to the Windows tunnel tooling. It has no source default. Machine A uses its reviewed port `18077`; the former diagnostic `18078` bridge is absent.
+- If Docker `host-gateway` is used, deployment preflight must prove that the configured host mapping and the SSH listener bind identify the same reachable server interface. `host-gateway == aegis_internal gateway` is never assumed.
+- Missing, malformed, unresolved, wrong-Node, stale, or inconsistent endpoint configuration fails closed before Monitor sends its Engine credential.
+- Machine A is the only runtime-acceptance target. The mapping is keyed by Node and physical camera so Machines B/C can later be provisioned without source rewrites, but B/C runtime acceptance is deferred.
+
+- [x] **Step 1: Reconcile governance and classify the preserved candidate**
+
+Update this plan and canonical IDEA2 status before further production-source
+editing. Inspect every preserved endpoint path and classify it as keep, revise,
+or drop. Reject the temporary `127.0.0.1:18078` bridge and every hard-coded
+`172.18.x.x` application default. Record Task 11 SHA
+`cb17caeecbc09b5cab224ae9369e3a29b860cbf8` as the gate base.
+
+- [x] **Step 2: Add endpoint-contract RED tests**
+
+Prove the current candidate lacks a stable named host mapping and explicit SSH
+bind contract. Cover missing/malformed/unapproved endpoint configuration,
+dynamic gateway literals, wrong Node/physical mapping, heartbeat/browser URL
+override, Machine A operator/operator2 symmetry, no `18078`, and Windows tunnel
+configuration with no implicit bind address.
+
+- [x] **Step 3: Implement the minimum stable endpoint contract**
+
+Use one validated deployment-owned hostname for Monitor's application-facing
+source URL, one explicit Compose host mapping, and one explicit deployment-owned
+SSH bind address. Keep the physical-camera mapping server-owned and fail closed.
+Do not add a proxy service, change Production Compose, mutate a real tunnel, or
+start the original Task 12 installation lifecycle.
+
+- [x] **Step 4: Prove the network contract at the available evidence level**
+
+Run focused endpoint/Task 8–11 regression tests and an isolated disposable
+container-to-host HTTP/MJPEG hop when an approved Docker runtime is available.
+Use no `18078` listener. If Docker is unavailable, record
+`LIVE_CONTAINER_HOP=DEFERRED_TO_LATER_LOCAL_INTEGRATION`; static/config/preflight
+proof is not real Machine A or Production network acceptance.
+
+- [x] **Step 5: Run final gates, review, and checkpoint**
+
+Run the full Monitor and Engine/Agent suites, UI freeze, approved browser suite,
+Vite build, Vault/collaboration validation, secret scan, `git diff --check`,
+negative controls, scoped security review, and shared-infrastructure review.
+Require Critical=0 and Important=0. Update canonical status with exact evidence,
+stage only reviewed paths, and create one coherent PRE-TASK-12 checkpoint. Do
+not create a receipt, push, open a PR, mutate Production, modify the installed
+Machine A runtime, or start original Task 12. Stop after reporting the checkpoint.
+
+---
+
 ### Task 12: Complete Windows Install, Status, Repair, and Uninstall Lifecycle
 
 **Files:**

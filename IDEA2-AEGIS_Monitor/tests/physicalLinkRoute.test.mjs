@@ -6,6 +6,19 @@ import test from 'node:test'
 
 register(new URL('./fixtures/physicalLinkRouteLoader.mjs', import.meta.url))
 
+const originalTrustedSources = process.env.AEGIS_TRUSTED_PHYSICAL_STREAM_SOURCES
+const originalStreamHost = process.env.AEGIS_MONITOR_STREAM_HOST
+process.env.AEGIS_MONITOR_STREAM_HOST = 'aegis-stream-host.internal'
+process.env.AEGIS_TRUSTED_PHYSICAL_STREAM_SOURCES = JSON.stringify({
+  41: { nodeId: 'machine-a-node', url: 'http://aegis-stream-host.internal:18077/stream.mjpg' },
+})
+test.after(() => {
+  if (originalTrustedSources === undefined) delete process.env.AEGIS_TRUSTED_PHYSICAL_STREAM_SOURCES
+  else process.env.AEGIS_TRUSTED_PHYSICAL_STREAM_SOURCES = originalTrustedSources
+  if (originalStreamHost === undefined) delete process.env.AEGIS_MONITOR_STREAM_HOST
+  else process.env.AEGIS_MONITOR_STREAM_HOST = originalStreamHost
+})
+
 globalThis.__physicalLinkFixture = {
   actor: { userId: 2, username: 'operator', role: 'CCTV-Operator' },
   access: {
@@ -14,7 +27,7 @@ globalThis.__physicalLinkFixture = {
   },
   source: {
     nodeId: 'machine-a-node',
-    url: 'http://127.0.0.1:8077/stream.mjpg',
+    url: 'http://aegis-stream-host.internal:18077/stream.mjpg',
     ageMs: 1_000,
     cameraConnected: false,
   },
@@ -88,4 +101,63 @@ test('strict /api/link serializes live association denial before any heartbeat l
   assert.deepEqual(response.body, { error: 'LOCAL_NODE_ASSOCIATION_DENIED' })
   assert.deepEqual(fixture.physicalLookups, [])
   assert.equal(fixture.logicalLinkCalls, 0)
+})
+
+test('strict stream rejects redirects before the Engine credential reaches another origin', async (t) => {
+  const fixture = globalThis.__physicalLinkFixture
+  const originalSource = fixture.source
+  const originalKey = process.env.DETECTION_ENGINE_API_KEY
+  let redirectedRequests = 0
+  let redirectedCredential
+
+  const redirectTarget = http.createServer((req, res) => {
+    redirectedRequests += 1
+    redirectedCredential = req.headers['x-detection-engine-key']
+    res.writeHead(204)
+    res.end()
+  })
+  redirectTarget.listen(0, '127.0.0.1')
+  await once(redirectTarget, 'listening')
+
+  const redirector = http.createServer((_req, res) => {
+    const { port } = redirectTarget.address()
+    res.writeHead(302, { Location: `http://127.0.0.1:${port}/capture` })
+    res.end()
+  })
+  redirector.listen(0, '127.0.0.1')
+  await once(redirector, 'listening')
+
+  const app = express()
+  app.use((req, _res, next) => {
+    req.session = {
+      createdAt: Date.now(),
+      user: { id: 2, username: 'operator', role: 'CCTV-Operator' },
+      destroy(callback) { callback?.() },
+    }
+    next()
+  })
+  app.use('/api', apiRouter)
+  const monitor = app.listen(0, '127.0.0.1')
+  await once(monitor, 'listening')
+
+  fixture.source = {
+    ...originalSource,
+    url: `http://127.0.0.1:${redirector.address().port}/stream.mjpg`,
+  }
+  process.env.DETECTION_ENGINE_API_KEY = 'test-only-redirect-sentinel'
+  t.after(async () => {
+    fixture.source = originalSource
+    if (originalKey === undefined) delete process.env.DETECTION_ENGINE_API_KEY
+    else process.env.DETECTION_ENGINE_API_KEY = originalKey
+    await Promise.all([
+      new Promise((resolve) => monitor.close(resolve)),
+      new Promise((resolve) => redirector.close(resolve)),
+      new Promise((resolve) => redirectTarget.close(resolve)),
+    ])
+  })
+
+  const response = await requestJson(monitor, '/api/cameras/CAM-01/stream')
+  assert.equal(redirectedRequests, 0)
+  assert.equal(redirectedCredential, undefined)
+  assert.equal(response.status, 504)
 })

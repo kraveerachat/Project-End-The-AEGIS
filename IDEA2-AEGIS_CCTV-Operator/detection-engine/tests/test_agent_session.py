@@ -57,7 +57,7 @@ def config_env(**overrides):
         "AEGIS_AGENT_NODE_ID": "edge-a",
         "AEGIS_AGENT_KEY_VERSION": "4",
         "AEGIS_AGENT_KEY_PATH": r"C:\ProgramData\AEGIS\IdentityAgent\machine-identity.dpapi",
-        "AEGIS_AGENT_ENGINE_STREAM_URL": "http://127.0.0.1:18077/stream.mjpg",
+        "AEGIS_AGENT_ENGINE_STREAM_URL": "http://aegis-stream-host.internal:18077/stream.mjpg",
         "AEGIS_AGENT_CONNECT_TIMEOUT_S": "2",
         "AEGIS_AGENT_READ_TIMEOUT_S": "5",
         "AEGIS_AGENT_RENEW_BEFORE_S": "120",
@@ -82,11 +82,23 @@ def challenge(now=100_000):
 
 
 class AgentConfigTests(unittest.TestCase):
+    def test_machine_a_advertises_stable_server_endpoint_not_runtime_ip(self):
+        cfg = AgentConfig.from_env(config_env(
+            AEGIS_AGENT_ENGINE_STREAM_URL="http://aegis-stream-host.internal:18077/stream.mjpg",
+        ))
+        self.assertEqual("http://aegis-stream-host.internal:18077/stream.mjpg", cfg.engine_stream_url)
+
+    def test_stream_endpoint_allows_deployment_owned_dns_and_port_for_future_nodes(self):
+        cfg = AgentConfig.from_env(config_env(
+            AEGIS_AGENT_ENGINE_STREAM_URL="http://edge-stream.aegis.test:18123/stream.mjpg",
+        ))
+        self.assertEqual("http://edge-stream.aegis.test:18123/stream.mjpg", cfg.engine_stream_url)
+
     def test_config_is_https_only_bounded_and_redacted(self):
         cfg = AgentConfig.from_env(config_env())
         self.assertEqual("https://monitor.example.test/monitor", cfg.monitor_base_url)
         self.assertEqual((2.0, 5.0), cfg.http_timeout)
-        self.assertEqual("http://127.0.0.1:18077/stream.mjpg", cfg.engine_stream_url)
+        self.assertEqual("http://aegis-stream-host.internal:18077/stream.mjpg", cfg.engine_stream_url)
         self.assertEqual(120_000, cfg.renew_before_ms)
         self.assertLessEqual(cfg.retry_max_s, 30.0)
         self.assertEqual(("http://127.0.0.1:5176", "https://monitor.example.test"), cfg.browser_allowed_origins)
@@ -101,7 +113,12 @@ class AgentConfigTests(unittest.TestCase):
             {"AEGIS_AGENT_MONITOR_BASE_URL": "https://monitor.example.test/?x=1"},
             {"AEGIS_AGENT_MONITOR_BASE_URL": "https://monitor.example.test/#x"},
             {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://127.0.0.1:18078/stream.mjpg"},
-            {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://remote.invalid:18077/stream.mjpg"},
+            {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://127.0.0.1:18077/stream.mjpg"},
+            {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://172.18.0.1:18077/stream.mjpg"},
+            {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://[::1]:18077/stream.mjpg"},
+            {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://aegis-stream-host.internal.:18077/stream.mjpg"},
+            {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://aegis-stream-host.internal:0/stream.mjpg"},
+            {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://aegis-stream-host.internal:80/stream.mjpg"},
             {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://u:p@127.0.0.1:18077/stream.mjpg"},
             {"AEGIS_AGENT_ENGINE_STREAM_URL": "http://127.0.0.1:18077/other"},
             {"AEGIS_AGENT_TLS_VERIFY": "false"},
@@ -226,7 +243,7 @@ class AgentSessionTests(unittest.TestCase):
         body = json.loads(http.calls[-1][1]["data"])
         self.assertEqual({
             "cameraConnected": False,
-            "streamUrl": "http://127.0.0.1:18077/stream.mjpg",
+            "streamUrl": "http://aegis-stream-host.internal:18077/stream.mjpg",
         }, body)
         for forbidden in ("cameraId", "nodeId", "physicalCameraId"):
             self.assertNotIn(forbidden, body)

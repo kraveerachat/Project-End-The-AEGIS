@@ -149,6 +149,11 @@ services:
       ENFORCE_PASSWORD_RESET: "false"
       DATABASE_URL: postgresql://monitor_app:${MONITOR_DB_PASSWORD:-monitor-app-dev-password-change-me}@postgres:5432/aegis_monitor
       DETECTION_ENGINE_API_KEY: ${DETECTION_ENGINE_API_KEY:-}
+      # Strict IDEA2 rollout is opt-in; the trusted physical source mapping is
+      # server-owned and defaults empty/fail-closed until explicitly provisioned.
+      AEGIS_REQUIRE_LOCAL_NODE_ASSOCIATION: ${AEGIS_REQUIRE_LOCAL_NODE_ASSOCIATION:-false}
+      AEGIS_MONITOR_STREAM_HOST: ${AEGIS_MONITOR_STREAM_HOST:-aegis-stream-host.internal}
+      AEGIS_TRUSTED_PHYSICAL_STREAM_SOURCES: ${AEGIS_TRUSTED_PHYSICAL_STREAM_SOURCES:-}
       # Development-only local recording volume. A file in this volume is not
       # "stored on NAS"; Monitor serves only clip rows created after a verified
       # NAS transfer. Production NAS mounting remains a separate deployment task.
@@ -160,6 +165,11 @@ services:
         condition: service_healthy
     ports:
       - "8002:8002"
+    # Stable application hostname -> deployment-owned host interface. Docker's
+    # host-gateway token is a dev/test default only; deployment preflight must
+    # prove it matches the explicit SSH reverse-forward bind before strict mode.
+    extra_hosts:
+      - "${AEGIS_MONITOR_STREAM_HOST:-aegis-stream-host.internal}:${AEGIS_MONITOR_STREAM_HOST_GATEWAY:-host-gateway}"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8002/healthz || exit 1"]
       interval: 15s

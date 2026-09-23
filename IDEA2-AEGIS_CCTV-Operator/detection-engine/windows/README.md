@@ -12,7 +12,7 @@ Windows boot
   -> SYSTEM Scheduled Task: AEGIS Detection Tunnel
        -> run_detection_tunnel.ps1 reconnect loop
        -> SSH local forward 127.0.0.1:18002 -> Monitor :8002
-       -> SSH reverse forward server :18077 -> Engine :8077
+       -> SSH reverse forward explicit server interface :18077 -> Engine :8077
 
 User login
   -> HKCU Run: AEGIS Detection Engine
@@ -42,7 +42,8 @@ different operator's machine.
 2. Create a configuration file outside the repository from `.env.example`.
 3. Set the real machine-specific values. For the verified tunnel topology,
    `AEGIS_MONITOR_API_BASE` points to `http://127.0.0.1:18002`, while
-   `AEGIS_STREAM_PUBLIC_URL` points to the server-side reverse listener.
+   `AEGIS_STREAM_PUBLIC_URL` and `AEGIS_AGENT_ENGINE_STREAM_URL` use the
+   deployment-owned stable hostname for the server-side reverse listener.
 4. Provision a unique per-machine Ed25519 key whose public key was explicitly
    authorized on the tunnel server. The installer never generates, guesses,
    rotates, or changes server authorization for a key.
@@ -53,14 +54,28 @@ different operator's machine.
 ```powershell
 $engine = 'C:\path\to\clone\IDEA2-AEGIS_CCTV-Operator\detection-engine'
 $bootstrap = "$env:LOCALAPPDATA\AEGIS\bootstrap"
+$monitorTargetHost = '<deployment-monitor-hostname>'
+$streamBindAddress = '<deployment-stream-interface-ip>'
 
 & "$engine\windows\install_autostart.ps1" `
   -ConfigurationFile "$bootstrap\.env" `
   -TunnelHost 'tunnel-user@aegis-server' `
+  -MonitorTargetHost $monitorTargetHost `
+  -RemoteBindAddress $streamBindAddress `
+  -RemotePort 18077 `
   -IdentityFile "$bootstrap\idea2_tunnel_ed25519" `
   -KnownHostsFile "$bootstrap\known_hosts" `
   -StartNow
 ```
+
+`-MonitorTargetHost` and `-RemoteBindAddress` are mandatory deployment values;
+the source has no Docker bridge IP default. For this gate the stream bind must
+be one explicit non-loopback IPv4 server interface and must match the address assigned to Monitor's
+stable host alias by deployment configuration. If Compose uses `host-gateway`,
+preflight must resolve that alias from inside the Monitor container and prove it
+reaches this same SSH listener before strict association is enabled. Do not
+assume the current `aegis_internal` gateway address, and do not use the former
+diagnostic `:18078` bridge.
 
 The installer copies durable source to
 `%LOCALAPPDATA%\AEGIS\DetectionEngine\app`, creates

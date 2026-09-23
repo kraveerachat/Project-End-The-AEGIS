@@ -6,6 +6,7 @@ import {
   getUserById,
 } from '../db/connection.js'
 import { streamSourceForPhysicalCamera } from '../db/store.js'
+import { approvedStreamUrlForPhysicalCamera } from './physicalStreamSource.js'
 import { clearLocalNode, currentLocalNode, currentUser } from './session.js'
 import { ROLES } from '../rbac/permissions.js'
 
@@ -153,22 +154,29 @@ export async function resolvePhysicalStreamTarget(
   {
     resolveOperatorAccess: resolveAccess = resolveOperatorAccess,
     streamSourceForPhysicalCamera: loadPhysicalSource = streamSourceForPhysicalCamera,
+    approvedStreamUrlForPhysicalCamera: loadApprovedUrl = approvedStreamUrlForPhysicalCamera,
   } = {},
 ) {
   const access = await resolveAccess(req, requestedLogicalCameraId, nowMs)
   let source
+  let approvedUrl
   try {
-    source = await loadPhysicalSource(access.physicalCameraId)
+    ;[source, approvedUrl] = await Promise.all([
+      loadPhysicalSource(access.physicalCameraId),
+      loadApprovedUrl(access.physicalCameraId, access.nodeId),
+    ])
   } catch {
     throw accessError(503, 'PHYSICAL_STREAM_UNAVAILABLE')
   }
   if (
     !source
     || source.nodeId !== access.nodeId
+    || !approvedUrl
+    || source.url !== approvedUrl
     || typeof source.url !== 'string'
     || source.url.length === 0
     || !Number.isFinite(Number(source.ageMs))
     || Number(source.ageMs) > STREAM_STALE_MS
   ) throw accessError(503, 'PHYSICAL_STREAM_UNAVAILABLE')
-  return { access, source }
+  return { access, source: { ...source, url: approvedUrl } }
 }

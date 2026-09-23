@@ -31,6 +31,7 @@ import {
 } from '../db/connection.js'
 import * as store from '../db/store.js'
 import { createUpstreamLifecycle, waitForDrainOrClose } from '../streamLifecycle.js'
+import { approvedStreamUrlForPhysicalCamera } from '../auth/physicalStreamSource.js'
 import { BrowserAssociationChallengeStore } from '../nodeIdentity/browserAssociationChallenges.js'
 import {
   canonicalBrowserAssociationPayload,
@@ -73,20 +74,27 @@ export async function resolveOperatorPhysicalLinkStatus(
   {
     resolveOperatorCameraAccess: resolveAccess = resolveOperatorCameraAccess,
     streamSourceForPhysicalCamera: loadPhysicalSource = store.streamSourceForPhysicalCamera,
+    approvedStreamUrlForPhysicalCamera: loadApprovedUrl = approvedStreamUrlForPhysicalCamera,
     outageActive = store.simulatedOutageActive,
   } = {},
 ) {
   const access = await resolveAccess(req, nowMs)
 
   let source = null
+  let approvedUrl = null
   try {
-    source = await loadPhysicalSource(access.physicalCameraId)
+    ;[source, approvedUrl] = await Promise.all([
+      loadPhysicalSource(access.physicalCameraId),
+      loadApprovedUrl(access.physicalCameraId, access.nodeId),
+    ])
   } catch {
     // Availability endpoints report a closed/lost source. The demanding
     // stream route independently fails with PHYSICAL_STREAM_UNAVAILABLE.
   }
   const ageMs = Number(source?.ageMs)
   const sourceValid = source?.nodeId === access.nodeId
+    && Boolean(approvedUrl)
+    && source?.url === approvedUrl
     && typeof source?.url === 'string'
     && source.url.length > 0
     && Number.isFinite(ageMs)
@@ -537,6 +545,7 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     try {
       upstream = await fetch(src.url, {
         signal: ctrl.signal,
+        redirect: 'error',
         headers: { 'X-Detection-Engine-Key': process.env.DETECTION_ENGINE_API_KEY ?? '' },
       })
     } catch (err) {

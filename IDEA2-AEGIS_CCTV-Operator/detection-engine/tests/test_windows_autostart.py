@@ -62,6 +62,19 @@ class WindowsAutostartSourceTests(unittest.TestCase):
         self.assertIn("while ($true)", tunnel)
         self.assertNotIn("StrictHostKeyChecking=no", tunnel)
 
+    def test_network_destinations_are_explicit_and_never_dynamic_docker_defaults(self) -> None:
+        installer = self.read("install_autostart.ps1")
+        tunnel = self.read("run_detection_tunnel.ps1")
+        for source in (installer, tunnel):
+            self.assertNotIn("172.18.", source)
+        self.assertRegex(tunnel, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$MonitorTargetHost")
+        self.assertRegex(tunnel, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$RemoteBindAddress")
+        self.assertRegex(installer, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$MonitorTargetHost")
+        self.assertRegex(installer, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$RemoteBindAddress")
+        self.assertIn("RemoteBindAddress must identify one explicit server interface", tunnel)
+        for source in (installer, tunnel):
+            self.assertIn("AddressFamily]::InterNetwork", source)
+
     def test_installer_requires_machine_configuration_and_key_material(self) -> None:
         installer = self.read("install_autostart.ps1")
         for key in (

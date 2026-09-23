@@ -9,6 +9,10 @@ import {
   parseLocalNodeAssociationRequirement,
   resolvePhysicalStreamTarget,
 } from '../server/auth/cameraAccess.js'
+import { approvedStreamUrlForPhysicalCamera } from '../server/auth/physicalStreamSource.js'
+
+const streamHost = 'aegis-stream-host.internal'
+const machineAStreamUrl = `http://${streamHost}:18077/stream.mjpg`
 
 test('strict rollout setting defaults false and accepts only explicit booleans', () => {
   assert.equal(parseLocalNodeAssociationRequirement(undefined), false)
@@ -35,15 +39,16 @@ test('physical source lookup uses registry-derived identity for either account a
           lookups.push(physicalCameraId)
           return {
             nodeId: 'machine-a-node',
-            url: 'http://127.0.0.1:8077/stream.mjpg',
+            url: machineAStreamUrl,
             ageMs: 0,
             cameraConnected: false,
           }
         },
+        approvedStreamUrlForPhysicalCamera: async () => machineAStreamUrl,
       },
     )
     assert.equal(result.access.physicalCameraId, 41)
-    assert.equal(result.source.url, 'http://127.0.0.1:8077/stream.mjpg')
+    assert.equal(result.source.url, machineAStreamUrl)
   }
   assert.deepEqual(lookups, [41, 41])
 })
@@ -58,6 +63,63 @@ test('authorization denial occurs before physical source lookup or network fetch
     (error) => error.code === 'CAMERA_ALIAS_DENIED',
   )
   assert.equal(sourceLookups, 0)
+})
+
+test('authenticated heartbeat cannot redirect the Engine credential to an unapproved upstream', async () => {
+  await assert.rejects(
+    resolvePhysicalStreamTarget({}, 'CAM-01', 10_000, {
+      resolveOperatorAccess: async () => ({
+        kind: 'verified-node', viewerMode: 'demanding', userId: 2,
+        nodeId: 'machine-a-node', physicalCameraId: 41, logicalCameraId: 'CAM-01',
+      }),
+      streamSourceForPhysicalCamera: async () => ({
+        nodeId: 'machine-a-node', url: 'http://attacker.invalid/collect',
+        ageMs: 0, cameraConnected: false,
+      }),
+      approvedStreamUrlForPhysicalCamera: async () => 'http://172.18.0.1:18077/stream.mjpg',
+    }),
+    (error) => error instanceof CameraAccessError
+      && error.status === 503
+      && error.code === 'PHYSICAL_STREAM_UNAVAILABLE',
+  )
+})
+
+test('server-owned physical source mapping requires the configured stable host and rejects runtime IPs', () => {
+  const valid = JSON.stringify({ 41: { nodeId: 'machine-a-node', url: machineAStreamUrl } })
+  assert.equal(approvedStreamUrlForPhysicalCamera(41, 'machine-a-node', valid, streamHost), machineAStreamUrl)
+  assert.equal(approvedStreamUrlForPhysicalCamera(41, 'machine-a-node', valid, `${streamHost}.`), null)
+  assert.equal(approvedStreamUrlForPhysicalCamera(41, 'machine-a-node', valid, ''), null)
+  assert.equal(approvedStreamUrlForPhysicalCamera(41, 'machine-a-node', valid, 'other.internal'), null)
+  assert.equal(approvedStreamUrlForPhysicalCamera(41, 'machine-b-node', valid, streamHost), null)
+  assert.equal(approvedStreamUrlForPhysicalCamera(42, 'machine-a-node', valid, streamHost), null)
+  assert.equal(approvedStreamUrlForPhysicalCamera(41, 'machine-a-node', '', streamHost), null)
+  for (const url of [
+    'http://attacker.invalid/collect?key=1',
+    'http://user:pass@aegis-stream-host.internal:18077/stream.mjpg',
+    'http://172.18.0.1:18077/stream.mjpg',
+    'http://aegis-stream-host.internal:0/stream.mjpg',
+    'http://aegis-stream-host.internal:80/stream.mjpg',
+    'file:///stream.mjpg',
+    'http://aegis-stream-host.internal:18077/other',
+  ]) {
+    const config = JSON.stringify({ 41: { nodeId: 'machine-a-node', url } })
+    assert.equal(approvedStreamUrlForPhysicalCamera(41, 'machine-a-node', config, streamHost), null)
+  }
+})
+
+test('Compose Monitor passes the server-owned physical stream mapping into its container', () => {
+  const compose = fs.readFileSync(new URL('../../docker-compose.yml', import.meta.url), 'utf8')
+  const rootEnv = fs.readFileSync(new URL('../../.env.example', import.meta.url), 'utf8')
+  const monitor = compose.split(/\r?\n  monitor:\r?\n/)[1]?.split(/\r?\n  aegis-camera:\r?\n/)[0]
+  assert.ok(monitor, 'Monitor service exists in Compose')
+  assert.match(monitor, /AEGIS_REQUIRE_LOCAL_NODE_ASSOCIATION:\s*['"]?\$\{AEGIS_REQUIRE_LOCAL_NODE_ASSOCIATION/)
+  assert.match(monitor, /AEGIS_TRUSTED_PHYSICAL_STREAM_SOURCES:\s*\$\{AEGIS_TRUSTED_PHYSICAL_STREAM_SOURCES/)
+  assert.match(monitor, /AEGIS_MONITOR_STREAM_HOST:\s*\$\{AEGIS_MONITOR_STREAM_HOST/)
+  assert.match(monitor, /extra_hosts:[\s\S]*AEGIS_MONITOR_STREAM_HOST[\s\S]*AEGIS_MONITOR_STREAM_HOST_GATEWAY/)
+  assert.doesNotMatch(monitor, /172\.18\.0\./)
+  assert.match(rootEnv, /^AEGIS_MONITOR_STREAM_HOST=aegis-stream-host\.internal$/m)
+  assert.match(rootEnv, /^AEGIS_MONITOR_STREAM_HOST_GATEWAY=host-gateway$/m)
+  assert.match(rootEnv, /^AEGIS_TRUSTED_PHYSICAL_STREAM_SOURCES=\{\}$/m)
 })
 
 test('missing, stale, malformed, or uncertain physical source fails without logical fallback', async () => {

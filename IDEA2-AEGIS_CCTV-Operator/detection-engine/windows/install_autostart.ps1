@@ -9,12 +9,14 @@ param(
     [string]$TunnelTaskName = 'AEGIS Detection Tunnel',
     [string]$KeyMigrationTaskName = 'AEGIS Detection Key Migration',
     [string]$LegacyEngineTaskName = 'AEGIS Detection Engine',
-    [string]$MonitorTargetHost = '172.18.0.2',
+    [Parameter(Mandatory = $true)]
+    [string]$MonitorTargetHost,
     [ValidateRange(1, 65535)]
     [int]$MonitorTargetPort = 8002,
     [ValidateRange(1, 65535)]
     [int]$LocalForwardPort = 18002,
-    [string]$RemoteBindAddress = '172.18.0.1',
+    [Parameter(Mandatory = $true)]
+    [string]$RemoteBindAddress,
     [ValidateRange(1, 65535)]
     [int]$RemotePort = 18077,
     [ValidateRange(1, 65535)]
@@ -216,6 +218,14 @@ if ($MonitorTargetHost -notmatch '^[A-Za-z0-9._:-]+$') {
 $parsedRemoteAddress = $null
 if (-not [Net.IPAddress]::TryParse($RemoteBindAddress, [ref]$parsedRemoteAddress)) {
     throw 'RemoteBindAddress must be a literal IP address.'
+}
+if ($parsedRemoteAddress.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
+    throw 'RemoteBindAddress must be an IPv4 server interface.'
+}
+if ([Net.IPAddress]::IsLoopback($parsedRemoteAddress) -or
+    $parsedRemoteAddress.Equals([Net.IPAddress]::Any) -or
+    $parsedRemoteAddress.Equals([Net.IPAddress]::IPv6Any)) {
+    throw 'RemoteBindAddress must identify one explicit server interface.'
 }
 
 $resolvedConfiguration = Resolve-OptionalFile -Path $ConfigurationFile -Label 'Configuration file'

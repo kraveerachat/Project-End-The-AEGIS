@@ -33,7 +33,10 @@ export async function resolveOperatorCameraAccess() {
   return fixture.access
 }
 export async function resolveOperatorAccess() { return fixture.access }
-export async function resolvePhysicalStreamTarget() { throw new Error('not used') }
+export async function resolvePhysicalStreamTarget() {
+  if (fixture.accessError) throw new CameraAccessError(fixture.accessError.status, fixture.accessError.code)
+  return { access: fixture.access, source: fixture.source }
+}
 `
 
 const storeUrl = `data:text/javascript,${encodeURIComponent(storeSource)}`
