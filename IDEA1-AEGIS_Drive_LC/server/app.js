@@ -13,6 +13,7 @@ import { errorHandler, apiNotFound } from './middleware/errorHandler.js'
 import { requireAuth } from './middleware/requireRole.js'
 import { apiRouter } from './routes/api.js'
 import { shareRouter } from './routes/share.js'
+import { integrationRouter } from './routes/integration.js'
 import { checkDb } from './db/connection.js'
 import { checkStorage } from './storage/fileStore.js'
 import { trustedProxyFromEnv } from './config/trustedProxy.js'
@@ -114,6 +115,12 @@ export function createApp({
   app.post('/api/trash/empty', requireAuth)
   app.post('/api/trash/:id/restore', requireAuth)
   app.delete('/api/trash/:id', requireAuth)
+
+  // IDEA3 cross-IDEA visibility feed (service-to-service, read-only): mounted
+  // before the CSRF+session /api chain, same reasoning as shareRouter — this
+  // caller has no browser, no cookie, and no CSRF token; its own dedicated
+  // credential (requireIdea3IntegrationKey) is the entire auth boundary.
+  app.use(integrationRouter)
 
   // CSRF ครอบทุก /api ที่เปลี่ยนสถานะ — ต้องมาก่อน router
   app.use('/api', csrfProtection, apiRouter)

@@ -463,6 +463,48 @@ export async function listAlerts(visibleIds, limit = 15) {
   }))
 }
 
+/**
+ * สถานะรวมของ Detection Engine ทั้งระบบ (ไม่กรองตาม visibleIds) — คำนวณจาก
+ * heartbeat ล่าสุดที่สุดของกล้องใด ๆ ก็ได้ ใช้ logic เดียวกับ statusFromAge ที่
+ * /api/link ใช้อยู่แล้ว (ไม่สร้างตรรกะใหม่ซ้ำ) เพียงแต่มองภาพรวมทั้ง engine แทน
+ * รายกล้อง — ใช้โดย GET /api/integration/events (IDEA3 "detector status")
+ */
+export async function readDetectorStatus() {
+  if (!usingPostgres) return { status: 'lost', ageMs: null, cameras: 0 }
+  const { rows } = await query(
+    `SELECT count(*)::int AS cameras,
+            EXTRACT(EPOCH FROM (now() - max(last_seen_at))) * 1000 AS age_ms
+       FROM camera_heartbeat`,
+  )
+  const r = rows[0] ?? {}
+  const ageMs = r.age_ms == null ? null : Math.round(Number(r.age_ms))
+  return { status: statusFromAge(ageMs), ageMs, cameras: Number(r.cameras ?? 0) }
+}
+
+/**
+ * อ่านการแจ้งเตือนความปลอดภัย (alerts) แบบจำกัดจำนวน ข้าม-กล้องทั้งหมด — ใช้โดย
+ * GET /api/integration/events (credential เฉพาะทางของ IDEA3 เท่านั้น ไม่ใช่ session SOC)
+ * ⚠️ Privacy-safe โดยเจตนา: ไม่ส่ง snapshot_path / matched_name / title / telegram
+ *    ข้ามระบบ — external consumer เห็นแค่ id, เวลา, ความรุนแรง, และกล้องที่เกี่ยวข้อง
+ */
+export async function readIntegrationSecurityEvents({ limit = 200 } = {}) {
+  if (!usingPostgres) return []
+  const bounded = Math.min(200, Math.max(1, Number(limit) || 200))
+  const { rows } = await query(
+    `SELECT id, EXTRACT(EPOCH FROM at) * 1000 AS at_ms, severity, camera_id
+       FROM alerts
+      ORDER BY at DESC
+      LIMIT $1`,
+    [bounded],
+  )
+  return rows.map((r) => ({
+    id: String(r.id),
+    at: new Date(Math.round(Number(r.at_ms))),
+    severity: r.severity,
+    cameraId: r.camera_id,
+  }))
+}
+
 /** ack — การเขียนเดียวที่ console มี; เก็บ acked_by เป็น user id (FK) */
 export async function ackAlert(id, user) {
   if (!usingPostgres) return null
