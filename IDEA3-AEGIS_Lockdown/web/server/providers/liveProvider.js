@@ -26,20 +26,54 @@ function feedOperationalError(feed, now, component) {
 }
 
 /**
- * Transport success is not evidence freshness. A feed is only reported HEALTHY
- * when the envelope itself is inside the configured window; a successful fetch of
- * stale or future evidence stays visible but drops out of containment eligibility.
+ * The single source of truth for "is this source actually healthy" — every
+ * other function in this module (feedSourceState, feedSummary, the lifecycle
+ * transition) MUST call this rather than re-deriving health, so they cannot
+ * drift from one another or from each other's fail-closed rules.
+ *
+ * Transport success is not evidence freshness, and is not service health:
+ *   - transport/schema failure or NOT_CONFIGURED: unchanged existing status
+ *     (UNKNOWN / NOT_CONFIGURED) — serviceOk is irrelevant, it was never
+ *     reached.
+ *   - stale/future/malformed envelope freshness: always UNKNOWN, regardless
+ *     of what the producer's own status block says — a producer cannot
+ *     claim its own health is trustworthy through evidence we already know
+ *     is too old or malformed to trust.
+ *   - fresh envelope + serviceOk === true: HEALTHY.
+ *   - fresh envelope + serviceOk === false: DEGRADED — a definite,
+ *     producer-reported problem (e.g. IDEA1's DB unreachable, IDEA2's
+ *     detector heartbeat lost).
+ *   - fresh envelope + serviceOk === null: UNKNOWN — the producer never
+ *     reported real health, so honest transport success must NOT be
+ *     reported as "healthy". This is the fail-closed default and matches
+ *     the binding MVP requirement that feed reachability is not proof of
+ *     actual Drive/Detector health.
  */
+function effectiveSourceHealth(feed) {
+  if (feed.status !== 'HEALTHY') return feed.status
+  if (!feed.code && STALE_FRESHNESS.has(feed.envelopeFreshness)) return 'UNKNOWN'
+  if (feed.serviceOk === true) return 'HEALTHY'
+  if (feed.serviceOk === false) return 'DEGRADED'
+  return 'UNKNOWN'
+}
+
 function feedSourceState(id, name, feed, lifecycle) {
   const stale = !feed.code && STALE_FRESHNESS.has(feed.envelopeFreshness)
+  const status = effectiveSourceHealth(feed)
+  const reportedDegraded = !stale && status === 'DEGRADED'
+  const reportedUnknownService = !stale && feed.status === 'HEALTHY' && status === 'UNKNOWN'
   return {
     id,
     name,
-    status: feed.status === 'HEALTHY' && stale ? 'UNKNOWN' : feed.status,
+    status,
     freshness: feed.code ? 'ABSENT' : feed.envelopeFreshness,
     generatedAt: feed.generatedAt,
     latencyMs: null,
-    detail: feed.code || (stale ? 'Validated response with stale evidence' : 'Validated response'),
+    detail: feed.code
+      || (stale ? 'Validated response with stale evidence'
+        : reportedDegraded ? 'Upstream reports degraded service'
+          : reportedUnknownService ? 'Upstream did not report a verifiable service status'
+            : 'Validated response'),
     lifecycle,
   }
 }
@@ -47,7 +81,7 @@ function feedSourceState(id, name, feed, lifecycle) {
 function feedSummary(feed, lifecycle) {
   return {
     source: feed.source,
-    status: feedSourceState(feed.source, feed.source, feed, lifecycle).status,
+    status: effectiveSourceHealth(feed),
     code: feed.code,
     freshness: feed.code ? 'ABSENT' : feed.envelopeFreshness,
     generatedAt: feed.generatedAt,
@@ -55,6 +89,10 @@ function feedSummary(feed, lifecycle) {
     rejectedCount: feed.rejectedCount,
     conflictCount: feed.conflicts.length,
     lifecycle,
+    // Real, producer-reported service/daemon status — null means the
+    // producer hasn't reported it (never assumed healthy from that).
+    serviceOk: feed.serviceOk,
+    serviceDetail: feed.serviceDetail,
   }
 }
 
@@ -94,7 +132,7 @@ export function createLiveProvider({ config, fetchImpl = fetch, clock = () => ne
 
       for (const feed of [idea1Feed, idea2Feed]) {
         if (feed.status === 'NOT_CONFIGURED') continue
-        lifecycles[feed.source] = nextLifecycle(lifecycles[feed.source], feed.status === 'HEALTHY')
+        lifecycles[feed.source] = nextLifecycle(lifecycles[feed.source], effectiveSourceHealth(feed) === 'HEALTHY')
       }
 
       const integrationEvents = [...idea1Feed.events, ...idea2Feed.events]
