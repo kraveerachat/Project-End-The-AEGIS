@@ -18,6 +18,46 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L2 live — ACCEPTED (containment host verification PARTIAL) — 2026-09-24
+
+> [!important] L2 firewall/forwarding persistence live acceptance PROVEN (owner-run; results as reported by the owner)
+> `L1_LIVE_ACCEPTANCE = PROVEN` (predecessor, see the L1 rerun2 section below)
+> `L2_LIVE_EXECUTED = YES`, `L2_VERIFY = PASS`, `L2_POST_CAPTURE = COMPLETE`, `L2_PRE_POST_COMPARE = PASS`,
+> `L2_S10_PRESERVATION = PASS`, `L2_LIVE_ACCEPTANCE = PROVEN`
+> `FORWARDING = DISABLED` (all seven sysctls 0), `NAT = ABSENT`, `MASQUERADE = ABSENT`, `BRIDGE = ABSENT`
+> `NFT_IDEA3_TABLE = LOADED` (`inet aegis_idea3`, set `blocked_ipv4`), `CONTAINMENT_SOCKET = ACTIVE_ENABLED`
+> (`aegis-idea3-containment.service` loaded, inactive, `MainPID=0`, static: no containment request was sent)
+> `CONTAINMENT_LIVE_HOST_VERIFICATION = PARTIAL`, `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`,
+> `SOFTWARE_IP_UNBLOCK = SOURCE_IMPLEMENTED`, `HOST_VERIFIED = NO`
+> `L3_LIVE_EXECUTED = NO`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`
+>
+> Authorization: same-day Music batch authorization (`pull/190#issuecomment-5799763300`, `L2=AUTHORIZED`,
+> `PRODUCTION_SCOPE=REVIEWED_PHASE4_STAGE_HANDLERS_ONLY`, `ROLLBACK_SCOPE=CURRENT_STAGE_ONLY`) and Kla K3 / integration
+> confirmation (`pull/190#issuecomment-5800317385`, `K3_L2=CONFIRMED`, `IDEA1_WINDOW_OVERLAP=NONE`,
+> `L2_INTEGRATION_REVIEW=APPROVED`); canonical gate `AUTHORIZATION_RECORD=VALID`, `K3_CONFIRMATION=VALID`.
+> Owner-approved live values: interface `wlp0s20f3`, AP subnet `10.77.30.0/28`, Core AP address `10.77.30.1`, channel 6, country TH,
+> protected CIDRs `10.77.30.0/28,192.168.1.0/24,100.96.0.0/12,192.168.10.10/32`. Private render/evidence stay outside the repository.
+> Window: `JOURNAL_SINCE = 2026-09-23 21:20:13 UTC`; evidence under `~/idea3-p4-evidence/2026-09-24-l2/`
+> (`pre-root`, `post-root`, `compare-pre-post.txt`, `render`, `stage-work`); both bundles `SHA256SUMS = PASS`.
+> Apply (owner-run reviewed handler, `AEGIS_P4_FS_ROOT` unset): `L2_APPLY=PASS`, `L2_TABLE=inet/aegis_idea3`,
+> `FORWARDING_TARGET=DISABLED`, `APPLY_RC=0`. Compare (L2 allow files, threshold 90): `NEW_OR_WORSENED_DRIFT=0`,
+> `BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `INCOMPARABLE=0`, `APPROVED_CHANGE=22`, `INFO=3`; `DRIFT_RESULT=PASS`,
+> `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. PRE=POST: Engine `868`/`0`, Tunnel `398125`/`16`, Twingate `2972`/`0`;
+> `:8077`, `:18002`, default route via `enp62s0`, `192.168.10.10` via `sdwan0` preserved; disk 88%; chronyd loaded/inactive/disabled;
+> `listen.udp.ephemeral_filter = kernel-range-32768-60999`. `runtime_healthy = NOT_PROVEN` remains the read-only L0 limitation.
+> The `PRODUCTION_MUTATION_PERFORMED=NO` printed by verify/compare describes those read-only steps, not the L2 apply.
+>
+> Containment limitation: `/opt/aegis-idea3/current` is not installed on the host, so the helper runtime was deliberately not
+> activated and live containment contract items 7–13 (block, idempotency, observed traffic denial, listing, unblock, restoration,
+> audit) were not performed; no authorized external test source is defined, and any test source must lie outside the protected CIDRs.
+> Source and local functional evidence (`verify-containment-functional.sh`) are unchanged and are not host proof.
+>
+> Documentation discrepancy (not a Production change): the live `forward` chain has `policy accept` plus
+> `iifname "wlp0s20f3" drop`; AP-originated forwarding is denied, which is the approved behavior. Older prose saying the whole
+> forward-chain policy must be `drop` is a history discrepancy.
+
+---
+
 ## IDEA3 PR11 Phase 4 L1 live rerun2 — ACCEPTED — 2026-09-24
 
 > [!important] L1 live acceptance PROVEN in a fresh preservation window (owner-run; results as reported by the owner)
