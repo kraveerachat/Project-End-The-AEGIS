@@ -18,6 +18,32 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 IDEA2 §10 window-delta criterion — candidate — 2026-09-23
+
+> [!important] Candidate repository change — owner acceptance PENDING
+> Branch `fix/idea3-pr11-s10-window-delta-criterion` (Draft PR, base `baf0a94e`)
+> reconciles the IDEA2 §10 preservation contract with observed reality. A
+> historical absolute `idea2.tunnel.NRestarts > 0` is no longer, by itself, an
+> unhealthy L0 tunnel baseline; the recorded count is never normalized. The
+> preservation dimension is the window delta: `NRestarts` and `MainPID` unchanged
+> pass, any increase or PID change fails. A new failure class, `:8077`/`:18002`
+> loss, and a currently unhealthy tunnel (inactive, `:18002` absent, journal
+> failure class) still fail. Focused RED→GREEN tests cover cases A–F; the PR11
+> suite passes (885). The compare summary prints
+> `IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE`.
+>
+> Fresh read-only evidence (owner-run, no lifecycle action):
+> `FRESH_DISK_USE = 88%`, `DISK_L1_GATE = PASS` (threshold 90%),
+> `FRESH_IDEA2_OBSERVATION_SECONDS = 821`, `ENGINE_NRESTARTS = 0->0`,
+> `TUNNEL_NRESTARTS = 15->15`, `TUNNEL_MAINPID_UNCHANGED = YES`,
+> `LISTEN_8077 = YES`, `LISTEN_18002 = YES`, `MONITOR_HEALTHZ = PASS`.
+>
+> `CONTRACT_REALITY_MISMATCH = RESOLVED_IN_CANDIDATE_CODE`
+> `IDEA2_OWNER_ACCEPTANCE = PENDING_PR_REVIEW` (Pub, `pubpup2006p-design`)
+> `S10_IDEA2_CAVEAT = OPEN` (stage gate unchanged until acceptance)
+> `L1_LIVE_EXECUTION = NOT_RUN`, `PRODUCTION_MUTATION = NO`.
+> `IDEA2_S10_FINAL_ACCEPTED` is not claimed. No receipt yet (Draft).
+
 ## IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17
 
 > [!important] Current IDEA3 task — IN PROGRESS

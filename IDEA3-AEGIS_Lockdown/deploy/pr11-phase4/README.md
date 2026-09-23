@@ -111,11 +111,20 @@ drift, `:8077` disappearing, any `:18002` change, service state and restart
 changes, time sync loss, disk threshold worsening, Mosquitto config changes, a
 reboot, and a host mismatch.
 
-**§10 is not weakened.** An unhealthy IDEA2 tunnel in the before capture yields
+**§10 fail-closed behavior is preserved.** An unhealthy IDEA2 tunnel in the before
+capture (inactive, `:18002` absent, or a journal failure class) yields
 `IDEA2_TUNNEL_BASELINE_UNHEALTHY` even when nothing changed, so
 `PRESERVATION_S10=FAIL` and `COMPARE_RESULT=FAIL`, and every live stage stays
-blocked. `IDEA2_NARROWED_CRITERION=NOT_ACCEPTED` is fixed; only a written,
-IDEA2-owner-accepted criterion merged through review may change that.
+blocked.
+
+**Candidate narrowed criterion (window delta).** A historical absolute
+`idea2.tunnel.NRestarts > 0` that arose before the preservation window is recorded
+in evidence but is not by itself a current-health failure. Within the window,
+`NRestarts` and `MainPID` must be unchanged; any increase or PID change, a new
+failure class, or loss of `:8077`/`:18002` still fails. The compare summary prints
+`IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE`; final
+acceptance (`IDEA2_OWNER_ACCEPTANCE=PENDING_PR_REVIEW`) requires IDEA2 owner Pub's
+PR approval, and `S10_IDEA2_CAVEAT=OPEN` in the stage gate is unchanged until then.
 
 ## 3. Stage gate
 
