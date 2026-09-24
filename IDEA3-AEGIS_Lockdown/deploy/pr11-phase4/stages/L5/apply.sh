@@ -149,14 +149,14 @@ if [ -z "$ROOT" ]; then
 
   # systemd-timesyncd active & running
   systemctl is-active systemd-timesyncd.service >/dev/null 2>&1 || fail TIMESYNCD_NOT_ACTIVE
-  local substate
+  # substate: plain variable (this block runs at script level, not in a function)
   substate="$(systemctl show -p SubState systemd-timesyncd.service 2>/dev/null || echo "")"
   [ "$substate" = "SubState=running" ] || fail TIMESYNCD_NOT_RUNNING
 
   # Core TrustedClock evaluates to SYNCED with maxerror <= 1,000,000 us
   tc_eval="$(python3 -c "
 import sys
-sys.path.insert(0, '$P4_HERE/../../IDEA3-AEGIS_Lockdown')
+sys.path.insert(0, '$P4_HERE/../..')
 from aegis_soc.trusted_time import TrustedClock, adjtimex_probe
 tc = TrustedClock()
 probe = adjtimex_probe()
