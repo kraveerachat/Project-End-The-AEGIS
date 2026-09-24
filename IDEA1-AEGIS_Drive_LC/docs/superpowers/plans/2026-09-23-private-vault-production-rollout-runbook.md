@@ -156,7 +156,10 @@ FFMPEG=8.0.1
 FFPROBE=8.0.1
 SHARP=0.35.4
 VIPS=8.18.6
-IMAGE_USER=1000:1000
+IMAGE_CONFIG_USER=node
+RUNTIME_USER_NAME=node
+RUNTIME_UID=1000
+RUNTIME_GID=1000
 STARTUP_FILES=PASS
 TREE_ENV_BAKED_IN=NO
 DATABASE_URL_BAKED_IN=NO
@@ -334,29 +337,76 @@ CHAIN=(
   -f /opt/aegis/runtime/pr150/drive-media-preview-1a3c16622407.yml
 )
 
-"${D[@]}" inspect aegis-prod-drive-1 --format 'IMAGE={{.Config.Image}} HEALTH={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} RESTARTS={{.RestartCount}} OOM={{.State.OOMKilled}}'
-"${D[@]}" inspect aegis-prod-postgres-1 --format 'IMAGE={{.Config.Image}} HEALTH={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} RESTARTS={{.RestartCount}} OOM={{.State.OOMKilled}}'
-"${D[@]}" exec aegis-prod-postgres-1 sh -lc 'psql -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1 -Atc "SELECT current_setting('"'"'server_version_num'"'"'); SELECT count(*) FROM information_schema.tables WHERE table_schema='"'"'public'"'"' AND table_name IN ('"'"'vault_tree_state'"'"','"'"'vault_tree_frozen_inventory'"'"','"'"'vault_tree_key_envelope'"'"','"'"'vault_tree_heads'"'"','"'"'vault_tree_revisions'"'"','"'"'vault_tree_blob_state'"'"','"'"'vault_tree_purge_candidates'"'"'); SELECT '"'"'vault_meta='"'"'||count(*) FROM vault_meta; SELECT '"'"'vault_blobs='"'"'||count(*) FROM vault_blobs; SELECT '"'"'vault_v2_blobs='"'"'||count(*) FROM vault_v2_blobs;"'
+EXPECTED_CURRENT_DRIVE_IMAGE=aegis-prod-drive:media-preview-1a3c16622407
+EXPECTED_TREE_TABLE_COUNT=0
+EXPECTED_CANDIDATE_REVISION=70b0fdf059672e2b1c408ec5e5c16cfed5261257
+EXPECTED_STAGE_A_OVERLAY_SHA256=577a25b20bbef0112a675cc1f2a48af593bd17b009eab2bda041e6819dd621d1
+
+EXPECTED_CONFIG_FILES=''
+for ((i=1; i<${#CHAIN[@]}; i+=2)); do
+  [[ -z "$EXPECTED_CONFIG_FILES" ]] || EXPECTED_CONFIG_FILES+=','
+  EXPECTED_CONFIG_FILES+="${CHAIN[$i]}"
+done
+
+LIVE_PROJECT=$("${D[@]}" inspect aegis-prod-drive-1 --format '{{index .Config.Labels "com.docker.compose.project"}}')
+LIVE_CONFIG_FILES=$("${D[@]}" inspect aegis-prod-drive-1 --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}')
+LIVE_SERVICE=$("${D[@]}" inspect aegis-prod-drive-1 --format '{{index .Config.Labels "com.docker.compose.service"}}')
+printf 'LIVE_PROJECT=%s\nLIVE_SERVICE=%s\nLIVE_CONFIG_FILES=%s\n' "$LIVE_PROJECT" "$LIVE_SERVICE" "$LIVE_CONFIG_FILES"
+test "$LIVE_PROJECT" = 'aegis-prod' || { echo 'STOP: live Drive Compose project mismatch' >&2; exit 1; }
+test "$LIVE_SERVICE" = 'drive' || { echo 'STOP: live Drive Compose service mismatch' >&2; exit 1; }
+test "$LIVE_CONFIG_FILES" = "$EXPECTED_CONFIG_FILES" || { echo 'STOP: unexplained live Drive Compose config-file chain difference' >&2; exit 1; }
+
+IFS='|' read -r CURRENT_DRIVE_IMAGE CURRENT_DRIVE_HEALTH CURRENT_DRIVE_RESTARTS CURRENT_DRIVE_OOM < <(
+  "${D[@]}" inspect aegis-prod-drive-1 --format '{{.Config.Image}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}|{{.State.OOMKilled}}'
+)
+printf 'CURRENT_DRIVE_IMAGE=%s\nCURRENT_DRIVE_HEALTH=%s\nCURRENT_DRIVE_RESTARTS=%s\nCURRENT_DRIVE_OOM=%s\n' "$CURRENT_DRIVE_IMAGE" "$CURRENT_DRIVE_HEALTH" "$CURRENT_DRIVE_RESTARTS" "$CURRENT_DRIVE_OOM"
+test "$CURRENT_DRIVE_IMAGE" = "$EXPECTED_CURRENT_DRIVE_IMAGE" || { echo 'STOP: current Production Drive image mismatch' >&2; exit 1; }
+test "$CURRENT_DRIVE_HEALTH" = 'healthy' || { echo 'STOP: current Production Drive is not healthy' >&2; exit 1; }
+test "$CURRENT_DRIVE_OOM" = 'false' || { echo 'STOP: current Production Drive reports OOMKilled' >&2; exit 1; }
+
+IFS='|' read -r POSTGRES_IMAGE POSTGRES_HEALTH POSTGRES_RESTARTS POSTGRES_OOM < <(
+  "${D[@]}" inspect aegis-prod-postgres-1 --format '{{.Config.Image}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}|{{.State.OOMKilled}}'
+)
+printf 'POSTGRES_IMAGE=%s\nPOSTGRES_HEALTH=%s\nPOSTGRES_RESTARTS=%s\nPOSTGRES_OOM=%s\n' "$POSTGRES_IMAGE" "$POSTGRES_HEALTH" "$POSTGRES_RESTARTS" "$POSTGRES_OOM"
+test "$POSTGRES_HEALTH" = 'healthy' || { echo 'STOP: current Production PostgreSQL is not healthy' >&2; exit 1; }
+test "$POSTGRES_OOM" = 'false' || { echo 'STOP: current Production PostgreSQL reports OOMKilled' >&2; exit 1; }
+POSTGRES_VERSION_NUM=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'psql -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1 -Atc "SELECT current_setting('"'"'server_version_num'"'"');"')
+TREE_TABLE_COUNT=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'psql -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='"'"'public'"'"' AND table_name IN ('"'"'vault_tree_state'"'"','"'"'vault_tree_frozen_inventory'"'"','"'"'vault_tree_key_envelope'"'"','"'"'vault_tree_heads'"'"','"'"'vault_tree_revisions'"'"','"'"'vault_tree_blob_state'"'"','"'"'vault_tree_purge_candidates'"'"');"')
+PRE_LEGACY_COUNTS=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'psql -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1 -Atc "SELECT '"'"'vault_meta='"'"'||count(*) FROM vault_meta; SELECT '"'"'vault_blobs='"'"'||count(*) FROM vault_blobs; SELECT '"'"'vault_v2_blobs='"'"'||count(*) FROM vault_v2_blobs;"')
+printf 'POSTGRES_VERSION_NUM=%s\nTREE_TABLE_COUNT=%s\n%s\n' "$POSTGRES_VERSION_NUM" "$TREE_TABLE_COUNT" "$PRE_LEGACY_COUNTS"
+POSTGRES_MAJOR=$((POSTGRES_VERSION_NUM / 10000))
+test "$POSTGRES_MAJOR" = '15' || { echo 'STOP: PostgreSQL major is not 15' >&2; exit 1; }
+test "$TREE_TABLE_COUNT" = "$EXPECTED_TREE_TABLE_COUNT" || { echo 'STOP: migration 011/TREE tables are already present' >&2; exit 1; }
 
 PRE_SCHEMA_SHA256=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'pg_dump -U "$POSTGRES_USER" -d aegis_drive --schema-only --no-owner --no-privileges | grep -vE "^\\\\(un)?restrict " | sha256sum | cut -d" " -f1')
 PRE_DATA_SHA256=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'pg_dump -U "$POSTGRES_USER" -d aegis_drive --data-only --no-owner --no-privileges | grep -vE "^\\\\(un)?restrict " | sha256sum | cut -d" " -f1')
 printf 'PRE_SCHEMA_SHA256=%s\nPRE_DATA_SHA256=%s\n' "$PRE_SCHEMA_SHA256" "$PRE_DATA_SHA256"
 ```
 
-Stop unless Drive/PostgreSQL are healthy, restart/OOM values are acceptable,
-PostgreSQL major is 15, TREE table count is 0, and the legacy row-count baseline
-is recorded. Run Stage A in the same shell and maintenance window; the pre-cutover
-schema/data fingerprints above stay in memory for the post-cutover equality gate.
+Run the complete Second Stage A in this same shell during a controlled maintenance
+window with no intentional user writes. Any unexplained extra or missing live
+Compose config file stops the cutover. The pre-cutover row counts and normalized
+schema/data fingerprints stay in memory for exact post-cutover comparison.
 
 ### C. Production host — verify transfer, load, and install Stage A overlay
 
 ```bash
-sha256sum /tmp/aegis-prod-drive-vault-tree-70b0fdf05967.tar
+SERVER_ARCHIVE_SHA256=$(sha256sum /tmp/aegis-prod-drive-vault-tree-70b0fdf05967.tar | cut -d' ' -f1)
+printf 'SERVER_ARCHIVE_SHA256=%s\n' "$SERVER_ARCHIVE_SHA256"
+read -r -p 'Paste approved local workstation archive SHA-256: ' APPROVED_LOCAL_ARCHIVE_SHA256
+[[ "$APPROVED_LOCAL_ARCHIVE_SHA256" =~ ^[[:xdigit:]]{64}$ ]] || { echo 'STOP: approved local archive SHA-256 is invalid' >&2; exit 1; }
+test "${APPROVED_LOCAL_ARCHIVE_SHA256,,}" = "$SERVER_ARCHIVE_SHA256" || { echo 'STOP: transferred archive SHA-256 does not match the approved workstation value' >&2; exit 1; }
+
 "${D[@]}" load --input /tmp/aegis-prod-drive-vault-tree-70b0fdf05967.tar
-"${D[@]}" image inspect aegis-prod-drive:vault-tree-70b0fdf05967 --format 'ID={{.Id}} REV={{index .Config.Labels "org.opencontainers.image.revision"}} SOURCE={{index .Config.Labels "org.opencontainers.image.source"}} USER={{.Config.User}}'
+CANDIDATE_REVISION=$("${D[@]}" image inspect aegis-prod-drive:vault-tree-70b0fdf05967 --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+"${D[@]}" image inspect aegis-prod-drive:vault-tree-70b0fdf05967 --format 'ID={{.Id}} REV={{index .Config.Labels "org.opencontainers.image.revision"}} SOURCE={{index .Config.Labels "org.opencontainers.image.source"}} IMAGE_CONFIG_USER={{.Config.User}}'
+test "$CANDIDATE_REVISION" = "$EXPECTED_CANDIDATE_REVISION" || { echo 'STOP: candidate OCI revision mismatch' >&2; exit 1; }
+
 sudo install -d -m 0755 /opt/aegis/runtime/pr187
 sudo install -m 0644 /tmp/drive-image-70b0fdf05967.yml /opt/aegis/runtime/pr187/drive-image-70b0fdf05967.yml
-sha256sum /opt/aegis/runtime/pr187/drive-image-70b0fdf05967.yml
+STAGE_A_OVERLAY_SHA256=$(sha256sum /opt/aegis/runtime/pr187/drive-image-70b0fdf05967.yml | cut -d' ' -f1)
+printf 'STAGE_A_OVERLAY_SHA256=%s\n' "$STAGE_A_OVERLAY_SHA256"
+test "$STAGE_A_OVERLAY_SHA256" = "$EXPECTED_STAGE_A_OVERLAY_SHA256" || { echo 'STOP: installed Stage A overlay SHA-256 mismatch' >&2; exit 1; }
 ```
 
 Required image ID is
@@ -365,18 +415,75 @@ required OCI revision is
 `70b0fdf059672e2b1c408ec5e5c16cfed5261257`; required overlay SHA-256 is
 `577a25b20bbef0112a675cc1f2a48af593bd17b009eab2bda041e6819dd621d1`.
 
-### D. Production host — render and apply Drive-only Stage A
+### D. Production host — non-persistent Stage A render validation
 
 ```bash
 "${COMPOSE[@]}" "${CHAIN[@]}" \
   -f /opt/aegis/runtime/pr187/drive-image-70b0fdf05967.yml \
-  config > /tmp/aegis-pr187-stage-a-rendered.yml
+  config --quiet
 
-grep -n 'aegis-prod-drive:vault-tree-70b0fdf05967' /tmp/aegis-pr187-stage-a-rendered.yml
-if grep -nE 'VAULT_TREE_SCHEMA_AVAILABLE|VAULT_TREE_PROTOCOL_ENABLED|VAULT_TREE_GENESIS_MIGRATION_ENABLED|VAULT_TREE_UI_ENABLED|VAULT_MEDIA_PREVIEW_ENABLED|VAULT_DESTRUCTIVE_PURGE_ENABLED' /tmp/aegis-pr187-stage-a-rendered.yml; then
+STAGE_A_IMAGES=$("${COMPOSE[@]}" "${CHAIN[@]}" \
+  -f /opt/aegis/runtime/pr187/drive-image-70b0fdf05967.yml \
+  config --images)
+CANDIDATE_IMAGE_COUNT=$(printf '%s\n' "$STAGE_A_IMAGES" | grep -Fxc 'aegis-prod-drive:vault-tree-70b0fdf05967' || true)
+printf 'EXPECTED_STAGE_A_DRIVE_IMAGE=%s\n' 'aegis-prod-drive:vault-tree-70b0fdf05967'
+test "$CANDIDATE_IMAGE_COUNT" = '1' || { echo 'STOP: Stage A candidate image is missing or duplicated in the effective Compose model' >&2; exit 1; }
+
+FORBIDDEN_STAGE_A_LINES=$("${COMPOSE[@]}" "${CHAIN[@]}" \
+  -f /opt/aegis/runtime/pr187/drive-image-70b0fdf05967.yml \
+  config | grep -nE 'VAULT_TREE_SCHEMA_AVAILABLE|VAULT_TREE_PROTOCOL_ENABLED|VAULT_TREE_GENESIS_MIGRATION_ENABLED|VAULT_TREE_UI_ENABLED|VAULT_MEDIA_PREVIEW_ENABLED|VAULT_DESTRUCTIVE_PURGE_ENABLED' || true)
+if [[ -n "$FORBIDDEN_STAGE_A_LINES" ]]; then
+  printf '%s\n' "$FORBIDDEN_STAGE_A_LINES"
   echo 'STOP: Stage A render contains TREE flags' >&2
   exit 1
 fi
+echo 'STAGE_A_NON_PERSISTENT_RENDER=PASS'
+```
+
+The fully interpolated Compose model flows only through the validation pipeline;
+it is not persisted to disk. Only the expected candidate image and any
+forbidden matching flag lines are printed.
+
+### E. STAGE_A_PRE_TREE_ROLLBACK_ONLY — prepared, do not execute now
+
+This rollback is valid only while migration 011 is absent, TREE table count is
+zero, and no owner has entered `MIGRATING_TREE_V1` or `TREE_V1`.
+
+**AFTER MIGRATION 011 / TREE_V1 OWNER: THIS ROLLBACK IS FORBIDDEN.**
+
+```bash
+PRE_ROLLBACK_TREE_TABLE_COUNT=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'psql -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='"'"'public'"'"' AND table_name IN ('"'"'vault_tree_state'"'"','"'"'vault_tree_frozen_inventory'"'"','"'"'vault_tree_key_envelope'"'"','"'"'vault_tree_heads'"'"','"'"'vault_tree_revisions'"'"','"'"'vault_tree_blob_state'"'"','"'"'vault_tree_purge_candidates'"'"');"')
+printf 'PRE_ROLLBACK_TREE_TABLE_COUNT=%s\n' "$PRE_ROLLBACK_TREE_TABLE_COUNT"
+test "$PRE_ROLLBACK_TREE_TABLE_COUNT" = '0' || { echo 'STOP_FOR_HUMAN_INVESTIGATION: pre-TREE rollback is forbidden because TREE tables exist' >&2; exit 1; }
+
+"${COMPOSE[@]}" "${CHAIN[@]}" \
+  up -d --no-deps --no-build drive
+
+for attempt in {1..30}; do
+  ROLLBACK_HEALTH=$("${D[@]}" inspect aegis-prod-drive-1 --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}')
+  [[ "$ROLLBACK_HEALTH" = 'healthy' ]] && break
+  sleep 2
+done
+
+IFS='|' read -r ROLLBACK_IMAGE ROLLBACK_HEALTH ROLLBACK_RESTARTS ROLLBACK_OOM < <(
+  "${D[@]}" inspect aegis-prod-drive-1 --format '{{.Config.Image}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}|{{.State.OOMKilled}}'
+)
+printf 'ROLLBACK_IMAGE=%s\nROLLBACK_HEALTH=%s\nROLLBACK_RESTARTS=%s\nROLLBACK_OOM=%s\n' "$ROLLBACK_IMAGE" "$ROLLBACK_HEALTH" "$ROLLBACK_RESTARTS" "$ROLLBACK_OOM"
+test "$ROLLBACK_IMAGE" = "$EXPECTED_CURRENT_DRIVE_IMAGE" || { echo 'STOP_FOR_HUMAN_INVESTIGATION: rollback image mismatch' >&2; exit 1; }
+test "$ROLLBACK_HEALTH" = 'healthy' || { echo 'STOP_FOR_HUMAN_INVESTIGATION: rollback Drive is not healthy' >&2; exit 1; }
+test "$ROLLBACK_OOM" = 'false' || { echo 'STOP_FOR_HUMAN_INVESTIGATION: rollback Drive reports OOMKilled' >&2; exit 1; }
+
+ROLLBACK_TREE_TABLE_COUNT=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'psql -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='"'"'public'"'"' AND table_name IN ('"'"'vault_tree_state'"'"','"'"'vault_tree_frozen_inventory'"'"','"'"'vault_tree_key_envelope'"'"','"'"'vault_tree_heads'"'"','"'"'vault_tree_revisions'"'"','"'"'vault_tree_blob_state'"'"','"'"'vault_tree_purge_candidates'"'"');"')
+printf 'ROLLBACK_TREE_TABLE_COUNT=%s\n' "$ROLLBACK_TREE_TABLE_COUNT"
+test "$ROLLBACK_TREE_TABLE_COUNT" = '0' || { echo 'STOP_FOR_HUMAN_INVESTIGATION: rollback is forbidden because TREE tables exist' >&2; exit 1; }
+```
+
+The Human Owner classifies the reported rollback restart count. Never use
+`down`, `--remove-orphans`, prune, PostgreSQL recreation, or volume deletion.
+
+### F. Production host — apply Drive-only Stage A
+
+```bash
 
 "${COMPOSE[@]}" "${CHAIN[@]}" \
   -f /opt/aegis/runtime/pr187/drive-image-70b0fdf05967.yml \
@@ -386,20 +493,41 @@ fi
 This names only `drive`. Never use `down`, `--remove-orphans`, prune, volume
 deletion, or whole-stack recreation.
 
-### E. Production host — post-cutover verification
+### G. Production host — technical post-cutover verification
 
 ```bash
-"${D[@]}" inspect aegis-prod-drive-1 --format 'IMAGE={{.Config.Image}} HEALTH={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} RESTARTS={{.RestartCount}} OOM={{.State.OOMKilled}}'
-"${D[@]}" exec aegis-prod-drive-1 node -e 'fetch("http://127.0.0.1:8001/healthz").then(async r=>{const j=await r.json(); console.log(JSON.stringify({status:r.status,ok:j.ok,layers:j.layers,media:j.media,vaultTree:j.vaultTree})); if(!r.ok)process.exit(1)})'
-"${D[@]}" exec aegis-prod-postgres-1 sh -lc 'psql -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='"'"'public'"'"' AND table_name IN ('"'"'vault_tree_state'"'"','"'"'vault_tree_frozen_inventory'"'"','"'"'vault_tree_key_envelope'"'"','"'"'vault_tree_heads'"'"','"'"'vault_tree_revisions'"'"','"'"'vault_tree_blob_state'"'"','"'"'vault_tree_purge_candidates'"'"'); SELECT '"'"'vault_meta='"'"'||count(*) FROM vault_meta; SELECT '"'"'vault_blobs='"'"'||count(*) FROM vault_blobs; SELECT '"'"'vault_v2_blobs='"'"'||count(*) FROM vault_v2_blobs;"'
+for attempt in {1..30}; do
+  POST_DRIVE_HEALTH=$("${D[@]}" inspect aegis-prod-drive-1 --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}')
+  [[ "$POST_DRIVE_HEALTH" = 'healthy' ]] && break
+  sleep 2
+done
+
+IFS='|' read -r POST_DRIVE_IMAGE POST_DRIVE_HEALTH POST_DRIVE_RESTARTS POST_DRIVE_OOM < <(
+  "${D[@]}" inspect aegis-prod-drive-1 --format '{{.Config.Image}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}|{{.State.OOMKilled}}'
+)
+printf 'POST_DRIVE_IMAGE=%s\nPOST_DRIVE_HEALTH=%s\nPOST_DRIVE_RESTARTS=%s\nPOST_DRIVE_OOM=%s\n' "$POST_DRIVE_IMAGE" "$POST_DRIVE_HEALTH" "$POST_DRIVE_RESTARTS" "$POST_DRIVE_OOM"
+test "$POST_DRIVE_IMAGE" = 'aegis-prod-drive:vault-tree-70b0fdf05967' || { echo 'STOP_FOR_HUMAN_INVESTIGATION: candidate image is not running' >&2; exit 1; }
+test "$POST_DRIVE_HEALTH" = 'healthy' || { echo 'STOP_FOR_HUMAN_INVESTIGATION: candidate Drive is not healthy' >&2; exit 1; }
+test "$POST_DRIVE_RESTARTS" = '0' || { echo 'STOP_FOR_HUMAN_INVESTIGATION: candidate Drive restart count is nonzero' >&2; exit 1; }
+test "$POST_DRIVE_OOM" = 'false' || { echo 'STOP_FOR_HUMAN_INVESTIGATION: candidate Drive reports OOMKilled' >&2; exit 1; }
+
+"${D[@]}" exec aegis-prod-drive-1 node -e 'fetch("http://127.0.0.1:8001/healthz").then(async r=>{const j=await r.json();const v=j.vaultTree??{};const out={status:r.status,ok:j.ok,layers:j.layers,media:j.media,vaultTree:v};console.log(JSON.stringify(out));if(!r.ok||j.ok!==true||j.layers?.application?.ok!==true||j.layers?.metadata?.ok!==true||j.layers?.storage?.ok!==true||v.schemaAvailable!==false||v.protocolEnabled!==false||v.destructivePurgeEnabled!==false)process.exit(1)}).catch(e=>{console.error(e.message);process.exit(1)})'
+
+POST_TREE_TABLE_COUNT=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'psql -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema='"'"'public'"'"' AND table_name IN ('"'"'vault_tree_state'"'"','"'"'vault_tree_frozen_inventory'"'"','"'"'vault_tree_key_envelope'"'"','"'"'vault_tree_heads'"'"','"'"'vault_tree_revisions'"'"','"'"'vault_tree_blob_state'"'"','"'"'vault_tree_purge_candidates'"'"');"')
+POST_LEGACY_COUNTS=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'psql -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1 -Atc "SELECT '"'"'vault_meta='"'"'||count(*) FROM vault_meta; SELECT '"'"'vault_blobs='"'"'||count(*) FROM vault_blobs; SELECT '"'"'vault_v2_blobs='"'"'||count(*) FROM vault_v2_blobs;"')
+printf 'POST_TREE_TABLE_COUNT=%s\n%s\n' "$POST_TREE_TABLE_COUNT" "$POST_LEGACY_COUNTS"
+test "$POST_TREE_TABLE_COUNT" = "$EXPECTED_TREE_TABLE_COUNT" || { echo 'STOP_FOR_HUMAN_INVESTIGATION: TREE table count changed during Stage A' >&2; exit 1; }
+test "$POST_LEGACY_COUNTS" = "$PRE_LEGACY_COUNTS" || { echo 'STOP_FOR_HUMAN_INVESTIGATION: legacy Vault row counts changed during Stage A' >&2; exit 1; }
 
 POST_SCHEMA_SHA256=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'pg_dump -U "$POSTGRES_USER" -d aegis_drive --schema-only --no-owner --no-privileges | grep -vE "^\\\\(un)?restrict " | sha256sum | cut -d" " -f1')
 POST_DATA_SHA256=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'pg_dump -U "$POSTGRES_USER" -d aegis_drive --data-only --no-owner --no-privileges | grep -vE "^\\\\(un)?restrict " | sha256sum | cut -d" " -f1')
 printf 'POST_SCHEMA_SHA256=%s\nPOST_DATA_SHA256=%s\n' "$POST_SCHEMA_SHA256" "$POST_DATA_SHA256"
-test "$POST_SCHEMA_SHA256" = "$PRE_SCHEMA_SHA256" || { echo 'STOP: Production schema changed during Stage A' >&2; exit 1; }
-test "$POST_DATA_SHA256" = "$PRE_DATA_SHA256" || { echo 'STOP: Production data changed during Stage A' >&2; exit 1; }
+test "$POST_SCHEMA_SHA256" = "$PRE_SCHEMA_SHA256" || { echo 'STOP_FOR_HUMAN_INVESTIGATION: Production schema changed during Stage A' >&2; exit 1; }
+test "$POST_DATA_SHA256" = "$PRE_DATA_SHA256" || { echo 'STOP_FOR_HUMAN_INVESTIGATION: Production data changed during Stage A' >&2; exit 1; }
 echo 'PRODUCTION_SCHEMA_UNCHANGED=YES'
 echo 'PRODUCTION_DATA_UNCHANGED=YES'
+echo 'SECOND_STAGE_A_TECHNICAL=PASS'
+echo 'SECOND_STAGE_A_HUMAN_QHD=PENDING'
 ```
 
 Required: candidate image, healthy Drive, restart 0, OOM false,
@@ -410,10 +538,28 @@ The schema and data SHA-256 values must also match their pre-cutover values
 exactly. A mismatch stops acceptance and requires Human investigation; never
 rewrite the baseline or dismiss a mismatch as noise.
 
+### H. Human Production QHD stop gate — mandatory before Stage B
+
+After technical verification passes, stop. Keep migration 011 unapplied and all
+six Vault flags false/unset. The Human Owner must use the actual Production
+browser on the physical `2560x1440` display at `100%` browser zoom and record:
+
+- Production login passes.
+- `/drive/vault` loads with the genuine locked Vault state.
+- The locked body is centered and constrained; privacy blocks are not stretched
+  edge-to-edge; left/right gutters and header/body alignment are coherent.
+- `/drive/files` is unchanged and no Stage A regression is visible.
+- TREE_V1 UI is not expected during Stage A.
+
+Only explicit Human QHD `PASS` authorizes a separate Stage B decision. A visual,
+authentication, route, or Files regression stops rollout and requires Human
+investigation; do not automatically classify the candidate or execute rollback.
+
 ## Current stop gate
 
 The new candidate is built and locally qualified. No new PR187 overlay has been
 installed on Production. Migration 011 remains unapplied. Production Drive has
 not been recreated in this phase. Production Vault flags have not changed. The
-next action is Human review and separate authorization for the second Stage A
-command set above.
+next action is Human review and separate authorization to execute hardened
+Second Stage A, followed by the mandatory Human Production QHD stop gate.
+Stage B remains unauthorized.
