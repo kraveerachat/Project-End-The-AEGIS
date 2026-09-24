@@ -15,53 +15,46 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1
+## Current Task
+
+None — standing by for Human Owner merge of PR #191.
+
+## Completed Task — PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `fix/idea1-vault-qhd-locked-layout`; PR: #191 (Draft).
-- Base: `origin/main` at `3751bf16b2d195cb2578df7fd0085343020cc945`.
-- Current state: **IMPLEMENTATION AND AUTOMATED QUALIFICATION COMPLETE; PENDING OWNER BROWSER ACCEPTANCE**.
-- Started: 2026-09-24.
-- Last checkpoint: `2e128eea`
-- Production mutation allowed: **NO**.
-
-### Goal
-
-Constrain the locked and legacy-FLAT Private Vault visual body to the established centered Vault content measure at QHD while preserving the full-main-pane TREE interaction/marquee surface introduced by PR #171 V10.
-
-### Scope
-
-- `IDEA1-AEGIS_Drive_LC/src/screens/Vault.jsx`
-- Focused semantic/layout regression tests under `IDEA1-AEGIS_Drive_LC/tests/`
-- This owner-maintained IDEA1 status note
-- Exactly one final `kla` receipt at source-fix closeout
-
-### Out of scope
-
-- Normal Files max-width and grid behavior
-- Production, PR #187 rollout overlays, migration 011, TREE protocol semantics, crypto, genesis, media-preview gating, and destructive purge
-- The full-pane TREE marquee interaction surface and accepted PR #171 V10 geometry
-
-### Safety boundaries
-
-- TDD is mandatory: observe RED before changing application source.
-- Use the existing `vault-pane-content` primitive; no viewport-specific fixed-width workaround.
-- Preserve the locked fixed seven-block, inventory-independent privacy presentation with no filename, blob-ID, thumbnail, metadata, or count leakage.
-- `PRODUCTION_TOUCHED=NO`.
-
-### Acceptance criteria
-
-- Locked Vault and unlocked legacy FLAT visual content are centered/constrained at 2560×1440 and 1920×1080.
-- TREE_V1 outer surface remains full-pane and marquee behavior remains unchanged.
-- Existing locked privacy, Vault UX/tree, Files regression, build, collaboration policy, validator, and diff checks pass.
-- `FILES_LAYOUT_CHANGED=NO`.
+- Branch: `fix/idea1-vault-qhd-locked-layout`; PR: #191.
+- State: **CLOSED / IMPLEMENTED & HUMAN ACCEPTED (2026-09-24)** — PR191 implementation, automated verification, and Human Owner physical testing complete (`PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1 = CLOSED`).
+- Authoritative Implementation Source SHA: `ba3438edd8ec66e4b7e89c0042673ec6efde594e`
+- Origin Main at Final Verification: `68b8c45c362089c0e896520ce77741a486976737`
+- Human Acceptance:
+  - `PHYSICAL_DISPLAY=2560x1440`
+  - `BROWSER_ZOOM=100%`
+  - `HUMAN_BROWSER_2560x1440=PASS`
+  - `HUMAN_OWNER_ACCEPTANCE=PASS`
+  - `PR171_UI_PRESERVED=YES`
+  - `TREE_V1_BROWSER=PASS`
+  - `LOCKED_QHD_STATE=PASS`
+  - `UNLOCK_RETURNS_TO_TREE_UI=PASS`
+- Accepted Resolution & UX:
+  - Original Production Stage A rollout exposed that the locked and legacy FLAT Private Vault visual views stretched edge-to-edge across wide/QHD viewports.
+  - Production was safely rolled back; PR191 fixed the source defect by wrapping locked Vault and legacy FLAT Vault visual bodies inside the centered `vault-pane-content` container.
+  - Full-main-pane TREE_V1 marquee interaction surface introduced by PR #171 V10 remains completely intact.
+  - Human Owner verified complete PR171 TREE_V1 Files-like Private Vault UI: search, filter, sort, grid/list controls, New Folder, upload, folder/file sections, media card/image preview, marquee selection, multi-selection, drag-and-drop into/out of folders, breadcrumbs, and lock/unlock flow.
+  - Normal Files layout remains centered and completely unchanged (`FILES_LAYOUT_CHANGED=NO`).
+- Environmental & Security Invariants:
+  - Local qualification used canonical `aegis_system` stack; local-only migration 011 and local TREE feature flags were enabled strictly for local qualification.
+  - Production migration 011 was NOT applied and Production was NOT touched (`PRODUCTION_MIGRATION_011_APPLIED=NO`, `PRODUCTION_TOUCHED=NO`).
+  - PR #187 rollout remains a separate task; PR #191 contains only the layout fix.
+  - Destructive purge remains disabled (`VAULT_DESTRUCTIVE_PURGE_ENABLED=false`).
+  - Local test credentials were used only in the local disposable qualification environment and are not recorded in the repository.
 
 ### Session Register — PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | VQHD-S1 | Governance, current-main isolation, PR187 blocker context, source/test inspection, task registration | PASS | Branch created from current `origin/main`; exact accepted Vault source unchanged from `0051cceb`; confirmed defect and fix boundary reproduced at QHD/FHD before task start | `b02ceff1` | No application source changed | TDD RED, minimal source correction, focused/full verification, browser geometry, receipt, PR review handoff | Commit registration, then add failing semantic/layout regressions |
-| VQHD-S2 | Minimal source correction, focused verification, Draft PR creation | AUTOMATED PASS / HUMAN GATE | Vault locked/legacy view bound to `vault-pane-content`. Tests added: QHD-LAYOUT-1..3 (16/16 PASS). Policy 24/24 PASS. Build PASS. Diff check PASS. QHD physical browser check NOT TESTED (awaiting human). | `2e128eea` | Implementation and automated qualification complete | Human owner physical QHD browser validation, final immutable receipt, PR ready transition | Await owner validation of PR #191 |
+| VQHD-S2 | Minimal source correction, focused verification, Draft PR creation | PASS | Vault locked/legacy view bound to `vault-pane-content`. Tests added: QHD-LAYOUT-1..3 (16/16 PASS). Policy 24/24 PASS. Build PASS. Diff check PASS. Dist artifact cleaned from scope. | `2e128eea` | Implementation and automated qualification complete | Reconcile with latest main, local qualification stack setup, Human Owner browser acceptance | Setup local canonical qualification stack |
+| VQHD-S3 | Main reconciliation (`68b8c45c`), local stack setup, human physical QHD qualification, receipt closeout | PASS | Clean merge of origin/main `68b8c45c`; tests 16/16 PASS; policy 24/24 PASS; validator PASS; physical browser 2560x1440 qualification PASS by Human Owner; exact final receipt created (`2026-09-24_185500_kla_idea1-vault-qhd-locked-layout-fix.md`); task closed | `ba3438ed` | Human Owner physical QHD acceptance PASS; documentation and receipt complete | None (ready for Human Owner merge) | Human Owner merge of PR #191 |
 
 ## Completed Task — VAULT-FILES-UX-NAVIGATION-1
 
