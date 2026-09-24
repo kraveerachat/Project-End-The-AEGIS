@@ -346,23 +346,88 @@ The commands below are the corrected package proposed for a possible third
 Stage A. They are not authorization. The Human Owner must review the protected
 Vault-data fingerprint contract and separately authorize any execution.
 
-### A. Approved build workstation — export and transfer
+### A. Production host — existing-artifact reuse gate (preferred path)
+
+The Production host already received and installed the exact candidate image and
+Stage A overlay during Second Stage A. A fast read-only verification on the server
+confirms artifact presence and integrity, allowing the operator to skip archive
+export, scp transfer, and `docker load`.
+
+Run on Production host:
+
+```bash
+set -euo pipefail
+D=(sudo env -u DOCKER_HOST -u CONTAINER_HOST docker)
+
+EXPECTED_CANDIDATE_IMAGE_ID="sha256:c97cf9f6e3bdd36b4ecca5471d842a46f151f8ca09edcda0be2084e97c42c673"
+EXPECTED_CANDIDATE_REVISION="70b0fdf059672e2b1c408ec5e5c16cfed5261257"
+EXPECTED_CANDIDATE_SOURCE="https://github.com/kraveerachat/Project-End-The-AEGIS"
+EXPECTED_CANDIDATE_USER="node"
+EXPECTED_STAGE_A_OVERLAY_SHA256="577a25b20bbef0112a675cc1f2a48af593bd17b009eab2bda041e6819dd621d1"
+OVERLAY_FILE="/opt/aegis/runtime/pr187/drive-image-70b0fdf05967.yml"
+
+SERVER_IMAGE_ID=$("${D[@]}" image inspect aegis-prod-drive:vault-tree-70b0fdf05967 --format '{{.Id}}' 2>/dev/null || true)
+SERVER_REVISION=$("${D[@]}" image inspect aegis-prod-drive:vault-tree-70b0fdf05967 --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || true)
+SERVER_SOURCE=$("${D[@]}" image inspect aegis-prod-drive:vault-tree-70b0fdf05967 --format '{{index .Config.Labels "org.opencontainers.image.source"}}' 2>/dev/null || true)
+SERVER_USER=$("${D[@]}" image inspect aegis-prod-drive:vault-tree-70b0fdf05967 --format '{{.Config.User}}' 2>/dev/null || true)
+
+test -n "$SERVER_IMAGE_ID" || { echo "STOP: candidate image aegis-prod-drive:vault-tree-70b0fdf05967 is not present on host. Do NOT rebuild. Use fallback workstation transfer." >&2; exit 1; }
+test -f "$OVERLAY_FILE" || { echo "STOP: overlay file $OVERLAY_FILE does not exist. Do NOT rebuild. Use fallback workstation transfer." >&2; exit 1; }
+SERVER_OVERLAY_SHA256=$(sha256sum "$OVERLAY_FILE" | cut -d' ' -f1)
+
+printf 'SERVER_IMAGE_ID=%s\nSERVER_REVISION=%s\nSERVER_SOURCE=%s\nSERVER_USER=%s\nSERVER_OVERLAY_SHA256=%s\n' \
+  "$SERVER_IMAGE_ID" "$SERVER_REVISION" "$SERVER_SOURCE" "$SERVER_USER" "$SERVER_OVERLAY_SHA256"
+
+test "$SERVER_IMAGE_ID" = "$EXPECTED_CANDIDATE_IMAGE_ID" || { echo "STOP: candidate image ID mismatch" >&2; exit 1; }
+test "$SERVER_REVISION" = "$EXPECTED_CANDIDATE_REVISION" || { echo "STOP: candidate OCI revision mismatch" >&2; exit 1; }
+test "$SERVER_SOURCE" = "$EXPECTED_CANDIDATE_SOURCE" || { echo "STOP: candidate OCI source mismatch" >&2; exit 1; }
+test "$SERVER_USER" = "$EXPECTED_CANDIDATE_USER" || { echo "STOP: candidate image config user mismatch" >&2; exit 1; }
+test "$SERVER_OVERLAY_SHA256" = "$EXPECTED_STAGE_A_OVERLAY_SHA256" || { echo "STOP: Stage A overlay SHA-256 mismatch" >&2; exit 1; }
+
+echo 'EXISTING_ARTIFACT_REUSE=PASS'
+```
+
+If `EXISTING_ARTIFACT_REUSE=PASS`:
+- **SKIP** Step B (workstation export and transfer) and Step D (transfer verification, docker load, overlay install).
+- Proceed directly to Step C (read-only preconditions) and Step E (non-persistent render validation).
+
+If mismatch or missing:
+- **STOP. Do NOT rebuild.**
+- If artifacts were pruned or damaged, use Step B and Step D fallback transfer with the verified local image. Never trigger a Docker rebuild.
+
+### B. Approved build workstation — fallback export and transfer
+
+Execute only if Step A reported missing or mismatched server artifacts. Do not
+rebuild the image.
+
+The workstation command path uses the Twingate IP target `192.168.10.10` and SSH
+identity `~/.ssh/id_ed25519_admin-main_thispc` under user `admin-main`
+(`aegis-system` does not resolve on workstation DNS). PowerShell requires escaped
+inner double quotes for `--format`:
 
 ```powershell
 $Image = 'aegis-prod-drive:vault-tree-70b0fdf05967'
 $Archive = "$env:USERPROFILE\Downloads\aegis-prod-drive-vault-tree-70b0fdf05967.tar"
-docker image inspect $Image --format 'ID={{.Id}} REV={{index .Config.Labels "org.opencontainers.image.revision"}} SOURCE={{index .Config.Labels "org.opencontainers.image.source"}}'
+$Key = "$env:USERPROFILE\.ssh\id_ed25519_admin-main_thispc"
+$Target = 'admin-main@192.168.10.10'
+
+# Inspect candidate image (escaped quotes required in PowerShell):
+docker image inspect $Image --format 'ID={{.Id}} REV={{index .Config.Labels \"org.opencontainers.image.revision\"}} SOURCE={{index .Config.Labels \"org.opencontainers.image.source\"}}'
+
+# Export archive and record hash:
 docker save --output $Archive $Image
 Get-FileHash -Algorithm SHA256 -LiteralPath $Archive
-scp $Archive aegis-system:/tmp/aegis-prod-drive-vault-tree-70b0fdf05967.tar
-scp IDEA1-AEGIS_Drive_LC/deploy/production/pr187/drive-image-70b0fdf05967.yml aegis-system:/tmp/drive-image-70b0fdf05967.yml
+
+# Transfer archive and overlay over Twingate IP using SSH key:
+scp -i $Key $Archive "${Target}:/tmp/aegis-prod-drive-vault-tree-70b0fdf05967.tar"
+scp -i $Key IDEA1-AEGIS_Drive_LC/deploy/production/pr187/drive-image-70b0fdf05967.yml "${Target}:/tmp/drive-image-70b0fdf05967.yml"
 ```
 
 Record the local archive SHA-256. The server-side value must match before
 loading. Do not transfer or install the Stage C/D/fail-secure overlays during
 Stage A.
 
-### B. Production host — read-only preconditions
+### C. Production host — read-only preconditions
 
 ```bash
 set -euo pipefail
@@ -491,7 +556,10 @@ primary key under `C` collation. In-flight upload/session tables are excluded
 because their lease, status, expiry, writer-token, and recovery fields are mutable
 operational state; inspect them separately when investigating activity.
 
-### C. Production host — verify transfer, load, and install Stage A overlay
+### D. Production host — fallback verify transfer, load, and install Stage A overlay
+
+This step is **SKIPPED** when Step A reports `EXISTING_ARTIFACT_REUSE=PASS`. Run
+only when Step B fallback transfer was executed.
 
 ```bash
 SERVER_ARCHIVE_SHA256=$(sha256sum /tmp/aegis-prod-drive-vault-tree-70b0fdf05967.tar | cut -d' ' -f1)
@@ -518,7 +586,7 @@ required OCI revision is
 `70b0fdf059672e2b1c408ec5e5c16cfed5261257`; required overlay SHA-256 is
 `577a25b20bbef0112a675cc1f2a48af593bd17b009eab2bda041e6819dd621d1`.
 
-### D. Production host — non-persistent Stage A render validation
+### E. Production host — non-persistent Stage A render validation
 
 ```bash
 "${COMPOSE[@]}" "${CHAIN[@]}" \
@@ -547,7 +615,7 @@ The fully interpolated Compose model flows only through the validation pipeline;
 it is not persisted to disk. Only the expected candidate image and any
 forbidden matching flag lines are printed.
 
-### E. STAGE_A_PRE_TREE_ROLLBACK_ONLY — prepared, do not execute now
+### F. STAGE_A_PRE_TREE_ROLLBACK_ONLY — prepared, do not execute now
 
 This rollback is valid only while migration 011 is absent, TREE table count is
 zero, and no owner has entered `MIGRATING_TREE_V1` or `TREE_V1`.
@@ -584,7 +652,7 @@ test "$ROLLBACK_TREE_TABLE_COUNT" = '0' || { echo 'STOP_FOR_HUMAN_INVESTIGATION:
 The Human Owner classifies the reported rollback restart count. Never use
 `down`, `--remove-orphans`, prune, PostgreSQL recreation, or volume deletion.
 
-### F. Production host — apply Drive-only Stage A
+### G. Production host — apply Drive-only Stage A
 
 ```bash
 
@@ -596,7 +664,7 @@ The Human Owner classifies the reported rollback restart count. Never use
 This names only `drive`. Never use `down`, `--remove-orphans`, prune, volume
 deletion, or whole-stack recreation.
 
-### G. Production host — technical post-cutover verification
+### H. Production host — technical post-cutover verification
 
 ```bash
 for attempt in {1..30}; do
@@ -642,7 +710,7 @@ values exactly. A mismatch stops acceptance and requires Human investigation;
 never rewrite the baseline or dismiss a mismatch as noise. Whole-database data
 SHA equality is explicitly non-gating and is not part of this command set.
 
-### H. Human Production QHD stop gate — mandatory before Stage B
+### I. Human Production QHD stop gate — mandatory before Stage B
 
 After technical verification passes, stop. Keep migration 011 unapplied and all
 six Vault flags false/unset. The Human Owner must use the actual Production
@@ -664,7 +732,8 @@ investigation; do not automatically classify the candidate or execute rollback.
 Second Stage A was rolled back successfully. Production is again running
 `aegis-prod-drive:media-preview-1a3c16622407`, healthy, restart 0, OOM false.
 Migration 011 remains unapplied, TREE table count remains zero, and Production
-Vault flags remain false/unset. This correction task does not touch Production
+Vault flags remain false/unset. This hardening task does not touch Production
 or rebuild the candidate. The next gate is Human review of the deterministic
-protected-Vault fingerprint contract. Third Stage A and Stage B remain
-unauthorized.
+protected-Vault fingerprint contract and hardened Third Stage A command set.
+Third Stage A and Stage B remain unauthorized (`THIRD_STAGE_A_AUTHORIZED=NO`,
+`STAGE_B_AUTHORIZED=NO`).

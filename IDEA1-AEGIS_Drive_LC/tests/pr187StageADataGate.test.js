@@ -60,3 +60,25 @@ test('Second Stage-A history records the invalid whole-DB gate without unsupport
     assert.match(source, /b22d….*015b….*89c…/s)
   }
 })
+
+test('PR187 Third Stage A runbook has existing-artifact reuse gate and corrected fallback transfer', () => {
+  const commands = sectionBetween(runbook, '## Third Stage A — corrected Human Owner command set', '## Current stop gate')
+
+  assert.match(commands, /EXISTING_ARTIFACT_REUSE=PASS/)
+  assert.match(commands, /EXPECTED_CANDIDATE_IMAGE_ID="sha256:c97cf9f6e3bdd36b4ecca5471d842a46f151f8ca09edcda0be2084e97c42c673"/)
+  assert.match(commands, /EXPECTED_CANDIDATE_REVISION="70b0fdf059672e2b1c408ec5e5c16cfed5261257"/)
+  assert.match(commands, /EXPECTED_CANDIDATE_SOURCE="https:\/\/github\.com\/kraveerachat\/Project-End-The-AEGIS"/)
+  assert.match(commands, /EXPECTED_CANDIDATE_USER="node"/)
+  assert.match(commands, /EXPECTED_STAGE_A_OVERLAY_SHA256="577a25b20bbef0112a675cc1f2a48af593bd17b009eab2bda041e6819dd621d1"/)
+  assert.match(commands, /192\.168\.10\.10/)
+  assert.match(commands, /id_ed25519_admin-main_thispc/)
+  assert.match(commands, /admin-main/)
+  assert.match(commands, /STOP\. Do NOT rebuild/)
+})
+
+test('PR187 authorization status is unambiguous and copy-paste-only', () => {
+  assert.doesNotMatch(status, /AUTHORIZED_BY_HUMAN_OWNER=YES/)
+  assert.match(status, /PRODUCTION_EXECUTION_MODEL=HUMAN_OWNER_COPY_PASTE_ONLY/)
+  assert.match(status, /THIRD_STAGE_A_AUTHORIZED=NO/)
+  assert.match(status, /STAGE_B_AUTHORIZED=NO/)
+})
