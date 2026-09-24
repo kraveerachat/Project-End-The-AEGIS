@@ -403,10 +403,49 @@ K3_CURRENT_STATE = OWNER_CONFIRMATION_REQUIRED — not claimed CLEAR
 ```
 
 Before **each** Phase 4 Production mutation stage (L1–L10), a fresh written
-confirmation is required, dated the same day as the stage. It must state that
-no IDEA1 Production mutation/verification window overlaps. It comes from the
-IDEA1 owner side (`kraveerachat`). If the answer is missing, stale, or
-conflicting, that stage stops (S-01).
+K3 record is required, dated the same day as the stage. If it is missing,
+stale, malformed, or conflicting, that stage stops (S-01).
+
+### 8.1 M16 amendment (2026-09-25) — two accepted K3 models
+
+The IDEA3 owner (`music`) decided `M16_K3_AUTHORITY_MODEL=IDEA3_OWNER_SELF_CONFIRMATION_ALLOWED`
+(`M16_OWNER=music`, `M16_SELF_CONFIRMATION=APPROVED`). `p4-stage-gate.sh`
+accepts exactly one of two record versions, chosen by the magic line. Both need
+the exact requested stage, the same Asia/Bangkok date, a non-placeholder
+reference, printable ASCII within 2048 bytes, no duplicate or unknown keys, and
+every field present. Either valid record prints `K3_CONFIRMATION=VALID`.
+
+| | V1 (historical, unchanged) | V2 (M16) |
+|---|---|---|
+| Magic | `AEGIS_P4_K3_CONFIRMATION_V1` | `AEGIS_P4_K3_CONFIRMATION_V2` |
+| Model | independent IDEA1-owner-side confirmation | IDEA3-owner self-attestation / risk acceptance |
+| `confirmed_by` | `kraveerachat` only | `music` only |
+| `confirmation_mode` | not allowed | `IDEA3_OWNER_SELF_ATTESTATION` |
+| `idea1_window_overlap` | `NONE` only | `NONE_KNOWN` only |
+
+Historical V1 records and receipts keep their meaning. A V1 record with
+`confirmed_by=music` stays invalid, and a V2 record never accepts
+`kraveerachat` or any other value.
+
+Why V2 exists: the IDEA3 owner owns execution scheduling for IDEA3 stages, and
+independent coordination should not permanently block IDEA3 progress.
+
+V2 semantics, stated exactly:
+
+```text
+IDEA3_OWNER_COORDINATION_ATTESTATION = NONE_KNOWN
+SELF_ATTESTATION != INDEPENDENT_IDEA1_OWNER_CONFIRMATION
+```
+
+A V2 record says only that no overlapping IDEA1 Production mutation or
+verification window is **known to the IDEA3 owner** when the stage runs. It is
+not proof that IDEA1 is inactive and claims no independent knowledge of IDEA1
+activity. Actual preservation is still enforced by fresh S10 PRE/POST evidence:
+any observed IDEA1 degradation or forbidden drift fails the stage. M16 does not
+weaken the authorization record, the same-day rule, handler registration, S10,
+rollback, stage ordering, the L8 hardware/recovery gates, or the L9 no-actuation
+rules. The IDEA1 owner and shared owner mapping are unchanged; Music does not
+own IDEA1.
 
 ## 9. Staged execution order (future; NOT authorized; NOT RUN)
 
