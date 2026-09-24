@@ -1,0 +1,11 @@
+# PR187 post-TREE fail-secure rollback overlay for the second candidate.
+# Keep TREE-capable code and schema; never return a TREE_V1 owner to pre-PR157 code.
+services:
+  drive:
+    environment:
+      VAULT_TREE_SCHEMA_AVAILABLE: "true"
+      VAULT_TREE_PROTOCOL_ENABLED: "false"
+      VAULT_TREE_GENESIS_MIGRATION_ENABLED: "false"
+      VAULT_TREE_UI_ENABLED: "false"
+      VAULT_MEDIA_PREVIEW_ENABLED: "false"
+      VAULT_DESTRUCTIVE_PURGE_ENABLED: "false"
