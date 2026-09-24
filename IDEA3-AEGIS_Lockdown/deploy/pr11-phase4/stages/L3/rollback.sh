@@ -16,6 +16,8 @@ AP_IF="${AEGIS_AP_INTERFACE:-}"
 CONN_ID="${AEGIS_L3_CONNECTION_ID:-aegis-idea3-ap}"
 LIVE_AUTH="${AEGIS_L3_LIVE_AUTHORIZED:-NO}"
 
+P4_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 host_path() {
   if [ -n "$ROOT" ]; then
     printf '%s%s\n' "${ROOT%/}" "$1"
@@ -43,14 +45,10 @@ if [ -z "$ROOT" ]; then
     nmcli connection delete "$CONN_ID" 2>/dev/null || true
   fi
 
-  # Restore RFKILL soft-block if it was blocked before L3 apply
-  if [ -f "$WORK/rfkill_pre_state" ] && [ "$(cat "$WORK/rfkill_pre_state" 2>/dev/null)" = "1" ]; then
-    rfkill_id=""
-    [ -f "$WORK/rfkill_id" ] && rfkill_id=$(cat "$WORK/rfkill_id" 2>/dev/null)
-    if [ -n "$rfkill_id" ]; then
-      rfkill block "$rfkill_id" || fail RFKILL_BLOCK_RESTORE_FAILED
-    fi
-  fi
+  # Restore RFKILL soft-block if it was blocked before L3 apply (exact recorded id only)
+  # shellcheck source=../../p4-l3-rfkill.sh
+  . "$P4_HERE/p4-l3-rfkill.sh"
+  l3_rfkill_restore "$WORK" || fail "$L3_RFKILL_REASON"
 
   nmcli connection reload 2>/dev/null || true
 

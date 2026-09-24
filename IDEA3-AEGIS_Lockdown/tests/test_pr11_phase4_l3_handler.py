@@ -19,6 +19,7 @@ REQUIRED_HANDLER_FILES = {
     "rollback.sh",
     "allow-keys.txt",
     "allow-listeners.txt",
+    "allow-transitions.txt",
 }
 
 DISALLOWED_BROAD_KEYS = {
@@ -242,9 +243,11 @@ def test_l3_apply_has_regulatory_and_channel_guards() -> None:
 def test_l3_apply_has_target_rfkill_isolation() -> None:
     text = code_text(HANDLER / "apply.sh")
 
-    assert "RFKILL_HARD_BLOCKED" in text
-    assert re.search(r"\brfkill\s+unblock\s+wifi\b", text) is None
-    assert re.search(r"rfkill\s+unblock\s+[\"']?\$", text) is not None
+    helper = code_text(DEPLOY / "p4-l3-rfkill.sh")
+    assert "l3_rfkill_prepare" in text
+    assert "RFKILL_HARD_BLOCKED" in helper
+    assert re.search(r"\brfkill\s+unblock\s+wifi\b", text + helper) is None
+    assert re.search(r"rfkill\s+unblock\s+[\"']?\$", helper) is not None
 
 
 def test_l3_handlers_never_enable_shared_routing_nat_bridge() -> None:

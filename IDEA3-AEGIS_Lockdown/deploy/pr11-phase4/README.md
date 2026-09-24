@@ -94,6 +94,12 @@ DISK_THRESHOLD_PCT=<owner threshold> bash p4-compare.sh <pre> <post>
   stage handler may change or add. Forwarding, default routes, IDEA2, host,
   disk, and capability keys can never be approved. A wildcard listener (S-05)
   or a new plaintext 1883 listener (S-12) can never be approved.
+- `ALLOW_TRANSITIONS_FILE` (stage L3 only) activates one exact semantic regulatory
+  transition: the phy behind `AEGIS_AP_INTERFACE` (`wlp0s20f3`) may go `00 -> TH`
+  (`TH -> TH` is unchanged). The file must contain exactly `stage L3` and
+  `wifi.reg.<AEGIS_AP_PHY> 00 TH`; anything else stops the run. The phy comes from
+  the capture key `wifi.iface.<if>.phy` in both bundles. Every other `wifi.reg.*`
+  change stays protected drift and can never be approved through `ALLOW_KEYS_FILE`.
 
 | Class | Meaning | Verdict |
 |---|---|---|
