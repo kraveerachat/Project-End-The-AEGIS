@@ -40,11 +40,13 @@ edit_policy: append-by-new-file
 
 ## Shared surfaces touched
 
-- `None` — task stayed inside IDEA3
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-stage-gate.sh` — Phase 4 K3 coordination contract; affects IDEA3 execution coordination with IDEA1-window preservation semantics.
+- `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-17-idea3-pr11-phase4-runtime-prerequisites.md` — binding M16 cross-IDEA coordination semantics.
+- All paths are inside the IDEA3 boundary; no IDEA1 source, code or configuration was modified. Music does not become owner of IDEA1. V2 is IDEA3 owner risk/coordination self-attestation only; S10 PRE/POST preservation remains the empirical fail-closed boundary.
 
 ## Integration requests
 
-- None — valid only when no cross-scope/shared path changed; Kla remains the normal GitHub reviewer for IDEA3.
+- Human integration review requested of the M16 K3 contract change (V2 owner self-attestation alongside V1) before merge; no rollout is needed, rollback is reverting this PR.
 
 ## Known limitations
 
