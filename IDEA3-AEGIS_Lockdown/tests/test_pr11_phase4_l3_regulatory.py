@@ -293,7 +293,7 @@ def test_apply_checks_regulatory_state_only_after_rfkill_unblock_and_before_prof
     unblock = text.index("l3_rfkill_prepare")
     gate = text.index("l3_reg_gate")
     install = text.index("install -D")
-    activate = text.index("nmcli connection up")
+    activate = text.index("l3_nm_activate")
     assert unblock < gate < install < activate
 
 

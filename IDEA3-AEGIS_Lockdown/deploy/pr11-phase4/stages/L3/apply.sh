@@ -120,6 +120,14 @@ if [ -z "$ROOT" ]; then
   . "$P4_HERE/p4-l3-regulatory.sh"
   l3_reg_gate "$AP_IF" "$AP_CHANNEL" || fail "$L3_REG_REASON"
   printf 'L3_REGULATORY_PRE_ACTIVATION=%s phy=%s channel=%s\n' "$L3_REG_COUNTRY" "$L3_REG_PHY" "$AP_CHANNEL"
+
+  # NetworkManager target-device readiness gate, still BEFORE any profile is installed. Live evidence (rerun5): NM saw the
+  # unblock but wlp0s20f3 stayed `unavailable`, so activation found no suitable device. The gate reads only the target
+  # device's NM state (bounded, state-based, read-only), fails closed with a stable reason, and never changes the global
+  # radio, rfkill or regulatory state (p4-l3-nm.sh). rollback.sh re-blocks.
+  # shellcheck source=../../p4-l3-nm.sh
+  . "$P4_HERE/p4-l3-nm.sh"
+  l3_nm_wait_ready "$AP_IF" || fail "$L3_NM_REASON"
 fi
 
 # UUID generation
@@ -167,7 +175,7 @@ printf '%s\n' "$UUID" > "$WORK/uuid"
 
 if [ -z "$ROOT" ]; then
   nmcli connection reload || fail NMCLI_RELOAD_FAILED
-  nmcli connection up "$CONN_ID" || fail NMCLI_UP_FAILED
+  l3_nm_activate "$AP_IF" "$CONN_ID" || fail "$L3_NM_REASON"
 
   # Effective state immediately after activation: AP type on the approved channel, gate still holds. On any
   # mismatch the AP is taken down here (our own artifact) before failing; the owner still runs rollback.sh.

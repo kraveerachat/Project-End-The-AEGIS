@@ -163,7 +163,7 @@ def test_apply_uses_the_gate_before_profile_install_and_verifies_after_activatio
     assert 'p4-l3-regulatory.sh' in text
     pre = text.index("l3_reg_gate")
     install = text.index('install -D -m 0600')
-    up = text.index('nmcli connection up')
+    up = text.index('l3_nm_activate')
     post = text.index("l3_reg_verify_active")
     assert pre < install < up < post
 
