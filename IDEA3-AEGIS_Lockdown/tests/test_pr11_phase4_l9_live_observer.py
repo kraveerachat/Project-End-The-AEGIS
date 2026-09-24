@@ -101,8 +101,8 @@ def test_any_command_row_is_actuation_failure(tmp_path):
     assert r["L9_LIVE_OBSERVATION"] == "FAIL" and r["L9_FAILURE_REASON"] == "COMMAND_ROWS_PRESENT"
 
 
-@pytest.mark.parametrize("event", ["CUT_UPLINK", "RESTORE_UPLINK"])
-def test_cut_or_restore_audit_event_fails(tmp_path, event):
+@pytest.mark.parametrize("event", ["COMMAND_SENT", "COMMAND_QUEUED", "DRY_RUN_COMMAND"])
+def test_command_audit_event_fails(tmp_path, event):
     mod = load()
     pdb, adb = make_db(tmp_path, statuses=[("STATUS", NOW - 5.0)], audit=[event])
     r = run(mod, pdb, adb)
@@ -167,3 +167,17 @@ def test_source_opens_sqlite_read_only_and_has_no_network_or_write_sql():
     assert "mode=ro" in code and "query_only" in code
     for banned in ("INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "socket", "paho", "subprocess", "publish"):
         assert banned not in code, banned
+
+
+def test_action_names_are_not_audit_event_types_so_only_real_event_types_are_checked():
+    """The Core never writes CUT_UPLINK/RESTORE_UPLINK as an audit event_type (controller.py writes COMMAND_SENT /
+    DRY_RUN_COMMAND, supervisor.py COMMAND_QUEUED); the observer must query the event types that really exist."""
+    import re
+    core = "\n".join((ROOT / "aegis_soc" / name).read_text() for name in ("controller.py", "supervisor.py"))
+    written = set(re.findall(r'(?:_audit_log|db\.log_event)\(\s*"([A-Z_]+)"', core))
+    assert {"COMMAND_SENT", "COMMAND_QUEUED", "DRY_RUN_COMMAND"} <= written
+    assert "CUT_UPLINK" not in written and "RESTORE_UPLINK" not in written
+    code = MODULE.read_text()
+    for name in ("COMMAND_SENT", "COMMAND_QUEUED", "DRY_RUN_COMMAND"):
+        assert name in code
+    assert "event_type IN ('CUT_UPLINK'" not in code

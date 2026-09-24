@@ -6,7 +6,8 @@ An accepted device STATUS leaves exactly one durable row in `protocol_seen_d2c`;
 (and the audit log) as the service account and proves, without any network/serial access and without writing:
   * at least N accepted STATUS rows for the configured device inside a freshness window,
   * zero command rows and zero allocated sequence (no COMMAND was ever issued),
-  * zero CUT_UPLINK / RESTORE_UPLINK audit events.
+  * zero COMMAND_SENT / COMMAND_QUEUED / DRY_RUN_COMMAND audit events (the event types the Core really writes;
+    the action names CUT_UPLINK/RESTORE_UPLINK are never audit event types).
 HEARTBEAT (Core → device) is NOT persisted, so it is reported as NOT_OBSERVABLE_FROM_STORE and never as PASS.
 Output carries counts and stable codes only — never message ids, MACs, keys or device timestamps.
 """
@@ -65,7 +66,7 @@ def observe(*, protocol_db: Path, audit_db: Path | None, device_id: str, now: fl
     if audit_db is not None:
         acon = _open_ro(audit_db)
         try:
-            actuation = acon.execute("SELECT count(*) FROM audit_logs WHERE event_type IN ('CUT_UPLINK', 'RESTORE_UPLINK')").fetchone()[0]
+            actuation = acon.execute("SELECT count(*) FROM audit_logs WHERE event_type IN ('COMMAND_SENT', 'COMMAND_QUEUED', 'DRY_RUN_COMMAND')").fetchone()[0]
         except sqlite3.Error as exc:
             raise L9Error("audit log is not readable") from exc
         finally:
