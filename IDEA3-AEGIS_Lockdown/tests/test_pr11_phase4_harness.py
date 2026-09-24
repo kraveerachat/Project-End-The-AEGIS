@@ -339,6 +339,7 @@ def test_capture_happy_path_writes_normalized_checksummed_records(tmp_path: Path
     assert rec["wifi.reg.global"] == "00"
     assert rec["wifi.iface.wlan-test0.type"] == "managed"
     assert rec["wifi.phy.ap_mode"] == "supported"
+    assert rec["wifi.iface.wlan-test0.phy"] == "phy0"
     assert rec["nm.general"] == "connected:full:enabled:disabled"
     assert rec["nm.active.device.eth-test0"] == "wired-test:802-3-ethernet"
     assert rec["nm.active.device.wlan-test0"] == "none"
@@ -626,6 +627,8 @@ def test_only_reviewed_stage_handlers_are_registered() -> None:
     # p4-lib.sh's P4_HANDLER_FILES checks by exact name.
     expected_by_stage = {
         "L2": core_handler_files | {"verify-containment-functional.sh"},
+        # L3 owns the one exact regulatory transition p4-compare.sh may accept.
+        "L3": core_handler_files | {"allow-transitions.txt"},
     }
     for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"):
         expected = expected_by_stage.get(name, core_handler_files)

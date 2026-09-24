@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url'
 import React, { act } from 'react'
 
 import { makeT, STRINGS } from '../src/lib/strings.js'
-import { makeVaultTreeBackend, serverBlob } from './fixtures/vaultTreeBackend.js'
+import { CORRECT_PASSPHRASE, makeVaultTreeBackend, serverBlob } from './fixtures/vaultTreeBackend.js'
 import { startVaultScreenEnv, settle, click, pressKey, type, unlock } from './helpers/vaultScreenHarness.js'
 
 const t = makeT('en')
@@ -197,6 +197,66 @@ test('LOCKED-VAULT-UI-TEST-1..3 locked preview is fixed, decorative, and reveals
   const manyItemCount = await renderLocked(11)
   assert.equal(oneItemCount, manyItemCount, 'ambient composition never scales with inventory count')
   assert.equal(oneItemCount, 7, 'the approved composition has a bounded fixed block count')
+})
+
+test('QHD-LAYOUT-1..2 locked Vault uses the centered content boundary at 2560x1440 and 1920x1080', async () => {
+  const backend = makeVaultTreeBackend({ flags: { treeUiEnabled: true } })
+  backend.tree.protocolState = 'TREE_V1'
+  globalThis.__VAULT_BACKEND__ = backend
+  const { Vault } = await env.load('/src/screens/Vault.jsx')
+  const originalWidth = dom.window.innerWidth
+  const originalHeight = dom.window.innerHeight
+
+  try {
+    for (const [width, height] of [[2560, 1440], [1920, 1080]]) {
+      Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: width })
+      Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: height })
+      const h = env.mount()
+      try {
+        await h.render(React.createElement(Vault, { t }))
+        const preview = q('[data-testid="locked-vault-preview"]')
+        assert.ok(preview, `${width}x${height}: locked preview renders`)
+        assert.ok(
+          preview.closest('.vault-pane-content'),
+          `${width}x${height}: locked presentation is inside the established centered Vault content boundary`,
+        )
+        assert.equal(
+          qa('[data-testid="locked-vault-ambient"]').length,
+          7,
+          `${width}x${height}: the fixed privacy composition does not become viewport-derived inventory`,
+        )
+      } finally {
+        await h.unmount()
+      }
+    }
+  } finally {
+    Object.defineProperty(dom.window, 'innerWidth', { configurable: true, value: originalWidth })
+    Object.defineProperty(dom.window, 'innerHeight', { configurable: true, value: originalHeight })
+  }
+})
+
+test('QHD-LAYOUT-3 unlocked FLAT actions remain available inside the centered legacy content boundary', async () => {
+  const backend = makeVaultTreeBackend()
+  globalThis.__VAULT_BACKEND__ = backend
+  const { Vault } = await env.load('/src/screens/Vault.jsx')
+  const h = env.mount()
+  try {
+    await h.render(React.createElement(Vault, { t }))
+    await unlock(dom, t, CORRECT_PASSPHRASE)
+    await settle()
+
+    const upload = qa('button').find((button) => button.textContent.trim() === t('upload'))
+    const lock = qa('button').find((button) => button.textContent.trim() === t('lockVault'))
+    assert.ok(upload, 'legacy FLAT Upload action remains available')
+    assert.ok(lock, 'legacy FLAT Lock action remains available')
+    assert.ok(!q('[data-testid="vault-tree-screen"]'), 'FLAT still does not render the TREE_V1 screen')
+    assert.ok(
+      upload.closest('.vault-pane-content'),
+      'legacy FLAT visual actions use the centered Vault content boundary',
+    )
+  } finally {
+    await h.unmount()
+  }
 })
 
 test('VAULT-FILE-DRAG-WIRING-1 VaultFileTile calls its onDragStart prop exactly once', async () => {

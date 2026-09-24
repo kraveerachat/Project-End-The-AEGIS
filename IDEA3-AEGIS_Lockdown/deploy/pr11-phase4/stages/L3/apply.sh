@@ -23,6 +23,8 @@ PSK_FILE="${AEGIS_AP_PSK_FILE:-}"
 RFKILL_ID_ENV="${AEGIS_L3_RFKILL_ID:-}"
 LIVE_AUTH="${AEGIS_L3_LIVE_AUTHORIZED:-NO}"
 
+P4_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 host_path() {
   if [ -n "$ROOT" ]; then
     printf '%s%s\n' "${ROOT%/}" "$1"
@@ -85,8 +87,7 @@ if [ -z "$ROOT" ]; then
   [ ! -e "$PROFILE_DEST" ] \
     || fail DESTINATION_ALREADY_EXISTS
 
-  iw reg get 2>/dev/null | grep -Eq "country (TH|$AP_COUNTRY):" \
-    || fail REGULATORY_DOMAIN_MISMATCH
+  [ "$AP_COUNTRY" = TH ] || fail AP_COUNTRY_MUST_BE_TH
 
   # Management path fail-closed checks
   [ -z "$(ip route show default dev "$AP_IF" 2>/dev/null)" ] \
@@ -104,38 +105,29 @@ if [ -z "$ROOT" ]; then
   nmcli -t -f DEVICE,STATE device status 2>/dev/null | grep -q "^${AP_IF}:connected" \
     && fail AP_IF_ALREADY_CONNECTED
 
-  # Target rfkill isolation: resolve specific radio ID, fail closed on hard block
-  rfkill_id=""
-  if [ -n "$RFKILL_ID_ENV" ]; then
-    rfkill_id="$RFKILL_ID_ENV"
-  elif [ -d "/sys/class/net/$AP_IF/phy80211" ]; then
-    for idx in /sys/class/net/"$AP_IF"/phy80211/rfkill*/index; do
-      if [ -f "$idx" ]; then
-        rfkill_id=$(cat "$idx" 2>/dev/null)
-        break
-      fi
-    done
-  fi
-  if [ -z "$rfkill_id" ]; then
-    rfkill_id=$(rfkill --noheadings --output ID,TYPE,DEVICE 2>/dev/null | awk -v dev="$AP_IF" '$3 == dev && $2 == "wlan" {print $1; exit}')
-  fi
-  if [ -z "$rfkill_id" ]; then
-    rfkill_id=$(rfkill --noheadings --output ID,TYPE 2>/dev/null | awk '$2 == "wlan" {print $1; exit}')
-  fi
-  [ -n "$rfkill_id" ] || fail RFKILL_ID_NOT_FOUND
-  printf '%s\n' "$rfkill_id" > "$WORK/rfkill_id"
+  # Target rfkill isolation: exact id bound to the interface through sysfs, exact-row state, fail closed on any
+  # ambiguity or hard block, unblock only that id (see p4-l3-rfkill.sh for the util-linux CLI facts).
+  # shellcheck source=../../p4-l3-rfkill.sh
+  . "$P4_HERE/p4-l3-rfkill.sh"
+  l3_rfkill_prepare "$AP_IF" "$WORK" "$RFKILL_ID_ENV" || fail "$L3_RFKILL_REASON"
 
-  hard_state=$(rfkill --noheadings --output HARD "$rfkill_id" 2>/dev/null | tr -d ' ')
-  [ "$hard_state" != "blocked" ] && [ "$hard_state" != "1" ] \
-    || fail RFKILL_HARD_BLOCKED
+  # Regulatory / channel gate AFTER the unblock and BEFORE any profile is installed. Live evidence (2026-09-24): the
+  # self-managed phy stays world domain 00 after the exact unblock, so TH cannot be required here. The gate accepts
+  # only TH or 00 on the target phy AND an unrestricted approved channel on that phy (p4-l3-regulatory.sh), reads
+  # once (no poll, no sleep), never runs `iw reg set`, and fails closed before install/activation. The same predicate
+  # is re-checked after activation below. rollback.sh re-blocks.
+  # shellcheck source=../../p4-l3-regulatory.sh
+  . "$P4_HERE/p4-l3-regulatory.sh"
+  l3_reg_gate "$AP_IF" "$AP_CHANNEL" || fail "$L3_REG_REASON"
+  printf 'L3_REGULATORY_PRE_ACTIVATION=%s phy=%s channel=%s\n' "$L3_REG_COUNTRY" "$L3_REG_PHY" "$AP_CHANNEL"
 
-  soft_state=$(rfkill --noheadings --output SOFT "$rfkill_id" 2>/dev/null | tr -d ' ')
-  if [ "$soft_state" = "blocked" ] || [ "$soft_state" = "1" ]; then
-    printf '1\n' > "$WORK/rfkill_pre_state"
-    rfkill unblock "$rfkill_id" || fail RFKILL_UNBLOCK_FAILED
-  else
-    printf '0\n' > "$WORK/rfkill_pre_state"
-  fi
+  # NetworkManager target-device readiness gate, still BEFORE any profile is installed. Live evidence (rerun5): NM saw the
+  # unblock but wlp0s20f3 stayed `unavailable`, so activation found no suitable device. The gate reads only the target
+  # device's NM state (bounded, state-based, read-only), fails closed with a stable reason, and never changes the global
+  # radio, rfkill or regulatory state (p4-l3-nm.sh). rollback.sh re-blocks.
+  # shellcheck source=../../p4-l3-nm.sh
+  . "$P4_HERE/p4-l3-nm.sh"
+  l3_nm_wait_ready "$AP_IF" || fail "$L3_NM_REASON"
 fi
 
 # UUID generation
@@ -183,10 +175,16 @@ printf '%s\n' "$UUID" > "$WORK/uuid"
 
 if [ -z "$ROOT" ]; then
   nmcli connection reload || fail NMCLI_RELOAD_FAILED
-  nmcli connection up "$CONN_ID" || fail NMCLI_UP_FAILED
+  l3_nm_activate "$AP_IF" "$CONN_ID" || fail "$L3_NM_REASON"
 
-  iw dev "$AP_IF" info 2>/dev/null | grep -q "type AP" \
-    || fail AP_MODE_NOT_ACTIVE
+  # Effective state immediately after activation: AP type on the approved channel, gate still holds. On any
+  # mismatch the AP is taken down here (our own artifact) before failing; the owner still runs rollback.sh.
+  if ! l3_reg_verify_active "$AP_IF" "$AP_CHANNEL"; then
+    reason=$L3_REG_REASON
+    nmcli connection down "$CONN_ID" >/dev/null 2>&1 || true
+    fail "$reason"
+  fi
+  printf 'L3_REGULATORY_POST_ACTIVATION=%s phy=%s channel=%s\n' "$L3_REG_COUNTRY" "$L3_REG_PHY" "$AP_CHANNEL"
 
   [ -z "$(ip -4 addr show dev "$AP_IF" 2>/dev/null | grep 'inet ')" ] \
     || fail AP_IF_ACQUIRED_IP
