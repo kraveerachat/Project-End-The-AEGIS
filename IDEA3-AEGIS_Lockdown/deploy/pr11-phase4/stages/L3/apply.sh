@@ -23,6 +23,8 @@ PSK_FILE="${AEGIS_AP_PSK_FILE:-}"
 RFKILL_ID_ENV="${AEGIS_L3_RFKILL_ID:-}"
 LIVE_AUTH="${AEGIS_L3_LIVE_AUTHORIZED:-NO}"
 
+P4_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 host_path() {
   if [ -n "$ROOT" ]; then
     printf '%s%s\n' "${ROOT%/}" "$1"
@@ -103,38 +105,11 @@ if [ -z "$ROOT" ]; then
   nmcli -t -f DEVICE,STATE device status 2>/dev/null | grep -q "^${AP_IF}:connected" \
     && fail AP_IF_ALREADY_CONNECTED
 
-  # Target rfkill isolation: resolve specific radio ID, fail closed on hard block
-  rfkill_id=""
-  if [ -n "$RFKILL_ID_ENV" ]; then
-    rfkill_id="$RFKILL_ID_ENV"
-  elif [ -d "/sys/class/net/$AP_IF/phy80211" ]; then
-    for idx in /sys/class/net/"$AP_IF"/phy80211/rfkill*/index; do
-      if [ -f "$idx" ]; then
-        rfkill_id=$(cat "$idx" 2>/dev/null)
-        break
-      fi
-    done
-  fi
-  if [ -z "$rfkill_id" ]; then
-    rfkill_id=$(rfkill --noheadings --output ID,TYPE,DEVICE 2>/dev/null | awk -v dev="$AP_IF" '$3 == dev && $2 == "wlan" {print $1; exit}')
-  fi
-  if [ -z "$rfkill_id" ]; then
-    rfkill_id=$(rfkill --noheadings --output ID,TYPE 2>/dev/null | awk '$2 == "wlan" {print $1; exit}')
-  fi
-  [ -n "$rfkill_id" ] || fail RFKILL_ID_NOT_FOUND
-  printf '%s\n' "$rfkill_id" > "$WORK/rfkill_id"
-
-  hard_state=$(rfkill --noheadings --output HARD "$rfkill_id" 2>/dev/null | tr -d ' ')
-  [ "$hard_state" != "blocked" ] && [ "$hard_state" != "1" ] \
-    || fail RFKILL_HARD_BLOCKED
-
-  soft_state=$(rfkill --noheadings --output SOFT "$rfkill_id" 2>/dev/null | tr -d ' ')
-  if [ "$soft_state" = "blocked" ] || [ "$soft_state" = "1" ]; then
-    printf '1\n' > "$WORK/rfkill_pre_state"
-    rfkill unblock "$rfkill_id" || fail RFKILL_UNBLOCK_FAILED
-  else
-    printf '0\n' > "$WORK/rfkill_pre_state"
-  fi
+  # Target rfkill isolation: exact id bound to the interface through sysfs, exact-row state, fail closed on any
+  # ambiguity or hard block, unblock only that id (see p4-l3-rfkill.sh for the util-linux CLI facts).
+  # shellcheck source=../../p4-l3-rfkill.sh
+  . "$P4_HERE/p4-l3-rfkill.sh"
+  l3_rfkill_prepare "$AP_IF" "$WORK" "$RFKILL_ID_ENV" || fail "$L3_RFKILL_REASON"
 
   # Regulatory gate AFTER the unblock: a soft-blocked radio reports the world
   # domain 00 for its phy, so the owner-approved country (TH) can only be

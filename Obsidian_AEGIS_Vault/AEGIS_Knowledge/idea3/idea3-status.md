@@ -18,6 +18,22 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3 first live attempt — FAIL_CLOSED, rolled back — rfkill defect fix — 2026-09-24
+
+> [!important] L3 was attempted live once and failed closed before any profile was installed; the host was restored
+> `L3_LIVE_EXECUTED = ATTEMPTED_FAIL_CLOSED`, `L3_APPLY = FAIL (REGULATORY_DOMAIN_MISMATCH, owner rc 1)`, `L3_ROLLBACK = PASS`, `L3_ARTIFACT_RESIDUE = NO`
+> `L3_PRE_RB_COMPARE = PASS` (0 drift, 0 baseline-unhealthy, 0 incomparable), `L3_S10_PRESERVATION = PASS`
+> `L3_LIVE_ACCEPTANCE = NOT_PROVEN`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`
+> `L2_LIVE_ACCEPTANCE = PROVEN` (unchanged), containment `HOST_VERIFIED = NO` (unchanged)
+
+- **Live evidence (owner-run, as reported):** fresh PRE (`~/idea3-p4-evidence/2026-09-24-l3-rerun1/pre-root`, `JOURNAL_SINCE=2026-09-24 09:53:44 UTC`, `L0_CAPTURE=COMPLETE`, checksums PASS, disk 89%): `wlp0s20f3 → phy0`, target soft-blocked, hard-unblocked, global and `phy0` regulatory `00`, AP mode supported. Apply stopped with `L3_APPLY=FAIL reason=REGULATORY_DOMAIN_MISMATCH`; the stage work dir recorded `rfkill_id=1` and **`rfkill_pre_state=0`** although the radio was soft-blocked; no profile was installed. Rollback and the PRE→RB comparison passed.
+- **Root cause of the wrong pre-state (proven, read-only diagnostics on the live host):** util-linux `rfkill` 2.42.3 accepts an identifier only after a command. `rfkill --noheadings --output SOFT 1` prints "Try 'rfkill --help'" and exits 1; the handler discarded stderr, so `soft_state` was empty, was classified "not blocked", `rfkill_pre_state=0` was written and **`rfkill unblock` never ran**. `rfkill --noheadings --output ID,TYPE,SOFT,HARD list 1` is the working form. The same defect made the hard-block guard pass on an empty string (fail-open). Kernel/NetworkManager journals show no rfkill/iwlwifi/NM-activation event during the attempt, consistent with a radio that was never unblocked. The regulatory gate therefore failed on a still-blocked radio; this attempt says nothing about whether TH appears after an unblock.
+- **Repository fix (this task, no Production action):** new `deploy/pr11-phase4/p4-l3-rfkill.sh` used by L3 apply and rollback: exact id from the interface's sysfs `rfkill*/index` (fail on none/ambiguous/env mismatch, no "first wlan" fallback), state from exactly one `rfkill list <id>` row (type `wlan`, values `blocked|unblocked`, else fail closed), hard block fails before mutation, pre-state written before the exact `rfkill unblock <id>`, unblock verified, rollback re-blocks only the recorded id when the pre-state was blocked and verifies it. 24 behavioural tests run the logic against a fake `rfkill` that implements the util-linux grammar.
+- **Remaining live uncertainty — regulatory lifecycle (NOT PROVEN):** the radio is an Intel AX203 (`iwlwifi`/`iwlmvm`, self-managed regulatory, firmware 89, kernel 7.2.3, `regulatory.db` absent). Upstream `iwl_mvm_init_mcc` (SUPPORTED_BY_UPSTREAM_DOC, kernel source) takes the initial country from restored/BIOS-ACPI state or the firmware default and updates it later from firmware notifications, not from an rfkill unblock. Live read-only: the world domain `00` already permits 2.4 GHz channel 6 without NO-IR. Whether the current ordering (unblock → require target phy `TH` → install profile → activate) is satisfiable for this phy is therefore **NOT_PROVEN**; the 10 s poll was not lengthened and the requirement was not weakened. A retry with this fix will fail closed at the same gate if TH does not appear after the unblock (rollback re-blocks) and will then give the first real evidence.
+- **Next:** human review + merge of this fix before any fresh L3 retry; a retry needs fresh same-day authorization/K3 and a new PRE/`JOURNAL_SINCE`.
+
+---
+
 ## IDEA3 PR11 Phase 4 L3 regulatory comparator — repository fix (Option 1(a)) — 2026-09-24
 
 > [!important] Repository-only fix. L3 live has NOT been executed; no Production mutation occurred in this task.
