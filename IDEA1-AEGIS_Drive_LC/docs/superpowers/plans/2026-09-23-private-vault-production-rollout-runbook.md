@@ -1,6 +1,6 @@
 # PR #187 Private Vault TREE_V1 — Production rollout runbook
 
-Status: **SECOND STAGE A PREPARED / NOT APPLIED. HUMAN OWNER EXECUTION ONLY.**
+Status: **SECOND STAGE A ROLLED BACK / DATA GATE CORRECTED / THIRD STAGE A NOT AUTHORIZED.**
 
 This runbook deploys merged source `70b0fdf059672e2b1c408ec5e5c16cfed5261257`.
 It never builds application code from the PR #187 documentation head. The active
@@ -29,6 +29,48 @@ acceptance. Drive-only rollback passed without applying migration 011 or creatin
 a TREE owner. PR #191 corrected the layout, passed Human Owner 2560x1440
 acceptance, preserved the PR #171 UI, and merged at
 `2d7e7fd84e9b61eb0623e6bf762c0ce2858d341f`. Never deploy the old tag again.
+
+## Historical second Stage A — retained evidence
+
+Human execution reached the intended image-only candidate runtime, then stopped
+on the whole-database data SHA equality gate and completed the exact pre-TREE
+rollback. Evidence supplied by the Human Owner:
+
+```text
+SECOND_STAGE_A_CANDIDATE_RUNTIME=PASS
+SECOND_STAGE_A_PRE_TREE_ROLLBACK=PASS
+WHOLE_DATABASE_DATA_SHA_GATE=INVALID_FOR_LIVE_STAGE_A
+WHOLE_DATABASE_DATA_SHA_SEQUENCE=b22d… -> 015b… -> 89c…
+UNRELATED_DATABASE_ACTIVITY_CAUSE=NOT_PROVEN
+CANDIDATE_IMAGE=aegis-prod-drive:vault-tree-70b0fdf05967
+CANDIDATE_HEALTH=healthy
+CANDIDATE_RESTARTS=0
+CANDIDATE_OOM=false
+VAULT_TREE_SCHEMA_AVAILABLE=false
+VAULT_TREE_PROTOCOL_ENABLED=false
+VAULT_DESTRUCTIVE_PURGE_ENABLED=false
+TREE_TABLE_COUNT_PRE=0
+TREE_TABLE_COUNT_CANDIDATE=0
+TREE_TABLE_COUNT_ROLLBACK=0
+VAULT_META_COUNT=2
+VAULT_BLOBS_COUNT=2
+VAULT_V2_BLOBS_COUNT=6
+PRODUCTION_SCHEMA_UNCHANGED=YES
+ROLLBACK_IMAGE=aegis-prod-drive:media-preview-1a3c16622407
+ROLLBACK_HEALTH=healthy
+ROLLBACK_RESTARTS=0
+ROLLBACK_OOM=false
+PRODUCTION_MIGRATION_011_APPLIED=NO
+```
+
+The whole-database data SHA changed from the recorded `b22d…` pre-value to
+`015b…` after candidate cutover, then to `89c…` after rollback to the original
+image. Read-only timestamp inspection found no rows changed during the cutover
+window in `files`, `upload_sessions`, `vault_v2_upload_sessions`, or
+`vault_v2_upload_chunks`. This proves whole-database `pg_dump --data-only` hash
+equality is not a stable live Stage-A invariant. It does not prove the cause of
+the unrelated database activity, nor prove that the candidate caused or did not
+cause it.
 
 ```text
 SOURCE_MAIN_SHA=70b0fdf059672e2b1c408ec5e5c16cfed5261257
@@ -298,11 +340,11 @@ feature flags. `MIGRATING_TREE_V1` remains fenced and `TREE_V1` remains permanen
 fenced from legacy flat mutation. Tables, heads, encrypted manifests, blob state,
 and ciphertext remain intact.
 
-## Second Stage A — exact Human Owner command set (prepared, not executed)
+## Third Stage A — corrected Human Owner command set
 
-The commands below are the complete second-Stage-A package. They are not an
-authorization. The Human Owner runs them only after reviewing this PR and the
-recorded image/overlay hashes.
+The commands below are the corrected package proposed for a possible third
+Stage A. They are not authorization. The Human Owner must review the protected
+Vault-data fingerprint contract and separately authorize any execution.
 
 ### A. Approved build workstation — export and transfer
 
@@ -378,15 +420,76 @@ POSTGRES_MAJOR=$((POSTGRES_VERSION_NUM / 10000))
 test "$POSTGRES_MAJOR" = '15' || { echo 'STOP: PostgreSQL major is not 15' >&2; exit 1; }
 test "$TREE_TABLE_COUNT" = "$EXPECTED_TREE_TABLE_COUNT" || { echo 'STOP: migration 011/TREE tables are already present' >&2; exit 1; }
 
+vault_protected_sha256() {
+  "${D[@]}" exec -i aegis-prod-postgres-1 sh -lc 'psql -X -qAt -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1' <<'SQL' | sha256sum | cut -d' ' -f1
+COPY (
+  SELECT payload
+  FROM (
+    SELECT 0 AS section_rank, 'contract'::text AS primary_key_1, ''::text AS primary_key_2,
+           jsonb_build_array(
+             'PR187_STAGE_A_PROTECTED_VAULT_V1',
+             'vault_meta:user_id',
+             'vault_blobs:id',
+             'vault_v2_blobs:id',
+             'vault_v2_blob_chunks:blob_id,chunk_index'
+           )::text AS payload
+    UNION ALL
+    SELECT 1, lpad(user_id::text, 20, '0'), '',
+           jsonb_build_array(
+             'vault_meta', user_id, salt_b64, kdf, memory_kib, iterations,
+             parallelism, verifier_iv, verifier_data,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+           )::text
+      FROM vault_meta
+    UNION ALL
+    SELECT 2, lpad(id::text, 20, '0'), '',
+           jsonb_build_array(
+             'vault_blobs', id, user_id, storage_key, iv_b64, wrapped_dek_b64,
+             wrap_iv_b64, meta_iv_b64, meta_b64, size_bytes,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+           )::text
+      FROM vault_blobs
+    UNION ALL
+    SELECT 3, id, '',
+           jsonb_build_array(
+             'vault_v2_blobs', id, user_id, format_version, storage_key,
+             content_id_b64, ciphertext_size, chunk_size, chunk_count,
+             wrapped_dek_b64, wrap_iv_b64, meta_iv_b64, meta_b64,
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+           )::text
+      FROM vault_v2_blobs
+    UNION ALL
+    SELECT 4, blob_id, lpad(chunk_index::text, 10, '0'),
+           jsonb_build_array(
+             'vault_v2_blob_chunks', blob_id, chunk_index, ciphertext_size,
+             ciphertext_sha256, iv_b64
+           )::text
+      FROM vault_v2_blob_chunks
+  ) AS protected_vault_rows
+  ORDER BY section_rank, primary_key_1 COLLATE "C", primary_key_2 COLLATE "C"
+) TO STDOUT;
+SQL
+}
+
 PRE_SCHEMA_SHA256=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'pg_dump -U "$POSTGRES_USER" -d aegis_drive --schema-only --no-owner --no-privileges | grep -vE "^\\\\(un)?restrict " | sha256sum | cut -d" " -f1')
-PRE_DATA_SHA256=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'pg_dump -U "$POSTGRES_USER" -d aegis_drive --data-only --no-owner --no-privileges | grep -vE "^\\\\(un)?restrict " | sha256sum | cut -d" " -f1')
-printf 'PRE_SCHEMA_SHA256=%s\nPRE_DATA_SHA256=%s\n' "$PRE_SCHEMA_SHA256" "$PRE_DATA_SHA256"
+PRE_PROTECTED_VAULT_SHA256=$(vault_protected_sha256)
+printf 'PRE_SCHEMA_SHA256=%s\nPRE_PROTECTED_VAULT_SHA256=%s\n' "$PRE_SCHEMA_SHA256" "$PRE_PROTECTED_VAULT_SHA256"
 ```
 
-Run the complete Second Stage A in this same shell during a controlled maintenance
-window with no intentional user writes. Any unexplained extra or missing live
-Compose config file stops the cutover. The pre-cutover row counts and normalized
-schema/data fingerprints stay in memory for exact post-cutover comparison.
+Run any separately authorized Third Stage A in this same shell during a controlled
+maintenance window with no intentional user writes. Any unexplained extra or
+missing live Compose config file stops the cutover. The pre-cutover row counts,
+normalized schema fingerprint, and protected Vault fingerprint stay in memory for
+exact post-cutover comparison.
+
+The protected fingerprint sends canonical rows directly from `psql` to
+`sha256sum`; it prints only the final hash. It covers committed immutable Vault
+state: V1 vault configuration and blobs, V2 published blobs, V2 committed chunk
+metadata, storage keys, envelope/IV fields, encrypted metadata, ciphertext sizes,
+and server-recorded ciphertext hashes. It orders explicitly by each table's stable
+primary key under `C` collation. In-flight upload/session tables are excluded
+because their lease, status, expiry, writer-token, and recovery fields are mutable
+operational state; inspect them separately when investigating activity.
 
 ### C. Production host — verify transfer, load, and install Stage A overlay
 
@@ -520,23 +623,24 @@ test "$POST_TREE_TABLE_COUNT" = "$EXPECTED_TREE_TABLE_COUNT" || { echo 'STOP_FOR
 test "$POST_LEGACY_COUNTS" = "$PRE_LEGACY_COUNTS" || { echo 'STOP_FOR_HUMAN_INVESTIGATION: legacy Vault row counts changed during Stage A' >&2; exit 1; }
 
 POST_SCHEMA_SHA256=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'pg_dump -U "$POSTGRES_USER" -d aegis_drive --schema-only --no-owner --no-privileges | grep -vE "^\\\\(un)?restrict " | sha256sum | cut -d" " -f1')
-POST_DATA_SHA256=$("${D[@]}" exec aegis-prod-postgres-1 sh -lc 'pg_dump -U "$POSTGRES_USER" -d aegis_drive --data-only --no-owner --no-privileges | grep -vE "^\\\\(un)?restrict " | sha256sum | cut -d" " -f1')
-printf 'POST_SCHEMA_SHA256=%s\nPOST_DATA_SHA256=%s\n' "$POST_SCHEMA_SHA256" "$POST_DATA_SHA256"
+POST_PROTECTED_VAULT_SHA256=$(vault_protected_sha256)
+printf 'POST_SCHEMA_SHA256=%s\nPOST_PROTECTED_VAULT_SHA256=%s\n' "$POST_SCHEMA_SHA256" "$POST_PROTECTED_VAULT_SHA256"
 test "$POST_SCHEMA_SHA256" = "$PRE_SCHEMA_SHA256" || { echo 'STOP_FOR_HUMAN_INVESTIGATION: Production schema changed during Stage A' >&2; exit 1; }
-test "$POST_DATA_SHA256" = "$PRE_DATA_SHA256" || { echo 'STOP_FOR_HUMAN_INVESTIGATION: Production data changed during Stage A' >&2; exit 1; }
+test "$POST_PROTECTED_VAULT_SHA256" = "$PRE_PROTECTED_VAULT_SHA256" || { echo 'STOP_FOR_HUMAN_INVESTIGATION: protected Vault data changed during Stage A' >&2; exit 1; }
 echo 'PRODUCTION_SCHEMA_UNCHANGED=YES'
-echo 'PRODUCTION_DATA_UNCHANGED=YES'
-echo 'SECOND_STAGE_A_TECHNICAL=PASS'
-echo 'SECOND_STAGE_A_HUMAN_QHD=PENDING'
+echo 'PROTECTED_VAULT_DATA_UNCHANGED=YES'
+echo 'THIRD_STAGE_A_TECHNICAL=PASS'
+echo 'THIRD_STAGE_A_HUMAN_QHD=PENDING'
 ```
 
 Required: candidate image, healthy Drive, restart 0, OOM false,
 application/metadata/storage healthy, `vaultTree.schemaAvailable=false`,
 `vaultTree.protocolEnabled=false`, `vaultTree.destructivePurgeEnabled=false`,
 TREE table count still 0, and all three legacy row counts unchanged.
-The schema and data SHA-256 values must also match their pre-cutover values
-exactly. A mismatch stops acceptance and requires Human investigation; never
-rewrite the baseline or dismiss a mismatch as noise.
+The schema and protected Vault SHA-256 values must also match their pre-cutover
+values exactly. A mismatch stops acceptance and requires Human investigation;
+never rewrite the baseline or dismiss a mismatch as noise. Whole-database data
+SHA equality is explicitly non-gating and is not part of this command set.
 
 ### H. Human Production QHD stop gate — mandatory before Stage B
 
@@ -557,9 +661,10 @@ investigation; do not automatically classify the candidate or execute rollback.
 
 ## Current stop gate
 
-The new candidate is built and locally qualified. No new PR187 overlay has been
-installed on Production. Migration 011 remains unapplied. Production Drive has
-not been recreated in this phase. Production Vault flags have not changed. The
-next action is Human review and separate authorization to execute hardened
-Second Stage A, followed by the mandatory Human Production QHD stop gate.
-Stage B remains unauthorized.
+Second Stage A was rolled back successfully. Production is again running
+`aegis-prod-drive:media-preview-1a3c16622407`, healthy, restart 0, OOM false.
+Migration 011 remains unapplied, TREE table count remains zero, and Production
+Vault flags remain false/unset. This correction task does not touch Production
+or rebuild the candidate. The next gate is Human review of the deterministic
+protected-Vault fingerprint contract. Third Stage A and Stage B remain
+unauthorized.
