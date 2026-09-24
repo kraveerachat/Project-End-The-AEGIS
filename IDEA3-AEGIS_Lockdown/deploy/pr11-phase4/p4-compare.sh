@@ -24,10 +24,15 @@
 # as do a new failure class, :8077/:18002 loss, and a currently unhealthy tunnel.
 #
 # ALLOW_TRANSITIONS_FILE (stage L3 only) activates one exact semantic regulatory
-# transition: the phy behind AEGIS_AP_INTERFACE may go 00 -> TH (TH -> TH also
-# passes). The phy is resolved from wifi.iface.<if>.phy in BOTH bundles. Every
-# other wifi.reg.* change, a missing/unparseable target state, or a target
-# country other than TH after the window still fails. wifi.reg.* stays in
+# window for the phy behind AEGIS_AP_INTERFACE. Accepted after-states: 00 -> 00
+# and TH -> TH (unchanged) and 00 -> TH (the one approved transition, which
+# also accounts for the wifi.reg.sha256 change). 00 -> 00 is the state proven live
+# on the self-managed Intel phy (it stays 00 after the exact rfkill unblock and
+# while the AP runs); 00 -> TH is tolerated, never required. The phy is resolved
+# from wifi.iface.<if>.phy in BOTH bundles. Every other wifi.reg.* change
+# (global, other phys, TH -> 00, any other country, a changed rule table
+# without the approved transition), a missing/unparseable target state, or a
+# target country other than 00/TH after the window still fails. wifi.reg.* stays in
 # PROTECTED, so ALLOW_KEYS_FILE can never approve it.
 #
 # Exit 0 = COMPARE_RESULT=PASS, 1 = COMPARE_RESULT=FAIL, 2 = STOP (usage/integrity).
@@ -220,7 +225,7 @@ END {
     fam_unscoped_changed[f] = (unscoped_b != unscoped_a)
   }
 
-  # L3 semantic regulatory transition (ALLOW_TRANSITIONS_FILE): target phy 00 -> TH only.
+  # L3 semantic regulatory transition (ALLOW_TRANSITIONS_FILE): target phy 00 -> 00 / TH -> TH unchanged, or 00 -> TH.
   reg_tk = ""; reg_other_changed = 0
   if (trans_iface != "") {
     pk = "wifi.iface." trans_iface ".phy"
@@ -233,7 +238,7 @@ END {
       if (rb !~ /^[0-9A-Z][0-9A-Z]$/ || ra !~ /^[0-9A-Z][0-9A-Z]$/) {
         emit("INCOMPARABLE", "REGULATORY_STATE_MISSING", reg_tk, (reg_tk in B) ? B[reg_tk] : "<absent>", (reg_tk in A) ? A[reg_tk] : "<absent>")
         reg_tk = ""
-      } else if (ra != "TH") {
+      } else if (ra != "TH" && ra != "00") {
         emit("NEW_OR_WORSENED_DRIFT", "REGULATORY_TARGET_NOT_APPROVED", reg_tk, rb, ra)
       }
     }
