@@ -1257,7 +1257,7 @@ export function Vault({
   }
 
   return (
-    <div>
+    <div className="vault-pane-content">
       {vaultCallout}
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <Chip tone={unlocked ? 'ok' : 'neutral'}>

@@ -152,7 +152,10 @@ if [ "$AUTH_OK" = 1 ]; then printf 'AUTHORIZATION_RECORD=VALID\n'; else printf '
 printf 'K3_CONFIRMATION=%s\n' "$K3_STATE"
 printf 'REQUIRED_REPOSITORY_GAPS=%s\n' "$(p4_stage_gaps "$STAGE")"
 printf 'REPOSITORY_GAP_MERGE_STATE=NOT_VERIFIED_BY_GATE\n'
-printf 'S10_IDEA2_CAVEAT=OPEN\n'
+# The window-delta criterion is owner-accepted (PR #189). The gate cannot prove
+# fresh BEFORE/AFTER IDEA2 preservation, so that evidence is still required per stage.
+printf 'S10_CRITERION_OWNER_ACCEPTANCE=APPROVED\n'
+printf 'S10_PRESERVATION_EVIDENCE=REQUIRED_PER_STAGE\n'
 if p4_stage_mutates "$STAGE"; then
   handler=$(p4_stage_handler_status "$STAGE")
   printf 'ROLLBACK_HANDLER=%s\n' "$handler"

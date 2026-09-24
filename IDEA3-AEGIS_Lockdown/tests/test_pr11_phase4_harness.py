@@ -203,6 +203,7 @@ def fs_fixture(secret: str) -> dict[str, str]:
         "etc/nftables.conf": "table inet filter_test {}\n",
         "etc/systemd/timesyncd.conf": "[Time]\n",
         "proc/sys/kernel/random/boot_id": "00000000-0000-4000-8000-000000000001\n",
+        "proc/sys/net/ipv4/ip_local_port_range": "32768\t60999\n",
         "sys/class/net/wlan-test0/phy80211/rfkill1/index": "1\n",
         "sys/class/net/wlan-test0/phy80211/rfkill1/soft": "1\n",
         "sys/class/net/wlan-test0/phy80211/rfkill1/hard": "0\n",
@@ -233,13 +234,13 @@ class Capture:
         return out
 
 
-def make_bin(root: Path, drop: tuple[str, ...] = ()) -> Path:
+def make_bin(root: Path, drop: tuple[str, ...] = (), extra: tuple[str, ...] = ()) -> Path:
     bindir = root / "bin"
     bindir.mkdir(parents=True)
     bash = shutil.which("bash")
     for tool in TOOLS:
         (bindir / tool).symlink_to(shutil.which(tool))
-    fakes = {tool: GENERIC_FAKE for tool in FAKE_TOOLS}
+    fakes = {tool: GENERIC_FAKE for tool in (*FAKE_TOOLS, *extra)}
     fakes["systemctl"] = SYSTEMCTL_FAKE
     fakes["journalctl"] = JOURNALCTL_FAKE
     for name, body in fakes.items():
@@ -263,14 +264,15 @@ def write_tree(base: Path, files: dict[str, str]) -> None:
 
 
 def capture(tmp_path: Path, name: str, fixtures: dict[str, str] | None = None, secret: str = "P4CANARYdefault",
-            drop: tuple[str, ...] = (), fs: dict[str, str] | None = None, **env: str) -> Capture:
+            drop: tuple[str, ...] = (), fs: dict[str, str] | None = None, extra_tools: tuple[str, ...] = (),
+            **env: str) -> Capture:
     root = tmp_path / name
     root.mkdir(parents=True)
     fix = root / "fix"
     write_tree(fix, healthy_fixtures() if fixtures is None else fixtures)
     fsroot = root / "fsroot"
     write_tree(fsroot, fs_fixture(secret) if fs is None else fs)
-    bindir = make_bin(root, drop)
+    bindir = make_bin(root, drop, extra_tools)
     calls = root / "calls.log"
     calls.touch()
     evid = root / "evidence"
@@ -337,6 +339,7 @@ def test_capture_happy_path_writes_normalized_checksummed_records(tmp_path: Path
     assert rec["wifi.reg.global"] == "00"
     assert rec["wifi.iface.wlan-test0.type"] == "managed"
     assert rec["wifi.phy.ap_mode"] == "supported"
+    assert rec["wifi.iface.wlan-test0.phy"] == "phy0"
     assert rec["nm.general"] == "connected:full:enabled:disabled"
     assert rec["nm.active.device.eth-test0"] == "wired-test:802-3-ethernet"
     assert rec["nm.active.device.wlan-test0"] == "none"
@@ -624,6 +627,8 @@ def test_only_reviewed_stage_handlers_are_registered() -> None:
     # p4-lib.sh's P4_HANDLER_FILES checks by exact name.
     expected_by_stage = {
         "L2": core_handler_files | {"verify-containment-functional.sh"},
+        # L3 owns the one exact regulatory transition p4-compare.sh may accept.
+        "L3": core_handler_files | {"allow-transitions.txt"},
     }
     for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"):
         expected = expected_by_stage.get(name, core_handler_files)
@@ -829,7 +834,7 @@ def test_s10_case_a_historical_restart_count_healthy_baseline_passes(tmp_path: P
     assert "PRESERVATION_S10=PASS" in result.stdout
     assert codes(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED") == set()
     assert after.records()["idea2.tunnel.NRestarts"] == "15"
-    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE" in result.stdout
+    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER" in result.stdout
 
 
 def test_s10_case_b_restart_during_window_fails(tmp_path: Path) -> None:
@@ -891,7 +896,7 @@ def test_unhealthy_baseline_unchanged_is_distinguished_but_still_blocks_s10(tmp_
     assert {"IDEA2_TUNNEL_BASELINE_UNHEALTHY", "IDEA2_TUNNEL_RESTART_DRIFT", "IDEA2_TUNNEL_FAILURE_COUNT"} <= unchanged
     assert not any(code.startswith("IDEA2_TUNNEL") for code in codes(result, "NEW_OR_WORSENED_DRIFT"))
     assert "PRESERVATION_S10=FAIL" in result.stdout
-    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE" in result.stdout
+    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER" in result.stdout
     assert "COMPARE_RESULT=FAIL" in result.stdout
 
 
@@ -1132,7 +1137,10 @@ def test_gate_simulation_with_valid_records_never_authorizes_live(tmp_path: Path
     assert "STAGE_MUTATES_PRODUCTION=YES" in out
     assert "REQUIRED_REPOSITORY_GAPS=G-06,G-15" in out
     assert "ROLLBACK_HANDLER=REGISTERED" in out
-    assert "S10_IDEA2_CAVEAT=OPEN" in out
+    assert "S10_CRITERION_OWNER_ACCEPTANCE=APPROVED" in out
+    assert "S10_PRESERVATION_EVIDENCE=REQUIRED_PER_STAGE" in out
+    assert "S10_IDEA2_CAVEAT=OPEN" not in out
+    assert "PENDING" not in out.split("S10_CRITERION_OWNER_ACCEPTANCE")[1].splitlines()[0]
     assert "LIVE_STAGE_AUTHORIZED=NO" in out
     assert "PRODUCTION_MUTATION_PERFORMED=NO" in out
 
@@ -1378,3 +1386,144 @@ def test_secret_hygiene_nm_profile_with_spaces_never_emitted(tmp_path: Path) -> 
             streams.append(p.read_text(errors="replace"))
     for s in streams:
         assert secret not in s, "Secret leaked into capture output or bundle files"
+
+
+# ── Phase 4 evidence-harness fixes (L1 live attempt, 2026-09-24) ─────────────
+# Defect A: transient UDP client sockets on kernel-assigned (ephemeral) ports
+# were recorded as listeners, so ordinary network activity failed preservation.
+# Defect B: passive L1 chrony (installed, chronyd inactive) was recorded as the
+# generic UNAVAILABLE sentinel and turned INCOMPARABLE even though L1 allow-lists
+# time.chrony.leap.
+
+def udp_fixture(f: dict[str, str], *rows: str) -> None:
+    f[fx("ss", "-H", "-ltnu")] = LISTENERS_HEALTHY + "".join(rows)
+
+
+def udp_row(local: str) -> str:
+    return f"udp   UNCONN 0      0     {local:>28} 0.0.0.0:*\n"
+
+
+def test_ephemeral_udp_socket_rotation_is_not_drift(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before", fixtures={**healthy_fixtures()})
+    fb, fa = healthy_fixtures(), healthy_fixtures()
+    udp_fixture(fb, udp_row("0.0.0.0%eth-test0:45311"), udp_row("192.0.2.10:39002"), udp_row("[::]:51000"))
+    udp_fixture(fa, udp_row("0.0.0.0%eth-test0:36777"), udp_row("192.0.2.10:58123"), udp_row("[::]:40404"))
+    b, a = capture(tmp_path, "b2", fixtures=fb), capture(tmp_path, "a2", fixtures=fa)
+    assert before.result.returncode == 0 and b.result.returncode == 0 and a.result.returncode == 0
+    result = compare(b, a)
+    assert result.returncode == 0, result.stdout
+    assert "NEW_OR_WORSENED_DRIFT" not in {k for k, _, _ in findings(result)}
+    # …and the ephemeral sockets are not recorded as per-port listener keys at all
+    assert not [k for k in b.records() if k.startswith("listen.udp.") and k.rsplit(":", 1)[-1] in
+                {"45311", "39002", "51000"}]
+
+
+def test_fixed_udp_listener_added_is_still_drift(tmp_path: Path) -> None:
+    def mutate(f):
+        udp_fixture(f, udp_row("0.0.0.0:5300"))
+    assert_fail(drift(tmp_path, mutate), "LISTENER_ADDED")
+
+
+def test_fixed_udp_listener_removed_is_still_drift(tmp_path: Path) -> None:
+    def mutate(f):
+        f[fx("ss", "-H", "-ltnu")] = LISTENERS_HEALTHY.replace(
+            "udp   UNCONN 0      0          127.0.0.54:53        0.0.0.0:*\n", "")
+    assert_fail(drift(tmp_path, mutate), "LISTENER_REMOVED")
+
+
+@pytest.mark.parametrize("port", ["53", "123", "8883"])
+def test_aegis_relevant_udp_listener_is_detected(tmp_path: Path, port: str) -> None:
+    def mutate(f):
+        udp_fixture(f, udp_row(f"192.0.2.10:{port}"))
+    result = drift(tmp_path, mutate)
+    assert result.returncode == 1, result.stdout
+    assert codes(result, "NEW_OR_WORSENED_DRIFT") & {"LISTENER_ADDED", "IDEA3_LISTENER_OUT_OF_SCOPE"}
+
+
+def test_ephemeral_range_tcp_listener_is_still_drift(tmp_path: Path) -> None:
+    def mutate(f):
+        f[fx("ss", "-H", "-ltnu")] += "tcp   LISTEN 0      128        0.0.0.0:40000     0.0.0.0:*\n"
+    assert_fail(drift(tmp_path, mutate), "LISTENER_ADDED")
+
+
+def test_udp_ephemeral_policy_is_recorded_and_range_change_is_drift(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before")
+    fs = fs_fixture("P4CANARYdefault")
+    fs["proc/sys/net/ipv4/ip_local_port_range"] = "1024\t65000\n"
+    after = capture(tmp_path, "after", fs=fs)
+    assert before.records()["listen.udp.ephemeral_filter"] == "kernel-range-32768-60999"
+    assert after.records()["listen.udp.ephemeral_filter"] == "kernel-range-1024-65000"
+    result = compare(before, after)
+    assert result.returncode == 1, result.stdout
+
+
+def test_udp_filter_fails_safe_when_range_unreadable(tmp_path: Path) -> None:
+    fs = fs_fixture("P4CANARYdefault")
+    del fs["proc/sys/net/ipv4/ip_local_port_range"]
+    fixtures = healthy_fixtures()
+    udp_fixture(fixtures, udp_row("192.0.2.10:45311"))
+    cap = capture(tmp_path, "nofilter", fixtures=fixtures, fs=fs)
+    rec = cap.records()
+    assert rec["listen.udp.ephemeral_filter"] == "none-range-unreadable"
+    assert rec["listen.udp.192.0.2.10:45311"] == "present"  # nothing is hidden without a proven range
+
+
+CHRONYC_TRACKING = fx("chronyc", "-n", "tracking")
+CHRONYD = "units/chronyd.service"
+
+
+def chrony_fixtures(*, unit_state: str | None, tracking: str | None, tracking_rc: int = 0) -> dict[str, str]:
+    f = healthy_fixtures()
+    if unit_state is not None:
+        f[CHRONYD] = unit(active=unit_state, sub="dead" if unit_state == "inactive" else "running")
+    if tracking is not None:
+        f[CHRONYC_TRACKING] = tracking
+        if tracking_rc:
+            f[CHRONYC_TRACKING + ".rc"] = str(tracking_rc)
+    return f
+
+
+PASSIVE_CHRONY = dict(unit_state="inactive", tracking="506 Cannot talk to daemon\n", tracking_rc=1)
+
+
+def test_passive_l1_chrony_is_recorded_as_explicit_inactive_state(tmp_path: Path) -> None:
+    cap = capture(tmp_path, "post", fixtures=chrony_fixtures(**PASSIVE_CHRONY), extra_tools=("chronyc",))
+    assert cap.records()["time.chrony.leap"] == "installed-inactive"
+
+
+def test_not_installed_to_passive_l1_chrony_is_comparable_with_l1_allow_keys(tmp_path: Path) -> None:
+    before = capture(tmp_path, "pre")
+    assert before.records()["time.chrony.leap"] == "not-installed"
+    after = capture(tmp_path, "post", fixtures=chrony_fixtures(**PASSIVE_CHRONY), extra_tools=("chronyc",))
+    allow = tmp_path / "allow-keys.txt"
+    allow.write_text("time.chrony.leap\n")
+    result = compare(before, after, ALLOW_KEYS_FILE=str(allow))
+    assert "INCOMPARABLE" not in {k for k, _, _ in findings(result)}, result.stdout
+    assert "KEY_APPROVED" in codes(result, "APPROVED_CHANGE")
+    # without the narrow allow entry the same change is still drift
+    unapproved = compare(before, after)
+    assert unapproved.returncode == 1 and "TIME_STATE_DRIFT" in codes(unapproved)
+
+
+def test_chrony_query_failure_while_daemon_active_still_fails_closed(tmp_path: Path) -> None:
+    before = capture(tmp_path, "pre")
+    after = capture(tmp_path, "post", extra_tools=("chronyc",), fixtures=chrony_fixtures(
+        unit_state="active", tracking="506 Cannot talk to daemon\n", tracking_rc=1))
+    assert after.records()["time.chrony.leap"] == "UNAVAILABLE"
+    allow = tmp_path / "allow-keys.txt"
+    allow.write_text("time.chrony.leap\n")  # an approved key must not turn unreadable evidence into PASS
+    result = compare(before, after, ALLOW_KEYS_FILE=str(allow))
+    assert result.returncode == 1 and "EVIDENCE_UNAVAILABLE" in codes(result, "INCOMPARABLE"), result.stdout
+
+
+def test_chrony_unparseable_output_while_inactive_is_not_reported_inactive(tmp_path: Path) -> None:
+    # tracking succeeded but carries no leap status: that is a read defect, never "inactive"
+    cap = capture(tmp_path, "post", extra_tools=("chronyc",),
+                  fixtures=chrony_fixtures(unit_state="inactive", tracking="garbage\n"))
+    assert cap.records()["time.chrony.leap"] == "UNAVAILABLE"
+
+
+def test_active_chrony_still_reports_leap_status(tmp_path: Path) -> None:
+    cap = capture(tmp_path, "post", extra_tools=("chronyc",), fixtures=chrony_fixtures(
+        unit_state="active", tracking="Reference ID    : 7F7F0101 ()\nLeap status     : Normal\n"))
+    assert cap.records()["time.chrony.leap"] == "Normal"

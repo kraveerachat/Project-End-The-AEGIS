@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-21
+updated: 2026-09-24
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -19,29 +19,14 @@ edit_policy: owner-writable
 
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `feat/idea1-private-vault-production-rollout`; Draft PR: #187.
-- State: **IN PROGRESS**.
-- Deployment start SHA: `0051cceb4927220446fbb12a7e730b43af777b71` (merged PR #171 on exact `origin/main`).
-- Goal: deploy the merged PR #157 Private Vault TREE_V1 security foundation and PR #171 Files-like Vault UX to the real Production Drive service using staged activation, reversible fail-closed feature flags, additive migration 011, and destructive purge disabled.
+- State: **IN PROGRESS / RESUMED AFTER PR191 MERGE**.
+- PR #191 is merged into `main` at `2d7e7fd84e9b61eb0623e6bf762c0ce2858d341f`.
+- Production rollout history: `FIRST_STAGE_A_TECHNICAL=PASS`; `FIRST_STAGE_A_HUMAN_QHD=FAIL`; `FIRST_STAGE_A_ROLLBACK=PASS`.
+- Production is restored to the pre-TREE baseline. `PRODUCTION_MIGRATION_011_APPLIED=NO`; `TREE_OWNER_CREATED=NO`; `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`.
+- Retired candidate: source `0051cceb4927220446fbb12a7e730b43af777b71`; tag `aegis-prod-drive:vault-tree-0051cceb4927`; status `RETIRED_DO_NOT_DEPLOY`. The first Stage A exposed the QHD locked-layout defect, and PR #191 changed application source.
+- PR #191 correction evidence: `HUMAN_BROWSER_2560x1440=PASS`; `HUMAN_OWNER_ACCEPTANCE=PASS`; `PR171_UI_PRESERVED=YES`; `TREE_V1_BROWSER=PASS`.
+- Current rollout objective: reconcile PR #187 with merged main, freeze a new exact-main candidate, rebuild and requalify it, then prepare a second Stage A for Human Owner Production execution. `NEW_CANDIDATE=NOT_BUILT_YET`; `SECOND_STAGE_A=PENDING`.
 - Human authorization: `AUTHORIZED_BY_HUMAN_OWNER=YES`; every privileged Production mutation remains **Human Owner copy/paste only**. The agent may inspect, plan, build, verify, render Compose, prepare exact commands, analyze owner-provided output, and update repository documentation. The agent must not autonomously run Production `sudo`, apply the migration, recreate containers, or edit Production files.
-- Scope: deployment/runbook and owner-maintained IDEA1 status documentation only unless Production exposes a source defect. A source defect stops rollout for a separate TDD-reviewed correction; no Production hot-edit.
-- Safety boundary: Drive-scoped operations only; never `docker compose down`, prune, remove or recreate database volumes, use `--remove-orphans`, recreate the whole stack, edit active Compose files in place, print secrets, enable destructive purge, alter Public Share/HUB/Monitor/IDEA2/IDEA3, or touch PR #154.
-- Required rollout order: read-only live discovery → verified fresh backup → exact-SHA candidate and regression → Stage A image-only → migration 011 → Stage C schema/protocol → Stage D genesis/UI/client media → Human Owner Production browser acceptance → post-cutover evidence and closeout.
-- Production preflight and backup gate:
-  - Live Drive remains `aegis-prod-drive:media-preview-1a3c16622407` (`revision=1a3c166224078d87c1aa41e6a7cc3f06790fdca9`), healthy, restart 0, OOM false. PostgreSQL is 15.19; migration 010 PASS; all seven migration-011 tables are absent (`TREE_TABLE_COUNT=0`), proving a clean pre-011 state.
-  - The first fresh backup failed with `PG_DUMP_FAILED`. Root cause was a stale backup-agent `.pgpass` host binding (`172.18.0.4`) while live PostgreSQL had moved to `172.18.0.5`. The Human Owner changed only the host binding; password content was neither printed nor changed. Authenticated `drive_backup` connection then passed.
-  - Fresh backup job `23ca7538-cbd3-4373-a8e2-f580aca104a5` completed `SUCCESS`; snapshot `4c0e0b990e7a17dfc4e916bb8dbbb109a15fe2f21dfbcbdcde0f0ec5357089e3`; integrity PASS. Restore verification job `8bfe48fa-8836-4ade-ae33-975da26c2528` completed `SUCCESS`; restore verification PASS. Target `hgst-usb-1` remains `DIFFERENT_DEVICE`.
-  - `PRODUCTION_TOUCHED=YES` because the Human Owner corrected the backup-agent host binding and executed backup/restore verification. Application data and database schema remain unmodified; Drive has not been recreated; Vault flags remain unchanged.
-- Candidate and pre-cutover evidence:
-  - Exact source: `0051cceb4927220446fbb12a7e730b43af777b71`; local candidate `aegis-prod-drive:vault-tree-0051cceb4927`; image ID/digest `sha256:73ac0ef368de9fee8f4137e6abcf43bbc734de587a24daeb0015cfef7dae3f32`; OCI revision label exact.
-  - Stage A0 transfer qualification **PASS**: the exact candidate is present on the Production host; transfer integrity, image provenance, and functional sharp/libvips verification PASS (`sharp=0.35.4`, `libvips=8.18.6`). The candidate is not running. Live Drive remains the healthy PR150 image with restart 0 and OOM false.
-  - Packaged toolchain: Node 20.20.2, Alpine 3.23.4, ffmpeg/ffprobe 8.0.1, sharp 0.35.4, libvips 8.18.6; runtime user `1000:1000`; expected startup files PASS; no TREE flag or `DATABASE_URL` baked into the image.
-  - PostgreSQL 15.18: TREE store/schema/CAS/migration/API **35/35 PASS**; legacy V1/V2 **26/26 PASS**. PR171 intended UX/security suite **66/66 PASS**. Shared Files suites **187 PASS / 0 FAIL / 1 environment-gated skip**. PR150 media suites **209 PASS / 0 functional FAIL / 43 tool/platform skips**; a Node 24 Windows `--test-force-exit` libuv wrapper assertion was rerun normally and the affected media-capability file passed **12/12**.
-  - Three inherited exact-main assertions still encode the superseded pre-V6 locked design: `vaultUnlockedState` expects opaque blob IDs after lock (7/8), while two `vaultMediaPreview` cases expect locked ciphertext tiles (24/26). The accepted V6 privacy contract intentionally renders a fixed seven-block decorative preview with no IDs/count; its replacement regression and full PR171 intended suite pass. No application defect or new candidate regression was found; test-debt cleanup is deferred outside this deployment-only PR.
-  - Image-only Stage A is source- and runtime-proven safe against a disposable pre-011 PostgreSQL database: zero tree tables, all TREE flags absent, `/healthz` PASS, media enabled, tree schema/protocol/purge false, restart 0, OOM false, and zero automatic migration/tree mutation.
-  - Repository overlay templates and the Human-owner-only runbook are prepared under `IDEA1-AEGIS_Drive_LC/deploy/production/pr187/` and `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-23-private-vault-production-rollout-runbook.md`; nothing has been installed under `/opt/aegis/runtime/pr187`.
-- Main reconciliation: previous rollout base `0051cceb4927220446fbb12a7e730b43af777b71`; current main `9f6a0f4167d814cd090c47916d12d7b10397cb0e`; incoming scope IDEA3 only, with no IDEA1 runtime, PR187 path, Private Vault source, migration-011, overlay, or IDEA1-status overlap. Normal merge completed without conflict. Frozen candidate source/image remain valid; rebuild not required.
-- Deferred technical debt: backup credentials bind to an ephemeral Docker bridge IP. A static PostgreSQL address, loopback-published endpoint, or another stable approved service endpoint requires separate integration review and is not implemented by PR #187.
-- Current gate: **HUMAN STAGE A OVERLAY RENDER REVIEW**. Migration 011 is not applied, Production Drive is not recreated, Vault flags are unchanged, destructive purge remains false, and the transferred candidate is not running.
 
 ### Session Register — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
 
@@ -50,6 +35,44 @@ edit_policy: owner-writable
 | PVPR-S1 | Governance, exact merged-source verification, isolated rollout worktree, Production safety freeze, initial task registration | IN PROGRESS / PREFLIGHT GATE | PR #171 is merged as `0051cceb4927220446fbb12a7e730b43af777b71`; source head `1b1c10b07e815c3527d04c8461e7d6dc339d92a1`; application source `32936b93f1535ac280f92e9947be2ce36654bffc`; new isolated branch starts exactly at merged main; Draft PR #187; Production untouched | `f63d15ff` initial checkpoint; PR #187 Draft | Rollout registered; live read-only discovery pending | Live compose/container/database/migration-011 truth, backup, candidate, staged cutover, Human acceptance, one final receipt | Provide one read-only Production preflight block and wait for Human Owner output |
 | PVPR-S2 | Production preflight, backup recovery/verification, exact-SHA candidate, regression, Stage A safety, append-only overlays and runbook | PRE-CUTOVER PASS / HUMAN STAGE-A REVIEW | Live preflight: healthy current Drive, PG 15.19, migration 010 PASS, migration 011 cleanly absent. Human Owner corrected stale backup-agent host binding `172.18.0.4→172.18.0.5` without changing/printing password; authenticated probe PASS; backup snapshot `4c0e0b99…` and restore verification PASS. Candidate `aegis-prod-drive:vault-tree-0051cceb4927`, OCI revision exact, packaged media toolchain PASS. PG TREE 35/35; legacy 26/26; PR171 66/66; Files 187 pass/1 skip; media 209 pass/43 skips; collaboration 24/24; validator PASS with two existing Canvas warnings. Stage A local pre-011 runtime PASS with zero tree tables and all flags off. Three inherited locked-presentation assertions are superseded by accepted V6 privacy tests and recorded as test debt, not hidden. | Documentation/overlay checkpoint follows | Candidate and staged artifacts ready; no Production app/schema/flag cutover performed | Human review; then separately authorized Stage A image-only block | Stop before migration, overlay installation, Drive recreation, or flag change |
 | PVPR-S3 | Reconcile IDEA3-only main drift and record Production-host Stage A0 candidate transfer evidence | PASS / HUMAN OVERLAY RENDER REVIEW | Normal merge of main `9f6a0f4167d814cd090c47916d12d7b10397cb0e`; incoming 11 paths IDEA3-only; zero IDEA1/PR187 overlap; no conflict. Stage A0 transfer/integrity/provenance/sharp functional checks PASS; candidate image ID remains `sha256:73ac0ef368de9fee8f4137e6abcf43bbc734de587a24daeb0015cfef7dae3f32`, revision remains exact frozen source `0051cceb4927220446fbb12a7e730b43af777b71`; candidate present but not running; live Drive unchanged. | Reconciliation evidence checkpoint follows | Candidate remains valid; rebuild not required; Production application/schema/flags untouched | Human review of Stage A rendered overlay only | Do not recreate Drive, apply migration 011, or change flags without separate authorization |
+| PVPR-S4 | First Production Stage A execution, Human QHD defect discovery, safe rollback, PR191 dependency, PR191 merge, rollout resume | PASS / ROLLOUT RESUMED | First Stage A technical runtime PASS; Human QHD acceptance FAIL; Drive-only rollback PASS; migration 011 remained unapplied; no TREE owner created; PR #191 created separately; PR191 Human QHD PASS; PR191 merged at `2d7e7fd84e9b61eb0623e6bf762c0ce2858d341f`; old candidate retired | PR191 merged; PR187 reconciliation in progress | Rollout resumed with accepted QHD correction; old candidate is `RETIRED_DO_NOT_DEPLOY` | New candidate from exact merged main, regression, local Stage-A proof, Human Production Stage A | Complete PR187 reconciliation and new candidate preparation |
+
+## Completed Task — PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-vault-qhd-locked-layout`; PR: #191.
+- State: **CLOSED / IMPLEMENTED & HUMAN ACCEPTED (2026-09-24)** — PR191 implementation, automated verification, and Human Owner physical testing complete (`PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1 = CLOSED`).
+- Authoritative Implementation Source SHA: `ba3438edd8ec66e4b7e89c0042673ec6efde594e`
+- Origin Main at Final Verification: `68b8c45c362089c0e896520ce77741a486976737`
+- Human Acceptance:
+  - `PHYSICAL_DISPLAY=2560x1440`
+  - `BROWSER_ZOOM=100%`
+  - `HUMAN_BROWSER_2560x1440=PASS`
+  - `HUMAN_OWNER_ACCEPTANCE=PASS`
+  - `PR171_UI_PRESERVED=YES`
+  - `TREE_V1_BROWSER=PASS`
+  - `LOCKED_QHD_STATE=PASS`
+  - `UNLOCK_RETURNS_TO_TREE_UI=PASS`
+- Accepted Resolution & UX:
+  - Original Production Stage A rollout exposed that the locked and legacy FLAT Private Vault visual views stretched edge-to-edge across wide/QHD viewports.
+  - Production was safely rolled back; PR191 fixed the source defect by wrapping locked Vault and legacy FLAT Vault visual bodies inside the centered `vault-pane-content` container.
+  - Full-main-pane TREE_V1 marquee interaction surface introduced by PR #171 V10 remains completely intact.
+  - Human Owner verified complete PR171 TREE_V1 Files-like Private Vault UI: search, filter, sort, grid/list controls, New Folder, upload, folder/file sections, media card/image preview, marquee selection, multi-selection, drag-and-drop into/out of folders, breadcrumbs, and lock/unlock flow.
+  - Normal Files layout remains centered and completely unchanged (`FILES_LAYOUT_CHANGED=NO`).
+- Environmental & Security Invariants:
+  - Local qualification used canonical `aegis_system` stack; local-only migration 011 and local TREE feature flags were enabled strictly for local qualification.
+  - Production migration 011 was NOT applied and Production was NOT touched (`PRODUCTION_MIGRATION_011_APPLIED=NO`, `PRODUCTION_TOUCHED=NO`).
+  - PR #187 rollout remains a separate task; PR #191 contains only the layout fix.
+  - Destructive purge remains disabled (`VAULT_DESTRUCTIVE_PURGE_ENABLED=false`).
+  - Local test credentials were used only in the local disposable qualification environment and are not recorded in the repository.
+
+### Session Register — PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| VQHD-S1 | Governance, current-main isolation, PR187 blocker context, source/test inspection, task registration | PASS | Branch created from current `origin/main`; exact accepted Vault source unchanged from `0051cceb`; confirmed defect and fix boundary reproduced at QHD/FHD before task start | `b02ceff1` | No application source changed | TDD RED, minimal source correction, focused/full verification, browser geometry, receipt, PR review handoff | Commit registration, then add failing semantic/layout regressions |
+| VQHD-S2 | Minimal source correction, focused verification, Draft PR creation | PASS | Vault locked/legacy view bound to `vault-pane-content`. Tests added: QHD-LAYOUT-1..3 (16/16 PASS). Policy 24/24 PASS. Build PASS. Diff check PASS. Dist artifact cleaned from scope. | `2e128eea` | Implementation and automated qualification complete | Reconcile with latest main, local qualification stack setup, Human Owner browser acceptance | Setup local canonical qualification stack |
+| VQHD-S3 | Main reconciliation (`68b8c45c`), local stack setup, human physical QHD qualification, receipt closeout | PASS | Clean merge of origin/main `68b8c45c`; tests 16/16 PASS; policy 24/24 PASS; validator PASS; physical browser 2560x1440 qualification PASS by Human Owner; exact final receipt created (`2026-09-24_185500_kla_idea1-vault-qhd-locked-layout-fix.md`); task closed | `ba3438ed` | Human Owner physical QHD acceptance PASS; documentation and receipt complete | None (ready for Human Owner merge) | Human Owner merge of PR #191 |
 
 ## Completed Task — VAULT-FILES-UX-NAVIGATION-1
 

@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-23
+updated: 2026-09-24
 owner: music
 edit_policy: owner-writable
 ---
@@ -18,9 +18,195 @@ edit_policy: owner-writable
 
 ---
 
-## IDEA3 PR11 Phase 4 IDEA2 §10 window-delta criterion — candidate — 2026-09-23
+## IDEA3 PR11 Phase 4 L3 third live attempt (rerun5) — FAIL_CLOSED at NetworkManager activation, rolled back — 2026-09-24
 
-> [!important] Candidate repository change — owner acceptance PENDING
+> [!important] L3 was attempted a third time; the rfkill and regulatory gates passed, NetworkManager activation failed, the host was restored
+> `THIRD_L3_LIVE_ATTEMPT = FAIL_CLOSED` (`L3_APPLY = FAIL reason=NMCLI_UP_FAILED`), `L3_ROLLBACK = PASS`, `L3_ARTIFACT_RESIDUE = NO`, PRE→RB `COMPARE_RESULT = PASS` (0/0/0), `PRESERVATION_S10 = PASS`
+> `L3_PRODUCTION_MUTATION = YES`, `MUTATION_SCOPE = target rfkill soft state + temporary NetworkManager profile`, `ROLLBACK_COMPLETE = YES`, `POST_ROLLBACK_RESIDUE = NO`
+> `L3_LIVE_ACCEPTANCE = NOT_PROVEN`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, no fourth attempt. The comparator line `PRODUCTION_MUTATION_PERFORMED=NO` is a comparator-scope statement, not the attempt truth.
+
+- **Live evidence (owner-run, `~/Workspace/idea3-p4-evidence/2026-09-24-l3-rerun5`, `JOURNAL_SINCE=2026-09-24 12:34:18 UTC`):** PRE `L0_CAPTURE=COMPLETE`, checksums PASS, disk 87%, rfkill id 1 soft-blocked/hard-unblocked, regulatory pre-activation PASS (`phy0` `00`, channel 6 unrestricted, Model B). Exact unblock succeeded; `nmcli connection up` then failed: "No suitable device found for this connection (device enp62s0 not available because profile is not compatible with device (mismatching interface name))".
+- **Forensic (read-only, NetworkManager journal, ms precision):** 19:34:19.8543 NM "Wi-Fi now enabled by radio killswitch" (it observed the exact unblock) → .8820 `connections-reload` OK → .8917 `connection-activate` FAIL (37 ms after the unblock) → .9526 profile deleted, .9575 killswitch re-blocked. No `device (wlp0s20f3): state change` line exists in the window. In the whole boot the only transitions of `wlp0s20f3` are boot `unmanaged → unavailable` and shutdown. `wpa_supplicant` is inactive and D-Bus-activatable only; no supplicant start appears in the window. NM logs `Wi-Fi disabled by radio killswitch; disabled by state file` at every start today.
+- **Comparison with the second attempt (rerun3):** NM saw "now enabled" at 18:02:17.378 and L3 then waited 10 s in its regulatory poll: still no device state change, no supplicant start, no iwlwifi firmware load. So the device does not leave `unavailable` on a rfkill unblock alone within 10 s; this is **not a short timing race**.
+- **Root cause (classified):** the target device stayed `unavailable` in NetworkManager after the unblock, so it was no activation candidate and NM only reported the wired device — `PROVEN` (journal, both windows). Why NM does not bring it up: NetworkManager's own software Wi-Fi state (persisted state file, `nmcli radio` reports `WIFI disabled`) is the `STRONGLY_SUPPORTED` cause; it is not `PROVEN` because `/var/lib/NetworkManager/NetworkManager.state` is root-only and no read-only experiment separates it from the soft-block. `NOT_PROVEN`: whether a longer wait or an `nmcli radio wifi on` would make the device available on this host.
+- **Repository fix (this task, no Production action):** new `deploy/pr11-phase4/p4-l3-nm.sh`. After the exact unblock and the regulatory gate, and before any profile is installed, `apply.sh` reads the exact target device state from NetworkManager (`nmcli -t -f DEVICE,STATE device status`, only that device, only `disconnected` counts as ready), bounded to 10 polls 0.5 s apart (max 5 s, state-based, transitions logged). On timeout it fails closed with a stable reason — `NM_WIFI_RADIO_DISABLED` (read-only `nmcli radio wifi`), `NM_TARGET_DEVICE_NOT_READY`, `NM_TARGET_DEVICE_NOT_FOUND` — and never runs `connection up`. Activation is now `nmcli connection up "$CONN_ID" ifname "$AP_IF"`, so NetworkManager never chooses a device. No `nmcli radio wifi on`, no global rfkill, no `iw reg set`, no other device touched, rollback unchanged, M-14 Model B and the regulatory channel gate unchanged.
+- **What this fix does NOT do:** on this host it is expected to turn the opaque `NMCLI_UP_FAILED` into an explicit, deterministic `NM_WIFI_RADIO_DISABLED` / `NM_TARGET_DEVICE_NOT_READY` and nothing more. It does not make L3 pass. **Owner decision required before another live attempt:** how NetworkManager's software Wi-Fi state is to be enabled for the L3 window (a persisted global NM radio change with a restoring rollback, or an owner-run one-time change outside L3) — this task deliberately made neither.
+- **Owner decision M-15 — APPROVED (recorded as a decision, not a proof):** `M15_NM_WIFI_STATE_MODEL = OWNER_ONE_TIME_OUTSIDE_L3`, `M15_OWNER_DECISION = APPROVED`. The owner will enable NetworkManager's global software Wi-Fi state once, outside the L3 stage: `M15_NM_WIFI_ENABLE_COMMAND = "sudo nmcli radio wifi on"`. `M15_L3_HANDLER_GLOBAL_RADIO_MUTATION = FORBIDDEN` (L3 apply never runs `nmcli radio wifi on`), `M15_L3_ROLLBACK_GLOBAL_RADIO_MUTATION = FORBIDDEN` (L3 rollback never disables global NM Wi-Fi). `M15_FRESH_PRE_AFTER_OWNER_CHANGE = REQUIRED`: a brand-new L3 PRE must be captured after the owner change, and the enabled NM Wi-Fi state then becomes the accepted owner baseline for L3 and later AP stages unless a later approved design changes it. `M15_PR206_MERGE_REQUIRED_BEFORE_L3_RETRY = YES`. No claim is made that rfkill unblock alone enables the NM target device, and it is still `NOT_PROVEN` that the target device reaches `disconnected` once NM Wi-Fi is enabled; the gate in this PR keeps failing closed (`NM_WIFI_RADIO_DISABLED` / `NM_TARGET_DEVICE_NOT_READY`) if that baseline is missing. This entry performs no host change.
+- **Next:** human review + merge of this fix (PR #206), then the owner's one-time NM change, then a fresh same-day authorization/K3 and a brand-new PRE, before any further L3 live attempt.
+
+---
+
+## IDEA3 PR11 Phase 4 L3 second live attempt — FAIL_CLOSED, regulatory ordering live blocker — design fix — 2026-09-24
+
+> [!important] L3 was attempted live a second time (after PR #203); the exact rfkill fix worked, the old TH requirement cannot be met; host restored
+> `SECOND_L3_LIVE_ATTEMPT = FAIL_CLOSED` (`L3_APPLY = FAIL REGULATORY_DOMAIN_MISMATCH`, owner rc 1), `RFKILL_FIX_LIVE_VERIFIED = YES`
+> `REGULATORY_ORDERING_LIVE_BLOCKER = PROVEN` (phy0 `00` before AND after the exact unblock), `L3_ROLLBACK = PASS`, `L3_ARTIFACT_RESIDUE = NO`, `L3_S10_PRESERVATION = PASS`
+> `L3_PRODUCTION_MUTATION = YES`, `MUTATION_SCOPE = target rfkill soft state only`, `ROLLBACK_COMPLETE = YES`, `POST_ROLLBACK_RESIDUE = NO`
+> `L3_LIVE_ACCEPTANCE = NOT_PROVEN`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `THIRD_L3_LIVE_RETRY = NO`
+> The comparator line `PRODUCTION_MUTATION_PERFORMED=NO` on PRE→RB is a comparator-scope statement, not the stage truth: the stage did change the target soft-block state (blocked → unblocked) and rollback restored it.
+
+> [!important] M-14 owner regulatory decision — APPROVED (recorded as a decision, not a compliance claim)
+> `M14_REGULATORY_MODEL = MODEL_B`, `M14_OWNER_DECISION = APPROVED`, `M14_OWNER_COUNTRY_INTENT = TH`
+> `M14_EFFECTIVE_PHY_COUNTRY_POLICY`: for L3, phy0 country `00` is accepted when the target channel is the owner-approved channel, the effective target-phy channel has no restriction flags, and the post-activation regulatory/channel verification passes.
+> `M14_CHANNEL_RESTRICTION_GATE = REQUIRED`, `M14_POST_ACTIVATION_VERIFICATION = REQUIRED`, `M14_IW_REG_SET = FORBIDDEN`, `M14_ADDRESSING_DHCP_DNS_NAT_IN_L3 = FORBIDDEN`
+> `M14_COUNTRY_00_LEGAL_EQUIVALENCE_TO_TH = NOT_CLAIMED`, `M14_REGULATORY_COMPLIANCE_BEYOND_EVIDENCE = NOT_CLAIMED`
+> Still `NOT_PROVEN`: (1) whether AP activation changes the self-managed phy country to `TH`; (2) any legal/regulatory conclusion about transmit-power limits under country `00`. Country `00` is not treated as equal to `TH`.
+> PR #204 = ready for human review; `L3_LIVE_ACCEPTANCE = NOT_PROVEN`, `THIRD_L3_LIVE_RETRY = NO`.
+
+- **Live evidence (owner-run, as reported):** fresh PRE (`~/idea3-p4-evidence/2026-09-24-l3-rerun3/pre-root`, `JOURNAL_SINCE=2026-09-24 11:00:30 UTC`, `L0_CAPTURE=COMPLETE`, checksums PASS, disk 89%): `wlp0s20f3 → phy0`, `rfkill id=1` soft-blocked/hard-unblocked, `wifi.reg.global=00`, `wifi.reg.phy0=00`, AP mode supported. Apply after PR #203: exact id 1 selected, `rfkill_pre_state=1`, exact `rfkill unblock 1` succeeded, state verified `soft=unblocked hard=unblocked`, phy0 still `self-managed`, `country 00` → `REGULATORY_DOMAIN_MISMATCH`. Rollback PASS (RB `rb-root`, checksums PASS); PRE→RB `COMPARE_RESULT=PASS`, 0/0/0 findings, `PRESERVATION_S10=PASS`.
+- **Stale assumption corrected:** the 2026-09-17 prerequisite spec (E-04, OD-03) and the T5 design recorded the self-managed phy as `TH` while global was `00`. Live evidence (this attempt, plus read-only `iw reg get` on the host while the radio is soft-blocked) shows phy0 `country 00`, both before and after a successful exact unblock. The `TH` premise is withdrawn in those documents.
+- **Regulatory lifecycle (classified):** Intel Raptor Lake PCH CNVi `8086:51f1`, kernel 7.2.3, `iwlwifi`/`iwlmvm`, `linux-firmware 20260810-2`, `regulatory.db` absent. `PROVEN_LIVE`: unblock alone does not change phy0 from `00`; the `00` per-phy rule table lists 2.4 GHz channels 1–13 with 22 dBm and no NO-IR/passive/DFS/disabled flag on channel 6 (`iw phy phy0 channels`, `iw reg get`). `UPSTREAM_DOCUMENTED` (kernel `iwlwifi/mvm/nvm.c`): `iwl_mvm_init_mcc` runs after firmware load and takes the MCC from BIOS/ACPI (WRDD) or the world default; later changes arrive as firmware `MCC_CHUB_UPDATE` notifications, and `MCC_SOURCE_WIFI` (802.11d beacons) updates are ignored while associated. `INFERENCE`: rfkill unblock does not itself load firmware/send an MCC, an AP start might let firmware learn a country from beacons, and `00` can legitimately remain the effective self-managed state. `NOT_PROVEN`: whether NetworkManager AP activation on this host changes the MCC to `TH`; the regulatory legality of 22 dBm under Thai rules with `00` (the AP TX power is not set by L3; owner review item).
+- **`CURRENT_ORDERING_SATISFIABLE = NO`** on this hardware state (unblock → require `TH` → install → activate).
+- **Selected design — MODEL B (smallest supported by evidence):** no `iw reg set`, owner country intent stays `TH` (accepted when reported), addressing/DHCP/NAT unchanged (none). New `deploy/pr11-phase4/p4-l3-regulatory.sh`: the target phy country must be `TH` or the `00` world default (anything else, unreadable state or an unresolvable phy fails closed), AND the approved channel must exist on that phy and carry no restriction (disabled, No IR/passive, radar/DFS, indoor-only). It reads once — the 10 s poll is removed. The gate runs after the exact unblock and before the profile is installed, and the same predicate plus "AP type on exactly the approved channel" runs again immediately after `nmcli connection up`; on a mismatch apply takes its own connection down, fails, and the owner runs the unchanged reviewed rollback. `verify.sh` re-checks the effective channel/regulatory state.
+- **Models rejected:** MODEL A (activate first, verify after) transmits before the channel is proven lawful and adds nothing B lacks; the pre-check is kept and B re-verifies after activation. Requiring `iw reg set` was excluded by rule. Simply dropping the check was rejected.
+- **Comparator:** target-phy outcomes `00 → 00`, `TH → TH` and the approved `00 → TH` pass; `TH → 00`, other countries, other phys, global drift, and a changed rule table without the approved transition stay protected drift. The fictitious *required* `00 → TH` transition is gone. `wifi.reg.sha256` is still accounted only for the `00 → TH` transition; if the rule text changes while the country stays `00`, the comparison fails closed (residual retry risk, recorded).
+- **Tests:** new `tests/test_pr11_phase4_l3_regulatory_live.py` (RED before the fix: 26 failures) reproduces the live state with a fake `iw`; three old-contract tests were updated; live read-only run of the gate against the real host `iw` returned `country=00 phy=phy0` accepted with channel 6 unrestricted.
+- **Next:** human review + merge of this fix before any third L3 live retry; a retry needs fresh same-day authorization/K3, a new PRE and `JOURNAL_SINCE`.
+
+---
+
+## IDEA3 PR11 Phase 4 L3 first live attempt — FAIL_CLOSED, rolled back — rfkill defect fix — 2026-09-24
+
+> [!important] L3 was attempted live once and failed closed before any profile was installed; the host was restored
+> `L3_LIVE_EXECUTED = ATTEMPTED_FAIL_CLOSED`, `L3_APPLY = FAIL (REGULATORY_DOMAIN_MISMATCH, owner rc 1)`, `L3_ROLLBACK = PASS`, `L3_ARTIFACT_RESIDUE = NO`
+> `L3_PRE_RB_COMPARE = PASS` (0 drift, 0 baseline-unhealthy, 0 incomparable), `L3_S10_PRESERVATION = PASS`
+> `L3_LIVE_ACCEPTANCE = NOT_PROVEN`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`
+> `L2_LIVE_ACCEPTANCE = PROVEN` (unchanged), containment `HOST_VERIFIED = NO` (unchanged)
+
+- **Live evidence (owner-run, as reported):** fresh PRE (`~/idea3-p4-evidence/2026-09-24-l3-rerun1/pre-root`, `JOURNAL_SINCE=2026-09-24 09:53:44 UTC`, `L0_CAPTURE=COMPLETE`, checksums PASS, disk 89%): `wlp0s20f3 → phy0`, target soft-blocked, hard-unblocked, global and `phy0` regulatory `00`, AP mode supported. Apply stopped with `L3_APPLY=FAIL reason=REGULATORY_DOMAIN_MISMATCH`; the stage work dir recorded `rfkill_id=1` and **`rfkill_pre_state=0`** although the radio was soft-blocked; no profile was installed. Rollback and the PRE→RB comparison passed.
+- **Root cause of the wrong pre-state (proven, read-only diagnostics on the live host):** util-linux `rfkill` 2.42.3 accepts an identifier only after a command. `rfkill --noheadings --output SOFT 1` prints "Try 'rfkill --help'" and exits 1; the handler discarded stderr, so `soft_state` was empty, was classified "not blocked", `rfkill_pre_state=0` was written and **`rfkill unblock` never ran**. `rfkill --noheadings --output ID,TYPE,SOFT,HARD list 1` is the working form. The same defect made the hard-block guard pass on an empty string (fail-open). Kernel/NetworkManager journals show no rfkill/iwlwifi/NM-activation event during the attempt, consistent with a radio that was never unblocked. The regulatory gate therefore failed on a still-blocked radio; this attempt says nothing about whether TH appears after an unblock.
+- **Repository fix (this task, no Production action):** new `deploy/pr11-phase4/p4-l3-rfkill.sh` used by L3 apply and rollback: exact id from the interface's sysfs `rfkill*/index` (fail on none/ambiguous/env mismatch, no "first wlan" fallback), state from exactly one `rfkill list <id>` row (type `wlan`, values `blocked|unblocked`, else fail closed), hard block fails before mutation, pre-state written before the exact `rfkill unblock <id>`, unblock verified, rollback re-blocks only the recorded id when the pre-state was blocked and verifies it. 24 behavioural tests run the logic against a fake `rfkill` that implements the util-linux grammar.
+- **[Superseded 2026-09-24 by the second live attempt above — regulatory lifecycle was NOT PROVEN at the time]:** the radio is an Intel AX203 (`iwlwifi`/`iwlmvm`, self-managed regulatory, firmware 89, kernel 7.2.3, `regulatory.db` absent). Upstream `iwl_mvm_init_mcc` (SUPPORTED_BY_UPSTREAM_DOC, kernel source) takes the initial country from restored/BIOS-ACPI state or the firmware default and updates it later from firmware notifications, not from an rfkill unblock. Live read-only: the world domain `00` already permits 2.4 GHz channel 6 without NO-IR. Whether the current ordering (unblock → require target phy `TH` → install profile → activate) is satisfiable for this phy is therefore **NOT_PROVEN**; the 10 s poll was not lengthened and the requirement was not weakened. A retry with this fix will fail closed at the same gate if TH does not appear after the unblock (rollback re-blocks) and will then give the first real evidence.
+- **Next:** human review + merge of this fix before any fresh L3 retry; a retry needs fresh same-day authorization/K3 and a new PRE/`JOURNAL_SINCE`.
+
+---
+
+## IDEA3 PR11 Phase 4 L3 regulatory comparator — repository fix (Option 1(a)) — 2026-09-24
+
+> [!important] Repository-only fix. L3 live has NOT been executed; no Production mutation occurred in this task.
+> `L3_LIVE_EXECUTED = NO`, `PRODUCTION_MUTATION_PERFORMED = NO`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`
+> `L2_LIVE_ACCEPTANCE = PROVEN` (unchanged; the immutable L2 receipt is untouched)
+> `CONTAINMENT_LIVE_HOST_VERIFICATION = PARTIAL`, `HOST_VERIFIED = NO` (unchanged)
+> `L3_REGULATORY_OPTION = 1(a)`, `L3_HANDLER_REGULATORY_MUTATION = NONE (verify-only)`, `IW_REG_SET_ADDED = NO`
+
+- **Observed (read-only, live host):** `iw reg get` global `00` and `phy0` `00` while the target Wi-Fi radio is soft-blocked; the owner-approved country is `TH`. The reviewed L3 sequence (rfkill unblock, profile install, NetworkManager activation) may leave `wifi.reg.phy0 = TH` at POST. The generic comparator treats every `wifi.reg.*` change as protected drift, so that expected observation would fail the L3 PRE→POST comparison.
+- **Option 1(a) (owner decision):** the L3 handler never sets the regulatory domain; the comparator gains one narrow, stage-specific semantic transition. `p4-compare.sh` accepts an optional `ALLOW_TRANSITIONS_FILE` (L3 only: `stages/L3/allow-transitions.txt`). The file must contain exactly `stage L3` and `wifi.reg.<AEGIS_AP_PHY> 00 TH`, once each; wildcards, regexes, other stages/keys/values, duplicates, conflicting or malformed lines stop the run (exit 2). The phy is resolved from the new capture key `wifi.iface.<interface>.phy` in both bundles (host evidence is bound to `wlp0s20f3`).
+- **What passes:** target phy `00 → TH` and `TH → TH`; `wifi.reg.sha256` may change only when that transition fired and no other `wifi.reg.*` key changed.
+- **What still fails (fail-closed):** `00 → US/JP`, `TH → US`, `TH → 00`, `US → TH`, any other phy, any other interface, a run without the transitions file (non-L3), missing/unparseable regulatory or phy evidence, any `wifi.reg.global` change, and hard-rfkill, NetworkManager, route, DNS, forwarding, and IDEA2 PID/restart drift. `wifi.reg.*` stays in the protected set, so `ALLOW_KEYS_FILE` can never approve it.
+- **Capture schema:** `p4-l0-capture.sh` now also records `wifi.iface.<if>.phy` from the read-only `iw dev` output (no guessing; absent when `iw` does not report it). Bundles captured before this key existed remain comparable outside L3 (the key appearing is INFO `CAPTURE_FIELD_ADDED`); L3 transition mode requires the key in both bundles and fails closed otherwise.
+- **L3 apply ordering bug fixed (still verify-only):** the live apply previously required `country TH` in `iw reg get` before `rfkill unblock`, which the observed baseline (`00` while blocked) could never satisfy. The observation now happens after the unblock and before any profile is installed, by a bounded read-only poll of the target phy; it fails closed with `REGULATORY_DOMAIN_MISMATCH` and `rollback.sh` re-blocks. Live behaviour after the unblock (whether the driver reports `TH` before activation) is NOT PROVEN until L3 is run. Live mode also requires `AEGIS_AP_COUNTRY=TH`.
+- **Next:** after human merge of this fix, L3 live needs a fresh same-day authorization, K3, fresh PRE capture with a new `JOURNAL_SINCE`, and the inherited L2 state; the POST comparison must use `ALLOW_TRANSITIONS_FILE=stages/L3/allow-transitions.txt`.
+
+---
+
+## IDEA3 PR11 Phase 4 L2 live — ACCEPTED (containment host verification PARTIAL) — 2026-09-24
+
+> [!important] L2 firewall/forwarding persistence live acceptance PROVEN (owner-run; results as reported by the owner)
+> `L1_LIVE_ACCEPTANCE = PROVEN` (predecessor, see the L1 rerun2 section below)
+> `L2_LIVE_EXECUTED = YES`, `L2_VERIFY = PASS`, `L2_POST_CAPTURE = COMPLETE`, `L2_PRE_POST_COMPARE = PASS`,
+> `L2_S10_PRESERVATION = PASS`, `L2_LIVE_ACCEPTANCE = PROVEN`
+> `FORWARDING = DISABLED` (all seven sysctls 0), `NAT = ABSENT`, `MASQUERADE = ABSENT`, `BRIDGE = ABSENT`
+> `NFT_IDEA3_TABLE = LOADED` (`inet aegis_idea3`, set `blocked_ipv4`), `CONTAINMENT_SOCKET = ACTIVE_ENABLED`
+> (`aegis-idea3-containment.service` loaded, inactive, `MainPID=0`, static: no containment request was sent)
+> `CONTAINMENT_LIVE_HOST_VERIFICATION = PARTIAL`, `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`,
+> `SOFTWARE_IP_UNBLOCK = SOURCE_IMPLEMENTED`, `HOST_VERIFIED = NO`
+> `L3_LIVE_EXECUTED = NO`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`
+>
+> Authorization: same-day Music batch authorization (`pull/190#issuecomment-5799763300`, `L2=AUTHORIZED`,
+> `PRODUCTION_SCOPE=REVIEWED_PHASE4_STAGE_HANDLERS_ONLY`, `ROLLBACK_SCOPE=CURRENT_STAGE_ONLY`) and Kla K3 / integration
+> confirmation (`pull/190#issuecomment-5800317385`, `K3_L2=CONFIRMED`, `IDEA1_WINDOW_OVERLAP=NONE`,
+> `L2_INTEGRATION_REVIEW=APPROVED`); canonical gate `AUTHORIZATION_RECORD=VALID`, `K3_CONFIRMATION=VALID`.
+> Owner-approved live values: interface `wlp0s20f3`, AP subnet `10.77.30.0/28`, Core AP address `10.77.30.1`, channel 6, country TH,
+> protected CIDRs `10.77.30.0/28,192.168.1.0/24,100.96.0.0/12,192.168.10.10/32`. Private render/evidence stay outside the repository.
+> Window: `JOURNAL_SINCE = 2026-09-23 21:20:13 UTC`; evidence under `~/idea3-p4-evidence/2026-09-24-l2/`
+> (`pre-root`, `post-root`, `compare-pre-post.txt`, `render`, `stage-work`); both bundles `SHA256SUMS = PASS`.
+> Apply (owner-run reviewed handler, `AEGIS_P4_FS_ROOT` unset): `L2_APPLY=PASS`, `L2_TABLE=inet/aegis_idea3`,
+> `FORWARDING_TARGET=DISABLED`, `APPLY_RC=0`. Compare (L2 allow files, threshold 90): `NEW_OR_WORSENED_DRIFT=0`,
+> `BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `INCOMPARABLE=0`, `APPROVED_CHANGE=22`, `INFO=3`; `DRIFT_RESULT=PASS`,
+> `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. PRE=POST: Engine `868`/`0`, Tunnel `398125`/`16`, Twingate `2972`/`0`;
+> `:8077`, `:18002`, default route via `enp62s0`, `192.168.10.10` via `sdwan0` preserved; disk 88%; chronyd loaded/inactive/disabled;
+> `listen.udp.ephemeral_filter = kernel-range-32768-60999`. `runtime_healthy = NOT_PROVEN` remains the read-only L0 limitation.
+> The `PRODUCTION_MUTATION_PERFORMED=NO` printed by verify/compare describes those read-only steps, not the L2 apply.
+>
+> Containment limitation: `/opt/aegis-idea3/current` is not installed on the host, so the helper runtime was deliberately not
+> activated and live containment contract items 7–13 (block, idempotency, observed traffic denial, listing, unblock, restoration,
+> audit) were not performed; no authorized external test source is defined, and any test source must lie outside the protected CIDRs.
+> Source and local functional evidence (`verify-containment-functional.sh`) are unchanged and are not host proof.
+>
+> Documentation discrepancy (not a Production change): the live `forward` chain has `policy accept` plus
+> `iifname "wlp0s20f3" drop`; AP-originated forwarding is denied, which is the approved behavior. Older prose saying the whole
+> forward-chain policy must be `drop` is a history discrepancy.
+
+---
+
+## IDEA3 PR11 Phase 4 L1 live rerun2 — ACCEPTED — 2026-09-24
+
+> [!important] L1 live acceptance PROVEN in a fresh preservation window (owner-run; results as reported by the owner)
+> `L1_LIVE_RERUN2 = PASS`, `L1_VERIFY = PASS`, `L1_POST_CAPTURE = COMPLETE`,
+> `L1_PRE_POST_COMPARE = PASS`, `L1_S10_PRESERVATION = PASS`, `L1_LIVE_ACCEPTANCE = PROVEN`
+> `CHRONY_INSTALLED = YES` (`chrony 4.8-3`), `CHRONYD_ACTIVE = NO`, `CHRONYD_ENABLED = NO`
+> (`LoadState=loaded`, `ActiveState=inactive`, `SubState=dead`, `UnitFileState=disabled`, `MainPID=0`, `NRestarts=0`)
+> `L2_LIVE_EXECUTED = NO`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`
+>
+> History (kept, not rewritten): (1) the first L1 live attempt executed; (2) its PRE→POST/S10 formal proof was blocked by
+> the old evidence harness and the reviewed L1 rollback restored chrony to ABSENT (section below); (3) PR #192 fixed the
+> harness and a human merged it at `e614e7f17bd50531297c12d9cbbd5e862ac12dc4`; (4) rerun2 used the merged harness in a new
+> window and namespace; (5) rerun2 passed. The first attempt's evidence (`2026-09-24-l1/{pre,post,rb}-root`) is historical and untouched.
+>
+> Rerun2 window: `JOURNAL_SINCE = 2026-09-23 19:34:46 UTC`; evidence under `~/idea3-p4-evidence/2026-09-24-l1-rerun2/`
+> (`pre-root`, `post-root`, `compare-pre-post.txt`, `stage-work`); both bundles `SHA256SUMS = PASS`.
+> Apply (owner-run, reviewed handler, `AEGIS_L1_BACKEND=live`, `AEGIS_P4_FS_ROOT` unset): `L1_SIMULATE_INSTALL=COMPLETE`,
+> `L1_VERIFY=PASS`, `L1_SERVICES_STARTED=NONE`, `L1_SERVICES_ENABLED=NONE`, `LIVE_L1=EXECUTED`, `L1_APPLY=COMPLETE`.
+> Compare (L1 allow files, threshold 90): `NEW_OR_WORSENED_DRIFT=0`, `BASELINE_UNHEALTHY_BUT_UNCHANGED=0`,
+> `INCOMPARABLE=0`, `APPROVED_CHANGE=6`, `INFO=3`; `DRIFT_RESULT=PASS`, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`.
+> Preservation PRE=POST: Engine `MainPID=868`/`NRestarts=0`; Tunnel `MainPID=398125`/`NRestarts=16`; Twingate
+> `MainPID=2972`/`NRestarts=0`; all active; `:8077` and `:18002` present; `sdwan0` route to 192.168.10.10 present; root disk 88%.
+> Harness proof on the live host: `listen.udp.ephemeral_filter = kernel-range-32768-60999` (PRE and POST);
+> `time.chrony.leap` `not-installed` → `installed-inactive`.
+> The compare line `PRODUCTION_MUTATION_PERFORMED=NO` describes the comparison step only, not the L1 apply.
+> `runtime_healthy = NOT_PROVEN` remains the read-only L0 limitation. L2 and later stages are not executed and need their own windows.
+
+---
+
+## IDEA3 PR11 Phase 4 L1 live attempt — ROLLED BACK — evidence-harness fix — 2026-09-24
+
+> [!note] Historical first attempt — superseded by the rerun2 section above; `L1_COMPLETE = NO` below describes the state before rerun2.
+
+> [!important] L1 live attempt rolled back; formal S10 proof blocked by the evidence harness
+> `L1_LIVE_ATTEMPT = ROLLED_BACK` (owner-reported: L1 apply and verify passed, PRE→POST compare FAILED,
+> the reviewed L1 rollback completed with `L1_ROLLBACK_PACKAGE_STATE=ABSENT`, RB capture COMPLETE,
+> PRE→RB compare FAILED with only UDP listener churn: 56 findings, 0 incomparable)
+> `L1_COMPLETE = NO`, `FORMAL_S10_PROOF = BLOCKED_BY_EVIDENCE_HARNESS`
+> `PRODUCTION_HOST_STATE = ROLLED_BACK` (chrony absent again; no L2 executed)
+> `L2_EXECUTED = NO`, `PRODUCTION_MUTATION_BY_THIS_TASK = NO`
+> Root causes (repository-only fix on `fix/idea3-pr11-phase4-evidence-harness`, Draft PR):
+> (A) `p4-l0-capture.sh` recorded transient UDP client sockets on kernel-assigned ephemeral ports as listeners;
+> UDP sockets inside the host's `ip_local_port_range` are now excluded from the per-port inventory (range recorded as
+> `listen.udp.ephemeral_filter`; unreadable range = no filtering; TCP unfiltered).
+> (B) passive L1 chrony was recorded as `UNAVAILABLE`; it is now `installed-inactive` only with proof
+> (`chronyd.service` loaded and inactive), any other failed query stays `UNAVAILABLE` and fails closed.
+> The original live evidence (`pre-root`, `post-root`, `rb-root`) is preserved unchanged and is not comparable
+> under the fixed semantics. Production resumes only after human merge and a fresh L1 PRE window.
+> Residual risk: a real UDP service bound inside the ephemeral range is not distinguishable by `ss` alone.
+
+---
+
+## IDEA3 PR11 Phase 4 IDEA2 §10 window-delta criterion — ACCEPTED — 2026-09-24
+
+> [!important] Post-merge reconciliation (2026-09-24) — owner acceptance APPROVED
+> `PR189 = MERGED`, `PR189_MERGE_SHA = 9f6a0f4167d814cd090c47916d12d7b10397cb0e`
+> `IDEA2_OWNER_ACCEPTANCE = APPROVED` (Pub, `pubpup2006p-design`)
+> `IDEA2_S10_WINDOW_DELTA_CRITERION = ACCEPTED`
+> `IDEA2_NARROWED_CRITERION = WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER`
+> `S10_STAGE_PRESERVATION_EVIDENCE = REQUIRED_PER_STAGE` (the stage gate now prints
+> `S10_CRITERION_OWNER_ACCEPTANCE=APPROVED` and `S10_PRESERVATION_EVIDENCE=REQUIRED_PER_STAGE`;
+> it cannot itself prove fresh BEFORE/AFTER preservation, so `S10_IDEA2_CAVEAT=OPEN` is retired.)
+> `FRESH_DISK_USE = 88%`, `LAST_FRESH_IDEA2_OBSERVATION_SECONDS = 821`,
+> `ENGINE_NRESTARTS = 0->0`, `TUNNEL_NRESTARTS = 15->15`
+> `L1_LIVE_EXECUTION = NOT_RUN`, `A_L1 = NOT_ISSUED`, `FRESH_K3_L1 = NOT_ISSUED`,
+> `PRODUCTION_MUTATION = NO`. The text below is the historical PR #189 candidate record.
+
+> [!note] Historical — candidate state at PR #189 creation
 > Branch `fix/idea3-pr11-s10-window-delta-criterion` (Draft PR, base `baf0a94e`)
 > reconciles the IDEA2 §10 preservation contract with observed reality. A
 > historical absolute `idea2.tunnel.NRestarts > 0` is no longer, by itself, an
@@ -30,7 +216,7 @@ edit_policy: owner-writable
 > loss, and a currently unhealthy tunnel (inactive, `:18002` absent, journal
 > failure class) still fail. Focused RED→GREEN tests cover cases A–F; the PR11
 > suite passes (885). The compare summary prints
-> `IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE`.
+> `IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE` (now `WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER`).
 >
 > Fresh read-only evidence (owner-run, no lifecycle action):
 > `FRESH_DISK_USE = 88%`, `DISK_L1_GATE = PASS` (threshold 90%),
@@ -39,10 +225,10 @@ edit_policy: owner-writable
 > `LISTEN_8077 = YES`, `LISTEN_18002 = YES`, `MONITOR_HEALTHZ = PASS`.
 >
 > `CONTRACT_REALITY_MISMATCH = RESOLVED_IN_CANDIDATE_CODE`
-> `IDEA2_OWNER_ACCEPTANCE = PENDING_PR_REVIEW` (Pub, `pubpup2006p-design`)
-> `S10_IDEA2_CAVEAT = OPEN` (stage gate unchanged until acceptance)
+> `IDEA2_OWNER_ACCEPTANCE = PENDING_PR_REVIEW` at that time (now APPROVED, see above)
+> `S10_IDEA2_CAVEAT = OPEN` at that time (superseded by `S10_PRESERVATION_EVIDENCE = REQUIRED_PER_STAGE`)
 > `L1_LIVE_EXECUTION = NOT_RUN`, `PRODUCTION_MUTATION = NO`.
-> `IDEA2_S10_FINAL_ACCEPTED` is not claimed. No receipt yet (Draft).
+> Superseded: owner acceptance was later given on PR #189.
 
 ## IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17
 
