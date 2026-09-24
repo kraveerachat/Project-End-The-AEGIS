@@ -1,0 +1,9 @@
+# AEGIS IDEA3 PR11 Phase 4 — L4 allow-transitions.txt
+# The ONLY regulatory window the L4 stage comparison may accept (p4-compare.sh ALLOW_TRANSITIONS_FILE).
+# L4 reactivates the already-applied L3 AP (NetworkManager reload + `connection up ... ifname wlp0s20f3`), so the target
+# phy may be re-registered by the driver. Accepted target-phy outcomes are exactly 00 -> 00, TH -> TH and 00 -> TH (M-14
+# Model B: the starting state is read, never assumed TH). L4 never runs `iw reg set`; the handler re-verifies TH-or-00
+# and an unrestricted channel 6 through p4-l3-regulatory.sh after reactivation.
+# TH -> 00, any other country, any global or other-phy wifi.reg.* change stays protected drift.
+stage L4
+wifi.reg.<AEGIS_AP_PHY> 00 TH

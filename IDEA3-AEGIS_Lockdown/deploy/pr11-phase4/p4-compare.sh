@@ -23,7 +23,7 @@
 # unchanged between BEFORE and AFTER pass; any increase or MainPID change fails,
 # as do a new failure class, :8077/:18002 loss, and a currently unhealthy tunnel.
 #
-# ALLOW_TRANSITIONS_FILE (stage L3 only) activates one exact semantic regulatory
+# ALLOW_TRANSITIONS_FILE (stage L3 or stage L4, exactly one declared) activates one exact semantic regulatory
 # window for the phy behind AEGIS_AP_INTERFACE. Accepted after-states: 00 -> 00
 # and TH -> TH (unchanged) and 00 -> TH (the one approved transition, which
 # also accounts for the wifi.reg.sha256 change). 00 -> 00 is the state proven live
@@ -140,24 +140,25 @@ ALLOW_TRANSITIONS=""
 TRANS_IFACE=""
 if [ -n "${ALLOW_TRANSITIONS_FILE:-}" ]; then
   [ -r "$ALLOW_TRANSITIONS_FILE" ] || stop "ALLOW_TRANSITIONS_FILE unreadable"
-  # Strict contract: exactly two active lines, `stage L3` and `wifi.reg.<AEGIS_AP_PHY> 00 TH`, each once,
+  # Strict contract: exactly two active lines, `stage L3` or `stage L4` (one of them, once) and
+  # `wifi.reg.<AEGIS_AP_PHY> 00 TH` once,
   # single-space separated, no CR, no other token. Anything else (wildcard, regex, other stage/key/value,
   # duplicate, conflicting or malformed line) stops the run.
-  n_stage=0 n_rule=0
+  n_stage=0 n_rule=0 DECLARED_STAGE=""
   while IFS= read -r line || [ -n "$line" ]; do
     [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
     case "$line" in
-      'stage L3') n_stage=$((n_stage + 1)) ;;
+      'stage L3'|'stage L4') n_stage=$((n_stage + 1)); DECLARED_STAGE="${line#stage }" ;;
       'wifi.reg.<AEGIS_AP_PHY> 00 TH') n_rule=$((n_rule + 1)) ;;
-      *) stop "malformed or broadened regulatory transition: only 'stage L3' and 'wifi.reg.<AEGIS_AP_PHY> 00 TH' are approvable" ;;
+      *) stop "malformed or broadened regulatory transition: only 'stage L3'/'stage L4' and 'wifi.reg.<AEGIS_AP_PHY> 00 TH' are approvable" ;;
     esac
   done < "$ALLOW_TRANSITIONS_FILE"
-  [ "$n_stage" = 1 ] && [ "$n_rule" = 1 ] || stop "ALLOW_TRANSITIONS_FILE must declare stage L3 once and the single transition once"
+  [ "$n_stage" = 1 ] && [ "$n_rule" = 1 ] || stop "ALLOW_TRANSITIONS_FILE must declare exactly one stage (L3 or L4) once and the single transition once"
   if [ "$EVID_CLASS" = "TEST_FIXTURE" ]; then TRANS_IFACE="${AEGIS_AP_INTERFACE:-wlp0s20f3}"; else TRANS_IFACE="wlp0s20f3"; fi
   [[ "$TRANS_IFACE" =~ ^[A-Za-z0-9_.-]{1,15}$ ]] || stop "AEGIS_AP_INTERFACE invalid for regulatory transition"
   [ "$EVID_CLASS" = "TEST_FIXTURE" ] || [ "${AEGIS_AP_INTERFACE:-wlp0s20f3}" = wlp0s20f3 ] \
     || stop "regulatory transition is bound to wlp0s20f3"
-  ALLOW_TRANSITIONS="stage L3"
+  ALLOW_TRANSITIONS="stage $DECLARED_STAGE"
 fi
 
 read -r -d '' COMPARE_AWK <<'AWK'

@@ -76,7 +76,7 @@ fi
 if [ -z "$ROOT" ]; then
   systemctl daemon-reload 2>/dev/null || true
   nmcli connection reload 2>/dev/null || true
-  nmcli connection up "$CONN_ID" 2>/dev/null || true
+  nmcli connection up "$CONN_ID" ifname "$AP_IF" 2>/dev/null || true
 
   # Ensure IP address is removed
   if [ -n "$AP_IF" ]; then
