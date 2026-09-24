@@ -270,7 +270,7 @@ def test_other_drift_still_fails_alongside_valid_transition(tmp_path: Path, key:
 
 def test_apply_checks_regulatory_state_only_after_rfkill_unblock_and_before_profile_install() -> None:
     text = _mod.code_text(HANDLER / "apply.sh")
-    unblock = text.index('rfkill unblock "$rfkill_id"')
+    unblock = text.index("l3_rfkill_prepare")
     gate = text.index("REGULATORY_DOMAIN_MISMATCH")
     install = text.index("install -D")
     activate = text.index("nmcli connection up")
@@ -287,5 +287,5 @@ def test_apply_never_sets_regulatory_domain_and_only_reads_target_phy() -> None:
 
 def test_l3_regulatory_state_is_not_read_before_unblock() -> None:
     text = _mod.code_text(HANDLER / "apply.sh")
-    before_unblock = text[: text.index('rfkill unblock "$rfkill_id"')]
+    before_unblock = text[: text.index("l3_rfkill_prepare")]
     assert "iw reg get" not in before_unblock
