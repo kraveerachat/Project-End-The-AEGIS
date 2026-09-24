@@ -85,8 +85,7 @@ if [ -z "$ROOT" ]; then
   [ ! -e "$PROFILE_DEST" ] \
     || fail DESTINATION_ALREADY_EXISTS
 
-  iw reg get 2>/dev/null | grep -Eq "country (TH|$AP_COUNTRY):" \
-    || fail REGULATORY_DOMAIN_MISMATCH
+  [ "$AP_COUNTRY" = TH ] || fail AP_COUNTRY_MUST_BE_TH
 
   # Management path fail-closed checks
   [ -z "$(ip route show default dev "$AP_IF" 2>/dev/null)" ] \
@@ -136,6 +135,27 @@ if [ -z "$ROOT" ]; then
   else
     printf '0\n' > "$WORK/rfkill_pre_state"
   fi
+
+  # Regulatory gate AFTER the unblock: a soft-blocked radio reports the world
+  # domain 00 for its phy, so the owner-approved country (TH) can only be
+  # observed once the radio is unblocked. L3 never sets it (no `iw reg` write);
+  # it only observes, polls read-only for a bounded time, and fails closed
+  # BEFORE any profile is installed or activated. rollback.sh re-blocks.
+  target_country() {
+    local n
+    n=$(iw dev "$AP_IF" info 2>/dev/null | awk '$1 == "wiphy" { print $2; exit }')
+    [[ "$n" =~ ^[0-9]+$ ]] || return 1
+    iw reg get 2>/dev/null | awk -v p="phy#$n" '
+      $1 ~ /^phy#/ { on = ($1 == p); next }
+      $1 == "global" { on = 0; next }
+      on && $1 == "country" { sub(":", "", $2); print $2; exit }'
+  }
+  reg_ok=0
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [ "$(target_country)" = TH ] && { reg_ok=1; break; }
+    sleep 1
+  done
+  [ "$reg_ok" = 1 ] || fail REGULATORY_DOMAIN_MISMATCH
 fi
 
 # UUID generation

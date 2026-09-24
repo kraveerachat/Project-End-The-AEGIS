@@ -224,7 +224,8 @@ if run_ro 1 iw-dev iw dev; then
   while IFS=$'\t' read -r iface field value; do
     [ -n "$iface" ] && wifi_ifaces["$iface"]=1
     p4_rec "$WIFI" "wifi.iface.$iface.$field" "$value"
-  done < <(printf '%s\n' "$P4_OUT" | awk '$1 == "Interface" { i = $2 }
+  done < <(printf '%s\n' "$P4_OUT" | awk '$1 ~ /^phy#[0-9]+$/ { ph = $1; sub("#", "", ph) }
+    $1 == "Interface" { i = $2; if (ph != "") print i "\tphy\t" ph }
     $1 == "type" && i != "" { print i "\ttype\t" $2 }
     $1 == "channel" && i != "" { print i "\tchannel\t" $2 " " $3 " " $4 }
     $1 == "ssid" && i != "" { print i "\tssid\t" $2 }')
