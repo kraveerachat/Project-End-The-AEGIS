@@ -251,4 +251,4 @@ def test_helper_has_no_global_unblock_and_reads_state_with_list_command():
 
 def test_regulatory_gate_still_follows_the_unblock_and_precedes_profile_install():
     a = code(APPLY)
-    assert a.index("l3_rfkill_prepare") < a.index("REGULATORY_DOMAIN_MISMATCH") < a.index("install -D") < a.index("nmcli connection up")
+    assert a.index("l3_rfkill_prepare") < a.index("l3_reg_gate") < a.index("install -D") < a.index("nmcli connection up")

@@ -88,7 +88,7 @@ runtime.
 | E-01 | Wi-Fi interface `wlp0s20f3`, driver `iwlwifi` | OWNER-RUN |
 | E-02 | The adapter supports the `AP` and `AP/VLAN` interface modes; a valid interface combination includes one AP | OWNER-RUN |
 | E-03 | Wi-Fi is rfkill **soft**-blocked; hard block = NO | OWNER-RUN |
-| E-04 | The phy regulatory domain is `TH` (self-managed); the global regulatory domain is still `00` | OWNER-RUN |
+| E-04 | **CORRECTED 2026-09-24:** the self-managed phy0 reports `country 00` (also after the exact rfkill unblock; live L3 attempt 2); the earlier `TH` was not reproduced. Global is `00` | OWNER-RUN |
 | E-05 | NetworkManager is active/running | OWNER-RUN |
 | E-06 | Physical Core interface `enp62s0` = `192.168.20.254/24` (VLAN20) | OWNER-RUN |
 | E-07 | Physical route to the AEGIS Server: `192.168.10.10 via 192.168.20.1 dev enp62s0` (Twingate stopped for this evidence) | OWNER-RUN |
@@ -246,7 +246,7 @@ or unverifiable. `ABSENT` means no repository artifact exists.
 | AP creation | **ABSENT** | There is no NetworkManager connection profile, `hostapd.conf` template, or procedure. hostapd is not installed (E-14). The architecture (D1) requires a Core-hosted AP but does not choose the implementation → OD-01. **Constraint for either choice:** NetworkManager `ipv4.method=shared` enables IPv4 forwarding and NAT for the AP. That contradicts R-01/R-02 and must not be used. |
 | AP address assignment | **ABSENT** | The templates use `<AEGIS_AP_ADDRESS>`/`<AEGIS_AP_SUBNET>` placeholders only. There is no address-assignment artifact → G-02, OD-04. |
 | DHCP vs static ESP32 addressing | **PARTIAL (DHCP-only firmware; no server artifact)** | The firmware can only use DHCP (R-13). DHCP needs a DHCP server artifact that does not exist, and a firewall amendment: R-02 drops UDP/67, and a DHCP DISCOVER from `0.0.0.0` does not match `ip saddr <AEGIS_AP_SUBNET>` anyway. Static addressing needs a firmware change plus a new NVS field. Either way is a repository gap → OD-05, G-04. |
-| Regulatory/channel configuration | **ABSENT** | There is no regulatory, country, band, or channel artifact. The phy is self-managed `TH` while global is `00` (E-04), and the effective AP channel flags are not yet read → L0 evidence, OD-03. The `esp32dev` target is a 2.4 GHz-only radio, so the AP must offer 2.4 GHz; the channel stays an owner decision. |
+| Regulatory/channel configuration | **ABSENT** | There is no regulatory, country, band, or channel artifact. **[Corrected 2026-09-24: phy0 is self-managed `00`, not `TH`; see idea3-status]** The phy is self-managed while global is `00` (E-04), and the effective AP channel flags are not yet read → L0 evidence, OD-03. The `esp32dev` target is a 2.4 GHz-only radio, so the AP must offer 2.4 GHz; the channel stays an owner decision. |
 | Local NTP serving | **PARTIAL** | The chrony AP-binding template exists (R-03). There is no upstream-source configuration, no timesyncd→chrony handoff procedure, and no check that the Core `TrustedClock` stays `SYNCED` across the handoff. chrony is absent (E-14). The upstream design (D1) does not bind the server implementation → OD-06, G-05. |
 | AP firewall isolation | **PARTIAL** | The template is correct for NTP/MQTT isolation and no forwarding (R-02), but: (a) it blocks DHCP (and DNS, if a hostname is chosen); (b) there is no persistence or load procedure; (c) enabling a distribution `nftables.service` loads `/etc/nftables.conf` as a whole ruleset, and that file's contents on the Core are not yet read (L0) → G-06, OD-07. |
 | TLS Mosquitto 8883 | **PARTIAL** | The standalone TLS template exists and is tested statically and on isolated loopback. There is no procedure to add it to the **live** broker, which serves plaintext 1883 with user `aegis` (E-09). With `per_listener_settings false`, one global `acl_file` applies to both listeners. An exact-topic ACL that does not list `aegis` would deny that user every topic on 1883, and global `persistence false`/`retain_available false` would also change 1883 behavior → G-07, OD-08. |
@@ -288,7 +288,7 @@ outside Git when it is secret, and confirmed in writing before its stage.
 |---|---|---|
 | OD-01 | AP implementation | NetworkManager AP mode, or hostapd (package absent). If NetworkManager is chosen, `ipv4.method=shared` is excluded (§4). |
 | OD-02 | AP security mode | Must be supported by the ESP32 Arduino-ESP32 2.0.17 station. Any mode other than WPA2-PSK needs compile and device validation before use. |
-| OD-03 | Regulatory handling | Accept the self-managed phy `TH`, or reconcile the global domain. The channel is chosen only after reading the effective channel flags (L0). |
+| OD-03 | Regulatory handling | Accept the self-managed phy state (live: `00`, channel unrestricted, gated by p4-l3-regulatory.sh), or reconcile the global domain. The channel is chosen only after reading the effective channel flags (L0). |
 | OD-04 | AP address assignment mechanism | Tied to OD-01. |
 | OD-05 | ESP32 addressing | DHCP (the current firmware; needs a DHCP server artifact and a firewall amendment) or static (needs a firmware change and an NVS field). |
 | OD-06 | Core-local NTP server and upstream | chrony per the template (replaces the timesyncd upstream role), or another server that can serve NTP. The upstream source for the Core must stay trusted. |

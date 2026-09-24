@@ -2,7 +2,7 @@
 
 The L3 handler never mutates regulatory state. The only tolerated regulatory
 change in a PRE/POST comparison is the target phy of wlp0s20f3 going 00 -> TH
-(or staying TH), and only when the L3 allow-transitions file is supplied.
+(or staying 00 or TH), and only when the L3 allow-transitions file is supplied.
 """
 from __future__ import annotations
 
@@ -86,9 +86,29 @@ def test_l3_other_transitions_fail(tmp_path: Path, b: str, a: str) -> None:
     assert failed(r), r.stdout
 
 
-def test_l3_unchanged_but_not_th_fails(tmp_path: Path) -> None:
-    assert failed(compare(tmp_path, *reg("00", "00")))
-    assert "REGULATORY_TARGET_NOT_APPROVED" in compare(tmp_path / "x", *reg("00", "00")).stdout
+def test_l3_target_phy_staying_world_00_passes(tmp_path: Path) -> None:
+    """Live 2026-09-24 (rerun3): the self-managed phy stays 00 through the exact rfkill unblock; 00 -> 00 is accepted."""
+    r = compare(tmp_path, *reg("00", "00"))
+    assert passed(r), r.stdout
+    assert "REGULATORY_TARGET_NOT_APPROVED" not in r.stdout
+
+
+def test_l3_target_00_to_00_with_unrelated_phy_drift_fails(tmp_path: Path) -> None:
+    b, a = reg("00", "00")
+    b["wifi.reg.phy1"] = "00"; a["wifi.reg.phy1"] = "US"
+    assert failed(compare(tmp_path, b, a))
+
+
+def test_l3_target_00_to_00_with_global_drift_fails(tmp_path: Path) -> None:
+    b, a = reg("00", "00")
+    a["wifi.reg.global"] = "US"
+    assert failed(compare(tmp_path, b, a))
+
+
+def test_l3_target_00_to_00_with_rule_text_change_stays_protected(tmp_path: Path) -> None:
+    b, a = reg("00", "00")
+    a["wifi.reg.sha256"] = "c" * 64          # channel/rule table changed while the country did not: not accounted
+    assert failed(compare(tmp_path, b, a))
 
 
 @pytest.mark.parametrize("side", ["before", "after", "both"])
@@ -271,7 +291,7 @@ def test_other_drift_still_fails_alongside_valid_transition(tmp_path: Path, key:
 def test_apply_checks_regulatory_state_only_after_rfkill_unblock_and_before_profile_install() -> None:
     text = _mod.code_text(HANDLER / "apply.sh")
     unblock = text.index("l3_rfkill_prepare")
-    gate = text.index("REGULATORY_DOMAIN_MISMATCH")
+    gate = text.index("l3_reg_gate")
     install = text.index("install -D")
     activate = text.index("nmcli connection up")
     assert unblock < gate < install < activate
@@ -282,7 +302,8 @@ def test_apply_never_sets_regulatory_domain_and_only_reads_target_phy() -> None:
     text = _mod.code_text(HANDLER / "apply.sh")
     assert re.search(r"\biw\s+reg\s+set\b|\biw\s+phy\b.*\breg\b", text) is None
     assert "AP_COUNTRY_MUST_BE_TH" in text
-    assert 'iw dev "$AP_IF" info' in text
+    helper = _mod.code_text(DEPLOY / "p4-l3-regulatory.sh")
+    assert 'iw dev "$1" info' in helper and 'iw phy "$phy" channels' in helper
 
 
 def test_l3_regulatory_state_is_not_read_before_unblock() -> None:

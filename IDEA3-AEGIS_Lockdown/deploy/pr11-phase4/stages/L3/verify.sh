@@ -51,8 +51,10 @@ grep -Fqx "method=disabled" "$target_profile" \
   || fail PROFILE_CONTAINS_FORBIDDEN_SETTINGS
 
 if [ -z "$ROOT" ]; then
-  iw dev "$AP_IF" info 2>/dev/null | grep -q "type AP" \
-    || fail AP_MODE_NOT_ACTIVE
+  # shellcheck source=../../p4-l3-regulatory.sh
+  . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/p4-l3-regulatory.sh"
+  l3_reg_verify_active "$AP_IF" "${AEGIS_AP_CHANNEL:-6}" || fail "$L3_REG_REASON"
+  printf 'L3_REGULATORY_STATE=%s phy=%s\n' "$L3_REG_COUNTRY" "$L3_REG_PHY"
 
   [ -z "$(ip -4 addr show dev "$AP_IF" 2>/dev/null | grep 'inet ')" ] \
     || fail AP_IF_HAS_IPV4_ADDRESS
