@@ -106,6 +106,16 @@ for secret in "$passwd" "$key"; do
   (( (perm & 077) == 0 )) || fail "SECRET_MODE_TOO_OPEN:${secret}"
 done
 
+# The broker starts as root and drops to its runtime user, so the 0600 secret files must be owned by
+# that user (legacy convention: mosquitto:mosquitto 0600). Live default `mosquitto`; fixtures opt in.
+BROKER_USER="${AEGIS_L6B_BROKER_USER:-}"
+[ -n "$BROKER_USER" ] || [ -n "$ROOT" ] || BROKER_USER=mosquitto
+if [ -n "$BROKER_USER" ]; then
+  for f in "$passwd" "$acl" "$key"; do
+    [ "$(stat -c '%U' "$f")" = "$BROKER_USER" ] || fail "IDEA3_FILE_OWNER_NOT_BROKER_USER:${f}"
+  done
+fi
+
 snapshot_tree "$legacy_dir" "$WORK/legacy-tree.sha256"
 awk -F: 'NF >= 2 { print $1 }' "$legacy_passwd" | LC_ALL=C sort -u > "$WORK/legacy-users.txt"
 
@@ -114,9 +124,16 @@ if [ -z "$ROOT" ]; then
     "$LEGACY_UNIT" > "$WORK/legacy-service.txt" || fail LEGACY_SERVICE_SNAPSHOT_FAILED
   ss -H -ltn | awk '$4 ~ /:1883$/ { print $4 }' | LC_ALL=C sort -u > "$WORK/legacy-1883-listeners.txt"
 
+  # A port collision would make the new broker crash-loop; refuse before installing anything.
+  ! ss -H -ltn | awk '$4 ~ /:8883$/ { found=1 } END { exit !found }' || fail IDEA3_8883_ALREADY_IN_USE
+
   install -D -m 0644 "$UNIT_SOURCE" "$unit_dest" || fail UNIT_INSTALL_FAILED
   systemctl daemon-reload || fail DAEMON_RELOAD_FAILED
   systemctl enable --now "$UNIT" || fail IDEA3_SERVICE_START_FAILED
+  # Restart=on-failure can mask a crash loop from a single is-active probe.
+  sleep 3
+  systemctl is-active --quiet "$UNIT" || fail IDEA3_SERVICE_NOT_STABLE
+  [ "$(systemctl show -p NRestarts --value "$UNIT")" = 0 ] || fail IDEA3_SERVICE_NOT_STABLE
 else
   mkdir -p "$(dirname "$unit_dest")"
   cp "$UNIT_SOURCE" "$unit_dest"

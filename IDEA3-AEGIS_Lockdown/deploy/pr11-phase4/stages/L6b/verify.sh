@@ -55,6 +55,7 @@ grep -qx 'aegis' "$WORK/legacy-users.current" || fail LEGACY_AEGIS_USER_MISSING
 if [ -z "$ROOT" ]; then
   systemctl is-active --quiet "$UNIT" || fail IDEA3_SERVICE_NOT_ACTIVE
   systemctl is-enabled --quiet "$UNIT" || fail IDEA3_SERVICE_NOT_ENABLED
+  [ "$(systemctl show -p NRestarts --value "$UNIT")" = 0 ] || fail IDEA3_SERVICE_RESTARTED
 
   systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p MainPID -p NRestarts -p ExecMainStartTimestamp \
     "$LEGACY_UNIT" > "$WORK/legacy-service.current" || fail LEGACY_SERVICE_READ_FAILED
