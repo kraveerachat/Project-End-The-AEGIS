@@ -19,6 +19,7 @@ REQUIRED_HANDLER_FILES = {
     "rollback.sh",
     "allow-keys.txt",
     "allow-listeners.txt",
+    "allow-transitions.txt",
 }
 
 DISALLOWED_BROAD_KEYS = {
