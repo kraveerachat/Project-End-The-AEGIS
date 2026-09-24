@@ -469,3 +469,12 @@ Live execution of Stage L7 is NOT authorized by this document and requires all o
 7. **IDEA2 §10 Preservation**: Detection Engine and edge tunnel health check passes, or owner accepts a written, narrowed preservation criterion.
 8. **Clear Stop Conditions**: All standard safety stop conditions `S-01` through `S-12` verified clear.
 9. **Disk Headroom**: Minimum 20% available storage headroom on `/`, `/var`, and `/opt`.
+
+
+## Amendment A1 (candidate — pending reviewer approval): release guard and credential ownership
+
+Found while auditing the repository for the missing release/venv installer (no repository script builds `/opt/aegis-idea3/releases/<id>` or its `venv`; L7 only points `current` at it).
+
+1. **Release prerequisite is enforced, not assumed.** `apply.sh` proves, before staging anything, that `/opt/aegis-idea3/releases/<id>` exists (single path component, not a symlink), contains an executable `venv/bin/python` and `aegis_soc/supervisor.py`, is owned by `root` (`AEGIS_L7_RELEASE_OWNER`) and is not group/world-writable; a pre-existing dangling `current` fails closed; `verify.sh` re-proves the link target and the unit `ExecStart`. Section 6 item 5 ("`aegis-idea3:aegis-idea3` ownership") is corrected to **root-owned**: `deploy/network/aegis-idea3-containment.service.example` runs this tree as root and states it must not be writable by `aegis-idea3`.
+2. **D4 credential contract.** `RestoreCredential.load()` requires a regular file, exact mode 0600, owned by the Core account (`local_restore.py`), and `supervisor.py`/`runtime.py` read it directly (not via `LoadCredential=`). OV-10's `root:root 0700` directory therefore made the Core fail preflight (`D4 Core-local RESTORE credential is unsafe`). Corrected: directory `root:aegis-idea3` 0750; `restore.credential` `aegis-idea3:aegis-idea3` 0600; the other four secrets stay root 0600 (delivered by `LoadCredential=`). Apply validates the credential *format* with `RestoreCredential.parse`, not `load`.
+3. **Start failures are explicit.** `systemctl start` failure and a crash loop (`NRestarts != 0` after 3 s) fail with `L7_SERVICE_START_FAILED` / `L7_SERVICE_NOT_STABLE`; verify re-checks `NRestarts`.

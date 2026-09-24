@@ -97,6 +97,19 @@ def create_fixture_input_dir(path: Path) -> Path:
     return path
 
 
+def make_fixture_release(fs_root: Path, name: str = "v1.0.0") -> Path:
+    """Minimal immutable-release fixture below the fixture root (the L7 release guard requires it)."""
+    rel = fs_root / "opt" / "aegis-idea3" / "releases" / name
+    (rel / "aegis_soc").mkdir(parents=True, exist_ok=True)
+    (rel / "aegis_soc" / "supervisor.py").write_text("# fixture\n", encoding="utf-8")
+    python = rel / "venv" / "bin" / "python"
+    python.parent.mkdir(parents=True, exist_ok=True)
+    python.write_text("#!/bin/sh\n", encoding="utf-8")
+    python.chmod(0o755)
+    rel.chmod(0o755)
+    return rel
+
+
 # =============================================================================
 # 1. Handler Registration and Shell Syntax Tests
 # =============================================================================
@@ -295,9 +308,10 @@ def test_l7_apply_rejects_loose_permissions(tmp_path: Path) -> None:
     assert "permission" in (res.stdout + res.stderr).lower() or "mode" in (res.stdout + res.stderr).lower()
 
 
-def test_l7_staging_enforces_0700_dir_and_0600_files(tmp_path: Path) -> None:
-    """Staged credentials directory must be exact 0700 and staged files exact 0600."""
+def test_l7_staging_enforces_0750_dir_and_0600_files(tmp_path: Path) -> None:
+    """Staged credentials directory must be exact 0750 (root:aegis-idea3 live) and staged files exact 0600."""
     fs_root = tmp_path / "fs"
+    make_fixture_release(fs_root)
     input_dir = create_fixture_input_dir(tmp_path / "inputs")
     work_dir = tmp_path / "work"
     work_dir.mkdir(parents=True)
@@ -312,7 +326,7 @@ def test_l7_staging_enforces_0700_dir_and_0600_files(tmp_path: Path) -> None:
 
     creds_dir = fs_root / "etc" / "aegis-idea3" / "credentials"
     assert creds_dir.is_dir()
-    assert stat.S_IMODE(creds_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(creds_dir.stat().st_mode) == 0o750
 
     for secret_file in ("k_c2d", "k_d2c", "mqtt-core.pass", "admin.pin", "restore.credential"):
         sf = creds_dir / secret_file
@@ -433,6 +447,7 @@ def test_l7_verify_asserts_zero_actuation(tmp_path: Path) -> None:
 def test_l7_verify_fails_closed_on_corrupt_audit_db(tmp_path: Path) -> None:
     """verify.sh must fail closed if core-audit.sqlite3 is corrupt/unreadable."""
     fs_root = tmp_path / "fs"
+    make_fixture_release(fs_root)
     input_dir = create_fixture_input_dir(tmp_path / "inputs")
     work_dir = tmp_path / "work"
     work_dir.mkdir(parents=True)
@@ -458,6 +473,7 @@ def test_l7_verify_fails_closed_on_corrupt_audit_db(tmp_path: Path) -> None:
 def test_l7_verify_fails_closed_when_actuation_present(tmp_path: Path) -> None:
     """verify.sh must fail closed if CUT_UPLINK or RESTORE_UPLINK is recorded in audit DB."""
     fs_root = tmp_path / "fs"
+    make_fixture_release(fs_root)
     input_dir = create_fixture_input_dir(tmp_path / "inputs")
     work_dir = tmp_path / "work"
     work_dir.mkdir(parents=True)
@@ -513,6 +529,7 @@ def test_l7_allow_keys_matches_contract() -> None:
 def test_l7_rollback_is_idempotent(tmp_path: Path) -> None:
     """Running rollback.sh twice exits cleanly with returncode 0."""
     fs_root = tmp_path / "fs"
+    make_fixture_release(fs_root)
     input_dir = create_fixture_input_dir(tmp_path / "inputs")
     work_dir = tmp_path / "work"
     work_dir.mkdir(parents=True)
@@ -538,6 +555,7 @@ def test_l7_rollback_is_idempotent(tmp_path: Path) -> None:
 def test_l7_rollback_preserves_durable_audit_db(tmp_path: Path) -> None:
     """Rollback cleans transient files but PRESERVES durable audit DB and pre-existing files."""
     fs_root = tmp_path / "fs"
+    make_fixture_release(fs_root)
     input_dir = create_fixture_input_dir(tmp_path / "inputs")
     work_dir = tmp_path / "work"
     work_dir.mkdir(parents=True)

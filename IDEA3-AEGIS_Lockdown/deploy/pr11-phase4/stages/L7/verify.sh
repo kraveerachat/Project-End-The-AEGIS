@@ -24,7 +24,7 @@ creds_dir=$(host_path "/etc/aegis-idea3/credentials")
 [ ! -L "$creds_dir" ] || fail "credentials directory must not be a symlink"
 
 dir_mode=$(stat -c %a "$creds_dir")
-[ "$dir_mode" = "700" ] || fail "credentials directory mode must be 0700 (got $dir_mode)"
+[ "$dir_mode" = "750" ] || fail "credentials directory mode must be 0750 (got $dir_mode)"
 
 # 2. Verify Staged Credential Files & Modes (OD-L7-01, OD-L7-02, OD-L7-04, OD-L7-08)
 for req in k_c2d k_d2c mqtt-core.pass admin.pin restore.credential; do
@@ -47,6 +47,16 @@ unit_file=$(host_path "/etc/systemd/system/aegis-idea3-core.service")
 # 4. Verify Immutable Release Pointer (OD-L7-05)
 current_link=$(host_path "/opt/aegis-idea3/current")
 [ -L "$current_link" ] || fail "release pointer /opt/aegis-idea3/current missing or not a symlink"
+current_target=$(readlink "$current_link")
+[[ "$current_target" =~ ^/opt/aegis-idea3/releases/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || fail "L7_CURRENT_LINK_TARGET_INVALID"
+release_host=$(host_path "$current_target")
+[ -d "$release_host" ] || fail "L7_CURRENT_LINK_DANGLING"
+[ -f "$release_host/venv/bin/python" ] && [ -x "$release_host/venv/bin/python" ] || fail "L7_RELEASE_VENV_MISSING"
+[ -f "$release_host/aegis_soc/supervisor.py" ] || fail "L7_RELEASE_INCOMPLETE"
+unit_exec=$(sed -n 's/^ExecStart=\([^[:space:]]*\).*/\1/p' "$unit_file" | head -n 1)
+[ -n "$unit_exec" ] || fail "L7_UNIT_EXECSTART_MISSING"
+unit_exec_resolved="${unit_exec/#\/opt\/aegis-idea3\/current/$current_target}"
+[ -x "$(host_path "$unit_exec_resolved")" ] || fail "L7_UNIT_EXECSTART_MISSING"
 
 # 5. Strict No-Actuation Safety Boundary Verification (OD-L7-05)
 audit_db=$(host_path "/var/lib/aegis-idea3/data/core-audit.sqlite3")
@@ -82,6 +92,7 @@ fi
 # 7. Live Service Health Verification
 if [ -z "$ROOT" ]; then
   systemctl is-active --quiet aegis-idea3-core.service || fail "service is not active"
+  [ "$(systemctl show -p NRestarts --value aegis-idea3-core.service)" = 0 ] || fail "L7_SERVICE_RESTARTED"
 fi
 
 printf 'L7_VERIFY=PASS\n'
