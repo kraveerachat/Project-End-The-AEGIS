@@ -24,7 +24,7 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- New tests against the original helper (RED) — fail: 13 failed, 5 passed.
+- `pytest tests/test_pr11_phase4_l8_post_write_evidence.py` against the original helper (RED) — fail: 13 failed, 5 passed; against the fix — pass: 18 passed.
 - `pytest tests/test_pr11_phase4_l8_post_write_evidence.py tests/test_pr11_phase4_l8_handler.py` — pass: 95 passed.
 - `pytest tests -k phase4` — pass: 953 passed, 1093 deselected.
 - `pytest tests` (full IDEA3, sequential) — pass: 2040 passed, 6 skipped; no flake observed.
