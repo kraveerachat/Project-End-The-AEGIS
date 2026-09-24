@@ -20,11 +20,29 @@ AP_IF="${AEGIS_AP_INTERFACE:-wlp0s20f3}"
 CONN_ID="${AEGIS_L4_CONNECTION_ID:-aegis-idea3-ap}"
 LIVE_AUTH="${AEGIS_L4_LIVE_AUTHORIZED:-NO}"
 
-AP_ADDR="${AEGIS_AP_ADDRESS:-192.0.2.1}"
-AP_SUBNET="${AEGIS_AP_SUBNET:-192.0.2.0/28}"
-DHCP_START="${AEGIS_DHCP_START:-192.0.2.2}"
-DHCP_END="${AEGIS_DHCP_END:-192.0.2.10}"
-BROKER_HOSTNAME="${AEGIS_BROKER_HOSTNAME:-mqtt.aegis.invalid}"
+VALUES_ONLY="${AEGIS_L4_VALUES_ONLY:-NO}"
+
+# Owner values. Live mode (AEGIS_P4_FS_ROOT unset) never falls back to a default:
+# every value must be supplied explicitly. Only fixture mode keeps the
+# documentation-range fixture defaults.
+if [ -z "$ROOT" ]; then
+  for v in AEGIS_AP_INTERFACE AEGIS_AP_ADDRESS AEGIS_AP_SUBNET AEGIS_DHCP_START AEGIS_DHCP_END AEGIS_BROKER_HOSTNAME; do
+    [ -n "${!v:-}" ] || fail "LIVE_REQUIRES_EXPLICIT_$v"
+  done
+  AP_ADDR="$AEGIS_AP_ADDRESS"
+  AP_SUBNET="$AEGIS_AP_SUBNET"
+  DHCP_START="$AEGIS_DHCP_START"
+  DHCP_END="$AEGIS_DHCP_END"
+  BROKER_HOSTNAME="$AEGIS_BROKER_HOSTNAME"
+  LIVE_MODE=1
+else
+  AP_ADDR="${AEGIS_AP_ADDRESS:-192.0.2.1}"
+  AP_SUBNET="${AEGIS_AP_SUBNET:-192.0.2.0/28}"
+  DHCP_START="${AEGIS_DHCP_START:-192.0.2.2}"
+  DHCP_END="${AEGIS_DHCP_END:-192.0.2.10}"
+  BROKER_HOSTNAME="${AEGIS_BROKER_HOSTNAME:-mqtt.aegis.invalid}"
+  LIVE_MODE=0
+fi
 
 host_path() {
   if [ -n "$ROOT" ]; then
@@ -38,26 +56,12 @@ host_path() {
 [ -n "$AP_IF" ] || fail AEGIS_AP_INTERFACE_REQUIRED
 [[ "$AP_IF" =~ ^[A-Za-z0-9_.-]{1,15}$ ]] || fail AEGIS_AP_INTERFACE_INVALID
 
-[ ! -e "$WORK" ] || fail WORK_DIR_ALREADY_EXISTS
-
-umask 077
-mkdir -p "$WORK"
-chmod 700 "$WORK"
-
-target_profile="$(host_path "$PROFILE_DEST")"
-[ -f "$target_profile" ] || fail L3_PROFILE_MISSING
-
-target_mode=$(stat -c %a "$target_profile" 2>/dev/null)
-[ "$target_mode" = "600" ] || fail PROFILE_PERMISSIONS_INSECURE
-
-grep -Fqx "mode=ap" "$target_profile" || fail PROFILE_MODE_NOT_AP
-grep -Fqx "method=disabled" "$target_profile" || fail PROFILE_METHOD_NOT_DISABLED
-! grep -Eq "shared|address[0-9]|gateway" "$target_profile" || fail PROFILE_ALREADY_HAS_ADDRESSING
-
 # Enumerate existing non-target IPv4 interface networks read-only
 existing_nets=""
 if [ -z "$ROOT" ]; then
   existing_nets=$(ip -4 -o addr show 2>/dev/null | awk -v ap="$AP_IF" '$2 != ap && $2 != "lo" {print $4}' | tr '\n' ' ')
+  # Routed prefixes too (Twingate sdwan0, management /32 routes, Docker bridges): read-only.
+  existing_nets="$existing_nets $(ip -4 route show 2>/dev/null | awk -v ap="$AP_IF" '$1 != "default" && $0 !~ (" dev " ap "( |$)") {print $1}' | tr '\n' ' ')"
 fi
 if [ -n "${AEGIS_NON_TARGET_NETWORKS:-}" ]; then
   existing_nets="$existing_nets $AEGIS_NON_TARGET_NETWORKS"
@@ -76,6 +80,7 @@ dhcp_start_str = sys.argv[3]
 dhcp_end_str = sys.argv[4]
 hostname = sys.argv[5]
 non_target_raw = sys.argv[6] if len(sys.argv) > 6 else ""
+live = len(sys.argv) > 7 and sys.argv[7] == "1"
 
 try:
     subnet = ipaddress.ip_network(ap_subnet_str, strict=True)
@@ -84,6 +89,17 @@ except Exception as e:
 
 if subnet.version != 4:
     sys.exit("AP_SUBNET_MUST_BE_IPV4")
+
+if subnet.prefixlen > 30:
+    sys.exit("SUBNET_TOO_SMALL")
+
+if live:
+    doc_nets = [ipaddress.ip_network(n) for n in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")]
+    if any(subnet.overlaps(n) for n in doc_nets):
+        sys.exit("LIVE_DOCUMENTATION_RANGE_FORBIDDEN")
+    if (not subnet.is_private or subnet.overlaps(ipaddress.ip_network("100.64.0.0/10"))
+            or subnet.is_link_local or subnet.is_loopback or subnet.is_multicast):
+        sys.exit("LIVE_SUBNET_NOT_PRIVATE")
 
 # Reject overlap with any enumerated non-target interface network
 non_target_nets = []
@@ -120,17 +136,47 @@ if int(dhcp_start) > int(dhcp_end):
 if int(dhcp_start) <= int(ap_addr) <= int(dhcp_end):
     sys.exit("DHCP_RANGE_CONTAINS_CORE_AP")
 
-if not re.match(r"^[a-zA-Z0-9][-a-zA-Z0-9.]*[a-zA-Z0-9]$", hostname) or len(hostname) > 253:
+label = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+labels = hostname.split(".")
+if len(hostname) > 253 or not all(label.match(x) for x in labels):
     sys.exit("INVALID_BROKER_HOSTNAME")
+if live:
+    if len(labels) < 2 or all(x.isdigit() for x in labels):
+        sys.exit("INVALID_BROKER_HOSTNAME")
+    if labels[-1].lower() in ("invalid", "example", "test", "localhost", "local"):
+        sys.exit("LIVE_BROKER_HOSTNAME_RESERVED")
 
 print(f"{subnet.prefixlen} {subnet.netmask}")
-' "$AP_ADDR" "$AP_SUBNET" "$DHCP_START" "$DHCP_END" "$BROKER_HOSTNAME" "$existing_nets" 2>&1)
+' "$AP_ADDR" "$AP_SUBNET" "$DHCP_START" "$DHCP_END" "$BROKER_HOSTNAME" "$existing_nets" "$LIVE_MODE" 2>&1)
 
 if [ $? -ne 0 ]; then
   fail "$validation_out"
 fi
 
 read -r PREFIX_LEN NETMASK <<< "$validation_out"
+
+if [ "$VALUES_ONLY" = YES ]; then
+  printf 'L4_VALUES=VALID\n'
+  printf 'PRODUCTION_MUTATION_PERFORMED=NO\n'
+  exit 0
+fi
+
+[ ! -e "$WORK" ] || fail WORK_DIR_ALREADY_EXISTS
+
+umask 077
+mkdir -p "$WORK"
+chmod 700 "$WORK"
+
+target_profile="$(host_path "$PROFILE_DEST")"
+[ -f "$target_profile" ] || fail L3_PROFILE_MISSING
+
+target_mode=$(stat -c %a "$target_profile" 2>/dev/null)
+[ "$target_mode" = "600" ] || fail PROFILE_PERMISSIONS_INSECURE
+
+grep -Fqx "mode=ap" "$target_profile" || fail PROFILE_MODE_NOT_AP
+grep -Fqx "method=disabled" "$target_profile" || fail PROFILE_METHOD_NOT_DISABLED
+! grep -Eq "shared|address[0-9]|gateway" "$target_profile" || fail PROFILE_ALREADY_HAS_ADDRESSING
+
 
 check_l2_firewall_preconditions() {
   local ap_if="${1:-${AP_IF:-wlp0s20f3}}"

@@ -15,7 +15,12 @@ DNSMASQ_UNIT_DEST="/etc/systemd/system/aegis-idea3-dnsmasq.service"
 ROOT="${AEGIS_P4_FS_ROOT:-}"
 WORK="${AEGIS_L4_WORK_DIR:-}"
 AP_IF="${AEGIS_AP_INTERFACE:-wlp0s20f3}"
-AP_ADDR="${AEGIS_AP_ADDRESS:-192.0.2.1}"
+if [ -z "$ROOT" ]; then
+  [ -n "${AEGIS_AP_ADDRESS:-}" ] || fail LIVE_REQUIRES_EXPLICIT_AEGIS_AP_ADDRESS
+  AP_ADDR="$AEGIS_AP_ADDRESS"
+else
+  AP_ADDR="${AEGIS_AP_ADDRESS:-192.0.2.1}"
+fi
 
 host_path() {
   if [ -n "$ROOT" ]; then
