@@ -202,7 +202,7 @@ GOOD_RULE = "wifi.reg.<AEGIS_AP_PHY> 00 TH"
     f"{GOOD_STAGE}\n{GOOD_STAGE}\n{GOOD_RULE}\n",
     f"{GOOD_STAGE}\n{GOOD_RULE}\nwifi.reg.<AEGIS_AP_PHY> 00 US\n",
     f"{GOOD_STAGE}\n{GOOD_RULE}\nnet.dns.nameservers 1 2\n",
-    f"stage L4\n{GOOD_RULE}\n",
+    f"stage L5\n{GOOD_RULE}\n",
     f"{GOOD_RULE}\n",
     f"{GOOD_STAGE}\n",
     "",

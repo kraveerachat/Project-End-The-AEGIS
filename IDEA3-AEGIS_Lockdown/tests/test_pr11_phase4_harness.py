@@ -629,6 +629,8 @@ def test_only_reviewed_stage_handlers_are_registered() -> None:
         "L2": core_handler_files | {"verify-containment-functional.sh"},
         # L3 owns the one exact regulatory transition p4-compare.sh may accept.
         "L3": core_handler_files | {"allow-transitions.txt"},
+        # L4 reactivates the applied L3 AP, so it owns the narrow target-phy regulatory window for its own comparison.
+        "L4": core_handler_files | {"allow-transitions.txt"},
     }
     for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"):
         expected = expected_by_stage.get(name, core_handler_files)
