@@ -18,6 +18,23 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3 live acceptance — PROVEN (rerun6), L3 remains APPLIED — 2026-09-24
+
+> [!important] L3 was executed live on the fourth attempt (rerun6) and passed; the target AP radio is left applied. L4 is NOT started.
+> `L3_LIVE_EXECUTED = YES`, `L3_APPLY = PASS`, `L3_VERIFY = PASS`, `L3_POST_CAPTURE = COMPLETE`, `L3_PRE_POST_COMPARE = PASS`, `L3_S10_PRESERVATION = PASS`, `L3_LIVE_ACCEPTANCE = PROVEN`
+> `L3_STATE = APPLIED` (no rollback), `L4_STARTED = NO`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `L2_LIVE_ACCEPTANCE = PROVEN` (unchanged)
+> `L3_PRODUCTION_MUTATION_SCOPE = target wlp0s20f3 AP radio + its NetworkManager profile only` (no addressing, DHCP, DNS, NAT, forwarding, ESP32/client migration)
+
+- **Evidence (owner-run):** `~/Workspace/idea3-p4-evidence/2026-09-24-l3-rerun6`, `JOURNAL_SINCE=2026-09-24 13:01:35 UTC`, run `l3-20260924-2001-rerun6`, merged `main` `2a7ae2e3fb9cd92b6205bcc5b3a59ebc68a933cc` (includes #204 and #206). Bundles are root-only; facts below are from the owner-run log and compare report, cross-checked by read-only journal and live state.
+- **PRE:** `L0_CAPTURE=COMPLETE`, checksums PASS, disk 87%, Engine PID 892/restarts 0, Tunnel PID 8788/restarts 12, Twingate PID 979, rfkill id 1 soft-unblocked/hard-unblocked, regulatory `global=00` / `phy0=TH`, channel 6 unrestricted, target NM state `disconnected`.
+- **APPLY (merged handlers):** `L3_REGULATORY_PRE_ACTIVATION=TH phy=phy0 channel=6`, `L3_NM_TARGET_STATE=disconnected`, `nmcli connection up ... ifname` succeeded, `L3_REGULATORY_POST_ACTIVATION=TH phy=phy0 channel=6`, `L3_APPLY=PASS`, `AP_MODE=RADIO_ONLY_NO_ADDRESSING`, `PRODUCTION_MUTATION_PERFORMED=YES`. **VERIFY:** `L3_REGULATORY_STATE=TH phy=phy0`, `L3_VERIFY=PASS`.
+- **POST / PRE→POST (L3 allow files, disk threshold 90):** 8 approved changes only — `wlp0s20f3` link DOWN→UP, NM state `disconnected`→`connected`, active connection `aegis-idea3-ap`, profile created (mode 0600, root-owned, metadata only), channel 6 (2437 MHz), SSID `AEGIS-IDEA3`, interface type managed→AP. `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `FINDINGS_APPROVED_CHANGE=8`, `FINDINGS_INFO=3` (disk available only), `DRIFT_RESULT=PASS`, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. IDEA2 Engine/Tunnel and Twingate identity, `:8077`/`:18002`, routes and forwarding preserved (the comparator's `PRODUCTION_MUTATION_PERFORMED=NO` is comparator-scope only; the apply stage did mutate the target radio and profile).
+- **Regulatory, observed exactly:** PRE `global=00 phy0=TH`; pre-activation `TH`; post-activation `TH`; POST `phy0=TH global=00`. **No claim is made that country `00` equals `TH` legally, and no regulatory compliance is claimed beyond this observed evidence.** M-14 Model B (accept TH or 00 behind the channel gate) was the authority; the observed states were TH throughout.
+- **M-15 context (owner decision APPROVED, `OWNER_ONE_TIME_OUTSIDE_L3`):** the NetworkManager journal shows the owner's one-time `radio-control wireless-enabled:on` at 19:53:40 (device `unavailable → disconnected` within 49 ms, reason `supplicant-available`). NetworkManager then auto-connected `wlp0s20f3` to a saved client Wi-Fi profile (name and address omitted) at 19:53:43, and the owner deactivated it at 19:56:00 (`device-disconnect`), leaving the device `disconnected` for the 20:01 PRE. L3 apply did not run `nmcli radio wifi on`; the enabled NM Wi-Fi state is the accepted owner baseline for L3 and later AP stages. `INFERENCE`: the `TH` seen at PRE (every earlier attempt read `00`) came from that temporary client association, not from L3; it is `NOT_PROVEN` whether AP activation alone, or a reboot/firmware reload, would produce `TH` — the Model B gate keeps `00` acceptable.
+- **Next:** human review + merge of this closeout, then refresh/merge PR #196 (L4) before any L4 live execution; L4 needs its own fresh same-day authorization/K3, PRE, and comparator rule for the target-phy regulatory state. L4 is not started.
+
+---
+
 ## IDEA3 PR11 Phase 4 L3 third live attempt (rerun5) — FAIL_CLOSED at NetworkManager activation, rolled back — 2026-09-24
 
 > [!important] L3 was attempted a third time; the rfkill and regulatory gates passed, NetworkManager activation failed, the host was restored
