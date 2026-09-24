@@ -51,7 +51,7 @@ edit_policy: append-by-new-file
 
 ## Integration requests
 
-- None — valid: no cross-scope path changed. Owner review items: (1) accept `00` as an effective self-managed state for L3 (country TH remains the owner intent, accepted when reported); (2) AP TX power under `00` (22 dBm listed) versus Thai limits is NOT_PROVEN and not set by L3.
+- None — valid: no cross-scope path changed. Owner decision M-14 APPROVED MODEL_B (recorded in the status note; not a legal-equivalence or compliance claim: `00` is not claimed equal to `TH`). Still NOT_PROVEN: AP activation changing the phy country to `TH`, and any conclusion on transmit-power limits under `00` (22 dBm listed; L3 does not set TX power).
 
 ## Known limitations
 
