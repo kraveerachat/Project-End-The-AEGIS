@@ -16,7 +16,8 @@ edit_policy: append-by-new-file
 - Forensic (read-only journal, ms precision): NM saw the unblock at 19:34:19.8543, activation failed 37 ms later, and no `wlp0s20f3` state change appears in the window; in the earlier rerun3 window NM saw "now enabled" and no state change occurred in 10 s either. Root cause classified: target device stayed `unavailable` in NM (`PROVEN`); NM's persisted software Wi-Fi state ("disabled by state file", `nmcli radio` WIFI disabled) is `STRONGLY_SUPPORTED`, not `PROVEN` (state file is root-only); it is not a short race.
 - New read-only gate `p4-l3-nm.sh` wired into `apply.sh` after the rfkill and regulatory gates and before profile install: exact target device state from NetworkManager, only `disconnected` is ready, bounded to 10 polls x 0.5 s, transitions logged, stable reasons `NM_WIFI_RADIO_DISABLED` / `NM_TARGET_DEVICE_NOT_READY` / `NM_TARGET_DEVICE_NOT_FOUND`, never runs `connection up` on failure. Activation is now `nmcli connection up "$CONN_ID" ifname "$AP_IF"`.
 - Not changed: AP addressing, DHCP, DNS, NAT, forwarding, M-14 Model B, country intent TH, the effective 00/TH policy, the channel gate, rollback. No `nmcli radio wifi on`, no global rfkill, no `iw reg set`, `enp62s0` never referenced.
-- **This fix is not expected to make L3 pass on this host**: it turns an opaque failure into a deterministic, explicit one. An owner decision on how NetworkManager's software Wi-Fi state is enabled for the L3 window is required before another live attempt.
+- **This fix is not expected to make L3 pass on this host**: it turns an opaque failure into a deterministic, explicit one.
+- Owner decision M-15 APPROVED (recorded as a decision, not a proof): `M15_NM_WIFI_STATE_MODEL=OWNER_ONE_TIME_OUTSIDE_L3` — the owner enables NetworkManager's global software Wi-Fi state once outside the L3 stage (`M15_NM_WIFI_ENABLE_COMMAND="sudo nmcli radio wifi on"`). `M15_L3_HANDLER_GLOBAL_RADIO_MUTATION=FORBIDDEN`, `M15_L3_ROLLBACK_GLOBAL_RADIO_MUTATION=FORBIDDEN`, `M15_FRESH_PRE_AFTER_OWNER_CHANGE=REQUIRED` (the enabled NM Wi-Fi state becomes the accepted baseline for L3 and later AP stages), `M15_PR206_MERGE_REQUIRED_BEFORE_L3_RETRY=YES`. No claim that rfkill unblock alone enables the NM target device; no host change was made by this record.
 
 ## Source files changed
 
@@ -44,11 +45,11 @@ edit_policy: append-by-new-file
 
 ## Integration requests
 
-- None — valid: no cross-scope path changed. Owner decision needed (not an integration request): how NetworkManager's software Wi-Fi state is enabled for the L3 window (persisted global NM radio change with a restoring rollback, or an owner-run one-time change outside L3).
+- None — valid: no cross-scope path changed. The owner decision on the NetworkManager Wi-Fi baseline is made (M-15, one-time owner change outside L3).
 
 ## Known limitations
 
-- Not run live. Whether the gate reaches `disconnected` on this host after the unblock alone is unproven; the evidence suggests it will report `NM_WIFI_RADIO_DISABLED` or `NM_TARGET_DEVICE_NOT_READY`.
+- Not run live. Whether the gate reaches `disconnected` after the owner's one-time NM Wi-Fi enable (M-15) plus the exact rfkill unblock is still unproven; without that baseline the gate reports `NM_WIFI_RADIO_DISABLED` or `NM_TARGET_DEVICE_NOT_READY`.
 - `/var/lib/NetworkManager/NetworkManager.state` is root-only, so the state-file cause is not proven.
 - Later L-stage handlers (e.g. L4 `nmcli connection up "$CONN_ID"`) were not changed; they need the same explicit binding when refreshed.
 - Live evidence bundles are root-only; live facts are the owner's report plus read-only journal checks.
