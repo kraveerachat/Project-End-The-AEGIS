@@ -235,7 +235,8 @@ def test_l3_apply_has_management_path_fail_closed_guards() -> None:
 def test_l3_apply_has_regulatory_and_channel_guards() -> None:
     text = code_text(HANDLER / "apply.sh")
 
-    assert "REGULATORY_DOMAIN_MISMATCH" in text
+    assert "REGULATORY_DOMAIN_MISMATCH" in text + code_text(DEPLOY / "p4-l3-regulatory.sh")
+    assert "l3_reg_gate" in text
     assert "AP_CHANNEL_INVALID" in text
     assert re.search(r"\biw\s+reg\s+set\b", text) is None
 

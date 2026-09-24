@@ -24,7 +24,7 @@ T5 performs no live network mutation.
 
 - OD-01: NetworkManager AP mode
 - OD-02: WPA2-PSK
-- OD-03: accept effective self-managed TH phy state; channel must pass fresh L0 evidence
+- OD-03: accept effective self-managed phy state (corrected 2026-09-24: `00`, not `TH`, live-proven; gated by p4-l3-regulatory.sh); channel must pass fresh L0 evidence
 - OD-04: manual Core AP IPv4; never NetworkManager shared mode
 - OD-05: ESP32 addressing by DHCP
 - OD-07: dedicated IDEA3 nftables table loaded separately from the host ruleset
@@ -57,7 +57,7 @@ An alternate path such as Ethernet or USB tethering must already be proven.
 The NetworkManager artifact must never use ipv4.method=shared, bridge mode,
 NAT, masquerade, or automatic default-route creation.
 
-Channels 1 through 13 were observed available on the self-managed TH phy.
+Channels 1 through 13 were observed available on the self-managed phy (corrected 2026-09-24: its country is `00`, not `TH`).
 Channel 14 was disabled. The final channel is selected only from fresh
 same-window evidence.
 

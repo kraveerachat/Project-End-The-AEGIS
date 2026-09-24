@@ -1,8 +1,10 @@
 # AEGIS IDEA3 PR11 Phase 4 — L3 allow-transitions.txt
-# The ONLY regulatory change the L3 stage comparison may accept (p4-compare.sh ALLOW_TRANSITIONS_FILE).
-# p4-compare.sh accepts exactly these two lines and nothing else: the stage declaration, and one transition for
-# the phy that carries AEGIS_AP_INTERFACE (wlp0s20f3): world domain 00 -> owner-approved country TH. TH -> TH
-# needs no rule (unchanged). L3 never runs `iw reg set`; the driver reports TH once the radio is unblocked.
-# Every other wifi.reg.* change (global, other phys, other countries, missing state) stays protected drift.
+# The ONLY regulatory window the L3 stage comparison may accept (p4-compare.sh ALLOW_TRANSITIONS_FILE).
+# p4-compare.sh accepts exactly these two lines and nothing else: the stage declaration, and the rule for the phy
+# that carries AEGIS_AP_INTERFACE (wlp0s20f3). Accepted target-phy outcomes: 00 -> 00 (proven live: the self-managed
+# phy stays world domain 00 through the exact rfkill unblock), TH -> TH, and the approved 00 -> TH (tolerated, not
+# required). L3 never runs `iw reg set`; the handler's own gate (p4-l3-regulatory.sh) requires TH-or-00 plus an
+# unrestricted approved channel before and after activation.
+# Every other wifi.reg.* change (global, other phys, TH -> 00, other countries, missing state) stays protected drift.
 stage L3
 wifi.reg.<AEGIS_AP_PHY> 00 TH
