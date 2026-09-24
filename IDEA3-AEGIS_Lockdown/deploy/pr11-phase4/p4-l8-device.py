@@ -626,30 +626,52 @@ def provision(args: argparse.Namespace) -> int:
         # rather than raised past the bundle.
         failure_boundary = "DEVICE_WRITE"
 
-    # 8. Private readback: only the boolean outcome leaves this scope.
+    # 8. Private readback: only the boolean outcome leaves this scope. Past the first-write marker EVERY failure
+    #    here (readback error, wrong length, comparison error) is FAIL_SECURE_HOLD_AND_EVIDENCE: it is recorded as a
+    #    stable failure_boundary and never raised past the evidence bundle. Nothing is retried or recovered.
     if flash_result == "PASS":
-        readback_match = "PASS" if compare_nvs_readback(
-            nvs_image, device.read_region("nvs", nvs_offset)
-        ) else "FAIL"
-        if readback_match != "PASS":
-            failure_boundary = "NVS_READBACK"
+        actual = None
+        try:
+            actual = device.read_region("nvs", nvs_offset)
+        except Exception:  # the exception text is never recorded: it could carry device or path detail
+            pass
+        if not isinstance(actual, (bytes, bytearray)):
+            flash_result, failure_boundary = "FAIL", "NVS_READBACK_ERROR"
+        elif len(actual) != len(nvs_image):
+            flash_result, failure_boundary = "FAIL", "NVS_READBACK_LENGTH"
+        else:
+            try:
+                if compare_nvs_readback(nvs_image, bytes(actual)):
+                    readback_match = "PASS"
+                else:
+                    failure_boundary = "NVS_READBACK"
+            except Exception:
+                flash_result, failure_boundary = "FAIL", "POST_WRITE_VERIFICATION"
 
-    write_evidence(
-        evidence_dir / f"l8-{args.run_id}.json",
-        {
-            "schema_version": EVIDENCE_SCHEMA_VERSION,
-            "run_id": args.run_id,
-            "device_mac": observed["mac"],
-            "chip_identity": observed["chip_identity"],
-            "flash_size": observed["flash_size"],
-            "firmware_sha256": image_digest,
-            "nvs_schema_version": provisioner.NVS_SCHEMA_VERSION,
-            "nvs_readback_match": readback_match,
-            "flash_result": flash_result,
-            "boot_verification_result": boot_result,
-            "failure_boundary": failure_boundary,
-        },
-    )
+    if failure_boundary != "NONE":
+        print("L8_POST_FIRST_WRITE=FAIL_SECURE_HOLD_AND_EVIDENCE")
+
+    try:
+        write_evidence(
+            evidence_dir / f"l8-{args.run_id}.json",
+            {
+                "schema_version": EVIDENCE_SCHEMA_VERSION,
+                "run_id": args.run_id,
+                "device_mac": observed["mac"],
+                "chip_identity": observed["chip_identity"],
+                "flash_size": observed["flash_size"],
+                "firmware_sha256": image_digest,
+                "nvs_schema_version": provisioner.NVS_SCHEMA_VERSION,
+                "nvs_readback_match": readback_match,
+                "flash_result": flash_result,
+                "boot_verification_result": boot_result,
+                "failure_boundary": failure_boundary,
+            },
+        )
+    except L8Error:
+        raise
+    except Exception as exc:  # e.g. OSError: report a stable code, never the raw text
+        raise L8Error("evidence bundle could not be written") from None
 
     print(f"L8_NVS_OFFSET={nvs_offset:#x}")
     print(f"L8_FLASH_RESULT={flash_result}")

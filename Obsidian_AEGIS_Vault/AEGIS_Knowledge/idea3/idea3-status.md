@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L8 post-write fail-secure evidence fix — repository-only — 2026-09-24
+
+> [!important] Repository-only fixture fix. No hardware, serial port, esptool or Production access; no live L8 stage.
+> `L8_POST_WRITE_EVIDENCE_GAP = FIXED_REPOSITORY`, `L8_HARDWARE_BACKEND = NOT_WIRED`, `L8_LIVE = NOT_RUN`, `L8_LIVE_ACCEPTANCE = NOT_PROVEN`
+> `PRODUCTION_MUTATION = NO`, `REAL_HARDWARE_ACCESSED = NO`, PR #200 (hardware prototype) unchanged, Draft/HOLD.
+
+- **Defect (source-proven, from the readiness audit):** in `p4-l8-device.py` `provision()`, `device.read_region(...)` ran outside the protected failure path after the first-write marker. A readback error — or a comparison error — escaped before the evidence bundle was written, violating OD-L8-07 (`FAIL_SECURE_HOLD_AND_EVIDENCE`); a wrong-length readback was only treated as a mismatch.
+- **Fix:** one post-first-write boundary. Any failure in write completion, readback, length validation, comparison or post-write verification now records `flash_result=FAIL` and a stable `failure_boundary`, prints `L8_POST_FIRST_WRITE=FAIL_SECURE_HOLD_AND_EVIDENCE`, writes the write-once evidence bundle, and returns non-zero. Boundaries (existing convention kept, two existing names unchanged): `DEVICE_WRITE`, `NVS_READBACK` (same-length mismatch, `nvs_readback_match=FAIL`), new `NVS_READBACK_ERROR`, `NVS_READBACK_LENGTH`, `POST_WRITE_VERIFICATION`. Exception text is never recorded; an evidence-writer error (other than the write-once refusal) becomes a stable `L8Error`. The exact G-15 field set, backend authorization, pre-write behaviour and `p4-l8-hardware.py` (#200) are untouched. Boot verification stays `NOT_APPLICABLE_FIXTURE_BACKEND` and remains separate work, as does hardware wiring.
+- **Contract preserved:** no automatic recovery, no RESTORE, no previous-firmware reflash, no legacy v0, no plaintext 1883, no second device write or retry, no evidence overwrite, no raw NVS, key, PSK, password, PIN or field diff in output or evidence. Tests assert the device-call sequence and, by AST, that the helper can reach only `identity`, `write_region` and `read_region`.
+- **Tests:** new `tests/test_pr11_phase4_l8_post_write_evidence.py` (18 cases, fixture device with a call spy; RED before the fix: 13 failed / 5 passed).
+
+---
+
 ## IDEA3 PR11 Phase 4 L3 second live attempt — FAIL_CLOSED, regulatory ordering live blocker — design fix — 2026-09-24
 
 > [!important] L3 was attempted live a second time (after PR #203); the exact rfkill fix worked, the old TH requirement cannot be met; host restored
