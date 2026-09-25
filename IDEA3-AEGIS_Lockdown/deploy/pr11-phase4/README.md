@@ -372,11 +372,21 @@ Rendered chrony policy:
 server <OWNER_SUPPLIED_TRUSTED_UPSTREAM> iburst
 bindaddress <RENDERED_AP_ADDRESS>
 allow <RENDERED_AP_SUBNET>
+rtcsync
 ```
 
 Validation rejects unresolved placeholders, wildcard or broad AP scope,
-`allow all`, additional upstreams, additional active directives, and
-`local` / `local stratum` fallback behavior.
+`allow all`, additional upstreams, additional active directives, `rtcfile`,
+a missing `rtcsync`, and `local` / `local stratum` fallback behavior. The
+contract carries `CHRONY_RTCSYNC=REQUIRED`.
+
+`rtcsync` is a fourth ACTIVE CONFIG DIRECTIVE, not a comparator allowance. It is required because chronyd 4.8 on
+Linux clears the kernel `STA_UNSYNC` flag only when `rtcsync` is enabled (`sys_timex.c` `set_sync_status()`: "On Linux clear
+the UNSYNC flag only if rtcsync is enabled"), and the Core TrustedClock (and `p4-l5-clock.py`) is kernel/adjtimex based.
+Without it the L5 contract is unsatisfiable (live attempt `l5-20260925-191827`: chronyd `^*`, Leap Normal, maxerror far below
+1,000,000 µs, yet `KERNEL_UNSYNCED` for the whole readiness window). Owner-accepted side effect: while the kernel considers
+the clock synchronised, system time may be copied to the hardware RTC about every 11 minutes; that RTC write is not
+rollback-reversible. `rtcfile` must never be configured with it. The 60 s readiness bound and the TrustedClock predicate are unchanged.
 
 ### T6 trusted-time handoff contract
 
@@ -495,3 +505,17 @@ PHASE4_LIVE_READINESS     = NOT READY
 ### L5 comparator: constrained informational `time.timesyncd.ServerName` (owner decision 2026-09-25)
 
 Restarting `systemd-timesyncd` (the L5 rollback) legitimately reselects one of its configured `FallbackNTPServers`, so `time.timesyncd.ServerName` can differ between PRE and RB. The comparator (`p4-compare.sh`) classifies that single key as `INFO` (`TIMESYNCD_SERVER_RESELECTED_CONFIGURED`) only when ALL hold: `systemd-timesyncd` is `active`/`running` in the AFTER capture, `time.trustedclock.state` is `SYNCED`, `time.timesyncd.FallbackNTPServers` was captured and is identical in both bundles, and the new name is a member of that set. Otherwise it stays `NEW_OR_WORSENED_DRIFT`. It is not an allowance key: the three rollback-only allowance keys (`svc.systemd-timesyncd.service.MainPID`, `svc.systemd-timesyncd.service.ExecMainStartTimestamp`, `svc.chronyd.service.ExecMainStartTimestamp`) are unchanged, and every other time-state key is judged independently. The capture records `time.timesyncd.FallbackNTPServers` and `time.trustedclock.state` (live via the read-only `p4-l5-clock.py state`, the only python helper the read-only guard allows).
+
+## 8. L5 attempt #2 remediation (rtcsync, raw kernel evidence, mutation accounting)
+
+- **Raw kernel evidence.** `p4-l5-clock.py` appends `adjtimex_ret=<n> status=0x<hex> sta_unsync=<0|1> time_error=<0|1>` to `state`/`probe`
+  output and to every `readiness.log` poll line (one adjtimex read per poll, shared by the evidence and the predicate decision);
+  `p4-l5-clock.py raw` prints the fields alone. The synchronized decision itself is unchanged (`aegis_soc.trusted_time`).
+- **Whole-run mutation marker.** `apply.sh` records `PRODUCTION_MUTATION_PERFORMED=YES` (`FIXTURE_ONLY` under a fixture root) on stdout and in
+  `$WORK/production_mutation_performed` BEFORE its first write to `/etc` (the temporary config file), so a later readiness failure cannot
+  erase it. `p4-compare.sh` keeps its comparison-local `PRODUCTION_MUTATION_PERFORMED=NO`; the owner runner relabels it
+  (`COMPARE_LOCAL_…`) via `p4-l5-run-lib.sh` and reports `RUN_PRODUCTION_MUTATION_PERFORMED` from the apply marker only.
+- **Owner-readable evidence.** `p4-l5-run-lib.sh` `l5_copy_work_diagnostics` streams the root-owned `l5-work` files into a 0700 copy with a
+  `SHA256SUMS` manifest; originals are never modified.
+- Unchanged: exact chrony.conf mtime rollback, constrained `time.timesyncd.ServerName` INFO policy, S10 fail-closed comparison, the three
+  rollback-only allowance keys, one attempt per authorization, no automatic retry.

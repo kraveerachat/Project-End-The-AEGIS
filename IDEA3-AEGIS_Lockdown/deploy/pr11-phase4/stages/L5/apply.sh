@@ -231,6 +231,12 @@ fi
 target_dir="$(dirname "$target_conf")"
 mkdir -p "$target_dir"
 
+# FIRST ACTUAL MUTATION (a temporary file is created in the config directory): record it now, durably and on stdout, so a
+# later failure (e.g. readiness timeout) can never erase the fact. Live => YES; fixture root => FIXTURE_ONLY.
+if [ -z "$ROOT" ]; then mutation_marker="YES"; else mutation_marker="FIXTURE_ONLY"; fi
+printf "%s\n" "$mutation_marker" > "$WORK/production_mutation_performed"
+printf "PRODUCTION_MUTATION_PERFORMED=%s\n" "$mutation_marker"
+
 tmp_conf="$(mktemp "${target_conf}.tmp.XXXXXX")"
 cp -f "$chrony_src" "$tmp_conf"
 chmod 0640 "$tmp_conf"
@@ -241,11 +247,13 @@ active_lines="$(grep -v '^[[:space:]]*#' "$tmp_conf" | grep -v '^[[:space:]]*$' 
 expected_server="server $UPSTREAM iburst"
 expected_bind="bindaddress $AP_ADDR"
 expected_allow="allow $AP_SUBNET"
+expected_rtcsync="rtcsync"   # required on Linux: chronyd clears the kernel STA_UNSYNC flag only with rtcsync (chrony 4.8)
 
 if ! printf '%s\n' "$active_lines" | grep -Fqx "$expected_server" || \
    ! printf '%s\n' "$active_lines" | grep -Fqx "$expected_bind" || \
    ! printf '%s\n' "$active_lines" | grep -Fqx "$expected_allow" || \
-   [ "$(printf '%s\n' "$active_lines" | wc -l)" -ne 3 ]; then
+   ! printf '%s\n' "$active_lines" | grep -Fqx "$expected_rtcsync" || \
+   [ "$(printf '%s\n' "$active_lines" | wc -l)" -ne 4 ]; then
   rm -f "$tmp_conf"
   fail RENDERED_CONFIG_INVALID
 fi
@@ -299,11 +307,6 @@ else
   fi
 fi
 
-if [ -z "$ROOT" ]; then
-  printf "PRODUCTION_MUTATION_PERFORMED=YES\n"
-else
-  printf "PRODUCTION_MUTATION_PERFORMED=FIXTURE_ONLY\n"
-fi
 
 printf "L5_APPLY=PASS\n"
 printf "CHRONYD_STATUS=ACTIVE\n"
