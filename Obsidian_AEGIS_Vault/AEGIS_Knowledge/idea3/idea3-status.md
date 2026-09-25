@@ -18,6 +18,16 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L5 live-failure remediation — 2026-09-25
+
+> [!important] Repository-only (Draft/Review PR). The single live L5 attempt FAILED and stays FAILED; nothing was mutated by this task and no retry is authorized.
+> `L5_ATTEMPT_RESULT = FAIL` (evidence `2026-09-25-l5-20260925-174630`), `L5_LIVE_ACCEPTANCE = NOT_PROVEN`, `LIVE_RETRY_AUTHORIZED = NO`, `L5_STATE = ROLLED_BACK`, `L4_STATE = APPLIED`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- Live result: apply PASS, verify FAIL `FINAL_TRUSTED_CLOCK_NOT_SYNCED` (root cause PARTIAL: timing-race supported, sub-predicate unknown), rollback PASS, PRE→RB compare FAIL on two keys (`chrony.conf` mtime = real rollback defect; `time.timesyncd.ServerName` 2.arch→0.arch = expected dynamic reselection), so S10 FAIL. No witness stage reached.
+- Repository fixes: shared apply/verify TrustedClock predicate with named reasons and diagnostics; exact mtime restore; constrained informational `ServerName` (owner decision; not an allowance key; the three rollback-only allowance keys are unchanged).
+- Any retry needs merge, re-frozen runner/probe hashes, fresh authorization, fresh K3 and a fresh one-attempt approval.
+- Receipt: `90-Status/logs/2026-09-25_181550_music_idea3-pr11-l5-live-failure-remediation.md`.
+
 ## IDEA3 PR11 Phase 4 L5 rollback exactness hardening — 2026-09-25
 
 > [!important] Repository-only (Draft/Review PR). No live stage ran; L5 is NOT run and NOT authorized.
