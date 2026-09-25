@@ -16,6 +16,7 @@ import { InlineEmptyState } from './ui.jsx'
 import { UploadEntryPanel } from './UploadEntryPanel.jsx'
 import {
   ACTIVE_UPLOAD_STAGES,
+  UploadQueueSection,
   UploadStatusTray,
   UploadTrayLauncher,
   activeUploadCount,
@@ -41,9 +42,9 @@ const now = () => (typeof performance !== 'undefined' && typeof performance.now 
  *
  * FILES-UPLOAD-UX-1 แยกหน้าที่ของสองพื้นผิวออกจากกัน:
  *
- *   ลิ้นชักใหญ่ (`open`) = **เริ่ม** งาน — ตอบสองคำถามเท่านั้น คืออัปโหลดไปที่ไหน
- *                          และเลือกไฟล์อย่างไร พอไฟล์เข้าคิวแล้วมันปิดตัวเอง
- *   ถาดมุมขวาล่าง        = **เฝ้า** งาน — คิว ความคืบหน้า ความเร็ว ETA และคำสั่ง
+ *   ลิ้นชักใหญ่ (`open`) = **เริ่ม** งาน และแสดงคิวเดียวกันภายในลิ้นชักขณะเปิดอยู่
+ *   ถาดมุมขวาล่าง        = **เฝ้า** งานเมื่อปิดลิ้นชัก — คิว ความคืบหน้า ความเร็ว ETA และคำสั่ง
+ *   สองพื้นผิวนี้ไม่ถูกวาดพร้อมกัน แต่ใช้ state และ handler ชุดเดียวกันทั้งหมด
  *
  * ⚠️ คอมโพเนนต์นี้ถูก mount ค้างไว้โดย Files.jsx ตลอดอายุของหน้า (ไม่ได้ถูกครอบด้วย
  *    `{uploadOpen && ...}`) นั่นคือเหตุผลเดียวที่ทำให้ "ปิดลิ้นชัก" และ "ปิดถาด" เป็น
@@ -386,6 +387,28 @@ export function UploadDrawer({
   }
 
   const portal = (content) => typeof document === 'undefined' ? content : createPortal(content, document.body)
+  const handlers = {
+    onCancel: cancel,
+    onRetry: retry,
+    onDismiss: dismiss,
+    onRecover: requestRecover,
+    onDiscard: discard,
+  }
+  const recoverInput = (
+    <input
+      ref={recoverInputRef}
+      data-upload-recover-input=""
+      type="file"
+      className="sr-only"
+      aria-label={t('uploadRecoverSelect')}
+      onChange={(event) => {
+        const file = event.target.files?.[0]
+        const id = recoverTargetRef.current
+        event.target.value = ''
+        if (file && id) acceptRecoverFile(id, file)
+      }}
+    />
+  )
   const status = (
     <>
       {!trayHidden && (
@@ -395,27 +418,10 @@ export function UploadDrawer({
           collapsed={trayCollapsed}
           onToggleCollapse={() => setTrayCollapsed((value) => !value)}
           onHide={() => setTrayHidden(true)}
-          onCancel={cancel}
-          onRetry={retry}
-          onDismiss={dismiss}
-          onRecover={requestRecover}
-          onDiscard={discard}
+          {...handlers}
         />
       )}
-      {/* ⚠️ ต้องอยู่คู่กับถาด ไม่ใช่ในลิ้นชักใหญ่ — การกู้คืนเกิดขึ้นตอนลิ้นชักปิดอยู่เสมอ */}
-      <input
-        ref={recoverInputRef}
-        data-upload-recover-input=""
-        type="file"
-        className="sr-only"
-        aria-label={t('uploadRecoverSelect')}
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          const id = recoverTargetRef.current
-          event.target.value = ''
-          if (file && id) acceptRecoverFile(id, file)
-        }}
-      />
+      {recoverInput}
       {/* ⚠️ ซ่อนถาดทั้งที่ยังมีงานเดินอยู่ = ต้องเหลือทางกลับเสมอ ไม่งั้นผู้ใช้จะเชื่อว่า
           งานหายไปแล้วแล้วเริ่มอัปโหลดไฟล์เดิมซ้ำอีกรอบ */}
       {trayHidden && <UploadTrayLauncher t={t} queue={queue} onShow={revealTray} />}
@@ -426,8 +432,9 @@ export function UploadDrawer({
 
   return portal(
     <>
-      {status}
+      {recoverInput}
       <UploadEntryPanel t={t} onClose={onClose} onFiles={enqueue} destination={destination} titleId="upload-drawer-title">
+        <UploadQueueSection t={t} queue={queue} {...handlers} />
         <details className="border-t border-line pt-5">
           <summary className="cursor-pointer list-none flex items-center justify-between text-[11.5px] uppercase tracking-[0.12em] font-bold text-ink-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             {t('recentUploads')}<ChevronDown size={15} aria-hidden />

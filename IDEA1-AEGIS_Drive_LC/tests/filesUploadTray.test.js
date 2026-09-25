@@ -177,6 +177,41 @@ test('TEST 2 · the bottom-right upload status tray becomes visible after enqueu
   }
 })
 
+test('REGRESSION · drawer and floating tray are mutually exclusive without replacing or cancelling the queue', async () => {
+  const cancelled = []
+  const active = item({ id: 'existing-upload', name: 'existing.mp4', session: { uploadId: 'session-1' } })
+  const base = {
+    t,
+    onOpen() {},
+    onClose() {},
+    initialQueue: [active],
+    cancelSession: async (id) => { cancelled.push(id); return true },
+    loadLimits: async () => null,
+  }
+  const view = await mount({ ...base, open: false })
+  try {
+    assert.ok(view.document.querySelector('[data-upload-tray]'), 'drawer closed: floating tray monitors active queue')
+    assert.equal(view.document.querySelector('[data-upload-drawer-queue]'), null)
+
+    await view.render({ ...base, open: true })
+    assert.equal(view.document.querySelector('[data-upload-tray]'), null, 'drawer open: floating tray must not overlap')
+    const drawerQueue = view.document.querySelector('[data-upload-drawer-queue]')
+    assert.ok(drawerQueue, 'drawer open: the same queue is monitored inside the drawer')
+    assert.match(drawerQueue.textContent, /existing\.mp4/)
+    assert.equal(view.document.querySelectorAll('[data-upload-row="existing-upload"]').length, 1, 'exactly one monitoring row is visible')
+    assert.deepEqual(cancelled, [], 'opening the drawer must not cancel the upload')
+
+    await view.render({ ...base, open: false })
+    const returnedTray = view.document.querySelector('[data-upload-tray]')
+    assert.ok(returnedTray, 'drawer closed again: floating tray returns')
+    assert.match(returnedTray.textContent, /existing\.mp4/)
+    assert.equal(view.document.querySelector('[data-upload-drawer-queue]'), null)
+    assert.deepEqual(cancelled, [], 'closing the drawer must not cancel the upload')
+  } finally {
+    await view.cleanup()
+  }
+})
+
 /* ── 3 + 19 · ปิดถาด ≠ ยกเลิก ─────────────────────────────────────────────── */
 
 test('TEST 3 + 19 · hiding the tray is presentation-only and never aborts the transfer', async () => {
@@ -354,8 +389,9 @@ test('TEST 13 · the tray header summary is derived from the real queue', () => 
 
 test('TEST 14 · a configured-size rejection never reaches the transport, stays truthful, and is non-retryable', async () => {
   const upload = pendingUpload()
+  let closed = 0
   const base = {
-    t, open: true, onOpen() {}, onClose() {},
+    t, open: true, onOpen() {}, onClose() { closed += 1 },
     runUpload: upload.run, loadLimits: async () => ({ maxLogicalFileBytes: 1_000 }),
   }
   const view = await mount({ ...base, initialFiles: [], requestId: 0 })
@@ -364,6 +400,8 @@ test('TEST 14 · a configured-size rejection never reaches the transport, stays 
     await view.render({ ...base, initialFiles: [fileIn(view.dom, 'huge.mp4', 11_000_000_000)], requestId: 14 })
     // 2. Initial transport call count remains 0
     assert.equal(upload.calls.length, 0, 'ไฟล์ที่เกินเพดานต้องไม่ถูกส่งขึ้นไปเลย')
+    assert.equal(closed, 1, 'ลิ้นชักต้องขอให้ parent ปิดหลังรับไฟล์เข้าคิว')
+    await view.render({ ...base, open: false, initialFiles: [fileIn(view.dom, 'huge.mp4', 11_000_000_000)], requestId: 14 })
     // 3. Tray displays truthful tooLarge rejection
     const tray = view.document.querySelector('[data-upload-tray]')
     assert.ok(tray, 'การปฏิเสธต้องปรากฏบนถาด ไม่ใช่ติดอยู่ในลิ้นชักที่ปิดไปแล้ว')
