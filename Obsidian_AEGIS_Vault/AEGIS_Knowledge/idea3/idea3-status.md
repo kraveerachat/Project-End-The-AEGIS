@@ -18,6 +18,18 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L4 live acceptance — 2026-09-25
+
+> [!important] L4 was executed live (owner-run Retry #4, Production mutated by the owner run) and passed. This closeout is documentation-only. L4 is left APPLIED; L5 is NOT started.
+> `L4_LIVE_EXECUTED = YES`, `L4_APPLY = PASS`, `L4_VERIFY = PASS`, `L4_POST_CAPTURE = COMPLETE`, `L4_PRE_POST_COMPARE = PASS`, `L4_S10_PRESERVATION = PASS`, `L4_LIVE_ACCEPTANCE = PROVEN`
+> `L4_STATE = APPLIED`, `L5_STARTED = NO`, `NEXT_LIVE_STAGE = L5_AFTER_L4_ACCEPTANCE_MERGE`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+> `ESP32_DHCP_DNS_CLIENT_BEHAVIOUR = NOT_PROVEN`, `REGULATORY_POST = phy0=TH global=00`, `GLOBAL_00_EQUALS_TH = NOT_CLAIMED`
+
+- Retry #4 ran on main `47dfe0c4ed299c4453f8aaf63113b3ce03d9ce6a` (PR #210 `except-interface=lo`); runner sha256 `030edce09d9485874ec661bd2bce9590fa55c4e36a14ac5b7a8a0998e657504d`; evidence `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-25-l4-20260925-114312`.
+- AP `wlp0s20f3` at `10.77.30.1/28`; only approved new listeners (`10.77.30.1:53` tcp/udp, `0.0.0.0%wlp0s20f3:67` udp); no loopback DNS; forwarding disabled; 0 new/worsened drift, 16 approved changes, S10 PASS.
+- Retries #1–#3 failed for witness/repository reasons (rolled back PASS); their receipts are unchanged.
+- Receipt: `90-Status/logs/2026-09-25_115131_music_idea3-pr11-l4-live-acceptance.md`.
+
 ## IDEA3 PR11 Phase 4 L4 dnsmasq loopback exclusion — 2026-09-25
 
 > [!important] Repository-only fix. No live stage ran; L4 live is NOT re-run and nothing was mutated.
