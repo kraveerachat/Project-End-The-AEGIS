@@ -21,6 +21,7 @@ edit_policy: owner-writable
 |---|---|
 | Task | LFT-PERF-1 / TRANSFER_AND_MEDIA_PREVIEW_PERFORMANCE_STUDY |
 | Branch | docs/idea1-transfer-media-performance-study |
+| PR | #216 (Draft) |
 | Owner | kla |
 | State | **PLANNED / DRAFT** |
 | Scope | Historical evidence reconciliation, reproducible measurement design, Human-run Production packet; no benchmark execution or tuning |
