@@ -228,7 +228,10 @@ export async function uploadVaultFileChunked({ file, resume, onStage, onProgress
   return { ok: true, stage: 'complete', blob: res?.data?.blob, resume: null }
 }
 
-export async function cancelVaultUploadSession() { return true }
+export async function cancelVaultUploadSession(uploadId, { routeBase = '/api/vault/uploads' } = {}) {
+  backend()?.requests.push({ path: `${routeBase}/${uploadId}`, method: 'DELETE' })
+  return true
+}
 export async function fetchVaultTransferLimits() {
   return { formatVersion: 2, plaintextChunkBytes: 16 * 1024 * 1024, maxLogicalFileBytes: 5 * 1024 ** 3 }
 }

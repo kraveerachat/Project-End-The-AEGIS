@@ -9,7 +9,7 @@ import {
   receivedPlainBytes, sealVaultRecovery, verifyVaultRecoveryFile,
 } from '../lib/vaultUploadRecovery.js'
 import { UploadEntryPanel } from './UploadEntryPanel.jsx'
-import { UploadStatusTray, UploadTrayLauncher } from './UploadStatusTray.jsx'
+import { UploadQueueSection, UploadStatusTray, UploadTrayLauncher } from './UploadStatusTray.jsx'
 
 /** จังหวะเดินนาฬิกาให้ตัวประมาณ — ค่าเดียวกับ UploadDrawer ของ Files (จับ "หยุดนิ่ง" ได้ตอนไม่มี progress) */
 const STALL_TICK_MS = 1_000
@@ -290,6 +290,24 @@ export const VaultUploadDrawer = forwardRef(function VaultUploadDrawer({
   }
 
   const portal = (content) => typeof document === 'undefined' ? content : createPortal(content, document.body)
+  const handlers = { onCancel: cancel, onRetry: retry, onDismiss: dismiss, onRecover: requestRecover, onDiscard: discard }
+  // ⚠️ คิวเดียว สองพื้นผิวที่ไม่ซ้อนกัน: ลิ้นชักเปิด = ส่วนคิวในลิ้นชัก, ลิ้นชักปิด = ถาดลอย/ปุ่มเรียกกลับ
+  //    ช่องเลือกไฟล์สำหรับกู้คืนอยู่นอกทั้งสองเสมอ เพื่อให้ Resume ทำงานได้จากทั้งสองที่
+  const recoverInput = (
+    <input
+      ref={recoverInputRef}
+      data-upload-recover-input=""
+      type="file"
+      className="sr-only"
+      aria-label={t('uploadRecoverSelect')}
+      onChange={(event) => {
+        const file = event.target.files?.[0]
+        const id = recoverTargetRef.current
+        event.target.value = ''
+        if (file && id) void acceptRecoverFile(id, file)
+      }}
+    />
+  )
   const status = (
     <>
       {!trayHidden && (
@@ -299,26 +317,10 @@ export const VaultUploadDrawer = forwardRef(function VaultUploadDrawer({
           collapsed={trayCollapsed}
           onToggleCollapse={() => setTrayCollapsed((value) => !value)}
           onHide={() => setTrayHidden(true)}
-          onCancel={cancel}
-          onRetry={retry}
-          onDismiss={dismiss}
-          onRecover={requestRecover}
-          onDiscard={discard}
+          {...handlers}
         />
       )}
-      <input
-        ref={recoverInputRef}
-        data-upload-recover-input=""
-        type="file"
-        className="sr-only"
-        aria-label={t('uploadRecoverSelect')}
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          const id = recoverTargetRef.current
-          event.target.value = ''
-          if (file && id) void acceptRecoverFile(id, file)
-        }}
-      />
+      {recoverInput}
       {trayHidden && <UploadTrayLauncher t={t} queue={queue} onShow={revealTray} />}
     </>
   )
@@ -326,7 +328,7 @@ export const VaultUploadDrawer = forwardRef(function VaultUploadDrawer({
   if (!open) return portal(status)
   return portal(
     <>
-      {status}
+      {recoverInput}
       <UploadEntryPanel
         t={t}
         onClose={onClose}
@@ -335,7 +337,9 @@ export const VaultUploadDrawer = forwardRef(function VaultUploadDrawer({
         titleId="vault-upload-title"
         testId="vault-upload-drawer"
         inputTestId="vault-upload-input"
-      />
+      >
+        <UploadQueueSection t={t} queue={queue} {...handlers} />
+      </UploadEntryPanel>
     </>,
   )
 })
