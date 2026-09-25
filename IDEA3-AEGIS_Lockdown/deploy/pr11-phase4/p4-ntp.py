@@ -16,6 +16,25 @@ CONFIG_NAME = "aegis-idea3-chrony.conf"
 CONTRACT_NAME = "aegis-idea3-t6-contract.txt"
 
 
+def _active_directives(config: str) -> list[str]:
+    return [
+        line.strip()
+        for line in config.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def chrony_kernel_sync_possible(config: str) -> bool:
+    """Model of chrony 4.8 sys_timex.c set_sync_status() on Linux.
+
+    "On Linux clear the UNSYNC flag only if rtcsync is enabled": without an active `rtcsync` the daemon never clears
+    STA_UNSYNC, so the kernel-based TrustedClock predicate can never pass. rtcsync cannot be combined with rtcfile.
+    """
+    active = _active_directives(config)
+    words = [line.split(None, 1)[0].lower() for line in active]
+    return "rtcsync" in words and "rtcfile" not in words
+
+
 def _validated_ap(
     parser: argparse.ArgumentParser,
     ap_address: str,
@@ -153,6 +172,7 @@ def _render(
         "TRUSTEDCLOCK_MAX_ERROR_US=1000000\n"
         "TRUSTEDCLOCK_HOLDOVER_SEC=300\n"
         "TRUSTEDCLOCK_FINAL_HOLDOVER_PASS=NO\n"
+        "CHRONY_RTCSYNC=REQUIRED\n"
         "ROLLBACK_TIME_OWNER=systemd-timesyncd\n"
         f"AP_ADDRESS={address}\n"
         f"AP_SUBNET={network}\n"
@@ -226,6 +246,7 @@ def _validate(
         "TRUSTEDCLOCK_MAX_ERROR_US": "1000000",
         "TRUSTEDCLOCK_HOLDOVER_SEC": "300",
         "TRUSTEDCLOCK_FINAL_HOLDOVER_PASS": "NO",
+        "CHRONY_RTCSYNC": "REQUIRED",
         "ROLLBACK_TIME_OWNER": "systemd-timesyncd",
     }
 
@@ -258,16 +279,22 @@ def _validate(
         values["TRUSTED_UPSTREAM"],
     )
 
-    active_lines = [
-        line.strip()
-        for line in config.splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
+    active_lines = _active_directives(config)
+
+    if any(line.split(None, 1)[0].lower() == "rtcfile" for line in active_lines):
+        parser.error("chrony configuration must not set rtcfile (incompatible with the required rtcsync)")
+
+    if not chrony_kernel_sync_possible(config):
+        parser.error(
+            "chrony configuration must enable rtcsync: on Linux the daemon clears STA_UNSYNC only with rtcsync, "
+            "so the kernel-based TrustedClock could never be SYNCED"
+        )
 
     expected_lines = [
         f"server {upstream} iburst",
         f"bindaddress {address}",
         f"allow {network}",
+        "rtcsync",
     ]
 
     if active_lines != expected_lines:

@@ -18,6 +18,17 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L5 attempt #2 remediation (rtcsync) — 2026-09-25
+
+> [!important] Repository-only (Draft/Review PR). Attempt #2 (`2026-09-25-l5-20260925-191827`) FAILED and stays FAILED; its authorization is CONSUMED. No Production mutation by this task, no retry authorized.
+> `L5_ATTEMPT2_RESULT = FAIL`, `L5_LIVE_ACCEPTANCE = NOT_PROVEN`, `LIVE_RETRY_AUTHORIZED = NO`, `L5_STATE = ROLLED_BACK`, `ROOT_CAUSE_STATUS = PROVEN`
+
+- Root cause (proven, chrony 4.8 `sys_timex.c` `set_sync_status()` + readiness.log + diagnostics): on Linux chronyd clears `STA_UNSYNC` only when `rtcsync` is configured. The rendered L5 config had no `rtcsync`, so the kernel-based TrustedClock predicate could never pass under chronyd (Leap Normal and maxerror ≈ 17–45 ms for most of the 60 s window, yet `KERNEL_UNSYNCED` every poll). The earlier poll-interval hypothesis is withdrawn. The current contract was unsatisfiable without `rtcsync`.
+- Owner decisions: `RTC_SIDE_EFFECT_ACCEPTED = YES` (kernel may copy system time to the hardware RTC about every 11 minutes while synchronised; not rollback-reversible; `rtcfile` forbidden); `rtcsync` is the fourth ACTIVE chrony directive (NOT a comparator allowance); TrustedClock predicate and the 60 s readiness bound unchanged; the three rollback-only allowance keys unchanged.
+- Repository fixes: canonical render/validation/T6 contract require exactly `server … iburst`, `bindaddress`, `allow`, `rtcsync` (contract `CHRONY_RTCSYNC=REQUIRED`, `rtcfile` rejected); `p4-l5-clock.py` and `readiness.log` preserve raw adjtimex return/status(hex)/`STA_UNSYNC`/`TIME_ERROR`; `apply.sh` records `PRODUCTION_MUTATION_PERFORMED` at the first actual `/etc` write (durable `$WORK` marker) and the owner runner reports a whole-run marker while relabelling the comparison-local `NO`; `p4-l5-run-lib.sh` copies root-owned `l5-work` evidence to an owner-readable copy without touching originals.
+- Any retry needs merge, a re-rendered/re-frozen render, runner and probe hashes, fresh authorization, fresh K3 and a fresh one-attempt approval.
+- Receipt: `90-Status/logs/2026-09-25_200600_music_idea3-pr11-l5-rtcsync-remediation.md`.
+
 ## IDEA3 PR11 Phase 4 L5 live-failure remediation — 2026-09-25
 
 > [!important] Repository-only (Draft/Review PR). The single live L5 attempt FAILED and stays FAILED; nothing was mutated by this task and no retry is authorized.

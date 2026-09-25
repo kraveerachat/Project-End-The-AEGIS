@@ -48,7 +48,8 @@ expected_allow="allow $AP_SUBNET"
 printf '%s\n' "$active_lines" | grep -Fqx "$expected_server" || fail CHRONY_CONF_UPSTREAM_MISMATCH
 printf '%s\n' "$active_lines" | grep -Fqx "$expected_bind" || fail CHRONY_CONF_BIND_MISMATCH
 printf '%s\n' "$active_lines" | grep -Fqx "$expected_allow" || fail CHRONY_CONF_ALLOW_MISMATCH
-[ "$(printf '%s\n' "$active_lines" | wc -l)" -eq 3 ] || fail CHRONY_CONF_UNAPPROVED_DIRECTIVES
+printf '%s\n' "$active_lines" | grep -Fqx "rtcsync" || fail CHRONY_CONF_RTCSYNC_MISSING
+[ "$(printf '%s\n' "$active_lines" | wc -l)" -eq 4 ] || fail CHRONY_CONF_UNAPPROVED_DIRECTIVES
 
 # 2. Verify Services State
 if [ -z "$ROOT" ]; then
