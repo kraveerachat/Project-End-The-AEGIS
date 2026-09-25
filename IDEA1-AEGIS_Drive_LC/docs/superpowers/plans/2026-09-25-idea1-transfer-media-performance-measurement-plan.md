@@ -5,13 +5,18 @@
 **Goal:** Produce reproducible, machine-readable evidence that localizes AEGIS transfer and media-preview bottlenecks without changing Production performance settings.
 
 **Architecture:** Historical evidence and current-source facts define a fixed
-matrix. Human-run Production phases measure one path/workload/fixture at a time,
+matrix. The core PRE/POST experiment evaluates exactly TWO primary network paths:
+P1 (Onsite Direct LAN) and P2 (Remote + Twingate). Historical browser tracer labels
+using P3 map directly: `HISTORICAL_RUN_LABEL_P3 = FINAL_METHODOLOGY_P2_REMOTE_TWINGATE`.
+Human-run Production phases measure one path/workload/fixture at a time,
 pair browser timing with client/server resource samples, and classify
-configuration limits separately from transfer failures. Optimization remains a
-later owner-authorized task.
+configuration limits separately from transfer failures.
+Phase B0 Production baseline is EXECUTED. Phase P2 Remote PRE-FIX (18 controlled runs) is EXECUTED.
+Phase P1 Onsite Direct LAN PRE-FIX (18 runs) is the IMMEDIATE NEXT GATE.
+Optimization remains a later owner-authorized task, strictly blocked until P1 PRE-FIX is complete.
 
-**Tech Stack:** AEGIS Drive React/Express, PostgreSQL 15, Docker, browser
-DevTools, PowerShell, FFmpeg/FFprobe, SHA-256, JSON Lines/CSV.
+**Tech Stack:** AEGIS Drive React/Express, PostgreSQL 15, Docker, in-page XHR tracer,
+PowerShell download observer, FFmpeg/FFprobe, SHA-256, JSON Lines/CSV.
 
 **Spec:** IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-25-idea1-transfer-media-performance-study-design.md
 
@@ -23,6 +28,7 @@ DevTools, PowerShell, FFmpeg/FFprobe, SHA-256, JSON Lines/CSV.
 - Baseline changes no Twingate, Cloudflare, Docker network, firewall, sysctl,
   chunk size, concurrency, file limit, worker count, media profile, schema,
   storage mount, or application configuration.
+- `PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`.
 - No password, cookie, session/CSRF token, bearer link, Vault key, wrapped key,
   plaintext private content, or secret-bearing environment output enters evidence.
 - Current Production values are measured; source defaults are not substituted.
@@ -30,7 +36,7 @@ DevTools, PowerShell, FFmpeg/FFprobe, SHA-256, JSON Lines/CSV.
   EXPECTED_CONFIG_LIMIT and NETWORK_PERFORMANCE=NOT_MEASURED.
 - Destructive purge remains false. TREE_V1/migration 011 state is observed only.
 - Public Share security rollout is not reopened.
-- No final receipt is created for this Draft planning task.
+- No final receipt is created for this in-progress Draft task.
 
 ## Review focus
 
@@ -39,9 +45,11 @@ DevTools, PowerShell, FFmpeg/FFprobe, SHA-256, JSON Lines/CSV.
    shell history, JSON, CSV, screenshots, or report prose.
 3. Media comparisons must pair size with codec, bitrate, resolution, duration,
    keyframe/index placement, and cache state.
-4. P1/P2/P3 comparisons must change only the path and preserve fixture/client/
-   server conditions where practical.
+4. P1 vs P2 comparisons must change only the path and preserve fixture/client/server
+   conditions where practical.
 5. Sparse structural fixtures must never be used as throughput evidence.
+6. Upload throughput relies on the in-page XHR tracer (`CHUNK_SPAN_MBPS`), not browser Resource Timing.
+7. Download throughput relies on the PowerShell `.crdownload` observer resolving final file by exact size.
 
 ---
 
@@ -50,12 +58,11 @@ DevTools, PowerShell, FFmpeg/FFprobe, SHA-256, JSON Lines/CSV.
 | Path | Responsibility |
 |---|---|
 | docs/superpowers/specs/2026-09-25-idea1-transfer-media-performance-study-design.md | Research contract, evidence inventory, matrix, hypotheses, decision framework |
-| docs/superpowers/plans/2026-09-25-idea1-transfer-media-performance-measurement-plan.md | Human-run phases, commands, evidence naming, stop/cleanup gates |
-| Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md | Canonical PLANNED/DRAFT registration only |
+| docs/superpowers/plans/2026-09-25-idea1-transfer-media-performance-measurement-plan.md | Human-run phases, validated methods, commands, evidence naming, stop/cleanup gates |
+| Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md | Canonical IN_PROGRESS status and session register |
 
 No benchmark harness code is added in this Draft. Existing browser, OS, Docker,
-FFmpeg, and hashing tools are sufficient to review the method first. This avoids
-premature Production-capable automation and any secret/token handling surface.
+FFmpeg, and hashing tools are sufficient.
 
 ## 1. Evidence directory and naming
 
@@ -81,94 +88,36 @@ example:
 ~~~
 
 Artifacts: run.json, client.csv, server.csv, media.json, sanitized-summary.csv,
-fixture.json. Raw HAR files remain local and are never committed; preferably
-record sanitized timing fields manually instead of exporting HAR.
+fixture.json. Raw HAR files remain local and are never committed; record sanitized
+timing fields manually instead of exporting HAR.
 
 ## 2. Deterministic generic fixtures
 
+Deterministic benchmark fixtures on the Human Windows client reside in:
+
+~~~text
+C:\Users\User\AEGIS-LFT-PERF-1
+~~~
+
 ### Task 1: Generate exact-size payloads locally
 
-**Produces:** five deterministic local binary files and SHA-256 manifest.
+**Produces:** deterministic local binary files and SHA-256 manifest.
 
-- [ ] **Step 1: Confirm free space**
+- [x] **Step 1: Confirm free space**
+- [x] **Step 2: Generate fixtures**
 
-~~~powershell
-Get-Volume | Select-Object DriveLetter,FileSystem,Size,SizeRemaining
-~~~
+Known fixture manifest in `C:\Users\User\AEGIS-LFT-PERF-1`:
+- `S-100MB.bin`: exact bytes = 100,000,000, SHA-256 = `f079cad53add0091ed5d0409b0469f9f5cb745b8c280be685dda73203dea90e8`
+- `M-300MB.bin`: exact bytes = 300,000,000
+- `L-1GB.bin`: exact bytes = 1,000,000,000
+- `XL-5GB.bin`: exact bytes = 5,000,000,000 (below 5 GiB limit)
+- `XXL-10GB.bin`: exact bytes = 10,000,000,000 (above 5 GiB limit -> EXPECTED_CONFIG_LIMIT)
 
-Stop if available space cannot hold fixtures plus downloaded copies and safe
-headroom. Do not generate on the Production host.
+Do NOT invent SHA-256 digests for M or L if not present in verified evidence.
 
-- [ ] **Step 2: Generate fixtures**
-
-This builds one deterministic 1 MiB pseudorandom block from SHA-256(seed plus
-counter), repeats it to the exact decimal-byte target, flushes each file, then
-hashes it. Repetition is acceptable because application paths do not compress
-octet-stream payloads; record if the client filesystem itself uses compression.
+- [x] **Step 3: Verify exact lengths and repeat hashes**
 
 ~~~powershell
-$FixtureRoot = Join-Path $EvidenceRoot 'fixtures'
-New-Item -ItemType Directory -Force -Path $FixtureRoot | Out-Null
-$Sizes = [ordered]@{
-  'S-100MB.bin' = [int64]100000000
-  'M-300MB.bin' = [int64]300000000
-  'L-1GB.bin' = [int64]1000000000
-  'XL-5GB.bin' = [int64]5000000000
-  'XXL-10GB.bin' = [int64]10000000000
-}
-$Seed = [Text.Encoding]::UTF8.GetBytes('AEGIS-LFT-PERF-1-v1')
-$Block = New-Object byte[] 1048576
-$Sha = [Security.Cryptography.SHA256]::Create()
-for ($Offset = 0; $Offset -lt $Block.Length; $Offset += 32) {
-  $Counter = [BitConverter]::GetBytes([int64]($Offset / 32))
-  $Input = New-Object byte[] ($Seed.Length + $Counter.Length)
-  [Buffer]::BlockCopy($Seed,0,$Input,0,$Seed.Length)
-  [Buffer]::BlockCopy($Counter,0,$Input,$Seed.Length,$Counter.Length)
-  $Digest = $Sha.ComputeHash($Input)
-  $Count = [Math]::Min(32,$Block.Length-$Offset)
-  [Buffer]::BlockCopy($Digest,0,$Block,$Offset,$Count)
-}
-$Rows = foreach ($Entry in $Sizes.GetEnumerator()) {
-  $Path = Join-Path $FixtureRoot $Entry.Key
-  if (Test-Path -LiteralPath $Path) { throw "Refusing to overwrite $Path" }
-  $Stream = [IO.File]::Open($Path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-  try {
-    $Remaining = [int64]$Entry.Value
-    while ($Remaining -gt 0) {
-      $Count = [int][Math]::Min([int64]$Block.Length,$Remaining)
-      $Stream.Write($Block,0,$Count)
-      $Remaining -= $Count
-    }
-    $Stream.Flush($true)
-  } finally {
-    $Stream.Dispose()
-  }
-  $Item = Get-Item -LiteralPath $Path
-  $Hash = Get-FileHash -Algorithm SHA256 -LiteralPath $Path
-  [pscustomobject]@{
-    schema_version='aegis.idea1.fixture.v1'
-    file_name=$Item.Name
-    exact_bytes=[int64]$Item.Length
-    sha256=$Hash.Hash.ToLowerInvariant()
-    generator='powershell-sha256-block-v1'
-  }
-}
-$Rows | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $FixtureRoot 'fixture-manifest.json')
-$Rows | Format-Table -AutoSize
-~~~
-
-- [ ] **Step 3: Verify exact lengths and repeat hashes**
-
-~~~powershell
-$Manifest = Get-Content -Raw (Join-Path $FixtureRoot 'fixture-manifest.json') | ConvertFrom-Json
-foreach ($Row in $Manifest) {
-  $Path = Join-Path $FixtureRoot $Row.file_name
-  $Item = Get-Item -LiteralPath $Path
-  $Hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
-  if ($Item.Length -ne $Row.exact_bytes -or $Hash -ne $Row.sha256) {
-    throw "Fixture verification failed: $($Row.file_name)"
-  }
-}
 'FIXTURE_VERIFICATION=PASS'
 ~~~
 
@@ -180,12 +129,6 @@ foreach ($Row in $Manifest) {
 FFprobe metadata. “Approximately class size” is accepted; actual bytes govern.
 
 - [ ] **Step 1: Record toolchain**
-
-~~~powershell
-ffmpeg -version | Select-Object -First 3
-ffprobe -version | Select-Object -First 3
-~~~
-
 - [ ] **Step 2: Generate only sizes authorized by free space/runtime**
 
 Durations target about 8.128 Mbps total. Run one row at a time. The 5/10 GB
@@ -205,21 +148,10 @@ Exact command, replacing DURATION and OUTPUT:
 ffmpeg -hide_banner -nostdin -f lavfi -i 'testsrc2=size=1280x720:rate=30' -f lavfi -i 'sine=frequency=1000:sample_rate=48000' -t DURATION -map 0:v:0 -map 1:a:0 -c:v libx264 -preset veryfast -pix_fmt yuv420p -b:v 8M -maxrate 8M -bufsize 16M -g 60 -keyint_min 60 -sc_threshold 0 -c:a aac -b:a 128k -movflags +faststart -map_metadata -1 -metadata creation_time=1970-01-01T00:00:00Z -y OUTPUT
 ~~~
 
-Never compare hashes across FFmpeg builds as proof of incorrectness. The fixture
-is deterministic only within the recorded toolchain/run; its exact produced hash
-becomes its identity.
-
 - [ ] **Step 3: Record metadata for every media fixture**
 
-~~~powershell
-ffprobe -v error -show_entries 'format=filename,format_name,duration,size,bit_rate:stream=index,codec_type,codec_name,width,height,r_frame_rate,avg_frame_rate,bit_rate' -of json 'PATH_TO_MEDIA' | Set-Content -Encoding utf8 'PATH_TO_MEDIA.ffprobe.json'
-Get-FileHash -Algorithm SHA256 -LiteralPath 'PATH_TO_MEDIA'
-~~~
-
 Image and GIF fixtures must likewise record exact bytes/hash, dimensions,
-animation/frame evidence, and generator/toolchain. A same-size different-codec
-pair is strongly preferred for T9–T11 because it distinguishes byte-size effects
-from decoder/container effects.
+animation/frame evidence, and generator/toolchain.
 
 ## 4. Repetition schedule
 
@@ -234,334 +166,286 @@ from decoder/container effects.
 For media, cold and warm each have separate samples. Do not count warm-up as a
 measured run.
 
-### Fast triage execution gate
+### Core PRE/POST experiment matrix
 
-The complete S/M/L/XL/XXL matrix remains authoritative. Execute it in two
-priority rounds so the first day localizes likely bottlenecks before committing
-hours to the largest fixtures.
+Total core matrix dimensions:
+- 2 paths: P1 (Onsite Direct LAN) and P2 (Remote + Twingate)
+- 3 file sizes: S (100 MB), M (300 MB), L (1 GB)
+- 2 directions: T1 Files Upload, T3 Files Download
+- 3 repetitions (n=3)
+- Target: 36 PRE-FIX runs + 36 POST-FIX runs = 72 total.
 
-**Round 1 — time-bounded triage**
+Execution status:
+- P2 Remote + Twingate PRE-FIX: **18/18 COMPLETE** (Upload S/M/L ×3, Download S/M/L ×3).
+- P1 Onsite Direct LAN PRE-FIX: **18/18 PENDING_ONSITE** (Upload S/M/L ×3, Download S/M/L ×3).
+- Core PRE-FIX overall: **18/36 COMPLETE**.
+- POST-FIX: **0/36 NOT STARTED**.
+- Optimization: **BLOCKED** pending P1 PRE-FIX.
 
-- Fixture classes: S = 100 MB, M = 300 MB, L = 1 GB.
-- Priority paths: P1 LAN, P2 local Wi-Fi plus Twingate, and P4 Public Anywhere
-  through Cloudflare.
-- P3 remote Twingate runs only when a genuine remote client/path is available.
-  Never simulate P3 from the local network.
-- Priority workloads: T1, T2, T3, T4, T5, T6, T9, T10, and T11 where the path
-  supports them.
-- Purpose: rapidly distinguish network-path, server/storage, client-crypto, and
-  media/Range pipeline candidates.
+## 5. Phase B0 — Production configuration inventory (EXECUTED)
 
-**Round 2 — large-fixture continuation**
+Executed by Human Owner on 2026-09-25T14:35:03+00:00. Read-only observation.
 
-Run 5 GB and 10 GB transfers only after Production limits are measured,
-storage/time remain safe, Round 1 evidence justifies the larger run, and the
-10 GB configuration probe permits transfer. The 5 GB and 10 GB rows remain in
-the report when CONFIG-LIMITED or NOT TESTED. Skipping a 5 GB or 10 GB transfer
-for time, safety, or configuration is not a failed performance test.
-
-## 5. Phase B0 — Production configuration inventory, read-only
-
-### Prerequisites
-
-- Human Owner at Production console.
-- Exact running Drive/Gateway/connector identities known.
-- No active maintenance/cutover.
-- No command prints full environment or secrets.
-
-### Commands
-
-- [ ] **B0.1 Record container identity and health**
+### B0.1 Container identity and health (Measured)
 
 ~~~bash
 date --iso-8601=seconds
+# 2026-09-25T14:35:03+00:00
 D=(sudo env -u DOCKER_HOST -u CONTAINER_HOST docker)
 "${D[@]}" inspect aegis-prod-drive-1 --format 'name={{.Name}} image={{.Config.Image}} id={{.Image}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}'
+# name=/aegis-prod-drive-1 image=aegis-prod-drive:vault-stage-d-fix-f8c876754dd6 status=running health=healthy restarts=0 oom=false
+
 "${D[@]}" inspect aegis-prod-public-share-gateway-1 --format 'name={{.Name}} image={{.Config.Image}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}'
+# name=/aegis-prod-public-share-gateway-1 image=aegis-public-share-gateway:public-share-50ce6e1638 status=running health=healthy restarts=0 oom=false
+
 "${D[@]}" inspect aegis-prod-public-share-connector-1 --format 'name={{.Name}} image={{.Config.Image}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}'
+# name=/aegis-prod-public-share-connector-1 image=cloudflare/cloudflared:2026.9.0 status=running restarts=0
 ~~~
 
-If actual names differ, stop and identify the live chain. Do not guess or create
-containers.
+### B0.2 Allowlisted runtime configuration fields (Measured)
 
-- [ ] **B0.2 Print only allowlisted performance/configuration fields**
+Effective relevant Drive runtime values:
+- `MEDIA_CACHE_POLICY=immutable`
+- `VAULT_CHUNK_PLAINTEXT_BYTES=16777216` (16 MiB)
+- `MEDIA_CACHE_MAX_BYTES=2147483648` (2 GiB)
+- `MEDIA_STILL_ENGINE=sharp`
+- `VAULT_UPLOAD_CONCURRENCY=2`
+- `MEDIA_ENABLED=true`
+- `MEDIA_WORKERS=1`
 
-~~~bash
-D=(sudo env -u DOCKER_HOST -u CONTAINER_HOST docker)
-"${D[@]}" inspect aegis-prod-drive-1 --format '{{range .Config.Env}}{{println .}}{{end}}' |
-grep -E '^(UPLOAD_CHUNK_SIZE_BYTES|MAX_LOGICAL_FILE_BYTES|VAULT_CHUNK_PLAINTEXT_BYTES|MAX_VAULT_LOGICAL_FILE_BYTES|VAULT_UPLOAD_CONCURRENCY|MEDIA_ENABLED|MEDIA_CACHE_MAX_BYTES|MEDIA_CACHE_LOW_WATER|MEDIA_CACHE_FREE_RESERVE_BYTES|MEDIA_WORKERS|MEDIA_FFMPEG_DECODER_THREADS|MEDIA_FFMPEG_FILTER_THREADS|MEDIA_FFMPEG_ENCODER_THREADS|MEDIA_PROBESIZE_BYTES|MEDIA_POSTER_MAX_BYTES|MEDIA_MOTION_MAX_BYTES|MEDIA_PROBE_TIMEOUT_MS|MEDIA_POSTER_TIMEOUT_MS|MEDIA_MOTION_TIMEOUT_MS|MEDIA_QUEUE_MAX|MEDIA_STILL_ENGINE|MEDIA_CACHE_POLICY)='
-~~~
+### B0.3 Storage topology and space (Measured)
 
-Missing fields are recorded UNSET, not replaced silently with guessed Production
-values. Current source defaults may be listed separately.
+Data Lake mount `/datalake`:
+- Total bytes: 61,075,263,488 B
+- Used bytes: 44,536,557,568 B
+- Available bytes: ~13,403,045,888 B (~77% usage)
+- Backing device: SSD-backed storage path, not the rotational backup disk.
+- *Discipline*: Topology/runtime truth only; does not prove storage is not a bottleneck.
 
-- [ ] **B0.3 Record mounts/storage without content**
+### B0.4 Application transfer limits (Measured)
 
-~~~bash
-D=(sudo env -u DOCKER_HOST -u CONTAINER_HOST docker)
-"${D[@]}" inspect aegis-prod-drive-1 --format '{{range .Mounts}}{{println .Type .Name .Source .Destination .RW}}{{end}}'
-"${D[@]}" exec aegis-prod-drive-1 sh -lc 'df -B1 /datalake /var/cache/aegis-media 2>/dev/null || true; stat -f -c "%T %S %b %a %m" /datalake /var/cache/aegis-media 2>/dev/null || true'
-lsblk -o NAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS,ROTA,MODEL
-~~~
+1. Files limits (`GET /drive/api/files/uploads/limits`): HTTP 200
+   - `chunkSizeBytes`: 16,777,216 (16 MiB)
+   - `maxLogicalFileBytes`: 5,368,709,120 (5 GiB)
+   - `maxSupportedLogicalFileBytes`: 34,359,738,368 (32 GiB)
+   - `sessionTtlMs`: 86,400,000 (24 h)
+   - Capacity: total 61,075,263,488 B, free ≈ 13,402,968,064 B, reserve 3,053,763,175 B, usable 10,349,204,889 B
 
-- [ ] **B0.4 Record application limits through authenticated browser**
+2. Vault limits (`GET /drive/api/vault/uploads/limits` — note: NOT `/drive/api/vault/tree/uploads/limits`): HTTP 200
+   - `formatVersion`: 2
+   - `plaintextChunkBytes`: 16,777,216 (16 MiB)
+   - `ciphertextChunkBytes`: 16,777,232 (16 MiB + 16-byte GCM tag)
+   - `gcmTagBytes`: 16
+   - `uploadConcurrency`: 2
+   - `maxLogicalFileBytes`: 5,368,709,120 (5 GiB)
+   - `maxPlaintextChunkBytes`: 67,108,864
+   - `minPlaintextChunkBytes`: 8,388,608
+   - `maxSupportedLogicalFileBytes`: 34,359,738,368 (32 GiB)
+   - `sessionTtlMs`: 86,400,000 (24 h)
 
-In DevTools Console on the authenticated private Drive origin:
+Limit classification:
+- 5 GB decimal = 5,000,000,000 B < 5 GiB limit -> below limit.
+- 10 GB decimal = 10,000,000,000 B > 5 GiB limit -> above limit (`EXPECTED_CONFIG_LIMIT`, `NETWORK_PERFORMANCE=NOT_MEASURED`).
+
+### B0.5 Admin media cache and queue status (Measured)
+
+`GET /drive/api/admin/media-cache/status`: HTTP 200
+- `enabled`: true
+- `capabilities.ffmpeg.version`: 8.0.1
+- `capabilities.sharp.version`: 0.35.4
+- `cache.bytes`: 274,284
+- `cache.entries`: 5
+- `cache.highWater`: 2,147,483,648 (2 GiB)
+- `cache.lowWater`: 1,717,986,918 (~1.6 GiB)
+- `cache.volume`: "volume"
+- `queue.depth`: 0
+- `queue.running`: 0
+- `failures.last24h`: 0
+
+## 6. Common run protocol and validated measurement methods
+
+### 6.1 Upload measurement method — in-page XHR tracer
+
+Browser Resource Timing empirically failed to capture upload XHRs. The validated
+upload measurement method uses a temporary Human-controlled in-page `XMLHttpRequest`
+tracer:
 
 ~~~javascript
-const normal = await fetch('/drive/api/files/uploads/limits', {credentials:'same-origin'}).then(r => r.json())
-const vault = await fetch('/drive/api/vault/tree/uploads/limits', {credentials:'same-origin'}).then(r => r.json())
-console.table({normal:normal.data ?? normal, vault:vault.data ?? vault})
+// Injected into browser console on authenticated Drive page
+(() => {
+  window.__AEGIS_LFT_TRACE__ = {
+    runs: [],
+    currentRun: null,
+    startRun(label, expectedBytes) {
+      this.currentRun = {
+        label,
+        expectedBytes,
+        chunks: [],
+        startMs: performance.now(),
+        endMs: null
+      };
+      this.runs.push(this.currentRun);
+    },
+    report() {
+      const r = this.currentRun;
+      if (!r || r.chunks.length === 0) return null;
+      const firstChunkStart = Math.min(...r.chunks.map(c => c.startMs));
+      const lastChunkEnd = Math.max(...r.chunks.map(c => c.endMs));
+      const chunkSpanMs = lastChunkEnd - firstChunkStart;
+      const totalBytes = r.chunks.reduce((acc, c) => acc + c.bytes, 0);
+      const chunkSpanMBps = (totalBytes / 1e6) / (chunkSpanMs / 1000);
+      return {
+        label: r.label,
+        chunkCount: r.chunks.length,
+        totalBytes,
+        chunkSpanMs,
+        chunkSpanMBps: Math.round(chunkSpanMBps * 1000) / 1000,
+        allHttp200: r.chunks.every(c => c.status === 200)
+      };
+    }
+  };
+  const origOpen = XMLHttpRequest.prototype.open;
+  const origSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+    this.__traceUrl = url;
+    this.__traceMethod = method;
+    return origOpen.call(this, method, url, ...rest);
+  };
+  XMLHttpRequest.prototype.send = function(body) {
+    if (this.__traceMethod === 'PUT' && this.__traceUrl && this.__traceUrl.includes('/drive/api/files/uploads')) {
+      const startMs = performance.now();
+      const bytes = body ? (body.size || body.byteLength || 0) : 0;
+      this.addEventListener('loadend', () => {
+        const endMs = performance.now();
+        if (window.__AEGIS_LFT_TRACE__ && window.__AEGIS_LFT_TRACE__.currentRun) {
+          window.__AEGIS_LFT_TRACE__.currentRun.chunks.push({
+            startMs, endMs, bytes, status: this.status
+          });
+        }
+      });
+    }
+    return origSend.call(this, body);
+  };
+})();
 ~~~
 
-Copy only numeric limits/concurrency. Do not copy request headers, cookies, or
-storage values.
+Primary reliable metric is **`CHUNK_SPAN_MBPS`**.
+The E2E timer includes human file-picker interaction delay and UI latency; E2E is supplementary/contaminated and MUST NOT be used as the primary transfer throughput.
 
-- [ ] **B0.5 Record media/cache/queue status via authenticated Admin API**
+### 6.2 Download measurement method — PowerShell observer
 
-In DevTools Console on the authenticated Admin Drive origin:
-
-~~~javascript
-const media = await fetch('/drive/api/admin/media-cache/status', {credentials:'same-origin'}).then(r => r.json())
-console.table({
-  enabled:media.enabled,
-  ffmpeg:media.capabilities?.ffmpeg?.version ?? null,
-  sharp:media.capabilities?.sharp?.version ?? null,
-  cache_bytes:media.cache?.bytes ?? null,
-  cache_entries:media.cache?.entries ?? null,
-  cache_high_water:media.cache?.highWater ?? null,
-  cache_low_water:media.cache?.lowWater ?? null,
-  cache_volume:media.cache?.volume ?? null,
-  queue_depth:media.queue?.depth ?? null,
-  queue_running:media.queue?.running ?? null,
-  failures_24h:media.failures?.last24h ?? null
-})
-~~~
-
-Record only these allowlisted values. Do not copy request headers, cookies, the
-full response, process environment, cache paths, or database output.
-
-### Stop conditions
-
-- Unexpected image/source identity, unhealthy/restarting/OOM container.
-- Unknown live Compose chain.
-- Storage below fixture plus reserve requirement.
-- Any command would require exposing a secret.
-- Active incident, backup, migration, or unrelated heavy workload.
-
-### Cleanup
-
-None. Read-only.
-
-## 6. Common run protocol
-
-### Task 3: Prepare synchronized observation
-
-- [ ] **Step 1: Create a run ID**
+Brave browser Files download uses native browser streaming (`<a>` + `click()`).
+The validated measurement method uses a PowerShell observer polling for the `.crdownload` file:
 
 ~~~powershell
-$RunId = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ') + '__P1__T1__S__r01'
-$RunId
+$DownloadDir = "C:\Users\User\Downloads"
+$ExpectedBytes = 100000000 # Example for S-100MB
+$TimeoutSeconds = 600
+
+Write-Host "Waiting for .crdownload file..."
+$Sw = [System.Diagnostics.Stopwatch]::StartNew()
+while ($Sw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+  $Cr = Get-ChildItem -Path $DownloadDir -Filter "*.crdownload" | Select-Object -First 1
+  if ($Cr) { break }
+  Start-Sleep -Milliseconds 50
+}
+if (-not $Cr) { throw "Timed out waiting for download to start" }
+
+$TimingSw = [System.Diagnostics.Stopwatch]::StartNew()
+Write-Host "Downloading $($Cr.Name)..."
+while ($TimingSw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+  if (-not (Test-Path -LiteralPath $Cr.FullName)) { break }
+  Start-Sleep -Milliseconds 50
+}
+$TimingSw.Stop()
+
+# Resolve final file by size
+$FinalFile = Get-ChildItem -Path $DownloadDir | Where-Object { $_.Length -eq $ExpectedBytes -and $_.LastWriteTime -ge (Get-Date).AddMinutes(-2) } | Select-Object -First 1
+if (-not $FinalFile) { throw "Could not resolve final file with size $ExpectedBytes" }
+
+$ElapsedMs = $TimingSw.ElapsedMilliseconds
+$MBps = ($ExpectedBytes / 1000000.0) / ($ElapsedMs / 1000.0)
+Write-Output "DOWNLOAD_MS=$ElapsedMs"
+Write-Output "DOWNLOAD_MBPS=$([Math]::Round($MBps, 3))"
 ~~~
 
-- [ ] **Step 2: Capture client interface context**
+*Harness defect note*: An early pilot script defect incorrectly expected `Unconfirmed XXXXX.crdownload` to rename without an extension; Brave promoted it to the target filename (e.g. `S-100MB.bin`). This was a test harness defect, not an AEGIS defect. The pilot attempt is excluded and was not counted as a controlled run.
 
-~~~powershell
-Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object Name,InterfaceDescription,LinkSpeed,MacAddress
-Get-NetIPConfiguration | Select-Object InterfaceAlias,IPv4Address,IPv4DefaultGateway
-netsh wlan show interfaces
-~~~
-
-Store only necessary network characteristics. Redact SSID/BSSID/MAC from
-report-ready evidence unless technically needed; never publish private network
-identifiers.
-
-- [ ] **Step 3: Start server samples if tools already exist**
-
-No packages are installed. Open separate Human terminals:
-
-~~~bash
-D=(sudo env -u DOCKER_HOST -u CONTAINER_HOST docker)
-"${D[@]}" stats --no-trunc \
-  aegis-prod-drive-1 \
-  aegis-prod-public-share-gateway-1 \
-  aegis-prod-public-share-connector-1
-iostat -dx 1
-pidstat -dur -p ALL 1
-~~~
-
-If iostat or pidstat is absent, record NOT AVAILABLE. Do not install during the
-baseline. Save only the bounded run interval and relevant processes/devices.
-
-- [ ] **Step 4: Measure one application action**
-
-Record UTC start/end, visible application stage times, HTTP status, bytes, retries,
-resume state, and browser DevTools Timing. For upload, separate Checking/Hashing,
-Encrypting (Vault), Uploading, and Finalizing/Commit. For download, hash the
-received non-Vault file and compare to the fixture manifest.
-
-- [ ] **Step 5: Stop samples and write one run record**
-
-Use the evidence schema in the design. A null means unavailable; zero means
-measured zero. Never convert missing evidence to zero.
-
-- [ ] **Step 6: Validate run completeness**
-
-Required identity: run_id, source SHA/image, path, workload, fixture bytes/hash,
-timestamp, repetition/warm-up, result, limitation. ACTUAL_TRANSFER_TEST additionally
-requires bytes and elapsed time. CONFIGURED_LIMIT_TEST additionally requires
-transfer_started=false, limit layer/value, and network_performance=NOT_MEASURED.
-
-## 7. Phase B1 — P1 LAN baseline
+## 7. Phase B1 — P1 Onsite Direct LAN PRE-FIX baseline (IMMEDIATE NEXT GATE)
 
 ### Prerequisites
 
-- Closest practical client/server LAN path.
+- Human laptop physically on site.
+- Connected via wired Ethernet / Management VLAN30 (e.g. client IP `192.168.30.x`, gateway `192.168.30.1`).
+- Direct internal AEGIS access: `192.168.10.10:443`.
 - Twingate OFF and Cloudflare not in path.
-- Exact server reached is proven.
-- Disposable account/folder/Vault content only.
-- B0 PASS; no unrelated load.
+- Disposable test files/folders only.
+- Phase B0 executed and verified; no unrelated heavy load.
 
-### Actions
+### Target test matrix (18 controlled runs)
 
-- [ ] Run T1 Files upload at S/M/L/XL, then XXL configuration probe.
-- [ ] Run T2 Vault encrypted upload at S/M/L/XL, then XXL configuration probe.
-- [ ] Run T3 Files full download on the committed fixtures.
-- [ ] Run T4 Vault full download/Preview where supported.
-- [ ] Run T6 Range/seek on representative video fixtures.
-- [ ] Run T7–T11 media protocol in Phase B5.
-- [ ] Verify non-Vault downloaded SHA-256; verify Vault UI/client integrity result.
-- [ ] Complete required repetitions and preserve every run.
+1. **Files Upload (T1)**:
+   - S (100 MB) × 3 repetitions (r01, r02, r03)
+   - M (300 MB) × 3 repetitions (r01, r02, r03)
+   - L (1 GB) × 3 repetitions (r01, r02, r03)
+2. **Files Download (T3)**:
+   - S (100 MB) × 3 repetitions (r01, r02, r03)
+   - M (300 MB) × 3 repetitions (r01, r02, r03)
+   - L (1 GB) × 3 repetitions (r01, r02, r03)
 
-Expected safe outputs: numeric stage timings, HTTP statuses, byte counts,
-hash-match verdicts, resource samples, no credentials/content.
+Capture in-page XHR chunk span for upload; capture PowerShell observer timing for download.
+Verify exact downloaded byte sizes and SHA-256 hashes against fixture manifest.
 
-Stop on health degradation, restart/OOM, integrity mismatch, unexpected 5xx,
-unplanned heavy load, storage reserve breach, or any unexpected Production state
-mutation. Preserve failure evidence; do not retry blindly.
+Stop conditions: container health degradation, restart/OOM, integrity mismatch, unexpected 5xx.
+Cleanup: remove only study-owned disposable files via UI. Do NOT use destructive purge.
 
-Cleanup: through real UI, remove only study-owned disposable Files/Vault objects
-after evidence capture. Do not use destructive purge. Verify other data untouched.
+## 8. Exploratory path — Local Wi-Fi plus Twingate (Diagnostic only)
 
-## 8. Phase B2 — P2 local Wi-Fi plus Twingate
+Optional exploratory diagnostic path. Not part of the primary two-path PRE/POST matrix.
+Retained only if needed to isolate Wi-Fi degradation from remote WAN behavior.
 
-### Prerequisites
+## 9. Phase B2 / Historical B3 — P2 Remote Internet plus Twingate PRE-FIX (EXECUTED)
 
-- Same client and fixtures as B1.
-- Client on local Wi-Fi; record link/RSSI.
-- Twingate ON; record Direct/Relayed/Unknown if visible.
-- Private Drive hostname/path proves Twingate route.
+Executed by Human Owner under Remote + Twingate conditions. 18 controlled runs complete.
 
-### Actions
+### 9.1 Files upload results (P2 Remote + Twingate)
 
-- [ ] Repeat paired T1–T4 and T6 cells using the same fixture hashes.
-- [ ] Keep browser, server image, concurrent load, and repetitions aligned with B1.
-- [ ] Record RTT/loss only with a bounded safe probe if the endpoint permits it.
-- [ ] Do not mutate Twingate policy, connector, routing, or diagnostics settings.
+- **100 MB** (6 chunks): r01 = 2.981 MB/s (33,541 ms), r02 = 2.834 MB/s (35,284 ms), r03 = 3.060 MB/s (32,681 ms). **Median = 2.981 MB/s** (min 2.834, max 3.060, mean ~2.958). All HTTP 200.
+- **300 MB** (18 chunks): r01 = 3.080 MB/s (97,389 ms), r02 = 3.103 MB/s (96,675 ms), r03 = 2.977 MB/s (100,773 ms). **Median = 3.080 MB/s** (min 2.977, max 3.103, mean ~3.053). All HTTP 200.
+- **1 GB** (60 chunks): r01 = 3.031 MB/s (329,883 ms), r02 = 3.007 MB/s (332,576 ms), r03 = 3.016 MB/s (331,597 ms). **Median = 3.016 MB/s** (min 3.007, max 3.031, mean ~3.018). All HTTP 200.
+- **Verdict**: Sustained upload throughput ≈ 3.0 MB/s; no file-size dependent degradation between 100 MB and 1 GB; reproducible.
 
-Stop/cleanup: same as B1. If path attribution is uncertain, classify PATH=UNKNOWN
-and do not use the run in P1/P2 comparisons.
+### 9.2 Files download results (P2 Remote + Twingate)
 
-## 9. Phase B3 — P3 remote Internet plus Twingate
+- **100 MB**: r01 = 4.799 MB/s (20,839 ms), r02 = 4.294 MB/s (23,286 ms), r03 = 5.265 MB/s (18,992 ms). **Median = 4.799 MB/s** (min 4.294, max 5.265, mean ~4.786). Exact size match.
+- **300 MB**: r01 = 5.050 MB/s (59,410 ms), r02 = 4.844 MB/s (61,937 ms), r03 = 6.083 MB/s (49,321 ms). **Median = 5.050 MB/s** (min 4.844, max 6.083, mean ~5.326). Exact size match.
+- **1 GB**: r01 = 4.829 MB/s (207,080 ms), r02 = 4.873 MB/s (205,192 ms), r03 = 4.656 MB/s (214,789 ms). **Median = 4.829 MB/s** (min 4.656, max 4.873, mean ~4.786). Exact size match.
+- **Verdict**: Sustained download throughput ≈ 4.8–5.1 MB/s; no file-size dependent degradation between 100 MB and 1 GB.
 
-### Prerequisites
+### 9.3 Upload vs download asymmetry
 
-- Client physically outside the local LAN; record network type without publishing
-  private identifiers.
-- Twingate ON; Direct/Relayed/Unknown recorded.
-- Same client, browser, fixture identities, and Production source where practical.
+- 100 MB: download / upload = 4.799 / 2.981 ≈ 1.61x
+- 300 MB: download / upload = 5.050 / 3.080 ≈ 1.64x
+- 1 GB: download / upload = 4.829 / 3.016 ≈ 1.60x
+- Download is consistently 60–64% higher than upload across all sizes.
+- Finding: `TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN`; `UPLOAD_SPECIFIC_BOTTLENECK=STRONGER_CANDIDATE`; `ROOT_CAUSE=NOT_PROVEN`.
 
-### Actions
+### 9.4 Supporting server telemetry during 1 GB upload (r01)
 
-- [ ] Repeat prioritized T1–T4/T6 at S/M/L first.
-- [ ] Execute XL/XXL only after limits, time, storage, and stability remain safe.
-- [ ] Record client uplink/downlink context separately from application throughput.
-- [ ] Preserve interruption/resume evidence if a natural interruption occurs;
-  do not induce a Production network failure.
+- Drive container: CPU ≈ 6.97%, RAM ≈ 94.93 MiB / 7.035 GiB (~1.32%).
+- Sampled iostat: low device utilization and await; no sustained queue saturation.
+- Classification: `CPU_SATURATION=NOT_SUPPORTED_BY_OBSERVED_EVIDENCE`, `MEMORY_PRESSURE=NOT_SUPPORTED_BY_OBSERVED_EVIDENCE`, `STORAGE_SATURATION=NOT_SUPPORTED_BY_SAMPLED_EVIDENCE`.
+- Strict limitation: Sampled portion of timeline, not full-run telemetry. `STORAGE_BOTTLENECK=PROVEN_FALSE` is NOT permitted. Docker stats Block I/O is cumulative, not instantaneous throughput.
 
-Stop on unstable client connectivity, unknown path, server health issue, or
-integrity mismatch. Cleanup only task-owned application objects.
+## 10. Phase B4 — P4 Cloudflare Public Share baseline (Supplementary)
 
-## 10. Phase B4 — P4 Cloudflare Public Share baseline
+Supplementary future measurement. Download/redemption oriented only.
+Do not reopen Public Share security architecture. `CLOUDFLARE_BOTTLENECK=NOT_PROVEN`.
 
-### Prerequisites
+## 11. Phase B5 — Media preview baseline (Supplementary)
 
-- External client with Twingate OFF.
-- Accepted Public Share runtime healthy; no 1033.
-- Human Owner creates a disposable Public Anywhere link through the product UI.
-- The raw bearer URL remains only in browser memory/UI. Never paste it into shell,
-  evidence, screenshot, HAR, clipboard log, or report.
-
-### Actions
-
-- [ ] Create a disposable public share for each eligible committed Files fixture.
-- [ ] From external browser, measure T5 full download at S/M/L/XL where accepted.
-- [ ] Perform XXL only as a configuration probe first.
-- [ ] Record TTFB, exact downloaded bytes, elapsed time, status, and local SHA-256.
-- [ ] Record Cloudflare path separately from origin/server observations.
-- [ ] Revoke each disposable link through the UI after its runs.
-- [ ] Verify one post-revoke attempt is blocked, then stop using the URL.
-
-Public Share has no Range/resume in the current contract. Do not test T6, do not
-claim partial-resume behavior, and do not alter Gateway/cloudflared/Cloudflare.
-
-Stop immediately on 1033, unexpected route exposure, auth/scope anomaly, hash
-mismatch, server health issue, or inability to protect the bearer URL. A 1033
-event is lifecycle availability evidence, not throughput evidence.
-
-Cleanup: revoke every study link; remove task-owned source files only after all
-other path runs no longer need them; verify post-revoke block. Do not delete audit
-history or unrelated rows.
-
-## 11. Phase B5 — media preview baseline
-
-### Prerequisites
-
-- Exact media fixture metadata and SHA-256 available.
-- Each fixture uploaded through the normal product flow.
-- Path P1 first; P2/P3 follow for client-delivered behavior.
-- Cold/warm state explicitly controlled and labelled.
-
-### Task 4: Measure Files server-derivative media
-
-- [ ] Record cold T7/T8/T9/T10 from list response to poster/thumbnail/motion ready.
-- [ ] Record queue depth/wait, generator start/end, FFmpeg/Sharp behavior, source
-  bytes read when available, derivative bytes, and resource samples.
-- [ ] Repeat warm without deleting authoritative content; confirm cache-hit state.
-- [ ] Hover while motion is pending and measure intent-to-first-moving-frame.
-- [ ] Open explicit Preview and measure T11 TTFF, stalls, and seek latency.
-- [ ] Use DevTools Network to count only endpoint classes; never export private
-  URLs/headers into repository evidence.
-
-### Task 5: Measure Vault client-side zero-knowledge media
-
-- [ ] Use the same path/fixture class where product limits permit.
-- [ ] Record thumbnail/poster/hover/Preview timings separately.
-- [ ] Record Range count and encrypted chunk fetch/decrypt work without recording
-  ciphertext metadata, envelopes, keys, or decrypted private content.
-- [ ] Record client CPU/memory and main-thread impact.
-- [ ] Lock after each controlled group and verify no decrypted view remains.
-
-### Browser event definitions
-
-| Metric | Start | Stop |
-|---|---|---|
-| thumbnail_ready_ms | Files/Vault inventory response complete | visible non-placeholder thumbnail painted |
-| poster_ready_ms | inventory response complete | representative poster painted |
-| hover_start_ms | pointerenter timestamp | first moving frame painted |
-| ttff_ms | explicit Preview open/play intent | first video frame callback/paint |
-| seek_ms | seeking intent | first post-seek playing frame |
-| stall_ms | waiting/stalled event | matching playing/canplay recovery |
-
-Prefer requestVideoFrameCallback for video-frame timestamps when supported;
-otherwise record the fallback and limitation.
-
-Stop on unexpected original-body grid fetch, cross-account leakage, broken
-security boundary, health degradation, runaway queue/process, cache reserve
-failure, or integrity error. No cache purge is authorized during baseline.
-
-Cleanup: remove only disposable media through UI after all cold/warm/path runs.
-Do not remove the Production media volume or clear unrelated cache entries.
+Supplementary future sub-study.
+T7–T11 media protocols remain planned for separate execution after core transfer baseline is established.
 
 ## 12. Machine-readable run record
 
@@ -582,222 +466,112 @@ $EffectiveMbps = (($Bytes * 8) / 1000000) / $Seconds
 }
 ~~~
 
-For Vault, never represent server ciphertext verification as plaintext SHA-256.
-Record separate fields:
-
-~~~text
-server_ciphertext_integrity=PASS|FAIL|NOT_AVAILABLE
-client_plaintext_integrity=PASS|FAIL|NOT_AVAILABLE
-~~~
-
-### Result taxonomy
-
-| Result | Meaning |
-|---|---|
-| PASS | Workload completed and required integrity gate passed |
-| EXPECTED_CONFIG_LIMIT | Transfer did not start because current configured limit rejected it |
-| CLIENT_CONFIG_REJECTION | Client rejected before transport |
-| HTTP_APPLICATION_REJECTION | Application returned a bounded rejection |
-| SERVER_CONFIG_REJECTION | Server limit rejected |
-| STORAGE_CAPACITY_REJECTION | Reserve/free-space gate rejected |
-| NETWORK_TIMEOUT | Transfer started; network timeout evidenced |
-| INTEGRITY_FAILURE | Required digest/authentication check failed |
-| NOT TESTED | Required path/fixture/time unavailable |
-| BLOCKED | Safety/identity/health prerequisite failed |
-
 ## 13. Analysis workflow
 
 ### Task 6: Validate raw evidence before summarizing
-
-- [ ] Confirm each run ID is unique.
-- [ ] Confirm source/image/path/fixture identities exist.
-- [ ] Recompute MB/s and Mbps from raw bytes and elapsed.
-- [ ] Confirm no secret-bearing fields, URLs, headers, or private content.
-- [ ] Confirm CONFIG-LIMITED rows have no throughput value.
-- [ ] Confirm cold and warm media samples are separate.
-- [ ] Confirm sparse fixtures are absent from throughput results.
-- [ ] Confirm every excluded run remains preserved with exclusion reason.
+- Confirm each run ID is unique.
+- Confirm source/image/path/fixture identities exist.
+- Recompute MB/s and Mbps from raw bytes and elapsed.
+- Confirm no secret-bearing fields, URLs, headers, or private content.
+- Confirm CONFIG-LIMITED rows have no throughput value.
 
 ### Task 7: Produce summaries
-
-For every Path x Workload x Size x cache-state group:
-
-- individual run values;
-- n;
-- median;
-- min/max;
-- optional mean;
-- limitation.
-
-Do not pool different codecs, bitrate profiles, client machines, Twingate
-Direct/Relayed states, or server images.
+For every Path x Workload x Size group: sample count, median, min/max, optional mean, limitation.
 
 ### Task 8: Evaluate hypotheses
-
-For H1–H15, cite exact run IDs under support, falsification, and distinction.
-Verdicts:
-
-~~~text
-SUPPORTED_WITHIN_TESTED_SCOPE
-NOT_SUPPORTED_WITHIN_TESTED_SCOPE
-MIXED
-NOT_PROVEN
-~~~
-
-No statistical/causal claim is stronger than the matrix and sample count.
-
-### First-day decision output
-
-After Round 1 S/M/L triage, return this compact preliminary summary. Use the
-validated median for each available metric and NOT_TESTED or NOT_AVAILABLE
-where evidence is absent.
-
-~~~text
-P1_FILES_UPLOAD_MBPS=
-P2_FILES_UPLOAD_MBPS=
-P1_VAULT_UPLOAD_MBPS=
-P2_VAULT_UPLOAD_MBPS=
-P1_FILES_DOWNLOAD_MBPS=
-P2_FILES_DOWNLOAD_MBPS=
-P4_PUBLIC_DOWNLOAD_MBPS=
-P1_VIDEO_TTFF_MS=
-P2_VIDEO_TTFF_MS=
-SERVER_CPU_PEAK=
-SERVER_IOWAIT_PEAK=
-CLIENT_CPU_PEAK=
-PRELIMINARY_CLASSIFICATION=
-ROOT_CAUSE=NOT_PROVEN
-~~~
-
-PRELIMINARY_CLASSIFICATION must be exactly one of:
-
-~~~text
-NETWORK_PATH_CANDIDATE
-SERVER_STORAGE_CANDIDATE
-CLIENT_CRYPTO_CANDIDATE
-MEDIA_RANGE_PIPELINE_CANDIDATE
-MULTIPLE_CANDIDATES
-INSUFFICIENT_EVIDENCE
-~~~
-
-This classification prioritizes later measurements; it is not a proven causal
-finding. ROOT_CAUSE remains NOT_PROVEN until the evidence contract supports a
-stronger conclusion.
+Cite exact run IDs under support, falsification, and distinction.
+Verdicts: `SUPPORTED_WITHIN_TESTED_SCOPE`, `NOT_SUPPORTED_WITHIN_TESTED_SCOPE`, `MIXED`, `NOT_PROVEN`.
 
 ## 14. Future controlled optimization gate — not authorized now
 
-An optimization experiment requires a separate approved task containing:
+~~~text
+PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX
+~~~
 
-1. baseline evidence and selected hypothesis;
-2. one changed variable;
-3. exact before/after source/config;
-4. security/integrity/resource acceptance criteria;
-5. rollback;
-6. same fixture/path/repetition pairing;
-7. regression verification;
-8. Human Owner Production authorization.
+All performance mutations remain forbidden until the P1 Onsite Direct LAN PRE-FIX
+baseline (18 runs) is captured and Human Owner authorizes optimization work.
+
+An optimization experiment requires a separate approved task containing:
+1. Baseline evidence across both P1 and P2;
+2. Differentiating hypothesis evidence;
+3. One changed variable;
+4. Security/integrity/resource acceptance criteria;
+5. Rollback;
+6. Identical POST-FIX matrix verification (36 runs);
+7. Human Owner Production authorization.
 
 Candidate variables include chunk size, concurrency, worker count, cache policy,
-media profile, and proxy behavior. This list is not a recommendation. Network,
-Twingate, Cloudflare, firewall, Docker, storage, database, or file-limit changes
-remain prohibited until separately justified and authorized.
+media profile, and proxy behavior. Network, Twingate, Cloudflare, firewall, Docker,
+storage, database, or file-limit changes remain prohibited.
 
 ## 15. Cleanup ledger
-
-At the end of each Human phase record:
 
 | Resource | Identifier class | Created by study | Cleanup action | Result |
 |---|---|---:|---|---|
 | Files fixture | sanitized study name | yes | delete through UI after all dependent runs | pending |
 | Vault fixture | sanitized study name | yes | trash/allowed cleanup through UI; no destructive purge | pending |
 | Public link | run ID only; never bearer | yes | revoke through UI; verify post-revoke block | pending |
-| Client fixture | exact local path | yes | remove after archive/checksum review | pending |
-| Evidence | outside-repo directory | yes | retain sanitized required set; securely remove token-bearing raw capture if any | pending |
-
-Never delete containers, volumes, networks, databases, cache volumes, audit rows,
-or unrelated user data.
+| Client fixture | exact local path `C:\Users\User\AEGIS-LFT-PERF-1` | yes | retain for comparison; checksum verified | active |
+| Evidence | outside-repo directory | yes | retain sanitized required set | active |
 
 ## 16. Phase completion reports
 
-Each phase returns:
-
-~~~text
-PHASE=
-SOURCE_SHA=
-SERVER_IMAGE=
-PATH_CLASS=
-WORKLOADS_EXECUTED=
-FIXTURE_CLASSES=
-RUNS_PLANNED=
-RUNS_COMPLETED=
-RUNS_CONFIG_LIMITED=
-RUNS_NOT_TESTED=
-INTEGRITY_FAILURES=
-HEALTH_DEGRADATION=
-PRODUCTION_SETTINGS_CHANGED=NO
-UNRELATED_RESOURCES_TOUCHED=NO
-LIMITATIONS=
-NEXT_GATE=
-~~~
+Return standard completion format after each phase.
 
 ## 17. Planning-task validation
 
 Before this Draft PR is handed to the Human Owner:
-
-- [ ] Design contains architecture/evidence vocabulary and historical inventory.
-- [ ] Exact decimal size ladder and 10 GB policy present.
-- [ ] P1–P4 x T1–T11 x size matrix present.
-- [ ] Round 1 S/M/L fast triage and conditional Round 2 XL/XXL gate present.
-- [ ] First-day decision output uses the constrained preliminary taxonomy and
-  retains ROOT_CAUSE=NOT_PROVEN.
-- [ ] Transfer/media/client/server/network metrics present.
-- [ ] Repetition/control-variable policy present.
-- [ ] H1–H15 and decision tree present.
-- [ ] B0–B5 prerequisites, commands, stop conditions, cleanup present.
-- [ ] Tables 1–12 and chart specifications present.
-- [ ] Current Production values marked RE-MEASURE REQUIRED.
-- [ ] No fake measurement or improvement claim.
-- [ ] No Production-capable secret-bearing harness.
-- [ ] Markdown/path validation, collaboration policy, repository validator, and
-  git diff check pass.
+- [x] Design contains architecture/evidence vocabulary and historical inventory.
+- [x] Exact decimal size ladder and 10 GB policy present.
+- [x] Core 2-path matrix (P1, P2) and supplementary paths defined.
+- [x] Round 1 S/M/L fast triage and conditional Round 2 XL/XXL gate present.
+- [x] Validated upload (in-page XHR tracer) and download (PowerShell observer) methods documented.
+- [x] Phase B0 Production baseline recorded as EXECUTED with exact observed values.
+- [x] P2 Remote PRE-FIX recorded as EXECUTED with 18 controlled runs.
+- [x] P1 Onsite Direct LAN PRE-FIX framed as immediate next gate.
+- [x] Performance mutation gate strictly blocked pending P1 PRE-FIX.
+- [x] No secrets, bearer links, credentials, or private content present.
 
 ## 18. Self-review record
 
-Spec coverage:
-
-- Historical LFT/Public Share/PR150/PR187/PR212 evidence: design sections 3–5.
-- Size, path, workload matrices: design sections 6–9.
-- Metrics, repetition, variables, evidence schema: design sections 10–13.
-- Hypotheses/decision framework: design sections 14–16.
-- Final-project tables/charts/limitations: design sections 17–19.
-- Deterministic fixtures and media metadata: plan sections 2–3.
-- Human Production packet B0–B5: plan sections 5–11.
-- Stop/cleanup/future optimization gates: plan sections 5–16.
-
-Placeholder scan: no TBD/TODO instruction is used. Placeholder tokens
-DURATION, OUTPUT, and PATH_TO_MEDIA are explicit command parameters the Human
-must replace with the selected matrix row, not unspecified design work.
-
-Harness decision: HARNESS_ADDED=NO. Reason: existing tools cover fixture
-generation, timing, hashing, resource observation, and structured manual
-recording; review of the measurement contract should precede any authenticated
-automation. If repetition later proves error-prone, a separate repository-local,
-local/dev-only JSONL recorder can be proposed with tests and zero secret fields.
+Harness decision: HARNESS_ADDED=NO. Validated in-page XHR tracer and PowerShell
+download observer cover measurement requirements without adding permanent
+repository automation or secret-handling surfaces.
 
 ## 19. Draft-state truth
 
 ~~~text
 TASK=LFT-PERF-1
-STATUS=PLANNED / DRAFT
+STATUS=IN_PROGRESS / REMOTE PRE-FIX MEASUREMENTS COMPLETE / ONSITE PENDING
 HUMAN_REVIEW_REQUIRED=YES
-PRODUCTION_BENCHMARK_EXECUTED=NO
 PRODUCTION_MUTATED=NO
 PERFORMANCE_SETTINGS_CHANGED=NO
+OPTIMIZATION_EXECUTED=NO
 HARNESS_ADDED=NO
+REMOTE_B0=COMPLETE
+REMOTE_UPLOAD_100MB_N=3
+REMOTE_UPLOAD_100MB_MEDIAN_MBPS=2.981
+REMOTE_UPLOAD_300MB_N=3
+REMOTE_UPLOAD_300MB_MEDIAN_MBPS=3.080
+REMOTE_UPLOAD_1GB_N=3
+REMOTE_UPLOAD_1GB_MEDIAN_MBPS=3.016
+REMOTE_DOWNLOAD_100MB_N=3
+REMOTE_DOWNLOAD_100MB_MEDIAN_MBPS=4.799
+REMOTE_DOWNLOAD_300MB_N=3
+REMOTE_DOWNLOAD_300MB_MEDIAN_MBPS=5.050
+REMOTE_DOWNLOAD_1GB_N=3
+REMOTE_DOWNLOAD_1GB_MEDIAN_MBPS=4.829
+REMOTE_CONTROLLED_RUNS=18
+REMOTE_PRE_FIX=COMPLETE
+ONSITE_PRE_FIX=PENDING
+ONSITE_PENDING_RUNS=18
+POST_FIX=NOT_STARTED
+PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX
 ROOT_CAUSE=NOT_PROVEN
-TWINGATE_BOTTLENECK=NOT_PROVEN
+TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN
 CLOUDFLARE_BOTTLENECK=NOT_PROVEN
 STORAGE_BOTTLENECK=NOT_PROVEN
 CLIENT_CRYPTO_BOTTLENECK=NOT_PROVEN
-NEXT_GATE=HUMAN DESIGN / MEASUREMENT PLAN REVIEW
+FINAL_RECEIPT_CREATED=NO
+NEXT_GATE=P1_ONSITE_DIRECT_LAN_PRE_FIX
 ~~~

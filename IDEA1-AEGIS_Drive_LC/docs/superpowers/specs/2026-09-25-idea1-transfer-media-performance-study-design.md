@@ -1,9 +1,11 @@
 # AEGIS IDEA1 Transfer and Media Performance Study Design
 
-Status: PLANNED / DRAFT — measurement design only
+Status: IN PROGRESS / REMOTE PRE-FIX MEASUREMENTS COMPLETE / ONSITE PENDING
 Task: LFT-PERF-1 / TRANSFER_AND_MEDIA_PREVIEW_PERFORMANCE_STUDY
 Area / owner: IDEA1 / kla
 Production mutation: NO
+Performance settings changed: NO
+Optimization executed: NO
 Root cause: NOT PROVEN
 
 ## 1. Purpose and research questions
@@ -20,9 +22,7 @@ Primary question:
 
 Secondary questions:
 
-1. How do LAN, local Wi-Fi through Twingate, remote Internet through Twingate,
-   and Cloudflare Public Anywhere paths differ when the same source object and
-   workload are used?
+1. How do the two primary network paths (P1 Onsite Direct LAN vs P2 Remote Internet through Twingate) differ when the same source object and workload are used, and how does the supplementary Cloudflare Public Anywhere path compare?
 2. How much elapsed time is spent in client hashing, Vault encryption/decryption,
    network transfer, server write/read, commit verification, derivative
    generation, queueing, and browser decode?
@@ -48,27 +48,38 @@ benchmark execution is authorized by this document.
 | INFERENCE | A conclusion drawn from multiple measurements | Name the measurements and uncertainty; never present as direct observation |
 | NOT PROVEN | Evidence is missing or cannot distinguish alternatives | Remains open |
 
-Source defaults are ARCHITECTURE FACTS, not current Production values. Current
-Production values must be re-measured in Human-run Phase B0.
+Source defaults are ARCHITECTURE FACTS, not current Production values. Running
+Production values were measured in Human-run Phase B0 (2026-09-25T14:35:03Z).
 
 ## 3. Architecture and measurement boundaries
 
-### 3.1 Private paths
+### 3.1 Primary network paths
+
+For the core PRE/POST experiment, there are exactly TWO primary network paths:
+
+- **P1 = ONSITE_DIRECT_LAN**: Human laptop physically on site, wired Ethernet / Management VLAN30, direct internal AEGIS access (e.g. `192.168.10.10:443`), Twingate not part of the tested data path.
+- **P2 = REMOTE_TWINGATE**: Human laptop physically remote from site, Twingate enabled, accesses private AEGIS services remotely through the Twingate overlay path.
+
+Earlier browser tracer runs were generated with historical labels such as `P3_T1_...`. Those historical run labels MUST NOT be rewritten or falsified. The interpretation mapping is documented explicitly:
+
+~~~text
+HISTORICAL_RUN_LABEL_P3 = FINAL_METHODOLOGY_P2_REMOTE_TWINGATE
+~~~
+
+Original raw labels are preserved in evidence tables; their interpretation is normalized in tables and analysis. Do NOT create a third primary path such as "local Wi-Fi + Twingate". The core controlled PRE/POST comparison evaluates P1 vs P2 only.
 
 ~~~text
 Client browser
-  -> local network or Internet
-  -> optional Twingate private-access overlay
+  -> P1: On-site wired Ethernet (Management VLAN30) -> direct private access
+  -> P2: Remote Internet client -> Twingate private-access overlay
   -> private LAN / NAT boundary
   -> HUB / Drive application
   -> PostgreSQL metadata + Data Lake storage
 ~~~
 
-Twingate is the private remote-access overlay/path. It is not the NAT server.
-The AEGIS host is a PC-based, self-hosted private server behind a private
-LAN/NAT environment.
+Twingate is the private remote-access overlay/path. It is not the NAT server. The AEGIS host is a PC-based, self-hosted private server behind a private LAN/NAT environment.
 
-### 3.2 Public Anywhere path
+### 3.2 Supplementary Public Anywhere path
 
 ~~~text
 External Internet client (Twingate OFF)
@@ -80,40 +91,42 @@ External Internet client (Twingate OFF)
   -> Data Lake storage
 ~~~
 
-Public Share security architecture is out of scope. The study measures the
-accepted path; it does not redesign ingress, trust, token, revocation, network
-isolation, or fail-closed controls.
+Public Anywhere through Cloudflare is a separate supplementary architecture, download/redemption oriented, and does not provide an authenticated Files upload path. It is not a third primary core path. Public Share security architecture is out of scope. The study measures the accepted path; it does not redesign ingress, trust, token, revocation, network isolation, or fail-closed controls.
 
 ### 3.3 Current application transfer facts
 
-Current source at study base 87a1b6a252c5d862f3da9176c710151095579c0a:
+Running Production values measured during Phase B0 observation (2026-09-25T14:35:03Z):
 
-| Surface | Current source fact | Production truth |
+| Surface | Current source fact | Production truth (B0 Measured 2026-09-25) |
 |---|---|---|
-| Normal Files upload | Default 16 MiB chunks; default 5 GiB logical limit; configurable source ceiling 32 GiB; incremental SHA-256 in 4 MiB slices; resumable session/chunk map | RE-MEASURE REQUIRED |
-| Vault V2 upload | Default 32 MiB plaintext chunks; recommended concurrency 2, bounded 1–4; default 5 GiB logical limit; source ceiling 32 GiB; per-chunk client AES-GCM | RE-MEASURE REQUIRED |
-| Normal Files full download | Disk-backed streaming; full-download path and current response framing must be observed | RE-MEASURE REQUIRED |
-| Files explicit Preview | Owner-only preview supports byte Range where current route permits | RE-MEASURE REQUIRED |
-| Vault V2 video Preview | Service Worker maps browser Range requests to minimum encrypted chunks and client decryption | RE-MEASURE REQUIRED |
-| Public Share | Streams full response; current architecture explicitly has no Range/resume, so interruption restarts from byte zero | RE-MEASURE REQUIRED |
-| Files media derivatives | Server poster/motion pipeline; bounded in-process queue; default one worker; Sharp for eligible stills and FFmpeg for other poster/motion work; content-addressed rebuildable cache | RE-MEASURE REQUIRED |
-| Vault media cards | Client-side, zero-knowledge image/GIF/video extraction and range/decryption behavior; no server derivative cache | RE-MEASURE REQUIRED |
+| Normal Files upload | Default 16 MiB chunks; default 5 GiB logical limit; configurable source ceiling 32 GiB; incremental SHA-256 in 4 MiB slices; resumable session/chunk map | MEASURED: chunkSizeBytes=16777216, maxLogicalFileBytes=5368709120 (5 GiB), maxSupportedLogicalFileBytes=34359738368 (32 GiB), sessionTtlMs=86400000; usable capacity=10349204889 B |
+| Vault V2 upload | Default 32 MiB plaintext chunks; recommended concurrency 2, bounded 1–4; default 5 GiB logical limit; source ceiling 32 GiB; per-chunk client AES-GCM | MEASURED (`/drive/api/vault/uploads/limits`): formatVersion=2, plaintextChunkBytes=16777216 (16 MiB), ciphertextChunkBytes=16777232, gcmTagBytes=16, uploadConcurrency=2, maxLogicalFileBytes=5368709120 (5 GiB), maxPlaintextChunkBytes=67108864, minPlaintextChunkBytes=8388608, sessionTtlMs=86400000 |
+| Normal Files full download | Disk-backed streaming; full-download path and current response framing must be observed | MEASURED: Browser streaming via native `<a>` download to `/api/files/:id/download`; no in-tab fetch buffering |
+| Files explicit Preview | Owner-only preview supports byte Range where current route permits | ARCHITECTURE FACT |
+| Vault V2 video Preview | Service Worker maps browser Range requests to minimum encrypted chunks and client decryption | ARCHITECTURE FACT |
+| Public Share | Streams full response; current architecture explicitly has no Range/resume, so interruption restarts from byte zero | ARCHITECTURE FACT; functionally restored post-1033; external video ~1.01 GB download PASS |
+| Files media derivatives | Server poster/motion pipeline; bounded in-process queue; default one worker; Sharp for eligible stills and FFmpeg for other poster/motion work; content-addressed rebuildable cache | MEASURED (`/drive/api/admin/media-cache/status`): enabled=true, ffmpeg=8.0.1, sharp=0.35.4, cache_bytes=274284, cache_entries=5, highWater=2147483648, lowWater=1717986918, queue_depth=0, queue_running=0, failures_24h=0 |
+| Vault media cards | Client-side, zero-knowledge image/GIF/video extraction and range/decryption behavior; no server derivative cache | ARCHITECTURE FACT |
 
-Current source defaults:
-
-- MEDIA_WORKERS=1; queue maximum 500.
-- Media cache default 2 GiB, low-water 0.8, free reserve 512 MiB.
-- Poster box 640x360; motion box 480x270; motion 12 fps, maximum 6 s.
-- Probe/poster/motion timeouts: 20 s / 60 s / 120 s.
-- Poster and motion outputs capped at 512 KiB and 4 MiB.
-- Client Files tile scheduler caps: info 1, poster 6, motion 3.
-
-These are source/configuration facts only. Phase B0 captures the running values.
+Observed Production container runtime environment:
+- Container `/aegis-prod-drive-1`: image `aegis-prod-drive:vault-stage-d-fix-f8c876754dd6`, status `running`, health `healthy`, restarts `0`, oom `false`.
+- Container `/aegis-prod-public-share-gateway-1`: image `aegis-public-share-gateway:public-share-50ce6e1638`, status `running`, health `healthy`, restarts `0`, oom `false`.
+- Container `/aegis-prod-public-share-connector-1`: image `cloudflare/cloudflared:2026.9.0`, status `running`, restarts `0`.
+- Data Lake storage: total 61,075,263,488 B, used 44,536,557,568 B, available ~13,403,045,888 B (~77% usage). SSD-backed storage path, not the separate rotational backup disk. (Topology/runtime truth only; does NOT mean storage cannot be a bottleneck).
+- Effective relevant Drive runtime values:
+  - `MEDIA_CACHE_POLICY=immutable`
+  - `VAULT_CHUNK_PLAINTEXT_BYTES=16777216`
+  - `MEDIA_CACHE_MAX_BYTES=2147483648`
+  - `MEDIA_STILL_ENGINE=sharp`
+  - `VAULT_UPLOAD_CONCURRENCY=2`
+  - `MEDIA_ENABLED=true`
+  - `MEDIA_WORKERS=1`
 
 ## 4. Historical evidence inventory
 
 | Area | Prior PR / evidence | What was tested | Result | What it proves | What it does NOT prove |
 |---|---|---|---|---|---|
+| Historical Onsite vs Remote | PR #61 receipt and measurements (2026-09-02) | Direct VLAN30 (client 192.168.30.10, gateway 192.168.30.1, server 192.168.10.10:443); ~1.1 GB Vault video (TTFF ~8 s, >60 s playback, seek PASS); ciphertext fetch at 1, 2, 4 parallel; Remote comparison | Direct ciphertext: 1 parallel = 10.17 MiB/s, 2 parallel = 10.53 MiB/s, 4 parallel = 10.46 MiB/s; Remote: ~4.65 / 4.22 / 4.26 MiB/s | Historical delivery baseline at 2026-09-02; ~10 MiB/s direct VLAN30 vs ~4.2–4.6 MiB/s remote; accepted as REMOTE_DELIVERY_ENVIRONMENT_NETWORK_PATH_LIMITATION | Current application/runtime baseline (application and pipeline evolved); numbers must not be merged into current 2026-09-25 controlled Files sample set; re-measurement of P1 on current Production required |
 | Large File Transfer V2 | Large_File_Transfer_V2; LFT-V2 receipts | Bounded/resumable Files and Vault protocols, integrity, configuration bounds, direct-VLAN large preview | Source and accepted scope PASS; 1.1 GB V2 upload historical PASS; ~1.1 GB direct-VLAN Vault video first frame ~8 s, >60 s playback, seek resumed | Chunked architecture, resume, integrity, and one direct-VLAN preview path work | Comparative LAN/Twingate/Cloudflare throughput; 5/10 GB acceptance; universal browser/media performance |
 | Files upload | PR148 receipt and canonical status | Production upload UX, rate/ETA, refresh recovery, same-file resume, oversize gate | Single-file ~1.9–2.8 MB/s; two-file aggregate ~3.4 MB/s; ~2.9 GB recovered upload PASS; ~6 GB rejected by configured limit | Real Production transfers and resume occurred; configuration rejection is distinct from network failure | Controlled path comparison; stable sample distribution; exact root cause |
 | Vault encrypted upload | LFT-V2-B/E2 plus PR212 | Per-chunk AES-GCM, concurrency, resume/recovery, TREE upload UX | Source/regression and Human Production behavior PASS | Zero-knowledge chunk upload/recovery works | Crypto time share, per-path throughput, safe optimal concurrency |
@@ -140,37 +153,39 @@ lifecycle/drift incident, not a measured throughput root cause.
 | Part | Content | Current state |
 |---|---|---|
 | A | Historical architecture and existing evidence | DOCUMENTED |
-| B | Current Production baseline measurement | PLANNED / HUMAN-RUN |
-| C | Network path comparison | PLANNED / HUMAN-RUN |
-| D | Upload, download, HTTP Range, and media measurement | PLANNED |
-| E | Client/server resource measurement | PLANNED |
-| F | Root-cause classification | DESIGNED / NOT EXECUTED |
-| G | Controlled one-variable optimization experiments | DESIGNED / NOT AUTHORIZED |
-| H | Recommended settings, limitations, future work | DESIGNED / EVIDENCE REQUIRED |
+| B | Current Production baseline measurement | B0 EXECUTED (2026-09-25T14:35:03Z) / B1 PENDING_ONSITE |
+| C | Network path comparison | P2 REMOTE PRE-FIX EXECUTED (18 runs) / P1 ONSITE PENDING |
+| D | Upload, download, HTTP Range, and media measurement | REMOTE FILES UPLOAD & DOWNLOAD COMPLETE (18 runs) / ONSITE PENDING (18 runs) / VAULT & MEDIA SUPPLEMENTARY |
+| E | Client/server resource measurement | SAMPLED ON 1 GB REMOTE (CPU ~6.97%, RAM ~1.32%, low iostat util/await) |
+| F | Root-cause classification | ROOT_CAUSE=NOT_PROVEN; TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN; UPLOAD_SPECIFIC_BOTTLENECK=STRONGER_CANDIDATE |
+| G | Controlled one-variable optimization experiments | DESIGNED / NOT AUTHORIZED / MUTATION GATE BLOCKED PENDING P1 PRE-FIX |
+| H | Recommended settings, limitations, future work | EVIDENCE REQUIRED |
 
 Parts F–H cannot claim an outcome until B–E provide adequate evidence.
 
 ## 6. Fixture size ladder and capacity classification
 
-Decimal units are mandatory for fixtures:
+Decimal units are mandatory for fixtures. Deterministic benchmark fixtures on the Human Windows client reside in `C:\Users\User\AEGIS-LFT-PERF-1`:
 
-| Class | Label | Exact bytes |
-|---|---|---:|
-| S | 100 MB | 100,000,000 |
-| M | 300 MB | 300,000,000 |
-| L | 1 GB | 1,000,000,000 |
-| XL | 5 GB | 5,000,000,000 |
-| XXL | 10 GB | 10,000,000,000 |
+| Class | Label | Exact bytes | Status / Manifest SHA-256 |
+|---|---|---:|---|
+| S | 100 MB | 100,000,000 | `f079cad53add0091ed5d0409b0469f9f5cb745b8c280be685dda73203dea90e8` |
+| M | 300 MB | 300,000,000 | Generated deterministic binary fixture |
+| L | 1 GB | 1,000,000,000 | Generated deterministic binary fixture |
+| XL | 5 GB | 5,000,000,000 | 5,000,000,000 B < 5 GiB logical limit (5,368,709,120 B) |
+| XXL | 10 GB | 10,000,000,000 | 10,000,000,000 B > 5 GiB logical limit -> EXPECTED_CONFIG_LIMIT |
 
 Each result has test_mode=ACTUAL_TRANSFER_TEST or
 test_mode=CONFIGURED_LIMIT_TEST. Decimal GB must not be confused with binary
-GiB. The historical 5 GiB default equals 5,368,709,120 bytes.
+GiB. The measured 5 GiB default equals 5,368,709,120 bytes.
 
 10 GB policy:
 
-1. Read the running limit first.
-2. Do not change a limit for the benchmark.
-3. If client or server rejects before transfer, record:
+1. Read the running limit first (measured at B0: 5,368,709,120 bytes).
+2. 5 GB decimal (5,000,000,000 bytes) is below the 5 GiB limit.
+3. 10 GB decimal (10,000,000,000 bytes) is above the 5 GiB limit.
+4. Do not change a limit for the benchmark. Do not propose raising the limit just to make the benchmark pass.
+5. If client or server rejects before transfer, record:
 
 ~~~text
 TEST_SIZE=10_GB
@@ -179,9 +194,9 @@ RESULT=EXPECTED_CONFIG_LIMIT
 NETWORK_PERFORMANCE=NOT_MEASURED
 ~~~
 
-4. Record rejection layer: CLIENT_CONFIG, HTTP_APPLICATION,
+6. Record rejection layer: CLIENT_CONFIG, HTTP_APPLICATION,
    SERVER_CONFIG, STORAGE_CAPACITY, NETWORK_TIMEOUT, or INTEGRITY.
-5. Apply the same boundary discipline to 5 GB.
+7. Apply the same boundary discipline to 5 GB.
 
 Generic fixtures are deterministic local byte streams. Each manifest records
 exact bytes, SHA-256, generator version/command, filename, creation host,
@@ -194,23 +209,42 @@ fixtures are architecture tests only and never throughput evidence.
 
 ## 7. Network path definitions
 
-| ID | Path | Required proof |
-|---|---|---|
-| P1 | Closest practical LAN client-to-server path, no Twingate or Cloudflare | Interface, route, server identity, Twingate OFF |
-| P2 | Local Wi-Fi plus Twingate private access | Wi-Fi link/signal, Twingate ON, direct/relayed if observable |
-| P3 | Remote Internet plus Twingate | Outside LAN proof, WAN type, Twingate ON, direct/relayed if observable |
-| P4 | External Public Anywhere through Cloudflare | Twingate OFF, public hostname, Cloudflare path, disposable public share |
+For the core PRE/POST experiment, exactly TWO primary network paths are defined:
 
-If a path cannot be physically produced, its result is NOT TESTED. Simulated
-latency or a local proxy is not equivalent.
+| ID | Path | Required proof | Status in Core Matrix |
+|---|---|---|---|
+| P1 | ONSITE_DIRECT_LAN: Closest practical LAN client-to-server path, wired Ethernet / Management VLAN30, Twingate OFF | Interface, route, server identity 192.168.10.10:443, Twingate OFF | PENDING_ONSITE (18 runs) |
+| P2 | REMOTE_TWINGATE: Remote Internet client physically outside LAN with Twingate enabled | Outside LAN proof, WAN type, Twingate ON, direct/relayed if observable | COMPLETE (18 runs) |
+
+### 7.1 Historical tracer label mapping
+
+Earlier browser tracer runs were recorded using labels such as `P3_T1_...`. Those historical run labels MUST NOT be rewritten or falsified. The interpretation mapping is:
+
+~~~text
+HISTORICAL_RUN_LABEL_P3 = FINAL_METHODOLOGY_P2_REMOTE_TWINGATE
+~~~
+
+Original raw labels are preserved in evidence tables; their interpretation is normalized in tables and analysis. Do NOT create a third primary path such as "local Wi-Fi + Twingate". The core controlled comparison is P1 vs P2.
+
+### 7.2 Supplementary paths
+
+- **Cloudflare Public Anywhere**: External client with Twingate OFF via Cloudflare Tunnel -> Public Share Gateway. Download/redemption oriented only; supplementary future measurement, not a third core path.
+- **Local Wi-Fi + Twingate**: Retained as optional exploratory diagnostic path only, not a primary core path.
 
 ## 8. Workloads
 
+### 8.1 Core PRE/POST transfer workloads
+
+| ID | Workload | Direction | Principal measurements |
+|---|---|---|---|
+| T1 | Normal Files upload | Upload | Chunk requests, chunk span ms, chunk span MB/s, HTTP status, integrity |
+| T3 | Authenticated Files full download | Download | Browser native stream duration ms, download MB/s, exact bytes, SHA-256 |
+
+### 8.2 Supplementary future workloads
+
 | ID | Workload | Principal measurements |
 |---|---|---|
-| T1 | Normal Files upload | hash time, upload time, commit time, rate, retries, integrity |
 | T2 | Private Vault encrypted upload | key/encrypt time, chunk rate/concurrency, commit, resume, integrity boundary |
-| T3 | Authenticated Files full download | TTFB, bytes, rate, integrity |
 | T4 | Vault full download/Preview | decrypt time, Range/chunk mapping, TTFF, seek, integrity |
 | T5 | Public Anywhere full download | Cloudflare TTFB/rate, integrity, interruption behavior |
 | T6 | HTTP Range transfer | status, requested/returned range, TTFB, seek latency, 206/416 |
@@ -220,83 +254,68 @@ latency or a local proxy is not equivalent.
 | T10 | Video hover/motion preview | startup, derivative/client work, stalls |
 | T11 | Interactive Preview playback | TTFF, seek, range count, stalls, total stalled time |
 
-## 9. Master Path x Workload x Size matrix
+## 9. Core controlled experiment matrix
 
-Legend: P=PLANNED; NA=NOT APPLICABLE by product contract. A planned cell becomes
-CONFIG-LIMITED when the running limit blocks it, or NOT TESTED when the required
-physical path/fixture cannot be produced. No cell is a result yet.
+The core PRE/POST experiment evaluates:
+- 2 network paths: P1 On-site Direct LAN, P2 Remote + Twingate
+- 3 file sizes: S (100 MB = 100,000,000 B), M (300 MB = 300,000,000 B), L (1 GB = 1,000,000,000 B)
+- 2 transfer directions: Files Upload (T1), Files Download (T3)
+- 3 repetitions (n=3)
 
-| Path | Workload | 100 MB | 300 MB | 1 GB | 5 GB | 10 GB |
-|---|---|---|---|---|---|---|
-| P1 | T1 Files upload | P | P | P | P | P |
-| P1 | T2 Vault upload | P | P | P | P | P |
-| P1 | T3 Files download | P | P | P | P | P |
-| P1 | T4 Vault download/Preview | P | P | P | P | P |
-| P1 | T5 Public download | NA | NA | NA | NA | NA |
-| P1 | T6 HTTP Range | P | P | P | P | P |
-| P1 | T7 image cover | P | P | P | P | P |
-| P1 | T8 GIF preview | P | P | P | P | P |
-| P1 | T9 video poster | P | P | P | P | P |
-| P1 | T10 hover preview | P | P | P | P | P |
-| P1 | T11 interactive playback | P | P | P | P | P |
-| P2 | T1 Files upload | P | P | P | P | P |
-| P2 | T2 Vault upload | P | P | P | P | P |
-| P2 | T3 Files download | P | P | P | P | P |
-| P2 | T4 Vault download/Preview | P | P | P | P | P |
-| P2 | T5 Public download | NA | NA | NA | NA | NA |
-| P2 | T6 HTTP Range | P | P | P | P | P |
-| P2 | T7 image cover | P | P | P | P | P |
-| P2 | T8 GIF preview | P | P | P | P | P |
-| P2 | T9 video poster | P | P | P | P | P |
-| P2 | T10 hover preview | P | P | P | P | P |
-| P2 | T11 interactive playback | P | P | P | P | P |
-| P3 | T1 Files upload | P | P | P | P | P |
-| P3 | T2 Vault upload | P | P | P | P | P |
-| P3 | T3 Files download | P | P | P | P | P |
-| P3 | T4 Vault download/Preview | P | P | P | P | P |
-| P3 | T5 Public download | NA | NA | NA | NA | NA |
-| P3 | T6 HTTP Range | P | P | P | P | P |
-| P3 | T7 image cover | P | P | P | P | P |
-| P3 | T8 GIF preview | P | P | P | P | P |
-| P3 | T9 video poster | P | P | P | P | P |
-| P3 | T10 hover preview | P | P | P | P | P |
-| P3 | T11 interactive playback | P | P | P | P | P |
-| P4 | T1 Files upload | NA | NA | NA | NA | NA |
-| P4 | T2 Vault upload | NA | NA | NA | NA | NA |
-| P4 | T3 Files download | NA | NA | NA | NA | NA |
-| P4 | T4 Vault download/Preview | NA | NA | NA | NA | NA |
-| P4 | T5 Public download | P | P | P | P | P |
-| P4 | T6 HTTP Range | NA | NA | NA | NA | NA |
-| P4 | T7 image cover | NA | NA | NA | NA | NA |
-| P4 | T8 GIF preview | NA | NA | NA | NA | NA |
-| P4 | T9 video poster | NA | NA | NA | NA | NA |
-| P4 | T10 hover preview | NA | NA | NA | NA | NA |
-| P4 | T11 interactive playback | NA | NA | NA | NA | NA |
+Total PRE-FIX target: 2 paths × 3 sizes × 2 directions × 3 repetitions = **36 PRE-FIX runs**.
+Total POST-FIX target: identical 2 paths × 3 sizes × 2 directions × 3 repetitions = **36 POST-FIX runs**.
+Overall study target: **72 measured runs**.
 
-P4 T6 is NA because the accepted Public Share contract currently has no Range.
-If future source changes that contract, it requires a separate reviewed task and
-new baseline; this study does not smuggle Range into Public Share.
+### 9.1 Current core matrix execution status
 
-### 9.1 Time-bounded execution priority
+| Path | Workload | 100 MB | 300 MB | 1 GB | 5 GB (Round 2) | 10 GB (Round 2) | Status |
+|---|---|---|---|---|---|---|---|
+| **P1 Onsite Direct LAN** | T1 Files upload | PENDING (n=3) | PENDING (n=3) | PENDING (n=3) | Deferred | CONFIG-LIMITED | 9 runs PENDING_ONSITE |
+| **P1 Onsite Direct LAN** | T3 Files download | PENDING (n=3) | PENDING (n=3) | PENDING (n=3) | Deferred | CONFIG-LIMITED | 9 runs PENDING_ONSITE |
+| **P2 Remote + Twingate** | T1 Files upload | **COMPLETE** (2.981 MB/s) | **COMPLETE** (3.080 MB/s) | **COMPLETE** (3.016 MB/s) | Deferred | CONFIG-LIMITED | **9 runs COMPLETE** |
+| **P2 Remote + Twingate** | T3 Files download | **COMPLETE** (4.799 MB/s) | **COMPLETE** (5.050 MB/s) | **COMPLETE** (4.829 MB/s) | Deferred | CONFIG-LIMITED | **9 runs COMPLETE** |
 
-The complete matrix above remains the authoritative study contract. Execution is
-prioritized without deleting any row:
+Core PRE-FIX Summary:
+- P2 Remote + Twingate PRE-FIX: **18/18 COMPLETE**
+- P1 Onsite Direct LAN PRE-FIX: **18/18 PENDING_ONSITE**
+- Core PRE-FIX overall: **18/36 COMPLETE**
+- POST-FIX: **0/36 NOT STARTED** (`PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`)
 
-- Round 1 uses S/M/L (100 MB, 300 MB, 1 GB), paths P1/P2/P4, and workloads
-  T1/T2/T3/T4/T5/T6/T9/T10/T11 where applicable. Its purpose is rapid
-  bottleneck localization.
-- P3 is included only when a genuine remote Twingate client/path exists. A local
-  simulation is not valid P3 evidence.
-- Round 2 uses 5 GB and 10 GB only after measured Production limits,
-  storage/time safety, Round 1 justification, and a permitting 10 GB
-  configuration probe.
-- Every 5 GB and 10 GB row remains reportable as measured, CONFIG-LIMITED, or
-  NOT TESTED. A time-, safety-, or configuration-based skip is not a failed
-  performance result.
+### 9.2 Time-bounded execution priority
 
-## 10. Metrics and calculations
+- Round 1 uses S/M/L (100 MB, 300 MB, 1 GB) across P1 and P2 for core T1 and T3 workloads.
+- Round 2 evaluates 5 GB and 10 GB only after P1 PRE-FIX baseline is captured and storage/time safety permit.
+- Supplementary workloads (T2, T4, T5, T6, T7–T11) remain planned for subsequent sub-studies; they are not required to declare the core two-path transfer baseline.
 
-### 10.1 Transfer metrics
+## 10. Validated measurement methods and metrics
+
+### 10.1 Upload measurement method correction
+
+The original plan assumed browser Resource Timing would capture upload XHRs. In the tested Production/browser path, upload XHRs were not exposed in Resource Timing entries.
+
+The validated method uses a temporary Human-controlled in-page `XMLHttpRequest` tracer (`window.__AEGIS_LFT_TRACE__`):
+- Patches `XMLHttpRequest.prototype.open` and `send` in tab memory.
+- Intercepts PUT requests to `/drive/api/files/uploads...`.
+- Records body bytes, chunk start/end timestamps, HTTP status, and duration.
+- Exposes control methods: `window.__AEGIS_LFT_TRACE__.startRun(...)` and `report()`.
+- Primary reliable throughput metric: **`CHUNK_SPAN_MBPS`** (bytes transferred divided by elapsed span across upload chunk requests).
+- Contamination note: The E2E timer includes human file-picker interaction delay and UI latency; E2E is supplementary/contaminated and MUST NOT be used as the primary transfer throughput.
+- Resource Timing upload capture is NOT a validated method for this path.
+
+### 10.2 Download measurement method correction
+
+Brave browser Files download intentionally uses native browser streaming (`<a>` link to `/api/files/:id/download` with `a.click()`) to avoid fetch()-buffering large whole files in tab memory.
+
+Because browser DevTools did not expose a suitable network request for this native streaming download, the validated method uses a PowerShell observer:
+- Waits for newly-created Brave `.crdownload` temporary file in the download directory.
+- Starts high-resolution Stopwatch.
+- Polls until the `.crdownload` file disappears.
+- Resolves the promoted final file by expected exact byte size.
+- Stops timing and computes decimal MB/s.
+
+*Harness defect note*: An early pilot script defect incorrectly expected `Unconfirmed XXXXX.crdownload` to rename without an extension; Brave promoted it to the target filename (e.g. `S-100MB.bin`). This was a test harness defect, not an AEGIS defect. The pilot attempt is excluded and was not counted as a controlled run.
+
+### 10.3 Metric definitions
 
 - exact bytes requested, sent, received, and integrity-verified;
 - wall-clock elapsed milliseconds;
@@ -305,61 +324,98 @@ prioritized without deleting any row:
 - browser-reported and server-observed rates, labelled by observer;
 - HTTP status, retry count, resumed byte offset/chunk set, outcome;
 - source and received SHA-256 for non-Vault payloads;
-- Vault server ciphertext-integrity result and client plaintext-integrity result,
-  kept distinct.
+- Vault server ciphertext-integrity result and client plaintext-integrity result, kept distinct;
+- TTFB, TTFF, poster/motion latencies, and seek latencies for media.
 
-### 10.2 HTTP/media metrics
+## 11. Measured evidence and statistical summary
 
-- TTFB from request start to response start;
-- TTFF from explicit open/play intent to first rendered frame;
-- poster-ready and thumbnail-ready latency;
-- hover intent to first moving frame;
-- seek intent to first post-seek frame;
-- HTTP 206/416 status, requested range, returned range, bytes returned;
-- Range request count and overfetch ratio;
-- stall count, total stalled milliseconds, longest stall, playback duration;
-- cold-cache and warm-cache result;
-- derivative queue wait, generation time, source bytes read, output bytes.
+All throughput values are decimal MB/s (`bytes / 1,000,000 / seconds`).
+Executed by Human Owner under Remote + Twingate conditions.
 
-### 10.3 Client resources
+### 11.1 Files upload results (P2 Remote + Twingate)
 
-- total/client browser CPU where practical;
-- browser working set/private memory;
-- hash duration and hash MB/s;
-- Vault encryption/decryption duration and crypto MB/s;
-- device power mode and browser version;
-- long tasks and main-thread blocking where browser tooling exposes them.
+Fixtures: S-100MB (100,000,000 B, 6 chunks), M-300MB (300,000,000 B, 18 chunks), L-1GB (1,000,000,000 B, 60 chunks: 59 × 16,777,216 B + 1 × 10,144,256 B).
 
-### 10.4 Server resources
+| Fixture | Run | Chunk Requests | Chunk Bytes | HTTP Status | Chunk Span (ms) | Throughput (MB/s) |
+|---|---|---:|---:|---|---:|---:|
+| **100 MB** | r01 | 6 | 100,000,000 | all 200 | 33,541 | 2.981 |
+| 100 MB | r02 | 6 | 100,000,000 | all 200 | 35,284 | 2.834 |
+| 100 MB | r03 | 6 | 100,000,000 | all 200 | 32,681 | 3.060 |
+| **100 MB Summary** | **n=3** | **Min: 2.834** | **Median: 2.981** | **Max: 3.060** | **Mean: ~2.958** | **PASS** |
+| **300 MB** | r01 | 18 | 300,000,000 | all 200 | 97,389 | 3.080 |
+| 300 MB | r02 | 18 | 300,000,000 | all 200 | 96,675 | 3.103 |
+| 300 MB | r03 | 18 | 300,000,000 | all 200 | 100,773 | 2.977 |
+| **300 MB Summary** | **n=3** | **Min: 2.977** | **Median: 3.080** | **Max: 3.103** | **Mean: ~3.053** | **PASS** |
+| **1 GB** | r01 | 60 | 1,000,000,000 | all 200 | 329,883 | 3.031 |
+| 1 GB | r02 | 60 | 1,000,000,000 | all 200 | 332,576 | 3.007 |
+| 1 GB | r03 | 60 | 1,000,000,000 | all 200 | 331,597 | 3.016 |
+| **1 GB Summary** | **n=3** | **Min: 3.007** | **Median: 3.016** | **Max: 3.031** | **Mean: ~3.018** | **PASS** |
 
-- host CPU, memory, load average;
-- disk read/write MB/s, IOPS, latency, utilization, and iowait;
-- Drive/Gateway/connector container CPU and memory;
-- Drive restart/OOM state;
-- media queue depth/running count and cache state;
-- FFmpeg child duration, exit class, and observed process metrics;
-- cache hit/miss classification where safely observable.
+Upload Controlled Verdict:
+- `P2_REMOTE_TWINGATE_FILES_UPLOAD_PRE_FIX=COMPLETE`
+- 100 MB median = 2.981 MB/s; 300 MB median = 3.080 MB/s; 1 GB median = 3.016 MB/s.
+- `SUSTAINED_UPLOAD_THROUGHPUT≈3.0 MB/s` across the tested range.
+- `FILE_SIZE_DEPENDENT_DEGRADATION=NOT_OBSERVED` within 100 MB to 1 GB.
+- `REPRODUCIBLE=YES`.
 
-### 10.5 Network context
+### 11.2 Files download results (P2 Remote + Twingate)
 
-- RTT and packet loss from safe bounded probes;
-- client interface, negotiated link rate, Wi-Fi RSSI where available;
-- Twingate Direct/Relayed/Unknown;
-- Cloudflare path classification;
-- no synthetic speed-test result substitutes for application workload evidence.
+| Fixture | Run | Elapsed (ms) | Download (MB/s) | Integrity Result |
+|---|---|---:|---:|---|
+| **100 MB** | r01 | 20,839 | 4.799 | Exact size match |
+| 100 MB | r02 | 23,286 | 4.294 | Exact size match |
+| 100 MB | r03 | 18,992 | 5.265 | Exact size match |
+| **100 MB Summary** | **n=3** | **Min: 4.294** | **Median: 4.799** | **Max: 5.265 (Mean: ~4.786)** |
+| **300 MB** | r01 | 59,410 | 5.050 | Exact size match |
+| 300 MB | r02 | 61,937 | 4.844 | Exact size match |
+| 300 MB | r03 | 49,321 | 6.083 | Exact size match |
+| **300 MB Summary** | **n=3** | **Min: 4.844** | **Median: 5.050** | **Max: 6.083 (Mean: ~5.326)** |
+| **1 GB** | r01 | 207,080 | 4.829 | Exact size match |
+| 1 GB | r02 | 205,192 | 4.873 | Exact size match |
+| 1 GB | r03 | 214,789 | 4.656 | Exact size match |
+| **1 GB Summary** | **n=3** | **Min: 4.656** | **Median: 4.829** | **Max: 4.873 (Mean: ~4.786)** |
 
-## 11. Replication and statistical summary
+Download Controlled Verdict:
+- `P2_REMOTE_TWINGATE_FILES_DOWNLOAD_PRE_FIX=COMPLETE`
+- 100 MB median = 4.799 MB/s; 300 MB median = 5.050 MB/s; 1 GB median = 4.829 MB/s.
+- `FILE_SIZE_DEPENDENT_DEGRADATION=NOT_OBSERVED` within 100 MB to 1 GB.
 
-- Warm-up: one preliminary run where warm-up cannot mutate authoritative data or
-  is explicitly a disposable application action.
-- 100 MB and 300 MB: minimum three measured repetitions.
-- 1 GB: minimum three when time/capacity permits; otherwise record shortfall.
-- 5 GB and 10 GB: one or more; state sample count and practical limitation.
-- Alternate path order where practical to reduce time-of-day bias.
-- Record every run. Never discard an outlier without preserving it and stating
-  the exclusion rule before looking at the result.
+### 11.3 Upload vs download asymmetry observation
+
+Under the same Remote + Twingate client environment:
+
+| Size | Download Median (MB/s) | Upload Median (MB/s) | Ratio (Download / Upload) | Delta |
+|---|---:|---:|---:|---|
+| 100 MB | 4.799 | 2.981 | ~1.61x | Download ~61% faster |
+| 300 MB | 5.050 | 3.080 | ~1.64x | Download ~64% faster |
+| 1 GB | 4.829 | 3.016 | ~1.60x | Download ~60% faster |
+
+Observation:
+- Files download throughput was consistently roughly 60–64% higher (~1.6x) than Files upload throughput across all three tested fixtures.
+- Governance classification:
+  - Allowed: "Under the tested Remote + Twingate condition, Files download throughput was consistently higher than Files upload throughput across 100 MB, 300 MB, and 1 GB fixtures."
+  - NOT allowed: "Twingate is not the bottleneck."
+  - NOT allowed: "The upload code is definitively the bottleneck."
+  - Formal finding: `TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN`; `UPLOAD_SPECIFIC_BOTTLENECK=STRONGER_CANDIDATE`; `ROOT_CAUSE=NOT_PROVEN`.
+
+### 11.4 Supporting server telemetry during 1 GB upload (r01)
+
+- Drive container snapshot: CPU ≈ 6.97%, RAM ≈ 94.93 MiB / 7.035 GiB (~1.32%).
+- Sampled iostat: low device utilization and await; no sustained queue/saturation pattern in captured screenshots.
+- Classification:
+  - `CPU_SATURATION=NOT_SUPPORTED_BY_OBSERVED_EVIDENCE`
+  - `MEMORY_PRESSURE=NOT_SUPPORTED_BY_OBSERVED_EVIDENCE`
+  - `STORAGE_SATURATION=NOT_SUPPORTED_BY_SAMPLED_EVIDENCE`
+- Strict limitations:
+  - The iostat screenshots were sampled portions of the timeline, NOT complete-run telemetry.
+  - Do NOT write: `STORAGE_BOTTLENECK=PROVEN_FALSE`.
+  - Docker stats Block I/O is cumulative and must not be described as per-run instantaneous disk throughput.
+
+### 11.5 Replication and statistical summary
+
+- Minimum three measured repetitions per condition (n=3).
 - Summaries: sample count, median, min, max, and optional arithmetic mean.
-- Report both cold and warm media/cache states; never mix them in one median.
+- Report both cold and warm media/cache states separately; never mix them in one median.
 - A CONFIGURED_LIMIT_TEST has no throughput statistic.
 
 ## 12. Control variables
@@ -370,7 +426,7 @@ Each run records:
 - client identifier, OS, browser/version, device power mode;
 - interface, Ethernet/Wi-Fi, link rate/RSSI, local/remote;
 - Twingate ON/OFF and Direct/Relayed/Unknown;
-- path class P1–P4;
+- path class P1/P2;
 - server image, source SHA, container runtime;
 - storage device/filesystem, free bytes, and cache state;
 - running transfer/media limits measured at B0;
@@ -434,31 +490,29 @@ local evidence only because URLs/headers may carry credentials.
 
 ## 14. Hypotheses
 
-| ID | Hypothesis | Supporting evidence | Falsifying evidence | Distinguishing measurement |
-|---|---|---|---|---|
-| H1 | Twingate path is limiting | P2/P3 materially slower than paired P1 while client/server/storage remain below saturation | Paired P1/P2/P3 similar or P1 equally slow | Same fixture/workload/client, path only; Direct vs Relayed |
-| H2 | Wi-Fi is limiting | P2 slower than Ethernet P1 with poor RSSI/link and no server saturation | Wi-Fi and Ethernet equal; P3 alone slow | Ethernet/Wi-Fi pair plus link/RSSI/RTT |
-| H3 | Server storage I/O is limiting | Throughput tracks disk utilization/latency/iowait; LAN also slow | Disk has headroom while throughput remains low | iostat/pidstat/container samples aligned to run |
-| H4 | Browser hashing is limiting | Checking/hash stage dominates; client CPU saturated; network idle | Hash small relative to total; client CPU/headroom | Separate hash_ms/hash_mbps from upload_ms |
-| H5 | Vault client crypto is limiting | T2/T4 slower than same-path T1/T3; client crypto CPU/time dominates | Vault and Files equal after byte/framing adjustment | Same source/path with client crypto timings |
-| H6 | Upload chunk size limits throughput | High request-gap/overhead per byte; controlled chunk-only experiment improves rate without new saturation | Rate unchanged or worsens | Future one-variable chunk experiment after authorization |
-| H7 | Low upload concurrency limits throughput | One stream under-fills path; bounded increase improves rate and resource use stays safe | No gain or CPU/memory/edge pressure rises | Future one-variable concurrency experiment |
-| H8 | Cloudflare Public path limits throughput | P4 slower than comparable P1/P3 full download with origin/server headroom | P4 comparable, or origin/storage equally slow | Same fixture T3/T5, path and auth surface separated |
-| H9 | Gateway/proxy behavior limits throughput | Gateway-observed delay/temp I/O/rate diverges from Drive read | Direct Drive path equally slow; proxy shows no added delay | Upstream vs edge timing and container/resource samples |
-| H10 | Range behavior causes video startup delay | Many/large/416 ranges, high overfetch, TTFF/seek correlate with range sequence | Efficient 206 sequence but TTFF remains high | DevTools Range log + server timing + TTFF |
-| H11 | Media queue causes cover/poster delay | Queue wait dominates cold poster-ready latency and rises with visible work | Queue near zero while generation/transfer dominates | queue enqueued/start/finish timestamps |
-| H12 | FFmpeg processing is limiting | FFmpeg duration/CPU dominates, queue worker occupied | Generation fast; network/browser dominates | child duration/CPU/read bytes plus output-ready time |
-| H13 | Cache misses dominate repeat latency | Cold slow, warm fast with identical path and cache hit | Warm remains slow or cache hit absent | paired cold/warm, cache key/state |
-| H14 | Disk reads dominate large-video Preview | Read MB/s/iowait and source read scale with TTFF/stalls | Disk headroom; client/network/decoder correlates instead | disk samples, source bytes read, range overfetch |
-| H15 | Bottleneck changes by size | Small files overhead-bound; large files network/storage/crypto-bound with breakpoints | Same limiting stage and normalized rate across sizes | full size ladder with stage/resource decomposition |
+| ID | Hypothesis | Supporting evidence | Falsifying evidence | Distinguishing measurement | Status / Current Evidence |
+|---|---|---|---|---|---|
+| H1 | Twingate path is limiting | P2 materially slower than paired P1 while client/server/storage remain below saturation | Paired P1/P2 similar or P1 equally slow; download over Twingate reaches ~5.0 MB/s while upload is ~3.0 MB/s | Paired P1 vs P2 comparison; Direct vs Relayed | **TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN**; UPLOAD_SPECIFIC_BOTTLENECK=STRONGER_CANDIDATE |
+| H2 | Wi-Fi is limiting | Wi-Fi slower than Ethernet P1 with poor RSSI/link and no server saturation | Wi-Fi and Ethernet equal | Ethernet/Wi-Fi pair plus link/RSSI/RTT | Exploratory diagnostic |
+| H3 | Server storage I/O is limiting | Throughput tracks disk utilization/latency/iowait; LAN also slow | Disk has headroom while throughput remains low | iostat/pidstat/container samples aligned to run | **STORAGE_BOTTLENECK=NOT_PROVEN**; sampled iostat showed low device util/await |
+| H4 | Browser hashing is limiting | Checking/hash stage dominates; client CPU saturated; network idle | Hash small relative to total; client CPU/headroom | Separate hash_ms/hash_mbps from upload_ms | NOT PROVEN |
+| H5 | Vault client crypto is limiting | T2/T4 slower than same-path T1/T3; client crypto CPU/time dominates | Vault and Files equal after byte/framing adjustment | Same source/path with client crypto timings | **CLIENT_CRYPTO_BOTTLENECK=NOT_PROVEN** |
+| H6 | Upload chunk size limits throughput | High request-gap/overhead per byte; controlled chunk-only experiment improves rate without new saturation | Rate unchanged or worsens | Future one-variable chunk experiment after authorization | Future hypothesis |
+| H7 | Low upload concurrency limits throughput | One stream under-fills path; bounded increase improves rate and resource use stays safe | No gain or CPU/memory/edge pressure rises | Future one-variable concurrency experiment | Future hypothesis |
+| H8 | Cloudflare Public path limits throughput | P4 slower than comparable P1 full download with origin/server headroom | P4 comparable, or origin/storage equally slow | Same fixture T3/T5, path and auth surface separated | **CLOUDFLARE_BOTTLENECK=NOT_PROVEN** |
+| H9 | Gateway/proxy behavior limits throughput | Gateway-observed delay/temp I/O/rate diverges from Drive read | Direct Drive path equally slow; proxy shows no added delay | Upstream vs edge timing and container/resource samples | NOT PROVEN |
+| H10 | Range behavior causes video startup delay | Many/large/416 ranges, high overfetch, TTFF/seek correlate with range sequence | Efficient 206 sequence but TTFF remains high | DevTools Range log + server timing + TTFF | Supplementary |
+| H11 | Media queue causes cover/poster delay | Queue wait dominates cold poster-ready latency and rises with visible work | Queue near zero while generation/transfer dominates | queue enqueued/start/finish timestamps | Supplementary |
+| H12 | FFmpeg processing is limiting | FFmpeg duration/CPU dominates, queue worker occupied | Generation fast; network/browser dominates | child duration/CPU/read bytes plus output-ready time | Supplementary |
+| H13 | Cache misses dominate repeat latency | Cold slow, warm fast with identical path and cache hit | Warm remains slow or cache hit absent | paired cold/warm, cache key/state | Supplementary |
+| H14 | Disk reads dominate large-video Preview | Read MB/s/iowait and source read scale with TTFF/stalls | Disk headroom; client/network/decoder correlates instead | disk samples, source bytes read, range overfetch | Supplementary |
+| H15 | Bottleneck changes by size | Small files overhead-bound; large files network/storage/crypto-bound with breakpoints | Same limiting stage and normalized rate across sizes; upload ~3.0 MB/s and download ~4.8–5.1 MB/s flat from 100 MB to 1 GB | full size ladder with stage/resource decomposition | NOT OBSERVED between 100 MB and 1 GB |
 
 These hypotheses are not mutually exclusive.
 
-### 14.1 First-day preliminary classification
+### 14.1 Preliminary classification rule
 
-After Round 1, report P1/P2 Files upload, Vault upload, and Files download Mbps;
-P4 Public download Mbps; P1/P2 video TTFF; and peak server CPU, server iowait,
-and client CPU. Select exactly one preliminary classification:
+After Round 1 (P1 and P2 S/M/L complete), report P1/P2 Files upload and download Mbps, peak server CPU, server iowait, and client CPU. Select exactly one preliminary classification:
 
 ~~~text
 NETWORK_PATH_CANDIDATE
@@ -469,8 +523,7 @@ MULTIPLE_CANDIDATES
 INSUFFICIENT_EVIDENCE
 ~~~
 
-This output determines measurement priority only. ROOT_CAUSE=NOT_PROVEN
-remains mandatory until sufficient evidence supports a causal finding.
+This output determines measurement priority only. `ROOT_CAUSE=NOT_PROVEN` remains mandatory until sufficient evidence supports a causal finding.
 
 ## 15. Root-cause decision framework
 
@@ -484,10 +537,8 @@ flowchart TD
   E -- No --> F{Disk/iowait/container saturated?}
   F -- Yes --> FS[Storage/server candidate: H3/H14]
   F -- No --> FA[Application framing/proxy candidate: H6/H7/H9]
-  D -- No --> G{P2/P3 slow only?}
-  G -- Yes --> H{Wi-Fi degradation present?}
-  H -- Yes --> HW[Wi-Fi candidate: H2]
-  H -- No --> HT[Twingate/path candidate: H1; split Direct/Relayed]
+  D -- No --> G{P2 slow only?}
+  G -- Yes --> H{Twingate path candidate: H1; split Direct/Relayed}
   G -- No --> I{P4 slow only?}
   I -- Yes --> IC[Cloudflare/gateway candidate: H8/H9]
   I -- No --> J{Full download fast, Preview slow?}
@@ -501,7 +552,7 @@ Interpretation examples:
 
 - LAN slow + Twingate slow + Cloudflare slow: inspect client, application,
   server, and storage before blaming overlay paths.
-- LAN fast + Twingate slow: investigate Wi-Fi/Twingate/private WAN path.
+- LAN fast + Twingate slow: investigate Twingate/private WAN path.
 - LAN fast + Cloudflare slow: investigate Gateway/cloudflared/Cloudflare path.
 - Files fast + Vault slow: inspect client crypto and Vault chunk pipeline.
 - Download fast + upload slow: inspect hash/encrypt/chunk/write/commit stages.
@@ -513,16 +564,17 @@ The tree selects a candidate class, not a final claim.
 
 No tuning begins until:
 
-1. baseline raw evidence and summaries are reviewed;
-2. one hypothesis has differentiating evidence;
-3. proposed change preserves security, integrity, storage reserve, zero-knowledge,
+1. Baseline raw evidence and summaries are complete across both P1 and P2;
+2. `PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX` is satisfied;
+3. One hypothesis has differentiating evidence;
+4. Proposed change preserves security, integrity, storage reserve, zero-knowledge,
    RBAC, fail-secure behavior, and accepted runtime architecture;
-4. rollback and acceptance metrics are written first;
-5. Human Owner authorizes a separate implementation task.
+5. Rollback and acceptance metrics are written first;
+6. Human Owner authorizes a separate implementation task.
 
 Potential experiments such as chunk size, concurrency, worker count, cache
 profile, proxy timeout, or network configuration are future tasks. They are not
-recommendations in this Draft.
+recommendations in this study.
 
 ## 17. Report-ready table templates
 
@@ -532,8 +584,8 @@ recommendations in this Draft.
 | 2 Test environment | Timestamp, source SHA/image, client OS/browser, server/runtime, storage, limits, concurrent load |
 | 3 Transfer fixtures | Class, filename, exact bytes, SHA-256, generator, cleanup |
 | 4 Media fixtures | Class, container, codecs, resolution, fps, duration, bitrate, bytes, SHA-256 |
-| 5 Upload throughput | Path, workload, size, run, hash/crypto/upload/commit ms, MB/s, Mbps, result |
-| 6 Download throughput | Path, workload, size, run, TTFB, elapsed, MB/s, integrity |
+| 5 Upload throughput | Path, workload, size, run, chunk requests, chunk bytes, chunk span ms, MB/s, Mbps, result |
+| 6 Download throughput | Path, workload, size, run, elapsed ms, MB/s, integrity |
 | 7 LAN vs Twingate vs Cloudflare | Paired fixture/workload, path medians, min/max, delta, Direct/Relay, limitation |
 | 8 Media TTFF/buffering | Path, fixture, cache state, poster/hover/TTFF/seek ms, stalls/count/ms, ranges |
 | 9 Server resources | Run ID, CPU/memory, disk MB/s/IOPS/iowait, container stats, queue/FFmpeg/cache |
@@ -548,9 +600,9 @@ No empty template row is a result. Report prose cites run IDs and evidence files
 | Chart | X | Y | Series/facets | Required annotation |
 |---|---|---|---|---|
 | File size vs throughput | exact bytes, log-friendly | median MB/s | path and workload | min/max whiskers, n |
-| Path vs throughput | P1–P4 | median MB/s | size/workload | NOT TESTED and CONFIG-LIMITED excluded, not zero |
+| Path vs throughput | P1–P2 | median MB/s | size/workload | NOT TESTED and CONFIG-LIMITED excluded, not zero |
 | File size vs TTFF | exact bytes | median TTFF ms | codec/path/cache | codec/bitrate labels |
-| Path vs TTFB | P1–P4 | median TTFB ms | workload/size | n and min/max |
+| Path vs TTFB | P1–P2 | median TTFB ms | workload/size | n and min/max |
 | Server iowait vs throughput | iowait % | MB/s | workload/path | run IDs, no causal trendline without adequate n |
 | Preview before/after | baseline/candidate | latency/stall metric | fixture/path | only after controlled optimization |
 
@@ -561,8 +613,8 @@ CONFIG-LIMITED values remain categorical gaps, never numeric zeroes.
 
 - The PC server, storage device, client, Wi-Fi environment, ISP, Twingate route,
   and Cloudflare route limit generalizability.
-- Human browser timing introduces observer variance; machine timing should be
-  paired where possible.
+- Human browser timing introduces observer variance; the in-page XHR tracer isolates
+  chunk network time (`CHUNK_SPAN_MBPS`), while E2E time includes UI interaction.
 - Browser caches, media derivative cache, and OS filesystem cache are different
   states and must be labelled.
 - Real multi-GB media generation is expensive; fewer runs and NOT TESTED are
@@ -571,30 +623,46 @@ CONFIG-LIMITED values remain categorical gaps, never numeric zeroes.
   media behavior independently of file size.
 - Public Share has no Range, so its full-download result cannot be generalized
   to interactive preview.
-- Historical rates were not collected under this matrix; they remain context,
-  not baseline samples.
-- Current Production configuration is unknown until Phase B0; source defaults
-  must not be substituted.
+- Historical rates (such as PR #61) were collected under earlier application baselines;
+  they remain longitudinal context, not baseline samples for current comparison.
+- Sampled iostat observations showed low device utilization and await during 1 GB upload,
+  but full-run continuous disk telemetry was not captured (`STORAGE_SATURATION=NOT_SUPPORTED_BY_SAMPLED_EVIDENCE`; storage is NOT proven false as a potential bottleneck).
 - Root cause, safe tuning values, and before/after improvement remain NOT PROVEN.
 
-## 20. Study truth at Draft creation
+## 20. Study truth at Remote Pre-Fix reconciliation
 
 ~~~text
+TASK=LFT-PERF-1
+STATUS=IN_PROGRESS / REMOTE PRE-FIX MEASUREMENTS COMPLETE / ONSITE PENDING
 PRODUCTION_MUTATED=NO
 PERFORMANCE_SETTINGS_CHANGED=NO
+OPTIMIZATION_EXECUTED=NO
+REMOTE_B0=COMPLETE
+REMOTE_UPLOAD_100MB_N=3
+REMOTE_UPLOAD_100MB_MEDIAN_MBPS=2.981
+REMOTE_UPLOAD_300MB_N=3
+REMOTE_UPLOAD_300MB_MEDIAN_MBPS=3.080
+REMOTE_UPLOAD_1GB_N=3
+REMOTE_UPLOAD_1GB_MEDIAN_MBPS=3.016
+REMOTE_DOWNLOAD_100MB_N=3
+REMOTE_DOWNLOAD_100MB_MEDIAN_MBPS=4.799
+REMOTE_DOWNLOAD_300MB_N=3
+REMOTE_DOWNLOAD_300MB_MEDIAN_MBPS=5.050
+REMOTE_DOWNLOAD_1GB_N=3
+REMOTE_DOWNLOAD_1GB_MEDIAN_MBPS=4.829
+REMOTE_CONTROLLED_RUNS=18
+REMOTE_PRE_FIX=COMPLETE
+ONSITE_PRE_FIX=PENDING
+ONSITE_PENDING_RUNS=18
+POST_FIX=NOT_STARTED
+PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX
 ROOT_CAUSE=NOT_PROVEN
-TWINGATE_BOTTLENECK=NOT_PROVEN
+TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN
 CLOUDFLARE_BOTTLENECK=NOT_PROVEN
 STORAGE_BOTTLENECK=NOT_PROVEN
 CLIENT_CRYPTO_BOTTLENECK=NOT_PROVEN
-PRODUCTION_VALUES_REMEASURE_REQUIRED=YES
-PUBLIC_SHARE_FUNCTIONALITY=RESTORED
-PUBLIC_SHARE_EXTERNAL_WITHOUT_TWINGATE=PASS
-IMAGE_DOWNLOAD=PASS
-LARGE_VIDEO_DOWNLOAD=PASS
-REVOCATION=PASS
-POST_REVOKE_BLOCK=PASS
-CLOUDFLARE_1033=RESOLVED
+FINAL_RECEIPT_CREATED=NO
+NEXT_GATE=P1_ONSITE_DIRECT_LAN_PRE_FIX
 ~~~
 
 ## 21. Evidence source register
@@ -605,6 +673,7 @@ Canonical/history:
 - Obsidian_AEGIS_Vault/AEGIS_Knowledge/concepts/Large_File_Transfer_V2.md
 - Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-public-share-architecture.md
 - Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md
+- Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-02_032549_kla_idea1-lft-v2-e3-vault-video-preview.md (PR #61)
 - Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-16_063734_kla_idea1-secure-share-post-closeout-followups.md
 - Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-16_043452_kla_public-share-s5-12-final-closeout.md
 - Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-18_013000_kla_idea1-files-upload-ux-refresh.md

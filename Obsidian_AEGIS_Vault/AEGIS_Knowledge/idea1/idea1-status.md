@@ -23,20 +23,41 @@ edit_policy: owner-writable
 | Branch | docs/idea1-transfer-media-performance-study |
 | PR | #216 (Draft) |
 | Owner | kla |
-| State | **PLANNED / DRAFT** |
-| Scope | Historical evidence reconciliation, reproducible measurement design, Human-run Production packet; no benchmark execution or tuning |
+| State | **IN_PROGRESS / REMOTE PRE-FIX MEASUREMENTS COMPLETE / ONSITE PENDING** |
+| Scope | Remote PRE-FIX evidence reconciliation (18 runs complete), B0 baseline recorded, upload method corrected; P1 On-site Direct LAN PRE-FIX pending (18 runs); performance mutation blocked |
 | Design | IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-25-idea1-transfer-media-performance-study-design.md |
 | Plan | IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-25-idea1-transfer-media-performance-measurement-plan.md |
-| Production mutation allowed | **NO** |
-| Current result | ROOT_CAUSE=NOT_PROVEN; Twingate, Cloudflare, storage, and client crypto bottlenecks all NOT_PROVEN |
-| Next gate | Human Owner review of the study design and measurement plan before any Production baseline |
+| Production mutation allowed | **NO** (`PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`) |
+| Current result | REMOTE_PRE_FIX=COMPLETE (18/18 runs: Upload ~3.0 MB/s sustained; Download ~4.8–5.1 MB/s; Asymmetry ~1.6x download advantage); ROOT_CAUSE=NOT_PROVEN; TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN; CLOUDFLARE_BOTTLENECK=NOT_PROVEN; STORAGE_BOTTLENECK=NOT_PROVEN; CLIENT_CRYPTO_BOTTLENECK=NOT_PROVEN |
+| Next gate | P1_ONSITE_DIRECT_LAN_PRE_FIX (18 runs: Files Upload S/M/L ×3, Files Download S/M/L ×3 on wired Ethernet / VLAN30) |
 
 This task operationalizes the existing LFT-PERF-1 backlog and consolidates the
 separately recorded FILES-TRANSFER-PERF-1 plus PR187/PR212 deferred transfer and
-media-preview performance scope. Historical rates and functional acceptance are
-preserved as context, not silently promoted to controlled benchmark results.
-Current Production limits/settings require re-measurement. No final receipt is
-created while the study remains Draft.
+media-preview performance scope.
+
+Phase B0 Production baseline is executed (2026-09-25T14:35:03Z), confirming Drive
+`aegis-prod-drive:vault-stage-d-fix-f8c876754dd6` (healthy, restarts 0, oom false),
+SSD-backed Data Lake at 77% (61.1 GB total, 13.4 GB available), Files 5 GiB logical
+limit, and Vault limits endpoint `/drive/api/vault/uploads/limits`.
+
+P2 Remote + Twingate PRE-FIX is complete across 18 controlled runs:
+- Files Upload (in-page XHR chunk span): 100 MB median 2.981 MB/s, 300 MB median 3.080 MB/s, 1 GB median 3.016 MB/s (sustained ~3.0 MB/s; no file-size degradation).
+- Files Download (PowerShell `.crdownload` observer): 100 MB median 4.799 MB/s, 300 MB median 5.050 MB/s, 1 GB median 4.829 MB/s (sustained ~4.8–5.1 MB/s).
+- Download throughput is consistently 60–64% higher (~1.6x) than upload throughput across all fixtures.
+- Sampled server telemetry during 1 GB upload: CPU ~6.97%, RAM ~1.32%, low iostat utilization/await (`STORAGE_SATURATION=NOT_SUPPORTED_BY_SAMPLED_EVIDENCE`; storage bottleneck not proven false).
+- Status: `TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN`; `UPLOAD_SPECIFIC_BOTTLENECK=STRONGER_CANDIDATE`; `ROOT_CAUSE=NOT_PROVEN`.
+
+Immediate next gate is P1 Onsite Direct LAN PRE-FIX (18 runs: Upload S/M/L ×3, Download S/M/L ×3).
+All performance mutations, parameter changes, and code optimizations remain strictly blocked
+pending completion of the P1 baseline. PR #216 remains open in Draft with zero final receipts.
+
+### Session Register — LFT-PERF-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| LFT-PERF-1-S1 | Establish study design, measurement plan, and preliminary matrix | PASS / DRAFT | Initial design and measurement plan committed | `0d471942` | PASS | Production B0, PRE-FIX measurements | Human review of measurement plan |
+| LFT-PERF-1-S2 | Reconcile B0 baseline, upload method correction (XHR tracer), 18 controlled remote runs (Upload ~3.0 MB/s, Download ~4.8–5.1 MB/s), upload vs download asymmetry (~1.6x), mutation gate enforcement | PASS / IN PROGRESS | B0 baseline executed; 18 remote runs complete; docs reconciled; no mutation | Docs reconciliation checkpoint | PASS | P1 Onsite Direct LAN Pre-Fix (18 runs), bottleneck analysis, post-fix matrix | P1 Onsite Direct LAN Pre-Fix baseline |
+
 
 ## Completed Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
 
