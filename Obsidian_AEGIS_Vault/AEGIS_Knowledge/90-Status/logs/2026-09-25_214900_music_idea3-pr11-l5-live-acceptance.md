@@ -10,19 +10,25 @@ edit_policy: append-by-new-file
 
 # Task Receipt — IDEA3 PR11 Phase 4 L5 live acceptance
 
-> [!important] Documentation-only closeout of owner-run L5 Attempt #4. The live run mutated Production and passed; this repository task performs no Production mutation. L5 is left APPLIED, L4 is untouched, Pboo_5G autoconnect remains `no`, and L6a is NOT started.
+> [!important] Two different things are recorded here
+> **Owner-run L5 Attempt #4 DID mutate Production and PASSED.**
+> **This closeout task is documentation-only and performed NO Production mutation.**
+> L5 is left APPLIED, L4 is untouched, Pboo_5G autoconnect remains `no`, and L6a is NOT started.
 
-## Task
+## What changed
 
-Close out the successful AEGIS IDEA3 PR11 Phase 4 L5 trusted-NTP live acceptance while preserving the complete failed-attempt history and the exact evidence boundary.
+- Records the authoritative L5 live acceptance result from owner-run Attempt #4: `L5_LIVE_ACCEPTANCE = PROVEN`.
+- Preserves Attempts #1, #2 and #3 as `FAIL / CONSUMED`; Attempt #4 is `PASS / CONSUMED`.
+- Adds this new immutable receipt and a new newest L5 live-acceptance section in `idea3-status.md`.
+- No implementation, runtime, network, systemd, chrony, NetworkManager, L4, or L6a file is changed by this closeout.
 
-## Branch / base
+### Branch / base
 
 - Branch: `docs/idea3-pr11-l5-live-acceptance`
-- Base / successful live main: `87a1b6a252c5d862f3da9176c710151095579c0a`
+- Base and successful live main: `87a1b6a252c5d862f3da9176c710151095579c0a`
 - Main had not advanced beyond that SHA when this closeout branch was created.
 
-## Successful live evidence
+### Successful live evidence
 
 - Evidence root: `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-25-l5-20260925-212812`
 - Runner: `/home/kittipat/Workspace/idea3-p4-evidence/l5-owner-run/run-l5-owner.sh`
@@ -34,7 +40,7 @@ Close out the successful AEGIS IDEA3 PR11 Phase 4 L5 trusted-NTP live acceptance
 - Rendered T6 contract SHA-256: `3d0b94b36d05b209d87800d5bc1cdb58a8a782162b1b4fab9796cd901be730e5`
 - Trusted upstream: `2.arch.pool.ntp.org`
 
-## Authorization
+### Authorization
 
 Attempt #4 used owner comment ID `5833985188`:
 
@@ -42,7 +48,7 @@ Attempt #4 used owner comment ID `5833985188`:
 
 Authorization and K3 were valid for exactly one supervised live mutation. Production mutation occurred, therefore Attempt #4 authorization is consumed. No automatic retry exists or is needed.
 
-## Historical attempt register
+### Historical attempt register
 
 | Attempt | Evidence | Result | Authorization | Acceptance truth |
 |---|---|---|---|---|
@@ -53,10 +59,9 @@ Authorization and K3 were valid for exactly one supervised live mutation. Produc
 
 Attempt #3 remains a failed consumed attempt. Its Windows witness files were produced by PowerShell `Tee-Object` as UTF-16LE with CRLF; the frozen runner did not properly ingest the AP `TARGET` field. Do not rewrite Attempt #3 as PASS.
 
-## Attempt #4 live result
+### Attempt #4 live result
 
-### PRE
-
+PRE:
 - TrustedClock `SYNCED`
 - `maxerror_us=74000`
 - `adjtimex_ret=0`
@@ -66,8 +71,7 @@ Attempt #3 remains a failed consumed attempt. Its Windows witness files were pro
 - `CAPTURE_PRE=COMPLETE`
 - `SHA256=PASS`
 
-### APPLY
-
+APPLY:
 - `PRODUCTION_MUTATION_PERFORMED=YES`
 - `L5_CLOCK_READY=YES`
 - `reason=OK`
@@ -76,42 +80,27 @@ Attempt #3 remains a failed consumed attempt. Its Windows witness files were pro
 - `CHRONYD_STATUS=ACTIVE`
 - `TIMESYNCD_STATUS=INACTIVE`
 - `NTP_LISTENER_ADDRESS=10.77.30.1:123`
+- post-apply TrustedClock `SYNCED`, `maxerror_us=21992`, `adjtimex_ret=0`, `status=0x0`, `sta_unsync=0`, `time_error=0`
 
-Post-apply clock:
-
-- state `SYNCED`
-- `maxerror_us=21992`
-- `adjtimex_ret=0`
-- `status=0x0`
-- `sta_unsync=0`
-- `time_error=0`
-
-### VERIFY
-
+VERIFY:
 - `L5_VERIFY=PASS`
 - `CHRONYD_ACTIVE=YES`
 - `TIMESYNCD_INACTIVE=YES`
 - `TRUSTED_CLOCK_STATE=SYNCED`
 
-## External witness evidence
+### External witness evidence
 
 The same physical Windows laptop was used sequentially from two distinct network perspectives.
 
 AP perspective:
-
 - host `Kittipat`
 - SSID `AEGIS-IDEA3`
 - local address `10.77.30.11`
 - target `10.77.30.1`
 - `AP_WITNESS_RESULT=PASS`
-- `mode=4`
-- `leap=0`
-- `stratum=2`
-- `rtt_s=0.0015`
-- `offset_s=-0.6936`
+- `mode=4`, `leap=0`, `stratum=2`, `rtt_s=0.0015`, `offset_s=-0.6936`
 
 Non-AP perspective:
-
 - host `Kittipat`
 - SSID `Pboo_5G`
 - local address `192.168.1.134`
@@ -120,13 +109,12 @@ Non-AP perspective:
 - reason `HOST_REACHABLE_BY_ICMP_BUT_NTP_SILENT`
 
 Final witness verdict:
-
 - `SAME_PHYSICAL_CLIENT_TWO_DISTINCT_NETWORK_PERSPECTIVES=YES`
 - `AP_WITNESS=PASS`
 - `NONAP_WITNESS=SERVICE_NOT_EXPOSED_TO_NON_AP`
 - `CORE_SERVERSTATS_RX_DELTA=1`
 
-## POST / preservation
+### POST / preservation
 
 - `CAPTURE_POST=COMPLETE`
 - `SHA256=PASS`
@@ -139,28 +127,18 @@ Final witness verdict:
 - `PRESERVATION_S10=PASS`
 - `COMPARE_RESULT=PASS`
 
-`COMPARE_LOCAL_PRODUCTION_MUTATION_PERFORMED=NO` is comparator-local only. The authoritative whole-run truth is:
+`COMPARE_LOCAL_PRODUCTION_MUTATION_PERFORMED=NO` is comparator-local only. The authoritative whole-run truth is `RUN_PRODUCTION_MUTATION_PERFORMED=YES`.
 
-`RUN_PRODUCTION_MUTATION_PERFORMED=YES`
-
-Final TrustedClock:
-
-- state `SYNCED`
-- `maxerror_us=500`
-- `adjtimex_ret=0`
-- `status=0x2001`
-- `sta_unsync=0`
-- `time_error=0`
+Final TrustedClock is `SYNCED` with `maxerror_us=500`, `adjtimex_ret=0`, `status=0x2001`, `sta_unsync=0`, `time_error=0`.
 
 Regulatory evidence is preserved exactly as `phy0=TH`, `global=00`. This receipt does not claim that `global=00` equals `TH`.
 
-L0 IDEA2 evidence is also preserved without promotion:
-
+L0 IDEA2 evidence is preserved without promotion:
 - `process_active=YES`
 - `tunnel_healthy=NO_FAILURE_OBSERVED`
 - `runtime_healthy=NOT_PROVEN`
 
-## Configuration left applied
+### Configuration left applied
 
 Exactly these active chrony directives are expected:
 
@@ -175,21 +153,16 @@ rtcsync
 
 L4 remained untouched and APPLIED. Core `Pboo_5G` connection UUID `0e545f6e-5f66-4b02-83b7-39cbbed47088` remains `autoconnect=no`; no automatic restoration is authorized.
 
-## Comparator policy preserved
+### Comparator policy preserved
 
 Exactly three rollback-only comparator allowances remain:
-
 - `svc.systemd-timesyncd.service.MainPID`
 - `svc.systemd-timesyncd.service.ExecMainStartTimestamp`
 - `svc.chronyd.service.ExecMainStartTimestamp`
 
 `ServerName` is not a fourth allowance; it remains governed by the constrained informational policy.
 
-## Future hardening observation
-
-The frozen runner's comments imply UTF-16 witness tolerance, but its normalizer does not fully strip the UTF-16 BOM. This mismatch was intentionally not changed before Attempt #4 because changing the frozen runner hash would invalidate the authorization basis. Attempt #4 used ASCII witness files and passed. This is future hardening only and is not mixed into L5 acceptance.
-
-## Exact closeout truth
+### Exact closeout truth
 
 ```text
 L5_LIVE_EXECUTED=YES
@@ -211,12 +184,44 @@ PBOO_AUTOCONNECT_STATE=no
 L6A_STARTED=NO
 ```
 
-## Files changed by this closeout
+## Source files changed
 
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md`
-- this new immutable receipt
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-25_214900_music_idea3-pr11-l5-live-acceptance.md` — this new receipt.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` — new newest L5 live-acceptance section.
 
 No implementation, runtime, network, systemd, chrony, NetworkManager, L4, or L6a file is changed.
+
+## Verification evidence
+
+- Owner-run Attempt #4 evidence records `CAPTURE_PRE=COMPLETE`, `L5_APPLY=PASS`, `L5_VERIFY=PASS`, AP witness PASS, non-AP service-not-exposed PASS, `CAPTURE_POST=COMPLETE`, `DRIFT_RESULT=PASS`, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`, and final `L5_LIVE_ACCEPTANCE=PROVEN`.
+- Merged PR #215 implementation verification on the successful base included: `pytest tests/test_pr11_phase4_l5_rtcsync.py tests/test_pr11_phase4_l5_remediation.py tests/test_pr11_phase4_l5_handler.py tests/test_pr11_phase4_l5_trustedclock_path.py tests/test_pr11_phase4_ntp.py tests/test_trusted_time.py tests/test_private_ap_contract.py` — **PASS: 152 passed**.
+- Merged PR #215 also recorded `bash -n` on every `deploy/pr11-phase4/*.sh` and `stages/L5/*.sh` — **PASS**.
+- GitHub branch comparison before this receipt-format correction showed the closeout branch ahead of `main` with no behind commits and only the two documentation paths above.
+- The first PR #217 collaboration run failed only because this new receipt did not use the repository-required section headings and command/result verification format. This revision corrects that receipt schema; no runtime or Production state was changed.
+
+## Canonical notes updated
+
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` — records Attempt #4 as the authoritative L5 live acceptance, preserves Attempts #1–#3 as failed/consumed, keeps L4/L5 APPLIED and L6a NOT STARTED.
+
+## Shared surfaces touched
+
+- None by this documentation closeout.
+- The owner-run L5 live attempt changed only the approved IDEA3 time-service surface. Its S10 comparison passed with no new/worsened drift.
+- IDEA2 evidence remains limited to `process_active=YES`, `tunnel_healthy=NO_FAILURE_OBSERVED`, `runtime_healthy=NOT_PROVEN`.
+
+## Integration requests
+
+- Human review and human merge of PR #217 after required checks pass.
+- After merge, the next task is `L6A_PREPARATION`.
+- Do not rerun L5, rollback L5, modify L4, restore `Pboo_5G` autoconnect, or start L6a in this closeout.
+
+## Known limitations
+
+- The frozen runner comments imply UTF-16 witness tolerance, but its normalizer does not fully strip the UTF-16 BOM. Attempt #4 intentionally used ASCII witness files to preserve the frozen authorized runner hash. This remains future hardening only and is not part of L5 acceptance.
+- IDEA2 runtime health was NOT proven by L0.
+- `global=00` is not claimed equal to `TH`.
+- `ServerName` is not a comparator allowance.
+- Phase 4 runtime and PR11 are not complete; L6a has not started.
 
 ## Production safety
 
@@ -229,16 +234,10 @@ L4_MUTATION_BY_CLOSEOUT=NO
 L6A_STARTED=NO
 ```
 
-## Validation boundary
-
-Repository validations must be run on the closeout branch before human merge, including vault validation, collaboration-policy validation if required by repository policy, and `git diff --check`. This receipt does not invent local command results that were not run in this connector-backed closeout session.
-
 ## Final state
 
 `L5_LIVE_ACCEPTANCE = PROVEN`
 
-Next recommended phase after human-reviewed closeout merge:
+Next recommended phase after human-reviewed closeout merge: `L6A_PREPARATION`.
 
-`L6A_PREPARATION`
-
-Do not start L6a in this task. Human merge only.
+Human merge only.
