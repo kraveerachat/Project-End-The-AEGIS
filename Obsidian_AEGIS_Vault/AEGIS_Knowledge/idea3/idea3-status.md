@@ -18,6 +18,13 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L4 dnsmasq loopback exclusion — 2026-09-25
+
+> [!important] Repository-only fix. No live stage ran; L4 live is NOT re-run and nothing was mutated.
+> `L4_REPOSITORY_FIX_IMPLEMENTED = YES`, `L4_LIVE_ACCEPTANCE = NOT_PROVEN`, `NEXT_LIVE_STAGE = L4_RETEST`
+
+- L4 Retry #3 APPLY/VERIFY passed but the PRE->POST compare found four loopback DNS listeners (`127.0.0.1:53`, `[::1]:53`, tcp/udp) caused by dnsmasq's implicit loopback inclusion with `interface=`. Fix: `except-interface=lo` in the rendered config, required by verify; allow-listeners unchanged. Receipt: `90-Status/logs/2026-09-25_133000_music_idea3-pr11-l4-dnsmasq-except-lo.md`.
+
 ## IDEA3 PR11 Phase 4 M16 owner self-K3 governance — 2026-09-25
 
 > [!important] Repository governance change only (Draft/Review PR). No live stage ran and nothing was mutated. L4 live is NOT run.
