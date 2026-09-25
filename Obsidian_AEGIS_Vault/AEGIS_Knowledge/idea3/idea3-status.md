@@ -18,6 +18,15 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L5 rollback exactness hardening — 2026-09-25
+
+> [!important] Repository-only (Draft/Review PR). No live stage ran; L5 is NOT run and NOT authorized.
+> `L5_STARTED = NO`, `L5_LIVE_ACCEPTANCE = NOT_PROVEN`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- L5 rollback now fails closed instead of silently passing (unknown pre-state, missing snapshot, byte/mode/uid:gid mismatch, chronyd still active); apply records the original `/etc/chrony.conf` SHA-256. The 30 s chronyd sync wait is documented as stricter than the 300 s HOLDOVER bound (not a defect).
+- Owner decisions recorded in this session: the `Pboo_5G` Wi-Fi reconnect after L4 acceptance was intentional and is not to be preserved for L5; `OWNER_TRUSTED_NTP_UPSTREAM = 2.arch.pool.ntp.org`. Live L4 runtime currently diverges from the accepted APPLIED state until the owner-approved restoration runs.
+- Receipt: `90-Status/logs/2026-09-25_134523_music_idea3-pr11-l5-rollback-exactness.md`.
+
 ## IDEA3 PR11 Phase 4 L4 live acceptance — 2026-09-25
 
 > [!important] L4 was executed live (owner-run Retry #4, Production mutated by the owner run) and passed. This closeout is documentation-only. L4 is left APPLIED; L5 is NOT started.
