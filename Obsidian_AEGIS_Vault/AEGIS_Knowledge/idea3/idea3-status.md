@@ -18,6 +18,27 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L5 live acceptance — PROVEN (Attempt #4), L5 remains APPLIED — 2026-09-25
+
+> [!important] Owner-run Attempt #4 executed L5 live and passed. The stage is left APPLIED. This closeout is documentation-only and performs no Production mutation. L4 was untouched; L6a is NOT started.
+> `L5_LIVE_EXECUTED = YES`, `L5_APPLY = PASS`, `L5_VERIFY = PASS`, `L5_POST_CAPTURE = COMPLETE`, `L5_PRE_POST_COMPARE = PASS`, `L5_S10_PRESERVATION = PASS`, `L5_LIVE_ACCEPTANCE = PROVEN`
+> `L4_STATE = APPLIED`, `L5_STATE = APPLIED`, `PBOO_5G_AUTOCONNECT = no`, `L6A_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Successful evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-25-l5-20260925-212812`; merged main `87a1b6a252c5d862f3da9176c710151095579c0a`.
+- **Frozen owner material:** runner `/home/kittipat/Workspace/idea3-p4-evidence/l5-owner-run/run-l5-owner.sh` sha256 `74d42d13c3d480e4e80fea5c10798111b65257678b74bd315274c4dfbfa77a8f`; probe `/home/kittipat/Workspace/idea3-p4-evidence/l5-owner-run/ntp-probe.py` sha256 `099a048860e976ee5ee61bf16deba5d9fa795796aa27d7746907090142932a12`; render dir `/home/kittipat/Workspace/idea3-p4-evidence/l5-render-20260925-201919-main87a1b6a2`; rendered chrony sha256 `20e283e4616fadeb3f2ae9438b17e3351b7af354844a911038a47089af3a35fe`; rendered T6 contract sha256 `3d0b94b36d05b209d87800d5bc1cdb58a8a782162b1b4fab9796cd901be730e5`; trusted upstream `2.arch.pool.ntp.org`.
+- **Attempt #4 authorization:** owner comment ID `5833985188`, reference `https://github.com/kraveerachat/Project-End-The-AEGIS/pull/215#issuecomment-5833985188`; fresh authorization and K3 were valid for exactly one supervised live mutation. Attempt #4 is consumed.
+- **Apply / verify:** pre TrustedClock `SYNCED`; apply waited 5.01 s and reported `L5_CLOCK_READY=YES reason=OK`; `chronyd=ACTIVE`, `systemd-timesyncd=INACTIVE`, NTP listener `10.77.30.1:123`; post-apply TrustedClock `SYNCED` with raw adjtimex evidence; verify PASS.
+- **External witnesses:** same physical Windows laptop used sequentially from two network perspectives. AP witness `Kittipat / AEGIS-IDEA3 / 10.77.30.11` returned NTP PASS (`mode=4`, `leap=0`, `stratum=2`); non-AP witness `Kittipat / Pboo_5G / 192.168.1.134` reached the host by ICMP but NTP stayed silent, so `SERVICE_NOT_EXPOSED_TO_NON_AP`; `CORE_SERVERSTATS_RX_DELTA=1`.
+- **Post / preservation:** post capture complete, checksums PASS, `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `FINDINGS_APPROVED_CHANGE=4`, `FINDINGS_INFO=3`; `DRIFT_RESULT=PASS`, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. The comparator-local `COMPARE_LOCAL_PRODUCTION_MUTATION_PERFORMED=NO` does not describe the whole run; authoritative whole-run marker is `RUN_PRODUCTION_MUTATION_PERFORMED=YES`.
+- **Final TrustedClock:** `SYNCED`, `maxerror_us=500`, `adjtimex_ret=0`, `status=0x2001`, `sta_unsync=0`, `time_error=0`. Regulatory observation is preserved exactly as `phy0=TH global=00`; no claim is made that `global=00` equals `TH`.
+- **IDEA2 preservation distinction:** L0 reported `process_active=YES`, `tunnel_healthy=NO_FAILURE_OBSERVED`, `runtime_healthy=NOT_PROVEN`. Do not promote this to IDEA2 runtime-health proof.
+- **Historical attempts remain immutable truth:** Attempt #1 FAIL/CONSUMED (`2026-09-25-l5-20260925-174630`); Attempt #2 FAIL/CONSUMED (`2026-09-25-l5-20260925-191827`, `TRUSTEDCLOCK_READINESS_TIMEOUT:KERNEL_UNSYNCED`, root cause led to PR #215); Attempt #3 FAIL/CONSUMED (`2026-09-25-l5-20260925-205740`) despite APPLY/VERIFY/TrustedClock PASS because witness ingestion failed on Windows UTF-16LE/CRLF `Tee-Object` output; rollback/residue/S10/compare all passed; `L5_LIVE_ACCEPTANCE=NOT_PROVEN`. Attempt #4 alone is PASS/CONSUMED and proves acceptance.
+- **Configuration left applied:** exactly `server 2.arch.pool.ntp.org iburst`, `bindaddress 10.77.30.1`, `allow 10.77.30.0/28`, `rtcsync`; `rtcfile` forbidden. L4 remains applied and untouched. Core `Pboo_5G` connection UUID `0e545f6e-5f66-4b02-83b7-39cbbed47088` remains `autoconnect=no`; no automatic restoration is authorized.
+- **Comparator policy unchanged:** rollback-only allowances remain exactly `svc.systemd-timesyncd.service.MainPID`, `svc.systemd-timesyncd.service.ExecMainStartTimestamp`, `svc.chronyd.service.ExecMainStartTimestamp`. `ServerName` is informational under the constrained policy, not a fourth allowance.
+- **Future hardening observation only:** the owner runner comments imply UTF-16 witness tolerance, but its normalizer does not fully strip the UTF-16 BOM. Attempt #4 intentionally used ASCII witness files so the frozen authorized runner hash did not change. This observation is not part of L5 acceptance remediation.
+- **Next boundary:** finish this documentation closeout, human review/merge only, then `L6A_PREPARATION`. Do not rerun L5, rollback L5, modify L4, restore `Pboo_5G` autoconnect, or start L6a in this task.
+- Receipt: `90-Status/logs/2026-09-25_214900_music_idea3-pr11-l5-live-acceptance.md`.
+
 ## IDEA3 PR11 Phase 4 L5 attempt #2 remediation (rtcsync) — 2026-09-25
 
 > [!important] Repository-only (Draft/Review PR). Attempt #2 (`2026-09-25-l5-20260925-191827`) FAILED and stays FAILED; its authorization is CONSUMED. No Production mutation by this task, no retry authorized.
