@@ -57,6 +57,16 @@ test('SA-SW-1 the preview worker and vaultPreview libraries never touch storage'
   assert.deepEqual(offenders, [], 'no preview module touches Cache API/IndexedDB/localStorage/sessionStorage')
 })
 
+test('PVUX-4 Vault upload queue source has no browser-storage persistence path', () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const source = path.join(root, 'src/components/VaultUploadDrawer.jsx')
+  assert.ok(fs.existsSync(source), 'the Vault-specific memory-only upload controller exists')
+  const code = fs.readFileSync(source, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^[ \t]*\/\/.*$/gm, ' ')
+  assert.doesNotMatch(code, /\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|\bcaches\s*\./, 'Vault queue never persists plaintext metadata')
+})
+
 test('SA-2 every preview Response carries Cache-Control: no-store (existing behaviour re-asserted)', () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const sw = path.join(root, 'src/vaultPreviewServiceWorker.js')

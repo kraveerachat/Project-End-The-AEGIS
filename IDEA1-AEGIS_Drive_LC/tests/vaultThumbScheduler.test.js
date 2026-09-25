@@ -224,3 +224,46 @@ test('VIDEO-POSTER-INITIAL-5/6 a blob-readiness transition retries once without 
   assert.equal(attempts, 2, 'stable eligibility never repeats the completed job')
   await sched.releaseAll()
 })
+
+test('PVUX-9/12 an impossible preview fails truthfully without head-of-line blocking a later eligible item', async () => {
+  const calls = []
+  const sched = createThumbScheduler({
+    limits: treeLimitsFrom({ maxConcurrentJobs: 1, memoryCeilingBytes: 1_000 }),
+    load: async (key) => {
+      calls.push(key)
+      return { width: 4, height: 4, bytes: new Uint8Array(8), mime: 'image/png' }
+    },
+    createObjectUrl: (bytes) => `blob:mock/${bytes.length}`,
+  })
+
+  sched.observe('too-large', { estimateBytes: 1_001 })
+  sched.observe('small', { estimateBytes: 100 })
+  for (let i = 0; i < 12; i += 1) await Promise.resolve()
+
+  assert.deepEqual(calls, ['small'], 'the later eligible preview starts even when the first item can never fit')
+  assert.equal(sched.snapshot().get('too-large')?.state, 'failed', 'the impossible item degrades instead of waiting forever')
+  assert.equal(sched.snapshot().get('too-large')?.reason, 'MEMORY_LIMIT', 'the fallback reason is truthful')
+  await sched.releaseAll()
+})
+
+test('PVUX-9 a temporarily budget-blocked item does not stop a later smaller item from running', async () => {
+  const calls = []
+  const pending = new Map()
+  const sched = createThumbScheduler({
+    limits: treeLimitsFrom({ maxConcurrentJobs: 2, memoryCeilingBytes: 1_000 }),
+    load: async (key) => {
+      calls.push(key)
+      return new Promise((resolve) => pending.set(key, resolve))
+    },
+  })
+
+  sched.observe('running', { estimateBytes: 700 })
+  sched.observe('blocked-for-now', { estimateBytes: 500 })
+  sched.observe('fits', { estimateBytes: 200 })
+  for (let i = 0; i < 8; i += 1) await Promise.resolve()
+
+  assert.deepEqual(calls, ['running', 'fits'], 'pump scans beyond the first temporarily blocked queue entry')
+  pending.get('running')?.({ width: 4, height: 4, bytes: new Uint8Array(8) })
+  pending.get('fits')?.({ width: 4, height: 4, bytes: new Uint8Array(8) })
+  await sched.releaseAll()
+})

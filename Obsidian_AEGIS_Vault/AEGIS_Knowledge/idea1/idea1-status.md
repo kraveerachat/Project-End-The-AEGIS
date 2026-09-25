@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-24
+updated: 2026-09-25
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -17,7 +17,31 @@ edit_policy: owner-writable
 
 ## Current Task
 
-None — standing by for Human Owner merge of PR #191.
+Task: `PRIVATE-VAULT-STAGE-D-UX-MEDIA-RECONCILIATION-1`
+Branch: `fix/idea1-vault-stage-d-ux-media-reconciliation`
+Owner: Kla (`kla`)
+PR: Pending — Draft will be opened after automated verification
+Current state: **IN PROGRESS / PRODUCTION ACCEPTANCE REPAIR**
+Started: 2026-09-25
+Starting SHA: `1ab771a10384a39c4f58751e75071864af955d6a`
+Production mutation allowed: **NO**
+
+### Goal
+
+Restore Files-like encrypted Vault upload entry/tray behavior, deterministic post-upload media reconciliation, fair bounded media scheduling, and route-appropriate search behavior while preserving TREE_V1 and the zero-knowledge boundary.
+
+### Scope and safety
+
+- Owned scope: `IDEA1-AEGIS_Drive_LC/**` plus this canonical IDEA1 status note.
+- Preserve Normal Files behavior, TREE schema/genesis/crypto formats, existing encrypted blobs, and `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`.
+- No Production access or mutation; no PR #187 branch edit; no migration/schema change; no final receipt until Human Production acceptance completes.
+- Automated RED→GREEN tests and Production build are required. Manual localhost browser acceptance is intentionally omitted by Human Owner direction.
+
+### Session Register — PRIVATE-VAULT-STAGE-D-UX-MEDIA-RECONCILIATION-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PVSD-S1 | Root-cause analysis, RED tests, minimal repair, automated verification, Draft PR, exact candidate build/export | AUTOMATED REPAIR PASS / PACKAGING IN PROGRESS | Fresh `origin/main=1ab771a1`; incoming delta from stated `47dfe0c4` is IDEA3 documentation only; isolated worktree. Root causes proven: Upload bypassed a drawer/queue; fire-and-forget head/inventory refresh raced preview eligibility; one over-budget scheduler entry head-of-line blocked later work; RANGE_V2 reserved full source size despite a 64 MiB worker cache; App rendered a confusing disabled global search. RED: 39 pass / 10 intended fail. GREEN focused matrix: 126/126 PASS, including unchanged Files drawer/tray. Production build PASS with existing chunk-size warning; policy 24/24 PASS; Vault validator PASS with two existing Canvas warnings. Broad `vault*.test.js`: 697 pass / 61 PG-gated skip / 23 fail; every failure is an inherited stale locked-legacy assertion that expects inventory-shaped ciphertext cards, contrary to the accepted fixed decorative locked state in current main; no failing file or locked renderer changed by this task. Untouched full-suite baseline also reproduced known `appShellRevision.test.js` failures and stalled on open handles; no full-suite PASS claimed. Zero browser-storage writes; no Files transport; no schema/migration/crypto/Production change. | Pending source commit | Repair and automated gates complete | Final diff/security review, commit, fresh-main check, push Draft PR, exact candidate archive | Freeze source HEAD, then build/export candidate; Human-only deployment packet |
 
 ## Completed Task — PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1
 

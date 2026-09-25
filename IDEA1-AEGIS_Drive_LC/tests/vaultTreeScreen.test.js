@@ -1058,6 +1058,7 @@ test('VIDEO-POSTER-INITIAL-1..4 / VIDEO-POSTER-FRAME-4/5 a new video gets its po
     )
 
     phase = 'after-upload'
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
     await uploadFile(dom, { name: 'new-upload.mp4', type: 'video/mp4', body: 'video-bytes' })
     await tick(8)
 
@@ -1136,6 +1137,79 @@ test('VAULT-FILE-DRAG-WIRING-2/3 selected file drag writes the complete payload 
     await act(async () => destination.dispatchEvent(dragOver))
     assert.equal(dragOver.defaultPrevented, true, 'valid folder target accepts dragover')
     assert.equal(dt.dropEffect, 'move', 'folder target presents move cursor semantics')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('PVUX-1 Vault Upload opens the right-side drawer without invoking the native picker directly', async () => {
+  const h = await mountUnlocked()
+  const inputProto = dom.window.HTMLInputElement.prototype
+  const nativeClick = inputProto.click
+  let nativePickerCalls = 0
+  inputProto.click = function patchedClick() { nativePickerCalls += 1 }
+  try {
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
+    assert.equal(nativePickerCalls, 0, 'the toolbar action opens the drawer instead of the native picker')
+    assert.ok(q('[data-testid="vault-upload-drawer"]'), 'the Vault-specific right drawer is visible')
+  } finally {
+    inputProto.click = nativeClick
+    await h.unmount()
+  }
+})
+
+test('PVUX-2/3 enqueue uses TREE encryption transport, closes the drawer, and leaves a truthful status tray', async () => {
+  const blobId = 'PVUX2'.padEnd(22, '2')
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id: blobId }] })
+  backend.uploadImpl = async ({ file, onStage, onProgress, routeBase }) => {
+    assert.equal(routeBase, '/api/vault/tree/uploads', 'Vault enqueue stays on the encrypted TREE upload route')
+    onStage?.('uploading')
+    onProgress?.({ phase: 'uploading', transferredBytes: file.size, totalBytes: file.size, percent: 100 })
+    backend.state['/api/vault'] = {
+      loading: false,
+      data: { configured: true, blobs: [serverBlobV2({ id: blobId, name: file.name, type: file.type, plainSize: file.size })] },
+      error: null,
+    }
+    return { ok: true, stage: 'complete', blob: { id: blobId, formatVersion: 2 } }
+  }
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+
+  const h = await mountUnlocked()
+  try {
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
+    await uploadFile(dom, { name: 'stage-d.png', type: 'image/png', body: 'image-bytes' })
+    await tick(4)
+
+    assert.equal(q('[data-testid="vault-upload-drawer"]'), null, 'accepted enqueue closes the entry drawer')
+    assert.ok(q('[data-upload-tray]'), 'the persistent bottom-right tray remains visible')
+    assert.ok(doc().body.textContent.includes('stage-d.png'), 'the tray tracks the real Vault job')
+    assert.ok(backend.requests.some((entry) => entry.path === '/api/vault/tree/uploads'), 'TREE upload transport was invoked')
+    assert.ok(!backend.requests.some((entry) => String(entry.path).startsWith('/api/files')), 'Files plaintext transport was never invoked')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('PVUX-4 locking purges the memory-only Vault queue and aborts active client work', async () => {
+  let activeSignal = null
+  backend.uploadImpl = ({ signal, onStage }) => new Promise((resolve) => {
+    activeSignal = signal
+    onStage?.('uploading')
+    signal.addEventListener('abort', () => resolve({ ok: false, stage: 'cancelled', reason: 'cancelled', resume: null }), { once: true })
+  })
+  const h = await mountUnlocked()
+  try {
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
+    await uploadFile(dom, { name: 'purge-me.png', type: 'image/png', body: 'secret-image' })
+    await tick(2)
+    assert.ok(q('[data-upload-tray]'), 'active Vault job is visible before lock')
+
+    await click(dom, qa('button').find((button) => button.textContent.trim() === t('lockVault')))
+    await tick(3)
+    assert.equal(activeSignal?.aborted, true, 'lock aborts the encrypted upload work')
+    assert.equal(q('[data-upload-tray]'), null, 'queue UI is destroyed with the unlocked screen')
+    assert.ok(!doc().body.textContent.includes('purge-me.png'), 'plaintext filename does not survive lock')
   } finally {
     await h.unmount()
   }

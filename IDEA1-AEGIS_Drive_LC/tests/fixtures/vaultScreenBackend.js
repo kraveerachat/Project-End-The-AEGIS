@@ -50,7 +50,10 @@ export function useApi(path) {
   return {
     ...state,
     retry: () => ctl?.requests.push({ path, method: 'RETRY' }),
-    refresh: () => ctl?.requests.push({ path, method: 'REFRESH' }),
+    refresh: () => {
+      ctl?.requests.push({ path, method: 'REFRESH' })
+      return Promise.resolve(ctl?.state?.[path]?.data ?? null)
+    },
   }
 }
 export function useReducedMotion() { return backend()?.reducedMotion ?? true }
@@ -166,16 +169,17 @@ export async function unwrapVaultV2Dek(kek) {
 /* ── ../lib/vaultChunkedUpload.js ─────────────────────────────────────
    ตัวควบคุมของเทสต์ตอบที่ path เดียวกับที่โมดูลจริงยิงไป ('/api/vault/uploads')
    จอจึงถูกทดสอบด้วย "ผลลัพธ์ของการอัปโหลด V2" ตามจริง ไม่ใช่ผลของ endpoint V1 ที่เลิกใช้ */
-export async function uploadVaultFileChunked({ file, resume, onStage, onProgress, signal }) {
+export async function uploadVaultFileChunked({ file, resume, onStage, onProgress, signal, routeBase = '/api/vault/uploads' }) {
   const ctl = backend()
   // ⚠️ เทสต์ที่ต้องคุมจังหวะเอง (ค้างกลางคัน / ล้มเฉพาะก้อนที่ N / ยกเลิกตอนนั้นพอดี)
   //    ใส่ตัวขับของตัวเองได้ — รูปทรงของผลลัพธ์ยังเป็นสัญญาเดียวกับโมดูลจริงทุกประการ
   if (typeof ctl?.uploadImpl === 'function') {
-    return ctl.uploadImpl({ file, resume, onStage, onProgress, signal })
+    ctl.requests.push({ path: routeBase, method: 'UPLOAD_TRANSPORT', body: { size: file?.size ?? 0 } })
+    return ctl.uploadImpl({ file, resume, onStage, onProgress, signal, routeBase })
   }
   const chunkCount = ctl?.uploadChunkCount ?? 1
   onStage?.('preparing')
-  ctl.requests.push({ path: '/api/vault/uploads', method: 'POST', body: { size: file?.size ?? 0 } })
+  ctl.requests.push({ path: routeBase, method: 'POST', body: { size: file?.size ?? 0 } })
 
   for (let i = 0; i < chunkCount; i += 1) {
     if (signal?.aborted) return { ok: false, stage: 'cancelled', reason: 'cancelled', resume: resume ?? null }
