@@ -223,8 +223,10 @@ printf "%s\n" "$RENDER" > "$WORK/render_dir"
 printf "NO\n" > "$WORK/chronyd_started"
 
 if [ -f "$target_conf" ]; then
-  cp -p "$target_conf" "$WORK/chrony.conf.orig"
-  stat -c "%a:%u:%g:%s:%Y" "$target_conf" > "$WORK/chrony.conf.meta.orig" 2>/dev/null || true
+  cp -p "$target_conf" "$WORK/chrony.conf.orig" || fail CHRONY_CONF_SNAPSHOT_FAILED
+  stat -c "%a:%u:%g:%s:%Y" "$target_conf" > "$WORK/chrony.conf.meta.orig" || fail CHRONY_CONF_SNAPSHOT_FAILED
+  sha256sum "$WORK/chrony.conf.orig" | awk '{ print $1 }' > "$WORK/chrony.conf.sha256.orig" || fail CHRONY_CONF_SNAPSHOT_FAILED
+  [ "$(cat "$WORK/chrony.conf.sha256.orig")" = "$(sha256sum "$target_conf" | awk '{ print $1 }')" ] || fail CHRONY_CONF_SNAPSHOT_FAILED
   printf "YES\n" > "$WORK/pre_chrony_conf_exists"
 else
   printf "NO\n" > "$WORK/pre_chrony_conf_exists"
