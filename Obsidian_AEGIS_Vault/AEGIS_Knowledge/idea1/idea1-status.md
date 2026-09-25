@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-25
+updated: 2026-09-26
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -17,7 +17,22 @@ edit_policy: owner-writable
 
 ## Current Task
 
-None — standing by for Human Owner merge of PR #187.
+**IDEA1-ROLE-UPLOAD-UI-POLISH-1 — IN PROGRESS**
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-role-upload-ui-polish`; Draft PR: #218.
+- Start: `origin/main` at `83610fa31c928e18be6f1842f76a9a190e502c60` (2026-09-26).
+- Scope: make the server-authoritative Storage & Backup navigation Admin-only; fail closed on manually selected unauthorized screens; make normal Files upload drawer/float tray mutually exclusive using the accepted shared queue surface.
+- Safety: one queue owner; upload transport, chunking, concurrency, recovery, transfer-rate logic, PR #216, and Production remain untouched.
+- Implementation checkpoint: `eccad4f00f12a93ec8c7205fccc69e1f4a8d4fce`.
+- Automated evidence: focused RBAC/navigation/upload/password-reset 45/45 PASS; upload recovery/transport 84/84 PASS; build PASS; governance 50/50 PASS; Vault validation PASS with two existing owner-Canvas warnings; diff check and added-line secret scan PASS.
+- Current gate: Human browser acceptance on Draft PR #218. No final receipt yet.
+
+### Session Register — IDEA1-ROLE-UPLOAD-UI-POLISH-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| IRUP-S1 | Governance, isolated clean worktree, source diagnosis, RED coverage, bounded RBAC/UI implementation | IMPLEMENTED / AUTOMATED PASS | RED proved DataLake-User received `storage`, manual URL selection bypassed first-render authorization, and Files rendered both monitoring surfaces. GREEN: focused 45/45; recovery/transport 84/84; build PASS; governance 50/50; validator PASS; diff/secret checks PASS | `eccad4f00f12a93ec8c7205fccc69e1f4a8d4fce` implementation; PR #218 Draft | Storage nav is Admin-only; unauthorized screens fail closed from server menu; Files drawer/tray are mutually exclusive with one queue and handler set; transport/performance untouched | Human checks for both roles and live Files transfer, then one final receipt | Stop at Human Owner browser acceptance |
 
 ## Completed Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
 

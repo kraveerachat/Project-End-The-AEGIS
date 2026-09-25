@@ -5,6 +5,7 @@ import {
   buildLocationForIntent,
   normalizeNavigationIntent,
   readLocationIntent,
+  resolveAuthorizedScreen,
   visiblePrimaryNav,
 } from '../src/lib/navigationIntent.js'
 
@@ -56,4 +57,20 @@ test('visible navigation removes only Upload and never expands server RBAC', () 
     'dashboard', 'files', 'shares',
   ])
   assert.equal(visiblePrimaryNav(serverNav).some((item) => item.id === 'access'), false)
+})
+
+test('manual or stale screen selection fails closed against the server navigation payload', () => {
+  const userNav = [
+    { id: 'dashboard' },
+    { id: 'files' },
+    { id: 'vault' },
+  ]
+  const adminNav = [...userNav, { id: 'storage' }]
+
+  assert.equal(resolveAuthorizedScreen('storage', userNav), 'dashboard')
+  assert.equal(resolveAuthorizedScreen('storage', adminNav), 'storage')
+  assert.equal(resolveAuthorizedScreen('files', userNav), 'files')
+  assert.equal(resolveAuthorizedScreen('settings', userNav), 'settings')
+  assert.equal(resolveAuthorizedScreen('unknown-screen', userNav), 'dashboard')
+  assert.equal(resolveAuthorizedScreen('storage', null), 'dashboard')
 })
