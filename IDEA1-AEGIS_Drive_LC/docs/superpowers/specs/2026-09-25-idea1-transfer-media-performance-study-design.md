@@ -277,6 +277,23 @@ P4 T6 is NA because the accepted Public Share contract currently has no Range.
 If future source changes that contract, it requires a separate reviewed task and
 new baseline; this study does not smuggle Range into Public Share.
 
+### 9.1 Time-bounded execution priority
+
+The complete matrix above remains the authoritative study contract. Execution is
+prioritized without deleting any row:
+
+- Round 1 uses S/M/L (100 MB, 300 MB, 1 GB), paths P1/P2/P4, and workloads
+  T1/T2/T3/T4/T5/T6/T9/T10/T11 where applicable. Its purpose is rapid
+  bottleneck localization.
+- P3 is included only when a genuine remote Twingate client/path exists. A local
+  simulation is not valid P3 evidence.
+- Round 2 uses 5 GB and 10 GB only after measured Production limits,
+  storage/time safety, Round 1 justification, and a permitting 10 GB
+  configuration probe.
+- Every 5 GB and 10 GB row remains reportable as measured, CONFIG-LIMITED, or
+  NOT TESTED. A time-, safety-, or configuration-based skip is not a failed
+  performance result.
+
 ## 10. Metrics and calculations
 
 ### 10.1 Transfer metrics
@@ -436,6 +453,24 @@ local evidence only because URLs/headers may carry credentials.
 | H15 | Bottleneck changes by size | Small files overhead-bound; large files network/storage/crypto-bound with breakpoints | Same limiting stage and normalized rate across sizes | full size ladder with stage/resource decomposition |
 
 These hypotheses are not mutually exclusive.
+
+### 14.1 First-day preliminary classification
+
+After Round 1, report P1/P2 Files upload, Vault upload, and Files download Mbps;
+P4 Public download Mbps; P1/P2 video TTFF; and peak server CPU, server iowait,
+and client CPU. Select exactly one preliminary classification:
+
+~~~text
+NETWORK_PATH_CANDIDATE
+SERVER_STORAGE_CANDIDATE
+CLIENT_CRYPTO_CANDIDATE
+MEDIA_RANGE_PIPELINE_CANDIDATE
+MULTIPLE_CANDIDATES
+INSUFFICIENT_EVIDENCE
+~~~
+
+This output determines measurement priority only. ROOT_CAUSE=NOT_PROVEN
+remains mandatory until sufficient evidence supports a causal finding.
 
 ## 15. Root-cause decision framework
 

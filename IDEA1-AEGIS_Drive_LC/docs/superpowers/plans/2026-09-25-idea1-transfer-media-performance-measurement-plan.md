@@ -234,6 +234,32 @@ from decoder/container effects.
 For media, cold and warm each have separate samples. Do not count warm-up as a
 measured run.
 
+### Fast triage execution gate
+
+The complete S/M/L/XL/XXL matrix remains authoritative. Execute it in two
+priority rounds so the first day localizes likely bottlenecks before committing
+hours to the largest fixtures.
+
+**Round 1 — time-bounded triage**
+
+- Fixture classes: S = 100 MB, M = 300 MB, L = 1 GB.
+- Priority paths: P1 LAN, P2 local Wi-Fi plus Twingate, and P4 Public Anywhere
+  through Cloudflare.
+- P3 remote Twingate runs only when a genuine remote client/path is available.
+  Never simulate P3 from the local network.
+- Priority workloads: T1, T2, T3, T4, T5, T6, T9, T10, and T11 where the path
+  supports them.
+- Purpose: rapidly distinguish network-path, server/storage, client-crypto, and
+  media/Range pipeline candidates.
+
+**Round 2 — large-fixture continuation**
+
+Run 5 GB and 10 GB transfers only after Production limits are measured,
+storage/time remain safe, Round 1 evidence justifies the larger run, and the
+10 GB configuration probe permits transfer. The 5 GB and 10 GB rows remain in
+the report when CONFIG-LIMITED or NOT TESTED. Skipping a 5 GB or 10 GB transfer
+for time, safety, or configuration is not a failed performance test.
+
 ## 5. Phase B0 — Production configuration inventory, read-only
 
 ### Prerequisites
@@ -249,9 +275,10 @@ measured run.
 
 ~~~bash
 date --iso-8601=seconds
-docker inspect aegis-prod-drive-1 --format 'name={{.Name}} image={{.Config.Image}} id={{.Image}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}'
-docker inspect aegis-prod-gateway-1 --format 'name={{.Name}} image={{.Config.Image}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}'
-docker inspect aegis-prod-public-share-connector-1 --format 'name={{.Name}} image={{.Config.Image}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}'
+D=(sudo env -u DOCKER_HOST -u CONTAINER_HOST docker)
+"${D[@]}" inspect aegis-prod-drive-1 --format 'name={{.Name}} image={{.Config.Image}} id={{.Image}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}'
+"${D[@]}" inspect aegis-prod-public-share-gateway-1 --format 'name={{.Name}} image={{.Config.Image}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}'
+"${D[@]}" inspect aegis-prod-public-share-connector-1 --format 'name={{.Name}} image={{.Config.Image}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}'
 ~~~
 
 If actual names differ, stop and identify the live chain. Do not guess or create
@@ -260,7 +287,8 @@ containers.
 - [ ] **B0.2 Print only allowlisted performance/configuration fields**
 
 ~~~bash
-docker inspect aegis-prod-drive-1 --format '{{range .Config.Env}}{{println .}}{{end}}' |
+D=(sudo env -u DOCKER_HOST -u CONTAINER_HOST docker)
+"${D[@]}" inspect aegis-prod-drive-1 --format '{{range .Config.Env}}{{println .}}{{end}}' |
 grep -E '^(UPLOAD_CHUNK_SIZE_BYTES|MAX_LOGICAL_FILE_BYTES|VAULT_CHUNK_PLAINTEXT_BYTES|MAX_VAULT_LOGICAL_FILE_BYTES|VAULT_UPLOAD_CONCURRENCY|MEDIA_ENABLED|MEDIA_CACHE_MAX_BYTES|MEDIA_CACHE_LOW_WATER|MEDIA_CACHE_FREE_RESERVE_BYTES|MEDIA_WORKERS|MEDIA_FFMPEG_DECODER_THREADS|MEDIA_FFMPEG_FILTER_THREADS|MEDIA_FFMPEG_ENCODER_THREADS|MEDIA_PROBESIZE_BYTES|MEDIA_POSTER_MAX_BYTES|MEDIA_MOTION_MAX_BYTES|MEDIA_PROBE_TIMEOUT_MS|MEDIA_POSTER_TIMEOUT_MS|MEDIA_MOTION_TIMEOUT_MS|MEDIA_QUEUE_MAX|MEDIA_STILL_ENGINE|MEDIA_CACHE_POLICY)='
 ~~~
 
@@ -270,8 +298,9 @@ values. Current source defaults may be listed separately.
 - [ ] **B0.3 Record mounts/storage without content**
 
 ~~~bash
-docker inspect aegis-prod-drive-1 --format '{{range .Mounts}}{{println .Type .Name .Source .Destination .RW}}{{end}}'
-docker exec aegis-prod-drive-1 sh -lc 'df -B1 /datalake /var/cache/aegis-media 2>/dev/null || true; stat -f -c "%T %S %b %a %m" /datalake /var/cache/aegis-media 2>/dev/null || true'
+D=(sudo env -u DOCKER_HOST -u CONTAINER_HOST docker)
+"${D[@]}" inspect aegis-prod-drive-1 --format '{{range .Mounts}}{{println .Type .Name .Source .Destination .RW}}{{end}}'
+"${D[@]}" exec aegis-prod-drive-1 sh -lc 'df -B1 /datalake /var/cache/aegis-media 2>/dev/null || true; stat -f -c "%T %S %b %a %m" /datalake /var/cache/aegis-media 2>/dev/null || true'
 lsblk -o NAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS,ROTA,MODEL
 ~~~
 
@@ -352,7 +381,11 @@ identifiers.
 No packages are installed. Open separate Human terminals:
 
 ~~~bash
-docker stats --no-trunc aegis-prod-drive-1 aegis-prod-gateway-1 aegis-prod-public-share-connector-1
+D=(sudo env -u DOCKER_HOST -u CONTAINER_HOST docker)
+"${D[@]}" stats --no-trunc \
+  aegis-prod-drive-1 \
+  aegis-prod-public-share-gateway-1 \
+  aegis-prod-public-share-connector-1
 iostat -dx 1
 pidstat -dur -p ALL 1
 ~~~
@@ -613,6 +646,44 @@ NOT_PROVEN
 
 No statistical/causal claim is stronger than the matrix and sample count.
 
+### First-day decision output
+
+After Round 1 S/M/L triage, return this compact preliminary summary. Use the
+validated median for each available metric and NOT_TESTED or NOT_AVAILABLE
+where evidence is absent.
+
+~~~text
+P1_FILES_UPLOAD_MBPS=
+P2_FILES_UPLOAD_MBPS=
+P1_VAULT_UPLOAD_MBPS=
+P2_VAULT_UPLOAD_MBPS=
+P1_FILES_DOWNLOAD_MBPS=
+P2_FILES_DOWNLOAD_MBPS=
+P4_PUBLIC_DOWNLOAD_MBPS=
+P1_VIDEO_TTFF_MS=
+P2_VIDEO_TTFF_MS=
+SERVER_CPU_PEAK=
+SERVER_IOWAIT_PEAK=
+CLIENT_CPU_PEAK=
+PRELIMINARY_CLASSIFICATION=
+ROOT_CAUSE=NOT_PROVEN
+~~~
+
+PRELIMINARY_CLASSIFICATION must be exactly one of:
+
+~~~text
+NETWORK_PATH_CANDIDATE
+SERVER_STORAGE_CANDIDATE
+CLIENT_CRYPTO_CANDIDATE
+MEDIA_RANGE_PIPELINE_CANDIDATE
+MULTIPLE_CANDIDATES
+INSUFFICIENT_EVIDENCE
+~~~
+
+This classification prioritizes later measurements; it is not a proven causal
+finding. ROOT_CAUSE remains NOT_PROVEN until the evidence contract supports a
+stronger conclusion.
+
 ## 14. Future controlled optimization gate — not authorized now
 
 An optimization experiment requires a separate approved task containing:
@@ -676,6 +747,9 @@ Before this Draft PR is handed to the Human Owner:
 - [ ] Design contains architecture/evidence vocabulary and historical inventory.
 - [ ] Exact decimal size ladder and 10 GB policy present.
 - [ ] P1–P4 x T1–T11 x size matrix present.
+- [ ] Round 1 S/M/L fast triage and conditional Round 2 XL/XXL gate present.
+- [ ] First-day decision output uses the constrained preliminary taxonomy and
+  retains ROOT_CAUSE=NOT_PROVEN.
 - [ ] Transfer/media/client/server/network metrics present.
 - [ ] Repetition/control-variable policy present.
 - [ ] H1–H15 and decision tree present.
