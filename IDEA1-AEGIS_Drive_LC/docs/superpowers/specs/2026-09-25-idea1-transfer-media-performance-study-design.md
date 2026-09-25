@@ -1,6 +1,6 @@
 # AEGIS IDEA1 Transfer and Media Performance Study Design
 
-Status: IN PROGRESS / REMOTE PRE-FIX MEASUREMENTS COMPLETE / ONSITE PENDING
+Status: IN PROGRESS / REMOTE & PUBLIC SHARE PRE-FIX COMPLETE / ONSITE PENDING
 Task: LFT-PERF-1 / TRANSFER_AND_MEDIA_PREVIEW_PERFORMANCE_STUDY
 Area / owner: IDEA1 / kla
 Production mutation: NO
@@ -79,19 +79,39 @@ Client browser
 
 Twingate is the private remote-access overlay/path. It is not the NAT server. The AEGIS host is a PC-based, self-hosted private server behind a private LAN/NAT environment.
 
-### 3.2 Supplementary Public Anywhere path
+### 3.2 Supplementary Public Anywhere path (C1)
 
 ~~~text
 External Internet client (Twingate OFF)
   -> Cloudflare edge
   -> Cloudflare Tunnel
-  -> isolated Public Share connector
+  -> isolated Public Share connector (cloudflared)
+  -> site outbound Internet
   -> Public Share Gateway
   -> AEGIS Drive
   -> Data Lake storage
 ~~~
 
-Public Anywhere through Cloudflare is a separate supplementary architecture, download/redemption oriented, and does not provide an authenticated Files upload path. It is not a third primary core path. Public Share security architecture is out of scope. The study measures the accepted path; it does not redesign ingress, trust, token, revocation, network isolation, or fail-closed controls.
+Public Anywhere through Cloudflare is a separate supplementary architecture, download/redemption oriented, and does not provide an authenticated Files upload path. It is not a third primary core path. It represents a distinct study: **PUBLIC SHARE ANYWHERE DELIVERY PERFORMANCE** (download-only under current architecture).
+
+**Why C1 was added:**
+The Human Owner explicitly raised the concern that Public Share delivery may change if later optimization or maintenance work affects:
+- Drive read path
+- server outbound networking
+- Public Share Gateway
+- cloudflared connector
+- Cloudflare Tunnel transport
+- shared storage
+- host networking
+- application streaming
+
+Therefore, a PRE-FIX baseline was required BEFORE any relevant change is planned or executed. This preserves the ability to answer:
+1. *"What was Share Anywhere download performance before changes?"*
+2. *"What exact component was changed?"*
+3. *"Did Public Share performance improve, regress, or remain unchanged?"*
+4. *"Was the change specific to Public Share, or did it affect shared server paths?"*
+
+Public Share security architecture is out of scope. The study measures the accepted delivery path; it does not redesign ingress, trust, token, revocation, network isolation, or fail-closed controls.
 
 ### 3.3 Current application transfer facts
 
@@ -228,7 +248,11 @@ Original raw labels are preserved in evidence tables; their interpretation is no
 
 ### 7.2 Supplementary paths
 
-- **Cloudflare Public Anywhere**: External client with Twingate OFF via Cloudflare Tunnel -> Public Share Gateway. Download/redemption oriented only; supplementary future measurement, not a third core path.
+- **C1 = PUBLIC_SHARE_CLOUDFLARE**: External Internet client with Twingate OFF, accessing Share Anywhere via Cloudflare edge -> Cloudflare Tunnel -> Public Share Gateway -> AEGIS Drive. Download-only under current architecture.
+  - Test conditions: Human Owner physically remote, using the same remote Windows PC, same general Internet environment, and Brave browser as P2; Twingate explicitly turned OFF.
+  - Controls: Exact S/M/L deterministic fixtures (100 MB, 300 MB, 1 GB), password-protected public redemption workflow, n=3 valid measurements per fixture.
+  - Boundary note: While the client-side environment is substantially controlled relative to P2, network variables are not identical because Cloudflare and Twingate employ distinct transport and edge routing architectures.
+- **C2 = OPTIONAL_EXTERNAL_FIELD_VALIDATION**: Real-world external recipients/networks accessing Public Share with Twingate OFF. Evaluates recipient-network variability. Not mixed into controlled C1 statistical summaries.
 - **Local Wi-Fi + Twingate**: Retained as optional exploratory diagnostic path only, not a primary core path.
 
 ## 8. Workloads
@@ -266,20 +290,24 @@ Total PRE-FIX target: 2 paths × 3 sizes × 2 directions × 3 repetitions = **36
 Total POST-FIX target: identical 2 paths × 3 sizes × 2 directions × 3 repetitions = **36 POST-FIX runs**.
 Overall study target: **72 measured runs**.
 
-### 9.1 Current core matrix execution status
+### 9.1 Current matrix execution status
 
 | Path | Workload | 100 MB | 300 MB | 1 GB | 5 GB (Round 2) | 10 GB (Round 2) | Status |
 |---|---|---|---|---|---|---|---|
-| **P1 Onsite Direct LAN** | T1 Files upload | PENDING (n=3) | PENDING (n=3) | PENDING (n=3) | Deferred | CONFIG-LIMITED | 9 runs PENDING_ONSITE |
-| **P1 Onsite Direct LAN** | T3 Files download | PENDING (n=3) | PENDING (n=3) | PENDING (n=3) | Deferred | CONFIG-LIMITED | 9 runs PENDING_ONSITE |
-| **P2 Remote + Twingate** | T1 Files upload | **COMPLETE** (2.981 MB/s) | **COMPLETE** (3.080 MB/s) | **COMPLETE** (3.016 MB/s) | Deferred | CONFIG-LIMITED | **9 runs COMPLETE** |
-| **P2 Remote + Twingate** | T3 Files download | **COMPLETE** (4.799 MB/s) | **COMPLETE** (5.050 MB/s) | **COMPLETE** (4.829 MB/s) | Deferred | CONFIG-LIMITED | **9 runs COMPLETE** |
+| **P1 Onsite Direct LAN** (Core) | T1 Files upload | PENDING (n=3) | PENDING (n=3) | PENDING (n=3) | Deferred | CONFIG-LIMITED | 9 runs PENDING_ONSITE |
+| **P1 Onsite Direct LAN** (Core) | T3 Files download | PENDING (n=3) | PENDING (n=3) | PENDING (n=3) | Deferred | CONFIG-LIMITED | 9 runs PENDING_ONSITE |
+| **P2 Remote + Twingate** (Core) | T1 Files upload | **COMPLETE** (2.981 MB/s) | **COMPLETE** (3.080 MB/s) | **COMPLETE** (3.016 MB/s) | Deferred | CONFIG-LIMITED | **9 runs COMPLETE** |
+| **P2 Remote + Twingate** (Core) | T3 Files download | **COMPLETE** (4.799 MB/s) | **COMPLETE** (5.050 MB/s) | **COMPLETE** (4.829 MB/s) | Deferred | CONFIG-LIMITED | **9 runs COMPLETE** |
+| **C1 Public Share / Cloudflare** (Supp.) | T5 Public download | **COMPLETE** (13.546 MB/s) | **COMPLETE** (11.978 MB/s) | **COMPLETE** (11.666 MB/s) | N/A | N/A | **9 valid runs COMPLETE** |
 
-Core PRE-FIX Summary:
+Execution Summary:
 - P2 Remote + Twingate PRE-FIX: **18/18 COMPLETE**
+- C1 Public Share / Cloudflare PRE-FIX: **9/9 valid runs COMPLETE**
 - P1 Onsite Direct LAN PRE-FIX: **18/18 PENDING_ONSITE**
-- Core PRE-FIX overall: **18/36 COMPLETE**
-- POST-FIX: **0/36 NOT STARTED** (`PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`)
+- Core PRE-FIX overall: **18/36 COMPLETE** (target 36)
+- Supplementary Public Share PRE-FIX: **9/9 COMPLETE**
+- Total current valid controlled runs: **27 runs** (18 P2 + 9 C1)
+- POST-FIX: **0/36 NOT STARTED** (`CORE_PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`)
 
 ### 9.2 Time-bounded execution priority
 
@@ -315,7 +343,49 @@ Because browser DevTools did not expose a suitable network request for this nati
 
 *Harness defect note*: An early pilot script defect incorrectly expected `Unconfirmed XXXXX.crdownload` to rename without an extension; Brave promoted it to the target filename (e.g. `S-100MB.bin`). This was a test harness defect, not an AEGIS defect. The pilot attempt is excluded and was not counted as a controlled run.
 
-### 10.3 Metric definitions
+### 10.3 Public Share download measurement method (C1)
+
+The Public Share link is password-protected. For each controlled run, the Human Owner executed the following validated workflow:
+1. Open or refresh the Public Share redemption page in Brave browser (Twingate OFF).
+2. Enter the Share password.
+3. Prepare the PowerShell download observer script in an adjacent terminal.
+4. Wait for the observer prompt: `READY - CLICK PUBLIC SHARE DOWNLOAD NOW`.
+5. Trigger the Share Anywhere download button.
+6. Brave immediately creates a temporary file: `Unconfirmed XXXXX.crdownload`.
+7. PowerShell observer detects the file and starts a high-resolution Stopwatch.
+8. Observer polls at 50 ms intervals until the temporary `.crdownload` file disappears.
+9. Final promoted file is resolved in the download directory by matching exact expected byte size.
+10. Timing stops and decimal MB/s is computed (`bytes / 1,000,000 / seconds`).
+
+Under the hood, this exercises the complete AEGIS Public Share delivery stack:
+~~~text
+POST /s/:token -> password validation -> deliver() -> stream.pipe(res)
+~~~
+
+Delivery response headers:
+- `Content-Length`: exact payload bytes
+- `Content-Type: application/octet-stream`
+- `Content-Disposition: attachment; filename="..."`
+- `Cache-Control: no-store`
+
+Because `Cache-Control: no-store` is enforced, each download is a fresh network and application delivery rather than a browser cache hit.
+
+**Invalid C1 pilot run handling:**
+One initial 100 MB test run produced:
+~~~text
+TRANSFER_STARTED=Unconfirmed 719237.crdownload
+FILE=
+FILE_BYTES=0
+DOWNLOAD_MS=7727
+DOWNLOAD_MBPS=0.000
+~~~
+The file transferred completely to disk, but the observer script failed to resolve the final filename before exiting.
+- Classification: `C1_100MB_INITIAL_ATTEMPT=INVALID_MEASUREMENT`
+- Reason: `HARNESS_FINAL_FILE_RESOLUTION_FAILED`
+- Root cause: Test harness observer defect, NOT an AEGIS, Cloudflare, or Share Anywhere failure.
+- Treatment: Excluded from the controlled n=3 sample set. Preserved in documentation for methodological transparency rather than silently deleted.
+
+### 10.4 Metric definitions
 
 - exact bytes requested, sent, received, and integrity-verified;
 - wall-clock elapsed milliseconds;
@@ -411,7 +481,73 @@ Observation:
   - Do NOT write: `STORAGE_BOTTLENECK=PROVEN_FALSE`.
   - Docker stats Block I/O is cumulative and must not be described as per-run instantaneous disk throughput.
 
-### 11.5 Replication and statistical summary
+### 11.5 Public Share download results (C1 Public Share / Cloudflare)
+
+Fixtures: S-100MB (100,000,000 B), M-300MB (300,000,000 B), L-1GB (1,000,000,000 B).
+Executed by Human Owner on the same remote Windows PC / Brave browser used for P2, with Twingate OFF.
+
+| Fixture | Run | Elapsed (ms) | Download (MB/s) | Integrity Result |
+|---|---|---:|---:|---|
+| **100 MB** | r01 | 7,230 | 13.831 | Exact size match |
+| 100 MB | r02 | 7,382 | 13.546 | Exact size match |
+| 100 MB | r03 | 8,854 | 11.294 | Exact size match |
+| **100 MB Summary** | **n=3** | **Min: 11.294** | **Median: 13.546** | **Max: 13.831 (Mean: ~12.890)** |
+| **300 MB** | r01 | 25,231 | 11.890 | Exact size match |
+| 300 MB | r02 | 25,046 | 11.978 | Exact size match |
+| 300 MB | r03 | 24,346 | 12.322 | Exact size match |
+| **300 MB Summary** | **n=3** | **Min: 11.890** | **Median: 11.978** | **Max: 12.322 (Mean: ~12.063)** |
+| **1 GB** | r01 | 85,515 | 11.694 | Exact size match |
+| 1 GB | r02 | 85,723 | 11.665 | Exact size match |
+| 1 GB | r03 | 85,722 | 11.666 | Exact size match |
+| **1 GB Summary** | **n=3** | **Min: 11.665** | **Median: 11.666** | **Max: 11.694 (Mean: ~11.675)** |
+
+Public Share Controlled Verdict:
+- `C1_PUBLIC_SHARE_PRE_FIX=COMPLETE` (9 valid runs).
+- 100 MB median = 13.546 MB/s, 300 MB median = 11.978 MB/s, 1 GB median = 11.666 MB/s.
+- `PUBLIC_SHARE_SUSTAINED_DELIVERY≈11.7_TO_13.5_MBPS_BY_MEDIAN` within the tested range.
+- The 1 GB measurements are especially stable across repetitions (~11.67 MB/s).
+- Discipline: Do NOT convert these measurements into an Internet-wide SLA.
+
+### 11.6 P2 Remote + Twingate vs C1 Public Share comparison
+
+Both tests executed from the same Human remote machine and general remote client Internet environment:
+
+| Fixture | P2 Twingate Download Median (MB/s) | C1 Public Share Median (MB/s) | Ratio (C1 / P2) | Delta |
+|---|---:|---:|---:|---|
+| 100 MB | 4.799 | 13.546 | ~2.82x | C1 ~182% faster |
+| 300 MB | 5.050 | 11.978 | ~2.37x | C1 ~137% faster |
+| 1 GB | 4.829 | 11.666 | ~2.42x | C1 ~142% faster |
+
+Allowed conclusion:
+- Under the tested client environment, the Public Share delivery path achieved substantially higher download throughput (~2.4x–2.8x) than the authenticated P2 Remote + Twingate Files download path across all three tested fixtures.
+- Governance findings:
+  - `PUBLIC_SHARE_PATH_PENALTY=NOT_OBSERVED`
+  - `PUBLIC_SHARE_SLOWER_THAN_P2=NOT_SUPPORTED_BY_CURRENT_EVIDENCE`
+- Prohibited overclaims:
+  - `CLOUDFLARE_IS_FASTER=PROVEN`
+  - `TWINGATE_IS_THE_BOTTLENECK`
+  - `CLOUDFLARE_HAS_NO_BOTTLENECK`
+  - `DRIVE_READ_IS_NOT_THE_BOTTLENECK`
+  - `SERVER_NETWORK_IS_NOT_THE_BOTTLENECK`
+- Maintained status:
+  - `CLOUDFLARE_BOTTLENECK=NOT_PROVEN`
+  - `TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN`
+  - `ROOT_CAUSE=NOT_PROVEN`
+
+Technical interpretation:
+- C1 demonstrates that the same AEGIS host and storage stack can deliver a 1 GB file through the Public Share path at approximately 11.7 MB/s.
+- The simplistic hypothesis *"AEGIS server can only send files at ~5 MB/s"* is NOT supported by current evidence.
+- However, C1 and P2 differ across multiple architectural dimensions:
+  1. Ingress and egress network paths;
+  2. Access architecture (overlay vs edge tunnel);
+  3. Gateway and proxy surfaces (HUB vs Public Share Gateway);
+  4. Authentication and session handling (authenticated session vs password redemption token);
+  5. Transport protocol characteristics;
+  6. Application routing (`/drive/api/files/...` vs `/drive/api/public-share/...`);
+  7. Twingate connector/relay vs cloudflared connector.
+- Therefore, no single component has yet been isolated.
+
+### 11.7 Replication and statistical summary
 
 - Minimum three measured repetitions per condition (n=3).
 - Summaries: sample count, median, min, max, and optional arithmetic mean.
@@ -548,35 +684,72 @@ flowchart TD
   J -- No --> L[Check size-dependent multi-bottleneck H15]
 ~~~
 
-Interpretation examples:
+### 15.1 Future root-cause decision logic
 
-- LAN slow + Twingate slow + Cloudflare slow: inspect client, application,
-  server, and storage before blaming overlay paths.
-- LAN fast + Twingate slow: investigate Twingate/private WAN path.
-- LAN fast + Cloudflare slow: investigate Gateway/cloudflared/Cloudflare path.
-- Files fast + Vault slow: inspect client crypto and Vault chunk pipeline.
-- Download fast + upload slow: inspect hash/encrypt/chunk/write/commit stages.
-- First media load slow, repeat fast: cache/generation candidate.
+When P1 Onsite Direct LAN measurements become available, the following decision rules guide candidate prioritization (these are decision rules, not current conclusions):
+1. **If P1 LAN throughput >> P2 Remote throughput:**
+   - The remote/private delivery path becomes a stronger candidate.
+2. **If P1 Upload ≈ P2 Upload ≈ ~3.0 MB/s:**
+   - The application/upload pipeline (chunking, framing, request gaps, write path) becomes a stronger candidate than network path differences.
+3. **If P1 Download is high and C1 Download is high (~12–14 MB/s), but P2 Download is low (~5 MB/s):**
+   - The P2 private remote path / Twingate-associated surfaces become stronger candidates.
+   - *Discipline*: This still does NOT prove Twingate itself is the sole cause; proxy, ingress, MTU, or overlay interaction may contribute.
+4. **If P1 and C1 are both unexpectedly low:**
+   - The common server/storage/application delivery path receives higher priority.
 
-The tree selects a candidate class, not a final claim.
+The decision framework selects candidate classes for targeted investigation; it never constitutes a proven root cause on its own.
 
-## 16. Controlled optimization gate
+## 16. Controlled optimization gate and study structure
 
-No tuning begins until:
+### 16.1 PRE / DIAGNOSIS / CHANGE / POST / DELTA structure
 
-1. Baseline raw evidence and summaries are complete across both P1 and P2;
-2. `PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX` is satisfied;
-3. One hypothesis has differentiating evidence;
-4. Proposed change preserves security, integrity, storage reserve, zero-knowledge,
-   RBAC, fail-secure behavior, and accepted runtime architecture;
-5. Rollback and acceptance metrics are written first;
-6. Human Owner authorizes a separate implementation task.
+Every performance surface evaluated in this study follows a strict five-stage lifecycle:
 
-Potential experiments such as chunk size, concurrency, worker count, cache
-profile, proxy timeout, or network configuration are future tasks. They are not
-recommendations in this study.
+1. **A. PRE-FIX Baseline**:
+   - Record environment, exact fixtures, network path, measurement method, repetition count (n), individual runs, min, median, max, mean, supporting telemetry, limitations, and initial hypotheses.
+2. **B. DIAGNOSIS**:
+   - Record observed symptom, candidate bottlenecks, evidence for each, evidence against each, read-only diagnostic results, and root-cause confidence.
+   - Rule: `ROOT_CAUSE=NOT_PROVEN` remains mandatory until isolating evidence directly supports it.
+3. **C. CHANGE / OPTIMIZATION (when authorized)**:
+   - Record exact component changed, exact file/config/runtime surface, before value, after value, reason for change, hypothesis being tested, and whether the change affects P1, P2, C1, or shared surfaces.
+4. **D. POST-FIX Verification**:
+   - Repeat the exact SAME controlled workload (identical fixtures, sizes, repetitions) whenever applicable.
+   - No size or repetition changes without documenting technical justification.
+5. **E. DELTA Analysis**:
+   - For each fixture, record:
+     - Absolute change: `POST_MBPS - PRE_MBPS`
+     - Percentage improvement: `((POST - PRE) / PRE) * 100`
+     - Speedup ratio: `POST / PRE`
+     - Regressions: any degradation must be explicitly declared; never report only "faster".
 
-## 17. Report-ready table templates
+### 16.2 Change-impact classification
+
+Future optimization proposals must be classified into one of two impact classes:
+
+- **CASE A: PUBLIC-SHARE-ONLY CHANGE**:
+  - Surfaces: cloudflared connector configuration, Public Share Gateway-only routing/logic, Cloudflare Tunnel-specific behavior.
+  - Requirement: Only if diagnosis demonstrates bottleneck isolation to this path.
+  - Lifecycle impact: If authorized by Human Owner, C1 may be re-run POST-FIX without invalidating an untouched P1 baseline, provided the change truly does not touch shared server surfaces.
+- **CASE B: SHARED SERVER / APPLICATION CHANGE**:
+  - Surfaces: Drive application, file read/streaming implementation, storage subsystem, server NIC, host networking, Docker-wide resource allocations, shared reverse proxy, OS TCP tuning, filesystem parameters, common server resource limits.
+  - Lifecycle impact: If a proposed change touches any shared surface, **DO NOT APPLY IT** before P1 PRE-FIX baseline is complete. Applying Case B changes before P1 PRE-FIX would permanently invalidate the pre-fix state of the P1 baseline.
+
+### 16.3 Explicit mutation gates
+
+The study operates under three explicit gates:
+
+~~~text
+CORE_PERFORMANCE_MUTATION_GATE = BLOCKED_PENDING_P1_PRE_FIX
+PUBLIC_SHARE_SPECIFIC_MUTATION_GATE = PRE_FIX_BASELINE_CAPTURED
+PUBLIC_SHARE_MUTATION_AUTHORIZED = NO
+SHARED_MUTATION = BLOCKED_PENDING_P1_PRE_FIX
+~~~
+
+- `CORE_PERFORMANCE_MUTATION_GATE`: Strictly blocks any optimization touching core transfer paths (P1, P2, Drive application, shared server/host) until P1 Onsite Direct LAN PRE-FIX is complete.
+- `PUBLIC_SHARE_SPECIFIC_MUTATION_GATE`: Acknowledges that C1 PRE-FIX baseline is captured, but `PUBLIC_SHARE_MUTATION_AUTHORIZED=NO` remains in effect. No optimization is automatically authorized. A diagnosis and separate Human Owner approval are still required.
+- `SHARED_MUTATION`: If any Public Share diagnosis points to a shared server surface (Case B), it is immediately blocked pending P1 PRE-FIX.
+
+## 17. Report-ready table templates and final report structure
 
 | Table | Required columns |
 |---|---|
@@ -595,21 +768,74 @@ recommendations in this study.
 
 No empty template row is a result. Report prose cites run IDs and evidence files.
 
+### 17.1 C1 Public Share future POST-FIX table template
+
+When any authorized Public-Share-affecting change is evaluated, record results using this template:
+
+| Fixture | PRE median MB/s | POST median MB/s | Delta MB/s | Improvement % | Speedup | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| 100 MB | 13.546 | PENDING | PENDING | PENDING | PENDING | PENDING |
+| 300 MB | 11.978 | PENDING | PENDING | PENDING | PENDING | PENDING |
+| 1 GB | 11.666 | PENDING | PENDING | PENDING | PENDING | PENDING |
+
+Do not fabricate POST values. POST fields remain PENDING until actual measurement.
+
+### 17.2 Final report structure
+
+The final performance report will be organized into seven standard sections:
+
+- **A. Authenticated File Transfer Performance**:
+  - P1: Onsite Direct LAN (Upload & Download, PRE vs POST)
+  - P2: Remote + Twingate (Upload & Download, PRE vs POST)
+- **B. Public Share Anywhere Delivery Performance**:
+  - C1: Public Share / Cloudflare (Download only: 100 MB, 300 MB, 1 GB, PRE vs POST where relevant)
+- **C. Real-world Public Recipient Validation**:
+  - C2: Optional external recipient/network field observations
+- **D. Media Preview Performance**:
+  - Separate supplementary study covering covers, posters, hover streams, and interactive playback
+- **E. Root-Cause Analysis**:
+  - Diagnostic evidence, candidate bottlenecks, eliminated/unsupported candidates, proven cause if established
+- **F. Optimization**:
+  - Exact component changed, rationale, expected effect, affected paths, rollback
+- **G. PRE vs POST Results**:
+  - Absolute delta, percent improvement, speedup ratio, regressions, limitations
+
 ## 18. Chart specifications
 
 | Chart | X | Y | Series/facets | Required annotation |
 |---|---|---|---|---|
 | File size vs throughput | exact bytes, log-friendly | median MB/s | path and workload | min/max whiskers, n |
-| Path vs throughput | P1–P2 | median MB/s | size/workload | NOT TESTED and CONFIG-LIMITED excluded, not zero |
+| Path vs throughput | P1–P2, C1 | median MB/s | size/workload | NOT TESTED and CONFIG-LIMITED excluded, not zero |
 | File size vs TTFF | exact bytes | median TTFF ms | codec/path/cache | codec/bitrate labels |
-| Path vs TTFB | P1–P2 | median TTFB ms | workload/size | n and min/max |
+| Path vs TTFB | P1–P2, C1 | median TTFB ms | workload/size | n and min/max |
 | Server iowait vs throughput | iowait % | MB/s | workload/path | run IDs, no causal trendline without adequate n |
 | Preview before/after | baseline/candidate | latency/stall metric | fixture/path | only after controlled optimization |
 
 Charts are generated only from machine-readable evidence. Missing and
 CONFIG-LIMITED values remain categorical gaps, never numeric zeroes.
 
-## 19. Limitations and future continuation
+## 19. Optional future C2 field validation
+
+- **Classification**: `OPTIONAL / FIELD VALIDATION / NOT CONTROLLED CORE MATRIX`
+- **Identifier**: `C2 = OPTIONAL_EXTERNAL_FIELD_VALIDATION`
+- **Purpose**: Verify Share Anywhere delivery behavior from independent real-world external networks and client devices.
+- **Future design**:
+  - 1–2 external recipients/networks
+  - Twingate OFF
+  - Representative 300 MB fixture
+  - n=3 per recipient/network
+  - Optional 1 GB sustained delivery confirmation
+- **Telemetry recorded**:
+  - Approximate network type (e.g. residential fiber, cellular 5G)
+  - Client OS/browser type
+  - File size and exact byte length
+  - Duration in milliseconds
+  - Calculated decimal MB/s
+  - Observed limitations or interruptions
+- **Boundary rule**: Do NOT mix C2 samples into the controlled C1 median or mean. C2 evaluates recipient-network variability across public Internet routes, whereas C1 evaluates controlled Cloudflare delivery isolation on the reference client machine.
+- **Current status**: `C2_FIELD_VALIDATION=PLANNED_OPTIONAL / NOT_EXECUTED`.
+
+## 20. Limitations and future continuation
 
 - The PC server, storage device, client, Wi-Fi environment, ISP, Twingate route,
   and Cloudflare route limit generalizability.
@@ -629,15 +855,17 @@ CONFIG-LIMITED values remain categorical gaps, never numeric zeroes.
   but full-run continuous disk telemetry was not captured (`STORAGE_SATURATION=NOT_SUPPORTED_BY_SAMPLED_EVIDENCE`; storage is NOT proven false as a potential bottleneck).
 - Root cause, safe tuning values, and before/after improvement remain NOT PROVEN.
 
-## 20. Study truth at Remote Pre-Fix reconciliation
+## 21. Study truth at Public Share Pre-Fix reconciliation
 
 ~~~text
 TASK=LFT-PERF-1
-STATUS=IN_PROGRESS / REMOTE PRE-FIX MEASUREMENTS COMPLETE / ONSITE PENDING
+STATUS=IN_PROGRESS / REMOTE & PUBLIC SHARE PRE-FIX COMPLETE / ONSITE PENDING
 PRODUCTION_MUTATED=NO
 PERFORMANCE_SETTINGS_CHANGED=NO
 OPTIMIZATION_EXECUTED=NO
 REMOTE_B0=COMPLETE
+P2_REMOTE_TWINGATE_PRE_FIX=COMPLETE
+P2_CONTROLLED_RUNS=18
 REMOTE_UPLOAD_100MB_N=3
 REMOTE_UPLOAD_100MB_MEDIAN_MBPS=2.981
 REMOTE_UPLOAD_300MB_N=3
@@ -650,12 +878,29 @@ REMOTE_DOWNLOAD_300MB_N=3
 REMOTE_DOWNLOAD_300MB_MEDIAN_MBPS=5.050
 REMOTE_DOWNLOAD_1GB_N=3
 REMOTE_DOWNLOAD_1GB_MEDIAN_MBPS=4.829
-REMOTE_CONTROLLED_RUNS=18
-REMOTE_PRE_FIX=COMPLETE
-ONSITE_PRE_FIX=PENDING
-ONSITE_PENDING_RUNS=18
+C1_PUBLIC_SHARE_PRE_FIX=COMPLETE
+C1_CONTROLLED_VALID_RUNS=9
+C1_100MB_N=3
+C1_100MB_MEDIAN_MBPS=13.546
+C1_100MB_MEAN_MBPS=12.890
+C1_300MB_N=3
+C1_300MB_MEDIAN_MBPS=11.978
+C1_300MB_MEAN_MBPS=12.063
+C1_1GB_N=3
+C1_1GB_MEDIAN_MBPS=11.666
+C1_1GB_MEAN_MBPS=11.675
+P1_ONSITE_DIRECT_LAN_PRE_FIX=PENDING
+P1_PENDING_RUNS=18
+CORE_PRE_FIX_RUNS_COMPLETE=18
+CORE_PRE_FIX_RUNS_TARGET=36
+SUPPLEMENTARY_PUBLIC_RUNS_COMPLETE=9
+TOTAL_CURRENT_VALID_CONTROLLED_RUNS=27
 POST_FIX=NOT_STARTED
-PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX
+OPTIMIZATION=NOT_STARTED
+CORE_PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX
+PUBLIC_SHARE_BASELINE_CAPTURED=YES
+PUBLIC_SHARE_MUTATION_AUTHORIZED=NO
+SHARED_MUTATION=BLOCKED_PENDING_P1_PRE_FIX
 ROOT_CAUSE=NOT_PROVEN
 TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN
 CLOUDFLARE_BOTTLENECK=NOT_PROVEN
@@ -665,7 +910,7 @@ FINAL_RECEIPT_CREATED=NO
 NEXT_GATE=P1_ONSITE_DIRECT_LAN_PRE_FIX
 ~~~
 
-## 21. Evidence source register
+## 22. Evidence source register
 
 Canonical/history:
 

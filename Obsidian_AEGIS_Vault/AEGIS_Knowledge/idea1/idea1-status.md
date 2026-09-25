@@ -23,12 +23,12 @@ edit_policy: owner-writable
 | Branch | docs/idea1-transfer-media-performance-study |
 | PR | #216 (Draft) |
 | Owner | kla |
-| State | **IN_PROGRESS / REMOTE PRE-FIX MEASUREMENTS COMPLETE / ONSITE PENDING** |
-| Scope | Remote PRE-FIX evidence reconciliation (18 runs complete), B0 baseline recorded, upload method corrected; P1 On-site Direct LAN PRE-FIX pending (18 runs); performance mutation blocked |
+| State | **IN_PROGRESS / REMOTE & PUBLIC SHARE PRE-FIX COMPLETE / ONSITE PENDING** |
+| Scope | Remote PRE-FIX evidence reconciliation (18 runs complete), C1 Public Share PRE-FIX complete (9 valid runs), total 27 controlled runs, B0 baseline recorded; P1 On-site Direct LAN PRE-FIX pending (18 runs); core & shared performance mutations blocked |
 | Design | IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-25-idea1-transfer-media-performance-study-design.md |
 | Plan | IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-25-idea1-transfer-media-performance-measurement-plan.md |
-| Production mutation allowed | **NO** (`PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`) |
-| Current result | REMOTE_PRE_FIX=COMPLETE (18/18 runs: Upload ~3.0 MB/s sustained; Download ~4.8–5.1 MB/s; Asymmetry ~1.6x download advantage); ROOT_CAUSE=NOT_PROVEN; TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN; CLOUDFLARE_BOTTLENECK=NOT_PROVEN; STORAGE_BOTTLENECK=NOT_PROVEN; CLIENT_CRYPTO_BOTTLENECK=NOT_PROVEN |
+| Production mutation allowed | **NO** (`CORE_PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`; `PUBLIC_SHARE_MUTATION_AUTHORIZED=NO`) |
+| Current result | TOTAL_CONTROLLED_RUNS=27 (P2 Remote PRE-FIX 18 runs: Upload ~3.0 MB/s, Download ~4.8–5.1 MB/s; C1 Public Share PRE-FIX 9 runs: 100 MB 13.546 MB/s, 300 MB 11.978 MB/s, 1 GB 11.666 MB/s; Public Share ~2.4x–2.8x higher download than P2 under tested client); ROOT_CAUSE=NOT_PROVEN; TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN; CLOUDFLARE_BOTTLENECK=NOT_PROVEN; STORAGE_BOTTLENECK=NOT_PROVEN; CLIENT_CRYPTO_BOTTLENECK=NOT_PROVEN |
 | Next gate | P1_ONSITE_DIRECT_LAN_PRE_FIX (18 runs: Files Upload S/M/L ×3, Files Download S/M/L ×3 on wired Ethernet / VLAN30) |
 
 This task operationalizes the existing LFT-PERF-1 backlog and consolidates the
@@ -47,6 +47,19 @@ P2 Remote + Twingate PRE-FIX is complete across 18 controlled runs:
 - Sampled server telemetry during 1 GB upload: CPU ~6.97%, RAM ~1.32%, low iostat utilization/await (`STORAGE_SATURATION=NOT_SUPPORTED_BY_SAMPLED_EVIDENCE`; storage bottleneck not proven false).
 - Status: `TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN`; `UPLOAD_SPECIFIC_BOTTLENECK=STRONGER_CANDIDATE`; `ROOT_CAUSE=NOT_PROVEN`.
 
+C1 Public Share / Cloudflare PRE-FIX is complete across 9 valid controlled runs:
+- Download (PowerShell `.crdownload` observer with password redemption): 100 MB median 13.546 MB/s (mean ~12.890 MB/s), 300 MB median 11.978 MB/s (mean ~12.063 MB/s), 1 GB median 11.666 MB/s (mean 11.675 MB/s).
+- Sustained delivery ≈ 11.7 to 13.5 MB/s by median across the tested range. Highly stable across repetitions.
+- Under tested client environment, Public Share delivery achieved substantially higher download throughput (~2.4x–2.8x) than authenticated P2 Remote + Twingate Files download across all fixtures.
+- Invalid pilot run: initial 100 MB attempt classified `C1_100MB_INITIAL_ATTEMPT=INVALID_MEASUREMENT` (reason: `HARNESS_FINAL_FILE_RESOLUTION_FAILED`); test harness observer defect, not AEGIS/Cloudflare defect, excluded from n=3.
+- Status: `PUBLIC_SHARE_PATH_PENALTY=NOT_OBSERVED`; `PUBLIC_SHARE_SLOWER_THAN_P2=NOT_SUPPORTED_BY_CURRENT_EVIDENCE`; `CLOUDFLARE_BOTTLENECK=NOT_PROVEN`; `TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN`; `ROOT_CAUSE=NOT_PROVEN`.
+
+Mutation gates enforced:
+- `CORE_PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`
+- `PUBLIC_SHARE_SPECIFIC_MUTATION_GATE=PRE_FIX_BASELINE_CAPTURED`
+- `PUBLIC_SHARE_MUTATION_AUTHORIZED=NO`
+- `SHARED_MUTATION=BLOCKED_PENDING_P1_PRE_FIX`
+
 Immediate next gate is P1 Onsite Direct LAN PRE-FIX (18 runs: Upload S/M/L ×3, Download S/M/L ×3).
 All performance mutations, parameter changes, and code optimizations remain strictly blocked
 pending completion of the P1 baseline. PR #216 remains open in Draft with zero final receipts.
@@ -57,6 +70,7 @@ pending completion of the P1 baseline. PR #216 remains open in Draft with zero f
 |---|---|---|---|---|---|---|---|
 | LFT-PERF-1-S1 | Establish study design, measurement plan, and preliminary matrix | PASS / DRAFT | Initial design and measurement plan committed | `0d471942` | PASS | Production B0, PRE-FIX measurements | Human review of measurement plan |
 | LFT-PERF-1-S2 | Reconcile B0 baseline, upload method correction (XHR tracer), 18 controlled remote runs (Upload ~3.0 MB/s, Download ~4.8–5.1 MB/s), upload vs download asymmetry (~1.6x), mutation gate enforcement | PASS / IN PROGRESS | B0 baseline executed; 18 remote runs complete; docs reconciled; no mutation | Docs reconciliation checkpoint | PASS | P1 Onsite Direct LAN Pre-Fix (18 runs), bottleneck analysis, post-fix matrix | P1 Onsite Direct LAN Pre-Fix baseline |
+| LFT-PERF-1-S3 | Reconcile C1 Public Share / Cloudflare PRE-FIX (9 valid runs: 100 MB 13.546, 300 MB 11.978, 1 GB 11.666 MB/s), invalid pilot classification, P2 vs C1 comparison (~2.4x–2.8x), PRE/POST study structure, Case A/B change classification, and mutation gates | PASS / IN PROGRESS | C1 9 valid runs complete; docs reconciled; 27 total controlled runs; zero mutations | Docs reconciliation checkpoint | PASS | P1 Onsite Direct LAN Pre-Fix (18 runs), bottleneck analysis, post-fix matrix | P1 Onsite Direct LAN Pre-Fix baseline |
 
 
 ## Completed Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
