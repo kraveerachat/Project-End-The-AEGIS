@@ -46,12 +46,10 @@ const TITLE_KEYS = {
    header ส่วน Dashboard ใช้ global index และจอประวัติ/แชร์ใช้เฉพาะ file index
    (ดู SEARCH_SCOPE_BY_SCREEN ใน GlobalSearch.jsx)
 
-   VAULT คือข้อยกเว้นเดียว — ปิดการใช้งาน (เทา ๆ ไม่ใช่ซ่อน) พร้อมทูลทิปบอกเหตุผล
-   เพราะเนื้อหาถูกเข้ารหัสแบบ zero-knowledge: เซิร์ฟเวอร์เก็บแต่ ciphertext และ
-   ชื่อไฟล์ที่ถอดรหัสแล้วอยู่ใน state ของจอ Vault เท่านั้น ไม่เคยขึ้นมาถึง App
-   จึงไม่มีทาง index ได้ — การ disable คือการบอกความจริงข้อนี้ ไม่ใช่การกันเชิงสิทธิ์ */
-const SEARCH_DISABLED_SCREENS = new Set(['vault'])
-const HEADER_SEARCH_HIDDEN_SCREENS = new Set(['files', 'access'])
+   Vault ซ่อน global search ทั้งชุด: เซิร์ฟเวอร์มีเพียง ciphertext จึง index ชื่อไฟล์ไม่ได้
+   ส่วน search ภายใน Vault กรอง manifest ที่ถอดรหัสแล้วในหน่วยความจำเท่านั้น */
+const SEARCH_DISABLED_SCREENS = new Set()
+const HEADER_SEARCH_HIDDEN_SCREENS = new Set(['files', 'access', 'vault'])
 
 export default function App() {
   // ── Session — หน่วยความจำเท่านั้น ────────────────────────────────
@@ -467,6 +465,7 @@ export default function App() {
         t={t}
         lang={lang}
         placeholderMode={placeholderMode}
+        userId={session?.id ?? null}
         marqueeSurfaceRef={vaultMarqueeSurfaceRef}
         registerMarqueePointerDown={registerVaultMarqueePointerDown}
       />
