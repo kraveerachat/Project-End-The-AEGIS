@@ -18,7 +18,8 @@ import test, { after, before, beforeEach } from 'node:test'
 import React, { act } from 'react'
 
 import { makeT } from '../src/lib/strings.js'
-import { CORRECT_PASSPHRASE, serverBlob, serverBlobV2 } from './fixtures/vaultScreenBackend.js'
+import { CORRECT_PASSPHRASE, encodeMeta, serverBlob, serverBlobV2 } from './fixtures/vaultScreenBackend.js'
+import { syntheticGif, syntheticPng } from './helpers/vaultTreeFixtures.mjs'
 import { makeVaultTreeBackend } from './fixtures/vaultTreeBackend.js'
 import { createFakeTreeServer } from './helpers/vaultTreeFakeServer.mjs'
 import { startVaultScreenEnv, settle, click, type, unlock, uploadFile } from './helpers/vaultScreenHarness.js'
@@ -1058,6 +1059,7 @@ test('VIDEO-POSTER-INITIAL-1..4 / VIDEO-POSTER-FRAME-4/5 a new video gets its po
     )
 
     phase = 'after-upload'
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
     await uploadFile(dom, { name: 'new-upload.mp4', type: 'video/mp4', body: 'video-bytes' })
     await tick(8)
 
@@ -1138,5 +1140,500 @@ test('VAULT-FILE-DRAG-WIRING-2/3 selected file drag writes the complete payload 
     assert.equal(dt.dropEffect, 'move', 'folder target presents move cursor semantics')
   } finally {
     await h.unmount()
+  }
+})
+
+test('PVUX-1 Vault Upload opens the right-side drawer without invoking the native picker directly', async () => {
+  const h = await mountUnlocked()
+  const inputProto = dom.window.HTMLInputElement.prototype
+  const nativeClick = inputProto.click
+  let nativePickerCalls = 0
+  inputProto.click = function patchedClick() { nativePickerCalls += 1 }
+  try {
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
+    assert.equal(nativePickerCalls, 0, 'the toolbar action opens the drawer instead of the native picker')
+    assert.ok(q('[data-testid="vault-upload-drawer"]'), 'the Vault-specific right drawer is visible')
+  } finally {
+    inputProto.click = nativeClick
+    await h.unmount()
+  }
+})
+
+test('PVUX-2/3 enqueue uses TREE encryption transport, closes the drawer, and leaves a truthful status tray', async () => {
+  const blobId = 'PVUX2'.padEnd(22, '2')
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id: blobId }] })
+  backend.uploadImpl = async ({ file, onStage, onProgress, routeBase }) => {
+    assert.equal(routeBase, '/api/vault/tree/uploads', 'Vault enqueue stays on the encrypted TREE upload route')
+    onStage?.('uploading')
+    onProgress?.({ phase: 'uploading', transferredBytes: file.size, totalBytes: file.size, percent: 100 })
+    backend.state['/api/vault'] = {
+      loading: false,
+      data: { configured: true, blobs: [serverBlobV2({ id: blobId, name: file.name, type: file.type, plainSize: file.size })] },
+      error: null,
+    }
+    return { ok: true, stage: 'complete', blob: { id: blobId, formatVersion: 2 } }
+  }
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+
+  const h = await mountUnlocked()
+  try {
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
+    await uploadFile(dom, { name: 'stage-d.png', type: 'image/png', body: 'image-bytes' })
+    await tick(4)
+
+    assert.equal(q('[data-testid="vault-upload-drawer"]'), null, 'accepted enqueue closes the entry drawer')
+    assert.ok(q('[data-upload-tray]'), 'the persistent bottom-right tray remains visible')
+    assert.ok(doc().body.textContent.includes('stage-d.png'), 'the tray tracks the real Vault job')
+    assert.ok(backend.requests.some((entry) => entry.path === '/api/vault/tree/uploads'), 'TREE upload transport was invoked')
+    assert.ok(!backend.requests.some((entry) => String(entry.path).startsWith('/api/files')), 'Files plaintext transport was never invoked')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('PVUX-4 locking purges the memory-only Vault queue and aborts active client work', async () => {
+  let activeSignal = null
+  backend.uploadImpl = ({ signal, onStage }) => new Promise((resolve) => {
+    activeSignal = signal
+    onStage?.('uploading')
+    signal.addEventListener('abort', () => resolve({ ok: false, stage: 'cancelled', reason: 'cancelled', resume: null }), { once: true })
+  })
+  const h = await mountUnlocked()
+  try {
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
+    await uploadFile(dom, { name: 'purge-me.png', type: 'image/png', body: 'secret-image' })
+    await tick(2)
+    assert.ok(q('[data-upload-tray]'), 'active Vault job is visible before lock')
+
+    await click(dom, qa('button').find((button) => button.textContent.trim() === t('lockVault')))
+    await tick(3)
+    assert.equal(activeSignal?.aborted, true, 'lock aborts the encrypted upload work')
+    assert.equal(q('[data-upload-tray]'), null, 'queue UI is destroyed with the unlocked screen')
+    assert.ok(!doc().body.textContent.includes('purge-me.png'), 'plaintext filename does not survive lock')
+  } finally {
+    await h.unmount()
+  }
+})
+
+/* ── PRIVATE-VAULT-STAGE-D correction: Files parity, hard-refresh recovery, realtime media ───────────────── */
+
+async function mountUnlockedAs(userId) {
+  const h = env.mount()
+  await h.render(React.createElement((await env.load('/src/screens/Vault.jsx')).Vault, { t, userId }))
+  await unlock(dom, t, CORRECT_PASSPHRASE)
+  await tick(4)
+  return h
+}
+
+async function chooseRecoverFile(body, name = 'picked.png', mime = 'image/png') {
+  await click(dom, q('[data-upload-recover]'))
+  const input = q('input[data-upload-recover-input]')
+  const file = new dom.window.File([body], name, { type: mime })
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+  await act(async () => input.dispatchEvent(new dom.window.Event('change', { bubbles: true })))
+  await tick(8)
+}
+
+test('VAULT-UPLOAD-PARITY-1/2/3 the Vault drawer is the shared Files entry panel, closes on enqueue into the tray, and only uses TREE transport', async () => {
+  const blobId = 'PAR1'.padEnd(22, '1')
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id: blobId }] })
+  const routes = []
+  backend.uploadImpl = async ({ file, routeBase, onStage, onProgress }) => {
+    routes.push(routeBase)
+    onStage?.('uploading')
+    onProgress?.({ phase: 'uploading', transferredBytes: file.size, totalBytes: file.size, percent: 100 })
+    backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: [serverBlobV2({ id: blobId, name: file.name, type: file.type, plainSize: file.size })] }, error: null }
+    return { ok: true, stage: 'complete', blob: { id: blobId, formatVersion: 2 } }
+  }
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+  const h = await mountUnlocked()
+  try {
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
+    const drawer = q('[data-testid="vault-upload-drawer"]')
+    assert.ok(drawer, 'PARITY-1 Upload opens the right drawer')
+    assert.match(drawer.className, /inset-y-0 right-0/, 'right-side drawer geometry identical to Files')
+    assert.ok(drawer.textContent.includes(t('dropHere')) && drawer.textContent.includes(t('chooseFiles')), 'drag/drop zone + Choose Files')
+    await uploadFile(dom, { name: 'parity.png', type: 'image/png', body: 'png' })
+    await tick(4)
+    assert.equal(q('[data-testid="vault-upload-drawer"]'), null, 'PARITY-2 enqueue closes the drawer')
+    const tray = q('[data-upload-tray]')
+    assert.ok(tray, 'PARITY-2 bottom-right tray shows the job')
+    assert.ok(tray.textContent.includes('parity.png'))
+    assert.deepEqual(routes, ['/api/vault/tree/uploads'], 'PARITY-3 encrypted TREE transport only')
+    assert.ok(!backend.requests.some((r) => String(r.path).startsWith('/api/files')), 'PARITY-3 no Files plaintext route')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('VAULT-RECOVERY-1/2/3/4/6 refresh keeps the server session, reconstructs Interrupted, rejects a wrong file, resumes missing chunks only, then clears the record', async () => {
+  const UPLOAD_ID = 'c'.repeat(48)
+  const blobId = 'RCV1'.padEnd(22, '1')
+  const SOURCE = 'abcdefghij'
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id: blobId }] })
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: dom.window.localStorage })
+  dom.window.localStorage.clear()
+  // jsdom's Blob has no arrayBuffer() (every supported browser does); the fingerprint reads bounded slices with it
+  const blobProto = dom.window.Blob.prototype
+  const hadArrayBuffer = Object.prototype.hasOwnProperty.call(blobProto, 'arrayBuffer')
+  if (typeof blobProto.arrayBuffer !== 'function') {
+    blobProto.arrayBuffer = function arrayBuffer() {
+      return new Promise((resolve, reject) => {
+        const reader = new dom.window.FileReader()
+        reader.onload = () => resolve(new Uint8Array(reader.result).slice().buffer)
+        reader.onerror = () => reject(reader.error)
+        reader.readAsArrayBuffer(this)
+      })
+    }
+  }
+  backend.dekKey =await globalThis.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  const plan = { chunkCount: 3, plaintextChunkBytes: 4, chunkSize: 20, lastChunkSize: 18, ciphertextSize: 58 }
+  let firstSignal = null
+  const resumeCalls = []
+  backend.uploadImpl = async ({ file, onSession, onStage, signal, resume }) => {
+    if (!resume) {
+      onSession?.({ upload: { uploadId: UPLOAD_ID }, dek: backend.dekKey, plan, contentId: new Uint8Array(16) })
+      onStage?.('uploading')
+      firstSignal = signal
+      return new Promise((resolve) => signal.addEventListener('abort', () => resolve({ ok: false, stage: 'cancelled', reason: 'cancelled', resume: null }), { once: true }))
+    }
+    resumeCalls.push({ resume, size: file.size })
+    backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: [serverBlobV2({ id: blobId, name: 'resume-me.png', type: 'image/png', plainSize: file.size })] }, error: null }
+    return { ok: true, stage: 'complete', blob: { id: blobId, formatVersion: 2 } }
+  }
+  wireBridge()
+  const bridged = backend.respond
+  backend.respond = async (req) => {
+    if (req.path === `/api/vault/tree/uploads/${UPLOAD_ID}` && req.method === 'GET') {
+      return {
+        ok: true, status: 200, data: {
+          upload: { uploadId: UPLOAD_ID, formatVersion: 2, contentIdB64: 'AAAAAAAAAAAAAAAAAAAAAA==', ciphertextSize: 58, chunkSize: 20, chunkCount: 3, status: 'open', expiresAt: Date.now() + 60_000, received: [0], missing: [1, 2], receivedBytes: 20 },
+          envelope: { wrappedDekB64: 'wrapped', wrapIvB64: 'wiv', metaIvB64: 'miv', metaB64: encodeMeta({ name: 'resume-me.png', type: 'image/png', plainSize: SOURCE.length }) },
+        },
+      }
+    }
+    return bridged(req)
+  }
+  globalThis.__VAULT_BACKEND__ = backend
+  const storedText = () => { const ls = dom.window.localStorage; let out = ''; for (let i = 0; i < ls.length; i += 1) out += `${ls.key(i)}=${ls.getItem(ls.key(i))}\n`; return out }
+
+  let h = await mountUnlockedAs('user-17')
+  try {
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
+    await uploadFile(dom, { name: 'resume-me.png', type: 'image/png', body: SOURCE })
+    await tick(8)
+    const stored = storedText()
+    assert.match(stored, /aegis\.vault\.tree\.uploads\.recovery\.v1\.user-17=/, 'the sealed record is written as soon as the session exists')
+    assert.ok(!stored.includes('resume-me.png') && !stored.includes('image/png'), 'no plaintext name/MIME in browser storage')
+
+    await h.unmount() // hard refresh
+    h = null
+    assert.equal(firstSignal?.aborted, true, 'refresh aborts only local client work')
+    assert.ok(!backend.requests.some((r) => r.method === 'DELETE' && String(r.path).includes('/uploads/')), 'VAULT-RECOVERY-1 refresh never cancels the server upload session')
+    assert.match(storedText(), /recovery\.v1\.user-17=/, 'the record survives refresh')
+
+    h = await mountUnlockedAs('user-17')
+    await tick(6)
+    const tray = q('[data-upload-tray]')
+    assert.ok(tray, 'VAULT-RECOVERY-2 the tray is reconstructed after unlock')
+    assert.ok(tray.textContent.includes('resume-me.png'), 'name decrypted from the server envelope for this unlocked session')
+    assert.ok(tray.textContent.includes(t('upStageInterrupted')), 'Interrupted / resume required')
+    assert.ok(q('[data-upload-recover]') && q('[data-upload-discard]'), 'select-same-file and Discard are offered')
+
+    await chooseRecoverFile('zzzzzzzzzz')
+    assert.ok(q('[data-upload-tray]').textContent.includes(t('uploadRecoverWrongFile')), 'VAULT-RECOVERY-4 a different file is rejected')
+    assert.equal(resumeCalls.length, 0, 'no chunk transport for the wrong file')
+
+    await chooseRecoverFile(SOURCE)
+    assert.equal(resumeCalls.length, 1, 'VAULT-RECOVERY-3 the same file resumes')
+    const { resume } = resumeCalls[0]
+    assert.equal(resume.upload.uploadId, UPLOAD_ID)
+    assert.deepEqual(resume.upload.missing, [1, 2], 'only the server-reported missing chunks are queued')
+    assert.equal(resume.dek, backend.dekKey, 'DEK rebuilt from the wrapped envelope with the current KEK')
+    assert.ok(tileByName('resume-me.png'), 'resumed upload is attached into the TREE and visible without reload')
+    assert.ok(!/recovery\.v1\.user-17=\{"version":1,"records":\[\{/.test(storedText()), 'VAULT-RECOVERY-6 completion clears the recovery record')
+  } finally {
+    if (h) await h.unmount()
+    delete backend.dekKey
+    if (!hadArrayBuffer) delete blobProto.arrayBuffer
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage)
+    else delete globalThis.localStorage
+  }
+})
+
+async function withImageDecoder(fn) {
+  const hadBitmap = Object.getOwnPropertyDescriptor(globalThis, 'createImageBitmap')
+  const hadCanvas = Object.getOwnPropertyDescriptor(globalThis, 'OffscreenCanvas')
+  Object.defineProperty(globalThis, 'createImageBitmap', { configurable: true, writable: true, value: async () => ({ width: 8, height: 8, close() {} }) })
+  Object.defineProperty(globalThis, 'OffscreenCanvas', {
+    configurable: true,
+    writable: true,
+    value: class {
+      constructor(w, h) { this.width = w; this.height = h }
+      getContext() { return { drawImage() {} } }
+      async convertToBlob() { return new Blob([new Uint8Array([1, 2, 3])], { type: 'image/webp' }) }
+    },
+  })
+  try { return await fn() } finally {
+    if (hadBitmap) Object.defineProperty(globalThis, 'createImageBitmap', hadBitmap); else delete globalThis.createImageBitmap
+    if (hadCanvas) Object.defineProperty(globalThis, 'OffscreenCanvas', hadCanvas); else delete globalThis.OffscreenCanvas
+  }
+}
+
+for (const [id, label, mime, bytesFor] of [
+  ['VAULT-MEDIA-RT-1', 'image', 'image/png', () => syntheticPng()],
+  ['VAULT-MEDIA-RT-2', 'GIF', 'image/gif', () => syntheticGif()],
+]) {
+  test(`${id} a newly uploaded ${label} gets its cover in the current unlocked session without reload`, async () => {
+    backend.treeFlags.mediaPreviewEnabled = true
+    const blobId = `RT${id.slice(-1)}`.padEnd(22, 'R')
+    const name = `fresh-${label.toLowerCase()}.${mime.split('/')[1]}`
+    fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id: blobId }] })
+    const media = new Uint8Array(bytesFor())
+    backend.respondBytes = async () => ({ ok: true, status: 200, bytes: media })
+    backend.uploadImpl = async () => {
+      backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: [serverBlobV2({ id: blobId, name, type: mime, plainSize: media.length })] }, error: null }
+      return { ok: true, stage: 'complete', blob: { id: blobId, formatVersion: 2 } }
+    }
+    wireBridge()
+    globalThis.__VAULT_BACKEND__ = backend
+    await withImageDecoder(async () => {
+      const h = await mountUnlocked()
+      try {
+        await click(dom, q('[data-testid="vault-tree-upload"]'))
+        await uploadFile(dom, { name, type: mime, body: media })
+        await tick(10)
+        const tile = tileByName(name)
+        assert.ok(tile, 'the new card appears in the current TREE view')
+        assert.ok(tile.querySelector('[data-testid="vault-tree-tile-poster"]'), `${label} cover renders without reload/route bounce`)
+      } finally {
+        await h.unmount()
+      }
+    })
+  })
+}
+
+test('VAULT-MEDIA-OLD-1 existing (genesis-migrated) image and GIF nodes are scheduled through the same preview pipeline', async () => {
+  backend.treeFlags.mediaPreviewEnabled = true
+  const ids = ['OLD1'.padEnd(22, '1'), 'OLD2'.padEnd(22, '2')]
+  fakeTree = await createFakeTreeServer({ kek, blobs: ids.map((id) => ({ formatVersion: 2, id })) })
+  const png = new Uint8Array(syntheticPng())
+  const gif = new Uint8Array(syntheticGif())
+  backend.respondBytes = async (req) => ({ ok: true, status: 200, bytes: String(req.path).includes(ids[1]) ? gif : png })
+  backend.state['/api/vault'] = {
+    loading: false,
+    data: { configured: true, blobs: [serverBlobV2({ id: ids[0], name: 'old-photo.png', type: 'image/png', plainSize: png.length }), serverBlobV2({ id: ids[1], name: 'old-loop.gif', type: 'image/gif', plainSize: gif.length })] },
+    error: null,
+  }
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+  const seed = modules.sync.createTreeSession({ kek, api: modules.api })
+  const start = await seed.loadHead()
+  await seed.commit(modules.ops.intents.attachBlob({ parentNodeId: start.manifest.rootNodeId, name: 'old-photo.png', mediaType: 'image/png', plainSize: png.length, blobRef: { formatVersion: 2, id: ids[0] } }))
+  await seed.commit(modules.ops.intents.attachBlob({ parentNodeId: start.manifest.rootNodeId, name: 'old-loop.gif', mediaType: 'image/gif', plainSize: gif.length, blobRef: { formatVersion: 2, id: ids[1] } }))
+  await withImageDecoder(async () => {
+    const h = await mountUnlocked()
+    try {
+      await tick(10)
+      for (const name of ['old-photo.png', 'old-loop.gif']) {
+        assert.ok(tileByName(name)?.querySelector('[data-testid="vault-tree-tile-poster"]'), `${name} gets a cover without upload or reload`)
+      }
+    } finally {
+      await h.unmount()
+    }
+  })
+})
+
+/* ── PR212 final polish: one queue, two mutually exclusive surfaces (drawer section ⟷ floating tray) ───────── */
+
+const drawerEl = () => q('[data-testid="vault-upload-drawer"]')
+const drawerQueue = () => drawerEl()?.querySelector('[data-upload-drawer-queue]') ?? null
+const openDrawer = () => click(dom, q('[data-testid="vault-tree-upload"]'))
+const closeDrawer = () => click(dom, drawerEl().querySelector(`button[aria-label="${t('closeUpload')}"]`))
+
+function hangingUpload() {
+  const jobs = []
+  backend.uploadImpl = ({ file, onStage, onProgress, signal }) => new Promise((resolve) => {
+    onStage?.('uploading')
+    onProgress?.({ phase: 'uploading', transferredBytes: Math.floor(file.size / 2), totalBytes: file.size, percent: 50, chunkIndex: 0, chunkCount: 2 })
+    jobs.push({ file, resolve })
+    signal.addEventListener('abort', () => resolve({ ok: false, stage: 'cancelled', reason: 'cancelled', resume: null }), { once: true })
+  })
+  return jobs
+}
+
+function completingUpload(blobId, name) {
+  backend.uploadImpl = async ({ file }) => {
+    backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: [serverBlobV2({ id: blobId, name, type: file.type, plainSize: file.size })] }, error: null }
+    return { ok: true, stage: 'complete', blob: { id: blobId, formatVersion: 2 } }
+  }
+}
+
+test('VAULT-DRAWER-QUEUE-1/2/3 drawer open shows the live queue inside the drawer and no floating tray; closed shows the tray; the same job survives close/reopen', async () => {
+  hangingUpload()
+  const h = await mountUnlocked()
+  try {
+    await openDrawer()
+    await uploadFile(dom, { name: 'long-video.mp4', type: 'video/mp4', body: 'x'.repeat(4096) })
+    await tick(3)
+    assert.equal(Boolean(drawerEl()), false, 'enqueue still closes the drawer')
+    const trayRow = q('[data-upload-tray] [data-upload-row]')
+    assert.ok(trayRow, 'QUEUE-2 drawer closed + active upload → floating tray visible')
+    const rowId = trayRow.getAttribute('data-upload-row')
+    const trayProgress = trayRow.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')
+
+    await openDrawer()
+    assert.ok(drawerEl(), 'drawer reopened')
+    assert.equal(Boolean(q('[data-upload-tray]')), false, 'QUEUE-1 floating tray is not rendered while the drawer is open')
+    assert.equal(Boolean(q('[data-upload-tray-launcher]')), false, 'no floating launcher either')
+    const inDrawer = drawerQueue()
+    assert.ok(inDrawer, 'QUEUE-1 queue section lives inside the drawer')
+    const row = inDrawer.querySelector(`[data-upload-row="${rowId}"]`)
+    assert.ok(row, 'QUEUE-3 the very same job (same id) is shown, not a copy')
+    assert.ok(row.textContent.includes('long-video.mp4'))
+    assert.equal(row.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow'), trayProgress, 'QUEUE-3 progress preserved')
+    assert.ok(row.querySelector('[data-upload-cancel]'), 'active job offers Cancel inside the drawer')
+    assert.ok(drawerEl().textContent.includes(t('chooseFiles')), 'Choose Files / drop zone stay usable above the queue')
+    assert.equal(qa('[data-upload-row]').length, 1, 'exactly one rendering of the job at any time')
+
+    await closeDrawer()
+    assert.equal(drawerEl(), null)
+    assert.ok(q(`[data-upload-tray] [data-upload-row="${rowId}"]`), 'QUEUE-3 closing hands the same job back to the tray')
+    assert.equal(qa('[data-upload-row]').length, 1)
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('VAULT-DRAWER-QUEUE-4/7/8 completed rows are compact in the drawer, memory-only, and gone after lock', async () => {
+  const blobId = 'DQC1'.padEnd(22, '1')
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id: blobId }] })
+  completingUpload(blobId, 'done-photo.png')
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: dom.window.localStorage })
+  dom.window.localStorage.clear()
+  dom.window.sessionStorage.clear()
+  let h = await mountUnlockedAs('user-18')
+  try {
+    await openDrawer()
+    await uploadFile(dom, { name: 'done-photo.png', type: 'image/png', body: 'png-bytes' })
+    await tick(6)
+    await openDrawer()
+    const row = drawerQueue()?.querySelector('[data-upload-row][data-upload-stage="complete"]')
+    assert.ok(row, 'completed job is listed in the drawer')
+    assert.equal(row.getAttribute('data-upload-compact'), 'true', 'QUEUE-4 completed row is compact')
+    assert.ok(row.textContent.includes('done-photo.png'), 'compact row keeps the filename')
+    assert.ok(row.querySelector('[data-upload-complete-icon]'), 'compact row shows the completed check')
+    assert.equal(Boolean(row.querySelector('[role="progressbar"]')), false, 'no progress bar on a compact completed row')
+
+    const persisted = [dom.window.localStorage, dom.window.sessionStorage].map((s) => { let o = ''; for (let i = 0; i < s.length; i += 1) o += `${s.key(i)}=${s.getItem(s.key(i))}`; return o }).join('|')
+    assert.ok(!persisted.includes('done-photo.png'), 'QUEUE-8 completed filenames never reach browser storage')
+
+    await click(dom, qa('button').find((b) => b.textContent.trim() === t('lockVault')))
+    await tick(3)
+    assert.ok(!doc().body.textContent.includes('done-photo.png'), 'QUEUE-7 lock clears the completed display state')
+    await h.unmount() // logout / hard reload tears the SPA down
+    h = await mountUnlockedAs('user-18')
+    await tick(4)
+    await openDrawer()
+    assert.equal(Boolean(drawerQueue()), false, 'QUEUE-7 no completed history comes back after re-unlock')
+    assert.ok(!qa('[data-upload-row]').some((el) => el.textContent.includes('done-photo.png')), 'no upload row for the finished file (its TREE tile is the file itself, not history)')
+  } finally {
+    if (h) await h.unmount()
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage)
+    else delete globalThis.localStorage
+  }
+})
+
+test('VAULT-DRAWER-QUEUE-5 an interrupted job offers Resume and Discard inside the drawer, and they work', async () => {
+  const UPLOAD_ID = 'd'.repeat(48)
+  const blobId = 'DQR1'.padEnd(22, '1')
+  const SOURCE = 'klmnopqrst'
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id: blobId }] })
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: dom.window.localStorage })
+  dom.window.localStorage.clear()
+  const blobProto = dom.window.Blob.prototype
+  const hadArrayBuffer = Object.prototype.hasOwnProperty.call(blobProto, 'arrayBuffer')
+  if (typeof blobProto.arrayBuffer !== 'function') {
+    blobProto.arrayBuffer = function arrayBuffer() {
+      return new Promise((resolve, reject) => {
+        const reader = new dom.window.FileReader()
+        reader.onload = () => resolve(new Uint8Array(reader.result).slice().buffer)
+        reader.onerror = () => reject(reader.error)
+        reader.readAsArrayBuffer(this)
+      })
+    }
+  }
+  backend.dekKey = await globalThis.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  const plan = { chunkCount: 3, plaintextChunkBytes: 4, chunkSize: 20, lastChunkSize: 18, ciphertextSize: 58 }
+  const resumeCalls = []
+  backend.uploadImpl = async ({ file, onSession, onStage, signal, resume }) => {
+    if (!resume) {
+      onSession?.({ upload: { uploadId: UPLOAD_ID }, dek: backend.dekKey, plan, contentId: new Uint8Array(16) })
+      onStage?.('uploading')
+      return new Promise((resolve) => signal.addEventListener('abort', () => resolve({ ok: false, stage: 'cancelled', reason: 'cancelled', resume: null }), { once: true }))
+    }
+    resumeCalls.push(resume)
+    backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: [serverBlobV2({ id: blobId, name: 'drawer-resume.png', type: 'image/png', plainSize: file.size })] }, error: null }
+    return { ok: true, stage: 'complete', blob: { id: blobId, formatVersion: 2 } }
+  }
+  wireBridge()
+  const bridged = backend.respond
+  backend.respond = async (req) => {
+    if (req.path === `/api/vault/tree/uploads/${UPLOAD_ID}` && req.method === 'GET') {
+      return {
+        ok: true, status: 200, data: {
+          upload: { uploadId: UPLOAD_ID, formatVersion: 2, contentIdB64: 'AAAAAAAAAAAAAAAAAAAAAA==', ciphertextSize: 58, chunkSize: 20, chunkCount: 3, status: 'open', expiresAt: Date.now() + 60_000, received: [0], missing: [1, 2], receivedBytes: 20 },
+          envelope: { wrappedDekB64: 'wrapped', wrapIvB64: 'wiv', metaIvB64: 'miv', metaB64: encodeMeta({ name: 'drawer-resume.png', type: 'image/png', plainSize: SOURCE.length }) },
+        },
+      }
+    }
+    return bridged(req)
+  }
+  globalThis.__VAULT_BACKEND__ = backend
+
+  const interruptAndReload = async () => {
+    let h = await mountUnlockedAs('user-19')
+    await openDrawer()
+    await uploadFile(dom, { name: 'drawer-resume.png', type: 'image/png', body: SOURCE })
+    await tick(8)
+    await h.unmount()
+    h = await mountUnlockedAs('user-19')
+    await tick(6)
+    await openDrawer()
+    return h
+  }
+
+  let h = await interruptAndReload()
+  try {
+    const row = drawerQueue()?.querySelector('[data-upload-row][data-upload-stage="interrupted"]')
+    assert.ok(row, 'interrupted job appears inside the open drawer')
+    assert.equal(Boolean(q('[data-upload-tray]')), false, 'and not in a floating tray at the same time')
+    assert.ok(row.querySelector('[data-upload-recover]') && row.querySelector('[data-upload-discard]'), 'Resume + Discard inside the drawer')
+
+    await chooseRecoverFile(SOURCE)
+    assert.equal(resumeCalls.length, 1, 'Resume from the drawer continues the same session')
+    assert.deepEqual(resumeCalls[0].upload.missing, [1, 2], 'missing chunks only')
+
+    await h.unmount()
+    h = await interruptAndReload()
+    const again = drawerQueue()?.querySelector('[data-upload-row][data-upload-stage="interrupted"]')
+    assert.ok(again)
+    await click(dom, again.querySelector('[data-upload-discard]'))
+    await tick(3)
+    assert.equal(Boolean(drawerQueue()?.querySelector('[data-upload-stage="interrupted"]') ?? null), false, 'Discard removes the row')
+    assert.ok(backend.requests.some((r) => r.method === 'DELETE' && r.path === `/api/vault/tree/uploads/${UPLOAD_ID}`), 'Discard releases the server session')
+  } finally {
+    if (h) await h.unmount()
+    delete backend.dekKey
+    if (!hadArrayBuffer) delete blobProto.arrayBuffer
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage)
+    else delete globalThis.localStorage
   }
 })

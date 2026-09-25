@@ -130,6 +130,7 @@ conf_mode=$(stat -c %a "$dnsmasq_conf" 2>/dev/null)
 
 grep -Fqx "interface=$AP_IF" "$dnsmasq_conf" || fail DNSMASQ_INTERFACE_MISMATCH
 grep -Fqx "bind-interfaces" "$dnsmasq_conf" || fail DNSMASQ_BIND_INTERFACES_MISSING
+grep -Fqx "except-interface=lo" "$dnsmasq_conf" || fail DNSMASQ_EXCEPT_INTERFACE_LO_MISSING
 grep -Fqx "dhcp-option=option:router" "$dnsmasq_conf" || fail DNSMASQ_EMPTY_ROUTER_OPTION_MISSING
 grep -Fqx "dhcp-option=option:dns-server,$AP_ADDR" "$dnsmasq_conf" || fail DNSMASQ_DNS_SERVER_OPTION_MISSING
 grep -Fqx "no-resolv" "$dnsmasq_conf" || fail DNSMASQ_NO_RESOLV_MISSING

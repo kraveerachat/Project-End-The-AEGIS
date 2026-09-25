@@ -191,7 +191,7 @@ export const tileIds = (dom) => tileMenuButtons(dom).map((b) => b.getAttribute('
 
 /** Drive the real <input type="file"> the screen renders. */
 export async function uploadFile(dom, { name, type: mime = 'image/gif', body = 'bytes' }) {
-  const input = dom.window.document.querySelector('input[type="file"]')
+  const input = dom.window.document.querySelector('input[type="file"]:not([data-upload-recover-input])')
   if (!input) throw new Error('the unlocked vault should render a file input')
   const file = new dom.window.File([body], name, { type: mime })
   Object.defineProperty(input, 'files', { configurable: true, value: [file] })

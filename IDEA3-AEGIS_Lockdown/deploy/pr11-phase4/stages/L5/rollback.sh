@@ -34,6 +34,7 @@ if [ -z "$ROOT" ]; then
   if systemctl is-active chronyd.service >/dev/null 2>&1; then
     systemctl stop chronyd.service 2>/dev/null || true
   fi
+  ! systemctl is-active chronyd.service >/dev/null 2>&1 || fail ROLLBACK_CHRONYD_STILL_ACTIVE
 else
   # Fixture mode: record event
   if [ ! -f "$WORK/service_rollback_events" ]; then
@@ -48,19 +49,31 @@ else
 fi
 
 # 2. Restore /etc/chrony.conf to exact pre-L5 state
-pre_exists="NO"
-if [ -f "$WORK/pre_chrony_conf_exists" ]; then
-  pre_exists="$(cat "$WORK/pre_chrony_conf_exists")"
-fi
+[ -f "$WORK/pre_chrony_conf_exists" ] || fail ROLLBACK_PRE_STATE_UNKNOWN
+pre_exists="$(cat "$WORK/pre_chrony_conf_exists")"
+[ "$pre_exists" = "YES" ] || [ "$pre_exists" = "NO" ] || fail ROLLBACK_PRE_STATE_UNKNOWN
 
 if [ "$pre_exists" = "YES" ]; then
-  if [ -f "$WORK/chrony.conf.orig" ]; then
-    cp -f "$WORK/chrony.conf.orig" "$target_conf"
-    if [ -f "$WORK/chrony.conf.meta.orig" ]; then
-      IFS=: read -r orig_mode orig_uid orig_gid orig_size orig_mtime < "$WORK/chrony.conf.meta.orig"
-      chmod "$orig_mode" "$target_conf" 2>/dev/null || true
-      chown "$orig_uid:$orig_gid" "$target_conf" 2>/dev/null || true
-    fi
+  [ -f "$WORK/chrony.conf.orig" ] || fail ROLLBACK_ORIGINAL_SNAPSHOT_MISSING
+  [ -f "$WORK/chrony.conf.meta.orig" ] || fail ROLLBACK_ORIGINAL_SNAPSHOT_MISSING
+  [ -f "$WORK/chrony.conf.sha256.orig" ] || fail ROLLBACK_ORIGINAL_SNAPSHOT_MISSING
+  cp -f "$WORK/chrony.conf.orig" "$target_conf" || fail ROLLBACK_RESTORE_FAILED
+  IFS=: read -r orig_mode orig_uid orig_gid orig_size orig_mtime < "$WORK/chrony.conf.meta.orig"
+  chmod "$orig_mode" "$target_conf" || fail ROLLBACK_RESTORE_FAILED
+  if [ -z "$ROOT" ]; then
+    chown "$orig_uid:$orig_gid" "$target_conf" || fail ROLLBACK_RESTORE_FAILED
+  else
+    chown "$orig_uid:$orig_gid" "$target_conf" 2>/dev/null || true
+  fi
+  # mtime is part of the compared metadata (time.file./etc/chrony.conf.meta): restore it exactly from the snapshot.
+  [[ "$orig_mtime" =~ ^[0-9]+$ ]] || fail ROLLBACK_RESTORE_FAILED
+  touch -m -d "@$orig_mtime" "$target_conf" || fail ROLLBACK_RESTORE_FAILED
+  [ "$(sha256sum "$target_conf" | awk '{ print $1 }')" = "$(cat "$WORK/chrony.conf.sha256.orig")" ] || fail ROLLBACK_RESTORE_MISMATCH
+  [ "$(stat -c %a "$target_conf")" = "$orig_mode" ] || fail ROLLBACK_RESTORE_MISMATCH
+  [ "$(stat -c %s "$target_conf")" = "$orig_size" ] || fail ROLLBACK_RESTORE_MISMATCH
+  [ "$(stat -c %Y "$target_conf")" = "$orig_mtime" ] || fail ROLLBACK_RESTORE_MISMATCH
+  if [ -z "$ROOT" ]; then
+    [ "$(stat -c %u:%g "$target_conf")" = "$orig_uid:$orig_gid" ] || fail ROLLBACK_RESTORE_MISMATCH
   fi
 else
   rm -f -- "$target_conf"
@@ -82,7 +95,7 @@ if [ -z "$ROOT" ]; then
   for ((i=0; i<30; i++)); do
     tc_eval="$(python3 -c "
 import sys
-sys.path.insert(0, '$P4_HERE/../../IDEA3-AEGIS_Lockdown')
+sys.path.insert(0, '$P4_HERE/../..')
 from aegis_soc.trusted_time import TrustedClock, adjtimex_probe
 tc = TrustedClock()
 probe = adjtimex_probe()

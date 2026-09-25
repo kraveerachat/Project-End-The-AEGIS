@@ -15,24 +15,72 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
+## Current Task
+
+None — standing by for Human Owner merge of PR #187.
+
+## Completed Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `feat/idea1-private-vault-production-rollout`; Draft PR: #187.
--- State: **IN PROGRESS / SECOND STAGE A ROLLED BACK / THIRD STAGE A COMMANDS HARDENED / NOT YET AUTHORIZED**.
-- PR #191 is merged into `main` at `2d7e7fd84e9b61eb0623e6bf762c0ce2858d341f`.
-- Production rollout history: `FIRST_STAGE_A_TECHNICAL=PASS`; `FIRST_STAGE_A_HUMAN_QHD=FAIL`; `FIRST_STAGE_A_ROLLBACK=PASS`.
-- Production is restored to the pre-TREE baseline. `PRODUCTION_MIGRATION_011_APPLIED=NO`; `TREE_OWNER_CREATED=NO`; `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`.
-- Retired candidate: source `0051cceb4927220446fbb12a7e730b43af777b71`; tag `aegis-prod-drive:vault-tree-0051cceb4927`; status `RETIRED_DO_NOT_DEPLOY`. The first Stage A exposed the QHD locked-layout defect, and PR #191 changed application source.
-- PR #191 correction evidence: `HUMAN_BROWSER_2560x1440=PASS`; `HUMAN_OWNER_ACCEPTANCE=PASS`; `PR171_UI_PRESERVED=YES`; `TREE_V1_BROWSER=PASS`.
-- Current rollout objective: Human review of the hardened Third Stage A command set (existing-artifact reuse gate, corrected workstation fallback transfer paths) and the protected-data fingerprint contract before any Third Stage A authorization. Exact source `70b0fdf059672e2b1c408ec5e5c16cfed5261257`; candidate `aegis-prod-drive:vault-tree-70b0fdf05967`; image ID `sha256:c97cf9f6e3bdd36b4ecca5471d842a46f151f8ca09edcda0be2084e97c42c673`; OCI revision exact. Image-config user is `node`; disposable runtime evidence is effective user `node`, UID `1000`, GID `1000`. No rebuild is required or authorized. `THIRD_STAGE_A_AUTHORIZED=NO`; `STAGE_B_AUTHORIZED=NO`.
-- New-candidate evidence: PR191/PR171 accepted UI suite 121/121 PASS; TREE backend in-memory 108/108 PASS; legacy V1/V2 core 140/140 PASS; PostgreSQL 15 TREE/legacy 61/61 PASS; shared Files 265 pass / 0 fail / 12 environment-gated skip; media 233 pass / 2 superseded locked-presentation assertions / 43 environment-gated skip / 0 functional regression; build PASS (2725 modules, existing chunk-size warning). A non-gating full-suite audit on the preceding byte-identical IDEA1 source reached 830 pass / 1 fail / 80 skip before retained open handles; the sole independently reproduced failure is pre-existing Thai/English key parity (`vaultKeyConfirmLabel` absent from Thai), outside this deployment/docs diff.
-- Local second-Stage-A proof: disposable pre-011 PostgreSQL 15, TREE table count 0 before and after candidate startup, all TREE flags absent/off, application/metadata/storage/media health PASS, restart 0, OOM false, no automatic migration, and no TREE mutation. Four new candidate-specific overlays render with only the Drive image and approved TREE environment keys; PostgreSQL, volumes, gateway, monitor, and other services are unchanged.
-- Second Stage A command hardening: `COMMAND_SECURITY_HARDENING=PASS`; `FULL_RENDER_FILE_REMOVED=YES`; `LIVE_COMPOSE_CHAIN_GATE=ADDED`; `EXACT_STAGE_A_ROLLBACK_PREPARED=YES`; `RUNTIME_USER_EVIDENCE_RECONCILED=YES`; `HUMAN_QHD_STOP_GATE=EXPLICIT`. The effective Compose model is validated without writing a fully interpolated render to disk. The pre-TREE rollback uses the original live Compose chain only and is explicitly forbidden after migration 011 or any TREE_V1 owner. Technical PASS does not bypass the mandatory Human Production QHD gate.
-- Second Stage A Human evidence: `SECOND_STAGE_A_CANDIDATE_RUNTIME=PASS`; candidate health `healthy`, restart `0`, OOM `false`; TREE schema/protocol/destructive-purge flags false; TREE table count `0`; `vault_meta=2`, `vault_blobs=2`, `vault_v2_blobs=6`; schema fingerprint unchanged. Whole-database data SHA changed `b22d…` → `015b…`, then changed again to `89c…` after rollback. Read-only timestamp inspection found no cutover-window changes in `files`, `upload_sessions`, `vault_v2_upload_sessions`, or `vault_v2_upload_chunks`. `WHOLE_DATABASE_DATA_SHA_GATE=INVALID_FOR_LIVE_STAGE_A`; `UNRELATED_DATABASE_ACTIVITY_CAUSE=NOT_PROVEN`. This evidence does not establish that the candidate caused or did not cause unrelated database activity.
-- Rollback evidence: `SECOND_STAGE_A_PRE_TREE_ROLLBACK=PASS`; Production returned to `aegis-prod-drive:media-preview-1a3c16622407`, healthy, restart `0`, OOM `false`; migration 011 unapplied; TREE table count `0`.
-- Corrected Stage-A protected-data contract: one deterministic function hashes only committed immutable Vault state from `vault_meta`, `vault_blobs`, `vault_v2_blobs`, and `vault_v2_blob_chunks`; rows are ordered by stable primary keys under `C` collation and piped directly to SHA-256 without printing protected fields. PRE and POST call the same function. Mutable upload/session state is observational, not part of the invariant. Whole-database data SHA equality is removed as a gate; schema equality, TREE count, legacy counts, Drive runtime checks, and disabled TREE flags remain fail-closed.
-- Human authorization: `PRODUCTION_EXECUTION_MODEL=HUMAN_OWNER_COPY_PASTE_ONLY`; `THIRD_STAGE_A_AUTHORIZED=NO`; `STAGE_B_AUTHORIZED=NO`. Third Stage A has NOT been executed and is NOT authorized yet. Every privileged Production mutation remains **Human Owner copy/paste only**. The agent may inspect, plan, build, verify, render Compose, prepare exact commands, analyze owner-provided output, and update repository documentation. The agent must not autonomously run Production `sudo`, apply the migration, recreate containers, or edit Production files.
+- Branch: `feat/idea1-private-vault-production-rollout`; PR: #187.
+- State: **CLOSED / IMPLEMENTED & HUMAN PRODUCTION ACCEPTED (2026-09-25)** — Full Production rollout executed, migration 011 applied, Stage A/B/C/D completed, PR212 repair merged, and Human Production accepted (`PRIVATE-VAULT-PRODUCTION-ROLLOUT-1 = CLOSED`).
+- Rollout History & Production Execution:
+  - First Stage A: technical runtime PASS, Human QHD FAIL, safely rolled back pre-TREE (`FIRST_STAGE_A_TECHNICAL=PASS`, `FIRST_STAGE_A_HUMAN_QHD=FAIL`, `FIRST_STAGE_A_ROLLBACK=PASS`).
+  - Second Stage A: technical candidate runtime PASS, whole-database data SHA invalid as a live invariant, safely rolled back pre-TREE (`SECOND_STAGE_A_CANDIDATE_RUNTIME=PASS`, `SECOND_STAGE_A_PRE_TREE_ROLLBACK=PASS`, `WHOLE_DATABASE_DATA_SHA_GATE=INVALID_FOR_LIVE_STAGE_A`, `UNRELATED_DATABASE_ACTIVITY_CAUSE=NOT_PROVEN`, `b22d…` → `015b…` → `89c…`).
+  - Protected-Data Fingerprint Contract: deterministic committed-Vault gate approved (`PRODUCTION_EXECUTION_MODEL=HUMAN_OWNER_COPY_PASTE_ONLY`).
+  - Third Stage A: Human authorized and executed, candidate `aegis-prod-drive:vault-tree-70b0fdf05967`, healthy, restart 0, OOM false, TREE table count 0, flags false, protected Vault fingerprint unchanged, Human Production locked-QHD acceptance PASS (`STAGE_A_THIRD=PASS`, `NORMAL_FILES_UNCHANGED=YES`).
+  - Pre-Stage B Backup: status SUCCESS, integrity PASS, restore verification PASS, target HGST 1TB Backup, separate physical disk protection (`BACKUP=PASS`).
+  - Stage B: Human authorized, migration 011 applied with verified normalized Git blob, PRE tree table count 0, POST tree table count 7, trigger 1, 28 direct `drive_app` DML grants, 0 invalid indexes, legacy Vault data unchanged, Drive healthy (`STAGE_B=PASS`). Pre-TREE rollback permanently forbidden.
+  - Stage C: Human authorized, `VAULT_TREE_SCHEMA_AVAILABLE=true`, `VAULT_TREE_PROTOCOL_ENABLED=true`, genesis/UI/media/purge false, Drive healthy, tree owner not yet created (`STAGE_C=PASS`).
+  - Stage D: Human authorized, schema/protocol/genesis/UI/media true, purge false, Drive healthy; Human completed genesis through application flow, `protocol_state` became `TREE_V1`, committed head/revision/key envelope created, existing blobs became TREE_MANAGED (`STAGE_D=PASS`).
+  - Production Diagnostic after Genesis:
+    - `protocol_state=TREE_V1`
+    - `head_ever_committed=true`
+    - `TREE_HEAD_ROWS=1`
+    - `TREE_KEY_ENVELOPE_ROWS=1`
+    - `TREE_REVISION_ROWS=1`
+    - `revision state HEAD_COMMITTED`
+    - `migration lease absent`
+    - `frozen inventory absent`
+  - PR212 Stage-D Repair: UX/media defects repaired under PR #212 and merged into main at `16237d9acc8411955913b0ea70c2d35cf1a65347` (`FINAL_REPAIR_PR=212`, `DATABASE_MIGRATION_RUN=NO`).
+  - Final Authoritative Application Source SHA: `f8c876754dd66b45b6d647d4ff3f2aa9f618283d`
+  - Final Accepted Production Image: `aegis-prod-drive:vault-stage-d-fix-f8c876754dd6`
+  - Final Human Production Acceptance: `PASS`
+    - Private Vault login/unlock: PASS
+    - Files-style right upload drawer: PASS
+    - Shared upload queue: PASS
+    - Drawer/tray mutual exclusivity: PASS
+    - Completed compact rows: PASS
+    - Realtime image cover: PASS
+    - Realtime GIF cover: PASS
+    - Realtime video poster: PASS
+    - Existing media covers: PASS
+    - Hard-refresh interrupted upload recovery: PASS
+    - Same-file resume: PASS
+    - Wrong-file rejection: PASS
+    - Folder create/move: PASS
+    - TREE_V1 preserved: PASS
+- Final Runtime & Effective Flags:
+  - `HEALTH=healthy`
+  - `RESTARTS=0`
+  - `OOM=false`
+  - `TREE_STATE=TREE_V1|true`
+  - `VAULT_TREE_SCHEMA_AVAILABLE=true`
+  - `VAULT_TREE_PROTOCOL_ENABLED=true`
+  - `VAULT_TREE_GENESIS_MIGRATION_ENABLED=true`
+  - `VAULT_TREE_UI_ENABLED=true`
+  - `VAULT_MEDIA_PREVIEW_ENABLED=true`
+  - `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`
+- Permanent Rollback Boundary:
+  - Migration 011 applied and TREE_V1 owner exists: `PRE_TREE_ROLLBACK=FORBIDDEN`.
+  - Failures post-TREE remain TREE-capable / fail-secure only.
+  - Do not drop the 7 TREE tables; do not revert migration 011; do not reset `protocol_state`.
+  - Destructive purge remains disabled (`VAULT_DESTRUCTIVE_PURGE_ENABLED=false`).
+  - Phase 8 destructive purge was NOT executed (`PHASE_8_PURGE=NOT_EXECUTED`).
+- Deferred Performance Scope (Explicitly NOT PR187/PR212 Failures):
+  - Tracked as: `PRIVATE-VAULT-MEDIA-THROUGHPUT-PREVIEW-PERFORMANCE-1`
+  - Deferred items: video hover-preview startup latency, interactive video preview buffering, time-to-first-frame, image/thumbnail latency, upload/download throughput, chunk/range-fetch performance, client decrypt cost, and network/Twingate/gateway contribution.
+  - Note: Twingate/gateway bottleneck is NOT PROVEN; it remains an unverified hypothesis for later measured performance analysis.
 
 ### Session Register — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
 
@@ -46,6 +94,57 @@ edit_policy: owner-writable
 | PVPR-S6 | Harden second Stage A Human commands: provenance, live-chain gate, non-persistent render, exact pre-TREE rollback, technical verification, mandatory QHD stop | PASS / HUMAN EXECUTION PENDING | Candidate image config user `node` reconciled with effective runtime `node` UID/GID `1000:1000`; workstation/server archive hash equality required; live Compose labels must match the exact expected chain; full interpolated render is never persisted; exact original-chain rollback is prepared and forbidden after migration 011/TREE_V1; technical mismatches stop for Human investigation; 2560x1440 at 100% Human Production QHD gate is explicit | Command-hardening checkpoint pending | Runbook/status/PR metadata hardened; application source and Production untouched | Human Owner separately authorizes and executes Second Stage A, then performs QHD gate | Stage B remains unauthorized; no receipt or Ready transition |
 | PVPR-S7 | Second Stage A Human execution evidence, invalid whole-database data gate diagnosis, safe rollback, deterministic protected-Vault gate correction | PASS / HUMAN CONTRACT REVIEW | Candidate runtime reached healthy/restart 0/OOM false with all TREE flags false and TREE tables 0; Vault counts and schema unchanged. Whole-DB data SHA changed `b22d…→015b…→89c…` across candidate and rollback, while timestamp inspection found no cutover-window change in four inspected operational tables; cause remains not proven. Exact pre-TREE rollback restored original healthy image with migration 011 absent. Corrected gate hashes four committed Vault tables in primary-key order through one shared PRE/POST function; whole-DB data SHA removed as a gate | `4842deb5` | Protected-data fingerprint contract approved by Human Owner; Third Stage A not yet authorized | Production safely restored; corrected Third Stage A contract prepared locally; Production untouched by correction task | Human review of protected-data contract |
 | PVPR-S8 | Reconcile origin/main, add existing-artifact reuse gate, correct workstation fallback commands, disambiguate authorization | PASS / THIRD STAGE A NOT AUTHORIZED | Clean --no-ff merge of origin/main `6bfeb1a1` (IDEA3-only, 0 IDEA1 overlap); candidate source `70b0fdf05967` and image ID `sha256:c97cf9f6…` preserved; protected-data fingerprint contract intact; added read-only server artifact-reuse gate to bypass transfer/load; corrected workstation fallback target `admin-main@192.168.10.10` with SSH key `id_ed25519_admin-main_thispc` and fixed PowerShell quoting; explicit authorization `PRODUCTION_EXECUTION_MODEL=HUMAN_OWNER_COPY_PASTE_ONLY`, `THIRD_STAGE_A_AUTHORIZED=NO`, `STAGE_B_AUTHORIZED=NO`; tests PASS | `e4dd8880` | Third Stage A runbook hardened; Production untouched; candidate rebuild forbidden | Human review of hardened command set and protected-data contract | Human Owner decision on Third Stage A authorization; Stage B remains unauthorized |
+| PVPR-S9 | Full Production rollout execution, migration 011, Stage A/B/C/D, PR212 repair, main reconciliation (`16237d9a`), runbook update, final receipt, closeout | PASS | Clean merge of origin/main `16237d9a` containing merged PR212; Third Stage A PASS on candidate `70b0fdf05967`; fresh backup PASS on HGST 1TB Backup; Stage B migration 011 applied (7 tables, 1 trigger, 28 DML grants); Stage C PASS (schema/protocol true); Stage D PASS (TREE_V1 genesis completed); PR212 Stage-D repair merged into main; authoritative application source `f8c876754dd66b45b6d647d4ff3f2aa9f618283d`; accepted Production image `aegis-prod-drive:vault-stage-d-fix-f8c876754dd6`; final Human Production PASS; data gate tests 5/5 PASS; runbook bash blocks 9/9 valid; policy 24/24 PASS; validator PASS; final receipt created | `16237d9a` merge base | Rollout completed through TREE_V1 and Human Production accepted; pre-TREE rollback forbidden; ready for Human Owner merge | None (ready for Human Owner merge) | Human Owner merge of PR #187 |
+
+## Completed Task — PRIVATE-VAULT-STAGE-D-UX-MEDIA-RECONCILIATION-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-vault-stage-d-ux-media-reconciliation`; PR: #212.
+- State: **CLOSED / IMPLEMENTED & HUMAN PRODUCTION ACCEPTED (2026-09-25)** — PR212 implementation, automated verification, candidate packaging, and Human Production acceptance complete (`PRIVATE-VAULT-STAGE-D-UX-MEDIA-RECONCILIATION-1 = CLOSED`).
+- Authoritative Implementation Source SHA: `f8c876754dd66b45b6d647d4ff3f2aa9f618283d`
+- Origin Main at Final Verification / Merge Base: `a2fc7cfc7d8537a2ee3601a9f40b128526ff2ff1`
+- Accepted Production Candidate Image: `aegis-prod-drive:vault-stage-d-fix-f8c876754dd6`
+- Final Human Production Result: `PASS`
+- Production Runtime Evidence:
+  - `HEALTH=healthy`
+  - `RESTARTS=0`
+  - `OOM=false`
+  - `TREE_STATE=TREE_V1|true`
+  - `VAULT_TREE_SCHEMA_AVAILABLE=true`
+  - `VAULT_TREE_PROTOCOL_ENABLED=true`
+  - `VAULT_TREE_GENESIS_MIGRATION_ENABLED=true`
+  - `VAULT_TREE_UI_ENABLED=true`
+  - `VAULT_MEDIA_PREVIEW_ENABLED=true`
+  - `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`
+  - `DATABASE_MIGRATION_RUN=NO`
+- Human Accepted Behaviors:
+  - Private Vault unlock/login
+  - Files-style right upload drawer (`UploadEntryPanel` / `VaultUploadDrawer`)
+  - One shared upload queue
+  - Drawer and floating tray no longer overlap: queue renders inside drawer when open; floating tray at bottom-right when closed
+  - Completed compact rows in drawer
+  - Realtime image, GIF, and video covers & existing media covers
+  - Hard-refresh interrupted upload recovery (`vaultUploadRecovery.js`), same-file resume (size + sample fingerprint verification), wrong-file rejection before transport
+  - Folder create/move, TREE_V1 preserved
+- Deferred Performance Scope (Explicitly NOT PR212 Failures):
+  - Video hover-preview startup/buffering performance
+  - Interactive video preview buffering
+  - End-to-end upload/download throughput analysis
+  - Network/Twingate/gateway contribution is **NOT YET PROVEN**. Do NOT claim Twingate/gateway as root cause; it remains an unverified hypothesis for later measured performance analysis.
+- Environmental & Security Invariants:
+  - Production database migration was NOT run (`DATABASE_MIGRATION_RUN=NO`).
+  - Destructive purge remains disabled (`VAULT_DESTRUCTIVE_PURGE_ENABLED=false`).
+  - Zero-knowledge encryption boundary and client-side crypto preserved.
+  - Phase 8 purge was NOT executed.
+
+### Session Register — PRIVATE-VAULT-STAGE-D-UX-MEDIA-RECONCILIATION-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PVSD-S1 | Root-cause analysis, RED tests, minimal repair, automated verification, Draft PR, exact candidate build/export | AUTOMATED REPAIR PASS / CANDIDATE BUILD BLOCKED | Fresh base `origin/main=1ab771a1`; a later `origin/main=69bb261c` advance was independently classified IDEA3-only, zero IDEA1 overlap, and merged normally at `d43980f7`. Root causes proven: Upload bypassed a drawer/queue; fire-and-forget head/inventory refresh raced preview eligibility; one over-budget scheduler entry head-of-line blocked later work; RANGE_V2 reserved full source size despite a 64 MiB worker cache; App rendered a confusing disabled global search. RED: 39 pass / 10 intended fail. GREEN focused matrix: 126/126 PASS, including unchanged Files drawer/tray; post-merge affected rerun 11/11 PASS. Production build PASS with existing chunk-size warning; policy 24/24 PASS; Vault validator PASS with two existing Canvas warnings. Broad `vault*.test.js`: 697 pass / 61 PG-gated skip / 23 fail; every failure is an inherited stale locked-legacy assertion that expects inventory-shaped ciphertext cards, contrary to the accepted fixed decorative locked state in current main; no failing file or locked renderer changed by this task. Untouched full-suite baseline also reproduced known `appShellRevision.test.js` failures and stalled on open handles; no full-suite PASS claimed. Zero browser-storage writes; no Files transport; no schema/migration/crypto/Production change. Draft PR #212 opened; no receipt. Candidate build/export is blocked because Docker client 28.3.2 cannot reach the default Windows engine: `open //./pipe/docker_engine: The system cannot find the file specified.` Docker was not restarted by the agent. | `da1b4cfa` source; `d43980f7` main merge | Repair, reconciliation, automated gates, and Draft PR complete; candidate not built | Human restores Docker Desktop, then rerun exact candidate build/inspect/save/hash contract before any Production action | Candidate packaging gate; Production execution remains Human-only |
+| PVSD-S2 | Correction after `PR212_HUMAN_PRODUCTION=FAIL`: bundle-mismatch classification, reuse of PR #148/#171 implementations, Vault hard-refresh recovery | AUTOMATED CORRECTION PASS / PRODUCTION NOT RE-TESTED | Classification: STALE DEPLOYED BUNDLE — the observed inline `vaultTreeUploadRunning` UI exists only in `origin/main`; PR212 source and a clean build contain `vault-upload-drawer` and zero inline-progress references, and PVSD-S1 recorded that no PR212 candidate was ever built. RED on `3ad45fb2`: parity/media tests already passed (source was correct, deployment was not); every recovery test failed. Correction: shared `UploadEntryPanel` now renders both the Files and Vault drawers; `VaultUploadDrawer` adopts the PR #148 queue lifecycle with `UploadStatusTray`; new `vaultUploadRecovery.js` stores only uploadId, sizes, chunk geometry and a DEK-sealed fingerprint/destination under an allowlist; after unlock the non-extractable DEK is rebuilt from the wrapped envelope that the tree-mode status now returns (ciphertext only, owner-only, legacy unchanged); same-file check = exact size + fingerprint (whole file up to 8 chunks, otherwise first/last plus 6 evenly spaced chunks); only missing chunks upload. Verification: focused Files+Vault matrix 244/244 PASS (includes PR #148 upload/recovery suites, vaultTreeUi QHD 16/16); build PASS with existing chunk-size warning, `dist` restored. No Production action. | `da165e6d` | Correction complete; Draft PR #212 stays Draft; no receipt | Human rebuilds the exact PR212 candidate from the new head and re-runs Production acceptance, including refresh-resume | Candidate build + Human Production retest |
+| PVSD-S3 | Final UI polish after Human Production PASS on `ac8151be`: the floating upload tray overlapped the open right drawer | AUTOMATED PASS / PRODUCTION NOT RE-TESTED | One queue, two mutually exclusive surfaces: while the Vault drawer is open its lower section renders the same queue via shared `UploadQueueSection` (full `UploadStatusRow` for active/interrupted jobs with progress, speed, ETA, Cancel, Resume, Discard; compact filename + check rows for completed jobs); when closed, the unchanged `UploadStatusTray`/launcher renders it. Same React state and handlers; no second controller. Completed history is memory-only and dies with lock, logout and reload; the recovery contract is unchanged. Files `UploadDrawer` is untouched. RED 0/3 → GREEN 3/3 (`VAULT-DRAWER-QUEUE-1..8`); focused Files+Vault matrix 247/247 PASS; Files upload subset 96/96 PASS; build PASS with the existing chunk-size warning, `dist` restored. No transport, crypto, TREE schema or media-pipeline change. | `14980f1f` | Polish complete; Draft PR #212 stays Draft; no receipt | Human rebuilds the candidate from the new head and re-checks the drawer/tray behaviour | Candidate build + Human Production retest |
+| PVSD-S4 | Final documentation, repository reconciliation, main merge (`a2fc7cfc`), final receipt, PR ready handoff | PASS | Clean merge of origin/main `a2fc7cfc` at `17a355a1` (zero-overlap IDEA3 PR #213); 22-suite focused matrix 247/247 PASS; build PASS (`dist` restored); policy 24/24 PASS; validator PASS (2 canvas warnings); git diff check PASS; Human Production PASS on candidate `aegis-prod-drive:vault-stage-d-fix-f8c876754dd6`; runtime evidence healthy, RESTARTS=0, OOM=false, TREE_V1|true, flags intact, DATABASE_MIGRATION_RUN=NO; final immutable receipt created; PR #212 marked ready | `17a355a1` | Task complete; Human Production accepted; ready for Human Owner merge | None (ready for Human Owner merge) | Human Owner merge of PR #212 |
 
 ## Completed Task — PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1
 

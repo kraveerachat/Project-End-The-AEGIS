@@ -1182,6 +1182,71 @@ def test_l5_rollback_restores_preexisting_file_exact_metadata(tmp_path: Path) ->
     assert restored.read_text(encoding="utf-8") == orig_content
 
 
+def test_l5_rollback_restores_original_mode_and_records_sha256(tmp_path: Path) -> None:
+    fs_root = tmp_path / "fs"
+    work_dir = tmp_path / "work"
+    render_dir = tmp_path / "render"
+    setup_t6_render(render_dir)
+    orig_content = "# stock-like config\npool 2.example.invalid iburst\nmakestep 1.0 3\n"
+    setup_l4_fs(fs_root, existing_chrony_conf=orig_content, existing_chrony_conf_mode=0o644)
+
+    res_apply = run_handler(HANDLER / "apply.sh", fs_root=fs_root, work_dir=work_dir, render_dir=render_dir)
+    assert res_apply.returncode == 0, res_apply.stdout + res_apply.stderr
+    conf = fs_root / "etc" / "chrony.conf"
+    assert (conf.stat().st_mode & 0o777) == 0o640
+    recorded = (work_dir / "chrony.conf.sha256.orig").read_text(encoding="utf-8").split()[0]
+    assert recorded == hashlib.sha256(orig_content.encode()).hexdigest()
+
+    res_rb = run_handler(HANDLER / "rollback.sh", fs_root=fs_root, work_dir=work_dir)
+    assert res_rb.returncode == 0, res_rb.stdout + res_rb.stderr
+    assert (conf.stat().st_mode & 0o777) == 0o644
+    assert hashlib.sha256(conf.read_bytes()).hexdigest() == recorded
+
+
+def test_l5_rollback_fails_closed_when_original_snapshot_missing(tmp_path: Path) -> None:
+    fs_root = tmp_path / "fs"
+    work_dir = tmp_path / "work"
+    render_dir = tmp_path / "render"
+    setup_t6_render(render_dir)
+    setup_l4_fs(fs_root, existing_chrony_conf="# original\n", existing_chrony_conf_mode=0o644)
+
+    assert run_handler(HANDLER / "apply.sh", fs_root=fs_root, work_dir=work_dir, render_dir=render_dir).returncode == 0
+    (work_dir / "chrony.conf.orig").unlink()
+
+    res_rb = run_handler(HANDLER / "rollback.sh", fs_root=fs_root, work_dir=work_dir)
+    assert res_rb.returncode != 0
+    assert "ROLLBACK_ORIGINAL_SNAPSHOT_MISSING" in res_rb.stderr
+    assert "L5_ROLLBACK=PASS" not in res_rb.stdout
+
+
+def test_l5_rollback_fails_closed_when_restored_bytes_do_not_match(tmp_path: Path) -> None:
+    fs_root = tmp_path / "fs"
+    work_dir = tmp_path / "work"
+    render_dir = tmp_path / "render"
+    setup_t6_render(render_dir)
+    setup_l4_fs(fs_root, existing_chrony_conf="# original\n", existing_chrony_conf_mode=0o644)
+
+    assert run_handler(HANDLER / "apply.sh", fs_root=fs_root, work_dir=work_dir, render_dir=render_dir).returncode == 0
+    (work_dir / "chrony.conf.orig").write_text("# tampered\n", encoding="utf-8")
+
+    res_rb = run_handler(HANDLER / "rollback.sh", fs_root=fs_root, work_dir=work_dir)
+    assert res_rb.returncode != 0
+    assert "ROLLBACK_RESTORE_MISMATCH" in res_rb.stderr
+    assert "L5_ROLLBACK=PASS" not in res_rb.stdout
+
+
+def test_l5_rollback_never_deletes_config_when_pre_state_unknown(tmp_path: Path) -> None:
+    fs_root = tmp_path / "fs"
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    setup_l4_fs(fs_root, existing_chrony_conf="# keep me\n", existing_chrony_conf_mode=0o644)
+
+    res_rb = run_handler(HANDLER / "rollback.sh", fs_root=fs_root, work_dir=work_dir)
+    assert res_rb.returncode != 0
+    assert "ROLLBACK_PRE_STATE_UNKNOWN" in res_rb.stderr
+    assert (fs_root / "etc" / "chrony.conf").read_text(encoding="utf-8") == "# keep me\n"
+
+
 def test_l5_rollback_removes_created_file_if_absent_before(tmp_path: Path) -> None:
     fs_root = tmp_path / "fs"
     work_dir = tmp_path / "work"

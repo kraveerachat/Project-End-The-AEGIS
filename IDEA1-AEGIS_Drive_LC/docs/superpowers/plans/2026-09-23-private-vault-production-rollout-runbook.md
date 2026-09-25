@@ -1,11 +1,14 @@
 # PR #187 Private Vault TREE_V1 — Production rollout runbook
 
-Status: **SECOND STAGE A ROLLED BACK / DATA GATE CORRECTED / THIRD STAGE A NOT AUTHORIZED.**
+Status: **ROLLOUT COMPLETE / PRODUCTION ACCEPTED THROUGH TREE_V1 / PR212 REPAIR MERGED / CLOSED.**
 
-This runbook deploys merged source `70b0fdf059672e2b1c408ec5e5c16cfed5261257`.
-It never builds application code from the PR #187 documentation head. The active
-Production checkout remains read-only evidence. No command in this document is
-authorization to execute a later stage.
+This runbook documents the completed Production rollout of Private Vault TREE_V1.
+Historical pre-cutover and Stage A/B/C/D evidence deployed candidate source
+`70b0fdf059672e2b1c408ec5e5c16cfed5261257` (`aegis-prod-drive:vault-tree-70b0fdf05967`).
+Subsequent Stage-D Human acceptance identified UX and media parity defects, which were
+repaired forward under PR #212 (`f8c876754dd66b45b6d647d4ff3f2aa9f618283d`, image
+`aegis-prod-drive:vault-stage-d-fix-f8c876754dd6`) and merged into `main` at `16237d9acc8411955913b0ea70c2d35cf1a65347`.
+Rollout execution is fully complete and accepted in Production.
 
 ## Historical first Stage A — retained evidence
 
@@ -269,22 +272,29 @@ first owner reaches TREE_V1.
 
 ## Stage B — additive migration 011
 
-Allowed only after Stage A and the backup gate remain PASS. The migration source
-must come from the isolated exact-SHA build tree:
+**Status: COMPLETED / HUMAN AUTHORIZED AND EXECUTED / PASS.**
+
+Migration 011 applied with verified normalized-EOL Git blob from the exact-SHA tree:
 
 ```text
 IDEA1-AEGIS_Drive_LC/server/db/migrations/011_vault_tree_v1.sql
 ```
 
-Execution requires the Production migration/superuser role and
-`psql -v ON_ERROR_STOP=1`. It must yield exactly seven tables, the
-`vault_tree_revisions_immutable` trigger, all constraints/indexes, and 28 direct
-`drive_app` DML grants. Legacy V1/V2 counts and ciphertext byte counts must remain
-unchanged. No down migration exists or is permitted.
+Execution used the Production superuser role and `psql -v ON_ERROR_STOP=1`.
+- Pre tree table count: 0
+- Post tree table count: 7 (`vault_tree_state`, `vault_tree_frozen_inventory`, `vault_tree_key_envelope`, `vault_tree_heads`, `vault_tree_revisions`, `vault_tree_blob_state`, `vault_tree_purge_candidates`)
+- Trigger count: 1 (`vault_tree_revisions_immutable`)
+- DRIVE_APP_DML_GRANTS: 28 direct grants
+- INVALID_INDEX_COUNT: 0
+- Protected legacy Vault data: unchanged
+- Drive container health: healthy
+- Pre-TREE rollback boundary: permanently forbidden after Stage B
 
 ## Stage C — schema + protocol
 
-Append the image overlay plus:
+**Status: COMPLETED / HUMAN AUTHORIZED AND EXECUTED / PASS.**
+
+Appended the image overlay plus:
 
 ```text
 /opt/aegis/runtime/pr187/drive-vault-protocol-70b0fdf05967.yml
@@ -301,19 +311,30 @@ VAULT_MEDIA_PREVIEW_ENABLED=false
 VAULT_DESTRUCTIVE_PURGE_ENABLED=false
 ```
 
-The rendered diff may add only these Drive environment keys. A missing tree
-table must fail startup. No owner migration is available in this stage.
+Result: Drive container started healthy; tree owner not yet created; `STAGE_C=PASS`.
 
 ## Stage D — genesis + UI + client media
 
-Append the image overlay plus the Stage C overlay plus:
+**Status: COMPLETED / HUMAN AUTHORIZED AND EXECUTED / PASS.**
+
+Appended the image overlay plus the Stage C overlay plus:
 
 ```text
 /opt/aegis/runtime/pr187/drive-vault-ui-70b0fdf05967.yml
 ```
 
-Effective flags are schema/protocol/genesis/UI/media `true`, destructive purge
-`false`. Human Production browser acceptance is mandatory before closeout.
+Effective flags were schema/protocol/genesis/UI/media `true`, destructive purge `false`.
+Initial boot did not autonomously create genesis. Human completed genesis through the application flow. `protocol_state` became `TREE_V1`, committed head/revision/key envelope created, existing blobs became TREE_MANAGED (`STAGE_D=PASS`).
+
+Production diagnostic after genesis proved:
+- `protocol_state=TREE_V1`
+- `head_ever_committed=true`
+- `TREE_HEAD_ROWS=1`
+- `TREE_KEY_ENVELOPE_ROWS=1`
+- `TREE_REVISION_ROWS=1`
+- `revision state HEAD_COMMITTED`
+- `migration lease absent`
+- `frozen inventory absent`
 
 ## Post-migration fail-secure rollback
 
@@ -339,6 +360,50 @@ The legacy mutation fence reads the owner protocol state independently of the
 feature flags. `MIGRATING_TREE_V1` remains fenced and `TREE_V1` remains permanently
 fenced from legacy flat mutation. Tables, heads, encrypted manifests, blob state,
 and ciphertext remain intact.
+
+## PR212 Stage-D repair and final Human Production acceptance
+
+Human Stage D acceptance exposed application UX/media defects:
+- upload did not use Files-style drawer/tray
+- realtime media cover reconciliation incomplete
+- migrated media preview scheduling had fairness issues
+- hard-refresh upload recovery/resume missing
+- drawer/tray later needed overlap polish
+
+These application-layer defects were repaired forward under PR #212 without modifying the database schema or rerunning migration 011 (`DATABASE_MIGRATION_RUN=NO`). PR #212 was accepted and merged into `main` at commit `16237d9acc8411955913b0ea70c2d35cf1a65347`.
+
+Authoritative application source: `f8c876754dd66b45b6d647d4ff3f2aa9f618283d`
+Accepted Production image: `aegis-prod-drive:vault-stage-d-fix-f8c876754dd6`
+
+Final Human Production acceptance results:
+- Private Vault login/unlock: PASS
+- Files-style right upload drawer: PASS
+- Shared upload queue: PASS
+- Drawer/tray mutual exclusivity: PASS
+- Completed compact rows: PASS
+- Realtime image cover: PASS
+- Realtime GIF cover: PASS
+- Realtime video poster: PASS
+- Existing media covers: PASS
+- Hard-refresh interrupted upload recovery: PASS
+- Same-file resume: PASS
+- Wrong-file rejection: PASS
+- Folder create/move: PASS
+- TREE_V1 preserved: PASS
+
+Final Production runtime evidence:
+- `HEALTH=healthy`
+- `RESTARTS=0`
+- `OOM=false`
+- `TREE_STATE=TREE_V1|true`
+
+Effective runtime flags:
+- `VAULT_TREE_SCHEMA_AVAILABLE=true`
+- `VAULT_TREE_PROTOCOL_ENABLED=true`
+- `VAULT_TREE_GENESIS_MIGRATION_ENABLED=true`
+- `VAULT_TREE_UI_ENABLED=true`
+- `VAULT_MEDIA_PREVIEW_ENABLED=true`
+- `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`
 
 ## Third Stage A — corrected Human Owner command set
 
@@ -729,11 +794,14 @@ investigation; do not automatically classify the candidate or execute rollback.
 
 ## Current stop gate
 
-Second Stage A was rolled back successfully. Production is again running
-`aegis-prod-drive:media-preview-1a3c16622407`, healthy, restart 0, OOM false.
-Migration 011 remains unapplied, TREE table count remains zero, and Production
-Vault flags remain false/unset. This hardening task does not touch Production
-or rebuild the candidate. The next gate is Human review of the deterministic
-protected-Vault fingerprint contract and hardened Third Stage A command set.
-Third Stage A and Stage B remain unauthorized (`THIRD_STAGE_A_AUTHORIZED=NO`,
-`STAGE_B_AUTHORIZED=NO`).
+Rollout is complete and closed. Full Production cutover succeeded through TREE_V1. Migration 011 is applied, all 7 TREE tables and trigger are active, genesis completed, and the PR212 forward repair (`aegis-prod-drive:vault-stage-d-fix-f8c876754dd6`) passed complete Human Production acceptance.
+
+Permanent rollback boundary:
+`PRE_TREE_ROLLBACK=FORBIDDEN`. Post-TREE failures remain TREE-capable / fail-secure only. Do not drop the 7 TREE tables, do not revert migration 011, and do not reset `protocol_state`.
+
+Destructive purge remains disabled (`VAULT_DESTRUCTIVE_PURGE_ENABLED=false`).
+Phase 8 destructive purge was NOT executed (`PHASE_8_PURGE=NOT_EXECUTED`).
+
+Deferred performance scope is tracked separately under task `PRIVATE-VAULT-MEDIA-THROUGHPUT-PREVIEW-PERFORMANCE-1` (video hover-preview startup latency, interactive preview buffering, time-to-first-frame, image/thumbnail latency, upload/download throughput, chunk/range-fetch performance, client decrypt cost, and network/Twingate/gateway contribution). Twingate/gateway bottleneck is NOT PROVEN and remains an unverified hypothesis for later measured performance analysis.
+
+Standing by for Human Owner merge of PR #187.

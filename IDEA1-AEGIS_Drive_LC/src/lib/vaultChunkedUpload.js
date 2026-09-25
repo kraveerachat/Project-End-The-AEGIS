@@ -104,6 +104,7 @@ function failureReason(res) {
  *           resume?: object|null,
  *           onStage?: (stage: string) => void,
  *           onProgress?: (p: object) => void,
+ *           onSession?: (state: object) => void|Promise<void>,
  *           signal?: AbortSignal, fetchJson?: Function, sendUpload?: Function,
  *           routeBase?: string }} options
  */
@@ -115,6 +116,7 @@ export async function uploadVaultFileChunked({
   resume = null,
   onStage,
   onProgress,
+  onSession,
   signal,
   fetchJson = apiFetch,
   sendUpload = apiUpload,
@@ -178,6 +180,10 @@ export async function uploadVaultFileChunked({
         plan,
         concurrency: resolveUploadConcurrency(lanes),
       }
+      // ⚠️ แจ้งผู้เรียกทันทีที่ session มีจริง (ก่อนไบต์แรก) เพื่อให้จดบันทึกกู้คืนแบบปิดผนึกได้
+      //    ตัว state มี DEK แบบ non-extractable — ผู้เรียกใช้มัน "ปิดผนึก" ได้เท่านั้น ห้าม serialize
+      //    ความล้มเหลวของผู้เรียกต้องไม่ทำให้การอัปโหลดล้ม (อย่างแย่ที่สุดคือกู้ข้าม reload ไม่ได้)
+      try { onSession?.(state) } catch { /* recovery bookkeeping is best-effort */ }
     } else {
       // Resume — สถานะที่เชื่อถือได้มาจากเซิร์ฟเวอร์เท่านั้น ไม่ใช่จากที่จำไว้ในแท็บ
       stage('preparing')

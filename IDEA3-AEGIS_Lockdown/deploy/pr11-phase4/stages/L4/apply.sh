@@ -311,7 +311,7 @@ chmod 600 "$target_profile"
 # Render and install dedicated dnsmasq configuration
 dnsmasq_conf_target="$(host_path "$DNSMASQ_CONF_DEST")"
 mkdir -p "$(dirname "$dnsmasq_conf_target")"
-printf "# AEGIS IDEA3 AP DHCP/Core-local DNS — TEMPLATE, NOT DEPLOYED.\n# Owner network values are rendered only for an explicitly reviewed live stage.\n\ninterface=%s\nbind-interfaces\n\ndhcp-range=%s,%s,%s\n\n# ESP32 must not receive an Internet/default-gateway route.\ndhcp-option=option:router\n\n# Core-local DNS only.\ndhcp-option=option:dns-server,%s\nno-resolv\nno-hosts\naddress=/%s/%s\n" \
+printf "# AEGIS IDEA3 AP DHCP/Core-local DNS — TEMPLATE, NOT DEPLOYED.\n# Owner network values are rendered only for an explicitly reviewed live stage.\n\ninterface=%s\nbind-interfaces\nexcept-interface=lo\n\ndhcp-range=%s,%s,%s\n\n# ESP32 must not receive an Internet/default-gateway route.\ndhcp-option=option:router\n\n# Core-local DNS only.\ndhcp-option=option:dns-server,%s\nno-resolv\nno-hosts\naddress=/%s/%s\n" \
   "$AP_IF" "$DHCP_START" "$DHCP_END" "$NETMASK" "$AP_ADDR" "$BROKER_HOSTNAME" "$AP_ADDR" > "$WORK/dnsmasq-ap.conf.tmp"
 
 install -D -m 0644 "$WORK/dnsmasq-ap.conf.tmp" "$dnsmasq_conf_target"

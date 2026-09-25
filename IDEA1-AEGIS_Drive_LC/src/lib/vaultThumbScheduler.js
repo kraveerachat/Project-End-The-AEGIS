@@ -109,9 +109,17 @@ export function createThumbScheduler({
 
   function startNext(key) {
     const e = entries.get(key)
-    if (!e || e.state !== 'queued') return
-    if (estTotal() + (e.estimateBytes ?? 0) > limits.memoryCeilingBytes) return
-    if (visibility?.()) { pausedByVisibility = true; return }
+    if (!e || e.state !== 'queued') return false
+    const estimate = Math.max(0, e.estimateBytes ?? 0)
+    if (estimate > limits.memoryCeilingBytes) {
+      e.state = 'failed'
+      e.reason = 'MEMORY_LIMIT'
+      failures += 1
+      onChange?.()
+      return false
+    }
+    if (estTotal() + estimate > limits.memoryCeilingBytes) return false
+    if (visibility?.()) { pausedByVisibility = true; return false }
     const ctrl = new AbortController()
     e.ctrl = ctrl
     e.state = 'running'
@@ -133,6 +141,7 @@ export function createThumbScheduler({
         })
       },
     )
+    return true
   }
 
   /** เติมคิวตามเพดาน concurrency + memory + visibility */
@@ -144,10 +153,9 @@ export function createThumbScheduler({
     for (const [key, e] of entries) {
       if (running >= limits.maxConcurrentJobs) break
       if (e.state !== 'queued') continue
-      const before = estTotal()
-      startNext(key)
-      if (estTotal() > before || entries.get(key)?.state === 'running') running += 1
-      else break // over-budget → the rest wait too
+      if (startNext(key)) running += 1
+      // A large or temporarily over-budget item must not head-of-line block a
+      // later smaller preview that still fits the same bounded scheduler.
     }
   }
 
