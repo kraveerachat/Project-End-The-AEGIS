@@ -465,6 +465,7 @@ export default function App() {
         t={t}
         lang={lang}
         placeholderMode={placeholderMode}
+        userId={session?.id ?? null}
         marqueeSurfaceRef={vaultMarqueeSurfaceRef}
         registerMarqueePointerDown={registerVaultMarqueePointerDown}
       />

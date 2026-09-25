@@ -41,13 +41,15 @@ function transferSignal({ signal, unlockedState }) {
  */
 export async function uploadTreeFile({
   kek, file, parentNodeId, session, unlockedState = null, signal = null,
-  plaintextChunkBytes, concurrency, resume = null, onStage, onProgress, fetchJson, sendUpload,
+  // resume หลัง refresh: ชื่อ/MIME เดิมจากซองที่ถอดแล้ว — ไฟล์ที่ผู้ใช้ชี้กลับมาอาจถูกเปลี่ยนชื่อ แต่เนื้อ (และ metaB64) คือของเดิม
+  name = file.name, mediaType = file.type ?? '',
+  plaintextChunkBytes, concurrency, resume = null, onStage, onProgress, onSession, fetchJson, sendUpload,
   upload = uploadVaultFileChunked,
 }) {
   const ctrl = transferSignal({ signal, unlockedState })
   if (ctrl.signal.aborted) return { ok: false, stage: 'cancelled', reason: 'cancelled', resume: null }
 
-  const res = await upload({ kek, file, plaintextChunkBytes, concurrency, resume, onStage, onProgress, signal: ctrl.signal, fetchJson, sendUpload, routeBase: TREE_UPLOAD_ROUTE_BASE })
+  const res = await upload({ kek, file, plaintextChunkBytes, concurrency, resume, onStage, onProgress, onSession, signal: ctrl.signal, fetchJson, sendUpload, routeBase: TREE_UPLOAD_ROUTE_BASE })
   if (!res.ok) return res
 
   const blobRef = { formatVersion: res.blob?.formatVersion ?? 2, id: String(res.blob.id) }
@@ -55,7 +57,7 @@ export async function uploadTreeFile({
   if (ctrl.signal.aborted || unlockedState?.isPurged?.()) return { ok: false, stage: 'cancelled', reason: 'cancelled', resume: null, orphan: blobRef }
 
   onStage?.('attaching')
-  const intent = attachBlobIntent({ parentNodeId, name: file.name, mediaType: file.type ?? '', plainSize: file.size, blobRef })
+  const intent = attachBlobIntent({ parentNodeId, name, mediaType, plainSize: file.size, blobRef })
   const committed = await session.commit(intent, { signal: ctrl.signal })
   if (committed?.conflict) return { ok: false, stage: 'attach-conflict', reason: 'conflict', orphan: blobRef, conflict: committed.conflict, blob: res.blob, resume: null }
   onStage?.('complete')

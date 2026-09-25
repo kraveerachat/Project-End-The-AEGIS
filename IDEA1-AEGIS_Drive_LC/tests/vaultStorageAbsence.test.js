@@ -57,14 +57,22 @@ test('SA-SW-1 the preview worker and vaultPreview libraries never touch storage'
   assert.deepEqual(offenders, [], 'no preview module touches Cache API/IndexedDB/localStorage/sessionStorage')
 })
 
-test('PVUX-4 Vault upload queue source has no browser-storage persistence path', () => {
+test('PVUX-4 / VAULT-RECOVERY-5 Vault upload queue has no direct storage path; persistence goes only through the allowlisted sealed recovery store', async () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const source = path.join(root, 'src/components/VaultUploadDrawer.jsx')
-  assert.ok(fs.existsSync(source), 'the Vault-specific memory-only upload controller exists')
-  const code = fs.readFileSync(source, 'utf8')
+  assert.ok(fs.existsSync(source), 'the Vault-specific upload controller exists')
+  const strip = (file) => fs.readFileSync(path.join(root, file), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/^[ \t]*\/\/.*$/gm, ' ')
-  assert.doesNotMatch(code, /\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|\bcaches\s*\./, 'Vault queue never persists plaintext metadata')
+  const code = strip('src/components/VaultUploadDrawer.jsx')
+  assert.doesNotMatch(code, /\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|\bcaches\s*\./, 'Vault queue never touches browser storage directly')
+  assert.match(code, /createVaultRecoveryStore\(/, 'the only persistence is the Vault recovery store')
+  const lib = strip('src/lib/vaultUploadRecovery.js')
+  assert.doesNotMatch(lib, /\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|\bcaches\s*\.|exportKey/, 'the recovery adapter never touches storage directly and never exports a key')
+  const { VAULT_RECOVERY_FIELDS } = await import('../src/lib/vaultUploadRecovery.js')
+  for (const forbidden of ['name', 'type', 'mediaType', 'sha256', 'parentNodeId', 'dek', 'kek', 'wrappedDekB64', 'metaB64', 'path']) {
+    assert.ok(!VAULT_RECOVERY_FIELDS.includes(forbidden), `allowlist excludes ${forbidden}`)
+  }
 })
 
 test('SA-2 every preview Response carries Cache-Control: no-store (existing behaviour re-asserted)', () => {

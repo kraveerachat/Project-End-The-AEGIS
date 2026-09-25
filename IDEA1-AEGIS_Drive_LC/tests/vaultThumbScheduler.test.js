@@ -267,3 +267,37 @@ test('PVUX-9 a temporarily budget-blocked item does not stop a later smaller ite
   pending.get('fits')?.({ width: 4, height: 4, bytes: new Uint8Array(8) })
   await sched.releaseAll()
 })
+
+test('VAULT-MEDIA-OLD-2 a large RANGE_V2 video poster cannot head-of-line block later image/GIF/video posters', async () => {
+  const { videoPosterEstimateBytes } = await import('../src/lib/vaultVideoPreview.js')
+  const calls = []
+  const pending = new Map()
+  const sched = createThumbScheduler({
+    limits: VAULT_TREE_CLIENT_LIMITS,
+    load: async (key) => {
+      calls.push(key)
+      return new Promise((resolve) => pending.set(key, resolve))
+    },
+  })
+  const done = (key) => pending.get(key)?.({ width: 4, height: 4, bytes: new Uint8Array(8) })
+  const flush = async () => { for (let i = 0; i < 12; i += 1) await Promise.resolve() }
+
+  const bigVideo = videoPosterEstimateBytes({ variant: 2, supportsLarge: true, plainSize: 1.5 * 1024 ** 3 })
+  sched.observe('large-video', { estimateBytes: bigVideo })
+  sched.observe('image', { estimateBytes: 200_000 })
+  sched.observe('gif', { estimateBytes: 300_000 })
+  sched.observe('small-video', { estimateBytes: videoPosterEstimateBytes({ variant: 2, supportsLarge: true, plainSize: 5_000_000 }) })
+  await flush()
+  assert.equal(calls[0], 'large-video', 'the large video is admitted with a bounded cost, not rejected or deferred forever')
+  assert.ok(calls.includes('image'), 'a later image starts while the large video poster is still pending')
+
+  // The large video never resolves in this test: every later item must still complete around it.
+  for (let round = 0; round < 4; round += 1) {
+    for (const key of calls) if (key !== 'large-video') done(key)
+    await flush()
+  }
+  assert.deepEqual(new Set(calls), new Set(['large-video', 'image', 'gif', 'small-video']), 'GIF and later video posters are not blocked by the pending large video')
+  for (const key of ['image', 'gif', 'small-video']) assert.equal(sched.snapshot().get(key)?.state, 'ready', `${key} poster became ready`)
+  done('large-video')
+  await sched.releaseAll()
+})

@@ -211,7 +211,7 @@ export function VaultTreeRollback({ t, lang = 'en', kek, unlockedState = null, s
 
 /* ── จอหลัก ──────────────────────────────────────────────────────────────────── */
 export function VaultTreeScreen({
-  t, lang = 'en', kek, treeState = null, unlockedState = null, onLock,
+  t, lang = 'en', kek, treeState = null, unlockedState = null, onLock, recoveryScope = null,
   sessionFactory = createTreeSession, defaultApi = treeApi, mediaPreviewEnabled = false,
   marqueeSurfaceRef = null, registerMarqueePointerDown = null,
 }) {
@@ -368,10 +368,10 @@ export function VaultTreeScreen({
   }
 
   /* ── อัปโหลด (external OS drop และปุ่ม Upload — เส้นทางเดียวกัน TS-5) ────── */
-  const runVaultUpload = useCallback(async (file, { parentNodeId, signal, onStage, onProgress }) => {
+  const runVaultUpload = useCallback(async (file, { parentNodeId, signal, onStage, onProgress, onSession, resume = null, name = file.name, mediaType = file.type ?? '' }) => {
     if (!kek || !treeRef.current?.state?.head) return { ok: false, stage: 'failed', reason: 'NOT_READY' }
     try {
-      const res = await uploadTreeFile({ kek, file, parentNodeId, session, unlockedState, signal, onStage, onProgress })
+      const res = await uploadTreeFile({ kek, file, parentNodeId, session, unlockedState, signal, onStage, onProgress, onSession, resume, name, mediaType })
       if (!res?.ok) {
         if (res && res.stage !== 'cancelled') announce('vaultTreeUploadFailed')
         return res
@@ -386,7 +386,7 @@ export function VaultTreeScreen({
         },
         reloadInventory: () => vaultApi.refresh(),
       })
-      announce('vaultTreeUploadComplete', { name: file.name })
+      announce('vaultTreeUploadComplete', { name })
       return res
     } catch (error) {
       if (error?.name !== 'AbortError' && error?.code !== 'ABORTED') announce('vaultTreeUploadFailed')
@@ -1196,6 +1196,8 @@ export function VaultTreeScreen({
         destination={`/${(tree.breadcrumbs ?? []).map((node) => displayNodeName(t, node, head?.manifest?.rootNodeId)).filter(Boolean).join('/')}`}
         parentNodeId={tree.current}
         onUpload={runVaultUpload}
+        kek={kek}
+        recoveryScope={recoveryScope}
       />
 
       {dialog?.kind === 'createFolder' && (
