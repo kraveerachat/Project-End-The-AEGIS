@@ -17,25 +17,48 @@ edit_policy: owner-writable
 
 ## Current Task
 
-Task: `PRIVATE-VAULT-STAGE-D-UX-MEDIA-RECONCILIATION-1`
-Branch: `fix/idea1-vault-stage-d-ux-media-reconciliation`
-Owner: Kla (`kla`)
-PR: #212 (Draft)
-Current state: **IN PROGRESS / PRODUCTION ACCEPTANCE REPAIR**
-Started: 2026-09-25
-Starting SHA: `1ab771a10384a39c4f58751e75071864af955d6a`
-Production mutation allowed: **NO**
+None — standing by for Human Owner merge of PR #212.
 
-### Goal
+## Completed Task — PRIVATE-VAULT-STAGE-D-UX-MEDIA-RECONCILIATION-1
 
-Restore Files-like encrypted Vault upload entry/tray behavior, deterministic post-upload media reconciliation, fair bounded media scheduling, and route-appropriate search behavior while preserving TREE_V1 and the zero-knowledge boundary.
-
-### Scope and safety
-
-- Owned scope: `IDEA1-AEGIS_Drive_LC/**` plus this canonical IDEA1 status note.
-- Preserve Normal Files behavior, TREE schema/genesis/crypto formats, existing encrypted blobs, and `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`.
-- No Production access or mutation; no PR #187 branch edit; no migration/schema change; no final receipt until Human Production acceptance completes.
-- Automated RED→GREEN tests and Production build are required. Manual localhost browser acceptance is intentionally omitted by Human Owner direction.
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-vault-stage-d-ux-media-reconciliation`; PR: #212.
+- State: **CLOSED / IMPLEMENTED & HUMAN PRODUCTION ACCEPTED (2026-09-25)** — PR212 implementation, automated verification, candidate packaging, and Human Production acceptance complete (`PRIVATE-VAULT-STAGE-D-UX-MEDIA-RECONCILIATION-1 = CLOSED`).
+- Authoritative Implementation Source SHA: `f8c876754dd66b45b6d647d4ff3f2aa9f618283d`
+- Origin Main at Final Verification / Merge Base: `a2fc7cfc7d8537a2ee3601a9f40b128526ff2ff1`
+- Accepted Production Candidate Image: `aegis-prod-drive:vault-stage-d-fix-f8c876754dd6`
+- Final Human Production Result: `PASS`
+- Production Runtime Evidence:
+  - `HEALTH=healthy`
+  - `RESTARTS=0`
+  - `OOM=false`
+  - `TREE_STATE=TREE_V1|true`
+  - `VAULT_TREE_SCHEMA_AVAILABLE=true`
+  - `VAULT_TREE_PROTOCOL_ENABLED=true`
+  - `VAULT_TREE_GENESIS_MIGRATION_ENABLED=true`
+  - `VAULT_TREE_UI_ENABLED=true`
+  - `VAULT_MEDIA_PREVIEW_ENABLED=true`
+  - `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`
+  - `DATABASE_MIGRATION_RUN=NO`
+- Human Accepted Behaviors:
+  - Private Vault unlock/login
+  - Files-style right upload drawer (`UploadEntryPanel` / `VaultUploadDrawer`)
+  - One shared upload queue
+  - Drawer and floating tray no longer overlap: queue renders inside drawer when open; floating tray at bottom-right when closed
+  - Completed compact rows in drawer
+  - Realtime image, GIF, and video covers & existing media covers
+  - Hard-refresh interrupted upload recovery (`vaultUploadRecovery.js`), same-file resume (size + sample fingerprint verification), wrong-file rejection before transport
+  - Folder create/move, TREE_V1 preserved
+- Deferred Performance Scope (Explicitly NOT PR212 Failures):
+  - Video hover-preview startup/buffering performance
+  - Interactive video preview buffering
+  - End-to-end upload/download throughput analysis
+  - Network/Twingate/gateway contribution is **NOT YET PROVEN**. Do NOT claim Twingate/gateway as root cause; it remains an unverified hypothesis for later measured performance analysis.
+- Environmental & Security Invariants:
+  - Production database migration was NOT run (`DATABASE_MIGRATION_RUN=NO`).
+  - Destructive purge remains disabled (`VAULT_DESTRUCTIVE_PURGE_ENABLED=false`).
+  - Zero-knowledge encryption boundary and client-side crypto preserved.
+  - Phase 8 purge was NOT executed.
 
 ### Session Register — PRIVATE-VAULT-STAGE-D-UX-MEDIA-RECONCILIATION-1
 
@@ -44,6 +67,7 @@ Restore Files-like encrypted Vault upload entry/tray behavior, deterministic pos
 | PVSD-S1 | Root-cause analysis, RED tests, minimal repair, automated verification, Draft PR, exact candidate build/export | AUTOMATED REPAIR PASS / CANDIDATE BUILD BLOCKED | Fresh base `origin/main=1ab771a1`; a later `origin/main=69bb261c` advance was independently classified IDEA3-only, zero IDEA1 overlap, and merged normally at `d43980f7`. Root causes proven: Upload bypassed a drawer/queue; fire-and-forget head/inventory refresh raced preview eligibility; one over-budget scheduler entry head-of-line blocked later work; RANGE_V2 reserved full source size despite a 64 MiB worker cache; App rendered a confusing disabled global search. RED: 39 pass / 10 intended fail. GREEN focused matrix: 126/126 PASS, including unchanged Files drawer/tray; post-merge affected rerun 11/11 PASS. Production build PASS with existing chunk-size warning; policy 24/24 PASS; Vault validator PASS with two existing Canvas warnings. Broad `vault*.test.js`: 697 pass / 61 PG-gated skip / 23 fail; every failure is an inherited stale locked-legacy assertion that expects inventory-shaped ciphertext cards, contrary to the accepted fixed decorative locked state in current main; no failing file or locked renderer changed by this task. Untouched full-suite baseline also reproduced known `appShellRevision.test.js` failures and stalled on open handles; no full-suite PASS claimed. Zero browser-storage writes; no Files transport; no schema/migration/crypto/Production change. Draft PR #212 opened; no receipt. Candidate build/export is blocked because Docker client 28.3.2 cannot reach the default Windows engine: `open //./pipe/docker_engine: The system cannot find the file specified.` Docker was not restarted by the agent. | `da1b4cfa` source; `d43980f7` main merge | Repair, reconciliation, automated gates, and Draft PR complete; candidate not built | Human restores Docker Desktop, then rerun exact candidate build/inspect/save/hash contract before any Production action | Candidate packaging gate; Production execution remains Human-only |
 | PVSD-S2 | Correction after `PR212_HUMAN_PRODUCTION=FAIL`: bundle-mismatch classification, reuse of PR #148/#171 implementations, Vault hard-refresh recovery | AUTOMATED CORRECTION PASS / PRODUCTION NOT RE-TESTED | Classification: STALE DEPLOYED BUNDLE — the observed inline `vaultTreeUploadRunning` UI exists only in `origin/main`; PR212 source and a clean build contain `vault-upload-drawer` and zero inline-progress references, and PVSD-S1 recorded that no PR212 candidate was ever built. RED on `3ad45fb2`: parity/media tests already passed (source was correct, deployment was not); every recovery test failed. Correction: shared `UploadEntryPanel` now renders both the Files and Vault drawers; `VaultUploadDrawer` adopts the PR #148 queue lifecycle with `UploadStatusTray`; new `vaultUploadRecovery.js` stores only uploadId, sizes, chunk geometry and a DEK-sealed fingerprint/destination under an allowlist; after unlock the non-extractable DEK is rebuilt from the wrapped envelope that the tree-mode status now returns (ciphertext only, owner-only, legacy unchanged); same-file check = exact size + fingerprint (whole file up to 8 chunks, otherwise first/last plus 6 evenly spaced chunks); only missing chunks upload. Verification: focused Files+Vault matrix 244/244 PASS (includes PR #148 upload/recovery suites, vaultTreeUi QHD 16/16); build PASS with existing chunk-size warning, `dist` restored. No Production action. | `da165e6d` | Correction complete; Draft PR #212 stays Draft; no receipt | Human rebuilds the exact PR212 candidate from the new head and re-runs Production acceptance, including refresh-resume | Candidate build + Human Production retest |
 | PVSD-S3 | Final UI polish after Human Production PASS on `ac8151be`: the floating upload tray overlapped the open right drawer | AUTOMATED PASS / PRODUCTION NOT RE-TESTED | One queue, two mutually exclusive surfaces: while the Vault drawer is open its lower section renders the same queue via shared `UploadQueueSection` (full `UploadStatusRow` for active/interrupted jobs with progress, speed, ETA, Cancel, Resume, Discard; compact filename + check rows for completed jobs); when closed, the unchanged `UploadStatusTray`/launcher renders it. Same React state and handlers; no second controller. Completed history is memory-only and dies with lock, logout and reload; the recovery contract is unchanged. Files `UploadDrawer` is untouched. RED 0/3 → GREEN 3/3 (`VAULT-DRAWER-QUEUE-1..8`); focused Files+Vault matrix 247/247 PASS; Files upload subset 96/96 PASS; build PASS with the existing chunk-size warning, `dist` restored. No transport, crypto, TREE schema or media-pipeline change. | `14980f1f` | Polish complete; Draft PR #212 stays Draft; no receipt | Human rebuilds the candidate from the new head and re-checks the drawer/tray behaviour | Candidate build + Human Production retest |
+| PVSD-S4 | Final documentation, repository reconciliation, main merge (`a2fc7cfc`), final receipt, PR ready handoff | PASS | Clean merge of origin/main `a2fc7cfc` at `17a355a1` (zero-overlap IDEA3 PR #213); 22-suite focused matrix 247/247 PASS; build PASS (`dist` restored); policy 24/24 PASS; validator PASS (2 canvas warnings); git diff check PASS; Human Production PASS on candidate `aegis-prod-drive:vault-stage-d-fix-f8c876754dd6`; runtime evidence healthy, RESTARTS=0, OOM=false, TREE_V1|true, flags intact, DATABASE_MIGRATION_RUN=NO; final immutable receipt created; PR #212 marked ready | `17a355a1` | Task complete; Human Production accepted; ready for Human Owner merge | None (ready for Human Owner merge) | Human Owner merge of PR #212 |
 
 ## Completed Task — PRIVATE-VAULT-QHD-LOCKED-LAYOUT-FIX-1
 
