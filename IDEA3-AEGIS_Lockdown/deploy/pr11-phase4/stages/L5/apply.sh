@@ -149,26 +149,13 @@ if [ -z "$ROOT" ]; then
 
   # systemd-timesyncd active & running
   systemctl is-active systemd-timesyncd.service >/dev/null 2>&1 || fail TIMESYNCD_NOT_ACTIVE
-  local substate
+  # substate: plain variable (this block runs at script level, not in a function)
   substate="$(systemctl show -p SubState systemd-timesyncd.service 2>/dev/null || echo "")"
   [ "$substate" = "SubState=running" ] || fail TIMESYNCD_NOT_RUNNING
 
-  # Core TrustedClock evaluates to SYNCED with maxerror <= 1,000,000 us
-  tc_eval="$(python3 -c "
-import sys
-sys.path.insert(0, '$P4_HERE/../../IDEA3-AEGIS_Lockdown')
-from aegis_soc.trusted_time import TrustedClock, adjtimex_probe
-tc = TrustedClock()
-probe = adjtimex_probe()
-if probe is None or not probe.synced:
-    sys.exit('PROBE_UNSYNCED')
-state = tc.state()
-if state != 'SYNCED':
-    sys.exit(f'STATE_{state}')
-if probe.maxerror_us > 1000000:
-    sys.exit('MAXERROR_EXCEEDED')
-print(f'{state}:{probe.maxerror_us}')
-" 2>/dev/null || echo "FAIL")"
+  # Core TrustedClock must be SYNCED with maxerror <= 1,000,000 us (same predicate as L5 verify)
+  tc_eval="$(python3 "$P4_HERE/p4-l5-clock.py" probe 2>&1 || true)"
+  [[ "$tc_eval" =~ reason=OK ]] && tc_eval="SYNCED:ok" || tc_eval="FAIL"
 
   [[ "$tc_eval" =~ ^SYNCED: ]] || fail TRUSTEDCLOCK_PRE_HANDOFF_NOT_SYNCED
 else
@@ -223,8 +210,10 @@ printf "%s\n" "$RENDER" > "$WORK/render_dir"
 printf "NO\n" > "$WORK/chronyd_started"
 
 if [ -f "$target_conf" ]; then
-  cp -p "$target_conf" "$WORK/chrony.conf.orig"
-  stat -c "%a:%u:%g:%s:%Y" "$target_conf" > "$WORK/chrony.conf.meta.orig" 2>/dev/null || true
+  cp -p "$target_conf" "$WORK/chrony.conf.orig" || fail CHRONY_CONF_SNAPSHOT_FAILED
+  stat -c "%a:%u:%g:%s:%Y" "$target_conf" > "$WORK/chrony.conf.meta.orig" || fail CHRONY_CONF_SNAPSHOT_FAILED
+  sha256sum "$WORK/chrony.conf.orig" | awk '{ print $1 }' > "$WORK/chrony.conf.sha256.orig" || fail CHRONY_CONF_SNAPSHOT_FAILED
+  [ "$(cat "$WORK/chrony.conf.sha256.orig")" = "$(sha256sum "$target_conf" | awk '{ print $1 }')" ] || fail CHRONY_CONF_SNAPSHOT_FAILED
   printf "YES\n" > "$WORK/pre_chrony_conf_exists"
 else
   printf "NO\n" > "$WORK/pre_chrony_conf_exists"
@@ -242,6 +231,12 @@ fi
 target_dir="$(dirname "$target_conf")"
 mkdir -p "$target_dir"
 
+# FIRST ACTUAL MUTATION (a temporary file is created in the config directory): record it now, durably and on stdout, so a
+# later failure (e.g. readiness timeout) can never erase the fact. Live => YES; fixture root => FIXTURE_ONLY.
+if [ -z "$ROOT" ]; then mutation_marker="YES"; else mutation_marker="FIXTURE_ONLY"; fi
+printf "%s\n" "$mutation_marker" > "$WORK/production_mutation_performed"
+printf "PRODUCTION_MUTATION_PERFORMED=%s\n" "$mutation_marker"
+
 tmp_conf="$(mktemp "${target_conf}.tmp.XXXXXX")"
 cp -f "$chrony_src" "$tmp_conf"
 chmod 0640 "$tmp_conf"
@@ -252,11 +247,13 @@ active_lines="$(grep -v '^[[:space:]]*#' "$tmp_conf" | grep -v '^[[:space:]]*$' 
 expected_server="server $UPSTREAM iburst"
 expected_bind="bindaddress $AP_ADDR"
 expected_allow="allow $AP_SUBNET"
+expected_rtcsync="rtcsync"   # required on Linux: chronyd clears the kernel STA_UNSYNC flag only with rtcsync (chrony 4.8)
 
 if ! printf '%s\n' "$active_lines" | grep -Fqx "$expected_server" || \
    ! printf '%s\n' "$active_lines" | grep -Fqx "$expected_bind" || \
    ! printf '%s\n' "$active_lines" | grep -Fqx "$expected_allow" || \
-   [ "$(printf '%s\n' "$active_lines" | wc -l)" -ne 3 ]; then
+   ! printf '%s\n' "$active_lines" | grep -Fqx "$expected_rtcsync" || \
+   [ "$(printf '%s\n' "$active_lines" | wc -l)" -ne 4 ]; then
   rm -f "$tmp_conf"
   fail RENDERED_CONFIG_INVALID
 fi
@@ -290,21 +287,19 @@ if [ -z "$ROOT" ]; then
   systemctl start chronyd.service || fail CHRONYD_START_FAILED
   printf "YES\n" > "$WORK/chronyd_started"
 
-  # Bounded HOLDOVER check for chronyd sync (HOLDOVER_SEC <= 300)
-  synced=0
-  for ((i=0; i<30; i++)); do
-    if chronyc -n tracking >/dev/null 2>&1; then
-      leap="$(chronyc -n tracking 2>/dev/null | awk -F' : ' '$1 ~ /^Leap status/ { print $2 }')"
-      if [ "$leap" = "Normal" ]; then
-        synced=1
-        break
-      fi
-    fi
-    sleep 1
-  done
-  [ "$synced" = 1 ] || fail CHRONYD_SYNC_TIMEOUT
+  # Readiness = chronyd Leap status Normal AND the acceptance predicate of L5 verify (kernel synced, maxerror
+  # <= 1,000,000 us, TrustedClock SYNCED), shared via p4-l5-clock.py. Bounded, fail closed, never adjusts anything.
+  ready_out="$(python3 "$P4_HERE/p4-l5-clock.py" wait --timeout "${AEGIS_L5_READINESS_TIMEOUT_SEC:-60}" \
+    --interval "${AEGIS_L5_READINESS_INTERVAL_SEC:-1}" --work "$WORK" 2>&1)" \
+    || fail "TRUSTEDCLOCK_READINESS_TIMEOUT:$(printf '%s\n' "$ready_out" | sed -n 's/.*reason=\([A-Z_]*\).*/\1/p' | tail -1)"
+  printf '%s\n' "$ready_out"
 else
   printf "YES\n" > "$WORK/chronyd_started"
+  if [ -f "$fixture_dir/clock_sequence" ]; then
+    ready_out="$(python3 "$P4_HERE/p4-l5-clock.py" wait --timeout "${AEGIS_L5_READINESS_TIMEOUT_SEC:-60}" \
+      --interval "${AEGIS_L5_READINESS_INTERVAL_SEC:-1}" --work "$WORK" --fixture-seq "$fixture_dir/clock_sequence" 2>&1)" \
+      || fail "TRUSTEDCLOCK_READINESS_TIMEOUT:$(printf '%s\n' "$ready_out" | sed -n 's/.*reason=\([A-Z_]*\).*/\1/p' | tail -1)"
+  fi
   if [ -d "$fixture_dir" ]; then
     printf "active\n" > "$fixture_dir/chronyd_active"
     printf "running\n" > "$fixture_dir/chronyd_substate"
@@ -312,11 +307,6 @@ else
   fi
 fi
 
-if [ -z "$ROOT" ]; then
-  printf "PRODUCTION_MUTATION_PERFORMED=YES\n"
-else
-  printf "PRODUCTION_MUTATION_PERFORMED=FIXTURE_ONLY\n"
-fi
 
 printf "L5_APPLY=PASS\n"
 printf "CHRONYD_STATUS=ACTIVE\n"

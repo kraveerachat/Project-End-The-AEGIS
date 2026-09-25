@@ -15,7 +15,12 @@ DNSMASQ_UNIT_DEST="/etc/systemd/system/aegis-idea3-dnsmasq.service"
 ROOT="${AEGIS_P4_FS_ROOT:-}"
 WORK="${AEGIS_L4_WORK_DIR:-}"
 AP_IF="${AEGIS_AP_INTERFACE:-wlp0s20f3}"
-AP_ADDR="${AEGIS_AP_ADDRESS:-192.0.2.1}"
+if [ -z "$ROOT" ]; then
+  [ -n "${AEGIS_AP_ADDRESS:-}" ] || fail LIVE_REQUIRES_EXPLICIT_AEGIS_AP_ADDRESS
+  AP_ADDR="$AEGIS_AP_ADDRESS"
+else
+  AP_ADDR="${AEGIS_AP_ADDRESS:-192.0.2.1}"
+fi
 
 host_path() {
   if [ -n "$ROOT" ]; then
@@ -125,6 +130,7 @@ conf_mode=$(stat -c %a "$dnsmasq_conf" 2>/dev/null)
 
 grep -Fqx "interface=$AP_IF" "$dnsmasq_conf" || fail DNSMASQ_INTERFACE_MISMATCH
 grep -Fqx "bind-interfaces" "$dnsmasq_conf" || fail DNSMASQ_BIND_INTERFACES_MISSING
+grep -Fqx "except-interface=lo" "$dnsmasq_conf" || fail DNSMASQ_EXCEPT_INTERFACE_LO_MISSING
 grep -Fqx "dhcp-option=option:router" "$dnsmasq_conf" || fail DNSMASQ_EMPTY_ROUTER_OPTION_MISSING
 grep -Fqx "dhcp-option=option:dns-server,$AP_ADDR" "$dnsmasq_conf" || fail DNSMASQ_DNS_SERVER_OPTION_MISSING
 grep -Fqx "no-resolv" "$dnsmasq_conf" || fail DNSMASQ_NO_RESOLV_MISSING

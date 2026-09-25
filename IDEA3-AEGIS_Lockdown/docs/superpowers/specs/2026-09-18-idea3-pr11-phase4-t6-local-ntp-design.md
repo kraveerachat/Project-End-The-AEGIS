@@ -72,7 +72,11 @@ Conceptual template:
 server <AEGIS_TRUSTED_NTP_UPSTREAM> iburst
 bindaddress <AEGIS_AP_ADDRESS>
 allow <AEGIS_AP_SUBNET>
+rtcsync
 ```
+
+`rtcsync` (added after live attempt #2, owner-approved 2026-09-25) is required on Linux because chronyd clears the kernel
+`STA_UNSYNC` flag only with it; the RTC-copy side effect is accepted and `rtcfile` is forbidden.
 
 The template contains placeholders only. Rendered output contains no unresolved
 placeholder.

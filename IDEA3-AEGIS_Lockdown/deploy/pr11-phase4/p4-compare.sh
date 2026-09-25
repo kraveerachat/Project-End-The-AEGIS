@@ -23,6 +23,18 @@
 # unchanged between BEFORE and AFTER pass; any increase or MainPID change fails,
 # as do a new failure class, :8077/:18002 loss, and a currently unhealthy tunnel.
 #
+# ALLOW_TRANSITIONS_FILE (stage L3 or stage L4, exactly one declared) activates one exact semantic regulatory
+# window for the phy behind AEGIS_AP_INTERFACE. Accepted after-states: 00 -> 00
+# and TH -> TH (unchanged) and 00 -> TH (the one approved transition, which
+# also accounts for the wifi.reg.sha256 change). 00 -> 00 is the state proven live
+# on the self-managed Intel phy (it stays 00 after the exact rfkill unblock and
+# while the AP runs); 00 -> TH is tolerated, never required. The phy is resolved
+# from wifi.iface.<if>.phy in BOTH bundles. Every other wifi.reg.* change
+# (global, other phys, TH -> 00, any other country, a changed rule table
+# without the approved transition), a missing/unparseable target state, or a
+# target country other than 00/TH after the window still fails. wifi.reg.* stays in
+# PROTECTED, so ALLOW_KEYS_FILE can never approve it.
+#
 # Exit 0 = COMPARE_RESULT=PASS, 1 = COMPARE_RESULT=FAIL, 2 = STOP (usage/integrity).
 set -uo pipefail
 export LC_ALL=C
@@ -124,6 +136,31 @@ if [ -n "${ALLOW_LISTENERS_FILE:-}" ]; then
   ALLOW_LISTENERS="$RESOLVED_ALLOW_LISTENERS"
 fi
 
+ALLOW_TRANSITIONS=""
+TRANS_IFACE=""
+if [ -n "${ALLOW_TRANSITIONS_FILE:-}" ]; then
+  [ -r "$ALLOW_TRANSITIONS_FILE" ] || stop "ALLOW_TRANSITIONS_FILE unreadable"
+  # Strict contract: exactly two active lines, `stage L3` or `stage L4` (one of them, once) and
+  # `wifi.reg.<AEGIS_AP_PHY> 00 TH` once,
+  # single-space separated, no CR, no other token. Anything else (wildcard, regex, other stage/key/value,
+  # duplicate, conflicting or malformed line) stops the run.
+  n_stage=0 n_rule=0 DECLARED_STAGE=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    case "$line" in
+      'stage L3'|'stage L4') n_stage=$((n_stage + 1)); DECLARED_STAGE="${line#stage }" ;;
+      'wifi.reg.<AEGIS_AP_PHY> 00 TH') n_rule=$((n_rule + 1)) ;;
+      *) stop "malformed or broadened regulatory transition: only 'stage L3'/'stage L4' and 'wifi.reg.<AEGIS_AP_PHY> 00 TH' are approvable" ;;
+    esac
+  done < "$ALLOW_TRANSITIONS_FILE"
+  [ "$n_stage" = 1 ] && [ "$n_rule" = 1 ] || stop "ALLOW_TRANSITIONS_FILE must declare exactly one stage (L3 or L4) once and the single transition once"
+  if [ "$EVID_CLASS" = "TEST_FIXTURE" ]; then TRANS_IFACE="${AEGIS_AP_INTERFACE:-wlp0s20f3}"; else TRANS_IFACE="wlp0s20f3"; fi
+  [[ "$TRANS_IFACE" =~ ^[A-Za-z0-9_.-]{1,15}$ ]] || stop "AEGIS_AP_INTERFACE invalid for regulatory transition"
+  [ "$EVID_CLASS" = "TEST_FIXTURE" ] || [ "${AEGIS_AP_INTERFACE:-wlp0s20f3}" = wlp0s20f3 ] \
+    || stop "regulatory transition is bound to wlp0s20f3"
+  ALLOW_TRANSITIONS="stage $DECLARED_STAGE"
+fi
+
 read -r -d '' COMPARE_AWK <<'AWK'
 function emit(cls, code, key, b, a) {
   printf "FINDING\t%s\t%s\t%s\t%s\t%s\n", cls, code, key, b, a
@@ -189,10 +226,37 @@ END {
     fam_unscoped_changed[f] = (unscoped_b != unscoped_a)
   }
 
+  # L3 semantic regulatory transition (ALLOW_TRANSITIONS_FILE): target phy 00 -> 00 / TH -> TH unchanged, or 00 -> TH.
+  reg_tk = ""; reg_other_changed = 0
+  if (trans_iface != "") {
+    pk = "wifi.iface." trans_iface ".phy"
+    pb = (pk in B) ? B[pk] : ""; pa = (pk in A) ? A[pk] : ""
+    if (pb !~ /^phy[0-9]+$/ || pa !~ /^phy[0-9]+$/ || pb != pa) {
+      emit("INCOMPARABLE", "REGULATORY_TARGET_PHY_UNRESOLVED", pk, (pk in B) ? B[pk] : "<absent>", (pk in A) ? A[pk] : "<absent>")
+    } else {
+      reg_tk = "wifi.reg." pb
+      rb = (reg_tk in B) ? B[reg_tk] : ""; ra = (reg_tk in A) ? A[reg_tk] : ""
+      if (rb !~ /^[0-9A-Z][0-9A-Z]$/ || ra !~ /^[0-9A-Z][0-9A-Z]$/) {
+        emit("INCOMPARABLE", "REGULATORY_STATE_MISSING", reg_tk, (reg_tk in B) ? B[reg_tk] : "<absent>", (reg_tk in A) ? A[reg_tk] : "<absent>")
+        reg_tk = ""
+      } else if (ra != "TH" && ra != "00") {
+        emit("NEW_OR_WORSENED_DRIFT", "REGULATORY_TARGET_NOT_APPROVED", reg_tk, rb, ra)
+      }
+    }
+    for (k in K) if (k ~ /^wifi\.reg\./ && k != reg_tk && k != "wifi.reg.sha256") {
+      if (((k in B) ? B[k] : "<absent>") != ((k in A) ? A[k] : "<absent>")) reg_other_changed = 1
+    }
+  }
+
   for (key in K) {
     b = (key in B) ? B[key] : "<absent>"
     a = (key in A) ? A[key] : "<absent>"
     if (key ~ /^(meta|cap)\./ || key == "idea2.heartbeat.probe") continue
+    # Bundles captured before the phy field existed: the key appearing is a capture-schema addition, not drift.
+    # (A changed or removed phy mapping still fails; L3 transition mode requires the key in BOTH bundles.)
+    if (key ~ /^wifi\.iface\.[^.]+\.phy$/ && !(key in B) && (key in A) && a ~ /^phy[0-9]+$/ && trans_iface == "") {
+      emit("INFO", "CAPTURE_FIELD_ADDED", key, b, a); continue
+    }
 
     if (key ~ /^idea2\.verdict\./) {
       if (bad(b) || bad(a) || b == "UNKNOWN" || a == "UNKNOWN") {
@@ -222,6 +286,13 @@ END {
     }
 
     if (key in AK) { emit("APPROVED_CHANGE", "KEY_APPROVED", key, b, a); continue }
+
+    if (reg_tk != "" && key == reg_tk && b == "00" && a == "TH") {
+      emit("APPROVED_CHANGE", "REGULATORY_TRANSITION_APPROVED", key, b, a); continue
+    }
+    if (key == "wifi.reg.sha256" && reg_tk != "" && ((reg_tk in B) ? B[reg_tk] : "") == "00" && ((reg_tk in A) ? A[reg_tk] : "") == "TH" && !reg_other_changed) {
+      emit("APPROVED_CHANGE", "REGULATORY_SHA_ACCOUNTED_BY_APPROVED_TRANSITION", key, b, a); continue
+    }
 
     if (key ~ /^sysctl\./ && key ~ /forward/) {
       emit("NEW_OR_WORSENED_DRIFT", (a != "0" ? "FORWARDING_ENABLED" : "FORWARDING_CHANGED"), key, b, a)
@@ -283,6 +354,20 @@ END {
       emit("NEW_OR_WORSENED_DRIFT", "NM_STATE_DRIFT", key, b, a)
     } else if (key == "time.NTPSynchronized") {
       emit("NEW_OR_WORSENED_DRIFT", (b == "yes" ? "TIME_SYNC_LOST" : "TIME_STATE_DRIFT"), key, b, a)
+    } else if (key == "time.timesyncd.ServerName") {
+      # CONSTRAINED_INFORMATIONAL_DYNAMIC_STATE (owner decision 2026-09-25): restarting timesyncd legitimately reselects one of
+      # its configured fallback servers. Informational ONLY when timesyncd is active/running, the TrustedClock is SYNCED, the
+      # fallback set is captured and unchanged, and the new name is a member of it. Anything else stays drift; every other
+      # time-state key is judged independently. This is NOT an allowance key.
+      fbA = A["time.timesyncd.FallbackNTPServers"]; fbB = B["time.timesyncd.FallbackNTPServers"]
+      sn_ok = 0
+      if (fbA != "" && !bad(fbA) && fbA == fbB && !bad(a) && a != "" && a != "<absent>" \
+          && A["svc.systemd-timesyncd.service.ActiveState"] == "active" && A["svc.systemd-timesyncd.service.SubState"] == "running" \
+          && A["time.trustedclock.state"] == "SYNCED") {
+        nfb = split(fbA, FB, " "); for (fi = 1; fi <= nfb; fi++) if (FB[fi] == a) sn_ok = 1
+      }
+      if (sn_ok) emit("INFO", "TIMESYNCD_SERVER_RESELECTED_CONFIGURED", key, b, a)
+      else emit("NEW_OR_WORSENED_DRIFT", "TIME_STATE_DRIFT", key, b, a)
     } else if (key ~ /^time\./) {
       emit("NEW_OR_WORSENED_DRIFT", "TIME_STATE_DRIFT", key, b, a)
     } else if (key ~ /^mqtt\.established\./) {
@@ -369,7 +454,7 @@ END {
 }
 AWK
 
-result=$(awk -v threshold="$THRESHOLD" -v allow_keys="$ALLOW_KEYS" -v allow_listeners="$ALLOW_LISTENERS" \
+result=$(awk -v threshold="$THRESHOLD" -v allow_keys="$ALLOW_KEYS" -v allow_listeners="$ALLOW_LISTENERS" -v trans_iface="$TRANS_IFACE" \
   "$COMPARE_AWK" side=B "$BEFORE"/*.tsv side=A "$AFTER"/*.tsv) || stop "comparison failed"
 
 report=$(

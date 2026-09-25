@@ -161,6 +161,11 @@ p4_ro_allowed() {
       fi
       return 1
       ;;
+    python3)
+      # Exactly one read-only helper invocation: the L5 trusted-time state helper shipped beside this library.
+      [ $# -eq 3 ] && [ "$2" = "$P4_HERE/p4-l5-clock.py" ] && [ "$3" = state ] || return 1
+      return 0
+      ;;
     find)
       [ $# -eq 5 ] || return 1
       p4_is_safe_fs_path "$2" || return 1

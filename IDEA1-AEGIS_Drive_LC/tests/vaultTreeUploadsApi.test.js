@@ -135,10 +135,16 @@ test('TU-2 in TREE_V1 the tree flow has identical request/response shapes to the
   // shape = sorted key paths (values differ by random ids/timestamps by construction)
   const shape = (v, prefix = '') => (v && typeof v === 'object' && !Array.isArray(v))
     ? Object.keys(v).sort().flatMap((k) => shape(v[k], `${prefix}${k}.`)) : [prefix.slice(0, -1)]
-  for (const step of ['created', 'put', 'status']) {
+  for (const step of ['created', 'put']) {
     assert.equal(treeFlow.exchanges[step].status, legacy.exchanges[step].status, step)
     assert.deepEqual(shape(treeFlow.exchanges[step].data), shape(legacy.exchanges[step].data), `${step}: identical response shape`)
   }
+  // PRIVATE-VAULT-STAGE-D (VAULT-RECOVERY-5): tree status adds ONLY the owner's already-stored wrapped envelope
+  // (ciphertext) so a reloaded tab can rebuild its non-extractable DEK; every legacy field is unchanged
+  assert.equal(treeFlow.exchanges.status.status, legacy.exchanges.status.status, 'status')
+  const legacyStatus = shape(legacy.exchanges.status.data), treeStatus = shape(treeFlow.exchanges.status.data)
+  assert.deepEqual(legacyStatus.filter((k) => !treeStatus.includes(k)), [], 'no legacy status field is missing')
+  assert.deepEqual(treeStatus.filter((k) => !legacyStatus.includes(k)).sort(), ['envelope.metaB64', 'envelope.metaIvB64', 'envelope.wrapIvB64', 'envelope.wrappedDekB64'])
   assert.equal(treeFlow.exchanges.commit.status, 201)
   const legacyCommit = shape(legacy.exchanges.commit.data), treeCommit = shape(treeFlow.exchanges.commit.data)
   assert.deepEqual(treeCommit.filter((k) => !legacyCommit.includes(k)), ['blob.lifecycle'], 'the only added field is blob.lifecycle')
@@ -263,6 +269,33 @@ test('TU-8 owner isolation: another user cannot see, write, commit or cancel a t
   assert.equal(await blobStateOf(done.data.blob.id, otherId), null)
   const otherInv = await other.req('/api/vault/tree/blobs'); assert.equal(otherInv.status, 200); assert.deepEqual(otherInv.data.blobs, [])
   assert.equal((await other.req(`/api/vault/blobs/${done.data.blob.id}`)).status, 404)
+})
+
+test('VAULT-RECOVERY-5 tree status returns only the stored wrapped envelope: no raw DEK, no plaintext name/MIME/path, owner-only', async () => {
+  const c = await login(); const kek = await setupVault(c)
+  await seedTree(tree, ownerId)
+  const body = await createBody(kek)
+  const created = await c.req(TREE, { method: 'POST', body }); assert.equal(created.status, 201)
+  const uploadId = created.data.upload.uploadId
+  assert.equal((await putChunk(c, uploadId)).status, 200)
+  const st = await status(c, uploadId)
+  assert.equal(st.status, 200)
+  assert.deepEqual(st.data.envelope, { wrappedDekB64: body.wrappedDekB64, wrapIvB64: body.wrapIvB64, metaIvB64: body.metaIvB64, metaB64: body.metaB64 }, 'exactly the four ciphertext fields the client itself stored')
+  const json = JSON.stringify(st.data)
+  for (const secret of SECRET_NAMES) assert.ok(!json.includes(secret), `no plaintext in status: ${secret}`)
+  assert.doesNotMatch(json, /"(name|type|mediaType|path|parentNodeId|nodeId|dek|rawDek|kek|storageKey)"\s*:/, 'no plaintext or key-material field names')
+  // the client can rebuild the DEK only with the KEK: unwrap works with it and the metadata decrypts
+  const { decryptVaultV2Meta } = await import('../src/lib/vaultChunkCrypto.js')
+  const meta = await decryptVaultV2Meta(kek, { ...st.data.envelope, contentIdB64: st.data.upload.contentIdB64, chunkCount: st.data.upload.chunkCount })
+  assert.equal(meta.name, SECRET_NAMES[0])
+  const wrongKek = (await createVaultSetup('another-passphrase-for-wrong-kek-1', FAST)).kek
+  await assert.rejects(decryptVaultV2Meta(wrongKek, { ...st.data.envelope, contentIdB64: st.data.upload.contentIdB64, chunkCount: st.data.upload.chunkCount }), /wrong-key/)
+  // legacy family is byte-for-byte unchanged; other accounts get 404
+  const legacyCreated = await c.req(LEGACY, { method: 'POST', body: await createBody(kek) })
+  if (legacyCreated.status === 201) assert.equal((await status(c, legacyCreated.data.upload.uploadId, LEGACY)).data.envelope, undefined)
+  const other = await login(baseOn, DEMO_ADMIN); await setupVault(other)
+  const denied = await status(other, uploadId)
+  assert.equal(denied.status, 404); assert.equal(denied.data.envelope, undefined)
 })
 
 test('NO-LEAK-3 no request in this suite carried a plaintext name, node id, or a parent/path/name field', () => {

@@ -1,0 +1,11 @@
+# PR187 Private Vault rollout — Stage D genesis + TREE_V1 UI + client media.
+# Destructive purge is deliberately and permanently disabled for this rollout.
+services:
+  drive:
+    environment:
+      VAULT_TREE_SCHEMA_AVAILABLE: "true"
+      VAULT_TREE_PROTOCOL_ENABLED: "true"
+      VAULT_TREE_GENESIS_MIGRATION_ENABLED: "true"
+      VAULT_TREE_UI_ENABLED: "true"
+      VAULT_MEDIA_PREVIEW_ENABLED: "true"
+      VAULT_DESTRUCTIVE_PURGE_ENABLED: "false"

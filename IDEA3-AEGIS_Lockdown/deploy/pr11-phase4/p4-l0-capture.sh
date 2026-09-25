@@ -224,7 +224,8 @@ if run_ro 1 iw-dev iw dev; then
   while IFS=$'\t' read -r iface field value; do
     [ -n "$iface" ] && wifi_ifaces["$iface"]=1
     p4_rec "$WIFI" "wifi.iface.$iface.$field" "$value"
-  done < <(printf '%s\n' "$P4_OUT" | awk '$1 == "Interface" { i = $2 }
+  done < <(printf '%s\n' "$P4_OUT" | awk '$1 ~ /^phy#[0-9]+$/ { ph = $1; sub("#", "", ph) }
+    $1 == "Interface" { i = $2; if (ph != "") print i "\tphy\t" ph }
     $1 == "type" && i != "" { print i "\ttype\t" $2 }
     $1 == "channel" && i != "" { print i "\tchannel\t" $2 " " $3 " " $4 }
     $1 == "ssid" && i != "" { print i "\tssid\t" $2 }')
@@ -369,6 +370,25 @@ if run_ro 0 timesync timedatectl show-timesync -p ServerName -p SystemNTPServers
   done <<< "$P4_OUT"
 else
   p4_rec "$TIME" time.timesyncd.ServerName UNAVAILABLE
+fi
+# Configured fallback set: canonical evidence for the constrained informational treatment of time.timesyncd.ServerName.
+if run_ro 0 timesync-fallback timedatectl show-timesync -p FallbackNTPServers; then
+  while IFS='=' read -r k v; do
+    [ "$k" = FallbackNTPServers ] && p4_rec "$TIME" time.timesyncd.FallbackNTPServers "$v"
+  done <<< "$P4_OUT"
+else
+  p4_rec "$TIME" time.timesyncd.FallbackNTPServers UNAVAILABLE
+fi
+# Kernel-based TrustedClock verdict (state only; maxerror is volatile and is not recorded). Live: the shared read-only
+# probe; test fixtures: the fixture value. Never adjusts the clock.
+if [ -n "$P4_FS_ROOT" ]; then
+  tcs=NOT_RECORDED
+  [ -f "$(p4_fs /run/aegis-idea3-fixture/trusted_clock_state)" ] && tcs=$(head -n1 "$(p4_fs /run/aegis-idea3-fixture/trusted_clock_state)")
+  p4_rec "$TIME" time.trustedclock.state "$tcs"
+elif run_ro 0 trustedclock python3 "$P4_HERE/p4-l5-clock.py" state; then
+  p4_rec "$TIME" time.trustedclock.state "$(printf '%s\n' "$P4_OUT" | sed -n 's/^state=\([A-Z]*\) .*/\1/p' | head -1)"
+else
+  p4_rec "$TIME" time.trustedclock.state UNAVAILABLE
 fi
 if p4_have chronyc; then
   if run_ro 0 chronyc-tracking chronyc -n tracking; then

@@ -94,6 +94,16 @@ DISK_THRESHOLD_PCT=<owner threshold> bash p4-compare.sh <pre> <post>
   stage handler may change or add. Forwarding, default routes, IDEA2, host,
   disk, and capability keys can never be approved. A wildcard listener (S-05)
   or a new plaintext 1883 listener (S-12) can never be approved.
+- `ALLOW_TRANSITIONS_FILE` (stage L3 or stage L4; each stage ships its own file
+  `stages/<L>/allow-transitions.txt`) activates one exact semantic regulatory
+  window: the phy behind `AEGIS_AP_INTERFACE` (`wlp0s20f3`) may stay `00` (proven
+  live: the self-managed phy stays `00` through the exact rfkill unblock), stay
+  `TH`, or go `00 -> TH` (tolerated, never required). The file must contain
+  exactly one of `stage L3` / `stage L4` and `wifi.reg.<AEGIS_AP_PHY> 00 TH`; anything else stops the
+  run. The phy comes from the capture key `wifi.iface.<if>.phy` in both bundles.
+  Every other `wifi.reg.*` change (global, other phys, `TH -> 00`, other
+  countries, a changed rule table without the approved transition) stays
+  protected drift and can never be approved through `ALLOW_KEYS_FILE`.
 
 | Class | Meaning | Verdict |
 |---|---|---|
@@ -205,9 +215,10 @@ registered in the repository framework.
 
 ### L4 handler (AP addressing & DHCP/Core-local DNS)
 
-- Registered the reviewed L4 stage handler (`stages/L4/`) with the T1 stage framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`).
+- Registered the reviewed L4 stage handler (`stages/L4/`) with the T1 stage framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`, `allow-transitions.txt`; live helper `p4-l4-live.sh`).
 - L4 transitions the L3 NetworkManager AP connection profile (`aegis-idea3-ap.nmconnection`) from `ipv4.method=disabled` to `ipv4.method=manual` with `never-default=true`. AP IPv4 addressing is applied without creating default gateways, NAT/masquerade, or routing bridges.
 - L4 deploys a dedicated `dnsmasq` instance (`/etc/aegis-idea3/dnsmasq-ap.conf`, `aegis-idea3-dnsmasq.service`) serving the AP DHCP pool and Core-local DNS mapping the owner-supplied broker hostname to the Core AP address on `wlp0s20f3` using the merged T5 template.
+- L4 live starts only from the already-applied L3 AP (AP type, SSID `AEGIS-IDEA3`, channel 6, no IPv4, no global IPv6, no AP default route, alternate default route) and runs the M-14 regulatory/channel gate read-only before the profile changes. Reactivation is `nmcli connection up "$CONN_ID" ifname "$AP_IF"` (never NetworkManager device selection); afterwards `l3_reg_verify_active` re-checks AP type, exact channel 6, target-phy country TH-or-00 and an unrestricted channel before dnsmasq starts. The L4 comparator accepts only target-phy `00 -> 00`, `00 -> TH`, `TH -> TH`; `TH -> 00` and any other regulatory drift fail. L4 never runs `iw reg set`, `nmcli radio wifi on` or rfkill; the M-15 Wi-Fi baseline stays outside L4.
 - Read-only L2 firewall preconditions: `apply.sh` and `verify.sh` verify dedicated table `inet aegis_idea3`, UDP/67 permitted, UDP/53 permitted, TCP/53 permitted, explicit TCP/1883 drop rule present, forward policy `drop`, zero NAT/masquerade, and zero forwarding sysctls (`net.ipv4.ip_forward=0`), with comment lines stripped before parsing.
 - Hardening against listener drift (PF-02): on real/host evidence, the wildcard listener exception strictly permits only `udp/67` on `0.0.0.0%wlp0s20f3`. Synthetic interfaces are rejected unless running under `TEST_FIXTURE`.
 - Hardening against route drift: `net.route[46].unscoped` captures unscoped routes; unauthorized unscoped routes cause `UNSCOPED_ROUTE_DRIFT` and reject `ROUTE_TABLE_DRIFT` approval.
@@ -223,9 +234,9 @@ registered in the repository framework.
 - Runtime-only service mutation: L5 mutates `ActiveState` only (`systemctl stop systemd-timesyncd`, `systemctl start chronyd`). `UnitFileState` is strictly untouched and protected for both services. Zero `systemctl enable` or `systemctl disable`.
 - Atomic configuration placement: creates temporary regular file in same directory (`mktemp ${target_conf}.tmp.XXXXXX`), validates rendered content before activation, syncs, and atomically renames (`mv -f`).
 - Read-only chronyd unit inspection: verifies effective ExecStart relies on default `/etc/chrony.conf`; fails closed on non-default `-f <path>` or unexpected drop-in overrides with `CONFIG_PATH_AUTHORITY_MISMATCH`.
-- Time synchronization contract: requires pre-handoff `systemd-timesyncd.service` active and running with `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`. Enforces bounded holdover <= 300 s during handoff. Post-apply verification requires final `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`; final `HOLDOVER`, `UNTRUSTED`, or `UNKNOWN` is strictly rejected.
+- Time synchronization contract: requires pre-handoff `systemd-timesyncd.service` active and running with `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`. Enforces bounded holdover <= 300 s during handoff. Remediated after the failed live attempt l5-20260925-174630 (apply passed on `Leap status : Normal`, verify then failed the kernel-based TrustedClock check ~0.8 s later): apply now waits, bounded (default 60 s, `AEGIS_L5_READINESS_TIMEOUT_SEC`, well inside the 300 s HOLDOVER limit), until chronyd reports `Leap status : Normal` AND the same predicate verify uses holds (adjtimex probe readable, kernel synced, `maxerror <= 1,000,000 us`, TrustedClock `SYNCED`), implemented once in `p4-l5-clock.py`. Failures name the reason (`PROBE_UNAVAILABLE`, `KERNEL_UNSYNCED`, `MAXERROR_EXCEEDED`, `TRUSTEDCLOCK_NOT_SYNCED`, `CHRONY_LEAP_NOT_NORMAL`) as `TRUSTEDCLOCK_READINESS_TIMEOUT:<reason>` / `FINAL_TRUSTED_CLOCK_NOT_SYNCED:<reason>`; apply writes `readiness.log` plus `chronyc-tracking.txt` / `chronyc-sources.txt` into the work directory. On timeout apply fails and the L5 rollback restores `systemd-timesyncd`. Post-apply verification requires final `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`; final `HOLDOVER`, `UNTRUSTED`, or `UNKNOWN` is strictly rejected.
 - Strict listener contract: requires `udp <AEGIS_AP_ADDRESS>:123`, permits loopback-only `udp 127.0.0.1:323` and `udp [::1]:323` if observed; wildcard (`0.0.0.0`, `[::]`), non-AP NTP, non-loopback 323, and TCP/123 are strictly rejected.
-- Rollback: `stages/L5/rollback.sh` is idempotent. It stops `chronyd.service`, restores captured pre-L5 `/etc/chrony.conf` bytes, uid, gid, and mode (or removes `/etc/chrony.conf` if absent pre-L5), restores captured pre-L5 `systemd-timesyncd.service` runtime `ActiveState` without altering `UnitFileState`, and verifies `TrustedClock = SYNCED`.
+- Rollback: `stages/L5/rollback.sh` is idempotent. It stops `chronyd.service`, restores captured pre-L5 `/etc/chrony.conf` bytes, uid, gid, and mode (or removes `/etc/chrony.conf` if absent pre-L5), restores captured pre-L5 `systemd-timesyncd.service` runtime `ActiveState` without altering `UnitFileState`, and verifies `TrustedClock = SYNCED`. Rollback fails closed (`ROLLBACK_PRE_STATE_UNKNOWN`, `ROLLBACK_ORIGINAL_SNAPSHOT_MISSING`, `ROLLBACK_RESTORE_MISMATCH`, `ROLLBACK_CHRONYD_STILL_ACTIVE`) instead of silently passing: apply records the SHA-256 of the original `/etc/chrony.conf`, and rollback verifies restored bytes, size, mode, mtime (restored exactly with `touch -m -d @<snapshot mtime>`; the compared metadata includes mtime) and (live) uid/gid against it.
 - Preserves L4 AP addressing/DHCP/DNS, L2 firewall rules, zero forwarding (`net.ipv4.ip_forward=0`), zero NAT/masquerade, and existing network routes.
 - Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
 - Provenance disclosure: `RED_FIRST_PROVEN = NO`. There is no retained evidence proving L5 focused tests were observed failing before candidate handler files were created. The candidate was treated as untrusted existing work, independently audited, corrected for deterministic regression assertions, hardened, and verified.
@@ -361,11 +372,21 @@ Rendered chrony policy:
 server <OWNER_SUPPLIED_TRUSTED_UPSTREAM> iburst
 bindaddress <RENDERED_AP_ADDRESS>
 allow <RENDERED_AP_SUBNET>
+rtcsync
 ```
 
 Validation rejects unresolved placeholders, wildcard or broad AP scope,
-`allow all`, additional upstreams, additional active directives, and
-`local` / `local stratum` fallback behavior.
+`allow all`, additional upstreams, additional active directives, `rtcfile`,
+a missing `rtcsync`, and `local` / `local stratum` fallback behavior. The
+contract carries `CHRONY_RTCSYNC=REQUIRED`.
+
+`rtcsync` is a fourth ACTIVE CONFIG DIRECTIVE, not a comparator allowance. It is required because chronyd 4.8 on
+Linux clears the kernel `STA_UNSYNC` flag only when `rtcsync` is enabled (`sys_timex.c` `set_sync_status()`: "On Linux clear
+the UNSYNC flag only if rtcsync is enabled"), and the Core TrustedClock (and `p4-l5-clock.py`) is kernel/adjtimex based.
+Without it the L5 contract is unsatisfiable (live attempt `l5-20260925-191827`: chronyd `^*`, Leap Normal, maxerror far below
+1,000,000 µs, yet `KERNEL_UNSYNCED` for the whole readiness window). Owner-accepted side effect: while the kernel considers
+the clock synchronised, system time may be copied to the hardware RTC about every 11 minutes; that RTC write is not
+rollback-reversible. `rtcfile` must never be configured with it. The 60 s readiness bound and the TrustedClock predicate are unchanged.
 
 ### T6 trusted-time handoff contract
 
@@ -479,3 +500,22 @@ PRODUCTION_MUTATION       = NO
 PHASE4_RUNTIME_COMPLETE   = NO
 PHASE4_LIVE_READINESS     = NOT READY
 ```
+
+
+### L5 comparator: constrained informational `time.timesyncd.ServerName` (owner decision 2026-09-25)
+
+Restarting `systemd-timesyncd` (the L5 rollback) legitimately reselects one of its configured `FallbackNTPServers`, so `time.timesyncd.ServerName` can differ between PRE and RB. The comparator (`p4-compare.sh`) classifies that single key as `INFO` (`TIMESYNCD_SERVER_RESELECTED_CONFIGURED`) only when ALL hold: `systemd-timesyncd` is `active`/`running` in the AFTER capture, `time.trustedclock.state` is `SYNCED`, `time.timesyncd.FallbackNTPServers` was captured and is identical in both bundles, and the new name is a member of that set. Otherwise it stays `NEW_OR_WORSENED_DRIFT`. It is not an allowance key: the three rollback-only allowance keys (`svc.systemd-timesyncd.service.MainPID`, `svc.systemd-timesyncd.service.ExecMainStartTimestamp`, `svc.chronyd.service.ExecMainStartTimestamp`) are unchanged, and every other time-state key is judged independently. The capture records `time.timesyncd.FallbackNTPServers` and `time.trustedclock.state` (live via the read-only `p4-l5-clock.py state`, the only python helper the read-only guard allows).
+
+## 8. L5 attempt #2 remediation (rtcsync, raw kernel evidence, mutation accounting)
+
+- **Raw kernel evidence.** `p4-l5-clock.py` appends `adjtimex_ret=<n> status=0x<hex> sta_unsync=<0|1> time_error=<0|1>` to `state`/`probe`
+  output and to every `readiness.log` poll line (one adjtimex read per poll, shared by the evidence and the predicate decision);
+  `p4-l5-clock.py raw` prints the fields alone. The synchronized decision itself is unchanged (`aegis_soc.trusted_time`).
+- **Whole-run mutation marker.** `apply.sh` records `PRODUCTION_MUTATION_PERFORMED=YES` (`FIXTURE_ONLY` under a fixture root) on stdout and in
+  `$WORK/production_mutation_performed` BEFORE its first write to `/etc` (the temporary config file), so a later readiness failure cannot
+  erase it. `p4-compare.sh` keeps its comparison-local `PRODUCTION_MUTATION_PERFORMED=NO`; the owner runner relabels it
+  (`COMPARE_LOCAL_…`) via `p4-l5-run-lib.sh` and reports `RUN_PRODUCTION_MUTATION_PERFORMED` from the apply marker only.
+- **Owner-readable evidence.** `p4-l5-run-lib.sh` `l5_copy_work_diagnostics` streams the root-owned `l5-work` files into a 0700 copy with a
+  `SHA256SUMS` manifest; originals are never modified.
+- Unchanged: exact chrony.conf mtime rollback, constrained `time.timesyncd.ServerName` INFO policy, S10 fail-closed comparison, the three
+  rollback-only allowance keys, one attempt per authorization, no automatic retry.
