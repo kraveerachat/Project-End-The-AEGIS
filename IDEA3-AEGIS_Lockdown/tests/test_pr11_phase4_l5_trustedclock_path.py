@@ -11,7 +11,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = ROOT / "deploy" / "pr11-phase4"
 L5 = DEPLOY / "stages" / "L5"
-SCRIPTS = ["apply.sh", "verify.sh", "rollback.sh"]
+SCRIPTS = ["rollback.sh"]  # apply.sh / verify.sh use the shared p4-l5-clock.py helper (tested below)
+HELPER_SCRIPTS = ["apply.sh", "verify.sh"]
+CLOCK = DEPLOY / "p4-l5-clock.py"
 PATH_RE = re.compile(r"sys\.path\.insert\(0, '\$P4_HERE/([^']*)'\)")
 
 
@@ -40,3 +42,22 @@ def test_probe_import_works_from_foreign_cwd(name: str, tmp_path: Path) -> None:
 def test_apply_has_no_top_level_local() -> None:
     text = "\n".join(ln for ln in (L5 / "apply.sh").read_text().splitlines() if not ln.lstrip().startswith("#"))
     assert re.search(r"^\s*local substate\b", text, re.M) is None
+
+
+@pytest.mark.parametrize("name", HELPER_SCRIPTS)
+def test_apply_and_verify_delegate_the_probe_to_the_shared_helper(name: str) -> None:
+    text = (L5 / name).read_text()
+    assert 'p4-l5-clock.py' in text and '$P4_HERE/p4-l5-clock.py' in text
+
+
+def test_shared_helper_resolves_aegis_soc_from_foreign_cwd(tmp_path: Path) -> None:
+    r = subprocess.run([sys.executable, str(CLOCK), "probe", "--fixture-probe", "synced:1000"],
+                       cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert "reason=OK" in r.stdout
+
+
+def test_shared_helper_real_probe_runs_from_foreign_cwd(tmp_path: Path) -> None:
+    r = subprocess.run([sys.executable, str(CLOCK), "state"], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.startswith("state=") and "reason=" in r.stdout

@@ -65,8 +65,13 @@ if [ "$pre_exists" = "YES" ]; then
   else
     chown "$orig_uid:$orig_gid" "$target_conf" 2>/dev/null || true
   fi
+  # mtime is part of the compared metadata (time.file./etc/chrony.conf.meta): restore it exactly from the snapshot.
+  [[ "$orig_mtime" =~ ^[0-9]+$ ]] || fail ROLLBACK_RESTORE_FAILED
+  touch -m -d "@$orig_mtime" "$target_conf" || fail ROLLBACK_RESTORE_FAILED
   [ "$(sha256sum "$target_conf" | awk '{ print $1 }')" = "$(cat "$WORK/chrony.conf.sha256.orig")" ] || fail ROLLBACK_RESTORE_MISMATCH
   [ "$(stat -c %a "$target_conf")" = "$orig_mode" ] || fail ROLLBACK_RESTORE_MISMATCH
+  [ "$(stat -c %s "$target_conf")" = "$orig_size" ] || fail ROLLBACK_RESTORE_MISMATCH
+  [ "$(stat -c %Y "$target_conf")" = "$orig_mtime" ] || fail ROLLBACK_RESTORE_MISMATCH
   if [ -z "$ROOT" ]; then
     [ "$(stat -c %u:%g "$target_conf")" = "$orig_uid:$orig_gid" ] || fail ROLLBACK_RESTORE_MISMATCH
   fi

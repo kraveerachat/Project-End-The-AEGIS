@@ -354,6 +354,20 @@ END {
       emit("NEW_OR_WORSENED_DRIFT", "NM_STATE_DRIFT", key, b, a)
     } else if (key == "time.NTPSynchronized") {
       emit("NEW_OR_WORSENED_DRIFT", (b == "yes" ? "TIME_SYNC_LOST" : "TIME_STATE_DRIFT"), key, b, a)
+    } else if (key == "time.timesyncd.ServerName") {
+      # CONSTRAINED_INFORMATIONAL_DYNAMIC_STATE (owner decision 2026-09-25): restarting timesyncd legitimately reselects one of
+      # its configured fallback servers. Informational ONLY when timesyncd is active/running, the TrustedClock is SYNCED, the
+      # fallback set is captured and unchanged, and the new name is a member of it. Anything else stays drift; every other
+      # time-state key is judged independently. This is NOT an allowance key.
+      fbA = A["time.timesyncd.FallbackNTPServers"]; fbB = B["time.timesyncd.FallbackNTPServers"]
+      sn_ok = 0
+      if (fbA != "" && !bad(fbA) && fbA == fbB && !bad(a) && a != "" && a != "<absent>" \
+          && A["svc.systemd-timesyncd.service.ActiveState"] == "active" && A["svc.systemd-timesyncd.service.SubState"] == "running" \
+          && A["time.trustedclock.state"] == "SYNCED") {
+        nfb = split(fbA, FB, " "); for (fi = 1; fi <= nfb; fi++) if (FB[fi] == a) sn_ok = 1
+      }
+      if (sn_ok) emit("INFO", "TIMESYNCD_SERVER_RESELECTED_CONFIGURED", key, b, a)
+      else emit("NEW_OR_WORSENED_DRIFT", "TIME_STATE_DRIFT", key, b, a)
     } else if (key ~ /^time\./) {
       emit("NEW_OR_WORSENED_DRIFT", "TIME_STATE_DRIFT", key, b, a)
     } else if (key ~ /^mqtt\.established\./) {
