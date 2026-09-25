@@ -94,6 +94,16 @@ DISK_THRESHOLD_PCT=<owner threshold> bash p4-compare.sh <pre> <post>
   stage handler may change or add. Forwarding, default routes, IDEA2, host,
   disk, and capability keys can never be approved. A wildcard listener (S-05)
   or a new plaintext 1883 listener (S-12) can never be approved.
+- `ALLOW_TRANSITIONS_FILE` (stage L3 or stage L4; each stage ships its own file
+  `stages/<L>/allow-transitions.txt`) activates one exact semantic regulatory
+  window: the phy behind `AEGIS_AP_INTERFACE` (`wlp0s20f3`) may stay `00` (proven
+  live: the self-managed phy stays `00` through the exact rfkill unblock), stay
+  `TH`, or go `00 -> TH` (tolerated, never required). The file must contain
+  exactly one of `stage L3` / `stage L4` and `wifi.reg.<AEGIS_AP_PHY> 00 TH`; anything else stops the
+  run. The phy comes from the capture key `wifi.iface.<if>.phy` in both bundles.
+  Every other `wifi.reg.*` change (global, other phys, `TH -> 00`, other
+  countries, a changed rule table without the approved transition) stays
+  protected drift and can never be approved through `ALLOW_KEYS_FILE`.
 
 | Class | Meaning | Verdict |
 |---|---|---|
@@ -205,9 +215,10 @@ registered in the repository framework.
 
 ### L4 handler (AP addressing & DHCP/Core-local DNS)
 
-- Registered the reviewed L4 stage handler (`stages/L4/`) with the T1 stage framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`).
+- Registered the reviewed L4 stage handler (`stages/L4/`) with the T1 stage framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`, `allow-transitions.txt`; live helper `p4-l4-live.sh`).
 - L4 transitions the L3 NetworkManager AP connection profile (`aegis-idea3-ap.nmconnection`) from `ipv4.method=disabled` to `ipv4.method=manual` with `never-default=true`. AP IPv4 addressing is applied without creating default gateways, NAT/masquerade, or routing bridges.
 - L4 deploys a dedicated `dnsmasq` instance (`/etc/aegis-idea3/dnsmasq-ap.conf`, `aegis-idea3-dnsmasq.service`) serving the AP DHCP pool and Core-local DNS mapping the owner-supplied broker hostname to the Core AP address on `wlp0s20f3` using the merged T5 template.
+- L4 live starts only from the already-applied L3 AP (AP type, SSID `AEGIS-IDEA3`, channel 6, no IPv4, no global IPv6, no AP default route, alternate default route) and runs the M-14 regulatory/channel gate read-only before the profile changes. Reactivation is `nmcli connection up "$CONN_ID" ifname "$AP_IF"` (never NetworkManager device selection); afterwards `l3_reg_verify_active` re-checks AP type, exact channel 6, target-phy country TH-or-00 and an unrestricted channel before dnsmasq starts. The L4 comparator accepts only target-phy `00 -> 00`, `00 -> TH`, `TH -> TH`; `TH -> 00` and any other regulatory drift fail. L4 never runs `iw reg set`, `nmcli radio wifi on` or rfkill; the M-15 Wi-Fi baseline stays outside L4.
 - Read-only L2 firewall preconditions: `apply.sh` and `verify.sh` verify dedicated table `inet aegis_idea3`, UDP/67 permitted, UDP/53 permitted, TCP/53 permitted, explicit TCP/1883 drop rule present, forward policy `drop`, zero NAT/masquerade, and zero forwarding sysctls (`net.ipv4.ip_forward=0`), with comment lines stripped before parsing.
 - Hardening against listener drift (PF-02): on real/host evidence, the wildcard listener exception strictly permits only `udp/67` on `0.0.0.0%wlp0s20f3`. Synthetic interfaces are rejected unless running under `TEST_FIXTURE`.
 - Hardening against route drift: `net.route[46].unscoped` captures unscoped routes; unauthorized unscoped routes cause `UNSCOPED_ROUTE_DRIFT` and reject `ROUTE_TABLE_DRIFT` approval.

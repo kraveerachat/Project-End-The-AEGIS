@@ -339,6 +339,7 @@ def test_capture_happy_path_writes_normalized_checksummed_records(tmp_path: Path
     assert rec["wifi.reg.global"] == "00"
     assert rec["wifi.iface.wlan-test0.type"] == "managed"
     assert rec["wifi.phy.ap_mode"] == "supported"
+    assert rec["wifi.iface.wlan-test0.phy"] == "phy0"
     assert rec["nm.general"] == "connected:full:enabled:disabled"
     assert rec["nm.active.device.eth-test0"] == "wired-test:802-3-ethernet"
     assert rec["nm.active.device.wlan-test0"] == "none"
@@ -626,6 +627,10 @@ def test_only_reviewed_stage_handlers_are_registered() -> None:
     # p4-lib.sh's P4_HANDLER_FILES checks by exact name.
     expected_by_stage = {
         "L2": core_handler_files | {"verify-containment-functional.sh"},
+        # L3 owns the one exact regulatory transition p4-compare.sh may accept.
+        "L3": core_handler_files | {"allow-transitions.txt"},
+        # L4 reactivates the applied L3 AP, so it owns the narrow target-phy regulatory window for its own comparison.
+        "L4": core_handler_files | {"allow-transitions.txt"},
     }
     for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"):
         expected = expected_by_stage.get(name, core_handler_files)
@@ -1018,6 +1023,16 @@ def k3_record(stage: str, date: str | None = None, **overrides: str) -> str:
     return "AEGIS_P4_K3_CONFIRMATION_V1\n" + "".join(f"{k}={v}\n" for k, v in fields.items() if v is not None)
 
 
+def k3v2_record(stage: str, date: str | None = None, **overrides: str) -> str:
+    fields = {
+        "stage": stage, "date": date or today(), "confirmed_by": "music",
+        "confirmation_mode": "IDEA3_OWNER_SELF_ATTESTATION", "idea1_window_overlap": "NONE_KNOWN",
+        "reference": "https://example.invalid/aegis-p4-test-m16-k3",
+    }
+    fields.update(overrides)
+    return "AEGIS_P4_K3_CONFIRMATION_V2\n" + "".join(f"{k}={v}\n" for k, v in fields.items() if v is not None)
+
+
 def gate(tmp_path: Path, *args: str, auth: str | None = None, k3: str | None = None, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     root = tmp_path / "gate"
     root.mkdir(exist_ok=True)
@@ -1122,6 +1137,57 @@ def test_gate_mutating_stage_without_k3_fails(tmp_path: Path, stage: str) -> Non
 ])
 def test_gate_invalid_k3_fails(tmp_path: Path, k3, code: str) -> None:
     gate_fail(gate(tmp_path, "--stage", "L2", "--mode", "simulate", auth=auth_record("L2"), k3=k3()), code)
+
+
+def test_gate_m16_v1_kraveerachat_k3_remains_valid(tmp_path: Path) -> None:
+    result = gate(tmp_path, "--stage", "L4", "--mode", "simulate", auth=auth_record("L4"), k3=k3_record("L4"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "K3_CONFIRMATION=VALID" in result.stdout
+
+
+@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"])
+def test_gate_m16_v2_owner_self_k3_is_valid(tmp_path: Path, stage: str) -> None:
+    result = gate(tmp_path, "--stage", stage, "--mode", "simulate", auth=auth_record(stage), k3=k3v2_record(stage))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "K3_CONFIRMATION=VALID" in result.stdout
+    assert "LIVE_STAGE_AUTHORIZED=NO" in result.stdout
+    assert "PRODUCTION_MUTATION_PERFORMED=NO" in result.stdout
+
+
+def test_gate_m16_v2_does_not_replace_authorization(tmp_path: Path) -> None:
+    gate_fail(gate(tmp_path, "--stage", "L4", "--mode", "simulate", k3=k3v2_record("L4")), "AUTHORIZATION_MISSING")
+    gate_fail(gate(tmp_path, "--stage", "L4", "--mode", "simulate", auth=auth_record("L4", date=today(-1)),
+                   k3=k3v2_record("L4")), "AUTHORIZATION_STALE")
+
+
+@pytest.mark.parametrize(("k3", "code"), [
+    (lambda: k3v2_record("L4", date=today(-1)), "K3_STALE"),
+    (lambda: k3v2_record("L4", date=today(1)), "K3_STALE"),
+    (lambda: k3v2_record("L3"), "K3_STAGE_MISMATCH"),
+    (lambda: k3v2_record("L4", confirmed_by="kraveerachat"), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", confirmed_by="random-user"), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", confirmation_mode=None), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", confirmation_mode="INDEPENDENT_IDEA1_OWNER"), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", idea1_window_overlap="NONE"), "K3_OVERLAP_NOT_NONE"),
+    (lambda: k3v2_record("L4", idea1_window_overlap="ACTIVE"), "K3_OVERLAP_NOT_NONE"),
+    (lambda: k3v2_record("L4", idea1_window_overlap="UNKNOWN"), "K3_OVERLAP_NOT_NONE"),
+    (lambda: k3v2_record("L4").replace("AEGIS_P4_K3_CONFIRMATION_V2", "AEGIS_P4_K3_CONFIRMATION_V3"), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", reference=None), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", reference="<REPLACE-ME>"), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4") + "stage=L4\n", "K3_MALFORMED"),
+    (lambda: k3v2_record("L4") + "psk=not-allowed\n", "K3_MALFORMED"),
+    (lambda: k3v2_record("L4").replace("\n", "\r\n"), "K3_MALFORMED"),
+    # V1 must keep its exact historical semantics.
+    (lambda: k3_record("L4", confirmed_by="music"), "K3_MALFORMED"),
+    (lambda: k3_record("L4", idea1_window_overlap="NONE_KNOWN"), "K3_OVERLAP_NOT_NONE"),
+    (lambda: k3_record("L4") + "confirmation_mode=IDEA3_OWNER_SELF_ATTESTATION\n", "K3_MALFORMED"),
+])
+def test_gate_m16_invalid_k3_fails(tmp_path: Path, k3, code: str) -> None:
+    gate_fail(gate(tmp_path, "--stage", "L4", "--mode", "simulate", auth=auth_record("L4"), k3=k3()), code)
+
+
+def test_gate_m16_missing_k3_still_fails(tmp_path: Path) -> None:
+    gate_fail(gate(tmp_path, "--stage", "L4", "--mode", "simulate", auth=auth_record("L4")), "K3_MISSING")
 
 
 def test_gate_simulation_with_valid_records_never_authorizes_live(tmp_path: Path) -> None:

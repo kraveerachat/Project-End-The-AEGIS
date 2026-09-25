@@ -666,6 +666,42 @@ def test_dnsmasq_dhcp_dedicated_ap_scoped(tmp_path: Path) -> None:
     assert "dnsmasq.service" not in service
 
 
+def test_dnsmasq_excludes_loopback_without_listen_address(tmp_path: Path) -> None:
+    fs_root = tmp_path / "fs"
+    work_dir = tmp_path / "work"
+    setup_l3_fs(fs_root)
+
+    run_handler(HANDLER / "apply.sh", fs_root=fs_root, work_dir=work_dir)
+    conf = (fs_root / "etc" / "aegis-idea3" / "dnsmasq-ap.conf").read_text(encoding="utf-8")
+    lines = conf.splitlines()
+    assert "interface=wlan-test0" in lines
+    assert "bind-interfaces" in lines
+    assert lines.count("except-interface=lo") == 1
+    assert "listen-address" not in conf
+    # Existing DHCP / Core-local DNS constraints stay intact.
+    assert "dhcp-range=192.0.2.2,192.0.2.10,255.255.255.240" in lines
+    assert "dhcp-option=option:router" in lines
+    assert "dhcp-option=option:dns-server,192.0.2.1" in lines
+    assert "no-resolv" in lines
+    assert "no-hosts" in lines
+    assert "address=/mqtt.aegis.invalid/192.0.2.1" in lines
+    assert "server=" not in conf
+
+
+def test_verify_requires_except_interface_lo(tmp_path: Path) -> None:
+    fs_root = tmp_path / "fs"
+    work_dir = tmp_path / "work"
+    setup_l3_fs(fs_root)
+    run_handler(HANDLER / "apply.sh", fs_root=fs_root, work_dir=work_dir)
+    conf_path = fs_root / "etc" / "aegis-idea3" / "dnsmasq-ap.conf"
+    text = conf_path.read_text(encoding="utf-8")
+    assert "except-interface=lo\n" in text
+    conf_path.write_text(text.replace("except-interface=lo\n", ""), encoding="utf-8")
+    result = run_handler(HANDLER / "verify.sh", fs_root=fs_root, work_dir=work_dir)
+    assert result.returncode != 0
+    assert "DNSMASQ_EXCEPT_INTERFACE_LO_MISSING" in (result.stdout + result.stderr)
+
+
 # -----------------------------------------------------------------------------
 # 27. Core-local DNS: no upstream forwarding, only broker mapping
 # -----------------------------------------------------------------------------
@@ -706,6 +742,10 @@ def test_listener_allowlist_contains_only_justified_drift() -> None:
         "listen.udp.0.0.0.0%<AEGIS_AP_INTERFACE>:67",
     }
     assert set(lines) == expected
+    assert len(lines) == 3
+    joined = "\n".join(lines)
+    assert "127.0.0.1" not in joined
+    assert "[::1]" not in joined
 
 
 # -----------------------------------------------------------------------------
