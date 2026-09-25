@@ -17,7 +17,25 @@ edit_policy: owner-writable
 
 ## Current Task
 
-None — standing by for Human Owner merge of PR #187.
+| Field | Current value |
+|---|---|
+| Task | LFT-PERF-1 / TRANSFER_AND_MEDIA_PREVIEW_PERFORMANCE_STUDY |
+| Branch | docs/idea1-transfer-media-performance-study |
+| Owner | kla |
+| State | **PLANNED / DRAFT** |
+| Scope | Historical evidence reconciliation, reproducible measurement design, Human-run Production packet; no benchmark execution or tuning |
+| Design | IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-25-idea1-transfer-media-performance-study-design.md |
+| Plan | IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-25-idea1-transfer-media-performance-measurement-plan.md |
+| Production mutation allowed | **NO** |
+| Current result | ROOT_CAUSE=NOT_PROVEN; Twingate, Cloudflare, storage, and client crypto bottlenecks all NOT_PROVEN |
+| Next gate | Human Owner review of the study design and measurement plan before any Production baseline |
+
+This task operationalizes the existing LFT-PERF-1 backlog and consolidates the
+separately recorded FILES-TRANSFER-PERF-1 plus PR187/PR212 deferred transfer and
+media-preview performance scope. Historical rates and functional acceptance are
+preserved as context, not silently promoted to controlled benchmark results.
+Current Production limits/settings require re-measurement. No final receipt is
+created while the study remains Draft.
 
 ## Completed Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
 
