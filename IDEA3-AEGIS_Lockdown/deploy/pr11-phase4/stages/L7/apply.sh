@@ -90,12 +90,15 @@ mqtt_pass=$(head -n 1 "$INPUT_DIR/mqtt-core.pass" | tr -d '\r\n')
 [ -n "$mqtt_pass" ] || fail "mqtt-core.pass cannot be empty"
 
 # 7. D4 Local Restore Credential Prerequisite (OD-L7-08)
+# Format only: RestoreCredential.load() also requires exact mode 0600 and owner == the running account, which is
+# meaningless for a root-run staging step (the Core account owns the staged copy; see section 10).
+[ "$(stat -c %s "$INPUT_DIR/restore.credential")" -le 4096 ] || fail "restore.credential format validation failed"
 "$PYTHON_BIN" -c "
 import sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from aegis_soc.local_restore import RestoreCredential
-RestoreCredential.load(Path(sys.argv[2]))
+RestoreCredential.parse(Path(sys.argv[2]).read_text(encoding='ascii'))
 " "$REPO_ROOT" "$INPUT_DIR/restore.credential" || fail "restore.credential format validation failed"
 
 # 8. Path Helper
@@ -106,6 +109,28 @@ host_path() {
     printf '%s\n' "$1"
   fi
 }
+
+# 8b. Immutable release guard: prove the release exists BEFORE anything is staged or `current` is pointed at it.
+rel_dir="${AEGIS_L7_RELEASE_DIR:-/opt/aegis-idea3/releases/v1.0.0}"
+[[ "$rel_dir" =~ ^/opt/aegis-idea3/releases/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || fail "L7_RELEASE_DIR_INVALID"
+rel_host=$(host_path "$rel_dir")
+[ -d "$rel_host" ] && [ ! -L "$rel_host" ] || fail "L7_RELEASE_MISSING"
+[ -f "$rel_host/venv/bin/python" ] && [ -x "$rel_host/venv/bin/python" ] || fail "L7_RELEASE_VENV_MISSING"
+[ -f "$rel_host/aegis_soc/supervisor.py" ] || fail "L7_RELEASE_INCOMPLETE"
+# Release code must not be modifiable by the service account (the containment helper runs it as root).
+release_owner="${AEGIS_L7_RELEASE_OWNER:-}"
+[ -n "$release_owner" ] || [ -n "$ROOT" ] || release_owner=root
+if [ -n "$release_owner" ]; then
+  for p in "$rel_host" "$rel_host/venv/bin/python" "$rel_host/aegis_soc/supervisor.py"; do
+    [ "$(stat -c %U "$p")" = "$release_owner" ] || fail "L7_RELEASE_OWNERSHIP_INVALID"
+  done
+fi
+[ -z "$(find "$rel_host" -xdev ! -type l \( -perm -g+w -o -perm -o+w \) -print -quit)" ] || fail "L7_RELEASE_WRITABLE"
+pre_current=$(host_path "/opt/aegis-idea3/current")
+if [ -L "$pre_current" ]; then
+  pre_target=$(readlink "$pre_current")
+  [ -d "$(host_path "$pre_target")" ] || fail "L7_CURRENT_LINK_DANGLING"
+fi
 
 # 9. Prestate Capture (OD-L7-07)
 PRESTATE="$WORK_DIR/prestate.manifest"
@@ -150,13 +175,18 @@ else
 fi
 
 # 10. File Staging (OD-L7-01, OD-L7-05, OD-L7-06)
+# Directory root:aegis-idea3 0750 so the Core account can reach restore.credential, which the Core reads directly
+# (supervisor.py / RestoreCredential.load: regular, exact mode 0600, owned by the Core account). The other four
+# secrets reach the service only through systemd LoadCredential= (read as root) and stay root-owned 0600.
 mkdir -p "$creds_dir"
-chmod 0700 "$creds_dir"
+chmod 0750 "$creds_dir"
+[ -n "$ROOT" ] || chown root:aegis-idea3 "$creds_dir" || fail "L7_CREDENTIALS_CHOWN_FAILED"
 
 for f in k_c2d k_d2c mqtt-core.pass admin.pin restore.credential; do
   cp "$INPUT_DIR/$f" "$creds_dir/$f"
   chmod 0600 "$creds_dir/$f"
 done
+[ -n "$ROOT" ] || chown aegis-idea3:aegis-idea3 "$creds_dir/restore.credential" || fail "L7_CREDENTIALS_CHOWN_FAILED"
 
 mkdir -p "$(dirname "$core_env")"
 if [ ! -f "$core_env" ]; then
@@ -178,10 +208,10 @@ if [ ! -f "$unit_file" ]; then
 fi
 
 mkdir -p "$(dirname "$current_link")"
-rel_dir="${AEGIS_L7_RELEASE_DIR:-/opt/aegis-idea3/releases/v1.0.0}"
 if [ ! -e "$current_link" ] && [ ! -L "$current_link" ]; then
   ln -s "$rel_dir" "$current_link"
 fi
+[ -d "$(host_path "$(readlink "$current_link")")" ] || fail "L7_CURRENT_LINK_DANGLING"
 
 mkdir -p "$(host_path /var/lib/aegis-idea3/data)"
 mkdir -p "$(host_path /run/aegis-idea3)"
@@ -189,8 +219,12 @@ mkdir -p "$(host_path /var/log/aegis-idea3)"
 
 # 11. Service Activation (Live execution only)
 if [ -z "$ROOT" ]; then
-  systemctl daemon-reload
-  systemctl start aegis-idea3-core.service
+  systemctl daemon-reload || fail "L7_DAEMON_RELOAD_FAILED"
+  systemctl start aegis-idea3-core.service || fail "L7_SERVICE_START_FAILED"
+  # Restart=on-failure can hide a crash loop from a single is-active probe.
+  sleep 3
+  systemctl is-active --quiet aegis-idea3-core.service || fail "L7_SERVICE_NOT_STABLE"
+  [ "$(systemctl show -p NRestarts --value aegis-idea3-core.service)" = 0 ] || fail "L7_SERVICE_NOT_STABLE"
 fi
 
 printf 'L7_APPLY=COMPLETE\n'
