@@ -82,7 +82,7 @@ if [ -z "$ROOT" ]; then
   for ((i=0; i<30; i++)); do
     tc_eval="$(python3 -c "
 import sys
-sys.path.insert(0, '$P4_HERE/../../IDEA3-AEGIS_Lockdown')
+sys.path.insert(0, '$P4_HERE/../..')
 from aegis_soc.trusted_time import TrustedClock, adjtimex_probe
 tc = TrustedClock()
 probe = adjtimex_probe()
