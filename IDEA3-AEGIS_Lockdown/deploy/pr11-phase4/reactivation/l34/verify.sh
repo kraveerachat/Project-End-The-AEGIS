@@ -69,6 +69,21 @@ if grep -q '^NM_WIFI_RADIO_ENABLE	' "$WORK/journal.tsv"; then
   [ "$(nmcli -g GENERAL.AUTOCONNECT device show "$AP_IF" 2>/dev/null)" = "$prior" ] || fail L34_DEVICE_AUTOCONNECT_NOT_RESTORED
 fi
 
+# V3 envelope: the ONLY side effects of NetworkManager Wi-Fi initialization accepted on top of the reactivation are the exact p2p pseudo-device
+# and the wpa_supplicant lifecycle, both value-constrained; any other new NetworkManager device or a changed wpa_supplicant unit fails.
+if [ "${AEGIS_L34_PRESERVATION:-}" = V3 ]; then
+  [ -f "$WORK/baseline.txt" ] && [ -f "$WORK/nm-devices-pre.txt" ] || fail "PRE_BASELINE_MISSING:v3"
+  new_devs=$(comm -13 "$WORK/nm-devices-pre.txt" <(l34_nm_devices_listing) | grep -vx 'p2p-dev-wlp0s20f3:wifi-p2p' || true)
+  [ -z "$new_devs" ] || fail L34_V3_UNEXPECTED_NM_DEVICE
+  [ "$(l34_p2p_device_state)" = disconnected ] || fail L34_V3_P2P_DEVICE_STATE
+  wpa=$(systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID -p NRestarts wpa_supplicant.service)
+  for kv in LoadState=loaded ActiveState=active SubState=running UnitFileState=disabled Result=success NRestarts=0; do
+    grep -qx "$kv" <<< "$wpa" || fail "L34_V3_WPA_SUPPLICANT_${kv%%=*}"
+  done
+  grep -Eq '^MainPID=[1-9][0-9]*$' <<< "$wpa" || fail L34_V3_WPA_SUPPLICANT_MainPID
+  v3_baseline=$(cat "$WORK/baseline.txt")
+fi
+
 # dnsmasq: active/running, persistent identity unchanged, no enable/disable side effect, exact listener scope
 unit_props "$L34_UNIT" | l34_service_active_gate || fail "$(unit_props "$L34_UNIT" | l34_service_active_gate 2>&1 | head -n 1)"
 listeners > "$WORK/listeners-post.txt"
@@ -95,6 +110,7 @@ printf 'L34_VERIFY=PASS\n'
 printf 'AP_RUNTIME=ACTIVE SSID=%s CHANNEL=%s ADDRESS=%s/%s\n' "$L34_SSID" "$L34_CHANNEL" "$L34_AP_ADDR" "$L34_AP_PREFIX"
 printf 'DNSMASQ=ACTIVE_RUNNING\n'
 printf 'PERSISTENT_FILES_UNCHANGED=YES\n'
+if [ "${AEGIS_L34_PRESERVATION:-}" = V3 ]; then printf 'L34_V3_SIDE_EFFECTS=WITHIN_ENVELOPE\nL34_BASELINE=%s\n' "$v3_baseline"; fi
 printf 'NM_WIFI_RADIO=%s\n' "$radio_state"
 printf 'UNRELATED_WIFI_ACTIVE=NO\n'
 printf 'L2_UNCHANGED=YES\n'

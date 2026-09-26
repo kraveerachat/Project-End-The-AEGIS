@@ -288,6 +288,10 @@ if run_ro 1 iw-phy iw phy; then
   if printf '%s\n' "$P4_OUT" | grep -qE '^[[:space:]]+\* AP$'; then ap=supported; else ap=not-listed; fi
   p4_rec "$WIFI" wifi.phy.ap_mode "$ap"
   p4_rec "$WIFI" wifi.phy.sha256 "$(text_sha "$P4_OUT")"
+  # V3: regulatory-insensitive digest (frequency-entry regulatory annotations removed) and the read-only channel-6 permission fact, so a phy
+  # digest change that is ONLY regulatory-derived can be proven by the comparator instead of being allowed as a generic key.
+  p4_rec "$WIFI" wifi.phy.regnorm_sha256 "$(text_sha "$(printf '%s\n' "$P4_OUT" | awk -f "$HERE/p4-iw-phy-regnorm.awk")")"
+  p4_rec "$WIFI" wifi.phy.channel6_permitted "$(printf '%s\n' "$P4_OUT" | awk -v mode=ch6 -f "$HERE/p4-iw-phy-regnorm.awk")"
 else
   p4_rec "$WIFI" wifi.phy.ap_mode UNAVAILABLE
 fi

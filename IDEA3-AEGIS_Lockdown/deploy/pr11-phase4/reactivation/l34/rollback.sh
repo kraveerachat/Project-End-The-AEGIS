@@ -129,7 +129,41 @@ for u in mosquitto.service twingate.service aegis-detection-engine.service aegis
 done > "$WORK/identities-rollback.txt"
 cmp -s "$WORK/identities-pre.txt" "$WORK/identities-rollback.txt" || fail LEGACY_OR_TWINGATE_OR_IDEA2_IDENTITY_CHANGED
 
+# V3: the rollback boundary is SAFE-EQUIVALENT, not byte-exact, once NetworkManager has initialized Wi-Fi. Prove every safety invariant here; the
+# only tolerated residuals are the p2p pseudo-device (exactly unavailable), wpa_supplicant left running (unit facts intact) and the target phy
+# regulatory state (TH or 00: this workflow never runs `iw reg set`). Nothing is stopped, deleted or reset to make the residuals go away.
+exact_prestate=UNKNOWN
+if [ "${AEGIS_L34_PRESERVATION:-}" = V3 ]; then
+  [ -f "$WORK/baseline.txt" ] || fail "PRE_BASELINE_MISSING:v3"
+  [ "$(nmcli radio wifi 2>/dev/null)" = disabled ] || fail L34_V3_ROLLBACK_NM_RADIO_NOT_DISABLED
+  iw dev "$AP_IF" info 2>/dev/null | grep -q 'type managed' || fail L34_V3_ROLLBACK_TARGET_NOT_MANAGED
+  [ -z "$(ip route show default dev "$AP_IF" 2>/dev/null)" ] || fail L34_V3_ROLLBACK_AP_DEFAULT_ROUTE
+  l3_rfkill_state "$(cat "$WORK/rfkill_id")" || fail "$L3_RFKILL_REASON"
+  if grep -q 'soft=blocked' "$WORK/rfkill-target-pre.txt"; then [ "$L3_RFKILL_SOFT" = blocked ] || fail L34_V3_ROLLBACK_RFKILL_NOT_BLOCKED; fi
+  p2p_now=$(l34_p2p_device_state)
+  { [ -z "$p2p_now" ] || [ "$p2p_now" = unavailable ]; } || fail L34_V3_ROLLBACK_P2P_DEVICE_STATE
+  new_devs=$(comm -13 "$WORK/nm-devices-pre.txt" <(l34_nm_devices_listing) | grep -vx 'p2p-dev-wlp0s20f3:wifi-p2p' || true)
+  [ -z "$new_devs" ] || fail L34_V3_ROLLBACK_UNEXPECTED_NM_DEVICE
+  wpa=$(systemctl show -p LoadState -p UnitFileState -p Result -p NRestarts -p ActiveState wpa_supplicant.service)
+  for kv in LoadState=loaded UnitFileState=disabled Result=success NRestarts=0; do
+    grep -qx "$kv" <<< "$wpa" || fail "L34_V3_ROLLBACK_WPA_UNIT_${kv%%=*}"
+  done
+  country_now=$(iw reg get 2>/dev/null | awk -v p="phy#$(iw dev "$AP_IF" info 2>/dev/null | awk '$1 == "wiphy" { print $2; exit }')" '$1 ~ /^phy#/ { on = ($1 == p); next } $1 == "global" { on = 0 } on && $1 == "country" { sub(":", "", $2); print $2; exit }')
+  { [ "$country_now" = TH ] || [ "$country_now" = 00 ]; } || fail L34_V3_ROLLBACK_REGULATORY_STATE
+  # exactness is reported separately from the safety boundary: byte-for-byte only when p2p, wpa_supplicant and the country all equal PRE
+  pre_wpa_active=NO; [ "$(cat "$WORK/baseline.txt")" = RESIDUAL ] && pre_wpa_active=YES
+  now_wpa_active=NO; grep -qx 'ActiveState=active' <<< "$wpa" && now_wpa_active=YES
+  pre_p2p=NO; [ "$(cat "$WORK/baseline.txt")" = RESIDUAL ] && pre_p2p=YES
+  now_p2p=NO; [ -n "$p2p_now" ] && now_p2p=YES
+  if [ "$pre_wpa_active" = "$now_wpa_active" ] && [ "$pre_p2p" = "$now_p2p" ] && [ "$country_now" = "$(cat "$WORK/phy-country-pre.txt")" ]; then exact_prestate=YES; else exact_prestate=NO; fi
+fi
+
 printf 'L34_ROLLBACK=PASS\n'
+if [ "${AEGIS_L34_PRESERVATION:-}" = V3 ]; then
+  printf 'SAFE_NETWORK_BOUNDARY_RESTORED=YES\n'
+  printf 'EXACT_PRESTATE_RESTORED=%s\n' "$exact_prestate"
+  printf 'L34_ROLLBACK_MODEL=SAFE_EQUIVALENT\n'
+fi
 printf 'AP_ACTIVE=NO\n'
 printf 'DNSMASQ_RUNNING=NO\n'
 printf 'PERSISTENT_FILES_UNCHANGED=YES\n'

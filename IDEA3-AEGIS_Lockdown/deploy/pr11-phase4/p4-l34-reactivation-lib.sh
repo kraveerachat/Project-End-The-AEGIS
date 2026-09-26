@@ -241,6 +241,39 @@ l34_device_autoconnect() {
   case "$v" in yes | no) printf '%s\n' "$v" ;; *) return 1 ;; esac
 }
 
+# ── V3 baselines: the two proven, safe starting states ───────────────────────────────────────────────────────────────────
+
+# l34_baseline_classify COUNTRY RADIO TARGET_STATE P2P_STATE < `systemctl show wpa_supplicant.service …` — prints FRESH or RESIDUAL, fails on
+# anything else (mixed or unrecognized states are never guessed at). Read-only.
+#   FRESH    (post-reboot, before NetworkManager initialized Wi-Fi): phy country 00, no p2p pseudo-device, wpa_supplicant inactive/dead
+#   RESIDUAL (proven safe-equivalent state left by live attempt 2): phy country TH, p2p-dev-wlp0s20f3 unavailable, wpa_supplicant active/running
+# Both: NM radio disabled, target device unavailable, wpa_supplicant unit disabled with NRestarts 0 and Result success.
+l34_baseline_classify() {
+  local country=$1 radio=$2 target=$3 p2p=$4 wpa
+  wpa=$(cat)
+  [ "$radio" = disabled ] || { l34_reason "L34_BASELINE_MIXED_OR_UNRECOGNIZED:NM_RADIO_NOT_DISABLED"; return 1; }
+  [ "$target" = unavailable ] || { l34_reason "L34_BASELINE_MIXED_OR_UNRECOGNIZED:TARGET_NOT_UNAVAILABLE"; return 1; }
+  for kv in LoadState=loaded UnitFileState=disabled Result=success NRestarts=0; do
+    grep -qx "$kv" <<< "$wpa" || { l34_reason "L34_BASELINE_MIXED_OR_UNRECOGNIZED:WPA_${kv%%=*}"; return 1; }
+  done
+  if [ "$country" = 00 ] && [ -z "$p2p" ] && grep -qx 'ActiveState=inactive' <<< "$wpa" && grep -qx 'SubState=dead' <<< "$wpa" && grep -qx 'MainPID=0' <<< "$wpa"; then
+    printf 'FRESH\n'
+  elif [ "$country" = TH ] && [ "$p2p" = unavailable ] && grep -qx 'ActiveState=active' <<< "$wpa" && grep -qx 'SubState=running' <<< "$wpa" \
+    && grep -Eq '^MainPID=[1-9][0-9]*$' <<< "$wpa"; then
+    printf 'RESIDUAL\n'
+  else
+    l34_reason "L34_BASELINE_MIXED_OR_UNRECOGNIZED"; return 1
+  fi
+}
+
+# l34_p2p_device_state — state of the exact NM Wi-Fi P2P pseudo-device p2p-dev-wlp0s20f3, or empty when absent (type must be wifi-p2p)
+l34_p2p_device_state() {
+  nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | awk -F: '$1 == "p2p-dev-wlp0s20f3" && $2 == "wifi-p2p" { print $3; exit }'
+}
+
+# l34_nm_devices_listing — sorted `device:type` list of every NetworkManager device (for the "no other new device" envelope check)
+l34_nm_devices_listing() { nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | awk -F: '{ print $1 ":" $2 }' | LC_ALL=C sort; }
+
 # ── dnsmasq service identity ─────────────────────────────────────────────────────────────────────────────────────────────
 
 # l34_service_pre_gate < `systemctl show -p LoadState,ActiveState,SubState,UnitFileState,Result,MainPID …` (KEY=VALUE lines)

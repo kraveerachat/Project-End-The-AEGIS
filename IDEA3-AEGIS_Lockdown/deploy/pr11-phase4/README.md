@@ -489,6 +489,22 @@ apply, never rewrites any persistent file, and claims **no** new `L3_LIVE_ACCEPT
 - Authorization reuses `AEGIS_P4_AUTHORIZATION_V1` + fresh K3 with `stage=L4` and an exact `L3_L4_RUNTIME_REACTIVATION` scope line.
 - `owner-run/run-l34-reactivation-owner.sh` is an **unpinned template** that refuses to run until the owner freeze workflow pins the merged main.
 
+#### L3/L4 reactivation — live attempt 2 and the V3 preservation model (2026-09-27)
+
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md`. Attempt 2 proved the V2 radio path (apply PASS, verify PASS, AP and
+dnsmasq active) and failed only at preservation: NetworkManager Wi-Fi initialization added the p2p pseudo-device, started `wpa_supplicant`, and moved the
+target phy `00 -> TH` (changing `wifi.phy.sha256`); rollback was safe but not byte-exact. Authorization consumed, no retry.
+
+- `p4-compare.sh` `ALLOW_DYNAMIC_TRANSITIONS_FILE` gains four V3 operations (`L34_V3_POST_FRESH|POST_RESIDUAL|ROLLBACK_FRESH|ROLLBACK_RESIDUAL`) with closed
+  catalogs and value classes (`<absent> <empty> <nonempty> <positive> <sha256>`). wpa_supplicant and the phy digest rules are **relational** (radio transition,
+  active AP, no unrelated Wi-Fi, unit facts, regulatory transition, `wifi.phy.regnorm_sha256` equality, channel 6 permitted). No generic allow key.
+- The capture adds `wifi.phy.regnorm_sha256` and `wifi.phy.channel6_permitted` via `p4-iw-phy-regnorm.awk` (removes only the regulatory annotations of the
+  frequency entries; capabilities, modes, commands and identity still change the digest).
+- `apply.sh` (`AEGIS_L34_PRESERVATION=V3`) classifies the FRESH or RESIDUAL baseline and rejects mixed states; `verify.sh` proves the exact envelope;
+  `rollback.sh` reports `SAFE_NETWORK_BOUNDARY_RESTORED` separately from `EXACT_PRESTATE_RESTORED`. It never stops wpa_supplicant, removes the p2p device,
+  sets the regulatory domain or restarts NetworkManager.
+- The runner template carries the V3 scope (168 chars) and picks its catalogs from the reported baseline; still an unpinned template.
+
 #### L3/L4 reactivation — live attempt 1 failure and NM radio remediation (2026-09-27)
 
 Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md`. The first live attempt failed closed with

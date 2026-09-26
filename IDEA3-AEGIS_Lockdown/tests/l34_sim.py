@@ -46,6 +46,14 @@ DEFAULT_STATE = {
     "extra_wifi_device": False,             # a second NetworkManager Wi-Fi device exists
     "extra_rfkill_wlan": False,             # a second wlan rfkill row exists
     "radio_on_works": True,
+    "nm_init_side_effects": False,   # V3: NM Wi-Fi init creates the p2p pseudo-device, starts wpa_supplicant, and the phy goes 00 -> TH on AP up
+    "p2p_present": False,
+    "p2p_state_override": "",
+    "extra_nm_device": False,
+    "wpa_active": False,
+    "wpa_pid": 1545238,
+    "wpa_unit_file_state": "disabled",
+    "wpa_nrestarts": 0,
     "device_set_works": True,
     "dnsmasq": "failed",
     "dnsmasq_start_works": True,
@@ -131,6 +139,19 @@ def _device_state(s: dict) -> str:
     return "disconnected"
 
 
+def _p2p_state(s: dict) -> str:
+    if s["p2p_state_override"]:
+        return s["p2p_state_override"]
+    return "unavailable" if _wifi_radio(s) == "disabled" else "disconnected"
+
+
+def _wpa_props(s: dict) -> dict[str, str]:
+    act = s["wpa_active"]
+    return {"LoadState": "loaded", "UnitFileState": s["wpa_unit_file_state"], "ActiveState": "active" if act else "inactive",
+            "SubState": "running" if act else "dead", "Result": "success", "MainPID": str(s["wpa_pid"] if act else 0),
+            "NRestarts": str(s["wpa_nrestarts"]), "ExecMainStartTimestamp": "Sun 2026-09-27 03:21:03 +07" if act else ""}
+
+
 def _dnsmasq_props(s: dict) -> dict[str, str]:
     st = s["dnsmasq"]
     base = {"LoadState": "loaded", "UnitFileState": "enabled"}
@@ -149,6 +170,8 @@ def _dnsmasq_props(s: dict) -> dict[str, str]:
 def _unit_props(s: dict, unit: str) -> dict[str, str]:
     if unit == "aegis-idea3-dnsmasq.service":
         return _dnsmasq_props(s)
+    if unit == "wpa_supplicant.service":
+        return _wpa_props(s)
     pid, nr = s["identities"].get(unit, [0, 0])
     active = "active" if pid else "inactive"
     return {"LoadState": "loaded" if pid else "not-found", "ActiveState": active, "SubState": "running" if pid else "dead",
@@ -190,11 +213,24 @@ def main(argv: list[str]) -> int:
     elif name == "nmcli":
         if args[:5] == ["-t", "-f", "DEVICE,STATE", "device", "status"]:
             out = [f"wlp0s20f3:{_device_state(s)}", f"enp62s0:{s['wired_ifname_state']}", "lo:unmanaged"]
+            if s["p2p_present"]:
+                out.append(f"p2p-dev-wlp0s20f3:{_p2p_state(s)}")
+            if s["extra_nm_device"]:
+                out.append("br0:connected")
+        elif args == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
+            out = [f"wlp0s20f3:wifi:{_device_state(s)}", f"enp62s0:ethernet:{s['wired_ifname_state']}", "lo:loopback:unmanaged"]
+            if s["p2p_present"]:
+                out.append(f"p2p-dev-wlp0s20f3:wifi-p2p:{_p2p_state(s)}")
+            if s["extra_nm_device"]:
+                out.append("br0:bridge:connected")
         elif args == ["radio", "wifi"]:
             out = [_wifi_radio(s)]
         elif args == ["radio", "wifi", "on"]:
             if s["radio_on_works"]:
                 s["nm_software_radio"] = True
+                if s["nm_init_side_effects"]:
+                    s["p2p_present"] = True
+                    s["wpa_active"] = True
                 # an autoconnect profile in range grabs the device unless device autoconnect is off
                 if s["autoconnect_profile_in_range"] and s["dev_autoconnect"] == "yes" and not s["rfkill_soft"]:
                     s["other_wifi_active"] = True
@@ -223,6 +259,8 @@ def main(argv: list[str]) -> int:
             ok = (len(args) == 5 and args[3] == "ifname" and args[4] == "wlp0s20f3" and conn == "aegis-idea3-ap"
                   and _device_state(s) == "disconnected" and s["nm_activation_works"])
             if ok:
+                if s["nm_init_side_effects"]:
+                    s["phy_country"] = "TH"
                 s["ap_active"] = 1
                 s["other_wifi_active"] = False
             else:

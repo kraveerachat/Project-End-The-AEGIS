@@ -93,6 +93,19 @@ l34_ap_pre_gate "$AP_IF" || fail "$(l34_ap_pre_gate "$AP_IF" 2>&1 | head -n 1)"
 l3_reg_gate "$AP_IF" "$L34_CHANNEL" || fail "$L3_REG_REASON"
 l34_no_wifi_active_gate || fail "$(l34_no_wifi_active_gate 2>&1 | head -n 1)"
 radio_pre=$(nmcli radio wifi 2>/dev/null || true)
+if [ "${AEGIS_L34_PRESERVATION:-}" = V3 ]; then
+  # V3 preservation model: only the two proven baselines are accepted; the runner picks its comparator catalogs from the reported baseline.
+  [ "${AEGIS_L34_NM_RADIO_ENABLE:-NO}" = YES ] || fail L34_V3_REQUIRES_NM_RADIO_ENABLE
+  target_state=$(nmcli -t -f DEVICE,STATE device status 2>/dev/null | awk -F: '$1 == "wlp0s20f3" { split($2, w, " "); print w[1] }')
+  baseline=$(systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID -p NRestarts wpa_supplicant.service \
+    | l34_baseline_classify "$L3_REG_COUNTRY" "$radio_pre" "$target_state" "$(l34_p2p_device_state)") \
+    || fail "$(systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID -p NRestarts wpa_supplicant.service \
+      | l34_baseline_classify "$L3_REG_COUNTRY" "$radio_pre" "$target_state" "$(l34_p2p_device_state)" 2>&1 | head -n 1)"
+  printf '%s\n' "$baseline" > "$WORK/baseline.txt"
+  printf '%s\n' "$L3_REG_COUNTRY" > "$WORK/phy-country-pre.txt"
+  l34_nm_devices_listing > "$WORK/nm-devices-pre.txt"
+  printf 'L34_BASELINE=%s\n' "$baseline"
+fi
 radio_authorized=0
 dev_ac_prior=""
 if [ "$radio_pre" = disabled ] && [ "${AEGIS_L34_NM_RADIO_ENABLE:-NO}" = YES ]; then

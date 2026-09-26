@@ -11,6 +11,12 @@
 # `nmcli radio wifi on`, and only when preflight proves wlp0s20f3 is the SOLE Wi-Fi device/wlan rfkill with no active Wi-Fi connection.
 # Rollback disables the radio only if this run enabled it. No persistent NetworkManager configuration is rewritten.
 # Design: docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md
+# V3 (live attempt 2 remediation): V2 reactivated the runtime (apply/verify PASS) but the preservation model was incomplete: NetworkManager Wi-Fi
+# initialization adds the p2p pseudo-device, starts wpa_supplicant and moves the target phy 00 -> TH (changing the raw iw-phy digest), and rollback
+# cannot return byte-for-byte. V3 accepts ONLY those exact, value-constrained, relationally checked side effects (comparator catalogs, baseline
+# FRESH or RESIDUAL chosen by the handler preflight) and reports SAFE_NETWORK_BOUNDARY_RESTORED separately from EXACT_PRESTATE_RESTORED. It never
+# stops wpa_supplicant, removes the p2p device, sets the regulatory domain or restarts NetworkManager.
+# Design: docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md
 # RUNTIME_ONLY: this restores the already accepted persistent L3/L4 configuration to its accepted ACTIVE runtime state (manual post-reboot
 # reactivation). It is NOT an L3/L4 apply, reinstall, profile rewrite or dnsmasq rewrite, and it does NOT claim any L3/L4 live acceptance.
 # It never rewrites persistent files (including any NetworkManager profile/configuration), never touches nftables/forwarding/regulatory state/
@@ -35,7 +41,7 @@ LIB=$P4/p4-l34-reactivation-lib.sh
 AP_IF=wlp0s20f3
 AP_ADDR=10.77.30.1
 PROFILE=/etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection
-EXPECTED_SCOPE='L3_L4_RUNTIME_REACTIVATION_V2: rfkill 1 unblock, temp wlp0s20f3 autoconnect off, NM radio on, activate aegis-idea3-ap, reset-failed+start dnsmasq, no persistent rewrite'
+EXPECTED_SCOPE='L3_L4_RUNTIME_REACTIVATION_V3: rfkill 1 unblock, temp wlp0s20f3 autoconnect off, NM radio on, activate aegis-idea3-ap, reset-failed+start dnsmasq, no persistent rewrite'
 TODAY=$(TZ=Asia/Bangkok date +%F)
 STAMP=$(TZ=Asia/Bangkok date +%Y%m%d-%H%M%S)
 EVID=/home/kittipat/Workspace/idea3-p4-evidence/$TODAY-l34-reactivation-$STAMP
@@ -67,7 +73,8 @@ grep -qxF "scope=$EXPECTED_SCOPE" "$AUTH_DIR/authorization-L4.txt" 2>/dev/null |
 git -C "$REPO" fetch -q origin 2>/dev/null && [ "$(git -C "$REPO" rev-parse origin/main)" = "$EXPECTED_MAIN" ] \
   || gate "origin/main is not $EXPECTED_MAIN (or fetch failed); not silently re-pinning"
 for f in apply.sh verify.sh rollback.sh allow-keys.txt allow-keys-rollback.txt allow-listeners.txt allow-transitions.txt \
-  allow-dynamic-transitions.txt allow-dynamic-transitions-rollback.txt; do [ -f "$HND/$f" ] || gate "handler file $f missing"; done
+  allow-dynamic-transitions.txt allow-dynamic-transitions-rollback.txt allow-dynamic-transitions-v3-post-fresh.txt allow-dynamic-transitions-v3-post-residual.txt \
+  allow-dynamic-transitions-v3-rollback-fresh.txt allow-dynamic-transitions-v3-rollback-residual.txt; do [ -f "$HND/$f" ] || gate "handler file $f missing"; done
 gate_out=$(TZ=Asia/Bangkok bash "$P4/p4-stage-gate.sh" --stage L4 --mode live --authorization "$AUTH_DIR/authorization-L4.txt" --k3 "$AUTH_DIR/k3-L4.txt" 2>&1) || gate "stage gate failed"
 for l in AUTHORIZATION_RECORD=VALID K3_CONFIRMATION=VALID; do printf '%s\n' "$gate_out" | grep -qx "$l" || gate "stage gate did not report $l"; done
 
@@ -91,23 +98,27 @@ cp "$AUTH_DIR/authorization-L4.txt" "$AUTH_DIR/k3-L4.txt" "$EVID/"
 { echo "OPERATION=L3_L4_RUNTIME_REACTIVATION"; echo "REACTIVATION_TYPE=RUNTIME_ONLY"; echo "MAIN=$EXPECTED_MAIN"
   echo "RUNNER_SHA256=$(sha256sum "$0" | cut -d' ' -f1)"; echo "K12_AUTOMATIC_REBOOT_PERSISTENCE=NOT_PROVEN"; } > "$EVID/frozen-inputs.txt"
 
-MUTATED=0; ROLLED_BACK=0
+MUTATED=0; ROLLED_BACK=0; BASELINE=unknown
 capture() { sudo env EVID_DIR="$2" CAPTURE_LABEL="${1,,}" JOURNAL_SINCE="$JOURNAL_SINCE" bash "$P4/p4-l0-capture.sh" || return 1
   sudo grep -q 'L0_CAPTURE=COMPLETE' "$2/capture.log" || return 1; sudo bash -c "cd '$2' && sha256sum -c --quiet --strict SHA256SUMS" || return 1; echo "CAPTURE_$1=COMPLETE SHA256=PASS"; }
 # compare BEFORE AFTER REPORT post|rollback — the value-level dynamic-state windows are exact catalog rules; persistent-file keys are never allowed
 compare() {
   local kind=${4:-post} rc=0
   local -a env_allow
+  [[ "$BASELINE" =~ ^(fresh|residual)$ ]] || { echo "COMPARE_BASELINE_UNKNOWN"; return 1; }
   if [ "$kind" = post ]; then
-    env_allow=(ALLOW_KEYS_FILE="$HND/allow-keys.txt" ALLOW_LISTENERS_FILE="$HND/allow-listeners.txt" ALLOW_TRANSITIONS_FILE="$HND/allow-transitions.txt" ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions.txt")
+    env_allow=(ALLOW_KEYS_FILE="$HND/allow-keys.txt" ALLOW_LISTENERS_FILE="$HND/allow-listeners.txt" ALLOW_TRANSITIONS_FILE="$HND/allow-transitions.txt"
+      ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions-v3-post-$BASELINE.txt")
   else
-    env_allow=(ALLOW_KEYS_FILE="$HND/allow-keys-rollback.txt" ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions-rollback.txt")
+    # the regulatory window (00 -> TH) is a proven safe-equivalent residual only for the FRESH baseline; the residual baseline is already TH
+    env_allow=(ALLOW_KEYS_FILE="$HND/allow-keys-rollback.txt" ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions-v3-rollback-$BASELINE.txt")
+    [ "$BASELINE" != fresh ] || env_allow+=(ALLOW_TRANSITIONS_FILE="$HND/allow-transitions.txt")
   fi
   sudo env DISK_THRESHOLD_PCT=90 AEGIS_AP_INTERFACE="$AP_IF" AEGIS_AP_ADDRESS="$AP_ADDR" "${env_allow[@]}" bash "$P4/p4-compare.sh" "$1" "$2" > "$3" 2>&1 || rc=$?
   grep -E '^(FINDING|FINDINGS_|PRESERVATION_S10|COMPARE_RESULT)' "$3" || true; [ "$rc" = 0 ] || return 1
   for l in FINDINGS_NEW_OR_WORSENED_DRIFT=0 FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0 FINDINGS_INCOMPARABLE=0 PRESERVATION_S10=PASS COMPARE_RESULT=PASS; do grep -qx "$l" "$3" || { echo "COMPARE_REQUIREMENT_FAILED: $l"; return 1; }; done; }
 handler() { local w=${2:-$WORK}
-  sudo env AEGIS_L34_LIVE_AUTHORIZED=YES AEGIS_L34_WORK_DIR="$w" AEGIS_AP_INTERFACE="$AP_IF" AEGIS_L34_NM_RADIO_ENABLE=YES AEGIS_L34_PREFLIGHT_ONLY="${AEGIS_L34_PREFLIGHT_ONLY_RUN:-NO}" bash "$HND/$1"; }
+  sudo env AEGIS_L34_LIVE_AUTHORIZED=YES AEGIS_L34_WORK_DIR="$w" AEGIS_AP_INTERFACE="$AP_IF" AEGIS_L34_NM_RADIO_ENABLE=YES AEGIS_L34_PRESERVATION=V3 AEGIS_L34_PREFLIGHT_ONLY="${AEGIS_L34_PREFLIGHT_ONLY_RUN:-NO}" bash "$HND/$1"; }
 own_work() { sudo chown -R "$(id -u):$(id -g)" "$WORK" "$PREFLIGHT_WORK" 2>/dev/null || true; }
 identity_now() { for u in mosquitto.service twingate.service "$ENGINE" "$TUNNEL"; do printf '%s %s/%s\n' "$u" "$(show "$u" MainPID)" "$(show "$u" NRestarts)"; done; }
 IDENT_PRE=$(identity_now)
@@ -118,8 +129,10 @@ rollback_flow() { trap - ERR INT TERM; [ "$ROLLED_BACK" = 0 ] || return 0; ROLLE
     printf '%s\n' "$out"; own_work
   else echo "NO_PRODUCTION_MUTATION_MARKER: rollback handler not needed; proving zero drift instead"; fi
   capture RB "$EVID/rb-root" || { echo "RB capture FAILED — ESCALATE"; exit 3; }
-  compare "$EVID/pre-root" "$EVID/rb-root" "$EVID/compare-pre-rb.txt" rollback && identity_unchanged || { echo "PRE_RB_COMPARE=FAIL — ESCALATE; do NOT retry"; exit 3; }
-  echo "PRE_RB_COMPARE=PASS ROLLBACK_RESULT=PASS L34_REACTIVATION=NOT_RESTORED. NOT retrying. Authorization is consumed."; exit 1; }
+  compare "$EVID/pre-root" "$EVID/rb-root" "$EVID/compare-pre-rb.txt" rollback && identity_unchanged \
+    && [ "$(show aegis-idea3-mosquitto.service ActiveState)" = inactive ] && [ -z "$(ss -H -ltn "sport = :8883")" ] \
+    || { echo "PRE_RB_COMPARE=FAIL — ESCALATE; do NOT retry"; exit 3; }
+  echo "PRE_RB_COMPARE=PASS ROLLBACK_RESULT=PASS SAFE_NETWORK_BOUNDARY_RESTORED=YES L34_REACTIVATION=NOT_RESTORED. NOT retrying. Authorization is consumed."; exit 1; }
 fail_after_mutation() { [ "$MUTATED" = 1 ] && rollback_flow "$1" || { echo "STOP before any mutation: $1"; exit 1; }; }
 trap 'fail_after_mutation "unexpected error at line $LINENO"' ERR
 trap 'fail_after_mutation "interrupted"' INT TERM
@@ -128,6 +141,9 @@ echo "== read-only preflight through the handler (as root; writes only into the 
 pf_out=$(AEGIS_L34_PREFLIGHT_ONLY_RUN=YES handler apply.sh "$PREFLIGHT_WORK" 2>&1) || { printf '%s\n' "$pf_out"; own_work; die "preflight failed; NOTHING was changed"; }
 printf '%s\n' "$pf_out"; own_work
 printf '%s\n' "$pf_out" | grep -qx 'L34_PREFLIGHT=PASS' || die "preflight did not report L34_PREFLIGHT=PASS"
+case "$(printf '%s\n' "$pf_out" | grep -x 'L34_BASELINE=\(FRESH\|RESIDUAL\)' | wc -l)" in 1) ;; *) die "preflight did not report exactly one recognized L34_BASELINE (mixed/unrecognized state)" ;; esac
+BASELINE=$(printf '%s\n' "$pf_out" | sed -n 's/^L34_BASELINE=//p' | tr 'A-Z' 'a-z')
+echo "BASELINE=$BASELINE" >> "$EVID/frozen-inputs.txt"
 
 echo "== PRE capture (before rfkill, NetworkManager, reset-failed and dnsmasq changes)"; capture PRE "$EVID/pre-root" || die "PRE capture failed; nothing changed"
 echo "== L3/L4 reactivation APPLY (once)"; MUTATED=1
@@ -143,5 +159,5 @@ identity_unchanged || rollback_flow "legacy mosquitto/Twingate/IDEA2 identity ch
 [ "$(show aegis-idea3-mosquitto.service ActiveState)" = inactive ] || rollback_flow "L6b broker unexpectedly active"
 trap - ERR INT TERM
 echo "L34_REACTIVATION_EXECUTED=YES L34_APPLY=PASS L34_VERIFY=PASS L34_POST_CAPTURE=COMPLETE L34_PRE_POST_COMPARE=PASS"
-echo "L3_L4_RUNTIME_REACTIVATION=PASS (RUNTIME_ONLY, manual post-reboot). NO new L3_LIVE_ACCEPTANCE / L4_LIVE_ACCEPTANCE claim. PERSISTENT_FILES_REWRITTEN=NO."
+echo "L3_L4_RUNTIME_REACTIVATION=PASS (RUNTIME_ONLY, manual post-reboot, V3 preservation baseline=$BASELINE). NO new L3_LIVE_ACCEPTANCE / L4_LIVE_ACCEPTANCE claim. PERSISTENT_FILES_REWRITTEN=NO."
 echo "K12_AUTOMATIC_REBOOT_PERSISTENCE=NOT_PROVEN. No L6b, no ESP32, no L7. Evidence: $EVID"
