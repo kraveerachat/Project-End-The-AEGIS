@@ -3,6 +3,8 @@
 # MUTATING in live mode. It undoes ONLY what apply.sh journaled, in reverse dependency order, and is idempotent:
 #   DNSMASQ_START    -> `systemctl stop aegis-idea3-dnsmasq.service` (exact unit; never dnsmasq.service)
 #   NM_UP            -> `nmcli connection down aegis-idea3-ap`, only while that profile is the active connection of wlp0s20f3
+#   NM_WIFI_RADIO_ENABLE (V2) -> disable the device autoconnect, `nmcli radio wifi off`, then restore the PRE autoconnect value; only when this
+#                    run enabled the radio and it is currently enabled (never otherwise)
 #   RFKILL_UNBLOCK   -> restore the exact recorded rfkill id to blocked (p4-l3-rfkill.sh), only if it was soft-blocked before
 # It never recreates the stale start-limit-hit artifact (DNSMASQ_RESET_FAILED is not "undone": the unit returns to a safe
 # non-running state), never deletes/rewrites the profile, dnsmasq config/unit or nft file, and never touches nftables, forwarding,
@@ -47,13 +49,16 @@ fi
 host_path() { if [ -n "$ROOT" ]; then printf '%s%s\n' "${ROOT%/}" "$1"; else printf '%s\n' "$1"; fi; }
 
 # ── journal: only fixed, known entries are acted on ─────────────────────────────────────────────────────────────────────
-j_start=0 j_nm=0 j_rfkill=0 j_reset=0 j_rfkill_id=""
+j_start=0 j_nm=0 j_rfkill=0 j_reset=0 j_rfkill_id="" j_radio=0 j_acdis=0 j_acprior=""
 while IFS=$'\t' read -r kind value || [ -n "$kind" ]; do
   [ -n "$kind" ] || continue
   case "$kind" in
     DNSMASQ_START) [ "$value" = "$L34_UNIT" ] || fail JOURNAL_ENTRY_NOT_OWNED; j_start=1 ;;
     DNSMASQ_RESET_FAILED) [ "$value" = "$L34_UNIT" ] || fail JOURNAL_ENTRY_NOT_OWNED; j_reset=1 ;;
     NM_UP) [ "$value" = "$L34_CONN" ] || fail JOURNAL_ENTRY_NOT_OWNED; j_nm=1 ;;
+    NM_WIFI_RADIO_ENABLE) [ "$value" = disabled ] || fail JOURNAL_ENTRY_NOT_OWNED; j_radio=1 ;;
+    NM_DEVICE_AUTOCONNECT_DISABLE) [[ "$value" =~ ^(yes|no)$ ]] || fail JOURNAL_ENTRY_NOT_OWNED; j_acdis=1; j_acprior=$value ;;
+    NM_DEVICE_AUTOCONNECT_RESTORED) [[ "$value" =~ ^(yes|no)$ ]] || fail JOURNAL_ENTRY_NOT_OWNED ;;
     RFKILL_UNBLOCK) [[ "$value" =~ ^[0-9]+$ ]] || fail JOURNAL_ENTRY_NOT_OWNED; j_rfkill=1; j_rfkill_id=$value ;;
     *) fail JOURNAL_ENTRY_UNKNOWN ;;
   esac
@@ -80,6 +85,16 @@ if [ "$j_nm" = 1 ]; then
   [ "$gone" = 0 ] || fail AP_IF_STILL_HAS_IPV4_ADDRESS
 fi
 
+# 2b. NM radio (V2): only when this run journaled the enable and the radio is currently enabled. Nothing may autoconnect between the AP going
+# down and the radio going off, so the device autoconnect is forced off first; the PRE autoconnect value is restored once the radio is off.
+if [ "$j_radio" = 1 ] && [ "$(nmcli radio wifi 2>/dev/null)" = enabled ]; then
+  nmcli device set "$AP_IF" autoconnect no || fail NM_DEVICE_AUTOCONNECT_SET_FAILED
+  nmcli radio wifi off || fail NM_WIFI_RADIO_DISABLE_FAILED
+fi
+if [ "$j_acdis" = 1 ] && [ "$(nmcli -g GENERAL.AUTOCONNECT device show "$AP_IF" 2>/dev/null)" != "$j_acprior" ]; then
+  nmcli device set "$AP_IF" autoconnect "$j_acprior" || fail NM_DEVICE_AUTOCONNECT_RESTORE_FAILED
+fi
+
 # 3. rfkill: re-block exactly the recorded id, only if it was soft-blocked before this run (p4-l3-rfkill.sh)
 if [ "$j_rfkill" = 1 ]; then
   [ "$(cat "$WORK/rfkill_id" 2>/dev/null)" = "$j_rfkill_id" ] || fail RFKILL_ID_JOURNAL_MISMATCH
@@ -87,6 +102,13 @@ if [ "$j_rfkill" = 1 ]; then
 fi
 
 # ── proofs ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+if [ "$j_radio" = 1 ]; then
+  [ "$(nmcli radio wifi 2>/dev/null)" = disabled ] || fail NM_WIFI_RADIO_NOT_RESTORED
+fi
+if [ "$j_acdis" = 1 ]; then
+  [ "$(nmcli -g GENERAL.AUTOCONNECT device show "$AP_IF" 2>/dev/null)" = "$j_acprior" ] || fail NM_DEVICE_AUTOCONNECT_NOT_RESTORED
+fi
+! nmcli -t -f TYPE,DEVICE connection show --active 2>/dev/null | grep -q '^802-11-wireless' || fail L34_WIFI_CONNECTION_STILL_ACTIVE
 ! iw dev "$AP_IF" info 2>/dev/null | grep -q 'type AP' || fail AP_STILL_ACTIVE
 [ -z "$(ip -4 -o addr show dev "$AP_IF" 2>/dev/null)" ] || fail AP_IF_STILL_HAS_IPV4_ADDRESS
 ! systemctl is-active --quiet "$L34_UNIT" || fail DNSMASQ_STILL_RUNNING
@@ -110,4 +132,5 @@ printf 'AP_ACTIVE=NO\n'
 printf 'DNSMASQ_RUNNING=NO\n'
 printf 'PERSISTENT_FILES_UNCHANGED=YES\n'
 printf 'RFKILL_PRE_STATE_RESTORED=YES\n'
+printf 'NM_WIFI_RADIO_RESTORED=%s\n' "$([ "$j_radio" = 1 ] && echo YES || echo NOT_CHANGED)"
 printf 'STALE_START_LIMIT_HIT_RECREATED=NO\n'

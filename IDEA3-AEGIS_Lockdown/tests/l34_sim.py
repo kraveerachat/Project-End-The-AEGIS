@@ -39,6 +39,14 @@ DEFAULT_STATE = {
     "rfkill_hard": 0,
     "ap_active": 0,
     "radio_flag_follows_rfkill": True,
+    "nm_software_radio": True,          # NM software WirelessEnabled flag (persisted by NetworkManager); live post-reboot condition is False
+    "dev_autoconnect": "yes",
+    "autoconnect_profile_in_range": False,  # a known autoconnect Wi-Fi profile would grab the device as soon as it becomes available
+    "other_wifi_active": False,             # a non-approved Wi-Fi connection is active on the target
+    "extra_wifi_device": False,             # a second NetworkManager Wi-Fi device exists
+    "extra_rfkill_wlan": False,             # a second wlan rfkill row exists
+    "radio_on_works": True,
+    "device_set_works": True,
     "dnsmasq": "failed",
     "dnsmasq_start_works": True,
     "nm_ready_after_unblock": True,
@@ -105,17 +113,22 @@ def _sim_dir() -> Path:
 
 
 def _wifi_radio(s: dict) -> str:
-    return "disabled" if (s["rfkill_soft"] and s["radio_flag_follows_rfkill"]) else "enabled"
+    # NetworkManager reports `enabled` only when the persisted software flag is on AND rfkill is not soft-blocking the radio
+    return "enabled" if (s["nm_software_radio"] and not s["rfkill_soft"]) else "disabled"
 
 
 def _device_state(s: dict) -> str:
     if s["device_state_override"]:
         return s["device_state_override"]
-    if s["rfkill_soft"]:
+    if _wifi_radio(s) == "disabled":
         return "unavailable"
     if not s["nm_ready_after_unblock"]:
         return "unavailable"
-    return "connected" if s["ap_active"] else "disconnected"
+    if s["ap_active"]:
+        return "connected"
+    if s["other_wifi_active"]:
+        return "connected"
+    return "disconnected"
 
 
 def _dnsmasq_props(s: dict) -> dict[str, str]:
@@ -154,9 +167,11 @@ def main(argv: list[str]) -> int:
 
     if name == "rfkill":
         rows = {0: ("bluetooth", s["bt_rfkill_soft"], 0), 1: ("wlan", s["rfkill_soft"], s["rfkill_hard"])}
+        if s["extra_rfkill_wlan"]:
+            rows[2] = ("wlan", 1, 0)
         fmt = lambda i: f"{i} {rows[i][0]:<9} {'blocked' if rows[i][1] else 'unblocked'} {'blocked' if rows[i][2] else 'unblocked'}"
         if args[:3] == ["--noheadings", "--output", "ID,TYPE,SOFT,HARD"] and args[3:4] == ["list"]:
-            ids = [int(args[4])] if len(args) > 4 else [0, 1]
+            ids = [int(args[4])] if len(args) > 4 else sorted(rows)
             out = [fmt(i) for i in ids if i in rows]
         elif args[:1] == ["unblock"]:
             if args[1] == "all":
@@ -177,12 +192,39 @@ def main(argv: list[str]) -> int:
             out = [f"wlp0s20f3:{_device_state(s)}", f"enp62s0:{s['wired_ifname_state']}", "lo:unmanaged"]
         elif args == ["radio", "wifi"]:
             out = [_wifi_radio(s)]
+        elif args == ["radio", "wifi", "on"]:
+            if s["radio_on_works"]:
+                s["nm_software_radio"] = True
+                # an autoconnect profile in range grabs the device unless device autoconnect is off
+                if s["autoconnect_profile_in_range"] and s["dev_autoconnect"] == "yes" and not s["rfkill_soft"]:
+                    s["other_wifi_active"] = True
+            else:
+                rc = 1
+        elif args == ["radio", "wifi", "off"]:
+            s["nm_software_radio"] = False
+            s["other_wifi_active"] = False
+        elif args[:3] == ["device", "set", "wlp0s20f3"] and len(args) == 5 and args[3] == "autoconnect" and args[4] in ("yes", "no"):
+            if s["device_set_works"]:
+                s["dev_autoconnect"] = args[4]
+            else:
+                rc = 1
+        elif args == ["-g", "GENERAL.AUTOCONNECT", "device", "show", "wlp0s20f3"]:
+            out = [s["dev_autoconnect"]]
+        elif args == ["-t", "-f", "DEVICE,TYPE", "device", "status"]:
+            out = ["wlp0s20f3:wifi", "enp62s0:ethernet", "lo:loopback"] + (["wlan1:wifi"] if s["extra_wifi_device"] else [])
+        elif args == ["-t", "-f", "TYPE,DEVICE", "connection", "show", "--active"]:
+            out = ["802-3-ethernet:enp62s0", "tun:sdwan0"]
+            if s["ap_active"]:
+                out.append("802-11-wireless:wlp0s20f3")
+            if s["other_wifi_active"]:
+                out.append("802-11-wireless:wlp0s20f3")
         elif args[:2] == ["connection", "up"]:
             conn = args[2] if len(args) > 2 else ""
             ok = (len(args) == 5 and args[3] == "ifname" and args[4] == "wlp0s20f3" and conn == "aegis-idea3-ap"
                   and _device_state(s) == "disconnected" and s["nm_activation_works"])
             if ok:
                 s["ap_active"] = 1
+                s["other_wifi_active"] = False
             else:
                 rc = 4
         elif args[:2] == ["connection", "down"]:

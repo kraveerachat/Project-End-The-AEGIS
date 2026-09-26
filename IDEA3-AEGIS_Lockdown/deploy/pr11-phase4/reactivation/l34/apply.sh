@@ -2,6 +2,9 @@
 # AEGIS IDEA3 PR11 Phase 4 — L3/L4 POST-REBOOT RUNTIME REACTIVATION apply handler (RUNTIME_ONLY).
 # MUTATING in live mode. It restores the ALREADY ACCEPTED persistent L3/L4 configuration to its accepted ACTIVE runtime state:
 #   1. exact-ID rfkill unblock of the resolved target only (if it is soft-blocked),
+#   1b. (V2, owner-authorized only: AEGIS_L34_NM_RADIO_ENABLE=YES and NM radio currently disabled) the single global `nmcli radio wifi on`,
+#       preceded by a runtime device-autoconnect disable so no known profile can grab the device, allowed only when preflight proves
+#       wlp0s20f3 is the sole Wi-Fi device/wlan rfkill and no Wi-Fi connection is active. Restored by rollback.sh; never used otherwise.
 #   2. bounded NetworkManager target-device readiness, then `nmcli connection up aegis-idea3-ap ifname wlp0s20f3`,
 #   3. `systemctl reset-failed` + `systemctl start` of aegis-idea3-dnsmasq.service ONLY (no enable/disable).
 # It never rewrites the NetworkManager profile, the dnsmasq config/unit or the nft file, never touches nftables, forwarding,
@@ -85,6 +88,16 @@ l34_forwarding_gate "$AP_IF" || fail "$(l34_forwarding_gate "$AP_IF" 2>&1 | head
 
 l34_ap_pre_gate "$AP_IF" || fail "$(l34_ap_pre_gate "$AP_IF" 2>&1 | head -n 1)"
 l3_reg_gate "$AP_IF" "$L34_CHANNEL" || fail "$L3_REG_REASON"
+l34_no_wifi_active_gate || fail "$(l34_no_wifi_active_gate 2>&1 | head -n 1)"
+radio_pre=$(nmcli radio wifi 2>/dev/null || true)
+radio_authorized=0
+dev_ac_prior=""
+if [ "$radio_pre" = disabled ] && [ "${AEGIS_L34_NM_RADIO_ENABLE:-NO}" = YES ]; then
+  # NEW OWNER DECISION BOUNDARY: a global NetworkManager radio change is only acceptable when the machine topology makes its scope the target.
+  l34_wifi_topology_gate "$AP_IF" "$sysfs" || fail "$(l34_wifi_topology_gate "$AP_IF" "$sysfs" 2>&1 | head -n 1)"
+  dev_ac_prior=$(l34_device_autoconnect "$AP_IF") || fail L34_DEVICE_AUTOCONNECT_UNREADABLE
+  radio_authorized=1
+fi
 l3_rfkill_resolve_id "$AP_IF" "$sysfs" "$L34_EXPECTED_RFKILL_ID" || fail "$L3_RFKILL_REASON"
 rfkill_id=$L3_RFKILL_ID
 l3_rfkill_state "$rfkill_id" || fail "$L3_RFKILL_REASON"
@@ -122,6 +135,18 @@ else
 fi
 l34_rfkill_only_target_changed "$WORK/rfkill-all-pre.txt" "$rfkill_id" || fail L34_RFKILL_NON_TARGET_CHANGED
 
+# 3a'. owner-authorized global radio enable (V2). Order matters: the runtime device autoconnect is disabled FIRST so that, once the radio is
+# on, no autoconnect Wi-Fi profile can activate on the target before the one bound activation below.
+radio_enabled_by_run=NO
+radio_now=$(nmcli radio wifi 2>/dev/null || true)   # after the exact unblock: `enabled` means NM's software flag was already on (old, no-global path)
+if [ "${AEGIS_L34_NM_RADIO_ENABLE:-NO}" = YES ] && [ "$radio_authorized" = 1 ] && [ "$radio_now" = disabled ]; then
+  journal NM_DEVICE_AUTOCONNECT_DISABLE "$dev_ac_prior"
+  nmcli device set "$AP_IF" autoconnect no || fail NM_DEVICE_AUTOCONNECT_SET_FAILED
+  journal NM_WIFI_RADIO_ENABLE disabled
+  nmcli radio wifi on || fail NM_WIFI_RADIO_ENABLE_FAILED
+  radio_enabled_by_run=YES
+fi
+
 # 3b. bounded NetworkManager target-device readiness (state based; not an activation retry), then ONE bound activation
 l3_nm_wait_ready "$AP_IF" "$NM_TRIES" "$NM_INTERVAL" || fail "$L3_NM_REASON"
 journal NM_UP "$L34_CONN"
@@ -134,6 +159,12 @@ done
 [ "$ap_ok" = 0 ] || fail "$(l34_ap_active_gate "$AP_IF" 2>&1 | head -n 1)"
 l3_reg_verify_active "$AP_IF" "$L34_CHANNEL" || fail "$L3_REG_REASON"
 [ "$(ip route show default)" = "$(cat "$WORK/default-route-pre.txt")" ] || fail L34_DEFAULT_ROUTE_CHANGED
+l34_no_wifi_active_gate 2>/dev/null && fail L34_AP_CONNECTION_NOT_ACTIVE
+if [ "$radio_authorized" = 1 ]; then
+  # the AP is active through its explicit activation; put the device autoconnect back to exactly its PRE value
+  nmcli device set "$AP_IF" autoconnect "$dev_ac_prior" || fail NM_DEVICE_AUTOCONNECT_RESTORE_FAILED
+  journal NM_DEVICE_AUTOCONNECT_RESTORED "$dev_ac_prior"
+fi
 
 # 3c. the existing accepted dnsmasq service ONLY: reset the stale post-reboot failed bookkeeping, then start it. No enable/disable.
 journal DNSMASQ_RESET_FAILED "$L34_UNIT"
@@ -150,6 +181,8 @@ done
 printf 'L34_APPLY=PASS\n'
 printf 'REACTIVATION_TYPE=RUNTIME_ONLY\n'
 printf 'PERSISTENT_FILES_REWRITTEN=NO\n'
+printf 'NM_WIFI_RADIO_ENABLED_BY_RUN=%s\n' "$radio_enabled_by_run"
+printf 'GLOBAL_RADIO_CHANGE=%s\n' "$radio_enabled_by_run"
 printf 'L3_LIVE_ACCEPTANCE_CLAIMED=NO\n'
 printf 'L4_LIVE_ACCEPTANCE_CLAIMED=NO\n'
 printf 'K12_AUTOMATIC_REBOOT_PERSISTENCE=NOT_PROVEN\n'
