@@ -1,29 +1,46 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$ServiceName = 'AEGISIdentityAgent',
+    [string]$InstallRoot = "$env:ProgramFiles\AEGIS\IdentityAgent",
     [string]$DataRoot = "$env:ProgramData\AEGIS\IdentityAgent",
+    [string]$ConfigurationRoot = "$env:ProgramData\AEGIS\IdentityAgentConfiguration",
     [string]$EvidenceRoot = "$env:ProgramData\AEGIS\IdentityAgentProvisioning",
-    [string]$PythonPath = "$env:ProgramFiles\AEGIS\IdentityAgent\.venv\Scripts\python.exe",
-    [string]$RunnerPath = "$env:ProgramFiles\AEGIS\IdentityAgent\run_identity_agent.py"
+    [string]$PythonPath = '',
+    [string]$RunnerPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
+$safetyScript = Join-Path $PSScriptRoot 'identity_agent_safety.ps1'
+. $safetyScript
 $ExpectedAccount = 'NT SERVICE\AEGISIdentityAgent'
-if ($ServiceName -ne 'AEGISIdentityAgent') { throw 'Unexpected service name' }
+Assert-IdentityAgentServiceName -ServiceName $ServiceName
+$managedRoots = Assert-IdentityAgentManagedRoots -InstallRoot $InstallRoot -DataRoot $DataRoot `
+    -ConfigurationRoot $ConfigurationRoot -EvidenceRoot $EvidenceRoot
+$InstallRoot = $managedRoots.installRoot
+$DataRoot = $managedRoots.dataRoot
+$ConfigurationRoot = $managedRoots.configurationRoot
+$EvidenceRoot = $managedRoots.evidenceRoot
+$null = Assert-IdentityAgentInstallationMarker -ConfigurationRoot $ConfigurationRoot `
+    -InstallRoot $InstallRoot -DataRoot $DataRoot -EvidenceRoot $EvidenceRoot -ServiceName $ServiceName
+if ([string]::IsNullOrWhiteSpace($PythonPath)) { $PythonPath = Join-Path $InstallRoot '.venv\Scripts\python.exe' }
+if ([string]::IsNullOrWhiteSpace($RunnerPath)) { $RunnerPath = Join-Path $InstallRoot 'run_identity_agent.py' }
 $service = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'"
 if (-not $service) { throw 'Identity Agent service is not installed' }
 if ($service.StartName -ne $ExpectedAccount) { throw 'Identity Agent service account mismatch' }
+if ([string]$service.State -ne 'Stopped') {
+    throw 'Identity Agent service must be stopped before the DPAPI preflight'
+}
+$expectedBinPath = ('"{0}" "{1}" --service' -f $PythonPath, $RunnerPath)
+if (-not [string]::Equals(([string]$service.PathName).Trim(), $expectedBinPath, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Identity Agent service executable mismatch'
+}
 if (-not (Test-Path -LiteralPath $PythonPath) -or -not (Test-Path -LiteralPath $RunnerPath)) {
     throw 'Installed Identity Agent runtime is incomplete'
 }
 
-$acl = Get-Acl -LiteralPath $DataRoot
-if (-not $acl.AreAccessRulesProtected) { throw 'Identity Agent data ACL inherits permissions' }
-$allowed = @($ExpectedAccount, 'NT AUTHORITY\SYSTEM')
-$unexpected = @($acl.Access | Where-Object {
-    $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -notin $allowed
-})
-if ($unexpected.Count -ne 0) { throw 'Identity Agent data ACL is broader than service plus SYSTEM' }
+# The elevated administrator intentionally has no read-control permission on
+# the service-only identity directory. IdentityKeyStore validates the exact data ACL
+# from inside the service identity before it creates or loads key material.
 if ($PSCmdlet.ShouldProcess($EvidenceRoot, 'Create non-secret provisioning evidence exchange')) {
     New-Item -ItemType Directory -Path $EvidenceRoot -Force | Out-Null
     if ((Get-Item -LiteralPath $EvidenceRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
@@ -35,13 +52,14 @@ $passPath = Join-Path $EvidenceRoot 'dpapi-preflight.pass.json'
 
 # The executable performs a disposable random DPAPI CurrentUser round trip and
 # overwrites its transient marker. It never imports or generates the application key.
+$preflightExecuted = $false
 if ($PSCmdlet.ShouldProcess($ServiceName, 'Run DPAPI CurrentUser preflight under the verified service identity')) {
     $original = $service.PathName
     if (Test-Path -LiteralPath $passPath) { Remove-Item -LiteralPath $passPath -Force }
     $preflightCommand = ('"{0}" "{1}" --dpapi-preflight --preflight-output "{2}"' -f $PythonPath, $RunnerPath, $passPath)
-    & sc.exe config $ServiceName "binPath= $preflightCommand" | Out-Null
+    Invoke-CheckedServiceControl $ServiceName config "binPath= $preflightCommand"
     try {
-        & sc.exe start $ServiceName | Out-Null
+        Invoke-CheckedServiceControl $ServiceName start
         $deadline = [DateTime]::UtcNow.AddSeconds(30)
         while (-not (Test-Path -LiteralPath $passPath) -and [DateTime]::UtcNow -lt $deadline) {
             Start-Sleep -Milliseconds 250
@@ -52,11 +70,23 @@ if ($PSCmdlet.ShouldProcess($ServiceName, 'Run DPAPI CurrentUser preflight under
             $evidence.serviceAccount -ne $ExpectedAccount -or $evidence.keyGenerated -ne $false) {
             throw 'DPAPI CurrentUser PASS evidence is invalid'
         }
+        $serviceController = Get-Service -Name $ServiceName -ErrorAction Stop
+        $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
     }
     finally {
-        & sc.exe stop $ServiceName | Out-Null
-        & sc.exe config $ServiceName "binPath= $original" | Out-Null
+        $serviceController = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if ($null -ne $serviceController -and $serviceController.Status -ne 'Stopped') {
+            Invoke-CheckedServiceControl $ServiceName stop
+            $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+        }
+        Invoke-CheckedServiceControl $ServiceName config "binPath= $original"
     }
+    $preflightExecuted = $true
+}
+
+if (-not $preflightExecuted) {
+    'DPAPI_CURRENTUSER_PREFLIGHT=NOT_EXECUTED'
+    return
 }
 
 'DPAPI_CURRENTUSER_PREFLIGHT=PASS'

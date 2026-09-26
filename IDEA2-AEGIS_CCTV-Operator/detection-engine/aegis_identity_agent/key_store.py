@@ -238,6 +238,10 @@ class IdentityKeyStore:
             self.generate()
         return self.load()
 
+    def validate_acl(self, *, require_key: bool) -> None:
+        """Validate the protected directory and, when requested, key ACL only."""
+        self._validate_path(must_exist=require_key)
+
     def load(self) -> IdentitySigner:
         self._validate_path(must_exist=True)
         plaintext = bytearray()

@@ -14,6 +14,11 @@ Windows boot
        -> SSH local forward 127.0.0.1:18002 -> Monitor :8002
        -> SSH reverse forward explicit server interface :18077 -> Engine :8077
 
+  -> Automatic Windows service: AEGISIdentityAgent
+       -> isolated pinned Python/pywin32 runtime
+       -> DPAPI CurrentUser-protected Ed25519 machine identity
+       -> named pipe for Engine ingest plus 127.0.0.1:8078 browser proof
+
 User login
   -> HKCU Run: AEGIS Detection Engine
        -> run_engine_supervisor.ps1 restart loop
@@ -24,6 +29,12 @@ The tunnel is a SYSTEM task because it does not need the desktop. The Engine is
 started only after the camera-laptop user logs in because webcam access belongs
 to that interactive session. The old interactive Engine Scheduled Task is
 disabled, not deleted, so it cannot race the HKCU supervisor.
+
+The camera-independent Identity Agent is a separate automatic service. Its
+repository-native install/status/repair/uninstall lifecycle is documented in
+`windows/identity-agent/README.md`. Installation and repair preserve the single
+Engine HKCU Run owner and never create camera demand. Uninstall preserves the
+protected machine identity by default.
 
 ## What never belongs in Git
 

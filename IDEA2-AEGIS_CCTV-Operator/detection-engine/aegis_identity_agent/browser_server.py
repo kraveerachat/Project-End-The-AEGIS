@@ -18,6 +18,7 @@ from .protocol import parse_strict_json_bytes
 LOOPBACK_HOST = "127.0.0.1"
 BROWSER_PORT = 8078
 ASSERT_PATH = "/v1/browser-association/assert"
+KEY_STORE_HEALTH_PATH = "/v1/health/key-store"
 MAX_REQUEST_BYTES = 16 * 1024
 MAX_RESPONSE_BYTES = 4 * 1024
 
@@ -167,13 +168,17 @@ def read_bounded_http_body(
 
 
 class BrowserAssertionApplication:
-    def __init__(self, signer, *, allowed_origins, expected_audience, rate_limiter=None):
+    def __init__(
+        self, signer, *, allowed_origins, expected_audience, rate_limiter=None,
+        health_check=None,
+    ):
         self._signer = signer
         self._origins = normalize_allowed_origins(allowed_origins)
         if not isinstance(expected_audience, str) or not expected_audience:
             raise ValueError("expected browser assertion audience is required")
         self._expected_audience = expected_audience
         self._limiter = rate_limiter or BrowserRateLimiter()
+        self._health_check = health_check
 
     def _cors(self, origin: str) -> dict[str, str]:
         return {
@@ -195,6 +200,15 @@ class BrowserAssertionApplication:
 
     def prepare(self, method: str, path: str, headers) -> tuple[str | None, HttpResult | None]:
         normalized = {str(key).lower(): str(value).strip() for key, value in headers.items()}
+        if path == KEY_STORE_HEALTH_PATH:
+            if method != "GET":
+                return None, self._json(405, "METHOD_NOT_ALLOWED")
+            if self._health_check is None:
+                return None, self._json(503, "NOT_READY")
+            try:
+                return None, self._json(200, None, value=self._health_check())
+            except Exception:
+                return None, self._json(503, "KEY_STORE_NOT_ATTESTED")
         origin = normalized.get("origin")
         if origin not in self._origins:
             return None, self._json(403, "ORIGIN_DENIED")

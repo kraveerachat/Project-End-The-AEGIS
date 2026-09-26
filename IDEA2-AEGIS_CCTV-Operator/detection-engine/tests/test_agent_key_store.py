@@ -75,6 +75,16 @@ class IdentityKeyStoreTests(unittest.TestCase):
             self.assertFalse(hasattr(signer, "private_key_bytes"))
             self.assertNotIn("PRIVATE", repr(signer))
 
+    def test_generate_signer_resumes_an_existing_bound_identity(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = pathlib.Path(folder) / "machine-identity.dpapi"
+            store = self.store(path)
+            first = store.generate_signer().public_identity
+            protected = path.read_bytes()
+            resumed = store.generate_signer().public_identity
+            self.assertEqual(first, resumed)
+            self.assertEqual(protected, path.read_bytes())
+
     def test_dpapi_adapter_uses_current_user_without_local_machine_flag(self):
         calls = []
 
@@ -108,7 +118,9 @@ class IdentityKeyStoreTests(unittest.TestCase):
         self.assertIn("Fingerprint", provision)
         self.assertIn("--preflight-output", preflight)
         self.assertNotIn("Get-WinEvent", preflight)
-        self.assertIn("sc.exe config", provision)
+        self.assertIn("Invoke-CheckedServiceControl $ServiceName config", provision)
+        self.assertIn("service must be stopped", combined)
+        self.assertIn("WaitForStatus('Stopped'", combined)
         self.assertIn("--result-output", provision)
         self.assertNotIn("& $python $runner --generate-key", provision)
         self.assertIn("IdentityAgentProvisioning", combined)

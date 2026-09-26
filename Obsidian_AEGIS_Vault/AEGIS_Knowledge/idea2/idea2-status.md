@@ -21,9 +21,9 @@ Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
 PR: NOT CREATED — blocked until full automated verification and Human Machine A local acceptance pass
-Current state: PRE-TASK-12/N12 VERIFIED — permanent endpoint source/config contract is ready for a local checkpoint; original Task 12 and Machine A installation remain not started
+Current state: ORIGINAL TASK 12 VERIFIED / CHECKPOINT PENDING — repository-only Windows install/status/repair/uninstall/autostart lifecycle passes automated source/static gates; Machine A installation remains not started
 Started: 2026-09-19
-Last checkpoint: Task 11 `cb17caeecbc09b5cab224ae9369e3a29b860cbf8` (`fix(idea2): preserve physical camera demand lifecycle`)
+Last checkpoint: PRE-TASK-12/N12 `27d7723f96c4752d32047c5062c55173c3f4c9c2` (`feat(idea2): define permanent machine stream endpoint`)
 Production mutation allowed: NO
 
 ### Goal
@@ -40,10 +40,11 @@ Tasks 1–11 implemented the dedicated Ed25519 Identity Agent architecture,
 strict browser association, server-side verified-node session binding,
 authenticated physical heartbeat and ingest provenance, account-to-logical-
 alias policy, physical routing, and demand lifecycle symmetry. The active
-PRE-TASK-12/N12 gate now replaces the rejected diagnostic `:18078` bridge and
-rejected hard-coded Docker gateway candidate with a stable deployment-owned,
-server-controlled Machine A stream endpoint before the original Windows
-install/status/repair/uninstall/autostart task may begin.
+PRE-TASK-12/N12 replaced the rejected diagnostic `:18078` bridge and rejected
+hard-coded Docker gateway candidate with a stable deployment-owned,
+server-controlled Machine A stream endpoint. Original Task 12 now implements
+the repository-native Windows lifecycle without installing or changing the real
+Machine A runtime.
 
 ### Out of scope
 
@@ -79,7 +80,8 @@ before that acceptance.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PRE-TASK-12-N12 | Permanent Machine A stream endpoint contract | VERIFIED / CHECKPOINT PENDING | Task 11 base `cb17caeecbc09b5cab224ae9369e3a29b860cbf8`; stable `aegis-stream-host.internal` application endpoint; server-owned Node/physical mapping; explicit non-loopback IPv4 SSH bind; Monitor 140 passed with 3 conditional PostgreSQL skips; Engine/Agent 139 tests, 0 failures, 2 pywin32 skips; endpoint 18/18; Agent 9/9; Windows 19/19; UI freeze 5/5; governance 50/50; Vite build PASS; refreshed `origin/main` `3a015c99d81b1315ceea23a197567ec8b1aa4d17` has no newer overlap | this checkpoint commit | PASS at source/static/config evidence level; Production and installed Machine A runtime unchanged | create the exact local checkpoint, then stop before original Task 12 |
+| ORIGINAL-TASK-12 | Windows install/status/repair/uninstall/autostart lifecycle | VERIFIED / CHECKPOINT PENDING | Starting SHA `27d7723f96c4752d32047c5062c55173c3f4c9c2`; focused Windows/Agent 74/74; PowerShell parser 12/12; full Engine/Agent 174 tests / 172 pass / 0 fail / 2 expected native-pywin32 skips across the existing split dependency runtimes; Monitor 143 tests / 140 pass / 0 fail / 3 conditional PostgreSQL skips; UI freeze 5/5; Vite build PASS; hash-locked Windows wheels 9/9; governance 50/50; Vault PASS with two pre-existing canvas warnings; secret scan 21 paths / 0 hits; scoped review Critical 0 / Important 0 / Minor 0 | this Task 12 checkpoint | PASS at repository source/static/test-double boundary; installed Machine A runtime and privileged Windows lifecycle not executed | exact staging/checkpoint; preserve Machine A runtime | stop before Task 13 |
+| PRE-TASK-12-N12 | Permanent Machine A stream endpoint contract | CLOSED | Task 11 base `cb17caeecbc09b5cab224ae9369e3a29b860cbf8`; stable `aegis-stream-host.internal` application endpoint; server-owned Node/physical mapping; explicit non-loopback IPv4 SSH bind; Monitor 140 passed with 3 conditional PostgreSQL skips; Engine/Agent 139 tests, 0 failures, 2 pywin32 skips; endpoint 18/18; Agent 9/9; Windows 19/19; UI freeze 5/5; governance 50/50; Vite build PASS | `27d7723f96c4752d32047c5062c55173c3f4c9c2` | PASS at source/static/config evidence level; Production and installed Machine A runtime unchanged | original Task 12 |
 | MACHINE-A-NO-POWERSHELL-T1-T11 | Agent identity through physical camera demand lifecycle | CLOSED | Tasks 1–11 committed from `cc2ffff` through `cb17caee`; single physical heartbeat supports both account aliases; account switching requires no heartbeat switch; startup/auth/heartbeat create no demand; final demanding release closes the camera | `cb17caeecbc09b5cab224ae9369e3a29b860cbf8` | PASS — source/test checkpoints only; not installed Machine A acceptance | permanent endpoint prerequisite and original Tasks 12–16 | PRE-TASK-12/N12 |
 | MACHINE-A-NO-POWERSHELL-S1 | Isolated planning, current-main reconciliation, and Windows capability preflight | CLOSED | task-start `origin/main` `c5468c520f24d29fb37fefcf7c4411b91d4087f4`; PR #134 merged; Windows PowerShell/Python/DPAPI/8078/cryptography preflight accepted; pywin32 isolated-Agent dependency action identified | `cc2ffff` | PASS — planning/preflight; Production unchanged | superseded by implementation sessions above | historical record |
 | CP2 cleanup | Dispose isolated PostgreSQL resources and restore local Docker management | CLOSED | Human-run cleanup: exact CP2 container/volume absent, port 55433 released, Docker responsive, Git clean | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS | none | CP3-S0 |
@@ -96,15 +98,16 @@ before that acceptance.
 | Plan boundary | State | Current truth |
 |---|---|---|
 | Tasks 1–11 | COMPLETE | Agent identity, verified session, physical provenance/routing, one physical heartbeat, and demanding-viewer lifecycle are committed through `cb17caee`. History is preserved. |
-| PRE-TASK-12 / N12 | VERIFIED / CHECKPOINT PENDING | Stable named/configured endpoint, server-owned source mapping, and explicit SSH-bind contract pass source/static/config gates. Live container hop and Machine A acceptance remain later evidence. |
-| Original Task 12 | NOT STARTED | Still owns Windows install/status/repair/uninstall/autostart. It has not been renumbered or redefined. |
+| PRE-TASK-12 / N12 | CLOSED | Checkpoint `27d7723f96c4752d32047c5062c55173c3f4c9c2`; stable named/configured endpoint, server-owned source mapping, and explicit SSH-bind contract pass source/static/config gates. Live Machine A acceptance remains later evidence. |
+| Original Task 12 | VERIFIED / CHECKPOINT PENDING | Repository-native Windows install/status/repair/uninstall/autostart lifecycle passes source/static/test-double gates. No permanent Machine A runtime mutation occurred or is authorized in this checkpoint. |
 | Original Tasks 13–16 | NOT STARTED | Integration, full verification, human installation/acceptance, final receipt, push, and PR remain later gates. |
 
 ### Planned / Completed / Remaining
 
 - **Completed:** Original Tasks 1–11, ending at Task 11 SHA `cb17caeecbc09b5cab224ae9369e3a29b860cbf8`.
-- **Completed in this gate:** PRE-TASK-12/N12 TDD for a deployment-owned stable hostname, explicit container host mapping, explicit SSH tunnel bind/port, and server-owned Node/physical-camera endpoint authorization.
-- **Remaining after this gate:** Original Task 12 Windows lifecycle, Tasks 13–14 integration/full verification, Task 15 human installation gate, and Task 16 human acceptance/final receipt/PR.
+- **Completed:** PRE-TASK-12/N12 TDD and checkpoint `27d7723f96c4752d32047c5062c55173c3f4c9c2` for a deployment-owned stable hostname, explicit container host mapping, explicit SSH tunnel bind/port, and server-owned Node/physical-camera endpoint authorization.
+- **Verified / checkpoint pending:** Original Task 12 Windows lifecycle tooling and static/test-double verification only; privileged real-Windows installation remains a later human gate.
+- **Remaining after Task 12:** Tasks 13–14 integration/full verification, Task 15 human installation gate, and Task 16 human acceptance/final receipt/PR.
 
 ### PRE-TASK-12 verified contract and known limitations
 
@@ -126,11 +129,32 @@ before that acceptance.
 
 ### Handoff / Next Action
 
-Create the exact reviewed PRE-TASK-12/N12 local checkpoint and stop. The next
-owner-approved action is original Task 12 Windows lifecycle work, preceded by
-deployment preflight that proves the stable container hostname reaches the
-explicit SSH listener. Do not install the Machine A runtime, push, open a PR,
-deploy, or create the final immutable receipt in this gate.
+Create the exact reviewed original Task 12 local checkpoint and stop. The next
+owner-approved action is Task 13 integration work. Do not install the Machine A
+runtime, push, open a PR, deploy, or create the final immutable receipt in this
+gate. Real elevated service/DPAPI/ACL/autostart execution, native pywin32 pipe
+acceptance, and browser automation remain later environment/human gates.
+
+### Original Task 12 verification evidence
+
+- Focused Windows/Identity-Agent bundle: 74 passed, 0 failed.
+- PowerShell parser: 12 reviewed lifecycle/status scripts parsed, 0 errors.
+- Dependency reproducibility: 9 CPython 3.12 Windows x64 wheels downloaded and
+  verified from the committed transitive SHA-256 lock with `--require-hashes`
+  and binary-only resolution.
+- Full Engine/Agent: 174 tests, 172 passed, 0 failed, 2 expected native-pywin32
+  environment skips. The existing Python 3.14 Engine environment ran 165 tests; the bundled
+  Python 3.12 cryptography environment ran the remaining 9 tests.
+- Full Monitor: 140 passed, 0 failed, 3 conditional PostgreSQL skips.
+- UI/build: UI freeze 5/5; Vite production build PASS (2,076 modules).
+- Governance/security: collaboration/Vault structure 50/50; Vault validation
+  PASS with the two pre-existing owner-data canvas warnings; secret scan 21
+  paths / 0 hits; scoped review Critical 0 / Important 0 / Minor 0.
+- Browser automation: blocked because `@playwright/test` and its command are
+  absent from the existing dependency set; no install was performed to conceal
+  that environment limitation.
+- Installed Machine A runtime, Production, persistent configuration, camera,
+  tunnel, and database were not changed.
 
 ## PR #134 Machine A LOCAL runtime acceptance — 2026-09-15
 

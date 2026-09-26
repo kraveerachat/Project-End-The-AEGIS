@@ -28,6 +28,31 @@ class _Signer:
 
 
 class BrowserAssociationServerTests(unittest.TestCase):
+    def test_key_store_health_is_fresh_loopback_only_nonsecret_attestation(self):
+        calls = []
+
+        def attest():
+            calls.append(True)
+            return {
+                "status": "ok",
+                "processId": 321,
+                "keyState": "PRESENT",
+                "keyAcl": "VALID",
+                "dataRootAcl": "VALID",
+            }
+
+        app = BrowserAssertionApplication(
+            _Signer(), allowed_origins={"https://aegis.internal"},
+            expected_audience="https://aegis.internal", health_check=attest,
+        )
+        result = app.handle("GET", "/v1/health/key-store", {}, b"")
+        self.assertEqual(200, result.status)
+        self.assertEqual(1, len(calls))
+        payload = json.loads(result.body)
+        self.assertEqual("PRESENT", payload["keyState"])
+        self.assertNotIn("Access-Control-Allow-Origin", result.headers)
+        self.assertNotIn("private", result.body.decode("ascii").lower())
+
     def test_bind_is_ipv4_loopback_only(self):
         self.assertEqual("127.0.0.1", validate_loopback_bind("127.0.0.1"))
         for host in ("0.0.0.0", "::1", "localhost", "192.168.1.5"):

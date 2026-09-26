@@ -33,12 +33,26 @@ def _host():
     config = AgentConfig.from_env()
     if config.engine_user_sid is None:
         raise RuntimeError("AEGIS_AGENT_ENGINE_USER_SID is required for the pipe ACL")
-    signer = _store(config).load()
+    store = _store(config)
+    signer = store.load()
+
+    def key_store_health():
+        store.validate_acl(require_key=True)
+        return {
+            "status": "ok",
+            "processId": os.getpid(),
+            "keyState": "PRESENT",
+            "keyAcl": "VALID",
+            "dataRootAcl": "VALID",
+            "privateKeyRead": False,
+        }
+
     browser_server = BrowserAssociationServer(
         BrowserAssertionApplication(
             signer,
             allowed_origins=config.browser_allowed_origins,
             expected_audience=config.audience,
+            health_check=key_store_health,
         )
     )
     client = AgentSessionClient(config, signer)
@@ -71,19 +85,26 @@ def _host():
     )
 
 
-def _atomic_public_write(path, content):
+def _atomic_public_write(path, content, *, allow_identical=False):
     target = Path(path)
     if target.exists():
+        if allow_identical and target.read_text(encoding="ascii") == content:
+            return
         raise RuntimeError(f"refusing to overwrite {target}")
     target.write_text(content, encoding="ascii", newline="\n")
 
 
-def _atomic_json_write(path, value):
+def _atomic_json_write(path, value, *, allow_identical=False):
     target = Path(path)
     temporary = target.with_suffix(target.suffix + ".tmp")
-    if target.exists() or temporary.exists():
+    encoded = json.dumps(value, sort_keys=True)
+    if target.exists():
+        if allow_identical and target.read_text(encoding="utf-8") == encoded:
+            return
         raise RuntimeError(f"refusing to overwrite {target}")
-    temporary.write_text(json.dumps(value, sort_keys=True), encoding="utf-8", newline="\n")
+    if temporary.exists():
+        raise RuntimeError(f"refusing to overwrite {target}")
+    temporary.write_text(encoded, encoding="utf-8", newline="\n")
     os.rename(temporary, target)
 
 
@@ -117,18 +138,35 @@ def main(argv=None):
     modes.add_argument("--console", action="store_true")
     modes.add_argument("--dpapi-preflight", action="store_true")
     modes.add_argument("--generate-key", action="store_true")
+    modes.add_argument("--provision-key", action="store_true")
     modes.add_argument("--export-public-key", action="store_true")
+    modes.add_argument("--validate-key-store-acl", action="store_true")
     parser.add_argument("--preflight-output")
     parser.add_argument("--result-output")
     parser.add_argument("--public-key-export")
     parser.add_argument("--node-id")
     parser.add_argument("--key-version", type=int)
     parser.add_argument("--key-path")
+    parser.add_argument("--require-key", action="store_true")
     args = parser.parse_args(argv)
     if args.dpapi_preflight:
         _dpapi_preflight(args.preflight_output)
         return 0
-    if args.generate_key or args.export_public_key:
+    if args.validate_key_store_acl:
+        config = AgentConfig.from_env()
+        _store(config).validate_acl(require_key=args.require_key)
+        result = {
+            "result": "PASS",
+            "serviceAccount": r"NT SERVICE\AEGISIdentityAgent",
+            "dataRootAcl": "VALID",
+            "keyAcl": "VALID" if args.require_key else "NOT_REQUIRED",
+            "privateKeyRead": False,
+        }
+        if args.result_output:
+            _atomic_json_write(args.result_output, result)
+        print(json.dumps(result, sort_keys=True))
+        return 0
+    if args.generate_key or args.provision_key or args.export_public_key:
         if not args.node_id or not args.key_version or not args.key_path:
             parser.error("identity key modes require --node-id, --key-version, and --key-path")
         store = IdentityKeyStore(
@@ -150,6 +188,23 @@ def main(argv=None):
         }
         if args.result_output:
             _atomic_json_write(args.result_output, result)
+        print(json.dumps(result, sort_keys=True))
+        return 0
+    if args.provision_key:
+        public = store.generate_signer().public_identity
+        if not args.public_key_export or not args.result_output:
+            parser.error("--provision-key requires --public-key-export and --result-output")
+        _atomic_public_write(
+            args.public_key_export, public.public_key_pem, allow_identical=True,
+        )
+        result = {
+            "nodeId": public.node_id,
+            "keyVersion": public.key_version,
+            "fingerprintSha256": public.fingerprint_sha256,
+            "publicKeyExport": args.public_key_export,
+            "privateKeyExported": False,
+        }
+        _atomic_json_write(args.result_output, result, allow_identical=True)
         print(json.dumps(result, sort_keys=True))
         return 0
     if args.export_public_key:
