@@ -304,7 +304,7 @@ test('R9-MARQUEE-8 · Escape cancels an active marquee and restores the pre-drag
   } finally { await m.unmount() }
 })
 
-test('R9-MARQUEE-9 · pointer up clears the rectangle but the selection persists', async () => {
+test('R9-MARQUEE-9 · blank primary click clears selection; Ctrl/Cmd blank click preserves it', async () => {
   const m = await mountRoot()
   try {
     const s = await marqueeScene(m)
@@ -314,11 +314,21 @@ test('R9-MARQUEE-9 · pointer up clears the rectangle but the selection persists
     assert.equal(s.rect(), null)
     assert.deepEqual([...s.selected].sort(), ['f2', 'f3'])
     assert.deepEqual(checkedIds().sort(), ['f2', 'f3'])
-    // ลาก "ศูนย์" (คลิกเฉย ๆ บนพื้นที่ว่าง) ไม่เปลี่ยนการเลือก
+    // blank primary click below the drag threshold clears selection
     await m.pointer(s.canvas(), 'pointerdown', { clientX: 900, clientY: 700 })
     await m.pointer(window, 'pointerup', { clientX: 900, clientY: 700 })
-    assert.deepEqual([...s.selected].sort(), ['f2', 'f3'])
+    assert.deepEqual([...s.selected], [])
   } finally { await m.unmount() }
+
+  for (const modifier of [{ ctrlKey: true }, { metaKey: true }]) {
+    const m = await mountRoot()
+    try {
+      const s = await marqueeScene(m, { initial: ['d1'] })
+      await m.pointer(s.canvas(), 'pointerdown', { clientX: 900, clientY: 700, ...modifier })
+      await m.pointer(window, 'pointerup', { clientX: 900, clientY: 700, ...modifier })
+      assert.deepEqual([...s.selected], ['d1'], JSON.stringify(modifier))
+    } finally { await m.unmount() }
+  }
 })
 
 test('R9-MARQUEE-10 · unmounting mid-drag removes every window listener the marquee added', async () => {
@@ -341,6 +351,58 @@ test('R9-MARQUEE-10 · unmounting mid-drag removes every window listener the mar
     m.W.addEventListener = origAdd; m.W.removeEventListener = origRemove
     m.env.restore()
     m.unmount = async () => {}
+  } finally { await m.unmount() }
+})
+
+test('SHARED-FILES-SURFACE left/right/bottom App whitespace owns Files marquee geometry and blank clear', async () => {
+  const m = await mountRoot()
+  try {
+    function SharedFilesHarness() {
+      const [selected, setSelected] = React.useState(() => new Set(['d1']))
+      const surfaceRef = React.useRef(null)
+      const pointerRef = React.useRef(null)
+      const register = React.useCallback((handler) => { pointerRef.current = handler }, [])
+      return React.createElement('div', {
+        ref: surfaceRef,
+        'data-testid': 'shared-files-surface',
+        'data-marquee-canvas': '',
+        onPointerDown: (event) => pointerRef.current?.(event),
+        className: 'relative',
+      },
+      React.createElement('output', { 'data-testid': 'shared-files-selection' }, [...selected].sort().join(',')),
+      sections({
+        folders: [folderItem()], files: [image()], selectedIds: selected, onSelectionChange: setSelected,
+        marqueeSurfaceRef: surfaceRef, registerMarqueePointerDown: register,
+      }))
+    }
+
+    await m.render(React.createElement(SharedFilesHarness))
+    layout({
+      '[data-testid="shared-files-surface"]': { x: 0, y: 0, w: 1600, h: 1000 },
+      '[data-file-id="d1"]': { x: 300, y: 180, w: 220, h: 60 },
+      '[data-file-id="img1"]': { x: 300, y: 340, w: 220, h: 180 },
+    })
+    const surface = document.querySelector('[data-testid="shared-files-surface"]')
+
+    await m.pointer(surface, 'pointerdown', { clientX: 40, clientY: 100 })
+    await m.pointer(window, 'pointermove', { clientX: 400, clientY: 400 })
+    assert.ok(document.querySelector('[data-marquee-rect]'), 'left gutter starts the shared marquee')
+    assert.equal(document.querySelector('[data-testid="shared-files-selection"]').textContent, 'd1,img1')
+    await m.pointer(window, 'pointerup', { clientX: 400, clientY: 400 })
+
+    await m.pointer(surface, 'pointerdown', { clientX: 1550, clientY: 300 })
+    await m.pointer(window, 'pointermove', { clientX: 1540, clientY: 320 })
+    assert.ok(document.querySelector('[data-marquee-rect]'), 'right gutter starts immediately')
+    await m.pointer(window, 'pointerup', { clientX: 1540, clientY: 320 })
+
+    await m.pointer(surface, 'pointerdown', { clientX: 900, clientY: 900 })
+    await m.pointer(window, 'pointermove', { clientX: 920, clientY: 920 })
+    assert.ok(document.querySelector('[data-marquee-rect]'), 'bottom whitespace starts immediately')
+    await m.pointer(window, 'pointerup', { clientX: 920, clientY: 920 })
+
+    await m.pointer(surface, 'pointerdown', { clientX: 1200, clientY: 700 })
+    await m.pointer(window, 'pointerup', { clientX: 1200, clientY: 700 })
+    assert.equal(document.querySelector('[data-testid="shared-files-selection"]').textContent, '', 'blank primary click clears selection')
   } finally { await m.unmount() }
 })
 

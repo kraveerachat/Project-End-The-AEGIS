@@ -3,12 +3,13 @@
 /* TREE_V1 keeps the standard centered visual measure while its pointer surface
    spans the complete authenticated main pane. Bottom spacing that previously
    sat outside the tree now stays inside the interaction surface. */
-.vault-full-pane-surface {
+.workspace-full-pane-surface {
   box-sizing: border-box;
   width: 100%;
   min-height: 100%;
 }
 
+.workspace-pane-content,
 .vault-pane-content {
   box-sizing: border-box;
   width: 100%;
@@ -20,6 +21,7 @@
 }
 
 @media (max-width: 768px) {
+  .workspace-pane-content,
   .vault-pane-content {
     padding-inline: 1rem;
   }

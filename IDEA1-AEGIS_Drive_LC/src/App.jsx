@@ -27,6 +27,7 @@ const lazyNamed = (loader, name) => lazy(() => loader().then((module) => ({ defa
 const Dashboard = lazyNamed(() => import('./screens/Dashboard.jsx'), 'Dashboard')
 const Files = lazyNamed(() => import('./screens/Files.jsx'), 'Files')
 const Vault = lazyNamed(() => import('./screens/Vault.jsx'), 'Vault')
+const WORKSPACE_SCREENS = new Set(['files', 'vault'])
 const Shares = lazyNamed(() => import('./screens/Shares.jsx'), 'Shares')
 const FileHistory = lazyNamed(() => import('./screens/FileHistory.jsx'), 'FileHistory')
 const Trash = lazyNamed(() => import('./screens/Trash.jsx'), 'Trash')
@@ -216,10 +217,10 @@ export default function App() {
   const t = useMemo(() => makeT(lang), [lang])
   const reduced = useReducedMotion()
   const mainRef = useRef(null)
-  const vaultMarqueeSurfaceRef = useRef(null)
-  const vaultMarqueePointerDownRef = useRef(null)
-  const registerVaultMarqueePointerDown = useCallback((handler) => {
-    vaultMarqueePointerDownRef.current = handler
+  const workspaceMarqueeSurfaceRef = useRef(null)
+  const workspaceMarqueePointerDownRef = useRef(null)
+  const registerWorkspaceMarqueePointerDown = useCallback((handler) => {
+    workspaceMarqueePointerDownRef.current = handler
   }, [])
 
   /* ⚠️ ต้องอยู่เหนือ early return ทุกอันของคอมโพเนนต์นี้ (ตรวจ auth / หน้า login /
@@ -237,6 +238,7 @@ export default function App() {
   // Do not infer authorization from role on the client. Intersect even manual/stale
   // URL selections with the exact menu the server authorized for this session.
   const activeScreen = resolveAuthorizedScreen(screen, serverNav)
+  const workspaceSurfaceActive = WORKSPACE_SCREENS.has(activeScreen)
 
   const go = useCallback((destination, params = {}, options = {}) => {
     const intent = normalizeNavigationIntent(destination, params)
@@ -460,15 +462,22 @@ export default function App() {
     // ⚠️ `userId` ไม่ได้มีไว้อนุญาตอะไร (เซิร์ฟเวอร์ทำหน้าที่นั้นอยู่แล้วทุกเส้นทาง) แต่มีไว้
     //    ผูกบันทึกกู้คืนการอัปโหลดในเครื่องกับบัญชี — เบราว์เซอร์เครื่องเดียวถูกใช้หลาย
     //    บัญชีได้ และบันทึกนั้นมีชื่อไฟล์ที่ยังอัปโหลดไม่เสร็จอยู่ในนั้น
-    files: <Files t={t} lang={lang} go={go} userId={session?.id ?? null} navigationParams={navigationParams} placeholderMode={placeholderMode} />,
+    files: (
+      <Files
+        t={t} lang={lang} go={go} userId={session?.id ?? null}
+        navigationParams={navigationParams} placeholderMode={placeholderMode}
+        marqueeSurfaceRef={workspaceMarqueeSurfaceRef}
+        registerMarqueePointerDown={registerWorkspaceMarqueePointerDown}
+      />
+    ),
     vault: (
       <Vault
         t={t}
         lang={lang}
         placeholderMode={placeholderMode}
         userId={session?.id ?? null}
-        marqueeSurfaceRef={vaultMarqueeSurfaceRef}
-        registerMarqueePointerDown={registerVaultMarqueePointerDown}
+        marqueeSurfaceRef={workspaceMarqueeSurfaceRef}
+        registerMarqueePointerDown={registerWorkspaceMarqueePointerDown}
       />
     ),
     shares: <Shares t={t} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
@@ -535,14 +544,14 @@ export default function App() {
           <div
             key={activeScreen}
             data-testid="app-page-content"
-            ref={activeScreen === 'vault' ? vaultMarqueeSurfaceRef : null}
-            data-vault-marquee-surface={activeScreen === 'vault' ? '' : undefined}
-            data-vault-marquee-canvas={activeScreen === 'vault' ? '' : undefined}
-            onPointerDown={activeScreen === 'vault' ? (event) => vaultMarqueePointerDownRef.current?.(event) : undefined}
-            className={activeScreen === 'vault' ? 'vault-full-pane-surface relative min-h-full flex flex-col' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
+            ref={workspaceSurfaceActive ? workspaceMarqueeSurfaceRef : null}
+            data-workspace-marquee-surface={workspaceSurfaceActive ? '' : undefined}
+            data-marquee-canvas={workspaceSurfaceActive ? '' : undefined}
+            onPointerDown={workspaceSurfaceActive ? (event) => workspaceMarqueePointerDownRef.current?.(event) : undefined}
+            className={workspaceSurfaceActive ? 'workspace-full-pane-surface relative min-h-full flex flex-col' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
           >
             {/* One composed header: breadcrumb + title on the left, search/actions on the right. */}
-            <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${activeScreen === 'vault' ? 'vault-pane-content pt-7 max-md:pt-5' : ''}`}>
+            <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${workspaceSurfaceActive ? 'workspace-pane-content pt-7 max-md:pt-5' : ''}`}>
               <nav aria-label={t('breadcrumb')} className="flex items-center gap-2 text-xs font-mono font-medium tracking-wider text-slate-400 dark:text-slate-500 uppercase select-none">
                 <span>AEGIS</span>
                 <span className="opacity-40">/</span>
@@ -579,7 +588,7 @@ export default function App() {
               <SkeletonLoader type={getSkeletonType(loadingScreen)} />
             ) : (
               <Suspense fallback={<SkeletonLoader type={getSkeletonType(activeScreen)} />}>
-                <div className={`fade-in ${activeScreen === 'vault' ? 'flex flex-1 flex-col' : ''}`}>{screenEl}</div>
+                <div className={`fade-in ${workspaceSurfaceActive ? 'flex flex-1 flex-col' : ''} ${activeScreen === 'files' ? 'workspace-pane-content pb-7 max-md:pb-5' : ''}`}>{screenEl}</div>
               </Suspense>
             )}
           </div>
