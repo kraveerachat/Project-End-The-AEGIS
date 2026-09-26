@@ -17,22 +17,21 @@ edit_policy: owner-writable
 
 ## Current Task
 
-**IDEA1-FILES-VAULT-PARITY-RECOVERY-1 — IN PROGRESS**
+**IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1 — DESIGN/PLAN COMPLETE / IMPLEMENTATION PENDING**
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `fix/idea1-files-vault-parity-recovery`; Draft PR: #219 (stacked on PR #218).
-- Exact start: current live-candidate source `ad43c89b629fe67f556677b9ba667b7e3b001fdf` (2026-09-26), preserving PR #218 unchanged.
-- Scope: forensically compare the PR171 accepted source, PR212 accepted source, and current candidate; restore only proven Files/Private Vault interaction or reconciliation regressions.
-- Safety: no redesign, crypto/security change, performance tuning, transport/chunk/concurrency/media-limit change, PR #216/PR #218 mutation, Production mutation, or final receipt during investigation.
-- Forensic result: the PR212-to-current delta changes only `App.jsx` authorization naming (`screen` to `activeScreen`) and normal-Files `UploadDrawer.jsx`; Vault interaction/upload/media modules are unchanged. The sole baseline failure was a stale source-regex assertion after that naming change, not a runtime failure; it is corrected without changing product source.
-- Automated evidence: focused Files/Vault interaction, upload, media, and reconciliation matrix 174/174 PASS (including new real three-file picker and Explorer-drop coverage); build PASS; governance 50/50 PASS; Vault validation PASS with two existing owner-Canvas warnings; diff and added-line secret scans PASS.
-- Current gate: Human Owner browser acceptance of the exact interaction/media matrix. No final receipt yet.
+- Branch: `fix/idea1-vault-convergence-highres-ux`; stacked dependency: PR #219 on PR #218.
+- Exact start: `1183df33698588788a82df42bfd616fb5b11d759` (2026-09-26); PR #216, PR #218, and PR #219 remain untouched.
+- Approved scope: converge every eligible Vault lifecycle to `VaultTreeScreen` without role branching; retain explicit Human migration for nonempty FLAT Vaults; generalize the App full-pane marquee contract for Files and Vault; surface semantic TREE collisions; add a measured two-lane image-preview admission path; remove the image double decode.
+- Security/performance boundaries: no Production action, bulk migration, server plaintext derivative, global 256 MiB ceiling increase, Files/Vault transport mutation, Vault chunk/concurrency mutation, Cloudflare/Twingate change, or destructive purge enablement. JavaScript cleanup is best effort, not cryptographic zeroization.
+- Design checkpoint: `fa966a07`; written design and detailed TDD plan exist. Production high-resolution megapixel cap remains deliberately unselected until real browser/process working-set measurements prove a bounded value. Implementation has not started.
+- Current gate: Human review of design/plan checkpoint, then TDD implementation on this same branch. No final receipt, Ready transition, merge, or Production deployment.
 
-### Session Register — IDEA1-FILES-VAULT-PARITY-RECOVERY-1
+### Session Register — IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| IFVPR-S1 | Exact-SHA worktree, historical diff, interaction/upload/media/delete trace, direct regression coverage, verification | AUTOMATED PASS / HUMAN ACCEPTANCE PENDING | PR171→PR212 added the Stage-D queue/reconcile/media fixes; PR212→current changed only App authorization naming and normal-Files drawer presentation. Marquee refs/classes, external drop, full `FileList` enqueue, post-upload barrier, scheduler re-observation, and committed-head reducer reconciliation remain present. Baseline 171/172 exposed one stale V10 source-regex assertion after `screen` became `activeScreen`; corrected test and new real three-file picker/drop coverage yield focused 174/174 PASS. Build PASS; governance 50/50; validator PASS with two existing warnings; diff/secret scans PASS. Application source unchanged. | `9f6c8526` test/status checkpoint; Draft PR #219 stacked on PR #218 | Old-source deployment not proven; no Class-A product source regression proven. Vault upload/delete latency follows encrypted revision publish/put/CAS before immediate committed-head reducer reconciliation; serialized CAS, client crypto, bounded preview work, and media limits remain intentional. Performance tuning deferred to PR #216 after P1 baseline. | Human checks: Vault three-file Explorer drop; three-file native picker; left/right/bottom marquee and blank clear; new supported JPG/GIF/video cover without refresh; delete transition; Files drop/marquee and PR218 drawer/tray; Admin/DataLake parity where applicable | Stop at Human Owner browser acceptance; no receipt or Ready transition |
+| IVCHU-S1 | Exact-base worktree; source/state-machine/media trace; approved architecture; written design; detailed TDD plan | DESIGN/PLAN COMPLETE / IMPLEMENTATION PENDING | Design pins lifecycle convergence, explicit nonempty-FLAT migration, role independence, shared Files/Vault full-pane interaction, semantic `COLLISION`, normal ≤16 MP and serialized high-resolution preview lanes, one bitmap decode, abort/late-result invalidation, unchanged zero-knowledge invariants, and a real browser/process working-set measurement gate before selecting any cap above 16 MP. | `fa966a07` design-first checkpoint; plan checkpoint follows | No application source changed; Production and PR #216/#218/#219 untouched; no final receipt | RED tests, incremental implementation, native/process memory qualification with 25.96 MP and upper-bound fixtures, focused/full verification, Human browser acceptance | Commit plan/status checkpoint; stop for Human review before implementation |
 
 ## Completed Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
 

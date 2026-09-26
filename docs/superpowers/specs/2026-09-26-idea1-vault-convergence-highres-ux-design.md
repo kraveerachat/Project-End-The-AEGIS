@@ -297,10 +297,11 @@ Measurement runs before adopting the high-resolution cap:
 7. Keep raw local measurement artifacts outside the repository unless a small,
    non-secret summarized fixture/result is intentionally reviewed for commit.
 
-The cap passes only when the aggregate observed process working set plus a
-documented safety margin remains below the unchanged 256 MiB task policy for
-the preview lane. An ambiguous or unavailable native-memory measurement is not
-a pass.
+The cap passes only when the measured incremental preview working-set delta,
+combined with the admission reservation and a documented safety margin, remains
+below the unchanged 256 MiB preview policy. The browser's unrelated baseline is
+recorded separately rather than charged to this feature. An ambiguous or
+unavailable native-memory measurement is not a pass.
 
 ## 5. Security invariants
 
