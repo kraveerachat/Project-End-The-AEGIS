@@ -5,7 +5,10 @@
 //      สองช่องเสีย = fail closed: ไม่วาดต้นไม้ ไม่มีควบคุมใด ไม่มีการแต่งคำสัญญา
 //   2. blob UNREFERENCED (orphan จากอัปโหลดค้าง) = กู้ได้: แสดงชื่อที่ถอดได้ → เลือกโฟลเดอร์ → attach intent
 // ⚠️ ข้อความความปลอดภัยต้องรับความจริงเรื่อง traffic analysis — ห้ามอ้าง "zero metadata" เด็ดขาด (RP-4)
-import { useCallback, useEffect, useState } from 'react'
+// ⚠️ PR220-R1: orphan คือ "อัปโหลดเสร็จแล้วแต่ยังไม่ถูกเชื่อมเข้าโครงสร้างโฟลเดอร์" — ไม่ใช่อัปโหลดล้มเหลว
+//    และไม่ถูกซ่อน/ลบเพื่อให้จอดูสะอาด "กู้ทั้งหมด" ผูกเข้าโฟลเดอร์หลักทีละรายการ (ไม่มี CAS พร้อมกัน)
+//    ผ่าน recoverOrphan เดิม รายการที่ชนชื่อคงอยู่พร้อมเหตุผล ล็อก/unmount = ยกเลิกรายการที่เหลือทันที
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Btn, IconBtn } from '../ui.jsx'
 import { MoveDialog } from './VaultDialogs.jsx'
@@ -38,7 +41,12 @@ export function VaultRecoveryPanel({
   const [orphans, setOrphans] = useState(null)
   const [repairBusy, setRepairBusy] = useState(false)
   const [chooser, setChooser] = useState(null)
+  const [pending, setPending] = useState(() => new Map())   // refKey → เหตุผลที่ยังกู้ไม่ได้ (โค้ดจริง)
+  const [bulk, setBulk] = useState(null)                     // { done, total } ระหว่างกู้ทั้งหมด
+  const bulkAbortRef = useRef(null)
   const head = tree.state.head
+  useEffect(() => () => bulkAbortRef.current?.abort(), [])
+  const cancelled = (signal) => signal?.aborted || unlockedState?.isPurged?.() === true
 
   const refreshOrphans = useCallback(async () => {
     if (!head) { setOrphans([]); return }
@@ -65,16 +73,57 @@ export function VaultRecoveryPanel({
     setRepairBusy(false)
   }
 
-  const recover = async (orphan, destinationNodeId) => {
+  /** กู้หนึ่งรายการ — คืน true เมื่อผูกสำเร็จ; ไม่สำเร็จ = คงอยู่ในรายการพร้อมเหตุผล (ไม่ลบ ciphertext) */
+  const attachOne = async (orphan, destinationNodeId, signal = null) => {
     const name = orphan.name ?? `orphan-${String(orphan.blobRef.id).slice(0, 8)}`
-    const res = await recoverOrphan({
-      session, blobRef: orphan.blobRef, parentNodeId: destinationNodeId,
-      name, mediaType: orphan.mediaType ?? '', plainSize: orphan.plainSize,
+    const key = refKeyOf(orphan.blobRef)
+    let reason = null
+    try {
+      const res = await recoverOrphan({
+        session, blobRef: orphan.blobRef, parentNodeId: destinationNodeId,
+        name, mediaType: orphan.mediaType ?? '', plainSize: orphan.plainSize, signal,
+      })
+      if (res?.conflict) reason = res.conflict.reason ?? 'CONFLICT'
+    } catch (e) {
+      if (cancelled(signal)) return false
+      reason = e?.code ?? 'UNKNOWN'
+    }
+    setPending((prev) => {
+      const next = new Map(prev)
+      if (reason) next.set(key, reason)
+      else next.delete(key)
+      return next
     })
-    if (!res?.conflict) {
+    return reason === null
+  }
+
+  const recover = async (orphan, destinationNodeId) => {
+    if (await attachOne(orphan, destinationNodeId)) {
       await refreshOrphans()
       onRepaired?.()
     }
+  }
+
+  // กู้ทั้งหมดเข้าโฟลเดอร์หลัก: ทีละรายการตามลำดับ (session.commit แต่ละครั้งต่อยอด head ล่าสุด)
+  const recoverAll = async () => {
+    if (!head || !orphans?.length || bulk) return
+    bulkAbortRef.current?.abort()
+    const ctrl = new AbortController()
+    bulkAbortRef.current = ctrl
+    const queue = [...orphans]
+    const rootNodeId = head.manifest.rootNodeId
+    setBulk({ done: 0, total: queue.length })
+    let attached = 0
+    for (const orphan of queue) {
+      if (cancelled(ctrl.signal)) return
+      if (await attachOne(orphan, rootNodeId, ctrl.signal)) attached += 1
+      if (cancelled(ctrl.signal)) return
+      setBulk((b) => (b ? { ...b, done: b.done + 1 } : b))
+    }
+    setBulk(null)
+    // ความจริงจากเซิร์ฟเวอร์เป็นผู้ตัดสินว่าอะไรหายจากรายการ — ไม่ลบแถวเองจากผลฝั่ง client
+    await refreshOrphans()
+    if (attached > 0) onRepaired?.()
   }
 
   const folderOptions = head
@@ -108,28 +157,49 @@ export function VaultRecoveryPanel({
       )}
       {!bothBad && (
         <div data-testid="vault-tree-orphans" className="mb-3">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h3 className="text-[13px] font-semibold text-ink">{t('vaultTreeOrphansTitle')}</h3>
-            <IconBtn label={t('vaultTreeRefresh')} onClick={() => void refreshOrphans()}>
+            <IconBtn label={t('vaultTreeOrphansRefresh')} onClick={() => void refreshOrphans()} disabled={Boolean(bulk)}>
               <RefreshCw size={13} strokeWidth={1.6} />
             </IconBtn>
+            <div className="flex-1" />
+            {orphans?.length > 0 && (
+              <Btn
+                size="sm"
+                variant="primary"
+                data-testid="vault-tree-orphan-recover-all"
+                disabled={tree.keyDegraded || Boolean(bulk)}
+                aria-busy={bulk ? true : undefined}
+                onClick={() => void recoverAll()}
+              >
+                {bulk ? t('vaultTreeOrphanRecoverAllBusy', { done: bulk.done, total: bulk.total }) : t('vaultTreeOrphanRecoverAll')}
+              </Btn>
+            )}
           </div>
           {orphans?.length > 0 && (
-            <p className="text-[12px] text-ink-3 leading-relaxed mb-2">{t('vaultTreeOrphansDescription')}</p>
+            <p className="text-[12px] text-ink-2 leading-relaxed mb-2">{t('vaultTreeOrphansDescription')}</p>
           )}
           {orphans === null ? null : orphans.length === 0 ? (
             <p className="text-[12px] text-ink-3">{t('vaultTreeOrphansEmpty')}</p>
           ) : (
             orphans.map((o) => {
               const key = refKeyOf(o.blobRef)
+              const reason = pending.get(key) ?? null
               return (
                 <div key={key} data-testid="vault-tree-orphan-row" className="flex items-center gap-3 py-1.5">
-                  <span className="text-[12.5px] text-ink truncate flex-1">{o.name ?? t('vaultTreeOrphanUndecryptable')}</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="block text-[12.5px] text-ink truncate">{o.name ?? t('vaultTreeOrphanUndecryptable')}</span>
+                    {reason && (
+                      <span data-testid="vault-tree-orphan-reason" className="block text-[11.5px] mt-0.5" style={{ color: 'var(--warn)' }}>
+                        {reason === 'COLLISION' ? t('vaultTreeOrphanPendingCollision') : t('vaultTreeOrphanPendingFailed', { code: reason })}
+                      </span>
+                    )}
+                  </div>
                   <Btn
                     size="sm"
                     variant="outline"
                     data-testid="vault-tree-orphan-recover"
-                    disabled={tree.keyDegraded}
+                    disabled={tree.keyDegraded || Boolean(bulk)}
                     onClick={() => setChooser(o)}
                   >
                     {t('vaultTreeOrphanRecover')}

@@ -176,3 +176,95 @@ test('RP-4 the security copy acknowledges traffic analysis and never claims zero
     await h.unmount()
   }
 })
+
+/* ── PR220-R1 (E): truthful orphan copy, authoritative refresh, bounded sequential bulk recovery ── */
+const ORPHANS = [
+  serverBlobV2({ id: 'a'.padEnd(22, 'A'), name: 'a.txt', type: 'text/plain', plainSize: 11 }),
+  serverBlobV2({ id: 'b'.padEnd(22, 'B'), name: 'b.txt', type: 'text/plain', plainSize: 12 }),
+  serverBlobV2({ id: 'c'.padEnd(22, 'C'), name: 'A.TXT', type: 'text/plain', plainSize: 13 }),
+]
+const headPosts = () => fakeTree.state.log.filter((l) => l.method === 'POST' && l.path === '/api/vault/tree/head').length
+const blobLists = () => fakeTree.state.log.filter((l) => l.method === 'GET' && String(l.path).startsWith('/api/vault/tree/blobs')).length
+const deletes = () => fakeTree.state.log.filter((l) => l.method === 'DELETE')
+const orphanRows = () => qa('[data-testid="vault-tree-orphan-row"]')
+const byLabel = (label) => qa('button').find((b) => b.getAttribute('aria-label') === label)
+const buttonText = (text) => qa('button').find((b) => b.textContent.trim() === text)
+
+test('RP-5 orphan copy says the upload finished but is not yet linked; Refresh is an authoritative re-list', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: ORPHANS.slice(0, 1) })
+  const h = await mountUnlocked()
+  try {
+    const section = q('[data-testid="vault-tree-orphans"]')
+    assert.ok(section.textContent.includes(t('vaultTreeOrphansDescription')), 'truthful explanation shown')
+    assert.match(t('vaultTreeOrphansDescription'), /upload finished/i)
+    assert.match(t('vaultTreeOrphansDescription'), /not yet linked/i)
+    const refresh = byLabel(t('vaultTreeOrphansRefresh'))
+    assert.ok(refresh, 'the icon is labelled as a refresh of the recovery list, not a repair/delete')
+    const before = blobLists()
+    await click(dom, refresh)
+    await tick(3)
+    assert.ok(blobLists() > before, 'Refresh performs a real GET /tree/blobs')
+    assert.equal(orphanRows().length, 1, 'refresh never hides an orphan the server still reports')
+    assert.deepEqual(deletes(), [], 'refresh deletes nothing')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('RP-6 Recover all attaches sequentially to the Vault root; a collision stays listed with its reason; nothing deleted', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: ORPHANS })
+  let inFlight = 0
+  let maxInFlight = 0
+  const inner = fakeTree.fetchJson.bind(fakeTree)
+  fakeTree.fetchJson = async (p, opts) => {
+    const isHead = opts?.method === 'POST' && p === '/api/vault/tree/head'
+    if (isHead) { inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight) }
+    try {
+      if (isHead) await new Promise((r) => setTimeout(r, 5))
+      return await inner(p, opts)
+    } finally { if (isHead) inFlight -= 1 }
+  }
+  const h = await mountUnlocked()
+  try {
+    assert.equal(orphanRows().length, 3)
+    const all = buttonText(t('vaultTreeOrphanRecoverAll'))
+    assert.ok(all, 'a bulk "Recover all to Vault" action exists')
+    await click(dom, all)
+    await tick(12)
+    assert.equal(maxInFlight, 1, 'recovery is sequential — never concurrent CAS commits')
+    assert.equal(headPosts(), 2, 'one CAS per successfully attached item')
+    const tiles = qa('[data-testid="vault-file-tile"]').map((el) => el.textContent)
+    assert.ok(tiles.some((x) => x.includes('a.txt')) && tiles.some((x) => x.includes('b.txt')), 'recovered items appear in the Vault root')
+    const rows = orphanRows()
+    assert.equal(rows.length, 1, 'successfully attached items disappear after the authoritative refresh')
+    assert.ok(rows[0].textContent.includes('A.TXT'), 'the colliding item stays pending')
+    assert.ok(rows[0].textContent.includes(t('vaultTreeOrphanPendingCollision')), 'with a visible reason')
+    assert.deepEqual(deletes(), [], 'no ciphertext is deleted')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('RP-7 Lock during bulk recovery aborts the remaining items', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: ORPHANS.slice(0, 2) })
+  let release
+  const gate = new Promise((r) => { release = r })
+  let first = true
+  const inner = fakeTree.fetchJson.bind(fakeTree)
+  fakeTree.fetchJson = async (p, opts) => {
+    if (opts?.method === 'POST' && p === '/api/vault/tree/head' && first) { first = false; await gate }
+    return inner(p, opts)
+  }
+  const h = await mountUnlocked()
+  try {
+    await click(dom, buttonText(t('vaultTreeOrphanRecoverAll')))
+    await tick(2)
+    await click(dom, qa('button').find((b) => b.textContent.trim() === t('lockVault')))
+    release()
+    await tick(8)
+    assert.ok(headPosts() <= 1, `no further item is committed after lock (head posts: ${headPosts()})`)
+    assert.ok(!doc().body.textContent.includes('b.txt'), 'no plaintext orphan names after lock')
+  } finally {
+    await h.unmount()
+  }
+})
