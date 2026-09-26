@@ -1144,6 +1144,72 @@ def run_isolated_broker(
                 )
 
 
+def select_connect_host(cert_file: Path, address: str) -> str:
+    """Hostname to dial: the pinned broker DNS name when the certificate carries it, else the raw address."""
+    if cert_file.is_file():
+        try:
+            res = subprocess.run(
+                ["openssl", "x509", "-in", str(cert_file), "-noout", "-ext", "subjectAltName"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if f"DNS:{BROKER_HOSTNAME}" in res.stdout:
+                return BROKER_HOSTNAME
+        except Exception:
+            pass
+    return address
+
+
+def validate_live_broker(
+    addresses: list[str],
+    port: int,
+    ca_file: Path,
+    cert_file: Path,
+    core_password_file: Path,
+    device_password_file: Path,
+    device_id: str,
+) -> None:
+    """L6b: client-side TLS/auth/ACL/negative proof against an ALREADY RUNNING broker.
+
+    Never starts, stops or reconfigures a broker. Every address gets the full identity, ACL and
+    negative-security matrix. Passwords are read from private files and never printed.
+    """
+    global CURRENT_CONNECT_HOST
+
+    if port == 1883:
+        raise ValueError("refusing plaintext MQTT port 1883 for live validation")
+    if not addresses:
+        raise ValueError("at least one --address is required")
+    if len(set(addresses)) != len(addresses):
+        raise ValueError("duplicate --address values")
+
+    read_secret(core_password_file)
+    read_secret(device_password_file)
+
+    for address in addresses:
+        CURRENT_CONNECT_HOST = select_connect_host(cert_file, address)
+        print(f"LIVE_LISTENER_CHECK={address}:{port}")
+
+        authenticate_identity(
+            address, port, ca_file, "idea3-core", core_password_file,
+            "aegis-pr11-live-core", "CORE_AUTH=PASS",
+        )
+        authenticate_identity(
+            address, port, ca_file, f"idea3-dev-{device_id}", device_password_file,
+            "aegis-pr11-live-device", "DEVICE_AUTH=PASS",
+        )
+        validate_acl_matrix(
+            address, port, ca_file, core_password_file, device_password_file, device_id,
+        )
+        validate_negative_security(
+            address, port, ca_file, core_password_file, device_id,
+        )
+
+    print(f"LIVE_VALIDATION=PASS addresses={len(addresses)}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="AEGIS IDEA3 PR11 isolated MQTT broker validator"
@@ -1184,9 +1250,33 @@ def main() -> int:
         help="Optional directory to record broker process metadata",
     )
 
+    validate_live = subparsers.add_parser(
+        "validate-live",
+        help="L6b: client-side proof against an already running broker",
+    )
+    validate_live.add_argument("--ca-file", type=Path, required=True)
+    validate_live.add_argument("--cert-file", type=Path, required=True)
+    validate_live.add_argument("--core-password-file", type=Path, required=True)
+    validate_live.add_argument("--device-password-file", type=Path, required=True)
+    validate_live.add_argument("--device-id", required=True)
+    validate_live.add_argument("--address", action="append", required=True)
+    validate_live.add_argument("--port", type=int, default=PRODUCTION_TLS_PORT)
+
     args = parser.parse_args()
 
     try:
+        if args.command == "validate-live":
+            validate_live_broker(
+                args.address,
+                args.port,
+                args.ca_file,
+                args.cert_file,
+                args.core_password_file,
+                args.device_password_file,
+                args.device_id,
+            )
+            return 0
+
         if args.command == "validate":
             read_secret(args.core_password_file)
             read_secret(args.device_password_file)

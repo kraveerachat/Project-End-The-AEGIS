@@ -1,15 +1,26 @@
 #!/usr/bin/env bash
-# AEGIS IDEA3 PR11 Phase 4 — L6b rollback handler.
-# MUTATING in live mode. Removes only the separate IDEA3 unit installed by L6b.
+# AEGIS IDEA3 PR11 Phase 4 — L6b stage-owned rollback handler (T4 design §10, OD-L6B-01).
+# MUTATING in live mode. Acts ONLY on the exact paths recorded in $WORK/journal.tsv by apply.sh, and only when each
+# path is one of the fixed L6b-owned paths below. No recursive removal. Idempotent. Never touches legacy mosquitto,
+# the owner JIT input, or anything outside the journal.
 set -uo pipefail
 
 fail() { printf 'L6B_ROLLBACK=FAIL reason=%s\n' "$1" >&2; exit 1; }
 
 UNIT=aegis-idea3-mosquitto.service
 LEGACY_UNIT=mosquitto.service
+MQTT_DIR=/etc/aegis-idea3/mqtt
 LEGACY_DIR=/etc/mosquitto
 LEGACY_PASSWD=/etc/mosquitto/passwd
 UNIT_DEST=/etc/systemd/system/aegis-idea3-mosquitto.service
+OWNED_FILES=(
+  /etc/aegis-idea3/mqtt/aegis-idea3-mosquitto.conf
+  /etc/aegis-idea3/mqtt/acl
+  /etc/aegis-idea3/mqtt/passwd
+  /etc/aegis-idea3/mqtt/ca.crt
+  /etc/aegis-idea3/mqtt/broker.crt
+  /etc/aegis-idea3/mqtt/broker.key
+)
 ROOT="${AEGIS_P4_FS_ROOT:-}"
 WORK="${AEGIS_L6B_WORK_DIR:-}"
 
@@ -26,30 +37,81 @@ snapshot_tree() {
   fi
 }
 
-[ -n "$WORK" ] && [ -d "$WORK" ] || fail WORK_DIR_MISSING
+is_owned_file() {
+  local p=$1 f
+  for f in "${OWNED_FILES[@]}"; do [ "$p" = "$f" ] && return 0; done
+  return 1
+}
+
+[ -n "$WORK" ] && [ -d "$WORK" ] && [ ! -L "$WORK" ] || fail WORK_DIR_MISSING
+JOURNAL="$WORK/journal.tsv"
+[ -f "$JOURNAL" ] && [ ! -L "$JOURNAL" ] || fail JOURNAL_MISSING
+[ -f "$WORK/legacy-tree.sha256" ] && [ -f "$WORK/legacy-users.txt" ] || fail LEGACY_BASELINE_MISSING
 if [ -z "$ROOT" ]; then
   [ "${AEGIS_L6B_LIVE_AUTHORIZED:-NO}" = YES ] || fail LIVE_AUTHORIZATION_FLAG_REQUIRED
   [ "$(id -u)" = 0 ] || fail ROOT_REQUIRED
+  [ -f "$WORK/legacy-service.txt" ] && [ -f "$WORK/legacy-1883-listeners.txt" ] || fail LEGACY_BASELINE_MISSING
 fi
 
+# ── journal validation: only the fixed L6b-owned paths are ever acted on ──────────────────────────────────────────────
+j_dir=0 j_unit=0 j_service=0
+j_files=()
+while IFS=$'\t' read -r kind value || [ -n "$kind" ]; do
+  [ -n "$kind" ] || continue
+  case "$kind" in
+    DIR) [ "$value" = "$MQTT_DIR" ] || fail JOURNAL_ENTRY_NOT_OWNED; j_dir=1 ;;
+    UNIT) [ "$value" = "$UNIT_DEST" ] || fail JOURNAL_ENTRY_NOT_OWNED; j_unit=1 ;;
+    SERVICE) [ "$value" = "$UNIT" ] || fail JOURNAL_ENTRY_NOT_OWNED; j_service=1 ;;
+    FILE) is_owned_file "$value" || fail JOURNAL_ENTRY_NOT_OWNED; j_files+=("$value") ;;
+    *) fail JOURNAL_ENTRY_UNKNOWN ;;
+  esac
+done < "$JOURNAL"
+
+mqtt_dir=$(host_path "$MQTT_DIR")
+unit_dest=$(host_path "$UNIT_DEST")
 legacy_dir=$(host_path "$LEGACY_DIR")
 legacy_passwd=$(host_path "$LEGACY_PASSWD")
-unit_dest=$(host_path "$UNIT_DEST")
 
-if [ -z "$ROOT" ]; then
+# ── 1. service: stop/disable only the separate IDEA3 unit, and only if this stage started it ─────────────────────────
+if [ -z "$ROOT" ] && [ "$j_service" = 1 ]; then
   if systemctl is-active --quiet "$UNIT"; then
     systemctl stop "$UNIT" || fail IDEA3_SERVICE_STOP_FAILED
   fi
   if systemctl is-enabled --quiet "$UNIT" 2>/dev/null; then
     systemctl disable "$UNIT" || fail IDEA3_SERVICE_DISABLE_FAILED
   fi
-  if [ -e "$unit_dest" ]; then
-    rm -f -- "$unit_dest" || fail IDEA3_UNIT_REMOVE_FAILED
-  fi
-  systemctl daemon-reload || fail DAEMON_RELOAD_FAILED
-else
-  [ ! -e "$unit_dest" ] || rm -f -- "$unit_dest" || fail FIXTURE_UNIT_REMOVE_FAILED
 fi
+
+# ── 2. unit file ────────────────────────────────────────────────────────────────────────────────────────────────────
+if [ "$j_unit" = 1 ] && { [ -e "$unit_dest" ] || [ -L "$unit_dest" ]; }; then
+  [ -f "$unit_dest" ] && [ ! -L "$unit_dest" ] || fail UNIT_PATH_NOT_REGULAR
+  rm -f -- "$unit_dest" || fail IDEA3_UNIT_REMOVE_FAILED
+fi
+if [ -z "$ROOT" ] && { [ "$j_unit" = 1 ] || [ "$j_service" = 1 ]; }; then
+  systemctl daemon-reload || fail DAEMON_RELOAD_FAILED
+fi
+
+# ── 3. stage-created broker material: exact journaled paths, never recursive ─────────────────────────────────────────
+for logical in "${j_files[@]}"; do
+  real=$(host_path "$logical")
+  if [ -e "$real" ] || [ -L "$real" ]; then
+    [ -f "$real" ] && [ ! -L "$real" ] || fail "MATERIAL_PATH_NOT_REGULAR:${logical}"
+    rm -f -- "$real" || fail "MATERIAL_REMOVE_FAILED:${logical}"
+  fi
+done
+
+# ── 4. stage-created directory: only if journaled and empty ──────────────────────────────────────────────────────────
+if [ "$j_dir" = 1 ] && { [ -e "$mqtt_dir" ] || [ -L "$mqtt_dir" ]; }; then
+  [ -d "$mqtt_dir" ] && [ ! -L "$mqtt_dir" ] || fail MQTT_DIR_NOT_A_DIRECTORY
+  [ -z "$(ls -A "$mqtt_dir")" ] || fail MQTT_DIR_HAS_UNOWNED_ENTRIES
+  rmdir -- "$mqtt_dir" || fail MQTT_DIR_REMOVE_FAILED
+fi
+
+# ── 5. proofs: no L6b residue, legacy boundary intact ────────────────────────────────────────────────────────────────
+if [ "$j_dir" = 1 ] || [ "${#j_files[@]}" -gt 0 ]; then
+  [ ! -e "$mqtt_dir" ] || fail MQTT_DIR_RESIDUE
+fi
+[ "$j_unit" = 0 ] || [ ! -e "$unit_dest" ] || fail IDEA3_UNIT_RESIDUE
 
 snapshot_tree "$legacy_dir" "$WORK/legacy-tree.rollback"
 cmp -s "$WORK/legacy-tree.sha256" "$WORK/legacy-tree.rollback" || fail LEGACY_CONFIG_TREE_CHANGED
@@ -70,3 +132,4 @@ fi
 printf 'L6B_ROLLBACK=PASS\n'
 printf 'LEGACY_SERVICE_MUTATED=NO\n'
 printf 'IDEA3_8883_RESIDUE=NO\n'
+printf 'IDEA3_MATERIAL_RESIDUE=NO\n'

@@ -18,6 +18,18 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L6b live preparation — stage-owned broker, repository preparation only — 2026-09-27
+
+> [!important] Repository preparation only. L6b has NOT run, is NOT authorized, and no Production state changed. L6A stays `COMPLETE / PROVEN` (PR #221).
+> `L6B_HANDLER = RECONCILED_STAGE_OWNED (repository, fixture-tested)`, `L6B_LIVE_EXECUTED = NO`, `L6B_LIVE_AUTHORIZED = NO`, `L6B_RUNNER = TEMPLATE_UNPINNED`
+> `PREDECESSOR_RUNTIME = NOT_READY` (AP `wlp0s20f3` down, no `10.77.30.1`, `aegis-idea3-dnsmasq` failed; L2 nft/PF-01 unproven without sudo), `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Owner decisions recorded (OD-L6B-01…09):** stage-owned material install and rollback; plaintext passwords transient JIT only (only the hashed DB persists); fresh proof of L2/L3/L4 runtime with reactivation only as a separate owner action; AP `wlp0s20f3` / `10.77.30.1`; uplink is a fresh runtime value (expected `enp62s0` / `192.168.1.144`, mismatch reported for owner review); success is PERSISTENT; one live attempt per authorization; A-L6b covers the whole stage-owned mutation boundary.
+- **Implemented (fixture-tested):** journal-driven `apply.sh`/`rollback.sh`; `verify.sh` with exact-material checks and a live TLS/auth/ACL/negative probe via `p4-broker-validate.py validate-live`; capture records the mqtt directory and the IDEA3 broker unit; exact L6b allow keys (no wildcard); `p4-l6b-run-lib.sh` gates and the unpinned `owner-run/run-l6b-owner.sh` template.
+- **Authorization contract (nothing created):** A-L6b has no extra fields; fresh same-day K3 V1 or V2 required.
+- **Open before any live L6b:** owner freeze of the runner at the merged main SHA; fresh JIT input; fresh sudo-authenticated read-only proof of nft/PF-01; L3/L4 reactivation by their own authorized workflow; same-day A-L6b and K3. Known live risk: root-owned material versus Mosquitto privilege drop (design §13).
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6b-operational-design.md`. Receipt: `90-Status/logs/2026-09-27_014500_music_idea3-pr11-l6b-live-preparation.md`.
+
 ## IDEA3 PR11 Phase 4 L6a live acceptance — PROVEN (one attempt), isolated validation left no residue — 2026-09-27
 
 > [!important] Owner-run L6a executed once on 2026-09-27 and passed. It was an isolated loopback validation; nothing is left applied. This closeout is documentation-only and performs no Production mutation. L6b is NOT started; no ESP32 was touched.

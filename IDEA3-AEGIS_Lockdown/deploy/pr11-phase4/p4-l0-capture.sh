@@ -652,8 +652,8 @@ if run_ro 0 twingate twingate status; then
 else
   p4_rec "$HOST" host.twingate.status UNAVAILABLE
 fi
-for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /opt/aegis-idea3/current /var/lib/aegis-idea3 /run/aegis-idea3 \
-  /var/log/aegis-idea3; do
+for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /etc/aegis-idea3/mqtt /opt/aegis-idea3/current /var/lib/aegis-idea3 \
+  /run/aegis-idea3 /var/log/aegis-idea3; do
   if [ -e "$(p4_fs "$p")" ]; then p4_rec "$HOST" "host.path.$p" present; else p4_rec "$HOST" "host.path.$p" absent; fi
 done
 if [ -L "$(p4_fs /opt/aegis-idea3/current)" ]; then
@@ -665,9 +665,12 @@ if [ -L "$(p4_fs /opt/aegis-idea3/current)" ]; then
 else
   p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target absent
 fi
-if [ -f "$(p4_fs /etc/systemd/system/aegis-idea3-core.service)" ]; then
-  rec_file "$HOST" host.unit_file "$(p4_fs /etc/systemd/system/aegis-idea3-core.service)"
-fi
+# L6b (OD-L6B-01) installs the separate broker unit; it is captured exactly like the Core unit (never a wildcard).
+for unit_file in aegis-idea3-core.service aegis-idea3-mosquitto.service; do
+  if [ -f "$(p4_fs "/etc/systemd/system/$unit_file")" ]; then
+    rec_file "$HOST" host.unit_file "$(p4_fs "/etc/systemd/system/$unit_file")"
+  fi
+done
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   [ "$(p4_hostpath "$f")" = "/etc/aegis-idea3/aegis-idea3.nft" ] && continue
