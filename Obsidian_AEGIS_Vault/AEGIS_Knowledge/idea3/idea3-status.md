@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-25
+updated: 2026-09-27
 owner: music
 edit_policy: owner-writable
 ---
@@ -17,6 +17,23 @@ edit_policy: owner-writable
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
+
+## IDEA3 PR11 Phase 4 L6a live acceptance — PROVEN (one attempt), isolated validation left no residue — 2026-09-27
+
+> [!important] Owner-run L6a executed once on 2026-09-27 and passed. It was an isolated loopback validation; nothing is left applied. This closeout is documentation-only and performs no Production mutation. L6b is NOT started; no ESP32 was touched.
+> `L6A_LIVE_EXECUTED = YES`, `L6A_APPLY = PASS`, `L6A_VERIFY = PASS`, `L6A_POST_CAPTURE = COMPLETE`, `L6A_PRE_POST_COMPARE = PASS`, `L6A_S10_PRESERVATION = PASS`, `L6A_LIVE_ACCEPTANCE = PROVEN`, `L6A_COMPLETE = YES`
+> `LIVE_L6A_ATTEMPT_COUNT = 1`, `L6A_JIT_SECRET_CLEANUP = PASS` (logical deletion), `L6B_STARTED = NO`, `READY_FOR_L6B_PLANNING = YES`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l6a-20260927-001925`; live-run main `83610fa31c928e18be6f1842f76a9a190e502c60`; frozen runner sha256 `653244855132fa5a76206cd8edda8405e99421e7dfb9183b0445a45e8fa5a482`; exit code 0.
+- **Authorization:** fresh A-L6a and K3 V2 for 2026-09-27 only (the 2026-09-26 approval did not carry over). K3 is `IDEA3_OWNER_SELF_ATTESTATION`, `idea1_window_overlap=NONE_KNOWN`; it is not an independent IDEA1 confirmation and does not prove IDEA1 inactivity.
+- **Validation (`validation-evidence.tsv`, `result=PASS`):** loopback-only listener `127.0.0.1:18884`; PKI profile/chain/hostname PASS; TLS runtime PASS; core and device auth PASS; anonymous, wrong-core-password and wrong-device-password rejected; ACL matrix PASS; retained-message rejection PASS; `broker_residue=NO`; `secret_output_scan=PASS`.
+- **Compare:** `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `FINDINGS_APPROVED_CHANGE=0`, `FINDINGS_INFO=3` (about 52 KB disk available-space changes only); `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. No rollback ran.
+- **Post-live runtime:** port 18884 not listening; no temporary broker process/config; `aegis-idea3-mosquitto` inactive; `mosquitto`, engine, detection tunnel and Twingate active; forwarding `0,0,0`; no firewall/routing drift; `ca.key` absent on Arch.
+- **Secret inspection limits:** readable evidence files were checked and held no secret contents or private-key blocks; root-owned `pre-root`/`post-root` were not content-scanned (unreadable without sudo) and rest on the runner's SHA and compare checks.
+- **JIT cleanup:** Arch `l6a-owner-input` (five expected files, no `ca.key`) logically deleted and path absence verified; no physical secure-erase is claimed. The Beelink temporary export was verified deleted earlier in staging and was not re-verified after the live run.
+- **Unchanged state:** L4/L5 remain in their post-reboot not-applied runtime state (not required by L6a, not restored); `K12_REBOOT_PERSISTENCE = NOT_PROVEN`; IDEA2 preservation distinctions from earlier stages are not promoted.
+- **Next boundary:** human review/merge only, then L6b planning. Do not rerun L6a, recreate JIT input, touch the ESP32 or start L6b in this task.
+- Receipt: `90-Status/logs/2026-09-27_002532_music_idea3-pr11-l6a-live-acceptance.md`.
 
 ## IDEA3 PR11 Phase 4 L5 live acceptance — PROVEN (Attempt #4), L5 remains APPLIED — 2026-09-25
 
