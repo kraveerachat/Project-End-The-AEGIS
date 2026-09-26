@@ -2,13 +2,16 @@
 # AEGIS IDEA3 PR11 Phase 4 — L3/L4 POST-REBOOT RUNTIME REACTIVATION apply handler (RUNTIME_ONLY).
 # MUTATING in live mode. It restores the ALREADY ACCEPTED persistent L3/L4 configuration to its accepted ACTIVE runtime state:
 #   1. exact-ID rfkill unblock of the resolved target only (if it is soft-blocked),
-#   1b. (V2, owner-authorized only: AEGIS_L34_NM_RADIO_ENABLE=YES and NM radio currently disabled) the single global `nmcli radio wifi on`,
-#       preceded by a runtime device-autoconnect disable so no known profile can grab the device, allowed only when preflight proves
-#       wlp0s20f3 is the sole Wi-Fi device/wlan rfkill and no Wi-Fi connection is active. Restored by rollback.sh; never used otherwise.
+#   1b. GLOBAL NM Wi-Fi radio mutation is FORBIDDEN BY DEFAULT. Only under the explicit V2 authorization (AEGIS_L34_NM_RADIO_ENABLE=YES, set by the
+#       runner after the exact V2 scope) and only if NM still reports the radio disabled after the unblock: a temporary runtime
+#       `nmcli device set wlp0s20f3 autoconnect no` (PRE value restored later), then `nmcli radio wifi on` EXACTLY ONCE. Allowed only when
+#       preflight proves wlp0s20f3 is the sole Wi-Fi device/wlan rfkill and no Wi-Fi connection is active. rollback.sh disables the radio only if
+#       this run enabled it. Never used otherwise.
 #   2. bounded NetworkManager target-device readiness, then `nmcli connection up aegis-idea3-ap ifname wlp0s20f3`,
 #   3. `systemctl reset-failed` + `systemctl start` of aegis-idea3-dnsmasq.service ONLY (no enable/disable).
-# It never rewrites the NetworkManager profile, the dnsmasq config/unit or the nft file, never touches nftables, forwarding,
-# regulatory state, the global Wi-Fi radio, enp62s0, legacy mosquitto or Twingate, and claims NO L3/L4 live acceptance.
+# It never rewrites the NetworkManager profile or any persistent NetworkManager configuration, the dnsmasq config/unit or the nft file, never
+# touches nftables, forwarding, regulatory state, enp62s0, legacy mosquitto or Twingate, changes the global Wi-Fi radio only through the single
+# V2-authorized enable described above, and claims NO L3/L4 live acceptance.
 # Every runtime change is journaled BEFORE it is made so rollback.sh undoes exactly what this run changed.
 set -uo pipefail
 export LC_ALL=C
@@ -125,7 +128,7 @@ fi
 printf 'PRODUCTION_MUTATION_PERFORMED=YES\n'
 printf 'YES\n' > "$WORK/production-mutation"
 
-# 3a. exact-ID rfkill unblock of the resolved target only; never `rfkill unblock all`, never `nmcli radio wifi on`
+# 3a. exact-ID rfkill unblock of the resolved target only; never `rfkill unblock all` (the radio enable, if authorized, is step 3a' below)
 if [ "$L3_RFKILL_SOFT" = blocked ]; then
   journal RFKILL_UNBLOCK "$rfkill_id"
   l3_rfkill_prepare "$AP_IF" "$WORK" "$L34_EXPECTED_RFKILL_ID" "$sysfs" || fail "$L3_RFKILL_REASON"

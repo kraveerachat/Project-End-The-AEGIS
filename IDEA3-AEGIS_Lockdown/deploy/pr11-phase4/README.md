@@ -497,7 +497,7 @@ Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remedi
 exists; enabling the radio is a global NM change and a **new owner decision boundary**.
 
 - The global `nmcli radio wifi on` exists only behind `AEGIS_L34_NM_RADIO_ENABLE=YES`, which the runner sets only after verifying the exact V2 scope
-  (`L3_L4_RUNTIME_REACTIVATION_V2: ... NM radio enable (sole Wi-Fi device) ...`). Preflight requires wlp0s20f3 to be the sole Wi-Fi device/wlan
+  (`L3_L4_RUNTIME_REACTIVATION_V2: rfkill 1 unblock, temp wlp0s20f3 autoconnect off, NM radio on, activate aegis-idea3-ap, reset-failed+start dnsmasq, no persistent rewrite`, 168 chars). Preflight requires wlp0s20f3 to be the sole Wi-Fi device/wlan
   rfkill with no active Wi-Fi connection; a runtime `nmcli device set wlp0s20f3 autoconnect no` guard precedes the enable (12 saved Wi-Fi
   profiles have autoconnect); the PRE autoconnect value is restored; rollback turns the radio off only if this run enabled it.
 - The comparator is unchanged (the exact `nm.general#WIFI disabled -> enabled` rule already exists; the rollback catalog has none).

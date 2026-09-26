@@ -422,14 +422,86 @@ def test_every_local_declaration_in_the_runner_and_handlers_is_valid_bash() -> N
             assert not re.search(r"\blocal\b[^\n]*\s\blocal\b\s", decl), (script.name, decl)
 
 
-def test_runner_scope_is_the_v2_scope_and_covers_the_global_radio_decision() -> None:
-    t = RUNNER.read_text()
-    scope = re.search(r"^EXPECTED_SCOPE='([^']+)'", t, re.M).group(1)
-    assert scope == ("L3_L4_RUNTIME_REACTIVATION_V2: exact rfkill unblock, NM radio enable (sole Wi-Fi device), activate aegis-idea3-ap on wlp0s20f3, "
-                     "reset-failed+start aegis-idea3-dnsmasq, no persistent config rewrite")
-    assert len(scope) <= 200 and re.fullmatch(r"[ -~]{1,200}", scope)
-    assert "AEGIS_L34_NM_RADIO_ENABLE=YES" in t
-    assert 'grep -qxF "scope=$EXPECTED_SCOPE"' in t
+V2_SCOPE = ("L3_L4_RUNTIME_REACTIVATION_V2: rfkill 1 unblock, temp wlp0s20f3 autoconnect off, NM radio on, activate aegis-idea3-ap, "
+            "reset-failed+start dnsmasq, no persistent rewrite")
+SUPERSEDED_V2_SCOPE = ("L3_L4_RUNTIME_REACTIVATION_V2: exact rfkill unblock, NM radio enable (sole Wi-Fi device), activate aegis-idea3-ap on wlp0s20f3, "
+                       "reset-failed+start aegis-idea3-dnsmasq, no persistent config rewrite")
+V1_SCOPE = ("L3_L4_RUNTIME_REACTIVATION: exact rfkill unblock, activate existing aegis-idea3-ap on wlp0s20f3, reset-failed+start aegis-idea3-dnsmasq, "
+            "no persistent config rewrite")
+
+
+def runner_scope() -> str:
+    return re.search(r"^EXPECTED_SCOPE='([^']+)'", RUNNER.read_text(), re.M).group(1)
+
+
+def test_runner_scope_is_exactly_the_final_v2_scope() -> None:
+    scope = runner_scope()
+    assert scope == V2_SCOPE
+    assert len(scope) == 168 and len(scope) <= 200 and re.fullmatch(r"[ -~]{1,200}", scope)
+    assert "AEGIS_L34_NM_RADIO_ENABLE=YES" in RUNNER.read_text()
+    assert 'grep -qxF "scope=$EXPECTED_SCOPE"' in RUNNER.read_text()
+
+
+def test_scope_names_every_runtime_mutation_including_the_temporary_autoconnect_change() -> None:
+    scope = runner_scope()
+    for phrase in ("rfkill 1 unblock", "temp wlp0s20f3 autoconnect off", "NM radio on", "activate aegis-idea3-ap", "reset-failed+start dnsmasq",
+                   "no persistent rewrite"):
+        assert phrase in scope, phrase
+    # every mutation the handlers perform is covered by the scope text
+    apply_text = base.code_lines(APPLY)
+    assert "nmcli device set" in apply_text and "autoconnect" in scope
+    assert "nmcli radio wifi on" in apply_text and "radio on" in scope
+
+
+@pytest.mark.parametrize("stale", [SUPERSEDED_V2_SCOPE, V1_SCOPE, V2_SCOPE + " ", V2_SCOPE[:-1], V2_SCOPE.replace("temp wlp0s20f3 autoconnect off, ", ""),
+                                   V2_SCOPE.lower()])
+def test_any_other_scope_is_rejected_by_the_runner_gate(tmp_path: Path, stale: str) -> None:
+    """The runner's gate is `grep -qxF "scope=$EXPECTED_SCOPE" <auth>`: run exactly that check against a record carrying the other scope."""
+    auth = tmp_path / "authorization-L4.txt"
+    auth.write_text(f"AEGIS_P4_AUTHORIZATION_V1\nstage=L4\ndate=2026-09-27\nauthorizer=music\nscope={stale}\nreference=file:/x#A-L4\n")
+    res = subprocess.run(["bash", "-c", 'grep -qxF "scope=$S" "$A"'], env=dict(os.environ, S=runner_scope(), A=str(auth)))
+    assert res.returncode == 1
+    ok = tmp_path / "ok.txt"
+    ok.write_text(f"scope={V2_SCOPE}\n")
+    assert subprocess.run(["bash", "-c", 'grep -qxF "scope=$S" "$A"'], env=dict(os.environ, S=runner_scope(), A=str(ok))).returncode == 0
+
+
+def test_superseded_and_v1_scopes_appear_nowhere_as_the_active_scope() -> None:
+    text = RUNNER.read_text()
+    assert SUPERSEDED_V2_SCOPE not in text and V1_SCOPE not in text
+    docs = (base.ROOT / "docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md").read_text()
+    assert V2_SCOPE in docs and SUPERSEDED_V2_SCOPE not in docs
+
+
+STALE_GLOBAL_RADIO_CLAIMS = [
+    r"never touch(es)?[^,;.\n]*\bthe global (Wi-Fi )?radio",      # unqualified claim in one clause
+    r"never touch(es)?[^;.\n]*regulatory state,\s*the global",
+    r"regulatory state,\s*the global (Wi-Fi )?radio",
+    r"never `nmcli radio wifi on`",
+]
+
+
+@pytest.mark.parametrize("path", [RUNNER, APPLY, ROLLBACK, VERIFY, base.LIB])
+def test_no_stale_never_touches_global_radio_claim_remains_in_the_v2_surfaces(path: Path) -> None:
+    text = re.sub(r"\s*\n#\s*", " ", path.read_text())  # join wrapped comment lines
+    for pat in STALE_GLOBAL_RADIO_CLAIMS:
+        assert not re.search(pat, text), (path.name, pat)
+
+
+@pytest.mark.parametrize("path", [RUNNER, APPLY, ROLLBACK])
+def test_v2_surfaces_state_the_global_radio_rules_accurately(path: Path) -> None:
+    text = re.sub(r"\s*\n#\s*", " ", path.read_text())
+    assert "FORBIDDEN BY DEFAULT" in text
+    assert re.search(r"only|EXACTLY ONCE|exactly ONCE|single owner-authorized", text)
+    assert "persistent" in text and "NetworkManager" in text
+
+
+def test_the_comments_state_the_four_required_rules() -> None:
+    joined = " ".join(re.sub(r"\s*\n#\s*", " ", p.read_text()) for p in (RUNNER, APPLY, ROLLBACK))
+    assert "FORBIDDEN BY DEFAULT" in joined                                                        # 1. forbidden by default
+    assert "EXACTLY ONCE" in joined and "sole Wi-Fi device" in joined                              # 2. once, under V2 + sole-device topology gate
+    assert "only when the journal proves THIS run enabled it" in joined                            # 3. rollback only if this run enabled it
+    assert "No persistent NetworkManager configuration is rewritten" in joined                     # 4. no persistent NM config rewrite
 
 
 def test_stage_gate_accepts_a_v2_scope_record(tmp_path: Path) -> None:

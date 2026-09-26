@@ -6,12 +6,16 @@
 # Usage (normal user, NOT root):  bash run-l34-reactivation-owner.sh <AUTH_DIR>    AUTH_DIR holds authorization-L4.txt and k3-L4.txt (stage=L4)
 #
 # V2 (live attempt 1 remediation): the exact rfkill unblock alone left NetworkManager's software Wi-Fi radio disabled (NM_WIFI_RADIO_DISABLED).
-# The owner-authorized V2 scope additionally covers ONE global `nmcli radio wifi on`, allowed only when preflight proves wlp0s20f3 is the SOLE
-# Wi-Fi device, guarded by a runtime device-autoconnect disable, and restored on rollback. Design: ...l34-nm-radio-remediation-design.md
+# Global NetworkManager Wi-Fi radio mutation is FORBIDDEN BY DEFAULT. Only the exact V2 scope (checked below) authorizes it: the handlers then may
+# run a temporary runtime `nmcli device set wlp0s20f3 autoconnect no` (PRE value restored) and enable the radio exactly ONCE with
+# `nmcli radio wifi on`, and only when preflight proves wlp0s20f3 is the SOLE Wi-Fi device/wlan rfkill with no active Wi-Fi connection.
+# Rollback disables the radio only if this run enabled it. No persistent NetworkManager configuration is rewritten.
+# Design: docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md
 # RUNTIME_ONLY: this restores the already accepted persistent L3/L4 configuration to its accepted ACTIVE runtime state (manual post-reboot
 # reactivation). It is NOT an L3/L4 apply, reinstall, profile rewrite or dnsmasq rewrite, and it does NOT claim any L3/L4 live acceptance.
-# It never rewrites persistent files, never touches nftables/forwarding/regulatory state/the global radio/enp62s0/legacy mosquitto/Twingate/
-# NTP/ESP32, never runs L3/L4 apply.sh, never starts L6b or L7. K12_AUTOMATIC_REBOOT_PERSISTENCE stays NOT_PROVEN. NO automatic retry.
+# It never rewrites persistent files (including any NetworkManager profile/configuration), never touches nftables/forwarding/regulatory state/
+# enp62s0/legacy mosquitto/Twingate/NTP/ESP32, never changes the global Wi-Fi radio except the single owner-authorized V2 enable described above,
+# never runs L3/L4 apply.sh, never starts L6b or L7. K12_AUTOMATIC_REBOOT_PERSISTENCE stays NOT_PROVEN. NO automatic retry.
 set -Eeuo pipefail
 umask 077
 
@@ -31,7 +35,7 @@ LIB=$P4/p4-l34-reactivation-lib.sh
 AP_IF=wlp0s20f3
 AP_ADDR=10.77.30.1
 PROFILE=/etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection
-EXPECTED_SCOPE='L3_L4_RUNTIME_REACTIVATION_V2: exact rfkill unblock, NM radio enable (sole Wi-Fi device), activate aegis-idea3-ap on wlp0s20f3, reset-failed+start aegis-idea3-dnsmasq, no persistent config rewrite'
+EXPECTED_SCOPE='L3_L4_RUNTIME_REACTIVATION_V2: rfkill 1 unblock, temp wlp0s20f3 autoconnect off, NM radio on, activate aegis-idea3-ap, reset-failed+start dnsmasq, no persistent rewrite'
 TODAY=$(TZ=Asia/Bangkok date +%F)
 STAMP=$(TZ=Asia/Bangkok date +%Y%m%d-%H%M%S)
 EVID=/home/kittipat/Workspace/idea3-p4-evidence/$TODAY-l34-reactivation-$STAMP

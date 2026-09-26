@@ -52,11 +52,12 @@ The v1 authorization scope explicitly forbade a global command. Nothing here wid
 - The owner runner passes that flag only after it has verified an A-L4 whose `scope=` line is exactly the **V2 scope**:
 
 ```text
-L3_L4_RUNTIME_REACTIVATION_V2: exact rfkill unblock, NM radio enable (sole Wi-Fi device), activate aegis-idea3-ap on wlp0s20f3, reset-failed+start aegis-idea3-dnsmasq, no persistent config rewrite
+L3_L4_RUNTIME_REACTIVATION_V2: rfkill 1 unblock, temp wlp0s20f3 autoconnect off, NM radio on, activate aegis-idea3-ap, reset-failed+start dnsmasq, no persistent rewrite
 ```
 
-  (196 characters; it names the global radio enable and the sole-device condition, so a v1 authorization cannot authorize it and the v2
-  authorization cannot be mistaken for a plain L4 apply). A fresh same-day K3 is required as before; nothing is created by this work.
+  (168 characters; it names each runtime mutation — the exact rfkill unblock, the **temporary** `wlp0s20f3` autoconnect-off, the global NM radio
+  enable — so a v1 authorization cannot authorize it and the V2 authorization cannot be mistaken for a plain L4 apply. The sole-Wi-Fi-device
+  condition is enforced by the preflight, not by the scope text.) A fresh same-day K3 is required as before; nothing is created by this work.
 
 ## 5. Why the global scope is acceptable on this machine (and refused where it is not)
 

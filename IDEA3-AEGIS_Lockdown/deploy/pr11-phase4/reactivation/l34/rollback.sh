@@ -7,8 +7,10 @@
 #                    run enabled the radio and it is currently enabled (never otherwise)
 #   RFKILL_UNBLOCK   -> restore the exact recorded rfkill id to blocked (p4-l3-rfkill.sh), only if it was soft-blocked before
 # It never recreates the stale start-limit-hit artifact (DNSMASQ_RESET_FAILED is not "undone": the unit returns to a safe
-# non-running state), never deletes/rewrites the profile, dnsmasq config/unit or nft file, and never touches nftables, forwarding,
-# regulatory state, the global radio, enp62s0, legacy mosquitto or Twingate.
+# non-running state), never deletes/rewrites the profile, dnsmasq config/unit, nft file or any persistent NetworkManager configuration, and
+# never touches nftables, forwarding, regulatory state, enp62s0, legacy mosquitto or Twingate. The global Wi-Fi radio is FORBIDDEN BY DEFAULT: it
+# is turned off here only when the journal proves THIS run enabled it under the V2 authorization and it is currently enabled; the temporary
+# device autoconnect value is restored to its PRE value.
 set -uo pipefail
 export LC_ALL=C
 

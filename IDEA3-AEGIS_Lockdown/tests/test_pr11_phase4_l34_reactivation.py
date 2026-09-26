@@ -1003,7 +1003,7 @@ def test_runner_governance_reuses_stage_l4_records_with_exact_scope_and_fresh_k3
     assert "K3_CONFIRMATION=VALID" in t and "AUTHORIZATION_RECORD=VALID" in t
     scope = re.search(r"^EXPECTED_SCOPE='([^']+)'", t, re.M).group(1)
     assert len(scope) <= 200 and re.fullmatch(r"[ -~]{1,200}", scope)
-    for phrase in ("L3_L4_RUNTIME_REACTIVATION", "exact rfkill unblock", "aegis-idea3-ap", "reset-failed", "aegis-idea3-dnsmasq", "no persistent config rewrite"):
+    for phrase in ("L3_L4_RUNTIME_REACTIVATION", "rfkill 1 unblock", "aegis-idea3-ap", "reset-failed", "dnsmasq", "no persistent rewrite"):
         assert phrase in scope
     assert 'grep -qxF "scope=$EXPECTED_SCOPE"' in t
 
