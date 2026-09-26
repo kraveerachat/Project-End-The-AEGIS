@@ -35,6 +35,21 @@
 # target country other than 00/TH after the window still fails. wifi.reg.* stays in
 # PROTECTED, so ALLOW_KEYS_FILE can never approve it.
 #
+# ALLOW_DYNAMIC_TRANSITIONS_FILE (opt-in, default off) activates one exact, value-level runtime-state window for the
+# L3/L4 post-reboot RUNTIME REACTIVATION operation only. First active line `operation L34_RUNTIME_REACTIVATION` (PRE->POST) or
+# `operation L34_RUNTIME_REACTIVATION_ROLLBACK` (PRE->RB); every other active line must be one exact member of that operation's
+# hard-coded catalog below (key, exact before value, exact after value), each at most once, single-space separated. A rule
+# approves a change ONLY when the key changed from exactly that before value to exactly that after value; the pseudo key
+# `nm.general#WIFI` matches only the WIFI field of nm.general while STATE/CONNECTIVITY/WIFI-HW stay equal. It cannot approve
+# any other key, value, wildcard or protected class, and it is not an allow-keys mechanism. See the L3/L4 reactivation design.
+#   L34_RUNTIME_REACTIVATION           svc.aegis-idea3-dnsmasq.service.ActiveState failed active
+#                                      svc.aegis-idea3-dnsmasq.service.SubState failed running
+#                                      svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
+#                                      nm.general#WIFI disabled enabled
+#   L34_RUNTIME_REACTIVATION_ROLLBACK  svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive
+#                                      svc.aegis-idea3-dnsmasq.service.SubState failed dead
+#                                      svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
+#
 # Exit 0 = COMPARE_RESULT=PASS, 1 = COMPARE_RESULT=FAIL, 2 = STOP (usage/integrity).
 set -uo pipefail
 export LC_ALL=C
@@ -161,6 +176,43 @@ if [ -n "${ALLOW_TRANSITIONS_FILE:-}" ]; then
   ALLOW_TRANSITIONS="stage $DECLARED_STAGE"
 fi
 
+DYN_RULES=""
+if [ -n "${ALLOW_DYNAMIC_TRANSITIONS_FILE:-}" ]; then
+  [ -r "$ALLOW_DYNAMIC_TRANSITIONS_FILE" ] || stop "ALLOW_DYNAMIC_TRANSITIONS_FILE unreadable"
+  DYN_OP="" DYN_SEEN=" " n_op=0 n_rules=0
+  DYN_CATALOG_L34_RUNTIME_REACTIVATION=(
+    "svc.aegis-idea3-dnsmasq.service.ActiveState failed active"
+    "svc.aegis-idea3-dnsmasq.service.SubState failed running"
+    "svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success"
+    "nm.general#WIFI disabled enabled"
+  )
+  DYN_CATALOG_L34_RUNTIME_REACTIVATION_ROLLBACK=(
+    "svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive"
+    "svc.aegis-idea3-dnsmasq.service.SubState failed dead"
+    "svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success"
+  )
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    case "$line" in
+      'operation L34_RUNTIME_REACTIVATION'|'operation L34_RUNTIME_REACTIVATION_ROLLBACK')
+        n_op=$((n_op + 1)); DYN_OP="${line#operation }" ;;
+      *)
+        [ -n "$DYN_OP" ] || stop "dynamic transition rule before the operation declaration"
+        ref="DYN_CATALOG_${DYN_OP}[@]"
+        found=0
+        for member in "${!ref}"; do [ "$member" = "$line" ] && found=1; done
+        [ "$found" = 1 ] || stop "dynamic transition is not in the approved catalog for $DYN_OP: only exact catalog members are approvable"
+        [[ "$DYN_SEEN" != *" $line "* ]] || stop "duplicate dynamic transition rule"
+        DYN_SEEN+="$line "
+        read -r dk df dt <<< "$line"
+        DYN_RULES+="${dk}|${df}|${dt}"$'\n'
+        n_rules=$((n_rules + 1)) ;;
+    esac
+  done < "$ALLOW_DYNAMIC_TRANSITIONS_FILE"
+  [ "$n_op" = 1 ] && [ "$n_rules" -ge 1 ] || stop "ALLOW_DYNAMIC_TRANSITIONS_FILE must declare exactly one operation once and at least one catalog rule"
+  ! grep -q $'\r' "$ALLOW_DYNAMIC_TRANSITIONS_FILE" || stop "ALLOW_DYNAMIC_TRANSITIONS_FILE must not contain CR"
+fi
+
 read -r -d '' COMPARE_AWK <<'AWK'
 function emit(cls, code, key, b, a) {
   printf "FINDING\t%s\t%s\t%s\t%s\t%s\n", cls, code, key, b, a
@@ -174,6 +226,7 @@ BEGIN {
   FS = "\t"
   n = split(allow_keys, tmp, "\n"); for (i = 1; i <= n; i++) if (tmp[i] != "") AK[tmp[i]] = 1
   n = split(allow_listeners, tmp, "\n"); for (i = 1; i <= n; i++) if (tmp[i] != "") AL[tmp[i]] = 1
+  n = split(dyn_rules, tmp, "\n"); for (i = 1; i <= n; i++) if (tmp[i] != "") { split(tmp[i], dr, "|"); DYN[dr[1] SUBSEP dr[2] SUBSEP dr[3]] = 1; dyn_n++ }
   split("ip sysctl nft ss systemctl journalctl df timedatectl nmcli iw rfkill", REQ, " ")
   split("8883 123 67 53 8003 8004", P, " "); for (i in P) IDEA3_PORT[P[i]] = 1
   split("timeout refused auth hostkey forward dns unreachable unit_failed restart_scheduled", TC, " ")
@@ -286,6 +339,18 @@ END {
     }
 
     if (key in AK) { emit("APPROVED_CHANGE", "KEY_APPROVED", key, b, a); continue }
+
+    # L3/L4 runtime-reactivation value-level window (ALLOW_DYNAMIC_TRANSITIONS_FILE): exact key + exact before + exact after only.
+    if (dyn_n > 0) {
+      if (key == "nm.general") {
+        nb = split(b, fb, ":"); na = split(a, fa, ":")
+        if (nb == 4 && na == 4 && fb[1] == fa[1] && fb[2] == fa[2] && fb[3] == fa[3] && (("nm.general#WIFI" SUBSEP fb[4] SUBSEP fa[4]) in DYN)) {
+          emit("APPROVED_CHANGE", "DYNAMIC_TRANSITION_APPROVED", key, b, a); continue
+        }
+      } else if ((key SUBSEP b SUBSEP a) in DYN) {
+        emit("APPROVED_CHANGE", "DYNAMIC_TRANSITION_APPROVED", key, b, a); continue
+      }
+    }
 
     if (reg_tk != "" && key == reg_tk && b == "00" && a == "TH") {
       emit("APPROVED_CHANGE", "REGULATORY_TRANSITION_APPROVED", key, b, a); continue
@@ -454,7 +519,7 @@ END {
 }
 AWK
 
-result=$(awk -v threshold="$THRESHOLD" -v allow_keys="$ALLOW_KEYS" -v allow_listeners="$ALLOW_LISTENERS" -v trans_iface="$TRANS_IFACE" \
+result=$(awk -v threshold="$THRESHOLD" -v allow_keys="$ALLOW_KEYS" -v allow_listeners="$ALLOW_LISTENERS" -v dyn_rules="$DYN_RULES" -v trans_iface="$TRANS_IFACE" \
   "$COMPARE_AWK" side=B "$BEFORE"/*.tsv side=A "$AFTER"/*.tsv) || stop "comparison failed"
 
 report=$(
