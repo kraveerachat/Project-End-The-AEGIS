@@ -50,6 +50,12 @@ export const VAULT_TREE_CLIENT_LIMITS = Object.freeze({
   imageMaxInputBytes: 16 * MIB,
   /** พิกเซลที่ถอดได้ต่อภาพหนึ่งใบ (~16 MP) — เกินนี้ = ใหญ่เกินพรีวิว ใช้ไอคอน/ดาวน์โหลด */
   imageMaxDecodedPixels: 16_000_000,
+  /** Normal lane behavior remains the measured <=16 MP path. */
+  imageNormalMaxDecodedPixels: 16_000_000,
+  /** Active overall cap alias. It remains 16 MP until native browser measurement passes. */
+  imageHighResMaxDecodedPixels: 16_000_000,
+  /** High-resolution bitmap decode is always serialized. */
+  imageHighResMaxConcurrentJobs: 1,
   /** GIF เล่นแอนิเมชันเต็มได้เฉพาะไฟล์ไม่เกินนี้ (Object-URL heap bench Task 0.2); ที่ใหญ่กว่า = โปสเตอร์อย่างเดียว */
   gifMaxFullPlayBytes: 8 * MIB,
   /** ขอบยาวสุดของโปสเตอร์ (Phase 0 bench: โปสเตอร์ 512 px วัดได้ ~95–101 KB) */

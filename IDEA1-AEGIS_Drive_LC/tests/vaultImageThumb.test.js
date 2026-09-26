@@ -30,6 +30,7 @@ test('IT-HIGHRES one bitmap decode feeds poster generation and owned full bytes 
   let releases = 0
   const highLimits = treeLimitsFrom({
     imageMaxInputBytes: 2_000_000,
+    imageMaxDecodedPixels: 26_000_000,
     imageNormalMaxDecodedPixels: 16_000_000,
     imageHighResMaxDecodedPixels: 26_000_000,
   })
@@ -56,7 +57,7 @@ test('IT-HIGHRES one bitmap decode feeds poster generation and owned full bytes 
 
 test('IT-HIGHRES above the injected cap refuses before decode with an explicit reason', async () => {
   let decoded = 0
-  const highLimits = treeLimitsFrom({ imageHighResMaxDecodedPixels: 26_000_000 })
+  const highLimits = treeLimitsFrom({ imageMaxDecodedPixels: 26_000_000, imageHighResMaxDecodedPixels: 26_000_000 })
   const res = await makeImageThumb({
     plainSize: 1_000,
     limits: highLimits,
