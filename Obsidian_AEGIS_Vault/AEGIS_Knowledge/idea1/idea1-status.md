@@ -17,22 +17,22 @@ edit_policy: owner-writable
 
 ## Current Task
 
-**IDEA1-ROLE-UPLOAD-UI-POLISH-1 — IN PROGRESS**
+**IDEA1-FILES-VAULT-PARITY-RECOVERY-1 — IN PROGRESS**
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `fix/idea1-role-upload-ui-polish`; Draft PR: #218.
-- Start: `origin/main` at `83610fa31c928e18be6f1842f76a9a190e502c60` (2026-09-26).
-- Scope: make the server-authoritative Storage & Backup navigation Admin-only; fail closed on manually selected unauthorized screens; make normal Files upload drawer/float tray mutually exclusive using the accepted shared queue surface.
-- Safety: one queue owner; upload transport, chunking, concurrency, recovery, transfer-rate logic, PR #216, and Production remain untouched.
-- Implementation checkpoint: `eccad4f00f12a93ec8c7205fccc69e1f4a8d4fce`.
-- Automated evidence: focused RBAC/navigation/upload/password-reset 45/45 PASS; upload recovery/transport 84/84 PASS; build PASS; governance 50/50 PASS; Vault validation PASS with two existing owner-Canvas warnings; diff check and added-line secret scan PASS.
-- Current gate: Human browser acceptance on Draft PR #218. No final receipt yet.
+- Branch: `fix/idea1-files-vault-parity-recovery`; Draft PR: #219 (stacked on PR #218).
+- Exact start: current live-candidate source `ad43c89b629fe67f556677b9ba667b7e3b001fdf` (2026-09-26), preserving PR #218 unchanged.
+- Scope: forensically compare the PR171 accepted source, PR212 accepted source, and current candidate; restore only proven Files/Private Vault interaction or reconciliation regressions.
+- Safety: no redesign, crypto/security change, performance tuning, transport/chunk/concurrency/media-limit change, PR #216/PR #218 mutation, Production mutation, or final receipt during investigation.
+- Forensic result: the PR212-to-current delta changes only `App.jsx` authorization naming (`screen` to `activeScreen`) and normal-Files `UploadDrawer.jsx`; Vault interaction/upload/media modules are unchanged. The sole baseline failure was a stale source-regex assertion after that naming change, not a runtime failure; it is corrected without changing product source.
+- Automated evidence: focused Files/Vault interaction, upload, media, and reconciliation matrix 174/174 PASS (including new real three-file picker and Explorer-drop coverage); build PASS; governance 50/50 PASS; Vault validation PASS with two existing owner-Canvas warnings; diff and added-line secret scans PASS.
+- Current gate: Human Owner browser acceptance of the exact interaction/media matrix. No final receipt yet.
 
-### Session Register — IDEA1-ROLE-UPLOAD-UI-POLISH-1
+### Session Register — IDEA1-FILES-VAULT-PARITY-RECOVERY-1
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| IRUP-S1 | Governance, isolated clean worktree, source diagnosis, RED coverage, bounded RBAC/UI implementation | IMPLEMENTED / AUTOMATED PASS | RED proved DataLake-User received `storage`, manual URL selection bypassed first-render authorization, and Files rendered both monitoring surfaces. GREEN: focused 45/45; recovery/transport 84/84; build PASS; governance 50/50; validator PASS; diff/secret checks PASS | `eccad4f00f12a93ec8c7205fccc69e1f4a8d4fce` implementation; PR #218 Draft | Storage nav is Admin-only; unauthorized screens fail closed from server menu; Files drawer/tray are mutually exclusive with one queue and handler set; transport/performance untouched | Human checks for both roles and live Files transfer, then one final receipt | Stop at Human Owner browser acceptance |
+| IFVPR-S1 | Exact-SHA worktree, historical diff, interaction/upload/media/delete trace, direct regression coverage, verification | AUTOMATED PASS / HUMAN ACCEPTANCE PENDING | PR171→PR212 added the Stage-D queue/reconcile/media fixes; PR212→current changed only App authorization naming and normal-Files drawer presentation. Marquee refs/classes, external drop, full `FileList` enqueue, post-upload barrier, scheduler re-observation, and committed-head reducer reconciliation remain present. Baseline 171/172 exposed one stale V10 source-regex assertion after `screen` became `activeScreen`; corrected test and new real three-file picker/drop coverage yield focused 174/174 PASS. Build PASS; governance 50/50; validator PASS with two existing warnings; diff/secret scans PASS. Application source unchanged. | `9f6c8526` test/status checkpoint; Draft PR #219 stacked on PR #218 | Old-source deployment not proven; no Class-A product source regression proven. Vault upload/delete latency follows encrypted revision publish/put/CAS before immediate committed-head reducer reconciliation; serialized CAS, client crypto, bounded preview work, and media limits remain intentional. Performance tuning deferred to PR #216 after P1 baseline. | Human checks: Vault three-file Explorer drop; three-file native picker; left/right/bottom marquee and blank clear; new supported JPG/GIF/video cover without refresh; delete transition; Files drop/marquee and PR218 drawer/tray; Admin/DataLake parity where applicable | Stop at Human Owner browser acceptance; no receipt or Ready transition |
 
 ## Completed Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
 
