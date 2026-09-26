@@ -22,6 +22,55 @@ const fakeDecode = (bytes) => Promise.resolve({ width: 8, height: 8, close: () =
 /** injectable poster: คืนไบต์โปสเตอร์จำลองพองาม */
 const fakePoster = (bytes, w, h, maxEdge) => ({ bytes: new Uint8Array(32), width: Math.min(w, maxEdge), height: Math.min(h, maxEdge) })
 
+test('IT-HIGHRES one bitmap decode feeds poster generation and owned full bytes are released', async () => {
+  const fullBytesRef = { bytes: null }
+  const bitmap = { width: 6240, height: 4160, closed: 0, close() { this.closed += 1 } }
+  let decodeCalls = 0
+  let posterBitmap = null
+  let releases = 0
+  const highLimits = treeLimitsFrom({
+    imageMaxInputBytes: 2_000_000,
+    imageNormalMaxDecodedPixels: 16_000_000,
+    imageHighResMaxDecodedPixels: 26_000_000,
+  })
+  const res = await makeImageThumb({
+    plainSize: 1_000,
+    limits: highLimits,
+    readChunk: async () => syntheticPng({ width: 6240, height: 4160 }),
+    decode: async () => { decodeCalls += 1; return bitmap },
+    poster: async (decoded) => { posterBitmap = decoded; return { bytes: new Uint8Array(16), width: 512, height: 341 } },
+    admission: { acquire: async () => ({ lane: 'high-res', release: () => { releases += 1 } }) },
+    fullBytesRef,
+    variant: 2,
+    chunkCount: 1,
+    skipUrl: true,
+  })
+  assert.equal(res.ok, true)
+  assert.equal(decodeCalls, 1)
+  assert.equal(posterBitmap, bitmap, 'poster reuses the already-decoded bitmap')
+  assert.equal(bitmap.closed, 1)
+  assert.equal(releases, 1)
+  assert.equal(fullBytesRef.bytes, null)
+  assert.equal(res.posterBytes.length, 16, 'only bounded poster bytes remain')
+})
+
+test('IT-HIGHRES above the injected cap refuses before decode with an explicit reason', async () => {
+  let decoded = 0
+  const highLimits = treeLimitsFrom({ imageHighResMaxDecodedPixels: 26_000_000 })
+  const res = await makeImageThumb({
+    plainSize: 1_000,
+    limits: highLimits,
+    readChunk: async () => syntheticPng({ width: 6500, height: 4100 }),
+    decode: async () => { decoded += 1; return fakeDecode() },
+    poster: fakePoster,
+    variant: 2,
+    chunkCount: 1,
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.unsupported, 'HIGH_RES_TOO_LARGE')
+  assert.equal(decoded, 0)
+})
+
 test('IT-1 header dimension parsing for PNG/JPEG/WebP/GIF; unknown → unsupported', () => {
   assert.deepEqual(parseImageHeader(syntheticPng({ width: 1094, height: 728 })), { width: 1094, height: 728, format: 'PNG' })
   assert.deepEqual(parseImageHeader(syntheticJpeg({ width: 2188, height: 1642 })), { width: 2188, height: 1642, format: 'JPEG' })
