@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3/L4 post-reboot runtime reactivation — repository implementation only — 2026-09-27
+
+> [!important] Repository implementation only. The reactivation has NOT run, is NOT authorized, and no Production state changed. It is `RUNTIME_ONLY`: it restores the already accepted persistent L3/L4 configuration to its active runtime state and claims NO new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` (the historical receipts stay authoritative).
+> `L34_REACTIVATION_IMPLEMENTATION = REPOSITORY_ONLY (simulator-tested)`, `L34_REACTIVATION_EXECUTED = NO`, `LIVE_REACTIVATION = NOT_AUTHORIZED`, `L34_RUNNER = TEMPLATE_UNPINNED`
+> `L2_CURRENT = REPROVEN (owner read-only, no reapply)`, `L3_RUNTIME = NOT_APPLIED`, `L4_RUNTIME = NOT_APPLIED`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `L6B_LIVE_EXECUTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence base (owner, read-only, 2026-09-27):** L2 nft/PF-01/no-NAT/forwarding intact; target rfkill id `1` `SOFT=blocked HARD=unblocked`; NM radio `disabled`; `wlp0s20f3` DOWN/managed; phy0 country `00` with an unrestricted channel 6 (Model B satisfied); accepted profile `aegis-idea3-ap` and `dnsmasq-ap.conf` intact; `aegis-idea3-dnsmasq.service` enabled but `failed` / `start-limit-hit` (started at boot before the AP address existed).
+- **Implemented:** `reactivation/l34/{apply,verify,rollback}.sh` (exact-ID rfkill unblock via `p4-l3-rfkill.sh`, bounded NM readiness + one `ifname`-bound activation via `p4-l3-nm.sh`, Model B gate via `p4-l3-regulatory.sh`, `reset-failed` + `start` of only `aegis-idea3-dnsmasq.service`; journaled changes; journal-driven rollback that never recreates the stale start-limit-hit); `p4-l34-reactivation-lib.sh` (static config gates including the bare dnsmasq directives, fresh L2 gates, snapshots that fail on any persistent-file rewrite, PSK leak scan, one-attempt marker, receipt gate); unpinned owner runner template.
+- **Comparator design gap resolved narrowly:** `nm.general` (protected) changes its `WIFI` field after the exact rfkill unblock and the dnsmasq unit changes `failed -> active/running`; neither can be expressed by allow keys. `p4-compare.sh` gains the opt-in `ALLOW_DYNAMIC_TRANSITIONS_FILE`, a closed catalog of exact key/before/after values (reactivation and rollback operations). Default behaviour is unchanged; persistent-file, `LoadState` and `UnitFileState` drift still fail.
+- **Authorization:** reuses `AEGIS_P4_AUTHORIZATION_V1` + fresh K3 with `stage=L4`; the runner additionally requires the exact `L3_L4_RUNTIME_REACTIVATION` scope line. No records were created.
+- **Next boundary:** human review/merge; owner freeze of the runner at the merged main SHA; fresh same-day A-L4 (exact scope) and K3; then one bounded live run. L6b live stays blocked until L3/L4 runtime is applied or freshly re-proven.
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-post-reboot-reactivation-design.md`. Receipt: `90-Status/logs/2026-09-27_030000_music_idea3-pr11-l34-post-reboot-reactivation.md`.
+
 ## IDEA3 PR11 Phase 4 L6b live preparation — stage-owned broker, repository preparation only — 2026-09-27
 
 > [!important] Repository preparation only. L6b has NOT run, is NOT authorized, and no Production state changed. L6A stays `COMPLETE / PROVEN` (PR #221).

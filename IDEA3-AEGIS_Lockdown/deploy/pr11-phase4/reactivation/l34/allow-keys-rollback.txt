@@ -1,0 +1,6 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 runtime reactivation: rollback-only allowance (PRE->RB), exactly two bookkeeping keys.
+# After reset-failed + start + stop, systemd legitimately reports NRestarts 0 (was 5) and a new ExecMainStartTimestamp; the rollback
+# never recreates the stale start-limit-hit artifact. The unit's ActiveState/SubState/Result are handled only by the exact value
+# transitions in allow-dynamic-transitions-rollback.txt. Nothing about the AP, rfkill, listeners or persistent files is approved.
+svc.aegis-idea3-dnsmasq.service.NRestarts
+svc.aegis-idea3-dnsmasq.service.ExecMainStartTimestamp
