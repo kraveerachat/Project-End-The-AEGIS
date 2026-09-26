@@ -224,8 +224,9 @@ test('MU-2 flow: explain → lease (held open) → decrypt count → collision l
     const inputs = [...list.querySelectorAll('input')]
     assert.equal(inputs.length, 2, 'one rename input per affected entry')
 
-    const target = inputs.find((i) => i.value === 'NOTES.TXT')
-    assert.ok(target, 'the colliding name is editable')
+    // PR220-R1: the second member is pre-filled with a unique, still-editable suggestion
+    const target = inputs.find((i) => i.value === 'NOTES (2).TXT')
+    assert.ok(target, 'the colliding name is editable and pre-filled with a unique suggestion')
     await type(dom, target, '-renamed')
     await click(dom, byText(dom, 'button', t('vaultMigrationContinue')))
     assert.ok(q('[data-testid="vault-tree-screen"]'), 'commit refresh transitions directly to the tree screen')
@@ -500,6 +501,106 @@ test('C3-REFRESH-3 a bounded timer re-checks fresh state once the displayed leas
     assert.ok(reqCount('tree/state') > before, 'expiry triggers a fresh GET /tree/state')
     assert.ok(byText(dom, 'button', t('vaultMigrationResume')), 'the expired lease is now resumable without a manual click')
     assert.equal(reqCount('migration/takeover'), 0, 'nothing is taken over silently')
+  } finally {
+    await h.unmount()
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PR220-R1 (D) collision step: unique editable suggestions, visible reason, no silent overwrite
+// ─────────────────────────────────────────────────────────────────────────────
+const renameInputs = () => [...doc().querySelectorAll('[data-testid="vault-migration-collision-list"] input')]
+const collisionError = () => q('[data-testid="vault-migration-collision-error"]')
+const continueBtn = () => byText(dom, 'button', t('vaultMigrationContinue'))
+// any upload/replace/delete of ciphertext blobs (legacy or tree upload routes, or a DELETE anywhere
+// under /api/vault) would be a rewrite — genesis may only publish the encrypted manifest revision
+const blobWrites = () => backend.requests.filter((r) => {
+  const p = String(r.path)
+  const m = String(r.method ?? 'GET').toUpperCase()
+  return (m === 'DELETE' && p.startsWith('/api/vault')) || /^\/api\/vault\/(tree\/)?(uploads|blobs)(?:[/?]|$)/.test(p)
+})
+
+async function openCollisionStep(inventory) {
+  seedVault(inventory)
+  const h = await mountUnlocked()
+  await click(dom, byText(dom, 'button', t('vaultMigrationStart')))
+  await tick()
+  assert.ok(q('[data-testid="vault-migration-collision-list"]'), 'collision step reached')
+  return h
+}
+
+test('D-COLLISION-1 case-only duplicates are pre-filled with unique suggestions; Continue commits once; blobs untouched', async () => {
+  const h = await openCollisionStep(INVENTORY)
+  try {
+    assert.deepEqual(renameInputs().map((i) => i.value), ['notes.txt', 'NOTES (2).TXT'], 'deterministic unique suggestion, extension preserved')
+    assert.equal(collisionError(), null, 'no reason is shown while the names are unique')
+    assert.equal(backend.tree.genesisBodies.length, 0, 'nothing is written before the Human presses Continue')
+    await click(dom, continueBtn())
+    await tick()
+    assert.equal(backend.tree.genesisBodies.length, 1, 'Human-confirmed names commit exactly once')
+    assert.ok(q('[data-testid="vault-tree-screen"]'), 'converges to TREE')
+    assert.deepEqual(blobWrites(), [], 'existing encrypted blobs are never rewritten')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('D-COLLISION-2 exact duplicates → photo.jpg, photo (2).jpg, photo (3).jpg', async () => {
+  const dup = [0, 1, 2].map((i) => v1Blob({ id: `p${i}`.padEnd(22, 'x'), name: 'photo.jpg', type: 'image/jpeg', plainSize: 10 + i }))
+  const h = await openCollisionStep(dup)
+  try {
+    assert.deepEqual(renameInputs().map((i) => i.value), ['photo.jpg', 'photo (2).jpg', 'photo (3).jpg'])
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('D-COLLISION-3 editing back into a collision shows a visible reason and blocks commit; fixing it commits once', async () => {
+  const h = await openCollisionStep(INVENTORY)
+  try {
+    const [, second] = renameInputs()
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+      setter.call(second, 'Notes.TXT')
+      second.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await tick(1)
+    const reason = collisionError()
+    assert.ok(reason, 'a visible inline reason explains why Continue cannot proceed')
+    assert.equal(reason.getAttribute('role'), 'alert')
+    assert.ok(reason.textContent.includes('Notes.TXT') || reason.textContent.includes('notes.txt'), reason.textContent)
+    assert.equal(second.getAttribute('aria-invalid'), 'true', 'the offending field is marked')
+    await click(dom, continueBtn())
+    await tick()
+    assert.equal(backend.tree.genesisBodies.length, 0, 'no commit while a collision remains')
+    assert.ok(q('[data-testid="vault-migration-collision-list"]'), 'stays on the editable step (not a dead end, not an error screen)')
+
+    await type(dom, second, '-b')  // "Notes.TXT-b"
+    await tick(1)
+    assert.equal(collisionError(), null, 'the reason clears once names are unique')
+    await click(dom, continueBtn())
+    await tick()
+    assert.equal(backend.tree.genesisBodies.length, 1)
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('D-COLLISION-4 an invalid name shows a visible reason instead of failing the whole migration', async () => {
+  const h = await openCollisionStep(INVENTORY)
+  try {
+    const [, second] = renameInputs()
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+      setter.call(second, 'bad/name.txt')
+      second.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await tick(1)
+    assert.ok(collisionError(), 'invalid name reason visible')
+    await click(dom, continueBtn())
+    await tick()
+    assert.ok(!q('[data-testid="vault-migration-error"]'), 'no error-screen dead end')
+    assert.equal(backend.tree.genesisBodies.length, 0)
   } finally {
     await h.unmount()
   }

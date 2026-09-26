@@ -21,6 +21,8 @@ import {
   publishRevision, putRevisionCiphertext, commitGenesis, abandonMigration,
 } from '../../lib/vaultTreeApi.js'
 import { runGenesis, resolveCollisions, MigrationError } from '../../lib/vaultTreeMigration.js'
+import { nameProblem } from '../../lib/vaultTreeManifest.js'
+import { collisionStepProblem, suggestCollisionNames } from '../../lib/vaultNameSuggestions.js'
 
 const foreignLeaseActive = (state, now = Date.now()) =>
   state?.protocolState === 'MIGRATING_TREE_V1' && state.lease?.held === true && state.lease.expiresAt > now
@@ -95,6 +97,8 @@ export function VaultMigrationDialog({ mode = 'explicit', t, lang = 'en', kek, t
       if (e instanceof MigrationError && e.code === 'COLLISION_UNRESOLVED') {
         if (e.lease) heldLeaseRef.current = e.lease
         setPlan(e.plan)
+        // ข้อเสนอชื่อที่ไม่ซ้ำ (แก้ได้) — ยังไม่มีอะไรถูกเขียนจนกว่าผู้ใช้จะกดดำเนินการต่อเอง
+        setDecisions(suggestCollisionNames(e.plan))
         setSawCollisions(true)
         setStep('collisions')
         setPhase('collisions')
@@ -159,7 +163,13 @@ export function VaultMigrationDialog({ mode = 'explicit', t, lang = 'en', kek, t
 
   useEffect(() => () => checkAbortRef.current?.abort(), [])
 
+  // เหตุผลที่ยังไปต่อไม่ได้ (ชื่อยังชน/ใช้ไม่ได้) — แสดงให้เห็นเสมอ ปุ่มไม่เงียบ
+  const collisionProblem = phase === 'collisions' && plan
+    ? collisionStepProblem(plan.entries, decisions, nameProblem)
+    : null
+
   const onContinue = () => {
+    if (collisionProblem) return
     try {
       const resolved = resolveCollisions(plan, decisions)
       if (resolved.collisions.length > 0) return // ยังชนอยู่ — คงรายการไว้ให้แก้ต่อ ไม่เขียนอะไร
@@ -265,13 +275,32 @@ export function VaultMigrationDialog({ mode = 'explicit', t, lang = 'en', kek, t
                     type="text"
                     value={value}
                     onChange={(e) => setDecisions(new Map(decisions).set(entry, e.target.value))}
-                    className="w-full h-10 px-3 rounded-lg bg-sunken border border-line text-[13px] text-ink outline-none focus:border-accent"
+                    aria-invalid={collisionProblem?.entries.has(entry) ? 'true' : undefined}
+                    aria-describedby={collisionProblem?.entries.has(entry) ? 'vault-migration-collision-error' : undefined}
+                    className={`w-full h-10 px-3 rounded-lg bg-sunken border text-[13px] text-ink outline-none focus:border-accent ${collisionProblem?.entries.has(entry) ? 'border-[var(--danger)]' : 'border-line'}`}
                   />
                 </div>
               )
             })}
           </div>
-          <Btn variant="primary" className="w-full mt-4" onClick={onContinue}>
+          {collisionProblem && (
+            <p
+              id="vault-migration-collision-error"
+              data-testid="vault-migration-collision-error"
+              role="alert"
+              className="text-[12px] font-medium mt-3 leading-relaxed"
+              style={{ color: 'var(--danger)' }}
+            >
+              {t(collisionProblem.kind === 'invalid' ? 'vaultMigrationCollisionInvalid' : 'vaultMigrationCollisionStill', { name: collisionProblem.name })}
+            </p>
+          )}
+          <Btn
+            variant="primary"
+            className="w-full mt-4"
+            onClick={onContinue}
+            disabled={Boolean(collisionProblem)}
+            aria-describedby={collisionProblem ? 'vault-migration-collision-error' : undefined}
+          >
             {t('vaultMigrationContinue')}
           </Btn>
         </div>
