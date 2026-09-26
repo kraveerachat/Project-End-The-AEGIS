@@ -37,6 +37,7 @@ import {
   closePreviewSession, closeAllPreviewSessions, installPreviewSessionRecovery,
 } from '../lib/vaultPreviewSession.js'
 import { PREVIEW_FAILURE_REASON, previewFailureCopyKey } from '../lib/vaultPreviewErrors.js'
+import { decideVaultExperience, VAULT_EXPERIENCE } from '../lib/vaultConvergence.js'
 // ⚠️ PR #157 Task 5.4: ทุกสิ่งที่มีอยู่ได้เฉพาะตอนปลดล็อก (งานที่ใช้กุญแจ, Object URL, preview token, กุญแจ)
 //    ลงทะเบียนกับ unlocked state หนึ่งใบต่อการปลดล็อก แล้ว purge(reason) เดียวเก็บกวาดทั้งหมดในทุกทางออก
 //    (ล็อกเอง / auto-lock / unmount / logout / 401 / pagehide) — ดู src/lib/vaultUnlockedState.js
@@ -495,7 +496,6 @@ export function Vault({
         ได้แม้ในจังหวะที่ React ยังไม่ได้ render รอบใหม่ */
   const previewStreamToken = useRef(null)
   const fileRef = useRef(null)
-  const [migrationOpen, setMigrationOpen] = useState(false)
   /* ตัวนับบังคับ render หลัง commit สำเร็จ — tree/state ถูกอ่านสดทุก render
      จึงต้องมี render รอบใหม่จอจึงเห็น TREE_V1 ที่เพิ่งเกิด (placeholder โผล่ทันที) */
   const [, setTreeBump] = useState(0)
@@ -513,22 +513,20 @@ export function Vault({
   const treeState = treeStateApi.data
   const treeFlags = treeState?.flags ?? null
   const treeProtocolState = treeState?.protocolState ?? null
-  const migrationEntryShown = Boolean(
-    unlocked && treeProtocolState === 'FLAT' && treeFlags?.genesisMigrationEnabled === true,
-  )
-  const migrationAutoOpen = Boolean(unlocked && treeProtocolState === 'MIGRATING_TREE_V1')
-  const treePlaceholderShown = Boolean(
-    unlocked && treeProtocolState === 'TREE_V1' && treeFlags?.treeUiEnabled !== true,
-  )
-  /* Task 6.3: the tree UI is active only when unlocked + TREE_V1 + treeUiEnabled */
-  const treeUiActive = Boolean(unlocked && treeProtocolState === 'TREE_V1' && treeFlags?.treeUiEnabled === true)
-
   /* รายการ blob ทึบที่ "เป็นจริงตอนนี้" = server + POST ที่สำเร็จแล้ว − ที่ลบสำเร็จแล้ว
      dedupe ด้วย id เข้มงวด GET ที่ตามมาทีหลังจึงไม่สร้างการ์ดใบที่สอง */
   const inventory = useMemo(
     () => reconcileVaultInventory({ serverBlobs, localBlobs, removedIds }),
     [serverBlobs, localBlobs, removedIds],
   )
+  const vaultExperience = decideVaultExperience({
+    configured,
+    unlocked,
+    inventoryReady: !vaultApi.loading && !treeStateApi.loading && Boolean(vaultApi.data && treeState),
+    blobCount: inventory.length,
+    protocolState: treeProtocolState,
+    flags: treeFlags,
+  })
 
   /* ── object URL ของ preview: อายุสั้นที่สุดเท่าที่ทำได้ ─────────────────
      object URL คือ "ตัวชี้ไปยัง plaintext ที่ยังอยู่ใน memory ของแท็บ" ตราบใดที่ยัง
@@ -627,7 +625,6 @@ export function Vault({
     // ⚠️ ไดอะล็อก migration ขั้นแก้ชื่อชนกันถือ "ชื่อไฟล์ plaintext" อยู่ในมือ — ต้องหาย
     //    ไปพร้อมกุญแจเช่นเดียวกับ Preview/Details (ตัวไดอะล็อกเองจะยกเลิกงาน + ละทิ้ง
     //    lease ที่ยังถืออยู่ตอน unmount — ดู VaultMigrationDialog)
-    setMigrationOpen(false)
     // ⚠️ เช่นเดียวกับ Preview (ถือทั้งชื่อไฟล์และ "เนื้อไฟล์" ที่ถอดแล้ว) และ Details
     //    ที่ถือชื่อไฟล์/MIME/ขนาดจริง ทั้งสองต้องหายไปพร้อมกุญแจในจังหวะเดียวกัน
     //    — ทั้งตอนกดล็อกเองและตอน auto-lock ครบเวลาที่บัญชีตั้งไว้ (ทางเดียวกันเป๊ะ)
@@ -1235,8 +1232,7 @@ export function Vault({
     </div>
   )
 
-  /* Task 6.3: the tree screen replaces the legacy body when treeUiEnabled */
-  if (treeUiActive) {
+  if (vaultExperience.kind === VAULT_EXPERIENCE.TREE) {
     return (
       <div className="flex flex-1 flex-col">
         <div className="vault-pane-content">
@@ -1252,6 +1248,58 @@ export function Vault({
           recoveryScope={userId}
           marqueeSurfaceRef={marqueeSurfaceRef}
           registerMarqueePointerDown={registerMarqueePointerDown}
+        />
+      </div>
+    )
+  }
+
+  if (unlocked && vaultExperience.kind === VAULT_EXPERIENCE.LOADING) {
+    return <div className="vault-pane-content"><Card className="p-5"><SkeletonLoader type="files" /></Card></div>
+  }
+
+  if (unlocked && vaultExperience.kind === VAULT_EXPERIENCE.UNAVAILABLE) {
+    return (
+      <div className="vault-pane-content">
+        {vaultCallout}
+        <Card className="p-5">
+          <p data-testid="vault-tree-unavailable" className="text-[13px] text-ink-2">{t('vaultTreeUnavailable')}</p>
+        </Card>
+        {treeProtocolState === 'TREE_V1' && (
+          <VaultTreeRollback t={t} lang={lang} kek={kek} unlockedState={unlockedState.current} />
+        )}
+      </div>
+    )
+  }
+
+  if (unlocked && [
+    VAULT_EXPERIENCE.AUTO_EMPTY_GENESIS,
+    VAULT_EXPERIENCE.EXPLICIT_MIGRATION,
+    VAULT_EXPERIENCE.RESUME_MIGRATION,
+  ].includes(vaultExperience.kind)) {
+    const migrationMode = vaultExperience.kind === VAULT_EXPERIENCE.AUTO_EMPTY_GENESIS
+      ? 'auto-empty'
+      : vaultExperience.kind === VAULT_EXPERIENCE.RESUME_MIGRATION ? 'resume' : 'explicit'
+    return (
+      <div className="vault-pane-content">
+        {vaultCallout}
+        <div className="mb-4 flex justify-end" data-marquee-ignore="">
+          <Btn variant="outline" onClick={() => lock(false)}>
+            <Lock size={14} strokeWidth={1.8} />
+            {t('lockVault')}
+          </Btn>
+        </div>
+        <VaultMigrationDialog
+          mode={migrationMode}
+          t={t}
+          lang={lang}
+          kek={kek}
+          treeState={treeState}
+          onClose={() => {}}
+          onCommitted={async () => {
+            await treeStateApi.refresh()
+            setTreeBump((b) => b + 1)
+          }}
+          stillUnlocked={() => Boolean(kek && entries)}
         />
       </div>
     )
@@ -1281,12 +1329,6 @@ export function Vault({
               <Plus size={14} strokeWidth={1.8} />
               {t('upload')}
             </Btn>
-            {migrationEntryShown && (
-              /* ข้อความล้วนโดยเจตนา — เทสต์ตรึง textContent ของทางเข้าไว้เท่ากับป้ายพอดี */
-              <Btn variant="outline" data-testid="vault-migration-entry" onClick={() => setMigrationOpen(true)}>
-                {t('vaultMigrationEntry')}
-              </Btn>
-            )}
             <Btn variant="outline" onClick={() => lock(false)}>
               <Lock size={14} strokeWidth={1.5} />
               {t('lockVault')}
@@ -1320,36 +1362,6 @@ export function Vault({
           onResume={resumeUpload}
           onCancel={() => transferAbort.current?.abort()}
           onDismiss={dismissTransfer}
-        />
-      )}
-
-      {/* ── TREE_V1 (Tranche A): placeholder จริงใจ — Tranche A ยังไม่มี UI ต้นไม้ ──
-          ให้มีข้อความเดียวในองค์ประกอบนี้โดยเจตนา (เทสต์ตรึงข้อความเต็มไว้) */}
-      {treePlaceholderShown && (
-        <>
-          <p data-testid="vault-tree-placeholder" className="text-[12.5px] text-ink-3 mb-4">
-            {t('vaultMigrationNoTreeUi')}
-          </p>
-          <VaultTreeRollback
-            t={t}
-            lang={lang}
-            kek={kek}
-            unlockedState={unlockedState.current}
-          />
-        </>
-      )}
-
-      {unlocked && (migrationOpen || migrationAutoOpen) && (
-        <VaultMigrationDialog
-          t={t}
-          lang={lang}
-          kek={kek}
-          treeState={treeState}
-          onClose={() => setMigrationOpen(false)}
-          /* commit สำเร็จ = คงไดอะล็อก "เสร็จ" ไว้จนผู้ใช้ปิดเอง แม้กรณีเปิดอัตโนมัติ
-             (มิฉะนั้นสถานะ done จะหายไปพร้อม protocolState ที่เพิ่งเปลี่ยน) */
-          onCommitted={() => { setMigrationOpen(true); setTreeBump((b) => b + 1) }}
-          stillUnlocked={() => Boolean(kek && entries)}
         />
       )}
 
