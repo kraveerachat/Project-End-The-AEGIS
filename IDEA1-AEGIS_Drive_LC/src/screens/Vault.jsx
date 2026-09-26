@@ -1292,7 +1292,11 @@ export function Vault({
           lang={lang}
           kek={kek}
           treeState={treeState}
-          onClose={() => {}}
+          /* ⚠️ สถานะเหล่านี้บังคับ (ไม่มี UI ปฏิบัติการอื่นให้ถอยไป) — ปิด = ล็อก ผ่าน lock() ทางเดียว
+             กับปุ่ม Lock: purge plaintext → ไดอะล็อก unmount → ยกเลิกงาน + ละทิ้ง "เฉพาะ lease ของเรา"
+             ปลดล็อกใหม่ = ประเมิน /tree/state สดอีกรอบ ห้ามมีทางถอยไป UI FLAT แบบเดิม */
+          onClose={() => lock(false)}
+          onRefreshState={() => treeStateApi.refresh()}
           onCommitted={async () => {
             await treeStateApi.refresh()
             setTreeBump((b) => b + 1)

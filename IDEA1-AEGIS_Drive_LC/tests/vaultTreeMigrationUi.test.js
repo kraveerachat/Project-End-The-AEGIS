@@ -19,7 +19,7 @@ import assert from 'node:assert/strict'
 import test, { after, before, beforeEach } from 'node:test'
 import React, { act } from 'react'
 
-import { makeT } from '../src/lib/strings.js'
+import { makeT, STRINGS } from '../src/lib/strings.js'
 import { CORRECT_PASSPHRASE, makeVaultTreeBackend, v1Blob } from './fixtures/vaultTreeBackend.js'
 import {
   startVaultScreenEnv, settle, click, type, byText, unlock, lockVault,
@@ -341,6 +341,165 @@ test('MU-6 TREE_V1 with tree UI disabled is honestly unavailable, never legacy F
     assert.ok(ph.textContent.includes(t('vaultTreeUnavailable')), 'the copy admits the tree chain is unavailable')
     assert.ok(!q('[data-vault-tile-menu]'), 'legacy FLAT cards do not return')
     assert.ok(!q('[data-testid="vault-migration-entry"]'), 'no migration entry in TREE_V1')
+  } finally {
+    await h.unmount()
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PR220-R1 Human Acceptance corrective pass (C1–C3)
+//   C1  migration copy must say "upgrade/convergence", never the ordinary Create Folder action
+//   C2  the Close (X) control works: it locks the Vault through the existing purge lifecycle,
+//       abandons only a lease THIS client holds, and never exposes legacy FLAT UI
+//   C3  a foreign lease is shown with its expiry, can be re-checked against fresh
+//       GET /tree/state, and becomes resumable (takeover, never begin) once expired
+// ─────────────────────────────────────────────────────────────────────────────
+const closeX = () => q('[role="dialog"] button[aria-label="Close"]')
+const lockedSurface = () => Boolean(byText(dom, 'button', t('unlockVault')))
+const noLegacyOperationalUi = () => !q('input[type="file"]') && !q('[data-vault-tile-menu]')
+
+async function mountWithPurgeSpy() {
+  const { createUnlockedVaultState } = await env.load('/src/lib/vaultUnlockedState.js')
+  const purges = []
+  const unlockedStateFactory = (opts) => {
+    const state = createUnlockedVaultState(opts)
+    return { ...state, purge: (reason) => { purges.push(reason); return state.purge(reason) } }
+  }
+  const h = env.mount()
+  await h.render(React.createElement(Vault, { t, unlockedStateFactory }))
+  await unlock(dom, t, CORRECT_PASSPHRASE)
+  return { h, purges }
+}
+
+test('C1-COPY migration title/entry say "upgrade", never the ordinary Create Folder label, in every language', () => {
+  assert.equal(STRINGS.th.vaultMigrationTitle, 'อัปเกรดห้องนิรภัยเป็นโฟลเดอร์')
+  assert.equal(STRINGS.th.vaultMigrationEntry, 'อัปเกรดห้องนิรภัย')
+  for (const lang of ['en', 'th', 'zh']) {
+    const s = STRINGS[lang]
+    for (const key of ['vaultMigrationTitle', 'vaultMigrationEntry']) {
+      assert.notEqual(s[key], s.newFolder, `${lang}.${key} must not read as the ordinary New folder action`)
+      assert.notEqual(s[key], s.vaultTreeNewFolderTitle, `${lang}.${key} must not read as the TREE New folder dialog`)
+      assert.notEqual(s[key], 'สร้างโฟลเดอร์', `${lang}.${key} must not be "Create folder"`)
+    }
+  }
+  assert.match(STRINGS.en.vaultMigrationTitle, /upgrade/i)
+  assert.match(STRINGS.zh.vaultMigrationTitle, /升级/)
+})
+
+test('C2-CLOSE-1 X on the explicit migration gate locks the Vault; no legacy FLAT UI appears', async () => {
+  seedVault(INVENTORY.slice(0, 1))
+  const { h, purges } = await mountWithPurgeSpy()
+  try {
+    assert.ok(q('[data-testid="vault-migration-explain"]'))
+    assert.ok(closeX(), 'the dialog has a Close control')
+    await click(dom, closeX())
+    await tick()
+    assert.ok(!q('[data-testid="vault-migration-explain"]'), 'the migration gate closed')
+    assert.ok(lockedSurface(), 'the user is back on the normal locked Vault surface')
+    assert.ok(noLegacyOperationalUi(), 'no legacy upload input or FLAT cards')
+    assert.deepEqual(purges, ['MANUAL_LOCK'], 'unlocked state purged once through the existing lock lifecycle')
+    assert.equal(reqCount('migration/begin'), 0, 'closing never starts a migration')
+    assert.equal(reqCount('migration/abandon'), 0, 'nothing was held, so nothing is abandoned')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('C2-CLOSE-2 X while this client holds a migration lease cancels, abandons OUR lease, purges names, locks', async () => {
+  seedVault(INVENTORY)
+  const { h, purges } = await mountWithPurgeSpy()
+  try {
+    backend.holdPath = 'migration/begin'
+    await click(dom, byText(dom, 'button', t('vaultMigrationStart')))
+    await act(async () => backend.release(leaseReply(INVENTORY)))
+    await tick()
+    assert.ok(q('[data-testid="vault-migration-collision-list"]'), 'own job is in progress (collision step)')
+    await click(dom, closeX())
+    await tick()
+    assert.ok(lockedSurface(), 'locked Vault surface')
+    assert.ok(noLegacyOperationalUi(), 'no legacy FLAT UI')
+    const text = doc().body.textContent
+    assert.ok(!text.includes('notes.txt') && !text.includes('NOTES.TXT'), 'no plaintext names survive the close')
+    assert.ok(reqCount('migration/abandon') >= 1, 'our own lease is abandoned')
+    assert.equal(backend.tree.genesisBodies.length, 0, 'nothing committed')
+    assert.deepEqual(purges, ['MANUAL_LOCK'])
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('C2-CLOSE-3 X while ANOTHER device holds the lease never abandons the foreign lease', async () => {
+  backend.tree.protocolState = 'MIGRATING_TREE_V1'
+  backend.tree.lease = { held: true, epoch: 2, expiresAt: Date.now() + 600_000 }
+  const { h } = await mountWithPurgeSpy()
+  try {
+    assert.ok(q('[data-testid="vault-migration-remote"]'))
+    await click(dom, closeX())
+    await tick()
+    assert.ok(lockedSurface())
+    assert.ok(noLegacyOperationalUi())
+    assert.equal(reqCount('migration/abandon'), 0, 'a foreign lease is never abandoned by this client')
+    assert.equal(reqCount('migration/takeover'), 0)
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('C3-REFRESH-1 foreign lease: Check again fetches fresh /tree/state; still valid → still remote, never takeover', async () => {
+  backend.tree.protocolState = 'MIGRATING_TREE_V1'
+  backend.tree.lease = { held: true, epoch: 2, expiresAt: Date.now() + 600_000 }
+  const h = await mountUnlocked()
+  try {
+    assert.ok(q('[data-testid="vault-migration-remote"]'))
+    const refresh = q('[data-testid="vault-migration-refresh"]')
+    assert.ok(refresh, 'a visible Check again action exists')
+    const before = reqCount('tree/state')
+    await click(dom, refresh)
+    await tick()
+    assert.ok(reqCount('tree/state') > before, 'Check again performs a real GET /tree/state')
+    assert.ok(q('[data-testid="vault-migration-remote"]'), 'a still-valid foreign lease stays remote')
+    assert.equal(reqCount('migration/takeover') + reqCount('migration/begin'), 0, 'never takes over before expiry')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('C3-REFRESH-2 server reports the foreign lease expired → Resume appears; Resume uses takeover, not begin', async () => {
+  backend.tree.protocolState = 'MIGRATING_TREE_V1'
+  backend.tree.lease = { held: true, epoch: 2, expiresAt: Date.now() + 600_000 }
+  seedVault(INVENTORY.slice(0, 1))
+  const h = await mountUnlocked()
+  try {
+    assert.ok(q('[data-testid="vault-migration-remote"]'))
+    backend.tree.lease = { held: true, epoch: 2, expiresAt: Date.now() - 1_000 }  // server truth moved on
+    await click(dom, q('[data-testid="vault-migration-refresh"]'))
+    await tick()
+    assert.ok(!q('[data-testid="vault-migration-remote"]'), 'the stale remote state is gone')
+    const resume = byText(dom, 'button', t('vaultMigrationResume'))
+    assert.ok(resume, 'Resume is offered once the server reports the lease expired')
+    assert.equal(reqCount('migration/abandon'), 0, 'the foreign lease is never abandoned by this client')
+    await click(dom, resume)
+    await tick()
+    assert.equal(reqCount('migration/takeover'), 1, 'resume takes over')
+    assert.equal(reqCount('migration/begin'), 0, 'resume never begins')
+    assert.ok(q('[data-testid="vault-tree-screen"]'), 'successful takeover converges to the TREE screen')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('C3-REFRESH-3 a bounded timer re-checks fresh state once the displayed lease expiry passes', async () => {
+  backend.tree.protocolState = 'MIGRATING_TREE_V1'
+  backend.tree.lease = { held: true, epoch: 2, expiresAt: Date.now() + 1_500 }
+  const h = await mountUnlocked()
+  try {
+    assert.ok(q('[data-testid="vault-migration-remote"]'))
+    const before = reqCount('tree/state')
+    await act(async () => { await new Promise((r) => setTimeout(r, 3_000)) })
+    await tick()
+    assert.ok(reqCount('tree/state') > before, 'expiry triggers a fresh GET /tree/state')
+    assert.ok(byText(dom, 'button', t('vaultMigrationResume')), 'the expired lease is now resumable without a manual click')
+    assert.equal(reqCount('migration/takeover'), 0, 'nothing is taken over silently')
   } finally {
     await h.unmount()
   }
