@@ -64,9 +64,10 @@ L6B_REMAINS_BLOCKED=YES
 ## Verification evidence
 
 - `pytest tests/test_pr11_phase4_l34_v3_preservation.py tests/test_pr11_phase4_l34_v3_handlers.py` — pass: reproduces the exact live comparator findings (8 drift findings PRE->POST, the residuals PRE->RB) under the V2 files and turns them green under V3; wrong p2p name/type/state, enabled unit, restarts, unrelated Wi-Fi, non-regulatory phy deltas, unsafe rollback residuals and mixed baselines all still fail.
-- `pytest tests -k "pr11_phase4 or broker or mqtt"` — pass: 1769 passed, 2 skipped, 0 failed (includes L3/L4, capture/compare/harness, L6b runner and earlier L34 suites).
+- `pytest tests -k "pr11_phase4 or broker or mqtt"` — pass: 1831 passed, 2 skipped, 0 failed after review round 2 (includes L3/L4, capture/compare/harness, L6b runner and earlier L34 suites); the V3 handler suite passed 20 of 20 repeated runs and the V3 preservation suite 20 of 20.
 - `bash -n` on all changed scripts — pass; `git diff --check` — pass; `node scripts/validate-vault.mjs` — pass (see PR checks).
-- One test-run intermittent failure was seen twice during development in `test_pr11_phase4_l34_v3_handlers.py` (two verify-envelope cases in one run, one case in another) and did not reproduce in 18 further full-file/targeted reruns or in the final full regression; the cause was not identified. Recorded, not hidden.
+- Intermittent test failure during development (root cause found and fixed): the simulator rewrote its state file non-atomically even on read-only calls, and the V3 baseline path runs two stubs concurrently in one shell pipeline; a reader could see a truncated file (reproduced: 5 failures in 360 concurrent read-only stub calls; 0 in 900 after the fix). Fix: atomic `os.replace` writes and no rewrite when nothing changed. This was a test-infrastructure defect, not a product defect.
+- Review round 2 (PR #225): strict P2P baseline inventory (no inference from an empty typed query), relational p2p comparator gate, baseline-aware rollback proofs that require a proven-safe wpa_supplicant state and P2P inventory before `SAFE_NETWORK_BOUNDARY_RESTORED=YES`.
 - Live proof of V3 — not run: repository-only task.
 
 ## Canonical notes updated

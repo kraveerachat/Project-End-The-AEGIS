@@ -56,7 +56,9 @@
 # when the whole gate holds in the two bundles (POST: radio disabled->enabled, target AP the active connection, no unrelated Wi-Fi, unit
 # disabled / NRestarts 0 / Result success; ROLLBACK: radio disabled again, target rfkill blocked, no Wi-Fi active, same unit facts; phy: the
 # approved target regulatory transition 00->TH under ALLOW_TRANSITIONS_FILE, global regulatory unchanged 00, channel 6 permitted, phy identity
-# and AP mode unchanged, and the regulatory-insensitive digest wifi.phy.regnorm_sha256 EQUAL). Nothing here is a generic allow key.
+# and AP mode unchanged, and the regulatory-insensitive digest wifi.phy.regnorm_sha256 EQUAL). The p2p pseudo-device rules are gated too (POST: radio
+# disabled->enabled with unchanged prefix, approved AP active, no unrelated Wi-Fi/P2P; ROLLBACK_FRESH: radio disabled and target rfkill blocked in both,
+# no Wi-Fi/P2P active, target unavailable). Nothing here is a generic allow key.
 #   L34_V3_POST_FRESH / L34_V3_POST_RESIDUAL / L34_V3_ROLLBACK_FRESH / L34_V3_ROLLBACK_RESIDUAL  (catalogs in the design document)
 #
 # Exit 0 = COMPARE_RESULT=PASS, 1 = COMPARE_RESULT=FAIL, 2 = STOP (usage/integrity).
@@ -383,6 +385,15 @@ END {
     wpa_gate = (wpa_lifecycle && wpa_unit_ok && radio_pre == "disabled" && radio_post == "disabled" && radio_prefix_equal(B["nm.general"], A["nm.general"]) \
                 && B["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" && A["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" && !wifi_active_any \
                 && A["nm.device.wlp0s20f3.state"] == B["nm.device.wlp0s20f3.state"])
+  # p2p pseudo-device transitions are relational to the authorized NM radio transition too (exact names/values are enforced by the catalog)
+  p2p_gate = 0
+  if (dyn_op ~ /_POST_(FRESH|RESIDUAL)$/)
+    p2p_gate = (radio_pre == "disabled" && radio_post == "enabled" && radio_prefix_equal(B["nm.general"], A["nm.general"]) \
+                && A["nm.active.device.wlp0s20f3"] == "aegis-idea3-ap:802-11-wireless" && !unrelated_wifi)
+  else if (dyn_op ~ /_ROLLBACK_FRESH$/)
+    p2p_gate = (radio_pre == "disabled" && radio_post == "disabled" \
+                && B["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" && A["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" \
+                && !wifi_active_any && A["nm.device.wlp0s20f3.state"] == "unavailable")
   phy_gate = 0
   if (dyn_op ~ /_(POST|ROLLBACK)_FRESH$/ && reg_tk != "") {
     pk2 = "wifi.iface." trans_iface ".phy"
@@ -444,6 +455,7 @@ END {
       } else {
         for (r = 1; r <= dyn_n; r++) if (DR_K[r] == key && vmatch(DR_F[r], b) && vmatch(DR_T[r], a)) {
           if (key ~ /^svc\.wpa_supplicant\.service\./) dyn_hit = wpa_gate
+          else if (key ~ /^nm\.(active\.)?device\.p2p-dev-wlp0s20f3(\.|$)/) dyn_hit = p2p_gate
           else if (key == "wifi.phy.sha256") dyn_hit = phy_gate
           else dyn_hit = 1
           if (dyn_hit) break

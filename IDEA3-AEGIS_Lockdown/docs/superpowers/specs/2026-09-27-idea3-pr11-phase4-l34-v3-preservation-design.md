@@ -59,6 +59,15 @@ operations are unchanged.
 | `L34_V3_ROLLBACK_FRESH` | p2p with `….state <absent>→unavailable`; the same wpa and phy rules |
 | `L34_V3_ROLLBACK_RESIDUAL` | dnsmasq rules only (rollback must equal PRE) |
 
+### 3.0 P2P pseudo-device — exact catalog AND relational (`p2p_gate`)
+
+The p2p catalog entries are exact (`p2p-dev-wlp0s20f3`, `wifi-p2p`, the listed values, no wildcard name), and they are approved only when the gate holds:
+
+- POST (`POST_FRESH`, `POST_RESIDUAL`): NM Wi-Fi radio changed exactly `disabled → enabled` with STATE/CONNECTIVITY/WIFI-HW unchanged; `nm.active.device.wlp0s20f3` is exactly
+  `aegis-idea3-ap:802-11-wireless`; no unrelated Wi-Fi or P2P connection is active (the p2p device itself active counts as unrelated).
+- `ROLLBACK_FRESH`: radio `disabled` in PRE and RB; target rfkill `blocked` in PRE and RB; no Wi-Fi/P2P connection active; the target `wlp0s20f3` is `unavailable` in the rollback bundle.
+- `ROLLBACK_RESIDUAL` has no p2p transition at all: the exact residual is already in PRE and any change is drift.
+
 ### 3.1 wpa_supplicant — relational (`wpa_gate`)
 
 The four wpa rules approve only when **all** hold in the two bundles. POST: PRE inactive/dead/PID 0 and POST active/running/PID>0 with a start
@@ -89,13 +98,15 @@ For the fresh baseline the rollback comparison therefore carries the existing `0
 
 ## 4. Baselines (`apply.sh` preflight, `AEGIS_L34_PRESERVATION=V3`)
 
-The preflight classifies the host read-only and prints `L34_BASELINE=FRESH|RESIDUAL`; the runner requires exactly one recognized value and selects
-its catalogs from it. Mixed or unrecognized states fail with `L34_BASELINE_MIXED_OR_UNRECOGNIZED` before any mutation.
+The preflight classifies the host read-only from ONE `nmcli -t -f DEVICE,TYPE,STATE device status` snapshot and prints `L34_BASELINE=FRESH|RESIDUAL`; the runner requires exactly one recognized value and selects
+its catalogs from it. Absence is never inferred from an empty result of a type-filtered helper: a same-name device with another type, an additional P2P device, a differently named P2P device
+or a wrong residual state (for example `disconnected`) is a mixed inventory and fails with `L34_BASELINE_MIXED_OR_UNRECOGNIZED` before any mutation.
 
 | | FRESH (post-reboot) | RESIDUAL (proven after attempt 2) |
 |---|---|---|
+| Wi-Fi devices | `wlp0s20f3` is the sole `TYPE=wifi` device | same |
 | target phy country | `00` | `TH` |
-| `p2p-dev-wlp0s20f3` | absent | present, type `wifi-p2p`, state `unavailable` |
+| P2P inventory (every `TYPE=wifi-p2p` device **and** every device named `p2p-dev-*` with any type) | **empty** (zero rows) | **exactly** `p2p-dev-wlp0s20f3:wifi-p2p:unavailable` |
 | `wpa_supplicant.service` | inactive/dead, PID 0 | active/running, PID>0 |
 | both | NM radio `disabled`; target `unavailable`; unit `disabled`, `NRestarts=0`, `Result=success`; no active Wi-Fi | same |
 
@@ -107,7 +118,13 @@ V3 always relies on the owner-authorized V2 radio enable.
 - `verify.sh` (V3): the only new NM device compared to PRE is exactly `p2p-dev-wlp0s20f3:wifi-p2p` with state `disconnected`
   (`L34_V3_UNEXPECTED_NM_DEVICE`, `L34_V3_P2P_DEVICE_STATE`); wpa_supplicant active/running with the unit facts intact
   (`L34_V3_WPA_SUPPLICANT_*`); prints `L34_V3_SIDE_EFFECTS=WITHIN_ENVELOPE`.
-- `rollback.sh` (V3): proves the safe boundary — radio `disabled`, target `type managed`, no AP default route, target rfkill restored, p2p device
+- `verify.sh` (V3) requires the COMPLETE P2P inventory to be exactly `p2p-dev-wlp0s20f3:wifi-p2p:disconnected`.
+- `rollback.sh` (V3), before printing `SAFE_NETWORK_BOUNDARY_RESTORED=YES`, requires a proven-safe **wpa_supplicant state** and a **baseline-aware P2P inventory**:
+  wpa_supplicant `LoadState=loaded`, `UnitFileState=disabled`, `NRestarts=0`, `Result=success` and — FRESH: `inactive/dead/MainPID=0` (exact PRE) **or**
+  `active/running/MainPID>0` (proven residual); RESIDUAL: `active/running/MainPID>0` only. `failed`, `activating`, `deactivating`, `exited` and active with PID 0 are
+  rejected (`L34_V3_ROLLBACK_WPA_STATE`). P2P: FRESH — no P2P device **or** exactly the `unavailable` row; RESIDUAL — exactly the `unavailable` row; any other inventory
+  is unsafe (`L34_V3_ROLLBACK_P2P_DEVICE_STATE`). `wpa_supplicant` is never stopped or restarted.
+- `rollback.sh` (V3) also proves the rest of the safe boundary — radio `disabled`, target `type managed`, no AP default route, target rfkill restored, p2p device
   absent or exactly `unavailable`, no other new NM device, wpa_supplicant unit facts intact, target regulatory state `TH` or `00` — and reports
   `SAFE_NETWORK_BOUNDARY_RESTORED=YES` separately from `EXACT_PRESTATE_RESTORED=YES|NO` (exact only when the p2p device, wpa_supplicant and the
   country all equal PRE). It never stops wpa_supplicant, removes the p2p device, sets the regulatory domain or restarts NetworkManager.

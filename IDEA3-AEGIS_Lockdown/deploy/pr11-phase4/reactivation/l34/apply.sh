@@ -96,11 +96,13 @@ radio_pre=$(nmcli radio wifi 2>/dev/null || true)
 if [ "${AEGIS_L34_PRESERVATION:-}" = V3 ]; then
   # V3 preservation model: only the two proven baselines are accepted; the runner picks its comparator catalogs from the reported baseline.
   [ "${AEGIS_L34_NM_RADIO_ENABLE:-NO}" = YES ] || fail L34_V3_REQUIRES_NM_RADIO_ENABLE
-  target_state=$(nmcli -t -f DEVICE,STATE device status 2>/dev/null | awk -F: '$1 == "wlp0s20f3" { split($2, w, " "); print w[1] }')
-  baseline=$(systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID -p NRestarts wpa_supplicant.service \
-    | l34_baseline_classify "$L3_REG_COUNTRY" "$radio_pre" "$target_state" "$(l34_p2p_device_state)") \
-    || fail "$(systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID -p NRestarts wpa_supplicant.service \
-      | l34_baseline_classify "$L3_REG_COUNTRY" "$radio_pre" "$target_state" "$(l34_p2p_device_state)" 2>&1 | head -n 1)"
+  nm_snapshot=$(l34_nm_status_snapshot) || fail L34_NM_DEVICE_INVENTORY_UNREADABLE
+  target_state=$(awk -F: '$1 == "wlp0s20f3" { split($3, w, " "); print w[1] }' <<< "$nm_snapshot")
+  p2p_inventory=$(l34_p2p_inventory <<< "$nm_snapshot")
+  wifi_devices=$(l34_wifi_devices <<< "$nm_snapshot")
+  wpa_props=$(systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID -p NRestarts wpa_supplicant.service)
+  baseline=$(l34_baseline_classify "$L3_REG_COUNTRY" "$radio_pre" "$target_state" "$p2p_inventory" "$wifi_devices" <<< "$wpa_props") \
+    || fail "$(l34_baseline_classify "$L3_REG_COUNTRY" "$radio_pre" "$target_state" "$p2p_inventory" "$wifi_devices" <<< "$wpa_props" 2>&1 | head -n 1)"
   printf '%s\n' "$baseline" > "$WORK/baseline.txt"
   printf '%s\n' "$L3_REG_COUNTRY" > "$WORK/phy-country-pre.txt"
   l34_nm_devices_listing > "$WORK/nm-devices-pre.txt"

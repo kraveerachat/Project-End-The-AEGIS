@@ -75,7 +75,7 @@ if [ "${AEGIS_L34_PRESERVATION:-}" = V3 ]; then
   [ -f "$WORK/baseline.txt" ] && [ -f "$WORK/nm-devices-pre.txt" ] || fail "PRE_BASELINE_MISSING:v3"
   new_devs=$(comm -13 "$WORK/nm-devices-pre.txt" <(l34_nm_devices_listing) | grep -vx 'p2p-dev-wlp0s20f3:wifi-p2p' || true)
   [ -z "$new_devs" ] || fail L34_V3_UNEXPECTED_NM_DEVICE
-  [ "$(l34_p2p_device_state)" = disconnected ] || fail L34_V3_P2P_DEVICE_STATE
+  [ "$(l34_nm_status_snapshot | l34_p2p_inventory)" = "$L34_P2P_POST_ROW" ] || fail L34_V3_P2P_DEVICE_STATE   # the COMPLETE p2p inventory is exactly this one row
   wpa=$(systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID -p NRestarts wpa_supplicant.service)
   for kv in LoadState=loaded ActiveState=active SubState=running UnitFileState=disabled Result=success NRestarts=0; do
     grep -qx "$kv" <<< "$wpa" || fail "L34_V3_WPA_SUPPLICANT_${kv%%=*}"

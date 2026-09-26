@@ -50,6 +50,11 @@ DEFAULT_STATE = {
     "p2p_present": False,
     "p2p_state_override": "",
     "extra_nm_device": False,
+    "p2p_type_override": "",          # same-name pseudo-device reported with another type
+    "p2p_name_override": "",          # differently named p2p device instead of p2p-dev-wlp0s20f3
+    "extra_p2p_device": False,        # a second wifi-p2p device besides the correct one
+    "wpa_state_override": "",         # failed | activating | deactivating | exited
+    "wpa_pid_override": -1,           # >= 0 forces MainPID
     "wpa_active": False,
     "wpa_pid": 1545238,
     "wpa_unit_file_state": "disabled",
@@ -106,7 +111,10 @@ def load(sim_dir: Path) -> dict:
 
 
 def save(sim_dir: Path, state: dict) -> None:
-    (sim_dir / "state.json").write_text(json.dumps(state))
+    """Atomic write: readers (other stubs running concurrently in a shell pipeline) always see a complete file."""
+    tmp = sim_dir / f".state.{os.getpid()}.tmp"
+    tmp.write_text(json.dumps(state))
+    os.replace(tmp, sim_dir / "state.json")
 
 
 def calls(sim_dir: Path) -> list[str]:
@@ -139,6 +147,16 @@ def _device_state(s: dict) -> str:
     return "disconnected"
 
 
+def _p2p_rows(s: dict) -> list[tuple[str, str, str]]:
+    """The complete p2p-related NetworkManager inventory: (name, type, state)."""
+    rows: list[tuple[str, str, str]] = []
+    if s["p2p_present"]:
+        rows.append((s["p2p_name_override"] or "p2p-dev-wlp0s20f3", s["p2p_type_override"] or "wifi-p2p", _p2p_state(s)))
+    if s["extra_p2p_device"]:
+        rows.append(("p2p-dev-wlan1", "wifi-p2p", "unavailable"))
+    return rows
+
+
 def _p2p_state(s: dict) -> str:
     if s["p2p_state_override"]:
         return s["p2p_state_override"]
@@ -147,9 +165,16 @@ def _p2p_state(s: dict) -> str:
 
 def _wpa_props(s: dict) -> dict[str, str]:
     act = s["wpa_active"]
-    return {"LoadState": "loaded", "UnitFileState": s["wpa_unit_file_state"], "ActiveState": "active" if act else "inactive",
-            "SubState": "running" if act else "dead", "Result": "success", "MainPID": str(s["wpa_pid"] if act else 0),
-            "NRestarts": str(s["wpa_nrestarts"]), "ExecMainStartTimestamp": "Sun 2026-09-27 03:21:03 +07" if act else ""}
+    props = {"LoadState": "loaded", "UnitFileState": s["wpa_unit_file_state"], "ActiveState": "active" if act else "inactive",
+             "SubState": "running" if act else "dead", "Result": "success", "MainPID": str(s["wpa_pid"] if act else 0),
+             "NRestarts": str(s["wpa_nrestarts"]), "ExecMainStartTimestamp": "Sun 2026-09-27 03:21:03 +07" if act else ""}
+    forced = {"failed": ("failed", "failed"), "activating": ("activating", "start"), "deactivating": ("deactivating", "stop-sigterm"),
+              "exited": ("active", "exited")}.get(s["wpa_state_override"])
+    if forced:
+        props["ActiveState"], props["SubState"] = forced
+    if s["wpa_pid_override"] >= 0:
+        props["MainPID"] = str(s["wpa_pid_override"])
+    return props
 
 
 def _dnsmasq_props(s: dict) -> dict[str, str]:
@@ -183,6 +208,7 @@ def main(argv: list[str]) -> int:
     name, args = argv[1], argv[2:]
     sim = _sim_dir()
     s = load(sim)
+    original = json.dumps(s, sort_keys=True)
     with (sim / "calls.log").open("a") as fh:
         fh.write(name + " " + " ".join(args) + "\n")
     out: list[str] = []
@@ -213,14 +239,14 @@ def main(argv: list[str]) -> int:
     elif name == "nmcli":
         if args[:5] == ["-t", "-f", "DEVICE,STATE", "device", "status"]:
             out = [f"wlp0s20f3:{_device_state(s)}", f"enp62s0:{s['wired_ifname_state']}", "lo:unmanaged"]
-            if s["p2p_present"]:
-                out.append(f"p2p-dev-wlp0s20f3:{_p2p_state(s)}")
+            out += [f"{n}:{st}" for n, _ty, st in _p2p_rows(s)]
             if s["extra_nm_device"]:
                 out.append("br0:connected")
         elif args == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
             out = [f"wlp0s20f3:wifi:{_device_state(s)}", f"enp62s0:ethernet:{s['wired_ifname_state']}", "lo:loopback:unmanaged"]
-            if s["p2p_present"]:
-                out.append(f"p2p-dev-wlp0s20f3:wifi-p2p:{_p2p_state(s)}")
+            out += [f"{n}:{ty}:{st}" for n, ty, st in _p2p_rows(s)]
+            if s["extra_wifi_device"]:
+                out.append("wlan1:wifi:unavailable")
             if s["extra_nm_device"]:
                 out.append("br0:bridge:connected")
         elif args == ["radio", "wifi"]:
@@ -248,6 +274,7 @@ def main(argv: list[str]) -> int:
             out = [s["dev_autoconnect"]]
         elif args == ["-t", "-f", "DEVICE,TYPE", "device", "status"]:
             out = ["wlp0s20f3:wifi", "enp62s0:ethernet", "lo:loopback"] + (["wlan1:wifi"] if s["extra_wifi_device"] else [])
+            out += [f"{n}:{ty}" for n, ty, _st in _p2p_rows(s)]
         elif args == ["-t", "-f", "TYPE,DEVICE", "connection", "show", "--active"]:
             out = ["802-3-ethernet:enp62s0", "tun:sdwan0"]
             if s["ap_active"]:
@@ -377,7 +404,8 @@ def main(argv: list[str]) -> int:
     else:
         rc = 99
 
-    save(sim, s)
+    if json.dumps(s, sort_keys=True) != original:  # read-only commands never rewrite the state (concurrent stubs in a pipeline stay race-free)
+        save(sim, s)
     if out:
         print("\n".join(out))
     return rc

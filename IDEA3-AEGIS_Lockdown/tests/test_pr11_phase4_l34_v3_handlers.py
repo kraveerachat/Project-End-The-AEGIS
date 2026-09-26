@@ -297,3 +297,162 @@ def test_runner_compare_function_runs_clean_for_both_baselines_and_kinds(tmp_pat
 def test_runner_compare_function_refuses_an_unknown_baseline(tmp_path: Path) -> None:
     res = radio.run_runner_compare(tmp_path, radio.compare_function(RUNNER.read_text()), baseline="unknown")
     assert "COMPARE_BASELINE_UNKNOWN" in res.stdout and "COMPARE_FUNCTION_RC=1" in res.stdout
+
+
+# ══ Review round 2 (PR #225): strict P2P inventory, baseline-aware rollback proofs, WPA safe state ══════════════════════════════════
+
+REASON = "L34_BASELINE_MIXED_OR_UNRECOGNIZED"
+
+
+def with_(profile: dict, **over) -> dict:
+    return {**profile, **over}
+
+
+@pytest.mark.parametrize(
+    "label,over",
+    [
+        ("same name, wrong type (fresh-looking host)", with_(LIVE_FRESH, p2p_present=True, p2p_type_override="ethernet")),
+        ("same name, wrong type (residual-looking host)", with_(LIVE_RESIDUAL, p2p_type_override="ethernet")),
+        ("same name, type wifi (a second Wi-Fi device)", with_(LIVE_RESIDUAL, p2p_type_override="wifi")),
+        ("a second p2p device on a fresh host", with_(LIVE_FRESH, extra_p2p_device=True)),
+        ("correct residual p2p plus a second p2p device", with_(LIVE_RESIDUAL, extra_p2p_device=True)),
+        ("differently named p2p only (fresh-looking)", with_(LIVE_FRESH, p2p_present=True, p2p_name_override="p2p-dev-wlan9")),
+        ("differently named p2p only (residual-looking)", with_(LIVE_RESIDUAL, p2p_name_override="p2p-dev-wlan9")),
+        ("wrong residual p2p state", with_(LIVE_RESIDUAL, p2p_state_override="disconnected")),
+        ("residual p2p state connected", with_(LIVE_RESIDUAL, p2p_state_override="connected")),
+        ("fresh host with the residual p2p device but 00/inactive", with_(LIVE_FRESH, p2p_present=True)),
+        ("a second Wi-Fi device (target no longer sole)", with_(LIVE_FRESH, extra_wifi_device=True)),
+    ],
+)
+def test_p2p_inventory_is_validated_completely_and_never_inferred_from_an_empty_typed_query(tmp_path: Path, label: str, over: dict) -> None:
+    fx = base.build(tmp_path, **over)
+    res = fx.run(APPLY, **V3)
+    assert res.returncode != 0 and REASON in res.stderr, (label, res.stderr)
+    base.no_mutation(fx)
+    assert not (fx.work / "baseline.txt").exists()
+
+
+def test_exact_fresh_and_residual_inventories_are_the_only_accepted_ones(tmp_path: Path) -> None:
+    for name, builder in (("FRESH", fresh), ("RESIDUAL", residual)):
+        fx = builder(tmp_path / name)
+        res = fx.run(APPLY, **{**V3, "AEGIS_L34_PREFLIGHT_ONLY": "YES"})
+        assert res.returncode == 0 and f"L34_BASELINE={name}" in res.stdout, res.stderr
+
+
+def test_the_classifier_takes_the_whole_inventory_not_a_typed_helper_result() -> None:
+    lib = code(LIB)
+    assert "l34_p2p_inventory" in lib
+    apply = code(APPLY)
+    assert "l34_p2p_device_state" not in apply.split("radio_authorized=0")[0]        # baseline classification no longer uses the typed helper
+
+
+# ── baseline-aware rollback proofs ─────────────────────────────────────────────────────────────────────────────────────
+
+
+def applied_v3(fx: base.Fx) -> None:
+    res = fx.run(APPLY, **V3)
+    assert res.returncode == 0, res.stdout + res.stderr
+
+
+def rollback_v3(fx: base.Fx):
+    return fx.run(ROLLBACK, **V3)
+
+
+@pytest.mark.parametrize("baseline_builder", [fresh, residual])
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        {"p2p_type_override": "ethernet"},
+        {"p2p_name_override": "p2p-dev-wlan9"},
+        {"extra_p2p_device": True},
+        {"p2p_state_override": "disconnected"},
+        {"p2p_state_override": "connected"},
+    ],
+)
+def test_rollback_rejects_every_p2p_inventory_that_is_not_the_exact_unavailable_row(tmp_path: Path, baseline_builder, mutate: dict) -> None:
+    fx = baseline_builder(tmp_path)
+    applied_v3(fx)
+    fx.set(**mutate)
+    res = rollback_v3(fx)
+    assert res.returncode != 0 and "L34_V3_ROLLBACK_P2P" in res.stderr, res.stderr
+    assert "SAFE_NETWORK_BOUNDARY_RESTORED=YES" not in res.stdout
+
+
+def test_fresh_rollback_accepts_p2p_absent_or_the_exact_unavailable_row(tmp_path: Path) -> None:
+    exact = fresh(tmp_path / "exact")
+    applied_v3(exact)
+    assert rollback_v3(exact).returncode == 0
+    absent = fresh(tmp_path / "absent")
+    applied_v3(absent)
+    absent.set(p2p_present=False)
+    res = rollback_v3(absent)
+    assert res.returncode == 0, res.stderr and "SAFE_NETWORK_BOUNDARY_RESTORED=YES" in res.stdout
+
+
+def test_residual_rollback_requires_the_exact_unavailable_row_absence_is_not_safe(tmp_path: Path) -> None:
+    fx = residual(tmp_path)
+    applied_v3(fx)
+    fx.set(p2p_present=False)
+    res = rollback_v3(fx)
+    assert res.returncode != 0 and "L34_V3_ROLLBACK_P2P" in res.stderr
+    assert "SAFE_NETWORK_BOUNDARY_RESTORED=YES" not in res.stdout
+
+
+WPA_BAD = [
+    {"wpa_state_override": "failed"}, {"wpa_state_override": "activating"}, {"wpa_state_override": "deactivating"}, {"wpa_state_override": "exited"},
+    {"wpa_pid_override": 0},  # active/running with MainPID 0
+]
+
+
+@pytest.mark.parametrize("baseline_builder", [fresh, residual])
+@pytest.mark.parametrize("mutate", WPA_BAD)
+def test_rollback_rejects_every_wpa_supplicant_state_that_is_not_a_proven_safe_state(tmp_path: Path, baseline_builder, mutate: dict) -> None:
+    fx = baseline_builder(tmp_path)
+    applied_v3(fx)
+    fx.set(**mutate)
+    res = rollback_v3(fx)
+    assert res.returncode != 0 and "L34_V3_ROLLBACK_WPA_STATE" in res.stderr, res.stderr
+    assert "SAFE_NETWORK_BOUNDARY_RESTORED=YES" not in res.stdout
+
+
+def test_fresh_rollback_accepts_wpa_exact_pre_state_or_the_proven_running_residual(tmp_path: Path) -> None:
+    running = fresh(tmp_path / "running")
+    applied_v3(running)
+    assert rollback_v3(running).returncode == 0                                   # active/running/PID>0 (proven residual)
+    pre = fresh(tmp_path / "pre")
+    applied_v3(pre)
+    pre.set(wpa_active=False)                                                     # inactive/dead/MainPID 0 (exact PRE state)
+    res = rollback_v3(pre)
+    assert res.returncode == 0 and "SAFE_NETWORK_BOUNDARY_RESTORED=YES" in res.stdout, res.stderr
+    assert "EXACT_PRESTATE_RESTORED" in res.stdout
+
+
+def test_residual_rollback_requires_wpa_active_running_and_rejects_inactive(tmp_path: Path) -> None:
+    fx = residual(tmp_path)
+    applied_v3(fx)
+    fx.set(wpa_active=False)
+    res = rollback_v3(fx)
+    assert res.returncode != 0 and "L34_V3_ROLLBACK_WPA_STATE" in res.stderr
+    assert "SAFE_NETWORK_BOUNDARY_RESTORED=YES" not in res.stdout
+
+
+@pytest.mark.parametrize("baseline_builder", [fresh, residual])
+def test_rollback_still_rejects_wpa_unit_facts_and_never_stops_wpa_supplicant(tmp_path: Path, baseline_builder) -> None:
+    fx = baseline_builder(tmp_path)
+    applied_v3(fx)
+    n = len(fx.calls())
+    assert rollback_v3(fx).returncode == 0
+    assert not any(c.startswith(("systemctl stop wpa_supplicant", "systemctl restart", "systemctl start wpa_supplicant")) for c in fx.calls()[n:])
+    for mutate, reason in (({"wpa_unit_file_state": "enabled"}, "UnitFileState"), ({"wpa_nrestarts": 2}, "NRestarts")):
+        fx2 = baseline_builder(tmp_path / reason)
+        applied_v3(fx2)
+        fx2.set(**mutate)
+        res = rollback_v3(fx2)
+        assert res.returncode != 0 and reason in res.stderr
+
+
+def test_the_safe_boundary_line_is_printed_only_after_every_proof_including_wpa_and_p2p() -> None:
+    text = ROLLBACK.read_text()
+    printed = text.index("printf 'SAFE_NETWORK_BOUNDARY_RESTORED=YES")
+    for needle in ("L34_V3_ROLLBACK_WPA_STATE", "L34_V3_ROLLBACK_P2P", "L34_V3_ROLLBACK_WPA_UNIT_"):
+        assert text.index(needle) < printed, needle

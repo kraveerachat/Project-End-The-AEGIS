@@ -206,6 +206,85 @@ def test_p2p_rollback_value_is_unavailable_only(tmp_path: Path) -> None:
         assert rb(tmp_path / bad, rec(), rb_fresh(**{"nm.device.p2p-dev-wlp0s20f3.state": bad})).returncode == 1
 
 
+P2P_KEYS = ("nm.active.device.p2p-dev-wlp0s20f3", "nm.device.p2p-dev-wlp0s20f3.type", "nm.device.p2p-dev-wlp0s20f3.state")
+
+
+def p2p_drift(res: subprocess.CompletedProcess[str]) -> set[str]:
+    return {k for k in drift(res) if "p2p-dev-wlp0s20f3" in k}
+
+
+def test_p2p_rules_are_approved_when_the_relational_gate_holds(tmp_path: Path) -> None:
+    res = post(tmp_path, rec(), post_fresh())
+    assert res.returncode == 0 and not p2p_drift(res)
+    assert "DYNAMIC_TRANSITION_APPROVED\tnm.device.p2p-dev-wlp0s20f3.state\t" in res.stdout
+    res = post(tmp_path / "r", residual_pre(), post_residual(), dyn=P_POST_RES)
+    assert res.returncode == 0 and not p2p_drift(res)
+
+
+@pytest.mark.parametrize(
+    "label,over",
+    [
+        ("radio transition absent", {"nm.general": "connected:full:enabled:disabled"}),
+        ("radio transition wrong direction fields", {"nm.general": "connected:full:disabled:enabled"}),
+        ("radio non-Wi-Fi prefix changed", {"nm.general": "connected:limited:enabled:enabled"}),
+        ("approved AP not active", {"nm.active.device.wlp0s20f3": "none"}),
+        ("wrong connection on the target", {"nm.active.device.wlp0s20f3": "Pboo_5G:802-11-wireless"}),
+        ("unrelated Wi-Fi active", {"nm.active.device.wlan1": "Pboo_5G:802-11-wireless"}),
+        ("unrelated P2P active", {"nm.active.device.p2p-dev-wlan1": "x:wifi-p2p"}),
+        ("the p2p device itself active", {"nm.active.device.p2p-dev-wlp0s20f3": "x:wifi-p2p"}),
+    ],
+)
+def test_post_fresh_p2p_transitions_fail_when_the_relational_gate_breaks(tmp_path: Path, label: str, over: dict) -> None:
+    res = post(tmp_path, rec(), post_fresh(**over))
+    assert res.returncode == 1, label
+    assert p2p_drift(res) & {"nm.device.p2p-dev-wlp0s20f3.type", "nm.device.p2p-dev-wlp0s20f3.state"}, (label, drift(res))
+
+
+@pytest.mark.parametrize(
+    "label,over",
+    [
+        ("radio transition absent", {"nm.general": "connected:full:enabled:disabled"}),
+        ("approved AP not active", {"nm.active.device.wlp0s20f3": "none"}),
+        ("unrelated Wi-Fi active", {"nm.active.device.wlan1": "Pboo_5G:802-11-wireless"}),
+        ("unrelated P2P active", {"nm.active.device.p2p-dev-wlan1": "x:wifi-p2p"}),
+    ],
+)
+def test_post_residual_p2p_transition_fails_when_the_relational_gate_breaks(tmp_path: Path, label: str, over: dict) -> None:
+    res = post(tmp_path, residual_pre(), post_residual(**over), dyn=P_POST_RES)
+    assert res.returncode == 1 and "nm.device.p2p-dev-wlp0s20f3.state" in p2p_drift(res), (label, drift(res))
+
+
+@pytest.mark.parametrize(
+    "label,over",
+    [
+        ("radio still enabled", {"nm.general": "connected:full:enabled:enabled"}),
+        ("target rfkill not restored", {"wifi.rfkill.iface.wlp0s20f3.soft": "unblocked"}),
+        ("a Wi-Fi connection is active", {"nm.active.device.wlan1": "Pboo_5G:802-11-wireless"}),
+        ("the AP is still active", {"nm.active.device.wlp0s20f3": "aegis-idea3-ap:802-11-wireless"}),
+        ("a P2P connection is active", {"nm.active.device.p2p-dev-wlan1": "x:wifi-p2p"}),
+        ("target not unavailable", {"nm.device.wlp0s20f3.state": "disconnected"}),
+        ("target connected", {"nm.device.wlp0s20f3.state": "connected"}),
+    ],
+)
+def test_rollback_fresh_p2p_residuals_fail_when_the_relational_gate_breaks(tmp_path: Path, label: str, over: dict) -> None:
+    res = rb(tmp_path, rec(), rb_fresh(**over))
+    assert res.returncode == 1, label
+    assert p2p_drift(res) & {"nm.device.p2p-dev-wlp0s20f3.state", "nm.device.p2p-dev-wlp0s20f3.type"}, (label, drift(res))
+
+
+def test_rollback_residual_catalog_has_no_p2p_transition_at_all(tmp_path: Path) -> None:
+    assert "p2p-dev" not in P_RB_RES.read_text().split("operation", 1)[1]
+    res = rb(tmp_path, residual_pre(), residual_pre(**{"nm.device.p2p-dev-wlp0s20f3.state": "disconnected"}), dyn=P_RB_RES, transitions=False)
+    assert res.returncode == 1 and p2p_drift(res)
+
+
+def test_p2p_catalog_is_not_broadened_no_wildcard_and_no_other_names() -> None:
+    for f in (P_POST_FRESH, P_POST_RES, P_RB_FRESH, P_RB_RES):
+        for line in f.read_text().splitlines():
+            if "p2p" in line and not line.startswith("#"):
+                assert line.split()[0] in P2P_KEYS and "*" not in line, (f.name, line)
+
+
 # ── B. wpa_supplicant: relational, never a generic service allowance ───────────────────────────────────────────────────
 
 

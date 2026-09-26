@@ -140,21 +140,24 @@ if [ "${AEGIS_L34_PRESERVATION:-}" = V3 ]; then
   [ -z "$(ip route show default dev "$AP_IF" 2>/dev/null)" ] || fail L34_V3_ROLLBACK_AP_DEFAULT_ROUTE
   l3_rfkill_state "$(cat "$WORK/rfkill_id")" || fail "$L3_RFKILL_REASON"
   if grep -q 'soft=blocked' "$WORK/rfkill-target-pre.txt"; then [ "$L3_RFKILL_SOFT" = blocked ] || fail L34_V3_ROLLBACK_RFKILL_NOT_BLOCKED; fi
-  p2p_now=$(l34_p2p_device_state)
-  { [ -z "$p2p_now" ] || [ "$p2p_now" = unavailable ]; } || fail L34_V3_ROLLBACK_P2P_DEVICE_STATE
+  v3_baseline=$(cat "$WORK/baseline.txt")
+  p2p_inv=$(l34_nm_status_snapshot | l34_p2p_inventory)
+  l34_p2p_rollback_safe "$v3_baseline" "$p2p_inv" || fail L34_V3_ROLLBACK_P2P_DEVICE_STATE
   new_devs=$(comm -13 "$WORK/nm-devices-pre.txt" <(l34_nm_devices_listing) | grep -vx 'p2p-dev-wlp0s20f3:wifi-p2p' || true)
   [ -z "$new_devs" ] || fail L34_V3_ROLLBACK_UNEXPECTED_NM_DEVICE
-  wpa=$(systemctl show -p LoadState -p UnitFileState -p Result -p NRestarts -p ActiveState wpa_supplicant.service)
+  wpa=$(systemctl show -p LoadState -p UnitFileState -p Result -p NRestarts -p ActiveState -p SubState -p MainPID wpa_supplicant.service)
   for kv in LoadState=loaded UnitFileState=disabled Result=success NRestarts=0; do
     grep -qx "$kv" <<< "$wpa" || fail "L34_V3_ROLLBACK_WPA_UNIT_${kv%%=*}"
   done
+  # the wpa_supplicant STATE must itself be a proven safe one before the boundary may be reported (never stopped/restarted here)
+  l34_wpa_safe_state "$v3_baseline" <<< "$wpa" || fail L34_V3_ROLLBACK_WPA_STATE
   country_now=$(iw reg get 2>/dev/null | awk -v p="phy#$(iw dev "$AP_IF" info 2>/dev/null | awk '$1 == "wiphy" { print $2; exit }')" '$1 ~ /^phy#/ { on = ($1 == p); next } $1 == "global" { on = 0 } on && $1 == "country" { sub(":", "", $2); print $2; exit }')
   { [ "$country_now" = TH ] || [ "$country_now" = 00 ]; } || fail L34_V3_ROLLBACK_REGULATORY_STATE
   # exactness is reported separately from the safety boundary: byte-for-byte only when p2p, wpa_supplicant and the country all equal PRE
   pre_wpa_active=NO; [ "$(cat "$WORK/baseline.txt")" = RESIDUAL ] && pre_wpa_active=YES
   now_wpa_active=NO; grep -qx 'ActiveState=active' <<< "$wpa" && now_wpa_active=YES
   pre_p2p=NO; [ "$(cat "$WORK/baseline.txt")" = RESIDUAL ] && pre_p2p=YES
-  now_p2p=NO; [ -n "$p2p_now" ] && now_p2p=YES
+  now_p2p=NO; [ -n "$p2p_inv" ] && now_p2p=YES
   if [ "$pre_wpa_active" = "$now_wpa_active" ] && [ "$pre_p2p" = "$now_p2p" ] && [ "$country_now" = "$(cat "$WORK/phy-country-pre.txt")" ]; then exact_prestate=YES; else exact_prestate=NO; fi
 fi
 
