@@ -29,6 +29,7 @@ import { previewKindFor } from '../lib/vaultPreview.js'
 import { childrenOf, effectiveState } from '../lib/vaultTreeManifest.js'
 import { createThumbScheduler } from '../lib/vaultThumbScheduler.js'
 import { makeImageThumb } from '../lib/vaultImageThumb.js'
+import { createImageDecodeAdmission } from '../lib/vaultImageDecodeAdmission.js'
 import { gifMotionCapability, openGifMotion } from '../lib/vaultGifPreview.js'
 import { openVideoMotion, openVideoPoster, videoPosterEstimateBytes, videoPreviewCapability, VIDEO_CAPABILITY } from '../lib/vaultVideoPreview.js'
 import { attachPosterVideo, drawPosterFrame } from '../lib/vaultVideoDom.js'
@@ -512,6 +513,15 @@ export function VaultTreeScreen({
   const [motionState, setMotionState] = useState(null)
   const mediaLimitsRef = useRef(VAULT_TREE_CLIENT_LIMITS)
   const schedulerRef = useRef(null)
+  const admission = useMemo(() => {
+    if (!mediaEnabled || !unlockedState || !head) return null
+    return createImageDecodeAdmission({
+      limits: mediaLimitsRef.current,
+      liveMemoryBytes: () => schedulerRef.current?.stats().estMemBytes ?? 0,
+    })
+  }, [mediaEnabled, unlockedState, Boolean(head)])
+
+  useEffect(() => () => { void admission?.releaseAll?.() }, [admission])
 
   const readNodeBytes = useCallback(async ({ node, blob, signal }) => {
     const variant = node.blobRef?.formatVersion ?? 1
@@ -595,14 +605,13 @@ export function VaultTreeScreen({
           if (!poster.ok) throw new Error(poster.unsupported ?? 'VIDEO_POSTER')
           return { width: 640, height: 360, bytes: poster.posterBytes, mime: 'image/jpeg' }
         }
-        const bytes = await readNodeBytesRef.current({ node, blob, signal })
         const thumb = await makeImageThumb({
-          plainSize: node.plainSize ?? bytes.length, limits: mediaLimitsRef.current,
+          plainSize: node.plainSize ?? 0, limits: mediaLimitsRef.current,
           variant: node.blobRef?.formatVersion ?? 1,
           chunkCount: 1,
-          readChunk: async () => bytes,
-          readWhole: async () => bytes,
-          unlockedState, signal, skipUrl: true,
+          readChunk: () => readNodeBytesRef.current({ node, blob, signal }),
+          readWhole: () => readNodeBytesRef.current({ node, blob, signal }),
+          admission, signal, skipUrl: true,
         })
         if (!thumb.ok) throw new Error(thumb.unsupported)
         return { width: thumb.width, height: thumb.height, bytes: thumb.posterBytes }
@@ -610,7 +619,7 @@ export function VaultTreeScreen({
       onChange: () => setMediaMap(nextScheduler.snapshot()),
     })
     return nextScheduler
-  }, [mediaEnabled, unlockedState, Boolean(head), kek])
+  }, [mediaEnabled, unlockedState, Boolean(head), kek, admission])
   schedulerRef.current = scheduler
 
   useEffect(() => () => { void scheduler?.releaseAll?.() }, [scheduler])
@@ -715,7 +724,13 @@ export function VaultTreeScreen({
     const entry = mediaMap.get(node.nodeId)
     const isGif = mime === 'image/gif'
     const isVideo = previewKindFor(mime) === 'video'
-    if (entry?.failed && !entry.url) return { reason: entry.reason ?? 'THUMB_FAILED' }
+    if (entry?.failed && !entry.url) {
+      const reason = entry.reason ?? 'THUMB_FAILED'
+      return {
+        reason,
+        reasonLabel: reason === 'HIGH_RES_TOO_LARGE' ? t('vaultHighResPreviewTooLarge') : null,
+      }
+    }
     return {
       posterUrl: entry?.url ?? null,
       reason: null,

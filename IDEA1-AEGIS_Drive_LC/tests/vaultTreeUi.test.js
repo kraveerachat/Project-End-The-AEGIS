@@ -469,6 +469,14 @@ test('UI-7 the tile shows the poster when ready, the icon with a truthful reason
     const icon = q('[data-icon="file"]')
     assert.ok(icon, 'the icon fallback renders')
     assert.equal(icon.getAttribute('title'), 'GIF_TOO_LARGE', 'the truthful reason travels as the tooltip')
+    await h.render(React.createElement(VaultFileTile, {
+      t, node: { nodeId: 'h'.repeat(22), name: 'large.jpg', kind: 'file', mediaType: 'image/jpeg', plainSize: 4096 },
+      previewKind: 'image', media: { reason: 'HIGH_RES_TOO_LARGE', reasonLabel: t('vaultHighResPreviewTooLarge') },
+      onSelect: () => {}, onPreview: () => {}, onAction: () => {},
+    }))
+    const highResReason = q('[data-testid="vault-media-reason"]')
+    assert.ok(highResReason, 'permanent high-resolution rejection is visible, not tooltip-only')
+    assert.equal(highResReason.textContent, t('vaultHighResPreviewTooLarge'))
     // reduced motion: the tile carries no hover handlers
     await h.render(React.createElement(VaultFileTile, {
       t, node: { nodeId: 'r'.repeat(22), name: 'c.gif', kind: 'file', mediaType: 'image/gif', plainSize: 4096 },
