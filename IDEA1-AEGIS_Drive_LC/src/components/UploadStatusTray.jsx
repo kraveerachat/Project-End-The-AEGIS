@@ -57,6 +57,7 @@ const STAGE_LABEL = {
 
 // เหตุผลที่แสดงใต้ชื่อไฟล์ — บอกว่าต้องทำอะไรต่อ ไม่ใช่แค่ป้าย "Failed"
 const REASON_LABEL = {
+  COLLISION: 'vaultUploadNameCollision',
   tooLarge: 'uploadTooLarge',
   noSpace: 'uploadNoSpace',
   checksum: 'uploadChecksumFailed',
