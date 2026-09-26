@@ -386,3 +386,59 @@ Stop before implementation expansion if any requirement needs:
 
 Stop during measurement if representative 25.96 MP decoding cannot be shown to
 remain bounded. Do not force a cap from arithmetic alone.
+
+## 10. PR220-R1 Human Acceptance corrective addendum (2026-09-27)
+
+The first Production candidate `aegis-prod-drive:vault-convergence-7ae227c7b292`
+(dev head `7ae227c7`) passed technical cutover and failed Human Acceptance.
+
+```text
+PR220_INITIAL_TECHNICAL_CUTOVER=PASS
+PR220_INITIAL_HUMAN_ACCEPTANCE=FAIL
+FILES_FULL_PANE_MARQUEE=FAIL
+VAULT_TREE_FULL_PANE_MARQUEE=PASS
+VAULT_ACCOUNT_UI_PARITY=FAIL
+MIGRATION_CLOSE_CONTROL=FAIL
+MIGRATION_COLLISION_UX=FAIL
+VAULT_RECOVERY_UX=FAIL
+UPLOAD_PERFORMANCE_REGRESSION=OBSERVED
+UPLOAD_PERFORMANCE_ROOT_CAUSE=NOT_PROVEN
+```
+
+### 10.1 Root causes and corrections
+
+| Finding | Proven cause | Correction |
+|---|---|---|
+| Files side-gutter marquee | Selection hit-testing already used the App surface, but Files painted its rectangle inside its own `relative` drop-zone wrapper. The box was computed relative to the App surface and painted relative to the centered column, so it drew one gutter plus the header away from the pointer — off-screen when starting from the right gutter on a QHD pane. Text selection was also only suppressed inside the Files grid. Vault TREE painted its rectangle in an unpositioned root, so its containing block was the App surface — which is why it worked. The earlier synthetic harness could not see this. | `WorkspaceMarqueeSurface` (App's full main pane) owns the drag, the rectangle (a direct child of the surface) and text-selection suppression. Files and `VaultTreeScreen` only register `{enabled, tileEls, selectedIds, onSelectionChange}` through `WorkspaceMarqueeSource` inside an unpositioned `WorkspaceMarqueeScope`. One hook instance per surface; no per-screen rectangle or pointer relay remains. |
+| Account shows migration UI instead of TREE | Not a role branch (none exists). An account whose protocol state is nonempty `FLAT` or `MIGRATING_TREE_V1` correctly shows the gate, but the gate could not be completed or left: Close was a no-op, a foreign lease never re-evaluated, and collisions looked dead. | C/D/E below. The state machine is unchanged: every eligible account still converges to `TREE_V1` → `VaultTreeScreen`. |
+| Thai migration title read "สร้างโฟลเดอร์" | Copy reused the ordinary Create Folder wording. | th `อัปเกรดห้องนิรภัยเป็นโฟลเดอร์` / `อัปเกรดห้องนิรภัย`; en/zh equivalents. |
+| Migration X did nothing | `Vault.jsx` passed `onClose={() => {}}`. | Close = `lock(false)`: existing purge lifecycle, dialog unmount aborts work and abandons only a lease this client acquired; unlock again re-reads `/tree/state`. No legacy FLAT operational fallback. |
+| Foreign lease looked stuck | Remote phase was initialized once from props. | "Check again" performs a real `GET /tree/state`; one timer per displayed expiry (+1 s skew margin) re-checks once. Before expiry: never takeover. After expiry: Resume → `runGenesis` takeover (never begin). |
+| Collision Continue looked dead | Both inputs were pre-filled with the same name. | Deterministic editable suggestions `name (n).ext` using TREE `collisionKey` (NFC + case fold) across the whole plan; remaining collision or invalid name shows an inline `role=alert` reason, marks the field `aria-invalid`, and disables Continue. Nothing commits before Continue. |
+| Orphan panel read as failed uploads | Copy and an unlabeled refresh icon. | Copy states the upload finished but is not yet linked and nothing is deleted; icon labelled "Refresh recovery list" (real `GET /tree/blobs`). New "Recover all to Vault": sequential `recoverOrphan` to the Vault root, collisions/failures stay listed with reason, authoritative re-list afterwards, lock/unmount aborts remaining items. |
+
+### 10.2 Upload slowdown — diagnosis only
+
+Source comparison of PR220 HEAD against its base (PR219 `1183df33`) and against
+the `main` merge-base `83610fa3`:
+
+```text
+FILES_UPLOAD_TRANSPORT_SOURCE_DIFF=NONE (src/lib/api.js, chunkedUpload.js unchanged)
+FILES_UPLOAD_CONCURRENCY_SOURCE_DIFF=NONE
+FILES_UPLOAD_CHUNKING_SOURCE_DIFF=NONE (chunk size still comes from the server response)
+SERVER_UPLOAD_PATH_SOURCE_DIFF=NONE (only server/rbac/permissions.js nav roles changed, in PR219)
+VAULT_UPLOAD_PATH_SOURCE_DIFF=NONE (vaultTreeUpload/vaultChunkedUpload/vaultChunkCrypto unchanged; PR220 only changed Vault thumbnail decode admission, which runs for visible tiles, not in the upload path)
+UPLOAD_SLOWDOWN_SOURCE_CAUSE=NOT_PROVEN
+UPLOAD_PERFORMANCE_SETTINGS_CHANGED=NO
+```
+
+PR219 changed only `UploadDrawer.jsx` presentation (queue shown inside the open
+drawer). The observed ~863 KB/s therefore needs network/host measurement under
+the PR216 methodology; no transfer setting was changed in R1.
+
+### 10.3 Unchanged invariants
+
+`HIGHRES_ACTIVE_CAP_MP=16` (no cap or 256 MiB ceiling change),
+`SERVER_PLAINTEXT_DERIVATIVE=NO`, `VAULT_ZERO_KNOWLEDGE=UNCHANGED`,
+`VAULT_DESTRUCTIVE_PURGE_ENABLED=false`, no automatic migration of nonempty
+FLAT data, no ciphertext rewrite or deletion, PR216 untouched, Production untouched.
