@@ -235,8 +235,9 @@ test('QHD-LAYOUT-1..2 locked Vault uses the centered content boundary at 2560x14
   }
 })
 
-test('QHD-LAYOUT-3 unlocked FLAT actions remain available inside the centered legacy content boundary', async () => {
-  const backend = makeVaultTreeBackend()
+test('QHD-LAYOUT-3 nonempty FLAT keeps the migration and Lock gate centered without legacy actions', async () => {
+  const backend = makeVaultTreeBackend({ flags: { treeUiEnabled: true } })
+  backend.state['/api/vault'].data.blobs = [serverBlob({ id: 'q'.repeat(22), name: 'legacy.txt', type: 'text/plain' })]
   globalThis.__VAULT_BACKEND__ = backend
   const { Vault } = await env.load('/src/screens/Vault.jsx')
   const h = env.mount()
@@ -245,14 +246,14 @@ test('QHD-LAYOUT-3 unlocked FLAT actions remain available inside the centered le
     await unlock(dom, t, CORRECT_PASSPHRASE)
     await settle()
 
-    const upload = qa('button').find((button) => button.textContent.trim() === t('upload'))
     const lock = qa('button').find((button) => button.textContent.trim() === t('lockVault'))
-    assert.ok(upload, 'legacy FLAT Upload action remains available')
-    assert.ok(lock, 'legacy FLAT Lock action remains available')
-    assert.ok(!q('[data-testid="vault-tree-screen"]'), 'FLAT still does not render the TREE_V1 screen')
+    assert.ok(!qa('button').some((button) => button.textContent.trim() === t('upload')), 'legacy FLAT Upload is unreachable')
+    assert.ok(lock, 'the security-critical Lock action remains available')
+    assert.ok(q('[data-testid="vault-migration-explain"]'), 'nonempty FLAT renders only the explicit migration gate')
+    assert.ok(!q('[data-testid="vault-tree-screen"]'), 'FLAT does not render TREE before Human migration')
     assert.ok(
-      upload.closest('.vault-pane-content'),
-      'legacy FLAT visual actions use the centered Vault content boundary',
+      lock.closest('.vault-pane-content'),
+      'migration controls use the centered Vault content boundary',
     )
   } finally {
     await h.unmount()
@@ -468,6 +469,14 @@ test('UI-7 the tile shows the poster when ready, the icon with a truthful reason
     const icon = q('[data-icon="file"]')
     assert.ok(icon, 'the icon fallback renders')
     assert.equal(icon.getAttribute('title'), 'GIF_TOO_LARGE', 'the truthful reason travels as the tooltip')
+    await h.render(React.createElement(VaultFileTile, {
+      t, node: { nodeId: 'h'.repeat(22), name: 'large.jpg', kind: 'file', mediaType: 'image/jpeg', plainSize: 4096 },
+      previewKind: 'image', media: { reason: 'HIGH_RES_TOO_LARGE', reasonLabel: t('vaultHighResPreviewTooLarge') },
+      onSelect: () => {}, onPreview: () => {}, onAction: () => {},
+    }))
+    const highResReason = q('[data-testid="vault-media-reason"]')
+    assert.ok(highResReason, 'permanent high-resolution rejection is visible, not tooltip-only')
+    assert.equal(highResReason.textContent, t('vaultHighResPreviewTooLarge'))
     // reduced motion: the tile carries no hover handlers
     await h.render(React.createElement(VaultFileTile, {
       t, node: { nodeId: 'r'.repeat(22), name: 'c.gif', kind: 'file', mediaType: 'image/gif', plainSize: 4096 },
@@ -734,23 +743,27 @@ test('MARQUEE-SURFACE-1..6 expanded surface geometry, ignore contract, intersect
   }
 })
 
-test('V10-FULL-PANE-1..10 Vault owns one full-main-pane marquee surface without stretching its visual content', () => {
+test('SHARED-FULL-PANE-1..10 Files and Vault share one App-owned full-main-pane surface without stretching content', () => {
   const root = path.dirname(fileURLToPath(import.meta.url))
   const appSource = fs.readFileSync(path.join(root, '../src/App.jsx'), 'utf8')
+  const filesSource = fs.readFileSync(path.join(root, '../src/screens/Files.jsx'), 'utf8')
   const vaultSource = fs.readFileSync(path.join(root, '../src/screens/Vault.jsx'), 'utf8')
   const treeSource = fs.readFileSync(path.join(root, '../src/screens/VaultTreeScreen.jsx'), 'utf8')
   const cssSource = fs.readFileSync(path.join(root, '../src/index.css'), 'utf8')
 
-  assert.match(appSource, /activeScreen === 'vault' \? 'vault-full-pane-surface relative min-h-full flex flex-col'/, 'Vault removes the ordinary centered page-shell constraint after server-authorized screen resolution')
-  assert.match(appSource, /ref=\{activeScreen === 'vault' \? vaultMarqueeSurfaceRef : null\}/, 'the App-level full pane supplies marquee geometry')
-  assert.match(appSource, /data-vault-marquee-surface=\{activeScreen === 'vault' \? '' : undefined\}/, 'the App-level full pane is the one named interaction surface')
-  assert.match(appSource, /vaultMarqueePointerDownRef\.current\?\.\(event\)/, 'the App-level full pane owns pointer input')
-  assert.match(appSource, /vault-pane-content pt-7 max-md:pt-5/, 'the existing page header stays centered and keeps its vertical position')
-  assert.match(appSource, /fade-in.*activeScreen === 'vault'.*flex flex-1 flex-col/, 'the authorized Vault route receives the remaining main-pane height')
+  assert.match(appSource, /WORKSPACE_SCREENS\s*=\s*new Set\(\['files', 'vault'\]\)/, 'the generic surface is limited to the two file workspaces')
+  assert.match(appSource, /workspaceSurfaceActive/, 'one role-independent condition drives surface ownership')
+  assert.match(appSource, /ref=\{workspaceSurfaceActive \? workspaceMarqueeSurfaceRef : null\}/, 'the App-level full pane supplies shared marquee geometry')
+  assert.match(appSource, /data-workspace-marquee-surface=\{workspaceSurfaceActive \? '' : undefined\}/, 'the interaction surface has a generic name')
+  assert.doesNotMatch(appSource, /vaultMarqueeSurfaceRef|registerVaultMarqueePointerDown|data-vault-marquee-surface/, 'App no longer contains Vault-only interaction ownership')
+  assert.match(appSource, /workspaceMarqueePointerDownRef\.current\?\.\(event\)/, 'the App-level full pane owns pointer input')
+  assert.match(appSource, /workspace-pane-content pt-7 max-md:pt-5/, 'the shared page header stays centered and keeps its vertical position')
+  assert.match(appSource, /fade-in.*workspaceSurfaceActive.*flex flex-1 flex-col/, 'both authorized workspace routes receive the remaining main-pane height')
+  assert.match(filesSource, /registerMarqueePointerDown\(marquee\.onPointerDown\)/, 'Files registers the same shared hook instead of owning a duplicate')
   assert.match(vaultSource, /className="flex flex-1 flex-col"/, 'the Vault route passes remaining height to the tree screen')
   assert.match(vaultSource, /className="vault-pane-content"/, 'the warning callout remains on the existing centered content line')
   assert.match(treeSource, /canvasRef:\s*marqueeCanvasRef/, 'selection geometry uses the App-level surface ref')
   assert.match(treeSource, /registerMarqueePointerDown\(marquee\.onPointerDown\)/, 'the tree controller registers its handler with that surface')
-  assert.match(cssSource, /\.vault-full-pane-surface\s*\{[\s\S]*min-height:\s*100%/, 'surface height derives from the App main pane')
-  assert.match(cssSource, /\.vault-pane-content\s*\{[\s\S]*padding-inline:\s*max\(2rem,\s*calc\(\(100% - 1440px\) \/ 2 \+ 2rem\)\)/, 'wide layouts retain the 1440px centered visual measure while the surface spans the pane')
+  assert.match(cssSource, /\.workspace-full-pane-surface\s*\{[\s\S]*min-height:\s*100%/, 'surface height derives from the App main pane')
+  assert.match(cssSource, /\.workspace-pane-content,[\s\S]*padding-inline:\s*max\(2rem,\s*calc\(\(100% - 1440px\) \/ 2 \+ 2rem\)\)/, 'wide layouts retain the 1440px centered visual measure while the surface spans the pane')
 })

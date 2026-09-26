@@ -18,7 +18,7 @@ import {
 } from '../../lib/vaultTreeApi.js'
 import { runGenesis, resolveCollisions, MigrationError } from '../../lib/vaultTreeMigration.js'
 
-function initialPhase(treeState) {
+function initialPhase(treeState, mode) {
   if (treeState?.protocolState === 'MIGRATING_TREE_V1') {
     const lease = treeState.lease
     if (lease?.held && lease.expiresAt > Date.now()) return 'remote'
@@ -26,8 +26,8 @@ function initialPhase(treeState) {
   return 'explain'
 }
 
-export function VaultMigrationDialog({ t, lang = 'en', kek, treeState, onClose, onCommitted, stillUnlocked }) {
-  const [phase, setPhase] = useState(() => initialPhase(treeState))
+export function VaultMigrationDialog({ mode = 'explicit', t, lang = 'en', kek, treeState, onClose, onCommitted, stillUnlocked }) {
+  const [phase, setPhase] = useState(() => initialPhase(treeState, mode))
   const [step, setStep] = useState(null)          // null | 'lease' | 'decrypt' | 'collisions' | 'commit' | 'done'
   const [sawCollisions, setSawCollisions] = useState(false)
   const [blobCount, setBlobCount] = useState(null)
@@ -38,6 +38,7 @@ export function VaultMigrationDialog({ t, lang = 'en', kek, treeState, onClose, 
   const abortRef = useRef(null)
   const heldLeaseRef = useRef(null)               // lease เต็ม (มี blobs) — ทำต่อ/ละทิ้งต้องใช้
   const committedRef = useRef(false)
+  const autoStartedRef = useRef(false)
 
   const treeUiOn = treeState?.flags?.treeUiEnabled === true
 
@@ -95,6 +96,12 @@ export function VaultMigrationDialog({ t, lang = 'en', kek, treeState, onClose, 
       }
     }
   }, [kek, api, onCommitted, stillUnlocked])
+
+  useEffect(() => {
+    if (mode !== 'auto-empty' || autoStartedRef.current) return
+    autoStartedRef.current = true
+    start({})
+  }, [mode, start])
 
   // ล็อก/ปิดไดอะล็อก = หยุดงานทันที + คืน lease ถ้ายังไม่ได้ commit
   useEffect(() => () => {
@@ -163,7 +170,7 @@ export function VaultMigrationDialog({ t, lang = 'en', kek, treeState, onClose, 
         <div data-testid="vault-migration-explain" className="mt-3">
           <p className="text-[12.5px] text-ink-2 leading-relaxed">{t('vaultMigrationExplain')}</p>
           <Btn variant="primary" className="w-full mt-5" onClick={onStart}>
-            {treeState?.protocolState === 'MIGRATING_TREE_V1' ? t('vaultMigrationResume') : t('vaultMigrationStart')}
+            {mode === 'resume' ? t('vaultMigrationResume') : t('vaultMigrationStart')}
           </Btn>
         </div>
       )}

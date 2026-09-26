@@ -64,30 +64,34 @@ const isAbort = (err) => err?.name === 'AbortError' || /abort/i.test(String(err?
  *   readChunk?: (index: number, opts: { signal?: AbortSignal }) => Promise<Uint8Array>,
  *   readWhole?: (opts: { signal?: AbortSignal }) => Promise<Uint8Array>,
  *   decode?: (bytes: Uint8Array) => Promise<{ width: number, height: number, close?: () => void }>,
- *   poster?: (bytes: Uint8Array, w: number, h: number, maxEdge: number) => { bytes: Uint8Array, width: number, height: number },
+ *   poster?: (bitmap: object, w: number, h: number, maxEdge: number) => { bytes: Uint8Array, width: number, height: number },
  *   createObjectUrl?: (bytes: Uint8Array) => string, revokeObjectUrl?: (url: string) => void,
  *   registerObjectUrl?: (url: string) => void, signal?: AbortSignal,
  * }} p
- * @returns {Promise<{ ok: true, url: string, width, height, posterBytes, release: () => void } | { ok: false, unsupported: 'IMAGE_TOO_LARGE'|'UNSUPPORTED'|'INTEGRITY'|'ABORTED' }>}
+ * @returns {Promise<{ ok: true, url: string, width, height, posterBytes, release: () => void } | { ok: false, unsupported: 'IMAGE_TOO_LARGE'|'HIGH_RES_TOO_LARGE'|'UNSUPPORTED'|'INTEGRITY'|'ABORTED' }>}
  */
 export async function makeImageThumb({
   plainSize, limits = VAULT_TREE_CLIENT_LIMITS, variant = 2, chunkCount = 1,
   readChunk, readWhole, decode = defaultDecode, poster = defaultPoster,
   createObjectUrl = (b) => URL.createObjectURL(new Blob([b])),
   revokeObjectUrl = (u) => { try { URL.revokeObjectURL(u) } catch { /* gone */ } },
-  registerObjectUrl = null, signal = null, skipUrl = false,
+  registerObjectUrl = null, signal = null, skipUrl = false, admission = null, fullBytesRef = null,
 }) {
   if (signal?.aborted) return { ok: false, unsupported: 'ABORTED' }
   if (plainSize > limits.imageMaxInputBytes) return { ok: false, unsupported: 'IMAGE_TOO_LARGE' }
+  let bitmap = null
+  let admissionToken = null
+  let full = null
   try {
     // header: V2 อ่านเฉพาะ chunk แรก; V1 ต้องถอดทั้งไฟล์ (ไฟล์ใต้เพดานเท่านั้น — ตรวจแล้วด้านบน)
     const headBytes = variant === 2 ? await readChunk(0, { signal }) : await readWhole({ signal })
     const header = parseImageHeader(headBytes)
-    if (!header || header.width * header.height > limits.imageMaxDecodedPixels) {
-      return { ok: false, unsupported: 'UNSUPPORTED' }
-    }
+    if (!header) return { ok: false, unsupported: 'UNSUPPORTED' }
+    const pixels = header.width * header.height
+    const activeCap = Math.min(limits.imageMaxDecodedPixels, limits.imageHighResMaxDecodedPixels ?? limits.imageMaxDecodedPixels)
+    if (pixels > activeCap) return { ok: false, unsupported: pixels > (limits.imageNormalMaxDecodedPixels ?? activeCap) ? 'HIGH_RES_TOO_LARGE' : 'UNSUPPORTED' }
     // ประกอบไบต์เต็ม: V2 = chunk แรก + chunk ถัด ๆ ไปตามลำดับ (sequential เสมอ)
-    let full = headBytes
+    full = headBytes
     if (variant === 2) {
       const parts = [headBytes]
       for (let i = 1; i < chunkCount; i += 1) {   // chunkCount จาก blob — ไม่มีการเดาจุดจบเอง
@@ -97,9 +101,14 @@ export async function makeImageThumb({
       }
       full = concatBytes(parts)
     }
-    const bitmap = await decode(full)
-    const encoded = await poster(full, bitmap.width, bitmap.height, limits.posterMaxEdge)
-    try { bitmap.close?.() } catch { /* injected decoder may have nothing to close */ }
+    if (fullBytesRef) fullBytesRef.bytes = full
+    if (admission) admissionToken = await admission.acquire({ pixels, inputBytes: plainSize, signal })
+    else if (pixels > (limits.imageNormalMaxDecodedPixels ?? activeCap)) return { ok: false, unsupported: 'HIGH_RES_TOO_LARGE' }
+    if (signal?.aborted) return { ok: false, unsupported: 'ABORTED' }
+    bitmap = await decode(full)
+    if (signal?.aborted) return { ok: false, unsupported: 'ABORTED' }
+    const encoded = await poster(bitmap, bitmap.width, bitmap.height, limits.posterMaxEdge)
+    if (signal?.aborted) return { ok: false, unsupported: 'ABORTED' }
     const url = skipUrl ? null : createObjectUrl(encoded.bytes)
     if (url) registerObjectUrl?.(url)
     let released = false
@@ -116,6 +125,14 @@ export async function makeImageThumb({
   } catch (err) {
     if (signal?.aborted || isAbort(err)) return { ok: false, unsupported: 'ABORTED' }
     return { ok: false, unsupported: 'INTEGRITY' }
+  } finally {
+    try { bitmap?.close?.() } catch { /* injected decoder may have nothing to close */ }
+    admissionToken?.release?.()
+    if (full) {
+      try { full.fill(0) } catch { /* best-effort cleanup; JavaScript memory is not cryptographically zeroized */ }
+    }
+    full = null
+    if (fullBytesRef) fullBytesRef.bytes = null
   }
 }
 
@@ -126,14 +143,12 @@ async function defaultDecode(bytes) {
 }
 
 /** โปสเตอร์จริง: OffscreenCanvas/Canvas → WebP ขอบสั้นไม่เกิน maxEdge; ไม่มี canvas = โยน (จอแสดงไอคอนตามจริง) */
-async function defaultPoster(bytes, w, h, maxEdge) {
+async function defaultPoster(bitmap, w, h, maxEdge) {
   const scale = Math.min(1, maxEdge / Math.max(w, h))
   const dw = Math.max(1, Math.round(w * scale))
   const dh = Math.max(1, Math.round(h * scale))
-  const bitmap = await defaultDecode(bytes)
   const canvas = new OffscreenCanvas(dw, dh)
   canvas.getContext('2d').drawImage(bitmap, 0, 0, dw, dh)
-  bitmap.close?.()
   const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.8 })
   return { bytes: new Uint8Array(await blob.arrayBuffer()), width: dw, height: dh }
 }

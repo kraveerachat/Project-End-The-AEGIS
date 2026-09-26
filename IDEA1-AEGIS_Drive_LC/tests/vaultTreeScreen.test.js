@@ -12,7 +12,7 @@
 //   TS-9  อีกอุปกรณ์ลบโฟลเดอร์ปัจจุบัน → refresh ถอยไปบรรพบุรุษ + ประกาศ + เคลียร์ selection
 //   TS-10 ล็อกขณะไดอะล็อกเปิด → purge; ไม่มีชื่อใดค้างใน DOM
 //   TS-11 treeUiEnabled=false → ผิวอ่าน/ส่งออกอย่างเดียว (ชื่อ + Download + Details ไม่มีควบคุมแก้ไข)
-//   TS-12 จอ FLAT เลกาซีไม่ถูกแตะ (in-file smoke; ชุดเดิมวิ่งซ้ำใน focused regression)
+//   TS-12 FLAT ที่มีข้อมูลเข้าถึงได้เฉพาะ migration gate ไม่ย้อนกลับไปจอปฏิบัติการเลกาซี
 import assert from 'node:assert/strict'
 import test, { after, before, beforeEach } from 'node:test'
 import React, { act } from 'react'
@@ -533,14 +533,17 @@ test('TS-11 treeUiEnabled=false renders the read/export-only rollback surface', 
 })
 
 /* ── TS-12 ────────────────────────────────────────────────────────────────── */
-test('TS-12 the legacy FLAT screen is untouched by the tree branch (in-file smoke)', async () => {
-  backend = makeVaultTreeBackend() // default FLAT + genesisMigrationEnabled
+test('TS-12 nonempty FLAT exposes only the explicit migration gate, never legacy operations', async () => {
+  backend = makeVaultTreeBackend({ flags: { treeUiEnabled: true } })
+  backend.state['/api/vault'].data.blobs = [serverBlob({ id: 'f'.repeat(22), name: 'legacy.txt', type: 'text/plain' })]
   wireBridge()
   globalThis.__VAULT_BACKEND__ = backend
   const h = await mountUnlocked()
   try {
     assert.ok(!q('[data-testid="vault-tree-screen"]'), 'FLAT never renders the tree screen')
-    assert.ok(q('[data-testid="vault-migration-entry"]'), 'the FLAT upgrade entry point still renders')
+    assert.ok(q('[data-testid="vault-migration-explain"]'), 'nonempty FLAT renders the explicit migration gate')
+    assert.ok(!q('[data-testid="vault-migration-entry"]'), 'legacy migration entry is removed')
+    assert.ok(!q('[data-vault-tile-menu]'), 'legacy operational cards are unreachable')
     assert.ok(!q('[data-testid="vault-tree-rollback"]'), 'FLAT has no rollback surface')
   } finally {
     await h.unmount()

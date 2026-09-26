@@ -74,6 +74,17 @@ test('MEDIA-V3-1 TREE_V1 wires GIF and video hover-hold motion and refreshes opa
   assert.match(source, /closePreviewSession/)
 })
 
+test('MEDIA-HIGHRES-1 TREE_V1 owns one decode-admission gate and delegates image byte ownership to makeImageThumb', () => {
+  const source = read('../src/screens/VaultTreeScreen.jsx')
+  assert.match(source, /createImageDecodeAdmission/)
+  assert.match(source, /liveMemoryBytes:\s*\(\)\s*=>\s*schedulerRef\.current\?\.stats\(\)\.estMemBytes/)
+  assert.match(source, /admission,\s*signal,\s*skipUrl:\s*true/)
+  assert.match(source, /readChunk:\s*\(\)\s*=>\s*readNodeBytesRef\.current/)
+  assert.doesNotMatch(source, /const bytes = await readNodeBytesRef\.current\([\s\S]{0,400}makeImageThumb/, 'screen must not retain a second outer plaintext reference')
+  assert.match(source, /admission\?\.releaseAll/)
+  assert.match(source, /vaultHighResPreviewTooLarge/)
+})
+
 test('PREVIEW-V3-1 TREE_V1 full video Preview retains the encrypted range-session path', () => {
   const source = read('../src/screens/VaultTreeScreen.jsx')
   assert.match(source, /previewStreamToken/)

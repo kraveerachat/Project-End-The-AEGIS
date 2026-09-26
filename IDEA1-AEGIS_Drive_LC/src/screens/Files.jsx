@@ -17,6 +17,7 @@ import { MediaProvider, MediaThumb, useOwnedMediaRuntime } from '../components/M
 import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../components/FileCardPresentation.jsx'
 import { SelectionAction, SelectionActionBar } from '../components/SelectionActionBar.jsx'
 import { readFolderHistory, writeFolderHistory } from '../lib/folderHistory.js'
+import { useMarqueeSelection } from '../lib/useMarqueeSelection.js'
 
 const EXT_ICONS = {
   xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
@@ -510,81 +511,6 @@ export function FolderTile({ t, file, selected, anySelected, onSelect, onOpen, o
 /* ── Folder-first sections (grid + list) ─────────────────────────── */
 // กฎเดียวกันทุกระดับของลำดับชั้น: โฟลเดอร์เป็นส่วนของตัวเองอยู่บน ไฟล์อยู่ล่าง
 // ส่วนที่ว่างถูกซ่อน (ผู้เรียกจัดการ Empty State เมื่อทั้งสองว่าง) ดู lib/filesView.js
-/* ── Marquee selection (Round 9) ─────────────────────────────────── */
-// ⚠️ ลากกรอบเลือกเริ่มได้จาก "พื้นที่ว่าง" ของกริดเท่านั้น — กดบนการ์ด/ไทล์/ปุ่ม/เมนู/ช่องกรอก
-//    ต้องไม่เริ่ม เพราะพวกนั้นมีความหมายของตัวเอง (ลากรายการ = ย้าย, ปุ่ม = คำสั่ง)
-//    มี threshold เล็ก ๆ ก่อนถือว่าเป็นการลาก คลิกเฉย ๆ บนพื้นที่ว่างจึงไม่ล้างการเลือก
-//    listener ทั้งหมดอยู่บน window "เฉพาะระหว่างลาก" และถูกถอดเมื่อจบ/ยกเลิก/unmount
-const MARQUEE_THRESHOLD_PX = 4
-const MARQUEE_IGNORE = '[data-file-kind], button, input, select, textarea, a, label, [role="menu"], [role="dialog"], [data-marquee-ignore]'
-const rectsIntersect = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
-const sameSet = (a, b) => a.size === b.size && [...a].every((id) => b.has(id))
-
-function useMarqueeSelection({ enabled, canvasRef, tileEls, selectedIds, onSelectionChange }) {
-  const [tracking, setTracking] = useState(false)   // ระหว่างกด-ลาก-ปล่อย
-  const [box, setBox] = useState(null)              // กรอบที่วาด (พิกัดสัมพัทธ์กับ canvas) หลังผ่าน threshold
-  const drag = useRef(null)
-  const latest = useRef({ selectedIds, onSelectionChange })
-  latest.current = { selectedIds, onSelectionChange }
-
-  const onPointerDown = (event) => {
-    if (!enabled || event.button !== 0 || event.pointerType === 'touch') return
-    if (event.target?.closest?.(MARQUEE_IGNORE)) return
-    drag.current = {
-      originX: event.clientX, originY: event.clientY,
-      additive: event.ctrlKey || event.metaKey,
-      snapshot: new Set(latest.current.selectedIds ?? []),
-      active: false,
-    }
-    setTracking(true)
-  }
-
-  useEffect(() => {
-    if (!tracking) return undefined
-    const finish = (cancelled) => {
-      const d = drag.current
-      drag.current = null
-      if (cancelled && d?.active) latest.current.onSelectionChange?.(new Set(d.snapshot))
-      setBox(null)
-      setTracking(false)
-    }
-    const onMove = (event) => {
-      const d = drag.current
-      if (!d) return
-      const dx = event.clientX - d.originX
-      const dy = event.clientY - d.originY
-      if (!d.active && Math.abs(dx) < MARQUEE_THRESHOLD_PX && Math.abs(dy) < MARQUEE_THRESHOLD_PX) return
-      d.active = true
-      const area = {
-        left: Math.min(d.originX, event.clientX), top: Math.min(d.originY, event.clientY),
-        right: Math.max(d.originX, event.clientX), bottom: Math.max(d.originY, event.clientY),
-      }
-      const canvas = canvasRef.current?.getBoundingClientRect?.() ?? { left: 0, top: 0 }
-      setBox({ left: area.left - canvas.left, top: area.top - canvas.top, width: area.right - area.left, height: area.bottom - area.top })
-      const hits = new Set(d.additive ? d.snapshot : [])
-      for (const [id, el] of tileEls.current) {
-        if (el && rectsIntersect(el.getBoundingClientRect(), area)) hits.add(id)
-      }
-      if (!sameSet(hits, latest.current.selectedIds ?? new Set())) latest.current.onSelectionChange?.(hits)
-    }
-    const onUp = () => finish(false)
-    const onCancel = () => finish(true)
-    const onKey = (event) => { if (event.key === 'Escape') finish(true) }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onCancel)
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onCancel)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [tracking, canvasRef, tileEls])
-
-  return { onPointerDown, tracking, box }
-}
-
 function SectionHeading({ children }) {
   // หัวข้อส่วนไม่ใช่พื้นที่ว่างของกริด — ลากจากป้าย "Folders"/"Files" ต้องไม่เริ่มกรอบเลือก
   return (
@@ -662,13 +588,16 @@ function FileListRow({ t, file, now, index, dragActive, onOpen, onMenuAction, on
 export function FilesSections({
   t, view, folders, files, now, selectedIds, draggingIds,
   onSelect, onOpen, onMenuAction, onDragStartItem, onDragEndItem, onDropItems, tileRef, onSelectionChange,
+  marqueeSurfaceRef = null, registerMarqueePointerDown = null,
 }) {
   const dragActive = draggingIds.length > 0
   // หนึ่ง scheduler + หนึ่ง media-info client ต่อหน้า Files (Tranche B) — ทิ้งตอน unmount
   const mediaRuntime = useOwnedMediaRuntime()
   // ทะเบียน element ของไทล์ (ต่อ id) สำหรับ hit-test ของ marquee — ส่งต่อให้ tileRef ของหน้าด้วย
   const tileEls = useRef(new Map())
-  const canvasRef = useRef(null)
+  const localCanvasRef = useRef(null)
+  const canvasRef = marqueeSurfaceRef ?? localCanvasRef
+  const appOwnsMarqueeSurface = Boolean(marqueeSurfaceRef && registerMarqueePointerDown)
   const registerTile = (id) => (el) => {
     if (el) tileEls.current.set(id, el)
     else tileEls.current.delete(id)
@@ -678,6 +607,11 @@ export function FilesSections({
     enabled: view === 'grid' && typeof onSelectionChange === 'function',
     canvasRef, tileEls, selectedIds, onSelectionChange,
   })
+  useEffect(() => {
+    if (!registerMarqueePointerDown) return undefined
+    registerMarqueePointerDown(marquee.onPointerDown)
+    return () => registerMarqueePointerDown(null)
+  }, [registerMarqueePointerDown, marquee.onPointerDown])
   if (view !== 'grid') {
     const groupRow = (key, label) => (
       <tr key={`section-${key}`} data-files-section-row={key} className="bg-sunken/60">
@@ -735,10 +669,10 @@ export function FilesSections({
   return (
     <MediaProvider scheduler={mediaRuntime.scheduler} client={mediaRuntime.client}>
     <div
-      ref={canvasRef}
-      data-marquee-canvas=""
-      onPointerDown={marquee.onPointerDown}
-      className="relative flex flex-col gap-6 min-h-[50vh]"
+      ref={appOwnsMarqueeSurface ? null : localCanvasRef}
+      data-marquee-canvas={appOwnsMarqueeSurface ? undefined : ''}
+      onPointerDown={appOwnsMarqueeSurface ? undefined : marquee.onPointerDown}
+      className={`${appOwnsMarqueeSurface ? '' : 'relative'} flex flex-col gap-6 min-h-[50vh]`}
       style={{ userSelect: marquee.tracking ? 'none' : undefined }}
     >
       {marquee.box && (
@@ -857,7 +791,10 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
 /* ── Files screen ────────────────────────────────────────────────── */
 // ⚠️ ไม่มี fixture ฝั่ง client — รายการไฟล์มาจาก GET /api/files เท่านั้น
 // ทุกการกระทำ (สร้างโฟลเดอร์/ลบ) เป็น request จริง + refetch; ไม่มี alert()/prompt()
-export function Files({ t, lang, go, userId = null, navigationParams = {}, placeholderMode = false }) {
+export function Files({
+  t, lang, go, userId = null, navigationParams = {}, placeholderMode = false,
+  marqueeSurfaceRef = null, registerMarqueePointerDown = null,
+}) {
   const reduced = useReducedMotion()
   const now = useNow(30_000)
 
@@ -1314,6 +1251,8 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
           onDropItems={dropItemsInto}
           onSelectionChange={setSelectedIds}
           tileRef={(id) => (el) => { tileRefs.current[id] = el }}
+          marqueeSurfaceRef={marqueeSurfaceRef}
+          registerMarqueePointerDown={registerMarqueePointerDown}
         />
       )}
       </div>
