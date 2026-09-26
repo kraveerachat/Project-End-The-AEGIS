@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-19
+updated: 2026-09-27
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -21,9 +21,9 @@ Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
 PR: NOT CREATED — blocked until full automated verification and Human Machine A local acceptance pass
-Current state: ORIGINAL TASK 12 VERIFIED / CHECKPOINT PENDING — repository-only Windows install/status/repair/uninstall/autostart lifecycle passes automated source/static gates; Machine A installation remains not started
+Current state: ORIGINAL TASK 13 CLOSED — production-like disposable integration passed without the diagnostic harness; full Task 14 verification and Machine A installation remain not started
 Started: 2026-09-19
-Last checkpoint: PRE-TASK-12/N12 `27d7723f96c4752d32047c5062c55173c3f4c9c2` (`feat(idea2): define permanent machine stream endpoint`)
+Last checkpoint: Original Task 13 (`test(idea2): prove permanent machine a runtime path`; current branch HEAD after this checkpoint)
 Production mutation allowed: NO
 
 ### Goal
@@ -39,12 +39,14 @@ heartbeat-loop, or diagnostic-bridge steps.
 Tasks 1–11 implemented the dedicated Ed25519 Identity Agent architecture,
 strict browser association, server-side verified-node session binding,
 authenticated physical heartbeat and ingest provenance, account-to-logical-
-alias policy, physical routing, and demand lifecycle symmetry. The active
-PRE-TASK-12/N12 replaced the rejected diagnostic `:18078` bridge and rejected
-hard-coded Docker gateway candidate with a stable deployment-owned,
-server-controlled Machine A stream endpoint. Original Task 12 now implements
-the repository-native Windows lifecycle without installing or changing the real
-Machine A runtime.
+alias policy, physical routing, and demand lifecycle symmetry. PRE-TASK-12/N12
+replaced the rejected diagnostic `:18078` bridge and hard-coded Docker gateway
+candidate with a stable deployment-owned, server-controlled Machine A stream
+endpoint. Original Task 12 implemented and checkpointed the repository-native
+Windows lifecycle without installing or changing the real Machine A runtime.
+Original Task 13 exercises the built Monitor, disposable PostgreSQL,
+protocol-real Agent proof, physical routing, and Engine demand/release path in
+an isolated local harness without the diagnostic bridge or persistent mutation.
 
 ### Out of scope
 
@@ -80,7 +82,8 @@ before that acceptance.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| ORIGINAL-TASK-12 | Windows install/status/repair/uninstall/autostart lifecycle | VERIFIED / CHECKPOINT PENDING | Starting SHA `27d7723f96c4752d32047c5062c55173c3f4c9c2`; focused Windows/Agent 74/74; PowerShell parser 12/12; full Engine/Agent 174 tests / 172 pass / 0 fail / 2 expected native-pywin32 skips across the existing split dependency runtimes; Monitor 143 tests / 140 pass / 0 fail / 3 conditional PostgreSQL skips; UI freeze 5/5; Vite build PASS; hash-locked Windows wheels 9/9; governance 50/50; Vault PASS with two pre-existing canvas warnings; secret scan 21 paths / 0 hits; scoped review Critical 0 / Important 0 / Minor 0 | this Task 12 checkpoint | PASS at repository source/static/test-double boundary; installed Machine A runtime and privileged Windows lifecycle not executed | exact staging/checkpoint; preserve Machine A runtime | stop before Task 13 |
+| ORIGINAL-TASK-13 | Production-like disposable integration without diagnostic harness | CLOSED | Starting SHA `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; `origin/main` `2694808092bd3c28dea14ed4bcd400e6bb0ec5d2` has no overlap with authorized Task 13 paths; Node integration 5/5; Engine contract 2/2; PostgreSQL 15 migrations applied twice; built Monitor shell, Agent proof, account aliases, physical source, demand/release, forged/stale denial, Agent recovery, heartbeat aging, and cleanup all passed | `test(idea2): prove permanent machine a runtime path` (this checkpoint) | PASS — disposable/local integration only; Production and installed Machine A unchanged | Task 14 full automated verification and security review | stop before Task 14 |
+| ORIGINAL-TASK-12 | Windows install/status/repair/uninstall/autostart lifecycle | CLOSED | Starting SHA `27d7723f96c4752d32047c5062c55173c3f4c9c2`; focused Windows/Agent 74/74; PowerShell parser 12/12; full Engine/Agent 174 tests / 172 pass / 0 fail / 2 expected native-pywin32 skips across the existing split dependency runtimes; Monitor 143 tests / 140 pass / 0 fail / 3 conditional PostgreSQL skips; UI freeze 5/5; Vite build PASS; hash-locked Windows wheels 9/9; governance 50/50; Vault PASS with two pre-existing canvas warnings; secret scan 21 paths / 0 hits; scoped review Critical 0 / Important 0 / Minor 0 | `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f` | PASS at repository source/static/test-double boundary; installed Machine A runtime and privileged Windows lifecycle not executed | Task 13 integration | Task 13 |
 | PRE-TASK-12-N12 | Permanent Machine A stream endpoint contract | CLOSED | Task 11 base `cb17caeecbc09b5cab224ae9369e3a29b860cbf8`; stable `aegis-stream-host.internal` application endpoint; server-owned Node/physical mapping; explicit non-loopback IPv4 SSH bind; Monitor 140 passed with 3 conditional PostgreSQL skips; Engine/Agent 139 tests, 0 failures, 2 pywin32 skips; endpoint 18/18; Agent 9/9; Windows 19/19; UI freeze 5/5; governance 50/50; Vite build PASS | `27d7723f96c4752d32047c5062c55173c3f4c9c2` | PASS at source/static/config evidence level; Production and installed Machine A runtime unchanged | original Task 12 |
 | MACHINE-A-NO-POWERSHELL-T1-T11 | Agent identity through physical camera demand lifecycle | CLOSED | Tasks 1–11 committed from `cc2ffff` through `cb17caee`; single physical heartbeat supports both account aliases; account switching requires no heartbeat switch; startup/auth/heartbeat create no demand; final demanding release closes the camera | `cb17caeecbc09b5cab224ae9369e3a29b860cbf8` | PASS — source/test checkpoints only; not installed Machine A acceptance | permanent endpoint prerequisite and original Tasks 12–16 | PRE-TASK-12/N12 |
 | MACHINE-A-NO-POWERSHELL-S1 | Isolated planning, current-main reconciliation, and Windows capability preflight | CLOSED | task-start `origin/main` `c5468c520f24d29fb37fefcf7c4411b91d4087f4`; PR #134 merged; Windows PowerShell/Python/DPAPI/8078/cryptography preflight accepted; pywin32 isolated-Agent dependency action identified | `cc2ffff` | PASS — planning/preflight; Production unchanged | superseded by implementation sessions above | historical record |
@@ -99,15 +102,17 @@ before that acceptance.
 |---|---|---|
 | Tasks 1–11 | COMPLETE | Agent identity, verified session, physical provenance/routing, one physical heartbeat, and demanding-viewer lifecycle are committed through `cb17caee`. History is preserved. |
 | PRE-TASK-12 / N12 | CLOSED | Checkpoint `27d7723f96c4752d32047c5062c55173c3f4c9c2`; stable named/configured endpoint, server-owned source mapping, and explicit SSH-bind contract pass source/static/config gates. Live Machine A acceptance remains later evidence. |
-| Original Task 12 | VERIFIED / CHECKPOINT PENDING | Repository-native Windows install/status/repair/uninstall/autostart lifecycle passes source/static/test-double gates. No permanent Machine A runtime mutation occurred or is authorized in this checkpoint. |
-| Original Tasks 13–16 | NOT STARTED | Integration, full verification, human installation/acceptance, final receipt, push, and PR remain later gates. |
+| Original Task 12 | CLOSED | Checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; repository-native Windows install/status/repair/uninstall/autostart lifecycle passes source/static/test-double gates. No permanent Machine A runtime mutation occurred. |
+| Original Task 13 | CLOSED | Node integration 5/5 and Engine contract 2/2 passed against the built app, disposable PostgreSQL 15, protocol-real Agent proof transport, and protocol-real Engine stream. Dynamic ports and database schemas were released. Production and installed Machine A remain unchanged. |
+| Original Tasks 14–16 | NOT STARTED | Full verification/security review, human installation/acceptance, final receipt, push, and PR remain later gates. |
 
 ### Planned / Completed / Remaining
 
 - **Completed:** Original Tasks 1–11, ending at Task 11 SHA `cb17caeecbc09b5cab224ae9369e3a29b860cbf8`.
 - **Completed:** PRE-TASK-12/N12 TDD and checkpoint `27d7723f96c4752d32047c5062c55173c3f4c9c2` for a deployment-owned stable hostname, explicit container host mapping, explicit SSH tunnel bind/port, and server-owned Node/physical-camera endpoint authorization.
-- **Verified / checkpoint pending:** Original Task 12 Windows lifecycle tooling and static/test-double verification only; privileged real-Windows installation remains a later human gate.
-- **Remaining after Task 12:** Tasks 13–14 integration/full verification, Task 15 human installation gate, and Task 16 human acceptance/final receipt/PR.
+- **Completed:** Original Task 12 checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f` for Windows lifecycle tooling and static/test-double verification only; privileged real-Windows installation remains a later human gate.
+- **Completed:** Original Task 13 production-like integration: 5/5 Node integration tests and 2/2 Engine runtime-contract tests passed with the built Monitor, disposable PostgreSQL 15, protocol-real Agent proof transport, and Engine demand/release lifecycle. No Vite acceptance, `:18078`, manual heartbeat loop, manual stream proxy, Production URL, or persistent Machine A mutation was used.
+- **Remaining:** Task 14 full verification, Task 15 human installation gate, and Task 16 human acceptance/final receipt/PR.
 
 ### PRE-TASK-12 verified contract and known limitations
 
@@ -129,11 +134,10 @@ before that acceptance.
 
 ### Handoff / Next Action
 
-Create the exact reviewed original Task 12 local checkpoint and stop. The next
-owner-approved action is Task 13 integration work. Do not install the Machine A
-runtime, push, open a PR, deploy, or create the final immutable receipt in this
-gate. Real elevated service/DPAPI/ACL/autostart execution, native pywin32 pipe
-acceptance, and browser automation remain later environment/human gates.
+Original Task 13 is closed at the current branch checkpoint. Stop before Task
+14. The next authorized action is the separate Task 14 full automated
+verification and scoped security-review matrix. Do not install the Machine A
+runtime, push, open a PR, deploy, or create the final immutable receipt.
 
 ### Original Task 12 verification evidence
 
