@@ -17,21 +17,24 @@ edit_policy: owner-writable
 
 ## Current Task
 
-**IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1 — DESIGN/PLAN COMPLETE / IMPLEMENTATION PENDING**
+**IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1 — PARTIAL IMPLEMENTATION / HIGH-RES CAP BLOCKED BY NATIVE-MEMORY EVIDENCE**
 
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `fix/idea1-vault-convergence-highres-ux`; stacked dependency: PR #219 on PR #218.
 - Exact start: `1183df33698588788a82df42bfd616fb5b11d759` (2026-09-26); PR #216, PR #218, and PR #219 remain untouched.
 - Approved scope: converge every eligible Vault lifecycle to `VaultTreeScreen` without role branching; retain explicit Human migration for nonempty FLAT Vaults; generalize the App full-pane marquee contract for Files and Vault; surface semantic TREE collisions; add a measured two-lane image-preview admission path; remove the image double decode.
 - Security/performance boundaries: no Production action, bulk migration, server plaintext derivative, global 256 MiB ceiling increase, Files/Vault transport mutation, Vault chunk/concurrency mutation, Cloudflare/Twingate change, or destructive purge enablement. JavaScript cleanup is best effort, not cryptographic zeroization.
-- Design checkpoint: `fa966a07`; written design and detailed TDD plan exist. Production high-resolution megapixel cap remains deliberately unselected until real browser/process working-set measurements prove a bounded value. Implementation has not started.
-- Current gate: Human review of design/plan checkpoint, then TDD implementation on this same branch. No final receipt, Ready transition, merge, or Production deployment.
+- Design checkpoint: `fa966a07`; plan checkpoint: `1cf6da81`. TDD implementation converges setup/empty-FLAT accounts to TREE_V1, gates nonempty FLAT data behind explicit migration, shares the full-pane Files/Vault marquee contract, surfaces semantic upload collisions, and introduces an abortable single-decode admission lane with high-resolution concurrency fixed at 1.
+- Native browser gate (isolated Edge, disposable generated JPEGs, process-tree working set): 16 MP boundary PASS (`19,202,048`-byte peak delta); 25.96 MP representative FAIL (`308,486,144`-byte peak delta); 32 MP proposed bound FAIL (`287,391,744`-byte peak delta); above 32 MP rejected before decode. Both failing deltas exceed the unchanged 256 MiB policy, so the active cap remains 16 MP and 25.96 MP support is not enabled.
+- Automated evidence: focused matrix 115/115 PASS; build PASS with existing chunk-size warning and generated `dist/index.html` restored; governance 49/49 PASS; Vault validator PASS with two existing Canvas owner-data warnings; diff check and secret scan PASS. PR #216/#218/#219 and Production remain untouched.
+- Current gate: Human/controller decision on a future memory architecture or lower measured cap. No Human browser acceptance, final receipt, Ready transition, merge, or Production deployment.
 
 ### Session Register — IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | IVCHU-S1 | Exact-base worktree; source/state-machine/media trace; approved architecture; written design; detailed TDD plan | DESIGN/PLAN COMPLETE / IMPLEMENTATION PENDING | Design pins lifecycle convergence, explicit nonempty-FLAT migration, role independence, shared Files/Vault full-pane interaction, semantic `COLLISION`, normal ≤16 MP and serialized high-resolution preview lanes, one bitmap decode, abort/late-result invalidation, unchanged zero-knowledge invariants, and a real browser/process working-set measurement gate before selecting any cap above 16 MP. | `fa966a07` design-first checkpoint; plan checkpoint follows | No application source changed; Production and PR #216/#218/#219 untouched; no final receipt | RED tests, incremental implementation, native/process memory qualification with 25.96 MP and upper-bound fixtures, focused/full verification, Human browser acceptance | Commit plan/status checkpoint; stop for Human review before implementation |
+| IVCHU-S2 | TDD implementation of Vault convergence, shared full-pane marquee, semantic collision copy, single-decode admission, native-memory gate, focused verification | PARTIAL / HIGH-RES ACTIVATION BLOCKED | Lifecycle and interaction implementation complete; collision copy localized; high-res queue serialized at 1; one bitmap decode with `finally` cleanup and abort/late-result guards. Isolated Edge measurements: 16 MP `19,202,048`-byte peak delta PASS; 25.96 MP `308,486,144` and 32 MP `287,391,744` peak deltas FAIL the 256 MiB policy; >32 MP zero decode. Focused 115/115, governance 49/49, build, validator, diff check, and secret scan PASS. | `93be4ad4` implementation checkpoint before status update | Active cap retained at 16 MP; 25.96 MP not supported; Production and PR #216/#218/#219 untouched; no receipt | Human/controller decision on a different bounded-memory browser architecture or revised scope; Human browser acceptance not run | Stop after documentation checkpoint; do not deploy or mark Ready |
 
 ## Completed Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
 
