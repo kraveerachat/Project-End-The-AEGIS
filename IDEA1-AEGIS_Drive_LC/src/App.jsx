@@ -11,6 +11,7 @@ import { useScrollReveal } from './lib/useScrollReveal.js'
 import { TopBar } from './components/TopBar.jsx'
 import { GlobalSearch } from './components/GlobalSearch.jsx'
 import { DashboardQuickActions } from './components/DashboardQuickActions.jsx'
+import { WorkspaceMarqueeSurface } from './components/WorkspaceMarquee.jsx'
 import { themeAssetsFor } from './components/AegisMark.jsx'
 import {
   applyThemeToDocument, readShellTheme, readStoredShellTheme,
@@ -217,11 +218,6 @@ export default function App() {
   const t = useMemo(() => makeT(lang), [lang])
   const reduced = useReducedMotion()
   const mainRef = useRef(null)
-  const workspaceMarqueeSurfaceRef = useRef(null)
-  const workspaceMarqueePointerDownRef = useRef(null)
-  const registerWorkspaceMarqueePointerDown = useCallback((handler) => {
-    workspaceMarqueePointerDownRef.current = handler
-  }, [])
 
   /* ⚠️ ต้องอยู่เหนือ early return ทุกอันของคอมโพเนนต์นี้ (ตรวจ auth / หน้า login /
      บังคับรีเซ็ตรหัสผ่าน) — hook ที่ถูกเรียกบ้างไม่เรียกบ้างทำให้ลำดับ hook ของ
@@ -239,6 +235,7 @@ export default function App() {
   // URL selections with the exact menu the server authorized for this session.
   const activeScreen = resolveAuthorizedScreen(screen, serverNav)
   const workspaceSurfaceActive = WORKSPACE_SCREENS.has(activeScreen)
+  const PageSurface = workspaceSurfaceActive ? WorkspaceMarqueeSurface : 'div'
 
   const go = useCallback((destination, params = {}, options = {}) => {
     const intent = normalizeNavigationIntent(destination, params)
@@ -466,8 +463,6 @@ export default function App() {
       <Files
         t={t} lang={lang} go={go} userId={session?.id ?? null}
         navigationParams={navigationParams} placeholderMode={placeholderMode}
-        marqueeSurfaceRef={workspaceMarqueeSurfaceRef}
-        registerMarqueePointerDown={registerWorkspaceMarqueePointerDown}
       />
     ),
     vault: (
@@ -476,8 +471,6 @@ export default function App() {
         lang={lang}
         placeholderMode={placeholderMode}
         userId={session?.id ?? null}
-        marqueeSurfaceRef={workspaceMarqueeSurfaceRef}
-        registerMarqueePointerDown={registerWorkspaceMarqueePointerDown}
       />
     ),
     shares: <Shares t={t} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
@@ -541,14 +534,12 @@ export default function App() {
           onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 4)}
           className="flex-1 overflow-y-auto"
         >
-          <div
+          {/* Files and Vault: the whole main pane is ONE shared marquee surface (it paints the
+              rectangle and owns the drag); the screen inside only registers its selection. */}
+          <PageSurface
             key={activeScreen}
             data-testid="app-page-content"
-            ref={workspaceSurfaceActive ? workspaceMarqueeSurfaceRef : null}
-            data-workspace-marquee-surface={workspaceSurfaceActive ? '' : undefined}
-            data-marquee-canvas={workspaceSurfaceActive ? '' : undefined}
-            onPointerDown={workspaceSurfaceActive ? (event) => workspaceMarqueePointerDownRef.current?.(event) : undefined}
-            className={workspaceSurfaceActive ? 'workspace-full-pane-surface relative min-h-full flex flex-col' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
+            className={workspaceSurfaceActive ? 'workspace-full-pane-surface min-h-full flex flex-col' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
           >
             {/* One composed header: breadcrumb + title on the left, search/actions on the right. */}
             <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${workspaceSurfaceActive ? 'workspace-pane-content pt-7 max-md:pt-5' : ''}`}>
@@ -591,7 +582,7 @@ export default function App() {
                 <div className={`fade-in ${workspaceSurfaceActive ? 'flex flex-1 flex-col' : ''} ${activeScreen === 'files' ? 'workspace-pane-content pb-7 max-md:pb-5' : ''}`}>{screenEl}</div>
               </Suspense>
             )}
-          </div>
+          </PageSurface>
         </main>
       </div>
     </div>

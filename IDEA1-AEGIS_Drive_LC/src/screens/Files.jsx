@@ -17,7 +17,7 @@ import { MediaProvider, MediaThumb, useOwnedMediaRuntime } from '../components/M
 import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../components/FileCardPresentation.jsx'
 import { SelectionAction, SelectionActionBar } from '../components/SelectionActionBar.jsx'
 import { readFolderHistory, writeFolderHistory } from '../lib/folderHistory.js'
-import { useMarqueeSelection } from '../lib/useMarqueeSelection.js'
+import { WorkspaceMarqueeScope, WorkspaceMarqueeSource } from '../components/WorkspaceMarquee.jsx'
 
 const EXT_ICONS = {
   xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
@@ -588,30 +588,17 @@ function FileListRow({ t, file, now, index, dragActive, onOpen, onMenuAction, on
 export function FilesSections({
   t, view, folders, files, now, selectedIds, draggingIds,
   onSelect, onOpen, onMenuAction, onDragStartItem, onDragEndItem, onDropItems, tileRef, onSelectionChange,
-  marqueeSurfaceRef = null, registerMarqueePointerDown = null,
 }) {
   const dragActive = draggingIds.length > 0
   // หนึ่ง scheduler + หนึ่ง media-info client ต่อหน้า Files (Tranche B) — ทิ้งตอน unmount
   const mediaRuntime = useOwnedMediaRuntime()
   // ทะเบียน element ของไทล์ (ต่อ id) สำหรับ hit-test ของ marquee — ส่งต่อให้ tileRef ของหน้าด้วย
   const tileEls = useRef(new Map())
-  const localCanvasRef = useRef(null)
-  const canvasRef = marqueeSurfaceRef ?? localCanvasRef
-  const appOwnsMarqueeSurface = Boolean(marqueeSurfaceRef && registerMarqueePointerDown)
   const registerTile = (id) => (el) => {
     if (el) tileEls.current.set(id, el)
     else tileEls.current.delete(id)
     tileRef?.(id)?.(el)
   }
-  const marquee = useMarqueeSelection({
-    enabled: view === 'grid' && typeof onSelectionChange === 'function',
-    canvasRef, tileEls, selectedIds, onSelectionChange,
-  })
-  useEffect(() => {
-    if (!registerMarqueePointerDown) return undefined
-    registerMarqueePointerDown(marquee.onPointerDown)
-    return () => registerMarqueePointerDown(null)
-  }, [registerMarqueePointerDown, marquee.onPointerDown])
   if (view !== 'grid') {
     const groupRow = (key, label) => (
       <tr key={`section-${key}`} data-files-section-row={key} className="bg-sunken/60">
@@ -668,25 +655,15 @@ export function FilesSections({
   })
   return (
     <MediaProvider scheduler={mediaRuntime.scheduler} client={mediaRuntime.client}>
-    <div
-      ref={appOwnsMarqueeSurface ? null : localCanvasRef}
-      data-marquee-canvas={appOwnsMarqueeSurface ? undefined : ''}
-      onPointerDown={appOwnsMarqueeSurface ? undefined : marquee.onPointerDown}
-      className={`${appOwnsMarqueeSurface ? '' : 'relative'} flex flex-col gap-6 min-h-[50vh]`}
-      style={{ userSelect: marquee.tracking ? 'none' : undefined }}
-    >
-      {marquee.box && (
-        <div
-          data-marquee-rect=""
-          aria-hidden="true"
-          className="pointer-events-none absolute z-10 rounded-[4px] border border-accent"
-          style={{
-            left: `${marquee.box.left}px`, top: `${marquee.box.top}px`,
-            width: `${marquee.box.width}px`, height: `${marquee.box.height}px`,
-            background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
-          }}
-        />
-      )}
+    {/* ลากกรอบเลือก: พื้นผิวเต็มบานของ App (หรือ scope นี้เองเมื่อ mount เดี่ยว) เป็นเจ้าของ
+        การลาก/กรอบ — ที่นี่ส่งแค่สถานะการเลือกของกริดนี้ (ดู components/WorkspaceMarquee.jsx) */}
+    <WorkspaceMarqueeScope className="flex flex-col gap-6 min-h-[50vh]">
+      <WorkspaceMarqueeSource
+        enabled={view === 'grid' && typeof onSelectionChange === 'function'}
+        tileEls={tileEls}
+        selectedIds={selectedIds}
+        onSelectionChange={onSelectionChange}
+      />
       {folders.length > 0 && (
         <section data-files-section="folders" aria-label={t('sectionFolders')}>
           <SectionHeading>{t('sectionFolders')}</SectionHeading>
@@ -711,7 +688,7 @@ export function FilesSections({
           </div>
         </section>
       )}
-    </div>
+    </WorkspaceMarqueeScope>
     </MediaProvider>
   )
 }
@@ -793,7 +770,6 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
 // ทุกการกระทำ (สร้างโฟลเดอร์/ลบ) เป็น request จริง + refetch; ไม่มี alert()/prompt()
 export function Files({
   t, lang, go, userId = null, navigationParams = {}, placeholderMode = false,
-  marqueeSurfaceRef = null, registerMarqueePointerDown = null,
 }) {
   const reduced = useReducedMotion()
   const now = useNow(30_000)
@@ -1251,8 +1227,6 @@ export function Files({
           onDropItems={dropItemsInto}
           onSelectionChange={setSelectedIds}
           tileRef={(id) => (el) => { tileRefs.current[id] = el }}
-          marqueeSurfaceRef={marqueeSurfaceRef}
-          registerMarqueePointerDown={registerMarqueePointerDown}
         />
       )}
       </div>

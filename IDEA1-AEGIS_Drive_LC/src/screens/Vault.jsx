@@ -420,7 +420,7 @@ function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss }) {
 
 export function Vault({
   t, lang = 'en', placeholderMode = false, unlockedStateFactory = createUnlockedVaultState,
-  marqueeSurfaceRef = null, registerMarqueePointerDown = null, userId = null,
+  userId = null,
 }) {
   const reduced = useReducedMotion()
   const vaultApi = useApi('/api/vault')
@@ -1246,8 +1246,6 @@ export function Vault({
           unlockedState={unlockedState.current}
           onLock={() => lock(false)}
           recoveryScope={userId}
-          marqueeSurfaceRef={marqueeSurfaceRef}
-          registerMarqueePointerDown={registerMarqueePointerDown}
         />
       </div>
     )

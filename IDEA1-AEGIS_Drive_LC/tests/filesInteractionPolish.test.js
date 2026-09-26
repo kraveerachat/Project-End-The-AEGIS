@@ -24,6 +24,7 @@ const t = makeT('en')
 let vite
 let files
 let view
+let workspaceMarquee
 
 before(async () => {
   vite = await createServer({
@@ -32,6 +33,7 @@ before(async () => {
   })
   files = await vite.ssrLoadModule('/src/screens/Files.jsx')
   view = await vite.ssrLoadModule('/src/lib/filesView.js')
+  workspaceMarquee = await vite.ssrLoadModule('/src/components/WorkspaceMarquee.jsx')
 })
 after(async () => { await vite?.close() })
 
@@ -357,23 +359,13 @@ test('R9-MARQUEE-10 · unmounting mid-drag removes every window listener the mar
 test('SHARED-FILES-SURFACE left/right/bottom App whitespace owns Files marquee geometry and blank clear', async () => {
   const m = await mountRoot()
   try {
+    // the same WorkspaceMarqueeSurface App renders as its full main pane (App-level
+    // geometry is proven in tests/workspaceMarqueeApp.test.js)
     function SharedFilesHarness() {
       const [selected, setSelected] = React.useState(() => new Set(['d1']))
-      const surfaceRef = React.useRef(null)
-      const pointerRef = React.useRef(null)
-      const register = React.useCallback((handler) => { pointerRef.current = handler }, [])
-      return React.createElement('div', {
-        ref: surfaceRef,
-        'data-testid': 'shared-files-surface',
-        'data-marquee-canvas': '',
-        onPointerDown: (event) => pointerRef.current?.(event),
-        className: 'relative',
-      },
-      React.createElement('output', { 'data-testid': 'shared-files-selection' }, [...selected].sort().join(',')),
-      sections({
-        folders: [folderItem()], files: [image()], selectedIds: selected, onSelectionChange: setSelected,
-        marqueeSurfaceRef: surfaceRef, registerMarqueePointerDown: register,
-      }))
+      return React.createElement(workspaceMarquee.WorkspaceMarqueeSurface, { 'data-testid': 'shared-files-surface' },
+        React.createElement('output', { 'data-testid': 'shared-files-selection' }, [...selected].sort().join(',')),
+        sections({ folders: [folderItem()], files: [image()], selectedIds: selected, onSelectionChange: setSelected }))
     }
 
     await m.render(React.createElement(SharedFilesHarness))

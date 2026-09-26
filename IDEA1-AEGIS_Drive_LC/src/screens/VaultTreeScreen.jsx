@@ -44,7 +44,7 @@ import { useApi } from '../lib/hooks.js'
 import { apiFetchBytes } from '../lib/api.js'
 import { DEFAULT_VAULT_SORT, deriveVaultWorkspace, VAULT_SORT_MODES, VAULT_TYPE_FILTERS } from '../lib/vaultWorkspace.js'
 import { readFolderHistory, resolveFolderHistoryTarget, writeFolderHistory } from '../lib/folderHistory.js'
-import { useMarqueeSelection } from '../lib/useMarqueeSelection.js'
+import { WorkspaceMarqueeScope, WorkspaceMarqueeSource } from '../components/WorkspaceMarquee.jsx'
 import { isInternalItemDrag, isExternalFileDrag, writeDragPayload, readDragPayload } from '../lib/fileDragDrop.js'
 import { decryptFileContent, decryptBlobMeta } from '../lib/vaultCrypto.js'
 import { decryptVaultV2Meta, unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
@@ -214,7 +214,6 @@ export function VaultTreeRollback({ t, lang = 'en', kek, unlockedState = null, s
 export function VaultTreeScreen({
   t, lang = 'en', kek, treeState = null, unlockedState = null, onLock, recoveryScope = null,
   sessionFactory = createTreeSession, defaultApi = treeApi, mediaPreviewEnabled = false,
-  marqueeSurfaceRef = null, registerMarqueePointerDown = null,
 }) {
   const session = useMemo(
     () => (kek ? sessionFactory({ kek, api: defaultApi, unlockedState }) : null),
@@ -790,8 +789,6 @@ export function VaultTreeScreen({
     () => deriveVaultWorkspace(tree.children, { query, typeFilter, sort }),
     [tree.children, query, typeFilter, sort],
   )
-  const localMarqueeCanvasRef = useRef(null)
-  const marqueeCanvasRef = marqueeSurfaceRef ?? localMarqueeCanvasRef
   const marqueeTilesRef = useRef(new Map())
   const registerMarqueeTile = (nodeId) => (element) => {
     if (element) marqueeTilesRef.current.set(nodeId, element)
@@ -802,24 +799,6 @@ export function VaultTreeScreen({
     if (!controller) return
     controller.setSelection(nodeIds)
   }, [])
-  const marquee = useMarqueeSelection({
-    enabled: layout === 'grid',
-    canvasRef: marqueeCanvasRef,
-    tileEls: marqueeTilesRef,
-    selectedIds: tree.selection,
-    onSelectionChange: setMarqueeSelection,
-  })
-  useEffect(() => {
-    if (!registerMarqueePointerDown) return undefined
-    registerMarqueePointerDown(marquee.onPointerDown)
-    return () => registerMarqueePointerDown(null)
-  }, [registerMarqueePointerDown, marquee.onPointerDown])
-  useEffect(() => {
-    const surface = marqueeCanvasRef.current
-    if (!surface) return undefined
-    surface.style.userSelect = marquee.tracking ? 'none' : ''
-    return () => { surface.style.userSelect = '' }
-  }, [marquee.tracking, marqueeCanvasRef])
   const selectionRoots = head && tree.selection.size ? (() => {
     try {
       return normalizeRootsSafe(head.index, [...tree.selection])
@@ -926,18 +905,13 @@ export function VaultTreeScreen({
   /* ── render ──────────────────────────────────────────────────────────────── */
   const rootId = head?.manifest.rootNodeId ?? null
   const isTrashView = tree.view === 'trash'
-  const ownsMarqueeSurface = !marqueeSurfaceRef
   return (
-    <div
-      ref={ownsMarqueeSurface ? marqueeCanvasRef : null}
+    /* ลากกรอบเลือก: ใช้พื้นผิวเดียวกับ Files — App เป็นเจ้าของการลาก/กรอบ จอนี้ส่งแค่สถานะการเลือก
+       (mount เดี่ยว = scope นี้เป็นพื้นผิวเอง พฤติกรรมเหมือนกันทุกประการ) */
+    <WorkspaceMarqueeScope
       data-testid="vault-tree-screen"
-      data-vault-marquee-surface={ownsMarqueeSurface ? '' : undefined}
-      data-vault-marquee-canvas={ownsMarqueeSurface ? '' : undefined}
-      onPointerDown={ownsMarqueeSurface ? marquee.onPointerDown : undefined}
-      className={ownsMarqueeSurface
-        ? 'vault-full-pane-surface vault-pane-content vault-tree-content relative flex-1'
-        : 'vault-pane-content vault-tree-content flex-1'}
-      style={{ userSelect: marquee.tracking ? 'none' : undefined }}
+      className="vault-pane-content vault-tree-content flex-1"
+      standaloneClassName="workspace-full-pane-surface"
       onDragOver={(e) => {
         const dt = e.dataTransfer ?? e.nativeEvent?.dataTransfer
         if (!isInternalItemDrag(dt) && isExternalFileDrag(dt) && !isTrashView) e.preventDefault()
@@ -950,18 +924,12 @@ export function VaultTreeScreen({
         if (files.length) enqueueVaultFiles(files)
       }}
     >
-      {marquee.box && (
-        <div
-          data-testid="vault-marquee-rect"
-          aria-hidden="true"
-          className="pointer-events-none absolute z-10 rounded-[4px] border border-accent"
-          style={{
-            left: `${marquee.box.left}px`, top: `${marquee.box.top}px`,
-            width: `${marquee.box.width}px`, height: `${marquee.box.height}px`,
-            background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
-          }}
-        />
-      )}
+      <WorkspaceMarqueeSource
+        enabled={layout === 'grid'}
+        tileEls={marqueeTilesRef}
+        selectedIds={tree.selection}
+        onSelectionChange={setMarqueeSelection}
+      />
       {/* aria-live: การนำทาง/ถูกปฏิเสธ/reconcile ประกาศที่นี่เสมอ (TS-4/TS-9) */}
       <p role="status" aria-live="polite" data-testid="vault-tree-announce" data-marquee-ignore="" className="sr-only">
         {announcementText ?? ''}
@@ -1288,6 +1256,6 @@ export function VaultTreeScreen({
           onChoice={(choice, extra = {}) => tree.resolveConflict(choice, extra)} unlockedState={unlockedState}
         />
       )}
-    </div>
+    </WorkspaceMarqueeScope>
   )
 }
