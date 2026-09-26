@@ -77,7 +77,7 @@ Preflight (any failure stops **before** any change; `PRODUCTION_MUTATION_PERFORM
 Runtime changes, each journaled **before** it is made (`journal.tsv`):
 
 1. `RFKILL_UNBLOCK <id>` — only if the target was soft-blocked: `l3_rfkill_prepare` from the merged `p4-l3-rfkill.sh` unblocks exactly that
-   id. Never `rfkill unblock all`, never `nmcli radio wifi on`, never `iw reg set`. Non-target rfkill rows must be unchanged.
+   id. Never `rfkill unblock all`, never `iw reg set`, and never the global radio in v1 (v1 scope; superseded by the owner-authorized V2 radio enable in the remediation design). Non-target rfkill rows must be unchanged.
 2. `NM_UP aegis-idea3-ap` — `l3_nm_wait_ready` (bounded, state based: target device must reach `disconnected`; polling is not a second
    attempt), then **one** `nmcli connection up aegis-idea3-ap ifname wlp0s20f3` via `l3_nm_activate`. Then, bounded: type AP, SSID exactly
    `AEGIS-IDEA3`, channel exactly 6, exactly the single IPv4 `10.77.30.1/28`, no global IPv6, no AP default route, Model B still PASS,
@@ -108,8 +108,8 @@ Undoes exactly what the journal says, in reverse order, idempotently, accepting 
 | `RFKILL_UNBLOCK` | `l3_rfkill_restore`: re-block exactly the recorded id, only if it was soft-blocked before |
 | `DNSMASQ_RESET_FAILED` | **nothing**: rollback does not manufacture a fake `start-limit-hit`; the unit is left in a safe non-running state |
 
-It never deletes or rewrites the profile, dnsmasq config/unit or nft file, never touches nftables, forwarding, regulatory state, the global
-radio, `enp62s0`, legacy Mosquitto or Twingate. Proofs afterwards: AP not active, no AP IPv4, dnsmasq not running and `UnitFileState` unchanged,
+It never deletes or rewrites the profile, dnsmasq config/unit or nft file, never touches nftables, forwarding, regulatory state,
+`enp62s0`, legacy Mosquitto or Twingate (v1: never the global Wi-Fi radio; under V2 only the journaled, owner-authorized enable is undone). Proofs afterwards: AP not active, no AP IPv4, dnsmasq not running and `UnitFileState` unchanged,
 exact rfkill pre-state restored, other rfkill rows unchanged, persistent files identical, nft table identical, forwarding `0`, identities
 unchanged.
 

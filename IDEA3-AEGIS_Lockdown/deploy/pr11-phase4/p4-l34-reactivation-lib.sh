@@ -212,6 +212,35 @@ l34_rfkill_only_target_changed() {
   [ "$(awk -v i="$id" '$1 != i' "$pre" | tr -s ' ')" = "$(awk -v i="$id" '$1 != i' <<< "$now" | tr -s ' ')" ] || { l34_reason "L34_RFKILL_NON_TARGET_CHANGED"; return 1; }
 }
 
+# ── NM global radio decision boundary (V2): topology proof that the global scope is acceptable ─────────────────────────────
+
+# l34_no_wifi_active_gate — no Wi-Fi connection is active except (after reactivation) exactly the approved one on the target
+l34_no_wifi_active_gate() {
+  local out
+  out=$(nmcli -t -f TYPE,DEVICE connection show --active 2>/dev/null) || { l34_reason "L34_WIFI_ACTIVE_UNREADABLE"; return 1; }
+  ! grep -q '^802-11-wireless' <<< "$out" || { l34_reason "L34_WIFI_ACTIVE_CONNECTION_PRESENT"; return 1; }
+}
+
+# l34_wifi_topology_gate AP_IF SYSFS_ROOT — wlp0s20f3 is the ONLY Wi-Fi device (NetworkManager, sysfs) and the ONLY wlan rfkill, so the
+# global NM radio flag can affect nothing but the target. Read-only.
+l34_wifi_topology_gate() {
+  local ap=$1 sysfs=$2 nm n_nm n_sys n_rf
+  nm=$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null) || { l34_reason "L34_WIFI_TOPOLOGY_UNREADABLE"; return 1; }
+  n_nm=$(awk -F: '$2 == "wifi" { n++ } END { print n + 0 }' <<< "$nm")
+  [ "$n_nm" = 1 ] && [ "$(awk -F: '$2 == "wifi" { print $1 }' <<< "$nm")" = "$ap" ] || { l34_reason "L34_WIFI_TOPOLOGY_NOT_SOLE_DEVICE"; return 1; }
+  n_sys=$(find -L "$sysfs/class/net" -mindepth 2 -maxdepth 2 -name phy80211 2>/dev/null | wc -l)
+  [ "$n_sys" = 1 ] || { l34_reason "L34_WIFI_TOPOLOGY_NOT_SOLE_DEVICE"; return 1; }
+  n_rf=$(rfkill --noheadings --output ID,TYPE,SOFT,HARD list 2>/dev/null | awk '$2 == "wlan" { n++ } END { print n + 0 }')
+  [ "$n_rf" = 1 ] || { l34_reason "L34_WIFI_TOPOLOGY_RFKILL_WLAN_COUNT"; return 1; }
+}
+
+# l34_device_autoconnect AP_IF — prints the runtime (non-persistent) NetworkManager device autoconnect value: yes|no
+l34_device_autoconnect() {
+  local v
+  v=$(nmcli -g GENERAL.AUTOCONNECT device show "$1" 2>/dev/null) || return 1
+  case "$v" in yes | no) printf '%s\n' "$v" ;; *) return 1 ;; esac
+}
+
 # ── dnsmasq service identity ─────────────────────────────────────────────────────────────────────────────────────────────
 
 # l34_service_pre_gate < `systemctl show -p LoadState,ActiveState,SubState,UnitFileState,Result,MainPID …` (KEY=VALUE lines)

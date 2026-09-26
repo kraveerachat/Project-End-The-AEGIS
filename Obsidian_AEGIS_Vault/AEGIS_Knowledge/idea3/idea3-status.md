@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3/L4 reactivation live attempt 1 — FAIL_CLOSED (NM_WIFI_RADIO_DISABLED), rolled back — remediation in repository — 2026-09-27
+
+> [!important] The first live L3/L4 post-reboot reactivation attempt FAILED CLOSED at NetworkManager readiness and was rolled back. The authorization is permanently consumed; no retry occurred. The safe pre-state and safety boundary were restored; **runtime is NOT restored** (`L3_RUNTIME = NOT_APPLIED`, `L4_RUNTIME = NOT_APPLIED`). No new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` is claimed.
+> `L34_REACTIVATION_ATTEMPT = 1`, `L34_REACTIVATION_RESULT = FAIL`, `FAIL_REASON = NM_WIFI_RADIO_DISABLED`, `ROLLBACK_RESULT = PASS`, `PRE_RB_COMPARE = PASS`, `PRESERVATION_S10 = PASS`, `AUTHORIZATION_CONSUMED = YES`, `RETRY_PERFORMED = NO`
+> `L34_NM_RADIO_REMEDIATION = REPOSITORY_ONLY (simulator-tested)`, `LIVE_REACTIVATION = NOT_AUTHORIZED`, `L6B_LIVE_EXECUTED = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l34-reactivation-20260927-021304`; frozen runner sha256 `2d3157baf34f7b0e79dffd7148c21857e733a2ce806be2e9718682824edf1681` at main `896ca419942af93a73a1218698f1760ad7b6a267`. Apply made exactly one change (`rfkill unblock 1`); the bounded wait saw `unavailable` until timeout; rollback re-blocked exactly rfkill 1; PRE->RB compare PASS (3 INFO disk-availability findings only).
+- **Root cause (proven live):** after the exact unblock NetworkManager logged "Wi-Fi now enabled by radio killswitch" yet `nmcli radio wifi` stayed `disabled`: NM's own persisted software radio flag is off, so the Wi-Fi device stays `unavailable`. The v1 design (and its simulator) assumed rfkill was the only reason. There is **no target-scoped** NM action; enabling the radio is a **global** NM change and a **new owner decision boundary** (v1 explicitly forbade it).
+- **Remediation implemented (not run):** the global `nmcli radio wifi on` only behind `AEGIS_L34_NM_RADIO_ENABLE=YES`, set by the runner only after the exact V2 scope; sole-Wi-Fi-device/sole-wlan-rfkill/no-active-Wi-Fi topology preflight; a runtime `nmcli device set wlp0s20f3 autoconnect no` guard before the enable because 12 saved Wi-Fi profiles have `autoconnect=yes`; PRE autoconnect restored; journaled; rollback turns the radio off only if this run enabled it. Comparator unchanged (exact `nm.general#WIFI` rule already existed; rollback catalog has none).
+- **Runner defect fixed:** `compare()` declared `local kind=${4:-post} rc=0 local -a env_allow` (`not a valid identifier` at run time; `bash -n` cannot see it). Tests now execute the function and fail on stderr.
+- **Next boundary:** owner decision on OD-L34-RADIO (V2 scope); merge; freeze a NEW runner at the new main; fresh same-day A-L4 (V2 scope) and K3; one bounded run. One owner sudo read confirms the persisted flag: `sudo grep -E '^WirelessEnabled' /var/lib/NetworkManager/NetworkManager.state`.
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md`. Receipt: `90-Status/logs/2026-09-27_051500_music_idea3-pr11-l34-live-attempt1-nm-radio-remediation.md`.
+
 ## IDEA3 PR11 Phase 4 L3/L4 post-reboot runtime reactivation — repository implementation only — 2026-09-27
 
 > [!important] Repository implementation only. The reactivation has NOT run, is NOT authorized, and no Production state changed. It is `RUNTIME_ONLY`: it restores the already accepted persistent L3/L4 configuration to its active runtime state and claims NO new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` (the historical receipts stay authoritative).

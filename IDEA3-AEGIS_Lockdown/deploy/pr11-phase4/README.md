@@ -489,6 +489,21 @@ apply, never rewrites any persistent file, and claims **no** new `L3_LIVE_ACCEPT
 - Authorization reuses `AEGIS_P4_AUTHORIZATION_V1` + fresh K3 with `stage=L4` and an exact `L3_L4_RUNTIME_REACTIVATION` scope line.
 - `owner-run/run-l34-reactivation-owner.sh` is an **unpinned template** that refuses to run until the owner freeze workflow pins the merged main.
 
+#### L3/L4 reactivation — live attempt 1 failure and NM radio remediation (2026-09-27)
+
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md`. The first live attempt failed closed with
+`NM_WIFI_RADIO_DISABLED` (authorization consumed, rollback PASS, PRE->RB PASS, no retry): the exact rfkill unblock made NetworkManager report
+"Wi-Fi now enabled by radio killswitch" but its own software radio flag stayed off, so the target stayed `unavailable`. No target-scoped NM action
+exists; enabling the radio is a global NM change and a **new owner decision boundary**.
+
+- The global `nmcli radio wifi on` exists only behind `AEGIS_L34_NM_RADIO_ENABLE=YES`, which the runner sets only after verifying the exact V2 scope
+  (`L3_L4_RUNTIME_REACTIVATION_V2: rfkill 1 unblock, temp wlp0s20f3 autoconnect off, NM radio on, activate aegis-idea3-ap, reset-failed+start dnsmasq, no persistent rewrite`, 168 chars). Preflight requires wlp0s20f3 to be the sole Wi-Fi device/wlan
+  rfkill with no active Wi-Fi connection; a runtime `nmcli device set wlp0s20f3 autoconnect no` guard precedes the enable (12 saved Wi-Fi
+  profiles have autoconnect); the PRE autoconnect value is restored; rollback turns the radio off only if this run enabled it.
+- The comparator is unchanged (the exact `nm.general#WIFI disabled -> enabled` rule already exists; the rollback catalog has none).
+- Runner defect fixed: `compare()` had `local ... rc=0 local -a env_allow` (`not a valid identifier` at run time, invisible to `bash -n`); tests now
+  execute the function.
+
 ### L6b stage-owned live preparation (owner decisions 2026-09-27)
 
 Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6b-operational-design.md`. Repository preparation only;

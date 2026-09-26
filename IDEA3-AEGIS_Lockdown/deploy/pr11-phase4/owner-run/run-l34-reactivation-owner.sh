@@ -5,10 +5,17 @@
 # Design: docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-post-reboot-reactivation-design.md
 # Usage (normal user, NOT root):  bash run-l34-reactivation-owner.sh <AUTH_DIR>    AUTH_DIR holds authorization-L4.txt and k3-L4.txt (stage=L4)
 #
+# V2 (live attempt 1 remediation): the exact rfkill unblock alone left NetworkManager's software Wi-Fi radio disabled (NM_WIFI_RADIO_DISABLED).
+# Global NetworkManager Wi-Fi radio mutation is FORBIDDEN BY DEFAULT. Only the exact V2 scope (checked below) authorizes it: the handlers then may
+# run a temporary runtime `nmcli device set wlp0s20f3 autoconnect no` (PRE value restored) and enable the radio exactly ONCE with
+# `nmcli radio wifi on`, and only when preflight proves wlp0s20f3 is the SOLE Wi-Fi device/wlan rfkill with no active Wi-Fi connection.
+# Rollback disables the radio only if this run enabled it. No persistent NetworkManager configuration is rewritten.
+# Design: docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md
 # RUNTIME_ONLY: this restores the already accepted persistent L3/L4 configuration to its accepted ACTIVE runtime state (manual post-reboot
 # reactivation). It is NOT an L3/L4 apply, reinstall, profile rewrite or dnsmasq rewrite, and it does NOT claim any L3/L4 live acceptance.
-# It never rewrites persistent files, never touches nftables/forwarding/regulatory state/the global radio/enp62s0/legacy mosquitto/Twingate/
-# NTP/ESP32, never runs L3/L4 apply.sh, never starts L6b or L7. K12_AUTOMATIC_REBOOT_PERSISTENCE stays NOT_PROVEN. NO automatic retry.
+# It never rewrites persistent files (including any NetworkManager profile/configuration), never touches nftables/forwarding/regulatory state/
+# enp62s0/legacy mosquitto/Twingate/NTP/ESP32, never changes the global Wi-Fi radio except the single owner-authorized V2 enable described above,
+# never runs L3/L4 apply.sh, never starts L6b or L7. K12_AUTOMATIC_REBOOT_PERSISTENCE stays NOT_PROVEN. NO automatic retry.
 set -Eeuo pipefail
 umask 077
 
@@ -28,7 +35,7 @@ LIB=$P4/p4-l34-reactivation-lib.sh
 AP_IF=wlp0s20f3
 AP_ADDR=10.77.30.1
 PROFILE=/etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection
-EXPECTED_SCOPE='L3_L4_RUNTIME_REACTIVATION: exact rfkill unblock, activate existing aegis-idea3-ap on wlp0s20f3, reset-failed+start aegis-idea3-dnsmasq, no persistent config rewrite'
+EXPECTED_SCOPE='L3_L4_RUNTIME_REACTIVATION_V2: rfkill 1 unblock, temp wlp0s20f3 autoconnect off, NM radio on, activate aegis-idea3-ap, reset-failed+start dnsmasq, no persistent rewrite'
 TODAY=$(TZ=Asia/Bangkok date +%F)
 STAMP=$(TZ=Asia/Bangkok date +%Y%m%d-%H%M%S)
 EVID=/home/kittipat/Workspace/idea3-p4-evidence/$TODAY-l34-reactivation-$STAMP
@@ -88,7 +95,9 @@ MUTATED=0; ROLLED_BACK=0
 capture() { sudo env EVID_DIR="$2" CAPTURE_LABEL="${1,,}" JOURNAL_SINCE="$JOURNAL_SINCE" bash "$P4/p4-l0-capture.sh" || return 1
   sudo grep -q 'L0_CAPTURE=COMPLETE' "$2/capture.log" || return 1; sudo bash -c "cd '$2' && sha256sum -c --quiet --strict SHA256SUMS" || return 1; echo "CAPTURE_$1=COMPLETE SHA256=PASS"; }
 # compare BEFORE AFTER REPORT post|rollback — the value-level dynamic-state windows are exact catalog rules; persistent-file keys are never allowed
-compare() { local kind=${4:-post} rc=0 local -a env_allow
+compare() {
+  local kind=${4:-post} rc=0
+  local -a env_allow
   if [ "$kind" = post ]; then
     env_allow=(ALLOW_KEYS_FILE="$HND/allow-keys.txt" ALLOW_LISTENERS_FILE="$HND/allow-listeners.txt" ALLOW_TRANSITIONS_FILE="$HND/allow-transitions.txt" ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions.txt")
   else
@@ -98,7 +107,7 @@ compare() { local kind=${4:-post} rc=0 local -a env_allow
   grep -E '^(FINDING|FINDINGS_|PRESERVATION_S10|COMPARE_RESULT)' "$3" || true; [ "$rc" = 0 ] || return 1
   for l in FINDINGS_NEW_OR_WORSENED_DRIFT=0 FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0 FINDINGS_INCOMPARABLE=0 PRESERVATION_S10=PASS COMPARE_RESULT=PASS; do grep -qx "$l" "$3" || { echo "COMPARE_REQUIREMENT_FAILED: $l"; return 1; }; done; }
 handler() { local w=${2:-$WORK}
-  sudo env AEGIS_L34_LIVE_AUTHORIZED=YES AEGIS_L34_WORK_DIR="$w" AEGIS_AP_INTERFACE="$AP_IF" AEGIS_L34_PREFLIGHT_ONLY="${AEGIS_L34_PREFLIGHT_ONLY_RUN:-NO}" bash "$HND/$1"; }
+  sudo env AEGIS_L34_LIVE_AUTHORIZED=YES AEGIS_L34_WORK_DIR="$w" AEGIS_AP_INTERFACE="$AP_IF" AEGIS_L34_NM_RADIO_ENABLE=YES AEGIS_L34_PREFLIGHT_ONLY="${AEGIS_L34_PREFLIGHT_ONLY_RUN:-NO}" bash "$HND/$1"; }
 own_work() { sudo chown -R "$(id -u):$(id -g)" "$WORK" "$PREFLIGHT_WORK" 2>/dev/null || true; }
 identity_now() { for u in mosquitto.service twingate.service "$ENGINE" "$TUNNEL"; do printf '%s %s/%s\n' "$u" "$(show "$u" MainPID)" "$(show "$u" NRestarts)"; done; }
 IDENT_PRE=$(identity_now)

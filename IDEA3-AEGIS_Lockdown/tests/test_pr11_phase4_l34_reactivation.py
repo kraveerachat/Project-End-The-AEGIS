@@ -81,7 +81,7 @@ address=/mqtt.aegis.home.arpa/10.77.30.1
 """
 
 MUTATING = re.compile(
-    r"^(rfkill (block|unblock)|nmcli connection (up|down|modify|delete|reload)|systemctl (reset-failed|start|stop|enable|disable|restart)|iw reg set|nmcli radio wifi (on|off))"
+    r"^(rfkill (block|unblock)|nmcli connection (up|down|modify|delete|reload)|systemctl (reset-failed|start|stop|enable|disable|restart)|iw reg set|nmcli radio wifi (on|off)|nmcli device set)"
 )
 
 
@@ -197,13 +197,15 @@ def code_lines(path: Path) -> str:
 def test_no_forbidden_global_wifi_regulatory_or_host_commands(script: Path) -> None:
     text = code_lines(script)
     for pat in (
-        r"rfkill\s+(un)?block\s+all", r"nmcli\s+radio\s+wifi\s+(on|off)", r"nmcli\s+(general|networking)\s+", r"iw\s+reg\s+set",
+        r"rfkill\s+(un)?block\s+all", r"nmcli\s+(general|networking)\s+", r"iw\s+reg\s+set",
         r"nmcli\s+connection\s+(modify|delete|add|reload|import|edit)", r"systemctl\s+(enable|disable|restart|reload|mask|daemon-reload)",
         r"systemctl\s+(start|stop|reset-failed)\s+dnsmasq\.service", r"\bnft\s+(add|delete|flush|-f|insert|replace)", r"sysctl\s+-w",
         r"\bpkill\b", r"\bkillall\b", r"\brm\s", r"\bmv\s", r"\binstall\s+-", r"tee\s+/etc", r"(^|[;&|]\s*)(sudo\s+)?(reboot|shutdown|poweroff)\b", r"esptool",
         r"twingate\s+(stop|start|restart)", r"mosquitto\.service\s*$",
     ):
         assert not re.search(pat, text, re.M), (script.name, pat)
+    if script in (VERIFY, RUNNER, LIB):  # the global radio command lives ONLY in apply.sh (on) and rollback.sh (off); see test_pr11_phase4_l34_nm_radio.py
+        assert not re.search(r"nmcli\s+radio\s+wifi\s+(on|off)", text)
     if script is not RUNNER:  # the runner copies its own authorization records into the evidence directory; handlers copy nothing
         assert not re.search(r"\bcp\s", text)
 
@@ -1001,7 +1003,7 @@ def test_runner_governance_reuses_stage_l4_records_with_exact_scope_and_fresh_k3
     assert "K3_CONFIRMATION=VALID" in t and "AUTHORIZATION_RECORD=VALID" in t
     scope = re.search(r"^EXPECTED_SCOPE='([^']+)'", t, re.M).group(1)
     assert len(scope) <= 200 and re.fullmatch(r"[ -~]{1,200}", scope)
-    for phrase in ("L3_L4_RUNTIME_REACTIVATION", "exact rfkill unblock", "aegis-idea3-ap", "reset-failed", "aegis-idea3-dnsmasq", "no persistent config rewrite"):
+    for phrase in ("L3_L4_RUNTIME_REACTIVATION", "rfkill 1 unblock", "aegis-idea3-ap", "reset-failed", "dnsmasq", "no persistent rewrite"):
         assert phrase in scope
     assert 'grep -qxF "scope=$EXPECTED_SCOPE"' in t
 

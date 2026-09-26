@@ -54,6 +54,21 @@ l34_rfkill_only_target_changed "$WORK/rfkill-all-pre.txt" "$(cat "$WORK/rfkill_i
 l3_rfkill_state "$(cat "$WORK/rfkill_id")" || fail "$L3_RFKILL_REASON"
 [ "$L3_RFKILL_SOFT" = unblocked ] && [ "$L3_RFKILL_HARD" != blocked ] || fail L34_TARGET_RFKILL_NOT_UNBLOCKED
 
+# no unrelated Wi-Fi device/profile is active: the only active Wi-Fi connection is the approved profile on the target
+wifi_active=$(nmcli -t -f TYPE,DEVICE connection show --active 2>/dev/null | grep -c '^802-11-wireless' || true)
+[ "$wifi_active" = 1 ] || fail L34_UNRELATED_WIFI_ACTIVE
+nmcli -t -f TYPE,DEVICE connection show --active 2>/dev/null | grep -qx "802-11-wireless:$AP_IF" || fail L34_UNRELATED_WIFI_ACTIVE
+
+# V2 global-radio decision: if this run enabled the NM radio it must be enabled now, and the runtime device autoconnect back at its PRE value
+radio_state=PRE_ENABLED
+if grep -q '^NM_WIFI_RADIO_ENABLE	' "$WORK/journal.tsv"; then
+  radio_state=ENABLED_BY_RUN
+  [ "$(nmcli radio wifi 2>/dev/null)" = enabled ] || fail L34_NM_RADIO_NOT_ENABLED
+  prior=$(awk -F'\t' '$1 == "NM_DEVICE_AUTOCONNECT_DISABLE" { print $2 }' "$WORK/journal.tsv")
+  [[ "$prior" =~ ^(yes|no)$ ]] || fail L34_DEVICE_AUTOCONNECT_PRIOR_MISSING
+  [ "$(nmcli -g GENERAL.AUTOCONNECT device show "$AP_IF" 2>/dev/null)" = "$prior" ] || fail L34_DEVICE_AUTOCONNECT_NOT_RESTORED
+fi
+
 # dnsmasq: active/running, persistent identity unchanged, no enable/disable side effect, exact listener scope
 unit_props "$L34_UNIT" | l34_service_active_gate || fail "$(unit_props "$L34_UNIT" | l34_service_active_gate 2>&1 | head -n 1)"
 listeners > "$WORK/listeners-post.txt"
@@ -80,6 +95,8 @@ printf 'L34_VERIFY=PASS\n'
 printf 'AP_RUNTIME=ACTIVE SSID=%s CHANNEL=%s ADDRESS=%s/%s\n' "$L34_SSID" "$L34_CHANNEL" "$L34_AP_ADDR" "$L34_AP_PREFIX"
 printf 'DNSMASQ=ACTIVE_RUNNING\n'
 printf 'PERSISTENT_FILES_UNCHANGED=YES\n'
+printf 'NM_WIFI_RADIO=%s\n' "$radio_state"
+printf 'UNRELATED_WIFI_ACTIVE=NO\n'
 printf 'L2_UNCHANGED=YES\n'
 printf 'FORWARDING=ZERO\n'
 printf 'LEGACY_MOSQUITTO_TWINGATE_IDEA2=UNCHANGED\n'
