@@ -653,6 +653,34 @@ Frozen start: `a220f905`. This pass addresses the IDEA1 login and a cross-scope
 HUB navigation defect. It does not resolve the separate high-resolution live
 thumbnail failure or authorize Production deployment.
 
+Design authority: repository `PRODUCT.md`/`DESIGN.md`, IDEA1 `DESIGN.md`,
+the Human R3 brief, then the working IDEA2 Monitor reference. The security
+field is a login-only exception to Drive's otherwise restrained workspace
+surface; it does not propagate aurora/glow into Files or Vault. Reference
+source read for visual/motion only: `IDEA2-AEGIS_Monitor/src/screens/Login.jsx`,
+`src/index.css`, `src/components/ui.jsx`, and
+`src/components/AegisMark.jsx`. No IDEA2 authentication logic was copied.
+
+UI Craft route: surface-details led controls, state coverage, and responsive
+polish; surface-motion and surface-colour informed restrained timing and
+per-theme tokens. `ui-ux-pro-max` design-system search returned a generic
+cyberpunk/Matrix palette, rejected as inconsistent with AEGIS authority; its
+form/reduced-motion guidance informed labels, native submit, and feedback.
+Impeccable sequence used: critique → shape → layout → colorize → typeset →
+animate → delight → overdrive → adapt → harden → optimize → audit → polish.
+Independent critique found no HUB return path, misleading client-timed layer
+PASS states, a visible demo-credential footer, and undersized auxiliary
+targets. Gradient-text detector found a pre-existing HUB heading outside the
+R3 change; it was not altered merely to satisfy a generic detector.
+
+GSAP-style reasoning used a bounded timeline: quiet background, field/card
+entrance, brand, form, then layer-row stagger; state transitions use local
+field phase and form feedback. Only transform/opacity effects animate, with
+interruption/cancellation on HUB lifecycle. Actual runtime remains Framer
+Motion plus scoped CSS; no GSAP dependency. The final implementation keeps
+only low-amplitude trace breathing and one-shot mark sweep, not pointer tilt
+or independent perpetual effects that would compete with credential entry.
+
 The login keeps `login({ username, password, remember })` and existing
 theme/language state. A scoped light/dark security field surrounds the sign-in
 surface: dotted atmosphere, one subtle aura and border trace, a one-shot mark
@@ -664,7 +692,9 @@ Layer 1 reports only the observed application login result; Layer 0/2/3 are
 labelled architecture, not verified status. Network/CSRF/timeout/server
 failures show Layer 1 as unavailable rather than credential failure. Existing
 error-copy mapping and server-side auth, RBAC, CSRF, rate-limit, and session
-behavior are unchanged.
+behavior are unchanged. The failed-login shake timer is cancelled on unmount;
+the 401/CSRF regression exposed a late test-environment update before that
+cleanup was added.
 
 HUB remains a stateless module picker, not an auth/SSO surface. Browser Back
 after Drive or Monitor handoff restores the choice screen even on a new
@@ -674,7 +704,7 @@ Chrome reproduced cold Back with `pageshow.persisted=false`, so BFCache itself
 was not observed in that run; a synthetic persisted-page test covers its
 lifecycle. Rollback is reverting the HUB commit without touching auth.
 
-Evidence: Track A 18/18 focused login/theme tests pass serially and IDEA1
+Evidence: expanded Track A 21/21 focused login/theme tests pass serially and IDEA1
 production build passes; Track B 37/37 HUB tests and HUB build pass. Local
 mobile light/dark visual inspection completed. Broader breakpoint,
 assistive-technology, and Human acceptance remain pending. PR stays Draft,

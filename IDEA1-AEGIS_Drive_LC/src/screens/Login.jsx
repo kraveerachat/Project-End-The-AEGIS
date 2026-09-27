@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Eye, EyeOff, X as XIcon } from 'lucide-react'
 import { login } from '../lib/auth.js'
@@ -95,7 +95,10 @@ export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme
   const [statuses, setStatuses] = useState(['info', 'idle', 'info', 'info'])
   const [fieldPhase, setFieldPhase] = useState('idle')
   const busyRef = useRef(false)
+  const shakeTimerRef = useRef(null)
   const welcomeAsset = import.meta.env.BASE_URL + themeAssetsFor(resolvedTheme).welcome
+
+  useEffect(() => () => clearTimeout(shakeTimerRef.current), [])
 
   const setLayer = (i, s) =>
     setStatuses((prev) => prev.map((v, idx) => (idx === i ? s : v)))
@@ -120,7 +123,8 @@ export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme
       setShake(true)
       setErrorKey(loginErrorKey(res))
       setLockSec(locked ? Math.ceil((res.lockedMs ?? 0) / 1000) : 0)
-      setTimeout(() => setShake(false), 300)
+      clearTimeout(shakeTimerRef.current)
+      shakeTimerRef.current = setTimeout(() => setShake(false), 300)
       setBusy(false)
       busyRef.current = false
       return

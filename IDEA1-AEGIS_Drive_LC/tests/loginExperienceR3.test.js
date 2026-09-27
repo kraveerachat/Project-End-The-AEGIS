@@ -2,6 +2,7 @@ import test, { after, before } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { JSDOM } from 'jsdom'
 import React, { act, useState } from 'react'
 import { createServer, normalizePath } from 'vite'
@@ -67,6 +68,10 @@ async function mountLogin() {
       setter.call(element, value)
       element.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
     }),
+    submit: () => act(async () => {
+      document.querySelector('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }),
     cleanup: async () => {
       await act(async () => root.unmount())
       for (const [key, descriptor] of saved) {
@@ -112,7 +117,58 @@ test('R3 theme and language changes preserve entered credentials and remember ch
     assert.equal(document.getElementById('login-password').value, 'correct horse battery staple')
     assert.equal(document.querySelector('[role="switch"]').getAttribute('aria-checked'), 'true')
     assert.equal(document.querySelector('h2').textContent, '登录')
+    await app.click([...document.querySelectorAll('[role="radio"]')].find((button) => button.textContent === 'EN'))
+    assert.equal(document.querySelector('h2').textContent, 'Sign in')
+    await app.click([...document.querySelectorAll('[role="radio"]')].find((button) => button.textContent === 'TH'))
+    assert.equal(document.querySelector('h2').textContent, 'เข้าสู่ระบบ')
+    await app.click(document.querySelector('button[aria-label="แสดงรหัสผ่าน"]'))
+    assert.equal(document.getElementById('login-password').type, 'text')
+    assert.equal(document.getElementById('login-username').value, 'operator')
   } finally {
     await app.cleanup()
   }
 })
+
+test('R3 light/dark field tokens and reduced-motion fallback are scoped to login', () => {
+  const css = readFileSync(path.join(rootDir, 'src/index.css'), 'utf8')
+  assert.match(css, /\.login-shell\s*\{[^}]*--login-haze:/s)
+  assert.match(css, /:root\[data-theme="dark"\] \.login-shell\s*\{[^}]*--login-haze:/s)
+  assert.match(css, /\.login-field-aura\s*\{/)
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*\.login-field-trace,[^}]*animation: none !important/s)
+  assert.match(css, /@media \(max-width: 767px\)[\s\S]*?\.login-mark\s*\{[^}]*width: 68px/s)
+})
+
+for (const [status, data, expectedLayer, expectedCopy] of [
+  [401, {}, 'fail', 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'],
+  [403, { code: 'CSRF_ORIGIN_MISMATCH' }, 'unavailable', 'โหลดหน้าใหม่'],
+]) {
+  test(`R3 native submit preserves auth payload and truthful ${status} feedback`, async () => {
+    const originalFetch = globalThis.fetch
+    const requests = []
+    globalThis.fetch = async (url, options) => {
+      requests.push({ url, options })
+      return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
+    }
+    const app = await mountLogin()
+    try {
+      await app.render()
+      await app.input('login-username', 'operator')
+      await app.input('login-password', 'test-only-password')
+      await app.click(document.querySelector('[role="switch"]'))
+      await app.submit()
+      assert.equal(requests.length, 1)
+      assert.match(requests[0].url, /\/api\/login$/)
+      assert.equal(requests[0].options.method, 'POST')
+      assert.equal(requests[0].options.credentials, 'include')
+      assert.deepEqual(JSON.parse(requests[0].options.body), {
+        username: 'operator', password: 'test-only-password', remember: true,
+      })
+      assert.equal(document.querySelectorAll(`[data-layer-status="${expectedLayer}"]`).length, 1)
+      assert.equal(document.querySelectorAll('[data-layer-status="ok"]').length, 0)
+      assert.match(document.querySelector('[role="alert"]').textContent, new RegExp(expectedCopy))
+    } finally {
+      await app.cleanup()
+      globalThis.fetch = originalFetch
+    }
+  })
+}
