@@ -646,3 +646,36 @@ concurrency, Vault crypto/chunk crypto, high-res decoder, server, network,
 PR216, production compose/deployment, destructive purge and TREE protocol
 state: unchanged. `src/lib` (except `strings.js`), `server/`, `deploy/` and both
 upload drawers have zero diff against `8baa4e20`.
+
+## 13. PR220-R3 login convergence and HUB Back navigation (2026-09-28)
+
+Frozen start: `a220f905`. This pass addresses the IDEA1 login and a cross-scope
+HUB navigation defect. It does not resolve the separate high-resolution live
+thumbnail failure or authorize Production deployment.
+
+The login keeps `login({ username, password, remember })` and existing
+theme/language state. A scoped light/dark security field surrounds the sign-in
+surface: dotted atmosphere, one subtle aura and border trace, a one-shot mark
+sweep, compact mobile lockup, and legible form controls. It uses a native form
+submit path and 44 px minimum auxiliary touch targets. Decorative layers are
+hidden from assistive technology and stop animating under reduced motion. No
+GSAP or new runtime dependency. The demo credential footer is removed.
+Layer 1 reports only the observed application login result; Layer 0/2/3 are
+labelled architecture, not verified status. Network/CSRF/timeout/server
+failures show Layer 1 as unavailable rather than credential failure. Existing
+error-copy mapping and server-side auth, RBAC, CSRF, rate-limit, and session
+behavior are unchanged.
+
+HUB remains a stateless module picker, not an auth/SSO surface. Browser Back
+after Drive or Monitor handoff restores the choice screen even on a new
+document. `pagehide` cancels pending navigation; persisted `pageshow` clears
+the entering state and guard; a synchronous ref rejects a second handoff.
+Chrome reproduced cold Back with `pageshow.persisted=false`, so BFCache itself
+was not observed in that run; a synthetic persisted-page test covers its
+lifecycle. Rollback is reverting the HUB commit without touching auth.
+
+Evidence: Track A 18/18 focused login/theme tests pass serially and IDEA1
+production build passes; Track B 37/37 HUB tests and HUB build pass. Local
+mobile light/dark visual inspection completed. Broader breakpoint,
+assistive-technology, and Human acceptance remain pending. PR stays Draft,
+result PARTIAL, `HIGHRES_LIVE_ACCEPTANCE=FAIL_OPEN`, no final receipt.
