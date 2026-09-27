@@ -11,7 +11,9 @@ AEGIS IDEA 3 — MQTT client (Protocol v1, PR11 Phase 4, design §6.2 and §8)
 Callbacks run on the MQTT thread; the GUI wraps them with root.after.
 The legacy v0 JSON path exists only in the explicit legacy-v0-lab mode.
 """
+import ipaddress
 import json
+import re
 import ssl
 import time
 
@@ -26,14 +28,43 @@ _UPLINK_STATES = ("LOCKDOWN", "NORMAL")
 _LEGACY_DEVICE_STATES = ("LOCKDOWN", "NORMAL", "ONLINE")
 
 
-def build_mqtt_ssl_context(ca_file: str) -> ssl.SSLContext:
-    """A verifying client context: pinned CA, hostname check, TLS 1.2 minimum."""
+_DNS_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", re.ASCII)
+
+
+def _valid_tls_server_name(name: str) -> bool:
+    if not name or len(name) > 253:
+        return False
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        pass
+    else:
+        return False
+    return all(_DNS_LABEL.fullmatch(label) for label in name.split("."))
+
+
+def build_mqtt_ssl_context(ca_file: str, server_name: str = "") -> ssl.SSLContext:
+    """A verifying client context: pinned CA, hostname check, TLS 1.2 minimum.
+
+    ``server_name`` (a DNS name) is the name the certificate is verified against when the broker is reached by IP address; the
+    certificate profile has no IP SAN. Verification is never disabled: CERT_REQUIRED and check_hostname stay on.
+    """
     if not ca_file:
         raise ValueError("an MQTT CA file is required for TLS")
+    if server_name and not _valid_tls_server_name(server_name):
+        raise ValueError("the MQTT TLS server name must be a DNS name")
     context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=ca_file)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.check_hostname = True
     context.verify_mode = ssl.CERT_REQUIRED
+    if server_name:
+        wrap_socket = context.wrap_socket
+
+        def _named_wrap_socket(sock, *args, **kwargs):
+            kwargs["server_hostname"] = server_name
+            return wrap_socket(sock, *args[:3], **kwargs)
+
+        context.wrap_socket = _named_wrap_socket  # paho passes the connect host; verify the configured name instead
     return context
 
 
@@ -283,7 +314,11 @@ class MQTTManager:
             return
         try:
             if config.MQTT_TLS:
-                self.client.tls_set_context(build_mqtt_ssl_context(config.MQTT_CA_FILE))
+                if config.MQTT_TLS_SERVER_NAME:
+                    context = build_mqtt_ssl_context(config.MQTT_CA_FILE, server_name=config.MQTT_TLS_SERVER_NAME)
+                else:
+                    context = build_mqtt_ssl_context(config.MQTT_CA_FILE)
+                self.client.tls_set_context(context)
         except (OSError, ValueError, ssl.SSLError):
             self._log("MQTT TLS is unavailable; not connecting (no plaintext fallback)", db.WARN)
             return

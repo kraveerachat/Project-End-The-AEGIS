@@ -122,6 +122,9 @@ else:
 # TLS is on unless explicitly disabled; production preflight refuses disabling it.
 MQTT_TLS = _env_bool("AEGIS_MQTT_TLS", True)
 MQTT_CA_FILE = os.getenv("AEGIS_MQTT_CA_FILE", "").strip()
+# DNS name the broker certificate is verified against when it differs from the connect address. The L6 broker certificate
+# profile is DNS-only (no IP SAN) while the Core connects to the broker IP; empty keeps verification against the connect host.
+MQTT_TLS_SERVER_NAME = os.getenv("AEGIS_MQTT_TLS_SERVER_NAME", "").strip()
 MQTT_CLIENT_ID = "idea3-core"  # fixed Core broker identity; ESP32 identities are idea3-dev-<device_id>
 
 # ---- Runtime safety ----

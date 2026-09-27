@@ -274,6 +274,15 @@ registered in the repository framework.
 - Live execution: `L7_LIVE_AUTHORIZED = NO`, `LIVE_L7 = NOT_RUN`. Predecessor live stages remain NOT RUN. IDEA2 §10 blocker remains open.
 - All stage handlers (L2, L3, L4, L5, L6a, L6b, L7) are now registered in the repository; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
 
+### L7 live preparation (2026-09-27, repository only — supersedes the L7 handler description above where they differ)
+
+Design amendments: `docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l7-operational-design.md` §7. `L7_LIVE_EXECUTED = NO`, `L7_LIVE_AUTHORIZED = NO`, `L7_RUNNER = TEMPLATE_UNPINNED`.
+
+- `stages/L7/apply.sh|verify.sh|rollback.sh` were rewritten to the L6b standard: journal-before-create, exact ownership plan, exact clean prestate, immutable-release guard, verified unit, `enable --now`, journal-driven rollback with `reset-failed <Core unit only>` and a proven `not-found/inactive/dead/success` end state. Ownership: credentials dir `root:aegis-idea3 0750`; `k_c2d`/`k_d2c`/`mqtt-core.pass`/`admin.pin` `root:root 0600`; `restore.credential` `aegis-idea3:aegis-idea3 0600`; `core.env` `root:aegis-idea3 0640` (rendered, no secret); Core CA copy `/etc/aegis-idea3/pki/mqtt-ca.crt` and the unit `root:root 0644`.
+- New tools: `p4-l7-release-guard.py` (existence + provenance of an ALREADY INSTALLED release), `p4-l7-core-env.py` (render/validate core.env), `p4-l7-broker-probe.py` (credential-free TLS-hostname handshake), `p4-l7-run-lib.sh` (read-only gates) and the unpinned `owner-run/run-l7-owner.sh` (refuses to run until frozen outside the repository with the merged main SHA and the installed release id).
+- Core change: `AEGIS_MQTT_TLS_SERVER_NAME` — the L6 broker certificate is DNS-only (`mqtt.aegis.home.arpa`, no IP SAN) while the Core connects to the AP IP, so verification against the IP failed; the Core now verifies the configured DNS name (verification stays fully on).
+- Prerequisites the L7 runner cannot satisfy: an installed release under `/opt/aegis-idea3/releases/<id>` (not present on the host as of 2026-09-27; the deterministic builder is the open PR #208, the installer does not exist), owner input (`l7-owner-input`), fresh same-day A-L7 (with `d6_notice=pub`) and K3.
+
 ### L8 handler (ESP32 inspection / NVS provisioning / firmware flash)
 
 - Registered the reviewed L8 stage handler (`stages/L8/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to operational design OD-L8-01 through OD-L8-09.

@@ -78,6 +78,16 @@ edit_policy: owner-writable
 - **Remediation (fixture-tested):** `root:mosquitto` 0750 dir and 0640 conf/acl/passwd/broker.key, certificates `root:root 0644`, no widening; rollback adds `reset-failed aegis-idea3-mosquitto.service` (only, after removal + daemon-reload) and proves `not-found/inactive/dead/success`. Comparator stays strict.
 - **Open before any new live L6b:** merge this fix, owner freeze at the new main, fresh JIT input, fresh same-day A-L6b and K3. Design §13. Receipt: `90-Status/logs/2026-09-27_110130_music_idea3-pr11-l6b-live-attempt1-broker-group-remediation.md`.
 
+## IDEA3 PR11 Phase 4 L7 live preparation — owner-runner readiness audit and remediation, repository only — 2026-09-27
+
+> [!important] Repository preparation only. L7 has NOT run, is NOT authorized, and no Production state changed. L6b stays live-accepted and persistent; the JIT input is logically deleted; L8 has NOT started.
+> `L7_LIVE_EXECUTED = NO`, `L7_LIVE_AUTHORIZED = NO`, `L7_LIVE_ACCEPTANCE = NOT PROVEN`, `L7_RUNNER = TEMPLATE_UNPINNED`, `L7_HANDLERS = RECONCILED (fixture + fake systemd tested)`, `L8_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Audit:** the merged L7 handlers were not sufficient for a safe live run (credentials directory unreadable by the Core account for D4, no rendered `core.env`, Core TLS could not verify the DNS-only broker certificate by IP, no CA copy for the Core, no release existence/provenance proof, no unit verification/enable/stability, rollback could delete pre-existing files and left failed metadata and systemd-created runtime directories, verify proved almost nothing live, vacuous negative tests, no owner-run path). All fixed RED-first; details in the L7 design §7.
+- **New:** release guard, `core.env` renderer/validator, credential-free TLS-hostname probe, L7 gate library, unpinned `owner-run/run-l7-owner.sh` (main SHA + release id must be frozen outside the repository; one attempt; no retry; exit 3 on a failed rollback proof); Core setting `AEGIS_MQTT_TLS_SERVER_NAME`.
+- **Host facts (read-only):** no `/opt/aegis-idea3` (no release installed, no installer in the repository; builder = open PR #208), `aegis-idea3` account present, `pki` directory present.
+- **Still required before any live L7:** an installed guarded release, owner input (OV-09 keys, OV-11 PIN, MQTT password, D4 restore credential), Pub D6 notice, fresh same-day A-L7 (with `d6_notice=pub`) and K3, IDEA2 §10 fresh state and disk headroom at run time, owner freeze of the runner. IDEA2 §10: the owner-accepted window-delta criterion is proven by the PRE/POST compare; the runner requires both IDEA2 units active/running. Receipt: `90-Status/logs/2026-09-27_130306_music_idea3-pr11-l7-live-preparation.md`.
+
 ## IDEA3 PR11 Phase 4 L6b JIT plaintext cleanup — PROVEN (logical deletion only) — 2026-09-27
 
 > [!important] The separately authorized owner-run cleanup removed the private L6b JIT input directory. **Logical deletion only: no physical secure erase, media sanitization or forensic non-recoverability is claimed.** L6b live acceptance remains PROVEN and persistent. L7 has NOT started. This closeout is documentation-only (no Production mutation).

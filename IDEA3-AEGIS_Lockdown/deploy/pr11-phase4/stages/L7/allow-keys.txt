@@ -25,6 +25,8 @@ host.unit_file./etc/systemd/system/aegis-idea3-core.service.sha256
 # ── Host Core Environment and Credentials Drift ──────────────────────────────
 host.aegis_idea3.file./etc/aegis-idea3/core.env.class
 host.aegis_idea3.file./etc/aegis-idea3/core.env.meta
+host.aegis_idea3.file./etc/aegis-idea3/pki/mqtt-ca.crt.class
+host.aegis_idea3.file./etc/aegis-idea3/pki/mqtt-ca.crt.meta
 host.aegis_idea3.file./etc/aegis-idea3/credentials/k_c2d.class
 host.aegis_idea3.file./etc/aegis-idea3/credentials/k_c2d.meta
 host.aegis_idea3.file./etc/aegis-idea3/credentials/k_d2c.class
