@@ -306,7 +306,7 @@ Design amendments: `docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l7-opera
 
 ### L6c handler (Immutable Release Install) — NEW 2026-09-27
 
-Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6c-release-install-governance.md`. `L6C_STAGE = IMPLEMENTED_REPOSITORY`, `L6C_LIVE_EXECUTED = NO`.
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6c-release-install-governance.md`. `L6C_STAGE = IMPLEMENTED_REPOSITORY`, `L6C_RELEASE_INSTALL = PROVEN`, `L6C_LIVE_ACCEPTANCE = PROVEN`, `L6C_COMPLETE = YES`, `L7_STARTED = NO` (2026-09-28 live acceptance; see design §12).
 
 - Owner decision approved: a separate G-15 stage, `L6c` / "Immutable Release Install", between L6b and L7 in `P4_STAGES`. `A-L6c` / a fresh `stage=L6c` K3; no `d6_notice`; `p4_stage_gaps L6c = none` (it installs code only, never a protocol key or a Core credential).
 - `stages/L6c/apply.sh|verify.sh|rollback.sh` call the already-merged `p4-l7-install-release.py` and `p4-l7-release-guard.py` exactly, without duplicating their predicates. Mutation boundary: `/opt/aegis-idea3/releases/<release-id>` plus only the parent directories this stage itself creates. It never touches `/opt/aegis-idea3/current` (stages/L7/apply.sh remains its sole owner), credentials, `core.env`, systemd, the Core service, the network, the L6b broker, NTP, Twingate, IDEA1/IDEA2, ESP32 or L8.
