@@ -123,7 +123,7 @@ any point is rollback-able. `rollback.sh`:
 runner (`l6b_broker_prestate_gate`) requires exactly `LoadState=not-found ActiveState=inactive SubState=dead Result=success
 MainPID=0 NRestarts=0`, no unit file, no mqtt directory and no 8883 listener, using read-only `systemctl show` only. Residue is
 rejected with `L6B_RESIDUAL_FAILED_STATE_CLEANUP_REQUIRED=YES`; the runner never runs `reset-failed` and never repairs the host.
-A separately authorized bounded cleanup is designed after this fix merges.
+That separately authorized bounded cleanup has since run once (`systemctl reset-failed aegis-idea3-mosquitto.service`, evidence `2026-09-27-l6b-residual-cleanup-20260927-113759`): the real host is back to the exact clean prestate (`not-found/inactive/dead/success`), PRE→POST comparison PASS with exactly four approved `svc.aegis-idea3-mosquitto.service` changes. Its authorization is consumed and never reusable; L6b Attempt 2 is not yet authorized.
 
 Because apply requires an absent pre-state, "restore a pre-existing path" cannot occur and is deliberately unsupported.
 The runner then captures `rb-root` and requires **PRE → RB with no allow files** to be PASS (zero drift, zero approved

@@ -78,6 +78,15 @@ edit_policy: owner-writable
 - **Remediation (fixture-tested):** `root:mosquitto` 0750 dir and 0640 conf/acl/passwd/broker.key, certificates `root:root 0644`, no widening; rollback adds `reset-failed aegis-idea3-mosquitto.service` (only, after removal + daemon-reload) and proves `not-found/inactive/dead/success`. Comparator stays strict.
 - **Open before any new live L6b:** merge this fix, owner freeze at the new main, fresh JIT input, fresh same-day A-L6b and K3. Design §13. Receipt: `90-Status/logs/2026-09-27_110130_music_idea3-pr11-l6b-live-attempt1-broker-group-remediation.md`.
 
+## IDEA3 PR11 Phase 4 L6b residual systemd-state cleanup PROVEN; L6b still NOT accepted — 2026-09-27
+
+> [!important] Remediation PR #226 merged at main `6295cd65b89f3e822f6bcd6a8aada1de104c0fd8`. A separate, bounded owner-run cleanup then cleared the residual failed systemd state of `aegis-idea3-mosquitto.service`. L6b Attempt 1 stays FAILED / NOT ACCEPTED (authorization CONSUMED). No Attempt 2 authorization exists.
+> `L6B_RESIDUAL_CLEANUP = PROVEN`, `L6B_CLEAN_PRESTATE = PROVEN`, `L6B_CLEANUP_AUTHORIZATION = CONSUMED (never reusable)`, `LEGACY_MOSQUITTO_MUTATED = NO`, `NETWORK_MUTATED = NO`, `L6B_ATTEMPT2_AUTHORIZED = NO`, `L6B_LIVE_ACCEPTANCE = NOT PROVEN`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l6b-residual-cleanup-20260927-113759`; frozen runner sha256 `158316043367a7dca8d61018e0cf62098d4a1e6998148383ac64deebc2eb413d`. Only authorized mutation: `systemctl reset-failed aegis-idea3-mosquitto.service` (`RESET_FAILED_RC=0`).
+- **Result:** `failed/failed/exit-code` → `LoadState=not-found ActiveState=inactive SubState=dead Result=success MainPID=0 NRestarts=0` (`EXACT_CLEAN_PRESTATE=PASS`). PRE→POST `COMPARE_RESULT=PASS`: 0 new drift, 0 incomparable, 4 approved changes (exactly the unit's ActiveState/SubState/Result/ExecMainStartTimestamp), 3 disk INFO findings, `PRESERVATION_S10=PASS`. Comparator `PRODUCTION_MUTATION_PERFORMED=NO` means the comparator is read-only, not that the cleanup did not mutate.
+- **Next:** L6b Attempt 2 preparation (owner freeze at the merged main, fresh JIT input, fresh same-day A-L6b and K3). Receipt: `90-Status/logs/2026-09-27_114259_music_idea3-pr11-l6b-residual-cleanup-live-closeout.md`.
+
 ## IDEA3 PR11 Phase 4 L6a live acceptance — PROVEN (one attempt), isolated validation left no residue — 2026-09-27
 
 > [!important] Owner-run L6a executed once on 2026-09-27 and passed. It was an isolated loopback validation; nothing is left applied. This closeout is documentation-only and performs no Production mutation. L6b is NOT started; no ESP32 was touched.
