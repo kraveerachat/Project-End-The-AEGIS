@@ -192,17 +192,26 @@ If H0-2 reports `CPYTHON_3_12_X64_REQUIRED`, stop before H0-3. The bounded
 H0-2R procedure in `windows/identity-agent/README.md` records Python 3.14 by
 path and SHA-256, verifies the exact `Python.Python.3.12` 3.12.10 x64 WinGet
 manifest, and prepares a separately approved machine-scope installation at
-`C:\Program Files\Python312`. Its override explicitly disables PATH changes and
-shared-launcher replacement. This scope makes the interpreter readable by the
-later virtual-account service while preserving the existing per-user Python
-3.14 installation. H0-2R is a prerequisite only: it does not install Agent
-dependencies or modify Agent, Engine, tunnel, camera, or Production state.
+`C:\Program Files\Python312`. The first WinGet install invocation was proven to
+have stopped before installer execution because Windows PowerShell 5.1 split
+the nested `--override` value at `Program Files`. The corrected procedure uses
+the exact official installer only after mandatory SHA-256 and Authenticode
+validation, with Python's adjacent `unattend.xml` format to disable PATH,
+file-association, shortcut, and shared-launcher changes without nested native
+quoting. The installer, configuration, and hash-bound original baseline remain
+in an ACL-hardened Program Files staging directory through verification or
+rollback. This scope makes the interpreter readable by the later virtual-account
+service while preserving the existing per-user Python 3.14 installation.
+H0-2R is a prerequisite only: it does not install Agent dependencies or modify
+Agent, Engine, tunnel, camera, or Production state.
 
 After the proposed install, `py.exe -0p`, exact 3.12.10/x64/path assertions,
-and the recorded Python 3.14 path/hash must all pass. H0-2 is then repeated and
-returned to ChatGPT. H0-3 remains blocked until that evidence is accepted. A
-Python-3.12-only WinGet rollback is prepared for use before H1; it never uses
-`--all-versions` and must not remove Python 3.14 or the existing launcher.
+and the hash-bound original Python 3.14, PATH, launcher, and Store-alias
+baseline must all pass. H0-2 is then repeated and returned to ChatGPT. H0-3
+remains blocked until that evidence is accepted. A
+Python-3.12-only rollback through the same revalidated official installer is
+prepared for use before H1; it must not remove Python 3.14 or the existing
+launcher.
 
 The installer command uses the reviewed repository script and retains its exact
 parameters:

@@ -182,6 +182,16 @@ on the interactive user's private AppData tree. The installation deliberately
 does not change system/user `PATH` and does not install or replace the shared
 Python launcher. The existing `py.exe` remains the discovery mechanism.
 
+The first H0-2R-2 attempt on 2026-09-27 did **not** start an installer. WinGet
+1.29.380 logged that Windows PowerShell 5.1 split the intended single
+`--override` value at `TargetDir="C:\Program Files\Python312"` into two argv
+items. Because `winget install` accepts a positional query, the stray second
+item changed package matching and ended with `0x8A150014` / no applications
+found. The exact machine/x64 manifest remained resolvable with `winget show`.
+This was a runbook/native-argument quoting defect, not proof that the manifest
+or installer was inapplicable. The superseded WinGet install command must not
+be retried.
+
 ###### H0-2R-1 — read-only package and preservation snapshot
 
 - Purpose: bind the proposed prerequisite to the exact WinGet manifest and
@@ -201,7 +211,7 @@ $Python314Before = (& py.exe -3.14 -c "import struct,sys; assert sys.version_inf
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $Python314Before -PathType Leaf)) { throw 'PYTHON_314_BASELINE_FAILED' }
 $Python314HashBefore = (Get-FileHash -LiteralPath $Python314Before -Algorithm SHA256).Hash
 if (@($PythonInventoryBefore | Select-String -Pattern '3\.12').Count -ne 0) { throw 'UNEXPECTED_PYTHON_312_PRESENT' }
-$PackageDetails = @(& $Winget show --exact --id Python.Python.3.12 --version 3.12.10 --source winget)
+$PackageDetails = @(& $Winget show --exact --id Python.Python.3.12 --version 3.12.10 --source winget --scope machine --architecture x64)
 if ($LASTEXITCODE -ne 0) { throw 'PYTHON_312_PACKAGE_LOOKUP_FAILED' }
 $PackageText = $PackageDetails -join "`n"
 if ($PackageText -notmatch '(?m)^Version:\s*3\.12\.10\s*$') { throw 'PYTHON_312_VERSION_MISMATCH' }
@@ -231,38 +241,231 @@ if ($PackageText -notmatch '(?im)^\s*Installer SHA256:\s*67B5635E80EA51072B87941
 ###### H0-2R-2 — exact side-by-side prerequisite install
 
 - Purpose: install only CPython 3.12.10 x64 at a service-readable machine path.
-- Shell: elevated Windows PowerShell 5.1, continuing the H0-2R-1 shell.
-- Admin required: YES. WinGet selects the manifest's machine/x64 installer,
-  whose elevation requirement is `elevatesSelf`.
+- Shell: elevated 64-bit Windows PowerShell 5.1, continuing the H0-2R-1
+  shell. A 32-bit host is rejected because it would change registry-view
+  semantics for the exact product-registration gates.
+- Admin required: YES. This is an all-users installation under Program Files.
 - Mutation: YES — installs only Python 3.12.10 x64 machine-wide.
+- Method: download the exact official PSF full installer whose URL and SHA-256
+  were independently resolved by WinGet, validate SHA-256 and Authenticode,
+  write the installer-supported adjacent `unattend.xml`, and invoke the
+  installer with only `/quiet`. This avoids nested native-argument quoting and
+  preserves the manifest-bound installer identity and hash requirement.
 - Command (prepared only; do not run during this documentation checkpoint):
 
 ```powershell
-& $Winget install `
-  --exact `
-  --id Python.Python.3.12 `
-  --version 3.12.10 `
-  --source winget `
-  --scope machine `
-  --architecture x64 `
-  --silent `
-  --disable-interactivity `
-  --accept-package-agreements `
-  --no-upgrade `
-  --override '/quiet InstallAllUsers=1 TargetDir="C:\Program Files\Python312" PrependPath=0 AppendPath=0 Include_exe=1 Include_lib=1 Include_dev=1 Include_pip=1 Include_launcher=0 InstallLauncherAllUsers=0 Include_test=0 Shortcuts=0'
-if ($LASTEXITCODE -ne 0) { throw "PYTHON_312_INSTALL_FAILED_$LASTEXITCODE" }
-'H0-2R-2=INSTALL_COMMAND_COMPLETED'
+$ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1 -or -not [Environment]::Is64BitOperatingSystem -or -not [Environment]::Is64BitProcess) { throw 'WINDOWS_POWERSHELL_5_1_X64_REQUIRED' }
+$InstallerUri = [Uri]'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'
+$ExpectedInstallerSha256 = '67B5635E80EA51072B87941312D00EC8927C4DB9BA18938F7AD2D27B328B95FB'
+$ExpectedPython314Path = 'C:\Users\puppu\AppData\Local\Python\pythoncore-3.14-64\python.exe'
+$ExpectedPython314Sha256 = '03168C01B7B7491423350E82C26FEE71F35B43694D1319D3C668BDA6903A0C38'
+$StagingParent = 'C:\Program Files\AEGIS-HumanGate'
+$StagingRoot = Join-Path $StagingParent 'Python-3.12.10-x64'
+$InstallerPath = Join-Path $StagingRoot 'python-3.12.10-amd64.exe'
+$UnattendPath = Join-Path $StagingRoot 'unattend.xml'
+$BaselinePath = Join-Path $StagingRoot 'pre-install-baseline.json'
+$ExpectedPython312Root = 'C:\Program Files\Python312'
+$ExpectedPython312Path = Join-Path $ExpectedPython312Root 'python.exe'
+$ExpectedProductCode = '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}'
+$ProductKeys = @(
+  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode",
+  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode"
+)
+
+function Get-PythonStoreAliasSnapshot {
+  $AliasRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+  if (-not (Test-Path -LiteralPath $AliasRoot -PathType Container)) { return 'ALIAS_ROOT_ABSENT' }
+  $Rows = @(Get-ChildItem -LiteralPath $AliasRoot -Filter 'python*.exe' -Force -ErrorAction Stop |
+    Sort-Object -Property Name | ForEach-Object {
+      '{0}|{1}|{2}|{3}|{4}' -f $_.Name,$_.Length,[string]$_.Attributes,$_.CreationTimeUtc.ToString('o'),$_.LastWriteTimeUtc.ToString('o')
+    })
+  return ($Rows -join "`n")
+}
+
+function Assert-HumanGateStagingAcl {
+  param([Parameter(Mandatory=$true)][string]$Path)
+  $ExpectedSids = @('S-1-5-18','S-1-5-32-544')
+  $Item = Get-Item -LiteralPath $Path -Force
+  if (-not $Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'PYTHON_312_STAGING_NOT_REAL_DIRECTORY' }
+  $Acl = Get-Acl -LiteralPath $Path
+  $OwnerSid = $Acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+  if (-not $Acl.AreAccessRulesProtected -or $OwnerSid -ne 'S-1-5-32-544') { throw 'PYTHON_312_STAGING_ACL_NOT_PROTECTED' }
+  $Rules = @($Acl.GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier]))
+  if ($Rules.Count -ne $ExpectedSids.Count) { throw 'PYTHON_312_STAGING_ACL_RULE_COUNT_INVALID' }
+  foreach ($Rule in $Rules) {
+    $Sid = $Rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+    if ($Sid -notin $ExpectedSids -or $Rule.IsInherited -or $Rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $Rule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl -or $Rule.InheritanceFlags -ne [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit' -or $Rule.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None) { throw 'PYTHON_312_STAGING_ACL_RULE_INVALID' }
+  }
+  foreach ($Sid in $ExpectedSids) {
+    if (@($Rules | Where-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $Sid }).Count -ne 1) { throw 'PYTHON_312_STAGING_ACL_IDENTITY_MISSING' }
+  }
+}
+
+function Assert-HumanGateStagingChain {
+  $ProgramFilesRoot = Get-Item -LiteralPath 'C:\Program Files' -Force
+  if (-not $ProgramFilesRoot.PSIsContainer -or ($ProgramFilesRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'PROGRAM_FILES_ROOT_INVALID' }
+  if (-not [string]::Equals((Get-Item -LiteralPath $StagingParent -Force).Parent.FullName,$ProgramFilesRoot.FullName,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_STAGING_PARENT_SCOPE_INVALID' }
+  if (-not [string]::Equals((Get-Item -LiteralPath $StagingRoot -Force).Parent.FullName,(Get-Item -LiteralPath $StagingParent -Force).FullName,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_STAGING_ROOT_SCOPE_INVALID' }
+  Assert-HumanGateStagingAcl -Path $StagingParent
+  Assert-HumanGateStagingAcl -Path $StagingRoot
+}
+
+if (Test-Path -LiteralPath $StagingParent) { throw 'PYTHON_312_STAGING_ALREADY_EXISTS' }
+if (Test-Path -LiteralPath $ExpectedPython312Root) { throw 'PYTHON_312_TARGET_ROOT_ALREADY_EXISTS' }
+if (@($ProductKeys | Where-Object { Test-Path -LiteralPath $_ }).Count -ne 0) { throw 'PYTHON_312_PRODUCT_ALREADY_REGISTERED' }
+$PythonInventoryBefore = @(& py.exe -0p)
+if ($LASTEXITCODE -ne 0 -or @($PythonInventoryBefore | Select-String -Pattern '3\.12').Count -ne 0) { throw 'UNEXPECTED_PYTHON_312_PRESENT' }
+$Python314Before = (& py.exe -3.14 -c "import struct,sys; assert sys.version_info[:2] == (3,14) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
+$Python314HashBefore = (Get-FileHash -LiteralPath $Python314Before -Algorithm SHA256).Hash
+if (-not [string]::Equals($Python314Before,$ExpectedPython314Path,[StringComparison]::OrdinalIgnoreCase) -or $Python314HashBefore -ne $ExpectedPython314Sha256) { throw 'PYTHON_314_BASELINE_CHANGED' }
+$MachinePathBefore = [Environment]::GetEnvironmentVariable('Path','Machine')
+$UserPathBefore = [Environment]::GetEnvironmentVariable('Path','User')
+$LauncherBefore = (Get-Command py.exe -ErrorAction Stop).Source
+$LauncherHashBefore = (Get-FileHash -LiteralPath $LauncherBefore -Algorithm SHA256).Hash
+$StoreAliasBefore = Get-PythonStoreAliasSnapshot
+
+$null = New-Item -ItemType Directory -Path $StagingParent
+$AdministratorsSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+$Acl = [Security.AccessControl.DirectorySecurity]::new()
+$Acl.SetAccessRuleProtection($true,$false)
+$Acl.SetOwner($AdministratorsSid)
+$Inheritance = [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+$Propagation = [Security.AccessControl.PropagationFlags]::None
+foreach ($SidValue in @('S-1-5-18','S-1-5-32-544')) {
+  $Sid = [Security.Principal.SecurityIdentifier]::new($SidValue)
+  $Rule = [Security.AccessControl.FileSystemAccessRule]::new($Sid,[Security.AccessControl.FileSystemRights]::FullControl,$Inheritance,$Propagation,[Security.AccessControl.AccessControlType]::Allow)
+  $null = $Acl.AddAccessRule($Rule)
+}
+Set-Acl -LiteralPath $StagingParent -AclObject $Acl
+$null = New-Item -ItemType Directory -Path $StagingRoot
+Set-Acl -LiteralPath $StagingRoot -AclObject $Acl
+Assert-HumanGateStagingChain
+
+$Baseline = [ordered]@{
+  Python314Path = $Python314Before
+  Python314Sha256 = $Python314HashBefore
+  MachinePath = $MachinePathBefore
+  UserPath = $UserPathBefore
+  LauncherPath = $LauncherBefore
+  LauncherSha256 = $LauncherHashBefore
+  StoreAliasSnapshot = $StoreAliasBefore
+}
+$Baseline | ConvertTo-Json | Set-Content -LiteralPath $BaselinePath -Encoding UTF8
+$BaselineSha256 = (Get-FileHash -LiteralPath $BaselinePath -Algorithm SHA256).Hash
+
+Invoke-WebRequest -UseBasicParsing -Uri $InstallerUri -OutFile $InstallerPath
+$InstallerHash = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash
+if ($InstallerHash -ne $ExpectedInstallerSha256) { throw 'PYTHON_312_INSTALLER_HASH_MISMATCH' }
+$InstallerSignature = Get-AuthenticodeSignature -LiteralPath $InstallerPath
+if ($InstallerSignature.Status -ne 'Valid' -or $InstallerSignature.SignerCertificate.Subject -notmatch '(?i)(CN|O)=Python Software Foundation') { throw 'PYTHON_312_INSTALLER_SIGNATURE_INVALID' }
+
+@'
+<Options>
+  <Option Name="InstallAllUsers" Value="1" />
+  <Option Name="TargetDir">C:\Program Files\Python312</Option>
+  <Option Name="PrependPath" Value="0" />
+  <Option Name="AppendPath" Value="0" />
+  <Option Name="Include_exe" Value="1" />
+  <Option Name="Include_lib" Value="1" />
+  <Option Name="Include_dev" Value="1" />
+  <Option Name="Include_pip" Value="1" />
+  <Option Name="Include_launcher" Value="0" />
+  <Option Name="InstallLauncherAllUsers" Value="0" />
+  <Option Name="AssociateFiles" Value="0" />
+  <Option Name="Include_test" Value="0" />
+  <Option Name="Shortcuts" Value="0" />
+</Options>
+'@ | Set-Content -LiteralPath $UnattendPath -Encoding UTF8
+[xml]$Unattend = Get-Content -LiteralPath $UnattendPath -Raw
+$TargetOptions = @($Unattend.Options.Option | Where-Object { $_.GetAttribute('Name') -eq 'TargetDir' })
+if ($Unattend.Options.Option.Count -ne 13 -or $TargetOptions.Count -ne 1 -or $TargetOptions[0].InnerText -ne 'C:\Program Files\Python312') { throw 'PYTHON_312_UNATTEND_VALIDATION_FAILED' }
+$UnattendSha256 = (Get-FileHash -LiteralPath $UnattendPath -Algorithm SHA256).Hash
+$FinalInstallerHash = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash
+$FinalInstallerSignature = Get-AuthenticodeSignature -LiteralPath $InstallerPath
+Assert-HumanGateStagingChain
+if ((Get-FileHash -LiteralPath $BaselinePath -Algorithm SHA256).Hash -ne $BaselineSha256) { throw 'PYTHON_312_BASELINE_CHANGED_BEFORE_EXECUTION' }
+if ((Get-FileHash -LiteralPath $UnattendPath -Algorithm SHA256).Hash -ne $UnattendSha256) { throw 'PYTHON_312_UNATTEND_CHANGED_BEFORE_EXECUTION' }
+if ($FinalInstallerHash -ne $ExpectedInstallerSha256 -or $FinalInstallerSignature.Status -ne 'Valid' -or $FinalInstallerSignature.SignerCertificate.Subject -notmatch '(?i)(CN|O)=Python Software Foundation') { throw 'PYTHON_312_INSTALLER_CHANGED_BEFORE_EXECUTION' }
+foreach ($FilePath in @($InstallerPath,$UnattendPath,$BaselinePath)) {
+  $FileItem = Get-Item -LiteralPath $FilePath -Force
+  if ($FileItem.PSIsContainer -or ($FileItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'PYTHON_312_STAGED_FILE_INVALID' }
+}
+
+$Install = Start-Process -FilePath $InstallerPath -ArgumentList '/quiet' -Wait -PassThru
+if ($Install.ExitCode -ne 0) { throw "PYTHON_312_INSTALL_FAILED_$($Install.ExitCode)" }
+[pscustomobject]@{
+  STEP='H0-2R-2'; RESULT='INSTALLER_EXIT_0_POSTCHECK_REQUIRED'
+  BASELINE_SHA256=$BaselineSha256; STAGING_ROOT=$StagingRoot
+}
 ```
 
-- Expected: WinGet validates the manifest SHA-256 and installs the exact x64
-  version under `C:\Program Files\Python312`; it does not replace 3.14, modify
-  PATH, install a Store alias, or replace the existing launcher.
-- Abort if: package/version/scope/architecture selection changes, UAC is not
-  approved, a hash/security warning occurs, WinGet proposes an upgrade or
-  unrelated dependency, the target already exists, or the command is nonzero.
+- Expected: the official hash/signature-bound x64 installer exits zero and
+  creates the machine-scope candidate under `C:\Program Files\Python312`.
+  Final acceptance is deferred to H0-2R-3; installer exit zero alone is not a
+  PASS. `PrependPath=0`, `AppendPath=0`, `Include_launcher=0`, and
+  `AssociateFiles=0` preserve PATH, the existing launcher, and Store aliases.
+- Abort if: the complete target root or staging directory already exists; the
+  exact 3.12.10 product is already registered; the 3.14 path/hash changed;
+  download, SHA-256, Authenticode, or
+  unattended-file validation fails; the staging owner/ACL differs from the
+  exact SYSTEM/Builtin-Administrators full-control allow-list; the
+  baseline file changes; UAC is not approved; the installer asks for UI/input
+  or returns nonzero; or any unrelated package/change is proposed.
 - Expected state change: one machine-scope Python 3.12.10 installation only.
 - Rollback reference: H0-2R-4, valid only before H1 begins.
-- Return to chat: WinGet result/exit code only; do not continue automatically.
+- Return to chat: preflight/hash/signature result, installer exit code, and
+  `BASELINE_SHA256` only; do not continue automatically. Preserve the protected
+  staging directory through H0-2R-3 and any pre-H1 rollback.
+
+###### H0-2R-2F — failed-attempt staging cleanup (exception path only)
+
+Use this only after explicit Human/ChatGPT approval when H0-2R-2 failed and
+there is no accepted or partially registered Python 3.12 installation. It is
+not the uninstall path. Run it from elevated Windows PowerShell 5.1:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1 -or -not [Environment]::Is64BitOperatingSystem -or -not [Environment]::Is64BitProcess) { throw 'WINDOWS_POWERSHELL_5_1_X64_REQUIRED' }
+$StagingParent = 'C:\Program Files\AEGIS-HumanGate'
+$StagingRoot = Join-Path $StagingParent 'Python-3.12.10-x64'
+$ExpectedProductCode = '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}'
+$ExpectedPython312Root = 'C:\Program Files\Python312'
+$PythonInventory = @(& py.exe -0p)
+if ($LASTEXITCODE -ne 0) { throw 'PYTHON_LAUNCHER_INVENTORY_FAILED' }
+if (@($PythonInventory | Select-String -Pattern '3\.12').Count -ne 0 -or (Test-Path -LiteralPath $ExpectedPython312Root)) { throw 'PYTHON_312_PRESENT_USE_ROLLBACK_NOT_FAILURE_CLEANUP' }
+$ProductKeys = @(
+  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode",
+  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode"
+)
+if (@($ProductKeys | Where-Object { Test-Path -LiteralPath $_ }).Count -ne 0) { throw 'PYTHON_312_REGISTERED_USE_ROLLBACK_NOT_FAILURE_CLEANUP' }
+if (-not (Test-Path -LiteralPath $StagingParent)) { 'H0-2R-2F=ALREADY_CLEAN'; return }
+$ProgramFilesRoot = Get-Item -LiteralPath 'C:\Program Files' -Force
+$ParentItem = Get-Item -LiteralPath $StagingParent -Force
+if (-not $ProgramFilesRoot.PSIsContainer -or ($ProgramFilesRoot.Attributes -band [IO.FileAttributes]::ReparsePoint) -or -not $ParentItem.PSIsContainer -or ($ParentItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or -not [string]::Equals($ParentItem.Parent.FullName,$ProgramFilesRoot.FullName,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_FAILURE_CLEANUP_PARENT_INVALID' }
+$ParentChildren = @(Get-ChildItem -LiteralPath $StagingParent -Force)
+if ($ParentChildren.Count -gt 1 -or ($ParentChildren.Count -eq 1 -and -not [string]::Equals($ParentChildren[0].FullName,$StagingRoot,[StringComparison]::OrdinalIgnoreCase))) { throw 'PYTHON_312_FAILURE_CLEANUP_PARENT_HAS_UNEXPECTED_CONTENT' }
+if (Test-Path -LiteralPath $StagingRoot) {
+  $RootItem = Get-Item -LiteralPath $StagingRoot -Force
+  if (-not $RootItem.PSIsContainer -or ($RootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or -not [string]::Equals($RootItem.Parent.FullName,$ParentItem.FullName,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_FAILURE_CLEANUP_ROOT_INVALID' }
+  $Entries = @(Get-ChildItem -LiteralPath $StagingRoot -Force -Recurse)
+  if (@($Entries | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count -ne 0) { throw 'PYTHON_312_FAILURE_CLEANUP_REPARSE_POINT_FOUND' }
+  $AllowedNames = @('python-3.12.10-amd64.exe','unattend.xml','pre-install-baseline.json')
+  if (@($Entries | Where-Object { $_.PSIsContainer -or $_.Name -notin $AllowedNames }).Count -ne 0) { throw 'PYTHON_312_FAILURE_CLEANUP_UNEXPECTED_CONTENT' }
+  Remove-Item -LiteralPath $StagingRoot -Recurse -Force
+}
+if (@(Get-ChildItem -LiteralPath $StagingParent -Force).Count -ne 0) { throw 'PYTHON_312_FAILURE_CLEANUP_PARENT_NOT_EMPTY' }
+Remove-Item -LiteralPath $StagingParent -Force
+'H0-2R-2F=FAILED_ATTEMPT_STAGING_REMOVED_NO_PYTHON_INSTALLATION_FOUND'
+```
+
+- Abort if: 3.12 appears in launcher inventory, the exact target or product
+  registration exists, any path component is a reparse point, either directory
+  leaves the fixed Program Files chain, or any unexpected entry exists.
+- Mutation: removes only the three allow-listed staging files and their two
+  exact dedicated directories. It does not uninstall Python or touch 3.14.
+- Return to chat: the final marker. A retry of H0-2R-2 still requires separate
+  approval.
 
 ###### H0-2R-3 — read-only post-install proof
 
@@ -273,27 +476,97 @@ if ($LASTEXITCODE -ne 0) { throw "PYTHON_312_INSTALL_FAILED_$LASTEXITCODE" }
 - Command:
 
 ```powershell
+$ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1 -or -not [Environment]::Is64BitOperatingSystem -or -not [Environment]::Is64BitProcess) { throw 'WINDOWS_POWERSHELL_5_1_X64_REQUIRED' }
+$StagingParent = 'C:\Program Files\AEGIS-HumanGate'
+$StagingRoot = Join-Path $StagingParent 'Python-3.12.10-x64'
+$BaselinePath = Join-Path $StagingRoot 'pre-install-baseline.json'
+$ExpectedBaselineSha256 = (Read-Host 'Paste BASELINE_SHA256 from H0-2R-2').Trim().ToUpperInvariant()
+$ExpectedPython312Root = 'C:\Program Files\Python312'
+$ExpectedProductCode = '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}'
+$ProductKeys = @(
+  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode",
+  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode"
+)
+
+function Get-PythonStoreAliasSnapshot {
+  $AliasRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+  if (-not (Test-Path -LiteralPath $AliasRoot -PathType Container)) { return 'ALIAS_ROOT_ABSENT' }
+  $Rows = @(Get-ChildItem -LiteralPath $AliasRoot -Filter 'python*.exe' -Force -ErrorAction Stop |
+    Sort-Object -Property Name | ForEach-Object {
+      '{0}|{1}|{2}|{3}|{4}' -f $_.Name,$_.Length,[string]$_.Attributes,$_.CreationTimeUtc.ToString('o'),$_.LastWriteTimeUtc.ToString('o')
+    })
+  return ($Rows -join "`n")
+}
+
+function Assert-HumanGateStagingAcl {
+  param([Parameter(Mandatory=$true)][string]$Path)
+  $ExpectedSids = @('S-1-5-18','S-1-5-32-544')
+  $Item = Get-Item -LiteralPath $Path -Force
+  if (-not $Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'PYTHON_312_STAGING_NOT_REAL_DIRECTORY' }
+  $Acl = Get-Acl -LiteralPath $Path
+  $OwnerSid = $Acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+  if (-not $Acl.AreAccessRulesProtected -or $OwnerSid -ne 'S-1-5-32-544') { throw 'PYTHON_312_STAGING_ACL_NOT_PROTECTED' }
+  $Rules = @($Acl.GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier]))
+  if ($Rules.Count -ne $ExpectedSids.Count) { throw 'PYTHON_312_STAGING_ACL_RULE_COUNT_INVALID' }
+  foreach ($Rule in $Rules) {
+    $Sid = $Rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+    if ($Sid -notin $ExpectedSids -or $Rule.IsInherited -or $Rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $Rule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl -or $Rule.InheritanceFlags -ne [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit' -or $Rule.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None) { throw 'PYTHON_312_STAGING_ACL_RULE_INVALID' }
+  }
+  foreach ($Sid in $ExpectedSids) {
+    if (@($Rules | Where-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $Sid }).Count -ne 1) { throw 'PYTHON_312_STAGING_ACL_IDENTITY_MISSING' }
+  }
+}
+
+function Assert-HumanGateStagingChain {
+  $ProgramFilesRoot = Get-Item -LiteralPath 'C:\Program Files' -Force
+  if (-not $ProgramFilesRoot.PSIsContainer -or ($ProgramFilesRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'PROGRAM_FILES_ROOT_INVALID' }
+  if (-not [string]::Equals((Get-Item -LiteralPath $StagingParent -Force).Parent.FullName,$ProgramFilesRoot.FullName,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_STAGING_PARENT_SCOPE_INVALID' }
+  if (-not [string]::Equals((Get-Item -LiteralPath $StagingRoot -Force).Parent.FullName,(Get-Item -LiteralPath $StagingParent -Force).FullName,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_STAGING_ROOT_SCOPE_INVALID' }
+  Assert-HumanGateStagingAcl -Path $StagingParent
+  Assert-HumanGateStagingAcl -Path $StagingRoot
+}
+
+Assert-HumanGateStagingChain
+$BaselineItem = Get-Item -LiteralPath $BaselinePath -Force
+if ($BaselineItem.PSIsContainer -or ($BaselineItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'PYTHON_312_BASELINE_FILE_INVALID' }
+if ((Get-FileHash -LiteralPath $BaselinePath -Algorithm SHA256).Hash -ne $ExpectedBaselineSha256) { throw 'PYTHON_312_BASELINE_HASH_MISMATCH' }
+$Baseline = Get-Content -LiteralPath $BaselinePath -Raw | ConvertFrom-Json
 $PythonInventoryAfter = @(& py.exe -0p)
 if ($LASTEXITCODE -ne 0) { throw 'PYTHON_LAUNCHER_INVENTORY_FAILED' }
 $Python312 = (& py.exe -3.12 -c "import struct,sys; assert sys.version_info[:3] == (3,12,10) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
 if ($LASTEXITCODE -ne 0) { throw 'CPYTHON_3_12_10_X64_REQUIRED' }
-$ExpectedPython312 = 'C:\Program Files\Python312\python.exe'
+$ExpectedPython312 = Join-Path $ExpectedPython312Root 'python.exe'
 if (-not [string]::Equals($Python312,$ExpectedPython312,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_PATH_MISMATCH' }
+$RegisteredProductKeys = @($ProductKeys | Where-Object { Test-Path -LiteralPath $_ })
+if ($RegisteredProductKeys.Count -ne 1) { throw 'PYTHON_312_PRODUCT_REGISTRATION_MISMATCH' }
 $Python314After = (& py.exe -3.14 -c "import struct,sys; assert sys.version_info[:2] == (3,14) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
 if ($LASTEXITCODE -ne 0) { throw 'PYTHON_314_POSTCHECK_FAILED' }
 $Python314HashAfter = (Get-FileHash -LiteralPath $Python314After -Algorithm SHA256).Hash
-if (-not [string]::Equals($Python314After,$Python314Before,[StringComparison]::OrdinalIgnoreCase) -or $Python314HashAfter -ne $Python314HashBefore) { throw 'PYTHON_314_CHANGED' }
+if (-not [string]::Equals($Python314After,$Baseline.Python314Path,[StringComparison]::OrdinalIgnoreCase) -or $Python314HashAfter -ne $Baseline.Python314Sha256) { throw 'PYTHON_314_CHANGED' }
+$MachinePathAfter = [Environment]::GetEnvironmentVariable('Path','Machine')
+$UserPathAfter = [Environment]::GetEnvironmentVariable('Path','User')
+if ($MachinePathAfter -cne $Baseline.MachinePath -or $UserPathAfter -cne $Baseline.UserPath) { throw 'PYTHON_312_CHANGED_PATH' }
+$LauncherAfter = (Get-Command py.exe -ErrorAction Stop).Source
+$LauncherHashAfter = (Get-FileHash -LiteralPath $LauncherAfter -Algorithm SHA256).Hash
+if (-not [string]::Equals($LauncherAfter,$Baseline.LauncherPath,[StringComparison]::OrdinalIgnoreCase) -or $LauncherHashAfter -ne $Baseline.LauncherSha256) { throw 'PYTHON_LAUNCHER_CHANGED' }
+$StoreAliasAfter = Get-PythonStoreAliasSnapshot
+if ($StoreAliasAfter -cne $Baseline.StoreAliasSnapshot) { throw 'PYTHON_STORE_ALIAS_CHANGED' }
 [pscustomobject]@{
   STEP='H0-2R-3'; PYTHON_312_VERSION='3.12.10'; PYTHON_312_X64=$Python312
   PYTHON_314_PATH=$Python314After; PYTHON_314_UNCHANGED='YES'
-  PATH_CHANGED='NO_BY_INSTALL_CONTRACT'; AGENT_ENGINE_RUNTIME_CHANGED='NO'
+  PATH_CHANGED='NO'; LAUNCHER_CHANGED='NO'; STORE_ALIAS_CHANGED='NO'
+  AGENT_ENGINE_RUNTIME_CHANGED='NO'
   PYTHON_INVENTORY=($PythonInventoryAfter -join '; ')
 }
 ```
 
-- Expected: 3.12.10 x64 at the exact Program Files path, 3.14 path/hash
-  unchanged, and both versions listed by `py.exe -0p`.
-- Abort if: any assertion fails or PATH/launcher/another Python changed.
+- Expected: 3.12.10 x64 at the exact Program Files path with exactly one
+  matching product registration, 3.14 path/hash unchanged, both versions
+  listed by `py.exe -0p`, and the original machine PATH, user PATH, launcher,
+  and Python Store-alias snapshot unchanged.
+- Abort if: the protected staging ACL or baseline hash differs, any assertion
+  fails, or PATH, launcher, Store aliases, or another Python changed.
 - State change: none.
 - Rollback reference: H0-2R-4.
 - Return to chat: the object above. Then rerun the original H0-2 block and stop;
@@ -304,23 +577,122 @@ if (-not [string]::Equals($Python314After,$Python314Before,[StringComparison]::O
 Use only before H1 has begun, after explicit Human/ChatGPT approval:
 
 ```powershell
-$Winget = (Get-Command winget.exe -ErrorAction Stop).Source
-$ExpectedPython314Path = 'C:\Users\puppu\AppData\Local\Python\pythoncore-3.14-64\python.exe'
-$ExpectedPython314Sha256 = (Read-Host 'Paste PYTHON_314_SHA256 from H0-2R-1').Trim().ToUpperInvariant()
-& $Winget uninstall --exact --id Python.Python.3.12 --version 3.12.10 --source winget --scope machine --silent --disable-interactivity
-if ($LASTEXITCODE -ne 0) { throw "PYTHON_312_ROLLBACK_FAILED_$LASTEXITCODE" }
+$ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1 -or -not [Environment]::Is64BitOperatingSystem -or -not [Environment]::Is64BitProcess) { throw 'WINDOWS_POWERSHELL_5_1_X64_REQUIRED' }
+$InstallerUri = [Uri]'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe'
+$ExpectedInstallerSha256 = '67B5635E80EA51072B87941312D00EC8927C4DB9BA18938F7AD2D27B328B95FB'
+$StagingParent = 'C:\Program Files\AEGIS-HumanGate'
+$StagingRoot = Join-Path $StagingParent 'Python-3.12.10-x64'
+$InstallerPath = Join-Path $StagingRoot 'python-3.12.10-amd64.exe'
+$BaselinePath = Join-Path $StagingRoot 'pre-install-baseline.json'
+$ExpectedBaselineSha256 = (Read-Host 'Paste BASELINE_SHA256 from H0-2R-2').Trim().ToUpperInvariant()
+$ExpectedPython312Root = 'C:\Program Files\Python312'
+$ExpectedProductCode = '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}'
+$ProductKeys = @(
+  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode",
+  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode"
+)
+
+function Get-PythonStoreAliasSnapshot {
+  $AliasRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+  if (-not (Test-Path -LiteralPath $AliasRoot -PathType Container)) { return 'ALIAS_ROOT_ABSENT' }
+  $Rows = @(Get-ChildItem -LiteralPath $AliasRoot -Filter 'python*.exe' -Force -ErrorAction Stop |
+    Sort-Object -Property Name | ForEach-Object {
+      '{0}|{1}|{2}|{3}|{4}' -f $_.Name,$_.Length,[string]$_.Attributes,$_.CreationTimeUtc.ToString('o'),$_.LastWriteTimeUtc.ToString('o')
+    })
+  return ($Rows -join "`n")
+}
+
+function Assert-HumanGateStagingAcl {
+  param([Parameter(Mandatory=$true)][string]$Path)
+  $ExpectedSids = @('S-1-5-18','S-1-5-32-544')
+  $Item = Get-Item -LiteralPath $Path -Force
+  if (-not $Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'PYTHON_312_STAGING_NOT_REAL_DIRECTORY' }
+  $Acl = Get-Acl -LiteralPath $Path
+  $OwnerSid = $Acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+  if (-not $Acl.AreAccessRulesProtected -or $OwnerSid -ne 'S-1-5-32-544') { throw 'PYTHON_312_STAGING_ACL_NOT_PROTECTED' }
+  $Rules = @($Acl.GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier]))
+  if ($Rules.Count -ne $ExpectedSids.Count) { throw 'PYTHON_312_STAGING_ACL_RULE_COUNT_INVALID' }
+  foreach ($Rule in $Rules) {
+    $Sid = $Rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+    if ($Sid -notin $ExpectedSids -or $Rule.IsInherited -or $Rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or $Rule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl -or $Rule.InheritanceFlags -ne [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit' -or $Rule.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None) { throw 'PYTHON_312_STAGING_ACL_RULE_INVALID' }
+  }
+  foreach ($Sid in $ExpectedSids) {
+    if (@($Rules | Where-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $Sid }).Count -ne 1) { throw 'PYTHON_312_STAGING_ACL_IDENTITY_MISSING' }
+  }
+}
+
+function Assert-HumanGateStagingChain {
+  $ProgramFilesRoot = Get-Item -LiteralPath 'C:\Program Files' -Force
+  if (-not $ProgramFilesRoot.PSIsContainer -or ($ProgramFilesRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'PROGRAM_FILES_ROOT_INVALID' }
+  if (-not [string]::Equals((Get-Item -LiteralPath $StagingParent -Force).Parent.FullName,$ProgramFilesRoot.FullName,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_STAGING_PARENT_SCOPE_INVALID' }
+  if (-not [string]::Equals((Get-Item -LiteralPath $StagingRoot -Force).Parent.FullName,(Get-Item -LiteralPath $StagingParent -Force).FullName,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_STAGING_ROOT_SCOPE_INVALID' }
+  Assert-HumanGateStagingAcl -Path $StagingParent
+  Assert-HumanGateStagingAcl -Path $StagingRoot
+}
+
+if (-not (Test-Path -LiteralPath $StagingRoot -PathType Container) -or -not (Test-Path -LiteralPath $BaselinePath -PathType Leaf)) { throw 'PYTHON_312_ROLLBACK_BASELINE_MISSING' }
+Assert-HumanGateStagingChain
+$BaselineItem = Get-Item -LiteralPath $BaselinePath -Force
+if ($BaselineItem.PSIsContainer -or ($BaselineItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'PYTHON_312_ROLLBACK_BASELINE_FILE_INVALID' }
+if ((Get-FileHash -LiteralPath $BaselinePath -Algorithm SHA256).Hash -ne $ExpectedBaselineSha256) { throw 'PYTHON_312_ROLLBACK_BASELINE_HASH_MISMATCH' }
+$Baseline = Get-Content -LiteralPath $BaselinePath -Raw | ConvertFrom-Json
+
+function Assert-OriginalPythonBaseline {
+  $Python314 = (& py.exe -3.14 -c "import struct,sys; assert sys.version_info[:2] == (3,14) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
+  if ($LASTEXITCODE -ne 0) { throw 'PYTHON_314_ROLLBACK_BASELINE_UNAVAILABLE' }
+  $Python314Hash = (Get-FileHash -LiteralPath $Python314 -Algorithm SHA256).Hash
+  $MachinePath = [Environment]::GetEnvironmentVariable('Path','Machine')
+  $UserPath = [Environment]::GetEnvironmentVariable('Path','User')
+  $Launcher = (Get-Command py.exe -ErrorAction Stop).Source
+  $LauncherHash = (Get-FileHash -LiteralPath $Launcher -Algorithm SHA256).Hash
+  $StoreAliases = Get-PythonStoreAliasSnapshot
+  if (-not [string]::Equals($Python314,$Baseline.Python314Path,[StringComparison]::OrdinalIgnoreCase) -or $Python314Hash -ne $Baseline.Python314Sha256) { throw 'PYTHON_314_ROLLBACK_BASELINE_CHANGED' }
+  if ($MachinePath -cne $Baseline.MachinePath -or $UserPath -cne $Baseline.UserPath) { throw 'PYTHON_312_ROLLBACK_PATH_BASELINE_CHANGED' }
+  if (-not [string]::Equals($Launcher,$Baseline.LauncherPath,[StringComparison]::OrdinalIgnoreCase) -or $LauncherHash -ne $Baseline.LauncherSha256) { throw 'PYTHON_312_ROLLBACK_LAUNCHER_BASELINE_CHANGED' }
+  if ($StoreAliases -cne $Baseline.StoreAliasSnapshot) { throw 'PYTHON_312_ROLLBACK_STORE_ALIAS_BASELINE_CHANGED' }
+}
+
+Assert-OriginalPythonBaseline
+$ExpectedPython312Path = Join-Path $ExpectedPython312Root 'python.exe'
+$Python312 = (& $ExpectedPython312Path -c "import struct,sys; assert sys.version_info[:3] == (3,12,10) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
+if ($LASTEXITCODE -ne 0 -or -not [string]::Equals($Python312,$ExpectedPython312Path,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_ROLLBACK_TARGET_MISMATCH' }
+if (@($ProductKeys | Where-Object { Test-Path -LiteralPath $_ }).Count -ne 1) { throw 'PYTHON_312_ROLLBACK_PRODUCT_REGISTRATION_MISMATCH' }
+if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) {
+  Invoke-WebRequest -UseBasicParsing -Uri $InstallerUri -OutFile $InstallerPath
+}
+if ((Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash -ne $ExpectedInstallerSha256) { throw 'PYTHON_312_ROLLBACK_INSTALLER_HASH_MISMATCH' }
+$InstallerSignature = Get-AuthenticodeSignature -LiteralPath $InstallerPath
+if ($InstallerSignature.Status -ne 'Valid' -or $InstallerSignature.SignerCertificate.Subject -notmatch '(?i)(CN|O)=Python Software Foundation') { throw 'PYTHON_312_ROLLBACK_INSTALLER_SIGNATURE_INVALID' }
+Assert-HumanGateStagingChain
+$InstallerItem = Get-Item -LiteralPath $InstallerPath -Force
+if ($InstallerItem.PSIsContainer -or ($InstallerItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'PYTHON_312_ROLLBACK_INSTALLER_FILE_INVALID' }
+if ((Get-FileHash -LiteralPath $BaselinePath -Algorithm SHA256).Hash -ne $ExpectedBaselineSha256) { throw 'PYTHON_312_ROLLBACK_BASELINE_CHANGED_BEFORE_EXECUTION' }
+Assert-OriginalPythonBaseline
+$Uninstall = Start-Process -FilePath $InstallerPath -ArgumentList @('/uninstall','/quiet') -Wait -PassThru
+if ($Uninstall.ExitCode -ne 0) { throw "PYTHON_312_ROLLBACK_FAILED_$($Uninstall.ExitCode)" }
 $Inventory = @(& py.exe -0p)
 if ($LASTEXITCODE -ne 0) { throw 'PYTHON_LAUNCHER_INVENTORY_FAILED' }
-if (@($Inventory | Select-String -Pattern '3\.12').Count -ne 0 -or (Test-Path -LiteralPath 'C:\Program Files\Python312\python.exe')) { throw 'PYTHON_312_ROLLBACK_INCOMPLETE' }
-$Python314AfterRollback = (& py.exe -3.14 -c "import struct,sys; assert sys.version_info[:2] == (3,14) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
-$Python314HashAfterRollback = (Get-FileHash -LiteralPath $Python314AfterRollback -Algorithm SHA256).Hash
-if (-not [string]::Equals($Python314AfterRollback,$ExpectedPython314Path,[StringComparison]::OrdinalIgnoreCase) -or $Python314HashAfterRollback -ne $ExpectedPython314Sha256) { throw 'PYTHON_314_ROLLBACK_POSTCHECK_FAILED' }
-'H0-2R-4=PYTHON_312_REMOVED_PYTHON_314_UNCHANGED'
+if (@($Inventory | Select-String -Pattern '3\.12').Count -ne 0 -or (Test-Path -LiteralPath $ExpectedPython312Root) -or @($ProductKeys | Where-Object { Test-Path -LiteralPath $_ }).Count -ne 0) { throw 'PYTHON_312_ROLLBACK_INCOMPLETE' }
+Assert-OriginalPythonBaseline
+$ResolvedStagingRoot = [IO.Path]::GetFullPath($StagingRoot)
+$ExpectedStagingRoot = [IO.Path]::GetFullPath('C:\Program Files\AEGIS-HumanGate\Python-3.12.10-x64')
+if (-not [string]::Equals($ResolvedStagingRoot,$ExpectedStagingRoot,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_ROLLBACK_STAGING_SCOPE_INVALID' }
+$ReparseEntries = @(Get-ChildItem -LiteralPath $ResolvedStagingRoot -Force -Recurse | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint })
+if ($ReparseEntries.Count -ne 0) { throw 'PYTHON_312_ROLLBACK_STAGING_CONTAINS_REPARSE_POINT' }
+Remove-Item -LiteralPath $ResolvedStagingRoot -Recurse -Force
+if (@(Get-ChildItem -LiteralPath $StagingParent -Force).Count -ne 0) { throw 'PYTHON_312_ROLLBACK_PARENT_NOT_EMPTY' }
+Remove-Item -LiteralPath $StagingParent -Force
+'H0-2R-4=PYTHON_312_REMOVED_ORIGINAL_BASELINE_UNCHANGED'
 ```
 
-This rollback targets only package `Python.Python.3.12` version 3.12.10 in
-machine scope. It must not use `--all-versions`, modify Python 3.14, remove the
-shared launcher, or run after Agent/Engine H1 installation without a new review.
+This rollback uses the same official installer only after revalidating its exact
+SHA-256 and Authenticode signer, targets the exact 3.12.10 Program Files
+installation, and requires both the complete target root and exact product
+registration to be absent before removing only its validated staging directory.
+It validates the hash-bound original Python 3.14, PATH, launcher, and Store-alias
+baseline both before and after uninstall. It must not run after Agent/Engine H1
+installation without a new review.
 
 #### H0-3 — existing owners, services, tasks, and listeners
 
