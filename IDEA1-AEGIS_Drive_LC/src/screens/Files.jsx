@@ -6,6 +6,7 @@ import {
   Folder, FolderOpen, ChevronRight, Eye,
 } from 'lucide-react'
 import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, DependencyUnavailableState, SkeletonLoader, Modal, ModalClose, Field, PillInput, AnchoredMenu } from '../components/ui.jsx'
+import { NameEntryDialog } from '../components/NameEntryDialog.jsx'
 import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
@@ -1359,33 +1360,22 @@ export function Files({
         </div>
       </Modal>
 
-      <Modal open={folderModal} onClose={() => setFolderModal(false)} width={420} labelledBy="nf-title">
-        <ModalClose onClose={() => setFolderModal(false)} label={t('cancel')} />
-        <h2 id="nf-title" className="text-[18px] font-semibold text-ink">{t('newFolder')}</h2>
-        <div className="mt-5">
-          <Field id="nf-name" label={t('colName')}>
-            <PillInput
-              id="nf-name"
-              value={folderName}
-              onChange={(e) => setFolderName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && createFolder()}
-              autoFocus
-              disabled={mutating}
-            />
-          </Field>
-        </div>
-        {mutateError && (
-          <p role="alert" className="text-[12.5px] font-medium mt-3" style={{ color: 'var(--danger)' }}>
-            {t('actionFailed')}
-          </p>
-        )}
-        <div className="flex gap-2.5 mt-6">
-          <Btn variant="outline" className="flex-1" onClick={() => setFolderModal(false)}>{t('cancel')}</Btn>
-          <Btn variant="primary" className="flex-1" onClick={createFolder} disabled={mutating || !folderName.trim()}>
-            {t('newFolder')}
-          </Btn>
-        </div>
-      </Modal>
+      <NameEntryDialog
+        open={folderModal}
+        onClose={() => setFolderModal(false)}
+        onSubmit={createFolder}
+        id="nf-name"
+        title={t('newFolder')}
+        label={t('colName')}
+        submitLabel={t('newFolder')}
+        cancelLabel={t('cancel')}
+        closeLabel={t('cancel')}
+        value={folderName}
+        onChange={setFolderName}
+        canSubmit={Boolean(folderName.trim())}
+        busy={mutating}
+        problem={mutateError ? t('actionFailed') : null}
+      />
 
       {/* delete confirm — ระบุเป้าหมายชัดเจนก่อนลบเสมอ */}
       <Modal open={!!askDelete} onClose={() => setAskDelete(null)} width={440} labelledBy="del-title">

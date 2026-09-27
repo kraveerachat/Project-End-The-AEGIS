@@ -10,6 +10,7 @@
 //   • Details แสดงเฉพาะช่องที่ "ฝั่ง client รู้จริง" — ห้ามวาด node id / storage key / โครงต้นไม้
 import { useEffect, useRef, useState } from 'react'
 import { Modal, ModalClose, Btn } from '../ui.jsx'
+import { NameEntryDialog } from '../NameEntryDialog.jsx'
 import { collisionKey, nameProblem } from '../../lib/vaultTreeManifest.js'
 import { VAULT_TREE_CLIENT_LIMITS } from '../../lib/vaultTreeLimits.js'
 import { fmtBytes, fmtDateTime } from '../../lib/format.js'
@@ -40,7 +41,8 @@ function nameState(name, siblingNames) {
 
 const ERROR_KEYS = { collision: 'vaultTreeNameCollision', invalid: 'vaultTreeNameEmpty' }
 
-/* แกนกลางของช่องชื่อ — New Folder กับ Rename ใช้เรือนเดียวกัน */
+/* แกนกลางของช่องชื่อ — New Folder กับ Rename ใช้เรือนเดียวกัน และวาดผ่าน NameEntryDialog ตัวเดียวกับ Files
+   (ความหมายของชื่อ — nameProblem, NFC, collisionKey, purge — ยังเป็นของ Vault ที่นี่) */
 function NameDialogCore({
   t, title, submitLabel, open, onClose, onSubmit,
   initialName = null, siblingNames = [], noOpWhenUnchanged = false, unlockedState,
@@ -61,34 +63,24 @@ function NameDialogCore({
   const canSubmit = problem === null && nameState(name, siblingNames) === null && !unchanged
 
   return (
-    <Modal open={open} onClose={onClose} labelledBy="vault-dialog-title" width={420}>
-      <ModalClose onClose={onClose} label={t('close')} />
-      <h2 id="vault-dialog-title" className="text-[16px] font-semibold mb-4">{title}</h2>
-      {problem && (
-        <p data-testid="vault-dialog-error" role="alert" className="text-[12.5px] mb-2" style={{ color: 'var(--danger)' }}>
-          {t(ERROR_KEYS[problem])}
-        </p>
-      )}
-      <input
-        type="text"
-        data-testid="vault-dialog-name-input"
-        value={name}
-        onChange={(e) => onInput(e.target.value)}
-        className="w-full h-10 px-3 rounded-[10px] border border-line bg-sunken text-[14px] text-ink outline-none focus:border-[var(--accent)]"
-        aria-label={title}
-      />
-      <div className="flex justify-end gap-2 mt-5">
-        <Btn variant="ghost" onClick={onClose}>{t('cancel')}</Btn>
-        <Btn
-          variant="primary"
-          data-testid="vault-dialog-submit"
-          disabled={!canSubmit}
-          onClick={() => { onSubmit(name); onClose() }}
-        >
-          {submitLabel}
-        </Btn>
-      </div>
-    </Modal>
+    <NameEntryDialog
+      open={open}
+      onClose={onClose}
+      onSubmit={() => { onSubmit(name); onClose() }}
+      id="vault-dialog-name"
+      title={title}
+      label={t('colName')}
+      submitLabel={submitLabel}
+      cancelLabel={t('cancel')}
+      closeLabel={t('close')}
+      value={name}
+      onChange={onInput}
+      canSubmit={canSubmit}
+      problem={problem ? t(ERROR_KEYS[problem]) : null}
+      inputTestId="vault-dialog-name-input"
+      submitTestId="vault-dialog-submit"
+      problemTestId="vault-dialog-error"
+    />
   )
 }
 
