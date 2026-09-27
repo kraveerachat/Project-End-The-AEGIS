@@ -50,6 +50,11 @@ def _production_mqtt_errors() -> list[str]:
     ca_file = config.MQTT_CA_FILE
     if not ca_file or not Path(ca_file).is_file() or not os.access(ca_file, os.R_OK):
         errors.append("production requires a readable MQTT CA file (AEGIS_MQTT_CA_FILE)")
+    if config.MQTT_TLS_SERVER_NAME:
+        from .mqtt_client import _valid_tls_server_name
+
+        if not _valid_tls_server_name(config.MQTT_TLS_SERVER_NAME):
+            errors.append("AEGIS_MQTT_TLS_SERVER_NAME must be a DNS name")
     if not config.MQTT_USER or not config.MQTT_PASS:
         errors.append("production refuses anonymous MQTT access; the Core identity needs a username and password")
     elif config.MQTT_USER.startswith("idea3-dev-"):
