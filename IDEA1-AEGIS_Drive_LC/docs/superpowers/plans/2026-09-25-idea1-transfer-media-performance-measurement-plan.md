@@ -14,9 +14,10 @@ pair browser timing with client/server resource samples, and classify
 configuration limits separately from transfer failures.
 Phase B0 Production baseline is EXECUTED. Phase P2 Remote PRE-FIX (18 controlled runs) is EXECUTED.
 Phase C1 Public Share / Cloudflare PRE-FIX (9 valid runs) is EXECUTED.
-Total current valid controlled runs: 27.
-Phase P1 Onsite Direct LAN PRE-FIX (18 runs) is the IMMEDIATE NEXT GATE.
-Optimization remains a later owner-authorized task; core and shared mutations are strictly blocked until P1 PRE-FIX is complete.
+Phase P1 Onsite Direct LAN PRE-FIX (18 controlled runs) is EXECUTED.
+Total current valid controlled runs: 45 (18 P1 + 18 P2 + 9 C1). Core PRE-FIX baselines are 36/36 COMPLETE.
+Diagnosis and root-cause analysis is the IMMEDIATE NEXT GATE.
+Optimization remains a later owner-authorized task; mutations are strictly blocked pending diagnosis (`CORE_PERFORMANCE_MUTATION_GATE=PRE_FIX_BASELINES_CAPTURED`, `PERFORMANCE_MUTATION_AUTHORIZED=NO`).
 
 **Tech Stack:** AEGIS Drive React/Express, PostgreSQL 15, Docker, in-page XHR tracer,
 PowerShell download observer, FFmpeg/FFprobe, SHA-256, JSON Lines/CSV.
@@ -31,9 +32,10 @@ PowerShell download observer, FFmpeg/FFprobe, SHA-256, JSON Lines/CSV.
 - Baseline changes no Twingate, Cloudflare, Docker network, firewall, sysctl,
   chunk size, concurrency, file limit, worker count, media profile, schema,
   storage mount, or application configuration.
-- `CORE_PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`.
+- `CORE_PERFORMANCE_MUTATION_GATE=PRE_FIX_BASELINES_CAPTURED`.
+- `PERFORMANCE_MUTATION_AUTHORIZED=NO`.
 - `PUBLIC_SHARE_SPECIFIC_MUTATION_GATE=PRE_FIX_BASELINE_CAPTURED`; `PUBLIC_SHARE_MUTATION_AUTHORIZED=NO`.
-- `SHARED_MUTATION=BLOCKED_PENDING_P1_PRE_FIX`.
+- `SHARED_MUTATION=BLOCKED_PENDING_DIAGNOSIS`.
 - No password, cookie, session/CSRF token, bearer link, Vault key, wrapped key,
   plaintext private content, or secret-bearing environment output enters evidence.
 - Current Production values are measured; source defaults are not substituted.
@@ -181,14 +183,14 @@ Total core matrix dimensions:
 - Target: 36 PRE-FIX runs + 36 POST-FIX runs = 72 total.
 
 Execution status:
+- P1 Onsite Direct LAN PRE-FIX: **18/18 COMPLETE** (Upload S/M/L ×3, Download S/M/L ×3).
 - P2 Remote + Twingate PRE-FIX: **18/18 COMPLETE** (Upload S/M/L ×3, Download S/M/L ×3).
 - C1 Public Share / Cloudflare PRE-FIX: **9/9 valid runs COMPLETE** (Download S/M/L ×3).
-- P1 Onsite Direct LAN PRE-FIX: **18/18 PENDING_ONSITE** (Upload S/M/L ×3, Download S/M/L ×3).
-- Core PRE-FIX overall: **18/36 COMPLETE** (target 36).
+- Core PRE-FIX overall: **36/36 COMPLETE** (target 36).
 - Supplementary Public Share PRE-FIX: **9/9 COMPLETE**.
-- Total current valid controlled runs: **27 runs** (18 P2 + 9 C1).
+- Total current valid controlled runs: **45 runs** (18 P1 + 18 P2 + 9 C1).
 - POST-FIX: **0/36 NOT STARTED**.
-- Core & shared performance mutations: **BLOCKED** pending P1 PRE-FIX (`CORE_PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`).
+- Performance mutations: **BLOCKED PENDING DIAGNOSIS** (`CORE_PERFORMANCE_MUTATION_GATE=PRE_FIX_BASELINES_CAPTURED`, `PERFORMANCE_MUTATION_AUTHORIZED=NO`).
 
 ## 5. Phase B0 — Production configuration inventory (EXECUTED)
 
@@ -421,33 +423,99 @@ The file transferred completely to disk, but the observer script failed to resol
 - Root cause: Test harness observer defect, NOT an AEGIS, Cloudflare, or Share Anywhere failure.
 - Treatment: Excluded from the controlled n=3 sample set. Preserved in documentation for methodological transparency rather than silently deleted.
 
-## 7. Phase B1 — P1 Onsite Direct LAN PRE-FIX baseline (IMMEDIATE NEXT GATE)
+## 7. Phase B1 — P1 Onsite Direct LAN PRE-FIX baseline (EXECUTED)
 
-### Prerequisites
+Executed by Human Owner on site connected via wired Ethernet / Management VLAN30 (client IP `192.168.30.x`, direct internal AEGIS access `192.168.10.10:443`, Twingate OFF, Cloudflare not in path).
+All 18 controlled runs complete (9 download + 9 upload).
 
-- Human laptop physically on site.
-- Connected via wired Ethernet / Management VLAN30 (e.g. client IP `192.168.30.x`, gateway `192.168.30.1`).
-- Direct internal AEGIS access: `192.168.10.10:443`.
-- Twingate OFF and Cloudflare not in path.
-- Disposable test files/folders only.
-- Phase B0 executed and verified; no unrelated heavy load.
+### 7.1 Files download results (P1 Onsite Direct LAN)
 
-### Target test matrix (18 controlled runs)
+Captured via PowerShell `.crdownload` observer resolving final file by exact byte length:
 
-1. **Files Upload (T1)**:
-   - S (100 MB) × 3 repetitions (r01, r02, r03)
-   - M (300 MB) × 3 repetitions (r01, r02, r03)
-   - L (1 GB) × 3 repetitions (r01, r02, r03)
-2. **Files Download (T3)**:
-   - S (100 MB) × 3 repetitions (r01, r02, r03)
-   - M (300 MB) × 3 repetitions (r01, r02, r03)
-   - L (1 GB) × 3 repetitions (r01, r02, r03)
+| Fixture | Run | Elapsed (ms) | Download (MB/s) | Integrity Result |
+|---|---|---:|---:|---|
+| S-100MB (100,000,000 B) | r01 | 14,828 | 6.744 | Exact size match |
+| S-100MB (100,000,000 B) | r02 | 14,359 | 6.964 | Exact size match |
+| S-100MB (100,000,000 B) | r03 | 15,247 | 6.559 | Exact size match |
+| **100 MB Summary** | **n=3** | **Min: 6.559** | **Median: 6.744** | **Max: 6.964 (Mean: 6.756)** |
+| M-300MB (300,000,000 B) | r01 | 42,250 | 7.101 | Exact size match |
+| M-300MB (300,000,000 B) | r02 | 41,365 | 7.253 | Exact size match |
+| M-300MB (300,000,000 B) | r03 | 40,131 | 7.476 | Exact size match |
+| **300 MB Summary** | **n=3** | **Min: 7.101** | **Median: 7.253** | **Max: 7.476 (Mean: 7.277)** |
+| L-1GB (1,000,000,000 B) | r01 | 142,204 | 7.032 | Exact size match |
+| L-1GB (1,000,000,000 B) | r02 | 143,029 | 6.992 | Exact size match |
+| L-1GB (1,000,000,000 B) | r03 | 142,328 | 7.026 | Exact size match |
+| **1 GB Summary** | **n=3** | **Min: 6.992** | **Median: 7.026** | **Max: 7.032 (Mean: 7.017)** |
 
-Capture in-page XHR chunk span for upload; capture PowerShell observer timing for download.
-Verify exact downloaded byte sizes and SHA-256 hashes against fixture manifest.
+Download Controlled Verdict:
+- `P1_ONSITE_DIRECT_LAN_FILES_DOWNLOAD_PRE_FIX=COMPLETE` (9 runs).
+- 100 MB median = 6.744 MB/s; 300 MB median = 7.253 MB/s; 1 GB median = 7.026 MB/s.
+- `SUSTAINED_DOWNLOAD_THROUGHPUT≈6.7_TO_7.3_MBPS` across the tested range.
+- `FILE_SIZE_DEPENDENT_DEGRADATION=NOT_OBSERVED` within 100 MB to 1 GB.
 
-Stop conditions: container health degradation, restart/OOM, integrity mismatch, unexpected 5xx.
-Cleanup: remove only study-owned disposable files via UI. Do NOT use destructive purge.
+### 7.2 Files upload results (P1 Onsite Direct LAN)
+
+Captured via browser console in-page XHR tracer `window.__AEGIS_LFT_TRACE__`:
+
+| Fixture | Run | Chunk span (ms) | Upload (MB/s) | Chunks | Chunk Requests (HTTP 200) |
+|---|---|---:|---:|---:|---|
+| S-100MB (100,000,000 B) | r01 | 19,778 | 5.056 | 6 × 16 MiB | 9 requests (6 PUT + 3 lifecycle), all 200 |
+| S-100MB (100,000,000 B) | r02 | 19,854 | 5.037 | 6 × 16 MiB | 9 requests (6 PUT + 3 lifecycle), all 200 |
+| S-100MB (100,000,000 B) | r03 | 19,427 | 5.147 | 6 × 16 MiB | 9 requests (6 PUT + 3 lifecycle), all 200 |
+| **100 MB Summary** | **n=3** | **Min: 5.037** | **Median: 5.056** | **Max: 5.147 (Mean: 5.080)** |
+| M-300MB (300,000,000 B) | r01 | 57,951 | 5.177 | 18 × 16 MiB | 21 requests (18 PUT + 3 lifecycle), all 200 |
+| M-300MB (300,000,000 B) | r02 | 58,113 | 5.162 | 18 × 16 MiB | 21 requests (18 PUT + 3 lifecycle), all 200 |
+| M-300MB (300,000,000 B) | r03 | 58,009 | 5.172 | 18 × 16 MiB | 21 requests (18 PUT + 3 lifecycle), all 200 |
+| **300 MB Summary** | **n=3** | **Min: 5.162** | **Median: 5.172** | **Max: 5.177 (Mean: 5.170)** |
+| L-1GB (1,000,000,000 B) | r01 | 193,956 | 5.156 | 60 × 16 MiB | 63 requests (60 PUT + 3 lifecycle), all 200 |
+| L-1GB (1,000,000,000 B) | r02 | 194,498 | 5.141 | 60 × 16 MiB | 63 requests (60 PUT + 3 lifecycle), all 200 |
+| L-1GB (1,000,000,000 B) | r03 | 194,150 | 5.151 | 60 × 16 MiB | 63 requests (60 PUT + 3 lifecycle), all 200 |
+| **1 GB Summary** | **n=3** | **Min: 5.141** | **Median: 5.151** | **Max: 5.156 (Mean: 5.149)** |
+
+Upload Controlled Verdict:
+- `P1_ONSITE_DIRECT_LAN_FILES_UPLOAD_PRE_FIX=COMPLETE` (9 runs).
+- 100 MB median = 5.056 MB/s; 300 MB median = 5.172 MB/s; 1 GB median = 5.151 MB/s.
+- `SUSTAINED_UPLOAD_THROUGHPUT≈5.06_TO_5.17_MBPS` across the tested range (remarkably flat).
+- `FILE_SIZE_DEPENDENT_DEGRADATION=NOT_OBSERVED` within 100 MB to 1 GB.
+- **Source verification audit**: All three 1 GB upload runs verified as actual measured browser-console tracer runs (63 total requests: 60 chunk PUTs + 3 session lifecycle requests; exact millisecond spans; zero request failures).
+
+### 7.3 P1 Onsite Direct LAN upload vs download asymmetry
+
+Under the same wired Ethernet / Management VLAN30 client environment:
+- 100 MB: download (6.744) / upload (5.056) ≈ 1.33x (~33% faster)
+- 300 MB: download (7.253) / upload (5.172) ≈ 1.40x (~40% faster)
+- 1 GB: download (7.026) / upload (5.151) ≈ 1.36x (~36% faster)
+
+Observation:
+- Onsite Direct LAN download throughput is consistently roughly 33–40% higher (~1.36x average) than upload throughput across all three tested fixtures.
+- Download advantage is somewhat lower than under P2 Remote + Twingate (~1.6x), but download remains consistently faster than upload on both paths.
+
+### 7.4 Comprehensive three-path comparison (P1 Direct LAN vs P2 Remote Twingate vs C1 Public Share)
+
+| Workload | Fixture | P1 Onsite LAN Median (MB/s) | P2 Remote Twingate Median (MB/s) | C1 Public Share Median (MB/s) | P1 vs P2 Ratio | C1 vs P1 Ratio | C1 vs P2 Ratio |
+|---|---|---:|---:|---:|---:|---:|---:|
+| **Download** | 100 MB | 6.744 | 4.799 | 13.546 | ~1.41x (P1 +41%) | ~2.01x (C1 +101%) | ~2.82x (C1 +182%) |
+| **Download** | 300 MB | 7.253 | 5.050 | 11.978 | ~1.44x (P1 +44%) | ~1.65x (C1 +65%) | ~2.37x (C1 +137%) |
+| **Download** | 1 GB | 7.026 | 4.829 | 11.666 | ~1.45x (P1 +45%) | ~1.66x (C1 +66%) | ~2.42x (C1 +142%) |
+| **Upload** | 100 MB | 5.056 | 2.981 | N/A (download only) | ~1.70x (P1 +70%) | N/A | N/A |
+| **Upload** | 300 MB | 5.172 | 3.080 | N/A (download only) | ~1.68x (P1 +68%) | N/A | N/A |
+| **Upload** | 1 GB | 5.151 | 3.016 | N/A (download only) | ~1.71x (P1 +71%) | N/A | N/A |
+
+Key observations:
+1. P1 LAN is materially faster than P2 Remote Twingate for both upload (~1.7x) and download (~1.4x–1.45x), confirming observable network/overlay overhead.
+2. Direct LAN performance does **NOT** prove Twingate is the sole bottleneck: LAN upload caps at ~5.15 MB/s and download at ~7.0–7.25 MB/s, well below Gigabit wire rate (~110–120 MB/s).
+3. C1 Cloudflare Public Share download (~11.7–13.5 MB/s) is faster than both authenticated P1 LAN and P2 remote paths, but path architectures differ fundamentally (auth, gateway, streaming pipe vs chunked session).
+4. Prohibited claims: Do NOT claim `ROOT_CAUSE=PROVEN`, `TWINGATE_SOLE_BOTTLENECK=PROVEN`, `SWITCH_BOTTLENECK=PROVEN`, or `ROUTER_BOTTLENECK=PROVEN`.
+
+### 7.5 Separate defect discovered during P1: Production storage capacity / accounting discrepancy
+
+During P1 testing, a separate storage issue was observed on the Production host:
+- Docker named volume: `aegis_drive_storage`
+- Mountpoint: `/var/lib/docker/volumes/aegis_drive_storage/_data` (~29 GB volume data)
+- Root filesystem (`/`): ~57 GB total, ~51 GB used, ~3.1 GB available (~95% disk usage)
+- External ~1 TB disk is mounted for backup (`/mnt/backup`) and is not the active Drive storage authority.
+- Human Owner observed that deleting test files and emptying Trash did not visibly reduce Dashboard storage accounting usage.
+- Strict governance: Do NOT fix in PR #216. Do NOT prune Docker. Do NOT delete Vault ciphertext/orphans. Do NOT modify storage layout. Status: `STORAGE_ACCOUNTING_DEFECT_RECORDED=YES`, recorded as a separate investigation/blocker.
 
 ## 8. Exploratory path — Local Wi-Fi plus Twingate (Diagnostic only)
 
@@ -593,14 +661,14 @@ Verdicts: `SUPPORTED_WITHIN_TESTED_SCOPE`, `NOT_SUPPORTED_WITHIN_TESTED_SCOPE`, 
 ## 14. Future controlled optimization gate — not authorized now
 
 ~~~text
-CORE_PERFORMANCE_MUTATION_GATE = BLOCKED_PENDING_P1_PRE_FIX
+CORE_PERFORMANCE_MUTATION_GATE = PRE_FIX_BASELINES_CAPTURED
+PERFORMANCE_MUTATION_AUTHORIZED = NO
 PUBLIC_SHARE_SPECIFIC_MUTATION_GATE = PRE_FIX_BASELINE_CAPTURED
 PUBLIC_SHARE_MUTATION_AUTHORIZED = NO
-SHARED_MUTATION = BLOCKED_PENDING_P1_PRE_FIX
+SHARED_MUTATION = BLOCKED_PENDING_DIAGNOSIS
 ~~~
 
-All performance mutations remain forbidden until the P1 Onsite Direct LAN PRE-FIX
-baseline (18 runs) is captured and Human Owner authorizes optimization work.
+All performance mutations remain forbidden until root-cause diagnosis is established and Human Owner explicitly authorizes optimization work in a separate task.
 
 ### 14.1 Change-impact classification
 
@@ -650,9 +718,11 @@ Before this Draft PR is handed to the Human Owner:
 - [x] Phase B0 Production baseline recorded as EXECUTED with exact observed values.
 - [x] P2 Remote PRE-FIX recorded as EXECUTED with 18 controlled runs.
 - [x] Phase C1 Public Share PRE-FIX recorded as EXECUTED with 9 valid runs.
-- [x] Total 27 valid controlled runs recorded.
-- [x] P1 Onsite Direct LAN PRE-FIX framed as immediate next gate.
-- [x] Core and shared performance mutation gates strictly blocked pending P1 PRE-FIX.
+- [x] Phase P1 Onsite Direct LAN PRE-FIX recorded as EXECUTED with 18 controlled runs.
+- [x] Total 45 valid controlled runs recorded (36/36 core + 9 supplementary).
+- [x] Root-cause diagnosis framed as immediate next gate.
+- [x] Core and shared performance mutation gates strictly blocked pending diagnosis.
+- [x] Separate storage capacity/accounting defect recorded as unaddressed blocker.
 - [x] No secrets, bearer links, credentials, or private content present.
 
 ## 18. Self-review record
@@ -665,13 +735,35 @@ repository automation or secret-handling surfaces.
 
 ~~~text
 TASK=LFT-PERF-1
-STATUS=IN_PROGRESS / REMOTE & PUBLIC SHARE PRE-FIX COMPLETE / ONSITE PENDING
+STATUS=IN_PROGRESS / PRE-FIX BASELINES COMPLETE (P1, P2, C1) / DIAGNOSIS PENDING
 HUMAN_REVIEW_REQUIRED=YES
 PRODUCTION_MUTATED=NO
 PERFORMANCE_SETTINGS_CHANGED=NO
+NETWORK_CONFIGURATION_CHANGED=NO
+TRANSFER_CONFIGURATION_CHANGED=NO
 OPTIMIZATION_EXECUTED=NO
 HARNESS_ADDED=NO
 REMOTE_B0=COMPLETE
+P1_ONSITE_DIRECT_LAN_PRE_FIX=COMPLETE
+P1_CONTROLLED_RUNS=18
+P1_UPLOAD_100MB_N=3
+P1_UPLOAD_100MB_MEDIAN_MBPS=5.056
+P1_UPLOAD_100MB_MEAN_MBPS=5.080
+P1_UPLOAD_300MB_N=3
+P1_UPLOAD_300MB_MEDIAN_MBPS=5.172
+P1_UPLOAD_300MB_MEAN_MBPS=5.170
+P1_UPLOAD_1GB_N=3
+P1_UPLOAD_1GB_MEDIAN_MBPS=5.151
+P1_UPLOAD_1GB_MEAN_MBPS=5.149
+P1_DOWNLOAD_100MB_N=3
+P1_DOWNLOAD_100MB_MEDIAN_MBPS=6.744
+P1_DOWNLOAD_100MB_MEAN_MBPS=6.756
+P1_DOWNLOAD_300MB_N=3
+P1_DOWNLOAD_300MB_MEDIAN_MBPS=7.253
+P1_DOWNLOAD_300MB_MEAN_MBPS=7.277
+P1_DOWNLOAD_1GB_N=3
+P1_DOWNLOAD_1GB_MEDIAN_MBPS=7.026
+P1_DOWNLOAD_1GB_MEAN_MBPS=7.017
 P2_REMOTE_TWINGATE_PRE_FIX=COMPLETE
 P2_CONTROLLED_RUNS=18
 REMOTE_UPLOAD_100MB_N=3
@@ -697,23 +789,25 @@ C1_300MB_MEAN_MBPS=12.063
 C1_1GB_N=3
 C1_1GB_MEDIAN_MBPS=11.666
 C1_1GB_MEAN_MBPS=11.675
-P1_ONSITE_DIRECT_LAN_PRE_FIX=PENDING
-P1_PENDING_RUNS=18
-CORE_PRE_FIX_RUNS_COMPLETE=18
+CORE_PRE_FIX_RUNS_COMPLETE=36
 CORE_PRE_FIX_RUNS_TARGET=36
 SUPPLEMENTARY_PUBLIC_RUNS_COMPLETE=9
-TOTAL_CURRENT_VALID_CONTROLLED_RUNS=27
+TOTAL_CURRENT_VALID_CONTROLLED_RUNS=45
 POST_FIX=NOT_STARTED
 OPTIMIZATION=NOT_STARTED
-CORE_PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX
+CORE_PERFORMANCE_MUTATION_GATE=PRE_FIX_BASELINES_CAPTURED
+PERFORMANCE_MUTATION_AUTHORIZED=NO
 PUBLIC_SHARE_BASELINE_CAPTURED=YES
 PUBLIC_SHARE_MUTATION_AUTHORIZED=NO
-SHARED_MUTATION=BLOCKED_PENDING_P1_PRE_FIX
+SHARED_MUTATION=BLOCKED_PENDING_DIAGNOSIS
+STORAGE_ACCOUNTING_DEFECT_RECORDED=YES
 ROOT_CAUSE=NOT_PROVEN
 TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN
 CLOUDFLARE_BOTTLENECK=NOT_PROVEN
 STORAGE_BOTTLENECK=NOT_PROVEN
+SWITCH_BOTTLENECK=NOT_PROVEN
+ROUTER_BOTTLENECK=NOT_PROVEN
 CLIENT_CRYPTO_BOTTLENECK=NOT_PROVEN
 FINAL_RECEIPT_CREATED=NO
-NEXT_GATE=P1_ONSITE_DIRECT_LAN_PRE_FIX
+NEXT_GATE=DIAGNOSIS_AND_STORAGE_INVESTIGATION
 ~~~

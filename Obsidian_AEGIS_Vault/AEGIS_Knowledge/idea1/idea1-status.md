@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-25
+updated: 2026-09-27
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -23,13 +23,13 @@ edit_policy: owner-writable
 | Branch | docs/idea1-transfer-media-performance-study |
 | PR | #216 (Draft) |
 | Owner | kla |
-| State | **IN_PROGRESS / REMOTE & PUBLIC SHARE PRE-FIX COMPLETE / ONSITE PENDING** |
-| Scope | Remote PRE-FIX evidence reconciliation (18 runs complete), C1 Public Share PRE-FIX complete (9 valid runs), total 27 controlled runs, B0 baseline recorded; P1 On-site Direct LAN PRE-FIX pending (18 runs); core & shared performance mutations blocked |
+| State | **IN_PROGRESS / PRE-FIX BASELINES COMPLETE (P1, P2, C1) / DIAGNOSIS PENDING** |
+| Scope | P1 Onsite Direct LAN PRE-FIX reconciled (18 runs complete: Upload ~5.06–5.17 MB/s, Download ~6.7–7.3 MB/s), P2 Remote PRE-FIX complete (18 runs: Upload ~3.0 MB/s, Download ~4.8–5.1 MB/s), C1 Public Share PRE-FIX complete (9 valid runs: Download ~11.7–13.5 MB/s), total 45 controlled runs, core pre-fix baseline 36/36 complete; separate storage capacity/accounting defect recorded; mutations blocked pending diagnosis |
 | Design | IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-25-idea1-transfer-media-performance-study-design.md |
 | Plan | IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-25-idea1-transfer-media-performance-measurement-plan.md |
-| Production mutation allowed | **NO** (`CORE_PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`; `PUBLIC_SHARE_MUTATION_AUTHORIZED=NO`) |
-| Current result | TOTAL_CONTROLLED_RUNS=27 (P2 Remote PRE-FIX 18 runs: Upload ~3.0 MB/s, Download ~4.8–5.1 MB/s; C1 Public Share PRE-FIX 9 runs: 100 MB 13.546 MB/s, 300 MB 11.978 MB/s, 1 GB 11.666 MB/s; Public Share ~2.4x–2.8x higher download than P2 under tested client); ROOT_CAUSE=NOT_PROVEN; TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN; CLOUDFLARE_BOTTLENECK=NOT_PROVEN; STORAGE_BOTTLENECK=NOT_PROVEN; CLIENT_CRYPTO_BOTTLENECK=NOT_PROVEN |
-| Next gate | P1_ONSITE_DIRECT_LAN_PRE_FIX (18 runs: Files Upload S/M/L ×3, Files Download S/M/L ×3 on wired Ethernet / VLAN30) |
+| Production mutation allowed | **NO** (`CORE_PERFORMANCE_MUTATION_GATE=PRE_FIX_BASELINES_CAPTURED`; `PERFORMANCE_MUTATION_AUTHORIZED=NO`) |
+| Current result | TOTAL_CONTROLLED_RUNS=45 (Core PRE-FIX 36/36: P1 Onsite LAN 18 runs: Upload median ~5.06–5.17 MB/s, Download median ~6.7–7.3 MB/s, asymmetry ~1.36x; P2 Remote Twingate 18 runs: Upload median ~3.0 MB/s, Download median ~4.8–5.1 MB/s, asymmetry ~1.6x; P1 is ~1.4x download / ~1.7x upload faster than P2; Supplementary C1 Public Share Cloudflare 9 runs: Download median ~11.7–13.5 MB/s); ROOT_CAUSE=NOT_PROVEN; TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN; CLOUDFLARE_BOTTLENECK=NOT_PROVEN; STORAGE_BOTTLENECK=NOT_PROVEN; SWITCH_BOTTLENECK=NOT_PROVEN; ROUTER_BOTTLENECK=NOT_PROVEN; CLIENT_CRYPTO_BOTTLENECK=NOT_PROVEN; STORAGE_ACCOUNTING_DEFECT_RECORDED=YES |
+| Next gate | DIAGNOSIS_AND_STORAGE_INVESTIGATION |
 
 This task operationalizes the existing LFT-PERF-1 backlog and consolidates the
 separately recorded FILES-TRANSFER-PERF-1 plus PR187/PR212 deferred transfer and
@@ -39,6 +39,13 @@ Phase B0 Production baseline is executed (2026-09-25T14:35:03Z), confirming Driv
 `aegis-prod-drive:vault-stage-d-fix-f8c876754dd6` (healthy, restarts 0, oom false),
 SSD-backed Data Lake at 77% (61.1 GB total, 13.4 GB available), Files 5 GiB logical
 limit, and Vault limits endpoint `/drive/api/vault/uploads/limits`.
+
+P1 Onsite Direct LAN PRE-FIX is complete across 18 controlled runs on wired Ethernet / Management VLAN30:
+- Files Download (PowerShell `.crdownload` observer): 100 MB median 6.744 MB/s (mean 6.756 MB/s), 300 MB median 7.253 MB/s (mean 7.277 MB/s), 1 GB median 7.026 MB/s (mean 7.017 MB/s). Sustained download ≈ 6.7–7.3 MB/s.
+- Files Upload (in-page XHR tracer `window.__AEGIS_LFT_TRACE__`): 100 MB median 5.056 MB/s (mean 5.080 MB/s), 300 MB median 5.172 MB/s (mean 5.170 MB/s), 1 GB median 5.151 MB/s (mean 5.149 MB/s). Sustained upload ≈ 5.06–5.17 MB/s (remarkably flat).
+- Source verification audit: All three 1 GB upload runs verified as actual measured browser-console tracer runs (63 total requests: 60 chunk PUTs + 3 session lifecycle requests; exact millisecond spans; zero request failures).
+- P1 asymmetry: Download throughput is consistently 33–40% higher (~1.36x) than upload throughput across all fixtures.
+- 3-Way comparison: P1 LAN is ~1.4x–1.45x faster for download and ~1.7x faster for upload than P2 Remote Twingate, demonstrating measurable network overlay overhead. However, LAN upload capping at ~5.15 MB/s and download at ~7.0–7.25 MB/s (well below Gigabit wire rate) proves that Twingate is NOT the sole bottleneck. C1 Public Share download (~11.7–13.5 MB/s) is faster than both P1 and P2, but runs over a different unauthenticated continuous streaming path.
 
 P2 Remote + Twingate PRE-FIX is complete across 18 controlled runs:
 - Files Upload (in-page XHR chunk span): 100 MB median 2.981 MB/s, 300 MB median 3.080 MB/s, 1 GB median 3.016 MB/s (sustained ~3.0 MB/s; no file-size degradation).
@@ -54,15 +61,22 @@ C1 Public Share / Cloudflare PRE-FIX is complete across 9 valid controlled runs:
 - Invalid pilot run: initial 100 MB attempt classified `C1_100MB_INITIAL_ATTEMPT=INVALID_MEASUREMENT` (reason: `HARNESS_FINAL_FILE_RESOLUTION_FAILED`); test harness observer defect, not AEGIS/Cloudflare defect, excluded from n=3.
 - Status: `PUBLIC_SHARE_PATH_PENALTY=NOT_OBSERVED`; `PUBLIC_SHARE_SLOWER_THAN_P2=NOT_SUPPORTED_BY_CURRENT_EVIDENCE`; `CLOUDFLARE_BOTTLENECK=NOT_PROVEN`; `TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN`; `ROOT_CAUSE=NOT_PROVEN`.
 
+Separate defect discovered during P1: Production storage capacity / accounting discrepancy:
+- Docker named volume `aegis_drive_storage` at `/var/lib/docker/volumes/aegis_drive_storage/_data` (~29 GB volume data).
+- Host root filesystem `/` at ~95% utilization (~51 GB used of ~57 GB, ~3.1 GB available). External ~1 TB disk is mounted for backup only (`/mnt/backup`).
+- Deleting test files and emptying Drive Trash did not visibly reduce Dashboard storage accounting usage.
+- Strict governance: Do NOT fix in PR #216. Do NOT prune Docker. Do NOT delete Vault ciphertext/orphans. Do NOT modify storage layout. Status: `STORAGE_ACCOUNTING_DEFECT_RECORDED=YES`, recorded as a separate investigation/blocker.
+
 Mutation gates enforced:
-- `CORE_PERFORMANCE_MUTATION_GATE=BLOCKED_PENDING_P1_PRE_FIX`
+- `CORE_PERFORMANCE_MUTATION_GATE=PRE_FIX_BASELINES_CAPTURED`
+- `PERFORMANCE_MUTATION_AUTHORIZED=NO`
 - `PUBLIC_SHARE_SPECIFIC_MUTATION_GATE=PRE_FIX_BASELINE_CAPTURED`
 - `PUBLIC_SHARE_MUTATION_AUTHORIZED=NO`
-- `SHARED_MUTATION=BLOCKED_PENDING_P1_PRE_FIX`
+- `SHARED_MUTATION=BLOCKED_PENDING_DIAGNOSIS`
 
-Immediate next gate is P1 Onsite Direct LAN PRE-FIX (18 runs: Upload S/M/L ×3, Download S/M/L ×3).
+Immediate next gate is root-cause diagnosis and storage accounting investigation.
 All performance mutations, parameter changes, and code optimizations remain strictly blocked
-pending completion of the P1 baseline. PR #216 remains open in Draft with zero final receipts.
+pending diagnosis and separate Human Owner authorization. PR #216 remains open in Draft with zero final receipts.
 
 ### Session Register — LFT-PERF-1
 
@@ -71,6 +85,7 @@ pending completion of the P1 baseline. PR #216 remains open in Draft with zero f
 | LFT-PERF-1-S1 | Establish study design, measurement plan, and preliminary matrix | PASS / DRAFT | Initial design and measurement plan committed | `0d471942` | PASS | Production B0, PRE-FIX measurements | Human review of measurement plan |
 | LFT-PERF-1-S2 | Reconcile B0 baseline, upload method correction (XHR tracer), 18 controlled remote runs (Upload ~3.0 MB/s, Download ~4.8–5.1 MB/s), upload vs download asymmetry (~1.6x), mutation gate enforcement | PASS / IN PROGRESS | B0 baseline executed; 18 remote runs complete; docs reconciled; no mutation | Docs reconciliation checkpoint | PASS | P1 Onsite Direct LAN Pre-Fix (18 runs), bottleneck analysis, post-fix matrix | P1 Onsite Direct LAN Pre-Fix baseline |
 | LFT-PERF-1-S3 | Reconcile C1 Public Share / Cloudflare PRE-FIX (9 valid runs: 100 MB 13.546, 300 MB 11.978, 1 GB 11.666 MB/s), invalid pilot classification, P2 vs C1 comparison (~2.4x–2.8x), PRE/POST study structure, Case A/B change classification, and mutation gates | PASS / IN PROGRESS | C1 9 valid runs complete; docs reconciled; 27 total controlled runs; zero mutations | Docs reconciliation checkpoint | PASS | P1 Onsite Direct LAN Pre-Fix (18 runs), bottleneck analysis, post-fix matrix | P1 Onsite Direct LAN Pre-Fix baseline |
+| LFT-PERF-1-S4 | Reconcile P1 Onsite Direct LAN PRE-FIX (18 runs: Upload ~5.06–5.17 MB/s, Download ~6.7–7.3 MB/s), 3-way comparison (P1 vs P2 vs C1), storage capacity/accounting defect discovery, and mutation gate transition | PASS / IN PROGRESS | P1 18 runs complete; 45 total controlled runs (36/36 core); docs reconciled; zero mutations | Docs reconciliation checkpoint | PASS | Bottleneck diagnosis, storage accounting investigation, post-fix matrix | Bottleneck diagnosis & storage accounting investigation |
 
 
 ## Completed Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
