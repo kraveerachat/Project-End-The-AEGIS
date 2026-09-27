@@ -662,8 +662,13 @@ for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /etc/aegis-idea3/mqtt /opt/aegis-
 done
 # L6c (immutable release install): a deterministic, non-secret fingerprint of the release catalog under
 # /opt/aegis-idea3/releases/<id>/. The value is exactly "<id>:<sha256>" pairs (sorted by id, comma-joined), where
-# <sha256> is the digest of that release's OWN RELEASE-SHA256SUMS file (its provenance already commits to every payload
-# file's own hash, per p4-l7-release-guard.py's contract) — never file contents, never a filename beyond the release id.
+# <sha256> is a TREE-STATE digest of that release's ACTUAL current filesystem entries — relative path, entry type,
+# uid, gid, permission bits, and (for a regular file) the SHA256 of its real bytes — computed by
+# p4-l6c-tree-digest.py. This proves the real payload/metadata state, never merely that the release's own
+# RELEASE-SHA256SUMS claim about itself is unchanged: a payload byte edit, a chmod/chown, a directory-mode change, an
+# added/removed entry, or a symlink/special file anywhere in the tree all change this digest even if
+# RELEASE-SHA256SUMS itself is untouched. Never file contents, never an individual path, never a filename beyond the
+# release id are recorded — only the one final digest per release id.
 releases_root=$(p4_fs /opt/aegis-idea3/releases)
 if [ -d "$releases_root" ]; then
   ids=""
@@ -675,12 +680,12 @@ if [ -d "$releases_root" ]; then
   catalog="" first=1
   while IFS= read -r rid; do
     [ -n "$rid" ] || continue
-    sums="$releases_root/$rid/RELEASE-SHA256SUMS"
-    if [ -f "$sums" ]; then
-      h=$(p4_sha256 "$sums")
-      [ "$h" = UNREADABLE ] && partial=1
+    if run_ro 0 - python3 "$P4_HERE/p4-l6c-tree-digest.py" "$releases_root/$rid" \
+      && [[ "$P4_OUT" =~ ^[0-9a-f]{64}$ ]]; then
+      h=$P4_OUT
     else
-      h=MISSING
+      h=UNREADABLE
+      partial=1
     fi
     [ "$first" = 1 ] || catalog+=","
     catalog+="$rid:$h"

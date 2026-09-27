@@ -81,7 +81,7 @@ def test_l6c_runner_refuses_a_malformed_or_missing_pin(tmp_path: Path, main: str
 def test_l6c_runner_never_runs_as_root_and_requires_sudo_before_mutation() -> None:
     text = RUNNER.read_text()
     assert 'id -u)" != 0' in text
-    assert text.index("sudo -v") < text.index("l6c_consume_attempt") < text.index("PRE capture")
+    assert text.index("sudo -v") < text.index("capture PRE") < text.index("l6c_consume_attempt")
 
 
 def test_l6c_runner_all_gates_precede_the_one_attempt_marker() -> None:
@@ -92,6 +92,7 @@ def test_l6c_runner_all_gates_precede_the_one_attempt_marker() -> None:
         assert gate in text, gate
         assert text.index(gate) < consume, gate
     assert text.index('[ "$GATE_FAILED" = 0 ] || die') < consume
+    assert text.index("capture PRE") < consume, "PRE capture must complete before the authorization is consumed (issue 1, 2026-09-27)"
 
 
 def test_l6c_runner_never_invokes_l7_or_creates_l7_authorization_or_credentials() -> None:

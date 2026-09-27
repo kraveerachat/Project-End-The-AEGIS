@@ -473,3 +473,45 @@ def test_l6c_apply_default_installed_ownership_requires_root(fx: Fx) -> None:
     res = fx.run(APPLY, AEGIS_L6C_FIXTURE_DEST_OWNER_ANY="NO")
     assert reason(res) == "INSTALL_FAILED:POST_COPY_GUARD_FAILED:OWNER_INVALID"
     assert not fx.release.exists()
+
+
+# ── 6. rollback ownership contract mirrors verify (2026-09-27 correctness fix) ───────────────────────────────────────────
+# rollback.sh must never be weaker than verify.sh: it derives owner_expect the exact same way (any under a fixture root,
+# root by live default) rather than hard-coding --expect-owner any, since the stage-created installed release contract is
+# root-owned live and a rollback that accepts "any" ownership could be tricked into deleting a tree that has drifted away
+# from root ownership.
+
+
+def test_l6c_rollback_owner_check_is_never_hardcoded_to_any() -> None:
+    text = ROLLBACK.read_text()
+    assert "--expect-owner any\n" not in text and "--expect-owner any 2>&1" not in text
+    assert "owner_expect=any" in text and '[ -z "$ROOT" ] && owner_expect=root' in text
+
+
+def test_l6c_rollback_owner_contract_matches_verify_exactly() -> None:
+    """rollback.sh and verify.sh must derive owner_expect identically — the exact same two lines — so the two can never
+    silently diverge again."""
+    wanted = {"owner_expect=any", '[ -z "$ROOT" ] && owner_expect=root'}
+    lines = {l.strip() for l in VERIFY.read_text().splitlines() if l.strip() in wanted}
+    assert lines == wanted
+    lines = {l.strip() for l in ROLLBACK.read_text().splitlines() if l.strip() in wanted}
+    assert lines == wanted
+
+
+def test_l6c_rollback_still_works_under_the_fixture_owner_contract(fx: Fx) -> None:
+    """Fixture rollback (owner_expect=any, since AEGIS_P4_FS_ROOT is always set under fixtures) still succeeds and still
+    removes only the stage-created release."""
+    applied(fx)
+    res = rolled(fx)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert not fx.release.exists()
+
+
+def test_l6c_rollback_refuses_on_metadata_drift_rather_than_deleting_the_tree(fx: Fx) -> None:
+    """Ownership/metadata drift on the release (the same guard predicate --expect-owner root would enforce live) is
+    refused rather than silently deleted, exactly like verify's metadata-drift check."""
+    applied(fx)
+    (fx.release / "aegis_soc" / "supervisor.py").chmod(0o666)
+    res = rolled(fx)
+    assert rreason(res) == "RELEASE_DRIFTED_REFUSING_ROLLBACK:WRITABLE_BY_GROUP_OR_OTHER"
+    assert fx.release.exists()  # never deleted when drifted

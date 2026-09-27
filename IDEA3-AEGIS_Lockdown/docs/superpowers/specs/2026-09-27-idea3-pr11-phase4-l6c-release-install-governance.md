@@ -109,11 +109,66 @@ structurally unusable for L7 and vice versa (`tests/test_pr11_phase4_l6c_runner.
 
 ## 9. Test map
 
-`tests/test_pr11_phase4_l6c_capture_gap.py` (G-15 capture/compare, RED 18 / GREEN 22), `l6c_support.py` +
+`tests/test_pr11_phase4_l6c_capture_gap.py` (G-15 capture/compare, RED 18 / GREEN 32), `l6c_support.py` +
 `test_pr11_phase4_l6c_handler.py` (apply/verify/rollback against a fixture root and a fake systemctl/ss that dies on any
-mutating verb), `test_pr11_phase4_l6c_runner.py` (gate library, static runner contract, G-15 authorization separation).
+mutating verb), `test_pr11_phase4_l6c_runner.py` + `test_pr11_phase4_l6c_runner_flow.py` (gate library, static runner
+contract, G-15 authorization separation, full ordering/rollback control-flow simulation),
+`test_pr11_phase4_l7_release_installer_helper.py` (installer, including the pre-existing-parent-directory contract).
 
-## 10. Current state
+## 10. Pre-merge correctness fixes (2026-09-27, before PR #231 merge)
+
+Four issues found in independent review of the original implementation, fixed on the same branch/PR before merge (never
+a rewrite of a merged receipt — PR #231 itself was still open).
+
+**(a) PRE-capture/consume ordering.** The original `owner-run/run-l6c-owner.sh` consumed the one-shot A-L6c
+authorization BEFORE the PRE evidence capture. Fixed: ALL read-only gates — including PRE capture and its SHA256
+validation — now complete first; baseline service/listener snapshots and evidence-directory creation are deterministic
+read-only setup, not the one-shot gate; `l6c_consume_attempt` runs only once PRE capture has fully passed, immediately
+followed by apply. A failed PRE capture leaves `L6C-ATTEMPT-CONSUMED` absent, performs no mutation, and preserves
+evidence for diagnosis. Proven by `tests/test_pr11_phase4_l6c_runner_flow.py` (21 tests: ordering, failed-PRE-leaves-
+marker-absent, successful-PRE-then-consume-creates-marker-before-apply, apply-cannot-precede-marker, second-attempt-
+fails-closed, no-automatic-retry) plus updated ordering assertions in `test_pr11_phase4_l6c_runner.py`.
+
+**(b) Installer mutating a pre-existing parent directory.** `p4-l7-install-release.py` unconditionally
+`mkdir(parents=True, exist_ok=True)` + `chmod`'d `/opt/aegis-idea3` and `/opt/aegis-idea3/releases`, even when either
+already existed before this L6c attempt — violating `L6C_MUTATION_BOUNDARY` (a parent directory is stage-owned only
+when this attempt itself had to create it). Fixed: `_ensure_parent_dirs()` creates ONLY the ancestor directories that
+do not yet exist, each with the exact reviewed `PARENT_DIR_MODE = 0o755`; every ancestor that already exists is validated
+(a real directory, never a symlink, never group/other-writable — `PARENT_DIR_NOT_A_DIRECTORY` /
+`PARENT_DIR_WRITABLE_BY_GROUP_OR_OTHER`) and never repaired — its uid/gid/mode are preserved, while adding a legitimate
+child may naturally advance its mtime. No generic
+"repair" path exists. Proven by new tests in `test_pr11_phase4_l7_release_installer_helper.py` (pre-existing releases/
+and opt dirs with unusual-but-acceptable modes survive untouched; group/other-writable ancestors refuse before any
+mutation; a non-directory ancestor refuses; newly created ancestors get the exact mode; no `os.chmod`/`os.chown` of a
+pre-existing directory appears in the source).
+
+**(c) Release-catalog fingerprint blind to real drift.** The original `host.aegis_idea3.release_catalog` fingerprint
+was `sha256(RELEASE-SHA256SUMS)` — proof only that the sums file itself was unchanged, not that the actual payload or
+metadata was. Fixed: `p4-l6c-tree-digest.py` (new, read-only, invoked once per release id from `p4-l0-capture.sh` via
+the same exact-argv python3 allowlist pattern as the L5 clock helper) computes ONE sha256 over every entry in the
+release tree in deterministic relative-path order — relative path, entry type, uid, gid, permission bits, and (for a
+regular file) the real file's SHA256 — never following a symlink (its target string is hashed instead) and never
+reading a special file's content. Regular payload opens use `O_NOFOLLOW`; the opened inode/metadata must match the
+preceding `lstat`, remain stable through the read, and the complete tree must match a final rescan. Any unreadable or
+observably raced entry makes the digest `UNREADABLE` (fail-closed, `partial=1`), never silently omitted. This is not an
+atomic filesystem snapshot: a sufficiently privileged ABA mutation wholly between checks cannot be excluded, so the
+root-owned immutable release tree must also be quiescent during capture. `host.tsv` still records only
+`<release-id>:<tree-state-sha256>`. The comparator's relational rule in
+`p4-compare.sh` is unchanged conceptually. Proven, WITHOUT ever touching RELEASE-SHA256SUMS, by real end-to-end
+capture+compare tests in `test_pr11_phase4_l6c_capture_gap.py`: a payload byte edit, a file chmod, a directory-mode
+change, an added file, a removed file, a planted symlink, and a planted fifo are all caught as `RELEASE_CONTENT_DRIFT`;
+an unchanged existing release plus one newly named release still passes; PRE→RB exact restoration still passes with
+zero allowances; a monkeypatched-uid unit test proves the metadata-hashing helper is owner-sensitive independent of
+privilege.
+
+**(d) Live rollback's weakened owner check.** `stages/L6c/rollback.sh` called the release guard with
+`--expect-owner any` unconditionally, even live, where the installed-release contract is root-owned. Fixed: rollback
+now derives `owner_expect` exactly like `verify.sh` (`any` under a fixture root, `root` by live default) — the same two
+lines, verified identical between the two files by a dedicated parity test — so rollback can never be weaker than
+verify and refuses (rather than deletes) a tree whose ownership or metadata has drifted. Proven by
+`test_pr11_phase4_l6c_handler.py`.
+
+## 11. Current state
 
 ```text
 L6C_STAGE               = IMPLEMENTED_REPOSITORY

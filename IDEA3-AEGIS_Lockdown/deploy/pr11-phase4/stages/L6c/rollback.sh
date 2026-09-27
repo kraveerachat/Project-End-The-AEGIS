@@ -74,7 +74,9 @@ fi
 # ── remove ONLY the exact stage-created release, and only after proving it is still exactly what was placed ──────────────
 if [ "$j_release" = 1 ] && { [ -e "$rel_host" ] || [ -L "$rel_host" ]; }; then
   [ -d "$rel_host" ] && [ ! -L "$rel_host" ] || fail RELEASE_PATH_NOT_A_DIRECTORY
-  guard_out=$("$PY" "$P4_HERE/p4-l7-release-guard.py" check --logical-path "$LOGICAL" --host-path "$rel_host" --expect-owner any 2>&1) \
+  owner_expect=any
+  [ -z "$ROOT" ] && owner_expect=root
+  guard_out=$("$PY" "$P4_HERE/p4-l7-release-guard.py" check --logical-path "$LOGICAL" --host-path "$rel_host" --expect-owner "$owner_expect" 2>&1) \
     || fail "RELEASE_DRIFTED_REFUSING_ROLLBACK:$(sed -n 's/.*reason=//p' <<< "$guard_out" | head -n 1)"
   seen_release_id=$(sed -n 's/.*release_id=\([^ ]*\).*/\1/p' <<< "$guard_out")
   seen_sha=$(sed -n 's/.*source_git_sha=\([^ ]*\).*/\1/p' <<< "$guard_out")

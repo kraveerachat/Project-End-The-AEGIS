@@ -8,8 +8,12 @@ release — went completely unrecorded.
 
 The fix: two new deterministic, non-secret, fixed capture keys (`host.path./opt/aegis-idea3`,
 `host.path./opt/aegis-idea3/releases`) plus one new deterministic catalog key (`host.aegis_idea3.release_catalog`, value
-`<id>:<sha256 of that release's own RELEASE-SHA256SUMS file>` pairs, sorted, comma-joined — never file contents, never a
-credential). A new, narrowly scoped, opt-in `ALLOW_L6C_RELEASE_FILE` (mirroring the existing `ALLOW_TRANSITIONS_FILE` /
+`<id>:<tree-state sha256>` pairs, sorted, comma-joined — never file contents, never an individual path, never a
+credential). The tree-state digest (p4-l6c-tree-digest.py, 2026-09-27) is computed over the release's ACTUAL current
+filesystem entries (relative path, type, uid, gid, mode, and — for regular files — real byte content), never merely
+over the release's own RELEASE-SHA256SUMS claim about itself: a payload byte edit, a chmod/chown, a directory-mode
+change, an added/removed entry, or a symlink/special file are all detected even when RELEASE-SHA256SUMS itself is
+never touched. A new, narrowly scoped, opt-in `ALLOW_L6C_RELEASE_FILE` (mirroring the existing `ALLOW_TRANSITIONS_FILE` /
 `ALLOW_DYNAMIC_TRANSITIONS_FILE` pattern) names the ONE exact expected new release id for a run; the relational rule in
 `p4-compare.sh` enforces, UNCONDITIONALLY and regardless of any allow file: every release id present in BEFORE must still
 be present in AFTER with an IDENTICAL fingerprint, or the change is NEW_OR_WORSENED_DRIFT — never a silently approved
@@ -37,10 +41,19 @@ from test_pr11_phase4_g15_host_artifacts import make_bundle  # noqa: E402
 from test_pr11_phase4_l7_release_guard_helper import build_release  # noqa: E402
 
 RELEASE_CATALOG_KEY = "host.aegis_idea3.release_catalog"
+TREE_DIGEST = DEPLOY / "p4-l6c-tree-digest.py"
 
 
 def sums_hash(release_dir: Path) -> str:
     return hashlib.sha256((release_dir / "RELEASE-SHA256SUMS").read_bytes()).hexdigest()
+
+
+def tree_hash(release_dir: Path) -> str:
+    """The independent oracle for the new fingerprint: invokes the real, shipped p4-l6c-tree-digest.py exactly as
+    p4-l0-capture.sh does, over the actual current filesystem state of release_dir."""
+    res = subprocess.run([sys.executable, str(TREE_DIGEST), str(release_dir)], text=True, capture_output=True, check=False)
+    assert res.returncode == 0 and res.stdout.strip() != "UNREADABLE", res.stdout + res.stderr
+    return res.stdout.strip()
 
 
 def capture(root: Path, evid: Path, label: str) -> subprocess.CompletedProcess[str]:
@@ -122,7 +135,7 @@ def test_capture_release_catalog_records_id_and_content_fingerprint_never_file_c
     res = capture(root, evid, "post")
     assert res.returncode in (0, 3), res.stdout + res.stderr
     host = read_tsv(evid / "host.tsv")
-    fingerprint = sums_hash(dest)
+    fingerprint = tree_hash(dest)
     assert host[RELEASE_CATALOG_KEY] == f"rel-a:{fingerprint}"
     # never the raw payload, never a filename beyond the release id itself, never any secret-shaped content
     for value in host.values():
@@ -137,7 +150,7 @@ def test_capture_release_catalog_sorted_and_comma_joined_for_multiple_releases(t
     evid = tmp_path / "evid"
     assert capture(root, evid, "post").returncode in (0, 3)
     host = read_tsv(evid / "host.tsv")
-    assert host[RELEASE_CATALOG_KEY] == f"rel-a:{sums_hash(a_dest)},rel-b:{sums_hash(b_dest)}"
+    assert host[RELEASE_CATALOG_KEY] == f"rel-a:{tree_hash(a_dest)},rel-b:{tree_hash(b_dest)}"
 
 
 def test_capture_release_catalog_never_touches_current(tmp_path: Path) -> None:
@@ -273,3 +286,195 @@ def test_real_end_to_end_content_mutation_of_an_existing_release_is_caught(tmp_p
     assert capture(root, post, "post").returncode in (0, 3)
     res = compare(pre, post)
     assert res.returncode == 1 and "RELEASE_CONTENT_DRIFT" in res.stdout
+
+
+# ── 4. tree-state digest: real drift detection WITHOUT ever touching RELEASE-SHA256SUMS (2026-09-27 correctness fix) ────
+# The old fingerprint (sha256 of the release's own RELEASE-SHA256SUMS file) proved only that the sums file itself was
+# unchanged. Every test below mutates the actual filesystem state and asserts the drift is caught while deliberately
+# leaving RELEASE-SHA256SUMS byte-for-byte untouched — the exact gap the old algorithm could not see.
+
+
+def pre_post(root: Path, tmp_path: Path) -> tuple[Path, Path]:
+    pre = tmp_path / "pre"
+    assert capture(root, pre, "pre").returncode in (0, 3)
+    return pre, tmp_path / "post"
+
+
+def test_real_capture_detects_a_payload_byte_modification_without_touching_the_sums_file(tmp_path: Path) -> None:
+    root = tmp_path / "fs"
+    (root / "etc/aegis-idea3").mkdir(parents=True)
+    dest = install_release(root, "rel-a", tmp_path)
+    pre, post = pre_post(root, tmp_path)
+    sums_before = (dest / "RELEASE-SHA256SUMS").read_bytes()
+    (dest / "aegis_soc" / "supervisor.py").write_text("print('tampered')\n")
+    assert (dest / "RELEASE-SHA256SUMS").read_bytes() == sums_before  # never touched
+    assert capture(root, post, "post").returncode in (0, 3)
+    res = compare(pre, post)
+    assert res.returncode == 1 and "RELEASE_CONTENT_DRIFT" in res.stdout
+
+
+def test_real_capture_detects_a_chmod_of_an_existing_payload_file(tmp_path: Path) -> None:
+    root = tmp_path / "fs"
+    (root / "etc/aegis-idea3").mkdir(parents=True)
+    dest = install_release(root, "rel-a", tmp_path)
+    pre, post = pre_post(root, tmp_path)
+    sums_before = (dest / "RELEASE-SHA256SUMS").read_bytes()
+    (dest / "aegis_soc" / "supervisor.py").chmod(0o777)
+    assert (dest / "RELEASE-SHA256SUMS").read_bytes() == sums_before
+    assert capture(root, post, "post").returncode in (0, 3)
+    res = compare(pre, post)
+    assert res.returncode == 1 and "RELEASE_CONTENT_DRIFT" in res.stdout
+
+
+def test_real_capture_detects_a_directory_mode_change(tmp_path: Path) -> None:
+    root = tmp_path / "fs"
+    (root / "etc/aegis-idea3").mkdir(parents=True)
+    dest = install_release(root, "rel-a", tmp_path)
+    pre, post = pre_post(root, tmp_path)
+    sums_before = (dest / "RELEASE-SHA256SUMS").read_bytes()
+    (dest / "aegis_soc").chmod(0o750)
+    assert (dest / "RELEASE-SHA256SUMS").read_bytes() == sums_before
+    assert capture(root, post, "post").returncode in (0, 3)
+    res = compare(pre, post)
+    assert res.returncode == 1 and "RELEASE_CONTENT_DRIFT" in res.stdout
+
+
+def test_real_capture_detects_an_added_unexpected_file(tmp_path: Path) -> None:
+    root = tmp_path / "fs"
+    (root / "etc/aegis-idea3").mkdir(parents=True)
+    dest = install_release(root, "rel-a", tmp_path)
+    pre, post = pre_post(root, tmp_path)
+    sums_before = (dest / "RELEASE-SHA256SUMS").read_bytes()
+    (dest / "aegis_soc" / "unexpected.py").write_text("# planted\n")
+    assert (dest / "RELEASE-SHA256SUMS").read_bytes() == sums_before
+    assert capture(root, post, "post").returncode in (0, 3)
+    res = compare(pre, post)
+    assert res.returncode == 1 and "RELEASE_CONTENT_DRIFT" in res.stdout
+
+
+def test_real_capture_detects_a_removed_payload_file(tmp_path: Path) -> None:
+    root = tmp_path / "fs"
+    (root / "etc/aegis-idea3").mkdir(parents=True)
+    dest = install_release(root, "rel-a", tmp_path)
+    pre, post = pre_post(root, tmp_path)
+    sums_before = (dest / "RELEASE-SHA256SUMS").read_bytes()
+    (dest / "requirements.txt").unlink()
+    assert (dest / "RELEASE-SHA256SUMS").read_bytes() == sums_before
+    assert capture(root, post, "post").returncode in (0, 3)
+    res = compare(pre, post)
+    assert res.returncode == 1 and "RELEASE_CONTENT_DRIFT" in res.stdout
+
+
+def test_real_capture_detects_a_symlink_planted_inside_the_release(tmp_path: Path) -> None:
+    root = tmp_path / "fs"
+    (root / "etc/aegis-idea3").mkdir(parents=True)
+    dest = install_release(root, "rel-a", tmp_path)
+    pre, post = pre_post(root, tmp_path)
+    sums_before = (dest / "RELEASE-SHA256SUMS").read_bytes()
+    (dest / "planted-link").symlink_to("/etc/passwd")
+    assert (dest / "RELEASE-SHA256SUMS").read_bytes() == sums_before
+    assert capture(root, post, "post").returncode in (0, 3)
+    res = compare(pre, post)
+    assert res.returncode == 1 and "RELEASE_CONTENT_DRIFT" in res.stdout
+
+
+def test_real_capture_detects_a_special_file_planted_inside_the_release(tmp_path: Path) -> None:
+    root = tmp_path / "fs"
+    (root / "etc/aegis-idea3").mkdir(parents=True)
+    dest = install_release(root, "rel-a", tmp_path)
+    pre, post = pre_post(root, tmp_path)
+    sums_before = (dest / "RELEASE-SHA256SUMS").read_bytes()
+    os.mkfifo(dest / "planted-fifo")
+    assert (dest / "RELEASE-SHA256SUMS").read_bytes() == sums_before
+    assert capture(root, post, "post").returncode in (0, 3)
+    res = compare(pre, post)
+    assert res.returncode == 1 and "RELEASE_CONTENT_DRIFT" in res.stdout
+
+
+def test_real_capture_unchanged_existing_release_plus_one_new_release_passes(tmp_path: Path) -> None:
+    root = tmp_path / "fs"
+    (root / "etc/aegis-idea3").mkdir(parents=True)
+    install_release(root, "rel-a", tmp_path)
+    pre, post = pre_post(root, tmp_path)
+    install_release(root, "rel-b", tmp_path)  # the ONLY change: one new, named release added
+    assert capture(root, post, "post").returncode in (0, 3)
+    denied = compare(pre, post)
+    assert denied.returncode == 1 and "RELEASE_UNAPPROVED_ADDITION" in denied.stdout
+    ok = compare(pre, post, allow_release_file=release_allow_file(tmp_path, "rel-b"))
+    assert "FINDINGS_NEW_OR_WORSENED_DRIFT=0" in ok.stdout, ok.stdout + ok.stderr
+    assert "L6C_RELEASE_INSTALLED" in ok.stdout
+
+
+def test_real_capture_pre_to_rollback_restores_release_catalog_with_zero_allowance(tmp_path: Path) -> None:
+    root = tmp_path / "fs"
+    (root / "etc/aegis-idea3").mkdir(parents=True)
+    install_release(root, "rel-a", tmp_path)
+    pre, _ = pre_post(root, tmp_path)
+    dest = install_release(root, "rel-b", tmp_path)
+    mid = tmp_path / "mid"
+    assert capture(root, mid, "mid").returncode in (0, 3)
+    shutil.rmtree(dest)  # rollback: remove exactly the newly installed release, restoring the exact pre-state
+    rb = tmp_path / "rb"
+    assert capture(root, rb, "rb").returncode in (0, 3)
+    res = compare(pre, rb)
+    # Release-catalog-specific proof: PRE and RB are byte-for-byte identical at the catalog key, and the comparator
+    # emits no finding of any class for that key without an allow file. Overall COMPARE_RESULT can still fail on this
+    # real-host capture fixture when unrelated host state changes between snapshots (for example an ephemeral listener).
+    assert read_tsv(pre / "host.tsv")[RELEASE_CATALOG_KEY] == read_tsv(rb / "host.tsv")[RELEASE_CATALOG_KEY]
+    catalog_findings = [
+        line
+        for line in res.stdout.splitlines()
+        if line.startswith("FINDING\t")
+        and len(line.split("\t")) >= 4
+        and line.split("\t")[3].partition("#")[0] == RELEASE_CATALOG_KEY
+    ]
+    assert catalog_findings == [], res.stdout + res.stderr
+
+
+def load_tree_digest_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("p4_l6c_tree_digest", TREE_DIGEST)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_tree_digest_fails_closed_if_a_regular_file_becomes_a_symlink_after_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = load_tree_digest_module()
+    release = tmp_path / "release"
+    release.mkdir()
+    payload = release / "payload.bin"
+    payload.write_bytes(b"reviewed release bytes")
+    outside = tmp_path / "outside-secret"
+    outside.write_bytes(b"must never be followed")
+    real_scan = mod._scan
+
+    def scan_then_swap(root: Path):
+        entries = real_scan(root)
+        payload.unlink()
+        payload.symlink_to(outside)
+        return entries
+
+    monkeypatch.setattr(mod, "_scan", scan_then_swap)
+    with pytest.raises(mod.Unreadable):
+        mod.tree_state_digest(release)
+
+
+def test_tree_digest_helper_is_sensitive_to_owner_uid_metadata_alone(tmp_path: Path) -> None:
+    """Unit-tests the metadata serialization directly: an owner (uid) change with every other field held constant
+    changes the digest input. This avoids a real chown while preserving the race check's honest opened-file metadata."""
+    mod = load_tree_digest_module()
+    f = tmp_path / "f.txt"
+    f.write_bytes(b"hello")
+    info = f.lstat()
+    changed = os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, info.st_uid + 1, info.st_gid,
+                              info.st_size, info.st_atime, info.st_mtime, info.st_ctime))
+    before = hashlib.sha256()
+    after = hashlib.sha256()
+    mod._update_entry_metadata(before, "f.txt", info, "f")
+    mod._update_entry_metadata(after, "f.txt", changed, "f")
+    assert before.digest() != after.digest()

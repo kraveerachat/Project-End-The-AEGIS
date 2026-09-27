@@ -415,3 +415,129 @@ def test_no_production_mutation_the_installer_only_ever_writes_under_host_root_i
     install(src, root, fixture_dest_owner_any=True)
     after = {p for p in Path("/opt").iterdir()} if Path("/opt").exists() else set()
     assert before == after
+
+
+# ── pre-existing parent directory: validate, never repair (2026-09-27 correctness fix) ───────────────────────────────────
+
+
+def test_installer_never_chmods_or_chowns_a_preexisting_releases_dir(tmp_path: Path) -> None:
+    src = build_release(tmp_path / "staging", release_id=REL_ID)
+    root = tmp_path / "fs"
+    releases = root / "opt/aegis-idea3/releases"
+    releases.mkdir(parents=True)
+    releases.chmod(0o750)  # unusual but acceptable (no group/other write); must survive byte/metadata-identical
+    before = releases.stat()
+    res = install(src, root)
+    assert res.returncode == 0, res.stdout + res.stderr
+    after = releases.stat()
+    # mtime naturally advances because the new release is copied INTO this directory (the actual purpose of
+    # install) — that is not "installer setup" repair. What must never happen is the installer's own parent-dir
+    # setup step touching ownership or mode.
+    assert stat.S_IMODE(after.st_mode) == 0o750  # never repaired to 0755
+    assert after.st_uid == before.st_uid and after.st_gid == before.st_gid
+
+
+def test_installer_never_chmods_or_chowns_a_preexisting_opt_dir(tmp_path: Path) -> None:
+    src = build_release(tmp_path / "staging", release_id=REL_ID)
+    root = tmp_path / "fs"
+    opt = root / "opt/aegis-idea3"
+    opt.mkdir(parents=True)
+    opt.chmod(0o700)
+    before = opt.stat()
+    assert install(src, root).returncode == 0
+    after = opt.stat()
+    # opt's mtime naturally advances because the missing releases/ child gets created inside it; only
+    # ownership/mode (never touched by installer setup) are asserted here.
+    assert stat.S_IMODE(after.st_mode) == 0o700
+    assert after.st_uid == before.st_uid and after.st_gid == before.st_gid
+
+
+def test_installer_refuses_before_any_mutation_when_a_preexisting_parent_is_group_or_other_writable(tmp_path: Path) -> None:
+    src = build_release(tmp_path / "staging", release_id=REL_ID)
+    root = tmp_path / "fs"
+    releases = root / "opt/aegis-idea3/releases"
+    releases.mkdir(parents=True)
+    releases.chmod(0o777)
+    before_mode = releases.stat().st_mode
+    res = install(src, root)
+    assert reason(res) == "PARENT_DIR_WRITABLE_BY_GROUP_OR_OTHER"
+    assert releases.stat().st_mode == before_mode  # not repaired, not touched
+    assert list(releases.iterdir()) == []  # nothing staged
+
+
+def test_installer_refuses_before_any_mutation_when_a_preexisting_opt_is_group_or_other_writable(tmp_path: Path) -> None:
+    src = build_release(tmp_path / "staging", release_id=REL_ID)
+    root = tmp_path / "fs"
+    opt = root / "opt/aegis-idea3"
+    opt.mkdir(parents=True)
+    opt.chmod(0o777)
+    res = install(src, root)
+    assert reason(res) == "PARENT_DIR_WRITABLE_BY_GROUP_OR_OTHER"
+    assert not (opt / "releases").exists()
+
+
+def test_installer_validates_unsafe_opt_even_when_releases_already_exists(tmp_path: Path) -> None:
+    src = build_release(tmp_path / "staging", release_id=REL_ID)
+    root = tmp_path / "fs"
+    opt = root / "opt/aegis-idea3"
+    releases = opt / "releases"
+    releases.mkdir(parents=True)
+    releases.chmod(0o755)
+    opt.chmod(0o777)
+    res = install(src, root)
+    assert reason(res) == "PARENT_DIR_WRITABLE_BY_GROUP_OR_OTHER"
+    assert list(releases.iterdir()) == []  # validation fails before staging anything
+
+
+def test_installer_validates_symlinked_opt_even_when_releases_resolves_to_a_real_directory(tmp_path: Path) -> None:
+    src = build_release(tmp_path / "staging", release_id=REL_ID)
+    root = tmp_path / "fs"
+    real_opt = root / "real-aegis-idea3"
+    (real_opt / "releases").mkdir(parents=True)
+    (root / "opt").mkdir(parents=True)
+    (root / "opt/aegis-idea3").symlink_to(real_opt, target_is_directory=True)
+    res = install(src, root)
+    assert reason(res) == "DESTINATION_PARENT_IS_SYMLINK"
+    assert list((real_opt / "releases").iterdir()) == []  # validation fails before staging anything
+
+
+def test_installer_refuses_when_a_preexisting_releases_path_is_not_a_directory(tmp_path: Path) -> None:
+    src = build_release(tmp_path / "staging", release_id=REL_ID)
+    root = tmp_path / "fs"
+    (root / "opt/aegis-idea3").mkdir(parents=True)
+    (root / "opt/aegis-idea3/releases").write_text("not a directory\n")
+    res = install(src, root)
+    assert reason(res) == "PARENT_DIR_NOT_A_DIRECTORY"
+
+
+def test_installer_creates_missing_parents_with_the_exact_reviewed_mode(tmp_path: Path) -> None:
+    """Both /opt/aegis-idea3 and its releases/ child are missing: EACH created level gets the exact mode, not the
+    umask-derived default Path.mkdir(parents=True) would otherwise apply to intermediate levels."""
+    src = build_release(tmp_path / "staging", release_id=REL_ID)
+    root = tmp_path / "fs"
+    root.mkdir()
+    res = install(src, root)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert stat.S_IMODE((root / "opt/aegis-idea3").stat().st_mode) == 0o755
+    assert stat.S_IMODE((root / "opt/aegis-idea3/releases").stat().st_mode) == 0o755
+
+
+def test_installer_leaves_a_preexisting_opt_untouched_when_only_releases_is_created(tmp_path: Path) -> None:
+    src = build_release(tmp_path / "staging", release_id=REL_ID)
+    root = tmp_path / "fs"
+    opt = root / "opt/aegis-idea3"
+    opt.mkdir(parents=True)
+    opt.chmod(0o750)
+    before = opt.stat()
+    assert install(src, root).returncode == 0
+    after = opt.stat()
+    # opt's mtime naturally advances because releases/ is created inside it; ownership/mode must not change.
+    assert stat.S_IMODE(after.st_mode) == 0o750
+    assert after.st_uid == before.st_uid and after.st_gid == before.st_gid
+    assert stat.S_IMODE((root / "opt/aegis-idea3/releases").stat().st_mode) == 0o755  # newly created: exact mode
+
+
+def test_installer_has_no_generic_repair_path() -> None:
+    text = INSTALLER.read_text()
+    for banned in ("os.chmod(releases_dir", "os.chown", "shutil.chown"):
+        assert banned not in text, banned

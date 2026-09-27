@@ -98,9 +98,8 @@ for u in twingate.service mosquitto.service; do [ "$(show "$u" ActiveState)" = a
 listen_now | grep -qx '0.0.0.0:1883' || gate "legacy 1883 wildcard listener not present (expected legacy broker state)"
 [ "$GATE_FAILED" = 0 ] || die "one or more pre-gates failed; NOTHING was created or changed"
 
-# 7. authorization is consumed here (one attempt): from this point a second invocation for this AUTH_DIR is refused
-l6c_consume_attempt "$AUTH_DIR" || die "could not consume the one-attempt marker"
-
+# 7. baseline snapshots and the evidence directory are deterministic, read-only setup for the PRE capture below — they are
+# NOT the one-shot mutation gate and do not require the authorization to be consumed yet.
 snap() { printf '%s/%s\n' "$(show "$1" MainPID)" "$(show "$1" NRestarts)"; }
 ENGINE_PRE=$(snap $ENGINE); TUNNEL_PRE=$(snap $TUNNEL); TG_PRE=$(snap twingate.service); MQ_PRE=$(snap mosquitto.service); BROKER_PRE=$(snap $BROKER_UNIT)
 L1883_PRE=$(ss -ltnH | awk '$4 ~ /:1883$/ {print $4}' | LC_ALL=C sort -u); L8883_PRE=$(ss -ltnH | awk '$4 ~ /:8883$/ {print $4}' | LC_ALL=C sort -u)
@@ -113,6 +112,8 @@ cp "$AUTH_DIR/authorization-L6c.txt" "$AUTH_DIR/k3-L6c.txt" "$EVID/"
 echo "EVIDENCE_ROOT=$EVID MAIN=$EXPECTED_MAIN RELEASE=$RELEASE_ID SOURCE_SHA=$EXPECTED_SOURCE_SHA"
 
 RELEASE_FILE="$WORK-allow-l6c-release.txt"
+printf 'stage L6c\nrelease_id %s\n' "$RELEASE_ID" > "$RELEASE_FILE" \
+  || die "could not prepare the L6c release allow file; Production mutation = NO; authorization NOT consumed"
 MUTATED=0; ROLLED_BACK=0
 capture() { sudo env EVID_DIR="$2" CAPTURE_LABEL="${1,,}" JOURNAL_SINCE="$JOURNAL_SINCE" bash "$P4/p4-l0-capture.sh" || return 1
   sudo grep -q 'L0_CAPTURE=COMPLETE' "$2/capture.log" || return 1; sudo bash -c "cd '$2' && sha256sum -c --quiet --strict SHA256SUMS" || return 1; echo "CAPTURE_$1=COMPLETE SHA256=PASS"; }
@@ -138,8 +139,15 @@ fail_after_mutation() { [ "$MUTATED" = 1 ] && rollback_flow "$1" || { echo "STOP
 trap 'fail_after_mutation "unexpected error at line $LINENO"' ERR
 trap 'fail_after_mutation "interrupted"' INT TERM
 
-echo "== PRE capture (before ANY L6c-owned Production change)"; capture PRE "$EVID/pre-root" || die "PRE capture failed; nothing changed"
-printf 'stage L6c\nrelease_id %s\n' "$RELEASE_ID" > "$RELEASE_FILE"
+echo "== PRE capture (read-only; the last gate before the authorization is consumed)"
+capture PRE "$EVID/pre-root" || die "PRE capture failed; Production mutation = NO; authorization NOT consumed; evidence preserved at $EVID for diagnosis"
+
+# 8. authorization is consumed here (one attempt), ONLY after every read-only gate — including PRE capture and its
+# SHA256 validation — has passed: from this point a second invocation for this AUTH_DIR is refused. If consumption
+# itself fails (e.g. a race with another process), Production has still not been mutated and apply never runs; the
+# evidence already captured above is preserved for diagnosis, and the run exits cleanly without retrying.
+l6c_consume_attempt "$AUTH_DIR" || die "could not consume the one-attempt marker; Production mutation = NO; apply was not run; evidence preserved at $EVID"
+
 echo "== L6c APPLY (once; immutable release install only)"; MUTATED=1
 apply_rc=0; apply_out=$(handler apply.sh 2>&1) || apply_rc=$?; printf '%s\n' "$apply_out"; own_work
 { [ "$apply_rc" = 0 ] && printf '%s\n' "$apply_out" | grep -qx 'L6C_APPLY=PASS'; } || rollback_flow "L6C_APPLY failed (rc=$apply_rc)"

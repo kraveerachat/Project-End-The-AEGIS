@@ -165,9 +165,11 @@ p4_ro_allowed() {
       return 1
       ;;
     python3)
-      # Exactly one read-only helper invocation: the L5 trusted-time state helper shipped beside this library.
-      [ $# -eq 3 ] && [ "$2" = "$P4_HERE/p4-l5-clock.py" ] && [ "$3" = state ] || return 1
-      return 0
+      # Exactly two read-only helper invocations, each shipped beside this library: the L5 trusted-time state
+      # helper, and the L6c release-catalog tree-state digest helper (one release directory argument only).
+      if [ $# -eq 3 ] && [ "$2" = "$P4_HERE/p4-l5-clock.py" ] && [ "$3" = state ]; then return 0; fi
+      if [ $# -eq 3 ] && [ "$2" = "$P4_HERE/p4-l6c-tree-digest.py" ] && p4_is_safe_fs_path "$3"; then return 0; fi
+      return 1
       ;;
     find)
       p4_is_safe_fs_path "${2:-}" || return 1
