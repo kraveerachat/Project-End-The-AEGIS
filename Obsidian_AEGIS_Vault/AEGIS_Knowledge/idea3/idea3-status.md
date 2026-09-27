@@ -78,6 +78,18 @@ edit_policy: owner-writable
 - **Remediation (fixture-tested):** `root:mosquitto` 0750 dir and 0640 conf/acl/passwd/broker.key, certificates `root:root 0644`, no widening; rollback adds `reset-failed aegis-idea3-mosquitto.service` (only, after removal + daemon-reload) and proves `not-found/inactive/dead/success`. Comparator stays strict.
 - **Open before any new live L6b:** merge this fix, owner freeze at the new main, fresh JIT input, fresh same-day A-L6b and K3. Design §13. Receipt: `90-Status/logs/2026-09-27_110130_music_idea3-pr11-l6b-live-attempt1-broker-group-remediation.md`.
 
+## IDEA3 PR11 Phase 4 L6b live acceptance — PROVEN (Attempt 2), persistent — 2026-09-27
+
+> [!important] Owner-run L6b Attempt 2 passed apply, verify and the live TLS/auth/ACL probe; PRE→POST preservation passed. L6b is left applied and persistent. This closeout is documentation-only (no Production mutation). Attempt 1 remains FAILED / NOT ACCEPTED; the Attempt 1, cleanup and Attempt 2 authorizations are all CONSUMED and never reusable. L7 has NOT started; JIT plaintext input has NOT been deleted.
+> `L6B_LIVE_EXECUTED = YES`, `L6B_APPLY = PASS`, `L6B_VERIFY = PASS`, `L6B_LIVE_TLS_AUTH_ACL = PASS`, `L6B_PRE_POST_COMPARE = PASS`, `L6B_S10_PRESERVATION = PASS`, `L6B_LIVE_ACCEPTANCE = PROVEN`, `L6B_PERSISTENT = YES`
+> `L6B_ATTEMPT2_AUTHORIZATION = CONSUMED`, `JIT_PLAINTEXT_CLEANUP = NOT DONE (separate owner-authorized workflow)`, `L7_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l6b-20260927-115928`; run at main `882d716ba0ea238b89a8f9a8bd54a1fbbd9713c3`; frozen runner sha256 `7801d66393892567512f05074ea25288c33c5e055674fb3f83eed2a69c82e06a`; no rollback evidence.
+- **Compare:** 0 new/worsened drift, 0 baseline-unhealthy, 0 incomparable, 24 approved changes (two 8883 listeners, `/etc/aegis-idea3/mqtt`, ACL/config/passwd/CA/cert/key metadata, unit file metadata/hash, unit LoadState/ActiveState/SubState/UnitFileState/MainPID/ExecMainStartTimestamp), 3 disk INFO, `COMPARE_RESULT=PASS`.
+- **Persistent state:** `aegis-idea3-mosquitto.service` active/running, enabled, `Result=success`, `NRestarts=0`; `127.0.0.1:8883` and `10.77.30.1:8883` only (no wildcard, no uplink); legacy Mosquitto preserved. Mosquitto 2.1.2 reads the `root:mosquitto` material after privilege drop.
+- **History:** Attempt 1 failed → PR #226 → residual cleanup PROVEN → Attempt 2 PROVEN. Receipt: `90-Status/logs/2026-09-27_120422_music_idea3-pr11-l6b-attempt2-live-acceptance.md`.
+- **Open next:** separate owner-authorized JIT plaintext cleanup workflow; L7 planning (not started).
+
 ## IDEA3 PR11 Phase 4 L6b residual systemd-state cleanup PROVEN; L6b still NOT accepted — 2026-09-27
 
 > [!important] Remediation PR #226 merged at main `6295cd65b89f3e822f6bcd6a8aada1de104c0fd8`. A separate, bounded owner-run cleanup then cleared the residual failed systemd state of `aegis-idea3-mosquitto.service`. L6b Attempt 1 stays FAILED / NOT ACCEPTED (authorization CONSUMED). No Attempt 2 authorization exists.
