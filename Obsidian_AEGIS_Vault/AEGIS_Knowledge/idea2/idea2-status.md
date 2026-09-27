@@ -21,9 +21,9 @@ Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
 PR: NOT CREATED — blocked until Human Machine A local acceptance and final Task 16 closeout
-Current state: ORIGINAL TASK 15 HUMAN GATE READY — the exact H0–H5 Machine A installation, verification, repair, and rollback package is prepared and statically validated; no privileged command has run
+Current state: ORIGINAL TASK 15 BLOCKED_PREREQUISITE — Human H0-1 passed, but H0-2 found no CPython 3.12 x64; exact side-by-side Python 3.12.10 remediation is prepared but has not been executed, and H0-3 remains blocked
 Started: 2026-09-19
-Last verified source checkpoint: `48c4f8ff30b83400933b3b55434becd2bf449fab` (`test(idea2): verify machine a runtime candidate`)
+Last verified source checkpoint: `5e81fd18c26494ffc28f8e18230d5216bf932139` (`docs(idea2): prepare machine a installation gate`)
 Production mutation allowed: NO
 
 ### Goal
@@ -85,7 +85,7 @@ before that acceptance.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| ORIGINAL-TASK-15 | Prepare and Stop at the Human Machine A Installation Gate | HUMAN GATE READY | Authoritative plan `docs/superpowers/plans/2026-09-19-idea2-machine-a-no-powershell-runtime.md`; starting SHA `48c4f8ff30b83400933b3b55434becd2bf449fab`; H0 read-only precheck, H1 bounded install/registration, H2 immediate verification, H3 reboot/account acceptance, H4 fail-closed repair, and H5 identity-preserving rollback documented against real script/CLI parameters; `origin/main` `5f1c11abf65f5680eef7871646e341a7426f2447` has no overlap with the four Task 15 paths | this documentation checkpoint | PASS — preparation only; privileged commands, Machine A installation, reboot, Production mutation, Task 16, receipt, push, and PR not executed | Human Owner runs H0 first and returns evidence; H1 requires separate bounded approval | STOP at `HUMAN_GATE_READY` |
+| ORIGINAL-TASK-15 | Prepare and Stop at the Human Machine A Installation Gate | BLOCKED_PREREQUISITE | Gate checkpoint `5e81fd18c26494ffc28f8e18230d5216bf932139`; Human H0-1 PASS; H0-2 returned `CPYTHON_3_12_X64_REQUIRED`; Machine A has Python 3.14 x64 at the recorded per-user path and no 3.12; exact WinGet `Python.Python.3.12` 3.12.10 x64 manifest/publisher/URL/SHA-256 independently confirmed; H0-2R read-only package proof, machine-scope side-by-side install, post-install 3.12/3.14 proof, and 3.12-only rollback prepared | this prerequisite-remediation documentation checkpoint | PREPARED_NOT_EXECUTED — Python, Agent, Engine, tunnel, camera, Production, Task 16, receipt, push, and PR unchanged | Human Owner runs H0-2R-1 only and returns evidence; installation requires separate approval | STOP before H0-2R-2 and H0-3 |
 | ORIGINAL-TASK-14 | Full automated verification and scoped security review | HUMAN-GATE READY | Starting SHA `ee9812d8d5c3992a04118e55149ae843b697fd6d`; focused Monitor lifecycle/security 70/70; focused Windows lifecycle 70/70; full Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; all skipped behavior rerun against disposable PostgreSQL 15 with zero skips; full Engine/Agent 176 tests / 174 pass / 0 fail / 2 expected native-pywin32 environment skips; UI freeze 5/5; Vite build PASS; governance 49/49; Vault PASS with two pre-existing Canvas warnings; PR #134 lifecycle 7/7; hash-locked wheels 9/9; PowerShell parser 18/18; scoped review Critical 0 / Important 0 / Minor 0 | source checkpoint `ee9812d8d5c3992a04118e55149ae843b697fd6d`; this status-only evidence checkpoint follows | PASS — source/local candidate; Playwright runner absent and real installed Machine A runtime not exercised | Task 15 human installation-gate preparation; Task 16 acceptance/receipt/PR | stop before Task 15 |
 | ORIGINAL-TASK-13 | Production-like disposable integration without diagnostic harness | CLOSED | Starting SHA `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; `origin/main` `2694808092bd3c28dea14ed4bcd400e6bb0ec5d2` has no overlap with authorized Task 13 paths; Node integration 5/5; Engine contract 2/2; PostgreSQL 15 migrations applied twice; built Monitor shell, Agent proof, account aliases, physical source, demand/release, forged/stale denial, Agent recovery, heartbeat aging, and cleanup all passed | `test(idea2): prove permanent machine a runtime path` (this checkpoint) | PASS — disposable/local integration only; Production and installed Machine A unchanged | Task 14 full automated verification and security review | stop before Task 14 |
 | ORIGINAL-TASK-12 | Windows install/status/repair/uninstall/autostart lifecycle | CLOSED | Starting SHA `27d7723f96c4752d32047c5062c55173c3f4c9c2`; focused Windows/Agent 74/74; PowerShell parser 12/12; full Engine/Agent 174 tests / 172 pass / 0 fail / 2 expected native-pywin32 skips across the existing split dependency runtimes; Monitor 143 tests / 140 pass / 0 fail / 3 conditional PostgreSQL skips; UI freeze 5/5; Vite build PASS; hash-locked Windows wheels 9/9; governance 50/50; Vault PASS with two pre-existing canvas warnings; secret scan 21 paths / 0 hits; scoped review Critical 0 / Important 0 / Minor 0 | `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f` | PASS at repository source/static/test-double boundary; installed Machine A runtime and privileged Windows lifecycle not executed | Task 13 integration | Task 13 |
@@ -110,7 +110,7 @@ before that acceptance.
 | Original Task 12 | CLOSED | Checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; repository-native Windows install/status/repair/uninstall/autostart lifecycle passes source/static/test-double gates. No permanent Machine A runtime mutation occurred. |
 | Original Task 13 | CLOSED | Node integration 5/5 and Engine contract 2/2 passed against the built app, disposable PostgreSQL 15, protocol-real Agent proof transport, and protocol-real Engine stream. Dynamic ports and database schemas were released. Production and installed Machine A remain unchanged. |
 | Original Task 14 | HUMAN-GATE READY | Fresh complete source/local verification and scoped security review passed at source checkpoint `ee9812d8`; all Task 14 disposable PostgreSQL and dependency resources were removed. Playwright is honestly `BLOCKED_ENVIRONMENT` because the approved runner is absent. |
-| Original Task 15 | HUMAN GATE READY | Exact Human Owner H0–H5 commands, success evidence, abort boundaries, repair, and rollback are prepared in the Windows/Agent/CLI runbooks. No Machine A runtime or Production state changed. |
+| Original Task 15 | BLOCKED_PREREQUISITE | H0-1 passed; H0-2 found no CPython 3.12 x64. Exact Python 3.12.10 machine-scope side-by-side remediation is prepared. No prerequisite install, Machine A runtime, or Production state changed. |
 | Original Task 16 | NOT STARTED | Human H0 evidence review, bounded installation, reboot/account acceptance, final receipt, push, and PR remain later gates. |
 
 ### Planned / Completed / Remaining
@@ -120,8 +120,8 @@ before that acceptance.
 - **Completed:** Original Task 12 checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f` for Windows lifecycle tooling and static/test-double verification only; privileged real-Windows installation remains a later human gate.
 - **Completed:** Original Task 13 production-like integration: 5/5 Node integration tests and 2/2 Engine runtime-contract tests passed with the built Monitor, disposable PostgreSQL 15, protocol-real Agent proof transport, and Engine demand/release lifecycle. No Vite acceptance, `:18078`, manual heartbeat loop, manual stream proxy, Production URL, or persistent Machine A mutation was used.
 - **Completed:** Original Task 14 full automated verification and scoped security/lifecycle review against source checkpoint `ee9812d8d5c3992a04118e55149ae843b697fd6d`; Critical 0 / Important 0 / Minor 0. The absent Playwright runner remains an explicit environment limitation rather than a fabricated pass.
-- **Completed:** Original Task 15 prepared and statically validated the exact Human Owner installation gate. The package stops after H0 evidence and requires separate approval before every H1 mutation. It creates no receipt and makes no installed-runtime or Production change.
-- **Remaining:** Task 16 Human Owner H0 review, bounded real Machine A installation, reboot/operator/operator2 acceptance, final receipt, push, and PR.
+- **Completed:** Original Task 15 prepared and statically validated the exact Human Owner installation gate. Human H0-1 then passed, and H0-2 truthfully stopped on missing CPython 3.12 x64. The follow-up H0-2R package preserves Python 3.14, validates the exact Python 3.12.10 x64 manifest/hash, disables PATH and launcher replacement, and provides post-install proof plus Python-3.12-only rollback. It has not been executed.
+- **Remaining:** Human H0-2R-1 evidence review, separately approved H0-2R-2 prerequisite install, H0-2R-3 and repeated H0-2 proof, then H0-3 and Task 16 only after approval. Real Machine A installation, reboot/operator/operator2 acceptance, final receipt, push, and PR remain pending.
 
 ### PRE-TASK-12 verified contract and known limitations
 
@@ -164,14 +164,22 @@ before that acceptance.
 - **Mutation truth:** `INSTALLED_MACHINE_A_RUNTIME_CHANGED=NO`, `PRIVILEGED_MACHINE_A_COMMAND_EXECUTED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`, `TASK16_STARTED=NO`.
 - **Known limitations:** preparation/static validation does not prove real service installation, service-identity DPAPI behavior, real Node registration, reboot recovery, browser association, physical Camera A, or operator/operator2 demand/release. Those are Task 16 Human Owner evidence.
 
+#### H0-2 prerequisite-remediation discovery
+
+- **Observed Human evidence:** `H0_1=PASS`; `H0_2=BLOCKED_PREREQUISITE`; blocker `CPYTHON_3_12_X64_REQUIRED`. Machine A currently exposes only Python 3.14 x64 at `C:\Users\puppu\AppData\Local\Python\pythoncore-3.14-64\python.exe`.
+- **Reviewed package:** WinGet `Python.Python.3.12`, exact version 3.12.10, Python Software Foundation x64 installer `python-3.12.10-amd64.exe`, SHA-256 `67B5635E80EA51072B87941312D00EC8927C4DB9BA18938F7AD2D27B328B95FB`.
+- **Scope decision:** machine-scope side-by-side install at `C:\Program Files\Python312\python.exe`, because the later Agent virtual environment runs as `NT SERVICE\AEGISIdentityAgent` and must not depend on the interactive user's private AppData tree. Administrator elevation is required. The reviewed override disables PATH changes and shared-launcher replacement; Python 3.14 must retain its exact path and pre-install file hash.
+- **Prepared evidence:** H0-2R-1 validates the package identity and records `py.exe -0p` plus the Python 3.14 path/hash; H0-2R-2 is the separately approved install command; H0-2R-3 proves exact 3.12.10 x64/path and byte-identical 3.14 before repeating H0-2; H0-2R-4 removes only machine-scope Python 3.12.10 and is valid only before H1.
+- **Mutation truth:** `PYTHON_312_INSTALLED=NO`, `PYTHON_314_CHANGED=NO`, `AGENT_ENGINE_RUNTIME_CHANGED=NO`, `H0_3_STARTED=NO`, `TASK16_STARTED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
+
 ### Handoff / Next Action
 
-Return the complete `MACHINE_A_HUMAN_GATE` package and stop at
-`HUMAN_GATE_READY`. The next action is H0 only, run by the Human Owner one
-bounded PowerShell block at a time under ChatGPT guidance. Do not infer
-authorization to run H1 from the presence of installer scripts. Do not install,
-reboot, mutate Production, push, open a PR, deploy, or create the final receipt
-in Task 15.
+Return the H0-2R prerequisite package and stop at `BLOCKED_PREREQUISITE`. The
+next action is H0-2R-1 only, run by the Human Owner in elevated PowerShell 5.1
+and returned for ChatGPT review. Do not infer authorization to run H0-2R-2 from
+the prepared command. Do not continue H0-3, run H1, install Agent dependencies,
+modify Agent/Engine/tunnel state, reboot, mutate Production, push, open a PR,
+deploy, or create the final receipt.
 
 ### Original Task 12 verification evidence
 

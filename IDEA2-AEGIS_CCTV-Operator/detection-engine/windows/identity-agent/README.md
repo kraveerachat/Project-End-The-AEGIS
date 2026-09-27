@@ -167,6 +167,161 @@ $EngineUserSid = $Identity.User.Value
   not the current identity.
 - Return to chat: fields above; the SID is identity metadata, not a secret.
 
+##### H0-2R — CPython 3.12 prerequisite remediation
+
+Use this bounded remediation only when H0-2 returns
+`CPYTHON_3_12_X64_REQUIRED`. It is not Agent or Engine installation. Machine A
+evidence on 2026-09-27 showed an existing Python 3.14 x64 installation at
+`C:\Users\puppu\AppData\Local\Python\pythoncore-3.14-64\python.exe` and no
+Python 3.12. Preserve that interpreter byte-for-byte.
+
+The reviewed prerequisite is Python 3.12.10 x64 installed side-by-side for all
+users at `C:\Program Files\Python312\python.exe`. Machine scope is required so
+the later `NT SERVICE\AEGISIdentityAgent` virtual environment does not depend
+on the interactive user's private AppData tree. The installation deliberately
+does not change system/user `PATH` and does not install or replace the shared
+Python launcher. The existing `py.exe` remains the discovery mechanism.
+
+###### H0-2R-1 — read-only package and preservation snapshot
+
+- Purpose: bind the proposed prerequisite to the exact WinGet manifest and
+  record Python 3.14 before any mutation.
+- Shell: elevated Windows PowerShell 5.1 in the same interactive Engine account.
+- Admin required: YES, so the next separately approved machine-scope step uses
+  the same identity and shell.
+- Mutation: NO.
+- Command:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$Winget = (Get-Command winget.exe -ErrorAction Stop).Source
+$PythonInventoryBefore = @(& py.exe -0p)
+if ($LASTEXITCODE -ne 0) { throw 'PYTHON_LAUNCHER_INVENTORY_FAILED' }
+$Python314Before = (& py.exe -3.14 -c "import struct,sys; assert sys.version_info[:2] == (3,14) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $Python314Before -PathType Leaf)) { throw 'PYTHON_314_BASELINE_FAILED' }
+$Python314HashBefore = (Get-FileHash -LiteralPath $Python314Before -Algorithm SHA256).Hash
+if (@($PythonInventoryBefore | Select-String -Pattern '3\.12').Count -ne 0) { throw 'UNEXPECTED_PYTHON_312_PRESENT' }
+$PackageDetails = @(& $Winget show --exact --id Python.Python.3.12 --version 3.12.10 --source winget)
+if ($LASTEXITCODE -ne 0) { throw 'PYTHON_312_PACKAGE_LOOKUP_FAILED' }
+$PackageText = $PackageDetails -join "`n"
+if ($PackageText -notmatch '(?m)^Version:\s*3\.12\.10\s*$') { throw 'PYTHON_312_VERSION_MISMATCH' }
+if ($PackageText -notmatch '(?m)^Publisher:\s*Python Software Foundation\s*$') { throw 'PYTHON_312_PUBLISHER_MISMATCH' }
+if ($PackageText -notmatch '(?m)^\s*Installer Url:\s*https://www\.python\.org/ftp/python/3\.12\.10/python-3\.12\.10-amd64\.exe\s*$') { throw 'PYTHON_312_INSTALLER_URL_MISMATCH' }
+if ($PackageText -notmatch '(?im)^\s*Installer SHA256:\s*67B5635E80EA51072B87941312D00EC8927C4DB9BA18938F7AD2D27B328B95FB\s*$') { throw 'PYTHON_312_INSTALLER_HASH_MISMATCH' }
+[pscustomobject]@{
+  STEP='H0-2R-1'; PACKAGE='Python.Python.3.12'; VERSION='3.12.10'
+  ARCHITECTURE='x64'; SCOPE='machine'
+  INSTALLER_SHA256='67B5635E80EA51072B87941312D00EC8927C4DB9BA18938F7AD2D27B328B95FB'
+  PYTHON_314_PATH=$Python314Before; PYTHON_314_SHA256=$Python314HashBefore
+  PYTHON_312_PRESENT='NO'; MUTATION='NO'
+}
+```
+
+- Expected: exact package/version/publisher/URL/hash, no existing 3.12, and one
+  recorded 3.14 path/hash.
+- Abort if: any assertion fails, the installed inventory is unexpected, WinGet
+  requests source-agreement mutation, or Python 3.14 differs from the Human
+  evidence above.
+- State change: none.
+- Rollback reference: none.
+- Return to chat: the object above and `py.exe -0p` paths only.
+
+**STOP after H0-2R-1.** H0-2R-2 requires a separate Human/ChatGPT approval.
+
+###### H0-2R-2 — exact side-by-side prerequisite install
+
+- Purpose: install only CPython 3.12.10 x64 at a service-readable machine path.
+- Shell: elevated Windows PowerShell 5.1, continuing the H0-2R-1 shell.
+- Admin required: YES. WinGet selects the manifest's machine/x64 installer,
+  whose elevation requirement is `elevatesSelf`.
+- Mutation: YES — installs only Python 3.12.10 x64 machine-wide.
+- Command (prepared only; do not run during this documentation checkpoint):
+
+```powershell
+& $Winget install `
+  --exact `
+  --id Python.Python.3.12 `
+  --version 3.12.10 `
+  --source winget `
+  --scope machine `
+  --architecture x64 `
+  --silent `
+  --disable-interactivity `
+  --accept-package-agreements `
+  --no-upgrade `
+  --override '/quiet InstallAllUsers=1 TargetDir="C:\Program Files\Python312" PrependPath=0 AppendPath=0 Include_exe=1 Include_lib=1 Include_dev=1 Include_pip=1 Include_launcher=0 InstallLauncherAllUsers=0 Include_test=0 Shortcuts=0'
+if ($LASTEXITCODE -ne 0) { throw "PYTHON_312_INSTALL_FAILED_$LASTEXITCODE" }
+'H0-2R-2=INSTALL_COMMAND_COMPLETED'
+```
+
+- Expected: WinGet validates the manifest SHA-256 and installs the exact x64
+  version under `C:\Program Files\Python312`; it does not replace 3.14, modify
+  PATH, install a Store alias, or replace the existing launcher.
+- Abort if: package/version/scope/architecture selection changes, UAC is not
+  approved, a hash/security warning occurs, WinGet proposes an upgrade or
+  unrelated dependency, the target already exists, or the command is nonzero.
+- Expected state change: one machine-scope Python 3.12.10 installation only.
+- Rollback reference: H0-2R-4, valid only before H1 begins.
+- Return to chat: WinGet result/exit code only; do not continue automatically.
+
+###### H0-2R-3 — read-only post-install proof
+
+- Purpose: prove exact 3.12 version/path/bitness and byte-identical Python 3.14.
+- Shell: the same elevated Windows PowerShell 5.1.
+- Admin required: YES for consistent machine-scope visibility.
+- Mutation: NO.
+- Command:
+
+```powershell
+$PythonInventoryAfter = @(& py.exe -0p)
+if ($LASTEXITCODE -ne 0) { throw 'PYTHON_LAUNCHER_INVENTORY_FAILED' }
+$Python312 = (& py.exe -3.12 -c "import struct,sys; assert sys.version_info[:3] == (3,12,10) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
+if ($LASTEXITCODE -ne 0) { throw 'CPYTHON_3_12_10_X64_REQUIRED' }
+$ExpectedPython312 = 'C:\Program Files\Python312\python.exe'
+if (-not [string]::Equals($Python312,$ExpectedPython312,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_PATH_MISMATCH' }
+$Python314After = (& py.exe -3.14 -c "import struct,sys; assert sys.version_info[:2] == (3,14) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
+if ($LASTEXITCODE -ne 0) { throw 'PYTHON_314_POSTCHECK_FAILED' }
+$Python314HashAfter = (Get-FileHash -LiteralPath $Python314After -Algorithm SHA256).Hash
+if (-not [string]::Equals($Python314After,$Python314Before,[StringComparison]::OrdinalIgnoreCase) -or $Python314HashAfter -ne $Python314HashBefore) { throw 'PYTHON_314_CHANGED' }
+[pscustomobject]@{
+  STEP='H0-2R-3'; PYTHON_312_VERSION='3.12.10'; PYTHON_312_X64=$Python312
+  PYTHON_314_PATH=$Python314After; PYTHON_314_UNCHANGED='YES'
+  PATH_CHANGED='NO_BY_INSTALL_CONTRACT'; AGENT_ENGINE_RUNTIME_CHANGED='NO'
+  PYTHON_INVENTORY=($PythonInventoryAfter -join '; ')
+}
+```
+
+- Expected: 3.12.10 x64 at the exact Program Files path, 3.14 path/hash
+  unchanged, and both versions listed by `py.exe -0p`.
+- Abort if: any assertion fails or PATH/launcher/another Python changed.
+- State change: none.
+- Rollback reference: H0-2R-4.
+- Return to chat: the object above. Then rerun the original H0-2 block and stop;
+  do not continue to H0-3 without review.
+
+###### H0-2R-4 — Python-3.12-only rollback
+
+Use only before H1 has begun, after explicit Human/ChatGPT approval:
+
+```powershell
+$Winget = (Get-Command winget.exe -ErrorAction Stop).Source
+$ExpectedPython314Path = 'C:\Users\puppu\AppData\Local\Python\pythoncore-3.14-64\python.exe'
+$ExpectedPython314Sha256 = (Read-Host 'Paste PYTHON_314_SHA256 from H0-2R-1').Trim().ToUpperInvariant()
+& $Winget uninstall --exact --id Python.Python.3.12 --version 3.12.10 --source winget --scope machine --silent --disable-interactivity
+if ($LASTEXITCODE -ne 0) { throw "PYTHON_312_ROLLBACK_FAILED_$LASTEXITCODE" }
+$Inventory = @(& py.exe -0p)
+if ($LASTEXITCODE -ne 0) { throw 'PYTHON_LAUNCHER_INVENTORY_FAILED' }
+if (@($Inventory | Select-String -Pattern '3\.12').Count -ne 0 -or (Test-Path -LiteralPath 'C:\Program Files\Python312\python.exe')) { throw 'PYTHON_312_ROLLBACK_INCOMPLETE' }
+$Python314AfterRollback = (& py.exe -3.14 -c "import struct,sys; assert sys.version_info[:2] == (3,14) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
+$Python314HashAfterRollback = (Get-FileHash -LiteralPath $Python314AfterRollback -Algorithm SHA256).Hash
+if (-not [string]::Equals($Python314AfterRollback,$ExpectedPython314Path,[StringComparison]::OrdinalIgnoreCase) -or $Python314HashAfterRollback -ne $ExpectedPython314Sha256) { throw 'PYTHON_314_ROLLBACK_POSTCHECK_FAILED' }
+'H0-2R-4=PYTHON_312_REMOVED_PYTHON_314_UNCHANGED'
+```
+
+This rollback targets only package `Python.Python.3.12` version 3.12.10 in
+machine scope. It must not use `--all-versions`, modify Python 3.14, remove the
+shared launcher, or run after Agent/Engine H1 installation without a new review.
+
 #### H0-3 — existing owners, services, tasks, and listeners
 
 - Purpose: detect conflicts without normalizing them.

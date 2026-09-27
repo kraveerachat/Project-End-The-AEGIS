@@ -188,6 +188,22 @@ another machine. A Production URL is forbidden in this gate. File contents,
 credentials, private keys, cookies, and database URLs are never returned to
 chat.
 
+If H0-2 reports `CPYTHON_3_12_X64_REQUIRED`, stop before H0-3. The bounded
+H0-2R procedure in `windows/identity-agent/README.md` records Python 3.14 by
+path and SHA-256, verifies the exact `Python.Python.3.12` 3.12.10 x64 WinGet
+manifest, and prepares a separately approved machine-scope installation at
+`C:\Program Files\Python312`. Its override explicitly disables PATH changes and
+shared-launcher replacement. This scope makes the interpreter readable by the
+later virtual-account service while preserving the existing per-user Python
+3.14 installation. H0-2R is a prerequisite only: it does not install Agent
+dependencies or modify Agent, Engine, tunnel, camera, or Production state.
+
+After the proposed install, `py.exe -0p`, exact 3.12.10/x64/path assertions,
+and the recorded Python 3.14 path/hash must all pass. H0-2 is then repeated and
+returned to ChatGPT. H0-3 remains blocked until that evidence is accepted. A
+Python-3.12-only WinGet rollback is prepared for use before H1; it never uses
+`--all-versions` and must not remove Python 3.14 or the existing launcher.
+
 The installer command uses the reviewed repository script and retains its exact
 parameters:
 
