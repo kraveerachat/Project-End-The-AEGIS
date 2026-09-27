@@ -137,6 +137,12 @@ export const STRINGS = {
     layerStorageDesc: 'Data Lake · not encrypted at rest',
     layerMeta: 'LAYER 3 · METADATA',
     layerMetaDesc: 'PostgreSQL',
+    layerStatusArchitecture: 'Architecture',
+    layerStatusReady: 'Ready',
+    layerStatusChecking: 'Checking…',
+    layerStatusVerified: 'Verified',
+    layerStatusFailed: 'Failed',
+    layerStatusUnavailable: 'Unavailable',
 
     // nav
     navDashboard: 'Dashboard',
@@ -1510,6 +1516,12 @@ export const STRINGS = {
     layerStorageDesc: 'Data Lake · ยังไม่เข้ารหัสขณะจัดเก็บ',
     layerMeta: 'LAYER 3 · METADATA',
     layerMetaDesc: 'PostgreSQL',
+    layerStatusArchitecture: 'โครงสร้าง',
+    layerStatusReady: 'พร้อม',
+    layerStatusChecking: 'กำลังตรวจสอบ…',
+    layerStatusVerified: 'ยืนยันแล้ว',
+    layerStatusFailed: 'ไม่ผ่าน',
+    layerStatusUnavailable: 'ไม่พร้อมใช้งาน',
 
     navDashboard: 'แดชบอร์ด',
     navFiles: 'ไฟล์',
@@ -2827,6 +2839,12 @@ export const STRINGS = {
     layerStorageDesc: 'Data Lake · 尚未启用静态加密',
     layerMeta: 'LAYER 3 · METADATA',
     layerMetaDesc: 'PostgreSQL',
+    layerStatusArchitecture: '架构',
+    layerStatusReady: '就绪',
+    layerStatusChecking: '正在验证…',
+    layerStatusVerified: '已验证',
+    layerStatusFailed: '未通过',
+    layerStatusUnavailable: '不可用',
 
     navDashboard: '仪表盘',
     navFiles: '文件',
