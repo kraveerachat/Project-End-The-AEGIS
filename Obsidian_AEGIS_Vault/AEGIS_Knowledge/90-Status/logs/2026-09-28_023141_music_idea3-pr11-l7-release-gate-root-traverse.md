@@ -10,8 +10,11 @@ edit_policy: append-by-new-file
 
 # Task Receipt — IDEA3 PR11 Phase 4 L7 release-gate root-traversal fix
 
-> [!important] Repository-only bug fix. No Production reads, no sudo, no `/opt` access, no host runtime inspection.
-> No L7 live execution, no A-L7/K3 created, no Production mutation. Base: main `67c1388916b112c26726f70a149bb51e4494825c`.
+> [!important] Repository-only remediation. Validation performed read-only filesystem metadata inspection (`lstat`)
+> of guarded system paths, including real `/opt/aegis-idea3` paths on this host via the hardened
+> `test_system_locations_are_refused_before_any_write` test — no sudo-driven Production mutation, no service/network/
+> runtime change, and no L7 live execution occurred. No A-L7/K3 created, no Production mutation.
+> Base: main `67c1388916b112c26726f70a149bb51e4494825c`.
 
 ## What changed
 
