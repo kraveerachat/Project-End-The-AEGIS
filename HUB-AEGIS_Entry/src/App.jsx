@@ -29,13 +29,22 @@ import { EASE, SPRING } from './lib/motion.js'
  * that void.
  */
 export default function App() {
-  const [screen, setScreen] = useState('welcome') // 'welcome' | 'hub'
+  // Keep the launcher's history entry on the module picker. If the browser
+  // cannot restore this document from BFCache, Back still returns to Hub.
+  const [screen, setScreen] = useState(
+    () => window.history.state?.aegisHubScreen === 'hub' ? 'hub' : 'welcome',
+  ) // 'welcome' | 'hub'
   const [lang, setLang] = useState('th') // Thai-first (PRODUCT.md)
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('aegis_theme') || 'dark'
   })
 
   const t = makeT(lang)
+
+  function enterHub() {
+    window.history.replaceState({ ...(window.history.state || {}), aegisHubScreen: 'hub' }, '')
+    setScreen('hub')
+  }
 
   useEffect(() => {
     document.documentElement.lang = lang
@@ -107,7 +116,7 @@ export default function App() {
                 style={{ maxWidth: 760 }}
               >
                 <div className="flex flex-col">
-                  <Welcome t={t} isWelcome onEnter={() => setScreen('hub')} />
+                  <Welcome t={t} isWelcome onEnter={enterHub} />
                 </div>
               </motion.div>
             </div>

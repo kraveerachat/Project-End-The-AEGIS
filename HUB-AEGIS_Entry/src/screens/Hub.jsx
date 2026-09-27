@@ -45,6 +45,7 @@ export function Hub({ t, lang, setLang, theme, setTheme }) {
   const [entering, setEntering] = useState(null) // null | module
   const [targets, setTargets] = useState(DEFAULT_TARGETS)
   const timerRef = useRef(0)
+  const handoffRef = useRef(false)
 
   // runtime config — เสิร์ฟจาก origin ตัวเอง (CSP connect-src 'self')
   useEffect(() => {
@@ -58,13 +59,36 @@ export function Hub({ t, lang, setLang, theme, setTheme }) {
     return () => { alive = false }
   }, [])
 
-  useEffect(() => () => clearTimeout(timerRef.current), [])
+  useEffect(() => {
+    function onPageHide() {
+      clearTimeout(timerRef.current)
+      timerRef.current = 0
+    }
+    function onPageShow(event) {
+      if (!event.persisted) return
+      // BFCache preserves React state. The handoff ended when this page was
+      // hidden, so its transient overlay must not survive browser Back.
+      onPageHide()
+      handoffRef.current = false
+      setEntering(null)
+    }
+    window.addEventListener('pagehide', onPageHide)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('pageshow', onPageShow)
+      onPageHide()
+    }
+  }, [])
 
   function openModule(module) {
-    if (entering) return
+    // A ref closes the same-turn double-click gap before React commits state.
+    if (handoffRef.current) return
+    handoffRef.current = true
     setEntering(module)
     const target = targets[module.id]
     timerRef.current = setTimeout(() => {
+      timerRef.current = 0
       // ส่งต่อไปยังแอปปลายทาง — ที่นั่นคือที่ที่การล็อกอินเกิดขึ้นจริง
       window.location.href = target
     }, reduced ? 400 : 800)
