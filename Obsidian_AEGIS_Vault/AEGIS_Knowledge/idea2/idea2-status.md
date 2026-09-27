@@ -20,10 +20,10 @@ edit_policy: owner-writable
 Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
-PR: NOT CREATED — blocked until full automated verification and Human Machine A local acceptance pass
-Current state: ORIGINAL TASK 13 CLOSED — production-like disposable integration passed without the diagnostic harness; full Task 14 verification and Machine A installation remain not started
+PR: NOT CREATED — blocked until Human Machine A local acceptance and final Task 16 closeout
+Current state: ORIGINAL TASK 14 HUMAN-GATE READY — complete source/local verification and scoped security review passed; Playwright remains blocked only because the approved runner is absent; Task 15 has not started
 Started: 2026-09-19
-Last checkpoint: Original Task 13 (`test(idea2): prove permanent machine a runtime path`; current branch HEAD after this checkpoint)
+Last verified source checkpoint: `ee9812d8d5c3992a04118e55149ae843b697fd6d` (`test(idea2): prove permanent machine a runtime path`)
 Production mutation allowed: NO
 
 ### Goal
@@ -47,6 +47,9 @@ Windows lifecycle without installing or changing the real Machine A runtime.
 Original Task 13 exercises the built Monitor, disposable PostgreSQL,
 protocol-real Agent proof, physical routing, and Engine demand/release path in
 an isolated local harness without the diagnostic bridge or persistent mutation.
+Original Task 14 freshly verified that complete candidate, including real
+disposable PostgreSQL gates, Windows lifecycle/static contracts, governance,
+Vault, dependency, secret, lifecycle, and scoped security review boundaries.
 
 ### Out of scope
 
@@ -82,6 +85,7 @@ before that acceptance.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
+| ORIGINAL-TASK-14 | Full automated verification and scoped security review | HUMAN-GATE READY | Starting SHA `ee9812d8d5c3992a04118e55149ae843b697fd6d`; focused Monitor lifecycle/security 70/70; focused Windows lifecycle 70/70; full Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; all skipped behavior rerun against disposable PostgreSQL 15 with zero skips; full Engine/Agent 176 tests / 174 pass / 0 fail / 2 expected native-pywin32 environment skips; UI freeze 5/5; Vite build PASS; governance 49/49; Vault PASS with two pre-existing Canvas warnings; PR #134 lifecycle 7/7; hash-locked wheels 9/9; PowerShell parser 18/18; scoped review Critical 0 / Important 0 / Minor 0 | source checkpoint `ee9812d8d5c3992a04118e55149ae843b697fd6d`; this status-only evidence checkpoint follows | PASS — source/local candidate; Playwright runner absent and real installed Machine A runtime not exercised | Task 15 human installation-gate preparation; Task 16 acceptance/receipt/PR | stop before Task 15 |
 | ORIGINAL-TASK-13 | Production-like disposable integration without diagnostic harness | CLOSED | Starting SHA `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; `origin/main` `2694808092bd3c28dea14ed4bcd400e6bb0ec5d2` has no overlap with authorized Task 13 paths; Node integration 5/5; Engine contract 2/2; PostgreSQL 15 migrations applied twice; built Monitor shell, Agent proof, account aliases, physical source, demand/release, forged/stale denial, Agent recovery, heartbeat aging, and cleanup all passed | `test(idea2): prove permanent machine a runtime path` (this checkpoint) | PASS — disposable/local integration only; Production and installed Machine A unchanged | Task 14 full automated verification and security review | stop before Task 14 |
 | ORIGINAL-TASK-12 | Windows install/status/repair/uninstall/autostart lifecycle | CLOSED | Starting SHA `27d7723f96c4752d32047c5062c55173c3f4c9c2`; focused Windows/Agent 74/74; PowerShell parser 12/12; full Engine/Agent 174 tests / 172 pass / 0 fail / 2 expected native-pywin32 skips across the existing split dependency runtimes; Monitor 143 tests / 140 pass / 0 fail / 3 conditional PostgreSQL skips; UI freeze 5/5; Vite build PASS; hash-locked Windows wheels 9/9; governance 50/50; Vault PASS with two pre-existing canvas warnings; secret scan 21 paths / 0 hits; scoped review Critical 0 / Important 0 / Minor 0 | `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f` | PASS at repository source/static/test-double boundary; installed Machine A runtime and privileged Windows lifecycle not executed | Task 13 integration | Task 13 |
 | PRE-TASK-12-N12 | Permanent Machine A stream endpoint contract | CLOSED | Task 11 base `cb17caeecbc09b5cab224ae9369e3a29b860cbf8`; stable `aegis-stream-host.internal` application endpoint; server-owned Node/physical mapping; explicit non-loopback IPv4 SSH bind; Monitor 140 passed with 3 conditional PostgreSQL skips; Engine/Agent 139 tests, 0 failures, 2 pywin32 skips; endpoint 18/18; Agent 9/9; Windows 19/19; UI freeze 5/5; governance 50/50; Vite build PASS | `27d7723f96c4752d32047c5062c55173c3f4c9c2` | PASS at source/static/config evidence level; Production and installed Machine A runtime unchanged | original Task 12 |
@@ -104,7 +108,8 @@ before that acceptance.
 | PRE-TASK-12 / N12 | CLOSED | Checkpoint `27d7723f96c4752d32047c5062c55173c3f4c9c2`; stable named/configured endpoint, server-owned source mapping, and explicit SSH-bind contract pass source/static/config gates. Live Machine A acceptance remains later evidence. |
 | Original Task 12 | CLOSED | Checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; repository-native Windows install/status/repair/uninstall/autostart lifecycle passes source/static/test-double gates. No permanent Machine A runtime mutation occurred. |
 | Original Task 13 | CLOSED | Node integration 5/5 and Engine contract 2/2 passed against the built app, disposable PostgreSQL 15, protocol-real Agent proof transport, and protocol-real Engine stream. Dynamic ports and database schemas were released. Production and installed Machine A remain unchanged. |
-| Original Tasks 14–16 | NOT STARTED | Full verification/security review, human installation/acceptance, final receipt, push, and PR remain later gates. |
+| Original Task 14 | HUMAN-GATE READY | Fresh complete source/local verification and scoped security review passed at source checkpoint `ee9812d8`; all Task 14 disposable PostgreSQL and dependency resources were removed. Playwright is honestly `BLOCKED_ENVIRONMENT` because the approved runner is absent. |
+| Original Tasks 15–16 | NOT STARTED | Human installation preparation/authorization, real Machine A acceptance, final receipt, push, and PR remain later gates. |
 
 ### Planned / Completed / Remaining
 
@@ -112,7 +117,8 @@ before that acceptance.
 - **Completed:** PRE-TASK-12/N12 TDD and checkpoint `27d7723f96c4752d32047c5062c55173c3f4c9c2` for a deployment-owned stable hostname, explicit container host mapping, explicit SSH tunnel bind/port, and server-owned Node/physical-camera endpoint authorization.
 - **Completed:** Original Task 12 checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f` for Windows lifecycle tooling and static/test-double verification only; privileged real-Windows installation remains a later human gate.
 - **Completed:** Original Task 13 production-like integration: 5/5 Node integration tests and 2/2 Engine runtime-contract tests passed with the built Monitor, disposable PostgreSQL 15, protocol-real Agent proof transport, and Engine demand/release lifecycle. No Vite acceptance, `:18078`, manual heartbeat loop, manual stream proxy, Production URL, or persistent Machine A mutation was used.
-- **Remaining:** Task 14 full verification, Task 15 human installation gate, and Task 16 human acceptance/final receipt/PR.
+- **Completed:** Original Task 14 full automated verification and scoped security/lifecycle review against source checkpoint `ee9812d8d5c3992a04118e55149ae843b697fd6d`; Critical 0 / Important 0 / Minor 0. The absent Playwright runner remains an explicit environment limitation rather than a fabricated pass.
+- **Remaining:** Task 15 human installation-gate preparation and authorization, then Task 16 real Machine A acceptance/final receipt/PR.
 
 ### PRE-TASK-12 verified contract and known limitations
 
@@ -132,12 +138,25 @@ before that acceptance.
 - UI/build/governance: UI freeze 5/5; Vite production build PASS; Vault/collaboration test matrix 50/50.
 - Security/infrastructure: an independent review found and TDD closed redirect credential forwarding, IPv6 bind formatting, trailing-dot parity, and explicit-port-80 parity defects; final re-review is Critical 0 / Important 0 / Minor 0. Strict source rejects redirects and fails closed; no browser/heartbeat destination authority; no embedded secret; root Compose change is a declared shared dev/test infrastructure surface requiring later integration review.
 
+### Original Task 14 verification evidence
+
+- **Starting/source checkpoint:** `ee9812d8d5c3992a04118e55149ae843b697fd6d` on `feat/idea2-machine-a-no-powershell-runtime`; Task 14 changed no production source or tests. Final fetch recorded `origin/main` `5f1c11abf65f5680eef7871646e341a7426f2447`; its three newly observed commits are IDEA3-only and do not overlap Task 14's sole authorized tracked path.
+- **Focused candidate gates:** Monitor lifecycle/security 70/70; Windows lifecycle 70/70; Task 13 production-like regression 7/7; PR #134 stream-abort/lifecycle regression 7/7.
+- **Full Monitor:** 143 tests, 140 passed, 0 failed, 3 conditional PostgreSQL skips in the environment-neutral run. The PostgreSQL-gated migration/registry/ingest/heartbeat/CLI/integration behavior then ran against disposable PostgreSQL 15 with zero skips: registry migrations 6/6, Node registry 7/7, ingest provenance 3/3, physical heartbeat 4/4, Python CLI/PostgreSQL 33/33, and Task 13 integration 5/5. Schema plus migrations 001–004 also applied successfully twice.
+- **Full Engine/Agent:** 176 tests, 174 passed, 0 failed, 2 expected native-pywin32 environment skips. The established Python 3.14 Engine environment ran 167 tests (165 pass, 2 skips); the approved bundled Python 3.12 cryptography runtime ran the remaining Agent key/browser modules 9/9.
+- **Windows/dependency gates:** all 18 PowerShell files parsed; 9/9 hash-locked CPython 3.12 Windows wheels resolved with `--require-hashes`; installer/status/repair/uninstall safety and single HKCU Engine startup ownership remained intact.
+- **UI/build:** UI-freeze 5/5 and Vite production build PASS (2,076 modules). Playwright is `BLOCKED_ENVIRONMENT`: `package.json` declares the approved runner, but the existing installation has no Playwright executable. Task 14 did not install or mutate dependencies to fabricate a pass.
+- **Governance/security:** collaboration/governance 49/49; Vault validation PASS with the two pre-existing owner-data Canvas warnings; changed-file, log-output, private-key/secret, and endpoint-authority scans PASS; `git diff --check` PASS. The fresh scoped review covered proof domains/raw bodies, replay/concurrency, DPAPI/ACL, loopback Origin/CORS/PNA, browser/session binding, live revalidation, physical source/SSRF bounds, demand/release, legacy downgrade, Windows ownership, cleanup, rollback, and Production isolation: Critical 0 / Important 0 / Minor 0.
+- **Negative controls preserved:** forged browser Node/physical identity, unknown/disabled Node, stale/invalid association, heartbeat/browser stream override, malformed endpoint, wrong service/key identity, duplicate Engine owner, invalid ACL/key state, and auth/heartbeat/status demand are rejected by deterministic tests.
+- **Dependency review limitations:** the current production dependency audit reports three moderate `qs` advisories, but the Monitor source never reads `req.query` or enables URL-encoded body parsing, so the reviewed vulnerable parser path is not reachable. The Engine environment reports an `opencv-python` metadata mismatch while the intentional `opencv-contrib-python` package provides working `cv2`; the complete Engine suite passes. These are deferred dependency hygiene observations, not Task 14 Critical/Important findings.
+- **Cleanup:** the exact disposable PostgreSQL cluster/databases, Python dependency directory, wheel-check directory, schemas, and port 55441 were removed/released. No unrelated resource, Production state, or installed Machine A runtime changed.
+
 ### Handoff / Next Action
 
-Original Task 13 is closed at the current branch checkpoint. Stop before Task
-14. The next authorized action is the separate Task 14 full automated
-verification and scoped security-review matrix. Do not install the Machine A
-runtime, push, open a PR, deploy, or create the final immutable receipt.
+Original Task 14 is human-gate ready. Stop before Task 15. The next authorized
+action is the separate Task 15 installation/acceptance runbook preparation and
+human authorization gate. Do not install or mutate the Machine A runtime, push,
+open a PR, deploy, or create the final immutable receipt in this checkpoint.
 
 ### Original Task 12 verification evidence
 
