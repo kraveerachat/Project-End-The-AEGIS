@@ -442,3 +442,136 @@ the PR216 methodology; no transfer setting was changed in R1.
 `SERVER_PLAINTEXT_DERIVATIVE=NO`, `VAULT_ZERO_KNOWLEDGE=UNCHANGED`,
 `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`, no automatic migration of nonempty
 FLAT data, no ciphertext rewrite or deletion, PR216 untouched, Production untouched.
+
+## 11. PR220-R2 final UX and scalable camera-image preview (2026-09-27)
+
+Start authority `ea23f2f18d85fb754721b6366e36d06398fa83dd` after Human retest of
+R1 (`CORE_ADMIN_FLOW`, `CORE_DATALAKE_USER_FLOW`, `FILES_MARQUEE`,
+`VAULT_MARQUEE`, `VAULT_ROLE_PARITY` = PASS).
+
+### 11.1 One name-entry dialog (A)
+
+`components/NameEntryDialog.jsx` is the Files create-folder presentation lifted
+into one primitive: 420 px Modal, `text-[18px]` title, `Field` label, `PillInput`
+with autofocus, Enter submits only when the caller says the name is valid, close
+X, equal-width `flex-1` Cancel/Create footer, identical disabled styling. Files
+New Folder and Vault New Folder/Rename (plus the orphan "Recover with a new
+name" dialog) render it. Validation stays caller-owned: Files keeps its server
+codes; Vault keeps `nameProblem`, NFC + case-fold `collisionKey`, and the
+purge-aware reset. No role branch exists in the primitive.
+
+### 11.2 Orphan collision recovery (B)
+
+The recovery panel is a compact `pending recovery (n)` summary (collapsed by
+default, `aria-expanded`), with Refresh and sequential "Recover all" still
+reachable. A `COLLISION` reads "a file with this name already exists in this
+folder" — not an upload failure — and offers "Recover with a new name": an
+editable deterministic suggestion (`suggestRecoveryName`: NFC + case fold,
+`base (n).ext`, extension preserved) validated against the destination's
+active siblings. Nothing commits until the Human confirms; the commit is one
+`recoverOrphan` attach of the existing blob (no re-upload, no ciphertext
+rewrite, no overwrite, no deletion). Recover all never renames.
+
+### 11.3 Reduced-decode lane (C)
+
+Spike (standalone, Edge 154, 26 MP): `createImageBitmap(full)` +284 MiB peak,
+`createImageBitmap(blob, {resizeWidth})` +125 MiB (still materializes a large
+intermediate — rejected), WebCodecs `ImageDecoder` in a Dedicated Worker with
+`desiredWidth/Height` +41 MiB, coded frame 780×520 (JPEG DCT 1/8 scaling). When
+even 1/8 exceeds the request Chromium fails with "Failed to retrieve track
+metadata" instead of decoding full size — a fail-closed behavior. For contrast,
+`createImageBitmap(full)` at 100 MP peaked at +1.16 GB.
+
+Production pipeline for V2 images:
+
+```text
+downloadVaultV2 (unchanged) → openVaultPlainChunks (one-chunk pull hand-off)
+  → first decrypted chunk: parseImageHeader + sniffImageFormat (magic bytes)
+  → ≤ 16 MP: normal lane, unchanged single createImageBitmap decode
+  → > 16 MP JPEG + capability + envelope: admission(high-res, projected bytes)
+      → startReducedDecodeJob: one Dedicated Worker, each chunk TRANSFERRED
+        into an ImageDecoder ReadableStream (desired = max(1/8, 512/longEdge))
+      → OffscreenCanvas → WebP poster ≤ 512 px → worker terminated
+  → otherwise: HIGH_RES_TOO_LARGE / IMAGE_TOO_LARGE / UNSUPPORTED (truthful)
+```
+
+- Capability: `Worker` + `ImageDecoder` + `OffscreenCanvas` on the measured
+  engine family (`navigator.userAgentData.brands` contains `Chromium`). Other
+  engines: `ENGINE_NOT_MEASURED` → icon + download original.
+- Every result is checked; a decoder that ignored the request latches the lane
+  off for the session (`UNBOUNDED_DECODER_OBSERVED`).
+- Format registry (`vaultImageFormats.js`): JPEG reduced; PNG/WebP/GIF normal
+  lane only (GIF policy unchanged); AVIF/HEIF not claimed; camera RAW (TIFF
+  containers, CR3, RAF) recognized only to stay unsupported. No filename or
+  extension participates — `.JPG`/`.jpg` bytes take the same path.
+- Orientation: `displayWidth/Height` drive poster geometry; `drawImage(VideoFrame)`
+  applies rotation in Edge/Chrome 154 — orientation-6 fixtures produce the same
+  upper-right red pixel and portrait poster on both lanes.
+- Admission: `imageHighResMaxConcurrentJobs=1`; reduced reservation =
+  48 MiB + 3 × encoded input + 2 × reduced frame + poster (calibrated above every
+  measured peak); memory ceiling unchanged at 256 MiB. Combinations of a high-res
+  job with normal jobs are judged by the OBSERVED normal-lane working set
+  (`NORMAL_LANE_OBSERVED_FACTOR=3`, from the measured 16 MP +200 MiB peak);
+  normal-only concurrency is unchanged.
+- Upload (D): high-res admission waits while the Vault upload drawer reports an
+  active upload (`deferHighRes`); no transfer code, chunk size or concurrency
+  changed.
+- Abort/lock/unmount: queued jobs leave the admission queue before any worker
+  starts; an active job terminates its worker (decoder, frame, canvas), releases
+  admission, closes the chunk stream, and a late result cannot create a URL.
+  JavaScript cleanup is best effort, not cryptographic zeroization.
+
+### 11.4 Native measurement (production code, isolated headless profiles)
+
+Harness: local-only vite middleware serving the PR's production modules;
+fixtures encrypted with production `vaultChunkCrypto` into V2 chunks at the
+default 32 MiB plaintext chunk size; page runs `downloadVaultV2 →
+openVaultPlainChunks → makeImageThumb → admission → worker`; PowerShell samples
+the whole browser process-tree working set (baseline = last sample before the
+run). Raw fixtures, ciphertext and profiles stayed outside Git.
+
+| Class | Source | Encoded | Requested → decoded | Poster | Edge 154 peak Δ | Chrome 154 peak Δ | Time to thumb (Edge) |
+|---|---|---:|---|---|---:|---:|---:|
+| 12 MP control (normal lane) | 4000×3000 | 4.30 MB | full decode | 512×384 | 155.1 MiB | — | 192 ms |
+| 16 MP boundary (normal lane) | 4898×3266 | 5.59 MB | full decode | 512×341 | 200.0 MiB | — | 287 ms |
+| 26 MP | 6240×4160 | 6.52 MB | 780×520 → 780×520 | 512×341 | 41.9 MiB | 31.7 MiB | 177 ms |
+| 45 MP | 8192×5464 | 11.25 MB | 1024×683 → 1024×683 | 512×342 | 51.8 MiB | — | 224 ms |
+| 61 MP | 9504×6336 | 15.13 MB | 1188×792 → 1188×792 | 512×341 | 56.1 MiB | 57.9 MiB | 268 ms |
+| 100 MP | 11648×8736 | 25.58 MB | 1456×1092 → 1456×1092 | 512×384 | 103.0 MiB (×3 sequential: 120.7) | 97.9 MiB | 436 ms |
+| 151 MP | 14204×10652 | 38.04 MB (2 chunks) | 1776×1332 → 1776×1332 | 512×384 | 166.3 MiB | 105.0 MiB | 587 ms |
+| Human IMG_3107.JPG | 6240×4160 | 6.50 MB | 780×520 → 780×520 | 512×341 | 32.3 MiB | 28.9 MiB | 165 ms |
+| Human IMG_3207.JPG | 6240×4160 | 7.17 MB | 780×520 → 780×520 | 512×341 | 40.6 MiB | 23.6 MiB | 147 ms |
+| Orientation-6 (26 MP) | 6240×4160 | 0.16 MB | 780×520 (display 520×780) | 341×512 | 38.8 MiB | 18.1 MiB | 74 ms |
+| PNG 26 MP | 6240×4160 | 0.35 MB | — | — | HIGH_RES_TOO_LARGE, no decode | — | 6 ms |
+
+Reduced lane: zero main-thread long tasks in every run (normal lane: one
+72–94 ms long task). Lock while active (100 MP) → `ABORTED`, no URL, admission
+empty; lock while queued (61 MP behind a held high-res token) → `ABORTED`,
+zero workers started, queue empty. Settling deltas return to an 18–63 MiB
+page/worker residual band. The `vite build` worker asset
+(`vaultImageReduceWorker-*.js`) was re-measured in Edge: IMG_3107.JPG
++31.2 MiB, 100 MP +104.0 MiB, same decode sizes.
+
+Activation: `imageHighResMaxDecodedPixels=152,000,000`,
+`imageHighResMaxInputBytes=40 MiB` (largest measured input 36.3 MiB + margin);
+normal/full-bitmap cap stays 16 MP; `memoryCeilingBytes` stays 256 MiB.
+Synthetic fixtures are gradient+noise JPEGs; real camera files at 45/61/100 MP
+were not available, so those classes are measured on synthetic content of the
+representative geometry and size only.
+
+Finding outside this task's change: the normal lane's real 16 MP peak
+(+200 MiB) is ≈ 3× its reservation estimate. Normal-only concurrency is left as
+is (existing proven path); combinations with the high-res lane now use the
+observed factor. Routing large normal-lane JPEGs through the reduced lane would
+lower memory further — a candidate follow-up, not done here.
+
+### 11.5 Unchanged invariants
+
+`SERVER_PLAINTEXT_DERIVATIVE=NO`, `SERVER_VAULT_IMAGE_DECODE=NO`,
+`VAULT_ZERO_KNOWLEDGE=UNCHANGED`, `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`,
+original ciphertext unchanged, download returns the original, no plaintext
+cache, no new dependency, no CSP change (Dedicated Worker is same-origin under
+`script-src 'self'`), Files/Vault transport, chunk size and concurrency
+unchanged, PR216 and Production untouched.
+`UPLOAD_SLOWDOWN_CURRENTLY_REPRODUCED=NO`, `UPLOAD_SLOWDOWN_ROOT_CAUSE=NOT_PROVEN`
+(Human reports ~3 MB/s class again; PR220 does not claim a network fix).
