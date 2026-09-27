@@ -75,6 +75,45 @@ def host_path(root: str, logical: str) -> Path:
     return Path(f"{root.rstrip('/')}{logical}") if root else Path(logical)
 
 
+# The exact reviewed mode for a parent directory this tool itself creates (root-owned in live mode, since it runs as
+# root there). Never writable by group or other, matching the release payload's own contract.
+PARENT_DIR_MODE = 0o755
+
+
+def _ensure_parent_dirs(releases_dir: Path, host_root: str) -> None:
+    """Create ONLY the ancestor directories (of releases_dir, inclusive) that do not yet exist, each with the exact
+    PARENT_DIR_MODE — never chmod'ing or chown'ing an ancestor that already exists. Every existing ancestor is validated
+    (a real directory, never a symlink, never group/other-writable) before any directory is created. Its uid/gid/mode are
+    preserved; its mtime may legitimately advance when this install adds a child beneath it. This is the
+    L6C_MUTATION_BOUNDARY contract: a parent directory is stage-owned only when this attempt itself had to create it."""
+    stop_at = Path(host_root) if host_root else Path(releases_dir.anchor)
+    chain: list[Path] = []
+    node = releases_dir
+    while True:
+        chain.append(node)
+        if node == stop_at:
+            break
+        if node.parent == node:
+            refuse("DESTINATION_PARENT_OUTSIDE_HOST_ROOT")
+        node = node.parent
+
+    missing: list[Path] = []
+    for node in reversed(chain):
+        if node.is_symlink():
+            refuse("DESTINATION_PARENT_IS_SYMLINK")
+        if not node.exists():
+            missing.append(node)
+            continue
+        info = node.lstat()
+        if not stat.S_ISDIR(info.st_mode):
+            refuse("PARENT_DIR_NOT_A_DIRECTORY")
+        if stat.S_IMODE(info.st_mode) & 0o022:
+            refuse("PARENT_DIR_WRITABLE_BY_GROUP_OR_OTHER")
+
+    for d in missing:
+        d.mkdir(mode=PARENT_DIR_MODE)
+
+
 def _copy_tree(src: Path, dst: Path) -> None:
     """Copy src into dst (dst does not yet exist), rejecting anything that is not a plain file or directory and
     stripping group/other write bits. The source was already proven free of symlinks/specials by the guard; this is a
@@ -119,20 +158,7 @@ def install(*, release_id: str, source: Path, logical: str, host_root: str, fixt
         refuse("DESTINATION_IS_SYMLINK")
     if dest.exists():
         refuse("RELEASE_ALREADY_INSTALLED")
-    if releases_dir.is_symlink():
-        refuse("DESTINATION_PARENT_IS_SYMLINK")
-    check_from = releases_dir
-    while True:
-        if check_from.is_symlink():
-            refuse("DESTINATION_PARENT_IS_SYMLINK")
-        if not host_root or str(check_from) == str(Path(host_root)):
-            break
-        if check_from.parent == check_from:
-            break
-        check_from = check_from.parent
-
-    releases_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
-    os.chmod(releases_dir, 0o755)
+    _ensure_parent_dirs(releases_dir, host_root)
 
     stage = Path(tempfile.mkdtemp(prefix=f".install-tmp-{release_id}-", dir=releases_dir))
     stage.rmdir()  # mkdtemp creates it 0700; _copy_tree creates the real one so its own mode is explicit and consistent

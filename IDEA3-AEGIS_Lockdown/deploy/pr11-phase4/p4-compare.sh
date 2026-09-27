@@ -3,7 +3,7 @@
 # two p4-l0-capture.sh bundles (execution document §10 preservation, §11 stop
 # conditions). Reads evidence files only; calls no host command.
 #
-#   DISK_THRESHOLD_PCT=<owner threshold> [ALLOW_KEYS_FILE=…] [ALLOW_LISTENERS_FILE=…] \
+#   DISK_THRESHOLD_PCT=<owner threshold> [ALLOW_KEYS_FILE=…] [ALLOW_LISTENERS_FILE=…] [ALLOW_L6C_RELEASE_FILE=…] \
 #     [REPORT_FILE=…] bash p4-compare.sh <BEFORE_DIR> <AFTER_DIR>
 #
 # Finding classes:
@@ -42,6 +42,10 @@
 # approves a change ONLY when the key changed from exactly that before value to exactly that after value; the pseudo key
 # `nm.general#WIFI` matches only the WIFI field of nm.general while STATE/CONNECTIVITY/WIFI-HW stay equal. It cannot approve
 # any other key, value, wildcard or protected class, and it is not an allow-keys mechanism. See the L3/L4 reactivation design.
+# ALLOW_L6C_RELEASE_FILE (stage L6c only, opt-in): names the ONE exact new release id a run is authorized to add to
+# host.aegis_idea3.release_catalog (`stage L6c` once, `release_id <id>` once). It is a relational rule, not a plain allow
+# key: every release id already present in BEFORE must remain byte-identical in AFTER regardless of this file; the file
+# can only approve the addition of the id it names, never a mutation or removal of an existing release.
 #   L34_RUNTIME_REACTIVATION           svc.aegis-idea3-dnsmasq.service.ActiveState failed active
 #                                      svc.aegis-idea3-dnsmasq.service.SubState failed running
 #                                      svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
@@ -263,6 +267,29 @@ if [ -n "${ALLOW_DYNAMIC_TRANSITIONS_FILE:-}" ]; then
   ! grep -q $'\r' "$ALLOW_DYNAMIC_TRANSITIONS_FILE" || stop "ALLOW_DYNAMIC_TRANSITIONS_FILE must not contain CR"
 fi
 
+# ALLOW_L6C_RELEASE_FILE (stage L6c only): names the ONE exact new release id this run is authorized to add to
+# host.aegis_idea3.release_catalog. Strict contract: exactly two active lines, `stage L6c` once and `release_id <id>`
+# once, single-space separated, no CR, no other token. It never approves a mutation or removal of any id already present
+# in BEFORE — that check is unconditional (see the release-catalog rule below) and cannot be satisfied by this file.
+L6C_RELEASE_ID=""
+if [ -n "${ALLOW_L6C_RELEASE_FILE:-}" ]; then
+  [ -r "$ALLOW_L6C_RELEASE_FILE" ] || stop "ALLOW_L6C_RELEASE_FILE unreadable"
+  n_stage=0 n_rid=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    case "$line" in
+      'stage L6c') n_stage=$((n_stage + 1)) ;;
+      release_id\ *)
+        rid=${line#release_id }
+        [[ "$rid" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || stop "malformed release_id in ALLOW_L6C_RELEASE_FILE"
+        L6C_RELEASE_ID="$rid"; n_rid=$((n_rid + 1)) ;;
+      *) stop "malformed ALLOW_L6C_RELEASE_FILE line: only 'stage L6c' and 'release_id <id>' are approvable" ;;
+    esac
+  done < "$ALLOW_L6C_RELEASE_FILE"
+  [ "$n_stage" = 1 ] && [ "$n_rid" = 1 ] || stop "ALLOW_L6C_RELEASE_FILE must declare exactly one stage (L6c) once and exactly one release_id once"
+  ! grep -q $'\r' "$ALLOW_L6C_RELEASE_FILE" || stop "ALLOW_L6C_RELEASE_FILE must not contain CR"
+fi
+
 read -r -d '' COMPARE_AWK <<'AWK'
 function emit(cls, code, key, b, a) {
   printf "FINDING\t%s\t%s\t%s\t%s\t%s\n", cls, code, key, b, a
@@ -439,6 +466,30 @@ END {
         emit("BASELINE_UNHEALTHY_BUT_UNCHANGED", "FORWARDING_ENABLED", key, b, a)
       if (key ~ /^disk\..*\.use_pct$/ && isnum(a) && a + 0 >= T)
         emit("BASELINE_UNHEALTHY_BUT_UNCHANGED", "DISK_ABOVE_THRESHOLD", key, b, a)
+      continue
+    }
+
+    # L6c release catalog (host.aegis_idea3.release_catalog): a relational rule, never a plain allow-key. Every release id
+    # present in BEFORE must still be present in AFTER with an IDENTICAL fingerprint, unconditionally — ALLOW_L6C_RELEASE_FILE
+    # can only approve the addition of the ONE id it names; it can never launder a mutation or removal of an existing id.
+    if (key == "host.aegis_idea3.release_catalog") {
+      delete RCB; delete RCA
+      if (b != "absent" && b != "<empty>") {
+        nrc = split(b, RCPB, ","); for (ri = 1; ri <= nrc; ri++) { split(RCPB[ri], rp, ":"); RCB[rp[1]] = rp[2] }
+      }
+      if (a != "absent" && a != "<empty>") {
+        nrc = split(a, RCPA, ","); for (ri = 1; ri <= nrc; ri++) { split(RCPA[ri], rp, ":"); RCA[rp[1]] = rp[2] }
+      }
+      for (rid in RCB) {
+        if (!(rid in RCA)) emit("NEW_OR_WORSENED_DRIFT", "RELEASE_REMOVED", key "#" rid, RCB[rid], "<absent>")
+        else if (RCA[rid] != RCB[rid]) emit("NEW_OR_WORSENED_DRIFT", "RELEASE_CONTENT_DRIFT", key "#" rid, RCB[rid], RCA[rid])
+      }
+      for (rid in RCA) {
+        if (!(rid in RCB)) {
+          if (l6c_release_id != "" && rid == l6c_release_id) emit("APPROVED_CHANGE", "L6C_RELEASE_INSTALLED", key "#" rid, "<absent>", RCA[rid])
+          else emit("NEW_OR_WORSENED_DRIFT", "RELEASE_UNAPPROVED_ADDITION", key "#" rid, "<absent>", RCA[rid])
+        }
+      }
       continue
     }
 
@@ -632,6 +683,7 @@ END {
 AWK
 
 result=$(awk -v threshold="$THRESHOLD" -v allow_keys="$ALLOW_KEYS" -v allow_listeners="$ALLOW_LISTENERS" -v dyn_rules="$DYN_RULES" -v dyn_op="${DYN_OP:-}" -v trans_iface="$TRANS_IFACE" \
+  -v l6c_release_id="$L6C_RELEASE_ID" \
   "$COMPARE_AWK" side=B "$BEFORE"/*.tsv side=A "$AFTER"/*.tsv) || stop "comparison failed"
 
 report=$(

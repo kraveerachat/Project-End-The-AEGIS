@@ -656,10 +656,45 @@ if run_ro 0 twingate twingate status; then
 else
   p4_rec "$HOST" host.twingate.status UNAVAILABLE
 fi
-for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /etc/aegis-idea3/mqtt /opt/aegis-idea3/current /var/lib/aegis-idea3 \
-  /run/aegis-idea3 /var/log/aegis-idea3; do
+for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /etc/aegis-idea3/mqtt /opt/aegis-idea3 /opt/aegis-idea3/current \
+  /opt/aegis-idea3/releases /var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3; do
   if [ -e "$(p4_fs "$p")" ]; then p4_rec "$HOST" "host.path.$p" present; else p4_rec "$HOST" "host.path.$p" absent; fi
 done
+# L6c (immutable release install): a deterministic, non-secret fingerprint of the release catalog under
+# /opt/aegis-idea3/releases/<id>/. The value is exactly "<id>:<sha256>" pairs (sorted by id, comma-joined), where
+# <sha256> is a TREE-STATE digest of that release's ACTUAL current filesystem entries — relative path, entry type,
+# uid, gid, permission bits, and (for a regular file) the SHA256 of its real bytes — computed by
+# p4-l6c-tree-digest.py. This proves the real payload/metadata state, never merely that the release's own
+# RELEASE-SHA256SUMS claim about itself is unchanged: a payload byte edit, a chmod/chown, a directory-mode change, an
+# added/removed entry, or a symlink/special file anywhere in the tree all change this digest even if
+# RELEASE-SHA256SUMS itself is untouched. Never file contents, never an individual path, never a filename beyond the
+# release id are recorded — only the one final digest per release id.
+releases_root=$(p4_fs /opt/aegis-idea3/releases)
+if [ -d "$releases_root" ]; then
+  ids=""
+  if run_ro 1 l6c-releases-listdir find "$releases_root" -mindepth 1 -maxdepth 1 -type d; then
+    ids=$(printf '%s\n' "$P4_OUT" | xargs -r -n1 basename | LC_ALL=C sort)
+  else
+    partial=1
+  fi
+  catalog="" first=1
+  while IFS= read -r rid; do
+    [ -n "$rid" ] || continue
+    if run_ro 0 - python3 "$P4_HERE/p4-l6c-tree-digest.py" "$releases_root/$rid" \
+      && [[ "$P4_OUT" =~ ^[0-9a-f]{64}$ ]]; then
+      h=$P4_OUT
+    else
+      h=UNREADABLE
+      partial=1
+    fi
+    [ "$first" = 1 ] || catalog+=","
+    catalog+="$rid:$h"
+    first=0
+  done <<< "$ids"
+  p4_rec "$HOST" host.aegis_idea3.release_catalog "${catalog:-<empty>}"
+else
+  p4_rec "$HOST" host.aegis_idea3.release_catalog absent
+fi
 if [ -L "$(p4_fs /opt/aegis-idea3/current)" ]; then
   if run_ro 0 readlink-current readlink -- "$(p4_fs /opt/aegis-idea3/current)"; then
     p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target "$P4_OUT"
