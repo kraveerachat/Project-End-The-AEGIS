@@ -107,13 +107,18 @@ test('A/B/C x operator/operator2 keeps physical identity machine-based and alias
 })
 
 test('account switching changes only the logical alias while machine authority stays fixed', async () => {
-  const first = fixture({ machine: 'C', account: 'operator' })
-  const second = fixture({ machine: 'C', account: 'operator2' })
-  const operator = await first.resolver.resolveOperatorAccess(first.req, 'CAM-01', 10_000)
-  const operator2 = await second.resolver.resolveOperatorAccess(second.req, 'CAM-02', 10_000)
-  assert.equal(operator.physicalCameraId, machines.C.physicalCameraId)
-  assert.equal(operator2.physicalCameraId, machines.C.physicalCameraId)
-  assert.notEqual(operator.logicalCameraId, operator2.logicalCameraId)
+  for (const machine of Object.keys(machines)) {
+    const first = fixture({ machine, account: 'operator' })
+    const second = fixture({ machine, account: 'operator2' })
+    const operator = await first.resolver.resolveOperatorAccess(first.req, 'CAM-01', 10_000)
+    const operator2 = await second.resolver.resolveOperatorAccess(second.req, 'CAM-02', 10_000)
+    assert.equal(operator.physicalCameraId, machines[machine].physicalCameraId)
+    assert.equal(operator2.physicalCameraId, machines[machine].physicalCameraId)
+    assert.equal(operator.nodeId, machines[machine].nodeId)
+    assert.equal(operator2.nodeId, machines[machine].nodeId)
+    assert.equal(operator.logicalCameraId, 'CAM-01')
+    assert.equal(operator2.logicalCameraId, 'CAM-02')
+  }
 })
 
 test('session availability resolves the account alias without camera_assignment input', async () => {

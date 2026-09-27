@@ -1,8 +1,8 @@
-# Windows Detection Laptop bootstrap
+# Windows Detection Machine bootstrap
 
 These scripts install the canonical IDEA2 Detection Engine as a portable,
 machine-local Windows runtime. They reproduce the architecture verified on a
-real Detection Laptop without committing machine credentials or depending on a
+real Detection Machine without committing machine credentials or depending on a
 virtual environment inside a Git checkout.
 
 ## Installed architecture
@@ -12,7 +12,7 @@ Windows boot
   -> SYSTEM Scheduled Task: AEGIS Detection Tunnel
        -> run_detection_tunnel.ps1 reconnect loop
        -> SSH local forward 127.0.0.1:18002 -> Monitor :8002
-       -> SSH reverse forward explicit server interface :18077 -> Engine :8077
+       -> SSH reverse forward explicit server interface :UNIQUE_PORT -> Engine :8077
 
   -> Automatic Windows service: AEGISIdentityAgent
        -> isolated pinned Python/pywin32 runtime
@@ -26,7 +26,7 @@ User login
 ```
 
 The tunnel is a SYSTEM task because it does not need the desktop. The Engine is
-started only after the camera-laptop user logs in because webcam access belongs
+started only after the camera user logs in because webcam access belongs
 to that interactive session. The old interactive Engine Scheduled Task is
 disabled, not deleted, so it cannot race the HKCU supervisor.
 
@@ -44,8 +44,29 @@ protected machine identity by default.
 - a copied `known_hosts` file that has not been fingerprint-verified;
 - recordings, snapshots, logs, or `.venv`.
 
-Every Detection Laptop must have its own SSH key. Never copy the key from a
+Every Detection Machine must have its own SSH key. Never copy the key from a
 different operator's machine.
+
+## Windows Machines A and C portability checklist
+
+Machine A is a Windows laptop using its configured built-in camera. Machine C
+is a Windows PC using its configured external webcam. Both use these exact same
+install, status, repair, uninstall, supervisor, tunnel, and Identity Agent
+scripts; onboarding Machine C must not require a source edit.
+
+For each machine, reviewers must provide and verify distinct deployment values:
+
+- unique Node ID, physical-camera registration, and key version;
+- machine-local `.env` and `AEGIS_CAMERA_SOURCE` selected from that machine's
+  actual device enumeration;
+- unique SSH identity and server-approved reverse port;
+- deployment-owned Monitor target host and server stream-bind address;
+- stable stream mapping and ports appropriate to the deployment.
+
+Do not encode `built-in`, `external`, a device index, Machine A/C name, Node ID,
+physical-camera ID, or logical CAM alias in these reusable scripts. On both
+machines, `operator` selects logical CAM-01 and `operator2` selects logical
+CAM-02 while the physical camera remains the one registered to that machine.
 
 ## First installation
 
@@ -67,19 +88,21 @@ $engine = 'C:\path\to\clone\IDEA2-AEGIS_CCTV-Operator\detection-engine'
 $bootstrap = "$env:LOCALAPPDATA\AEGIS\bootstrap"
 $monitorTargetHost = '<deployment-monitor-hostname>'
 $streamBindAddress = '<deployment-stream-interface-ip>'
+$reversePort = <server-approved-unique-port>
 
 & "$engine\windows\install_autostart.ps1" `
   -ConfigurationFile "$bootstrap\.env" `
   -TunnelHost 'tunnel-user@aegis-server' `
   -MonitorTargetHost $monitorTargetHost `
   -RemoteBindAddress $streamBindAddress `
-  -RemotePort 18077 `
+  -RemotePort $reversePort `
   -IdentityFile "$bootstrap\idea2_tunnel_ed25519" `
   -KnownHostsFile "$bootstrap\known_hosts" `
   -StartNow
 ```
 
-`-MonitorTargetHost` and `-RemoteBindAddress` are mandatory deployment values;
+`-MonitorTargetHost`, `-RemoteBindAddress`, and `-RemotePort` are mandatory
+deployment values;
 the source has no Docker bridge IP default. For this gate the stream bind must
 be one explicit non-loopback IPv4 server interface and must match the address assigned to Monitor's
 stable host alias by deployment configuration. If Compose uses `host-gateway`,

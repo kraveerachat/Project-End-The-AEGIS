@@ -34,10 +34,50 @@ class LinuxSystemdSourceTests(unittest.TestCase):
             "--engine-port",
         ):
             self.assertIn(option, installer)
-        joined = "\n".join(path.read_text(encoding="utf-8") for path in LINUX_ROOT.rglob("*.*"))
+        joined = "\n".join(
+            path.read_text(encoding="utf-8") for path in LINUX_ROOT.glob("*.sh")
+        )
         self.assertNotIn("kittipat", joined)
         self.assertNotIn("pubpup2006p", joined)
         self.assertNotIn("CAM-02", joined)
+
+    def test_network_destinations_are_explicit_deployment_inputs(self) -> None:
+        installer = self.read("install_systemd.sh")
+        scripts = "\n".join(
+            path.read_text(encoding="utf-8") for path in LINUX_ROOT.glob("*.sh")
+        )
+        self.assertNotIn("172.18.", scripts)
+        self.assertIn('monitor_target_host=""', installer)
+        self.assertIn('remote_bind_address=""', installer)
+        self.assertIn('remote_port=""', installer)
+        self.assertIn('[[ -n "$monitor_target_host" ]] || die "--monitor-target-host is required"', installer)
+        self.assertIn('[[ -n "$remote_bind_address" ]] || die "--remote-bind-address is required"', installer)
+        self.assertIn('[[ -n "$remote_port" ]] || die "--remote-port is required"', installer)
+        self.assertIn("--monitor-target-host HOST Required", installer)
+        self.assertIn("--remote-bind-address ADDR Required", installer)
+        self.assertIn("--remote-port PORT         Required", installer)
+        self.assertIn("validate_explicit_ipv4 --remote-bind-address", installer)
+
+        repair = self.read("repair_systemd.sh")
+        self.assertIn('--monitor-target-host "$(read_setting monitorTargetHost)"', repair)
+        self.assertIn('--remote-bind-address "$(read_setting remoteBindAddress)"', repair)
+        self.assertIn('--remote-port "$(read_setting remotePort)"', repair)
+
+    def test_linux_lifecycle_does_not_embed_windows_or_camera_hardware_ownership(self) -> None:
+        scripts = "\n".join(
+            path.read_text(encoding="utf-8") for path in LINUX_ROOT.glob("*.sh")
+        )
+        for forbidden in (
+            "PowerShell",
+            "HKCU",
+            "ScheduledTask",
+            "machine-b-node",
+            "physical-camera-b",
+            "built-in laptop camera",
+            "external webcam",
+        ):
+            self.assertNotIn(forbidden, scripts)
+        self.assertIn("--config", self.read("install_systemd.sh"))
 
     def test_runtime_copy_excludes_local_and_secret_material(self) -> None:
         installer = self.read("install_systemd.sh")

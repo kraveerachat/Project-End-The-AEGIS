@@ -16,8 +16,9 @@ param(
     [int]$LocalForwardPort = 18002,
     [Parameter(Mandatory = $true)]
     [string]$RemoteBindAddress,
+    [Parameter(Mandatory = $true)]
     [ValidateRange(1, 65535)]
-    [int]$RemotePort = 18077,
+    [int]$RemotePort,
     [string]$EngineHost = '127.0.0.1',
     [ValidateRange(1, 65535)]
     [int]$EnginePort = 8077,
