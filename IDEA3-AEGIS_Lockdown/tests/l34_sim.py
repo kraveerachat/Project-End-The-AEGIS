@@ -88,6 +88,7 @@ DEFAULT_STATE = {
     "ap_addr_override": "",
     "wired_ifname_state": "connected",
     "device_state_override": "",
+    "ap_profile_autoconnect": "no",   # the persisted aegis-idea3-ap profile's own connection.autoconnect value; V4 never writes it
 }
 
 WRAPPER = "#!/usr/bin/env bash\nexec {python} {sim} {name} \"$@\"\n"
@@ -299,6 +300,8 @@ def main(argv: list[str]) -> int:
                 rc = 1
         elif args[:2] == ["-g", "GENERAL.CONNECTION"] and args[2:4] == ["device", "show"]:
             out = ["aegis-idea3-ap"] if (args[4] == "wlp0s20f3" and s["ap_active"]) else [""]
+        elif args == ["-g", "connection.autoconnect", "connection", "show", "aegis-idea3-ap"]:
+            out = [s["ap_profile_autoconnect"]]
         elif args and args[0] == "-g" and args[-3:] == ["connection", "show", "aegis-idea3-ap"]:
             out = list(s["effective"])
         else:
@@ -395,10 +398,14 @@ def main(argv: list[str]) -> int:
         if s["dnsmasq"] == "active":
             tcp.append("LISTEN 0 32 10.77.30.1:53 0.0.0.0:*")
             udp += ["UNCONN 0 0 10.77.30.1:53 0.0.0.0:*", "UNCONN 0 0 0.0.0.0%wlp0s20f3:67 0.0.0.0:*"]
+        if s["identities"].get("aegis-idea3-mosquitto.service", [0, 0])[0]:
+            tcp += ["LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*", "LISTEN 0 100 10.77.30.1:8883 0.0.0.0:*"]
         if args == ["-H", "-lnt"]:
             out = tcp
         elif args == ["-H", "-lnu"]:
             out = udp
+        elif args == ["-H", "-ltn", "sport = :8883"]:
+            out = [l for l in tcp if l.endswith(":8883 0.0.0.0:*")]
         else:
             rc = 99
     else:
