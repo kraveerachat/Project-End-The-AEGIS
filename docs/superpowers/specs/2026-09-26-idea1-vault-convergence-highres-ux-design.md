@@ -575,3 +575,74 @@ cache, no new dependency, no CSP change (Dedicated Worker is same-origin under
 unchanged, PR216 and Production untouched.
 `UPLOAD_SLOWDOWN_CURRENTLY_REPRODUCED=NO`, `UPLOAD_SLOWDOWN_ROOT_CAUSE=NOT_PROVEN`
 (Human reports ~3 MB/s class again; PR220 does not claim a network fix).
+
+## 12. PR220-R2 Human Acceptance corrective addendum (2026-09-27)
+
+Deployed candidate `aegis-prod-drive:pr220-8baa4e205407` (OCI revision
+`8baa4e20`): technical cutover PASS, Human Acceptance FAIL on two presentation
+defects (both Admin and DataLake-User) plus the separate
+`HIGHRES_LIVE_ACCEPTANCE=FAIL` (IMG_3107/IMG_3207 showed the high-res fallback
+instead of a thumbnail). The high-res failure is recorded only; it is not
+addressed by this correction.
+
+### 12.1 Defect A — Vault create-folder presentation
+
+Runtime path traced from source: `App` → `Vault` (`VAULT_EXPERIENCE.TREE`) →
+`VaultTreeScreen` → toolbar `vault-tree-new-folder` (or the empty-state CTA) →
+`dialog.kind='createFolder'` → `NewFolderDialog` → `NameDialogCore` →
+`NameEntryDialog`. A full-source search found no second Vault name-entry
+implementation, the `Modal` portals to `#aegis-modal-root` (no Vault-scoped CSS
+can reach it), and the Vault service worker intercepts preview-token paths only.
+An exact-`8baa4e20` `vite build` emits the Vault chunk wired to the shared
+`data-name-entry-dialog` primitive and contains none of the pre-`e1856a9a`
+markup.
+
+The new real-App regression (`tests/workspaceAppVaultParity.test.js`: real App,
+real Files, real Vault/VaultTreeScreen, Thai copy, both roles) captured the
+full dialog signature of Files and Vault. At `8baa4e20` every field matched
+(420 px width, title class, visible `ชื่อ` label bound to the input, PillInput,
+autofocus, close X, `flex gap-2.5 mt-6` footer, two `flex-1` buttons, disabled
+empty state) **except the primary copy**: Vault `สร้าง` vs Files `โฟลเดอร์ใหม่`.
+Fix: `NewFolderDialog` uses the Files key `newFolder` for title and primary;
+the orphaned `vaultTreeNewFolderSubmit` key is removed.
+
+The label/input/footer differences in the Human screenshots match the
+pre-`e1856a9a` Vault markup exactly (no label, `h-10 rounded-[10px]` raw input,
+ghost Cancel + right-aligned primary). They are **not reproducible** from
+`8baa4e20` source or its exact build output. The only mechanism consistent
+with the source is a browser executing a pre-cutover Vault chunk (an SPA tab
+that loaded Vault before the image swap keeps its in-memory module until a
+full reload). That cannot be proven without production/browser access, which
+this pass was not allowed. Retest must start from a hard reload, and
+`document.querySelector('[data-name-entry-dialog]')` in DevTools confirms the
+running bundle.
+
+### 12.2 Defect B — Vault external-file drop affordance
+
+Files owned a drag-active state (`dragenter` → outlined, tinted wrapper plus an
+absolute dashed overlay with an upload pill; `dragleave` cleared via
+`relatedTarget` containment; drop cleared). Vault's root had only the
+functional `onDragOver`/`onDrop` (encrypt → `enqueueVaultFiles`) and no
+drag-active state, `dragenter`/`dragleave`, or overlay. That was the whole
+difference.
+
+Fix: Files' presentation is extracted verbatim into
+`components/ExternalFileDropSurface.jsx` (same classes, same child order;
+Files pins them in APP-DROP-4). Files passes its unchanged `acceptDrop`;
+Vault wraps its workspace/empty-state region with
+`enabled={!isTrashView && !tree.drag}` and **no** `onDrop`, so the drop still
+bubbles to the unchanged screen-level Vault handler (exactly one enqueue,
+proven). The surface lights only for genuine OS file drags (the AEGIS item type
+always wins, covering Chrome's `Files` type on image-element drags), re-asserts
+on `dragover` (no nested flicker), and clears on leaving the surface, drop,
+Escape, window `drop`/`dragend`, `enabled` → false and lock/unmount. Vault copy
+`vaultDropHint` says the files are encrypted and uploaded to the current Vault
+folder (en/th/zh). No role branch.
+
+### 12.3 Unchanged
+
+Files create-folder presentation, Files/Vault upload transport, chunk size,
+concurrency, Vault crypto/chunk crypto, high-res decoder, server, network,
+PR216, production compose/deployment, destructive purge and TREE protocol
+state: unchanged. `src/lib` (except `strings.js`), `server/`, `deploy/` and both
+upload drawers have zero diff against `8baa4e20`.
