@@ -50,9 +50,11 @@ No ESP32 is required or touched for L6b acceptance; verification uses local MQTT
 
 `stages/L6b/apply.sh` performs, in this order, after a PRE capture and only after every validation passed:
 
-1. create `/etc/aegis-idea3/mqtt` (`root:root 0750`);
-2. install `aegis-idea3-mosquitto.conf` (0640), `acl` (0640), `passwd` (0600, hashed), `ca.crt` (0644), `broker.crt` (0644),
-   `broker.key` (0600), all `root:root`;
+1. create `/etc/aegis-idea3/mqtt` (`root:mosquitto 0750`);
+2. install (all root-owned; **amended 2026-09-27 after the first live attempt, see §13**): `aegis-idea3-mosquitto.conf`, `acl`,
+   `passwd` (hashed) and `broker.key` as `root:mosquitto 0640`; `ca.crt` and `broker.crt` as `root:root 0644`; the unit is
+   `root:root 0644`. Nothing is group- or world-writable and secrets are never world-readable. Live pre-state additionally
+   requires the `mosquitto` group and user to exist and the user's primary GID to equal the group's GID (supplementary groups are not judged; no account or group is created or modified);
 3. install `/etc/systemd/system/aegis-idea3-mosquitto.service` (0644);
 4. `systemctl daemon-reload`;
 5. `systemctl enable --now aegis-idea3-mosquitto.service`.
@@ -106,9 +108,22 @@ any point is rollback-able. `rollback.sh`:
 - stops/disables only `aegis-idea3-mosquitto.service`, and only if this stage started it (`SERVICE` journaled);
 - removes the unit, then each journaled file by exact path (`rm -f`, regular non-symlink only), then the mqtt directory only
   if journaled and empty (`MQTT_DIR_HAS_UNOWNED_ENTRIES` otherwise — never recursive);
-- runs `daemon-reload`, re-proves the legacy tree/users/service/1883 listeners equal the apply-time baseline, and proves no
+- runs `daemon-reload`, then `systemctl reset-failed aegis-idea3-mosquitto.service` (that name only; never bare/`--all`) as the
+  **last** lifecycle step, and proves the unit's runtime state is back to `LoadState=not-found ActiveState=inactive
+  SubState=dead Result=success` (`IDEA3_SERVICE_RUNTIME_STATE_RESIDUE` otherwise). A failed unit keeps not-found/failed
+  metadata in the manager after its file is removed and reloaded (observed live), so without this PRE→RB drifts on
+  `svc.aegis-idea3-mosquitto.*`. It runs after removal+reload so nothing later (stop, reload, `Restart=on-failure`) can
+  re-create the residue; a non-zero exit is tolerated only because the proven end state decides (second run: unit unknown);
+- re-proves the legacy tree/users/service/1883 listeners equal the apply-time baseline, and proves no
   8883 listener and no material residue;
 - is idempotent and never touches the owner input.
+
+**Runner clean-prestate gate.** `LoadState=not-found` alone is not a clean pre-state: a previously failed unit keeps
+`ActiveState=failed SubState=failed Result=exit-code` metadata with no unit file. Before the authorization is consumed the
+runner (`l6b_broker_prestate_gate`) requires exactly `LoadState=not-found ActiveState=inactive SubState=dead Result=success
+MainPID=0 NRestarts=0`, no unit file, no mqtt directory and no 8883 listener, using read-only `systemctl show` only. Residue is
+rejected with `L6B_RESIDUAL_FAILED_STATE_CLEANUP_REQUIRED=YES`; the runner never runs `reset-failed` and never repairs the host.
+A separately authorized bounded cleanup is designed after this fix merges.
 
 Because apply requires an absent pre-state, "restore a pre-existing path" cannot occur and is deliberately unsupported.
 The runner then captures `rb-root` and requires **PRE → RB with no allow files** to be PASS (zero drift, zero approved
@@ -228,18 +243,23 @@ CA_PRIVATE_KEY_ON_CORE / ON_ARCH = FORBIDDEN
 ESP32_TOUCHED = NO      L7_STARTED = NO
 ```
 
-## 13. Known live risk carried to the owner (not resolvable offline)
+## 13. Live finding from the first L6b attempt (resolved in the repository; live re-run needs a NEW authorization)
 
-The owner decision fixes the installed material as `root:root`. Mosquitto started as root reads its password, ACL and TLS key
-files at startup; a later privilege drop to the `mosquitto` user (or a `SIGHUP` reload, which the unit does not define)
-could require different ownership on some Mosquitto versions (host: 2.1.2). The repository cannot prove this offline because
-tests run unprivileged. The live verify (service active, `NRestarts=0`, real TLS/auth/ACL probes) is the proof, and a
-failure is handled by the failure-only rollback. If the first live attempt shows this, the consumed authorization is not
-reused; the ownership question becomes a new owner decision. Modes are not widened pre-emptively.
+The first live attempt (`2026-09-27-l6b-20260927-100548`, authorization consumed, never reusable) applied PASS and failed
+verify with `IDEA3_SERVICE_NOT_ACTIVE`: Mosquitto 2.1.2 loaded its config, dropped privileges to `mosquitto` (uid/gid 958), then
+failed `password-file: Error: Unable to open pwfile "/etc/aegis-idea3/mqtt/passwd"` (installed `root:root 0600`; `broker.key`
+was `0600` as well). Rollback removed every L6b path and listener and left legacy Mosquitto unchanged, but PRE→RB failed
+because systemd retained `LoadState=not-found ActiveState=failed SubState=failed Result=exit-code` for the IDEA3 unit.
+
+Remediation: the `root:mosquitto 0640` model of §3 step 2 (root ownership preserved, group read only for the one group the
+broker runs as, no widening to 0660/0666/0770/0777, no account/group mutation) and the rollback `reset-failed` step of §6.
+The PRE→RB comparator stays strict (zero drift, zero approved change, no allow files). What tests cannot prove offline is that
+the real `mosquitto` 2.1.2 process on the host reads these files after its privilege drop; the live verify remains that proof.
 
 ## 14. Test map
 
-`tests/test_pr11_phase4_l6b_handler.py` (fixture root + throwaway loopback brokers): input contract, prestate, exact install
+`tests/test_pr11_phase4_l6b_handler.py` (fixture root + throwaway loopback brokers + a stateful fake `systemctl` that models
+the dropped-privilege broker and failed-metadata retention): input contract, prestate, exact install
 set/modes/bytes, no plaintext/hash leakage, hashed identities, config scope, journal, manifest, legacy untouched, verify
 drift matrix, rollback exactness/idempotence/partial/tampered journal, capture/compare contract (PRE→POST exact, PRE→RB
 zero), live probe pass and fail cases (anonymous allowed, permissive ACL, wrong passwords, no broker).

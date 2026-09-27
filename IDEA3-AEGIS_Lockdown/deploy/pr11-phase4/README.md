@@ -525,11 +525,11 @@ exists; enabling the radio is a global NM change and a **new owner decision boun
 Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6b-operational-design.md`. Repository preparation only;
 `L6B_LIVE_EXECUTED = NO`, `L6B_LIVE_AUTHORIZED = NO`, `PHASE4_LIVE_READINESS` remains `NOT READY`.
 
-- `stages/L6b/apply.sh` now **owns** installing `/etc/aegis-idea3/mqtt` (six files, `root:root`, hashed passwd only) and the
+- `stages/L6b/apply.sh` now **owns** installing `/etc/aegis-idea3/mqtt` (six files, root-owned; the files the privilege-dropped broker reads are `root:mosquitto 0640`, certificates `root:root 0644`; hashed passwd only) and the
   `aegis-idea3-mosquitto.service` unit from a private `AEGIS_L6B_INPUT_DIR` (`ca.crt broker.crt broker.key core.pass device.pass`,
   no `ca.key`). Plaintext passwords are used transiently by `p4-broker-material.py` and never installed. Every created path is
   journaled first; pre-state must be absent.
-- `stages/L6b/rollback.sh` removes exactly the journaled stage-owned paths (failure/abort path only; success is **persistent**).
+- `stages/L6b/rollback.sh` removes exactly the journaled stage-owned paths (failure/abort path only; success is **persistent**), then clears failed runtime metadata for `aegis-idea3-mosquitto.service` only (`reset-failed`, after removal + `daemon-reload`) and proves `not-found/inactive/dead/success`.
 - `stages/L6b/verify.sh` adds exact-material checks and a live TLS/auth/ACL/negative probe on `127.0.0.1:8883` and the AP address via
   `p4-broker-validate.py validate-live` (never starts a broker, never prints secrets).
 - `p4-l0-capture.sh` additionally records `host.path./etc/aegis-idea3/mqtt` and the IDEA3 broker unit file; `stages/L6b/allow-keys.txt`

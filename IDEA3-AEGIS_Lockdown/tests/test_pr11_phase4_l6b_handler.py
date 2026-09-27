@@ -332,8 +332,8 @@ def test_l6b_apply_installs_exactly_the_stage_owned_material(fx: Fx) -> None:
     assert sorted(p.name for p in fx.mqtt.iterdir()) == sorted(MATERIAL)
     modes = {p.name: stat.S_IMODE(p.stat().st_mode) for p in fx.mqtt.iterdir()}
     assert modes == {
-        "aegis-idea3-mosquitto.conf": 0o640, "acl": 0o640, "passwd": 0o600,
-        "ca.crt": 0o644, "broker.crt": 0o644, "broker.key": 0o600,
+        "aegis-idea3-mosquitto.conf": 0o640, "acl": 0o640, "passwd": 0o640,
+        "ca.crt": 0o644, "broker.crt": 0o644, "broker.key": 0o640,
     }
     assert stat.S_IMODE(fx.mqtt.stat().st_mode) == 0o750
     assert stat.S_IMODE(fx.unit.stat().st_mode) == 0o644
@@ -446,7 +446,12 @@ def test_l6b_verify_passes_on_applied_fixture_and_writes_non_secret_evidence(fx:
     "mutate,reason",
     [
         (lambda f: (f.mqtt / "broker.key").chmod(0o644), "MATERIAL_MODE_INVALID:broker.key"),
-        (lambda f: (f.mqtt / "passwd").chmod(0o640), "MATERIAL_MODE_INVALID:passwd"),
+        (lambda f: (f.mqtt / "passwd").chmod(0o600), "MATERIAL_MODE_INVALID:passwd"),
+        (lambda f: (f.mqtt / "passwd").chmod(0o660), "MATERIAL_MODE_INVALID:passwd"),
+        (lambda f: (f.mqtt / "broker.key").chmod(0o600), "MATERIAL_MODE_INVALID:broker.key"),
+        (lambda f: (f.mqtt / "broker.key").chmod(0o660), "MATERIAL_MODE_INVALID:broker.key"),
+        (lambda f: (f.mqtt / "acl").chmod(0o660), "MATERIAL_MODE_INVALID:acl"),
+        (lambda f: f.mqtt.chmod(0o770), "MQTT_DIR_MODE_INVALID"),
         (lambda f: (f.mqtt / "core.pass").write_text("x"), "MQTT_DIR_ENTRIES_NOT_EXACT"),
         (lambda f: (f.mqtt / "ca.key").write_text("x"), "MQTT_DIR_ENTRIES_NOT_EXACT"),
         (lambda f: (f.mqtt / "aegis-idea3-mosquitto.conf").write_text((f.mqtt / "aegis-idea3-mosquitto.conf").read_text() + "# x\n"), "MATERIAL_DIGEST_CHANGED"),
@@ -666,6 +671,473 @@ def test_l6b_pre_rb_detects_residue(fx: Fx) -> None:
     fx.mqtt.mkdir()
     rb = capture(fx, "rb")
     assert compare(pre, rb, allow=False).returncode == 1
+
+
+# ── ownership model: root:mosquitto for what the privilege-dropped broker reads ──────────────────────────────────────
+
+import grp
+import json
+import textwrap
+
+UNIT = "aegis-idea3-mosquitto.service"
+OTHER_FAILED = "aegis-idea3-dnsmasq.service"
+BROKER_GROUP_FILES = ("aegis-idea3-mosquitto.conf", "acl", "passwd", "broker.key")
+OWNERSHIP_MODEL = {
+    "/etc/aegis-idea3/mqtt": ("750", "root:mosquitto"),
+    "/etc/aegis-idea3/mqtt/aegis-idea3-mosquitto.conf": ("640", "root:mosquitto"),
+    "/etc/aegis-idea3/mqtt/acl": ("640", "root:mosquitto"),
+    "/etc/aegis-idea3/mqtt/passwd": ("640", "root:mosquitto"),
+    "/etc/aegis-idea3/mqtt/broker.key": ("640", "root:mosquitto"),
+    "/etc/aegis-idea3/mqtt/ca.crt": ("644", "root:root"),
+    "/etc/aegis-idea3/mqtt/broker.crt": ("644", "root:root"),
+    "/etc/systemd/system/aegis-idea3-mosquitto.service": ("644", "root:root"),
+}
+
+
+def fixture_broker_group() -> str:
+    """A group of the test user that is NOT its primary group when possible, so a missing chgrp is detectable."""
+    primary = os.getgid()
+    for gid in os.getgroups():
+        if gid != primary:
+            return grp.getgrgid(gid).gr_name
+    return grp.getgrgid(primary).gr_name
+
+
+# A stateful fake of exactly the systemctl surface the L6b handlers use. It models the lifecycle facts observed live:
+# a failed Type=simple unit stays in memory as failed after its unit file is removed and daemon-reload runs
+# (LoadState=not-found, ActiveState=failed) until reset-failed names it; a bare reset-failed clears EVERY failed unit;
+# and the broker "drops privileges" to a principal whose only group is the fixture broker group, never the file owner.
+FAKE_SYSTEMCTL = r"""#!__PY__
+import grp, json, os, sys
+STATE, ROOT, GROUP = os.environ["FAKE_SYSTEMD_STATE"], os.environ["FAKE_ROOT"], os.environ["AEGIS_L6B_FIXTURE_BROKER_GROUP"]
+UNIT = "aegis-idea3-mosquitto.service"
+st = json.load(open(STATE))
+argv = sys.argv[1:]
+unit_file = os.path.exists(ROOT + "/etc/systemd/system/" + UNIT)
+st["calls"].append({"argv": argv, "unit_file": unit_file})
+def save():
+    json.dump(st, open(STATE, "w"), indent=1)
+def die(msg, rc):
+    save(); sys.stderr.write(msg + "\n"); sys.exit(rc)
+CLEAN = dict(load="not-found", active="inactive", sub="dead", result="success", enabled=False, pid=0, nrestarts=0, persistent=False)
+def get(u):
+    return st["units"].get(u, dict(CLEAN))
+def readable(path):
+    s = os.stat(ROOT + path); m = s.st_mode
+    return bool(m & 0o004) or (bool(m & 0o040) and grp.getgrgid(s.st_gid).gr_name == GROUP)
+def traversable(path):
+    s = os.stat(ROOT + path); m = s.st_mode
+    return bool(m & 0o001) or (bool(m & 0o010) and grp.getgrgid(s.st_gid).gr_name == GROUP)
+def start():
+    u = st["units"][UNIT]
+    checks = [("/etc/aegis-idea3/mqtt/aegis-idea3-mosquitto.conf", "config"), ("/etc/aegis-idea3/mqtt/passwd", "password-file"),
+              ("/etc/aegis-idea3/mqtt/acl", "acl-file"), ("/etc/aegis-idea3/mqtt/broker.key", "keyfile"),
+              ("/etc/aegis-idea3/mqtt/ca.crt", "cafile"), ("/etc/aegis-idea3/mqtt/broker.crt", "certfile")]
+    err = None
+    if not traversable("/etc/aegis-idea3/mqtt"):
+        err = "mqtt directory not traversable by mosquitto"
+    for path, what in checks:
+        if err is None and not readable(path):
+            err = "%s: Error: Unable to open %s" % (what, path)
+    u["load"] = "loaded"
+    if err:
+        u.update(active="failed", sub="failed", result="exit-code", pid=0)
+        st["journal"].append("Info: running mosquitto as user: mosquitto.")
+        st["journal"].append(err)
+    else:
+        u.update(active="active", sub="running", result="success", pid=4242)
+def props(u):
+    return {"LoadState": u["load"], "ActiveState": u["active"], "SubState": u["sub"], "Result": u["result"],
+            "UnitFileState": ("enabled" if u["enabled"] else "disabled") if u["load"] == "loaded" else "",
+            "MainPID": str(u["pid"]), "NRestarts": str(u["nrestarts"]), "ExecMainStartTimestamp": ""}
+if not argv:
+    die("no command", 2)
+cmd, rest = argv[0], argv[1:]
+if cmd == "show":
+    want, value, name, i = [], False, None, 0
+    while i < len(rest):
+        if rest[i] == "-p": want.append(rest[i + 1]); i += 2
+        elif rest[i] == "--value": value = True; i += 1
+        else: name = rest[i]; i += 1
+    p = props(get(name))
+    for k in (want or list(p)):
+        print(p[k] if value else "%s=%s" % (k, p[k]))
+    save(); sys.exit(0)
+if cmd == "is-active":
+    save(); sys.exit(0 if get(rest[-1])["active"] == "active" else 3)
+if cmd == "is-enabled":
+    save(); sys.exit(0 if get(rest[-1])["enabled"] else 1)
+if cmd == "daemon-reload":
+    for name, u in list(st["units"].items()):
+        if name == UNIT:
+            if not unit_file:
+                if u["active"] == "failed": u["load"] = "not-found"
+                else: del st["units"][name]
+            elif u["load"] == "not-found": u["load"] = "loaded"
+    save(); sys.exit(0)
+if cmd == "stop":
+    u = st["units"].get(rest[-1])
+    if u and u["active"] == "active": u.update(active="inactive", sub="dead", result="success", pid=0)
+    save(); sys.exit(0)
+if cmd == "disable":
+    u = st["units"].get(rest[-1])
+    if u: u["enabled"] = False
+    save(); sys.exit(0)
+if cmd in ("enable", "start"):
+    name = rest[-1]
+    if name != UNIT: die("fake: refusing to %s %s" % (cmd, name), 2)
+    if not unit_file: die("Unit file does not exist", 1)
+    u = st["units"].setdefault(UNIT, dict(CLEAN))
+    if cmd == "enable": u["enabled"] = True
+    if cmd == "start" or "--now" in rest: start()
+    save(); sys.exit(0)
+if cmd == "reset-failed":
+    if os.environ.get("FAKE_SYSTEMD_NOOP_RESET_FAILED") == "1":
+        save(); sys.exit(0)
+    names = [a for a in rest if not a.startswith("-")]
+    if not names:
+        names = [n for n, u in st["units"].items() if u["active"] == "failed"]
+    for name in names:
+        u = st["units"].get(name)
+        if u is None: die("Unit %s not loaded." % name, 1)
+        if u["active"] == "failed":
+            u.update(active="inactive", sub="dead", result="success", pid=0)
+        if u["load"] == "not-found": del st["units"][name]
+    save(); sys.exit(0)
+die("fake systemctl: unsupported command " + cmd, 2)
+"""
+
+
+class Systemd:
+    """Per-test fake systemd manager state + the environment that routes the handlers/capture to it."""
+
+    def __init__(self, fx: Fx) -> None:
+        self.fx = fx
+        self.bin = fx.tmp / "fakebin"
+        self.bin.mkdir()
+        exe = self.bin / "systemctl"
+        exe.write_text(FAKE_SYSTEMCTL.replace("__PY__", sys.executable), encoding="utf-8")
+        exe.chmod(0o755)
+        self.state = fx.tmp / "systemd-state.json"
+        self.group = fixture_broker_group()
+        live = dict(load="loaded", active="active", sub="running", result="success", enabled=True, pid=1111, nrestarts=0, persistent=True)
+        failed = dict(load="loaded", active="failed", sub="failed", result="exit-code", enabled=True, pid=0, nrestarts=0, persistent=True)
+        self.state.write_text(json.dumps({"calls": [], "journal": [], "units": {"mosquitto.service": live, OTHER_FAILED: failed}}))
+
+    def env(self, **extra: str) -> dict[str, str]:
+        env = {
+            "AEGIS_L6B_FIXTURE_SYSTEMCTL": str(self.bin / "systemctl"),
+            "AEGIS_L6B_FIXTURE_BROKER_GROUP": self.group,
+            "FAKE_SYSTEMD_STATE": str(self.state),
+            "FAKE_ROOT": str(self.fx.root),
+        }
+        env.update(extra)
+        return env
+
+    def data(self) -> dict:
+        return json.loads(self.state.read_text())
+
+    def unit(self, name: str = UNIT) -> dict:
+        return self.data()["units"].get(name, {"load": "not-found", "active": "inactive", "sub": "dead", "result": "success"})
+
+    def calls(self, verb: str | None = None) -> list[dict]:
+        return [c for c in self.data()["calls"] if verb is None or c["argv"][0] == verb]
+
+    def run_systemctl(self, *args: str) -> subprocess.CompletedProcess[str]:
+        env = dict(os.environ, **self.env())
+        return subprocess.run([str(self.bin / "systemctl"), *args], text=True, capture_output=True, env=env, check=False)
+
+
+@pytest.fixture()
+def sd(fx: Fx) -> Systemd:
+    return Systemd(fx)
+
+
+def sd_apply(fx: Fx, sd: Systemd) -> subprocess.CompletedProcess[str]:
+    res = fx.run(APPLY, **sd.env())
+    assert res.returncode == 0, res.stdout + res.stderr
+    return res
+
+
+def sd_rollback(fx: Fx, sd: Systemd, **extra: str) -> subprocess.CompletedProcess[str]:
+    return fx.run(ROLLBACK, **sd.env(**extra))
+
+
+CLEAN_STATE = {"load": "not-found", "active": "inactive", "sub": "dead", "result": "success"}
+
+
+def state_of(unit: dict) -> dict:
+    return {k: unit[k] for k in CLEAN_STATE}
+
+
+def test_l6b_apply_records_the_exact_ownership_plan_for_all_installed_paths(fx: Fx) -> None:
+    applied(fx)
+    rows = [l.split("\t") for l in (fx.work / "ownership-plan.tsv").read_text().splitlines()]
+    assert rows[0] == ["path", "mode", "owner"]
+    assert {r[0]: (r[1], r[2]) for r in rows[1:]} == OWNERSHIP_MODEL
+    assert len(rows) - 1 == 8  # directory + six broker files + unit
+    for path, (mode, _owner) in OWNERSHIP_MODEL.items():
+        assert int(mode, 8) & 0o133 == 0 or path.endswith("mqtt")  # never group/other-writable, no execute on files
+        assert int(mode, 8) & 0o022 == 0
+
+
+def test_l6b_installed_modes_have_no_write_bits_for_group_or_other_and_no_secret_world_read(fx: Fx) -> None:
+    applied(fx)
+    for path in [fx.mqtt, *fx.mqtt.iterdir(), fx.unit]:
+        assert stat.S_IMODE(path.stat().st_mode) & 0o022 == 0, path
+    for name in ("passwd", "broker.key"):
+        assert stat.S_IMODE((fx.mqtt / name).stat().st_mode) & 0o007 == 0  # secrets are never world-readable
+
+
+def test_l6b_dropped_privilege_broker_group_can_read_exactly_what_it_needs(fx: Fx) -> None:
+    """RED before the fix: passwd/key were 0600, so a broker that dropped to mosquitto (uid 958, gid 958) could not open them."""
+    applied(fx)
+    for name in BROKER_GROUP_FILES:
+        assert stat.S_IMODE((fx.mqtt / name).stat().st_mode) & 0o040, f"{name} is not group-readable"
+    assert stat.S_IMODE(fx.mqtt.stat().st_mode) & 0o010, "mqtt dir is not group-traversable"
+
+
+def test_l6b_apply_puts_the_broker_group_on_exactly_the_group_files(fx: Fx) -> None:
+    group = fixture_broker_group()
+    res = fx.run(APPLY, AEGIS_L6B_FIXTURE_BROKER_GROUP=group)
+    assert res.returncode == 0, res.stdout + res.stderr
+    for name in BROKER_GROUP_FILES:
+        assert grp.getgrgid((fx.mqtt / name).stat().st_gid).gr_name == group, name
+    assert grp.getgrgid(fx.mqtt.stat().st_gid).gr_name == group
+
+
+def test_l6b_handlers_encode_root_mosquitto_model_without_widening() -> None:
+    apply_text, verify_text = APPLY.read_text(), VERIFY.read_text()
+    assert "BROKER_GROUP=mosquitto" in apply_text and "BROKER_GROUP=mosquitto" in verify_text
+    assert '-o root -g "$group"' in apply_text and '-o root -g "$BROKER_GROUP"' in apply_text
+    for script in (APPLY, VERIFY, ROLLBACK):
+        text = script.read_text()
+        for bad in ("0660", "0666", "0770", "0777", "usermod", "gpasswd", "groupadd", "chgrp -R", "chown -R"):
+            assert bad not in text, (script.name, bad)
+    # the unit-file, CA and broker certificate stay root:root
+    assert re.search(r"install_owned 0644 .*ca\.crt.* root", apply_text) and re.search(r"install_owned 0644 .*\$CERT.* root", apply_text)
+
+
+# ── mosquitto identity precheck: exists + primary GID equals group GID; supplementary groups are not judged ─────────────
+
+
+def identity_check(tmp_path: Path, *, group: str = "mosquitto:x:958:", passwd: str = "mosquitto:x:958:958::/var/empty:/usr/bin/nologin",
+                   uid_gid: str = "958") -> subprocess.CompletedProcess[str]:
+    text = APPLY.read_text()
+    func = text[text.index("broker_identity_check() {"):]
+    func = func[: func.index("\n}\n") + 3]
+    b = tmp_path / "idbin"
+    b.mkdir()
+    (b / "getent").write_text(f'#!/usr/bin/env bash\ncase "$1" in group) echo "{group}" ;; passwd) echo "{passwd}" ;; esac\n[ "$1 " = "group " ] || true\n'
+                              f'case "$1" in group) [ -n "{group}" ] || exit 2 ;; passwd) [ -n "{passwd}" ] || exit 2 ;; esac\n')
+    (b / "id").write_text(f'#!/usr/bin/env bash\n[ -n "{uid_gid}" ] && echo "{uid_gid}" || exit 1\n')
+    for f in b.iterdir():
+        f.chmod(0o755)
+    script = f'BROKER_GROUP=mosquitto\nfail() {{ echo "FAIL:$1" >&2; exit 1; }}\n{func}\nbroker_identity_check\n'
+    env = dict(os.environ, PATH=f"{b}:{os.environ['PATH']}")
+    return subprocess.run(["bash", "-c", script], text=True, capture_output=True, env=env, check=False)
+
+
+def test_l6b_broker_identity_accepts_the_live_host_facts(tmp_path: Path) -> None:
+    assert identity_check(tmp_path).returncode == 0
+
+
+def test_l6b_broker_identity_does_not_judge_supplementary_groups(tmp_path: Path) -> None:
+    # `id -g` reports only the primary gid, so extra supplementary membership cannot change the verdict
+    assert identity_check(tmp_path, group="mosquitto:x:958:extra-member").returncode == 0
+    assert "id -Gn" not in APPLY.read_text() and "EXTRA_GROUPS" not in APPLY.read_text()
+
+
+@pytest.mark.parametrize("kwargs,reason", [({"group": ""}, "BROKER_GROUP_MISSING"), ({"passwd": ""}, "BROKER_USER_MISSING"),
+                                            ({"uid_gid": "959"}, "BROKER_USER_PRIMARY_GID_MISMATCH")])
+def test_l6b_broker_identity_fails_closed(tmp_path: Path, kwargs: dict, reason: str) -> None:
+    res = identity_check(tmp_path, **kwargs)
+    assert res.returncode == 1 and reason in res.stderr
+
+
+def test_l6b_apply_never_mutates_accounts_or_groups() -> None:
+    for script in (APPLY, VERIFY, ROLLBACK):
+        assert not re.search(r"\b(useradd|usermod|groupadd|groupmod|gpasswd|adduser|addgroup|chsh)\b", script.read_text()), script.name
+
+
+# ── systemd lifecycle (fake systemctl) ───────────────────────────────────────────────────────────────────────────────
+
+
+def test_l6b_apply_with_dropped_privilege_model_starts_a_running_service(fx: Fx, sd: Systemd) -> None:
+    sd_apply(fx, sd)
+    assert sd.unit()["active"] == "active" and sd.unit()["sub"] == "running" and sd.unit()["enabled"] is True
+    assert ("SERVICE", UNIT) in [tuple(l.split("\t")) for l in (fx.work / "journal.tsv").read_text().splitlines()]
+    verbs = [c["argv"][0] for c in sd.calls() if c["argv"][0] != "show"]
+    assert verbs == ["daemon-reload", "enable"]  # apply never stops/restarts/resets anything
+    assert all(UNIT in c["argv"] or c["argv"][0] in ("daemon-reload", "show") for c in sd.calls())
+    assert sd.unit("mosquitto.service")["pid"] == 1111 and sd.unit(OTHER_FAILED)["active"] == "failed"
+
+
+def incident(fx: Fx, sd: Systemd) -> None:
+    """Replay the first live attempt: the broker starts, drops privileges, cannot open passwd (old root:root 0600 model)."""
+    sd_apply(fx, sd)
+    for name in ("passwd", "broker.key"):
+        (fx.mqtt / name).chmod(0o600)
+    assert sd.run_systemctl("start", UNIT).returncode == 0
+    assert state_of(sd.unit()) == {"load": "loaded", "active": "failed", "sub": "failed", "result": "exit-code"}
+    assert any("Unable to open /etc/aegis-idea3/mqtt/passwd" in l for l in sd.data()["journal"])
+
+
+def test_l6b_old_root_root_0600_model_fails_a_privilege_dropped_broker_and_verify_reports_it(fx: Fx, sd: Systemd) -> None:
+    incident(fx, sd)  # A: failed IDEA3 broker state before rollback
+    res = fx.run(VERIFY, **sd.env())
+    assert res.returncode != 0 and "MATERIAL_MODE_INVALID:passwd" in res.stderr  # the old modes are rejected up front
+    for name in ("passwd", "broker.key"):
+        (fx.mqtt / name).chmod(0o640)  # modes fixed but the manager still holds the failed state: live sequence
+    res = fx.run(VERIFY, **sd.env())
+    assert res.returncode != 0 and "IDEA3_SERVICE_NOT_ACTIVE" in res.stderr
+
+
+def test_l6b_new_group_model_keeps_the_broker_alive_after_a_restart(fx: Fx, sd: Systemd) -> None:
+    sd_apply(fx, sd)
+    assert sd.run_systemctl("start", UNIT).returncode == 0
+    assert sd.unit()["active"] == "active"
+    res = fx.run(VERIFY, **sd.env())
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "L6B_VERIFY=PASS" in res.stdout
+
+
+def test_l6b_group_bit_without_the_broker_group_would_still_fail_the_dropped_broker(fx: Fx, sd: Systemd) -> None:
+    if sd.group == grp.getgrgid(os.getgid()).gr_name:
+        pytest.skip("test user has no second group to distinguish from its primary group")
+    sd_apply(fx, sd)
+    os.chown(fx.mqtt / "passwd", -1, os.getgid())  # 0640 but the wrong group
+    assert sd.run_systemctl("start", UNIT).returncode == 0
+    assert sd.unit()["active"] == "failed"
+
+
+def test_l6b_rollback_clears_only_the_failed_idea3_unit_state(fx: Fx, sd: Systemd) -> None:
+    incident(fx, sd)
+    res = sd_rollback(fx, sd)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "L6B_ROLLBACK=PASS" in res.stdout
+    # final modeled state for the IDEA3 broker (B)
+    assert state_of(sd.unit()) == CLEAN_STATE
+    assert sd.run_systemctl("show", "-p", "LoadState", "-p", "ActiveState", "-p", "SubState", "-p", "Result", UNIT).stdout.split() == [
+        "LoadState=not-found", "ActiveState=inactive", "SubState=dead", "Result=success"]
+    assert not fx.unit.exists() and not fx.mqtt.exists()
+    # C: the unrelated failed unit and the legacy broker are untouched
+    assert state_of(sd.unit(OTHER_FAILED)) == {"load": "loaded", "active": "failed", "sub": "failed", "result": "exit-code"}
+    assert sd.unit("mosquitto.service")["active"] == "active" and sd.unit("mosquitto.service")["pid"] == 1111
+
+
+def test_l6b_rollback_reset_failed_targets_exactly_one_named_unit_after_removal_and_reload(fx: Fx, sd: Systemd) -> None:
+    incident(fx, sd)
+    n_before = len(sd.calls())
+    assert sd_rollback(fx, sd).returncode == 0
+    calls = sd.calls()[n_before:]
+    resets = [i for i, c in enumerate(calls) if c["argv"][0] == "reset-failed"]
+    assert [calls[i]["argv"] for i in resets] == [["reset-failed", UNIT]]  # never bare, never --all, never another unit
+    reloads = [i for i, c in enumerate(calls) if c["argv"][0] == "daemon-reload"]
+    assert reloads and max(reloads) < resets[0]  # reset-failed is the last lifecycle step, after unit removal + reload
+    assert calls[resets[0]]["unit_file"] is False  # the unit file was already removed
+    # the failed unit is not active, so no stop; the unit is not enabled in the failed state we replay only if enabled
+    assert all(c["argv"][0] in ("show", "is-active", "is-enabled", "stop", "disable", "daemon-reload", "reset-failed") for c in calls)
+    for c in calls:
+        if c["argv"][0] not in ("show", "daemon-reload"):
+            assert c["argv"][-1] == UNIT, c  # only aegis-idea3-mosquitto.service is ever the target
+    assert not any(c["argv"][0] in ("stop", "disable") and c["argv"][-1] != UNIT for c in calls)
+
+
+def test_l6b_rollback_stops_and_disables_a_healthy_service_before_removing_it(fx: Fx, sd: Systemd) -> None:
+    sd_apply(fx, sd)
+    n_before = len(sd.calls())
+    assert sd_rollback(fx, sd).returncode == 0
+    order = [c["argv"][0] for c in sd.calls()[n_before:] if c["argv"][0] not in ("show", "is-active", "is-enabled")]
+    assert order == ["stop", "disable", "daemon-reload", "reset-failed"]
+    stop = next(c for c in sd.calls()[n_before:] if c["argv"][0] == "stop")
+    assert stop["unit_file"] is True  # stopped while the unit still existed
+    assert state_of(sd.unit()) == CLEAN_STATE
+
+
+def test_l6b_rollback_second_run_is_idempotent_and_stays_clean(fx: Fx, sd: Systemd) -> None:
+    incident(fx, sd)
+    assert sd_rollback(fx, sd).returncode == 0  # first rollback
+    tree = fx.tree()
+    again = sd_rollback(fx, sd)  # D: the unit is now unknown to systemd, reset-failed reports "not loaded"
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert "L6B_ROLLBACK=PASS" in again.stdout
+    assert state_of(sd.unit()) == CLEAN_STATE and fx.tree() == tree
+    assert state_of(sd.unit(OTHER_FAILED))["active"] == "failed"
+
+
+def test_l6b_rollback_fails_loudly_if_failed_state_survives_reset(fx: Fx, sd: Systemd) -> None:
+    incident(fx, sd)
+    res = sd_rollback(fx, sd, FAKE_SYSTEMD_NOOP_RESET_FAILED="1")
+    assert res.returncode != 0 and "IDEA3_SERVICE_RUNTIME_STATE_RESIDUE" in res.stderr
+
+
+def test_l6b_rollback_without_service_journal_never_touches_systemd_lifecycle(fx: Fx, sd: Systemd) -> None:
+    sd_apply(fx, sd)
+    lines = [l for l in (fx.work / "journal.tsv").read_text().splitlines() if not l.startswith("SERVICE")]
+    (fx.work / "journal.tsv").write_text("\n".join(lines) + "\n")
+    n_before = len(sd.calls())
+    assert sd_rollback(fx, sd).returncode == 0
+    verbs = {c["argv"][0] for c in sd.calls()[n_before:]}
+    assert not verbs & {"stop", "disable", "reset-failed"}
+
+
+def test_l6b_rollback_with_the_service_never_started_is_clean_and_idempotent(fx: Fx, sd: Systemd) -> None:
+    sd_apply(fx, sd)
+    assert sd_rollback(fx, sd).returncode == 0
+    assert sd_rollback(fx, sd).returncode == 0
+    assert state_of(sd.unit()) == CLEAN_STATE
+
+
+def test_l6b_fake_systemctl_models_the_live_failed_metadata_retention_and_bare_reset(fx: Fx, sd: Systemd) -> None:
+    """Guards the harness itself: it must reproduce the live residue, so a bare reset-failed would be caught."""
+    incident(fx, sd)
+    fx.unit.unlink()
+    assert sd.run_systemctl("daemon-reload").returncode == 0
+    assert state_of(sd.unit()) == {"load": "not-found", "active": "failed", "sub": "failed", "result": "exit-code"}
+    assert sd.run_systemctl("reset-failed").returncode == 0  # bare reset would also clear the unrelated unit
+    assert sd.unit(OTHER_FAILED)["active"] == "inactive"
+
+
+def capture_sd(fx: Fx, sd: Systemd, label: str) -> Path:
+    evid = fx.tmp / f"evid-{label}"
+    env = os.environ.copy()
+    env.update(sd.env())
+    env.update(PATH=f"{sd.bin}:{os.environ['PATH']}", P4_FS_ROOT=str(fx.root), EVID_DIR=str(evid),
+               JOURNAL_SINCE="2026-09-27 00:00:00 UTC", CAPTURE_LABEL=label)
+    res = subprocess.run(["bash", str(CAPTURE)], text=True, capture_output=True, check=False, env=env)
+    assert res.returncode in (0, 3), res.stdout + res.stderr
+    records: dict[str, str] = {}
+    for tsv, prefixes in (("host.tsv", ("host.",)), ("services.tsv", ("svc.",))):
+        for line in (evid / tsv).read_text().splitlines():
+            key, _, value = line.partition("\t")
+            if value and value != "UNAVAILABLE" and key.startswith(prefixes) and not key.startswith("host.identity"):
+                records[key] = value
+    return _load_make_bundle()(fx.tmp / f"bundle-{label}", label, records)
+
+
+def test_l6b_pre_rb_has_no_service_drift_for_the_idea3_broker_after_the_incident(fx: Fx, sd: Systemd) -> None:
+    pre = capture_sd(fx, sd, "pre")
+    incident(fx, sd)
+    assert sd_rollback(fx, sd).returncode == 0
+    rb = capture_sd(fx, sd, "rb")
+    res = compare(pre, rb, allow=False)  # E: strict, no allow files
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "SERVICE_STATE_DRIFT" not in res.stdout and "SERVICE_RESTART_DRIFT" not in res.stdout
+    assert "FINDINGS_NEW_OR_WORSENED_DRIFT=0" in res.stdout and "FINDINGS_APPROVED_CHANGE=0" in res.stdout
+    for prop in ("LoadState", "ActiveState", "SubState", "Result"):
+        assert f"svc.{UNIT}.{prop}" in (fx.tmp / "evid-rb" / "services.tsv").read_text()
+
+
+def test_l6b_pre_rb_still_reports_service_drift_when_failed_metadata_is_left_behind(fx: Fx, sd: Systemd) -> None:
+    """Negative control: the comparator stays strict. Reproduce the live residue and require the exact drift findings."""
+    pre = capture_sd(fx, sd, "pre")
+    incident(fx, sd)
+    res = sd_rollback(fx, sd, FAKE_SYSTEMD_NOOP_RESET_FAILED="1")
+    assert res.returncode != 0  # the rollback itself refuses to claim success
+    rb = capture_sd(fx, sd, "rb")
+    cmp = compare(pre, rb, allow=False)
+    assert cmp.returncode == 1 and "SERVICE_STATE_DRIFT" in cmp.stdout
 
 
 # ── live probe against real (throwaway) brokers ──────────────────────────────────────────────────────────────────────

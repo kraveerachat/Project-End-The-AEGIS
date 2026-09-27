@@ -15,15 +15,25 @@ CONFIG=$MQTT_DIR/aegis-idea3-mosquitto.conf
 LEGACY_DIR=/etc/mosquitto
 LEGACY_PASSWD=/etc/mosquitto/passwd
 UNIT_DEST=/etc/systemd/system/aegis-idea3-mosquitto.service
-# exact file -> mode. Owner is root:root live.
+BROKER_GROUP=mosquitto
+# exact file -> mode. Files the privilege-dropped broker opens are root:mosquitto 0640; certificates are root:root 0644.
 declare -A MATERIAL_MODES=(
-  [aegis-idea3-mosquitto.conf]=640 [acl]=640 [passwd]=600 [ca.crt]=644 [broker.crt]=644 [broker.key]=600
+  [aegis-idea3-mosquitto.conf]=640 [acl]=640 [passwd]=640 [ca.crt]=644 [broker.crt]=644 [broker.key]=640
+)
+declare -A MATERIAL_GROUPS=(
+  [aegis-idea3-mosquitto.conf]=$BROKER_GROUP [acl]=$BROKER_GROUP [passwd]=$BROKER_GROUP [ca.crt]=root [broker.crt]=root [broker.key]=$BROKER_GROUP
 )
 HERE="$(cd "$(dirname "$0")" && pwd)"
 P4_HERE="$(cd "$HERE/../.." && pwd)"
 UNIT_SOURCE="$(cd "$HERE/../../.." && pwd)/mosquitto/aegis-idea3-mosquitto.service.example"
 PY="${AEGIS_PYTHON_BIN:-python3}"
 ROOT="${AEGIS_P4_FS_ROOT:-}"
+# Fixture-only seam, honoured ONLY when AEGIS_P4_FS_ROOT is set; live mode always uses the real systemctl.
+FIXTURE_SYSTEMCTL="${AEGIS_L6B_FIXTURE_SYSTEMCTL:-}"
+use_systemd() { [ -z "$ROOT" ] || [ -n "$FIXTURE_SYSTEMCTL" ]; }
+sysctl_do() {
+  if [ -z "$ROOT" ]; then systemctl "$@"; else "$FIXTURE_SYSTEMCTL" "$@"; fi
+}
 WORK="${AEGIS_L6B_WORK_DIR:-}"
 INPUT="${AEGIS_L6B_INPUT_DIR:-}"
 
@@ -63,9 +73,10 @@ for name in "${!MATERIAL_MODES[@]}"; do
   f="$mqtt_dir/$name"
   [ -f "$f" ] && [ ! -L "$f" ] || fail "MATERIAL_NOT_REGULAR:${name}"
   [ "$(stat -c '%a' "$f")" = "${MATERIAL_MODES[$name]}" ] || fail "MATERIAL_MODE_INVALID:${name}"
-  [ -n "$ROOT" ] || [ "$(stat -c '%U:%G' "$f")" = root:root ] || fail "MATERIAL_OWNER_INVALID:${name}"
+  [ -n "$ROOT" ] || [ "$(stat -c '%U:%G' "$f")" = "root:${MATERIAL_GROUPS[$name]}" ] || fail "MATERIAL_OWNER_INVALID:${name}"
 done
-[ -n "$ROOT" ] || [ "$(stat -c '%U:%G' "$mqtt_dir")" = root:root ] || fail MQTT_DIR_OWNER_INVALID
+[ -n "$ROOT" ] || [ "$(stat -c '%U:%G' "$mqtt_dir")" = "root:$BROKER_GROUP" ] || fail MQTT_DIR_OWNER_INVALID
+[ -n "$ROOT" ] || [ "$(stat -c '%U:%G' "$unit_dest")" = root:root ] || fail IDEA3_UNIT_OWNER_INVALID
 [ ! -e "$mqtt_dir/ca.key" ] || fail CA_PRIVATE_KEY_FORBIDDEN
 [ ! -e "$mqtt_dir/core.pass" ] && [ ! -e "$mqtt_dir/device.pass" ] || fail PLAINTEXT_PASSWORD_INSTALLED
 [ -z "$(awk -F: 'NF >= 2 && $2 !~ /^\$[0-9]+\$/' "$mqtt_dir/passwd")" ] || fail PASSWORD_DB_NOT_HASHED
@@ -96,16 +107,17 @@ cmp -s "$WORK/legacy-users.txt" "$WORK/legacy-users.current" || fail LEGACY_USER
 grep -qx 'aegis' "$WORK/legacy-users.current" || fail LEGACY_AEGIS_USER_MISSING
 
 live_probe=NOT_RUN_FIXTURE
-if [ -z "$ROOT" ]; then
-  systemctl is-active --quiet "$UNIT" || fail IDEA3_SERVICE_NOT_ACTIVE
-  systemctl is-enabled --quiet "$UNIT" || fail IDEA3_SERVICE_NOT_ENABLED
-  [ "$(systemctl show -p SubState --value "$UNIT")" = running ] || fail IDEA3_SERVICE_NOT_RUNNING
-  [ "$(systemctl show -p NRestarts --value "$UNIT")" = 0 ] || fail IDEA3_SERVICE_RESTARTED
+if use_systemd; then
+  sysctl_do is-active --quiet "$UNIT" || fail IDEA3_SERVICE_NOT_ACTIVE
+  sysctl_do is-enabled --quiet "$UNIT" || fail IDEA3_SERVICE_NOT_ENABLED
+  [ "$(sysctl_do show -p SubState --value "$UNIT")" = running ] || fail IDEA3_SERVICE_NOT_RUNNING
+  [ "$(sysctl_do show -p NRestarts --value "$UNIT")" = 0 ] || fail IDEA3_SERVICE_RESTARTED
 
-  systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p MainPID -p NRestarts -p ExecMainStartTimestamp \
+  sysctl_do show -p LoadState -p ActiveState -p SubState -p UnitFileState -p MainPID -p NRestarts -p ExecMainStartTimestamp \
     "$LEGACY_UNIT" > "$WORK/legacy-service.current" || fail LEGACY_SERVICE_READ_FAILED
   cmp -s "$WORK/legacy-service.txt" "$WORK/legacy-service.current" || fail LEGACY_SERVICE_CHANGED
-
+fi
+if [ -z "$ROOT" ]; then
   ss -H -ltn | awk '$4 ~ /:1883$/ { print $4 }' | LC_ALL=C sort -u > "$WORK/legacy-1883-listeners.current"
   cmp -s "$WORK/legacy-1883-listeners.txt" "$WORK/legacy-1883-listeners.current" || fail LEGACY_1883_CHANGED
 

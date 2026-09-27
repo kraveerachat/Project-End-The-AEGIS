@@ -23,6 +23,30 @@ l6b_consume_attempt() {
   l6b_reason "L6B_ATTEMPT_ALREADY_CONSUMED (one live attempt per authorization; obtain a fresh same-day authorization)"
 }
 
+# l6b_broker_prestate_gate UNIT [FS_ROOT] — the IDEA3 broker must be in the exact clean pre-attempt state BEFORE the
+# authorization is consumed: LoadState=not-found alone is NOT enough, because a previously failed unit keeps
+# not-found/failed/failed/exit-code runtime metadata after its file is gone (first live attempt, 2026-09-27).
+# Read-only: only `systemctl show`, `ss` and file tests are issued. It never runs reset-failed or any other systemctl
+# verb; cleaning residual state is a separately authorized bounded action.
+l6b_broker_prestate_gate() {
+  local unit=${1:-} root=${2:-} out k want got
+  [ -n "$unit" ] || { l6b_reason "L6B_BROKER_PRESTATE_UNIT_REQUIRED"; return 1; }
+  out=$(systemctl show -p LoadState -p ActiveState -p SubState -p Result -p MainPID -p NRestarts "$unit" 2>/dev/null) \
+    || { l6b_reason "L6B_BROKER_PRESTATE_UNREADABLE"; return 1; }
+  got=$(awk -F= '$1 == "LoadState" { print $2 }' <<< "$out")
+  [ "$got" = not-found ] || { l6b_reason "IDEA3_UNIT_ALREADY_LOADED:LoadState=$got"; return 1; }
+  for want in ActiveState=inactive SubState=dead Result=success MainPID=0 NRestarts=0; do
+    k=${want%%=*}
+    got=$(awk -F= -v k="$k" '$1 == k { print $2 }' <<< "$out")
+    [ "$got" = "${want#*=}" ] \
+      || { l6b_reason "L6B_RESIDUAL_FAILED_STATE_CLEANUP_REQUIRED=YES:$k=${got:-MISSING}"; return 1; }
+  done
+  [ ! -e "$root/etc/systemd/system/$unit" ] && [ ! -L "$root/etc/systemd/system/$unit" ] \
+    || { l6b_reason "IDEA3_UNIT_FILE_ALREADY_EXISTS"; return 1; }
+  $SUDO test ! -e "$root/etc/aegis-idea3/mqtt" || { l6b_reason "IDEA3_MQTT_DIR_ALREADY_EXISTS"; return 1; }
+  [ -z "$(ss -H -ltn "sport = :8883")" ] || { l6b_reason "IDEA3_8883_LISTENER_ALREADY_EXISTS"; return 1; }
+}
+
 # l6b_receipt_gate REPO — predecessor ACCEPTANCE proven by receipts read from the PINNED commit (HEAD == merged main),
 # never from the working tree. This proves historical acceptance only; current runtime state is gated separately.
 l6b_receipt_gate() {

@@ -4,6 +4,8 @@
 # Plaintext core.pass/device.pass are read transiently (by p4-broker-material.py) and are NEVER installed; only the
 # hashed Mosquitto password database is. It never edits/restarts/stops legacy mosquitto.service.
 # Every Production path is written to $WORK/journal.tsv BEFORE it is created so rollback.sh acts on exactly that set.
+# Ownership model (live finding 2026-09-27): everything stays root-owned, but the files the broker must open AFTER it drops
+# privileges to the mosquitto user are group-readable by the mosquitto group only (root:mosquitto, never group/other-writable).
 set -uo pipefail
 
 UNIT=aegis-idea3-mosquitto.service
@@ -26,6 +28,10 @@ P4_HERE="$(cd "$HERE/../.." && pwd)"
 UNIT_SOURCE="$(cd "$HERE/../../.." && pwd)/mosquitto/aegis-idea3-mosquitto.service.example"
 PY="${AEGIS_PYTHON_BIN:-python3}"
 ROOT="${AEGIS_P4_FS_ROOT:-}"
+BROKER_GROUP=mosquitto
+# Fixture-only seams, honoured ONLY when AEGIS_P4_FS_ROOT is set (live mode always uses the real systemctl/root:mosquitto).
+FIXTURE_SYSTEMCTL="${AEGIS_L6B_FIXTURE_SYSTEMCTL:-}"
+FIXTURE_GROUP="${AEGIS_L6B_FIXTURE_BROKER_GROUP:-}"
 WORK="${AEGIS_L6B_WORK_DIR:-}"
 INPUT="${AEGIS_L6B_INPUT_DIR:-}"
 JOURNAL=""
@@ -44,6 +50,23 @@ trap cleanup EXIT
 
 host_path() {
   if [ -n "$ROOT" ]; then printf '%s%s\n' "${ROOT%/}" "$1"; else printf '%s\n' "$1"; fi
+}
+
+# broker_identity_check: read-only. The group and the user must exist and the user's PRIMARY gid must equal the group's gid.
+# Supplementary group membership is deliberately NOT judged, and no account/group is ever created or modified here.
+broker_identity_check() {
+  local group_gid user_gid
+  group_gid=$(getent group "$BROKER_GROUP" | cut -d: -f3)
+  [ -n "$group_gid" ] || fail BROKER_GROUP_MISSING
+  getent passwd "$BROKER_GROUP" >/dev/null || fail BROKER_USER_MISSING
+  user_gid=$(id -g "$BROKER_GROUP" 2>/dev/null)
+  [ -n "$user_gid" ] && [ "$user_gid" = "$group_gid" ] || fail BROKER_USER_PRIMARY_GID_MISMATCH
+}
+
+# use_systemd: live, or a fixture that supplies a fake systemctl. sysctl_do runs exactly that systemctl.
+use_systemd() { [ -z "$ROOT" ] || [ -n "$FIXTURE_SYSTEMCTL" ]; }
+sysctl_do() {
+  if [ -z "$ROOT" ]; then systemctl "$@"; else "$FIXTURE_SYSTEMCTL" "$@"; fi
 }
 
 valid_ipv4() {
@@ -68,13 +91,20 @@ snapshot_tree() {
 
 journal() { printf '%s\t%s\n' "$1" "$2" >> "$JOURNAL" || fail JOURNAL_WRITE_FAILED; }
 
-# install_owned MODE SRC LOGICAL_DEST: journal, then install with least privilege (root:root live).
+# plan LOGICAL MODE GROUP: record the intended ownership (non-secret) so verify/tests can prove the model.
+plan() { printf '%s\t%s\troot:%s\n' "$1" "$2" "$3" >> "$WORK/ownership-plan.tsv" || fail OWNERSHIP_PLAN_WRITE_FAILED; }
+
+# install_owned MODE SRC LOGICAL_DEST GROUP: journal, then install root-owned with an explicit group.
+# GROUP is root (world-readable material) or $BROKER_GROUP (read by the privilege-dropped broker). Never group-writable.
 install_owned() {
-  local mode=$1 src=$2 logical=$3 dest
+  local mode=$1 src=$2 logical=$3 group=$4 dest
   dest=$(host_path "$logical")
   journal FILE "$logical"
+  plan "$logical" "${mode#0}" "$group"
   if [ -z "$ROOT" ]; then
-    install -m "$mode" -o root -g root -- "$src" "$dest" || fail "INSTALL_FAILED:${logical}"
+    install -m "$mode" -o root -g "$group" -- "$src" "$dest" || fail "INSTALL_FAILED:${logical}"
+  elif [ "$group" = "$BROKER_GROUP" ] && [ -n "$FIXTURE_GROUP" ]; then
+    install -m "$mode" -g "$FIXTURE_GROUP" -- "$src" "$dest" || fail "INSTALL_FAILED:${logical}"
   else
     install -m "$mode" -- "$src" "$dest" || fail "INSTALL_FAILED:${logical}"
   fi
@@ -152,10 +182,15 @@ done
 awk -F: '$1 == "aegis" { found=1 } END { exit !found }' "$legacy_passwd" || fail LEGACY_AEGIS_USER_MISSING
 
 if [ -z "$ROOT" ]; then
-  [ "$(systemctl show -p LoadState --value "$UNIT" 2>/dev/null)" = not-found ] || fail IDEA3_UNIT_ALREADY_LOADED
-  [ -z "$(ss -H -ltn | awk '$4 ~ /:8883$/ { print $4 }')" ] || fail PRESTATE_8883_LISTENER_EXISTS
-  systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p MainPID -p NRestarts -p ExecMainStartTimestamp \
+  broker_identity_check
+fi
+if use_systemd; then
+  [ "$(sysctl_do show -p LoadState --value "$UNIT" 2>/dev/null)" = not-found ] || fail IDEA3_UNIT_ALREADY_LOADED
+  sysctl_do show -p LoadState -p ActiveState -p SubState -p UnitFileState -p MainPID -p NRestarts -p ExecMainStartTimestamp \
     "$LEGACY_UNIT" > "$WORK/legacy-service.txt" || fail LEGACY_SERVICE_SNAPSHOT_FAILED
+fi
+if [ -z "$ROOT" ]; then
+  [ -z "$(ss -H -ltn | awk '$4 ~ /:8883$/ { print $4 }')" ] || fail PRESTATE_8883_LISTENER_EXISTS
   ss -H -ltn | awk '$4 ~ /:1883$/ { print $4 }' | LC_ALL=C sort -u > "$WORK/legacy-1883-listeners.txt"
 fi
 snapshot_tree "$legacy_dir" "$WORK/legacy-tree.sha256"
@@ -212,30 +247,41 @@ done
 printf 'PRODUCTION_MUTATION_PERFORMED=YES\n'
 printf 'YES\n' > "$WORK/production-mutation"
 
+printf 'path\tmode\towner\n' > "$WORK/ownership-plan.tsv" || fail OWNERSHIP_PLAN_WRITE_FAILED
 journal DIR "$MQTT_DIR"
+plan "$MQTT_DIR" 750 "$BROKER_GROUP"
 if [ -z "$ROOT" ]; then
-  install -d -m 0750 -o root -g root -- "$mqtt_dir" || fail MQTT_DIR_CREATE_FAILED
+  install -d -m 0750 -o root -g "$BROKER_GROUP" -- "$mqtt_dir" || fail MQTT_DIR_CREATE_FAILED
+elif [ -n "$FIXTURE_GROUP" ]; then
+  install -d -m 0750 -g "$FIXTURE_GROUP" -- "$mqtt_dir" || fail MQTT_DIR_CREATE_FAILED
 else
   install -d -m 0750 -- "$mqtt_dir" || fail MQTT_DIR_CREATE_FAILED
 fi
-install_owned 0640 "$rendered" "$CONFIG"
-install_owned 0640 "$STAGE_DIR/acl" "$ACL"
-install_owned 0600 "$STAGE_DIR/passwd" "$PASSWD"
-install_owned 0644 "$INPUT/ca.crt" "$CA"
-install_owned 0644 "$INPUT/broker.crt" "$CERT"
-install_owned 0600 "$INPUT/broker.key" "$KEY"
+install_owned 0640 "$rendered" "$CONFIG" "$BROKER_GROUP"
+install_owned 0640 "$STAGE_DIR/acl" "$ACL" "$BROKER_GROUP"
+install_owned 0640 "$STAGE_DIR/passwd" "$PASSWD" "$BROKER_GROUP"
+install_owned 0644 "$INPUT/ca.crt" "$CA" root
+install_owned 0644 "$INPUT/broker.crt" "$CERT" root
+install_owned 0640 "$INPUT/broker.key" "$KEY" "$BROKER_GROUP"
 rm -f -- "$STAGE_DIR/passwd"
 
 journal UNIT "$UNIT_DEST"
 if [ -z "$ROOT" ]; then
   install -D -m 0644 -o root -g root -- "$UNIT_SOURCE" "$unit_dest" || fail UNIT_INSTALL_FAILED
+  plan "$UNIT_DEST" 644 root
   journal SERVICE "$UNIT"
   systemctl daemon-reload || fail DAEMON_RELOAD_FAILED
   systemctl enable --now "$UNIT" || fail IDEA3_SERVICE_START_FAILED
 else
   mkdir -p "$(dirname "$unit_dest")"
   install -m 0644 -- "$UNIT_SOURCE" "$unit_dest" || fail UNIT_INSTALL_FAILED
+  plan "$UNIT_DEST" 644 root
   printf 'FIXTURE_ONLY\n' > "$WORK/mode"
+  if use_systemd; then
+    journal SERVICE "$UNIT"
+    sysctl_do daemon-reload || fail DAEMON_RELOAD_FAILED
+    sysctl_do enable --now "$UNIT" || fail IDEA3_SERVICE_START_FAILED
+  fi
 fi
 
 # ── 9. non-secret apply manifest (digests only for non-secret material) ─────────────────────────────────────────────

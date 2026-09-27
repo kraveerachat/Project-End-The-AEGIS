@@ -69,6 +69,15 @@ edit_policy: owner-writable
 - **Open before any live L6b:** owner freeze of the runner at the merged main SHA; fresh JIT input; fresh sudo-authenticated read-only proof of nft/PF-01; L3/L4 reactivation by their own authorized workflow; same-day A-L6b and K3. Known live risk: root-owned material versus Mosquitto privilege drop (design §13).
 - Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6b-operational-design.md`. Receipt: `90-Status/logs/2026-09-27_014500_music_idea3-pr11-l6b-live-preparation.md`.
 
+## IDEA3 PR11 Phase 4 L6b live attempt 1 FAILED and rolled back; repository remediation — 2026-09-27
+
+> [!important] L6b is NOT accepted. The first owner-run attempt (`2026-09-27-l6b-20260927-100548`) applied PASS, then verify failed `IDEA3_SERVICE_NOT_ACTIVE`, and rollback removed every L6b path/listener. Its authorization is CONSUMED and must never be reused. This remediation is repository-only: no Production mutation, no new authorization.
+> `L6B_LIVE_EXECUTED = YES (failed, rolled back)`, `L6B_LIVE_ACCEPTANCE = NOT PROVEN`, `L6B_LIVE_AUTHORIZED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Cause:** Mosquitto 2.1.2 dropped to `mosquitto` (958) and could not open `passwd` (`root:root 0600`); `broker.key` was `0600` as well. PRE→RB also drifted on retained failed systemd metadata for the IDEA3 unit.
+- **Remediation (fixture-tested):** `root:mosquitto` 0750 dir and 0640 conf/acl/passwd/broker.key, certificates `root:root 0644`, no widening; rollback adds `reset-failed aegis-idea3-mosquitto.service` (only, after removal + daemon-reload) and proves `not-found/inactive/dead/success`. Comparator stays strict.
+- **Open before any new live L6b:** merge this fix, owner freeze at the new main, fresh JIT input, fresh same-day A-L6b and K3. Design §13. Receipt: `90-Status/logs/2026-09-27_110130_music_idea3-pr11-l6b-live-attempt1-broker-group-remediation.md`.
+
 ## IDEA3 PR11 Phase 4 L6a live acceptance — PROVEN (one attempt), isolated validation left no residue — 2026-09-27
 
 > [!important] Owner-run L6a executed once on 2026-09-27 and passed. It was an isolated loopback validation; nothing is left applied. This closeout is documentation-only and performs no Production mutation. L6b is NOT started; no ESP32 was touched.
