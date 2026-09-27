@@ -656,10 +656,40 @@ if run_ro 0 twingate twingate status; then
 else
   p4_rec "$HOST" host.twingate.status UNAVAILABLE
 fi
-for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /etc/aegis-idea3/mqtt /opt/aegis-idea3/current /var/lib/aegis-idea3 \
-  /run/aegis-idea3 /var/log/aegis-idea3; do
+for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /etc/aegis-idea3/mqtt /opt/aegis-idea3 /opt/aegis-idea3/current \
+  /opt/aegis-idea3/releases /var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3; do
   if [ -e "$(p4_fs "$p")" ]; then p4_rec "$HOST" "host.path.$p" present; else p4_rec "$HOST" "host.path.$p" absent; fi
 done
+# L6c (immutable release install): a deterministic, non-secret fingerprint of the release catalog under
+# /opt/aegis-idea3/releases/<id>/. The value is exactly "<id>:<sha256>" pairs (sorted by id, comma-joined), where
+# <sha256> is the digest of that release's OWN RELEASE-SHA256SUMS file (its provenance already commits to every payload
+# file's own hash, per p4-l7-release-guard.py's contract) — never file contents, never a filename beyond the release id.
+releases_root=$(p4_fs /opt/aegis-idea3/releases)
+if [ -d "$releases_root" ]; then
+  ids=""
+  if run_ro 1 l6c-releases-listdir find "$releases_root" -mindepth 1 -maxdepth 1 -type d; then
+    ids=$(printf '%s\n' "$P4_OUT" | xargs -r -n1 basename | LC_ALL=C sort)
+  else
+    partial=1
+  fi
+  catalog="" first=1
+  while IFS= read -r rid; do
+    [ -n "$rid" ] || continue
+    sums="$releases_root/$rid/RELEASE-SHA256SUMS"
+    if [ -f "$sums" ]; then
+      h=$(p4_sha256 "$sums")
+      [ "$h" = UNREADABLE ] && partial=1
+    else
+      h=MISSING
+    fi
+    [ "$first" = 1 ] || catalog+=","
+    catalog+="$rid:$h"
+    first=0
+  done <<< "$ids"
+  p4_rec "$HOST" host.aegis_idea3.release_catalog "${catalog:-<empty>}"
+else
+  p4_rec "$HOST" host.aegis_idea3.release_catalog absent
+fi
 if [ -L "$(p4_fs /opt/aegis-idea3/current)" ]; then
   if run_ro 0 readlink-current readlink -- "$(p4_fs /opt/aegis-idea3/current)"; then
     p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target "$P4_OUT"

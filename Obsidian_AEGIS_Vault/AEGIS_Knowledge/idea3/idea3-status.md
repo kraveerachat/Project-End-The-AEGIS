@@ -18,6 +18,17 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L6c "Immutable Release Install" — new governed stage, repository only — 2026-09-27
+
+> [!important] Repository design/implementation only. L6c has NOT run, is NOT authorized, and no Production state changed. L7 remains separately gated; L6c PASS does NOT authorize L7. No A-L6c, K3, A-L7, D6, or Production secret was created; L8 has NOT started.
+> `PRE_L7_RELEASE_INSTALL_GOVERNANCE = SEPARATE_G15_STAGE`, `L6C_STAGE = IMPLEMENTED_REPOSITORY`, `L6C_LIVE_AUTHORIZED = NO`, `L6C_LIVE_EXECUTED = NO`, `A_L6C_CREATED = NO`, `K3_L6C_CREATED = NO`, `IMMUTABLE_RELEASE_INSTALLED_LIVE = NO`, `L7_LIVE_EXECUTED = NO`, `A_L7_CREATED = NO`, `K3_L7_CREATED = NO`, `D6_ISSUED = NO`, `PRODUCTION_SECRETS_CREATED = NO`, `L8_STARTED = NO`
+
+- **Owner decision approved:** a separate G-15 stage, `L6c` / "Immutable Release Install", registered in `P4_STAGES` between L6b and L7, with its own `A-L6c` and fresh `stage=L6c` K3 — never combined with `A-L7` or any other stage's K3 (`p4-stage-gate.sh`'s `stage=` match already enforces this structurally). `p4_stage_gaps L6c = none`: it installs code only, never a protocol key or a Core credential.
+- **G-15 capture/compare gap closed first.** `p4-l0-capture.sh` was blind to `/opt/aegis-idea3/releases/<id>` (RED: 18 failed). Now records two fixed presence keys plus a deterministic, non-secret `host.aegis_idea3.release_catalog` fingerprint; a new opt-in `ALLOW_L6C_RELEASE_FILE` in `p4-compare.sh` approves only the addition of one named new release id and can never launder a mutation or removal of an existing release (GREEN: 22 passed).
+- **Handler:** `stages/L6c/{apply,verify,rollback}.sh` call the already-merged `p4-l7-install-release.py`/`p4-l7-release-guard.py` without duplicating their predicates; mutation boundary is exactly `/opt/aegis-idea3/releases/<id>` plus parent dirs it creates; never touches `current`, credentials, systemd, the L6b broker, IDEA2, ESP32 or L8.
+- **Owner runner:** `p4-l6c-run-lib.sh` + `owner-run/run-l6c-owner.sh`, unpinned (main SHA, release id, expected source SHA), one attempt per `A-L6c`, all gates before consumption, bounded rollback with zero-drift PRE→RB.
+- **L7 relationship:** `L6C_RELEASE_INSTALL = PROVEN` is a prerequisite fact, not an authorization; L7 still independently re-runs the release guard read-only before consuming a fresh `A-L7`. Receipt: `90-Status/logs/2026-09-27_181656_music_idea3-pr11-l6c-release-install-governance.md`.
+
 ## IDEA3 PR11 Phase 4 L7 live preparation — main reconciled after PR #208 merge; release-install gap closed in repository — 2026-09-27
 
 > [!important] Repository preparation only. L7 has NOT run, is NOT authorized, and no Production state changed. No A-L7, K3 or D6 exists; no Production secret was created; L8 has NOT started.

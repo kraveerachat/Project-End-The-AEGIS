@@ -509,4 +509,12 @@ Still open before any live L7 (not repository-fixable): an installed release, th
 
 **Ownership-contract correctness fix (2026-09-27, same day).** The builder always produces a USER-OWNED staging directory (PR #208 never runs as root); the installed immutable release must be ROOT-owned (§6 item 5). The installer therefore validates the SOURCE at `--expect-owner any` (hard-coded, not a CLI choice) and the STAGED COPY plus the FINAL installed release at `--expect-owner root` **by default**. That default is never weakened by a general CLI switch; the sole exception, `--fixture-dest-owner-any`, is refused outright unless `--host-root` (a fixture filesystem root) is also given, so tests can prove every other guard property without running as root while the live default stays strict.
 
+**Resolved (2026-09-27, same day): the release-install governance gap now has an owner decision.** The owner approved a
+separate G-15 stage, `L6c` "Immutable Release Install" (design:
+`docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6c-release-install-governance.md`), between L6b and L7, with its own
+`A-L6c` and a fresh `stage=L6c` K3 — never `A-L7`, never an L7 K3, and vice versa. `L6C_RELEASE_INSTALL = PROVEN` is a
+prerequisite FACT for a live L7 attempt once a live L6c run succeeds; it is never itself an authorization, and L7's own
+`l7_release_gate` still independently re-runs the release guard read-only before consuming `A-L7`. The paragraph below,
+describing this installer with no owner-run wrapper, is superseded: that wrapper is `owner-run/run-l6c-owner.sh`.
+
 **Governance gap, not repository-fixable.** This installer has no owner-run wrapper. `p4-lib.sh` fixes `P4_STAGES = "L0 L1 L2 L3 L4 L5 L6a L6b L7 L8 L9"` and `p4-stage-gate.sh` authorizes only those stage names; there is no existing stage id, authorization field, or K3 contract for a pre-L7 release-install mutation, and this task does not invent one (per §6 item 5's already-flagged "owner decision on the release installer"). Before any live use the owner must decide between registering a new G-15 stage for it or folding it into `A-L7` with an explicit new authorization field. Until then it is a tested repository capability only.
