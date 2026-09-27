@@ -65,3 +65,25 @@ export function collisionStepProblem(entries, decisions, nameProblem) {
   }
   return null
 }
+
+/**
+ * PR220-R2 B3 — editable proposal for "Recover with a new name". Same TREE semantics
+ * (collisionKey = NFC + case fold): the original name when it is free in the destination,
+ * otherwise "base (n).ext" with the smallest n ≥ 2 that no sibling uses. Presentation help
+ * only — nothing is committed until the Human confirms the (possibly edited) name.
+ * @param {string} name decrypted orphan name
+ * @param {string[]} siblingNames active names already in the destination folder
+ * @returns {string}
+ */
+export function suggestRecoveryName(name, siblingNames) {
+  const taken = new Set((siblingNames ?? []).map((s) => collisionKey(s)))
+  if (!taken.has(collisionKey(name))) return name
+  const [base, ext] = splitExtension(name)
+  let n = 2
+  let candidate = `${base} (${n})${ext}`
+  while (taken.has(collisionKey(candidate))) {
+    n += 1
+    candidate = `${base} (${n})${ext}`
+  }
+  return candidate
+}

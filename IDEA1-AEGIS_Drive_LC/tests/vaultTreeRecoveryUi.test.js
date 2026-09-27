@@ -75,6 +75,12 @@ async function tick(times = 3) {
   for (let i = 0; i < times; i += 1) await settle()
 }
 
+/** PR220-R2 B1: the orphan list is a compact summary until the Human expands it */
+async function expandOrphans() {
+  const toggle = q('[data-testid="vault-tree-orphans-toggle"]')
+  if (toggle && toggle.getAttribute('aria-expanded') !== 'true') await click(dom, toggle)
+}
+
 async function mountUnlocked() {
   const h = env.mount()
   await h.render(React.createElement((await env.load('/src/screens/Vault.jsx')).Vault, { t }))
@@ -141,6 +147,7 @@ test('RP-3 orphan blobs: decrypted names listed, recover attaches to the chosen 
   try {
     const panel = q('[data-testid="vault-tree-recovery"]')
     assert.ok(panel, 'the recovery panel renders')
+    await expandOrphans()
     const orphans = q('[data-testid="vault-tree-orphans"]')
     assert.ok(orphans, 'the orphan section renders')
     assert.ok(orphans.textContent.includes('orphan.bin'), 'the decrypted orphan name is shown')
@@ -194,6 +201,7 @@ test('RP-5 orphan copy says the upload finished but is not yet linked; Refresh i
   fakeTree = await createFakeTreeServer({ kek, blobs: ORPHANS.slice(0, 1) })
   const h = await mountUnlocked()
   try {
+    await expandOrphans()
     const section = q('[data-testid="vault-tree-orphans"]')
     assert.ok(section.textContent.includes(t('vaultTreeOrphansDescription')), 'truthful explanation shown')
     assert.match(t('vaultTreeOrphansDescription'), /upload finished/i)
@@ -226,6 +234,7 @@ test('RP-6 Recover all attaches sequentially to the Vault root; a collision stay
   }
   const h = await mountUnlocked()
   try {
+    await expandOrphans()
     assert.equal(orphanRows().length, 3)
     const all = buttonText(t('vaultTreeOrphanRecoverAll'))
     assert.ok(all, 'a bulk "Recover all to Vault" action exists')
@@ -264,6 +273,73 @@ test('RP-7 Lock during bulk recovery aborts the remaining items', async () => {
     await tick(8)
     assert.ok(headPosts() <= 1, `no further item is committed after lock (head posts: ${headPosts()})`)
     assert.ok(!doc().body.textContent.includes('b.txt'), 'no plaintext orphan names after lock')
+  } finally {
+    await h.unmount()
+  }
+})
+
+/* ── PR220-R2 B: compact panel, truthful collision copy, recover with a confirmed new name ── */
+const nonTreePosts = () => backend.requests.filter((r) => (r.method === 'POST' || r.method === 'UPLOAD_TRANSPORT') && !String(r.path).startsWith('/api/vault/tree/'))
+
+test('RP-8 orphans collapse into a compact "pending recovery (n)" summary until expanded', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: ORPHANS })
+  const h = await mountUnlocked()
+  try {
+    const toggle = q('[data-testid="vault-tree-orphans-toggle"]')
+    assert.ok(toggle, 'a summary toggle exists')
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false', 'collapsed by default')
+    assert.ok(toggle.textContent.includes(t('vaultTreeOrphansSummary', { count: 3 })), 'summary shows the count')
+    assert.equal(orphanRows().length, 0, 'rows are not rendered while collapsed')
+    assert.ok(buttonText(t('vaultTreeOrphanRecoverAll')), 'Recover all stays reachable while collapsed')
+    await click(dom, toggle)
+    assert.equal(q('[data-testid="vault-tree-orphans-toggle"]').getAttribute('aria-expanded'), 'true')
+    assert.equal(orphanRows().length, 3, 'expanding shows the details')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('RP-9 a collision says the name already exists in this folder and offers Recover with a new name', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: [ORPHANS[0], ORPHANS[2]] })
+  const h = await mountUnlocked()
+  try {
+    await click(dom, buttonText(t('vaultTreeOrphanRecoverAll')))
+    await tick(10)
+    const rows = orphanRows()
+    assert.equal(rows.length, 1, 'bulk leaves only the colliding item (no silent auto-rename)')
+    assert.ok(rows[0].textContent.includes(t('vaultTreeOrphanPendingCollision')))
+    assert.match(makeT('th')('vaultTreeOrphanPendingCollision'), /มีไฟล์ชื่อนี้อยู่ในโฟลเดอร์นี้แล้ว/)
+    assert.doesNotMatch(t('vaultTreeOrphanPendingCollision'), /fail/i, 'a collision is not an upload failure')
+    assert.ok(rows[0].querySelector('[data-testid="vault-tree-orphan-recover-rename"]'), 'Recover with a new name is offered')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('RP-10 Recover with a new name: editable suggestion, commits only on confirm, attaches the existing blob', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: [ORPHANS[0], ORPHANS[2]] })
+  const h = await mountUnlocked()
+  try {
+    await click(dom, buttonText(t('vaultTreeOrphanRecoverAll')))
+    await tick(10)
+    const headsBefore = headPosts()
+    const postsBefore = nonTreePosts().length
+    await click(dom, q('[data-testid="vault-tree-orphan-recover-rename"]'))
+    const input = q('[role="dialog"] input')
+    assert.equal(input.value, 'A (2).TXT', 'deterministic case-fold suggestion, extension preserved')
+    assert.equal(headPosts(), headsBefore, 'opening the dialog commits nothing')
+    // editable: a colliding edit keeps Recover disabled
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+    await act(async () => { setter.call(input, 'a.TXT'); input.dispatchEvent(new dom.window.Event('input', { bubbles: true })) })
+    assert.equal(q('[data-testid="vault-dialog-submit"]').disabled, true, 'a colliding edit cannot be confirmed')
+    await act(async () => { setter.call(input, 'renamed.txt'); input.dispatchEvent(new dom.window.Event('input', { bubbles: true })) })
+    await click(dom, q('[data-testid="vault-dialog-submit"]'))
+    await tick(6)
+    assert.equal(headPosts() - headsBefore, 1, 'exactly one CAS attach')
+    assert.equal(nonTreePosts().length, postsBefore, 'no ciphertext re-upload')
+    assert.ok(qa('[data-testid="vault-file-tile"]').some((el) => el.textContent.includes('renamed.txt')), 'recovered under the confirmed name')
+    assert.equal(orphanRows().length, 0, 'the recovered orphan disappears after the authoritative refresh')
+    assert.deepEqual(deletes(), [], 'nothing deleted, nothing overwritten')
   } finally {
     await h.unmount()
   }

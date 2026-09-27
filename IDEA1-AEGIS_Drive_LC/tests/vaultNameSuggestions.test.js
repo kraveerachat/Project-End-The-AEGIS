@@ -6,7 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { suggestCollisionNames } from '../src/lib/vaultNameSuggestions.js'
+import { suggestCollisionNames, suggestRecoveryName } from '../src/lib/vaultNameSuggestions.js'
 import { collisionKey } from '../src/lib/vaultTreeManifest.js'
 
 const entry = (name, id) => ({ name, blobRef: { formatVersion: 1, id } })
@@ -47,4 +47,16 @@ test('SUGGEST-3 suggestions never collide with any other name in the plan (case-
 
 test('SUGGEST-4 a plan without collisions suggests nothing', () => {
   assert.equal(suggestCollisionNames(planOf(['a.txt', 'b.txt'])).size, 0)
+})
+
+/* ── PR220-R2 B3: recovery "Recover with a new name" suggestion ─────────────── */
+test('SUGGEST-5 recovery suggestion: TREE collision semantics, extension preserved, deterministic', () => {
+  assert.equal(suggestRecoveryName('IMG_3107.JPG', ['img_3107.jpg']), 'IMG_3107 (2).JPG', 'case-fold collision → (2), extension kept')
+  assert.equal(suggestRecoveryName('IMG_3107.JPG', ['IMG_3107.JPG', 'img_3107 (2).JPG']), 'IMG_3107 (3).JPG', 'skips a used suffix case-insensitively')
+  assert.equal(suggestRecoveryName('IMG_3107.JPG', ['IMG_3107.JPG']), suggestRecoveryName('IMG_3107.JPG', ['IMG_3107.JPG']), 'deterministic')
+  const nfd = 'CAFÉ.JPG'
+  const out = suggestRecoveryName(nfd, ['café.jpg'])
+  assert.notEqual(collisionKey(out), collisionKey('café.jpg'), 'NFC/NFD twin is renamed')
+  assert.ok(out.endsWith('.JPG'))
+  assert.equal(suggestRecoveryName('new.jpg', ['other.jpg']), 'new.jpg', 'no collision → keep the original name')
 })

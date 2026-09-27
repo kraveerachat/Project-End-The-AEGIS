@@ -8,13 +8,20 @@
 // ⚠️ PR220-R1: orphan คือ "อัปโหลดเสร็จแล้วแต่ยังไม่ถูกเชื่อมเข้าโครงสร้างโฟลเดอร์" — ไม่ใช่อัปโหลดล้มเหลว
 //    และไม่ถูกซ่อน/ลบเพื่อให้จอดูสะอาด "กู้ทั้งหมด" ผูกเข้าโฟลเดอร์หลักทีละรายการ (ไม่มี CAS พร้อมกัน)
 //    ผ่าน recoverOrphan เดิม รายการที่ชนชื่อคงอยู่พร้อมเหตุผล ล็อก/unmount = ยกเลิกรายการที่เหลือทันที
+// ⚠️ PR220-R2: แผงย่อเป็นสรุป "รายการรอกู้คืน (n)" จนกว่าจะกดขยาย — ไม่ให้การกู้คืนกินพื้นที่ทำงานปกติ
+//    รายการที่ชนชื่อ = "มีไฟล์ชื่อนี้อยู่ในโฟลเดอร์นี้แล้ว" (ไม่ใช่อัปโหลดล้มเหลว) + "กู้ด้วยชื่อใหม่":
+//    ชื่อที่เสนอใช้ collisionKey เดียวกับ TREE, แก้ไขได้, ไม่มีอะไร commit จนกว่า Human ยืนยัน และยังเป็น
+//    attach blob เดิม (ไม่อัปโหลด ciphertext ใหม่ ไม่เขียนทับ ไม่ลบ) — กู้ทั้งหมดไม่เปลี่ยนชื่อเองเด็ดขาด
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { ChevronDown, RefreshCw } from 'lucide-react'
 import { Btn, IconBtn } from '../ui.jsx'
 import { MoveDialog } from './VaultDialogs.jsx'
+import { NameEntryDialog } from '../NameEntryDialog.jsx'
 import { listOrphanBlobs, recoverOrphan } from '../../lib/vaultTreeUpload.js'
 import * as treeApi from '../../lib/vaultTreeApi.js'
-import { childrenOf } from '../../lib/vaultTreeManifest.js'
+import { childrenOf, collisionKey, nameProblem } from '../../lib/vaultTreeManifest.js'
+import { suggestRecoveryName } from '../../lib/vaultNameSuggestions.js'
+import { VAULT_TREE_CLIENT_LIMITS } from '../../lib/vaultTreeLimits.js'
 
 /** ตัวเลือกโฟลเดอร์สำหรับ Move/Restore/Recover: โฟลเดอร์ active ทั้งหมดยกเว้นตัวที่ถูกเลือกและลูกหลาน */
 export function vaultTreeFolderOptions(index, rootId, excludeIds) {
@@ -41,7 +48,9 @@ export function VaultRecoveryPanel({
   const [orphans, setOrphans] = useState(null)
   const [repairBusy, setRepairBusy] = useState(false)
   const [chooser, setChooser] = useState(null)
-  const [pending, setPending] = useState(() => new Map())   // refKey → เหตุผลที่ยังกู้ไม่ได้ (โค้ดจริง)
+  const [pending, setPending] = useState(() => new Map())   // refKey → { reason, destinationNodeId } ที่ยังกู้ไม่ได้ (โค้ดจริง)
+  const [expanded, setExpanded] = useState(false)
+  const [renaming, setRenaming] = useState(null)             // { orphan, destinationNodeId, name }
   const [bulk, setBulk] = useState(null)                     // { done, total } ระหว่างกู้ทั้งหมด
   const bulkAbortRef = useRef(null)
   const head = tree.state.head
@@ -74,8 +83,8 @@ export function VaultRecoveryPanel({
   }
 
   /** กู้หนึ่งรายการ — คืน true เมื่อผูกสำเร็จ; ไม่สำเร็จ = คงอยู่ในรายการพร้อมเหตุผล (ไม่ลบ ciphertext) */
-  const attachOne = async (orphan, destinationNodeId, signal = null) => {
-    const name = orphan.name ?? `orphan-${String(orphan.blobRef.id).slice(0, 8)}`
+  const attachOne = async (orphan, destinationNodeId, signal = null, confirmedName = null) => {
+    const name = confirmedName ?? orphan.name ?? `orphan-${String(orphan.blobRef.id).slice(0, 8)}`
     const key = refKeyOf(orphan.blobRef)
     let reason = null
     try {
@@ -90,19 +99,34 @@ export function VaultRecoveryPanel({
     }
     setPending((prev) => {
       const next = new Map(prev)
-      if (reason) next.set(key, reason)
+      if (reason) next.set(key, { reason, destinationNodeId })
       else next.delete(key)
       return next
     })
     return reason === null
   }
 
-  const recover = async (orphan, destinationNodeId) => {
-    if (await attachOne(orphan, destinationNodeId)) {
+  const recover = async (orphan, destinationNodeId, confirmedName = null) => {
+    if (await attachOne(orphan, destinationNodeId, null, confirmedName)) {
       await refreshOrphans()
       onRepaired?.()
     }
   }
+
+  /** ชื่อ active ในโฟลเดอร์ปลายทาง — ชุดเดียวกับที่ TREE ใช้ตัดสิน COLLISION */
+  const siblingNamesOf = (parentNodeId) => (head
+    ? childrenOf(head.index, parentNodeId, { view: 'active' }).map((c) => c.name)
+    : [])
+  const openRename = (orphan, destinationNodeId) => {
+    setRenaming({ orphan, destinationNodeId, name: suggestRecoveryName(orphan.name, siblingNamesOf(destinationNodeId)) })
+  }
+  const renameProblem = (() => {
+    if (!renaming) return null
+    if (!renaming.name) return 'empty'
+    if (nameProblem(renaming.name, VAULT_TREE_CLIENT_LIMITS)) return 'invalid'
+    const key = collisionKey(renaming.name)
+    return siblingNamesOf(renaming.destinationNodeId).some((n) => collisionKey(n) === key) ? 'collision' : null
+  })()
 
   // กู้ทั้งหมดเข้าโฟลเดอร์หลัก: ทีละรายการตามลำดับ (session.commit แต่ละครั้งต่อยอด head ล่าสุด)
   const recoverAll = async () => {
@@ -121,6 +145,7 @@ export function VaultRecoveryPanel({
       setBulk((b) => (b ? { ...b, done: b.done + 1 } : b))
     }
     setBulk(null)
+    setExpanded(true)   // เหตุผลของรายการที่ยังค้างต้องมองเห็นได้ทันที
     // ความจริงจากเซิร์ฟเวอร์เป็นผู้ตัดสินว่าอะไรหายจากรายการ — ไม่ลบแถวเองจากผลฝั่ง client
     await refreshOrphans()
     if (attached > 0) onRepaired?.()
@@ -157,8 +182,22 @@ export function VaultRecoveryPanel({
       )}
       {!bothBad && (
         <div data-testid="vault-tree-orphans" className="mb-3">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h3 className="text-[13px] font-semibold text-ink">{t('vaultTreeOrphansTitle')}</h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            {orphans?.length > 0 ? (
+              <button
+                type="button"
+                data-testid="vault-tree-orphans-toggle"
+                aria-expanded={expanded ? 'true' : 'false'}
+                aria-controls="vault-tree-orphans-details"
+                onClick={() => setExpanded((v) => !v)}
+                className="inline-flex items-center gap-1.5 rounded-full px-1 -mx-1 text-[13px] font-semibold text-ink cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+              >
+                <ChevronDown size={14} strokeWidth={1.8} aria-hidden="true" className={`transition-transform duration-[var(--dur-fast)] ${expanded ? '' : '-rotate-90'}`} />
+                {t('vaultTreeOrphansSummary', { count: orphans.length })}
+              </button>
+            ) : (
+              <h3 className="text-[13px] font-semibold text-ink">{t('vaultTreeOrphansTitle')}</h3>
+            )}
             <IconBtn label={t('vaultTreeOrphansRefresh')} onClick={() => void refreshOrphans()} disabled={Boolean(bulk)}>
               <RefreshCw size={13} strokeWidth={1.6} />
             </IconBtn>
@@ -176,15 +215,16 @@ export function VaultRecoveryPanel({
               </Btn>
             )}
           </div>
-          {orphans?.length > 0 && (
-            <p className="text-[12px] text-ink-2 leading-relaxed mb-2">{t('vaultTreeOrphansDescription')}</p>
+          {orphans?.length > 0 && expanded && (
+            <p className="text-[12px] text-ink-2 leading-relaxed mt-2 mb-2">{t('vaultTreeOrphansDescription')}</p>
           )}
           {orphans === null ? null : orphans.length === 0 ? (
-            <p className="text-[12px] text-ink-3">{t('vaultTreeOrphansEmpty')}</p>
-          ) : (
-            orphans.map((o) => {
+            <p className="text-[12px] text-ink-3 mt-1">{t('vaultTreeOrphansEmpty')}</p>
+          ) : expanded && (
+            <div id="vault-tree-orphans-details">{orphans.map((o) => {
               const key = refKeyOf(o.blobRef)
-              const reason = pending.get(key) ?? null
+              const entry = pending.get(key) ?? null
+              const reason = entry?.reason ?? null
               return (
                 <div key={key} data-testid="vault-tree-orphan-row" className="flex items-center gap-3 py-1.5">
                   <div className="min-w-0 flex-1">
@@ -195,6 +235,17 @@ export function VaultRecoveryPanel({
                       </span>
                     )}
                   </div>
+                  {reason === 'COLLISION' && o.name && (
+                    <Btn
+                      size="sm"
+                      variant="primary"
+                      data-testid="vault-tree-orphan-recover-rename"
+                      disabled={tree.keyDegraded || Boolean(bulk)}
+                      onClick={() => openRename(o, entry.destinationNodeId)}
+                    >
+                      {t('vaultTreeOrphanRecoverRename')}
+                    </Btn>
+                  )}
                   <Btn
                     size="sm"
                     variant="outline"
@@ -206,7 +257,7 @@ export function VaultRecoveryPanel({
                   </Btn>
                 </div>
               )
-            })
+            })}</div>
           )}
         </div>
       )}
@@ -226,6 +277,30 @@ export function VaultRecoveryPanel({
             void recover(chosen, dest)
           }}
           unlockedState={unlockedState}
+        />
+      )}
+      {renaming && (
+        <NameEntryDialog
+          open
+          onClose={() => setRenaming(null)}
+          onSubmit={() => {
+            const { orphan, destinationNodeId, name } = renaming
+            setRenaming(null)
+            void recover(orphan, destinationNodeId, name)
+          }}
+          id="vault-orphan-rename"
+          title={t('vaultTreeOrphanRecoverRename')}
+          label={t('colName')}
+          submitLabel={t('vaultTreeOrphanRenameSubmit')}
+          cancelLabel={t('cancel')}
+          closeLabel={t('close')}
+          value={renaming.name}
+          onChange={(name) => setRenaming((r) => (r ? { ...r, name } : r))}
+          canSubmit={renameProblem === null}
+          problem={renameProblem === 'collision' ? t('vaultTreeNameCollision') : renameProblem === 'invalid' ? t('vaultTreeNameEmpty') : null}
+          inputTestId="vault-dialog-name-input"
+          submitTestId="vault-dialog-submit"
+          problemTestId="vault-dialog-error"
         />
       )}
     </div>
