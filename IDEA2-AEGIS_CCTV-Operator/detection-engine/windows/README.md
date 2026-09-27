@@ -205,10 +205,17 @@ service while preserving the existing per-user Python 3.14 installation.
 H0-2R is a prerequisite only: it does not install Agent dependencies or modify
 Agent, Engine, tunnel, camera, or Production state.
 
-After the proposed install, `py.exe -0p`, exact 3.12.10/x64/path assertions,
+The corrected installer subsequently exited zero and produced the exact
+3.12.10 x64 runtime under `C:\Program Files\Python312`. Its Burn maintenance
+entry is in HKCU while the selected all-users MSI components are registered in
+HKLM; the earlier runbook incorrectly required the Burn bundle GUID itself in
+HKLM. That location mismatch is a Human Gate registration-model defect, not
+evidence of a per-user runtime. The bounded continuation requires one exact HKCU
+bundle entry, the seven exact expected HKLM PSF component registrations, no
+additional matching registration, `py.exe -0p`, exact 3.12.10/x64/path proof,
 and the hash-bound original Python 3.14, PATH, launcher, and Store-alias
-baseline must all pass. H0-2 is then repeated and returned to ChatGPT. H0-3
-remains blocked until that evidence is accepted. A
+baseline. H0-2 is then repeated and returned to ChatGPT. H0-3 remains blocked
+until that evidence is accepted. A
 Python-3.12-only rollback through the same revalidated official installer is
 prepared for use before H1; it must not remove Python 3.14 or the existing
 launcher.

@@ -192,6 +192,18 @@ This was a runbook/native-argument quoting defect, not proof that the manifest
 or installer was inapplicable. The superseded WinGet install command must not
 be retried.
 
+The corrected direct install exposed a separate registration-model assumption.
+CPython 3.12.10's WiX Burn bundle keeps its maintenance entry in the invoking
+user's HKCU, while `InstallAllUsers=1` selects the `*_AllUsers` MSI packages
+that the CPython bundle authoring marks `ForcePerMachine="yes"`. Therefore the
+bundle GUID is expected bootstrapper metadata, not proof of machine scope. The
+machine-wide authority is the exact PSF MSI component set registered in HKLM,
+combined with the exact Program Files runtime/version/bitness proof. H0-2R-2F,
+H0-2R-3, and H0-2R-4 use that split model and reject any additional matching
+3.12.10 x64 registration. See the official CPython 3.12.10
+[`bundle.wxs`](https://github.com/python/cpython/blob/v3.12.10/Tools/msi/bundle/bundle.wxs)
+and [`core` package group](https://github.com/python/cpython/blob/v3.12.10/Tools/msi/bundle/packagegroups/core.wxs).
+
 ###### H0-2R-1 — read-only package and preservation snapshot
 
 - Purpose: bind the proposed prerequisite to the exact WinGet manifest and
@@ -267,11 +279,44 @@ $UnattendPath = Join-Path $StagingRoot 'unattend.xml'
 $BaselinePath = Join-Path $StagingRoot 'pre-install-baseline.json'
 $ExpectedPython312Root = 'C:\Program Files\Python312'
 $ExpectedPython312Path = Join-Path $ExpectedPython312Root 'python.exe'
-$ExpectedProductCode = '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}'
-$ProductKeys = @(
-  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode",
-  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode"
+$RegistrationRoots = @(
+  [pscustomobject]@{ Scope='HKCU'; Path='Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' },
+  [pscustomobject]@{ Scope='HKLM64'; Path='Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' },
+  [pscustomobject]@{ Scope='HKLM32'; Path='Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall' }
 )
+$ExpectedRegistrationCodes = @(
+  '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}',
+  '{0158093D-F809-455B-9429-6D16A4B5D118}',
+  '{18DF3488-2245-432B-A023-3AA05C2A00C8}',
+  '{75485683-EF03-41E6-BF21-D1491694548C}',
+  '{9D09C9EF-A57C-422A-B79A-CC922079653A}',
+  '{CD0A1663-DC2D-41BD-89AF-E1089E841822}',
+  '{DE12B597-D4BF-4B1B-BF5F-C5CE41AFBDFC}',
+  '{EF4A3D60-9A53-4697-A18D-D3353F8554E6}'
+)
+
+function Get-Python312UninstallRegistrations {
+  $Rows = @()
+  foreach ($Root in $RegistrationRoots) {
+    if (-not (Test-Path -LiteralPath $Root.Path)) { continue }
+    foreach ($Key in Get-ChildItem -LiteralPath $Root.Path -ErrorAction Stop) {
+      $Entry = Get-ItemProperty -LiteralPath $Key.PSPath -ErrorAction Stop
+      if ([string]$Entry.DisplayName -match '^Python 3\.12\.10(?: .+)? \(64-bit\)$') {
+        $Rows += [pscustomobject]@{ Scope=$Root.Scope; ProductCode=$Key.PSChildName; DisplayName=[string]$Entry.DisplayName; DisplayVersion=[string]$Entry.DisplayVersion; Publisher=[string]$Entry.Publisher }
+      }
+    }
+  }
+  return $Rows
+}
+
+function Test-ExpectedPython312RegistrationKeyPresent {
+  foreach ($Root in $RegistrationRoots) {
+    foreach ($Code in $ExpectedRegistrationCodes) {
+      if (Test-Path -LiteralPath "$($Root.Path)\$Code") { return $true }
+    }
+  }
+  return $false
+}
 
 function Get-PythonStoreAliasSnapshot {
   $AliasRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
@@ -313,7 +358,7 @@ function Assert-HumanGateStagingChain {
 
 if (Test-Path -LiteralPath $StagingParent) { throw 'PYTHON_312_STAGING_ALREADY_EXISTS' }
 if (Test-Path -LiteralPath $ExpectedPython312Root) { throw 'PYTHON_312_TARGET_ROOT_ALREADY_EXISTS' }
-if (@($ProductKeys | Where-Object { Test-Path -LiteralPath $_ }).Count -ne 0) { throw 'PYTHON_312_PRODUCT_ALREADY_REGISTERED' }
+if ((Test-ExpectedPython312RegistrationKeyPresent) -or @(Get-Python312UninstallRegistrations).Count -ne 0) { throw 'PYTHON_312_REGISTRATION_ALREADY_PRESENT' }
 $PythonInventoryBefore = @(& py.exe -0p)
 if ($LASTEXITCODE -ne 0 -or @($PythonInventoryBefore | Select-String -Pattern '3\.12').Count -ne 0) { throw 'UNEXPECTED_PYTHON_312_PRESENT' }
 $Python314Before = (& py.exe -3.14 -c "import struct,sys; assert sys.version_info[:2] == (3,14) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
@@ -406,7 +451,8 @@ if ($Install.ExitCode -ne 0) { throw "PYTHON_312_INSTALL_FAILED_$($Install.ExitC
   PASS. `PrependPath=0`, `AppendPath=0`, `Include_launcher=0`, and
   `AssociateFiles=0` preserve PATH, the existing launcher, and Store aliases.
 - Abort if: the complete target root or staging directory already exists; the
-  exact 3.12.10 product is already registered; the 3.14 path/hash changed;
+  exact bundle or any expected/unexpected PSF 3.12.10 x64 component is already
+  registered in HKCU or either HKLM view; the 3.14 path/hash changed;
   download, SHA-256, Authenticode, or
   unattended-file validation fails; the staging owner/ACL differs from the
   exact SYSTEM/Builtin-Administrators full-control allow-list; the
@@ -429,16 +475,50 @@ $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1 -or -not [Environment]::Is64BitOperatingSystem -or -not [Environment]::Is64BitProcess) { throw 'WINDOWS_POWERSHELL_5_1_X64_REQUIRED' }
 $StagingParent = 'C:\Program Files\AEGIS-HumanGate'
 $StagingRoot = Join-Path $StagingParent 'Python-3.12.10-x64'
-$ExpectedProductCode = '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}'
 $ExpectedPython312Root = 'C:\Program Files\Python312'
+$RegistrationRoots = @(
+  [pscustomobject]@{ Scope='HKCU'; Path='Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' },
+  [pscustomobject]@{ Scope='HKLM64'; Path='Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' },
+  [pscustomobject]@{ Scope='HKLM32'; Path='Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall' }
+)
+$ExpectedRegistrationCodes = @(
+  '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}',
+  '{0158093D-F809-455B-9429-6D16A4B5D118}',
+  '{18DF3488-2245-432B-A023-3AA05C2A00C8}',
+  '{75485683-EF03-41E6-BF21-D1491694548C}',
+  '{9D09C9EF-A57C-422A-B79A-CC922079653A}',
+  '{CD0A1663-DC2D-41BD-89AF-E1089E841822}',
+  '{DE12B597-D4BF-4B1B-BF5F-C5CE41AFBDFC}',
+  '{EF4A3D60-9A53-4697-A18D-D3353F8554E6}'
+)
+
+function Get-Python312UninstallRegistrations {
+  $Rows = @()
+  foreach ($Root in $RegistrationRoots) {
+    if (-not (Test-Path -LiteralPath $Root.Path)) { continue }
+    foreach ($Key in Get-ChildItem -LiteralPath $Root.Path -ErrorAction Stop) {
+      $Entry = Get-ItemProperty -LiteralPath $Key.PSPath -ErrorAction Stop
+      if ([string]$Entry.DisplayName -match '^Python 3\.12\.10(?: .+)? \(64-bit\)$') {
+        $Rows += [pscustomobject]@{ Scope=$Root.Scope; ProductCode=$Key.PSChildName; DisplayName=[string]$Entry.DisplayName; DisplayVersion=[string]$Entry.DisplayVersion; Publisher=[string]$Entry.Publisher }
+      }
+    }
+  }
+  return $Rows
+}
+
+function Test-ExpectedPython312RegistrationKeyPresent {
+  foreach ($Root in $RegistrationRoots) {
+    foreach ($Code in $ExpectedRegistrationCodes) {
+      if (Test-Path -LiteralPath "$($Root.Path)\$Code") { return $true }
+    }
+  }
+  return $false
+}
+
 $PythonInventory = @(& py.exe -0p)
 if ($LASTEXITCODE -ne 0) { throw 'PYTHON_LAUNCHER_INVENTORY_FAILED' }
 if (@($PythonInventory | Select-String -Pattern '3\.12').Count -ne 0 -or (Test-Path -LiteralPath $ExpectedPython312Root)) { throw 'PYTHON_312_PRESENT_USE_ROLLBACK_NOT_FAILURE_CLEANUP' }
-$ProductKeys = @(
-  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode",
-  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode"
-)
-if (@($ProductKeys | Where-Object { Test-Path -LiteralPath $_ }).Count -ne 0) { throw 'PYTHON_312_REGISTERED_USE_ROLLBACK_NOT_FAILURE_CLEANUP' }
+if ((Test-ExpectedPython312RegistrationKeyPresent) -or @(Get-Python312UninstallRegistrations).Count -ne 0) { throw 'PYTHON_312_REGISTERED_USE_ROLLBACK_NOT_FAILURE_CLEANUP' }
 if (-not (Test-Path -LiteralPath $StagingParent)) { 'H0-2R-2F=ALREADY_CLEAN'; return }
 $ProgramFilesRoot = Get-Item -LiteralPath 'C:\Program Files' -Force
 $ParentItem = Get-Item -LiteralPath $StagingParent -Force
@@ -459,9 +539,10 @@ Remove-Item -LiteralPath $StagingParent -Force
 'H0-2R-2F=FAILED_ATTEMPT_STAGING_REMOVED_NO_PYTHON_INSTALLATION_FOUND'
 ```
 
-- Abort if: 3.12 appears in launcher inventory, the exact target or product
-  registration exists, any path component is a reparse point, either directory
-  leaves the fixed Program Files chain, or any unexpected entry exists.
+- Abort if: 3.12 appears in launcher inventory, the complete target root exists,
+  the HKCU bundle or any exact/unexpected PSF 3.12.10 x64 registration exists in
+  either machine registry view, any path component is a reparse point, either
+  directory leaves the fixed Program Files chain, or any unexpected entry exists.
 - Mutation: removes only the three allow-listed staging files and their two
   exact dedicated directories. It does not uninstall Python or touch 3.14.
 - Return to chat: the final marker. A retry of H0-2R-2 still requires separate
@@ -473,6 +554,10 @@ Remove-Item -LiteralPath $StagingParent -Force
 - Shell: the same elevated Windows PowerShell 5.1.
 - Admin required: YES for consistent machine-scope visibility.
 - Mutation: NO.
+- Current continuation: for the already successful installation, run only this
+  block with `BASELINE_SHA256` value
+  `A3BBB9A032378D22EF0F2BDAD1752980985A5FFD77F94ED66CAEAF0476C7D621`.
+  Do not rerun H0-2R-2 and do not continue to H0-3 automatically.
 - Command:
 
 ```powershell
@@ -483,11 +568,51 @@ $StagingRoot = Join-Path $StagingParent 'Python-3.12.10-x64'
 $BaselinePath = Join-Path $StagingRoot 'pre-install-baseline.json'
 $ExpectedBaselineSha256 = (Read-Host 'Paste BASELINE_SHA256 from H0-2R-2').Trim().ToUpperInvariant()
 $ExpectedPython312Root = 'C:\Program Files\Python312'
-$ExpectedProductCode = '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}'
-$ProductKeys = @(
-  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode",
-  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode"
+$ExpectedBundleCode = '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}'
+$ExpectedDisplayVersion = '3.12.10150.0'
+$ExpectedPublisher = 'Python Software Foundation'
+$ExpectedMachineComponents = [ordered]@{
+  '{0158093D-F809-455B-9429-6D16A4B5D118}' = 'Python 3.12.10 Executables (64-bit)'
+  '{18DF3488-2245-432B-A023-3AA05C2A00C8}' = 'Python 3.12.10 Documentation (64-bit)'
+  '{75485683-EF03-41E6-BF21-D1491694548C}' = 'Python 3.12.10 Tcl/Tk Support (64-bit)'
+  '{9D09C9EF-A57C-422A-B79A-CC922079653A}' = 'Python 3.12.10 Core Interpreter (64-bit)'
+  '{CD0A1663-DC2D-41BD-89AF-E1089E841822}' = 'Python 3.12.10 pip Bootstrap (64-bit)'
+  '{DE12B597-D4BF-4B1B-BF5F-C5CE41AFBDFC}' = 'Python 3.12.10 Standard Library (64-bit)'
+  '{EF4A3D60-9A53-4697-A18D-D3353F8554E6}' = 'Python 3.12.10 Development Libraries (64-bit)'
+}
+$RegistrationRoots = @(
+  [pscustomobject]@{ Scope='HKCU'; Path='Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' },
+  [pscustomobject]@{ Scope='HKLM64'; Path='Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' },
+  [pscustomobject]@{ Scope='HKLM32'; Path='Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall' }
 )
+
+function Get-Python312UninstallRegistrations {
+  $Rows = @()
+  foreach ($Root in $RegistrationRoots) {
+    if (-not (Test-Path -LiteralPath $Root.Path)) { continue }
+    foreach ($Key in Get-ChildItem -LiteralPath $Root.Path -ErrorAction Stop) {
+      $Entry = Get-ItemProperty -LiteralPath $Key.PSPath -ErrorAction Stop
+      if ([string]$Entry.DisplayName -match '^Python 3\.12\.10(?: .+)? \(64-bit\)$') {
+        $Rows += [pscustomobject]@{ Scope=$Root.Scope; ProductCode=$Key.PSChildName; DisplayName=[string]$Entry.DisplayName; DisplayVersion=[string]$Entry.DisplayVersion; Publisher=[string]$Entry.Publisher }
+      }
+    }
+  }
+  return $Rows
+}
+
+function Assert-Python312RegistrationModel {
+  $Rows = @(Get-Python312UninstallRegistrations)
+  if ($Rows.Count -ne 8) { throw 'PYTHON_312_REGISTRATION_COUNT_MISMATCH' }
+  $BundleRows = @($Rows | Where-Object { $_.ProductCode -eq $ExpectedBundleCode })
+  if ($BundleRows.Count -ne 1 -or $BundleRows[0].Scope -cne 'HKCU' -or $BundleRows[0].DisplayName -cne 'Python 3.12.10 (64-bit)' -or $BundleRows[0].DisplayVersion -cne $ExpectedDisplayVersion -or $BundleRows[0].Publisher -cne $ExpectedPublisher) { throw 'PYTHON_312_BUNDLE_REGISTRATION_MISMATCH' }
+  foreach ($Component in $ExpectedMachineComponents.GetEnumerator()) {
+    $Matches = @($Rows | Where-Object { $_.ProductCode -eq $Component.Key })
+    if ($Matches.Count -ne 1 -or $Matches[0].Scope -notin @('HKLM64','HKLM32') -or $Matches[0].DisplayName -cne $Component.Value -or $Matches[0].DisplayVersion -cne $ExpectedDisplayVersion -or $Matches[0].Publisher -cne $ExpectedPublisher) { throw "PYTHON_312_MACHINE_COMPONENT_MISMATCH_$($Component.Key)" }
+  }
+  $ExpectedCodes = @($ExpectedBundleCode) + @($ExpectedMachineComponents.Keys)
+  if (@($Rows | Where-Object { $_.ProductCode -notin $ExpectedCodes }).Count -ne 0) { throw 'PYTHON_312_UNEXPECTED_REGISTRATION' }
+  return $Rows
+}
 
 function Get-PythonStoreAliasSnapshot {
   $AliasRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
@@ -538,8 +663,7 @@ $Python312 = (& py.exe -3.12 -c "import struct,sys; assert sys.version_info[:3] 
 if ($LASTEXITCODE -ne 0) { throw 'CPYTHON_3_12_10_X64_REQUIRED' }
 $ExpectedPython312 = Join-Path $ExpectedPython312Root 'python.exe'
 if (-not [string]::Equals($Python312,$ExpectedPython312,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_PATH_MISMATCH' }
-$RegisteredProductKeys = @($ProductKeys | Where-Object { Test-Path -LiteralPath $_ })
-if ($RegisteredProductKeys.Count -ne 1) { throw 'PYTHON_312_PRODUCT_REGISTRATION_MISMATCH' }
+$RegistrationEvidence = @(Assert-Python312RegistrationModel)
 $Python314After = (& py.exe -3.14 -c "import struct,sys; assert sys.version_info[:2] == (3,14) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
 if ($LASTEXITCODE -ne 0) { throw 'PYTHON_314_POSTCHECK_FAILED' }
 $Python314HashAfter = (Get-FileHash -LiteralPath $Python314After -Algorithm SHA256).Hash
@@ -556,15 +680,18 @@ if ($StoreAliasAfter -cne $Baseline.StoreAliasSnapshot) { throw 'PYTHON_STORE_AL
   STEP='H0-2R-3'; PYTHON_312_VERSION='3.12.10'; PYTHON_312_X64=$Python312
   PYTHON_314_PATH=$Python314After; PYTHON_314_UNCHANGED='YES'
   PATH_CHANGED='NO'; LAUNCHER_CHANGED='NO'; STORE_ALIAS_CHANGED='NO'
+  BUNDLE_REGISTRATION_SCOPE='HKCU'; MACHINE_COMPONENT_COUNT=($RegistrationEvidence | Where-Object { $_.Scope -in @('HKLM64','HKLM32') }).Count
   AGENT_ENGINE_RUNTIME_CHANGED='NO'
   PYTHON_INVENTORY=($PythonInventoryAfter -join '; ')
 }
 ```
 
-- Expected: 3.12.10 x64 at the exact Program Files path with exactly one
-  matching product registration, 3.14 path/hash unchanged, both versions
-  listed by `py.exe -0p`, and the original machine PATH, user PATH, launcher,
-  and Python Store-alias snapshot unchanged.
+- Expected: 3.12.10 x64 at the exact Program Files path; one exact PSF Burn
+  bundle maintenance entry in HKCU; exactly seven expected PSF 3.12.10 x64 MSI
+  component registrations in HKLM across the two registry views; no additional
+  matching registration; 3.14 path/hash unchanged; both versions listed by
+  `py.exe -0p`; and the original machine PATH, user PATH, launcher, and Python
+  Store-alias snapshot unchanged.
 - Abort if: the protected staging ACL or baseline hash differs, any assertion
   fails, or PATH, launcher, Store aliases, or another Python changed.
 - State change: none.
@@ -587,11 +714,61 @@ $InstallerPath = Join-Path $StagingRoot 'python-3.12.10-amd64.exe'
 $BaselinePath = Join-Path $StagingRoot 'pre-install-baseline.json'
 $ExpectedBaselineSha256 = (Read-Host 'Paste BASELINE_SHA256 from H0-2R-2').Trim().ToUpperInvariant()
 $ExpectedPython312Root = 'C:\Program Files\Python312'
-$ExpectedProductCode = '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}'
-$ProductKeys = @(
-  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode",
-  "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$ExpectedProductCode"
+$ExpectedBundleCode = '{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}'
+$ExpectedDisplayVersion = '3.12.10150.0'
+$ExpectedPublisher = 'Python Software Foundation'
+$ExpectedMachineComponents = [ordered]@{
+  '{0158093D-F809-455B-9429-6D16A4B5D118}' = 'Python 3.12.10 Executables (64-bit)'
+  '{18DF3488-2245-432B-A023-3AA05C2A00C8}' = 'Python 3.12.10 Documentation (64-bit)'
+  '{75485683-EF03-41E6-BF21-D1491694548C}' = 'Python 3.12.10 Tcl/Tk Support (64-bit)'
+  '{9D09C9EF-A57C-422A-B79A-CC922079653A}' = 'Python 3.12.10 Core Interpreter (64-bit)'
+  '{CD0A1663-DC2D-41BD-89AF-E1089E841822}' = 'Python 3.12.10 pip Bootstrap (64-bit)'
+  '{DE12B597-D4BF-4B1B-BF5F-C5CE41AFBDFC}' = 'Python 3.12.10 Standard Library (64-bit)'
+  '{EF4A3D60-9A53-4697-A18D-D3353F8554E6}' = 'Python 3.12.10 Development Libraries (64-bit)'
+}
+$RegistrationRoots = @(
+  [pscustomobject]@{ Scope='HKCU'; Path='Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' },
+  [pscustomobject]@{ Scope='HKLM64'; Path='Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' },
+  [pscustomobject]@{ Scope='HKLM32'; Path='Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall' }
 )
+
+function Get-Python312UninstallRegistrations {
+  $Rows = @()
+  foreach ($Root in $RegistrationRoots) {
+    if (-not (Test-Path -LiteralPath $Root.Path)) { continue }
+    foreach ($Key in Get-ChildItem -LiteralPath $Root.Path -ErrorAction Stop) {
+      $Entry = Get-ItemProperty -LiteralPath $Key.PSPath -ErrorAction Stop
+      if ([string]$Entry.DisplayName -match '^Python 3\.12\.10(?: .+)? \(64-bit\)$') {
+        $Rows += [pscustomobject]@{ Scope=$Root.Scope; ProductCode=$Key.PSChildName; DisplayName=[string]$Entry.DisplayName; DisplayVersion=[string]$Entry.DisplayVersion; Publisher=[string]$Entry.Publisher }
+      }
+    }
+  }
+  return $Rows
+}
+
+function Assert-Python312RegistrationModel {
+  $Rows = @(Get-Python312UninstallRegistrations)
+  if ($Rows.Count -ne 8) { throw 'PYTHON_312_REGISTRATION_COUNT_MISMATCH' }
+  $BundleRows = @($Rows | Where-Object { $_.ProductCode -eq $ExpectedBundleCode })
+  if ($BundleRows.Count -ne 1 -or $BundleRows[0].Scope -cne 'HKCU' -or $BundleRows[0].DisplayName -cne 'Python 3.12.10 (64-bit)' -or $BundleRows[0].DisplayVersion -cne $ExpectedDisplayVersion -or $BundleRows[0].Publisher -cne $ExpectedPublisher) { throw 'PYTHON_312_BUNDLE_REGISTRATION_MISMATCH' }
+  foreach ($Component in $ExpectedMachineComponents.GetEnumerator()) {
+    $Matches = @($Rows | Where-Object { $_.ProductCode -eq $Component.Key })
+    if ($Matches.Count -ne 1 -or $Matches[0].Scope -notin @('HKLM64','HKLM32') -or $Matches[0].DisplayName -cne $Component.Value -or $Matches[0].DisplayVersion -cne $ExpectedDisplayVersion -or $Matches[0].Publisher -cne $ExpectedPublisher) { throw "PYTHON_312_MACHINE_COMPONENT_MISMATCH_$($Component.Key)" }
+  }
+  $ExpectedCodes = @($ExpectedBundleCode) + @($ExpectedMachineComponents.Keys)
+  if (@($Rows | Where-Object { $_.ProductCode -notin $ExpectedCodes }).Count -ne 0) { throw 'PYTHON_312_UNEXPECTED_REGISTRATION' }
+  return $Rows
+}
+
+function Test-ExpectedPython312RegistrationKeyPresent {
+  $ExpectedCodes = @($ExpectedBundleCode) + @($ExpectedMachineComponents.Keys)
+  foreach ($Root in $RegistrationRoots) {
+    foreach ($Code in $ExpectedCodes) {
+      if (Test-Path -LiteralPath "$($Root.Path)\$Code") { return $true }
+    }
+  }
+  return $false
+}
 
 function Get-PythonStoreAliasSnapshot {
   $AliasRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
@@ -657,7 +834,7 @@ Assert-OriginalPythonBaseline
 $ExpectedPython312Path = Join-Path $ExpectedPython312Root 'python.exe'
 $Python312 = (& $ExpectedPython312Path -c "import struct,sys; assert sys.version_info[:3] == (3,12,10) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
 if ($LASTEXITCODE -ne 0 -or -not [string]::Equals($Python312,$ExpectedPython312Path,[StringComparison]::OrdinalIgnoreCase)) { throw 'PYTHON_312_ROLLBACK_TARGET_MISMATCH' }
-if (@($ProductKeys | Where-Object { Test-Path -LiteralPath $_ }).Count -ne 1) { throw 'PYTHON_312_ROLLBACK_PRODUCT_REGISTRATION_MISMATCH' }
+$null = Assert-Python312RegistrationModel
 if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) {
   Invoke-WebRequest -UseBasicParsing -Uri $InstallerUri -OutFile $InstallerPath
 }
@@ -673,7 +850,7 @@ $Uninstall = Start-Process -FilePath $InstallerPath -ArgumentList @('/uninstall'
 if ($Uninstall.ExitCode -ne 0) { throw "PYTHON_312_ROLLBACK_FAILED_$($Uninstall.ExitCode)" }
 $Inventory = @(& py.exe -0p)
 if ($LASTEXITCODE -ne 0) { throw 'PYTHON_LAUNCHER_INVENTORY_FAILED' }
-if (@($Inventory | Select-String -Pattern '3\.12').Count -ne 0 -or (Test-Path -LiteralPath $ExpectedPython312Root) -or @($ProductKeys | Where-Object { Test-Path -LiteralPath $_ }).Count -ne 0) { throw 'PYTHON_312_ROLLBACK_INCOMPLETE' }
+if (@($Inventory | Select-String -Pattern '3\.12').Count -ne 0 -or (Test-Path -LiteralPath $ExpectedPython312Root) -or (Test-ExpectedPython312RegistrationKeyPresent) -or @(Get-Python312UninstallRegistrations).Count -ne 0) { throw 'PYTHON_312_ROLLBACK_INCOMPLETE' }
 Assert-OriginalPythonBaseline
 $ResolvedStagingRoot = [IO.Path]::GetFullPath($StagingRoot)
 $ExpectedStagingRoot = [IO.Path]::GetFullPath('C:\Program Files\AEGIS-HumanGate\Python-3.12.10-x64')
@@ -687,12 +864,14 @@ Remove-Item -LiteralPath $StagingParent -Force
 ```
 
 This rollback uses the same official installer only after revalidating its exact
-SHA-256 and Authenticode signer, targets the exact 3.12.10 Program Files
-installation, and requires both the complete target root and exact product
-registration to be absent before removing only its validated staging directory.
-It validates the hash-bound original Python 3.14, PATH, launcher, and Store-alias
-baseline both before and after uninstall. It must not run after Agent/Engine H1
-installation without a new review.
+SHA-256 and Authenticode signer. Before mutation it requires the exact runtime,
+the HKCU bundle maintenance entry, and the seven exact machine-wide MSI
+registrations. Afterward it requires the complete target root, all eight exact
+registration keys, and every matching PSF 3.12.10 x64 uninstall entry to be
+absent before removing only its validated staging directory. It validates the
+hash-bound original Python 3.14, PATH, launcher, and Store-alias baseline both
+before and after uninstall. It must not run after Agent/Engine H1 installation
+without a new review.
 
 #### H0-3 — existing owners, services, tasks, and listeners
 
