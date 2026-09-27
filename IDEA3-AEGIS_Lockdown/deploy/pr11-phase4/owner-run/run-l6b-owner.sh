@@ -94,10 +94,9 @@ UPLINK_ADDR=${L6B_UPLINK_ADDR:-}; UPLINK_IF=${L6B_UPLINK_IF:-}
 disk_pct=$(df -P / | awk 'NR == 2 { sub("%", "", $5); print $5 }'); [ "$disk_pct" -lt 90 ] || gate "disk $disk_pct% >= 90"
 for u in "$ENGINE" "$TUNNEL" twingate.service mosquitto.service; do [ "$(show "$u" ActiveState)" = active ] && [ "$(show "$u" SubState)" = running ] || gate "$u not active/running"; done
 listen_now | grep -qx '0.0.0.0:1883' || gate "legacy 1883 wildcard listener not present (expected legacy broker state)"
-[ "$(show "$UNIT" LoadState)" = not-found ] || gate "$UNIT is already loaded (first L6b apply requires it absent)"
-[ ! -e /etc/systemd/system/$UNIT ] || gate "IDEA3 unit file already exists"
-sudo test ! -e /etc/aegis-idea3/mqtt || gate "/etc/aegis-idea3/mqtt already exists (stage-owned: must be absent)"
-[ -z "$(ss -H -ltn "sport = :8883")" ] || gate "an 8883 listener already exists"
+# exact clean broker prestate (not-found/inactive/dead/success, no unit file, no mqtt dir, no 8883); residual failed
+# metadata is rejected read-only here, BEFORE the authorization is consumed. Never reset-failed from the runner.
+l6b_broker_prestate_gate "$UNIT" || gate "IDEA3 broker prestate is not clean (see reason above; NOTHING was consumed)"
 for k in net.ipv4.ip_forward net.ipv4.conf.all.forwarding net.ipv6.conf.all.forwarding; do [ "$(sysctl -n $k)" = 0 ] || gate "$k is not 0"; done
 [ "$GATE_FAILED" = 0 ] || die "one or more pre-gates failed; NOTHING was created or changed"
 

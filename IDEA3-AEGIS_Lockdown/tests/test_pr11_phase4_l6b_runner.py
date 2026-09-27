@@ -453,3 +453,77 @@ def test_secret_scan_detects_private_key_body_lines(tmp_path: Path) -> None:
     evid.mkdir()
     (evid / "x.txt").write_text(f"leak {body}\n")
     assert scan(fx, evid).returncode == 1
+
+
+# ── clean broker prestate gate: residual failed systemd metadata fails closed BEFORE consumption ─────────────────────
+
+CLEAN_SHOW = {"LoadState": "not-found", "ActiveState": "inactive", "SubState": "dead", "Result": "success", "MainPID": "0", "NRestarts": "0"}
+RESIDUAL_SHOW = {**CLEAN_SHOW, "ActiveState": "failed", "SubState": "failed", "Result": "exit-code"}  # the first live attempt's residue
+BROKER_UNIT = "aegis-idea3-mosquitto.service"
+
+
+def prestate(tmp_path: Path, show: dict[str, str], *, listener: str = "", unit_file: bool = False, mqtt_dir: bool = False):
+    root = tmp_path / "fs"
+    (root / "etc/systemd/system").mkdir(parents=True, exist_ok=True)
+    (root / "etc/aegis-idea3").mkdir(parents=True, exist_ok=True)
+    if unit_file:
+        (root / "etc/systemd/system" / BROKER_UNIT).write_text("[Unit]\n")
+    if mqtt_dir:
+        (root / "etc/aegis-idea3/mqtt").mkdir()
+    b = tmp_path / "psbin"
+    calls = tmp_path / "systemctl-calls.log"
+    body = "\n".join(f'  echo "{k}={v}"' for k, v in show.items())
+    stub(b, "systemctl", f'echo "$*" >> "{calls}"\nif [ "$1" = show ]; then\n{body}\nelse exit 99; fi')
+    stub(b, "ss", f'echo "{listener}"' if listener else "true")
+    auth = tmp_path / "auth"
+    auth.mkdir(exist_ok=True)
+    res = lib(f"l6b_broker_prestate_gate {BROKER_UNIT} '{root}'", path_prefix=b)
+    return res, calls, auth
+
+
+def test_prestate_gate_accepts_the_exact_clean_state(tmp_path: Path) -> None:
+    res, _, _ = prestate(tmp_path, CLEAN_SHOW)
+    assert res.returncode == 0, res.stderr
+
+
+def test_prestate_gate_rejects_stale_not_found_failed_failed_exit_code(tmp_path: Path) -> None:
+    res, _, auth = prestate(tmp_path, RESIDUAL_SHOW)
+    assert res.returncode == 1
+    assert "L6B_RESIDUAL_FAILED_STATE_CLEANUP_REQUIRED=YES" in res.stderr
+    assert list(auth.iterdir()) == []  # no marker/authorization artefact from the gate
+
+
+@pytest.mark.parametrize("prop,value", [("ActiveState", "failed"), ("SubState", "failed"), ("Result", "exit-code"),
+                                         ("ActiveState", "active"), ("MainPID", "123"), ("NRestarts", "1")])
+def test_prestate_gate_rejects_any_single_residual_property(tmp_path: Path, prop: str, value: str) -> None:
+    res, _, _ = prestate(tmp_path, {**CLEAN_SHOW, prop: value})
+    assert res.returncode == 1 and f"L6B_RESIDUAL_FAILED_STATE_CLEANUP_REQUIRED=YES:{prop}={value}" in res.stderr
+
+
+def test_prestate_gate_rejects_a_loaded_unit(tmp_path: Path) -> None:
+    res, _, _ = prestate(tmp_path, {**CLEAN_SHOW, "LoadState": "loaded"})
+    assert res.returncode == 1 and "IDEA3_UNIT_ALREADY_LOADED" in res.stderr
+
+
+@pytest.mark.parametrize("kwargs,reason", [({"unit_file": True}, "IDEA3_UNIT_FILE_ALREADY_EXISTS"),
+                                            ({"mqtt_dir": True}, "IDEA3_MQTT_DIR_ALREADY_EXISTS"),
+                                            ({"listener": "127.0.0.1:8883"}, "IDEA3_8883_LISTENER_ALREADY_EXISTS")])
+def test_prestate_gate_rejects_residual_files_dir_or_listener(tmp_path: Path, kwargs: dict, reason: str) -> None:
+    res, _, _ = prestate(tmp_path, CLEAN_SHOW, **kwargs)
+    assert res.returncode == 1 and reason in res.stderr
+
+
+@pytest.mark.parametrize("show", [CLEAN_SHOW, RESIDUAL_SHOW])
+def test_prestate_gate_issues_no_systemctl_mutation(tmp_path: Path, show: dict[str, str]) -> None:
+    _, calls, _ = prestate(tmp_path, show)
+    verbs = {l.split()[0] for l in calls.read_text().splitlines()}
+    assert verbs == {"show"}  # the stub exits 99 for any other verb, and none was attempted
+
+
+def test_runner_uses_the_prestate_gate_before_consuming_and_never_resets_failed() -> None:
+    text = RUNNER.read_text()
+    assert text.index("l6b_broker_prestate_gate") < text.index("l6b_consume_attempt")
+    assert text.index("l6b_broker_prestate_gate") < text.index('[ "$GATE_FAILED" = 0 ] || die')
+    assert not re.search(r'^\s*(sudo\s+)?systemctl\s+reset-failed', text + LIB.read_text(), re.M)
+    # the old LoadState-only check is gone
+    assert 'show "$UNIT" LoadState)" = not-found' not in text
