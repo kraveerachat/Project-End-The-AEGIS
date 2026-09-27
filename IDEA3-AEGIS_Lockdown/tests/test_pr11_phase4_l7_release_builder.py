@@ -461,11 +461,24 @@ def test_closure_is_computed_from_source_not_hard_coded(tool, repo) -> None:
 
 
 # ---- 27-30 no host mutation ----
+def _stat_snapshot(path: Path) -> tuple[int, int, int, int] | None:
+    """Read-only metadata fingerprint (never follows symlinks): entry type, permission bits, mtime, size. None means
+    absent. Used to prove NO WRITE occurred to a real system path without assuming that path was absent beforehand
+    -- a real host may legitimately already have e.g. /opt/aegis-idea3 (an already-PROVEN L6c live install)."""
+    try:
+        st = path.lstat()
+    except OSError:
+        return None
+    return (stat.S_IFMT(st.st_mode), stat.S_IMODE(st.st_mode), st.st_mtime_ns, st.st_size)
+
+
 @pytest.mark.parametrize("bad", ["/opt/aegis-idea3/releases", "/opt/x", "/etc/aegis-idea3", "/usr/local/x", "/var/lib/x"])
 def test_system_locations_are_refused_before_any_write(tool, repo, wh, bad: str) -> None:
-    msg = refuses(tool.build_release, repo, Path(bad), "r1", wh)
+    target = Path(bad)
+    before = _stat_snapshot(target)
+    msg = refuses(tool.build_release, repo, target, "r1", wh)
     assert msg
-    assert not Path("/opt/aegis-idea3").exists()
+    assert _stat_snapshot(target) == before  # refused BEFORE any write: the real path's own state is byte-identical
 
 
 def code_only(path: Path) -> str:

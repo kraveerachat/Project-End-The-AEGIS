@@ -268,8 +268,10 @@ def release_env(tmp_path: Path, *, sha_on_main: bool = True, current: str | None
     return repo, root, head
 
 
-def release_gate(repo: Path, root: Path, head: str, rel_id: str = "rel-20260927"):
-    return lib(f"l7_release_gate '{repo}' /opt/aegis-idea3/releases/{rel_id} '{head}' '{sys.executable}' '{DEPLOY}' any '{root}'")
+def release_gate(repo: Path, root: Path, head: str, rel_id: str = "rel-20260927", *, sudo: str | None = None, path_prefix: Path | None = None):
+    env = {"SUDO": sudo} if sudo is not None else None
+    return lib(f"l7_release_gate '{repo}' /opt/aegis-idea3/releases/{rel_id} '{head}' '{sys.executable}' '{DEPLOY}' any '{root}'",
+               env=env, path_prefix=path_prefix)
 
 
 def test_l7_release_gate_accepts_a_guarded_release_built_from_the_pinned_main(tmp_path: Path) -> None:
@@ -316,6 +318,36 @@ def test_l7_release_gate_is_read_only(tmp_path: Path) -> None:
     before = {p.relative_to(root).as_posix(): p.stat().st_mtime_ns for p in root.rglob("*")}
     release_gate(repo, root, head)
     assert before == {p.relative_to(root).as_posix(): p.stat().st_mtime_ns for p in root.rglob("*")}
+
+
+def test_l7_release_gate_can_see_a_root_owned_0700_parent_through_sudo(tmp_path: Path) -> None:
+    """The real host's /opt/aegis-idea3 is root:root mode 0700: an unprivileged owner-run process cannot even
+    traverse into it to stat the release directory, so an unprivileged existence/type check would wrongly report
+    L7_RELEASE_NOT_INSTALLED_PREREQUISITE for a release that genuinely exists. The existence/type check must cross
+    the SAME $SUDO privilege boundary as the release-guard invocation right after it -- never a bare unprivileged
+    `test`. This models the real permission boundary (a self-revoked-access directory this test process owns but
+    cannot itself traverse without going through the same escalation path production uses), rather than merely
+    patching around the symptom."""
+    repo, root, head = release_env(tmp_path)
+    locked = root / "opt/aegis-idea3"
+    before_mode = locked.stat().st_mode
+    os.chmod(locked, 0)
+    try:
+        # Un-escalated: even though the release genuinely exists, it is unreachable -- this must be classified as
+        # the ordinary missing-release prerequisite, never a different/confusing error, and must stay fail-closed.
+        blocked = release_gate(repo, root, head)
+        assert blocked.returncode == 1 and "L7_RELEASE_NOT_INSTALLED_PREREQUISITE" in blocked.stderr, blocked.stderr
+
+        # A stub "sudo" that emulates real sudo's DAC bypass (temporarily restoring access for the wrapped command
+        # only, exactly as real root privilege would) must let the SAME release be found -- proving the existence
+        # check itself is issued through $SUDO, not before it.
+        bin_dir = tmp_path / "sudo-bin"
+        stub(bin_dir, "sudo", f'chmod 0755 "{locked}"\n"$@"; rc=$?\nchmod 0000 "{locked}"\nexit $rc')
+        res = release_gate(repo, root, head, sudo=str(bin_dir / "sudo"), path_prefix=bin_dir)
+        assert res.returncode == 0, res.stderr
+        assert "L7_RELEASE=rel-20260927" in res.stdout
+    finally:
+        os.chmod(locked, before_mode)
 
 
 # ── 5. core prestate gate: exact clean state, not only not-found ─────────────────────────────────────────────────────────

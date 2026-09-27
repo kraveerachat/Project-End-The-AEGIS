@@ -391,18 +391,47 @@ def test_real_capture_detects_a_special_file_planted_inside_the_release(tmp_path
     assert res.returncode == 1 and "RELEASE_CONTENT_DRIFT" in res.stdout
 
 
+def release_catalog_findings(stdout: str) -> list[list[str]]:
+    """Parse only the FINDING lines (FINDING\\tcls\\tcode\\tkey\\tbefore\\tafter) whose key is the release-catalog
+    key, for either rel-a or rel-b. This test is a REAL end-to-end capture against the actual live host: unrelated
+    live host state (an ephemeral listener opening/closing between the two capture snapshots, etc.) can legitimately
+    change and must not be conflated with the release-catalog property this test exists to prove."""
+    out = []
+    for line in stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 6 and parts[0] == "FINDING" and parts[3].startswith("host.aegis_idea3.release_catalog"):
+            out.append(parts)
+    return out
+
+
 def test_real_capture_unchanged_existing_release_plus_one_new_release_passes(tmp_path: Path) -> None:
     root = tmp_path / "fs"
     (root / "etc/aegis-idea3").mkdir(parents=True)
-    install_release(root, "rel-a", tmp_path)
+    a_dest = install_release(root, "rel-a", tmp_path)
     pre, post = pre_post(root, tmp_path)
+    a_fingerprint = tree_hash(a_dest)
     install_release(root, "rel-b", tmp_path)  # the ONLY change: one new, named release added
     assert capture(root, post, "post").returncode in (0, 3)
     denied = compare(pre, post)
     assert denied.returncode == 1 and "RELEASE_UNAPPROVED_ADDITION" in denied.stdout
+
     ok = compare(pre, post, allow_release_file=release_allow_file(tmp_path, "rel-b"))
-    assert "FINDINGS_NEW_OR_WORSENED_DRIFT=0" in ok.stdout, ok.stdout + ok.stderr
-    assert "L6C_RELEASE_INSTALLED" in ok.stdout
+    findings = release_catalog_findings(ok.stdout)
+    # exactly one release-catalog finding: rel-b approved as a new addition, before=<absent>
+    assert len(findings) == 1, (findings, ok.stdout + ok.stderr)
+    cls, code, key, before, after = findings[0][1:]
+    assert (cls, code, key, before) == ("APPROVED_CHANGE", "L6C_RELEASE_INSTALLED",
+                                         "host.aegis_idea3.release_catalog#rel-b", "<absent>")
+    # rel-a's own release-catalog entry produced no finding at all (no drift, no re-approval needed)
+    assert not any(f[3] == "host.aegis_idea3.release_catalog#rel-a" for f in findings)
+    assert "RELEASE_CONTENT_DRIFT" not in ok.stdout and "RELEASE_REMOVED" not in ok.stdout
+    # the approved rel-b entry carries the exact tree-state digest produced by the real install, and rel-a's own
+    # fingerprint (computed independently, before rel-b was ever installed) is exactly what a fresh capture of it
+    # right now still reports -- i.e. installing rel-b did not perturb rel-a's own release-catalog entry.
+    host = read_tsv(post / "host.tsv")
+    catalog = dict(pair.split(":", 1) for pair in host[RELEASE_CATALOG_KEY].split(","))
+    assert catalog["rel-a"] == a_fingerprint
+    assert catalog["rel-b"] == after
 
 
 def test_real_capture_pre_to_rollback_restores_release_catalog_with_zero_allowance(tmp_path: Path) -> None:

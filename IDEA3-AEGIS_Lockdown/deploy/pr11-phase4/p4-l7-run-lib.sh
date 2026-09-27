@@ -44,16 +44,20 @@ l7_receipt_gate() {
 l7_release_gate() {
   local repo=$1 rel=$2 main=$3 py=$4 p4=$5 owner=${6:-root} root=${7:-} host out sha current target
   host="$root$rel"
-  [ -d "$host" ] && [ ! -L "$host" ] || { l7_reason "L7_RELEASE_NOT_INSTALLED_PREREQUISITE:$rel"; return 1; }
+  # The real host's /opt/aegis-idea3 is root:root mode 0700: an unprivileged owner-run process cannot even traverse
+  # into it. Existence/type must cross the SAME $SUDO privilege boundary as the release-guard invocation right below
+  # -- never a bare unprivileged `test` -- or a genuinely installed release is wrongly reported as missing.
+  $SUDO test -d "$host" && ! $SUDO test -L "$host" || { l7_reason "L7_RELEASE_NOT_INSTALLED_PREREQUISITE:$rel"; return 1; }
   out=$($SUDO "$py" "$p4/p4-l7-release-guard.py" check --logical-path "$rel" --host-path "$host" --expect-owner "$owner" 2>&1) \
     || { l7_reason "L7_RELEASE_GUARD_FAILED:$(sed -n 's/.*reason=//p' <<< "$out" | head -n 1)"; return 1; }
   sha=$(sed -n 's/.*source_git_sha=//p' <<< "$out" | head -n 1)
   git -C "$repo" merge-base --is-ancestor "$sha" "$main" 2>/dev/null || { l7_reason "L7_RELEASE_SOURCE_NOT_ON_MAIN:$sha"; return 1; }
   current="$root/opt/aegis-idea3/current"
-  if [ -L "$current" ]; then
-    target=$(readlink "$current")
+  # Same privilege boundary: /opt/aegis-idea3/current sits under the same root-owned parent.
+  if $SUDO test -L "$current"; then
+    target=$($SUDO readlink "$current")
     [ "$target" = "$rel" ] || { l7_reason "L7_CURRENT_POINTER_MISMATCH"; return 1; }
-  elif [ -e "$current" ]; then
+  elif $SUDO test -e "$current"; then
     l7_reason "L7_CURRENT_POINTER_MISMATCH"
     return 1
   fi

@@ -518,3 +518,27 @@ prerequisite FACT for a live L7 attempt once a live L6c run succeeds; it is neve
 describing this installer with no owner-run wrapper, is superseded: that wrapper is `owner-run/run-l6c-owner.sh`.
 
 **Governance gap, not repository-fixable.** This installer has no owner-run wrapper. `p4-lib.sh` fixes `P4_STAGES = "L0 L1 L2 L3 L4 L5 L6a L6b L7 L8 L9"` and `p4-stage-gate.sh` authorizes only those stage names; there is no existing stage id, authorization field, or K3 contract for a pre-L7 release-install mutation, and this task does not invent one (per §6 item 5's already-flagged "owner decision on the release installer"). Before any live use the owner must decide between registering a new G-15 stage for it or folding it into `A-L7` with an explicit new authorization field. Until then it is a tested repository capability only.
+
+## 9. `l7_release_gate` root-owned-parent traversal fix (2026-09-28)
+
+**Bug.** L7's own live L6c-installed release path is `/opt/aegis-idea3/releases/<id>`, whose parent `/opt/aegis-idea3` is
+root:root mode `0700` (per L6c's live acceptance, §12 of the L6c design). `l7_release_gate()` in `p4-l7-run-lib.sh`
+performed the release directory's existence/type check as a bare unprivileged `[ -d "$host" ] && [ ! -L "$host" ]`
+**before** invoking `p4-l7-release-guard.py` through `$SUDO`. An unprivileged owner-run process cannot traverse into a
+`0700` directory owned by a different uid, so this check silently failed even for a genuinely installed, valid release
+— misreporting `L7_RELEASE_NOT_INSTALLED_PREREQUISITE` for a release that exists. The same unprivileged pattern also
+guarded the `/opt/aegis-idea3/current` pointer check in the same function, under the same root-owned parent. Existing
+tests never caught this because the fixture harness always runs with `SUDO=""` against test-owned, fully-accessible
+temp directories, so the unprivileged check never actually failed there.
+
+**Fix.** Both checks now cross the identical `$SUDO` privilege boundary as the release-guard invocation immediately
+after them: `$SUDO test -d "$host" && ! $SUDO test -L "$host"` for the release directory, and `$SUDO test -L/-e
+"$current"` (with `$SUDO readlink`) for the current pointer. Fail-closed behavior, the missing-release prerequisite
+classification, symlink rejection, and read-only semantics are all unchanged; `SUDO=""` in fixture/test mode still
+resolves to a plain unprivileged `test`, so existing fixtures are unaffected. No live-only special case was added — the
+same code path runs in both modes, differing only in whether `$SUDO` expands to anything.
+
+Proven by a new regression test (`test_l7_release_gate_can_see_a_root_owned_0700_parent_through_sudo`,
+`tests/test_pr11_phase4_l7_runner.py`) that self-revokes all access to a test-owned `/opt/aegis-idea3` fixture
+directory (`chmod 0`) to model the real 0700-root-owned-by-a-different-uid boundary without requiring actual root, then
+proves a stub `sudo` (emulating real sudo's DAC bypass) is required — and sufficient — for the release to be found.
