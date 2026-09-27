@@ -66,3 +66,61 @@ test('IDA-3 abort removes a queued waiter; releaseAll clears reservations and re
   running.release()
 })
 
+
+/* ── PR220-R2: reduced-decode lane — explicit projected reservation, max 1, upload deferral ── */
+test('IDA-R2-1 an explicit high-res reservation is charged as given; only one high-res job runs; 256 MiB is respected', async () => {
+  const gate = createImageDecodeAdmission({ limits })
+  const hi = await gate.acquire({ lane: 'high-res', reservedBytes: 220 * MIB })
+  assert.equal(hi.lane, 'high-res')
+  assert.equal(hi.reservedBytes, 220 * MIB, 'projected reduced working set, not sourcePixels*4')
+  let second = false
+  const secondP = gate.acquire({ lane: 'high-res', reservedBytes: 10 * MIB }).then((t) => { second = true; return t })
+  let normalIn = false
+  const normalP = gate.acquire({ pixels: 12_000_000, inputBytes: 8 * MIB }).then((t) => { normalIn = true; return t })
+  await Promise.resolve()
+  assert.equal(second, false, 'HIGH_RES_MAX_CONCURRENCY=1')
+  assert.equal(normalIn, false, 'a normal job cannot combine with the high-res reservation beyond 256 MiB')
+  hi.release()
+  const [t2, tn] = await Promise.all([secondP, normalP])
+  assert.ok(gate.stats().reservedBytes <= limits.memoryCeilingBytes)
+  t2.release(); tn.release()
+})
+
+test('IDA-R2-2 high-res admission waits while an interactive upload is active; normal previews continue', async () => {
+  let uploading = true
+  const gate = createImageDecodeAdmission({ limits, deferHighRes: () => uploading })
+  let hiIn = false
+  const hiP = gate.acquire({ lane: 'high-res', reservedBytes: 60 * MIB }).then((t) => { hiIn = true; return t })
+  const normal = await gate.acquire({ pixels: 1_000_000, inputBytes: 1 })
+  await Promise.resolve()
+  assert.equal(hiIn, false, 'deferred while the upload runs')
+  uploading = false
+  gate.notifyMemoryChanged()
+  const hi = await hiP
+  assert.equal(hi.lane, 'high-res')
+  hi.release(); normal.release()
+})
+
+test('IDA-R2-3 high-res and normal jobs combine only by OBSERVED normal-lane working set (native ≈ 3× the RGBA estimate)', async () => {
+  const gate = createImageDecodeAdmission({ limits })
+  // measured PR220-R2: a 16 MP normal decode peaks ≈ 200 MiB of browser process working set
+  const normal16 = await gate.acquire({ pixels: 15_996_868, inputBytes: 5 * MIB })
+  let hiIn = false
+  const hiP = gate.acquire({ lane: 'high-res', reservedBytes: 70 * MIB }).then((t) => { hiIn = true; return t })
+  await Promise.resolve()
+  assert.equal(hiIn, false, 'high-res waits: observed normal (~3×) + high-res would exceed 256 MiB')
+  normal16.release()
+  const hi = await hiP
+  let nIn = false
+  const nP = gate.acquire({ pixels: 15_996_868, inputBytes: 5 * MIB }).then((t) => { nIn = true; return t })
+  await Promise.resolve()
+  assert.equal(nIn, false, 'a large normal job waits while the high-res job runs')
+  const small = await gate.acquire({ pixels: 500_000, inputBytes: 200_000 })
+  assert.equal(small.lane, 'normal', 'small tiles still flow beside a high-res decode')
+  hi.release(); small.release()
+  ;(await nP).release()
+  // normal-only concurrency is unchanged (IDA-1): four 16 MP estimates still enter together
+  const four = await Promise.all(Array.from({ length: 4 }, () => gate.acquire({ pixels: 15_000_000, inputBytes: 1 })))
+  assert.equal(gate.stats().runningNormal, 4)
+  four.forEach((t) => t.release())
+})

@@ -30,6 +30,8 @@ import { childrenOf, effectiveState } from '../lib/vaultTreeManifest.js'
 import { createThumbScheduler } from '../lib/vaultThumbScheduler.js'
 import { makeImageThumb } from '../lib/vaultImageThumb.js'
 import { createImageDecodeAdmission } from '../lib/vaultImageDecodeAdmission.js'
+import { detectReducedDecodeCapability, startReducedDecodeJob } from '../lib/vaultImageReducedDecode.js'
+import { openVaultPlainChunks } from '../lib/vaultPlainChunkStream.js'
 import { gifMotionCapability, openGifMotion } from '../lib/vaultGifPreview.js'
 import { openVideoMotion, openVideoPoster, videoPosterEstimateBytes, videoPreviewCapability, VIDEO_CAPABILITY } from '../lib/vaultVideoPreview.js'
 import { attachPosterVideo, drawPosterFrame } from '../lib/vaultVideoDom.js'
@@ -512,13 +514,23 @@ export function VaultTreeScreen({
   const [motionState, setMotionState] = useState(null)
   const mediaLimitsRef = useRef(VAULT_TREE_CLIENT_LIMITS)
   const schedulerRef = useRef(null)
+  // PR220-R2 D: a reduced (high-res) decode never starts while a Vault upload is running — it
+  // waits in admission and resumes when the drawer reports zero active uploads.
+  const activeUploadsRef = useRef(0)
   const admission = useMemo(() => {
     if (!mediaEnabled || !unlockedState || !head) return null
     return createImageDecodeAdmission({
       limits: mediaLimitsRef.current,
       liveMemoryBytes: () => schedulerRef.current?.stats().estMemBytes ?? 0,
+      deferHighRes: () => activeUploadsRef.current > 0,
     })
   }, [mediaEnabled, unlockedState, Boolean(head)])
+  const admissionRef = useRef(admission)
+  admissionRef.current = admission
+  const onActiveUploadsChange = useCallback((count) => {
+    activeUploadsRef.current = count
+    admissionRef.current?.notifyMemoryChanged?.()
+  }, [])
 
   useEffect(() => () => { void admission?.releaseAll?.() }, [admission])
 
@@ -604,12 +616,22 @@ export function VaultTreeScreen({
           if (!poster.ok) throw new Error(poster.unsupported ?? 'VIDEO_POSTER')
           return { width: 640, height: 360, bytes: poster.posterBytes, mime: 'image/jpeg' }
         }
+        const imageVariant = node.blobRef?.formatVersion ?? 1
         const thumb = await makeImageThumb({
           plainSize: node.plainSize ?? 0, limits: mediaLimitsRef.current,
-          variant: node.blobRef?.formatVersion ?? 1,
+          variant: imageVariant,
           chunkCount: 1,
           readChunk: () => readNodeBytesRef.current({ node, blob, signal }),
           readWhole: () => readNodeBytesRef.current({ node, blob, signal }),
+          // V2: decrypted chunks are pulled one at a time (normal lane buffers ≤ imageMaxInputBytes;
+          // the reduced lane transfers each chunk into the decode worker and keeps nothing)
+          openChunks: imageVariant === 2
+            ? ({ signal: chunkSignal }) => openVaultPlainChunks({
+              signal: chunkSignal,
+              run: (sink, runSignal) => downloadVaultV2({ kek, blob, sink, signal: runSignal }),
+            })
+            : null,
+          reduced: { capability: detectReducedDecodeCapability(), startJob: startReducedDecodeJob },
           admission, signal, skipUrl: true,
         })
         if (!thumb.ok) throw new Error(thumb.unsupported)
@@ -1179,6 +1201,7 @@ export function VaultTreeScreen({
         destination={`/${(tree.breadcrumbs ?? []).map((node) => displayNodeName(t, node, head?.manifest?.rootNodeId)).filter(Boolean).join('/')}`}
         parentNodeId={tree.current}
         onUpload={runVaultUpload}
+        onActiveUploadsChange={onActiveUploadsChange}
         kek={kek}
         recoveryScope={recoveryScope}
       />

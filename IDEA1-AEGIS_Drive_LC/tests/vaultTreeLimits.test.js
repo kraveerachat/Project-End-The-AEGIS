@@ -26,7 +26,8 @@ const REGISTER = Object.freeze({
   imageMaxInputBytes: 16 * MIB,
   imageMaxDecodedPixels: 16_000_000,
   imageNormalMaxDecodedPixels: 16_000_000,
-  imageHighResMaxDecodedPixels: 16_000_000,
+  imageHighResMaxDecodedPixels: 152_000_000,   // PR220-R2 reduced-decode envelope (Edge 154 native measurement)
+  imageHighResMaxInputBytes: 40 * MIB,          // PR220-R2 largest measured encoded input class + margin
   imageHighResMaxConcurrentJobs: 1,
   gifMaxFullPlayBytes: 8 * MIB,
   posterMaxEdge: 512,
@@ -35,9 +36,11 @@ const REGISTER = Object.freeze({
   memoryCeilingBytes: 256 * MIB,
 })
 
-test('LM-HIGHRES the active cap stays 16 MP until native browser measurement promotes it', () => {
+test('LM-HIGHRES normal lane stays 16 MP; the reduced-decode lane carries the measured envelope', () => {
   assert.equal(VAULT_TREE_CLIENT_LIMITS.imageNormalMaxDecodedPixels, 16_000_000)
-  assert.equal(VAULT_TREE_CLIENT_LIMITS.imageHighResMaxDecodedPixels, 16_000_000)
+  assert.equal(VAULT_TREE_CLIENT_LIMITS.imageMaxDecodedPixels, 16_000_000, 'full-bitmap decode never exceeds 16 MP')
+  assert.equal(VAULT_TREE_CLIENT_LIMITS.imageHighResMaxDecodedPixels, 152_000_000)
+  assert.equal(VAULT_TREE_CLIENT_LIMITS.imageHighResMaxInputBytes, 40 * MIB)
   assert.equal(VAULT_TREE_CLIENT_LIMITS.imageHighResMaxConcurrentJobs, 1)
   assert.equal(VAULT_TREE_CLIENT_LIMITS.memoryCeilingBytes, 256 * MIB)
 })

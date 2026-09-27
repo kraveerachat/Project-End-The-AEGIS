@@ -1,5 +1,13 @@
 // Client-only admission for decoded Vault images. It owns no bytes, storage, or network.
 
+/**
+ * PR220-R2 native measurement (Edge 154, process-tree working set): a normal-lane full decode peaks
+ * at ≈ 3× its RGBA estimate (16 MP: ≈ 200 MiB observed vs ≈ 66 MiB estimated). Normal-only
+ * concurrency keeps the historical estimate; any combination with a high-res job is judged by
+ * this observed factor so the two lanes together stay under memoryCeilingBytes.
+ */
+export const NORMAL_LANE_OBSERVED_FACTOR = 3
+
 const abortError = () => {
   const error = new Error('Image decode admission aborted')
   error.name = 'AbortError'
@@ -13,7 +21,10 @@ export function estimateImageDecodeReservation({ pixels, inputBytes, posterMaxEd
   return safeInput + safePixels * 4 + edge * edge * 4
 }
 
-export function createImageDecodeAdmission({ limits, liveMemoryBytes = () => 0 } = {}) {
+// PR220-R2: a caller on the reduced-decode lane passes { lane: 'high-res', reservedBytes } — its
+// projected working set — instead of pixels. High-res entries also wait while deferHighRes()
+// reports an active interactive upload, so a large decode never competes with it.
+export function createImageDecodeAdmission({ limits, liveMemoryBytes = () => 0, deferHighRes = () => false } = {}) {
   if (!limits) throw new TypeError('createImageDecodeAdmission: limits are required')
   const queue = []
   const running = new Set()
@@ -35,8 +46,16 @@ export function createImageDecodeAdmission({ limits, liveMemoryBytes = () => 0 }
     const current = stats()
     if (entry.lane === 'normal' && current.runningNormal >= limits.maxConcurrentJobs) return false
     if (entry.lane === 'high-res' && current.runningHighRes >= limits.imageHighResMaxConcurrentJobs) return false
+    if (entry.lane === 'high-res' && deferHighRes()) return false
     const live = Math.max(0, Number(liveMemoryBytes()) || 0)
-    return live + current.reservedBytes + entry.reservedBytes <= limits.memoryCeilingBytes
+    if (live + current.reservedBytes + entry.reservedBytes > limits.memoryCeilingBytes) return false
+    if (entry.lane === 'high-res' || current.runningHighRes > 0) {
+      const observed = (e) => (e.lane === 'normal' ? e.reservedBytes * NORMAL_LANE_OBSERVED_FACTOR : e.reservedBytes)
+      let combined = live + observed(entry)
+      for (const r of running) combined += observed(r)
+      if (combined > limits.memoryCeilingBytes) return false
+    }
+    return true
   }
 
   function removeQueued(entry) {
@@ -67,10 +86,12 @@ export function createImageDecodeAdmission({ limits, liveMemoryBytes = () => 0 }
     }
   }
 
-  function acquire({ pixels, inputBytes = 0, signal = null } = {}) {
+  function acquire({ pixels = 0, inputBytes = 0, signal = null, lane: requestedLane = null, reservedBytes: projected = null } = {}) {
     if (closed || signal?.aborted) return Promise.reject(abortError())
-    const lane = pixels <= limits.imageNormalMaxDecodedPixels ? 'normal' : 'high-res'
-    const reservedBytes = estimateImageDecodeReservation({ pixels, inputBytes, posterMaxEdge: limits.posterMaxEdge })
+    const lane = requestedLane === 'high-res' || pixels > limits.imageNormalMaxDecodedPixels ? 'high-res' : 'normal'
+    const reservedBytes = Number.isFinite(projected) && projected >= 0
+      ? projected
+      : estimateImageDecodeReservation({ pixels, inputBytes, posterMaxEdge: limits.posterMaxEdge })
     return new Promise((resolve, reject) => {
       const entry = { lane, reservedBytes, signal, resolve, reject, onAbort: null }
       entry.onAbort = () => {
