@@ -32,11 +32,22 @@ Gaps found (each fixed, RED-first): (1) credentials dir `root:root 0700` vs D4 c
 
 ### Session 2 — main reconciliation after PR #208 merged; release-install gap closed
 
+### Session 3 — release-installer ownership-contract correctness fix
+
 1. **Main reconciliation.** Merged current `main` (`653249822cf194bc0bd15f56ac0b96ac3a492f35`, now including PR #208 merged) into this branch with a normal merge commit (not a rewrite of session 1's history). One conflict, in `deploy/pr11-phase4/README.md`: pure insertion-adjacency between this branch's "L7 live preparation" section and PR #208's "L7 release builder / verifier" section, no contested wording; resolved by keeping both sections and correcting stale "open PR #208" language to "merged". `idea3-status.md` auto-merged with no conflict markers. All L6b closeout history is unchanged; no historical receipt was edited.
 2. **Release-install gap re-audited.** Searched the repository (scripts, docs, tests, owner-run tooling) for any existing safe installer of a built release into `/opt/aegis-idea3/releases/<id>`. None exists. Confirmed `stages/L7/apply.sh` already owns the `/opt/aegis-idea3/current` symlink exclusively (creates it only if absent, refuses to move it) — so any installer must never touch it.
 3. **Implemented `deploy/pr11-phase4/p4-l7-install-release.py`** (RED-first: 22 failed / 6 passed before implementation, 28 passed after): copies a completed `p4-l7-build-release.py` output into `/opt/aegis-idea3/releases/<id>`. Re-validates the source with the real, imported `p4-l7-release-guard.py` (never a copied predicate) before any mutation, stages through a sibling `.install-tmp-<id>-<random>` directory, re-validates the staged copy with the same guard, and places it with one atomic `os.rename`. Refuses to overwrite an existing release, refuses a symlinked destination or ancestor, fails closed with no retry, cleans only its own temp staging on failure, never later removes an already-placed release, never touches `current`, and never names or reads a credential file. Optional `--evidence` records only `release_id`, `source_git_sha` and the logical path.
 4. **Governance gap documented, not invented.** `p4-lib.sh`'s fixed stage set and `p4-stage-gate.sh`'s authorization/K3 records define no stage id or field for a pre-L7 release-install mutation. Per instruction, this was documented as an open owner decision (new G-15 stage vs. an `A-L7` extra field) rather than inventing one; **no owner-run wrapper was created** for the installer.
 5. Documentation updated: `README.md` (new "L7 release installer" section + governance-gap note), the L7 operational design (new §8), and `idea3-status.md` (new dated section; all historical sections are unedited).
+
+A pre-merge review found  used the SAME `expect_owner` value for all three guard checks
+(source, staged copy, final release). PR #208 builds into a USER-OWNED staging directory; the installed immutable
+release contract requires ROOT ownership. Fixed: the source is now always checked at `--expect-owner any` (hard-coded,
+never a CLI choice); the staged copy and the final release now default to `--expect-owner root`, never weakened by a
+general CLI switch. The only relaxation is `--fixture-dest-owner-any`, refused outright unless `--host-root` (a fixture
+filesystem root) is also given, so it can never silently apply to a live install. RED-first: 26 failed, 13 passed before
+the fix; 39 passed after. Corrected the stale README wording that implied `--expect-owner any` for the final installed
+release.
 
 ## Source files changed
 
@@ -70,5 +81,5 @@ Gaps found (each fixed, RED-first): (1) credentials dir `root:root 0700` vs D4 c
 
 ## Known limitations
 
-- **No release is installed on the host and no owner-run installer wrapper exists.** The installer tool is repository-only and fixture-tested; live use requires an owner decision on the authorization/stage governance (documented, not invented — see design §8). Owner input (OV-09 keys, OV-11 PIN, MQTT password, D4 restore credential), Pub D6 notice, fresh same-day A-L7 and K3, IDEA2 §10 fresh state and disk headroom are still required before any live L7 attempt.
+- **No release is installed on the host and no owner-run installer wrapper exists.** The installer tool is repository-only and fixture-tested; live use requires an owner decision on the authorization/stage governance (documented, not invented — see design §8). Owner input (OV-09 keys, OV-11 PIN, MQTT password, D4 restore credential), Pub D6 notice, fresh same-day A-L7 and K3, IDEA2 §10 fresh state and disk headroom are still required before any live L7 attempt. The installed-release ownership default (root) can be overridden only by the narrowly named, host-root-gated `--fixture-dest-owner-any` test flag; it is refused outright without `--host-root`.
 - Live-only, unproven offline: real `systemd-analyze verify`, `runuser`, `reset-failed`/`daemon-reload` semantics, `ss -p` output, the Core's real broker connection and heartbeat gating, and root ownership installs (including the real installer's `os.rename` on the live filesystem).

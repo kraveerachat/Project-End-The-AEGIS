@@ -10,9 +10,16 @@ repository copies a built release into place.
 
 Boundaries, all deliberate:
 
+* Ownership contract (2026-09-27 correctness fix): the builder (PR #208) always builds into a USER-OWNED staging
+  directory, and the installed immutable release must be ROOT-OWNED. These are validated SEPARATELY: the source is
+  always checked at `--expect-owner any` (hard-coded, never a CLI choice — the caller is never asked to chown the
+  builder output first), while the staged copy and the final installed release default to `--expect-owner root`. That
+  default is never weakened by a general CLI switch. The one exception is `--fixture-dest-owner-any`, a narrowly named
+  test-only override that takes effect ONLY together with `--host-root` (a fixture filesystem root) — using it without
+  `--host-root` is refused outright, so it can never silently weaken a live install.
 * Source: a builder output directory only. Never builds anything, never generates or reads a Production secret (no
   credential filename is referenced anywhere in this file). Re-validated with the REAL, CURRENT
-  `p4-l7-release-guard.py` (imported directly from this same directory — never a copied predicate) at `--expect-owner any`
+  `p4-l7-release-guard.py` (imported directly from this same directory — never a copied predicate)
   BEFORE any filesystem mutation, and again against the staged copy immediately BEFORE the final atomic placement.
 * Destination: exactly `/opt/aegis-idea3/releases/<release-id>/`. Refuses to overwrite an existing release (no
   `--force`, no update mode). Never recurses into `/opt/aegis-idea3` itself. Refuses a symlinked destination or a
@@ -86,15 +93,23 @@ def _copy_tree(src: Path, dst: Path) -> None:
             os.chmod(target, mode)
 
 
-def install(*, release_id: str, source: Path, logical: str, host_root: str, expect_owner: str, evidence: Path | None) -> tuple[str, str]:
+SOURCE_GUARD_OWNER = "any"  # the builder output is always user-owned; never derived from a CLI flag
+DEFAULT_INSTALLED_GUARD_OWNER = "root"  # the immutable release contract; never weakened by a general CLI switch
+
+
+def install(*, release_id: str, source: Path, logical: str, host_root: str, fixture_dest_owner_any: bool,
+            evidence: Path | None) -> tuple[str, str]:
     if not RELEASE_ID_RE.fullmatch(release_id):
         refuse("RELEASE_ID_INVALID")
     if logical != LOGICAL_PREFIX + release_id:
         refuse("LOGICAL_PATH_RELEASE_ID_MISMATCH")
+    if fixture_dest_owner_any and not host_root:
+        refuse("FIXTURE_OWNER_OVERRIDE_REQUIRES_HOST_ROOT")
+    dest_owner = "any" if fixture_dest_owner_any else DEFAULT_INSTALLED_GUARD_OWNER
 
     guard = _load_guard()
     try:
-        guard.check(logical, source, expect_owner)
+        guard.check(logical, source, SOURCE_GUARD_OWNER)
     except guard.Refusal as exc:
         refuse(f"RELEASE_GUARD_FAILED:{exc}")
 
@@ -124,7 +139,7 @@ def install(*, release_id: str, source: Path, logical: str, host_root: str, expe
     try:
         _copy_tree(source, stage)
         try:
-            guard.check(logical, stage, expect_owner)
+            guard.check(logical, stage, dest_owner)
         except guard.Refusal as exc:
             refuse(f"POST_COPY_GUARD_FAILED:{exc}")
         if dest.exists() or dest.is_symlink():
@@ -135,7 +150,7 @@ def install(*, release_id: str, source: Path, logical: str, host_root: str, expe
             shutil.rmtree(stage, ignore_errors=True)
         raise
 
-    manifest_sha = guard.check(logical, dest, expect_owner)
+    manifest_sha = guard.check(logical, dest, dest_owner)
     release, sha = manifest_sha
     if evidence is not None:
         with open(evidence, "a", encoding="utf-8") as handle:
@@ -153,12 +168,14 @@ def main() -> int:
     inst.add_argument("--source", required=True)
     inst.add_argument("--logical-path", required=True)
     inst.add_argument("--host-root", default="")
-    inst.add_argument("--expect-owner", choices=("root", "any"), default="root")
+    inst.add_argument("--fixture-dest-owner-any", action="store_true",
+                       help="FIXTURE-ONLY: accept a non-root-owned staged/installed release. Has no effect and is refused "
+                            "outright unless --host-root is also given; never usable against the real filesystem.")
     inst.add_argument("--evidence")
     args = parser.parse_args()
     try:
         release_id, sha = install(release_id=args.release_id, source=Path(args.source), logical=args.logical_path,
-                                   host_root=args.host_root, expect_owner=args.expect_owner,
+                                   host_root=args.host_root, fixture_dest_owner_any=args.fixture_dest_owner_any,
                                    evidence=Path(args.evidence) if args.evidence else None)
     except Refusal as exc:
         print(f"L7_RELEASE_INSTALL=FAIL reason={exc}")
