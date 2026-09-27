@@ -82,6 +82,9 @@ export function Hub({ t, lang, setLang, theme, setTheme }) {
   }, [])
 
   function openModule(module) {
+    // AEGIS CORE ENTRY UX CONTRACT — HUMAN OWNER CONTROLLED.
+    // Preserve one handoff and BFCache-safe return to the picker. No HUB auth.
+    // Explicit task, RED browser tests, Human/integration review required.
     // A ref closes the same-turn double-click gap before React commits state.
     if (handoffRef.current) return
     handoffRef.current = true

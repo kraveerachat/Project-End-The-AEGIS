@@ -13,12 +13,15 @@ export const STRINGS = {
     errorBoundaryBody: 'This page could not be rendered. Technical details were logged to the browser console.',
     errorBoundaryReload: 'Reload',
 
+    // AEGIS CORE ENTRY UX CONTRACT — HUMAN OWNER CONTROLLED.
+    // TH/EN/ZH Login meaning and geometry are protected; do not shorten copy
+    // for visual convenience. Explicit scope, RED tests, preserved auth, Human review.
     // login
     loginTitle: 'Sign in',
     loginSubtitle: 'Secure NAS · on-premise',
     username: 'Username',
     password: 'Password',
-    usernamePlaceholder: 'your.name',
+    usernamePlaceholder: 'Your username',
     passwordPlaceholder: '••••••••',
     showPassword: 'Show password',
     hidePassword: 'Hide password',
@@ -1398,7 +1401,7 @@ export const STRINGS = {
     loginSubtitle: 'NAS ปลอดภัย · ติดตั้งภายในองค์กร',
     username: 'ชื่อผู้ใช้',
     password: 'รหัสผ่าน',
-    usernamePlaceholder: 'ชื่อ.นามสกุล',
+    usernamePlaceholder: 'ชื่อผู้ใช้ของคุณ',
     passwordPlaceholder: '••••••••',
     showPassword: 'แสดงรหัสผ่าน',
     hidePassword: 'ซ่อนรหัสผ่าน',
@@ -2721,7 +2724,7 @@ export const STRINGS = {
     loginSubtitle: '安全 NAS · 本地部署',
     username: '用户名',
     password: '密码',
-    usernamePlaceholder: '名.姓',
+    usernamePlaceholder: '请输入用户名',
     passwordPlaceholder: '••••••••',
     showPassword: '显示密码',
     hidePassword: '隐藏密码',

@@ -5,6 +5,7 @@ import { makeT } from './lib/strings.js'
 import { useApi, useReducedMotion } from './lib/hooks.js'
 import { isPlatformWired } from './lib/fetchState.js'
 import { buildLocationForIntent, normalizeNavigationIntent, readLocationIntent, resolveAuthorizedScreen, visiblePrimaryNav } from './lib/navigationIntent.js'
+import { armAuthenticatedBackBoundary, authenticatedNavigationState, handleAuthenticatedBack, releaseAuthenticatedBackBoundary } from './lib/authBackBoundary.js'
 import { HatchDefs, SkeletonLoader } from './components/ui.jsx'
 import { Sidebar } from './components/Sidebar.jsx'
 import { useScrollReveal } from './lib/useScrollReveal.js'
@@ -64,10 +65,18 @@ export default function App() {
   // และบันทึกกู้คืนการอัปโหลดที่จำกัดขอบเขตตามรายบัญชี (upload recovery metadata) โดยไม่มี token หรือ session secret ใด ๆ
   const [session, setSession] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
+  // AEGIS CORE ENTRY UX CONTRACT — HUMAN OWNER CONTROLLED.
+  // This ref controls browser Back UX only; the server remains auth authority.
+  // Explicit scope, RED tests, preserved auth semantics, Human/integration review required.
+  const authBoundaryActive = useRef(false)
 
   // เซสชันหมดอายุกลางคัน (401 จาก endpoint ใดก็ตาม) → กลับประตูทันที ไม่ค้างจอ
   useEffect(() => {
     registerUnauthorizedHandler(() => {
+      if (authBoundaryActive.current) {
+        authBoundaryActive.current = false
+        releaseAuthenticatedBackBoundary(window.history)
+      }
       clearAuthenticatedInterfaceStyle()
       setSession(null)
     })
@@ -155,6 +164,8 @@ export default function App() {
    * ธีมถูกตัดสินที่นี่จุดเดียว — ไม่มี component ไหนตั้งธีมหลังล็อกอินแข่งกับที่นี่อีก
    */
   const applyAuthenticatedSession = useCallback(({ user, menu }) => {
+    armAuthenticatedBackBoundary(window.history, `${window.location.pathname}${window.location.search}`)
+    authBoundaryActive.current = true
     const continuity = logoutThemeContinuity.current
     logoutThemeContinuity.current = null // one-shot: การล็อกอินครั้งถัดไปใช้หรือทิ้งทันที
     const decision = resolveAuthenticatedTheme({
@@ -244,12 +255,16 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const nextLocation = buildLocationForIntent(intent, import.meta.env.BASE_URL)
       const method = options.replace ? 'replaceState' : 'pushState'
-      window.history[method](null, '', nextLocation)
+      const state = authBoundaryActive.current
+        ? authenticatedNavigationState(window.history.state, Boolean(options.replace))
+        : null
+      window.history[method](state, '', nextLocation)
     }
   }, [])
 
   useEffect(() => {
     const onPopState = () => {
+      if (handleAuthenticatedBack(window.history, authBoundaryActive.current)) return
       const intent = readLocationIntent(window.location.pathname, window.location.search, import.meta.env.BASE_URL)
       setScreen(intent.screen)
       setNavigationParams(intent.params)
@@ -366,12 +381,15 @@ export default function App() {
       : { userId: session.id, theme }
     // ทำลายเซสชันฝั่งเซิร์ฟเวอร์ แล้วล้างสำเนา session ในหน่วยความจำทันที
     apiLogout()
+    authBoundaryActive.current = false
+    releaseAuthenticatedBackBoundary(window.history)
     clearAuthenticatedInterfaceStyle()
     setSession(null)
     // ⚠️ ธีมไม่ถูกรีเซ็ตตอนออกจากระบบโดยเจตนา — จอ Login ต้องรับช่วงธีมของแอปต่อทันที
     //    (App Dark → Logout → Login Dark) shell hint ถูกเขียนไว้แล้วตั้งแต่ตอนเลือกธีม
     loginThemeSelection.current = null // เริ่มเซสชัน Login ใหม่แบบ "ยังไม่มีการเลือกใหม่"
-    go('dashboard', {}, { replace: true })
+    setScreen('dashboard')
+    setNavigationParams({})
   }
 
   // ด่านนี้มาก่อนการสร้าง protected screen ทุกจอ: ไม่มี Sidebar/TopBar และไม่มี

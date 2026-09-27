@@ -100,6 +100,10 @@ for (const [module, index] of [['drive', 0], ['monitor', 1]]) {
         await cards.first().waitFor({ state: 'visible', timeout: 3000 })
         assert.equal(await cards.count(), 2)
         assert.equal(await cards.nth(index).isEnabled(), true)
+        await page.goBack()
+        await page.locator('.sparkle-btn').waitFor({ state: 'visible', timeout: 3000 })
+        assert.equal(await page.locator('button.lum-card').count(), 0,
+          'a second Back from the picker must restore Welcome')
         // A preserved instance proves BFCache restored React state rather than remounting.
         if (restored.instance === instanceBefore) {
           assert.ok(restored.events.some((e) => e.event === 'pageshow' && e.persisted === true))
@@ -109,6 +113,45 @@ for (const [module, index] of [['drive', 0], ['monitor', 1]]) {
       }
     })
   }
+}
+
+test('fresh entry is light and Welcome → Hub adds a reversible history entry', async () => {
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  try {
+    await page.goto(origin)
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light')
+    const before = await page.evaluate(() => history.length)
+    await page.locator('.sparkle-btn').click()
+    await page.locator('button.lum-card').first().waitFor({ state: 'visible' })
+    assert.equal(await page.evaluate(() => history.length), before + 1)
+    await page.goBack()
+    await page.locator('.sparkle-btn').waitFor({ state: 'visible' })
+  } finally {
+    await context.close()
+  }
+})
+
+for (const [name, initial, expected] of [
+  ['legacy migration', { aegis_theme: 'dark' }, 'dark'],
+  ['canonical precedence', { aegis_theme: 'dark', aegis_shell_theme: 'light' }, 'light'],
+  ['system light', { aegis_shell_theme: 'system' }, 'light'],
+]) {
+  test(`R4 shell theme ${name}`, async () => {
+    const context = await browser.newContext({ colorScheme: 'light' })
+    const page = await context.newPage()
+    await page.addInitScript((entries) => {
+      for (const [key, value] of Object.entries(entries)) localStorage.setItem(key, value)
+    }, initial)
+    try {
+      await page.goto(origin)
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), expected)
+      assert.equal(await page.evaluate(() => localStorage.getItem('aegis_shell_theme')),
+        initial.aegis_shell_theme ?? initial.aegis_theme)
+    } finally {
+      await context.close()
+    }
+  })
 }
 
 test('persisted pageshow clears a pending handoff and cancels its timer', async () => {
@@ -148,4 +191,17 @@ test('first module choice wins a same-turn double activation', async () => {
   } finally {
     await context.close()
   }
+})
+
+test('system shell theme follows OS changes without replacing the stored system value', async () => {
+  const context = await browser.newContext({ colorScheme: 'dark' })
+  const page = await context.newPage()
+  await page.addInitScript(() => localStorage.setItem('aegis_shell_theme', 'system'))
+  try {
+    await page.goto(origin)
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark')
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'light')
+    assert.equal(await page.evaluate(() => localStorage.getItem('aegis_shell_theme')), 'system')
+  } finally { await context.close() }
 })

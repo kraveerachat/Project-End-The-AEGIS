@@ -10,6 +10,12 @@ import reactPlugin from '@vitejs/plugin-react'
 
 import { makeT } from '../src/lib/strings.js'
 
+test('R4 username placeholders describe an account name, not a required name format', () => {
+  assert.equal(makeT('en')('usernamePlaceholder'), 'Your username')
+  assert.equal(makeT('th')('usernamePlaceholder'), 'ชื่อผู้ใช้ของคุณ')
+  assert.equal(makeT('zh')('usernamePlaceholder'), '请输入用户名')
+})
+
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const fixture = normalizePath(path.join(rootDir, 'tests/fixtures/mockHooks.js'))
 let vite

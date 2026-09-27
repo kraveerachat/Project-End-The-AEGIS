@@ -5,6 +5,7 @@ import { Hub } from './screens/Hub.jsx'
 import { Segmented, ThemeToggle } from './components/ui.jsx'
 import { LANGS, makeT } from './lib/strings.js'
 import { EASE, SPRING } from './lib/motion.js'
+import { readShellTheme, resolveShellTheme, SHELL_THEME_KEY, isValidShellTheme } from './lib/shellTheme.js'
 
 /**
  * AEGIS Entry Point Hub — a door and a menu. Two screens, one state
@@ -29,49 +30,66 @@ import { EASE, SPRING } from './lib/motion.js'
  * that void.
  */
 export default function App() {
-  // Keep the launcher's history entry on the module picker. If the browser
-  // cannot restore this document from BFCache, Back still returns to Hub.
+  // AEGIS CORE ENTRY UX CONTRACT — HUMAN OWNER CONTROLLED.
+  // Welcome and Hub are separate reversible entries. Changes require explicit
+  // scope, RED regression evidence, preserved auth semantics, Human/integration review.
+  // Do not weaken this warning during incidental UI cleanup.
   const [screen, setScreen] = useState(
     () => window.history.state?.aegisHubScreen === 'hub' ? 'hub' : 'welcome',
   ) // 'welcome' | 'hub'
   const [lang, setLang] = useState('th') // Thai-first (PRODUCT.md)
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('aegis_theme') || 'dark'
-  })
+  const [theme, setTheme] = useState(() => readShellTheme())
+  const [prefersDark, setPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const resolvedTheme = resolveShellTheme(theme, prefersDark)
 
   const t = makeT(lang)
 
   function enterHub() {
-    window.history.replaceState({ ...(window.history.state || {}), aegisHubScreen: 'hub' }, '')
+    window.history.pushState({ ...(window.history.state || {}), aegisHubScreen: 'hub' }, '')
     setScreen('hub')
   }
+
+  useEffect(() => {
+    const onPopState = () => setScreen(window.history.state?.aegisHubScreen === 'hub' ? 'hub' : 'welcome')
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
 
   useEffect(() => {
     document.documentElement.lang = lang
   }, [lang])
 
   useEffect(() => {
-    const dark = theme === 'dark'
-    document.documentElement.dataset.theme = theme
+    const dark = resolvedTheme === 'dark'
+    document.documentElement.dataset.theme = resolvedTheme
     document.documentElement.classList.toggle('dark', dark)
     document.documentElement.classList.toggle('light', !dark)
-    localStorage.setItem('aegis_theme', theme)
+    localStorage.setItem(SHELL_THEME_KEY, theme)
 
     const link = document.querySelector("link[rel*='icon']") || document.createElement('link')
     link.type = 'image/png'
     link.rel = 'shortcut icon'
-    link.href = theme === 'light' ? '/assets/logo/aegis-mark-light-ink.png' : '/assets/logo/aegis-mark-dark-ink.png'
+    link.href = dark ? '/assets/logo/aegis-mark-dark-ink.png' : '/assets/logo/aegis-mark-light-ink.png'
     if (!link.parentNode) document.getElementsByTagName('head')[0].appendChild(link)
-  }, [theme])
+  }, [theme, resolvedTheme])
 
   useEffect(() => {
     const onStorage = (e) => {
-      if (e.key === 'aegis_theme' && e.newValue) {
+      if (e.key === SHELL_THEME_KEY && isValidShellTheme(e.newValue)) {
         setTheme(e.newValue)
       }
     }
+    const onPageShow = () => setTheme(readShellTheme())
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onPreference = () => setPrefersDark(mq.matches)
     window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
+    window.addEventListener('pageshow', onPageShow)
+    mq.addEventListener('change', onPreference)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('pageshow', onPageShow)
+      mq.removeEventListener('change', onPreference)
+    }
   }, [])
 
   return (
@@ -85,7 +103,7 @@ export default function App() {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.24, ease: EASE }}
           >
-            <Hub t={t} lang={lang} setLang={setLang} theme={theme} setTheme={setTheme} />
+            <Hub t={t} lang={lang} setLang={setLang} theme={resolvedTheme} setTheme={setTheme} />
           </motion.div>
         ) : (
           <motion.div
@@ -96,7 +114,7 @@ export default function App() {
             exit={{ opacity: 0, scale: 1.02, transition: { duration: 0.38, ease: EASE } }}
           >
             <div className="absolute top-5 right-5 flex items-center gap-2" style={{ zIndex: 'var(--z-chrome)' }}>
-              <ThemeToggle theme={theme} setTheme={setTheme} t={t} />
+              <ThemeToggle theme={resolvedTheme} setTheme={setTheme} t={t} />
               <Segmented
                 ariaLabel={t('language')}
                 options={LANGS.map((l) => ({ value: l, label: l.toUpperCase() }))}

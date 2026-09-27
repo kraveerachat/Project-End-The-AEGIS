@@ -59,7 +59,7 @@ function LayerRow({ t, layer, status }) {
       : status === 'idle' ? 'layerStatusReady' : 'layerStatusArchitecture'
 
   return (
-    <motion.div variants={layerItemVariants} data-layer-status={status} className="login-layer-row">
+    <motion.div variants={layerItemVariants} data-layer-status={status} data-layer-id={layer.id} className="login-layer-row">
       <span className="login-layer-node" aria-hidden="true">
         {isOk ? (
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
@@ -77,6 +77,10 @@ function LayerRow({ t, layer, status }) {
 }
 
 export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme, onAuthed }) {
+  // AEGIS CORE ENTRY UX CONTRACT — HUMAN OWNER CONTROLLED.
+  // IDEA2 Login is the visual authority; IDEA1 login()/CSRF/error/RBAC semantics
+  // remain local. No incidental redesign. Changes need explicit scope, RED tests,
+  // Human/integration review; preserve TH/EN/ZH geometry and reduced motion.
   const reduced = useReducedMotion()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -148,6 +152,18 @@ export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme
       />
       <div className="gate-halo absolute inset-0 pointer-events-none" aria-hidden />
       <div className="login-dot-field absolute inset-0 pointer-events-none" aria-hidden="true" />
+      <motion.div
+        className="login-ambient-beam absolute pointer-events-none"
+        animate={reduced ? false : { scale: [1, 1.08, 1], opacity: [0.4, 0.7, 0.4] }}
+        transition={reduced ? { duration: 0 } : { duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+        aria-hidden="true"
+      />
+      <motion.div
+        className="login-energy-line absolute pointer-events-none"
+        animate={reduced ? false : { x: [-20, 20, -20], opacity: [0.4, 0.8, 0.4] }}
+        transition={reduced ? { duration: 0 } : { duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+        aria-hidden="true"
+      />
 
       {/* Top right language selector and theme toggle */}
       <div className="login-top-controls absolute top-5 right-5 z-30 flex items-center gap-2">
@@ -161,24 +177,27 @@ export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme
       </div>
 
       {/* Main sign-in surface */}
-      <main className="login-security-field relative my-auto w-full max-w-[440px] md:max-w-[960px] z-10" data-security-field data-motion={reduced ? 'reduced' : 'full'} data-phase={fieldPhase}>
+      <main className="login-security-field relative my-auto w-full max-w-[440px] md:max-w-[920px] z-10" data-security-field data-motion={reduced ? 'reduced' : 'full'} data-phase={fieldPhase}>
         <div className="login-field-aura" data-field-aura aria-hidden="true" />
         <div className="login-field-trace" data-field-trace aria-hidden="true" />
         {/* Split sign-in card */}
         <motion.div
-          initial={reduced ? false : { scale: 0.985, opacity: 0, y: 10 }}
+          initial={reduced ? false : { scale: 0.96, opacity: 0, y: 15 }}
           animate={{
             scale: leaving ? 1.03 : 1,
             opacity: leaving ? 0 : 1,
             y: 0,
           }}
-          transition={reduced ? { duration: 0 } : { duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
+          transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 260, damping: 20 }}
+          whileHover={reduced ? undefined : { y: -4 }}
+          whileTap={reduced ? undefined : { scale: 0.995 }}
           className="login-card w-full overflow-hidden flex flex-col md:flex-row md:items-stretch relative"
         >
-          {/* Left Panel: restrained brand lockup */}
+          {/* Left Panel: Monitor-authoritative brand treatment */}
           <div className="login-brand-panel w-full md:w-[42%] p-6 md:p-12 flex flex-col items-center justify-center text-center relative">
             <div className="login-brand-lockup my-auto flex flex-col items-center">
               <div className="login-mark-stage relative flex items-center justify-center">
+                <span className="login-mark-backlight absolute inset-0 pointer-events-none" aria-hidden="true" />
                 <AegisMark size={180} theme={resolvedTheme} className="login-mark" />
               </div>
               <div className="login-brand-text">
@@ -242,7 +261,7 @@ export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between py-1">
+                <div className="login-remember-row flex items-center justify-between py-1">
                   <span className="login-label text-sm font-medium">
                     {t('rememberSession')}
                   </span>
