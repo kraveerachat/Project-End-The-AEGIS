@@ -53,6 +53,72 @@ python3 manage_nodes.py reconcile-account-aliases \
 Removing `--dry-run` is a separate reviewed administrative action. Changing
 logical aliases must not change any node's physical-camera registration.
 
+## Machine A Human Gate registration sequence
+
+Original Task 15 prepares this sequence but does not execute it. Run it only in
+an approved **non-Production** Monitor administration shell during Task 16,
+after the Machine A service-identity DPAPI preflight and public-key export have
+passed. `DATABASE_URL`, the approved Node ID, and the public-key export path are
+`DISCOVER_AT_HUMAN_GATE`; provide them out-of-band and never paste the database
+URL, password, token, or key contents into chat.
+
+First run `list` and stop if the Node already exists unexpectedly. For one new
+Machine A Node, use account alias mode so both accounts share the one
+server-generated physical-camera identity:
+
+```bash
+python3 manage_nodes.py list
+python3 manage_nodes.py register \
+  --node-id "$NODE_ID" \
+  --alias-mode account \
+  --public-key "$PUBLIC_KEY_EXPORT"
+
+python3 manage_nodes.py reconcile-account-aliases \
+  --node-id "$NODE_ID" \
+  --account-alias operator=CAM-01 \
+  --account-alias operator2=CAM-02 \
+  --dry-run
+
+python3 manage_nodes.py reconcile-account-aliases \
+  --node-id "$NODE_ID" \
+  --account-alias operator=CAM-01 \
+  --account-alias operator2=CAM-02
+
+python3 manage_nodes.py set-ingest-auth-mode \
+  --node-id "$NODE_ID" \
+  --mode ed25519_required
+
+python3 manage_nodes.py list
+
+node --input-type=module -e "import { approvedStreamUrlForPhysicalCamera as approved } from '../auth/physicalStreamSource.js'; const id=Number(process.argv[1]); const url=approved(id,process.argv[2]); if(url!=='http://aegis-stream-host.internal:18077/stream.mjpg') process.exit(1); console.log('PHYSICAL_STREAM_SOURCE=PASS')" "$PHYSICAL_CAMERA_ID" "$NODE_ID"
+```
+
+Expected evidence is one active Node, one immutable physical-camera ID, key
+version matching Machine A provisioning, `account` alias policy, both account
+mappings, `ed25519_required`, and `PHYSICAL_STREAM_SOURCE=PASS` from the
+server-owned `AEGIS_TRUSTED_PHYSICAL_STREAM_SOURCES` /
+`AEGIS_MONITOR_STREAM_HOST` environment. The CLI prints only
+fingerprint/registration metadata, never the private key. The public-key file
+is safe evidence but its contents need not be returned to chat.
+
+Abort before any write if the database is Production, the Node/public-key
+fingerprint/key version is unexpected, CAM-01/CAM-02 or either active operator
+is missing, or the dry-run fails. Heartbeat cannot create or change any row in
+this authority model. Browser values cannot override it. Do not register a
+second physical camera for `operator2`.
+
+For a failed new-node rollout, preserve the Machine identity and disable only
+the exact non-Production Node after Human Owner review:
+
+```bash
+python3 manage_nodes.py disable --node-id "$NODE_ID"
+python3 manage_nodes.py list
+```
+
+Switching an existing strict Node back to `legacy_shared_key` is not automatic
+rollback. It requires a separate owner decision and must not change Detector B
+or any other Node. The CLI has no default key-destruction operation.
+
 ## Operator account provisioning (`manage_users.py`)
 
 SSH-only CLI for creating `CCTV-Operator` and `SOC-Responder` accounts and

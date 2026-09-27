@@ -21,9 +21,9 @@ Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
 PR: NOT CREATED — blocked until Human Machine A local acceptance and final Task 16 closeout
-Current state: ORIGINAL TASK 14 HUMAN-GATE READY — complete source/local verification and scoped security review passed; Playwright remains blocked only because the approved runner is absent; Task 15 has not started
+Current state: ORIGINAL TASK 15 HUMAN GATE READY — the exact H0–H5 Machine A installation, verification, repair, and rollback package is prepared and statically validated; no privileged command has run
 Started: 2026-09-19
-Last verified source checkpoint: `ee9812d8d5c3992a04118e55149ae843b697fd6d` (`test(idea2): prove permanent machine a runtime path`)
+Last verified source checkpoint: `48c4f8ff30b83400933b3b55434becd2bf449fab` (`test(idea2): verify machine a runtime candidate`)
 Production mutation allowed: NO
 
 ### Goal
@@ -85,6 +85,7 @@ before that acceptance.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
+| ORIGINAL-TASK-15 | Prepare and Stop at the Human Machine A Installation Gate | HUMAN GATE READY | Authoritative plan `docs/superpowers/plans/2026-09-19-idea2-machine-a-no-powershell-runtime.md`; starting SHA `48c4f8ff30b83400933b3b55434becd2bf449fab`; H0 read-only precheck, H1 bounded install/registration, H2 immediate verification, H3 reboot/account acceptance, H4 fail-closed repair, and H5 identity-preserving rollback documented against real script/CLI parameters; `origin/main` `5f1c11abf65f5680eef7871646e341a7426f2447` has no overlap with the four Task 15 paths | this documentation checkpoint | PASS — preparation only; privileged commands, Machine A installation, reboot, Production mutation, Task 16, receipt, push, and PR not executed | Human Owner runs H0 first and returns evidence; H1 requires separate bounded approval | STOP at `HUMAN_GATE_READY` |
 | ORIGINAL-TASK-14 | Full automated verification and scoped security review | HUMAN-GATE READY | Starting SHA `ee9812d8d5c3992a04118e55149ae843b697fd6d`; focused Monitor lifecycle/security 70/70; focused Windows lifecycle 70/70; full Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; all skipped behavior rerun against disposable PostgreSQL 15 with zero skips; full Engine/Agent 176 tests / 174 pass / 0 fail / 2 expected native-pywin32 environment skips; UI freeze 5/5; Vite build PASS; governance 49/49; Vault PASS with two pre-existing Canvas warnings; PR #134 lifecycle 7/7; hash-locked wheels 9/9; PowerShell parser 18/18; scoped review Critical 0 / Important 0 / Minor 0 | source checkpoint `ee9812d8d5c3992a04118e55149ae843b697fd6d`; this status-only evidence checkpoint follows | PASS — source/local candidate; Playwright runner absent and real installed Machine A runtime not exercised | Task 15 human installation-gate preparation; Task 16 acceptance/receipt/PR | stop before Task 15 |
 | ORIGINAL-TASK-13 | Production-like disposable integration without diagnostic harness | CLOSED | Starting SHA `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; `origin/main` `2694808092bd3c28dea14ed4bcd400e6bb0ec5d2` has no overlap with authorized Task 13 paths; Node integration 5/5; Engine contract 2/2; PostgreSQL 15 migrations applied twice; built Monitor shell, Agent proof, account aliases, physical source, demand/release, forged/stale denial, Agent recovery, heartbeat aging, and cleanup all passed | `test(idea2): prove permanent machine a runtime path` (this checkpoint) | PASS — disposable/local integration only; Production and installed Machine A unchanged | Task 14 full automated verification and security review | stop before Task 14 |
 | ORIGINAL-TASK-12 | Windows install/status/repair/uninstall/autostart lifecycle | CLOSED | Starting SHA `27d7723f96c4752d32047c5062c55173c3f4c9c2`; focused Windows/Agent 74/74; PowerShell parser 12/12; full Engine/Agent 174 tests / 172 pass / 0 fail / 2 expected native-pywin32 skips across the existing split dependency runtimes; Monitor 143 tests / 140 pass / 0 fail / 3 conditional PostgreSQL skips; UI freeze 5/5; Vite build PASS; hash-locked Windows wheels 9/9; governance 50/50; Vault PASS with two pre-existing canvas warnings; secret scan 21 paths / 0 hits; scoped review Critical 0 / Important 0 / Minor 0 | `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f` | PASS at repository source/static/test-double boundary; installed Machine A runtime and privileged Windows lifecycle not executed | Task 13 integration | Task 13 |
@@ -109,7 +110,8 @@ before that acceptance.
 | Original Task 12 | CLOSED | Checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; repository-native Windows install/status/repair/uninstall/autostart lifecycle passes source/static/test-double gates. No permanent Machine A runtime mutation occurred. |
 | Original Task 13 | CLOSED | Node integration 5/5 and Engine contract 2/2 passed against the built app, disposable PostgreSQL 15, protocol-real Agent proof transport, and protocol-real Engine stream. Dynamic ports and database schemas were released. Production and installed Machine A remain unchanged. |
 | Original Task 14 | HUMAN-GATE READY | Fresh complete source/local verification and scoped security review passed at source checkpoint `ee9812d8`; all Task 14 disposable PostgreSQL and dependency resources were removed. Playwright is honestly `BLOCKED_ENVIRONMENT` because the approved runner is absent. |
-| Original Tasks 15–16 | NOT STARTED | Human installation preparation/authorization, real Machine A acceptance, final receipt, push, and PR remain later gates. |
+| Original Task 15 | HUMAN GATE READY | Exact Human Owner H0–H5 commands, success evidence, abort boundaries, repair, and rollback are prepared in the Windows/Agent/CLI runbooks. No Machine A runtime or Production state changed. |
+| Original Task 16 | NOT STARTED | Human H0 evidence review, bounded installation, reboot/account acceptance, final receipt, push, and PR remain later gates. |
 
 ### Planned / Completed / Remaining
 
@@ -118,7 +120,8 @@ before that acceptance.
 - **Completed:** Original Task 12 checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f` for Windows lifecycle tooling and static/test-double verification only; privileged real-Windows installation remains a later human gate.
 - **Completed:** Original Task 13 production-like integration: 5/5 Node integration tests and 2/2 Engine runtime-contract tests passed with the built Monitor, disposable PostgreSQL 15, protocol-real Agent proof transport, and Engine demand/release lifecycle. No Vite acceptance, `:18078`, manual heartbeat loop, manual stream proxy, Production URL, or persistent Machine A mutation was used.
 - **Completed:** Original Task 14 full automated verification and scoped security/lifecycle review against source checkpoint `ee9812d8d5c3992a04118e55149ae843b697fd6d`; Critical 0 / Important 0 / Minor 0. The absent Playwright runner remains an explicit environment limitation rather than a fabricated pass.
-- **Remaining:** Task 15 human installation-gate preparation and authorization, then Task 16 real Machine A acceptance/final receipt/PR.
+- **Completed:** Original Task 15 prepared and statically validated the exact Human Owner installation gate. The package stops after H0 evidence and requires separate approval before every H1 mutation. It creates no receipt and makes no installed-runtime or Production change.
+- **Remaining:** Task 16 Human Owner H0 review, bounded real Machine A installation, reboot/operator/operator2 acceptance, final receipt, push, and PR.
 
 ### PRE-TASK-12 verified contract and known limitations
 
@@ -151,12 +154,24 @@ before that acceptance.
 - **Dependency review limitations:** the current production dependency audit reports three moderate `qs` advisories, but the Monitor source never reads `req.query` or enables URL-encoded body parsing, so the reviewed vulnerable parser path is not reachable. The Engine environment reports an `opencv-python` metadata mismatch while the intentional `opencv-contrib-python` package provides working `cv2`; the complete Engine suite passes. These are deferred dependency hygiene observations, not Task 14 Critical/Important findings.
 - **Cleanup:** the exact disposable PostgreSQL cluster/databases, Python dependency directory, wheel-check directory, schemas, and port 55441 were removed/released. No unrelated resource, Production state, or installed Machine A runtime changed.
 
+### Original Task 15 Human Gate preparation
+
+- **Title and plan:** `Prepare and Stop at the Human Machine A Installation Gate`, from `docs/superpowers/plans/2026-09-19-idea2-machine-a-no-powershell-runtime.md`, starting at `48c4f8ff30b83400933b3b55434becd2bf449fab`.
+- **Prepared package:** H0 read-only branch/source/Windows/Python/owner/listener/camera/rollback inventory; H1 external non-secret Agent config, hash-bound Agent install, DPAPI preflight, protected key/public export, non-Production registry/alias/auth-mode setup, Engine/tunnel install, and Agent start; H2 immediate status/ACL/key/idle validation; H3 two-reboot operator/operator2 acceptance; H4 bounded repository repair; H5 default identity-preserving rollback and separately labelled destructive identity boundary.
+- **Abort conditions:** unexpected Engine owner, unknown Agent, unexpected port owner, wrong managed root/service identity, source/dependency hash failure, DPAPI/key/ACL failure, tunnel or stable endpoint mismatch, camera not idle, unexpected existing Node/runtime, Production database, or any prerequisite failure.
+- **Security boundary:** private key remains DPAPI CurrentUser protected under `NT SERVICE\AEGISIdentityAgent`; only its public key/fingerprint may cross to the approved non-Production registry. Browser, heartbeat, username, IP, hostname, headers, storage, and logical alias cannot select the physical camera or upstream destination.
+- **Runtime contract:** Engine remains the single HKCU Run owner; Agent is automatic on `127.0.0.1:8078` and creates no demand; server-owned stream target is `aegis-stream-host.internal:18077`; diagnostic `:18078` and hard-coded Docker IPs remain absent.
+- **Mutation truth:** `INSTALLED_MACHINE_A_RUNTIME_CHANGED=NO`, `PRIVILEGED_MACHINE_A_COMMAND_EXECUTED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`, `TASK16_STARTED=NO`.
+- **Known limitations:** preparation/static validation does not prove real service installation, service-identity DPAPI behavior, real Node registration, reboot recovery, browser association, physical Camera A, or operator/operator2 demand/release. Those are Task 16 Human Owner evidence.
+
 ### Handoff / Next Action
 
-Original Task 14 is human-gate ready. Stop before Task 15. The next authorized
-action is the separate Task 15 installation/acceptance runbook preparation and
-human authorization gate. Do not install or mutate the Machine A runtime, push,
-open a PR, deploy, or create the final immutable receipt in this checkpoint.
+Return the complete `MACHINE_A_HUMAN_GATE` package and stop at
+`HUMAN_GATE_READY`. The next action is H0 only, run by the Human Owner one
+bounded PowerShell block at a time under ChatGPT guidance. Do not infer
+authorization to run H1 from the presence of installer scripts. Do not install,
+reboot, mutate Production, push, open a PR, deploy, or create the final receipt
+in Task 15.
 
 ### Original Task 12 verification evidence
 

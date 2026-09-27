@@ -155,3 +155,64 @@ Required evidence:
 
 Source/unit tests and a successful installer preflight do not replace this real
 reboot and webcam proof.
+
+## Original Task 15 Human Gate
+
+The exact Machine A H0–H5 package is maintained in
+`windows/identity-agent/README.md`. It is preparation for a Human Owner session,
+not permission for an agent to run installation commands. The mutation boundary
+is after H0; stop there until ChatGPT has reviewed the read-only evidence and
+authorized one bounded Human-run step.
+
+The gate keeps this startup model unchanged:
+
+- Engine: the sole `HKCU Run` owner after interactive login;
+- tunnel: the reviewed SYSTEM AtStartup Scheduled Task;
+- Identity Agent: automatic `AEGISIdentityAgent` service under
+  `NT SERVICE\AEGISIdentityAgent`;
+- Agent browser proof: loopback only at `127.0.0.1:8078`;
+- Engine API: `127.0.0.1:8077`;
+- physical reverse stream: deployment-owned
+  `aegis-stream-host.internal:18077` with one explicit non-loopback IPv4 SSH
+  bind;
+- old diagnostic bridge: absent; port `18078` is not part of installation or
+  acceptance.
+
+The Human Owner must supply these deployment/runtime-discovered values only at
+the gate: approved Task 15 checkpoint SHA, external Engine `.env`, tunnel
+identity path, verified `known_hosts`, `user@host`, Monitor target host, explicit
+server bind address, Machine A Node ID, and registry key version. Those values
+plus the isolated non-Production Monitor base URL/audience/browser origin must
+be taken from reviewed local/deployment evidence, never guessed or copied from
+another machine. A Production URL is forbidden in this gate. File contents,
+credentials, private keys, cookies, and database URLs are never returned to
+chat.
+
+The installer command uses the reviewed repository script and retains its exact
+parameters:
+
+```powershell
+& "$EngineSource\windows\install_autostart.ps1" `
+  -ConfigurationFile $EngineConfigurationFile `
+  -BasePythonPath $Python312 `
+  -TunnelHost $TunnelHost `
+  -MonitorTargetHost $MonitorTargetHost `
+  -RemoteBindAddress $RemoteBindAddress `
+  -RemotePort 18077 `
+  -IdentityFile $TunnelIdentityFile `
+  -KnownHostsFile $KnownHostsFile `
+  -StartNow
+```
+
+Do not run that block during Task 15. Immediate and post-reboot verification
+must use `status_autostart.ps1`, `status_identity_agent.ps1`, and
+`verify_machine_a_no_powershell.ps1`, with the camera still idle before any
+authorized browser demand. Operator must resolve to logical CAM-01 and
+operator2 to logical CAM-02, both using the same server-registered Machine A
+physical camera. Account switching never changes the heartbeat identity,
+restarts a bridge, or creates a second camera process.
+
+Default rollback is non-destructive: Engine uninstall preserves runtime data
+and SSH material; Agent uninstall preserves the DPAPI-protected identity.
+Permanent identity destruction is a separate, explicitly destructive option
+and is never implied by uninstall, repair, or failed acceptance.

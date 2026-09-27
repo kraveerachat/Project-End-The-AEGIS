@@ -79,3 +79,567 @@ it can report PASS.
 
 The scripts do not own or remove the Engine startup entry, tunnel task, camera
 data, recordings, model assets, Production configuration, or other services.
+
+## Machine A Human Installation Gate (Original Task 15)
+
+This is the authoritative paste-ready handoff for the later Human Owner session.
+Task 15 prepares these commands but **does not run H1, H2, H3, H4, or H5**.
+Run one numbered step at a time, return only the named evidence, and wait for
+ChatGPT review before proceeding. Never return a password, token, private key,
+session cookie, database URL, or environment-file contents.
+
+The reviewed constants are:
+
+- Engine startup owner: one `HKCU Run` entry named `AEGIS Detection Engine`;
+- Agent: automatic service `AEGISIdentityAgent` running as
+  `NT SERVICE\AEGISIdentityAgent` on `127.0.0.1:8078`;
+- Engine API: `127.0.0.1:8077`;
+- Monitor forward: `127.0.0.1:18002`;
+- physical stream endpoint:
+  `http://aegis-stream-host.internal:18077/stream.mjpg`;
+- temporary diagnostic port `18078`: forbidden and unnecessary;
+- Machine A account aliases: `operator` -> `CAM-01`, `operator2` -> `CAM-02`;
+- both accounts retain the same server-registered Machine A physical camera.
+
+Values that depend on the real machine, deployment, or approved non-Production
+database are labelled `DISCOVER_AT_HUMAN_GATE`. Do not guess them.
+
+### H0 — read-only precheck
+
+#### H0-1 — bind evidence to the reviewed checkout
+
+- Purpose: prove branch, checkpoint, clean tree, and repository paths.
+- Shell: Windows PowerShell 5.1, non-elevated is sufficient.
+- Admin required: NO.
+- Mutation: NO.
+- Command:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$RepoRoot = (git rev-parse --show-toplevel).Trim()
+$ExpectedCheckpoint = Read-Host 'Paste the approved Task 15 checkpoint SHA from ChatGPT'
+$Branch = (git -C $RepoRoot branch --show-current).Trim()
+$Head = (git -C $RepoRoot rev-parse HEAD).Trim()
+$Dirty = @(git -C $RepoRoot status --porcelain)
+if ($Branch -ne 'feat/idea2-machine-a-no-powershell-runtime') { throw 'WRONG_BRANCH' }
+if ($Head -ne $ExpectedCheckpoint) { throw 'WRONG_CHECKPOINT' }
+if ($Dirty.Count -ne 0) { throw 'DIRTY_WORKTREE' }
+$EngineSource = Join-Path $RepoRoot 'IDEA2-AEGIS_CCTV-Operator\detection-engine'
+$AgentScripts = Join-Path $EngineSource 'windows\identity-agent'
+if (-not (Test-Path -LiteralPath $EngineSource -PathType Container)) { throw 'ENGINE_SOURCE_MISSING' }
+if (-not (Test-Path -LiteralPath $AgentScripts -PathType Container)) { throw 'AGENT_SCRIPTS_MISSING' }
+[pscustomobject]@{
+  STEP = 'H0-1'; BRANCH = $Branch; HEAD = $Head; WORKTREE_CLEAN = 'YES'
+  ENGINE_SOURCE = $EngineSource; AGENT_SCRIPTS = $AgentScripts
+}
+```
+
+- Expected: the exact approved checkpoint and `WORKTREE_CLEAN=YES`.
+- Abort if: wrong branch/checkpoint, dirty tree, or either path is absent.
+- Return to chat: the object above; no Git remote credentials.
+
+#### H0-2 — Windows, Administrator, and pinned Python prerequisite
+
+- Purpose: identify the interactive Engine owner and prove 64-bit CPython 3.12
+  is available before any install.
+- Shell: Windows PowerShell 5.1.
+- Admin required: NO for H0; `ADMINISTRATOR=True` is required before H1.
+- Mutation: NO.
+- Command:
+
+```powershell
+$Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$Principal = New-Object Security.Principal.WindowsPrincipal($Identity)
+$IsAdmin = $Principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+$Python312 = (& py.exe -3.12 -c "import struct,sys; assert sys.version_info[:2] == (3,12) and struct.calcsize('P') == 8; print(sys.executable)").Trim()
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $Python312 -PathType Leaf)) { throw 'CPYTHON_3_12_X64_REQUIRED' }
+$EngineUserSid = $Identity.User.Value
+[pscustomobject]@{
+  STEP = 'H0-2'; WINDOWS = [Environment]::OSVersion.VersionString
+  POWERSHELL = $PSVersionTable.PSVersion.ToString(); ADMINISTRATOR = $IsAdmin
+  ENGINE_USER_SID = $EngineUserSid; PYTHON_312_X64 = $Python312
+}
+```
+
+- Expected: PowerShell 5.1, `ADMINISTRATOR=True` when later H1 runs, a
+  canonical SID, and a real CPython 3.12 x64 executable.
+- Abort if: Python proof fails or the intended interactive Engine account is
+  not the current identity.
+- Return to chat: fields above; the SID is identity metadata, not a secret.
+
+#### H0-3 — existing owners, services, tasks, and listeners
+
+- Purpose: detect conflicts without normalizing them.
+- Shell: elevated Windows PowerShell 5.1 for complete ACL evidence.
+- Admin required: YES.
+- Mutation: NO.
+- Command:
+
+```powershell
+& "$EngineSource\windows\status_autostart.ps1"
+& "$AgentScripts\status_identity_agent.ps1"
+Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+  Where-Object { $_.LocalPort -in 8077,8078,18002,18078 } |
+  ForEach-Object {
+    $p = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
+    [pscustomobject]@{ Address=$_.LocalAddress; Port=$_.LocalPort; PID=$_.OwningProcess; Process=$p.ProcessName; Path=$p.Path }
+  }
+Get-ScheduledTask -TaskName 'AEGIS Detection Engine','AEGIS Detection Tunnel' -ErrorAction SilentlyContinue |
+  Select-Object TaskName,State,@{n='UserId';e={$_.Principal.UserId}},Actions,Triggers
+Get-CimInstance Win32_Service -Filter "Name='AEGISIdentityAgent'" -ErrorAction SilentlyContinue |
+  Select-Object Name,State,StartMode,StartName,PathName,ProcessId
+```
+
+- Expected: no competing Engine service/task owner, no unexpected `8078`
+  owner, tunnel contract understood, and `18078` absent.
+- Abort if: `UNEXPECTED_ENGINE_OWNER`, `UNEXPECTED_AGENT_SERVICE`,
+  `UNEXPECTED_PORT_OWNER`, `UNKNOWN_EXISTING_RUNTIME`, or `18078` is required.
+- Return to chat: status fields and process metadata only; never raw logs.
+
+#### H0-4 — source hash, camera idle, and stable-endpoint prerequisites
+
+- Purpose: bind the Agent install to reviewed source and prove the camera is
+  idle before mutation.
+- Shell: elevated Windows PowerShell 5.1.
+- Admin required: YES.
+- Mutation: NO.
+- Command:
+
+```powershell
+$AgentSourceSha256 = (& "$AgentScripts\get_identity_agent_source_hash.ps1" -SourceRoot $EngineSource).Trim()
+if ($AgentSourceSha256 -notmatch '^[A-F0-9]{64}$') { throw 'SOURCE_HASH_INVALID' }
+$Health = $null
+try { $Health = Invoke-RestMethod -Uri 'http://127.0.0.1:8077/health' -TimeoutSec 5 } catch { }
+if ($null -ne $Health -and ([bool]$Health.camera_demanded -or [bool]$Health.camera_connected)) { throw 'CAMERA_NOT_IDLE' }
+[pscustomobject]@{
+  STEP='H0-4'; AGENT_SOURCE_SHA256=$AgentSourceSha256
+  ENGINE_HEALTH=$(if ($null -eq $Health) { 'UNREACHABLE_OR_NOT_INSTALLED' } else { 'REACHABLE' })
+  CAMERA_DEMANDED=$(if ($null -eq $Health) { 'NOT_PROVEN' } else { [bool]$Health.camera_demanded })
+  CAMERA_CONNECTED=$(if ($null -eq $Health) { 'NOT_PROVEN' } else { [bool]$Health.camera_connected })
+  STABLE_STREAM='http://aegis-stream-host.internal:18077/stream.mjpg'
+  TEMP_18078_REQUIRED='NO'
+}
+```
+
+- Expected: one uppercase SHA-256, camera idle if Engine is reachable, and the
+  exact stable endpoint above.
+- Abort if: camera is active, source hash fails, the reviewed DNS name does not
+  resolve through the approved deployment mapping, or the SSH bind is not one
+  explicit non-loopback IPv4 server interface.
+- Return to chat: the object above. Server-side mapping is proven later by the
+  H1-5 physical-stream validator; no environment-file contents are returned.
+
+#### H0-5 — rollback inventory
+
+- Purpose: preserve enough non-secret state to choose a safe rollback.
+- Shell: elevated Windows PowerShell 5.1.
+- Admin required: YES.
+- Mutation: NO.
+- Command:
+
+```powershell
+$RuntimeRoot = Join-Path $env:LOCALAPPDATA 'AEGIS\DetectionEngine'
+[pscustomobject]@{
+  STEP='H0-5'
+  RUNTIME_ROOT=$RuntimeRoot
+  RUNTIME_PRESENT=(Test-Path -LiteralPath $RuntimeRoot)
+  ENGINE_RUN=(Get-ItemPropertyValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' 'AEGIS Detection Engine' -ErrorAction SilentlyContinue)
+  ENGINE_INSTALL_MARKER=(Test-Path -LiteralPath (Join-Path $RuntimeRoot 'install.json'))
+  AGENT_INSTALL_MARKER=(Test-Path -LiteralPath (Join-Path $env:ProgramData 'AEGIS\IdentityAgentConfiguration\install.json'))
+}
+```
+
+- Expected: exact existing-state classification, without printing `.env`, key,
+  cookie, or token contents.
+- Abort if: roots differ from the reviewed defaults or an unknown marker/state
+  exists.
+- Return to chat: booleans and paths only.
+
+### Mutation start boundary
+
+**STOP here during Task 15.** H1 and later are prepared commands for Task 16;
+they are not authorization to run an installer. Before H1, ChatGPT must review
+all H0 evidence and explicitly authorize one bounded step.
+
+### H1 — reviewed mutation plan (do not execute in Task 15)
+
+#### H1-1 — create the non-secret Agent configuration
+
+- Purpose: create the external Agent configuration using runtime-discovered
+  Node ID, key version, and current Engine user SID.
+- Shell: elevated Windows PowerShell 5.1.
+- Admin required: YES.
+- Mutation: YES — writes only `C:\AEGIS-Local\identity-agent.env`.
+- Command:
+
+```powershell
+$NodeId = Read-Host 'Approved Machine A Node ID (DISCOVER_AT_HUMAN_GATE)'
+$KeyVersion = [uint32](Read-Host 'Approved registry key version; use 1 only for a new registration')
+$MonitorBaseUrl = Read-Host 'Approved isolated non-Production Monitor HTTPS base URL'
+$MonitorAudience = Read-Host 'Approved isolated non-Production Monitor HTTPS origin'
+$BrowserOrigin = Read-Host 'Approved isolated non-Production browser HTTPS origin'
+$EngineUserSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$AgentConfiguration = 'C:\AEGIS-Local\identity-agent.env'
+New-Item -ItemType Directory -Path (Split-Path -Parent $AgentConfiguration) -Force | Out-Null
+@"
+AEGIS_AGENT_MONITOR_BASE_URL=$MonitorBaseUrl
+AEGIS_AGENT_AUTH_AUDIENCE=$MonitorAudience
+AEGIS_AGENT_NODE_ID=$NodeId
+AEGIS_AGENT_KEY_VERSION=$KeyVersion
+AEGIS_AGENT_ENGINE_USER_SID=$EngineUserSid
+AEGIS_IDENTITY_BROWSER_ALLOWED_ORIGINS=$BrowserOrigin
+AEGIS_AGENT_ENGINE_STREAM_URL=http://aegis-stream-host.internal:18077/stream.mjpg
+AEGIS_AGENT_TLS_VERIFY=true
+"@ | Set-Content -LiteralPath $AgentConfiguration -Encoding ASCII
+if ((Get-Item -LiteralPath $AgentConfiguration).Length -le 0) { throw 'AGENT_CONFIG_WRITE_FAILED' }
+'H1-1=PASS_NON_SECRET_CONFIG_WRITTEN'
+```
+
+- Expected: non-empty file; it contains no credential or logical alias.
+- Abort if: Node/key version does not match the approved non-Production
+  registry plan, SID is not the interactive Engine user, any URL is Production
+  or not reviewed HTTPS, or any secret would be added.
+- State change: one external non-secret file.
+- Rollback: delete only that exact file after confirming H1-2 did not run.
+- Return to chat: `H1-1=PASS_NON_SECRET_CONFIG_WRITTEN`, Node ID, key version,
+  SID, and the three URL hostnames only; never file contents.
+
+#### H1-2 — install the Agent runtime and service, stopped
+
+- Purpose: install the pinned/hash-locked CPython 3.12 Agent runtime without
+  generating a key or creating camera demand.
+- Shell: elevated Windows PowerShell 5.1.
+- Admin required: YES.
+- Mutation: YES.
+- Command:
+
+```powershell
+$AgentSourceSha256 = (& "$AgentScripts\get_identity_agent_source_hash.ps1" -SourceRoot $EngineSource).Trim()
+& "$AgentScripts\install_identity_agent.ps1" `
+  -SourceRoot $EngineSource `
+  -ExpectedSourceSha256 $AgentSourceSha256 `
+  -ConfigurationFile $AgentConfiguration `
+  -BasePythonPath $Python312
+```
+
+- Expected: `SERVICE_NAME=AEGISIdentityAgent`, service account exact,
+  `SERVICE_STARTED=NO`, `CAMERA_DEMAND_CREATED=NO`, and dependency installation
+  through `requirements-identity-agent-windows.lock.txt` with
+  `--require-hashes --only-binary=:all:`.
+- Abort if: hash mismatch, dependency/import failure, wrong service identity,
+  wrong root, unexpected existing Agent, or service starts.
+- State change: managed Agent runtime/config/evidence roots and an automatic,
+  stopped service; no application key.
+- Rollback: H5 `PARTIAL_AGENT_INSTALL`; identity is absent or preserved.
+- Return to chat: the installer fields listed under Expected plus the source
+  hash; no pip output containing local credentials.
+
+#### H1-3 — DPAPI CurrentUser preflight
+
+- Purpose: prove DPAPI under the exact service identity before key generation.
+- Shell: elevated Windows PowerShell 5.1.
+- Admin required: YES.
+- Mutation: YES — disposable non-secret preflight evidence only.
+- Command:
+
+```powershell
+& "$AgentScripts\invoke_dpapi_preflight.ps1"
+```
+
+- Expected: `DPAPI_CURRENTUSER_PREFLIGHT=PASS`, service identity exact, and
+  `KEY_GENERATED=NO`.
+- Abort if: service is not stopped, service path/identity differs, or PASS
+  evidence is missing.
+- State change: non-secret preflight evidence.
+- Rollback: H5 `PARTIAL_AGENT_INSTALL` removes provisioning evidence and
+  preserves identity state.
+- Return to chat: the three expected preflight fields only.
+
+#### H1-4 — provision one protected identity and export only its public key
+
+- Purpose: create/resume the DPAPI-protected Ed25519 identity under the service
+  account and export public evidence.
+- Shell: elevated Windows PowerShell 5.1.
+- Admin required: YES.
+- Mutation: YES.
+- Command:
+
+```powershell
+& "$AgentScripts\provision_identity_key.ps1" -NodeId $NodeId -KeyVersion $KeyVersion
+```
+
+- Expected: matching Node/key version, a public fingerprint/export path, and
+  `PRIVATE_KEY_EXPORTED=NO`.
+- Abort if: preflight is missing, service is running, Node/key version differs,
+  ACL validation fails, or any private material appears.
+- State change: one DPAPI CurrentUser-protected identity in the service-only
+  data root plus public-only evidence.
+- Rollback: preserve identity by default; H5 `DESTRUCTIVE_IDENTITY_REMOVAL`
+  needs separate explicit authorization.
+- Return to chat: Node ID, key version, public fingerprint, export path, and
+  `PRIVATE_KEY_EXPORTED=NO`; never public/private key contents.
+
+#### H1-5 — register Machine A in an approved non-Production Monitor database
+
+- Purpose: bind the exported public key to one server-generated physical camera
+  and account aliases. This step runs in the approved Monitor administration
+  shell, not in a browser.
+- Shell: approved non-Production Monitor admin shell with `DATABASE_URL` already
+  supplied out-of-band. Administrator on Machine A is not required.
+- Admin required: NO on Machine A; approved Monitor database administrator
+  authorization is required.
+- Mutation: YES — approved non-Production registry only; never Production.
+- Command for a fresh Node (replace the public-key path only with the exact
+  H1-4 export path; do not paste its contents):
+
+```bash
+python3 IDEA2-AEGIS_Monitor/server/cli/manage_nodes.py list
+python3 IDEA2-AEGIS_Monitor/server/cli/manage_nodes.py register --node-id "$NODE_ID" --alias-mode account --public-key "$PUBLIC_KEY_EXPORT"
+python3 IDEA2-AEGIS_Monitor/server/cli/manage_nodes.py reconcile-account-aliases --node-id "$NODE_ID" --account-alias operator=CAM-01 --account-alias operator2=CAM-02 --dry-run
+python3 IDEA2-AEGIS_Monitor/server/cli/manage_nodes.py reconcile-account-aliases --node-id "$NODE_ID" --account-alias operator=CAM-01 --account-alias operator2=CAM-02
+python3 IDEA2-AEGIS_Monitor/server/cli/manage_nodes.py set-ingest-auth-mode --node-id "$NODE_ID" --mode ed25519_required
+python3 IDEA2-AEGIS_Monitor/server/cli/manage_nodes.py list
+node --input-type=module -e "import { approvedStreamUrlForPhysicalCamera as approved } from './IDEA2-AEGIS_Monitor/server/auth/physicalStreamSource.js'; const id=Number(process.argv[1]); const url=approved(id,process.argv[2]); if(url!=='http://aegis-stream-host.internal:18077/stream.mjpg') process.exit(1); console.log('PHYSICAL_STREAM_SOURCE=PASS')" "$PHYSICAL_CAMERA_ID" "$NODE_ID"
+```
+
+- Expected: one active Node, one globally unique physical camera, account
+  policy with two mappings, key version matching H1-4, strict auth mode, and
+  `PHYSICAL_STREAM_SOURCE=PASS` from the server-owned environment mapping.
+- Abort if: database is Production, Node already exists unexpectedly, public
+  fingerprint differs, aliases/users/cameras are absent, dry-run fails, or any
+  mapping implies separate physical cameras for the two accounts.
+- State change: approved non-Production registry rows only.
+- Rollback: H5 `IDENTITY_CREATED_RUNTIME_FAILED` disables the exact Node;
+  strict-to-legacy reversion requires a separate owner decision and must not
+  affect Detector B.
+- Return to chat: the `register`, dry-run, reconciliation, auth-mode, final
+  `list`, and `PHYSICAL_STREAM_SOURCE=PASS` lines only. Run each CLI line only
+  after ChatGPT accepts the preceding line; never return `DATABASE_URL`.
+
+#### H1-6 — install/refresh the Engine and tunnel ownership
+
+- Purpose: install the reviewed interactive Engine runtime, sole HKCU owner,
+  and SYSTEM boot tunnel using existing protected machine files.
+- Shell: elevated Windows PowerShell 5.1 in the interactive Engine account.
+- Admin required: YES.
+- Mutation: YES.
+- Before running, set these path/deployment values from H0 without printing
+  file contents: `$EngineConfigurationFile`, `$TunnelIdentityFile`,
+  `$KnownHostsFile`, `$TunnelHost`, `$MonitorTargetHost`, and
+  `$RemoteBindAddress` (`DISCOVER_AT_HUMAN_GATE`). Choose exactly one command
+  after H0 classification; do not guess whether the runtime is fresh.
+- Fresh install command (only when H0 proved the managed runtime/marker absent):
+
+```powershell
+$EngineConfig = @{}
+Get-Content -LiteralPath $EngineConfigurationFile | ForEach-Object {
+  $line = $_.Trim()
+  if ($line -and -not $line.StartsWith('#') -and $line.Contains('=')) {
+    $name,$value = $line.Split('=',2)
+    $null = ($EngineConfig[$name.Trim()] = $value.Trim())
+  }
+}
+if ($EngineConfig['AEGIS_MONITOR_INGEST_MODE'] -ne 'identity_agent') { throw 'ENGINE_INGEST_MODE_MISMATCH' }
+if ($EngineConfig['AEGIS_CAPTURE_ON_DEMAND'] -ne 'true') { throw 'ENGINE_ON_DEMAND_REQUIRED' }
+if ($EngineConfig['AEGIS_AGENT_ENGINE_STREAM_URL'] -ne 'http://aegis-stream-host.internal:18077/stream.mjpg') { throw 'STABLE_ENDPOINT_MISMATCH' }
+if ($EngineConfig['AEGIS_STREAM_PUBLIC_URL'] -ne 'http://aegis-stream-host.internal:18077/stream.mjpg') { throw 'PUBLIC_STREAM_ENDPOINT_MISMATCH' }
+if (-not $EngineConfig['AEGIS_MONITOR_API_BASE'] -or -not $EngineConfig['AEGIS_DETECTION_ENGINE_API_KEY']) { throw 'ENGINE_MONITOR_CONFIG_INCOMPLETE' }
+if ($EngineConfig['AEGIS_MONITOR_API_BASE'].TrimEnd('/') -ne $MonitorBaseUrl.TrimEnd('/')) { throw 'MONITOR_BASE_URL_MISMATCH' }
+& "$EngineSource\windows\install_autostart.ps1" `
+  -ConfigurationFile $EngineConfigurationFile `
+  -BasePythonPath $Python312 `
+  -TunnelHost $TunnelHost `
+  -MonitorTargetHost $MonitorTargetHost `
+  -RemoteBindAddress $RemoteBindAddress `
+  -RemotePort 18077 `
+  -IdentityFile $TunnelIdentityFile `
+  -KnownHostsFile $KnownHostsFile `
+  -StartNow
+```
+
+- Bound existing-runtime refresh command (only when H0 proved the reviewed
+  `install.json`, key filename, and roots match; it deliberately omits
+  `-IdentityFile` so SYSTEM reuses the already bound runtime key):
+
+```powershell
+& "$EngineSource\windows\install_autostart.ps1" `
+  -ConfigurationFile $EngineConfigurationFile `
+  -BasePythonPath $Python312 `
+  -TunnelHost $TunnelHost `
+  -MonitorTargetHost $MonitorTargetHost `
+  -RemoteBindAddress $RemoteBindAddress `
+  -RemotePort 18077 `
+  -KnownHostsFile $KnownHostsFile `
+  -StartNow
+```
+
+- Expected: install complete, Engine owner `HKCU Run`, tunnel owner SYSTEM
+  AtStartup, local ports `8077`/`18002`, reverse port `18077`, and camera idle.
+- Abort if: stable mapping/bind is unproven, a competing Engine owner exists,
+  strict-host-key probe fails, `.env` lacks reviewed integration keys, or camera
+  becomes demanded/connected without a viewer.
+- State change: managed Engine runtime, HKCU Run entry, tunnel task, protected
+  SSH runtime copy; old Engine task may only be disabled.
+- Rollback: H5 `ROLLBACK_RUNTIME_ONLY` preserves runtime/config/keys/data.
+- Return to chat: installer completion/runtime/startup-owner lines and the H2
+  status result; never `.env`, SSH-key, or `known_hosts` contents.
+
+#### H1-7 — start only the registered Agent service
+
+- Purpose: start authentication/heartbeat without camera demand.
+- Shell: elevated Windows PowerShell 5.1.
+- Admin required: YES.
+- Mutation: YES.
+- Command:
+
+```powershell
+Start-Service -Name 'AEGISIdentityAgent'
+(Get-Service -Name 'AEGISIdentityAgent').WaitForStatus('Running',[TimeSpan]::FromSeconds(30))
+& "$AgentScripts\status_identity_agent.ps1"
+```
+
+- Expected: service RUNNING, `127.0.0.1:8078` owned by its PID, key/ACL service
+  attestation PASS, and `CAMERA_DEMAND_CREATED=NO`.
+- Abort if: identity/path/ACL differs, auth fails, port owner differs, or camera
+  becomes active.
+- State change: Agent service running; no Engine ownership change.
+- Rollback: stop the exact service, collect evidence, then use H5
+  `PARTIAL_AGENT_INSTALL` only after review.
+- Return to chat: the redacted Agent status fields and camera-idle health only.
+
+### H2 — immediate post-install verification
+
+Run elevated, return the output, and stop on any failure:
+
+```powershell
+& "$EngineSource\windows\status_autostart.ps1"
+& "$AgentScripts\status_identity_agent.ps1"
+& "$AgentScripts\verify_machine_a_no_powershell.ps1"
+$Forbidden = @(Get-NetTCPConnection -State Listen -LocalPort 18078 -ErrorAction SilentlyContinue)
+if ($Forbidden.Count -ne 0) { throw 'TEMP_18078_LISTENER_PRESENT' }
+$Health = Invoke-RestMethod -Uri 'http://127.0.0.1:8077/health' -TimeoutSec 5
+if ([bool]$Health.camera_demanded -or [bool]$Health.camera_connected) { throw 'CAMERA_NOT_IDLE' }
+[pscustomobject]@{ STEP='H2'; CAMERA_IDLE='PASS'; TEMP_18078_REQUIRED='NO'; ENGINE_OWNER='HKCU_RUN'; AGENT_IDENTITY='NT SERVICE\AEGISIdentityAgent' }
+```
+
+Required evidence: installation `INSTALLED`, service `RUNNING/AUTOMATIC`, exact
+service identity/executable, `LOOPBACK_8078=RUNNING`, key and data-root ACL
+`SERVICE_ATTESTED`, Engine owner/command valid, tunnel SYSTEM/AtStartup/action
+valid, Monitor forward healthy, stable endpoint exact, and camera idle. H2 does
+not print key material or configuration values.
+Return all named status fields and the final H2 object to chat, but omit raw
+logs, cookies, environment contents, database URLs, and key contents.
+
+### H3 — reboot/login and account acceptance (Task 16 only)
+
+1. Reboot Windows normally; do not start any AEGIS helper manually.
+2. Log into the approved interactive Engine account.
+3. Re-run H0-1 and H0-2 to restore the documented session variables after the
+   reboot, then run the H2 command block. It must pass before opening a browser.
+4. Open the exact approved isolated non-Production browser origin recorded in
+   H1-1, sign in as
+   `operator`, and open the Live camera. Browser association must be automatic.
+   In a separate PowerShell run:
+
+   ```powershell
+   $Health = Invoke-RestMethod 'http://127.0.0.1:8077/health' -TimeoutSec 5
+   $Health | Select-Object camera_demanded,camera_connected,demanding_viewers,passive_viewers
+   if (-not $Health.camera_demanded -or -not $Health.camera_connected -or $Health.demanding_viewers -lt 1) { throw 'OPERATOR_DEMAND_FAILED' }
+   ```
+
+   Return UI evidence `operator -> CAM-01` plus server-side Node/physical-camera
+   metadata. It must identify Machine A's one physical camera.
+5. Close the final Live viewer and log out. Poll `/health` until
+   `camera_demanded=false`, `camera_connected=false`, and
+   `demanding_viewers=0`; otherwise abort:
+
+   ```powershell
+   $Deadline = [DateTime]::UtcNow.AddSeconds(30)
+   do {
+     $Health = Invoke-RestMethod 'http://127.0.0.1:8077/health' -TimeoutSec 5
+     if (-not $Health.camera_demanded -and -not $Health.camera_connected -and $Health.demanding_viewers -eq 0) { break }
+     Start-Sleep -Milliseconds 500
+   } while ([DateTime]::UtcNow -lt $Deadline)
+   if ($Health.camera_demanded -or $Health.camera_connected -or $Health.demanding_viewers -ne 0) { throw 'FINAL_RELEASE_FAILED' }
+   $Health | Select-Object camera_demanded,camera_connected,demanding_viewers,passive_viewers
+   ```
+6. Sign in as `operator2` and repeat. UI alias must be `CAM-02`, while the
+   server-resolved Node and physical-camera ID must equal step 4. Do not switch
+   heartbeat, restart a bridge, or start another camera process.
+7. Close/logout and prove final idle again.
+8. Reboot a second time, log in, rerun H0-1 and H0-2, run H2 again, and prove
+   idle recovery with no manually started npm, Vite, Python, heartbeat, or
+   port-18078 helper.
+
+Return the two alias/physical-camera observations and each bounded Engine
+health object to chat; do not return browser cookies or authentication tokens.
+
+### H4 — stop and repair
+
+Stop immediately for any unexpected owner/path/service, source/dependency hash
+failure, key/ACL failure, stable endpoint/tunnel mismatch, camera activation
+without demand, or partial installer failure. Do not force an unknown state into
+the expected shape.
+
+After evidence review, use at most one applicable bounded repository-supported
+repair and re-run all of H2. Agent repair:
+
+```powershell
+$AgentSourceSha256 = (& "$AgentScripts\get_identity_agent_source_hash.ps1" -SourceRoot $EngineSource).Trim()
+& "$AgentScripts\repair_identity_agent.ps1" -SourceRoot $EngineSource -ExpectedSourceSha256 $AgentSourceSha256 -BasePythonPath $Python312 -StartNow
+```
+
+Engine/tunnel repair:
+
+```powershell
+& "$EngineSource\windows\repair_autostart.ps1" -BasePythonPath $Python312 -StartNow
+```
+
+Agent repair preserves the protected identity by construction and refuses any
+Engine owner other than the sole HKCU Run owner. Engine repair reuses the
+installed `.env`, SSH key, `known_hosts`, models, recordings, logs, and
+`install.json`. Key/ACL attestation failure is an investigation boundary, not
+permission to rotate or destroy the identity.
+Return the selected repair output and fresh H2 status only.
+
+### H5 — rollback
+
+- `INSTALL_NOT_STARTED`: remove only the external non-secret
+  `C:\AEGIS-Local\identity-agent.env` if the Human Owner wants to abandon the
+  gate. No installed state exists:
+
+  ```powershell
+  Remove-Item -LiteralPath 'C:\AEGIS-Local\identity-agent.env' -Force
+  ```
+- `PARTIAL_AGENT_INSTALL`, `AGENT_INSTALLED_ENGINE_UNCHANGED`, or
+  `POST_INSTALL_VERIFICATION_FAILED`: collect status first, then run the exact
+  default Agent uninstall after owner approval:
+
+  ```powershell
+  & "$AgentScripts\uninstall_identity_agent.ps1"
+  ```
+
+  This removes only managed Agent service/runtime/config/evidence and reports
+  `IDENTITY_PRESERVED=YES`. It does not remove Engine ownership or the tunnel.
+- `ROLLBACK_RUNTIME_ONLY`: after status/evidence review, run:
+
+  ```powershell
+  & "$EngineSource\windows\uninstall_autostart.ps1"
+  ```
+
+  This removes only the HKCU Run entry, SYSTEM tunnel task, and managed
+  supervisors; it deliberately preserves runtime, `.env`, SSH material,
+  recordings, logs, and `.venv`.
+- `IDENTITY_CREATED_RUNTIME_FAILED`: preserve the identity, disable the exact
+  non-Production Node if necessary with `manage_nodes.py disable`, and
+  investigate. Do not rotate or delete automatically.
+- `DESTRUCTIVE_IDENTITY_REMOVAL`: **not a normal rollback**. The separate
+  `-DestroyIdentity` option permanently removes the protected identity and is
+  forbidden unless the Human Owner gives a new, explicit destructive approval
+  after reviewing the exact marker and Node disposition.
+
+Every H1 mutation has a paired H2/H3 verification and an H5 rollback reference.
+Production, other services/tasks, camera/model assets, recordings, Docker data,
+and unrelated user files are outside every rollback command above.
+Return the uninstall/disable status lines and fresh exact-resource inventory;
+never return preserved identity contents.
