@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, DependencyUnavailableState, SkeletonLoader, Modal, ModalClose, Field, PillInput, AnchoredMenu } from '../components/ui.jsx'
 import { NameEntryDialog } from '../components/NameEntryDialog.jsx'
+import { ExternalFileDropSurface } from '../components/ExternalFileDropSurface.jsx'
 import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
@@ -812,7 +813,6 @@ export function Files({
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   const [uploadOpen, setUploadOpen] = useState(Boolean(navigationParams.uploadOpen))
-  const [dragOver, setDragOver] = useState(false)
   const [dropRequest, setDropRequest] = useState({ files: [], id: 0 })
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [detail, setDetail] = useState(null)
@@ -1064,9 +1064,8 @@ export function Files({
   const acceptDrop = (event) => {
     // ⚠️ การลากรายการภายในที่ตกลงบนพื้นที่ว่างของหน้าต้องไม่กลายเป็นการอัปโหลดผี
     //    ของไฟล์ที่มีอยู่แล้ว — หน้ารับเฉพาะไฟล์จากเครื่องผู้ใช้จริงเท่านั้น
-    if (!isExternalFileDrag(event.dataTransfer)) { setDragOver(false); setDraggingIds([]); return }
+    if (!isExternalFileDrag(event.dataTransfer)) { setDraggingIds([]); return }
     event.preventDefault()
-    setDragOver(false)
     const dropped = event.dataTransfer?.files
     if (!dropped?.length) return
     // ⚠️ ลากวางบนหน้านี้ = ผู้ใช้เลือกไฟล์เสร็จแล้ว การเด้งลิ้นชัก "เลือกไฟล์" ขึ้นมา
@@ -1174,22 +1173,8 @@ export function Files({
         </Btn>
       </div>
 
-      <div
-        onDragEnter={(event) => {
-          if (!isExternalFileDrag(event.dataTransfer)) return
-          event.preventDefault(); setDragOver(true)
-        }}
-        onDragOver={(event) => { if (isExternalFileDrag(event.dataTransfer)) event.preventDefault() }}
-        onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragOver(false) }}
-        onDrop={acceptDrop}
-        className={`relative rounded-[var(--r-card)] transition-[outline-color,background-color] ${dragOver ? 'outline-2 outline-dashed outline-accent bg-[var(--accent-soft)]' : ''}`}
-      >
-      <p className="sr-only">{t('filesDropHint')}</p>
-      {dragOver && (
-        <div className="absolute inset-0 z-20 rounded-[var(--r-card)] border-2 border-dashed border-accent bg-[var(--accent-soft)] flex items-center justify-center pointer-events-none">
-          <span className="inline-flex items-center gap-2 rounded-full bg-card px-4 py-2 text-[13px] font-semibold text-accent shadow-[var(--elev-1)]"><Upload size={16} aria-hidden />{t('filesDropHint')}</span>
-        </div>
-      )}
+      {/* ลากไฟล์จากเครื่องมาวาง — หน้าตา/สถานะเป็นของ ExternalFileDropSurface ตัวเดียวกับ Vault */}
+      <ExternalFileDropSurface hint={t('filesDropHint')} onDrop={acceptDrop}>
       {/* สี่สถานะของรายการไฟล์ */}
       {filesApi.loading ? (
         <SkeletonLoader type="files" />
@@ -1230,7 +1215,7 @@ export function Files({
           tileRef={(id) => (el) => { tileRefs.current[id] = el }}
         />
       )}
-      </div>
+      </ExternalFileDropSurface>
 
       {/* shared semantic selection surface; actions remain Files-specific */}
       {selectedIds.size > 0 && (

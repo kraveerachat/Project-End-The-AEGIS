@@ -16,6 +16,7 @@ import { VaultBreadcrumbs } from '../components/vault/VaultBreadcrumbs.jsx'
 import { VaultFolderTile } from '../components/vault/VaultFolderTile.jsx'
 import { VaultFileTile } from '../components/vault/VaultFileTile.jsx'
 import { VaultUploadDrawer } from '../components/VaultUploadDrawer.jsx'
+import { ExternalFileDropSurface } from '../components/ExternalFileDropSurface.jsx'
 import { VaultRecoveryPanel, vaultTreeFolderOptions } from '../components/vault/VaultRecoveryPanel.jsx'
 import {
   NewFolderDialog, RenameDialog, MoveDialog, DetailsDialog,
@@ -1109,6 +1110,9 @@ export function VaultTreeScreen({
           )}
         </SelectionActionBar>
       )}
+      {/* ลากไฟล์จากเครื่อง: หน้าตาเดียวกับ Files ผ่าน ExternalFileDropSurface — ตัวนี้วาดสถานะอย่างเดียว
+          การวางจริงยังไหลขึ้นไปหา onDrop ของจอ (เข้ารหัส → enqueueVaultFiles) เส้นทางเดิมทุกประการ */}
+      <ExternalFileDropSurface hint={t('vaultDropHint')} enabled={!isTrashView && !tree.drag}>
       {loadState === 'ready' && head && (
         workspace.folders.length === 0 && workspace.files.length === 0 ? (
           <Card>
@@ -1191,6 +1195,7 @@ export function VaultTreeScreen({
           </div>
         )
       )}
+      </ExternalFileDropSurface>
 
       {/* ── dialogs ─────────────────────────────────────────────────────────── */}
       <VaultUploadDrawer

@@ -84,8 +84,9 @@ function NameDialogCore({
   )
 }
 
+/* ชื่อเรื่องและปุ่มหลักใช้คีย์เดียวกับ Files New Folder ('newFolder') — Files คือต้นฉบับของหน้าตา */
 export function NewFolderDialog(props) {
-  return <NameDialogCore {...props} title={props.t('vaultTreeNewFolderTitle')} submitLabel={props.t('vaultTreeNewFolderSubmit')} />
+  return <NameDialogCore {...props} title={props.t('newFolder')} submitLabel={props.t('newFolder')} />
 }
 
 export function RenameDialog({ t, currentName, ...rest }) {
