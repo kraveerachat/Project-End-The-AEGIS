@@ -172,11 +172,14 @@ verify and refuses (rather than deletes) a tree whose ownership or metadata has 
 
 ```text
 L6C_STAGE               = IMPLEMENTED_REPOSITORY
-L6C_LIVE_AUTHORIZED     = NO
-L6C_LIVE_EXECUTED       = NO
-A_L6C_CREATED           = NO
-K3_L6C_CREATED          = NO
-IMMUTABLE_RELEASE_INSTALLED_LIVE = NO
+L6C_LIVE_AUTHORIZED     = YES (single attempt, consumed; no reusable L6c authority remains)
+L6C_LIVE_EXECUTED       = YES
+L6C_LIVE_ACCEPTANCE     = PROVEN
+L6C_RELEASE_INSTALL     = PROVEN
+L6C_COMPLETE            = YES
+A_L6C_CREATED           = YES (consumed, never reusable)
+K3_L6C_CREATED          = YES (consumed, stage=L6c only, never reusable)
+IMMUTABLE_RELEASE_INSTALLED_LIVE = YES
 L7_LIVE_EXECUTED        = NO
 A_L7_CREATED            = NO
 K3_L7_CREATED           = NO
@@ -184,3 +187,15 @@ D6_ISSUED               = NO
 PRODUCTION_SECRETS_CREATED = NO
 L8_STARTED              = NO
 ```
+
+## 12. Live acceptance (2026-09-28)
+
+The single owner-run, governed L6c live attempt completed: the immutable Core release was installed at
+`/opt/aegis-idea3/releases/1de1b4eaaa1506a8ec411f822be731994a7c1ca9`. `L6C_APPLY=PASS`, `L6C_VERIFY=PASS`, and the
+PRE→POST comparison result was `COMPARE_RESULT=PASS` with zero new/worsened drift and exactly 3 approved changes
+(`/opt/aegis-idea3` created, `/opt/aegis-idea3/releases` created, and the release catalog gaining exactly the one
+named release). The attempt marker (`L6C-ATTEMPT-CONSUMED`) is present and this AUTH_DIR is never reusable; A-L6c and
+K3-L6c are both consumed for the L6c stage only and can never authorize L7 (`p4-stage-gate.sh`'s `stage=` field
+match — see §8). L6c PASS does NOT authorize L7: a fresh `A-L7`, a fresh L7 K3, Pub's D6 notice, and L7's own owner
+inputs remain required. `/opt/aegis-idea3/current` remains absent; Core remains not started; L7 has not begun.
+Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-28_001305_music_idea3-pr11-l6c-live-acceptance.md`.
