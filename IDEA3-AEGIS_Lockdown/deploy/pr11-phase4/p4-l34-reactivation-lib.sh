@@ -384,3 +384,80 @@ l34_receipt_gate() {
     git -C "$repo" grep -qE "L${n}_LIVE_ACCEPTANCE ?= ?\`? ?PROVEN" HEAD -- "$logs" || { l34_reason "L34_PREDECESSOR_RECEIPT_MISSING:L${n}"; return 1; }
   done
 }
+
+# ── V4 (POST-L6b/L6c) reactivation: radio/rfkill already ready, exactly one bound NM_UP, L6b broker + dnsmasq already active and
+# preserved untouched. Distinct from FRESH/RESIDUAL (l34_baseline_classify): V4 never turns the radio on or off, so it must never
+# reuse that classifier — a host that is neither FRESH nor RESIDUAL nor this exact V4 baseline is UNRECOGNIZED and refused. ────────
+
+# l34_v4_baseline_gate RADIO TARGET_STATE WIFI_DEVICES P2P_INVENTORY < `systemctl show -p LoadState,ActiveState,SubState,
+#   UnitFileState,Result,MainPID wpa_supplicant.service` (KEY=VALUE lines) — the ONE supported V4 precondition.
+l34_v4_baseline_gate() {
+  local radio=$1 target=$2 wifidevs=$3 p2p=$4 wpa kv
+  wpa=$(cat)
+  [ "$wifidevs" = "$L34_AP_IF" ] || { l34_reason "L34_V4_BASELINE_UNRECOGNIZED:WIFI_DEVICE_INVENTORY"; return 1; }
+  [ "$radio" = enabled ] || { l34_reason "L34_V4_BASELINE_UNRECOGNIZED:NM_RADIO_NOT_ENABLED"; return 1; }
+  [ "$target" = disconnected ] || { l34_reason "L34_V4_BASELINE_UNRECOGNIZED:TARGET_NOT_DISCONNECTED"; return 1; }
+  [ -z "$p2p" ] || [ "$p2p" = "$L34_P2P_POST_ROW" ] || { l34_reason "L34_V4_BASELINE_UNRECOGNIZED:P2P_INVENTORY"; return 1; }
+  for kv in LoadState=loaded UnitFileState=disabled Result=success ActiveState=active SubState=running; do
+    grep -qx "$kv" <<< "$wpa" || { l34_reason "L34_V4_BASELINE_UNRECOGNIZED:WPA_${kv%%=*}"; return 1; }
+  done
+  grep -Eq '^MainPID=[1-9][0-9]*$' <<< "$wpa" || { l34_reason "L34_V4_BASELINE_UNRECOGNIZED:WPA_MainPID"; return 1; }
+}
+
+# l34_v4_rfkill_ready_gate — the target wlan rfkill row is already unblocked (V4 never mutates rfkill)
+l34_v4_rfkill_ready_gate() {
+  local row
+  row=$(rfkill --noheadings --output ID,TYPE,SOFT,HARD list "$L34_EXPECTED_RFKILL_ID" 2>/dev/null) || { l34_reason "L34_RFKILL_LIST_UNREADABLE"; return 1; }
+  [[ "$row" =~ unblocked[[:space:]]+unblocked$ ]] || { l34_reason "L34_V4_RFKILL_NOT_READY"; return 1; }
+}
+
+# l34_v4_service_active_gate UNIT < `systemctl show -p LoadState,ActiveState,SubState,UnitFileState,Result,MainPID UNIT` — generic
+# "already healthy, already running" gate. Reused for BOTH the L6b broker and dnsmasq: V4 must never start/stop/restart either.
+l34_v4_service_active_gate() {
+  local unit=$1 text kv
+  text=$(cat)
+  for kv in LoadState=loaded ActiveState=active SubState=running UnitFileState=enabled Result=success; do
+    grep -qx "$kv" <<< "$text" || { l34_reason "L34_V4_SERVICE_NOT_READY:$unit:${kv%%=*}"; return 1; }
+  done
+  grep -Eq '^MainPID=[1-9][0-9]*$' <<< "$text" || { l34_reason "L34_V4_SERVICE_NOT_READY:$unit:MainPID"; return 1; }
+}
+
+# l34_v4_identity_snapshot UNIT OUT — MainPID + NRestarts only, for an exact later preservation proof
+l34_v4_identity_snapshot() {
+  systemctl show -p MainPID -p NRestarts "$1" > "$2" 2>/dev/null || { l34_reason "L34_V4_IDENTITY_UNREADABLE:$1"; return 1; }
+}
+
+# l34_v4_identity_unchanged UNIT SNAPSHOT_FILE — MainPID/NRestarts byte-identical to the snapshot (never restarted)
+l34_v4_identity_unchanged() {
+  local unit=$1 pre=$2 now
+  now=$(systemctl show -p MainPID -p NRestarts "$unit" 2>/dev/null) || { l34_reason "L34_V4_IDENTITY_UNREADABLE:$unit"; return 1; }
+  [ "$(cat "$pre")" = "$now" ] || { l34_reason "L34_V4_IDENTITY_CHANGED:$unit"; return 1; }
+}
+
+# l34_v4_broker_listeners_gate AP_ADDR — exactly the two approved 8883 listeners are present (never created by V4, only verified)
+l34_v4_broker_listeners_gate() {
+  local ap=$1 got
+  got=$(ss -H -ltn "sport = :8883" 2>/dev/null | awk '{ print $4 }' | LC_ALL=C sort -u | paste -sd,)
+  [ "$got" = "$ap:8883,127.0.0.1:8883" ] || [ "$got" = "127.0.0.1:8883,$ap:8883" ] || { l34_reason "L34_V4_BROKER_LISTENERS_INVALID"; return 1; }
+}
+
+# l34_v4_dnsmasq_listeners_gate AP_IF AP_ADDR — the exact three approved dnsmasq listeners are present (never created by V4)
+l34_v4_dnsmasq_listeners_gate() {
+  local ap=$1 addr=$2 tcp udp
+  tcp=$(ss -H -lnt 2>/dev/null | awk '{ print $4 }')
+  udp=$(ss -H -lnu 2>/dev/null | awk '{ print $4 }')
+  grep -qx "$addr:53" <<< "$tcp" || { l34_reason "L34_V4_DNSMASQ_LISTENERS_INVALID:TCP53"; return 1; }
+  grep -qx "$addr:53" <<< "$udp" || { l34_reason "L34_V4_DNSMASQ_LISTENERS_INVALID:UDP53"; return 1; }
+  grep -qx "0.0.0.0%$ap:67" <<< "$udp" || { l34_reason "L34_V4_DNSMASQ_LISTENERS_INVALID:UDP67"; return 1; }
+}
+
+# l34_v4_ap_profile_autoconnect — the persisted profile's OWN connection.autoconnect value (never modified by V4, only read)
+l34_v4_ap_profile_autoconnect() {
+  nmcli -g connection.autoconnect connection show "$L34_CONN" 2>/dev/null
+}
+
+# l34_v4_autoconnect_pre_gate DEVICE_VALUE AP_PROFILE_VALUE — the ONE supported PRE autoconnect state
+l34_v4_autoconnect_pre_gate() {
+  [ "$1" = yes ] || { l34_reason "L34_V4_AUTOCONNECT_UNEXPECTED:DEVICE=$1"; return 1; }
+  [ "$2" = no ] || { l34_reason "L34_V4_AUTOCONNECT_UNEXPECTED:AP_PROFILE=$2"; return 1; }
+}
