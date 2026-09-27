@@ -1,10 +1,10 @@
 # AEGIS IDEA3 PR11 Phase 4 — L6b Live Broker Operational Design
 
-Date: 2026-09-27 (Asia/Bangkok). Owner: music. Status: **repository preparation only**.
+Date: 2026-09-27 (Asia/Bangkok). Owner: music. Status: **L6b live accepted (Attempt 2, 2026-09-27); see §13**. The flags below record the state when the design was written.
 
 ```text
-L6B_LIVE_EXECUTED        = NO
-L6B_LIVE_AUTHORIZED      = NO
+L6B_LIVE_EXECUTED        = NO   (at design time; Attempt 1 failed, Attempt 2 PROVEN — see §13)
+L6B_LIVE_AUTHORIZED      = NO   (at design time; both attempt authorizations are now CONSUMED)
 PRODUCTION_MUTATION      = NO   (this document and its implementation)
 L6A                      = COMPLETE / PROVEN (PR #221, immutable receipt)
 PHASE4_RUNTIME_COMPLETE  = NO
@@ -255,6 +255,8 @@ Remediation: the `root:mosquitto 0640` model of §3 step 2 (root ownership prese
 broker runs as, no widening to 0660/0666/0770/0777, no account/group mutation) and the rollback `reset-failed` step of §6.
 The PRE→RB comparator stays strict (zero drift, zero approved change, no allow files). What tests cannot prove offline is that
 the real `mosquitto` 2.1.2 process on the host reads these files after its privilege drop; the live verify remains that proof.
+
+**Live outcome (Attempt 2, evidence `2026-09-27-l6b-20260927-115928`, runner sha256 `7801d663…e06a`, authorization CONSUMED):** after the residual cleanup restored the exact clean prestate, apply and verify passed on the real host. Mosquitto 2.1.2 reads the `root:mosquitto` material after its privilege drop, live TLS/auth/ACL/negative verification passes, and the persistent state is proven: `aegis-idea3-mosquitto.service` active/running/enabled with `NRestarts=0`, listeners `127.0.0.1:8883` and `10.77.30.1:8883` only, legacy Mosquitto preserved. PRE→POST: 0 new drift, 24 approved changes (the persistent L6b footprint), 3 disk INFO, `PRESERVATION_S10=PASS`. Rollback was not triggered. JIT plaintext input removal remains a separate owner-authorized workflow; L7 has not started.
 
 ## 14. Test map
 
