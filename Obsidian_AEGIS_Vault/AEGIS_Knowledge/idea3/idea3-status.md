@@ -18,6 +18,15 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L7 live preparation — main reconciled after PR #208 merge; release-install gap closed in repository — 2026-09-27
+
+> [!important] Repository preparation only. L7 has NOT run, is NOT authorized, and no Production state changed. No A-L7, K3 or D6 exists; no Production secret was created; L8 has NOT started.
+> `L7PREP_MAIN_RECONCILED = YES (main 65324982…)`, `PR208_STATUS = MERGED`, `L7_RELEASE_BUILDER = CANONICAL_MAIN`, `L7_RELEASE_INSTALLER = IMPLEMENTED_REPOSITORY (fixture-tested; no owner-run wrapper)`, `L7_RELEASE_INSTALL_GOVERNANCE = GAP_DOCUMENTED (owner decision required, not repository-fixable)`, `L7_LIVE_EXECUTED = NO`, `L7_LIVE_AUTHORIZED = NO`, `L8_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Main merge:** `feat/idea3-pr11-l7-live-preparation` merged current `main` (`653249822cf194bc0bd15f56ac0b96ac3a492f35`, which now includes merged PR #208). One conflict, in `deploy/pr11-phase4/README.md`, purely insertion-adjacency between the L7PREP and #208 doc sections (no contradictory wording); resolved by keeping both sections and updating "open PR #208" language to "merged". All L6b closeout history and all L7PREP remediation are preserved unchanged; no historical receipt was rewritten.
+- **Release-install gap audited and closed in the repository.** No installer existed anywhere in the repository (script, doc, test or owner-run tool) before this task. New `deploy/pr11-phase4/p4-l7-install-release.py`: copies a completed `p4-l7-build-release.py` (PR #208) output into `/opt/aegis-idea3/releases/<id>`, re-validated by the REAL `p4-l7-release-guard.py` (imported, not a copied predicate) both before staging and immediately before an atomic `os.rename` placement; refuses to overwrite an existing release, refuses a symlinked destination/ancestor, cleans only its own temp staging on failure, never later removes a placed release, and **never touches `/opt/aegis-idea3/current`** — `stages/L7/apply.sh` remains the sole owner of that symlink, so the two workflows cannot race. Proven end to end: a builder-built release, installed by this tool, passes the release guard unchanged.
+- **Governance gap (not repository-fixable):** the installer has no owner-run wrapper. `p4-lib.sh`'s fixed `P4_STAGES` and `p4-stage-gate.sh` define no stage id or authorization field for a pre-L7 release-install mutation, and none was invented. An owner decision (new G-15 stage, or an extra `A-L7` field) is required before any live use; design §6/§8 already flag this. Receipt: `90-Status/logs/2026-09-27_162637_music_idea3-pr11-l7-live-preparation-main-reconcile.md`.
+
 ## IDEA3 PR11 Phase 4 L3/L4 reactivation live attempt 2 — runtime PASS, preservation model INCOMPLETE, rolled back safe-equivalent — V3 remediation in repository — 2026-09-27
 
 > [!important] The V2 reactivation reached the accepted runtime (apply PASS, verify PASS, AP and dnsmasq active, persistent files unchanged, PSK scan 0 hits) and failed only at the PRE->POST preservation comparison; the rollback handler passed but PRE->RB did not return byte-for-byte. The authorization is permanently consumed; no retry occurred. **`FINAL_ACCEPTANCE = NOT_PROVEN`**, no new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` is claimed, and `L6B` remains blocked. `SAFE_NETWORK_BOUNDARY_RESTORED = YES`, **`EXACT_PRESTATE_RESTORED = NO`** (rollback is not called exact).
@@ -7956,6 +7965,31 @@ FINAL_RECEIPT_AREA=idea3
 merge and final closeout being recorded there; this authorization did not
 extend to any further Production mutation, service lifecycle action, or
 reboot.
+
+## IDEA3 PR11 Phase 4 L7 release builder — status reconciliation (current state) — 2026-09-27
+
+> [!important] This is a status correction, not a rewrite of the 2026-09-24 receipt below (kept unedited). The builder itself is unchanged repository-only tooling: no `/opt` write, no sudo, no systemd, no Production mutation, no live L7.
+
+- **Corrected:** the 2026-09-24 note that builder output was proven "against a verbatim copy of the PR #202 release-guard predicate" is superseded. A real release built by `p4-l7-build-release.py` was independently validated, in a separate process, against the actual newer `p4-l7-release-guard.py` implemented on the separate `feat/idea3-pr11-l7-live-preparation` branch (commit `06b2fc05485c8412cbcceb17b3d1a39b2e246f75`, **not merged to main**): `L7_RELEASE_GUARD=PASS`, exact layout/manifest/checksum match, no schema mismatch.
+- **Corrected:** the 2026-09-24 note that the `core.env` renderer and the broker-hostname/TLS-SAN reconciliation are "still open" describes this builder's own scope correctly, but is stale about the *repository's* current state: both are implemented and tested on `feat/idea3-pr11-l7-live-preparation` (`p4-l7-core-env.py`; Core `AEGIS_MQTT_TLS_SERVER_NAME`). **They are not yet on `main`** — that branch is separate and unmerged — so they remain pending merge, not canonical `main` behavior, and this builder does not depend on or import that code.
+- `PR202_MODIFIED = NO` (unchanged; PR #202 was not touched). `L7PREP_MERGED = NO`. `L7_RELEASE_INSTALL = NOT_RUN`. `L7_LIVE_ACCEPTANCE = NOT_PROVEN`.
+
+## IDEA3 PR11 Phase 4 L7 release builder / verifier — repository tooling — 2026-09-24
+
+> [!important] Repository-only tooling. Nothing is installed, no `/opt` write, no sudo, no systemd, no Production mutation, no live L7.
+
+```text
+L7_RELEASE_BUILDER          = IMPLEMENTED_REPOSITORY
+L7_RELEASE_VERIFIER         = IMPLEMENTED_REPOSITORY
+L7_RELEASE_INSTALL          = NOT_RUN
+L7_PRODUCTION_RELEASE       = NOT_INSTALLED
+L7_LIVE_ACCEPTANCE          = NOT_PROVEN
+PR202_MODIFIED              = NO
+```
+
+- `deploy/pr11-phase4/p4-l7-build-release.py` builds and verifies the release layout the L7 release guard expects (see the phase-4 README section "L7 release builder / verifier"). The shipped `aegis_soc` package is the AST-derived runtime closure of the headless production entrypoint (21 modules plus `__init__`); `cli`, `gui`, `production_runtime`, `telegram_control`, `theme`, `windows_launcher` and `wizard` are not shipped.
+- Builder output was proven against a verbatim copy of the PR #202 release-guard predicate in a fixture root only.
+- Still open for a live L7: the complete `core.env` renderer (PR #202 renders three lines, two of which no Core source reads), and the broker-hostname/TLS-SAN reconciliation (`AEGIS_BROKER_IP` must be an IP while the certificate SAN is `DNS:mqtt.aegis.home.arpa` and hostname verification is enforced) which needs an owner decision.
 
 ## 🔗 Related Notes
 * [[core/system-overview]]
