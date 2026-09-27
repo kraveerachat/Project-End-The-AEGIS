@@ -78,6 +78,16 @@ edit_policy: owner-writable
 - **Remediation (fixture-tested):** `root:mosquitto` 0750 dir and 0640 conf/acl/passwd/broker.key, certificates `root:root 0644`, no widening; rollback adds `reset-failed aegis-idea3-mosquitto.service` (only, after removal + daemon-reload) and proves `not-found/inactive/dead/success`. Comparator stays strict.
 - **Open before any new live L6b:** merge this fix, owner freeze at the new main, fresh JIT input, fresh same-day A-L6b and K3. Design §13. Receipt: `90-Status/logs/2026-09-27_110130_music_idea3-pr11-l6b-live-attempt1-broker-group-remediation.md`.
 
+## IDEA3 PR11 Phase 4 L6b JIT plaintext cleanup — PROVEN (logical deletion only) — 2026-09-27
+
+> [!important] The separately authorized owner-run cleanup removed the private L6b JIT input directory. **Logical deletion only: no physical secure erase, media sanitization or forensic non-recoverability is claimed.** L6b live acceptance remains PROVEN and persistent. L7 has NOT started. This closeout is documentation-only (no Production mutation).
+> `L6B_LIVE_ACCEPTANCE = PROVEN`, `JIT_CLEANUP = PROVEN (logical)`, `JIT_CLEANUP_CONSUMED = YES`, `JIT_INPUT_PATH = ABSENT`, `JIT_CLEANUP_AUTHORIZATION = CONSUMED (never reusable)`, `PHYSICAL_SECURE_ERASE = NOT CLAIMED`, `L7_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Deleted input:** `/home/kittipat/Workspace/idea3-p4-evidence/l6b-owner-input` (had exactly `broker.crt`, `broker.key`, `ca.crt`, `core.pass`, `device.pass`; `ca.key` absent and forbidden). Frozen cleanup runner sha256 `c778451c26c9bd6c39a9b10b107be931eecc923d91e3df0057feb0b2e6a1c5bc`.
+- **Persistent broker unaffected:** `aegis-idea3-mosquitto.service` active/running, enabled, `Result=success`, `NRestarts=0`; `127.0.0.1:8883` and `10.77.30.1:8883`; no rollback, restart or network mutation (owner record).
+- **History:** Attempt 1 FAILED (consumed) → PR #226 → residual cleanup PROVEN (consumed) → Attempt 2 PROVEN (consumed) → JIT cleanup PROVEN (consumed).
+- **Next boundary:** L7 preparation (not started). Receipt: `90-Status/logs/2026-09-27_121346_music_idea3-pr11-l6b-jit-cleanup-closeout.md`.
+
 ## IDEA3 PR11 Phase 4 L6b live acceptance — PROVEN (Attempt 2), persistent — 2026-09-27
 
 > [!important] Owner-run L6b Attempt 2 passed apply, verify and the live TLS/auth/ACL probe; PRE→POST preservation passed. L6b is left applied and persistent. This closeout is documentation-only (no Production mutation). Attempt 1 remains FAILED / NOT ACCEPTED; the Attempt 1, cleanup and Attempt 2 authorizations are all CONSUMED and never reusable. L7 has NOT started; JIT plaintext input has NOT been deleted.
