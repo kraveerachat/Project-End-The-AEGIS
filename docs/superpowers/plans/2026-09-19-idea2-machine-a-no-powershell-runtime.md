@@ -778,6 +778,15 @@ Stage exact source/test paths only and commit the coherent final automated state
 **Interfaces:**
 - Produces exact administrator commands and evidence forms for the human; performs no privileged mutation itself.
 
+**H1 isolated non-Production prerequisite:**
+
+- The authoritative design and N0-N8 runbook is
+  `docs/superpowers/specs/2026-09-28-idea2-h1-isolated-nonproduction-environment-design.md`.
+- H0 is human-proven complete. H1 remains blocked until N0 through N7 PASS with fresh evidence and the separately bounded `AEGIS_AGENT_CA_BUNDLE` lifecycle is implemented and verified through the Agent's actual Python Requests trust path.
+- The candidate-only lab names, ports, registry identities, credentials, TLS
+  material, database, networks, volumes, and Compose lifecycle must remain
+  isolated from Production. The linked design authorizes no live provisioning.
+
 - [ ] **Step 1: Write the installation runbook**
 
 Include precondition hashes/SHAs, dependency installation, Agent service installation, DPAPI CurrentUser preflight under the service identity, protected key provisioning, public-key export, disposable/local registry setup, Engine artifact refresh, Node/physical/alias configuration, service/tunnel/Engine status, abort rules, and rollback.

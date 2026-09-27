@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-27
+updated: 2026-09-28
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -21,10 +21,16 @@ Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
 PR: NOT CREATED — blocked until Human Machine A local acceptance and final Task 16 closeout
-Current state: ORIGINAL TASK 15 BLOCKED_PREREQUISITE — corrected H0-2R-2 installed exact CPython 3.12.10 x64 under Program Files with installer exit 0; H0-2R-3 proved runtime/path/bitness and then stopped on a runbook registration-model defect that incorrectly required the Burn bundle GUID in HKLM; a corrected read-only continuation is prepared but not executed, and H0-3 remains blocked
+Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_STATE=BLOCKED_PREREQUISITES — the Machine A read-only prerequisite gate is complete, but H1 remains blocked on an unprovisioned isolated non-Production environment, N0-N7 evidence, and the separately bounded managed Agent CA-bundle lifecycle
 Started: 2026-09-19
-Current Human Gate checkpoint: `1c4ca53faae796abcbbba10f5658237071e8c748` (`docs(idea2): correct python 3.12 prerequisite gate`); the current follow-up corrects H0-2R-3/H0-2R-4/H0-2R-2F registration semantics only
+Current repository checkpoint: `25dd102ef1f487b04da0d16eb1054e1bbea9a33f` (`fix(idea2): enforce multi-machine portability guardrails`); the current repository-only follow-up designs the isolated H1 environment and performs no live provisioning
 Production mutation allowed: NO
+
+```text
+LIVE_PROVISIONING_PERFORMED=NO
+PRODUCTION_MUTATION=NO
+MACHINE_A_MUTATION=NO
+```
 
 ### Goal
 
@@ -86,8 +92,9 @@ before that acceptance.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| MULTI-MACHINE-PORTABILITY | Pre-H1 portability hardening for Windows Machines A/C and Linux Machine B | PASS — SOURCE/STATIC ONLY | Binding model proven across A/B/C x operator/operator2: A = Windows laptop/built-in camera; B = Linux/local camera discovered at deployment; C = Windows PC/external webcam. RED proved reusable private-network endpoint and reverse-port defaults; GREEN makes the Monitor host, explicit non-loopback server bind, and unique reverse port mandatory deployment inputs. Authorization 17/17; Windows+Linux lifecycle 34/34; full Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; full Engine/Agent 179 tests / 177 pass / 0 fail / 2 expected native-Windows skips; UI freeze 5/5; PowerShell parse PASS; Bash parse PASS; Vite build PASS; governance/Vault 50/50 and PASS with two pre-existing Canvas warnings; diff/hardcode/secret/security review PASS. | this local checkpoint | Windows A/C share one configuration-driven lifecycle; Machine C needs no source rewrite. Shared Machine B business logic needs no rewrite, but the repository Linux adapter currently implements only Engine+tunnel systemd lifecycle and source-level camera discovery; Linux dedicated Identity Agent and real Machine B runtime acceptance are NOT_IMPLEMENTED / NOT_VERIFIED. Model semantics unchanged. | Future separately approved Linux identity-agent adapter and real Machine B install/reboot/camera acceptance; existing H0-2R continuation still pending | STOP before H0-2R continuation, H0-3, H1, any machine mutation, push, or PR |
-| ORIGINAL-TASK-15 | Prepare and Stop at the Human Machine A Installation Gate | BLOCKED_PREREQUISITE | Gate checkpoints through `1c4ca53faae796abcbbba10f5658237071e8c748`; H0-1 and H0-2R-1 PASS; initial WinGet H0-2R-2 blocked before installer execution; corrected direct H0-2R-2 then exited 0 and installed exact 3.12.10 x64 at `C:\Program Files\Python312`; H0-2R-3 runtime/path/bitness proof passed but stopped on the invalid HKLM Burn-bundle assumption; read-only evidence shows the exact bundle in HKCU and seven exact PSF components in HKLM | this registration-model remediation checkpoint | BLOCKED_REGISTRATION_MODEL — installation is valid so far but full H0-2R-3 acceptance has not rerun; Python 3.14 has no evidence of change; Agent, Engine, tunnel, camera, Production, Task 16, receipt, push, and PR unchanged | Human/ChatGPT reviews and separately authorizes the corrected read-only H0-2R-3 continuation only | STOP before continuation, H0-3, H1, or rollback |
+| H1-NONPROD-ENVIRONMENT-DESIGN | Isolated non-Production H1 architecture and N0-N8 runbook | BLOCKED_PREREQUISITES / DESIGN REVIEWED | Human-approved repository-only design fixes `aegis-h1-lab`, candidate-only HTTPS/stream hostnames, conditional ports, isolated PostgreSQL/Monitor/network/volume/credentials, exact browser/Agent route split, owner-reviewed registry policy, server-authoritative stream destination, and a managed `AEGIS_AGENT_CA_BUNDLE` prerequisite. No live DNS, TLS, database, container, registry, or Machine A resource exists from this checkpoint. | this local checkpoint | DESIGN PASS; LIVE PROVISIONING NOT PERFORMED | Implement and verify the bounded CA-bundle lifecycle; then run separately authorized N0-N7 | Human reviews this local checkpoint; do not begin N0 or H1 |
+| MULTI-MACHINE-PORTABILITY | Pre-H1 portability hardening for Windows Machines A/C and Linux Machine B | PASS — SOURCE/STATIC ONLY | Binding model proven across A/B/C x operator/operator2: A = Windows laptop/built-in camera; B = Linux/local camera discovered at deployment; C = Windows PC/external webcam. RED proved reusable private-network endpoint and reverse-port defaults; GREEN makes the Monitor host, explicit non-loopback server bind, and unique reverse port mandatory deployment inputs. Authorization 17/17; Windows+Linux lifecycle 34/34; full Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; full Engine/Agent 179 tests / 177 pass / 0 fail / 2 expected native-Windows skips; UI freeze 5/5; PowerShell parse PASS; Bash parse PASS; Vite build PASS; governance/Vault 50/50 and PASS with two pre-existing Canvas warnings; diff/hardcode/secret/security review PASS. | this local checkpoint | Windows A/C share one configuration-driven lifecycle; Machine C needs no source rewrite. Shared Machine B business logic needs no rewrite, but the repository Linux adapter currently implements only Engine+tunnel systemd lifecycle and source-level camera discovery; Linux dedicated Identity Agent and real Machine B runtime acceptance are NOT_IMPLEMENTED / NOT_VERIFIED. Model semantics unchanged. | Future separately approved Linux identity-agent adapter and real Machine B install/reboot/camera acceptance; H0 is complete and H1 prerequisites remain separate | STOP before H1, any machine mutation, push, or PR |
+| ORIGINAL-TASK-15 | Prepare and Stop at the Human Machine A Installation Gate | H0 HUMAN_PROVEN_COMPLETE / H1 BLOCKED_PREREQUISITES | H0 prerequisite remediation and read-only acceptance are human-proven complete. Historical H0-2R defects and corrections remain recorded below. No Agent, Engine, tunnel, camera, Production, Task 16, receipt, push, or PR mutation is claimed. | current branch history through `25dd102ef1f487b04da0d16eb1054e1bbea9a33f`; this design checkpoint follows | H0 PASS; H1 NOT STARTED | Isolated H1 lab, managed CA bundle, and N0-N7 evidence | review design checkpoint; keep H1 blocked |
 | ORIGINAL-TASK-14 | Full automated verification and scoped security review | HUMAN-GATE READY | Starting SHA `ee9812d8d5c3992a04118e55149ae843b697fd6d`; focused Monitor lifecycle/security 70/70; focused Windows lifecycle 70/70; full Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; all skipped behavior rerun against disposable PostgreSQL 15 with zero skips; full Engine/Agent 176 tests / 174 pass / 0 fail / 2 expected native-pywin32 environment skips; UI freeze 5/5; Vite build PASS; governance 49/49; Vault PASS with two pre-existing Canvas warnings; PR #134 lifecycle 7/7; hash-locked wheels 9/9; PowerShell parser 18/18; scoped review Critical 0 / Important 0 / Minor 0 | source checkpoint `ee9812d8d5c3992a04118e55149ae843b697fd6d`; this status-only evidence checkpoint follows | PASS — source/local candidate; Playwright runner absent and real installed Machine A runtime not exercised | Task 15 human installation-gate preparation; Task 16 acceptance/receipt/PR | stop before Task 15 |
 | ORIGINAL-TASK-13 | Production-like disposable integration without diagnostic harness | CLOSED | Starting SHA `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; `origin/main` `2694808092bd3c28dea14ed4bcd400e6bb0ec5d2` has no overlap with authorized Task 13 paths; Node integration 5/5; Engine contract 2/2; PostgreSQL 15 migrations applied twice; built Monitor shell, Agent proof, account aliases, physical source, demand/release, forged/stale denial, Agent recovery, heartbeat aging, and cleanup all passed | `test(idea2): prove permanent machine a runtime path` (this checkpoint) | PASS — disposable/local integration only; Production and installed Machine A unchanged | Task 14 full automated verification and security review | stop before Task 14 |
 | ORIGINAL-TASK-12 | Windows install/status/repair/uninstall/autostart lifecycle | CLOSED | Starting SHA `27d7723f96c4752d32047c5062c55173c3f4c9c2`; focused Windows/Agent 74/74; PowerShell parser 12/12; full Engine/Agent 174 tests / 172 pass / 0 fail / 2 expected native-pywin32 skips across the existing split dependency runtimes; Monitor 143 tests / 140 pass / 0 fail / 3 conditional PostgreSQL skips; UI freeze 5/5; Vite build PASS; hash-locked Windows wheels 9/9; governance 50/50; Vault PASS with two pre-existing canvas warnings; secret scan 21 paths / 0 hits; scoped review Critical 0 / Important 0 / Minor 0 | `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f` | PASS at repository source/static/test-double boundary; installed Machine A runtime and privileged Windows lifecycle not executed | Task 13 integration | Task 13 |
@@ -112,7 +119,7 @@ before that acceptance.
 | Original Task 12 | CLOSED | Checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; repository-native Windows install/status/repair/uninstall/autostart lifecycle passes source/static/test-double gates. No permanent Machine A runtime mutation occurred. |
 | Original Task 13 | CLOSED | Node integration 5/5 and Engine contract 2/2 passed against the built app, disposable PostgreSQL 15, protocol-real Agent proof transport, and protocol-real Engine stream. Dynamic ports and database schemas were released. Production and installed Machine A remain unchanged. |
 | Original Task 14 | HUMAN-GATE READY | Fresh complete source/local verification and scoped security review passed at source checkpoint `ee9812d8`; all Task 14 disposable PostgreSQL and dependency resources were removed. Playwright is honestly `BLOCKED_ENVIRONMENT` because the approved runner is absent. |
-| Original Task 15 | BLOCKED_PREREQUISITE | H0-1/H0-2R-1 passed. Corrected H0-2R-2 installed exact Python 3.12.10 x64 at the Program Files target. H0-2R-3 proved runtime/path/bitness, then stopped because the runbook confused the HKCU Burn maintenance entry with the seven machine-wide HKLM MSI component registrations. The corrected read-only continuation is prepared; no Agent/Engine/tunnel/camera/Production state changed. |
+| Original Task 15 | H0 HUMAN_PROVEN_COMPLETE / H1 BLOCKED_PREREQUISITES | H0 prerequisite and read-only Machine A checks are human-proven complete. H1 has not started and remains blocked on the isolated non-Production environment, managed Agent CA-bundle implementation, and N0-N7 evidence. No Agent/Engine/tunnel/camera/Production state changed in this repository-only checkpoint. |
 | Original Task 16 | NOT STARTED | Human H0 evidence review, bounded installation, reboot/account acceptance, final receipt, push, and PR remain later gates. |
 
 ### Planned / Completed / Remaining
@@ -123,7 +130,8 @@ before that acceptance.
 - **Completed:** Original Task 13 production-like integration: 5/5 Node integration tests and 2/2 Engine runtime-contract tests passed with the built Monitor, disposable PostgreSQL 15, protocol-real Agent proof transport, and Engine demand/release lifecycle. No Vite acceptance, `:18078`, manual heartbeat loop, manual stream proxy, Production URL, or persistent Machine A mutation was used.
 - **Completed:** Original Task 14 full automated verification and scoped security/lifecycle review against source checkpoint `ee9812d8d5c3992a04118e55149ae843b697fd6d`; Critical 0 / Important 0 / Minor 0. The absent Playwright runner remains an explicit environment limitation rather than a fabricated pass.
 - **Completed:** Original Task 15 prepared and statically validated the Human Owner installation gate. Human H0-1/H0-2R-1 passed. Fresh WinGet diagnostics proved that the first H0-2R-2 command never selected or ran an installer because Windows PowerShell 5.1 split the nested `--override` at `Program Files`. The corrected exact official-installer path was later authorized and exited zero; `C:\Program Files\Python312\python.exe` proves Python 3.12.10 AMD64 and `py.exe -0p` lists it beside the unchanged-location Python 3.14 baseline. H0-2R-3 stopped only because its registration check incorrectly required the Burn bundle GUID in HKLM.
-- **Remaining:** Human/ChatGPT review and separate authorization of the corrected read-only H0-2R-3 continuation, followed by repeated H0-2 proof, then H0-3 and Task 16 only after approval. Agent/Engine installation, reboot/operator/operator2 acceptance, final receipt, push, and PR remain pending. Reinstall and rollback are not indicated by current evidence.
+- **Completed:** H0 is human-proven complete. The historical H0-2R failures and their bounded corrections remain below as an audit trail rather than current blockers.
+- **Remaining:** Human review of the isolated H1 design checkpoint, then a separately authorized repository-only `AEGIS_AGENT_CA_BUNDLE` implementation. Live N0-N7, H1 installation, reboot/operator/operator2 acceptance, final receipt, push, and PR remain pending. The design authorizes no provisioning.
 
 ### PRE-TASK-12 verified contract and known limitations
 
@@ -178,14 +186,27 @@ before that acceptance.
 - **Prepared evidence:** corrected H0-2R-3 requires one exact HKCU bundle entry, the seven exact expected HKLM component registrations across the two machine views, no additional matching registration, exact runtime/version/path/bitness, and the original hash-bound Python 3.14/PATH/launcher/Store-alias baseline. H0-2R-2F now refuses staging cleanup when either bundle or component evidence exists. H0-2R-4 requires the complete corrected model before uninstall and proves the runtime root plus every exact/matching registration absent afterward.
 - **Mutation truth:** `PYTHON_312_INSTALLED=YES_NOT_YET_ACCEPTED`; `PYTHON_312_INSTALLER_EXIT=0`; `PYTHON_314_CHANGED=NO_EVIDENCE_OF_CHANGE`; `AGENT_ENGINE_RUNTIME_CHANGED=NO`; `H0_2R_3=BLOCKED_REGISTRATION_MODEL`; `H0_3_STARTED=NO`; `TASK16_STARTED=NO`; `PRODUCTION_MUTATION_PERFORMED=NO`.
 
+#### H0 completion and H1 prerequisite reconciliation
+
+- The Human Owner subsequently accepted the corrected read-only H0 evidence:
+  `H0_STATE=HUMAN_PROVEN_COMPLETE`. The earlier blocked lines above remain
+  immutable historical sequencing evidence, not the current gate state.
+- H1 has not started. The approved repository-only H1 design is
+  `docs/superpowers/specs/2026-09-28-idea2-h1-isolated-nonproduction-environment-design.md`.
+  It requires the isolated `aegis-h1-lab` environment, the managed
+  `AEGIS_AGENT_CA_BUNDLE` lifecycle, and N0-N7 PASS before N8 can authorize any
+  bounded H1 action.
+- `LIVE_PROVISIONING_PERFORMED=NO`; `PRODUCTION_MUTATION=NO`;
+  `MACHINE_A_MUTATION=NO` for this design checkpoint.
+
 ### Handoff / Next Action
 
-Return the corrected registration-model package and stop at
-`BLOCKED_PREREQUISITE`. The next action is Human/ChatGPT review and separate
-authorization of the read-only H0-2R-3 continuation using the recorded baseline
-hash. Do not reinstall or uninstall Python, run rollback, continue H0-3/H1,
-install Agent dependencies, modify Agent/Engine/tunnel state, reboot, mutate
-Production, push, open a PR, deploy, or create the final receipt.
+Return the isolated H1 design checkpoint for Human review and stop at
+`H1_STATE=BLOCKED_PREREQUISITES`. The next bounded repository task is the
+separately authorized managed `AEGIS_AGENT_CA_BUNDLE` lifecycle. Do not begin
+N0-N8, provision DNS/TLS/database/container resources, install Agent/Engine
+runtime, modify Agent/Engine/tunnel/camera state, mutate Production, push, open
+a PR, deploy, or create the final receipt.
 
 ### Original Task 12 verification evidence
 
