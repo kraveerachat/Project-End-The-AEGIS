@@ -1,0 +1,20 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 runtime reactivation: allowed PRE->POST drift keys (RUNTIME_ONLY).
+# Exact keys, no wildcard. Persistent artifacts are NOT here: nm.profile.*, net.idea3_dnsmasq_conf.*, fw.idea3_nft and the dnsmasq
+# LoadState/UnitFileState must stay byte/state identical. The dnsmasq ActiveState/SubState/Result and the Wi-Fi radio WIFI field are
+# approved only through the exact value transitions in allow-dynamic-transitions.txt, not here.
+
+# target interface runtime (link, AP mode/SSID/channel, address, connected route, NM device state, active connection, soft rfkill)
+net.link.wlp0s20f3
+net.addr.wlp0s20f3
+net.route4.iface.wlp0s20f3
+nm.active.device.wlp0s20f3
+nm.device.wlp0s20f3.state
+wifi.iface.wlp0s20f3.channel
+wifi.iface.wlp0s20f3.ssid
+wifi.iface.wlp0s20f3.type
+wifi.rfkill.iface.wlp0s20f3.soft
+
+# dnsmasq runtime bookkeeping after reset-failed + start (values are runtime-generated; identity keys are NOT approved)
+svc.aegis-idea3-dnsmasq.service.MainPID
+svc.aegis-idea3-dnsmasq.service.NRestarts
+svc.aegis-idea3-dnsmasq.service.ExecMainStartTimestamp

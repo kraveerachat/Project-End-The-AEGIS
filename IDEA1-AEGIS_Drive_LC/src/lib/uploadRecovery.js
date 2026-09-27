@@ -58,7 +58,7 @@ function fnv1a32(input) {
  * @param {string|number|null|undefined} scope id ของผู้ใช้ที่ล็อกอินอยู่
  * @returns {string|null} null = ยังไม่รู้ว่าเป็นใคร จึงยังไม่มีคีย์ให้เขียน
  */
-export function recoveryStorageKey(scope) {
+export function recoveryStorageKey(scope, baseKey = RECOVERY_STORAGE_KEY) {
   if (scope === null || scope === undefined || scope === '') return null
   const raw = String(scope)
   if (!raw) return null
@@ -66,7 +66,7 @@ export function recoveryStorageKey(scope) {
   const segment = encoded.length <= SCOPE_SEGMENT_MAX
     ? encoded
     : `${encoded.slice(0, SCOPE_SEGMENT_MAX)}~${fnv1a32(raw)}`
-  return `${RECOVERY_STORAGE_KEY}.${segment}`
+  return `${baseKey}.${segment}`
 }
 
 /** เวอร์ชันของรูปทรงบันทึก — บันทึกที่คนละเวอร์ชันถูกทิ้ง ไม่ใช่เดาความหมายเอา */
@@ -134,9 +134,9 @@ export function recoveryRecordFrom(checkpoint = {}, file = {}, extra = {}) {
 }
 
 /** เหลือเฉพาะ field ที่อยู่ใน allowlist — ด่านสุดท้ายก่อนเขียนลง storage */
-function sanitize(record) {
+function sanitize(record, fields = RECOVERY_FIELDS) {
   const clean = {}
-  for (const key of RECOVERY_FIELDS) {
+  for (const key of fields) {
     if (record[key] !== undefined) clean[key] = record[key]
   }
   return clean
@@ -153,10 +153,15 @@ function sanitize(record) {
  *    ที่เป็นความลับถูกเก็บลงเครื่อง ถ้ายังไม่รู้ว่าเป็นใคร (scope ว่าง) ร้านจะกลายเป็น
  *    no-op ทั้งการอ่านและการเขียน: ไม่อ่านของใคร และไม่ทิ้งบันทึกที่ไม่มีเจ้าของไว้
  *
- * @param {{ storage?: Storage, scope?: string|number|null, now?: () => number }} [options]
+ * ⚠️ `baseKey` + `fields` มีไว้ให้ Private Vault ใช้ร้านเดียวกันนี้กับ allowlist ของตัวเอง
+ *    (vaultUploadRecovery.js) โดยไม่มีวันเห็นหรือเขียนทับบันทึกของ Files — ค่าเริ่มต้น
+ *    คือพฤติกรรมเดิมของ Files ทุกไบต์
+ *
+ * @param {{ storage?: Storage, scope?: string|number|null, now?: () => number,
+ *           baseKey?: string, fields?: readonly string[] }} [options]
  */
-export function createRecoveryStore({ storage = defaultStorage(), scope = null, now = Date.now } = {}) {
-  const key = recoveryStorageKey(scope)
+export function createRecoveryStore({ storage = defaultStorage(), scope = null, now = Date.now, baseKey = RECOVERY_STORAGE_KEY, fields = RECOVERY_FIELDS } = {}) {
+  const key = recoveryStorageKey(scope, baseKey)
 
   const read = () => {
     if (!storage || !key) return []
@@ -183,7 +188,7 @@ export function createRecoveryStore({ storage = defaultStorage(), scope = null, 
     const bounded = [...records]
       .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
       .slice(0, MAX_RECOVERY_RECORDS)
-      .map(sanitize)
+      .map((record) => sanitize(record, fields))
     try {
       storage.setItem(key, JSON.stringify({ version: RECOVERY_VERSION, records: bounded }))
     } catch {

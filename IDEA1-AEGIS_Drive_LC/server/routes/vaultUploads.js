@@ -101,6 +101,19 @@ function sessionView(session, chunks) {
   }
 }
 
+/**
+ * ซองที่ห่อแล้วของ session — allowlist สี่ฟิลด์ที่ client ส่งมาเองตอนเปิด session (ciphertext ล้วน)
+ * ⚠️ ใช้เฉพาะ GET status ของครอบครัว tree เพื่อการกู้คืนหลัง reload; ห้ามเพิ่มฟิลด์ที่ไม่ใช่ ciphertext
+ */
+export function sessionEnvelope(session) {
+  return {
+    wrappedDekB64: session.wrappedDekB64,
+    wrapIvB64: session.wrapIvB64,
+    metaIvB64: session.metaIvB64,
+    metaB64: session.metaB64,
+  }
+}
+
 /** โหลด session ของผู้เรียก — ไม่พบ/ไม่ใช่ของเขา/id ผิดรูปแบบ ล้วนเป็น 404 เหมือนกันหมด */
 async function loadOwnSession(req, res) {
   const uploadId = String(req.params.uploadId ?? '')
@@ -273,6 +286,13 @@ export function createVaultUploadHandlers({ mode }) {
       const session = await loadOwnSession(req, res)
       if (!session) return undefined
       const chunks = await v2.listVaultV2SessionChunks(session.uploadId)
+      // ⚠️ PRIVATE-VAULT-STAGE-D: ครอบครัว tree คืน "ซองที่ห่อแล้ว" ที่ client ส่งมาเองตอนเปิด session
+      //    เพื่อให้แท็บใหม่หลัง refresh แกะ DEK (non-extractable) ด้วย KEK ปัจจุบันแล้วส่งเฉพาะ chunk ที่ขาด
+      //    เป็น ciphertext ทั้งหมด (wrappedDek + metadata ที่เข้ารหัส) ไม่มี DEK ดิบ ชื่อไฟล์ MIME หรือ path
+      //    และผ่าน loadOwnSession แล้วเท่านั้น (ไม่ใช่เจ้าของ = 404 เหมือนไม่มี) — ครอบครัว legacy ไม่เปลี่ยน
+      if (mode === 'tree') {
+        return res.json({ upload: sessionView(session, chunks), envelope: sessionEnvelope(session) })
+      }
       return res.json({ upload: sessionView(session, chunks) })
     } catch (err) {
       return next(err)

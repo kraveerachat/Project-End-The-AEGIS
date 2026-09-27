@@ -234,9 +234,9 @@ registered in the repository framework.
 - Runtime-only service mutation: L5 mutates `ActiveState` only (`systemctl stop systemd-timesyncd`, `systemctl start chronyd`). `UnitFileState` is strictly untouched and protected for both services. Zero `systemctl enable` or `systemctl disable`.
 - Atomic configuration placement: creates temporary regular file in same directory (`mktemp ${target_conf}.tmp.XXXXXX`), validates rendered content before activation, syncs, and atomically renames (`mv -f`).
 - Read-only chronyd unit inspection: verifies effective ExecStart relies on default `/etc/chrony.conf`; fails closed on non-default `-f <path>` or unexpected drop-in overrides with `CONFIG_PATH_AUTHORITY_MISMATCH`.
-- Time synchronization contract: requires pre-handoff `systemd-timesyncd.service` active and running with `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`. Enforces bounded holdover <= 300 s during handoff. Post-apply verification requires final `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`; final `HOLDOVER`, `UNTRUSTED`, or `UNKNOWN` is strictly rejected.
+- Time synchronization contract: requires pre-handoff `systemd-timesyncd.service` active and running with `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`. Enforces bounded holdover <= 300 s during handoff. Remediated after the failed live attempt l5-20260925-174630 (apply passed on `Leap status : Normal`, verify then failed the kernel-based TrustedClock check ~0.8 s later): apply now waits, bounded (default 60 s, `AEGIS_L5_READINESS_TIMEOUT_SEC`, well inside the 300 s HOLDOVER limit), until chronyd reports `Leap status : Normal` AND the same predicate verify uses holds (adjtimex probe readable, kernel synced, `maxerror <= 1,000,000 us`, TrustedClock `SYNCED`), implemented once in `p4-l5-clock.py`. Failures name the reason (`PROBE_UNAVAILABLE`, `KERNEL_UNSYNCED`, `MAXERROR_EXCEEDED`, `TRUSTEDCLOCK_NOT_SYNCED`, `CHRONY_LEAP_NOT_NORMAL`) as `TRUSTEDCLOCK_READINESS_TIMEOUT:<reason>` / `FINAL_TRUSTED_CLOCK_NOT_SYNCED:<reason>`; apply writes `readiness.log` plus `chronyc-tracking.txt` / `chronyc-sources.txt` into the work directory. On timeout apply fails and the L5 rollback restores `systemd-timesyncd`. Post-apply verification requires final `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`; final `HOLDOVER`, `UNTRUSTED`, or `UNKNOWN` is strictly rejected.
 - Strict listener contract: requires `udp <AEGIS_AP_ADDRESS>:123`, permits loopback-only `udp 127.0.0.1:323` and `udp [::1]:323` if observed; wildcard (`0.0.0.0`, `[::]`), non-AP NTP, non-loopback 323, and TCP/123 are strictly rejected.
-- Rollback: `stages/L5/rollback.sh` is idempotent. It stops `chronyd.service`, restores captured pre-L5 `/etc/chrony.conf` bytes, uid, gid, and mode (or removes `/etc/chrony.conf` if absent pre-L5), restores captured pre-L5 `systemd-timesyncd.service` runtime `ActiveState` without altering `UnitFileState`, and verifies `TrustedClock = SYNCED`.
+- Rollback: `stages/L5/rollback.sh` is idempotent. It stops `chronyd.service`, restores captured pre-L5 `/etc/chrony.conf` bytes, uid, gid, and mode (or removes `/etc/chrony.conf` if absent pre-L5), restores captured pre-L5 `systemd-timesyncd.service` runtime `ActiveState` without altering `UnitFileState`, and verifies `TrustedClock = SYNCED`. Rollback fails closed (`ROLLBACK_PRE_STATE_UNKNOWN`, `ROLLBACK_ORIGINAL_SNAPSHOT_MISSING`, `ROLLBACK_RESTORE_MISMATCH`, `ROLLBACK_CHRONYD_STILL_ACTIVE`) instead of silently passing: apply records the SHA-256 of the original `/etc/chrony.conf`, and rollback verifies restored bytes, size, mode, mtime (restored exactly with `touch -m -d @<snapshot mtime>`; the compared metadata includes mtime) and (live) uid/gid against it.
 - Preserves L4 AP addressing/DHCP/DNS, L2 firewall rules, zero forwarding (`net.ipv4.ip_forward=0`), zero NAT/masquerade, and existing network routes.
 - Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
 - Provenance disclosure: `RED_FIRST_PROVEN = NO`. There is no retained evidence proving L5 focused tests were observed failing before candidate handler files were created. The candidate was treated as untrusted existing work, independently audited, corrected for deterministic regression assertions, hardened, and verified.
@@ -380,11 +380,21 @@ Rendered chrony policy:
 server <OWNER_SUPPLIED_TRUSTED_UPSTREAM> iburst
 bindaddress <RENDERED_AP_ADDRESS>
 allow <RENDERED_AP_SUBNET>
+rtcsync
 ```
 
 Validation rejects unresolved placeholders, wildcard or broad AP scope,
-`allow all`, additional upstreams, additional active directives, and
-`local` / `local stratum` fallback behavior.
+`allow all`, additional upstreams, additional active directives, `rtcfile`,
+a missing `rtcsync`, and `local` / `local stratum` fallback behavior. The
+contract carries `CHRONY_RTCSYNC=REQUIRED`.
+
+`rtcsync` is a fourth ACTIVE CONFIG DIRECTIVE, not a comparator allowance. It is required because chronyd 4.8 on
+Linux clears the kernel `STA_UNSYNC` flag only when `rtcsync` is enabled (`sys_timex.c` `set_sync_status()`: "On Linux clear
+the UNSYNC flag only if rtcsync is enabled"), and the Core TrustedClock (and `p4-l5-clock.py`) is kernel/adjtimex based.
+Without it the L5 contract is unsatisfiable (live attempt `l5-20260925-191827`: chronyd `^*`, Leap Normal, maxerror far below
+1,000,000 µs, yet `KERNEL_UNSYNCED` for the whole readiness window). Owner-accepted side effect: while the kernel considers
+the clock synchronised, system time may be copied to the hardware RTC about every 11 minutes; that RTC write is not
+rollback-reversible. `rtcfile` must never be configured with it. The 60 s readiness bound and the TrustedClock predicate are unchanged.
 
 ### T6 trusted-time handoff contract
 
@@ -469,6 +479,74 @@ PHASE4_RUNTIME_COMPLETE = NO
 PHASE4_LIVE_READINESS = NOT READY
 ```
 
+### L3/L4 post-reboot runtime reactivation (repository implementation, 2026-09-27)
+
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-post-reboot-reactivation-design.md`. `REACTIVATION_TYPE = RUNTIME_ONLY`:
+restores the already accepted persistent L3/L4 configuration to its accepted active runtime state after a reboot. It is **not** an L3/L4
+apply, never rewrites any persistent file, and claims **no** new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE`. `LIVE_REACTIVATION = NOT_AUTHORIZED`;
+`K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`.
+
+- `reactivation/l34/{apply,verify,rollback}.sh` (+ allow files): exact-ID rfkill unblock (`p4-l3-rfkill.sh`), bounded NM readiness and one
+  `ifname`-bound activation (`p4-l3-nm.sh`), Model B regulatory gate (`p4-l3-regulatory.sh`), `reset-failed` + `start` of only
+  `aegis-idea3-dnsmasq.service`. Every change is journaled first; rollback undoes exactly the journal and never recreates the stale
+  `start-limit-hit`. Fresh L2/PF-01/no-NAT/forwarding proof and persistent-file snapshots; nothing in `/etc` is written.
+- `p4-l34-reactivation-lib.sh`: static and runtime gates, one-bounded-attempt marker, receipt gate at the pinned commit, PSK leak scan.
+- `p4-compare.sh` gains the opt-in `ALLOW_DYNAMIC_TRANSITIONS_FILE`: a closed catalog of exact value transitions (dnsmasq
+  `failed/failed/start-limit-hit` -> `active/running/success`, rollback -> `inactive/dead/success`, and the `WIFI` field of `nm.general`).
+  It is off by default, cannot approve anything outside the catalog, and every existing comparison is unchanged.
+- Authorization reuses `AEGIS_P4_AUTHORIZATION_V1` + fresh K3 with `stage=L4` and an exact `L3_L4_RUNTIME_REACTIVATION` scope line.
+- `owner-run/run-l34-reactivation-owner.sh` is an **unpinned template** that refuses to run until the owner freeze workflow pins the merged main.
+
+#### L3/L4 reactivation — live attempt 2 and the V3 preservation model (2026-09-27)
+
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md`. Attempt 2 proved the V2 radio path (apply PASS, verify PASS, AP and
+dnsmasq active) and failed only at preservation: NetworkManager Wi-Fi initialization added the p2p pseudo-device, started `wpa_supplicant`, and moved the
+target phy `00 -> TH` (changing `wifi.phy.sha256`); rollback was safe but not byte-exact. Authorization consumed, no retry.
+
+- `p4-compare.sh` `ALLOW_DYNAMIC_TRANSITIONS_FILE` gains four V3 operations (`L34_V3_POST_FRESH|POST_RESIDUAL|ROLLBACK_FRESH|ROLLBACK_RESIDUAL`) with closed
+  catalogs and value classes (`<absent> <empty> <nonempty> <positive> <sha256>`). wpa_supplicant and the phy digest rules are **relational** (radio transition,
+  active AP, no unrelated Wi-Fi, unit facts, regulatory transition, `wifi.phy.regnorm_sha256` equality, channel 6 permitted). No generic allow key.
+- The capture adds `wifi.phy.regnorm_sha256` and `wifi.phy.channel6_permitted` via `p4-iw-phy-regnorm.awk` (removes only the regulatory annotations of the
+  frequency entries; capabilities, modes, commands and identity still change the digest).
+- `apply.sh` (`AEGIS_L34_PRESERVATION=V3`) classifies the FRESH or RESIDUAL baseline and rejects mixed states; `verify.sh` proves the exact envelope;
+  `rollback.sh` reports `SAFE_NETWORK_BOUNDARY_RESTORED` separately from `EXACT_PRESTATE_RESTORED`. It never stops wpa_supplicant, removes the p2p device,
+  sets the regulatory domain or restarts NetworkManager.
+- The runner template carries the V3 scope (168 chars) and picks its catalogs from the reported baseline; still an unpinned template.
+
+#### L3/L4 reactivation — live attempt 1 failure and NM radio remediation (2026-09-27)
+
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md`. The first live attempt failed closed with
+`NM_WIFI_RADIO_DISABLED` (authorization consumed, rollback PASS, PRE->RB PASS, no retry): the exact rfkill unblock made NetworkManager report
+"Wi-Fi now enabled by radio killswitch" but its own software radio flag stayed off, so the target stayed `unavailable`. No target-scoped NM action
+exists; enabling the radio is a global NM change and a **new owner decision boundary**.
+
+- The global `nmcli radio wifi on` exists only behind `AEGIS_L34_NM_RADIO_ENABLE=YES`, which the runner sets only after verifying the exact V2 scope
+  (`L3_L4_RUNTIME_REACTIVATION_V2: rfkill 1 unblock, temp wlp0s20f3 autoconnect off, NM radio on, activate aegis-idea3-ap, reset-failed+start dnsmasq, no persistent rewrite`, 168 chars). Preflight requires wlp0s20f3 to be the sole Wi-Fi device/wlan
+  rfkill with no active Wi-Fi connection; a runtime `nmcli device set wlp0s20f3 autoconnect no` guard precedes the enable (12 saved Wi-Fi
+  profiles have autoconnect); the PRE autoconnect value is restored; rollback turns the radio off only if this run enabled it.
+- The comparator is unchanged (the exact `nm.general#WIFI disabled -> enabled` rule already exists; the rollback catalog has none).
+- Runner defect fixed: `compare()` had `local ... rc=0 local -a env_allow` (`not a valid identifier` at run time, invisible to `bash -n`); tests now
+  execute the function.
+
+### L6b stage-owned live preparation (owner decisions 2026-09-27)
+
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6b-operational-design.md`. Repository preparation only;
+`L6B_LIVE_EXECUTED = NO`, `L6B_LIVE_AUTHORIZED = NO`, `PHASE4_LIVE_READINESS` remains `NOT READY`.
+
+- `stages/L6b/apply.sh` now **owns** installing `/etc/aegis-idea3/mqtt` (six files, root-owned; the files the privilege-dropped broker reads are `root:mosquitto 0640`, certificates `root:root 0644`; hashed passwd only) and the
+  `aegis-idea3-mosquitto.service` unit from a private `AEGIS_L6B_INPUT_DIR` (`ca.crt broker.crt broker.key core.pass device.pass`,
+  no `ca.key`). Plaintext passwords are used transiently by `p4-broker-material.py` and never installed. Every created path is
+  journaled first; pre-state must be absent.
+- `stages/L6b/rollback.sh` removes exactly the journaled stage-owned paths (failure/abort path only; success is **persistent**), then clears failed runtime metadata for `aegis-idea3-mosquitto.service` only (`reset-failed`, after removal + `daemon-reload`) and proves `not-found/inactive/dead/success`.
+- `stages/L6b/verify.sh` adds exact-material checks and a live TLS/auth/ACL/negative probe on `127.0.0.1:8883` and the AP address via
+  `p4-broker-validate.py validate-live` (never starts a broker, never prints secrets).
+- `p4-l0-capture.sh` additionally records `host.path./etc/aegis-idea3/mqtt` and the IDEA3 broker unit file; `stages/L6b/allow-keys.txt`
+  approves exactly those plus the material and service keys (no wildcard). PRE -> RB is compared with no allow files.
+- `p4-l6b-run-lib.sh` (gates: one-attempt marker, receipt gate bound to the pinned commit, uplink resolution, fresh AP/nft/TrustedClock
+  proof, input gate, secret scan) and `owner-run/run-l6b-owner.sh` (an **unpinned template** that refuses to run until the owner freeze
+  workflow pins the merged main SHA and copies it outside the repository).
+- Predecessor L2/L3/L4 runtime is proven fresh and never reactivated by L6b (`PREDECESSOR_RUNTIME_REACTIVATION_REQUIRED=YES`).
+
 ## 9. Stage L1 package installation handler — repository implementation
 
 Stage L1 implements package installation required by OD-01 and OD-06.
@@ -498,3 +576,22 @@ PRODUCTION_MUTATION       = NO
 PHASE4_RUNTIME_COMPLETE   = NO
 PHASE4_LIVE_READINESS     = NOT READY
 ```
+
+
+### L5 comparator: constrained informational `time.timesyncd.ServerName` (owner decision 2026-09-25)
+
+Restarting `systemd-timesyncd` (the L5 rollback) legitimately reselects one of its configured `FallbackNTPServers`, so `time.timesyncd.ServerName` can differ between PRE and RB. The comparator (`p4-compare.sh`) classifies that single key as `INFO` (`TIMESYNCD_SERVER_RESELECTED_CONFIGURED`) only when ALL hold: `systemd-timesyncd` is `active`/`running` in the AFTER capture, `time.trustedclock.state` is `SYNCED`, `time.timesyncd.FallbackNTPServers` was captured and is identical in both bundles, and the new name is a member of that set. Otherwise it stays `NEW_OR_WORSENED_DRIFT`. It is not an allowance key: the three rollback-only allowance keys (`svc.systemd-timesyncd.service.MainPID`, `svc.systemd-timesyncd.service.ExecMainStartTimestamp`, `svc.chronyd.service.ExecMainStartTimestamp`) are unchanged, and every other time-state key is judged independently. The capture records `time.timesyncd.FallbackNTPServers` and `time.trustedclock.state` (live via the read-only `p4-l5-clock.py state`, the only python helper the read-only guard allows).
+
+## 8. L5 attempt #2 remediation (rtcsync, raw kernel evidence, mutation accounting)
+
+- **Raw kernel evidence.** `p4-l5-clock.py` appends `adjtimex_ret=<n> status=0x<hex> sta_unsync=<0|1> time_error=<0|1>` to `state`/`probe`
+  output and to every `readiness.log` poll line (one adjtimex read per poll, shared by the evidence and the predicate decision);
+  `p4-l5-clock.py raw` prints the fields alone. The synchronized decision itself is unchanged (`aegis_soc.trusted_time`).
+- **Whole-run mutation marker.** `apply.sh` records `PRODUCTION_MUTATION_PERFORMED=YES` (`FIXTURE_ONLY` under a fixture root) on stdout and in
+  `$WORK/production_mutation_performed` BEFORE its first write to `/etc` (the temporary config file), so a later readiness failure cannot
+  erase it. `p4-compare.sh` keeps its comparison-local `PRODUCTION_MUTATION_PERFORMED=NO`; the owner runner relabels it
+  (`COMPARE_LOCAL_…`) via `p4-l5-run-lib.sh` and reports `RUN_PRODUCTION_MUTATION_PERFORMED` from the apply marker only.
+- **Owner-readable evidence.** `p4-l5-run-lib.sh` `l5_copy_work_diagnostics` streams the root-owned `l5-work` files into a 0700 copy with a
+  `SHA256SUMS` manifest; originals are never modified.
+- Unchanged: exact chrony.conf mtime rollback, constrained `time.timesyncd.ServerName` INFO policy, S10 fail-closed comparison, the three
+  rollback-only allowance keys, one attempt per authorization, no automatic retry.

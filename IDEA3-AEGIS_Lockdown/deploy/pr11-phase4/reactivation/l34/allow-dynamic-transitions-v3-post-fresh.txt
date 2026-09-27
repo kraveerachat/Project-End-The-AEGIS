@@ -1,0 +1,19 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 runtime reactivation V3 preservation model (live attempt 2 evidence, 2026-09-27). Exact catalog members only;
+# nothing here is a generic allow key. See docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md.
+# PRE->POST from the FRESH post-reboot baseline (phy 00, no p2p pseudo-device, wpa_supplicant inactive, NM radio disabled).
+# The wpa_supplicant lines are relational: they approve only when the NM radio really went disabled -> enabled, the approved AP is the active
+# connection, no unrelated Wi-Fi is active and the unit stays disabled / NRestarts 0 / Result success. wifi.phy.sha256 approves only when it is
+# derived from the approved target regulatory transition 00 -> TH (regnorm digest equal, global 00, channel 6 permitted, same phy identity).
+operation L34_V3_POST_FRESH
+svc.aegis-idea3-dnsmasq.service.ActiveState failed active
+svc.aegis-idea3-dnsmasq.service.SubState failed running
+svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
+nm.general#WIFI disabled enabled
+nm.active.device.p2p-dev-wlp0s20f3 <absent> none
+nm.device.p2p-dev-wlp0s20f3.type <absent> wifi-p2p
+nm.device.p2p-dev-wlp0s20f3.state <absent> disconnected
+svc.wpa_supplicant.service.ActiveState inactive active
+svc.wpa_supplicant.service.SubState dead running
+svc.wpa_supplicant.service.MainPID 0 <positive>
+svc.wpa_supplicant.service.ExecMainStartTimestamp <empty> <nonempty>
+wifi.phy.sha256 <sha256> <sha256>

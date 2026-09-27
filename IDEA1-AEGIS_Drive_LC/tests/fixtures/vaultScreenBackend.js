@@ -50,7 +50,10 @@ export function useApi(path) {
   return {
     ...state,
     retry: () => ctl?.requests.push({ path, method: 'RETRY' }),
-    refresh: () => ctl?.requests.push({ path, method: 'REFRESH' }),
+    refresh: () => {
+      ctl?.requests.push({ path, method: 'REFRESH' })
+      return Promise.resolve(ctl?.state?.[path]?.data ?? null)
+    },
   }
 }
 export function useReducedMotion() { return backend()?.reducedMotion ?? true }
@@ -160,22 +163,42 @@ export async function decryptVaultV2Meta(kek, blob) {
  */
 export async function unwrapVaultV2Dek(kek) {
   if (!kek) throw new Error('no-key')
-  return getFakeKek()
+  // recovery tests seal with a DEK they own; the rebuilt DEK after "reload" must be that same key
+  return backend()?.dekKey ?? getFakeKek()
+}
+
+/** เรขาคณิตของ chunk — ตรรกะเดียวกับโมดูลจริง (TU-SAME-1 ตรึงของจริงไว้แล้ว) */
+export function planVaultChunks(plainSize, plaintextChunkBytes) {
+  const size = Math.max(0, Number(plainSize))
+  const plainChunk = Number(plaintextChunkBytes)
+  const chunkCount = size === 0 ? 1 : Math.ceil(size / plainChunk)
+  const lastPlain = size === 0 ? 0 : size - (chunkCount - 1) * plainChunk
+  return { chunkCount, plaintextChunkBytes: plainChunk, chunkSize: plainChunk + GCM_TAG_BYTES, lastChunkSize: lastPlain + GCM_TAG_BYTES, ciphertextSize: size + chunkCount * GCM_TAG_BYTES }
+}
+export function plaintextRangeFor(index, plainSize, plaintextChunkBytes) {
+  const start = index * plaintextChunkBytes
+  return { start, end: Math.min(start + plaintextChunkBytes, Math.max(0, plainSize)) }
+}
+export async function decryptVaultV2MetaWithDek(dek, blob) {
+  if (!dek) throw new Error('no-key')
+  const meta = decodeMeta(blob?.metaB64)
+  return { name: meta.name, type: meta.type, plainSize: meta.plainSize ?? meta.size }
 }
 
 /* ── ../lib/vaultChunkedUpload.js ─────────────────────────────────────
    ตัวควบคุมของเทสต์ตอบที่ path เดียวกับที่โมดูลจริงยิงไป ('/api/vault/uploads')
    จอจึงถูกทดสอบด้วย "ผลลัพธ์ของการอัปโหลด V2" ตามจริง ไม่ใช่ผลของ endpoint V1 ที่เลิกใช้ */
-export async function uploadVaultFileChunked({ file, resume, onStage, onProgress, signal }) {
+export async function uploadVaultFileChunked({ file, resume, onStage, onProgress, onSession, signal, routeBase = '/api/vault/uploads' }) {
   const ctl = backend()
   // ⚠️ เทสต์ที่ต้องคุมจังหวะเอง (ค้างกลางคัน / ล้มเฉพาะก้อนที่ N / ยกเลิกตอนนั้นพอดี)
   //    ใส่ตัวขับของตัวเองได้ — รูปทรงของผลลัพธ์ยังเป็นสัญญาเดียวกับโมดูลจริงทุกประการ
   if (typeof ctl?.uploadImpl === 'function') {
-    return ctl.uploadImpl({ file, resume, onStage, onProgress, signal })
+    ctl.requests.push({ path: routeBase, method: 'UPLOAD_TRANSPORT', body: { size: file?.size ?? 0 } })
+    return ctl.uploadImpl({ file, resume, onStage, onProgress, onSession, signal, routeBase })
   }
   const chunkCount = ctl?.uploadChunkCount ?? 1
   onStage?.('preparing')
-  ctl.requests.push({ path: '/api/vault/uploads', method: 'POST', body: { size: file?.size ?? 0 } })
+  ctl.requests.push({ path: routeBase, method: 'POST', body: { size: file?.size ?? 0 } })
 
   for (let i = 0; i < chunkCount; i += 1) {
     if (signal?.aborted) return { ok: false, stage: 'cancelled', reason: 'cancelled', resume: resume ?? null }
@@ -205,7 +228,10 @@ export async function uploadVaultFileChunked({ file, resume, onStage, onProgress
   return { ok: true, stage: 'complete', blob: res?.data?.blob, resume: null }
 }
 
-export async function cancelVaultUploadSession() { return true }
+export async function cancelVaultUploadSession(uploadId, { routeBase = '/api/vault/uploads' } = {}) {
+  backend()?.requests.push({ path: `${routeBase}/${uploadId}`, method: 'DELETE' })
+  return true
+}
 export async function fetchVaultTransferLimits() {
   return { formatVersion: 2, plaintextChunkBytes: 16 * 1024 * 1024, maxLogicalFileBytes: 5 * 1024 ** 3 }
 }

@@ -445,3 +445,53 @@ export function UploadTrayLauncher({ t, queue = [], onShow }) {
     </button>
   )
 }
+
+/**
+ * แถวของงานที่เสร็จแล้วแบบกระชับ — ชื่อไฟล์ + เครื่องหมายเสร็จ + Dismiss เท่านั้น
+ * ⚠️ ใช้ในส่วนคิวของลิ้นชัก ที่พื้นที่แนวตั้งเป็นของปุ่มเลือกไฟล์ก่อน งานที่จบแล้วไม่มีอะไรให้เฝ้าอีก
+ */
+export function UploadCompactRow({ t, entry, onDismiss }) {
+  return (
+    <li
+      data-upload-row={entry.id}
+      data-upload-stage={entry.stage}
+      data-upload-compact="true"
+      className="px-3.5 py-2 border-t border-line first:border-t-0 flex items-center gap-2.5"
+    >
+      <CheckCircle2 data-upload-complete-icon="" size={14} strokeWidth={1.75} aria-hidden style={{ color: 'var(--ok)' }} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-ink" title={entry.name}>{entry.name}</span>
+      <span className="sr-only">{t(STAGE_LABEL.complete)}</span>
+      <button type="button" data-upload-dismiss={entry.id} onClick={() => onDismiss?.(entry.id)} className="text-[11.5px] font-semibold text-ink-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+        {t('dismiss')}
+      </button>
+    </li>
+  )
+}
+
+/**
+ * คิวเดียวกับถาด แต่วาดในส่วนล่างของลิ้นชักอัปโหลด
+ *
+ * ⚠️ ผู้เรียกต้องวาด "อย่างใดอย่างหนึ่ง" เท่านั้น: ลิ้นชักเปิด = ส่วนนี้, ลิ้นชักปิด = UploadStatusTray
+ *    ทั้งสองอ่าน queue ก้อนเดียวกันและเรียก handler ชุดเดียวกัน ไม่มีสถานะคิวหรือตัวควบคุมชุดที่สอง
+ */
+export function UploadQueueSection({ t, queue = [], onCancel, onRetry, onDismiss, onRecover, onDiscard }) {
+  if (queue.length === 0) return null
+  const summary = uploadTraySummary(queue)
+  const batch = uploadTrayAggregate(queue)
+  const batchLine = batch.transferableCount > 1 ? aggregateLine(t, batch) : null
+  return (
+    <section data-upload-drawer-queue="" aria-label={t('uploadTrayTitle')} className="border-t border-line pt-5">
+      <p role="status" aria-live="polite" className="text-[11.5px] uppercase tracking-[0.12em] font-bold text-ink-3">
+        {t(summary.key, summary.vars)}
+      </p>
+      {batchLine && (
+        <p data-upload-tray-batch="" className="mt-1 text-[11px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>{batchLine}</p>
+      )}
+      <ul className="mt-3 rounded-[var(--r-tile)] border border-line bg-card overflow-hidden">
+        {queue.map((entry) => (entry.stage === 'complete'
+          ? <UploadCompactRow key={entry.id} t={t} entry={entry} onDismiss={onDismiss} />
+          : <UploadStatusRow key={entry.id} t={t} entry={entry} onCancel={onCancel} onRetry={onRetry} onDismiss={onDismiss} onRecover={onRecover} onDiscard={onDiscard} />))}
+      </ul>
+    </section>
+  )
+}

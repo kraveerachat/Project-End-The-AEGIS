@@ -48,7 +48,7 @@ export function useApi(path, { refreshMs = 0 } = {}) {
       if (schedulePoll && refreshMs > 0) timer = setTimeout(() => load(true), refreshMs)
     }
 
-    refreshRef.current = () => { load(true, false) }
+    refreshRef.current = () => load(true, false)
     load(false)
     return () => {
       refreshRef.current = null
@@ -58,7 +58,7 @@ export function useApi(path, { refreshMs = 0 } = {}) {
   }, [path, nonce, refreshMs])
 
   const retry = useCallback(() => setNonce((n) => n + 1), [])
-  const refresh = useCallback(() => { refreshRef.current?.() }, [])
+  const refresh = useCallback(() => refreshRef.current?.() ?? Promise.resolve(), [])
   return { ...state, retry, refresh }
 }
 

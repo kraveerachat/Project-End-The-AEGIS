@@ -11,6 +11,7 @@
 // ⚠️ เพดาน plaintext cache ของ worker คือ MAX_PREVIEW_PLAINTEXT_CACHE_BYTES เดิม — ไม่มี cache ใหม่ใด ๆ
 import { PREVIEW_IMAGE_TYPES, PREVIEW_VIDEO_TYPES, normalizeMimeType } from './vaultPreview.js'
 import { planChunkReads } from './vaultPreviewRange.js'
+import { MAX_PREVIEW_PLAINTEXT_CACHE_BYTES } from './vaultPreviewReadAhead.js'
 
 export const VIDEO_CAPABILITY = Object.freeze({ RANGE_V2: 'RANGE_V2', V1_DOWNLOAD_ONLY: 'V1_DOWNLOAD_ONLY', UNSUPPORTED: 'UNSUPPORTED' })
 
@@ -19,6 +20,14 @@ export function vaultVideoPosterSeekSeconds(durationSeconds) {
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 0
   const clamped = Math.min(3, Math.max(0.5, durationSeconds * 0.05))
   return Math.min(clamped, durationSeconds)
+}
+
+/** Scheduler reservation: RANGE_V2 reads through the existing bounded worker cache. */
+export function videoPosterEstimateBytes({ variant, supportsLarge = false, plainSize = 0 }) {
+  const size = Math.max(0, Number(plainSize) || 0)
+  return variant === 2 && supportsLarge
+    ? Math.min(size, MAX_PREVIEW_PLAINTEXT_CACHE_BYTES)
+    : size
 }
 
 /** VP-1: ความสามารถพรีวิววิดีโอของไฟล์หนึ่ง */

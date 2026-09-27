@@ -48,7 +48,8 @@ expected_allow="allow $AP_SUBNET"
 printf '%s\n' "$active_lines" | grep -Fqx "$expected_server" || fail CHRONY_CONF_UPSTREAM_MISMATCH
 printf '%s\n' "$active_lines" | grep -Fqx "$expected_bind" || fail CHRONY_CONF_BIND_MISMATCH
 printf '%s\n' "$active_lines" | grep -Fqx "$expected_allow" || fail CHRONY_CONF_ALLOW_MISMATCH
-[ "$(printf '%s\n' "$active_lines" | wc -l)" -eq 3 ] || fail CHRONY_CONF_UNAPPROVED_DIRECTIVES
+printf '%s\n' "$active_lines" | grep -Fqx "rtcsync" || fail CHRONY_CONF_RTCSYNC_MISSING
+[ "$(printf '%s\n' "$active_lines" | wc -l)" -eq 4 ] || fail CHRONY_CONF_UNAPPROVED_DIRECTIVES
 
 # 2. Verify Services State
 if [ -z "$ROOT" ]; then
@@ -69,26 +70,10 @@ fi
 
 # 3. Verify Final TrustedClock
 if [ -z "$ROOT" ]; then
-  tc_eval="$(python3 -c "
-import sys
-sys.path.insert(0, '$P4_HERE/../../IDEA3-AEGIS_Lockdown')
-from aegis_soc.trusted_time import TrustedClock, adjtimex_probe
-tc = TrustedClock()
-probe = adjtimex_probe()
-if probe is None or not probe.synced:
-    sys.exit('PROBE_UNSYNCED')
-state = tc.state()
-if state != 'SYNCED':
-    sys.exit(f'STATE_{state}')
-if probe.maxerror_us > 1000000:
-    sys.exit('MAXERROR_EXCEEDED')
-print(f'{state}:{probe.maxerror_us}')
-" 2>/dev/null || echo "FAIL")"
-
-  if [[ "$tc_eval" =~ ^STATE_HOLDOVER ]]; then
-    fail FINAL_TRUSTED_CLOCK_HOLDOVER_NOT_PERMITTED
-  fi
-  [[ "$tc_eval" =~ ^SYNCED: ]] || fail FINAL_TRUSTED_CLOCK_NOT_SYNCED
+  tc_eval="$(python3 "$P4_HERE/p4-l5-clock.py" probe 2>&1 || true)"
+  printf '%s\n' "$tc_eval" > "$WORK/verify-clock.txt"
+  tc_reason="$(printf '%s\n' "$tc_eval" | sed -n 's/.*reason=\([A-Z_]*\).*/\1/p' | tail -1)"
+  [ "$tc_reason" = OK ] || fail "FINAL_TRUSTED_CLOCK_NOT_SYNCED:${tc_reason:-PROBE_UNAVAILABLE}"
 else
   fixture_dir="$ROOT/run/aegis-idea3-fixture"
   if [ -d "$fixture_dir" ]; then

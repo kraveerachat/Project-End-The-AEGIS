@@ -288,6 +288,10 @@ if run_ro 1 iw-phy iw phy; then
   if printf '%s\n' "$P4_OUT" | grep -qE '^[[:space:]]+\* AP$'; then ap=supported; else ap=not-listed; fi
   p4_rec "$WIFI" wifi.phy.ap_mode "$ap"
   p4_rec "$WIFI" wifi.phy.sha256 "$(text_sha "$P4_OUT")"
+  # V3: regulatory-insensitive digest (frequency-entry regulatory annotations removed) and the read-only channel-6 permission fact, so a phy
+  # digest change that is ONLY regulatory-derived can be proven by the comparator instead of being allowed as a generic key.
+  p4_rec "$WIFI" wifi.phy.regnorm_sha256 "$(text_sha "$(printf '%s\n' "$P4_OUT" | awk -f "$HERE/p4-iw-phy-regnorm.awk")")"
+  p4_rec "$WIFI" wifi.phy.channel6_permitted "$(printf '%s\n' "$P4_OUT" | awk -v mode=ch6 -f "$HERE/p4-iw-phy-regnorm.awk")"
 else
   p4_rec "$WIFI" wifi.phy.ap_mode UNAVAILABLE
 fi
@@ -370,6 +374,25 @@ if run_ro 0 timesync timedatectl show-timesync -p ServerName -p SystemNTPServers
   done <<< "$P4_OUT"
 else
   p4_rec "$TIME" time.timesyncd.ServerName UNAVAILABLE
+fi
+# Configured fallback set: canonical evidence for the constrained informational treatment of time.timesyncd.ServerName.
+if run_ro 0 timesync-fallback timedatectl show-timesync -p FallbackNTPServers; then
+  while IFS='=' read -r k v; do
+    [ "$k" = FallbackNTPServers ] && p4_rec "$TIME" time.timesyncd.FallbackNTPServers "$v"
+  done <<< "$P4_OUT"
+else
+  p4_rec "$TIME" time.timesyncd.FallbackNTPServers UNAVAILABLE
+fi
+# Kernel-based TrustedClock verdict (state only; maxerror is volatile and is not recorded). Live: the shared read-only
+# probe; test fixtures: the fixture value. Never adjusts the clock.
+if [ -n "$P4_FS_ROOT" ]; then
+  tcs=NOT_RECORDED
+  [ -f "$(p4_fs /run/aegis-idea3-fixture/trusted_clock_state)" ] && tcs=$(head -n1 "$(p4_fs /run/aegis-idea3-fixture/trusted_clock_state)")
+  p4_rec "$TIME" time.trustedclock.state "$tcs"
+elif run_ro 0 trustedclock python3 "$P4_HERE/p4-l5-clock.py" state; then
+  p4_rec "$TIME" time.trustedclock.state "$(printf '%s\n' "$P4_OUT" | sed -n 's/^state=\([A-Z]*\) .*/\1/p' | head -1)"
+else
+  p4_rec "$TIME" time.trustedclock.state UNAVAILABLE
 fi
 if p4_have chronyc; then
   if run_ro 0 chronyc-tracking chronyc -n tracking; then
@@ -633,8 +656,8 @@ if run_ro 0 twingate twingate status; then
 else
   p4_rec "$HOST" host.twingate.status UNAVAILABLE
 fi
-for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /opt/aegis-idea3/current /var/lib/aegis-idea3 /run/aegis-idea3 \
-  /var/log/aegis-idea3; do
+for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /etc/aegis-idea3/mqtt /opt/aegis-idea3/current /var/lib/aegis-idea3 \
+  /run/aegis-idea3 /var/log/aegis-idea3; do
   if [ -e "$(p4_fs "$p")" ]; then p4_rec "$HOST" "host.path.$p" present; else p4_rec "$HOST" "host.path.$p" absent; fi
 done
 if [ -L "$(p4_fs /opt/aegis-idea3/current)" ]; then
@@ -646,9 +669,12 @@ if [ -L "$(p4_fs /opt/aegis-idea3/current)" ]; then
 else
   p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target absent
 fi
-if [ -f "$(p4_fs /etc/systemd/system/aegis-idea3-core.service)" ]; then
-  rec_file "$HOST" host.unit_file "$(p4_fs /etc/systemd/system/aegis-idea3-core.service)"
-fi
+# L6b (OD-L6B-01) installs the separate broker unit; it is captured exactly like the Core unit (never a wildcard).
+for unit_file in aegis-idea3-core.service aegis-idea3-mosquitto.service; do
+  if [ -f "$(p4_fs "/etc/systemd/system/$unit_file")" ]; then
+    rec_file "$HOST" host.unit_file "$(p4_fs "/etc/systemd/system/$unit_file")"
+  fi
+done
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   [ "$(p4_hostpath "$f")" = "/etc/aegis-idea3/aegis-idea3.nft" ] && continue

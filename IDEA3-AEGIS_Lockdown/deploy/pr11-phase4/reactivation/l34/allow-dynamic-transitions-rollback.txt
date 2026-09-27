@@ -1,0 +1,7 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 runtime reactivation PRE->RB value-level transitions (p4-compare.sh ALLOW_DYNAMIC_TRANSITIONS_FILE).
+# Rollback returns dnsmasq to a SAFE NON-RUNNING state (inactive/dead); it never manufactures a fake start-limit-hit again. If rollback
+# occurs before any change the unit stays failed and no transition is needed. Any other value (for example active) remains drift.
+operation L34_RUNTIME_REACTIVATION_ROLLBACK
+svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive
+svc.aegis-idea3-dnsmasq.service.SubState failed dead
+svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success

@@ -15,6 +15,7 @@ import { SelectionAction, SelectionActionBar } from '../components/SelectionActi
 import { VaultBreadcrumbs } from '../components/vault/VaultBreadcrumbs.jsx'
 import { VaultFolderTile } from '../components/vault/VaultFolderTile.jsx'
 import { VaultFileTile } from '../components/vault/VaultFileTile.jsx'
+import { VaultUploadDrawer } from '../components/VaultUploadDrawer.jsx'
 import { VaultRecoveryPanel, vaultTreeFolderOptions } from '../components/vault/VaultRecoveryPanel.jsx'
 import {
   NewFolderDialog, RenameDialog, MoveDialog, DetailsDialog,
@@ -29,7 +30,7 @@ import { childrenOf, effectiveState } from '../lib/vaultTreeManifest.js'
 import { createThumbScheduler } from '../lib/vaultThumbScheduler.js'
 import { makeImageThumb } from '../lib/vaultImageThumb.js'
 import { gifMotionCapability, openGifMotion } from '../lib/vaultGifPreview.js'
-import { openVideoMotion, openVideoPoster, videoPreviewCapability, VIDEO_CAPABILITY } from '../lib/vaultVideoPreview.js'
+import { openVideoMotion, openVideoPoster, videoPosterEstimateBytes, videoPreviewCapability, VIDEO_CAPABILITY } from '../lib/vaultVideoPreview.js'
 import { attachPosterVideo, drawPosterFrame } from '../lib/vaultVideoDom.js'
 import { closePreviewSession, openPreviewSession, supportsLargeVideoPreview } from '../lib/vaultPreviewSession.js'
 import { createVaultPreviewBlob } from '../lib/vaultPreviewBlob.js'
@@ -46,6 +47,7 @@ import { useMarqueeSelection } from '../lib/useMarqueeSelection.js'
 import { isInternalItemDrag, isExternalFileDrag, writeDragPayload, readDragPayload } from '../lib/fileDragDrop.js'
 import { decryptFileContent, decryptBlobMeta } from '../lib/vaultCrypto.js'
 import { decryptVaultV2Meta, unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
+import { reconcileVaultAfterUpload } from '../lib/vaultPostUploadReconcile.js'
 import {
   downloadVaultV2, createFileSystemSink, createBufferedSink, MAX_BUFFERED_PLAINTEXT_BYTES,
 } from '../lib/vaultChunkedDownload.js'
@@ -209,7 +211,7 @@ export function VaultTreeRollback({ t, lang = 'en', kek, unlockedState = null, s
 
 /* ── จอหลัก ──────────────────────────────────────────────────────────────────── */
 export function VaultTreeScreen({
-  t, lang = 'en', kek, treeState = null, unlockedState = null, onLock,
+  t, lang = 'en', kek, treeState = null, unlockedState = null, onLock, recoveryScope = null,
   sessionFactory = createTreeSession, defaultApi = treeApi, mediaPreviewEnabled = false,
   marqueeSurfaceRef = null, registerMarqueePointerDown = null,
 }) {
@@ -223,7 +225,7 @@ export function VaultTreeScreen({
   const [loadErrorCode, setLoadErrorCode] = useState(null)
   const [dialog, setDialog] = useState(null)
   const [notice, setNotice] = useState(null)
-  const [uploadState, setUploadState] = useState(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
   const [preview, setPreview] = useState(null)
   const previewUrlRef = useRef(null)
   const previewStreamToken = useRef(null)
@@ -234,7 +236,7 @@ export function VaultTreeScreen({
   const [sort, setSort] = useState(DEFAULT_VAULT_SORT)
   const [layout, setLayout] = useState('grid')
   const purgeRef = useRef(() => {})
-  const fileRef = useRef(null)
+  const uploadQueueRef = useRef(null)
   const head = tree.state.head
 
   const releaseTreePreview = useCallback(() => {
@@ -266,7 +268,7 @@ export function VaultTreeScreen({
   purgeRef.current = () => {
     setDialog(null)
     setNotice(null)
-    setUploadState(null)
+    setUploadOpen(false)
     releaseTreePreview()
     setDetailsCipher(null)
     setQuery('')
@@ -310,14 +312,6 @@ export function VaultTreeScreen({
     if (res && successKey) announce(successKey)
     return res
   }, [tree])
-  const refreshAfter = () => {
-    void load({ quiet: true })
-    // Upload commit and encrypted-manifest CAS are separate opaque server facts.
-    // Refresh both so a freshly attached blob can be decrypted for its card in
-    // this session instead of waiting for a full-page reload.
-    vaultApi.refresh()
-  }
-
   const historyReadyRef = useRef(false)
   const navigateTo = useCallback((nodeId, { replace = false, fromHistory = false } = {}) => {
     treeRef.current?.open(nodeId)
@@ -374,26 +368,35 @@ export function VaultTreeScreen({
   }
 
   /* ── อัปโหลด (external OS drop และปุ่ม Upload — เส้นทางเดียวกัน TS-5) ────── */
-  const uploadFiles = async (files, parentNodeId = tree.current) => {
-    if (!kek || !tree.state.head) return
-    for (const file of files) {
-      setUploadState({ name: file.name, stage: 'preparing', percent: 0 })
-      try {
-        const res = await uploadTreeFile({
-          kek, file, parentNodeId, session, unlockedState,
-          onStage: (stage) => setUploadState((prev) => (prev ? { ...prev, stage } : prev)),
-          onProgress: (p) => setUploadState((prev) => (prev ? { ...prev, percent: p.percent ?? 0 } : prev)),
-        })
-        if (res?.ok) announce('vaultTreeUploadComplete', { name: file.name })
-        else if (res && res.ok === false && res.stage !== 'cancelled') announce('vaultTreeUploadFailed')
-      } catch {
-        // a thrown transfer never stays silent — the blob may still be recoverable (Task 4.3)
-        announce('vaultTreeUploadFailed')
+  const runVaultUpload = useCallback(async (file, { parentNodeId, signal, onStage, onProgress, onSession, resume = null, name = file.name, mediaType = file.type ?? '' }) => {
+    if (!kek || !treeRef.current?.state?.head) return { ok: false, stage: 'failed', reason: 'NOT_READY' }
+    try {
+      const res = await uploadTreeFile({ kek, file, parentNodeId, session, unlockedState, signal, onStage, onProgress, onSession, resume, name, mediaType })
+      if (!res?.ok) {
+        if (res && res.stage !== 'cancelled') announce('vaultTreeUploadFailed')
+        return res
       }
+      // Manifest CAS and opaque blob inventory are separate authoritative facts.
+      // Do not mark this upload complete until both converge in this session.
+      await reconcileVaultAfterUpload({
+        reloadHead: async () => {
+          const nextHead = await session.loadHead()
+          treeRef.current.refreshHead(nextHead)
+          return nextHead
+        },
+        reloadInventory: () => vaultApi.refresh(),
+      })
+      announce('vaultTreeUploadComplete', { name })
+      return res
+    } catch (error) {
+      if (error?.name !== 'AbortError' && error?.code !== 'ABORTED') announce('vaultTreeUploadFailed')
+      throw error
     }
-    setUploadState(null)
-    refreshAfter()
-  }
+  }, [kek, session, unlockedState, vaultApi.refresh])
+
+  const enqueueVaultFiles = useCallback((files, parentNodeId = treeRef.current?.current) => {
+    uploadQueueRef.current?.enqueueFiles(files, { parentNodeId })
+  }, [])
 
   /* ── ดาวน์โหลด: ไฟล์เท่านั้น, ทีละไฟล์, ล็อก = หยุด (TS-14) ──────────────── */
   const [downloadBusy, setDownloadBusy] = useState(false)
@@ -621,9 +624,16 @@ export function VaultTreeScreen({
     prevFolderRef.current = tree.current
     for (const n of tree.children) {
       if (n.kind === 'file' && (previewKindFor(n.mediaType) === 'image' || previewKindFor(n.mediaType) === 'video')) {
+        const kind = previewKindFor(n.mediaType)
         scheduler.observe(n.nodeId, {
           folderId: tree.current,
-          estimateBytes: n.plainSize ?? 0,
+          estimateBytes: kind === 'video'
+            ? videoPosterEstimateBytes({
+              variant: n.blobRef?.formatVersion ?? 1,
+              supportsLarge: supportsLargeVideoPreview(),
+              plainSize: n.plainSize ?? 0,
+            })
+            : n.plainSize ?? 0,
           eligible: Boolean(n.blobRef && blobIndex.has(refKey(n.blobRef))),
         })
       }
@@ -893,7 +903,7 @@ export function VaultTreeScreen({
         e.preventDefault()
         e.stopPropagation()
         const files = [...(dt.files ?? [])]
-        if (files.length) void uploadFiles(files, node.nodeId)
+        if (files.length) enqueueVaultFiles(files, node.nodeId)
       }
     },
   })
@@ -922,7 +932,7 @@ export function VaultTreeScreen({
         if (isInternalItemDrag(dt) || !isExternalFileDrag(dt) || isTrashView) return
         e.preventDefault()
         const files = [...(dt.files ?? [])]
-        if (files.length) void uploadFiles(files)
+        if (files.length) enqueueVaultFiles(files)
       }}
     >
       {marquee.box && (
@@ -1038,16 +1048,7 @@ export function VaultTreeScreen({
             {t('vaultTreeNewFolderTitle')}
           </Btn>
         )}
-        <input
-          ref={fileRef}
-          type="file"
-          multiple
-          className="hidden"
-          aria-hidden
-          tabIndex={-1}
-          onChange={(e) => { if (e.target.files?.length) void uploadFiles([...e.target.files]); e.target.value = '' }}
-        />
-        <Btn variant="primary" onClick={() => fileRef.current?.click()} data-testid="vault-tree-upload">
+        <Btn variant="primary" onClick={() => setUploadOpen(true)} data-testid="vault-tree-upload">
           <Plus size={15} strokeWidth={1.8} />
           {t('upload')}
         </Btn>
@@ -1069,11 +1070,6 @@ export function VaultTreeScreen({
           bothBad={loadState === 'degraded'}
           onRepaired={() => void load({ quiet: true })}
         />
-      )}
-      {uploadState && (
-        <p data-testid="vault-tree-upload-progress" data-marquee-ignore="" className="text-[12.5px] text-ink-2 mb-3">
-          {t('vaultTreeUploadRunning', { name: uploadState.name, p: uploadState.percent })}
-        </p>
       )}
       {tree.selection.size > 0 && (
         <SelectionActionBar
@@ -1192,6 +1188,18 @@ export function VaultTreeScreen({
       )}
 
       {/* ── dialogs ─────────────────────────────────────────────────────────── */}
+      <VaultUploadDrawer
+        ref={uploadQueueRef}
+        t={t}
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        destination={`/${(tree.breadcrumbs ?? []).map((node) => displayNodeName(t, node, head?.manifest?.rootNodeId)).filter(Boolean).join('/')}`}
+        parentNodeId={tree.current}
+        onUpload={runVaultUpload}
+        kek={kek}
+        recoveryScope={recoveryScope}
+      />
+
       {dialog?.kind === 'createFolder' && (
         <NewFolderDialog
           t={t} open onClose={() => setDialog(null)} siblingNames={siblingNamesOf(tree.current)}
