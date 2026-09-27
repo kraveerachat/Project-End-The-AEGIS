@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3/L4 reactivation live attempt 2 — runtime PASS, preservation model INCOMPLETE, rolled back safe-equivalent — V3 remediation in repository — 2026-09-27
+
+> [!important] The V2 reactivation reached the accepted runtime (apply PASS, verify PASS, AP and dnsmasq active, persistent files unchanged, PSK scan 0 hits) and failed only at the PRE->POST preservation comparison; the rollback handler passed but PRE->RB did not return byte-for-byte. The authorization is permanently consumed; no retry occurred. **`FINAL_ACCEPTANCE = NOT_PROVEN`**, no new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` is claimed, and `L6B` remains blocked. `SAFE_NETWORK_BOUNDARY_RESTORED = YES`, **`EXACT_PRESTATE_RESTORED = NO`** (rollback is not called exact).
+> `L34_REACTIVATION_ATTEMPT = 2`, `L34_APPLY = PASS`, `L34_VERIFY = PASS`, `NM_RADIO_REMEDIATION = PASS`, `PRE_POST_COMPARE = FAIL`, `PRESERVATION_S10 = FAIL`, `L34_ROLLBACK_HANDLER = PASS`, `PRE_RB_COMPARE = FAIL`, `AUTHORIZATION_CONSUMED = YES`, `RETRY_PERFORMED = NO`
+> `L34_V3_PRESERVATION = REPOSITORY_ONLY (simulator-tested)`, `LIVE_REACTIVATION = NOT_AUTHORIZED`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l34-reactivation-20260927-032057`.
+- **Proven side effects (NetworkManager Wi-Fi initialization, not issued by the workflow):** the p2p pseudo-device `p2p-dev-wlp0s20f3` (absent -> `disconnected`; `unavailable` after rollback and remaining); `wpa_supplicant.service` started (inactive -> active/running, unit `disabled`, `NRestarts=0`, `Result=success`, same PID after rollback); target phy regulatory `00 -> TH` (already approved by the L4 window, remaining `TH`); and `wifi.phy.sha256` changed because `iw phy` annotates each frequency entry with regulatory state (channel 14 `22 dBm -> disabled`, 5 GHz `no IR` / `radar detection`). The residuals were stable for more than two minutes.
+- **V3 remediation (not run):** four opt-in comparator operations with closed catalogs and value classes; relational gates tie the wpa_supplicant lifecycle to the authorized NM radio transition, the active AP and the absence of unrelated Wi-Fi, and accept `wifi.phy.sha256` only when derived from the approved `00 -> TH` transition (new capture keys `wifi.phy.regnorm_sha256` and `wifi.phy.channel6_permitted`). No generic `wifi.phy.sha256` or `wpa_supplicant` allow key, no `wpa_supplicant` stop, no `iw reg set`, no NetworkManager restart. The preflight accepts the FRESH post-reboot baseline and the proven RESIDUAL baseline (phy `TH`, p2p `unavailable`, wpa_supplicant running) and rejects mixed states.
+- **Current host (read-only, 2026-09-27 03:23):** rfkill 1 soft-blocked, NM radio `disabled`, `wlp0s20f3` `unavailable`/DOWN/managed, no Wi-Fi connection, dnsmasq inactive, AP not active, plus the residual p2p device, running wpa_supplicant and phy `TH`.
+- **Next boundary:** merge; freeze a NEW runner (V3 scope, 168 chars) at the new main; fresh same-day A-L4 and K3; one bounded run. L6b live stays blocked until the L3/L4 runtime is applied and freshly re-proven.
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md`. Receipt: `90-Status/logs/2026-09-27_070000_music_idea3-pr11-l34-attempt2-v3-preservation.md`.
+
 ## IDEA3 PR11 Phase 4 L3/L4 reactivation live attempt 1 — FAIL_CLOSED (NM_WIFI_RADIO_DISABLED), rolled back — remediation in repository — 2026-09-27
 
 > [!important] The first live L3/L4 post-reboot reactivation attempt FAILED CLOSED at NetworkManager readiness and was rolled back. The authorization is permanently consumed; no retry occurred. The safe pre-state and safety boundary were restored; **runtime is NOT restored** (`L3_RUNTIME = NOT_APPLIED`, `L4_RUNTIME = NOT_APPLIED`). No new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` is claimed.

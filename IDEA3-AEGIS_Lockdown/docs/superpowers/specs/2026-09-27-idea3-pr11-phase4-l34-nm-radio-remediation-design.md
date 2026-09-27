@@ -15,6 +15,11 @@ L34_RUNTIME_RESTORED                = NO    (runtime is still NOT_APPLIED; only 
 LIVE_REACTIVATION_AUTHORIZED        = NO    (this remediation authorizes nothing)
 ```
 
+> [!note] Superseded in part by V3
+> Live attempt 2 (V2) proved this remediation's radio path but found the preservation model incomplete; the runner template now carries the **V3**
+> scope and comparator catalogs. Section 8 ("no comparator change is needed") and the V2 scope below describe the model as of attempt 1's remediation
+> and are kept as history. See `2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md`.
+
 ## 1. What happened (evidence `2026-09-27-l34-reactivation-20260927-021304`)
 
 Read-only preflight passed; PRE capture completed; apply performed exactly one mutation, `rfkill unblock 1`, then the bounded

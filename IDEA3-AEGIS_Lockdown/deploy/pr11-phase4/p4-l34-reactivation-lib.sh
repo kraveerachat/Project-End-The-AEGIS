@@ -241,6 +241,76 @@ l34_device_autoconnect() {
   case "$v" in yes | no) printf '%s\n' "$v" ;; *) return 1 ;; esac
 }
 
+# ── V3 baselines: the two proven, safe starting states ───────────────────────────────────────────────────────────────────
+
+# The P2P inventory is NEVER inferred from an empty typed query: every NetworkManager device that is a Wi-Fi P2P device by TYPE, or that carries the
+# p2p pseudo-device name prefix with ANY type, is listed (rows `name:type:state`), so a wrong-typed same-name device or an extra/differently named
+# P2P device cannot slip through as "absent".
+# l34_nm_status_snapshot — one atomic `nmcli` read (device:type:state rows); everything below derives from the same snapshot text
+l34_nm_status_snapshot() { nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null; }
+# l34_p2p_inventory < snapshot   — sorted rows of every P2P-related device
+l34_p2p_inventory() { awk -F: '$2 == "wifi-p2p" || $1 ~ /^p2p-dev-/ { print }' | LC_ALL=C sort; }
+# l34_wifi_devices < snapshot    — names of every TYPE=wifi device
+l34_wifi_devices() { awk -F: '$2 == "wifi" { print $1 }' | LC_ALL=C sort; }
+
+L34_P2P_RESIDUAL_ROW="p2p-dev-wlp0s20f3:wifi-p2p:unavailable"
+L34_P2P_POST_ROW="p2p-dev-wlp0s20f3:wifi-p2p:disconnected"
+
+# l34_baseline_classify COUNTRY RADIO TARGET_STATE P2P_INVENTORY WIFI_DEVICES < `systemctl show wpa_supplicant.service …`
+# Prints FRESH or RESIDUAL, fails on anything else (mixed or unrecognized states are never guessed at). Read-only.
+#   FRESH    (post-reboot, before NetworkManager initialized Wi-Fi): phy 00, ZERO P2P-related devices, wpa_supplicant inactive/dead/PID 0
+#   RESIDUAL (proven safe-equivalent state left by live attempt 2): phy TH, EXACTLY the row p2p-dev-wlp0s20f3:wifi-p2p:unavailable,
+#            wpa_supplicant active/running/PID>0
+# Both: wlp0s20f3 is the SOLE TYPE=wifi device, NM radio disabled, target unavailable, wpa_supplicant unit disabled, NRestarts 0, Result success.
+l34_baseline_classify() {
+  local country=$1 radio=$2 target=$3 p2p=$4 wifidevs=$5 wpa
+  wpa=$(cat)
+  [ "$wifidevs" = wlp0s20f3 ] || { l34_reason "L34_BASELINE_MIXED_OR_UNRECOGNIZED:WIFI_DEVICE_INVENTORY"; return 1; }
+  [ "$radio" = disabled ] || { l34_reason "L34_BASELINE_MIXED_OR_UNRECOGNIZED:NM_RADIO_NOT_DISABLED"; return 1; }
+  [ "$target" = unavailable ] || { l34_reason "L34_BASELINE_MIXED_OR_UNRECOGNIZED:TARGET_NOT_UNAVAILABLE"; return 1; }
+  for kv in LoadState=loaded UnitFileState=disabled Result=success NRestarts=0; do
+    grep -qx "$kv" <<< "$wpa" || { l34_reason "L34_BASELINE_MIXED_OR_UNRECOGNIZED:WPA_${kv%%=*}"; return 1; }
+  done
+  if [ "$country" = 00 ] && [ -z "$p2p" ] && grep -qx 'ActiveState=inactive' <<< "$wpa" && grep -qx 'SubState=dead' <<< "$wpa" && grep -qx 'MainPID=0' <<< "$wpa"; then
+    printf 'FRESH\n'
+  elif [ "$country" = TH ] && [ "$p2p" = "$L34_P2P_RESIDUAL_ROW" ] && grep -qx 'ActiveState=active' <<< "$wpa" && grep -qx 'SubState=running' <<< "$wpa" \
+    && grep -Eq '^MainPID=[1-9][0-9]*$' <<< "$wpa"; then
+    printf 'RESIDUAL\n'
+  elif [ -n "$p2p" ] && [ "$p2p" != "$L34_P2P_RESIDUAL_ROW" ]; then
+    l34_reason "L34_BASELINE_MIXED_OR_UNRECOGNIZED:P2P_INVENTORY"; return 1
+  else
+    l34_reason "L34_BASELINE_MIXED_OR_UNRECOGNIZED"; return 1
+  fi
+}
+
+# l34_wpa_safe_state BASELINE < `systemctl show -p ActiveState -p SubState -p MainPID wpa_supplicant.service`
+# The ONLY safe rollback states: FRESH -> exact PRE (inactive/dead/PID 0) or the proven residual (active/running/PID>0); RESIDUAL -> active/running/PID>0.
+# failed, activating, deactivating, exited and everything else are unsafe. Never stops or restarts wpa_supplicant.
+l34_wpa_safe_state() {
+  local baseline=$1 wpa running=0 pre=0
+  wpa=$(cat)
+  grep -qx 'ActiveState=active' <<< "$wpa" && grep -qx 'SubState=running' <<< "$wpa" && grep -Eq '^MainPID=[1-9][0-9]*$' <<< "$wpa" && running=1
+  grep -qx 'ActiveState=inactive' <<< "$wpa" && grep -qx 'SubState=dead' <<< "$wpa" && grep -qx 'MainPID=0' <<< "$wpa" && pre=1
+  case "$baseline" in
+    FRESH) [ "$running" = 1 ] || [ "$pre" = 1 ] ;;
+    RESIDUAL) [ "$running" = 1 ] ;;
+    *) false ;;
+  esac || { l34_reason "L34_V3_ROLLBACK_WPA_STATE"; return 1; }
+}
+
+# l34_p2p_rollback_safe BASELINE P2P_INVENTORY — FRESH: no P2P device OR exactly the unavailable row; RESIDUAL: exactly the unavailable row
+l34_p2p_rollback_safe() {
+  local baseline=$1 inv=$2
+  case "$baseline" in
+    FRESH) [ -z "$inv" ] || [ "$inv" = "$L34_P2P_RESIDUAL_ROW" ] ;;
+    RESIDUAL) [ "$inv" = "$L34_P2P_RESIDUAL_ROW" ] ;;
+    *) false ;;
+  esac || { l34_reason "L34_V3_ROLLBACK_P2P_DEVICE_STATE"; return 1; }
+}
+
+# l34_nm_devices_listing — sorted `device:type` list of every NetworkManager device (for the "no other new device" envelope check)
+l34_nm_devices_listing() { nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | awk -F: '{ print $1 ":" $2 }' | LC_ALL=C sort; }
+
 # ── dnsmasq service identity ─────────────────────────────────────────────────────────────────────────────────────────────
 
 # l34_service_pre_gate < `systemctl show -p LoadState,ActiveState,SubState,UnitFileState,Result,MainPID …` (KEY=VALUE lines)

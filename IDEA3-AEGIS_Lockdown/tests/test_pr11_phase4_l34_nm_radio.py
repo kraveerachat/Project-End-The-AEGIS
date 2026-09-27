@@ -378,7 +378,7 @@ def compare_function(text: str) -> str:
     return text[start:end]
 
 
-def run_runner_compare(tmp_path: Path, func: str, *, allow_mode: str = "post") -> subprocess.CompletedProcess[str]:
+def run_runner_compare(tmp_path: Path, func: str, *, allow_mode: str = "post", baseline: str = "fresh") -> subprocess.CompletedProcess[str]:
     mb = base._make_bundle()
     reg = {"wifi.iface.wlp0s20f3.phy": "phy0", "wifi.reg.phy0": "00"}  # the regulatory window needs the target phy in both bundles
     pre = mb(tmp_path / "b", "pre", {**base.PRE_RECORDS, **reg})
@@ -388,7 +388,7 @@ def run_runner_compare(tmp_path: Path, func: str, *, allow_mode: str = "post") -
     (stubs / "sudo").write_text('#!/usr/bin/env bash\nexec "$@"\n')
     (stubs / "sudo").chmod(0o755)
     script = f"""set -uo pipefail
-HND='{base.HND}'; P4='{base.DEPLOY}'; AP_IF=wlp0s20f3; AP_ADDR=10.77.30.1
+HND='{base.HND}'; P4='{base.DEPLOY}'; AP_IF=wlp0s20f3; AP_ADDR=10.77.30.1; BASELINE={baseline}
 {func}
 compare '{pre}' '{post}' '{tmp_path / "report.txt"}' {allow_mode}
 echo "COMPARE_FUNCTION_RC=$?"
@@ -423,7 +423,8 @@ def test_every_local_declaration_in_the_runner_and_handlers_is_valid_bash() -> N
 
 
 V2_SCOPE = ("L3_L4_RUNTIME_REACTIVATION_V2: rfkill 1 unblock, temp wlp0s20f3 autoconnect off, NM radio on, activate aegis-idea3-ap, "
-            "reset-failed+start dnsmasq, no persistent rewrite")
+            "reset-failed+start dnsmasq, no persistent rewrite")  # consumed by live attempt 2; superseded by V3
+V3_SCOPE = V2_SCOPE.replace("_V2:", "_V3:")
 SUPERSEDED_V2_SCOPE = ("L3_L4_RUNTIME_REACTIVATION_V2: exact rfkill unblock, NM radio enable (sole Wi-Fi device), activate aegis-idea3-ap on wlp0s20f3, "
                        "reset-failed+start aegis-idea3-dnsmasq, no persistent config rewrite")
 V1_SCOPE = ("L3_L4_RUNTIME_REACTIVATION: exact rfkill unblock, activate existing aegis-idea3-ap on wlp0s20f3, reset-failed+start aegis-idea3-dnsmasq, "
@@ -434,9 +435,9 @@ def runner_scope() -> str:
     return re.search(r"^EXPECTED_SCOPE='([^']+)'", RUNNER.read_text(), re.M).group(1)
 
 
-def test_runner_scope_is_exactly_the_final_v2_scope() -> None:
+def test_runner_scope_is_exactly_the_final_v3_scope() -> None:
     scope = runner_scope()
-    assert scope == V2_SCOPE
+    assert scope == V3_SCOPE
     assert len(scope) == 168 and len(scope) <= 200 and re.fullmatch(r"[ -~]{1,200}", scope)
     assert "AEGIS_L34_NM_RADIO_ENABLE=YES" in RUNNER.read_text()
     assert 'grep -qxF "scope=$EXPECTED_SCOPE"' in RUNNER.read_text()
@@ -453,8 +454,8 @@ def test_scope_names_every_runtime_mutation_including_the_temporary_autoconnect_
     assert "nmcli radio wifi on" in apply_text and "radio on" in scope
 
 
-@pytest.mark.parametrize("stale", [SUPERSEDED_V2_SCOPE, V1_SCOPE, V2_SCOPE + " ", V2_SCOPE[:-1], V2_SCOPE.replace("temp wlp0s20f3 autoconnect off, ", ""),
-                                   V2_SCOPE.lower()])
+@pytest.mark.parametrize("stale", [SUPERSEDED_V2_SCOPE, V1_SCOPE, V2_SCOPE, V3_SCOPE + " ", V3_SCOPE[:-1], V3_SCOPE.replace("temp wlp0s20f3 autoconnect off, ", ""),
+                                   V3_SCOPE.lower()])
 def test_any_other_scope_is_rejected_by_the_runner_gate(tmp_path: Path, stale: str) -> None:
     """The runner's gate is `grep -qxF "scope=$EXPECTED_SCOPE" <auth>`: run exactly that check against a record carrying the other scope."""
     auth = tmp_path / "authorization-L4.txt"
@@ -462,15 +463,15 @@ def test_any_other_scope_is_rejected_by_the_runner_gate(tmp_path: Path, stale: s
     res = subprocess.run(["bash", "-c", 'grep -qxF "scope=$S" "$A"'], env=dict(os.environ, S=runner_scope(), A=str(auth)))
     assert res.returncode == 1
     ok = tmp_path / "ok.txt"
-    ok.write_text(f"scope={V2_SCOPE}\n")
+    ok.write_text(f"scope={V3_SCOPE}\n")
     assert subprocess.run(["bash", "-c", 'grep -qxF "scope=$S" "$A"'], env=dict(os.environ, S=runner_scope(), A=str(ok))).returncode == 0
 
 
 def test_superseded_and_v1_scopes_appear_nowhere_as_the_active_scope() -> None:
     text = RUNNER.read_text()
-    assert SUPERSEDED_V2_SCOPE not in text and V1_SCOPE not in text
+    assert SUPERSEDED_V2_SCOPE not in text and V1_SCOPE not in text and V2_SCOPE not in text
     docs = (base.ROOT / "docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md").read_text()
-    assert V2_SCOPE in docs and SUPERSEDED_V2_SCOPE not in docs
+    assert V2_SCOPE in docs and SUPERSEDED_V2_SCOPE not in docs  # the V2 remediation design keeps documenting its own (now consumed) scope
 
 
 STALE_GLOBAL_RADIO_CLAIMS = [

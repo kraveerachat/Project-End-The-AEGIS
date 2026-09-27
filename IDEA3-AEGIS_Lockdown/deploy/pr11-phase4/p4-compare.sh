@@ -50,6 +50,17 @@
 #                                      svc.aegis-idea3-dnsmasq.service.SubState failed dead
 #                                      svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
 #
+# V3 (live attempt 2, 2026-09-27): four further operations of the same opt-in file, each with its own closed catalog, model the proven, exact
+# side effects of NetworkManager initializing Wi-Fi on this host. `<absent>`, `<empty>`, `<nonempty>`, `<positive>` and `<sha256>` are the only
+# value classes a catalog member may use. Rules on `svc.wpa_supplicant.service.*` and `wifi.phy.sha256` are RELATIONAL: they approve a change only
+# when the whole gate holds in the two bundles (POST: radio disabled->enabled, target AP the active connection, no unrelated Wi-Fi, unit
+# disabled / NRestarts 0 / Result success; ROLLBACK: radio disabled again, target rfkill blocked, no Wi-Fi active, same unit facts; phy: the
+# approved target regulatory transition 00->TH under ALLOW_TRANSITIONS_FILE, global regulatory unchanged 00, channel 6 permitted, phy identity
+# and AP mode unchanged, and the regulatory-insensitive digest wifi.phy.regnorm_sha256 EQUAL). The p2p pseudo-device rules are gated too (POST: radio
+# disabled->enabled with unchanged prefix, approved AP active, no unrelated Wi-Fi/P2P; ROLLBACK_FRESH: radio disabled and target rfkill blocked in both,
+# no Wi-Fi/P2P active, target unavailable). Nothing here is a generic allow key.
+#   L34_V3_POST_FRESH / L34_V3_POST_RESIDUAL / L34_V3_ROLLBACK_FRESH / L34_V3_ROLLBACK_RESIDUAL  (catalogs in the design document)
+#
 # Exit 0 = COMPARE_RESULT=PASS, 1 = COMPARE_RESULT=FAIL, 2 = STOP (usage/integrity).
 set -uo pipefail
 export LC_ALL=C
@@ -191,10 +202,49 @@ if [ -n "${ALLOW_DYNAMIC_TRANSITIONS_FILE:-}" ]; then
     "svc.aegis-idea3-dnsmasq.service.SubState failed dead"
     "svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success"
   )
+  _svc_dnsmasq_post=(
+    "svc.aegis-idea3-dnsmasq.service.ActiveState failed active"
+    "svc.aegis-idea3-dnsmasq.service.SubState failed running"
+    "svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success"
+    "nm.general#WIFI disabled enabled"
+  )
+  _svc_dnsmasq_rb=(
+    "svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive"
+    "svc.aegis-idea3-dnsmasq.service.SubState failed dead"
+    "svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success"
+  )
+  _wpa_lifecycle=(
+    "svc.wpa_supplicant.service.ActiveState inactive active"
+    "svc.wpa_supplicant.service.SubState dead running"
+    "svc.wpa_supplicant.service.MainPID 0 <positive>"
+    "svc.wpa_supplicant.service.ExecMainStartTimestamp <empty> <nonempty>"
+  )
+  _phy_reg=("wifi.phy.sha256 <sha256> <sha256>")
+  DYN_CATALOG_L34_V3_POST_FRESH=(
+    "${_svc_dnsmasq_post[@]}"
+    "nm.active.device.p2p-dev-wlp0s20f3 <absent> none"
+    "nm.device.p2p-dev-wlp0s20f3.type <absent> wifi-p2p"
+    "nm.device.p2p-dev-wlp0s20f3.state <absent> disconnected"
+    "${_wpa_lifecycle[@]}"
+    "${_phy_reg[@]}"
+  )
+  DYN_CATALOG_L34_V3_POST_RESIDUAL=(
+    "${_svc_dnsmasq_post[@]}"
+    "nm.device.p2p-dev-wlp0s20f3.state unavailable disconnected"
+  )
+  DYN_CATALOG_L34_V3_ROLLBACK_FRESH=(
+    "${_svc_dnsmasq_rb[@]}"
+    "nm.active.device.p2p-dev-wlp0s20f3 <absent> none"
+    "nm.device.p2p-dev-wlp0s20f3.type <absent> wifi-p2p"
+    "nm.device.p2p-dev-wlp0s20f3.state <absent> unavailable"
+    "${_wpa_lifecycle[@]}"
+    "${_phy_reg[@]}"
+  )
+  DYN_CATALOG_L34_V3_ROLLBACK_RESIDUAL=("${_svc_dnsmasq_rb[@]}")
   while IFS= read -r line || [ -n "$line" ]; do
     [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
     case "$line" in
-      'operation L34_RUNTIME_REACTIVATION'|'operation L34_RUNTIME_REACTIVATION_ROLLBACK')
+      'operation L34_RUNTIME_REACTIVATION'|'operation L34_RUNTIME_REACTIVATION_ROLLBACK'|'operation L34_V3_POST_FRESH'|'operation L34_V3_POST_RESIDUAL'|'operation L34_V3_ROLLBACK_FRESH'|'operation L34_V3_ROLLBACK_RESIDUAL')
         n_op=$((n_op + 1)); DYN_OP="${line#operation }" ;;
       *)
         [ -n "$DYN_OP" ] || stop "dynamic transition rule before the operation declaration"
@@ -222,11 +272,25 @@ function emit(cls, code, key, b, a) {
 function bad(v) { return v == "UNAVAILABLE" || v == "UNREADABLE" }
 function port_of(key,   n, parts) { n = split(key, parts, ":"); return parts[n] }
 function isnum(v) { return v ~ /^[0-9]+$/ }
+# value classes of the V3 dynamic catalogs; anything else is a literal, exact match
+function vmatch(pat, v) {
+  if (pat == "<absent>") return v == "<absent>"
+  if (pat == "<empty>") return v == ""
+  if (pat == "<nonempty>") return v != "" && v != "<absent>"
+  if (pat == "<positive>") return v ~ /^[1-9][0-9]*$/
+  if (pat == "<sha256>") return v ~ /^[0-9a-f]{64}$/
+  return v == pat
+}
+function radio_field(v,   n, f) { n = split(v, f, ":"); return (n == 4) ? f[4] : "" }
+function radio_prefix_equal(b, a,   nb, na, fb, fa) {
+  nb = split(b, fb, ":"); na = split(a, fa, ":")
+  return nb == 4 && na == 4 && fb[1] == fa[1] && fb[2] == fa[2] && fb[3] == fa[3]
+}
 BEGIN {
   FS = "\t"
   n = split(allow_keys, tmp, "\n"); for (i = 1; i <= n; i++) if (tmp[i] != "") AK[tmp[i]] = 1
   n = split(allow_listeners, tmp, "\n"); for (i = 1; i <= n; i++) if (tmp[i] != "") AL[tmp[i]] = 1
-  n = split(dyn_rules, tmp, "\n"); for (i = 1; i <= n; i++) if (tmp[i] != "") { split(tmp[i], dr, "|"); DYN[dr[1] SUBSEP dr[2] SUBSEP dr[3]] = 1; dyn_n++ }
+  n = split(dyn_rules, tmp, "\n"); for (i = 1; i <= n; i++) if (tmp[i] != "") { split(tmp[i], dr, "|"); dyn_n++; DR_K[dyn_n] = dr[1]; DR_F[dyn_n] = dr[2]; DR_T[dyn_n] = dr[3] }
   split("ip sysctl nft ss systemctl journalctl df timedatectl nmcli iw rfkill", REQ, " ")
   split("8883 123 67 53 8003 8004", P, " "); for (i in P) IDEA3_PORT[P[i]] = 1
   split("timeout refused auth hostkey forward dns unreachable unit_failed restart_scheduled", TC, " ")
@@ -301,6 +365,46 @@ END {
     }
   }
 
+  # V3 relational gates (only meaningful for the L34_V3_* operations; false otherwise)
+  wifi_active_any = 0; unrelated_wifi = 0
+  for (k in A) if (k ~ /^nm\.active\.device\./) {
+    d = substr(k, 18)
+    if (A[k] ~ /:(802-11-wireless|wifi-p2p)$/) { wifi_active_any = 1; if (d != "wlp0s20f3") unrelated_wifi = 1 }
+  }
+  U = "svc.wpa_supplicant.service."
+  wpa_unit_ok = (B[U "UnitFileState"] == "disabled" && A[U "UnitFileState"] == "disabled" && B[U "NRestarts"] == "0" && A[U "NRestarts"] == "0" \
+                 && B[U "Result"] == "success" && A[U "Result"] == "success" && B[U "LoadState"] == "loaded" && A[U "LoadState"] == "loaded")
+  wpa_lifecycle = (B[U "ActiveState"] == "inactive" && B[U "SubState"] == "dead" && B[U "MainPID"] == "0" \
+                   && A[U "ActiveState"] == "active" && A[U "SubState"] == "running" && A[U "MainPID"] ~ /^[1-9][0-9]*$/ && A[U "ExecMainStartTimestamp"] != "")
+  radio_pre = radio_field(B["nm.general"]); radio_post = radio_field(A["nm.general"])
+  wpa_gate = 0
+  if (dyn_op ~ /_POST_FRESH$/)
+    wpa_gate = (wpa_lifecycle && wpa_unit_ok && radio_pre == "disabled" && radio_post == "enabled" && radio_prefix_equal(B["nm.general"], A["nm.general"]) \
+                && A["nm.active.device.wlp0s20f3"] == "aegis-idea3-ap:802-11-wireless" && !unrelated_wifi)
+  else if (dyn_op ~ /_ROLLBACK_FRESH$/)
+    wpa_gate = (wpa_lifecycle && wpa_unit_ok && radio_pre == "disabled" && radio_post == "disabled" && radio_prefix_equal(B["nm.general"], A["nm.general"]) \
+                && B["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" && A["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" && !wifi_active_any \
+                && A["nm.device.wlp0s20f3.state"] == B["nm.device.wlp0s20f3.state"])
+  # p2p pseudo-device transitions are relational to the authorized NM radio transition too (exact names/values are enforced by the catalog)
+  p2p_gate = 0
+  if (dyn_op ~ /_POST_(FRESH|RESIDUAL)$/)
+    p2p_gate = (radio_pre == "disabled" && radio_post == "enabled" && radio_prefix_equal(B["nm.general"], A["nm.general"]) \
+                && A["nm.active.device.wlp0s20f3"] == "aegis-idea3-ap:802-11-wireless" && !unrelated_wifi)
+  else if (dyn_op ~ /_ROLLBACK_FRESH$/)
+    p2p_gate = (radio_pre == "disabled" && radio_post == "disabled" \
+                && B["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" && A["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" \
+                && !wifi_active_any && A["nm.device.wlp0s20f3.state"] == "unavailable")
+  phy_gate = 0
+  if (dyn_op ~ /_(POST|ROLLBACK)_FRESH$/ && reg_tk != "") {
+    pk2 = "wifi.iface." trans_iface ".phy"
+    phy_gate = (B[reg_tk] == "00" && A[reg_tk] == "TH" && !reg_other_changed \
+                && B["wifi.reg.global"] == "00" && A["wifi.reg.global"] == "00" \
+                && (pk2 in B) && (pk2 in A) && B[pk2] == A[pk2] \
+                && B["wifi.phy.ap_mode"] == "supported" && A["wifi.phy.ap_mode"] == "supported" \
+                && B["wifi.phy.regnorm_sha256"] ~ /^[0-9a-f]{64}$/ && B["wifi.phy.regnorm_sha256"] == A["wifi.phy.regnorm_sha256"] \
+                && A["wifi.phy.channel6_permitted"] == "YES")
+  }
+
   for (key in K) {
     b = (key in B) ? B[key] : "<absent>"
     a = (key in A) ? A[key] : "<absent>"
@@ -341,15 +445,23 @@ END {
     if (key in AK) { emit("APPROVED_CHANGE", "KEY_APPROVED", key, b, a); continue }
 
     # L3/L4 runtime-reactivation value-level window (ALLOW_DYNAMIC_TRANSITIONS_FILE): exact key + exact before + exact after only.
+    # Rules on wpa_supplicant and the phy digest additionally need their relational gate (V3).
     if (dyn_n > 0) {
+      dyn_hit = 0
       if (key == "nm.general") {
-        nb = split(b, fb, ":"); na = split(a, fa, ":")
-        if (nb == 4 && na == 4 && fb[1] == fa[1] && fb[2] == fa[2] && fb[3] == fa[3] && (("nm.general#WIFI" SUBSEP fb[4] SUBSEP fa[4]) in DYN)) {
-          emit("APPROVED_CHANGE", "DYNAMIC_TRANSITION_APPROVED", key, b, a); continue
+        if (radio_prefix_equal(b, a)) {
+          for (r = 1; r <= dyn_n; r++) if (DR_K[r] == "nm.general#WIFI" && vmatch(DR_F[r], radio_field(b)) && vmatch(DR_T[r], radio_field(a))) { dyn_hit = 1; break }
         }
-      } else if ((key SUBSEP b SUBSEP a) in DYN) {
-        emit("APPROVED_CHANGE", "DYNAMIC_TRANSITION_APPROVED", key, b, a); continue
+      } else {
+        for (r = 1; r <= dyn_n; r++) if (DR_K[r] == key && vmatch(DR_F[r], b) && vmatch(DR_T[r], a)) {
+          if (key ~ /^svc\.wpa_supplicant\.service\./) dyn_hit = wpa_gate
+          else if (key ~ /^nm\.(active\.)?device\.p2p-dev-wlp0s20f3(\.|$)/) dyn_hit = p2p_gate
+          else if (key == "wifi.phy.sha256") dyn_hit = phy_gate
+          else dyn_hit = 1
+          if (dyn_hit) break
+        }
       }
+      if (dyn_hit) { emit("APPROVED_CHANGE", "DYNAMIC_TRANSITION_APPROVED", key, b, a); continue }
     }
 
     if (reg_tk != "" && key == reg_tk && b == "00" && a == "TH") {
@@ -519,7 +631,7 @@ END {
 }
 AWK
 
-result=$(awk -v threshold="$THRESHOLD" -v allow_keys="$ALLOW_KEYS" -v allow_listeners="$ALLOW_LISTENERS" -v dyn_rules="$DYN_RULES" -v trans_iface="$TRANS_IFACE" \
+result=$(awk -v threshold="$THRESHOLD" -v allow_keys="$ALLOW_KEYS" -v allow_listeners="$ALLOW_LISTENERS" -v dyn_rules="$DYN_RULES" -v dyn_op="${DYN_OP:-}" -v trans_iface="$TRANS_IFACE" \
   "$COMPARE_AWK" side=B "$BEFORE"/*.tsv side=A "$AFTER"/*.tsv) || stop "comparison failed"
 
 report=$(

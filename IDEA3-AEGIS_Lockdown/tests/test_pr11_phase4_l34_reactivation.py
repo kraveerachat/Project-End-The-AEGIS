@@ -990,8 +990,8 @@ def test_runner_ordering_preflight_pre_capture_apply_verify_post_compare() -> No
 
 def test_runner_uses_the_narrow_windows_and_rollback_allowances() -> None:
     t = RUNNER.read_text()
-    assert 'ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions.txt"' in t
-    assert 'ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions-rollback.txt"' in t
+    assert 'ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions-v3-post-$BASELINE.txt"' in t
+    assert 'ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions-v3-rollback-$BASELINE.txt"' in t
     assert 'ALLOW_KEYS_FILE="$HND/allow-keys-rollback.txt"' in t
     assert 'compare "$EVID/pre-root" "$EVID/rb-root" "$EVID/compare-pre-rb.txt" rollback' in t
     assert 'compare-pre-post.txt" post' in t
