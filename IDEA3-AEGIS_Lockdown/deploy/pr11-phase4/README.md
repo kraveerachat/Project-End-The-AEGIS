@@ -274,6 +274,17 @@ registered in the repository framework.
 - Live execution: `L7_LIVE_AUTHORIZED = NO`, `LIVE_L7 = NOT_RUN`. Predecessor live stages remain NOT RUN. IDEA2 §10 blocker remains open.
 - All stage handlers (L2, L3, L4, L5, L6a, L6b, L7) are now registered in the repository; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
 
+### L7 release builder / verifier (repository tooling; no install)
+
+- `p4-l7-build-release.py build --source-root <git repo> --staging-root <user dir> --release-id <id> --wheelhouse <dir>` builds `<staging>/<id>/` (`venv/bin/python`, the exact `aegis_soc` runtime closure of `python -m aegis_soc.supervisor --profile production --live --headless --no-detector --no-voice` computed from source by AST, `requirements.txt`, `RELEASE-MANIFEST.json`, `RELEASE-SHA256SUMS`). `verify <release-dir> [--expect-owner self|root|any]` is read-only and deterministic.
+- Never writes `/opt` or any system location, never uses sudo/chown/systemd/NetworkManager/rfkill/iw, installs only from the local wheelhouse (`pip --no-index --isolated --only-binary=:all:`), bounds venv/pip/smoke by timeouts, and refuses a dirty source tree, an existing or symlinked destination, staging that aliases the source, non-regular source files, unmapped third-party imports and any symlink, `.git`, `__pycache__`, credential-like file or private-key material in the payload.
+- Manifest fields (exact allowlist): `schema_version`, `release_id`, `source_git_sha`, `source_tree_dirty`, `python_version`, `requirements_sha256`, `file_count`, `created_by_tool_version`. No username, hostname, environment or secret path.
+- The interpreter is a copy, but the venv still resolves the standard library from the base Python named in `pyvenv.cfg` (`home`); the release is therefore bound to that system Python version (`python_version`).
+- Installing a verified release into `/opt/aegis-idea3/releases/<id>` (root ownership, `verify --expect-owner root`, atomic `current` symlink switch, rollback before service start) is a separate, owner-run, not-yet-authorized step. `L7_RELEASE_INSTALL = NOT_RUN`.
+
+> [!NOTE] Status reconciliation (2026-09-27, current state — supersedes the compatibility claim below where they differ)
+> This builder remains repository-only tooling: no `/opt` write, no sudo, no systemd mutation, no live L7. It was originally proven against a copy of the PR #202 release-guard predicate; that predicate is superseded. A real release built by this tool was independently validated, in a separate process, against the newer `p4-l7-release-guard.py` implemented on the separate, **not yet merged**, `feat/idea3-pr11-l7-live-preparation` branch (commit `06b2fc05485c8412cbcceb17b3d1a39b2e246f75`): `L7_RELEASE_GUARD=PASS`, with the exact schema/layout this builder produces. That branch's other remediations (the `core.env` renderer and the MQTT TLS server-name / DNS-only-certificate fix) are real and tested there, but are **not on `main`** until that branch merges — this builder does not depend on them and none of that code is imported here.
+
 ### L8 handler (ESP32 inspection / NVS provisioning / firmware flash)
 
 - Registered the reviewed L8 stage handler (`stages/L8/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to operational design OD-L8-01 through OD-L8-09.

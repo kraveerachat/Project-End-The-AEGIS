@@ -7947,6 +7947,31 @@ merge and final closeout being recorded there; this authorization did not
 extend to any further Production mutation, service lifecycle action, or
 reboot.
 
+## IDEA3 PR11 Phase 4 L7 release builder — status reconciliation (current state) — 2026-09-27
+
+> [!important] This is a status correction, not a rewrite of the 2026-09-24 receipt below (kept unedited). The builder itself is unchanged repository-only tooling: no `/opt` write, no sudo, no systemd, no Production mutation, no live L7.
+
+- **Corrected:** the 2026-09-24 note that builder output was proven "against a verbatim copy of the PR #202 release-guard predicate" is superseded. A real release built by `p4-l7-build-release.py` was independently validated, in a separate process, against the actual newer `p4-l7-release-guard.py` implemented on the separate `feat/idea3-pr11-l7-live-preparation` branch (commit `06b2fc05485c8412cbcceb17b3d1a39b2e246f75`, **not merged to main**): `L7_RELEASE_GUARD=PASS`, exact layout/manifest/checksum match, no schema mismatch.
+- **Corrected:** the 2026-09-24 note that the `core.env` renderer and the broker-hostname/TLS-SAN reconciliation are "still open" describes this builder's own scope correctly, but is stale about the *repository's* current state: both are implemented and tested on `feat/idea3-pr11-l7-live-preparation` (`p4-l7-core-env.py`; Core `AEGIS_MQTT_TLS_SERVER_NAME`). **They are not yet on `main`** — that branch is separate and unmerged — so they remain pending merge, not canonical `main` behavior, and this builder does not depend on or import that code.
+- `PR202_MODIFIED = NO` (unchanged; PR #202 was not touched). `L7PREP_MERGED = NO`. `L7_RELEASE_INSTALL = NOT_RUN`. `L7_LIVE_ACCEPTANCE = NOT_PROVEN`.
+
+## IDEA3 PR11 Phase 4 L7 release builder / verifier — repository tooling — 2026-09-24
+
+> [!important] Repository-only tooling. Nothing is installed, no `/opt` write, no sudo, no systemd, no Production mutation, no live L7.
+
+```text
+L7_RELEASE_BUILDER          = IMPLEMENTED_REPOSITORY
+L7_RELEASE_VERIFIER         = IMPLEMENTED_REPOSITORY
+L7_RELEASE_INSTALL          = NOT_RUN
+L7_PRODUCTION_RELEASE       = NOT_INSTALLED
+L7_LIVE_ACCEPTANCE          = NOT_PROVEN
+PR202_MODIFIED              = NO
+```
+
+- `deploy/pr11-phase4/p4-l7-build-release.py` builds and verifies the release layout the L7 release guard expects (see the phase-4 README section "L7 release builder / verifier"). The shipped `aegis_soc` package is the AST-derived runtime closure of the headless production entrypoint (21 modules plus `__init__`); `cli`, `gui`, `production_runtime`, `telegram_control`, `theme`, `windows_launcher` and `wizard` are not shipped.
+- Builder output was proven against a verbatim copy of the PR #202 release-guard predicate in a fixture root only.
+- Still open for a live L7: the complete `core.env` renderer (PR #202 renders three lines, two of which no Core source reads), and the broker-hostname/TLS-SAN reconciliation (`AEGIS_BROKER_IP` must be an IP while the certificate SAN is `DNS:mqtt.aegis.home.arpa` and hostname verification is enforced) which needs an owner decision.
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]
