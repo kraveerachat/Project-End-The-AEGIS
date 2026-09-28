@@ -14,21 +14,19 @@ const LAYERS = [
   { id: 3, nameKey: 'layerMeta', descKey: 'layerMetaDesc' },
 ]
 
-const layersContainerVariants = {
-  hidden: { opacity: 0 },
+// One restrained reveal vocabulary. Motion never owns input availability or auth.
+const LOGIN_EASE = [0.32, 0.72, 0, 1]
+const entranceVariants = {
+  hidden: {},
   show: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.08,
-      delayChildren: 0.15,
-    },
+    transition: { staggerChildren: 0.055 },
   },
 }
-
-const layerItemVariants = {
-  hidden: { opacity: 0, y: 8 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.25, ease: 'easeOut' } },
+const revealVariants = {
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.32, ease: LOGIN_EASE } },
 }
+const revealViewport = { once: true, amount: 0.15 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -50,7 +48,7 @@ function loginErrorKey({ status, errorKind }) {
   return 'loginServerError'                     // 403 อื่น ๆ / 5xx / อะไรที่ไม่รู้จัก
 }
 
-function LayerRow({ t, layer, status }) {
+function LayerRow({ t, layer, status, reduced }) {
   const isOk = status === 'ok'
   const isFail = status === 'fail'
   const statusKey = isOk ? 'layerStatusVerified' : isFail ? 'layerStatusFailed'
@@ -59,7 +57,7 @@ function LayerRow({ t, layer, status }) {
       : status === 'idle' ? 'layerStatusReady' : 'layerStatusArchitecture'
 
   return (
-    <motion.div variants={layerItemVariants} data-layer-status={status} data-layer-id={layer.id} className="login-layer-row">
+    <motion.div variants={reduced ? undefined : revealVariants} data-layer-status={status} data-layer-id={layer.id} className="login-layer-row">
       <span className="login-layer-node" aria-hidden="true">
         {isOk ? (
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
@@ -82,6 +80,7 @@ export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme
   // remain local. No incidental redesign. Changes need explicit scope, RED tests,
   // Human/integration review; preserve TH/EN/ZH geometry and reduced motion.
   const reduced = useReducedMotion()
+  const reveal = reduced ? {} : { variants: revealVariants }
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -152,21 +151,10 @@ export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme
       />
       <div className="gate-halo absolute inset-0 pointer-events-none" aria-hidden />
       <div className="login-dot-field absolute inset-0 pointer-events-none" aria-hidden="true" />
-      <motion.div
-        className="login-ambient-beam absolute pointer-events-none"
-        animate={reduced ? false : { scale: [1, 1.08, 1], opacity: [0.4, 0.7, 0.4] }}
-        transition={reduced ? { duration: 0 } : { duration: 5, repeat: Infinity, ease: 'easeInOut' }}
-        aria-hidden="true"
-      />
-      <motion.div
-        className="login-energy-line absolute pointer-events-none"
-        animate={reduced ? false : { x: [-20, 20, -20], opacity: [0.4, 0.8, 0.4] }}
-        transition={reduced ? { duration: 0 } : { duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-        aria-hidden="true"
-      />
+      <div className="login-ambient-beam absolute pointer-events-none" aria-hidden="true" />
 
       {/* Top right language selector and theme toggle */}
-      <div className="login-top-controls absolute top-5 right-5 z-30 flex items-center gap-2">
+      <motion.div {...reveal} initial={reduced ? false : 'hidden'} animate="show" data-login-motion="controls" className="login-top-controls absolute top-5 right-5 z-30 flex items-center gap-2">
         <ThemeToggle theme={resolvedTheme} setTheme={setTheme} t={t} />
         <Segmented
           ariaLabel={t('language')}
@@ -174,51 +162,48 @@ export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme
           value={lang}
           onChange={setLang}
         />
-      </div>
+      </motion.div>
 
       {/* Main sign-in surface */}
       <main className="login-security-field relative my-auto w-full max-w-[440px] md:max-w-[920px] z-10" data-security-field data-motion={reduced ? 'reduced' : 'full'} data-phase={fieldPhase}>
         <div className="login-field-aura" data-field-aura aria-hidden="true" />
-        <div className="login-field-trace" data-field-trace aria-hidden="true" />
         {/* Split sign-in card */}
         <motion.div
-          initial={reduced ? false : { scale: 0.96, opacity: 0, y: 15 }}
+          variants={reduced ? undefined : entranceVariants}
+          initial={reduced ? false : 'hidden'}
           animate={{
-            scale: leaving ? 1.03 : 1,
+            scale: leaving && !reduced ? 1.015 : 1,
             opacity: leaving ? 0 : 1,
-            y: 0,
           }}
-          transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 260, damping: 20 }}
-          whileHover={reduced ? undefined : { y: -4 }}
-          whileTap={reduced ? undefined : { scale: 0.995 }}
+          transition={{ duration: reduced ? 0 : 0.24, ease: LOGIN_EASE }}
           className="login-card w-full overflow-hidden flex flex-col md:flex-row md:items-stretch relative"
         >
           {/* Left Panel: Monitor-authoritative brand treatment */}
           <div className="login-brand-panel w-full md:w-[42%] p-6 md:p-12 flex flex-col items-center justify-center text-center relative">
-            <div className="login-brand-lockup my-auto flex flex-col items-center">
-              <div className="login-mark-stage relative flex items-center justify-center">
+            <motion.div variants={reduced ? undefined : entranceVariants} initial={reduced ? false : 'hidden'} animate="show" className="login-brand-lockup my-auto flex flex-col items-center">
+              <motion.div {...reveal} data-login-motion="mark" className="login-mark-stage relative flex items-center justify-center">
                 <span className="login-mark-backlight absolute inset-0 pointer-events-none" aria-hidden="true" />
                 <AegisMark size={180} theme={resolvedTheme} className="login-mark" />
-              </div>
+              </motion.div>
               <div className="login-brand-text">
-                <h1 lang="en" className="login-brand-name mt-3 text-3xl md:text-4xl font-bold tracking-tight leading-none">
+                <motion.h1 {...reveal} data-login-motion="wordmark" lang="en" className="login-brand-name mt-3 text-3xl md:text-4xl font-bold tracking-tight leading-none">
                   AEGIS
-                </h1>
-                <p lang="en" className="login-brand-tag mt-3 text-xs font-semibold tracking-widest uppercase text-balance leading-relaxed">
+                </motion.h1>
+                <motion.p {...reveal} data-login-motion="tagline" lang="en" className="login-brand-tag mt-3 text-xs font-semibold tracking-widest uppercase text-balance leading-relaxed">
                   {t('productTag')}
-                </p>
+                </motion.p>
               </div>
-            </div>
+            </motion.div>
           </div>
 
           {/* Right Panel: Sign-In Form */}
           <div className="login-form-panel w-full md:flex-1 p-6 md:p-10 flex flex-col justify-between">
-            <div>
-              <h2 className="login-title text-2xl font-bold tracking-tight">{t('loginTitle')}</h2>
-              <p className="login-subtitle text-sm mt-1 mb-6">{t('loginSubtitle')}</p>
+            <motion.div variants={reduced ? undefined : entranceVariants} initial={reduced ? false : 'hidden'} animate="show">
+              <motion.h2 {...reveal} data-login-motion="title" className="login-title text-2xl font-bold tracking-tight">{t('loginTitle')}</motion.h2>
+              <motion.p {...reveal} data-login-motion="subtitle" className="login-subtitle text-sm mt-1 mb-6">{t('loginSubtitle')}</motion.p>
 
-              <form onSubmit={(event) => { event.preventDefault(); submit() }} className={`login-form flex flex-col gap-4 ${shake ? 'shake-x' : ''}`}>
-                <div>
+              <motion.form variants={reduced ? undefined : entranceVariants} onSubmit={(event) => { event.preventDefault(); submit() }} className={`login-form flex flex-col gap-4 ${shake ? 'shake-x' : ''}`}>
+                <motion.div {...reveal} data-login-motion="username">
                   <label htmlFor="login-username" className="login-label block text-sm font-medium mb-1.5">
                     {t('username')}
                   </label>
@@ -232,9 +217,9 @@ export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme
                     required
                     className="login-input w-full h-12 px-4 rounded-xl focus:outline-none text-base"
                   />
-                </div>
+                </motion.div>
 
-                <div>
+                <motion.div {...reveal} data-login-motion="password">
                   <label htmlFor="login-password" className="login-label block text-sm font-medium mb-1.5">
                     {t('password')}
                   </label>
@@ -250,50 +235,56 @@ export function Login({ t, lang, setLang, theme, resolvedTheme = theme, setTheme
                       required
                       className="login-input w-full h-12 px-4 pr-14 rounded-xl focus:outline-none text-base"
                     />
-                    <button
+                    <motion.button
                       type="button"
                       aria-label={showPw ? t('hidePassword') : t('showPassword')}
                       onClick={() => setShowPw((v) => !v)}
+                      whileTap={reduced ? undefined : { scale: 0.96 }}
+                      transition={{ duration: reduced ? 0 : 0.12, ease: LOGIN_EASE }}
                       className="login-password-toggle absolute right-1 top-1/2 -translate-y-1/2 size-11 flex items-center justify-center rounded-lg transition-colors cursor-pointer"
                     >
                       {showPw ? <EyeOff size={16} strokeWidth={1.75} /> : <Eye size={16} strokeWidth={1.75} />}
-                    </button>
+                    </motion.button>
                   </div>
-                </div>
+                </motion.div>
 
-                <div className="login-remember-row flex items-center justify-between py-1">
+                <motion.div {...reveal} data-login-motion="remember" className="login-remember-row flex items-center justify-between py-1">
                   <span className="login-label text-sm font-medium">
                     {t('rememberSession')}
                   </span>
                   <Toggle on={remember} onChange={setRemember} label={t('rememberSession')} />
-                </div>
+                </motion.div>
 
-                <SparkleButton
+                <motion.div {...reveal} data-login-motion="submit">
+                  <SparkleButton
                   type="submit"
                   size="lg"
                   className="login-submit w-full mt-2"
                   disabled={busy || !username || !password}
                 >
                   {busy ? t('signingIn') : t('signIn')}
-                </SparkleButton>
+                  </SparkleButton>
+                </motion.div>
 
                 {errorKey && (
                   <p role="alert" aria-live="assertive" className="login-error text-sm font-semibold text-center mt-2">
                     {errorKey === 'lockout' ? t('lockout', { s: lockSec }) : t(errorKey)}
                   </p>
                 )}
-              </form>
-            </div>
+              </motion.form>
+            </motion.div>
 
             {/* Defense-in-Depth Security Status Layers with Staggered Entrance */}
             <motion.div
-              variants={layersContainerVariants}
+              variants={reduced ? undefined : entranceVariants}
               initial={reduced ? false : 'hidden'}
-              animate="show"
+              whileInView={reduced ? undefined : 'show'}
+              viewport={revealViewport}
+              data-login-motion="layers"
               className="login-layers flex flex-col gap-2 mt-6 pt-5"
             >
               {LAYERS.map((layer, i) => (
-                <LayerRow key={layer.id} t={t} layer={layer} status={statuses[i]} />
+                <LayerRow key={layer.id} t={t} layer={layer} status={statuses[i]} reduced={reduced} />
               ))}
             </motion.div>
           </div>

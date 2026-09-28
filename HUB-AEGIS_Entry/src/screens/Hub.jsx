@@ -106,14 +106,23 @@ export function Hub({ t, lang, setLang, theme, setTheme }) {
 
       {/* header — no session chrome: HUB has no user, no role, no logout. */}
       <header
-        className="relative flex items-center justify-between px-6 py-4 max-sm:px-4 border-b"
+        className="hub-topbar relative flex items-center justify-between px-6 py-4 max-sm:px-3 border-b"
         style={{ zIndex: 'var(--z-chrome)', borderColor: 'var(--hairline)' }}
       >
-        <div className="flex items-center gap-2.5 shrink-0">
-          <AegisMark size={28} />
-          <span className="font-bold text-[16px] tracking-[-0.02em] bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent max-sm:hidden">AEGIS</span>
-        </div>
-        <div className="flex items-center gap-3 max-sm:gap-1.5">
+        <motion.div
+          data-hub-brand
+          className="hub-brand-lockup"
+          initial={reduced ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: reduced ? 0 : 0.32, ease: EASE }}
+        >
+          <AegisMark size={38} className="hub-brand-mark" />
+          <div className="hub-brand-copy" lang="en">
+            <span className="hub-wordmark">AEGIS</span>
+            <span className="hub-brand-descriptor">EDGE-GUARD INFRASTRUCTURE</span>
+          </div>
+        </motion.div>
+        <div data-hub-controls className="flex items-center gap-3 max-sm:gap-1.5 shrink-0">
           <ThemeToggle theme={theme} setTheme={setTheme} t={t} />
           <Segmented
             ariaLabel={t('language')}
@@ -128,18 +137,19 @@ export function Hub({ t, lang, setLang, theme, setTheme }) {
       <main className="relative flex-1 flex flex-col justify-center items-center px-6 max-sm:px-5 py-16">
         <motion.div
           variants={indexParent}
-          initial="hidden"
+          initial={reduced ? false : 'hidden'}
           animate="show"
           className="w-full max-w-[1080px]"
         >
           <motion.div variants={indexChild}>
             <h1
+              lang="en"
               className="font-bold tracking-[-0.02em] text-ink leading-[1.2] text-balance"
               style={{ fontSize: 'clamp(30px, 4.6vw, 58px)' }}
             >
               {t('hubTitle')}
             </h1>
-            <p className="mt-3 text-[13px] font-medium tracking-[0.1em] text-ink-2">{t('selectModule')}</p>
+            <p className="hub-subtitle mt-3 text-[13px] font-medium tracking-[0.1em] text-ink-2">{t('selectModule')}</p>
           </motion.div>
 
           {/* gap-12: each card's bracket frame paints 1rem OUTSIDE its box. */}

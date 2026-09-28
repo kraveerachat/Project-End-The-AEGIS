@@ -105,7 +105,7 @@ after(async () => {
   await new Promise((ok) => server?.close(ok))
 })
 
-for (const width of [320, 375, 768, 1440]) {
+for (const width of [320, 375, 768, 1024, 1440]) {
   test(`R4 Drive login TH/EN/ZH geometry stable at ${width}px`, async () => {
     const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce' })
     const page = await context.newPage()
@@ -141,7 +141,7 @@ for (const width of [320, 375, 768, 1440]) {
   })
 }
 
-test('R4 Drive Login renders Monitor-authoritative beam, energy line, aura and chromatic card in both themes', async () => {
+test('R4 Drive Login preserves static atmosphere without Human-rejected travelling lines in both themes', async () => {
   const context = await browser.newContext({ reducedMotion: 'reduce' })
   const page = await context.newPage()
   try {
@@ -153,12 +153,16 @@ test('R4 Drive Login renders Monitor-authoritative beam, energy line, aura and c
         theme: document.documentElement.dataset.theme,
         beam: !!document.querySelector('.login-ambient-beam'),
         line: !!document.querySelector('.login-energy-line'),
+        trace: !!document.querySelector('[data-field-trace]'),
+        sweep: getComputedStyle(document.querySelector('.login-mark-stage'), '::after').content,
         aura: !!document.querySelector('[data-field-aura]'),
         border: getComputedStyle(document.querySelector('.login-card')).borderTopColor,
       }))
       assert.equal(visual.theme, theme)
       assert.equal(visual.beam, true)
-      assert.equal(visual.line, true)
+      assert.equal(visual.line, false)
+      assert.equal(visual.trace, false)
+      assert.ok(['none', 'normal'].includes(visual.sweep), 'no painted white logo sweep, even with motion disabled')
       assert.equal(visual.aura, true)
       assert.notEqual(visual.border, 'rgba(75, 112, 178, 0.22)')
       if (process.env.AEGIS_R4_SCREENSHOT_DIR) {
@@ -168,6 +172,165 @@ test('R4 Drive Login renders Monitor-authoritative beam, energy line, aura and c
     }
   } finally { await context.close() }
 })
+
+for (const width of [320, 375, 768, 1024, 1440]) {
+  for (const theme of ['light', 'dark']) {
+    test(`final polish Login/HUB ${theme} TH/EN/ZH geometry and legible brand at ${width}px`, async () => {
+      const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce' })
+      const page = await context.newPage()
+      await page.addInitScript((theme) => localStorage.setItem('aegis_shell_theme', theme), theme)
+      const rows = []
+      try {
+        for (const route of ['/drive/', '/']) {
+          await page.goto(`${origin}${route}`)
+          if (route === '/') await page.locator('.sparkle-btn').click()
+          await page.locator(route === '/' ? 'button.lum-card' : '.login-card').first().waitFor()
+          await page.evaluate(() => document.fonts.ready)
+          // Welcome's click position can leave the first mobile card hovered.
+          // Compare language geometry in the same (unhovered) interaction state.
+          await page.mouse.move(0, 0)
+          await page.waitForTimeout(400)
+          if (route === '/') {
+            const brand = await page.locator('header > div').first().evaluate((el) => {
+              const mark = el.querySelector('img').getBoundingClientRect()
+              const word = el.querySelector('.hub-wordmark')
+              const descriptor = el.querySelector('.hub-brand-descriptor')
+              return { mark: mark.width, word: word?.textContent, wordVisible: word && getComputedStyle(word).display !== 'none', descriptor: descriptor?.textContent, descriptorVisible: descriptor && getComputedStyle(descriptor).display !== 'none' }
+            })
+            assert.ok(brand.mark >= (width >= 640 ? 36 : 30), 'brand mark visibly larger than old 28px')
+            assert.equal(brand.word, 'AEGIS')
+            assert.equal(brand.wordVisible, true, 'mobile must not hide the project identity')
+            assert.equal(brand.descriptor, 'EDGE-GUARD INFRASTRUCTURE')
+            assert.equal(brand.descriptorVisible, width >= 640)
+          }
+          const measure = () => page.evaluate((route) => {
+            const selectors = route === '/' ? ['header', '[data-hub-brand]', '.hub-wordmark', '[data-hub-controls]', 'main', 'main h1', '.hub-subtitle', 'button.lum-card']
+              : ['.login-card', '.login-brand-panel', '.login-form-panel', '#login-username', '#login-password', '.login-submit', '.login-layers', '.login-top-controls', ...[0, 1, 2, 3].map((i) => `[data-layer-id="${i}"]`)]
+            const rects = Object.fromEntries(selectors.map((s) => {
+              const r = document.querySelector(s).getBoundingClientRect()
+              return [s, [r.x, r.y, r.width, r.height].map((n) => Math.round(n * 100) / 100)]
+            }))
+            const overflow = document.documentElement.scrollWidth > innerWidth
+            const clipped = [...document.querySelectorAll(route === '/' ? '.hub-wordmark,.hub-brand-descriptor,.lum-title,.lum-desc' : '.login-brand-tag,.login-subtitle,.login-layer-name,.login-layer-description,.login-layer-status')]
+              .filter((el) => getComputedStyle(el).display !== 'none' && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)).map((el) => el.className)
+            const overlap = route === '/' && rects['[data-hub-brand]'][0] + rects['[data-hub-brand]'][2] > rects['[data-hub-controls]'][0]
+            return { rects, overflow, clipped, overlap: Boolean(overlap), theme: document.documentElement.dataset.theme }
+          }, route)
+          const baseline = await measure()
+          if (route === '/drive/') {
+            await page.locator('#login-username').fill('retained-operator')
+            await page.locator('#login-password').fill('test-only-password')
+            await page.getByRole('switch').click()
+            await page.locator('.login-password-toggle').click()
+          }
+          for (const language of ['EN', 'ZH', 'TH', 'EN', 'ZH', 'TH']) {
+            await page.getByRole('radio', { name: language, exact: true }).click()
+            await page.evaluate(() => document.fonts.ready)
+            const actual = await measure()
+            assert.deepEqual(actual.rects, baseline.rects, `${route} ${theme} ${width} ${language} structural jump`)
+            assert.equal(actual.overflow, false, 'no horizontal overflow')
+            assert.deepEqual(actual.clipped, [], 'no clipped copy')
+            assert.equal(actual.overlap, false, 'brand and controls must not collide')
+            assert.equal(actual.theme, theme)
+            rows.push({ route, theme, width, language, ...actual })
+            if (route === '/drive/') {
+              assert.equal(await page.locator('#login-username').inputValue(), 'retained-operator')
+              assert.equal(await page.locator('#login-password').inputValue(), 'test-only-password')
+              assert.equal(await page.getByRole('switch').getAttribute('aria-checked'), 'true')
+              assert.equal(await page.locator('#login-password').getAttribute('type'), 'text')
+            }
+          }
+          const toggle = page.locator(route === '/' ? '[data-hub-controls] > button[aria-label]' : '.theme-toggle')
+          await toggle.click()
+          assert.deepEqual((await measure()).rects, baseline.rects, 'theme toggle must not move structural geometry')
+          await toggle.click()
+          await page.mouse.move(0, 0)
+          await page.waitForTimeout(400) // Capture settled theme colours, not their existing transition.
+          if (process.env.AEGIS_R4_SCREENSHOT_DIR) {
+            await mkdir(process.env.AEGIS_R4_SCREENSHOT_DIR, { recursive: true })
+            await page.screenshot({ path: resolve(process.env.AEGIS_R4_SCREENSHOT_DIR, `polish-${route === '/' ? 'hub' : 'login'}-${theme}-${width}.png`), fullPage: true })
+          }
+        }
+        if (process.env.AEGIS_R4_SCREENSHOT_DIR) {
+          const { writeFile } = await import('node:fs/promises')
+          await writeFile(resolve(process.env.AEGIS_R4_SCREENSHOT_DIR, `geometry-${theme}-${width}.json`), JSON.stringify(rows, null, 2))
+        }
+      } finally { await context.close() }
+    })
+  }
+}
+
+for (const theme of ['light', 'dark']) {
+for (const reducedMotion of ['no-preference', 'reduce']) {
+  test(`final polish live login motion, immediate input and one-time lower reveal (${theme}, ${reducedMotion})`, async () => {
+    const context = await browser.newContext({ viewport: { width: 375, height: 640 }, reducedMotion })
+    const page = await context.newPage()
+    await page.addInitScript(() => {
+      window.__loginRevealSamples = []
+      const start = performance.now()
+      const sample = () => {
+        const items = [...document.querySelectorAll('[data-login-motion]')].map((el) => ({ name: el.dataset.loginMotion, opacity: Number(getComputedStyle(el).opacity), y: new DOMMatrixReadOnly(getComputedStyle(el).transform).m42 }))
+        if (items.length) window.__loginRevealSamples.push({ at: performance.now() - start, items })
+        if (performance.now() - start < 2500) requestAnimationFrame(sample)
+      }
+      requestAnimationFrame(sample)
+    })
+    await page.addInitScript((theme) => localStorage.setItem('aegis_shell_theme', theme), theme)
+    try {
+      await page.goto(`${origin}/drive/`)
+      await page.locator('#login-username').waitFor()
+      assert.equal(await page.locator('#login-username').isEnabled(), true)
+      assert.equal(await page.locator('#login-password').isEnabled(), true)
+      await page.locator('#login-username').fill('typing-during-entry')
+      await page.locator('#login-password').fill('test-only-password')
+      await page.waitForTimeout(700)
+      const names = await page.locator('[data-login-motion]').evaluateAll((els) => els.map((el) => el.dataset.loginMotion))
+      for (const name of ['mark', 'wordmark', 'tagline', 'title', 'subtitle', 'username', 'password', 'remember', 'submit', 'layers', 'controls']) assert.ok(names.includes(name), `${name} motion group missing`)
+      const samples = await page.evaluate(() => window.__loginRevealSamples)
+      if (reducedMotion === 'no-preference') {
+        assert.ok(samples.some((s) => s.items.some((i) => i.name === 'wordmark' && i.opacity < 1 && i.y > 0)), 'actual restrained reveal must run')
+        assert.ok(samples.some((s) => {
+          const username = s.items.find((i) => i.name === 'username')
+          const password = s.items.find((i) => i.name === 'password')
+          return username && password && username.opacity > password.opacity + 0.05
+        }), 'field groups arrive in logical stagger order')
+      } else assert.ok(samples.every((s) => s.items.every((i) => i.y === 0 && i.opacity === 1)), 'reduced motion never starts a translated/hidden reveal')
+      await page.locator('.login-layers').scrollIntoViewIfNeeded()
+      await page.waitForTimeout(700)
+      const settled = () => page.locator('.login-layer-row').evaluateAll((els) => els.map((el) => ({ opacity: Number(getComputedStyle(el).opacity), y: new DOMMatrixReadOnly(getComputedStyle(el).transform).m42 })))
+      assert.deepEqual(await settled(), Array(4).fill({ opacity: 1, y: 0 }))
+      await page.evaluate(() => scrollTo(0, 0))
+      await page.waitForTimeout(100)
+      await page.locator('.login-layers').scrollIntoViewIfNeeded()
+      assert.deepEqual(await settled(), Array(4).fill({ opacity: 1, y: 0 }), 'scroll back must not replay lower rows')
+      assert.equal(await page.locator('#login-username').inputValue(), 'typing-during-entry')
+      const visibility = page.locator('.login-password-toggle')
+      const position = () => visibility.evaluate((el) => {
+        const control = el.getBoundingClientRect()
+        const input = document.querySelector('#login-password').getBoundingClientRect()
+        return { centerOffset: Math.abs(control.y + control.height / 2 - input.y - input.height / 2), scale: new DOMMatrixReadOnly(getComputedStyle(el).transform).a }
+      })
+      assert.ok((await position()).centerOffset < 1, 'visibility control stays centered')
+      await visibility.hover()
+      await page.mouse.down()
+      await page.waitForTimeout(160)
+      const pressed = await position()
+      assert.ok(pressed.centerOffset < 1, 'press motion must not replace vertical positioning')
+      if (reducedMotion === 'no-preference') assert.ok(pressed.scale < 1, 'visibility control gives restrained press feedback')
+      else assert.equal(pressed.scale, 1, 'reduced motion suppresses press transform')
+      await page.mouse.up()
+      await page.locator('#login-password').focus()
+      await page.keyboard.press('Tab')
+      assert.equal(await visibility.evaluate((el) => el.matches(':focus-visible')), true)
+      assert.notEqual(await visibility.evaluate((el) => getComputedStyle(el).outlineStyle), 'none', 'keyboard focus remains visible')
+      const sweep = await page.locator('.login-mark-stage').evaluate((el) => getComputedStyle(el, '::after').content)
+      assert.ok(['none', 'normal'].includes(sweep))
+      const continuous = await page.evaluate(() => document.getAnimations().filter((a) => a.effect?.getTiming().iterations === Infinity && a.playState === 'running').length)
+      assert.equal(continuous, 0, 'readable login has no continuous decorative movement')
+    } finally { await context.close() }
+  })
+}
+}
 
 test('R4 real entry flow: HUB and Monitor Login exchange one shell theme', async () => {
   const context = await browser.newContext({ reducedMotion: 'reduce' })

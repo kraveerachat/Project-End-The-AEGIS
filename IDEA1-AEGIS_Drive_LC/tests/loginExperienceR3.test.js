@@ -97,7 +97,10 @@ test('R3 security field uses one decorative field and a native sign-in form', as
     assert.ok(field, 'login surface exposes the coordinated security field')
     assert.equal(field.getAttribute('data-motion'), 'reduced')
     assert.ok(field.querySelector('[data-field-aura][aria-hidden="true"]'))
-    assert.ok(field.querySelector('[data-field-trace][aria-hidden="true"]'))
+    assert.equal(Boolean(field.querySelector('[data-field-trace]')), false, 'Human-rejected linear trace must not return')
+    assert.ok(document.querySelector('.login-dot-field[aria-hidden="true"]'))
+    assert.ok(document.querySelector('.login-ambient-beam[aria-hidden="true"]'))
+    assert.equal(Boolean(document.querySelector('.login-energy-line')), false, 'no travelling energy line across authentication')
     const form = document.querySelector('form')
     assert.ok(form, 'Enter uses the native form submission path')
     assert.equal(form.querySelector('button[type="submit"]')?.disabled, true)
@@ -140,8 +143,25 @@ test('R3 light/dark field tokens and reduced-motion fallback are scoped to login
   assert.match(css, /\.login-shell\s*\{[^}]*--login-haze:/s)
   assert.match(css, /:root\[data-theme="dark"\] \.login-shell\s*\{[^}]*--login-haze:/s)
   assert.match(css, /\.login-field-aura\s*\{/)
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*\.login-field-trace,[^}]*animation: none !important/s)
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)\s*\{[^}]*\.login-mark-backlight,[^}]*animation: none !important/s)
   assert.match(css, /@media \(max-width: 767px\)[\s\S]*?\.login-mark\s*\{[^}]*width: 68px/s)
+})
+
+test('final polish reduced-motion reveal keeps every login group visible and credentials immediately usable', async () => {
+  const app = await mountLogin()
+  try {
+    await app.render()
+    for (const name of ['mark', 'wordmark', 'tagline', 'title', 'subtitle', 'username', 'password', 'remember', 'submit', 'layers', 'controls']) {
+      const group = document.querySelector(`[data-login-motion="${name}"]`)
+      assert.ok(group, `${name} has its own restrained reveal group`)
+      assert.notEqual(group.style.opacity, '0', `${name} is not gated behind motion`)
+    }
+    assert.equal(document.getElementById('login-username').disabled, false)
+    assert.equal(document.getElementById('login-password').disabled, false)
+    await app.input('login-username', 'immediate-input')
+    await app.input('login-password', 'test-only-password')
+    assert.equal(document.querySelector('button[type="submit"]').disabled, false)
+  } finally { await app.cleanup() }
 })
 
 for (const [status, data, expectedLayer, expectedCopy] of [
