@@ -173,6 +173,55 @@ def test_v5_refuses_when_broker_is_not_crashlooping(tmp_path: Path) -> None:
     assert fx.mutating_calls() == []
 
 
+def test_v5_refuses_permanently_failed_broker_distinct_from_crashloop(tmp_path: Path) -> None:
+    """A broker that has given up (Result=start-limit-hit, ActiveState=failed) is not the same PRE-state as
+    one still between auto-restart attempts, even though both have MainPID=0."""
+    fx = v5(tmp_path, broker_crashloop_override={"ActiveState": "failed", "SubState": "failed", "Result": "start-limit-hit"})
+    res = fx.run(APPLY)
+    assert res.returncode == 1 and "L34_V5_BROKER_PRESTATE_UNEXPECTED" in res.stderr
+    assert fx.mutating_calls() == []
+
+
+def test_v5_refuses_healthy_broker_at_the_crashloop_gate(tmp_path: Path) -> None:
+    """An already active/running broker is outside V5's one supported precondition, checked directly at the
+    broker gate (independent of test_v5_rejects_the_healthy_v4_baseline, which exercises the combined V4
+    dnsmasq+broker-already-healthy baseline via the dnsmasq gate instead)."""
+    fx = v5(tmp_path, broker_crashloop_override={"ActiveState": "active", "SubState": "running", "Result": "success", "MainPID": "4242"})
+    res = fx.run(APPLY)
+    assert res.returncode == 1 and "L34_V5_BROKER_PRESTATE_UNEXPECTED" in res.stderr
+    assert fx.mutating_calls() == []
+
+
+def test_v5_refuses_wrong_broker_result(tmp_path: Path) -> None:
+    """Blocker 1: the crash-loop gate must check Result=, not just Load/Active/SubState. A signal-killed or
+    timed-out process is not the plain non-zero-exit baseline V5 supports."""
+    for bad_result in ("signal", "timeout", "core-dump"):
+        fx = v5(tmp_path / bad_result, broker_crashloop_override={"Result": bad_result})
+        res = fx.run(APPLY)
+        assert res.returncode == 1 and "L34_V5_BROKER_PRESTATE_UNEXPECTED:Result" in res.stderr, bad_result
+        assert fx.mutating_calls() == []
+
+
+def test_v5_refuses_wrong_broker_restart_substate(tmp_path: Path) -> None:
+    """A unit in its FIRST start attempt (SubState=start) is not the same as one between bounded auto-restart
+    attempts (SubState=auto-restart) — V5 must not treat a first-start hang as its supported baseline."""
+    fx = v5(tmp_path, broker_crashloop_override={"SubState": "start"})
+    res = fx.run(APPLY)
+    assert res.returncode == 1 and "L34_V5_BROKER_PRESTATE_UNEXPECTED:SubState" in res.stderr
+    assert fx.mutating_calls() == []
+
+
+def test_v5_refuses_unrelated_broker_failure_despite_matching_systemd_tuple(tmp_path: Path) -> None:
+    """Blocker 1 (core case): a broker crash-looping for an UNRELATED reason (bad TLS cert, here) presents the
+    IDENTICAL systemd LoadState/ActiveState/SubState/UnitFileState/Result/MainPID tuple as the intended
+    'AP-facing bind address absent' baseline. Only the journal evidence can tell them apart, and V5 must refuse
+    before any mutation when that signature is missing."""
+    fx = v5(tmp_path, broker_crashloop_cause="tls_cert_error")
+    res = fx.run(APPLY)
+    assert res.returncode == 1 and "L34_V5_BROKER_JOURNAL_SIGNATURE_MISSING" in res.stderr
+    assert fx.mutating_calls() == []
+
+
 def test_v5_persistent_file_rewrite_is_detected(tmp_path: Path) -> None:
     fx = v5(tmp_path)
     applied(fx)
@@ -222,6 +271,47 @@ def test_v5_apply_fails_if_broker_never_recovers(tmp_path: Path) -> None:
     assert res.returncode == 1 and "L34_V5_BROKER_DID_NOT_RECOVER" in res.stderr
 
 
+def test_v5_apply_requires_nrestarts_increase_as_recovery_evidence(tmp_path: Path) -> None:
+    """Blocker 2: broker-identity-pre.txt must serve a real verified purpose. If the broker LOOKS
+    active/running with exact listeners but NRestarts never increased from the PRE snapshot (i.e. the one
+    piece of evidence that would prove a genuine systemd auto-restart happened is absent), apply must refuse
+    rather than print an unbacked recovery claim."""
+    fx = v5(tmp_path, broker_recovered_override={"NRestarts": str(sim.DEFAULT_STATE["broker_nrestarts_pre"])})
+    res = fx.run(APPLY)
+    assert res.returncode == 1 and "L34_V5_BROKER_NRESTARTS_DID_NOT_INCREASE" in res.stderr
+
+
+def test_v5_dnsmasq_syntax_validation_blocks_before_any_mutation(tmp_path: Path) -> None:
+    """Finding 4: V5 must restore V3's dnsmasq `--test --conf-file` syntax validation, read-only, before the
+    first mutation."""
+    fx = v5(tmp_path, dnsmasq_syntax_ok=False)
+    res = fx.run(APPLY)
+    assert res.returncode == 1 and "DNSMASQ_CONFIG_SYNTAX_FAIL" in res.stderr
+    assert fx.mutating_calls() == []
+
+
+def test_v5_target_state_lookup_uses_ap_if_not_a_hardcoded_literal(tmp_path: Path) -> None:
+    """Finding 6: the NetworkManager snapshot lookup must key off $AP_IF, not a hardcoded 'wlp0s20f3' literal,
+    even though the earlier hard gate currently forces AP_IF to equal that one value."""
+    text = code(APPLY)
+    assert re.search(r'''awk -F: -v ifc="\$AP_IF" '\$1 == ifc''', text), "target_state lookup must use $AP_IF via awk -v, not a literal"
+    assert not re.search(r'''awk -F: '\$1 == "wlp0s20f3"''', text), "target_state lookup must not hardcode the interface name"
+
+
+def test_v5_production_mutation_marker_write_is_guarded_and_ordered_first(tmp_path: Path) -> None:
+    """Blocker 3: the marker write must be guarded (`|| fail`, not a bare redirect under set -uo pipefail with
+    no -e) and must appear, in source order, before the first mutating nmcli/systemctl command — so a failed
+    write is caught and nothing is ever mutated. A real disk-failure injection was judged impractical/flaky in
+    this stub-command harness (file I/O itself is never stubbed, only host commands are), so this is a static
+    regression test on the guard and its ordering instead."""
+    text = APPLY.read_text()
+    m = re.search(r'''printf 'YES\\n' > "\$WORK/production-mutation" \|\| fail (\S+)''', text)
+    assert m, "production-mutation marker write must be guarded with || fail"
+    marker_pos = m.start()
+    first_mutation = re.search(r'''\bnmcli device set "\$AP_IF" autoconnect no \|\| fail''', text)
+    assert first_mutation and first_mutation.start() > marker_pos, "guarded marker write must precede the first mutation"
+
+
 # ── 4. POST verification ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 
@@ -239,6 +329,27 @@ def test_v5_no_esp32_l7_or_mqtt_action_claimed_in_verify_output(tmp_path: Path) 
     ver = fx.run(VERIFY)
     assert ver.returncode == 0
     assert "ESP32" not in ver.stdout and "RESTORE" not in ver.stdout and "L7" not in ver.stdout
+
+
+def test_v5_verify_does_not_overclaim_broker_causality(tmp_path: Path) -> None:
+    """Blocker 2: verify.sh must not print a stronger causal claim ('never commanded') than what is actually
+    observed. It may claim only that it issued no broker command and that NRestarts increased consistent with
+    an automatic restart."""
+    fx = v5(tmp_path)
+    applied(fx)
+    ver = fx.run(VERIFY)
+    assert ver.returncode == 0, ver.stdout + ver.stderr
+    assert "never commanded" not in ver.stdout
+    assert "this run issued no broker service-control command" in ver.stdout
+    assert "NRestarts increased" in ver.stdout
+
+
+def test_v5_verify_requires_nrestarts_increase_as_recovery_evidence(tmp_path: Path) -> None:
+    fx = v5(tmp_path)
+    applied(fx)
+    fx.set(broker_recovered_override={"NRestarts": str(sim.DEFAULT_STATE["broker_nrestarts_pre"])})
+    ver = fx.run(VERIFY)
+    assert ver.returncode == 1 and "L34_V5_BROKER_NRESTARTS_DID_NOT_INCREASE" in ver.stderr
 
 
 # ── 5. rollback ───────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -286,6 +397,21 @@ def test_v5_rollback_escalates_on_unrelated_wifi_activation(tmp_path: Path) -> N
     res = fx.run(ROLLBACK)
     assert res.returncode == 1
     assert "ESCALATE" in res.stderr
+
+
+def test_v5_rollback_tears_down_ap_even_though_broker_already_recovered(tmp_path: Path) -> None:
+    """Finding 5: the intended fail-closed rollback contract is a one-way return to the exact PRE degraded
+    state, not a 'leave the broker healthy' contract. After a full successful apply the broker IS active/
+    running; rollback must still tear the AP connection down (removing its bind address) exactly as it would
+    for an unrecovered broker, and must say so honestly rather than implying broker health survives."""
+    fx = v5(tmp_path)
+    applied(fx)
+    assert sim.load(fx.simd)["ap_active"] == 1
+    res = fx.run(ROLLBACK)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "nmcli connection down aegis-idea3-ap" in fx.mutating_calls()
+    assert sim.load(fx.simd)["ap_active"] == 0
+    assert "typically returns it to crash-looping" in res.stdout
 
 
 def test_v5_rollback_never_reblocks_rfkill_or_touches_radio(tmp_path: Path) -> None:

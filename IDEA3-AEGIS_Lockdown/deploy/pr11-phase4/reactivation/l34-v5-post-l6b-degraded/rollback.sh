@@ -12,9 +12,13 @@
 # returns to a safe non-running state), never rewrites the profile, dnsmasq config/unit, broker config or the nft
 # file, and NEVER touches rfkill, the global NM Wi-Fi radio, or aegis-idea3-mosquitto.service (no
 # start/stop/restart/reset-failed of it — apply.sh never journaled a mutation against it, because it never issued
-# one; the broker's post-rollback state is whatever its own systemd auto-restart left it in, and this rollback makes
-# no claim about it either way). If, after the connection-down, a DIFFERENT (unrelated) Wi-Fi profile is found active
-# on wlp0s20f3, this rollback FAILS CLOSED and ESCALATES rather than touching that unrelated profile.
+# one). This IS the intended fail-closed rollback contract, and it is a one-way return to the exact PRE-mutation
+# degraded state, NOT a "leave things healthy" contract: tearing the AP connection down removes the 10.77.30.1
+# address the broker (if it had already recovered) is bound to, so the broker will typically resume crash-looping
+# afterward exactly as it was before this run — because V5 must never issue a broker service-control command even
+# during rollback, it has no way to prevent that, and does not try to. If, after the connection-down, a DIFFERENT
+# (unrelated) Wi-Fi profile is found active on wlp0s20f3, this rollback FAILS CLOSED and ESCALATES rather than
+# touching that unrelated profile.
 set -uo pipefail
 export LC_ALL=C
 
@@ -122,7 +126,7 @@ cmp -s "$WORK/identities-pre.txt" "$WORK/identities-rollback.txt" || fail LEGACY
 printf 'L34_V5_ROLLBACK=PASS\n'
 printf 'AP_ACTIVE=NO\n'
 printf 'DNSMASQ_RUNNING=NO\n'
-printf 'L6B_BROKER_TOUCHED=NO (never commanded by apply.sh; final state is whatever systemd auto-restart left it in)\n'
+printf 'L6B_BROKER_TOUCHED=NO (never commanded; tearing the AP down typically returns it to crash-looping, same as PRE)\n'
 printf 'RFKILL_TOUCHED=NO\n'
 printf 'NM_RADIO_TOUCHED=NO\n'
 printf 'PERSISTENT_FILES_UNCHANGED=YES\n'

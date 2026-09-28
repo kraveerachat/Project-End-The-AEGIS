@@ -14,7 +14,7 @@ import stat
 import sys
 from pathlib import Path
 
-COMMANDS = ("rfkill", "nmcli", "iw", "ip", "nft", "sysctl", "systemctl", "ss", "dnsmasq")
+COMMANDS = ("rfkill", "nmcli", "iw", "ip", "nft", "sysctl", "systemctl", "ss", "dnsmasq", "journalctl")
 
 NFT_GOOD = """table inet aegis_idea3 {
 \tchain input {
@@ -93,6 +93,10 @@ DEFAULT_STATE = {
     "broker_crashloop_recovers_after_ap": True,   # V5 only (broker_mode="crashloop_until_ap"): recovers once ap_active is true
     "broker_pid": 5100,
     "broker_nrestarts_pre": 182,      # V5 crashloop PRE: NRestarts already high (many auto-restart attempts since boot)
+    "broker_crashloop_cause": "ap_bind_missing",  # V5 crashloop journal signature: "ap_bind_missing" | anything else = unrelated cause
+    "broker_crashloop_override": {},  # V5 crashloop PRE: per-key systemctl-show overrides (e.g. {"Result": "signal"})
+    "broker_recovered_override": {},  # V5 crashloop POST (recovered): per-key systemctl-show overrides (e.g. {"NRestarts": "..."})
+    "dnsmasq_syntax_ok": True,        # `dnsmasq --test --conf-file=...` result
 }
 
 WRAPPER = "#!/usr/bin/env bash\nexec {python} {sim} {name} \"$@\"\n"
@@ -206,11 +210,15 @@ def _broker_props(s: dict) -> dict[str, str]:
     never started/stopped/restarted by any stub command, purely a function of ap_active (systemd's own
     auto-restart, driven by the bind address becoming available)."""
     if _broker_crashloop_recovered(s):
-        return {"LoadState": "loaded", "ActiveState": "active", "SubState": "running", "UnitFileState": "enabled",
-                "Result": "success", "MainPID": str(s["broker_pid"]), "NRestarts": str(s["broker_nrestarts_pre"] + 1),
-                "ExecMainStartTimestamp": "Sun 2026-09-28 17:24:40 +07"}
-    return {"LoadState": "loaded", "ActiveState": "activating", "SubState": "auto-restart", "UnitFileState": "enabled",
+        recovered = {"LoadState": "loaded", "ActiveState": "active", "SubState": "running", "UnitFileState": "enabled",
+                     "Result": "success", "MainPID": str(s["broker_pid"]), "NRestarts": str(s["broker_nrestarts_pre"] + 1),
+                     "ExecMainStartTimestamp": "Sun 2026-09-28 17:24:40 +07"}
+        recovered.update(s["broker_recovered_override"])
+        return recovered
+    base = {"LoadState": "loaded", "ActiveState": "activating", "SubState": "auto-restart", "UnitFileState": "enabled",
             "Result": "exit-code", "MainPID": "0", "NRestarts": str(s["broker_nrestarts_pre"]), "ExecMainStartTimestamp": ""}
+    base.update(s["broker_crashloop_override"])
+    return base
 
 
 def _unit_props(s: dict, unit: str) -> dict[str, str]:
@@ -383,7 +391,11 @@ def main(argv: list[str]) -> int:
             rc = 99
     elif name == "dnsmasq":
         if args and args[0] == "--test":
-            out = ["dnsmasq: syntax check OK."]
+            if s["dnsmasq_syntax_ok"]:
+                out = ["dnsmasq: syntax check OK."]
+            else:
+                out = ["dnsmasq: bad option at line 4 of /etc/aegis-idea3/dnsmasq-ap.conf"]
+                rc = 1
         else:
             rc = 99
     elif name == "systemctl":
@@ -430,6 +442,24 @@ def main(argv: list[str]) -> int:
             out = udp
         elif args == ["-H", "-ltn", "sport = :8883"]:
             out = [l for l in tcp if l.endswith(":8883 0.0.0.0:*")]
+        else:
+            rc = 99
+    elif name == "journalctl":
+        # bounded, read-only tail: `journalctl -u UNIT -n N --no-pager` (V5 broker crash-loop cause evidence only)
+        if args[:1] == ["-u"] and "--no-pager" in args:
+            unit = args[1]
+            if unit == "aegis-idea3-mosquitto.service" and s["broker_mode"] == "crashloop_until_ap" \
+                    and not _broker_crashloop_recovered(s):
+                if s["broker_crashloop_cause"] == "ap_bind_missing":
+                    out = ["mosquitto[7579]: Opening ipv4 listen socket on port 8883.",
+                           "mosquitto[7579]: Error: Cannot assign requested address",
+                           "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
+                else:
+                    out = ["mosquitto[7579]: Error: Unable to load server certificate "
+                           "\"/etc/aegis-idea3/pki/mqtt-server.crt\".",
+                           "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
+            else:
+                out = ["-- No entries --"]
         else:
             rc = 99
     else:

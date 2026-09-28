@@ -61,7 +61,7 @@ if [ -z "$ROOT" ]; then
 else
   # Fixture mode drives the SAME code path, so every command must be a test stub: refuse to run against real host tools.
   [ -n "${AEGIS_L34_STUB_DIR:-}" ] || fail FIXTURE_REQUIRES_STUB_DIR
-  for c in rfkill nmcli iw ip nft sysctl systemctl ss dnsmasq; do
+  for c in rfkill nmcli iw ip nft sysctl systemctl ss dnsmasq journalctl; do
     [[ "$(command -v "$c" 2>/dev/null)" == "$AEGIS_L34_STUB_DIR"/* ]] || fail "FIXTURE_COMMAND_NOT_STUBBED:$c"
   done
 fi
@@ -81,6 +81,7 @@ l34_profile_gate "$profile" || fail "$(l34_profile_gate "$profile" 2>&1 | head -
 l34_profile_effective_gate || fail "$(l34_profile_effective_gate 2>&1 | head -n 1)"
 l34_dnsmasq_conf_gate "$conf" || fail "$(l34_dnsmasq_conf_gate "$conf" 2>&1 | head -n 1)"
 l34_dnsmasq_unit_gate "$unit_file" "$EXAMPLE_UNIT" || fail L34_DNSMASQ_UNIT_NOT_ACCEPTED_AUTHORITY
+dnsmasq --test --conf-file="$conf" >/dev/null 2>&1 || fail DNSMASQ_CONFIG_SYNTAX_FAIL
 [ -f "$broker_conf" ] && [ ! -L "$broker_conf" ] || fail L34_V5_BROKER_CONF_MISSING
 l34_persistent_snapshot "$WORK/persistent-pre.tsv" "$profile" "$conf" "$unit_file" "$broker_conf" || fail L34_PERSISTENT_SNAPSHOT_FAILED
 
@@ -95,7 +96,7 @@ l34_v4_rfkill_ready_gate || fail "$(l34_v4_rfkill_ready_gate 2>&1 | head -n 1)"
 
 radio_pre=$(nmcli radio wifi 2>/dev/null || true)
 nm_snapshot=$(l34_nm_status_snapshot) || fail L34_NM_DEVICE_INVENTORY_UNREADABLE
-target_state=$(awk -F: '$1 == "wlp0s20f3" { split($3, w, " "); print w[1] }' <<< "$nm_snapshot")
+target_state=$(awk -F: -v ifc="$AP_IF" '$1 == ifc { split($3, w, " "); print w[1] }' <<< "$nm_snapshot")
 p2p_inventory=$(l34_p2p_inventory <<< "$nm_snapshot")
 wifi_devices=$(l34_wifi_devices <<< "$nm_snapshot")
 wpa_props=$(systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID wpa_supplicant.service)
@@ -111,7 +112,9 @@ l34_v4_autoconnect_pre_gate "$dev_ac_pre" "$ap_profile_ac" \
 unit_props "$DNSMASQ_UNIT" > "$WORK/dnsmasq-pre.txt" || fail L34_DNSMASQ_SHOW_FAILED
 l34_service_pre_gate < "$WORK/dnsmasq-pre.txt" || fail "$(l34_service_pre_gate < "$WORK/dnsmasq-pre.txt" 2>&1 | head -n 1)"
 unit_props "$BROKER_UNIT" > "$WORK/broker-pre.txt" || fail L34_V5_BROKER_SHOW_FAILED
-l34_v5_broker_crashloop_gate < "$WORK/broker-pre.txt" || fail "$(l34_v5_broker_crashloop_gate < "$WORK/broker-pre.txt" 2>&1 | head -n 1)"
+journalctl -u "$BROKER_UNIT" -n 30 --no-pager > "$WORK/broker-journal-pre.txt" 2>&1 || fail L34_V5_BROKER_JOURNAL_UNREADABLE
+l34_v5_broker_crashloop_gate "$WORK/broker-journal-pre.txt" < "$WORK/broker-pre.txt" \
+  || fail "$(l34_v5_broker_crashloop_gate "$WORK/broker-journal-pre.txt" < "$WORK/broker-pre.txt" 2>&1 | head -n 1)"
 l34_v4_identity_snapshot "$BROKER_UNIT" "$WORK/broker-identity-pre.txt" || fail L34_V5_BROKER_IDENTITY_UNREADABLE
 
 for u in mosquitto.service twingate.service aegis-detection-engine.service aegis-detection-tunnel.service; do
@@ -126,8 +129,11 @@ if [ "${AEGIS_L34_PREFLIGHT_ONLY:-NO}" = YES ]; then
 fi
 
 # ── 3. FIRST runtime mutation (the runner takes its PRE capture before calling this handler) ─────────────────────────────
+# The marker must be written and confirmed BEFORE any mutating command: rollback_flow() decides whether rollback.sh
+# needs to run by testing for this file's existence, so a silently-failed write here would leave a mutated host with
+# no rollback attempted and no operator warning. Fail closed, before touching nmcli/systemctl, if it cannot be written.
+printf 'YES\n' > "$WORK/production-mutation" || fail PRODUCTION_MUTATION_MARKER_WRITE_FAILED
 printf 'PRODUCTION_MUTATION_PERFORMED=YES\n'
-printf 'YES\n' > "$WORK/production-mutation"
 
 # 3a. temporarily disable device autoconnect (PRE value restored below), so no remembered autoconnect Wi-Fi profile can
 # race the one deliberate activation below.
@@ -174,6 +180,8 @@ for ((i = 1; i <= BROKER_TRIES; i++)); do
 done
 [ "$broker_ok" = 0 ] || fail "L34_V5_BROKER_DID_NOT_RECOVER:$(unit_props "$BROKER_UNIT" | l34_v4_service_active_gate "$BROKER_UNIT" 2>&1 | head -n 1)"
 l34_v4_broker_listeners_gate "$L34_AP_ADDR" || fail "$(l34_v4_broker_listeners_gate "$L34_AP_ADDR" 2>&1 | head -n 1)"
+l34_v5_broker_autorestart_evidence "$BROKER_UNIT" "$WORK/broker-identity-pre.txt" \
+  || fail "$(l34_v5_broker_autorestart_evidence "$BROKER_UNIT" "$WORK/broker-identity-pre.txt" 2>&1 | head -n 1)"
 
 # 3f. preservation proof: the broker config itself, and every other accepted persistent artifact, were never rewritten
 l34_persistent_verify "$WORK/persistent-pre.tsv" || fail "$(l34_persistent_verify "$WORK/persistent-pre.tsv" 2>&1 | head -n 1)"

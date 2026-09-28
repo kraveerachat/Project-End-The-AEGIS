@@ -78,16 +78,22 @@ unit_props "$DNSMASQ_UNIT" | l34_service_active_gate \
   || fail "$(unit_props "$DNSMASQ_UNIT" | l34_service_active_gate 2>&1 | head -n 1)"
 l34_v4_dnsmasq_listeners_gate "$AP_IF" "$L34_AP_ADDR" || fail "$(l34_v4_dnsmasq_listeners_gate "$AP_IF" "$L34_AP_ADDR" 2>&1 | head -n 1)"
 
-# the L6b broker: now active/running with its exact expected listeners, recovered ONLY via its own systemd
-# auto-restart (this handler never issued start/stop/restart/reset-failed against it)
+# the L6b broker: now active/running with its exact expected listeners. This handler never issued
+# start/stop/restart/reset-failed against it (structurally true — enforced by a static regression test); the
+# NRestarts-increase check is the real, positive evidence that a genuine systemd auto-restart occurred in the
+# window (systemd only increments NRestarts for its own automatic Restart= restarts, never for a manual
+# command). Neither fact alone, nor together, proves no OTHER actor also issued a command during the same
+# window — the printed claim below says only what was actually observed, not more.
 unit_props "$BROKER_UNIT" | l34_v4_service_active_gate "$BROKER_UNIT" \
   || fail "$(unit_props "$BROKER_UNIT" | l34_v4_service_active_gate "$BROKER_UNIT" 2>&1 | head -n 1)"
 l34_v4_broker_listeners_gate "$L34_AP_ADDR" || fail "$(l34_v4_broker_listeners_gate "$L34_AP_ADDR" 2>&1 | head -n 1)"
+l34_v5_broker_autorestart_evidence "$BROKER_UNIT" "$WORK/broker-identity-pre.txt" \
+  || fail "$(l34_v5_broker_autorestart_evidence "$BROKER_UNIT" "$WORK/broker-identity-pre.txt" 2>&1 | head -n 1)"
 
 printf 'L34_V5_VERIFY=PASS\n'
 printf 'AP_RUNTIME=ACTIVE SSID=%s CHANNEL=%s ADDRESS=%s/%s\n' "$L34_SSID" "$L34_CHANNEL" "$L34_AP_ADDR" "$L34_AP_PREFIX"
 printf 'DNSMASQ=ACTIVE_RUNNING (reactivated this run)\n'
-printf 'L6B_BROKER=ACTIVE_RUNNING (recovered via systemd auto-restart, never commanded)\n'
+printf 'L6B_BROKER=ACTIVE_RUNNING (was in the approved auto-restart pre-state; this run issued no broker service-control command; NRestarts increased consistent with an automatic restart; became active during the bounded wait)\n'
 printf 'PERSISTENT_FILES_UNCHANGED=YES\n'
 printf 'UNRELATED_WIFI_ACTIVE=NO\n'
 printf 'L2_UNCHANGED=YES\n'
