@@ -28,6 +28,7 @@ class AgentSessionClient:
         if http is None:
             import requests
             http = requests.Session()
+            http.trust_env = False
         self._http = http
         self._now_ms = now_ms or (lambda: int(time.time() * 1000))
         self._lock = threading.RLock()
@@ -67,6 +68,7 @@ class AgentSessionClient:
                 challenge_url,
                 json={"nodeId": self.config.node_id},
                 timeout=self.config.http_timeout,
+                verify=self.config.tls_verify,
             )
             if response.status_code != 200:
                 raise AgentAuthenticationError("Agent authentication unavailable")
@@ -85,6 +87,7 @@ class AgentSessionClient:
                 verify_url,
                 json={"challengeId": challenge["challengeId"], "signature": signature},
                 timeout=self.config.http_timeout,
+                verify=self.config.tls_verify,
             )
             if response.status_code != 200:
                 raise AgentAuthenticationError("Agent authentication failed")

@@ -27,6 +27,7 @@ $ConfigurationRoot = $managedRoots.configurationRoot
 $EvidenceRoot = $managedRoots.evidenceRoot
 $keyPath = Join-Path $DataRoot 'machine-identity.dpapi'
 $configurationPath = Join-Path $ConfigurationRoot 'agent.env'
+$caBundlePath = Join-Path $ConfigurationRoot 'agent-ca-bundle.pem'
 $markerPath = Join-Path $ConfigurationRoot 'install.json'
 
 function Test-PathExistsIncludingDenied {
@@ -90,6 +91,11 @@ if (Test-Path -LiteralPath $InstallRoot) {
 if (Test-Path -LiteralPath $configurationPath -PathType Leaf) {
     if ($PSCmdlet.ShouldProcess($configurationPath, 'Remove Task 12 managed Agent configuration')) {
         Remove-Item -LiteralPath $configurationPath -Force
+    }
+}
+if (Test-Path -LiteralPath $caBundlePath -PathType Leaf) {
+    if ($PSCmdlet.ShouldProcess($caBundlePath, 'Remove the managed public Agent CA bundle')) {
+        Remove-Item -LiteralPath $caBundlePath -Force
     }
 }
 if (Test-Path -LiteralPath $EvidenceRoot) {

@@ -68,7 +68,10 @@ test('H1 TLS model requires a managed CA bundle and keeps verification enabled',
   const source = requiredText(specificationPath)
 
   assert.match(source, /AEGIS_AGENT_CA_BUNDLE/)
-  assert.match(source, /CA_BUNDLE_IMPLEMENTATION=NOT_IMPLEMENTED/)
+  assert.match(source, /CA_BUNDLE_IMPLEMENTATION=IMPLEMENTED_SOURCE_ONLY/)
+  assert.match(source, /CA_BUNDLE_MANAGED_LOCATION=%ProgramData%\\AEGIS\\IdentityAgentConfiguration\\agent-ca-bundle\.pem/)
+  assert.match(source, /H1_STATE=BLOCKED_PREREQUISITES/)
+  assert.match(source, /N0_STATE=NOT_RUN/)
   assert.match(source, /TLS_VERIFY=REQUIRED/)
   assert.match(source, /REQUESTS_CA_BUNDLE=FORBIDDEN_UNMANAGED_INPUT/)
   assert.match(source, /verify=False=FORBIDDEN/)
@@ -122,7 +125,7 @@ test('parent plan and canonical status preserve the H0/H1 gate', () => {
 
   assert.ok(parentPlan.includes(designPath), 'parent Machine A plan must link the H1 design/runbook')
   assert.match(parentPlan, /N0[^\n]*N7[^\n]*PASS/)
-  assert.match(parentPlan, /AEGIS_AGENT_CA_BUNDLE[^\n]*implemented[^\n]*verified/i)
+  assert.match(parentPlan, /AEGIS_AGENT_CA_BUNDLE[\s\S]{0,180}implemented[\s\S]{0,100}verified/i)
   assert.match(status, /H0_STATE=HUMAN_PROVEN_COMPLETE/)
   assert.match(status, /H1_STATE=BLOCKED_PREREQUISITES/)
   assert.match(status, /LIVE_PROVISIONING_PERFORMED=NO/)

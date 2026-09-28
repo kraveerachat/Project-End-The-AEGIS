@@ -4,7 +4,7 @@
 
 **Goal:** Record and statically enforce the smallest isolated, production-safe environment required before Machine A H1 may begin.
 
-**Architecture:** A candidate-only HTTPS ingress, Monitor, and PostgreSQL run as the independent `aegis-h1-lab` Compose project on the existing host only after a read-only collision gate passes. Browser and Agent paths share one canonical HTTPS origin but use distinct gateway prefixes; all database, network, volume, credential, registry, and lifecycle state remains isolated from `aegis-prod`. The current Agent lacks managed private-CA bundle support, so N8 remains blocked until a separate bounded `AEGIS_AGENT_CA_BUNDLE` implementation is tested and accepted.
+**Architecture:** A candidate-only HTTPS ingress, Monitor, and PostgreSQL run as the independent `aegis-h1-lab` Compose project on the existing host only after a read-only collision gate passes. Browser and Agent paths share one canonical HTTPS origin but use distinct gateway prefixes; all database, network, volume, credential, registry, and lifecycle state remains isolated from `aegis-prod`. The Agent now has source/local-tested managed private-CA bundle support; N8 remains blocked until N0-N7 and the live reviewed non-Production trust path pass separately.
 
 **Tech Stack:** Markdown runbook, Node.js built-in test runner, Docker Compose contract, nginx route contract, PostgreSQL 15, Python Requests/Certifi trust model.
 
@@ -67,7 +67,8 @@ Document the `aegis-h1-lab` project, candidate HTTPS and stream names, condition
 
 - [ ] **Step 2: Define the CA-bundle prerequisite**
 
-Specify the later `AEGIS_AGENT_CA_BUNDLE` lifecycle and negative coverage without claiming that current Agent source implements it.
+Specify the implemented-source-only `AEGIS_AGENT_CA_BUNDLE` lifecycle and its
+negative coverage without claiming live H1 provisioning or acceptance.
 
 - [ ] **Step 3: Write N0-N8**
 

@@ -37,6 +37,7 @@ class AgentTransport:
         if http is None:
             import requests
             http = requests.Session()
+            http.trust_env = False
         self._http = http
         self._now_ms = now_ms or (lambda: int(time.time() * 1000))
         self._random_bytes = random_bytes or os.urandom
@@ -87,6 +88,7 @@ class AgentTransport:
                     "X-Aegis-Request-Signature": signature,
                 },
                 timeout=self.config.http_timeout,
+                verify=self.config.tls_verify,
             )
         except SequenceExhausted:
             self._sessions.invalidate()

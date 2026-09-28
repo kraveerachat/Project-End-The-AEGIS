@@ -82,13 +82,15 @@ function Test-AgentConfiguration {
             'AEGIS_AGENT_READ_TIMEOUT_S', 'AEGIS_AGENT_RENEW_BEFORE_S',
             'AEGIS_AGENT_RETRY_MAX_S', 'AEGIS_AGENT_PIPE_NAME',
             'AEGIS_AGENT_PIPE_TIMEOUT_S', 'AEGIS_AGENT_TLS_VERIFY',
+            'AEGIS_AGENT_CA_BUNDLE', 'AEGIS_AGENT_CONFIGURATION_ROOT',
             'AEGIS_AGENT_KEY_PATH'
         )
         $required = @(
             'AEGIS_AGENT_MONITOR_BASE_URL', 'AEGIS_AGENT_AUTH_AUDIENCE',
             'AEGIS_AGENT_NODE_ID', 'AEGIS_AGENT_KEY_VERSION',
             'AEGIS_AGENT_ENGINE_USER_SID', 'AEGIS_IDENTITY_BROWSER_ALLOWED_ORIGINS',
-            'AEGIS_AGENT_ENGINE_STREAM_URL', 'AEGIS_AGENT_KEY_PATH'
+            'AEGIS_AGENT_ENGINE_STREAM_URL', 'AEGIS_AGENT_KEY_PATH',
+            'AEGIS_AGENT_CONFIGURATION_ROOT'
         )
         $values = [ordered]@{}
         foreach ($line in Get-Content -LiteralPath $Path -ErrorAction Stop) {
@@ -97,8 +99,11 @@ function Test-AgentConfiguration {
             if ($trimmed -notmatch '^([A-Z][A-Z0-9_]*)=(.*)$') { return 'MISCONFIGURED' }
             $name = $Matches[1]
             $value = $Matches[2].Trim().Trim('"').Trim("'")
-            if ($name -notin $allowed -or $values.Contains($name) -or
-                [string]::IsNullOrWhiteSpace($value)) {
+            if ($name -notin $allowed -or $values.Contains($name)) {
+                return 'MISCONFIGURED'
+            }
+            if ([string]::IsNullOrWhiteSpace($value)) {
+                if ($name -eq 'AEGIS_AGENT_CA_BUNDLE') { continue }
                 return 'MISCONFIGURED'
             }
             $values[$name] = $value
@@ -141,6 +146,57 @@ function Test-AgentConfiguration {
     catch { return 'DEGRADED' }
 }
 
+function Get-AgentCaBundleStatus {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ConfigurationState
+    )
+    $presence = Get-ProtectedFilePresence -Path $Path
+    if ($presence -eq 'REQUIRES_ELEVATION') {
+        return [pscustomobject]@{ state = 'REQUIRES_ELEVATION'; valid = 'UNKNOWN' }
+    }
+    if ($presence -ne 'PRESENT') {
+        return [pscustomobject]@{ state = 'MISSING'; valid = 'NO' }
+    }
+    try {
+        $matches = @(Get-Content -LiteralPath $Path -ErrorAction Stop | Where-Object {
+                $_.Trim() -match '^AEGIS_AGENT_CA_BUNDLE='
+            })
+        if ($matches.Count -eq 0) {
+            $valid = if ($ConfigurationState -eq 'VALID') { 'YES' } else { 'NO' }
+            return [pscustomobject]@{ state = 'DEFAULT'; valid = $valid }
+        }
+        if ($matches.Count -ne 1) {
+            return [pscustomobject]@{ state = 'INVALID'; valid = 'NO' }
+        }
+        $bundlePath = ($matches[0] -replace '^AEGIS_AGENT_CA_BUNDLE=', '').Trim().Trim('"').Trim("'")
+        if ([string]::IsNullOrWhiteSpace($bundlePath)) {
+            $valid = if ($ConfigurationState -eq 'VALID') { 'YES' } else { 'NO' }
+            return [pscustomobject]@{ state = 'DEFAULT'; valid = $valid }
+        }
+        try {
+            $item = Get-Item -LiteralPath $bundlePath -Force -ErrorAction Stop
+        }
+        catch [System.UnauthorizedAccessException] {
+            return [pscustomobject]@{ state = 'REQUIRES_ELEVATION'; valid = 'UNKNOWN' }
+        }
+        catch [System.Management.Automation.ItemNotFoundException] {
+            return [pscustomobject]@{ state = 'MISSING'; valid = 'NO' }
+        }
+        if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            return [pscustomobject]@{ state = 'INVALID'; valid = 'NO' }
+        }
+        $valid = if ($ConfigurationState -eq 'VALID') { 'YES' } else { 'NO' }
+        return [pscustomobject]@{ state = 'MANAGED'; valid = $valid }
+    }
+    catch [System.UnauthorizedAccessException] {
+        return [pscustomobject]@{ state = 'REQUIRES_ELEVATION'; valid = 'UNKNOWN' }
+    }
+    catch {
+        return [pscustomobject]@{ state = 'INVALID'; valid = 'NO' }
+    }
+}
+
 $service = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue
 $serviceState = if ($null -eq $service) { 'NOT_INSTALLED' } elseif ($service.State -eq 'Running') { 'RUNNING' } else { 'STOPPED' }
 $serviceStartup = if ($null -eq $service) {
@@ -167,6 +223,8 @@ else { 'MISCONFIGURED' }
 
 $configState = Test-AgentConfiguration -Path $configurationPath `
     -PythonPath $expectedPython -PackageRoot $InstallRoot
+$caBundleStatus = Get-AgentCaBundleStatus -Path $configurationPath `
+    -ConfigurationState $configState
 
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $engineRun = Get-ItemPropertyValue -Path $runKey -Name 'AEGIS Detection Engine' -ErrorAction SilentlyContinue
@@ -303,6 +361,8 @@ else { 'INSTALLED' }
 "SERVICE_EXECUTABLE=$serviceExecutable"
 "LOOPBACK_8078=$loopback"
 "CONFIGURATION_STATE=$configState"
+"AGENT_CA_BUNDLE_STATE=$($caBundleStatus.state)"
+"AGENT_CA_BUNDLE_VALID=$($caBundleStatus.valid)"
 "IDENTITY_KEY_STATE=$keyState"
 "IDENTITY_KEY_ACL=$keyAcl"
 "IDENTITY_DATA_ROOT_ACL=$dataRootAcl"

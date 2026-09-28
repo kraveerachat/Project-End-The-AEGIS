@@ -40,6 +40,7 @@ $requirementsSource = Join-Path $SourceRoot 'requirements-identity-agent-windows
 $requirementsLockSource = Join-Path $SourceRoot 'requirements-identity-agent-windows.lock.txt'
 $configurationSource = [IO.Path]::GetFullPath($ConfigurationFile)
 $installedConfiguration = Join-Path $ConfigurationRoot 'agent.env'
+$managedCaBundlePath = Join-Path $ConfigurationRoot 'agent-ca-bundle.pem'
 $keyPath = Join-Path $DataRoot 'machine-identity.dpapi'
 $settingsPath = Join-Path $ConfigurationRoot 'install.json'
 $serviceRegistryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
@@ -84,6 +85,7 @@ function Read-StrictAgentConfiguration {
         'AEGIS_AGENT_READ_TIMEOUT_S', 'AEGIS_AGENT_RENEW_BEFORE_S',
         'AEGIS_AGENT_RETRY_MAX_S', 'AEGIS_AGENT_PIPE_NAME',
         'AEGIS_AGENT_PIPE_TIMEOUT_S', 'AEGIS_AGENT_TLS_VERIFY',
+        'AEGIS_AGENT_CA_BUNDLE', 'AEGIS_AGENT_CONFIGURATION_ROOT',
         'AEGIS_AGENT_KEY_PATH'
     )
     $required = @(
@@ -104,6 +106,7 @@ function Read-StrictAgentConfiguration {
         if ($name -notin $allowed) { throw "unsupported Identity Agent configuration key: $name" }
         if ($values.Contains($name)) { throw "duplicate Identity Agent configuration key: $name" }
         if ([string]::IsNullOrWhiteSpace($value)) {
+            if ($name -eq 'AEGIS_AGENT_CA_BUNDLE') { continue }
             throw "Identity Agent configuration value is empty: $name"
         }
         $values[$name] = $value
@@ -121,7 +124,16 @@ function Read-StrictAgentConfiguration {
         )) {
         throw 'AEGIS_AGENT_KEY_PATH must use the protected Task 12 data root'
     }
+    if ($values.Contains('AEGIS_AGENT_CONFIGURATION_ROOT') -and
+        -not [string]::Equals(
+            [IO.Path]::GetFullPath([string]$values['AEGIS_AGENT_CONFIGURATION_ROOT']),
+            [IO.Path]::GetFullPath($ConfigurationRoot),
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw 'AEGIS_AGENT_CONFIGURATION_ROOT must use the protected Task 12 configuration root'
+    }
     $values['AEGIS_AGENT_KEY_PATH'] = $keyPath
+    $values['AEGIS_AGENT_CONFIGURATION_ROOT'] = $ConfigurationRoot
     return $values
 }
 
@@ -141,6 +153,7 @@ function Invoke-AgentConfigValidation {
         'AEGIS_AGENT_READ_TIMEOUT_S', 'AEGIS_AGENT_RENEW_BEFORE_S',
         'AEGIS_AGENT_RETRY_MAX_S', 'AEGIS_AGENT_PIPE_NAME',
         'AEGIS_AGENT_PIPE_TIMEOUT_S', 'AEGIS_AGENT_TLS_VERIFY',
+        'AEGIS_AGENT_CA_BUNDLE', 'AEGIS_AGENT_CONFIGURATION_ROOT',
         'AEGIS_AGENT_KEY_PATH'
     )
     $names = @($agentNames) + @('PYTHONPATH')
@@ -187,6 +200,10 @@ $actualSha = $actualSha.ToUpperInvariant()
 if ($actualSha -ne $ExpectedSourceSha256.ToUpperInvariant()) { throw 'Identity Agent source SHA mismatch' }
 
 $configuration = Read-StrictAgentConfiguration -Path $configurationSource
+$caBundleSource = if ($configuration.Contains('AEGIS_AGENT_CA_BUNDLE')) {
+    [IO.Path]::GetFullPath([string]$configuration['AEGIS_AGENT_CA_BUNDLE'])
+}
+else { $null }
 $dataRootExisted = Test-PathExistsIncludingDenied -Path $DataRoot
 $existingService = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue
 if ($dataRootExisted) {
@@ -289,6 +306,34 @@ if (-not $SkipDependencyInstall) {
 }
 & $python -c "import win32service, win32serviceutil, win32event, win32security, win32crypt; print('PYWIN32_IMPORTS=PASS')"
 if ($LASTEXITCODE -ne 0) { throw 'Identity Agent pywin32 import validation failed' }
+
+if ($null -ne $caBundleSource) {
+    $savedBundleSource = [Environment]::GetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', 'Process')
+    try {
+        [Environment]::SetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', $caBundleSource, 'Process')
+        & $python -c "import os; from aegis_identity_agent.config import validate_ca_bundle; validate_ca_bundle(os.environ['AEGIS_CA_BUNDLE_SOURCE']); print('IDENTITY_AGENT_CA_BUNDLE=VALID')"
+        if ($LASTEXITCODE -ne 0) { throw 'Identity Agent CA bundle validation failed' }
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', $savedBundleSource, 'Process')
+    }
+    if (-not [string]::Equals(
+            $caBundleSource,
+            $managedCaBundlePath,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+        $pendingCaBundle = "$managedCaBundlePath.pending"
+        if (Test-Path -LiteralPath $pendingCaBundle) {
+            Remove-Item -LiteralPath $pendingCaBundle -Force
+        }
+        Copy-Item -LiteralPath $caBundleSource -Destination $pendingCaBundle
+        Move-Item -LiteralPath $pendingCaBundle -Destination $managedCaBundlePath -Force
+    }
+    $configuration['AEGIS_AGENT_CA_BUNDLE'] = $managedCaBundlePath
+}
+elseif (Test-Path -LiteralPath $managedCaBundlePath) {
+    Remove-Item -LiteralPath $managedCaBundlePath -Force
+}
 Invoke-AgentConfigValidation -PythonPath $python -Values $configuration -PackageRoot $InstallRoot
 
 if ($null -eq $existingService) {
@@ -308,6 +353,10 @@ if (-not $dataRootExisted) {
 }
 Invoke-CheckedExternal icacls.exe $ConfigurationRoot /inheritance:r /grant:r `
     "${ServiceAccount}:(OI)(CI)RX" 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F'
+if ($configuration.Contains('AEGIS_AGENT_CA_BUNDLE')) {
+    Invoke-CheckedExternal icacls.exe $managedCaBundlePath /inheritance:r /grant:r `
+        "${ServiceAccount}:R" 'SYSTEM:F' 'BUILTIN\Administrators:F'
+}
 Invoke-CheckedExternal icacls.exe $EvidenceRoot /inheritance:r /grant:r "${ServiceAccount}:(OI)(CI)F" 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F'
 
 $configurationLines = $configuration.GetEnumerator() | Sort-Object Key | ForEach-Object { '{0}={1}' -f $_.Key, $_.Value }

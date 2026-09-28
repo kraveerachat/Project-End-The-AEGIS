@@ -229,6 +229,53 @@ class WindowsIdentityAgentLifecycleTests(unittest.TestCase):
         self.assertIn("unsupported Identity Agent configuration key", install)
         self.assertNotIn("AEGIS_DETECTION_ENGINE_API_KEY", install)
 
+    def test_install_owns_a_bounded_public_ca_bundle_lifecycle(self) -> None:
+        install = self.read_agent("install_identity_agent.ps1")
+        for required in (
+            "AEGIS_AGENT_CA_BUNDLE",
+            "agent-ca-bundle.pem",
+            "$managedCaBundlePath",
+            "Copy-Item -LiteralPath $caBundleSource",
+            "$configuration['AEGIS_AGENT_CA_BUNDLE'] = $managedCaBundlePath",
+            '"${ServiceAccount}:R"',
+            "'SYSTEM:F'",
+            "'BUILTIN\\Administrators:F'",
+        ):
+            self.assertIn(required, install)
+        self.assertLess(
+            install.index("Invoke-AgentConfigValidation -PythonPath $python -Values $configuration"),
+            install.index("sc.exe create"),
+        )
+
+    def test_empty_optional_ca_bundle_uses_default_trust(self) -> None:
+        for script_name in ("install_identity_agent.ps1", "status_identity_agent.ps1"):
+            script = self.read_agent(script_name)
+            with self.subTest(script=script_name):
+                self.assertIn(
+                    "if ($name -eq 'AEGIS_AGENT_CA_BUNDLE') { continue }",
+                    script,
+                )
+
+    def test_status_reports_only_safe_ca_bundle_state(self) -> None:
+        status = self.read_agent("status_identity_agent.ps1")
+        self.assertIn("AGENT_CA_BUNDLE_STATE", status)
+        self.assertIn("AGENT_CA_BUNDLE_VALID", status)
+        for state in ("DEFAULT", "MANAGED", "MISSING", "INVALID", "REQUIRES_ELEVATION"):
+            self.assertIn(state, status)
+        self.assertNotIn("Get-Content -LiteralPath $caBundlePath -Raw", status)
+
+    def test_repair_and_uninstall_cover_ca_bundle_without_touching_identity(self) -> None:
+        repair = self.read_agent("repair_identity_agent.ps1")
+        uninstall = self.read_agent("uninstall_identity_agent.ps1")
+        readme = self.read_agent("README.md")
+        self.assertIn("ReplacementConfigurationFile", repair)
+        self.assertIn("install_identity_agent.ps1", repair)
+        self.assertIn("agent-ca-bundle.pem", uninstall)
+        self.assertIn("Remove-Item -LiteralPath $caBundlePath -Force", uninstall)
+        self.assertIn("AEGIS_AGENT_CA_BUNDLE", readme)
+        self.assertIn("rollback", readme.lower())
+        self.assertIn("public CA certificates only", readme)
+
     def test_install_is_safe_for_existing_service_and_protected_configuration(self) -> None:
         install = self.read_agent("install_identity_agent.ps1")
         self.assertIn("if ($null -eq $existingService)", install)

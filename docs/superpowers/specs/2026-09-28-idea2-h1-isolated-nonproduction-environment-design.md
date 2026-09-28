@@ -101,18 +101,21 @@ enters the repository, Compose project, Monitor, Machine A Agent configuration,
 logs, or evidence.
 
 ```text
-CA_BUNDLE_IMPLEMENTATION=NOT_IMPLEMENTED
+CA_BUNDLE_IMPLEMENTATION=IMPLEMENTED_SOURCE_ONLY
+CA_BUNDLE_MANAGED_LOCATION=%ProgramData%\AEGIS\IdentityAgentConfiguration\agent-ca-bundle.pem
 AEGIS_AGENT_CA_BUNDLE=REQUIRED_BEFORE_N8
 REQUESTS_CA_BUNDLE=FORBIDDEN_UNMANAGED_INPUT
 verify=False=FORBIDDEN
 PRIVATE_CA_KEY_ALLOWED=NO
+H1_STATE=BLOCKED_PREREQUISITES
+N0_STATE=NOT_RUN
 ```
 
 The browser may trust the public CA certificate through the reviewed Windows
 platform trust store, but that alone does not prove Python Requests trust:
-the pinned Agent runtime uses Requests with Certifi. Before live N2/N8, a
-separate bounded TDD change must add `AEGIS_AGENT_CA_BUNDLE` to the managed
-Agent configuration and lifecycle:
+the pinned Agent runtime uses Requests with Certifi. The bounded repository
+implementation now adds `AEGIS_AGENT_CA_BUNDLE` to the managed Agent
+configuration and lifecycle:
 
 1. Accept only an absolute regular-file path under the managed Agent
    configuration root; reject symlinks/reparse points and writable-by-untrusted
@@ -131,9 +134,11 @@ Agent configuration and lifecycle:
 6. Prove valid-chain success plus missing, malformed, untrusted, wrong-host,
    expired, private-key-containing, reparse-point, and ACL-negative cases.
 
-N8 remains blocked until the CA-bundle lifecycle is implemented and verified
-against the Agent's real Python Requests trust path. This design does not claim
-that capability exists today.
+The source implementation is verified with disposable test certificates through
+the Agent's real Python Requests trust path. This is not evidence that any live
+H1 CA, leaf certificate, DNS name, gateway, service, or Machine A runtime exists.
+N8 remains blocked until N0-N7 pass, the reviewed public H1 CA bundle is installed
+at the exact managed path, and the live non-Production TLS path is verified.
 
 ## Identity, account, and camera authority
 

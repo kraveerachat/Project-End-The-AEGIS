@@ -53,6 +53,35 @@ contains the DPAPI-protected identity, is owned exclusively by the Agent service
 and SYSTEM. This separation permits repeat repair and normal uninstall without
 widening private-key access.
 
+## Managed TLS CA bundle
+
+`AEGIS_AGENT_CA_BUNDLE` is optional. When it is absent, the Agent keeps the
+existing Requests/Certifi default trust behavior with certificate verification
+enabled. When it is present in the reviewed external configuration, the
+installer validates public CA certificates only, rejects private-key material,
+copies the bundle to
+`%ProgramData%\AEGIS\IdentityAgentConfiguration\agent-ca-bundle.pem`, and
+rewrites the installed service configuration to that exact managed path. The
+managed root and file reject reparse points; the file ACL grants read to only
+`NT SERVICE\AEGISIdentityAgent`, with full control for SYSTEM and Administrators.
+
+Every Agent challenge, verification, heartbeat, detection, alert, and clip
+request passes that managed path explicitly as Requests' `verify` value.
+Internally owned Requests sessions disable environment-derived configuration,
+and runtime configuration rejects `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`,
+`SSL_CERT_FILE`, and `SSL_CERT_DIR`. HTTP Monitor URLs and `verify=False` remain
+invalid.
+
+`status_identity_agent.ps1` reports only `AGENT_CA_BUNDLE_STATE` and
+`AGENT_CA_BUNDLE_VALID`; it never prints certificate contents. Repair validates
+and replaces the public bundle when a reviewed replacement config is
+provided, or preserves the installed bundle when the installed config is used.
+To roll back trust, rerun repair with the previously reviewed public CA bundle
+and matching external configuration. Normal uninstall removes the managed
+public bundle while preserving the DPAPI identity by default. The bundle must
+contain public CA certificates only, never a private CA or server key, and does
+not need repository storage.
+
 ## Repair and uninstall
 
 `repair_identity_agent.ps1` refreshes the reviewed runtime, dependencies,
@@ -984,6 +1013,7 @@ $KeyVersion = [uint32](Read-Host 'Approved registry key version; use 1 only for 
 $MonitorBaseUrl = Read-Host 'Approved isolated non-Production Monitor HTTPS base URL'
 $MonitorAudience = Read-Host 'Approved isolated non-Production Monitor HTTPS origin'
 $BrowserOrigin = Read-Host 'Approved isolated non-Production browser HTTPS origin'
+$ReviewedCaBundle = Read-Host 'Absolute path to the reviewed public non-Production CA bundle'
 $EngineUserSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $AgentConfiguration = 'C:\AEGIS-Local\identity-agent.env'
 New-Item -ItemType Directory -Path (Split-Path -Parent $AgentConfiguration) -Force | Out-Null
@@ -996,13 +1026,18 @@ AEGIS_AGENT_ENGINE_USER_SID=$EngineUserSid
 AEGIS_IDENTITY_BROWSER_ALLOWED_ORIGINS=$BrowserOrigin
 AEGIS_AGENT_ENGINE_STREAM_URL=http://aegis-stream-host.internal:18077/stream.mjpg
 AEGIS_AGENT_TLS_VERIFY=true
+AEGIS_AGENT_CA_BUNDLE=$ReviewedCaBundle
 "@ | Set-Content -LiteralPath $AgentConfiguration -Encoding ASCII
 if ((Get-Item -LiteralPath $AgentConfiguration).Length -le 0) { throw 'AGENT_CONFIG_WRITE_FAILED' }
 'H1-1=PASS_NON_SECRET_CONFIG_WRITTEN'
 ```
 
-- Expected: non-empty file; it contains no credential or logical alias.
-- Abort if: Node/key version does not match the approved non-Production
+- Expected: non-empty file; it contains no credential or logical alias. The CA
+  path identifies a public CA bundle only; the installer later copies it to the
+  managed configuration root.
+- Abort if: the CA file is missing, empty, malformed, a reparse point, outside
+  the reviewed staging boundary, contains a non-CA certificate or private key,
+  or if Node/key version does not match the approved non-Production
   registry plan, SID is not the interactive Engine user, any URL is Production
   or not reviewed HTTPS, or any secret would be added.
 - State change: one external non-secret file.
@@ -1034,8 +1069,9 @@ $AgentSourceSha256 = (& "$AgentScripts\get_identity_agent_source_hash.ps1" -Sour
   `--require-hashes --only-binary=:all:`.
 - Abort if: hash mismatch, dependency/import failure, wrong service identity,
   wrong root, unexpected existing Agent, or service starts.
-- State change: managed Agent runtime/config/evidence roots and an automatic,
-  stopped service; no application key.
+- State change: managed Agent runtime/config/evidence roots, a public-only CA
+  bundle at the exact managed path when configured, and an automatic, stopped
+  service; no application key.
 - Rollback: H5 `PARTIAL_AGENT_INSTALL`; identity is absent or preserved.
 - Return to chat: the installer fields listed under Expected plus the source
   hash; no pip output containing local credentials.
@@ -1325,7 +1361,7 @@ Return the selected repair output and fresh H2 status only.
   & "$AgentScripts\uninstall_identity_agent.ps1"
   ```
 
-  This removes only managed Agent service/runtime/config/evidence and reports
+  This removes only managed Agent service/runtime/config/public CA bundle/evidence and reports
   `IDENTITY_PRESERVED=YES`. It does not remove Engine ownership or the tunnel.
 - `ROLLBACK_RUNTIME_ONLY`: after status/evidence review, run:
 

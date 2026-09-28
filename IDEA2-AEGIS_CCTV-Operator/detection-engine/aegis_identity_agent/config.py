@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from ipaddress import ip_address
 import os
+from pathlib import Path
 import re
+import stat
 from typing import Mapping
 from urllib.parse import urlsplit, urlunsplit
+
+from cryptography import x509
+from cryptography.x509.extensions import ExtensionNotFound
 
 from .browser_server import normalize_allowed_origins
 
@@ -15,6 +21,84 @@ from .browser_server import normalize_allowed_origins
 _NODE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _SID_RE = re.compile(r"^S-[0-9]+(?:-[0-9]+)+$")
 _DNS_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+_CERTIFICATE_PEM_RE = re.compile(
+    rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+    re.DOTALL,
+)
+_PRIVATE_KEY_PEM_RE = re.compile(
+    rb"-----BEGIN (?:ENCRYPTED |RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+)
+_MAX_CA_BUNDLE_BYTES = 1024 * 1024
+UNMANAGED_TLS_TRUST_ENVIRONMENT = (
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+)
+
+
+def _reject_reparse_path(path: Path, *, stop_before: Path | None = None) -> None:
+    candidate = path
+    stop = stop_before.resolve(strict=False) if stop_before is not None else None
+    while True:
+        metadata = os.lstat(candidate)
+        file_attributes = getattr(metadata, "st_file_attributes", 0)
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        if stat.S_ISLNK(metadata.st_mode) or file_attributes & reparse_flag:
+            raise ValueError("AEGIS_AGENT_CA_BUNDLE path must not contain a reparse point")
+        if candidate.parent == candidate or (stop is not None and candidate == stop):
+            return
+        candidate = candidate.parent
+
+
+def validate_ca_bundle(value: str) -> str:
+    """Validate a public-only CA bundle and return its canonical absolute path."""
+    raw_path = str(value).strip()
+    path = Path(raw_path)
+    if not raw_path or not path.is_absolute():
+        raise ValueError("AEGIS_AGENT_CA_BUNDLE must be an absolute path")
+    try:
+        metadata = os.lstat(path)
+    except OSError as exc:
+        raise ValueError("AEGIS_AGENT_CA_BUNDLE is unavailable") from exc
+    _reject_reparse_path(path)
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError("AEGIS_AGENT_CA_BUNDLE must be a regular file")
+    if metadata.st_size <= 0 or metadata.st_size > _MAX_CA_BUNDLE_BYTES:
+        raise ValueError("AEGIS_AGENT_CA_BUNDLE has an invalid size")
+    try:
+        material = path.read_bytes()
+    except OSError as exc:
+        raise ValueError("AEGIS_AGENT_CA_BUNDLE is unreadable") from exc
+    if _PRIVATE_KEY_PEM_RE.search(material):
+        raise ValueError("AEGIS_AGENT_CA_BUNDLE must not contain private-key material")
+    blocks = _CERTIFICATE_PEM_RE.findall(material)
+    remainder = _CERTIFICATE_PEM_RE.sub(b"", material)
+    if not blocks or remainder.strip():
+        raise ValueError("AEGIS_AGENT_CA_BUNDLE must contain only PEM certificates")
+    now = datetime.now(timezone.utc)
+    for block in blocks:
+        try:
+            certificate = x509.load_pem_x509_certificate(block)
+            constraints = certificate.extensions.get_extension_for_class(
+                x509.BasicConstraints
+            ).value
+        except (ValueError, ExtensionNotFound) as exc:
+            raise ValueError("AEGIS_AGENT_CA_BUNDLE contains an invalid CA certificate") from exc
+        if not constraints.ca:
+            raise ValueError("AEGIS_AGENT_CA_BUNDLE contains a non-CA certificate")
+        not_before = getattr(certificate, "not_valid_before_utc", None)
+        not_after = getattr(certificate, "not_valid_after_utc", None)
+        if not_before is None:
+            not_before = certificate.not_valid_before.replace(tzinfo=timezone.utc)
+        if not_after is None:
+            not_after = certificate.not_valid_after.replace(tzinfo=timezone.utc)
+        if now < not_before or now >= not_after:
+            raise ValueError("AEGIS_AGENT_CA_BUNDLE contains an inactive CA certificate")
+    try:
+        return str(path.resolve(strict=True))
+    except OSError as exc:
+        raise ValueError("AEGIS_AGENT_CA_BUNDLE cannot be resolved") from exc
 
 
 def _deployment_hostname(value: str) -> bool:
@@ -52,6 +136,7 @@ class AgentConfig:
     retry_max_s: float
     browser_allowed_origins: tuple[str, ...]
     engine_stream_url: str
+    ca_bundle_path: str | None = None
     pipe_name: str = r"\\.\pipe\AEGIS.IdentityAgent.v1"
     engine_user_sid: str | None = None
     pipe_timeout_s: float = 5.0
@@ -60,9 +145,16 @@ class AgentConfig:
     def http_timeout(self) -> tuple[float, float]:
         return (self.connect_timeout_s, self.read_timeout_s)
 
+    @property
+    def tls_verify(self) -> bool | str:
+        return self.ca_bundle_path or True
+
     @classmethod
     def from_env(cls, source: Mapping[str, str] | None = None) -> "AgentConfig":
         env = os.environ if source is None else source
+        for name in UNMANAGED_TLS_TRUST_ENVIRONMENT:
+            if str(env.get(name, "")).strip():
+                raise ValueError(f"{name} is forbidden; use AEGIS_AGENT_CA_BUNDLE")
         raw_url = str(env.get("AEGIS_AGENT_MONITOR_BASE_URL", "")).strip()
         parsed = urlsplit(raw_url)
         if (
@@ -97,6 +189,25 @@ class AgentConfig:
         tls_verify = str(env.get("AEGIS_AGENT_TLS_VERIFY", "true")).strip().lower()
         if tls_verify not in {"1", "true", "yes", "on"}:
             raise ValueError("TLS certificate verification cannot be disabled")
+        raw_ca_bundle = str(env.get("AEGIS_AGENT_CA_BUNDLE", "")).strip()
+        if raw_ca_bundle:
+            raw_configuration_root = str(env.get("AEGIS_AGENT_CONFIGURATION_ROOT", "")).strip()
+            configuration_root = Path(raw_configuration_root)
+            if not raw_configuration_root or not configuration_root.is_absolute():
+                raise ValueError("AEGIS_AGENT_CONFIGURATION_ROOT is required for a managed CA bundle")
+            try:
+                root_metadata = os.lstat(configuration_root)
+            except OSError as exc:
+                raise ValueError("AEGIS_AGENT_CONFIGURATION_ROOT is unavailable") from exc
+            if not stat.S_ISDIR(root_metadata.st_mode):
+                raise ValueError("AEGIS_AGENT_CONFIGURATION_ROOT must be a directory")
+            _reject_reparse_path(configuration_root)
+            ca_bundle_path = validate_ca_bundle(raw_ca_bundle)
+            expected_bundle = configuration_root.resolve(strict=True) / "agent-ca-bundle.pem"
+            if Path(ca_bundle_path) != expected_bundle:
+                raise ValueError("AEGIS_AGENT_CA_BUNDLE must use the managed configuration path")
+        else:
+            ca_bundle_path = None
         connect = _number(env, "AEGIS_AGENT_CONNECT_TIMEOUT_S", "2", 0.1, 10.0)
         read = _number(env, "AEGIS_AGENT_READ_TIMEOUT_S", "5", 0.1, 30.0)
         renew_s = _number(env, "AEGIS_AGENT_RENEW_BEFORE_S", "120", 1.0, 300.0)
@@ -153,6 +264,7 @@ class AgentConfig:
             retry_max_s=retry_max,
             browser_allowed_origins=browser_allowed_origins,
             engine_stream_url=engine_stream_url,
+            ca_bundle_path=ca_bundle_path,
             pipe_name=pipe_name,
             engine_user_sid=engine_user_sid,
             pipe_timeout_s=pipe_timeout,
@@ -170,6 +282,7 @@ class AgentConfig:
             "retry_max_s": self.retry_max_s,
             "browser_allowed_origins": self.browser_allowed_origins,
             "engine_stream_url": self.engine_stream_url,
+            "ca_bundle_state": "MANAGED" if self.ca_bundle_path else "DEFAULT",
             "pipe_name": self.pipe_name,
             "engine_user_sid_configured": self.engine_user_sid is not None,
             "pipe_timeout_s": self.pipe_timeout_s,

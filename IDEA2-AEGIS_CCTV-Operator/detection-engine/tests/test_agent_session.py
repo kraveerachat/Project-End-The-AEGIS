@@ -151,7 +151,7 @@ class AgentSessionTests(unittest.TestCase):
         self.assertEqual(token(32, 3), session.session_id)
         self.assertEqual(canonical_auth_payload(first), signer.messages[0])
         self.assertEqual({"nodeId": "edge-a"}, http.calls[0][1]["json"])
-        self.assertNotIn("verify", http.calls[0][1])
+        self.assertIs(True, http.calls[0][1]["verify"])
         self.assertEqual((2.0, 5.0), http.calls[0][1]["timeout"])
 
         now[0] = 579_999
@@ -217,7 +217,7 @@ class AgentSessionTests(unittest.TestCase):
         self.assertTrue(url.endswith(REQUEST_PROOFS["detection"]["path"]))
         self.assertEqual(b'{"cameraId":"CAM-01","entities":[]}', kwargs["data"])
         self.assertNotIn("json", kwargs)
-        self.assertNotIn("verify", kwargs)
+        self.assertIs(True, kwargs["verify"])
         self.assertEqual("1", kwargs["headers"]["X-Aegis-Request-Sequence"])
         self.assertNotIn("=", kwargs["headers"]["X-Aegis-Request-Nonce"])
         self.assertEqual(2, len(signer.messages))
