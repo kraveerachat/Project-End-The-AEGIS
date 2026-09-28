@@ -32,6 +32,8 @@ CRED_FILES=(k_c2d k_d2c mqtt-core.pass admin.pin restore.credential)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 P4_HERE="$(cd "$HERE/../.." && pwd)"
 REPO_ROOT="$(cd "$P4_HERE/../.." && pwd)"
+# shellcheck source=l7-listener-lib.sh
+source "$HERE/l7-listener-lib.sh"
 UNIT_SOURCE="$REPO_ROOT/deploy/aegis-idea3-core.service.example"
 ENV_EXAMPLE="$REPO_ROOT/deploy/aegis-idea3-core.env.example"
 PY="${AEGIS_PYTHON_BIN:-python3}"
@@ -248,7 +250,7 @@ if use_systemd; then
     "$LEGACY_UNIT" "$BROKER_UNIT" > "$WORK/legacy-service.txt" || fail PREDECESSOR_SERVICE_SNAPSHOT_FAILED
 fi
 if use_ss; then
-  ss_do -H -ltnu | awk '{ print $1 ":" $5 }' | LC_ALL=C sort -u > "$WORK/listeners-baseline.txt"
+  l7_listener_snapshot "$(host_path /proc/sys/net/ipv4/ip_local_port_range)" ss_do -H -ltnu > "$WORK/listeners-baseline.txt"
 else
   : > "$WORK/listeners-baseline.txt"
 fi
