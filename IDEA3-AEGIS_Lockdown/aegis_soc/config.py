@@ -133,6 +133,16 @@ MQTT_CLIENT_ID = "idea3-core"  # fixed Core broker identity; ESP32 identities ar
 DRY_RUN = _env_bool("AEGIS_DRY_RUN", False)
 AUTO_CONTAIN = _env_bool("AEGIS_AUTO_CONTAIN", False)
 
+# ---- Evidence-driven recovery probe targets ----
+# No authoritative management/network/service target exists elsewhere in this
+# repository's desktop configuration; each defaults to unset, which the
+# recovery gates must treat as NOT_CONFIGURED, never as a passing check.
+RECOVERY_MANAGEMENT_PROBE_TARGET = os.getenv("AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET", "").strip()
+RECOVERY_NETWORK_PROBE_TARGETS = os.getenv("AEGIS_RECOVERY_NETWORK_PROBE_TARGETS", "").strip()
+RECOVERY_WEB_READINESS_URL = os.getenv("AEGIS_RECOVERY_WEB_READINESS_URL", "").strip()
+RECOVERY_IDEA1_READINESS_URL = os.getenv("AEGIS_RECOVERY_IDEA1_READINESS_URL", "").strip()
+RECOVERY_IDEA2_READINESS_URL = os.getenv("AEGIS_RECOVERY_IDEA2_READINESS_URL", "").strip()
+
 
 def validate_config():
     """ตรวจค่าตั้งตอนเริ่มโปรแกรม — คืน list ของคำเตือน (ไม่ถึงกับ error แต่ควรรู้)"""

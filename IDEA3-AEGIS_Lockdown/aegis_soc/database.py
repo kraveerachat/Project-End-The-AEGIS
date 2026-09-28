@@ -235,6 +235,19 @@ def fetch_incidents(limit=100):
         conn.close()
 
 
+def ping() -> bool:
+    """Bounded, read-only Core self-check: can this process reach its own DB file."""
+    try:
+        conn = _connect()
+        try:
+            conn.execute("SELECT 1").fetchone()
+            return True
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+
+
 def fetch_all_logs():
     conn = _connect()
     c = conn.cursor()
