@@ -24,6 +24,11 @@ THEME_LOGO_FILENAMES = {
     "light": "aegis-mark-dark-ink.png",
 }
 
+THEME_LOGIN_BACKGROUND_FILENAMES = {
+    "dark": "BG_AEGIS02.png",
+    "light": "BG_AEGIS01.png",
+}
+
 # Pre-scaled copies of the same official marks, box-filtered offline to the
 # exact sizes the UI renders at. tkinter.PhotoImage can only downscale by
 # integer subsampling (it drops pixels rather than averaging them), which
@@ -90,4 +95,23 @@ def resolve_scaled_logo_path(max_height, env=None, base_dir=None, theme="dark"):
     scaled_path = root / "assets" / "logo" / f"{stem}-{min(candidates)}.png"
     if scaled_path.is_file():
         return str(scaled_path.resolve())
+    return None
+
+def resolve_login_background_path(env=None, base_dir=None, theme="dark"):
+    """Return the packaged login background for the selected theme, or None."""
+    values = os.environ if env is None else env
+    override = (values.get("AEGIS_LOGIN_BACKGROUND_PATH") or "").strip()
+    if override:
+        path = Path(override).expanduser()
+        if path.is_file():
+            return str(path.resolve())
+        return None
+
+    root = Path(base_dir) if base_dir is not None else _package_root()
+    filename = THEME_LOGIN_BACKGROUND_FILENAMES.get(
+        theme, THEME_LOGIN_BACKGROUND_FILENAMES["dark"]
+    )
+    background = root / "assets" / "background" / filename
+    if background.is_file():
+        return str(background.resolve())
     return None

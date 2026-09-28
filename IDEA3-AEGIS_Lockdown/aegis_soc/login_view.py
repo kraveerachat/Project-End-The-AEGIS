@@ -7,7 +7,31 @@ from dataclasses import dataclass
 
 from . import i18n, theme_state
 from .auth import DesktopSession, verify_admin_credentials
+from .branding import resolve_login_background_path
 from .theme import FONT_BTN, FONT_HINT, FONT_PAGE_SUBTITLE, get_palette, load_logo_image
+
+
+def _rounded_rect_points(x1, y1, x2, y2, radius):
+    """Point list for a smoothed canvas polygon that reads as a rounded rect.
+
+    Tkinter has no native rounded-rectangle primitive; a smoothed polygon
+    through the corner-adjacent points is the standard approximation.
+    """
+    radius = max(0, min(radius, (x2 - x1) / 2, (y2 - y1) / 2))
+    return [
+        x1 + radius, y1,
+        x2 - radius, y1,
+        x2, y1,
+        x2, y1 + radius,
+        x2, y2 - radius,
+        x2, y2,
+        x2 - radius, y2,
+        x1 + radius, y2,
+        x1, y2,
+        x1, y2 - radius,
+        x1, y1 + radius,
+        x1, y1,
+    ]
 
 
 @dataclass(frozen=True)
@@ -45,6 +69,12 @@ class LoginView(tk.Frame):
         self.on_language = on_language
         self.on_theme = on_theme
         self._logo_image = None
+        self._background_image = None
+        self._background_item = None
+        self._card_id = None
+        self._card_shadow_id = None
+        self._canvas_cx = 0
+        self._canvas_cy = 0
         self._return_binding = parent.bind("<Return>", self._submit, add="+")
         self._build()
 
@@ -57,9 +87,12 @@ class LoginView(tk.Frame):
     # Below this canvas width the brand column is dropped and the sign-in
     # card stands alone, so the card is never clipped on a small console.
     COMPACT_WIDTH = 980
-    BRAND_WIDTH = 420
-    FORM_WIDTH = 420
-    COLUMN_GAP = 48
+    # ~42% / 58% split, matching the IDEA1 web login's brand/form ratio.
+    BRAND_WIDTH = 360
+    FORM_WIDTH = 500
+    CARD_RADIUS = 18
+    CARD_PAD = 22
+    TOPBAR_MARGIN = 20
 
     def _build(self):
         self.canvas = tk.Canvas(
@@ -69,30 +102,60 @@ class LoginView(tk.Frame):
             bd=0,
         )
         self.canvas.pack(fill="both", expand=True)
-        self.canvas.bind("<Configure>", self._draw_circuit)
 
-        self._stage = tk.Frame(self.canvas, bg=self.palette.background)
+        background_path = resolve_login_background_path(
+            theme=theme_state.get_theme()
+        )
+        if background_path:
+            try:
+                self._background_image = tk.PhotoImage(file=background_path)
+                self._background_item = self.canvas.create_image(
+                    0,
+                    0,
+                    image=self._background_image,
+                    anchor="center",
+                    tags="login-background",
+                )
+            except tk.TclError:
+                self._background_image = None
+                self._background_item = None
+
+        if self._background_item is None:
+            self.canvas.bind("<Configure>", self._draw_circuit)
+
+        # Detached top-right controls (IDEA1 places language/theme outside
+        # the login surface, not inside the card).
+        self._topbar = tk.Frame(self.canvas, bg=self.palette.background)
+        self._topbar_window = self.canvas.create_window(
+            0, 0, anchor="ne", window=self._topbar
+        )
+        self._build_topbar(self._topbar)
+
+        self._stage = tk.Frame(self.canvas, bg=self.palette.panel)
         self._stage_window = self.canvas.create_window(0, 0, anchor="center", window=self._stage)
+        self._stage.bind("<Configure>", lambda _e: self._redraw_card())
         self._compact = None
         self.canvas.bind("<Configure>", self._on_canvas_resize, add="+")
 
-        # Both columns share one grid row with sticky="nsew" so the brand
-        # block and the card are the same height and share a baseline,
-        # instead of two independently sized boxes that only looked aligned
-        # at one specific window size.
-        self._brand = tk.Frame(self._stage, bg=self.palette.background)
-        self._brand.grid(row=0, column=0, sticky="nsew", padx=(0, self.COLUMN_GAP))
-        self._width_strut(self._brand, self.BRAND_WIDTH, self.palette.background)
+        # One rounded login surface (card) split into a sunken brand side and
+        # a form side by a single divider line, instead of two independently
+        # outlined boxes. Both share one grid row with sticky="nsew" so they
+        # are always the same height.
+        self._brand = tk.Frame(self._stage, bg=self.palette.panel_alt)
+        self._brand.grid(row=0, column=0, sticky="nsew")
+        self._width_strut(self._brand, self.BRAND_WIDTH, self.palette.panel_alt)
         self._build_brand(self._brand)
+
+        self._divider = tk.Frame(self._stage, bg=self.palette.border, width=1)
+        self._divider.grid(row=0, column=1, sticky="ns")
 
         self._form = tk.Frame(
             self._stage,
             bg=self.palette.panel,
-            highlightbackground=self.palette.border,
-            highlightthickness=1,
+            highlightthickness=0,
             bd=0,
         )
-        self._form.grid(row=0, column=1, sticky="nsew")
+        self._form.grid(row=0, column=2, sticky="nsew")
         self._width_strut(self._form, self.FORM_WIDTH, self.palette.panel)
         self._build_form(self._form)
         self._stage.grid_rowconfigure(0, weight=1)
@@ -111,8 +174,24 @@ class LoginView(tk.Frame):
         return strut
 
     def _on_canvas_resize(self, event):
-        self.canvas.coords(self._stage_window, event.width / 2, event.height / 2)
+        if self._background_item is not None:
+            self.canvas.coords(
+                self._background_item,
+                event.width / 2,
+                event.height / 2,
+            )
+            self.canvas.tag_lower(self._background_item)
+
+        self._canvas_cx = event.width / 2
+        self._canvas_cy = event.height / 2
+        self.canvas.coords(self._stage_window, self._canvas_cx, self._canvas_cy)
+        self.canvas.coords(
+            self._topbar_window,
+            event.width - self.TOPBAR_MARGIN,
+            self.TOPBAR_MARGIN,
+        )
         self._apply_layout(event.width)
+        self._redraw_card()
 
     def _apply_layout(self, width):
         """Re-flow between the two-column and single-column arrangements.
@@ -126,57 +205,102 @@ class LoginView(tk.Frame):
             self._compact = compact
             if compact:
                 self._brand.grid_remove()
+                self._divider.grid_remove()
                 self._form.grid_configure(row=0, column=0)
             else:
-                self._form.grid_configure(row=0, column=1)
+                self._form.grid_configure(row=0, column=2)
                 self._brand.grid()
+                self._divider.grid()
             if compact:
                 self._compact_brand.pack(fill="x", pady=(24, 0), before=self._title)
             else:
                 self._compact_brand.pack_forget()
 
+    def _redraw_card(self):
+        """Draw the single rounded login surface behind the stage content.
+
+        A smoothed canvas polygon stands in for the CSS rounded card
+        (border-radius has no Tkinter Frame equivalent); a flat, slightly
+        offset polygon behind it gives a restrained elevation cue in place
+        of a blurred box-shadow, which Tkinter cannot render.
+        """
+        self._stage.update_idletasks()
+        width = self._stage.winfo_reqwidth() + 2 * self.CARD_PAD
+        height = self._stage.winfo_reqheight() + 2 * self.CARD_PAD
+        if width <= 1 or height <= 1:
+            return
+        x1, y1 = self._canvas_cx - width / 2, self._canvas_cy - height / 2
+        x2, y2 = self._canvas_cx + width / 2, self._canvas_cy + height / 2
+        card_points = _rounded_rect_points(x1, y1, x2, y2, self.CARD_RADIUS)
+        shadow_points = _rounded_rect_points(x1, y1 + 4, x2, y2 + 4, self.CARD_RADIUS)
+
+        if self._card_id is None:
+            self._card_shadow_id = self.canvas.create_polygon(
+                shadow_points,
+                smooth=True,
+                splinesteps=24,
+                fill=self.palette.border,
+                outline="",
+                tags="login-card-shadow",
+            )
+            self._card_id = self.canvas.create_polygon(
+                card_points,
+                smooth=True,
+                splinesteps=24,
+                fill=self.palette.panel,
+                outline=self.palette.border,
+                width=1,
+                tags="login-card",
+            )
+        else:
+            self.canvas.coords(self._card_shadow_id, *shadow_points)
+            self.canvas.coords(self._card_id, *card_points)
+
+        if self._background_item is not None:
+            self.canvas.tag_lower(self._background_item)
+        self.canvas.tag_raise(self._card_shadow_id)
+        self.canvas.tag_raise(self._card_id)
+        self.canvas.tag_raise(self._stage_window)
+        self.canvas.tag_raise(self._topbar_window)
 
     def _build_brand(self, parent):
-        block = tk.Frame(parent, bg=self.palette.background)
+        # IDEA1's brand panel is centered, not left-aligned -- a restrained,
+        # symmetric lockup rather than a ragged left edge.
+        block = tk.Frame(parent, bg=self.palette.panel_alt)
         # expand=True centres the block against whatever height the row
         # takes from the sign-in card beside it, so the two columns share a
         # vertical centre at every window size.
-        block.pack(anchor="w", expand=True)
+        block.pack(expand=True, padx=32)
         self._logo_image = load_logo_image(max_height=92)
         if self._logo_image is not None:
-            tk.Label(block, image=self._logo_image, bg=self.palette.background).pack(anchor="w")
+            tk.Label(block, image=self._logo_image, bg=self.palette.panel_alt).pack()
         tk.Label(
             block,
             text="AEGIS",
             font=("Segoe UI", 34, "bold"),
             fg=self.palette.text,
-            bg=self.palette.background,
-        ).pack(anchor="w", pady=(18, 0))
+            bg=self.palette.panel_alt,
+        ).pack(pady=(18, 0))
         tk.Label(
             block,
             text=i18n.t("login.brand_tagline"),
             font=("Segoe UI", 13, "bold"),
             fg=self.palette.accent,
-            bg=self.palette.background,
-        ).pack(anchor="w", pady=(4, 14))
+            bg=self.palette.panel_alt,
+        ).pack(pady=(4, 14))
         tk.Label(
             block,
             text=i18n.t("login.brand_description"),
             font=FONT_PAGE_SUBTITLE,
             fg=self.palette.muted,
-            bg=self.palette.background,
-            wraplength=self.BRAND_WIDTH - 30,
-            justify="left",
-        ).pack(anchor="w")
+            bg=self.palette.panel_alt,
+            wraplength=self.BRAND_WIDTH - 64,
+            justify="center",
+        ).pack()
 
     def _build_form(self, parent):
         body = tk.Frame(parent, bg=self.palette.panel)
         body.pack(fill="both", expand=True, padx=40, pady=32)
-
-        utility = tk.Frame(body, bg=self.palette.panel)
-        utility.pack(fill="x")
-        self._build_language_selector(utility)
-        self._build_theme_selector(utility)
 
         # Shown only in the single-column arrangement, where the brand
         # column is hidden and the card would otherwise carry no mark.
@@ -200,7 +324,7 @@ class LoginView(tk.Frame):
             fg=self.palette.text,
             bg=self.palette.panel,
         )
-        self._title.pack(anchor="w", pady=(34, 4))
+        self._title.pack(anchor="w", pady=(0, 4))
         tk.Label(
             body,
             text=i18n.t("login.subtitle"),
@@ -272,16 +396,26 @@ class LoginView(tk.Frame):
             insertbackground=self.palette.text,
             selectbackground=self.palette.accent,
             relief="flat",
-            highlightthickness=2,
+            highlightthickness=1,
             highlightbackground=self.palette.border,
-            highlightcolor=self.palette.accent,
+            highlightcolor=self.palette.border,
             show="•" if masked else "",
         )
         entry.pack(fill="x", ipady=9, pady=(0, 16))
         # Clear a previous failure as soon as the operator starts a new
         # attempt, so a stale error is never read as a fresh one.
         entry.bind("<KeyPress>", self._clear_status, add="+")
+        # Focus is shown as a sunken-to-card background swap (as in the
+        # IDEA1 web login's `focus:bg-card`), never a colored ring.
+        entry.bind("<FocusIn>", lambda _e, w=entry: w.config(bg=self.palette.panel))
+        entry.bind("<FocusOut>", lambda _e, w=entry: w.config(bg=self.palette.panel_alt))
         return entry
+
+    def _build_topbar(self, parent):
+        utility = tk.Frame(parent, bg=self.palette.background)
+        utility.pack()
+        self._build_language_selector(utility)
+        self._build_theme_selector(utility)
 
     def _clear_status(self, _event=None):
         label = getattr(self, "status_label", None)
