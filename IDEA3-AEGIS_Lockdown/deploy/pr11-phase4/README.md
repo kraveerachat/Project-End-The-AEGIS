@@ -319,7 +319,7 @@ Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6c-release-install
 ### L8 handler (ESP32 inspection / NVS provisioning / firmware flash)
 
 - Registered the reviewed L8 stage handler (`stages/L8/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to operational design OD-L8-01 through OD-L8-09.
-- Device backend: repository fixture backend only; hardware backend fails closed at two independent layers (`LIVE_L8=NOT_AUTHORIZED`).
+- Device backends: `fixture` (file-backed, no serial code path) and `hardware` (`HARDWARE_BACKEND_IMPLEMENTED_REPOSITORY`): a subprocess adapter over the PlatformIO-pinned `tool-esptoolpy` 2.41100.0 (esptool 4.11.x). It is reachable only with `AEGIS_L8_BACKEND=hardware` AND `AEGIS_L8_LIVE_AUTHORIZED=YES` plus `AEGIS_L8_ESPTOOL` (absolute path to the pinned `esptool.py`); the serial port comes only from `device.identity`. Every command passes one injectable executor and a strict argv allowlist (`flash_id`, `write_flash`, `read_flash` only, on the two derived partition regions). Boot verification has a backend boundary but no approved signal, so the hardware path refuses before the first write (`BOOT_VERIFICATION_NOT_IMPLEMENTED`). Live hardware was never exercised: `LIVE_L8=NOT_AUTHORIZED`, `LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN`.
 - Input contracts: `device.identity`, `d4.attestation`, `k_c2d`, `k_d2c`, `wifi.psk`, `mqtt.pass` from private owner-only files (mode 0600 or 0400).
 - Zero host drift: `allow-keys.txt` and `allow-listeners.txt` carry zero active entries.
 - Rollback: splits at first hardware write; holds fail-secure (`D4_ONLY`).

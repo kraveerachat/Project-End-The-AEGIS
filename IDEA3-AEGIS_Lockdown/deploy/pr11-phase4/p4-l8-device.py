@@ -8,9 +8,24 @@ Regression tests: IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l8_handler.py
 
 Capability boundary, deliberately narrow:
 
-* The only implemented device backend is ``fixture``. Selecting ``hardware``
-  fails closed, because this repository contains no Production write tool and
-  no Production readback verifier.
+* Two device backends exist. ``fixture`` is a file-backed mock with no serial
+  code path. ``hardware`` is implemented in the repository
+  (HARDWARE_BACKEND_IMPLEMENTED_REPOSITORY) as a thin adapter over the
+  PlatformIO-pinned esptool (``tool-esptoolpy``, the tool
+  ``platform = espressif32@7.0.1`` resolves). It is NOT authorized to run:
+  LIVE_L8=NOT_AUTHORIZED. Merely importing this module or constructing a
+  backend touches nothing; only an explicit live authorization plus a
+  maintenance window lets a command reach a device.
+* Every external command goes through one narrow, injectable executor and
+  through a strict argv allowlist (``validate_esptool_argv``). The only
+  subcommands are ``flash_id``, ``write_flash`` and ``read_flash``, bound to
+  the port named in the validated OV-12 binding and to the two partition
+  regions derived from the reviewed table. Erase, memory writes, eFuse, a
+  PlatformIO upload target, relay CUT/RESTORE and MQTT are unreachable.
+* Boot verification has a backend boundary (``boot_verifier``) but NO
+  repository-defined trustworthy signal, so none is invented:
+  ``BOOT_VERIFICATION_NOT_IMPLEMENTED`` refuses the hardware path before the
+  first write. BLOCKED_DESIGN_GAP; see the operational design section 8.
 * No Production key material is ever generated here. Protocol keys arrive as
   owner-supplied files and are validated by the merged provisioner
   (``p4-nvs-provision.py``), which also refuses known demo/test keys.
@@ -36,6 +51,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, NamedTuple, Protocol, Sequence
 
 HERE = Path(__file__).resolve().parent
 
@@ -55,6 +71,30 @@ EVIDENCE_FIELDS = (
     "boot_verification_result",
     "failure_boundary",
 )
+
+# The hardware backend binds to the toolchain the repository already pins:
+# firmware/platformio.ini sets platform = espressif32@7.0.1 and
+# upload_speed = 115200, and that platform resolves tool-esptoolpy ~2.41100.0
+# (esptool 4.11.x, underscore subcommands). No pyserial, no second flasher.
+PINNED_ESPTOOL_PACKAGE = ("tool-esptoolpy", "2.41100.0")
+HARDWARE_CHIP = "esp32"
+HARDWARE_BAUD = 115200
+
+# The only esptool subcommands the hardware backend may ever issue.
+ESPTOOL_ALLOWED_SUBCOMMANDS = ("flash_id", "write_flash", "read_flash")
+ESPTOOL_AFTER_MODES = ("no_reset", "hard_reset")
+# Number of fixed global-option tokens between the launcher and the subcommand:
+# --chip C --port P --baud B --before M --after A
+ESPTOOL_GLOBAL_TOKENS = 10
+
+TOOL_TIMEOUT_IDENTITY_S = 90
+TOOL_TIMEOUT_WRITE_S = 300
+TOOL_TIMEOUT_READ_S = 180
+
+BOOT_RESULTS = ("PASS", "FAIL", "NOT_PROVEN")
+BOOT_FIXTURE_MARKER = "NOT_APPLICABLE_FIXTURE_BACKEND"
+RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+FLASH_SIZE_RE = re.compile(r"^([0-9]+)MB$")
 
 MAC_RE = re.compile(r"^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$")
 SERIAL_PORT_RE = re.compile(r"^/dev/tty(?:USB|ACM)[0-9]+$")
@@ -443,6 +483,14 @@ class FixtureDevice:
             "flash_size": str(self.descriptor["flash_size"]),
         }
 
+    boot_verification_supported = True
+
+    def bind_regions(self, regions: dict[str, tuple[int, int]]) -> None:
+        """The fixture writes plain files, so region binding is informational."""
+
+    def verify_boot(self) -> str:
+        return BOOT_FIXTURE_MARKER
+
     def write_region(self, region: str, offset: int, payload: bytes) -> None:
         target = self.flash_dir / f"{region}-{offset:#x}.img"
         target.write_bytes(payload)
@@ -456,17 +504,437 @@ class FixtureDevice:
             raise L8Error(f"fixture readback failed for region {region}") from exc
 
 
-def load_backend(name: str, descriptor_path: Path | None, flash_dir: Path):
-    """Select a device backend. Only the fixture backend is implemented."""
+# ---------------------------------------------------------------------------
+# hardware backend (OD-L8-05, OD-L8-06, OD-L8-07)
+#
+# Nothing in this section touches a device at import time or when an object is
+# constructed. A command can only reach a device through
+# SubprocessExecutor.run, which is only built by load_backend after the live
+# authorization gate, and which itself refuses any argv that is not one of the
+# three allowed esptool shapes bound to the OV-12 port.
+# ---------------------------------------------------------------------------
+
+class ExecResult(NamedTuple):
+    """Outcome of one external command. Output is parsed in memory, never logged."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+class CommandExecutor(Protocol):
+    """The one seam through which hardware commands run. Tests inject a fake."""
+
+    def run(self, argv: Sequence[str], timeout: float | None = None) -> ExecResult:
+        ...
+
+
+# Tokens no hardware command may ever contain, wherever they appear.
+ESPTOOL_FORBIDDEN_TOKENS = (  # denylist
+    "erase_flash",  # denylist
+    "erase-flash",  # denylist
+    "erase_region",  # denylist
+    "erase-region",  # denylist
+    "write_mem",  # denylist
+    "write-mem",  # denylist
+    "read_mem",  # denylist
+    "load_ram",  # denylist
+    "espefuse",  # denylist
+    "espefuse.py",  # denylist
+    "burn_efuse",  # denylist
+    "burn-efuse",  # denylist
+    "--erase-all",  # denylist
+    "--erase_all",  # denylist
+    "upload",  # denylist
+    "platformio",  # denylist
+    "pio",  # denylist
+)
+
+
+def resolve_pinned_esptool(script: str | None) -> Path:
+    """Accept only the esptool that ships in the pinned PlatformIO package."""
+    if not script:
+        raise L8Error("hardware backend requires the pinned esptool script path")
+    path = Path(script)
+    if not path.is_absolute() or path.name != "esptool.py":
+        raise L8Error("esptool must be an absolute path to the pinned esptool.py")
+    if not path.is_file():
+        raise L8Error(f"pinned esptool not found: {path}")
+    manifest = path.parent / "package.json"
+    try:
+        package = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise L8Error(
+            "esptool is not inside a PlatformIO tool package (package.json unreadable)"
+        ) from exc
+    observed = (package.get("name"), package.get("version"))
+    if observed != PINNED_ESPTOOL_PACKAGE:
+        raise L8Error(
+            f"esptool package {observed} is not the pinned {PINNED_ESPTOOL_PACKAGE}"
+        )
+    return path
+
+
+def _is_scratch_path(path: str, scratch_dir: Path) -> bool:
+    candidate = Path(path)
+    return (
+        candidate.parent == Path(scratch_dir)
+        and candidate.name.startswith("hw-")
+        and candidate.name.endswith(".bin")
+    )
+
+
+def _parse_address(token: str) -> int:
+    if re.fullmatch(r"0x[0-9a-fA-F]+", token) is None:
+        raise L8Error("hardware command address must be an explicit hex literal")
+    return int(token, 16)
+
+
+def validate_esptool_argv(
+    argv: Sequence[str],
+    prefix: Sequence[str],
+    permitted_writes: dict[int, int],
+    permitted_reads: dict[int, int],
+    scratch_dir: Path,
+) -> str:
+    """Structural allowlist for every command the hardware backend may issue.
+
+    ``prefix`` already carries the launcher, chip, the bound serial port, the
+    baud rate and the reset mode, so a different port cannot match. Anything
+    that is not exactly flash_id, or write_flash/read_flash on a bound region
+    with a private scratch file, is refused. Returns the subcommand.
+    """
+    argv = [str(a) for a in argv]
+    prefix = [str(a) for a in prefix]
+    if argv[: len(prefix)] != prefix:
+        raise L8Error("hardware command does not match the bound tool/port prefix")
+    tail = argv[len(prefix):]
+    if len(tail) < 3 or tail[0] != "--after" or tail[1] not in ESPTOOL_AFTER_MODES:
+        raise L8Error("hardware command has no valid reset mode")
+    sub, rest = tail[2], tail[3:]
+    for token in argv:
+        if token in ESPTOOL_FORBIDDEN_TOKENS:
+            raise L8Error(f"hardware command contains a forbidden token: {token}")
+    if sub not in ESPTOOL_ALLOWED_SUBCOMMANDS:
+        raise L8Error(f"hardware subcommand is not allowed: {sub}")
+
+    if sub == "flash_id":
+        if rest:
+            raise L8Error("flash_id takes no arguments")
+    elif sub == "write_flash":
+        if len(rest) != 2:
+            raise L8Error("write_flash must be exactly <address> <file>")
+        address = _parse_address(rest[0])
+        if address not in permitted_writes:
+            raise L8Error("write_flash address is not a bound partition offset")
+        if not _is_scratch_path(rest[1], scratch_dir):
+            raise L8Error("write_flash source must be a private scratch file")
+    else:  # read_flash
+        if len(rest) != 3:
+            raise L8Error("read_flash must be exactly <address> <size> <file>")
+        address = _parse_address(rest[0])
+        if permitted_reads.get(address) != _parse_address(rest[1]):
+            raise L8Error("read_flash must cover exactly a region that was written")
+        if not _is_scratch_path(rest[2], scratch_dir):
+            raise L8Error("read_flash destination must be a private scratch file")
+    return sub
+
+
+class SubprocessExecutor:
+    """The only place a hardware command becomes a real process.
+
+    Built only after the live gate. It refuses anything that is not the pinned
+    launcher followed by an allowed subcommand, so even a caller that bypassed
+    HardwareDevice could not run erase, memory or eFuse operations.
+    """
+
+    def __init__(self, launcher: Sequence[str]) -> None:
+        self._launcher = [str(a) for a in launcher]
+
+    def run(self, argv: Sequence[str], timeout: float | None = None) -> ExecResult:
+        argv = [str(a) for a in argv]
+        n = len(self._launcher)
+        sub_index = n + ESPTOOL_GLOBAL_TOKENS
+        if argv[:n] != self._launcher or len(argv) <= sub_index:
+            raise L8Error("executor refused a command outside the pinned tool")
+        if argv[sub_index] not in ESPTOOL_ALLOWED_SUBCOMMANDS:
+            raise L8Error("executor refused a subcommand outside the allowlist")
+        if any(token in ESPTOOL_FORBIDDEN_TOKENS for token in argv):
+            raise L8Error("executor refused a forbidden token")
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "LC_ALL": "C",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        try:
+            done = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                stdin=subprocess.DEVNULL,
+                timeout=timeout,
+                check=False,
+                env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise L8Error("hardware tool timed out") from exc
+        return ExecResult(done.returncode, done.stdout or "", done.stderr or "")
+
+
+def parse_esptool_identity(text: str, expected_port: str) -> dict[str, str]:
+    """Strictly parse ``esptool flash_id`` output into MAC, chip and flash size.
+
+    Missing, malformed, repeated, or contradictory lines all fail closed.
+    """
+    lines = [line.rstrip("\r") for line in text.splitlines()]
+
+    def unique(prefix: str, pattern: str, label: str) -> re.Match:
+        hits = [line for line in lines if line.startswith(prefix)]
+        if len(hits) != 1:
+            raise L8Error(f"identity output: expected exactly one {label} line")
+        match = re.fullmatch(pattern, hits[0])
+        if match is None:
+            raise L8Error(f"identity output: malformed {label} line")
+        return match
+
+    for line in lines:
+        if line.startswith("Serial port ") and line != f"Serial port {expected_port}":
+            raise L8Error("identity output names a serial port other than the bound one")
+
+    chip = unique(
+        "Chip is ",
+        r"Chip is (ESP32(?:-[A-Z0-9]+)*) \(revision v[0-9]+\.[0-9]+\)",
+        "chip",
+    ).group(1)
+    if re.match(r"ESP32-(?:S2|S3|C[0-9]+|H[0-9]+|P4)\b", chip):
+        raise L8Error("identity output: chip is not a classic ESP32")
+    mac = unique(
+        "MAC: ", r"MAC: ((?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2})", "MAC"
+    ).group(1).lower()
+    flash = unique(
+        "Detected flash size: ", r"Detected flash size: ([0-9]+MB)", "flash size"
+    ).group(1)
+    return {"mac": mac, "chip_identity": chip, "flash_size": flash}
+
+
+def flash_size_bytes(flash_size: str) -> int:
+    match = FLASH_SIZE_RE.fullmatch(flash_size)
+    if match is None:
+        raise L8Error(f"flash size {flash_size!r} is not of the form <n>MB")
+    return int(match.group(1)) * 1024 * 1024
+
+
+class HardwareDevice:
+    """Real ESP32 backend: a subprocess adapter over the pinned esptool.
+
+    The serial port comes only from the validated OV-12 binding; there is no
+    device discovery and no substitution. Construction performs no I/O.
+    """
+
+    name = "hardware"
+
+    def __init__(
+        self,
+        *,
+        serial_port: str,
+        work_dir: Path,
+        executor: CommandExecutor,
+        esptool_script: str,
+        live_authorized: bool,
+        python: str | None = None,
+        boot_verifier: Callable[[], str] | None = None,
+    ) -> None:
+        if live_authorized is not True:
+            raise L8Error(
+                "HARDWARE_BACKEND_LIVE_L8_NOT_AUTHORIZED: refusing to build a "
+                "hardware backend without explicit live authorization"
+            )
+        if SERIAL_PORT_RE.fullmatch(str(serial_port)) is None:
+            raise L8Error("hardware backend serial port must be /dev/ttyUSBn or /dev/ttyACMn")
+        self._port = serial_port
+        self._work_dir = Path(work_dir)
+        self._runner = executor
+        self._boot_verifier = boot_verifier
+        self._regions: dict[str, tuple[int, int]] = {}
+        self._written: dict[tuple[str, int], int] = {}
+        self.launcher = [python or sys.executable, str(esptool_script)]
+        self.argv_prefix = self.launcher + [
+            "--chip", HARDWARE_CHIP,
+            "--port", serial_port,
+            "--baud", str(HARDWARE_BAUD),
+            "--before", "default_reset",
+        ]
+
+    @property
+    def boot_verification_supported(self) -> bool:
+        return self._boot_verifier is not None
+
+    # -- command plumbing ---------------------------------------------------
+
+    def build_argv(self, subcommand: str, *args: str, after: str) -> list[str]:
+        return self.argv_prefix + ["--after", after, subcommand, *args]
+
+    def _permitted_writes(self) -> dict[int, int]:
+        return {offset: size for offset, size in self._regions.values()}
+
+    def _permitted_reads(self) -> dict[int, int]:
+        return {offset: size for (_r, offset), size in self._written.items()}
+
+    def _invoke(self, argv: list[str], timeout: float) -> ExecResult:
+        validate_esptool_argv(
+            argv,
+            self.argv_prefix,
+            self._permitted_writes(),
+            self._permitted_reads(),
+            self._work_dir,
+        )
+        try:
+            return self._runner.run(argv, timeout=timeout)
+        except L8Error:
+            raise
+        except Exception as exc:
+            # Only the exception type is kept: tool output can echo flash content.
+            raise L8Error(f"hardware tool invocation failed ({type(exc).__name__})") from None
+
+    def _scratch(self, region: str, offset: int) -> Path:
+        path = self._work_dir / f"hw-{region}-{offset:#x}.bin"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            os.close(os.open(path, flags, 0o600))
+        except FileExistsError as exc:
+            raise L8Error(f"scratch file already exists: {path.name}") from exc
+        return path
+
+    # -- backend surface ----------------------------------------------------
+
+    def identity(self) -> dict[str, str]:
+        """Observe MAC, chip and flash size. Opens the port; may reset the device."""
+        result = self._invoke(
+            self.build_argv("flash_id", after="no_reset"), TOOL_TIMEOUT_IDENTITY_S
+        )
+        if result.returncode != 0:
+            raise L8Error(f"identity command failed with status {result.returncode}")
+        return parse_esptool_identity(result.stdout, self._port)
+
+    def bind_regions(self, regions: dict[str, tuple[int, int]]) -> None:
+        if self._regions:
+            raise L8Error("hardware regions are already bound")
+        if set(regions) != {"nvs", "firmware"}:
+            raise L8Error("hardware regions must be exactly nvs and firmware")
+        for offset, size in regions.values():
+            if not isinstance(offset, int) or not isinstance(size, int) or size <= 0:
+                raise L8Error("hardware region geometry must be explicit integers")
+        self._regions = dict(regions)
+
+    def write_region(self, region: str, offset: int, payload: bytes) -> None:
+        bound = self._regions.get(region)
+        if bound is None or bound[0] != offset:
+            raise L8Error(f"write to {region} at {offset:#x} is not a bound region")
+        if not payload or len(payload) > bound[1]:
+            raise L8Error(f"payload for {region} does not fit its partition")
+        scratch = self._scratch(region, offset)
+        try:
+            scratch.write_bytes(payload)
+            result = self._invoke(
+                self.build_argv("write_flash", hex(offset), str(scratch), after="no_reset"),
+                TOOL_TIMEOUT_WRITE_S,
+            )
+        finally:
+            scratch.unlink(missing_ok=True)
+        if result.returncode != 0:
+            raise L8Error(
+                f"hardware write of {region} failed with status {result.returncode}"
+            )
+        self._written[(region, offset)] = len(payload)
+
+    def read_region(self, region: str, offset: int) -> bytes:
+        """Read back exactly the bytes that were written; boots the new image.
+
+        This is the terminal device operation, so it is the one that resets the
+        chip into the freshly written firmware (``--after hard_reset``).
+        """
+        size = self._written.get((region, offset))
+        if size is None:
+            raise L8Error(f"{region} at {offset:#x} was not written; nothing to read back")
+        scratch = self._scratch(region, offset)
+        try:
+            result = self._invoke(
+                self.build_argv(
+                    "read_flash", hex(offset), hex(size), str(scratch), after="hard_reset"
+                ),
+                TOOL_TIMEOUT_READ_S,
+            )
+            if result.returncode != 0:
+                raise L8Error(
+                    f"hardware readback of {region} failed with status {result.returncode}"
+                )
+            data = scratch.read_bytes()
+        finally:
+            scratch.unlink(missing_ok=True)
+        if len(data) != size:
+            raise L8Error(f"hardware readback of {region} returned a wrong length")
+        return data
+
+    def verify_boot(self) -> str:
+        """Delegate to the injected verifier; anything unproven is NOT_PROVEN.
+
+        The verifier must only observe the fail-secure post-flash boot state.
+        It must never issue CUT or RESTORE, and this repository defines no
+        such signal yet, so the default is that no verifier exists.
+        """
+        if self._boot_verifier is None:
+            return "NOT_PROVEN"
+        try:
+            verdict = self._boot_verifier()
+        except Exception:
+            return "NOT_PROVEN"
+        return verdict if isinstance(verdict, str) and verdict in BOOT_RESULTS else "NOT_PROVEN"
+
+
+def load_backend(
+    name: str,
+    descriptor_path: Path | None,
+    flash_dir: Path,
+    *,
+    binding: dict[str, str] | None = None,
+    live_authorized: bool = False,
+    executor: CommandExecutor | None = None,
+    esptool_script: str | None = None,
+    work_dir: Path | None = None,
+    boot_verifier: Callable[[], str] | None = None,
+):
+    """Select a device backend. Hardware needs BOTH selection and live authorization."""
     if name == "fixture":
         if descriptor_path is None:
             raise L8Error("fixture backend requires a fixture device descriptor")
         return FixtureDevice(descriptor_path, flash_dir)
     if name == "hardware":
-        raise L8Error(
-            "HARDWARE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY: this repository "
-            "contains no Production write tool and no Production readback "
-            "verifier; LIVE_L8=NOT_AUTHORIZED"
+        # The gate comes first, before any tool resolution or object creation.
+        if live_authorized is not True:
+            raise L8Error(
+                "HARDWARE_BACKEND_LIVE_L8_NOT_AUTHORIZED: the hardware backend is "
+                "implemented in the repository, but live access requires explicit "
+                "authorization; LIVE_L8=NOT_AUTHORIZED"
+            )
+        if binding is None or work_dir is None:
+            raise L8Error("hardware backend requires the OV-12 binding and a work directory")
+        launcher_script = str(esptool_script or "")
+        if executor is None:
+            script = resolve_pinned_esptool(esptool_script)
+            launcher_script = str(script)
+            executor = SubprocessExecutor([sys.executable, launcher_script])
+        elif not launcher_script:
+            raise L8Error("hardware backend requires the pinned esptool script path")
+        return HardwareDevice(
+            serial_port=binding["serial_port"],
+            work_dir=Path(work_dir),
+            executor=executor,
+            esptool_script=launcher_script,
+            live_authorized=True,
+            boot_verifier=boot_verifier,
         )
     raise L8Error(f"unknown device backend {name!r}")
 
@@ -543,13 +1011,22 @@ def generate_nvs_partition(
 # provision orchestration (OD-L8-06)
 # ---------------------------------------------------------------------------
 
-def provision(args: argparse.Namespace) -> int:
+def provision(
+    args: argparse.Namespace,
+    *,
+    executor: CommandExecutor | None = None,
+    boot_verifier: Callable[[], str] | None = None,
+) -> int:
+    """Run the ordered L8 procedure. ``executor`` and ``boot_verifier`` are
+    injection seams for tests; the CLI supplies neither."""
     input_dir = Path(args.input_dir)
     work_dir = Path(args.work_dir)
     evidence_dir = Path(args.evidence_dir)
 
     if not input_dir.is_dir() or input_dir.is_symlink():
         raise L8Error("input directory must exist and must not be a symlink")
+    if RUN_ID_RE.fullmatch(str(args.run_id)) is None:
+        raise L8Error("run id must be 1-64 characters of [A-Za-z0-9._-]")
 
     work_dir.mkdir(parents=True, exist_ok=True)
     work_dir.chmod(0o700)
@@ -557,6 +1034,7 @@ def provision(args: argparse.Namespace) -> int:
     evidence_dir.chmod(0o700)
 
     marker = work_dir / "first-write.marker"
+    evidence_path = evidence_dir / f"l8-{args.run_id}.json"
 
     # 1. OV-12 identity binding, before anything else exists.
     binding = parse_identity_binding(input_dir / "device.identity")
@@ -564,30 +1042,64 @@ def provision(args: argparse.Namespace) -> int:
     # 2. D4-only recovery prerequisite.
     parse_d4_attestation(input_dir / "d4.attestation")
 
-    # 3. Backend selection and observed identity.
-    device = load_backend(args.backend, args.fixture_device, work_dir / "fixture-flash")
+    # 3. Backend selection. The hardware backend is refused here, before any
+    #    device access, unless live authorization was explicitly given. Building
+    #    it performs no I/O; observing identity below is the first device access.
+    device = load_backend(
+        args.backend,
+        args.fixture_device,
+        work_dir / "fixture-flash",
+        binding=binding,
+        live_authorized=getattr(args, "live_authorized", "NO") == "YES",
+        executor=executor,
+        esptool_script=getattr(args, "esptool", None),
+        work_dir=work_dir,
+        boot_verifier=boot_verifier,
+    )
+    if not device.boot_verification_supported:
+        # BLOCKED_DESIGN_GAP: no trustworthy boot signal is defined, so a write
+        # that could never be accepted is refused before it happens.
+        raise L8Error(
+            "BOOT_VERIFICATION_NOT_IMPLEMENTED: no owner-approved boot "
+            "verification signal exists; refusing before any device access"
+        )
+
+    # 4. Everything that needs no device: geometry from the reviewed table, the
+    #    compile-only build identity, the trust anchor and the network profile.
+    nvs_offset, nvs_size = derive_partition_geometry(
+        Path(args.partition_table), NVS_SELECTOR
+    )
+    app_offset, app_size = derive_partition_geometry(
+        Path(args.partition_table), APP_SELECTOR
+    )
+    validate_build_command(args.build_command)
+    validate_trust_anchor(Path(args.secrets_header))
+    image_digest = firmware_sha256(Path(args.firmware_image))
+    firmware_image = Path(args.firmware_image).read_bytes()
+    if len(firmware_image) > app_size:
+        raise L8Error("firmware image does not fit the application partition")
+    ntp = validate_ntp(args.ntp)
+    if evidence_path.exists():
+        raise L8Error(
+            f"evidence bundle already exists and is write-once: {evidence_path}"
+        )
+
+    # 5. Observed identity. For the hardware backend this is the first device
+    #    access (NON_WRITING_BUT_DEVICE_RESETTING); it precedes every write.
     observed = device.identity()
     if observed["mac"] != binding["expected_mac"]:
         raise L8Error(
             "observed device mac does not match the OV-12 expected_mac; "
             "aborting before any device write"
         )
-
-    # 4. Geometry derived from the reviewed build's partition table.
-    nvs_offset, nvs_size = derive_partition_geometry(
-        Path(args.partition_table), NVS_SELECTOR
-    )
-    app_offset, _app_size = derive_partition_geometry(
-        Path(args.partition_table), APP_SELECTOR
-    )
-
-    # 5. Firmware build identity and trust anchor.
-    validate_build_command(args.build_command)
-    validate_trust_anchor(Path(args.secrets_header))
-    image_digest = firmware_sha256(Path(args.firmware_image))
+    flash_bytes = flash_size_bytes(observed["flash_size"])
+    if max(nvs_offset + nvs_size, app_offset + app_size) > flash_bytes:
+        raise L8Error(
+            "reviewed partition geometry exceeds the observed flash size; "
+            "aborting before any device write"
+        )
 
     # 6. Provisioning material. The provisioner refuses demo/test keys.
-    ntp = validate_ntp(args.ntp)
     provisioner = load_nvs_provisioner()
     csv_path = work_dir / "nvs.csv"
     render_nvs_material(
@@ -601,6 +1113,11 @@ def provision(args: argparse.Namespace) -> int:
     nvs_image_path = work_dir / "nvs.bin"
     generate_nvs_partition(args.nvs_generator, csv_path, nvs_image_path, nvs_size)
     nvs_image = nvs_image_path.read_bytes()
+    if len(nvs_image) != nvs_size:
+        raise L8Error("nvs partition image does not match the partition size")
+    device.bind_regions(
+        {"nvs": (nvs_offset, nvs_size), "firmware": (app_offset, app_size)}
+    )
 
     # 7. First device write. Everything above is a hard gate; past this point a
     #    failure is FAIL_SECURE_CUT and recovery is D4 only.
@@ -612,30 +1129,38 @@ def provision(args: argparse.Namespace) -> int:
     failure_boundary = "NONE"
     flash_result = "FAIL"
     readback_match = "FAIL"
-    boot_result = "NOT_APPLICABLE_FIXTURE_BACKEND"
+    boot_result = BOOT_FIXTURE_MARKER if device.name == "fixture" else "NOT_PROVEN"
 
     try:
         device.write_region("nvs", nvs_offset, nvs_image)
-        device.write_region(
-            "firmware", app_offset, Path(args.firmware_image).read_bytes()
-        )
+        device.write_region("firmware", app_offset, firmware_image)
         flash_result = "PASS"
     except Exception:
         # FAIL_SECURE_HOLD_AND_EVIDENCE (OD-L8-07): a failure at or after the
         # first write must still produce evidence, so it is recorded below
-        # rather than raised past the bundle.
+        # rather than raised past the bundle. No retry, no reflash, no restore.
         failure_boundary = "DEVICE_WRITE"
 
     # 8. Private readback: only the boolean outcome leaves this scope.
     if flash_result == "PASS":
-        readback_match = "PASS" if compare_nvs_readback(
-            nvs_image, device.read_region("nvs", nvs_offset)
-        ) else "FAIL"
+        try:
+            readback_match = "PASS" if compare_nvs_readback(
+                nvs_image, device.read_region("nvs", nvs_offset)
+            ) else "FAIL"
+        except Exception:
+            readback_match = "FAIL"
         if readback_match != "PASS":
             failure_boundary = "NVS_READBACK"
 
+    # 9. Boot verification (OD-L8-07). Only meaningful once the image is proven
+    #    to be on the device; it never issues CUT or RESTORE.
+    if readback_match == "PASS":
+        boot_result = device.verify_boot()
+        if boot_result not in ("PASS", BOOT_FIXTURE_MARKER):
+            failure_boundary = "BOOT_VERIFICATION"
+
     write_evidence(
-        evidence_dir / f"l8-{args.run_id}.json",
+        evidence_path,
         {
             "schema_version": EVIDENCE_SCHEMA_VERSION,
             "run_id": args.run_id,
@@ -657,7 +1182,12 @@ def provision(args: argparse.Namespace) -> int:
     print(f"L8_BOOT_VERIFICATION={boot_result}")
     print(f"L8_FAILURE_BOUNDARY={failure_boundary}")
 
-    return 0 if readback_match == "PASS" and flash_result == "PASS" else 1
+    accepted = (
+        readback_match == "PASS"
+        and flash_result == "PASS"
+        and boot_result in ("PASS", BOOT_FIXTURE_MARKER)
+    )
+    return 0 if accepted else 1
 
 
 # ---------------------------------------------------------------------------
@@ -684,6 +1214,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--wifi-ssid", required=True)
     run.add_argument("--ntp", required=True)
     run.add_argument("--run-id", required=True)
+    # Hardware only. The serial port is deliberately NOT an argument: it comes
+    # exclusively from the validated device.identity binding.
+    run.add_argument("--esptool", default=None)
+    run.add_argument("--live-authorized", default="NO")
 
     offset = subparsers.add_parser("nvs-offset")
     offset.add_argument("--partition-table", required=True)

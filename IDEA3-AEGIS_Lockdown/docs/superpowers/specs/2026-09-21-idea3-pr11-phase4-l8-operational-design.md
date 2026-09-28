@@ -15,7 +15,9 @@ Merged-authority reconciliations:
 - `G-16` firmware non-blocking Wi-Fi join (`CLOSED_REPOSITORY`)
 - `G-11` NVS provisioning tool (`PARTIAL_REPOSITORY`, `p4-nvs-provision.py` render-only)
 - `G-04` static addressing (`NOT_APPLICABLE_UNDER_SELECTED_ADDRESS_MODEL`; address model is DHCP)
-Repository Implementation: COMPLETE (fixture backend only)
+Repository Implementation: COMPLETE — fixture backend, plus hardware backend implemented in the repository (2026-09-29, tested only against a fake executor; see §8)
+Hardware backend: HARDWARE_BACKEND_IMPLEMENTED_REPOSITORY — live hardware never exercised
+Boot verification: BLOCKED_DESIGN_GAP (§8.4)
 Live L8: NOT AUTHORIZED / NOT RUN
 Production Mutation: NO
 ESP32 Mutation: NO
@@ -322,20 +324,21 @@ host drift whatsoever.
   in turn re-enters boot with the relay held in its fail-secure CUT state.
   Inspection therefore **requires a maintenance window**
   (`L8_INSPECTION_REQUIRES_MAINTENANCE_WINDOW=YES`) and must never be described
-  as side-effect-free or passive. In repository scope the refusal is
-  **unconditional and structural**, not merely policy: the only implemented
-  backend is `fixture`, which has no serial code path at all, and selecting
-  `hardware` fails closed at two independent layers (the stage handler's
-  backend gate and the device tool's backend loader). Because no hardware
-  backend exists, even an explicit `AEGIS_L8_LIVE_AUTHORIZED=YES` cannot open a
-  live path.
+  as side-effect-free or passive. The repository now also contains a hardware backend (§8). The refusal
+  is therefore no longer structural: it is a **fail-closed gate**. The
+  hardware backend is reachable only when `AEGIS_L8_BACKEND=hardware` **and**
+  `AEGIS_L8_LIVE_AUTHORIZED=YES`, enforced independently by the stage handler
+  and by the device tool's backend loader, and even then it refuses before the
+  first write while no boot-verification signal exists
+  (`BOOT_VERIFICATION_NOT_IMPLEMENTED`). `LIVE_L8=NOT_AUTHORIZED` is unchanged.
 - **BASIS**: Owner classification; `firmware/platformio.ini`
   (`monitor_dtr = 0`, `monitor_rts = 0` reduce but do not eliminate the reset);
   `firmware/src/main.cpp` boot path (`BOOT_GRACE_MS`, relay driven to
   `RELAY_TRIGGER` at boot).
 - **OWNER_STATUS**: `OWNER_APPROVED`.
-- **CURRENTLY_PROVEN**: Repository-provable only as a refusal: fixture mode
-  performs no serial access.
+- **CURRENTLY_PROVEN**: Repository-provable only as refusals: fixture mode
+  performs no serial access, and the hardware backend is unreachable without
+  explicit live authorization (fake-executor tests only; no device opened).
 - **REPOSITORY_IMPLEMENTATION_REQUIRED**: A defense-in-depth live gate; a
   fixture backend with no serial code path; an explicit refusal when a real
   `/dev/tty*` path is combined with the fixture backend.
@@ -491,6 +494,7 @@ host drift whatsoever.
 | `deploy/pr11-phase4/stages/L8/allow-listeners.txt` | new — zero active entries | contract |
 | `deploy/pr11-phase4/p4-l8-device.py` | new — backend abstraction, partition geometry derivation, readback compare, evidence bundle | repository tool, fixture backend only |
 | `tests/test_pr11_phase4_l8_handler.py` | new — RED-first acceptance suite | test |
+| `tests/test_pr11_phase4_l8_hardware_backend.py` | added 2026-09-29 — hardware-backend suite, fake executor only | test |
 | `tests/test_pr11_phase4_harness.py` | edit — add L8 to the reviewed-handler set; move the unregistered-mutating-stage example to L9 | shared harness guardrail |
 
 `p4-lib.sh`, `p4-l0-capture.sh`, `p4-compare.sh`, `p4-stage-gate.sh`,
@@ -543,3 +547,96 @@ LIVE_L8=NOT_AUTHORIZED
 LIVE_L8_PHYSICAL_PROOF_REQUIRED=YES
 LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN
 ```
+
+---
+
+## 8. Hardware Backend (added 2026-09-29, repository-only)
+
+```text
+HARDWARE_BACKEND_IMPLEMENTED_REPOSITORY=YES
+LIVE_L8=NOT_AUTHORIZED
+LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN
+BOOT_VERIFICATION=BLOCKED_DESIGN_GAP
+```
+
+This section records repository capability only. It does not change any
+OD-L8 safety decision and authorizes no live access. Everything below is proven
+against a fake executor; no serial port, esptool run, flash, or device exists in
+any test.
+
+### 8.1 Architecture
+
+- `p4-l8-device.py` gains `HardwareDevice`, selected by `load_backend("hardware")`.
+  It is a subprocess adapter over the toolchain the repository already pins:
+  `platform = espressif32@7.0.1` resolves `tool-esptoolpy` `2.41100.0` (esptool
+  4.11.x). No pyserial and no second flashing stack were added.
+  `resolve_pinned_esptool` accepts only an absolute `esptool.py` whose sibling
+  `package.json` names exactly that package and version; the baud rate is the
+  `upload_speed = 115200` of `firmware/platformio.ini`.
+- **One executor seam.** Every command goes through `CommandExecutor.run`.
+  `SubprocessExecutor` is the only code that spawns a process; it is built only
+  after the live gate and refuses any argv that is not the pinned launcher plus
+  an allowed subcommand. Tests inject a fake executor.
+- **One argv allowlist.** `validate_esptool_argv` accepts exactly
+  `flash_id`, `write_flash <addr> <scratch>` and `read_flash <addr> <size> <scratch>`,
+  with the launcher, chip, **bound serial port**, baud and reset mode fixed in a
+  prefix. Erase, memory access, eFuse, PlatformIO upload, option smuggling,
+  unbound offsets and non-scratch files are unreachable. There is no relay
+  CUT/RESTORE, no MQTT and no plaintext 1883 anywhere in the backend.
+- **No side effect before the gate.** Importing the module, constructing
+  `HardwareDevice`, parsing identity and validating artifacts touch nothing.
+  `load_backend("hardware")` raises `HARDWARE_BACKEND_LIVE_L8_NOT_AUTHORIZED`
+  unless live authorization is explicitly true.
+
+### 8.2 Identity
+
+The serial port is taken exclusively from the validated `device.identity`
+binding: it is not a CLI argument, and there is no device discovery or
+substitution. One `flash_id` invocation observes MAC, chip and flash size;
+`parse_esptool_identity` requires exactly one well-formed line of each,
+rejects repeated, missing, malformed or contradictory output, rejects any
+non-classic-ESP32 chip and any `Serial port` line naming another port. The
+observed MAC must equal `expected_mac`, and the derived partition geometry must
+fit the observed flash size, before the first write.
+
+### 8.3 Write and readback contract
+
+Order inside `provision`: authorization, D4 attestation, OV-12 binding,
+boot-verifier availability, then all device-free gates (reviewed partition
+geometry, compile-only build command, trust anchor, firmware SHA-256, NTP,
+evidence-path free), then observed identity, then keys and NVS generation
+(image length must equal the partition size), then the first-write marker,
+then the writes. The device-free gates run first so a bad CA or table never
+causes a device reset.
+
+- Writes: exactly the NVS image at the table-derived `nvs` offset and the
+  reviewed application image at the table-derived application offset, each
+  through a private (0600, `O_EXCL`) scratch file that is removed afterwards.
+- Readback: `read_flash` of exactly the written NVS region, compared privately
+  in memory; only `PASS`/`FAIL` is emitted. It is the terminal device operation
+  and uses `--after hard_reset`, which boots the new image.
+- Any exception at or after the first write is contained: evidence is written
+  with the stage reached in `failure_boundary` (`DEVICE_WRITE`, `NVS_READBACK`
+  or `BOOT_VERIFICATION`), then `FAIL_SECURE_HOLD_AND_EVIDENCE`. No retry, no
+  reflash, no restore. `rollback.sh` after the first write still performs zero
+  device action. Evidence remains the exact 11-field write-once 0600 bundle;
+  no NVS digest was added.
+
+### 8.4 Boot verification — BLOCKED_DESIGN_GAP
+
+`HardwareDevice.verify_boot` delegates to an injected `boot_verifier` and maps
+anything other than `PASS`/`FAIL`/`NOT_PROVEN` (including an exception) to
+`NOT_PROVEN`. The verifier must observe only the fail-secure post-flash boot
+condition and must never issue CUT or RESTORE.
+
+No trustworthy exact signal is defined today, so none was invented:
+`firmware/src/main.cpp` prints nothing at boot (only `Serial.begin`), the relay
+GPIO is not visible through esptool, and the only status output (`publishStatus`
+over authenticated MQTT/TLS) belongs to the L9 command-roundtrip scope and needs
+Wi-Fi, broker and keys. The CLI therefore supplies no verifier, and the hardware
+path refuses **before any device access** with
+`BOOT_VERIFICATION_NOT_IMPLEMENTED`, rather than flashing a device whose result
+could never be accepted. Remaining decision (owner): approve one signal, for
+example a firmware-emitted boot line asserting relay CUT (a firmware change with
+its own contract test), or an authenticated status message; then implement the
+verifier behind this boundary. Until then Live L8 must not be claimed ready.

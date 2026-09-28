@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-28
+updated: 2026-09-29
 owner: music
 edit_policy: owner-writable
 ---
@@ -17,6 +17,30 @@ edit_policy: owner-writable
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
+
+## IDEA3 PR11 Phase 4 L8 real-hardware backend — repository implementation only — 2026-09-29
+
+> [!important] Repository-only. **No hardware was accessed**: no serial port opened, no esptool/pio run, no firmware flashed, no NVS written, no flash erased, no relay actuated. `LIVE_L8 = NOT_AUTHORIZED`; Live L8 is **not** ready because boot verification has an unresolved design gap.
+
+```text
+Task                          = IDEA3 PR11 L8 real hardware backend (repository-only)
+Branch                        = feat/idea3-pr11-l8-hardware-backend
+HARDWARE_BACKEND              = IMPLEMENTED_REPOSITORY (was HARDWARE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY)
+HARDWARE_TESTED_WITH          = FAKE_EXECUTOR_ONLY
+LIVE_L8                       = NOT_AUTHORIZED
+LIVE_L8_PHYSICAL_PROOF        = NOT_PROVEN
+BOOT_VERIFICATION             = BLOCKED_DESIGN_GAP (BOOT_VERIFICATION_NOT_IMPLEMENTED)
+LIVE_L8_ACCEPTANCE            = NOT_PROVEN
+D4_LIVE                       = NOT_PROVEN
+```
+
+- **Toolchain binding:** subprocess adapter over the PlatformIO-pinned `tool-esptoolpy` 2.41100.0 (esptool 4.11.x) that `espressif32@7.0.1` resolves; baud from `platformio.ini` `upload_speed`. No pyserial, no second flasher.
+- **Gate:** hardware needs `AEGIS_L8_BACKEND=hardware` **and** `AEGIS_L8_LIVE_AUTHORIZED=YES` (+ `AEGIS_L8_ESPTOOL`); enforced by `apply.sh` and, independently, by `p4-l8-device.py`. Import/construct/parse/validate touch nothing.
+- **Containment:** one injectable executor and one argv allowlist (`flash_id`, `write_flash`, `read_flash` only) bound to the OV-12 serial port and the two table-derived regions. Erase, `write_mem`, eFuse, PlatformIO upload, CUT/RESTORE, MQTT and 1883 are unreachable.
+- **Failure policy unchanged:** first-write marker before the first write; any later failure is contained as evidence (`DEVICE_WRITE` / `NVS_READBACK` / `BOOT_VERIFICATION`) and held `FAIL_SECURE_HOLD_AND_EVIDENCE`; no retry/reflash/restore; `rollback.sh` post-write performs zero device action; evidence stays the exact 11-field write-once 0600 bundle.
+- **Open owner decision:** approve one trustworthy boot-verification signal (the firmware prints nothing at boot; relay GPIO is invisible to esptool; `publishStatus` is L9 scope). Until then the hardware path refuses before any device access. Details: L8 operational design §8.4.
+- **Tests:** `tests/test_pr11_phase4_l8_hardware_backend.py` (80, fake executor, autouse guard against real devices); `test_pr11_phase4_l8_handler.py` 77 (two stale refusal tests reconciled).
+- **Receipt:** `90-Status/logs/2026-09-29_055833_music_idea3-l8-hardware-backend-repository.md`.
 
 ## IDEA3 Web WEB-R2 Production Refresh — live closeout — 2026-09-28
 
@@ -6312,6 +6336,7 @@ Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; 
 
 L8_HANDLER_REGISTERED         = YES
 L8_REPOSITORY_IMPLEMENTED     = YES
+L8_HARDWARE_BACKEND          = IMPLEMENTED_REPOSITORY (2026-09-29; fake-executor tested; live not exercised — see the L8 hardware backend section at the top)
 L8_OPERATIONAL_DESIGN         = COMPLETE (commit c2422924)
 RED_FIRST_PROVEN              = YES (53 failed / 17 passed, no import or syntax failure)
 

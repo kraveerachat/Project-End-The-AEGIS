@@ -328,22 +328,33 @@ def test_l8_apply_requires_core_environment_variables(tmp_path: Path) -> None:
     assert "AEGIS_L8_INPUT_DIR" in combined(res)
 
 
-def test_l8_hardware_backend_is_refused_in_repository_scope(tmp_path: Path) -> None:
-    """Selecting the hardware backend fails closed: no Production write tool exists."""
+def test_l8_hardware_backend_is_implemented_but_live_access_fails_closed(tmp_path: Path) -> None:
+    """The hardware backend exists in the repository; live access is still gated.
+
+    HARDWARE_BACKEND_IMPLEMENTED_REPOSITORY, LIVE_L8=NOT_AUTHORIZED. Without an
+    explicit live authorization the stage refuses before any device is opened.
+    """
+    mod = load_device_module()
+    assert hasattr(mod, "HardwareDevice"), "hardware backend must exist in the repository"
     env = l8_env(tmp_path, AEGIS_L8_BACKEND="hardware")
     res = run_apply(env)
     assert res.returncode != 0
     text = combined(res).upper()
-    assert "HARDWARE" in text and (
-        "NOT_IMPLEMENTED" in text or "NOT_AUTHORIZED" in text
-    ), combined(res)
+    assert "HARDWARE" in text and "NOT_AUTHORIZED" in text, combined(res)
+    assert "NOT_IMPLEMENTED_IN_REPOSITORY" not in text, "stale capability statement"
+    assert not (Path(env["AEGIS_L8_WORK_DIR"]) / "first-write.marker").exists()
 
 
-def test_l8_live_authorization_defaults_to_denied(tmp_path: Path) -> None:
-    """The live gate is closed unless explicitly authorized AND hardware-backed."""
+def test_l8_live_authorization_alone_cannot_open_a_device(tmp_path: Path) -> None:
+    """An explicit live flag without the pinned esptool still opens nothing.
+
+    The pinned tool is absent here, so the path stops before any device access.
+    """
     env = l8_env(tmp_path, AEGIS_L8_BACKEND="hardware", AEGIS_L8_LIVE_AUTHORIZED="YES")
+    env.pop("AEGIS_L8_FIXTURE_DEVICE", None)
     res = run_apply(env)
-    assert res.returncode != 0, "live path must stay closed in repository scope"
+    assert res.returncode != 0, "live flag alone must not reach a device"
+    assert not (Path(env["AEGIS_L8_WORK_DIR"]) / "first-write.marker").exists()
 
 
 def test_l8_unknown_backend_is_refused(tmp_path: Path) -> None:
