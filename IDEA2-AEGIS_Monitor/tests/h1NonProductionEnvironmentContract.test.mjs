@@ -246,7 +246,7 @@ test('N0 capacity characterization fixes artifacts, read-only probes, formulas, 
   assert.match(status, /N1_STARTED=NO/)
 })
 
-test('capacity-probe inputs are immutable while execution fails closed on undecided owner budgets', () => {
+test('capacity-probe inputs are immutable while execution remains human-gated', () => {
   const source = requiredText(specificationPath)
   const h1Plan = requiredText(h1PlanPath)
   const status = requiredText(statusPath)
@@ -258,7 +258,7 @@ test('capacity-probe inputs are immutable while execution fails closed on undeci
     'POSTGRES_DIGEST=sha256:25d430274d8a31184f9435cc5b2f56aff254952065bbbcac0c51acedb5a1d1e7',
     'H1_GATEWAY_ARTIFACT=IMPLEMENTED_SOURCE_ONLY',
     'GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE',
-    'ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION',
+    'ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED',
   ]) {
     assert.ok(source.includes(frozenInput), `missing capacity-probe input classification: ${frozenInput}`)
   }
@@ -278,9 +278,10 @@ test('capacity-probe inputs are immutable while execution fails closed on undeci
 
   assert.match(source, /7\.3\s*GiB[\s\S]{0,300}POSTGRES_GROWTH/i)
   assert.match(source, /5\.4\s*GiB[\s\S]{0,300}HOST_RAM_RESERVE/i)
-  assert.match(source, /gateway[\s\S]{0,300}implemented[\s\S]{0,400}owner[\s\S]{0,200}authorization/i)
-  assert.match(h1Plan, /ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION/)
-  assert.match(status, /ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION/)
+  assert.match(source, /H1_GATEWAY_ARTIFACT=IMPLEMENTED_SOURCE_ONLY/)
+  assert.match(source, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED/)
+  assert.match(h1Plan, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED/)
+  assert.match(status, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED/)
   assert.match(status, /N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION/)
 })
 

@@ -21,7 +21,7 @@ Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
 PR: NOT CREATED — blocked until Human Machine A local acceptance and final Task 16 closeout
-Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_STATE=BLOCKED_PREREQUISITES — the dedicated H1 TLS gateway and bounded capacity-probe harness are implemented and locally verified as source at `d725365875f54e82f12a592878e382fa2dfa6978`, and read-only registry metadata fixed the Linux/amd64 Node/PostgreSQL/nginx digests. No image was built or pulled and no probe was run. Active candidate measurements, explicit owner-selected PostgreSQL growth/disk/RAM/inode/evidence reserves, separate active-probe authorization, N1-N7, and the live reviewed non-Production CA path remain outstanding
+Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_STATE=BLOCKED_PREREQUISITES — the dedicated H1 TLS gateway and bounded capacity-probe harness are implemented and locally verified as source from checkpoint `d725365875f54e82f12a592878e382fa2dfa6978`; this branch adds an explicit direct/sudo-noninteractive Docker boundary without running the probe. Read-only registry metadata fixed the Linux/amd64 Node/PostgreSQL/nginx digests. No image was built or pulled and no probe was run. Owner limits are supplied, while active candidate measurements, the live Human sudo preflight/execution, N1-N7, and the reviewed non-Production CA path remain outstanding
 Started: 2026-09-19
 Current verified repository source checkpoint: `d725365875f54e82f12a592878e382fa2dfa6978` (`fix(idea2): harden h1 capacity probe boundaries`); the final SHA-binding reconciliation is documentation-only and performs no active probe or live provisioning
 Production mutation allowed: NO
@@ -39,8 +39,9 @@ H1_PROBE_IMPLEMENTATION_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
 MONITOR_FINAL_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
 H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
+CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
 ACTIVE_CAPACITY_PROBE=NOT_RUN
-ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION
+ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED
 GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE
 N1_STARTED=NO
 ```

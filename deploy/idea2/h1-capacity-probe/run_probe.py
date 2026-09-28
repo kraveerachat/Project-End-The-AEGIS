@@ -20,6 +20,7 @@ import time
 from typing import Any
 
 import cleanup_probe
+import docker_exec
 import watchdog
 
 
@@ -78,6 +79,10 @@ def _safe_evidence_dir(value: str | None, errors: list[str]) -> Path | None:
 
 def validate_environment(*, require_files: bool) -> dict[str, Any]:
     errors: list[str] = []
+    try:
+        docker_exec.execution_mode()
+    except docker_exec.DockerExecutionError as exc:
+        errors.append(str(exc))
     for name in ("MONITOR_BASE_IMAGE", "POSTGRES_IMAGE", "GATEWAY_BASE_IMAGE"):
         value = os.environ.get(name, "")
         if not DIGEST_REFERENCE.fullmatch(value):
@@ -179,13 +184,28 @@ def validate_environment(*, require_files: bool) -> dict[str, Any]:
 
 def _run(command: list[str], *, timeout: int = 120, output_file: Path | None = None) -> str:
     if output_file is None:
-        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=docker_exec.subprocess_environment(),
+        )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "no diagnostic").strip().splitlines()[-1]
             raise RuntimeError(f"command failed: {command[0]} ({detail})")
         return result.stdout.strip()
     with output_file.open("a", encoding="utf-8") as stream:
-        result = subprocess.run(command, check=False, stdout=stream, stderr=subprocess.STDOUT, text=True, timeout=timeout)
+        result = subprocess.run(
+            command,
+            check=False,
+            stdout=stream,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout,
+            env=docker_exec.subprocess_environment(),
+        )
     if result.returncode != 0:
         raise RuntimeError(f"command failed: {command[0]} (see redacted probe log)")
     return ""
@@ -202,7 +222,13 @@ def _run_guarded(
 ) -> None:
     started = time.monotonic()
     with output_file.open("a", encoding="utf-8") as stream:
-        process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT, text=True)
+        process = subprocess.Popen(
+            command,
+            stdout=stream,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=docker_exec.subprocess_environment(),
+        )
         while process.poll() is None:
             if time.monotonic() - started > timeout:
                 process.terminate()
@@ -256,7 +282,13 @@ def _run_workload_guarded(
 ) -> dict[str, Any]:
     started = time.monotonic()
     with output_file.open("a", encoding="utf-8") as stream:
-        process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT, text=True)
+        process = subprocess.Popen(
+            command,
+            stdout=stream,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=docker_exec.subprocess_environment(),
+        )
         while True:
             if time.monotonic() - started > timeout:
                 process.terminate()
@@ -289,60 +321,63 @@ def _run_workload_guarded(
 
 
 def _compose_command(*arguments: str) -> list[str]:
-    return [
-        "docker",
-        "compose",
+    return docker_exec.docker_command(
         "--project-name",
         PROJECT_NAME,
         "--file",
         str(COMPOSE_FILE),
         *arguments,
-    ]
+        compose=True,
+    )
 
 
 def _image_id(reference: str) -> str | None:
     result = subprocess.run(
-        ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
+        docker_exec.docker_command("image", "inspect", "--format", "{{.Id}}", reference),
         check=False,
         capture_output=True,
         text=True,
         timeout=30,
+        env=docker_exec.subprocess_environment(),
     )
     return result.stdout.strip() if result.returncode == 0 else None
 
 
 def _image_size(reference: str) -> int:
-    return int(_run(["docker", "image", "inspect", "--format", "{{.Size}}", reference]))
+    return int(
+        _run(docker_exec.docker_command("image", "inspect", "--format", "{{.Size}}", reference))
+    )
 
 
 def _assert_no_probe_collision() -> None:
     containers = _run(
-        [
-            "docker",
+        docker_exec.docker_command(
             "ps",
             "--all",
             "--filter",
             f"label=com.docker.compose.project={PROJECT_NAME}",
             "--format",
             "{{.ID}}",
-        ]
+        )
     )
     if containers:
         raise ValidationError("probe project resources already exist")
     if subprocess.run(
-        ["docker", "volume", "inspect", cleanup_probe.POSTGRES_VOLUME],
+        docker_exec.docker_command("volume", "inspect", cleanup_probe.POSTGRES_VOLUME),
         check=False,
         capture_output=True,
         text=True,
         timeout=30,
+        env=docker_exec.subprocess_environment(),
     ).returncode == 0:
         raise ValidationError("probe PostgreSQL volume already exists")
     if subprocess.run(
-        ["docker", "buildx", "inspect", BUILDER_NAME],
+        docker_exec.docker_command("buildx", "inspect", BUILDER_NAME),
         check=False,
         capture_output=True,
         text=True,
         timeout=30,
+        env=docker_exec.subprocess_environment(),
     ).returncode == 0:
         raise ValidationError("probe Buildx builder already exists")
     for name in ("MONITOR_CANDIDATE_IMAGE", "GATEWAY_CANDIDATE_IMAGE"):
@@ -470,15 +505,7 @@ def _run_bounded_workload(
     )
 
 
-def run_probe(configuration: dict[str, Any]) -> None:
-    if os.environ.get("AEGIS_CAPACITY_PROBE_AUTHORIZED") != "YES":
-        raise ValidationError("active probe requires AEGIS_CAPACITY_PROBE_AUTHORIZED=YES")
-
-    evidence_dir: Path = configuration["evidence_dir"]
-    if evidence_dir.exists() and any(evidence_dir.iterdir()):
-        raise ValidationError("probe evidence directory must be new or empty")
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-    (evidence_dir / cleanup_probe.EVIDENCE_MARKER).write_text(f"{PROJECT_NAME}\n", encoding="utf-8")
+def _run_probe_authorized(configuration: dict[str, Any], evidence_dir: Path) -> None:
     log_path = evidence_dir / "probe.log"
     limits = watchdog.limits_from_environment()
     _assert_no_probe_collision()
@@ -502,7 +529,17 @@ def run_probe(configuration: dict[str, Any]) -> None:
     )
 
     try:
-        _run(["docker", "buildx", "create", "--name", BUILDER_NAME, "--driver", "docker-container", "--use"])
+        _run(
+            docker_exec.docker_command(
+                "buildx",
+                "create",
+                "--name",
+                BUILDER_NAME,
+                "--driver",
+                "docker-container",
+                "--use",
+            )
+        )
         _guard_host(evidence_dir, limits, baseline=baseline)
         _run_guarded(
             _compose_command("build"),
@@ -676,6 +713,24 @@ def run_probe(configuration: dict[str, Any]) -> None:
         finally:
             if manifest_error is not None:
                 raise manifest_error
+
+
+def run_probe(configuration: dict[str, Any]) -> None:
+    if os.environ.get("AEGIS_CAPACITY_PROBE_AUTHORIZED") != "YES":
+        raise ValidationError("active probe requires AEGIS_CAPACITY_PROBE_AUTHORIZED=YES")
+
+    docker_exec.ensure_unprivileged_python()
+    docker_exec.ensure_docker_authorized()
+    evidence_dir: Path = configuration["evidence_dir"]
+    if evidence_dir.exists() and any(evidence_dir.iterdir()):
+        raise ValidationError("probe evidence directory must be new or empty")
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (evidence_dir / cleanup_probe.EVIDENCE_MARKER).write_text(f"{PROJECT_NAME}\n", encoding="utf-8")
+    compose_environment = docker_exec.prepare_compose_environment(evidence_dir)
+    try:
+        _run_probe_authorized(configuration, evidence_dir)
+    finally:
+        docker_exec.remove_compose_environment(compose_environment)
 
 
 def main() -> int:

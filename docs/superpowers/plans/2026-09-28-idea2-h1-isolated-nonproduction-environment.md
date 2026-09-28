@@ -39,9 +39,9 @@
 ## N0 capacity characterization follow-up
 
 The repository review found no defensible pre-existing quantitative capacity
-rule. A dedicated probe Compose and digest-bound source inputs now exist, but
-no candidate image, active measurement, owner-selected service limit,
-PostgreSQL retention/growth allowance, or rollback/evidence byte budget exists.
+rule. A dedicated probe Compose and digest-bound source inputs now exist. The
+Human subsequently supplied bounded service, PostgreSQL-growth, host-reserve,
+workload, and evidence inputs, but no candidate image or active measurement exists.
 The development Compose topology is not equivalent. The current `7.3 GiB` root
 free-space and approximately `5.4 GiB` available-RAM observations therefore
 remain evidence only, not acceptance.
@@ -83,7 +83,7 @@ case-insensitively, only the six approved exact `/agent/internal/...` routes
 are admitted with `/agent` stripped, all other Agent paths deny, and the probe
 publishes no host port or Production network. The existing Production/root
 gateway is not reused. Source implementation and static review are complete;
-owner budget choices, explicit active-probe authorization, and a final pre-run
+the live Human sudo preflight, explicit active execution, and final evidence
 review remain blockers before active characterization.
 
 Owner decisions stay measurement-derived. The spec presents minimum and
@@ -117,8 +117,9 @@ H1_PROBE_IMPLEMENTATION_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
 MONITOR_FINAL_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
 H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
+CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
 ACTIVE_CAPACITY_PROBE=NOT_RUN
-ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION
+ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED
 N1_STARTED=NO
 ```
 

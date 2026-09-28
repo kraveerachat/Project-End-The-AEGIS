@@ -13,6 +13,8 @@ import subprocess
 import sys
 from typing import Any
 
+import docker_exec
+
 
 PROJECT_NAME = "aegis-h1-capacity-probe"
 POSTGRES_VOLUME = "aegis-h1-capacity-probe_postgres_data"
@@ -27,14 +29,28 @@ def _run(command: list[str], execute: bool) -> None:
     if not execute:
         print(json.dumps(command))
         return
-    result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=120)
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=docker_exec.subprocess_environment(),
+    )
     if result.returncode != 0:
         diagnostic = (result.stderr or result.stdout or "no diagnostic").strip().splitlines()[-1]
         raise RuntimeError(f"cleanup command failed: {command[0]} ({diagnostic})")
 
 
 def _exists(command: list[str]) -> bool:
-    result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=docker_exec.subprocess_environment(),
+    )
     return result.returncode == 0
 
 
@@ -79,9 +95,7 @@ def cleanup(
     fallback_image_references: tuple[str, ...] = (),
 ) -> None:
     _run(
-        [
-            "docker",
-            "compose",
+        docker_exec.docker_command(
             "--project-name",
             PROJECT_NAME,
             "--file",
@@ -91,13 +105,14 @@ def cleanup(
             "--remove-orphans",
             "--timeout",
             "10",
-        ],
+            compose=True,
+        ),
         execute,
     )
-    if not execute or _exists(["docker", "volume", "inspect", POSTGRES_VOLUME]):
-        _run(["docker", "volume", "rm", POSTGRES_VOLUME], execute)
-    if not execute or _exists(["docker", "buildx", "inspect", BUILDER_NAME]):
-        _run(["docker", "buildx", "rm", BUILDER_NAME], execute)
+    if not execute or _exists(docker_exec.docker_command("volume", "inspect", POSTGRES_VOLUME)):
+        _run(docker_exec.docker_command("volume", "rm", POSTGRES_VOLUME), execute)
+    if not execute or _exists(docker_exec.docker_command("buildx", "inspect", BUILDER_NAME)):
+        _run(docker_exec.docker_command("buildx", "rm", BUILDER_NAME), execute)
     introduced = dict(_introduced_images(image_manifest))
     for reference in fallback_image_references:
         if not PROBE_IMAGE_REFERENCE.fullmatch(reference):
@@ -106,11 +121,12 @@ def cleanup(
             continue
         if execute:
             current = subprocess.run(
-                ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
+                docker_exec.docker_command("image", "inspect", "--format", "{{.Id}}", reference),
                 check=False,
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env=docker_exec.subprocess_environment(),
             )
             if current.returncode == 0:
                 image_id = current.stdout.strip()
@@ -120,15 +136,16 @@ def cleanup(
     for reference, image_id in sorted(introduced.items()):
         if execute:
             current = subprocess.run(
-                ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
+                docker_exec.docker_command("image", "inspect", "--format", "{{.Id}}", reference),
                 check=False,
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env=docker_exec.subprocess_environment(),
             )
             if current.returncode != 0 or current.stdout.strip() != image_id:
                 raise RuntimeError("probe image identity changed before cleanup")
-        _run(["docker", "image", "rm", image_id], execute)
+        _run(docker_exec.docker_command("image", "rm", image_id), execute)
 
     if delete_evidence:
         if evidence_dir is None:
@@ -153,16 +170,31 @@ def main() -> int:
     if args.execute and os.environ.get("AEGIS_CAPACITY_PROBE_CLEANUP_AUTHORIZED") != "YES":
         print("cleanup execution requires AEGIS_CAPACITY_PROBE_CLEANUP_AUTHORIZED=YES", file=sys.stderr)
         return 2
+    compose_environment: Path | None = None
     try:
+        docker_exec.execution_mode()
+        if not args.evidence_dir:
+            raise RuntimeError("--evidence-dir is required for exact Compose cleanup")
+        evidence_dir = Path(args.evidence_dir)
+        if args.execute:
+            safe_evidence_dir = _safe_evidence_path(str(evidence_dir))
+            docker_exec.ensure_unprivileged_python()
+            docker_exec.ensure_docker_authorized()
+            compose_environment = docker_exec.prepare_compose_environment(safe_evidence_dir)
+        else:
+            docker_exec.select_compose_environment_path(evidence_dir)
         cleanup(
             execute=args.execute,
-            evidence_dir=Path(args.evidence_dir) if args.evidence_dir else None,
+            evidence_dir=evidence_dir,
             delete_evidence=args.delete_evidence,
             image_manifest=Path(args.image_manifest) if args.image_manifest else None,
         )
     except Exception as exc:
         print(f"cleanup blocked: {exc}", file=sys.stderr)
         return 2
+    finally:
+        if args.execute:
+            docker_exec.remove_compose_environment(compose_environment)
     return 0
 
 

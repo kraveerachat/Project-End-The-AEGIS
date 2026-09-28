@@ -27,7 +27,9 @@ N0_CAPACITY=NOT_PROVEN
 N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION
 H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
+CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
 ACTIVE_CAPACITY_PROBE=NOT_RUN
+ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED
 N1_STARTED=NO
 ```
 
@@ -325,7 +327,8 @@ GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE
 H1_COMPOSE_ARTIFACT=deploy/idea2/h1-capacity-probe.compose.yml
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
 ACTIVE_CAPACITY_PROBE=NOT_RUN
-ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION
+CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
+ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED
 ```
 
 The Monitor multi-stage Dockerfile is the build source for the future candidate.
@@ -544,6 +547,30 @@ INODE_SAFETY_RESERVE_COUNT=OWNER_DECISION_REQUIRED
 EVIDENCE_LOG_ALLOWANCE_BYTES=OWNER_DECISION_REQUIRED
 ```
 
+The Human later approved these bounded probe inputs without authorizing this
+repository task to execute the probe:
+
+```text
+POSTGRES_APPROVED_GROWTH_BYTES=536870912
+HOST_RAM_RESERVE_BYTES=2147483648
+DISK_SAFETY_RESERVE_BYTES=2147483648
+EVIDENCE_LOG_ALLOWANCE_BYTES=268435456
+CHARACTERIZATION_MAX_NEW_BYTES=2147483648
+MONITOR_MEMORY_CEILING_BYTES=1073741824
+POSTGRES_MEMORY_CEILING_BYTES=1073741824
+GATEWAY_MEMORY_CEILING_BYTES=268435456
+PROBE_SAMPLE_SECONDS=600
+PROBE_WORKLOAD_REQUEST_COUNT=600
+PROBE_WORKLOAD_POSTGRES_ROWS=10000
+PROBE_WORKLOAD_POSTGRES_PAYLOAD_BYTES=1024
+PROBE_SERVICE_LOG_MAX_SIZE=16m
+```
+
+The exact positive `INODE_SAFETY_RESERVE_COUNT` remains a required reviewed
+shell input; the already reported Human preflight classified its inode envelope
+PASS, but this repository checkpoint does not reconstruct or invent that live
+value.
+
 The capacity formula is additive and avoids counting reclaimable cache or
 shared image layers twice:
 
@@ -592,9 +619,9 @@ CAPACITY_PROBE_STORAGE_WATCHDOG=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_RUNNER=deploy/idea2/h1-capacity-probe/run_probe.py
 CAPACITY_PROBE_CLEANUP=deploy/idea2/h1-capacity-probe/cleanup_probe.py
 ACTIVE_CAPACITY_PROBE=NOT_RUN
-PROBE_WORKLOAD_REQUEST_COUNT=OWNER_DECISION_REQUIRED
-PROBE_WORKLOAD_POSTGRES_ROWS=OWNER_DECISION_REQUIRED
-PROBE_WORKLOAD_POSTGRES_PAYLOAD_BYTES=OWNER_DECISION_REQUIRED
+PROBE_WORKLOAD_REQUEST_COUNT=600
+PROBE_WORKLOAD_POSTGRES_ROWS=10000
+PROBE_WORKLOAD_POSTGRES_PAYLOAD_BYTES=1024
 PROBE_WORKLOAD_REPRESENTATIVENESS=OWNER_REVIEW_REQUIRED
 N1_STARTED=NO
 ```
@@ -649,9 +676,59 @@ The probe must be characterized, cleaned, and reviewed before the H1 Compose
 project can exist. It cannot create `aegis-h1-lab`, publish `18443`/`18077`,
 initialize the H1 registry, or satisfy N1. Its Compose, runner, cleanup, and
 storage/RAM watchdog source now have focused tests, but execution remains
-blocked on explicit owner budget choices, a separate active-probe authorization,
-and the final pre-run review. A manual observer is not accepted as the required
-stop control.
+blocked on the exact live Human sudo preflight, separate active execution, and
+evidence review. The owner-supplied limits do not themselves prove capacity. A
+manual observer is not accepted as the required stop control.
+
+##### Docker privilege boundary and exact human sequence
+
+The probe runner, watchdog, and exact cleanup share one explicit execution
+mode. `AEGIS_CAPACITY_PROBE_DOCKER_MODE=direct` preserves an already-authorized
+direct Docker client. The reviewed `aegis-system` operator instead uses
+`AEGIS_CAPACITY_PROBE_DOCKER_MODE=sudo-noninteractive`; every Docker child then
+starts with `sudo -n env -u DOCKER_HOST docker`. There is no automatic
+escalation. An absent or expired sudo ticket blocks before Docker mutation and
+instructs the Human to refresh it with `sudo -v`.
+
+Python remains the unprivileged operator process. The runner writes exactly one
+hidden sibling Compose environment file derived from `PROBE_EVIDENCE_DIR`,
+mode `0600` on the Linux target. Every Compose command names it with
+`--env-file`; Docker child environments are scrubbed of all Compose inputs, and
+the file is removed after the runner or exact cleanup returns. The password,
+session secret, TLS key path, or file contents are never placed in Docker argv
+or printed. `sudo -E`, broad sudo environment preservation, a root Python runner, docker-group or
+socket-ACL changes, privileged shells, and prune operations remain forbidden.
+
+After staging the reviewed source checkpoint on `aegis-system`, changing to its
+repository root, and exporting the already reviewed immutable images, owner
+limits, disposable credentials, TLS paths, source SHA, candidate tags, and
+`PROBE_EVIDENCE_DIR`, the exact sudo-only sequence is:
+
+```bash
+sudo -v
+export AEGIS_CAPACITY_PROBE_DOCKER_MODE=sudo-noninteractive
+sudo -n env -u DOCKER_HOST docker version --format '{{.Server.Version}}'
+python3 deploy/idea2/h1-capacity-probe/run_probe.py --validate-only
+AEGIS_CAPACITY_PROBE_AUTHORIZED=YES python3 deploy/idea2/h1-capacity-probe/run_probe.py --run
+```
+
+`--validate-only` performs no Docker command and creates no Compose environment
+file. The active command is a separate mutation gate; it is **not executed by
+this checkpoint**. The runner attempts exact cleanup in `finally`. If an
+interruption or expired sudo ticket leaves probe-scoped resources, the Human
+refreshes only the sudo ticket and runs the idempotent recovery command from the
+same unprivileged shell with the same reviewed environment:
+
+```bash
+sudo -v
+AEGIS_CAPACITY_PROBE_CLEANUP_AUTHORIZED=YES python3 deploy/idea2/h1-capacity-probe/cleanup_probe.py --execute --evidence-dir "$PROBE_EVIDENCE_DIR" --image-manifest "$PROBE_EVIDENCE_DIR/introduced-images.json"
+```
+
+The cleanup may address only project `aegis-h1-capacity-probe`, volume
+`aegis-h1-capacity-probe_postgres_data`, builder
+`aegis-h1-capacity-builder`, and image IDs proven by the probe manifest or the
+two exact probe-only candidate references. It never addresses `aegis-prod` or
+`aegis-h1-lab`.
 
 Only after every term is quantified and all three formula checks pass may the
 owner set `N0_CAPACITY=PASS`. The resulting measurements and owner decisions

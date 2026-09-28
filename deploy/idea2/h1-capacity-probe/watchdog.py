@@ -18,6 +18,8 @@ import sys
 import time
 from typing import Any
 
+import docker_exec
+
 
 PROJECT_NAME = "aegis-h1-capacity-probe"
 POSTGRES_VOLUME = "aegis-h1-capacity-probe_postgres_data"
@@ -134,7 +136,14 @@ def evaluate_snapshot(snapshot: dict[str, Any], limits: dict[str, Any]) -> list[
 
 
 def _run(command: list[str]) -> str:
-    result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=docker_exec.subprocess_environment(),
+    )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "no diagnostic").strip().splitlines()[-1]
         raise ProbeBlocked(f"measurement command failed: {command[0]} ({detail})")
@@ -179,6 +188,21 @@ def _parse_memory_size(value: str) -> int:
     return int(number * powers[unit])
 
 
+def _docker_log_capacity(value: str) -> int:
+    try:
+        payload = json.loads(value)
+        configuration = payload["Config"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise ProbeBlocked("Docker log configuration is unavailable") from exc
+    if payload.get("Type") != "json-file" or configuration.get("max-file") != "1":
+        raise ProbeBlocked("probe Docker logging is not bounded to one json-file")
+    match = re.fullmatch(r"([1-9][0-9]*)([kKmMgG])", str(configuration.get("max-size", "")))
+    if not match:
+        raise ProbeBlocked("probe Docker log max-size is invalid")
+    multiplier = {"k": 1024, "m": 1024**2, "g": 1024**3}[match.group(2).lower()]
+    return int(match.group(1)) * multiplier
+
+
 def _host_metrics() -> tuple[int, int, int]:
     stats = os.statvfs("/")
     available_bytes = stats.f_bavail * stats.f_frsize
@@ -209,14 +233,13 @@ def capture_preflight_snapshot(evidence_dir: Path) -> dict[str, Any]:
 
 def _probe_containers() -> dict[str, str]:
     output = _run(
-        [
-            "docker",
+        docker_exec.docker_command(
             "ps",
             "--filter",
             f"label=com.docker.compose.project={PROJECT_NAME}",
             "--format",
             '{{.ID}}|{{.Label "com.docker.compose.service"}}',
-        ]
+        )
     )
     containers: dict[str, str] = {}
     for line in output.splitlines():
@@ -232,10 +255,27 @@ def _probe_containers() -> dict[str, str]:
 
 
 def _postgres_volume_bytes() -> int:
-    mountpoint = _run(["docker", "volume", "inspect", "--format", "{{.Mountpoint}}", POSTGRES_VOLUME])
-    if not mountpoint:
-        raise ProbeBlocked("probe PostgreSQL volume mountpoint is unavailable")
-    return _directory_bytes(Path(mountpoint))
+    output = _run(
+        docker_exec.docker_command(
+            "--project-name",
+            PROJECT_NAME,
+            "--file",
+            str(COMPOSE_FILE),
+            "exec",
+            "--no-TTY",
+            "postgres",
+            "du",
+            "-sk",
+            "/var/lib/postgresql/data",
+            compose=True,
+        )
+    )
+    blocks, separator, _ = output.partition("\t")
+    if not separator:
+        blocks = output.split(maxsplit=1)[0] if output else ""
+    if not blocks.isdigit():
+        raise ProbeBlocked("probe PostgreSQL volume measurement is unavailable")
+    return int(blocks) * 1024
 
 
 def capture_snapshot(
@@ -250,15 +290,24 @@ def capture_snapshot(
     log_bytes = 0
     for service, container_id in containers.items():
         memory_usage[service] = _parse_memory_size(
-            _run(["docker", "stats", "--no-stream", "--format", "{{.MemUsage}}", container_id])
+            _run(
+                docker_exec.docker_command(
+                    "stats", "--no-stream", "--format", "{{.MemUsage}}", container_id
+                )
+            )
         )
-        size_rw = _run(["docker", "inspect", "--size", "--format", "{{.SizeRw}}", container_id])
+        size_rw = _run(
+            docker_exec.docker_command(
+                "inspect", "--size", "--format", "{{.SizeRw}}", container_id
+            )
+        )
         writable[service] = int(size_rw)
-        log_path = _run(["docker", "inspect", "--format", "{{.LogPath}}", container_id])
-        if log_path:
-            candidate = Path(log_path)
-            if candidate.exists() and candidate.is_file():
-                log_bytes += candidate.stat().st_size
+        log_configuration = _run(
+            docker_exec.docker_command(
+                "inspect", "--format", "{{json .HostConfig.LogConfig}}", container_id
+            )
+        )
+        log_bytes += _docker_log_capacity(log_configuration)
 
     volume_bytes = _postgres_volume_bytes()
     return {
@@ -276,10 +325,8 @@ def capture_snapshot(
 
 
 def stop_probe() -> None:
-    subprocess.run(
-        [
-            "docker",
-            "compose",
+    result = subprocess.run(
+        docker_exec.docker_command(
             "--project-name",
             PROJECT_NAME,
             "--file",
@@ -287,12 +334,18 @@ def stop_probe() -> None:
             "stop",
             "--timeout",
             "10",
-        ],
+            compose=True,
+        ),
         check=False,
         capture_output=True,
         text=True,
         timeout=45,
+        env=docker_exec.subprocess_environment(),
     )
+    if result.returncode != 0:
+        raise ProbeBlocked(
+            "exact probe stop failed; refresh the reviewed sudo authorization with sudo -v and run exact cleanup"
+        )
 
 
 def _load_json(path: str) -> dict[str, Any]:
@@ -336,6 +389,10 @@ def main() -> int:
         ):
             raise ProbeBlocked("live watchdog requires evidence, PostgreSQL, and host baseline inputs")
 
+        docker_exec.ensure_unprivileged_python()
+        docker_exec.ensure_docker_authorized()
+        docker_exec.require_compose_environment(Path(args.evidence_dir))
+
         limits = limits_from_environment()
         evidence_dir = Path(args.evidence_dir).resolve()
         postgres_initial = _positive_integer(
@@ -359,7 +416,10 @@ def main() -> int:
             time.sleep(max(args.interval_seconds, 0.5))
     except Exception as exc:  # Fail closed on any missing or stale measurement.
         if not args.evaluate:
-            stop_probe()
+            try:
+                stop_probe()
+            except Exception as stop_exc:
+                print(f"BLOCKED:exact probe stop unavailable: {stop_exc}", file=sys.stderr)
         print(f"BLOCKED:{exc}", file=sys.stderr)
         return 2
 
