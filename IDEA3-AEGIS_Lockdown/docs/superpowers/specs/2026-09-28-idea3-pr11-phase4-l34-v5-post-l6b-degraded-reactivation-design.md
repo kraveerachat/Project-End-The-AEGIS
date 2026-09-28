@@ -142,15 +142,12 @@ a **different** Wi-Fi profile is found active during the AP teardown, rollback f
 ## 6. Authorization model
 
 Reuses `AEGIS_P4_AUTHORIZATION_V1` and fresh K3 (V1 or V2 owner self-attestation) with `stage=L4`, exactly like
-V1/V2/V3/V4 — no new record type is invented. The runner additionally requires the A-L4 `scope=` line to equal
-exactly:
+V1/V2/V3/V4 — no new record type is invented. To comply with the repository-wide `p4-stage-gate.sh` contract
+(`SCOPE_RE='^[\ -~]{1,200}$'`, maximum 200 printable ASCII characters), the V5 authorization scope is <=200 characters.
+The runner additionally requires the A-L4 `scope=` line to equal exactly:
 
 ```text
-L3_L4_RUNTIME_REACTIVATION_V5_POST_L6B_DEGRADED: temp wlp0s20f3 device autoconnect off, activate existing
-aegis-idea3-ap exactly once, restore device autoconnect, reset-failed+start the existing accepted
-aegis-idea3-dnsmasq.service, wait bounded for the already-accepted aegis-idea3-mosquitto.service to recover via
-its own systemd auto-restart once its bind address exists (no explicit broker start/restart/reset-failed), no
-rfkill/radio/persistent rewrite, no L7/ESP32/MQTT action
+L3_L4_RUNTIME_REACTIVATION_V5_POST_L6B_DEGRADED: activate aegis-idea3-ap once, recover dnsmasq, bounded broker auto-restart wait, no broker control, no persistent rewrite, no L7/ESP32/MQTT action
 ```
 
 so neither a V3 nor a V4 A-L4 can ever authorize a V5 run and vice versa (proven by

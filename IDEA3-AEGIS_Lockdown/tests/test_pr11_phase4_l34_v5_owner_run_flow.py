@@ -35,11 +35,8 @@ LOGS = "Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs"
 TODAY = subprocess.run(["date", "+%F"], text=True, capture_output=True, env=dict(os.environ, TZ="Asia/Bangkok")).stdout.strip()
 
 EXPECTED_SCOPE = (
-    "L3_L4_RUNTIME_REACTIVATION_V5_POST_L6B_DEGRADED: temp wlp0s20f3 device autoconnect off, activate existing "
-    "aegis-idea3-ap exactly once, restore device autoconnect, reset-failed+start the existing accepted "
-    "aegis-idea3-dnsmasq.service, wait bounded for the already-accepted aegis-idea3-mosquitto.service to recover "
-    "via its own systemd auto-restart once its bind address exists (no explicit broker start/restart/reset-failed), "
-    "no rfkill/radio/persistent rewrite, no L7/ESP32/MQTT action"
+    "L3_L4_RUNTIME_REACTIVATION_V5_POST_L6B_DEGRADED: activate aegis-idea3-ap once, recover dnsmasq, "
+    "bounded broker auto-restart wait, no broker control, no persistent rewrite, no L7/ESP32/MQTT action"
 )
 
 # The ONE supported V5 broker/dnsmasq pre-state (see l34_service_pre_gate / l34_v5_broker_crashloop_gate).
