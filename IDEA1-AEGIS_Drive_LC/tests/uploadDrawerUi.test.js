@@ -31,13 +31,14 @@ after(async () => {
   await vite?.close()
 })
 
-test('Upload Drawer truthfully shows the current destination and keeps recent uploads in Files', () => {
+test('open Upload Drawer shows the shared queue inside the drawer and never the floating tray', () => {
   const html = renderToStaticMarkup(React.createElement(UploadDrawer, {
     t,
     open: true,
     destination: '/Files',
     onClose() {},
     recentFiles: [],
+    initialQueue: [{ id: 'q1', name: 'report.pdf', size: 42, stage: 'uploading', progress: 25, transferredBytes: 10 }],
   }))
 
   assert.match(html, /role="dialog"/)
@@ -49,10 +50,9 @@ test('Upload Drawer truthfully shows the current destination and keeps recent up
   assert.match(html, /Recent uploads/i)
   assert.match(html, /No uploads yet/i)
   assert.doesNotMatch(html, /0 Mbps|0 ms|0 °C/)
-  // ⚠️ FILES-UPLOAD-UX-1: ลิ้นชักใหญ่เลิกเป็นจอเฝ้าคิวแล้ว ถาดมุมขวาล่างเป็นเจ้าของ
-  //    เรื่องนั้นคนเดียว การมีคิวสองชุดบนจอคือที่มาของตัวเลขที่ขัดกันเอง
-  assert.doesNotMatch(html, /Upload queue/i)
-  assert.doesNotMatch(html, /Cancel all/i)
+  assert.match(html, /data-upload-drawer-queue/)
+  assert.match(html, /report\.pdf/)
+  assert.doesNotMatch(html, /data-upload-tray=/)
 })
 
 test('a queued upload is monitored by the bottom-right tray, not by the large drawer', () => {

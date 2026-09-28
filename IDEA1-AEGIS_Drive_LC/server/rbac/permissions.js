@@ -3,7 +3,8 @@
 // ห้ามรับค่า role จาก client — server ต้องค้นจาก DB เองเท่านั้น (OWASP A01)
 //
 // Drive มีสอง role เท่านั้น และทั้งสองมีความสามารถจัดการไฟล์ "เท่ากัน"
-// (upload/download/share) — Admin ได้เพิ่มเฉพาะจอ governance (Audit / Access)
+// (upload/download/share) — Admin ได้เพิ่มเฉพาะจอ server governance
+// (Storage & Backup / Audit / Access)
 export const ROLES = Object.freeze({
   ADMIN: 'Admin',
   USER: 'DataLake-User',
@@ -31,7 +32,7 @@ const NAV_REGISTRY = [
   { id: 'shares',    icon: 'link',      labelKey: 'navShares',    group: 'navGroupProtection', roles: [ROLES.USER, ROLES.ADMIN] },
   { id: 'versions',  icon: 'history',   labelKey: 'navVersions',  group: 'navGroupProtection', roles: [ROLES.USER, ROLES.ADMIN] },
   { id: 'trash',     icon: 'trash',     labelKey: 'navTrash',     group: 'navGroupProtection', roles: [ROLES.USER, ROLES.ADMIN] },
-  { id: 'storage',   icon: 'harddrive', labelKey: 'navStorage',   group: 'navGroupProtection', roles: [ROLES.USER, ROLES.ADMIN] },
+  { id: 'storage',   icon: 'harddrive', labelKey: 'navStorage',   group: 'navGroupProtection', roles: [ROLES.ADMIN] },
   // Admin-only governance — role อื่นต้องไม่พบร่องรอยใน DOM เลยแม้แต่ตัวอักษรเดียว
   { id: 'audit',     icon: 'scroll',    labelKey: 'navAudit',     group: 'navGroupAdmin',      roles: [ROLES.ADMIN] },
   { id: 'access',    icon: 'usercog',   labelKey: 'navAccess',    group: 'navGroupAdmin',      roles: [ROLES.ADMIN] },
