@@ -11,348 +11,368 @@ edit_policy: owner-writable
 
 # 💾 IDEA1: Storage & Persistence Architecture
 
-## 1. Executive Summary & Purpose
+## 1. Architecture Authority & Executive Summary
 
-This canonical architecture document establishes the authoritative storage, persistence, containerization, and backup architecture for **AEGIS Drive LC (IDEA1)**. It provides a formal engineering reference for repository contributors and a rigorous technical baseline for academic and cybersecurity system reports.
+This canonical architecture document is the **authoritative IDEA1 reference** for engineering contributors, future Autonomous Agents, and authors of the final academic / capstone cybersecurity project report.
 
-### Non-Negotiable Boundaries
-- **Documentation Only**: This document records established architecture, verified production preflight facts, and security boundaries.
-- **No Infrastructure Mutation**: This document does not execute the planned LVM volume group resize or modify host storage.
-- **No Application Modification**: This document does not alter application source code or implement fixes for pending issues.
-- **No Production Mutation**: This document does not alter or reconfigure any running production container or service.
+### 1.1 Scope of Authority
+This document establishes the canonical truth and system contracts for:
+1. **Physical storage architecture**: Internal host SSD, disk capacity, and interface layers.
+2. **LVM / filesystem relationship**: Ubuntu LVM volume groups, logical volume sizing, and ext4 formatting.
+3. **Docker storage relationship**: Root filesystem backing of `/var/lib/docker` vs. absence of daemon storage quotas.
+4. **Data Lake persistence**: Docker named volume (`aegis_drive_storage`), container mount point (`/datalake`), and object classes.
+5. **Database metadata structure**: Decoupling of binary file bytes from relational metadata in PostgreSQL (`aegis_drive`).
+6. **Backup architecture**: Host Backup Agent, snapshot automation, restic repository, and disaster recovery design.
+7. **External backup target**: Physically isolated 1 TB storage device and the `/mnt/aegis-backup/AEGIS_BACKUP/` project preservation boundary.
+8. **RAID limitation**: Unconfigured RAID status (`RAID_CURRENT_STATE=NOT_CONFIGURED`) and deferral of RAID1 to future hardware.
+9. **Storage capacity planning**: Planned host root expansion to ~90 GiB and retention of the ~26 GiB administrative volume group reserve.
+10. **Trash / reclamation boundaries**: Data lifecycle stages, distinction between metadata purging and physical block reclamation, and the open reclamation defect.
 
----
-
-## 2. Authoritative Physical & Host Storage Topology
-
-### 2.1 Internal Primary Storage
-The host system (Beelink mini-PC) operates on an internal solid-state drive (SSD) managed under Ubuntu Logical Volume Manager (LVM):
-
-| Storage Layer | Parameter / Specification | Operational Truth & Governance |
-| :--- | :--- | :--- |
-| **Physical Disk** | Internal SSD | Approximately 119.2 GiB usable capacity (marketed commercially as 128 GB). |
-| **LVM Physical Volume (PV)** | `/dev/sda3` (or equivalent host NVMe/SATA partition) | Approximately 116.2 GiB initialized into LVM. |
-| **LVM Volume Group (VG)** | `ubuntu-vg` | Total capacity: approximately 116.19 GiB. |
-| **Root Logical Volume (LV)** | `ubuntu-lv` (mapped to `/dev/mapper/ubuntu--vg-ubuntu--lv`) | Current allocated capacity: approximately 58.09 GiB (~50% of available VG). |
-| **Unallocated VG Capacity** | Free Extents in `ubuntu-vg` | Approximately 58.09 GiB remaining unallocated in the volume group. |
-| **Host Root Filesystem** | `ext4` mounted at `/` | Usable capacity: approximately 57 GiB. |
-| **Docker Engine Root** | `/var/lib/docker` | Resides directly on the host `ext4` root filesystem. |
-
-### 2.2 Clarification on Docker Storage Capacity
-> [!important] Architectural Invariant: Root LV Allocation vs. Docker Limits
-> In production telemetry and reports, Docker storage must **never** be characterized as "limited by design to 57 GB". The container runtime is not artificially constrained by Docker daemon quotas. The root filesystem capacity is approximately 57 GiB solely because the default Ubuntu Server LVM installation allocated only half (~58.09 GiB) of the 116.19 GiB Volume Group (`ubuntu-vg`), preserving the remainder as unallocated extents.
-
-### 2.3 Planned Controlled Expansion
-Future host infrastructure maintenance includes an approved, controlled LVM expansion:
-- **Target Root LV Allocation**: Approximately 90 GiB.
-- **Safety Reserve**: Retains approximately 26 GiB of unallocated extents within `ubuntu-vg` for volume group snapshots, emergency allocations, or maintenance.
-- **Execution Boundary**: This expansion is an infrastructure operation performed directly on the host OS; it is **NOT** performed by this documentation task or through the web application.
+### 1.2 Non-Negotiable Operational Boundaries
+- **Documentation Only**: Establishes architectural truth; does not alter running containers or infrastructure.
+- **No Disk Resizing**: Does not execute LVM volume commands (`lvextend`, `resize2fs`).
+- **No Production Mutation**: Does not alter running production containers, environment files, or live services.
+- **No Trash Fix Implementation**: Documents the open reclamation symptom without inventing untested application workarounds.
+- **No API Modification**: Does not create new web API routes or expose host-level operations to web clients.
+- **External Disk Hygiene**: Does not inspect, enumerate, or alter unrelated files on the external backup device.
+- **Security & Privacy Hygiene**: Contains zero credentials, tokens, passwords, private keys, database dumps, or user filenames.
 
 ---
 
-## 3. Containerized Data Lake Architecture
+## 2. System Structure Summary
 
-### 3.1 Docker Named Volume Topology
-AEGIS Drive utilizes a containerized Data Lake architecture adhering to strict privilege and isolation boundaries:
+The AEGIS Drive storage subsystem comprises two distinct runtime pipelines (Primary Data Persistence and Relational Metadata Governance) paired with an independent Resiliency Subsystem:
 
-- **Docker Named Volume**: `aegis_drive_storage` (referenced as `drive_storage` in local testing stacks).
-- **Container Mount Target**: Mounted exclusively to `/datalake` within the `drive` container.
-- **Host Storage Path**: Resides at `/var/lib/docker/volumes/aegis_drive_storage/_data` on the host root filesystem.
-- **Container Isolation**: Neither the Gateway (`nginx`) nor the CCTV Monitor (`monitor`) containers have filesystem mounts to `aegis_drive_storage`.
+### 2.1 Complete End-to-End Persistence Pipeline
+```
+[ Primary Data Persistence Pipeline ]
+Physical Internal SSD (~119.2 GiB Usable / 128 GB Marketed)
+      │
+      ▼
+Ubuntu LVM (PV: ~116.2 GiB | VG: ubuntu-vg ~116.19 GiB)
+      │
+      ▼
+ext4 Root Filesystem (Current Root LV: ~58.09 GiB | Usable: ~57 GiB)
+      │
+      ▼
+Docker Runtime (/var/lib/docker on Host Root Filesystem)
+      │
+      ▼
+aegis_drive_storage (Docker Named Volume)
+      │
+      ▼
+Data Lake (/datalake Container Mount)
+      ├─ uploads/          (Primary User File Blobs)
+      ├─ versions/         (Historical Revisions)
+      ├─ vault/            (Zero-Knowledge Ciphertext Blobs & Manifests)
+      ├─ avatars/          (User Profile Media)
+      └─ staging/          (Ephemeral In-Flight Upload Chunks)
 
-### 3.2 Observed Storage Snapshot
-During read-only production preflight inspection, the Data Lake state was observed as:
-- **Total Data Lake Footprint**: Approximately 28.7–29.0 GB.
-- **Primary Uploads (`/datalake/uploads`)**: Approximately 25.1 GB.
-- **File Versions (`/datalake/versions`)**: Approximately 1.0 MB.
-- **Accounting Principle**: These figures represent a concrete observational snapshot and must not be treated as permanent constants.
+[ Relational Metadata Governance Pipeline ]
+PostgreSQL 15 (Containerized aegis_db / database: aegis_drive)
+      │
+      ▼
+Relational Metadata Engine
+      ├─ Users & Identity Relationships
+      ├─ File Metadata & Ownership Hierarchies
+      ├─ Version Trees & Retention Pointers
+      ├─ Vault Tree Envelopes & Published CAS Heads
+      ├─ Secure Share Tokens & CIDR Network Zones
+      └─ Append-Only Tamper-Evident Audit Trail
 
-### 3.3 Logical Storage Classes
-The Data Lake segregates stored objects into distinct functional classes:
+[ Independent Resiliency Subsystem ]
+Host Backup Agent (Host Systemd Service / Cron Daemon)
+      │
+      ├─ Data Lake Durable Content (/var/lib/docker/volumes/aegis_drive_storage/_data)
+      ├─ PostgreSQL Custom-Format Logical Dump (pg_dump of aegis_drive)
+      │
+      ▼
+External 1 TB Backup Target (Physically Separate USB Disk at /mnt/aegis-backup)
+      │
+      ▼
+AEGIS_BACKUP/aegis-restic (Encrypted, Deduplicated Restic Repository)
 
-1. **`uploads/` (Primary User Files)**: Stores active files for normal Drive access. Stored as raw binary objects indexed by cryptographic SHA-256 hashes and UUID-based storage keys.
-2. **`versions/` (File Version History)**: Stores prior revisions of modified files. Provides file-level historical rollback and point-in-time recovery.
-3. **`vault/` (Private Vault Ciphertext)**: Stores client-side encrypted blobs and encrypted Tree manifests. Raw files are encrypted browser-side using AES-256-GCM with keys derived via Argon2id from user passphrases. The server holds zero keys, zero plaintext, and zero knowledge of vault filenames or contents.
-4. **`avatars/` (User Identity Assets)**: Stores user profile images with strict size limits and server-side MIME/header validation.
-5. **`staging/` (In-Flight Upload State)**: Dedicated buffer directory for chunked upload assembly, pre-allocation verification, and atomic commit operations. Unfinished staging data is ephemeral and purged upon failure or expiration.
+[ Hardware Redundancy Status ]
+RAID:
+      → NOT CONFIGURED (RAID_CURRENT_STATE=NOT_CONFIGURED)
+      → FUTURE HARDWARE (Deferred due to single-drive host constraints)
+```
+
+### 2.2 Authoritative Root LV vs. Docker Capacity Truth
+> [!important] Crucial Truth: Host LVM Allocation vs. Docker Quota
+> The approximately 57 GiB of storage capacity visible to the AEGIS Drive application and Docker environment is **NOT** a Docker storage quota, container layer ceiling, or container engine limit.
+>
+> It resulted strictly from the initial Ubuntu Server OS installation allocating approximately half (~58.09 GiB) of the 116.19 GiB Volume Group (`ubuntu-vg`) to the root Logical Volume (`ubuntu-lv`), while leaving the remaining ~58.09 GiB unallocated as free extents within the volume group. Because `/var/lib/docker` resides on the `ext4` root filesystem, container volume capacity is directly bounded by the root LV's current allocation.
+
+### 2.3 Observed Physical Topology Snapshot
+The observed physical storage layout from production preflight inspection is:
+- **Internal System Disk**: Approximately 119.2 GiB usable physical storage (commercially marketed as 128 GB).
+- **LVM Physical Volume (PV)**: Approximately 116.2 GiB.
+- **LVM Volume Group (VG)**: `ubuntu-vg` initialized at approximately 116.19 GiB.
+- **Current Root Logical Volume (LV)**: Approximately 58.09 GiB allocated to `/dev/ubuntu-vg/ubuntu-lv`.
+- **Unallocated VG Capacity**: Approximately 58.09 GiB remaining free in `ubuntu-vg`.
+- **Host Root Filesystem**: `ext4` mounted at `/`, providing approximately 57 GiB usable space.
+- **Planned Controlled Root LV Target**: Approximately 90 GiB (expanding the root LV into available VG capacity while preserving a ~26 GiB safety reserve). Planned expansion is an infrastructure task, **NOT** performed by this documentation task.
+- **Data Lake Snapshot**: Total footprint approximately 28.7–29.0 GB (uploads ~25.1 GB, versions ~1.0 MB). These figures represent a point-in-time snapshot, not static constants.
 
 ---
 
-## 4. Metadata vs. Data Bytes: Architectural Separation
+## 3. Database Metadata Structure
 
-AEGIS Drive enforces a strict architectural decoupling between **data bytes** and **metadata**:
+A fundamental principle of the AEGIS architecture is the strict operational and security decoupling between binary payload bytes and relational metadata:
+
+$$\text{FILE BYTES} \neq \text{DATABASE METADATA}$$
 
 ```
 ┌────────────────────────────────────────────────────────┐
 │                      AEGIS Drive                       │
 └───────────┬────────────────────────────────┬───────────┘
-            │ Data Streams                   │ Relational Queries
+            │ Binary Data Streams            │ Relational Transactions
             ▼                                ▼
 ┌───────────────────────┐        ┌───────────────────────┐
 │       Data Lake       │        │  PostgreSQL Database  │
-│  aegis_drive_storage  │        │     (aegis_drive)     │
+│ (aegis_drive_storage) │        │     (aegis_drive)     │
 ├───────────────────────┤        ├───────────────────────┤
-│ • Uploaded Blobs      │        │ • Users & Identity    │
-│ • File Versions       │        │ • File Metadata & ACL │
+│ • Raw File Blobs      │        │ • Users & Credentials │
+│ • Historical Revisions│        │ • File Tree Attributes│
 │ • Vault Ciphertext    │        │ • Version References  │
-│ • User Avatars        │        │ • Vault Tree Envelopes│
-│ • Ephemeral Staging   │        │ • Secure Share Tokens │
-│                       │        │ • Tamper-Evident Audit│
+│ • User Avatar Images  │        │ • Vault Envelopes     │
+│ • Staging Buffers     │        │ • Share Grants & ACL  │
+│                       │        │ • Audit Event Trail   │
 └───────────────────────┘        └───────────────────────┘
 ```
 
-### 4.1 Storage Distribution Principle
-- **Raw File Bytes**: Stored **exclusively** within the Data Lake filesystem (`/datalake`). The database never stores raw binary streams or large BLOBs.
-- **System Metadata**: Stored **exclusively** within the relational database (`PostgreSQL 15`, database `aegis_drive`).
+### 3.1 Persistence Responsibility Distribution
+- **The Data Lake (`/datalake`)**: Contains the durable binary objects themselves. File streams are ingested, chunked, verified via SHA-256 hashes, and stored on disk indexed by internal storage keys.
+- **The PostgreSQL Database (`aegis_drive`)**: Tells the system what stored objects mean, who owns them, how they relate hierarchically, and what operations occurred. PostgreSQL **never** stores raw file binary streams or large BLOBs.
 
-### 4.2 Logical Metadata Categories (Cybersecurity Report Model)
-Without exposing database credentials, schemas, or personal identifying data, the metadata layer governs:
-1. **User Identity & Access Control**: User identifiers, role classifications (`admin`, `user`, `datalake`), authentication state, Argon2id password hashes, and rate-limiting lockout state.
-2. **File Hierarchy & Attributes**: Logical UUIDs, user-assigned file and folder names, parent folder IDs, logical path structures, MIME types, file sizes in bytes, SHA-256 cryptographic hashes, and ownership bindings.
-3. **Version & History Trees**: Parent-child revision linkages, commit timestamps, author IDs, and references to previous storage keys.
-4. **Private Vault Envelopes & Tree Revisions**: Opaque blob UUIDs, ciphertext byte sizes, initialization vectors (IVs), salt values, tree manifest storage references, and CAS (Compare-And-Swap) revision state. Plaintext names and encryption keys are strictly absent.
-5. **Share Governance**: Ephemeral share tokens, cryptographic token hashes, access policies, CIDR network zone restrictions, expiration timestamps, and download counters.
-6. **Audit & Compliance Trail**: Tamper-evident, append-only logs recording event types, actor user IDs, target resources, client IP addresses (via trusted proxy normalization), and operation outcomes.
-
----
-
-## 5. Trash, Lifecycle, and Physical Byte Reclamation
-
-### 5.1 Conceptual Data Lifecycle
-Data objects transition through an explicit, auditable lifecycle:
-
-```
-[ Active File ]
-       │
-       ▼ (User Deletion / Soft Delete)
-[ Protected Trash ] ── (30-day retention; metadata marked; bytes preserved)
-       │
-       ▼ (Empty Trash / Auto-Purge / Hard Delete)
-[ Step 1: Byte Reclamation ] ── (Idempotent unlinking of files & version blobs)
-       │
-       ▼ (Step 2: Database Deletion)
-[ Step 2: Metadata Removal ] ── (Transactional hard-delete of database records)
-       │
-       ▼ (OS / Filesystem Update)
-[ Underlying Ext4 Inode Release ]
-       │
-       ▼ (Telemetry / Monitoring)
-[ Statfs & Accounting Refresh ]
-```
-
-### 5.2 Strict Operational Boundaries
-To preserve system stability and security, three operational boundaries must remain strictly separated:
-- **Trash Purge**: An **application-level domain operation** executed within the Node.js/Express backend and PostgreSQL transactions.
-- **Storage Capacity Reporting**: A **read-only telemetry concern** querying OS filesystem statistics (`statfs`) and summing categorized metadata rows.
-- **Host LVM Expansion**: An **infrastructure/operating system operation** requiring host root administrative access.
-- **Security Rule**: These three operations must **never** be conflated into a single privileged API or triggered via web UI endpoints.
-
-### 5.3 Truthful Documentation of Observed Reclamation Issue
-During preflight testing, the Human Owner deleted files and emptied the Trash for both Administrator and User accounts. The Storage Dashboard did not show a visible reduction in used storage.
-
-> [!warning] Root Cause Status: NOT YET PROVEN
-> The root cause of this observation is **NOT YET PROVEN**. In accordance with AEGIS truthfulness principles, the system does not prematurely claim cache leakage or a broken purge mechanism until controlled, instrumented testing is conducted.
-
-#### Candidate Hypotheses for Future Investigation:
-1. **Metadata Deletion Defect**: Database records or retention flags might not have been fully purged, leaving files indexed or partially referenced.
-2. **Physical Blob Reclamation Defect**: The physical unlinking mechanism (`removeKey`) may have failed, been bypassed, or skipped orphaned version keys.
-3. **Open File Descriptor Retention**: A running process (e.g., thumbnail generator, streaming handle, or media scanner) may be holding open file handles to deleted inodes, preventing `ext4` from releasing the disk blocks until process termination.
-4. **Storage Telemetry Semantics**: The dashboard displays filesystem-wide used space from `statfs(/datalake)`. Because `/datalake` resides on the root filesystem `/`, changes in Docker logs, container layers, database WAL files, or system packages can offset file deletion space gains.
-5. **UI Presentation & Caching**: The frontend presentation or server report assembly may have cached earlier capacity snapshots or failed to trigger a state update.
+### 3.2 High-Level Metadata Classifications
+Without publishing raw database schemas, credentials, or example personal records, the relational metadata layer governs:
+1. **Users & Identity Relationships**: Unique user identifiers (UUIDs), role classifications (`admin`, `user`, `datalake`), authentication credentials (Argon2id password hashes), active session tokens, and security lockout counters.
+2. **File Hierarchy & Attributes**: Logical UUIDs, user-defined file and directory names, parent folder relationships (`parent_id`), MIME types, file sizes in bytes, cryptographic SHA-256 checksums, and ownership bindings.
+3. **Version & History Tracking**: Version UUIDs, foreign keys to parent file records, references to historical storage keys, creation timestamps, author IDs, and version comment logs.
+4. **Private Vault Envelopes & Tree Revisions**: Opaque blob identifiers, ciphertext byte counts, key derivation salt values, initialization vectors (IVs), tree manifest storage pointers, and Compare-And-Swap (CAS) revision counters. Plaintext names and cryptographic keys are strictly absent.
+5. **Share Governance & Access Policies**: Ephemeral share tokens, cryptographic token hashes, target file references, access permission flags, CIDR network zone restrictions, download thresholds, and expiration timestamps.
+6. **Tamper-Evident Audit Trail**: Append-only security event logs recording event types, actor IDs, target resources, client IP addresses (normalized across reverse proxies), and operation outcomes.
 
 ---
 
-## 6. External Backup Storage & Failure-Domain Separation
+## 4. Report-Ready Explanation
 
-### 6.1 Physical External Backup Target
-The AEGIS backup subsystem is anchored on a dedicated physical external storage device:
-- **Marketed Capacity**: Approximately 1 TB.
-- **Usable Filesystem Capacity**: Approximately 931.5 GiB formatted as `ext4`.
-- **Host Mount Location**: Separately mounted on the host OS at `/mnt/aegis-backup`.
-- **Device Independence**: Connected via a dedicated external interface, establishing physical hardware isolation from the internal system SSD.
+*(The subsections below are written in formal academic/technical style, designed for direct reuse in the final project thesis or academic report).*
 
-### 6.2 AEGIS Security Boundary
-> [!important] External Disk Security & Preservation Invariant
-> The external backup disk is a shared hardware device containing pre-existing user data. AEGIS software, scripts, and containers are strictly restricted to the project root:
-> `/mnt/aegis-backup/AEGIS_BACKUP/`
-> All existing files and partitions outside `/mnt/aegis-backup/AEGIS_BACKUP/` are strictly outside the project boundary. They must **never** be enumerated, read, modified, moved, resized, formatted, or deleted.
+### 4.1 Physical Storage Architecture
+The AEGIS host server operates on a solid-state drive with 119.2 GiB of usable capacity managed via the Linux Logical Volume Manager (LVM). To guard against unconstrained disk exhaustion and enable administrative flexibility, the Volume Group (`ubuntu-vg`, 116.19 GiB) allocates 58.09 GiB to the root logical volume (`ubuntu-lv`), retaining 58.09 GiB as unallocated extents. Container runtimes and persistent storage volumes reside on a standard `ext4` filesystem mounted at `/`.
 
-### 6.3 Backup Architecture & Restic Repository
-The backup system is powered by an automated host-level Backup Agent utilizing `restic`:
-- **Repository Location**: `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic/`.
-- **Deduplication & Encryption**: Content-addressed, chunked, client-encrypted snapshots.
-- **Protected Datasets**:
-  - Full Data Lake file streams (`uploads/`).
-  - Historical file revisions (`versions/`).
-  - Private Vault encrypted ciphertext blobs and manifests (`vault/`).
-  - User avatar images (`avatars/`).
-  - PostgreSQL custom-format relational database dumps (`pg_dump` of `aegis_drive`).
-- **Excluded Ephemeral Data**: Temporary upload chunks and staging files (`staging/`) are intentionally excluded from backup snapshots to prevent repository bloat from transient transfers.
-- **Container Isolation**: Drive containers do not hold restic credentials or mount host backup keys.
+### 4.2 Containerized Data Lake
+Persistent user storage is implemented as a containerized Data Lake utilizing Docker named volumes (`aegis_drive_storage`). The volume is mounted exclusively to `/datalake` within the AEGIS Drive container. Objects are categorized into functional subdirectories: active user objects (`uploads`), prior file revisions (`versions`), client-encrypted zero-knowledge payloads (`vault`), profile media (`avatars`), and transient upload buffers (`staging`). Adjacent microservices (Gateway, Monitor) possess no mount privileges to this volume.
 
----
+### 4.3 Metadata Database
+System architecture enforces a strict boundary between raw binary payloads and system state. Binary data is stored within the filesystem Data Lake, while relational structure, identity bindings, cryptographic checksums, version trees, and access policies are maintained in an isolated PostgreSQL instance (`aegis_drive`). This decoupling prevents database bloat, maintains query efficiency, and ensures database backups remain compact.
 
-## 7. RAID Truthfulness & Hardware Reality
+### 4.4 Backup Architecture
+System resilience is achieved via a dedicated Host Backup Agent operating outside the Docker environment. The agent executes scheduled `restic` snapshots targeting a physically separate 1 TB external drive mounted at `/mnt/aegis-backup`. Snapshots capture the Data Lake volume contents and custom-format PostgreSQL database dumps, encrypting and deduplicating chunks client-side before transmission. Transient staging buffers are explicitly excluded to maintain snapshot determinism.
 
-```
-┌────────────────────────────────────────────────────────┐
-│                     CURRENT STATE                      │
-│                                                        │
-│   ┌─────────────────────┐       ┌──────────────────┐   │
-│   │    Internal SSD     │       │ External 1 TB HD │   │
-│   │   Primary Storage   │       │  Backup Target   │   │
-│   └──────────┬──────────┘       └────────▲─────────┘   │
-│              │                           │             │
-│              └──── Periodic Backup ──────┘             │
-│                     (Restic Agent)                     │
-│                                                        │
-│            RAID_CURRENT_STATE = NOT_CONFIGURED         │
-└────────────────────────────────────────────────────────┘
+### 4.5 Failure-Domain Separation
+Storing backups on a physically distinct external disk establishes strict failure-domain separation. A catastrophic failure of the internal primary SSD, controller failure, filesystem corruption, or container escape cannot compromise the physical backup media. This architecture ensures complete disaster recovery capability that is unattainable when storing backups on secondary partitions of the primary disk.
 
-┌────────────────────────────────────────────────────────┐
-│               FUTURE PLANNED ARCHITECTURE              │
-│                                                        │
-│       ┌───────────────────┬───────────────────┐        │
-│       │   Primary Disk 1  │   Primary Disk 2  │        │
-│       └─────────┬─────────┴─────────┬─────────┘        │
-│                 │      RAID 1       │                  │
-│                 └─────────┬─────────┘                  │
-│                           │                            │
-│                 ┌─────────▼─────────┐                  │
-│                 │   Mirrored Array  │                  │
-│                 └─────────┬─────────┘                  │
-│                           │ External Backup            │
-│                 ┌─────────▼─────────┐                  │
-│                 │ External Backup   │                  │
-│                 └───────────────────┘                  │
-└────────────────────────────────────────────────────────┘
-```
+### 4.6 RAID Limitation
+Hardware redundancy via RAID mirroring is currently not configured (`RAID_CURRENT_STATE=NOT_CONFIGURED`). The external 1 TB backup drive operates strictly as an independent backup destination and is not a member of a RAID array. Real RAID1 requires an identical, dedicated disk pair and remains deferred to future hardware iterations due to single-drive host constraints.
 
-### 7.1 Authoritative RAID Status
-- **Current State**: `RAID_CURRENT_STATE=NOT_CONFIGURED`.
-- **Physical Reality**: The external 1 TB backup drive is **NOT** a member of a RAID array.
-- **System Architecture**: The system implements **Primary Storage + Separate External Backup Target**. It does **NOT** implement RAID1.
-- **Constraint Rationale**: Real hardware RAID1 is deferred due to mini-PC form-factor and single internal drive hardware limitations.
-- **Roadmap Classification**: RAID is documented exclusively as **FUTURE HARDWARE / FUTURE ARCHITECTURE**.
+### 4.7 Planned Capacity Expansion
+To accommodate data growth prior to physical hardware upgrades, an infrastructure plan exists to expand the root logical volume from ~58.09 GiB to approximately 90 GiB. This expansion utilizes unallocated capacity already present within `ubuntu-vg`, while preserving an administrative reserve of approximately 26 GiB for snapshotting and emergency maintenance.
 
-### 7.2 Academic Distinction: Backup vs. RAID
-In cybersecurity and resilience analysis, backup and RAID serve fundamentally different protective roles:
-1. **RAID (Redundant Array of Independent Disks)** provides *high availability* against instantaneous hardware drive loss. It does not protect against accidental deletion, ransomware, file corruption, or database corruption, as errors are instantly mirrored across drives.
-2. **External Backup** provides *survivability and recovery* across time. It protects against hardware failure, operator error, malware, and container corruption through versioned, isolated, historical snapshots.
+### 4.8 Data Deletion and Reclamation Boundary
+Data deletion traverses an explicit multi-stage pipeline:
+$$\text{Active File} \longrightarrow \text{Protected Trash} \longrightarrow \text{Empty Trash / Purge} \longrightarrow \text{Metadata Deletion} \longrightarrow \text{Physical Blob Reclamation} \longrightarrow \text{Ext4 Inode/Block Release} \longrightarrow \text{Telemetry Refresh}$$
+
+Successful UI deletion proves only logical state transition; it does not guarantee immediate physical byte reclamation. Potential latency between metadata removal and filesystem free-space recovery may arise from open file handles, delayed OS block allocation routines, or background filesystem accounting.
+
+### 4.9 Security Considerations
+1. **Principle of Least Privilege**: Drive containers run with non-root UID/GID bindings and possess no access to host disks or backup tools.
+2. **Privilege Separation**: Host LVM maintenance, telemetry polling, and application file operations belong to strictly segregated execution contexts.
+3. **Data / Metadata Decoupling**: Database compromises do not directly expose encrypted Vault file streams.
+4. **Zero-Knowledge Ciphertext Preservation**: Private Vault files are encrypted client-side using Argon2id/AES-256-GCM; backups store only ciphertext without requiring or possessing user keys.
+5. **Separate Failure Domains**: Physical disk isolation prevents single-point hardware destruction.
+6. **External Media Boundary**: AEGIS processes strictly restrict file writes to `/mnt/aegis-backup/AEGIS_BACKUP/`, preserving existing drive content.
+7. **No Web-Triggered Disk Mutation**: Host-level disk formatting, volume resizing, and partitioning cannot be initiated through web APIs.
+8. **Backup vs. RAID Independence**: Backup provides point-in-time recovery against corruption; RAID provides instantaneous uptime against drive failure.
 
 ---
 
-## 8. Dual Architecture Models
+## 5. Agent Handoff Notes
+
+Future autonomous agents and engineering contributors must treat the following **twenty assertions** as authoritative system truth:
+
+### STORAGE_ARCHITECTURE_TRUTH:
+1. **Separation of Layers**: Actual file bytes and PostgreSQL metadata are strictly separated persistence layers.
+2. **Data Lake Volume**: The Docker named volume `aegis_drive_storage` provides the primary IDEA1 Data Lake.
+3. **No Docker Quota**: The observed ~57 GiB capacity was caused by host root LVM allocation, not a Docker storage quota or daemon limit.
+4. **Internal Disk Capacity**: The internal host SSD provides approximately 119.2 GiB usable space (marketed commercially as 128 GB).
+5. **Unallocated LVM Capacity**: The LVM Volume Group (`ubuntu-vg`) contains substantial unallocated capacity (~58.09 GiB) beyond the root LV.
+6. **Planned Expansion Target**: The planned root LV target is approximately 90 GiB, preserving a ~26 GiB administrative reserve in `ubuntu-vg`.
+7. **Dedicated Backup Target**: The external ~1 TB physical disk is a separate, dedicated Backup Target mounted at `/mnt/aegis-backup`.
+8. **No Docker Expansion**: The external disk is **NOT** Docker storage expansion, LVM storage pool extension, or a data lake mount.
+9. **Not a RAID Member**: The external disk is **NOT** a member of a RAID array.
+10. **RAID Status**: `RAID_CURRENT_STATE=NOT_CONFIGURED`.
+11. **RAID Roadmap**: RAID1 remains **FUTURE HARDWARE / FUTURE ARCHITECTURE** requiring dedicated multi-drive hardware.
+12. **External Media Scope**: AEGIS-owned backup content is strictly restricted to `/mnt/aegis-backup/AEGIS_BACKUP/`. Unrelated external files must never be inspected, altered, or deleted.
+13. **Ciphertext Backup**: Private Vault backup content remains ciphertext; backup and restore workflows must never require or store plaintext keys.
+14. **Backup $\neq$ RAID**: Backup provides versioned recovery across time; RAID provides high availability across hardware drive loss. They are not equivalent.
+15. **Deletion $\neq$ Reclamation**: Logical deletion in software is not automatically proof of physical block reclamation on disk.
+16. **Observed Purge Symptom**: The Human Owner observed that Dashboard-reported used storage did not visibly decrease after files were deleted and Trash was emptied.
+17. **Root Cause Status**: The root cause of that symptom remains **NOT YET PROVEN** at this architectural stage.
+18. **No Unproven Claims**: Do not characterize the reclamation symptom as a cache leak unless future controlled empirical evidence proves it.
+19. **Investigation Hypotheses**: Possible causes include metadata deletion defects, physical blob unlinking failures, open file descriptor retention, storage telemetry semantics (`statfs` host scope), or UI caching.
+20. **Privilege Segregation**: Trash operations, storage telemetry reporting, and host LVM resizing belong to different privilege domains and must never be combined into a single privileged API.
+
+---
+
+## 6. API and Privilege Boundaries
+
+The AEGIS architecture enforces strict segregation of privileges across application, telemetry, infrastructure, and backup boundaries:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        API & PRIVILEGE BOUNDARIES                      │
+├─────────────────────────┬────────────────────────┬─────────────────────┤
+│ Domain                  │ Execution Context      │ Security Privilege  │
+├─────────────────────────┼────────────────────────┼─────────────────────┤
+│ Application Trash API   │ Node.js / Express      │ Application-level   │
+│                         │ (/api/trash/*)         │ authenticated user  │
+├─────────────────────────┼────────────────────────┼─────────────────────┤
+│ Storage Telemetry       │ Express Read Handler   │ Read-only query of  │
+│                         │ (/api/storage)         │ statfs & DB counts  │
+├─────────────────────────┼────────────────────────┼─────────────────────┤
+│ Host LVM Resize         │ Host OS Bash / Root    │ Host administrative │
+│                         │ (lvextend, resize2fs)  │ (CAP_SYS_ADMIN)     │
+├─────────────────────────┼────────────────────────┼─────────────────────┤
+│ Relational Metadata     │ PostgreSQL Engine      │ Application DB user │
+│                         │ (SQL queries via pool) │ (no OS privileges)  │
+├─────────────────────────┼────────────────────────┼─────────────────────┤
+│ External Backup Agent   │ Host Systemd / restic  │ Host-level service  │
+│                         │ (Independent daemon)   │ (isolated keys)     │
+└─────────────────────────┴────────────────────────┴─────────────────────┘
+```
+
+### Architectural Rationale for Boundary Separation
+- **Trash Purge vs. Storage Telemetry**: Trash purging is a destructive, authenticated state change; telemetry reporting is a read-only projection. Combining them would expose destructive side effects during routine dashboard polling.
+- **Host LVM vs. Web Application**: Host disk management requires root privileges (`lvextend`, `resize2fs`). Exposing host volume management through web endpoints would create a severe remote privilege escalation vector and drastically enlarge the attack surface.
+- **Application Container vs. Backup Agent**: The Drive web application has no access to restic encryption keys or external disk mount commands. Drive acts solely as a client displaying backup health metrics queried from host telemetry files.
+
+---
+
+## 7. External 1 TB Backup Target: Canonical Report Statement
+
+*(The text below represents the canonical, report-safe description of the external backup subsystem for inclusion in academic documents)*:
+
+> "The backup subsystem uses an external storage device with approximately 1 TB marketed capacity as a physically separate backup target from the primary server storage. AEGIS operates only within its designated backup directory and does not enumerate, alter, repartition, format, resize, or delete unrelated content elsewhere on the device. The external device functions as a backup target and is not a member of a RAID array. RAID1 remains a future hardware enhancement because the current prototype does not provide the required dedicated disk pair."
+
+---
+
+## 8. Report Diagram Source Models
 
 ### 8.1 Engineering Architecture View
-Detailed topology including logical volumes, Docker mounts, and daemon interfaces:
-
 ```
-[ Beelink Mini-PC Hardware ]
-  │
-  ├─ Internal SSD (119.2 GiB Usable)
-  │    │
-  │    └─ LVM Physical Volume (116.2 GiB)
-  │         │
-  │         └─ Volume Group: ubuntu-vg (116.19 GiB)
-  │              │
-  │              ├─ Root Logical Volume: ubuntu-lv (58.09 GiB) ── Target: 90 GiB
-  │              │    │
-  │              │    └─ Ext4 Filesystem (Mounted at /)
-  │              │         │
-  │              │         ├─ /var/lib/docker
-  │              │         │    │
-  │              │         │    └─ Docker Named Volume: aegis_drive_storage
-  │              │         │         │
-  │              │         │         └─ Container Mount: /datalake
-  │              │         │              ├─ /datalake/uploads
-  │              │         │              ├─ /datalake/versions
-  │              │         │              ├─ /datalake/vault (Ciphertext)
-  │              │         │              ├─ /datalake/avatars
-  │              │         │              └─ /datalake/staging (Ephemeral)
-  │              │         │
-  │              │         └─ PostgreSQL 15 Container Volume (aegis_db / aegis_drive)
-  │              │
-  │              └─ Unallocated Space Reserve (58.09 GiB) ── Target Reserve: ~26 GiB
-  │
-  └─ External USB Interface
-       │
-       └─ External HGST 1 TB Drive (931.5 GiB Usable Ext4)
-            │
-            └─ Host Mount: /mnt/aegis-backup
-                 │
-                 ├─ [Pre-existing Unrelated Files] (OUT OF SCOPE / PRESERVED)
-                 │
-                 └─ /mnt/aegis-backup/AEGIS_BACKUP/
-                      │
-                      └─ aegis-restic/ (Encrypted Snapshot Repository)
-                           ▲
-                           │ Host Backup Agent (Cron / Systemd)
-                           ┴
+Internal SSD (~128 GB Marketed / ~119.2 GiB Usable)
+        │
+        ▼
+Ubuntu LVM (ubuntu-vg: ~116.19 GiB)
+        │
+        ├─ Free Extents (~58.09 GiB Unallocated Reserve)
+        │
+        └─ Root Logical Volume (~58.09 GiB Allocation ── Target: 90 GiB)
+                │
+                ▼
+        ext4 Root Filesystem (~57 GiB Usable)
+                │
+                ├─ Docker Runtime Environment (/var/lib/docker)
+                │       │
+                │       └─ aegis_drive_storage (Named Docker Volume)
+                │                 │
+                │                 ▼
+                │              Data Lake (/datalake)
+                │             /    │     \         \
+                │       uploads versions vault   avatars
+                │                          │
+                │                   (Ciphertext)
+                │
+                └─ PostgreSQL 15 Volume (aegis_db / aegis_drive)
+                        │
+                        ▼
+                Metadata Engine (Identity, File Trees, Versions, Shares, Audit)
+
+Host Backup Agent (Host Systemd / restic)
+        │
+        ├─ Data Lake Durable Content (/var/lib/docker/volumes/aegis_drive_storage/_data)
+        ├─ PostgreSQL Custom-Format Backup (pg_dump)
+        │
+        ▼
+External Backup Storage (~1 TB Marketed / 931.5 GiB Usable ext4)
+        │
+        ▼
+AEGIS_BACKUP/aegis-restic/ (Encrypted Snapshot Repository)
+
+RAID Redundancy
+        │
+        ▼
+NOT CONFIGURED / FUTURE HARDWARE (Single Primary SSD Constraint)
 ```
 
-### 8.2 Academic & Cybersecurity Systems View
-Abstract system model suitable for technical reports:
-
+### 8.2 Academic Systems Model
 ```
 ┌────────────────────────────────────────────────────────┐
-│                   AEGIS Architecture                   │
-├──────────────────────────┬─────────────────────────────┤
-│ Primary Storage Subsystem│ Dedicated Container Volume  │
-│ Data Lake Engine         │ Filesystem Object Storage   │
-│ Metadata Engine          │ Relational Database (RDBMS) │
-│ Resiliency Subsystem     │ Host-Level Backup Agent     │
-│ Secondary Storage        │ Isolated External Disk Target│
-│ Hardware Redundancy      │ NOT CONFIGURED (Future Goal)│
-└──────────────────────────┴─────────────────────────────┘
+│                     Primary Storage                    │
+│                      (Internal SSD)                    │
+│                            │                           │
+│        ┌───────────────────┴───────────────────┐       │
+│        ▼                                       ▼       │
+│    Data Lake                           Metadata Store  │
+│ (Object Blobs)                           (PostgreSQL)  │
+└────────┬───────────────────────────────────────┬───────┘
+         │                                       │
+         └───────────────────┬───────────────────┘
+                             │ Periodic Snapshots
+                             ▼
+                    Host Backup Agent
+                             │
+                             ▼
+                  External Backup Storage
+                   (Physically Isolated)
+
+                 RAID = Not Configured
 ```
 
 ---
 
-## 9. Security Principles & Threat Considerations
+## 9. Using This Document in the Final Report
 
-The storage and persistence architecture adheres to core cybersecurity principles:
+When compiling final engineering deliverables, capstone project reports, or academic papers, future authors must observe four strict classifications:
 
-1. **Separation of Data and Metadata**: Direct file manipulation cannot bypass database access control lists, and database compromises do not directly expose encrypted Vault file streams.
-2. **Principle of Least Privilege**: The application container (`drive`) runs with unprivileged user permissions, mounts only its designated volume (`/datalake`), and has no access to the host root filesystem or external backup drive.
-3. **Failure-Domain Separation**: Primary storage and backup storage reside on separate physical hardware devices. A complete hardware failure or catastrophic destruction of the internal SSD does not impact the external backup repository.
-4. **Zero-Knowledge Ciphertext Preservation**: Private Vault files are encrypted browser-side. The host storage layer, container filesystems, and backup repositories store exclusively ciphertext. Zero-knowledge is maintained throughout the backup and restore lifecycle.
-5. **Credential Isolation**: Backup encryption keys and restic repository passwords reside strictly on the host OS. Drive containers contain zero backup credentials and have no network routes to backup administrative interfaces.
-6. **Hardware Preservation Boundary**: Automated scripts and container operations strictly enforce the `/mnt/aegis-backup/AEGIS_BACKUP/` root boundary, preventing unauthorized data modification on shared devices.
-7. **No Administrative Host Mutation from Web UI**: Operations such as LVM resizing, partition creation, physical formatting, and direct disk unlinking cannot be invoked through the web application.
-8. **Truthful Redundancy Reporting**: The system explicitly declares `RAID: NOT CONFIGURED` to prevent false assumptions of high availability.
-9. **Logical Deletion vs. Physical Reclamation Auditing**: The system explicitly differentiates between metadata soft-deletion (Protected Trash) and verified physical byte reclamation.
+### Mandatory Classification Taxonomy
+1. **CURRENT VERIFIED STATE**:
+   - Internal SSD partitioned with Ubuntu LVM (~116.19 GiB VG, ~58.09 GiB root LV, ~58.09 GiB free extents).
+   - Docker container volume `aegis_drive_storage` providing the `/datalake` filesystem.
+   - Separation of Data Lake file blobs and PostgreSQL metadata.
+   - External 1 TB USB drive providing isolated restic backup target under `/mnt/aegis-backup/AEGIS_BACKUP/`.
+   - `RAID_CURRENT_STATE=NOT_CONFIGURED`.
+2. **PLANNED CHANGE**:
+   - Host root logical volume expansion from ~58.09 GiB to ~90 GiB within existing `ubuntu-vg` extents.
+3. **FUTURE ARCHITECTURE**:
+   - Hardware RAID1 mirroring utilizing a dedicated, matched internal drive pair.
+4. **OPEN / UNPROVEN DEFECT**:
+   - Storage dashboard used space not visibly decreasing after emptying Protected Trash (`ROOT CAUSE: NOT YET PROVEN`).
 
----
-
-## 10. Academic Report Section: Persistence & Resilience
-
-*(This section provides concise, academic-grade text suitable for inclusion in the final project report or thesis).*
-
-### 10.1 Physical Storage and Virtualization Architecture
-The AEGIS storage architecture operates on an internal solid-state drive with 119.2 GiB of usable capacity managed via the Linux Logical Volume Manager (LVM). To provide operational flexibility and prevent unconstrained host disk exhaustion, the Volume Group (`ubuntu-vg`, 116.19 GiB) initially allocates approximately 58.09 GiB to the root logical volume (`ubuntu-lv`), reserving the remaining 58.09 GiB as unallocated extents. Container runtimes and persistent volumes are hosted on an `ext4` filesystem. Planned infrastructure growth targets an orderly expansion of the root volume to 90 GiB while preserving a 26 GiB administrative reserve.
-
-### 10.2 Containerized Data Lake and Storage Segregation
-AEGIS implements a containerized Data Lake model utilizing Docker named volumes (`aegis_drive_storage`). Persistent object storage is compartmentalized into functional directories: active objects (`uploads`), historical revisions (`versions`), client-side encrypted payloads (`vault`), user identity media (`avatars`), and transient upload buffers (`staging`). Access is strictly mediated through container boundary isolation; adjacent microservices possess no mount permissions to the Data Lake volume.
-
-### 10.3 Decoupled Relational Metadata Management
-System state is decoupled into a raw binary data layer and a relational metadata layer. All binary objects reside in the Data Lake, whereas relational attributes—including identity bindings, MIME classifications, SHA-256 integrity hashes, version chains, access control policies, and append-only audit events—are managed in an isolated PostgreSQL instance (`aegis_drive`).
-
-### 10.4 Secondary Backup Storage and Failure Domains
-Disaster recovery is achieved through physical and logical failure-domain separation. The primary host is paired with an external 1 TB storage target (931.5 GiB usable capacity) mounted at `/mnt/aegis-backup`. The backup subsystem operates via an encrypted, deduplicated `restic` repository isolated within `/mnt/aegis-backup/AEGIS_BACKUP/`. The backup payload captures Data Lake objects alongside custom-format relational database dumps, while excluding transient upload chunks.
-
-### 10.5 Hardware Redundancy Constraints
-Hardware-level RAID mirroring is currently not configured due to single-drive physical host constraints. High availability is recognized as a future hardware objective, while current resiliency guarantees are delivered through independent, versioned off-device backups.
-
-### 10.6 Data Deletion and Storage Reclamation
-Data deletion adheres to a two-phase protocol: initial logical deletion to an authenticated Protected Trash state with a 30-day retention horizon, followed by explicit or automated purging. Purging enforces strict ordering: physical file unlinking is executed prior to database row removal to guarantee crash tolerance. Anomalies observed during storage capacity recalculation are classified under investigation across filesystem inode retention, accounting telemetry, and presentation layer behaviors.
+> [!danger] Report Integrity Rule
+> Never silently promote a **Planned Change** or **Future Architecture** item into an implemented or verified state. Never attribute the open reclamation defect to an unverified cause (such as cache leakage) without empirical evidence.
 
 ---
 
-## 11. Traceability & Canonical Links
+## 10. Traceability & Canonical Links
 
 - Operational Status Fragment: [[idea1/idea1-status]]
 - Area Master Index: [[idea1/idea1-moc]]
+- Public Share Architecture: [[idea1/idea1-public-share-architecture]]
 - Core Integration Points: [[core/integration-points]]
 - Core Security Architecture: [[core/security-architecture]]
 - Data Lake Architectural Concept: [[concepts/Three_Layer_Data_Lake]]

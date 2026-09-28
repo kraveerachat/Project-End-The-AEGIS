@@ -18,37 +18,38 @@ edit_policy: append-by-new-file
 ## What changed
 
 - Established authoritative canonical documentation for IDEA1 Storage & Persistence Architecture: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-storage-persistence-architecture.md`.
-- **Task Identity**: `TASK=IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1`, `TASK_REGISTER=IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1`, `STATUS=COMPLETE`.
-- **Branch**: `docs/idea1-storage-persistence-architecture`; PR: Draft (base: `main`).
-- **Physical & Host Topology Documented**:
-  - Internal SSD: ~119.2 GiB usable (128 GB commercial class).
-  - Ubuntu LVM layout: PV ~116.2 GiB, VG `ubuntu-vg` ~116.19 GiB, root LV ~58.09 GiB, unallocated VG capacity ~58.09 GiB. Host ext4 root filesystem currently ~57 GiB usable.
-  - Clarified that Docker storage is not artificially constrained by Docker quotas to 57 GB; it is bounded by the default initial 50% LVM VG allocation.
-  - Documented planned future controlled expansion: target root LV ~90 GiB while preserving ~26 GiB safety reserve in `ubuntu-vg` (infrastructure operation, not executed here).
-- **Containerized Data Lake Topology Documented**:
-  - Named Docker volume `aegis_drive_storage` mounted at `/datalake`.
-  - Observed read-only preflight snapshot recorded: ~28.7–29.0 GB (uploads ~25.1 GB, versions ~1 MB).
-  - Logical storage classes: `uploads`, `versions`, `vault` (ciphertext), `avatars`, and ephemeral `staging`.
-- **Database & Data Lake Separation Documented**:
-  - Strict decoupling: raw file byte streams reside exclusively in the Data Lake (`/datalake`); relational metadata resides in PostgreSQL (`aegis_drive`).
-  - High-level logical metadata categories documented without credentials or schema dumps: Identity/ACL, File attributes, Version history, Vault envelopes/revisions, Share tokens/policies, and Audit logs.
-- **Trash & Reclamation Lifecycle Documented**:
-  - Conceptual lifecycle: Active file → Protected Trash → Empty Trash → Metadata removal → Blob unlinking → Filesystem free-space release → Telemetry refresh.
-  - Strict separation of boundaries: Trash purge (app domain), storage capacity reporting (read-only telemetry), and host LVM expansion (infrastructure) are distinct and must never be combined into a single privileged API.
-  - Documented open reclamation issue (reported storage not visibly decreasing after emptying Trash) truthfully with `ROOT CAUSE: NOT YET PROVEN` and candidate hypotheses for future controlled investigation.
-- **External Backup Target & RAID Truthfulness Documented**:
-  - External 1 TB physical disk (931.5 GiB usable ext4) mounted separately at `/mnt/aegis-backup`.
-  - AEGIS security boundary strictly restricted to `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic/`. Unrelated external files preserved untouched.
-  - Ephemeral staging data excluded from durable snapshots.
-  - Explicitly recorded `RAID_CURRENT_STATE=NOT_CONFIGURED`. External disk is a dedicated Backup Target, not a RAID member. System implements Primary Storage + Separate Backup Target; real RAID1 deferred as future hardware.
-- **Academic & Engineering Views**: Provided dual architecture representations and a 9-part academic-ready summary section.
-- **Safety Invariants Maintained**: `APPLICATION_SOURCE_CHANGED=NO`, `PRODUCTION_MUTATED=NO`, `DISK_RESIZED=NO`, `TRASH_FIX_IMPLEMENTED=NO`.
+- **Task Identity**: `TASK=IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1` and continuation `FOLLOW-UP TASK=IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-REPORT-HANDOFF-ENRICHMENT`, `TASK_REGISTER=IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1`, `STATUS=COMPLETE`.
+- **Branch**: `docs/idea1-storage-persistence-architecture`; PR: #240 (base: `main`).
+- **Architecture Authority Explicitly Established**: Canonical reference declared for physical storage, LVM/filesystem relationship, Docker storage relationship, Data Lake persistence, database metadata structure, backup architecture, external backup target, RAID limitation, storage capacity planning, and trash/reclamation boundaries.
+- **System Structure Summary Added**:
+  - Full end-to-end flow: Physical Internal SSD → Ubuntu LVM → ext4 root filesystem → Docker runtime → `aegis_drive_storage` → Data Lake (`uploads`, `versions`, `vault`, `avatars`, `staging`).
+  - Decoupled relational metadata: PostgreSQL (`aegis_drive`) → identity, file hierarchies, version trees, opaque vault envelopes, shares, audit logs.
+  - Independent resiliency subsystem: Host Backup Agent → restic snapshots + pg_dump → External 1 TB Backup Target (`/mnt/aegis-backup/AEGIS_BACKUP/`).
+  - Redundancy status: `RAID_CURRENT_STATE=NOT_CONFIGURED`, deferred to future hardware.
+  - Crucial truth documented: ~57 GiB capacity visible to Docker was bounded by initial root LVM allocation (~58.09 GiB) with ~58.09 GiB unallocated in `ubuntu-vg`, NOT a Docker quota.
+  - Observed preflight snapshot: Internal disk ~119.2 GiB usable (128 GB marketed), LVM PV ~116.2 GiB, VG `ubuntu-vg` ~116.19 GiB, root LV ~58.09 GiB, free extents ~58.09 GiB, planned expansion target ~90 GiB (unexecuted here). Data Lake snapshot ~28.7–29.0 GB (uploads ~25.1 GB, versions ~1 MB).
+- **Database Metadata Structure Added**:
+  - Explicit principle: `FILE BYTES != DATABASE METADATA`. File bytes reside exclusively in Data Lake; relational attributes and audit reside in PostgreSQL.
+  - High-level categories defined without raw schema dumps, credentials, personal data, or private filenames.
+- **Report-Ready Explanation Added**:
+  - Reusable academic-grade sections covering physical storage, containerized Data Lake, metadata database, backup architecture, failure-domain separation, RAID limitation, planned capacity expansion, data deletion/reclamation boundary, and security considerations.
+- **Agent Handoff Notes Added**:
+  - Twenty numbered `STORAGE_ARCHITECTURE_TRUTH` assertions defining permanent baseline facts for future report-writing and engineering agents.
+- **API and Privilege Boundaries Added**:
+  - Strict segregation between Application Trash API (app-level authenticated), Storage telemetry (read-only), Host LVM resize (infrastructure/host root), Database metadata (persistence model), and External Backup Agent (isolated host daemon). Detailed blast-radius rationale.
+- **External 1 TB Backup Canonical Wording & Report Diagram Source Models Added**:
+  - Report-safe wording defining physical target, project boundary (`/mnt/aegis-backup/AEGIS_BACKUP/`), preservation of unrelated files, and non-RAID nature.
+  - Dual diagram source models: detailed engineering architecture and abstract academic system model.
+- **Final Report Usage Guidance Added**:
+  - Explicit rules enforcing four-part taxonomy (Current Verified State, Planned Change, Future Architecture, Open/Unproven Defect) and prohibiting silent promotion.
+- **Safety Invariants Maintained**: `APPLICATION_SOURCE_CHANGED=NO`, `PRODUCTION_MUTATED=NO`, `DISK_RESIZED=NO`, `TRASH_FIX_IMPLEMENTED=NO`, `NEW_STORAGE_API_IMPLEMENTED=NO`.
 
 ## Source files changed
 
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-storage-persistence-architecture.md` — new canonical architecture document.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-moc.md` — linked storage and persistence architecture note.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — recorded Current Task `IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1`, session row `ISPA-S1`, and archived completed PR219.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-28_211500_kla_idea1-storage-persistence-architecture.md` — immutable task receipt.
 
 ## Verification evidence
 
@@ -73,6 +74,6 @@ edit_policy: append-by-new-file
 
 ## Known limitations
 
-- Documentation-only task; no infrastructure expansion performed (`DISK_RESIZED=NO`); no production mutation performed (`PRODUCTION_MUTATED=NO`); no trash fix implementation performed (`TRASH_FIX_IMPLEMENTED=NO`).
+- Documentation-only task; no infrastructure expansion performed (`DISK_RESIZED=NO`); no production mutation performed (`PRODUCTION_MUTATED=NO`); no trash fix implementation performed (`TRASH_FIX_IMPLEMENTED=NO`); no new API implemented (`NEW_STORAGE_API_IMPLEMENTED=NO`).
 - Trash reclamation root cause remains under active investigation (`ROOT CAUSE: NOT YET PROVEN`).
 - RAID remains unconfigured (`RAID_CURRENT_STATE=NOT_CONFIGURED`) pending dedicated multi-disk hardware.

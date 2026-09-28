@@ -20,7 +20,7 @@ edit_policy: owner-writable
 **IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1 — COMPLETE**
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `docs/idea1-storage-persistence-architecture`; PR: Draft (base: `main`).
+- Branch: `docs/idea1-storage-persistence-architecture`; PR: #240 (base: `main`).
 - Scope: Authoritative documentation of IDEA1 Storage & Persistence Architecture, containerized Data Lake topology, metadata vs data byte separation, external backup target, RAID deferred truth, planned 90G LVM expansion boundary, and trash/reclamation lifecycle.
 - Canonical document: `[[idea1/idea1-storage-persistence-architecture]]`.
 - Key Architectural Facts Documented:
