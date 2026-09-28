@@ -493,7 +493,7 @@ export default function App() {
     ),
     shares: <Shares t={t} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
     versions: <FileHistory t={t} lang={lang} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
-    trash: <Trash t={t} lang={lang} />,
+    trash: <Trash t={t} lang={lang} user={session} />,
     storage: <Storage t={t} go={go} placeholderMode={placeholderMode} />,
     audit: <Audit t={t} placeholderMode={placeholderMode} />,
     access: <Access t={t} user={session} placeholderMode={placeholderMode} />,

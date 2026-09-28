@@ -33,7 +33,8 @@ const remainingLabel = (t, purgeAt, now) => {
   return t('trashHoursLeft').replace('{n}', String(hours))
 }
 
-export function Trash({ t }) {
+export function Trash({ t, user }) {
+  const username = typeof user === 'string' ? user : (user?.username ?? '')
   const [phase, setPhase] = useState('loading')
   const [password, setPassword] = useState('')
   const [items, setItems] = useState([])
@@ -239,11 +240,23 @@ export function Trash({ t }) {
           </div>
 
           <div className="flex items-center gap-2.5 mb-5 flex-wrap">
-            <label className="relative flex-1 min-w-[220px] max-w-md">
-              <span className="sr-only">{t('trashSearch')}</span>
-              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden />
-              <input type="search" value="" readOnly disabled tabIndex={-1} placeholder={t('trashSearch')} className="w-full h-10 pl-10 pr-4 rounded-full bg-sunken border border-line text-[13.5px] text-ink outline-none" />
-            </label>
+            <div role="search" className="relative flex-1 min-w-[220px] max-w-md">
+              <label className="relative block w-full">
+                <span className="sr-only">{t('trashSearch')}</span>
+                <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden />
+                <input
+                  type="search"
+                  name="trashSearch"
+                  autoComplete="off"
+                  value=""
+                  readOnly
+                  disabled
+                  tabIndex={-1}
+                  placeholder={t('trashSearch')}
+                  className="w-full h-10 pl-10 pr-4 rounded-full bg-sunken border border-line text-[13.5px] text-ink outline-none"
+                />
+              </label>
+            </div>
             <div className="w-48 max-md:flex-1">
               <PillSelect value="deleted" disabled tabIndex={-1} onChange={() => {}} aria-label={t('sortBy')}>
                 <option value="deleted">{t('trashSortDeleted')}</option>
@@ -267,9 +280,20 @@ export function Trash({ t }) {
           <h2 id="trash-unlock-title" className="mt-4 text-[18px] font-semibold text-ink">{t('trashLockedTitle')}</h2>
           <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{t('trashLockedBody')}</p>
           <form onSubmit={unlock} className="mt-5">
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              value={username}
+              readOnly
+              tabIndex={-1}
+              aria-hidden="true"
+              className="sr-only"
+            />
             <Field id="trash-password" label={t('trashCurrentPassword')}>
               <PillInput
                 id="trash-password"
+                name="trashUnlockPassword"
                 type="password"
                 autoComplete="current-password"
                 value={password}
@@ -307,11 +331,24 @@ export function Trash({ t }) {
       {feedback && <div role="status" className="mb-4 rounded-xl border border-line bg-card px-4 py-3 text-[13px] font-medium text-ink">{feedback}</div>}
 
       <div className="flex items-center gap-2.5 mb-5 flex-wrap">
-        <label className="relative flex-1 min-w-[220px] max-w-md">
-          <span className="sr-only">{t('trashSearch')}</span>
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden />
-          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('trashSearch')} className="w-full h-10 pl-10 pr-4 rounded-full bg-sunken border border-line text-[13.5px] text-ink outline-none focus:border-accent" />
-        </label>
+        <form role="search" onSubmit={(event) => event.preventDefault()} className="relative flex-1 min-w-[220px] max-w-md">
+          <label className="relative block w-full">
+            <span className="sr-only">{t('trashSearch')}</span>
+            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden />
+            <input
+              type="search"
+              name="trashSearch"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck="false"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('trashSearch')}
+              className="w-full h-10 pl-10 pr-4 rounded-full bg-sunken border border-line text-[13.5px] text-ink outline-none focus:border-accent"
+            />
+          </label>
+        </form>
         <div className="w-48 max-md:flex-1">
           <PillSelect value={sort} onChange={(event) => setSort(event.target.value)} aria-label={t('sortBy')}>
             <option value="deleted">{t('trashSortDeleted')}</option>
@@ -365,21 +402,93 @@ export function Trash({ t }) {
         <ModalClose onClose={() => setPurge(null)} label={t('cancel')} />
         <h2 id="trash-purge-title" className="text-[18px] font-semibold text-danger">{t('trashDeleteForeverTitle')}</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{t('trashDeleteForeverBody').replace('{name}', purge?.name ?? '')}</p>
-        <div className="mt-5"><Field id="trash-purge-password" label={t('trashCurrentPassword')}><PillInput id="trash-purge-password" type="password" autoComplete="current-password" value={destructivePassword} onChange={(event) => setDestructivePassword(event.target.value)} /></Field></div>
-        {modalError && <p role="alert" className="mt-3 text-[12.5px] font-medium text-danger">{t('trashActionFailed')}</p>}
-        <div className="mt-6 flex justify-end gap-2"><Btn onClick={() => setPurge(null)}>{t('cancel')}</Btn><Btn variant="danger" onClick={purgeItem} disabled={busy || !destructivePassword}>{t('trashDeleteForever')}</Btn></div>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!busy && destructivePassword) purgeItem()
+          }}
+          className="mt-5"
+        >
+          <input
+            type="text"
+            name="username"
+            autoComplete="username"
+            value={username}
+            readOnly
+            tabIndex={-1}
+            aria-hidden="true"
+            className="sr-only"
+          />
+          <Field id="trash-purge-password" label={t('trashCurrentPassword')}>
+            <PillInput
+              id="trash-purge-password"
+              name="trashPurgePassword"
+              type="password"
+              autoComplete="current-password"
+              value={destructivePassword}
+              onChange={(event) => setDestructivePassword(event.target.value)}
+              required
+              data-modal-autofocus
+            />
+          </Field>
+          {modalError && <p role="alert" className="mt-3 text-[12.5px] font-medium text-danger">{t('trashActionFailed')}</p>}
+          <div className="mt-6 flex justify-end gap-2">
+            <Btn type="button" onClick={() => setPurge(null)}>{t('cancel')}</Btn>
+            <Btn type="submit" variant="danger" disabled={busy || !destructivePassword}>{t('trashDeleteForever')}</Btn>
+          </div>
+        </form>
       </Modal>
 
       <Modal open={empty} onClose={() => setEmpty(false)} width={480} labelledBy="trash-empty-title">
         <ModalClose onClose={() => setEmpty(false)} label={t('cancel')} />
         <h2 id="trash-empty-title" className="text-[18px] font-semibold text-danger">{t('trashEmptyTitleConfirm')}</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{t('trashEmptyBodyConfirm')}</p>
-        <div className="mt-5 grid gap-4">
-          <Field id="trash-empty-confirm" label={t('trashTypeDelete')}><PillInput id="trash-empty-confirm" value={confirmText} onChange={(event) => setConfirmText(event.target.value)} /></Field>
-          <Field id="trash-empty-password" label={t('trashCurrentPassword')}><PillInput id="trash-empty-password" type="password" autoComplete="current-password" value={destructivePassword} onChange={(event) => setDestructivePassword(event.target.value)} /></Field>
-        </div>
-        {modalError && <p role="alert" className="mt-3 text-[12.5px] font-medium text-danger">{t('trashActionFailed')}</p>}
-        <div className="mt-6 flex justify-end gap-2"><Btn onClick={() => setEmpty(false)}>{t('cancel')}</Btn><Btn variant="danger" onClick={emptyTrash} disabled={busy || confirmText !== 'DELETE' || !destructivePassword}>{t('trashEmpty')}</Btn></div>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!busy && confirmText === 'DELETE' && destructivePassword) emptyTrash()
+          }}
+          className="mt-5"
+        >
+          <input
+            type="text"
+            name="username"
+            autoComplete="username"
+            value={username}
+            readOnly
+            tabIndex={-1}
+            aria-hidden="true"
+            className="sr-only"
+          />
+          <div className="grid gap-4">
+            <Field id="trash-empty-confirm" label={t('trashTypeDelete')}>
+              <PillInput
+                id="trash-empty-confirm"
+                name="trashConfirmText"
+                autoComplete="off"
+                value={confirmText}
+                onChange={(event) => setConfirmText(event.target.value)}
+                required
+              />
+            </Field>
+            <Field id="trash-empty-password" label={t('trashCurrentPassword')}>
+              <PillInput
+                id="trash-empty-password"
+                name="trashEmptyPassword"
+                type="password"
+                autoComplete="current-password"
+                value={destructivePassword}
+                onChange={(event) => setDestructivePassword(event.target.value)}
+                required
+              />
+            </Field>
+          </div>
+          {modalError && <p role="alert" className="mt-3 text-[12.5px] font-medium text-danger">{t('trashActionFailed')}</p>}
+          <div className="mt-6 flex justify-end gap-2">
+            <Btn type="button" onClick={() => setEmpty(false)}>{t('cancel')}</Btn>
+            <Btn type="submit" variant="danger" disabled={busy || confirmText !== 'DELETE' || !destructivePassword}>{t('trashEmpty')}</Btn>
+          </div>
+        </form>
       </Modal>
     </div>
   )
