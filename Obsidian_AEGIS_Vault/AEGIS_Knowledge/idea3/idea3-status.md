@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-25
+updated: 2026-09-28
 owner: music
 edit_policy: owner-writable
 ---
@@ -17,6 +17,172 @@ edit_policy: owner-writable
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
+
+## IDEA3 Web WEB-R2 Production Refresh — live closeout — 2026-09-28
+
+> [!important] The IDEA3 Security Center Web visual refresh is **DEPLOYED / VERIFIED** in Production. This section supersedes older broad language that said Web production deployment remained open **only for the Web visual-refresh scope**. Live IDEA1/IDEA2/IDEA3 status-adapter wiring, PR11 Phase 4 runtime completion, V4/L7/L8, and ESP32 work remain separate and open.
+> `WEB_R2_PRODUCTION_REFRESH = PASS`, `WEB_R2_CLOSEOUT = PASS`, `DEPLOYED_COMMIT = f839a4738409bcd6e0e2281f21ea8dd7e26dd839`, `DEPLOYED_IMAGE = aegis-idea3-web:weblive-f839a4738409`, `READINESS = READY`, `AUDIT = READY`, `AUDIT_SCHEMA_VERSION = 3`, `IDEA1_IDEA2_SHARED_PRESERVATION = PASS`, `AUDIT_VOLUME_PRESERVATION = PASS`, `PRODUCTION_MUTATION_WINDOW = CLOSED`
+
+- **Production result:** only `aegis-prod-idea3-web-1` was recreated for this refresh. It is running/healthy with restart count 0 and revision label `f839a4738409bcd6e0e2281f21ea8dd7e26dd839`.
+- **Route/readiness:** both container-internal and `https://192.168.10.10/security/api/readiness` returned `{"status":"READY","audit":"READY","schemaVersion":3}`.
+- **Artwork proof:** Production-served `BG_AEGIS01.png` SHA-256 `6d8ae549761661b39c2f4ee59c8f5775d6bbd216cc57e14b91e55c76b45a1492`; `BG_AEGIS02.png` SHA-256 `fb48dc85b0784fa741438a79bc39818d924a80e3d74244f0257443e49ec31837`; both match source and image-build proof.
+- **Persistence/rollback:** `aegis_idea3_web_data` remained the same persistent volume; the old image `aegis-idea3-web:pr11-phase2-dbc9ad92cd3e` remains available as rollback. The live overlay now selects `aegis-idea3-web:weblive-f839a4738409`.
+- **Preservation:** pre/post container-identity evidence for HUB, Drive, Monitor, Postgres, Public Share gateway/connector and Twingate was byte-identical. No IDEA1/IDEA2/shared runtime was recreated by WEB-R2.
+- **Disk:** root filesystem was 87% used after deployment/closeout. Earlier cleanup removed unused Docker build cache only; images and volumes were not pruned.
+- **Evidence:** server-local `/opt/aegis/runtime/idea3/weblive-20260927T225534Z`. Production mutation window is closed; no additional Web mutation is authorized by this documentation closeout.
+- **Next work split:** IDEA3 Python UX/runtime development can continue independently; WEB-R3 live adapters wait for their source runtimes; PR11 V4/L7/L8 remain on their own governed path.
+- **Receipt:** `90-Status/logs/2026-09-28_060304_music_idea3-web-r2-production-closeout.md`.
+
+## IDEA3 PR11 Phase 4 L6c "Immutable Release Install" — new governed stage, repository only — 2026-09-27
+
+> [!important] Repository design/implementation only. L6c has NOT run, is NOT authorized, and no Production state changed. L7 remains separately gated; L6c PASS does NOT authorize L7. No A-L6c, K3, A-L7, D6, or Production secret was created; L8 has NOT started.
+> `PRE_L7_RELEASE_INSTALL_GOVERNANCE = SEPARATE_G15_STAGE`, `L6C_STAGE = IMPLEMENTED_REPOSITORY`, `L6C_LIVE_AUTHORIZED = NO`, `L6C_LIVE_EXECUTED = NO`, `A_L6C_CREATED = NO`, `K3_L6C_CREATED = NO`, `IMMUTABLE_RELEASE_INSTALLED_LIVE = NO`, `L7_LIVE_EXECUTED = NO`, `A_L7_CREATED = NO`, `K3_L7_CREATED = NO`, `D6_ISSUED = NO`, `PRODUCTION_SECRETS_CREATED = NO`, `L8_STARTED = NO`
+
+- **Owner decision approved:** a separate G-15 stage, `L6c` / "Immutable Release Install", registered in `P4_STAGES` between L6b and L7, with its own `A-L6c` and fresh `stage=L6c` K3 — never combined with `A-L7` or any other stage's K3 (`p4-stage-gate.sh`'s `stage=` match already enforces this structurally). `p4_stage_gaps L6c = none`: it installs code only, never a protocol key or a Core credential.
+- **G-15 capture/compare gap closed first.** `p4-l0-capture.sh` was blind to `/opt/aegis-idea3/releases/<id>` (RED: 18 failed). Now records two fixed presence keys plus a deterministic, non-secret `host.aegis_idea3.release_catalog` fingerprint; a new opt-in `ALLOW_L6C_RELEASE_FILE` in `p4-compare.sh` approves only the addition of one named new release id and can never launder a mutation or removal of an existing release (GREEN: 22 passed).
+- **Handler:** `stages/L6c/{apply,verify,rollback}.sh` call the already-merged `p4-l7-install-release.py`/`p4-l7-release-guard.py` without duplicating their predicates; mutation boundary is exactly `/opt/aegis-idea3/releases/<id>` plus parent dirs it creates; never touches `current`, credentials, systemd, the L6b broker, IDEA2, ESP32 or L8.
+- **Owner runner:** `p4-l6c-run-lib.sh` + `owner-run/run-l6c-owner.sh`, unpinned (main SHA, release id, expected source SHA), one attempt per `A-L6c`, all gates before consumption, bounded rollback with zero-drift PRE→RB.
+- **Pre-merge correctness fixes (same day, before PR #231 merge):** (1) PRE evidence capture now completes — including its SHA256 validation — BEFORE the one-shot `A-L6c` authorization is consumed, never after; the release allow file is prepared before PRE, and a failed PRE capture leaves the attempt marker absent and performs no mutation. (2) `p4-l7-install-release.py` never repairs a pre-existing `/opt/aegis-idea3` or `/opt/aegis-idea3/releases`: every existing ancestor is validated before mutation and keeps its uid/gid/mode (a legitimate child addition may advance mtime), or the install refuses; only newly created ancestors get the exact reviewed mode. (3) `host.aegis_idea3.release_catalog` now fingerprints each release's ACTUAL tree state (path/type/uid/gid/mode, and real file bytes) via new `p4-l6c-tree-digest.py`, not merely that release's own `RELEASE-SHA256SUMS` claim about itself — proven to catch a payload edit, chmod, dir-mode change, added/removed file, or planted symlink/special file WITHOUT ever touching `RELEASE-SHA256SUMS`; regular payload opens are no-follow and inode/metadata-stable, observed races fail closed, and the documented residual ABA limit requires a quiescent immutable tree during capture. (4) `stages/L6c/rollback.sh` derives its release-guard ownership expectation exactly like `verify.sh` (root by live default) instead of a hard-coded `any`, so a live rollback refuses rather than deletes a tree whose ownership drifted.
+- **L7 relationship:** `L6C_RELEASE_INSTALL = PROVEN` is a prerequisite fact, not an authorization; L7 still independently re-runs the release guard read-only before consuming a fresh `A-L7`. Receipt: `90-Status/logs/2026-09-27_181656_music_idea3-pr11-l6c-release-install-governance.md` (amended in place — PR #231 not yet merged).
+
+## IDEA3 PR11 Phase 4 L6c live acceptance — PROVEN, persistent — 2026-09-28
+
+> [!important] PR #231 merged at main `1de1b4eaaa1506a8ec411f822be731994a7c1ca9`. The single owner-run, governed L6c attempt installed the immutable Core release; verify and PRE→POST preservation both passed with zero new/worsened drift. L6c is left applied and persistent. This closeout is documentation-only (no Production mutation). `/opt/aegis-idea3/current` remains absent; Core remains not started; L7 has NOT started; no A-L7/K3-L7/D6 exists.
+> `L6C_LIVE_EXECUTED = YES`, `L6C_APPLY = PASS`, `L6C_VERIFY = PASS`, `L6C_PRE_POST_COMPARE = PASS`, `L6C_S10_PRESERVATION = PASS`, `L6C_LIVE_ACCEPTANCE = PROVEN`, `L6C_RELEASE_INSTALL = PROVEN`, `L6C_COMPLETE = YES`, `L6C_ATTEMPT_CONSUMED = YES`, `IMMUTABLE_RELEASE_INSTALLED_LIVE = YES`, `CURRENT_POINTER = ABSENT`, `CORE_STARTED = NO`
+> `A_L6C_CREATED = YES (consumed)`, `K3_L6C_CREATED = YES (consumed, stage=L6c only)`, `L7_STARTED = NO`, `A_L7_CREATED = NO`, `K3_L7_CREATED = NO`, `D6_CREATED = NO`, `L8_STARTED = NO`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-28-l6c-20260928-001305`; run at canonical main `1de1b4eaaa1506a8ec411f822be731994a7c1ca9`; release id `1de1b4eaaa1506a8ec411f822be731994a7c1ca9`; authorization directory `l6c-auth-2026-09-28` (`L6C-ATTEMPT-CONSUMED` present, never reusable); frozen runner sha256 `3fad236f7cd619b217829163d478ae8bbc1aad0d2a09bb7d1b4f0b0465b99810`. Runner exit code 0; no rollback evidence — rollback was not triggered.
+- **Compare:** `CAPTURE_PRE=COMPLETE SHA256=PASS`, `CAPTURE_POST=COMPLETE SHA256=PASS`, 0 new/worsened drift, 0 baseline-unhealthy, 0 incomparable, 3 approved changes (`/opt/aegis-idea3` absent→present, `/opt/aegis-idea3/releases` absent→present, release catalog gained exactly `1de1b4eaaa1506a8ec411f822be731994a7c1ca9` with tree-state digest `0eb16751c225b0766e1a7f63a9a707b923738bb1cb911981d00f0aeb990d4e9e`), 3 disk-available INFO findings, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. Secret scan: 151 files, 0 hits.
+- **Persistent state:** `/opt/aegis-idea3` root-owned, mode `0700`; `/opt/aegis-idea3/releases/1de1b4eaaa1506a8ec411f822be731994a7c1ca9` installed and immutable; `/opt/aegis-idea3/current` untouched (absent); Core remains not started; L7 has not started.
+- **L7 boundary:** A-L6c and its K3 are consumed for the L6c stage only and can never authorize L7 (`p4-stage-gate.sh`'s `stage=` field match). A fresh `A-L7`, L7 K3, Pub's D6 notice and the L7-only owner inputs (OV-09/10/11, D4 credential) remain required before any L7 live attempt.
+- **Receipt:** `90-Status/logs/2026-09-28_001305_music_idea3-pr11-l6c-live-acceptance.md`.
+
+## IDEA3 PR11 Phase 4 L7 live preparation — main reconciled after PR #208 merge; release-install gap closed in repository — 2026-09-27
+
+> [!important] Repository preparation only. L7 has NOT run, is NOT authorized, and no Production state changed. No A-L7, K3 or D6 exists; no Production secret was created; L8 has NOT started.
+> `L7PREP_MAIN_RECONCILED = YES (main 65324982…)`, `PR208_STATUS = MERGED`, `L7_RELEASE_BUILDER = CANONICAL_MAIN`, `L7_RELEASE_INSTALLER = IMPLEMENTED_REPOSITORY (fixture-tested; no owner-run wrapper)`, `L7_RELEASE_INSTALL_GOVERNANCE = GAP_DOCUMENTED (owner decision required, not repository-fixable)`, `L7_LIVE_EXECUTED = NO`, `L7_LIVE_AUTHORIZED = NO`, `L8_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Main merge:** `feat/idea3-pr11-l7-live-preparation` merged current `main` (`653249822cf194bc0bd15f56ac0b96ac3a492f35`, which now includes merged PR #208). One conflict, in `deploy/pr11-phase4/README.md`, purely insertion-adjacency between the L7PREP and #208 doc sections (no contradictory wording); resolved by keeping both sections and updating "open PR #208" language to "merged". All L6b closeout history and all L7PREP remediation are preserved unchanged; no historical receipt was rewritten.
+- **Release-install gap audited and closed in the repository.** No installer existed anywhere in the repository (script, doc, test or owner-run tool) before this task. New `deploy/pr11-phase4/p4-l7-install-release.py`: copies a completed `p4-l7-build-release.py` (PR #208) output into `/opt/aegis-idea3/releases/<id>`, re-validated by the REAL `p4-l7-release-guard.py` (imported, not a copied predicate) both before staging and immediately before an atomic `os.rename` placement; refuses to overwrite an existing release, refuses a symlinked destination/ancestor, cleans only its own temp staging on failure, never later removes a placed release, and **never touches `/opt/aegis-idea3/current`** — `stages/L7/apply.sh` remains the sole owner of that symlink, so the two workflows cannot race. Proven end to end: a builder-built release, installed by this tool, passes the release guard unchanged.
+- **Governance gap (not repository-fixable):** the installer has no owner-run wrapper. `p4-lib.sh`'s fixed `P4_STAGES` and `p4-stage-gate.sh` define no stage id or authorization field for a pre-L7 release-install mutation, and none was invented. An owner decision (new G-15 stage, or an extra `A-L7` field) is required before any live use; design §6/§8 already flag this. Receipt: `90-Status/logs/2026-09-27_162637_music_idea3-pr11-l7-live-preparation-main-reconcile.md`.
+
+## IDEA3 PR11 Phase 4 L3/L4 reactivation live attempt 2 — runtime PASS, preservation model INCOMPLETE, rolled back safe-equivalent — V3 remediation in repository — 2026-09-27
+
+> [!important] The V2 reactivation reached the accepted runtime (apply PASS, verify PASS, AP and dnsmasq active, persistent files unchanged, PSK scan 0 hits) and failed only at the PRE->POST preservation comparison; the rollback handler passed but PRE->RB did not return byte-for-byte. The authorization is permanently consumed; no retry occurred. **`FINAL_ACCEPTANCE = NOT_PROVEN`**, no new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` is claimed, and `L6B` remains blocked. `SAFE_NETWORK_BOUNDARY_RESTORED = YES`, **`EXACT_PRESTATE_RESTORED = NO`** (rollback is not called exact).
+> `L34_REACTIVATION_ATTEMPT = 2`, `L34_APPLY = PASS`, `L34_VERIFY = PASS`, `NM_RADIO_REMEDIATION = PASS`, `PRE_POST_COMPARE = FAIL`, `PRESERVATION_S10 = FAIL`, `L34_ROLLBACK_HANDLER = PASS`, `PRE_RB_COMPARE = FAIL`, `AUTHORIZATION_CONSUMED = YES`, `RETRY_PERFORMED = NO`
+> `L34_V3_PRESERVATION = REPOSITORY_ONLY (simulator-tested)`, `LIVE_REACTIVATION = NOT_AUTHORIZED`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l34-reactivation-20260927-032057`.
+- **Proven side effects (NetworkManager Wi-Fi initialization, not issued by the workflow):** the p2p pseudo-device `p2p-dev-wlp0s20f3` (absent -> `disconnected`; `unavailable` after rollback and remaining); `wpa_supplicant.service` started (inactive -> active/running, unit `disabled`, `NRestarts=0`, `Result=success`, same PID after rollback); target phy regulatory `00 -> TH` (already approved by the L4 window, remaining `TH`); and `wifi.phy.sha256` changed because `iw phy` annotates each frequency entry with regulatory state (channel 14 `22 dBm -> disabled`, 5 GHz `no IR` / `radar detection`). The residuals were stable for more than two minutes.
+- **V3 remediation (not run):** four opt-in comparator operations with closed catalogs and value classes; relational gates tie the wpa_supplicant lifecycle to the authorized NM radio transition, the active AP and the absence of unrelated Wi-Fi, and accept `wifi.phy.sha256` only when derived from the approved `00 -> TH` transition (new capture keys `wifi.phy.regnorm_sha256` and `wifi.phy.channel6_permitted`). No generic `wifi.phy.sha256` or `wpa_supplicant` allow key, no `wpa_supplicant` stop, no `iw reg set`, no NetworkManager restart. The preflight accepts the FRESH post-reboot baseline and the proven RESIDUAL baseline (phy `TH`, p2p `unavailable`, wpa_supplicant running) and rejects mixed states.
+- **Current host (read-only, 2026-09-27 03:23):** rfkill 1 soft-blocked, NM radio `disabled`, `wlp0s20f3` `unavailable`/DOWN/managed, no Wi-Fi connection, dnsmasq inactive, AP not active, plus the residual p2p device, running wpa_supplicant and phy `TH`.
+- **Next boundary:** merge; freeze a NEW runner (V3 scope, 168 chars) at the new main; fresh same-day A-L4 and K3; one bounded run. L6b live stays blocked until the L3/L4 runtime is applied and freshly re-proven.
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md`. Receipt: `90-Status/logs/2026-09-27_070000_music_idea3-pr11-l34-attempt2-v3-preservation.md`.
+
+## IDEA3 PR11 Phase 4 L3/L4 reactivation live attempt 1 — FAIL_CLOSED (NM_WIFI_RADIO_DISABLED), rolled back — remediation in repository — 2026-09-27
+
+> [!important] The first live L3/L4 post-reboot reactivation attempt FAILED CLOSED at NetworkManager readiness and was rolled back. The authorization is permanently consumed; no retry occurred. The safe pre-state and safety boundary were restored; **runtime is NOT restored** (`L3_RUNTIME = NOT_APPLIED`, `L4_RUNTIME = NOT_APPLIED`). No new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` is claimed.
+> `L34_REACTIVATION_ATTEMPT = 1`, `L34_REACTIVATION_RESULT = FAIL`, `FAIL_REASON = NM_WIFI_RADIO_DISABLED`, `ROLLBACK_RESULT = PASS`, `PRE_RB_COMPARE = PASS`, `PRESERVATION_S10 = PASS`, `AUTHORIZATION_CONSUMED = YES`, `RETRY_PERFORMED = NO`
+> `L34_NM_RADIO_REMEDIATION = REPOSITORY_ONLY (simulator-tested)`, `LIVE_REACTIVATION = NOT_AUTHORIZED`, `L6B_LIVE_EXECUTED = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l34-reactivation-20260927-021304`; frozen runner sha256 `2d3157baf34f7b0e79dffd7148c21857e733a2ce806be2e9718682824edf1681` at main `896ca419942af93a73a1218698f1760ad7b6a267`. Apply made exactly one change (`rfkill unblock 1`); the bounded wait saw `unavailable` until timeout; rollback re-blocked exactly rfkill 1; PRE->RB compare PASS (3 INFO disk-availability findings only).
+- **Root cause (proven live):** after the exact unblock NetworkManager logged "Wi-Fi now enabled by radio killswitch" yet `nmcli radio wifi` stayed `disabled`: NM's own persisted software radio flag is off, so the Wi-Fi device stays `unavailable`. The v1 design (and its simulator) assumed rfkill was the only reason. There is **no target-scoped** NM action; enabling the radio is a **global** NM change and a **new owner decision boundary** (v1 explicitly forbade it).
+- **Remediation implemented (not run):** the global `nmcli radio wifi on` only behind `AEGIS_L34_NM_RADIO_ENABLE=YES`, set by the runner only after the exact V2 scope; sole-Wi-Fi-device/sole-wlan-rfkill/no-active-Wi-Fi topology preflight; a runtime `nmcli device set wlp0s20f3 autoconnect no` guard before the enable because 12 saved Wi-Fi profiles have `autoconnect=yes`; PRE autoconnect restored; journaled; rollback turns the radio off only if this run enabled it. Comparator unchanged (exact `nm.general#WIFI` rule already existed; rollback catalog has none).
+- **Runner defect fixed:** `compare()` declared `local kind=${4:-post} rc=0 local -a env_allow` (`not a valid identifier` at run time; `bash -n` cannot see it). Tests now execute the function and fail on stderr.
+- **Next boundary:** owner decision on OD-L34-RADIO (V2 scope); merge; freeze a NEW runner at the new main; fresh same-day A-L4 (V2 scope) and K3; one bounded run. One owner sudo read confirms the persisted flag: `sudo grep -E '^WirelessEnabled' /var/lib/NetworkManager/NetworkManager.state`.
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md`. Receipt: `90-Status/logs/2026-09-27_051500_music_idea3-pr11-l34-live-attempt1-nm-radio-remediation.md`.
+
+## IDEA3 PR11 Phase 4 L3/L4 post-reboot runtime reactivation — repository implementation only — 2026-09-27
+
+> [!important] Repository implementation only. The reactivation has NOT run, is NOT authorized, and no Production state changed. It is `RUNTIME_ONLY`: it restores the already accepted persistent L3/L4 configuration to its active runtime state and claims NO new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` (the historical receipts stay authoritative).
+> `L34_REACTIVATION_IMPLEMENTATION = REPOSITORY_ONLY (simulator-tested)`, `L34_REACTIVATION_EXECUTED = NO`, `LIVE_REACTIVATION = NOT_AUTHORIZED`, `L34_RUNNER = TEMPLATE_UNPINNED`
+> `L2_CURRENT = REPROVEN (owner read-only, no reapply)`, `L3_RUNTIME = NOT_APPLIED`, `L4_RUNTIME = NOT_APPLIED`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `L6B_LIVE_EXECUTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence base (owner, read-only, 2026-09-27):** L2 nft/PF-01/no-NAT/forwarding intact; target rfkill id `1` `SOFT=blocked HARD=unblocked`; NM radio `disabled`; `wlp0s20f3` DOWN/managed; phy0 country `00` with an unrestricted channel 6 (Model B satisfied); accepted profile `aegis-idea3-ap` and `dnsmasq-ap.conf` intact; `aegis-idea3-dnsmasq.service` enabled but `failed` / `start-limit-hit` (started at boot before the AP address existed).
+- **Implemented:** `reactivation/l34/{apply,verify,rollback}.sh` (exact-ID rfkill unblock via `p4-l3-rfkill.sh`, bounded NM readiness + one `ifname`-bound activation via `p4-l3-nm.sh`, Model B gate via `p4-l3-regulatory.sh`, `reset-failed` + `start` of only `aegis-idea3-dnsmasq.service`; journaled changes; journal-driven rollback that never recreates the stale start-limit-hit); `p4-l34-reactivation-lib.sh` (static config gates including the bare dnsmasq directives, fresh L2 gates, snapshots that fail on any persistent-file rewrite, PSK leak scan, one-attempt marker, receipt gate); unpinned owner runner template.
+- **Comparator design gap resolved narrowly:** `nm.general` (protected) changes its `WIFI` field after the exact rfkill unblock and the dnsmasq unit changes `failed -> active/running`; neither can be expressed by allow keys. `p4-compare.sh` gains the opt-in `ALLOW_DYNAMIC_TRANSITIONS_FILE`, a closed catalog of exact key/before/after values (reactivation and rollback operations). Default behaviour is unchanged; persistent-file, `LoadState` and `UnitFileState` drift still fail.
+- **Authorization:** reuses `AEGIS_P4_AUTHORIZATION_V1` + fresh K3 with `stage=L4`; the runner additionally requires the exact `L3_L4_RUNTIME_REACTIVATION` scope line. No records were created.
+- **Next boundary:** human review/merge; owner freeze of the runner at the merged main SHA; fresh same-day A-L4 (exact scope) and K3; then one bounded live run. L6b live stays blocked until L3/L4 runtime is applied or freshly re-proven.
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-post-reboot-reactivation-design.md`. Receipt: `90-Status/logs/2026-09-27_030000_music_idea3-pr11-l34-post-reboot-reactivation.md`.
+
+## IDEA3 PR11 Phase 4 L6b live preparation — stage-owned broker, repository preparation only — 2026-09-27
+
+> [!important] Repository preparation only. L6b has NOT run, is NOT authorized, and no Production state changed. L6A stays `COMPLETE / PROVEN` (PR #221).
+> `L6B_HANDLER = RECONCILED_STAGE_OWNED (repository, fixture-tested)`, `L6B_LIVE_EXECUTED = NO`, `L6B_LIVE_AUTHORIZED = NO`, `L6B_RUNNER = TEMPLATE_UNPINNED`
+> `PREDECESSOR_RUNTIME = NOT_READY` (AP `wlp0s20f3` down, no `10.77.30.1`, `aegis-idea3-dnsmasq` failed; L2 nft/PF-01 unproven without sudo), `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Owner decisions recorded (OD-L6B-01…09):** stage-owned material install and rollback; plaintext passwords transient JIT only (only the hashed DB persists); fresh proof of L2/L3/L4 runtime with reactivation only as a separate owner action; AP `wlp0s20f3` / `10.77.30.1`; uplink is a fresh runtime value (expected `enp62s0` / `192.168.1.144`, mismatch reported for owner review); success is PERSISTENT; one live attempt per authorization; A-L6b covers the whole stage-owned mutation boundary.
+- **Implemented (fixture-tested):** journal-driven `apply.sh`/`rollback.sh`; `verify.sh` with exact-material checks and a live TLS/auth/ACL/negative probe via `p4-broker-validate.py validate-live`; capture records the mqtt directory and the IDEA3 broker unit; exact L6b allow keys (no wildcard); `p4-l6b-run-lib.sh` gates and the unpinned `owner-run/run-l6b-owner.sh` template.
+- **Authorization contract (nothing created):** A-L6b has no extra fields; fresh same-day K3 V1 or V2 required.
+- **Open before any live L6b:** owner freeze of the runner at the merged main SHA; fresh JIT input; fresh sudo-authenticated read-only proof of nft/PF-01; L3/L4 reactivation by their own authorized workflow; same-day A-L6b and K3. Known live risk: root-owned material versus Mosquitto privilege drop (design §13).
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6b-operational-design.md`. Receipt: `90-Status/logs/2026-09-27_014500_music_idea3-pr11-l6b-live-preparation.md`.
+
+## IDEA3 PR11 Phase 4 L6b live attempt 1 FAILED and rolled back; repository remediation — 2026-09-27
+
+> [!important] L6b is NOT accepted. The first owner-run attempt (`2026-09-27-l6b-20260927-100548`) applied PASS, then verify failed `IDEA3_SERVICE_NOT_ACTIVE`, and rollback removed every L6b path/listener. Its authorization is CONSUMED and must never be reused. This remediation is repository-only: no Production mutation, no new authorization.
+> `L6B_LIVE_EXECUTED = YES (failed, rolled back)`, `L6B_LIVE_ACCEPTANCE = NOT PROVEN`, `L6B_LIVE_AUTHORIZED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Cause:** Mosquitto 2.1.2 dropped to `mosquitto` (958) and could not open `passwd` (`root:root 0600`); `broker.key` was `0600` as well. PRE→RB also drifted on retained failed systemd metadata for the IDEA3 unit.
+- **Remediation (fixture-tested):** `root:mosquitto` 0750 dir and 0640 conf/acl/passwd/broker.key, certificates `root:root 0644`, no widening; rollback adds `reset-failed aegis-idea3-mosquitto.service` (only, after removal + daemon-reload) and proves `not-found/inactive/dead/success`. Comparator stays strict.
+- **Open before any new live L6b:** merge this fix, owner freeze at the new main, fresh JIT input, fresh same-day A-L6b and K3. Design §13. Receipt: `90-Status/logs/2026-09-27_110130_music_idea3-pr11-l6b-live-attempt1-broker-group-remediation.md`.
+
+## IDEA3 PR11 Phase 4 L7 live preparation — owner-runner readiness audit and remediation, repository only — 2026-09-27
+
+> [!important] Repository preparation only. L7 has NOT run, is NOT authorized, and no Production state changed. L6b stays live-accepted and persistent; the JIT input is logically deleted; L8 has NOT started.
+> `L7_LIVE_EXECUTED = NO`, `L7_LIVE_AUTHORIZED = NO`, `L7_LIVE_ACCEPTANCE = NOT PROVEN`, `L7_RUNNER = TEMPLATE_UNPINNED`, `L7_HANDLERS = RECONCILED (fixture + fake systemd tested)`, `L8_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Audit:** the merged L7 handlers were not sufficient for a safe live run (credentials directory unreadable by the Core account for D4, no rendered `core.env`, Core TLS could not verify the DNS-only broker certificate by IP, no CA copy for the Core, no release existence/provenance proof, no unit verification/enable/stability, rollback could delete pre-existing files and left failed metadata and systemd-created runtime directories, verify proved almost nothing live, vacuous negative tests, no owner-run path). All fixed RED-first; details in the L7 design §7.
+- **New:** release guard, `core.env` renderer/validator, credential-free TLS-hostname probe, L7 gate library, unpinned `owner-run/run-l7-owner.sh` (main SHA + release id must be frozen outside the repository; one attempt; no retry; exit 3 on a failed rollback proof); Core setting `AEGIS_MQTT_TLS_SERVER_NAME`.
+- **Host facts (read-only):** no `/opt/aegis-idea3` (no release installed, no installer in the repository; builder = open PR #208), `aegis-idea3` account present, `pki` directory present.
+- **Still required before any live L7:** an installed guarded release, owner input (OV-09 keys, OV-11 PIN, MQTT password, D4 restore credential), Pub D6 notice, fresh same-day A-L7 (with `d6_notice=pub`) and K3, IDEA2 §10 fresh state and disk headroom at run time, owner freeze of the runner. IDEA2 §10: the owner-accepted window-delta criterion is proven by the PRE/POST compare; the runner requires both IDEA2 units active/running. Receipt: `90-Status/logs/2026-09-27_162637_music_idea3-pr11-l7-live-preparation-main-reconcile.md` (consolidated with the main-reconciliation session below).
+
+## IDEA3 PR11 Phase 4 L6b JIT plaintext cleanup — PROVEN (logical deletion only) — 2026-09-27
+
+> [!important] The separately authorized owner-run cleanup removed the private L6b JIT input directory. **Logical deletion only: no physical secure erase, media sanitization or forensic non-recoverability is claimed.** L6b live acceptance remains PROVEN and persistent. L7 has NOT started. This closeout is documentation-only (no Production mutation).
+> `L6B_LIVE_ACCEPTANCE = PROVEN`, `JIT_CLEANUP = PROVEN (logical)`, `JIT_CLEANUP_CONSUMED = YES`, `JIT_INPUT_PATH = ABSENT`, `JIT_CLEANUP_AUTHORIZATION = CONSUMED (never reusable)`, `PHYSICAL_SECURE_ERASE = NOT CLAIMED`, `L7_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Deleted input:** `/home/kittipat/Workspace/idea3-p4-evidence/l6b-owner-input` (had exactly `broker.crt`, `broker.key`, `ca.crt`, `core.pass`, `device.pass`; `ca.key` absent and forbidden). Frozen cleanup runner sha256 `c778451c26c9bd6c39a9b10b107be931eecc923d91e3df0057feb0b2e6a1c5bc`.
+- **Persistent broker unaffected:** `aegis-idea3-mosquitto.service` active/running, enabled, `Result=success`, `NRestarts=0`; `127.0.0.1:8883` and `10.77.30.1:8883`; no rollback, restart or network mutation (owner record).
+- **History:** Attempt 1 FAILED (consumed) → PR #226 → residual cleanup PROVEN (consumed) → Attempt 2 PROVEN (consumed) → JIT cleanup PROVEN (consumed).
+- **Next boundary:** L7 preparation (not started). Receipt: `90-Status/logs/2026-09-27_121346_music_idea3-pr11-l6b-jit-cleanup-closeout.md`.
+
+## IDEA3 PR11 Phase 4 L6b live acceptance — PROVEN (Attempt 2), persistent — 2026-09-27
+
+> [!important] Owner-run L6b Attempt 2 passed apply, verify and the live TLS/auth/ACL probe; PRE→POST preservation passed. L6b is left applied and persistent. This closeout is documentation-only (no Production mutation). Attempt 1 remains FAILED / NOT ACCEPTED; the Attempt 1, cleanup and Attempt 2 authorizations are all CONSUMED and never reusable. L7 has NOT started; JIT plaintext input has NOT been deleted.
+> `L6B_LIVE_EXECUTED = YES`, `L6B_APPLY = PASS`, `L6B_VERIFY = PASS`, `L6B_LIVE_TLS_AUTH_ACL = PASS`, `L6B_PRE_POST_COMPARE = PASS`, `L6B_S10_PRESERVATION = PASS`, `L6B_LIVE_ACCEPTANCE = PROVEN`, `L6B_PERSISTENT = YES`
+> `L6B_ATTEMPT2_AUTHORIZATION = CONSUMED`, `JIT_PLAINTEXT_CLEANUP = NOT DONE (separate owner-authorized workflow)`, `L7_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l6b-20260927-115928`; run at main `882d716ba0ea238b89a8f9a8bd54a1fbbd9713c3`; frozen runner sha256 `7801d66393892567512f05074ea25288c33c5e055674fb3f83eed2a69c82e06a`; no rollback evidence.
+- **Compare:** 0 new/worsened drift, 0 baseline-unhealthy, 0 incomparable, 24 approved changes (two 8883 listeners, `/etc/aegis-idea3/mqtt`, ACL/config/passwd/CA/cert/key metadata, unit file metadata/hash, unit LoadState/ActiveState/SubState/UnitFileState/MainPID/ExecMainStartTimestamp), 3 disk INFO, `COMPARE_RESULT=PASS`.
+- **Persistent state:** `aegis-idea3-mosquitto.service` active/running, enabled, `Result=success`, `NRestarts=0`; `127.0.0.1:8883` and `10.77.30.1:8883` only (no wildcard, no uplink); legacy Mosquitto preserved. Mosquitto 2.1.2 reads the `root:mosquitto` material after privilege drop.
+- **History:** Attempt 1 failed → PR #226 → residual cleanup PROVEN → Attempt 2 PROVEN. Receipt: `90-Status/logs/2026-09-27_120422_music_idea3-pr11-l6b-attempt2-live-acceptance.md`.
+- **Open next:** separate owner-authorized JIT plaintext cleanup workflow; L7 planning (not started).
+
+## IDEA3 PR11 Phase 4 L6b residual systemd-state cleanup PROVEN; L6b still NOT accepted — 2026-09-27
+
+> [!important] Remediation PR #226 merged at main `6295cd65b89f3e822f6bcd6a8aada1de104c0fd8`. A separate, bounded owner-run cleanup then cleared the residual failed systemd state of `aegis-idea3-mosquitto.service`. L6b Attempt 1 stays FAILED / NOT ACCEPTED (authorization CONSUMED). No Attempt 2 authorization exists.
+> `L6B_RESIDUAL_CLEANUP = PROVEN`, `L6B_CLEAN_PRESTATE = PROVEN`, `L6B_CLEANUP_AUTHORIZATION = CONSUMED (never reusable)`, `LEGACY_MOSQUITTO_MUTATED = NO`, `NETWORK_MUTATED = NO`, `L6B_ATTEMPT2_AUTHORIZED = NO`, `L6B_LIVE_ACCEPTANCE = NOT PROVEN`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l6b-residual-cleanup-20260927-113759`; frozen runner sha256 `158316043367a7dca8d61018e0cf62098d4a1e6998148383ac64deebc2eb413d`. Only authorized mutation: `systemctl reset-failed aegis-idea3-mosquitto.service` (`RESET_FAILED_RC=0`).
+- **Result:** `failed/failed/exit-code` → `LoadState=not-found ActiveState=inactive SubState=dead Result=success MainPID=0 NRestarts=0` (`EXACT_CLEAN_PRESTATE=PASS`). PRE→POST `COMPARE_RESULT=PASS`: 0 new drift, 0 incomparable, 4 approved changes (exactly the unit's ActiveState/SubState/Result/ExecMainStartTimestamp), 3 disk INFO findings, `PRESERVATION_S10=PASS`. Comparator `PRODUCTION_MUTATION_PERFORMED=NO` means the comparator is read-only, not that the cleanup did not mutate.
+- **Next:** L6b Attempt 2 preparation (owner freeze at the merged main, fresh JIT input, fresh same-day A-L6b and K3). Receipt: `90-Status/logs/2026-09-27_114259_music_idea3-pr11-l6b-residual-cleanup-live-closeout.md`.
+
+## IDEA3 PR11 Phase 4 L6a live acceptance — PROVEN (one attempt), isolated validation left no residue — 2026-09-27
+
+> [!important] Owner-run L6a executed once on 2026-09-27 and passed. It was an isolated loopback validation; nothing is left applied. This closeout is documentation-only and performs no Production mutation. L6b is NOT started; no ESP32 was touched.
+> `L6A_LIVE_EXECUTED = YES`, `L6A_APPLY = PASS`, `L6A_VERIFY = PASS`, `L6A_POST_CAPTURE = COMPLETE`, `L6A_PRE_POST_COMPARE = PASS`, `L6A_S10_PRESERVATION = PASS`, `L6A_LIVE_ACCEPTANCE = PROVEN`, `L6A_COMPLETE = YES`
+> `LIVE_L6A_ATTEMPT_COUNT = 1`, `L6A_JIT_SECRET_CLEANUP = PASS` (logical deletion), `L6B_STARTED = NO`, `READY_FOR_L6B_PLANNING = YES`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l6a-20260927-001925`; live-run main `83610fa31c928e18be6f1842f76a9a190e502c60`; frozen runner sha256 `653244855132fa5a76206cd8edda8405e99421e7dfb9183b0445a45e8fa5a482`; exit code 0.
+- **Authorization:** fresh A-L6a and K3 V2 for 2026-09-27 only (the 2026-09-26 approval did not carry over). K3 is `IDEA3_OWNER_SELF_ATTESTATION`, `idea1_window_overlap=NONE_KNOWN`; it is not an independent IDEA1 confirmation and does not prove IDEA1 inactivity.
+- **Validation (`validation-evidence.tsv`, `result=PASS`):** loopback-only listener `127.0.0.1:18884`; PKI profile/chain/hostname PASS; TLS runtime PASS; core and device auth PASS; anonymous, wrong-core-password and wrong-device-password rejected; ACL matrix PASS; retained-message rejection PASS; `broker_residue=NO`; `secret_output_scan=PASS`.
+- **Compare:** `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `FINDINGS_APPROVED_CHANGE=0`, `FINDINGS_INFO=3` (about 52 KB disk available-space changes only); `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. No rollback ran.
+- **Post-live runtime:** port 18884 not listening; no temporary broker process/config; `aegis-idea3-mosquitto` inactive; `mosquitto`, engine, detection tunnel and Twingate active; forwarding `0,0,0`; no firewall/routing drift; `ca.key` absent on Arch.
+- **Secret inspection limits:** readable evidence files were checked and held no secret contents or private-key blocks; root-owned `pre-root`/`post-root` were not content-scanned (unreadable without sudo) and rest on the runner's SHA and compare checks.
+- **JIT cleanup:** Arch `l6a-owner-input` (five expected files, no `ca.key`) logically deleted and path absence verified; no physical secure-erase is claimed. The Beelink temporary export was verified deleted earlier in staging and was not re-verified after the live run.
+- **Unchanged state:** L4/L5 remain in their post-reboot not-applied runtime state (not required by L6a, not restored); `K12_REBOOT_PERSISTENCE = NOT_PROVEN`; IDEA2 preservation distinctions from earlier stages are not promoted.
+- **Next boundary:** human review/merge only, then L6b planning. Do not rerun L6a, recreate JIT input, touch the ESP32 or start L6b in this task.
+- Receipt: `90-Status/logs/2026-09-27_002532_music_idea3-pr11-l6a-live-acceptance.md`.
 
 ## IDEA3 PR11 Phase 4 L5 live acceptance — PROVEN (Attempt #4), L5 remains APPLIED — 2026-09-25
 
@@ -7838,6 +8004,31 @@ FINAL_RECEIPT_AREA=idea3
 merge and final closeout being recorded there; this authorization did not
 extend to any further Production mutation, service lifecycle action, or
 reboot.
+
+## IDEA3 PR11 Phase 4 L7 release builder — status reconciliation (current state) — 2026-09-27
+
+> [!important] This is a status correction, not a rewrite of the 2026-09-24 receipt below (kept unedited). The builder itself is unchanged repository-only tooling: no `/opt` write, no sudo, no systemd, no Production mutation, no live L7.
+
+- **Corrected:** the 2026-09-24 note that builder output was proven "against a verbatim copy of the PR #202 release-guard predicate" is superseded. A real release built by `p4-l7-build-release.py` was independently validated, in a separate process, against the actual newer `p4-l7-release-guard.py` implemented on the separate `feat/idea3-pr11-l7-live-preparation` branch (commit `06b2fc05485c8412cbcceb17b3d1a39b2e246f75`, **not merged to main**): `L7_RELEASE_GUARD=PASS`, exact layout/manifest/checksum match, no schema mismatch.
+- **Corrected:** the 2026-09-24 note that the `core.env` renderer and the broker-hostname/TLS-SAN reconciliation are "still open" describes this builder's own scope correctly, but is stale about the *repository's* current state: both are implemented and tested on `feat/idea3-pr11-l7-live-preparation` (`p4-l7-core-env.py`; Core `AEGIS_MQTT_TLS_SERVER_NAME`). **They are not yet on `main`** — that branch is separate and unmerged — so they remain pending merge, not canonical `main` behavior, and this builder does not depend on or import that code.
+- `PR202_MODIFIED = NO` (unchanged; PR #202 was not touched). `L7PREP_MERGED = NO`. `L7_RELEASE_INSTALL = NOT_RUN`. `L7_LIVE_ACCEPTANCE = NOT_PROVEN`.
+
+## IDEA3 PR11 Phase 4 L7 release builder / verifier — repository tooling — 2026-09-24
+
+> [!important] Repository-only tooling. Nothing is installed, no `/opt` write, no sudo, no systemd, no Production mutation, no live L7.
+
+```text
+L7_RELEASE_BUILDER          = IMPLEMENTED_REPOSITORY
+L7_RELEASE_VERIFIER         = IMPLEMENTED_REPOSITORY
+L7_RELEASE_INSTALL          = NOT_RUN
+L7_PRODUCTION_RELEASE       = NOT_INSTALLED
+L7_LIVE_ACCEPTANCE          = NOT_PROVEN
+PR202_MODIFIED              = NO
+```
+
+- `deploy/pr11-phase4/p4-l7-build-release.py` builds and verifies the release layout the L7 release guard expects (see the phase-4 README section "L7 release builder / verifier"). The shipped `aegis_soc` package is the AST-derived runtime closure of the headless production entrypoint (21 modules plus `__init__`); `cli`, `gui`, `production_runtime`, `telegram_control`, `theme`, `windows_launcher` and `wizard` are not shipped.
+- Builder output was proven against a verbatim copy of the PR #202 release-guard predicate in a fixture root only.
+- Still open for a live L7: the complete `core.env` renderer (PR #202 renders three lines, two of which no Core source reads), and the broker-hostname/TLS-SAN reconciliation (`AEGIS_BROKER_IP` must be an IP while the certificate SAN is `DNS:mqtt.aegis.home.arpa` and hostname verification is enforced) which needs an owner decision.
 
 ## 🔗 Related Notes
 * [[core/system-overview]]

@@ -143,6 +143,19 @@ describe('PR11 Phase 2 IDEA3 Web image', () => {
     ])
   })
 
+  it('P2-D1: includes Vite public assets in the production image build', () => {
+    const all = instructions()
+    const runtimeStart = all.findIndex(
+      (instruction) => instruction.op === 'FROM' && instruction.args.endsWith('AS runtime'),
+    )
+    const build = all.slice(0, runtimeStart)
+    const buildCopies = build
+      .filter((instruction) => instruction.op === 'COPY')
+      .map((instruction) => instruction.args)
+
+    expect(buildCopies).toContain('public ./public')
+  })
+
   it('P2-D1: defaults to a Node base image that satisfies engines.node', () => {
     const args = instructions().filter((instruction) => instruction.op === 'ARG').map((instruction) => instruction.args)
     expect(args).toEqual(['NODE_IMAGE=node:22-alpine'])

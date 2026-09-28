@@ -1,0 +1,8 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 runtime reactivation PRE->POST value-level transitions (p4-compare.sh ALLOW_DYNAMIC_TRANSITIONS_FILE).
+# Exact catalog members only. failed/start-limit-hit -> active/running is the intended reactivation; nm.general#WIFI is the NetworkManager
+# radio flag following the exact rfkill unblock (STATE/CONNECTIVITY/WIFI-HW must stay equal).
+operation L34_RUNTIME_REACTIVATION
+svc.aegis-idea3-dnsmasq.service.ActiveState failed active
+svc.aegis-idea3-dnsmasq.service.SubState failed running
+svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
+nm.general#WIFI disabled enabled

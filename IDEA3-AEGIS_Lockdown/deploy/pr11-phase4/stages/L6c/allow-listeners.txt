@@ -1,0 +1,3 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L6c allowed listeners.
+# Stage L6c installs code only. It opens NO TCP or UDP listening socket and starts no service.
+# This file must remain empty of active listeners.

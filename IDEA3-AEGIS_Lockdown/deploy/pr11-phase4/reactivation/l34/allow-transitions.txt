@@ -1,0 +1,5 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 runtime reactivation: the only regulatory window (same contract as stages/L4/allow-transitions.txt).
+# The reactivation is authorized under stage=L4 governance; the target phy may re-register when the AP mode activates. Accepted
+# target-phy outcomes are exactly 00 -> 00, TH -> TH and 00 -> TH; the workflow never runs `iw reg set`.
+stage L4
+wifi.reg.<AEGIS_AP_PHY> 00 TH
