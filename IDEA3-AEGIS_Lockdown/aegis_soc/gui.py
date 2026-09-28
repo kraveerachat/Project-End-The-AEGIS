@@ -1506,7 +1506,7 @@ class AegisAdminGUI:
             self._recovery_observers.remove(observer)
 
     def on_status(self, state, rssi, heap, command_nonce=""):
-        for observer in list(self._recovery_observers):
+        for observer in list(getattr(self, "_recovery_observers", ())):
             try:
                 observer.on_status_evidence(state, rssi, heap, command_nonce)
             except Exception as error:
@@ -1533,7 +1533,7 @@ class AegisAdminGUI:
 
     def on_ack(self, ack, detail, nonce):
         """จับคู่ ACK กับคำสั่งที่รออยู่ด้วย nonce"""
-        for observer in list(self._recovery_observers):
+        for observer in list(getattr(self, "_recovery_observers", ())):
             try:
                 observer.on_ack_evidence(ack, detail, nonce)
             except Exception as error:
