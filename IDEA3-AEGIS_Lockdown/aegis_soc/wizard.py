@@ -1,6 +1,10 @@
 """
-AEGIS IDEA 3 — Incident Recovery Wizard (เอกสารข้อ 5.4, Closed-Loop Recovery)
-ผูกกับโมเดล Incident: เปิด/อัปเดตสถานะ CONTAINED และปิดเหตุการณ์เมื่อจบ 5 ขั้น
+AEGIS IDEA 3 — Evidence-Driven Incident Recovery UI (R1-R8)
+
+Renders aegis_soc.recovery.RecoveryCoordinator. All security/evidence logic
+lives there; this module only displays gate evidence and forwards operator
+actions to the coordinator, which independently refuses to advance an
+unverified gate no matter what this UI does.
 """
 import time
 import tkinter as tk
@@ -9,6 +13,7 @@ from tkinter import messagebox, simpledialog
 from . import config, i18n
 from . import database as db
 from . import theme as ui_theme
+from .recovery import Gate, GateStatus, RecoveryCoordinator
 from .theme import (
     COLOR_ACCENT,
     COLOR_BG,
@@ -22,9 +27,33 @@ from .theme import (
     COLOR_SUCCESS_HL,
     COLOR_TEXT,
     COLOR_WARN,
+    COLOR_WARN_HL,
     FONT_BTN_SM,
     Card,
+    ScrollFrame,
 )
+
+GATE_ORDER = (
+    Gate.R1_INCIDENT_CONTEXT,
+    Gate.R2_SAFE_ACCESS,
+    Gate.R3_ATTACKER_ISOLATION,
+    Gate.R4_RESTORE_AUTHORIZATION,
+    Gate.R5_PHYSICAL_RESTORE,
+    Gate.R6_NETWORK_RECOVERY,
+    Gate.R7_SERVICE_RECOVERY,
+    Gate.R8_INCIDENT_CLOSURE,
+)
+
+GATE_TITLE_KEYS = {
+    Gate.R1_INCIDENT_CONTEXT: "recovery.gate_r1_title",
+    Gate.R2_SAFE_ACCESS: "recovery.gate_r2_title",
+    Gate.R3_ATTACKER_ISOLATION: "recovery.gate_r3_title",
+    Gate.R4_RESTORE_AUTHORIZATION: "recovery.gate_r4_title",
+    Gate.R5_PHYSICAL_RESTORE: "recovery.gate_r5_title",
+    Gate.R6_NETWORK_RECOVERY: "recovery.gate_r6_title",
+    Gate.R7_SERVICE_RECOVERY: "recovery.gate_r7_title",
+    Gate.R8_INCIDENT_CLOSURE: "recovery.gate_r8_title",
+}
 
 
 def _sync_palette_aliases():
@@ -42,189 +71,224 @@ def _sync_palette_aliases():
         COLOR_SUCCESS_HL=palette.success_highlight,
         COLOR_TEXT=palette.text,
         COLOR_WARN=palette.warn,
+        COLOR_WARN_HL=palette.warn_highlight,
     )
 
 
-class IncidentRecoveryWizard(tk.Toplevel):
-    STEP_TITLE_KEYS = [
-        "recovery.step1_title",
-        "recovery.step2_title",
-        "recovery.step3_title",
-        "recovery.step4_title",
-        "recovery.step5_title",
-    ]
-    STEP_DESC_KEYS = [
-        "recovery.step1_desc",
-        "recovery.step2_desc",
-        "recovery.step3_desc",
-        "recovery.step4_desc",
-        "recovery.step5_desc",
-    ]
+def _status_color(status):
+    """Unknown/incomplete states must never read as green (success)."""
+    return {
+        GateStatus.PENDING: COLOR_MUTED,
+        GateStatus.CHECKING: COLOR_WARN,
+        GateStatus.VERIFIED: COLOR_SUCCESS_HL,
+        GateStatus.FAILED: COLOR_DANGER_HL,
+        GateStatus.NOT_CONFIGURED: COLOR_WARN,
+        GateStatus.NOT_APPLICABLE: COLOR_MUTED,
+        GateStatus.SIMULATED: COLOR_WARN_HL,
+    }.get(status, COLOR_MUTED)
 
+
+class IncidentRecoveryWizard(tk.Toplevel):
     def __init__(self, gui):
         _sync_palette_aliases()
         super().__init__(gui.root)
         self.gui = gui
-        self.status_labels = []
-        # เปิด/ดึงเหตุการณ์ที่ค้างอยู่ เพื่อผูกทุกขั้นเข้ากับ incident เดียว
-        self.incident_id = db.create_incident(gui.mqtt.last_attacker_ip)
+        self.coordinator = RecoveryCoordinator()
+        self._gate_rows = {}
 
         self.title(i18n.t("recovery.window_title"))
         self.configure(bg=COLOR_BG)
-        self.geometry("640x620")
-        self.minsize(600, 560)
+        self.geometry("760x760")
+        self.minsize(680, 620)
         self.transient(gui.root)
 
-        tk.Label(self, text=i18n.t("recovery.heading"), font=("Segoe UI", 13, "bold"),
-                 fg=COLOR_ACCENT, bg=COLOR_BG).pack(anchor="w", padx=18, pady=(16, 2))
-        tk.Label(self, text=i18n.t("recovery.subheading", incident_id=self.incident_id),
-                 font=("Segoe UI", 8), fg=COLOR_MUTED, bg=COLOR_BG).pack(anchor="w", padx=18, pady=(0, 12))
+        # Bind to whatever incident already caused containment -- never
+        # fabricate one just because this window opened (R1).
+        self.coordinator.resolve_incident_context(get_open_incident=db.get_open_incident)
+        self.gui.register_recovery_observer(self)
 
-        self._build_step(0, self._step1)
-        self._build_step(1, self._step2, extra="ip_entry")
-        self._build_step(2, self._step3)
-        self._build_step(3, self._step4)
-        self._build_step(4, self._step5, extra="lessons_text")
+        if config.DRY_RUN:
+            banner = tk.Frame(self, bg=COLOR_WARN)
+            banner.pack(fill="x")
+            tk.Label(
+                banner, text=i18n.t("recovery.dry_run_banner"), font=("Segoe UI", 9, "bold"),
+                fg="white", bg=COLOR_WARN, wraplength=720, justify="left",
+            ).pack(padx=12, pady=6, anchor="w")
 
-    def _step_frame(self, idx):
-        card = Card(self, accent=COLOR_WARN)
-        card.pack(fill="x", padx=18, pady=6)
+        header = tk.Frame(self, bg=COLOR_BG)
+        header.pack(fill="x", padx=18, pady=(16, 4))
+        tk.Label(header, text=i18n.t("recovery.evidence_heading"), font=("Segoe UI", 13, "bold"),
+                 fg=COLOR_ACCENT, bg=COLOR_BG).pack(anchor="w")
+        self._subheading_label = tk.Label(header, text="", font=("Segoe UI", 8), fg=COLOR_MUTED, bg=COLOR_BG,
+                                           justify="left")
+        self._subheading_label.pack(anchor="w", pady=(2, 0))
+
+        scroll = ScrollFrame(self, bg=COLOR_BG)
+        scroll.pack(fill="both", expand=True, padx=18, pady=(4, 14))
+        for gate in GATE_ORDER:
+            self._build_gate_row(scroll.inner, gate)
+
+        self._refresh_all()
+
+    def destroy(self):
+        self.gui.unregister_recovery_observer(self)
+        super().destroy()
+
+    # ---- rendering ----------------------------------------------------------
+
+    def _bound_incident_attacker_ip(self):
+        detail = self.coordinator.gate(Gate.R1_INCIDENT_CONTEXT).detail
+        for part in detail.split("; "):
+            if part.startswith("attacker_ip="):
+                return part[len("attacker_ip="):]
+        return ""
+
+    def _build_gate_row(self, parent, gate):
+        card = Card(parent, accent=COLOR_MUTED)
+        card.pack(fill="x", pady=6)
         head = tk.Frame(card.body, bg=COLOR_PANEL)
         head.pack(fill="x", pady=(8, 2))
-        tk.Label(head, text=i18n.t(self.STEP_TITLE_KEYS[idx]), font=("Segoe UI", 10, "bold"), fg=COLOR_TEXT,
+        tk.Label(head, text=i18n.t(GATE_TITLE_KEYS[gate]), font=("Segoe UI", 10, "bold"), fg=COLOR_TEXT,
                  bg=COLOR_PANEL).pack(side="left", padx=12)
-        status = tk.Label(head, text=i18n.t("recovery.status_pending"), font=("Segoe UI", 8), fg=COLOR_MUTED,
-                          bg=COLOR_PANEL)
-        status.pack(side="right", padx=12)
-        self.status_labels.append(status)
-        tk.Label(card.body, text=i18n.t(self.STEP_DESC_KEYS[idx]), font=("Segoe UI", 9), fg=COLOR_TEXT, bg=COLOR_PANEL,
-                 wraplength=560, justify="left").pack(anchor="w", padx=12)
-        return card.body
+        status_label = tk.Label(head, text="", font=("Segoe UI", 8, "bold"), bg=COLOR_PANEL)
+        status_label.pack(side="right", padx=12)
+        summary_label = tk.Label(card.body, text="", font=("Segoe UI", 9), fg=COLOR_MUTED, bg=COLOR_PANEL,
+                                  wraplength=620, justify="left")
+        summary_label.pack(anchor="w", padx=12, pady=(0, 6))
+        self._gate_rows[gate] = {"card": card, "status": status_label, "summary": summary_label}
 
-    def _build_step(self, idx, command, extra=None):
-        body = self._step_frame(idx)
-        row = tk.Frame(body, bg=COLOR_PANEL)
-        row.pack(fill="x", padx=12, pady=(6, 10))
-        if extra == "ip_entry":
-            self.ip_entry = tk.Entry(
-                row,
-                font=("Consolas", 10),
-                width=18,
-                fg=COLOR_TEXT,
-                bg=ui_theme.get_palette().panel_alt,
-                insertbackground=COLOR_TEXT,
-                relief="flat",
-            )
+        control_row = tk.Frame(card.body, bg=COLOR_PANEL)
+        control_row.pack(fill="x", padx=12, pady=(0, 10))
+
+        if gate == Gate.R2_SAFE_ACCESS:
+            tk.Button(control_row, text=i18n.t("recovery.r2_button"), font=FONT_BTN_SM, fg="white", bg=COLOR_BLUE,
+                      activebackground=COLOR_BLUE_HL, bd=0, cursor="hand2",
+                      command=self._on_r2_clicked).pack(side="left")
+        elif gate == Gate.R3_ATTACKER_ISOLATION:
+            self.ip_entry = tk.Entry(control_row, font=("Consolas", 10), width=18, fg=COLOR_TEXT,
+                                      bg=ui_theme.get_palette().panel_alt, insertbackground=COLOR_TEXT, relief="flat")
             self.ip_entry.pack(side="left")
-            self._ip_placeholder = i18n.t("recovery.step2_placeholder")
-            if self.gui.mqtt.last_attacker_ip:
-                self.ip_entry.insert(0, self.gui.mqtt.last_attacker_ip)
-            else:
-                self.ip_entry.insert(0, self._ip_placeholder)
-            tk.Button(row, text=i18n.t("recovery.step2_button"), font=FONT_BTN_SM, fg="white", bg=COLOR_DANGER,
+            prefill = self._bound_incident_attacker_ip()
+            if prefill:
+                self.ip_entry.insert(0, prefill)
+            tk.Button(control_row, text=i18n.t("recovery.r3_button"), font=FONT_BTN_SM, fg="white", bg=COLOR_DANGER,
                       activebackground=COLOR_DANGER_HL, bd=0, cursor="hand2",
-                      command=command).pack(side="left", padx=(8, 0))
-        elif extra == "lessons_text":
-            self.lessons_text = tk.Text(
-                body,
-                height=3,
-                width=60,
-                font=("Segoe UI", 9),
-                fg=COLOR_TEXT,
-                bg=ui_theme.get_palette().panel_alt,
-                insertbackground=COLOR_TEXT,
-                relief="flat",
-            )
-            self.lessons_text.pack(anchor="w", padx=12, pady=(0, 6))
-            tk.Button(body, text=i18n.t("recovery.step5_button"), font=FONT_BTN_SM, fg="white", bg=COLOR_SUCCESS,
+                      command=self._on_r3_clicked).pack(side="left", padx=(8, 0))
+        elif gate == Gate.R4_RESTORE_AUTHORIZATION:
+            tk.Button(control_row, text=i18n.t("recovery.r4_button"), font=FONT_BTN_SM, fg="white", bg=COLOR_BLUE,
+                      activebackground=COLOR_BLUE_HL, bd=0, cursor="hand2",
+                      command=self._on_r4_clicked).pack(side="left")
+        elif gate == Gate.R5_PHYSICAL_RESTORE:
+            tk.Button(control_row, text=i18n.t("recovery.r5_button"), font=FONT_BTN_SM, fg="white", bg=COLOR_BLUE,
+                      activebackground=COLOR_BLUE_HL, bd=0, cursor="hand2",
+                      command=self._on_r5_clicked).pack(side="left")
+        elif gate == Gate.R6_NETWORK_RECOVERY:
+            tk.Button(control_row, text=i18n.t("recovery.r6_button"), font=FONT_BTN_SM, fg="white", bg=COLOR_BLUE,
+                      activebackground=COLOR_BLUE_HL, bd=0, cursor="hand2",
+                      command=self._on_r6_clicked).pack(side="left")
+        elif gate == Gate.R7_SERVICE_RECOVERY:
+            tk.Button(control_row, text=i18n.t("recovery.r7_button"), font=FONT_BTN_SM, fg="white", bg=COLOR_BLUE,
+                      activebackground=COLOR_BLUE_HL, bd=0, cursor="hand2",
+                      command=self._on_r7_clicked).pack(side="left")
+        elif gate == Gate.R8_INCIDENT_CLOSURE:
+            self.lessons_text = tk.Text(control_row, height=3, width=50, font=("Segoe UI", 9), fg=COLOR_TEXT,
+                                         bg=ui_theme.get_palette().panel_alt, insertbackground=COLOR_TEXT,
+                                         relief="flat")
+            self.lessons_text.pack(anchor="w", fill="x")
+            tk.Button(card.body, text=i18n.t("recovery.r8_button"), font=FONT_BTN_SM, fg="white", bg=COLOR_SUCCESS,
                       activebackground=COLOR_SUCCESS_HL, bd=0, cursor="hand2",
-                      command=command).pack(anchor="w", padx=12, pady=(0, 10))
-        else:
-            labels = {0: i18n.t("recovery.step1_button"), 2: i18n.t("recovery.step3_button"),
-                      3: i18n.t("recovery.step4_button")}
-            colors = {0: COLOR_BLUE, 2: COLOR_SUCCESS, 3: COLOR_BLUE}
-            hl = {0: COLOR_BLUE_HL, 2: COLOR_SUCCESS_HL, 3: COLOR_BLUE_HL}
-            tk.Button(row, text=labels[idx], font=FONT_BTN_SM, fg="white", bg=colors[idx],
-                      activebackground=hl[idx], bd=0, cursor="hand2", command=command).pack(anchor="w")
+                      command=self._on_r8_clicked).pack(anchor="w", padx=12, pady=(0, 10))
+        # R1 needs no control: it is resolved automatically when this window opens.
 
-    def _mark_done(self, idx):
-        self.status_labels[idx].config(text=i18n.t("recovery.status_done"), fg=COLOR_SUCCESS_HL)
+    def _refresh_gate_display(self, gate):
+        evidence = self.coordinator.gate(gate)
+        row = self._gate_rows[gate]
+        row["status"].config(text=evidence.status.value, fg=_status_color(evidence.status))
+        row["card"].set_accent(_status_color(evidence.status))
+        text = evidence.summary
+        if evidence.detail:
+            text = f"{text} — {evidence.detail}"
+        row["summary"].config(text=text)
+
+    def _refresh_subheading(self):
+        if self.coordinator.incident_id is None:
+            self._subheading_label.config(text=i18n.t("recovery.no_incident"))
+        else:
+            self._subheading_label.config(text=i18n.t("recovery.subheading", incident_id=self.coordinator.incident_id))
+
+    def _refresh_all(self):
+        for gate in GATE_ORDER:
+            self._refresh_gate_display(gate)
+        self._refresh_subheading()
 
     def _log(self, text, level=db.INFO):
-        t = time.strftime('%H:%M:%S')
-        self.gui.log_message(f"[{t}] [RECOVERY] {text}", level)
+        stamp = time.strftime("%H:%M:%S")
+        self.gui.log_message(f"[{stamp}] [RECOVERY] {text}", level)
 
-    def _step1(self):
-        self._mark_done(0)
-        db.set_incident_state(self.incident_id, "CONTAINED")
-        db.log_event("RECOVERY_STEP", "1. Out-of-band access confirmed", db.INFO, self.incident_id)
-        self._log("ขั้น 1: ยืนยันเข้าถึงผ่าน Management VLAN แล้ว")
+    # ---- gate actions ---------------------------------------------------------
 
-    def _step2(self):
+    def _on_r2_clicked(self):
+        evidence = self.coordinator.verify_safe_access()
+        self._log(f"R2: {evidence.summary}", db.INFO if evidence.status == GateStatus.VERIFIED else db.WARN)
+        self._refresh_gate_display(Gate.R2_SAFE_ACCESS)
+
+    def _on_r3_clicked(self):
         ip = self.ip_entry.get().strip()
-        if not ip or ip == self._ip_placeholder:
+        if not ip:
             messagebox.showwarning(i18n.t("recovery.step2_missing_ip_title"),
                                    i18n.t("recovery.step2_missing_ip_message"), parent=self)
             return
-        db.set_incident_ip(self.incident_id, ip)
-        self._log(f"ขั้น 2: กำลังขอสิทธิ์ผู้ดูแลระบบเพื่อบล็อก {ip} ...", db.WARN)
+        evidence = self.coordinator.apply_and_verify_attacker_isolation(ip)
+        self._log(f"R3: {evidence.summary}", db.INFO if evidence.status == GateStatus.VERIFIED else db.WARN)
+        self._refresh_gate_display(Gate.R3_ATTACKER_ISOLATION)
 
-        def on_done(ok, out):
-            if ok:
-                self._mark_done(1)
-                db.log_event("RECOVERY_STEP", f"2. Blocked {ip} permanently", db.WARN, self.incident_id)
-                self._log(f"ขั้น 2: บล็อก {ip} สำเร็จถาวร")
-            else:
-                self._log(f"ขั้น 2: บล็อกไม่สำเร็จ: {out}", db.WARN)
-
-        self.gui.run_ufw_async(["deny", "from", ip], on_done)
-
-    def _step3(self):
+    def _on_r4_clicked(self):
         pin = simpledialog.askstring(i18n.t("dialog.admin_auth_title"), i18n.t("dialog.pin_prompt_default"),
                                      show='*', parent=self)
-        if not config.verify_pin(pin):
-            if pin is not None:
-                messagebox.showerror(i18n.t("dialog.access_denied_title"), i18n.t("dialog.wrong_pin_simple"),
-                                     parent=self)
+        if pin is None:
             return
-        result = self.gui.controller.issue(
-            "RESTORE_UPLINK",
-            "Incident Recovery Wizard step 3",
-            origin="recovery-wizard",
-            authorize_restore=True,
-        )
-        if result.ok:
-            self._mark_done(2)
-            event = "Would send RESTORE_UPLINK" if result.dry_run else "Sent RESTORE_UPLINK"
-            db.log_event("RECOVERY_STEP", f"3. {event}", db.INFO, self.incident_id)
-            self._log("ขั้น 3: จำลองคำสั่ง RESTORE_UPLINK แล้ว" if result.dry_run
-                      else "ขั้น 3: ส่งคำสั่งปลดล็อกกายภาพแล้ว")
-        else:
-            self._log(f"ขั้น 3: ส่ง RESTORE_UPLINK ไม่สำเร็จ: {result.detail}", db.WARN)
+        evidence = self.coordinator.authorize_restore(pin, origin="recovery-wizard")
+        if evidence.status != GateStatus.VERIFIED:
+            messagebox.showerror(i18n.t("dialog.access_denied_title"), i18n.t("dialog.wrong_pin_simple"), parent=self)
+        self._log(f"R4: {evidence.summary}", db.INFO if evidence.status == GateStatus.VERIFIED else db.WARN)
+        self._refresh_gate_display(Gate.R4_RESTORE_AUTHORIZATION)
 
-    def _step4(self):
-        self._log("ขั้น 4: กำลังขอสิทธิ์เพื่อ reload UFW ...")
+    def _on_r5_clicked(self):
+        evidence = self.coordinator.request_physical_restore(self.gui.controller, origin="recovery-wizard")
+        self._log(f"R5: {evidence.summary}", db.INFO if evidence.status in
+                  (GateStatus.CHECKING, GateStatus.VERIFIED, GateStatus.SIMULATED) else db.WARN)
+        self._refresh_gate_display(Gate.R5_PHYSICAL_RESTORE)
 
-        def on_done(ok, out):
-            if ok:
-                self._mark_done(3)
-                db.log_event("RECOVERY_STEP", "4. UFW reloaded", db.INFO, self.incident_id)
-                self._log("ขั้น 4: เปิดบริการกลับคืนแล้ว")
-            else:
-                self._log(f"ขั้น 4: ล้มเหลว: {out}", db.WARN)
+    def _on_r6_clicked(self):
+        evidence = self.coordinator.verify_network_recovery()
+        self._log(f"R6: {evidence.summary}", db.INFO if evidence.status == GateStatus.VERIFIED else db.WARN)
+        self._refresh_gate_display(Gate.R6_NETWORK_RECOVERY)
 
-        self.gui.run_ufw_async(["reload"], on_done)
+    def _on_r7_clicked(self):
+        evidence = self.coordinator.verify_service_recovery(mqtt_manager=self.gui.mqtt)
+        self._log(f"R7: {evidence.summary}", db.INFO if evidence.status == GateStatus.VERIFIED else db.WARN)
+        self._refresh_gate_display(Gate.R7_SERVICE_RECOVERY)
 
-    def _step5(self):
+    def _on_r8_clicked(self):
         summary = self.lessons_text.get("1.0", "end").strip()
-        if not summary:
-            messagebox.showwarning(i18n.t("recovery.step5_missing_title"),
-                                   i18n.t("recovery.step5_missing_message"), parent=self)
-            return
-        db.close_incident(self.incident_id, summary)
-        db.log_event("INCIDENT_CLOSED", summary, db.INFO, self.incident_id)
-        self._mark_done(4)
-        self._log(f"ขั้น 5: ปิด Incident #{self.incident_id} แล้ว (Closed-Loop)")
-        self.gui.refresh_incident_banner()
-        messagebox.showinfo(i18n.t("recovery.closed_title"),
-                            i18n.t("recovery.closed_message", incident_id=self.incident_id), parent=self)
+        evidence = self.coordinator.close_incident(summary)
+        self._log(f"R8: {evidence.summary}", db.INFO if evidence.status == GateStatus.VERIFIED else db.WARN)
+        self._refresh_gate_display(Gate.R8_INCIDENT_CLOSURE)
+        if evidence.status == GateStatus.VERIFIED:
+            self.gui.refresh_incident_banner()
+            messagebox.showinfo(i18n.t("recovery.closed_title"),
+                                i18n.t("recovery.closed_message", incident_id=self.coordinator.incident_id), parent=self)
+        else:
+            messagebox.showwarning(i18n.t("recovery.step5_missing_title"), evidence.summary, parent=self)
+
+    # ---- forwarded MQTT evidence (see gui.py's register_recovery_observer) ----
+
+    def on_ack_evidence(self, ack, detail, nonce):
+        self.coordinator.on_ack_evidence(ack, detail, nonce)
+        if self.winfo_exists():
+            self._refresh_gate_display(Gate.R5_PHYSICAL_RESTORE)
+
+    def on_status_evidence(self, state, rssi, heap, command_nonce):
+        self.coordinator.on_status_evidence(state, rssi, heap, command_nonce)
+        if self.winfo_exists():
+            self._refresh_gate_display(Gate.R5_PHYSICAL_RESTORE)

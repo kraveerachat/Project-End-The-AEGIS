@@ -480,6 +480,43 @@ STRINGS = {
         "zh": "事件 #{incident_id} 已成功关闭",
     },
 
+    # --- Evidence-Driven Recovery (R1-R8 gates) ---
+    "recovery.evidence_heading": {
+        "en": "Evidence-Driven Incident Recovery",
+        "th": "การกู้คืนเหตุการณ์ตามหลักฐาน",
+        "zh": "基于证据的事件恢复",
+    },
+    "recovery.no_incident": {
+        "en": "No recoverable incident is currently open. Recovery cannot proceed.",
+        "th": "ไม่มีเหตุการณ์ที่เปิดค้างอยู่ให้กู้คืน ไม่สามารถดำเนินการกู้คืนได้",
+        "zh": "当前没有可恢复的未结事件，无法进行恢复。",
+    },
+    "recovery.dry_run_banner": {
+        "en": "SIMULATION / DRY RUN — Physical RESTORE will not be executed. Physical recovery cannot be marked VERIFIED from this run.",
+        "th": "โหมดจำลอง / DRY RUN — จะไม่มีการส่งคำสั่งปลดล็อกกายภาพจริง และไม่สามารถยืนยัน (VERIFIED) การกู้คืนทางกายภาพจากการรันนี้ได้",
+        "zh": "模拟 / 演练模式 — 不会执行真实的物理恢复指令，本次运行无法将物理恢复标记为“已验证”。",
+    },
+    "recovery.gate_r1_title": {"en": "R1 · Incident Context", "th": "R1 · บริบทเหตุการณ์", "zh": "R1 · 事件上下文"},
+    "recovery.gate_r2_title": {"en": "R2 · Safe Management Access", "th": "R2 · การเข้าถึงบริหารจัดการอย่างปลอดภัย", "zh": "R2 · 安全管理访问"},
+    "recovery.gate_r3_title": {"en": "R3 · Attacker Isolation", "th": "R3 · การแยกกักผู้บุกรุก", "zh": "R3 · 攻击者隔离"},
+    "recovery.gate_r4_title": {"en": "R4 · Restore Authorization", "th": "R4 · การอนุมัติกู้คืน", "zh": "R4 · 恢复授权"},
+    "recovery.gate_r5_title": {"en": "R5 · Physical Restore", "th": "R5 · การกู้คืนทางกายภาพ", "zh": "R5 · 物理恢复"},
+    "recovery.gate_r6_title": {"en": "R6 · Network Recovery", "th": "R6 · การกู้คืนเครือข่าย", "zh": "R6 · 网络恢复"},
+    "recovery.gate_r7_title": {"en": "R7 · Service Recovery", "th": "R7 · การกู้คืนบริการ", "zh": "R7 · 服务恢复"},
+    "recovery.gate_r8_title": {"en": "R8 · Incident Closure", "th": "R8 · การปิดเหตุการณ์", "zh": "R8 · 事件关闭"},
+    "recovery.r2_button": {"en": "Verify Access", "th": "ตรวจสอบการเข้าถึง", "zh": "验证访问"},
+    "recovery.r3_button": {"en": "Block && Verify", "th": "บล็อกและตรวจสอบ", "zh": "封禁并验证"},
+    "recovery.r4_button": {"en": "Authorize Restore", "th": "อนุมัติการกู้คืน", "zh": "授权恢复"},
+    "recovery.r5_button": {"en": "Send Restore", "th": "ส่งคำสั่งกู้คืน", "zh": "发送恢复指令"},
+    "recovery.r6_button": {"en": "Verify Network", "th": "ตรวจสอบเครือข่าย", "zh": "验证网络"},
+    "recovery.r7_button": {"en": "Verify Services", "th": "ตรวจสอบบริการ", "zh": "验证服务"},
+    "recovery.r8_button": {"en": "Close Incident", "th": "ปิดเหตุการณ์", "zh": "关闭事件"},
+    "recovery.r8_summary_placeholder": {
+        "en": "Lessons learned (required to close)",
+        "th": "บทเรียนที่ได้ (จำเป็นต้องกรอกก่อนปิด)",
+        "zh": "经验教训（关闭前必填）",
+    },
+
     # --- Notification center (header bell + panel + toast) ---
     "notif.button_label": {"en": "Alerts", "th": "แจ้งเตือน", "zh": "警报"},
     "notif.panel_title": {"en": "Notifications", "th": "การแจ้งเตือน", "zh": "通知"},
