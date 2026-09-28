@@ -461,3 +461,27 @@ l34_v4_autoconnect_pre_gate() {
   [ "$1" = yes ] || { l34_reason "L34_V4_AUTOCONNECT_UNEXPECTED:DEVICE=$1"; return 1; }
   [ "$2" = no ] || { l34_reason "L34_V4_AUTOCONNECT_UNEXPECTED:AP_PROFILE=$2"; return 1; }
 }
+
+# ── V5 (POST-L6b/L6c DEGRADED post-reboot) reactivation: SAME wifi/rfkill/radio/wpa topology as V4
+# (l34_v4_baseline_gate is reused verbatim — V5 never duplicates it), but dnsmasq is in the exact V3
+# post-reboot failed/start-limit-hit precondition (l34_service_pre_gate, reused verbatim from V3) AND the
+# L6b broker is crash-looping (auto-restarting) because its AP-facing listener cannot bind while the AP
+# address is absent. Neither V3 (requires NM radio disabled) nor V4 (requires dnsmasq AND the broker
+# already active/running) accepts this host state; V5 is a new, narrowly-scoped sibling that recovers
+# dnsmasq the exact V3 way (reset-failed + start, once) and then only WAITS, bounded, for the broker to
+# recover through its own already-configured systemd auto-restart once the AP address exists — it never
+# issues start/stop/restart/reset-failed against the broker unit. ─────────────────────────────────────────
+
+L34_V5_BROKER_CONF=/etc/aegis-idea3/mqtt/aegis-idea3-mosquitto.conf
+
+# l34_v5_broker_crashloop_gate < `systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState
+#   -p Result -p MainPID aegis-idea3-mosquitto.service` — the ONE supported V5 broker PRE-state: enabled,
+# not permanently failed, currently between auto-restart attempts because its bind address is absent.
+l34_v5_broker_crashloop_gate() {
+  local text kv
+  text=$(cat)
+  for kv in LoadState=loaded ActiveState=activating SubState=auto-restart UnitFileState=enabled; do
+    grep -qx "$kv" <<< "$text" || { l34_reason "L34_V5_BROKER_PRESTATE_UNEXPECTED:${kv%%=*}"; return 1; }
+  done
+  grep -qx 'MainPID=0' <<< "$text" || { l34_reason "L34_V5_BROKER_PRESTATE_UNEXPECTED:MainPID"; return 1; }
+}

@@ -89,6 +89,10 @@ DEFAULT_STATE = {
     "wired_ifname_state": "connected",
     "device_state_override": "",
     "ap_profile_autoconnect": "no",   # the persisted aegis-idea3-ap profile's own connection.autoconnect value; V4 never writes it
+    "broker_mode": "identity",        # V4/V3 default: aegis-idea3-mosquitto.service driven by identities[] like any other static unit
+    "broker_crashloop_recovers_after_ap": True,   # V5 only (broker_mode="crashloop_until_ap"): recovers once ap_active is true
+    "broker_pid": 5100,
+    "broker_nrestarts_pre": 182,      # V5 crashloop PRE: NRestarts already high (many auto-restart attempts since boot)
 }
 
 WRAPPER = "#!/usr/bin/env bash\nexec {python} {sim} {name} \"$@\"\n"
@@ -193,11 +197,29 @@ def _dnsmasq_props(s: dict) -> dict[str, str]:
     return base
 
 
+def _broker_crashloop_recovered(s: dict) -> bool:
+    return bool(s["ap_active"]) and s["broker_crashloop_recovers_after_ap"]
+
+
+def _broker_props(s: dict) -> dict[str, str]:
+    """V5 only (broker_mode="crashloop_until_ap"): activating/auto-restart until ap_active, then active/running --
+    never started/stopped/restarted by any stub command, purely a function of ap_active (systemd's own
+    auto-restart, driven by the bind address becoming available)."""
+    if _broker_crashloop_recovered(s):
+        return {"LoadState": "loaded", "ActiveState": "active", "SubState": "running", "UnitFileState": "enabled",
+                "Result": "success", "MainPID": str(s["broker_pid"]), "NRestarts": str(s["broker_nrestarts_pre"] + 1),
+                "ExecMainStartTimestamp": "Sun 2026-09-28 17:24:40 +07"}
+    return {"LoadState": "loaded", "ActiveState": "activating", "SubState": "auto-restart", "UnitFileState": "enabled",
+            "Result": "exit-code", "MainPID": "0", "NRestarts": str(s["broker_nrestarts_pre"]), "ExecMainStartTimestamp": ""}
+
+
 def _unit_props(s: dict, unit: str) -> dict[str, str]:
     if unit == "aegis-idea3-dnsmasq.service":
         return _dnsmasq_props(s)
     if unit == "wpa_supplicant.service":
         return _wpa_props(s)
+    if unit == "aegis-idea3-mosquitto.service" and s["broker_mode"] == "crashloop_until_ap":
+        return _broker_props(s)
     pid, nr = s["identities"].get(unit, [0, 0])
     active = "active" if pid else "inactive"
     return {"LoadState": "loaded" if pid else "not-found", "ActiveState": active, "SubState": "running" if pid else "dead",
@@ -398,7 +420,9 @@ def main(argv: list[str]) -> int:
         if s["dnsmasq"] == "active":
             tcp.append("LISTEN 0 32 10.77.30.1:53 0.0.0.0:*")
             udp += ["UNCONN 0 0 10.77.30.1:53 0.0.0.0:*", "UNCONN 0 0 0.0.0.0%wlp0s20f3:67 0.0.0.0:*"]
-        if s["identities"].get("aegis-idea3-mosquitto.service", [0, 0])[0]:
+        broker_up = _broker_crashloop_recovered(s) if s["broker_mode"] == "crashloop_until_ap" \
+            else bool(s["identities"].get("aegis-idea3-mosquitto.service", [0, 0])[0])
+        if broker_up:
             tcp += ["LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*", "LISTEN 0 100 10.77.30.1:8883 0.0.0.0:*"]
         if args == ["-H", "-lnt"]:
             out = tcp
