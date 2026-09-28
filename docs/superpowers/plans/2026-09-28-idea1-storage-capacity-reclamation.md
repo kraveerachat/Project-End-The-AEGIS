@@ -4,7 +4,7 @@
 - **Area**: `idea1` | **Owner**: `kla` | **Integration Review**: `yes`
 - **Branch**: `fix/idea1-storage-capacity-reclamation` (stacked on PR #220 `fix/idea1-vault-convergence-highres-ux`)
 - **Canonical Specification Authority**: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-storage-persistence-architecture.md` (PR #240)
-- **Status**: `DRAFT / PENDING_HUMAN_OWNER_TRACK_A`
+- **Status**: `COMPLETED & EMPIRICALLY VERIFIED (2026-09-28)`
 
 ---
 
@@ -84,23 +84,19 @@ sudo lvextend -L 90G /dev/ubuntu-vg/ubuntu-lv
 sudo resize2fs /dev/ubuntu-vg/ubuntu-lv
 ```
 
-### 2.4 Phase A3: Post-Change Verification (Human Owner Execution)
-Record the following outputs to verify Track A acceptance:
+### 2.4 Phase A3: Post-Change Verification & Observed Production Results
+Human Owner executed online LVM and filesystem expansion on production:
 
-```bash
-# 1. Verify LVM Volume & Free Space
-sudo lvs /dev/ubuntu-vg/ubuntu-lv
-sudo vgs ubuntu-vg
-
-# 2. Verify Filesystem Size
-df -h /
-df -B1 /
-
-# 3. Verify Container Health & Data Lake Accessibility
-d ps --filter "label=com.docker.compose.project=aegis-prod"
-d exec -it $(d ps -q -f name=drive) ls -la /datalake
-d inspect $(d ps -q -f name=drive) --format 'RestartCount: {{.RestartCount}} | OOMKilled: {{.State.OOMKilled}}'
-```
+- **LVM Expansion**:
+  - BEFORE: `ubuntu-lv = 58.09 GiB`, `ubuntu-vg free = 58.09 GiB`, root filesystem ≈ `56.9 GiB`.
+  - AFTER: `ubuntu-lv = 90.00 GiB`, `ubuntu-vg free = <26.19 GiB`, root filesystem ≈ `88.3 GiB`.
+- **System & Volume Stability**:
+  - `DockerRootDir = /var/lib/docker` (unchanged).
+  - Named volume `aegis-prod_aegis_drive_storage` (unchanged).
+  - External backup disk at `/mnt/aegis-backup` (untouched).
+  - Production containers healthy (`restart 0`, `OOM false`).
+  - Reboot not required.
+- **Track A Result**: `TRACK_A_LVM_EXPANSION=PASS`.
 
 ---
 
@@ -161,8 +157,7 @@ Record initial byte counts:
      ```
    - Fetch updated `/api/storage` telemetry payload.
 
-### 3.3 Root Cause Classification Taxonomy
-Based on the empirical evidence gathered in Step B4, classify the system behavior into exactly one category:
+### 3.3 Root Cause Classification Taxonomy & Observed Evidence
 
 | Category | Observed Evidence Pattern | Technical Classification | Required Action |
 | :--- | :--- | :--- | :--- |
@@ -170,33 +165,67 @@ Based on the empirical evidence gathered in Step B4, classify the system behavio
 | **B** | Metadata removed from DB; but physical blob remains on disk in `/datalake/uploads/`. | **Physical Reclamation Defect** | Investigate `trashCleanup.js` -> `removeRecordBytes` / `removeKey` execution path. |
 | **C** | Metadata record remains in DB with `deleted_at IS NOT NULL` after purge command. | **Trash Metadata / Purge Defect** | Investigate `api.js` `/trash/empty` route or SQL transaction in `hardDeleteTrashedFile`. |
 | **D** | Physical blob unlinked (`rm`), but `df` free space does not increase; `lsof` shows deleted inode held open by running process. | **Open File Descriptor Retention** | Identify process holding inode (e.g. streaming, thumbnailing) and fix stream closure. |
-| **E** | Metadata removed; blob unlinked; host `df` increases; UI telemetry reflects reclaimed space; test passes completely. | **No Defect Proven / Telemetry Semantics** | Earlier symptom caused by concurrent disk activity, OS logging, or snapshot timing. |
+| **E** *(MATCH)* | Metadata removed; blob unlinked; host `df` increases; UI telemetry reflects reclaimed space; test passes completely. | **No Backend Defect Proven / Full Physical Reclamation** | Empirical evidence proves backend unlinking, zero leak, and space reclamation. |
+
+### 3.4 Track B Empirical Production Evidence
+Human Owner conducted controlled synthetic fixture tests on production:
+
+1. **B0 (Baseline)**:
+   - `/datalake = 30111636 KiB`, `/uploads = 26307676 KiB`, `/versions = 1032 KiB`.
+2. **B1 (Upload 512 MiB + 1 GiB)**:
+   - `/datalake = 31684508 KiB`, `/uploads = 27880548 KiB`, active staging sessions = 0.
+   - `TRACK_B_UPLOAD_PERSISTENCE=PASS`.
+3. **B2 (Move to Trash)**:
+   - `/datalake = 31684508 KiB`, `/uploads = 27880548 KiB` (physical bytes retained during soft delete).
+   - `TRACK_B_MOVE_TO_TRASH_LOGICAL_ONLY=PASS`.
+4. **B3A (Permanent Delete 512 MiB item)**:
+   - `/datalake = 31160216 KiB`, `/uploads = 27356256 KiB`.
+   - `TRACK_B_PER_ITEM_PURGE=PASS`.
+5. **B3B (Permanent Delete 1 GiB item)**:
+   - `/datalake = 30111636 KiB`, `/uploads = 26307676 KiB` (returned exactly to B0 logical byte baseline).
+6. **B4 (Empty Trash Production Acceptance)**:
+   - `/datalake = 21302140 KiB`, `/uploads = 17498180 KiB`, `/versions = 1032 KiB`.
+   - Host filesystem used = `40496644 KiB`, available = `47675816 KiB`.
+   - Drive container healthy, `restartCount = 0`, IDEA2 untouched.
+   - **Physical space reclaimed (B3B → B4)**: `8809496 KiB ≈ 8.40 GiB`.
+   - `TRACK_B_EMPTY_TRASH=PASS`, `PHYSICAL_BLOB_RECLAMATION=PASS`, `FILESYSTEM_SPACE_RECLAMATION=PASS`.
+7. **Storage Accounting (UI Dashboard)**:
+   - BEFORE Empty Trash: total `88.3 GB`, used `51.2 GB`, free `37.1 GB`, AEGIS-accounted `6.0 GB`, other-on-volume `45.2 GB`, previous-versions `5.4 GB`, other-files `498 MB`, media `103 MB`.
+   - AFTER refresh: total `88.3 GB`, used `42.8 GB`, free `45.5 GB`, AEGIS-accounted `1.3 GB`, other-on-volume `41.5 GB`, previous-versions `764 MB`, other-files `498 MB`, media `103 MB`.
+   - `DASHBOARD_STORAGE_ACCOUNTING_AFTER_REFRESH=PASS`.
+   - `OPEN_DESCRIPTOR_LEAK_FOR_CONTROLLED_FIXTURES=NOT_OBSERVED`.
+
+### 3.5 Separate UI Findings (Deferred to PR #243)
+1. **Trash Destructive Reauth Autofill**: Browser password manager heuristically filled `"admin"` into Trash search input during destructive confirmation, hiding remaining rows behind an unintended query filter. Tracked and isolated separately in PR #243.
+2. **Sidebar Meter Refresh Latency**: Sidebar storage meter does not update immediately after physical purge; correct value displays following dashboard poll, navigation, or full refresh. Tracked in PR #243 UI reconciliation scope.
+*Neither finding invalidates backend reclamation acceptance.*
 
 ---
 
 ## 4. Execution Sequence & Status Gates
 
 ```
-[ Gate 1: Preparation ] ── (THIS CHECKPOINT)
+[ Gate 1: Preparation ] ── PASS
   ├─ Plan created in docs/superpowers/plans/
   ├─ Stacked Draft PR opened targeting fix/idea1-vault-convergence-highres-ux
-  ├─ Status note updated: IDEA1-STORAGE-CAPACITY-RECLAMATION-1 = IN PROGRESS
-  └─ STOP: Await Human Owner execution of Track A
+  └─ Status note updated: IDEA1-STORAGE-CAPACITY-RECLAMATION-1 = IN PROGRESS
 
-[ Gate 2: Track A Execution ] ── (Human Owner Execution)
-  ├─ Execute pre-change inspection
-  ├─ Execute lvextend -L 90G -r /dev/ubuntu-vg/ubuntu-lv
-  ├─ Execute post-change verification
-  └─ Report Track A PASS evidence
+[ Gate 2: Track A Execution ] ── PASS (Human Owner Execution)
+  ├─ Executed pre-change inspection
+  ├─ Executed lvextend -L 90G -r /dev/ubuntu-vg/ubuntu-lv
+  ├─ Root LV expanded from ~58.09 GiB to ~90.00 GiB; filesystem now ~88.3 GiB
+  └─ Host stability, container health, and safety reserve verified
 
-[ Gate 3: Track B Verification ] ── (Human Owner + Agent)
-  ├─ Execute controlled synthetic fixture lifecycle
-  ├─ Record evidence across DB, filesystem, and telemetry
-  ├─ Classify root cause (A, B, C, D, or E)
-  └─ Formulate code fix ONLY if defect is proven
+[ Gate 3: Track B Verification ] ── PASS (Human Owner Execution)
+  ├─ Executed controlled synthetic fixture lifecycle (512 MiB + 1 GiB)
+  ├─ Reclaimed 8,809,496 KiB ≈ 8.40 GiB on Empty Trash
+  ├─ Classified as Category E (No Backend Defect; Full Physical Reclamation)
+  └─ APPLICATION_SOURCE_CHANGED=NO, TRASH_BACKEND_FIX_REQUIRED=NO
 
-[ Gate 4: Closeout & Merging ]
-  ├─ Final receipt creation
-  ├─ Retarget base to main once PR #220 is merged
-  └─ Mark PR Ready for Review
+[ Gate 4: Closeout & Merging ] ── CURRENT
+  ├─ Final immutable receipt created: 2026-09-28_225000_kla_idea1-storage-capacity-reclamation.md
+  ├─ Canonical status updated: idea1-status.md
+  ├─ PR #241 body updated with complete Track A & B evidence
+  ├─ Maintain Draft state until dependency PR #220 merges
+  └─ Retarget base to main once PR #220 is merged
 ```
