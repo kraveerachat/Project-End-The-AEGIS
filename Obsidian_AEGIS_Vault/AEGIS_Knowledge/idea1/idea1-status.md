@@ -21,6 +21,8 @@ edit_policy: owner-writable
 
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `fix/idea1-trash-destructive-reauth-ui`; stacked dependency: DRAFT PR on `fix/idea1-vault-convergence-highres-ux` (PR #220).
+- Codex authority-review session (starting SHA `01d7c4ad554115470de814f311d17f4c96b3747b`): affected-code verification PASS; deployment-command preparation BLOCKED. Implementation/evidence checkpoint: `831c2fbac7883536e836d134f19397ab5a6ca881`. Plan and performed work: deferred `/api/trash` relist regression proved RED (12 pass, 1 fail, expected callback count 1 / actual 0); move the existing success callback before that await; GREEN and affected Trash suites 54 pass / 0 fail / 1 PostgreSQL-gated skip; build and governance PASS; normal push on PR243 only. Production mutation allowed: NO. Deployment-command certification remains blocked because the provided attachment contains the preliminary owner summary, not the raw active Compose order, hashes, container identities, and environment fingerprint. The old `pr243-01d7c4ad5541` candidate omits this correction and must not be deployed. No SSH, backend/database change, PR241 change, Ready, merge, retarget, or final receipt.
+- Authority-review limitation: full Windows `npm test` attempted at 2026-09-28T16:41:24Z and explicitly interrupted at 16:48:32Z while running unrelated S5.5 shell fixtures (delay cause not proven); full suite INCOMPLETE, not PASS. Recorded failures before interruption: `Dashboard quick actions live in the page header instead of a full-width content rail`; `TH, EN, and ZH keep exact key parity with no empty values or wrong-script fallback`; `tests/mediaPoster.test.js` (`ERR_MODULE_NOT_FOUND`, local `sharp` dependency absent); `Neo glass is static, stylesheet-owned, and limited to approved shell surfaces`; `NEO-MOTION-4 prefers-reduced-motion switches the whole layer off`; `Neo mobile segmented options meet the 44 by 44 CSS touch-target floor`. No baseline classification claimed in this session, no unrelated fixes. Build output restored; logs retained outside Git. Human browser/password-manager acceptance and independently parsed live preflight remain PENDING.
 - Root Cause 1 (Destructive Reauth UI): Password managers and browser credential autofill heuristically associated the preceding unisolated Trash search input with the destructive reauth password modal (`purge` and `empty`), autofilling account username (`"admin"`) into the controlled search input and filtering out non-matching Trash rows.
 - Root Cause 2 (Storage Meter Staleness): After successful permanent delete (`purgeItem`) or Empty Trash (`emptyTrash`), backend unlinked blobs immediately, but the client-side Sidebar storage meter relied on `/api/dashboard` polling (`refreshMs: 30_000`) or navigation, remaining stale until timer expiration or full-page reload.
 - Architectural Fix:
@@ -36,15 +38,17 @@ edit_policy: owner-writable
   10. Restore action does NOT call `onStorageMutationCommitted` because restored files were already accounted for in datalake storage.
   11. Failed delete / failed Empty Trash do NOT trigger storage reconciliation.
   12. Global polling frequency (`refreshMs: 30_000`) and backend storage accounting remain unchanged; zero new endpoints or WebSockets added.
+  13. Successful permanent purge triggers `onStorageMutationCommitted` before awaiting Trash relisting, so slow metadata reconciliation cannot delay the existing silent dashboard refresh. Deferred relist regression also pins exactly-once callback and preservation of legitimate search.
 - Automated Evidence:
-  - Focused regression suite `IDEA1-AEGIS_Drive_LC/tests/trashDestructiveReauthUi.test.js`: 12/12 PASS (6 reauth/search isolation tests + 6 realtime storage reconciliation tests).
+  - Focused regression suite `IDEA1-AEGIS_Drive_LC/tests/trashDestructiveReauthUi.test.js`: 13/13 PASS (6 reauth/search isolation tests + 7 realtime storage reconciliation tests).
   - Locked UI suite `tests/protectedTrashLockedUi.test.js`: 11/11 PASS.
   - Trash UI static contract suite `tests/protectedTrashUi.test.js`: 4/4 PASS.
   - Backend trash lifecycle suite `tests/protectedTrash.test.js`: 12/12 PASS.
-  - Trash lifecycle hierarchy suite `tests/filesTrashLifecycle.test.js`: 15/15 PASS (1 test skipped requiring PostgreSQL).
-  - Overall Trash suite: 54 tests (53 passed, 1 skipped, 0 failed).
+  - Trash lifecycle hierarchy suite `tests/filesTrashLifecycle.test.js`: 14 passed / 0 failed / 1 PostgreSQL-gated skip.
+  - Overall Trash suite: 55 tests (54 passed, 1 skipped, 0 failed).
   - Build: `npm run build` PASS (vite v7.3.6 built client in 4.79s; tracked `dist/index.html` restored).
   - Governance: root collaboration and vault tests 50/50 PASS.
+  - Codex authority review: full root `node --test --test-concurrency=1 --test-reporter=tap tests/*.test.mjs` 65/65 PASS; includes executable core-entry governance.
   - Vault validator: 2 warnings (existing canvas owner reviews), 0 errors PASS.
   - Whitespace & secret scan: `git diff --check` clean, zero committed secrets.
 
