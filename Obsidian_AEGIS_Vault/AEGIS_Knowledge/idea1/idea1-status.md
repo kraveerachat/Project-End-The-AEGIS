@@ -17,11 +17,12 @@ edit_policy: owner-writable
 
 ## Current Task
 
-**IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1 — TRASH LIST PRESERVED ACROSS DESTRUCTIVE REAUTH / HTML FORM ISOLATION / DRAFT PR**
+**IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1 — TRASH LIST PRESERVED ACROSS DESTRUCTIVE REAUTH / REALTIME STORAGE RECONCILIATION / DRAFT PR**
 
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `fix/idea1-trash-destructive-reauth-ui`; stacked dependency: DRAFT PR on `fix/idea1-vault-convergence-highres-ux` (PR #220).
-- Root Cause: Password managers and browser credential autofill heuristically associated the preceding unisolated Trash search input with the destructive reauth password modal (`purge` and `empty`), autofilling account username (`"admin"`) into the controlled search input and filtering out non-matching Trash rows.
+- Root Cause 1 (Destructive Reauth UI): Password managers and browser credential autofill heuristically associated the preceding unisolated Trash search input with the destructive reauth password modal (`purge` and `empty`), autofilling account username (`"admin"`) into the controlled search input and filtering out non-matching Trash rows.
+- Root Cause 2 (Storage Meter Staleness): After successful permanent delete (`purgeItem`) or Empty Trash (`emptyTrash`), backend unlinked blobs immediately, but the client-side Sidebar storage meter relied on `/api/dashboard` polling (`refreshMs: 30_000`) or navigation, remaining stale until timer expiration or full-page reload.
 - Architectural Fix:
   1. Enclose Trash search input in dedicated `<form role="search" onSubmit={(e) => e.preventDefault()}>` with explicit `type="search"`, `name="trashSearch"`, `autoComplete="off"`, `autoCorrect="off"`, `autoCapitalize="off"`, and `spellCheck="false"`.
   2. Scope permanent delete (`purge`) modal inside `<form onSubmit={...}>` with an explicit hidden username field (`type="text" name="username" autoComplete="username" value={username} readOnly tabIndex={-1} aria-hidden="true" className="sr-only"`), explicit `name="trashPurgePassword"`, and properly typed `<Btn type="button">` / `<Btn type="submit">`.
@@ -29,14 +30,20 @@ edit_policy: owner-writable
   4. Scope unlock modal with hidden username field and `name="trashUnlockPassword"`.
   5. Pass authenticated `user={session}` from `App.jsx` to `Trash` component while safely defaulting when omitted.
   6. Preserve pre-existing legitimate user search queries across deletion flow.
+  7. Add `onStorageMutationCommitted` callback prop to `<Trash>` in `src/screens/Trash.jsx`, invoking it strictly after successful physical reclamation (`result.ok === true` in `purgeItem` and `emptyTrash`).
+  8. Wire `onStorageMutationCommitted={dashApi.refresh}` to `<Trash>` in `src/App.jsx`.
+  9. `useApi.refresh()` triggers a silent background update (`isRefresh: true`, `hasDataRef: true`, no loading skeleton flash) of `/api/dashboard`, reconciling sidebar storage metrics in realtime.
+  10. Restore action does NOT call `onStorageMutationCommitted` because restored files were already accounted for in datalake storage.
+  11. Failed delete / failed Empty Trash do NOT trigger storage reconciliation.
+  12. Global polling frequency (`refreshMs: 30_000`) and backend storage accounting remain unchanged; zero new endpoints or WebSockets added.
 - Automated Evidence:
-  - Focused regression suite `IDEA1-AEGIS_Drive_LC/tests/trashDestructiveReauthUi.test.js`: 6/6 PASS.
+  - Focused regression suite `IDEA1-AEGIS_Drive_LC/tests/trashDestructiveReauthUi.test.js`: 12/12 PASS (6 reauth/search isolation tests + 6 realtime storage reconciliation tests).
   - Locked UI suite `tests/protectedTrashLockedUi.test.js`: 11/11 PASS.
   - Trash UI static contract suite `tests/protectedTrashUi.test.js`: 4/4 PASS.
   - Backend trash lifecycle suite `tests/protectedTrash.test.js`: 12/12 PASS.
   - Trash lifecycle hierarchy suite `tests/filesTrashLifecycle.test.js`: 15/15 PASS (1 test skipped requiring PostgreSQL).
-  - Overall Trash suite: 48 tests (47 passed, 1 skipped, 0 failed).
-  - Build: `npm run build` PASS (vite v7.3.6 built client in 8.62s; tracked `dist/index.html` restored).
+  - Overall Trash suite: 54 tests (53 passed, 1 skipped, 0 failed).
+  - Build: `npm run build` PASS (vite v7.3.6 built client in 4.79s; tracked `dist/index.html` restored).
   - Governance: root collaboration and vault tests 50/50 PASS.
   - Vault validator: 2 warnings (existing canvas owner reviews), 0 errors PASS.
   - Whitespace & secret scan: `git diff --check` clean, zero committed secrets.

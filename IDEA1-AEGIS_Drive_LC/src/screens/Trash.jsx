@@ -33,7 +33,7 @@ const remainingLabel = (t, purgeAt, now) => {
   return t('trashHoursLeft').replace('{n}', String(hours))
 }
 
-export function Trash({ t, user }) {
+export function Trash({ t, user, onStorageMutationCommitted }) {
   const username = typeof user === 'string' ? user : (user?.username ?? '')
   const [phase, setPhase] = useState('loading')
   const [password, setPassword] = useState('')
@@ -167,6 +167,7 @@ export function Trash({ t, user }) {
     setDestructivePassword('')
     setFeedback(t('trashPurged'))
     await loadItems()
+    onStorageMutationCommitted?.()
   }
 
   const emptyTrash = async () => {
@@ -186,6 +187,7 @@ export function Trash({ t, user }) {
     setItems([])
     setFeedback(t('trashEmptied').replace('{n}', String(result.data.deletedCount)))
     setPhase('locked')
+    onStorageMutationCommitted?.()
   }
 
   if (phase === 'loading') return <SkeletonLoader type="table" />

@@ -43,6 +43,12 @@ export async function apiFetch(path, options = {}) {
     return { ok: true, status: 200, data: { items: [...trashBackend.items] }, errorKind: null }
   }
 
+  if (path.startsWith('/api/trash/') && path.endsWith('/restore') && options.method === 'POST') {
+    const id = decodeURIComponent(path.slice('/api/trash/'.length, -'/restore'.length))
+    trashBackend.items = trashBackend.items.filter((item) => item.id !== id)
+    return { ok: true, status: 200, data: { restoredId: id }, errorKind: null }
+  }
+
   if (path.startsWith('/api/trash/') && options.method === 'DELETE') {
     if (trashBackend.purgeResult) return trashBackend.purgeResult
     if (options.body?.password === 'wrong-password') {

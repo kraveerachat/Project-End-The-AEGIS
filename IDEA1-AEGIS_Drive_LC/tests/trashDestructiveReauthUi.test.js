@@ -71,6 +71,7 @@ before(async () => {
     logLevel: 'silent',
     plugins: [reactPlugin()],
     server: { middlewareMode: true },
+    optimizeDeps: { noDiscovery: true, include: [] },
     resolve: { alias: [{ find: '../lib/api.js', replacement: apiStubPath }] },
   })
   ;({ Trash } = await vite.ssrLoadModule('/src/screens/Trash.jsx'))
@@ -87,11 +88,11 @@ beforeEach(() => {
   trashBackend.reset({ items: [...SAMPLE_ITEMS], unlocked: true })
 })
 
-async function mountTrash({ lang = 'en', user = { username: 'admin', role: 'admin' } } = {}) {
+async function mountTrash({ lang = 'en', user = { username: 'admin', role: 'admin' }, onStorageMutationCommitted } = {}) {
   const host = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(host)
   const root = createRoot(host)
-  await act(async () => root.render(React.createElement(Trash, { t: makeT(lang), user })))
+  await act(async () => root.render(React.createElement(Trash, { t: makeT(lang), user, onStorageMutationCommitted })))
   // Settle initial load /api/trash/status and /api/trash
   await act(async () => { await Promise.resolve() })
   await act(async () => { await Promise.resolve() })
@@ -126,6 +127,57 @@ async function mountTrash({ lang = 'en', user = { username: 'admin', role: 'admi
       await act(async () => {
         deleteBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
+    },
+    async clickRestore(itemName) {
+      const rows = [...host.querySelectorAll('.ui-card')]
+      const target = rows.find((r) => r.textContent.includes(itemName))
+      if (!target) throw new Error(`Row for ${itemName} not found`)
+      const restoreBtn = [...target.querySelectorAll('button')].find((b) =>
+        b.textContent.includes(STRINGS.en.trashRestore)
+      )
+      if (!restoreBtn) throw new Error(`Restore button for ${itemName} not found`)
+      await act(async () => {
+        restoreBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+    },
+    async submitRestore() {
+      const dialog = doc.querySelector('[role="dialog"]')
+      const submitBtn = [...dialog.querySelectorAll('button')].find((b) =>
+        b.textContent.trim() === STRINGS.en.trashRestore && !b.getAttribute('aria-label')
+      )
+      await act(async () => {
+        submitBtn?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      await act(async () => { await Promise.resolve() })
+      await act(async () => { await Promise.resolve() })
+    },
+    async openEmptyTrash() {
+      const emptyBtn = [...host.querySelectorAll('button')].find((b) =>
+        b.textContent.includes(STRINGS.en.trashEmpty)
+      )
+      if (!emptyBtn) throw new Error('Empty trash button not found')
+      await act(async () => {
+        emptyBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+    },
+    async submitEmptyTrash(confirmVal, pwd) {
+      const confirmInput = doc.querySelector('#trash-empty-confirm')
+      const pwdInput = doc.querySelector('#trash-empty-password')
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+      await act(async () => {
+        setter.call(confirmInput, confirmVal)
+        confirmInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        setter.call(pwdInput, pwd)
+        pwdInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      const form = pwdInput.closest('form')
+      await act(async () => {
+        if (form) {
+          form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
+        }
+      })
+      await act(async () => { await Promise.resolve() })
+      await act(async () => { await Promise.resolve() })
     },
     async submitPurgePassword(pwd) {
       const input = doc.querySelector('#trash-purge-password')
@@ -294,4 +346,95 @@ test('TRASH-REAUTH-6 failed reauth keeps dialog open, shows error, leaves items 
   } finally {
     await screen.unmount()
   }
+})
+
+test('TRASH-STORAGE-REFRESH-1 permanent deletion calls onStorageMutationCommitted on success', async () => {
+  let storageRefreshed = 0
+  const screen = await mountTrash({
+    onStorageMutationCommitted: () => { storageRefreshed++ },
+  })
+  try {
+    await screen.clickDeletePermanently('audit-log-2026.csv')
+    await screen.submitPurgePassword('secret')
+
+    assert.equal(screen.dialog(), null, 'dialog closed')
+    assert.equal(storageRefreshed, 1, 'onStorageMutationCommitted must be called exactly once')
+  } finally {
+    await screen.unmount()
+  }
+})
+
+test('TRASH-STORAGE-REFRESH-2 empty trash calls onStorageMutationCommitted on success', async () => {
+  let storageRefreshed = 0
+  const screen = await mountTrash({
+    onStorageMutationCommitted: () => { storageRefreshed++ },
+  })
+  try {
+    await screen.openEmptyTrash()
+    await screen.submitEmptyTrash('DELETE', 'secret')
+
+    assert.equal(screen.emptyPasswordInput(), null, 'empty trash password input must be unmounted')
+    assert.equal(storageRefreshed, 1, 'onStorageMutationCommitted must be called exactly once')
+  } finally {
+    await screen.unmount()
+  }
+})
+
+test('TRASH-STORAGE-REFRESH-3 failed permanent deletion does NOT call onStorageMutationCommitted', async () => {
+  let storageRefreshed = 0
+  const screen = await mountTrash({
+    onStorageMutationCommitted: () => { storageRefreshed++ },
+  })
+  try {
+    await screen.clickDeletePermanently('audit-log-2026.csv')
+    await screen.submitPurgePassword('wrong-password')
+
+    assert.ok(screen.dialog(), 'dialog remains open')
+    assert.equal(storageRefreshed, 0, 'onStorageMutationCommitted must not be called on failed auth')
+  } finally {
+    await screen.unmount()
+  }
+})
+
+test('TRASH-STORAGE-REFRESH-4 failed empty trash does NOT call onStorageMutationCommitted', async () => {
+  let storageRefreshed = 0
+  const screen = await mountTrash({
+    onStorageMutationCommitted: () => { storageRefreshed++ },
+  })
+  try {
+    await screen.openEmptyTrash()
+    await screen.submitEmptyTrash('DELETE', 'wrong-password')
+
+    assert.ok(screen.dialog(), 'dialog remains open')
+    assert.equal(storageRefreshed, 0, 'onStorageMutationCommitted must not be called on failed empty trash')
+  } finally {
+    await screen.unmount()
+  }
+})
+
+test('TRASH-STORAGE-REFRESH-5 restore does NOT call onStorageMutationCommitted', async () => {
+  let storageRefreshed = 0
+  const screen = await mountTrash({
+    onStorageMutationCommitted: () => { storageRefreshed++ },
+  })
+  try {
+    await screen.clickRestore('audit-log-2026.csv')
+    await screen.submitRestore()
+
+    assert.equal(screen.dialog(), null, 'dialog closed')
+    assert.deepEqual(screen.itemsRendered(), ['system-report.pdf', 'backup-image.iso'])
+    assert.equal(storageRefreshed, 0, 'restore must not call onStorageMutationCommitted')
+  } finally {
+    await screen.unmount()
+  }
+})
+
+test('TRASH-STORAGE-REFRESH-6 App.jsx passes dashApi.refresh as onStorageMutationCommitted to Trash', async () => {
+  const fs = await import('node:fs/promises')
+  const appSrc = await fs.readFile(path.join(rootDir, 'src/App.jsx'), 'utf8')
+  assert.match(
+    appSrc,
+    /trash:\s*<Trash[^>]*onStorageMutationCommitted=\{dashApi\.refresh\}/,
+    'App.jsx must bind onStorageMutationCommitted to dashApi.refresh'
+  )
 })
