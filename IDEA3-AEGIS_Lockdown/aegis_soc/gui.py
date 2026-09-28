@@ -230,6 +230,11 @@ class AegisAdminGUI:
         self.locked = False               # ล็อกเมื่อกรอก PIN ผิดหลายครั้ง
         self.pin_attempts = 0
         self.pending_cmd = None           # {'action','ts'} คำสั่งที่รอ ACK
+        # Evidence-driven Recovery observers (see recovery.py). The GUI stays
+        # the sole owner of mqtt.ack_callback/status_callback; it only
+        # forwards already store-correlated evidence on to whichever
+        # Recovery session is open, never a second raw MQTT consumer.
+        self._recovery_observers = []
         self.last_heartbeat_sent_ts = time.time()
         self.log_buffer = []              # (message, level) ทุกบรรทัด เพื่อกรองใหม่ได้
         self.session = DesktopSession()
@@ -1490,7 +1495,23 @@ class AegisAdminGUI:
             self._broker_disconnect_notified = False
         self._refresh_overview_metrics()
 
-    def on_status(self, state, rssi, heap):
+    def register_recovery_observer(self, observer):
+        """Add a Recovery session as a forwarded-evidence observer, once."""
+        if observer not in self._recovery_observers:
+            self._recovery_observers.append(observer)
+
+    def unregister_recovery_observer(self, observer):
+        """Stop forwarding evidence to a closed/destroyed Recovery session."""
+        if observer in self._recovery_observers:
+            self._recovery_observers.remove(observer)
+
+    def on_status(self, state, rssi, heap, command_nonce=""):
+        for observer in list(self._recovery_observers):
+            try:
+                observer.on_status_evidence(state, rssi, heap, command_nonce)
+            except Exception as error:
+                print(f"recovery observer status forwarding error: {error}")
+
         prev = getattr(self, "_last_uplink_state", None)   # สถานะครั้งก่อน
         changed = (prev != state)                          # เปลี่ยนไหม
         self._last_uplink_state = state
@@ -1512,6 +1533,12 @@ class AegisAdminGUI:
 
     def on_ack(self, ack, detail, nonce):
         """จับคู่ ACK กับคำสั่งที่รออยู่ด้วย nonce"""
+        for observer in list(self._recovery_observers):
+            try:
+                observer.on_ack_evidence(ack, detail, nonce)
+            except Exception as error:
+                print(f"recovery observer ack forwarding error: {error}")
+
         if not self.pending_cmd:
             return
 
@@ -2013,8 +2040,8 @@ def main():
     app.refresh_incident_banner()
 
     mqtt.log_callback = lambda m, l="INFO": root.after(0, app.log_message, m, l)
-    mqtt.status_callback = lambda s, r, h, _command_nonce: root.after(
-        0, app.on_status, s, r, h
+    mqtt.status_callback = lambda s, r, h, n: root.after(
+        0, app.on_status, s, r, h, n
     )
     mqtt.connection_callback = lambda ok: root.after(0, app.set_broker_state, ok)
     mqtt.ack_callback = lambda a, d, n: root.after(0, app.on_ack, a, d, n)
