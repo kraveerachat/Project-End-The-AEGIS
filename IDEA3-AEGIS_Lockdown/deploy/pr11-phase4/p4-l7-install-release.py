@@ -112,6 +112,9 @@ def _ensure_parent_dirs(releases_dir: Path, host_root: str) -> None:
 
     for d in missing:
         d.mkdir(mode=PARENT_DIR_MODE)
+        os.chmod(d, PARENT_DIR_MODE)  # mkdir's mode is ANDed with the caller's umask; normalize explicitly so a
+        # restrictive inherited umask (e.g. stages/L6c/apply.sh's `umask 077`) can never narrow a newly-created
+        # parent below the reviewed mode. Never applied to an already-existing ancestor (see loop above).
 
 
 def _copy_tree(src: Path, dst: Path) -> None:
@@ -119,6 +122,9 @@ def _copy_tree(src: Path, dst: Path) -> None:
     stripping group/other write bits. The source was already proven free of symlinks/specials by the guard; this is a
     second, independent check against a TOCTOU change between the guard call and the copy."""
     dst.mkdir(mode=0o755)
+    os.chmod(dst, 0o755)  # same umask-narrowing hazard as _ensure_parent_dirs: normalize every directory this
+    # installer itself creates (the release root and every subdirectory copied from the source), independent of
+    # the inherited process umask.
     for entry in sorted(src.iterdir()):
         info = entry.lstat()
         if stat.S_ISLNK(info.st_mode) or not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
