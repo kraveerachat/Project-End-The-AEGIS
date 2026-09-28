@@ -1,0 +1,17 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 runtime reactivation V3 preservation model (live attempt 2 evidence, 2026-09-27). Exact catalog members only;
+# nothing here is a generic allow key. See docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md.
+# PRE->RB from the FRESH baseline: the SAFE-EQUIVALENT residual after NetworkManager initialized Wi-Fi (p2p pseudo-device unavailable,
+# wpa_supplicant left running, target phy regulatory 00 -> TH with its derived iw-phy digest). The wpa_supplicant lines approve only when the
+# radio is disabled again, target rfkill blocked, no Wi-Fi active and the unit facts hold. Nothing is stopped or reset to make this pass.
+operation L34_V3_ROLLBACK_FRESH
+svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive
+svc.aegis-idea3-dnsmasq.service.SubState failed dead
+svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
+nm.active.device.p2p-dev-wlp0s20f3 <absent> none
+nm.device.p2p-dev-wlp0s20f3.type <absent> wifi-p2p
+nm.device.p2p-dev-wlp0s20f3.state <absent> unavailable
+svc.wpa_supplicant.service.ActiveState inactive active
+svc.wpa_supplicant.service.SubState dead running
+svc.wpa_supplicant.service.MainPID 0 <positive>
+svc.wpa_supplicant.service.ExecMainStartTimestamp <empty> <nonempty>
+wifi.phy.sha256 <sha256> <sha256>

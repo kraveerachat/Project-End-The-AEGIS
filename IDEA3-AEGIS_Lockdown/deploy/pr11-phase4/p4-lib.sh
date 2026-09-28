@@ -22,7 +22,7 @@ readonly P4_FS_ROOT="${AEGIS_P4_FS_ROOT:-${P4_FS_ROOT:-}}"
 readonly P4_WINDOW_TZ=Asia/Bangkok
 
 # ── stages (execution document §9, §12) ──────────────────────────────────────
-readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L7 L8 L9"
+readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L8 L9"
 
 p4_stage_known() { [[ " $P4_STAGES " == *" $1 "* ]] && [ -n "$1" ]; }
 
@@ -41,6 +41,9 @@ p4_stage_gaps() {
     L5) echo G-05,G-15 ;;
     L6a) echo G-07,G-08,G-09,G-10,G-14,G-15 ;;
     L6b) echo G-07,G-15 ;;
+    # L6c installs one already-built, already-reviewed immutable release only: no protocol-key generation (G-11) or Core
+    # credential/LoadCredential wiring (G-12) applies, because it never provisions a key or a credential.
+    L6c) echo none ;;
     L7) echo G-11,G-12 ;;
     L8) echo G-04,G-11,G-16 ;;
     L9) echo none ;;
@@ -162,17 +165,22 @@ p4_ro_allowed() {
       return 1
       ;;
     python3)
-      # Exactly one read-only helper invocation: the L5 trusted-time state helper shipped beside this library.
-      [ $# -eq 3 ] && [ "$2" = "$P4_HERE/p4-l5-clock.py" ] && [ "$3" = state ] || return 1
-      return 0
+      # Exactly two read-only helper invocations, each shipped beside this library: the L5 trusted-time state
+      # helper, and the L6c release-catalog tree-state digest helper (one release directory argument only).
+      if [ $# -eq 3 ] && [ "$2" = "$P4_HERE/p4-l5-clock.py" ] && [ "$3" = state ]; then return 0; fi
+      if [ $# -eq 3 ] && [ "$2" = "$P4_HERE/p4-l6c-tree-digest.py" ] && p4_is_safe_fs_path "$3"; then return 0; fi
+      return 1
       ;;
     find)
-      [ $# -eq 5 ] || return 1
-      p4_is_safe_fs_path "$2" || return 1
-      [ "$3" = "-xdev" ] || return 1
-      [ "$4" = "-type" ] || return 1
-      [ "$5" = "f" ] || return 1
-      return 0
+      p4_is_safe_fs_path "${2:-}" || return 1
+      if [ $# -eq 5 ] && [ "$3" = "-xdev" ] && [ "$4" = "-type" ] && [ "$5" = "f" ]; then
+        return 0
+      fi
+      # L6c release-catalog capture: list only the immediate (depth-1) subdirectories of a known releases directory.
+      if [ $# -eq 8 ] && [ "$3" = "-mindepth" ] && [ "$4" = "1" ] && [ "$5" = "-maxdepth" ] && [ "$6" = "1" ]         && [ "$7" = "-type" ] && [ "$8" = "d" ]; then
+        return 0
+      fi
+      return 1
       ;;
   esac
 

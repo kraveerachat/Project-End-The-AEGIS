@@ -1,0 +1,7 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L6c allowed state drift.
+# Exact drift keys recorded by p4-l0-capture.sh during an immutable Core release install.
+# Wildcards are strictly forbidden. The release catalog itself (host.aegis_idea3.release_catalog) is NOT listed here: it
+# is approved only by the separate, opt-in ALLOW_L6C_RELEASE_FILE relational rule in p4-compare.sh, which can approve the
+# addition of exactly the one named new release id and can NEVER approve a mutation or removal of any existing release.
+host.path./opt/aegis-idea3
+host.path./opt/aegis-idea3/releases
