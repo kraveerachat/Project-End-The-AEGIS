@@ -17,25 +17,34 @@ edit_policy: owner-writable
 
 ## Current Task
 
-**IDEA1-ROLE-UPLOAD-UI-POLISH-1 — HUMAN ACCEPTED & MERGE READY**
+**IDEA1-FILES-VAULT-PARITY-RECOVERY-1 — HUMAN ACCEPTED & MERGE READY**
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-files-vault-parity-recovery`; PR: #219 (base: `main`).
+- Exact start: current live-candidate source `ad43c89b629fe67f556677b9ba667b7e3b001fdf` (2026-09-26); refreshed with current `origin/main` (`6fed4b2128b8e8444fbf9a329a6f4a758dabd525`).
+- Scope: forensically compare the PR171 accepted source, PR212 accepted source, and current candidate; restore only proven Files/Private Vault interaction or reconciliation regressions.
+- Human Owner live acceptance: **PASS** across all target behaviors:
+  - `PR219_NATIVE_3_FILE_PICKER=PASS`: Private Vault native picker accepted 3 files simultaneously, all 3 uploaded successfully, all 3 appeared normally in current Vault location.
+  - `PR219_3_FILE_DRAG_DROP=PASS`: Private Vault Explorer drag/drop accepted 3 files simultaneously, all 3 uploaded successfully, all 3 appeared normally in current Vault location.
+  - `PR219_HUMAN_ACCEPTANCE=PASS`: live acceptance complete across all 7 targeted behaviors (Admin/DataLake parity, 3-file picker/drop, marquee, blank clear, supported preview covers, delete transitions, normal Files regression).
+  - `PRODUCTION_REDEPLOY_REQUIRED=NO`: PR219 changes only tests and status documentation; no application/runtime source change; Production not mutated (`PRODUCTION_MUTATED=NO`).
+- Safety: no redesign, crypto/security change, performance tuning, transport/chunk/concurrency/media-limit change, PR #216/PR #218 mutation, or Production mutation.
+- Forensic result: the PR212-to-current delta changes only `App.jsx` authorization naming (`screen` to `activeScreen`) and normal-Files `UploadDrawer.jsx`; Vault interaction/upload/media modules are unchanged. The sole baseline failure was a stale source-regex assertion after that naming change, not a runtime failure; it is corrected without changing product source.
+- Automated evidence: focused Files/Vault interaction, upload, media, and reconciliation matrix 174/174 PASS (including new real three-file picker and Explorer-drop coverage); build PASS; governance 50/50 PASS; Vault validation PASS with two existing owner-Canvas warnings; diff and added-line secret scans PASS.
+- Closeout: exactly one immutable task receipt `2026-09-28_203000_kla_idea1-files-vault-parity-recovery.md` created; PR #219 ready for Human Owner merge.
+
+### Session Register — IDEA1-FILES-VAULT-PARITY-RECOVERY-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| IFVPR-S2 | Human Owner live acceptance recording, PR218 merge dependency reconciliation, base retarget to main, final receipt, and merge readiness | PASS | PR219_NATIVE_3_FILE_PICKER=PASS, PR219_3_FILE_DRAG_DROP=PASS, PR219_HUMAN_ACCEPTANCE=PASS. PRODUCTION_REDEPLOY_REQUIRED=NO. Base retargeted to main; refreshed with current origin/main (6fed4b21); focused 174/174 PASS; build PASS; governance 50/50 PASS; Vault validation PASS (2 Canvas warnings); diff/secret scan PASS. Exactly one final receipt added. | Closeout checkpoint | Accepted; merge readiness complete | Human Owner merge of PR #219 into main | Human Owner merge |
+| IFVPR-S1 | Exact-SHA worktree, historical diff, interaction/upload/media/delete trace, direct regression coverage, verification | AUTOMATED PASS / HUMAN ACCEPTANCE PENDING | PR171→PR212 added the Stage-D queue/reconcile/media fixes; PR212→current changed only App authorization naming and normal-Files drawer presentation. Marquee refs/classes, external drop, full `FileList` enqueue, post-upload barrier, scheduler re-observation, and committed-head reducer reconciliation remain present. Baseline 171/172 exposed one stale V10 source-regex assertion after `screen` became `activeScreen`; corrected test and new real three-file picker/drop coverage yield focused 174/174 PASS. Build PASS; governance 50/50; validator PASS with two existing warnings; diff/secret scans PASS. Application source unchanged. | `9f6c8526` test/status checkpoint; Draft PR #219 | Old-source deployment not proven; no Class-A product source regression proven. Vault upload/delete latency follows encrypted revision publish/put/CAS before immediate committed-head reducer reconciliation; serialized CAS, client crypto, bounded preview work, and media limits remain intentional. Performance tuning deferred to PR #216 after P1 baseline. | Human checks: Vault three-file Explorer drop; three-file native picker; left/right/bottom marquee and blank clear; new supported JPG/GIF/video cover without refresh; delete transition; Files drop/marquee and PR218 drawer/tray; Admin/DataLake parity where applicable | Stop at Human Owner browser acceptance; no receipt or Ready transition |
+
+## Completed Task — IDEA1-ROLE-UPLOAD-UI-POLISH-1
 
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `fix/idea1-role-upload-ui-polish`; PR: #218.
-- Start: `origin/main` at `83610fa31c928e18be6f1842f76a9a190e502c60` (2026-09-26); refreshed with current `origin/main` (`12305f2d3abee6cb3aaa7b49093b00c4b51f6e79`).
-- Scope: make the server-authoritative Storage & Backup navigation Admin-only; fail closed on manually selected unauthorized screens; make normal Files upload drawer/float tray mutually exclusive using the accepted shared queue surface.
-- Human Owner acceptance: **PASS** across all target behaviors:
-  - Admin sees Storage & Backup navigation: PASS.
-  - DataLake/User does not receive unauthorized Storage navigation: PASS.
-  - While upload drawer is open, upload queue is shown in drawer: PASS.
-  - Floating upload tray does not overlap the open drawer: PASS.
-  - When drawer is closed, compact floating tray is shown: PASS.
-  - Reopening the drawer removes the duplicate floating tray: PASS.
-  - Upload continues across drawer open/close transitions: PASS.
-  - Production redeployment: NOT REQUIRED (PR218 implementation is already present in currently deployed PR220 lineage).
-- Safety: one queue owner; upload transport, chunking, concurrency, recovery, transfer-rate logic, PR #216, and Production remain untouched.
-- Implementation checkpoint: `eccad4f00f12a93ec8c7205fccc69e1f4a8d4fce`.
-- Automated evidence: focused RBAC/navigation/upload/password-reset 45/45 PASS; upload recovery/transport 84/84 PASS; build PASS; governance 50/50 PASS; Vault validation PASS with two existing owner-Canvas warnings; diff check and added-line secret scan PASS.
-- Closeout: exactly one immutable task receipt `2026-09-28_194800_kla_idea1-role-upload-ui-polish.md` created; PR #218 ready for Human Owner merge.
+- State: **CLOSED / IMPLEMENTED & HUMAN ACCEPTED (2026-09-28)** — Merged into main as `6fed4b2128b8e8444fbf9a329a6f4a758dabd525`. Storage & Backup navigation made Admin-only with fail-closed unauthorized screen resolution; normal Files upload drawer and floating tray made mutually exclusive with preserved transfer continuity. Deployed in PR220 lineage (`aegis-prod-drive:pr220-640bdc3bb3d8`).
 
 ### Session Register — IDEA1-ROLE-UPLOAD-UI-POLISH-1
 
