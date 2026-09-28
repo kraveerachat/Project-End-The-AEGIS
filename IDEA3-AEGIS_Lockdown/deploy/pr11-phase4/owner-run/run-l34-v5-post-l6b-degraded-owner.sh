@@ -42,7 +42,7 @@ LIB=$P4/p4-l34-reactivation-lib.sh
 AP_IF=wlp0s20f3
 AP_ADDR=10.77.30.1
 PROFILE=/etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection
-EXPECTED_SCOPE='L3_L4_RUNTIME_REACTIVATION_V5_POST_L6B_DEGRADED: temp wlp0s20f3 device autoconnect off, activate existing aegis-idea3-ap exactly once, restore device autoconnect, reset-failed+start the existing accepted aegis-idea3-dnsmasq.service, wait bounded for the already-accepted aegis-idea3-mosquitto.service to recover via its own systemd auto-restart once its bind address exists (no explicit broker start/restart/reset-failed), no rfkill/radio/persistent rewrite, no L7/ESP32/MQTT action'
+EXPECTED_SCOPE='L3_L4_RUNTIME_REACTIVATION_V5_POST_L6B_DEGRADED: activate aegis-idea3-ap once, recover dnsmasq, bounded broker auto-restart wait, no broker control, no persistent rewrite, no L7/ESP32/MQTT action'
 TODAY=$(TZ=Asia/Bangkok date +%F)
 STAMP=$(TZ=Asia/Bangkok date +%Y%m%d-%H%M%S)
 EVID=/home/kittipat/Workspace/idea3-p4-evidence/$TODAY-l34-v5-$STAMP
