@@ -91,7 +91,11 @@ for u in "$ENGINE" "$TUNNEL" twingate.service mosquitto.service; do
 done
 unit_props() { systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID "$1"; }
 unit_props "$DNSMASQ_UNIT" | l34_service_pre_gate || gate "$(unit_props "$DNSMASQ_UNIT" | l34_service_pre_gate 2>&1 | head -n 1)"
-unit_props "$BROKER_UNIT" | l34_v5_broker_crashloop_gate || gate "$(unit_props "$BROKER_UNIT" | l34_v5_broker_crashloop_gate 2>&1 | head -n 1)"
+BROKER_JOURNAL_PREGATE=$(mktemp) || die "could not create temporary broker journal capture file"
+trap 'rm -f "$BROKER_JOURNAL_PREGATE"' EXIT
+journalctl -u "$BROKER_UNIT" -n 30 --no-pager > "$BROKER_JOURNAL_PREGATE" 2>&1 || gate "broker journal capture failed"
+unit_props "$BROKER_UNIT" | l34_v5_broker_crashloop_gate "$BROKER_JOURNAL_PREGATE" \
+  || gate "$(unit_props "$BROKER_UNIT" | l34_v5_broker_crashloop_gate "$BROKER_JOURNAL_PREGATE" 2>&1 | head -n 1)"
 [ "$GATE_FAILED" = 0 ] || die "one or more pre-gates failed; NOTHING was created or changed"
 
 # 4. the bounded attempt is consumed here: a second invocation for this AUTH_DIR is refused, even after a failure
