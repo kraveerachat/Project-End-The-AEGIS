@@ -461,3 +461,54 @@ l34_v4_autoconnect_pre_gate() {
   [ "$1" = yes ] || { l34_reason "L34_V4_AUTOCONNECT_UNEXPECTED:DEVICE=$1"; return 1; }
   [ "$2" = no ] || { l34_reason "L34_V4_AUTOCONNECT_UNEXPECTED:AP_PROFILE=$2"; return 1; }
 }
+
+# ── V5 (POST-L6b/L6c DEGRADED post-reboot) reactivation: SAME wifi/rfkill/radio/wpa topology as V4
+# (l34_v4_baseline_gate is reused verbatim — V5 never duplicates it), but dnsmasq is in the exact V3
+# post-reboot failed/start-limit-hit precondition (l34_service_pre_gate, reused verbatim from V3) AND the
+# L6b broker is crash-looping (auto-restarting) because its AP-facing listener cannot bind while the AP
+# address is absent. Neither V3 (requires NM radio disabled) nor V4 (requires dnsmasq AND the broker
+# already active/running) accepts this host state; V5 is a new, narrowly-scoped sibling that recovers
+# dnsmasq the exact V3 way (reset-failed + start, once) and then only WAITS, bounded, for the broker to
+# recover through its own already-configured systemd auto-restart once the AP address exists — it never
+# issues start/stop/restart/reset-failed against the broker unit. ─────────────────────────────────────────
+
+L34_V5_BROKER_CONF=/etc/aegis-idea3/mqtt/aegis-idea3-mosquitto.conf
+
+# l34_v5_broker_crashloop_gate JOURNAL_TAIL_FILE < `systemctl show -p LoadState -p ActiveState -p SubState
+#   -p UnitFileState -p Result -p MainPID aegis-idea3-mosquitto.service` — the ONE supported V5 broker
+# PRE-state: enabled, most recent run ended in a plain non-zero exit (not signal-killed, not OOM-killed, not
+# timed out, not a start-limit-hit permanent failure), currently between auto-restart attempts (MainPID=0).
+# systemd's own unit state CANNOT by itself distinguish "crash-looping because its AP-facing bind address is
+# absent" from an unrelated broker failure (a bad TLS cert, an ACL/passwd permission error, a malformed
+# config) — those produce the IDENTICAL LoadState/ActiveState/SubState/UnitFileState/Result/MainPID tuple.
+# JOURNAL_TAIL_FILE (a bounded, read-only `journalctl -u aegis-idea3-mosquitto.service -n <N> --no-pager`
+# capture produced by the caller; this function only inspects it, never invokes journalctl itself) must
+# contain the broker's own exact bind-failure signature, the one piece of evidence that actually narrows the
+# cause to the intended baseline.
+l34_v5_broker_crashloop_gate() {
+  local journal=${1:-} text kv
+  [ -n "$journal" ] && [ -r "$journal" ] || { l34_reason "L34_V5_BROKER_JOURNAL_UNREADABLE"; return 1; }
+  text=$(cat)
+  for kv in LoadState=loaded ActiveState=activating SubState=auto-restart UnitFileState=enabled Result=exit-code; do
+    grep -qx "$kv" <<< "$text" || { l34_reason "L34_V5_BROKER_PRESTATE_UNEXPECTED:${kv%%=*}"; return 1; }
+  done
+  grep -qx 'MainPID=0' <<< "$text" || { l34_reason "L34_V5_BROKER_PRESTATE_UNEXPECTED:MainPID"; return 1; }
+  grep -qF 'Error: Cannot assign requested address' "$journal" \
+    || { l34_reason "L34_V5_BROKER_JOURNAL_SIGNATURE_MISSING"; return 1; }
+}
+
+# l34_v5_broker_autorestart_evidence UNIT PRE_IDENTITY_FILE — the real, positive evidence backing V5's claim
+# that the broker recovered through its OWN systemd auto-restart: NRestarts strictly increased from the PRE
+# snapshot (l34_v4_identity_snapshot, reused verbatim). systemd increments NRestarts only for an automatic
+# restart the service manager performs under the unit's own Restart= setting; a manual `systemctl
+# start`/`restart` does NOT increment it. This proves at least one genuine automatic restart occurred in the
+# window — it does NOT, and cannot, prove that no external actor also issued a command during that same
+# window, so callers must not claim more than that.
+l34_v5_broker_autorestart_evidence() {
+  local unit=$1 pre=$2 pre_n now_n
+  [ -f "$pre" ] || { l34_reason "L34_V5_BROKER_IDENTITY_PRE_MISSING"; return 1; }
+  pre_n=$(awk -F= '$1 == "NRestarts" { print $2 }' "$pre")
+  now_n=$(systemctl show -p NRestarts --value "$unit" 2>/dev/null) || { l34_reason "L34_V5_BROKER_IDENTITY_UNREADABLE:$unit"; return 1; }
+  [[ "$pre_n" =~ ^[0-9]+$ ]] && [[ "$now_n" =~ ^[0-9]+$ ]] || { l34_reason "L34_V5_BROKER_NRESTARTS_UNREADABLE"; return 1; }
+  [ "$now_n" -gt "$pre_n" ] || { l34_reason "L34_V5_BROKER_NRESTARTS_DID_NOT_INCREASE"; return 1; }
+}
