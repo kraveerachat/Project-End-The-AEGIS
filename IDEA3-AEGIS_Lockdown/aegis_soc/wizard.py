@@ -123,7 +123,7 @@ class IncidentRecoveryWizard(tk.Toplevel):
                                            justify="left")
         self._subheading_label.pack(anchor="w", pady=(2, 0))
 
-        scroll = ScrollFrame(self, bg=COLOR_BG)
+        scroll = ScrollFrame(self)
         scroll.pack(fill="both", expand=True, padx=18, pady=(4, 14))
         for gate in GATE_ORDER:
             self._build_gate_row(scroll.inner, gate)
