@@ -25,6 +25,10 @@ MACHINE_A_MUTATION=NO
 N0_CAPACITY_CRITERION=NOT_DEFINED
 N0_CAPACITY=NOT_PROVEN
 N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION
+H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
+CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
+ACTIVE_CAPACITY_PROBE=NOT_RUN
+N1_STARTED=NO
 ```
 
 Both hostnames and both ports are **CANDIDATE_ONLY**. They are not DNS,
@@ -297,39 +301,44 @@ immutable H1 candidate:
 
 ```text
 CAPACITY_INPUT_FREEZE_SOURCE_SHA=9e39fe5786a5ac7428d2e5eb47cb2285a63bc606
+H1_PROBE_IMPLEMENTATION_SOURCE_SHA=5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9
+MONITOR_FINAL_SOURCE_SHA=5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9
 MONITOR_BUILD_CONTEXT=IDEA2-AEGIS_Monitor
 MONITOR_DOCKERFILE=IDEA2-AEGIS_Monitor/Dockerfile
-MONITOR_BASE_IMAGE=node:20-alpine
-MONITOR_RUNTIME_BASE=node:20-alpine_UNPINNED
-MONITOR_BASE_IMAGE_DIGESTS=REQUIRES_FUTURE_READONLY_REGISTRY_RESOLUTION
-MONITOR_IMMUTABLE_IMAGE_ID=NOT_SELECTED
+MONITOR_BASE_IMAGE=node:20-alpine@sha256:afdf98210b07b586eb71fa22ba2e432e058e4cd1304d31ed60888755b8c865fb
+MONITOR_BASE_INDEX_DIGEST=sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+MONITOR_BASE_IMAGE_DIGESTS=RESOLVED_READONLY_LINUX_AMD64
+MONITOR_IMMUTABLE_IMAGE_ID=NOT_BUILT
 
 POSTGRES_IMAGE_TAG=postgres:15-alpine
-POSTGRES_REPO_DIGEST=NOT_PINNED
-POSTGRES_DIGEST=REQUIRES_FUTURE_READONLY_OR_PROBE_RESOLUTION
+POSTGRES_INDEX_DIGEST=sha256:f7d23353e1b15400d22ebe31189f4d314b87a4c129cc400c8c2d8d4ca127bf81
+POSTGRES_DIGEST=sha256:25d430274d8a31184f9435cc5b2f56aff254952065bbbcac0c51acedb5a1d1e7
+POSTGRES_IMAGE=postgres:15-alpine@sha256:25d430274d8a31184f9435cc5b2f56aff254952065bbbcac0c51acedb5a1d1e7
 
-H1_GATEWAY_REFERENCE_SOURCE=gateway/Dockerfile_AND_gateway/nginx.conf_DEV_HTTP_ONLY
-H1_GATEWAY_ARTIFACT=NOT_IMPLEMENTED
-GATEWAY_IMPLEMENTATION_REQUIRED=YES
-H1_COMPOSE_ARTIFACT=NOT_IMPLEMENTED
-ACTIVE_CAPACITY_PROBE_READY=NO
+H1_GATEWAY_DOCKERFILE=deploy/idea2/h1-gateway/Dockerfile
+H1_GATEWAY_CONFIG=deploy/idea2/h1-gateway/nginx.conf
+H1_GATEWAY_ARTIFACT=IMPLEMENTED_SOURCE_ONLY
+GATEWAY_BASE_INDEX_DIGEST=sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
+GATEWAY_BASE_DIGEST=sha256:0530961ff0592b58c10f767535cc0abdfccf9e389ff7cc90f87320c1bc7e8506
+GATEWAY_BASE_IMAGE=nginx:alpine@sha256:0530961ff0592b58c10f767535cc0abdfccf9e389ff7cc90f87320c1bc7e8506
+GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE
+H1_COMPOSE_ARTIFACT=deploy/idea2/h1-capacity-probe.compose.yml
+CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
+ACTIVE_CAPACITY_PROBE=NOT_RUN
+ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION
 ```
 
-The existing Monitor multi-stage Dockerfile is the build source for the future
-candidate. Its runtime source is frozen at the commit above, its exact
-Dockerfile and context are fixed, and both build stages currently name the same
-mutable `node:20-alpine` tag. The repository contains neither the OCI index
-digest nor the Linux/amd64 child-manifest digest, so both must be resolved and
-reviewed through a future read-only registry-metadata step before a build is
-authorized. The PostgreSQL tag matches current repository definitions but is
-also mutable; the repository contains neither its OCI index digest nor its
-Linux/amd64 child-manifest digest. No tag is accepted as immutable authority.
+The Monitor multi-stage Dockerfile is the build source for the future candidate.
+Both stages now accept the same required H1 build argument, while the normal
+development default remains unchanged. Read-only registry metadata resolved the
+OCI index and Linux/amd64 child-manifest digests recorded above for Node,
+PostgreSQL, and nginx. The probe Compose contract requires digest-form image
+references and rejects mutable tags. No image has been pulled or built by this
+repository-only checkpoint, so an immutable candidate image ID remains
+`NOT_BUILT`.
 
-The root gateway builds the general HUB and uses an HTTP development nginx
-configuration. It lacks the H1 candidate TLS and exact Agent route boundary,
-so it is reference source only and must not be reused or mislabeled as the H1
-gateway artifact. The smallest acceptable future H1-only gateway artifact is a
-dedicated, digest-pinned nginx image and configuration that:
+The root gateway still builds the general HUB and remains forbidden for H1.
+The dedicated H1-only gateway source now implements the following boundary:
 
 - contains no HUB build and joins only the probe/lab ingress network;
 - accepts TLS only, with the reviewed public certificate chain and private key
@@ -342,10 +351,12 @@ dedicated, digest-pinned nginx image and configuration that:
   and
 - uses bounded logs and request/proxy limits without disabling TLS validation.
 
-That dedicated Dockerfile/configuration and its pinned nginx digest are not
-implemented. The gateway must be implemented, contract-tested, and reviewed
-before the capacity probe can be authorized because gateway image bytes,
-writable-layer demand, and peak RSS are required formula inputs.
+The dedicated Dockerfile/configuration and pinned nginx digest are implemented
+and contract-tested as source only. TLS material remains runtime-only and no
+certificate, key, listener, container, DNS entry, or lab resource was created.
+Gateway image bytes, writable-layer demand, and peak container memory usage
+remain unmeasured until
+the separately authorized active probe runs.
 
 The approved logical N1 resource model remains:
 
@@ -360,10 +371,11 @@ The approved logical N1 resource model remains:
 - redacted command output, image identity, resource inventory, migration, and
   rollback evidence retained outside secrets.
 
-Because the H1 Compose and gateway artifacts are not implemented and immutable
-image IDs are not selected, their candidate image bytes, initialized database
-bytes, writable-layer peak, and lab peak RSS are
-`NOT_MEASURABLE_READ_ONLY` today.
+Although the H1 probe Compose and gateway source now exist and base images are
+digest-pinned, no candidate image was built and no probe service was started.
+Candidate image bytes, initialized database bytes, writable-layer peak, and lab
+peak container memory usage therefore remain
+`NOT_MEASURED_ACTIVE_PROBE_REQUIRED`.
 
 ##### Owner-run read-only host measurements
 
@@ -400,7 +412,7 @@ case "$DIGEST_REF" in
   *) echo 'ABORT_EXACT_REPODIGEST_REQUIRED' >&2; exit 1 ;;
 esac
 
-# Current comparable workload memory and configured limits (REFERENCE_ONLY).
+# Current comparable workload memory usage and configured limits (REFERENCE_ONLY).
 MONITOR_ID="$(docker ps -q \
   --filter label=com.docker.compose.project=aegis-prod \
   --filter label=com.docker.compose.service=monitor)"
@@ -450,7 +462,7 @@ swapon --show --bytes
 Read-only measurable values are therefore: host filesystem bytes/inodes;
 current Docker image IDs, local unpacked sizes, RepoDigests where present,
 shared/unique image and volume totals, and builder cache; current Production
-Monitor/PostgreSQL RSS and configured limits; current Production PostgreSQL
+Monitor/PostgreSQL container memory usage and configured limits; current Production PostgreSQL
 volume bytes; current Production Monitor writable-layer bytes; and current host
 memory/swap pressure. Local compressed layer bytes require an exact RepoDigest
 and read-only registry manifest access; they are not inferable from
@@ -471,16 +483,16 @@ retains room for one failed cycle followed by one clean rerun.
 
 | Decision | Minimum defensible option | Conservative option | Effect on current host evidence |
 |---|---|---|---|
-| PostgreSQL growth | `POSTGRES_GROWTH_MINIMUM_OPTION = max(POSTGRES_INITIAL_VOLUME_BYTES, CHARACTERIZED_ACCEPTANCE_DB_DELTA_BYTES)` | `POSTGRES_GROWTH_CONSERVATIVE_OPTION = max(2 * POSTGRES_INITIAL_VOLUME_BYTES, 2 * CHARACTERIZED_ACCEPTANCE_DB_DELTA_BYTES)` | The current `7.3 GiB` disk headroom becomes `7.3 GiB - POSTGRES_GROWTH_* - every other DISK_REQUIRED_BYTES term`; numeric fit is not proven. |
-| Host RAM reserve | `HOST_RAM_RESERVE_MINIMUM_OPTION = MEASURED_NONLAB_PEAK_RSS_DELTA_BYTES` | `HOST_RAM_RESERVE_CONSERVATIVE_OPTION = 2 * MEASURED_NONLAB_PEAK_RSS_DELTA_BYTES` | The current approximately `5.4 GiB` available RAM leaves `5.4 GiB - HOST_RAM_RESERVE_*` for characterized lab ceilings; zero/unmeasured delta is invalid. |
+| PostgreSQL growth | `POSTGRES_GROWTH_MINIMUM_OPTION = max(POSTGRES_INITIAL_VOLUME_BYTES, CHARACTERIZED_PROBE_DB_DELTA_BYTES)` | `POSTGRES_GROWTH_CONSERVATIVE_OPTION = max(2 * POSTGRES_INITIAL_VOLUME_BYTES, 2 * CHARACTERIZED_PROBE_DB_DELTA_BYTES)` | The current `7.3 GiB` disk headroom becomes `7.3 GiB - POSTGRES_GROWTH_* - every other DISK_REQUIRED_BYTES term`; numeric fit is not proven. |
+| Host RAM reserve | `HOST_RAM_RESERVE_MINIMUM_OPTION = MEASURED_NONLAB_PEAK_MEMORY_USAGE_DELTA_BYTES` | `HOST_RAM_RESERVE_CONSERVATIVE_OPTION = 2 * MEASURED_NONLAB_PEAK_MEMORY_USAGE_DELTA_BYTES` | The current approximately `5.4 GiB` available RAM leaves `5.4 GiB - HOST_RAM_RESERVE_*` for characterized lab ceilings; zero/unmeasured delta is invalid. |
 | Disk safety reserve | `DISK_SAFETY_RESERVE_MINIMUM_OPTION = max(CANDIDATE_BUILD_TRANSIENT_BYTES, ROLLBACK_ARTIFACT_BYTES)` | `DISK_SAFETY_RESERVE_CONSERVATIVE_OPTION = CANDIDATE_BUILD_TRANSIENT_BYTES + ROLLBACK_ARTIFACT_BYTES` | Subtracted from the same `7.3 GiB` together with images, PostgreSQL, writable layers, and evidence. If the remainder is not positive, the probe stays blocked. |
 | Evidence/log cap | `EVIDENCE_LOG_CAP_MINIMUM_OPTION = ONE_COMPLETE_REDACTED_PROBE_EVIDENCE_SET_BYTES` | `EVIDENCE_LOG_CAP_CONSERVATIVE_OPTION = 2 * ONE_COMPLETE_REDACTED_PROBE_EVIDENCE_SET_BYTES` | Subtracted from `7.3 GiB`; the conservative option retains one failed and one successful redacted evidence set. |
 
-`CHARACTERIZED_ACCEPTANCE_DB_DELTA_BYTES` includes PostgreSQL data, indexes,
-and WAL peak observed for the bounded synthetic N1-N7-equivalent database
-workload. `MEASURED_NONLAB_PEAK_RSS_DELTA_BYTES` is the largest normal-load
-increase in non-lab resident memory during an owner-approved read-only
-observation window. `ONE_COMPLETE_REDACTED_PROBE_EVIDENCE_SET_BYTES` is the sum
+`CHARACTERIZED_PROBE_DB_DELTA_BYTES` includes PostgreSQL data, indexes, and WAL
+peak observed for the explicitly sized synthetic probe workload.
+`MEASURED_NONLAB_PEAK_MEMORY_USAGE_DELTA_BYTES` is the largest normal-load
+increase in non-lab memory usage during an owner-approved read-only observation
+window. `ONE_COMPLETE_REDACTED_PROBE_EVIDENCE_SET_BYTES` is the sum
 of explicit per-file byte caps for preflight, workload, cleanup, and final
 verification outputs; raw environment, credentials, keys, tokens, and database
 URLs remain forbidden.
@@ -511,10 +523,11 @@ exact reviewed H1 candidate and workload:
   counted as available capacity.
 - `EVIDENCE_LOG_ALLOWANCE_BYTES`: approved bound for redacted logs, exported
   evidence, and temporary verification artifacts retained through rollback.
-- `LAB_PEAK_RSS_BYTES`: measured peak resident memory of the exact concurrent
-  gateway, Monitor, and PostgreSQL candidate under the N1-N7 acceptance load,
-  together with host available-memory and swap-pressure observations over the
-  same interval.
+- `LAB_PEAK_MEMORY_USAGE_BYTES`: measured peak Docker-reported container memory
+  usage of the exact concurrent gateway, Monitor, and PostgreSQL candidate under
+  the explicitly sized synthetic probe workload, together with host
+  available-memory and swap-pressure observations over the same interval. This
+  value is not labeled RSS.
 
 - `CANDIDATE_BUILD_TRANSIENT_BYTES`: maximum additional build/pull/cache bytes
   that coexist while producing the exact candidate on this host, or zero when
@@ -545,7 +558,7 @@ DISK_REQUIRED_BYTES =
   + EVIDENCE_LOG_ALLOWANCE_BYTES
   + DISK_SAFETY_RESERVE_BYTES
 
-RAM_REQUIRED_BYTES = LAB_PEAK_RSS_BYTES + HOST_RAM_RESERVE_BYTES
+RAM_REQUIRED_BYTES = LAB_PEAK_MEMORY_USAGE_BYTES + HOST_RAM_RESERVE_BYTES
 
 INODE_REQUIRED_COUNT = CHARACTERIZED_PEAK_NEW_INODES + INODE_SAFETY_RESERVE_COUNT
 
@@ -574,46 +587,71 @@ CAPACITY_PROBE_HOST_PORTS=NONE
 CAPACITY_PROBE_PRODUCTION_NETWORKS=NONE
 CAPACITY_PROBE_PRODUCTION_VOLUMES=NONE
 CAPACITY_PROBE_MACHINE_A_TRAFFIC=NONE
-CAPACITY_PROBE_COMPOSE_FILE=NOT_IMPLEMENTED
-CAPACITY_PROBE_STORAGE_WATCHDOG=REQUIRED_NOT_IMPLEMENTED
+CAPACITY_PROBE_COMPOSE_FILE=deploy/idea2/h1-capacity-probe.compose.yml
+CAPACITY_PROBE_STORAGE_WATCHDOG=IMPLEMENTED_SOURCE_ONLY
+CAPACITY_PROBE_RUNNER=deploy/idea2/h1-capacity-probe/run_probe.py
+CAPACITY_PROBE_CLEANUP=deploy/idea2/h1-capacity-probe/cleanup_probe.py
+ACTIVE_CAPACITY_PROBE=NOT_RUN
+PROBE_WORKLOAD_REQUEST_COUNT=OWNER_DECISION_REQUIRED
+PROBE_WORKLOAD_POSTGRES_ROWS=OWNER_DECISION_REQUIRED
+PROBE_WORKLOAD_POSTGRES_PAYLOAD_BYTES=OWNER_DECISION_REQUIRED
+PROBE_WORKLOAD_REPRESENTATIVENESS=OWNER_REVIEW_REQUIRED
 N1_STARTED=NO
 ```
 
-The smallest future probe first creates and reviews a dedicated
-`deploy/idea2/h1-capacity-probe.compose.yml` plus immutable Monitor, PostgreSQL,
-and H1 gateway references. It may then, under separate owner authorization:
+The bounded probe source and immutable base references are now implemented and
+reviewed. Source availability is not execution authority. Under a separate
+owner authorization, with every required owner budget supplied explicitly, it
+may:
 
 1. inventory Docker/image/volume/cache and host byte/inode/RAM state;
 2. require all owner-decision fields above plus an approved
-   `CHARACTERIZATION_MAX_NEW_BYTES` and per-service memory ceilings;
+   `CHARACTERIZATION_MAX_NEW_BYTES`, per-service memory ceilings, and explicit
+   synthetic request/row/payload counts. The PostgreSQL row/payload product
+   must not exceed the maximum-new-bytes envelope;
 3. refuse to pull/build/start unless available bytes exceed
    `CHARACTERIZATION_MAX_NEW_BYTES + DISK_SAFETY_RESERVE_BYTES`, available
    inodes exceed the approved inode reserve, and available RAM exceeds all
    service ceilings plus `HOST_RAM_RESERVE_BYTES`;
-4. use only project `aegis-h1-capacity-probe`, a dedicated Buildx builder named
+4. require a clean committed checkout, record both commit and tree identity,
+   and bound the Monitor build context with `.dockerignore`; then use only
+   project `aegis-h1-capacity-probe`, a dedicated Buildx builder named
    `aegis-h1-capacity-builder`, internal probe networks, a disposable
-   project-scoped PostgreSQL volume, synthetic bounded fixtures, and no host
-   ports, Production credentials, Production networks/volumes, registry rows,
-   DNS/TLS exposure, or Machine A traffic;
+   project-scoped PostgreSQL volume, owner-sized synthetic PostgreSQL rows and
+   Monitor health requests, and no host ports, Production credentials,
+   Production networks/volumes, registry rows, DNS/TLS exposure, or Machine A
+   traffic. The synthetic workload measures bounded mechanics; it is not
+   claimed to reproduce N1-N7 acceptance traffic without owner review;
 5. include a reviewed watchdog that polls filesystem bytes/inodes and host
-   memory while building and exercising the bounded server-side workload. The
+   memory while building and exercising the bounded server-side workload. It
+   measures Docker-reported container memory usage rather than labeling that
+   value RSS, and enforces actual available-byte loss from the recorded host
+   baseline against `CHARACTERIZATION_MAX_NEW_BYTES`. The
    watchdog must stop only the exact probe project and fail closed if it cannot
    collect a current measurement. If
    `HOST_AVAILABLE_BYTES <= DISK_SAFETY_RESERVE_BYTES`, abort and stop the exact
    probe. If `HOST_MEM_AVAILABLE_BYTES <= HOST_RAM_RESERVE_BYTES`, abort and
-   stop the exact probe. Any OOM, swap-thrashing, storage-budget breach, log cap,
-   or service memory-ceiling event is a blocked result, never a PASS; and
-6. retain redacted measurements, then remove only the exact probe containers
+   stop the exact probe. Any measured byte, inode, PostgreSQL-growth, evidence-log,
+   host-memory, service-memory, command, or container failure is a blocked result,
+   never a PASS. Swap and pressure data are retained as characterization evidence;
+   they are not independent stop controls in this harness; and
+6. fail and stop immediately on any real measured boundary violation; tolerate
+   only the explicitly classified transient absence of not-yet-ready probe
+   containers/volume; recheck the evidence cap after the final measurement is
+   written; retain redacted measurements; then remove only the exact probe containers
    and networks, exact `aegis-h1-capacity-probe_postgres_data` volume, exact
-   newly introduced candidate image IDs, and dedicated
+   newly introduced candidate image IDs (including an exact-reference fallback
+   if a build aborts before the manifest is finalized), and dedicated
    `aegis-h1-capacity-builder`. Shared/pre-existing images remain. Broad
    `system`, image, volume, network, builder, or BuildKit prune remains forbidden.
 
-The probe is characterized, cleaned, and reviewed before the H1 Compose project
-can exist. It cannot create `aegis-h1-lab`, publish `18443`/`18077`, initialize
-the H1 registry, or satisfy N1. The probe remains blocked until its Compose
-artifact and storage/RAM watchdog have focused tests and owner review; a manual
-observer is not accepted as the required stop control.
+The probe must be characterized, cleaned, and reviewed before the H1 Compose
+project can exist. It cannot create `aegis-h1-lab`, publish `18443`/`18077`,
+initialize the H1 registry, or satisfy N1. Its Compose, runner, cleanup, and
+storage/RAM watchdog source now have focused tests, but execution remains
+blocked on explicit owner budget choices, a separate active-probe authorization,
+and the final pre-run review. A manual observer is not accepted as the required
+stop control.
 
 Only after every term is quantified and all three formula checks pass may the
 owner set `N0_CAPACITY=PASS`. The resulting measurements and owner decisions

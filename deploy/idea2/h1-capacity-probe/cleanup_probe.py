@@ -76,6 +76,7 @@ def cleanup(
     evidence_dir: Path | None = None,
     delete_evidence: bool = False,
     image_manifest: Path | None = None,
+    fallback_image_references: tuple[str, ...] = (),
 ) -> None:
     _run(
         [
@@ -97,7 +98,26 @@ def cleanup(
         _run(["docker", "volume", "rm", POSTGRES_VOLUME], execute)
     if not execute or _exists(["docker", "buildx", "inspect", BUILDER_NAME]):
         _run(["docker", "buildx", "rm", BUILDER_NAME], execute)
-    for reference, image_id in _introduced_images(image_manifest):
+    introduced = dict(_introduced_images(image_manifest))
+    for reference in fallback_image_references:
+        if not PROBE_IMAGE_REFERENCE.fullmatch(reference):
+            raise RuntimeError("fallback image reference is outside the probe namespace")
+        if reference in introduced:
+            continue
+        if execute:
+            current = subprocess.run(
+                ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if current.returncode == 0:
+                image_id = current.stdout.strip()
+                if not IMAGE_ID.fullmatch(image_id):
+                    raise RuntimeError("fallback probe image has an invalid image ID")
+                introduced[reference] = image_id
+    for reference, image_id in sorted(introduced.items()):
         if execute:
             current = subprocess.run(
                 ["docker", "image", "inspect", "--format", "{{.Id}}", reference],

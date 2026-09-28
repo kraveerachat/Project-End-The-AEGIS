@@ -42,6 +42,9 @@ POSITIVE_INTEGER_INPUTS = (
     "MONITOR_MEMORY_CEILING_BYTES",
     "POSTGRES_MEMORY_CEILING_BYTES",
     "PROBE_SAMPLE_SECONDS",
+    "PROBE_WORKLOAD_REQUEST_COUNT",
+    "PROBE_WORKLOAD_POSTGRES_ROWS",
+    "PROBE_WORKLOAD_POSTGRES_PAYLOAD_BYTES",
 )
 
 
@@ -81,6 +84,7 @@ def validate_environment(*, require_files: bool) -> dict[str, Any]:
             errors.append(f"{name} must be an immutable digest-form @sha256 reference")
 
     source_sha = os.environ.get("MONITOR_SOURCE_SHA", "")
+    source_tree = ""
     if not SOURCE_SHA.fullmatch(source_sha):
         errors.append("MONITOR_SOURCE_SHA must be the exact 40-character source checkpoint")
     else:
@@ -94,6 +98,29 @@ def validate_environment(*, require_files: bool) -> dict[str, Any]:
         )
         if result.returncode != 0 or result.stdout.strip() != source_sha:
             errors.append("MONITOR_SOURCE_SHA does not match the checked-out source checkpoint")
+        tree_result = subprocess.run(
+            ["git", "rev-parse", "HEAD^{tree}"],
+            cwd=REPOSITORY_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if tree_result.returncode != 0 or not SOURCE_SHA.fullmatch(tree_result.stdout.strip()):
+            errors.append("committed source tree identity is unavailable")
+        else:
+            source_tree = tree_result.stdout.strip()
+        if require_files:
+            status_result = subprocess.run(
+                ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+                cwd=REPOSITORY_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if status_result.returncode != 0 or status_result.stdout.strip():
+                errors.append("active probe requires a clean committed build context")
 
     for name in ("MONITOR_CANDIDATE_IMAGE", "GATEWAY_CANDIDATE_IMAGE"):
         value = os.environ.get(name, "")
@@ -103,6 +130,11 @@ def validate_environment(*, require_files: bool) -> dict[str, Any]:
             errors.append(f"{name} must be bound to the first 12 characters of MONITOR_SOURCE_SHA")
 
     numeric = {name: _positive_integer(name, errors) for name in POSITIVE_INTEGER_INPUTS}
+    rows = numeric.get("PROBE_WORKLOAD_POSTGRES_ROWS")
+    payload = numeric.get("PROBE_WORKLOAD_POSTGRES_PAYLOAD_BYTES")
+    maximum_new = numeric.get("CHARACTERIZATION_MAX_NEW_BYTES")
+    if rows and payload and maximum_new and rows * payload > maximum_new:
+        errors.append("bounded PostgreSQL workload exceeds CHARACTERIZATION_MAX_NEW_BYTES")
     evidence_dir = _safe_evidence_dir(os.environ.get("PROBE_EVIDENCE_DIR"), errors)
 
     if os.environ.get("PROBE_EXECUTION_SCOPE") != "DISPOSABLE_H1_CAPACITY_PROBE_ONLY":
@@ -137,7 +169,12 @@ def validate_environment(*, require_files: bool) -> dict[str, Any]:
 
     if errors:
         raise ValidationError("; ".join(errors))
-    return {"numeric": numeric, "evidence_dir": evidence_dir, "source_sha": source_sha}
+    return {
+        "numeric": numeric,
+        "evidence_dir": evidence_dir,
+        "source_sha": source_sha,
+        "source_tree": source_tree,
+    }
 
 
 def _run(command: list[str], *, timeout: int = 120, output_file: Path | None = None) -> str:
@@ -154,7 +191,15 @@ def _run(command: list[str], *, timeout: int = 120, output_file: Path | None = N
     return ""
 
 
-def _run_guarded(command: list[str], *, output_file: Path, evidence_dir: Path, limits: dict[str, Any], timeout: int) -> None:
+def _run_guarded(
+    command: list[str],
+    *,
+    output_file: Path,
+    evidence_dir: Path,
+    limits: dict[str, Any],
+    baseline: dict[str, Any],
+    timeout: int,
+) -> None:
     started = time.monotonic()
     with output_file.open("a", encoding="utf-8") as stream:
         process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT, text=True)
@@ -164,7 +209,7 @@ def _run_guarded(command: list[str], *, output_file: Path, evidence_dir: Path, l
                 watchdog.stop_probe()
                 raise RuntimeError(f"guarded command timed out: {command[0]}")
             try:
-                _guard_host(evidence_dir, limits)
+                _guard_host(evidence_dir, limits, baseline=baseline)
             except Exception:
                 process.terminate()
                 try:
@@ -175,6 +220,72 @@ def _run_guarded(command: list[str], *, output_file: Path, evidence_dir: Path, l
             time.sleep(2)
         if process.returncode != 0:
             raise RuntimeError(f"command failed: {command[0]} (see redacted probe log)")
+
+
+def _merge_peak_snapshot(peak: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+    for field in (
+        "aggregate_lab_memory_usage_bytes",
+        "evidence_log_bytes",
+        "postgres_growth_bytes",
+        "postgres_volume_bytes",
+        "probe_new_bytes",
+    ):
+        peak[field] = max(int(peak[field]), int(snapshot[field]))
+    for field in (
+        "host_available_bytes",
+        "host_available_inodes",
+        "host_mem_available_bytes",
+    ):
+        peak[field] = min(int(peak[field]), int(snapshot[field]))
+    for field in ("service_memory_usage_bytes", "service_writable_layer_bytes"):
+        for service, value in snapshot[field].items():
+            peak[field][service] = max(int(peak[field][service]), int(value))
+    return peak
+
+
+def _run_workload_guarded(
+    command: list[str],
+    *,
+    output_file: Path,
+    evidence_dir: Path,
+    limits: dict[str, Any],
+    baseline: dict[str, Any],
+    postgres_initial_volume_bytes: int,
+    peak_snapshot: dict[str, Any],
+    timeout: int,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    with output_file.open("a", encoding="utf-8") as stream:
+        process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT, text=True)
+        while True:
+            if time.monotonic() - started > timeout:
+                process.terminate()
+                watchdog.stop_probe()
+                raise RuntimeError(f"guarded workload timed out: {command[0]}")
+            try:
+                snapshot = watchdog.capture_snapshot(
+                    evidence_dir,
+                    postgres_initial_volume_bytes,
+                    baseline["host_available_bytes"],
+                )
+                violations = watchdog.evaluate_snapshot(snapshot, limits)
+                if violations:
+                    raise RuntimeError(f"capacity boundary blocked: {','.join(violations)}")
+                _merge_peak_snapshot(peak_snapshot, snapshot)
+            except Exception:
+                process.terminate()
+                watchdog.stop_probe()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                raise
+            if process.poll() is not None:
+                break
+            time.sleep(0.5)
+        if process.returncode != 0:
+            raise RuntimeError(f"workload command failed: {command[0]} (see redacted probe log)")
+    return peak_snapshot
 
 
 def _compose_command(*arguments: str) -> list[str]:
@@ -234,15 +345,25 @@ def _assert_no_probe_collision() -> None:
         timeout=30,
     ).returncode == 0:
         raise ValidationError("probe Buildx builder already exists")
+    for name in ("MONITOR_CANDIDATE_IMAGE", "GATEWAY_CANDIDATE_IMAGE"):
+        if _image_id(os.environ[name]) is not None:
+            raise ValidationError(f"probe candidate image already exists: {name}")
 
 
-def _record_introduced_images(before: dict[str, str | None], evidence_dir: Path) -> Path:
+def _record_introduced_images(
+    before: dict[str, str | None],
+    evidence_dir: Path,
+    *,
+    require_complete: bool,
+) -> Path:
     entries: list[dict[str, Any]] = []
     for name in ("MONITOR_CANDIDATE_IMAGE", "GATEWAY_CANDIDATE_IMAGE"):
         reference = os.environ[name]
         after = _image_id(reference)
-        if after is None:
+        if after is None and require_complete:
             raise RuntimeError(f"candidate image is missing after build: {name}")
+        if after is None:
+            continue
         entries.append(
             {
                 "reference": reference,
@@ -255,8 +376,18 @@ def _record_introduced_images(before: dict[str, str | None], evidence_dir: Path)
     return path
 
 
-def _guard_host(evidence_dir: Path, limits: dict[str, Any]) -> dict[str, Any]:
+def _guard_host(
+    evidence_dir: Path,
+    limits: dict[str, Any],
+    *,
+    baseline: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     snapshot = watchdog.capture_preflight_snapshot(evidence_dir)
+    if baseline is not None:
+        snapshot["probe_new_bytes"] = max(
+            0,
+            int(baseline["host_available_bytes"]) - int(snapshot["host_available_bytes"]),
+        )
     violations = watchdog.evaluate_snapshot(snapshot, limits)
     maximum_new = int(os.environ["CHARACTERIZATION_MAX_NEW_BYTES"])
     if snapshot["host_available_bytes"] <= maximum_new + limits["disk_safety_reserve_bytes"]:
@@ -265,6 +396,78 @@ def _guard_host(evidence_dir: Path, limits: dict[str, Any]) -> dict[str, Any]:
         watchdog.stop_probe()
         raise RuntimeError(f"capacity boundary blocked: {','.join(violations)}")
     return snapshot
+
+
+def _run_bounded_workload(
+    configuration: dict[str, Any],
+    *,
+    output_file: Path,
+    evidence_dir: Path,
+    limits: dict[str, Any],
+    baseline: dict[str, Any],
+    postgres_initial_volume_bytes: int,
+    peak_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    numeric = configuration["numeric"]
+    rows = int(numeric["PROBE_WORKLOAD_POSTGRES_ROWS"])
+    payload_bytes = int(numeric["PROBE_WORKLOAD_POSTGRES_PAYLOAD_BYTES"])
+    request_count = int(numeric["PROBE_WORKLOAD_REQUEST_COUNT"])
+    sql = (
+        "CREATE SCHEMA IF NOT EXISTS capacity_probe; "
+        "DROP TABLE IF EXISTS capacity_probe.synthetic_events; "
+        "CREATE TABLE capacity_probe.synthetic_events (id bigint PRIMARY KEY, payload text NOT NULL); "
+        f"INSERT INTO capacity_probe.synthetic_events "
+        f"SELECT value, repeat('x', {payload_bytes}) FROM generate_series(1, {rows}) AS value; "
+        "CHECKPOINT;"
+    )
+    peak_snapshot = _run_workload_guarded(
+        _compose_command(
+            "exec",
+            "--no-TTY",
+            "postgres",
+            "psql",
+            "--set",
+            "ON_ERROR_STOP=1",
+            "--username",
+            "monitor_probe",
+            "--dbname",
+            "aegis_h1_capacity_probe",
+            "--command",
+            sql,
+        ),
+        output_file=output_file,
+        evidence_dir=evidence_dir,
+        limits=limits,
+        baseline=baseline,
+        postgres_initial_volume_bytes=postgres_initial_volume_bytes,
+        peak_snapshot=peak_snapshot,
+        timeout=600,
+    )
+    health_script = (
+        "const count=Number(process.argv[1]);"
+        "(async()=>{for(let i=0;i<count;i++){"
+        "const response=await fetch('http://127.0.0.1:8002/healthz');"
+        "if(!response.ok)throw new Error('health request failed');"
+        "await response.arrayBuffer();}})().catch(error=>{console.error(error.message);process.exit(2)});"
+    )
+    return _run_workload_guarded(
+        _compose_command(
+            "exec",
+            "--no-TTY",
+            "monitor",
+            "node",
+            "--eval",
+            health_script,
+            str(request_count),
+        ),
+        output_file=output_file,
+        evidence_dir=evidence_dir,
+        limits=limits,
+        baseline=baseline,
+        postgres_initial_volume_bytes=postgres_initial_volume_bytes,
+        peak_snapshot=peak_snapshot,
+        timeout=600,
+    )
 
 
 def run_probe(configuration: dict[str, Any]) -> None:
@@ -285,6 +488,14 @@ def run_probe(configuration: dict[str, Any]) -> None:
     }
     image_manifest: Path | None = None
     baseline = _guard_host(evidence_dir, limits)
+    source_manifest = {
+        "source_sha": configuration["source_sha"],
+        "source_tree": configuration["source_tree"],
+    }
+    (evidence_dir / "source-manifest.json").write_text(
+        json.dumps(source_manifest, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
     (evidence_dir / "host-baseline.json").write_text(
         json.dumps(baseline, indent=2, sort_keys=True),
         encoding="utf-8",
@@ -292,16 +503,17 @@ def run_probe(configuration: dict[str, Any]) -> None:
 
     try:
         _run(["docker", "buildx", "create", "--name", BUILDER_NAME, "--driver", "docker-container", "--use"])
-        _guard_host(evidence_dir, limits)
+        _guard_host(evidence_dir, limits, baseline=baseline)
         _run_guarded(
             _compose_command("build"),
             output_file=log_path,
             evidence_dir=evidence_dir,
             limits=limits,
+            baseline=baseline,
             timeout=3600,
         )
-        post_build = _guard_host(evidence_dir, limits)
-        image_manifest = _record_introduced_images(before_images, evidence_dir)
+        image_manifest = _record_introduced_images(before_images, evidence_dir, require_complete=True)
+        post_build = _guard_host(evidence_dir, limits, baseline=baseline)
         artifact_measurements = {
             "monitor_image_bytes": _image_size(os.environ["MONITOR_CANDIDATE_IMAGE"]),
             "gateway_image_bytes": _image_size(os.environ["GATEWAY_CANDIDATE_IMAGE"]),
@@ -323,6 +535,7 @@ def run_probe(configuration: dict[str, Any]) -> None:
             output_file=log_path,
             evidence_dir=evidence_dir,
             limits=limits,
+            baseline=baseline,
             timeout=600,
         )
 
@@ -331,39 +544,93 @@ def run_probe(configuration: dict[str, Any]) -> None:
         ready_snapshot = None
         while time.monotonic() < deadline:
             try:
+                _guard_host(evidence_dir, limits, baseline=baseline)
                 initial_volume = watchdog._postgres_volume_bytes()
-                snapshot = watchdog.capture_snapshot(evidence_dir, initial_volume)
-                if not watchdog.evaluate_snapshot(snapshot, limits):
+                snapshot = watchdog.capture_snapshot(
+                    evidence_dir,
+                    initial_volume,
+                    baseline["host_available_bytes"],
+                )
+                violations = watchdog.evaluate_snapshot(snapshot, limits)
+                if violations:
+                    watchdog.stop_probe()
+                    raise RuntimeError(f"capacity boundary blocked: {','.join(violations)}")
+                if not violations:
                     ready_snapshot = snapshot
                     break
+            except watchdog.ProbeBlocked as exc:
+                diagnostic = str(exc)
+                if not (
+                    diagnostic.startswith("probe service measurements are missing:")
+                    or diagnostic == "probe PostgreSQL volume mountpoint is unavailable"
+                ):
+                    watchdog.stop_probe()
+                    raise
             except Exception:
-                pass
+                watchdog.stop_probe()
+                raise
             time.sleep(2)
         if initial_volume is None or ready_snapshot is None:
+            watchdog.stop_probe()
             raise RuntimeError("probe services did not become measurable")
 
         artifact_measurements["postgres_image_bytes"] = _image_size(os.environ["POSTGRES_IMAGE"])
+        artifact_measurements["postgres_initial_volume_bytes"] = initial_volume
         (evidence_dir / "artifact-measurements.json").write_text(
             json.dumps(artifact_measurements, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-        peak_snapshot = ready_snapshot
+        peak_snapshot = _run_bounded_workload(
+            configuration,
+            output_file=log_path,
+            evidence_dir=evidence_dir,
+            limits=limits,
+            baseline=baseline,
+            postgres_initial_volume_bytes=initial_volume,
+            peak_snapshot=ready_snapshot,
+        )
         sample_seconds = int(os.environ["PROBE_SAMPLE_SECONDS"])
         sample_deadline = time.monotonic() + sample_seconds
         while time.monotonic() < sample_deadline:
-            snapshot = watchdog.capture_snapshot(evidence_dir, initial_volume)
+            snapshot = watchdog.capture_snapshot(
+                evidence_dir,
+                initial_volume,
+                baseline["host_available_bytes"],
+            )
             violations = watchdog.evaluate_snapshot(snapshot, limits)
             if violations:
                 watchdog.stop_probe()
                 raise RuntimeError(f"capacity boundary blocked: {','.join(violations)}")
-            peak_snapshot["aggregate_lab_rss_bytes"] = max(
-                peak_snapshot["aggregate_lab_rss_bytes"],
-                snapshot["aggregate_lab_rss_bytes"],
+            peak_snapshot["aggregate_lab_memory_usage_bytes"] = max(
+                peak_snapshot["aggregate_lab_memory_usage_bytes"],
+                snapshot["aggregate_lab_memory_usage_bytes"],
             )
-            for service, rss in snapshot["service_rss_bytes"].items():
-                peak_snapshot["service_rss_bytes"][service] = max(
-                    peak_snapshot["service_rss_bytes"][service],
-                    rss,
+            peak_snapshot["probe_new_bytes"] = max(
+                peak_snapshot["probe_new_bytes"],
+                snapshot["probe_new_bytes"],
+            )
+            peak_snapshot["evidence_log_bytes"] = max(
+                peak_snapshot["evidence_log_bytes"], snapshot["evidence_log_bytes"]
+            )
+            peak_snapshot["postgres_growth_bytes"] = max(
+                peak_snapshot["postgres_growth_bytes"], snapshot["postgres_growth_bytes"]
+            )
+            peak_snapshot["postgres_volume_bytes"] = max(
+                peak_snapshot["postgres_volume_bytes"], snapshot["postgres_volume_bytes"]
+            )
+            peak_snapshot["host_available_bytes"] = min(
+                peak_snapshot["host_available_bytes"], snapshot["host_available_bytes"]
+            )
+            peak_snapshot["host_available_inodes"] = min(
+                peak_snapshot["host_available_inodes"], snapshot["host_available_inodes"]
+            )
+            peak_snapshot["host_mem_available_bytes"] = min(
+                peak_snapshot["host_mem_available_bytes"], snapshot["host_mem_available_bytes"]
+            )
+            for service, usage in snapshot["service_memory_usage_bytes"].items():
+                peak_snapshot["service_memory_usage_bytes"][service] = max(
+                    peak_snapshot["service_memory_usage_bytes"][service],
+                    usage,
                 )
             for service, size in snapshot["service_writable_layer_bytes"].items():
                 peak_snapshot["service_writable_layer_bytes"][service] = max(
@@ -376,13 +643,39 @@ def run_probe(configuration: dict[str, Any]) -> None:
             json.dumps(peak_snapshot, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-    finally:
-        cleanup_probe.cleanup(
-            execute=True,
-            evidence_dir=evidence_dir,
-            delete_evidence=False,
-            image_manifest=image_manifest,
+        final_snapshot = watchdog.capture_snapshot(
+            evidence_dir,
+            initial_volume,
+            baseline["host_available_bytes"],
         )
+        final_violations = watchdog.evaluate_snapshot(final_snapshot, limits)
+        if final_violations:
+            watchdog.stop_probe()
+            raise RuntimeError(f"capacity boundary blocked: {','.join(final_violations)}")
+    finally:
+        manifest_error: Exception | None = None
+        try:
+            image_manifest = _record_introduced_images(
+                before_images,
+                evidence_dir,
+                require_complete=False,
+            )
+        except Exception as exc:
+            manifest_error = exc
+        try:
+            cleanup_probe.cleanup(
+                execute=True,
+                evidence_dir=evidence_dir,
+                delete_evidence=False,
+                image_manifest=image_manifest,
+                fallback_image_references=(
+                    os.environ["MONITOR_CANDIDATE_IMAGE"],
+                    os.environ["GATEWAY_CANDIDATE_IMAGE"],
+                ),
+            )
+        finally:
+            if manifest_error is not None:
+                raise manifest_error
 
 
 def main() -> int:

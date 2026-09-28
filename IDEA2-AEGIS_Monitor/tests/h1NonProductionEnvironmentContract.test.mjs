@@ -153,7 +153,7 @@ test('N0 capacity stays fail-closed until repository-derived demand is character
     'POSTGRES_APPROVED_GROWTH_BYTES',
     'ROLLBACK_ARTIFACT_BYTES',
     'EVIDENCE_LOG_ALLOWANCE_BYTES',
-    'LAB_PEAK_RSS_BYTES',
+    'LAB_PEAK_MEMORY_USAGE_BYTES',
   ]) {
     assert.match(source, new RegExp(`\\b${measurement}\\b`), `missing required capacity measurement ${measurement}`)
   }
@@ -174,11 +174,12 @@ test('N0 capacity characterization fixes artifacts, read-only probes, formulas, 
   for (const artifact of [
     'MONITOR_BUILD_CONTEXT=IDEA2-AEGIS_Monitor',
     'MONITOR_DOCKERFILE=IDEA2-AEGIS_Monitor/Dockerfile',
-    'MONITOR_IMMUTABLE_IMAGE_ID=NOT_SELECTED',
+    'MONITOR_BASE_IMAGE_DIGESTS=RESOLVED_READONLY_LINUX_AMD64',
+    'MONITOR_IMMUTABLE_IMAGE_ID=NOT_BUILT',
     'POSTGRES_IMAGE_TAG=postgres:15-alpine',
-    'POSTGRES_REPO_DIGEST=NOT_PINNED',
-    'H1_GATEWAY_ARTIFACT=NOT_IMPLEMENTED',
-    'H1_COMPOSE_ARTIFACT=NOT_IMPLEMENTED',
+    'POSTGRES_DIGEST=sha256:25d430274d8a31184f9435cc5b2f56aff254952065bbbcac0c51acedb5a1d1e7',
+    'H1_GATEWAY_ARTIFACT=IMPLEMENTED_SOURCE_ONLY',
+    'H1_COMPOSE_ARTIFACT=deploy/idea2/h1-capacity-probe.compose.yml',
   ]) {
     assert.ok(source.includes(artifact), `missing candidate artifact classification: ${artifact}`)
   }
@@ -217,7 +218,7 @@ test('N0 capacity characterization fixes artifacts, read-only probes, formulas, 
   ]) {
     assert.match(source, new RegExp(`DISK_REQUIRED_BYTES[\\s\\S]{0,500}\\b${diskTerm}\\b`))
   }
-  assert.match(source, /RAM_REQUIRED_BYTES\s*=\s*LAB_PEAK_RSS_BYTES\s*\+\s*HOST_RAM_RESERVE_BYTES/)
+  assert.match(source, /RAM_REQUIRED_BYTES\s*=\s*LAB_PEAK_MEMORY_USAGE_BYTES\s*\+\s*HOST_RAM_RESERVE_BYTES/)
   assert.match(source, /INODE_REQUIRED_COUNT\s*=\s*CHARACTERIZED_PEAK_NEW_INODES\s*\+\s*INODE_SAFETY_RESERVE_COUNT/)
   assert.match(source, /POSTGRES_APPROVED_GROWTH_BYTES=OWNER_DECISION_REQUIRED/)
   assert.match(source, /HOST_RAM_RESERVE_BYTES=OWNER_DECISION_REQUIRED/)
@@ -230,7 +231,8 @@ test('N0 capacity characterization fixes artifacts, read-only probes, formulas, 
     'CAPACITY_PROBE_HOST_PORTS=NONE',
     'CAPACITY_PROBE_PRODUCTION_NETWORKS=NONE',
     'CAPACITY_PROBE_PRODUCTION_VOLUMES=NONE',
-    'CAPACITY_PROBE_STORAGE_WATCHDOG=REQUIRED_NOT_IMPLEMENTED',
+    'CAPACITY_PROBE_STORAGE_WATCHDOG=IMPLEMENTED_SOURCE_ONLY',
+    'ACTIVE_CAPACITY_PROBE=NOT_RUN',
     'N1_STARTED=NO',
   ]) {
     assert.ok(source.includes(bound), `missing bounded characterization guardrail: ${bound}`)
@@ -244,19 +246,19 @@ test('N0 capacity characterization fixes artifacts, read-only probes, formulas, 
   assert.match(status, /N1_STARTED=NO/)
 })
 
-test('capacity-probe inputs fail closed on mutable images, missing gateway, and undecided owner budgets', () => {
+test('capacity-probe inputs are immutable while execution fails closed on undecided owner budgets', () => {
   const source = requiredText(specificationPath)
   const h1Plan = requiredText(h1PlanPath)
   const status = requiredText(statusPath)
 
   for (const frozenInput of [
     'CAPACITY_INPUT_FREEZE_SOURCE_SHA=9e39fe5786a5ac7428d2e5eb47cb2285a63bc606',
-    'MONITOR_BASE_IMAGE=node:20-alpine',
-    'MONITOR_BASE_IMAGE_DIGESTS=REQUIRES_FUTURE_READONLY_REGISTRY_RESOLUTION',
-    'POSTGRES_DIGEST=REQUIRES_FUTURE_READONLY_OR_PROBE_RESOLUTION',
-    'H1_GATEWAY_ARTIFACT=NOT_IMPLEMENTED',
-    'GATEWAY_IMPLEMENTATION_REQUIRED=YES',
-    'ACTIVE_CAPACITY_PROBE_READY=NO',
+    'MONITOR_BASE_IMAGE=node:20-alpine@sha256:afdf98210b07b586eb71fa22ba2e432e058e4cd1304d31ed60888755b8c865fb',
+    'MONITOR_BASE_IMAGE_DIGESTS=RESOLVED_READONLY_LINUX_AMD64',
+    'POSTGRES_DIGEST=sha256:25d430274d8a31184f9435cc5b2f56aff254952065bbbcac0c51acedb5a1d1e7',
+    'H1_GATEWAY_ARTIFACT=IMPLEMENTED_SOURCE_ONLY',
+    'GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE',
+    'ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION',
   ]) {
     assert.ok(source.includes(frozenInput), `missing capacity-probe input classification: ${frozenInput}`)
   }
@@ -276,10 +278,27 @@ test('capacity-probe inputs fail closed on mutable images, missing gateway, and 
 
   assert.match(source, /7\.3\s*GiB[\s\S]{0,300}POSTGRES_GROWTH/i)
   assert.match(source, /5\.4\s*GiB[\s\S]{0,300}HOST_RAM_RESERVE/i)
-  assert.match(source, /gateway[\s\S]{0,200}(?:must|requires)[\s\S]{0,120}(?:implemented|implementation)[\s\S]{0,200}(?:before|prior to)[\s\S]{0,100}(?:probe|characterization)/i)
-  assert.match(h1Plan, /ACTIVE_CAPACITY_PROBE_READY=NO/)
-  assert.match(status, /ACTIVE_CAPACITY_PROBE_READY=NO/)
+  assert.match(source, /gateway[\s\S]{0,300}implemented[\s\S]{0,400}owner[\s\S]{0,200}authorization/i)
+  assert.match(h1Plan, /ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION/)
+  assert.match(status, /ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION/)
   assert.match(status, /N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION/)
+})
+
+test('source-only gateway and probe checkpoint does not overclaim active characterization', () => {
+  const source = requiredText(specificationPath)
+  const status = requiredText(statusPath)
+
+  assert.match(source, /MONITOR_FINAL_SOURCE_SHA=[0-9a-f]{40}/)
+  for (const classification of [
+    'H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY',
+    'CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY',
+    'ACTIVE_CAPACITY_PROBE=NOT_RUN',
+    'N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION',
+    'N1_STARTED=NO',
+  ]) {
+    assert.ok(source.includes(classification), `spec missing source-only classification: ${classification}`)
+    assert.ok(status.includes(classification), `status missing source-only classification: ${classification}`)
+  }
 })
 
 test('parent plan and canonical status preserve the H0/H1 gate', () => {

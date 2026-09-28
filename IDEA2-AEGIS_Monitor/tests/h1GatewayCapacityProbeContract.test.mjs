@@ -17,6 +17,7 @@ const composePath = path.join(deploymentRoot, 'h1-capacity-probe.compose.yml')
 const watchdogPath = path.join(probeRoot, 'watchdog.py')
 const runnerPath = path.join(probeRoot, 'run_probe.py')
 const cleanupPath = path.join(probeRoot, 'cleanup_probe.py')
+const monitorDockerignorePath = path.join(monitorRoot, '.dockerignore')
 
 function requiredText(filePath) {
   assert.ok(fs.existsSync(filePath), `required H1 artifact is missing: ${path.relative(repositoryRoot, filePath)}`)
@@ -144,6 +145,9 @@ test('probe validator accepts only a complete digest-bound, owner-bounded reposi
       MONITOR_MEMORY_CEILING_BYTES: '1',
       POSTGRES_MEMORY_CEILING_BYTES: '1',
       PROBE_SAMPLE_SECONDS: '1',
+      PROBE_WORKLOAD_REQUEST_COUNT: '1',
+      PROBE_WORKLOAD_POSTGRES_ROWS: '1',
+      PROBE_WORKLOAD_POSTGRES_PAYLOAD_BYTES: '1',
       PROBE_SERVICE_LOG_MAX_SIZE: '1m',
       PROBE_EVIDENCE_DIR: evidenceDir,
       PROBE_EXECUTION_SCOPE: 'DISPOSABLE_H1_CAPACITY_PROBE_ONLY',
@@ -172,6 +176,7 @@ test('watchdog policy fails closed on every governed resource boundary', (t) => 
     host_ram_reserve_bytes: 100,
     evidence_log_cap_bytes: 100,
     postgres_growth_budget_bytes: 100,
+    characterization_max_new_bytes: 100,
     service_memory_ceiling_bytes: { gateway: 100, monitor: 100, postgres: 100 },
   }
   const safe = {
@@ -180,7 +185,8 @@ test('watchdog policy fails closed on every governed resource boundary', (t) => 
     host_mem_available_bytes: 101,
     evidence_log_bytes: 99,
     postgres_growth_bytes: 99,
-    service_rss_bytes: { gateway: 99, monitor: 99, postgres: 99 },
+    probe_new_bytes: 99,
+    service_memory_usage_bytes: { gateway: 99, monitor: 99, postgres: 99 },
   }
 
   function evaluate(snapshot) {
@@ -202,11 +208,68 @@ test('watchdog policy fails closed on every governed resource boundary', (t) => 
     { ...safe, host_mem_available_bytes: 100 },
     { ...safe, evidence_log_bytes: 101 },
     { ...safe, postgres_growth_bytes: 101 },
-    { ...safe, service_rss_bytes: { ...safe.service_rss_bytes, monitor: 101 } },
+    { ...safe, probe_new_bytes: 101 },
+    { ...safe, service_memory_usage_bytes: { ...safe.service_memory_usage_bytes, monitor: 101 } },
   ]) {
     const result = evaluate(unsafe)
     assert.notEqual(result.status, 0)
     assert.match(`${result.stdout}\n${result.stderr}`, /BLOCKED/)
+  }
+})
+
+test('probe enforces a bounded workload, immutable clean build context, immediate stop, and finally-safe cleanup', () => {
+  const runner = requiredText(runnerPath)
+  const dockerignore = requiredText(monitorDockerignorePath)
+
+  assert.match(runner, /git["']?,\s*["']status["']?[\s\S]{0,180}--porcelain/)
+  assert.match(runner, /source_tree/)
+  assert.match(dockerignore, /^node_modules\/?$/m)
+  assert.match(dockerignore, /^dist\/?$/m)
+  assert.match(dockerignore, /^\.env/m)
+  for (const ignoredPattern of [
+    '*.log',
+    '*.pt',
+    '*.h5',
+    '*.onnx',
+    '*.pth',
+    '*.weights',
+    '*.local',
+    '.pytest_cache',
+  ]) {
+    const escapedPattern = ignoredPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    assert.match(dockerignore, new RegExp(`^${escapedPattern}/?$`, 'm'))
+  }
+
+  assert.match(runner, /def _run_bounded_workload\(/)
+  assert.match(runner, /def _run_workload_guarded\(/)
+  assert.match(runner, /PROBE_WORKLOAD_REQUEST_COUNT/)
+  assert.match(runner, /PROBE_WORKLOAD_POSTGRES_ROWS/)
+  assert.match(runner, /PROBE_WORKLOAD_POSTGRES_PAYLOAD_BYTES/)
+  assert.match(runner, /\/healthz/)
+  assert.match(runner, /capacity_probe\.synthetic_events/)
+  assert.match(runner, /_run_workload_guarded\([\s\S]{0,500}postgres_initial_volume_bytes/)
+  assert.match(runner, /_run_workload_guarded\([\s\S]{0,500}peak_snapshot/)
+  assert.match(runner, /while time\.monotonic\(\) < deadline:[\s\S]{0,180}_guard_host\(/)
+
+  assert.doesNotMatch(runner, /except Exception:\s*\n\s*pass/)
+  assert.match(runner, /watchdog\.stop_probe\(\)[\s\S]{0,180}probe services did not become measurable/)
+  assert.match(runner, /finally:[\s\S]{0,400}_record_introduced_images/)
+  assert.match(runner, /capacity-measurements\.json[\s\S]{0,500}evaluate_snapshot/)
+  assert.match(runner, /postgres_initial_volume_bytes/)
+  for (const peakMetric of [
+    'evidence_log_bytes',
+    'postgres_growth_bytes',
+    'postgres_volume_bytes',
+    'probe_new_bytes',
+  ]) {
+    assert.match(runner, new RegExp(`peak_snapshot\\["${peakMetric}"\\]\\s*=\\s*max`))
+  }
+  for (const minimumMetric of [
+    'host_available_bytes',
+    'host_available_inodes',
+    'host_mem_available_bytes',
+  ]) {
+    assert.match(runner, new RegExp(`peak_snapshot\\["${minimumMetric}"\\]\\s*=\\s*min`))
   }
 })
 

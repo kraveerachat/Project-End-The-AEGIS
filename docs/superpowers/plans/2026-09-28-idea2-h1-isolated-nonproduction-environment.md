@@ -34,21 +34,22 @@
 - Account alias changes must never alter Machine A physical-camera ownership or stream destination.
 - Free disk/RAM observations alone must not be promoted to a capacity PASS when
   the candidate image/layer cost, PostgreSQL growth allowance, rollback/evidence
-  reserve, and concurrent peak RSS remain undefined.
+  reserve, and concurrent peak container memory usage remain undefined.
 
 ## N0 capacity characterization follow-up
 
-The repository review found no defensible existing quantitative capacity rule:
-the H1 Compose definition and immutable candidate images do not yet exist; the
-development Compose topology is not equivalent; no service resource limits,
-PostgreSQL retention/growth allowance, or rollback/evidence byte budget is
-defined. The current `7.3 GiB` root free-space and approximately `5.4 GiB`
-available-RAM observations therefore remain evidence only, not acceptance.
+The repository review found no defensible pre-existing quantitative capacity
+rule. A dedicated probe Compose and digest-bound source inputs now exist, but
+no candidate image, active measurement, owner-selected service limit,
+PostgreSQL retention/growth allowance, or rollback/evidence byte budget exists.
+The development Compose topology is not equivalent. The current `7.3 GiB` root
+free-space and approximately `5.4 GiB` available-RAM observations therefore
+remain evidence only, not acceptance.
 
 Before N1, separately authorized characterization must measure
 `CANDIDATE_IMAGE_UNIQUE_BYTES`, `CANDIDATE_WRITABLE_LAYER_PEAK_BYTES`,
 `POSTGRES_INITIAL_VOLUME_BYTES`, `ROLLBACK_ARTIFACT_BYTES`,
-`EVIDENCE_LOG_ALLOWANCE_BYTES`, and `LAB_PEAK_RSS_BYTES`, and the Human Owner
+`EVIDENCE_LOG_ALLOWANCE_BYTES`, and `LAB_PEAK_MEMORY_USAGE_BYTES`, and the Human Owner
 must approve `POSTGRES_APPROVED_GROWTH_BYTES` plus the host RAM operating
 reserve. No Docker prune or cleanup may be assumed. The authoritative spec and
 focused contract test define the fail-closed formula and preserve the supplied
@@ -57,34 +58,33 @@ port results: the active `172.18.0.1:18077` forward is retained, candidate
 remains forbidden.
 
 The spec now owns the exact owner-run read-only command set for Production
-reference identity/image sizes, RSS/limits, PostgreSQL volume bytes, Monitor
+reference identity/image sizes, container memory usage/limits, PostgreSQL volume bytes, Monitor
 writable-layer bytes, filesystem bytes/inodes, Docker totals/cache, and host
 memory/swap pressure. Production observations are `REFERENCE_ONLY`; they never
 substitute for an exact H1 candidate measurement.
 
-Artifact state remains fail-closed:
+Artifact state remains fail-closed while the source boundary is now complete:
 
-- Monitor runtime source is frozen at
-  `9e39fe5786a5ac7428d2e5eb47cb2285a63bc606`, with
-  `IDEA2-AEGIS_Monitor/Dockerfile` and context `IDEA2-AEGIS_Monitor`, but its
-  two `node:20-alpine` stages have no repository-proven OCI index/Linux-amd64
-  digest and no immutable candidate image ID is selected.
-- PostgreSQL is only `postgres:15-alpine`; its OCI index/Linux-amd64 digest is
-  not pinned and requires a future read-only registry resolution.
-- the existing root gateway is an HTTP development/HUB artifact, not the H1
-  exact-route/TLS gateway;
-- no dedicated digest-pinned H1 TLS gateway or H1 Compose artifact exists; and
+- the H1 probe implementation source is frozen at
+  `5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9`, with
+  `IDEA2-AEGIS_Monitor/Dockerfile` and context `IDEA2-AEGIS_Monitor`;
+- read-only registry metadata resolved reviewed OCI index and Linux/amd64 child
+  digests for Node 20 Alpine, PostgreSQL 15 Alpine, and nginx Alpine;
+- a dedicated H1-only TLS/exact-route gateway and bounded capacity-probe
+  Compose, runner, watchdog, and cleanup source now exist;
+- no image was pulled or built and no container was started; and
 - initialized PostgreSQL bytes, candidate writable peak, unique image/build
-  bytes, and lab peak RSS remain `NOT_MEASURABLE_READ_ONLY`.
+  bytes, and lab peak container memory usage remain
+  `NOT_MEASURED_ACTIVE_PROBE_REQUIRED`.
 
-The smallest H1 gateway is a dedicated nginx-only artifact: TLS material is
+The implemented H1 gateway is a dedicated nginx-only artifact: TLS material is
 runtime-mounted and never built in, `/monitor/internal` is denied
 case-insensitively, only the six approved exact `/agent/internal/...` routes
 are admitted with `/agent` stripped, all other Agent paths deny, and the probe
-publishes no host port or Production network. The existing gateway does not
-satisfy this contract. Gateway implementation, exact base-image digest
-resolution, focused tests, and review are blockers before active
-characterization.
+publishes no host port or Production network. The existing Production/root
+gateway is not reused. Source implementation and static review are complete;
+owner budget choices, explicit active-probe authorization, and a final pre-run
+review remain blockers before active characterization.
 
 Owner decisions stay measurement-derived. The spec presents minimum and
 conservative formulas for PostgreSQL growth, non-lab RAM reserve, disk safety,
@@ -96,7 +96,8 @@ and neither can be evaluated against current `7.3 GiB` disk / approximately
 The formula and policy boundary are now explicit: disk is the sum of unique
 candidate image bytes, build transients, initialized PostgreSQL, owner-approved
 PostgreSQL growth, writable layers, rollback artifacts, evidence/log allowance,
-and owner-approved safety reserve; RAM is characterized lab peak RSS plus the
+and owner-approved safety reserve; RAM is characterized lab peak container
+memory usage plus the
 owner-approved host reserve; inode headroom is measured peak new inodes plus an
 owner-approved reserve. The agent does not select growth or reserve values.
 
@@ -112,7 +113,12 @@ before N0 can be reconsidered.
 BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES
 CAPACITY_PROBE_PROJECT=aegis-h1-capacity-probe
 CAPACITY_INPUT_FREEZE_SOURCE_SHA=9e39fe5786a5ac7428d2e5eb47cb2285a63bc606
-ACTIVE_CAPACITY_PROBE_READY=NO
+H1_PROBE_IMPLEMENTATION_SOURCE_SHA=5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9
+MONITOR_FINAL_SOURCE_SHA=5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9
+H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
+CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
+ACTIVE_CAPACITY_PROBE=NOT_RUN
+ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION
 N1_STARTED=NO
 ```
 
@@ -220,3 +226,33 @@ Commit message: `docs(idea2): design isolated h1 environment`
 - [ ] **Step 4: Verify the checkpoint**
 
 Confirm parent SHA, exact committed files, clean index/worktree, no push/PR, and no Production or Machine A mutation.
+
+---
+
+## Approved continuation: implement H1 gateway and capacity-probe source
+
+The Human Owner subsequently approved repository-only implementation of the
+dedicated gateway and bounded capacity-probe harness. The source checkpoint is
+`5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9`.
+
+Implemented boundaries:
+
+- digest-required Monitor, PostgreSQL, and nginx inputs;
+- dedicated H1 TLS gateway with exact six-route Agent allowlist and fail-closed
+  wrong-host/internal-route handling;
+- isolated `aegis-h1-capacity-probe` Compose resources with no host ports or
+  Production network/volume membership;
+- explicit positive owner budgets and per-service memory ceilings;
+- explicit synthetic request/row/payload workload bounds;
+- a clean committed build context bound to commit and tree identity;
+- fail-closed actual-growth/inode/RAM/container-memory/PostgreSQL-growth/evidence
+  watchdog checks with immediate stop and a final evidence-cap recheck;
+- an exact-scope runner and finally-safe cleanup path with no broad prune; and
+- static contract coverage, Compose rendering, Python parsing, Monitor
+  regression, and production frontend build verification.
+
+This checkpoint did not build or pull an image, start a container, run the
+active probe, create `aegis-h1-lab`, start N1, or mutate Machine A or
+Production. `N0_CAPACITY` remains `NOT_PROVEN` until the owner selects the
+budget fields, separately authorizes the active probe, and reviews its measured
+result and cleanup evidence.

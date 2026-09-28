@@ -21,9 +21,9 @@ Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
 PR: NOT CREATED — blocked until Human Machine A local acceptance and final Task 16 closeout
-Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_STATE=BLOCKED_PREREQUISITES — Monitor runtime source is frozen at `9e39fe5786a5ac7428d2e5eb47cb2285a63bc606`, but Monitor/PostgreSQL registry digests, a dedicated H1 TLS gateway, the probe Compose/watchdog, active candidate measurements, and owner-selected PostgreSQL growth/disk/RAM/inode/evidence reserves remain outstanding; N1-N7 and the live reviewed non-Production CA path have not started
+Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_STATE=BLOCKED_PREREQUISITES — the dedicated H1 TLS gateway and bounded capacity-probe harness are implemented and locally verified as source at `5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9`, and read-only registry metadata fixed the Linux/amd64 Node/PostgreSQL/nginx digests. No image was built or pulled and no probe was run. Active candidate measurements, explicit owner-selected PostgreSQL growth/disk/RAM/inode/evidence reserves, separate active-probe authorization, N1-N7, and the live reviewed non-Production CA path remain outstanding
 Started: 2026-09-19
-Previous verified repository checkpoint: `9e39fe5786a5ac7428d2e5eb47cb2285a63bc606` (`docs(idea2): define h1 capacity characterization`); this local repository-only input-freeze checkpoint follows and performs no live provisioning
+Previous verified repository checkpoint: `5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9` (`feat(idea2): add h1 capacity probe harness`); this repository-only evidence reconciliation follows and performs no active probe or live provisioning
 Production mutation allowed: NO
 
 ```text
@@ -35,8 +35,13 @@ N0_CAPACITY=NOT_PROVEN
 N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION
 BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES
 CAPACITY_INPUT_FREEZE_SOURCE_SHA=9e39fe5786a5ac7428d2e5eb47cb2285a63bc606
-ACTIVE_CAPACITY_PROBE_READY=NO
-GATEWAY_IMPLEMENTATION_REQUIRED=YES
+H1_PROBE_IMPLEMENTATION_SOURCE_SHA=5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9
+MONITOR_FINAL_SOURCE_SHA=5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9
+H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
+CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
+ACTIVE_CAPACITY_PROBE=NOT_RUN
+ACTIVE_CAPACITY_PROBE_READY=NO_OWNER_LIMITS_AND_ACTIVE_AUTHORIZATION
+GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE
 N1_STARTED=NO
 ```
 
@@ -100,7 +105,7 @@ before that acceptance.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| H1-N0-CAPACITY | Exact-candidate disk/RAM/PostgreSQL/rollback capacity gate | BLOCKED_CAPACITY_CHARACTERIZATION | Host evidence remains root `7.3 GiB` available, approximately `5.4 GiB` RAM available, `2.7 GiB` swap free, Docker images `4.846 GB`, and Docker volumes `31.13 GB`, with no cleanup/prune. Monitor runtime source is frozen at `9e39fe5786a5ac7428d2e5eb47cb2285a63bc606`, but both Monitor `node:20-alpine` stages and `postgres:15-alpine` remain tag-only because no repository-proven OCI index/Linux-amd64 digest exists. The current root gateway is an HTTP HUB/development artifact and cannot satisfy the dedicated H1 TLS/exact-Agent-route contract; `H1_GATEWAY_ARTIFACT=NOT_IMPLEMENTED`. The runbook contains measurement-derived minimum/conservative owner options and keeps the active probe blocked until digests, gateway, probe Compose/watchdog, measurements, and owner choices exist. Port evidence remains separate: preserve active `172.18.0.1:18077`; candidate `192.168.10.10:18077` and `192.168.10.10:18443` are available; `18078` remains forbidden. | characterization model `9e39fe5786a5ac7428d2e5eb47cb2285a63bc606`; this input-freeze checkpoint follows | `N0_CAPACITY=NOT_PROVEN`; `ACTIVE_CAPACITY_PROBE_READY=NO`; N0 BLOCKED; `N1_STARTED=NO` | Resolve exact read-only registry digests; implement/review dedicated H1 gateway and capacity-probe Compose/watchdog; owner selects one option per budget; characterize and evaluate formula | Human reviews this local checkpoint and decides whether to authorize the separate gateway/probe-artifact implementation; no active probe, N1, Machine A, or Production mutation |
+| H1-N0-CAPACITY | Exact-candidate disk/RAM/PostgreSQL/rollback capacity gate | BLOCKED_CAPACITY_CHARACTERIZATION | Host evidence remains root `7.3 GiB` available, approximately `5.4 GiB` RAM available, `2.7 GiB` swap free, Docker images `4.846 GB`, and Docker volumes `31.13 GB`, with no cleanup/prune. Read-only registry metadata resolved the reviewed Linux/amd64 Node, PostgreSQL, and nginx digests. A dedicated H1 TLS/exact-route gateway plus isolated probe Compose, runner, fail-closed byte/inode/RAM/container-memory/PostgreSQL-growth/evidence watchdog, and exact-scope cleanup are implemented as source at `5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9`. Focused gateway/probe contract is 10/10; combined H1 contracts 20/20; full Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; Compose static render, Python parse, Vite production build, diff, secret scan, and scoped security review pass. Native nginx syntax validation is unavailable without starting a forbidden container. No image was pulled/built and no active probe ran. Port evidence remains separate: preserve active `172.18.0.1:18077`; candidate `192.168.10.10:18077` and `192.168.10.10:18443` are available; `18078` remains forbidden. | source checkpoint `5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9`; this evidence reconciliation follows | `N0_CAPACITY=NOT_PROVEN`; `ACTIVE_CAPACITY_PROBE=NOT_RUN`; N0 BLOCKED; `N1_STARTED=NO` | Owner selects every required budget/reserve and probe-workload size, reviews workload representativeness, and separately authorizes the bounded active probe; then measure, clean exact probe resources, review evidence, and evaluate the formula | Human reviews this local checkpoint; no active probe, N1, Machine A, or Production mutation |
 | H1-AGENT-CA-BUNDLE | Managed private-CA trust for the dedicated Identity Agent | PASS — SOURCE/LOCAL ONLY | TDD covers public-only PEM validation, exact managed path, empty/unset default trust, reparse/out-of-scope/private-key/malformed/missing rejection, explicit Requests verification across auth and ingest, ambient trust-variable rejection, real disposable TLS chain success, untrusted CA and hostname mismatch denial, and Windows install/status/repair/uninstall ownership. Focused Agent/CA/lifecycle 57/57; full Engine/Agent 194 total / 192 pass / 2 expected native-pywin32 skips; Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; H1 contract 6/6; Windows lifecycle 37/37; PowerShell parse 10/10; governance 63/63; Vault PASS with two pre-existing Canvas warnings. No live CA, service, Machine A, lab, or Production state changed. | this local checkpoint | `CA_BUNDLE_IMPLEMENTATION=IMPLEMENTED_SOURCE_ONLY`; H1 remains blocked | N0-N7 and live reviewed H1 CA/path verification | stop before N0, H1, machine mutation, push, or PR |
 | H1-NONPROD-ENVIRONMENT-DESIGN | Isolated non-Production H1 architecture and N0-N8 runbook | BLOCKED_PREREQUISITES / DESIGN REVIEWED | Human-approved repository-only design fixes `aegis-h1-lab`, candidate-only HTTPS/stream hostnames, conditional ports, isolated PostgreSQL/Monitor/network/volume/credentials, exact browser/Agent route split, owner-reviewed registry policy, server-authoritative stream destination, and the source/local-verified managed `AEGIS_AGENT_CA_BUNDLE` lifecycle. No live DNS, TLS, database, container, registry, or Machine A resource exists from this checkpoint. | this local checkpoint | DESIGN PASS; CA-BUNDLE SOURCE/LOCAL PASS; LIVE PROVISIONING NOT PERFORMED | Run separately authorized N0-N7 and verify the live reviewed non-Production CA/path | Human reviews this local checkpoint; do not begin N0 or H1 |
 | MULTI-MACHINE-PORTABILITY | Pre-H1 portability hardening for Windows Machines A/C and Linux Machine B | PASS — SOURCE/STATIC ONLY | Binding model proven across A/B/C x operator/operator2: A = Windows laptop/built-in camera; B = Linux/local camera discovered at deployment; C = Windows PC/external webcam. RED proved reusable private-network endpoint and reverse-port defaults; GREEN makes the Monitor host, explicit non-loopback server bind, and unique reverse port mandatory deployment inputs. Authorization 17/17; Windows+Linux lifecycle 34/34; full Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; full Engine/Agent 179 tests / 177 pass / 0 fail / 2 expected native-Windows skips; UI freeze 5/5; PowerShell parse PASS; Bash parse PASS; Vite build PASS; governance/Vault 50/50 and PASS with two pre-existing Canvas warnings; diff/hardcode/secret/security review PASS. | this local checkpoint | Windows A/C share one configuration-driven lifecycle; Machine C needs no source rewrite. Shared Machine B business logic needs no rewrite, but the repository Linux adapter currently implements only Engine+tunnel systemd lifecycle and source-level camera discovery; Linux dedicated Identity Agent and real Machine B runtime acceptance are NOT_IMPLEMENTED / NOT_VERIFIED. Model semantics unchanged. | Future separately approved Linux identity-agent adapter and real Machine B install/reboot/camera acceptance; H0 is complete and H1 prerequisites remain separate | STOP before H1, any machine mutation, push, or PR |
@@ -212,11 +217,13 @@ before that acceptance.
 
 ### Handoff / Next Action
 
-Return the managed CA-bundle source checkpoint for Human review and stop at
-`H1_STATE=BLOCKED_PREREQUISITES`. The next gate is separately authorized N0;
-do not begin N0-N8, provision DNS/TLS/database/container resources, install Agent/Engine
-runtime, modify Agent/Engine/tunnel/camera state, mutate Production, push, open
-a PR, deploy, or create the final receipt.
+Return the H1 gateway/capacity-probe source checkpoint for Human review and
+stop at `H1_STATE=BLOCKED_PREREQUISITES`. The next gate is Human selection of
+every required capacity budget/reserve followed by a separately authorized
+bounded active probe. Do not run that probe, begin N1-N8, provision live
+DNS/TLS/database/container resources, install Agent/Engine runtime, modify
+Agent/Engine/tunnel/camera state, mutate Production, push, open a PR, deploy,
+or create the final receipt.
 
 ### Original Task 12 verification evidence
 

@@ -52,6 +52,10 @@ def limits_from_mapping(values: dict[str, Any]) -> dict[str, Any]:
         "host_ram_reserve_bytes": _positive_integer(values.get("host_ram_reserve_bytes"), "host_ram_reserve_bytes"),
         "evidence_log_cap_bytes": _positive_integer(values.get("evidence_log_cap_bytes"), "evidence_log_cap_bytes"),
         "postgres_growth_budget_bytes": _positive_integer(values.get("postgres_growth_budget_bytes"), "postgres_growth_budget_bytes"),
+        "characterization_max_new_bytes": _positive_integer(
+            values.get("characterization_max_new_bytes"),
+            "characterization_max_new_bytes",
+        ),
         "service_memory_ceiling_bytes": {
             service: _positive_integer(service_values.get(service), f"service_memory_ceiling_bytes.{service}")
             for service in EXPECTED_SERVICES
@@ -67,6 +71,7 @@ def limits_from_environment() -> dict[str, Any]:
             "host_ram_reserve_bytes": os.environ.get("HOST_RAM_RESERVE_BYTES"),
             "evidence_log_cap_bytes": os.environ.get("EVIDENCE_LOG_CAP_BYTES"),
             "postgres_growth_budget_bytes": os.environ.get("POSTGRES_GROWTH_BUDGET_BYTES"),
+            "characterization_max_new_bytes": os.environ.get("CHARACTERIZATION_MAX_NEW_BYTES"),
             "service_memory_ceiling_bytes": {
                 "gateway": os.environ.get("GATEWAY_MEMORY_CEILING_BYTES"),
                 "monitor": os.environ.get("MONITOR_MEMORY_CEILING_BYTES"),
@@ -98,6 +103,7 @@ def evaluate_snapshot(snapshot: dict[str, Any], limits: dict[str, Any]) -> list[
         ("host_mem_available_bytes", "host_ram_reserve_bytes", "RAM_RESERVE_CROSSED", "minimum"),
         ("evidence_log_bytes", "evidence_log_cap_bytes", "EVIDENCE_LOG_CAP_EXCEEDED", "maximum"),
         ("postgres_growth_bytes", "postgres_growth_budget_bytes", "POSTGRES_GROWTH_BUDGET_EXCEEDED", "maximum"),
+        ("probe_new_bytes", "characterization_max_new_bytes", "CHARACTERIZATION_MAX_NEW_BYTES_EXCEEDED", "maximum"),
     )
     for metric_field, limit_field, code, mode in comparisons:
         metric = measured(metric_field)
@@ -109,19 +115,19 @@ def evaluate_snapshot(snapshot: dict[str, Any], limits: dict[str, Any]) -> list[
         if mode == "maximum" and metric > limit_value:
             violations.append(code)
 
-    service_rss = snapshot.get("service_rss_bytes")
-    if not isinstance(service_rss, dict):
-        violations.append("MEASUREMENT_MISSING:service_rss_bytes")
+    service_memory = snapshot.get("service_memory_usage_bytes")
+    if not isinstance(service_memory, dict):
+        violations.append("MEASUREMENT_MISSING:service_memory_usage_bytes")
     else:
         for service in EXPECTED_SERVICES:
             try:
-                rss = int(service_rss[service])
+                usage = int(service_memory[service])
             except (KeyError, TypeError, ValueError):
-                violations.append(f"MEASUREMENT_MISSING:service_rss_bytes.{service}")
+                violations.append(f"MEASUREMENT_MISSING:service_memory_usage_bytes.{service}")
                 continue
-            if rss < 0:
-                violations.append(f"MEASUREMENT_INVALID:service_rss_bytes.{service}")
-            elif rss > int(limits["service_memory_ceiling_bytes"][service]):
+            if usage < 0:
+                violations.append(f"MEASUREMENT_INVALID:service_memory_usage_bytes.{service}")
+            elif usage > int(limits["service_memory_ceiling_bytes"][service]):
                 violations.append(f"SERVICE_MEMORY_CEILING_EXCEEDED:{service}")
 
     return violations
@@ -196,7 +202,8 @@ def capture_preflight_snapshot(evidence_dir: Path) -> dict[str, Any]:
         "host_mem_available_bytes": available_ram,
         "evidence_log_bytes": _directory_bytes(evidence_dir),
         "postgres_growth_bytes": 0,
-        "service_rss_bytes": {service: 0 for service in EXPECTED_SERVICES},
+        "probe_new_bytes": 0,
+        "service_memory_usage_bytes": {service: 0 for service in EXPECTED_SERVICES},
     }
 
 
@@ -231,14 +238,18 @@ def _postgres_volume_bytes() -> int:
     return _directory_bytes(Path(mountpoint))
 
 
-def capture_snapshot(evidence_dir: Path, postgres_initial_volume_bytes: int) -> dict[str, Any]:
+def capture_snapshot(
+    evidence_dir: Path,
+    postgres_initial_volume_bytes: int,
+    host_baseline_available_bytes: int,
+) -> dict[str, Any]:
     available_bytes, available_inodes, available_ram = _host_metrics()
     containers = _probe_containers()
-    rss: dict[str, int] = {}
+    memory_usage: dict[str, int] = {}
     writable: dict[str, int] = {}
     log_bytes = 0
     for service, container_id in containers.items():
-        rss[service] = _parse_memory_size(
+        memory_usage[service] = _parse_memory_size(
             _run(["docker", "stats", "--no-stream", "--format", "{{.MemUsage}}", container_id])
         )
         size_rw = _run(["docker", "inspect", "--size", "--format", "{{.SizeRw}}", container_id])
@@ -256,10 +267,11 @@ def capture_snapshot(evidence_dir: Path, postgres_initial_volume_bytes: int) -> 
         "host_mem_available_bytes": available_ram,
         "evidence_log_bytes": _directory_bytes(evidence_dir) + log_bytes,
         "postgres_growth_bytes": max(0, volume_bytes - postgres_initial_volume_bytes),
+        "probe_new_bytes": max(0, host_baseline_available_bytes - available_bytes),
         "postgres_volume_bytes": volume_bytes,
-        "service_rss_bytes": rss,
+        "service_memory_usage_bytes": memory_usage,
         "service_writable_layer_bytes": writable,
-        "aggregate_lab_rss_bytes": sum(rss.values()),
+        "aggregate_lab_memory_usage_bytes": sum(memory_usage.values()),
     }
 
 
@@ -299,6 +311,7 @@ def main() -> int:
     parser.add_argument("--snapshot-json")
     parser.add_argument("--evidence-dir")
     parser.add_argument("--postgres-initial-volume-bytes")
+    parser.add_argument("--host-baseline-available-bytes")
     parser.add_argument("--interval-seconds", type=float, default=2.0)
     args = parser.parse_args()
 
@@ -316,8 +329,12 @@ def main() -> int:
 
         if not (args.check_once or args.loop):
             raise ProbeBlocked("choose --evaluate, --check-once, or --loop")
-        if not args.evidence_dir or args.postgres_initial_volume_bytes is None:
-            raise ProbeBlocked("live watchdog requires evidence and PostgreSQL baseline inputs")
+        if (
+            not args.evidence_dir
+            or args.postgres_initial_volume_bytes is None
+            or args.host_baseline_available_bytes is None
+        ):
+            raise ProbeBlocked("live watchdog requires evidence, PostgreSQL, and host baseline inputs")
 
         limits = limits_from_environment()
         evidence_dir = Path(args.evidence_dir).resolve()
@@ -325,8 +342,12 @@ def main() -> int:
             args.postgres_initial_volume_bytes,
             "postgres_initial_volume_bytes",
         )
+        host_baseline_available = _positive_integer(
+            args.host_baseline_available_bytes,
+            "host_baseline_available_bytes",
+        )
         while True:
-            snapshot = capture_snapshot(evidence_dir, postgres_initial)
+            snapshot = capture_snapshot(evidence_dir, postgres_initial, host_baseline_available)
             violations = evaluate_snapshot(snapshot, limits)
             if violations:
                 stop_probe()
