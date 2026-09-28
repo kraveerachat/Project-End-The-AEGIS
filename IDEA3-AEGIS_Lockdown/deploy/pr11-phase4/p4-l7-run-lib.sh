@@ -166,7 +166,12 @@ PYC
   pass=$(head -n 1 "$dir/mqtt-core.pass" | tr -d '\r\n')
   [ -n "$pass" ] || { l7_reason "L7_MQTT_PASSWORD_EMPTY"; return 1; }
   [ "$(stat -c %s "$dir/restore.credential")" -le 4096 ] || { l7_reason "L7_RESTORE_CREDENTIAL_INVALID"; return 1; }
-  "$py" - "$repo" "$dir/restore.credential" >/dev/null 2>&1 <<'PYC' || { l7_reason "L7_RESTORE_CREDENTIAL_INVALID"; return 1; }
+  # Importing aegis_soc.local_restore is not side-effect-free: it imports aegis_soc.database, whose module import
+  # creates a RotatingFileHandler(config.LOG_PATH, ...) immediately. Outside the production systemd environment,
+  # AEGIS_LOG_PATH is unset and config.LOG_PATH falls back to the relative "aegis_soc.log", so this read-only
+  # pre-gate would try to write a log file into whatever directory it happens to run from. Pin its own logging to
+  # /dev/null (same fix as the D4 probes in stages/L7/apply.sh and verify.sh).
+  env AEGIS_LOG_PATH=/dev/null "$py" - "$repo" "$dir/restore.credential" >/dev/null 2>&1 <<'PYC' || { l7_reason "L7_RESTORE_CREDENTIAL_INVALID"; return 1; }
 import sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
