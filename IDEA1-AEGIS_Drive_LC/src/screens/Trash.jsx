@@ -166,8 +166,8 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
     setPurge(null)
     setDestructivePassword('')
     setFeedback(t('trashPurged'))
-    await loadItems()
     onStorageMutationCommitted?.()
+    await loadItems()
   }
 
   const emptyTrash = async () => {

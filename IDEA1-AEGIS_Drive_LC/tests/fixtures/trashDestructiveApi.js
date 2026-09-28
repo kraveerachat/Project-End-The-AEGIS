@@ -5,6 +5,7 @@ export const trashBackend = {
   items: [],
   purgeResult: null,
   emptyResult: null,
+  listGate: null,
 
   reset(overrides = {}) {
     this.unlocked = true
@@ -12,6 +13,7 @@ export const trashBackend = {
     this.items = []
     this.purgeResult = null
     this.emptyResult = null
+    this.listGate = null
     Object.assign(this, overrides)
   },
 
@@ -39,6 +41,7 @@ export async function apiFetch(path, options = {}) {
   }
 
   if (path === '/api/trash') {
+    if (trashBackend.listGate) await trashBackend.listGate
     if (!trashBackend.unlocked) return { ok: false, status: 423, data: null, errorKind: 'server' }
     return { ok: true, status: 200, data: { items: [...trashBackend.items] }, errorKind: null }
   }

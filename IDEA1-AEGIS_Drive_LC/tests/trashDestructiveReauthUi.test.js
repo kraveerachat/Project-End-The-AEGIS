@@ -380,6 +380,32 @@ test('TRASH-STORAGE-REFRESH-2 empty trash calls onStorageMutationCommitted on su
   }
 })
 
+test('TRASH-STORAGE-REFRESH-7 confirmed purge refreshes storage without waiting for Trash relisting', async () => {
+  let storageRefreshed = 0
+  let releaseList
+  const screen = await mountTrash({
+    onStorageMutationCommitted: () => { storageRefreshed++ },
+  })
+  try {
+    await screen.setSearchQuery('audit')
+    await screen.clickDeletePermanently('audit-log-2026.csv')
+    trashBackend.listGate = new Promise((resolve) => { releaseList = resolve })
+
+    await screen.submitPurgePassword('secret')
+
+    assert.equal(screen.dialog(), null, 'confirmed purge closes its dialog while relisting is pending')
+    assert.equal(storageRefreshed, 1, 'physical reclamation must trigger storage reconciliation before the relist settles')
+    assert.equal(screen.searchInput().value, 'audit', 'legitimate search remains unchanged')
+
+    await act(async () => { releaseList(); await Promise.resolve() })
+    assert.equal(storageRefreshed, 1, 'relist completion must not trigger a duplicate refresh')
+    assert.deepEqual(screen.itemsRendered(), [], 'the purged matching row disappears after relisting')
+  } finally {
+    await act(async () => { releaseList?.(); await Promise.resolve() })
+    await screen.unmount()
+  }
+})
+
 test('TRASH-STORAGE-REFRESH-3 failed permanent deletion does NOT call onStorageMutationCommitted', async () => {
   let storageRefreshed = 0
   const screen = await mountTrash({
