@@ -66,7 +66,7 @@ substitute for an exact H1 candidate measurement.
 Artifact state remains fail-closed while the source boundary is now complete:
 
 - the H1 probe implementation source is frozen at
-  `5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9`, with
+  `d725365875f54e82f12a592878e382fa2dfa6978`, with
   `IDEA2-AEGIS_Monitor/Dockerfile` and context `IDEA2-AEGIS_Monitor`;
 - read-only registry metadata resolved reviewed OCI index and Linux/amd64 child
   digests for Node 20 Alpine, PostgreSQL 15 Alpine, and nginx Alpine;
@@ -113,8 +113,8 @@ before N0 can be reconsidered.
 BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES
 CAPACITY_PROBE_PROJECT=aegis-h1-capacity-probe
 CAPACITY_INPUT_FREEZE_SOURCE_SHA=9e39fe5786a5ac7428d2e5eb47cb2285a63bc606
-H1_PROBE_IMPLEMENTATION_SOURCE_SHA=5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9
-MONITOR_FINAL_SOURCE_SHA=5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9
+H1_PROBE_IMPLEMENTATION_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
+MONITOR_FINAL_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
 H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
 ACTIVE_CAPACITY_PROBE=NOT_RUN
@@ -233,7 +233,7 @@ Confirm parent SHA, exact committed files, clean index/worktree, no push/PR, and
 
 The Human Owner subsequently approved repository-only implementation of the
 dedicated gateway and bounded capacity-probe harness. The source checkpoint is
-`5a7cf614e6f981dbbb8f842d3cf81f00e0d378e9`.
+`d725365875f54e82f12a592878e382fa2dfa6978`.
 
 Implemented boundaries:
 
