@@ -286,13 +286,15 @@ class Fx:
         env.update(extra)
         return env
 
-    def run(self, script: Path, *, keep_work: bool = False, **extra: str) -> subprocess.CompletedProcess[str]:
-        """apply refuses an existing work dir (like L6b); repeated apply runs in one test start from a fresh one unless keep_work."""
+    def run(self, script: Path, *, keep_work: bool = False, cwd: Path | None = None, **extra: str) -> subprocess.CompletedProcess[str]:
+        """apply refuses an existing work dir (like L6b); repeated apply runs in one test start from a fresh one unless keep_work.
+        `cwd` lets a test pin the handler's working directory (e.g. to prove nothing is written relative to it) without affecting
+        every other test, which otherwise inherits pytest's own invocation directory."""
         if script == APPLY and not keep_work and self.work.exists() and not self.work.is_symlink():
             import shutil
 
             shutil.rmtree(self.work)
-        return subprocess.run(["bash", str(script)], text=True, capture_output=True, check=False, env=self.env(**extra))
+        return subprocess.run(["bash", str(script)], text=True, capture_output=True, check=False, env=self.env(**extra), cwd=cwd)
 
     def data(self) -> dict:
         return json.loads(self.state.read_text())

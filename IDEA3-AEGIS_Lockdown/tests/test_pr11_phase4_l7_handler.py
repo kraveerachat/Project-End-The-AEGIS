@@ -1009,4 +1009,7 @@ def test_l7_core_account_probes_use_the_installed_release_interpreter_live() -> 
     for script in (APPLY, VERIFY):
         text = script.read_text()
         assert 'SVC_PY="$rel_host/venv/bin/python"; SVC_CODE_ROOT="$rel_host"' in text, script.name
-        assert 'as_service "$SVC_PY" - "$SVC_CODE_ROOT"' in text and 'as_service "$PY"' not in text, script.name
+        # AEGIS_LOG_PATH=/dev/null sits between as_service and $SVC_PY so the probe's own aegis_soc.database import
+        # can never write a relative log file; it must still run as $SVC_PY/$SVC_CODE_ROOT, never plain $PY.
+        assert 'as_service env AEGIS_LOG_PATH=/dev/null "$SVC_PY" - "$SVC_CODE_ROOT"' in text, script.name
+        assert 'as_service "$PY"' not in text, script.name

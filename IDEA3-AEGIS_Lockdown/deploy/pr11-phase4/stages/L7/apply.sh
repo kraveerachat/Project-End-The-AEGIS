@@ -179,7 +179,13 @@ mqtt_pass=$(head -n 1 "$INPUT/mqtt-core.pass" | tr -d '\r\n')
 # D4 restore credential (OD-L7-08): FORMAT only here. load() also demands mode 0600 and owner == the running account, which is
 # meaningless for a root-run staging step; the staged copy is proven readable by the Core account below.
 [ "$(stat -c '%s' "$INPUT/restore.credential")" -le 4096 ] || fail RESTORE_CREDENTIAL_INVALID
-"$PY" - "$REPO_ROOT" "$INPUT/restore.credential" >/dev/null 2>&1 <<'PYC' || fail RESTORE_CREDENTIAL_INVALID
+# Importing aegis_soc.local_restore is not side-effect-free: it imports aegis_soc.database, whose module import
+# creates a RotatingFileHandler(config.LOG_PATH, ...) immediately. Outside the production systemd environment,
+# AEGIS_LOG_PATH is unset and config.LOG_PATH falls back to the relative "aegis_soc.log", so this probe would try
+# to write a log file into whatever directory apply.sh happens to run from -- and fail closed with a masked
+# reason if that directory isn't writable. Point the probe's own logging at /dev/null; it never touches the
+# credential check itself.
+env AEGIS_LOG_PATH=/dev/null "$PY" - "$REPO_ROOT" "$INPUT/restore.credential" >/dev/null 2>&1 <<'PYC' || fail RESTORE_CREDENTIAL_INVALID
 import sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
@@ -289,7 +295,9 @@ if [ "$current_owned" = 1 ]; then
 fi
 
 # what the Core account itself must be able to read (the service reads these directly; systemd reads the others as root)
-as_service "$SVC_PY" - "$SVC_CODE_ROOT" "$creds_dir/restore.credential" >/dev/null 2>&1 <<'PYC' || fail D4_CREDENTIAL_UNSAFE
+# Same import-side-effect hazard as the RESTORE_CREDENTIAL_INVALID probe above (see that comment): pin this probe's
+# own logging to /dev/null so it can never attempt a relative aegis_soc.log write as the Core account.
+as_service env AEGIS_LOG_PATH=/dev/null "$SVC_PY" - "$SVC_CODE_ROOT" "$creds_dir/restore.credential" >/dev/null 2>&1 <<'PYC' || fail D4_CREDENTIAL_UNSAFE
 import sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])

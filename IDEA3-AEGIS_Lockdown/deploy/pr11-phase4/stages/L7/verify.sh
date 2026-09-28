@@ -187,7 +187,11 @@ PYC
   esac
 
   # D4: the Core account itself must be able to load its credential (root would hide a permission problem)
-  as_service "$SVC_PY" - "$SVC_CODE_ROOT" "$creds_dir/restore.credential" >/dev/null 2>&1 <<'PYC' || fail D4_CREDENTIAL_UNSAFE
+  # Importing aegis_soc.local_restore is not side-effect-free (it imports aegis_soc.database, which creates a
+  # RotatingFileHandler(config.LOG_PATH, ...) at module import time); outside systemd, AEGIS_LOG_PATH is unset and
+  # config.LOG_PATH falls back to the relative "aegis_soc.log", so this probe would try to write a log file into
+  # whatever directory verify.sh happens to run from. Pin its own logging to /dev/null.
+  as_service env AEGIS_LOG_PATH=/dev/null "$SVC_PY" - "$SVC_CODE_ROOT" "$creds_dir/restore.credential" >/dev/null 2>&1 <<'PYC' || fail D4_CREDENTIAL_UNSAFE
 import sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
