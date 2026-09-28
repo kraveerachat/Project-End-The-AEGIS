@@ -1,5 +1,5 @@
 ---
-title: Task Receipt — IDEA3 L8 real-hardware backend (repository only)
+title: Task Receipt — IDEA3 L8 real-hardware backend and boot verification (repository only)
 date: 2026-09-29T05:58:33+07:00
 owner: music
 area: idea3
@@ -8,7 +8,7 @@ status: complete
 edit_policy: append-by-new-file
 ---
 
-# Task Receipt — IDEA3 L8 real-hardware backend (repository only)
+# Task Receipt — IDEA3 L8 real-hardware backend and boot verification (repository only)
 
 ## What changed
 
@@ -37,37 +37,48 @@ edit_policy: append-by-new-file
   observed, so a bad input never causes a needless device reset; the demo/test-key gate stays after identity
   and before the first write. Also added: run-id charset check, image-vs-partition size checks, evidence-path
   pre-check (write-once collision is caught before flashing).
-- **Boot verification: BLOCKED_DESIGN_GAP.** The backend boundary exists (`boot_verifier`, results limited to
-  PASS/FAIL/NOT_PROVEN, exceptions map to NOT_PROVEN) but no trustworthy signal is defined (firmware prints
-  nothing at boot, relay GPIO is invisible to esptool, `publishStatus` is L9 scope). The CLI supplies no verifier,
-  so the hardware path refuses before any device access with `BOOT_VERIFICATION_NOT_IMPLEMENTED`. This is a
-  deliberate judgment call: refusing pre-write is stricter than flashing a device whose result could never be
-  accepted. Live L8 must not be claimed ready.
+- **Boot verification: IMPLEMENTED_REPOSITORY (second session, same PR, owner-approved contract).** New
+  `p4-l8-boot-verify.py`: a subscribe-only signed-BOOT-STATUS verifier with no publish path (no COMMAND,
+  HEARTBEAT, CUT or RESTORE reachable). Exact topic `aegis/idea3/v1/<device_id>/status`, TLS 8883 with the pinned
+  CA, the staged Core broker credential (`idea3-core`; no new broker user, no ACL change), the real Protocol v1
+  `InboundVerifier` over an in-memory store (never the Core replay store). Armed after observed identity and
+  before the first write (T0 from the Core trusted clock); collects after the readback `hard_reset` for at most
+  180 s. PASS = authenticated, non-retained `BOOT`/`LOCKDOWN`/`SYNCED` frame with empty command correlation,
+  `device_seq_hwm` equal to the new NVS's initial `seq_hi`, unseen `msg_id`, skew rule satisfied, and
+  `device_time >= T0 - 2`. Authenticated `output_state=NORMAL` = FAIL; everything else = NOT_PROVEN. Both
+  record `failure_boundary=BOOT_VERIFICATION` and hold as `FAIL_SECURE_HOLD_AND_EVIDENCE` (no retry, restore
+  or reflash). Arm failure aborts before any write. PASS means AUTHENTICATED_FIRMWARE_REPORTED_LOCKDOWN, not
+  electrical relay proof. L9 reuses this BOOT event; L8 never reboots the device for a second one.
+- Hardware now requires `AEGIS_L8_BROKER_ADDRESS`, `AEGIS_L8_BROKER_TLS_NAME`, `AEGIS_L8_MQTT_CA_FILE` and
+  `AEGIS_L8_BROKER_CREDENTIAL_FILE` (shell and helper); without them it refuses before any device access with
+  `BOOT_VERIFICATION_NOT_CONFIGURED` (this replaces the earlier `BOOT_VERIFICATION_NOT_IMPLEMENTED` refusal).
+  No firmware change was needed or made.
 
 ## Source files changed
 
-- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-l8-device.py` — hardware backend, executor, allowlist, provision reorder/containment.
-- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/L8/apply.sh` — hardware branch behind the live gate; passes `--esptool`/`--live-authorized`.
-- `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l8_hardware_backend.py` — new: 80 tests, fake executor only, autouse guard against any real device/tool.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-l8-device.py` — hardware backend, executor, allowlist, provision reorder/containment; boot-verifier construction, arming, close and CLI inputs.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-l8-boot-verify.py` — new: subscribe-only signed BOOT STATUS verifier.
+- `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l8_boot_verify.py` — new: 69 tests, fake MQTT client/executor/clock; autouse guards against any device, tool or network.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/L8/apply.sh` — hardware branch behind the live gate; passes `--esptool`/`--live-authorized`; requires and forwards the four broker inputs.
+- `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l8_hardware_backend.py` — new: 80 tests, fake executor only, autouse guard against any real device/tool; two boot-gap tests moved to the new contract.
 - `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l8_handler.py` — two stale "hardware refused/not implemented" tests rewritten to the new contract.
-- `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l8-operational-design.md` — stale capability statements reconciled; new §8. OD-L8 policy not rewritten.
+- `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l8-operational-design.md` — stale capability statements reconciled; new §8 including §8.4 boot verification. OD-L8 policy not rewritten.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/README.md` — L8 backend line reconciled.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/L8/verify.sh`, `rollback.sh` — NOT modified.
 
 ## Verification evidence
 
-- RED first: `pytest tests/test_pr11_phase4_l8_hardware_backend.py -q` before implementation — fail: 74 failed / 6 passed (missing hardware surface; the 6 were negative/static guards).
-- `pytest tests/test_pr11_phase4_l8_hardware_backend.py -q` — pass: 80 passed.
-- `pytest tests/test_pr11_phase4_l8_handler.py -q` — pass: 77 passed (fixture regression intact).
-- `pytest tests/test_pr11_phase4_l8_handler.py tests/test_pr11_phase4_harness.py -q` — pass: 299 passed.
-- `pytest tests/test_pr11_phase4_nvs_provision.py tests/test_firmware_contract.py tests/test_firmware_protocol_parity.py tests/test_platform_lock.py tests/test_pr11_phase4_g15_host_artifacts.py tests/test_pr11_phase4_l9_handler.py tests/test_pr11_phase4_l7_handler.py -q` — pass: 398 passed.
-- `bash -n` on L8 `apply.sh`, `verify.sh`, `rollback.sh`; `python -m py_compile deploy/pr11-phase4/p4-l8-device.py` — pass.
-- `git diff --check` — pass. Secret-pattern scan of added lines (PEM headers, AWS-style ids, quoted credentials, 64-hex) — no hits.
+- Session 1 RED: hardware suite before implementation — 74 failed / 6 passed.
+- Session 2 RED: `pytest tests/test_pr11_phase4_l8_boot_verify.py -q` before implementation — fail: 68 failed / 1 passed (module `p4-l8-boot-verify.py` and the new provision inputs did not exist).
+- `pytest tests/test_pr11_phase4_l8_boot_verify.py tests/test_pr11_phase4_l8_hardware_backend.py tests/test_pr11_phase4_l8_handler.py tests/test_pr11_phase4_harness.py -q` — pass: 448 passed (boot 69, hardware 80, handler 77, harness 222).
+- `pytest tests/test_pr11_phase4_nvs_provision.py tests/test_firmware_contract.py tests/test_firmware_protocol_parity.py tests/test_platform_lock.py tests/test_pr11_phase4_g15_host_artifacts.py tests/test_pr11_phase4_l9_handler.py tests/test_pr11_phase4_l7_handler.py tests/test_protocol_inbound.py tests/test_protocol_v1.py -q` — pass: 623 passed.
+- `bash -n` on L8 `apply.sh`, `verify.sh`, `rollback.sh`; `python -m py_compile` on `p4-l8-device.py` and `p4-l8-boot-verify.py` — pass.
+- `git diff --check` — pass. Secret-pattern scan of added lines and new untracked files (PEM private headers, AWS-style ids, 64-hex) — no hits. The one embedded PEM is a public throwaway TEST CA certificate whose private key was never stored.
 - Python used: `~/.venvs/aegis-idea3-core/bin/python` (pytest 9.1.1).
 
 ## Canonical notes updated
 
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` — new top section for the L8 hardware backend, one line added to the L8 state block, `updated` date.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` — top section for the L8 hardware backend and boot verification, one line added to the L8 state block, `updated` date.
 
 ## Shared surfaces touched
 
@@ -75,11 +86,13 @@ edit_policy: append-by-new-file
 
 ## Integration requests
 
-- None — no cross-scope/shared path changed. Owner decision needed later (not an integration request): approve one boot-verification signal for L8.
+- None — no cross-scope/shared path changed. The boot-verification owner decisions were received and implemented; no further integration request.
 
 ## Known limitations
 
-- Nothing was exercised against real hardware; the pinned `esptool` output format is asserted from esptool 4.11 behavior and the fake, not observed on a device. `LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN`.
-- Boot verification is BLOCKED_DESIGN_GAP; Live L8 is not ready and remains NOT_AUTHORIZED. D4 live, OV-12 values and the A-L8 authorization are unchanged and unproven.
-- `AEGIS_L8_LIVE_AUTHORIZED=YES` is a handler flag, as for other stages; same-day A-L8 authorization is still enforced by the stage gate outside this task.
+- Nothing was exercised against real hardware, a real broker or a real network; the esptool output format and the paho TLS/subscribe behavior are asserted from documented behavior and fakes only. `LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN`, `LIVE_L8=NOT_AUTHORIZED`.
+- Boot PASS is AUTHENTICATED_FIRMWARE_REPORTED_LOCKDOWN: it does not prove the relay contact is physically open, nor which firmware image signed the frame. Electrical proof is outside the verifier.
+- Live boot proof depends on the AP, NTP, PKI, broker and Core-clock stages being healthy inside the 180 s window; a network fault yields NOT_PROVEN and a fail-secure hold, never a false PASS. The Core's own service will also accept the same BOOT frame (L9 reuses that event).
+- The verifier's default clock is the Core `TrustedClock` (adjtimex-based); it was exercised with a fake clock only.
+- D4 live, OV-12 values and the A-L8 authorization are unchanged and unproven; `AEGIS_L8_LIVE_AUTHORIZED=YES` is a handler flag and the same-day A-L8 gate is enforced outside this task.
 - The concurrent L7 remediation branch was not touched; `origin/main` had not advanced at the last fetch (`ec12cf38`), so no merge was needed.

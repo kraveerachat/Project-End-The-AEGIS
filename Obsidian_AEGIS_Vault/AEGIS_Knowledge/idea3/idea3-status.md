@@ -18,9 +18,9 @@ edit_policy: owner-writable
 
 ---
 
-## IDEA3 PR11 Phase 4 L8 real-hardware backend — repository implementation only — 2026-09-29
+## IDEA3 PR11 Phase 4 L8 real-hardware backend and boot verification — repository implementation only — 2026-09-29
 
-> [!important] Repository-only. **No hardware was accessed**: no serial port opened, no esptool/pio run, no firmware flashed, no NVS written, no flash erased, no relay actuated. `LIVE_L8 = NOT_AUTHORIZED`; Live L8 is **not** ready because boot verification has an unresolved design gap.
+> [!important] Repository-only. **No hardware was accessed**: no serial port opened, no esptool/pio run, no firmware flashed, no NVS written, no flash erased, no relay actuated, no broker contacted. `LIVE_L8 = NOT_AUTHORIZED`. Boot verification is now implemented in the repository (signed BOOT STATUS, fake-client tested) but never exercised live.
 
 ```text
 Task                          = IDEA3 PR11 L8 real hardware backend (repository-only)
@@ -29,7 +29,9 @@ HARDWARE_BACKEND              = IMPLEMENTED_REPOSITORY (was HARDWARE_BACKEND_NOT
 HARDWARE_TESTED_WITH          = FAKE_EXECUTOR_ONLY
 LIVE_L8                       = NOT_AUTHORIZED
 LIVE_L8_PHYSICAL_PROOF        = NOT_PROVEN
-BOOT_VERIFICATION             = BLOCKED_DESIGN_GAP (BOOT_VERIFICATION_NOT_IMPLEMENTED)
+BOOT_VERIFICATION_IMPLEMENTED_REPOSITORY = YES (signed BOOT STATUS; fake client only)
+BOOT_PASS_SEMANTICS           = AUTHENTICATED_FIRMWARE_REPORTED_LOCKDOWN (not electrical relay proof)
+L9_REUSES_L8_BOOT_EVENT       = YES
 LIVE_L8_ACCEPTANCE            = NOT_PROVEN
 D4_LIVE                       = NOT_PROVEN
 ```
@@ -38,8 +40,8 @@ D4_LIVE                       = NOT_PROVEN
 - **Gate:** hardware needs `AEGIS_L8_BACKEND=hardware` **and** `AEGIS_L8_LIVE_AUTHORIZED=YES` (+ `AEGIS_L8_ESPTOOL`); enforced by `apply.sh` and, independently, by `p4-l8-device.py`. Import/construct/parse/validate touch nothing.
 - **Containment:** one injectable executor and one argv allowlist (`flash_id`, `write_flash`, `read_flash` only) bound to the OV-12 serial port and the two table-derived regions. Erase, `write_mem`, eFuse, PlatformIO upload, CUT/RESTORE, MQTT and 1883 are unreachable.
 - **Failure policy unchanged:** first-write marker before the first write; any later failure is contained as evidence (`DEVICE_WRITE` / `NVS_READBACK` / `BOOT_VERIFICATION`) and held `FAIL_SECURE_HOLD_AND_EVIDENCE`; no retry/reflash/restore; `rollback.sh` post-write performs zero device action; evidence stays the exact 11-field write-once 0600 bundle.
-- **Open owner decision:** approve one trustworthy boot-verification signal (the firmware prints nothing at boot; relay GPIO is invisible to esptool; `publishStatus` is L9 scope). Until then the hardware path refuses before any device access. Details: L8 operational design §8.4.
-- **Tests:** `tests/test_pr11_phase4_l8_hardware_backend.py` (80, fake executor, autouse guard against real devices); `test_pr11_phase4_l8_handler.py` 77 (two stale refusal tests reconciled).
+- **Boot verification:** `p4-l8-boot-verify.py` is a subscribe-only signed-BOOT-STATUS check (no publish path; TLS 8883; staged Core broker credential, no new broker user or ACL; real Protocol v1 `InboundVerifier` over ephemeral state, never the Core replay store; armed after identity and before the first write; 180 s deadline; PASS requires an authenticated non-retained `BOOT`/`LOCKDOWN`/`SYNCED` frame carrying the new NVS `seq_hi` and `device_time >= T0-2`; `NORMAL` = FAIL; else NOT_PROVEN, held as `FAIL_SECURE_HOLD_AND_EVIDENCE`). Hardware needs four extra broker inputs or refuses before device access (`BOOT_VERIFICATION_NOT_CONFIGURED`). L9 keeps PERIODIC, HEARTBEAT, the negative matrix and Core liveness, and reuses this BOOT event. Electrical relay proof stays outside the verifier. Details: L8 operational design §8.4.
+- **Tests:** `tests/test_pr11_phase4_l8_boot_verify.py` (69, fake client/executor/clock, no network); `tests/test_pr11_phase4_l8_hardware_backend.py` (80, fake executor, autouse guard against real devices); `test_pr11_phase4_l8_handler.py` 77 (two stale refusal tests reconciled).
 - **Receipt:** `90-Status/logs/2026-09-29_055833_music_idea3-l8-hardware-backend-repository.md`.
 
 ## IDEA3 Web WEB-R2 Production Refresh — live closeout — 2026-09-28

@@ -793,19 +793,27 @@ def test_hardware_evidence_is_write_once(tmp_path):
 
 
 def test_without_a_boot_verifier_the_hardware_path_refuses_before_any_write(tmp_path):
-    """BLOCKED_DESIGN_GAP: no trustworthy boot signal is defined, so none is invented."""
+    """No verifier and no broker inputs: refused before any device access."""
     mod, env, ex, rc = run_hw(tmp_path, verifier=None)
     assert isinstance(rc, tuple) or rc != 0
-    assert "BOOT_VERIFICATION_NOT_IMPLEMENTED" in str(rc)
-    assert "write_flash" not in ex.subcommands()
+    assert "BOOT_VERIFICATION_NOT_CONFIGURED" in str(rc)
+    assert ex.calls == [], "the device was touched with no boot verifier configured"
     assert not (Path(env["AEGIS_L8_WORK_DIR"]) / "first-write.marker").exists()
 
 
-def test_cli_hardware_path_cannot_supply_a_boot_verifier():
+def test_cli_builds_its_own_boot_verifier_from_broker_inputs():
+    """The CLI supplies no injected verifier; it carries the broker inputs instead."""
     mod = load_mod()
-    assert mod.build_parser().get_default("boot_verifier") is None
-    body = L8_DEVICE.read_text(encoding="utf-8")
-    assert "BOOT_VERIFICATION_NOT_IMPLEMENTED" in body
+    args = mod.build_parser().parse_args(
+        ["provision", "--input-dir", "i", "--work-dir", "w", "--evidence-dir", "e", "--backend", "hardware",
+         "--partition-table", "p", "--secrets-header", "s", "--firmware-image", "f", "--build-command", "b",
+         "--nvs-generator", "g", "--wifi-ssid", "x", "--ntp", "n", "--run-id", "r",
+         "--broker-address", "a", "--broker-tls-name", "t", "--broker-ca-file", "c",
+         "--broker-credential-file", "k"]
+    )
+    assert (args.broker_address, args.broker_tls_name, args.broker_ca_file, args.broker_credential_file) == (
+        "a", "t", "c", "k")
+    assert "BOOT_VERIFICATION_NOT_CONFIGURED" in L8_DEVICE.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("verdict,boundary", [("FAIL", "BOOT_VERIFICATION"),

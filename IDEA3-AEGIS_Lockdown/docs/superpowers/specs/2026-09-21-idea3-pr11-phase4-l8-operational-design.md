@@ -17,7 +17,7 @@ Merged-authority reconciliations:
 - `G-04` static addressing (`NOT_APPLICABLE_UNDER_SELECTED_ADDRESS_MODEL`; address model is DHCP)
 Repository Implementation: COMPLETE — fixture backend, plus hardware backend implemented in the repository (2026-09-29, tested only against a fake executor; see §8)
 Hardware backend: HARDWARE_BACKEND_IMPLEMENTED_REPOSITORY — live hardware never exercised
-Boot verification: BLOCKED_DESIGN_GAP (§8.4)
+Boot verification: IMPLEMENTED_REPOSITORY — signed BOOT STATUS, AUTHENTICATED_FIRMWARE_REPORTED_LOCKDOWN (§8.4); never exercised live
 Live L8: NOT AUTHORIZED / NOT RUN
 Production Mutation: NO
 ESP32 Mutation: NO
@@ -329,8 +329,8 @@ host drift whatsoever.
   hardware backend is reachable only when `AEGIS_L8_BACKEND=hardware` **and**
   `AEGIS_L8_LIVE_AUTHORIZED=YES`, enforced independently by the stage handler
   and by the device tool's backend loader, and even then it refuses before the
-  first write while no boot-verification signal exists
-  (`BOOT_VERIFICATION_NOT_IMPLEMENTED`). `LIVE_L8=NOT_AUTHORIZED` is unchanged.
+  first write unless the signed-BOOT-STATUS verifier is configured
+  (`BOOT_VERIFICATION_NOT_CONFIGURED`, §8.4). `LIVE_L8=NOT_AUTHORIZED` is unchanged.
 - **BASIS**: Owner classification; `firmware/platformio.ini`
   (`monitor_dtr = 0`, `monitor_rts = 0` reduce but do not eliminate the reset);
   `firmware/src/main.cpp` boot path (`BOOT_GRACE_MS`, relay driven to
@@ -495,6 +495,8 @@ host drift whatsoever.
 | `deploy/pr11-phase4/p4-l8-device.py` | new — backend abstraction, partition geometry derivation, readback compare, evidence bundle | repository tool, fixture backend only |
 | `tests/test_pr11_phase4_l8_handler.py` | new — RED-first acceptance suite | test |
 | `tests/test_pr11_phase4_l8_hardware_backend.py` | added 2026-09-29 — hardware-backend suite, fake executor only | test |
+| `deploy/pr11-phase4/p4-l8-boot-verify.py` | added 2026-09-29 — subscribe-only signed BOOT STATUS verifier (§8.4) | repository tool, fake-client tested only |
+| `tests/test_pr11_phase4_l8_boot_verify.py` | added 2026-09-29 — boot-verification suite, fake client/executor/clock only | test |
 | `tests/test_pr11_phase4_harness.py` | edit — add L8 to the reviewed-handler set; move the unregistered-mutating-stage example to L9 | shared harness guardrail |
 
 `p4-lib.sh`, `p4-l0-capture.sh`, `p4-compare.sh`, `p4-stage-gate.sh`,
@@ -556,7 +558,7 @@ LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN
 HARDWARE_BACKEND_IMPLEMENTED_REPOSITORY=YES
 LIVE_L8=NOT_AUTHORIZED
 LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN
-BOOT_VERIFICATION=BLOCKED_DESIGN_GAP
+BOOT_VERIFICATION=IMPLEMENTED_REPOSITORY (never exercised live)
 ```
 
 This section records repository capability only. It does not change any
@@ -601,10 +603,11 @@ fit the observed flash size, before the first write.
 
 ### 8.3 Write and readback contract
 
-Order inside `provision`: authorization, D4 attestation, OV-12 binding,
-boot-verifier availability, then all device-free gates (reviewed partition
+Order inside `provision`: OV-12 binding, D4 attestation, live authorization,
+boot-verifier construction (no I/O), then all device-free gates (reviewed partition
 geometry, compile-only build command, trust anchor, firmware SHA-256, NTP,
-evidence-path free), then observed identity, then keys and NVS generation
+evidence-path free), then observed identity, then **arming the boot verifier**,
+then keys and NVS generation
 (image length must equal the partition size), then the first-write marker,
 then the writes. The device-free gates run first so a bad CA or table never
 causes a device reset.
@@ -622,21 +625,77 @@ causes a device reset.
   device action. Evidence remains the exact 11-field write-once 0600 bundle;
   no NVS digest was added.
 
-### 8.4 Boot verification — BLOCKED_DESIGN_GAP
+### 8.4 Boot verification — signed BOOT STATUS
 
-`HardwareDevice.verify_boot` delegates to an injected `boot_verifier` and maps
-anything other than `PASS`/`FAIL`/`NOT_PROVEN` (including an exception) to
-`NOT_PROVEN`. The verifier must observe only the fail-secure post-flash boot
-condition and must never issue CUT or RESTORE.
+Owner-approved contract (2026-09-29):
 
-No trustworthy exact signal is defined today, so none was invented:
-`firmware/src/main.cpp` prints nothing at boot (only `Serial.begin`), the relay
-GPIO is not visible through esptool, and the only status output (`publishStatus`
-over authenticated MQTT/TLS) belongs to the L9 command-roundtrip scope and needs
-Wi-Fi, broker and keys. The CLI therefore supplies no verifier, and the hardware
-path refuses **before any device access** with
-`BOOT_VERIFICATION_NOT_IMPLEMENTED`, rather than flashing a device whose result
-could never be accepted. Remaining decision (owner): approve one signal, for
-example a firmware-emitted boot line asserting relay CUT (a firmware change with
-its own contract test), or an authenticated status message; then implement the
-verifier behind this boundary. Until then Live L8 must not be claimed ready.
+```text
+L8_BOOT_SIGNAL=SIGNED_BOOT_STATUS
+L8_BOOT_PASS_SEMANTICS=AUTHENTICATED_FIRMWARE_REPORTED_LOCKDOWN
+ELECTRICAL_RELAY_PROOF=OUTSIDE_BOOT_VERIFIER
+MQTT_VERIFIER_IDENTITY=REUSE_STAGED_CORE_BROKER_CREDENTIAL
+NEW_BROKER_USER=NO
+NEW_BROKER_ACL_MUTATION=NO
+BOOT_VERIFICATION_DEADLINE_SEC=180
+L9_REUSES_L8_BOOT_EVENT=YES
+BOOT_VERIFICATION_IMPLEMENTED_REPOSITORY=YES
+```
+
+**What PASS means.** An authenticated, fresh BOOT STATUS reporting LOCKDOWN,
+carrying the `seq_hi` of the NVS just written, was observed after the
+flash-tool reset boundary. It proves the new image ran `setup()`, loaded the new
+NVS (so `device_id` and `k_d2c` are right), joined Wi-Fi, NTP, TLS and MQTT, and
+that the firmware itself reports LOCKDOWN. It does **not** prove the relay pin or
+contact is physically at CUT, nor which firmware image signed the frame;
+electrical relay proof is outside the boot verifier.
+
+**Implementation** (`p4-l8-boot-verify.py`): a subscribe-only source. The MQTT
+client is private to the source, only connect/subscribe/loop/disconnect are ever
+called on it, and the module contains no publish path, so COMMAND, HEARTBEAT,
+CUT and RESTORE are unreachable. It subscribes to exactly
+`aegis/idea3/v1/<device_id>/status` (QoS 0; wildcards and other suffixes are
+refused) over TLS on 8883 with the pinned CA, hostname verification and TLS 1.2+,
+using the staged Core broker credential (`idea3-core`; owner-only file) and a
+distinct `aegis-l8-boot-<run_id>` client id. It runs the real Protocol v1
+`InboundVerifier` over an in-memory `EphemeralSeenStore`; it never opens or
+mutates the Core replay store, and it does not import `aegis_soc.mqtt_client`,
+`config` or `database`.
+
+**Timing.** The verifier is armed after observed identity and before the first
+write, and fixes `T0` from the Core trusted clock (from that point the chip sits
+in the bootloader, so no old firmware can speak). Frames are collected after the
+readback step, whose `hard_reset` boots the new image, for at most 180 s. L8 never
+reboots the device to create another BOOT event.
+
+**PASS requires all of:** expected topic and `device_id`; Protocol v1 STATUS;
+valid DEVICE_TO_CORE MAC (`k_d2c`); not retained; `reason=BOOT`;
+`output_state=LOCKDOWN`; `time_trust=SYNCED`; empty `cmd_msg_id`; `cmd_seq=0`;
+`device_seq_hwm` equal to the initial `seq_hi` written in the new NVS; `msg_id`
+unseen; the existing skew rule; `device_time >= T0 - 2`; received within the
+deadline.
+
+**Verdicts.** An authenticated, post-`T0` frame with `output_state=NORMAL` is
+`FAIL`. Everything else short of a valid proof — no frame by the deadline, bad
+MAC, stale, replayed, retained, untrusted or wrong-device frames, or a verifier
+error — is `NOT_PROVEN`; unauthenticated noise can never decide a verdict. After
+the first write, `FAIL` and `NOT_PROVEN` both record
+`failure_boundary=BOOT_VERIFICATION` and hold as
+`FAIL_SECURE_HOLD_AND_EVIDENCE`, with no retry, restore or reflash. The verifier
+cannot be armed (broker unreachable, subscription refused, Core clock untrusted)
+=> abort before any device write.
+
+**Configuration.** Hardware requires `AEGIS_L8_BROKER_ADDRESS`,
+`AEGIS_L8_BROKER_TLS_NAME`, `AEGIS_L8_MQTT_CA_FILE` and
+`AEGIS_L8_BROKER_CREDENTIAL_FILE`; without them the helper refuses before any
+device access (`BOOT_VERIFICATION_NOT_CONFIGURED`).
+
+**L8 / L9 boundary.** L8 proves only this one post-flash BOOT/LOCKDOWN event. The
+running Core will independently accept the same frame; L9 reuses that event.
+L9 remains responsible for PERIODIC STATUS, Core-to-device HEARTBEAT, the full
+replay / wrong-key / tamper / freshness / retained / malformed negative matrix,
+and live Core liveness acceptance.
+
+**Limits.** Repository-implemented and fake-client tested only. Live proof
+additionally needs the broker, Wi-Fi, NTP and PKI stages healthy inside the
+window; a network fault yields `NOT_PROVEN` and a hold, not a false PASS.
+`LIVE_L8=NOT_AUTHORIZED`, `LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN`.

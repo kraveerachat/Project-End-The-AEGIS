@@ -22,10 +22,12 @@ Capability boundary, deliberately narrow:
   the port named in the validated OV-12 binding and to the two partition
   regions derived from the reviewed table. Erase, memory writes, eFuse, a
   PlatformIO upload target, relay CUT/RESTORE and MQTT are unreachable.
-* Boot verification has a backend boundary (``boot_verifier``) but NO
-  repository-defined trustworthy signal, so none is invented:
-  ``BOOT_VERIFICATION_NOT_IMPLEMENTED`` refuses the hardware path before the
-  first write. BLOCKED_DESIGN_GAP; see the operational design section 8.
+* Boot verification is a signed BOOT STATUS observed passively by
+  ``p4-l8-boot-verify.py`` (subscribe-only MQTT, TLS 8883, the staged Core
+  broker credential, the real Protocol v1 verifier over ephemeral state).
+  PASS means AUTHENTICATED_FIRMWARE_REPORTED_LOCKDOWN, not electrical relay
+  proof. The hardware path refuses before any device access unless that
+  verifier is configured (``BOOT_VERIFICATION_NOT_CONFIGURED``).
 * No Production key material is ever generated here. Protocol keys arrive as
   owner-supplied files and are validated by the merged provisioner
   (``p4-nvs-provision.py``), which also refuses known demo/test keys.
@@ -882,8 +884,8 @@ class HardwareDevice:
         """Delegate to the injected verifier; anything unproven is NOT_PROVEN.
 
         The verifier must only observe the fail-secure post-flash boot state.
-        It must never issue CUT or RESTORE, and this repository defines no
-        such signal yet, so the default is that no verifier exists.
+        It must never issue CUT or RESTORE. The repository's verifier is the
+        subscribe-only signed BOOT STATUS check in p4-l8-boot-verify.py.
         """
         if self._boot_verifier is None:
             return "NOT_PROVEN"
@@ -914,11 +916,7 @@ def load_backend(
     if name == "hardware":
         # The gate comes first, before any tool resolution or object creation.
         if live_authorized is not True:
-            raise L8Error(
-                "HARDWARE_BACKEND_LIVE_L8_NOT_AUTHORIZED: the hardware backend is "
-                "implemented in the repository, but live access requires explicit "
-                "authorization; LIVE_L8=NOT_AUTHORIZED"
-            )
+            raise L8Error(HARDWARE_NOT_AUTHORIZED_MESSAGE)
         if binding is None or work_dir is None:
             raise L8Error("hardware backend requires the OV-12 binding and a work directory")
         launcher_script = str(esptool_script or "")
@@ -1011,14 +1009,76 @@ def generate_nvs_partition(
 # provision orchestration (OD-L8-06)
 # ---------------------------------------------------------------------------
 
+HARDWARE_NOT_AUTHORIZED_MESSAGE = (
+    "HARDWARE_BACKEND_LIVE_L8_NOT_AUTHORIZED: the hardware backend is "
+    "implemented in the repository, but live access requires explicit "
+    "authorization; LIVE_L8=NOT_AUTHORIZED"
+)
+BOOT_VERIFICATION_NOT_CONFIGURED_MESSAGE = (
+    "BOOT_VERIFICATION_NOT_CONFIGURED: the hardware backend requires the signed "
+    "BOOT STATUS verifier inputs (broker address, TLS name, pinned CA, staged "
+    "Core broker credential); refusing before any device access"
+)
+
+
+def load_boot_verify():
+    """Import the subscribe-only signed-BOOT-STATUS verifier."""
+    target = HERE / "p4-l8-boot-verify.py"
+    spec = importlib.util.spec_from_file_location("p4_l8_boot_verify", str(target))
+    if spec is None or spec.loader is None:
+        raise L8Error(f"cannot load the boot verifier: {target}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def build_boot_verifier(
+    args: argparse.Namespace,
+    *,
+    input_dir: Path,
+    device_id: str,
+    expected_seq_hi: int,
+    client_factory=None,
+    clock=None,
+):
+    """Build the live verifier from the CLI inputs; opens no connection."""
+    inputs = (
+        getattr(args, "broker_address", None),
+        getattr(args, "broker_tls_name", None),
+        getattr(args, "broker_ca_file", None),
+        getattr(args, "broker_credential_file", None),
+    )
+    if not all(inputs):
+        raise L8Error(BOOT_VERIFICATION_NOT_CONFIGURED_MESSAGE)
+    module = load_boot_verify()
+    try:
+        return module.build_live_boot_verifier(
+            input_dir=input_dir,
+            device_id=device_id,
+            expected_seq_hi=expected_seq_hi,
+            broker_address=inputs[0],
+            tls_name=inputs[1],
+            ca_file=inputs[2],
+            credential_file=Path(inputs[3]),
+            run_id=args.run_id,
+            client_factory=client_factory,
+            clock=clock,
+        )
+    except module.BootVerifyError as exc:
+        raise L8Error(f"BOOT_VERIFICATION_NOT_CONFIGURED: {exc}") from None
+
+
 def provision(
     args: argparse.Namespace,
     *,
     executor: CommandExecutor | None = None,
     boot_verifier: Callable[[], str] | None = None,
+    boot_client_factory: Callable[[str], object] | None = None,
+    boot_clock=None,
 ) -> int:
-    """Run the ordered L8 procedure. ``executor`` and ``boot_verifier`` are
-    injection seams for tests; the CLI supplies neither."""
+    """Run the ordered L8 procedure. ``executor``, ``boot_verifier``,
+    ``boot_client_factory`` and ``boot_clock`` are injection seams for tests;
+    the CLI supplies none of them and builds the live verifier from its args."""
     input_dir = Path(args.input_dir)
     work_dir = Path(args.work_dir)
     evidence_dir = Path(args.evidence_dir)
@@ -1033,36 +1093,66 @@ def provision(
     evidence_dir.mkdir(parents=True, exist_ok=True)
     evidence_dir.chmod(0o700)
 
-    marker = work_dir / "first-write.marker"
-    evidence_path = evidence_dir / f"l8-{args.run_id}.json"
-
     # 1. OV-12 identity binding, before anything else exists.
     binding = parse_identity_binding(input_dir / "device.identity")
 
     # 2. D4-only recovery prerequisite.
     parse_d4_attestation(input_dir / "d4.attestation")
 
-    # 3. Backend selection. The hardware backend is refused here, before any
-    #    device access, unless live authorization was explicitly given. Building
-    #    it performs no I/O; observing identity below is the first device access.
+    # 3. Live-authorization gate, before anything is read or built for hardware.
+    live_authorized = getattr(args, "live_authorized", "NO") == "YES"
+    if args.backend == "hardware" and not live_authorized:
+        raise L8Error(HARDWARE_NOT_AUTHORIZED_MESSAGE)
+
+    # 3a. Device-free profile: the expected device id and initial seq_hi.
+    ntp = validate_ntp(args.ntp)
+    provisioner = load_nvs_provisioner()
+    profile = provisioner.validate_profile(args.wifi_ssid, ntp)
+
+    # 3b. Boot verifier (hardware only). Building it reads private inputs and
+    #     opens nothing; it is armed after identity and before the first write.
+    boot_obj = boot_verifier
+    if args.backend == "hardware" and boot_obj is None:
+        boot_obj = build_boot_verifier(
+            args,
+            input_dir=input_dir,
+            device_id=str(profile["device_id"]),
+            expected_seq_hi=int(provisioner.SEQ_HI_INITIAL),
+            client_factory=boot_client_factory,
+            clock=boot_clock,
+        )
+
+    # 3c. Backend selection. Building the hardware backend performs no I/O;
+    #     observing identity below is the first device access.
     device = load_backend(
         args.backend,
         args.fixture_device,
         work_dir / "fixture-flash",
         binding=binding,
-        live_authorized=getattr(args, "live_authorized", "NO") == "YES",
+        live_authorized=live_authorized,
         executor=executor,
         esptool_script=getattr(args, "esptool", None),
         work_dir=work_dir,
-        boot_verifier=boot_verifier,
+        boot_verifier=boot_obj,
     )
     if not device.boot_verification_supported:
-        # BLOCKED_DESIGN_GAP: no trustworthy boot signal is defined, so a write
-        # that could never be accepted is refused before it happens.
-        raise L8Error(
-            "BOOT_VERIFICATION_NOT_IMPLEMENTED: no owner-approved boot "
-            "verification signal exists; refusing before any device access"
+        raise L8Error(BOOT_VERIFICATION_NOT_CONFIGURED_MESSAGE)
+
+    try:
+        return _provision_with_device(
+            args, device, boot_obj, binding, provisioner, input_dir, work_dir, evidence_dir
         )
+    finally:
+        close = getattr(boot_obj, "close", None)
+        if callable(close):
+            close()
+
+
+def _provision_with_device(
+    args, device, boot_obj, binding, provisioner, input_dir, work_dir, evidence_dir
+) -> int:
+    marker = work_dir / "first-write.marker"
+    evidence_path = evidence_dir / f"l8-{args.run_id}.json"
 
     # 4. Everything that needs no device: geometry from the reviewed table, the
     #    compile-only build identity, the trust anchor and the network profile.
@@ -1078,7 +1168,7 @@ def provision(
     firmware_image = Path(args.firmware_image).read_bytes()
     if len(firmware_image) > app_size:
         raise L8Error("firmware image does not fit the application partition")
-    ntp = validate_ntp(args.ntp)
+    ntp = validate_ntp(args.ntp)  # already validated in step 3a; kept as a hard gate
     if evidence_path.exists():
         raise L8Error(
             f"evidence bundle already exists and is write-once: {evidence_path}"
@@ -1099,8 +1189,20 @@ def provision(
             "aborting before any device write"
         )
 
+    # 5b. Arm the boot verifier: subscribe and fix T0. This is after identity
+    #     (the device sits in the bootloader from here, so no old firmware can
+    #     speak) and before the first write. Failure aborts with no device write.
+    arm = getattr(boot_obj, "arm", None)
+    if callable(arm):
+        try:
+            arm()
+        except L8Error:
+            raise
+        except Exception as exc:
+            detail = str(exc) if type(exc).__name__ == "BootVerifyError" else type(exc).__name__
+            raise L8Error(f"BOOT_VERIFICATION_ARM_FAILED: {detail}; aborting before any write") from None
+
     # 6. Provisioning material. The provisioner refuses demo/test keys.
-    provisioner = load_nvs_provisioner()
     csv_path = work_dir / "nvs.csv"
     render_nvs_material(
         provisioner,
@@ -1181,6 +1283,9 @@ def provision(
     print(f"L8_NVS_READBACK_MATCH={readback_match}")
     print(f"L8_BOOT_VERIFICATION={boot_result}")
     print(f"L8_FAILURE_BOUNDARY={failure_boundary}")
+    detail = getattr(boot_obj, "detail", None)
+    if device.name == "hardware" and isinstance(detail, str) and re.fullmatch(r"[A-Z_]+", detail):
+        print(f"L8_BOOT_VERIFICATION_DETAIL={detail}")
 
     accepted = (
         readback_match == "PASS"
@@ -1218,6 +1323,11 @@ def build_parser() -> argparse.ArgumentParser:
     # exclusively from the validated device.identity binding.
     run.add_argument("--esptool", default=None)
     run.add_argument("--live-authorized", default="NO")
+    # Boot verification inputs (hardware only): the signed BOOT STATUS verifier.
+    run.add_argument("--broker-address", default=None)
+    run.add_argument("--broker-tls-name", default=None)
+    run.add_argument("--broker-ca-file", default=None)
+    run.add_argument("--broker-credential-file", default=None)
 
     offset = subparsers.add_parser("nvs-offset")
     offset.add_argument("--partition-table", required=True)
