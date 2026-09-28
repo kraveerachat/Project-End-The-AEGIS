@@ -177,7 +177,7 @@ test('N0 capacity characterization fixes artifacts, read-only probes, formulas, 
     'MONITOR_IMMUTABLE_IMAGE_ID=NOT_SELECTED',
     'POSTGRES_IMAGE_TAG=postgres:15-alpine',
     'POSTGRES_REPO_DIGEST=NOT_PINNED',
-    'H1_GATEWAY_ARTIFACT=NOT_DEFINED',
+    'H1_GATEWAY_ARTIFACT=NOT_IMPLEMENTED',
     'H1_COMPOSE_ARTIFACT=NOT_IMPLEMENTED',
   ]) {
     assert.ok(source.includes(artifact), `missing candidate artifact classification: ${artifact}`)
@@ -242,6 +242,44 @@ test('N0 capacity characterization fixes artifacts, read-only probes, formulas, 
   assert.match(h1Plan, /owner-run read-only/i)
   assert.match(status, /BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES/)
   assert.match(status, /N1_STARTED=NO/)
+})
+
+test('capacity-probe inputs fail closed on mutable images, missing gateway, and undecided owner budgets', () => {
+  const source = requiredText(specificationPath)
+  const h1Plan = requiredText(h1PlanPath)
+  const status = requiredText(statusPath)
+
+  for (const frozenInput of [
+    'CAPACITY_INPUT_FREEZE_SOURCE_SHA=9e39fe5786a5ac7428d2e5eb47cb2285a63bc606',
+    'MONITOR_BASE_IMAGE=node:20-alpine',
+    'MONITOR_BASE_IMAGE_DIGESTS=REQUIRES_FUTURE_READONLY_REGISTRY_RESOLUTION',
+    'POSTGRES_DIGEST=REQUIRES_FUTURE_READONLY_OR_PROBE_RESOLUTION',
+    'H1_GATEWAY_ARTIFACT=NOT_IMPLEMENTED',
+    'GATEWAY_IMPLEMENTATION_REQUIRED=YES',
+    'ACTIVE_CAPACITY_PROBE_READY=NO',
+  ]) {
+    assert.ok(source.includes(frozenInput), `missing capacity-probe input classification: ${frozenInput}`)
+  }
+
+  for (const ownerOption of [
+    'POSTGRES_GROWTH_MINIMUM_OPTION',
+    'POSTGRES_GROWTH_CONSERVATIVE_OPTION',
+    'HOST_RAM_RESERVE_MINIMUM_OPTION',
+    'HOST_RAM_RESERVE_CONSERVATIVE_OPTION',
+    'DISK_SAFETY_RESERVE_MINIMUM_OPTION',
+    'DISK_SAFETY_RESERVE_CONSERVATIVE_OPTION',
+    'EVIDENCE_LOG_CAP_MINIMUM_OPTION',
+    'EVIDENCE_LOG_CAP_CONSERVATIVE_OPTION',
+  ]) {
+    assert.match(source, new RegExp(`\\b${ownerOption}\\b`), `missing owner decision option: ${ownerOption}`)
+  }
+
+  assert.match(source, /7\.3\s*GiB[\s\S]{0,300}POSTGRES_GROWTH/i)
+  assert.match(source, /5\.4\s*GiB[\s\S]{0,300}HOST_RAM_RESERVE/i)
+  assert.match(source, /gateway[\s\S]{0,200}(?:must|requires)[\s\S]{0,120}(?:implemented|implementation)[\s\S]{0,200}(?:before|prior to)[\s\S]{0,100}(?:probe|characterization)/i)
+  assert.match(h1Plan, /ACTIVE_CAPACITY_PROBE_READY=NO/)
+  assert.match(status, /ACTIVE_CAPACITY_PROBE_READY=NO/)
+  assert.match(status, /N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION/)
 })
 
 test('parent plan and canonical status preserve the H0/H1 gate', () => {

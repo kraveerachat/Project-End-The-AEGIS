@@ -296,26 +296,56 @@ Repository inspection identifies the proposed N1 components but not a runnable,
 immutable H1 candidate:
 
 ```text
+CAPACITY_INPUT_FREEZE_SOURCE_SHA=9e39fe5786a5ac7428d2e5eb47cb2285a63bc606
 MONITOR_BUILD_CONTEXT=IDEA2-AEGIS_Monitor
 MONITOR_DOCKERFILE=IDEA2-AEGIS_Monitor/Dockerfile
+MONITOR_BASE_IMAGE=node:20-alpine
 MONITOR_RUNTIME_BASE=node:20-alpine_UNPINNED
+MONITOR_BASE_IMAGE_DIGESTS=REQUIRES_FUTURE_READONLY_REGISTRY_RESOLUTION
 MONITOR_IMMUTABLE_IMAGE_ID=NOT_SELECTED
 
 POSTGRES_IMAGE_TAG=postgres:15-alpine
 POSTGRES_REPO_DIGEST=NOT_PINNED
+POSTGRES_DIGEST=REQUIRES_FUTURE_READONLY_OR_PROBE_RESOLUTION
 
 H1_GATEWAY_REFERENCE_SOURCE=gateway/Dockerfile_AND_gateway/nginx.conf_DEV_HTTP_ONLY
-H1_GATEWAY_ARTIFACT=NOT_DEFINED
+H1_GATEWAY_ARTIFACT=NOT_IMPLEMENTED
+GATEWAY_IMPLEMENTATION_REQUIRED=YES
 H1_COMPOSE_ARTIFACT=NOT_IMPLEMENTED
+ACTIVE_CAPACITY_PROBE_READY=NO
 ```
 
 The existing Monitor multi-stage Dockerfile is the build source for the future
-candidate, but no SHA-tagged image ID or digest is selected. The PostgreSQL tag
-matches current repository definitions but is mutable until a RepoDigest is
-reviewed and pinned. The root gateway builds the general HUB and uses an HTTP
-development nginx configuration; it lacks the H1 candidate TLS and exact Agent
-route boundary, so it is reference source only and must not be mislabeled as the
-H1 gateway artifact.
+candidate. Its runtime source is frozen at the commit above, its exact
+Dockerfile and context are fixed, and both build stages currently name the same
+mutable `node:20-alpine` tag. The repository contains neither the OCI index
+digest nor the Linux/amd64 child-manifest digest, so both must be resolved and
+reviewed through a future read-only registry-metadata step before a build is
+authorized. The PostgreSQL tag matches current repository definitions but is
+also mutable; the repository contains neither its OCI index digest nor its
+Linux/amd64 child-manifest digest. No tag is accepted as immutable authority.
+
+The root gateway builds the general HUB and uses an HTTP development nginx
+configuration. It lacks the H1 candidate TLS and exact Agent route boundary,
+so it is reference source only and must not be reused or mislabeled as the H1
+gateway artifact. The smallest acceptable future H1-only gateway artifact is a
+dedicated, digest-pinned nginx image and configuration that:
+
+- contains no HUB build and joins only the probe/lab ingress network;
+- accepts TLS only, with the reviewed public certificate chain and private key
+  supplied at runtime outside the image and repository;
+- proxies `/monitor/` to the isolated Monitor while denying
+  `/monitor/internal` case-insensitively;
+- permits only the six approved exact `/agent/internal/...` routes, strips only
+  the `/agent` prefix, and denies every other Agent route;
+- publishes no host port during characterization and never joins Production;
+  and
+- uses bounded logs and request/proxy limits without disabling TLS validation.
+
+That dedicated Dockerfile/configuration and its pinned nginx digest are not
+implemented. The gateway must be implemented, contract-tested, and reviewed
+before the capacity probe can be authorized because gateway image bytes,
+writable-layer demand, and peak RSS are required formula inputs.
 
 The approved logical N1 resource model remains:
 
@@ -429,6 +459,35 @@ and read-only registry manifest access; they are not inferable from
 Production measurements are useful only to expose order of magnitude and
 missing limits. They remain `REFERENCE_ONLY` because Production workload,
 dataset age, configuration, image build, and concurrency are not the H1 lab.
+
+##### Owner decision options for the bounded probe
+
+The repository does not contain a retention policy, normal-load variation
+sample, or evidence manifest from which fixed GiB/MiB values could be derived.
+Therefore the options below are measurement-derived formulas, not guessed
+thresholds. The owner selects one option in each row only after its named input
+is measured. `MINIMUM` means one bounded acceptance cycle; `CONSERVATIVE`
+retains room for one failed cycle followed by one clean rerun.
+
+| Decision | Minimum defensible option | Conservative option | Effect on current host evidence |
+|---|---|---|---|
+| PostgreSQL growth | `POSTGRES_GROWTH_MINIMUM_OPTION = max(POSTGRES_INITIAL_VOLUME_BYTES, CHARACTERIZED_ACCEPTANCE_DB_DELTA_BYTES)` | `POSTGRES_GROWTH_CONSERVATIVE_OPTION = max(2 * POSTGRES_INITIAL_VOLUME_BYTES, 2 * CHARACTERIZED_ACCEPTANCE_DB_DELTA_BYTES)` | The current `7.3 GiB` disk headroom becomes `7.3 GiB - POSTGRES_GROWTH_* - every other DISK_REQUIRED_BYTES term`; numeric fit is not proven. |
+| Host RAM reserve | `HOST_RAM_RESERVE_MINIMUM_OPTION = MEASURED_NONLAB_PEAK_RSS_DELTA_BYTES` | `HOST_RAM_RESERVE_CONSERVATIVE_OPTION = 2 * MEASURED_NONLAB_PEAK_RSS_DELTA_BYTES` | The current approximately `5.4 GiB` available RAM leaves `5.4 GiB - HOST_RAM_RESERVE_*` for characterized lab ceilings; zero/unmeasured delta is invalid. |
+| Disk safety reserve | `DISK_SAFETY_RESERVE_MINIMUM_OPTION = max(CANDIDATE_BUILD_TRANSIENT_BYTES, ROLLBACK_ARTIFACT_BYTES)` | `DISK_SAFETY_RESERVE_CONSERVATIVE_OPTION = CANDIDATE_BUILD_TRANSIENT_BYTES + ROLLBACK_ARTIFACT_BYTES` | Subtracted from the same `7.3 GiB` together with images, PostgreSQL, writable layers, and evidence. If the remainder is not positive, the probe stays blocked. |
+| Evidence/log cap | `EVIDENCE_LOG_CAP_MINIMUM_OPTION = ONE_COMPLETE_REDACTED_PROBE_EVIDENCE_SET_BYTES` | `EVIDENCE_LOG_CAP_CONSERVATIVE_OPTION = 2 * ONE_COMPLETE_REDACTED_PROBE_EVIDENCE_SET_BYTES` | Subtracted from `7.3 GiB`; the conservative option retains one failed and one successful redacted evidence set. |
+
+`CHARACTERIZED_ACCEPTANCE_DB_DELTA_BYTES` includes PostgreSQL data, indexes,
+and WAL peak observed for the bounded synthetic N1-N7-equivalent database
+workload. `MEASURED_NONLAB_PEAK_RSS_DELTA_BYTES` is the largest normal-load
+increase in non-lab resident memory during an owner-approved read-only
+observation window. `ONE_COMPLETE_REDACTED_PROBE_EVIDENCE_SET_BYTES` is the sum
+of explicit per-file byte caps for preflight, workload, cleanup, and final
+verification outputs; raw environment, credentials, keys, tokens, and database
+URLs remain forbidden.
+
+No option is selected by this checkpoint. The current `7.3 GiB` disk and
+approximately `5.4 GiB` available RAM therefore remain observations, not proof
+that either minimum or conservative policy fits.
 
 ##### Required capacity terms and owner decisions
 

@@ -64,14 +64,34 @@ substitute for an exact H1 candidate measurement.
 
 Artifact state remains fail-closed:
 
-- Monitor build source is `IDEA2-AEGIS_Monitor/Dockerfile` with context
-  `IDEA2-AEGIS_Monitor`, but no immutable candidate image ID is selected.
-- PostgreSQL is only `postgres:15-alpine`; its RepoDigest is not pinned.
+- Monitor runtime source is frozen at
+  `9e39fe5786a5ac7428d2e5eb47cb2285a63bc606`, with
+  `IDEA2-AEGIS_Monitor/Dockerfile` and context `IDEA2-AEGIS_Monitor`, but its
+  two `node:20-alpine` stages have no repository-proven OCI index/Linux-amd64
+  digest and no immutable candidate image ID is selected.
+- PostgreSQL is only `postgres:15-alpine`; its OCI index/Linux-amd64 digest is
+  not pinned and requires a future read-only registry resolution.
 - the existing root gateway is an HTTP development/HUB artifact, not the H1
   exact-route/TLS gateway;
-- no H1 Compose or H1 gateway artifact exists; and
+- no dedicated digest-pinned H1 TLS gateway or H1 Compose artifact exists; and
 - initialized PostgreSQL bytes, candidate writable peak, unique image/build
   bytes, and lab peak RSS remain `NOT_MEASURABLE_READ_ONLY`.
+
+The smallest H1 gateway is a dedicated nginx-only artifact: TLS material is
+runtime-mounted and never built in, `/monitor/internal` is denied
+case-insensitively, only the six approved exact `/agent/internal/...` routes
+are admitted with `/agent` stripped, all other Agent paths deny, and the probe
+publishes no host port or Production network. The existing gateway does not
+satisfy this contract. Gateway implementation, exact base-image digest
+resolution, focused tests, and review are blockers before active
+characterization.
+
+Owner decisions stay measurement-derived. The spec presents minimum and
+conservative formulas for PostgreSQL growth, non-lab RAM reserve, disk safety,
+and redacted evidence caps. Minimum represents one bounded acceptance cycle;
+conservative preserves a failed cycle plus a clean rerun. Neither is selected,
+and neither can be evaluated against current `7.3 GiB` disk / approximately
+`5.4 GiB` available RAM until the named measurements exist.
 
 The formula and policy boundary are now explicit: disk is the sum of unique
 candidate image bytes, build transients, initialized PostgreSQL, owner-approved
@@ -91,6 +111,8 @@ before N0 can be reconsidered.
 ```text
 BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES
 CAPACITY_PROBE_PROJECT=aegis-h1-capacity-probe
+CAPACITY_INPUT_FREEZE_SOURCE_SHA=9e39fe5786a5ac7428d2e5eb47cb2285a63bc606
+ACTIVE_CAPACITY_PROBE_READY=NO
 N1_STARTED=NO
 ```
 
