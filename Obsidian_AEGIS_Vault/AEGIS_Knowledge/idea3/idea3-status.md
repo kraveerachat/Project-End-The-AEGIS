@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-27
+updated: 2026-09-28
 owner: music
 edit_policy: owner-writable
 ---
@@ -17,6 +17,21 @@ edit_policy: owner-writable
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
+
+## IDEA3 Web WEB-R2 Production Refresh — live closeout — 2026-09-28
+
+> [!important] The IDEA3 Security Center Web visual refresh is **DEPLOYED / VERIFIED** in Production. This section supersedes older broad language that said Web production deployment remained open **only for the Web visual-refresh scope**. Live IDEA1/IDEA2/IDEA3 status-adapter wiring, PR11 Phase 4 runtime completion, V4/L7/L8, and ESP32 work remain separate and open.
+> `WEB_R2_PRODUCTION_REFRESH = PASS`, `WEB_R2_CLOSEOUT = PASS`, `DEPLOYED_COMMIT = f839a4738409bcd6e0e2281f21ea8dd7e26dd839`, `DEPLOYED_IMAGE = aegis-idea3-web:weblive-f839a4738409`, `READINESS = READY`, `AUDIT = READY`, `AUDIT_SCHEMA_VERSION = 3`, `IDEA1_IDEA2_SHARED_PRESERVATION = PASS`, `AUDIT_VOLUME_PRESERVATION = PASS`, `PRODUCTION_MUTATION_WINDOW = CLOSED`
+
+- **Production result:** only `aegis-prod-idea3-web-1` was recreated for this refresh. It is running/healthy with restart count 0 and revision label `f839a4738409bcd6e0e2281f21ea8dd7e26dd839`.
+- **Route/readiness:** both container-internal and `https://192.168.10.10/security/api/readiness` returned `{"status":"READY","audit":"READY","schemaVersion":3}`.
+- **Artwork proof:** Production-served `BG_AEGIS01.png` SHA-256 `6d8ae549761661b39c2f4ee59c8f5775d6bbd216cc57e14b91e55c76b45a1492`; `BG_AEGIS02.png` SHA-256 `fb48dc85b0784fa741438a79bc39818d924a80e3d74244f0257443e49ec31837`; both match source and image-build proof.
+- **Persistence/rollback:** `aegis_idea3_web_data` remained the same persistent volume; the old image `aegis-idea3-web:pr11-phase2-dbc9ad92cd3e` remains available as rollback. The live overlay now selects `aegis-idea3-web:weblive-f839a4738409`.
+- **Preservation:** pre/post container-identity evidence for HUB, Drive, Monitor, Postgres, Public Share gateway/connector and Twingate was byte-identical. No IDEA1/IDEA2/shared runtime was recreated by WEB-R2.
+- **Disk:** root filesystem was 87% used after deployment/closeout. Earlier cleanup removed unused Docker build cache only; images and volumes were not pruned.
+- **Evidence:** server-local `/opt/aegis/runtime/idea3/weblive-20260927T225534Z`. Production mutation window is closed; no additional Web mutation is authorized by this documentation closeout.
+- **Next work split:** IDEA3 Python UX/runtime development can continue independently; WEB-R3 live adapters wait for their source runtimes; PR11 V4/L7/L8 remain on their own governed path.
+- **Receipt:** `90-Status/logs/2026-09-28_060304_music_idea3-web-r2-production-closeout.md`.
 
 ## IDEA3 PR11 Phase 4 L6c "Immutable Release Install" — new governed stage, repository only — 2026-09-27
 
