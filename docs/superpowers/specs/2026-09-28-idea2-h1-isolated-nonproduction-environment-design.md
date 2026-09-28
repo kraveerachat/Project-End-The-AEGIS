@@ -22,6 +22,9 @@ PRODUCTION_INTEGRATION=NONE
 LIVE_PROVISIONING_PERFORMED=NO
 PRODUCTION_MUTATION=NO
 MACHINE_A_MUTATION=NO
+N0_CAPACITY_CRITERION=NOT_DEFINED
+N0_CAPACITY=NOT_PROVEN
+N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION
 ```
 
 Both hostnames and both ports are **CANDIDATE_ONLY**. They are not DNS,
@@ -108,7 +111,7 @@ REQUESTS_CA_BUNDLE=FORBIDDEN_UNMANAGED_INPUT
 verify=False=FORBIDDEN
 PRIVATE_CA_KEY_ALLOWED=NO
 H1_STATE=BLOCKED_PREREQUISITES
-N0_STATE=NOT_RUN
+N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION
 ```
 
 The browser may trust the public CA certificate through the reviewed Windows
@@ -172,6 +175,9 @@ camera. Switching accounts changes only the logical alias.
 ```text
 AEGIS_MONITOR_STREAM_HOST=idea2-h1-stream.aegis-lab.internal
 MACHINE_A_REVERSE_PORT=18077_CONDITIONAL_ON_N0
+PRESERVE_EXISTING_FORWARD=172.18.0.1:18077
+CANDIDATE_REVERSE_TUPLE=192.168.10.10:18077_AVAILABLE
+CANDIDATE_HTTPS_TUPLE=192.168.10.10:18443_AVAILABLE
 DIAGNOSTIC_PORT_18078=FORBIDDEN
 ```
 
@@ -230,18 +236,106 @@ volumes, listener tuples, disk/memory, DNS resolution, host routes, SSH bind
 policy, candidate image references, and exact Production resource names.
 
 **Expected result:** No `aegis-h1-lab` resource exists; the explicit candidate
-IPv4/18443 and IPv4/18077 tuples are free; capacity is sufficient; no lab name,
-network, volume, database, or path collides with Production.
+IPv4/18443 and IPv4/18077 tuples are free; the capacity rule below is fully
+defined and satisfied; no lab name, network, volume, database, or path collides
+with Production.
 
-**Abort conditions:** Unknown resources, insufficient capacity, wildcard-only
-binding, occupied/reserved ports, inability to enumerate Production boundaries,
-or any command that would mutate Docker, firewall, DNS, TLS, SSH, Twingate, or
-Production.
+**Abort conditions:** Unknown resources; any undefined or unsatisfied capacity
+term; wildcard-only binding; occupied/reserved ports; inability to enumerate
+Production boundaries; or any command that would mutate Docker, firewall, DNS,
+TLS, SSH, Twingate, or Production. N1 must not start while N0 capacity is
+`NOT_PROVEN`.
 
 **Rollback:** None; read-only.
 
 **Evidence:** Redacted project/resource lists, listener owners, capacity totals,
-candidate bind IPv4, port classifications, and `N0=PASS|BLOCKED`.
+the characterized capacity terms below, candidate bind IPv4, port
+classifications, and `N0=PASS|BLOCKED`.
+
+#### N0 capacity criterion reconciliation
+
+The repository currently supplies no resource limits for the future H1
+gateway/Monitor/PostgreSQL Compose project, no exact candidate image or writable
+layer sizes, no bounded PostgreSQL retention/growth policy, and no quantified
+rollback/evidence retention requirement. The root development Compose stack is
+not an H1 sizing proxy: it also contains Drive and Detection Engine services and
+has different exposure, storage, and lifecycle behavior. Consequently, using a
+generic free-space percentage or a guessed RAM threshold would not be derived
+from the approved runtime.
+
+```text
+N0_CAPACITY_CRITERION=NOT_DEFINED
+N0_CAPACITY=NOT_PROVEN
+N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION
+DISK_HEADROOM_CRITERION=NOT_DEFINED
+RAM_HEADROOM_CRITERION=NOT_DEFINED
+POSTGRES_GROWTH_ALLOWANCE=NOT_DEFINED
+IMAGE_CONTAINER_OVERHEAD=NOT_MEASURED
+ROLLBACK_EVIDENCE_HEADROOM=NOT_DEFINED
+
+CURRENT_ROOT_TOTAL=57_GiB_REPORTED
+CURRENT_ROOT_USED=47_GiB_REPORTED
+CURRENT_ROOT_AVAILABLE=7.3_GiB
+CURRENT_ROOT_USE_PERCENT=87_PERCENT_REPORTED
+CURRENT_RAM_TOTAL=7.0_GiB_REPORTED
+CURRENT_RAM_AVAILABLE_APPROX=5.4_GiB
+CURRENT_SWAP_TOTAL=4.0_GiB_REPORTED
+CURRENT_SWAP_FREE=2.7_GiB_REPORTED
+CURRENT_DOCKER_IMAGES_TOTAL=4.846_GB_REPORTED
+CURRENT_DOCKER_VOLUMES_TOTAL=31.13_GB_REPORTED
+DOCKER_CLEANUP_OR_PRUNE_PERFORMED=NO
+```
+
+These measurements prove only the observed host state. They do not prove
+sufficiency. Docker image, volume, build-cache, or other data must not be pruned
+to manufacture a PASS. No Docker prune is authorized by this reconciliation.
+
+Before N0 can be re-evaluated, a separately approved, non-Production capacity
+characterization must record all of these byte-valued measurements for the
+exact reviewed H1 candidate and workload:
+
+- `CANDIDATE_IMAGE_UNIQUE_BYTES`: additional on-host image bytes needed after
+  accounting for layers already present, using the immutable candidate image
+  IDs selected for N1.
+- `CANDIDATE_WRITABLE_LAYER_PEAK_BYTES`: peak combined writable-layer and
+  bounded container-log bytes for gateway, Monitor, and PostgreSQL during the
+  N1-N7 acceptance workload.
+- `POSTGRES_INITIAL_VOLUME_BYTES`: initialized lab database bytes after schema,
+  migrations, logical-camera fixtures, users, and one registered Node.
+- `POSTGRES_APPROVED_GROWTH_BYTES`: Human Owner-approved maximum additional lab
+  database growth for the bounded N1-N7 retention/workload. Schema shape alone
+  cannot supply this policy value.
+- `ROLLBACK_ARTIFACT_BYTES`: bytes that must coexist for the prior/candidate
+  image set and exact rollback artifacts; reclaimable Docker cache is not
+  counted as available capacity.
+- `EVIDENCE_LOG_ALLOWANCE_BYTES`: approved bound for redacted logs, exported
+  evidence, and temporary verification artifacts retained through rollback.
+- `LAB_PEAK_RSS_BYTES`: measured peak resident memory of the exact concurrent
+  gateway, Monitor, and PostgreSQL candidate under the N1-N7 acceptance load,
+  together with host available-memory and swap-pressure observations over the
+  same interval.
+
+Only after every term is quantified may the owner define the capacity rule.
+At minimum, disk free bytes measured immediately before N1 must cover the sum
+of candidate image, writable-layer/log, initial PostgreSQL, approved PostgreSQL
+growth, rollback-artifact, and evidence allowances without assuming cleanup or
+prune. RAM available immediately before N1 must cover the characterized lab
+peak while preserving an explicitly owner-approved host operating reserve; the
+reserve is not guessed by this repository. The resulting measurements, formula,
+and reserve decision must be added to this runbook and its contract test before
+`N0_CAPACITY=PASS` or `N0_STATE=PASS` is permitted.
+
+The other supplied N0 observations remain authoritative and do not relax this
+capacity blocker:
+
+```text
+PRESERVE_EXISTING_FORWARD=172.18.0.1:18077
+CANDIDATE_REVERSE_TUPLE=192.168.10.10:18077_AVAILABLE
+CANDIDATE_HTTPS_TUPLE=192.168.10.10:18443_AVAILABLE
+DIAGNOSTIC_PORT_18078=FORBIDDEN
+LAB_SUBNET=172.31.244.0/29_NO_ROUTE_OR_DOCKER_COLLISION_REPORTED
+LAB_RESOURCE_COLLISION=NONE_REPORTED
+```
 
 ### N1 — Create isolated PostgreSQL and Monitor runtime
 
@@ -455,5 +549,7 @@ Production resource identity and health unchanged.
 This design makes co-location technically plausible but does not prove it.
 No dedicated host is required unless N0 fails isolation/capacity/routing or the
 responsible infrastructure owner rejects co-location. H0 is human-proven
-complete. H1 remains blocked on this unprovisioned environment, the managed
-CA-bundle source prerequisite, and N0-N7 live evidence.
+complete. H1 remains blocked on this unprovisioned environment, the undefined
+N0 capacity criterion, and N0-N7 live evidence. The managed CA-bundle source
+prerequisite is implemented and locally verified but still requires the live
+reviewed non-Production trust path before N8.

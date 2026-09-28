@@ -14,6 +14,10 @@ const parentPlanPath = path.join(
   repositoryRoot,
   'docs/superpowers/plans/2026-09-19-idea2-machine-a-no-powershell-runtime.md',
 )
+const h1PlanPath = path.join(
+  repositoryRoot,
+  'docs/superpowers/plans/2026-09-28-idea2-h1-isolated-nonproduction-environment.md',
+)
 const statusPath = path.join(
   repositoryRoot,
   'Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea2/idea2-status.md',
@@ -71,7 +75,7 @@ test('H1 TLS model requires a managed CA bundle and keeps verification enabled',
   assert.match(source, /CA_BUNDLE_IMPLEMENTATION=IMPLEMENTED_SOURCE_ONLY/)
   assert.match(source, /CA_BUNDLE_MANAGED_LOCATION=%ProgramData%\\AEGIS\\IdentityAgentConfiguration\\agent-ca-bundle\.pem/)
   assert.match(source, /H1_STATE=BLOCKED_PREREQUISITES/)
-  assert.match(source, /N0_STATE=NOT_RUN/)
+  assert.match(source, /N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION/)
   assert.match(source, /TLS_VERIFY=REQUIRED/)
   assert.match(source, /REQUESTS_CA_BUNDLE=FORBIDDEN_UNMANAGED_INPUT/)
   assert.match(source, /verify=False=FORBIDDEN/)
@@ -116,6 +120,50 @@ test('H1 runbook defines every N0-N8 gate with bounded lifecycle fields', () => 
       assert.ok(section.includes(`**${field}:**`), `N${phase} is missing ${field}`)
     }
   }
+})
+
+test('N0 capacity stays fail-closed until repository-derived demand is characterized', () => {
+  const source = requiredText(specificationPath)
+  const h1Plan = requiredText(h1PlanPath)
+  const status = requiredText(statusPath)
+
+  for (const contract of [
+    'N0_CAPACITY_CRITERION=NOT_DEFINED',
+    'N0_CAPACITY=NOT_PROVEN',
+    'N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION',
+    'DISK_HEADROOM_CRITERION=NOT_DEFINED',
+    'RAM_HEADROOM_CRITERION=NOT_DEFINED',
+    'POSTGRES_GROWTH_ALLOWANCE=NOT_DEFINED',
+    'IMAGE_CONTAINER_OVERHEAD=NOT_MEASURED',
+    'ROLLBACK_EVIDENCE_HEADROOM=NOT_DEFINED',
+    'CURRENT_ROOT_AVAILABLE=7.3_GiB',
+    'CURRENT_RAM_AVAILABLE_APPROX=5.4_GiB',
+    'PRESERVE_EXISTING_FORWARD=172.18.0.1:18077',
+    'CANDIDATE_REVERSE_TUPLE=192.168.10.10:18077_AVAILABLE',
+    'CANDIDATE_HTTPS_TUPLE=192.168.10.10:18443_AVAILABLE',
+    'DIAGNOSTIC_PORT_18078=FORBIDDEN',
+  ]) {
+    assert.ok(source.includes(contract), `missing N0 capacity/port contract: ${contract}`)
+  }
+
+  for (const measurement of [
+    'CANDIDATE_IMAGE_UNIQUE_BYTES',
+    'CANDIDATE_WRITABLE_LAYER_PEAK_BYTES',
+    'POSTGRES_INITIAL_VOLUME_BYTES',
+    'POSTGRES_APPROVED_GROWTH_BYTES',
+    'ROLLBACK_ARTIFACT_BYTES',
+    'EVIDENCE_LOG_ALLOWANCE_BYTES',
+    'LAB_PEAK_RSS_BYTES',
+  ]) {
+    assert.match(source, new RegExp(`\\b${measurement}\\b`), `missing required capacity measurement ${measurement}`)
+  }
+
+  assert.match(source, /no Docker prune/i)
+  assert.match(source, /N1[\s\S]{0,80}(?:must not|cannot)[\s\S]{0,80}(?:start|begin)/i)
+  assert.match(h1Plan, /N0_CAPACITY_CRITERION=NOT_DEFINED/)
+  assert.match(h1Plan, /capacity characterization/i)
+  assert.match(status, /N0_CAPACITY=NOT_PROVEN/)
+  assert.match(status, /N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION/)
 })
 
 test('parent plan and canonical status preserve the H0/H1 gate', () => {

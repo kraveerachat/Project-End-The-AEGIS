@@ -18,6 +18,11 @@
 - Candidate hostnames and ports remain inactive until their numbered human gate passes.
 - TLS verification remains enabled; HTTP fallback, `verify=False`, and unmanaged `REQUESTS_CA_BUNDLE` are forbidden.
 - H1 remains `BLOCKED_PREREQUISITES` until N0 through N7 pass.
+- `N0_CAPACITY_CRITERION=NOT_DEFINED`, `N0_CAPACITY=NOT_PROVEN`, and
+  `N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION` until an exact-candidate
+  capacity characterization supplies every required disk, PostgreSQL,
+  rollback/evidence, and peak-RAM term. N1 cannot begin before that follow-up
+  rule is reviewed, recorded, and satisfied.
 - Create no receipt, push, PR, or live infrastructure from this plan.
 
 ## Review Focus
@@ -27,6 +32,29 @@
 - Any database, volume, network, or Compose-project reuse with Production must be rejected.
 - Private-CA trust must not be claimed through Windows trust alone while Python Requests uses Certifi.
 - Account alias changes must never alter Machine A physical-camera ownership or stream destination.
+- Free disk/RAM observations alone must not be promoted to a capacity PASS when
+  the candidate image/layer cost, PostgreSQL growth allowance, rollback/evidence
+  reserve, and concurrent peak RSS remain undefined.
+
+## N0 capacity characterization follow-up
+
+The repository review found no defensible existing quantitative capacity rule:
+the H1 Compose definition and immutable candidate images do not yet exist; the
+development Compose topology is not equivalent; no service resource limits,
+PostgreSQL retention/growth allowance, or rollback/evidence byte budget is
+defined. The current `7.3 GiB` root free-space and approximately `5.4 GiB`
+available-RAM observations therefore remain evidence only, not acceptance.
+
+Before N1, separately authorized characterization must measure
+`CANDIDATE_IMAGE_UNIQUE_BYTES`, `CANDIDATE_WRITABLE_LAYER_PEAK_BYTES`,
+`POSTGRES_INITIAL_VOLUME_BYTES`, `ROLLBACK_ARTIFACT_BYTES`,
+`EVIDENCE_LOG_ALLOWANCE_BYTES`, and `LAB_PEAK_RSS_BYTES`, and the Human Owner
+must approve `POSTGRES_APPROVED_GROWTH_BYTES` plus the host RAM operating
+reserve. No Docker prune or cleanup may be assumed. The authoritative spec and
+focused contract test define the fail-closed formula and preserve the supplied
+port results: the active `172.18.0.1:18077` forward is retained, candidate
+`192.168.10.10:18077` and `192.168.10.10:18443` are available, and `18078`
+remains forbidden.
 
 ---
 
