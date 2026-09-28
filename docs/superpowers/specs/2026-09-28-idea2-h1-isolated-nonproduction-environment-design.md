@@ -290,6 +290,148 @@ These measurements prove only the observed host state. They do not prove
 sufficiency. Docker image, volume, build-cache, or other data must not be pruned
 to manufacture a PASS. No Docker prune is authorized by this reconciliation.
 
+##### Candidate artifact inventory
+
+Repository inspection identifies the proposed N1 components but not a runnable,
+immutable H1 candidate:
+
+```text
+MONITOR_BUILD_CONTEXT=IDEA2-AEGIS_Monitor
+MONITOR_DOCKERFILE=IDEA2-AEGIS_Monitor/Dockerfile
+MONITOR_RUNTIME_BASE=node:20-alpine_UNPINNED
+MONITOR_IMMUTABLE_IMAGE_ID=NOT_SELECTED
+
+POSTGRES_IMAGE_TAG=postgres:15-alpine
+POSTGRES_REPO_DIGEST=NOT_PINNED
+
+H1_GATEWAY_REFERENCE_SOURCE=gateway/Dockerfile_AND_gateway/nginx.conf_DEV_HTTP_ONLY
+H1_GATEWAY_ARTIFACT=NOT_DEFINED
+H1_COMPOSE_ARTIFACT=NOT_IMPLEMENTED
+```
+
+The existing Monitor multi-stage Dockerfile is the build source for the future
+candidate, but no SHA-tagged image ID or digest is selected. The PostgreSQL tag
+matches current repository definitions but is mutable until a RepoDigest is
+reviewed and pinned. The root gateway builds the general HUB and uses an HTTP
+development nginx configuration; it lacks the H1 candidate TLS and exact Agent
+route boundary, so it is reference source only and must not be mislabeled as the
+H1 gateway artifact.
+
+The approved logical N1 resource model remains:
+
+- Compose project `aegis-h1-lab` with services `gateway`, `monitor`, and
+  `postgres`;
+- one project-scoped ingress network and one project-scoped internal backend
+  network, with no Production network membership;
+- one project-scoped `postgres_data` volume and no Production volume reuse;
+- writable layers for all three containers, with PostgreSQL durable data kept
+  in its named volume and no direct host port for Monitor or PostgreSQL;
+- a stopped/not-yet-exposed gateway during N1; and
+- redacted command output, image identity, resource inventory, migration, and
+  rollback evidence retained outside secrets.
+
+Because the H1 Compose and gateway artifacts are not implemented and immutable
+image IDs are not selected, their candidate image bytes, initialized database
+bytes, writable-layer peak, and lab peak RSS are
+`NOT_MEASURABLE_READ_ONLY` today.
+
+##### Owner-run read-only host measurements
+
+These commands are inspection-only. Run them on `aegis-system` from a shell
+that can read Docker state. They do not pull, build, start, stop, recreate, or
+prune anything. They intentionally format only identity/resource fields and do
+not print container environment variables or credentials. Every Production
+measurement is `REFERENCE_ONLY`; it is not an H1 sizing result.
+
+```sh
+# Exact Production container and image identities (REFERENCE_ONLY).
+docker ps --filter label=com.docker.compose.project=aegis-prod \
+  --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Label "com.docker.compose.service"}}'
+
+for service in monitor postgres; do
+  ids="$(docker ps -q \
+    --filter label=com.docker.compose.project=aegis-prod \
+    --filter label=com.docker.compose.service="$service")"
+  test "$(printf '%s\n' "$ids" | sed '/^$/d' | wc -l)" -eq 1 || {
+    echo "ABORT_${service}_CONTAINER_CARDINALITY" >&2
+    exit 1
+  }
+  image_id="$(docker inspect --format '{{.Image}}' "$ids")"
+  docker image inspect --format \
+    '{{.Id}}\t{{json .RepoTags}}\t{{json .RepoDigests}}\t{{.Size}}' "$image_id"
+done
+
+# Registry-compressed manifest/layer sizes. Use only an exact RepoDigest copied
+# from the preceding output; if no RepoDigest exists or registry metadata access
+# is not approved, record COMPRESSED_BYTES=NOT_MEASURABLE_READ_ONLY.
+DIGEST_REF='<exact-repository@sha256:digest-from-image-inspect>'
+case "$DIGEST_REF" in
+  *@sha256:*) docker manifest inspect --verbose "$DIGEST_REF" ;;
+  *) echo 'ABORT_EXACT_REPODIGEST_REQUIRED' >&2; exit 1 ;;
+esac
+
+# Current comparable workload memory and configured limits (REFERENCE_ONLY).
+MONITOR_ID="$(docker ps -q \
+  --filter label=com.docker.compose.project=aegis-prod \
+  --filter label=com.docker.compose.service=monitor)"
+POSTGRES_ID="$(docker ps -q \
+  --filter label=com.docker.compose.project=aegis-prod \
+  --filter label=com.docker.compose.service=postgres)"
+test "$(printf '%s\n' "$MONITOR_ID" | sed '/^$/d' | wc -l)" -eq 1 || exit 1
+test "$(printf '%s\n' "$POSTGRES_ID" | sed '/^$/d' | wc -l)" -eq 1 || exit 1
+docker stats --no-stream \
+  --format '{{.ID}}\t{{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.PIDs}}' \
+  "$MONITOR_ID" "$POSTGRES_ID"
+docker inspect --format \
+  '{{.Name}}\tmemory={{.HostConfig.Memory}}\tmemory_reservation={{.HostConfig.MemoryReservation}}\tmemory_swap={{.HostConfig.MemorySwap}}\tpids_limit={{.HostConfig.PidsLimit}}' \
+  "$MONITOR_ID" "$POSTGRES_ID"
+
+# Production PostgreSQL volume bytes (REFERENCE_ONLY; read-only filesystem walk).
+PG_VOLUME="$(docker volume ls -q \
+  --filter label=com.docker.compose.project=aegis-prod \
+  --filter label=com.docker.compose.volume=postgres_data)"
+test "$(printf '%s\n' "$PG_VOLUME" | sed '/^$/d' | wc -l)" -eq 1 || {
+  echo 'ABORT_POSTGRES_VOLUME_CARDINALITY' >&2
+  exit 1
+}
+docker volume inspect --format '{{.Name}}\t{{.Driver}}\t{{.Mountpoint}}' "$PG_VOLUME"
+PG_MOUNT="$(docker volume inspect --format '{{.Mountpoint}}' "$PG_VOLUME")"
+sudo du -sb --one-file-system "$PG_MOUNT"
+
+# Current Monitor writable layer and root filesystem bytes (REFERENCE_ONLY).
+docker inspect --size --format \
+  '{{.Name}}\twritable={{.SizeRw}}\trootfs={{.SizeRootFs}}' "$MONITOR_ID"
+
+# Host byte and inode headroom.
+df -B1 --output=source,size,used,avail,pcent,target /
+df -i --output=source,itotal,iused,iavail,ipcent,target /
+
+# Docker totals and builder-cache inventory; no prune.
+docker system df -v
+docker builder du
+
+# Host memory/swap pressure. Swap is observed but never counted as required RAM.
+free -b
+vmstat 1 5
+cat /proc/pressure/memory
+swapon --show --bytes
+```
+
+Read-only measurable values are therefore: host filesystem bytes/inodes;
+current Docker image IDs, local unpacked sizes, RepoDigests where present,
+shared/unique image and volume totals, and builder cache; current Production
+Monitor/PostgreSQL RSS and configured limits; current Production PostgreSQL
+volume bytes; current Production Monitor writable-layer bytes; and current host
+memory/swap pressure. Local compressed layer bytes require an exact RepoDigest
+and read-only registry manifest access; they are not inferable from
+`docker image inspect .Size`.
+
+Production measurements are useful only to expose order of magnitude and
+missing limits. They remain `REFERENCE_ONLY` because Production workload,
+dataset age, configuration, image build, and concurrency are not the H1 lab.
+
+##### Required capacity terms and owner decisions
+
 Before N0 can be re-evaluated, a separately approved, non-Production capacity
 characterization must record all of these byte-valued measurements for the
 exact reviewed H1 candidate and workload:
@@ -315,15 +457,109 @@ exact reviewed H1 candidate and workload:
   together with host available-memory and swap-pressure observations over the
   same interval.
 
-Only after every term is quantified may the owner define the capacity rule.
-At minimum, disk free bytes measured immediately before N1 must cover the sum
-of candidate image, writable-layer/log, initial PostgreSQL, approved PostgreSQL
-growth, rollback-artifact, and evidence allowances without assuming cleanup or
-prune. RAM available immediately before N1 must cover the characterized lab
-peak while preserving an explicitly owner-approved host operating reserve; the
-reserve is not guessed by this repository. The resulting measurements, formula,
-and reserve decision must be added to this runbook and its contract test before
-`N0_CAPACITY=PASS` or `N0_STATE=PASS` is permitted.
+- `CANDIDATE_BUILD_TRANSIENT_BYTES`: maximum additional build/pull/cache bytes
+  that coexist while producing the exact candidate on this host, or zero when
+  immutable candidate images are prepared elsewhere and only their measured
+  unique local bytes are required.
+
+The following values are policy decisions, not values the agent may select:
+
+```text
+POSTGRES_APPROVED_GROWTH_BYTES=OWNER_DECISION_REQUIRED
+HOST_RAM_RESERVE_BYTES=OWNER_DECISION_REQUIRED
+DISK_SAFETY_RESERVE_BYTES=OWNER_DECISION_REQUIRED
+INODE_SAFETY_RESERVE_COUNT=OWNER_DECISION_REQUIRED
+EVIDENCE_LOG_ALLOWANCE_BYTES=OWNER_DECISION_REQUIRED
+```
+
+The capacity formula is additive and avoids counting reclaimable cache or
+shared image layers twice:
+
+```text
+DISK_REQUIRED_BYTES =
+  CANDIDATE_IMAGE_UNIQUE_BYTES
+  + CANDIDATE_BUILD_TRANSIENT_BYTES
+  + POSTGRES_INITIAL_VOLUME_BYTES
+  + POSTGRES_APPROVED_GROWTH_BYTES
+  + CANDIDATE_WRITABLE_LAYER_PEAK_BYTES
+  + ROLLBACK_ARTIFACT_BYTES
+  + EVIDENCE_LOG_ALLOWANCE_BYTES
+  + DISK_SAFETY_RESERVE_BYTES
+
+RAM_REQUIRED_BYTES = LAB_PEAK_RSS_BYTES + HOST_RAM_RESERVE_BYTES
+
+INODE_REQUIRED_COUNT = CHARACTERIZED_PEAK_NEW_INODES + INODE_SAFETY_RESERVE_COUNT
+
+DISK_PASS = HOST_AVAILABLE_BYTES_AT_START >= DISK_REQUIRED_BYTES
+RAM_PASS = HOST_MEM_AVAILABLE_BYTES_AT_START >= RAM_REQUIRED_BYTES
+INODE_PASS = HOST_INODES_AVAILABLE_AT_START >= INODE_REQUIRED_COUNT
+N0_CAPACITY_PASS = DISK_PASS AND RAM_PASS AND INODE_PASS
+```
+
+`ROLLBACK_ARTIFACT_BYTES` is the measured unique size of exact candidate/prior
+images and configuration snapshots that must coexist until acceptance or
+rollback. `EVIDENCE_LOG_ALLOWANCE_BYTES` is the owner-approved hard cap for
+redacted logs and exported evidence. Neither includes Production images already
+present or any private key, credential, database URL, token, cookie, or raw
+environment dump. Swap is not added to `RAM_REQUIRED_BYTES`.
+
+##### Separately authorized active characterization
+
+The missing candidate values require an active probe, but that probe is not N1
+and is not authorized by this document:
+
+```text
+BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES
+CAPACITY_PROBE_PROJECT=aegis-h1-capacity-probe
+CAPACITY_PROBE_HOST_PORTS=NONE
+CAPACITY_PROBE_PRODUCTION_NETWORKS=NONE
+CAPACITY_PROBE_PRODUCTION_VOLUMES=NONE
+CAPACITY_PROBE_MACHINE_A_TRAFFIC=NONE
+CAPACITY_PROBE_COMPOSE_FILE=NOT_IMPLEMENTED
+CAPACITY_PROBE_STORAGE_WATCHDOG=REQUIRED_NOT_IMPLEMENTED
+N1_STARTED=NO
+```
+
+The smallest future probe first creates and reviews a dedicated
+`deploy/idea2/h1-capacity-probe.compose.yml` plus immutable Monitor, PostgreSQL,
+and H1 gateway references. It may then, under separate owner authorization:
+
+1. inventory Docker/image/volume/cache and host byte/inode/RAM state;
+2. require all owner-decision fields above plus an approved
+   `CHARACTERIZATION_MAX_NEW_BYTES` and per-service memory ceilings;
+3. refuse to pull/build/start unless available bytes exceed
+   `CHARACTERIZATION_MAX_NEW_BYTES + DISK_SAFETY_RESERVE_BYTES`, available
+   inodes exceed the approved inode reserve, and available RAM exceeds all
+   service ceilings plus `HOST_RAM_RESERVE_BYTES`;
+4. use only project `aegis-h1-capacity-probe`, a dedicated Buildx builder named
+   `aegis-h1-capacity-builder`, internal probe networks, a disposable
+   project-scoped PostgreSQL volume, synthetic bounded fixtures, and no host
+   ports, Production credentials, Production networks/volumes, registry rows,
+   DNS/TLS exposure, or Machine A traffic;
+5. include a reviewed watchdog that polls filesystem bytes/inodes and host
+   memory while building and exercising the bounded server-side workload. The
+   watchdog must stop only the exact probe project and fail closed if it cannot
+   collect a current measurement. If
+   `HOST_AVAILABLE_BYTES <= DISK_SAFETY_RESERVE_BYTES`, abort and stop the exact
+   probe. If `HOST_MEM_AVAILABLE_BYTES <= HOST_RAM_RESERVE_BYTES`, abort and
+   stop the exact probe. Any OOM, swap-thrashing, storage-budget breach, log cap,
+   or service memory-ceiling event is a blocked result, never a PASS; and
+6. retain redacted measurements, then remove only the exact probe containers
+   and networks, exact `aegis-h1-capacity-probe_postgres_data` volume, exact
+   newly introduced candidate image IDs, and dedicated
+   `aegis-h1-capacity-builder`. Shared/pre-existing images remain. Broad
+   `system`, image, volume, network, builder, or BuildKit prune remains forbidden.
+
+The probe is characterized, cleaned, and reviewed before the H1 Compose project
+can exist. It cannot create `aegis-h1-lab`, publish `18443`/`18077`, initialize
+the H1 registry, or satisfy N1. The probe remains blocked until its Compose
+artifact and storage/RAM watchdog have focused tests and owner review; a manual
+observer is not accepted as the required stop control.
+
+Only after every term is quantified and all three formula checks pass may the
+owner set `N0_CAPACITY=PASS`. The resulting measurements and owner decisions
+must be added to this runbook and its contract test before `N0_STATE=PASS` is
+permitted.
 
 The other supplied N0 observations remain authoritative and do not relax this
 capacity blocker:

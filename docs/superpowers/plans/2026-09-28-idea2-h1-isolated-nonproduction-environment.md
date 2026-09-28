@@ -56,6 +56,44 @@ port results: the active `172.18.0.1:18077` forward is retained, candidate
 `192.168.10.10:18077` and `192.168.10.10:18443` are available, and `18078`
 remains forbidden.
 
+The spec now owns the exact owner-run read-only command set for Production
+reference identity/image sizes, RSS/limits, PostgreSQL volume bytes, Monitor
+writable-layer bytes, filesystem bytes/inodes, Docker totals/cache, and host
+memory/swap pressure. Production observations are `REFERENCE_ONLY`; they never
+substitute for an exact H1 candidate measurement.
+
+Artifact state remains fail-closed:
+
+- Monitor build source is `IDEA2-AEGIS_Monitor/Dockerfile` with context
+  `IDEA2-AEGIS_Monitor`, but no immutable candidate image ID is selected.
+- PostgreSQL is only `postgres:15-alpine`; its RepoDigest is not pinned.
+- the existing root gateway is an HTTP development/HUB artifact, not the H1
+  exact-route/TLS gateway;
+- no H1 Compose or H1 gateway artifact exists; and
+- initialized PostgreSQL bytes, candidate writable peak, unique image/build
+  bytes, and lab peak RSS remain `NOT_MEASURABLE_READ_ONLY`.
+
+The formula and policy boundary are now explicit: disk is the sum of unique
+candidate image bytes, build transients, initialized PostgreSQL, owner-approved
+PostgreSQL growth, writable layers, rollback artifacts, evidence/log allowance,
+and owner-approved safety reserve; RAM is characterized lab peak RSS plus the
+owner-approved host reserve; inode headroom is measured peak new inodes plus an
+owner-approved reserve. The agent does not select growth or reserve values.
+
+If the Human Owner separately authorizes active characterization, it uses only
+`aegis-h1-capacity-probe` and a dedicated builder, publishes no host ports,
+joins no Production network/volume, uses no Production credentials or Machine A
+traffic, and stops at the owner-approved disk/RAM/inode boundaries. Exact probe
+resources are removed by identity afterward; no prune is permitted. This probe
+cannot create `aegis-h1-lab`, cannot satisfy N1, and must finish review/cleanup
+before N0 can be reconsidered.
+
+```text
+BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES
+CAPACITY_PROBE_PROJECT=aegis-h1-capacity-probe
+N1_STARTED=NO
+```
+
 ---
 
 ### Task 1: Add the H1 isolation contract test

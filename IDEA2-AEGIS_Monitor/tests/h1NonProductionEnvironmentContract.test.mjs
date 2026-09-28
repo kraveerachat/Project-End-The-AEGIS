@@ -166,6 +166,84 @@ test('N0 capacity stays fail-closed until repository-derived demand is character
   assert.match(status, /N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION/)
 })
 
+test('N0 capacity characterization fixes artifacts, read-only probes, formulas, and active-probe bounds', () => {
+  const source = requiredText(specificationPath)
+  const h1Plan = requiredText(h1PlanPath)
+  const status = requiredText(statusPath)
+
+  for (const artifact of [
+    'MONITOR_BUILD_CONTEXT=IDEA2-AEGIS_Monitor',
+    'MONITOR_DOCKERFILE=IDEA2-AEGIS_Monitor/Dockerfile',
+    'MONITOR_IMMUTABLE_IMAGE_ID=NOT_SELECTED',
+    'POSTGRES_IMAGE_TAG=postgres:15-alpine',
+    'POSTGRES_REPO_DIGEST=NOT_PINNED',
+    'H1_GATEWAY_ARTIFACT=NOT_DEFINED',
+    'H1_COMPOSE_ARTIFACT=NOT_IMPLEMENTED',
+  ]) {
+    assert.ok(source.includes(artifact), `missing candidate artifact classification: ${artifact}`)
+  }
+
+  for (const command of [
+    'docker ps --filter label=com.docker.compose.project=aegis-prod',
+    'docker image inspect',
+    'docker manifest inspect --verbose',
+    'docker stats --no-stream',
+    'docker inspect --size',
+    'docker volume inspect',
+    'du -sb',
+    'df -B1',
+    'df -i',
+    'docker system df -v',
+    'docker builder du',
+    'free -b',
+    'vmstat 1 5',
+    '/proc/pressure/memory',
+    'swapon --show --bytes',
+  ]) {
+    assert.ok(source.includes(command), `missing owner-run read-only command: ${command}`)
+  }
+  assert.doesNotMatch(source, /docker image history/, 'read-only evidence must not dump image build history')
+
+  assert.match(source, /DISK_REQUIRED_BYTES\s*=/)
+  for (const diskTerm of [
+    'CANDIDATE_IMAGE_UNIQUE_BYTES',
+    'CANDIDATE_BUILD_TRANSIENT_BYTES',
+    'POSTGRES_INITIAL_VOLUME_BYTES',
+    'POSTGRES_APPROVED_GROWTH_BYTES',
+    'CANDIDATE_WRITABLE_LAYER_PEAK_BYTES',
+    'ROLLBACK_ARTIFACT_BYTES',
+    'EVIDENCE_LOG_ALLOWANCE_BYTES',
+    'DISK_SAFETY_RESERVE_BYTES',
+  ]) {
+    assert.match(source, new RegExp(`DISK_REQUIRED_BYTES[\\s\\S]{0,500}\\b${diskTerm}\\b`))
+  }
+  assert.match(source, /RAM_REQUIRED_BYTES\s*=\s*LAB_PEAK_RSS_BYTES\s*\+\s*HOST_RAM_RESERVE_BYTES/)
+  assert.match(source, /INODE_REQUIRED_COUNT\s*=\s*CHARACTERIZED_PEAK_NEW_INODES\s*\+\s*INODE_SAFETY_RESERVE_COUNT/)
+  assert.match(source, /POSTGRES_APPROVED_GROWTH_BYTES=OWNER_DECISION_REQUIRED/)
+  assert.match(source, /HOST_RAM_RESERVE_BYTES=OWNER_DECISION_REQUIRED/)
+  assert.match(source, /DISK_SAFETY_RESERVE_BYTES=OWNER_DECISION_REQUIRED/)
+  assert.match(source, /INODE_SAFETY_RESERVE_COUNT=OWNER_DECISION_REQUIRED/)
+
+  for (const bound of [
+    'BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES',
+    'CAPACITY_PROBE_PROJECT=aegis-h1-capacity-probe',
+    'CAPACITY_PROBE_HOST_PORTS=NONE',
+    'CAPACITY_PROBE_PRODUCTION_NETWORKS=NONE',
+    'CAPACITY_PROBE_PRODUCTION_VOLUMES=NONE',
+    'CAPACITY_PROBE_STORAGE_WATCHDOG=REQUIRED_NOT_IMPLEMENTED',
+    'N1_STARTED=NO',
+  ]) {
+    assert.ok(source.includes(bound), `missing bounded characterization guardrail: ${bound}`)
+  }
+  assert.match(source, /HOST_AVAILABLE_BYTES\s*<=\s*DISK_SAFETY_RESERVE_BYTES[\s\S]{0,120}(?:abort|stop)/i)
+  assert.match(source, /HOST_MEM_AVAILABLE_BYTES\s*<=\s*HOST_RAM_RESERVE_BYTES[\s\S]{0,120}(?:abort|stop)/i)
+  assert.match(source, /Production[\s\S]{0,120}REFERENCE_ONLY/)
+  assert.match(h1Plan, /aegis-h1-capacity-probe/)
+  assert.match(h1Plan, /owner-run read-only/i)
+  assert.match(status, /BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES/)
+  assert.match(status, /N1_STARTED=NO/)
+})
+
 test('parent plan and canonical status preserve the H0/H1 gate', () => {
   const parentPlan = requiredText(parentPlanPath)
   const status = requiredText(statusPath)
