@@ -217,7 +217,7 @@ test('watchdog measurements stay behind Docker authority and never read root-own
     `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
     'import watchdog',
     'calls = []',
-    'def fake_run(command):',
+    'def fake_run(command, **kwargs):',
     '    calls.append(command)',
     '    joined = " ".join(command)',
     '    if " ps " in f" {joined} ": return "g|gateway\\nm|monitor\\np|postgres"',
@@ -247,6 +247,159 @@ test('watchdog measurements stay behind Docker authority and never read root-own
   assert.doesNotMatch(commands, /Mountpoint|LogPath/)
 })
 
+test('PostgreSQL volume measurement uses the discovered container directly and captures exact bytes', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(watchdogPath)
+  const source = [
+    'import json, sys',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import watchdog',
+    'calls = []',
+    'def measured(command, **kwargs):',
+    '    calls.append(command)',
+    '    return "42\\t/var/lib/postgresql/data"',
+    'watchdog._run = measured',
+    'value = watchdog._postgres_volume_bytes("postgres-container-id")',
+    'print(json.dumps({"calls": calls, "value": value}))',
+  ].join('\n')
+  const result = runProbePython(python, source, {
+    AEGIS_CAPACITY_PROBE_DOCKER_MODE: 'sudo-noninteractive',
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  const evidence = JSON.parse(result.stdout)
+  assert.equal(evidence.value, 42 * 1024)
+  assert.deepEqual(evidence.calls, [[
+    'sudo', '-n', 'env', '-u', 'DOCKER_HOST', 'docker',
+    'exec', 'postgres-container-id', 'du', '-sk', '/var/lib/postgresql/data',
+  ]])
+})
+
+test('PostgreSQL volume measurement timeout remains bounded and fails closed', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(watchdogPath)
+  const source = [
+    'import json, subprocess, sys',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import watchdog',
+    'observed = {}',
+    'def timed_out(command, **kwargs):',
+    '    observed["command"] = command',
+    '    observed["timeout"] = kwargs.get("timeout")',
+    '    raise subprocess.TimeoutExpired(command, kwargs.get("timeout"))',
+    'watchdog.subprocess.run = timed_out',
+    'try:',
+    '    watchdog._postgres_volume_bytes("postgres-container-id")',
+    'except watchdog.ProbeBlocked as exc:',
+    '    print(json.dumps({"error": str(exc), "observed": observed}))',
+    'else:',
+    '    raise SystemExit("incomplete PostgreSQL measurement was accepted")',
+  ].join('\n')
+  const result = runProbePython(python, source, {
+    AEGIS_CAPACITY_PROBE_DOCKER_MODE: 'direct',
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  const evidence = JSON.parse(result.stdout)
+  assert.equal(evidence.observed.timeout, 30)
+  assert.match(evidence.error, /PostgreSQL volume measurement.*timed out.*30 seconds/i)
+})
+
+test('initial PostgreSQL baseline is one complete snapshot and never double-measured', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(watchdogPath)
+  const source = [
+    'import json, sys, tempfile',
+    'from pathlib import Path',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import watchdog',
+    'volume_calls = []',
+    'watchdog._host_metrics = lambda: (10_000, 1_000, 20_000)',
+    'watchdog._probe_containers = lambda: {"gateway":"g","monitor":"m","postgres":"p"}',
+    'watchdog._parse_memory_size = lambda value: 1',
+    'watchdog._docker_log_capacity = lambda value: 1',
+    'def fake_run(command, **kwargs):',
+    '    joined = " ".join(command)',
+    '    if " stats " in f" {joined} ": return "1B / 1GiB"',
+    '    if "{{.SizeRw}}" in joined: return "1"',
+    '    if "HostConfig.LogConfig" in joined: return "{}"',
+    '    if " du -sk " in f" {joined} ":',
+    '        volume_calls.append(command)',
+    '        return "42\\t/var/lib/postgresql/data"',
+    '    raise RuntimeError(joined)',
+    'watchdog._run = fake_run',
+    'with tempfile.TemporaryDirectory(prefix="aegis-h1-capacity-probe-baseline-") as root:',
+    '    snapshot = watchdog.capture_snapshot(Path(root), None, 11_000)',
+    'print(json.dumps({"snapshot": snapshot, "volume_calls": volume_calls}))',
+  ].join('\n')
+  const result = runProbePython(python, source, {
+    AEGIS_CAPACITY_PROBE_DOCKER_MODE: 'sudo-noninteractive',
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  const evidence = JSON.parse(result.stdout)
+  assert.equal(evidence.snapshot.postgres_volume_bytes, 42 * 1024)
+  assert.equal(evidence.snapshot.postgres_growth_bytes, 0)
+  assert.equal(evidence.volume_calls.length, 1)
+})
+
+test('measurement failure triggers exact cleanup without accepting incomplete capacity evidence', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(runnerPath)
+  const source = [
+    'import json, sys, tempfile',
+    'from pathlib import Path',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import run_probe, watchdog',
+    'events = []',
+    'lifecycle = []',
+    'baseline = {"host_available_bytes":10000,"host_available_inodes":1000,"host_mem_available_bytes":20000,"evidence_log_bytes":0,"postgres_growth_bytes":0,"probe_new_bytes":0,"service_memory_usage_bytes":{"gateway":0,"monitor":0,"postgres":0}}',
+    'watchdog.limits_from_environment = lambda: {}',
+    'watchdog.capture_snapshot = lambda *args, **kwargs: (_ for _ in ()).throw(watchdog.ProbeBlocked("PostgreSQL volume measurement timed out after 30 seconds"))',
+    'watchdog.stop_probe = lambda: events.append("stop")',
+    'run_probe._assert_no_probe_collision = lambda: None',
+    'run_probe._image_id = lambda reference: None',
+    'run_probe._image_size = lambda reference: 1',
+    'run_probe._guard_host = lambda *args, **kwargs: dict(baseline)',
+    'run_probe._run = lambda *args, **kwargs: ""',
+    'run_probe._run_guarded = lambda command, **kwargs: lifecycle.append(command)',
+    'run_probe._record_introduced_images = lambda before, evidence, **kwargs: evidence / "introduced-images.json"',
+    'def exact_cleanup(**kwargs):',
+    '    events.append("cleanup")',
+    '    assert kwargs["execute"] is True',
+    '    assert kwargs["delete_evidence"] is False',
+    'run_probe.cleanup_probe.cleanup = exact_cleanup',
+    'with tempfile.TemporaryDirectory(prefix="aegis-h1-capacity-probe-failure-") as root:',
+    '    evidence = Path(root)',
+    '    try:',
+    '        run_probe._run_probe_authorized({"source_sha":"a"*40,"source_tree":"b"*40}, evidence)',
+    '    except watchdog.ProbeBlocked as exc:',
+    '        error = str(exc)',
+    '    else:',
+    '        raise SystemExit("incomplete measurement was accepted as PASS")',
+    '    complete = (evidence / "capacity-measurements.json").exists()',
+    'up_count = sum(1 for command in lifecycle if command[-2:] == ["up", "--detach"])',
+    'print(json.dumps({"complete":complete,"error":error,"events":events,"up_count":up_count}))',
+  ].join('\n')
+  const result = runProbePython(python, source, {
+    AEGIS_CAPACITY_PROBE_DOCKER_MODE: 'sudo-noninteractive',
+    AEGIS_CAPACITY_PROBE_COMPOSE_ENV_FILE: '/tmp/aegis-h1-probe.compose.env',
+    MONITOR_CANDIDATE_IMAGE: `aegis-h1-capacity-probe-monitor:${'a'.repeat(12)}`,
+    GATEWAY_CANDIDATE_IMAGE: `aegis-h1-capacity-probe-gateway:${'a'.repeat(12)}`,
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  const evidence = JSON.parse(result.stdout)
+  assert.equal(evidence.complete, false)
+  assert.match(evidence.error, /PostgreSQL volume measurement.*timed out/i)
+  assert.deepEqual(evidence.events, ['stop', 'cleanup'])
+  assert.equal(evidence.up_count, 1)
+})
+
 test('H1 runbook records the exact sudo-only human flow without broad privilege changes', () => {
   const spec = requiredText(h1SpecPath)
   const plan = requiredText(h1PlanPath)
@@ -263,7 +416,8 @@ test('H1 runbook records the exact sudo-only human flow without broad privilege 
   assert.match(spec, /AEGIS_CAPACITY_PROBE_CLEANUP_AUTHORIZED=YES python3 .*cleanup_probe\.py --execute/)
   assert.match(spec, /sudo -n env -u DOCKER_HOST docker/)
   assert.doesNotMatch(combined, /sudo -E python3|--preserve-env|usermod|gpasswd|chmod\s+.*docker\.sock/)
-  assert.match(combined, /ACTIVE_CAPACITY_PROBE=NOT_RUN/)
+  assert.match(combined, /ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED/)
+  assert.match(combined, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED/)
   assert.match(combined, /N1_STARTED=NO/)
 })
 

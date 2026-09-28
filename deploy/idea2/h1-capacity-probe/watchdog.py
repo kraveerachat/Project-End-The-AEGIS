@@ -135,18 +135,26 @@ def evaluate_snapshot(snapshot: dict[str, Any], limits: dict[str, Any]) -> list[
     return violations
 
 
-def _run(command: list[str]) -> str:
-    result = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        env=docker_exec.subprocess_environment(),
-    )
+def _run(
+    command: list[str],
+    *,
+    timeout_seconds: int = 30,
+    operation: str = "measurement command",
+) -> str:
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            env=docker_exec.subprocess_environment(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ProbeBlocked(f"{operation} timed out after {timeout_seconds} seconds") from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "no diagnostic").strip().splitlines()[-1]
-        raise ProbeBlocked(f"measurement command failed: {command[0]} ({detail})")
+        raise ProbeBlocked(f"{operation} failed: {command[0]} ({detail})")
     return result.stdout.strip()
 
 
@@ -254,21 +262,16 @@ def _probe_containers() -> dict[str, str]:
     return containers
 
 
-def _postgres_volume_bytes() -> int:
+def _postgres_volume_bytes(container_id: str) -> int:
     output = _run(
         docker_exec.docker_command(
-            "--project-name",
-            PROJECT_NAME,
-            "--file",
-            str(COMPOSE_FILE),
             "exec",
-            "--no-TTY",
-            "postgres",
+            container_id,
             "du",
             "-sk",
             "/var/lib/postgresql/data",
-            compose=True,
-        )
+        ),
+        operation="PostgreSQL volume measurement",
     )
     blocks, separator, _ = output.partition("\t")
     if not separator:
@@ -280,7 +283,7 @@ def _postgres_volume_bytes() -> int:
 
 def capture_snapshot(
     evidence_dir: Path,
-    postgres_initial_volume_bytes: int,
+    postgres_initial_volume_bytes: int | None,
     host_baseline_available_bytes: int,
 ) -> dict[str, Any]:
     available_bytes, available_inodes, available_ram = _host_metrics()
@@ -309,13 +312,18 @@ def capture_snapshot(
         )
         log_bytes += _docker_log_capacity(log_configuration)
 
-    volume_bytes = _postgres_volume_bytes()
+    volume_bytes = _postgres_volume_bytes(containers["postgres"])
+    postgres_growth_bytes = (
+        0
+        if postgres_initial_volume_bytes is None
+        else max(0, volume_bytes - postgres_initial_volume_bytes)
+    )
     return {
         "host_available_bytes": available_bytes,
         "host_available_inodes": available_inodes,
         "host_mem_available_bytes": available_ram,
         "evidence_log_bytes": _directory_bytes(evidence_dir) + log_bytes,
-        "postgres_growth_bytes": max(0, volume_bytes - postgres_initial_volume_bytes),
+        "postgres_growth_bytes": postgres_growth_bytes,
         "probe_new_bytes": max(0, host_baseline_available_bytes - available_bytes),
         "postgres_volume_bytes": volume_bytes,
         "service_memory_usage_bytes": memory_usage,

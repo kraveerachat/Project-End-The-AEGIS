@@ -582,12 +582,12 @@ def _run_probe_authorized(configuration: dict[str, Any], evidence_dir: Path) -> 
         while time.monotonic() < deadline:
             try:
                 _guard_host(evidence_dir, limits, baseline=baseline)
-                initial_volume = watchdog._postgres_volume_bytes()
                 snapshot = watchdog.capture_snapshot(
                     evidence_dir,
-                    initial_volume,
+                    None,
                     baseline["host_available_bytes"],
                 )
+                initial_volume = int(snapshot["postgres_volume_bytes"])
                 violations = watchdog.evaluate_snapshot(snapshot, limits)
                 if violations:
                     watchdog.stop_probe()
@@ -597,10 +597,7 @@ def _run_probe_authorized(configuration: dict[str, Any], evidence_dir: Path) -> 
                     break
             except watchdog.ProbeBlocked as exc:
                 diagnostic = str(exc)
-                if not (
-                    diagnostic.startswith("probe service measurements are missing:")
-                    or diagnostic == "probe PostgreSQL volume mountpoint is unavailable"
-                ):
+                if not diagnostic.startswith("probe service measurements are missing:"):
                     watchdog.stop_probe()
                     raise
             except Exception:

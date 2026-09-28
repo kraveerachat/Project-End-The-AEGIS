@@ -28,8 +28,8 @@ N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION
 H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
-ACTIVE_CAPACITY_PROBE=NOT_RUN
-ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED
+ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED
+ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
 N1_STARTED=NO
 ```
 
@@ -326,9 +326,9 @@ GATEWAY_BASE_IMAGE=nginx:alpine@sha256:0530961ff0592b58c10f767535cc0abdfccf9e389
 GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE
 H1_COMPOSE_ARTIFACT=deploy/idea2/h1-capacity-probe.compose.yml
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
-ACTIVE_CAPACITY_PROBE=NOT_RUN
+ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED
 CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
-ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED
+ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
 ```
 
 The Monitor multi-stage Dockerfile is the build source for the future candidate.
@@ -374,10 +374,11 @@ The approved logical N1 resource model remains:
 - redacted command output, image identity, resource inventory, migration, and
   rollback evidence retained outside secrets.
 
-Although the H1 probe Compose and gateway source now exist and base images are
-digest-pinned, no candidate image was built and no probe service was started.
-Candidate image bytes, initialized database bytes, writable-layer peak, and lab
-peak container memory usage therefore remain
+The H1 probe Compose and gateway source exist and base images are digest-pinned.
+Attempt 1 built and started only disposable probe artifacts, but failed before
+the first complete capacity snapshot and then removed those artifacts through
+exact cleanup. Candidate image bytes, initialized database bytes, writable-layer
+peak, and lab peak container memory usage therefore remain
 `NOT_MEASURED_ACTIVE_PROBE_REQUIRED`.
 
 ##### Owner-run read-only host measurements
@@ -618,7 +619,7 @@ CAPACITY_PROBE_COMPOSE_FILE=deploy/idea2/h1-capacity-probe.compose.yml
 CAPACITY_PROBE_STORAGE_WATCHDOG=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_RUNNER=deploy/idea2/h1-capacity-probe/run_probe.py
 CAPACITY_PROBE_CLEANUP=deploy/idea2/h1-capacity-probe/cleanup_probe.py
-ACTIVE_CAPACITY_PROBE=NOT_RUN
+ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED
 PROBE_WORKLOAD_REQUEST_COUNT=600
 PROBE_WORKLOAD_POSTGRES_ROWS=10000
 PROBE_WORKLOAD_POSTGRES_PAYLOAD_BYTES=1024
@@ -675,10 +676,37 @@ may:
 The probe must be characterized, cleaned, and reviewed before the H1 Compose
 project can exist. It cannot create `aegis-h1-lab`, publish `18443`/`18077`,
 initialize the H1 registry, or satisfy N1. Its Compose, runner, cleanup, and
-storage/RAM watchdog source now have focused tests, but execution remains
-blocked on the exact live Human sudo preflight, separate active execution, and
+storage/RAM watchdog source now have focused tests, but capacity remains blocked
+on review/restaging of this remediation, one separately authorized rerun, and
 evidence review. The owner-supplied limits do not themselves prove capacity. A
 manual observer is not accepted as the required stop control.
+
+The Human-authorized first active attempt on `aegis-system` reached healthy
+PostgreSQL and running Monitor/gateway containers, then failed closed before
+writing `capacity-measurements.json`. The first PostgreSQL volume measurement
+used a compound `docker compose exec` command and hit the generic 30-second
+measurement timeout. Exact finally-cleanup removed every probe container,
+network, volume, builder, and introduced candidate image; the seven-container
+Production identity and health remained unchanged. This is historical evidence,
+not an N0 pass:
+
+```text
+ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED
+ATTEMPT_1_CAPACITY_MEASUREMENTS=NOT_PRODUCED
+N0_CAPACITY=NOT_PROVEN
+N1_STARTED=NO
+```
+
+The remediated measurement resolves the exact PostgreSQL container from the
+probe project labels and invokes non-interactive `docker exec <container> du
+-sk /var/lib/postgresql/data` through the same explicit direct or
+sudo-noninteractive Docker boundary. Its 30-second stop remains enforced; the
+change removes Compose project/config resolution from the measurement rather
+than extending an uncharacterized timeout. Initial readiness records the
+volume baseline from that one complete snapshot, so the volume tree is not
+walked twice. Timeout, malformed output, or missing containers remain blocking
+and trigger exact project-scoped cleanup without producing complete capacity
+evidence.
 
 ##### Docker privilege boundary and exact human sequence
 
@@ -713,8 +741,9 @@ AEGIS_CAPACITY_PROBE_AUTHORIZED=YES python3 deploy/idea2/h1-capacity-probe/run_p
 ```
 
 `--validate-only` performs no Docker command and creates no Compose environment
-file. The active command is a separate mutation gate; it is **not executed by
-this checkpoint**. The runner attempts exact cleanup in `finally`. If an
+file. The active command remains a separate mutation gate. Attempt 1 was run by
+the Human and cleaned; this remediation checkpoint does not rerun it. The runner
+attempts exact cleanup in `finally`. If an
 interruption or expired sudo ticket leaves probe-scoped resources, the Human
 refreshes only the sudo ticket and runs the idempotent recovery command from the
 same unprivileged shell with the same reviewed environment:

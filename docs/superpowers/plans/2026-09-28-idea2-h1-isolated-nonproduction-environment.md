@@ -65,14 +65,17 @@ substitute for an exact H1 candidate measurement.
 
 Artifact state remains fail-closed while the source boundary is now complete:
 
-- the H1 probe implementation source is frozen at
-  `d725365875f54e82f12a592878e382fa2dfa6978`, with
+- the H1 probe execution-boundary checkpoint is
+  `f1e3dbdfc106d296402dee9df0a2353df9323a7e`, with this measurement
+  remediation following as one local checkpoint; the Monitor build still uses
   `IDEA2-AEGIS_Monitor/Dockerfile` and context `IDEA2-AEGIS_Monitor`;
 - read-only registry metadata resolved reviewed OCI index and Linux/amd64 child
   digests for Node 20 Alpine, PostgreSQL 15 Alpine, and nginx Alpine;
 - a dedicated H1-only TLS/exact-route gateway and bounded capacity-probe
   Compose, runner, watchdog, and cleanup source now exist;
-- no image was pulled or built and no container was started; and
+- Attempt 1 pulled/built only disposable probe artifacts, started only the
+  isolated probe project, then exact cleanup removed every introduced artifact;
+  and
 - initialized PostgreSQL bytes, candidate writable peak, unique image/build
   bytes, and lab peak container memory usage remain
   `NOT_MEASURED_ACTIVE_PROBE_REQUIRED`.
@@ -83,8 +86,9 @@ case-insensitively, only the six approved exact `/agent/internal/...` routes
 are admitted with `/agent` stripped, all other Agent paths deny, and the probe
 publishes no host port or Production network. The existing Production/root
 gateway is not reused. Source implementation and static review are complete;
-the live Human sudo preflight, explicit active execution, and final evidence
-review remain blockers before active characterization.
+review of this remediation, restaging its exact source, one separately
+authorized rerun, and final evidence review remain blockers before capacity can
+be characterized.
 
 Owner decisions stay measurement-derived. The spec presents minimum and
 conservative formulas for PostgreSQL growth, non-lab RAM reserve, disk safety,
@@ -118,10 +122,17 @@ MONITOR_FINAL_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
 H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
-ACTIVE_CAPACITY_PROBE=NOT_RUN
-ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED
+ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED
+ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
 N1_STARTED=NO
 ```
+
+Attempt 1 reached healthy disposable PostgreSQL plus running Monitor/gateway
+containers, then the first compound Compose-exec PostgreSQL volume measurement
+hit its bounded timeout. Exact cleanup completed and Production identity stayed
+unchanged. The remediation keeps the timeout but measures the already-discovered
+PostgreSQL container directly with one initial snapshot. A new active attempt
+remains a separate Human action after reviewing this source checkpoint.
 
 ---
 

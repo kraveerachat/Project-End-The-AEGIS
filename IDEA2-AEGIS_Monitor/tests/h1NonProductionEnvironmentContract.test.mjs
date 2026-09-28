@@ -232,7 +232,7 @@ test('N0 capacity characterization fixes artifacts, read-only probes, formulas, 
     'CAPACITY_PROBE_PRODUCTION_NETWORKS=NONE',
     'CAPACITY_PROBE_PRODUCTION_VOLUMES=NONE',
     'CAPACITY_PROBE_STORAGE_WATCHDOG=IMPLEMENTED_SOURCE_ONLY',
-    'ACTIVE_CAPACITY_PROBE=NOT_RUN',
+    'ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED',
     'N1_STARTED=NO',
   ]) {
     assert.ok(source.includes(bound), `missing bounded characterization guardrail: ${bound}`)
@@ -258,7 +258,7 @@ test('capacity-probe inputs are immutable while execution remains human-gated', 
     'POSTGRES_DIGEST=sha256:25d430274d8a31184f9435cc5b2f56aff254952065bbbcac0c51acedb5a1d1e7',
     'H1_GATEWAY_ARTIFACT=IMPLEMENTED_SOURCE_ONLY',
     'GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE',
-    'ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED',
+    'ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED',
   ]) {
     assert.ok(source.includes(frozenInput), `missing capacity-probe input classification: ${frozenInput}`)
   }
@@ -279,9 +279,9 @@ test('capacity-probe inputs are immutable while execution remains human-gated', 
   assert.match(source, /7\.3\s*GiB[\s\S]{0,300}POSTGRES_GROWTH/i)
   assert.match(source, /5\.4\s*GiB[\s\S]{0,300}HOST_RAM_RESERVE/i)
   assert.match(source, /H1_GATEWAY_ARTIFACT=IMPLEMENTED_SOURCE_ONLY/)
-  assert.match(source, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED/)
-  assert.match(h1Plan, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED/)
-  assert.match(status, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_SUDO_PREFLIGHT_REQUIRED/)
+  assert.match(source, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED/)
+  assert.match(h1Plan, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED/)
+  assert.match(status, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED/)
   assert.match(status, /N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION/)
 })
 
@@ -293,7 +293,7 @@ test('source-only gateway and probe checkpoint does not overclaim active charact
   for (const classification of [
     'H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY',
     'CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY',
-    'ACTIVE_CAPACITY_PROBE=NOT_RUN',
+    'ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED',
     'N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION',
     'N1_STARTED=NO',
   ]) {
