@@ -579,6 +579,7 @@ def _run_probe_authorized(configuration: dict[str, Any], evidence_dir: Path) -> 
         deadline = time.monotonic() + 120
         initial_volume = None
         ready_snapshot = None
+        last_readiness_error: watchdog.ProbeServicesUnavailable | None = None
         while time.monotonic() < deadline:
             try:
                 _guard_host(evidence_dir, limits, baseline=baseline)
@@ -595,18 +596,27 @@ def _run_probe_authorized(configuration: dict[str, Any], evidence_dir: Path) -> 
                 if not violations:
                     ready_snapshot = snapshot
                     break
-            except watchdog.ProbeBlocked as exc:
-                diagnostic = str(exc)
-                if not diagnostic.startswith("probe service measurements are missing:"):
-                    watchdog.stop_probe()
-                    raise
+            except watchdog.ProbeServicesUnavailable as exc:
+                last_readiness_error = exc
+                (evidence_dir / "service-readiness.json").write_text(
+                    json.dumps(exc.evidence, indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
+            except watchdog.ProbeBlocked:
+                watchdog.stop_probe()
+                raise
             except Exception:
                 watchdog.stop_probe()
                 raise
             time.sleep(2)
         if initial_volume is None or ready_snapshot is None:
+            if last_readiness_error is not None:
+                with log_path.open("a", encoding="utf-8") as stream:
+                    stream.write(f"probe readiness timeout: {last_readiness_error}\n")
             watchdog.stop_probe()
-            raise RuntimeError("probe services did not become measurable")
+            if last_readiness_error is not None:
+                raise last_readiness_error
+            raise RuntimeError("probe services did not become measurable without a readiness diagnostic")
 
         artifact_measurements["postgres_image_bytes"] = _image_size(os.environ["POSTGRES_IMAGE"])
         artifact_measurements["postgres_initial_volume_bytes"] = initial_volume

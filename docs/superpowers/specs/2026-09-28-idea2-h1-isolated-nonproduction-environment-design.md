@@ -28,7 +28,9 @@ N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION
 H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
-ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED
+ACTIVE_CAPACITY_PROBE=ATTEMPT_2_FAILED_CLEANED
+ATTEMPT_2_SERVICE_READINESS=NOT_PROVEN
+SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
 ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
 N1_STARTED=NO
 ```
@@ -326,7 +328,9 @@ GATEWAY_BASE_IMAGE=nginx:alpine@sha256:0530961ff0592b58c10f767535cc0abdfccf9e389
 GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE
 H1_COMPOSE_ARTIFACT=deploy/idea2/h1-capacity-probe.compose.yml
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
-ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED
+ACTIVE_CAPACITY_PROBE=ATTEMPT_2_FAILED_CLEANED
+ATTEMPT_2_SERVICE_READINESS=NOT_PROVEN
+SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
 ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
 ```
@@ -375,10 +379,13 @@ The approved logical N1 resource model remains:
   rollback evidence retained outside secrets.
 
 The H1 probe Compose and gateway source exist and base images are digest-pinned.
-Attempt 1 built and started only disposable probe artifacts, but failed before
-the first complete capacity snapshot and then removed those artifacts through
-exact cleanup. Candidate image bytes, initialized database bytes, writable-layer
-peak, and lab peak container memory usage therefore remain
+Attempts 1 and 2 built and started only disposable probe artifacts, but both
+failed before the first complete capacity snapshot and then removed those
+artifacts through exact cleanup. Attempt 2 reached Compose start for all three
+services, but the pre-remediation runner subsequently saw an incomplete
+running-service set and timed out without retaining which service was absent or
+its exit state. Candidate image bytes, initialized database bytes,
+writable-layer peak, and lab peak container memory usage therefore remain
 `NOT_MEASURED_ACTIVE_PROBE_REQUIRED`.
 
 ##### Owner-run read-only host measurements
@@ -619,7 +626,9 @@ CAPACITY_PROBE_COMPOSE_FILE=deploy/idea2/h1-capacity-probe.compose.yml
 CAPACITY_PROBE_STORAGE_WATCHDOG=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_RUNNER=deploy/idea2/h1-capacity-probe/run_probe.py
 CAPACITY_PROBE_CLEANUP=deploy/idea2/h1-capacity-probe/cleanup_probe.py
-ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED
+ACTIVE_CAPACITY_PROBE=ATTEMPT_2_FAILED_CLEANED
+ATTEMPT_2_SERVICE_READINESS=NOT_PROVEN
+SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
 PROBE_WORKLOAD_REQUEST_COUNT=600
 PROBE_WORKLOAD_POSTGRES_ROWS=10000
 PROBE_WORKLOAD_POSTGRES_PAYLOAD_BYTES=1024
@@ -697,6 +706,37 @@ N0_CAPACITY=NOT_PROVEN
 N1_STARTED=NO
 ```
 
+The Human-authorized second active attempt passed the frozen preflight and
+validate-only gates, built the Monitor and gateway candidates, confirmed the
+PostgreSQL artifact, and reached Compose create/start for `gateway`, `monitor`,
+and `postgres`. During readiness polling, however, at least one expected service
+was absent from the old running-only `docker ps` discovery. The runner retried
+until the unchanged 120-second readiness bound expired and then replaced the
+last service-level condition with the generic message `probe services did not
+become measurable`. Because exact cleanup then removed the disposable
+containers, the identity of the missing service and its exit code are not
+recoverable from the retained Human evidence. No `capacity-measurements.json`
+was produced, and the Production container identity/counts remained unchanged:
+
+```text
+ACTIVE_CAPACITY_PROBE=ATTEMPT_2_FAILED_CLEANED
+ATTEMPT_2_CAPACITY_MEASUREMENTS=NOT_PRODUCED
+ATTEMPT_2_SERVICE_READINESS=NOT_PROVEN
+SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
+N0_CAPACITY=NOT_PROVEN
+N1_STARTED=NO
+```
+
+The repository remediation keeps the 120-second readiness timeout and the exact
+cleanup boundary. Discovery now enumerates all containers in the exact Compose
+project, including stopped containers, and inspects only container ID, name,
+Compose service label, state, exit code, and health. An expected service is
+measurable only when exactly one correctly labelled container exists, is
+running, and—when a health check exists—is healthy. Each failed poll writes
+redacted `service-readiness.json`; on timeout the last typed condition is also
+written to `probe.log` and re-raised after stopping the probe. Environment,
+mount, log-path, and secret-bearing inspection fields remain excluded.
+
 The remediated measurement resolves the exact PostgreSQL container from the
 probe project labels and invokes non-interactive `docker exec <container> du
 -sk /var/lib/postgresql/data` through the same explicit direct or
@@ -741,8 +781,9 @@ AEGIS_CAPACITY_PROBE_AUTHORIZED=YES python3 deploy/idea2/h1-capacity-probe/run_p
 ```
 
 `--validate-only` performs no Docker command and creates no Compose environment
-file. The active command remains a separate mutation gate. Attempt 1 was run by
-the Human and cleaned; this remediation checkpoint does not rerun it. The runner
+file. The active command remains a separate mutation gate. Attempts 1 and 2 were
+run by the Human and cleaned; this remediation checkpoint does not rerun either.
+The runner
 attempts exact cleanup in `finally`. If an
 interruption or expired sudo ticket leaves probe-scoped resources, the Human
 refreshes only the sudo ticket and runs the idempotent recovery command from the

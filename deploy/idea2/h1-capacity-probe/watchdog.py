@@ -32,6 +32,44 @@ class ProbeBlocked(RuntimeError):
     """The probe must stop because a required measurement or limit failed."""
 
 
+class ProbeServicesUnavailable(ProbeBlocked):
+    """Expected probe services are not all in a sustained measurable state."""
+
+    def __init__(
+        self,
+        missing_services: list[str] | tuple[str, ...],
+        containers: list[dict[str, Any]],
+        invalid_containers: list[dict[str, Any]] | None = None,
+    ) -> None:
+        missing = sorted(set(missing_services))
+        safe_containers = [dict(container) for container in containers]
+        safe_invalid_containers = [dict(container) for container in (invalid_containers or [])]
+        self.evidence = {
+            "expected_services": list(EXPECTED_SERVICES),
+            "missing_services": missing,
+            "containers": safe_containers,
+            "invalid_containers": safe_invalid_containers,
+        }
+        states = []
+        for container in safe_containers:
+            states.append(
+                "id={container_id},name={name},service={service},state={state},"
+                "exit_code={exit_code},health={health}".format(
+                    container_id=container["container_id"],
+                    name=container["name"] or "missing",
+                    service=container["service"] or "unlabelled",
+                    state=container["state"],
+                    exit_code=container["exit_code"],
+                    health=container["health"],
+                )
+            )
+        state_summary = ";".join(states) if states else "none"
+        super().__init__(
+            "probe service readiness unavailable: "
+            f"missing={','.join(missing)}; containers=[{state_summary}]"
+        )
+
+
 def _positive_integer(value: Any, field: str) -> int:
     if isinstance(value, bool):
         raise ProbeBlocked(f"{field} must be a positive integer")
@@ -239,26 +277,80 @@ def capture_preflight_snapshot(evidence_dir: Path) -> dict[str, Any]:
     }
 
 
-def _probe_containers() -> dict[str, str]:
-    output = _run(
+def _probe_container_states() -> list[dict[str, Any]]:
+    identifiers = _run(
         docker_exec.docker_command(
             "ps",
+            "--all",
+            "--quiet",
             "--filter",
             f"label=com.docker.compose.project={PROJECT_NAME}",
-            "--format",
-            '{{.ID}}|{{.Label "com.docker.compose.service"}}',
-        )
+        ),
+        operation="probe container discovery",
     )
-    containers: dict[str, str] = {}
+    container_ids = [line.strip() for line in identifiers.splitlines() if line.strip()]
+    if not container_ids:
+        return []
+
+    output = _run(
+        docker_exec.docker_command(
+            "inspect",
+            "--format",
+            '{{.Id}}|{{.Name}}|{{index .Config.Labels "com.docker.compose.service"}}|'
+            "{{.State.Status}}|{{.State.ExitCode}}|"
+            "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}",
+            *container_ids,
+        ),
+        operation="probe container state inspection",
+    )
+    states: list[dict[str, Any]] = []
     for line in output.splitlines():
         if not line:
             continue
-        container_id, separator, service = line.partition("|")
-        if separator and service in EXPECTED_SERVICES:
-            containers[service] = container_id
-    missing = sorted(set(EXPECTED_SERVICES) - containers.keys())
-    if missing:
-        raise ProbeBlocked(f"probe service measurements are missing: {','.join(missing)}")
+        fields = line.split("|")
+        if len(fields) != 6:
+            raise ProbeBlocked("probe container state inspection returned malformed output")
+        container_id, name, service, state, exit_code, health = fields
+        try:
+            parsed_exit_code = int(exit_code)
+        except ValueError as exc:
+            raise ProbeBlocked("probe container state inspection returned an invalid exit code") from exc
+        states.append(
+            {
+                "container_id": container_id,
+                "name": name.removeprefix("/"),
+                "service": None if service in ("", "<no value>") else service,
+                "state": state,
+                "exit_code": parsed_exit_code,
+                "health": health or "none",
+            }
+        )
+    return sorted(states, key=lambda container: (container["service"] or "", container["container_id"]))
+
+
+def _probe_containers() -> dict[str, str]:
+    states = _probe_container_states()
+    containers: dict[str, str] = {}
+    missing: list[str] = []
+    invalid_containers: list[dict[str, Any]] = []
+    for container in states:
+        reasons = []
+        if not container["name"]:
+            reasons.append("missing-container-name")
+        if container["service"] not in EXPECTED_SERVICES:
+            reasons.append("unexpected-service-label")
+        if reasons:
+            invalid_containers.append({**container, "reasons": reasons})
+    for service in EXPECTED_SERVICES:
+        matches = [container for container in states if container["service"] == service]
+        expected_health = matches[0]["health"] if len(matches) == 1 else None
+        healthy = expected_health == "healthy" if service == "postgres" else expected_health in ("none", "healthy")
+        if len(matches) == 1 and matches[0]["state"] == "running" and healthy:
+            containers[service] = str(matches[0]["container_id"])
+        else:
+            missing.append(service)
+    if missing or invalid_containers:
+        raise ProbeServicesUnavailable(missing, states, invalid_containers)
     return containers
 
 

@@ -220,7 +220,8 @@ test('watchdog measurements stay behind Docker authority and never read root-own
     'def fake_run(command, **kwargs):',
     '    calls.append(command)',
     '    joined = " ".join(command)',
-    '    if " ps " in f" {joined} ": return "g|gateway\\nm|monitor\\np|postgres"',
+    '    if " ps " in f" {joined} ": return "g\\nm\\np"',
+    '    if " inspect " in f" {joined} " and "HostConfig.LogConfig" not in joined and "{{.SizeRw}}" not in joined: return "g|/probe-gateway|gateway|running|0|none\\nm|/probe-monitor|monitor|running|0|none\\np|/probe-postgres|postgres|running|0|healthy"',
     '    if " stats " in f" {joined} ": return "1MiB / 1GiB"',
     '    if "{{.SizeRw}}" in joined: return "1024"',
     '    if "HostConfig.LogConfig" in joined: return json.dumps({"Type":"json-file","Config":{"max-size":"16m","max-file":"1"}})',
@@ -245,6 +246,179 @@ test('watchdog measurements stay behind Docker authority and never read root-own
   const commands = JSON.stringify(evidence.calls)
   assert.match(commands, /du.*-sk.*postgresql\/data/)
   assert.doesNotMatch(commands, /Mountpoint|LogPath/)
+})
+
+test('service discovery reports an expected container that exited after Compose start', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(watchdogPath)
+  const source = [
+    'import json, sys',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import watchdog',
+    'calls = []',
+    'def fake_run(command, **kwargs):',
+    '    calls.append(command)',
+    '    if " ps " in f" {" ".join(command)} ":',
+    '        return "gateway-id\\nmonitor-id\\npostgres-id"',
+    '    if " inspect " in f" {" ".join(command)} ":',
+    '        return "gateway-id|/probe-gateway|gateway|exited|2|none\\nmonitor-id|/probe-monitor|monitor|running|0|none\\npostgres-id|/probe-postgres|postgres|running|0|healthy"',
+    '    raise RuntimeError(command)',
+    'watchdog._run = fake_run',
+    'try:',
+    '    watchdog._probe_containers()',
+    'except watchdog.ProbeServicesUnavailable as exc:',
+    '    print(json.dumps({"error":str(exc),"evidence":exc.evidence,"calls":calls}))',
+    'else:',
+    '    raise SystemExit("exited gateway was accepted as measurable")',
+  ].join('\n')
+  const result = runProbePython(python, source, {
+    AEGIS_CAPACITY_PROBE_DOCKER_MODE: 'sudo-noninteractive',
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  const evidence = JSON.parse(result.stdout)
+  assert.deepEqual(evidence.evidence.missing_services, ['gateway'])
+  assert.deepEqual(evidence.evidence.containers[0], {
+    container_id: 'gateway-id',
+    name: 'probe-gateway',
+    service: 'gateway',
+    state: 'exited',
+    exit_code: 2,
+    health: 'none',
+  })
+  assert.match(evidence.error, /gateway.*exited.*exit_code=2/i)
+  assert.ok(evidence.calls[0].includes('--all'))
+  assert.ok(evidence.calls[0].includes('--quiet'))
+})
+
+test('service discovery rejects an unlabelled project container even when all expected services run', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(watchdogPath)
+  const source = [
+    'import json, sys',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import watchdog',
+    'def fake_run(command, **kwargs):',
+    '    if " ps " in f" {" ".join(command)} ":',
+    '        return "gateway-id\\nmonitor-id\\npostgres-id\\norphan-id"',
+    '    if " inspect " in f" {" ".join(command)} ":',
+    '        return "gateway-id|/probe-gateway|gateway|running|0|none\\nmonitor-id|/probe-monitor|monitor|running|0|none\\npostgres-id|/probe-postgres|postgres|running|0|healthy\\norphan-id|/probe-orphan||running|0|none"',
+    '    raise RuntimeError(command)',
+    'watchdog._run = fake_run',
+    'try:',
+    '    watchdog._probe_containers()',
+    'except watchdog.ProbeServicesUnavailable as exc:',
+    '    print(json.dumps({"error":str(exc),"evidence":exc.evidence}))',
+    'else:',
+    '    raise SystemExit("unlabelled project container was accepted")',
+  ].join('\n')
+  const result = runProbePython(python, source, {
+    AEGIS_CAPACITY_PROBE_DOCKER_MODE: 'direct',
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  const evidence = JSON.parse(result.stdout)
+  assert.deepEqual(evidence.evidence.missing_services, [])
+  assert.equal(evidence.evidence.invalid_containers[0].service, null)
+  assert.deepEqual(evidence.evidence.invalid_containers[0].reasons, ['unexpected-service-label'])
+  assert.match(evidence.error, /service=unlabelled/i)
+})
+
+test('service discovery rejects a nameless expected project container', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(watchdogPath)
+  const source = [
+    'import json, sys',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import watchdog',
+    'def fake_run(command, **kwargs):',
+    '    if " ps " in f" {" ".join(command)} ":',
+    '        return "gateway-id\\nmonitor-id\\npostgres-id"',
+    '    if " inspect " in f" {" ".join(command)} ":',
+    '        return "gateway-id||gateway|running|0|none\\nmonitor-id|/probe-monitor|monitor|running|0|none\\npostgres-id|/probe-postgres|postgres|running|0|healthy"',
+    '    raise RuntimeError(command)',
+    'watchdog._run = fake_run',
+    'try:',
+    '    watchdog._probe_containers()',
+    'except watchdog.ProbeServicesUnavailable as exc:',
+    '    print(json.dumps({"error":str(exc),"evidence":exc.evidence}))',
+    'else:',
+    '    raise SystemExit("nameless gateway container was accepted")',
+  ].join('\n')
+  const result = runProbePython(python, source, {
+    AEGIS_CAPACITY_PROBE_DOCKER_MODE: 'direct',
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  const evidence = JSON.parse(result.stdout)
+  assert.deepEqual(evidence.evidence.missing_services, [])
+  assert.deepEqual(evidence.evidence.invalid_containers[0].reasons, ['missing-container-name'])
+  assert.match(evidence.error, /name=missing/i)
+})
+
+test('readiness timeout preserves safe service state and exact cleanup without accepting a snapshot', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(runnerPath)
+  const source = [
+    'import json, sys, tempfile',
+    'from pathlib import Path',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import run_probe, watchdog',
+    'events = []',
+    'clock = iter((0, 1, 121))',
+    'baseline = {"host_available_bytes":10000,"host_available_inodes":1000,"host_mem_available_bytes":20000,"evidence_log_bytes":0,"postgres_growth_bytes":0,"probe_new_bytes":0,"service_memory_usage_bytes":{"gateway":0,"monitor":0,"postgres":0}}',
+    'failure = watchdog.ProbeServicesUnavailable(["gateway"], [{"container_id":"gateway-id","name":"probe-gateway","service":"gateway","state":"exited","exit_code":2,"health":"none"}])',
+    'watchdog.limits_from_environment = lambda: {}',
+    'watchdog.capture_snapshot = lambda *args, **kwargs: (_ for _ in ()).throw(failure)',
+    'watchdog.stop_probe = lambda: events.append("stop")',
+    'run_probe.time.monotonic = lambda: next(clock)',
+    'run_probe.time.sleep = lambda seconds: None',
+    'run_probe._assert_no_probe_collision = lambda: None',
+    'run_probe._image_id = lambda reference: None',
+    'run_probe._image_size = lambda reference: 1',
+    'run_probe._guard_host = lambda *args, **kwargs: dict(baseline)',
+    'run_probe._run = lambda *args, **kwargs: ""',
+    'run_probe._run_guarded = lambda *args, **kwargs: None',
+    'run_probe._record_introduced_images = lambda before, evidence, **kwargs: evidence / "introduced-images.json"',
+    'def exact_cleanup(**kwargs):',
+    '    events.append("cleanup")',
+    '    assert kwargs["execute"] is True',
+    '    assert kwargs["delete_evidence"] is False',
+    'run_probe.cleanup_probe.cleanup = exact_cleanup',
+    'with tempfile.TemporaryDirectory(prefix="aegis-h1-capacity-probe-readiness-") as root:',
+    '    evidence_dir = Path(root)',
+    '    try:',
+    '        run_probe._run_probe_authorized({"source_sha":"a"*40,"source_tree":"b"*40}, evidence_dir)',
+    '    except watchdog.ProbeServicesUnavailable as exc:',
+    '        error = str(exc)',
+    '    else:',
+    '        raise SystemExit("incomplete readiness was accepted as PASS")',
+    '    readiness_path = evidence_dir / "service-readiness.json"',
+    '    readiness = json.loads(readiness_path.read_text(encoding="utf-8")) if readiness_path.exists() else None',
+    '    probe_log = (evidence_dir / "probe.log").read_text(encoding="utf-8")',
+    '    complete = (evidence_dir / "capacity-measurements.json").exists()',
+    'print(json.dumps({"complete":complete,"error":error,"events":events,"readiness":readiness,"probe_log":probe_log}))',
+  ].join('\n')
+  const result = runProbePython(python, source, {
+    AEGIS_CAPACITY_PROBE_DOCKER_MODE: 'sudo-noninteractive',
+    AEGIS_CAPACITY_PROBE_COMPOSE_ENV_FILE: '/tmp/aegis-h1-probe.compose.env',
+    MONITOR_CANDIDATE_IMAGE: `aegis-h1-capacity-probe-monitor:${'a'.repeat(12)}`,
+    GATEWAY_CANDIDATE_IMAGE: `aegis-h1-capacity-probe-gateway:${'a'.repeat(12)}`,
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  const evidence = JSON.parse(result.stdout)
+  assert.equal(evidence.complete, false)
+  assert.deepEqual(evidence.events, ['stop', 'cleanup'])
+  assert.deepEqual(evidence.readiness.missing_services, ['gateway'])
+  assert.equal(evidence.readiness.containers[0].exit_code, 2)
+  assert.match(evidence.error, /gateway.*exited.*exit_code=2/i)
+  assert.match(evidence.probe_log, /gateway.*exited.*exit_code=2/i)
+  assert.doesNotMatch(JSON.stringify(evidence.readiness), /password|secret|private.?key|environment/i)
 })
 
 test('PostgreSQL volume measurement uses the discovered container directly and captures exact bytes', (t) => {
@@ -416,7 +590,9 @@ test('H1 runbook records the exact sudo-only human flow without broad privilege 
   assert.match(spec, /AEGIS_CAPACITY_PROBE_CLEANUP_AUTHORIZED=YES python3 .*cleanup_probe\.py --execute/)
   assert.match(spec, /sudo -n env -u DOCKER_HOST docker/)
   assert.doesNotMatch(combined, /sudo -E python3|--preserve-env|usermod|gpasswd|chmod\s+.*docker\.sock/)
-  assert.match(combined, /ACTIVE_CAPACITY_PROBE=ATTEMPT_1_FAILED_CLEANED/)
+  assert.match(combined, /ACTIVE_CAPACITY_PROBE=ATTEMPT_2_FAILED_CLEANED/)
+  assert.match(combined, /ATTEMPT_2_SERVICE_READINESS=NOT_PROVEN/)
+  assert.match(combined, /SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY/)
   assert.match(combined, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED/)
   assert.match(combined, /N1_STARTED=NO/)
 })
@@ -638,7 +814,8 @@ test('probe enforces a bounded workload, immutable clean build context, immediat
   assert.match(runner, /while time\.monotonic\(\) < deadline:[\s\S]{0,180}_guard_host\(/)
 
   assert.doesNotMatch(runner, /except Exception:\s*\n\s*pass/)
-  assert.match(runner, /watchdog\.stop_probe\(\)[\s\S]{0,180}probe services did not become measurable/)
+  assert.match(runner, /except watchdog\.ProbeServicesUnavailable as exc:/)
+  assert.match(runner, /service-readiness\.json/)
   assert.match(runner, /finally:[\s\S]{0,400}_record_introduced_images/)
   assert.match(runner, /capacity-measurements\.json[\s\S]{0,500}evaluate_snapshot/)
   assert.match(runner, /postgres_initial_volume_bytes/)
