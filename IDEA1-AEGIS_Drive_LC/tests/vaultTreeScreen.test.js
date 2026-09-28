@@ -1192,6 +1192,96 @@ test('PVUX-2/3 enqueue uses TREE encryption transport, closes the drawer, and le
   }
 })
 
+test('PARITY-RECOVERY-PICKER-1..5 the real Vault picker preserves a three-file FileList and queues every file', async () => {
+  const names = ['picker-a.png', 'picker-b.gif', 'picker-c.mp4']
+  const mimeByName = { 'picker-a.png': 'image/png', 'picker-b.gif': 'image/gif', 'picker-c.mp4': 'video/mp4' }
+  const ids = Object.fromEntries(names.map((name, index) => [name, `MP${index + 1}`.padEnd(22, String(index + 1))]))
+  fakeTree = await createFakeTreeServer({ kek, blobs: Object.values(ids).map((id) => ({ formatVersion: 2, id })) })
+  const uploaded = []
+  backend.uploadImpl = async ({ file, routeBase, onStage, onProgress }) => {
+    assert.equal(routeBase, '/api/vault/tree/uploads', 'every initial-picker file keeps the encrypted TREE route')
+    uploaded.push(file.name)
+    onStage?.('uploading')
+    onProgress?.({ phase: 'uploading', transferredBytes: file.size, totalBytes: file.size, percent: 100 })
+    backend.state['/api/vault'] = {
+      loading: false,
+      data: {
+        configured: true,
+        blobs: uploaded.map((name) => serverBlobV2({ id: ids[name], name, type: mimeByName[name], plainSize: 1 })),
+      },
+      error: null,
+    }
+    return { ok: true, stage: 'complete', blob: { id: ids[file.name], formatVersion: 2 } }
+  }
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+
+  const h = await mountUnlocked()
+  try {
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
+    const input = q('[data-testid="vault-upload-input"]')
+    assert.equal(input.multiple, true, 'browser-native Ctrl/Shift multi-selection is enabled by the real multiple input')
+    const files = names.map((name) => new dom.window.File(['x'], name, { type: mimeByName[name] }))
+    Object.defineProperty(input, 'files', { configurable: true, value: files })
+    await act(async () => input.dispatchEvent(new dom.window.Event('change', { bubbles: true })))
+    await tick(14)
+
+    assert.deepEqual(uploaded, names, 'the initial picker forwards all three FileList entries in order; no files[0] narrowing')
+    assert.equal(casCount(), 3, 'serialized TREE safety produces one manifest CAS for each queued file')
+    for (const name of names) {
+      assert.ok(tileByName(name), `${name} is attached and visible without a manual refresh`)
+      assert.ok(doc().body.textContent.includes(name), `${name} remains represented in the shared queue surface`)
+    }
+    const recoveryInput = q('input[data-upload-recover-input]')
+    assert.equal(recoveryInput.multiple, false, 'the recovery picker remains intentionally single-file')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('PARITY-RECOVERY-DROP-1..6 a three-file external workspace drop uploads all files and never enters internal move', async () => {
+  const names = ['drop-a.png', 'drop-b.png', 'drop-c.png']
+  const ids = Object.fromEntries(names.map((name, index) => [name, `DP${index + 1}`.padEnd(22, String(index + 4))]))
+  fakeTree = await createFakeTreeServer({ kek, blobs: Object.values(ids).map((id) => ({ formatVersion: 2, id })) })
+  const uploaded = []
+  backend.uploadImpl = async ({ file, routeBase }) => {
+    assert.equal(routeBase, '/api/vault/tree/uploads', 'external drop uses the encrypted upload route, not move')
+    uploaded.push(file.name)
+    backend.state['/api/vault'] = {
+      loading: false,
+      data: { configured: true, blobs: uploaded.map((name) => serverBlobV2({ id: ids[name], name, type: 'image/png', plainSize: 1 })) },
+      error: null,
+    }
+    return { ok: true, stage: 'complete', blob: { id: ids[file.name], formatVersion: 2, routeBase } }
+  }
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+
+  const h = await mountUnlocked()
+  try {
+    const screen = q('[data-testid="vault-tree-screen"]')
+    const dragOver = new dom.window.Event('dragover', { bubbles: true, cancelable: true })
+    const files = names.map((name) => new dom.window.File(['x'], name, { type: 'image/png' }))
+    const transfer = { types: ['Files'], files }
+    Object.defineProperty(dragOver, 'dataTransfer', { value: transfer })
+    await act(async () => screen.dispatchEvent(dragOver))
+    assert.equal(dragOver.defaultPrevented, true, 'external Files drag is accepted by the blank workspace')
+
+    const drop = new dom.window.Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(drop, 'dataTransfer', { value: transfer })
+    await act(async () => screen.dispatchEvent(drop))
+    await tick(14)
+
+    assert.deepEqual(uploaded, names, 'all three OS files reach the Vault queue')
+    assert.equal(casCount(), 3, 'each encrypted attachment commits once')
+    for (const name of names) assert.ok(tileByName(name), `${name} is visible in the current parent`)
+    const casBodies = fakeTree.state.log.filter((entry) => entry.method === 'POST' && entry.path === '/api/vault/tree/head').map((entry) => entry.body)
+    assert.equal(casBodies.every((body) => String(body).includes('attachBlobIds')), true, 'every external file reaches attachBlob; none enters the internal move intent path')
+  } finally {
+    await h.unmount()
+  }
+})
+
 test('PVUX-4 locking purges the memory-only Vault queue and aborts active client work', async () => {
   let activeSignal = null
   backend.uploadImpl = ({ signal, onStage }) => new Promise((resolve) => {

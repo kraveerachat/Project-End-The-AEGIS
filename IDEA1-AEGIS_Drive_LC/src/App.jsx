@@ -4,7 +4,7 @@ import { apiFetch, registerUnauthorizedHandler } from './lib/api.js'
 import { makeT } from './lib/strings.js'
 import { useApi, useReducedMotion } from './lib/hooks.js'
 import { isPlatformWired } from './lib/fetchState.js'
-import { buildLocationForIntent, normalizeNavigationIntent, readLocationIntent, visiblePrimaryNav } from './lib/navigationIntent.js'
+import { buildLocationForIntent, normalizeNavigationIntent, readLocationIntent, resolveAuthorizedScreen, visiblePrimaryNav } from './lib/navigationIntent.js'
 import { HatchDefs, SkeletonLoader } from './components/ui.jsx'
 import { Sidebar } from './components/Sidebar.jsx'
 import { useScrollReveal } from './lib/useScrollReveal.js'
@@ -234,6 +234,9 @@ export default function App() {
   // The server remains the RBAC authority. The client only removes the legacy
   // Upload destination because upload is now a workflow inside Files.
   const nav = useMemo(() => visiblePrimaryNav(serverNav), [serverNav])
+  // Do not infer authorization from role on the client. Intersect even manual/stale
+  // URL selections with the exact menu the server authorized for this session.
+  const activeScreen = resolveAuthorizedScreen(screen, serverNav)
 
   const go = useCallback((destination, params = {}, options = {}) => {
     const intent = normalizeNavigationIntent(destination, params)
@@ -260,6 +263,11 @@ export default function App() {
     }
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
+
+  useEffect(() => {
+    if (!session || activeScreen === screen) return
+    go(activeScreen, {}, { replace: true })
+  }, [activeScreen, go, screen, session])
 
   // ── ดัชนีสำหรับ GlobalSearch — fetch ที่นี่ตัวเดียว (คงที่ข้ามการเปลี่ยนจอ)
   // ส่วน "เปิด/ปิด dropdown" เป็นของ GlobalSearch เองล้วน ๆ ไม่ยกขึ้นมาที่นี่
@@ -305,13 +313,6 @@ export default function App() {
     if (reduced || !mainRef.current) return
     mainRef.current.animate([{ opacity: 0.35 }, { opacity: 1 }], { duration: 250, easing: 'ease-out' })
   }, [lang, reduced])
-
-  // if the previewed role loses the current screen, leave it
-  useEffect(() => {
-    if (!session) return
-    const allowed = new Set([...nav.map((n) => n.id), 'settings'])
-    if (!allowed.has(screen)) go('dashboard', {}, { replace: true })
-  }, [go, nav, screen, session])
 
   // Screen transition loading states (shimmer/pulse)
   const [loadingScreen, setLoadingScreen] = useState(null)
@@ -494,7 +495,7 @@ export default function App() {
         onProfileSaved={(u) => setSession((s) => (s ? { ...s, ...u } : s))}
       />
     ),
-  }[screen]
+  }[activeScreen]
 
   return (
     <div className="authenticated-shell h-full flex bg-canvas" data-interface-style={interfaceStyle}>
@@ -502,7 +503,7 @@ export default function App() {
       <Sidebar
         t={t}
         nav={nav}
-        screen={screen}
+        screen={activeScreen}
         setScreen={go}
         collapsed={collapsed}
         setCollapsed={setCollapsed}
@@ -532,25 +533,25 @@ export default function App() {
           className="flex-1 overflow-y-auto"
         >
           <div
-            key={screen}
+            key={activeScreen}
             data-testid="app-page-content"
-            ref={screen === 'vault' ? vaultMarqueeSurfaceRef : null}
-            data-vault-marquee-surface={screen === 'vault' ? '' : undefined}
-            data-vault-marquee-canvas={screen === 'vault' ? '' : undefined}
-            onPointerDown={screen === 'vault' ? (event) => vaultMarqueePointerDownRef.current?.(event) : undefined}
-            className={screen === 'vault' ? 'vault-full-pane-surface relative min-h-full flex flex-col' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
+            ref={activeScreen === 'vault' ? vaultMarqueeSurfaceRef : null}
+            data-vault-marquee-surface={activeScreen === 'vault' ? '' : undefined}
+            data-vault-marquee-canvas={activeScreen === 'vault' ? '' : undefined}
+            onPointerDown={activeScreen === 'vault' ? (event) => vaultMarqueePointerDownRef.current?.(event) : undefined}
+            className={activeScreen === 'vault' ? 'vault-full-pane-surface relative min-h-full flex flex-col' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
           >
             {/* One composed header: breadcrumb + title on the left, search/actions on the right. */}
-            <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${screen === 'vault' ? 'vault-pane-content pt-7 max-md:pt-5' : ''}`}>
+            <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${activeScreen === 'vault' ? 'vault-pane-content pt-7 max-md:pt-5' : ''}`}>
               <nav aria-label={t('breadcrumb')} className="flex items-center gap-2 text-xs font-mono font-medium tracking-wider text-slate-400 dark:text-slate-500 uppercase select-none">
                 <span>AEGIS</span>
                 <span className="opacity-40">/</span>
-                <span className="font-semibold text-blue-600 dark:text-blue-400">{t(TITLE_KEYS[screen])}</span>
+                <span className="font-semibold text-blue-600 dark:text-blue-400">{t(TITLE_KEYS[activeScreen])}</span>
               </nav>
 
               <div className="page-header-main flex items-center justify-between gap-5">
                 <h1 className="shrink-0 text-2xl md:text-[28px] font-bold tracking-[-0.025em] text-ink">
-                  {t(TITLE_KEYS[screen])}
+                  {t(TITLE_KEYS[activeScreen])}
                 </h1>
 
                 <div className="page-header-tools flex min-w-0 items-center justify-end gap-2.5">
@@ -558,27 +559,27 @@ export default function App() {
                       จอ Vault ได้ช่อง disabled เพื่อบอกข้อจำกัดตามจริง
                       ⚠️ ดัชนีที่ส่งเข้าไปมีแค่ files + users ที่เซิร์ฟเวอร์อนุญาตแล้ว —
                          ไม่มีข้อมูล vault อยู่ในนี้เลยไม่ว่าจออะไร */}
-                  {!HEADER_SEARCH_HIDDEN_SCREENS.has(screen) && (
+                  {!HEADER_SEARCH_HIDDEN_SCREENS.has(activeScreen) && (
                     <GlobalSearch
                       t={t}
-                      screen={screen}
+                      screen={activeScreen}
                       go={go}
                       nav={nav}
                       files={filesApi.data?.files ?? []}
                       people={usersApi.data?.users ?? []}
-                      disabled={SEARCH_DISABLED_SCREENS.has(screen)}
+                      disabled={SEARCH_DISABLED_SCREENS.has(activeScreen)}
                       className="header-context-search"
                     />
                   )}
-                  {screen === 'dashboard' && <DashboardQuickActions t={t} go={go} />}
+                  {activeScreen === 'dashboard' && <DashboardQuickActions t={t} go={go} />}
                 </div>
               </div>
             </div>
             {loadingScreen ? (
               <SkeletonLoader type={getSkeletonType(loadingScreen)} />
             ) : (
-              <Suspense fallback={<SkeletonLoader type={getSkeletonType(screen)} />}>
-                <div className={`fade-in ${screen === 'vault' ? 'flex flex-1 flex-col' : ''}`}>{screenEl}</div>
+              <Suspense fallback={<SkeletonLoader type={getSkeletonType(activeScreen)} />}>
+                <div className={`fade-in ${activeScreen === 'vault' ? 'flex flex-1 flex-col' : ''}`}>{screenEl}</div>
               </Suspense>
             )}
           </div>
