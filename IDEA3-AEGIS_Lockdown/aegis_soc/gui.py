@@ -212,6 +212,26 @@ def _sync_palette_aliases():
     )
 
 
+def record_detector_incident(ip: str | None) -> int | None:
+    """Validate attacker IP and record or bind an open incident in the audit database.
+
+    Separates detection recording and incident provenance from containment/cut actuation policy.
+    Returns the open incident_id on success, or None if the IP is invalid/unusable.
+    """
+    if not ip or not isinstance(ip, str):
+        return None
+    candidate = ip.strip()
+    if not candidate:
+        return None
+    try:
+        parsed = ipaddress.ip_address(candidate)
+        if parsed.version != 4:
+            return None
+    except ValueError:
+        return None
+    return db.create_incident(candidate)
+
+
 class AegisAdminGUI:
     def __init__(self, root, mqtt_manager, command_controller=None):
         _sync_palette_aliases()
@@ -1828,56 +1848,65 @@ class AegisAdminGUI:
         except ValueError:
             return False
 
+    def record_detector_incident(self, ip: str | None) -> int | None:
+        """Validate attacker IP, bind or create an OPEN incident, and sync presentation state."""
+        incident_id = record_detector_incident(ip)
+        if incident_id is None:
+            self.log_message(
+                f"[{time.strftime('%H:%M:%S')}] [DETECTOR] Invalid attacker IP: {ip!r}",
+                db.WARN,
+            )
+            return None
+        safe_ip = str(ip).strip()
+        self.mqtt.last_attacker_ip = safe_ip
+        self.refresh_incident_banner()
+        self.notifications.notify_attacker_detected(safe_ip, incident_id=incident_id)
+        self._refresh_notification_indicator()
+        self._show_security_toast(safe_ip)
+        return incident_id
 
     def on_attacker_detected(self, ip):
-     """ถูกเรียกเมื่อ detector ส่ง IP ผู้โจมตีมา → ตัดเน็ตอัตโนมัติ"""
-     # Presentation-only: surface a security notification/toast for the
-     # detection evidence itself, independent of whether auto-containment
-     # actually fires below -- an operator needs to know a detection
-     # happened even when AEGIS_AUTO_CONTAIN is off or the system is
-     # DISARMED. This never changes self.mqtt.last_attacker_ip, never
-     # issues a command, and never counts as containment.
-     open_incident = self._safe_open_incident()
-     self.notifications.notify_attacker_detected(
-         ip, incident_id=open_incident["id"] if open_incident else None
-     )
-     self._refresh_notification_indicator()
-     self._show_security_toast(ip)
-     if not config.AUTO_CONTAIN:
+        """ถูกเรียกเมื่อ detector ส่ง IP ผู้โจมตีมา → บันทึกเหตุการณ์ และตัดเน็ตตาม policy"""
+        incident_id = self.record_detector_incident(ip)
+        if incident_id is None:
+            return
+
+        safe_ip = str(ip).strip()
+        if not config.AUTO_CONTAIN:
+            self.log_message(
+                f"[{time.strftime('%H:%M:%S')}] [DETECTOR] พบผู้โจมตี {safe_ip} "
+                "แต่ AEGIS_AUTO_CONTAIN ปิดอยู่ — บันทึกเหตุการณ์โดยไม่ตัด uplink",
+                db.WARN,
+            )
+            db.log_event("DETECTOR_ALERT", f"Attacker {safe_ip}; auto-contain disabled", db.WARN, incident_id=incident_id)
+            return
+        if not self.armed:
+            self.log_message(
+                f"[{time.strftime('%H:%M:%S')}] [AUTO] พบผู้โจมตี {safe_ip} "
+                "แต่ระบบ DISARMED — ไม่ตัด",
+                db.WARN,
+            )
+            db.log_event("DETECTOR_ALERT", f"Attacker {safe_ip}; system disarmed", db.WARN, incident_id=incident_id)
+            return
+
         self.log_message(
-            f"[{time.strftime('%H:%M:%S')}] [DETECTOR] พบผู้โจมตี {ip} "
-            "แต่ AEGIS_AUTO_CONTAIN ปิดอยู่ — บันทึกเหตุการณ์โดยไม่ตัด uplink",
-            db.WARN,
+            f"[{time.strftime('%H:%M:%S')}] [AUTO] 🚨 detector "
+            f"พบผู้โจมตี {safe_ip} — ตัดเน็ตอัตโนมัติ",
+            db.CRITICAL,
         )
-        db.log_event("DETECTOR_ALERT", f"Attacker {ip}; auto-contain disabled", db.WARN)
-        return
-     if not self.armed:
+        db.log_event("DETECTOR_ALERT", f"Attacker {safe_ip}; auto-contain triggered", db.CRITICAL, incident_id=incident_id)
+
+        t2_ms = time.time_ns() // 1_000_000
         self.log_message(
-            f"[{time.strftime('%H:%M:%S')}] [AUTO] พบผู้โจมตี {ip} "
-            "แต่ระบบ DISARMED — ไม่ตัด",
-            db.WARN,
+            f"[LATENCY] T2 CUT issued for {safe_ip} at {t2_ms} ms",
+            db.CRITICAL,
         )
-        return
 
-     self.log_message(
-        f"[{time.strftime('%H:%M:%S')}] [AUTO] 🚨 detector "
-        f"พบผู้โจมตี {ip} — ตัดเน็ตอัตโนมัติ",
-        db.CRITICAL,
-    )
-
-     self.mqtt.last_attacker_ip = ip
-
-     t2_ms = time.time_ns() // 1_000_000
-     self.log_message(
-        f"[LATENCY] T2 CUT issued for {ip} at {t2_ms} ms",
-        db.CRITICAL,
-    )
-
-     self.send_command(
-        "CUT_UPLINK",
-        f"ตัดอัตโนมัติจาก detector (ผู้โจมตี {ip})",
-        critical=True,
-    )
+        self.send_command(
+            "CUT_UPLINK",
+            f"ตัดอัตโนมัติจาก detector (ผู้โจมตี {safe_ip})",
+            critical=True,
+        )
 
     def handle_telegram_command(self, text):
         """สมองของ Telegram สองทาง: รับข้อความ → แยกคำสั่ง → ทำ
