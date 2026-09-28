@@ -28,8 +28,9 @@ N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION
 H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
-ACTIVE_CAPACITY_PROBE=ATTEMPT_2_FAILED_CLEANED
-ATTEMPT_2_SERVICE_READINESS=NOT_PROVEN
+ACTIVE_CAPACITY_PROBE=ATTEMPT_3_FAILED_CLEANED
+ATTEMPT_3_HEALTH_INSPECTION=BLOCKED_OPTIONAL_STATE_LOOKUP
+OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY
 SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
 ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
 N1_STARTED=NO
@@ -328,8 +329,9 @@ GATEWAY_BASE_IMAGE=nginx:alpine@sha256:0530961ff0592b58c10f767535cc0abdfccf9e389
 GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE
 H1_COMPOSE_ARTIFACT=deploy/idea2/h1-capacity-probe.compose.yml
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
-ACTIVE_CAPACITY_PROBE=ATTEMPT_2_FAILED_CLEANED
-ATTEMPT_2_SERVICE_READINESS=NOT_PROVEN
+ACTIVE_CAPACITY_PROBE=ATTEMPT_3_FAILED_CLEANED
+ATTEMPT_3_HEALTH_INSPECTION=BLOCKED_OPTIONAL_STATE_LOOKUP
+OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY
 SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
 ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
@@ -379,12 +381,14 @@ The approved logical N1 resource model remains:
   rollback evidence retained outside secrets.
 
 The H1 probe Compose and gateway source exist and base images are digest-pinned.
-Attempts 1 and 2 built and started only disposable probe artifacts, but both
+Attempts 1 through 3 built and started only disposable probe artifacts, but all
 failed before the first complete capacity snapshot and then removed those
 artifacts through exact cleanup. Attempt 2 reached Compose start for all three
 services, but the pre-remediation runner subsequently saw an incomplete
 running-service set and timed out without retaining which service was absent or
-its exit state. Candidate image bytes, initialized database bytes,
+its exit state. Attempt 3 reached the remediated state inspection, where Docker
+rejected a direct lookup of the optional `.State.Health` key for a container
+without a healthcheck. Candidate image bytes, initialized database bytes,
 writable-layer peak, and lab peak container memory usage therefore remain
 `NOT_MEASURED_ACTIVE_PROBE_REQUIRED`.
 
@@ -626,8 +630,9 @@ CAPACITY_PROBE_COMPOSE_FILE=deploy/idea2/h1-capacity-probe.compose.yml
 CAPACITY_PROBE_STORAGE_WATCHDOG=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_RUNNER=deploy/idea2/h1-capacity-probe/run_probe.py
 CAPACITY_PROBE_CLEANUP=deploy/idea2/h1-capacity-probe/cleanup_probe.py
-ACTIVE_CAPACITY_PROBE=ATTEMPT_2_FAILED_CLEANED
-ATTEMPT_2_SERVICE_READINESS=NOT_PROVEN
+ACTIVE_CAPACITY_PROBE=ATTEMPT_3_FAILED_CLEANED
+ATTEMPT_3_HEALTH_INSPECTION=BLOCKED_OPTIONAL_STATE_LOOKUP
+OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY
 SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
 PROBE_WORKLOAD_REQUEST_COUNT=600
 PROBE_WORKLOAD_POSTGRES_ROWS=10000
@@ -737,6 +742,31 @@ redacted `service-readiness.json`; on timeout the last typed condition is also
 written to `probe.log` and re-raised after stopping the probe. Environment,
 mount, log-path, and secret-bearing inspection fields remain excluded.
 
+The Human-authorized third active attempt passed the frozen sudo-only preflight
+and validate-only gates and preserved Production identity/counts. It then failed
+closed before a readiness snapshot because Docker's Go template evaluator could
+not resolve `.State.Health` on a container with no configured healthcheck. Exact
+cleanup again removed all probe containers, networks, volume, builder, and
+introduced candidate images. No `capacity-measurements.json` was produced:
+
+```text
+ACTIVE_CAPACITY_PROBE=ATTEMPT_3_FAILED_CLEANED
+ATTEMPT_3_CAPACITY_MEASUREMENTS=NOT_PRODUCED
+ATTEMPT_3_HEALTH_INSPECTION=BLOCKED_OPTIONAL_STATE_LOOKUP
+OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY
+N0_CAPACITY=NOT_PROVEN
+N1_STARTED=NO
+```
+
+The diagnostic now reads the optional health map through a guarded `index` plus
+`with` expression. A running gateway or Monitor container without a healthcheck
+is represented as `health=none`; PostgreSQL must still report `healthy`.
+Explicit `healthy` is accepted for any expected running service, while
+`starting`, `unhealthy`, stopped/exited state, malformed state, missing,
+duplicate, unexpected, unlabelled, or nameless project containers continue to
+fail closed. The evidence fields remain limited to ID, name, Compose service
+label, state, exit code, and health/no-healthcheck state.
+
 The remediated measurement resolves the exact PostgreSQL container from the
 probe project labels and invokes non-interactive `docker exec <container> du
 -sk /var/lib/postgresql/data` through the same explicit direct or
@@ -781,8 +811,9 @@ AEGIS_CAPACITY_PROBE_AUTHORIZED=YES python3 deploy/idea2/h1-capacity-probe/run_p
 ```
 
 `--validate-only` performs no Docker command and creates no Compose environment
-file. The active command remains a separate mutation gate. Attempts 1 and 2 were
-run by the Human and cleaned; this remediation checkpoint does not rerun either.
+file. The active command remains a separate mutation gate. Attempts 1 through 3
+were run by the Human and cleaned; this remediation checkpoint does not rerun
+them.
 The runner
 attempts exact cleanup in `finally`. If an
 interruption or expired sudo ticket leaves probe-scoped resources, the Human

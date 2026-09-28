@@ -73,7 +73,7 @@ Artifact state remains fail-closed while the source boundary is now complete:
   digests for Node 20 Alpine, PostgreSQL 15 Alpine, and nginx Alpine;
 - a dedicated H1-only TLS/exact-route gateway and bounded capacity-probe
   Compose, runner, watchdog, and cleanup source now exist;
-- Attempts 1 and 2 pulled/built only disposable probe artifacts, started only
+- Attempts 1 through 3 pulled/built only disposable probe artifacts, started only
   the isolated probe project, then exact cleanup removed every introduced
   artifact;
   and
@@ -123,8 +123,9 @@ MONITOR_FINAL_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
 H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
-ACTIVE_CAPACITY_PROBE=ATTEMPT_2_FAILED_CLEANED
-ATTEMPT_2_SERVICE_READINESS=NOT_PROVEN
+ACTIVE_CAPACITY_PROBE=ATTEMPT_3_FAILED_CLEANED
+ATTEMPT_3_HEALTH_INSPECTION=BLOCKED_OPTIONAL_STATE_LOOKUP
+OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY
 SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
 ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
 N1_STARTED=NO
@@ -136,10 +137,13 @@ hit its bounded timeout. Attempt 2 proved that remediation through preflight,
 validate-only, image build, and Compose start, but the old running-only service
 discovery then lost at least one expected service and replaced the last service
 state with a generic 120-second timeout. Exact cleanup completed after both
-attempts and Production identity stayed unchanged. The current remediation
-keeps the timeout, enumerates stopped as well as running probe containers, and
-persists only safe state/exit/health evidence. Another active attempt remains a
-separate Human action after reviewing this source checkpoint.
+attempts and Production identity stayed unchanged. Attempt 3 reached the new
+state inspection but Docker rejected direct access to the optional
+`.State.Health` key on a container without a healthcheck. Exact cleanup again
+completed and Production identity stayed unchanged. The current remediation
+keeps the timeout and all-state discovery while guarding the optional health
+map and persisting only safe state/exit/health evidence. Another active attempt
+remains a separate Human action after reviewing this source checkpoint.
 
 ---
 

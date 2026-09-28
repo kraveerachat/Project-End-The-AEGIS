@@ -292,6 +292,68 @@ test('service discovery reports an expected container that exited after Compose 
   assert.ok(evidence.calls[0].includes('--quiet'))
 })
 
+test('container inspection treats absent Health as neutral while preserving health and state failures', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(watchdogPath)
+  const source = [
+    'import json, sys',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import watchdog',
+    'rows = ["gateway-id|/probe-gateway|gateway|running|0|none\\nmonitor-id|/probe-monitor|monitor|running|0|healthy\\npostgres-id|/probe-postgres|postgres|running|0|healthy"]',
+    'templates = []',
+    'def fake_run(command, **kwargs):',
+    '    joined = " ".join(command)',
+    '    if " ps " in f" {joined} ":',
+    '        return "gateway-id\\nmonitor-id\\npostgres-id"',
+    '    if " inspect " in f" {joined} ":',
+    '        template = command[command.index("--format") + 1]',
+    '        templates.append(template)',
+    '        if ".State.Health" in template:',
+    '            raise RuntimeError("unsafe direct Health lookup")',
+    '        if "index .State \\"Health\\"" not in template:',
+    '            raise RuntimeError("optional Health lookup missing")',
+    '        return rows[0]',
+    '    raise RuntimeError(command)',
+    'watchdog._run = fake_run',
+    'accepted = watchdog._probe_containers()',
+    'rows[0] = "gateway-id|/probe-gateway|gateway|running|0|unhealthy\\nmonitor-id|/probe-monitor|monitor|running|0|none\\npostgres-id|/probe-postgres|postgres|running|0|healthy"',
+    'try:',
+    '    watchdog._probe_containers()',
+    'except watchdog.ProbeServicesUnavailable as exc:',
+    '    unhealthy = exc.evidence',
+    'else:',
+    '    raise SystemExit("unhealthy gateway was accepted")',
+    'rows[0] = "gateway-id|/probe-gateway|gateway|exited|2|none\\nmonitor-id|/probe-monitor|monitor|running|0|none\\npostgres-id|/probe-postgres|postgres|running|0|healthy"',
+    'try:',
+    '    watchdog._probe_containers()',
+    'except watchdog.ProbeServicesUnavailable as exc:',
+    '    exited = exc.evidence',
+    'else:',
+    '    raise SystemExit("exited gateway without Health was accepted")',
+    'print(json.dumps({"accepted":accepted,"unhealthy":unhealthy,"exited":exited,"templates":templates}))',
+  ].join('\n')
+  const result = runProbePython(python, source, {
+    AEGIS_CAPACITY_PROBE_DOCKER_MODE: 'sudo-noninteractive',
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  const evidence = JSON.parse(result.stdout)
+  assert.deepEqual(evidence.accepted, {
+    gateway: 'gateway-id',
+    monitor: 'monitor-id',
+    postgres: 'postgres-id',
+  })
+  assert.equal(evidence.unhealthy.containers[0].health, 'unhealthy')
+  assert.deepEqual(evidence.unhealthy.missing_services, ['gateway'])
+  assert.equal(evidence.exited.containers[0].state, 'exited')
+  assert.equal(evidence.exited.containers[0].exit_code, 2)
+  assert.equal(evidence.exited.containers[0].health, 'none')
+  assert.deepEqual(evidence.exited.missing_services, ['gateway'])
+  assert.ok(evidence.templates.every((template) => template.includes('index .State "Health"')))
+  assert.doesNotMatch(JSON.stringify(evidence), /password|secret|private.?key|environment/i)
+})
+
 test('service discovery rejects an unlabelled project container even when all expected services run', (t) => {
   const python = pythonCommand()
   if (!python) return t.skip('Python is unavailable for the repository contract test')
@@ -590,8 +652,9 @@ test('H1 runbook records the exact sudo-only human flow without broad privilege 
   assert.match(spec, /AEGIS_CAPACITY_PROBE_CLEANUP_AUTHORIZED=YES python3 .*cleanup_probe\.py --execute/)
   assert.match(spec, /sudo -n env -u DOCKER_HOST docker/)
   assert.doesNotMatch(combined, /sudo -E python3|--preserve-env|usermod|gpasswd|chmod\s+.*docker\.sock/)
-  assert.match(combined, /ACTIVE_CAPACITY_PROBE=ATTEMPT_2_FAILED_CLEANED/)
-  assert.match(combined, /ATTEMPT_2_SERVICE_READINESS=NOT_PROVEN/)
+  assert.match(combined, /ACTIVE_CAPACITY_PROBE=ATTEMPT_3_FAILED_CLEANED/)
+  assert.match(combined, /ATTEMPT_3_HEALTH_INSPECTION=BLOCKED_OPTIONAL_STATE_LOOKUP/)
+  assert.match(combined, /OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY/)
   assert.match(combined, /SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY/)
   assert.match(combined, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED/)
   assert.match(combined, /N1_STARTED=NO/)

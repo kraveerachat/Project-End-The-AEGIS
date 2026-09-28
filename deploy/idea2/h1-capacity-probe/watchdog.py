@@ -298,7 +298,7 @@ def _probe_container_states() -> list[dict[str, Any]]:
             "--format",
             '{{.Id}}|{{.Name}}|{{index .Config.Labels "com.docker.compose.service"}}|'
             "{{.State.Status}}|{{.State.ExitCode}}|"
-            "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}",
+            '{{with index .State "Health"}}{{.Status}}{{else}}none{{end}}',
             *container_ids,
         ),
         operation="probe container state inspection",
