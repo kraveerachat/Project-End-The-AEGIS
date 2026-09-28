@@ -35,14 +35,17 @@ UNIT = "aegis-idea3-core.service"
 BROKER_UNIT = "aegis-idea3-mosquitto.service"
 
 
-def lib(script: str, *, env: dict[str, str] | None = None, path_prefix: Path | None = None) -> subprocess.CompletedProcess[str]:
+def lib(script: str, *, env: dict[str, str] | None = None, path_prefix: Path | None = None,
+        unset: tuple[str, ...] = (), cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     e = os.environ.copy()
     e["SUDO"] = ""
     if path_prefix:
         e["PATH"] = f"{path_prefix}:{e['PATH']}"
     if env:
         e.update(env)
-    return subprocess.run(["bash", "-c", f"source '{LIB}'; {script}"], text=True, capture_output=True, env=e, check=False)
+    for k in unset:
+        e.pop(k, None)
+    return subprocess.run(["bash", "-c", f"source '{LIB}'; {script}"], text=True, capture_output=True, env=e, cwd=cwd, check=False)
 
 
 def stub(bin_dir: Path, name: str, body: str) -> None:

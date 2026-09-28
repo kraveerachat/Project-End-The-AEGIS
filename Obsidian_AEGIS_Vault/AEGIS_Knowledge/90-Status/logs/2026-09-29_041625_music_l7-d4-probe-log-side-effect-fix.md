@@ -35,6 +35,12 @@ edit_policy: append-by-new-file
   running euid, O_NOFOLLOW, ASCII/size/scrypt-format validation) are completely untouched.
 - A RED-first regression suite proves the defect against the unmodified handler and the fix against the patched
   one, using the real, unmocked `aegis_soc.local_restore` code throughout.
+- Follow-up (same PR, still Draft): independent review found the identical import-side-effect pattern in
+  `deploy/pr11-phase4/p4-l7-run-lib.sh`'s `l7_input_gate` — the read-only pre-gate `run-l7-owner.sh` runs before
+  any authorization is consumed. It runs the same `RestoreCredential.parse` probe outside the production systemd
+  environment and was originally left as a "known limitation" in this receipt; that limitation is now fixed and no
+  longer true (see updated Source files / Verification evidence below). `protocol_v1.py`'s probe in the same gate
+  is pure stdlib and does not import `aegis_soc.database`, so it was correctly left untouched.
 
 ## Source files changed
 
@@ -52,6 +58,15 @@ edit_policy: append-by-new-file
   (`test_l7_core_account_probes_use_the_installed_release_interpreter_live`) to match the new exact `as_service`
   invocation string; its actual security intent (must use `$SVC_PY`/`$SVC_CODE_ROOT` via `as_service`, never plain
   `$PY`) is unchanged and still enforced.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-l7-run-lib.sh` — `l7_input_gate`'s restore-credential probe now runs
+  under `AEGIS_LOG_PATH=/dev/null`, same fix as apply.sh/verify.sh. `RestoreCredential` itself and the
+  `protocol_v1` key probe are untouched.
+- `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l7_runner.py` — `lib()` test helper gained `unset` (env keys to
+  remove) and `cwd` parameters, mirroring `Fx.run()`'s earlier `cwd` addition; no other behavior changed.
+- `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l7_input_gate_log_side_effect.py` — new RED→GREEN regression suite
+  (5 tests) for `l7_input_gate`: proves no stray log in a writable monitored CWD, proves an unwritable CWD no
+  longer false-fails with `L7_RESTORE_CREDENTIAL_INVALID`, proves a genuinely invalid credential is still rejected,
+  and proves the gate passes regardless of ambient `AEGIS_LOG_PATH`. Uses only synthetic fixture secrets.
 
 ## Verification evidence
 
@@ -66,6 +81,14 @@ edit_policy: append-by-new-file
 - `git diff --check` — pass: no whitespace errors.
 - Standalone sandbox reproduction (outside pytest): ran the real `RestoreCredential.load()` against the owner's actual restore.credential from a monitored CWD with `AEGIS_LOG_PATH=/dev/null` (the fix's exact override) — pass: `D4_LOAD_RESULT=PASS`, zero files created in the monitored CWD.
 - `node scripts/validate-vault.mjs` — pass: 2 pre-existing owner-data warnings on unrelated canvas files, no new warnings from this task.
+- `pytest tests/test_pr11_phase4_l7_input_gate_log_side_effect.py -q` on pre-fix p4-l7-run-lib.sh — fail: 2 of 5 failed (RED confirmed).
+- `pytest tests/test_pr11_phase4_l7_input_gate_log_side_effect.py -q` after the fix — pass: 5 passed.
+- `pytest tests/test_pr11_phase4_l7_input_gate_log_side_effect.py tests/test_pr11_phase4_l7_d4_probe_log_side_effect.py tests/test_pr11_phase4_l7_handler.py tests/test_pr11_phase4_l7_runner.py tests/test_local_restore.py tests/test_systemd_credentials.py -q` — pass: 469 passed.
+- `pytest tests/test_pr11_phase4_l7_runner_flow.py -q` — pass: 31 passed.
+- `pytest tests/test_pr11_phase4_harness.py -q` — pass: 222 passed.
+- `bash -n deploy/pr11-phase4/p4-l7-run-lib.sh` — pass.
+- `ruff check tests/test_pr11_phase4_l7_input_gate_log_side_effect.py` — pass: all checks passed. (Pre-existing findings in `tests/test_pr11_phase4_l7_runner.py` confirmed present on the unmodified file via a temporary stash-and-check — not introduced by this change.)
+- Standalone sandbox reproduction (outside pytest, plain system `python3`, not even the pinned venv): ran the real `l7_input_gate` against a synthetic fixture input from a monitored CWD with `AEGIS_LOG_PATH` genuinely unset — `GATE_EXIT=0`, zero files created in the monitored CWD.
 
 ## Canonical notes updated
 
@@ -81,5 +104,5 @@ edit_policy: append-by-new-file
 
 ## Known limitations
 
-- `deploy/pr11-phase4/p4-l7-run-lib.sh`'s `l7_input_gate` (used by `run-l7-owner.sh`'s pre-gate phase, before any authorization is consumed) has the same `RestoreCredential.parse` import-side-effect pattern and was NOT fixed here — it is out of the mission's stated scope (`apply.sh`'s two probes) and, unlike the apply/verify probes, a failure there is a safe read-only false-negative before any mutation, not a Production-impacting one. Left as a known follow-up.
 - L7 has not been retried; the authorization consumed by the failed attempt was not replaced. A fresh A-L7/K3 record and owner decision are required before any new live attempt, per this task's explicit instructions.
+- None remaining from the import-side-effect defect: all three call sites that import `aegis_soc.local_restore` outside the production systemd environment (`apply.sh`'s two D4 probes, `verify.sh`'s D4 probe, and `p4-l7-run-lib.sh`'s `l7_input_gate` pre-gate probe) now pin `AEGIS_LOG_PATH=/dev/null`.
