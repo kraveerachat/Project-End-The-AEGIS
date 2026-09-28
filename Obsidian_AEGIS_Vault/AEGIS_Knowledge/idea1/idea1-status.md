@@ -17,7 +17,31 @@ edit_policy: owner-writable
 
 ## Current Task
 
-**IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1 — PRODUCTION DEPLOYED & HUMAN ACCEPTANCE PASS / HIGH-RES LIVE FAIL OPEN / CLOSEOUT PRE-MERGE**
+**IDEA1-STORAGE-CAPACITY-RECLAMATION-1 — IN PROGRESS**
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-storage-capacity-reclamation`; Draft PR: stacked on PR #220 (`fix/idea1-vault-convergence-highres-ux`).
+- Canonical architecture authority: PR #240 merged in main (`Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-storage-persistence-architecture.md`).
+- Implementation plan: `docs/superpowers/plans/2026-09-28-idea1-storage-capacity-reclamation.md`.
+- Two-Track Execution & Current State:
+  - **TRACK A (Host Storage Capacity Expansion)**: `PENDING_HUMAN_OWNER`. Controlled LVM expansion of root logical volume from ~58.09 GiB to target ~90 GiB within existing `ubuntu-vg` extents, preserving ~26 GiB administrative safety reserve. Host OS administrative operation reserved strictly for Human Owner execution; Agent prepares verified commands and evidence templates without executing host mutations.
+  - **TRACK B (Trash / Physical Reclamation / Storage Accounting)**: `BLOCKED_ON_TRACK_A`. Controlled upload, measurement, soft delete, hard purge, physical blob tracking, and filesystem free-space verification. Defect classification strictly gated on empirical evidence.
+- Status & Invariants:
+  - `APPLICATION_SOURCE_CHANGED=NO`
+  - `PRODUCTION_MUTATED=NO`
+  - `DISK_RESIZED=NO`
+  - `TRASH_FIX_IMPLEMENTED=NO`
+  - `NEW_STORAGE_API_IMPLEMENTED=NO`
+  - `RAID_CURRENT_STATE=NOT_CONFIGURED` (RAID1 deferred as future hardware).
+  - Planned ~90 GiB expansion is **NOT** marked as implemented until Human Owner post-change evidence is provided.
+
+### Session Register — IDEA1-STORAGE-CAPACITY-RECLAMATION-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| ISCR-S1 | Initial preparation, two-track implementation plan creation, PR220 baseline stacking, draft PR preparation | IN PROGRESS / TRACK A PENDING HUMAN OWNER | Implementation plan `docs/superpowers/plans/2026-09-28-idea1-storage-capacity-reclamation.md` created; PR240 canonical architecture linked; governance checks pass; zero application source changes; zero production mutations. | Plan checkpoint | Ready for Human Owner Track A execution | Track A Human Owner LVM expansion, followed by Track B controlled reclamation verification | Human Owner Track A LVM expansion |
+
+## Completed Task — IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1
 
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `fix/idea1-vault-convergence-highres-ux`; stacked dependency: PR #220 on PR #219 on PR #218.
