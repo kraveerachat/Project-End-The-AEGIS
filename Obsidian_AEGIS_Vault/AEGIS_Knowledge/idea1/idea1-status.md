@@ -17,27 +17,41 @@ edit_policy: owner-writable
 
 ## Current Task
 
-**IDEA1-FILES-VAULT-PARITY-RECOVERY-1 — HUMAN ACCEPTED & MERGE READY**
+**IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1 — COMPLETE**
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `fix/idea1-files-vault-parity-recovery`; PR: #219 (base: `main`).
-- Exact start: current live-candidate source `ad43c89b629fe67f556677b9ba667b7e3b001fdf` (2026-09-26); refreshed with current `origin/main` (`6fed4b2128b8e8444fbf9a329a6f4a758dabd525`).
-- Scope: forensically compare the PR171 accepted source, PR212 accepted source, and current candidate; restore only proven Files/Private Vault interaction or reconciliation regressions.
-- Human Owner live acceptance: **PASS** across all target behaviors:
-  - `PR219_NATIVE_3_FILE_PICKER=PASS`: Private Vault native picker accepted 3 files simultaneously, all 3 uploaded successfully, all 3 appeared normally in current Vault location.
-  - `PR219_3_FILE_DRAG_DROP=PASS`: Private Vault Explorer drag/drop accepted 3 files simultaneously, all 3 uploaded successfully, all 3 appeared normally in current Vault location.
-  - `PR219_HUMAN_ACCEPTANCE=PASS`: live acceptance complete across all 7 targeted behaviors (Admin/DataLake parity, 3-file picker/drop, marquee, blank clear, supported preview covers, delete transitions, normal Files regression).
-  - `PRODUCTION_REDEPLOY_REQUIRED=NO`: PR219 changes only tests and status documentation; no application/runtime source change; Production not mutated (`PRODUCTION_MUTATED=NO`).
-- Safety: no redesign, crypto/security change, performance tuning, transport/chunk/concurrency/media-limit change, PR #216/PR #218 mutation, or Production mutation.
-- Forensic result: the PR212-to-current delta changes only `App.jsx` authorization naming (`screen` to `activeScreen`) and normal-Files `UploadDrawer.jsx`; Vault interaction/upload/media modules are unchanged. The sole baseline failure was a stale source-regex assertion after that naming change, not a runtime failure; it is corrected without changing product source.
-- Automated evidence: focused Files/Vault interaction, upload, media, and reconciliation matrix 174/174 PASS (including new real three-file picker and Explorer-drop coverage); build PASS; governance 50/50 PASS; Vault validation PASS with two existing owner-Canvas warnings; diff and added-line secret scans PASS.
-- Closeout: exactly one immutable task receipt `2026-09-28_203000_kla_idea1-files-vault-parity-recovery.md` created; PR #219 ready for Human Owner merge.
+- Branch: `docs/idea1-storage-persistence-architecture`; PR: Draft (base: `main`).
+- Scope: Authoritative documentation of IDEA1 Storage & Persistence Architecture, containerized Data Lake topology, metadata vs data byte separation, external backup target, RAID deferred truth, planned 90G LVM expansion boundary, and trash/reclamation lifecycle.
+- Canonical document: `[[idea1/idea1-storage-persistence-architecture]]`.
+- Key Architectural Facts Documented:
+  - Internal SSD (~119.2 GiB usable) partitioned with Ubuntu LVM: Volume Group `ubuntu-vg` is ~116.19 GiB; root LV is allocated ~58.09 GiB with ~58.09 GiB unallocated reserve. Docker root at `/var/lib/docker` is not artificially limited by Docker, but bound to the host root ext4 partition (~57 GiB usable).
+  - Planned controlled host expansion: target root LV ~90 GiB, preserving ~26 GiB safety reserve in `ubuntu-vg` (infrastructure operation, not executed here).
+  - Containerized Data Lake named volume `aegis_drive_storage` mounted at `/datalake` with logical classes `uploads`, `versions`, `vault` (ciphertext), `avatars`, and ephemeral `staging`. Observed preflight snapshot ~28.7–29.0 GB (uploads ~25.1 GB, versions ~1 MB).
+  - Database & Data Lake separation: Data bytes reside exclusively in Data Lake; relational metadata (identity, file metadata, version trees, opaque vault envelopes, shares, audit logs) resides in PostgreSQL (`aegis_drive`).
+  - External Backup Target: Dedicated 1 TB physical disk (931.5 GiB usable ext4) mounted at `/mnt/aegis-backup`. AEGIS-owned data restricted strictly to `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic/`. Unrelated external files preserved untouched. Ephemeral staging excluded from durable snapshots.
+  - RAID truthfulness: `RAID_CURRENT_STATE=NOT_CONFIGURED`. Backup target is NOT a RAID member. Primary storage + separate backup is not RAID1. Real RAID1 deferred as future hardware.
+  - Trash & Reclamation boundary: Conceptual lifecycle documented (Active file → Protected Trash → Empty Trash → Metadata removal → Blob unlinking → Filesystem free-space release → Telemetry refresh). Open reclamation issue (used space not visibly decreasing after purge) documented truthfully with `ROOT CAUSE: NOT YET PROVEN` and candidate hypotheses.
+  - Operational separation: Trash purge (app level), storage capacity reporting (read-only telemetry), and host LVM expansion (infrastructure) must never be merged into a single privileged API.
+- Safety & Invariants: `APPLICATION_SOURCE_CHANGED=NO`, `PRODUCTION_MUTATED=NO`, `DISK_RESIZED=NO`, `TRASH_FIX_IMPLEMENTED=NO`.
+- Closeout: exactly one immutable task receipt created.
+
+### Session Register — IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| ISPA-S1 | Authoritative storage & persistence architecture note, MOC update, canonical links, governance verification | PASS | Canonical note `idea1-storage-persistence-architecture.md` created; MOC updated; governance 50/50 PASS; vault validation PASS; diff/secret scans PASS. No application changes; no production mutation; no disk resize; no trash fix implementation. Exactly one final receipt created. | Closeout checkpoint | Complete; ready for review | Human Owner review & merge of documentation PR | Merge docs PR |
+
+## Completed Task — IDEA1-FILES-VAULT-PARITY-RECOVERY-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-files-vault-parity-recovery`; PR: #219.
+- State: **CLOSED / IMPLEMENTED & HUMAN ACCEPTED (2026-09-28)** — Merged into main as `d7a174d3b07116445be0f4620746aa673102f863`. Human Owner live acceptance PASS across all target behaviors (`PR219_NATIVE_3_FILE_PICKER=PASS`, `PR219_3_FILE_DRAG_DROP=PASS`, `PR219_HUMAN_ACCEPTANCE=PASS`). Application source unchanged. One immutable receipt `2026-09-28_203000_kla_idea1-files-vault-parity-recovery.md` created.
 
 ### Session Register — IDEA1-FILES-VAULT-PARITY-RECOVERY-1
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| IFVPR-S2 | Human Owner live acceptance recording, PR218 merge dependency reconciliation, base retarget to main, final receipt, and merge readiness | PASS | PR219_NATIVE_3_FILE_PICKER=PASS, PR219_3_FILE_DRAG_DROP=PASS, PR219_HUMAN_ACCEPTANCE=PASS. PRODUCTION_REDEPLOY_REQUIRED=NO. Base retargeted to main; refreshed with current origin/main (6fed4b21); focused 174/174 PASS; build PASS; governance 50/50 PASS; Vault validation PASS (2 Canvas warnings); diff/secret scan PASS. Exactly one final receipt added. | Closeout checkpoint | Accepted; merge readiness complete | Human Owner merge of PR #219 into main | Human Owner merge |
+| IFVPR-S2 | Human Owner live acceptance recording, PR218 merge dependency reconciliation, base retarget to main, final receipt, and merge readiness | PASS | PR219_NATIVE_3_FILE_PICKER=PASS, PR219_3_FILE_DRAG_DROP=PASS, PR219_HUMAN_ACCEPTANCE=PASS. PRODUCTION_REDEPLOY_REQUIRED=NO. Base retargeted to main; refreshed with current origin/main (6fed4b21); focused 174/174 PASS; build PASS; governance 50/50 PASS; Vault validation PASS (2 Canvas warnings); diff/secret scan PASS. Exactly one final receipt added. | Closeout checkpoint | Accepted; merge readiness complete | Human Owner merge of PR #219 into main | Closed (merged as `d7a174d3`) |
 | IFVPR-S1 | Exact-SHA worktree, historical diff, interaction/upload/media/delete trace, direct regression coverage, verification | AUTOMATED PASS / HUMAN ACCEPTANCE PENDING | PR171→PR212 added the Stage-D queue/reconcile/media fixes; PR212→current changed only App authorization naming and normal-Files drawer presentation. Marquee refs/classes, external drop, full `FileList` enqueue, post-upload barrier, scheduler re-observation, and committed-head reducer reconciliation remain present. Baseline 171/172 exposed one stale V10 source-regex assertion after `screen` became `activeScreen`; corrected test and new real three-file picker/drop coverage yield focused 174/174 PASS. Build PASS; governance 50/50; validator PASS with two existing warnings; diff/secret scans PASS. Application source unchanged. | `9f6c8526` test/status checkpoint; Draft PR #219 | Old-source deployment not proven; no Class-A product source regression proven. Vault upload/delete latency follows encrypted revision publish/put/CAS before immediate committed-head reducer reconciliation; serialized CAS, client crypto, bounded preview work, and media limits remain intentional. Performance tuning deferred to PR #216 after P1 baseline. | Human checks: Vault three-file Explorer drop; three-file native picker; left/right/bottom marquee and blank clear; new supported JPG/GIF/video cover without refresh; delete transition; Files drop/marquee and PR218 drawer/tray; Admin/DataLake parity where applicable | Stop at Human Owner browser acceptance; no receipt or Ready transition |
 
 ## Completed Task — IDEA1-ROLE-UPLOAD-UI-POLISH-1
