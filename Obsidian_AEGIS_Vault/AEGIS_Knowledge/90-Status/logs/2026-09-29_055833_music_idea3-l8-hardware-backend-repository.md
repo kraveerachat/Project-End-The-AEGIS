@@ -68,7 +68,7 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- Session 1 RED: hardware suite before implementation — 74 failed / 6 passed.
+- Session 1 RED: `pytest tests/test_pr11_phase4_l8_hardware_backend.py -q -p no:cacheprovider` before implementation — fail: 74 failed / 6 passed.
 - Session 2 RED: `pytest tests/test_pr11_phase4_l8_boot_verify.py -q` before implementation — fail: 68 failed / 1 passed (module `p4-l8-boot-verify.py` and the new provision inputs did not exist).
 - `pytest tests/test_pr11_phase4_l8_boot_verify.py tests/test_pr11_phase4_l8_hardware_backend.py tests/test_pr11_phase4_l8_handler.py tests/test_pr11_phase4_harness.py -q` — pass: 448 passed (boot 69, hardware 80, handler 77, harness 222).
 - `pytest tests/test_pr11_phase4_nvs_provision.py tests/test_firmware_contract.py tests/test_firmware_protocol_parity.py tests/test_platform_lock.py tests/test_pr11_phase4_g15_host_artifacts.py tests/test_pr11_phase4_l9_handler.py tests/test_pr11_phase4_l7_handler.py tests/test_protocol_inbound.py tests/test_protocol_v1.py -q` — pass: 623 passed.
