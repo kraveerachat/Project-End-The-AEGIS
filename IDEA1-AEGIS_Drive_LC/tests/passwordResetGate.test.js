@@ -81,14 +81,27 @@ const sessionPayload = (mustResetPassword) => ({
   csrfToken: 'csrf-password-reset-test',
 })
 
+const dataLakePayload = {
+  user: {
+    id: '2',
+    username: 'user',
+    displayName: 'DataLake User',
+    accountName: 'DataLake User',
+    role: 'DataLake-User',
+    mustResetPassword: false,
+  },
+  menu: adminMenu.filter((item) => !['storage', 'access'].includes(item.id)),
+  csrfToken: 'csrf-password-reset-test',
+}
+
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), {
   status,
   headers: { 'Content-Type': 'application/json' },
 })
 
-function installDom() {
+function installDom(url = 'http://localhost/drive/') {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div id="root"></div></body></html>', {
-    url: 'http://localhost/drive/',
+    url,
     pretendToBeVisual: true,
   })
   const { window } = dom
@@ -149,13 +162,13 @@ function setInput(input, value) {
   input.dispatchEvent(new window.Event('input', { bubbles: true }))
 }
 
-function makeFetch(mustResetPassword, calls) {
+function makeFetch(mustResetPassword, calls, payload = sessionPayload(mustResetPassword)) {
   return async (input, init = {}) => {
     const url = new URL(String(input), 'http://localhost')
     const method = init.method ?? 'GET'
     calls.push({ path: url.pathname.replace(/^\/drive/, ''), method, body: init.body })
 
-    if (url.pathname.endsWith('/api/me')) return jsonResponse(sessionPayload(mustResetPassword))
+    if (url.pathname.endsWith('/api/me')) return jsonResponse(payload)
     if (url.pathname.endsWith('/api/password/reset')) return jsonResponse({ ok: true })
     if (url.pathname.endsWith('/healthz')) return jsonResponse({ ok: true, db: 'postgres' })
     if (url.pathname.endsWith('/api/dashboard')) return jsonResponse({ metrics: {}, activity7d: [], recentFiles: [], loginHistory: [], shares: [] })
@@ -166,12 +179,12 @@ function makeFetch(mustResetPassword, calls) {
   }
 }
 
-async function renderApp(mustResetPassword) {
-  const env = installDom()
+async function renderApp(mustResetPassword, { payload, url } = {}) {
+  const env = installDom(url)
   const { createRoot } = await import('react-dom/client')
   const calls = []
   const previousFetch = globalThis.fetch
-  globalThis.fetch = makeFetch(mustResetPassword, calls)
+  globalThis.fetch = makeFetch(mustResetPassword, calls, payload)
   const root = createRoot(document.getElementById('root'))
   await act(async () => root.render(React.createElement(App)))
   return {
@@ -257,6 +270,23 @@ test('session without reset requirement enters the normal shell directly', async
       () => PROTECTED_PATHS.every((path) => app.calls.some((call) => call.path === path)),
       `protected reads did not start for a normal session; calls were ${JSON.stringify(app.calls)}`,
     )
+  } finally {
+    await app.cleanup()
+  }
+})
+
+test('a DataLake-User direct Storage URL fails closed before the Storage screen can render', async () => {
+  const app = await renderApp(false, {
+    payload: dataLakePayload,
+    url: 'http://localhost/drive/storage',
+  })
+  try {
+    await waitFor(
+      () => document.body.textContent.includes('Dashboard screen'),
+      `Dashboard fallback did not render; body was ${document.body.textContent}`,
+    )
+    assert.doesNotMatch(document.body.textContent, /Storage screen/)
+    assert.equal(window.location.pathname.endsWith('/dashboard'), true)
   } finally {
     await app.cleanup()
   }

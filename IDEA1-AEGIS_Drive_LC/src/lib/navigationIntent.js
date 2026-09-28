@@ -18,6 +18,18 @@ export function visiblePrimaryNav(serverNav) {
   return serverNav.filter((item) => item?.id !== 'uploads')
 }
 
+/**
+ * Resolve a requested screen against the menu authorized by the server.
+ * Settings is an authenticated shell surface opened from the account menu;
+ * every product screen must be present in the server payload or fail closed.
+ */
+export function resolveAuthorizedScreen(requestedScreen, serverNav) {
+  const requested = String(requestedScreen || 'dashboard').toLowerCase()
+  if (requested === 'settings') return 'settings'
+  if (!Array.isArray(serverNav)) return 'dashboard'
+  return serverNav.some((item) => item?.id === requested) ? requested : 'dashboard'
+}
+
 export function readLocationIntent(pathname, search = '', basePath = '/') {
   const base = normalizedBase(basePath)
   let relative = String(pathname || '/')
