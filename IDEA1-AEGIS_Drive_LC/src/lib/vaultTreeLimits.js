@@ -50,6 +50,16 @@ export const VAULT_TREE_CLIENT_LIMITS = Object.freeze({
   imageMaxInputBytes: 16 * MIB,
   /** พิกเซลที่ถอดได้ต่อภาพหนึ่งใบ (~16 MP) — เกินนี้ = ใหญ่เกินพรีวิว ใช้ไอคอน/ดาวน์โหลด */
   imageMaxDecodedPixels: 16_000_000,
+  /** Normal lane (full single decode via createImageBitmap) remains the measured <=16 MP path. */
+  imageNormalMaxDecodedPixels: 16_000_000,
+  /** PR220-R2 reduced-decode lane envelope (worker ImageDecoder, bounded desired size — never a
+      full-resolution bitmap). Native Edge 154 process-tree peaks: 26 MP / 45 / 61 / 100 / 151 MP
+      all bounded well under memoryCeilingBytes; see the PR220-R2 measurement table. */
+  imageHighResMaxDecodedPixels: 152_000_000,
+  /** Encoded input allowed on the reduced lane: largest measured class (36.3 MiB) + margin. */
+  imageHighResMaxInputBytes: 40 * MIB,
+  /** Only one reduced (high-resolution) decode runs at a time. */
+  imageHighResMaxConcurrentJobs: 1,
   /** GIF เล่นแอนิเมชันเต็มได้เฉพาะไฟล์ไม่เกินนี้ (Object-URL heap bench Task 0.2); ที่ใหญ่กว่า = โปสเตอร์อย่างเดียว */
   gifMaxFullPlayBytes: 8 * MIB,
   /** ขอบยาวสุดของโปสเตอร์ (Phase 0 bench: โปสเตอร์ 512 px วัดได้ ~95–101 KB) */

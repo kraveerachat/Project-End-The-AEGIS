@@ -31,7 +31,7 @@ const defaultCancelSession = (uploadId) => cancelVaultUploadSession(uploadId, { 
  *      ชื่อไฟล์ที่ถอดแล้วอยู่ใน React state ที่ตายพร้อมจอที่ปลดล็อก
  */
 export const VaultUploadDrawer = forwardRef(function VaultUploadDrawer({
-  t, open, onClose, destination = '/', parentNodeId = null, onUpload,
+  t, open, onClose, destination = '/', parentNodeId = null, onUpload, onActiveUploadsChange,
   kek = null, recoveryScope = null, recoveryStorage,
   loadStatus = fetchVaultUploadStatus, cancelSession = defaultCancelSession,
 }, ref) {
@@ -167,6 +167,11 @@ export const VaultUploadDrawer = forwardRef(function VaultUploadDrawer({
 
   // นาฬิกาจับการหยุดนิ่ง — ป้อนไบต์ที่วัดได้จริงกลับเข้าตัวประมาณ ไม่เคยสร้างไบต์เอง (แบบเดียวกับ Files)
   const uploadingCount = queue.reduce((total, item) => item.stage === 'uploading' ? total + 1 : total, 0)
+  // PR220-R2 D: presentation-only signal so heavy preview work can yield while bytes are moving
+  const activeReportRef = useRef(onActiveUploadsChange)
+  activeReportRef.current = onActiveUploadsChange
+  useEffect(() => { activeReportRef.current?.(uploadingCount) }, [uploadingCount])
+  useEffect(() => () => { activeReportRef.current?.(0) }, [])
   useEffect(() => {
     if (uploadingCount === 0) return undefined
     const timer = setInterval(() => {

@@ -1,0 +1,15 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 POST-L6b/L6c runtime reactivation (V4): allowed PRE->POST drift keys (RUNTIME_ONLY).
+# Exact keys, no wildcard. Persistent artifacts are NOT here: nm.profile.*, fw.idea3_nft. dnsmasq and the L6b broker are
+# NEVER mutated by V4, so NONE of their identity/runtime keys (MainPID, NRestarts, ExecMainStartTimestamp, ActiveState,
+# SubState) are approved here -- any change to those is real drift, not this reactivation's own footprint.
+
+# target interface runtime only (link, AP mode/SSID/channel, address, connected route, NM device state, active
+# connection, device autoconnect -- restored to its PRE value, so its value itself never differs PRE->POST)
+net.link.wlp0s20f3
+net.addr.wlp0s20f3
+net.route4.iface.wlp0s20f3
+nm.active.device.wlp0s20f3
+nm.device.wlp0s20f3.state
+wifi.iface.wlp0s20f3.channel
+wifi.iface.wlp0s20f3.ssid
+wifi.iface.wlp0s20f3.type

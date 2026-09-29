@@ -97,7 +97,8 @@ chmod 0600 "$CONF_FILE"
 # 5. Offline certificate check
 "$PYTHON_BIN" "$P4_HERE/p4-mqtt-pki.py" validate-broker-cert \
   --ca-file "$INPUT_DIR/ca.crt" \
-  --cert-file "$INPUT_DIR/broker.crt" >/dev/null
+  --cert-file "$INPUT_DIR/broker.crt" \
+  --key-file "$INPUT_DIR/broker.key" >/dev/null
 
 # 6. Execute broker validator (sole lifecycle owner)
 STARTED_AT=$(date -u +%FT%TZ)

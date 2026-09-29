@@ -12,7 +12,7 @@
 //   TS-9  อีกอุปกรณ์ลบโฟลเดอร์ปัจจุบัน → refresh ถอยไปบรรพบุรุษ + ประกาศ + เคลียร์ selection
 //   TS-10 ล็อกขณะไดอะล็อกเปิด → purge; ไม่มีชื่อใดค้างใน DOM
 //   TS-11 treeUiEnabled=false → ผิวอ่าน/ส่งออกอย่างเดียว (ชื่อ + Download + Details ไม่มีควบคุมแก้ไข)
-//   TS-12 จอ FLAT เลกาซีไม่ถูกแตะ (in-file smoke; ชุดเดิมวิ่งซ้ำใน focused regression)
+//   TS-12 FLAT ที่มีข้อมูลเข้าถึงได้เฉพาะ migration gate ไม่ย้อนกลับไปจอปฏิบัติการเลกาซี
 import assert from 'node:assert/strict'
 import test, { after, before, beforeEach } from 'node:test'
 import React, { act } from 'react'
@@ -312,12 +312,12 @@ test('SEL-01/02/03 SCREEN-INTEGRATION-1/2 expanded Vault surface selects, ignore
   try {
     await newFolder('A')
     await newFolder('B')
-    const canvas = q('[data-vault-marquee-canvas]')
+    const canvas = q('[data-testid="vault-tree-screen"][data-marquee-canvas]')
     const workspace = q('[data-testid="vault-tree-workspace"]')
     const toolbar = q('[data-testid="vault-workspace-toolbar"]')
     const [a, b] = folderTiles()
     assert.ok(canvas, 'Vault grid exposes an empty-canvas marquee surface')
-    assert.ok(canvas.hasAttribute('data-vault-marquee-surface'), 'one semantic expanded surface owns marquee input')
+    assert.ok(canvas.hasAttribute('data-workspace-marquee-surface'), 'the one shared workspace surface owns marquee input')
     assert.ok(canvas.contains(toolbar) && canvas.contains(workspace), 'expanded surface contains toolbar gaps and the old lower workspace')
     canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 500, width: 600, height: 500 })
     a.getBoundingClientRect = () => ({ left: 20, top: 80, right: 180, bottom: 160, width: 160, height: 80 })
@@ -333,8 +333,8 @@ test('SEL-01/02/03 SCREEN-INTEGRATION-1/2 expanded Vault surface selects, ignore
     assert.equal(canvas.style.userSelect, 'none', 'primary mouse down on blank canvas starts marquee tracking')
     await act(async () => pointer(dom.window, 'pointermove', { clientX: 190, clientY: 175 }))
     await tick()
-    assert.ok(q('[data-testid="vault-marquee-rect"]'), 'the marquee rectangle is visible while dragging')
-    assert.equal(q('[data-testid="vault-marquee-rect"]').style.width, '185px')
+    assert.ok(q('[data-marquee-rect]'), 'the marquee rectangle is visible while dragging')
+    assert.equal(q('[data-marquee-rect]').style.width, '185px')
     assert.equal(q('[data-testid="vault-tree-selection-count"]')?.textContent.includes('1'), true)
     assert.ok(q('[data-testid="vault-tree-selection-bar"]')?.classList.contains('fixed'), 'Vault selection actions float like the Files action bar')
     await act(async () => pointer(dom.window, 'pointerup', {}))
@@ -533,14 +533,17 @@ test('TS-11 treeUiEnabled=false renders the read/export-only rollback surface', 
 })
 
 /* ── TS-12 ────────────────────────────────────────────────────────────────── */
-test('TS-12 the legacy FLAT screen is untouched by the tree branch (in-file smoke)', async () => {
-  backend = makeVaultTreeBackend() // default FLAT + genesisMigrationEnabled
+test('TS-12 nonempty FLAT exposes only the explicit migration gate, never legacy operations', async () => {
+  backend = makeVaultTreeBackend({ flags: { treeUiEnabled: true } })
+  backend.state['/api/vault'].data.blobs = [serverBlob({ id: 'f'.repeat(22), name: 'legacy.txt', type: 'text/plain' })]
   wireBridge()
   globalThis.__VAULT_BACKEND__ = backend
   const h = await mountUnlocked()
   try {
     assert.ok(!q('[data-testid="vault-tree-screen"]'), 'FLAT never renders the tree screen')
-    assert.ok(q('[data-testid="vault-migration-entry"]'), 'the FLAT upgrade entry point still renders')
+    assert.ok(q('[data-testid="vault-migration-explain"]'), 'nonempty FLAT renders the explicit migration gate')
+    assert.ok(!q('[data-testid="vault-migration-entry"]'), 'legacy migration entry is removed')
+    assert.ok(!q('[data-vault-tile-menu]'), 'legacy operational cards are unreachable')
     assert.ok(!q('[data-testid="vault-tree-rollback"]'), 'FLAT has no rollback surface')
   } finally {
     await h.unmount()
@@ -1187,6 +1190,96 @@ test('PVUX-2/3 enqueue uses TREE encryption transport, closes the drawer, and le
     assert.ok(doc().body.textContent.includes('stage-d.png'), 'the tray tracks the real Vault job')
     assert.ok(backend.requests.some((entry) => entry.path === '/api/vault/tree/uploads'), 'TREE upload transport was invoked')
     assert.ok(!backend.requests.some((entry) => String(entry.path).startsWith('/api/files')), 'Files plaintext transport was never invoked')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('PARITY-RECOVERY-PICKER-1..5 the real Vault picker preserves a three-file FileList and queues every file', async () => {
+  const names = ['picker-a.png', 'picker-b.gif', 'picker-c.mp4']
+  const mimeByName = { 'picker-a.png': 'image/png', 'picker-b.gif': 'image/gif', 'picker-c.mp4': 'video/mp4' }
+  const ids = Object.fromEntries(names.map((name, index) => [name, `MP${index + 1}`.padEnd(22, String(index + 1))]))
+  fakeTree = await createFakeTreeServer({ kek, blobs: Object.values(ids).map((id) => ({ formatVersion: 2, id })) })
+  const uploaded = []
+  backend.uploadImpl = async ({ file, routeBase, onStage, onProgress }) => {
+    assert.equal(routeBase, '/api/vault/tree/uploads', 'every initial-picker file keeps the encrypted TREE route')
+    uploaded.push(file.name)
+    onStage?.('uploading')
+    onProgress?.({ phase: 'uploading', transferredBytes: file.size, totalBytes: file.size, percent: 100 })
+    backend.state['/api/vault'] = {
+      loading: false,
+      data: {
+        configured: true,
+        blobs: uploaded.map((name) => serverBlobV2({ id: ids[name], name, type: mimeByName[name], plainSize: 1 })),
+      },
+      error: null,
+    }
+    return { ok: true, stage: 'complete', blob: { id: ids[file.name], formatVersion: 2 } }
+  }
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+
+  const h = await mountUnlocked()
+  try {
+    await click(dom, q('[data-testid="vault-tree-upload"]'))
+    const input = q('[data-testid="vault-upload-input"]')
+    assert.equal(input.multiple, true, 'browser-native Ctrl/Shift multi-selection is enabled by the real multiple input')
+    const files = names.map((name) => new dom.window.File(['x'], name, { type: mimeByName[name] }))
+    Object.defineProperty(input, 'files', { configurable: true, value: files })
+    await act(async () => input.dispatchEvent(new dom.window.Event('change', { bubbles: true })))
+    await tick(14)
+
+    assert.deepEqual(uploaded, names, 'the initial picker forwards all three FileList entries in order; no files[0] narrowing')
+    assert.equal(casCount(), 3, 'serialized TREE safety produces one manifest CAS for each queued file')
+    for (const name of names) {
+      assert.ok(tileByName(name), `${name} is attached and visible without a manual refresh`)
+      assert.ok(doc().body.textContent.includes(name), `${name} remains represented in the shared queue surface`)
+    }
+    const recoveryInput = q('input[data-upload-recover-input]')
+    assert.equal(recoveryInput.multiple, false, 'the recovery picker remains intentionally single-file')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('PARITY-RECOVERY-DROP-1..6 a three-file external workspace drop uploads all files and never enters internal move', async () => {
+  const names = ['drop-a.png', 'drop-b.png', 'drop-c.png']
+  const ids = Object.fromEntries(names.map((name, index) => [name, `DP${index + 1}`.padEnd(22, String(index + 4))]))
+  fakeTree = await createFakeTreeServer({ kek, blobs: Object.values(ids).map((id) => ({ formatVersion: 2, id })) })
+  const uploaded = []
+  backend.uploadImpl = async ({ file, routeBase }) => {
+    assert.equal(routeBase, '/api/vault/tree/uploads', 'external drop uses the encrypted upload route, not move')
+    uploaded.push(file.name)
+    backend.state['/api/vault'] = {
+      loading: false,
+      data: { configured: true, blobs: uploaded.map((name) => serverBlobV2({ id: ids[name], name, type: 'image/png', plainSize: 1 })) },
+      error: null,
+    }
+    return { ok: true, stage: 'complete', blob: { id: ids[file.name], formatVersion: 2, routeBase } }
+  }
+  wireBridge()
+  globalThis.__VAULT_BACKEND__ = backend
+
+  const h = await mountUnlocked()
+  try {
+    const screen = q('[data-testid="vault-tree-screen"]')
+    const dragOver = new dom.window.Event('dragover', { bubbles: true, cancelable: true })
+    const files = names.map((name) => new dom.window.File(['x'], name, { type: 'image/png' }))
+    const transfer = { types: ['Files'], files }
+    Object.defineProperty(dragOver, 'dataTransfer', { value: transfer })
+    await act(async () => screen.dispatchEvent(dragOver))
+    assert.equal(dragOver.defaultPrevented, true, 'external Files drag is accepted by the blank workspace')
+
+    const drop = new dom.window.Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(drop, 'dataTransfer', { value: transfer })
+    await act(async () => screen.dispatchEvent(drop))
+    await tick(14)
+
+    assert.deepEqual(uploaded, names, 'all three OS files reach the Vault queue')
+    assert.equal(casCount(), 3, 'each encrypted attachment commits once')
+    for (const name of names) assert.ok(tileByName(name), `${name} is visible in the current parent`)
+    const casBodies = fakeTree.state.log.filter((entry) => entry.method === 'POST' && entry.path === '/api/vault/tree/head').map((entry) => entry.body)
+    assert.equal(casBodies.every((body) => String(body).includes('attachBlobIds')), true, 'every external file reaches attachBlob; none enters the internal move intent path')
   } finally {
     await h.unmount()
   }

@@ -167,6 +167,10 @@ function LayerRow({ t, layer, status }) {
 }
 
 export default function Login({ theme, setTheme, lang: initialLang = 'th', setLang: externalSetLang, onAuthed }) {
+  // AEGIS CORE ENTRY UX CONTRACT — HUMAN OWNER CONTROLLED.
+  // Visual authority for IDEA1 Login. Theme participates in the shared shell;
+  // Monitor auth semantics stay local. Incidental redesign requires explicit task,
+  // RED tests, preserved auth, and Human/integration review.
   const reduced = useReducedMotion()
   const [internalLang, setInternalLang] = useState(initialLang)
   const lang = externalSetLang ? initialLang : internalLang

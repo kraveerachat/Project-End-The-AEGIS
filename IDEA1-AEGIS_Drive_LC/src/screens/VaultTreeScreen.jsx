@@ -16,6 +16,7 @@ import { VaultBreadcrumbs } from '../components/vault/VaultBreadcrumbs.jsx'
 import { VaultFolderTile } from '../components/vault/VaultFolderTile.jsx'
 import { VaultFileTile } from '../components/vault/VaultFileTile.jsx'
 import { VaultUploadDrawer } from '../components/VaultUploadDrawer.jsx'
+import { ExternalFileDropSurface } from '../components/ExternalFileDropSurface.jsx'
 import { VaultRecoveryPanel, vaultTreeFolderOptions } from '../components/vault/VaultRecoveryPanel.jsx'
 import {
   NewFolderDialog, RenameDialog, MoveDialog, DetailsDialog,
@@ -29,6 +30,9 @@ import { previewKindFor } from '../lib/vaultPreview.js'
 import { childrenOf, effectiveState } from '../lib/vaultTreeManifest.js'
 import { createThumbScheduler } from '../lib/vaultThumbScheduler.js'
 import { makeImageThumb } from '../lib/vaultImageThumb.js'
+import { createImageDecodeAdmission } from '../lib/vaultImageDecodeAdmission.js'
+import { detectReducedDecodeCapability, startReducedDecodeJob } from '../lib/vaultImageReducedDecode.js'
+import { openVaultPlainChunks } from '../lib/vaultPlainChunkStream.js'
 import { gifMotionCapability, openGifMotion } from '../lib/vaultGifPreview.js'
 import { openVideoMotion, openVideoPoster, videoPosterEstimateBytes, videoPreviewCapability, VIDEO_CAPABILITY } from '../lib/vaultVideoPreview.js'
 import { attachPosterVideo, drawPosterFrame } from '../lib/vaultVideoDom.js'
@@ -43,7 +47,7 @@ import { useApi } from '../lib/hooks.js'
 import { apiFetchBytes } from '../lib/api.js'
 import { DEFAULT_VAULT_SORT, deriveVaultWorkspace, VAULT_SORT_MODES, VAULT_TYPE_FILTERS } from '../lib/vaultWorkspace.js'
 import { readFolderHistory, resolveFolderHistoryTarget, writeFolderHistory } from '../lib/folderHistory.js'
-import { useMarqueeSelection } from '../lib/useMarqueeSelection.js'
+import { WorkspaceMarqueeScope, WorkspaceMarqueeSource } from '../components/WorkspaceMarquee.jsx'
 import { isInternalItemDrag, isExternalFileDrag, writeDragPayload, readDragPayload } from '../lib/fileDragDrop.js'
 import { decryptFileContent, decryptBlobMeta } from '../lib/vaultCrypto.js'
 import { decryptVaultV2Meta, unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
@@ -213,7 +217,6 @@ export function VaultTreeRollback({ t, lang = 'en', kek, unlockedState = null, s
 export function VaultTreeScreen({
   t, lang = 'en', kek, treeState = null, unlockedState = null, onLock, recoveryScope = null,
   sessionFactory = createTreeSession, defaultApi = treeApi, mediaPreviewEnabled = false,
-  marqueeSurfaceRef = null, registerMarqueePointerDown = null,
 }) {
   const session = useMemo(
     () => (kek ? sessionFactory({ kek, api: defaultApi, unlockedState }) : null),
@@ -512,6 +515,25 @@ export function VaultTreeScreen({
   const [motionState, setMotionState] = useState(null)
   const mediaLimitsRef = useRef(VAULT_TREE_CLIENT_LIMITS)
   const schedulerRef = useRef(null)
+  // PR220-R2 D: a reduced (high-res) decode never starts while a Vault upload is running — it
+  // waits in admission and resumes when the drawer reports zero active uploads.
+  const activeUploadsRef = useRef(0)
+  const admission = useMemo(() => {
+    if (!mediaEnabled || !unlockedState || !head) return null
+    return createImageDecodeAdmission({
+      limits: mediaLimitsRef.current,
+      liveMemoryBytes: () => schedulerRef.current?.stats().estMemBytes ?? 0,
+      deferHighRes: () => activeUploadsRef.current > 0,
+    })
+  }, [mediaEnabled, unlockedState, Boolean(head)])
+  const admissionRef = useRef(admission)
+  admissionRef.current = admission
+  const onActiveUploadsChange = useCallback((count) => {
+    activeUploadsRef.current = count
+    admissionRef.current?.notifyMemoryChanged?.()
+  }, [])
+
+  useEffect(() => () => { void admission?.releaseAll?.() }, [admission])
 
   const readNodeBytes = useCallback(async ({ node, blob, signal }) => {
     const variant = node.blobRef?.formatVersion ?? 1
@@ -595,14 +617,23 @@ export function VaultTreeScreen({
           if (!poster.ok) throw new Error(poster.unsupported ?? 'VIDEO_POSTER')
           return { width: 640, height: 360, bytes: poster.posterBytes, mime: 'image/jpeg' }
         }
-        const bytes = await readNodeBytesRef.current({ node, blob, signal })
+        const imageVariant = node.blobRef?.formatVersion ?? 1
         const thumb = await makeImageThumb({
-          plainSize: node.plainSize ?? bytes.length, limits: mediaLimitsRef.current,
-          variant: node.blobRef?.formatVersion ?? 1,
+          plainSize: node.plainSize ?? 0, limits: mediaLimitsRef.current,
+          variant: imageVariant,
           chunkCount: 1,
-          readChunk: async () => bytes,
-          readWhole: async () => bytes,
-          unlockedState, signal, skipUrl: true,
+          readChunk: () => readNodeBytesRef.current({ node, blob, signal }),
+          readWhole: () => readNodeBytesRef.current({ node, blob, signal }),
+          // V2: decrypted chunks are pulled one at a time (normal lane buffers ≤ imageMaxInputBytes;
+          // the reduced lane transfers each chunk into the decode worker and keeps nothing)
+          openChunks: imageVariant === 2
+            ? ({ signal: chunkSignal }) => openVaultPlainChunks({
+              signal: chunkSignal,
+              run: (sink, runSignal) => downloadVaultV2({ kek, blob, sink, signal: runSignal }),
+            })
+            : null,
+          reduced: { capability: detectReducedDecodeCapability(), startJob: startReducedDecodeJob },
+          admission, signal, skipUrl: true,
         })
         if (!thumb.ok) throw new Error(thumb.unsupported)
         return { width: thumb.width, height: thumb.height, bytes: thumb.posterBytes }
@@ -610,7 +641,7 @@ export function VaultTreeScreen({
       onChange: () => setMediaMap(nextScheduler.snapshot()),
     })
     return nextScheduler
-  }, [mediaEnabled, unlockedState, Boolean(head), kek])
+  }, [mediaEnabled, unlockedState, Boolean(head), kek, admission])
   schedulerRef.current = scheduler
 
   useEffect(() => () => { void scheduler?.releaseAll?.() }, [scheduler])
@@ -715,7 +746,13 @@ export function VaultTreeScreen({
     const entry = mediaMap.get(node.nodeId)
     const isGif = mime === 'image/gif'
     const isVideo = previewKindFor(mime) === 'video'
-    if (entry?.failed && !entry.url) return { reason: entry.reason ?? 'THUMB_FAILED' }
+    if (entry?.failed && !entry.url) {
+      const reason = entry.reason ?? 'THUMB_FAILED'
+      return {
+        reason,
+        reasonLabel: reason === 'HIGH_RES_TOO_LARGE' ? t('vaultHighResPreviewTooLarge') : null,
+      }
+    }
     return {
       posterUrl: entry?.url ?? null,
       reason: null,
@@ -775,8 +812,6 @@ export function VaultTreeScreen({
     () => deriveVaultWorkspace(tree.children, { query, typeFilter, sort }),
     [tree.children, query, typeFilter, sort],
   )
-  const localMarqueeCanvasRef = useRef(null)
-  const marqueeCanvasRef = marqueeSurfaceRef ?? localMarqueeCanvasRef
   const marqueeTilesRef = useRef(new Map())
   const registerMarqueeTile = (nodeId) => (element) => {
     if (element) marqueeTilesRef.current.set(nodeId, element)
@@ -787,24 +822,6 @@ export function VaultTreeScreen({
     if (!controller) return
     controller.setSelection(nodeIds)
   }, [])
-  const marquee = useMarqueeSelection({
-    enabled: layout === 'grid',
-    canvasRef: marqueeCanvasRef,
-    tileEls: marqueeTilesRef,
-    selectedIds: tree.selection,
-    onSelectionChange: setMarqueeSelection,
-  })
-  useEffect(() => {
-    if (!registerMarqueePointerDown) return undefined
-    registerMarqueePointerDown(marquee.onPointerDown)
-    return () => registerMarqueePointerDown(null)
-  }, [registerMarqueePointerDown, marquee.onPointerDown])
-  useEffect(() => {
-    const surface = marqueeCanvasRef.current
-    if (!surface) return undefined
-    surface.style.userSelect = marquee.tracking ? 'none' : ''
-    return () => { surface.style.userSelect = '' }
-  }, [marquee.tracking, marqueeCanvasRef])
   const selectionRoots = head && tree.selection.size ? (() => {
     try {
       return normalizeRootsSafe(head.index, [...tree.selection])
@@ -911,18 +928,13 @@ export function VaultTreeScreen({
   /* ── render ──────────────────────────────────────────────────────────────── */
   const rootId = head?.manifest.rootNodeId ?? null
   const isTrashView = tree.view === 'trash'
-  const ownsMarqueeSurface = !marqueeSurfaceRef
   return (
-    <div
-      ref={ownsMarqueeSurface ? marqueeCanvasRef : null}
+    /* ลากกรอบเลือก: ใช้พื้นผิวเดียวกับ Files — App เป็นเจ้าของการลาก/กรอบ จอนี้ส่งแค่สถานะการเลือก
+       (mount เดี่ยว = scope นี้เป็นพื้นผิวเอง พฤติกรรมเหมือนกันทุกประการ) */
+    <WorkspaceMarqueeScope
       data-testid="vault-tree-screen"
-      data-vault-marquee-surface={ownsMarqueeSurface ? '' : undefined}
-      data-vault-marquee-canvas={ownsMarqueeSurface ? '' : undefined}
-      onPointerDown={ownsMarqueeSurface ? marquee.onPointerDown : undefined}
-      className={ownsMarqueeSurface
-        ? 'vault-full-pane-surface vault-pane-content vault-tree-content relative flex-1'
-        : 'vault-pane-content vault-tree-content flex-1'}
-      style={{ userSelect: marquee.tracking ? 'none' : undefined }}
+      className="vault-pane-content vault-tree-content flex-1"
+      standaloneClassName="workspace-full-pane-surface"
       onDragOver={(e) => {
         const dt = e.dataTransfer ?? e.nativeEvent?.dataTransfer
         if (!isInternalItemDrag(dt) && isExternalFileDrag(dt) && !isTrashView) e.preventDefault()
@@ -935,18 +947,12 @@ export function VaultTreeScreen({
         if (files.length) enqueueVaultFiles(files)
       }}
     >
-      {marquee.box && (
-        <div
-          data-testid="vault-marquee-rect"
-          aria-hidden="true"
-          className="pointer-events-none absolute z-10 rounded-[4px] border border-accent"
-          style={{
-            left: `${marquee.box.left}px`, top: `${marquee.box.top}px`,
-            width: `${marquee.box.width}px`, height: `${marquee.box.height}px`,
-            background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
-          }}
-        />
-      )}
+      <WorkspaceMarqueeSource
+        enabled={layout === 'grid'}
+        tileEls={marqueeTilesRef}
+        selectedIds={tree.selection}
+        onSelectionChange={setMarqueeSelection}
+      />
       {/* aria-live: การนำทาง/ถูกปฏิเสธ/reconcile ประกาศที่นี่เสมอ (TS-4/TS-9) */}
       <p role="status" aria-live="polite" data-testid="vault-tree-announce" data-marquee-ignore="" className="sr-only">
         {announcementText ?? ''}
@@ -1104,6 +1110,9 @@ export function VaultTreeScreen({
           )}
         </SelectionActionBar>
       )}
+      {/* ลากไฟล์จากเครื่อง: หน้าตาเดียวกับ Files ผ่าน ExternalFileDropSurface — ตัวนี้วาดสถานะอย่างเดียว
+          การวางจริงยังไหลขึ้นไปหา onDrop ของจอ (เข้ารหัส → enqueueVaultFiles) เส้นทางเดิมทุกประการ */}
+      <ExternalFileDropSurface hint={t('vaultDropHint')} enabled={!isTrashView && !tree.drag}>
       {loadState === 'ready' && head && (
         workspace.folders.length === 0 && workspace.files.length === 0 ? (
           <Card>
@@ -1186,6 +1195,7 @@ export function VaultTreeScreen({
           </div>
         )
       )}
+      </ExternalFileDropSurface>
 
       {/* ── dialogs ─────────────────────────────────────────────────────────── */}
       <VaultUploadDrawer
@@ -1196,6 +1206,7 @@ export function VaultTreeScreen({
         destination={`/${(tree.breadcrumbs ?? []).map((node) => displayNodeName(t, node, head?.manifest?.rootNodeId)).filter(Boolean).join('/')}`}
         parentNodeId={tree.current}
         onUpload={runVaultUpload}
+        onActiveUploadsChange={onActiveUploadsChange}
         kek={kek}
         recoveryScope={recoveryScope}
       />
@@ -1273,6 +1284,6 @@ export function VaultTreeScreen({
           onChoice={(choice, extra = {}) => tree.resolveConflict(choice, extra)} unlockedState={unlockedState}
         />
       )}
-    </div>
+    </WorkspaceMarqueeScope>
   )
 }

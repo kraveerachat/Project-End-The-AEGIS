@@ -3,7 +3,7 @@
 # two p4-l0-capture.sh bundles (execution document §10 preservation, §11 stop
 # conditions). Reads evidence files only; calls no host command.
 #
-#   DISK_THRESHOLD_PCT=<owner threshold> [ALLOW_KEYS_FILE=…] [ALLOW_LISTENERS_FILE=…] \
+#   DISK_THRESHOLD_PCT=<owner threshold> [ALLOW_KEYS_FILE=…] [ALLOW_LISTENERS_FILE=…] [ALLOW_L6C_RELEASE_FILE=…] \
 #     [REPORT_FILE=…] bash p4-compare.sh <BEFORE_DIR> <AFTER_DIR>
 #
 # Finding classes:
@@ -34,6 +34,36 @@
 # without the approved transition), a missing/unparseable target state, or a
 # target country other than 00/TH after the window still fails. wifi.reg.* stays in
 # PROTECTED, so ALLOW_KEYS_FILE can never approve it.
+#
+# ALLOW_DYNAMIC_TRANSITIONS_FILE (opt-in, default off) activates one exact, value-level runtime-state window for the
+# L3/L4 post-reboot RUNTIME REACTIVATION operation only. First active line `operation L34_RUNTIME_REACTIVATION` (PRE->POST) or
+# `operation L34_RUNTIME_REACTIVATION_ROLLBACK` (PRE->RB); every other active line must be one exact member of that operation's
+# hard-coded catalog below (key, exact before value, exact after value), each at most once, single-space separated. A rule
+# approves a change ONLY when the key changed from exactly that before value to exactly that after value; the pseudo key
+# `nm.general#WIFI` matches only the WIFI field of nm.general while STATE/CONNECTIVITY/WIFI-HW stay equal. It cannot approve
+# any other key, value, wildcard or protected class, and it is not an allow-keys mechanism. See the L3/L4 reactivation design.
+# ALLOW_L6C_RELEASE_FILE (stage L6c only, opt-in): names the ONE exact new release id a run is authorized to add to
+# host.aegis_idea3.release_catalog (`stage L6c` once, `release_id <id>` once). It is a relational rule, not a plain allow
+# key: every release id already present in BEFORE must remain byte-identical in AFTER regardless of this file; the file
+# can only approve the addition of the id it names, never a mutation or removal of an existing release.
+#   L34_RUNTIME_REACTIVATION           svc.aegis-idea3-dnsmasq.service.ActiveState failed active
+#                                      svc.aegis-idea3-dnsmasq.service.SubState failed running
+#                                      svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
+#                                      nm.general#WIFI disabled enabled
+#   L34_RUNTIME_REACTIVATION_ROLLBACK  svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive
+#                                      svc.aegis-idea3-dnsmasq.service.SubState failed dead
+#                                      svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
+#
+# V3 (live attempt 2, 2026-09-27): four further operations of the same opt-in file, each with its own closed catalog, model the proven, exact
+# side effects of NetworkManager initializing Wi-Fi on this host. `<absent>`, `<empty>`, `<nonempty>`, `<positive>` and `<sha256>` are the only
+# value classes a catalog member may use. Rules on `svc.wpa_supplicant.service.*` and `wifi.phy.sha256` are RELATIONAL: they approve a change only
+# when the whole gate holds in the two bundles (POST: radio disabled->enabled, target AP the active connection, no unrelated Wi-Fi, unit
+# disabled / NRestarts 0 / Result success; ROLLBACK: radio disabled again, target rfkill blocked, no Wi-Fi active, same unit facts; phy: the
+# approved target regulatory transition 00->TH under ALLOW_TRANSITIONS_FILE, global regulatory unchanged 00, channel 6 permitted, phy identity
+# and AP mode unchanged, and the regulatory-insensitive digest wifi.phy.regnorm_sha256 EQUAL). The p2p pseudo-device rules are gated too (POST: radio
+# disabled->enabled with unchanged prefix, approved AP active, no unrelated Wi-Fi/P2P; ROLLBACK_FRESH: radio disabled and target rfkill blocked in both,
+# no Wi-Fi/P2P active, target unavailable). Nothing here is a generic allow key.
+#   L34_V3_POST_FRESH / L34_V3_POST_RESIDUAL / L34_V3_ROLLBACK_FRESH / L34_V3_ROLLBACK_RESIDUAL  (catalogs in the design document)
 #
 # Exit 0 = COMPARE_RESULT=PASS, 1 = COMPARE_RESULT=FAIL, 2 = STOP (usage/integrity).
 set -uo pipefail
@@ -161,6 +191,105 @@ if [ -n "${ALLOW_TRANSITIONS_FILE:-}" ]; then
   ALLOW_TRANSITIONS="stage $DECLARED_STAGE"
 fi
 
+DYN_RULES=""
+if [ -n "${ALLOW_DYNAMIC_TRANSITIONS_FILE:-}" ]; then
+  [ -r "$ALLOW_DYNAMIC_TRANSITIONS_FILE" ] || stop "ALLOW_DYNAMIC_TRANSITIONS_FILE unreadable"
+  DYN_OP="" DYN_SEEN=" " n_op=0 n_rules=0
+  DYN_CATALOG_L34_RUNTIME_REACTIVATION=(
+    "svc.aegis-idea3-dnsmasq.service.ActiveState failed active"
+    "svc.aegis-idea3-dnsmasq.service.SubState failed running"
+    "svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success"
+    "nm.general#WIFI disabled enabled"
+  )
+  DYN_CATALOG_L34_RUNTIME_REACTIVATION_ROLLBACK=(
+    "svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive"
+    "svc.aegis-idea3-dnsmasq.service.SubState failed dead"
+    "svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success"
+  )
+  _svc_dnsmasq_post=(
+    "svc.aegis-idea3-dnsmasq.service.ActiveState failed active"
+    "svc.aegis-idea3-dnsmasq.service.SubState failed running"
+    "svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success"
+    "nm.general#WIFI disabled enabled"
+  )
+  _svc_dnsmasq_rb=(
+    "svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive"
+    "svc.aegis-idea3-dnsmasq.service.SubState failed dead"
+    "svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success"
+  )
+  _wpa_lifecycle=(
+    "svc.wpa_supplicant.service.ActiveState inactive active"
+    "svc.wpa_supplicant.service.SubState dead running"
+    "svc.wpa_supplicant.service.MainPID 0 <positive>"
+    "svc.wpa_supplicant.service.ExecMainStartTimestamp <empty> <nonempty>"
+  )
+  _phy_reg=("wifi.phy.sha256 <sha256> <sha256>")
+  DYN_CATALOG_L34_V3_POST_FRESH=(
+    "${_svc_dnsmasq_post[@]}"
+    "nm.active.device.p2p-dev-wlp0s20f3 <absent> none"
+    "nm.device.p2p-dev-wlp0s20f3.type <absent> wifi-p2p"
+    "nm.device.p2p-dev-wlp0s20f3.state <absent> disconnected"
+    "${_wpa_lifecycle[@]}"
+    "${_phy_reg[@]}"
+  )
+  DYN_CATALOG_L34_V3_POST_RESIDUAL=(
+    "${_svc_dnsmasq_post[@]}"
+    "nm.device.p2p-dev-wlp0s20f3.state unavailable disconnected"
+  )
+  DYN_CATALOG_L34_V3_ROLLBACK_FRESH=(
+    "${_svc_dnsmasq_rb[@]}"
+    "nm.active.device.p2p-dev-wlp0s20f3 <absent> none"
+    "nm.device.p2p-dev-wlp0s20f3.type <absent> wifi-p2p"
+    "nm.device.p2p-dev-wlp0s20f3.state <absent> unavailable"
+    "${_wpa_lifecycle[@]}"
+    "${_phy_reg[@]}"
+  )
+  DYN_CATALOG_L34_V3_ROLLBACK_RESIDUAL=("${_svc_dnsmasq_rb[@]}")
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    case "$line" in
+      'operation L34_RUNTIME_REACTIVATION'|'operation L34_RUNTIME_REACTIVATION_ROLLBACK'|'operation L34_V3_POST_FRESH'|'operation L34_V3_POST_RESIDUAL'|'operation L34_V3_ROLLBACK_FRESH'|'operation L34_V3_ROLLBACK_RESIDUAL')
+        n_op=$((n_op + 1)); DYN_OP="${line#operation }" ;;
+      *)
+        [ -n "$DYN_OP" ] || stop "dynamic transition rule before the operation declaration"
+        ref="DYN_CATALOG_${DYN_OP}[@]"
+        found=0
+        for member in "${!ref}"; do [ "$member" = "$line" ] && found=1; done
+        [ "$found" = 1 ] || stop "dynamic transition is not in the approved catalog for $DYN_OP: only exact catalog members are approvable"
+        [[ "$DYN_SEEN" != *" $line "* ]] || stop "duplicate dynamic transition rule"
+        DYN_SEEN+="$line "
+        read -r dk df dt <<< "$line"
+        DYN_RULES+="${dk}|${df}|${dt}"$'\n'
+        n_rules=$((n_rules + 1)) ;;
+    esac
+  done < "$ALLOW_DYNAMIC_TRANSITIONS_FILE"
+  [ "$n_op" = 1 ] && [ "$n_rules" -ge 1 ] || stop "ALLOW_DYNAMIC_TRANSITIONS_FILE must declare exactly one operation once and at least one catalog rule"
+  ! grep -q $'\r' "$ALLOW_DYNAMIC_TRANSITIONS_FILE" || stop "ALLOW_DYNAMIC_TRANSITIONS_FILE must not contain CR"
+fi
+
+# ALLOW_L6C_RELEASE_FILE (stage L6c only): names the ONE exact new release id this run is authorized to add to
+# host.aegis_idea3.release_catalog. Strict contract: exactly two active lines, `stage L6c` once and `release_id <id>`
+# once, single-space separated, no CR, no other token. It never approves a mutation or removal of any id already present
+# in BEFORE — that check is unconditional (see the release-catalog rule below) and cannot be satisfied by this file.
+L6C_RELEASE_ID=""
+if [ -n "${ALLOW_L6C_RELEASE_FILE:-}" ]; then
+  [ -r "$ALLOW_L6C_RELEASE_FILE" ] || stop "ALLOW_L6C_RELEASE_FILE unreadable"
+  n_stage=0 n_rid=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    case "$line" in
+      'stage L6c') n_stage=$((n_stage + 1)) ;;
+      release_id\ *)
+        rid=${line#release_id }
+        [[ "$rid" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || stop "malformed release_id in ALLOW_L6C_RELEASE_FILE"
+        L6C_RELEASE_ID="$rid"; n_rid=$((n_rid + 1)) ;;
+      *) stop "malformed ALLOW_L6C_RELEASE_FILE line: only 'stage L6c' and 'release_id <id>' are approvable" ;;
+    esac
+  done < "$ALLOW_L6C_RELEASE_FILE"
+  [ "$n_stage" = 1 ] && [ "$n_rid" = 1 ] || stop "ALLOW_L6C_RELEASE_FILE must declare exactly one stage (L6c) once and exactly one release_id once"
+  ! grep -q $'\r' "$ALLOW_L6C_RELEASE_FILE" || stop "ALLOW_L6C_RELEASE_FILE must not contain CR"
+fi
+
 read -r -d '' COMPARE_AWK <<'AWK'
 function emit(cls, code, key, b, a) {
   printf "FINDING\t%s\t%s\t%s\t%s\t%s\n", cls, code, key, b, a
@@ -170,10 +299,25 @@ function emit(cls, code, key, b, a) {
 function bad(v) { return v == "UNAVAILABLE" || v == "UNREADABLE" }
 function port_of(key,   n, parts) { n = split(key, parts, ":"); return parts[n] }
 function isnum(v) { return v ~ /^[0-9]+$/ }
+# value classes of the V3 dynamic catalogs; anything else is a literal, exact match
+function vmatch(pat, v) {
+  if (pat == "<absent>") return v == "<absent>"
+  if (pat == "<empty>") return v == ""
+  if (pat == "<nonempty>") return v != "" && v != "<absent>"
+  if (pat == "<positive>") return v ~ /^[1-9][0-9]*$/
+  if (pat == "<sha256>") return v ~ /^[0-9a-f]{64}$/
+  return v == pat
+}
+function radio_field(v,   n, f) { n = split(v, f, ":"); return (n == 4) ? f[4] : "" }
+function radio_prefix_equal(b, a,   nb, na, fb, fa) {
+  nb = split(b, fb, ":"); na = split(a, fa, ":")
+  return nb == 4 && na == 4 && fb[1] == fa[1] && fb[2] == fa[2] && fb[3] == fa[3]
+}
 BEGIN {
   FS = "\t"
   n = split(allow_keys, tmp, "\n"); for (i = 1; i <= n; i++) if (tmp[i] != "") AK[tmp[i]] = 1
   n = split(allow_listeners, tmp, "\n"); for (i = 1; i <= n; i++) if (tmp[i] != "") AL[tmp[i]] = 1
+  n = split(dyn_rules, tmp, "\n"); for (i = 1; i <= n; i++) if (tmp[i] != "") { split(tmp[i], dr, "|"); dyn_n++; DR_K[dyn_n] = dr[1]; DR_F[dyn_n] = dr[2]; DR_T[dyn_n] = dr[3] }
   split("ip sysctl nft ss systemctl journalctl df timedatectl nmcli iw rfkill", REQ, " ")
   split("8883 123 67 53 8003 8004", P, " "); for (i in P) IDEA3_PORT[P[i]] = 1
   split("timeout refused auth hostkey forward dns unreachable unit_failed restart_scheduled", TC, " ")
@@ -196,6 +340,12 @@ END {
     emit("INCOMPARABLE", "JOURNAL_BOUNDARY_MISMATCH", "meta.journal_since", B["meta.journal_since"], A["meta.journal_since"])
 
   tunnel_unhealthy = (B["idea2.verdict.tunnel_healthy"] == "NO")
+  # The engine's HeartbeatWorker logs one "Monitor unreachable ... Connection refused" warning every 5s for as long as the
+  # IDEA2 monitor (18002) is down. Both captures share one JOURNAL_SINCE, so the window is ~0s in PRE and the whole
+  # mutation window in RB: a growing count is then a window-length artifact, not new drift. Narrowly baseline-only when
+  # the monitor was already down (runtime unhealthy, 18002 absent) in BOTH captures.
+  engine_monitor_down = (B["idea2.verdict.runtime_healthy"] == "NO" && A["idea2.verdict.runtime_healthy"] == "NO" \
+                         && B["idea2.listen.18002"] == "absent" && A["idea2.listen.18002"] == "absent")
   new_class = 0
   for (i in TC) {
     t = "idea2.tunnel.journal." TC[i]
@@ -248,6 +398,46 @@ END {
     }
   }
 
+  # V3 relational gates (only meaningful for the L34_V3_* operations; false otherwise)
+  wifi_active_any = 0; unrelated_wifi = 0
+  for (k in A) if (k ~ /^nm\.active\.device\./) {
+    d = substr(k, 18)
+    if (A[k] ~ /:(802-11-wireless|wifi-p2p)$/) { wifi_active_any = 1; if (d != "wlp0s20f3") unrelated_wifi = 1 }
+  }
+  U = "svc.wpa_supplicant.service."
+  wpa_unit_ok = (B[U "UnitFileState"] == "disabled" && A[U "UnitFileState"] == "disabled" && B[U "NRestarts"] == "0" && A[U "NRestarts"] == "0" \
+                 && B[U "Result"] == "success" && A[U "Result"] == "success" && B[U "LoadState"] == "loaded" && A[U "LoadState"] == "loaded")
+  wpa_lifecycle = (B[U "ActiveState"] == "inactive" && B[U "SubState"] == "dead" && B[U "MainPID"] == "0" \
+                   && A[U "ActiveState"] == "active" && A[U "SubState"] == "running" && A[U "MainPID"] ~ /^[1-9][0-9]*$/ && A[U "ExecMainStartTimestamp"] != "")
+  radio_pre = radio_field(B["nm.general"]); radio_post = radio_field(A["nm.general"])
+  wpa_gate = 0
+  if (dyn_op ~ /_POST_FRESH$/)
+    wpa_gate = (wpa_lifecycle && wpa_unit_ok && radio_pre == "disabled" && radio_post == "enabled" && radio_prefix_equal(B["nm.general"], A["nm.general"]) \
+                && A["nm.active.device.wlp0s20f3"] == "aegis-idea3-ap:802-11-wireless" && !unrelated_wifi)
+  else if (dyn_op ~ /_ROLLBACK_FRESH$/)
+    wpa_gate = (wpa_lifecycle && wpa_unit_ok && radio_pre == "disabled" && radio_post == "disabled" && radio_prefix_equal(B["nm.general"], A["nm.general"]) \
+                && B["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" && A["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" && !wifi_active_any \
+                && A["nm.device.wlp0s20f3.state"] == B["nm.device.wlp0s20f3.state"])
+  # p2p pseudo-device transitions are relational to the authorized NM radio transition too (exact names/values are enforced by the catalog)
+  p2p_gate = 0
+  if (dyn_op ~ /_POST_(FRESH|RESIDUAL)$/)
+    p2p_gate = (radio_pre == "disabled" && radio_post == "enabled" && radio_prefix_equal(B["nm.general"], A["nm.general"]) \
+                && A["nm.active.device.wlp0s20f3"] == "aegis-idea3-ap:802-11-wireless" && !unrelated_wifi)
+  else if (dyn_op ~ /_ROLLBACK_FRESH$/)
+    p2p_gate = (radio_pre == "disabled" && radio_post == "disabled" \
+                && B["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" && A["wifi.rfkill.iface.wlp0s20f3.soft"] == "blocked" \
+                && !wifi_active_any && A["nm.device.wlp0s20f3.state"] == "unavailable")
+  phy_gate = 0
+  if (dyn_op ~ /_(POST|ROLLBACK)_FRESH$/ && reg_tk != "") {
+    pk2 = "wifi.iface." trans_iface ".phy"
+    phy_gate = (B[reg_tk] == "00" && A[reg_tk] == "TH" && !reg_other_changed \
+                && B["wifi.reg.global"] == "00" && A["wifi.reg.global"] == "00" \
+                && (pk2 in B) && (pk2 in A) && B[pk2] == A[pk2] \
+                && B["wifi.phy.ap_mode"] == "supported" && A["wifi.phy.ap_mode"] == "supported" \
+                && B["wifi.phy.regnorm_sha256"] ~ /^[0-9a-f]{64}$/ && B["wifi.phy.regnorm_sha256"] == A["wifi.phy.regnorm_sha256"] \
+                && A["wifi.phy.channel6_permitted"] == "YES")
+  }
+
   for (key in K) {
     b = (key in B) ? B[key] : "<absent>"
     a = (key in A) ? A[key] : "<absent>"
@@ -285,7 +475,51 @@ END {
       continue
     }
 
+    # L6c release catalog (host.aegis_idea3.release_catalog): a relational rule, never a plain allow-key. Every release id
+    # present in BEFORE must still be present in AFTER with an IDENTICAL fingerprint, unconditionally — ALLOW_L6C_RELEASE_FILE
+    # can only approve the addition of the ONE id it names; it can never launder a mutation or removal of an existing id.
+    if (key == "host.aegis_idea3.release_catalog") {
+      delete RCB; delete RCA
+      if (b != "absent" && b != "<empty>") {
+        nrc = split(b, RCPB, ","); for (ri = 1; ri <= nrc; ri++) { split(RCPB[ri], rp, ":"); RCB[rp[1]] = rp[2] }
+      }
+      if (a != "absent" && a != "<empty>") {
+        nrc = split(a, RCPA, ","); for (ri = 1; ri <= nrc; ri++) { split(RCPA[ri], rp, ":"); RCA[rp[1]] = rp[2] }
+      }
+      for (rid in RCB) {
+        if (!(rid in RCA)) emit("NEW_OR_WORSENED_DRIFT", "RELEASE_REMOVED", key "#" rid, RCB[rid], "<absent>")
+        else if (RCA[rid] != RCB[rid]) emit("NEW_OR_WORSENED_DRIFT", "RELEASE_CONTENT_DRIFT", key "#" rid, RCB[rid], RCA[rid])
+      }
+      for (rid in RCA) {
+        if (!(rid in RCB)) {
+          if (l6c_release_id != "" && rid == l6c_release_id) emit("APPROVED_CHANGE", "L6C_RELEASE_INSTALLED", key "#" rid, "<absent>", RCA[rid])
+          else emit("NEW_OR_WORSENED_DRIFT", "RELEASE_UNAPPROVED_ADDITION", key "#" rid, "<absent>", RCA[rid])
+        }
+      }
+      continue
+    }
+
     if (key in AK) { emit("APPROVED_CHANGE", "KEY_APPROVED", key, b, a); continue }
+
+    # L3/L4 runtime-reactivation value-level window (ALLOW_DYNAMIC_TRANSITIONS_FILE): exact key + exact before + exact after only.
+    # Rules on wpa_supplicant and the phy digest additionally need their relational gate (V3).
+    if (dyn_n > 0) {
+      dyn_hit = 0
+      if (key == "nm.general") {
+        if (radio_prefix_equal(b, a)) {
+          for (r = 1; r <= dyn_n; r++) if (DR_K[r] == "nm.general#WIFI" && vmatch(DR_F[r], radio_field(b)) && vmatch(DR_T[r], radio_field(a))) { dyn_hit = 1; break }
+        }
+      } else {
+        for (r = 1; r <= dyn_n; r++) if (DR_K[r] == key && vmatch(DR_F[r], b) && vmatch(DR_T[r], a)) {
+          if (key ~ /^svc\.wpa_supplicant\.service\./) dyn_hit = wpa_gate
+          else if (key ~ /^nm\.(active\.)?device\.p2p-dev-wlp0s20f3(\.|$)/) dyn_hit = p2p_gate
+          else if (key == "wifi.phy.sha256") dyn_hit = phy_gate
+          else dyn_hit = 1
+          if (dyn_hit) break
+        }
+      }
+      if (dyn_hit) { emit("APPROVED_CHANGE", "DYNAMIC_TRANSITION_APPROVED", key, b, a); continue }
+    }
 
     if (reg_tk != "" && key == reg_tk && b == "00" && a == "TH") {
       emit("APPROVED_CHANGE", "REGULATORY_TRANSITION_APPROVED", key, b, a); continue
@@ -394,6 +628,9 @@ END {
       emit("NEW_OR_WORSENED_DRIFT", (b == "present" ? "IDEA2_8077_LISTENER_REMOVED" : "IDEA2_8077_STATE_CHANGED"), key, b, a)
     } else if (key == "idea2.listen.18002") {
       emit("NEW_OR_WORSENED_DRIFT", "IDEA2_18002_STATE_CHANGED", key, b, a)
+    } else if (key ~ /^idea2\.engine\.journal\.(heartbeat_failed|refused)$/ && engine_monitor_down \
+               && isnum(b) && isnum(a) && a + 0 >= b + 0) {
+      emit("BASELINE_UNHEALTHY_BUT_UNCHANGED", "IDEA2_ENGINE_HEARTBEAT_BASELINE", key, b, a)
     } else if (key ~ /^idea2\.engine\.journal\./) {
       emit("NEW_OR_WORSENED_DRIFT", "IDEA2_ENGINE_FAILURE_DRIFT", key, b, a)
     } else if (key ~ /^idea2\.engine\./) {
@@ -454,7 +691,8 @@ END {
 }
 AWK
 
-result=$(awk -v threshold="$THRESHOLD" -v allow_keys="$ALLOW_KEYS" -v allow_listeners="$ALLOW_LISTENERS" -v trans_iface="$TRANS_IFACE" \
+result=$(awk -v threshold="$THRESHOLD" -v allow_keys="$ALLOW_KEYS" -v allow_listeners="$ALLOW_LISTENERS" -v dyn_rules="$DYN_RULES" -v dyn_op="${DYN_OP:-}" -v trans_iface="$TRANS_IFACE" \
+  -v l6c_release_id="$L6C_RELEASE_ID" \
   "$COMPARE_AWK" side=B "$BEFORE"/*.tsv side=A "$AFTER"/*.tsv) || stop "comparison failed"
 
 report=$(

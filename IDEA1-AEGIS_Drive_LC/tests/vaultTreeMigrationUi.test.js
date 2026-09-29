@@ -19,7 +19,7 @@ import assert from 'node:assert/strict'
 import test, { after, before, beforeEach } from 'node:test'
 import React, { act } from 'react'
 
-import { makeT } from '../src/lib/strings.js'
+import { makeT, STRINGS } from '../src/lib/strings.js'
 import { CORRECT_PASSPHRASE, makeVaultTreeBackend, v1Blob } from './fixtures/vaultTreeBackend.js'
 import {
   startVaultScreenEnv, settle, click, type, byText, unlock, lockVault,
@@ -43,7 +43,7 @@ after(async () => {
 
 let backend
 beforeEach(() => {
-  backend = makeVaultTreeBackend()
+  backend = makeVaultTreeBackend({ flags: { treeUiEnabled: true, mediaPreviewEnabled: true } })
   globalThis.__VAULT_BACKEND__ = backend
 })
 
@@ -77,27 +77,119 @@ const INVENTORY = [
   v1Blob({ id: 'c3'.padEnd(22, 'x'), name: 'readme.md', type: 'text/markdown', plainSize: 56 }),
 ]
 
+test('CONVERGENCE-UI-0 setup metadata flows through zero-item genesis into TREE_V1', async () => {
+  backend.state['/api/vault'].data = { configured: false, blobs: [] }
+  const respond = backend.respond
+  backend.respond = async (request) => {
+    if (request.path === '/api/vault/setup' && request.method === 'POST') {
+      backend.state['/api/vault'].data = { configured: true, blobs: [] }
+      return { ok: true, status: 201, data: {}, errorKind: null }
+    }
+    return respond(request)
+  }
+  const h = env.mount()
+  try {
+    await h.render(React.createElement(Vault, { t }))
+    await click(dom, byText(dom, 'button', t('vaultSetupCta')))
+    await type(dom, doc().getElementById('vault-new-key'), CORRECT_PASSPHRASE)
+    await type(dom, doc().getElementById('vault-new-key2'), CORRECT_PASSPHRASE)
+    await click(dom, q('input[type="checkbox"]'))
+    await click(dom, byText(dom, 'button', t('vaultSetupCreate')))
+    await tick()
+    assert.equal(backend.tree.genesisBodies.length, 1, 'setup runs the existing encrypted genesis protocol once')
+    assert.ok(q('[data-testid="vault-tree-screen"]'), 'new Vault ends on the single tree UI')
+    assert.ok(!q('[data-vault-tile-menu]'), 'legacy cards never render after setup')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('CONVERGENCE-UI-1 empty unlocked FLAT Vault starts zero-item genesis once without legacy controls', async () => {
+  seedVault([])
+  const h = await mountUnlocked()
+  try {
+    await tick()
+    assert.equal(reqCount('migration/begin'), 1, 'automatic empty genesis begins exactly once')
+    assert.equal(backend.tree.genesisBodies.length, 1, 'the real encrypted genesis sequence commits once')
+    assert.ok(q('[data-testid="vault-tree-screen"]'), 'successful genesis converges to the tree screen')
+    assert.ok(!q('[data-testid="vault-migration-entry"]'), 'legacy migration entry is never rendered')
+    assert.ok(!q('[data-vault-tile-menu]'), 'legacy cards are never rendered')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('CONVERGENCE-UI-2 nonempty FLAT Vault is a migration-only gate until Human start', async () => {
+  seedVault(INVENTORY.slice(0, 1))
+  const h = await mountUnlocked()
+  try {
+    assert.ok(q('[data-testid="vault-migration-explain"]'), 'migration explanation is the only operational surface')
+    assert.equal(reqCount('migration/begin'), 0, 'opening the gate does not begin migration')
+    assert.ok(!q('input[type="file"]'), 'legacy upload input is unreachable')
+    assert.ok(!q('[data-vault-tile-menu]'), 'legacy flat cards are unreachable')
+    await click(dom, byText(dom, 'button', t('vaultMigrationStart')))
+    await tick()
+    assert.equal(reqCount('migration/begin'), 1, 'Human action begins migration')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('CONVERGENCE-UI-3 unavailable feature chain is honest and never falls back to legacy FLAT UI', async () => {
+  backend = makeVaultTreeBackend({ flags: { schemaAvailable: false, treeUiEnabled: false } })
+  globalThis.__VAULT_BACKEND__ = backend
+  seedVault(INVENTORY.slice(0, 1))
+  const h = await mountUnlocked()
+  try {
+    assert.ok(q('[data-testid="vault-tree-unavailable"]'), doc().body.textContent)
+    assert.ok(!q('input[type="file"]'))
+    assert.ok(!q('[data-vault-tile-menu]'))
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('CONVERGENCE-UI-4 Admin and DataLake-User produce the same operational gate', async () => {
+  seedVault(INVENTORY.slice(0, 1))
+  const snapshots = []
+  for (const role of ['Admin', 'DataLake-User']) {
+    const h = env.mount()
+    try {
+      await h.render(React.createElement(Vault, { t, role }))
+      await unlock(dom, t, CORRECT_PASSPHRASE)
+      snapshots.push({
+        migration: Boolean(q('[data-testid="vault-migration-explain"]')),
+        tree: Boolean(q('[data-testid="vault-tree-screen"]')),
+        legacyCards: doc().querySelectorAll('[data-vault-tile-menu]').length,
+      })
+    } finally {
+      await h.unmount()
+    }
+  }
+  assert.deepEqual(snapshots[0], snapshots[1])
+})
+
 // ─────────────────────────────────────────────────────────────────────────────
-test('MU-1 FLAT + flag on + unlocked shows the "Upgrade to folders" entry; flag off or locked shows nothing', async () => {
+test('MU-1 FLAT + feature chain on converges to a migration gate; flag off is unavailable', async () => {
+  seedVault(INVENTORY.slice(0, 1))
   const h = env.mount()
   try {
     await h.render(React.createElement(Vault, { t }))
     assert.ok(!q('[data-testid="vault-migration-entry"]'), 'a locked vault offers no migration entry')
     await unlock(dom, t, CORRECT_PASSPHRASE)
-    const entry = q('[data-testid="vault-migration-entry"]')
-    assert.ok(entry, 'unlocked FLAT vault with the flag on shows the entry')
-    assert.equal(entry.textContent.trim(), t('vaultMigrationEntry'))
+    assert.ok(q('[data-testid="vault-migration-explain"]'), 'unlocked nonempty FLAT vault shows the migration gate')
+    assert.ok(!q('[data-testid="vault-migration-entry"]'), 'the legacy opt-in entry is removed')
   } finally {
     await h.unmount()
   }
 
-  backend = makeVaultTreeBackend({ flags: { genesisMigrationEnabled: false } })
+  backend = makeVaultTreeBackend({ flags: { genesisMigrationEnabled: false, treeUiEnabled: true } })
   globalThis.__VAULT_BACKEND__ = backend
   const h2 = env.mount()
   try {
     await h2.render(React.createElement(Vault, { t }))
     await unlock(dom, t, CORRECT_PASSPHRASE)
-    assert.ok(!q('[data-testid="vault-migration-entry"]'), 'flag off → no entry point')
+    assert.ok(q('[data-testid="vault-tree-unavailable"]'), 'flag off → honest unavailable state')
   } finally {
     await h2.unmount()
   }
@@ -109,7 +201,6 @@ test('MU-2 flow: explain → lease (held open) → decrypt count → collision l
   try {
     await h.render(React.createElement(Vault, { t }))
     await unlock(dom, t, CORRECT_PASSPHRASE)
-    await click(dom, q('[data-testid="vault-migration-entry"]'))
     assert.ok(q('[data-testid="vault-migration-explain"]'), 'the flow starts with the explain state')
     assert.equal(stepState('lease'), null, 'no ledger before the user starts')
 
@@ -133,12 +224,12 @@ test('MU-2 flow: explain → lease (held open) → decrypt count → collision l
     const inputs = [...list.querySelectorAll('input')]
     assert.equal(inputs.length, 2, 'one rename input per affected entry')
 
-    const target = inputs.find((i) => i.value === 'NOTES.TXT')
-    assert.ok(target, 'the colliding name is editable')
+    // PR220-R1: the second member is pre-filled with a unique, still-editable suggestion
+    const target = inputs.find((i) => i.value === 'NOTES (2).TXT')
+    assert.ok(target, 'the colliding name is editable and pre-filled with a unique suggestion')
     await type(dom, target, '-renamed')
     await click(dom, byText(dom, 'button', t('vaultMigrationContinue')))
-    assert.ok(q('[data-testid="vault-migration-done"]'), 'done state after commit')
-    assert.ok(q('[data-testid="vault-tree-placeholder"]'), 'the screen transitions to the tree placeholder')
+    assert.ok(q('[data-testid="vault-tree-screen"]'), 'commit refresh transitions directly to the tree screen')
     assert.equal(backend.tree.genesisBodies.length, 1, 'exactly one genesis commit')
     assert.equal(backend.tree.ciphertexts.length, 1, 'the revision ciphertext was uploaded')
   } finally {
@@ -152,7 +243,6 @@ test('MU-3 Lock during the flow: dialog closes, no names in DOM, genesis never s
   try {
     await h.render(React.createElement(Vault, { t }))
     await unlock(dom, t, CORRECT_PASSPHRASE)
-    await click(dom, q('[data-testid="vault-migration-entry"]'))
     backend.holdPath = 'migration/begin'
     await click(dom, byText(dom, 'button', t('vaultMigrationStart')))
     await act(async () => backend.release(leaseReply(INVENTORY)))
@@ -188,7 +278,7 @@ test('MU-4 foreign lease → truthful remote state with expiry; expired → Resu
     await h1.unmount()
   }
 
-  backend = makeVaultTreeBackend()
+  backend = makeVaultTreeBackend({ flags: { treeUiEnabled: true, mediaPreviewEnabled: true } })
   globalThis.__VAULT_BACKEND__ = backend
   seedVault(INVENTORY.slice(0, 1))
   backend.tree.protocolState = 'MIGRATING_TREE_V1'
@@ -201,7 +291,7 @@ test('MU-4 foreign lease → truthful remote state with expiry; expired → Resu
     assert.ok(resume, 'an expired lease offers Resume')
     await click(dom, resume)
     await tick()
-    assert.ok(q('[data-testid="vault-migration-done"]'), 'the flow finished through the takeover')
+    assert.ok(q('[data-testid="vault-tree-screen"]'), 'the flow finished through takeover and opened TREE_V1')
     assert.equal(reqCount('migration/takeover'), 1, 'takeover called once')
     assert.equal(reqCount('migration/begin'), 0, 'begin is never called on resume')
     assert.equal(backend.tree.genesisBodies.length, 1)
@@ -217,7 +307,6 @@ test('MU-5 TREE_LEASE_STALE at commit → truthful error; retry re-runs from the
   try {
     await h.render(React.createElement(Vault, { t }))
     await unlock(dom, t, CORRECT_PASSPHRASE)
-    await click(dom, q('[data-testid="vault-migration-entry"]'))
     await click(dom, byText(dom, 'button', t('vaultMigrationStart')))
     await tick()
     const err = q('[data-testid="vault-migration-error"]')
@@ -229,7 +318,7 @@ test('MU-5 TREE_LEASE_STALE at commit → truthful error; retry re-runs from the
     backend.tree.failGenesisCode = null
     await click(dom, byText(dom, 'button', t('vaultMigrationRetry')))
     await tick()
-    assert.ok(q('[data-testid="vault-migration-done"]'), 'the retry finishes the flow')
+    assert.ok(q('[data-testid="vault-tree-screen"]'), 'the retry finishes into the tree screen')
     assert.ok(reqCount('tree/state') >= 2, 'the retry re-runs from the state fetch')
     assert.equal(reqCount('tree/genesis'), 2, 'genesis attempted twice (409, then success)')
     assert.equal(reqCount('migration/begin'), 1, 'no second begin — our lease is still valid')
@@ -239,17 +328,279 @@ test('MU-5 TREE_LEASE_STALE at commit → truthful error; retry re-runs from the
   }
 })
 
-test('MU-6 TREE_V1 screen: placeholder replaces the migration entry; truthful copy when the tree UI is off', async () => {
+test('MU-6 TREE_V1 with tree UI disabled is honestly unavailable, never legacy FLAT', async () => {
+  backend.treeFlags.treeUiEnabled = false
   backend.tree.protocolState = 'TREE_V1'
   backend.tree.head = { revisionId: 'r'.repeat(22), generation: 1 }
   const h = env.mount()
   try {
     await h.render(React.createElement(Vault, { t }))
     await unlock(dom, t, CORRECT_PASSPHRASE)
-    const ph = q('[data-testid="vault-tree-placeholder"]')
-    assert.ok(ph, 'the tree placeholder is shown')
-    assert.equal(ph.textContent.trim(), t('vaultMigrationNoTreeUi'), 'the copy admits the folder view is not enabled')
+    await tick()
+    const ph = q('[data-testid="vault-tree-unavailable"]')
+    assert.ok(ph, 'the unavailable state is shown')
+    assert.ok(ph.textContent.includes(t('vaultTreeUnavailable')), 'the copy admits the tree chain is unavailable')
+    assert.ok(!q('[data-vault-tile-menu]'), 'legacy FLAT cards do not return')
     assert.ok(!q('[data-testid="vault-migration-entry"]'), 'no migration entry in TREE_V1')
+  } finally {
+    await h.unmount()
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PR220-R1 Human Acceptance corrective pass (C1–C3)
+//   C1  migration copy must say "upgrade/convergence", never the ordinary Create Folder action
+//   C2  the Close (X) control works: it locks the Vault through the existing purge lifecycle,
+//       abandons only a lease THIS client holds, and never exposes legacy FLAT UI
+//   C3  a foreign lease is shown with its expiry, can be re-checked against fresh
+//       GET /tree/state, and becomes resumable (takeover, never begin) once expired
+// ─────────────────────────────────────────────────────────────────────────────
+const closeX = () => q('[role="dialog"] button[aria-label="Close"]')
+const lockedSurface = () => Boolean(byText(dom, 'button', t('unlockVault')))
+const noLegacyOperationalUi = () => !q('input[type="file"]') && !q('[data-vault-tile-menu]')
+
+async function mountWithPurgeSpy() {
+  const { createUnlockedVaultState } = await env.load('/src/lib/vaultUnlockedState.js')
+  const purges = []
+  const unlockedStateFactory = (opts) => {
+    const state = createUnlockedVaultState(opts)
+    return { ...state, purge: (reason) => { purges.push(reason); return state.purge(reason) } }
+  }
+  const h = env.mount()
+  await h.render(React.createElement(Vault, { t, unlockedStateFactory }))
+  await unlock(dom, t, CORRECT_PASSPHRASE)
+  return { h, purges }
+}
+
+test('C1-COPY migration title/entry say "upgrade", never the ordinary Create Folder label, in every language', () => {
+  assert.equal(STRINGS.th.vaultMigrationTitle, 'อัปเกรดห้องนิรภัยเป็นโฟลเดอร์')
+  assert.equal(STRINGS.th.vaultMigrationEntry, 'อัปเกรดห้องนิรภัย')
+  for (const lang of ['en', 'th', 'zh']) {
+    const s = STRINGS[lang]
+    for (const key of ['vaultMigrationTitle', 'vaultMigrationEntry']) {
+      assert.notEqual(s[key], s.newFolder, `${lang}.${key} must not read as the ordinary New folder action`)
+      assert.notEqual(s[key], s.vaultTreeNewFolderTitle, `${lang}.${key} must not read as the TREE New folder dialog`)
+      assert.notEqual(s[key], 'สร้างโฟลเดอร์', `${lang}.${key} must not be "Create folder"`)
+    }
+  }
+  assert.match(STRINGS.en.vaultMigrationTitle, /upgrade/i)
+  assert.match(STRINGS.zh.vaultMigrationTitle, /升级/)
+})
+
+test('C2-CLOSE-1 X on the explicit migration gate locks the Vault; no legacy FLAT UI appears', async () => {
+  seedVault(INVENTORY.slice(0, 1))
+  const { h, purges } = await mountWithPurgeSpy()
+  try {
+    assert.ok(q('[data-testid="vault-migration-explain"]'))
+    assert.ok(closeX(), 'the dialog has a Close control')
+    await click(dom, closeX())
+    await tick()
+    assert.ok(!q('[data-testid="vault-migration-explain"]'), 'the migration gate closed')
+    assert.ok(lockedSurface(), 'the user is back on the normal locked Vault surface')
+    assert.ok(noLegacyOperationalUi(), 'no legacy upload input or FLAT cards')
+    assert.deepEqual(purges, ['MANUAL_LOCK'], 'unlocked state purged once through the existing lock lifecycle')
+    assert.equal(reqCount('migration/begin'), 0, 'closing never starts a migration')
+    assert.equal(reqCount('migration/abandon'), 0, 'nothing was held, so nothing is abandoned')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('C2-CLOSE-2 X while this client holds a migration lease cancels, abandons OUR lease, purges names, locks', async () => {
+  seedVault(INVENTORY)
+  const { h, purges } = await mountWithPurgeSpy()
+  try {
+    backend.holdPath = 'migration/begin'
+    await click(dom, byText(dom, 'button', t('vaultMigrationStart')))
+    await act(async () => backend.release(leaseReply(INVENTORY)))
+    await tick()
+    assert.ok(q('[data-testid="vault-migration-collision-list"]'), 'own job is in progress (collision step)')
+    await click(dom, closeX())
+    await tick()
+    assert.ok(lockedSurface(), 'locked Vault surface')
+    assert.ok(noLegacyOperationalUi(), 'no legacy FLAT UI')
+    const text = doc().body.textContent
+    assert.ok(!text.includes('notes.txt') && !text.includes('NOTES.TXT'), 'no plaintext names survive the close')
+    assert.ok(reqCount('migration/abandon') >= 1, 'our own lease is abandoned')
+    assert.equal(backend.tree.genesisBodies.length, 0, 'nothing committed')
+    assert.deepEqual(purges, ['MANUAL_LOCK'])
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('C2-CLOSE-3 X while ANOTHER device holds the lease never abandons the foreign lease', async () => {
+  backend.tree.protocolState = 'MIGRATING_TREE_V1'
+  backend.tree.lease = { held: true, epoch: 2, expiresAt: Date.now() + 600_000 }
+  const { h } = await mountWithPurgeSpy()
+  try {
+    assert.ok(q('[data-testid="vault-migration-remote"]'))
+    await click(dom, closeX())
+    await tick()
+    assert.ok(lockedSurface())
+    assert.ok(noLegacyOperationalUi())
+    assert.equal(reqCount('migration/abandon'), 0, 'a foreign lease is never abandoned by this client')
+    assert.equal(reqCount('migration/takeover'), 0)
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('C3-REFRESH-1 foreign lease: Check again fetches fresh /tree/state; still valid → still remote, never takeover', async () => {
+  backend.tree.protocolState = 'MIGRATING_TREE_V1'
+  backend.tree.lease = { held: true, epoch: 2, expiresAt: Date.now() + 600_000 }
+  const h = await mountUnlocked()
+  try {
+    assert.ok(q('[data-testid="vault-migration-remote"]'))
+    const refresh = q('[data-testid="vault-migration-refresh"]')
+    assert.ok(refresh, 'a visible Check again action exists')
+    const before = reqCount('tree/state')
+    await click(dom, refresh)
+    await tick()
+    assert.ok(reqCount('tree/state') > before, 'Check again performs a real GET /tree/state')
+    assert.ok(q('[data-testid="vault-migration-remote"]'), 'a still-valid foreign lease stays remote')
+    assert.equal(reqCount('migration/takeover') + reqCount('migration/begin'), 0, 'never takes over before expiry')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('C3-REFRESH-2 server reports the foreign lease expired → Resume appears; Resume uses takeover, not begin', async () => {
+  backend.tree.protocolState = 'MIGRATING_TREE_V1'
+  backend.tree.lease = { held: true, epoch: 2, expiresAt: Date.now() + 600_000 }
+  seedVault(INVENTORY.slice(0, 1))
+  const h = await mountUnlocked()
+  try {
+    assert.ok(q('[data-testid="vault-migration-remote"]'))
+    backend.tree.lease = { held: true, epoch: 2, expiresAt: Date.now() - 1_000 }  // server truth moved on
+    await click(dom, q('[data-testid="vault-migration-refresh"]'))
+    await tick()
+    assert.ok(!q('[data-testid="vault-migration-remote"]'), 'the stale remote state is gone')
+    const resume = byText(dom, 'button', t('vaultMigrationResume'))
+    assert.ok(resume, 'Resume is offered once the server reports the lease expired')
+    assert.equal(reqCount('migration/abandon'), 0, 'the foreign lease is never abandoned by this client')
+    await click(dom, resume)
+    await tick()
+    assert.equal(reqCount('migration/takeover'), 1, 'resume takes over')
+    assert.equal(reqCount('migration/begin'), 0, 'resume never begins')
+    assert.ok(q('[data-testid="vault-tree-screen"]'), 'successful takeover converges to the TREE screen')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('C3-REFRESH-3 a bounded timer re-checks fresh state once the displayed lease expiry passes', async () => {
+  backend.tree.protocolState = 'MIGRATING_TREE_V1'
+  backend.tree.lease = { held: true, epoch: 2, expiresAt: Date.now() + 1_500 }
+  const h = await mountUnlocked()
+  try {
+    assert.ok(q('[data-testid="vault-migration-remote"]'))
+    const before = reqCount('tree/state')
+    await act(async () => { await new Promise((r) => setTimeout(r, 3_000)) })
+    await tick()
+    assert.ok(reqCount('tree/state') > before, 'expiry triggers a fresh GET /tree/state')
+    assert.ok(byText(dom, 'button', t('vaultMigrationResume')), 'the expired lease is now resumable without a manual click')
+    assert.equal(reqCount('migration/takeover'), 0, 'nothing is taken over silently')
+  } finally {
+    await h.unmount()
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PR220-R1 (D) collision step: unique editable suggestions, visible reason, no silent overwrite
+// ─────────────────────────────────────────────────────────────────────────────
+const renameInputs = () => [...doc().querySelectorAll('[data-testid="vault-migration-collision-list"] input')]
+const collisionError = () => q('[data-testid="vault-migration-collision-error"]')
+const continueBtn = () => byText(dom, 'button', t('vaultMigrationContinue'))
+// any upload/replace/delete of ciphertext blobs (legacy or tree upload routes, or a DELETE anywhere
+// under /api/vault) would be a rewrite — genesis may only publish the encrypted manifest revision
+const blobWrites = () => backend.requests.filter((r) => {
+  const p = String(r.path)
+  const m = String(r.method ?? 'GET').toUpperCase()
+  return (m === 'DELETE' && p.startsWith('/api/vault')) || /^\/api\/vault\/(tree\/)?(uploads|blobs)(?:[/?]|$)/.test(p)
+})
+
+async function openCollisionStep(inventory) {
+  seedVault(inventory)
+  const h = await mountUnlocked()
+  await click(dom, byText(dom, 'button', t('vaultMigrationStart')))
+  await tick()
+  assert.ok(q('[data-testid="vault-migration-collision-list"]'), 'collision step reached')
+  return h
+}
+
+test('D-COLLISION-1 case-only duplicates are pre-filled with unique suggestions; Continue commits once; blobs untouched', async () => {
+  const h = await openCollisionStep(INVENTORY)
+  try {
+    assert.deepEqual(renameInputs().map((i) => i.value), ['notes.txt', 'NOTES (2).TXT'], 'deterministic unique suggestion, extension preserved')
+    assert.equal(collisionError(), null, 'no reason is shown while the names are unique')
+    assert.equal(backend.tree.genesisBodies.length, 0, 'nothing is written before the Human presses Continue')
+    await click(dom, continueBtn())
+    await tick()
+    assert.equal(backend.tree.genesisBodies.length, 1, 'Human-confirmed names commit exactly once')
+    assert.ok(q('[data-testid="vault-tree-screen"]'), 'converges to TREE')
+    assert.deepEqual(blobWrites(), [], 'existing encrypted blobs are never rewritten')
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('D-COLLISION-2 exact duplicates → photo.jpg, photo (2).jpg, photo (3).jpg', async () => {
+  const dup = [0, 1, 2].map((i) => v1Blob({ id: `p${i}`.padEnd(22, 'x'), name: 'photo.jpg', type: 'image/jpeg', plainSize: 10 + i }))
+  const h = await openCollisionStep(dup)
+  try {
+    assert.deepEqual(renameInputs().map((i) => i.value), ['photo.jpg', 'photo (2).jpg', 'photo (3).jpg'])
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('D-COLLISION-3 editing back into a collision shows a visible reason and blocks commit; fixing it commits once', async () => {
+  const h = await openCollisionStep(INVENTORY)
+  try {
+    const [, second] = renameInputs()
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+      setter.call(second, 'Notes.TXT')
+      second.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await tick(1)
+    const reason = collisionError()
+    assert.ok(reason, 'a visible inline reason explains why Continue cannot proceed')
+    assert.equal(reason.getAttribute('role'), 'alert')
+    assert.ok(reason.textContent.includes('Notes.TXT') || reason.textContent.includes('notes.txt'), reason.textContent)
+    assert.equal(second.getAttribute('aria-invalid'), 'true', 'the offending field is marked')
+    await click(dom, continueBtn())
+    await tick()
+    assert.equal(backend.tree.genesisBodies.length, 0, 'no commit while a collision remains')
+    assert.ok(q('[data-testid="vault-migration-collision-list"]'), 'stays on the editable step (not a dead end, not an error screen)')
+
+    await type(dom, second, '-b')  // "Notes.TXT-b"
+    await tick(1)
+    assert.equal(collisionError(), null, 'the reason clears once names are unique')
+    await click(dom, continueBtn())
+    await tick()
+    assert.equal(backend.tree.genesisBodies.length, 1)
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('D-COLLISION-4 an invalid name shows a visible reason instead of failing the whole migration', async () => {
+  const h = await openCollisionStep(INVENTORY)
+  try {
+    const [, second] = renameInputs()
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+      setter.call(second, 'bad/name.txt')
+      second.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await tick(1)
+    assert.ok(collisionError(), 'invalid name reason visible')
+    await click(dom, continueBtn())
+    await tick()
+    assert.ok(!q('[data-testid="vault-migration-error"]'), 'no error-screen dead end')
+    assert.equal(backend.tree.genesisBodies.length, 0)
   } finally {
     await h.unmount()
   }

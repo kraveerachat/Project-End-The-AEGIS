@@ -1,0 +1,3 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 POST-L6b/L6c runtime reactivation (V4): allowed NEW listeners.
+# Empty: dnsmasq and the L6b broker are ALREADY active with their approved listeners bound before this run and are
+# never started/stopped/restarted by it, so this reactivation never causes a new listener to appear.
