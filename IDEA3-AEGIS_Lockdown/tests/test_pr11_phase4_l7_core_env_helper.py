@@ -7,7 +7,6 @@ validator proves the installed file: exact allowlisted keys, production/live/no-
 
 from __future__ import annotations
 
-import os
 import stat
 import subprocess
 import sys
