@@ -140,6 +140,11 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
           <span data-testid="vault-file-info" className="block text-[12px] text-ink-3 truncate w-full mt-0.5">
             {node.mediaType ? `${node.mediaType} · ${fmtBytes(node.plainSize)}` : fmtBytes(node.plainSize)}
           </span>
+          {media?.reasonLabel && (
+            <span data-testid="vault-media-reason" role="status" className="block text-[11px] leading-snug text-ink-3 mt-1">
+              {media.reasonLabel}
+            </span>
+          )}
         </span>
       </button>
       <FileCardMenuButton

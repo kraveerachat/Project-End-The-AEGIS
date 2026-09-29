@@ -81,10 +81,12 @@ test('REC-01 recovery copy is explicit and the Thai security note states traffic
   const { STRINGS } = await import('../src/lib/strings.js')
   const th = STRINGS.th
 
-  assert.equal(th.vaultTreeOrphansTitle, 'ไฟล์ที่รอจัดเข้าโฟลเดอร์')
-  assert.equal(
+  // PR220-R1: Human read the old wording as "failed upload". The upload DID finish; the
+  // items are only not yet linked into the encrypted folder structure — say exactly that.
+  assert.equal(th.vaultTreeOrphansTitle, 'รายการที่อัปโหลดแล้วแต่ยังไม่อยู่ในโฟลเดอร์')
+  assert.ok(
+    th.vaultTreeOrphansDescription.startsWith('อัปโหลดข้อมูลเสร็จแล้ว แต่รายการเหล่านี้ยังไม่ได้เชื่อมเข้ากับโครงสร้างโฟลเดอร์ของห้องนิรภัย'),
     th.vaultTreeOrphansDescription,
-    'ไฟล์เหล่านี้ถูกเข้ารหัสแล้ว แต่ยังไม่ได้จัดเข้าโครงสร้างโฟลเดอร์ของห้องนิรภัย',
   )
   assert.equal(
     th.vaultTreeSecurityNote,

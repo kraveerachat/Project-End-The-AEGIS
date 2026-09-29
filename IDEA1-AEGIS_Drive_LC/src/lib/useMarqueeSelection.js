@@ -6,21 +6,36 @@ const IGNORE = '[data-file-kind], [data-node-id], button, input, select, textare
 const intersects = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
 const sameSet = (a, b) => a.size === b.size && [...a].every((id) => b.has(id))
 
-export function useMarqueeSelection({ enabled, canvasRef, tileEls, selectedIds, onSelectionChange }) {
+/**
+ * The one desktop marquee implementation for every workspace (Files grid, Vault TREE grid).
+ *
+ * The selection source — `{ enabled, tileEls, selectedIds, onSelectionChange }` — is read
+ * at event time, never captured at render. Two ways to supply it:
+ *   - inline arguments (a component that owns both the surface and the selection), or
+ *   - `sourceRef` whose `.current` is that object (WorkspaceMarqueeSurface: App owns the
+ *     surface, the mounted screen registers its selection source into it).
+ * Box geometry is relative to `canvasRef`; the element that paints the rectangle must be
+ * a direct child of that canvas so the canvas is also the rectangle's containing block.
+ */
+export function useMarqueeSelection({ enabled, canvasRef, tileEls, selectedIds, onSelectionChange, sourceRef = null }) {
   const [tracking, setTracking] = useState(false)
   const [box, setBox] = useState(null)
   const drag = useRef(null)
-  const latest = useRef({ selectedIds, onSelectionChange })
-  latest.current = { selectedIds, onSelectionChange }
+  const inline = useRef(null)
+  inline.current = { enabled, tileEls, selectedIds, onSelectionChange }
+  const readSource = useRef(null)
+  readSource.current = () => (sourceRef ? sourceRef.current : inline.current) ?? null
 
   const onPointerDown = (event) => {
-    if (!enabled || event.button !== 0 || event.pointerType === 'touch') return
+    const current = readSource.current()
+    if (!current?.enabled || typeof current.onSelectionChange !== 'function') return
+    if (event.button !== 0 || event.pointerType === 'touch') return
     if (event.target?.closest?.(IGNORE)) return
     drag.current = {
       originX: event.clientX,
       originY: event.clientY,
       additive: event.ctrlKey || event.metaKey,
-      snapshot: new Set(latest.current.selectedIds ?? []),
+      snapshot: new Set(current.selectedIds ?? []),
       active: false,
     }
     setTracking(true)
@@ -28,12 +43,14 @@ export function useMarqueeSelection({ enabled, canvasRef, tileEls, selectedIds, 
 
   useEffect(() => {
     if (!tracking) return undefined
+    const source = () => readSource.current()
+    const select = (ids) => source()?.onSelectionChange?.(ids)
     const finish = (cancelled) => {
       const current = drag.current
       drag.current = null
-      if (cancelled && current?.active) latest.current.onSelectionChange?.(new Set(current.snapshot))
+      if (cancelled && current?.active) select(new Set(current.snapshot))
       if (!cancelled && current && !current.active && !current.additive && current.snapshot.size > 0) {
-        latest.current.onSelectionChange?.(new Set())
+        select(new Set())
       }
       setBox(null)
       setTracking(false)
@@ -53,14 +70,10 @@ export function useMarqueeSelection({ enabled, canvasRef, tileEls, selectedIds, 
       }
       const canvas = canvasRef.current?.getBoundingClientRect?.() ?? { left: 0, top: 0 }
       const hits = new Set(current.additive ? current.snapshot : [])
-      const registered = tileEls.current.size
-        ? tileEls.current
-        : new Map([...(canvasRef.current?.querySelectorAll?.('[data-node-id]') ?? [])].map((element) => [element.dataset.nodeId, element]))
-      for (const [id, element] of registered) {
+      for (const [id, element] of source()?.tileEls?.current ?? []) {
         if (element && intersects(element.getBoundingClientRect(), area)) hits.add(id)
       }
-      const changed = !sameSet(hits, latest.current.selectedIds ?? new Set())
-      if (changed) latest.current.onSelectionChange?.(hits)
+      if (!sameSet(hits, source()?.selectedIds ?? new Set())) select(hits)
       setBox({ left: area.left - canvas.left, top: area.top - canvas.top, width: area.right - area.left, height: area.bottom - area.top })
     }
     const onUp = () => finish(false)
@@ -76,7 +89,7 @@ export function useMarqueeSelection({ enabled, canvasRef, tileEls, selectedIds, 
       window.removeEventListener('pointercancel', onCancel)
       window.removeEventListener('keydown', onKeyDown, true)
     }
-  }, [tracking, canvasRef, tileEls])
+  }, [tracking, canvasRef])
 
   return { onPointerDown, tracking, box }
 }

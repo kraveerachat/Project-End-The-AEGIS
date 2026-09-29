@@ -22,6 +22,47 @@ const fakeDecode = (bytes) => Promise.resolve({ width: 8, height: 8, close: () =
 /** injectable poster: คืนไบต์โปสเตอร์จำลองพองาม */
 const fakePoster = (bytes, w, h, maxEdge) => ({ bytes: new Uint8Array(32), width: Math.min(w, maxEdge), height: Math.min(h, maxEdge) })
 
+test('IT-HIGHRES a >16 MP source never takes the full-bitmap path, even with generous injected caps', async () => {
+  let decodeCalls = 0
+  const highLimits = treeLimitsFrom({
+    imageMaxInputBytes: 2_000_000,
+    imageMaxDecodedPixels: 16_000_000,
+    imageNormalMaxDecodedPixels: 16_000_000,
+    imageHighResMaxDecodedPixels: 152_000_000,
+  })
+  const res = await makeImageThumb({
+    plainSize: 1_000,
+    limits: highLimits,
+    readChunk: async () => syntheticPng({ width: 6240, height: 4160 }),
+    decode: async () => { decodeCalls += 1; return { width: 6240, height: 4160, close() {} } },
+    poster: fakePoster,
+    admission: { acquire: async () => ({ lane: 'high-res', release: () => {} }) },
+    variant: 2,
+    chunkCount: 1,
+    skipUrl: true,
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.unsupported, 'HIGH_RES_TOO_LARGE', 'no reduced decoder → truthful refusal')
+  assert.equal(decodeCalls, 0, 'createImageBitmap(full) is never used for a high-resolution source')
+})
+
+test('IT-HIGHRES above the injected cap refuses before decode with an explicit reason', async () => {
+  let decoded = 0
+  const highLimits = treeLimitsFrom({ imageMaxDecodedPixels: 26_000_000, imageHighResMaxDecodedPixels: 26_000_000 })
+  const res = await makeImageThumb({
+    plainSize: 1_000,
+    limits: highLimits,
+    readChunk: async () => syntheticPng({ width: 6500, height: 4100 }),
+    decode: async () => { decoded += 1; return fakeDecode() },
+    poster: fakePoster,
+    variant: 2,
+    chunkCount: 1,
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.unsupported, 'HIGH_RES_TOO_LARGE')
+  assert.equal(decoded, 0)
+})
+
 test('IT-1 header dimension parsing for PNG/JPEG/WebP/GIF; unknown → unsupported', () => {
   assert.deepEqual(parseImageHeader(syntheticPng({ width: 1094, height: 728 })), { width: 1094, height: 728, format: 'PNG' })
   assert.deepEqual(parseImageHeader(syntheticJpeg({ width: 2188, height: 1642 })), { width: 2188, height: 1642, format: 'JPEG' })
@@ -176,3 +217,183 @@ test('IT-5 release revokes the URL and the module keeps no buffer reference', as
 // ภายใต้ node:test ตัว runner เก็บ async frame ของเทสต์ที่กำลังวิ่งไว้เอง ทำให้ deref ยังมีค่าระหว่างเทสต์
 // และไม่มีทางพิสูจน์ใน-process ได้ สัญญาที่เทสต์ได้จริงจึงคือ: revoke + ทิ้ง reference + idempotent
 // (สองบรรทัดแรกของ IT-5) และโมดูลไม่มี module-level cache ใด ๆ (โครงสร้างไฟล์ตรวจได้จากซอร์ส)
+
+/* ── PR220-R2 C: reduced-decode lane (streamed V2 chunks → worker ImageDecoder → bounded poster) ── */
+import { VAULT_TREE_CLIENT_LIMITS } from '../src/lib/vaultTreeLimits.js'
+
+const MIB = 1_048_576
+const R2 = VAULT_TREE_CLIENT_LIMITS
+/** async iterator over V2 plaintext chunks: the first carries the header */
+function chunkSource(first, restCount = 3, restBytes = 1024) {
+  const pulled = []
+  let closed = 0
+  return {
+    pulled,
+    get closed() { return closed },
+    open: () => {
+      let i = 0
+      return {
+        async next() {
+          if (i === 0) { i += 1; pulled.push(first); return { value: first, done: false } }
+          if (i <= restCount) { i += 1; const c = new Uint8Array(restBytes); pulled.push(c); return { value: c, done: false } }
+          return { value: undefined, done: true }
+        },
+        async return() { closed += 1; return { value: undefined, done: true } },
+      }
+    },
+  }
+}
+function fakeJobFactory({ hang = false, reply = null } = {}) {
+  const jobs = []
+  const start = (opts) => {
+    const job = { opts, pushed: [], ended: false, aborted: 0 }
+    let resolve
+    let reject
+    job.result = new Promise((res, rej) => { resolve = res; reject = rej })
+    job.push = (b) => { job.pushed.push(b) }
+    job.end = () => {
+      job.ended = true
+      if (!hang) resolve(reply ?? { bytes: new Uint8Array(24), width: 512, height: 341, decodedWidth: opts.desiredWidth, decodedHeight: opts.desiredHeight })
+    }
+    job.abort = () => { job.aborted += 1; reject(Object.assign(new Error('aborted'), { name: 'AbortError' })) }
+    jobs.push(job)
+    return job
+  }
+  return { jobs, start }
+}
+const capable = { ok: true }
+
+test('IT-R2-1 6240x4160 JPEG is admitted through the reduced lane with a bounded request (not rejected for >16 MP)', async () => {
+  const src = chunkSource(syntheticJpeg({ width: 6240, height: 4160 }))
+  const factory = fakeJobFactory()
+  let fullDecodes = 0
+  const acquired = []
+  const res = await makeImageThumb({
+    plainSize: 6_495_642, limits: R2, variant: 2,
+    openChunks: src.open,
+    reduced: { capability: capable, startJob: factory.start },
+    decode: async () => { fullDecodes += 1; return {} },
+    admission: { acquire: async (req) => { acquired.push(req); return { lane: req.lane, release() {} } } },
+    skipUrl: true,
+  })
+  assert.equal(res.ok, true, JSON.stringify(res))
+  assert.equal(fullDecodes, 0, 'no full-resolution bitmap decode')
+  const job = factory.jobs[0]
+  assert.equal(job.opts.mime, 'image/jpeg')
+  assert.deepEqual([job.opts.desiredWidth, job.opts.desiredHeight], [780, 520], 'bounded 1/8-scale request')
+  assert.ok(res.width <= R2.posterMaxEdge && res.height <= R2.posterMaxEdge, 'poster within posterMaxEdge')
+  assert.equal(job.pushed.length, 4, 'every decrypted chunk is handed to the decoder exactly once')
+  assert.equal(job.ended, true)
+  assert.equal(acquired[0].lane, 'high-res')
+  assert.ok(acquired[0].reservedBytes <= R2.memoryCeilingBytes, 'projected working set within 256 MiB')
+  assert.ok(acquired[0].reservedBytes < 6240 * 4160 * 4, 'reservation is not sourcePixels*4')
+})
+
+test('IT-R2-2 unsafe/absent capability or a non-JPEG codec refuses truthfully without any decode', async () => {
+  for (const [first, capability, expected] of [
+    [syntheticJpeg({ width: 6240, height: 4160 }), { ok: false, reason: 'ENGINE_NOT_MEASURED' }, 'HIGH_RES_TOO_LARGE'],
+    [syntheticPng({ width: 6240, height: 4160 }), capable, 'HIGH_RES_TOO_LARGE'],
+  ]) {
+    const factory = fakeJobFactory()
+    let fullDecodes = 0
+    const src = chunkSource(first)
+    const res = await makeImageThumb({
+      plainSize: 6_000_000, limits: R2, variant: 2, openChunks: src.open,
+      reduced: { capability, startJob: factory.start },
+      decode: async () => { fullDecodes += 1; return {} }, skipUrl: true,
+    })
+    assert.equal(res.ok, false)
+    assert.equal(res.unsupported, expected)
+    assert.equal(fullDecodes, 0)
+    assert.equal(factory.jobs.length, 0)
+    assert.equal(src.closed, 1, 'the chunk stream is closed (download stops)')
+  }
+})
+
+test('IT-R2-3 encoded input above the measured reduced allowance refuses before reading any chunk', async () => {
+  const src = chunkSource(syntheticJpeg({ width: 6240, height: 4160 }))
+  const res = await makeImageThumb({
+    plainSize: R2.imageHighResMaxInputBytes + 1, limits: R2, variant: 2, openChunks: src.open,
+    reduced: { capability: capable, startJob: fakeJobFactory().start }, skipUrl: true,
+  })
+  assert.equal(res.unsupported, 'IMAGE_TOO_LARGE')
+  assert.equal(src.pulled.length, 0)
+})
+
+test('IT-R2-4 lock while queued for the high-res lane aborts before any decoder starts', async () => {
+  const ctrl = new AbortController()
+  const factory = fakeJobFactory()
+  const src = chunkSource(syntheticJpeg({ width: 8192, height: 5464 }))
+  const pending = makeImageThumb({
+    plainSize: 11_000_000, limits: R2, variant: 2, openChunks: src.open, signal: ctrl.signal,
+    reduced: { capability: capable, startJob: factory.start },
+    admission: { acquire: ({ signal }) => new Promise((_, rej) => signal.addEventListener('abort', () => rej(Object.assign(new Error('a'), { name: 'AbortError' })))) },
+    skipUrl: true,
+  })
+  await new Promise((r) => setTimeout(r, 5))
+  ctrl.abort()
+  const res = await pending
+  assert.equal(res.unsupported, 'ABORTED')
+  assert.equal(factory.jobs.length, 0, 'no decoder was started for the queued job')
+  assert.equal(src.closed, 1)
+})
+
+test('IT-R2-5 lock during an active decode aborts the job, releases admission, and yields no URL', async () => {
+  const ctrl = new AbortController()
+  const factory = fakeJobFactory({ hang: true })
+  let released = 0
+  const created = []
+  const src = chunkSource(syntheticJpeg({ width: 6240, height: 4160 }))
+  const pending = makeImageThumb({
+    plainSize: 6_495_642, limits: R2, variant: 2, openChunks: src.open, signal: ctrl.signal,
+    reduced: { capability: capable, startJob: factory.start },
+    admission: { acquire: async () => ({ lane: 'high-res', release: () => { released += 1 } }) },
+    createObjectUrl: () => { created.push(1); return 'blob:x' },
+  })
+  await new Promise((r) => setTimeout(r, 5))
+  ctrl.abort()
+  const res = await pending
+  assert.equal(res.unsupported, 'ABORTED')
+  assert.equal(factory.jobs[0].aborted, 1, 'the worker job is cancelled')
+  assert.equal(released, 1, 'admission token released')
+  assert.deepEqual(created, [], 'late completion cannot create a URL')
+})
+
+test('IT-R2-6 a decoder failure is a contained preview result, never a throw', async () => {
+  const src = chunkSource(syntheticJpeg({ width: 6240, height: 4160 }))
+  const res = await makeImageThumb({
+    plainSize: 6_495_642, limits: R2, variant: 2, openChunks: src.open,
+    reduced: { capability: capable, startJob: () => ({ push() {}, end() {}, abort() {}, result: Promise.reject(new Error('Failed to decode frame at index 0')) }) },
+    skipUrl: true,
+  })
+  assert.deepEqual(res, { ok: false, unsupported: 'UNSUPPORTED' })
+})
+
+test('IT-R2-7 the normal <=16 MP lane is unchanged when chunks are streamed', async () => {
+  const src = chunkSource(syntheticJpeg({ width: 4000, height: 3000 }), 1, 64)
+  const factory = fakeJobFactory()
+  let decodedBytes = null
+  const res = await makeImageThumb({
+    plainSize: 2_000_000, limits: R2, variant: 2, openChunks: src.open,
+    reduced: { capability: capable, startJob: factory.start },
+    decode: async (bytes) => { decodedBytes = bytes.length; return { width: 4000, height: 3000, close() {} } },
+    poster: fakePoster, skipUrl: true,
+  })
+  assert.equal(res.ok, true)
+  assert.equal(factory.jobs.length, 0, 'normal images keep the proven single-decode path')
+  assert.equal(decodedBytes, src.pulled.reduce((t, c) => t + c.length, 0), 'decode sees exactly the streamed bytes')
+})
+
+test('IT-R2-8 camera RAW bytes (even if labelled image/jpeg) are truthfully unsupported — download original', async () => {
+  const tiffRaw = new Uint8Array(64); tiffRaw.set([0x49, 0x49, 0x2a, 0x00, 8, 0, 0, 0, 0x43, 0x52, 2, 0])
+  let decodes = 0
+  const factory = fakeJobFactory()
+  const res = await makeImageThumb({
+    plainSize: 64, limits: R2, variant: 2, openChunks: chunkSource(tiffRaw, 0).open,
+    reduced: { capability: capable, startJob: factory.start },
+    decode: async () => { decodes += 1; return { width: 1, height: 1, close() {} } }, poster: fakePoster, skipUrl: true,
+  })
+  assert.deepEqual(res, { ok: false, unsupported: 'UNSUPPORTED' })
+  assert.equal(decodes, 0)
+  assert.equal(factory.jobs.length, 0)
+})

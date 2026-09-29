@@ -18,6 +18,7 @@ import { buildSections, viewOrderOf } from './nav.js'
 import { fetchMe, fetchCameras, logout as apiLogout } from './lib/auth.js'
 import { selectedCamera } from './lib/liveCamera.js'
 import { registerUnauthorizedHandler } from './lib/api.js'
+import { readShellTheme, resolveShellTheme, SHELL_THEME_KEY, isValidShellTheme } from './lib/shellTheme.js'
 
 export default function App() {
   // ── Session — หน่วยความจำเท่านั้น ──────────────────────────────────
@@ -31,9 +32,12 @@ export default function App() {
   const [cameras, setCameras] = useState(null)
 
   const [view, setView] = useState('live')
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('aegis_theme') || 'dark'
-  })
+  // AEGIS CORE ENTRY UX CONTRACT — HUMAN OWNER CONTROLLED.
+  // Entry/Login theme follows HUB and Drive; do not drift during unrelated UI work.
+  // Changes require explicit scope, RED tests, preserved auth, Human/integration review.
+  const [theme, setTheme] = useState(() => readShellTheme())
+  const [prefersDark, setPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const resolvedTheme = resolveShellTheme(theme, prefersDark)
   // ⚠️ เดิม lang ไม่ persist และไม่ถูกส่งไปที่ view/chrome อื่นเลยนอกจาก
   // Settings/Login — เก็บลง localStorage เหมือน theme ตอนนี้ เพื่อให้รอดรีเฟรช
   const [lang, setLang] = useState(() => {
@@ -41,18 +45,18 @@ export default function App() {
   })
 
   useEffect(() => {
-    const dark = theme === 'dark'
+    const dark = resolvedTheme === 'dark'
     document.documentElement.classList.toggle('dark', dark)
     document.documentElement.classList.toggle('light', !dark)
-    document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('aegis_theme', theme)
+    document.documentElement.setAttribute('data-theme', resolvedTheme)
+    localStorage.setItem(SHELL_THEME_KEY, theme)
 
     const link = document.querySelector("link[rel*='icon']") || document.createElement('link')
     link.type = 'image/png'
     link.rel = 'shortcut icon'
     link.href = import.meta.env.BASE_URL + (dark ? 'assets/logo/aegis-mark-dark-ink.png' : 'assets/logo/aegis-mark-light-ink.png')
     if (!link.parentNode) document.getElementsByTagName('head')[0].appendChild(link)
-  }, [theme])
+  }, [theme, resolvedTheme])
 
   useEffect(() => {
     localStorage.setItem('aegis_lang', lang)
@@ -60,7 +64,7 @@ export default function App() {
 
   useEffect(() => {
     const onStorage = (e) => {
-      if (e.key === 'aegis_theme' && e.newValue) {
+      if (e.key === SHELL_THEME_KEY && isValidShellTheme(e.newValue)) {
         setTheme(e.newValue)
       }
       if (e.key === 'aegis_lang' && e.newValue) {
@@ -68,7 +72,13 @@ export default function App() {
       }
     }
     window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onPreference = () => setPrefersDark(mq.matches)
+    mq.addEventListener('change', onPreference)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      mq.removeEventListener('change', onPreference)
+    }
   }, [])
   const [heroCam, setHeroCam] = useState(null)
   const [arcCam, setArcCam] = useState('all')
@@ -175,7 +185,7 @@ export default function App() {
     return (
       <MotionConfig reducedMotion="user">
         <Login
-          theme={theme}
+          theme={resolvedTheme}
           setTheme={setTheme}
           lang={lang}
           setLang={setLang}
