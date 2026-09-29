@@ -33,8 +33,7 @@ LOGS = "Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs"
 TODAY = subprocess.run(["date", "+%F"], text=True, capture_output=True, env=dict(os.environ, TZ="Asia/Bangkok")).stdout.strip()
 
 EXPECTED_SCOPE = (
-    "L3_L4_RUNTIME_REACTIVATION_V6_STALE_BROKER_AP_DOWN: activate aegis-idea3-ap once, start dnsmasq, one TLS probe, soak 6x5s, "
-    "no broker control, no persistent rewrite, no L7/ESP32/MQTT action"
+    "L3_L4_RUNTIME_REACTIVATION_V6_STALE_BROKER_AP_DOWN: one AP up, one dnsmasq start, one TLS handshake probe; no broker control, no nft/forwarding, no IDEA1/IDEA2 change, no MQTT/ESP32/L6c/L7"
 )
 INVOCATION = "0123456789abcdef0123456789abcdef"
 DRIFTED = "fedcba9876543210fedcba9876543210"

@@ -66,8 +66,9 @@ V6      radio ENABLED (V4 topology); dnsmasq clean inactive/dead/success; broker
 device autoconnect `yes`, profile autoconnect `no`; dnsmasq exactly `loaded/enabled/inactive/dead/success/MainPID=0`; no DNS/DHCP listener on the
 AP (or any :67); broker active/running/success/enabled with a well-formed tuple (numeric PID, restart count, 32-hex InvocationID) identical
 across 3 samples; exactly the stale pair; nft/PF-01 unchanged, no NAT, all seven forwarding sysctls 0; IDEA1/IDEA2/Twingate/legacy
-mosquitto identities; legacy :1883 snapshot. The fresh V6 authorization/K3 contract (scope `L3_L4_RUNTIME_REACTIVATION_V6_STALE_BROKER_AP_DOWN…`,
-188 characters) lives only in the owner runner; no live authorization is created by this task.
+mosquitto identities; legacy :1883 snapshot. The fresh V6 authorization/K3 contract (exact 188-character ASCII scope:
+`L3_L4_RUNTIME_REACTIVATION_V6_STALE_BROKER_AP_DOWN: one AP up, one dnsmasq start, one TLS handshake probe; no broker control, no nft/forwarding, no IDEA1/IDEA2 change, no MQTT/ESP32/L6c/L7`)
+lives only in the owner runner; no live authorization is created by this task.
 
 ## 3. Consume order (owner runner)
 

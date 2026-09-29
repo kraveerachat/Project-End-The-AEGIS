@@ -36,7 +36,7 @@ HND=$P4/reactivation/l34-v6-stale-broker-ap-down
 LIB=$P4/p4-l34-reactivation-lib.sh
 AP_IF=wlp0s20f3
 AP_ADDR=10.77.30.1
-EXPECTED_SCOPE='L3_L4_RUNTIME_REACTIVATION_V6_STALE_BROKER_AP_DOWN: activate aegis-idea3-ap once, start dnsmasq, one TLS probe, soak 6x5s, no broker control, no persistent rewrite, no L7/ESP32/MQTT action'
+EXPECTED_SCOPE='L3_L4_RUNTIME_REACTIVATION_V6_STALE_BROKER_AP_DOWN: one AP up, one dnsmasq start, one TLS handshake probe; no broker control, no nft/forwarding, no IDEA1/IDEA2 change, no MQTT/ESP32/L6c/L7'
 TODAY=$(TZ=Asia/Bangkok date +%F)
 STAMP=$(TZ=Asia/Bangkok date +%Y%m%d-%H%M%S)
 EVID=/home/kittipat/Workspace/idea3-p4-evidence/$TODAY-l34-v6-$STAMP

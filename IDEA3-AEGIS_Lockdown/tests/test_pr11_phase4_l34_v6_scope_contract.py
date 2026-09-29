@@ -29,6 +29,10 @@ RUNNER_V4 = DEPLOY / "owner-run" / "run-l34-v4-post-l6b-owner.sh"
 RUNNER_V3 = DEPLOY / "owner-run" / "run-l34-reactivation-owner.sh"
 STAGE_GATE = DEPLOY / "p4-stage-gate.sh"
 LIB = DEPLOY / "p4-l34-reactivation-lib.sh"
+# The exact, frozen V6 authorization scope (authoritative; the owner runner must carry precisely this ASCII string).
+AUTHORITATIVE_V6_SCOPE = (
+    "L3_L4_RUNTIME_REACTIVATION_V6_STALE_BROKER_AP_DOWN: one AP up, one dnsmasq start, one TLS handshake probe; no broker control, no nft/forwarding, no IDEA1/IDEA2 change, no MQTT/ESP32/L6c/L7"
+)
 V6_MARKER = "# ── V6 (STALE-BROKER / AP-DOWN) reactivation"
 # sha256 of the shared gate library as merged in PR #250/#251 (main a888457e): V6 may only append after V6_MARKER.
 LIB_PRE_V6_SHA256 = "1adb7a803dc3652070ce7ac88b6f28e5dbd97cf68e825381caacd282dcb8716c"
@@ -98,6 +102,7 @@ def _stage_gate(auth_file: Path, k3_file: Path) -> subprocess.CompletedProcess[s
 
 
 def test_v6_expected_scope_length_le_200_and_printable_ascii() -> None:
+    assert extract_expected_scope(RUNNER_V6) == AUTHORITATIVE_V6_SCOPE
     raw = extract_expected_scope(RUNNER_V6).encode("ascii")
     assert 1 <= len(raw) <= 200, f"V6 EXPECTED_SCOPE exceeds the global <=200 character limit: {len(raw)}"
     assert all(32 <= b <= 126 for b in raw)
@@ -110,8 +115,7 @@ def test_v6_scope_is_distinct_from_v3_v4_v5() -> None:
     assert v6.startswith("L3_L4_RUNTIME_REACTIVATION_V6_STALE_BROKER_AP_DOWN:")
     for other in ("L3_L4_RUNTIME_REACTIVATION_V3", "L3_L4_RUNTIME_REACTIVATION_V4", "L3_L4_RUNTIME_REACTIVATION_V5"):
         assert other not in v6
-    for keyword in ("no broker control", "one TLS probe", "soak 6x5s", "no L7/ESP32/MQTT action"):
-        assert keyword in v6
+    assert v6 == AUTHORITATIVE_V6_SCOPE
 
 
 def test_v6_scope_passes_real_stage_gate_parser(tmp_path: Path) -> None:
