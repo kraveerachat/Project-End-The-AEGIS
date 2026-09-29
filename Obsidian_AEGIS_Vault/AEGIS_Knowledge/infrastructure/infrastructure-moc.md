@@ -4,7 +4,7 @@ tags: [aegis, moc, infrastructure, network, status]
 type: moc
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-08-16
+updated: 2026-09-29
 owner: kla
 edit_policy: owner-writable
 ---
@@ -70,7 +70,7 @@ Owner: **Kla**. Infrastructure-owned paths include the runtime, gateway, databas
 | Remote Access ผ่าน Twingate ZTNA | ✅ Remote SSH + AEGIS Web + `aegis.internal` + Private CA trust + X1 Windows endpoint onboarding verified | [[infrastructure/remote-access/Twingate-Setup]] |
 | OpenVPN | ❌ **เลิกใช้ (Deprecated)** | [[infrastructure/remote-access/OpenVPN-Deprecated]] |
 | UFW production state | ✅ active; deny incoming/routed, allow outgoing; SSH allow จาก Docker/Twingate และ VLAN 30 | [[infrastructure/server/Beelink-Ubuntu-Host]] |
-| VLAN 30 management path | ✅ on-site client `192.168.30.99` ถึง gateway และ Beelink `4/4`, `0%` loss | [[infrastructure/network/VLAN-IP-Plan]] |
+| VLAN 30 management path | ✅ on-site routing/port 443 pass; ⚠️ LAN DNS gap for `aegis.internal` (spec ready) | [[infrastructure/network/VLAN-IP-Plan]] |
 | Server / Infrastructure Production Readiness | ✅ **CLOSED / PASS** | [[infrastructure/server/Beelink-Ubuntu-Host]] |
 | Production workload context | ✅ restart policy `unless-stopped` และ server-side post-reboot health HTTP 200 ผ่าน | [[infrastructure/deployment/Docker-Stack-Plan]] |
 | Phase B Formal Current Production Audit | ✅ STEP 1–9 + Checkpoint 2 documentation COMPLETED · Phase C NOT STARTED | [[infrastructure/deployment/Docker-Stack-Plan]] |
@@ -78,9 +78,10 @@ Owner: **Kla**. Infrastructure-owned paths include the runtime, gateway, databas
 
 > 📋 **สรุปงาน 15 ขั้นตอนแบบละเอียดพร้อมหลักฐานการทดสอบ** อยู่ที่ [[90-Status/Progress-Log-2026-08-06]]
 >
-> ✅ **Infrastructure readiness ปัจจุบัน**: SSH hardening, VLAN 30 on-site path,
+> ✅ **Infrastructure readiness ปัจจุบัน**: SSH hardening, VLAN 30 on-site IP routing/port 443,
 > backup/true restore, service persistence และ controlled host reboot ผ่านแล้ว
-> ดูผลและขอบเขตหลักฐานที่ [[infrastructure/server/Beelink-Ubuntu-Host]].
+> (ดูผลที่ [[infrastructure/server/Beelink-Ubuntu-Host]]). ช่องว่าง LAN DNS resolution สำหรับ `aegis.internal` บน VLAN 30
+> ที่พบใน PR #216 มีการกำหนด contract ไว้ใน `docs/superpowers/specs/2026-09-29-aegis-vlan30-direct-lan-dns-design.md`.
 >
 > ✅ **Production audit ปัจจุบัน**: STEP 1–9 และ Documentation Checkpoint 2
 > เสร็จแบบ read-only แล้ว ครอบคลุม Git/Compose/image/network/persistence,
