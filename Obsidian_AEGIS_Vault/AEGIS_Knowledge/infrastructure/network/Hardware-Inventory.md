@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, hardware, inventory, network]
 type: infrastructure
 status: ✅ ครบตามแผน (ยกเว้น IDEA3 ⏳)
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-09-30
 owner: kla
 edit_policy: owner-writable
 ---
@@ -38,6 +38,23 @@ edit_policy: owner-writable
 * รุ่นที่ยืนยันแล้วคือ **RB750r2** และ **TL-SG105E**
 * หากพบเอกสารเก่าเขียน `RB750Gr3` หรือ `TL-SG108E` ให้ถือว่า **ผิด** และแก้ตามตารางนี้
 * ตรวจแล้ว 2026-08-06: โน้ตในวอลต์ ([[entities/MikroTik_hEX_lite]], [[entities/TP-Link_TL-SG105E]], [[raw/AEGIS_System_Design_extracted]]) **ระบุรุ่นถูกต้องอยู่แล้ว** — ความขัดแย้งนี้อยู่ในเอกสาร/สไลด์นอกวอลต์ ดูข้อ 1 ใน [[90-Status/Document-Conflicts]]
+
+---
+
+## 🚦 ข้อจำกัดความเร็วพอร์ต (บันทึก 2026-09-30)
+
+| ลิงก์ | ความสามารถ | ชั้นหลักฐาน |
+| :--- | :--- | :--- |
+| RB750r2 ทุกพอร์ต (`ether1` WAN, `ether2` Trunk) | **10/100 Mbps** (5 × 10/100 Ethernet ตามสเปกผู้ผลิต) | สเปกผู้ผลิต + รุ่นในตารางนี้ · ยังไม่อ่าน negotiated rate จากอุปกรณ์จริง |
+| Admin/Test laptop ↔ Switch Port 5 | 1 Gbps | วัดจริงโดย Human (2026-09-30) |
+| Beelink ↔ Switch Port 2 | ⏳ NOT_MEASURED | ต้องอ่านใน preflight |
+
+ผลคือ traffic ข้าม VLAN (เช่น VLAN 30 → HUB บน VLAN 10) วิ่งผ่าน `ether2` ซึ่งเป็น 10/100 —
+PR #216 วัดเพดานร่วม ~10.7 MB/s (upload) / ~11.1 MB/s (download) ≈ 91–95% ของ TCP goodput บน 100 Mbps
+สถานะ: `STRONGLY_SUPPORTED_NOT_LIVE_DEVICE_REVERIFIED` · แนวทางแก้ (ออกแบบเท่านั้น ยังไม่ทำ):
+`docs/superpowers/specs/2026-09-30-aegis-gigabit-intervlan-remediation-design.md`
+
+> ⚠️ ถ้าเปลี่ยน Router ในอนาคต ให้บันทึกรุ่นใหม่ในตารางด้านบนชัดเจน — `RB750Gr3` ที่ถูกระบุว่า "ผิด" ข้างบนหมายถึงเอกสารเก่า ไม่ใช่ข้อห้ามใช้รุ่นนั้น
 
 ---
 

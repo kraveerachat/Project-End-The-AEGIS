@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, network, mikrotik, router, firewall, routeros]
 type: infrastructure
 status: ✅ ทำงานจริง+ทดสอบ Routing แล้ว · ⏳ ยังไม่ backup config
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-09-30
 owner: kla
 edit_policy: owner-writable
 ---
@@ -55,6 +55,15 @@ Internet (ISP)
 | ตั้งรหัสผ่าน/จำกัดการเข้าถึง Winbox/API ให้เฉพาะ VLAN 30 | Out-of-band management | ⏳ ยังไม่ยืนยัน |
 
 > ⚠️ **ห้ามเขียนในเล่มว่า Firewall ผ่านการ review แล้ว** — ยังไม่มีหลักฐาน
+
+---
+
+## 🚦 เพดาน Inter-VLAN 100 Mbps (บันทึก 2026-09-30)
+
+* Inter-VLAN routing เป็นแบบ router-on-a-stick ผ่าน `ether2` พอร์ตเดียว และพอร์ตของ RB750r2 เป็น **10/100** → traffic ข้ามวงทั้งหมดถูกจำกัดที่ ~100 Mbps
+* หลักฐาน: PR #216 U2/D1 (VLAN 30 → HUB `192.168.10.10`) single ≈ dual ≈ 10.7–11.1 MB/s, client link 1 Gbps — `STRONGLY_SUPPORTED_NOT_LIVE_DEVICE_REVERIFIED`
+* ออกแบบการแก้ (ยังไม่ทำ, รอ Human review): เปลี่ยนเป็น Router RouterOS แบบ Gigabit โดย import config เดิม — `docs/superpowers/specs/2026-09-30-aegis-gigabit-intervlan-remediation-design.md` · แผน: `docs/superpowers/plans/2026-09-30-aegis-gigabit-intervlan-remediation.md`
+* แผนนี้ต้องทำ **Export Config Backup** (รายการ ⏳ ข้างบน) เป็นขั้นแรกก่อนแตะอุปกรณ์ใด ๆ
 
 ---
 
