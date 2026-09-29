@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-28
+updated: 2026-09-29
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -21,6 +21,7 @@ edit_policy: owner-writable
 
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `fix/idea1-trash-destructive-reauth-ui`; stacked dependency: DRAFT PR on `fix/idea1-vault-convergence-highres-ux` (PR #220).
+- PR243 post-purge reconciliation session (2026-09-29): LOCAL VERIFIED / ACCEPTANCE PENDING; starting source `83c128732de6679d6d2a555900e97984925e029b`. Human reports deployed purge and immediate Sidebar storage refresh PASS, but remaining Trash rows require manual refresh. Plan/performed work: reproduce delayed/out-of-order list and status responses with real rendered Trash tests; preserve immediate storage callback and search/auth form isolation; reconcile authoritative rows before destructive-dialog reset; verify affected tests, client build and governance; checkpoint on the same Draft PR. Locally proven defects: unsequenced older restore listing can resurrect purged rows or reopen metadata after Empty Trash; delayed pre-unlock locked status can erase newer authorized post-purge rows; purge dialog reset preceded authoritative reconciliation. Production's exact triggering sequence remains NOT PROVEN. Scope: `src/screens/Trash.jsx`, directly related tests/fixtures, this owned status note. No backend, schema, deployment tooling, Docker/Compose, Production, PR241, Ready, merge, or final receipt. Previous deployment-certification blockers below are historical, not a request to repeat preflight; this source correction is NOT DEPLOYED.
 - Codex authority-review session (starting SHA `01d7c4ad554115470de814f311d17f4c96b3747b`): affected-code verification PASS; deployment-command preparation BLOCKED. Implementation/evidence checkpoint: `831c2fbac7883536e836d134f19397ab5a6ca881`. Plan and performed work: deferred `/api/trash` relist regression proved RED (12 pass, 1 fail, expected callback count 1 / actual 0); move the existing success callback before that await; GREEN and affected Trash suites 54 pass / 0 fail / 1 PostgreSQL-gated skip; build and governance PASS; normal push on PR243 only. Production mutation allowed: NO. Deployment-command certification remains blocked because the provided attachment contains the preliminary owner summary, not the raw active Compose order, hashes, container identities, and environment fingerprint. The old `pr243-01d7c4ad5541` candidate omits this correction and must not be deployed. No SSH, backend/database change, PR241 change, Ready, merge, retarget, or final receipt.
 - Authority-review limitation: full Windows `npm test` attempted at 2026-09-28T16:41:24Z and explicitly interrupted at 16:48:32Z while running unrelated S5.5 shell fixtures (delay cause not proven); full suite INCOMPLETE, not PASS. Recorded failures before interruption: `Dashboard quick actions live in the page header instead of a full-width content rail`; `TH, EN, and ZH keep exact key parity with no empty values or wrong-script fallback`; `tests/mediaPoster.test.js` (`ERR_MODULE_NOT_FOUND`, local `sharp` dependency absent); `Neo glass is static, stylesheet-owned, and limited to approved shell surfaces`; `NEO-MOTION-4 prefers-reduced-motion switches the whole layer off`; `Neo mobile segmented options meet the 44 by 44 CSS touch-target floor`. No baseline classification claimed in this session, no unrelated fixes. Build output restored; logs retained outside Git. Human browser/password-manager acceptance and independently parsed live preflight remain PENDING.
 - Root Cause 1 (Destructive Reauth UI): Password managers and browser credential autofill heuristically associated the preceding unisolated Trash search input with the destructive reauth password modal (`purge` and `empty`), autofilling account username (`"admin"`) into the controlled search input and filtering out non-matching Trash rows.
@@ -39,18 +40,29 @@ edit_policy: owner-writable
   11. Failed delete / failed Empty Trash do NOT trigger storage reconciliation.
   12. Global polling frequency (`refreshMs: 30_000`) and backend storage accounting remain unchanged; zero new endpoints or WebSockets added.
   13. Successful permanent purge triggers `onStorageMutationCommitted` before awaiting Trash relisting, so slow metadata reconciliation cannot delay the existing silent dashboard refresh. Deferred relist regression also pins exactly-once callback and preservation of legitimate search.
+  14. List request generations reject superseded responses; explicit lock, current authorization expiry, Empty Trash and unmount invalidate pending lists. Authorization epochs reject status sampled before a newer successful explicit unlock. Fresh expiry/423 still clear metadata and require server-authorized unlock. No server auth/session/security semantics change.
+  15. Purge stays busy through authoritative refetch; then dialog/password reset. Escape/scrim/close cannot dismiss the pending operation. Metadata timeout shows truthful ErrorState + GET-only retry, not false empty state or repeated DELETE. Search/sort remain controlled and unchanged; no document reload or navigation.
 - Automated Evidence:
-  - Focused regression suite `IDEA1-AEGIS_Drive_LC/tests/trashDestructiveReauthUi.test.js`: 13/13 PASS (6 reauth/search isolation tests + 7 realtime storage reconciliation tests).
+  - Focused regression suite `IDEA1-AEGIS_Drive_LC/tests/trashDestructiveReauthUi.test.js`: 22/22 PASS (6 reauth/search isolation + 7 realtime storage reconciliation + 9 list/authorization reconciliation tests).
   - Locked UI suite `tests/protectedTrashLockedUi.test.js`: 11/11 PASS.
   - Trash UI static contract suite `tests/protectedTrashUi.test.js`: 4/4 PASS.
   - Backend trash lifecycle suite `tests/protectedTrash.test.js`: 12/12 PASS.
   - Trash lifecycle hierarchy suite `tests/filesTrashLifecycle.test.js`: 14 passed / 0 failed / 1 PostgreSQL-gated skip.
-  - Overall Trash suite: 55 tests (54 passed, 1 skipped, 0 failed).
-  - Build: `npm run build` PASS (vite v7.3.6 built client in 4.79s; tracked `dist/index.html` restored).
+  - Final affected command (Windows 10.0.26200, Node v24.14.0): `node --test --test-concurrency=1 --test-reporter=tap tests/trashDestructiveReauthUi.test.js tests/protectedTrashLockedUi.test.js tests/protectedTrashUi.test.js tests/protectedTrash.test.js tests/filesTrashLifecycle.test.js` — exit 0, 64 tests / 63 passed / 0 failed / 1 PostgreSQL-gated skip / 0 cancelled, 7.30s.
+  - RED evidence (2026-09-29): initial 15-test run exit 1, 12 pass / 3 fail (dialog ordering, stale listing after purge, stale listing after Empty Trash). Delayed pre-unlock status regression then exit 1, 19 pass / 1 fail; GREEN after authorization epoch guard. Tests mount the actual Trash component; fixture snapshots at server handling time, with controllable delayed delivery.
+  - Build: `npm run build -- --outDir C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-purge-verification-20260929/build` — exit 0, 9.08s; existing >500kB chunk warning, external outDir not emptied. No tracked build output changed.
+  - Built-App browser evidence: `node C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-purge-verification-20260929/browser-check.mjs` — exit 0, real Chrome 154.0.8037.58, 6/6 local HTTP-fixture cases PASS (Classic/Neo × EN light / TH dark / ZH light). Actual App + apiFetch + Sidebar: immediate 592→528 MB before held Trash relist, remaining visible rows, form isolation, preserved search/sort, Empty Trash locked shell, one document request/no reload, no page errors. Temporary evidence outside Git. Initial harness attempts failed on Windows ESM path syntax and counting same-document auth history as reload; corrected harness, no source change from those failures. Real password-manager/live Production retest remains PENDING.
+  - Independent read-only source review: no actionable critical/important/minor findings; reviewer independently ran rendered Trash/locked suites and diff check. Production triggering sequence and live acceptance explicitly not certified.
   - Governance: root collaboration and vault tests 50/50 PASS.
   - Codex authority review: full root `node --test --test-concurrency=1 --test-reporter=tap tests/*.test.mjs` 65/65 PASS; includes executable core-entry governance.
   - Vault validator: 2 warnings (existing canvas owner reviews), 0 errors PASS.
   - Whitespace & secret scan: `git diff --check` clean, zero committed secrets.
+
+### Session Register — IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| TRASH-R2 | Post-purge authoritative list + stale-response correction | CLOSED | RED→GREEN, 63 pass / 1 PostgreSQL skip, built-App Chrome 6/6, build/root65/vault validation | `dd23ad22760e07425b41c925ef2c81ec2a69c296` | LOCAL VERIFIED; task ACCEPTANCE PENDING | Human source review/live retest not performed; source fix NOT DEPLOYED | Stop at source handoff; no deployment/package, Ready, merge or final receipt |
 
 **IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1 — PRODUCTION DEPLOYED & HUMAN ACCEPTANCE PASS / HIGH-RES LIVE FAIL OPEN / CLOSEOUT PRE-MERGE**
 
