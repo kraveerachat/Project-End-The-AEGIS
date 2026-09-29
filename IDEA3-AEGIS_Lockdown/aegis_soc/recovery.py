@@ -155,8 +155,11 @@ class RecoveryCoordinator:
 
     def __init__(self) -> None:
         self.incident_id: int | None = None
+        self._incident_attacker_ip: str | None = None
         self._gates: dict[Gate, GateEvidence] = {}
         self._restore_phase = RestorePhase.NOT_REQUESTED
+        # One-shot: set before RESTORE is handed to the controller, cleared only when nothing could have been sent.
+        self._restore_attempted = False
         self._restore_msg_id: str | None = None
         self._restore_seq: int | None = None
         self._restore_ack_ok: bool | None = None
@@ -169,6 +172,11 @@ class RecoveryCoordinator:
 
     def all_gates(self) -> list[GateEvidence]:
         return [self.gate(g) for g in Gate]
+
+    @property
+    def restore_already_requested(self) -> bool:
+        """True once a RESTORE attempt is spent; it is never issued a second time for this incident."""
+        return self._restore_attempted
 
     def ready_to_close(self) -> bool:
         return all(self.gate(g).status in _SATISFIED for g in CLOSURE_REQUIRED_GATES)
@@ -196,11 +204,13 @@ class RecoveryCoordinator:
             if self.incident_id is not None:
                 self._reset_for_new_incident()
             self.incident_id = None
+            self._incident_attacker_ip = None
             return self._set(Gate.R1_INCIDENT_CONTEXT, GateStatus.FAILED, "No recoverable incident is currently open")
         new_incident_id = resolved["id"]
         if self.incident_id is not None and self.incident_id != new_incident_id:
             self._reset_for_new_incident()
         self.incident_id = new_incident_id
+        self._incident_attacker_ip = resolved.get("attacker_ip") or None
         detail_parts = [f"state={resolved['state']}"]
         if resolved.get("attacker_ip"):
             detail_parts.append(f"attacker_ip={resolved['attacker_ip']}")
@@ -220,6 +230,7 @@ class RecoveryCoordinator:
         ):
             self._gates.pop(gate, None)
         self._restore_phase = RestorePhase.NOT_REQUESTED
+        self._restore_attempted = False
         self._restore_msg_id = None
         self._restore_seq = None
         self._restore_ack_ok = None
@@ -257,6 +268,19 @@ class RecoveryCoordinator:
             address = str(parse_ipv4(ip))
         except ContainmentRejected as error:
             return self._set(Gate.R3_ATTACKER_ISOLATION, GateStatus.FAILED, f"Attacker IP rejected: {error.reason_code}")
+
+        # The target must be the attacker bound by R1; free text never reaches containment.
+        try:
+            bound = str(parse_ipv4(self._incident_attacker_ip))
+        except ContainmentRejected:
+            return self._set(
+                Gate.R3_ATTACKER_ISOLATION, GateStatus.FAILED, "The bound incident has no valid attacker_ip to isolate",
+            )
+        if address != bound:
+            return self._set(
+                Gate.R3_ATTACKER_ISOLATION, GateStatus.FAILED,
+                "R3 target does not match the attacker_ip bound by the active incident; nothing was applied",
+            )
 
         client = containment_client or ContainmentClient()
         try:
@@ -303,10 +327,15 @@ class RecoveryCoordinator:
     # ---- R5: physical restore -------------------------------------------------
 
     def request_physical_restore(self, controller, *, origin: str = "recovery-wizard") -> GateEvidence:
+        if self._restore_attempted:
+            # A spent attempt (published, dry-run, or unknown outcome) is never repeated; report it unchanged.
+            return self.gate(Gate.R5_PHYSICAL_RESTORE)
         blocked = self._blocked_by(*RESTORE_REQUIRED_GATES)
         if blocked:
             return self._set(Gate.R5_PHYSICAL_RESTORE, GateStatus.FAILED, f"RESTORE blocked: {blocked.value} is not verified")
 
+        # Spent before the call: if issue() raises, the outcome is unknown and must not be retried.
+        self._restore_attempted = True
         result = controller.issue(
             "RESTORE_UPLINK", f"Evidence-driven recovery for incident #{self.incident_id}",
             origin=origin, authorize_restore=True,
@@ -319,6 +348,7 @@ class RecoveryCoordinator:
                 "RESTORE_UPLINK simulated (dry-run); no physical evidence exists", detail=result.detail,
             )
         if not result.sent:
+            self._restore_attempted = False  # refused or unsendable: nothing left the Core, so no attempt was spent
             self._restore_phase = RestorePhase.NOT_REQUESTED
             return self._set(
                 Gate.R5_PHYSICAL_RESTORE, GateStatus.FAILED, f"RESTORE_UPLINK was not sent: {result.detail}",

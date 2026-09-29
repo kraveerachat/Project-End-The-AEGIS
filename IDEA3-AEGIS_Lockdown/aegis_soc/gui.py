@@ -255,6 +255,7 @@ class AegisAdminGUI:
         # forwards already store-correlated evidence on to whichever
         # Recovery session is open, never a second raw MQTT consumer.
         self._recovery_observers = []
+        self._recovery_wizard = None      # at most one Recovery session: each owns its own correlation state
         self.last_heartbeat_sent_ts = time.time()
         self.log_buffer = []              # (message, level) ทุกบรรทัด เพื่อกรองใหม่ได้
         self.session = DesktopSession()
@@ -2047,7 +2048,12 @@ class AegisAdminGUI:
         threading.Thread(target=worker, daemon=True).start()
 
     def open_recovery_wizard(self):
-        IncidentRecoveryWizard(self)
+        existing = getattr(self, "_recovery_wizard", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            existing.focus_force()
+            return
+        self._recovery_wizard = IncidentRecoveryWizard(self)
         self.refresh_incident_banner()
 
     def _on_close(self):

@@ -230,6 +230,26 @@ def test_r3_apply_failure_is_not_verified(coordinator):
     assert ("contains", ATTACKER_IP) not in client.calls  # never verifies an apply that already failed
 
 
+def test_r3_target_that_differs_from_the_bound_incident_attacker_never_reaches_containment(coordinator):
+    coordinator.resolve_incident_context(incident=_open_incident(attacker_ip=ATTACKER_IP))
+    client = FakeContainmentClient()
+
+    evidence = coordinator.apply_and_verify_attacker_isolation("198.51.100.99", containment_client=client)
+
+    assert evidence.status == GateStatus.FAILED
+    assert client.calls == []  # no block, no contains: fail closed before any containment mutation
+
+
+def test_r3_incident_without_an_attacker_ip_has_no_target_to_bind_and_fails_closed(coordinator):
+    coordinator.resolve_incident_context(incident=_open_incident(attacker_ip=None))
+    client = FakeContainmentClient()
+
+    evidence = coordinator.apply_and_verify_attacker_isolation(ATTACKER_IP, containment_client=client)
+
+    assert evidence.status == GateStatus.FAILED
+    assert client.calls == []
+
+
 # ---------------------------------------------------------------------------
 # R4 -- Restore Authorization
 # ---------------------------------------------------------------------------
@@ -451,6 +471,144 @@ def test_r5_restore_cannot_be_requested_unless_r1_through_r4_satisfy_policy(monk
 
     assert evidence.status == GateStatus.FAILED
     assert paho.published == []  # nothing was ever sent
+
+
+# ---------------------------------------------------------------------------
+# R5 one-shot guard: a spent RESTORE attempt can never be issued again
+# ---------------------------------------------------------------------------
+
+def _first_restore(monkeypatch, controller, manager, store):
+    ready = _ready_coordinator(monkeypatch)
+    _wire_manager_to_coordinator(manager, ready)
+    result = ready.request_physical_restore(controller)
+    msg_id = result.evidence_source.removeprefix("msg_id=")
+    return ready, SimpleNamespace(nonce=msg_id, seq=store.command(msg_id)["seq"])
+
+
+def test_r5_first_valid_request_publishes_exactly_once(monkeypatch, controller, manager, store, paho):
+    ready, _reserved = _first_restore(monkeypatch, controller, manager, store)
+
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.CHECKING
+    assert len(paho.published) == 1
+
+
+def test_r5_second_immediate_request_does_not_publish(monkeypatch, controller, manager, store, paho):
+    ready, reserved = _first_restore(monkeypatch, controller, manager, store)
+    first = ready.gate(Gate.R5_PHYSICAL_RESTORE)
+
+    second = ready.request_physical_restore(controller)  # a double click
+
+    assert len(paho.published) == 1
+    assert second == first  # the first attempt is reported unchanged
+    assert ready.restore_already_requested is True
+    assert store.last_allocated_seq(DEVICE) == reserved.seq  # no second sequence was even reserved
+
+
+def test_r5_second_request_while_still_checking_does_not_publish(monkeypatch, controller, manager, store, paho):
+    ready, reserved = _first_restore(monkeypatch, controller, manager, store)
+    deliver(manager, p1.topics(DEVICE).ack, ack_payload(reserved))  # ACK only: still waiting for STATUS
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.CHECKING
+
+    ready.request_physical_restore(controller)
+
+    assert len(paho.published) == 1
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.CHECKING
+
+
+def test_r5_second_request_after_ack_rejected_does_not_publish(monkeypatch, controller, manager, store, paho):
+    ready, reserved = _first_restore(monkeypatch, controller, manager, store)
+    deliver(manager, p1.topics(DEVICE).ack, ack_payload(reserved, result="REJECTED_SEQUENCE"))
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.FAILED
+
+    ready.request_physical_restore(controller)
+
+    assert len(paho.published) == 1
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.FAILED
+
+
+def test_r5_second_request_after_lockdown_status_does_not_publish(monkeypatch, controller, manager, store, paho):
+    ready, reserved = _first_restore(monkeypatch, controller, manager, store)
+    deliver(manager, p1.topics(DEVICE).ack, ack_payload(reserved))
+    deliver(manager, p1.topics(DEVICE).status, status_payload(
+        output_state="LOCKDOWN", reason="COMMAND", cmd_msg_id=reserved.nonce, cmd_seq=reserved.seq,
+    ))
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.FAILED
+
+    ready.request_physical_restore(controller)
+
+    assert len(paho.published) == 1
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.FAILED
+
+
+def test_r5_second_request_after_verified_does_not_publish_or_downgrade(monkeypatch, controller, manager, store, paho):
+    ready, reserved = _first_restore(monkeypatch, controller, manager, store)
+    deliver(manager, p1.topics(DEVICE).ack, ack_payload(reserved))
+    deliver(manager, p1.topics(DEVICE).status, status_payload(
+        output_state="NORMAL", reason="COMMAND", cmd_msg_id=reserved.nonce, cmd_seq=reserved.seq,
+    ))
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.VERIFIED
+
+    ready.request_physical_restore(controller)
+
+    assert len(paho.published) == 1
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.VERIFIED
+
+
+def test_r5_a_controller_that_raises_still_spends_the_attempt(monkeypatch):
+    ready = _ready_coordinator(monkeypatch)
+    calls = []
+
+    class ExplodingController:
+        def issue(self, *args, **kwargs):
+            calls.append(args)
+            raise RuntimeError("outcome unknown: may have published")
+
+    with pytest.raises(RuntimeError):
+        ready.request_physical_restore(ExplodingController())
+    ready.request_physical_restore(ExplodingController())
+
+    assert len(calls) == 1  # an unknown outcome is treated as spent, never retried
+
+
+def test_r5_a_definitively_unsent_request_does_not_spend_the_attempt(monkeypatch, controller, manager, paho):
+    ready = _ready_coordinator(monkeypatch)
+    manager.is_connected = False  # publish refused: nothing left the Core
+
+    failed = ready.request_physical_restore(controller)
+    assert failed.status == GateStatus.FAILED
+    assert paho.published == []
+    assert ready.restore_already_requested is False
+
+    manager.is_connected = True
+    ready.request_physical_restore(controller)
+
+    assert len(paho.published) == 1
+
+
+def test_r5_dry_run_spends_the_attempt_and_cannot_arm_a_later_live_publish(monkeypatch, controller, manager, protocol_context, paho):
+    ready = _ready_coordinator(monkeypatch)
+    dry_controller = AegisCommandController(
+        manager, protocol=protocol_context, protocol_mode="v1", dry_run=True, audit_log=lambda *args, **kwargs: None,
+    )
+    ready.request_physical_restore(dry_controller)
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.SIMULATED
+
+    ready.request_physical_restore(controller)  # a later live controller on the same coordinator
+
+    assert paho.published == []
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.SIMULATED
+    # Nothing was published, so no evidence may ever verify the simulated gate.
+    ready.on_ack_evidence("OK", "ACCEPTED", "any-msg-id")
+    ready.on_status_evidence("NORMAL", -60, 1, "any-msg-id")
+    assert ready.gate(Gate.R5_PHYSICAL_RESTORE).status == GateStatus.SIMULATED
+
+
+def test_r5_a_new_incident_gets_a_fresh_one_shot(monkeypatch, controller, manager, store, paho):
+    ready, _reserved = _first_restore(monkeypatch, controller, manager, store)
+
+    ready.resolve_incident_context(incident=_open_incident(id=43))
+
+    assert ready.restore_already_requested is False  # authorization and attempt are per incident
 
 
 # ---------------------------------------------------------------------------

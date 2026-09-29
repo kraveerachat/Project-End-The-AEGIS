@@ -105,7 +105,6 @@ class IncidentRecoveryWizard(tk.Toplevel):
         # Bind to whatever incident already caused containment -- never
         # fabricate one just because this window opened (R1).
         self.coordinator.resolve_incident_context(get_open_incident=db.get_open_incident)
-        self.gui.register_recovery_observer(self)
 
         if config.DRY_RUN:
             banner = tk.Frame(self, bg=COLOR_WARN)
@@ -129,6 +128,8 @@ class IncidentRecoveryWizard(tk.Toplevel):
             self._build_gate_row(scroll.inner, gate)
 
         self._refresh_all()
+        # Registered last: a wizard that failed to build must never receive forwarded evidence.
+        self.gui.register_recovery_observer(self)
 
     def destroy(self):
         self.gui.unregister_recovery_observer(self)
@@ -254,6 +255,10 @@ class IncidentRecoveryWizard(tk.Toplevel):
         self._refresh_gate_display(Gate.R4_RESTORE_AUTHORIZATION)
 
     def _on_r5_clicked(self):
+        if self.coordinator.restore_already_requested:
+            self._log("R5: RESTORE was already requested in this session; it is never sent twice", db.WARN)
+            self._refresh_gate_display(Gate.R5_PHYSICAL_RESTORE)
+            return
         evidence = self.coordinator.request_physical_restore(self.gui.controller, origin="recovery-wizard")
         self._log(f"R5: {evidence.summary}", db.INFO if evidence.status in
                   (GateStatus.CHECKING, GateStatus.VERIFIED, GateStatus.SIMULATED) else db.WARN)
