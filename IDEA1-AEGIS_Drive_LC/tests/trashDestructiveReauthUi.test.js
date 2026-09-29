@@ -107,6 +107,13 @@ async function mountTrash({ lang = 'en', user = { username: 'admin', role: 'admi
     purgePasswordInput: () => doc.querySelector('#trash-purge-password'),
     emptyPasswordInput: () => doc.querySelector('#trash-empty-password'),
     itemsRendered: () => [...host.querySelectorAll('p.truncate')].map((el) => el.textContent.trim()),
+    async setSort(value) {
+      const select = host.querySelector('select')
+      await act(async () => {
+        select.value = value
+        select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+      })
+    },
     async setSearchQuery(val) {
       const input = host.querySelector('input[type="search"]')
       const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
@@ -380,28 +387,229 @@ test('TRASH-STORAGE-REFRESH-2 empty trash calls onStorageMutationCommitted on su
   }
 })
 
-test('TRASH-STORAGE-REFRESH-7 confirmed purge refreshes storage without waiting for Trash relisting', async () => {
+test('TRASH-STORAGE-REFRESH-7 purge refreshes storage immediately and reconciles remaining rows before dialog reset', async () => {
   let storageRefreshed = 0
   let releaseList
   const screen = await mountTrash({
     onStorageMutationCommitted: () => { storageRefreshed++ },
   })
   try {
-    await screen.setSearchQuery('audit')
+    await screen.setSearchQuery('-')
+    await screen.setSort('name')
     await screen.clickDeletePermanently('audit-log-2026.csv')
     trashBackend.listGate = new Promise((resolve) => { releaseList = resolve })
 
     await screen.submitPurgePassword('secret')
 
-    assert.equal(screen.dialog(), null, 'confirmed purge closes its dialog while relisting is pending')
     assert.equal(storageRefreshed, 1, 'physical reclamation must trigger storage reconciliation before the relist settles')
-    assert.equal(screen.searchInput().value, 'audit', 'legitimate search remains unchanged')
+    assert.ok(screen.dialog(), 'keep the destructive operation pending until its authoritative list is reconciled')
+    assert.equal(screen.dialog().querySelector('button[type="submit"]').disabled, true, 'no duplicate purge during reconciliation')
+    assert.equal(screen.searchInput().value, '-', 'legitimate search remains unchanged')
 
     await act(async () => { releaseList(); await Promise.resolve() })
     assert.equal(storageRefreshed, 1, 'relist completion must not trigger a duplicate refresh')
-    assert.deepEqual(screen.itemsRendered(), [], 'the purged matching row disappears after relisting')
+    assert.equal(screen.dialog(), null, 'dialog closes after reconciliation')
+    assert.equal(screen.purgePasswordInput(), null, 'password field is unmounted after success')
+    assert.deepEqual(screen.itemsRendered(), ['backup-image.iso', 'system-report.pdf'], 'remaining matching rows render in the preserved sort order without reload')
+    assert.equal(screen.host.querySelector('select').value, 'name')
+    assert.equal(screen.searchInput().value, '-')
+    assert.equal(trashBackend.calls.filter((call) => call.path === '/api/trash').length, 2, 'initial list plus authoritative post-purge refetch')
   } finally {
     await act(async () => { releaseList?.(); await Promise.resolve() })
+    await screen.unmount()
+  }
+})
+
+test('TRASH-RECONCILE-1 older restore listing cannot overwrite the authoritative post-purge rows', async () => {
+  let releaseOlder
+  let storageRefreshed = 0
+  const screen = await mountTrash({ onStorageMutationCommitted: () => { storageRefreshed++ } })
+  try {
+    trashBackend.listGates.push(new Promise((resolve) => { releaseOlder = resolve }))
+    await screen.clickRestore('audit-log-2026.csv')
+    await screen.submitRestore()
+    await screen.clickDeletePermanently('backup-image.iso')
+    await screen.submitPurgePassword('secret')
+    assert.equal(storageRefreshed, 1)
+    assert.deepEqual(screen.itemsRendered(), ['system-report.pdf'])
+
+    await act(async () => { releaseOlder(); await Promise.resolve() })
+    assert.deepEqual(screen.itemsRendered(), ['system-report.pdf'], 'late pre-purge snapshot must not resurrect the deleted row')
+  } finally {
+    await act(async () => { releaseOlder?.(); await Promise.resolve() })
+    await screen.unmount()
+  }
+})
+
+test('TRASH-RECONCILE-2 older listing cannot resurrect metadata after Empty Trash locks the screen', async () => {
+  let releaseOlder
+  let storageRefreshed = 0
+  const screen = await mountTrash({ onStorageMutationCommitted: () => { storageRefreshed++ } })
+  try {
+    trashBackend.listGates.push(new Promise((resolve) => { releaseOlder = resolve }))
+    await screen.clickRestore('audit-log-2026.csv')
+    await screen.submitRestore()
+    await screen.openEmptyTrash()
+    await screen.submitEmptyTrash('DELETE', 'secret')
+    assert.equal(storageRefreshed, 1)
+    assert.deepEqual(screen.itemsRendered(), [])
+
+    await act(async () => { releaseOlder(); await Promise.resolve() })
+    assert.deepEqual(screen.itemsRendered(), [], 'late unlocked list must not undo the authoritative locked state')
+    assert.ok(screen.host.querySelector('[data-trash-shell]'), 'Empty Trash retains the protected locked shell')
+    assert.equal(screen.doc.querySelector('#trash-empty-password'), null)
+  } finally {
+    await act(async () => { releaseOlder?.(); await Promise.resolve() })
+    await screen.unmount()
+  }
+})
+
+test('TRASH-RECONCILE-3 failed post-purge listing shows retry and never repeats the physical delete', async () => {
+  let storageRefreshed = 0
+  const screen = await mountTrash({ onStorageMutationCommitted: () => { storageRefreshed++ } })
+  try {
+    await screen.setSearchQuery('-')
+    await screen.setSort('name')
+    trashBackend.listResult = { ok: false, status: 0, data: null, errorKind: 'timeout' }
+    await screen.clickDeletePermanently('audit-log-2026.csv')
+    await screen.submitPurgePassword('secret')
+    assert.equal(storageRefreshed, 1, 'successful physical purge is not hidden by a metadata timeout')
+    assert.equal(screen.dialog(), null)
+    assert.ok(screen.host.querySelector('[role="alert"]'), 'truthful load failure, not a false empty state')
+    assert.ok(!screen.host.textContent.includes(STRINGS.en.trashNoMatches))
+
+    trashBackend.listResult = null
+    const retry = [...screen.host.querySelectorAll('button')].find((b) => b.textContent.trim() === STRINGS.en.retry)
+    assert.ok(retry)
+    await act(async () => { retry.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+    assert.deepEqual(screen.itemsRendered(), ['backup-image.iso', 'system-report.pdf'])
+    assert.equal(screen.searchInput().value, '-')
+    assert.equal(screen.host.querySelector('select').value, 'name')
+    assert.equal(storageRefreshed, 1)
+    assert.equal(trashBackend.calls.filter((call) => call.method === 'DELETE').length, 1)
+  } finally { await screen.unmount() }
+})
+
+test('TRASH-RECONCILE-4 permanent-delete backend failure preserves rows, query, sort and dialog', async () => {
+  let storageRefreshed = 0
+  const screen = await mountTrash({ onStorageMutationCommitted: () => { storageRefreshed++ } })
+  try {
+    await screen.setSearchQuery('-')
+    await screen.setSort('name')
+    trashBackend.purgeResult = { ok: false, status: 409, data: { error: 'Trash item is busy', code: 'TRASH_ITEM_BUSY' }, errorKind: 'server' }
+    await screen.clickDeletePermanently('audit-log-2026.csv')
+    await screen.submitPurgePassword('secret')
+    assert.equal(storageRefreshed, 0)
+    assert.ok(screen.dialog().querySelector('[role="alert"]'))
+    assert.deepEqual(screen.itemsRendered(), ['audit-log-2026.csv', 'backup-image.iso', 'system-report.pdf'])
+    assert.equal(screen.searchInput().value, '-')
+    assert.equal(screen.host.querySelector('select').value, 'name')
+    assert.equal(trashBackend.calls.filter((call) => call.path === '/api/trash').length, 1, 'no success relist on failed purge')
+  } finally { await screen.unmount() }
+})
+
+test('TRASH-RECONCILE-5 deleting the last item renders a true empty state without navigation', async () => {
+  trashBackend.items = [SAMPLE_ITEMS[0]]
+  const screen = await mountTrash()
+  try {
+    await screen.clickDeletePermanently('audit-log-2026.csv')
+    await screen.submitPurgePassword('secret')
+    assert.deepEqual(screen.itemsRendered(), [])
+    assert.equal(screen.dialog(), null)
+    assert.ok(screen.host.textContent.includes(STRINGS.en.trashEmptyTitle))
+    assert.ok(!screen.host.querySelector('[data-trash-shell]'), 'single-item purge does not invent a server lock')
+  } finally { await screen.unmount() }
+})
+
+test('TRASH-RECONCILE-6 authorization expiry invalidates a pending list instead of exposing stale metadata', async (context) => {
+  let poll
+  const setInterval = globalThis.setInterval
+  context.mock.method(globalThis, 'setInterval', (callback, ms, ...args) => {
+    if (ms === 5_000) poll = callback
+    return setInterval(callback, ms, ...args)
+  })
+  let releaseOlder
+  const screen = await mountTrash()
+  try {
+    trashBackend.listGates.push(new Promise((resolve) => { releaseOlder = resolve }))
+    await screen.clickRestore('audit-log-2026.csv')
+    await screen.submitRestore()
+    trashBackend.unlocked = false
+    assert.ok(poll)
+    await act(async () => { poll(); await Promise.resolve() })
+    assert.ok(screen.host.querySelector('[data-trash-shell]'))
+    await act(async () => { releaseOlder(); await Promise.resolve() })
+    assert.deepEqual(screen.itemsRendered(), [])
+    assert.ok(screen.host.querySelector('[data-trash-shell]'), 'stale 200 must not undo the server-authoritative lock')
+  } finally {
+    await act(async () => { releaseOlder?.(); await Promise.resolve() })
+    await screen.unmount()
+  }
+})
+
+test('TRASH-RECONCILE-7 status sampled before successful unlock cannot erase the newer authorized rows', async (context) => {
+  let poll
+  const setInterval = globalThis.setInterval
+  context.mock.method(globalThis, 'setInterval', (callback, ms, ...args) => {
+    if (ms === 5_000) poll = callback
+    return setInterval(callback, ms, ...args)
+  })
+  let releaseStatus
+  const screen = await mountTrash()
+  try {
+    const lock = [...screen.host.querySelectorAll('button')].find((b) => b.textContent.trim() === STRINGS.en.trashLock)
+    await act(async () => { lock.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+    trashBackend.statusGates.push(new Promise((resolve) => { releaseStatus = resolve }))
+    await act(async () => { poll(); await Promise.resolve() })
+    const input = screen.doc.querySelector('#trash-password')
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+    await act(async () => {
+      setter.call(input, 'secret')
+      input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await act(async () => { input.closest('form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })) })
+    assert.deepEqual(screen.itemsRendered(), ['system-report.pdf', 'backup-image.iso', 'audit-log-2026.csv'])
+
+    await screen.clickDeletePermanently('audit-log-2026.csv')
+    await screen.submitPurgePassword('secret')
+    await act(async () => { releaseStatus(); await Promise.resolve() })
+    assert.deepEqual(screen.itemsRendered(), ['system-report.pdf', 'backup-image.iso'], 'older locked status must not erase post-unlock, post-purge authority')
+    assert.equal(screen.dialog(), null)
+  } finally {
+    await act(async () => { releaseStatus?.(); await Promise.resolve() })
+    await screen.unmount()
+  }
+})
+
+test('TRASH-RECONCILE-8 fresh post-purge 423 still locks Trash and removes all metadata', async () => {
+  let storageRefreshed = 0
+  const screen = await mountTrash({ onStorageMutationCommitted: () => { storageRefreshed++ } })
+  try {
+    trashBackend.listResult = { ok: false, status: 423, data: { error: 'Trash locked' }, errorKind: 'server' }
+    await screen.clickDeletePermanently('audit-log-2026.csv')
+    await screen.submitPurgePassword('secret')
+    assert.equal(storageRefreshed, 1)
+    assert.deepEqual(screen.itemsRendered(), [])
+    assert.ok(screen.host.querySelector('[data-trash-shell]'))
+    assert.ok(screen.doc.querySelector('#trash-password'), 'server lock still requires explicit password unlock')
+    assert.equal(screen.purgePasswordInput(), null)
+  } finally { await screen.unmount() }
+})
+
+test('TRASH-RECONCILE-9 explicit lock invalidates a pending list instead of reopening protected rows', async () => {
+  let releaseOlder
+  const screen = await mountTrash()
+  try {
+    trashBackend.listGates.push(new Promise((resolve) => { releaseOlder = resolve }))
+    await screen.clickRestore('audit-log-2026.csv')
+    await screen.submitRestore()
+    const lock = [...screen.host.querySelectorAll('button')].find((b) => b.textContent.trim() === STRINGS.en.trashLock)
+    await act(async () => { lock.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })) })
+    await act(async () => { releaseOlder(); await Promise.resolve() })
+    assert.deepEqual(screen.itemsRendered(), [])
+    assert.ok(screen.host.querySelector('[data-trash-shell]'))
+  } finally {
+    await act(async () => { releaseOlder?.(); await Promise.resolve() })
     await screen.unmount()
   }
 })

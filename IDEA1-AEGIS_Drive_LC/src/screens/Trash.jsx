@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArchiveRestore, Clock3, File, LockKeyhole, Search, ShieldCheck, Trash2 } from 'lucide-react'
 import {
   Btn, Card, Chip, EmptyState, ErrorState, Field, Modal, ModalClose,
@@ -51,6 +51,11 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
   const [modalError, setModalError] = useState(false)
   const [now, setNow] = useState(Date.now())
   const [unlockOpen, setUnlockOpen] = useState(false)
+  // Only the newest listing may commit; lock/empty/unmount invalidate older snapshots.
+  const listRequest = useRef(0)
+  // A status sampled before a newer explicit unlock/lock cannot override that result.
+  const authorizationVersion = useRef(0)
+  const mounted = useRef(true)
 
   /* เปิดกล่องปลดล็อกทุกครั้งที่จอ "เปลี่ยนเป็น" ล็อก — ครอบคลุมทั้งตอนเข้าหน้าแรก
      และตอนที่ step-up ฝั่งเซิร์ฟเวอร์หมดอายุแล้วจอถูกล็อกกลับ (ตัวจับเวลา 5 วินาที)
@@ -58,8 +63,11 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
   useEffect(() => { if (phase === 'locked') setUnlockOpen(true) }, [phase])
 
   const loadItems = async () => {
+    if (!mounted.current) return
+    const request = ++listRequest.current
     setError(null)
     const result = await apiFetch('/api/trash')
+    if (!mounted.current || request !== listRequest.current) return
     if (result.status === 423) {
       setItems([])
       setPhase('locked')
@@ -76,21 +84,31 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
 
   useEffect(() => {
     let active = true
+    mounted.current = true
+    const initialAuthorization = authorizationVersion.current
     apiFetch('/api/trash/status').then((result) => {
-      if (!active) return
+      if (!active || initialAuthorization !== authorizationVersion.current) return
       if (!result.ok || !result.data?.unlocked) setPhase('locked')
       else loadItems()
     })
     const timer = setInterval(() => setNow(Date.now()), 60_000)
     const authorizationTimer = setInterval(() => {
+      const authorization = authorizationVersion.current
       apiFetch('/api/trash/status').then((result) => {
-        if (active && (!result.ok || !result.data?.unlocked)) {
+        if (active && authorization === authorizationVersion.current && (!result.ok || !result.data?.unlocked)) {
+          ++listRequest.current
           setItems([])
           setPhase('locked')
         }
       })
     }, 5_000)
-    return () => { active = false; clearInterval(timer); clearInterval(authorizationTimer) }
+    return () => {
+      active = false
+      mounted.current = false
+      ++listRequest.current
+      clearInterval(timer)
+      clearInterval(authorizationTimer)
+    }
   }, [])
 
   const visible = useMemo(() => {
@@ -117,6 +135,7 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
       setError(result.status === 429 ? 'locked' : result.errorKind ?? 'server')
       return
     }
+    ++authorizationVersion.current
     setPassword('')
     setUnlockOpen(false)
     setFeedback(t('trashUnlocked'))
@@ -125,6 +144,8 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
 
   const lock = async () => {
     await apiFetch('/api/trash/lock', { method: 'POST' })
+    ++authorizationVersion.current
+    ++listRequest.current
     setItems([])
     setFeedback(null)
     setPhase('locked')
@@ -158,16 +179,17 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
     const result = await apiFetch(`/api/trash/${encodeURIComponent(purge.id)}`, {
       method: 'DELETE', body: { password: destructivePassword }, suppressAuthHandler: true,
     })
-    setBusy(false)
     if (!result.ok) {
+      setBusy(false)
       setModalError(true)
       return
     }
+    onStorageMutationCommitted?.()
+    await loadItems()
     setPurge(null)
     setDestructivePassword('')
     setFeedback(t('trashPurged'))
-    onStorageMutationCommitted?.()
-    await loadItems()
+    setBusy(false)
   }
 
   const emptyTrash = async () => {
@@ -181,6 +203,8 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
       setModalError(true)
       return
     }
+    ++listRequest.current
+    ++authorizationVersion.current
     setEmpty(false)
     setConfirmText('')
     setDestructivePassword('')
@@ -400,8 +424,8 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
         <div className="mt-6 flex justify-end gap-2"><Btn onClick={() => setRestore(null)}>{t('cancel')}</Btn><Btn variant="primary" onClick={restoreItem} disabled={busy || !restore?.name}>{t('trashRestore')}</Btn></div>
       </Modal>
 
-      <Modal open={Boolean(purge)} onClose={() => setPurge(null)} width={460} labelledBy="trash-purge-title">
-        <ModalClose onClose={() => setPurge(null)} label={t('cancel')} />
+      <Modal open={Boolean(purge)} onClose={() => { if (!busy) setPurge(null) }} width={460} labelledBy="trash-purge-title">
+        <ModalClose onClose={() => { if (!busy) setPurge(null) }} label={t('cancel')} />
         <h2 id="trash-purge-title" className="text-[18px] font-semibold text-danger">{t('trashDeleteForeverTitle')}</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{t('trashDeleteForeverBody').replace('{name}', purge?.name ?? '')}</p>
         <form
@@ -435,7 +459,7 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
           </Field>
           {modalError && <p role="alert" className="mt-3 text-[12.5px] font-medium text-danger">{t('trashActionFailed')}</p>}
           <div className="mt-6 flex justify-end gap-2">
-            <Btn type="button" onClick={() => setPurge(null)}>{t('cancel')}</Btn>
+            <Btn type="button" onClick={() => setPurge(null)} disabled={busy}>{t('cancel')}</Btn>
             <Btn type="submit" variant="danger" disabled={busy || !destructivePassword}>{t('trashDeleteForever')}</Btn>
           </div>
         </form>
