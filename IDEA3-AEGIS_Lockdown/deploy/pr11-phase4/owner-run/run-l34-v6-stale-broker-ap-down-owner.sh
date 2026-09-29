@@ -16,6 +16,11 @@
 # MainPID/NRestarts/InvocationID tuple equals PRE before, after and in rollback (a change is S-11 HOLD, never a repair). It never touches
 # rfkill, the global NM radio, nftables, forwarding, regulatory state, enp62s0, legacy mosquitto (incl. :1883), Twingate, IDEA1/IDEA2,
 # never sends an MQTT command, never touches ESP32, never runs L3/L4 apply.sh, never starts L7, claims NO L3/L4/L6b live acceptance.
+# TrustedClock stabilization (post live attempt 2026-09-29-l34-v6-20260929-170043, where POST and RB failed ONLY on time.trustedclock.state
+# SYNCED -> UNTRUSTED and the clock was SYNCED/OK on every later probe): before the POST capture and before the RB capture the runner runs a
+# bounded, READ-ONLY gate that repeats the existing `p4-l5-clock.py state` probe until it reports exactly `state=SYNCED reason=OK`. The bound is
+# the reviewed L5 readiness bound (60 s / 1 s). The gate never touches a time service or the clock, never weakens p4-compare.sh (which still
+# decides PRESERVATION_S10 / COMPARE_RESULT independently), and every sample's full output is kept in clock-stabilization-{post,rb}.log.
 # NO automatic retry. The attempt is consumed only AFTER every read-only gate, the handler preflight, the PRE capture (+hash verify) and
 # the final broker-tuple equality have passed; once consumed, any failure is STOP/rollback/evidence and the authorization is never reused.
 set -Eeuo pipefail
@@ -46,6 +51,8 @@ ENGINE=aegis-detection-engine.service; TUNNEL=aegis-detection-tunnel.service
 DNSMASQ_UNIT=aegis-idea3-dnsmasq.service
 BROKER_UNIT=aegis-idea3-mosquitto.service
 MARKER="$AUTH_DIR/L34-V6-REACTIVATION-ATTEMPT-CONSUMED"
+CLOCK_STAB_TIMEOUT_S=60   # the reviewed L5 readiness bound (stages/L5/apply.sh AEGIS_L5_READINESS_TIMEOUT_SEC default); not a new policy
+CLOCK_STAB_INTERVAL_S=1   # the reviewed L5 readiness poll interval (AEGIS_L5_READINESS_INTERVAL_SEC default)
 
 die() { echo "STOP: $*" >&2; exit 1; }
 GATE_FAILED=0; gate() { echo "GATE_FAIL: $*" >&2; GATE_FAILED=1; }
@@ -110,6 +117,24 @@ compare() {
     grep -qx "$l" "$3" || { echo "COMPARE_REQUIREMENT_FAILED: $l"; return 1; }
   done
 }
+# clock_gate POST|RB — bounded READ-ONLY wait for the existing acceptance predicate (p4-l5-clock.py state) to report exactly SYNCED/OK. Only that
+# probe is run: no service is started/stopped, no NTP setting or clock is changed. An unreadable, crashing or malformed probe fails closed at once;
+# a well-formed non-OK verdict is retried until the frozen bound, then fails closed. Every sample (full probe output) goes to the evidence log.
+clock_gate() { local label=$1 log="$EVID/clock-stabilization-${1,,}.log" start=$SECONDS n=0 out rc why
+  local ok_re='^state=SYNCED reason=OK maxerror_us=[0-9]+ adjtimex_ret=[0-9]+ status=0x[0-9a-f]+ sta_unsync=0 time_error=0$'
+  local shape_re='^state=[A-Z]+ reason=[A-Z_]+ maxerror_us=-?[0-9]+ adjtimex_ret='
+  while :; do
+    n=$((n + 1)); rc=0; out=$("$PY" "$P4/p4-l5-clock.py" state 2>&1) || rc=$?
+    printf 'ts=%s gate=%s sample=%s elapsed_s=%s rc=%s %s\n' "$(date -u +%FT%TZ)" "$label" "$n" "$((SECONDS - start))" "$rc" "$out" >> "$log"
+    if [ "$rc" != 0 ] || ! [[ "$out" =~ $shape_re && "$out" != *$'\n'* ]]; then why=PROBE_MALFORMED_OR_FAILED; break; fi
+    if [[ "$out" =~ $ok_re ]]; then
+      echo "CLOCK_STABILIZATION_$label=PASS SAMPLES=$n WAITED_S=$((SECONDS - start))" | tee -a "$log"; return 0
+    fi
+    if [ "$((SECONDS - start))" -ge "$CLOCK_STAB_TIMEOUT_S" ]; then why=BOUND_EXCEEDED; break; fi
+    sleep "$CLOCK_STAB_INTERVAL_S"
+  done
+  echo "CLOCK_STABILIZATION_$label=FAIL SAMPLES=$n REASON=$why BOUND_S=$CLOCK_STAB_TIMEOUT_S evidence=$log" | tee -a "$log"; return 1
+}
 handler() { local w=${2:-$WORK}
   sudo env AEGIS_L34_LIVE_AUTHORIZED=YES AEGIS_L34_WORK_DIR="$w" AEGIS_AP_INTERFACE="$AP_IF" AEGIS_L34_V6_PYTHON="$PY" AEGIS_L34_PREFLIGHT_ONLY="${AEGIS_L34_PREFLIGHT_ONLY_RUN:-NO}" bash "$HND/$1"; }
 own_work() { sudo chown -R "$(id -u):$(id -g)" "$WORK" "$PREFLIGHT_WORK" 2>/dev/null || true; }
@@ -123,6 +148,7 @@ rollback_flow() { trap - ERR INT TERM; [ "$ROLLED_BACK" = 0 ] || return 0; ROLLE
     local out; out=$(handler rollback.sh 2>&1) || { printf '%s\n' "$out"; own_work; echo "L34_V6_ROLLBACK=FAIL (S-11 HOLD) — ESCALATE; do NOT retry; the broker is never repaired by V6; inspect $EVID"; exit 3; }
     printf '%s\n' "$out"; own_work
   else echo "NO_PRODUCTION_MUTATION_MARKER: rollback handler not needed; proving zero drift instead"; fi
+  clock_gate RB || { echo "RB TrustedClock did not stabilize — S-11 HOLD, ESCALATE; do NOT retry; RB capture NOT taken; inspect $EVID"; exit 3; }
   capture RB "$EVID/rb-root" || { echo "RB capture FAILED — ESCALATE"; exit 3; }
   compare "$EVID/pre-root" "$EVID/rb-root" "$EVID/compare-pre-rb.txt" && identity_unchanged && broker_unchanged "$PREFLIGHT_WORK/broker-tuple-pre.txt" \
     || { echo "PRE_RB_COMPARE=FAIL — S-11 HOLD, ESCALATE; do NOT retry"; exit 3; }
@@ -156,6 +182,7 @@ echo "== VERIFY (single checks, then the frozen 6 x 5 s soak)"
 ver_rc=0; ver_out=$(handler verify.sh 2>&1) || ver_rc=$?; printf '%s\n' "$ver_out"; own_work
 { [ "$ver_rc" = 0 ] && printf '%s\n' "$ver_out" | grep -qx 'L34_V6_VERIFY=PASS' && printf '%s\n' "$ver_out" | grep -qx 'L34_V6_SOAK=PASS SAMPLES=6 INTERVAL_S=5'; } \
   || rollback_flow "L34_V6_VERIFY failed"
+echo "== TrustedClock stabilization (read-only, bounded) before POST capture"; clock_gate POST || rollback_flow "TrustedClock did not stabilize before POST capture"
 echo "== POST capture"; capture POST "$EVID/post-root" || rollback_flow "POST capture failed"
 echo "== PRE -> POST compare (exact reactivation window only)"; compare "$EVID/pre-root" "$EVID/post-root" "$EVID/compare-pre-post.txt" || rollback_flow "PRE->POST compare failed"
 identity_unchanged || rollback_flow "legacy mosquitto/Twingate/IDEA2 identity changed"

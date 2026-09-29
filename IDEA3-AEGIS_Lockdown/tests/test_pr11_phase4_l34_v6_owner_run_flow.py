@@ -97,6 +97,29 @@ fi
 printf 'FINDINGS_NEW_OR_WORSENED_DRIFT=0\nFINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0\nFINDINGS_INCOMPARABLE=0\nPRESERVATION_S10=PASS\nCOMPARE_RESULT=PASS\n'
 '''
 
+# Stand-in for the read-only p4-l5-clock.py: `state` prints the next line of $SIM_DIR/clock-<phase>.seq (the last line repeats); with no
+# sequence file it reports the accepted predicate. phase=rb once the rollback handler ran, else post. Every call is logged as "clock".
+CLOCK = r'''#!/usr/bin/env python3
+import os, sys
+sim = os.environ["SIM_DIR"]
+assert sys.argv[1:] == ["state"], sys.argv
+calls = os.path.join(sim, "calls.log")
+log = open(calls).read().splitlines() if os.path.exists(calls) else []
+phase = "rb" if "rollback" in log else "post"
+open(calls, "a").write("clock\n")
+seq = os.path.join(sim, f"clock-{phase}.seq")
+lines = open(seq).read().splitlines() if os.path.exists(seq) else ["state=SYNCED reason=OK maxerror_us=50000 adjtimex_ret=0 status=0x2001 sta_unsync=0 time_error=0"]
+idx_path = os.path.join(sim, f"clock-{phase}.idx")
+i = int(open(idx_path).read()) if os.path.exists(idx_path) else 0
+open(idx_path, "w").write(str(i + 1))
+line = lines[min(i, len(lines) - 1)]
+if line == "@crash":
+    sys.exit(2)
+print(line)
+'''
+
+FORBIDDEN_CMDS = ("timedatectl", "chronyc", "hwclock", "adjtimex", "ntpdate")
+
 STAGE_GATE = r'''#!/usr/bin/env bash
 printf 'AUTHORIZATION_RECORD=VALID\nK3_CONFIRMATION=VALID\n'
 '''
@@ -107,6 +130,7 @@ def _systemctl_stub() -> str:
         return "\n".join(f'      {k}) echo "{v}" ;;' for k, v in props.items())
 
     return r'''#!/usr/bin/env bash
+[ "$1" = show ] || echo "FORBIDDEN:systemctl $*" >> "$SIM_DIR/calls.log"
 shift  # drop "show"
 keys=(); value_mode=0; unit=""
 while [ $# -gt 0 ]; do
@@ -166,6 +190,7 @@ class Sim:
         (self.p4 / "p4-stage-gate.sh").write_text(STAGE_GATE)
         (self.p4 / "p4-l0-capture.sh").write_text(CAPTURE)
         (self.p4 / "p4-compare.sh").write_text(COMPARE)
+        (self.p4 / "p4-l5-clock.py").write_text(CLOCK)
         hnd = self.p4 / "reactivation" / HND_NAME
         hnd.mkdir(parents=True)
         for name in ("apply.sh", "verify.sh", "rollback.sh"):
@@ -188,6 +213,8 @@ class Sim:
         (self.bin / "systemctl").write_text(stub)
         for name in STUB_NOOP_CMDS:
             (self.bin / name).write_text("#!/usr/bin/env bash\nexit 0\n")
+        for name in FORBIDDEN_CMDS:
+            (self.bin / name).write_text(f'#!/usr/bin/env bash\necho "FORBIDDEN:{name} $*" >> "$SIM_DIR/calls.log"\nexit 0\n')
         for f in self.bin.iterdir():
             f.chmod(0o755)
 
@@ -202,6 +229,11 @@ class Sim:
             f"REPO={self.repo}",
         )
         text = text.replace("EVID=/home/kittipat/Workspace/idea3-p4-evidence/$TODAY-l34-v6-$STAMP", f"EVID={self.evid_base}/$TODAY-l34-v6-$STAMP")
+        # the sandbox has no venv; the stabilization bound is shortened (the committed 60 s / 1 s is asserted by its own test)
+        for old, new in (("PY=/home/kittipat/.venvs/aegis-idea3-core/bin/python", "PY=python3"), ("CLOCK_STAB_TIMEOUT_S=60", "CLOCK_STAB_TIMEOUT_S=2"),
+                         ("CLOCK_STAB_INTERVAL_S=1", "CLOCK_STAB_INTERVAL_S=0.2")):
+            assert old in text, old
+            text = text.replace(old, new, 1)
         assert f"REPO={self.repo}" in text and str(self.evid_base) in text
         self.runner = self.dir / "run-l34-v6-stale-broker-ap-down-owner.sh"
         self.runner.write_text(text)
@@ -223,6 +255,13 @@ class Sim:
         env = dict(os.environ, SIM_DIR=str(self.dir), SIM_MARKER=str(self.marker_path), PATH=f"{self.bin}:{os.environ['PATH']}", TZ="Asia/Bangkok")
         return subprocess.run(["bash", str(self.runner), str(self.auth)], text=True, capture_output=True, env=env, check=False)
 
+    def clock_seq(self, phase: str, *lines: str) -> None:
+        (self.dir / f"clock-{phase}.seq").write_text("\n".join(lines) + "\n")
+
+    def evid(self) -> Path:
+        (d,) = self.evid_base.iterdir()
+        return d
+
     def marker(self) -> bool:
         return self.marker_path.exists()
 
@@ -233,7 +272,7 @@ def sim(tmp_path: Path) -> Sim:
 
 
 HAPPY_CALLS = [
-    "apply:preflight marker=NO", "capture:pre marker=NO", "apply:full marker=YES", "verify", "capture:post marker=YES", "compare",
+    "apply:preflight marker=NO", "capture:pre marker=NO", "apply:full marker=YES", "verify", "clock", "capture:post marker=YES", "compare",
 ]
 
 
@@ -294,7 +333,7 @@ def test_consumed_marker_is_never_reset_by_a_failed_apply_and_apply_is_never_ret
     assert sim.marker()
     calls = sim.calls()
     assert calls.count("apply:full marker=YES") == 1
-    assert calls == ["apply:preflight marker=NO", "capture:pre marker=NO", "apply:full marker=YES", "rollback", "capture:rb marker=YES", "compare"]
+    assert calls == ["apply:preflight marker=NO", "capture:pre marker=NO", "apply:full marker=YES", "rollback", "clock", "capture:rb marker=YES", "compare"]
     assert sim.run().returncode == 1 and sim.calls().count("apply:full marker=YES") == 1
 
 

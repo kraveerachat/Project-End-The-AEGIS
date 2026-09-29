@@ -119,3 +119,32 @@ The additive simulator changes (`tests/l34_sim.py`) default to V1–V5 behaviour
 
 No Production mutation, no service command against the real host, no live authorization, no L4/L6c/L7 execution, no ESP32, no change to
 V1–V5, PR #238/#249/#252 or the Phase 4 reviewed-handler registry (PR #251 stays green).
+
+## 8. Addendum — TrustedClock stabilization gate (post failed live attempt `2026-09-29-l34-v6-20260929-170043`)
+
+**Observed:** the first live attempt passed apply, verify and the soak, then failed PRE→POST and PRE→RB ONLY on `time.trustedclock.state SYNCED -> UNTRUSTED`.
+Later read-only probes were `SYNCED / OK` on every sample (maxerror 50000 → 75500 µs, `adjtimex_ret=0`, `status=0x2001`, `sta_unsync=0`, `time_error=0`),
+`systemd-timesyncd` had never restarted and `chronyd` was inactive. The exact transient subreason at POST/RB was NOT recorded and is NOT proven; a persistent
+time-service failure was not observed. The comparator is correct and is not weakened. The consumed authorization `2026-09-29-l34-v6-auth-20260929-165848` is never reused.
+
+**Remediation (owner runner only):** `clock_gate POST|RB` runs the existing read-only `p4-l5-clock.py state` (the acceptance predicate: adjtimex readable, STA_UNSYNC clear,
+maxerror ≤ 1,000,000 µs, TrustedClock SYNCED) after the verify + soak and BEFORE the POST capture, and after the rollback handler and BEFORE the RB capture.
+It succeeds only on exactly `state=SYNCED reason=OK …`. HOLDOVER, UNTRUSTED and UNKNOWN are never accepted; no allowlist entry is added.
+
+**Bound:** 60 s, polled every 1 s — the reviewed L5 readiness bound (`stages/L5/apply.sh` `AEGIS_L5_READINESS_TIMEOUT_SEC:-60` / `_INTERVAL_SEC:-1`; the L5 contract
+in `README.md` states the 60 s bound and the predicate are unchanged). Not reused: `TRUSTEDCLOCK_HOLDOVER_SEC=300` (it bounds how long an already-synced clock may
+keep being trusted as HOLDOVER, and `TRUSTEDCLOCK_FINAL_HOLDOVER_PASS=NO` forbids HOLDOVER as a final state). `p4-l5-clock.py wait` is not usable either: it also
+requires chronyd's Leap status, and chronyd is inactive on the V6 host. The recovery seen after the failed attempt shows that recovery happens, not how long it may take.
+
+**Failure semantics:** an unreadable, crashing or malformed probe fails closed at once; a well-formed non-OK verdict is retried until the bound and then fails closed. A POST gate
+failure takes the existing rollback path (the POST capture is never taken). A RB gate failure is an S-11 HOLD, exit 3, with no RB capture. After a successful gate the POST/RB
+capture and `p4-compare.sh` run unchanged and must independently return `PRESERVATION_S10=PASS` and `COMPARE_RESULT=PASS`.
+
+**Evidence:** `clock-stabilization-post.log` / `clock-stabilization-rb.log` in the run's evidence directory hold every sample with the full, unmodified predicate output
+(`state= reason= maxerror_us= adjtimex_ret= status= sta_unsync= time_error=`), the sample index, elapsed seconds and the final `CLOCK_STABILIZATION_<gate>=PASS|FAIL` line.
+The global L0 evidence format is not changed.
+
+**Not changed:** `p4-compare.sh`, `p4-l5-clock.py`, `p4-l0-capture.sh` (hash-pinned by `test_pr11_phase4_l34_v6_clock_stabilization.py`), the V6 handlers and allow files,
+the 188-character authorization scope, V1–V5, and the release payload (`aegis_soc/**`, `requirements.txt`; staged release `3c8dae69ca17fae2c7949ceb4bbca8f20239ba1b` stays a reuse candidate).
+The gate runs no service command, no `timedatectl`, no `chronyc`, no clock set/step/slew and touches no NTP configuration. Any live retry needs a fresh, re-frozen runner,
+a new same-day authorization and K3.

@@ -18,6 +18,15 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3/L4 V6 TrustedClock stabilization — repository only — 2026-09-29
+
+> [!important] Repository-only. The first live V6 attempt (`2026-09-29-l34-v6-20260929-170043`, authorization `2026-09-29-l34-v6-auth-20260929-165848`) is CONSUMED and never reused. No live retry, no new authorization/K3, no L6c/L7, no ESP32.
+> `L34_V6_LIVE = NOT_PROVEN`, `TRUSTEDCLOCK_TRANSIENT_SUBREASON = NOT_PROVEN`, `COMPARATOR_WEAKENED = NO`, `RELEASE_CLOSURE_CHANGED = NO`
+
+- **Live facts:** apply, verify and the 6 x 5 s soak passed and the rollback handler passed; PRE→POST and PRE→RB failed ONLY on `time.trustedclock.state SYNCED -> UNTRUSTED`. Later read-only probes were SYNCED/OK; the exact transient subreason was not recorded and a persistent time-service failure was not observed.
+- **Remediation (owner runner only):** a bounded READ-ONLY `clock_gate` reuses the existing `p4-l5-clock.py state` predicate and must see exactly `state=SYNCED reason=OK` before the POST capture and before the RB capture. Bound 60 s / 1 s = the reviewed L5 readiness bound. Malformed/unreadable probe fails closed at once; bound exceeded fails closed (POST → rollback path; RB → S-11 HOLD without RB capture). Every sample's full probe output is kept in `clock-stabilization-{post,rb}.log`. `p4-compare.sh` still decides S10/COMPARE independently and is unchanged (hash-pinned).
+- **Limits that remain:** repository/simulator only; any live V6 retry needs a re-frozen runner plus a fresh same-day authorization and K3. Staged release `3c8dae69…` is untouched and stays a reuse candidate.
+
 ## IDEA3 PR11 Phase 4 L3/L4 V6 stale-broker/AP-down reactivation — repository implementation only — 2026-09-29
 
 > [!important] Repository-only. No Production mutation, no live authorization or K3 record created, no L4 execution or retry, no L6c/L7, no ESP32. V6 is **not** accepted or proven live; the V5 attempt stays consumed and is never reused.
