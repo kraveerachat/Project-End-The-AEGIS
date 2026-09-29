@@ -285,9 +285,10 @@ def test_l7_apply_never_prints_or_persists_secrets_outside_the_credential_files(
             corpus += p.read_text(errors="ignore")
     for secret in SECRETS:
         assert secret not in corpus
-    # the only plaintext copies are the staged credential files
+    # the only plaintext copies are the staged credential files and systemd's own runtime projection of the four LoadCredential= sources
     holders = {str(p.relative_to(fx.root)) for p in fx.root.rglob("*") if p.is_file() and any(x.encode() in p.read_bytes() for x in (C2D, D2C, MQTT_PASS, ADMIN_PIN))}
-    assert holders == {f"{s.CREDS}/{n}" for n in ("k_c2d", "k_d2c", "mqtt-core.pass", "admin.pin")}
+    names = ("k_c2d", "k_d2c", "mqtt-core.pass", "admin.pin")
+    assert holders == {f"{s.CREDS}/{n}" for n in names} | {f"run/credentials/aegis-idea3-core.service/{n}" for n in names}
 
 
 # ── 3. apply: prestate, release guard, identity, PKI copy ────────────────────────────────────────────────────────────────
@@ -678,14 +679,129 @@ def test_l7_verify_fails_on_service_state(fx: Fx, name: str, changes: dict, code
     assert vreason(verified(fx)) == code
 
 
-def test_l7_verify_requires_the_four_loadcredential_bindings(fx: Fx) -> None:
+PROJECTED = ("admin.pin", "k_c2d", "k_d2c", "mqtt-core.pass")
+
+
+def _runtime_creds(fx: Fx) -> Path:
+    return fx.root / "run/credentials/aegis-idea3-core.service"
+
+
+def _set_environ(fx: Fx, entries: list[str]) -> None:
+    (fx.root / "proc/4243/environ").write_text("".join(e + "\0" for e in entries))
+
+
+def test_l7_verify_static_unit_mutation_fails_before_runtime_projection_proof(fx: Fx) -> None:
     applied(fx)
-    res = verified(fx)
-    assert res.returncode == 0
-    shows = [c["argv"] for c in fx.calls(verb="show")]
-    assert any("LoadCredential" in " ".join(a) for a in shows)
+    assert verified(fx).returncode == 0
     fx.unit.write_text(fx.unit.read_text().replace("LoadCredential=admin.pin:/etc/aegis-idea3/credentials/admin.pin\n", ""))
+    # the runtime projection is still perfectly valid: the static comparison must be what rejects it
+    assert sorted(p.name for p in _runtime_creds(fx).iterdir()) == list(PROJECTED)
     assert vreason(verified(fx)) == "UNIT_CONTENT_CHANGED"
+
+
+@pytest.mark.parametrize("text", ["", "   ", "\\x00\\x01 not flat", "{ path=/x ; encrypted=no } ; ; k_c2d", "k_c2d admin.pin"])
+def test_l7_verify_passes_from_effective_projection_whatever_the_loadcredential_text_is(fx: Fx, text: str) -> None:
+    applied(fx, FAKE_LOADCREDENTIAL_TEXT=text)
+    res = verified(fx, FAKE_LOADCREDENTIAL_TEXT=text)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "L7_VERIFY=PASS" in res.stdout
+
+
+def test_l7_verify_accepts_all_four_correct_projected_credentials(fx: Fx) -> None:
+    applied(fx)
+    for n in PROJECTED:
+        assert (_runtime_creds(fx) / n).read_bytes() == (fx.creds / n).read_bytes()
+    assert not (_runtime_creds(fx) / "restore.credential").exists()
+    assert verified(fx).returncode == 0
+
+
+def test_l7_verify_no_longer_queries_systemctl_show_for_loadcredential(fx: Fx) -> None:
+    applied(fx)
+    n = len(fx.calls())
+    assert verified(fx).returncode == 0
+    new = fx.calls()[n:]
+    assert new and not [c for c in new if "LoadCredential" in " ".join(c["argv"])]
+    code = "\n".join(line for line in (L7_STAGE / "verify.sh").read_text().splitlines() if not line.lstrip().startswith("#"))
+    assert "-p LoadCredential" not in code
+
+
+def _drop(fx: Fx) -> None:
+    (_runtime_creds(fx) / "k_d2c").unlink()
+
+
+def _restore(fx: Fx) -> None:
+    (_runtime_creds(fx) / "restore.credential").write_text("x\n")
+
+
+def _extra(fx: Fx) -> None:
+    (_runtime_creds(fx) / "extra.pass").write_text("x\n")
+
+
+def _wrong_bytes(fx: Fx) -> None:
+    f = _runtime_creds(fx) / "mqtt-core.pass"
+    f.chmod(0o600)
+    f.write_bytes(b"WRONG-BYTES\n")
+
+
+def _symlinked(fx: Fx) -> None:
+    f = _runtime_creds(fx) / "admin.pin"
+    f.unlink()
+    f.symlink_to(fx.creds / "admin.pin")  # byte-identical target, still a symlink
+
+
+def _not_regular(fx: Fx) -> None:
+    f = _runtime_creds(fx) / "k_c2d"
+    f.unlink()
+    f.mkdir()
+
+
+def _dir_symlink(fx: Fx) -> None:
+    real = _runtime_creds(fx)
+    moved = real.with_name("real-creds")
+    real.rename(moved)
+    real.symlink_to(moved)
+
+
+def _dir_missing(fx: Fx) -> None:
+    import shutil
+
+    shutil.rmtree(_runtime_creds(fx))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda f: _set_environ(f, ["PATH=/usr/bin"]),  # B: CREDENTIALS_DIRECTORY missing
+        lambda f: _set_environ(f, ["CREDENTIALS_DIRECTORY="]),
+        lambda f: _set_environ(f, ["CREDENTIALS_DIRECTORY=run/credentials/aegis-idea3-core.service"]),
+        lambda f: _set_environ(f, ["CREDENTIALS_DIRECTORY=/run/credentials/../credentials/aegis-idea3-core.service"]),
+        lambda f: _set_environ(f, ["CREDENTIALS_DIRECTORY=/run/credentials/aegis idea3"]),
+        lambda f: _set_environ(f, ["CREDENTIALS_DIRECTORY=/run/credentials/aegis-idea3-core.service",
+                                   "CREDENTIALS_DIRECTORY=/run/credentials/aegis-idea3-core.service"]),
+        _drop,  # C: one projected credential missing
+        _restore,  # D: restore.credential projected
+        _extra,  # E: arbitrary extra entry
+        _wrong_bytes,  # F
+        _symlinked,  # G
+        _not_regular,
+        _dir_symlink,
+        _dir_missing,
+    ],
+)
+def test_l7_verify_fails_closed_on_an_invalid_effective_credential_projection(fx: Fx, mutate) -> None:
+    applied(fx)
+    mutate(fx)
+    res = verified(fx)
+    assert res.returncode != 0 and vreason(res) == "LOADCREDENTIAL_INVALID", res.stderr
+    for secret in SECRETS:
+        assert secret not in res.stdout + res.stderr
+
+
+def test_l7_fake_systemd_removes_the_runtime_credentials_when_the_service_stops(fx: Fx) -> None:
+    applied(fx)
+    assert _runtime_creds(fx).is_dir()
+    assert fx.systemctl("stop", UNIT).returncode == 0
+    assert not _runtime_creds(fx).exists()
 
 
 def test_l7_verify_rejects_plaintext_secret_variables_in_the_process_environment(fx: Fx) -> None:
