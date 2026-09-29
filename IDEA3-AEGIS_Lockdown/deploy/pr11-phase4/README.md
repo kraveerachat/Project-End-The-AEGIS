@@ -274,6 +274,48 @@ registered in the repository framework.
 - Live execution: `L7_LIVE_AUTHORIZED = NO`, `LIVE_L7 = NOT_RUN`. Predecessor live stages remain NOT RUN. IDEA2 §10 blocker remains open.
 - All stage handlers (L2, L3, L4, L5, L6a, L6b, L7) are now registered in the repository; the IDEA2 §10 caveat remains open and blocking; `PHASE4_LIVE_READINESS` remains `NOT READY`.
 
+### L7 live preparation (2026-09-27, repository only — supersedes the L7 handler description above where they differ)
+
+Design amendments: `docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l7-operational-design.md` §7. `L7_LIVE_EXECUTED = NO`, `L7_LIVE_AUTHORIZED = NO`, `L7_RUNNER = TEMPLATE_UNPINNED`.
+
+- `stages/L7/apply.sh|verify.sh|rollback.sh` were rewritten to the L6b standard: journal-before-create, exact ownership plan, exact clean prestate, immutable-release guard, verified unit, `enable --now`, journal-driven rollback with `reset-failed <Core unit only>` and a proven `not-found/inactive/dead/success` end state. Ownership: credentials dir `root:aegis-idea3 0750`; `k_c2d`/`k_d2c`/`mqtt-core.pass`/`admin.pin` `root:root 0600`; `restore.credential` `aegis-idea3:aegis-idea3 0600`; `core.env` `root:aegis-idea3 0640` (rendered, no secret); Core CA copy `/etc/aegis-idea3/pki/mqtt-ca.crt` and the unit `root:root 0644`.
+- New tools: `p4-l7-release-guard.py` (existence + provenance of an ALREADY INSTALLED release), `p4-l7-core-env.py` (render/validate core.env), `p4-l7-broker-probe.py` (credential-free TLS-hostname handshake), `p4-l7-run-lib.sh` (read-only gates) and the unpinned `owner-run/run-l7-owner.sh` (refuses to run until frozen outside the repository with the merged main SHA and the installed release id).
+- Core change: `AEGIS_MQTT_TLS_SERVER_NAME` — the L6 broker certificate is DNS-only (`mqtt.aegis.home.arpa`, no IP SAN) while the Core connects to the AP IP, so verification against the IP failed; the Core now verifies the configured DNS name (verification stays fully on).
+- Prerequisites the L7 runner cannot satisfy: an installed release under `/opt/aegis-idea3/releases/<id>` (not present on the host as of 2026-09-27), owner input (`l7-owner-input`), fresh same-day A-L7 (with `d6_notice=pub`) and K3. See "L7 release builder / verifier" and "L7 release installer" below for the 2026-09-28 update to the release-install gap itself.
+
+### L7 release builder / verifier (repository tooling; no install) — **PR #208 MERGED into main, 2026-09-27**
+
+- `p4-l7-build-release.py build --source-root <git repo> --staging-root <user dir> --release-id <id> --wheelhouse <dir>` builds `<staging>/<id>/` (`venv/bin/python`, the exact `aegis_soc` runtime closure of `python -m aegis_soc.supervisor --profile production --live --headless --no-detector --no-voice` computed from source by AST, `requirements.txt`, `RELEASE-MANIFEST.json`, `RELEASE-SHA256SUMS`). `verify <release-dir> [--expect-owner self|root|any]` is read-only and deterministic.
+- Never writes `/opt` or any system location, never uses sudo/chown/systemd/NetworkManager/rfkill/iw, installs only from the local wheelhouse (`pip --no-index --isolated --only-binary=:all:`), bounds venv/pip/smoke by timeouts, and refuses a dirty source tree, an existing or symlinked destination, staging that aliases the source, non-regular source files, unmapped third-party imports and any symlink, `.git`, `__pycache__`, credential-like file or private-key material in the payload.
+- Manifest fields (exact allowlist): `schema_version`, `release_id`, `source_git_sha`, `source_tree_dirty`, `python_version`, `requirements_sha256`, `file_count`, `created_by_tool_version`. No username, hostname, environment or secret path.
+- The interpreter is a copy, but the venv still resolves the standard library from the base Python named in `pyvenv.cfg` (`home`); the release is therefore bound to that system Python version (`python_version`).
+- `p4-l7-build-release.py` is now canonical `main` tooling (merged via PR #208). A real release built by it was independently validated, in a separate process, against this branch's `p4-l7-release-guard.py`: `L7_RELEASE_GUARD=PASS`, exact schema/layout match, no mismatch — this is no longer a cross-branch compatibility claim, both tools are combined in this branch.
+- Installing a built, guarded release into `/opt/aegis-idea3/releases/<id>` is now implemented — see "L7 release installer" below.
+
+### L7 release installer (repository tooling; closes the release-install gap) — NEW 2026-09-27
+
+- `p4-l7-install-release.py install --release-id <id> --source <builder output dir> --logical-path /opt/aegis-idea3/releases/<id> [--host-root <fixture root>] [--evidence <file>]` copies a COMPLETED `p4-l7-build-release.py` output into `/opt/aegis-idea3/releases/<id>/`. It is the missing link between the builder (produces a release in a user-owned staging directory) and `p4-l7-release-guard.py` (proves an already-installed release's contract) — no prior tool in the repository copied a built release into place.
+- **Ownership contract (corrected 2026-09-27):** the source builder output is always validated with the REAL `p4-l7-release-guard.py` (imported directly, never a copied predicate) at `--expect-owner any` — it is always user-owned and the installer never demands the caller chown it first. The staged copy and the FINAL installed release are re-validated at `--expect-owner root` **by default**; that default is never weakened by a general CLI switch. `--fixture-dest-owner-any` is the one narrowly named exception, and it is refused outright unless `--host-root` (a fixture filesystem root) is also given, so it can never silently apply to a live install.
+- Refuses to overwrite an existing release, never recurses into `/opt/aegis-idea3`, refuses a symlinked destination or ancestor, stages through a sibling `.install-tmp-<id>-<random>` directory (0700) and places the release with one atomic `os.rename`. Fails closed with no retry; a failure before the rename removes only its own temp staging; an already-placed release is never later removed or altered. Never reads, writes, or names a credential file, and issues no systemd/sudo/subprocess call.
+- **Never touches `/opt/aegis-idea3/current`.** `stages/L7/apply.sh` remains the sole owner of that symlink (creates it only if absent, refuses to move it); the installer and L7 apply can never race or double-own the same mutation.
+- Evidence (`--evidence`) records only `release_id`, `source_git_sha` and the logical destination path — no host username, no absolute source/staging path, no secret.
+- Proven end to end: a release built by the merged PR #208 tool, installed by this tool into a fixture root, passes `p4-l7-release-guard.py check` unchanged.
+
+> [!IMPORTANT] Governance gap (not repository-fixable; owner decision required before ANY live use)
+> This tool is repository-only and fixture-tested; it has **no owner-run wrapper and is not wired into any live workflow**. `deploy/pr11-phase4/p4-lib.sh` fixes the known stage set (`P4_STAGES = "L0 L1 L2 L3 L4 L5 L6a L6b L7 L8 L9"`) and `p4-stage-gate.sh` authorizes only those stage names; there is no existing stage id, authorization-record field, or K3 contract for a pre-L7 release-install mutation, and none is invented here. Design §6 item 5 and §7 already flag "an owner decision on the release installer" as open (2026-09-21 / 2026-09-27). Before any live release install, the owner must decide: (a) register it as its own G-15 stage (e.g. an `L6c`-style slot, with its own `stages/<id>/apply.sh` etc. and `A-<id>`/K3), or (b) fold it into `A-L7` with an explicit extra authorization field recognized by `p4-stage-gate.sh`. Until that decision is made and implemented, this tool exists only as a tested repository capability.
+
+### L6c handler (Immutable Release Install) — NEW 2026-09-27
+
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6c-release-install-governance.md`. `L6C_STAGE = IMPLEMENTED_REPOSITORY`, `L6C_RELEASE_INSTALL = PROVEN`, `L6C_LIVE_ACCEPTANCE = PROVEN`, `L6C_COMPLETE = YES`, `L7_STARTED = NO` (2026-09-28 live acceptance; see design §12).
+
+- Owner decision approved: a separate G-15 stage, `L6c` / "Immutable Release Install", between L6b and L7 in `P4_STAGES`. `A-L6c` / a fresh `stage=L6c` K3; no `d6_notice`; `p4_stage_gaps L6c = none` (it installs code only, never a protocol key or a Core credential).
+- `stages/L6c/apply.sh|verify.sh|rollback.sh` call the already-merged `p4-l7-install-release.py` and `p4-l7-release-guard.py` exactly, without duplicating their predicates. Mutation boundary: `/opt/aegis-idea3/releases/<release-id>` plus only the parent directories this stage itself creates. It never touches `/opt/aegis-idea3/current` (stages/L7/apply.sh remains its sole owner), credentials, `core.env`, systemd, the Core service, the network, the L6b broker, NTP, Twingate, IDEA1/IDEA2, ESP32 or L8.
+- G-15 fix: `p4-l0-capture.sh` now records `host.path./opt/aegis-idea3`, `host.path./opt/aegis-idea3/releases`, and a new deterministic `host.aegis_idea3.release_catalog` fingerprint: `<id>:<tree-state sha256>` pairs, sorted, comma-joined. The tree-state digest (`p4-l6c-tree-digest.py`) is computed over each release's ACTUAL current filesystem entries — relative path, type, uid, gid, permission bits, and (for regular files) real byte content — never merely over that release's own `RELEASE-SHA256SUMS` claim about itself, so a payload edit, a chmod/chown, a directory-mode change, an added/removed entry, or a planted symlink/special file are all detected even when `RELEASE-SHA256SUMS` itself is untouched. Regular payloads are opened with `O_NOFOLLOW`, their opened inode/metadata must match the preceding `lstat` and stay stable through the read, and the whole tree is rescanned before returning a digest. An observed race fails closed as `UNREADABLE`; without filesystem snapshot support a sufficiently privileged ABA mutation entirely between checks cannot be excluded, so the live contract also requires the root-owned immutable tree to be quiescent during capture. Never file contents, never an individual path, are recorded — only the one final digest per release id. A new opt-in `ALLOW_L6C_RELEASE_FILE` in `p4-compare.sh` approves the addition of exactly one named new release id and can never approve a mutation or removal of an existing one.
+- `p4-l6c-run-lib.sh` + `owner-run/run-l6c-owner.sh`: unpinned template (main SHA, release id, and expected source SHA all pinned when frozen), one attempt per `A-L6c` (`L6C-ATTEMPT-CONSUMED`). Every read-only gate — including the PRE evidence capture and its SHA256 validation — completes before the one-shot authorization is consumed; a failed PRE capture leaves the attempt marker absent, performs no mutation, and preserves evidence. Bounded rollback with zero-drift PRE→RB on any failure after the first mutation; no automatic retry.
+- `p4-l7-install-release.py` never repairs a pre-existing parent directory (`/opt/aegis-idea3`, `/opt/aegis-idea3/releases`): every existing ancestor is validated before mutation (real directory, never a symlink, never group/other-writable), and its uid/gid/mode are preserved; adding a legitimate child may naturally advance the parent's mtime. A parent directory this attempt creates gets the exact reviewed mode (`0o755`).
+- `stages/L6c/rollback.sh` derives its release-guard ownership expectation the same way `verify.sh` does (`any` under a fixture root, `root` by live default) rather than a hard-coded `any`, so a live rollback can never delete a tree whose ownership has drifted away from root.
+- `L6C_RELEASE_INSTALL = PROVEN` is a prerequisite FACT for L7, never an authorization: L7's own `l7_release_gate` independently re-runs the release guard read-only before consuming `A-L7`. L6c PASS does not authorize L7; a fresh `A-L7` and L7 K3 are still required, and neither record can be reused across L6c/L6b/L7 (`p4-stage-gate.sh`'s `stage=` match).
+
 ### L8 handler (ESP32 inspection / NVS provisioning / firmware flash)
 
 - Registered the reviewed L8 stage handler (`stages/L8/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to operational design OD-L8-01 through OD-L8-09.
@@ -470,6 +512,74 @@ PRODUCTION_MUTATION = NO
 PHASE4_RUNTIME_COMPLETE = NO
 PHASE4_LIVE_READINESS = NOT READY
 ```
+
+### L3/L4 post-reboot runtime reactivation (repository implementation, 2026-09-27)
+
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-post-reboot-reactivation-design.md`. `REACTIVATION_TYPE = RUNTIME_ONLY`:
+restores the already accepted persistent L3/L4 configuration to its accepted active runtime state after a reboot. It is **not** an L3/L4
+apply, never rewrites any persistent file, and claims **no** new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE`. `LIVE_REACTIVATION = NOT_AUTHORIZED`;
+`K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`.
+
+- `reactivation/l34/{apply,verify,rollback}.sh` (+ allow files): exact-ID rfkill unblock (`p4-l3-rfkill.sh`), bounded NM readiness and one
+  `ifname`-bound activation (`p4-l3-nm.sh`), Model B regulatory gate (`p4-l3-regulatory.sh`), `reset-failed` + `start` of only
+  `aegis-idea3-dnsmasq.service`. Every change is journaled first; rollback undoes exactly the journal and never recreates the stale
+  `start-limit-hit`. Fresh L2/PF-01/no-NAT/forwarding proof and persistent-file snapshots; nothing in `/etc` is written.
+- `p4-l34-reactivation-lib.sh`: static and runtime gates, one-bounded-attempt marker, receipt gate at the pinned commit, PSK leak scan.
+- `p4-compare.sh` gains the opt-in `ALLOW_DYNAMIC_TRANSITIONS_FILE`: a closed catalog of exact value transitions (dnsmasq
+  `failed/failed/start-limit-hit` -> `active/running/success`, rollback -> `inactive/dead/success`, and the `WIFI` field of `nm.general`).
+  It is off by default, cannot approve anything outside the catalog, and every existing comparison is unchanged.
+- Authorization reuses `AEGIS_P4_AUTHORIZATION_V1` + fresh K3 with `stage=L4` and an exact `L3_L4_RUNTIME_REACTIVATION` scope line.
+- `owner-run/run-l34-reactivation-owner.sh` is an **unpinned template** that refuses to run until the owner freeze workflow pins the merged main.
+
+#### L3/L4 reactivation — live attempt 2 and the V3 preservation model (2026-09-27)
+
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md`. Attempt 2 proved the V2 radio path (apply PASS, verify PASS, AP and
+dnsmasq active) and failed only at preservation: NetworkManager Wi-Fi initialization added the p2p pseudo-device, started `wpa_supplicant`, and moved the
+target phy `00 -> TH` (changing `wifi.phy.sha256`); rollback was safe but not byte-exact. Authorization consumed, no retry.
+
+- `p4-compare.sh` `ALLOW_DYNAMIC_TRANSITIONS_FILE` gains four V3 operations (`L34_V3_POST_FRESH|POST_RESIDUAL|ROLLBACK_FRESH|ROLLBACK_RESIDUAL`) with closed
+  catalogs and value classes (`<absent> <empty> <nonempty> <positive> <sha256>`). wpa_supplicant and the phy digest rules are **relational** (radio transition,
+  active AP, no unrelated Wi-Fi, unit facts, regulatory transition, `wifi.phy.regnorm_sha256` equality, channel 6 permitted). No generic allow key.
+- The capture adds `wifi.phy.regnorm_sha256` and `wifi.phy.channel6_permitted` via `p4-iw-phy-regnorm.awk` (removes only the regulatory annotations of the
+  frequency entries; capabilities, modes, commands and identity still change the digest).
+- `apply.sh` (`AEGIS_L34_PRESERVATION=V3`) classifies the FRESH or RESIDUAL baseline and rejects mixed states; `verify.sh` proves the exact envelope;
+  `rollback.sh` reports `SAFE_NETWORK_BOUNDARY_RESTORED` separately from `EXACT_PRESTATE_RESTORED`. It never stops wpa_supplicant, removes the p2p device,
+  sets the regulatory domain or restarts NetworkManager.
+- The runner template carries the V3 scope (168 chars) and picks its catalogs from the reported baseline; still an unpinned template.
+
+#### L3/L4 reactivation — live attempt 1 failure and NM radio remediation (2026-09-27)
+
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md`. The first live attempt failed closed with
+`NM_WIFI_RADIO_DISABLED` (authorization consumed, rollback PASS, PRE->RB PASS, no retry): the exact rfkill unblock made NetworkManager report
+"Wi-Fi now enabled by radio killswitch" but its own software radio flag stayed off, so the target stayed `unavailable`. No target-scoped NM action
+exists; enabling the radio is a global NM change and a **new owner decision boundary**.
+
+- The global `nmcli radio wifi on` exists only behind `AEGIS_L34_NM_RADIO_ENABLE=YES`, which the runner sets only after verifying the exact V2 scope
+  (`L3_L4_RUNTIME_REACTIVATION_V2: rfkill 1 unblock, temp wlp0s20f3 autoconnect off, NM radio on, activate aegis-idea3-ap, reset-failed+start dnsmasq, no persistent rewrite`, 168 chars). Preflight requires wlp0s20f3 to be the sole Wi-Fi device/wlan
+  rfkill with no active Wi-Fi connection; a runtime `nmcli device set wlp0s20f3 autoconnect no` guard precedes the enable (12 saved Wi-Fi
+  profiles have autoconnect); the PRE autoconnect value is restored; rollback turns the radio off only if this run enabled it.
+- The comparator is unchanged (the exact `nm.general#WIFI disabled -> enabled` rule already exists; the rollback catalog has none).
+- Runner defect fixed: `compare()` had `local ... rc=0 local -a env_allow` (`not a valid identifier` at run time, invisible to `bash -n`); tests now
+  execute the function.
+
+### L6b stage-owned live preparation (owner decisions 2026-09-27)
+
+Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6b-operational-design.md`. Repository preparation only;
+`L6B_LIVE_EXECUTED = NO`, `L6B_LIVE_AUTHORIZED = NO`, `PHASE4_LIVE_READINESS` remains `NOT READY`.
+
+- `stages/L6b/apply.sh` now **owns** installing `/etc/aegis-idea3/mqtt` (six files, root-owned; the files the privilege-dropped broker reads are `root:mosquitto 0640`, certificates `root:root 0644`; hashed passwd only) and the
+  `aegis-idea3-mosquitto.service` unit from a private `AEGIS_L6B_INPUT_DIR` (`ca.crt broker.crt broker.key core.pass device.pass`,
+  no `ca.key`). Plaintext passwords are used transiently by `p4-broker-material.py` and never installed. Every created path is
+  journaled first; pre-state must be absent.
+- `stages/L6b/rollback.sh` removes exactly the journaled stage-owned paths (failure/abort path only; success is **persistent**), then clears failed runtime metadata for `aegis-idea3-mosquitto.service` only (`reset-failed`, after removal + `daemon-reload`) and proves `not-found/inactive/dead/success`.
+- `stages/L6b/verify.sh` adds exact-material checks and a live TLS/auth/ACL/negative probe on `127.0.0.1:8883` and the AP address via
+  `p4-broker-validate.py validate-live` (never starts a broker, never prints secrets).
+- `p4-l0-capture.sh` additionally records `host.path./etc/aegis-idea3/mqtt` and the IDEA3 broker unit file; `stages/L6b/allow-keys.txt`
+  approves exactly those plus the material and service keys (no wildcard). PRE -> RB is compared with no allow files.
+- `p4-l6b-run-lib.sh` (gates: one-attempt marker, receipt gate bound to the pinned commit, uplink resolution, fresh AP/nft/TrustedClock
+  proof, input gate, secret scan) and `owner-run/run-l6b-owner.sh` (an **unpinned template** that refuses to run until the owner freeze
+  workflow pins the merged main SHA and copies it outside the repository).
+- Predecessor L2/L3/L4 runtime is proven fresh and never reactivated by L6b (`PREDECESSOR_RUNTIME_REACTIVATION_REQUIRED=YES`).
 
 ## 9. Stage L1 package installation handler — repository implementation
 
