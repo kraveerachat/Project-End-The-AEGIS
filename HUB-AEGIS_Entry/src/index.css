@@ -1116,3 +1116,21 @@ textarea:focus-visible {
 @media (max-width: 768px) {
   .vault-surface.is-solid { border-radius: 20px; }
 }
+
+/* Human-approved PR220 brand polish only. Handoff/history remain screen-owned. */
+.hub-topbar { gap: .75rem; }
+.hub-brand-lockup { display: flex; align-items: center; gap: .75rem; flex: none; }
+.hub-brand-mark { flex: none; }
+.hub-brand-copy { display: flex; flex-direction: column; gap: .15rem; white-space: nowrap; }
+.hub-wordmark { color: var(--ink); font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+.hub-brand-descriptor { color: var(--ink-2); font-size: .625rem; font-weight: 600; letter-spacing: .08em; line-height: 1.3; }
+/* Reserve copy rows for TH/EN/ZH; language changes must not move the index. */
+.hub-subtitle { line-height: 1.7; min-height: 1.7em; }
+@media (max-width: 1023px) { .hub-subtitle { min-height: 3.4em; } }
+@media (max-width: 639px) {
+  .hub-subtitle { min-height: 5.1em; }
+  .hub-brand-lockup { gap: .5rem; }
+  .hub-brand-mark { width: 32px !important; height: 32px !important; }
+  .hub-wordmark { font-size: 1.125rem; }
+  .hub-brand-descriptor { display: none; }
+}

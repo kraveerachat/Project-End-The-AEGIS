@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import json
+import os
 import queue
+import shutil
 import socket
 import ssl
 import stat
@@ -17,17 +21,60 @@ import paho.mqtt.client as mqtt
 
 LOOPBACK_ADDRESSES = {"127.0.0.1", "::1"}
 PRODUCTION_TLS_PORT = 8883
+BROKER_HOSTNAME = "mqtt.aegis.home.arpa"
+CURRENT_CONNECT_HOST = BROKER_HOSTNAME
+_tls_version_printed = False
+
+
+@contextlib.contextmanager
+def scoped_dns_override(hostname: str, target_ip: str):
+    orig_getaddrinfo = socket.getaddrinfo
+
+    def patched_getaddrinfo(host, port, *args, **kwargs):
+        if host == hostname:
+            return orig_getaddrinfo(target_ip, port, *args, **kwargs)
+        raise socket.gaierror(f"External DNS resolution forbidden during L6a: {host}")
+
+    socket.getaddrinfo = patched_getaddrinfo
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = orig_getaddrinfo
+
+
+def connect_broker(
+    client: mqtt.Client,
+    address: str,
+    port: int,
+) -> None:
+    if CURRENT_CONNECT_HOST == BROKER_HOSTNAME:
+        with scoped_dns_override(BROKER_HOSTNAME, address):
+            client.connect(
+                BROKER_HOSTNAME,
+                port,
+                keepalive=10,
+            )
+    else:
+        client.connect(
+            address,
+            port,
+            keepalive=10,
+        )
 
 
 def read_secret(path: Path) -> str:
+    if path.is_symlink():
+        raise ValueError(f"secret path must not be a symlink: {path}")
+
     metadata = path.stat()
 
     if not stat.S_ISREG(metadata.st_mode):
-        raise ValueError("secret path must be a regular file")
+        raise ValueError(f"secret path must be a regular file: {path}")
 
-    if stat.S_IMODE(metadata.st_mode) & 0o077:
+    mode = stat.S_IMODE(metadata.st_mode)
+    if mode not in (0o600, 0o400):
         raise ValueError(
-            "secret file must not grant group or other permissions"
+            f"secret file mode {oct(mode)} invalid: must be exact mode 0600 or 0400"
         )
 
     value = path.read_text(encoding="utf-8")
@@ -90,6 +137,11 @@ def validate_isolated_listener(
                 "listener port is outside the valid TCP range"
             )
 
+        if port == 1883:
+            raise ValueError(
+                "refusing plaintext MQTT port 1883 during isolated validation"
+            )
+
         if port == PRODUCTION_TLS_PORT:
             raise ValueError(
                 "refusing production MQTT TLS port 8883 during isolated validation"
@@ -137,6 +189,26 @@ def validate_isolated_listener(
 
     if not ca_file.is_absolute():
         ca_file = config.parent / ca_file
+
+    cert_file = Path(directives["certfile"][0][0])
+    if not cert_file.is_absolute():
+        cert_file = config.parent / cert_file
+
+    global CURRENT_CONNECT_HOST
+    CURRENT_CONNECT_HOST = address
+    if cert_file.is_file():
+        try:
+            res = subprocess.run(
+                ["openssl", "x509", "-in", str(cert_file), "-noout", "-ext", "subjectAltName"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if f"DNS:{BROKER_HOSTNAME}" in res.stdout:
+                CURRENT_CONNECT_HOST = BROKER_HOSTNAME
+        except Exception:
+            pass
 
     has_password_file = bool(
         directives.get("password_file")
@@ -206,6 +278,7 @@ def open_identity_client(
         mqtt.CallbackAPIVersion.VERSION2,
         client_id=client_id,
         protocol=mqtt.MQTTv311,
+        reconnect_on_failure=False,
     )
 
     client.on_connect = on_connect
@@ -224,12 +297,7 @@ def open_identity_client(
     loop_started = False
 
     try:
-        client.connect(
-            address,
-            port,
-            keepalive=10,
-        )
-
+        connect_broker(client, address, port)
         client.loop_start()
         loop_started = True
 
@@ -242,6 +310,16 @@ def open_identity_client(
             raise RuntimeError(
                 f"MQTT authentication failed for {username}"
             )
+
+        ssl_sock = client.socket()
+        version = ssl_sock.version() if ssl_sock else None
+        if version not in ("TLSv1.2", "TLSv1.3"):
+            raise RuntimeError(f"Forbidden negotiated TLS version: {version}")
+
+        global _tls_version_printed
+        if not _tls_version_printed:
+            print("TLS_RUNTIME_VERSION=PASS")
+            _tls_version_printed = True
 
         return client
 
@@ -638,11 +716,7 @@ def validate_anonymous_rejected(
     loop_started = False
 
     try:
-        client.connect(
-            address,
-            port,
-            keepalive=10,
-        )
+        connect_broker(client, address, port)
         client.loop_start()
         loop_started = True
 
@@ -742,11 +816,7 @@ def validate_retained_rejected(
     loop_started = False
 
     try:
-        client.connect(
-            address,
-            port,
-            keepalive=10,
-        )
+        connect_broker(client, address, port)
         client.loop_start()
         loop_started = True
 
@@ -798,6 +868,83 @@ def validate_retained_rejected(
             client.loop_stop()
 
 
+def validate_wrong_password_rejected(
+    address: str,
+    port: int,
+    ca_file: Path,
+    username: str,
+    wrong_password: str,
+    token: str,
+) -> None:
+    connected = threading.Event()
+    state: dict[str, int] = {}
+
+    def on_connect(
+        client,
+        userdata,
+        flags,
+        reason_code,
+        properties=None,
+    ) -> None:
+        del client
+        del userdata
+        del flags
+        del properties
+
+        value = getattr(
+            reason_code,
+            "value",
+            reason_code,
+        )
+        state["reason_code"] = int(value)
+        connected.set()
+
+    client = mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION2,
+        client_id=f"aegis-pr11-wrong-pw-{username}",
+        protocol=mqtt.MQTTv5,
+        reconnect_on_failure=False,
+    )
+    client.on_connect = on_connect
+    client.username_pw_set(
+        username,
+        wrong_password,
+    )
+    client.tls_set(
+        ca_certs=str(ca_file),
+        cert_reqs=ssl.CERT_REQUIRED,
+    )
+    client.tls_insecure_set(False)
+
+    loop_started = False
+
+    try:
+        connect_broker(client, address, port)
+        client.loop_start()
+        loop_started = True
+
+        if not connected.wait(timeout=5):
+            raise RuntimeError(
+                f"wrong-password authentication probe for {username} timed out"
+            )
+
+        if state.get("reason_code") == 0:
+            raise RuntimeError(
+                f"wrong-password authentication probe unexpectedly succeeded for {username}"
+            )
+
+        print(token)
+
+    finally:
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+
+        if loop_started:
+            client.loop_stop()
+
+
 def validate_negative_security(
     address: str,
     port: int,
@@ -811,6 +958,24 @@ def validate_negative_security(
         ca_file,
     )
 
+    validate_wrong_password_rejected(
+        address,
+        port,
+        ca_file,
+        "idea3-core",
+        "canary-wrong-core-password-12345",
+        "WRONG_CORE_PASSWORD_REJECTED=PASS",
+    )
+
+    validate_wrong_password_rejected(
+        address,
+        port,
+        ca_file,
+        f"idea3-dev-{device_id}",
+        "canary-wrong-device-password-12345",
+        "WRONG_DEVICE_PASSWORD_REJECTED=PASS",
+    )
+
     validate_retained_rejected(
         address,
         port,
@@ -822,6 +987,45 @@ def validate_negative_security(
 
     print("NEGATIVE_SECURITY=PASS")
 
+def write_broker_process_metadata(
+    state_dir: Path,
+    pid: int,
+    config_path: Path,
+) -> None:
+    boot_id = ""
+    boot_id_file = Path("/proc/sys/kernel/random/boot_id")
+    if boot_id_file.is_file():
+        try:
+            boot_id = boot_id_file.read_text(encoding="utf-8").strip()
+        except Exception:
+            pass
+
+    start_time = ""
+    stat_file = Path(f"/proc/{pid}/stat")
+    if stat_file.is_file():
+        try:
+            content = stat_file.read_text(encoding="utf-8")
+            after_comm = content.split(")")[-1].split()
+            start_time = after_comm[19]
+        except Exception:
+            pass
+
+    executable = shutil.which("mosquitto") or "/usr/sbin/mosquitto"
+
+    metadata = {
+        "pid": pid,
+        "start_time": start_time,
+        "boot_id": boot_id,
+        "config_path": str(config_path.resolve()),
+        "executable": executable,
+    }
+
+    state_dir.mkdir(parents=True, exist_ok=True)
+    process_file = state_dir / "broker-process.json"
+    process_file.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    os.chmod(process_file, 0o600)
+
+
 def run_isolated_broker(
     config: Path,
     address: str,
@@ -831,6 +1035,7 @@ def run_isolated_broker(
     device_password_file: Path,
     device_id: str,
     authenticate: bool,
+    state_dir: Path | None = None,
 ) -> None:
     process = subprocess.Popen(
         [
@@ -842,6 +1047,9 @@ def run_isolated_broker(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+    if state_dir is not None:
+        write_broker_process_metadata(state_dir, process.pid, config)
 
     started = False
 
@@ -936,6 +1144,72 @@ def run_isolated_broker(
                 )
 
 
+def select_connect_host(cert_file: Path, address: str) -> str:
+    """Hostname to dial: the pinned broker DNS name when the certificate carries it, else the raw address."""
+    if cert_file.is_file():
+        try:
+            res = subprocess.run(
+                ["openssl", "x509", "-in", str(cert_file), "-noout", "-ext", "subjectAltName"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if f"DNS:{BROKER_HOSTNAME}" in res.stdout:
+                return BROKER_HOSTNAME
+        except Exception:
+            pass
+    return address
+
+
+def validate_live_broker(
+    addresses: list[str],
+    port: int,
+    ca_file: Path,
+    cert_file: Path,
+    core_password_file: Path,
+    device_password_file: Path,
+    device_id: str,
+) -> None:
+    """L6b: client-side TLS/auth/ACL/negative proof against an ALREADY RUNNING broker.
+
+    Never starts, stops or reconfigures a broker. Every address gets the full identity, ACL and
+    negative-security matrix. Passwords are read from private files and never printed.
+    """
+    global CURRENT_CONNECT_HOST
+
+    if port == 1883:
+        raise ValueError("refusing plaintext MQTT port 1883 for live validation")
+    if not addresses:
+        raise ValueError("at least one --address is required")
+    if len(set(addresses)) != len(addresses):
+        raise ValueError("duplicate --address values")
+
+    read_secret(core_password_file)
+    read_secret(device_password_file)
+
+    for address in addresses:
+        CURRENT_CONNECT_HOST = select_connect_host(cert_file, address)
+        print(f"LIVE_LISTENER_CHECK={address}:{port}")
+
+        authenticate_identity(
+            address, port, ca_file, "idea3-core", core_password_file,
+            "aegis-pr11-live-core", "CORE_AUTH=PASS",
+        )
+        authenticate_identity(
+            address, port, ca_file, f"idea3-dev-{device_id}", device_password_file,
+            "aegis-pr11-live-device", "DEVICE_AUTH=PASS",
+        )
+        validate_acl_matrix(
+            address, port, ca_file, core_password_file, device_password_file, device_id,
+        )
+        validate_negative_security(
+            address, port, ca_file, core_password_file, device_id,
+        )
+
+    print(f"LIVE_VALIDATION=PASS addresses={len(addresses)}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="AEGIS IDEA3 PR11 isolated MQTT broker validator"
@@ -969,11 +1243,44 @@ def main() -> int:
         "--device-id",
         required=True,
     )
+    validate.add_argument(
+        "--state-dir",
+        type=Path,
+        default=None,
+        help="Optional directory to record broker process metadata",
+    )
+
+    validate_live = subparsers.add_parser(
+        "validate-live",
+        help="L6b: client-side proof against an already running broker",
+    )
+    validate_live.add_argument("--ca-file", type=Path, required=True)
+    validate_live.add_argument("--cert-file", type=Path, required=True)
+    validate_live.add_argument("--core-password-file", type=Path, required=True)
+    validate_live.add_argument("--device-password-file", type=Path, required=True)
+    validate_live.add_argument("--device-id", required=True)
+    validate_live.add_argument("--address", action="append", required=True)
+    validate_live.add_argument("--port", type=int, default=PRODUCTION_TLS_PORT)
 
     args = parser.parse_args()
 
     try:
+        if args.command == "validate-live":
+            validate_live_broker(
+                args.address,
+                args.port,
+                args.ca_file,
+                args.cert_file,
+                args.core_password_file,
+                args.device_password_file,
+                args.device_id,
+            )
+            return 0
+
         if args.command == "validate":
+            read_secret(args.core_password_file)
+            read_secret(args.device_password_file)
+
             (
                 address,
                 port,
@@ -992,6 +1299,7 @@ def main() -> int:
                 args.device_password_file,
                 args.device_id,
                 has_password_file,
+                state_dir=args.state_dir,
             )
 
             return 0

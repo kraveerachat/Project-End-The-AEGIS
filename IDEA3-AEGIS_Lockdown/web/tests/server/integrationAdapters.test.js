@@ -26,8 +26,14 @@ function jsonResponse(body, { ok = true, redirected = false } = {}) {
   return { ok, redirected, status: ok ? 200 : 500, text: async () => (typeof body === 'string' ? body : JSON.stringify(body)) }
 }
 
-function envelope(events, generatedAt = '2026-09-08T08:00:00.000Z') {
-  return { schema_version: 1, generated_at: generatedAt, events }
+// `status` defaults to a healthy producer report so every pre-existing fixture
+// (written before the status contract existed) keeps representing "a normal,
+// fully-functioning upstream" rather than silently becoming an untested
+// producer-never-reported-status case. Pass `null` explicitly to build an
+// envelope with NO status field at all (the real omitted-status scenario).
+function envelope(events, generatedAt = '2026-09-08T08:00:00.000Z', status = { ok: true }) {
+  const base = { schema_version: 1, generated_at: generatedAt, events }
+  return status === null ? base : { ...base, status }
 }
 
 function rawEvent(source, overrides = {}) {
@@ -121,6 +127,13 @@ describe('read-only IDEA1 and IDEA2 adapters', () => {
       events: [expect.objectContaining({ source: 'IDEA1', event_id: 'idea1-event-1', freshness: 'FRESH', dedup_count: 1 })],
       rejectedCount: 0,
       conflicts: [],
+      // envelope()'s default status ({ ok: true }) represents a normal,
+      // fully-functioning upstream — this test predates the status contract
+      // and isn't testing it, so it keeps that default rather than the real
+      // "producer never reported status" case (see the dedicated describe
+      // block below for that).
+      serviceOk: true,
+      serviceDetail: null,
     })
   })
 
@@ -222,5 +235,68 @@ describe('read-only IDEA1 and IDEA2 adapters', () => {
     const result = await fetchIdea2Events({ config: adapterConfig, clock, fetchImpl })
 
     expect(result).toEqual(expect.objectContaining({ source: 'IDEA2', status: 'UNKNOWN', code, events: [], generatedAt: null }))
+  })
+
+  describe('optional producer-reported service status (IDEA3 PR11 finding 3)', () => {
+    it('is null when the producer has not reported it — never assumed healthy', async () => {
+      const result = await fetchIdea1Events({
+        config: adapterConfig, clock, fetchImpl: async () => jsonResponse(envelope([], undefined, null)),
+      })
+
+      expect(result.serviceOk).toBeNull()
+      expect(result.serviceDetail).toBeNull()
+    })
+
+    it('carries IDEA1 daemon/db health through when the producer reports ok:true', async () => {
+      const result = await fetchIdea1Events({
+        config: adapterConfig,
+        clock,
+        fetchImpl: async () => jsonResponse(envelope([], '2026-09-08T08:00:00.000Z', { ok: true, detail: { db: 'postgres' } })),
+      })
+
+      expect(result.serviceOk).toBe(true)
+      expect(result.serviceDetail).toEqual({ db: 'postgres' })
+    })
+
+    it('carries IDEA2 detector status through when the producer reports ok:false', async () => {
+      const result = await fetchIdea2Events({
+        config: adapterConfig,
+        clock,
+        fetchImpl: async () => jsonResponse(envelope([], '2026-09-08T08:00:00.000Z', {
+          ok: false,
+          detail: { db: 'postgres', detector: 'lost', detectorAgeMs: 999_000, detectorCameras: 4 },
+        })),
+      })
+
+      expect(result.serviceOk).toBe(false)
+      expect(result.serviceDetail).toEqual({ db: 'postgres', detector: 'lost', detectorAgeMs: 999_000, detectorCameras: 4 })
+    })
+
+    it.each([
+      ['ok is a string instead of boolean', { ok: 'yes' }],
+      ['detail contains a nested object (not a shallow primitive)', { ok: true, detail: { nested: { a: 1 } } }],
+      ['detail contains an array', { ok: true, detail: { list: [1, 2, 3] } }],
+    ])('malformed status (%s) fails the whole envelope closed, not just the status field', async (_case, status) => {
+      const result = await fetchIdea1Events({
+        config: adapterConfig, clock, fetchImpl: async () => jsonResponse(envelope([rawEvent('IDEA1')], '2026-09-08T08:00:00.000Z', status)),
+      })
+
+      expect(result).toEqual(expect.objectContaining({
+        status: 'UNKNOWN', code: 'ADAPTER_RESPONSE_REJECTED', events: [], serviceOk: null, serviceDetail: null,
+      }))
+    })
+
+    it('never leaks credentials, session artifacts, or free text through the detail allowlist', async () => {
+      const result = await fetchIdea2Events({
+        config: adapterConfig,
+        clock,
+        fetchImpl: async () => jsonResponse(envelope([], '2026-09-08T08:00:00.000Z', {
+          ok: true,
+          detail: { db: 'postgres', detector: 'online', detectorAgeMs: 1000, detectorCameras: 3 },
+        })),
+      })
+
+      expect(JSON.stringify(result)).not.toMatch(/password|token|cookie|session|secret/i)
+    })
   })
 })

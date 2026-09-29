@@ -149,7 +149,11 @@ test('AUTOLOCK-5 migration 008 replaces the CHECK without touching the column', 
   // what 007 did (`ALTER TABLE ... ADD COLUMN`) and what this migration
   // deliberately avoids, so a comment must never be able to pass or fail a
   // "does this migration rewrite the column?" check.
-  const stripComments = (text) => text.split('\n').map((line) => line.replace(/--.*$/, '')).join('\n')
+  // ⚠️ CRLF: เช็คเอาต์บน Windows (core.autocrlf) ทำให้ไฟล์ .sql จบด้วย \r — JS regex
+  //    `.` ไม่ match \r และ `$` (ไม่มี flag m) ไม่ match ก่อน \r สาย strip จึงพลาดทุกบรรทัด
+  //    และหัวคอมเมนต์ (ที่อธิบาย ADD COLUMN ของ 007) หลุดเข้า ddl ตามจริง
+  //    (รูปแบบเดียวกับ vaultTreePostgres.test.js ที่ normalize \r\n ไว้ก่อนแล้ว)
+  const stripComments = (text) => text.split(/\r?\n/).map((line) => line.replace(/--.*$/, '')).join('\n')
   const ddl = stripComments(sql)
 
   assert.match(ddl, /BEGIN;/)

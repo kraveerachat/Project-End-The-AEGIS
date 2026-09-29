@@ -8,6 +8,7 @@
 #   2026-09-17-idea3-pr11-phase4-runtime-prerequisites.md (§6 G-15, §9–§12)
 # Regression tests: IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_harness.py
 
+export LC_ALL=C
 readonly P4_SCHEMA=1
 readonly P4_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -15,13 +16,13 @@ readonly P4_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # capture leaves it unset. When set, every capture records
 # meta.evidence_class=TEST_FIXTURE, so the result can never be mistaken for
 # Core evidence.
-readonly P4_FS_ROOT="${AEGIS_P4_FS_ROOT:-}"
+readonly P4_FS_ROOT="${AEGIS_P4_FS_ROOT:-${P4_FS_ROOT:-}}"
 
 # The owner's window calendar day (execution document §8, §12: same-day records).
 readonly P4_WINDOW_TZ=Asia/Bangkok
 
 # ── stages (execution document §9, §12) ──────────────────────────────────────
-readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L7 L8 L9"
+readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L8 L9"
 
 p4_stage_known() { [[ " $P4_STAGES " == *" $1 "* ]] && [ -n "$1" ]; }
 
@@ -40,6 +41,9 @@ p4_stage_gaps() {
     L5) echo G-05,G-15 ;;
     L6a) echo G-07,G-08,G-09,G-10,G-14,G-15 ;;
     L6b) echo G-07,G-15 ;;
+    # L6c installs one already-built, already-reviewed immutable release only: no protocol-key generation (G-11) or Core
+    # credential/LoadCredential wiring (G-12) applies, because it never provisions a key or a credential.
+    L6c) echo none ;;
     L7) echo G-11,G-12 ;;
     L8) echo G-04,G-11,G-16 ;;
     L9) echo none ;;
@@ -73,7 +77,9 @@ p4_stage_auth_extra() {
 # rollback.sh must be idempotent, must only undo its own stage, and must never
 # delete an entire firewall ruleset, send RESTORE, reopen plaintext MQTT as a
 # fallback, or change IDEA1/IDEA2 state.
-readonly P4_HANDLER_DIR="$P4_HERE/stages"
+# AEGIS_P4_HANDLER_DIR is a TEST-ONLY override for testing missing/unregistered
+# stage handler directory branches in test fixtures. A real run leaves it unset.
+readonly P4_HANDLER_DIR="${AEGIS_P4_HANDLER_DIR:-$P4_HERE/stages}"
 readonly P4_HANDLER_FILES="apply.sh verify.sh rollback.sh allow-keys.txt allow-listeners.txt"
 
 p4_stage_handler_status() {
@@ -98,8 +104,18 @@ p4_log() {
 # single spaces) must match one of these anchored patterns, or the command is
 # refused with status 126 and never executed. There is deliberately no pattern
 # for any change verb.
+# Safe absolute filesystem path: starts with '/', allows ordinary spaces and
+# standard path characters. Rejects newline, CR, tab, escape, or any control
+# bytes (0x01-0x1F, 0x7F).
+p4_is_safe_fs_path() {
+  local p="$1"
+  [ -n "$p" ] || return 1
+  [[ "$p" == *$'\n'* || "$p" == *$'\r'* || "$p" == *$'\t'* || "$p" =~ [$'\x01'-$'\x1f'$'\x7f'] ]] && return 1
+  [[ "$p" =~ ^/[A-Za-z0-9@._+:\ /-]+$ ]] || return 1
+  return 0
+}
+
 readonly P4_P='[A-Za-z0-9@._-]+'
-readonly P4_PATH='/[A-Za-z0-9@._+:/-]*'
 P4_RO_ALLOW=(
   "^ip -br (addr|link) show$"
   "^ip -[46] (route|rule) show$"
@@ -111,18 +127,63 @@ P4_RO_ALLOW=(
   "^timedatectl (show|show-timesync)( -p [A-Za-z]+)+$"
   "^chronyc -n tracking$"
   "^ss -H (-ltnu|-tn state established)$"
-  "^systemctl show( -p [A-Za-z]+)+ ${P4_P}\.service$"
+  "^systemctl show( -p [A-Za-z]+)+ ${P4_P}\.(service|socket)$"
   "^journalctl -u ${P4_P}\.service --since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC --no-pager -o cat$"
   "^df -P -k /[a-z]*$"
   "^hostnamectl --static$"
   "^uname -r$"
   "^twingate status$"
-  "^find ${P4_PATH} -xdev -type f$"
-  "^stat -c %a:%u:%g:%s:%Y -- ${P4_PATH}$"
-  "^sha256sum -- ${P4_PATH}$"
 )
 
 p4_ro_allowed() {
+  case "${1:-}" in
+    stat)
+      [ $# -eq 5 ] || return 1
+      [ "$2" = "-c" ] || return 1
+      [ "$3" = "%a:%u:%g:%s:%Y" ] || return 1
+      [ "$4" = "--" ] || return 1
+      p4_is_safe_fs_path "$5" || return 1
+      return 0
+      ;;
+    sha256sum)
+      [ $# -eq 3 ] || return 1
+      [ "$2" = "--" ] || return 1
+      p4_is_safe_fs_path "$3" || return 1
+      return 0
+      ;;
+    readlink)
+      if [ $# -eq 3 ]; then
+        [ "$2" = "--" ] || return 1
+        p4_is_safe_fs_path "$3" || return 1
+        return 0
+      elif [ $# -eq 4 ]; then
+        [ "$2" = "-f" ] || return 1
+        [ "$3" = "--" ] || return 1
+        p4_is_safe_fs_path "$4" || return 1
+        return 0
+      fi
+      return 1
+      ;;
+    python3)
+      # Exactly two read-only helper invocations, each shipped beside this library: the L5 trusted-time state
+      # helper, and the L6c release-catalog tree-state digest helper (one release directory argument only).
+      if [ $# -eq 3 ] && [ "$2" = "$P4_HERE/p4-l5-clock.py" ] && [ "$3" = state ]; then return 0; fi
+      if [ $# -eq 3 ] && [ "$2" = "$P4_HERE/p4-l6c-tree-digest.py" ] && p4_is_safe_fs_path "$3"; then return 0; fi
+      return 1
+      ;;
+    find)
+      p4_is_safe_fs_path "${2:-}" || return 1
+      if [ $# -eq 5 ] && [ "$3" = "-xdev" ] && [ "$4" = "-type" ] && [ "$5" = "f" ]; then
+        return 0
+      fi
+      # L6c release-catalog capture: list only the immediate (depth-1) subdirectories of a known releases directory.
+      if [ $# -eq 8 ] && [ "$3" = "-mindepth" ] && [ "$4" = "1" ] && [ "$5" = "-maxdepth" ] && [ "$6" = "1" ]         && [ "$7" = "-type" ] && [ "$8" = "d" ]; then
+        return 0
+      fi
+      return 1
+      ;;
+  esac
+
   local argv="$*" re
   for re in "${P4_RO_ALLOW[@]}"; do
     [[ "$argv" =~ $re ]] && return 0

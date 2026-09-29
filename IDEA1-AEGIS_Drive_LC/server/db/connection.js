@@ -580,6 +580,7 @@ export function sha256Hex(text) {
 // ── Audit — เขียนฝั่งเซิร์ฟเวอร์เท่านั้น ─────────────────────────────────
 // dev fallback เก็บในหน่วยความจำ (วนทับที่ 500 แถว) เพื่อให้หน้า Audit เดโม่ได้
 const memAudit = []
+let memAuditNextId = 1
 
 /**
  * บันทึกเหตุการณ์ลง audit log
@@ -612,7 +613,9 @@ export async function recordAudit(e) {
     }
     return
   }
-  memAudit.unshift(row)
+  // id เพิ่มทีละหนึ่ง เพื่อให้ event_id ที่สร้างจาก id นี้ (ดู readIntegrationSecurityEvents)
+  // คงที่ตราบเท่าที่แถวยังไม่ถูกวนทับออกจากบัฟเฟอร์ 500 แถว
+  memAudit.unshift({ ...row, id: memAuditNextId++ })
   if (memAudit.length > 500) memAudit.pop()
 }
 
@@ -627,6 +630,28 @@ export async function readAudit(limit = 100) {
     return rows
   }
   return memAudit.slice(0, limit)
+}
+
+/**
+ * อ่านเหตุการณ์ความปลอดภัย (DENIED/BLOCKED เท่านั้น) แบบจำกัดจำนวน — ใช้โดย
+ * GET /api/integration/events (credential เฉพาะทางของ IDEA3 เท่านั้น ไม่ใช่ Admin session)
+ * ⚠️ Privacy-safe โดยเจตนา: ไม่ส่ง actor_label/role/target_hash ออกนอกระบบ — ผู้บริโภค
+ *    ภายนอกเห็นแค่ "มีเหตุการณ์ถูกปฏิเสธ/บล็อกเมื่อไร ผลลัพธ์อะไร" พอสำหรับ correlation
+ */
+export async function readIntegrationSecurityEvents({ limit = 200 } = {}) {
+  const bounded = Math.min(200, Math.max(1, Number(limit) || 200))
+  if (pool) {
+    const { rows } = await pool.query(
+      `SELECT id, at, result FROM audit_log
+        WHERE result <> 'OK' ORDER BY at DESC LIMIT $1`,
+      [bounded],
+    )
+    return rows.map((r) => ({ id: String(r.id), at: r.at, result: r.result }))
+  }
+  return memAudit
+    .filter((row) => row.result !== 'OK')
+    .slice(0, bounded)
+    .map((row) => ({ id: String(row.id), at: row.at, result: row.result }))
 }
 
 /**

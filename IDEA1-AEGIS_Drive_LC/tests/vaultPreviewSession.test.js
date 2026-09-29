@@ -6,6 +6,7 @@
 //    ทั้งที่ผู้ใช้กดปิดหรือกดล็อกไปแล้ว
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
 
 import {
   supportsLargeVideoPreview, newPreviewToken, previewUrlFor, previewWorkerUrl,
@@ -82,6 +83,31 @@ test('ที่อยู่สคริปต์ worker ต่างกันร
   assert.equal(previewWorkerUrl('/drive/', true), '/drive/src/vaultPreviewServiceWorker.js')
   // ⚠️ ต้องอยู่ที่รากของ base: ขอบเขตของ Service Worker คือไดเรกทอรีของสคริปต์มันเอง
   assert.equal(previewWorkerUrl('/drive/', false).endsWith('/vault-preview-sw.js'), true)
+})
+
+test('dev and production register the preview worker with the application base scope', async () => {
+  const w = fakeWorker()
+  let registered = null
+  const container = {
+    controller: w.controller,
+    register: async (...args) => { registered = args; return {} },
+  }
+  const result = await ensurePreviewWorkerResult({
+    scope: scopeWith(container),
+    scriptUrl: '/drive/src/vaultPreviewServiceWorker.js',
+    scopeUrl: '/drive/',
+  })
+  assert.equal(result.ok, true)
+  assert.deepEqual(registered, [
+    '/drive/src/vaultPreviewServiceWorker.js',
+    { type: 'module', scope: '/drive/' },
+  ])
+})
+
+test('the dev server grants only the preview worker permission to control the application base', async () => {
+  const source = await fs.readFile(new URL('../vite.config.js', import.meta.url), 'utf8')
+  assert.match(source, /Service-Worker-Allowed/)
+  assert.match(source, /vaultPreviewServiceWorker\.js/)
 })
 
 // ── การสื่อสารกับ worker ──────────────────────────────────────────────────

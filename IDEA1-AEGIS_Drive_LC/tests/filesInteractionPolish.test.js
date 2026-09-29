@@ -24,6 +24,7 @@ const t = makeT('en')
 let vite
 let files
 let view
+let workspaceMarquee
 
 before(async () => {
   vite = await createServer({
@@ -32,6 +33,7 @@ before(async () => {
   })
   files = await vite.ssrLoadModule('/src/screens/Files.jsx')
   view = await vite.ssrLoadModule('/src/lib/filesView.js')
+  workspaceMarquee = await vite.ssrLoadModule('/src/components/WorkspaceMarquee.jsx')
 })
 after(async () => { await vite?.close() })
 
@@ -304,7 +306,7 @@ test('R9-MARQUEE-8 · Escape cancels an active marquee and restores the pre-drag
   } finally { await m.unmount() }
 })
 
-test('R9-MARQUEE-9 · pointer up clears the rectangle but the selection persists', async () => {
+test('R9-MARQUEE-9 · blank primary click clears selection; Ctrl/Cmd blank click preserves it', async () => {
   const m = await mountRoot()
   try {
     const s = await marqueeScene(m)
@@ -314,11 +316,21 @@ test('R9-MARQUEE-9 · pointer up clears the rectangle but the selection persists
     assert.equal(s.rect(), null)
     assert.deepEqual([...s.selected].sort(), ['f2', 'f3'])
     assert.deepEqual(checkedIds().sort(), ['f2', 'f3'])
-    // ลาก "ศูนย์" (คลิกเฉย ๆ บนพื้นที่ว่าง) ไม่เปลี่ยนการเลือก
+    // blank primary click below the drag threshold clears selection
     await m.pointer(s.canvas(), 'pointerdown', { clientX: 900, clientY: 700 })
     await m.pointer(window, 'pointerup', { clientX: 900, clientY: 700 })
-    assert.deepEqual([...s.selected].sort(), ['f2', 'f3'])
+    assert.deepEqual([...s.selected], [])
   } finally { await m.unmount() }
+
+  for (const modifier of [{ ctrlKey: true }, { metaKey: true }]) {
+    const m = await mountRoot()
+    try {
+      const s = await marqueeScene(m, { initial: ['d1'] })
+      await m.pointer(s.canvas(), 'pointerdown', { clientX: 900, clientY: 700, ...modifier })
+      await m.pointer(window, 'pointerup', { clientX: 900, clientY: 700, ...modifier })
+      assert.deepEqual([...s.selected], ['d1'], JSON.stringify(modifier))
+    } finally { await m.unmount() }
+  }
 })
 
 test('R9-MARQUEE-10 · unmounting mid-drag removes every window listener the marquee added', async () => {
@@ -341,6 +353,48 @@ test('R9-MARQUEE-10 · unmounting mid-drag removes every window listener the mar
     m.W.addEventListener = origAdd; m.W.removeEventListener = origRemove
     m.env.restore()
     m.unmount = async () => {}
+  } finally { await m.unmount() }
+})
+
+test('SHARED-FILES-SURFACE left/right/bottom App whitespace owns Files marquee geometry and blank clear', async () => {
+  const m = await mountRoot()
+  try {
+    // the same WorkspaceMarqueeSurface App renders as its full main pane (App-level
+    // geometry is proven in tests/workspaceMarqueeApp.test.js)
+    function SharedFilesHarness() {
+      const [selected, setSelected] = React.useState(() => new Set(['d1']))
+      return React.createElement(workspaceMarquee.WorkspaceMarqueeSurface, { 'data-testid': 'shared-files-surface' },
+        React.createElement('output', { 'data-testid': 'shared-files-selection' }, [...selected].sort().join(',')),
+        sections({ folders: [folderItem()], files: [image()], selectedIds: selected, onSelectionChange: setSelected }))
+    }
+
+    await m.render(React.createElement(SharedFilesHarness))
+    layout({
+      '[data-testid="shared-files-surface"]': { x: 0, y: 0, w: 1600, h: 1000 },
+      '[data-file-id="d1"]': { x: 300, y: 180, w: 220, h: 60 },
+      '[data-file-id="img1"]': { x: 300, y: 340, w: 220, h: 180 },
+    })
+    const surface = document.querySelector('[data-testid="shared-files-surface"]')
+
+    await m.pointer(surface, 'pointerdown', { clientX: 40, clientY: 100 })
+    await m.pointer(window, 'pointermove', { clientX: 400, clientY: 400 })
+    assert.ok(document.querySelector('[data-marquee-rect]'), 'left gutter starts the shared marquee')
+    assert.equal(document.querySelector('[data-testid="shared-files-selection"]').textContent, 'd1,img1')
+    await m.pointer(window, 'pointerup', { clientX: 400, clientY: 400 })
+
+    await m.pointer(surface, 'pointerdown', { clientX: 1550, clientY: 300 })
+    await m.pointer(window, 'pointermove', { clientX: 1540, clientY: 320 })
+    assert.ok(document.querySelector('[data-marquee-rect]'), 'right gutter starts immediately')
+    await m.pointer(window, 'pointerup', { clientX: 1540, clientY: 320 })
+
+    await m.pointer(surface, 'pointerdown', { clientX: 900, clientY: 900 })
+    await m.pointer(window, 'pointermove', { clientX: 920, clientY: 920 })
+    assert.ok(document.querySelector('[data-marquee-rect]'), 'bottom whitespace starts immediately')
+    await m.pointer(window, 'pointerup', { clientX: 920, clientY: 920 })
+
+    await m.pointer(surface, 'pointerdown', { clientX: 1200, clientY: 700 })
+    await m.pointer(window, 'pointerup', { clientX: 1200, clientY: 700 })
+    assert.equal(document.querySelector('[data-testid="shared-files-selection"]').textContent, '', 'blank primary click clears selection')
   } finally { await m.unmount() }
 })
 
@@ -586,6 +640,53 @@ test('R9-SORT-12 · every sort label exists in en/th/zh and the grid exposes all
   for (const key of keys) assert.notEqual(STRINGS.en[key], 'Name')
   assert.match(STRINGS.en[view.SORT_LABEL_KEYS['uploaded-desc']], /Upload/i)
   assert.match(STRINGS.en[view.SORT_LABEL_KEYS['size-asc']], /Small/i)
+})
+
+test('HIST-02/03/05 Files folders push browser history and popstate restores the previous folder', async () => {
+  const m = await mountRoot()
+  try {
+    const folder = folderItem({ id: 'folder-a', name: 'Client Plans' })
+    const rootFile = fileItem({ id: 'root-file', name: 'root.pdf' })
+    const child = fileItem({ id: 'child-file', name: 'child.pdf' })
+    const json = (body) => ({ ok: true, status: 200, json: async () => body, headers: new Map() })
+    m.W.history.replaceState({ screen: 'files' }, '', '/drive/files')
+    m.W.fetch = async (url) => String(url).includes('parentId=folder-a')
+      ? json({ files: [child], ancestors: [{ id: 'folder-a', name: 'Client Plans' }] })
+      : json({ files: [folder, rootFile], ancestors: [] })
+    globalThis.fetch = m.W.fetch
+
+    await m.render(React.createElement(files.Files, { t, lang: 'en', go: noop, userId: '2' }))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)) })
+    const rootState = m.W.history.state
+    await m.mouse(document.querySelector('[data-file-id="folder-a"]'), 'click')
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)) })
+    assert.ok(document.querySelector('[data-file-id="child-file"]'))
+    assert.ok(JSON.stringify(m.W.history.state).includes('folder-a'))
+    assert.equal(m.W.location.href.includes('Client'), false, 'folder names never enter the URL')
+
+    await act(async () => m.W.dispatchEvent(new m.W.PopStateEvent('popstate', { state: rootState })))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)) })
+    assert.ok(document.querySelector('[data-file-id="root-file"]'), 'back restores the previous folder dataset')
+  } finally { await m.unmount() }
+})
+
+test('HIST-06 a stale Files folder history entry falls back to root without crashing', async () => {
+  const m = await mountRoot()
+  try {
+    const { folderHistoryState } = await import('../src/lib/folderHistory.js')
+    const rootFile = fileItem({ id: 'safe-root', name: 'safe.pdf' })
+    const response = (status, body) => ({ ok: status < 400, status, json: async () => body, headers: new Map() })
+    m.W.history.replaceState(folderHistoryState('files', 'deleted-folder', { screen: 'files' }), '', '/drive/files')
+    m.W.fetch = async (url) => String(url).includes('parentId=deleted-folder')
+      ? response(404, { error: 'not found' })
+      : response(200, { files: [rootFile], ancestors: [] })
+    globalThis.fetch = m.W.fetch
+
+    await m.render(React.createElement(files.Files, { t, lang: 'en', go: noop, userId: '2' }))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+    assert.ok(document.querySelector('[data-file-id="safe-root"]'), 'root content replaces the stale folder')
+    assert.equal(JSON.stringify(m.W.history.state).includes('deleted-folder'), false, 'the invalid entry is replaced')
+  } finally { await m.unmount() }
 })
 /* ══ Round 9 · review correction 1 ═════════════════════════════════════════ */
 

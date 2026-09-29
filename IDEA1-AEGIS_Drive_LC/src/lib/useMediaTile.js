@@ -61,6 +61,14 @@ export function useMediaTile({ file, scheduler, hover = null }) {
         return d.promise
       },
     })
+    // When IntersectionObserver is unavailable the scheduler deliberately
+    // classifies registered tiles as visible. Read that synchronous fallback
+    // back after registration as well as listening to onBand: some React/browser
+    // combinations batch the callback fired during the passive effect itself.
+    const initialBand = scheduler.bandOf?.(key)
+    if (initialBand === 'visible' || initialBand === 'near') {
+      dispatch({ type: 'VISIBILITY', band: initialBand })
+    }
     return () => { unregister(); posterWait.current?.resolve('unmounted'); motionWait.current?.resolve('unmounted') }
     // reducedMotion ถูกส่งต่อผ่าน setMeta — ไม่ต้องลงทะเบียนใหม่
   }, [key, scheduler]) // eslint-disable-line react-hooks/exhaustive-deps

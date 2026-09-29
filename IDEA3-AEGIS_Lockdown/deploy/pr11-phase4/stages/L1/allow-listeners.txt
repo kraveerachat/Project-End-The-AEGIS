@@ -1,0 +1,4 @@
+# AEGIS IDEA3 PR11 Phase 4 — L1 allow-listeners.txt
+# Stage L1 installs packages only.
+# No service is started and no listening socket may be opened.
+# Exactly 0 active listeners permitted by contract (OD-L1-07).

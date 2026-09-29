@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   LayoutGrid, List, Upload, FolderPlus, MoreHorizontal, Shield, Database, X as XIcon,
   FileText, FileSpreadsheet, FileArchive, FileVideo, FileImage, File as FileIcon,
@@ -6,7 +6,9 @@ import {
   Folder, FolderOpen, ChevronRight, Eye,
 } from 'lucide-react'
 import { Card, Chip, Btn, IconBtn, PillSelect, Th, ScrambleHash, ErrorState, EmptyState, DependencyUnavailableState, SkeletonLoader, Modal, ModalClose, Field, PillInput, AnchoredMenu } from '../components/ui.jsx'
-import { useApi, useCoarsePointer, useNow, useReducedMotion } from '../lib/hooks.js'
+import { NameEntryDialog } from '../components/NameEntryDialog.jsx'
+import { ExternalFileDropSurface } from '../components/ExternalFileDropSurface.jsx'
+import { useApi, useNow, useReducedMotion } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
@@ -14,6 +16,10 @@ import { UploadDrawer } from '../components/UploadDrawer.jsx'
 import { AEGIS_ITEMS_TYPE, canDropOn, dragPayloadFor, isExternalFileDrag, readDragPayload, writeDragPayload } from '../lib/fileDragDrop.js'
 import { DEFAULT_SORT, SORT_LABEL_KEYS, SORT_MODES, filterItems, previewKindFor, previewPathFor, sectionItems } from '../lib/filesView.js'
 import { MediaProvider, MediaThumb, useOwnedMediaRuntime } from '../components/MediaThumb.jsx'
+import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../components/FileCardPresentation.jsx'
+import { SelectionAction, SelectionActionBar } from '../components/SelectionActionBar.jsx'
+import { readFolderHistory, writeFolderHistory } from '../lib/folderHistory.js'
+import { WorkspaceMarqueeScope, WorkspaceMarqueeSource } from '../components/WorkspaceMarquee.jsx'
 
 const EXT_ICONS = {
   xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
@@ -327,7 +333,6 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
   const menuBtnRef = useRef(null)
   const media = useMediaPointer()
   const hover = media.hoverStyle
-  const coarse = useCoarsePointer()
   const [dropTarget, setDropTarget] = useState(false)
   const isFolder = file.kind === 'folder'
   // เปิดโฟลเดอร์ขณะที่มีของลอยอยู่เหนือมัน — ไอคอนที่เปลี่ยนคือคำตอบว่า "วางตรงนี้ได้"
@@ -337,10 +342,15 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
   //    ตอนชี้ (Round 9), poster นิ่งตอน idle (Round 10) และ reduced-motion ปิดการเล่นอัตโนมัติ อยู่ใน state machine
   //    ของไทล์ (lib/mediaTile.js) ไม่ใช่ที่นี่; ต้นฉบับ (/preview) ใช้เฉพาะ FilePreviewModal เมื่อผู้ใช้กด Preview
   // จอสัมผัสไม่มี hover: ปุ่มเลือก/เมนูต้องมองเห็นได้ตั้งแต่แรก
-  const showControls = hover || selected || anySelected || menuOpen || coarse
   return (
-    <div
+    <FileCardShell
       ref={tileRef}
+      kind="file"
+      layout="grid"
+      selected={selected}
+      menuOpen={menuOpen}
+      hovered={hover}
+      dropTarget={dropTarget}
       data-file-kind={isFolder ? 'folder' : 'file'}
       data-file-id={file.id}
       data-tile-variant="file-card"
@@ -367,17 +377,8 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
       }}
       {...media.props}
       onClick={() => { if (media.consumeClick()) return; onOpen(file) }}
-      className="relative bg-card border rounded-[var(--r-tile)] p-3 cursor-pointer select-none transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur-fast)]"
-      style={{
-        WebkitTouchCallout: 'none',
-        borderColor: dropTarget ? 'var(--accent)' : selected ? 'var(--accent)' : hover ? 'var(--accent-soft)' : 'var(--line)',
-        background: dropTarget
-          ? 'color-mix(in srgb, var(--accent) 10%, var(--card))'
-          : selected ? 'color-mix(in srgb, var(--accent) 4%, var(--card))' : 'var(--card)',
-        transform: hover && !dropTarget ? 'translateY(-2px)' : 'none',
-        boxShadow: hover ? 'var(--elev-1)' : 'none',
-        transitionTimingFunction: 'var(--ease)',
-      }}
+      className="cursor-pointer"
+      style={{ WebkitTouchCallout: 'none' }}
     >
       {/* ── media frame: MediaThumb (z-0) + ปุ่มเลือก/เมนู (z-20) วางสัมพัทธ์กับกรอบสื่อ ห่างขอบ 8px ──
           ⚠️ ปุ่มอยู่ "นอก" กล่อง overflow-hidden ของ MediaThumb และมีชั้นซ้อนชัดเจน — poster/video ทับปุ่มไม่ได้
@@ -392,37 +393,23 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
         className={`relative z-0 h-24 rounded-[9px] ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}
       />
       {/* selection checkbox */}
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={selected}
-        aria-label={`${t('selected')}: ${file.name}`}
+      <FileCardCheckbox
+        selected={selected}
+        label={`${t('selected')}: ${file.name}`}
         onClick={(e) => { e.stopPropagation(); onSelect(file.id) }}
         onPointerDown={(e) => e.stopPropagation()}
-        className="absolute top-2 left-2 z-20 size-5 rounded-[6px] border flex items-center justify-center transition-[opacity,background-color,border-color] duration-[var(--dur-fast)] cursor-pointer"
-        style={{
-          opacity: showControls ? 1 : 0,
-          background: selected ? 'var(--accent)' : 'var(--card)',
-          borderColor: selected ? 'var(--accent)' : 'var(--line)',
-        }}
-      >
-        {selected && <Check size={12} strokeWidth={2.5} color="#fff" />}
-      </button>
+        className="absolute top-2 left-2 z-20"
+      />
 
       {/* overflow */}
-      <button
+      <FileCardMenuButton
         ref={menuBtnRef}
-        type="button"
-        aria-label={t('moreActions')}
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
+        label={t('moreActions')}
+        menuOpen={menuOpen}
         onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
         onPointerDown={(e) => e.stopPropagation()}
-        className="absolute top-2 right-2 z-20 size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-[opacity,color] duration-[var(--dur-fast)] cursor-pointer"
-        style={{ opacity: showControls ? 1 : 0 }}
-      >
-        <MoreHorizontal size={14} strokeWidth={1.5} />
-      </button>
+        className="absolute top-2 right-2 z-20"
+      />
       </div>
       {/* ⚠️ เมนูถูก portal ออกไปนอกไทล์ — ไทล์ยกตัวด้วย transform ตอน hover ซึ่ง
           สร้าง stacking context ทำให้ไทล์ถัดไปทับเมนูของไทล์ก่อนหน้าได้ และเมนู
@@ -449,7 +436,7 @@ export function FileTile({ t, file, now, selected, anySelected, onSelect, onOpen
         </div>
             <StorageBadge vault={file.vault} t={t} />
       </div>
-    </div>
+    </FileCardShell>
   )
 }
 
@@ -463,10 +450,15 @@ export function FolderTile({ t, file, selected, anySelected, onSelect, onOpen, o
   const [hover, setHover] = useState(false)
   const [dropTarget, setDropTarget] = useState(false)
   const Icon = dropTarget ? FolderOpen : Folder
-  const showControls = hover || selected || anySelected || menuOpen
   return (
-    <div
+    <FileCardShell
       ref={tileRef}
+      kind="folder"
+      layout="grid"
+      selected={selected}
+      menuOpen={menuOpen}
+      hovered={hover}
+      dropTarget={dropTarget}
       data-file-kind="folder"
       data-file-id={file.id}
       data-tile-variant="folder-compact"
@@ -492,135 +484,35 @@ export function FolderTile({ t, file, selected, anySelected, onSelect, onOpen, o
       onMouseLeave={() => setHover(false)}
       onClick={() => onOpen(file)}
       title={t('openFolder')}
-      className="relative bg-card border rounded-[var(--r-tile)] h-12 pl-3 pr-16 flex items-center gap-2.5 cursor-pointer transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur-fast)]"
-      style={{
-        borderColor: dropTarget ? 'var(--accent)' : selected ? 'var(--accent)' : hover ? 'var(--accent-soft)' : 'var(--line)',
-        background: dropTarget
-          ? 'color-mix(in srgb, var(--accent) 10%, var(--card))'
-          : selected ? 'color-mix(in srgb, var(--accent) 4%, var(--card))' : 'var(--card)',
-        transform: hover && !dropTarget ? 'translateY(-1px)' : 'none',
-        boxShadow: hover ? 'var(--elev-1)' : 'none',
-        transitionTimingFunction: 'var(--ease)',
-      }}
+      className="cursor-pointer"
     >
       <Icon size={20} strokeWidth={1.4} className="shrink-0 text-accent" fill="var(--accent-soft)" />
       <p className="min-w-0 flex-1 text-[13.5px] font-medium text-ink truncate" title={file.name}>{file.name}</p>
 
       {/* selection checkbox + overflow — ชิดขวา แทนที่จะลอยอยู่มุมบนเหมือนการ์ด */}
       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={selected}
-          aria-label={`${t('selected')}: ${file.name}`}
+        <FileCardCheckbox
+          selected={selected}
+          label={`${t('selected')}: ${file.name}`}
           onClick={(e) => { e.stopPropagation(); onSelect(file.id) }}
-          className="size-5 rounded-[6px] border flex items-center justify-center transition-[opacity,background-color,border-color] duration-[var(--dur-fast)] cursor-pointer"
-          style={{
-            opacity: showControls ? 1 : 0,
-            background: selected ? 'var(--accent)' : 'var(--card)',
-            borderColor: selected ? 'var(--accent)' : 'var(--line)',
-          }}
-        >
-          {selected && <Check size={12} strokeWidth={2.5} color="#fff" />}
-        </button>
-        <button
+        />
+        <FileCardMenuButton
           ref={menuBtnRef}
-          type="button"
-          aria-label={t('moreActions')}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
+          label={t('moreActions')}
+          menuOpen={menuOpen}
           onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
-          className="size-7 flex items-center justify-center rounded-full bg-card border border-line text-ink-3 hover:text-ink transition-[opacity,color] duration-[var(--dur-fast)] cursor-pointer"
-          style={{ opacity: showControls ? 1 : 0 }}
-        >
-          <MoreHorizontal size={14} strokeWidth={1.5} />
-        </button>
+        />
       </div>
       <AnchoredMenu open={menuOpen} anchorRef={menuBtnRef} onClose={() => setMenuOpen(false)} label={t('moreActions')}>
         <FileMenu t={t} file={file} onClose={() => setMenuOpen(false)} onAction={(a) => onMenuAction(a, file)} />
       </AnchoredMenu>
-    </div>
+    </FileCardShell>
   )
 }
 
 /* ── Folder-first sections (grid + list) ─────────────────────────── */
 // กฎเดียวกันทุกระดับของลำดับชั้น: โฟลเดอร์เป็นส่วนของตัวเองอยู่บน ไฟล์อยู่ล่าง
 // ส่วนที่ว่างถูกซ่อน (ผู้เรียกจัดการ Empty State เมื่อทั้งสองว่าง) ดู lib/filesView.js
-/* ── Marquee selection (Round 9) ─────────────────────────────────── */
-// ⚠️ ลากกรอบเลือกเริ่มได้จาก "พื้นที่ว่าง" ของกริดเท่านั้น — กดบนการ์ด/ไทล์/ปุ่ม/เมนู/ช่องกรอก
-//    ต้องไม่เริ่ม เพราะพวกนั้นมีความหมายของตัวเอง (ลากรายการ = ย้าย, ปุ่ม = คำสั่ง)
-//    มี threshold เล็ก ๆ ก่อนถือว่าเป็นการลาก คลิกเฉย ๆ บนพื้นที่ว่างจึงไม่ล้างการเลือก
-//    listener ทั้งหมดอยู่บน window "เฉพาะระหว่างลาก" และถูกถอดเมื่อจบ/ยกเลิก/unmount
-const MARQUEE_THRESHOLD_PX = 4
-const MARQUEE_IGNORE = '[data-file-kind], button, input, select, textarea, a, label, [role="menu"], [role="dialog"], [data-marquee-ignore]'
-const rectsIntersect = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
-const sameSet = (a, b) => a.size === b.size && [...a].every((id) => b.has(id))
-
-function useMarqueeSelection({ enabled, canvasRef, tileEls, selectedIds, onSelectionChange }) {
-  const [tracking, setTracking] = useState(false)   // ระหว่างกด-ลาก-ปล่อย
-  const [box, setBox] = useState(null)              // กรอบที่วาด (พิกัดสัมพัทธ์กับ canvas) หลังผ่าน threshold
-  const drag = useRef(null)
-  const latest = useRef({ selectedIds, onSelectionChange })
-  latest.current = { selectedIds, onSelectionChange }
-
-  const onPointerDown = (event) => {
-    if (!enabled || event.button !== 0 || event.pointerType === 'touch') return
-    if (event.target?.closest?.(MARQUEE_IGNORE)) return
-    drag.current = {
-      originX: event.clientX, originY: event.clientY,
-      additive: event.ctrlKey || event.metaKey,
-      snapshot: new Set(latest.current.selectedIds ?? []),
-      active: false,
-    }
-    setTracking(true)
-  }
-
-  useEffect(() => {
-    if (!tracking) return undefined
-    const finish = (cancelled) => {
-      const d = drag.current
-      drag.current = null
-      if (cancelled && d?.active) latest.current.onSelectionChange?.(new Set(d.snapshot))
-      setBox(null)
-      setTracking(false)
-    }
-    const onMove = (event) => {
-      const d = drag.current
-      if (!d) return
-      const dx = event.clientX - d.originX
-      const dy = event.clientY - d.originY
-      if (!d.active && Math.abs(dx) < MARQUEE_THRESHOLD_PX && Math.abs(dy) < MARQUEE_THRESHOLD_PX) return
-      d.active = true
-      const area = {
-        left: Math.min(d.originX, event.clientX), top: Math.min(d.originY, event.clientY),
-        right: Math.max(d.originX, event.clientX), bottom: Math.max(d.originY, event.clientY),
-      }
-      const canvas = canvasRef.current?.getBoundingClientRect?.() ?? { left: 0, top: 0 }
-      setBox({ left: area.left - canvas.left, top: area.top - canvas.top, width: area.right - area.left, height: area.bottom - area.top })
-      const hits = new Set(d.additive ? d.snapshot : [])
-      for (const [id, el] of tileEls.current) {
-        if (el && rectsIntersect(el.getBoundingClientRect(), area)) hits.add(id)
-      }
-      if (!sameSet(hits, latest.current.selectedIds ?? new Set())) latest.current.onSelectionChange?.(hits)
-    }
-    const onUp = () => finish(false)
-    const onCancel = () => finish(true)
-    const onKey = (event) => { if (event.key === 'Escape') finish(true) }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onCancel)
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onCancel)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [tracking, canvasRef, tileEls])
-
-  return { onPointerDown, tracking, box }
-}
-
 function SectionHeading({ children }) {
   // หัวข้อส่วนไม่ใช่พื้นที่ว่างของกริด — ลากจากป้าย "Folders"/"Files" ต้องไม่เริ่มกรอบเลือก
   return (
@@ -704,16 +596,11 @@ export function FilesSections({
   const mediaRuntime = useOwnedMediaRuntime()
   // ทะเบียน element ของไทล์ (ต่อ id) สำหรับ hit-test ของ marquee — ส่งต่อให้ tileRef ของหน้าด้วย
   const tileEls = useRef(new Map())
-  const canvasRef = useRef(null)
   const registerTile = (id) => (el) => {
     if (el) tileEls.current.set(id, el)
     else tileEls.current.delete(id)
     tileRef?.(id)?.(el)
   }
-  const marquee = useMarqueeSelection({
-    enabled: view === 'grid' && typeof onSelectionChange === 'function',
-    canvasRef, tileEls, selectedIds, onSelectionChange,
-  })
   if (view !== 'grid') {
     const groupRow = (key, label) => (
       <tr key={`section-${key}`} data-files-section-row={key} className="bg-sunken/60">
@@ -770,25 +657,15 @@ export function FilesSections({
   })
   return (
     <MediaProvider scheduler={mediaRuntime.scheduler} client={mediaRuntime.client}>
-    <div
-      ref={canvasRef}
-      data-marquee-canvas=""
-      onPointerDown={marquee.onPointerDown}
-      className="relative flex flex-col gap-6 min-h-[50vh]"
-      style={{ userSelect: marquee.tracking ? 'none' : undefined }}
-    >
-      {marquee.box && (
-        <div
-          data-marquee-rect=""
-          aria-hidden="true"
-          className="pointer-events-none absolute z-10 rounded-[4px] border border-accent"
-          style={{
-            left: `${marquee.box.left}px`, top: `${marquee.box.top}px`,
-            width: `${marquee.box.width}px`, height: `${marquee.box.height}px`,
-            background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
-          }}
-        />
-      )}
+    {/* ลากกรอบเลือก: พื้นผิวเต็มบานของ App (หรือ scope นี้เองเมื่อ mount เดี่ยว) เป็นเจ้าของ
+        การลาก/กรอบ — ที่นี่ส่งแค่สถานะการเลือกของกริดนี้ (ดู components/WorkspaceMarquee.jsx) */}
+    <WorkspaceMarqueeScope className="flex flex-col gap-6 min-h-[50vh]">
+      <WorkspaceMarqueeSource
+        enabled={view === 'grid' && typeof onSelectionChange === 'function'}
+        tileEls={tileEls}
+        selectedIds={selectedIds}
+        onSelectionChange={onSelectionChange}
+      />
       {folders.length > 0 && (
         <section data-files-section="folders" aria-label={t('sectionFolders')}>
           <SectionHeading>{t('sectionFolders')}</SectionHeading>
@@ -813,7 +690,7 @@ export function FilesSections({
           </div>
         </section>
       )}
-    </div>
+    </WorkspaceMarqueeScope>
     </MediaProvider>
   )
 }
@@ -893,7 +770,9 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
 /* ── Files screen ────────────────────────────────────────────────── */
 // ⚠️ ไม่มี fixture ฝั่ง client — รายการไฟล์มาจาก GET /api/files เท่านั้น
 // ทุกการกระทำ (สร้างโฟลเดอร์/ลบ) เป็น request จริง + refetch; ไม่มี alert()/prompt()
-export function Files({ t, lang, go, userId = null, navigationParams = {}, placeholderMode = false }) {
+export function Files({
+  t, lang, go, userId = null, navigationParams = {}, placeholderMode = false,
+}) {
   const reduced = useReducedMotion()
   const now = useNow(30_000)
 
@@ -903,7 +782,14 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
 
 
   // ตำแหน่งปัจจุบันคือ id ของโฟลเดอร์จริง ไม่ใช่รายการสตริงที่จอสะสมไว้เอง
-  const [folderId, setFolderId] = useState(null)
+  const initialFolderHistoryRef = useRef(undefined)
+  if (initialFolderHistoryRef.current === undefined) {
+    initialFolderHistoryRef.current = typeof window === 'undefined' ? null : readFolderHistory(window.history.state, 'files')
+  }
+  const [folderId, setFolderId] = useState(() => {
+    return initialFolderHistoryRef.current?.nodeId ?? null
+  })
+  const historyNavigationRef = useRef(Boolean(initialFolderHistoryRef.current))
   const filesApi = useApi(folderId == null ? '/api/files' : `/api/files?parentId=${encodeURIComponent(folderId)}`)
   const files = placeholderMode ? [] : (filesApi.data?.files ?? [])
   const ancestors = placeholderMode ? [] : (filesApi.data?.ancestors ?? [])
@@ -927,7 +813,6 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   const [uploadOpen, setUploadOpen] = useState(Boolean(navigationParams.uploadOpen))
-  const [dragOver, setDragOver] = useState(false)
   const [dropRequest, setDropRequest] = useState({ files: [], id: 0 })
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [detail, setDetail] = useState(null)
@@ -944,6 +829,39 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
   const [actionError, setActionError] = useState(null)     // null | i18n key
   const [draggingIds, setDraggingIds] = useState([])
   const tileRefs = useRef({})
+
+  const goToFolder = useCallback((id, { replace = false, fromHistory = false } = {}) => {
+    const next = id == null ? null : String(id)
+    historyNavigationRef.current = fromHistory
+    setFolderId(next)
+    setSelectedIds(new Set())
+    setDetail(null)
+    if (!fromHistory && typeof window !== 'undefined') {
+      writeFolderHistory({ history: window.history, location: window.location, scope: 'files', nodeId: next, replace })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (fetchError && folderId !== null && historyNavigationRef.current) {
+      goToFolder(null, { replace: true })
+      return
+    }
+    if (filesApi.data) historyNavigationRef.current = false
+  }, [fetchError, filesApi.data, folderId, goToFolder])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    if (!readFolderHistory(window.history.state, 'files')) {
+      writeFolderHistory({ history: window.history, location: window.location, scope: 'files', nodeId: folderId, replace: true })
+    }
+    const onPopState = (event) => {
+      const entry = readFolderHistory(event.state, 'files')
+      if (!entry) return
+      goToFolder(entry.nodeId, { fromHistory: true })
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [folderId, goToFolder])
 
   useEffect(() => {
     if (navigationParams.uploadOpen) setUploadOpen(true)
@@ -1060,18 +978,10 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
   /** เปิดโฟลเดอร์ = เปลี่ยนตำแหน่งจริง; ไฟล์ = เปิดแผงรายละเอียดเหมือนเดิม */
   const openItem = (file) => {
     if (file.kind === 'folder') {
-      setFolderId(file.id)
-      setSelectedIds(new Set())
-      setDetail(null)
+      goToFolder(file.id)
       return
     }
     openDetail(file)
-  }
-
-  const goToFolder = (id) => {
-    setFolderId(id)
-    setSelectedIds(new Set())
-    setDetail(null)
   }
 
   const confirmDelete = async () => {
@@ -1154,9 +1064,8 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
   const acceptDrop = (event) => {
     // ⚠️ การลากรายการภายในที่ตกลงบนพื้นที่ว่างของหน้าต้องไม่กลายเป็นการอัปโหลดผี
     //    ของไฟล์ที่มีอยู่แล้ว — หน้ารับเฉพาะไฟล์จากเครื่องผู้ใช้จริงเท่านั้น
-    if (!isExternalFileDrag(event.dataTransfer)) { setDragOver(false); setDraggingIds([]); return }
+    if (!isExternalFileDrag(event.dataTransfer)) { setDraggingIds([]); return }
     event.preventDefault()
-    setDragOver(false)
     const dropped = event.dataTransfer?.files
     if (!dropped?.length) return
     // ⚠️ ลากวางบนหน้านี้ = ผู้ใช้เลือกไฟล์เสร็จแล้ว การเด้งลิ้นชัก "เลือกไฟล์" ขึ้นมา
@@ -1264,22 +1173,8 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
         </Btn>
       </div>
 
-      <div
-        onDragEnter={(event) => {
-          if (!isExternalFileDrag(event.dataTransfer)) return
-          event.preventDefault(); setDragOver(true)
-        }}
-        onDragOver={(event) => { if (isExternalFileDrag(event.dataTransfer)) event.preventDefault() }}
-        onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragOver(false) }}
-        onDrop={acceptDrop}
-        className={`relative rounded-[var(--r-card)] transition-[outline-color,background-color] ${dragOver ? 'outline-2 outline-dashed outline-accent bg-[var(--accent-soft)]' : ''}`}
-      >
-      <p className="sr-only">{t('filesDropHint')}</p>
-      {dragOver && (
-        <div className="absolute inset-0 z-20 rounded-[var(--r-card)] border-2 border-dashed border-accent bg-[var(--accent-soft)] flex items-center justify-center pointer-events-none">
-          <span className="inline-flex items-center gap-2 rounded-full bg-card px-4 py-2 text-[13px] font-semibold text-accent shadow-[var(--elev-1)]"><Upload size={16} aria-hidden />{t('filesDropHint')}</span>
-        </div>
-      )}
+      {/* ลากไฟล์จากเครื่องมาวาง — หน้าตา/สถานะเป็นของ ExternalFileDropSurface ตัวเดียวกับ Vault */}
+      <ExternalFileDropSurface hint={t('filesDropHint')} onDrop={acceptDrop}>
       {/* สี่สถานะของรายการไฟล์ */}
       {filesApi.loading ? (
         <SkeletonLoader type="files" />
@@ -1320,58 +1215,43 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
           tileRef={(id) => (el) => { tileRefs.current[id] = el }}
         />
       )}
-      </div>
+      </ExternalFileDropSurface>
 
-      {/* floating multi-select action bar — black pill, slides up */}
+      {/* shared semantic selection surface; actions remain Files-specific */}
       {selectedIds.size > 0 && (
-        <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-ink text-card rounded-full pl-4 pr-1.5 h-12"
-          style={{ zIndex: 'var(--z-toast)', boxShadow: 'var(--elev-2)', animation: 'bar-up var(--dur-base) var(--ease) both' }}
+        <SelectionActionBar
+          label={`${selectedIds.size} ${t('selected')}`}
+          clearLabel={t('close')}
+          onClear={() => setSelectedIds(new Set())}
+          data-testid="files-selection-bar"
         >
-          <span className="text-[13px] font-semibold mr-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
-            {selectedIds.size} {t('selected')}
-          </span>
           {/* ⚠️ เดิมปุ่มสองตัวนี้ถูกวาดโดยไม่มี onClick เลย — ปุ่มที่กดแล้วไม่เกิดอะไร
               คือปุ่มที่โกหกผู้ใช้ ตอนนี้ทั้งคู่ผูกกับคำสั่งจริง */}
-          <button
-            type="button"
+          <SelectionAction
             onClick={() => {
               for (const id of selectedIds) {
                 const picked = files.find((f) => f.id === id)
                 if (picked && picked.kind !== 'folder') downloadFile(picked)
               }
             }}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-full text-[13px] font-medium hover:bg-white/12 transition-colors duration-[var(--dur-fast)] cursor-pointer"
           >
             <Download size={14} strokeWidth={1.5} />
             {t('download')}
-          </button>
-          <button
-            type="button"
+          </SelectionAction>
+          <SelectionAction
             onClick={() => { setMoveTarget({ ids: [...selectedIds], label: `${selectedIds.size} ${t('selected')}` }); setActionError(null) }}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-full text-[13px] font-medium hover:bg-white/12 transition-colors duration-[var(--dur-fast)] cursor-pointer"
           >
             <FolderInput size={14} strokeWidth={1.5} />
             {t('move')}
-          </button>
-          <button
-            type="button"
+          </SelectionAction>
+          <SelectionAction
             onClick={deleteSelected}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-full text-[13px] font-medium hover:bg-white/12 transition-colors duration-[var(--dur-fast)] cursor-pointer"
-            style={{ color: '#fca5a5' }}
+            danger
           >
             <Trash2 size={14} strokeWidth={1.5} />
             {t('delete')}
-          </button>
-          <button
-            type="button"
-            aria-label={t('close')}
-            onClick={() => setSelectedIds(new Set())}
-            className="size-9 flex items-center justify-center rounded-full hover:bg-white/12 transition-colors duration-[var(--dur-fast)] cursor-pointer"
-          >
-            <XIcon size={15} strokeWidth={1.5} />
-          </button>
-        </div>
+          </SelectionAction>
+        </SelectionActionBar>
       )}
 
       <FlipGhost ghost={ghost} onDone={() => setGhost(null)} />
@@ -1465,33 +1345,22 @@ export function Files({ t, lang, go, userId = null, navigationParams = {}, place
         </div>
       </Modal>
 
-      <Modal open={folderModal} onClose={() => setFolderModal(false)} width={420} labelledBy="nf-title">
-        <ModalClose onClose={() => setFolderModal(false)} label={t('cancel')} />
-        <h2 id="nf-title" className="text-[18px] font-semibold text-ink">{t('newFolder')}</h2>
-        <div className="mt-5">
-          <Field id="nf-name" label={t('colName')}>
-            <PillInput
-              id="nf-name"
-              value={folderName}
-              onChange={(e) => setFolderName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && createFolder()}
-              autoFocus
-              disabled={mutating}
-            />
-          </Field>
-        </div>
-        {mutateError && (
-          <p role="alert" className="text-[12.5px] font-medium mt-3" style={{ color: 'var(--danger)' }}>
-            {t('actionFailed')}
-          </p>
-        )}
-        <div className="flex gap-2.5 mt-6">
-          <Btn variant="outline" className="flex-1" onClick={() => setFolderModal(false)}>{t('cancel')}</Btn>
-          <Btn variant="primary" className="flex-1" onClick={createFolder} disabled={mutating || !folderName.trim()}>
-            {t('newFolder')}
-          </Btn>
-        </div>
-      </Modal>
+      <NameEntryDialog
+        open={folderModal}
+        onClose={() => setFolderModal(false)}
+        onSubmit={createFolder}
+        id="nf-name"
+        title={t('newFolder')}
+        label={t('colName')}
+        submitLabel={t('newFolder')}
+        cancelLabel={t('cancel')}
+        closeLabel={t('cancel')}
+        value={folderName}
+        onChange={setFolderName}
+        canSubmit={Boolean(folderName.trim())}
+        busy={mutating}
+        problem={mutateError ? t('actionFailed') : null}
+      />
 
       {/* delete confirm — ระบุเป้าหมายชัดเจนก่อนลบเสมอ */}
       <Modal open={!!askDelete} onClose={() => setAskDelete(null)} width={440} labelledBy="del-title">

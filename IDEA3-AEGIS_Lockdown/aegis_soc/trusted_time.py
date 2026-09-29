@@ -74,8 +74,17 @@ class _Timex(ctypes.Structure):
     ]
 
 
-def adjtimex_probe(*, libc=None, platform: str | None = None) -> ClockSync | None:
-    """Read (modes = 0) the kernel NTP state; None when it cannot be read."""
+@dataclass(frozen=True)
+class RawAdjtimex:
+    """Undecoded adjtimex(2) result: return value (clock state), status word and maxerror."""
+
+    ret: int
+    status: int
+    maxerror_us: int
+
+
+def adjtimex_raw(*, libc=None, platform: str | None = None) -> RawAdjtimex | None:
+    """Read (modes = 0) the raw kernel NTP state; None when it cannot be read."""
     if (platform or sys.platform) != "linux":
         return None
     try:
@@ -88,8 +97,20 @@ def adjtimex_probe(*, libc=None, platform: str | None = None) -> ClockSync | Non
     state = function(ctypes.byref(buffer))
     if state < 0:
         return None
-    synced = state != TIME_ERROR and not buffer.status & STA_UNSYNC
-    return ClockSync(synced=bool(synced), maxerror_us=int(buffer.maxerror))
+    return RawAdjtimex(ret=int(state), status=int(buffer.status), maxerror_us=int(buffer.maxerror))
+
+
+def clock_sync_from_raw(raw: RawAdjtimex | None) -> ClockSync | None:
+    """The single synchronized decision: not TIME_ERROR and STA_UNSYNC clear."""
+    if raw is None:
+        return None
+    synced = raw.ret != TIME_ERROR and not raw.status & STA_UNSYNC
+    return ClockSync(synced=bool(synced), maxerror_us=raw.maxerror_us)
+
+
+def adjtimex_probe(*, libc=None, platform: str | None = None) -> ClockSync | None:
+    """Read (modes = 0) the kernel NTP state; None when it cannot be read."""
+    return clock_sync_from_raw(adjtimex_raw(libc=libc, platform=platform))
 
 
 class TrustedClock:

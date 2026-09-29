@@ -4,7 +4,7 @@
 // ⚠️ poster ยัง mount อยู่ใต้ video เสมอ — การเล่น/หยุด/โหลดไม่เคยทำให้ไทล์ว่าง; ไม่มี URL ต้นฉบับ (/preview) ที่นี่:
 //    ทุก src มาจาก media-info (ทึบ) — ต้นฉบับใช้เฉพาะใน FilePreviewModal (ผู้ใช้กด Preview เอง)
 // ⚠️ Vault/โฟลเดอร์/ชนิดที่ไม่รองรับ = ไอคอนเดิม + ป้ายที่พูดความจริง; MEDIA_ENABLED=false = เหมือนกัน ไม่มี retry storm
-import { createContext, useContext, useEffect, useMemo } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef } from 'react'
 import { useMediaTile } from '../lib/useMediaTile.js'
 import { createMediaScheduler } from '../lib/mediaScheduler.js'
 import { createMediaInfoClient } from '../lib/mediaApi.js'
@@ -45,7 +45,19 @@ export function useMediaRuntime() {
 /** hook สำหรับเจ้าของหน้า: สร้าง runtime ของตัวเองและทิ้งตอน unmount */
 export function useOwnedMediaRuntime() {
   const runtime = useMemo(() => createMediaRuntime(), [])
-  useEffect(() => () => runtime.dispose(), [runtime])
+  // React StrictMode deliberately runs setup -> cleanup -> setup during the
+  // development mount. Disposing synchronously in that probe leaves the
+  // second setup holding an inert scheduler, so every media card remains in
+  // its initial "unknown" state. Defer ownership release by one microtask and
+  // cancel it when the probe immediately remounts; a real unmount still owns
+  // the last generation and therefore disposes normally.
+  const ownerGeneration = useRef(0)
+  useEffect(() => {
+    const generation = ++ownerGeneration.current
+    return () => queueMicrotask(() => {
+      if (ownerGeneration.current === generation) runtime.dispose()
+    })
+  }, [runtime])
   return runtime
 }
 

@@ -42,9 +42,14 @@ test('invisible Operator association relays public proof and stores no browser a
 
   await emptyOperator(page, request)
   await expect.poll(() => calls.join(',')).toBe('challenge,agent,verify')
-  expect(await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))).toEqual({
-    local: { aegis_lang: 'th', aegis_theme: 'dark' },
-    session: {},
+  const browserStorage = await page.evaluate(() => ({
+    local: { ...localStorage },
+    session: { ...sessionStorage },
+  }))
+  expect(browserStorage.session).toEqual({})
+  expect(browserStorage.local).toEqual({
+    aegis_lang: 'th',
+    aegis_shell_theme: 'light',
   })
   await expect(page.locator('body')).not.toContainText(/local node|association/i)
 })

@@ -1,0 +1,10 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 runtime reactivation V3 preservation model (live attempt 2 evidence, 2026-09-27). Exact catalog members only;
+# nothing here is a generic allow key. See docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md.
+# PRE->POST from the proven SAFE-EQUIVALENT RESIDUAL baseline (phy TH, p2p-dev-wlp0s20f3 unavailable, wpa_supplicant active/running, NM radio
+# disabled). wpa_supplicant, the phy and regulatory state do not change, so only the p2p pseudo-device state moves.
+operation L34_V3_POST_RESIDUAL
+svc.aegis-idea3-dnsmasq.service.ActiveState failed active
+svc.aegis-idea3-dnsmasq.service.SubState failed running
+svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
+nm.general#WIFI disabled enabled
+nm.device.p2p-dev-wlp0s20f3.state unavailable disconnected

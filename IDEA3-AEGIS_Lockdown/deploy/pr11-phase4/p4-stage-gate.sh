@@ -15,18 +15,26 @@
 #
 # Record formats (plain ASCII, one key=value per line, no secrets, <= 2048 bytes):
 #
-#   AEGIS_P4_AUTHORIZATION_V1          AEGIS_P4_K3_CONFIRMATION_V1
+#   AEGIS_P4_AUTHORIZATION_V1          AEGIS_P4_K3_CONFIRMATION_V1 (independent)
 #   stage=<stage>                      stage=<stage>
 #   date=<YYYY-MM-DD, Asia/Bangkok>    date=<YYYY-MM-DD, Asia/Bangkok>
 #   authorizer=music                   confirmed_by=kraveerachat
 #   scope=<one line>                   idea1_window_overlap=NONE
 #   reference=<link to the written     reference=<link to the written
 #              authorization>                     confirmation>
+#
+#   M16 alternative K3: AEGIS_P4_K3_CONFIRMATION_V2 (IDEA3-owner self-attestation)
+#   stage, date, reference as above; confirmed_by=music;
+#   confirmation_mode=IDEA3_OWNER_SELF_ATTESTATION; idea1_window_overlap=NONE_KNOWN.
+#   It states only that no overlapping IDEA1 window is KNOWN to the IDEA3 owner.
+#   SELF_ATTESTATION != INDEPENDENT_IDEA1_OWNER_CONFIRMATION; it does not prove
+#   IDEA1 is inactive. S10 PRE/POST evidence remains the empirical protection.
 #   + L1/L7: d6_notice=pub, L2: integration_review=kla,
 #     L8: recovery_authorization=<link>
 #
 # Exit 0 = STAGE_GATE=PASS_SIMULATION or PASS_READ_ONLY; 1 = STAGE_GATE=FAIL.
 set -uo pipefail
+export LC_ALL=C
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=p4-lib.sh
 . "$HERE/p4-lib.sh"
@@ -67,6 +75,7 @@ TODAY=$(TZ="$P4_WINDOW_TZ" date +%F)
 readonly REF_RE='^[A-Za-z0-9][A-Za-z0-9._:/#?=&%+-]{2,199}$'
 readonly PLACEHOLDER_RE='(REPLACE|TODO|TBD|CHANGEME|CHANGE-ME|FIXME|XXX)'
 readonly DATE_RE='^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
+readonly SCOPE_RE='^[\ -~]{1,200}$'
 declare -A R
 
 # parse_record FILE MAGIC ALLOWED REQUIRED: strict key=value parse into R.
@@ -104,7 +113,7 @@ elif ! parse_record "$AUTH" AEGIS_P4_AUTHORIZATION_V1 \
   "stage date authorizer scope reference $EXTRA"; then
   fail AUTHORIZATION_MALFORMED
 elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[authorizer]}" != music ] \
-  || ! [[ "${R[scope]}" =~ ^[\ -~]{1,200}$ ]] \
+  || ! [[ "${R[scope]}" =~ $SCOPE_RE ]] \
   || ! [[ "${R[reference]}" =~ $REF_RE ]] || [[ "${R[reference]^^}" =~ $PLACEHOLDER_RE ]] \
   || { [ -n "${R[d6_notice]+set}" ] && [ "${R[d6_notice]}" != pub ]; } \
   || { [ -n "${R[integration_review]+set}" ] && [ "${R[integration_review]}" != kla ]; } \
@@ -124,21 +133,47 @@ if p4_stage_mutates "$STAGE"; then
   K3_STATE=INVALID
   if [ -z "$K3" ]; then
     fail K3_MISSING
-  elif ! parse_record "$K3" AEGIS_P4_K3_CONFIRMATION_V1 \
-    "stage date confirmed_by idea1_window_overlap reference" \
-    "stage date confirmed_by idea1_window_overlap reference"; then
-    fail K3_MALFORMED
-  elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[confirmed_by]}" != kraveerachat ] \
-    || ! [[ "${R[reference]}" =~ $REF_RE ]] || [[ "${R[reference]^^}" =~ $PLACEHOLDER_RE ]]; then
-    fail K3_MALFORMED
-  elif [ "${R[stage]}" != "$STAGE" ]; then
-    fail K3_STAGE_MISMATCH
-  elif [ "${R[date]}" != "$TODAY" ]; then
-    fail K3_STALE
-  elif [ "${R[idea1_window_overlap]}" != NONE ]; then
-    fail K3_OVERLAP_NOT_NONE
   else
-    K3_STATE=VALID
+    # M16: two reviewed K3 paths, selected by the exact magic line.
+    #   V1 = independent IDEA1-owner confirmation (historical, unchanged).
+    #   V2 = IDEA3-owner self-attestation: "no overlapping IDEA1 window is
+    #        known to the IDEA3 owner". SELF_ATTESTATION != INDEPENDENT_IDEA1_OWNER_CONFIRMATION;
+    #        it never proves IDEA1 is inactive. S10 PRE/POST evidence stays mandatory.
+    K3_MAGIC=""
+    IFS= read -r K3_MAGIC < "$K3" 2>/dev/null || true
+    K3_MAGIC=${K3_MAGIC%$'\r'}
+    K3_KIND=""
+    if [ "$K3_MAGIC" = AEGIS_P4_K3_CONFIRMATION_V1 ]; then
+      K3_KIND=V1
+      K3_ALLOWED="stage date confirmed_by idea1_window_overlap reference"
+      K3_WHO=kraveerachat K3_OVERLAP=NONE
+    elif [ "$K3_MAGIC" = AEGIS_P4_K3_CONFIRMATION_V2 ]; then
+      K3_KIND=V2
+      K3_ALLOWED="stage date confirmed_by confirmation_mode idea1_window_overlap reference"
+      K3_WHO=music K3_OVERLAP=NONE_KNOWN
+    fi
+    if [ -z "$K3_KIND" ] || ! parse_record "$K3" "$K3_MAGIC" "$K3_ALLOWED" "$K3_ALLOWED"; then
+      fail K3_MALFORMED
+    elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[confirmed_by]}" != "$K3_WHO" ] \
+      || { [ "$K3_KIND" = V2 ] && [ "${R[confirmation_mode]}" != IDEA3_OWNER_SELF_ATTESTATION ]; } \
+      || ! [[ "${R[reference]}" =~ $REF_RE ]] || [[ "${R[reference]^^}" =~ $PLACEHOLDER_RE ]]; then
+      fail K3_MALFORMED
+    elif [ "${R[stage]}" != "$STAGE" ]; then
+      fail K3_STAGE_MISMATCH
+    elif [ "${R[date]}" != "$TODAY" ]; then
+      fail K3_STALE
+    elif [ "${R[idea1_window_overlap]}" != "$K3_OVERLAP" ]; then
+      fail K3_OVERLAP_NOT_NONE
+    else
+      K3_STATE=VALID
+      printf 'K3_RECORD_VERSION=%s\n' "$K3_KIND"
+      if [ "$K3_KIND" = V2 ]; then
+        printf 'IDEA3_OWNER_COORDINATION_ATTESTATION=NONE_KNOWN\n'
+        printf 'K3_INDEPENDENT_IDEA1_CONFIRMATION=NO\n'
+      else
+        printf 'K3_INDEPENDENT_IDEA1_CONFIRMATION=YES\n'
+      fi
+    fi
   fi
 fi
 
@@ -150,7 +185,10 @@ if [ "$AUTH_OK" = 1 ]; then printf 'AUTHORIZATION_RECORD=VALID\n'; else printf '
 printf 'K3_CONFIRMATION=%s\n' "$K3_STATE"
 printf 'REQUIRED_REPOSITORY_GAPS=%s\n' "$(p4_stage_gaps "$STAGE")"
 printf 'REPOSITORY_GAP_MERGE_STATE=NOT_VERIFIED_BY_GATE\n'
-printf 'S10_IDEA2_CAVEAT=OPEN\n'
+# The window-delta criterion is owner-accepted (PR #189). The gate cannot prove
+# fresh BEFORE/AFTER IDEA2 preservation, so that evidence is still required per stage.
+printf 'S10_CRITERION_OWNER_ACCEPTANCE=APPROVED\n'
+printf 'S10_PRESERVATION_EVIDENCE=REQUIRED_PER_STAGE\n'
 if p4_stage_mutates "$STAGE"; then
   handler=$(p4_stage_handler_status "$STAGE")
   printf 'ROLLBACK_HANDLER=%s\n' "$handler"

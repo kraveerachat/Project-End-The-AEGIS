@@ -16,7 +16,7 @@ Read [[idea1/IDEA1-Progress-Update-6.1]] first for the reconciled 2026-09-06 han
 
 ## Owned source and canonical notes
 
-Owner: **Kla**. The owned code area is `IDEA1-AEGIS_Drive_LC/`; the canonical operational note is [[idea1/idea1-status]].
+Owner: **Kla**. The owned code area is `IDEA1-AEGIS_Drive_LC/`; the canonical operational note is [[idea1/idea1-status]]; the canonical architecture notes are [[idea1/idea1-public-share-architecture]] and [[idea1/idea1-storage-persistence-architecture]].
 
 ## Current state and open work
 
@@ -88,6 +88,7 @@ Open gaps and verified limitations remain canonical in [[idea1/idea1-status]] an
   `aegis_drive` contains `shares` with scopes `any, zones, public, vlan, subnet`; migration 009 was not rerun.
   Use [[idea1/idea1-status]] for current task state,
   [[idea1/idea1-public-share-architecture]] for architecture,
+  [[idea1/idea1-storage-persistence-architecture]] for Storage & Persistence architecture,
   [[90-Status/logs/2026-09-15_050500_kla_public-share-s5-7-public-security-matrix]]
   for the final immutable S5.7 receipt,
   [[90-Status/logs/2026-09-14_020000_kla_public-share-s5-6-cloudflare-public-activation]]

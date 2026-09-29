@@ -29,6 +29,7 @@ from .dispatch_worker import (
     UNAVAILABLE,
     build_dispatch_worker_from_environment,
 )
+from .ip_containment import ContainmentClient, ContainmentUnavailable
 from .mqtt_client import MQTTManager
 from .platform_lock import AlreadyRunningError, ExclusiveFileLock
 from .protocol_runtime import build_protocol_context_from_environment
@@ -191,8 +192,11 @@ class AegisSupervisor:
         clock=None,
         restore_origins: frozenset[str] = frozenset(),
         restore_credential=_DEFAULT_RESTORE_CREDENTIAL,
+        containment_client=None,
     ):
         self.settings = settings
+        # Software containment runs through the root helper's socket; Core never runs nft.
+        self.containment = containment_client if containment_client is not None else ContainmentClient()
         if settings.profile == "production" and restore_origins:
             raise ValueError("production RESTORE authority is available only through the D4 local gate")
         if restore_credential is _DEFAULT_RESTORE_CREDENTIAL:
@@ -559,14 +563,31 @@ class AegisSupervisor:
                 attacker_ip=safe_ip,
             )
             return
-        result = self.issue_command(
-            "CUT_UPLINK",
-            f"automatic containment for detector event {safe_ip}",
-            critical=True,
-            origin="supervisor-detector",
+        # A generic detector alert is HIGH, not CRITICAL: it earns a reversible
+        # software block only. Physical CUT stays on the explicit CRITICAL path.
+        self._software_contain(safe_ip)
+
+    def _software_contain(self, ip: str) -> None:
+        if self.settings.dry_run:
+            self.log_event("INFO", "software_containment_noop", attacker_ip=ip, reason_code="DRY_RUN")
+            return
+        try:
+            response = self.containment.block(ip)
+        except ContainmentUnavailable:
+            self.log_event("ERROR", "software_containment_failed", attacker_ip=ip, reason_code="HELPER_UNAVAILABLE")
+            return
+        reason_code = str(response.get("reason_code", "UNKNOWN"))[:64]
+        confirmed = (
+            response.get("ok") is True
+            and response.get("operation") == "block"
+            and response.get("ip") == ip
         )
-        self.log_event("CRITICAL", "auto_containment", action=result.action,
-                       sent=result.sent, dry_run=result.dry_run, ok=result.ok)
+        if not confirmed:
+            self.log_event("ERROR", "software_containment_failed", attacker_ip=ip, reason_code=reason_code)
+        elif response.get("changed") is True:
+            self.log_event("CRITICAL", "software_containment_success", attacker_ip=ip, reason_code=reason_code)
+        else:
+            self.log_event("INFO", "software_containment_noop", attacker_ip=ip, reason_code=reason_code)
 
     def bind_callbacks(self) -> None:
         self.mqtt.connection_callback = self._on_connection

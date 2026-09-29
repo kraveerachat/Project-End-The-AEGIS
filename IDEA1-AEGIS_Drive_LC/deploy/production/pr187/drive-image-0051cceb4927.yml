@@ -1,0 +1,5 @@
+# PR187 Private Vault rollout — Stage A exact-source Drive image override only.
+# Append after the current Production compose chain. Do not edit active files.
+services:
+  drive:
+    image: aegis-prod-drive:vault-tree-0051cceb4927

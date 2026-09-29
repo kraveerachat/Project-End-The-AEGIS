@@ -18,6 +18,7 @@
 # unavailable; the evidence is incomparable), 1 = STOP (invalid input).
 # shellcheck disable=SC2086  # address lists are split into words on purpose
 set -uo pipefail
+export LC_ALL=C
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=p4-lib.sh
 . "$HERE/p4-lib.sh"
@@ -47,8 +48,9 @@ P4_LOG_FILE="$EVID_DIR/capture.log"
 REQUIRED_TOOLS="ip sysctl nft ss systemctl journalctl df timedatectl nmcli iw rfkill"
 OPTIONAL_TOOLS="chronyc twingate hostnamectl"
 SERVICE_UNITS="NetworkManager.service systemd-networkd.service systemd-resolved.service systemd-timesyncd.service
-chronyd.service nftables.service mosquitto.service dnsmasq.service hostapd.service wpa_supplicant.service
-twingate.service aegis-idea3-core.service aegis-idea3.service"
+chronyd.service nftables.service mosquitto.service aegis-idea3-mosquitto.service dnsmasq.service hostapd.service wpa_supplicant.service
+twingate.service aegis-idea3-core.service aegis-idea3.service aegis-idea3-nftables-load.service aegis-idea3-dnsmasq.service
+aegis-idea3-containment.socket aegis-idea3-containment.service"
 UNIT_PROPS="LoadState ActiveState SubState UnitFileState MainPID NRestarts Result ExecMainStartTimestamp"
 IDEA2_ENGINE_UNIT=aegis-detection-engine.service
 IDEA2_TUNNEL_UNIT=aegis-detection-tunnel.service
@@ -95,15 +97,19 @@ tree_files() {
 # rec_file TSV PREFIX FULLPATH [meta]: config files get a digest; secret-bearing
 # files (or every file when "meta" is given) get metadata only.
 rec_file() {
-  local tsv=$1 prefix=$2 full=$3 mode=${4:-auto} hp
+  local tsv=$1 prefix=$2 full=$3 mode=${4:-auto} hp sha meta
   hp=$(p4_hostpath "$full")
   if [ "$mode" = meta ] || p4_is_secret_file "$full"; then
     p4_rec "$tsv" "$prefix.$hp.class" secret-metadata-only
   else
     p4_rec "$tsv" "$prefix.$hp.class" config
-    p4_rec "$tsv" "$prefix.$hp.sha256" "$(p4_sha256 "$full")"
+    sha=$(p4_sha256 "$full")
+    [ "$sha" = UNREADABLE ] && partial=1
+    p4_rec "$tsv" "$prefix.$hp.sha256" "$sha"
   fi
-  p4_rec "$tsv" "$prefix.$hp.meta" "$(p4_meta "$full")"
+  meta=$(p4_meta "$full")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$tsv" "$prefix.$hp.meta" "$meta"
 }
 
 rec_tree() { # TSV PREFIX DIR [meta]
@@ -135,9 +141,11 @@ done
 for t in $REQUIRED_TOOLS; do p4_have "$t" || partial=1; done
 
 # ── network ──────────────────────────────────────────────────────────────────
+IFACE_LIST=""
 if run_ro 1 ip-br-addr ip -br addr show; then
   while read -r ifname _ addrs; do
     [ -n "$ifname" ] || continue
+    IFACE_LIST="$IFACE_LIST $ifname"
     sorted=$(printf '%s\n' $addrs | sed '/^$/d' | LC_ALL=C sort | tr '\n' ' ')
     p4_rec "$NET" "net.addr.$ifname" "${sorted:-none}"
   done <<< "$P4_OUT"
@@ -146,7 +154,9 @@ else
 fi
 if run_ro 1 ip-br-link ip -br link show; then
   while read -r ifname state _; do
-    [ -n "$ifname" ] && p4_rec "$NET" "net.link.$ifname" "$state"
+    [ -n "$ifname" ] || continue
+    IFACE_LIST="$IFACE_LIST $ifname"
+    p4_rec "$NET" "net.link.$ifname" "$state"
   done <<< "$P4_OUT"
 else
   p4_rec "$NET" net.link UNAVAILABLE
@@ -157,9 +167,31 @@ for fam in 4 6; do
     default=$(join_sorted "$(printf '%s\n' "$routes" | grep '^default' || true)")
     p4_rec "$NET" "net.route$fam.default" "${default:-none}"
     p4_rec "$NET" "net.route$fam.sha256" "$(text_sha "$(printf '%s\n' "$routes" | LC_ALL=C sort)")"
+    all_ifaces=$(printf '%s\n' $IFACE_LIST $(printf '%s\n' "$routes" | grep -oE '\bdev [^ ]+' | awk '{print $2}') | sed '/^$/d' | LC_ALL=C sort -u)
+    for ifn in $all_ifaces; do
+      [ -n "$ifn" ] || continue
+      ifroutes=$(printf '%s\n' "$routes" | grep -v '^default' | grep -E "(^|[[:space:]])dev $ifn([[:space:]]|$)" || true)
+      if [ -n "$ifroutes" ]; then
+        sorted_ifroutes=$(join_sorted "$ifroutes")
+        p4_rec "$NET" "net.route$fam.iface.$ifn" "$sorted_ifroutes"
+      else
+        p4_rec "$NET" "net.route$fam.iface.$ifn" none
+      fi
+    done
+    unscoped=$(printf '%s\n' "$routes" | sed '/^[[:space:]]*$/d' | grep -v '^default' | awk '
+      /^(blackhole|unreachable|prohibit|throw)([[:space:]]|$)/ { print; next }
+      !/(^|[[:space:]])dev[[:space:]]+[^[:space:]]+/ { print; next }
+    ')
+    if [ -n "$unscoped" ]; then
+      sorted_unscoped=$(join_sorted "$unscoped")
+      p4_rec "$NET" "net.route$fam.unscoped" "$sorted_unscoped"
+    else
+      p4_rec "$NET" "net.route$fam.unscoped" none
+    fi
   else
     p4_rec "$NET" "net.route$fam.default" UNAVAILABLE
     p4_rec "$NET" "net.route$fam.sha256" UNAVAILABLE
+    p4_rec "$NET" "net.route$fam.unscoped" UNAVAILABLE
   fi
   if run_ro 1 "ip-$fam-rule" ip "-$fam" rule show; then
     p4_rec "$NET" "net.rule$fam.sha256" "$(text_sha "$P4_OUT")"
@@ -176,18 +208,71 @@ for k in net.ipv4.ip_forward net.ipv4.conf.all.forwarding net.ipv6.conf.all.forw
     p4_rec "$NET" "sysctl.$k" UNAVAILABLE
   fi
 done
+[ -f "$(p4_fs /etc/aegis-idea3/dnsmasq-ap.conf)" ] && rec_file "$NET" net.idea3_dnsmasq_conf "$(p4_fs /etc/aegis-idea3/dnsmasq-ap.conf)"
 [ -f "$(p4_fs /etc/sysctl.conf)" ] && rec_file "$NET" net.sysctl_conf "$(p4_fs /etc/sysctl.conf)"
 rec_tree "$NET" net.sysctl_conf /etc/sysctl.d
+resolv_conf="$(p4_fs /etc/resolv.conf)"
+if [ -f "$resolv_conf" ] || [ -L "$resolv_conf" ]; then
+  rec_file "$NET" net.dns "$resolv_conf"
+  ns=$(grep -E '^[[:space:]]*nameserver[[:space:]]+' "$resolv_conf" 2>/dev/null | awk '{print $2}')
+  p4_rec "$NET" "net.dns.nameservers" "$(join_sorted "$ns")"
+fi
 
 # ── Wi-Fi / AP prerequisites ─────────────────────────────────────────────────
-if run_ro 1 rfkill rfkill --noheadings --output ID,TYPE,SOFT,HARD; then
-  while IFS=$'\t' read -r type states; do
-    p4_rec "$WIFI" "wifi.rfkill.$type" "$states"
-  done < <(printf '%s\n' "$P4_OUT" | awk 'NF >= 4 { s[$2] = (s[$2] == "" ? "" : s[$2] ";") "soft=" $3 " hard=" $4 }
-    END { for (t in s) print t "\t" s[t] }' | LC_ALL=C sort)
+declare -A wifi_ifaces=()
+if run_ro 1 iw-dev iw dev; then
+  while IFS=$'\t' read -r iface field value; do
+    [ -n "$iface" ] && wifi_ifaces["$iface"]=1
+    p4_rec "$WIFI" "wifi.iface.$iface.$field" "$value"
+  done < <(printf '%s\n' "$P4_OUT" | awk '$1 ~ /^phy#[0-9]+$/ { ph = $1; sub("#", "", ph) }
+    $1 == "Interface" { i = $2; if (ph != "") print i "\tphy\t" ph }
+    $1 == "type" && i != "" { print i "\ttype\t" $2 }
+    $1 == "channel" && i != "" { print i "\tchannel\t" $2 " " $3 " " $4 }
+    $1 == "ssid" && i != "" { print i "\tssid\t" $2 }')
 else
-  p4_rec "$WIFI" wifi.rfkill UNAVAILABLE
+  p4_rec "$WIFI" wifi.iface UNAVAILABLE
 fi
+
+declare -A iface_rfk_seen=()
+sys_net="$(p4_fs /sys/class/net)"
+if [ -d "$sys_net" ]; then
+  for iface_dir in "$sys_net"/*; do
+    [ -d "$iface_dir" ] || continue
+    iface="${iface_dir##*/}"
+    for rfk in "$iface_dir"/phy80211/rfkill* "$iface_dir"/rfkill*; do
+      [ -d "$rfk" ] || continue
+      id=$(cat "$rfk/index" 2>/dev/null || true)
+      soft_raw=$(cat "$rfk/soft" 2>/dev/null || true)
+      hard_raw=$(cat "$rfk/hard" 2>/dev/null || true)
+      [ -n "$id" ] || continue
+      soft="unblocked"
+      [ "$soft_raw" = "1" ] || [ "$soft_raw" = "blocked" ] && soft="blocked"
+      hard="unblocked"
+      [ "$hard_raw" = "1" ] || [ "$hard_raw" = "blocked" ] && hard="blocked"
+      p4_rec "$WIFI" "wifi.rfkill.iface.$iface.id" "$id"
+      p4_rec "$WIFI" "wifi.rfkill.iface.$iface.soft" "$soft"
+      p4_rec "$WIFI" "wifi.rfkill.iface.$iface.hard" "$hard"
+      iface_rfk_seen["$iface"]=1
+    done
+  done
+fi
+
+if run_ro 1 rfkill rfkill --noheadings --output ID,TYPE,SOFT,HARD; then
+  if [ "${#iface_rfk_seen[@]}" = 0 ]; then
+    while read -r r_id r_type r_soft r_hard; do
+      [ -n "$r_id" ] && [ "$r_type" = "wlan" ] || continue
+      for iface in "${!wifi_ifaces[@]}"; do
+        p4_rec "$WIFI" "wifi.rfkill.iface.$iface.id" "$r_id"
+        p4_rec "$WIFI" "wifi.rfkill.iface.$iface.soft" "$r_soft"
+        p4_rec "$WIFI" "wifi.rfkill.iface.$iface.hard" "$r_hard"
+        iface_rfk_seen["$iface"]=1
+      done
+    done <<< "$P4_OUT"
+  fi
+else
+  [ "${#iface_rfk_seen[@]}" -gt 0 ] || p4_rec "$WIFI" wifi.rfkill UNAVAILABLE
+fi
+
 if run_ro 1 iw-reg iw reg get; then
   global=$(printf '%s\n' "$P4_OUT" | awk '/^global/ { g = 1 } /^country/ && g { sub(":", "", $2); print $2; exit }')
   p4_rec "$WIFI" wifi.reg.global "${global:-none}"
@@ -199,19 +284,14 @@ if run_ro 1 iw-reg iw reg get; then
 else
   p4_rec "$WIFI" wifi.reg.global UNAVAILABLE
 fi
-if run_ro 1 iw-dev iw dev; then
-  while IFS=$'\t' read -r iface field value; do
-    p4_rec "$WIFI" "wifi.iface.$iface.$field" "$value"
-  done < <(printf '%s\n' "$P4_OUT" | awk '$1 == "Interface" { i = $2 } $1 == "type" && i != "" { print i "\ttype\t" $2 }
-    $1 == "channel" && i != "" { print i "\tchannel\t" $2 " " $3 " " $4 }')
-  p4_rec "$WIFI" wifi.dev.sha256 "$(text_sha "$P4_OUT")"
-else
-  p4_rec "$WIFI" wifi.dev.sha256 UNAVAILABLE
-fi
 if run_ro 1 iw-phy iw phy; then
   if printf '%s\n' "$P4_OUT" | grep -qE '^[[:space:]]+\* AP$'; then ap=supported; else ap=not-listed; fi
   p4_rec "$WIFI" wifi.phy.ap_mode "$ap"
   p4_rec "$WIFI" wifi.phy.sha256 "$(text_sha "$P4_OUT")"
+  # V3: regulatory-insensitive digest (frequency-entry regulatory annotations removed) and the read-only channel-6 permission fact, so a phy
+  # digest change that is ONLY regulatory-derived can be proven by the comparator instead of being allowed as a generic key.
+  p4_rec "$WIFI" wifi.phy.regnorm_sha256 "$(text_sha "$(printf '%s\n' "$P4_OUT" | awk -f "$HERE/p4-iw-phy-regnorm.awk")")"
+  p4_rec "$WIFI" wifi.phy.channel6_permitted "$(printf '%s\n' "$P4_OUT" | awk -v mode=ch6 -f "$HERE/p4-iw-phy-regnorm.awk")"
 else
   p4_rec "$WIFI" wifi.phy.ap_mode UNAVAILABLE
 fi
@@ -221,15 +301,31 @@ if run_ro 1 nmcli-general nmcli -t -f STATE,CONNECTIVITY,WIFI-HW,WIFI general st
 else
   p4_rec "$WIFI" nm.general UNAVAILABLE
 fi
+
+declare -A known_devs=()
+if run_ro 1 nmcli-devices nmcli -t -f DEVICE,TYPE,STATE device status; then
+  while IFS=':' read -r dev type state; do
+    [ -n "$dev" ] || continue
+    known_devs["$dev"]=1
+    p4_rec "$WIFI" "nm.device.$dev.type" "${type:-unknown}"
+    p4_rec "$WIFI" "nm.device.$dev.state" "${state:-unknown}"
+  done <<< "$P4_OUT"
+else
+  p4_rec "$WIFI" nm.device UNAVAILABLE
+fi
+
 if run_ro 1 nmcli-active nmcli -t -f NAME,TYPE,DEVICE connection show --active; then
-  p4_rec "$WIFI" nm.active "$(join_sorted "$P4_OUT")"
+  declare -A active_devs=()
+  while IFS=':' read -r name type dev; do
+    [ -n "$dev" ] || continue
+    active_devs["$dev"]="${name}:${type}"
+  done <<< "$P4_OUT"
+  for d in $(printf '%s\n' "${!known_devs[@]}" "${!active_devs[@]}" | LC_ALL=C sort -u); do
+    [ -n "$d" ] || continue
+    p4_rec "$WIFI" "nm.active.device.$d" "${active_devs[$d]:-none}"
+  done
 else
   p4_rec "$WIFI" nm.active UNAVAILABLE
-fi
-if run_ro 1 nmcli-devices nmcli -t -f DEVICE,TYPE,STATE device status; then
-  p4_rec "$WIFI" nm.devices "$(join_sorted "$P4_OUT")"
-else
-  p4_rec "$WIFI" nm.devices UNAVAILABLE
 fi
 rec_tree "$WIFI" nm.profile /etc/NetworkManager/system-connections meta
 
@@ -262,6 +358,7 @@ else
   p4_rec "$FW" fw.nftables_conf./etc/nftables.conf absent
 fi
 rec_tree "$FW" fw.nftables_d /etc/nftables.d
+[ -f "$(p4_fs /etc/aegis-idea3/aegis-idea3.nft)" ] && rec_file "$FW" fw.idea3_nft "$(p4_fs /etc/aegis-idea3/aegis-idea3.nft)"
 
 # ── time ─────────────────────────────────────────────────────────────────────
 if run_ro 1 timedatectl timedatectl show -p NTP -p NTPSynchronized -p CanNTP -p Timezone; then
@@ -278,12 +375,43 @@ if run_ro 0 timesync timedatectl show-timesync -p ServerName -p SystemNTPServers
 else
   p4_rec "$TIME" time.timesyncd.ServerName UNAVAILABLE
 fi
+# Configured fallback set: canonical evidence for the constrained informational treatment of time.timesyncd.ServerName.
+if run_ro 0 timesync-fallback timedatectl show-timesync -p FallbackNTPServers; then
+  while IFS='=' read -r k v; do
+    [ "$k" = FallbackNTPServers ] && p4_rec "$TIME" time.timesyncd.FallbackNTPServers "$v"
+  done <<< "$P4_OUT"
+else
+  p4_rec "$TIME" time.timesyncd.FallbackNTPServers UNAVAILABLE
+fi
+# Kernel-based TrustedClock verdict (state only; maxerror is volatile and is not recorded). Live: the shared read-only
+# probe; test fixtures: the fixture value. Never adjusts the clock.
+if [ -n "$P4_FS_ROOT" ]; then
+  tcs=NOT_RECORDED
+  [ -f "$(p4_fs /run/aegis-idea3-fixture/trusted_clock_state)" ] && tcs=$(head -n1 "$(p4_fs /run/aegis-idea3-fixture/trusted_clock_state)")
+  p4_rec "$TIME" time.trustedclock.state "$tcs"
+elif run_ro 0 trustedclock python3 "$P4_HERE/p4-l5-clock.py" state; then
+  p4_rec "$TIME" time.trustedclock.state "$(printf '%s\n' "$P4_OUT" | sed -n 's/^state=\([A-Z]*\) .*/\1/p' | head -1)"
+else
+  p4_rec "$TIME" time.trustedclock.state UNAVAILABLE
+fi
 if p4_have chronyc; then
   if run_ro 0 chronyc-tracking chronyc -n tracking; then
     leap=$(printf '%s\n' "$P4_OUT" | awk -F' : ' '$1 ~ /^Leap status/ { print $2 }')
     p4_rec "$TIME" time.chrony.leap "${leap:-UNAVAILABLE}"
   else
-    p4_rec "$TIME" time.chrony.leap UNAVAILABLE
+    # chronyc cannot query a daemon that is not running. That is the expected
+    # passive-package state (L1: chrony installed, chronyd inactive), not a
+    # read failure, so it gets its own comparable sentinel. It requires
+    # positive proof: chronyd.service loaded AND ActiveState=inactive. Any
+    # other failed query (daemon active, unit state unreadable) stays
+    # UNAVAILABLE and fails closed in the comparison.
+    chrony_state=UNAVAILABLE
+    if run_ro 0 chronyd-state systemctl show -p LoadState -p ActiveState chronyd.service; then
+      cl=$(printf '%s\n' "$P4_OUT" | awk -F= '$1 == "LoadState" { print $2; exit }')
+      ca=$(printf '%s\n' "$P4_OUT" | awk -F= '$1 == "ActiveState" { print $2; exit }')
+      [ "$cl" = loaded ] && [ "$ca" = inactive ] && chrony_state=installed-inactive
+    fi
+    p4_rec "$TIME" time.chrony.leap "$chrony_state"
   fi
 else
   p4_rec "$TIME" time.chrony.leap not-installed
@@ -295,8 +423,29 @@ rec_tree "$TIME" time.file /etc/systemd/timesyncd.conf.d
 
 # ── listeners and MQTT ───────────────────────────────────────────────────────
 listeners=""
+# ss -l lists every unconnected UDP socket, including client sockets the kernel
+# autobound to an ephemeral port (resolvers, NTP/mDNS clients, ...). Those
+# rotate continuously and are not services, so UDP sockets inside the kernel's
+# own local port range are excluded from the per-port listener inventory (the
+# raw ss output is still kept under raw/). The range is read from the host and
+# recorded, so a changed range is itself drift. If the range cannot be read
+# and validated, nothing is filtered (fail-safe: churn, never a hidden service).
+# TCP is never filtered. Residual risk: a real UDP service bound inside the
+# ephemeral range is not distinguishable from a client socket by ss alone.
+eph_lo="" eph_hi=""
+if read -r eph_lo eph_hi < "$(p4_fs /proc/sys/net/ipv4/ip_local_port_range)" 2>/dev/null \
+  && [[ "$eph_lo" =~ ^[0-9]{1,5}$ ]] && [[ "$eph_hi" =~ ^[0-9]{1,5}$ ]] \
+  && [ "$eph_lo" -ge 1024 ] && [ "$eph_lo" -le "$eph_hi" ] && [ "$eph_hi" -le 65535 ]; then
+  udp_filter="kernel-range-$eph_lo-$eph_hi"
+else
+  eph_lo="" eph_hi="" udp_filter="none-range-unreadable"
+fi
 if run_ro 1 ss-listen ss -H -ltnu; then
-  listeners=$(printf '%s\n' "$P4_OUT" | awk 'NF >= 5 { print $1 "\t" $5 }' | LC_ALL=C sort -u)
+  listeners=$(printf '%s\n' "$P4_OUT" | awk -v lo="$eph_lo" -v hi="$eph_hi" 'NF >= 5 {
+      port = $5; sub(/.*:/, "", port)
+      if ($1 == "udp" && lo != "" && port ~ /^[0-9]+$/ && port + 0 >= lo + 0 && port + 0 <= hi + 0) next
+      print $1 "\t" $5 }' | LC_ALL=C sort -u)
+  p4_rec "$LISTEN" listen.udp.ephemeral_filter "$udp_filter"
   while IFS=$'\t' read -r netid local; do
     [ -n "$netid" ] && p4_rec "$LISTEN" "listen.$netid.$local" present
   done <<< "$listeners"
@@ -331,16 +480,21 @@ else
 fi
 pwfiles=$(printf '%s\n' "$directives" | awk '$1 == "password_file" { print $2 }' | LC_ALL=C sort -u)
 rec_pwfile() {
-  local full=$1 hp users
+  local full=$1 hp users sha meta
   hp=$(p4_hostpath "$full")
   if [ -r "$full" ]; then
     users=$(awk -F: 'NF >= 2 && $1 ~ /^[A-Za-z0-9._@-]{1,64}$/ { print $1 }' "$full" | LC_ALL=C sort -u | paste_csv)
     p4_rec "$MQTT" "mqtt.passwd.$hp.users" "${users:-none}"
   else
     p4_rec "$MQTT" "mqtt.passwd.$hp.users" UNREADABLE
+    partial=1
   fi
-  p4_rec "$MQTT" "mqtt.passwd.$hp.sha256" "$(p4_sha256 "$full")"
-  p4_rec "$MQTT" "mqtt.passwd.$hp.meta" "$(p4_meta "$full")"
+  sha=$(p4_sha256 "$full")
+  [ "$sha" = UNREADABLE ] && partial=1
+  p4_rec "$MQTT" "mqtt.passwd.$hp.sha256" "$sha"
+  meta=$(p4_meta "$full")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$MQTT" "mqtt.passwd.$hp.meta" "$meta"
 }
 paste_csv() { awk 'NR > 1 { printf "," } { printf "%s", $0 }'; }
 is_pwfile() {
@@ -451,7 +605,11 @@ if [ "$e_active" = UNAVAILABLE ] || [ "$t_active" = UNAVAILABLE ]; then process=
 elif [ "$e_active" = active ] && [ "$t_active" = active ]; then process=YES
 else process=NO; fi
 if [ "$t_active" = UNAVAILABLE ] || [ "$t_fail" = UNKNOWN ] || [ "$l18002" = UNAVAILABLE ]; then tunnel=UNKNOWN
-elif [ "$t_active" != active ] || [ "$t_restarts" != 0 ] || [ "$l18002" != present ] || [ "$t_fail" != 0 ]; then tunnel=NO
+elif ! [[ "$t_restarts" =~ ^[0-9]+$ ]]; then tunnel=UNKNOWN
+# NRestarts is a historical counter, recorded above and never normalized. It is not a
+# current-health failure by itself; a restart inside the preservation window is caught
+# by p4-compare.sh (NRestarts/MainPID must be unchanged). IDEA2_NARROWED_CRITERION.
+elif [ "$t_active" != active ] || [ "$l18002" != present ] || [ "$t_fail" != 0 ]; then tunnel=NO
 else tunnel=NO_FAILURE_OBSERVED; fi
 # The runtime verdict is never better than NOT_PROVEN: L0 does not probe a heartbeat.
 if [ "$tunnel" = NO ] || { [ "$e_active" != active ] && [ "$e_active" != UNAVAILABLE ]; } || [ "$l8077" = absent ] \
@@ -498,11 +656,66 @@ if run_ro 0 twingate twingate status; then
 else
   p4_rec "$HOST" host.twingate.status UNAVAILABLE
 fi
-for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /opt/aegis-idea3/current /var/lib/aegis-idea3 /run/aegis-idea3 \
-  /var/log/aegis-idea3; do
+for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /etc/aegis-idea3/mqtt /opt/aegis-idea3 /opt/aegis-idea3/current \
+  /opt/aegis-idea3/releases /var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3; do
   if [ -e "$(p4_fs "$p")" ]; then p4_rec "$HOST" "host.path.$p" present; else p4_rec "$HOST" "host.path.$p" absent; fi
 done
-rec_tree "$HOST" host.aegis_idea3.file /etc/aegis-idea3 meta
+# L6c (immutable release install): a deterministic, non-secret fingerprint of the release catalog under
+# /opt/aegis-idea3/releases/<id>/. The value is exactly "<id>:<sha256>" pairs (sorted by id, comma-joined), where
+# <sha256> is a TREE-STATE digest of that release's ACTUAL current filesystem entries — relative path, entry type,
+# uid, gid, permission bits, and (for a regular file) the SHA256 of its real bytes — computed by
+# p4-l6c-tree-digest.py. This proves the real payload/metadata state, never merely that the release's own
+# RELEASE-SHA256SUMS claim about itself is unchanged: a payload byte edit, a chmod/chown, a directory-mode change, an
+# added/removed entry, or a symlink/special file anywhere in the tree all change this digest even if
+# RELEASE-SHA256SUMS itself is untouched. Never file contents, never an individual path, never a filename beyond the
+# release id are recorded — only the one final digest per release id.
+releases_root=$(p4_fs /opt/aegis-idea3/releases)
+if [ -d "$releases_root" ]; then
+  ids=""
+  if run_ro 1 l6c-releases-listdir find "$releases_root" -mindepth 1 -maxdepth 1 -type d; then
+    ids=$(printf '%s\n' "$P4_OUT" | xargs -r -n1 basename | LC_ALL=C sort)
+  else
+    partial=1
+  fi
+  catalog="" first=1
+  while IFS= read -r rid; do
+    [ -n "$rid" ] || continue
+    if run_ro 0 - python3 "$P4_HERE/p4-l6c-tree-digest.py" "$releases_root/$rid" \
+      && [[ "$P4_OUT" =~ ^[0-9a-f]{64}$ ]]; then
+      h=$P4_OUT
+    else
+      h=UNREADABLE
+      partial=1
+    fi
+    [ "$first" = 1 ] || catalog+=","
+    catalog+="$rid:$h"
+    first=0
+  done <<< "$ids"
+  p4_rec "$HOST" host.aegis_idea3.release_catalog "${catalog:-<empty>}"
+else
+  p4_rec "$HOST" host.aegis_idea3.release_catalog absent
+fi
+if [ -L "$(p4_fs /opt/aegis-idea3/current)" ]; then
+  if run_ro 0 readlink-current readlink -- "$(p4_fs /opt/aegis-idea3/current)"; then
+    p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target "$P4_OUT"
+  else
+    p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target UNAVAILABLE
+  fi
+else
+  p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target absent
+fi
+# L6b (OD-L6B-01) installs the separate broker unit; it is captured exactly like the Core unit (never a wildcard).
+for unit_file in aegis-idea3-core.service aegis-idea3-mosquitto.service; do
+  if [ -f "$(p4_fs "/etc/systemd/system/$unit_file")" ]; then
+    rec_file "$HOST" host.unit_file "$(p4_fs "/etc/systemd/system/$unit_file")"
+  fi
+done
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  [ "$(p4_hostpath "$f")" = "/etc/aegis-idea3/aegis-idea3.nft" ] && continue
+  [ "$(p4_hostpath "$f")" = "/etc/aegis-idea3/dnsmasq-ap.conf" ] && continue
+  rec_file "$HOST" host.aegis_idea3.file "$f" meta
+done < <(tree_files /etc/aegis-idea3)
 
 # ── meta, ordering, checksums ────────────────────────────────────────────────
 if [ "$partial" = 0 ]; then status=COMPLETE; else status=PARTIAL; fi

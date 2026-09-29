@@ -22,13 +22,38 @@ const PERSIST_INTERVAL_MS = 3_600_000
  * rename ที่ปลายทาง/ต้นทางถูกอีก handle เปิดอยู่ล้มเหลวชั่วคราวบน Windows (EPERM/EBUSY) — บน Linux
  * rename ทับไฟล์ที่เปิดอยู่ทำได้เสมอ จึงเป็นการลองซ้ำสั้น ๆ ที่มีขอบเขต ไม่ใช่การกลืน error จริง
  */
-async function renameWithRetry(from, to, attempts = 25) {
+export async function renameWithRetry(from, to, {
+  attempts = 40,
+  delayMs = 50,
+  rename = fsp.rename,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  link = fsp.link,
+  unlink = fsp.unlink,
+} = {}) {
   for (let i = 0; ; i += 1) {
     try {
-      return await fsp.rename(from, to)
+      return await rename(from, to)
     } catch (err) {
-      if (i >= attempts || !['EPERM', 'EBUSY', 'EACCES'].includes(err.code)) throw err
-      await new Promise((r) => setTimeout(r, 10))
+      const transient = ['EPERM', 'EBUSY', 'EACCES'].includes(err.code)
+      if (!transient) throw err
+      if (i >= attempts) {
+        // Windows scanners/codecs can retain a read handle beyond the bounded
+        // rename window. The cache tmp/ and final path are on the same volume,
+        // so a hard link publishes the already-complete inode atomically without
+        // copying plaintext or exposing a partial derivative.
+        try {
+          await link(from, to)
+          await Promise.resolve(unlink(from)).catch(() => {})
+          return undefined
+        } catch (linkErr) {
+          if (linkErr?.code === 'EEXIST') {
+            await Promise.resolve(unlink(from)).catch(() => {})
+            return undefined
+          }
+          throw err
+        }
+      }
+      await sleep(delayMs)
     }
   }
 }

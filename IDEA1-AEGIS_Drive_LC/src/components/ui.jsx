@@ -39,10 +39,11 @@ const CHIP_TONES = {
   violet: 'bg-violet-soft text-violet',
   neutral: 'bg-sunken text-ink-2',
 }
-export function Chip({ tone = 'neutral', children, className = '', mono = false }) {
+export function Chip({ tone = 'neutral', children, className = '', mono = false, ...rest }) {
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.02em] whitespace-nowrap ${CHIP_TONES[tone]} ${mono ? 'font-mono' : ''} ${className}`}
+      {...rest}
     >
       {children}
     </span>

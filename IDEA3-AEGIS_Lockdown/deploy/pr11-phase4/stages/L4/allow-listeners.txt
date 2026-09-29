@@ -1,0 +1,7 @@
+# AEGIS IDEA3 PR11 Phase 4 — L4 allow-listeners.txt
+# Permitted listener additions for Stage L4 (AP addressing & DHCP/Core-local DNS).
+# DNS listeners bound strictly to the Core AP address.
+listen.tcp.<AEGIS_AP_ADDRESS>:53
+listen.udp.<AEGIS_AP_ADDRESS>:53
+# PF-02 reviewed exception: interface-bound UDP/67 DHCP socket on target AP interface.
+listen.udp.0.0.0.0%<AEGIS_AP_INTERFACE>:67

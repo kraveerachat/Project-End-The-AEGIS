@@ -50,10 +50,13 @@ export function useApi(path) {
   return {
     ...state,
     retry: () => ctl?.requests.push({ path, method: 'RETRY' }),
-    refresh: () => ctl?.requests.push({ path, method: 'REFRESH' }),
+    refresh: () => {
+      ctl?.requests.push({ path, method: 'REFRESH' })
+      return Promise.resolve(ctl?.state?.[path]?.data ?? null)
+    },
   }
 }
-export function useReducedMotion() { return true }
+export function useReducedMotion() { return backend()?.reducedMotion ?? true }
 export function useNow() { return Date.UTC(2026, 7, 27, 9, 0, 0) }
 export function useCountUp(target) { return target }
 
@@ -86,16 +89,30 @@ export async function apiUpload() { return { ok: true, status: 200, data: {}, er
 export const ARGON2_DEFAULTS = Object.freeze({ time: 1, memKiB: 8, parallelism: 1, hashLen: 32 })
 export const KEY_BYTES = 32
 
-const FAKE_KEK = Object.freeze({ kind: 'fake-kek' })
+/* ⚠️ TREE (PR #157): "KEK ปลอม" ต้องเป็น CryptoKey จริง (AES-GCM, non-extractable)
+   เพราะโมดูล tree ตัวจริง (vaultTreeKeys.wrapTrkSlots) ผ่านมันเข้า crypto.subtle ตรง ๆ
+   ตอน wrap TRK — WebCrypto ปฏิเสธวัตถุธรรมดา (ERR_INVALID_ARG_TYPE)
+   สร้างครั้งเดียวแบบขี้เกียจ ทุกผู้เรียกเป็น async อยู่แล้ว */
+let kekPromise = null
+function getFakeKek() {
+  kekPromise ??= globalThis.crypto.subtle.importKey(
+    'raw',
+    globalThis.crypto.getRandomValues(new Uint8Array(32)),
+    'AES-GCM',
+    false,
+    ['encrypt', 'decrypt'],
+  )
+  return kekPromise
+}
 
 export async function unlockVault(passphrase) {
   // Same contract as the real module: a bad key is 'wrong-key' and nothing else.
   if (passphrase !== CORRECT_PASSPHRASE) throw new Error('wrong-key')
-  return FAKE_KEK
+  return getFakeKek()
 }
 
 export async function createVaultSetup() {
-  return { saltB64: 'salt', params: ARGON2_DEFAULTS, verifier: { ivB64: 'v', ctB64: 'v' }, kek: FAKE_KEK }
+  return { saltB64: 'salt', params: ARGON2_DEFAULTS, verifier: { ivB64: 'v', ctB64: 'v' }, kek: await getFakeKek() }
 }
 
 export async function encryptFileEnvelope(kek, { name, type = '', size, bytes }) {
@@ -119,9 +136,9 @@ export async function decryptFileContent(kek, blob, ciphertext) {
 export async function fileToBytes() { return new Uint8Array([1, 2, 3, 4]) }
 export const bytesToB64 = (bytes) => Buffer.from(bytes).toString('base64')
 export const b64ToBytes = (b64) => new Uint8Array(Buffer.from(String(b64), 'base64'))
-export async function deriveKek() { return FAKE_KEK }
+export async function deriveKek() { return getFakeKek() }
 export async function verifyKek() { return true }
-export async function unwrapDek() { return FAKE_KEK }
+export async function unwrapDek() { return getFakeKek() }
 
 /* ── ../lib/vaultChunkCrypto.js (Private Vault V2) ────────────────────
    ⚠️ เหตุผลเดียวกับที่ V1 ถูก stub ไว้ที่นี่: การเข้ารหัสจริงถูกพิสูจน์แล้วใน
@@ -146,22 +163,42 @@ export async function decryptVaultV2Meta(kek, blob) {
  */
 export async function unwrapVaultV2Dek(kek) {
   if (!kek) throw new Error('no-key')
-  return FAKE_KEK
+  // recovery tests seal with a DEK they own; the rebuilt DEK after "reload" must be that same key
+  return backend()?.dekKey ?? getFakeKek()
+}
+
+/** เรขาคณิตของ chunk — ตรรกะเดียวกับโมดูลจริง (TU-SAME-1 ตรึงของจริงไว้แล้ว) */
+export function planVaultChunks(plainSize, plaintextChunkBytes) {
+  const size = Math.max(0, Number(plainSize))
+  const plainChunk = Number(plaintextChunkBytes)
+  const chunkCount = size === 0 ? 1 : Math.ceil(size / plainChunk)
+  const lastPlain = size === 0 ? 0 : size - (chunkCount - 1) * plainChunk
+  return { chunkCount, plaintextChunkBytes: plainChunk, chunkSize: plainChunk + GCM_TAG_BYTES, lastChunkSize: lastPlain + GCM_TAG_BYTES, ciphertextSize: size + chunkCount * GCM_TAG_BYTES }
+}
+export function plaintextRangeFor(index, plainSize, plaintextChunkBytes) {
+  const start = index * plaintextChunkBytes
+  return { start, end: Math.min(start + plaintextChunkBytes, Math.max(0, plainSize)) }
+}
+export async function decryptVaultV2MetaWithDek(dek, blob) {
+  if (!dek) throw new Error('no-key')
+  const meta = decodeMeta(blob?.metaB64)
+  return { name: meta.name, type: meta.type, plainSize: meta.plainSize ?? meta.size }
 }
 
 /* ── ../lib/vaultChunkedUpload.js ─────────────────────────────────────
    ตัวควบคุมของเทสต์ตอบที่ path เดียวกับที่โมดูลจริงยิงไป ('/api/vault/uploads')
    จอจึงถูกทดสอบด้วย "ผลลัพธ์ของการอัปโหลด V2" ตามจริง ไม่ใช่ผลของ endpoint V1 ที่เลิกใช้ */
-export async function uploadVaultFileChunked({ file, resume, onStage, onProgress, signal }) {
+export async function uploadVaultFileChunked({ file, resume, onStage, onProgress, onSession, signal, routeBase = '/api/vault/uploads' }) {
   const ctl = backend()
   // ⚠️ เทสต์ที่ต้องคุมจังหวะเอง (ค้างกลางคัน / ล้มเฉพาะก้อนที่ N / ยกเลิกตอนนั้นพอดี)
   //    ใส่ตัวขับของตัวเองได้ — รูปทรงของผลลัพธ์ยังเป็นสัญญาเดียวกับโมดูลจริงทุกประการ
   if (typeof ctl?.uploadImpl === 'function') {
-    return ctl.uploadImpl({ file, resume, onStage, onProgress, signal })
+    ctl.requests.push({ path: routeBase, method: 'UPLOAD_TRANSPORT', body: { size: file?.size ?? 0 } })
+    return ctl.uploadImpl({ file, resume, onStage, onProgress, onSession, signal, routeBase })
   }
   const chunkCount = ctl?.uploadChunkCount ?? 1
   onStage?.('preparing')
-  ctl.requests.push({ path: '/api/vault/uploads', method: 'POST', body: { size: file?.size ?? 0 } })
+  ctl.requests.push({ path: routeBase, method: 'POST', body: { size: file?.size ?? 0 } })
 
   for (let i = 0; i < chunkCount; i += 1) {
     if (signal?.aborted) return { ok: false, stage: 'cancelled', reason: 'cancelled', resume: resume ?? null }
@@ -191,7 +228,10 @@ export async function uploadVaultFileChunked({ file, resume, onStage, onProgress
   return { ok: true, stage: 'complete', blob: res?.data?.blob, resume: null }
 }
 
-export async function cancelVaultUploadSession() { return true }
+export async function cancelVaultUploadSession(uploadId, { routeBase = '/api/vault/uploads' } = {}) {
+  backend()?.requests.push({ path: `${routeBase}/${uploadId}`, method: 'DELETE' })
+  return true
+}
 export async function fetchVaultTransferLimits() {
   return { formatVersion: 2, plaintextChunkBytes: 16 * 1024 * 1024, maxLogicalFileBytes: 5 * 1024 ** 3 }
 }

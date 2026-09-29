@@ -7,6 +7,10 @@
 // client ไม่เคยประกาศ role ของตัวเอง และไม่เก็บ auth state ใน local/session storage
 // (aegis_shell_theme เป็นเพียง hint ด้านภาพ ไม่มี identity/role/token)
 import { apiFetch, setCsrfToken, clearCsrfToken } from './api.js'
+import { onSessionEnded, notifySessionEnded, SESSION_END_REASONS } from './sessionEnded.js'
+
+/** PR #157 Task 5.4: ผู้ฟัง "เซสชันจบ" (logout / 401 / PASSWORD_RESET_REQUIRED) — จอ Vault ใช้ purge สถานะที่ถอดรหัสไว้ */
+export { onSessionEnded }
 
 /**
  * POST /api/login — ส่งแค่ { username, password, remember }
@@ -38,6 +42,8 @@ export async function fetchMe() {
 
 /** POST /api/logout — ทำลายเซสชันฝั่งเซิร์ฟเวอร์ + ล้าง token ในหน่วยความจำ */
 export async function logout() {
+  // แจ้ง "ก่อน" ยิงเน็ตเวิร์ก: ผู้ใช้ตัดสินใจออกแล้ว ทุกอย่างที่ถอดรหัสไว้ต้องหายทันที แม้คำขอ logout จะล้มเหลว
+  notifySessionEnded(SESSION_END_REASONS.LOGOUT)
   await apiFetch('/api/logout', { method: 'POST', suppressAuthHandler: true })
   clearCsrfToken()
 }

@@ -13,11 +13,13 @@ import { errorHandler, apiNotFound } from './middleware/errorHandler.js'
 import { requireAuth } from './middleware/requireRole.js'
 import { apiRouter } from './routes/api.js'
 import { shareRouter } from './routes/share.js'
+import { integrationRouter } from './routes/integration.js'
 import { checkDb } from './db/connection.js'
 import { checkStorage } from './storage/fileStore.js'
 import { trustedProxyFromEnv } from './config/trustedProxy.js'
 import { publicShareConfigFromEnv } from './config/publicShare.js'
 import { mediaLimitsFromEnv } from './config/mediaLimits.js'
+import { vaultTreeConfigFromEnv } from './config/vaultTreeLimits.js'
 import { disabledMediaService } from './media/disabledService.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -32,10 +34,14 @@ export function createApp({
   env = process.env,
   mediaLimits = mediaLimitsFromEnv(env),
   mediaService = disabledMediaService(mediaLimits),
+  vaultTreeConfig = vaultTreeConfigFromEnv(env),
 } = {}) {
   const app = express()
   app.set('mediaLimits', mediaLimits)
   app.set('mediaService', mediaService)
+  // Private Vault encrypted hierarchy (PR #157): flag ทั้งหกปิดโดยปริยายและเป็นโซ่ fail-closed;
+  // แช่แข็งครั้งเดียวที่นี่เช่นเดียวกับ publicShareConfig — route อ่านวัตถุเดียวกัน ไม่อ่าน process.env
+  app.set('vaultTreeConfig', vaultTreeConfig)
 
   // Trust only the deployment-defined HUB→Drive proxy CIDR. Development/test
   // default to no proxy; production fails closed when the boundary is absent.
@@ -86,6 +92,12 @@ export function createApp({
       db: db.mode,
       layers: { application, metadata, storage },
       media: mediaService.health(),
+      // additive (PR #157): เปิดเผยเฉพาะ flag ที่ operator ต้องเห็น ไม่มีผลต่อ ok
+      vaultTree: {
+        schemaAvailable: vaultTreeConfig.flags.schemaAvailable,
+        protocolEnabled: vaultTreeConfig.flags.protocolEnabled,
+        destructivePurgeEnabled: vaultTreeConfig.flags.destructivePurgeEnabled,
+      },
     })
   })
 
@@ -103,6 +115,12 @@ export function createApp({
   app.post('/api/trash/empty', requireAuth)
   app.post('/api/trash/:id/restore', requireAuth)
   app.delete('/api/trash/:id', requireAuth)
+
+  // IDEA3 cross-IDEA visibility feed (service-to-service, read-only): mounted
+  // before the CSRF+session /api chain, same reasoning as shareRouter — this
+  // caller has no browser, no cookie, and no CSRF token; its own dedicated
+  // credential (requireIdea3IntegrationKey) is the entire auth boundary.
+  app.use(integrationRouter)
 
   // CSRF ครอบทุก /api ที่เปลี่ยนสถานะ — ต้องมาก่อน router
   app.use('/api', csrfProtection, apiRouter)

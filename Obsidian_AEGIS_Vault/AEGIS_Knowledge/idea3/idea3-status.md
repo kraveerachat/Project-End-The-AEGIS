@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-17
+updated: 2026-09-29
 owner: music
 edit_policy: owner-writable
 ---
@@ -12,11 +12,520 @@ edit_policy: owner-writable
 # 🔒 IDEA3: AEGIS Lockdown
 
 > [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. K1 is now reconciled in the repository and merged (PR #144 at `e4183fefd83727eba82cdb6c0d94d14b4bf349e4`); the Phase 2B overlay form is merged (PR #145 at `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`); neither merge changed the running HUB or enabled Phase 2B. The K1 reconciliation: the owner-captured live HUB artifact (`16cee162…`) is the reviewed baseline, the IR-1 `/security` browser route is added on top, the Phase 2B mTLS block is reviewed but not included, and a HUB routing contract test proves preservation plus the additions. K3 is CLEAR on the merged IDEA1 PR #141 closeout. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17" first (repository-only systemd 261 unit correction; `PHASE3_RUNTIME_COMPLETE = NO`), then "IDEA3 PR11 Phase 2 runtime — final closeout — 2026-09-17" (owner-run T3 wrong-CA and T4 revoked-certificate gates PASS; `PHASE2_RUNTIME_COMPLETE = YES`; K12, Phase 3, Phase 4, D4 live, and PR11 remain open), then "IDEA3 PR11 Phase 2 runtime — live evidence reconciliation — 2026-09-16" (Phase 2A PASS and Phase 2B activated live; its T3/T4 SKIP state is superseded), then "IDEA3 PR11 K10 server-held client CA amendment — 2026-09-16," then "IDEA3 PR11 Phase 2 runtime completion — post-#144/#145 reconciliation — 2026-09-16," then "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. K1 is now reconciled in the repository and merged (PR #144 at `e4183fefd83727eba82cdb6c0d94d14b4bf349e4`); the Phase 2B overlay form is merged (PR #145 at `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`); neither merge changed the running HUB or enabled Phase 2B. The K1 reconciliation: the owner-captured live HUB artifact (`16cee162…`) is the reviewed baseline, the IR-1 `/security` browser route is added on top, the Phase 2B mTLS block is reviewed but not included, and a HUB routing contract test proves preservation plus the additions. K3 is CLEAR on the merged IDEA1 PR #141 closeout. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 PR11 Post-Containment Reconciliation + Live-Readiness Contract — 2026-09-23" first (this reconciliation task; confirms PR #181 merged at `21d7b7824e6edf1950a7bd914f5d780366fd13c7` and its PR #182 recovery receipt merged at `f2f92425...`; `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`, `SOFTWARE_IP_UNBLOCK = SOURCE_IMPLEMENTED`, still not host-verified; defines the exact host-verification contract required before `SOFTWARE_BLOCK_IP`/`SOFTWARE_UNBLOCK = IMPLEMENTED_AND_HOST_VERIFIED`; no live mutation performed), then "IDEA3 PR11 MVP dynamic IP containment — source implementation — 2026-09-22" (PR #181, now MERGED — no longer Draft; BLOCK_IP/UNBLOCK_IP source implemented through a root socket-activated nftables helper; Core stays unprivileged; generic attacker events now use software containment instead of automatic CUT; `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`, not host-verified), then "IDEA3 Final Project — PR11 MVP Scope Freeze — 2026-09-22" (PR #178 merged at `3b91fc40`; IDEA3 Final Project scope formally frozen as Security Orchestrator + Physical Containment MVP; PR11 exit criteria and PR12 A1–A7 acceptance defined; software IP blocking and live cross-IDEA integrations open; IDEA2 narrowed preservation decision pending; production hardening deferred; `PR11_MVP_COMPLETE = NO`, `PR12_FINAL_ACCEPTANCE = OPEN`), then "IDEA3 PR11 Phase 4 L1 disk-threshold owner decision reconciliation — 2026-09-22" (PR #178 merged; canonical threshold 90%, PR #174 conflict resolved for repository purposes; live L1 blocked on disk usage 96%, IDEA2 §10, and authorizations), then "IDEA3 PR11 Phase 4 Official L0 live baseline — durable closeout — 2026-09-21" (official post-repair read-only baseline accepted; disk 96% used blocks L1, disk threshold contract reconciliation required, IDEA2 §10 remains freshly blocking, L1 live backend not implemented fail-closed; `PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`), then "IDEA3 PR11 Phase 4 L0 harness portability and fail-closed repair — 2026-09-21" (repository repair of locale determinism, paths with spaces in argv-aware filesystem reads, and fail-closed metadata handling), then "IDEA3 PR11 Phase 4 live-readiness reconciliation — 2026-09-21", then "IDEA3 PR11 Phase 4 L1 package installation handler repository registration — 2026-09-21", then "IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17" (repository-only systemd 261 unit correction; `PHASE3_RUNTIME_COMPLETE = NO`), then "IDEA3 PR11 Phase 2 runtime — final closeout — 2026-09-17" (owner-run T3 wrong-CA and T4 revoked-certificate gates PASS; `PHASE2_RUNTIME_COMPLETE = YES`; K12, Phase 3, Phase 4, D4 live, and PR11 remain open), then "IDEA3 PR11 Phase 2 runtime — live evidence reconciliation — 2026-09-16" (Phase 2A PASS and Phase 2B activated live; its T3/T4 SKIP state is superseded), then "IDEA3 PR11 K10 server-held client CA amendment — 2026-09-16," then "IDEA3 PR11 Phase 2 runtime completion — post-#144/#145 reconciliation — 2026-09-16," then "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
+
+## IDEA3 PR11 Phase 4 L3/L4 V6 TrustedClock stabilization — repository only — 2026-09-29
+
+> [!important] Repository-only. The first live V6 attempt (`2026-09-29-l34-v6-20260929-170043`, authorization `2026-09-29-l34-v6-auth-20260929-165848`) is CONSUMED and never reused. No live retry, no new authorization/K3, no L6c/L7, no ESP32.
+> `L34_V6_LIVE = NOT_PROVEN`, `TRUSTEDCLOCK_TRANSIENT_SUBREASON = NOT_PROVEN`, `COMPARATOR_WEAKENED = NO`, `RELEASE_CLOSURE_CHANGED = NO`
+
+- **Live facts:** apply, verify and the 6 x 5 s soak passed and the rollback handler passed; PRE→POST and PRE→RB failed ONLY on `time.trustedclock.state SYNCED -> UNTRUSTED`. Later read-only probes were SYNCED/OK; the exact transient subreason was not recorded and a persistent time-service failure was not observed.
+- **Remediation (owner runner only):** a bounded READ-ONLY `clock_gate` reuses the existing `p4-l5-clock.py state` predicate and must see exactly `state=SYNCED reason=OK` before the POST capture and before the RB capture. Bound 60 s / 1 s = the reviewed L5 readiness bound. Malformed/unreadable probe fails closed at once; bound exceeded fails closed (POST → rollback path; RB → S-11 HOLD without RB capture). Every sample's full probe output is kept in `clock-stabilization-{post,rb}.log`. `p4-compare.sh` still decides S10/COMPARE independently and is unchanged (hash-pinned).
+- **Limits that remain:** repository/simulator only; any live V6 retry needs a re-frozen runner plus a fresh same-day authorization and K3. Staged release `3c8dae69…` is untouched and stays a reuse candidate.
+
+## IDEA3 PR11 Phase 4 L3/L4 V6 stale-broker/AP-down reactivation — repository implementation only — 2026-09-29
+
+> [!important] Repository-only. No Production mutation, no live authorization or K3 record created, no L4 execution or retry, no L6c/L7, no ESP32. V6 is **not** accepted or proven live; the V5 attempt stays consumed and is never reused.
+> `L34_V6 = REPOSITORY_ONLY (simulator-tested)`, `LIVE_REACTIVATION = NOT_PROVEN`, `AUTHORIZATION_CREATED = NO`, `V5_SEMANTICS_CHANGED = NO`, `BROKER_CONTROL_COMMAND_PRESENT = NO`
+
+- **Baseline `STALE_BROKER_AP_DOWN` (stage `l34-v6-stale-broker-ap-down`):** the L6b broker is active/running and stable (MainPID/NRestarts/InvocationID identical across 3 samples) on the exact stale pair `127.0.0.1:8883` + `10.77.30.1:8883`; the AP address is absent; `aegis-idea3-dnsmasq.service` is cleanly `loaded/enabled/inactive/dead/success/MainPID=0`; V4 wifi/rfkill/radio topology; legacy mosquitto `:1883` may exist. V1–V5 each refuse it.
+- **What V6 does:** one AP activation (autoconnect off/restore), one plain `systemctl start aegis-idea3-dnsmasq.service` (no `reset-failed` on the normal path; rollback alone may issue one exact-unit `reset-failed` if the attempted start left that unit failed), ONE handshake-only TLS probe to `10.77.30.1:8883` through the unchanged `p4-l7-broker-probe.py` (no `openssl`, no MQTT bytes, never `127.0.0.1`), then a fixed 6 x 5 s soak. It never issues any command against the broker; apply, verify, soak and rollback PROVE the broker tuple equals PRE and the stale pair is present, and any change is an S-11 HOLD, never a repair. Legacy `:1883` must stay byte-identical; a new plaintext `:1883` fails.
+- **Owner runner consume order:** pre-gates → handler PREFLIGHT_ONLY → PRE capture + hash → final broker-tuple equality → atomic consume of `L34-V6-REACTIVATION-ATTEMPT-CONSUMED` → full handler preflight → production-mutation marker → first mutation. A PRE capture failure does not consume the attempt. The fresh V6 authorization/K3 contract (scope `L3_L4_RUNTIME_REACTIVATION_V6_STALE_BROKER_AP_DOWN…`, 188 chars) exists only in the runner; the committed runner is an unpinned template that refuses to run.
+- **Limits that remain:** the PRE→POST compare still fails S10 while the IDEA2 baseline is unhealthy (see the V5 section below) — V6 does not change that policy. The V6 runner needs an owner freeze/re-pin and a fresh same-day authorization + K3 before any live run. Live V6 success requires `PRESERVATION_S10=PASS`, and fresh IDEA2 health evidence is required before live execution. V6 creates no new Pub policy decision and makes no claim about current live IDEA2 health. The live probe's `--repo-root` argument is required by the unchanged probe and is documented in the design spec.
+- **Design:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-29-idea3-pr11-phase4-l34-v6-stale-broker-ap-down-design.md`. **Receipt:** `90-Status/logs/2026-09-29_150000_music_idea3-l34-v6-stale-broker-ap-down.md`.
+
+## IDEA3 PR11 Phase 4 L3/L4 V5 live attempt FAILED (listener race) and rolled back; repository fix — 2026-09-29
+
+> [!important] The one V5 attempt (`2026-09-29-l34-v5-20260929-111559`, main `3c8dae69`) is **CONSUMED** and must never be reused. It applied the AP activation, failed `L34_V4_BROKER_LISTENERS_INVALID`, rolled back (`L34_V5_ROLLBACK=PASS`), and the PRE→RB compare failed. L3/L4 reactivation is **NOT accepted**. This section is repository-only: no Production mutation, no retry, no new authorization.
+> `L34_V5_ATTEMPT = 1`, `L34_V5_APPLY = FAIL`, `L34_V5_ROLLBACK = PASS`, `PRE_RB_COMPARE = FAIL`, `AUTHORIZATION_CONSUMED = YES`, `RETRY_PERFORMED = NO`, `L34_V5_RACE_FIX = REPOSITORY_ONLY (simulator-tested)`, `LIVE_REACTIVATION = NOT_PROVEN`
+
+- **Read-only forensic (two independent defects, not AP/broker faults):** (1) `aegis-idea3-mosquitto.service` is `Type=simple`, so systemd reports it active/running at exec, ~20 ms before mosquitto binds its 8883 sockets (bind at 11:16:10.0117, `running` 10.0119). The V5 apply polled for active/running every 2 s, hit that window, and then sampled `ss` exactly once, so the exact-set listener gate failed; rollback began ~37 ms after the bind. (2) The IDEA2 engine's HeartbeatWorker logs `Monitor unreachable … 127.0.0.1:18002 … Connection refused` every 5 s for as long as the monitor is down. PRE and RB share one `JOURNAL_SINCE`, so PRE covered ~0 s and RB the whole window; the count went 0→1 for `heartbeat_failed` and `refused` and was flagged `NEW_OR_WORSENED_DRIFT`. It is loopback-only, pre-existing and unrelated to the AP.
+- **Repository fix:** `reactivation/l34-v5-post-l6b-degraded/apply.sh` now polls the unchanged exact-set listener gate (`AEGIS_L34_V5_LISTEN_TRIES=15` x `AEGIS_L34_V5_LISTEN_INTERVAL=1`), read-only, no broker command; on final failure it writes the observed 8883 set to `broker-listeners-observed.txt`. `p4-compare.sh` reclassifies `idea2.engine.journal.heartbeat_failed|refused` growth to `BASELINE_UNHEALTHY_BUT_UNCHANGED` only when runtime_healthy=NO and `idea2.listen.18002` is absent in both captures and the count did not decrease; every other engine class, an 18002 state change, a healthy→unhealthy transition and a decrease still fail.
+- **Limit that this fix does NOT remove:** `PRESERVATION_S10` and the runner's compare gate require `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`. While the IDEA2 baseline is unhealthy (tunnel/runtime `NO`, 18002 absent) the compare therefore still fails S10 by existing design, so a V5 retry cannot pass its PRE→RB/PRE→POST compare on this host until the IDEA2 owner either restores a healthy IDEA2 baseline or the S10 policy is changed. That policy is not touched here.
+- **Also not fixed:** the host no longer matches V5's PRE gate (broker now active/running with 8883 sockets bound, including a stale bind to the removed 10.77.30.1; dnsmasq inactive), so a V5 rerun would refuse at preflight. A V6 baseline decision and a re-freeze are required.
+- **Flaky test:** `test_real_end_to_end_capture_then_compare_requires_the_allow_file` reads the real host journal/listeners. The engine heartbeat drift is one cause and is removed by this fix, but the test still flaked (9 of 40 runs after the fix) on unrelated live-host churn (ephemeral `enp62s0` UDP listeners, IDEA2 tunnel `activating`↔`active`). The fix does **not** make it deterministic.
+- **Receipt:** `90-Status/logs/2026-09-29_115112_music_idea3-l34-v5-convergence-preservation-fix.md`.
+
+## IDEA3 Web WEB-R2 Production Refresh — live closeout — 2026-09-28
+
+> [!important] The IDEA3 Security Center Web visual refresh is **DEPLOYED / VERIFIED** in Production. This section supersedes older broad language that said Web production deployment remained open **only for the Web visual-refresh scope**. Live IDEA1/IDEA2/IDEA3 status-adapter wiring, PR11 Phase 4 runtime completion, V4/L7/L8, and ESP32 work remain separate and open.
+> `WEB_R2_PRODUCTION_REFRESH = PASS`, `WEB_R2_CLOSEOUT = PASS`, `DEPLOYED_COMMIT = f839a4738409bcd6e0e2281f21ea8dd7e26dd839`, `DEPLOYED_IMAGE = aegis-idea3-web:weblive-f839a4738409`, `READINESS = READY`, `AUDIT = READY`, `AUDIT_SCHEMA_VERSION = 3`, `IDEA1_IDEA2_SHARED_PRESERVATION = PASS`, `AUDIT_VOLUME_PRESERVATION = PASS`, `PRODUCTION_MUTATION_WINDOW = CLOSED`
+
+- **Production result:** only `aegis-prod-idea3-web-1` was recreated for this refresh. It is running/healthy with restart count 0 and revision label `f839a4738409bcd6e0e2281f21ea8dd7e26dd839`.
+- **Route/readiness:** both container-internal and `https://192.168.10.10/security/api/readiness` returned `{"status":"READY","audit":"READY","schemaVersion":3}`.
+- **Artwork proof:** Production-served `BG_AEGIS01.png` SHA-256 `6d8ae549761661b39c2f4ee59c8f5775d6bbd216cc57e14b91e55c76b45a1492`; `BG_AEGIS02.png` SHA-256 `fb48dc85b0784fa741438a79bc39818d924a80e3d74244f0257443e49ec31837`; both match source and image-build proof.
+- **Persistence/rollback:** `aegis_idea3_web_data` remained the same persistent volume; the old image `aegis-idea3-web:pr11-phase2-dbc9ad92cd3e` remains available as rollback. The live overlay now selects `aegis-idea3-web:weblive-f839a4738409`.
+- **Preservation:** pre/post container-identity evidence for HUB, Drive, Monitor, Postgres, Public Share gateway/connector and Twingate was byte-identical. No IDEA1/IDEA2/shared runtime was recreated by WEB-R2.
+- **Disk:** root filesystem was 87% used after deployment/closeout. Earlier cleanup removed unused Docker build cache only; images and volumes were not pruned.
+- **Evidence:** server-local `/opt/aegis/runtime/idea3/weblive-20260927T225534Z`. Production mutation window is closed; no additional Web mutation is authorized by this documentation closeout.
+- **Next work split:** IDEA3 Python UX/runtime development can continue independently; WEB-R3 live adapters wait for their source runtimes; PR11 V4/L7/L8 remain on their own governed path.
+- **Receipt:** `90-Status/logs/2026-09-28_060304_music_idea3-web-r2-production-closeout.md`.
+
+## IDEA3 PR11 Phase 4 L6c "Immutable Release Install" — new governed stage, repository only — 2026-09-27
+
+> [!important] Repository design/implementation only. L6c has NOT run, is NOT authorized, and no Production state changed. L7 remains separately gated; L6c PASS does NOT authorize L7. No A-L6c, K3, A-L7, D6, or Production secret was created; L8 has NOT started.
+> `PRE_L7_RELEASE_INSTALL_GOVERNANCE = SEPARATE_G15_STAGE`, `L6C_STAGE = IMPLEMENTED_REPOSITORY`, `L6C_LIVE_AUTHORIZED = NO`, `L6C_LIVE_EXECUTED = NO`, `A_L6C_CREATED = NO`, `K3_L6C_CREATED = NO`, `IMMUTABLE_RELEASE_INSTALLED_LIVE = NO`, `L7_LIVE_EXECUTED = NO`, `A_L7_CREATED = NO`, `K3_L7_CREATED = NO`, `D6_ISSUED = NO`, `PRODUCTION_SECRETS_CREATED = NO`, `L8_STARTED = NO`
+
+- **Owner decision approved:** a separate G-15 stage, `L6c` / "Immutable Release Install", registered in `P4_STAGES` between L6b and L7, with its own `A-L6c` and fresh `stage=L6c` K3 — never combined with `A-L7` or any other stage's K3 (`p4-stage-gate.sh`'s `stage=` match already enforces this structurally). `p4_stage_gaps L6c = none`: it installs code only, never a protocol key or a Core credential.
+- **G-15 capture/compare gap closed first.** `p4-l0-capture.sh` was blind to `/opt/aegis-idea3/releases/<id>` (RED: 18 failed). Now records two fixed presence keys plus a deterministic, non-secret `host.aegis_idea3.release_catalog` fingerprint; a new opt-in `ALLOW_L6C_RELEASE_FILE` in `p4-compare.sh` approves only the addition of one named new release id and can never launder a mutation or removal of an existing release (GREEN: 22 passed).
+- **Handler:** `stages/L6c/{apply,verify,rollback}.sh` call the already-merged `p4-l7-install-release.py`/`p4-l7-release-guard.py` without duplicating their predicates; mutation boundary is exactly `/opt/aegis-idea3/releases/<id>` plus parent dirs it creates; never touches `current`, credentials, systemd, the L6b broker, IDEA2, ESP32 or L8.
+- **Owner runner:** `p4-l6c-run-lib.sh` + `owner-run/run-l6c-owner.sh`, unpinned (main SHA, release id, expected source SHA), one attempt per `A-L6c`, all gates before consumption, bounded rollback with zero-drift PRE→RB.
+- **Pre-merge correctness fixes (same day, before PR #231 merge):** (1) PRE evidence capture now completes — including its SHA256 validation — BEFORE the one-shot `A-L6c` authorization is consumed, never after; the release allow file is prepared before PRE, and a failed PRE capture leaves the attempt marker absent and performs no mutation. (2) `p4-l7-install-release.py` never repairs a pre-existing `/opt/aegis-idea3` or `/opt/aegis-idea3/releases`: every existing ancestor is validated before mutation and keeps its uid/gid/mode (a legitimate child addition may advance mtime), or the install refuses; only newly created ancestors get the exact reviewed mode. (3) `host.aegis_idea3.release_catalog` now fingerprints each release's ACTUAL tree state (path/type/uid/gid/mode, and real file bytes) via new `p4-l6c-tree-digest.py`, not merely that release's own `RELEASE-SHA256SUMS` claim about itself — proven to catch a payload edit, chmod, dir-mode change, added/removed file, or planted symlink/special file WITHOUT ever touching `RELEASE-SHA256SUMS`; regular payload opens are no-follow and inode/metadata-stable, observed races fail closed, and the documented residual ABA limit requires a quiescent immutable tree during capture. (4) `stages/L6c/rollback.sh` derives its release-guard ownership expectation exactly like `verify.sh` (root by live default) instead of a hard-coded `any`, so a live rollback refuses rather than deletes a tree whose ownership drifted.
+- **L7 relationship:** `L6C_RELEASE_INSTALL = PROVEN` is a prerequisite fact, not an authorization; L7 still independently re-runs the release guard read-only before consuming a fresh `A-L7`. Receipt: `90-Status/logs/2026-09-27_181656_music_idea3-pr11-l6c-release-install-governance.md` (amended in place — PR #231 not yet merged).
+
+## IDEA3 PR11 Phase 4 L6c live acceptance — PROVEN, persistent — 2026-09-28
+
+> [!important] PR #231 merged at main `1de1b4eaaa1506a8ec411f822be731994a7c1ca9`. The single owner-run, governed L6c attempt installed the immutable Core release; verify and PRE→POST preservation both passed with zero new/worsened drift. L6c is left applied and persistent. This closeout is documentation-only (no Production mutation). `/opt/aegis-idea3/current` remains absent; Core remains not started; L7 has NOT started; no A-L7/K3-L7/D6 exists.
+> `L6C_LIVE_EXECUTED = YES`, `L6C_APPLY = PASS`, `L6C_VERIFY = PASS`, `L6C_PRE_POST_COMPARE = PASS`, `L6C_S10_PRESERVATION = PASS`, `L6C_LIVE_ACCEPTANCE = PROVEN`, `L6C_RELEASE_INSTALL = PROVEN`, `L6C_COMPLETE = YES`, `L6C_ATTEMPT_CONSUMED = YES`, `IMMUTABLE_RELEASE_INSTALLED_LIVE = YES`, `CURRENT_POINTER = ABSENT`, `CORE_STARTED = NO`
+> `A_L6C_CREATED = YES (consumed)`, `K3_L6C_CREATED = YES (consumed, stage=L6c only)`, `L7_STARTED = NO`, `A_L7_CREATED = NO`, `K3_L7_CREATED = NO`, `D6_CREATED = NO`, `L8_STARTED = NO`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-28-l6c-20260928-001305`; run at canonical main `1de1b4eaaa1506a8ec411f822be731994a7c1ca9`; release id `1de1b4eaaa1506a8ec411f822be731994a7c1ca9`; authorization directory `l6c-auth-2026-09-28` (`L6C-ATTEMPT-CONSUMED` present, never reusable); frozen runner sha256 `3fad236f7cd619b217829163d478ae8bbc1aad0d2a09bb7d1b4f0b0465b99810`. Runner exit code 0; no rollback evidence — rollback was not triggered.
+- **Compare:** `CAPTURE_PRE=COMPLETE SHA256=PASS`, `CAPTURE_POST=COMPLETE SHA256=PASS`, 0 new/worsened drift, 0 baseline-unhealthy, 0 incomparable, 3 approved changes (`/opt/aegis-idea3` absent→present, `/opt/aegis-idea3/releases` absent→present, release catalog gained exactly `1de1b4eaaa1506a8ec411f822be731994a7c1ca9` with tree-state digest `0eb16751c225b0766e1a7f63a9a707b923738bb1cb911981d00f0aeb990d4e9e`), 3 disk-available INFO findings, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. Secret scan: 151 files, 0 hits.
+- **Persistent state:** `/opt/aegis-idea3` root-owned, mode `0700`; `/opt/aegis-idea3/releases/1de1b4eaaa1506a8ec411f822be731994a7c1ca9` installed and immutable; `/opt/aegis-idea3/current` untouched (absent); Core remains not started; L7 has not started.
+- **L7 boundary:** A-L6c and its K3 are consumed for the L6c stage only and can never authorize L7 (`p4-stage-gate.sh`'s `stage=` field match). A fresh `A-L7`, L7 K3, Pub's D6 notice and the L7-only owner inputs (OV-09/10/11, D4 credential) remain required before any L7 live attempt.
+- **Receipt:** `90-Status/logs/2026-09-28_001305_music_idea3-pr11-l6c-live-acceptance.md`.
+
+## IDEA3 PR11 Phase 4 L7 live preparation — main reconciled after PR #208 merge; release-install gap closed in repository — 2026-09-27
+
+> [!important] Repository preparation only. L7 has NOT run, is NOT authorized, and no Production state changed. No A-L7, K3 or D6 exists; no Production secret was created; L8 has NOT started.
+> `L7PREP_MAIN_RECONCILED = YES (main 65324982…)`, `PR208_STATUS = MERGED`, `L7_RELEASE_BUILDER = CANONICAL_MAIN`, `L7_RELEASE_INSTALLER = IMPLEMENTED_REPOSITORY (fixture-tested; no owner-run wrapper)`, `L7_RELEASE_INSTALL_GOVERNANCE = GAP_DOCUMENTED (owner decision required, not repository-fixable)`, `L7_LIVE_EXECUTED = NO`, `L7_LIVE_AUTHORIZED = NO`, `L8_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Main merge:** `feat/idea3-pr11-l7-live-preparation` merged current `main` (`653249822cf194bc0bd15f56ac0b96ac3a492f35`, which now includes merged PR #208). One conflict, in `deploy/pr11-phase4/README.md`, purely insertion-adjacency between the L7PREP and #208 doc sections (no contradictory wording); resolved by keeping both sections and updating "open PR #208" language to "merged". All L6b closeout history and all L7PREP remediation are preserved unchanged; no historical receipt was rewritten.
+- **Release-install gap audited and closed in the repository.** No installer existed anywhere in the repository (script, doc, test or owner-run tool) before this task. New `deploy/pr11-phase4/p4-l7-install-release.py`: copies a completed `p4-l7-build-release.py` (PR #208) output into `/opt/aegis-idea3/releases/<id>`, re-validated by the REAL `p4-l7-release-guard.py` (imported, not a copied predicate) both before staging and immediately before an atomic `os.rename` placement; refuses to overwrite an existing release, refuses a symlinked destination/ancestor, cleans only its own temp staging on failure, never later removes a placed release, and **never touches `/opt/aegis-idea3/current`** — `stages/L7/apply.sh` remains the sole owner of that symlink, so the two workflows cannot race. Proven end to end: a builder-built release, installed by this tool, passes the release guard unchanged.
+- **Governance gap (not repository-fixable):** the installer has no owner-run wrapper. `p4-lib.sh`'s fixed `P4_STAGES` and `p4-stage-gate.sh` define no stage id or authorization field for a pre-L7 release-install mutation, and none was invented. An owner decision (new G-15 stage, or an extra `A-L7` field) is required before any live use; design §6/§8 already flag this. Receipt: `90-Status/logs/2026-09-27_162637_music_idea3-pr11-l7-live-preparation-main-reconcile.md`.
+
+## IDEA3 PR11 Phase 4 L3/L4 reactivation live attempt 2 — runtime PASS, preservation model INCOMPLETE, rolled back safe-equivalent — V3 remediation in repository — 2026-09-27
+
+> [!important] The V2 reactivation reached the accepted runtime (apply PASS, verify PASS, AP and dnsmasq active, persistent files unchanged, PSK scan 0 hits) and failed only at the PRE->POST preservation comparison; the rollback handler passed but PRE->RB did not return byte-for-byte. The authorization is permanently consumed; no retry occurred. **`FINAL_ACCEPTANCE = NOT_PROVEN`**, no new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` is claimed, and `L6B` remains blocked. `SAFE_NETWORK_BOUNDARY_RESTORED = YES`, **`EXACT_PRESTATE_RESTORED = NO`** (rollback is not called exact).
+> `L34_REACTIVATION_ATTEMPT = 2`, `L34_APPLY = PASS`, `L34_VERIFY = PASS`, `NM_RADIO_REMEDIATION = PASS`, `PRE_POST_COMPARE = FAIL`, `PRESERVATION_S10 = FAIL`, `L34_ROLLBACK_HANDLER = PASS`, `PRE_RB_COMPARE = FAIL`, `AUTHORIZATION_CONSUMED = YES`, `RETRY_PERFORMED = NO`
+> `L34_V3_PRESERVATION = REPOSITORY_ONLY (simulator-tested)`, `LIVE_REACTIVATION = NOT_AUTHORIZED`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l34-reactivation-20260927-032057`.
+- **Proven side effects (NetworkManager Wi-Fi initialization, not issued by the workflow):** the p2p pseudo-device `p2p-dev-wlp0s20f3` (absent -> `disconnected`; `unavailable` after rollback and remaining); `wpa_supplicant.service` started (inactive -> active/running, unit `disabled`, `NRestarts=0`, `Result=success`, same PID after rollback); target phy regulatory `00 -> TH` (already approved by the L4 window, remaining `TH`); and `wifi.phy.sha256` changed because `iw phy` annotates each frequency entry with regulatory state (channel 14 `22 dBm -> disabled`, 5 GHz `no IR` / `radar detection`). The residuals were stable for more than two minutes.
+- **V3 remediation (not run):** four opt-in comparator operations with closed catalogs and value classes; relational gates tie the wpa_supplicant lifecycle to the authorized NM radio transition, the active AP and the absence of unrelated Wi-Fi, and accept `wifi.phy.sha256` only when derived from the approved `00 -> TH` transition (new capture keys `wifi.phy.regnorm_sha256` and `wifi.phy.channel6_permitted`). No generic `wifi.phy.sha256` or `wpa_supplicant` allow key, no `wpa_supplicant` stop, no `iw reg set`, no NetworkManager restart. The preflight accepts the FRESH post-reboot baseline and the proven RESIDUAL baseline (phy `TH`, p2p `unavailable`, wpa_supplicant running) and rejects mixed states.
+- **Current host (read-only, 2026-09-27 03:23):** rfkill 1 soft-blocked, NM radio `disabled`, `wlp0s20f3` `unavailable`/DOWN/managed, no Wi-Fi connection, dnsmasq inactive, AP not active, plus the residual p2p device, running wpa_supplicant and phy `TH`.
+- **Next boundary:** merge; freeze a NEW runner (V3 scope, 168 chars) at the new main; fresh same-day A-L4 and K3; one bounded run. L6b live stays blocked until the L3/L4 runtime is applied and freshly re-proven.
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md`. Receipt: `90-Status/logs/2026-09-27_070000_music_idea3-pr11-l34-attempt2-v3-preservation.md`.
+
+## IDEA3 PR11 Phase 4 L3/L4 reactivation live attempt 1 — FAIL_CLOSED (NM_WIFI_RADIO_DISABLED), rolled back — remediation in repository — 2026-09-27
+
+> [!important] The first live L3/L4 post-reboot reactivation attempt FAILED CLOSED at NetworkManager readiness and was rolled back. The authorization is permanently consumed; no retry occurred. The safe pre-state and safety boundary were restored; **runtime is NOT restored** (`L3_RUNTIME = NOT_APPLIED`, `L4_RUNTIME = NOT_APPLIED`). No new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` is claimed.
+> `L34_REACTIVATION_ATTEMPT = 1`, `L34_REACTIVATION_RESULT = FAIL`, `FAIL_REASON = NM_WIFI_RADIO_DISABLED`, `ROLLBACK_RESULT = PASS`, `PRE_RB_COMPARE = PASS`, `PRESERVATION_S10 = PASS`, `AUTHORIZATION_CONSUMED = YES`, `RETRY_PERFORMED = NO`
+> `L34_NM_RADIO_REMEDIATION = REPOSITORY_ONLY (simulator-tested)`, `LIVE_REACTIVATION = NOT_AUTHORIZED`, `L6B_LIVE_EXECUTED = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l34-reactivation-20260927-021304`; frozen runner sha256 `2d3157baf34f7b0e79dffd7148c21857e733a2ce806be2e9718682824edf1681` at main `896ca419942af93a73a1218698f1760ad7b6a267`. Apply made exactly one change (`rfkill unblock 1`); the bounded wait saw `unavailable` until timeout; rollback re-blocked exactly rfkill 1; PRE->RB compare PASS (3 INFO disk-availability findings only).
+- **Root cause (proven live):** after the exact unblock NetworkManager logged "Wi-Fi now enabled by radio killswitch" yet `nmcli radio wifi` stayed `disabled`: NM's own persisted software radio flag is off, so the Wi-Fi device stays `unavailable`. The v1 design (and its simulator) assumed rfkill was the only reason. There is **no target-scoped** NM action; enabling the radio is a **global** NM change and a **new owner decision boundary** (v1 explicitly forbade it).
+- **Remediation implemented (not run):** the global `nmcli radio wifi on` only behind `AEGIS_L34_NM_RADIO_ENABLE=YES`, set by the runner only after the exact V2 scope; sole-Wi-Fi-device/sole-wlan-rfkill/no-active-Wi-Fi topology preflight; a runtime `nmcli device set wlp0s20f3 autoconnect no` guard before the enable because 12 saved Wi-Fi profiles have `autoconnect=yes`; PRE autoconnect restored; journaled; rollback turns the radio off only if this run enabled it. Comparator unchanged (exact `nm.general#WIFI` rule already existed; rollback catalog has none).
+- **Runner defect fixed:** `compare()` declared `local kind=${4:-post} rc=0 local -a env_allow` (`not a valid identifier` at run time; `bash -n` cannot see it). Tests now execute the function and fail on stderr.
+- **Next boundary:** owner decision on OD-L34-RADIO (V2 scope); merge; freeze a NEW runner at the new main; fresh same-day A-L4 (V2 scope) and K3; one bounded run. One owner sudo read confirms the persisted flag: `sudo grep -E '^WirelessEnabled' /var/lib/NetworkManager/NetworkManager.state`.
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-nm-radio-remediation-design.md`. Receipt: `90-Status/logs/2026-09-27_051500_music_idea3-pr11-l34-live-attempt1-nm-radio-remediation.md`.
+
+## IDEA3 PR11 Phase 4 L3/L4 post-reboot runtime reactivation — repository implementation only — 2026-09-27
+
+> [!important] Repository implementation only. The reactivation has NOT run, is NOT authorized, and no Production state changed. It is `RUNTIME_ONLY`: it restores the already accepted persistent L3/L4 configuration to its active runtime state and claims NO new `L3_LIVE_ACCEPTANCE` / `L4_LIVE_ACCEPTANCE` (the historical receipts stay authoritative).
+> `L34_REACTIVATION_IMPLEMENTATION = REPOSITORY_ONLY (simulator-tested)`, `L34_REACTIVATION_EXECUTED = NO`, `LIVE_REACTIVATION = NOT_AUTHORIZED`, `L34_RUNNER = TEMPLATE_UNPINNED`
+> `L2_CURRENT = REPROVEN (owner read-only, no reapply)`, `L3_RUNTIME = NOT_APPLIED`, `L4_RUNTIME = NOT_APPLIED`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `L6B_LIVE_EXECUTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence base (owner, read-only, 2026-09-27):** L2 nft/PF-01/no-NAT/forwarding intact; target rfkill id `1` `SOFT=blocked HARD=unblocked`; NM radio `disabled`; `wlp0s20f3` DOWN/managed; phy0 country `00` with an unrestricted channel 6 (Model B satisfied); accepted profile `aegis-idea3-ap` and `dnsmasq-ap.conf` intact; `aegis-idea3-dnsmasq.service` enabled but `failed` / `start-limit-hit` (started at boot before the AP address existed).
+- **Implemented:** `reactivation/l34/{apply,verify,rollback}.sh` (exact-ID rfkill unblock via `p4-l3-rfkill.sh`, bounded NM readiness + one `ifname`-bound activation via `p4-l3-nm.sh`, Model B gate via `p4-l3-regulatory.sh`, `reset-failed` + `start` of only `aegis-idea3-dnsmasq.service`; journaled changes; journal-driven rollback that never recreates the stale start-limit-hit); `p4-l34-reactivation-lib.sh` (static config gates including the bare dnsmasq directives, fresh L2 gates, snapshots that fail on any persistent-file rewrite, PSK leak scan, one-attempt marker, receipt gate); unpinned owner runner template.
+- **Comparator design gap resolved narrowly:** `nm.general` (protected) changes its `WIFI` field after the exact rfkill unblock and the dnsmasq unit changes `failed -> active/running`; neither can be expressed by allow keys. `p4-compare.sh` gains the opt-in `ALLOW_DYNAMIC_TRANSITIONS_FILE`, a closed catalog of exact key/before/after values (reactivation and rollback operations). Default behaviour is unchanged; persistent-file, `LoadState` and `UnitFileState` drift still fail.
+- **Authorization:** reuses `AEGIS_P4_AUTHORIZATION_V1` + fresh K3 with `stage=L4`; the runner additionally requires the exact `L3_L4_RUNTIME_REACTIVATION` scope line. No records were created.
+- **Next boundary:** human review/merge; owner freeze of the runner at the merged main SHA; fresh same-day A-L4 (exact scope) and K3; then one bounded live run. L6b live stays blocked until L3/L4 runtime is applied or freshly re-proven.
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-post-reboot-reactivation-design.md`. Receipt: `90-Status/logs/2026-09-27_030000_music_idea3-pr11-l34-post-reboot-reactivation.md`.
+
+## IDEA3 PR11 Phase 4 L6b live preparation — stage-owned broker, repository preparation only — 2026-09-27
+
+> [!important] Repository preparation only. L6b has NOT run, is NOT authorized, and no Production state changed. L6A stays `COMPLETE / PROVEN` (PR #221).
+> `L6B_HANDLER = RECONCILED_STAGE_OWNED (repository, fixture-tested)`, `L6B_LIVE_EXECUTED = NO`, `L6B_LIVE_AUTHORIZED = NO`, `L6B_RUNNER = TEMPLATE_UNPINNED`
+> `PREDECESSOR_RUNTIME = NOT_READY` (AP `wlp0s20f3` down, no `10.77.30.1`, `aegis-idea3-dnsmasq` failed; L2 nft/PF-01 unproven without sudo), `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Owner decisions recorded (OD-L6B-01…09):** stage-owned material install and rollback; plaintext passwords transient JIT only (only the hashed DB persists); fresh proof of L2/L3/L4 runtime with reactivation only as a separate owner action; AP `wlp0s20f3` / `10.77.30.1`; uplink is a fresh runtime value (expected `enp62s0` / `192.168.1.144`, mismatch reported for owner review); success is PERSISTENT; one live attempt per authorization; A-L6b covers the whole stage-owned mutation boundary.
+- **Implemented (fixture-tested):** journal-driven `apply.sh`/`rollback.sh`; `verify.sh` with exact-material checks and a live TLS/auth/ACL/negative probe via `p4-broker-validate.py validate-live`; capture records the mqtt directory and the IDEA3 broker unit; exact L6b allow keys (no wildcard); `p4-l6b-run-lib.sh` gates and the unpinned `owner-run/run-l6b-owner.sh` template.
+- **Authorization contract (nothing created):** A-L6b has no extra fields; fresh same-day K3 V1 or V2 required.
+- **Open before any live L6b:** owner freeze of the runner at the merged main SHA; fresh JIT input; fresh sudo-authenticated read-only proof of nft/PF-01; L3/L4 reactivation by their own authorized workflow; same-day A-L6b and K3. Known live risk: root-owned material versus Mosquitto privilege drop (design §13).
+- Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6b-operational-design.md`. Receipt: `90-Status/logs/2026-09-27_014500_music_idea3-pr11-l6b-live-preparation.md`.
+
+## IDEA3 PR11 Phase 4 L6b live attempt 1 FAILED and rolled back; repository remediation — 2026-09-27
+
+> [!important] L6b is NOT accepted. The first owner-run attempt (`2026-09-27-l6b-20260927-100548`) applied PASS, then verify failed `IDEA3_SERVICE_NOT_ACTIVE`, and rollback removed every L6b path/listener. Its authorization is CONSUMED and must never be reused. This remediation is repository-only: no Production mutation, no new authorization.
+> `L6B_LIVE_EXECUTED = YES (failed, rolled back)`, `L6B_LIVE_ACCEPTANCE = NOT PROVEN`, `L6B_LIVE_AUTHORIZED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Cause:** Mosquitto 2.1.2 dropped to `mosquitto` (958) and could not open `passwd` (`root:root 0600`); `broker.key` was `0600` as well. PRE→RB also drifted on retained failed systemd metadata for the IDEA3 unit.
+- **Remediation (fixture-tested):** `root:mosquitto` 0750 dir and 0640 conf/acl/passwd/broker.key, certificates `root:root 0644`, no widening; rollback adds `reset-failed aegis-idea3-mosquitto.service` (only, after removal + daemon-reload) and proves `not-found/inactive/dead/success`. Comparator stays strict.
+- **Open before any new live L6b:** merge this fix, owner freeze at the new main, fresh JIT input, fresh same-day A-L6b and K3. Design §13. Receipt: `90-Status/logs/2026-09-27_110130_music_idea3-pr11-l6b-live-attempt1-broker-group-remediation.md`.
+
+## IDEA3 PR11 Phase 4 L7 live preparation — owner-runner readiness audit and remediation, repository only — 2026-09-27
+
+> [!important] Repository preparation only. L7 has NOT run, is NOT authorized, and no Production state changed. L6b stays live-accepted and persistent; the JIT input is logically deleted; L8 has NOT started.
+> `L7_LIVE_EXECUTED = NO`, `L7_LIVE_AUTHORIZED = NO`, `L7_LIVE_ACCEPTANCE = NOT PROVEN`, `L7_RUNNER = TEMPLATE_UNPINNED`, `L7_HANDLERS = RECONCILED (fixture + fake systemd tested)`, `L8_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Audit:** the merged L7 handlers were not sufficient for a safe live run (credentials directory unreadable by the Core account for D4, no rendered `core.env`, Core TLS could not verify the DNS-only broker certificate by IP, no CA copy for the Core, no release existence/provenance proof, no unit verification/enable/stability, rollback could delete pre-existing files and left failed metadata and systemd-created runtime directories, verify proved almost nothing live, vacuous negative tests, no owner-run path). All fixed RED-first; details in the L7 design §7.
+- **New:** release guard, `core.env` renderer/validator, credential-free TLS-hostname probe, L7 gate library, unpinned `owner-run/run-l7-owner.sh` (main SHA + release id must be frozen outside the repository; one attempt; no retry; exit 3 on a failed rollback proof); Core setting `AEGIS_MQTT_TLS_SERVER_NAME`.
+- **Host facts (read-only):** no `/opt/aegis-idea3` (no release installed, no installer in the repository; builder = open PR #208), `aegis-idea3` account present, `pki` directory present.
+- **Still required before any live L7:** an installed guarded release, owner input (OV-09 keys, OV-11 PIN, MQTT password, D4 restore credential), Pub D6 notice, fresh same-day A-L7 (with `d6_notice=pub`) and K3, IDEA2 §10 fresh state and disk headroom at run time, owner freeze of the runner. IDEA2 §10: the owner-accepted window-delta criterion is proven by the PRE/POST compare; the runner requires both IDEA2 units active/running. Receipt: `90-Status/logs/2026-09-27_162637_music_idea3-pr11-l7-live-preparation-main-reconcile.md` (consolidated with the main-reconciliation session below).
+
+## IDEA3 PR11 Phase 4 L6b JIT plaintext cleanup — PROVEN (logical deletion only) — 2026-09-27
+
+> [!important] The separately authorized owner-run cleanup removed the private L6b JIT input directory. **Logical deletion only: no physical secure erase, media sanitization or forensic non-recoverability is claimed.** L6b live acceptance remains PROVEN and persistent. L7 has NOT started. This closeout is documentation-only (no Production mutation).
+> `L6B_LIVE_ACCEPTANCE = PROVEN`, `JIT_CLEANUP = PROVEN (logical)`, `JIT_CLEANUP_CONSUMED = YES`, `JIT_INPUT_PATH = ABSENT`, `JIT_CLEANUP_AUTHORIZATION = CONSUMED (never reusable)`, `PHYSICAL_SECURE_ERASE = NOT CLAIMED`, `L7_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Deleted input:** `/home/kittipat/Workspace/idea3-p4-evidence/l6b-owner-input` (had exactly `broker.crt`, `broker.key`, `ca.crt`, `core.pass`, `device.pass`; `ca.key` absent and forbidden). Frozen cleanup runner sha256 `c778451c26c9bd6c39a9b10b107be931eecc923d91e3df0057feb0b2e6a1c5bc`.
+- **Persistent broker unaffected:** `aegis-idea3-mosquitto.service` active/running, enabled, `Result=success`, `NRestarts=0`; `127.0.0.1:8883` and `10.77.30.1:8883`; no rollback, restart or network mutation (owner record).
+- **History:** Attempt 1 FAILED (consumed) → PR #226 → residual cleanup PROVEN (consumed) → Attempt 2 PROVEN (consumed) → JIT cleanup PROVEN (consumed).
+- **Next boundary:** L7 preparation (not started). Receipt: `90-Status/logs/2026-09-27_121346_music_idea3-pr11-l6b-jit-cleanup-closeout.md`.
+
+## IDEA3 PR11 Phase 4 L6b live acceptance — PROVEN (Attempt 2), persistent — 2026-09-27
+
+> [!important] Owner-run L6b Attempt 2 passed apply, verify and the live TLS/auth/ACL probe; PRE→POST preservation passed. L6b is left applied and persistent. This closeout is documentation-only (no Production mutation). Attempt 1 remains FAILED / NOT ACCEPTED; the Attempt 1, cleanup and Attempt 2 authorizations are all CONSUMED and never reusable. L7 has NOT started; JIT plaintext input has NOT been deleted.
+> `L6B_LIVE_EXECUTED = YES`, `L6B_APPLY = PASS`, `L6B_VERIFY = PASS`, `L6B_LIVE_TLS_AUTH_ACL = PASS`, `L6B_PRE_POST_COMPARE = PASS`, `L6B_S10_PRESERVATION = PASS`, `L6B_LIVE_ACCEPTANCE = PROVEN`, `L6B_PERSISTENT = YES`
+> `L6B_ATTEMPT2_AUTHORIZATION = CONSUMED`, `JIT_PLAINTEXT_CLEANUP = NOT DONE (separate owner-authorized workflow)`, `L7_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l6b-20260927-115928`; run at main `882d716ba0ea238b89a8f9a8bd54a1fbbd9713c3`; frozen runner sha256 `7801d66393892567512f05074ea25288c33c5e055674fb3f83eed2a69c82e06a`; no rollback evidence.
+- **Compare:** 0 new/worsened drift, 0 baseline-unhealthy, 0 incomparable, 24 approved changes (two 8883 listeners, `/etc/aegis-idea3/mqtt`, ACL/config/passwd/CA/cert/key metadata, unit file metadata/hash, unit LoadState/ActiveState/SubState/UnitFileState/MainPID/ExecMainStartTimestamp), 3 disk INFO, `COMPARE_RESULT=PASS`.
+- **Persistent state:** `aegis-idea3-mosquitto.service` active/running, enabled, `Result=success`, `NRestarts=0`; `127.0.0.1:8883` and `10.77.30.1:8883` only (no wildcard, no uplink); legacy Mosquitto preserved. Mosquitto 2.1.2 reads the `root:mosquitto` material after privilege drop.
+- **History:** Attempt 1 failed → PR #226 → residual cleanup PROVEN → Attempt 2 PROVEN. Receipt: `90-Status/logs/2026-09-27_120422_music_idea3-pr11-l6b-attempt2-live-acceptance.md`.
+- **Open next:** separate owner-authorized JIT plaintext cleanup workflow; L7 planning (not started).
+
+## IDEA3 PR11 Phase 4 L6b residual systemd-state cleanup PROVEN; L6b still NOT accepted — 2026-09-27
+
+> [!important] Remediation PR #226 merged at main `6295cd65b89f3e822f6bcd6a8aada1de104c0fd8`. A separate, bounded owner-run cleanup then cleared the residual failed systemd state of `aegis-idea3-mosquitto.service`. L6b Attempt 1 stays FAILED / NOT ACCEPTED (authorization CONSUMED). No Attempt 2 authorization exists.
+> `L6B_RESIDUAL_CLEANUP = PROVEN`, `L6B_CLEAN_PRESTATE = PROVEN`, `L6B_CLEANUP_AUTHORIZATION = CONSUMED (never reusable)`, `LEGACY_MOSQUITTO_MUTATED = NO`, `NETWORK_MUTATED = NO`, `L6B_ATTEMPT2_AUTHORIZED = NO`, `L6B_LIVE_ACCEPTANCE = NOT PROVEN`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l6b-residual-cleanup-20260927-113759`; frozen runner sha256 `158316043367a7dca8d61018e0cf62098d4a1e6998148383ac64deebc2eb413d`. Only authorized mutation: `systemctl reset-failed aegis-idea3-mosquitto.service` (`RESET_FAILED_RC=0`).
+- **Result:** `failed/failed/exit-code` → `LoadState=not-found ActiveState=inactive SubState=dead Result=success MainPID=0 NRestarts=0` (`EXACT_CLEAN_PRESTATE=PASS`). PRE→POST `COMPARE_RESULT=PASS`: 0 new drift, 0 incomparable, 4 approved changes (exactly the unit's ActiveState/SubState/Result/ExecMainStartTimestamp), 3 disk INFO findings, `PRESERVATION_S10=PASS`. Comparator `PRODUCTION_MUTATION_PERFORMED=NO` means the comparator is read-only, not that the cleanup did not mutate.
+- **Next:** L6b Attempt 2 preparation (owner freeze at the merged main, fresh JIT input, fresh same-day A-L6b and K3). Receipt: `90-Status/logs/2026-09-27_114259_music_idea3-pr11-l6b-residual-cleanup-live-closeout.md`.
+
+## IDEA3 PR11 Phase 4 L6a live acceptance — PROVEN (one attempt), isolated validation left no residue — 2026-09-27
+
+> [!important] Owner-run L6a executed once on 2026-09-27 and passed. It was an isolated loopback validation; nothing is left applied. This closeout is documentation-only and performs no Production mutation. L6b is NOT started; no ESP32 was touched.
+> `L6A_LIVE_EXECUTED = YES`, `L6A_APPLY = PASS`, `L6A_VERIFY = PASS`, `L6A_POST_CAPTURE = COMPLETE`, `L6A_PRE_POST_COMPARE = PASS`, `L6A_S10_PRESERVATION = PASS`, `L6A_LIVE_ACCEPTANCE = PROVEN`, `L6A_COMPLETE = YES`
+> `LIVE_L6A_ATTEMPT_COUNT = 1`, `L6A_JIT_SECRET_CLEANUP = PASS` (logical deletion), `L6B_STARTED = NO`, `READY_FOR_L6B_PLANNING = YES`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-27-l6a-20260927-001925`; live-run main `83610fa31c928e18be6f1842f76a9a190e502c60`; frozen runner sha256 `653244855132fa5a76206cd8edda8405e99421e7dfb9183b0445a45e8fa5a482`; exit code 0.
+- **Authorization:** fresh A-L6a and K3 V2 for 2026-09-27 only (the 2026-09-26 approval did not carry over). K3 is `IDEA3_OWNER_SELF_ATTESTATION`, `idea1_window_overlap=NONE_KNOWN`; it is not an independent IDEA1 confirmation and does not prove IDEA1 inactivity.
+- **Validation (`validation-evidence.tsv`, `result=PASS`):** loopback-only listener `127.0.0.1:18884`; PKI profile/chain/hostname PASS; TLS runtime PASS; core and device auth PASS; anonymous, wrong-core-password and wrong-device-password rejected; ACL matrix PASS; retained-message rejection PASS; `broker_residue=NO`; `secret_output_scan=PASS`.
+- **Compare:** `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `FINDINGS_APPROVED_CHANGE=0`, `FINDINGS_INFO=3` (about 52 KB disk available-space changes only); `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. No rollback ran.
+- **Post-live runtime:** port 18884 not listening; no temporary broker process/config; `aegis-idea3-mosquitto` inactive; `mosquitto`, engine, detection tunnel and Twingate active; forwarding `0,0,0`; no firewall/routing drift; `ca.key` absent on Arch.
+- **Secret inspection limits:** readable evidence files were checked and held no secret contents or private-key blocks; root-owned `pre-root`/`post-root` were not content-scanned (unreadable without sudo) and rest on the runner's SHA and compare checks.
+- **JIT cleanup:** Arch `l6a-owner-input` (five expected files, no `ca.key`) logically deleted and path absence verified; no physical secure-erase is claimed. The Beelink temporary export was verified deleted earlier in staging and was not re-verified after the live run.
+- **Unchanged state:** L4/L5 remain in their post-reboot not-applied runtime state (not required by L6a, not restored); `K12_REBOOT_PERSISTENCE = NOT_PROVEN`; IDEA2 preservation distinctions from earlier stages are not promoted.
+- **Next boundary:** human review/merge only, then L6b planning. Do not rerun L6a, recreate JIT input, touch the ESP32 or start L6b in this task.
+- Receipt: `90-Status/logs/2026-09-27_002532_music_idea3-pr11-l6a-live-acceptance.md`.
+
+## IDEA3 PR11 Phase 4 L5 live acceptance — PROVEN (Attempt #4), L5 remains APPLIED — 2026-09-25
+
+> [!important] Owner-run Attempt #4 executed L5 live and passed. The stage is left APPLIED. This closeout is documentation-only and performs no Production mutation. L4 was untouched; L6a is NOT started.
+> `L5_LIVE_EXECUTED = YES`, `L5_APPLY = PASS`, `L5_VERIFY = PASS`, `L5_POST_CAPTURE = COMPLETE`, `L5_PRE_POST_COMPARE = PASS`, `L5_S10_PRESERVATION = PASS`, `L5_LIVE_ACCEPTANCE = PROVEN`
+> `L4_STATE = APPLIED`, `L5_STATE = APPLIED`, `PBOO_5G_AUTOCONNECT = no`, `L6A_STARTED = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- **Successful evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-25-l5-20260925-212812`; merged main `87a1b6a252c5d862f3da9176c710151095579c0a`.
+- **Frozen owner material:** runner `/home/kittipat/Workspace/idea3-p4-evidence/l5-owner-run/run-l5-owner.sh` sha256 `74d42d13c3d480e4e80fea5c10798111b65257678b74bd315274c4dfbfa77a8f`; probe `/home/kittipat/Workspace/idea3-p4-evidence/l5-owner-run/ntp-probe.py` sha256 `099a048860e976ee5ee61bf16deba5d9fa795796aa27d7746907090142932a12`; render dir `/home/kittipat/Workspace/idea3-p4-evidence/l5-render-20260925-201919-main87a1b6a2`; rendered chrony sha256 `20e283e4616fadeb3f2ae9438b17e3351b7af354844a911038a47089af3a35fe`; rendered T6 contract sha256 `3d0b94b36d05b209d87800d5bc1cdb58a8a782162b1b4fab9796cd901be730e5`; trusted upstream `2.arch.pool.ntp.org`.
+- **Attempt #4 authorization:** owner comment ID `5833985188`, reference `https://github.com/kraveerachat/Project-End-The-AEGIS/pull/215#issuecomment-5833985188`; fresh authorization and K3 were valid for exactly one supervised live mutation. Attempt #4 is consumed.
+- **Apply / verify:** pre TrustedClock `SYNCED`; apply waited 5.01 s and reported `L5_CLOCK_READY=YES reason=OK`; `chronyd=ACTIVE`, `systemd-timesyncd=INACTIVE`, NTP listener `10.77.30.1:123`; post-apply TrustedClock `SYNCED` with raw adjtimex evidence; verify PASS.
+- **External witnesses:** same physical Windows laptop used sequentially from two network perspectives. AP witness `Kittipat / AEGIS-IDEA3 / 10.77.30.11` returned NTP PASS (`mode=4`, `leap=0`, `stratum=2`); non-AP witness `Kittipat / Pboo_5G / 192.168.1.134` reached the host by ICMP but NTP stayed silent, so `SERVICE_NOT_EXPOSED_TO_NON_AP`; `CORE_SERVERSTATS_RX_DELTA=1`.
+- **Post / preservation:** post capture complete, checksums PASS, `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `FINDINGS_APPROVED_CHANGE=4`, `FINDINGS_INFO=3`; `DRIFT_RESULT=PASS`, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. The comparator-local `COMPARE_LOCAL_PRODUCTION_MUTATION_PERFORMED=NO` does not describe the whole run; authoritative whole-run marker is `RUN_PRODUCTION_MUTATION_PERFORMED=YES`.
+- **Final TrustedClock:** `SYNCED`, `maxerror_us=500`, `adjtimex_ret=0`, `status=0x2001`, `sta_unsync=0`, `time_error=0`. Regulatory observation is preserved exactly as `phy0=TH global=00`; no claim is made that `global=00` equals `TH`.
+- **IDEA2 preservation distinction:** L0 reported `process_active=YES`, `tunnel_healthy=NO_FAILURE_OBSERVED`, `runtime_healthy=NOT_PROVEN`. Do not promote this to IDEA2 runtime-health proof.
+- **Historical attempts remain immutable truth:** Attempt #1 FAIL/CONSUMED (`2026-09-25-l5-20260925-174630`); Attempt #2 FAIL/CONSUMED (`2026-09-25-l5-20260925-191827`, `TRUSTEDCLOCK_READINESS_TIMEOUT:KERNEL_UNSYNCED`, root cause led to PR #215); Attempt #3 FAIL/CONSUMED (`2026-09-25-l5-20260925-205740`) despite APPLY/VERIFY/TrustedClock PASS because witness ingestion failed on Windows UTF-16LE/CRLF `Tee-Object` output; rollback/residue/S10/compare all passed; `L5_LIVE_ACCEPTANCE=NOT_PROVEN`. Attempt #4 alone is PASS/CONSUMED and proves acceptance.
+- **Configuration left applied:** exactly `server 2.arch.pool.ntp.org iburst`, `bindaddress 10.77.30.1`, `allow 10.77.30.0/28`, `rtcsync`; `rtcfile` forbidden. L4 remains applied and untouched. Core `Pboo_5G` connection UUID `0e545f6e-5f66-4b02-83b7-39cbbed47088` remains `autoconnect=no`; no automatic restoration is authorized.
+- **Comparator policy unchanged:** rollback-only allowances remain exactly `svc.systemd-timesyncd.service.MainPID`, `svc.systemd-timesyncd.service.ExecMainStartTimestamp`, `svc.chronyd.service.ExecMainStartTimestamp`. `ServerName` is informational under the constrained policy, not a fourth allowance.
+- **Future hardening observation only:** the owner runner comments imply UTF-16 witness tolerance, but its normalizer does not fully strip the UTF-16 BOM. Attempt #4 intentionally used ASCII witness files so the frozen authorized runner hash did not change. This observation is not part of L5 acceptance remediation.
+- **Next boundary:** finish this documentation closeout, human review/merge only, then `L6A_PREPARATION`. Do not rerun L5, rollback L5, modify L4, restore `Pboo_5G` autoconnect, or start L6a in this task.
+- Receipt: `90-Status/logs/2026-09-25_214900_music_idea3-pr11-l5-live-acceptance.md`.
+
+## IDEA3 PR11 Phase 4 L5 attempt #2 remediation (rtcsync) — 2026-09-25
+
+> [!important] Repository-only (Draft/Review PR). Attempt #2 (`2026-09-25-l5-20260925-191827`) FAILED and stays FAILED; its authorization is CONSUMED. No Production mutation by this task, no retry authorized.
+> `L5_ATTEMPT2_RESULT = FAIL`, `L5_LIVE_ACCEPTANCE = NOT_PROVEN`, `LIVE_RETRY_AUTHORIZED = NO`, `L5_STATE = ROLLED_BACK`, `ROOT_CAUSE_STATUS = PROVEN`
+
+- Root cause (proven, chrony 4.8 `sys_timex.c` `set_sync_status()` + readiness.log + diagnostics): on Linux chronyd clears `STA_UNSYNC` only when `rtcsync` is configured. The rendered L5 config had no `rtcsync`, so the kernel-based TrustedClock predicate could never pass under chronyd (Leap Normal and maxerror ≈ 17–45 ms for most of the 60 s window, yet `KERNEL_UNSYNCED` every poll). The earlier poll-interval hypothesis is withdrawn. The current contract was unsatisfiable without `rtcsync`.
+- Owner decisions: `RTC_SIDE_EFFECT_ACCEPTED = YES` (kernel may copy system time to the hardware RTC about every 11 minutes while synchronised; not rollback-reversible; `rtcfile` forbidden); `rtcsync` is the fourth ACTIVE chrony directive (NOT a comparator allowance); TrustedClock predicate and the 60 s readiness bound unchanged; the three rollback-only allowance keys unchanged.
+- Repository fixes: canonical render/validation/T6 contract require exactly `server … iburst`, `bindaddress`, `allow`, `rtcsync` (contract `CHRONY_RTCSYNC=REQUIRED`, `rtcfile` rejected); `p4-l5-clock.py` and `readiness.log` preserve raw adjtimex return/status(hex)/`STA_UNSYNC`/`TIME_ERROR`; `apply.sh` records `PRODUCTION_MUTATION_PERFORMED` at the first actual `/etc` write (durable `$WORK` marker) and the owner runner reports a whole-run marker while relabelling the comparison-local `NO`; `p4-l5-run-lib.sh` copies root-owned `l5-work` evidence to an owner-readable copy without touching originals.
+- Any retry needs merge, a re-rendered/re-frozen render, runner and probe hashes, fresh authorization, fresh K3 and a fresh one-attempt approval.
+- Receipt: `90-Status/logs/2026-09-25_200600_music_idea3-pr11-l5-rtcsync-remediation.md`.
+
+## IDEA3 PR11 Phase 4 L5 live-failure remediation — 2026-09-25
+
+> [!important] Repository-only (Draft/Review PR). The single live L5 attempt FAILED and stays FAILED; nothing was mutated by this task and no retry is authorized.
+> `L5_ATTEMPT_RESULT = FAIL` (evidence `2026-09-25-l5-20260925-174630`), `L5_LIVE_ACCEPTANCE = NOT_PROVEN`, `LIVE_RETRY_AUTHORIZED = NO`, `L5_STATE = ROLLED_BACK`, `L4_STATE = APPLIED`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- Live result: apply PASS, verify FAIL `FINAL_TRUSTED_CLOCK_NOT_SYNCED` (root cause PARTIAL: timing-race supported, sub-predicate unknown), rollback PASS, PRE→RB compare FAIL on two keys (`chrony.conf` mtime = real rollback defect; `time.timesyncd.ServerName` 2.arch→0.arch = expected dynamic reselection), so S10 FAIL. No witness stage reached.
+- Repository fixes: shared apply/verify TrustedClock predicate with named reasons and diagnostics; exact mtime restore; constrained informational `ServerName` (owner decision; not an allowance key; the three rollback-only allowance keys are unchanged).
+- Any retry needs merge, re-frozen runner/probe hashes, fresh authorization, fresh K3 and a fresh one-attempt approval.
+- Receipt: `90-Status/logs/2026-09-25_181550_music_idea3-pr11-l5-live-failure-remediation.md`.
+
+## IDEA3 PR11 Phase 4 L5 rollback exactness hardening — 2026-09-25
+
+> [!important] Repository-only (Draft/Review PR). No live stage ran; L5 is NOT run and NOT authorized.
+> `L5_STARTED = NO`, `L5_LIVE_ACCEPTANCE = NOT_PROVEN`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+
+- L5 rollback now fails closed instead of silently passing (unknown pre-state, missing snapshot, byte/mode/uid:gid mismatch, chronyd still active); apply records the original `/etc/chrony.conf` SHA-256. The 30 s chronyd sync wait is documented as stricter than the 300 s HOLDOVER bound (not a defect).
+- Owner decisions recorded in this session: the `Pboo_5G` Wi-Fi reconnect after L4 acceptance was intentional and is not to be preserved for L5; `OWNER_TRUSTED_NTP_UPSTREAM = 2.arch.pool.ntp.org`. Live L4 runtime currently diverges from the accepted APPLIED state until the owner-approved restoration runs.
+- Receipt: `90-Status/logs/2026-09-25_134523_music_idea3-pr11-l5-rollback-exactness.md`.
+
+## IDEA3 PR11 Phase 4 L4 live acceptance — 2026-09-25
+
+> [!important] L4 was executed live (owner-run Retry #4, Production mutated by the owner run) and passed. This closeout is documentation-only. L4 is left APPLIED; L5 is NOT started.
+> `L4_LIVE_EXECUTED = YES`, `L4_APPLY = PASS`, `L4_VERIFY = PASS`, `L4_POST_CAPTURE = COMPLETE`, `L4_PRE_POST_COMPARE = PASS`, `L4_S10_PRESERVATION = PASS`, `L4_LIVE_ACCEPTANCE = PROVEN`
+> `L4_STATE = APPLIED`, `L5_STARTED = NO`, `NEXT_LIVE_STAGE = L5_AFTER_L4_ACCEPTANCE_MERGE`, `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO`
+> `ESP32_DHCP_DNS_CLIENT_BEHAVIOUR = NOT_PROVEN`, `REGULATORY_POST = phy0=TH global=00`, `GLOBAL_00_EQUALS_TH = NOT_CLAIMED`
+
+- Retry #4 ran on main `47dfe0c4ed299c4453f8aaf63113b3ce03d9ce6a` (PR #210 `except-interface=lo`); runner sha256 `030edce09d9485874ec661bd2bce9590fa55c4e36a14ac5b7a8a0998e657504d`; evidence `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-25-l4-20260925-114312`.
+- AP `wlp0s20f3` at `10.77.30.1/28`; only approved new listeners (`10.77.30.1:53` tcp/udp, `0.0.0.0%wlp0s20f3:67` udp); no loopback DNS; forwarding disabled; 0 new/worsened drift, 16 approved changes, S10 PASS.
+- Retries #1–#3 failed for witness/repository reasons (rolled back PASS); their receipts are unchanged.
+- Receipt: `90-Status/logs/2026-09-25_115131_music_idea3-pr11-l4-live-acceptance.md`.
+
+## IDEA3 PR11 Phase 4 L4 dnsmasq loopback exclusion — 2026-09-25
+
+> [!important] Repository-only fix. No live stage ran; L4 live is NOT re-run and nothing was mutated.
+> `L4_REPOSITORY_FIX_IMPLEMENTED = YES`, `L4_LIVE_ACCEPTANCE = NOT_PROVEN`, `NEXT_LIVE_STAGE = L4_RETEST`
+
+- L4 Retry #3 APPLY/VERIFY passed but the PRE->POST compare found four loopback DNS listeners (`127.0.0.1:53`, `[::1]:53`, tcp/udp) caused by dnsmasq's implicit loopback inclusion with `interface=`. Fix: `except-interface=lo` in the rendered config, required by verify; allow-listeners unchanged. Receipt: `90-Status/logs/2026-09-25_133000_music_idea3-pr11-l4-dnsmasq-except-lo.md`.
+
+## IDEA3 PR11 Phase 4 M16 owner self-K3 governance — 2026-09-25
+
+> [!important] Repository governance change only (Draft/Review PR). No live stage ran and nothing was mutated. L4 live is NOT run.
+> `M16_K3_AUTHORITY_MODEL = IDEA3_OWNER_SELF_CONFIRMATION_ALLOWED`, `M16_OWNER = music`, `M16_SELF_CONFIRMATION = APPROVED` (owner decision; effective for stage K3 records only after this PR is human-reviewed and merged)
+> `K3_V1 = STILL_ACCEPTED` (`confirmed_by=kraveerachat`, `idea1_window_overlap=NONE`), `K3_V2 = ADDED` (`AEGIS_P4_K3_CONFIRMATION_V2`, `confirmed_by=music`, `confirmation_mode=IDEA3_OWNER_SELF_ATTESTATION`, `idea1_window_overlap=NONE_KNOWN`)
+> `SELF_ATTESTATION != INDEPENDENT_IDEA1_OWNER_CONFIRMATION`: a V2 record means only "no overlapping IDEA1 window is known to the IDEA3 owner"; it is not proof that IDEA1 is inactive. Fresh S10 PRE/POST evidence stays mandatory and any IDEA1 degradation or forbidden drift still fails the stage.
+
+- **Gate:** `deploy/pr11-phase4/p4-stage-gate.sh` selects V1 or V2 by magic line; both need exact stage, same-day Asia/Bangkok date, valid reference, no duplicate/unknown keys. Authorization, handler registration, S10, rollback, stage order, L8 and L9 rules are unchanged. Documented in the Phase 4 runtime-prerequisites spec §8.1.
+- **Next:** human review + merge of the M16 PR, then refresh L4LIVE to the new `main`, re-pin the L4 owner script's expected main SHA, issue a fresh same-day authorization and a V2 K3, run the stage gate first, and only then L4 PRE/APPLY/VERIFY/POST/COMPARE.
+
+---
+
+## IDEA3 PR11 Phase 4 L3 live acceptance — PROVEN (rerun6), L3 remains APPLIED — 2026-09-24
+
+> [!important] L3 was executed live on the fourth attempt (rerun6) and passed; the target AP radio is left applied. L4 is NOT started.
+> `L3_LIVE_EXECUTED = YES`, `L3_APPLY = PASS`, `L3_VERIFY = PASS`, `L3_POST_CAPTURE = COMPLETE`, `L3_PRE_POST_COMPARE = PASS`, `L3_S10_PRESERVATION = PASS`, `L3_LIVE_ACCEPTANCE = PROVEN`
+> `L3_STATE = APPLIED` (no rollback), `L4_STARTED = NO`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `L2_LIVE_ACCEPTANCE = PROVEN` (unchanged)
+> `L3_PRODUCTION_MUTATION_SCOPE = target wlp0s20f3 AP radio + its NetworkManager profile only` (no addressing, DHCP, DNS, NAT, forwarding, ESP32/client migration)
+
+- **Evidence (owner-run):** `~/Workspace/idea3-p4-evidence/2026-09-24-l3-rerun6`, `JOURNAL_SINCE=2026-09-24 13:01:35 UTC`, run `l3-20260924-2001-rerun6`, merged `main` `2a7ae2e3fb9cd92b6205bcc5b3a59ebc68a933cc` (includes #204 and #206). Bundles are root-only; facts below are from the owner-run log and compare report, cross-checked by read-only journal and live state.
+- **PRE:** `L0_CAPTURE=COMPLETE`, checksums PASS, disk 87%, Engine PID 892/restarts 0, Tunnel PID 8788/restarts 12, Twingate PID 979, rfkill id 1 soft-unblocked/hard-unblocked, regulatory `global=00` / `phy0=TH`, channel 6 unrestricted, target NM state `disconnected`.
+- **APPLY (merged handlers):** `L3_REGULATORY_PRE_ACTIVATION=TH phy=phy0 channel=6`, `L3_NM_TARGET_STATE=disconnected`, `nmcli connection up ... ifname` succeeded, `L3_REGULATORY_POST_ACTIVATION=TH phy=phy0 channel=6`, `L3_APPLY=PASS`, `AP_MODE=RADIO_ONLY_NO_ADDRESSING`, `PRODUCTION_MUTATION_PERFORMED=YES`. **VERIFY:** `L3_REGULATORY_STATE=TH phy=phy0`, `L3_VERIFY=PASS`.
+- **POST / PRE→POST (L3 allow files, disk threshold 90):** 8 approved changes only — `wlp0s20f3` link DOWN→UP, NM state `disconnected`→`connected`, active connection `aegis-idea3-ap`, profile created (mode 0600, root-owned, metadata only), channel 6 (2437 MHz), SSID `AEGIS-IDEA3`, interface type managed→AP. `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `FINDINGS_APPROVED_CHANGE=8`, `FINDINGS_INFO=3` (disk available only), `DRIFT_RESULT=PASS`, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. IDEA2 Engine/Tunnel and Twingate identity, `:8077`/`:18002`, routes and forwarding preserved (the comparator's `PRODUCTION_MUTATION_PERFORMED=NO` is comparator-scope only; the apply stage did mutate the target radio and profile).
+- **Regulatory, observed exactly:** PRE `global=00 phy0=TH`; pre-activation `TH`; post-activation `TH`; POST `phy0=TH global=00`. **No claim is made that country `00` equals `TH` legally, and no regulatory compliance is claimed beyond this observed evidence.** M-14 Model B (accept TH or 00 behind the channel gate) was the authority; the observed states were TH throughout.
+- **M-15 context (owner decision APPROVED, `OWNER_ONE_TIME_OUTSIDE_L3`):** the NetworkManager journal shows the owner's one-time `radio-control wireless-enabled:on` at 19:53:40 (device `unavailable → disconnected` within 49 ms, reason `supplicant-available`). NetworkManager then auto-connected `wlp0s20f3` to a saved client Wi-Fi profile (name and address omitted) at 19:53:43, and the owner deactivated it at 19:56:00 (`device-disconnect`), leaving the device `disconnected` for the 20:01 PRE. L3 apply did not run `nmcli radio wifi on`; the enabled NM Wi-Fi state is the accepted owner baseline for L3 and later AP stages. `INFERENCE`: the `TH` seen at PRE (every earlier attempt read `00`) came from that temporary client association, not from L3; it is `NOT_PROVEN` whether AP activation alone, or a reboot/firmware reload, would produce `TH` — the Model B gate keeps `00` acceptable.
+- **Next:** human review + merge of this closeout, then refresh/merge PR #196 (L4) before any L4 live execution; L4 needs its own fresh same-day authorization/K3, PRE, and comparator rule for the target-phy regulatory state. L4 is not started.
+
+---
+
+## IDEA3 PR11 Phase 4 L3 third live attempt (rerun5) — FAIL_CLOSED at NetworkManager activation, rolled back — 2026-09-24
+
+> [!important] L3 was attempted a third time; the rfkill and regulatory gates passed, NetworkManager activation failed, the host was restored
+> `THIRD_L3_LIVE_ATTEMPT = FAIL_CLOSED` (`L3_APPLY = FAIL reason=NMCLI_UP_FAILED`), `L3_ROLLBACK = PASS`, `L3_ARTIFACT_RESIDUE = NO`, PRE→RB `COMPARE_RESULT = PASS` (0/0/0), `PRESERVATION_S10 = PASS`
+> `L3_PRODUCTION_MUTATION = YES`, `MUTATION_SCOPE = target rfkill soft state + temporary NetworkManager profile`, `ROLLBACK_COMPLETE = YES`, `POST_ROLLBACK_RESIDUE = NO`
+> `L3_LIVE_ACCEPTANCE = NOT_PROVEN`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, no fourth attempt. The comparator line `PRODUCTION_MUTATION_PERFORMED=NO` is a comparator-scope statement, not the attempt truth.
+
+- **Live evidence (owner-run, `~/Workspace/idea3-p4-evidence/2026-09-24-l3-rerun5`, `JOURNAL_SINCE=2026-09-24 12:34:18 UTC`):** PRE `L0_CAPTURE=COMPLETE`, checksums PASS, disk 87%, rfkill id 1 soft-blocked/hard-unblocked, regulatory pre-activation PASS (`phy0` `00`, channel 6 unrestricted, Model B). Exact unblock succeeded; `nmcli connection up` then failed: "No suitable device found for this connection (device enp62s0 not available because profile is not compatible with device (mismatching interface name))".
+- **Forensic (read-only, NetworkManager journal, ms precision):** 19:34:19.8543 NM "Wi-Fi now enabled by radio killswitch" (it observed the exact unblock) → .8820 `connections-reload` OK → .8917 `connection-activate` FAIL (37 ms after the unblock) → .9526 profile deleted, .9575 killswitch re-blocked. No `device (wlp0s20f3): state change` line exists in the window. In the whole boot the only transitions of `wlp0s20f3` are boot `unmanaged → unavailable` and shutdown. `wpa_supplicant` is inactive and D-Bus-activatable only; no supplicant start appears in the window. NM logs `Wi-Fi disabled by radio killswitch; disabled by state file` at every start today.
+- **Comparison with the second attempt (rerun3):** NM saw "now enabled" at 18:02:17.378 and L3 then waited 10 s in its regulatory poll: still no device state change, no supplicant start, no iwlwifi firmware load. So the device does not leave `unavailable` on a rfkill unblock alone within 10 s; this is **not a short timing race**.
+- **Root cause (classified):** the target device stayed `unavailable` in NetworkManager after the unblock, so it was no activation candidate and NM only reported the wired device — `PROVEN` (journal, both windows). Why NM does not bring it up: NetworkManager's own software Wi-Fi state (persisted state file, `nmcli radio` reports `WIFI disabled`) is the `STRONGLY_SUPPORTED` cause; it is not `PROVEN` because `/var/lib/NetworkManager/NetworkManager.state` is root-only and no read-only experiment separates it from the soft-block. `NOT_PROVEN`: whether a longer wait or an `nmcli radio wifi on` would make the device available on this host.
+- **Repository fix (this task, no Production action):** new `deploy/pr11-phase4/p4-l3-nm.sh`. After the exact unblock and the regulatory gate, and before any profile is installed, `apply.sh` reads the exact target device state from NetworkManager (`nmcli -t -f DEVICE,STATE device status`, only that device, only `disconnected` counts as ready), bounded to 10 polls 0.5 s apart (max 5 s, state-based, transitions logged). On timeout it fails closed with a stable reason — `NM_WIFI_RADIO_DISABLED` (read-only `nmcli radio wifi`), `NM_TARGET_DEVICE_NOT_READY`, `NM_TARGET_DEVICE_NOT_FOUND` — and never runs `connection up`. Activation is now `nmcli connection up "$CONN_ID" ifname "$AP_IF"`, so NetworkManager never chooses a device. No `nmcli radio wifi on`, no global rfkill, no `iw reg set`, no other device touched, rollback unchanged, M-14 Model B and the regulatory channel gate unchanged.
+- **What this fix does NOT do:** on this host it is expected to turn the opaque `NMCLI_UP_FAILED` into an explicit, deterministic `NM_WIFI_RADIO_DISABLED` / `NM_TARGET_DEVICE_NOT_READY` and nothing more. It does not make L3 pass. **Owner decision required before another live attempt:** how NetworkManager's software Wi-Fi state is to be enabled for the L3 window (a persisted global NM radio change with a restoring rollback, or an owner-run one-time change outside L3) — this task deliberately made neither.
+- **Owner decision M-15 — APPROVED (recorded as a decision, not a proof):** `M15_NM_WIFI_STATE_MODEL = OWNER_ONE_TIME_OUTSIDE_L3`, `M15_OWNER_DECISION = APPROVED`. The owner will enable NetworkManager's global software Wi-Fi state once, outside the L3 stage: `M15_NM_WIFI_ENABLE_COMMAND = "sudo nmcli radio wifi on"`. `M15_L3_HANDLER_GLOBAL_RADIO_MUTATION = FORBIDDEN` (L3 apply never runs `nmcli radio wifi on`), `M15_L3_ROLLBACK_GLOBAL_RADIO_MUTATION = FORBIDDEN` (L3 rollback never disables global NM Wi-Fi). `M15_FRESH_PRE_AFTER_OWNER_CHANGE = REQUIRED`: a brand-new L3 PRE must be captured after the owner change, and the enabled NM Wi-Fi state then becomes the accepted owner baseline for L3 and later AP stages unless a later approved design changes it. `M15_PR206_MERGE_REQUIRED_BEFORE_L3_RETRY = YES`. No claim is made that rfkill unblock alone enables the NM target device, and it is still `NOT_PROVEN` that the target device reaches `disconnected` once NM Wi-Fi is enabled; the gate in this PR keeps failing closed (`NM_WIFI_RADIO_DISABLED` / `NM_TARGET_DEVICE_NOT_READY`) if that baseline is missing. This entry performs no host change.
+- **Next:** human review + merge of this fix (PR #206), then the owner's one-time NM change, then a fresh same-day authorization/K3 and a brand-new PRE, before any further L3 live attempt.
+
+---
+
+## IDEA3 PR11 Phase 4 L3 second live attempt — FAIL_CLOSED, regulatory ordering live blocker — design fix — 2026-09-24
+
+> [!important] L3 was attempted live a second time (after PR #203); the exact rfkill fix worked, the old TH requirement cannot be met; host restored
+> `SECOND_L3_LIVE_ATTEMPT = FAIL_CLOSED` (`L3_APPLY = FAIL REGULATORY_DOMAIN_MISMATCH`, owner rc 1), `RFKILL_FIX_LIVE_VERIFIED = YES`
+> `REGULATORY_ORDERING_LIVE_BLOCKER = PROVEN` (phy0 `00` before AND after the exact unblock), `L3_ROLLBACK = PASS`, `L3_ARTIFACT_RESIDUE = NO`, `L3_S10_PRESERVATION = PASS`
+> `L3_PRODUCTION_MUTATION = YES`, `MUTATION_SCOPE = target rfkill soft state only`, `ROLLBACK_COMPLETE = YES`, `POST_ROLLBACK_RESIDUE = NO`
+> `L3_LIVE_ACCEPTANCE = NOT_PROVEN`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`, `THIRD_L3_LIVE_RETRY = NO`
+> The comparator line `PRODUCTION_MUTATION_PERFORMED=NO` on PRE→RB is a comparator-scope statement, not the stage truth: the stage did change the target soft-block state (blocked → unblocked) and rollback restored it.
+
+> [!important] M-14 owner regulatory decision — APPROVED (recorded as a decision, not a compliance claim)
+> `M14_REGULATORY_MODEL = MODEL_B`, `M14_OWNER_DECISION = APPROVED`, `M14_OWNER_COUNTRY_INTENT = TH`
+> `M14_EFFECTIVE_PHY_COUNTRY_POLICY`: for L3, phy0 country `00` is accepted when the target channel is the owner-approved channel, the effective target-phy channel has no restriction flags, and the post-activation regulatory/channel verification passes.
+> `M14_CHANNEL_RESTRICTION_GATE = REQUIRED`, `M14_POST_ACTIVATION_VERIFICATION = REQUIRED`, `M14_IW_REG_SET = FORBIDDEN`, `M14_ADDRESSING_DHCP_DNS_NAT_IN_L3 = FORBIDDEN`
+> `M14_COUNTRY_00_LEGAL_EQUIVALENCE_TO_TH = NOT_CLAIMED`, `M14_REGULATORY_COMPLIANCE_BEYOND_EVIDENCE = NOT_CLAIMED`
+> Still `NOT_PROVEN`: (1) whether AP activation changes the self-managed phy country to `TH`; (2) any legal/regulatory conclusion about transmit-power limits under country `00`. Country `00` is not treated as equal to `TH`.
+> PR #204 = ready for human review; `L3_LIVE_ACCEPTANCE = NOT_PROVEN`, `THIRD_L3_LIVE_RETRY = NO`.
+
+- **Live evidence (owner-run, as reported):** fresh PRE (`~/idea3-p4-evidence/2026-09-24-l3-rerun3/pre-root`, `JOURNAL_SINCE=2026-09-24 11:00:30 UTC`, `L0_CAPTURE=COMPLETE`, checksums PASS, disk 89%): `wlp0s20f3 → phy0`, `rfkill id=1` soft-blocked/hard-unblocked, `wifi.reg.global=00`, `wifi.reg.phy0=00`, AP mode supported. Apply after PR #203: exact id 1 selected, `rfkill_pre_state=1`, exact `rfkill unblock 1` succeeded, state verified `soft=unblocked hard=unblocked`, phy0 still `self-managed`, `country 00` → `REGULATORY_DOMAIN_MISMATCH`. Rollback PASS (RB `rb-root`, checksums PASS); PRE→RB `COMPARE_RESULT=PASS`, 0/0/0 findings, `PRESERVATION_S10=PASS`.
+- **Stale assumption corrected:** the 2026-09-17 prerequisite spec (E-04, OD-03) and the T5 design recorded the self-managed phy as `TH` while global was `00`. Live evidence (this attempt, plus read-only `iw reg get` on the host while the radio is soft-blocked) shows phy0 `country 00`, both before and after a successful exact unblock. The `TH` premise is withdrawn in those documents.
+- **Regulatory lifecycle (classified):** Intel Raptor Lake PCH CNVi `8086:51f1`, kernel 7.2.3, `iwlwifi`/`iwlmvm`, `linux-firmware 20260810-2`, `regulatory.db` absent. `PROVEN_LIVE`: unblock alone does not change phy0 from `00`; the `00` per-phy rule table lists 2.4 GHz channels 1–13 with 22 dBm and no NO-IR/passive/DFS/disabled flag on channel 6 (`iw phy phy0 channels`, `iw reg get`). `UPSTREAM_DOCUMENTED` (kernel `iwlwifi/mvm/nvm.c`): `iwl_mvm_init_mcc` runs after firmware load and takes the MCC from BIOS/ACPI (WRDD) or the world default; later changes arrive as firmware `MCC_CHUB_UPDATE` notifications, and `MCC_SOURCE_WIFI` (802.11d beacons) updates are ignored while associated. `INFERENCE`: rfkill unblock does not itself load firmware/send an MCC, an AP start might let firmware learn a country from beacons, and `00` can legitimately remain the effective self-managed state. `NOT_PROVEN`: whether NetworkManager AP activation on this host changes the MCC to `TH`; the regulatory legality of 22 dBm under Thai rules with `00` (the AP TX power is not set by L3; owner review item).
+- **`CURRENT_ORDERING_SATISFIABLE = NO`** on this hardware state (unblock → require `TH` → install → activate).
+- **Selected design — MODEL B (smallest supported by evidence):** no `iw reg set`, owner country intent stays `TH` (accepted when reported), addressing/DHCP/NAT unchanged (none). New `deploy/pr11-phase4/p4-l3-regulatory.sh`: the target phy country must be `TH` or the `00` world default (anything else, unreadable state or an unresolvable phy fails closed), AND the approved channel must exist on that phy and carry no restriction (disabled, No IR/passive, radar/DFS, indoor-only). It reads once — the 10 s poll is removed. The gate runs after the exact unblock and before the profile is installed, and the same predicate plus "AP type on exactly the approved channel" runs again immediately after `nmcli connection up`; on a mismatch apply takes its own connection down, fails, and the owner runs the unchanged reviewed rollback. `verify.sh` re-checks the effective channel/regulatory state.
+- **Models rejected:** MODEL A (activate first, verify after) transmits before the channel is proven lawful and adds nothing B lacks; the pre-check is kept and B re-verifies after activation. Requiring `iw reg set` was excluded by rule. Simply dropping the check was rejected.
+- **Comparator:** target-phy outcomes `00 → 00`, `TH → TH` and the approved `00 → TH` pass; `TH → 00`, other countries, other phys, global drift, and a changed rule table without the approved transition stay protected drift. The fictitious *required* `00 → TH` transition is gone. `wifi.reg.sha256` is still accounted only for the `00 → TH` transition; if the rule text changes while the country stays `00`, the comparison fails closed (residual retry risk, recorded).
+- **Tests:** new `tests/test_pr11_phase4_l3_regulatory_live.py` (RED before the fix: 26 failures) reproduces the live state with a fake `iw`; three old-contract tests were updated; live read-only run of the gate against the real host `iw` returned `country=00 phy=phy0` accepted with channel 6 unrestricted.
+- **Next:** human review + merge of this fix before any third L3 live retry; a retry needs fresh same-day authorization/K3, a new PRE and `JOURNAL_SINCE`.
+
+---
+
+## IDEA3 PR11 Phase 4 L3 first live attempt — FAIL_CLOSED, rolled back — rfkill defect fix — 2026-09-24
+
+> [!important] L3 was attempted live once and failed closed before any profile was installed; the host was restored
+> `L3_LIVE_EXECUTED = ATTEMPTED_FAIL_CLOSED`, `L3_APPLY = FAIL (REGULATORY_DOMAIN_MISMATCH, owner rc 1)`, `L3_ROLLBACK = PASS`, `L3_ARTIFACT_RESIDUE = NO`
+> `L3_PRE_RB_COMPARE = PASS` (0 drift, 0 baseline-unhealthy, 0 incomparable), `L3_S10_PRESERVATION = PASS`
+> `L3_LIVE_ACCEPTANCE = NOT_PROVEN`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`
+> `L2_LIVE_ACCEPTANCE = PROVEN` (unchanged), containment `HOST_VERIFIED = NO` (unchanged)
+
+- **Live evidence (owner-run, as reported):** fresh PRE (`~/idea3-p4-evidence/2026-09-24-l3-rerun1/pre-root`, `JOURNAL_SINCE=2026-09-24 09:53:44 UTC`, `L0_CAPTURE=COMPLETE`, checksums PASS, disk 89%): `wlp0s20f3 → phy0`, target soft-blocked, hard-unblocked, global and `phy0` regulatory `00`, AP mode supported. Apply stopped with `L3_APPLY=FAIL reason=REGULATORY_DOMAIN_MISMATCH`; the stage work dir recorded `rfkill_id=1` and **`rfkill_pre_state=0`** although the radio was soft-blocked; no profile was installed. Rollback and the PRE→RB comparison passed.
+- **Root cause of the wrong pre-state (proven, read-only diagnostics on the live host):** util-linux `rfkill` 2.42.3 accepts an identifier only after a command. `rfkill --noheadings --output SOFT 1` prints "Try 'rfkill --help'" and exits 1; the handler discarded stderr, so `soft_state` was empty, was classified "not blocked", `rfkill_pre_state=0` was written and **`rfkill unblock` never ran**. `rfkill --noheadings --output ID,TYPE,SOFT,HARD list 1` is the working form. The same defect made the hard-block guard pass on an empty string (fail-open). Kernel/NetworkManager journals show no rfkill/iwlwifi/NM-activation event during the attempt, consistent with a radio that was never unblocked. The regulatory gate therefore failed on a still-blocked radio; this attempt says nothing about whether TH appears after an unblock.
+- **Repository fix (this task, no Production action):** new `deploy/pr11-phase4/p4-l3-rfkill.sh` used by L3 apply and rollback: exact id from the interface's sysfs `rfkill*/index` (fail on none/ambiguous/env mismatch, no "first wlan" fallback), state from exactly one `rfkill list <id>` row (type `wlan`, values `blocked|unblocked`, else fail closed), hard block fails before mutation, pre-state written before the exact `rfkill unblock <id>`, unblock verified, rollback re-blocks only the recorded id when the pre-state was blocked and verifies it. 24 behavioural tests run the logic against a fake `rfkill` that implements the util-linux grammar.
+- **[Superseded 2026-09-24 by the second live attempt above — regulatory lifecycle was NOT PROVEN at the time]:** the radio is an Intel AX203 (`iwlwifi`/`iwlmvm`, self-managed regulatory, firmware 89, kernel 7.2.3, `regulatory.db` absent). Upstream `iwl_mvm_init_mcc` (SUPPORTED_BY_UPSTREAM_DOC, kernel source) takes the initial country from restored/BIOS-ACPI state or the firmware default and updates it later from firmware notifications, not from an rfkill unblock. Live read-only: the world domain `00` already permits 2.4 GHz channel 6 without NO-IR. Whether the current ordering (unblock → require target phy `TH` → install profile → activate) is satisfiable for this phy is therefore **NOT_PROVEN**; the 10 s poll was not lengthened and the requirement was not weakened. A retry with this fix will fail closed at the same gate if TH does not appear after the unblock (rollback re-blocks) and will then give the first real evidence.
+- **Next:** human review + merge of this fix before any fresh L3 retry; a retry needs fresh same-day authorization/K3 and a new PRE/`JOURNAL_SINCE`.
+
+---
+
+## IDEA3 PR11 Phase 4 L3 regulatory comparator — repository fix (Option 1(a)) — 2026-09-24
+
+> [!important] Repository-only fix. L3 live has NOT been executed; no Production mutation occurred in this task.
+> `L3_LIVE_EXECUTED = NO`, `PRODUCTION_MUTATION_PERFORMED = NO`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`
+> `L2_LIVE_ACCEPTANCE = PROVEN` (unchanged; the immutable L2 receipt is untouched)
+> `CONTAINMENT_LIVE_HOST_VERIFICATION = PARTIAL`, `HOST_VERIFIED = NO` (unchanged)
+> `L3_REGULATORY_OPTION = 1(a)`, `L3_HANDLER_REGULATORY_MUTATION = NONE (verify-only)`, `IW_REG_SET_ADDED = NO`
+
+- **Observed (read-only, live host):** `iw reg get` global `00` and `phy0` `00` while the target Wi-Fi radio is soft-blocked; the owner-approved country is `TH`. The reviewed L3 sequence (rfkill unblock, profile install, NetworkManager activation) may leave `wifi.reg.phy0 = TH` at POST. The generic comparator treats every `wifi.reg.*` change as protected drift, so that expected observation would fail the L3 PRE→POST comparison.
+- **Option 1(a) (owner decision):** the L3 handler never sets the regulatory domain; the comparator gains one narrow, stage-specific semantic transition. `p4-compare.sh` accepts an optional `ALLOW_TRANSITIONS_FILE` (L3 only: `stages/L3/allow-transitions.txt`). The file must contain exactly `stage L3` and `wifi.reg.<AEGIS_AP_PHY> 00 TH`, once each; wildcards, regexes, other stages/keys/values, duplicates, conflicting or malformed lines stop the run (exit 2). The phy is resolved from the new capture key `wifi.iface.<interface>.phy` in both bundles (host evidence is bound to `wlp0s20f3`).
+- **What passes:** target phy `00 → TH` and `TH → TH`; `wifi.reg.sha256` may change only when that transition fired and no other `wifi.reg.*` key changed.
+- **What still fails (fail-closed):** `00 → US/JP`, `TH → US`, `TH → 00`, `US → TH`, any other phy, any other interface, a run without the transitions file (non-L3), missing/unparseable regulatory or phy evidence, any `wifi.reg.global` change, and hard-rfkill, NetworkManager, route, DNS, forwarding, and IDEA2 PID/restart drift. `wifi.reg.*` stays in the protected set, so `ALLOW_KEYS_FILE` can never approve it.
+- **Capture schema:** `p4-l0-capture.sh` now also records `wifi.iface.<if>.phy` from the read-only `iw dev` output (no guessing; absent when `iw` does not report it). Bundles captured before this key existed remain comparable outside L3 (the key appearing is INFO `CAPTURE_FIELD_ADDED`); L3 transition mode requires the key in both bundles and fails closed otherwise.
+- **L3 apply ordering bug fixed (still verify-only):** the live apply previously required `country TH` in `iw reg get` before `rfkill unblock`, which the observed baseline (`00` while blocked) could never satisfy. The observation now happens after the unblock and before any profile is installed, by a bounded read-only poll of the target phy; it fails closed with `REGULATORY_DOMAIN_MISMATCH` and `rollback.sh` re-blocks. Live behaviour after the unblock (whether the driver reports `TH` before activation) is NOT PROVEN until L3 is run. Live mode also requires `AEGIS_AP_COUNTRY=TH`.
+- **Next:** after human merge of this fix, L3 live needs a fresh same-day authorization, K3, fresh PRE capture with a new `JOURNAL_SINCE`, and the inherited L2 state; the POST comparison must use `ALLOW_TRANSITIONS_FILE=stages/L3/allow-transitions.txt`.
+
+---
+
+## IDEA3 PR11 Phase 4 L2 live — ACCEPTED (containment host verification PARTIAL) — 2026-09-24
+
+> [!important] L2 firewall/forwarding persistence live acceptance PROVEN (owner-run; results as reported by the owner)
+> `L1_LIVE_ACCEPTANCE = PROVEN` (predecessor, see the L1 rerun2 section below)
+> `L2_LIVE_EXECUTED = YES`, `L2_VERIFY = PASS`, `L2_POST_CAPTURE = COMPLETE`, `L2_PRE_POST_COMPARE = PASS`,
+> `L2_S10_PRESERVATION = PASS`, `L2_LIVE_ACCEPTANCE = PROVEN`
+> `FORWARDING = DISABLED` (all seven sysctls 0), `NAT = ABSENT`, `MASQUERADE = ABSENT`, `BRIDGE = ABSENT`
+> `NFT_IDEA3_TABLE = LOADED` (`inet aegis_idea3`, set `blocked_ipv4`), `CONTAINMENT_SOCKET = ACTIVE_ENABLED`
+> (`aegis-idea3-containment.service` loaded, inactive, `MainPID=0`, static: no containment request was sent)
+> `CONTAINMENT_LIVE_HOST_VERIFICATION = PARTIAL`, `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`,
+> `SOFTWARE_IP_UNBLOCK = SOURCE_IMPLEMENTED`, `HOST_VERIFIED = NO`
+> `L3_LIVE_EXECUTED = NO`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`
+>
+> Authorization: same-day Music batch authorization (`pull/190#issuecomment-5799763300`, `L2=AUTHORIZED`,
+> `PRODUCTION_SCOPE=REVIEWED_PHASE4_STAGE_HANDLERS_ONLY`, `ROLLBACK_SCOPE=CURRENT_STAGE_ONLY`) and Kla K3 / integration
+> confirmation (`pull/190#issuecomment-5800317385`, `K3_L2=CONFIRMED`, `IDEA1_WINDOW_OVERLAP=NONE`,
+> `L2_INTEGRATION_REVIEW=APPROVED`); canonical gate `AUTHORIZATION_RECORD=VALID`, `K3_CONFIRMATION=VALID`.
+> Owner-approved live values: interface `wlp0s20f3`, AP subnet `10.77.30.0/28`, Core AP address `10.77.30.1`, channel 6, country TH,
+> protected CIDRs `10.77.30.0/28,192.168.1.0/24,100.96.0.0/12,192.168.10.10/32`. Private render/evidence stay outside the repository.
+> Window: `JOURNAL_SINCE = 2026-09-23 21:20:13 UTC`; evidence under `~/idea3-p4-evidence/2026-09-24-l2/`
+> (`pre-root`, `post-root`, `compare-pre-post.txt`, `render`, `stage-work`); both bundles `SHA256SUMS = PASS`.
+> Apply (owner-run reviewed handler, `AEGIS_P4_FS_ROOT` unset): `L2_APPLY=PASS`, `L2_TABLE=inet/aegis_idea3`,
+> `FORWARDING_TARGET=DISABLED`, `APPLY_RC=0`. Compare (L2 allow files, threshold 90): `NEW_OR_WORSENED_DRIFT=0`,
+> `BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `INCOMPARABLE=0`, `APPROVED_CHANGE=22`, `INFO=3`; `DRIFT_RESULT=PASS`,
+> `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`. PRE=POST: Engine `868`/`0`, Tunnel `398125`/`16`, Twingate `2972`/`0`;
+> `:8077`, `:18002`, default route via `enp62s0`, `192.168.10.10` via `sdwan0` preserved; disk 88%; chronyd loaded/inactive/disabled;
+> `listen.udp.ephemeral_filter = kernel-range-32768-60999`. `runtime_healthy = NOT_PROVEN` remains the read-only L0 limitation.
+> The `PRODUCTION_MUTATION_PERFORMED=NO` printed by verify/compare describes those read-only steps, not the L2 apply.
+>
+> Containment limitation: `/opt/aegis-idea3/current` is not installed on the host, so the helper runtime was deliberately not
+> activated and live containment contract items 7–13 (block, idempotency, observed traffic denial, listing, unblock, restoration,
+> audit) were not performed; no authorized external test source is defined, and any test source must lie outside the protected CIDRs.
+> Source and local functional evidence (`verify-containment-functional.sh`) are unchanged and are not host proof.
+>
+> Documentation discrepancy (not a Production change): the live `forward` chain has `policy accept` plus
+> `iifname "wlp0s20f3" drop`; AP-originated forwarding is denied, which is the approved behavior. Older prose saying the whole
+> forward-chain policy must be `drop` is a history discrepancy.
+
+---
+
+## IDEA3 PR11 Phase 4 L1 live rerun2 — ACCEPTED — 2026-09-24
+
+> [!important] L1 live acceptance PROVEN in a fresh preservation window (owner-run; results as reported by the owner)
+> `L1_LIVE_RERUN2 = PASS`, `L1_VERIFY = PASS`, `L1_POST_CAPTURE = COMPLETE`,
+> `L1_PRE_POST_COMPARE = PASS`, `L1_S10_PRESERVATION = PASS`, `L1_LIVE_ACCEPTANCE = PROVEN`
+> `CHRONY_INSTALLED = YES` (`chrony 4.8-3`), `CHRONYD_ACTIVE = NO`, `CHRONYD_ENABLED = NO`
+> (`LoadState=loaded`, `ActiveState=inactive`, `SubState=dead`, `UnitFileState=disabled`, `MainPID=0`, `NRestarts=0`)
+> `L2_LIVE_EXECUTED = NO`, `PR11_COMPLETE = NO`, `PHASE4_RUNTIME_COMPLETE = NO`
+>
+> History (kept, not rewritten): (1) the first L1 live attempt executed; (2) its PRE→POST/S10 formal proof was blocked by
+> the old evidence harness and the reviewed L1 rollback restored chrony to ABSENT (section below); (3) PR #192 fixed the
+> harness and a human merged it at `e614e7f17bd50531297c12d9cbbd5e862ac12dc4`; (4) rerun2 used the merged harness in a new
+> window and namespace; (5) rerun2 passed. The first attempt's evidence (`2026-09-24-l1/{pre,post,rb}-root`) is historical and untouched.
+>
+> Rerun2 window: `JOURNAL_SINCE = 2026-09-23 19:34:46 UTC`; evidence under `~/idea3-p4-evidence/2026-09-24-l1-rerun2/`
+> (`pre-root`, `post-root`, `compare-pre-post.txt`, `stage-work`); both bundles `SHA256SUMS = PASS`.
+> Apply (owner-run, reviewed handler, `AEGIS_L1_BACKEND=live`, `AEGIS_P4_FS_ROOT` unset): `L1_SIMULATE_INSTALL=COMPLETE`,
+> `L1_VERIFY=PASS`, `L1_SERVICES_STARTED=NONE`, `L1_SERVICES_ENABLED=NONE`, `LIVE_L1=EXECUTED`, `L1_APPLY=COMPLETE`.
+> Compare (L1 allow files, threshold 90): `NEW_OR_WORSENED_DRIFT=0`, `BASELINE_UNHEALTHY_BUT_UNCHANGED=0`,
+> `INCOMPARABLE=0`, `APPROVED_CHANGE=6`, `INFO=3`; `DRIFT_RESULT=PASS`, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`.
+> Preservation PRE=POST: Engine `MainPID=868`/`NRestarts=0`; Tunnel `MainPID=398125`/`NRestarts=16`; Twingate
+> `MainPID=2972`/`NRestarts=0`; all active; `:8077` and `:18002` present; `sdwan0` route to 192.168.10.10 present; root disk 88%.
+> Harness proof on the live host: `listen.udp.ephemeral_filter = kernel-range-32768-60999` (PRE and POST);
+> `time.chrony.leap` `not-installed` → `installed-inactive`.
+> The compare line `PRODUCTION_MUTATION_PERFORMED=NO` describes the comparison step only, not the L1 apply.
+> `runtime_healthy = NOT_PROVEN` remains the read-only L0 limitation. L2 and later stages are not executed and need their own windows.
+
+---
+
+## IDEA3 PR11 Phase 4 L1 live attempt — ROLLED BACK — evidence-harness fix — 2026-09-24
+
+> [!note] Historical first attempt — superseded by the rerun2 section above; `L1_COMPLETE = NO` below describes the state before rerun2.
+
+> [!important] L1 live attempt rolled back; formal S10 proof blocked by the evidence harness
+> `L1_LIVE_ATTEMPT = ROLLED_BACK` (owner-reported: L1 apply and verify passed, PRE→POST compare FAILED,
+> the reviewed L1 rollback completed with `L1_ROLLBACK_PACKAGE_STATE=ABSENT`, RB capture COMPLETE,
+> PRE→RB compare FAILED with only UDP listener churn: 56 findings, 0 incomparable)
+> `L1_COMPLETE = NO`, `FORMAL_S10_PROOF = BLOCKED_BY_EVIDENCE_HARNESS`
+> `PRODUCTION_HOST_STATE = ROLLED_BACK` (chrony absent again; no L2 executed)
+> `L2_EXECUTED = NO`, `PRODUCTION_MUTATION_BY_THIS_TASK = NO`
+> Root causes (repository-only fix on `fix/idea3-pr11-phase4-evidence-harness`, Draft PR):
+> (A) `p4-l0-capture.sh` recorded transient UDP client sockets on kernel-assigned ephemeral ports as listeners;
+> UDP sockets inside the host's `ip_local_port_range` are now excluded from the per-port inventory (range recorded as
+> `listen.udp.ephemeral_filter`; unreadable range = no filtering; TCP unfiltered).
+> (B) passive L1 chrony was recorded as `UNAVAILABLE`; it is now `installed-inactive` only with proof
+> (`chronyd.service` loaded and inactive), any other failed query stays `UNAVAILABLE` and fails closed.
+> The original live evidence (`pre-root`, `post-root`, `rb-root`) is preserved unchanged and is not comparable
+> under the fixed semantics. Production resumes only after human merge and a fresh L1 PRE window.
+> Residual risk: a real UDP service bound inside the ephemeral range is not distinguishable by `ss` alone.
+
+---
+
+## IDEA3 PR11 Phase 4 IDEA2 §10 window-delta criterion — ACCEPTED — 2026-09-24
+
+> [!important] Post-merge reconciliation (2026-09-24) — owner acceptance APPROVED
+> `PR189 = MERGED`, `PR189_MERGE_SHA = 9f6a0f4167d814cd090c47916d12d7b10397cb0e`
+> `IDEA2_OWNER_ACCEPTANCE = APPROVED` (Pub, `pubpup2006p-design`)
+> `IDEA2_S10_WINDOW_DELTA_CRITERION = ACCEPTED`
+> `IDEA2_NARROWED_CRITERION = WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER`
+> `S10_STAGE_PRESERVATION_EVIDENCE = REQUIRED_PER_STAGE` (the stage gate now prints
+> `S10_CRITERION_OWNER_ACCEPTANCE=APPROVED` and `S10_PRESERVATION_EVIDENCE=REQUIRED_PER_STAGE`;
+> it cannot itself prove fresh BEFORE/AFTER preservation, so `S10_IDEA2_CAVEAT=OPEN` is retired.)
+> `FRESH_DISK_USE = 88%`, `LAST_FRESH_IDEA2_OBSERVATION_SECONDS = 821`,
+> `ENGINE_NRESTARTS = 0->0`, `TUNNEL_NRESTARTS = 15->15`
+> `L1_LIVE_EXECUTION = NOT_RUN`, `A_L1 = NOT_ISSUED`, `FRESH_K3_L1 = NOT_ISSUED`,
+> `PRODUCTION_MUTATION = NO`. The text below is the historical PR #189 candidate record.
+
+> [!note] Historical — candidate state at PR #189 creation
+> Branch `fix/idea3-pr11-s10-window-delta-criterion` (Draft PR, base `baf0a94e`)
+> reconciles the IDEA2 §10 preservation contract with observed reality. A
+> historical absolute `idea2.tunnel.NRestarts > 0` is no longer, by itself, an
+> unhealthy L0 tunnel baseline; the recorded count is never normalized. The
+> preservation dimension is the window delta: `NRestarts` and `MainPID` unchanged
+> pass, any increase or PID change fails. A new failure class, `:8077`/`:18002`
+> loss, and a currently unhealthy tunnel (inactive, `:18002` absent, journal
+> failure class) still fail. Focused RED→GREEN tests cover cases A–F; the PR11
+> suite passes (885). The compare summary prints
+> `IDEA2_NARROWED_CRITERION=WINDOW_DELTA_CANDIDATE_PENDING_OWNER_ACCEPTANCE` (now `WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER`).
+>
+> Fresh read-only evidence (owner-run, no lifecycle action):
+> `FRESH_DISK_USE = 88%`, `DISK_L1_GATE = PASS` (threshold 90%),
+> `FRESH_IDEA2_OBSERVATION_SECONDS = 821`, `ENGINE_NRESTARTS = 0->0`,
+> `TUNNEL_NRESTARTS = 15->15`, `TUNNEL_MAINPID_UNCHANGED = YES`,
+> `LISTEN_8077 = YES`, `LISTEN_18002 = YES`, `MONITOR_HEALTHZ = PASS`.
+>
+> `CONTRACT_REALITY_MISMATCH = RESOLVED_IN_CANDIDATE_CODE`
+> `IDEA2_OWNER_ACCEPTANCE = PENDING_PR_REVIEW` at that time (now APPROVED, see above)
+> `S10_IDEA2_CAVEAT = OPEN` at that time (superseded by `S10_PRESERVATION_EVIDENCE = REQUIRED_PER_STAGE`)
+> `L1_LIVE_EXECUTION = NOT_RUN`, `PRODUCTION_MUTATION = NO`.
+> Superseded: owner acceptance was later given on PR #189.
 
 ## IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17
 
@@ -5233,6 +5742,77 @@ integration review of the PR5 evidence boundary.
 
 ---
 
+## IDEA3 PR11 Phase 4 T4 / G-07 broker migration — repository implementation — 2026-09-19
+
+> [!important] Repository-only T4 acceptance passed; live acceptance is not claimed.
+> OD-08 selects a separate TLS-only Mosquitto instance for IDEA3 on 8883.
+> The legacy `mosquitto.service`, plaintext 1883 listener, and legacy `aegis`
+> identity remain outside T4 mutation scope. L6a/L6b have not run live.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 T4 / G-07 broker migration
+Branch                       = feat/idea3-pr11-phase4-t4-broker-migration
+STARTING_SHA                 = 0b6aea61556371140813cb63747170de7be84be6
+CURRENT_IMPLEMENTATION_HEAD  = 1ff3b04c
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L6a/L6b NOT RUN
+
+OD-08                        = OWNER APPROVED — separate TLS-only IDEA3 Mosquitto instance
+IDEA3_BROKER_SERVICE         = aegis-idea3-mosquitto.service
+IDEA3_BROKER_PORT            = 8883 — loopback + owner-supplied AP address only
+LEGACY_MOSQUITTO_SERVICE     = PRESERVE / DO NOT MUTATE IN T4
+LEGACY_1883                  = PRESERVE / DO NOT REMOVE IN T4
+LEGACY_AEGIS_USER            = PRESERVE / DO NOT REMOVE IN T4
+
+T4_REPOSITORY_IMPLEMENTED    = YES
+T4_REPOSITORY_CLOSEOUT       = COMPLETE / ACCEPTANCE PASS
+G07_REPOSITORY_CONTRACT      = CLOSED
+L6B_HANDLER                  = REGISTERED
+PF01_1883_AP_NEGATIVE_CTRL   = PASS — repository regression; future live L6B verify still required
+
+FINAL_SHELL_SYNTAX           = PASS
+FINAL_HANDLER_REGISTRATION   = REGISTERED
+FINAL_LEGACY_MUTATION_SCAN   = PASS
+FINAL_LEGACY_COPY_SCAN       = PASS
+FINAL_COMPILE                = PASS
+FINAL_RUFF                   = PASS
+FINAL_FOCUSED_PYTEST         = PASS — 242 passed
+FINAL_DIFF_CHECK             = PASS
+COLLABORATION_POLICY_TEST    = PASS — 24 passed
+VAULT_MULTI_WRITER_TEST      = PASS — 1 passed
+VAULT_STRUCTURE_TEST         = PASS — 25 passed
+REPOSITORY_MJS_SUITE         = PASS — 63 passed
+ACTUAL_COLLABORATION_VALIDATOR = PASS
+FINAL_RECEIPT                = Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-19_194236_music_idea3-pr11-phase4-t4-g07-broker-migration.md
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+BROKER_LIVE_MUTATION         = NO
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+Repository implementation currently includes the deterministic T4 broker
+renderer/validator, the separate `aegis-idea3-mosquitto.service` example, and
+the reviewed `stages/L6b/` handler set (`apply.sh`, `verify.sh`, `rollback.sh`,
+`allow-keys.txt`, `allow-listeners.txt`). L0 capture now records the IDEA3
+broker unit and the compare harness resolves the owner-supplied AP address for
+the two approved 8883 listeners.
+
+The future L6b handler is deliberately fail-closed. Its live path requires an
+explicit L6b authorization flag and is separate from this repository work.
+It is designed to mutate only the IDEA3 broker instance; verification preserves
+the legacy broker service/config/password database/1883 listener set and checks
+the PF-01 AP-side TCP/1883 drop. Rollback removes only the IDEA3 broker changes
+and does not restart or rewrite the legacy broker as a fallback.
+
+This section does **not** claim L6a or L6b runtime acceptance. Future live L6b
+still requires its predecessor gates, fresh same-day authorization and K3,
+live values, and a passing preservation boundary. The currently recorded IDEA2
+preservation caveat remains blocking until separately resolved or explicitly
+reconciled.
+
 ## IDEA3 PR11 Phase 4 T5 AP network — repository implementation — 2026-09-18
 
 > [!important] Repository-only T5 implementation; final acceptance pending.
@@ -5349,6 +5929,2138 @@ PHASE4_LIVE_READINESS        = NOT READY
 
 G-05 repository contract is CLOSED after repository implementation and acceptance PASS. L5 remains a separate future live stage.
 
+## IDEA3 PR11 Phase 4 L2 runtime handler — repository registration — 2026-09-20
+
+> [!important] Repository-only L2 handler registration. No live L2 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L2 runtime handler
+Branch                       = feat/idea3-pr11-phase4-l2-handler
+IMPLEMENTATION_HEAD          = c9d27f8a7f81760fc0c488392a4a1420076c4ec7
+PR                           = #159 — DRAFT
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L2 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L3_HANDLER                   = NOT_REGISTERED
+L4_HANDLER                   = NOT_REGISTERED
+L5_HANDLER                   = NOT_REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+
+L2                           = NOT RUN
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+### Scope and safety boundary
+
+- Registered the reviewed L2 stage handler (`stages/L2/`) under the G-15 handler framework.
+- L2 owns only dedicated table `inet aegis_idea3`, `/etc/aegis-idea3/aegis-idea3.nft`, `/etc/sysctl.d/90-aegis-idea3-forwarding.conf`, and `aegis-idea3-nftables-load.service`.
+- Forwarding values remain strictly `0`. No NAT, no masquerade, no bridge, and zero listeners added.
+- Hardened live mode: requires `AEGIS_L2_LIVE_AUTHORIZED=YES`, root, and requires `/etc/aegis-idea3` to exist as a real directory (not a symlink) before mutation (`IDEA3_PARENT_DIR_REQUIRED`).
+- Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
+- L0 capture integration captures the dedicated L2 nft file under `fw.idea3_nft` in `firewall.tsv` and excludes it from `host.aegis_idea3.file` to prevent unapprovable drift while maintaining fail-closed preservation of all other `/etc/aegis-idea3` content.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L2 is not authorized or proven.
+
+### Verification evidence
+
+- `test_pr11_phase4_l2_handler.py`: 7 passed, 0 warnings.
+- `test_pr11_phase4_harness.py`: 159 passed.
+- `test_pr11_phase4_ap_network.py`: 55 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 286 passed.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_032529_music_idea3-pr11-phase4-l2-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L3 AP-radio runtime handler — repository registration — 2026-09-20
+
+> [!important] Repository-only L3 handler registration. No live L3 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L3 AP-radio runtime handler
+Branch                       = feat/idea3-pr11-phase4-l3-handler
+IMPLEMENTATION_HEAD          = 49c0872f329409d735d3668028a559e4c45b481f
+PR                           = #160 — DRAFT
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L3 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = NOT_REGISTERED
+L5_HANDLER                   = NOT_REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+REAL_WIFI_MUTATION           = NO
+REAL_RFKILL_MUTATION         = NO
+REAL_NETWORKMANAGER_MUTATION = NO
+LIVE_L3                      = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+### Scope and safety boundary
+
+- Registered the reviewed L3 stage handler (`stages/L3/`) under the G-15 handler framework.
+- L3 owns only AP-radio state on dedicated interface `wlp0s20f3`: NetworkManager AP profile materialization (`aegis-idea3-ap.nmconnection`), 2.4 GHz AP mode, WPA2-PSK security, regulatory domain verification, and target-specific rfkill soft unblock.
+- AP addressing, DHCP, and DNS service are NOT part of L3 (these belong to L4).
+- Zero NAT, zero masquerade, zero bridge creation, zero forwarding enable, zero nftables mutation, zero sysctl mutation, zero Mosquitto/NTP mutation, and zero listener additions (`allow-listeners.txt` has 0 active entries).
+- PSK accepted only from private regular file (mode 0600/0400; never from CLI argument); no secret or PSK committed.
+- Target guard: live mode strictly enforces `AP_IF=wlp0s20f3` (`TARGET_AP_INTERFACE_MUST_BE_WLP0S20F3`). Hard rfkill fail-closed; regulatory drift fail-closed.
+- Management-path fail-closed checks prevent isolation of host control paths.
+- Broad aggregate keys (`nm.active`, `nm.devices`, `nm.general`, `wifi.dev.sha256`, `wifi.rfkill.wlan`) and synthetic fixture interface `wlan-test0` removed from Production allowlist. Active allowlist strictly restricted to target `wlp0s20f3`.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L3 is not authorized or proven.
+- Future live L3 remains separately gated by L2 live PASS, fresh A-L3 authorization, fresh K3, owner-supplied values (OV-01/OV-02/OV-04), management-path proof, and §10 preservation PASS.
+
+### Verification evidence
+
+- `test_pr11_phase4_l3_handler.py`: 20 passed, 0 warnings.
+- `test_pr11_phase4_harness.py`: 160 passed.
+- `test_pr11_phase4_ap_network.py`: 55 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 307 passed.
+- Shell syntax (`bash -n` on all L3 stage scripts and capture/compare tools): PASS.
+- Diff check (`git diff --check`): PASS.
+- Broad allowlist scan: PASS (`nm.active`, `nm.devices`, `nm.general`, `wifi.dev.sha256`, `wifi.rfkill.wlan`, `wlan-test0` absent).
+- Active listeners: 0 active entries.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_042100_music_idea3-pr11-phase4-l3-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L4 AP addressing / DHCP runtime handler repository registration — 2026-09-20
+
+> [!important] Repository-only L4 handler registration. No live L4 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L4 AP addressing / DHCP runtime handler
+Branch                       = feat/idea3-pr11-phase4-l4-handler
+IMPLEMENTATION_HEAD          = 22028493549dd6e1cf0fb698f7d79300a05a3b14
+L4_PR_OPENED                 = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L4 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = NOT_REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+REAL_WIFI_MUTATION           = NO
+REAL_NETWORKMANAGER_MUTATION = NO
+REAL_DNSMASQ_MUTATION        = NO
+REAL_FIREWALL_MUTATION       = NO
+LIVE_L4                      = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L4 pull request exists at closeout (`L4_PR_OPENED = NO`). After closeout commit and push, a Draft PR may be opened for human review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L4 stage handler (`stages/L4/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`).
+- L4 owns AP IPv4 addressing on dedicated interface `wlp0s20f3` and dedicated dnsmasq runtime (`/etc/aegis-idea3/dnsmasq-ap.conf`, `aegis-idea3-dnsmasq.service`) providing DHCP pool and Core-local DNS mapping the owner-supplied broker hostname to the Core AP address per merged T5 template.
+- Profile transition: L4 modifies the existing L3 NetworkManager connection profile (`aegis-idea3-ap.nmconnection`) from `ipv4.method=disabled` to `ipv4.method=manual` with `never-default=true`. AP addressing is applied without creating default gateways, NAT/masquerade, or routing bridges.
+- L2 firewall preflight: `apply.sh` and `verify.sh` enforce read-only preflight on table `inet aegis_idea3`: UDP/67 permitted, UDP/53 permitted, TCP/53 permitted, explicit TCP/1883 drop rule present, forward policy `drop`, zero NAT/masquerade, and zero forwarding sysctls (`net.ipv4.ip_forward=0`). Comment lines are stripped before parsing.
+- PF-02 hardening: on real host evidence, the wildcard listener exception is accepted ONLY for `udp/67` on `0.0.0.0%wlp0s20f3`. Synthetic interfaces (e.g. `wlan-test0`) are rejected unless running under `TEST_FIXTURE`.
+- Route accounting hardening: `net.route[46].unscoped` captures unscoped routes (e.g. blackhole, unreachable, prohibit, throw, or dev-less routes) as protected keys. Unauthorized unscoped routes cause `UNSCOPED_ROUTE_DRIFT` and reject `ROUTE_TABLE_DRIFT` approval.
+- Rollback: `stages/L4/rollback.sh` is idempotent. It removes only L4-owned addressing/DHCP/DNS state and restores the L3 IPv4-disabled AP profile (`method=disabled`) without deleting the L3 AP profile or invoking L3 rollback. Specifically, it stops and disables `aegis-idea3-dnsmasq.service`, deletes `/etc/aegis-idea3/dnsmasq-ap.conf` and its service unit, reloads and reconnects the NetworkManager connection profile in disabled-IPv4 mode (`nmcli connection reload && nmcli connection up`), verifies zero remaining IPv4 address on `wlp0s20f3`, and preserves existing firewall rules and L3 AP radio state.
+- Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L4 is not authorized or proven.
+- Future live L4 remains separately gated by L2 and L3 live PASS, fresh same-day A-L4 authorization, fresh K3 key, primary owner network value OV-03 (AP subnet and Core AP address, required by L2 and L4) plus owner-supplied runtime values (DHCP pool range and broker hostname under the implemented T5 contract), management-path proof, and §10 preservation PASS.
+
+### Verification evidence
+
+- `test_pr11_phase4_l4_handler.py`: 51 passed, 0 warnings.
+- `test_pr11_phase4_l3_handler.py`: 20 passed, 0 warnings.
+- `test_pr11_phase4_harness.py`: 160 passed.
+- `test_pr11_phase4_ap_network.py`: 55 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 358 passed.
+- Shell syntax (`bash -n` on all L4 stage scripts and capture/compare tools): PASS.
+- Diff check (`git diff --check`): PASS.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_140245_music_idea3-pr11-phase4-l4-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L5 Core-local trusted NTP runtime handler repository registration — 2026-09-20
+
+> [!important] Repository-only L5 handler registration. No live L5 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L5 Core-local trusted NTP runtime handler
+Branch                       = feat/idea3-pr11-phase4-l5-handler
+IMPLEMENTATION_HEAD          = 7f6d41f6fb4fe6cfff8d4759fa8c13579eae0460
+L5_PR_OPENED                 = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L5 NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = REGISTERED
+L6A_HANDLER                  = NOT_REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+REAL_NTP_MUTATION            = NO
+REAL_TIMESYNCD_MUTATION      = NO
+REAL_CHRONYD_MUTATION        = NO
+LIVE_L5                      = NOT RUN
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L5 pull request exists at closeout (`L5_PR_OPENED = NO`). After closeout commit and push, a Draft PR may be opened for human review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L5 stage handler (`stages/L5/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`).
+- L5 owns runtime Core-local trusted NTP serving on dedicated AP interface `wlp0s20f3` (`/etc/chrony.conf`, `root:root`, mode `0640`), transitioning from `systemd-timesyncd.service` to `chronyd.service`.
+- Runtime-only service mutation: L5 mutates `ActiveState` only (`systemctl stop systemd-timesyncd`, `systemctl start chronyd`). Neither apply nor rollback mutates `UnitFileState`. Zero `systemctl enable` or `systemctl disable`.
+- Atomic configuration placement: creates temporary regular file in same directory (`mktemp ${target_conf}.tmp.XXXXXX`), validates rendered content before activation, syncs, and atomically renames (`mv -f`).
+- Read-only chronyd unit inspection: verifies effective ExecStart relies on default `/etc/chrony.conf`; fails closed on non-default `-f <path>` or unexpected drop-in overrides with `CONFIG_PATH_AUTHORITY_MISMATCH`.
+- Time synchronization contract: requires pre-handoff `systemd-timesyncd.service` active and running with `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`. Enforces bounded holdover <= 300 s during handoff. Post-apply verification requires final `TrustedClock = SYNCED` and `maxerror <= 1,000,000 us`; final `HOLDOVER`, `UNTRUSTED`, or `UNKNOWN` is strictly rejected.
+- Strict listener contract: requires `udp <AEGIS_AP_ADDRESS>:123`, permits loopback-only `udp 127.0.0.1:323` and `udp [::1]:323` if observed; wildcard (`0.0.0.0`, `[::]`), non-AP NTP, non-loopback 323, and TCP/123 are strictly rejected.
+- Rollback: `stages/L5/rollback.sh` is idempotent. It stops `chronyd.service`, restores captured pre-L5 `/etc/chrony.conf` bytes, uid, gid, and mode (or removes `/etc/chrony.conf` if absent pre-L5), restores captured pre-L5 `systemd-timesyncd.service` runtime `ActiveState` without altering `UnitFileState`, and verifies `TrustedClock = SYNCED`.
+- Preserves L4 AP addressing/DHCP/DNS, L2 firewall rules, zero forwarding (`net.ipv4.ip_forward=0`), zero NAT/masquerade, and existing network routes.
+- Fixture mode operates strictly beneath `AEGIS_P4_FS_ROOT` without host mutation.
+- Provenance disclosure: `RED_FIRST_PROVEN = NO`. There is no retained evidence proving L5 focused tests were observed failing before candidate handler files were created. The candidate was treated as untrusted existing work, independently audited, corrected for deterministic regression assertions, hardened, and verified.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L5 is not authorized or proven.
+- Future live L5 remains separately gated by L2, L3, and L4 live PASS, fresh same-day A-L5 authorization, fresh K3 key, owner-supplied trusted upstream value, external AP/non-AP query evidence, and §10 preservation PASS.
+
+### Verification evidence
+
+- Focused L5 pytest (`test_pr11_phase4_l5_handler.py`): 47 passed.
+- T6 NTP pytest (`test_pr11_phase4_ntp.py`): 26 passed.
+- Trusted time pytest (`test_trusted_time.py`): 13 passed.
+- L4 handler pytest (`test_pr11_phase4_l4_handler.py`): 51 passed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): 160 passed.
+- Private AP network pytest (`test_private_ap_contract.py`): 4 passed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 405 passed.
+- Shell syntax (`bash -n` on all L5 stage scripts and capture/compare tools): PASS.
+- Diff check (`git diff --check`): PASS.
+- Registration matrix: L2, L3, L4, L5, L6b REGISTERED; L6a NOT_REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_201554_music_idea3-pr11-phase4-l5-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L6a isolated TLS / PKI validation handler repository registration — 2026-09-20
+
+> [!important] Repository-only L6a handler registration. No live L6a stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L6a isolated TLS / PKI validation runtime handler
+Branch                       = feat/idea3-pr11-phase4-l6a-handler
+DESIGN_COMMIT                = ed5fc564d1303fcd4cd0347f0307836d3f51795b
+RED_COMMIT                   = 4690d85e925c16c2b8caf02b64b827f1f9550631
+IMPLEMENTATION_HEAD          = 33ee43348adfe35e943da16ebc9f80e93321b84f
+HARDENING_HEAD               = 9af35b739c0add2ff04348ec21a1269097d65d1b
+L6A_PR_OPENED                = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L6a NOT RUN
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = REGISTERED
+L6A_HANDLER                  = REGISTERED
+L6B_HANDLER                  = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+SYSTEMD_MUTATION             = NO
+ETC_MUTATION                 = NO
+L6A_LIVE_AUTHORIZED          = NO
+LIVE_L6A                     = NOT RUN
+RED_FIRST_PROVEN             = YES
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L6a pull request exists at closeout (`L6A_PR_OPENED = NO`). After closeout commit, a PR may be opened/maintained for human code-owner review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L6a stage handler (`stages/L6a/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to approved operational design OD-L6A-01 through OD-L6A-07.
+- Option B (temporary test broker) architecture: launches an ephemeral Mosquitto instance on loopback (`127.0.0.1`) for isolated TLS/PKI validation, verifies the full authentication and encryption matrix, and terminates the temporary broker before `apply.sh` returns. POST capture expects zero listener or configuration drift.
+- All five required stage handler files are present; `allow-keys.txt` and `allow-listeners.txt` contain zero active entries.
+- Input contracts: `AEGIS_L6A_INPUT_DIR`, `AEGIS_L6A_WORK_DIR`, and `AEGIS_L6A_PORT` are required with no defaults.
+- Port authority: strictly unprivileged integer range `1025..65535`. Standard ports `1883` and `8883` are strictly rejected.
+- Security & process boundaries: validates canonical TLS hostname `mqtt.aegis.home.arpa`, enforces exact DNS-only SAN profile, proves negotiated TLS version >= 1.2, validates Core and device authentication, proves rejection of wrong Core password, wrong device password, anonymous access, and retained publish, and enforces exact T2 ACL matrix.
+- Secret & material handling: `p4-broker-material.py` creates a private temporary plaintext password file (mode 0600), then executes `mosquitto_passwd -U <temporary-file-path>`; the password itself is NOT present in argv. No secrets are emitted in outputs by construction (`NO SECRET OUTPUT BY CONSTRUCTION`). Temporary plaintext and runtime configuration material is unlinked/removed on completion (unlink does not claim forensic secure erase).
+- Process ownership & rollback: records detailed process metadata (PID, start-time ticks from `/proc/<pid>/stat` field 22, boot ID, canonical config path, executable path) to prevent PID reuse kills. Rollback verifies process identity before signaling and enters `S-11 HOLD` on mismatch; zero generic kill commands (`pkill`, `killall`, `pgrep`). Non-secret validation evidence (`validation-evidence.tsv`) is retained.
+- Preserves all existing services: zero mutation to the legacy Mosquitto service (`mosquitto.service`), plaintext 1883 listener, `/etc/mosquitto`, or L6b production-candidate configuration.
+- Provenance disclosure: `RED_FIRST_PROVEN = YES`. Retained RED evidence showed 25 total, 4 passed, 21 expected failed, 0 unexpected failures before implementation existed.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L6a is not authorized or proven.
+- Future live L6a remains separately gated by L2, L3, L4, and L5 live PASS, fresh same-day A-L6a authorization, fresh K3 key, resolution of the open IDEA2 §10 preservation caveat, and all authoritative prerequisites.
+
+### Verification evidence
+
+- Focused L6a pytest (`test_pr11_phase4_l6a_handler.py`): 26 passed, 0 failed.
+- Affected regressions (`test_pr11_phase4_{broker_material,broker_validate,mqtt_pki,harness,t4_broker_migration}.py`): 189 passed, 0 failed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 431 passed, 0 failed, 0 skipped, 0 xfail.
+- Bash syntax validation (`bash -n` on `apply.sh`, `verify.sh`, `rollback.sh`): PASS.
+- Diff check (`git diff --check`): PASS.
+- Anti-test-weakening audit: PASS.
+- Static security audit: PASS.
+- Process ownership audit: PASS.
+- Option B zero-drift audit: PASS.
+- Evidence preservation audit: PASS.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-20_231932_music_idea3-pr11-phase4-l6a-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L7 Core credential delivery and service startup handler repository registration — 2026-09-21
+
+> [!important] Repository-only L7 handler registration & shared G-15 amendment. No live L7 stage is authorized or executed.
+
+```text
+Task                         = IDEA3 PR11 Phase 4 L7 Core credential delivery / Core start handler
+Branch                       = feat/idea3-pr11-phase4-l7-handler
+ORIGINAL_DESIGN_COMMIT       = f00230e69eb3be310829b98b4b1b11a2b780a68a
+DESIGN_FIX_COMMIT            = 25011eb957022d83a0313a0764b0c460d045610b
+RED_COMMIT                   = 6aea64c6b0b9997452b6879ea43c4f4bcbc50324
+GREEN_COMMIT                 = 2741ea3fd5a7a760cf0c39f0ca5ea8536f9810a9
+HARDENING_COMMIT             = 77c930957489056529d28870abaf1ba8041290ca
+L7_PR_OPENED                 = NO
+Current state                = COMPLETE / ACCEPTANCE PASS — repository-only; L7 NOT RUN
+
+L7_HANDLER_REGISTERED        = YES
+L7_REPOSITORY_IMPLEMENTED    = YES
+RED_FIRST_PROVEN             = YES
+G15_SHARED_HARNESS_AMENDMENT = YES
+G15_L6B_REGRESSION_FIXED     = YES
+
+L2_HANDLER                   = REGISTERED
+L3_HANDLER                   = REGISTERED
+L4_HANDLER                   = REGISTERED
+L5_HANDLER                   = REGISTERED
+L6A_HANDLER                  = REGISTERED
+L6B_HANDLER                  = REGISTERED
+L7_HANDLER                   = REGISTERED
+
+L2                           = NOT RUN
+L3                           = NOT RUN
+L4                           = NOT RUN
+L5                           = NOT RUN
+L6A                          = NOT RUN
+L6B                          = NOT RUN
+L7                           = NOT RUN
+
+PRODUCTION_MUTATION          = NO
+NETWORK_MUTATION             = NO
+SYSTEMD_MUTATION             = NO
+ETC_MUTATION                 = NO
+OPT_MUTATION                 = NO
+ESP32_MUTATION               = NO
+L7_LIVE_AUTHORIZED           = NO
+LIVE_L7                      = NOT RUN
+ZERO_ACTUATION_CONTRACT      = PASS
+LIVE_ZERO_ACTUATION_PROVEN   = NO
+PHASE4_RUNTIME_COMPLETE      = NO
+PHASE4_LIVE_READINESS        = NOT READY
+```
+
+No L7 pull request exists at closeout (`L7_PR_OPENED = NO`). After closeout commit, a PR may be opened/maintained for human code-owner review. Marking Ready for Review and merge remain human-review steps.
+
+### Scope and safety boundary
+
+- Registered the reviewed L7 stage handler (`stages/L7/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to approved operational design OD-L7-01 through OD-L7-08.
+- Owner-supplied Production credentials: `k_c2d`, `k_d2c`, `mqtt-core.pass`, `admin.pin`, `restore.credential` are ingested exclusively from a private input directory (`AEGIS_L7_INPUT_DIR`, mode 0600 or 0400, regular files only, no symlinks).
+- Zero repository Production key generator (OD-L7-02): production keys are generated owner-controlled offline. The repository contains only fixture keys and protocol validators proving byte-for-byte parity with ESP32 NVS provisioning (`p4-nvs-provision.py`).
+- D4 local restore prerequisite (OD-L7-08): `restore.credential` must be present and pass cryptographic format validation before the first Core service start.
+- File staging & permissions: stages `/etc/aegis-idea3/credentials/` (directory mode 0700, secret files mode 0600), `/etc/aegis-idea3/core.env` (mode 0600), `/etc/systemd/system/aegis-idea3-core.service` (mode 0644), and immutable release pointer `/opt/aegis-idea3/current` symlink.
+- Shared G-15 capture & compare amendment: implements Option A narrow exact host-file exception (`^host\.(aegis_idea3\.file\.|path\.|symlink\.|unit_file\.)`) permitting approved stage file changes while maintaining default-deny on host identity, kernel, boot ID, and twingate; captures `/opt/aegis-idea3/current` symlink target and `/etc/systemd/system/aegis-idea3-core.service` unit content sha256/metadata.
+- L6b regression compatibility: L6b `allow-keys.txt` is validated regression-free under the Option A amendment.
+- Listener contract: `allow-listeners.txt` has zero active entries (`L7_ALLOW_LISTENERS_EMPTY = YES`). Core daemon opens no listening sockets.
+- Safety & boundary verification: zero relay actuation (`CUT_UPLINK`, `RESTORE_UPLINK`) in `core-audit.sqlite3`. Fails closed if audit SQLite DB is corrupt or unreadable.
+- Rollback: `stages/L7/rollback.sh` is idempotent. Restores pre-state captured in `prestate.manifest` (unit file, core.env, credentials, symlink). Strictly preserves durable SQLite databases (`/var/lib/aegis-idea3/data/core-audit.sqlite3`) and logs.
+- Hardening findings resolved:
+  1. `verify.sh` SQLite audit-DB query previously caught general Exception and printed 0 (failing open on corrupt DB); hardened to fail closed with error code 2.
+  2. `apply.sh` Python script snippets previously interpolated shell variables; hardened to pass paths safely through `sys.argv`.
+- Provenance disclosure: `RED_FIRST_PROVEN = YES`. Retained RED evidence showed 28 expected failed (4 G-15 host artifacts, 24 L7 handler) before implementation existed.
+- The §10 IDEA2 preservation caveat remains explicitly open and blocking; live L7 is not authorized or proven.
+- Future live L7 remains separately gated by L2..L6b live PASS, fresh same-day A-L7 authorization, fresh K3 key, resolution of the open IDEA2 §10 preservation caveat, and all authoritative prerequisites.
+
+### Verification evidence
+
+- G-15 focused pytest (`test_pr11_phase4_g15_host_artifacts.py`): 6 passed, 0 failed.
+- L7 focused pytest (`test_pr11_phase4_l7_handler.py`): 28 passed, 0 failed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): 160 passed, 0 failed.
+- All Phase 4 test suite (`test_pr11_phase4_*.py`): 465 passed, 0 failed, 0 skipped, 0 xfail.
+- Relevant Core regression test suite: 548 passed, 0 failed.
+- Bash syntax validation (`bash -n` on `p4-lib.sh`, `p4-l0-capture.sh`, `p4-compare.sh`, `apply.sh`, `verify.sh`, `rollback.sh`): PASS.
+- Diff check (`git diff --check origin/main...HEAD`): PASS.
+- Anti-test-weakening audit: PASS.
+- Static security audit: PASS.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b, L7 REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_032940_music_idea3-pr11-phase4-l7-handler.md`.
+
+
+## IDEA3 PR11 Phase 4 L8 ESP32 provisioning / flash handler repository registration — 2026-09-21
+
+> [!important] Repository-only L8 handler registration. No ESP32 hardware is accessed, no serial port is opened, no firmware is flashed, and no live L8 stage is authorized or executed.
+
+```text
+Task                          = IDEA3 PR11 Phase 4 L8 ESP32 inspection / NVS provisioning / flash handler
+Branch                        = feat/idea3-pr11-phase4-l8-handler
+START_SHA                     = 0544f1cc620b82482cdc9dcc474bed7a66ba6ead
+Session                       = L8-S1 (closed)
+DESIGN_COMMIT                 = c2422924d658150d20b59866eb14df2ec7483991
+RED_COMMIT                    = 679facdfbf367e697944f8d7a7f90103f4bcc117
+GREEN_HARDENING_COMMIT        = 902b19b965c2d829501eb440dd616eb44bbe5bce
+CLOSEOUT_COMMIT               = fee8e4f687847ff75f8a5d0da4e03cce2f97a420
+L8_PR_OPENED                  = YES (PR #165, Draft, CI collaboration-guardrails PASS)
+L8_PR_MERGED                  = YES (human merge f08d003b86ebdd950416026e6f473b6cbd7213a5, 2026-09-21; recorded by the L9 task)
+Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; L8 NOT RUN
+
+L8_HANDLER_REGISTERED         = YES
+L8_REPOSITORY_IMPLEMENTED     = YES
+L8_OPERATIONAL_DESIGN         = COMPLETE (commit c2422924)
+RED_FIRST_PROVEN              = YES (53 failed / 17 passed, no import or syntax failure)
+
+L2_HANDLER                    = REGISTERED
+L3_HANDLER                    = REGISTERED
+L4_HANDLER                    = REGISTERED
+L5_HANDLER                    = REGISTERED
+L6A_HANDLER                   = REGISTERED
+L6B_HANDLER                   = REGISTERED
+L7_HANDLER                    = REGISTERED
+L8_HANDLER                    = REGISTERED
+
+L2..L8                        = NOT RUN
+L7_LIVE_AUTHORIZED            = NO
+L8_LIVE_AUTHORIZED            = NO
+PHASE4_RUNTIME_COMPLETE       = NO
+PHASE4_LIVE_READINESS         = NOT READY
+
+L8_INVENTORY_COMPLETE         = YES
+G04_CURRENT_STATE             = NOT_APPLICABLE_UNDER_SELECTED_ADDRESS_MODEL
+ESP32_ADDRESS_MODEL_CURRENT   = DHCP
+G11_CURRENT_STATE             = PARTIAL_REPOSITORY
+G16_CURRENT_STATE             = CLOSED_REPOSITORY
+
+OD14_RECOVERY_POLICY          = D4_ONLY
+INTERIM_RECOVERY_PROCEDURE    = NOT_APPROVED
+D4_LIVE_REQUIRED_BEFORE_FLASH = YES
+L8_INSPECTION_CLASS           = NON_WRITING_BUT_DEVICE_RESETTING
+L8_INSPECTION_WINDOW_REQUIRED = YES
+PRODUCTION_KEY_GENERATION     = OWNER_CONTROLLED_OFFLINE
+
+PRODUCTION_MUTATION           = NO
+REAL_HARDWARE_ACCESSED        = NO
+SERIAL_PORT_OPENED            = NO
+FIRMWARE_FLASHED              = NO
+ESP32_MUTATION                = NO
+LIVE_L8_PHYSICAL_PROOF        = NOT PROVEN
+```
+
+### Closeout evidence
+
+- L8 focused pytest (`test_pr11_phase4_l8_handler.py`): **77 passed**, 0 failed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): **160 passed**, 0 failed.
+- All Phase 4 suites (`test_pr11_phase4_*.py`): **542 passed**, 0 failed.
+- Full IDEA3 suite: **1522 passed, 6 skipped**. Pre-task baseline on `0544f1cc` was **1445 passed, 6 skipped**, so the delta is exactly the 77 new L8 tests: no existing test was lost, skipped, or weakened.
+- Firmware + NVS + G-15 + L8 focused: **113 passed**.
+- `bash -n` on all seven Phase 4 shell scripts: PASS.
+- `p4_stage_handler_status L8`: `REGISTERED`.
+- `git diff --check`: PASS. Secret scan over new files: no matches.
+- RED-first provenance: **53 failed / 17 passed** before implementation, no import or syntax failure.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b, L7, **L8** REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_091424_music_idea3-pr11-phase4-l8-handler.md`.
+
+**Truth separation.** Everything above is *repository implemented and locally
+verified*. Nothing here is runtime verified, Production deployed, or live
+accepted. `L2..L8 = NOT RUN`, `L8_LIVE_AUTHORIZED = NO`,
+`PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`, and
+`LIVE_L8_PHYSICAL_PROOF = NOT PROVEN`.
+
+### Session L8-S1 — audit findings, negative controls, and evidence
+
+**Defects found by independent source audit of the new L8 code, and fixed:**
+
+1. **Partition geometry was only half-derived.** `derive_nvs_offset` correctly
+   read the `nvs` offset from the reviewed table, but the firmware write used a
+   hardcoded `0x10000` application offset. That silently reintroduced exactly
+   the guess OD-L8-03 exists to forbid. Replaced with a general
+   `derive_partition_geometry(table, selector)` used for both the `nvs` and the
+   application partition, with no default and no fallback for either, and the
+   NVS *size* likewise derived instead of falling back to `0x5000`.
+2. **The placeholder-CA scan could reject a valid trust anchor.** It uppercased
+   the whole header and searched for `TODO`, `CHANGEME`, `FIXME` and similar.
+   Those letters are all in the base64 alphabet, so a genuine certificate whose
+   body happened to spell one would have been refused, and a real flash window
+   would have failed on a false positive. Narrowed to: scan the certificate
+   body only, for tokens carrying a separator outside the base64 alphabet, plus
+   a strict base64 alphabet check and a body length floor that catches
+   separator-free placeholders.
+3. **A failed device write produced no evidence.** The write was wrapped in a
+   `try/except` that re-raised, so a failure at or after the first hardware
+   write aborted before the evidence bundle existed — directly contradicting
+   `FAIL_SECURE_HOLD_AND_EVIDENCE`. The failure is now recorded into the bundle
+   (`flash_result=FAIL`, `failure_boundary=DEVICE_WRITE`) and the run then exits
+   non-zero. Three regression tests now cover this path, including that the
+   failure-path bundle is held to the same secret-exclusion rule.
+
+**Negative controls** (break invariant → observe expected FAIL → restore → PASS;
+no mutation committed, sources verified byte-identical afterwards):
+
+| # | Invariant broken | Result |
+|---|---|---|
+| NC-1 | Evidence allowlist extra-field refusal disabled | `test_l8_evidence_bundle_rejects_an_extra_field` FAILED as expected |
+| NC-2 | OV-12 MAC equality gate disabled | `test_l8_mac_mismatch_fails_before_any_write` FAILED as expected |
+| NC-3 | Hardcoded `0x9000` NVS offset fallback introduced | 2 tests FAILED as expected (fail-closed + no-hardcoded-offset) |
+| NC-4 | Hardware-backend refusal removed from `apply.sh` only | **No test failed** — the refusal is enforced at two independent layers, so the shell gate alone is not load-bearing |
+| NC-4b | Refusal removed from **both** `apply.sh` and the device tool | 2 tests FAILED as expected |
+| NC-5 | Post-first-write rollback branch disabled | `test_l8_rollback_after_first_write_holds_fail_secure` FAILED as expected |
+
+NC-4 is recorded as a finding rather than hidden: it shows the hardware refusal
+is genuine defense in depth, and that no single-layer edit can silently open a
+live path.
+
+**Shared-harness edit declared:** `tests/test_pr11_phase4_harness.py` carries an
+explicit allowlist of reviewed stage handlers, so registering L8 requires adding
+it there and moving the unregistered-mutating-stage example from L8 to L9. This
+is the identical adjustment PR #164 made for L7 in commit `2741ea3f`.
+
+**Capability boundary actually implemented:** the only device backend is
+`fixture`; selecting `hardware` fails closed at two layers. The repository still
+contains no Production write tool, no Production readback verifier, and no
+Production key generator. No serial device was opened and no hardware exists.
+
+
+### L8 Task Map
+
+**1. Current Truth / Governance**
+- Goal: establish verified repository/Git/Obsidian truth before editing.
+- Scope: `AGENTS.md`, `START_HERE`, `core/agent-operating-rules`, `idea3/idea3-status`, Phase 4 prerequisites + batch + L7 designs, `deploy/pr11-phase4/**`, `firmware/**`.
+- Dependencies: PR #164 merged (`0544f1cc`).
+- Safety boundary: read-only.
+- Acceptance: branch/HEAD/origin-main verified; no conflict with prompt.
+- Evidence: `git rev-parse HEAD` = `origin/main` = `0544f1cc6…`; working tree clean.
+- Status: DONE.
+
+**2. L8 Operational Design**
+- Goal: formal OD-L8-01..OD-L8-09 design reconciled against owner decisions (OD-14, G-15 evidence model, inspection class).
+- Scope: `docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l8-operational-design.md`.
+- Dependencies: item 1.
+- Safety boundary: documentation only.
+- Acceptance: every section carries DECISION/BASIS/OWNER_STATUS/CURRENTLY_PROVEN/REPOSITORY_IMPLEMENTATION_REQUIRED/LIVE_PROOF_REQUIRED/SECURITY_SAFETY_EFFECT/TEST_IMPLICATION/OPEN_QUESTION.
+- Evidence: design commit `c2422924d658150d20b59866eb14df2ec7483991`; reconciliation table records seven prior-candidate fragments resolved against current owner decisions.
+- Status: DONE.
+
+**3. RED-First Contract**
+- Goal: genuine failing acceptance tests before implementation.
+- Scope: `tests/test_pr11_phase4_l8_handler.py`.
+- Dependencies: item 2.
+- Safety boundary: fixture/mock hardware only; tests never open a real serial device.
+- Acceptance: RED run fails for missing behavior, not import/syntax errors; retained failure count recorded.
+- Evidence: RED run of `tests/test_pr11_phase4_l8_handler.py` = **53 failed, 17 passed**; zero `ImportError`/`SyntaxError`/`ModuleNotFoundError`, so the failures are missing behaviour rather than manufactured breakage. The 17 pre-satisfied tests assert already-merged firmware, NVS-schema, and `p4-lib.sh` contracts.
+- Status: DONE.
+
+**4. Repository Implementation**
+- Goal: register `stages/L8/` (5 files) plus the device-provisioning helper.
+- Scope: `deploy/pr11-phase4/stages/L8/{apply,verify,rollback}.sh`, `allow-keys.txt`, `allow-listeners.txt`, `deploy/pr11-phase4/p4-l8-device.py`.
+- Dependencies: item 3.
+- Safety boundary: no real `/dev/tty*`, no esptool against hardware, no flash/erase/eFuse, no upload target, no Production key generation.
+- Acceptance: `p4_stage_handler_status L8` = `REGISTERED`; focused suite GREEN.
+- Evidence: `stages/L8/` five files present; `p4_stage_handler_status L8` = `REGISTERED`; L8 focused suite 70 passed at GREEN. `p4-lib.sh` needed no change — `L8` was already in `P4_STAGES`, `p4_stage_gaps`, and `p4_stage_auth_extra`.
+- Status: DONE.
+
+**5. Security / Failure Hardening**
+- Goal: close audit findings; prove fail-secure and secret-exclusion invariants.
+- Scope: same files as item 4.
+- Dependencies: item 4.
+- Safety boundary: unchanged.
+- Acceptance: live gate fails closed; MAC mismatch fails before any write; placeholder CA and demo/test keys rejected; evidence allowlist exact and write-once; no secret reaches evidence or logs.
+- Evidence: three defects found by self-audit and fixed (below); L8 focused suite 77 passed after hardening; six negative controls run, sources restored byte-identical and never committed.
+- Status: DONE.
+
+**6. Regression Verification**
+- Goal: prove no Phase 4, firmware, or Core regression.
+- Scope: `tests/test_pr11_phase4_*.py`, `tests/test_firmware_*.py`, full IDEA3 suite.
+- Dependencies: item 5.
+- Safety boundary: repository tests only.
+- Acceptance: all PASS with exact counts recorded; no test weakened.
+- Evidence: full IDEA3 suite 1522 passed / 6 skipped (pre-task baseline 1445 / 6, so +77 = exactly the new L8 suite and no existing test lost); all Phase 4 suites 542 passed; Phase 4 harness 160 passed; firmware + NVS + G-15 focused 113 passed with L8; `bash -n` PASS on all seven Phase 4 shell scripts; `git diff --check` PASS.
+- Status: DONE.
+
+**7. Documentation / Git Checkpoint**
+- Goal: keep canonical Obsidian synchronized with Git at every checkpoint.
+- Scope: this note.
+- Dependencies: items 2–6.
+- Safety boundary: owner-writable canonical note only; historical receipts immutable.
+- Acceptance: no checkpoint commit advances code while this note is stale.
+- Evidence: checkpoint SHAs `c2422924` (design), `679facdf` (RED), `902b19b9` (GREEN + hardening), plus the closeout commit. Obsidian was updated at each of them before the code advanced.
+- Status: DONE.
+
+**8. Closeout / PR**
+- Goal: exactly one immutable final receipt, then push and prepare one PR for human review.
+- Scope: `90-Status/logs/<ts>_music_idea3-pr11-phase4-l8-handler.md`; GitHub PR.
+- Dependencies: items 2–7 complete.
+- Safety boundary: never merge; never force-push; never mark Ready unless instructed.
+- Acceptance: receipt valid, PR open with evidence and limitations, `LIVE_L8 = NOT AUTHORIZED` stated.
+- Evidence: receipt `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_091424_music_idea3-pr11-phase4-l8-handler.md`; branch pushed at `fee8e4f6`; **PR #165** opened as Draft (https://github.com/kraveerachat/Project-End-The-AEGIS/pull/165), `collaboration-guardrails` CI PASS, `reviewDecision = REVIEW_REQUIRED`. The agent never marks Ready and never merges.
+- Status: DONE (human review and merge remain pending).
+
+**9. Future Live L8 — BLOCKED / NOT AUTHORIZED**
+- Goal: none in this task; recorded so repository completion is never read as live acceptance.
+- Scope: physical ESP32 inspection, NVS write, flash, boot verification.
+- Dependencies: L2..L7 live PASS, D4 live recovery operational, device present, OV-08/09/12/13, OV-14 / fresh K3, same-day A-L8, IDEA2 §10 preservation, exact reviewed firmware/NVS build, applicable S-01..S-12 clear.
+- Safety boundary: inspection itself resets the device (`NON_WRITING_BUT_DEVICE_RESETTING`), so even inspection needs a maintenance window; flash failure is `FAIL_SECURE_CUT` with D4-only recovery.
+- Acceptance: not attempted.
+- Evidence: none — `LIVE_L8_PHYSICAL_PROOF_REQUIRED = YES`, currently NOT PROVEN.
+- Status: BLOCKED / NOT AUTHORIZED.
+
+
+## IDEA3 PR11 Phase 4 L9 authentication-without-actuation handler repository registration — 2026-09-21
+
+> [!important] Current IDEA3 task — IN PROGRESS. Repository-only L9 handler registration. No ESP32, broker, Core service, serial port, or Production state is accessed; no COMMAND, CUT, or RESTORE is issued; live L9 is not authorized.
+
+```text
+Task                          = IDEA3 PR11 Phase 4 L9 authentication without actuation — repository handler
+Branch                        = feat/idea3-pr11-phase4-l9-handler
+START_SHA                     = f08d003b86ebdd950416026e6f473b6cbd7213a5 (PR #165 merge = origin/main)
+Owner                         = music
+PR                            = #166 (Draft)
+Session                       = L9-S1 (closed)
+DESIGN_COMMIT                 = c0ee449ffb08e7cf9811986918187b4a3c18e4c3
+RED_COMMIT                    = d9245518cce2081884e093e0ed951f76850e07ab
+GREEN_COMMIT                  = 5d8b0d5ad80436894d8cbda5845a987d605ae6fa
+CLOSEOUT_COMMIT               = 8312582f3efca67ec5eb7c0406fe1d9e26219808
+L9_PR_OPENED                  = YES (PR #166, Draft)
+L9_PR_MERGED                  = NO (human review and merge pending)
+Production mutation allowed   = NO
+Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; L9 NOT RUN
+
+L2..L9_HANDLER                = REGISTERED
+L1_HANDLER                    = NOT REGISTERED (package installation; outside this task)
+L9_OPERATIONAL_DESIGN         = COMPLETE (commit c0ee449ffb08e7cf9811986918187b4a3c18e4c3)
+RED_FIRST_PROVEN              = YES (148 failed / 6 passed; zero ImportError/SyntaxError/NameError)
+GREEN_HARDENING_PROVEN        = YES (154 passed, 0 failed in focused suite)
+FULL_PHASE4_SUITE             = 696 passed (delta +154 from L8 baseline of 542)
+FULL_IDEA3_SUITE              = 1676 passed, 6 skipped (delta +154 from baseline of 1522 / 6)
+PRE_TASK_BASELINE             = full IDEA3 suite 1522 passed, 6 skipped on f08d003b (exit 0)
+LIVE_L9                       = NOT AUTHORIZED
+L2..L9 live                   = NOT RUN
+PHASE4_RUNTIME_COMPLETE       = NO
+PHASE4_LIVE_READINESS         = NOT READY
+
+PRODUCTION_MUTATION           = NO
+REAL_HARDWARE_ACCESSED        = NO
+TWINGATE_MUTATED              = NO
+```
+
+### Closeout evidence
+
+- L9 focused pytest (`test_pr11_phase4_l9_handler.py`): **154 passed**, 0 failed.
+- Phase 4 harness pytest (`test_pr11_phase4_harness.py`): **160 passed**, 0 failed.
+- All Phase 4 suites (`test_pr11_phase4_*.py`): **696 passed**, 0 failed (delta from L8 baseline of 542 is exactly +154).
+- Full IDEA3 suite: **1676 passed, 6 skipped**. Pre-task baseline on `f08d003b` was **1522 passed, 6 skipped**, so the delta is exactly the 154 new L9 tests: no existing test was lost, skipped, or weakened.
+- `bash -n` on all Phase 4 shell scripts: PASS.
+- `p4_stage_handler_status L9`: `REGISTERED`.
+- `git diff --check`: PASS. Secret scan and prohibited token scan over L9 sources: no matches.
+- RED-first provenance: **148 failed / 6 passed** before implementation, zero import or syntax failure.
+- Negative controls: NC-1 (allowlist extra check), NC-2 (transport topic guard), NC-3/NC-3b (live backend two-layer defense in depth), NC-4 (monotonic heartbeat check) all failed as expected when broken and passed when restored.
+- Registration matrix: L2, L3, L4, L5, L6a, L6b, L7, L8, **L9** REGISTERED.
+- Exact new receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_122550_music_idea3-pr11-phase4-l9-handler.md`.
+
+**Truth separation.** Everything above is *repository implemented and locally
+verified*. Nothing here is runtime verified, Production deployed, or live
+accepted. `L2..L9 = NOT RUN`, `L9_LIVE_AUTHORIZED = NO`,
+`PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`, and
+`LIVE_L9_PROOF = NOT PROVEN`.
+
+### Session L9-S1 — plan
+
+- **Goal:** register `stages/L9/` (five files) and a fixture-only authentication
+  exerciser so the repository proves the L9 software/security contract:
+  authenticated HEARTBEAT and BOOT/PERIODIC STATUS accepted; replay, wrong-key,
+  tampered, stale/future, malformed, identity-mismatch, retained, and
+  untrusted-time messages rejected with no liveness and no replay row; zero
+  COMMAND, CUT, RESTORE, or relay path.
+- **Shared-surface decision (precedent, not a new owner decision):**
+  registering L9 removes the harness's live-gate fixture stage. `P4_STAGES`
+  ends at L9 and the prerequisites spec puts L10 "outside this document", so
+  L10 is not a valid fixture. **L1** (package installation) is a genuine,
+  mutating, K3-requiring `P4_STAGES` member with no handler, so the fixture
+  moves L9 → L1 exactly as PR #164 (L7→L8) and PR #165 (L8→L9) moved it, with
+  an added in-test assertion that the fixture stage is really unregistered.
+  After this task L1 is the last unregistered mutating stage; registering L1
+  later needs a synthetic-fixture decision (flagged for Kla).
+- **Finding FIND-L9-01 (recorded, not fixed here):** design §6.1 requires
+  heartbeat REPLAY by strictly increasing `issued_at`; `firmware/src/main.cpp`
+  `handleHeartbeat` instead rejects a `msg_id` seen in a 20-slot ring. An
+  authenticated but older, distinct-`msg_id` heartbeat still inside the 30 s
+  skew window would be accepted by firmware; its only effect is a dead-man
+  timer reset (never RESTORE). Firmware is not changed by this task.
+- **Stale fragments to reconcile:** the L7 and L8 designs describe L9 as
+  "authenticated command roundtrips"; the binding prerequisites spec §L9 and
+  this task say **no COMMAND is issued**.
+
+### L9 Task Map
+
+**1. Current Truth / Governance**
+- Goal: verified Git/repository/Obsidian truth before editing.
+- Scope: `AGENTS.md`, session workflow, `START_HERE`, agent rules, this note, prerequisites spec, Protocol v1 design, L7/L8 designs and receipts, `deploy/pr11-phase4/**`, `aegis_soc/protocol_*`, `aegis_soc/mqtt_client.py`, `firmware/src/main.cpp`.
+- Dependencies: PR #165 merged.
+- Safety boundary: read-only.
+- Acceptance: HEAD = origin/main = `f08d003b`; no conflict with the task prompt.
+- Evidence: `git rev-parse HEAD` = `git rev-parse origin/main` = `f08d003b86eb…`; clean tree; stale `L8_PR_MERGED = NO` corrected above.
+- Status: DONE.
+
+**2. L9 Operational Design**
+- Goal: formal OD-L9-01..OD-L9-09 with DECISION/BASIS/OWNER_STATUS/CURRENTLY_PROVEN/REPOSITORY_IMPLEMENTATION_REQUIRED/LIVE_PROOF_REQUIRED/SECURITY_SAFETY_EFFECT/TEST_IMPLICATION/OPEN_QUESTION.
+- Scope: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l9-operational-design.md` (absent before this task).
+- Dependencies: item 1.
+- Safety boundary: documentation only; no OWNER_APPROVED status invented.
+- Acceptance: all nine decisions complete; prior-fragment reconciliation recorded.
+- Evidence: `docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l9-operational-design.md` — OD-L9-01..OD-L9-09 each with all nine fields; §2 reconciles five prior fragments (two withdrawn: "command roundtrips" and "CUT testing at L9"); §3.3 records the L9 → L1 harness fixture move; §5 probe matrix (14 heartbeat + 18 STATUS rows). New repository decisions are marked `REPOSITORY_DESIGN — OWNER_REVIEW_PENDING`; FIND-L9-01 disposition is `OWNER_DECISION_REQUIRED`. No `OWNER_APPROVED` status was invented.
+- Status: DONE.
+
+**3. RED-First Authentication Contract**
+- Goal: failing acceptance tests for missing L9 behaviour (not import/syntax errors).
+- Scope: `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l9_handler.py`.
+- Dependencies: item 2.
+- Safety boundary: fixture only; no broker, no serial, no Core service.
+- Acceptance: RED fails for missing behaviour; counts recorded.
+- Evidence: RED run of `tests/test_pr11_phase4_l9_handler.py` on the design checkpoint = **148 failed, 6 passed**, with zero `ImportError`/`ModuleNotFoundError`/`SyntaxError`/`NameError` (the helper is loaded through an existence assertion, so its absence is a behavioural failure). The 6 pre-satisfied tests assert already-merged contracts: `p4-lib.sh` L9 contract unchanged, L1 still unregistered and mutating, three firmware source contracts (heartbeat verifies before its only effect; frames dropped while device time is untrusted; the FIND-L9-01 pin), and Core subscriptions limited to `ack`/`status`. Shared harness at RED: `tests/test_pr11_phase4_harness.py` **1 failed / 159 passed** — only `test_only_reviewed_stage_handlers_are_registered` fails, because `stages/L9/` does not exist yet; the moved live-gate fixture (L1) already passes. Two RED-quality fixes were made before recording: the unsafe-key tests now also require `L9_APPLY=FAIL` plus a key-specific message, so they cannot pass merely because `apply.sh` is missing, and the self-scan no longer counts its own token list.
+- Status: DONE.
+
+**4. Repository Handler Implementation**
+- Goal: `stages/L9/{apply,verify,rollback}.sh`, `allow-keys.txt`, `allow-listeners.txt`, and `deploy/pr11-phase4/p4-l9-auth.py` built on the Core's real `protocol_v1` codec and `InboundVerifier`.
+- Scope: those six files; harness allowlist + fixture move L9 → L1 in `tests/test_pr11_phase4_harness.py`.
+- Dependencies: item 3.
+- Safety boundary: live backend refused at two layers; no Production key generator; zero host drift.
+- Acceptance: `p4_stage_handler_status L9` = `REGISTERED`; focused suite GREEN.
+- Evidence: `stages/L9/` five files present; `p4-l9-auth.py` implemented; `p4_stage_handler_status L9` = `REGISTERED`; L9 focused suite 154 passed at GREEN. Shared harness `test_pr11_phase4_harness.py` 160 passed.
+- Status: DONE.
+
+**5. Replay / Wrong-Key / Fail-Closed Hardening**
+- Goal: every negative probe rejected at its expected stage with no liveness/replay row; evidence write-once with no secret.
+- Scope: items 3–4 files.
+- Dependencies: item 4.
+- Safety boundary: unchanged.
+- Acceptance: all probes pass; independent audit findings fixed; restoring negative controls observed.
+- Evidence: all 13 heartbeat probes and 16 status probes match exact expected design codes; negative controls NC-1 (allowlist), NC-2 (transport guard), NC-3/NC-3b (live refusal defense in depth), NC-4 (monotonic check) run and verified; zero key leakage.
+- Status: DONE.
+
+**6. Zero-Actuation Verification**
+- Goal: prove repository-side that L9 emits zero COMMAND/CUT/RESTORE and has no relay path.
+- Scope: recording transport guard, store counters, static source scans, firmware heartbeat-effect contract.
+- Dependencies: item 4.
+- Safety boundary: unchanged.
+- Acceptance: evidence counters all zero; static scans clean; negative control proves the guard is load-bearing.
+- Evidence: evidence records `commands_emitted=0`, `cut_emitted=0`, `restore_emitted=0`, `relay_actuation=NONE`; fixture store has 0 command rows; static scan over all L9 sources proves 0 occurrences of 18 prohibited tokens.
+- Status: DONE.
+
+**7. Regression Verification**
+- Goal: no Phase 4, Protocol v1, firmware, or Core regression; shared harness guardrail still load-bearing.
+- Scope: `tests/test_pr11_phase4_*.py`, protocol/firmware suites, full IDEA3 suite.
+- Dependencies: items 4–6.
+- Safety boundary: repository tests only.
+- Acceptance: exact counts recorded; pre-task baseline delta equals the new L9 tests.
+- Evidence: full IDEA3 suite **1676 passed, 6 skipped** (pre-task baseline 1522 / 6, delta is exactly +154 new L9 tests); all Phase 4 suites **696 passed** (baseline 542, delta +154); Phase 4 harness **160 passed**; `bash -n` PASS on all scripts; `git diff --check` PASS.
+- Status: DONE.
+
+**8. Documentation / Git Checkpoint**
+- Goal: Obsidian and Git move together at each checkpoint (design, RED, GREEN+hardening, closeout).
+- Scope: this note; `deploy/pr11-phase4/README.md`.
+- Dependencies: items 2–7.
+- Safety boundary: owner-writable canonical note only; historical receipts immutable.
+- Acceptance: no code checkpoint advances with this note stale.
+- Evidence: checkpoint SHAs `c0ee449f` (design), `d9245518` (RED), `5d8b0d5a` (GREEN), plus closeout. Obsidian updated synchronously.
+- Status: DONE.
+
+**9. Closeout / PR**
+- Goal: exactly one immutable receipt, push, one Draft PR with shared surfaces declared.
+- Scope: `90-Status/logs/2026-09-21_122550_music_idea3-pr11-phase4-l9-handler.md`; GitHub PR.
+- Dependencies: items 2–8.
+- Safety boundary: never merge, never force-push, never mark Ready.
+- Acceptance: receipt valid; PR Draft; CI result recorded; `LIVE_L9 = NOT AUTHORIZED` stated.
+- Evidence: receipt `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_122550_music_idea3-pr11-phase4-l9-handler.md`; branch pushed at `8312582f`; **PR #166** opened as Draft (https://github.com/kraveerachat/Project-End-The-AEGIS/pull/166). The agent never marks Ready and never merges.
+- Status: DONE (human review and merge remain pending).
+
+**10. Future Live L9 — BLOCKED / NOT AUTHORIZED**
+- Goal: none in this task; recorded so repository completion is never read as live acceptance.
+- Scope: live signed HEARTBEAT to the real device, live BOOT/PERIODIC STATUS to the running Core, live replay/wrong-key injection.
+- Dependencies: live L2..L8 PASS, running authorized Core (L7) and flashed device (L8), same-day A-L9, fresh K3, fresh §10 preservation, IDEA2 §10 caveat resolved/accepted, S-01..S-12 clear, a reviewed live probe mechanism (none exists).
+- Safety boundary: rollback = stop the Core and hold fail-secure CUT (S-11); never RESTORE.
+- Acceptance: not attempted.
+- Evidence: none — `LIVE_L9_PROOF_REQUIRED = YES`, NOT PROVEN.
+- Status: BLOCKED / NOT AUTHORIZED.
+
+
+## IDEA3 PR11 Phase 4 L1 package installation handler repository registration — 2026-09-21
+
+> [!important] Current IDEA3 task — COMPLETE / ACCEPTANCE PASS. Repository-only L1 handler registration. No real package installed, no pacman/apt/dnf invoked, no service enabled or started, and no Production state accessed; live L1 is not authorized.
+
+```text
+Task                          = IDEA3 PR11 Phase 4 L1 package installation — repository handler
+Branch                        = feat/idea3-pr11-phase4-l1-handler
+START_SHA                     = 15ccee1597e31529f266bee822125393f01a5e23 (PR #157 merge on origin/main, including PR #166 base b4670eb31a30e1e71075c8e6421134e5d9fae8e5)
+Owner                         = music
+PR                            = #167 (Draft: https://github.com/kraveerachat/Project-End-The-AEGIS/pull/167)
+Session                       = L1-S1 (closed)
+Production mutation allowed   = NO
+Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; L1 NOT RUN
+
+L1..L9_HANDLER                = REGISTERED
+L1_OPERATIONAL_DESIGN         = COMPLETE (docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l1-operational-design.md)
+RED_FIRST_PROVEN              = YES (exact original pre-implementation run: 23 failed, 0 passed in 0.24s; zero ImportError/SyntaxError/NameError)
+GREEN_HARDENING_PROVEN        = YES (28 passed in focused L1 suite)
+FULL_PHASE4_SUITE             = 725 passed (delta +29 from L9 baseline of 696)
+FULL_IDEA3_SUITE              = 1705 passed, 6 skipped (delta +29 from L9 baseline of 1676 / 6)
+PRE_TASK_BASELINE             = full IDEA3 suite 1676 passed, 6 skipped on 15ccee15 (exit 0)
+LIVE_L1                       = NOT AUTHORIZED
+L1..L9 live                   = NOT RUN
+PHASE4_RUNTIME_COMPLETE       = NO
+PHASE4_LIVE_READINESS         = NOT READY
+
+PRODUCTION_MUTATION           = NO
+REAL_PACKAGE_INSTALLED        = NO
+SERVICE_ENABLED_OR_STARTED    = NO
+TWINGATE_MUTATED              = NO
+IDEA1_MUTATED                 = NO
+IDEA2_MUTATED                 = NO
+FIND-L9-01                    = REMAINS OPEN (firmware 20-slot ring vs issued_at design rule; untouched)
+```
+
+### Task Map
+
+**1. Current Truth / Governance**
+- Goal: verify git state, establish exact repository truth, and acknowledge unresolved findings without modification.
+- Scope: Git tree, PR #166 merge (`b4670eb3`), current main (`15ccee15`), FIND-L9-01.
+- Dependencies: none.
+- Safety boundary: no rebase, no force push, never merge.
+- Acceptance criteria: origin/main verified; working tree clean; base discrepancy confirmed with user; FIND-L9-01 carried forward unmodified.
+- Evidence: HEAD verified at `15ccee1597e31529f266bee822125393f01a5e23` (`origin/main`, incorporating PR #157 merged after PR #166 `b4670eb3`); user authorized proceeding on current main with zero diff in IDEA3/Phase 4. Pre-task baseline verified: 696 Phase 4 tests pass, 1676 IDEA3 tests pass (6 skipped). FIND-L9-01 carried forward untouched.
+- Status: DONE.
+
+**2. L1 Package Requirement Reconciliation**
+- Goal: reconcile exact currently selected package requirements from merged repository truth without inventing package names.
+- Scope: Phase 4 runtime prerequisite spec, T5 AP network design, T6 local NTP design, deploy/network/**, deploy/chrony/**.
+- Dependencies: item 1.
+- Safety boundary: read-only analysis of merged specs and code.
+- Acceptance criteria: exact packages identified under OD-01 and OD-06; pre-existing vs absent packages categorized; package manager behaviors to simulate and refuse defined.
+- Evidence: Reconciled strictly: OD-01 selected NetworkManager AP mode (`hostapd` excluded); OD-04 selected manual AP IPv4; OD-05/OD-16 selected DHCP/DNS via `dnsmasq` (already installed, E-15); OD-06 selected `chrony` (absent, E-14); OD-07 selected nftables (already installed, E-16). Single stage-owned package target is strictly `chrony`. Unrelated upgrades and service enable/start must be refused.
+- Status: DONE.
+
+**3. L1 Operational Design**
+- Goal: formal operational design covering OD-L1-01 through OD-L1-10 with all 9 required fields.
+- Scope: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l1-operational-design.md`.
+- Dependencies: item 2.
+- Safety boundary: documentation only; no OWNER_APPROVED status invented.
+- Acceptance criteria: all 10 decisions complete with DECISION, BASIS, OWNER_STATUS, CURRENTLY_PROVEN, REPOSITORY_IMPLEMENTATION_REQUIRED, LIVE_PROOF_REQUIRED, SECURITY_SAFETY_EFFECT, TEST_IMPLICATION, OPEN_QUESTION.
+- Evidence: Formal spec written with 10 decisions (`docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-l1-operational-design.md`). Reconciliation table and stage boundaries documented.
+- Status: DONE.
+
+**4. Synthetic Unregistered-Handler Guard Design**
+- Goal: design and implement a test-only synthetic unregistered handler fixture in shared harness without inventing L10 or weakening fail-closed gate.
+- Scope: `deploy/pr11-phase4/p4-lib.sh`, `tests/test_pr11_phase4_harness.py`.
+- Dependencies: item 3.
+- Safety boundary: shared harness change; requires integration review (Kla).
+- Acceptance criteria: `AEGIS_P4_HANDLER_DIR` test-only override supported in `p4-lib.sh`; harness tests missing handler directory and partial handler files; L1 added to reviewed handler allowlist.
+- Evidence: `p4-lib.sh` defines `readonly P4_HANDLER_DIR="${AEGIS_P4_HANDLER_DIR:-$P4_HERE/stages}"`. Harness tests `test_gate_live_mode_for_mutating_stage_fails_without_registered_handler` and `test_gate_live_mode_fails_if_handler_file_is_missing` pass (161 passed in harness suite).
+- Status: DONE.
+
+**5. RED-First Contract**
+- Goal: failing acceptance tests for missing L1 behavior (not import/syntax errors).
+- Scope: `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l1_handler.py`.
+- Dependencies: items 3, 4.
+- Safety boundary: fixture only; no host modification.
+- Acceptance criteria: RED fails for missing behavior; counts recorded.
+- Evidence: RED run of `tests/test_pr11_phase4_l1_handler.py` = exact original count **23 failed, 0 passed in 0.24s**, with zero `ImportError`/`ModuleNotFoundError`/`SyntaxError`/`NameError` (recovered from session task log step 179/180; all 23 failures pure `AssertionError` on missing handler files / unregistered status; 5 compare tests added later at step 239/241 for 28 total at GREEN).
+- Status: DONE.
+
+**6. Repository Handler Implementation**
+- Goal: `stages/L1/{apply,verify,rollback}.sh`, `allow-keys.txt`, `allow-listeners.txt`, and `deploy/pr11-phase4/p4-l1-packages.py`.
+- Scope: those six files; harness allowlist + synthetic fixture in `tests/test_pr11_phase4_harness.py`.
+- Dependencies: item 5.
+- Safety boundary: fixture backend only; live backend fails closed; 0 listeners.
+- Acceptance criteria: `p4_stage_handler_status L1` reports `REGISTERED`; tests pass.
+- Evidence: All six files implemented. `p4_stage_handler_status L1` = `REGISTERED`. Focused suite: 28 passed in 2.87s.
+- Status: DONE.
+
+**7. Package-Manager / Service-Safety Hardening**
+- Goal: fail-closed hardening against real package managers, unrelated upgrades, service activation, and listeners.
+- Scope: `stages/L1/apply.sh`, `stages/L1/verify.sh`, `stages/L1/rollback.sh`, `p4-l1-packages.py`.
+- Dependencies: item 6.
+- Safety boundary: fixture only; zero host mutation.
+- Acceptance criteria: static scan clean; negative controls verified.
+- Evidence: Static scan proves 0 occurrences of 11 prohibited patterns. Negative controls verified: unapproved package rejected, unrelated upgrade rejected, service enable/start rejected, disk headroom threshold violation rejected, unexpected listener rejected.
+- Status: DONE.
+
+**8. Regression Verification**
+- Goal: prove zero regressions across Phase 4 and full IDEA3 suites.
+- Scope: `tests/test_pr11_phase4_*.py`, full `tests/`.
+- Dependencies: item 7.
+- Safety boundary: repository tests only.
+- Acceptance criteria: exact counts recorded; pre-task baseline delta equals new L1 tests.
+- Evidence: full IDEA3 suite **1705 passed, 6 skipped** (pre-task baseline 1676 / 6, delta is exactly +29); all Phase 4 suites **725 passed** (pre-task baseline 696, delta +29); Phase 4 harness **161 passed**; `bash -n` PASS on all scripts; `git diff --check` PASS.
+- Status: DONE.
+
+**9. Documentation / Git Checkpoint**
+- Goal: Obsidian and Git move together at each checkpoint (design, RED, GREEN+hardening, closeout).
+- Scope: this note; `deploy/pr11-phase4/README.md`.
+- Dependencies: items 2–8.
+- Safety boundary: owner-writable canonical note only; historical receipts immutable.
+- Acceptance criteria: no code checkpoint advances with this note stale.
+- Evidence: Obsidian updated synchronously; deploy README updated with Stage L1 status and implementation details.
+- Status: DONE.
+
+**10. Closeout / PR**
+- Goal: exactly one immutable receipt, push, one Draft PR with shared surfaces declared.
+- Scope: `90-Status/logs/2026-09-21_155500_music_idea3-pr11-phase4-l1-handler.md`; GitHub PR.
+- Dependencies: items 2–9.
+- Safety boundary: never merge, never force-push, never mark Ready.
+- Acceptance criteria: receipt valid; PR Draft; CI result recorded; `LIVE_L1 = NOT AUTHORIZED` stated.
+- Evidence: Receipt `90-Status/logs/2026-09-21_155500_music_idea3-pr11-phase4-l1-handler.md` created; branch pushed at `80bb1706`; PR #167 opened as Draft (https://github.com/kraveerachat/Project-End-The-AEGIS/pull/167); CI guardrails passed.
+- Status: DONE (PR remains Draft for human review; agent never marks Ready and never merges).
+
+**11. Future Live L1 — BLOCKED / NOT AUTHORIZED**
+- Goal: none in this task; recorded so repository completion is never read as live acceptance.
+- Scope: live pacman installation of chrony on Core host.
+- Dependencies: same-day A-L1, fresh K3 confirmation from Kla, D6 notice to Pub for detector co-residence, disk headroom remediation (OD-13) meeting approved threshold, explicit production mutation authorization.
+- Safety boundary: rollback = remove chrony and prove zero leftover enabled unit or listener.
+- Acceptance: not attempted.
+- Evidence: none — `LIVE_L1_PROOF_REQUIRED = YES`, NOT PROVEN.
+- Status: BLOCKED / NOT AUTHORIZED.
+
+
+## IDEA3 PR11 Phase 4 live-readiness reconciliation — 2026-09-21
+
+> [!important] Current IDEA3 status — REPOSITORY RECONCILIATION COMPLETE.
+> All 9 Phase 4 handlers (`L1`..`L9`) are registered in the repository following the merge of PR #167 on `origin/main` (`3662faa3`).
+> Repository reconciliation only; no live stage authorized or run.
+> `PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`.
+> Full formal specification: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-21-idea3-pr11-phase4-live-readiness-reconciliation.md`.
+
+```text
+Task                          = AEGIS IDEA3 PR11 Phase 4 live-readiness reconciliation
+Branch                        = docs/idea3-pr11-phase4-live-readiness
+Expected Base                 = 3662faa38433877bbcec82b7743d61ecfa399986 (PR #167 merge on origin/main)
+PR                            = #168 (OPEN / DRAFT pending fresh final-head review, human Ready, and merge)
+Reviewed Head                 = 7c99bfd6943172df8d1a5aa8f54611a4193b8c09 (approved by pubpup2006p-design)
+Owner                         = music
+Integration Reviewer          = kla (temporary GitHub reviewer for IDEA3)
+Mode                          = REPOSITORY-ONLY — NO LIVE EXECUTION
+Production mutation allowed   = NO
+Current state                 = CLOSED / REPOSITORY CLOSEOUT COMPLETE — one final receipt added; PR #168 stays DRAFT; live stages NOT RUN
+Final receipt                 = Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_180610_music_idea3-pr11-phase4-live-readiness.md
+Review notice                 = Receipt creation changes HEAD, therefore prior approval does NOT automatically prove final-head review; fresh CODEOWNER review required on final receipt-bearing HEAD
+
+L1..L9_HANDLER                = REGISTERED (L1..L9 all verified REGISTERED from current main)
+FULL_PHASE4_SUITE             = 725 passed
+FULL_IDEA3_SUITE              = 1705 passed, 6 skipped
+PHASE2_RUNTIME_DEPENDENCY     = CLOSED (PHASE2_RUNTIME_COMPLETE = YES, PR #146, commit 232759cf)
+PHASE3_REPOSITORY_PR          = MERGED (PR #149, commit 42b13625)
+PHASE3_RUNTIME_COMPLETE       = NO (Core live install/start unexecuted; G12/G13 live delivery unproven)
+D4_REPOSITORY_IMPLEMENTATION  = COMPLETE (PR #138, commit 3fd8d4d1)
+D4_LOCAL_VERIFICATION         = PASS (test_local_restore.py)
+D4_LIVE_VERIFIED              = NO (never executed live; RESTORE forbidden during Phase 4)
+IDEA2_S10_PRESERVATION        = BLOCKED_BY_LAST_PROVEN_EVIDENCE
+IDEA2_LAST_PROVEN             = unhealthy/blocking (tunnel flapping NRestarts > 1450; heartbeat failing)
+IDEA2_CURRENT_LIVE_STATE      = NEEDS_FRESH_OWNER_RUN_EVIDENCE
+IDEA2_S10_IF_FRESH_L0_FAILS   = STOP until either: (1) IDEA2 owner restores required health; OR (2) written IDEA2-owner-accepted narrowed criterion exists for that stage
+FRESH_K3_REQUIRED             = YES (prior K3 expired; same-day Asia/Bangkok K3 required for any mutating stage)
+DISK_PRIOR_EVIDENCE           = ~94–97% root filesystem usage (53G/59G used, 3.8G free)
+DISK_CURRENT_STATE            = NEEDS_FRESH_L0_OR_OWNER_READ_ONLY_PROOF (gate requires >= 5% free headroom)
+DISK_CLEANUP_REQUIRED         = CONDITIONAL_ON_FRESH_PROOF (cleanup outside stage if free headroom < 5%)
+FIND-L9-01                    = OWNER_DECISION_REQUIRED before live L9 acceptance (BLOCKS_DIRECTLY = LIVE_L9_ACCEPTANCE)
+FIND_L9_01_BLOCKS_L1          = NO
+PRE_REPAIR_A_L0_AUTHORIZATION = ISSUED (2026-09-21; diagnostic preflight only)
+POST_REPAIR_OFFICIAL_A_L0     = FRESH AUTHORIZATION REQUIRED
+A-L1..A-L9                    = NOT AUTHORIZED (separate same-day authorizations)
+OFFICIAL_L0_ACCEPTANCE        = NO
+L1..L9 live                   = NOT RUN
+PHASE4_RUNTIME_COMPLETE       = NO
+PHASE4_LIVE_READINESS         = NOT READY
+FIRST_SAFE_NEXT_ACTION        = after PR #168 is human merged, owner issues same-day A-L0 and performs fresh read-only L0 capture
+
+PRODUCTION_MUTATION           = NO
+REAL_PACKAGE_INSTALLED        = NO
+SERVICE_ENABLED_OR_STARTED    = NO
+CORE_LIVE_INSTALLED           = NO
+ESP32_FLASHED                 = NO
+CUT_ISSUED                    = NO
+RESTORE_ISSUED                = NO
+TWINGATE_MUTATED              = NO
+IDEA1_MUTATED                 = NO
+IDEA2_MUTATED                 = NO
+```
+
+### 1. Superseded Historical Statements
+
+Historical sections of this note are preserved intact as point-in-time evidence. The following durable facts supersede earlier statements:
+- **PR #166 Merge**: Supersedes "Draft / merge pending" note in Stage L9 section. Merged on `origin/main` at `b4670eb31a30e1e71075c8e6421134e5d9fae8e5`.
+- **L1 Handler Status**: Supersedes `L1_HANDLER = NOT REGISTERED` in Stage L9 section. PR #167 implemented and registered Stage L1.
+- **PR #167 Merge**: Supersedes "Draft / merge pending" note in Stage L1 section. Merged on `origin/main` at `3662faa38433877bbcec82b7743d61ecfa399986`.
+- **Handler Registration Matrix**: All 9 stages (`L1`, `L2`, `L3`, `L4`, `L5`, `L6a`, `L6b`, `L7`, `L8`, `L9`) report `p4_stage_handler_status = REGISTERED`.
+- **Test Baseline**: Full IDEA3 suite = 1705 passed, 6 skipped (Phase 4 suite = 725 passed).
+
+### 2. Reconciliation Findings
+
+1. **Repository Prerequisites vs Live Completion**:
+   - Repository handlers are complete (`CLOSED_REPOSITORY`).
+   - Phase 3 repository is merged (`PHASE3_REPOSITORY_PR = MERGED`), but runtime is incomplete (`PHASE3_RUNTIME_COMPLETE = NO`).
+   - Live execution remains unattempted (`L1..L9 live = NOT RUN`).
+2. **D4 Recovery**:
+   - Repository and local verification are closed (`D4_REPOSITORY_IMPLEMENTATION = COMPLETE`, `D4_LOCAL_VERIFICATION = PASS`).
+   - Live execution is unverified (`D4_LIVE_VERIFIED = NO`). Automatic and remote RESTORE remain unavailable; live RESTORE is not executed during Phase 4.
+3. **IDEA2 §10 Preservation**:
+   - Last proven evidence showed `PROCESS_ACTIVE != TUNNEL_HEALTHY != IDEA2_RUNTIME_HEALTHY`.
+   - `IDEA2_S10_PRESERVATION = BLOCKED_BY_LAST_PROVEN_EVIDENCE`.
+   - Live state is unmeasured (`CURRENT_LIVE_STATE = NEEDS_FRESH_OWNER_RUN_EVIDENCE`).
+   - Resolution path:
+     ```text
+     IDEA2_S10_IF_FRESH_L0_FAILS =
+     STOP until either:
+     - IDEA2 owner restores required health; OR
+     - written IDEA2-owner-accepted narrowed criterion exists for that stage
+     ```
+     Do not create or assume a narrowed criterion.
+   - IDEA2 files and services must not be touched or modified by this track.
+4. **K3 Non-Overlap**:
+   - Single-use, window-specific. Prior confirmations are expired.
+   - `FRESH_K3_REQUIRED = YES` for any mutating window.
+5. **Disk Headroom**:
+   - `DISK_PRIOR_EVIDENCE = ~94–97% used` (53G/59G used, 3.8G free from 2026-09-17 owner preflight).
+   - Gate OD-L1-07 requires >= 5% free headroom before package installation.
+   - `DISK_CURRENT_STATE = NEEDS_FRESH_L0_OR_OWNER_READ_ONLY_PROOF`.
+   - `DISK_CLEANUP_REQUIRED = CONDITIONAL_ON_FRESH_PROOF`. Calling old readings "current" is forbidden.
+6. **FIND-L9-01**:
+   - `BLOCKS_DIRECTLY = LIVE_L9_ACCEPTANCE`.
+   - `FIND_L9_01_BLOCKS_L1 = NO` (does NOT block L1-L7).
+   - Firmware uses 20-slot `msg_id` ring; design §6.1 specifies strictly increasing `issued_at`.
+   - Classified as `OWNER_DECISION_REQUIRED` before live L9 acceptance.
+   - Does not directly block live L8; if owner amends firmware, that conditionally requires a new build and L8 reflash before proceeding to L9.
+7. **Live Stage Authorizations**:
+   - `PRE_REPAIR_A_L0_AUTHORIZATION = ISSUED (2026-09-21)` (pre-repair diagnostic preflight; `PRE_REPAIR_DIAGNOSTIC_L0 = CAPTURED / NOT OFFICIAL ACCEPTANCE`).
+   - `A_L0_AUTHORIZATION = VALID` (`A_L0_DATE = 2026-09-21`, `A_L0_AUTHORIZER = music`, `A_L0_SCOPE = official post-repair read-only baseline capture`, `A_L0_REFERENCE = PR11-L0-POSTREPAIR-2026-09-21`).
+   - `OFFICIAL_L0_ACCEPTANCE = YES` (`OFFICIAL_L0_BASELINE = VALID`, `OFFICIAL_L0_DURABLE_CLOSEOUT = IN_PROGRESS`).
+   - `A-L1..A-L9 = NOT_AUTHORIZED` (separate same-day authorizations).
+   - A-L0 is read-only baseline capture. Mutating stages require fresh K3 and stage-specific extra auth fields.
+
+### 3. Durable Phase 4 Readiness Matrix
+
+| Item | Category | Current State | Last Proven Evidence | Evidence Date / Commit | Fresh Proof Required | Owner | Blocks Which Stage | Next Safe Action |
+|---|---|---|---|---|---|---|---|---|
+| **L1 Handler** | Repository Implementation | `REGISTERED_FIXTURE_ONLY` | `p4_stage_handler_status L1` = `REGISTERED`; fixture backend implemented; live backend `NOT_IMPLEMENTED_FAIL_CLOSED` | 2026-09-21 | YES | music | Live L1 execution | Implement live package backend before Live L1 |
+| **L2 Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L2` = `REGISTERED` | 2026-09-20 (PR #159) | NO | music | None | Handler closed |
+| **L3 Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L3` = `REGISTERED` | 2026-09-20 (PR #160) | NO | music | None | Handler closed |
+| **L4 Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L4` = `REGISTERED` | 2026-09-20 (PR #161) | NO | music | None | Handler closed |
+| **L5 Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L5` = `REGISTERED` | 2026-09-20 (PR #162) | NO | music | None | Handler closed |
+| **L6a Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L6a` = `REGISTERED` | 2026-09-20 (PR #163) | NO | music | None | Handler closed |
+| **L6b Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L6b` = `REGISTERED` | 2026-09-20 (PR #164) | NO | music | None | Handler closed |
+| **L7 Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L7` = `REGISTERED` | 2026-09-21 (PR #165) | NO | music | None | Handler closed |
+| **L8 Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L8` = `REGISTERED` | 2026-09-21 (`b4670eb3`, PR #166) | NO | music | None | Handler closed |
+| **L9 Handler** | Repository Implementation | `CLOSED_REPOSITORY` | `p4_stage_handler_status L9` = `REGISTERED`; 154 passed | 2026-09-21 (`b4670eb3`, PR #166) | NO | music | None | Handler closed |
+| **Phase 2 Runtime** | Runtime Prerequisite | `CLOSED_REPOSITORY` | `PHASE2_RUNTIME_COMPLETE = YES`; T3/T4 live pass | 2026-09-17 (`232759cf`, PR #146) | NO | music | None | Preserve Phase 2 PKI & CRL |
+| **Phase 3 Repo PR** | Repository Implementation | `CLOSED_REPOSITORY` | PR #149 merged (`42b13625`); systemd 261 & credentials | 2026-09-18 (PR #149) | NO | music | None | Code merged on main |
+| **Phase 3 Live Runtime** | Runtime Prerequisite | `OPEN` | `PHASE3_RUNTIME_COMPLETE = NO`; Core service uninstalled | 2026-09-18 (PR #149) | YES | music | Post-L7 / Phase 3 closeout | Handled via Stage L7 execution |
+| **D4 Repo Implementation** | Recovery Architecture | `CLOSED_REPOSITORY` | PR #138 merged (`3fd8d4d1`); D4 CLI implemented | 2026-09-16 (PR #138) | NO | music | None | Code merged on main |
+| **D4 Local Verification** | Verification | `CLOSED_REPOSITORY` | `test_local_restore.py` PASS; audit fail-closed verified | 2026-09-16 (PR #138) | NO | music | None | Maintained in pytest |
+| **D4 Live Verification** | Recovery Architecture | `MERGED_BUT_LIVE_UNPROVEN` | `D4_LIVE_VERIFIED = NO`; never executed live | 2026-09-16 (PR #138) | YES | music | Post-Phase-4 recovery gate | Await post-deployment test |
+| **K3 Non-Overlap** | Governance / Safety | `OPEN` | Prior K3 confirmations expired | 2026-09-17 | YES | kla | Live L1..L9 (all mutating stages) | Kla issues same-day K3 per window |
+| **IDEA2 §10 Preservation** | Cross-IDEA Safety | `BLOCKING` | Fresh Official L0: `PROCESS_ACTIVE = YES`, `ENGINE_NRESTARTS = 0`, `TUNNEL_NRESTARTS = 6`, `LISTEN_18002 = absent`, `LISTEN_8077 = present`, `heartbeat_failed = 1`, `refused = 1`, tunnel/runtime healthy `NO` | 2026-09-21 | YES | pub | Live L1..L9 compare gate | STOP until IDEA2 owner restores required health OR written IDEA2-owner-accepted narrowed criterion exists |
+| **Disk Headroom** | Host Resource | `BLOCKING_L1` | Fresh Official L0: `root.use_pct = 96%` (2.4 GB avail); cleanup required; threshold reconciliation (95% vs 90%) required | 2026-09-21 | YES | music / kla | Live L1 (fails closed if < 5% / < 10%) | Reconcile threshold; perform cleanup outside stage |
+| **Phase 4 Owner Values** | Configuration / Secrets | `OWNER_DECISION_REQUIRED` | Templates contain `<AEGIS_...>` placeholders | 2026-09-17 (Spec) | YES | music / kla | Live L2..L8 | Owner generates values out-of-band |
+| **A-L0 Authorization** | Authorization | `CLOSED / VALID` | Official post-repair A-L0 issued 2026-09-21 (`PR11-L0-POSTREPAIR-2026-09-21`); read-only capture allowed | 2026-09-21 | NO | music | None (L0 complete) | Authorization recorded |
+| **A-L1..A-L9 Auth** | Authorization | `NOT_AUTHORIZED` | No A-L1..A-L9 records exist | Current (2026-09-21) | YES | music | Live L1..L9 | Issue separately on execution day |
+| **Live L0 Baseline** | Live Baseline | `CLOSED_ACCEPTED / VALID` | Official post-repair read-only L0 captured (`20260921-212314-official-l0`); exit 0, checksums PASS, 0 duplicates | 2026-09-21 | NO | music | Live L1 baseline | Valid fresh baseline for compare |
+| **Live L1..L9 Execution** | Live Execution | `BLOCKED` | `L1..L9 live = NOT RUN`; blocked by disk, threshold discrepancy, IDEA2 §10, L1 live backend, fresh K3, fresh A-L1 | Current (2026-09-21) | YES | music | Phase 4 live closeout | Sequential execution after gates pass |
+| **FIND-L9-01** | Protocol / Firmware | `OWNER_DECISION_REQUIRED` | Firmware 20-slot ring vs strictly increasing `issued_at` in §6.1 | 2026-09-21 (PR #166) | NO | music | Live L9 acceptance (`BLOCKS_DIRECTLY = LIVE_L9_ACCEPTANCE`) | Owner decision before live L9 acceptance (`FIND_L9_01_BLOCKS_L1 = NO`) |
+| **ESP32 Hardware Proof** | Physical Hardware | `OPEN` | Lab fail-secure proven (PR5); live serial connection unproven | 2026-09-11 (PR5) | YES | music | Live L8, L9 | Owner confirms serial & power on Core |
+| **L8 Recovery Requirement** | Recovery Architecture | `OWNER_DECISION_REQUIRED` | Recovery auth required in A-L8; backup binary needed | 2026-09-21 (PR #166) | YES | music | Live L8 | Prepare backup image & physical jumper |
+| **K12 Reboot Persistence** | Host Persistence | `MERGED_BUT_LIVE_UNPROVEN` | `K12 = NOT_PROVEN` throughout PR10/P1/P2/P3 | 2026-09-12 | YES | kla / music | Post-Phase-4 acceptance gate | Scheduled after full live deployment |
+| **Plaintext 1883 Removal** | Broker Hardening | `NOT_APPLICABLE_YET` | Plaintext 1883 intentionally retained in Phase 4 | 2026-09-19 (PR #159) | NO | music / kla | Post-Phase-4 gate | Strictly forbidden in Phase 4 |
+| **CUT Actuation** | Physical Safety | `NOT_APPLICABLE_YET` | Lab proven in PR5; forbidden in Phase 4 | 2026-09-11 (PR5) | YES | music | Post-Phase-4 live gate | Strictly forbidden in Phase 4 |
+| **RESTORE Actuation** | Physical Safety | `NOT_APPLICABLE_YET` | Local proven in PR #138; forbidden in Phase 4 | 2026-09-16 (PR #138) | YES | music | Post-Phase-4 live gate | Strictly forbidden in Phase 4 |
+| **CRL Renewal Scheduling** | PKI Lifecycle | `OPEN` | CRL generation proven; automated timer absent | 2026-09-17 (`232759cf`, PR #146) | YES | music / kla | Post-Phase-4 operational gate | Deploy systemd timer post-deployment |
+| **Resource Quotas** | Service Quotas | `OPEN` | Quotas unconfigured (`QUOTAS = none`) | 2026-09-18 (PR #149) | YES | music | Post-Phase-4 operational gate | Characterize under load; add limits |
+
+### 4. Safe Execution Sequence (Future Runbook — Reference Only)
+
+```text
+A-L0
+  ↓
+fresh L0 read-only capture (owner runs p4-l0-capture.sh -> BEFORE_L0_BUNDLE)
+  ↓
+review fresh L0 (inspect disk headroom, IDEA2 tunnel/process health, listeners, routes)
+  ↓
+resolve blockers applicable to L1:
+  - if disk free < 5%, cleanup outside stage and obtain fresh evidence
+  - if IDEA2 §10 still cannot pass, STOP until either:
+      * IDEA2 owner restores required health; OR
+      * written IDEA2-owner-accepted narrowed criterion exists for that stage
+  - stage owner values (OV-01..OV-17) out-of-band as needed
+  ↓
+fresh K3 confirmation for L1 (Kla verifies no IDEA1 overlap -> issues same-day K3 for L1)
+  ↓
+A-L1 authorization (Music issues same-day A-L1 with d6_notice=pub, integration_review=kla)
+  ↓
+live L1 execution (owner runs p4-stage-gate.sh --stage L1 --mode live --authorization A-L1 --k3 K3)
+  ↓
+preservation verification (capture AFTER_L1_BUNDLE, run p4-compare.sh BEFORE_L0 AFTER_L1 -> PASS)
+  ↓
+sequential L2..L7 when individually authorized/proven
+  ↓
+before L9 acceptance, FIND-L9-01 must have owner disposition (if owner chooses a firmware fix, L8 may conditionally require reflash/revalidation; not a direct blocker)
+```
+
+**Post-Phase-4 Distinct Gates**:
+L10 does NOT exist. The following operations are strictly post-Phase-4 gates and must never be executed during Phase 4:
+- Plaintext 1883 retirement;
+- CUT or RESTORE physical relay actuation;
+- K12 reboot persistence verification;
+- Automated CRL renewal timer installation;
+- Core service resource quota configuration.
+
+### 5. Final Task Closeout
+
+- **Task Status**: `CLOSED / REPOSITORY CLOSEOUT COMPLETE`.
+- **PR**: #168 (stays DRAFT pending fresh final-head review, human Ready, and merge).
+- **Final Receipt**: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_180610_music_idea3-pr11-phase4-live-readiness.md`.
+- **Review Notice**: Adding the final closeout receipt changes HEAD after the earlier approval by `pubpup2006p-design` on `7c99bfd6`. A fresh CODEOWNER review is required on the final receipt-bearing HEAD before Ready and human merge.
+- **Live State Unchanged**:
+  - `PRE_REPAIR_A_L0_AUTHORIZATION = ISSUED (2026-09-21)` (pre-repair diagnostic preflight; `PRE_REPAIR_DIAGNOSTIC_L0 = CAPTURED / NOT OFFICIAL ACCEPTANCE`)
+  - `A_L0_AUTHORIZATION = VALID` (`A_L0_REFERENCE = PR11-L0-POSTREPAIR-2026-09-21`)
+  - `OFFICIAL_L0_ACCEPTANCE = YES` (`OFFICIAL_L0_BASELINE = VALID`, `OFFICIAL_L0_DURABLE_CLOSEOUT = IN_PROGRESS`)
+  - `A-L1..A-L9 = NOT_AUTHORIZED`
+  - `L1..L9 live = NOT RUN`
+  - `PHASE4_RUNTIME_COMPLETE = NO`
+  - `PHASE4_LIVE_READINESS = NOT READY`
+- **First Safe Next Action**: Reconcile L1 disk threshold discrepancy (95% vs 90%) and clean up disk headroom outside stage; resolve IDEA2 §10 health; implement L1 live package backend; issue fresh K3 and A-L1.
+
+
+## IDEA3 PR11 Phase 4 L0 harness portability and fail-closed repair — 2026-09-21
+
+> [!important] Current IDEA3 status — REPOSITORY HARNESS REPAIR IN PROGRESS
+> Owner-run diagnostic preflight evidence on 2026-09-21 exposed three harness defects:
+> 1. **Locale-dependent A-L0 validation**: `[\ -~]` regex in `p4-stage-gate.sh` failed in `en_US.UTF-8` with `GATE_FAIL AUTHORIZATION_MALFORMED`; fixed by exporting `LC_ALL=C` internally in validation scripts (`p4-stage-gate.sh`, `p4-lib.sh`, `p4-l0-capture.sh`, `p4-compare.sh`).
+> 2. **Read-only guard rejected safe paths with spaces**: `stat` was refused by `p4_ro` on NetworkManager connection profiles whose filenames contained spaces (`nm.profile....meta UNREADABLE`); fixed with argv-aware safe path validation (`p4_is_safe_fs_path`) for filesystem read operations (`stat`, `sha256sum`, `readlink`, `find`) while preserving strict argv count and rejecting control characters, newlines, tabs, and unexpected extra arguments.
+> 3. **Unreadable required metadata fail-closed**: capture emitted `UNREADABLE` for profile metadata but ended with `L0_CAPTURE=COMPLETE` (exit 0); fixed by making required file metadata/digest reads set `partial=1` (`L0_CAPTURE=PARTIAL`, exit 3) upon read failure.
+>
+> **Diagnostic Evidence Boundary (2026-09-21 owner diagnostic run; NOT an official accepted L0 baseline)**:
+> The diagnostic run on 2026-09-21 is recorded for defect diagnosis and regression verification only; it is NOT accepted as an official L0 baseline:
+> - root filesystem 97% used (`disk.root.use_pct=97`);
+> - IDEA2 process active (`idea2.verdict.process_active=YES`);
+> - IDEA2 tunnel NRestarts=86 (`idea2.tunnel.NRestarts=86`);
+> - :18002 absent (`idea2.listen.18002=absent`);
+> - :8077 present (`idea2.listen.8077=present`);
+> - heartbeat_failed=1 (`idea2.engine.journal.heartbeat_failed=1`);
+> - engine refused=1 (`idea2.engine.journal.refused=1`);
+> - tunnel restart_scheduled=1 (`idea2.tunnel.journal.restart_scheduled=1`);
+> - IDEA2 tunnel/runtime verdict NO (`idea2.verdict.tunnel_healthy=NO`, `idea2.verdict.runtime_healthy=NO`);
+> - NTP synchronized yes (`time.NTPSynchronized=yes`);
+> - plaintext 1883 listener present (`listen.tcp.0.0.0.0:1883=present`);
+> - 8883 absent (`listen.tcp.0.0.0.0:8883=absent`);
+> - Twingate status not-running (`host.twingate.status=not-running`).
+>
+> No raw secret-bearing evidence is stored in Git.
+> `PRE_REPAIR_A_L0_AUTHORIZATION = ISSUED (2026-09-21)`.
+> `PRE_REPAIR_DIAGNOSTIC_L0 = CAPTURED / NOT OFFICIAL ACCEPTANCE`.
+> `POST_REPAIR_OFFICIAL_A_L0 = FRESH AUTHORIZATION REQUIRED`.
+> `A-L1..A-L9 = NOT_AUTHORIZED`.
+> `OFFICIAL_L0_ACCEPTANCE = NO`.
+> `L1..L9 live = NOT RUN`.
+> `PHASE4_RUNTIME_COMPLETE = NO`.
+> `PHASE4_LIVE_READINESS = NOT READY`.
+> `PRODUCTION_MUTATION = NO`.
+
+```text
+TASK                          = Phase 4 L0 harness portability and fail-closed repair
+BRANCH                        = fix/idea3-pr11-phase4-l0-harness-portability
+BASE_SHA                      = b962a570db774ffe75af587a0c5f6e447f422207
+SCOPE                         = repository harness repair only
+DEFECT_1_LOCALE_FIX           = export LC_ALL=C in validation scripts; regex evaluates deterministically in ASCII byte order
+DEFECT_2_SPACES_FIX           = argv-aware filesystem read validation for stat, sha256sum, readlink, find; safe paths with spaces accepted
+DEFECT_3_PARTIAL_FIX          = rec_file and rec_pwfile set partial=1 on UNREADABLE metadata/digest (L0_CAPTURE=PARTIAL, exit 3)
+PINNED_ENV_PAHO_MQTT          = 2.1.0 (~/.venvs/aegis-idea3-core)
+PINNED_FOCUSED_HARNESS        = PASS (167 passed in 43.89s)
+PINNED_FULL_PHASE4            = PASS (731 passed in 102.51s)
+SYSTEM_PYTHON_FULL_PHASE4     = 7 FAIL / 724 PASS (paho-mqtt 1.6.1 missing CallbackAPIVersion)
+SYSTEM_FAILURE_CLASS          = PRE_EXISTING_LOCAL_DEPENDENCY_ENVIRONMENT
+PRE_REPAIR_A_L0_AUTHORIZATION = ISSUED (2026-09-21)
+PRE_REPAIR_DIAGNOSTIC_L0      = CAPTURED / NOT OFFICIAL ACCEPTANCE
+POST_REPAIR_OFFICIAL_A_L0     = FRESH AUTHORIZATION REQUIRED
+A-L1..A-L9                    = NOT_AUTHORIZED
+OFFICIAL_L0_ACCEPTANCE        = NO
+DIAGNOSTIC_L0_OFFICIAL        = NO — diagnostic evidence only; official L0 requires fresh run after repair
+PRODUCTION_MUTATION           = NO
+PR                            = DRAFT pending review
+FINAL_RECEIPT                 = Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_195420_music_idea3-pr11-phase4-l0-harness-repair.md
+```
+
+### Current Task
+
+Task: Phase 4 L0 harness portability and fail-closed repair
+Branch: `fix/idea3-pr11-phase4-l0-harness-portability`
+Owner: `music`
+PR: Draft
+Current state: CLOSED / REPOSITORY CLOSEOUT COMPLETE — awaiting fresh review on receipt-bearing HEAD, human Ready, and merge
+Started: 2026-09-21
+Base SHA: `b962a570db774ffe75af587a0c5f6e447f422207`
+Production mutation allowed: NO
+
+- **Goal:** Repair the three observed harness defects (locale determinism, safe paths with spaces in argv-aware filesystem read commands, and fail-closed handling of unreadable required metadata) so that subsequent live L0 baseline capture is deterministic, robust to safe filenames with spaces, and fail-closed.
+- **Scope:** `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-stage-gate.sh`, `p4-lib.sh`, `p4-l0-capture.sh`, `p4-compare.sh`, `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_harness.py`, `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-21_195420_music_idea3-pr11-phase4-l0-harness-repair.md`, and this status note.
+- **Out of scope:** Any live stage execution, Core mutation, ESP32 flashing, CUT/RESTORE actuation, IDEA2 fix, or credential generation.
+- **Safety boundaries:** Fail-closed argv-boundary checks; no mutation commands permitted; raw secrets never emitted or stored.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| P4-L0-R1 | TDD RED→GREEN repair of L0 harness defects 1, 2, 3 (repository only) | PASS | 3 RED tests failed for defects 1, 2, 3; pinned venv (paho-mqtt 2.1.0): 167/167 harness passed, 731/731 full phase 4 passed; system python: 7 environmental failures from local paho-mqtt 1.6.1; `bash -n` PASS; `git diff --check` PASS; vault validation PASS; content approved by pubpup2006p-design on 3694d6dc | `03d9f9d8` | PASS — REPOSITORY CLOSEOUT COMPLETE | fresh review on receipt-bearing HEAD, human Ready, merge | sync live worktree to main, fresh owner-run A-L0, official read-only L0 baseline |
+
+
+## IDEA3 PR11 Phase 4 Official L0 live baseline — durable closeout — 2026-09-21
+
+> [!important] Current IDEA3 status — OFFICIAL L0 BASELINE ACCEPTED / L1 REMAINING BLOCKERS RECORDED
+> Owner-run Official L0 read-only baseline capture was completed post-repair on 2026-09-21 (`20260921-212314-official-l0`, captured at `2026-09-21T14:23:18Z`, journal since `2026-09-21 14:23:14 UTC`).
+> The capture succeeded with exit code 0, status `COMPLETE`, checksum verification `PASS`, zero duplicate record keys, zero refused read-only commands, and zero unreadable or unavailable values.
+> Production mutation performed: `NO` (`STAGE_MUTATES_PRODUCTION = NO`, `PRODUCTION_MUTATION = NO`).
+>
+> Official L0 is accepted as the valid fresh post-repair read-only baseline:
+> `OFFICIAL_L0_ACCEPTANCE = YES`, `OFFICIAL_L0_BASELINE = VALID`, `OFFICIAL_L0_DURABLE_CLOSEOUT = IN_PROGRESS`.
+> Phase 4 runtime is NOT complete (`PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`).
+>
+> **Fresh L1 Live Blockers Recorded**:
+> 1. **Disk Headroom**: Root filesystem is 96% used (2,402,984 KB available on `/`), which blocks live L1 (`DISK_CURRENT_STATE = BLOCKING_L1`, `DISK_CLEANUP_REQUIRED = YES`).
+> 2. **Disk Threshold Contract Discrepancy**: Live-readiness requirement requires `>=5% free headroom` (usage `<95%`), but the repository L1 package installation handler defaults to `DISK_THRESHOLD_PCT=90` (`L1_DISK_THRESHOLD_RECONCILIATION_REQUIRED = YES`). Neither threshold is chosen or changed in this task, and no cleanup is performed.
+> 3. **IDEA2 §10 Fresh Health**: Process is active, but tunnel is unhealthy (`NRestarts=6`, `:18002` absent, `:8077` present, engine journal shows `heartbeat_failed=1` and `refused=1`, tunnel/runtime healthy `NO`). `IDEA2_S10_FRESH_STATE = BLOCKING`, `IDEA2_S10_RESOLUTION_REQUIRED = YES`. Canonical resolution rule is preserved: STOP until either IDEA2 owner restores required health, OR a written IDEA2-owner-accepted narrowed criterion exists for the stage. (NRestarts=6 is not compared to the earlier 86 as an improvement, as the counter lifecycle may differ).
+> 4. **L1 Live Backend Implementation Gap**: Repository L1 code (`stages/L1/apply.sh` and `p4-l1-packages.py`) implements only the fixture backend and fails closed on live execution with `LIVE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY`. Recorded as `L1_HANDLER_REGISTRATION = REGISTERED`, `L1_FIXTURE_BACKEND = IMPLEMENTED`, `L1_LIVE_BACKEND = NOT_IMPLEMENTED_FAIL_CLOSED`, `L1_LIVE_EXECUTION_READY = NO`.
+> 5. **Governance & Stage Authorizations**: Fresh K3 non-overlap confirmation from Kla is required for any mutating window. `A_L1_TO_A_L9 = NOT_AUTHORIZED`. Mutating stages `L1..L9 live = NOT RUN`. FIND-L9-01 remains `OWNER_DECISION_REQUIRED before LIVE_L9_ACCEPTANCE` (does not block L1).
+
+```text
+TASK                                      = AEGIS IDEA3 PR11 Phase 4 Official L0 live baseline durable closeout
+BRANCH                                    = ops/idea3-pr11-phase4-live-l0
+BASE_SHA                                  = da953a863666548d5c20ab574c852ba7ba35cc94
+OWNER                                     = music
+MODE                                      = live (read-only baseline capture)
+STAGE_MUTATES_PRODUCTION                  = NO
+PRODUCTION_MUTATION_PERFORMED             = NO
+PRODUCTION_MUTATION                       = NO
+
+A_L0_AUTHORIZATION                        = VALID
+A_L0_DATE                                 = 2026-09-21
+A_L0_AUTHORIZER                           = music
+A_L0_SCOPE                                = official post-repair read-only baseline capture
+A_L0_REFERENCE                            = PR11-L0-POSTREPAIR-2026-09-21
+
+STAGE                                     = L0
+STAGE_GATE                                = PASS_READ_ONLY
+AUTHORIZATION_RECORD                      = VALID
+K3_CONFIRMATION                           = NOT_REQUIRED
+READ_ONLY_CAPTURE_ALLOWED                 = YES
+
+OFFICIAL_L0_WINDOW                        = 20260921-212314-official-l0
+CAPTURE_LABEL                             = official-l0
+CAPTURED_AT                               = 2026-09-21T14:23:18Z
+JOURNAL_SINCE                             = 2026-09-21 14:23:14 UTC
+EVIDENCE_CLASS                            = CORE_HOST_READ_ONLY
+CAPTURE_STATUS                            = COMPLETE
+L0_EXIT_CODE                              = 0
+CHECKSUM_VERIFICATION                     = PASS
+REFUSED_READ_ONLY_COMMANDS                = NONE
+UNREADABLE_VALUES                         = NONE
+UNAVAILABLE_VALUES                        = NONE
+DUPLICATE_RECORD_KEYS                     = NONE
+
+OFFICIAL_L0_ACCEPTANCE                    = YES
+OFFICIAL_L0_BASELINE                      = VALID
+OFFICIAL_L0_DURABLE_CLOSEOUT              = IN_PROGRESS
+
+DISK_ROOT_USE_PCT                         = 96
+DISK_ROOT_AVAIL_KB                        = 2402984
+DISK_ROOT_MOUNTPOINT                      = /
+DISK_VAR_USE_PCT                          = 96
+DISK_VAR_AVAIL_KB                         = 2402976
+DISK_VAR_MOUNTPOINT                       = /
+DISK_OPT_USE_PCT                          = 96
+DISK_OPT_AVAIL_KB                         = 2402972
+DISK_OPT_MOUNTPOINT                       = /
+DISK_FILESYSTEM_RESOLUTION                = All three paths resolve to the same root filesystem
+DISK_CURRENT_STATE                        = BLOCKING_L1
+DISK_CLEANUP_REQUIRED                     = YES
+
+LIVE_READINESS_DISK_REQUIREMENT           = fresh L0 must have >=5% free headroom / usage <95%
+L1_HANDLER_DEFAULT_DISK_THRESHOLD         = DISK_THRESHOLD_PCT=90
+L1_DISK_THRESHOLD_RECONCILIATION_REQUIRED = YES
+
+IDEA2_PROCESS_ACTIVE                      = YES
+IDEA2_ENGINE_NRESTARTS                    = 0
+IDEA2_TUNNEL_NRESTARTS                    = 6
+IDEA2_LISTEN_18002                        = absent
+IDEA2_LISTEN_8077                         = present
+IDEA2_HEARTBEAT_PROBE                     = NOT_PROBED_READ_ONLY
+IDEA2_ENGINE_JOURNAL_HEARTBEAT_FAILED     = 1
+IDEA2_ENGINE_JOURNAL_REFUSED              = 1
+IDEA2_ENGINE_JOURNAL_RESTART_SCHEDULED    = 0
+IDEA2_TUNNEL_JOURNAL_REFUSED              = 0
+IDEA2_TUNNEL_JOURNAL_RESTART_SCHEDULED    = 0
+IDEA2_VERDICT_PROCESS_ACTIVE              = YES
+IDEA2_VERDICT_TUNNEL_HEALTHY              = NO
+IDEA2_VERDICT_RUNTIME_HEALTHY             = NO
+IDEA2_S10_FRESH_STATE                     = BLOCKING
+IDEA2_S10_RESOLUTION_REQUIRED             = YES
+
+TIME_NTP                                  = yes
+TIME_NTP_SYNCHRONIZED                     = yes
+TIME_TIMEZONE                             = Asia/Bangkok
+TIME_CHRONY                               = not-installed
+TIME_TIMESYNCD_SERVER                     = 2.arch.pool.ntp.org
+
+MQTT_PLAINTEXT_1883_LISTENER              = present
+MQTT_TLS_8883_LISTENER                    = absent
+MQTT_ESTABLISHED_1883_COUNT               = 0
+MQTT_ESTABLISHED_8883_COUNT               = 0
+MQTT_OBSERVATION_STATUS                   = BASELINE_OBSERVATION (NOT an L0 failure)
+
+TWINGATE_STATUS                           = not-running
+TWINGATE_OBSERVATION_STATUS               = BASELINE_OBSERVATION (not classified as blocker unless merged criterion requires)
+
+L1_HANDLER_REGISTRATION                   = REGISTERED
+L1_FIXTURE_BACKEND                        = IMPLEMENTED
+L1_LIVE_BACKEND                           = NOT_IMPLEMENTED_FAIL_CLOSED
+L1_LIVE_EXECUTION_READY                   = NO
+L1_LIVE_BACKEND_NOTE                      = stages/L1/apply.sh and p4-l1-packages.py emit LIVE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY
+
+L1_LIVE_BLOCKERS                          = disk headroom; disk threshold contract reconciliation; IDEA2 §10 fresh health; L1 live backend implementation; fresh K3; fresh A-L1
+A_L1_TO_A_L9                              = NOT_AUTHORIZED
+L1_TO_L9_LIVE                             = NOT_RUN
+PHASE4_RUNTIME_COMPLETE                   = NO
+PHASE4_LIVE_READINESS                     = NOT_READY
+FIND_L9_01                                = OWNER_DECISION_REQUIRED before LIVE_L9_ACCEPTANCE (FIND_L9_01_BLOCKS_L1 = NO)
+```
+
+### Current Task
+
+Task: AEGIS IDEA3 PR11 Phase 4 Official L0 live baseline durable closeout
+Branch: `ops/idea3-pr11-phase4-live-l0`
+Owner: `music`
+PR: Draft pending review
+Current state: OFFICIAL_L0_ACCEPTANCE = YES; OFFICIAL_L0_DURABLE_CLOSEOUT = IN_PROGRESS; Live mutating stages NOT AUTHORIZED / NOT RUN
+Started: 2026-09-21
+Base SHA: `da953a863666548d5c20ab574c852ba7ba35cc94`
+Production mutation allowed: NO
+
+- **Goal:** Durable, documentation-only recording of the owner-run Official L0 post-repair read-only baseline on `origin/main`, establishing the fresh baseline and enumerating all remaining blockers for live Stage L1.
+- **Scope:** Canonical status note `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md`.
+- **Out of scope:**
+  - Any live execution, package installation, network/firewall/service modification;
+  - Production mutation, disk cleanup, or file deletions;
+  - Modifying IDEA2 code, units, or running processes;
+  - Changing disk threshold in L1 handler or reconciling the threshold discrepancy;
+  - Implementing the L1 live package backend;
+  - Issuing K3 or A-L1..A-L9 authorizations;
+  - Committing raw evidence files from `/var/tmp/idea3-p4-evidence/`;
+  - Creating a final Obsidian task receipt (PR remains Draft; no final receipt yet).
+- **Safety boundaries:**
+  - Strict read-only baseline acceptance;
+  - Zero host mutation occurred during capture (`PRODUCTION_MUTATION = NO`);
+  - No secret-bearing or raw environment evidence committed to Git.
+
+### 1. Official L0 Authorization & Stage Gate Validation
+
+Owner Music authorized the official post-repair read-only baseline capture on 2026-09-21:
+- `A_L0_AUTHORIZATION = VALID`
+- `A_L0_DATE = 2026-09-21`
+- `A_L0_AUTHORIZER = music`
+- `A_L0_SCOPE = official post-repair read-only baseline capture`
+- `A_L0_REFERENCE = PR11-L0-POSTREPAIR-2026-09-21`
+
+The stage gate evaluated under read-only mode:
+- `STAGE = L0`, `MODE = live`
+- `STAGE_MUTATES_PRODUCTION = NO`
+- `AUTHORIZATION_RECORD = VALID`
+- `K3_CONFIRMATION = NOT_REQUIRED` (K3 is required only for mutating stages)
+- `READ_ONLY_CAPTURE_ALLOWED = YES`
+- `STAGE_GATE = PASS_READ_ONLY`
+- `PRODUCTION_MUTATION_PERFORMED = NO`
+
+### 2. Official L0 Capture Execution & Integrity Verification
+
+The capture script `p4-l0-capture.sh` executed under window `20260921-212314-official-l0` (label `official-l0`, captured at `2026-09-21T14:23:18Z`, journal since `2026-09-21 14:23:14 UTC`):
+- `EVIDENCE_CLASS = CORE_HOST_READ_ONLY`
+- `CAPTURE_STATUS = COMPLETE`
+- `L0_EXIT_CODE = 0`
+- `CHECKSUM_VERIFICATION = PASS`
+- `REFUSED_READ_ONLY_COMMANDS = NONE`
+- `UNREADABLE_VALUES = NONE`
+- `UNAVAILABLE_VALUES = NONE`
+- `DUPLICATE_RECORD_KEYS = NONE`
+- `PRODUCTION_MUTATION = NO`
+
+The repair of locale determinism (`LC_ALL=C`), safe argv-aware paths with spaces in filesystem reads, and fail-closed metadata handling succeeded in the live environment, producing an intact, fully readable baseline bundle.
+Official L0 is formally accepted:
+- `OFFICIAL_L0_ACCEPTANCE = YES`
+- `OFFICIAL_L0_BASELINE = VALID`
+- `OFFICIAL_L0_DURABLE_CLOSEOUT = IN_PROGRESS`
+- `PHASE4_RUNTIME_COMPLETE = NO`
+
+### 3. Fresh Host Disk State & Threshold Reconciliation Requirement
+
+Fresh measurements from the official L0 capture:
+- Root filesystem (`/`): `disk.root.use_pct = 96`, `disk.root.avail_kb = 2402984` (~2.4 GB free).
+- Var filesystem (`/var`): `disk.var.use_pct = 96`, `disk.var.avail_kb = 2402976`.
+- Opt filesystem (`/opt`): `disk.opt.use_pct = 96`, `disk.opt.avail_kb = 2402972`.
+- All three paths resolve to the single underlying root filesystem.
+
+**Status & Action Requirements**:
+- `DISK_CURRENT_STATE = BLOCKING_L1`
+- `DISK_CLEANUP_REQUIRED = YES` (must be performed out-of-band prior to mutating stage execution).
+
+**Unresolved Contract Discrepancy**:
+- `LIVE_READINESS_DISK_REQUIREMENT`: Fresh L0 must have `>=5% free headroom` / usage `<95%` (as defined in Phase 4 live-readiness specification).
+- `L1_HANDLER_DEFAULT_DISK_THRESHOLD`: Handler defaults to `DISK_THRESHOLD_PCT=90` (requires `>=10% free headroom`).
+- `L1_DISK_THRESHOLD_RECONCILIATION_REQUIRED = YES`: Contract discrepancy must be reconciled between the live-readiness requirement and the handler threshold before Stage L1 execution. Neither threshold is modified in this task.
+
+### 4. Fresh IDEA2 §10 State & Preservation Governance
+
+Official L0 measurements of IDEA2 services on the Core host:
+- `IDEA2_PROCESS_ACTIVE = YES`
+- `IDEA2_ENGINE_NRESTARTS = 0`
+- `IDEA2_TUNNEL_NRESTARTS = 6`
+- `IDEA2_LISTEN_18002 = absent`
+- `IDEA2_LISTEN_8077 = present`
+- `IDEA2_HEARTBEAT_PROBE = NOT_PROBED_READ_ONLY`
+- `IDEA2_ENGINE_JOURNAL_HEARTBEAT_FAILED = 1`
+- `IDEA2_ENGINE_JOURNAL_REFUSED = 1`
+- `IDEA2_ENGINE_JOURNAL_RESTART_SCHEDULED = 0`
+- `IDEA2_TUNNEL_JOURNAL_REFUSED = 0`
+- `IDEA2_TUNNEL_JOURNAL_RESTART_SCHEDULED = 0`
+- `IDEA2_VERDICT_PROCESS_ACTIVE = YES`
+- `IDEA2_VERDICT_TUNNEL_HEALTHY = NO`
+- `IDEA2_VERDICT_RUNTIME_HEALTHY = NO`
+
+**Status & Preservation Rule**:
+- `IDEA2_S10_FRESH_STATE = BLOCKING`
+- `IDEA2_S10_RESOLUTION_REQUIRED = YES`
+- **Canonical Preservation Rule**: Live mutating stages must STOP until either:
+  1. The IDEA2 owner restores required service health; OR
+  2. A written, IDEA2-owner-accepted narrowed criterion exists for the stage.
+- Do not create or assume a narrowed criterion.
+- Do not touch, inspect invasively, or mutate IDEA2 services or files.
+- `NRestarts=6` must NOT be compared with the earlier diagnostic count of 86 as an improvement, because service counter lifecycles may differ across systemd restarts/boots.
+
+### 5. Other Fresh Baseline Observations (Time, Mosquitto, Twingate)
+
+- **Time Synchronization**:
+  - `NTP = yes`, `NTP_SYNCHRONIZED = yes`
+  - `TIMEZONE = Asia/Bangkok`
+  - `CHRONY = not-installed`
+  - `TIMESYNCD_SERVER = 2.arch.pool.ntp.org`
+- **Mosquitto MQTT Broker**:
+  - `PLAINTEXT_1883_LISTENER = present`
+  - `TLS_8883_LISTENER = absent`
+  - `ESTABLISHED_1883_COUNT = 0`, `ESTABLISHED_8883_COUNT = 0`
+  - Classified strictly as baseline observations; the absence of the 8883 listener is expected prior to Stage L4/L5 and is NOT an L0 capture failure.
+- **Twingate**:
+  - `TWINGATE_STATUS = not-running`
+  - Recorded as a baseline observation; does not block unless a merged stage criterion explicitly classifies it as a blocker.
+
+### 6. Newly Discovered L1 Live Backend Implementation Gap
+
+Audit of the merged Phase 4 Stage L1 handler code confirms:
+- `stages/L1/apply.sh`: Refuses live execution with `fail "LIVE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY (LIVE_L1=NOT_AUTHORIZED)"`.
+- `p4-l1-packages.py`: Refuses live package installation with `die("LIVE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY (LIVE_L1=NOT_AUTHORIZED)")`.
+- Summary:
+  - `L1_HANDLER_REGISTRATION = REGISTERED`
+  - `L1_FIXTURE_BACKEND = IMPLEMENTED`
+  - `L1_LIVE_BACKEND = NOT_IMPLEMENTED_FAIL_CLOSED`
+  - `L1_LIVE_EXECUTION_READY = NO`
+- This is a distinct repository code gap, independent of the disk, IDEA2 §10, K3, or A-L1 blockers. The handler is not modified in this task.
+
+### 7. Consolidated Phase 4 Live Readiness State
+
+```text
+OFFICIAL_L0_ACCEPTANCE                    = YES
+OFFICIAL_L0_BASELINE                      = VALID
+OFFICIAL_L0_DURABLE_CLOSEOUT              = IN_PROGRESS
+
+L1_LIVE_BLOCKERS:
+  1. Disk headroom: 96% used (2.4 GB avail) -> DISK_CLEANUP_REQUIRED = YES
+  2. Disk threshold contract discrepancy: 95% vs 90% -> L1_DISK_THRESHOLD_RECONCILIATION_REQUIRED = YES
+  3. IDEA2 §10 fresh health: tunnel unhealthy -> STOP rule active (IDEA2_S10_FRESH_STATE = BLOCKING)
+  4. L1 live backend implementation: LIVE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY -> L1_LIVE_BACKEND = NOT_IMPLEMENTED_FAIL_CLOSED
+  5. Governance: fresh same-day K3 confirmation required from Kla
+  6. Governance: fresh same-day A-L1 authorization required from Music
+
+A_L1_TO_A_L9                              = NOT_AUTHORIZED
+L1_TO_L9_LIVE                             = NOT_RUN
+PHASE4_RUNTIME_COMPLETE                   = NO
+PHASE4_LIVE_READINESS                     = NOT_READY
+FIND_L9_01                                = OWNER_DECISION_REQUIRED before LIVE_L9_ACCEPTANCE (FIND_L9_01_BLOCKS_L1 = NO)
+PRODUCTION_MUTATION                       = NO
+FINAL_RECEIPT                             = NONE (Draft PR; no final receipt yet)
+```
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| P4-L0-C1 | Durable recording of owner-run Official L0 live read-only baseline (documentation only) | PASS | Owner-run Official L0 window `20260921-212314-official-l0` (exit 0, COMPLETE, checksums PASS, 0 duplicates, 0 refused, 0 unreadable/unavailable); disk 96% used; IDEA2 process active, engine NRestarts=0, tunnel NRestarts=6, heartbeat failed, tunnel/runtime healthy NO; L1 live backend NOT_IMPLEMENTED_FAIL_CLOSED | commit | PASS — OFFICIAL L0 ACCEPTED / DURABLE CLOSEOUT IN PROGRESS | reconcile disk threshold (95% vs 90%) and perform out-of-band disk cleanup; IDEA2 §10 resolution; implement L1 live package backend; issue fresh K3 and A-L1 | open Draft PR |
+
+## IDEA3 PR11 Phase 4 L1 disk-threshold owner decision reconciliation — 2026-09-22
+
+> [!important] Threshold conflict resolved for repository purposes
+> The disk-threshold conflict recorded above (item 2 of the 2026-09-21
+> Consolidated Phase 4 Live Readiness State, and PR #174's historical
+> documentation of it) is **resolved by owner decision on 2026-09-22**.
+> PR #174 remains the unaltered historical record of the prior conflict;
+> this entry supersedes only the "unresolved" characterization for current
+> readers, not PR #174 itself.
+
+```text
+DISK_THRESHOLD_PCT_CANONICAL              = 90
+DISK_THRESHOLD_PASS_CONDITION             = usage < 90%
+DISK_THRESHOLD_OWNER_DECISION_DATE        = 2026-09-22
+L1_DISK_THRESHOLD_RECONCILIATION_REQUIRED = NO
+OD_L1_07_CITATION_STATUS                  = TYPO_CONFIRMED (disk gate is OD-L1-05, not OD-L1-07)
+PRIOR_95_PERCENT_READINESS_VALUE          = SUPERSEDED_AS_NUMERIC_L1_THRESHOLD
+
+# Current remaining blockers (unchanged by this decision — threshold choice
+# alone does not make L1 live-ready):
+DISK_CURRENT_STATE                        = BLOCKING (last fresh proof 2026-09-21: 96% used, still >= 90%)
+IDEA2_S10                                 = BLOCKING (see PR #176)
+L1_LIVE_BACKEND_REPOSITORY_STATUS         = IMPLEMENTED_PENDING_REVIEW (PR #178, repository-only, never executed live)
+K3                                        = NOT_ISSUED
+A_L1                                      = NOT_AUTHORIZED
+LIVE_L1_ALLOWED                           = NO
+PRODUCTION_MUTATION                       = NO
+```
+
+Full detail: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-22-idea3-pr11-phase4-l1-live-backend-owner-decision.md` (D1-D3) and Draft PR #178 (merged at `3b91fc40`).
+
+---
+
+## IDEA3 Final Project — PR11 MVP Scope Freeze — 2026-09-22
+
+> [!important] Scope freeze — owner approved (2026-09-22)
+> Following the merge of PR #178 (`7f30b9ca` / `3b91fc40`), the IDEA3 Final
+> Project scope is formally frozen as **Security Orchestrator + Physical Containment MVP**.
+> The project is **NOT** required to become a full-scale enterprise/production SOC.
+> This reconciliation performs documentation and scope alignment only. Zero
+> production mutation, zero live L-stage execution, zero package installation,
+> zero sudo operations, zero IDEA1/IDEA2 mutation, zero ESP32 operation, and
+> zero CUT/RESTORE operations are performed. Dynamic nftables source-IP blocking
+> on Arch Linux Core was an open implementation gap at the time of this scope
+> freeze; it is documented for a separate PR.
+>
+> [!important] Superseded 2026-09-22 by PR #181 (source implementation)
+> `SOFTWARE_IP_BLOCKING`/`SOFTWARE_IP_UNBLOCK` moved from
+> `OPEN_NEEDS_IMPLEMENTATION` to `SOURCE_IMPLEMENTED` when PR #181 merged at
+> `21d7b7824e6edf1950a7bd914f5d780366fd13c7`. See "IDEA3 PR11 MVP dynamic IP
+> containment — source implementation — 2026-09-22" below and the
+> "IDEA3 PR11 Post-Containment Reconciliation + Live-Readiness Contract —
+> 2026-09-23" section at the end of this note for the current value and the
+> host-verification contract. The code block immediately below is the
+> historical scope-freeze snapshot and is not the current state.
+> Full specification: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-22-idea3-pr11-mvp-scope-freeze.md`.
+
+```text
+PR178_MERGED                           = YES
+PR11_MVP_SCOPE                         = SECURITY_ORCHESTRATOR_PHYSICAL_CONTAINMENT
+SCOPE_FREEZE_OWNER_APPROVED            = YES
+
+PR11_MVP_COMPLETE                      = NO
+PR12_FINAL_ACCEPTANCE                  = OPEN
+
+SOFTWARE_IP_BLOCKING                   = OPEN_NEEDS_IMPLEMENTATION  # historical scope-freeze snapshot; superseded 2026-09-22, see note above
+SOFTWARE_IP_UNBLOCK                    = OPEN_NEEDS_IMPLEMENTATION  # historical scope-freeze snapshot; superseded 2026-09-22, see note above
+
+IDEA1_LIVE_MVP_INTEGRATION             = OPEN
+IDEA2_LIVE_MVP_INTEGRATION             = OPEN
+
+IDEA2_NARROWED_PRESERVATION            = OWNER_DECISION_PENDING
+
+POST_PRODUCTION_HARDENING              = DEFER_FUTURE_WORK
+PRODUCTION_MUTATION                    = NO
+LIVE_STAGE_EXECUTED                    = NO
+```
+
+### 1. Owner-Approved Final Project Core Flow
+
+The system lifecycle and demonstration path for the final project follows this sequential flow:
+
+```text
+NORMAL
+  │
+  ▼
+Detect Suspicious / Security Event
+  │
+  ▼
+Identify Source IP / Target Device / Event Type / Timestamp
+  │
+  ▼
+Record Security Incident
+  │
+  ▼
+Determine Severity Classification
+  │
+  ├── [Severity = HIGH]
+  │     │
+  │     ▼
+  │   Software Containment (Dynamic Source-IP Blocking)
+  │     │
+  │     ▼
+  │   Audit Log Containment Action
+  │     │
+  │     ▼
+  │   Administrator Recovery / Unblock
+  │     │
+  │     ▼
+  │   Return to NORMAL
+  │
+  └── [Severity = CRITICAL]
+        │
+        ▼
+      Software Containment + Authenticated Hardware Containment Decision
+        │
+        ▼
+      Issue Authenticated Protocol v1 CUT Command to ESP32
+        │
+        ▼
+      ESP32 Relay Actuation (Physical Network Interruption)
+        │
+        ▼
+      Log Action, Result & State Change
+        │
+        ▼
+      Authorized Administrator Physical Recovery (RESTORE)
+        │
+        ▼
+      Return to NORMAL
+```
+
+### 2. Binding MVP Classification
+
+All IDEA3 functions and tasks are classified under six binding categories:
+- `MVP_MUST`: Mandatory for PR11/PR12 delivery.
+- `MVP_SUPPORTING`: Supporting tools, fixtures, or baseline mechanisms.
+- `DEFER_FUTURE_WORK`: Out-of-scope enterprise features not required for course project completion (`DESIGNED_OR_IMPLEMENTED_WHERE_APPLICABLE; NOT_REQUIRED_FOR_FINAL_PROJECT_MVP_ACCEPTANCE`).
+- `ALREADY_CLOSED`: Merged and verified milestones.
+- `OPEN_NEEDS_IMPLEMENTATION`: Code or configuration gap requiring a dedicated PR.
+- `OPEN_NEEDS_EVIDENCE`: Implementation exists in repository, but live host/hardware evidence is open.
+
+#### Handler & Stage Execution Status:
+- `L2_L9_REPOSITORY_HANDLERS = ALREADY_CLOSED` (all Phase 4 handlers L1..L9 are registered and merged in the repository)
+- `L2_L9_LIVE_EXECUTION = OPEN_NEEDS_EVIDENCE` (live host execution and hardware evidence remains open)
+
+#### MVP_MUST Requirements:
+- Live IDEA3 Web/dashboard
+- Live IDEA3 Core
+- Event detection
+- Source IP/device/event/time identification
+- Incident logging
+- Severity/correlation engine
+- Dynamic software IP block
+- Dynamic IP unblock/recovery
+- Bounded IDEA1 status/security visibility
+- Bounded IDEA2 status/security visibility
+- Secure Core ↔ ESP32 communication: TLS-protected MQTT transport plus application-layer HMAC-SHA256 authenticated frames
+- L1 prerequisite needed by the live stack (`chrony`)
+- L2 firewall/isolation needed by the live stack
+- L3 AP needed by ESP32
+- L4 addressing/DHCP needed by ESP32
+- L5 trusted time needed by protocol/runtime
+- L6a isolated MQTT/TLS validation
+- L6b live MQTT/TLS broker
+- L7 Core service
+- L8 ESP32 provisioning/flash
+- L9 authenticated STATUS/HEARTBEAT
+- Authenticated CUT readiness
+- Physical relay containment readiness
+- Admin recovery readiness
+- Final E2E evidence readiness
+
+> [!important] Stage L9 Transport and Authentication Definition
+> Do **NOT** claim mutual TLS (mTLS) for the ESP32.
+> The binding architecture is: **TLS-protected MQTT transport plus application-layer HMAC-SHA256 authenticated STATUS/HEARTBEAT frames**.
+> Stage L9 itself remains strictly **AUTHENTICATION WITHOUT ACTUATION**. CUT and RESTORE actuation commands are intentionally excluded from L9 acceptance.
+
+#### Software BLOCK_IP Implementation Gap (historical scope-freeze snapshot, superseded 2026-09-22):
+```text
+SOFTWARE_IP_BLOCKING                   = OPEN_NEEDS_IMPLEMENTATION  # snapshot at scope-freeze time
+SOFTWARE_IP_UNBLOCK                    = OPEN_NEEDS_IMPLEMENTATION  # snapshot at scope-freeze time
+```
+- Existing repository source provides attack/event detection, offending source-IP extraction, incident/correlation logic, containment decision/audit logic, static nftables/AP isolation, and legacy GUI UFW path.
+- At scope-freeze time the Arch Linux headless Core relied on `nftables` and did **not** yet provide the required dynamic nftables source-IP block/unblock path.
+- This gap was closed by PR #181 (merged `21d7b7824e6edf1950a7bd914f5d780366fd13c7`, 2026-09-22): `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`, `SOFTWARE_IP_UNBLOCK = SOURCE_IMPLEMENTED`. Host verification remains open — see the "IDEA3 PR11 Post-Containment Reconciliation + Live-Readiness Contract — 2026-09-23" section at the end of this note.
+
+#### Bounded Cross-IDEA MVP Boundaries:
+- **IDEA1 (AEGIS Drive LC)**:
+  - Required for MVP: health/status visible in IDEA3; security-relevant event/status feed visible in IDEA3; honest `ONLINE` / `DEGRADED` / `UNKNOWN` state; sufficient evidence to correlate/display security events.
+  - Not required: control of every IDEA1 feature; file-management orchestration; storage administration from IDEA3; unrelated Drive workflows.
+  - Status: `IDEA1_LIVE_MVP_INTEGRATION = OPEN` until live upstream evidence is exercised.
+- **IDEA2 (AEGIS Monitor / CCTV)**:
+  - Required for MVP: health/status visible in IDEA3; security-relevant alert/status feed visible in IDEA3; honest `ONLINE` / `DEGRADED` / `UNKNOWN` state; IDEA2 event visible as an IDEA3 incident candidate.
+  - Not required: control of every IDEA2 feature; CCTV streaming control from IDEA3; model administration from IDEA3; unrelated camera-management workflows.
+  - Status: `IDEA2_LIVE_MVP_INTEGRATION = OPEN` until live upstream evidence is exercised.
+
+#### IDEA2 Preservation Governance:
+```text
+IDEA2_NARROWED_PRESERVATION            = OWNER_DECISION_PENDING
+```
+- Do not claim the narrowed preservation criterion is approved yet.
+- **Proposal**: An IDEA3 live stage may pass IDEA2 preservation if it causes **NO NEW DEGRADATION** relative to the immediate pre-stage IDEA2 baseline.
+- Pre/post evidence should compare only relevant preserved surfaces: detection engine runtime state, local detector API availability (`:8077`), physical management/uplink addressing and routing, tunnel state/restart observations, and confirmation that IDEA3 modified no IDEA2-owned files/services/configuration.
+- A pre-existing IDEA2 degradation must remain honestly visible.
+- The stage must fail if IDEA3 causes measurable new degradation.
+- This is a proposal only until explicit owner approval by Pub (`pubpup2006p-design`) and Kla (`kraveerachat`).
+
+#### Network Addressing Authority:
+- Do **NOT** hardcode `192.168.40.1`, `192.168.40.0/24`, or any historical VLAN40 values as the Phase 4 AP deployment value.
+- Current Phase 4 authority preserves: `OV-03 = owner-supplied AP subnet and Core AP address`.
+- Historical VLAN40 information is referenced only as historical context.
+
+#### PR11 MVP Exit Criteria:
+The condition `PR11_MVP_COMPLETE = YES` defines readiness for PR12 final attack acceptance:
+```text
+WEB_LIVE                               = YES
+CORE_LIVE                              = YES
+IDEA1_MVP_VISIBILITY                   = LIVE_PROVEN
+IDEA2_MVP_VISIBILITY                   = LIVE_PROVEN
+DETECTION_PIPELINE                     = READY
+INCIDENT_LOGGING                       = READY
+SOFTWARE_BLOCK_IP                      = IMPLEMENTED_AND_HOST_VERIFIED
+SOFTWARE_UNBLOCK                       = IMPLEMENTED_AND_HOST_VERIFIED
+ESP32_CONNECTED                        = YES
+ESP32_AUTHENTICATED_STATUS_HEARTBEAT   = PASS
+HARDWARE_CUT_PATH                      = READY_FOR_PR12
+RECOVERY_PATH                          = READY_FOR_PR12
+```
+PR11 itself does not need to execute the final attack demonstration.
+
+#### PR12 Final System Acceptance Scenarios (A1–A7):
+PR12 is preserved as **FINAL SYSTEM ACCEPTANCE**. Only controlled, authorized test scenarios against project-owned systems are executed during PR12:
+- **A1 NORMAL BASELINE**: PASS = Web/Core healthy, IDEA1 status visible, IDEA2 status visible, ESP32 authenticated, relay/network NORMAL.
+- **A2 RECON / SCAN**: PASS = controlled test scan/event detected, source IP identified, event type recorded, timestamp recorded, incident visible in UI/log.
+- **A3 SOFTWARE CONTAINMENT**: PASS = HIGH event identifies source IP, dynamic BLOCK_IP applied, blocking verified, action audited, Admin unblock restores expected connectivity, recovery audited.
+- **A4 CRITICAL PHYSICAL CONTAINMENT**: PASS = controlled CRITICAL scenario reaches containment decision, authenticated CUT command issued, ESP32 validates command, relay physically interrupts protected Ethernet path, result logged.
+- **A5 RECOVERY**: PASS = authorized Admin recovery (authenticated local CLI / approved local recovery path), relay returns to NORMAL, Ethernet connectivity restored, recovery audit recorded.
+- **A6 CROSS-IDEA VISIBILITY**: PASS = IDEA1 security/health state visible, IDEA2 security/health state visible, IDEA3 incident/containment state visible.
+- **A7 FINAL EVIDENCE**: PASS = screenshots, logs, timestamps, acceptance matrix, immutable evidence/receipts, report baseline frozen.
+
+#### Future Work / Deferred Items:
+The following items are explicitly categorized as `DESIGNED_OR_IMPLEMENTED_WHERE_APPLICABLE; NOT_REQUIRED_FOR_FINAL_PROJECT_MVP_ACCEPTANCE`:
+- ESP32 NVS encryption (remains optional physical-extraction hardening and is not an MVP blocker; residual physical extraction risk remains explicitly acknowledged)
+- Automated CRL renewal
+- Resource/cgroup tuning
+- Enterprise HA / broker clustering
+- Full retirement of legacy plaintext 1883 is deferred (Phase 4 intentionally preserves the existing legacy listener, while L2/L4 firewall policy must prevent TCP/1883 access from the IDEA3 AP)
+- Repeated/stress CUT endurance certification
+- Full disaster-recovery certification
+- K12 full production reboot certification
+- Production hardening edge cases not required for MVP E2E
+
+Unfinished work is not marked COMPLETE.
+
+#### Existing PR #147:
+- PR #147 remains supporting PR12 backup/restore work (`MVP_SUPPORTING`).
+- It must **not** define the whole PR12 Final Acceptance scope.
+- PR #147 is not modified or rebased in this task.
+- When its reconciliation window is reached: `git fetch origin && git merge origin/main`, resolving real conflicts normally.
+- Full DR certification is `DEFER_FUTURE_WORK`.
+
+### Current Task
+
+Task: IDEA3 PR11 MVP Scope Freeze — Security Orchestrator + Physical Containment MVP
+Branch: `docs/idea3-pr11-mvp-scope-freeze`
+Owner: `music`
+PR: Draft pending
+Current state: DOCUMENTATION / SCOPE RECONCILIATION COMPLETE — Human Content Review Pending
+Started: 2026-09-22
+Base SHA: `3b91fc40cc173f9a2e820d5510374432687bedfd`
+Production mutation allowed: NO
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| P11-SF1 | PR11 MVP Scope Freeze & Final Project Boundary Specification (documentation only) | PASS | Spec file `2026-09-22-idea3-pr11-mvp-scope-freeze.md` created; `idea3-moc.md` and `idea3-status.md` reconciled; vault validation PASS; diff check PASS; zero production mutation; zero live execution | commit | PASS — SCOPE_FREEZE_OWNER_APPROVED (DOCUMENTATION ONLY) | human content review by pubpup2006p-design; separate PR for dynamic software IP block; live L-stages | push branch, open Draft PR |
+
+## IDEA3 PR11 MVP dynamic IP containment — source implementation — 2026-09-22
+
+> [!important] Source implemented, not host-verified
+> Branch `feat/idea3-mvp-dynamic-ip-containment` — PR #181, MERGED to `main` at
+> `21d7b7824e6edf1950a7bd914f5d780366fd13c7` (2026-09-22); its final task
+> receipt was recovered post-merge by PR #182 (merged `f2f92425...`, receipt
+> `90-Status/logs/2026-09-22_231243_music_idea3-pr181-dynamic-ip-containment-recovery.md`).
+> It implements the software containment gap from the MVP scope
+> freeze. A root-owned, socket-activated helper
+> (`aegis-idea3-containment.socket` / `.service`) is the only IDEA3 process with
+> `CAP_NET_ADMIN`. It runs exact `nft` argv against the elements of
+> `inet aegis_idea3` set `blocked_ipv4`. The Core service is unchanged and stays
+> unprivileged. Generic detector attacker events now request `BLOCK_IP` when
+> ARMED and `AEGIS_AUTO_CONTAIN=1`; they no longer issue physical CUT. The
+> explicit CRITICAL/CUT path and `RESTORE_UPLINK` are unchanged. `aegisctl
+> block-ip`, `unblock-ip`, and `blocked-ips` provide local administration.
+> L2 owns the helper units. No live host or firewall was mutated.
+> Full specification: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-22-idea3-pr11-mvp-dynamic-ip-containment.md`.
+
+```text
+SOFTWARE_IP_BLOCKING                   = SOURCE_IMPLEMENTED
+SOFTWARE_IP_UNBLOCK                    = SOURCE_IMPLEMENTED
+PRIVILEGE_BOUNDARY                     = IMPLEMENTED
+CORE_DIRECT_CAP_NET_ADMIN              = NO
+AUTO_GENERIC_ATTACKER_CUT              = NO
+CRITICAL_CUT_PATH                      = UNCHANGED
+IPV4_MVP                               = YES
+IPV6_CONTAINMENT                       = FUTURE_WORK
+HOST_VERIFIED                          = NO
+LIVE_PROVEN                            = NO
+PRODUCTION_MUTATION                    = NO
+PR11_MVP_COMPLETE                      = NO
+```
+
+Next gate (superseded 2026-09-23 — PR #181 is merged, not Draft): owner-authorized
+L2 live apply and host verification (`SOFTWARE_BLOCK/UNBLOCK = IMPLEMENTED_AND_HOST_VERIFIED`).
+See the reconciliation section immediately below for the exact host-verification
+contract.
+
+## IDEA3 PR11 Post-Containment Reconciliation + Live-Readiness Contract — 2026-09-23
+
+> [!important] Documentation reconciliation only — zero live mutation
+> Branch `docs/idea3-pr11-post-containment-readiness`. This task reconciles
+> stale repository documentation after PR #181 (dynamic IPv4 containment
+> source implementation, merged `21d7b7824e6edf1950a7bd914f5d780366fd13c7`)
+> and PR #182 (its recovery receipt, merged into `main` at
+> `f2f92425...`, current `origin/main` HEAD at task start). No host
+> verification, no L-stage execution, no `sudo` operation, no `nft` mutation,
+> and no IDEA1/IDEA2/ESP32/Core mutation are performed by this task.
+
+```text
+POST_CONTAINMENT_RECONCILED            = YES
+HOST_VERIFICATION_CONTRACT             = READY
+HOST_VERIFIED                          = NO
+LIVE_PROVEN                            = NO
+LIVE_MUTATION                          = NO
+PRODUCTION_MUTATION                    = NO
+
+SOFTWARE_IP_BLOCKING                   = SOURCE_IMPLEMENTED
+SOFTWARE_IP_UNBLOCK                    = SOURCE_IMPLEMENTED
+PR11_MVP_COMPLETE                      = NO
+PR12_FINAL_ACCEPTANCE                  = OPEN
+```
+
+### Reconciled facts
+
+- PR #181 is **MERGED**, not Draft/unmerged (`21d7b7824e6edf1950a7bd914f5d780366fd13c7`).
+- PR #182 (post-merge receipt recovery for PR #181) is **MERGED** on `main`
+  (current `origin/main` at task start, `f2f92425...`).
+- `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED` and
+  `SOFTWARE_IP_UNBLOCK = SOURCE_IMPLEMENTED` are the current canonical values
+  (no longer `OPEN_NEEDS_IMPLEMENTATION`); every earlier occurrence of that
+  value in this note above is an explicitly labeled historical snapshot from
+  before PR #181 merged, not a current fact.
+- `HOST_VERIFIED = NO` and `LIVE_PROVEN = NO` remain unchanged: repository
+  implementation existing is not the same as host-verified, live-proven
+  behavior.
+- `PR11_MVP_COMPLETE = NO` and `PR12_FINAL_ACCEPTANCE = OPEN` remain unchanged.
+
+### Current live-readiness blockers (fresh reconciliation, not new evidence)
+
+- **Disk threshold**: last proven Core root filesystem reading was `96%` used
+  against the canonical `90%` threshold (`DISK_CURRENT_STATE = BLOCKING_L1`,
+  per `90-Status/logs/2026-09-22_005200_music_idea3-pr11-phase4-disk-remediation-audit.md`).
+  No fresher reading exists; disk readiness must not be claimed without a new
+  `df -h /` observation.
+- **IDEA2 §10**: last fresh, read-only reassessment (2026-09-22) found the
+  detection-tunnel heartbeat still unhealthy — no listener on
+  `127.0.0.1:18002`, tunnel `NRestarts=78` since its own fresh start,
+  continuing `ConnectionRefused` warnings (`IDEA2_S10_FRESH_STATE = BLOCKING`,
+  per `90-Status/logs/2026-09-22_005600_music_idea3-pr11-phase4-idea2-s10-fresh-reassessment.md`).
+  Restoration belongs to the IDEA2 owner; IDEA3 does not mutate IDEA2 services.
+- **Fresh K3 required**: any future mutating window (including L2 host
+  verification) requires its own freshly captured K3 non-overlap evidence.
+  Previously consumed K3 evidence must never be reused for a new window.
+- **A-Lx authorization required**: each live stage (L1, L2, …) requires its
+  own explicit stage authorization from the appropriate human owner before any
+  mutation; none is granted by this task.
+
+### Host-verification contract
+
+Before `SOFTWARE_BLOCK_IP`/`SOFTWARE_UNBLOCK` may become
+`IMPLEMENTED_AND_HOST_VERIFIED`, host verification on the live Arch Linux Core
+must produce evidence for every item below (owner-authorized L2 live window
+only; not performed by this task):
+
+1. Containment socket/service (`aegis-idea3-containment.socket` / `.service`) installed and active.
+2. Core process remains unprivileged (`NoNewPrivileges=true`, empty `CapabilityBoundingSet`/`AmbientCapabilities`).
+3. Core has no `CAP_NET_ADMIN`.
+4. Only the containment helper unit holds `CAP_NET_ADMIN`.
+5. Protected CIDRs (`AEGIS_CONTAINMENT_PROTECTED_CIDRS`) are correct and include the management/operator ranges plus the AP subnet so the controller link can never be software-blocked.
+6. The reviewed nftables ruleset (`inet aegis_idea3`, `blocked_ipv4` set, drop-first `input`/`forward` rules) is present on the live host.
+7. Controlled IPv4 block of an authorized test address succeeds (`changed=true`, `BLOCKED`).
+8. Repeat block of the same address is idempotent (`changed=false`, `ALREADY_BLOCKED`).
+9. Observed traffic denial from the blocked address to a protected target.
+10. Membership listing (`aegisctl blocked-ips` / `list`) reflects the block.
+11. Authorized unblock of the same address succeeds (`changed=true`, `UNBLOCKED`).
+12. Repeat unblock is idempotent (`changed=false`, `NOT_BLOCKED`).
+13. Observed traffic restoration after unblock.
+14. Audit/log evidence exists for both the block and unblock actions.
+15. No unrelated nftables table/chain/rule was mutated (drop-first ownership stays scoped to `blocked_ipv4`).
+16. L2 preservation comparison (pre/post) shows no new degradation of forwarding, AP firewall protections, or unrelated interfaces.
+17. Rollback (stop/disable socket and service, delete the IDEA3 table, remove only IDEA3-owned files) is available and idempotent.
+18. Generic detector attacker events trigger only software containment — no automatic physical CUT is issued.
+
+This PR does not perform host verification; it defines the contract that a
+later, explicitly authorized L2 live task (see PR 4/9 of the current
+nine-PR plan) must satisfy.
+
+### Current Task
+
+Task: IDEA3 PR11 Post-Containment Reconciliation + Live-Readiness Contract
+Branch: `docs/idea3-pr11-post-containment-readiness`
+Owner: `music`
+PR: Draft pending
+Current state: DOCUMENTATION RECONCILIATION COMPLETE — Human Content Review Pending
+Started: 2026-09-23
+Base SHA: `f2f92425...` (`origin/main` at task start)
+Production mutation allowed: NO
+
+## IDEA3 PR11 Issue #186 Post-Merge Recovery Closeout — 2026-09-23
+
+Task: IDEA3 PR11 Issue #186 Post-Merge Recovery Closeout
+Branch: `docs/idea3-pr11-issue186-recovery-closeout`
+Owner: `kittipat`
+Issue: GitHub Issue #186 ("PR11 Post-Merge Recovery — Twingate Persistence +
+IDEA2 Tunnel Recovery"), not yet closed
+Base SHA: `e61e76ac` (`origin/main` at task start, the PR #184 merge commit)
+Production mutation allowed in this documentation task: NO
+Evidence log: `90-Status/logs/2026-09-23_162700_kittipat_issue186-twingate-tunnel-recovery.md`
+
+This section reconciles GitHub Issue #186, opened after GitHub PR #184
+merged, into the canonical record. It distinguishes historical incident
+evidence, pre-authorization runtime recovery, revised owner authorization,
+the one authorized persistence mutation, and formal acceptance. It does not
+claim the originally planned controlled-Tunnel-restart model passed — that
+model was explicitly superseded by revised authorization before any
+controlled restart was performed.
+
+### 1. Historical incident evidence (not acceptance evidence)
+
+At approximately 2026-09-23 13:37 +07, an operator command-entry incident
+administratively restarted `aegis-detection-engine.service` and
+`aegis-detection-tunnel.service`. `twingate.service` was not started or
+enabled by that incident. This restart is preserved here as historical
+evidence only and was never treated as, or reused as, acceptance evidence
+for any later recovery step.
+
+### 2. Pre-authorization runtime recovery (historical evidence only)
+
+A later boot occurred (`CURRENT_BOOT_ID=c26bb08e-2776-4f27-a109-04aedd5a323d`,
+boot start ≈2026-09-23 14:54:48 +07). At approximately 14:57:29 +07, before
+fresh Issue #186 authorization existed, the operator manually ran
+`sudo systemctl start twingate.service` (confirmed via
+`journalctl`/`sudo` log provenance). Twingate reached Online, `sdwan0`
+appeared, and the overlay route to `192.168.10.10` appeared, but the remote
+path (TCP/22, TCP/80, TCP/443) initially remained unreachable, and
+`aegis-detection-tunnel.service` entered/continued its `Restart=always`
+auto-restart loop. `PRE_AUTH_TWINGATE_RUNTIME_START=HISTORICAL_EVIDENCE_ONLY`
+— this start was never claimed as an authorized acceptance action.
+
+Targeted read-only diagnosis at that time proved TCP/22, TCP/80, and TCP/443
+to `192.168.10.10` were all unreachable via direct Python socket probes.
+`ROOT_CAUSE_PROVEN=NO`; classification was
+`REMOTE_NETWORK_OR_CONNECTOR_PATH_SUSPECTED`, not an SSH
+authentication/configuration fault (both the SSH-only and the HTTP-only
+Twingate resources failed identically, and Twingate's own per-flow
+`authorize_flow` entries showed policy-authorized flows that never reached
+a connected state).
+
+### 3. Remote-path recovery and Tunnel self-recovery
+
+The remote path later became reachable. `aegis-detection-tunnel.service`
+self-recovered automatically through its existing `Restart=always` /
+`RestartSec=5` policy — no controlled manual Tunnel restart was performed
+by any session. Recovered runtime state at that point:
+
+```text
+Twingate:          PID=2972  NRestarts=0
+Detection Engine:  PID=868   NRestarts=0
+Detection Tunnel:  PID=7821  NRestarts=14
+LISTEN_8077 = present
+LISTEN_18002 = present
+ENGINE_HEALTH = OK
+MONITOR_HEALTHZ = OK
+```
+
+A bounded, diagnostic-only 15-minute pre-authorization read-only stability
+observation was then run:
+
+```text
+START_TS = 2026-09-23T15:29:31+07:00
+FINAL_TS = 2026-09-23T15:44:38+07:00
+OBSERVATION_DURATION_SECONDS = 907
+TWINGATE_STABLE = YES
+ENGINE_STABLE = YES
+TUNNEL_STABLE = YES
+MONITOR_FORWARD_STABLE = YES
+```
+
+This 15-minute window was diagnostic/pre-authorization evidence only — it
+was explicitly not treated as the formal acceptance boundary.
+
+### 4. Revised owner authorization (Issue #186)
+
+Because the Tunnel had already self-recovered and was stable, the original
+Issue #186 plan (start Twingate, then perform exactly one controlled
+Detection Tunnel restart) was reconciled and superseded. Kla
+(`kraveerachat`, OWNER) and Pub (`pubpup2006p-design`, COLLABORATOR) posted
+revised authorization on Issue #186:
+
+```text
+Kla: REVISED_RECOVERY_SCOPE=APPROVED
+     CONTROLLED_TUNNEL_RESTART_REQUIRED=NO
+     ACCEPTANCE_BOUNDARY=POST_TWINGATE_ENABLE_PRESERVATION_PLUS_15M_STABILITY
+
+Pub: IDEA2_NO_RESTART_RECOVERY_SCOPE=APPROVED
+     CONTROLLED_TUNNEL_RESTART_REQUIRED=NO
+```
+
+### 5. Authorized persistence mutation
+
+Under this revised authorization, the operator executed exactly one
+Production mutation:
+
+```text
+sudo systemctl enable twingate.service        # WITHOUT --now
+```
+
+Result: created symlink
+`/etc/systemd/system/multi-user.target.wants/twingate.service` →
+`/usr/lib/systemd/system/twingate.service`. No other Production mutation
+(no service start/stop/restart, no firewall/route change, no Twingate
+credential/policy/configuration change) was performed.
+
+Post-enable preservation was verified read-only immediately after:
+
+```text
+POST_ENABLE_PRESERVATION = PASS
+
+Twingate:  PRE PID=2972 / POST PID=2972   PRE NRestarts=0 / POST NRestarts=0
+Engine:    PRE PID=868  / POST PID=868    PRE NRestarts=0 / POST NRestarts=0
+Tunnel:    PRE PID=7821 / POST PID=7821   PRE NRestarts=14 / POST NRestarts=14
+```
+
+### 6. Formal acceptance window
+
+```text
+FORMAL_START_TS = 2026-09-23T16:00:31+07:00
+FORMAL_FINAL_TS = 2026-09-23T16:16:09+07:00
+FORMAL_OBSERVATION_SECONDS = 938
+
+Twingate:  PID=2972  NRestarts=0  UnitFileState=enabled  status=online
+Engine:    PID=868   NRestarts=0  stable=YES
+Tunnel:    PID=7821  NRestarts=14 stable=YES
+
+LISTEN_8077_FINAL = YES
+LISTEN_18002_FINAL = YES
+ENGINE_HEALTH_FINAL = OK
+MONITOR_HEALTHZ_FINAL = OK
+SDWAN0_FINAL = present/up
+OVERLAY_ROUTE_FINAL = present
+```
+
+No Detection Engine or Detection Tunnel lifecycle event occurred anywhere in
+the formal window (unit journals: no entries).
+
+### 7. Canonical status block
+
+```text
+ISSUE_186_RECOVERY_RESULT=PASS
+TWINGATE_BOOT_PERSISTENCE=ENABLED
+POST_ENABLE_PRESERVATION=PASS
+CONTROLLED_TUNNEL_RESTART_PERFORMED=NO
+DETECTION_ENGINE_LIFECYCLE_ACTION_PERFORMED=NO
+FORMAL_ACCEPTANCE=PASS
+LIVE_ACCEPTANCE=PROVEN
+FINAL_RECEIPT_CREATED=YES
+FINAL_RECEIPT_PATH=Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-09-23_200305_music_idea3-pr11-issue186-recovery-closeout.md
+```
+
+`LIVE_ACCEPTANCE=PROVEN` is scoped exactly to the revised, owner-authorized
+acceptance boundary (`POST_TWINGATE_ENABLE_PRESERVATION_PLUS_15M_STABILITY`)
+— it is not a claim that the original controlled-Tunnel-restart model was
+executed or passed; that model was explicitly superseded before any
+controlled restart occurred.
+
+### 8. Remaining gate
+
+The final receipt for this recovery has been created (see
+`FINAL_RECEIPT_PATH` above), under explicit owner authorization recorded on
+Issue #186:
+
+```text
+ISSUE_186_FINAL_RECEIPT_AUTH=APPROVED
+FINAL_RECEIPT_AUTH=APPROVED
+FINAL_RECEIPT_OWNER=music
+FINAL_RECEIPT_AREA=idea3
+```
+
+(https://github.com/kraveerachat/Project-End-The-AEGIS/issues/186#issuecomment-5795299734,
+`Kittipat050871`, repository owner.) Issue #186 remains open pending PR #188
+merge and final closeout being recorded there; this authorization did not
+extend to any further Production mutation, service lifecycle action, or
+reboot.
+
+## IDEA3 PR11 Phase 4 L7 release builder — status reconciliation (current state) — 2026-09-27
+
+> [!important] This is a status correction, not a rewrite of the 2026-09-24 receipt below (kept unedited). The builder itself is unchanged repository-only tooling: no `/opt` write, no sudo, no systemd, no Production mutation, no live L7.
+
+- **Corrected:** the 2026-09-24 note that builder output was proven "against a verbatim copy of the PR #202 release-guard predicate" is superseded. A real release built by `p4-l7-build-release.py` was independently validated, in a separate process, against the actual newer `p4-l7-release-guard.py` implemented on the separate `feat/idea3-pr11-l7-live-preparation` branch (commit `06b2fc05485c8412cbcceb17b3d1a39b2e246f75`, **not merged to main**): `L7_RELEASE_GUARD=PASS`, exact layout/manifest/checksum match, no schema mismatch.
+- **Corrected:** the 2026-09-24 note that the `core.env` renderer and the broker-hostname/TLS-SAN reconciliation are "still open" describes this builder's own scope correctly, but is stale about the *repository's* current state: both are implemented and tested on `feat/idea3-pr11-l7-live-preparation` (`p4-l7-core-env.py`; Core `AEGIS_MQTT_TLS_SERVER_NAME`). **They are not yet on `main`** — that branch is separate and unmerged — so they remain pending merge, not canonical `main` behavior, and this builder does not depend on or import that code.
+- `PR202_MODIFIED = NO` (unchanged; PR #202 was not touched). `L7PREP_MERGED = NO`. `L7_RELEASE_INSTALL = NOT_RUN`. `L7_LIVE_ACCEPTANCE = NOT_PROVEN`.
+
+## IDEA3 PR11 Phase 4 L7 release builder / verifier — repository tooling — 2026-09-24
+
+> [!important] Repository-only tooling. Nothing is installed, no `/opt` write, no sudo, no systemd, no Production mutation, no live L7.
+
+```text
+L7_RELEASE_BUILDER          = IMPLEMENTED_REPOSITORY
+L7_RELEASE_VERIFIER         = IMPLEMENTED_REPOSITORY
+L7_RELEASE_INSTALL          = NOT_RUN
+L7_PRODUCTION_RELEASE       = NOT_INSTALLED
+L7_LIVE_ACCEPTANCE          = NOT_PROVEN
+PR202_MODIFIED              = NO
+```
+
+- `deploy/pr11-phase4/p4-l7-build-release.py` builds and verifies the release layout the L7 release guard expects (see the phase-4 README section "L7 release builder / verifier"). The shipped `aegis_soc` package is the AST-derived runtime closure of the headless production entrypoint (21 modules plus `__init__`); `cli`, `gui`, `production_runtime`, `telegram_control`, `theme`, `windows_launcher` and `wizard` are not shipped.
+- Builder output was proven against a verbatim copy of the PR #202 release-guard predicate in a fixture root only.
+- Still open for a live L7: the complete `core.env` renderer (PR #202 renders three lines, two of which no Core source reads), and the broker-hostname/TLS-SAN reconciliation (`AEGIS_BROKER_IP` must be an IP while the certificate SAN is `DNS:mqtt.aegis.home.arpa` and hostname verification is enforced) which needs an owner decision.
 
 ## 🔗 Related Notes
 * [[core/system-overview]]

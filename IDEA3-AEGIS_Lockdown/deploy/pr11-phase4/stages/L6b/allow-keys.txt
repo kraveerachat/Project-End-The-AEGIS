@@ -1,0 +1,34 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L6b allowed PRE->POST drift (OD-L6B-01, OD-L6B-07, OD-L6B-09).
+# L6b persistently installs the separate IDEA3 broker; these are the EXACT approved deltas. No wildcard, no broad
+# /etc/aegis-idea3 allowance. PRE->RB (rollback) is compared with NO allow files and must show zero residue.
+# The keys approve only that the item changes; the verify handler independently pins the exact modes/owners/digests.
+
+# ── separate IDEA3 broker service ────────────────────────────────────────────
+svc.aegis-idea3-mosquitto.service.LoadState
+svc.aegis-idea3-mosquitto.service.ActiveState
+svc.aegis-idea3-mosquitto.service.SubState
+svc.aegis-idea3-mosquitto.service.UnitFileState
+svc.aegis-idea3-mosquitto.service.MainPID
+svc.aegis-idea3-mosquitto.service.NRestarts
+svc.aegis-idea3-mosquitto.service.Result
+svc.aegis-idea3-mosquitto.service.ExecMainStartTimestamp
+
+# ── stage-created unit file ──────────────────────────────────────────────────
+host.unit_file./etc/systemd/system/aegis-idea3-mosquitto.service.class
+host.unit_file./etc/systemd/system/aegis-idea3-mosquitto.service.sha256
+host.unit_file./etc/systemd/system/aegis-idea3-mosquitto.service.meta
+
+# ── stage-created broker material directory and the six files ────────────────
+host.path./etc/aegis-idea3/mqtt
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/aegis-idea3-mosquitto.conf.class
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/aegis-idea3-mosquitto.conf.meta
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/acl.class
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/acl.meta
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/passwd.class
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/passwd.meta
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/ca.crt.class
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/ca.crt.meta
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/broker.crt.class
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/broker.crt.meta
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/broker.key.class
+host.aegis_idea3.file./etc/aegis-idea3/mqtt/broker.key.meta

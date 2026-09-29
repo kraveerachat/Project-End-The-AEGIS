@@ -1,0 +1,18 @@
+# AEGIS IDEA3 PR11 Phase 4 — L4 allow-keys.txt
+# Permitted drift keys for Stage L4 (AP addressing & DHCP/Core-local DNS).
+# Target interface is strictly wlp0s20f3.
+net.addr.wlp0s20f3
+net.idea3_dnsmasq_conf./etc/aegis-idea3/dnsmasq-ap.conf.class
+net.idea3_dnsmasq_conf./etc/aegis-idea3/dnsmasq-ap.conf.meta
+net.idea3_dnsmasq_conf./etc/aegis-idea3/dnsmasq-ap.conf.sha256
+net.route4.iface.wlp0s20f3
+nm.profile./etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection.class
+nm.profile./etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection.meta
+svc.aegis-idea3-dnsmasq.service.ActiveState
+svc.aegis-idea3-dnsmasq.service.ExecMainStartTimestamp
+svc.aegis-idea3-dnsmasq.service.LoadState
+svc.aegis-idea3-dnsmasq.service.MainPID
+svc.aegis-idea3-dnsmasq.service.NRestarts
+svc.aegis-idea3-dnsmasq.service.Result
+svc.aegis-idea3-dnsmasq.service.SubState
+svc.aegis-idea3-dnsmasq.service.UnitFileState

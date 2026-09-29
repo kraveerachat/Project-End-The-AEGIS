@@ -203,6 +203,11 @@ def fs_fixture(secret: str) -> dict[str, str]:
         "etc/nftables.conf": "table inet filter_test {}\n",
         "etc/systemd/timesyncd.conf": "[Time]\n",
         "proc/sys/kernel/random/boot_id": "00000000-0000-4000-8000-000000000001\n",
+        "proc/sys/net/ipv4/ip_local_port_range": "32768\t60999\n",
+        "sys/class/net/wlan-test0/phy80211/rfkill1/index": "1\n",
+        "sys/class/net/wlan-test0/phy80211/rfkill1/soft": "1\n",
+        "sys/class/net/wlan-test0/phy80211/rfkill1/hard": "0\n",
+        "sys/class/net/wlan-test0/phy80211/rfkill1/type": "wlan\n",
     }
 
 
@@ -229,13 +234,13 @@ class Capture:
         return out
 
 
-def make_bin(root: Path, drop: tuple[str, ...] = ()) -> Path:
+def make_bin(root: Path, drop: tuple[str, ...] = (), extra: tuple[str, ...] = ()) -> Path:
     bindir = root / "bin"
     bindir.mkdir(parents=True)
     bash = shutil.which("bash")
     for tool in TOOLS:
         (bindir / tool).symlink_to(shutil.which(tool))
-    fakes = {tool: GENERIC_FAKE for tool in FAKE_TOOLS}
+    fakes = {tool: GENERIC_FAKE for tool in (*FAKE_TOOLS, *extra)}
     fakes["systemctl"] = SYSTEMCTL_FAKE
     fakes["journalctl"] = JOURNALCTL_FAKE
     for name, body in fakes.items():
@@ -259,14 +264,15 @@ def write_tree(base: Path, files: dict[str, str]) -> None:
 
 
 def capture(tmp_path: Path, name: str, fixtures: dict[str, str] | None = None, secret: str = "P4CANARYdefault",
-            drop: tuple[str, ...] = (), fs: dict[str, str] | None = None, **env: str) -> Capture:
+            drop: tuple[str, ...] = (), fs: dict[str, str] | None = None, extra_tools: tuple[str, ...] = (),
+            **env: str) -> Capture:
     root = tmp_path / name
     root.mkdir(parents=True)
     fix = root / "fix"
     write_tree(fix, healthy_fixtures() if fixtures is None else fixtures)
     fsroot = root / "fsroot"
     write_tree(fsroot, fs_fixture(secret) if fs is None else fs)
-    bindir = make_bin(root, drop)
+    bindir = make_bin(root, drop, extra_tools)
     calls = root / "calls.log"
     calls.touch()
     evid = root / "evidence"
@@ -327,12 +333,20 @@ def test_capture_happy_path_writes_normalized_checksummed_records(tmp_path: Path
     for key in ("sysctl.net.ipv4.ip_forward", "sysctl.net.ipv6.conf.all.forwarding",
                 "sysctl.net.ipv6.conf.default.forwarding", "sysctl.net.ipv4.conf.all.forwarding"):
         assert rec[key] == "0", key
-    assert rec["wifi.rfkill.wlan"] == "soft=blocked hard=unblocked"
+    assert rec["wifi.rfkill.iface.wlan-test0.soft"] == "blocked"
+    assert rec["wifi.rfkill.iface.wlan-test0.hard"] == "unblocked"
+    assert rec["wifi.rfkill.iface.wlan-test0.id"] == "1"
     assert rec["wifi.reg.global"] == "00"
     assert rec["wifi.iface.wlan-test0.type"] == "managed"
     assert rec["wifi.phy.ap_mode"] == "supported"
+    assert rec["wifi.iface.wlan-test0.phy"] == "phy0"
     assert rec["nm.general"] == "connected:full:enabled:disabled"
-    assert rec["nm.active"] == "wired-test:802-3-ethernet:eth-test0"
+    assert rec["nm.active.device.eth-test0"] == "wired-test:802-3-ethernet"
+    assert rec["nm.active.device.wlan-test0"] == "none"
+    assert rec["nm.device.eth-test0.type"] == "ethernet"
+    assert rec["nm.device.eth-test0.state"] == "connected"
+    assert rec["nm.device.wlan-test0.type"] == "wifi"
+    assert rec["nm.device.wlan-test0.state"] == "unavailable"
     assert rec["fw.nft.tables"] == "table inet filter_test"
     assert re.fullmatch(r"[0-9a-f]{64}", rec["fw.nft.table.inet.filter_test.sha256"])
     assert re.fullmatch(r"[0-9a-f]{64}", rec["fw.nft.ruleset.sha256"])
@@ -596,8 +610,33 @@ def test_flush_ruleset_never_appears_in_t1(path: Path) -> None:
     assert not re.search(r"flush\s+ruleset", path.read_text(), re.IGNORECASE)
 
 
-def test_no_stage_mutation_handlers_exist_in_t1() -> None:
-    assert not (DEPLOY / "stages").exists()
+def test_only_reviewed_stage_handlers_are_registered() -> None:
+    stages = DEPLOY / "stages"
+    assert stages.is_dir()
+    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L8", "L9"}
+    core_handler_files = {
+        "apply.sh",
+        "verify.sh",
+        "rollback.sh",
+        "allow-keys.txt",
+        "allow-listeners.txt",
+    }
+    # L2 additionally owns a repository-side functional verifier for the
+    # dynamic IPv4 containment behavioral contract. It is additive to, not
+    # part of, the apply/verify/rollback/allow-* stage-gate contract that
+    # p4-lib.sh's P4_HANDLER_FILES checks by exact name.
+    expected_by_stage = {
+        "L2": core_handler_files | {"verify-containment-functional.sh"},
+        # L3 owns the one exact regulatory transition p4-compare.sh may accept.
+        "L3": core_handler_files | {"allow-transitions.txt"},
+        # L4 reactivates the applied L3 AP, so it owns the narrow target-phy regulatory window for its own comparison.
+        "L4": core_handler_files | {"allow-transitions.txt"},
+        # L7 apply/verify/rollback all source this shared, reviewed listener-snapshot helper (PR #246).
+        "L7": core_handler_files | {"l7-listener-lib.sh"},
+    }
+    for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L8", "L9"):
+        expected = expected_by_stage.get(name, core_handler_files)
+        assert {p.name for p in (stages / name).iterdir() if p.is_file()} == expected
 
 
 def ro(snippet: str, bindir: Path, calls: Path) -> subprocess.CompletedProcess:
@@ -763,7 +802,9 @@ def test_approved_scoped_listener_is_not_drift(tmp_path: Path) -> None:
 def test_protected_keys_cannot_be_approved(tmp_path: Path) -> None:
     before, after = capture(tmp_path, "before"), capture(tmp_path, "after")
     allow = tmp_path / "allow-keys.txt"
-    for key in ("sysctl.net.ipv4.ip_forward", "idea2.tunnel.NRestarts", "net.route4.default", "host.boot_id"):
+    for key in ("sysctl.net.ipv4.ip_forward", "idea2.tunnel.NRestarts", "net.route4.default", "host.boot_id",
+                "net.dns./etc/resolv.conf.sha256", "net.dns.nameservers", "nm.general",
+                "wifi.reg.global", "wifi.rfkill.iface.wlp0s20f3.hard", "wifi.rfkill.iface.wlp0s20f3.id"):
         allow.write_text(key + "\n")
         result = compare(before, after, ALLOW_KEYS_FILE=str(allow))
         assert result.returncode == 2, key
@@ -782,6 +823,70 @@ def test_idea2_tunnel_restart_on_healthy_baseline_is_new_drift(tmp_path: Path) -
     assert_fail(result, "IDEA2_TUNNEL_RESTART_DRIFT")
 
 
+def historical_restarts(f: dict[str, str], pid: int = 123, restarts: int = 15) -> dict[str, str]:
+    f[f"units/{TUNNEL}"] = unit(pid=pid, restarts=restarts)
+    return f
+
+
+def test_s10_case_a_historical_restart_count_healthy_baseline_passes(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before", fixtures=historical_restarts(healthy_fixtures()))
+    after = capture(tmp_path, "after", fixtures=historical_restarts(healthy_fixtures()))
+    assert before.records()["idea2.tunnel.NRestarts"] == "15"  # history stays visible, never normalized to 0
+    assert before.records()["idea2.verdict.tunnel_healthy"] == "NO_FAILURE_OBSERVED"
+    result = compare(before, after)
+    assert result.returncode == 0, result.stdout
+    assert "PRESERVATION_S10=PASS" in result.stdout
+    assert codes(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED") == set()
+    assert after.records()["idea2.tunnel.NRestarts"] == "15"
+    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER" in result.stdout
+
+
+def test_s10_case_b_restart_during_window_fails(tmp_path: Path) -> None:
+    result = drift(tmp_path, lambda f: historical_restarts(f, pid=123, restarts=16),
+                   base=lambda: historical_restarts(healthy_fixtures()))
+    assert_fail(result, "IDEA2_TUNNEL_RESTART_DRIFT")
+
+
+def test_s10_case_c_mainpid_change_same_counter_fails(tmp_path: Path) -> None:
+    result = drift(tmp_path, lambda f: historical_restarts(f, pid=124, restarts=15),
+                   base=lambda: historical_restarts(healthy_fixtures()))
+    assert_fail(result, "IDEA2_TUNNEL_RESTART_DRIFT")
+
+
+def test_s10_case_d_18002_disappears_with_historical_restarts_fails(tmp_path: Path) -> None:
+    without = "".join(line + "\n" for line in LISTENERS_HEALTHY.splitlines() if ":18002 " not in line)
+    result = drift(tmp_path, lambda f: historical_restarts(f).__setitem__(fx("ss", "-H", "-ltnu"), without),
+                   base=lambda: historical_restarts(healthy_fixtures()))
+    assert_fail(result, "IDEA2_18002_STATE_CHANGED")
+
+
+def test_s10_case_e_new_tunnel_failure_class_with_historical_restarts_fails(tmp_path: Path) -> None:
+    def mutate(f):
+        historical_restarts(f)
+        f[f"journal/{TUNNEL}"] = "Host key verification failed.\n"
+    result = drift(tmp_path, mutate, base=lambda: historical_restarts(healthy_fixtures()))
+    assert_fail(result, "IDEA2_TUNNEL_NEW_FAILURE_CLASS")
+
+
+@pytest.mark.parametrize("shape", ["18002_absent", "tunnel_inactive"])
+def test_s10_case_f_currently_unhealthy_baseline_fails(tmp_path: Path, shape: str) -> None:
+    def base():
+        f = historical_restarts(healthy_fixtures())
+        if shape == "18002_absent":
+            f[fx("ss", "-H", "-ltnu")] = "".join(
+                line + "\n" for line in LISTENERS_HEALTHY.splitlines() if ":18002 " not in line)
+        else:
+            f[f"units/{TUNNEL}"] = unit(active="inactive", sub="dead", pid=0, restarts=15)
+        return f
+    before = capture(tmp_path, "before", fixtures=base())
+    after = capture(tmp_path, "after", fixtures=base())
+    assert before.records()["idea2.verdict.tunnel_healthy"] == "NO"
+    result = compare(before, after)
+    assert result.returncode == 1
+    assert "IDEA2_TUNNEL_BASELINE_UNHEALTHY" in codes(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED")
+    assert "PRESERVATION_S10=FAIL" in result.stdout
+
+
 def test_unhealthy_baseline_unchanged_is_distinguished_but_still_blocks_s10(tmp_path: Path) -> None:
     def base():
         return live_like_unhealthy(healthy_fixtures())
@@ -795,8 +900,90 @@ def test_unhealthy_baseline_unchanged_is_distinguished_but_still_blocks_s10(tmp_
     assert {"IDEA2_TUNNEL_BASELINE_UNHEALTHY", "IDEA2_TUNNEL_RESTART_DRIFT", "IDEA2_TUNNEL_FAILURE_COUNT"} <= unchanged
     assert not any(code.startswith("IDEA2_TUNNEL") for code in codes(result, "NEW_OR_WORSENED_DRIFT"))
     assert "PRESERVATION_S10=FAIL" in result.stdout
-    assert "IDEA2_NARROWED_CRITERION=NOT_ACCEPTED" in result.stdout
+    assert "IDEA2_NARROWED_CRITERION=WINDOW_DELTA_ACCEPTED_BY_IDEA2_OWNER" in result.stdout
     assert "COMPARE_RESULT=FAIL" in result.stdout
+
+
+# ── IDEA2 engine heartbeat window artifact (L34 V5 forensic, 2026-09-29) ────────────────────────────────────────────────
+# Both captures share one JOURNAL_SINCE: PRE covers ~0s, RB the whole mutation window, so the engine's 5s
+# "Monitor unreachable ... Connection refused" warning appears only in RB while the monitor (18002) stays down.
+
+HB_LINE = ("2026-09-29 11:16:06 | WARNING | HeartbeatWorker  | MonitorClient | Monitor unreachable for /internal/heartbeat "
+           "(ConnectionError: Max retries exceeded ... [Errno 111] Connection refused) — event not persisted\n")
+MONITOR_DOWN_18002 = "tcp   LISTEN 0      128         127.0.0.1:18002     0.0.0.0:*\n"
+
+
+def monitor_down(fix: dict[str, str], engine_journal: str = "") -> dict[str, str]:
+    fix[fx("ss", "-H", "-ltnu")] = LISTENERS_HEALTHY.replace(MONITOR_DOWN_18002, "")
+    fix[f"journal/{ENGINE}"] = engine_journal
+    return fix
+
+
+def engine_drift_keys(result: subprocess.CompletedProcess, klass: str) -> set[str]:
+    return {key for k, code, key in findings(result) if k == klass and key.startswith("idea2.engine.journal.")}
+
+
+def test_engine_heartbeat_growth_pre_zero_rb_one_is_baseline_when_monitor_already_down(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before", fixtures=monitor_down(healthy_fixtures()))
+    after = capture(tmp_path, "after", fixtures=monitor_down(healthy_fixtures(), HB_LINE))
+    assert before.records()["idea2.engine.journal.heartbeat_failed"] == "0"
+    assert after.records()["idea2.engine.journal.heartbeat_failed"] == "1"
+    assert after.records()["idea2.engine.journal.refused"] == "1"
+    result = compare(before, after)
+    assert engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT") == set()
+    assert engine_drift_keys(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED") == {
+        "idea2.engine.journal.heartbeat_failed", "idea2.engine.journal.refused"}
+    assert "IDEA2_ENGINE_HEARTBEAT_BASELINE" in codes(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED")
+    assert "FINDINGS_NEW_OR_WORSENED_DRIFT=0" in result.stdout
+    # An unhealthy IDEA2 baseline still never yields PRESERVATION_S10=PASS: only the false drift is reclassified.
+    assert "PRESERVATION_S10=FAIL" in result.stdout
+
+
+def test_engine_heartbeat_growth_is_still_drift_when_idea2_was_healthy_before(tmp_path: Path) -> None:
+    def mutate(f):
+        f[f"journal/{ENGINE}"] = HB_LINE
+    result = drift(tmp_path, mutate)  # healthy baseline: 18002 present, runtime healthy
+    assert engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT") == {
+        "idea2.engine.journal.heartbeat_failed", "idea2.engine.journal.refused"}
+    assert "PRESERVATION_S10=FAIL" in result.stdout
+
+
+def test_engine_heartbeat_growth_is_still_drift_when_monitor_goes_down_during_the_window(tmp_path: Path) -> None:
+    def mutate(f):
+        monitor_down(f, HB_LINE)
+    result = drift(tmp_path, mutate)  # PRE healthy (18002 present) -> RB unhealthy (18002 absent)
+    assert "IDEA2_18002_STATE_CHANGED" in codes(result, "NEW_OR_WORSENED_DRIFT")
+    assert engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT") >= {"idea2.engine.journal.heartbeat_failed"}
+
+
+def test_engine_heartbeat_growth_is_still_drift_when_18002_state_changes_from_down_to_up(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before", fixtures=monitor_down(healthy_fixtures()))
+    after = capture(tmp_path, "after", fixtures=healthy_fixtures() | {f"journal/{ENGINE}": HB_LINE})
+    result = compare(before, after)
+    assert "IDEA2_18002_STATE_CHANGED" in codes(result, "NEW_OR_WORSENED_DRIFT")
+    assert engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT") >= {"idea2.engine.journal.heartbeat_failed"}
+
+
+def test_engine_heartbeat_counter_decrease_is_still_drift(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before", fixtures=monitor_down(healthy_fixtures(), HB_LINE * 3))
+    after = capture(tmp_path, "after", fixtures=monitor_down(healthy_fixtures(), HB_LINE))
+    result = compare(before, after)
+    assert engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT") == {
+        "idea2.engine.journal.heartbeat_failed", "idea2.engine.journal.refused"}
+
+
+@pytest.mark.parametrize("line,key", [
+    ("Traceback (most recent call last):\n", "exception"),
+    ("aegis-detection-engine.service: Failed with result 'exit-code'.\n", "unit_failed"),
+    ("aegis-detection-engine.service: Scheduled restart job, restart counter is at 3.\n", "restart_scheduled"),
+    ("upstream read timed out\n", "timeout"),
+])
+def test_engine_other_failure_classes_are_still_drift_when_monitor_already_down(tmp_path: Path, line: str, key: str) -> None:
+    before = capture(tmp_path, "before", fixtures=monitor_down(healthy_fixtures()))
+    after = capture(tmp_path, "after", fixtures=monitor_down(healthy_fixtures(), HB_LINE + line))
+    result = compare(before, after)
+    assert f"idea2.engine.journal.{key}" in engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT")
+    assert f"idea2.engine.journal.{key}" not in engine_drift_keys(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED")
 
 
 def test_unhealthy_baseline_identical_capture_still_fails_s10(tmp_path: Path) -> None:
@@ -879,6 +1066,17 @@ def test_mosquitto_config_drift_fails(tmp_path: Path) -> None:
     assert_fail(result, "MQTT_CONFIG_DRIFT")
 
 
+def test_dns_configuration_drift_fails(tmp_path: Path) -> None:
+    fs_before = fs_fixture("P4CANARYdefault")
+    fs_before["etc/resolv.conf"] = "nameserver 127.0.0.53\n"
+    before = capture(tmp_path, "before", fs=fs_before)
+    fs_after = fs_fixture("P4CANARYdefault")
+    fs_after["etc/resolv.conf"] = "nameserver 1.1.1.1\n"
+    after = capture(tmp_path, "after", fs=fs_after)
+    result = compare(before, after)
+    assert_fail(result, "DNS_CONFIGURATION_DRIFT")
+
+
 # ── L–N. stage gate ──────────────────────────────────────────────────────────
 
 def today(offset: int = 0) -> str:
@@ -909,7 +1107,17 @@ def k3_record(stage: str, date: str | None = None, **overrides: str) -> str:
     return "AEGIS_P4_K3_CONFIRMATION_V1\n" + "".join(f"{k}={v}\n" for k, v in fields.items() if v is not None)
 
 
-def gate(tmp_path: Path, *args: str, auth: str | None = None, k3: str | None = None) -> subprocess.CompletedProcess:
+def k3v2_record(stage: str, date: str | None = None, **overrides: str) -> str:
+    fields = {
+        "stage": stage, "date": date or today(), "confirmed_by": "music",
+        "confirmation_mode": "IDEA3_OWNER_SELF_ATTESTATION", "idea1_window_overlap": "NONE_KNOWN",
+        "reference": "https://example.invalid/aegis-p4-test-m16-k3",
+    }
+    fields.update(overrides)
+    return "AEGIS_P4_K3_CONFIRMATION_V2\n" + "".join(f"{k}={v}\n" for k, v in fields.items() if v is not None)
+
+
+def gate(tmp_path: Path, *args: str, auth: str | None = None, k3: str | None = None, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     root = tmp_path / "gate"
     root.mkdir(exist_ok=True)
     bindir = root / "bin"
@@ -924,9 +1132,12 @@ def gate(tmp_path: Path, *args: str, auth: str | None = None, k3: str | None = N
     if k3 is not None:
         (root / "k3.txt").write_text(k3)
         argv += ["--k3", str(root / "k3.txt")]
+    env = {"PATH": str(bindir), "HOME": str(root), "LC_ALL": "C", "P4_CALL_LOG": str(calls),
+           "P4_FIX": str(root)}
+    if extra_env:
+        env.update(extra_env)
     result = subprocess.run(["bash", str(GATE), *argv], capture_output=True, text=True,
-                            env={"PATH": str(bindir), "HOME": str(root), "LC_ALL": "C", "P4_CALL_LOG": str(calls),
-                                 "P4_FIX": str(root)}, stdin=subprocess.DEVNULL, timeout=30,
+                            env=env, stdin=subprocess.DEVNULL, timeout=30,
                             check=False)
     assert calls.read_text() == "", "the stage gate must not call any host command"
     return result
@@ -994,7 +1205,7 @@ def test_gate_malformed_authorization_fails(tmp_path: Path, record: str) -> None
               "AUTHORIZATION_MALFORMED")
 
 
-@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L7", "L8", "L9"])
+@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L8", "L9"])
 def test_gate_mutating_stage_without_k3_fails(tmp_path: Path, stage: str) -> None:
     gate_fail(gate(tmp_path, "--stage", stage, "--mode", "simulate", auth=auth_record(stage)), "K3_MISSING")
 
@@ -1012,6 +1223,57 @@ def test_gate_invalid_k3_fails(tmp_path: Path, k3, code: str) -> None:
     gate_fail(gate(tmp_path, "--stage", "L2", "--mode", "simulate", auth=auth_record("L2"), k3=k3()), code)
 
 
+def test_gate_m16_v1_kraveerachat_k3_remains_valid(tmp_path: Path) -> None:
+    result = gate(tmp_path, "--stage", "L4", "--mode", "simulate", auth=auth_record("L4"), k3=k3_record("L4"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "K3_CONFIRMATION=VALID" in result.stdout
+
+
+@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L8", "L9"])
+def test_gate_m16_v2_owner_self_k3_is_valid(tmp_path: Path, stage: str) -> None:
+    result = gate(tmp_path, "--stage", stage, "--mode", "simulate", auth=auth_record(stage), k3=k3v2_record(stage))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "K3_CONFIRMATION=VALID" in result.stdout
+    assert "LIVE_STAGE_AUTHORIZED=NO" in result.stdout
+    assert "PRODUCTION_MUTATION_PERFORMED=NO" in result.stdout
+
+
+def test_gate_m16_v2_does_not_replace_authorization(tmp_path: Path) -> None:
+    gate_fail(gate(tmp_path, "--stage", "L4", "--mode", "simulate", k3=k3v2_record("L4")), "AUTHORIZATION_MISSING")
+    gate_fail(gate(tmp_path, "--stage", "L4", "--mode", "simulate", auth=auth_record("L4", date=today(-1)),
+                   k3=k3v2_record("L4")), "AUTHORIZATION_STALE")
+
+
+@pytest.mark.parametrize(("k3", "code"), [
+    (lambda: k3v2_record("L4", date=today(-1)), "K3_STALE"),
+    (lambda: k3v2_record("L4", date=today(1)), "K3_STALE"),
+    (lambda: k3v2_record("L3"), "K3_STAGE_MISMATCH"),
+    (lambda: k3v2_record("L4", confirmed_by="kraveerachat"), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", confirmed_by="random-user"), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", confirmation_mode=None), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", confirmation_mode="INDEPENDENT_IDEA1_OWNER"), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", idea1_window_overlap="NONE"), "K3_OVERLAP_NOT_NONE"),
+    (lambda: k3v2_record("L4", idea1_window_overlap="ACTIVE"), "K3_OVERLAP_NOT_NONE"),
+    (lambda: k3v2_record("L4", idea1_window_overlap="UNKNOWN"), "K3_OVERLAP_NOT_NONE"),
+    (lambda: k3v2_record("L4").replace("AEGIS_P4_K3_CONFIRMATION_V2", "AEGIS_P4_K3_CONFIRMATION_V3"), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", reference=None), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4", reference="<REPLACE-ME>"), "K3_MALFORMED"),
+    (lambda: k3v2_record("L4") + "stage=L4\n", "K3_MALFORMED"),
+    (lambda: k3v2_record("L4") + "psk=not-allowed\n", "K3_MALFORMED"),
+    (lambda: k3v2_record("L4").replace("\n", "\r\n"), "K3_MALFORMED"),
+    # V1 must keep its exact historical semantics.
+    (lambda: k3_record("L4", confirmed_by="music"), "K3_MALFORMED"),
+    (lambda: k3_record("L4", idea1_window_overlap="NONE_KNOWN"), "K3_OVERLAP_NOT_NONE"),
+    (lambda: k3_record("L4") + "confirmation_mode=IDEA3_OWNER_SELF_ATTESTATION\n", "K3_MALFORMED"),
+])
+def test_gate_m16_invalid_k3_fails(tmp_path: Path, k3, code: str) -> None:
+    gate_fail(gate(tmp_path, "--stage", "L4", "--mode", "simulate", auth=auth_record("L4"), k3=k3()), code)
+
+
+def test_gate_m16_missing_k3_still_fails(tmp_path: Path) -> None:
+    gate_fail(gate(tmp_path, "--stage", "L4", "--mode", "simulate", auth=auth_record("L4")), "K3_MISSING")
+
+
 def test_gate_simulation_with_valid_records_never_authorizes_live(tmp_path: Path) -> None:
     result = gate(tmp_path, "--stage", "L2", "--mode", "simulate", auth=auth_record("L2"), k3=k3_record("L2"))
     assert result.returncode == 0, result.stdout + result.stderr
@@ -1021,16 +1283,56 @@ def test_gate_simulation_with_valid_records_never_authorizes_live(tmp_path: Path
     assert "K3_CONFIRMATION=VALID" in out
     assert "STAGE_MUTATES_PRODUCTION=YES" in out
     assert "REQUIRED_REPOSITORY_GAPS=G-06,G-15" in out
-    assert "ROLLBACK_HANDLER=NOT_REGISTERED" in out
-    assert "S10_IDEA2_CAVEAT=OPEN" in out
+    assert "ROLLBACK_HANDLER=REGISTERED" in out
+    assert "S10_CRITERION_OWNER_ACCEPTANCE=APPROVED" in out
+    assert "S10_PRESERVATION_EVIDENCE=REQUIRED_PER_STAGE" in out
+    assert "S10_IDEA2_CAVEAT=OPEN" not in out
+    assert "PENDING" not in out.split("S10_CRITERION_OWNER_ACCEPTANCE")[1].splitlines()[0]
     assert "LIVE_STAGE_AUTHORIZED=NO" in out
     assert "PRODUCTION_MUTATION_PERFORMED=NO" in out
 
 
 def test_gate_live_mode_for_mutating_stage_fails_without_registered_handler(tmp_path: Path) -> None:
-    result = gate(tmp_path, "--stage", "L2", "--mode", "live", auth=auth_record("L2"), k3=k3_record("L2"))
+    # All mutating P4 stages (L1..L9) have reviewed handlers registered.
+    # Synthetic test fixture isolates a stages directory where a real mutating stage (L1)
+    # has no handler directory, proving fail-closed ROLLBACK_HANDLER_NOT_REGISTERED.
+    synthetic_stages = tmp_path / "synthetic_stages_empty"
+    synthetic_stages.mkdir(parents=True, exist_ok=True)
+    result = gate(
+        tmp_path,
+        "--stage",
+        "L1",
+        "--mode",
+        "live",
+        auth=auth_record("L1"),
+        k3=k3_record("L1"),
+        extra_env={"AEGIS_P4_HANDLER_DIR": str(synthetic_stages)},
+    )
+    assert "STAGE_MUTATES_PRODUCTION=YES" in result.stdout
+    assert "ROLLBACK_HANDLER=NOT_REGISTERED" in result.stdout
     gate_fail(result, "ROLLBACK_HANDLER_NOT_REGISTERED")
     assert "AUTHORIZATION_RECORD=VALID" in result.stdout
+
+
+def test_gate_live_mode_fails_if_handler_file_is_missing(tmp_path: Path) -> None:
+    # Proves that if even one of the five required handler files is missing, handler status is NOT_REGISTERED.
+    synthetic_stages = tmp_path / "synthetic_stages_partial"
+    stage_dir = synthetic_stages / "L1"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    for f in ("apply.sh", "verify.sh", "allow-keys.txt", "allow-listeners.txt"):
+        (stage_dir / f).touch()
+    result = gate(
+        tmp_path,
+        "--stage",
+        "L1",
+        "--mode",
+        "live",
+        auth=auth_record("L1"),
+        k3=k3_record("L1"),
+        extra_env={"AEGIS_P4_HANDLER_DIR": str(synthetic_stages)},
+    )
+    assert "ROLLBACK_HANDLER=NOT_REGISTERED" in result.stdout
+    gate_fail(result, "ROLLBACK_HANDLER_NOT_REGISTERED")
 
 
 @pytest.mark.parametrize("mode", ["simulate", "live"])
@@ -1061,7 +1363,7 @@ READ_ONLY_CALLS = (
     r"nft (list tables|--stateless list ruleset|--stateless list table [a-z0-9]+ [A-Za-z0-9_-]+)",
     r"timedatectl (show|show-timesync)( -p [A-Za-z]+)+",
     r"ss -H (-ltnu|-tn state established)",
-    r"systemctl show( -p [A-Za-z]+)+ [A-Za-z0-9@._-]+\.service",
+    r"systemctl show( -p [A-Za-z]+)+ [A-Za-z0-9@._-]+\.(service|socket)",
     r"journalctl -u [A-Za-z0-9@._-]+\.service --since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]{8} UTC --no-pager -o cat",
     r"df -P -k /[a-z]*",
     r"hostnamectl --static",
@@ -1082,3 +1384,293 @@ def test_capture_calls_only_read_only_commands_through_the_guard(tmp_path: Path)
         assert scan(argv) == [], argv
     compare(cap, cap)
     assert cap.calls.read_text().splitlines() == calls, "compare must not call host commands"
+
+
+# ── P. Phase 4 L0 harness portability and fail-closed repair regressions ──────
+
+def find_utf8_locale() -> str:
+    res = subprocess.run(["locale", "-a"], capture_output=True, text=True, check=False)
+    locales = set(res.stdout.splitlines())
+    for cand in ("en_US.UTF-8", "en_US.utf8", "C.UTF-8", "C.utf8"):
+        if cand in locales or cand.lower() in {l.lower() for l in locales}:
+            return cand
+    return "C.UTF-8"
+
+
+def test_gate_l0_authorization_passes_under_utf8_locale(tmp_path: Path) -> None:
+    loc = find_utf8_locale()
+    auth = auth_record("L0", scope="read-only baseline preflight capture",
+                       reference="PR11-L0-PREFLIGHT-2026-09-21")
+    result = gate(tmp_path, "--stage", "L0", "--mode", "simulate",
+                  auth=auth, extra_env={"LC_ALL": loc, "LANG": loc})
+    assert result.returncode == 0, f"Failed under locale {loc}: {result.stdout}\n{result.stderr}"
+    assert "AUTHORIZATION_RECORD=VALID" in result.stdout
+    assert "READ_ONLY_CAPTURE_ALLOWED=YES" in result.stdout
+    assert "STAGE_GATE=PASS_READ_ONLY" in result.stdout
+    assert "GATE_FAIL" not in result.stdout
+
+
+def test_capture_nm_profile_with_spaces_captured_safely(tmp_path: Path) -> None:
+    secret = canary()
+    fs = fs_fixture(secret)
+    fs["etc/NetworkManager/system-connections/Wired connection 1.nmconnection"] = f"[wifi-security]\npsk={secret}\n"
+    cap = capture(tmp_path, "spaces", fs=fs, secret=secret)
+    assert cap.result.returncode == 0, cap.result.stdout + cap.result.stderr
+    assert "L0_CAPTURE=COMPLETE" in cap.result.stdout
+    assert "REFUSED non-read-only command: stat" not in cap.result.stderr
+    log = (cap.evid / "capture.log").read_text()
+    assert "REFUSED non-read-only command: stat" not in log
+    rec = cap.records()
+    meta_key = "nm.profile./etc/NetworkManager/system-connections/Wired_connection_1.nmconnection.meta"
+    assert meta_key in rec, f"Expected {meta_key} in records: {list(rec.keys())}"
+    assert rec[meta_key] != "UNREADABLE", f"{meta_key} is UNREADABLE"
+    assert rec[meta_key].startswith("mode=")
+
+
+def test_read_only_guard_refuses_extra_argv_boundary_violation(tmp_path: Path) -> None:
+    bindir = make_bin(tmp_path)
+    calls = tmp_path / "calls.log"
+    calls.touch()
+    extra_argv_cases = [
+        ["stat", "-c", "%a:%u:%g:%s:%Y", "--", "/valid/path", "/extra/arg"],
+        ["stat", "-c", "%a:%u:%g:%s:%Y", "--", "/path with space", "extra"],
+        ["sha256sum", "--", "/valid/path", "/extra/arg"],
+        ["sha256sum", "--", "/path with space", "extra"],
+        ["readlink", "--", "/valid/path", "/extra/arg"],
+        ["readlink", "-f", "--", "/valid/path", "/extra/arg"],
+        ["find", "/valid/path", "-xdev", "-type", "f", "-delete"],
+        ["find", "/valid/path", "/extra/path", "-xdev", "-type", "f"],
+    ]
+    for argv in extra_argv_cases:
+        words = " ".join(f"'{w}'" for w in argv)
+        result = ro(f"p4_ro {words}", bindir, calls)
+        assert result.returncode == 126, f"Expected 126 for {argv}, got {result.returncode}"
+        assert "REFUSED non-read-only command:" in (result.stdout + result.stderr)
+
+
+def test_read_only_guard_refuses_control_characters_in_paths(tmp_path: Path) -> None:
+    bindir = make_bin(tmp_path)
+    calls = tmp_path / "calls.log"
+    calls.touch()
+    bad_paths = [
+        "/path/with\nnewline",
+        "/path/with\rCR",
+        "/path/with\ttab",
+        "/path/with\x1bescape",
+        "/path/with\x07bell",
+    ]
+    for bp in bad_paths:
+        for cmd in [
+            ["stat", "-c", "%a:%u:%g:%s:%Y", "--", bp],
+            ["sha256sum", "--", bp],
+            ["readlink", "--", bp],
+            ["find", bp, "-xdev", "-type", "f"],
+        ]:
+            words = " ".join(f"'{w}'" for w in cmd)
+            result = ro(f"p4_ro {words}", bindir, calls)
+            assert result.returncode == 126, f"Expected 126 for {cmd}, got {result.returncode}"
+            assert "REFUSED non-read-only command:" in (result.stdout + result.stderr)
+
+
+def test_capture_required_metadata_read_failure_results_in_partial_and_exit_3(tmp_path: Path) -> None:
+    # Simulate an unreadable metadata failure on a required capture surface by intercepting stat
+    root = tmp_path / "meta_fail"
+    root.mkdir(parents=True)
+    fix = root / "fix"
+    write_tree(fix, healthy_fixtures())
+    fsroot = root / "fsroot"
+    write_tree(fsroot, fs_fixture("canary_meta_fail"))
+    bindir = make_bin(root)
+    # Create a wrapper stat that fails specifically when called on the NM connection profile
+    real_stat = shutil.which("stat")
+    wrapper = bindir / "stat"
+    wrapper.unlink()
+    wrapper.write_text(f"""#!/usr/bin/env bash
+for arg in "$@"; do
+  if [[ "$arg" == *"ap-test.nmconnection"* ]]; then
+    echo "simulated stat I/O failure" >&2
+    exit 1
+  fi
+done
+exec {real_stat} "$@"
+""")
+    wrapper.chmod(0o755)
+
+    calls = root / "calls.log"
+    calls.touch()
+    evid = root / "evidence"
+    base = {
+        "PATH": str(bindir), "HOME": str(root), "LC_ALL": "C", "P4_FIX": str(fix), "P4_CALL_LOG": str(calls),
+        "EVID_DIR": str(evid), "CAPTURE_LABEL": "meta-fail", "JOURNAL_SINCE": JOURNAL_SINCE,
+        "AEGIS_P4_FS_ROOT": str(fsroot),
+    }
+    result = subprocess.run(["bash", str(CAPTURE)], capture_output=True, text=True, env=base,
+                            stdin=subprocess.DEVNULL, timeout=120, check=False)
+    assert result.returncode == 3, f"Expected exit code 3, got {result.returncode}\n{result.stdout}\n{result.stderr}"
+    assert "L0_CAPTURE=PARTIAL" in result.stdout
+    rec: dict[str, str] = {}
+    for tsv in evid.glob("*.tsv"):
+        for line in tsv.read_text().splitlines():
+            k, _, v = line.partition("\t")
+            rec[k] = v
+    assert rec.get("meta.capture_status") == "PARTIAL"
+    assert rec.get("nm.profile./etc/NetworkManager/system-connections/ap-test.nmconnection.meta") == "UNREADABLE"
+
+
+def test_secret_hygiene_nm_profile_with_spaces_never_emitted(tmp_path: Path) -> None:
+    secret = canary()
+    fs = fs_fixture(secret)
+    fs["etc/NetworkManager/system-connections/Wired connection 1.nmconnection"] = f"[wifi-security]\npsk={secret}\n"
+    cap = capture(tmp_path, "spaces_secret", fs=fs, secret=secret)
+    rec = cap.records()
+    profile_class = rec.get("nm.profile./etc/NetworkManager/system-connections/Wired_connection_1.nmconnection.class")
+    assert profile_class == "secret-metadata-only"
+    assert "nm.profile./etc/NetworkManager/system-connections/Wired_connection_1.nmconnection.sha256" not in rec
+
+    streams = [cap.result.stdout, cap.result.stderr]
+    for p in cap.evid.rglob("*"):
+        if p.is_file():
+            streams.append(p.read_text(errors="replace"))
+    for s in streams:
+        assert secret not in s, "Secret leaked into capture output or bundle files"
+
+
+# ── Phase 4 evidence-harness fixes (L1 live attempt, 2026-09-24) ─────────────
+# Defect A: transient UDP client sockets on kernel-assigned (ephemeral) ports
+# were recorded as listeners, so ordinary network activity failed preservation.
+# Defect B: passive L1 chrony (installed, chronyd inactive) was recorded as the
+# generic UNAVAILABLE sentinel and turned INCOMPARABLE even though L1 allow-lists
+# time.chrony.leap.
+
+def udp_fixture(f: dict[str, str], *rows: str) -> None:
+    f[fx("ss", "-H", "-ltnu")] = LISTENERS_HEALTHY + "".join(rows)
+
+
+def udp_row(local: str) -> str:
+    return f"udp   UNCONN 0      0     {local:>28} 0.0.0.0:*\n"
+
+
+def test_ephemeral_udp_socket_rotation_is_not_drift(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before", fixtures={**healthy_fixtures()})
+    fb, fa = healthy_fixtures(), healthy_fixtures()
+    udp_fixture(fb, udp_row("0.0.0.0%eth-test0:45311"), udp_row("192.0.2.10:39002"), udp_row("[::]:51000"))
+    udp_fixture(fa, udp_row("0.0.0.0%eth-test0:36777"), udp_row("192.0.2.10:58123"), udp_row("[::]:40404"))
+    b, a = capture(tmp_path, "b2", fixtures=fb), capture(tmp_path, "a2", fixtures=fa)
+    assert before.result.returncode == 0 and b.result.returncode == 0 and a.result.returncode == 0
+    result = compare(b, a)
+    assert result.returncode == 0, result.stdout
+    assert "NEW_OR_WORSENED_DRIFT" not in {k for k, _, _ in findings(result)}
+    # …and the ephemeral sockets are not recorded as per-port listener keys at all
+    assert not [k for k in b.records() if k.startswith("listen.udp.") and k.rsplit(":", 1)[-1] in
+                {"45311", "39002", "51000"}]
+
+
+def test_fixed_udp_listener_added_is_still_drift(tmp_path: Path) -> None:
+    def mutate(f):
+        udp_fixture(f, udp_row("0.0.0.0:5300"))
+    assert_fail(drift(tmp_path, mutate), "LISTENER_ADDED")
+
+
+def test_fixed_udp_listener_removed_is_still_drift(tmp_path: Path) -> None:
+    def mutate(f):
+        f[fx("ss", "-H", "-ltnu")] = LISTENERS_HEALTHY.replace(
+            "udp   UNCONN 0      0          127.0.0.54:53        0.0.0.0:*\n", "")
+    assert_fail(drift(tmp_path, mutate), "LISTENER_REMOVED")
+
+
+@pytest.mark.parametrize("port", ["53", "123", "8883"])
+def test_aegis_relevant_udp_listener_is_detected(tmp_path: Path, port: str) -> None:
+    def mutate(f):
+        udp_fixture(f, udp_row(f"192.0.2.10:{port}"))
+    result = drift(tmp_path, mutate)
+    assert result.returncode == 1, result.stdout
+    assert codes(result, "NEW_OR_WORSENED_DRIFT") & {"LISTENER_ADDED", "IDEA3_LISTENER_OUT_OF_SCOPE"}
+
+
+def test_ephemeral_range_tcp_listener_is_still_drift(tmp_path: Path) -> None:
+    def mutate(f):
+        f[fx("ss", "-H", "-ltnu")] += "tcp   LISTEN 0      128        0.0.0.0:40000     0.0.0.0:*\n"
+    assert_fail(drift(tmp_path, mutate), "LISTENER_ADDED")
+
+
+def test_udp_ephemeral_policy_is_recorded_and_range_change_is_drift(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before")
+    fs = fs_fixture("P4CANARYdefault")
+    fs["proc/sys/net/ipv4/ip_local_port_range"] = "1024\t65000\n"
+    after = capture(tmp_path, "after", fs=fs)
+    assert before.records()["listen.udp.ephemeral_filter"] == "kernel-range-32768-60999"
+    assert after.records()["listen.udp.ephemeral_filter"] == "kernel-range-1024-65000"
+    result = compare(before, after)
+    assert result.returncode == 1, result.stdout
+
+
+def test_udp_filter_fails_safe_when_range_unreadable(tmp_path: Path) -> None:
+    fs = fs_fixture("P4CANARYdefault")
+    del fs["proc/sys/net/ipv4/ip_local_port_range"]
+    fixtures = healthy_fixtures()
+    udp_fixture(fixtures, udp_row("192.0.2.10:45311"))
+    cap = capture(tmp_path, "nofilter", fixtures=fixtures, fs=fs)
+    rec = cap.records()
+    assert rec["listen.udp.ephemeral_filter"] == "none-range-unreadable"
+    assert rec["listen.udp.192.0.2.10:45311"] == "present"  # nothing is hidden without a proven range
+
+
+CHRONYC_TRACKING = fx("chronyc", "-n", "tracking")
+CHRONYD = "units/chronyd.service"
+
+
+def chrony_fixtures(*, unit_state: str | None, tracking: str | None, tracking_rc: int = 0) -> dict[str, str]:
+    f = healthy_fixtures()
+    if unit_state is not None:
+        f[CHRONYD] = unit(active=unit_state, sub="dead" if unit_state == "inactive" else "running")
+    if tracking is not None:
+        f[CHRONYC_TRACKING] = tracking
+        if tracking_rc:
+            f[CHRONYC_TRACKING + ".rc"] = str(tracking_rc)
+    return f
+
+
+PASSIVE_CHRONY = dict(unit_state="inactive", tracking="506 Cannot talk to daemon\n", tracking_rc=1)
+
+
+def test_passive_l1_chrony_is_recorded_as_explicit_inactive_state(tmp_path: Path) -> None:
+    cap = capture(tmp_path, "post", fixtures=chrony_fixtures(**PASSIVE_CHRONY), extra_tools=("chronyc",))
+    assert cap.records()["time.chrony.leap"] == "installed-inactive"
+
+
+def test_not_installed_to_passive_l1_chrony_is_comparable_with_l1_allow_keys(tmp_path: Path) -> None:
+    before = capture(tmp_path, "pre")
+    assert before.records()["time.chrony.leap"] == "not-installed"
+    after = capture(tmp_path, "post", fixtures=chrony_fixtures(**PASSIVE_CHRONY), extra_tools=("chronyc",))
+    allow = tmp_path / "allow-keys.txt"
+    allow.write_text("time.chrony.leap\n")
+    result = compare(before, after, ALLOW_KEYS_FILE=str(allow))
+    assert "INCOMPARABLE" not in {k for k, _, _ in findings(result)}, result.stdout
+    assert "KEY_APPROVED" in codes(result, "APPROVED_CHANGE")
+    # without the narrow allow entry the same change is still drift
+    unapproved = compare(before, after)
+    assert unapproved.returncode == 1 and "TIME_STATE_DRIFT" in codes(unapproved)
+
+
+def test_chrony_query_failure_while_daemon_active_still_fails_closed(tmp_path: Path) -> None:
+    before = capture(tmp_path, "pre")
+    after = capture(tmp_path, "post", extra_tools=("chronyc",), fixtures=chrony_fixtures(
+        unit_state="active", tracking="506 Cannot talk to daemon\n", tracking_rc=1))
+    assert after.records()["time.chrony.leap"] == "UNAVAILABLE"
+    allow = tmp_path / "allow-keys.txt"
+    allow.write_text("time.chrony.leap\n")  # an approved key must not turn unreadable evidence into PASS
+    result = compare(before, after, ALLOW_KEYS_FILE=str(allow))
+    assert result.returncode == 1 and "EVIDENCE_UNAVAILABLE" in codes(result, "INCOMPARABLE"), result.stdout
+
+
+def test_chrony_unparseable_output_while_inactive_is_not_reported_inactive(tmp_path: Path) -> None:
+    # tracking succeeded but carries no leap status: that is a read defect, never "inactive"
+    cap = capture(tmp_path, "post", extra_tools=("chronyc",),
+                  fixtures=chrony_fixtures(unit_state="inactive", tracking="garbage\n"))
+    assert cap.records()["time.chrony.leap"] == "UNAVAILABLE"
+
+
+def test_active_chrony_still_reports_leap_status(tmp_path: Path) -> None:
+    cap = capture(tmp_path, "post", extra_tools=("chronyc",), fixtures=chrony_fixtures(
+        unit_state="active", tracking="Reference ID    : 7F7F0101 ()\nLeap status     : Normal\n"))
+    assert cap.records()["time.chrony.leap"] == "Normal"

@@ -7,3 +7,9 @@ server <AEGIS_TRUSTED_NTP_UPSTREAM> iburst
 
 bindaddress <AEGIS_AP_ADDRESS>
 allow <AEGIS_AP_SUBNET>
+
+# rtcsync is REQUIRED on Linux: chronyd 4.8 clears the kernel STA_UNSYNC flag only when rtcsync is enabled, and the
+# Core TrustedClock is kernel-based (adjtimex). Side effect (owner-accepted): while the kernel considers the clock
+# synchronised, system time may be copied to the hardware RTC about every 11 minutes; that write is not rollback-reversible.
+# rtcfile must NOT be configured (chrony forbids combining it with rtcsync).
+rtcsync

@@ -1,0 +1,21 @@
+# AEGIS IDEA3 PR11 Phase 4 — L5 allow-keys.txt
+# Permitted drift keys for Stage L5 (Core-local trusted NTP runtime handler).
+# Persistent service enablement is strictly protected and must never change.
+svc.chronyd.service.ActiveState
+svc.chronyd.service.ExecMainStartTimestamp
+svc.chronyd.service.LoadState
+svc.chronyd.service.MainPID
+svc.chronyd.service.NRestarts
+svc.chronyd.service.Result
+svc.chronyd.service.SubState
+svc.systemd-timesyncd.service.ActiveState
+svc.systemd-timesyncd.service.ExecMainStartTimestamp
+svc.systemd-timesyncd.service.MainPID
+svc.systemd-timesyncd.service.Result
+svc.systemd-timesyncd.service.SubState
+time.chrony.leap
+time.file./etc/chrony.conf.class
+time.file./etc/chrony.conf.meta
+time.file./etc/chrony.conf.sha256
+time.timesyncd.ServerName
+time.timesyncd.SystemNTPServers

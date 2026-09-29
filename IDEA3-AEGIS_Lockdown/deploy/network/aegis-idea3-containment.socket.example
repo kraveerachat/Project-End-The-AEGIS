@@ -1,0 +1,18 @@
+# AEGIS IDEA3 software-containment request socket — TEMPLATE, NOT DEPLOYED.
+# Only root and the aegis-idea3 group can connect; the helper re-checks the peer.
+
+[Unit]
+Description=AEGIS IDEA3 dynamic IP containment socket
+PartOf=aegis-idea3-containment.service
+
+[Socket]
+ListenStream=/run/aegis-idea3-containment/containment.sock
+SocketUser=root
+SocketGroup=aegis-idea3
+SocketMode=0660
+DirectoryMode=0755
+Accept=no
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

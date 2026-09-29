@@ -62,6 +62,64 @@ test('bounded legacy heartbeat compatibility remains logical and explicitly sepa
   assert.equal(legacy.physicalCameraId, undefined)
 })
 
+test('detector status treats authenticated physical heartbeat as authoritative over stale strict-node legacy telemetry', async () => {
+  const nowMs = Date.UTC(2026, 8, 29, 12, 0, 0)
+  let emittedSql = ''
+  const status = await store.readDetectorStatus({
+    postgresEnabled: true,
+    nowMs,
+    executeQuery: async (sql) => {
+      emittedSql = sql
+      return {
+        rows: [
+          {
+            source_kind: 'physical',
+            node_id: 'machine-a',
+            camera_key: '41',
+            last_seen_ms: nowMs - 5_000,
+            ingest_auth_mode: 'ed25519_required',
+            node_active: true,
+          },
+          {
+            source_kind: 'legacy',
+            node_id: 'machine-a',
+            camera_key: 'CAM-01',
+            last_seen_ms: nowMs - 90_000,
+            ingest_auth_mode: 'ed25519_required',
+            node_active: true,
+          },
+        ],
+      }
+    },
+  })
+
+  assert.match(emittedSql, /physical_camera_heartbeat/)
+  assert.match(emittedSql, /camera_heartbeat/)
+  assert.deepEqual(status, { status: 'online', ageMs: 5_000, cameras: 1 })
+})
+
+test('detector status retains bounded legacy heartbeat compatibility for legacy-mode nodes without physical telemetry', async () => {
+  const nowMs = Date.UTC(2026, 8, 29, 12, 0, 0)
+  const status = await store.readDetectorStatus({
+    postgresEnabled: true,
+    nowMs,
+    executeQuery: async () => ({
+      rows: [
+        {
+          source_kind: 'legacy',
+          node_id: 'legacy-detector',
+          camera_key: 'CAM-02',
+          last_seen_ms: nowMs - 20_000,
+          ingest_auth_mode: 'legacy_shared_key',
+          node_active: true,
+        },
+      ],
+    }),
+  })
+
+  assert.deepEqual(status, { status: 'degraded', ageMs: 20_000, cameras: 1 })
+})
+
 test('active Machine A deployment contract has no diagnostic bridge or dual logical heartbeat loop', () => {
   const activePaths = [
     'IDEA2-AEGIS_CCTV-Operator/detection-engine/.env.example',

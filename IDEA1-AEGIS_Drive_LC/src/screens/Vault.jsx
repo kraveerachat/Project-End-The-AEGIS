@@ -37,7 +37,16 @@ import {
   closePreviewSession, closeAllPreviewSessions, installPreviewSessionRecovery,
 } from '../lib/vaultPreviewSession.js'
 import { PREVIEW_FAILURE_REASON, previewFailureCopyKey } from '../lib/vaultPreviewErrors.js'
+import { decideVaultExperience, VAULT_EXPERIENCE } from '../lib/vaultConvergence.js'
+// ⚠️ PR #157 Task 5.4: ทุกสิ่งที่มีอยู่ได้เฉพาะตอนปลดล็อก (งานที่ใช้กุญแจ, Object URL, preview token, กุญแจ)
+//    ลงทะเบียนกับ unlocked state หนึ่งใบต่อการปลดล็อก แล้ว purge(reason) เดียวเก็บกวาดทั้งหมดในทุกทางออก
+//    (ล็อกเอง / auto-lock / unmount / logout / 401 / pagehide) — ดู src/lib/vaultUnlockedState.js
+import { createUnlockedVaultState, PURGE_REASONS } from '../lib/vaultUnlockedState.js'
+import { onSessionEnded, SESSION_END_REASONS } from '../lib/sessionEnded.js'
 import { unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
+// ⚠️ TREE (PR #157 Tranche A): ไดอะล็อก genesis migration — ขับเคลื่อนด้วย runGenesis ตัวจริงเท่านั้น
+import { VaultMigrationDialog } from '../components/vault/VaultMigrationDialog.jsx'
+import { VaultTreeScreen, VaultTreeRollback } from './VaultTreeScreen.jsx'
 
 /* ⚠️ Zero-Knowledge จริง:
    - GET /api/vault ให้แค่ salt + พารามิเตอร์ KDF + verifier + envelope ของแต่ละ blob
@@ -60,6 +69,56 @@ const MIN_PASSPHRASE = 12
 
 // อ้างอิงคงที่ — ป้องกัน useMemo ด้านล่างถูก invalidate ทุก render เพราะ `?? []` สร้าง array ใหม่
 const EMPTY_BLOBS = Object.freeze([])
+
+// Fixed, decorative composition: its shape count and geometry never depend on
+// ciphertext inventory. The locked screen therefore communicates protection
+// without enumerating server-visible objects, ids, sizes, or plaintext metadata.
+const LOCKED_VAULT_AMBIENT_BLOCKS = Object.freeze([
+  'left-[4%] top-[12%] h-20 w-[28%] rounded-[14px] rotate-[-2deg]',
+  'right-[5%] top-[8%] h-14 w-[20%] rounded-full',
+  'left-[10%] bottom-[9%] h-16 w-[18%] rounded-[12px] rotate-[3deg]',
+  'right-[4%] bottom-[10%] h-24 w-[29%] rounded-[14px] rotate-[-2deg]',
+  'left-[2%] top-[48%] h-8 w-[19%] rounded-full',
+  'right-[18%] top-[36%] size-16 rounded-full',
+  'left-[34%] bottom-[4%] h-8 w-[24%] rounded-full',
+])
+
+function LockedVaultPreview({ t, onUnlock }) {
+  return (
+    <section
+      data-testid="locked-vault-preview"
+      aria-labelledby="locked-vault-preview-title"
+      className="relative isolate min-h-[340px] overflow-hidden rounded-[var(--r-card)] bg-sunken px-5 py-8 sm:px-8"
+    >
+      <div aria-hidden="true" className="absolute inset-0 overflow-hidden opacity-70">
+        {LOCKED_VAULT_AMBIENT_BLOCKS.map((shape, index) => (
+          <span
+            key={index}
+            aria-hidden="true"
+            data-testid="locked-vault-ambient"
+            className={`absolute bg-card blur-[2px] shadow-[0_3px_8px_rgb(15_23_42_/_0.05)] ${shape}`}
+          />
+        ))}
+      </div>
+
+      <div className="relative z-10 mx-auto flex min-h-[276px] max-w-[520px] flex-col items-center justify-center text-center">
+        <span aria-hidden="true" className="flex size-14 items-center justify-center rounded-[16px] bg-card text-accent shadow-[0_3px_8px_rgb(15_23_42_/_0.08)]">
+          <Lock size={24} strokeWidth={1.6} />
+        </span>
+        <h2 id="locked-vault-preview-title" className="mt-5 text-[18px] font-semibold tracking-[-0.01em] text-ink">
+          {t('vaultLocked')}
+        </h2>
+        <p className="mt-2 max-w-[56ch] text-[13.5px] leading-relaxed text-ink-2">
+          {t('vaultKeyNote')}
+        </p>
+        <Btn variant="primary" className="mt-5" onClick={onUnlock}>
+          <LockOpen size={14} strokeWidth={1.6} />
+          {t('unlockVault')}
+        </Btn>
+      </div>
+    </section>
+  )
+}
 
 const EXT_ICONS = { docx: FileText, pdf: FileText, pptx: FileImage, png: FileImage, jpg: FileImage, jpeg: FileImage }
 const iconFor = (name = '') => EXT_ICONS[name.split('.').pop()?.toLowerCase()] ?? FileIcon
@@ -359,7 +418,10 @@ function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss }) {
   )
 }
 
-export function Vault({ t, lang = 'en', placeholderMode = false }) {
+export function Vault({
+  t, lang = 'en', placeholderMode = false, unlockedStateFactory = createUnlockedVaultState,
+  userId = null,
+}) {
   const reduced = useReducedMotion()
   const vaultApi = useApi('/api/vault')
   // ⚠️ อ่านอย่างเดียว: จอนี้ไม่เคยเขียนค่า auto-lock กลับไป การตั้งค่าอยู่ที่จอ Settings
@@ -368,6 +430,10 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   const idleLockMinutes =
     securitySettingsApi.data?.settings?.vaultAutoLockMinutes ?? DEFAULT_IDLE_LOCK_MINUTES
   const idleLockMs = idleLockMinutes * 60_000
+  /* ⚠️ TREE (Tranche A): สถานะ protocol + ธงมาจาก GET /api/vault/tree/state เสมอ
+     จออ่านอย่างเดียว — การเริ่มย้าย FLAT → TREE_V1 เกิดได้เฉพาะจากปุ่มของผู้ใช้
+     ผ่านไดอะล็อก ไม่มีการเริ่มเองอัตโนมัติเด็ดขาด */
+  const treeStateApi = useApi('/api/vault/tree/state')
 
   const [kek, setKek] = useState(null)          // CryptoKey — memory เท่านั้น
   const [entries, setEntries] = useState(null)  // [{id, name, size, plainSize}] หลังถอดรหัส
@@ -396,6 +462,15 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   const resumable = useRef(null)
   /* ตัวยกเลิกของงานที่กำลังวิ่งอยู่ — ถูกดึงทันทีที่ผู้ใช้กดล็อกหรือหมดเวลา idle */
   const transferAbort = useRef(null)
+  /* unlocked state ของการปลดล็อกครั้งนี้ (null = ล็อกอยู่) — สร้างตอนปลดล็อก, purge ในทุกทางออก (Task 5.4) */
+  const unlockedState = useRef(null)
+  const beginUnlockedState = useCallback((key) => {
+    unlockedState.current?.purge(PURGE_REASONS.MANUAL_LOCK)
+    const state = unlockedStateFactory()
+    state.registerKey({ kek: key })
+    unlockedState.current = state
+    return state
+  }, [unlockedStateFactory])
   // ⚠️ ตัวประมาณความเร็วหนึ่งตัวต่อหนึ่งการโอน — สร้างใหม่ทุกครั้งที่เริ่ม/ทำต่อ เพื่อไม่ให้
   //    ไบต์ของเซสชันก่อนถูกนับเป็นความเร็วของเซสชันนี้ (ดู transferRate.js)
   const transferRate = useRef(null)
@@ -421,6 +496,9 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
         ได้แม้ในจังหวะที่ React ยังไม่ได้ render รอบใหม่ */
   const previewStreamToken = useRef(null)
   const fileRef = useRef(null)
+  /* ตัวนับบังคับ render หลัง commit สำเร็จ — tree/state ถูกอ่านสดทุก render
+     จึงต้องมี render รอบใหม่จอจึงเห็น TREE_V1 ที่เพิ่งเกิด (placeholder โผล่ทันที) */
+  const [, setTreeBump] = useState(0)
 
   const configured = vaultApi.data?.configured === true
   const serverBlobs = vaultApi.data?.blobs ?? EMPTY_BLOBS
@@ -428,12 +506,27 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
   const unlockedRef = useRef(unlocked)
   unlockedRef.current = unlocked
 
+  /* ── TREE (Tranche A): สิ่งที่จอใช้ตัดสิน อ่านจากเซิร์ฟเวอร์สด ๆ ทุก render ──
+     FLAT + ธงเปิด = มีทางเข้า "อัปเกรดเป็นโฟลเดอร์" (ผู้ใช้กดเองเท่านั้น)
+     MIGRATING_TREE_V1 = เปิดไดอะล็อกให้เห็นสถานะจริง (lease คนอื่น/หมดอายุ) แต่ไม่เริ่มอะไรเอง
+     TREE_V1 + ยังไม่เปิด tree UI = placeholder ที่บอกความจริงตามขอบเขต Tranche A */
+  const treeState = treeStateApi.data
+  const treeFlags = treeState?.flags ?? null
+  const treeProtocolState = treeState?.protocolState ?? null
   /* รายการ blob ทึบที่ "เป็นจริงตอนนี้" = server + POST ที่สำเร็จแล้ว − ที่ลบสำเร็จแล้ว
      dedupe ด้วย id เข้มงวด GET ที่ตามมาทีหลังจึงไม่สร้างการ์ดใบที่สอง */
   const inventory = useMemo(
     () => reconcileVaultInventory({ serverBlobs, localBlobs, removedIds }),
     [serverBlobs, localBlobs, removedIds],
   )
+  const vaultExperience = decideVaultExperience({
+    configured,
+    unlocked,
+    inventoryReady: !vaultApi.loading && !treeStateApi.loading && Boolean(vaultApi.data && treeState),
+    blobCount: inventory.length,
+    protocolState: treeProtocolState,
+    flags: treeFlags,
+  })
 
   /* ── object URL ของ preview: อายุสั้นที่สุดเท่าที่ทำได้ ─────────────────
      object URL คือ "ตัวชี้ไปยัง plaintext ที่ยังอยู่ใน memory ของแท็บ" ตราบใดที่ยัง
@@ -504,7 +597,12 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
    *                              tab, a slow refetch), and the message must
    *                              describe the timer that actually expired, not
    *                              whatever the setting says afterwards. */
-  const lock = useCallback((auto = false, afterMinutes = null) => {
+  const lock = useCallback((auto = false, afterMinutes = null, reason = null) => {
+    /* ⚠️ purgeUnlockedVaultState ก่อนอย่างอื่น: abort งานที่ใช้กุญแจ → invalidate intent/rebase → disposers →
+       revoke Object URL → ปิด preview session ทุกใบ → ทิ้ง reference ของกุญแจ/บัฟเฟอร์ (idempotent; หนึ่งใบต่อ
+       การปลดล็อก จึงเรียกได้ครั้งเดียวต่อสถานะ) — บรรทัดถัด ๆ ไปคือการเคลียร์ React state ของจอ */
+    const purged = unlockedState.current?.purge(reason ?? (auto ? PURGE_REASONS.AUTO_LOCK : PURGE_REASONS.MANUAL_LOCK)) ?? null
+    unlockedState.current = null
     /* ⚠️ ยกเลิก "งานที่กำลังเข้ารหัส/ถอดรหัสอยู่" ก่อนอย่างอื่นทั้งหมด
        การล็อกที่ปล่อยให้การอัปโหลดเบื้องหลังเข้ารหัส chunk ต่อไปคือการล็อกในนามเท่านั้น:
        DEK ยังถูกใช้งานอยู่ และ plaintext ของก้อนถัดไปยังถูกอ่านเข้าหน่วยความจำต่อ
@@ -524,14 +622,36 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     //    = ชื่อไฟล์ยังอยู่บนจอทั้งที่ระบบประกาศว่าล็อกแล้ว ต้องปิดไปพร้อมกุญแจ
     setAskDelete(null)
     setDeleteError(false)
+    // ⚠️ ไดอะล็อก migration ขั้นแก้ชื่อชนกันถือ "ชื่อไฟล์ plaintext" อยู่ในมือ — ต้องหาย
+    //    ไปพร้อมกุญแจเช่นเดียวกับ Preview/Details (ตัวไดอะล็อกเองจะยกเลิกงาน + ละทิ้ง
+    //    lease ที่ยังถืออยู่ตอน unmount — ดู VaultMigrationDialog)
     // ⚠️ เช่นเดียวกับ Preview (ถือทั้งชื่อไฟล์และ "เนื้อไฟล์" ที่ถอดแล้ว) และ Details
     //    ที่ถือชื่อไฟล์/MIME/ขนาดจริง ทั้งสองต้องหายไปพร้อมกุญแจในจังหวะเดียวกัน
     //    — ทั้งตอนกดล็อกเองและตอน auto-lock ครบเวลาที่บัญชีตั้งไว้ (ทางเดียวกันเป๊ะ)
     closePreview()
     // ⚠️ ล็อก = ไม่มีเซสชันใดรอด แม้ใบที่หน้านี้ลืมไปแล้ว (เช่นหลังรีเฟรชบางกรณี)
-    closeAllPreviewSessions()
+    //    purge() ส่ง close-all ให้แล้วครั้งเดียว — เรียกซ้ำเฉพาะเมื่อไม่มี unlocked state (เช่น ล็อกซ้ำหลังหมดอายุ)
+    if (!purged) closeAllPreviewSessions()
     setDetails(null)
   }, [closePreview])
+
+  /* ทางออกอื่นของสถานะปลดล็อก (Task 5.4) — ใช้ lock() ตัวล่าสุดผ่าน ref เพื่อไม่ต้องผูก effect กับ closure */
+  const lockRef = useRef(lock)
+  lockRef.current = lock
+  useEffect(() => {
+    // unmount ขณะปลดล็อก (เปลี่ยนหน้า/ปิดแท็บ): purge ทันที — React state หายไปพร้อม component อยู่แล้ว
+    const onPageHide = () => { if (unlockedState.current) lockRef.current(false, null, PURGE_REASONS.PAGE_HIDE) }
+    const offSessionEnd = onSessionEnded((why) => {
+      if (unlockedState.current) lockRef.current(false, null, why === SESSION_END_REASONS.LOGOUT ? PURGE_REASONS.LOGOUT : PURGE_REASONS.SESSION_INVALIDATED)
+    })
+    window.addEventListener('pagehide', onPageHide)
+    return () => {
+      window.removeEventListener('pagehide', onPageHide)
+      offSessionEnd()
+      unlockedState.current?.purge(PURGE_REASONS.UNMOUNT)
+      unlockedState.current = null
+    }
+  }, [])
 
   /* ── idle auto-lock ────────────────────────────────────────────────
      นับเฉพาะตอนปลดล็อกอยู่ — ทุก interaction รีเซ็ตนาฬิกา เงียบครบตามเวลาที่บัญชีตั้งไว้ = ล็อก
@@ -609,6 +729,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
         setBusy(false)
         return
       }
+      beginUnlockedState(newKek)
       setKek(newKek)
       setEntries([])
       setModal(null)
@@ -637,6 +758,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
         verifier: vaultApi.data.verifier,
       })
       const decrypted = await decryptEntries(key, inventory)
+      beginUnlockedState(key)
       setKek(key)
       setEntries(decrypted)
       setModal(null)
@@ -683,6 +805,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
 
     const ctrl = new AbortController()
     transferAbort.current = ctrl
+    unlockedState.current?.registerAbort(ctrl)
     // ⚠️ resume เริ่มจากไบต์ที่ไม่ใช่ศูนย์ — ตัวประมาณตัวใหม่ถือว่าไบต์ก้อนนั้นเป็น
     //    "จุดอ้างอิง" ไม่ใช่ไบต์ที่เพิ่งวิ่งผ่านสาย ไม่งั้นตัวอย่างแรกจะได้ความเร็วลวง
     transferRate.current = createRateEstimator()
@@ -766,6 +889,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
       // GCM ตรวจ integrity ให้ในตัว — ciphertext ที่ถูกแก้ระหว่างทางจะ throw ที่นี่
       const plain = await decryptFileContent(kek, entry.blob, res.bytes)
       url = URL.createObjectURL(new Blob([plain]))
+      unlockedState.current?.registerObjectUrl(url)
       const a = document.createElement('a')
       a.href = url
       a.download = entry.name ?? `${entry.id}.bin`
@@ -819,6 +943,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
 
     const ctrl = new AbortController()
     transferAbort.current = ctrl
+    unlockedState.current?.registerAbort(ctrl)
     transferRate.current = createRateEstimator()
     setTransfer({
       kind: 'download', stage: 'downloading', name: entry.name ?? null,
@@ -856,6 +981,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     if (sink.kind === 'buffered') {
       // ทางสำรองที่มีเพดาน — ประกอบเป็น Blob แล้วให้เบราว์เซอร์เซฟตามปกติ
       const url = URL.createObjectURL(new Blob(res.result, { type: entry.type || 'application/octet-stream' }))
+      unlockedState.current?.registerObjectUrl(url)
       const a = document.createElement('a')
       a.href = url
       a.download = entry.name ?? `${entry.id}.bin`
@@ -933,6 +1059,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
         const session = await openPreviewSession({
           dek, blob: entry.blob, contentType: entry.type || 'video/mp4', plainSize,
           isUnlocked: () => unlockedRef.current,
+          unlockedState: unlockedState.current,
         })
         if (token !== previewToken.current) {
           if (session) closePreviewSession(session.token)
@@ -985,6 +1112,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
       //    ตอนนี้จะได้ object URL ที่ไม่มีใครถืออ้างอิงไว้ปล่อยคืน = plaintext ค้าง
       if (token !== previewToken.current) return
       const url = URL.createObjectURL(plain)
+      unlockedState.current?.registerObjectUrl(url)
       previewUrlRef.current = url
       setPreview((prev) => (prev?.entry.id === entry.id ? { ...prev, url, loading: false } : prev))
     } catch {
@@ -1091,19 +1219,97 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
     else fileRef.current?.click()
   }
 
-  return (
-    <div>
-      {/* persistent, calm callout — this warning never goes away */}
-      <div className="flex items-center gap-3 rounded-[var(--r-tile)] px-4 py-3 mb-5" style={{ background: 'var(--warn-soft)' }}>
-        <TriangleAlert size={16} strokeWidth={1.8} style={{ color: 'var(--warn)' }} className="shrink-0" />
-        <div className="min-w-0">
-          <p className="text-[12.5px] font-semibold tracking-[0.04em]" style={{ color: 'var(--warn)' }}>
-            {t('vaultWarning')}
-          </p>
-          <p className="text-[12px] text-ink-2 mt-0.5">{t('vaultSecurityBanner')}</p>
-        </div>
+  /* persistent, calm callout — identical in both modes (legacy + tree UI); this warning never goes away */
+  const vaultCallout = (
+    <div className="flex items-center gap-3 rounded-[var(--r-tile)] px-4 py-3 mb-5" style={{ background: 'var(--warn-soft)' }}>
+      <TriangleAlert size={16} strokeWidth={1.8} style={{ color: 'var(--warn)' }} className="shrink-0" />
+      <div className="min-w-0">
+        <p className="text-[12.5px] font-semibold tracking-[0.04em]" style={{ color: 'var(--warn)' }}>
+          {t('vaultWarning')}
+        </p>
+        <p className="text-[12px] text-ink-2 mt-0.5">{t('vaultSecurityBanner')}</p>
       </div>
+    </div>
+  )
 
+  if (vaultExperience.kind === VAULT_EXPERIENCE.TREE) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <div className="vault-pane-content">
+          {vaultCallout}
+        </div>
+        <VaultTreeScreen
+          t={t}
+          lang={lang}
+          kek={kek}
+          treeState={treeState}
+          unlockedState={unlockedState.current}
+          onLock={() => lock(false)}
+          recoveryScope={userId}
+        />
+      </div>
+    )
+  }
+
+  if (unlocked && vaultExperience.kind === VAULT_EXPERIENCE.LOADING) {
+    return <div className="vault-pane-content"><Card className="p-5"><SkeletonLoader type="files" /></Card></div>
+  }
+
+  if (unlocked && vaultExperience.kind === VAULT_EXPERIENCE.UNAVAILABLE) {
+    return (
+      <div className="vault-pane-content">
+        {vaultCallout}
+        <Card className="p-5">
+          <p data-testid="vault-tree-unavailable" className="text-[13px] text-ink-2">{t('vaultTreeUnavailable')}</p>
+        </Card>
+        {treeProtocolState === 'TREE_V1' && (
+          <VaultTreeRollback t={t} lang={lang} kek={kek} unlockedState={unlockedState.current} />
+        )}
+      </div>
+    )
+  }
+
+  if (unlocked && [
+    VAULT_EXPERIENCE.AUTO_EMPTY_GENESIS,
+    VAULT_EXPERIENCE.EXPLICIT_MIGRATION,
+    VAULT_EXPERIENCE.RESUME_MIGRATION,
+  ].includes(vaultExperience.kind)) {
+    const migrationMode = vaultExperience.kind === VAULT_EXPERIENCE.AUTO_EMPTY_GENESIS
+      ? 'auto-empty'
+      : vaultExperience.kind === VAULT_EXPERIENCE.RESUME_MIGRATION ? 'resume' : 'explicit'
+    return (
+      <div className="vault-pane-content">
+        {vaultCallout}
+        <div className="mb-4 flex justify-end" data-marquee-ignore="">
+          <Btn variant="outline" onClick={() => lock(false)}>
+            <Lock size={14} strokeWidth={1.8} />
+            {t('lockVault')}
+          </Btn>
+        </div>
+        <VaultMigrationDialog
+          mode={migrationMode}
+          t={t}
+          lang={lang}
+          kek={kek}
+          treeState={treeState}
+          /* ⚠️ สถานะเหล่านี้บังคับ (ไม่มี UI ปฏิบัติการอื่นให้ถอยไป) — ปิด = ล็อก ผ่าน lock() ทางเดียว
+             กับปุ่ม Lock: purge plaintext → ไดอะล็อก unmount → ยกเลิกงาน + ละทิ้ง "เฉพาะ lease ของเรา"
+             ปลดล็อกใหม่ = ประเมิน /tree/state สดอีกรอบ ห้ามมีทางถอยไป UI FLAT แบบเดิม */
+          onClose={() => lock(false)}
+          onRefreshState={() => treeStateApi.refresh()}
+          onCommitted={async () => {
+            await treeStateApi.refresh()
+            setTreeBump((b) => b + 1)
+          }}
+          stillUnlocked={() => Boolean(kek && entries)}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="vault-pane-content">
+      {vaultCallout}
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <Chip tone={unlocked ? 'ok' : 'neutral'}>
           {unlocked ? <LockOpen size={11} strokeWidth={2} /> : <Lock size={11} strokeWidth={2} />}
@@ -1130,12 +1336,7 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
               {t('lockVault')}
             </Btn>
           </>
-        ) : configured ? (
-          <Btn variant="primary" onClick={() => openModal('unlock')}>
-            <LockOpen size={14} strokeWidth={1.5} />
-            {t('unlockVault')}
-          </Btn>
-        ) : (
+        ) : configured ? null : (
           <Btn variant="primary" onClick={() => openModal('setup')}>
             <KeyRound size={14} strokeWidth={1.5} />
             {t('vaultSetupCta')}
@@ -1170,6 +1371,8 @@ export function Vault({ t, lang = 'en', placeholderMode = false }) {
         <Card className="p-5"><SkeletonLoader type="files" /></Card>
       ) : fetchError ? (
         <Card><ErrorState t={t} kind={fetchError} onRetry={vaultApi.retry} /></Card>
+      ) : !unlocked && configured ? (
+        <LockedVaultPreview t={t} onUnlock={() => openModal('unlock')} />
       ) : list.length === 0 ? (
         <Card>
           <EmptyState

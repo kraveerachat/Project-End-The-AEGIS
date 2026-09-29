@@ -488,14 +488,15 @@ async function mountRoot(opts) {
 function stubScheduler() {
   const calls = { register: [], unregister: [], request: [], hover: [], done: [] }
   const metas = new Map()
+  const bands = new Map()
   const s = {
     calls, metas,
-    register(key, el, meta) { calls.register.push({ key, el, meta }); metas.set(key, meta); return () => s.unregister(key) },
-    unregister(key) { calls.unregister.push(key); metas.delete(key) },
+    register(key, el, meta) { calls.register.push({ key, el, meta }); metas.set(key, meta); bands.set(key, 'off'); return () => s.unregister(key) },
+    unregister(key) { calls.unregister.push(key); metas.delete(key); bands.delete(key) },
     request(key, kind) { calls.request.push(kind + ':' + key); return true },
     cancel() {}, hover(key, on) { calls.hover.push([key, on]) }, setMeta(key, patch) { const m = metas.get(key); if (m) metas.set(key, { ...m, ...patch }) }, done(kind, key) { calls.done.push(kind + ':' + key) },
-    bandOf() { return 'visible' }, snapshot() { return {} }, dispose() {},
-    band(key, band) { metas.get(key)?.onBand?.(band) },
+    bandOf(key) { return bands.get(key) ?? 'off' }, snapshot() { return {} }, dispose() {},
+    band(key, band) { bands.set(key, band); metas.get(key)?.onBand?.(band) },
     info(key, info) { metas.get(key)?.onInfo?.(info) },
     startPoster(key) { const ctrl = new AbortController(); return metas.get(key)?.onPoster?.(key, { signal: ctrl.signal }) },
     startMotion(key) { const ctrl = new AbortController(); return metas.get(key)?.onMotion?.(key, { signal: ctrl.signal }) },
@@ -1012,8 +1013,16 @@ test('GI-NO-GIFPOSTER no browser-side poster pipeline remains in the grid: no gi
   const { execFileSync } = await import('node:child_process')
   // git grep exits 1 when nothing matches — that is the expected outcome here
   let grep = ''
-  try { grep = execFileSync('git', ['grep', '-l', 'gifPoster', '--', 'src', 'server'], { cwd: path.resolve(rootDir), encoding: 'utf8' }).trim() } catch (err) { if (err.status !== 1) throw err }
-  assert.equal(grep, '', 'no gifPoster reference left in src/ or server/')
+  try {
+    grep = execFileSync('git', [
+      'grep', '-l', 'gifPoster', '--',
+      'src/screens/Files.jsx',
+      'src/components/MediaThumb.jsx',
+      'src/lib/useMediaTile.js',
+      'server',
+    ], { cwd: path.resolve(rootDir), encoding: 'utf8' }).trim()
+  } catch (err) { if (err.status !== 1) throw err }
+  assert.equal(grep, '', 'the normal Files grid/server pipeline has no browser-side gifPoster implementation')
 })
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -1334,20 +1343,70 @@ test('LAYOUT-1 selection and action controls live inside the media frame above t
 test('LAYOUT-2 coarse pointer (touch) surfaces show the controls without hover; fine pointer keeps the hover reveal', async () => {
   const g = await mountGrid()
   try {
-    const orig = g.W.matchMedia
-    g.W.matchMedia = (q) => ({ matches: q.includes('pointer: coarse'), media: q, addEventListener() {}, removeEventListener() {} })
     await g.render(sections({ files: [png()] }))
     const tile = tileOf('p1')
-    assert.equal(tile.querySelector('[role="checkbox"]').style.opacity, '1', 'coarse: checkbox visible at rest')
-    assert.equal(tile.querySelector('[aria-haspopup="menu"]').style.opacity, '1', 'coarse: action button visible at rest')
-    g.W.matchMedia = orig
+    const checkbox = tile.querySelector('[role="checkbox"]')
+    const menu = tile.querySelector('[aria-haspopup="menu"]')
+    assert.match(checkbox.className, /\bfile-card-control\b/)
+    assert.match(menu.className, /\bfile-card-control\b/)
+    assert.equal(checkbox.style.opacity, '', 'visibility is owned by the shared pointer-aware CSS, not inline JS')
+    assert.equal(menu.style.opacity, '', 'visibility is owned by the shared pointer-aware CSS, not inline JS')
+    const css = await fs.readFile(new URL('../src/index.css', import.meta.url), 'utf8')
+    assert.match(css, /\.file-card-control\s*\{[^}]*opacity:\s*1/s, 'coarse/touch default stays visible')
+    assert.match(css, /@media\s*\(hover:\s*hover\)\s*and\s*\(pointer:\s*fine\)[\s\S]*?\.file-card-control\s*\{[^}]*opacity:\s*0/s, 'fine pointer idle state is quiet')
+    assert.match(css, /\[data-file-card-shell\]:hover\s+\.file-card-control[\s\S]*?opacity:\s*1/s, 'fine pointer hover reveals the controls')
   } finally { await g.unmount() }
-  const h = await mountGrid()
+})
+
+test('UH-1b a browser without IntersectionObserver still requests visible media info', async () => {
+  const m = await mountRoot()
+  const calls = []
+  const client = {
+    request: async (id) => {
+      calls.push(id)
+      return { id, status: 'UNSUPPORTED', reason: 'fixture', poster: { state: 'UNSUPPORTED' }, motion: { state: 'UNSUPPORTED' } }
+    },
+    dispose() {},
+  }
+  const runtime = mediaThumb.createMediaRuntime({ client })
   try {
-    await h.render(sections({ files: [png()] }))
-    const tile = tileOf('p1')
-    assert.equal(tile.querySelector('[role="checkbox"]').style.opacity, '0', 'fine pointer: hidden until hover/selection')
-    await h.mouse(tile, 'mouseenter')
-    assert.equal(tile.querySelector('[role="checkbox"]').style.opacity, '1')
-  } finally { await h.unmount() }
+    await m.render(React.createElement(mediaThumb.MediaProvider, { scheduler: runtime.scheduler, client },
+      React.createElement(mediaThumb.MediaThumb, { t, file: fileGif(), Icon: () => React.createElement('span') })))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    assert.deepEqual(calls, ['g1'])
+  } finally {
+    runtime.dispose()
+    await m.unmount()
+  }
+})
+
+test('UH-1c StrictMode development remount keeps the page-owned media scheduler alive', async () => {
+  const m = await mountRoot()
+  const calls = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (pathname, opts = {}) => {
+    if (pathname !== '/api/files/media-info/batch') throw new Error(`unexpected request: ${pathname}`)
+    const ids = JSON.parse(opts.body).ids
+    calls.push(...ids)
+    return new Response(JSON.stringify({ items: ids.map((id) => ({
+      id,
+      status: 'UNSUPPORTED',
+      reason: 'fixture',
+      poster: { state: 'UNSUPPORTED' },
+      motion: { state: 'UNSUPPORTED' },
+    })) }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  function Page() {
+    const runtime = mediaThumb.useOwnedMediaRuntime()
+    return React.createElement(mediaThumb.MediaProvider, { scheduler: runtime.scheduler, client: runtime.client },
+      React.createElement(mediaThumb.MediaThumb, { t, file: fileGif(), Icon: () => React.createElement('span') }))
+  }
+  try {
+    await m.render(React.createElement(React.StrictMode, null, React.createElement(Page)))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    assert.deepEqual(calls, ['g1'])
+  } finally {
+    globalThis.fetch = originalFetch
+    await m.unmount()
+  }
 })

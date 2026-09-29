@@ -1,0 +1,5 @@
+# AEGIS IDEA3 PR11 Phase 4 — L5 allow-listeners.txt
+# Permitted listener additions for Stage L5 (Core-local trusted NTP runtime handler).
+listen.udp.<AEGIS_AP_ADDRESS>:123
+listen.udp.127.0.0.1:323
+listen.udp.[::1]:323
