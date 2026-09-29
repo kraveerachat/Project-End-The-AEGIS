@@ -4,30 +4,37 @@ tags: [aegis, infrastructure, network, switch, vlan, pvid, 802.1q]
 type: infrastructure
 status: ✅ ตั้งค่า+ทดสอบแล้ว · ⏳ ยังไม่ backup config
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-09-30
 owner: kla
 edit_policy: owner-writable
 ---
 
 # 🔌 Managed Switch — VLAN / PVID ที่ตั้งจริง
 
-> อุปกรณ์: **TP-Link TL-SG105E** 5 พอร์ต ([[entities/TP-Link_TL-SG105E]])
+> อุปกรณ์: **TP-Link TL-SG105E** 5 พอร์ต (ฮาร์ดแวร์ 5.0, IP `192.168.30.2`) ([[entities/TP-Link_TL-SG105E]])
 > บทบาท: **Layer 2 802.1Q Segmentation** — บังคับให้แต่ละพอร์ตอยู่เฉพาะวงของตัวเอง
 > กลับไปหน้าศูนย์รวม: [[infrastructure/infrastructure-moc]]
 
 ---
 
-## ✅ Port Mapping ที่ตั้งค่าจริง
+## ✅ Port Mapping ที่ตั้งค่าจริง (ตรวจยืนยัน 2026-09-30)
 
-| Port | โหมด | PVID | VLAN | อุปกรณ์ที่ต่อ | สถานะ |
+| Port | โหมด | PVID | VLAN Membership | อุปกรณ์ที่ต่อ | สถานะลิงก์จริง (2026-09-30) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1** | **Trunk — Tagged** | 1 | 10, 20, 30 | ไปยัง MikroTik `ether2` | ✅ |
-| **2** | Access — Untagged | **10** | VLAN 10 Server | **Beelink Mini S** (`192.168.10.10`) | ✅ |
-| **3** | Access — Untagged | **20** | VLAN 20 Detector | **Detection Laptop** | ✅ (⏳ เครื่องยังไม่กำหนด IP) |
-| **4** | Access — Untagged | **1** | Native / ช่าง | พอร์ตช่าง — ใช้เข้าหน้าเว็บจัดการ Switch | ✅ |
-| **5** | Access — Untagged | **30** | VLAN 30 Management | **Admin Laptop** | ✅ |
+| **1** | **Trunk — Tagged** | 1 | Tagged 10, 20, 30, 40 · Untagged 1 | ไปยัง MikroTik `ether2` | ✅ **100MF** (Full Duplex) |
+| **2** | Access — Untagged | **10** | Untagged VLAN 10 Server | **Beelink Mini S** (`192.168.10.10`) | ✅ **1000MF** (1 Gbps Full) |
+| **3** | Access — Untagged | **20** | Untagged VLAN 20 IOT-AEGIS | **Detection Laptop** | ⏳ **Link Down** |
+| **4** | Access — Untagged | **40** | Untagged VLAN 40 IDEA3 | **Cyber-Physical Lockdown** ([[idea3/idea3-status]]) | ⏳ **Link Down** (รอเชื่อมต่ออุปกรณ์จริง) |
+| **5** | Access — Untagged | **30** | Untagged VLAN 30 Management | **Admin Laptop** | ✅ **1000MF** (1 Gbps Full) |
 
-> ✅ **PVID ตั้งตรงกับ VLAN membership ของทุกพอร์ตแล้ว** — จุดนี้สำคัญ เพราะถ้า PVID ไม่ตรง เฟรม untagged จากเครื่องปลายทางจะถูกยัดเข้าวงผิด และ Inter-VLAN Routing จะดูเหมือน "พัง" ทั้งที่ Router ถูกต้อง
+> ⚠️ **ประวัติการปรับปรุง Port 4 (Reconciled 2026-09-30)**: เอกสารเดิมระบุว่า Port 4 เป็น "Native / พอร์ตช่าง VLAN 1" — ข้อมูลดังกล่าวเป็นประวัติเก่าที่ล้าสมัยแล้ว ในการตั้งค่าใช้งานจริงปัจจุบัน Port 4 ถูกกำหนดให้เป็น **Access VLAN 40 (IDEA3)** โดยมี PVID 40 เพื่อรองรับฮาร์ดแวร์ Lockdown Controller ของ IDEA3 ส่วนหน้าเว็บจัดการ Switch นั้นเข้าถึงผ่าน IP `192.168.30.2` บน VLAN 30
+
+> ✅ **PVID ตั้งตรงกับ VLAN membership ของทุกพอร์ตแล้ว**:
+> - Port 1: PVID 1
+> - Port 2: PVID 10
+> - Port 3: PVID 20
+> - Port 4: PVID 40
+> - Port 5: PVID 30
 
 ---
 

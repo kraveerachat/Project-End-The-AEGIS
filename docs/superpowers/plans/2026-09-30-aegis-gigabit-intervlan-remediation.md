@@ -15,19 +15,33 @@ Status: **PLAN ONLY — NOT EXECUTED.** Every step that touches a device is perf
 
 ### Step 1 — Read-only live inventory / preflight
 
-| ID | Check (read-only) | Where | Record |
-|---|---|---|---|
-| P-1 | `/system routerboard print`, `/system resource print` | RB750r2 (Winbox terminal / SSH from VLAN 30) | Model, RouterOS version, CPU |
-| P-2 | `/interface ethernet monitor ether1,ether2 once` | RB750r2 | Negotiated rate/duplex. Expected `100Mbps full-duplex` on `ether2` |
-| P-3 | `cat /sys/class/net/<iface>/speed` and `ethtool <iface>` (no settings changed) | Beelink (Human SSH) | Beelink link speed. **If 100 → stop and fix that link first** (design §2.2) |
-| P-4 | Switch web UI → Port Setting page (view only) | TL-SG105E via Port 4 | Negotiated speed per port 1/2/5 |
-| P-5 | `Get-NetAdapter` on the test client | Admin laptop | 1 Gbps link reconfirmed |
-| P-6 | `/interface print`, `/interface vlan print`, `/interface bridge print`, `/interface bridge vlan print`, `/interface bridge port print` | RB750r2 | Exact interface/VLAN model in use |
-| P-7 | `/ip address print`, `/ip route print`, `/ip dhcp-server print`, `/ip dhcp-server network print`, `/ip dns print`, `/ip dns static print` | RB750r2 | Gateways, DHCP scopes, DNS role (PR #257 dependency) |
-| P-8 | `/ip firewall filter print`, `/ip firewall nat print`, `/ip firewall mangle print`, `/ip firewall address-list print` | RB750r2 | Rule list **with order** |
-| P-9 | `/ip service print`, `/user print` (names only), `/tool mac-server print` | RB750r2 | Management exposure baseline |
+Status: **EXECUTED (2026-09-30)** by Human Owner.
 
-Exit: every item recorded. P-2 confirms `ether2` at 100 Mbps, and P-3 confirms the Beelink link is 1 Gbps.
+| ID | Check (read-only) | Where | Result / Evidence |
+|---|---|---|---|
+| P-1 | `/system routerboard print`, `/system resource print` | RB750r2 | `board-name=hEX lite`, `model=RB750r2`, `revision=r3`, `RouterOS=7.18.2 stable`. `RB750R2_IDENTITY_LIVE_VERIFIED=YES` |
+| P-2 | `/interface ethernet monitor ether1,ether2 once` | RB750r2 | `ether1` rate=100Mbps full-duplex=yes status=link-ok; `ether2` rate=100Mbps full-duplex=yes status=link-ok. `RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX` |
+| P-3 | `cat /sys/class/net/<iface>/speed` and `ethtool <iface>` | Beelink | `enp1s0` Speed: 1000Mb/s, Duplex: Full, Link detected: yes. `BEELINK_LINK=1_GBPS_FULL` (disproves 100 Mbps server link hypothesis) |
+| P-4 | Switch web UI → Port Setting / 802.1Q | TL-SG105E (192.168.30.2, hw 5.0) | Port 1 = 100MF (Trunk, Tagged 10,20,30,40; Untagged 1, PVID 1)<br>Port 2 = 1000MF (Access VLAN 10, PVID 10)<br>Port 3 = Link Down (Access VLAN 20, PVID 20)<br>Port 4 = Link Down (Access VLAN 40 / IDEA3, PVID 40)<br>Port 5 = 1000MF (Access VLAN 30 / Admin, PVID 30)<br>*(Reconciliation: Port 4 is Access VLAN 40, Port 5 is Access VLAN 30. Historical VLAN 1 technician port role is superseded)* |
+| P-5 | `Get-NetAdapter` on test client | Admin laptop | Realtek PCIe GbE LinkSpeed 1 Gbps reconfirmed (`ADMIN_CLIENT_LINK=1_GBPS`) |
+| P-6 | `/interface print`, `/interface vlan print`, interface lists | RB750r2 | `ether2` trunk carries VLAN 10 (VLAN10-Server), VLAN 20 (VLAN20-IOT), VLAN 30 (VLAN30-Mgmt), VLAN 40 (VLAN40-IDEA3).<br>Interface lists: `WAN=ether1`, `LAN=bridge,VLAN30-Mgmt,VLAN10-Server`. *(VLAN 20 and VLAN 40 are NOT members of LAN interface-list)* |
+| P-7 | `/ip address print`, `/ip dhcp-server print`, `/ip dns print` | RB750r2 | Gateways: `192.168.10.1/24`, `192.168.20.1/24`, `192.168.30.1/24`, `192.168.40.1/24`.<br>DHCP servers exist on VLAN 10, VLAN 20, VLAN 30, VLAN 40.<br>DNS: `allow-remote-requests=yes`, static `router.lan`. `aegis.internal` static DNS record NOT yet implemented live (PR #257 owns). |
+| P-8 | `/ip firewall filter print`, `/ip firewall nat print` | RB750r2 | Rule ordering and full tables to be exported in Step 2. |
+| P-9 | `/ip service print`, `/user print` | RB750r2 | Baseline management exposure to be recorded from Step 2 export. |
+
+Preflight classification:
+~~~text
+RB750R2_IDENTITY_LIVE_VERIFIED=YES
+RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX
+TP_LINK_PORT1_TRUNK=100MF
+BEELINK_LINK=1_GBPS_FULL
+ADMIN_CLIENT_LINK=1_GBPS
+TP_LINK_PORT2=1000MF
+TP_LINK_PORT5=1000MF
+P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE
+~~~
+
+Exit: All preflight items recorded. P-2 and P-4 confirm `ether2` and switch Port 1 trunk at 100 Mbps. P-3 and P-4 confirm Beelink `enp1s0` and switch Port 2 are 1 Gbps full duplex. Next action is Step 2 export.
 
 ### Step 2 — Current MikroTik config export / backup
 
@@ -44,18 +58,26 @@ Build a table from the step 2 export. The new router must match every row, in th
 
 | Row | Item | Old (RB750r2) | New | Match |
 |---|---|---|---|---|
-| E-1 | VLAN 10/20/30 IDs on the trunk interface | from export | | |
-| E-2 | Gateway IPs `192.168.10.1/24`, `192.168.20.1/24`, `192.168.30.1/24` | | | |
-| E-3 | WAN addressing on `ether1` (DHCP client or static) | | | |
-| E-4 | NAT masquerade rule(s) | | | |
-| E-5 | Filter rules, **input** chain, in order | | | |
-| E-6 | Filter rules, **forward** chain, in order (LAN-to-LAN accept above drop) | | | |
-| E-7 | FastTrack rule present / absent (unchanged unless the Human Owner decides otherwise) | | | |
-| E-8 | DHCP servers, pools, networks (gateway, DNS option) per VLAN | | | |
-| E-9 | DNS settings (`allow-remote-requests`, static entries) | | | |
-| E-10 | `/ip service` enabled set and `address=` restrictions | | | |
-| E-11 | Users/groups (names only) | | | |
-| E-12 | NTP / clock, identity | | | |
+| E-1 | VLAN 10/20/30/40 IDs on the trunk interface | from export | | |
+| E-2 | Gateway IPs `192.168.10.1/24`, `192.168.20.1/24`, `192.168.30.1/24`, `192.168.40.1/24` | from export | | |
+| E-3 | WAN addressing on `ether1` (DHCP client or static) | from export | | |
+| E-4 | NAT masquerade rule(s) on WAN | from export | | |
+| E-5 | Filter rules, **input** chain, in order | from export | | |
+| E-6 | Filter rules, **forward** chain, in order (LAN-to-LAN accept above drop; VLAN 40 MQTT/NTP allowances and default deny) | from export | | |
+| E-7 | FastTrack rule present / absent (unchanged unless the Human Owner decides otherwise) | from export | | |
+| E-8 | DHCP servers, pools, networks (gateway, DNS option) per VLAN (10, 20, 30, 40) | from export | | |
+| E-9 | DNS settings (`allow-remote-requests=yes`, static `router.lan`; `aegis.internal` not live yet) | from export | | |
+| E-10 | Interface-list membership (`WAN=ether1`, `LAN=bridge,VLAN30-Mgmt,VLAN10-Server`; VLAN 20 and 40 must remain outside LAN) | from export | | |
+| E-11 | `/ip service` enabled set and `address=` restrictions | from export | | |
+| E-12 | Users/groups (names only) | from export | | |
+| E-13 | NTP / clock, identity | from export | | |
+
+VLAN 40 specific requirements:
+- Gateway `192.168.40.1/24` on trunk sub-interface
+- DHCP server, pool, and network options preserved
+- DNS relay behavior preserved
+- Firewall policy preserved: MQTT allowances to broker (`192.168.10.10:1883`), NTP allowances, default deny to other internal subnets
+- Interface list: must NOT be added to `LAN` interface-list during migration (preserve existing isolation)
 
 Mismatches are allowed **only** for physical interface names and switch-chip / bridge syntax, and each one must be written down.
 
@@ -77,7 +99,8 @@ With the new router still off Production:
 3. Bench test with a spare switch or a trunk from the laptop if available, otherwise with a laptop on each access port:
    - the VLAN 30 laptop gets a DHCP lease on `192.168.30.0/24` with gateway `.1`;
    - VLAN 30 → `192.168.10.1` answers ping if the rules allow it, and forward-chain behavior matches the Old column;
-   - a laptop on VLAN 20 cannot reach whatever the old rules deny.
+   - a laptop on VLAN 20 cannot reach whatever the old rules deny;
+   - a device on VLAN 40 gets DHCP on `192.168.40.0/24`, reaches broker if rules allow, and is denied other subnets.
 4. Record the vendor's published routing-throughput figures for the model with firewall rules, with their source URL (design §5, criterion 3).
 
 Exit: checklist complete, and the Human Owner signs off on the diff.
@@ -92,7 +115,7 @@ Window: announced. All zones and Remote/Twingate are briefly offline.
 4. Leave the RB750r2 powered **off** and configured. Do not reset it.
 5. Start a 60-minute observation timer. Rollback (step 10) is allowed any time within it without further discussion.
 
-### Step 7 — VLAN 10/20/30 reachability verification
+### Step 7 — VLAN 10/20/30/40 reachability verification
 
 | ID | Check | Pass |
 |---|---|---|
@@ -102,7 +125,8 @@ Window: announced. All zones and Remote/Twingate are briefly offline.
 | R-4 | `Test-NetConnection 192.168.10.10 -Port 443` | True |
 | R-5 | Beelink → `ping 192.168.10.1`, and outbound HTTPS works | OK |
 | R-6 | VLAN 20 detection laptop: same reachability as before the cutover, and denied where it was denied before | Matches step 3 |
-| R-7 | Negative check: every path the old forward chain dropped is still dropped (from the E-6 list) | Matches |
+| R-7 | VLAN 40 IDEA3 controller: renews DHCP on `192.168.40.x/24`, gateway `.1`, MQTT reachability to broker if configured, denied access to unauthorized zones | Matches step 3 |
+| R-8 | Negative check: every path the old forward chain dropped is still dropped (from the E-6 list) | Matches |
 
 ### Step 8 — aegis.internal / HUB verification
 
@@ -154,8 +178,9 @@ Run the PR #216 measurement plan's P1 Direct-LAN matrix (upload and download, 10
 
 ## Completion gate
 
+- [x] Step 1 live preflight EXECUTED (2026-09-30): verified RB750r2 `ether2` 100 Mbps, Beelink 1 Gbps, Switch Port 1 100MF, Switch Ports 2/5 1000MF, VLAN 10/20/30/40 topology.
 - [ ] Design approved (Option A) and model chosen.
-- [ ] Steps 1–3 recorded, and step 2 artifacts stored outside the repo.
+- [ ] Step 2 config export and Step 3 equivalence checklist recorded; export artifacts stored outside repo.
 - [ ] Steps 4–5 checklist fully matched and signed off.
 - [ ] Step 6 cutover, steps 7–9 all pass, **or** step 10 rollback completed and recorded.
 - [ ] Step 11 quick probe recorded.

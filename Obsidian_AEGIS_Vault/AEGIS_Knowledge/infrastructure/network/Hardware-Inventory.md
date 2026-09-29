@@ -22,36 +22,39 @@ edit_policy: owner-writable
 
 | # | อุปกรณ์ | รุ่น / สเปกจริง | บทบาทในระบบ | ตำแหน่งเครือข่าย | สถานะ |
 | :-- | :--- | :--- | :--- | :--- | :--- |
-| 1 | **Beelink Mini S** | Intel Celeron **N5095**, RAM **8 GB**, SSD **128 GB**, HDD **1 TB** | Core Server Host — Ubuntu Server `aegis-system` | VLAN 10 · `192.168.10.10` | ✅ ติดตั้ง+ทดสอบแล้ว |
-| 2 | **MikroTik hEX lite** | **RB750r2** | Edge Router / Inter-VLAN Routing / Firewall | ether1 = WAN, ether2 = Trunk | ✅ ตั้งค่า+ทดสอบ Routing แล้ว |
-| 3 | **TP-Link Managed Switch** | **TL-SG105E** (5 พอร์ต) | Layer 2 VLAN Segmentation (802.1Q) | Port 1 = Trunk | ✅ ตั้ง VLAN/PVID+ทดสอบแล้ว |
-| 4 | **Admin Laptop** | เครื่องของกล้า (ผู้ดูแล infra) | Management workstation + Twingate client | VLAN 30 (Port 5) | ✅ ใช้งานจริง (📋 ยังไม่ fix IP) |
-| 5 | **Detection Laptop** | Laptop + Webcam | Edge AI — Detection Engine ของ [[idea2/idea2-status]] | VLAN 20 (Port 3) | ✅ มีเครื่อง / ⏳ ยังไม่กำหนด IP |
-| 6 | **ESP32 + Relay Module** | ตาม [[entities/ESP32_Relay_Module]] | Cyber-Physical Lockdown ของ [[idea3/idea3-status]] | ⏳ ยังไม่เข้าเครือข่าย | ⏳ **ต้องตรวจสถานะจริงว่ามีของ/ต่อได้หรือยัง** |
+| 1 | **Beelink Mini S** | Intel Celeron **N5095**, RAM **8 GB**, SSD **128 GB**, HDD **1 TB** | Core Server Host — Ubuntu Server `aegis-system` | VLAN 10 · `192.168.10.10` (`enp1s0` 1 Gbps Full) | ✅ ติดตั้ง+ทดสอบแล้ว · ลิงก์ 1 Gbps ยืนยันแล้ว |
+| 2 | **MikroTik hEX lite** | **RB750r2** (rev r3, RouterOS 7.18.2 stable) | Edge Router / Inter-VLAN Routing / Firewall | ether1 = WAN (100M Full), ether2 = Trunk (100M Full, VLAN 10/20/30/40) | ✅ ยืนยันจากอุปกรณ์จริง (2026-09-30) |
+| 3 | **TP-Link Managed Switch** | **TL-SG105E 5.0** (5 พอร์ต, IP `192.168.30.2`) | Layer 2 VLAN Segmentation (802.1Q) | Port 1 Trunk (100MF), Port 2 (1000MF), Port 3 (VLAN20), Port 4 (VLAN40), Port 5 (1000MF) | ✅ ยืนยัน PVID/พอร์ตจริงแล้ว (2026-09-30) |
+| 4 | **Admin Laptop** | เครื่องของกล้า (Realtek PCIe GbE 1 Gbps) | Management workstation + Twingate client | VLAN 30 (Port 5, 1000MF) | ✅ ใช้งานจริง (ลิงก์ 1 Gbps ยืนยันแล้ว) |
+| 5 | **Detection Laptop** | Laptop + Webcam | Edge AI — Detection Engine ของ [[idea2/idea2-status]] | VLAN 20 (Port 3, PVID 20) | ✅ มีเครื่อง / พอร์ต Link Down |
+| 6 | **ESP32 + Relay Module** | ตาม [[entities/ESP32_Relay_Module]] | Cyber-Physical Lockdown ของ [[idea3/idea3-status]] | VLAN 40 (Port 4, PVID 40) | ⏳ สายต่อไปยัง Port 4 (Link Down) / รอยืนยันฮาร์ดแวร์ |
 
 > ⚠️ แถวที่ 6 ห้ามเขียนในเล่มว่าติดตั้งแล้ว — สถานะปัจจุบันของ IDEA3 คือ **"เขียนโค้ดแล้วยังไม่ทดสอบกับฮาร์ดแวร์"**
 
 ---
 
-## 🔍 หมายเหตุการยืนยันรุ่น
+## 🔍 หมายเหตุการยืนยันรุ่นและการจับคู่พอร์ต
 
-* รุ่นที่ยืนยันแล้วคือ **RB750r2** และ **TL-SG105E**
+* รุ่นที่ยืนยันจริงจากฮาร์ดแวร์คือ **RB750r2** (revision r3, RouterOS 7.18.2) และ **TL-SG105E 5.0**
 * หากพบเอกสารเก่าเขียน `RB750Gr3` หรือ `TL-SG108E` ให้ถือว่า **ผิด** และแก้ตามตารางนี้
-* ตรวจแล้ว 2026-08-06: โน้ตในวอลต์ ([[entities/MikroTik_hEX_lite]], [[entities/TP-Link_TL-SG105E]], [[raw/AEGIS_System_Design_extracted]]) **ระบุรุ่นถูกต้องอยู่แล้ว** — ความขัดแย้งนี้อยู่ในเอกสาร/สไลด์นอกวอลต์ ดูข้อ 1 ใน [[90-Status/Document-Conflicts]]
+* **การปรับปรุงความจริงของพอร์ตสวิตช์ (Reconciled 2026-09-30)**: เอกสารเก่าที่ระบุว่า Port 4 เป็น "พอร์ตช่าง / Native VLAN 1" ล้าสมัยแล้ว ผลการตรวจคอนฟิกสวิตช์จริงพบว่า **Port 4 = Access VLAN 40 (IDEA3)** มี PVID 40 และ **Port 5 = Access VLAN 30 (Management)** มี PVID 30 หน้าเว็บจัดการ Switch เข้าถึงผ่าน `192.168.30.2` บน VLAN 30
 
 ---
 
-## 🚦 ข้อจำกัดความเร็วพอร์ต (บันทึก 2026-09-30)
+## 🚦 ข้อจำกัดความเร็วพอร์ต (ตรวจจริง 2026-09-30)
 
-| ลิงก์ | ความสามารถ | ชั้นหลักฐาน |
+| ลิงก์ | ความสามารถจริง | ชั้นหลักฐาน (ตรวจจริง 2026-09-30) |
 | :--- | :--- | :--- |
-| RB750r2 ทุกพอร์ต (`ether1` WAN, `ether2` Trunk) | **10/100 Mbps** (5 × 10/100 Ethernet ตามสเปกผู้ผลิต) | สเปกผู้ผลิต + รุ่นในตารางนี้ · ยังไม่อ่าน negotiated rate จากอุปกรณ์จริง |
-| Admin/Test laptop ↔ Switch Port 5 | 1 Gbps | วัดจริงโดย Human (2026-09-30) |
-| Beelink ↔ Switch Port 2 | ⏳ NOT_MEASURED | ต้องอ่านใน preflight |
+| RB750r2 `ether1` (WAN) | **100 Mbps Full Duplex** | ตรวจจริงจากอุปกรณ์: monitor `ether1` rate=100Mbps full-duplex=yes status=link-ok |
+| RB750r2 `ether2` (Trunk) ↔ Switch Port 1 | **100 Mbps Full Duplex** (100MF) | ตรวจจริงจากอุปกรณ์ทั้งสองฝั่ง: RB750r2 monitor `ether2` rate=100Mbps full-duplex=yes และ TL-SG105E Port 1 = 100MF |
+| Beelink `enp1s0` ↔ Switch Port 2 | **1 Gbps Full Duplex** (1000MF) | ตรวจจริงจากอุปกรณ์ทั้งสองฝั่ง: Beelink ethtool speed=1000Mb/s duplex=Full และ TL-SG105E Port 2 = 1000MF |
+| Admin Laptop ↔ Switch Port 5 | **1 Gbps Full Duplex** (1000MF) | ตรวจจริงจากอุปกรณ์: Realtek PCIe GbE LinkSpeed 1 Gbps และ TL-SG105E Port 5 = 1000MF |
+| Switch Port 3 (VLAN 20) | Link Down (รองรับ 1 Gbps) | ตรวจจริงจากสวิตช์: Port 3 Link Down (PVID 20) |
+| Switch Port 4 (VLAN 40) | Link Down (รองรับ 1 Gbps) | ตรวจจริงจากสวิตช์: Port 4 Link Down (PVID 40) |
 
-ผลคือ traffic ข้าม VLAN (เช่น VLAN 30 → HUB บน VLAN 10) วิ่งผ่าน `ether2` ซึ่งเป็น 10/100 —
+ผลคือ traffic ข้าม VLAN (เช่น VLAN 30 → HUB บน VLAN 10) ถูกคอขวดที่ `ether2` / Switch Port 1 ซึ่งเป็น 100 Mbps Full Duplex —
 PR #216 วัดเพดานร่วม ~10.7 MB/s (upload) / ~11.1 MB/s (download) ≈ 91–95% ของ TCP goodput บน 100 Mbps
-สถานะ: `STRONGLY_SUPPORTED_NOT_LIVE_DEVICE_REVERIFIED` · แนวทางแก้ (ออกแบบเท่านั้น ยังไม่ทำ):
+สถานะ: `P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE` · แนวทางแก้ (ออกแบบเท่านั้น ยังไม่ทำ):
 `docs/superpowers/specs/2026-09-30-aegis-gigabit-intervlan-remediation-design.md`
 
 > ⚠️ ถ้าเปลี่ยน Router ในอนาคต ให้บันทึกรุ่นใหม่ในตารางด้านบนชัดเจน — `RB750Gr3` ที่ถูกระบุว่า "ผิด" ข้างบนหมายถึงเอกสารเก่า ไม่ใช่ข้อห้ามใช้รุ่นนั้น

@@ -19,61 +19,81 @@ D1 time-to-first-byte share is 0.0008, so auth, metadata, and audit work are rul
 
 The largest possible TCP goodput on 100BASE-TX with a 1500 B MTU is about 11.77 MB/s (1,448 B of payload per 1,538 B of wire time × 12.5 MB/s). D1 reaches about 94% of that and U2 about 91%. One stream fills the ceiling and two streams share it. That is the signature of a 100 Mbps link on the path.
 
-## 2. Current topology (repository facts, verified 2026-09-30 against `origin/main` `6317d88d`)
+## 2. Current topology (live verified 2026-09-30)
 
 ~~~text
 Internet (ISP)
   └── Home ISP router            (team has no admin rights; no 802.1Q; double NAT)
-        └── MikroTik hEX lite RB750r2  ether1 = WAN (NAT, firewall)
-              ether2 = single 802.1Q trunk, VLAN 10 / 20 / 30
-              VLAN gateways 192.168.10.1 / 192.168.20.1 / 192.168.30.1
-              DHCP server on VLAN 30 (PR #257 contract)
-                └── TP-Link TL-SG105E  Port 1 trunk (tagged 10/20/30)
-                      Port 2 access VLAN 10 → Beelink Mini S 192.168.10.10 (HUB :443, Twingate Connector container)
-                      Port 3 access VLAN 20 → Detection laptop
-                      Port 4 access VLAN 1  → technician port (switch management)
-                      Port 5 access VLAN 30 → Admin / test laptop
+        └── MikroTik hEX lite RB750r2 (rev r3, RouterOS 7.18.2)
+              ether1 = WAN (100 Mbps full-duplex link-ok, NAT, firewall)
+              ether2 = single 802.1Q trunk (100 Mbps full-duplex link-ok)
+              VLAN gateways:
+                192.168.10.1/24 (VLAN10-Server)
+                192.168.20.1/24 (VLAN20-IOT)
+                192.168.30.1/24 (VLAN30-Mgmt)
+                192.168.40.1/24 (VLAN40-IDEA3)
+              DHCP servers active on VLAN 10, VLAN 20, VLAN 30, VLAN 40
+              DNS: allow-remote-requests=yes (static: router.lan; aegis.internal not yet implemented)
+              Interface-list: WAN=ether1, LAN=bridge,VLAN30-Mgmt,VLAN10-Server (VLAN20/40 not in LAN)
+                └── TP-Link TL-SG105E (hw 5.0, mgmt 192.168.30.2 on VLAN 30)
+                      Port 1 trunk (tagged 10/20/30/40, untagged 1, PVID 1) — 100MF
+                      Port 2 access VLAN 10 (untagged, PVID 10) — 1000MF → Beelink Mini S 192.168.10.10 (enp1s0 1 Gbps Full)
+                      Port 3 access VLAN 20 (untagged, PVID 20) — Link Down → Detection laptop
+                      Port 4 access VLAN 40 (untagged, PVID 40) — Link Down → IDEA3 Cyber-Physical Lockdown
+                      Port 5 access VLAN 30 (untagged, PVID 30) — 1000MF → Admin / test laptop (Realtek GbE 1 Gbps)
 ~~~
 
-Sources: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/infrastructure/network/MikroTik-Config.md`, `Switch-VLAN-Config.md`, `VLAN-IP-Plan.md`, `Hardware-Inventory.md`, `entities/MikroTik_hEX_lite.md`, `entities/TP-Link_TL-SG105E.md`, `infrastructure/remote-access/Twingate-Setup.md`, and the PR #257 spec `docs/superpowers/specs/2026-09-29-aegis-vlan30-direct-lan-dns-design.md`.
+Sources: Live preflight on RB750r2, Beelink `enp1s0`, and TL-SG105E (2026-09-30); reconciled with `Obsidian_AEGIS_Vault/AEGIS_Knowledge/infrastructure/network/MikroTik-Config.md`, `Switch-VLAN-Config.md`, `VLAN-IP-Plan.md`, `Hardware-Inventory.md`, and PR #257.
+
+> [!NOTE]
+> Historical documentation describing Port 4 as Technician/Native VLAN 1 is stale and superseded. Current live switch configuration assigns Port 4 to Access VLAN 40 (IDEA3) with PVID 40, and Port 5 to Access VLAN 30 (Management) with PVID 30. Switch web management is reached via `192.168.30.2` on VLAN 30.
 
 ### 2.1 P1 packet path
 
-Client `192.168.30.10/24` (gateway `192.168.30.1`) → switch Port 5 → Port 1 → RB750r2 `ether2` (tag 30 in) → routed and filtered → RB750r2 `ether2` (tag 10 out) → Port 1 → Port 2 → Beelink. Client and HUB are on different subnets, so every P1 packet is routed. The only documented gateway is the RB750r2, which has a single trunk port (router-on-a-stick). Upload and download each cross `ether2` once in each direction.
+Client `192.168.30.10/24` (gateway `192.168.30.1`) → switch Port 5 (1000MF) → Port 1 (100MF) → RB750r2 `ether2` (100 Mbps full-duplex, tag 30 in) → routed and filtered → RB750r2 `ether2` (100 Mbps full-duplex, tag 10 out) → switch Port 1 (100MF) → Port 2 (1000MF) → Beelink `enp1s0` (1 Gbps full-duplex). Client and HUB are on different subnets, so every P1 packet is routed. The only gateway is the RB750r2, which has a single trunk port (router-on-a-stick). Upload and download each cross `ether2` once in each direction. Every segment on this path negotiates 1 Gbps full duplex except the switch Port 1 ↔ RB750r2 `ether2` trunk, which is locked at 100 Mbps in hardware.
 
 ### 2.2 Link capability register
 
 | Link / port | Capability | Evidence class |
 |---|---|---|
-| Client NIC ↔ switch Port 5 | 1 Gbps negotiated | **Measured** (Human, 2026-09-30: Realtek PCIe GbE, LinkSpeed 1 Gbps) |
-| Switch Port 1 ↔ RB750r2 `ether2` | **≤ 100 Mbps**: RB750r2 has 5 × 10/100 Ethernet (vendor spec supplied by the Human Owner) | Vendor spec + repo model identity. Live negotiated rate NOT re-read from the device |
-| RB750r2 `ether1` ↔ home ISP router | ≤ 100 Mbps (same device) | Vendor spec |
-| Switch Port 2 ↔ Beelink NIC | NOT_MEASURED. Neither the Beelink NIC speed nor the port negotiation is recorded in the repo | Unknown. Preflight must read it |
-| TL-SG105E switching fabric | Gigabit-class ports per the product line. Not recorded in the repo | Vendor claim. Preflight confirms negotiated rates |
+| Client NIC ↔ switch Port 5 | **1 Gbps** (1000MF) | **Measured live** (Human, 2026-09-30: Realtek PCIe GbE LinkSpeed 1 Gbps; Switch Port 5 = 1000MF) |
+| Switch Port 1 ↔ RB750r2 `ether2` | **100 Mbps Full Duplex** (100MF) | **Measured live** (Human, 2026-09-30: RB750r2 `/interface ethernet monitor ether2 once` rate=100Mbps full-duplex=yes; TL-SG105E Port 1 = 100MF) |
+| RB750r2 `ether1` ↔ home ISP router | **100 Mbps Full Duplex** | **Measured live** (Human, 2026-09-30: RB750r2 `/interface ethernet monitor ether1 once` rate=100Mbps full-duplex=yes status=link-ok) |
+| Switch Port 2 ↔ Beelink NIC | **1 Gbps Full Duplex** (1000MF) | **Measured live** (Human, 2026-09-30: Beelink `enp1s0` ethtool speed=1000Mb/s duplex=Full; TL-SG105E Port 2 = 1000MF) |
+| Switch Port 3 ↔ Detection Laptop | Link Down (Gigabit capable) | Measured live: TL-SG105E Port 3 = Link Down (Access VLAN 20, PVID 20) |
+| Switch Port 4 ↔ IDEA3 Controller | Link Down (Gigabit capable) | Measured live: TL-SG105E Port 4 = Link Down (Access VLAN 40, PVID 40; historical VLAN 1 role superseded) |
+| TL-SG105E switching fabric | Gigabit-class (hw 5.0) | Measured live: Ports 2 and 5 operate at 1000MF |
 
 ~~~text
-BOTTLENECK_LOCATION=RB750r2 ether2 (router-on-a-stick inter-VLAN trunk), 10/100 port
-CLASSIFICATION=STRONGLY_SUPPORTED_NOT_LIVE_DEVICE_REVERIFIED
-RESIDUAL_ALTERNATIVE=Beelink NIC / switch Port 2 negotiated at 100 Mbps (NOT_MEASURED; preflight P-3 settles it)
+RB750R2_IDENTITY_LIVE_VERIFIED=YES
+RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX
+TP_LINK_PORT1_TRUNK=100MF
+BEELINK_LINK=1_GBPS_FULL
+ADMIN_CLIENT_LINK=1_GBPS
+TP_LINK_PORT2=1000MF
+TP_LINK_PORT5=1000MF
+P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE
 ~~~
 
-If preflight finds the Beelink link at 100 Mbps, fix that link first. It is a cable or NIC matter, not a router matter. This design still applies afterwards, because `ether2` is 10/100 in hardware regardless.
+The residual hypothesis that the Beelink link was negotiated at 100 Mbps is **disproven** (`BEELINK_LINK=1_GBPS_FULL`). The 100 Mbps inter-VLAN trunk bottleneck on RB750r2 `ether2` is **proven live**.
 
 ### 2.3 Other services that depend on the router
 
 Any replacement must carry every one of these, not only the VLAN gateways:
 
-1. VLAN 10/20/30 gateway addresses and the 802.1Q trunk.
-2. Forward-chain firewall: the ordered LAN-to-LAN accept rule above the drop rule (`MikroTik-Config.md`). The full rule set has **not been reviewed** and has **never been exported**. The repo records `/export` backup as "⏳ not done".
-3. WAN NAT (masquerade) on `ether1`, and the input-chain firewall protecting the router.
-4. DHCP on VLAN 30 (and on any other VLAN where it runs; unknown until export).
-5. DNS: the PR #257 design proposes a router static entry `aegis.internal → 192.168.10.10`. Whether the router serves DNS today is unknown until export.
-6. The egress path for the Twingate Connector (outbound only, container `twingate-aegis-connector-02` on the Beelink) and for `cloudflared` (Public Share).
-7. Router management access (Winbox/SSH/API). Restricting it to VLAN 30 is still "⏳ not confirmed".
+1. VLAN 10/20/30/40 gateway addresses (`192.168.10.1/24`, `192.168.20.1/24`, `192.168.30.1/24`, `192.168.40.1/24`) and the 802.1Q trunk.
+2. VLAN 40 (IDEA3) preservation: gateway `192.168.40.1/24`, DHCP server and pool, DNS behavior, firewall policy, MQTT/NTP allowances, and default deny behavior.
+3. Interface lists: RouterOS currently defines WAN=`ether1` and LAN=`bridge,VLAN30-Mgmt,VLAN10-Server`. Note that VLAN 20 and VLAN 40 are **not** members of the LAN interface-list. Migration must preserve this current behavior first without unreviewed alterations.
+4. Forward-chain firewall: the ordered LAN-to-LAN accept rule above the drop rule (`MikroTik-Config.md`). The full rule set must be exported and matched.
+5. WAN NAT (masquerade) on `ether1`, and the input-chain firewall protecting the router.
+6. DHCP on VLAN 10, VLAN 20, VLAN 30, and VLAN 40 (all verified active live).
+7. DNS: `allow-remote-requests=yes`. Static entries currently contain only `router.lan`. The `aegis.internal → 192.168.10.10` static entry is NOT yet implemented live; PR #257 remains the owner of that change.
+8. The egress path for the Twingate Connector (outbound only, container `twingate-aegis-connector-02` on the Beelink) and for `cloudflared` (Public Share).
+9. Router management access (Winbox/SSH/API). Restricting it to VLAN 30 is still "⏳ not confirmed".
 
 ## 3. Requirements
 
-Must preserve: VLAN 10 Server, VLAN 20 Detector, and VLAN 30 Management as separate L2 domains; current subnets and gateway addresses; stateful firewall enforcement between zones at the gateway; Direct-LAN behavior (PR #257 contract); Twingate Remote access; HUB address `192.168.10.10:443`; the existing security boundaries (server-side auth/RBAC is unaffected by network work); and a rollback that restores today's state in minutes.
+Must preserve: VLAN 10 Server, VLAN 20 Detector, VLAN 30 Management, and VLAN 40 IDEA3 as separate L2 domains; current subnets and gateway addresses; stateful firewall enforcement between zones at the gateway (including VLAN 40 MQTT/NTP rules and default deny); Direct-LAN behavior (PR #257 contract); Twingate Remote access; HUB address `192.168.10.10:443`; the existing security boundaries (server-side auth/RBAC is unaffected by network work); and a rollback that restores today's state in minutes.
 
 Rejected for any option: bridging VLAN 30 into VLAN 10; bypassing or weakening firewall/ACL enforcement; removing VLAN isolation for benchmark speed; exposing AEGIS services more broadly; relying on application changes to hide the hardware ceiling.
 
@@ -147,8 +167,9 @@ Remote (P2/Twingate ≈3.0 MB/s upload, R = 1.158) is **not** expected to improv
 
 Option A preserves every boundary listed in §3:
 
-- The same three VLANs, subnets, gateway addresses, and trunk tagging. The switch is unchanged.
-- The same stateful forward-chain policy, ported rule by rule in the same order. The equivalence checklist in the plan (step 3) compares exported rules line by line.
+- The same four VLANs (VLAN 10, 20, 30, 40), subnets, gateway addresses, and trunk tagging. The switch is unchanged.
+- The same stateful forward-chain policy, ported rule by rule in the same order (including VLAN 40 MQTT/NTP allowances and default deny behavior).
+- Interface-list membership preserved as-is: `LAN=bridge,VLAN30-Mgmt,VLAN10-Server` (VLAN 20 and VLAN 40 remain outside LAN unless separately reviewed).
 - No new exposure. The router's management services must be restricted to at least today's scope, and the plan records `/ip service` before and after.
 - Twingate stays outbound-only through NAT, and no inbound port is opened.
 - No application or authentication change.
