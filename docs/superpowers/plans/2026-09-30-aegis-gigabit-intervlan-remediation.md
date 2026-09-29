@@ -214,4 +214,5 @@ Run the PR #216 measurement plan's P1 Direct-LAN matrix (upload and download, 10
 - [x] 100 Mbps inter-VLAN trunk hardware-path ceiling proven live (`P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE`).
 - [x] Recovery/export/equivalence evidence preserved.
 - [x] Optional remediation design (Option A) preserved as future reference architecture (`REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`).
+- [x] PR #216 performance diagnosis reconciled with live proven 100 Mbps hardware path limit at commit `50f94e9a0c64c2cfb973415f8b5c4b577be6e19f` (`PR216_LIVE_HARDWARE_RECONCILIATION=COMPLETE`, `PR259_CURRENT_SCOPE_WORK=COMPLETE`).
 - [ ] *[DEFERRED]* Steps 4–12 (new router procurement, offline preparation, physical cutover, post-cutover verification and benchmarks) are deferred optional future work; requires explicit future Human Owner authorization (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`, `PRODUCTION_CUTOVER_AUTHORIZED=NO`, `ROUTER_MODEL_SELECTION_REQUIRED=NO`).

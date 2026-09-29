@@ -58,7 +58,7 @@ PR #216 วัดเพดานร่วม ~10.7 MB/s (upload) / ~11.1 MB/s (d
 ฮาร์ดแวร์โปรดักชันปัจจุบัน: คงเดิมที่ **RB750r2 + TL-SG105E** (`CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`)
 การเปลี่ยนฮาร์ดแวร์/จัดซื้อ: **ยังไม่อนุมัติ** (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`)
 แนวทางแก้ระดับ Gigabit: เก็บเป็นเอกสารออกแบบอ้างอิงสำหรับอนาคต (`REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`) ที่ `docs/superpowers/specs/2026-09-30-aegis-gigabit-intervlan-remediation-design.md`
-ขั้นตอนถัดไปของโปรเจกต์: นำข้อจำกัดฮาร์ดแวร์ 100 Mbps ที่พิสูจน์แล้วไป reconcile เอกสารใน PR #216 (`RECONCILE_PR216_WITH_LIVE_PROVEN_HARDWARE_PATH_LIMIT`)
+สถานะการ reconcile กับ PR #216: ดำเนินการเสร็จสมบูรณ์แล้วที่ commit `50f94e9a` (`PR216_LIVE_HARDWARE_RECONCILIATION=COMPLETE`) · ขอบเขตงานปัจจุบันของ PR #259 เสร็จสิ้น (`PR259_CURRENT_SCOPE_WORK=COMPLETE`)
 
 > ⚠️ ถ้าเปลี่ยน Router ในอนาคต ให้บันทึกรุ่นใหม่ในตารางด้านบนชัดเจน — `RB750Gr3` ที่ถูกระบุว่า "ผิด" ข้างบนหมายถึงเอกสารเก่า ไม่ใช่ข้อห้ามใช้รุ่นนั้น
 

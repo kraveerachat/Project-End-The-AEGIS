@@ -79,7 +79,7 @@ Internet (ISP)
   * Step 2 (Export & Backup): ✅ EXECUTED (`STEP2_RESULT=PASS`)
   * Step 3 (Equivalence Baseline): ✅ EXECUTED (`STEP3_RESULT=PASS`)
   * Step 4–12: งานในอนาคตที่ยังไม่ดำเนินการ (`REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`)
-  * งานปัจจุบันถัดไปของโปรเจกต์: นำข้อจำกัดฮาร์ดแวร์ 100 Mbps ที่พิสูจน์แล้วไป reconcile เอกสารใน PR #216 (`RECONCILE_PR216_WITH_LIVE_PROVEN_HARDWARE_PATH_LIMIT`)
+  * สถานะการ reconcile กับ PR #216: ดำเนินการเสร็จสมบูรณ์แล้วที่ commit `50f94e9a` (`PR216_LIVE_HARDWARE_RECONCILIATION=COMPLETE`) · ขอบเขตงานปัจจุบันของ PR #259 เสร็จสิ้น (`PR259_CURRENT_SCOPE_WORK=COMPLETE`)
 
 ---
 

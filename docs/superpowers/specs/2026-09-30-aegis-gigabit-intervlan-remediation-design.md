@@ -206,4 +206,4 @@ This PR carries no content from #216 or #257. It only cross-references them.
    - Router configuration exported and backed up off-router (`STEP2_EXPORT_BACKUP=PASS`).
    - Live equivalence baseline captured across all VLANs, DHCP, DNS, firewall, NAT, and services (`STEP3_EQUIVALENCE_BASELINE=PASS`).
    - Remediation design preserved as optional future reference (`REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`).
-3. **Active next action**: `PR259_ACTIVE_NEXT_ACTION=RECONCILE_PR216_WITH_LIVE_PROVEN_HARDWARE_PATH_LIMIT`. Reconcile PR #216 with the proven 100 Mbps hardware ceiling.
+3. **PR #216 reconciliation complete**: PR #216 performance diagnosis reconciled with proven live 100 Mbps hardware path limit at commit `50f94e9a0c64c2cfb973415f8b5c4b577be6e19f` (`PR216_LIVE_HARDWARE_RECONCILIATION=COMPLETE`). PR #259 current-scope work is complete (`PR259_CURRENT_SCOPE_WORK=COMPLETE`). Steps 4–12 remain deferred optional future reference.
