@@ -71,8 +71,8 @@ def _ensure_restore_one_shot_index(conn) -> None:
 
     Historical rows are never rewritten. Rows with a NULL incident_id (the original D4 behaviour) are outside the
     index, so they neither collide nor consume an incident. If old data already violates the invariant the index
-    cannot be built; startup must not fail and history is kept, and the read-side guard
-    (``restore_attempt_exists``) still refuses a second attempt for that incident.
+    cannot be built; initialization fails closed rather than running without the database-level one-shot invariant.
+    Existing audit history is preserved for explicit operator remediation.
     """
     try:
         conn.execute(
@@ -82,7 +82,7 @@ def _ensure_restore_one_shot_index(conn) -> None:
         conn.commit()
     except sqlite3.IntegrityError:
         conn.rollback()
-        print("DB warning: duplicate RESTORE_REQUESTED history; one-shot index not created (read guard still applies)")
+        raise
 
 import hashlib
 
