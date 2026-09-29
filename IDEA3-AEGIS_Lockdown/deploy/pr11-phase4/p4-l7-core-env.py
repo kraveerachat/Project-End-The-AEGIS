@@ -43,6 +43,12 @@ FIXED = {
     "AEGIS_MQTT_USER": "idea3-core",
     "AEGIS_PROTOCOL_MODE": "v1",
     "AEGIS_CORE_DISPATCH_ENABLED": "0",
+    # Non-secret Recovery R2/R6/R7 targets (PR238 RecoveryCoordinator). Exact approved production values only: the reviewed
+    # design has no parameterized authority for them, so any other host:port list or URL (non-HTTPS, embedded credentials,
+    # query strings) is VALUE_INVALID and a missing key is REQUIRED_KEY_MISSING. Optional IDEA1/IDEA2 URLs stay unknown keys.
+    "AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET": "192.168.10.10:22",
+    "AEGIS_RECOVERY_NETWORK_PROBE_TARGETS": "192.168.1.1:53,192.168.10.10:22",
+    "AEGIS_RECOVERY_WEB_READINESS_URL": "https://aegis.internal/security/",
 }
 NUMERIC = {"AEGIS_HEALTH_INTERVAL", "AEGIS_MAX_RESTARTS", "AEGIS_RESTART_WINDOW_SEC", "AEGIS_CORE_DISPATCH_POLL_SEC"}
 INERT = {"AEGIS_CORE_DISPATCH_BASE_URL", "AEGIS_CORE_DISPATCH_CA_FILE", "AEGIS_CORE_DISPATCH_CLIENT_CERT", "AEGIS_CORE_DISPATCH_CLIENT_KEY",
