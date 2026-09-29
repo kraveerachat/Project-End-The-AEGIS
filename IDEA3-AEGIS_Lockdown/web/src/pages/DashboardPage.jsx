@@ -282,7 +282,7 @@ export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRef
           </div>
         </header>
         <div className="global-status-grid">
-          <GlobalFact label={t('global.environment')} value={snapshot.mode} status={snapshot.mode === 'DEMO' ? 'DEGRADED' : 'HEALTHY'} detail={t(snapshot.mode === 'DEMO' ? 'global.environmentDemo' : 'global.environmentLive')} language={activeLanguage} t={t} />
+          <GlobalFact label={t('global.environment')} value={snapshot.mode} status={snapshot.mode === 'DEMO' ? 'DEGRADED' : undefined} detail={t(snapshot.mode === 'DEMO' ? 'global.environmentDemo' : 'global.environmentLive')} language={activeLanguage} t={t} />
           <GlobalFact label={t('global.freshness')} value={formatEvidenceAge(overall.evidenceAgeMs, activeLanguage)} status={overallFreshness} language={activeLanguage} t={t} />
           <GlobalFact label={t('global.runtime')} value={statusLabel(runtimeStatus, activeLanguage)} status={runtimeStatus} detail={t('global.runtimeDetail')} language={activeLanguage} t={t} />
           <GlobalFact label={t('global.containment')} value={incident ? localizedValue(incident.responseState, activeLanguage, t) : t('global.noResponse')} status={physicalVerified ? undefined : 'NOT_VERIFIED'} detail={t('global.containmentDetail')} language={activeLanguage} t={t} />

@@ -5,8 +5,10 @@ import { MetricCard } from '../components/MetricCard.jsx'
 import { Panel } from '../components/Panel.jsx'
 import { SourceStatusBar } from '../components/SourceStatusBar.jsx'
 import { StatusBadge } from '../components/StatusBadge.jsx'
+import { FreshnessTag } from '../components/FreshnessTag.jsx'
 import { domainView, evidenceAgeAt, evidenceCount, zeroAwareStatus } from '../lib/evidence.js'
 import { formatDateTime } from '../lib/format.js'
+import { ideaRows } from '../lib/idea.js'
 
 const SEVERITIES = new Set(['INFO', 'WARNING', 'HIGH', 'CRITICAL'])
 
@@ -14,8 +16,8 @@ function untrustedNote(status) {
   return `แหล่งข้อมูลอยู่ในสถานะ ${status} ค่า 0 หรือตารางว่างจึงไม่ได้พิสูจน์ว่าปลอดภัย — หมายถึงยังไม่มีหลักฐานที่ตรวจสอบได้`
 }
 
-function makeColumns(snapshotTimestamp) {
-  return [
+function makeColumns(snapshotTimestamp, showFreshness) {
+  const columns = [
     { key: 'timestamp', label: 'เวลา', render: (value) => <span className="evidence-time"><span className="mono">{formatDateTime(value)}</span><small>{evidenceAgeAt(value, snapshotTimestamp)}</small></span> },
     { key: 'type', label: 'Detection', render: (value) => <strong className="table-strong">{value ?? '—'}</strong> },
     { key: 'severity', label: 'Severity', render: (value) => <span className={`severity severity--${SEVERITIES.has(value) ? value.toLowerCase() : 'info'}`}>{value ?? '—'}</span> },
@@ -23,13 +25,15 @@ function makeColumns(snapshotTimestamp) {
     { key: 'target', label: 'Camera / target', render: (value) => value ? <span className="source-tag">{value}</span> : <span className="not-provided">ไม่ระบุ</span> },
     { key: 'result', label: 'Result', render: (value) => value ?? '—' },
   ]
+  return showFreshness ? [...columns, { key: 'freshness', label: 'ความสดของหลักฐาน', render: (value) => <FreshnessTag value={value} /> }] : columns
 }
 
 export function Idea2DetectionPage({ snapshot }) {
   const [severity, setSeverity] = useState('ALL')
   const view = domainView(snapshot.idea2)
-  const events = useMemo(() => view.events.filter((event) => severity === 'ALL' || event.severity === severity), [view.events, severity])
-  const { summary } = view
+  const feed = ideaRows(snapshot, 'IDEA2')
+  const events = useMemo(() => feed.rows.filter((event) => severity === 'ALL' || event.severity === severity), [feed.rows, severity])
+  const { summary } = feed
   const count = (value) => evidenceCount(value, view.trusted)
   const emptyLabel = !view.trusted
     ? `ไม่มีหลักฐาน IDEA2 ให้แสดง เพราะแหล่งข้อมูลอยู่ในสถานะ ${view.status}`
@@ -45,7 +49,8 @@ export function Idea2DetectionPage({ snapshot }) {
         <MetricCard icon={Camera} label="แหล่งกล้อง" value={count(summary.cameras)} status={view.trusted ? undefined : view.status} />
       </section>
       <Panel title="Detection evidence ledger" description="แสดงเฉพาะข้อมูล normalize ที่ใช้วิเคราะห์เหตุการณ์" action={<label className="compact-filter">ระดับ<select aria-label="กรองระดับ IDEA2" value={severity} onChange={(event) => setSeverity(event.target.value)}><option value="ALL">ทั้งหมด</option><option value="WARNING">WARNING</option><option value="HIGH">HIGH</option><option value="CRITICAL">CRITICAL</option></select></label>}>
-        <DataTable columns={makeColumns(snapshot.generatedAt)} rows={events} emptyLabel={emptyLabel} ariaLabel="ตารางหลักฐาน IDEA2" />
+        <DataTable columns={makeColumns(snapshot.generatedAt, feed.origin === 'INTEGRATION')} rows={events} emptyLabel={emptyLabel} ariaLabel="ตารางหลักฐาน IDEA2" />
+        {feed.origin === 'INTEGRATION' && <p className="ledger-note">แสดงจาก normalized feed events (ไม่มี source IP ในสัญญานี้) · ตัวเลขนับเฉพาะแถว FRESH ในหน้าต่างที่แสดง ค่าที่ feed ไม่มีข้อมูลแสดง —</p>}
         <p className="ledger-note">Severity และ camera/target มาจาก producer ตามที่ผ่าน allowlist — สถานะแหล่งข้อมูลด้านบนคือสถานะ adapter ไม่ใช่การยืนยันว่ากล้องทำงาน</p>
       </Panel>
       <section className="privacy-callout"><Eye size={18} aria-hidden="true" /><div><strong>Correlation candidate</strong><p>Source IP และกรอบเวลาใช้สร้าง candidate เท่านั้น ระบบไม่ระบุตัวบุคคลหรือสรุปเจตนา</p></div></section>

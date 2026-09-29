@@ -256,3 +256,53 @@ describe('Overview evidence layers', () => {
     expect(layers[4].querySelector('[data-status="HEALTHY"]')).toBeNull()
   })
 })
+
+describe('Live IDEA1 / IDEA2 evidence routing', () => {
+  const feedEvent = (overrides = {}) => ({
+    source: 'IDEA1', event_id: 'e1', event_type: 'ACCESS_DENIED', severity: 'HIGH', occurred_at: snapshot.generatedAt,
+    received_at: snapshot.generatedAt, resource: 'drive', subject: null, confidence: null, evidence: { result: 'DENIED' },
+    evidence_completeness: 'COMPLETE', freshness: 'FRESH', correlation_key: null, containment_eligible: true, dedup_count: 3, ...overrides,
+  })
+  const withFeed = (events, idea1Status = 'HEALTHY') => {
+    const base = liveLike(snapshot)
+    return {
+      ...base,
+      idea1: { ...base.idea1, status: idea1Status, freshness: 'FRESH' },
+      idea2: { ...base.idea2, status: 'HEALTHY', freshness: 'FRESH' },
+      integration: { events },
+    }
+  }
+
+  it('renders IDEA1 rows from the normalized feed and hides IDEA2 rows there', () => {
+    render(<Idea1SecurityPage snapshot={withFeed([feedEvent(), feedEvent({ source: 'IDEA2', event_id: 'e9', resource: 'CAM-77' })])} />)
+    const table = screen.getByRole('region', { name: 'ตารางหลักฐาน IDEA1' })
+    expect(within(table).getAllByRole('row')).toHaveLength(2)
+    expect(within(table).getByText('×3 · พบซ้ำ')).toBeVisible()
+    expect(within(table).getByText('ไม่ระบุ')).toBeVisible()
+    expect(screen.queryByText('CAM-77')).toBeNull()
+  })
+
+  it('flags STALE and FUTURE rows instead of presenting them as current', () => {
+    render(<Idea1SecurityPage snapshot={withFeed([feedEvent({ freshness: 'FUTURE' }), feedEvent({ event_id: 'e2', freshness: 'STALE' })])} />)
+    const table = screen.getByRole('region', { name: 'ตารางหลักฐาน IDEA1' })
+    expect(within(table).getByText('FUTURE')).toBeVisible()
+    expect(within(table).getByText('STALE')).toBeVisible()
+    expect(within(table).queryByText('FRESH')).toBeNull()
+    // stale rows are not counted as current DENIED evidence
+    const denied = screen.getByText('DENIED', { selector: '.metric-card__label' }).closest('.metric-card')
+    expect(denied.querySelector('.metric-card__value strong').textContent).toBe('0')
+  })
+
+  it('does not trust feed rows for the source badge when the source itself is UNKNOWN', () => {
+    render(<Idea2DetectionPage snapshot={{ ...withFeed([feedEvent({ source: 'IDEA2', event_id: 'e5', resource: 'CAM-05' })]), idea2: { status: 'UNKNOWN', freshness: 'ABSENT', generatedAt: snapshot.generatedAt } }} />)
+    expect(screen.getByText('CAM-05')).toBeVisible()
+    expect(screen.getByLabelText('สถานะ UNKNOWN', { selector: '.source-bar *' })).toBeVisible()
+  })
+
+  it('prefers dedicated rows over the feed when both exist', () => {
+    const base = withFeed([feedEvent({ resource: 'FEED-ONLY' })])
+    render(<Idea2DetectionPage snapshot={{ ...base, idea2: { ...snapshot.idea2 } }} />)
+    expect(screen.getByText('CAM-02')).toBeVisible()
+    expect(screen.queryByText('FEED-ONLY')).toBeNull()
+  })
+})

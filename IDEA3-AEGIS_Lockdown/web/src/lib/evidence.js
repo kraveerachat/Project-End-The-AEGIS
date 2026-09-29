@@ -71,3 +71,11 @@ export function evidenceAgeAt(timestamp, snapshotTimestamp, language) {
   if (!Number.isFinite(evidenceTime) || !Number.isFinite(snapshotTime)) return formatEvidenceAge(Number.NaN, language)
   return formatEvidenceAge(Math.max(0, snapshotTime - evidenceTime), language)
 }
+
+/** Snapshot-wide evidence trust, mirroring the Dashboard: STALE wins, no evidence age means UNKNOWN. */
+export function overallEvidence(snapshot) {
+  const overall = snapshot?.overall ?? {}
+  const stale = (snapshot?.sources ?? []).some((source) => source.freshness === 'STALE')
+  const status = stale ? 'STALE' : Number.isFinite(overall.evidenceAgeMs) ? safeStatus(overall.status) : 'UNKNOWN'
+  return { status, trusted: countsTrusted(status) }
+}

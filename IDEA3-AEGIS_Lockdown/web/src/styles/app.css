@@ -329,3 +329,46 @@ ol.topology-map > li { min-width: 0; }
   .table-wrap--wide table { min-width: 900px; }
 }
 @media (prefers-reduced-motion: reduce) { .response-chain__stage, .evidence-layer { transition: none; } }
+
+/* ===== W3 supporting pages ===== */
+.audit-provenance { display: flex; align-items: flex-start; gap: 12px; padding: 13px 18px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.audit-provenance svg { flex: 0 0 auto; margin-top: 2px; color: var(--ink-caption); }
+.audit-provenance dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 0; flex: 1; }
+.audit-provenance dt { color: var(--ink-caption); font-size: 10px; }
+.audit-provenance dd { margin: 3px 0 0; overflow-wrap: anywhere; font: 12px var(--font-mono); }
+.policy-form small { color: var(--ink-caption); font-weight: 400; font-size: 10px; }
+.incident-list__item[aria-current='true'] { box-shadow: inset 3px 0 0 var(--accent); }
+.incident-detail .response-chain { padding: 0; border: 0; box-shadow: none; background: transparent; }
+@media (max-width: 920px) { .incident-list { max-height: 300px; overflow-y: auto; } }
+@media (max-width: 760px) { .audit-provenance dl { grid-template-columns: 1fr; } }
+
+/* Closed mobile drawer must not be reachable by keyboard or assistive tech (visibility waits for the slide-out) */
+@media (max-width: 900px) {
+  .sidebar { visibility: hidden; transition: transform 200ms cubic-bezier(.32,.72,0,1), visibility 0s linear 200ms; }
+  .sidebar--open { visibility: visible; transition-delay: 0s; }
+}
+@media (max-width: 900px) and (prefers-reduced-motion: reduce) { .sidebar { transition: none !important; } }
+
+/* Login on phones: the form must be reachable without scrolling past the marketing copy */
+@media (max-width: 620px) {
+  .login-context { min-height: 0; padding: 26px 20px 22px; }
+  .login-emblem { margin-bottom: 22px; }
+  .login-context h1 { margin: 10px 0 0; font-size: 30px; }
+  .login-context p:not(.kicker), .login-assurance { display: none; }
+  .login-form-wrap { padding: 28px 20px 40px; }
+  .login-card__icon { margin-bottom: 16px; }
+}
+
+/* Compact badges carry state text; keep it legible (>=10px) everywhere, not only on Overview */
+.status--compact { font-size: 10px; }
+
+/* Contrast (measured in Brave, computed colours): primary button and light HEALTHY badge were below 4.5:1 */
+:root[data-theme='dark'] .button--primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+:root:not([data-theme='dark']) .status--healthy, :root:not([data-theme='dark']) .status--connected { color: #047857; }
+th { font-size: 10px; }
+.nav-group p { font-size: 10px; }
+
+/* A grid item's min-content must never widen the page column (Lockdown overflowed at ~1180px) */
+.page-stack { grid-template-columns: minmax(0, 1fr); }
+.component-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); }
+.component-card { min-width: 0; }
