@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-28
+updated: 2026-09-30
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -20,36 +20,73 @@ edit_policy: owner-writable
 Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
-PR: NOT CREATED — blocked until Human Machine A local acceptance and final Task 16 closeout
-Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_STATE=BLOCKED_PREREQUISITES — the dedicated H1 TLS gateway and bounded capacity-probe harness are implemented and locally verified as source. Attempts 1–3 failed closed at successively deeper measurement/readiness diagnostics. Attempt 4 proved all-state optional-health inspection and retained PostgreSQL as running/healthy while gateway and Monitor each exited with code 1. The retained log did not contain their startup stderr/stdout, so the crash causes and any common cause remain unproven. Exact cleanup removed all probe resources after every attempt and preserved the seven-container Production identity. No complete capacity measurement was produced. This branch retains the direct/sudo-noninteractive boundary and adds bounded, redacted gateway/Monitor startup-log evidence before cleanup without weakening fail-closed readiness. N0 capacity, a reviewed rerun, N1-N7, and the reviewed non-Production CA path remain outstanding
+PR: Draft publication authorized; keep Draft until remaining H1/Task 16 acceptance and the one final task receipt are complete
+Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_N0=PASS; H1_STATE=BLOCKED_PREREQUISITES. Historical Attempts 1–4 failed closed and cleaned up; Attempt 8 blocked at postgres-seed; Attempt 9 passed at `af42604fbdd0dc42ada7d406b832f3267232eb5f`. The first main integration produced `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`, corrected the physical-heartbeat semantic defect through RED→GREEN, and passed a fresh human-run post-merge N0 probe (2026-09-29T19:26:47Z–19:38:21Z, exit 0; postgres-seed, monitor-health, capacity measurements, and cleanup PASS). The probe's fresh Production before/after identity hash was `a9793f92870b39ff961245493901691820bb0114d1f5049c577e921c95e8a5cc` (7 containers, 7 networks, 4 volumes); no Production mutation was performed. Final reviewed main sync `fdc2dd3d3ee5d69f303a6767047509dc37150f75` brought only IDEA1/IDEA3 changes; the actual merged tree `0588a24ee4900b469a0dbf25cccc420c07cb5053` preserved every pinned H1 runtime/build input byte-for-byte. N0 was not rerun. N1–N7, live CA/path acceptance, permanent Machine A install/reboot/account acceptance, and final task closeout remain outstanding.
 Started: 2026-09-19
-Current verified repository source checkpoint: `3272a90e8e51ffa2d9b8ef322768dcb4fe55780a` (`fix(idea2): guard optional Docker health diagnostics`); the Attempt 4 startup-log diagnostic remediation follows as this local checkpoint and performs no live action
+Live-accepted source checkpoint: `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`; final unrelated-main merge: `8ed07adf1a29a6b76ca5c776031a4fea6e37223e` (same pinned H1 inputs)
 Production mutation allowed: NO
 
 ```text
-LIVE_PROVISIONING_PERFORMED=NO
+H1_PERSISTENT_LAB_PROVISIONED=NO
 PRODUCTION_MUTATION=NO
-MACHINE_A_MUTATION=NO
-N0_CAPACITY_CRITERION=NOT_DEFINED
-N0_CAPACITY=NOT_PROVEN
-N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION
-BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES
+MACHINE_A_RUNTIME_MUTATION=NO
+N0_CAPACITY_CRITERION=OWNER_APPROVED_FORMULA_AND_LIMITS
+N0_CAPACITY=PASS
+N0_STATE=PASS
+POSTMERGE_N0=PASS
+LIVE_N0_REVALIDATION_REQUIRED=NO
 CAPACITY_INPUT_FREEZE_SOURCE_SHA=9e39fe5786a5ac7428d2e5eb47cb2285a63bc606
 H1_PROBE_IMPLEMENTATION_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
 MONITOR_FINAL_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
-H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
-CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
+H1_GATEWAY=SOURCE_IMPLEMENTED_AND_DISPOSABLE_PROBE_VERIFIED
+CAPACITY_PROBE=LIVE_PASS_AND_CLEANED
 CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
-ACTIVE_CAPACITY_PROBE=ATTEMPT_4_FAILED_CLEANED
-ATTEMPT_4_SERVICE_EXIT=GATEWAY_MONITOR_EXIT_1
-STARTUP_EXIT_ROOT_CAUSE=NOT_PROVEN
-STARTUP_LOG_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
-OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY
-SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
-ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
 GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE
 N1_STARTED=NO
 ```
+
+The earlier N0 development checkpoints below retain their original markers as
+historical test-contract evidence, not as current gate state:
+`N0_CAPACITY_CRITERION=NOT_DEFINED`, `N0_CAPACITY=NOT_PROVEN`,
+`N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION`,
+`BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES`,
+`H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY`,
+`CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY`,
+`ACTIVE_CAPACITY_PROBE=ATTEMPT_4_FAILED_CLEANED`,
+`ATTEMPT_4_SERVICE_EXIT=GATEWAY_MONITOR_EXIT_1`,
+`STARTUP_EXIT_ROOT_CAUSE=NOT_PROVEN`,
+`STARTUP_LOG_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY`,
+`OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY`,
+`SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY`, and
+`ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED`.
+
+### Final reviewed main-equivalence evidence (N0, 2026-09-30)
+
+The final merge commit `8ed07adf1a29a6b76ca5c776031a4fea6e37223e`
+has tree `0588a24ee4900b469a0dbf25cccc420c07cb5053`, exactly the
+pre-reviewed hypothetical merge tree. Compared with the live-accepted source
+`5f154a25becfd8cf3c84f19a1585c51fbd4d399c`, the changed paths are only
+15 IDEA1/IDEA3 source/documentation paths. The actual merged H1 identities are:
+
+| Input | Git object ID |
+|---|---|
+| IDEA2 Monitor tree | `ff068da99352d7f1ee4b1eea7d79c398e54a7c05` |
+| H1 probe tree | `98a1c376dd0fa327ff93c7e5e8017c4056495fa0` |
+| H1 gateway tree | `a74c4e70c2ebe67201b0b6ab97d3b67a03a5d11f` |
+| H1 probe Compose blob | `2608bc9c14f089cf01261fa906687ab0469fe4f3` |
+| root Compose blob | `2115c597d7a94354f90160d22d38e13a711c59d0` |
+| root `.env.example` blob | `2a142639348c206158d9ab49399b8d7bc55738b0` |
+
+Monitor Dockerfile, `.dockerignore`, package manifests, `server/`, and `src/`
+also matched their live-accepted object IDs. After this merge, the non-live
+H1 contracts passed 40/40; physical heartbeat/Agent focus passed 16 with one
+conditional PostgreSQL skip; full Monitor passed 142 with three conditional
+PostgreSQL skips; Engine/Agent passed 194 tests with two expected Windows-native
+skips; Vite built 2,077 modules; static syntax, governance 50/50, Vault,
+and diff checks passed. These fresh local checks do not replace the separately
+reported human-run live N0 result or prove N1–N7. The raw capacity measurement
+artifact remains in the human-run evidence, not this repository; no numerical
+capacity value is reconstructed here.
 
 ### Goal
 
@@ -104,14 +141,17 @@ governance, Vault, secret-scan, and scoped security-review gates must pass. Huma
 acceptance must then prove reboot/login auto-start, idle camera OFF, Operator on
 CAM-01 using physical Camera A, final release OFF, Operator2 on CAM-02 using the
 same physical Camera A, final release OFF, and no manual bridge, heartbeat, npm,
-Vite, Python helper, or PowerShell workflow. No receipt, push, or PR is created
-before that acceptance.
+Vite, Python helper, or PowerShell workflow. The owner has separately authorized
+publication of the verified N0 checkpoint as a **Draft PR** before that final
+acceptance. This does not authorize a final receipt, Ready-for-Review status,
+merge, Production deployment, or a claim that Task 16 is complete.
 
 ## Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| H1-N0-CAPACITY | Exact-candidate disk/RAM/PostgreSQL/rollback capacity gate | BLOCKED_CAPACITY_CHARACTERIZATION | Owner limits, immutable artifacts, sudo-only Docker access, and live preflight were proven. Attempts 1–3 failed closed at the PostgreSQL volume, running-only discovery, and optional-health inspection boundaries. Attempt 4 retained PostgreSQL as running/healthy and gateway/Monitor as exited with code 1, but its log lacked their startup stderr/stdout; no common crash cause is proven and no `capacity-measurements.json` was produced. Exact cleanup removed all probe containers, networks, volume, builder, and introduced candidate images after all attempts; the seven-container Production identity and health remained unchanged. The local remediation captures only bounded/redacted gateway and Monitor startup tails before stop/cleanup while preserving all fail-closed service-state rules. | source checkpoint `3272a90e8e51ffa2d9b8ef322768dcb4fe55780a`; remediation pending this local checkpoint | `N0_CAPACITY=NOT_PROVEN`; `ACTIVE_CAPACITY_PROBE=ATTEMPT_4_FAILED_CLEANED`; `ATTEMPT_4_SERVICE_EXIT=GATEWAY_MONITOR_EXIT_1`; `STARTUP_EXIT_ROOT_CAUSE=NOT_PROVEN`; N0 BLOCKED; `N1_STARTED=NO` | Review the startup-log checkpoint, restage its exact source on `aegis-system`, rerun preflight and validate-only, then separately authorize one bounded Attempt 5 | No repository task may rerun the probe, start N1, or mutate Machine A/Production |
+| H1-N0-FINAL | Bounded non-Production capacity probe and post-main integration | PASS / CLOSED for N0 only | Attempt 8 blocked at postgres-seed; Attempt 9 PASS at `af42604`; first main merge `5f154a25` included the RED→GREEN physical-heartbeat correction; human-run post-merge N0 at that live SHA exited 0 with postgres-seed, monitor-health, measurements, and cleanup PASS. Fresh Production identity remained `a9793f92…` before/after (7/7/4). Later reviewed main `fdc2dd3d` merged cleanly and produced the exact predicted tree `0588a24e`; all H1 runtime inputs retained their pinned hashes, so no live rerun was required. Post-sync non-live H1 40/40; Monitor 142 pass/3 conditional PostgreSQL skips; Engine 194 tests/2 expected environment skips; Vite 2,077-module build PASS. | live source `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`; final main merge `8ed07adf1a29a6b76ca5c776031a4fea6e37223e` | `POSTMERGE_N0=PASS`; H1 persistent lab, N1–N7, CA/path, and permanent Machine A acceptance still pending | Publish Draft PR for human/integration review; do not merge or start N1 without separate authorization |
+| H1-N0-CAPACITY-HISTORICAL-ATTEMPT4 | Earlier exact-candidate disk/RAM/PostgreSQL/rollback capacity gate | BLOCKED_CAPACITY_CHARACTERIZATION at Attempt 4 only; superseded by H1-N0-FINAL | Owner limits, immutable artifacts, sudo-only Docker access, and live preflight were proven. Attempts 1–3 failed closed at the PostgreSQL volume, running-only discovery, and optional-health inspection boundaries. Attempt 4 retained PostgreSQL as running/healthy and gateway/Monitor as exited with code 1, but its log lacked their startup stderr/stdout; no common crash cause was proven then and no `capacity-measurements.json` was produced in that attempt. Exact cleanup removed all probe resources and preserved Production identity. | source checkpoint `3272a90e8e51ffa2d9b8ef322768dcb4fe55780a` | Historical `ACTIVE_CAPACITY_PROBE=ATTEMPT_4_FAILED_CLEANED`; superseded by later PASS | Later Attempt 9 and post-merge N0 closed this boundary | Historical, not the current gate |
 | H1-AGENT-CA-BUNDLE | Managed private-CA trust for the dedicated Identity Agent | PASS — SOURCE/LOCAL ONLY | TDD covers public-only PEM validation, exact managed path, empty/unset default trust, reparse/out-of-scope/private-key/malformed/missing rejection, explicit Requests verification across auth and ingest, ambient trust-variable rejection, real disposable TLS chain success, untrusted CA and hostname mismatch denial, and Windows install/status/repair/uninstall ownership. Focused Agent/CA/lifecycle 57/57; full Engine/Agent 194 total / 192 pass / 2 expected native-pywin32 skips; Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; H1 contract 6/6; Windows lifecycle 37/37; PowerShell parse 10/10; governance 63/63; Vault PASS with two pre-existing Canvas warnings. No live CA, service, Machine A, lab, or Production state changed. | this local checkpoint | `CA_BUNDLE_IMPLEMENTATION=IMPLEMENTED_SOURCE_ONLY`; H1 remains blocked | N0-N7 and live reviewed H1 CA/path verification | stop before N0, H1, machine mutation, push, or PR |
 | H1-NONPROD-ENVIRONMENT-DESIGN | Isolated non-Production H1 architecture and N0-N8 runbook | BLOCKED_PREREQUISITES / DESIGN REVIEWED | Human-approved repository-only design fixes `aegis-h1-lab`, candidate-only HTTPS/stream hostnames, conditional ports, isolated PostgreSQL/Monitor/network/volume/credentials, exact browser/Agent route split, owner-reviewed registry policy, server-authoritative stream destination, and the source/local-verified managed `AEGIS_AGENT_CA_BUNDLE` lifecycle. No live DNS, TLS, database, container, registry, or Machine A resource exists from this checkpoint. | this local checkpoint | DESIGN PASS; CA-BUNDLE SOURCE/LOCAL PASS; LIVE PROVISIONING NOT PERFORMED | Run separately authorized N0-N7 and verify the live reviewed non-Production CA/path | Human reviews this local checkpoint; do not begin N0 or H1 |
 | MULTI-MACHINE-PORTABILITY | Pre-H1 portability hardening for Windows Machines A/C and Linux Machine B | PASS — SOURCE/STATIC ONLY | Binding model proven across A/B/C x operator/operator2: A = Windows laptop/built-in camera; B = Linux/local camera discovered at deployment; C = Windows PC/external webcam. RED proved reusable private-network endpoint and reverse-port defaults; GREEN makes the Monitor host, explicit non-loopback server bind, and unique reverse port mandatory deployment inputs. Authorization 17/17; Windows+Linux lifecycle 34/34; full Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; full Engine/Agent 179 tests / 177 pass / 0 fail / 2 expected native-Windows skips; UI freeze 5/5; PowerShell parse PASS; Bash parse PASS; Vite build PASS; governance/Vault 50/50 and PASS with two pre-existing Canvas warnings; diff/hardcode/secret/security review PASS. | this local checkpoint | Windows A/C share one configuration-driven lifecycle; Machine C needs no source rewrite. Shared Machine B business logic needs no rewrite, but the repository Linux adapter currently implements only Engine+tunnel systemd lifecycle and source-level camera discovery; Linux dedicated Identity Agent and real Machine B runtime acceptance are NOT_IMPLEMENTED / NOT_VERIFIED. Model semantics unchanged. | Future separately approved Linux identity-agent adapter and real Machine B install/reboot/camera acceptance; H0 is complete and H1 prerequisites remain separate | STOP before H1, any machine mutation, push, or PR |
@@ -140,8 +180,8 @@ before that acceptance.
 | Original Task 12 | CLOSED | Checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; repository-native Windows install/status/repair/uninstall/autostart lifecycle passes source/static/test-double gates. No permanent Machine A runtime mutation occurred. |
 | Original Task 13 | CLOSED | Node integration 5/5 and Engine contract 2/2 passed against the built app, disposable PostgreSQL 15, protocol-real Agent proof transport, and protocol-real Engine stream. Dynamic ports and database schemas were released. Production and installed Machine A remain unchanged. |
 | Original Task 14 | HUMAN-GATE READY | Fresh complete source/local verification and scoped security review passed at source checkpoint `ee9812d8`; all Task 14 disposable PostgreSQL and dependency resources were removed. Playwright is honestly `BLOCKED_ENVIRONMENT` because the approved runner is absent. |
-| Original Task 15 | H0 HUMAN_PROVEN_COMPLETE / H1 BLOCKED_PREREQUISITES | H0 prerequisite and read-only Machine A checks are human-proven complete. The managed Agent CA-bundle source/lifecycle is locally implemented and verified; H1 has not started and remains blocked on the isolated non-Production environment, live reviewed CA/path evidence, and N0-N7. No Agent/Engine/tunnel/camera/Production state changed in this repository-only checkpoint. |
-| Original Task 16 | NOT STARTED | Human H0 evidence review, bounded installation, reboot/account acceptance, final receipt, push, and PR remain later gates. |
+| Original Task 15 / H1 N0 | H0 HUMAN_PROVEN_COMPLETE / N0 PASS / H1 BLOCKED_PREREQUISITES | Managed Agent CA-bundle source/lifecycle is locally verified. The bounded, disposable N0 probe and post-main-sync equivalence passed; persistent H1 lab, N1–N7, and CA/path review remain separate gates. No permanent Agent/Engine/tunnel/camera or Production state changed. |
+| Original Task 16 | NOT STARTED | Permanent Machine A installation, reboot/account/camera acceptance, and the one final task receipt remain pending. Owner-authorized Draft PR publication does not close them. |
 
 ### Planned / Completed / Remaining
 
@@ -153,7 +193,8 @@ before that acceptance.
 - **Completed:** Original Task 15 prepared and statically validated the Human Owner installation gate. Human H0-1/H0-2R-1 passed. Fresh WinGet diagnostics proved that the first H0-2R-2 command never selected or ran an installer because Windows PowerShell 5.1 split the nested `--override` at `Program Files`. The corrected exact official-installer path was later authorized and exited zero; `C:\Program Files\Python312\python.exe` proves Python 3.12.10 AMD64 and `py.exe -0p` lists it beside the unchanged-location Python 3.14 baseline. H0-2R-3 stopped only because its registration check incorrectly required the Burn bundle GUID in HKLM.
 - **Completed:** H0 is human-proven complete. The historical H0-2R failures and their bounded corrections remain below as an audit trail rather than current blockers.
 - **Completed:** Repository-only `AEGIS_AGENT_CA_BUNDLE` implementation and local disposable-certificate verification. TLS verification remains mandatory; no live trust material or runtime was provisioned.
-- **Remaining:** Live N0-N7, reviewed H1 public CA/path acceptance, H1 installation, reboot/operator/operator2 acceptance, final receipt, push, and PR remain pending. The design authorizes no provisioning.
+- **Completed:** Attempt 9 and the post-merge human-run disposable H1 N0 capacity probe at live source `5f154a25` passed. Final reviewed main sync `fdc2dd3d` changed no pinned IDEA2/H1 runtime input; targeted non-live tests/build passed. Production identity was unchanged.
+- **Remaining:** N1–N7, reviewed H1 public CA/path acceptance, persistent lab provisioning, permanent Machine A installation, reboot/operator/operator2 acceptance, and the one final receipt. Draft PR publication is authorized, but Ready status and merge remain human-gated.
 
 ### PRE-TASK-12 verified contract and known limitations
 
@@ -223,14 +264,12 @@ before that acceptance.
 
 ### Handoff / Next Action
 
-Return the H1 capacity-probe service-readiness diagnostic checkpoint for Human
-review and stop at `H1_STATE=BLOCKED_PREREQUISITES`. Owner limits and preflight
-are already proven; the next gate is restaging the exact checkpoint, rerunning
-validate-only, and separately authorizing one bounded Attempt 4. Do not run that
-probe from repository automation, begin N1-N8, provision live
-DNS/TLS/database/container resources, install Agent/Engine runtime, modify
-Agent/Engine/tunnel/camera state, mutate Production, push, open a PR, deploy,
-or create the final receipt.
+Present the N0-PASS, source-equivalent branch as a Draft PR for owner and
+integration review. `H1_STATE=BLOCKED_PREREQUISITES` still applies to N1–N7,
+live CA/path review, and permanent Machine A acceptance. Do not repeat the live
+N0 probe while the pinned H1 inputs remain identical. Do not start N1–N8,
+install Agent/Engine, alter tunnel/camera/Production state, mark the PR Ready,
+merge, or create the final immutable receipt without the separate gates.
 
 ### Original Task 12 verification evidence
 
