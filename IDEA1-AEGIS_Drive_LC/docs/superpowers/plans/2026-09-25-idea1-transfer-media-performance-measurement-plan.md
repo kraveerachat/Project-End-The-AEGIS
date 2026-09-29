@@ -935,52 +935,74 @@ Expected observations: `status` 200 on every stream, and `bytes` equal to `size`
 
 D1 never authorizes Task 2. Download changes remain outside the approved Task 0–2 range.
 
-## 21. U1 executed; U2 Direct-LAN upload probe packet (prepared 2026-09-29, NOT EXECUTED)
+## 21. U2 Direct-LAN upload and D1 Direct-LAN download probes (EXECUTED 2026-09-29)
 
-U1 (§20.1) was executed by the Human Owner on P2 Remote/Twingate: `U1_R=1.1581054`, `UPLOAD_ROOT_CAUSE_CLASSIFICATION=NOT_PROVEN`, Human Owner ruling `DO_NOT_ENTER_TASK2_YET`. Full evidence and interpretation are in study design §24. §20.1 and §20.2 are not modified.
+Probes U2 and D1 were executed on P1 Direct LAN (wired Ethernet, Management VLAN30, Twingate OFF) by the Human Owner on 2026-09-29.
 
-### 21.1 Upload probe U2 — U1 methodology on P1 Direct LAN
+### 21.1 Authoritative U2 upload probe results
 
-- Purpose: separate **A**, a Remote/Twingate/shared Internet path ceiling, from **B**, a common HUB/Drive/server/storage/application aggregate ceiling.
-- Path: **P1 Direct LAN**. Twingate OFF. Wired Ethernet. Same Windows reference client and browser as PRE-FIX and U1.
-- Traffic generated: three normal 300,000,000 B Files uploads (about 900 MB). The three probe files can be deleted afterwards through the normal Files UI.
-- Constraints: no Production configuration mutation, no service restart, no SSH, no runtime code mutation.
-- Tracer: **the §20.1 tracer script, byte-for-byte unchanged.** Its URL match (`/api/files/uploads/<id>/chunks/`) is path-independent, so it works unmodified on P1.
+Executed with three 300,000,000 B binary fixtures on P1 Direct LAN using the in-page XHR tracer:
 
-Fixture commands (PowerShell, in the folder holding the PRE-FIX `M-300MB.bin` fixture of exactly 300,000,000 B):
+| Run | Files | PUTs per file | Aggregate Bytes | Union Span (ms) | Aggregate MB/s | Per-file MB/s | medBodyMs | medTailMs | sumGapMs | HTTP Status |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| **U2-A single** | 1 | 18 | 300,000,000 | 28,059 | **10.692** | 10.692 | 1,561 | 4 | -17 | all 200 |
+| **U2-B dual** | 2 | 18 | 600,000,000 | 59,418 | **10.098** | 5.050 / 5.052 | 3,278 / 3,302 | 7 / 5 | -23 / -23 | all 200 |
 
-~~~powershell
-Copy-Item .\M-300MB.bin .\U2-a.bin
-Copy-Item .\M-300MB.bin .\U2-b.bin
-Copy-Item .\M-300MB.bin .\U2-c.bin
-Get-Item .\U2-a.bin, .\U2-b.bin, .\U2-c.bin | Select-Object Name, Length
+~~~text
+U2_R = 10.098 / 10.692 = 0.944
+U2_VALID = YES
 ~~~
 
-Every `Length` must be `300000000`.
+**Decision rule evaluation:**
+- `R = 0.944 <= 1.15`
+- Classification: `PROVEN_SHARED_PATH_CAPACITY_LIMITER on P1`.
+- Consequence: Concurrency does not add throughput on P1 and degrades per-file completion. Task 2 upload concurrency remains blocked and not justified (`TASK2_UPLOAD_CONCURRENCY=SKIPPED_NOT_JUSTIFIED`).
 
-Steps:
+### 21.2 Authoritative D1 download probe results
 
-1. Confirm Twingate is OFF and the client is on wired Ethernet on the Direct LAN. Open Drive → Files (an empty test folder is fine). Open DevTools Console and paste the §20.1 tracer unchanged. The console must print `'probe installed'`.
-2. Run A (single): `__AEGIS_LFT_PROBE__.start('U2-A-single')`, then upload `U2-a.bin` alone and wait for Complete. Run `JSON.stringify(__AEGIS_LFT_PROBE__.report())` and copy the output.
-3. Run B (dual): `__AEGIS_LFT_PROBE__.start('U2-B-dual')`, then select **both** `U2-b.bin` and `U2-c.bin` **in one picker selection**, and wait for both to Complete. Run `JSON.stringify(__AEGIS_LFT_PROBE__.report())` and copy the output.
-4. Return both JSON lines. Optionally delete the probe files through the normal Files UI.
+Executed on P1 Direct LAN with one root-level 300,000,000 B file (`M-300MB.bin`) using the authenticated in-page stream reader:
 
-Report command (after each run):
+| Stream | Status | Bytes | TTFB (ms) | Body (ms) | Body MB/s |
+|---|---:|---:|---:|---:|---:|
+| **D1-A single** | 200 | 300,000,000 | 21 | 26,991 | **11.115** |
+| **D1-B lane 1** | 200 | 300,000,000 | 25 | 31,627 | 9.486 |
+| **D1-B lane 2** | 200 | 300,000,000 | 31 | 54,357 | 5.519 |
+| **D1-B aggregate** | 200 | 600,000,000 | — | union | **11.032** |
 
-~~~javascript
-JSON.stringify(__AEGIS_LFT_PROBE__.report())
+~~~text
+D1_R = 11.032 / 11.115 = 0.993
+ttfbShareA = 21 / (21 + 26991) = 0.000778 ≈ 0.0008
 ~~~
 
-Expected observations: A `aggregateMBps` near the PRE-FIX P1 upload (~5.06–5.17 MB/s), 18 PUTs per file, all HTTP 200.
+**Decision rule evaluation:**
+- `ttfbShareA < 0.05`: Startup cost (auth, metadata, audit) is excluded as sustained throughput limiter.
+- `R = 0.993 <= 1.15`: `PROVEN_SHARED_PATH_CAPACITY_LIMITER on P1`. Download throughput is bound by shared path capacity, not per-stream application serialization.
 
-**Decision rule U2** (R = U2-B-dual.aggregateMBps ÷ U2-A-single.aggregateMBps; any non-200 PUT or retry invalidates the pair, so repeat once):
+## 22. Remote R1 diagnostic packet — from-home diagnosis (PREPARED / NOT EXECUTED)
 
-| Result | Interpretation | Consequence |
-|---|---|---|
-| R ≥ 1.50 | LAN has meaningful multi-stream headroom. Remote U1 is materially constrained by the Remote/Twingate/network path (hypothesis A). Per-stream behavior may still limit LAN. | Report to the Human Owner. Any Task 2 entry remains a Human Owner decision. |
-| R ≤ 1.15 | The common server/HUB/storage/application path is likely at aggregate capacity even on LAN (hypothesis B). | Investigate the common path before client concurrency. Task 2 stays blocked. |
-| 1.15 < R < 1.50 | Remains `NOT_PROVEN`. | Analyze `medBodyMs`, `medTailMs`, and `sumGapMs` together with available resource evidence. |
+- **Status:** `PREPARED / NOT_EXECUTED`.
+- **Purpose:** Characterize the Remote P2 path from the home environment to determine whether the residual remote limiter (~3.0 MB/s upload, ~4.8–5.1 MB/s download) is bound by external ISP uplink/downlink, Twingate relay vs direct mode, or transport windowing.
+- **Constraints:** No Production configuration mutation; do NOT invent or fabricate results.
 
-### 21.2 Download probe D1 — retained, independently required
+### 22.1 Scope of Remote R1 diagnostic packet
 
-D1 is retained exactly as specified in §20.2: P1 Direct LAN, Twingate OFF, the same browser-console script and decision rule. Upload and download root causes must not be conflated, so D1 is required independently of U2. U2 and D1 can run in the same onsite session. Run them one after the other, never overlapping.
+When executed from the remote home environment:
+
+1. **Step 1: Baseline ISP speed test (Twingate OFF)**
+   - Measure raw client Internet upload and download bandwidth using a standard commercial speed test (e.g., speedtest.net or fast.com).
+   - Record: Download Mbps, Upload Mbps, latency / ping ms.
+
+2. **Step 2: Twingate connection state observation**
+   - Connect Twingate client to AEGIS resource.
+   - Inspect Twingate client / connector connection mode if observable via client status / console:
+     - Record: `Direct (P2P / STUN)` vs `Relayed (Twingate Relay)`.
+     - Record any visible MTU, latency, or relay indicators.
+
+3. **Step 3: P2 download probe D1-Remote (Twingate ON)**
+   - Execute the standard D1 measurement methodology (§20.2) over P2 Remote with Twingate ON against the same root-level 300,000,000 B file (`M-300MB.bin`).
+   - Run D1-A single and D1-B dual lanes.
+   - Record: TTFB ms, body ms, body MB/s, aggregate MB/s, and in-session R.
+
+4. **Step 4: Report results**
+   - Return raw values for ISP speed, connection mode, and D1-Remote.
+   - Compare D1-Remote R against P1 D1 (`R=0.993`).

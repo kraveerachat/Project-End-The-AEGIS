@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-29
+updated: 2026-09-30
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -23,14 +23,14 @@ edit_policy: owner-writable
 | Branch | docs/idea1-transfer-media-performance-study |
 | PR | #216 (Draft) |
 | Owner | kla |
-| State | **IN_PROGRESS / PRE-FIX BASELINES COMPLETE (P1, P2, C1) / DIAGNOSIS PENDING** |
-| Scope | P1 Onsite Direct LAN PRE-FIX reconciled (18 runs complete: Upload ~5.06–5.17 MB/s, Download ~6.7–7.3 MB/s), P2 Remote PRE-FIX complete (18 runs: Upload ~3.0 MB/s, Download ~4.8–5.1 MB/s), C1 Public Share PRE-FIX complete (9 valid runs: Download ~11.7–13.5 MB/s), total 45 controlled runs, core pre-fix baseline 36/36 complete; separate storage capacity/accounting defect recorded; mutations blocked pending diagnosis |
+| State | **IN_PROGRESS / DIAGNOSIS COMPLETE TO CURRENT GATE / NO_SAFE_APP_FIX_PROVEN** |
+| Scope | U1 Remote and U2 Direct-LAN upload probes complete; D1 Direct-LAN download probe complete; physical client LinkSpeed verified (1 Gbps Realtek GbE); MikroTik router model verified from repo records as RB750r2 (5x 10/100 Fast Ethernet ports per official vendor spec); inter-VLAN 100 Mbps ceiling strongly supported; Task 2 upload concurrency skipped as unjustified; Task 5 download diagnosis complete with no safe app fix proven; Remote residual limiter open; prepared Remote R1 diagnostic packet; PR #257 cross-referenced |
 | Design | IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-25-idea1-transfer-media-performance-study-design.md |
 | Plan | IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-25-idea1-transfer-media-performance-measurement-plan.md |
 | Production mutation allowed | **NO** (`CORE_PERFORMANCE_MUTATION_GATE=PRE_FIX_BASELINES_CAPTURED`; `PERFORMANCE_MUTATION_AUTHORIZED=NO`) |
-| Current result | TOTAL_CONTROLLED_RUNS=45 (Core PRE-FIX 36/36: P1 Onsite LAN 18 runs: Upload median ~5.06–5.17 MB/s, Download median ~6.7–7.3 MB/s, asymmetry ~1.36x; P2 Remote Twingate 18 runs: Upload median ~3.0 MB/s, Download median ~4.8–5.1 MB/s, asymmetry ~1.6x; P1 is ~1.4x download / ~1.7x upload faster than P2; Supplementary C1 Public Share Cloudflare 9 runs: Download median ~11.7–13.5 MB/s); ROOT_CAUSE=NOT_PROVEN; TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN; CLOUDFLARE_BOTTLENECK=NOT_PROVEN; STORAGE_BOTTLENECK=NOT_PROVEN; SWITCH_BOTTLENECK=NOT_PROVEN; ROUTER_BOTTLENECK=NOT_PROVEN; CLIENT_CRYPTO_BOTTLENECK=NOT_PROVEN; STORAGE_ACCOUNTING_DEFECT_RECORDED=YES |
-| Optimization spec / plan | `IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-29-idea1-transfer-throughput-optimization-design.md`; `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-29-idea1-transfer-throughput-optimization-implementation.md` (Human Owner approved; authorized range Task 0–Task 2 only) |
-| Next gate | HUMAN_U2_DIRECT_LAN_UPLOAD_PROBE + D1_DIRECT_LAN_DOWNLOAD_PROBE (U1 Remote R=1.1581054 → NOT_PROVEN; Human Owner ruling DO_NOT_ENTER_TASK2_YET; storage capacity/reclamation handled separately by IDEA1-STORAGE-CAPACITY-RECLAMATION-1 / PR #241, merged) |
+| Current result | U1_REMOTE_R=1.1581054; U2_DIRECT_LAN_UPLOAD_R=0.944; D1_DIRECT_LAN_DOWNLOAD_R=0.993; D1_TTFB_SHARE=0.0008; CLIENT_ETHERNET_LINK=1_GBPS; MIKROTIK_MODEL=RB750r2; MIKROTIK_PORT_CAPABILITY=PROVEN_VENDOR_SPEC_10_100; P1_SHARED_PATH_CAPACITY_LIMITER=PROVEN_BY_U2_D1_BEHAVIOR; P1_ROUTER_100MBPS_CEILING=STRONGLY_SUPPORTED_NOT_LIVE_DEVICE_REVERIFIED; UPLOAD_APPLICATION_DEFECT_PROVEN=NO; DOWNLOAD_APPLICATION_DEFECT_PROVEN=NO; TASK2_UPLOAD_CONCURRENCY=SKIPPED_NOT_JUSTIFIED; UPLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN_AT_CURRENT_GATE; DOWNLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN; REMOTE_RESIDUAL_LIMITER=OPEN; POST_FIX=NOT_STARTED; PR257_CROSS_REFERENCE=ADDED |
+| Optimization spec / plan | `IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-29-idea1-transfer-throughput-optimization-design.md`; `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-29-idea1-transfer-throughput-optimization-implementation.md` (Task 2 skipped; Task 5 diagnosis complete; authorized range Task 0–Task 2 only) |
+| Next gate | HUMAN_R1_REMOTE_DIAGNOSTIC_PACKET (from-home execution: baseline ISP speed test Twingate OFF, Twingate connection mode direct vs relay, D1 methodology on P2 Twingate ON; post-fix not started; zero final receipts) |
 
 This task operationalizes the existing LFT-PERF-1 backlog and consolidates the
 separately recorded FILES-TRANSFER-PERF-1 plus PR187/PR212 deferred transfer and
@@ -89,6 +89,7 @@ pending diagnosis and separate Human Owner authorization. PR #216 remains open i
 | LFT-PERF-1-S4 | Reconcile P1 Onsite Direct LAN PRE-FIX (18 runs: Upload ~5.06–5.17 MB/s, Download ~6.7–7.3 MB/s), 3-way comparison (P1 vs P2 vs C1), storage capacity/accounting defect discovery, and mutation gate transition | PASS / IN PROGRESS | P1 18 runs complete; 45 total controlled runs (36/36 core); docs reconciled; zero mutations | Docs reconciliation checkpoint | PASS | Bottleneck diagnosis, storage accounting investigation, post-fix matrix | Bottleneck diagnosis & storage accounting investigation |
 | LFT-PERF-1-S5 | Task 0: normal merge of `origin/main` `21b52d5e` (PR220/PR241/PR243 merged) into PR216; only this canonical note conflicted | PASS / IN PROGRESS | Ancestry verified by git; conflict resolved preserving main completed chronology plus PR216 as Current Task; no application source/config delta from reconciliation | Task 0 reconciliation commit | PASS | Task 1 diagnosis, conditional Task 2 | Task 1 root-cause diagnosis |
 | LFT-PERF-1-S6 | Task 1 diagnosis gate + U1 Remote/Twingate single-vs-dual upload probe | NOT_PROVEN / IN PROGRESS | Diagnosis `32100cb0`; Human U1: single 2.998 MB/s, dual aggregate 3.472 MB/s (1.736 per file), R=1.1581054, medTailMs≈1–4, sumGapMs≈0, all 200 | Docs checkpoint | Upload NOT_PROVEN; Task 2 not entered (Human ruling DO_NOT_ENTER_TASK2_YET); no runtime change | U2 Direct-LAN upload probe, D1 Direct-LAN download probe | Human runs U2 + D1 (measurement plan §21) |
+| LFT-PERF-1-S7 | U2 Direct-LAN upload probe, D1 Direct-LAN download probe, client LinkSpeed, router 100 Mbps ceiling diagnosis, Task 2 skipped, Task 5 complete (no safe app fix), Remote residual open, PR257 cross-reference | DIAGNOSIS COMPLETE / IN PROGRESS | U2-A 10.692 MB/s, U2-B aggregate 10.098 MB/s (5.050/5.052), U2_R=0.944; D1-A 11.115 MB/s, D1-B aggregate 11.032 MB/s, D1_R=0.993, ttfbShareA=0.0008; client Realtek PCIe GbE 1 Gbps (WSL 10G virtual ignored); MikroTik RB750r2 5x 10/100 Ethernet per vendor spec; inter-VLAN 100 Mbps ceiling strongly supported; application defect NOT proven; Task 2 SKIPPED_NOT_JUSTIFIED; Task 5 NO_SAFE_APP_FIX_PROVEN; Remote residual OPEN; PR #257 cross-referenced | Docs checkpoint | P1 shared-path capacity limitation established; router 100 Mbps ceiling strongly supported; app defect NOT proven; Task 2 SKIPPED; Task 5 NO_SAFE_APP_FIX; Remote residual OPEN; no runtime change; no final receipt | Execute prepared Remote R1 diagnostic packet from home | R1 from-home diagnostic execution |
 
 ## Completed Task — IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1
 

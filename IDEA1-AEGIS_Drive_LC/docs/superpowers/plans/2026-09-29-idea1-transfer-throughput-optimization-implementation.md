@@ -107,13 +107,20 @@ Normal Files upload may advance to Task 2 only when the report identifies a prov
 
 ### Task 2: Add bounded Normal Files upload concurrency only if diagnosis proves it useful
 
+**Status: SKIPPED / NOT JUSTIFIED BY U1+U2**
+
+- Probe U1 (P2 Remote Twingate): `U1_R = 1.1581054`. Dual upload concurrency yielded only ~15.8% aggregate throughput gain while dropping per-file throughput by ~42% (~3.0 MB/s -> ~1.74 MB/s).
+- Probe U2 (P1 Direct LAN): `U2_R = 0.944 <= 1.15`. Dual upload concurrency on LAN produced slightly lower aggregate throughput (~10.10 MB/s vs ~10.69 MB/s) while cutting per-file throughput roughly in half (~5.05 MB/s).
+- Decision rule evaluation: `R <= 1.15` establishes `PROVEN_SHARED_PATH_CAPACITY_LIMITER on P1`.
+- Conclusion: Client-side Normal Files chunk concurrency is disproven as an effective throughput lever. Entering Task 2 is not justified. Application runtime code is intentionally NOT modified (`TASK2_UPLOAD_CONCURRENCY_ENTERED=NO`, `UPLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN_AT_CURRENT_GATE`).
+
 **Files:**
-- Modify: `IDEA1-AEGIS_Drive_LC/server/config/transferLimits.js`
-- Modify: `IDEA1-AEGIS_Drive_LC/server/routes/uploads.js`
-- Modify: `IDEA1-AEGIS_Drive_LC/src/lib/chunkedUpload.js`
-- Test: `IDEA1-AEGIS_Drive_LC/tests/transferLimitsConfig.test.js`
-- Test: `IDEA1-AEGIS_Drive_LC/tests/chunkedUploadClient.test.js`
-- Test: `IDEA1-AEGIS_Drive_LC/tests/resumableUpload.test.js`
+- Modify: `IDEA1-AEGIS_Drive_LC/server/config/transferLimits.js` (SKIPPED)
+- Modify: `IDEA1-AEGIS_Drive_LC/server/routes/uploads.js` (SKIPPED)
+- Modify: `IDEA1-AEGIS_Drive_LC/src/lib/chunkedUpload.js` (SKIPPED)
+- Test: `IDEA1-AEGIS_Drive_LC/tests/transferLimitsConfig.test.js` (SKIPPED)
+- Test: `IDEA1-AEGIS_Drive_LC/tests/chunkedUploadClient.test.js` (SKIPPED)
+- Test: `IDEA1-AEGIS_Drive_LC/tests/resumableUpload.test.js` (SKIPPED)
 
 **Interfaces:**
 - Consumes: diagnosis from Task 1 proving that more than one in-flight chunk is justified.
@@ -244,13 +251,26 @@ Do not choose `4` merely because it is maximum. If concurrency gives no material
 
 ### Task 5: Diagnose and optimize authenticated download independently
 
+**Status: DIAGNOSIS COMPLETE TO CURRENT GATE / NO_SAFE_APP_FIX_PROVEN**
+
+- P1 shared-path capacity limitation established:
+  Probe D1 on P1 Direct LAN yielded `D1_R = 0.993 <= 1.15`, proving that two concurrent download streams divide the available throughput without increasing aggregate speed (~11.03 MB/s dual vs ~11.12 MB/s single).
+- Startup cost excluded:
+  `ttfbShareA = 0.0008 < 0.05` proves that authorization, file metadata lookup, and audit row creation account for under 0.1% of elapsed time and do not limit sustained throughput.
+- End-to-end application inspection confirms no software bottleneck:
+  Authenticated download streams directly from disk with normal Node stream backpressure; HUB NGINX route already pins `proxy_buffering off`; zero in-memory buffering; zero rate/connection limiting (`no limit_rate/req/conn`); zero artificial delays.
+- Hardware limiter strongly supported:
+  Canonical hardware baseline records deployed router as MikroTik RB750r2 (hEX lite). Official vendor datasheets establish 5x 10/100 Ethernet ports. The ~11.1 MB/s transfer ceiling matches 100BASE-TX Fast Ethernet wire-rate capacity (~95 Mbps payload).
+- Consequence:
+  `APPLICATION_DEFECT_PROVEN=NO`, `DOWNLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN`. No application code changes will be made.
+
 **Files:**
-- Inspect first: `IDEA1-AEGIS_Drive_LC/server/routes/api.js`
-- Inspect first: `IDEA1-AEGIS_Drive_LC/server/storage/fileStore.js`
-- Inspect first: `HUB-AEGIS_Entry/nginx.conf`
-- Inspect first: `HUB-AEGIS_Entry/tests/driveTransferEdge.test.mjs`
-- Test: `IDEA1-AEGIS_Drive_LC/tests/fileObjectAuthorization.test.js`
-- Runtime/config file to modify: only the component proven by Task 1/Task 5 diagnosis.
+- Inspected: `IDEA1-AEGIS_Drive_LC/server/routes/api.js` (no defect found)
+- Inspected: `IDEA1-AEGIS_Drive_LC/server/storage/fileStore.js` (no defect found)
+- Inspected: `HUB-AEGIS_Entry/nginx.conf` (`proxy_buffering off` already present)
+- Inspected: `HUB-AEGIS_Entry/tests/driveTransferEdge.test.mjs` (pinned)
+- Test: `IDEA1-AEGIS_Drive_LC/tests/fileObjectAuthorization.test.js` (preserved)
+- Runtime/config file to modify: NONE (`NO_SAFE_APP_FIX_PROVEN`)
 
 **Interfaces:**
 - Consumes: download diagnosis gate from Task 1.

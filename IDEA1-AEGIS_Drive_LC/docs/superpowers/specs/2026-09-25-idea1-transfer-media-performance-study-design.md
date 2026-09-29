@@ -1,12 +1,12 @@
 # AEGIS IDEA1 Transfer and Media Performance Study Design
 
-Status: IN PROGRESS / PRE-FIX BASELINES COMPLETE (P1, P2, C1) / DIAGNOSIS PENDING
+Status: IN PROGRESS / DIAGNOSIS COMPLETE TO CURRENT GATE / NO_SAFE_APP_FIX_PROVEN
 Task: LFT-PERF-1 / TRANSFER_AND_MEDIA_PREVIEW_PERFORMANCE_STUDY
 Area / owner: IDEA1 / kla
 Production mutation: NO
 Performance settings changed: NO
 Optimization executed: NO
-Root cause: NOT PROVEN
+Root cause: P1 SHARED PATH CAPACITY LIMITER PROVEN (U2/D1) / ROUTER 100MBPS CEILING STRONGLY SUPPORTED / APP DEFECT NOT PROVEN / REMOTE RESIDUAL OPEN
 
 ## 1. Purpose and research questions
 
@@ -1221,3 +1221,187 @@ U2 repeats U1 unchanged on P1 Direct LAN, which removes Twingate and the Interne
 - **B — Common HUB/Drive/server/storage/application aggregate ceiling.** Present on both paths, so LAN should show little multi-stream gain. The PRE-FIX P1 single-stream ≈5.15 MB/s is itself far below wire rate.
 
 D1 (§20.2) is retained and is required independently, because upload and download root causes must not be conflated.
+
+## 25. U2 Direct LAN upload, D1 Direct LAN download, and hardware root-cause diagnosis (2026-09-29)
+
+The Human Owner executed probes U2 and D1 on P1 Direct LAN (wired Ethernet, Management VLAN30, Twingate OFF) as specified in measurement plan §21. This section records the authoritative results, physical client/network telemetry, router capabilities, application diagnosis, and resulting gate decisions. Historical PRE-FIX values in sections 7–11 and 23–24 remain immutable.
+
+### 25.1 U2 Direct LAN upload probe results
+
+Executed using the validated in-page XHR tracer (`window.__AEGIS_LFT_PROBE__`) on P1 Direct LAN with three 300,000,000 B binary fixtures:
+
+| Run | Files | PUTs per file | Aggregate Bytes | Union Span (ms) | Aggregate MB/s | Per-file MB/s | medBodyMs | medTailMs | sumGapMs | HTTP Status |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| **U2-A single** | 1 | 18 | 300,000,000 | 28,059 | **10.692** | 10.692 | 1,561 | 4 | -17 | all 200 |
+| **U2-B dual** | 2 | 18 | 600,000,000 | 59,418 | **10.098** | 5.050 / 5.052 | 3,278 / 3,302 | 7 / 5 | -23 / -23 | all 200 |
+
+~~~text
+U2_R = 10.098 / 10.692 = 0.944
+U2_VALID = YES (all HTTP 200, zero retries, exact chunk counts)
+~~~
+
+**U2 Decision Rule Evaluation:**
+- Approved rule: `R <= 1.15 => PROVEN_SHARED_PATH_CAPACITY_LIMITER on P1`.
+- Here `U2_R = 0.944` (< 1.0), meaning two concurrent upload streams produce slightly *lower* aggregate throughput than a single stream, while cutting per-file throughput roughly in half (~10.7 MB/s -> ~5.05 MB/s).
+- Per-chunk body time doubled from ~1.56 s (single) to ~3.30 s (dual).
+- `medTailMs` (4–7 ms) and `sumGapMs` (negative/negligible) prove per-request client/server idle gap is not a limiter on LAN.
+- Consequence: **Normal Files upload concurrency does not add capacity on P1.** Task 2 upload concurrency remains blocked and not justified (`TASK2_UPLOAD_CONCURRENCY=SKIPPED_NOT_JUSTIFIED`).
+
+### 25.2 D1 Direct LAN authenticated download probe results
+
+Executed on P1 Direct LAN (Twingate OFF) against an existing root-level 300,000,000 B file via authenticated browser stream reader:
+
+| Stream | Status | Bytes | TTFB (ms) | Body (ms) | Body MB/s |
+|---|---:|---:|---:|---:|---:|
+| **D1-A single** | 200 | 300,000,000 | 21 | 26,991 | **11.115** |
+| **D1-B lane 1** | 200 | 300,000,000 | 25 | 31,627 | 9.486 |
+| **D1-B lane 2** | 200 | 300,000,000 | 31 | 54,357 | 5.519 |
+| **D1-B aggregate** | 200 | 600,000,000 | — | union | **11.032** |
+
+~~~text
+D1_R = 11.032 / 11.115 = 0.993
+ttfbShareA = 21 / (21 + 26991) = 0.000778 ≈ 0.0008
+~~~
+
+**D1 Decision Rule Evaluation:**
+- Approved rule 1: `ttfbShareA < 0.05 => Startup cost (auth, metadata, audit) excluded as sustained throughput limiter`. TTFB accounts for less than 0.1% of total elapsed download time.
+- Approved rule 2: `R <= 1.15 => PROVEN_SHARED_PATH_CAPACITY_LIMITER on P1`.
+- Here `D1_R = 0.993` (~1.0). Two simultaneous downloads divide the available ~11 MB/s pipe without increasing aggregate throughput.
+- Consequence: The download limiter on P1 is a shared path capacity constraint, not an application per-stream buffering or serialization defect.
+
+### 25.3 Physical client and network environment
+
+Physical client hardware collected during on-site diagnostic session:
+
+- **OS / Host:** Windows 11 client machine.
+- **Physical Ethernet Adapter:**
+  - InterfaceDescription: `Realtek PCIe GbE Family Controller`
+  - Status: `Up`
+  - LinkSpeed: `1 Gbps`
+- **Virtual Adapters (Disregarded):**
+  - WSL / Hyper-V virtual adapter reports `10 Gbps`.
+  - Discipline: The WSL adapter is virtual host-internal networking and MUST NOT be used as physical network evidence. Physical wire speed is established by the Realtek GbE NIC (`1 Gbps`).
+- **Client IP Configuration on VLAN 30:**
+  - IPv4: `192.168.30.10`
+  - Subnet Mask: `255.255.255.0` (`/24`)
+  - Gateway: `192.168.30.1`
+  - Twingate: `DISCONNECTED`
+  - Direct transport reachability: `192.168.30.10 -> 192.168.10.10:443` = `TcpTestSucceeded=True`.
+
+### 25.4 MikroTik router finding and truth boundary
+
+Repository canonical network architecture and hardware notes (`VLAN-IP-Plan.md`, `Hardware-Inventory.md`, `MikroTik-Config.md`) record the deployed router and inter-VLAN path:
+
+```text
+VLAN 30 client (192.168.30.10)
+  -> TP-Link TL-SG105E Port 5 (Access VLAN30, PVID 30)
+  -> TP-Link Port 1 (802.1Q Trunk)
+  -> MikroTik ether2 (Trunk)
+  -> MikroTik CPU inter-VLAN routing (VLAN30 -> VLAN10)
+  -> same 802.1Q Trunk (MikroTik ether2 -> TP-Link Port 1)
+  -> TP-Link Port 2 (Access VLAN10)
+  -> Beelink AEGIS Host (192.168.10.10:443)
+```
+
+**Manufacturer Hardware Specifications:**
+- Identified Deployed Router Model: **MikroTik hEX lite (product code RB750r2)**.
+- Official MikroTik vendor hardware specifications establish:
+  - Architecture: MIPSBE (QCA9533)
+  - 10/100 Ethernet Ports: **5 x 10/100 Mbit/s Fast Ethernet ports** (No Gigabit Ethernet interfaces).
+- **Physical Throughput Implications:**
+  - 100BASE-TX Fast Ethernet theoretical maximum payload throughput is approximately 94.9 Mbit/s (~11.87 MB/s).
+  - Both U2 upload single-stream (10.692 MB/s ≈ 85.5 Mbps) and D1 download single-stream (11.115 MB/s ≈ 88.9 Mbps), as well as dual-stream aggregate saturation (10.098 MB/s and 11.032 MB/s), align precisely within 90–95% of a 100 Mbit/s Ethernet ceiling when accounting for IP/TCP/TLS/HTTP framing overhead.
+  - Furthermore, on the router-on-a-stick topology where ingress and egress share the same physical 100 Mbps trunk port (`ether2`), inter-VLAN forwarding traverses the 100 Mbps interface twice.
+
+**Truth Boundary:**
+~~~text
+MIKROTIK_MODEL = RB750r2
+DEPLOYED_MODEL_IDENTITY = REPO_OBSERVED_NOT_LIVE_REVERIFIED_THIS_SESSION
+MIKROTIK_PORT_CAPABILITY = PROVEN_BY_VENDOR_SPEC_5X_10_100_ETHERNET
+P1_DIRECT_LAN_LIMITER = STRONGLY_SUPPORTED_ROUTER_INTERVLAN_100MBPS_CEILING
+~~~
+*Discipline*: Do NOT upgrade the overall limiter classification to fully `PROVEN` solely from vendor datasheets, because physical router interface negotiation (`100M full duplex` vs `1G`) was not directly queried live on the router CLI during this session.
+
+### 25.5 End-to-end application code diagnosis
+
+Source code review at PR216 head (`docs/idea1-transfer-media-performance-study`):
+
+1. **Download Path:**
+   - Authenticated download (`server/routes/api.js` `GET /files/:id/download`) streams directly from disk via `fs.createReadStream(abs)`.
+   - Node stream backpressure (`stream.pipe(res)`) operates normally.
+   - Zero whole-file application buffering in memory.
+   - HUB NGINX reverse proxy (`HUB-AEGIS_Entry/nginx.conf`) already has `proxy_buffering off` pinned by tests.
+   - Zero application download compression limiter or transform bottlenecks.
+   - No `limit_rate`, `limit_req`, or `limit_conn` configured on the download route.
+   - No artificial timer delay or speed throttling exists in application code.
+   - Login/security rate limits are route-isolated and do not affect streaming data transfer.
+   - Maintenance middleware does not gate authenticated download streaming.
+   - With `D1_R = 0.993`, concurrency cannot overcome the shared path capacity.
+2. **Upload Path:**
+   - Normal Files upload (`src/lib/chunkedUpload.js`) uses 16 MiB chunks.
+   - With `U2_R = 0.944`, chunk concurrency does not improve aggregate throughput on P1 and degrades per-file completion.
+3. **Application Verdict:**
+~~~text
+APPLICATION_DEFECT_PROVEN = NO
+TASK2_UPLOAD_CONCURRENCY_ENTERED = NO
+UPLOAD_OPTIMIZATION = NO_SAFE_APP_FIX_PROVEN_AT_CURRENT_GATE
+DOWNLOAD_OPTIMIZATION = NO_SAFE_APP_FIX_PROVEN
+~~~
+No runtime application code will be fabricated merely to satisfy an implementation milestone.
+
+### 25.6 Remote path status and R1 diagnostic scope
+
+Preserve historical U1 results on P2 Remote Twingate:
+- Single upload: 2.998 MB/s
+- Dual upload aggregate: 3.472 MB/s (1.736 MB/s per file)
+- `U1_R = 1.1581054`
+- Remote throughput remains materially below P1 Direct LAN (~3.0 MB/s vs ~10.7 MB/s).
+
+Classification:
+~~~text
+REMOTE_RESIDUAL_LIMITER = OPEN
+~~~
+*Discipline*: Do NOT claim that replacing or upgrading the on-site router will automatically increase Remote Twingate speeds to >=10 MB/s. Remote performance involves WAN ISP upload/download bandwidth, latency, MTU/MSS fragmentation, and Twingate client/connector relay vs P2P modes.
+
+**Prepared Remote Diagnostic (R1 Packet):**
+A diagnostic packet is prepared for execution from the remote home environment (measurement plan §22):
+1. Measure baseline ISP bandwidth with Twingate OFF (speed test).
+2. Record Twingate connection state (Direct peer-to-peer vs Relayed).
+3. Execute the standard D1 download probe methodology over P2 Remote with Twingate ON.
+Status: `R1_REMOTE_DIAGNOSTIC=PREPARED / NOT_EXECUTED`.
+
+### 25.7 Historical evidence preservation boundary
+
+DO NOT rewrite or invalidate historical PRE-FIX baseline results in §11:
+- Earlier P1 PRE-FIX baseline (executed 2026-09-25):
+  - Files upload median: ~5.06–5.17 MB/s
+  - Files download median: ~6.7–7.3 MB/s
+- Current on-site diagnostic session (executed 2026-09-29):
+  - U2-A upload single: ~10.692 MB/s
+  - D1-A download single: ~11.115 MB/s
+
+*Methodological Rule*: The U2/D1 diagnostic session was conducted under different client hardware and session conditions than the earlier P1 baseline. Both sets of measurements represent truthful observations of their respective environments. Variations demonstrate that path/client conditions vary over time; they do NOT authorize retroactively altering or deleting the accepted 36-run PRE-FIX matrix.
+
+### 25.8 Cross-reference to infrastructure PR #257
+
+During on-site testing on VLAN 30 (`192.168.30.10`), direct Layer 3 TCP reachability to `192.168.10.10:443` was verified (`TcpTestSucceeded=True`), but central LAN DNS resolution for `aegis.internal` failed (`Resolve-DnsName aegis.internal` returned `DNS name does not exist`). A manual `hosts` file entry (`192.168.10.10 aegis.internal`) was required on the test client to perform HTTPS tests.
+
+This network architecture gap is formally specified and tracked in:
+- **PR #257:** `docs(infrastructure): define VLAN30 direct-LAN DNS access contract` (`docs/superpowers/specs/2026-09-29-aegis-vlan30-direct-lan-dns-design.md`).
+- **Scope Boundary:** PR #216 owns performance measurement and bottleneck diagnosis. PR #257 owns the infrastructure DNS/DHCP contract. PR #216 does NOT implement router DNS changes or absorb PR #257 scope.
+
+### 25.9 Synthesis and gate status
+
+~~~text
+TASK = LFT-PERF-1
+STATUS = DIAGNOSIS_COMPLETE_TO_CURRENT_GATE / NO_SAFE_APP_FIX_PROVEN
+P1_SHARED_PATH_CAPACITY_LIMITER = PROVEN_BY_U2_D1_BEHAVIOR
+P1_ROUTER_100MBPS_CEILING = STRONGLY_SUPPORTED_NOT_LIVE_DEVICE_REVERIFIED
+APPLICATION_DEFECT_PROVEN = NO
+TASK2_UPLOAD_CONCURRENCY = SKIPPED_NOT_JUSTIFIED
+UPLOAD_OPTIMIZATION = NO_SAFE_APP_FIX_PROVEN_AT_CURRENT_GATE
+DOWNLOAD_OPTIMIZATION = NO_SAFE_APP_FIX_PROVEN
+REMOTE_RESIDUAL_LIMITER = OPEN
+POST_FIX = NOT_STARTED
+PR257_CROSS_REFERENCE = ADDED
+~~~
