@@ -17,7 +17,53 @@ edit_policy: owner-writable
 
 ## Current Task
 
-**IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1 — PRODUCTION DEPLOYED & HUMAN ACCEPTANCE PASS / HIGH-RES LIVE FAIL OPEN / CLOSEOUT PRE-MERGE**
+**IDEA1-STORAGE-CAPACITY-RECLAMATION-1 — COMPLETE / EMPIRICALLY VERIFIED ON PRODUCTION**
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-storage-capacity-reclamation`; Draft PR: #241. Historical stacked base: PR #220 `fix/idea1-vault-convergence-highres-ux`; current target: `main` after ISCR-S3 reconciliation.
+- Dependency: **SATISFIED / MERGED**. PR #220 merged into `main` as `ed45c1b5a63087aa3810d156a8c19b1f1e48c838`. PR241 implementation **COMPLETE**; Production acceptance **PASS** (carried-forward Human evidence); normal main reconciliation **PASS**; PR241 final merge **NOT YET**. Ready transition and final merge remain Human Owner controlled.
+- Canonical architecture authority: PR #240 merged in main (`Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-storage-persistence-architecture.md`).
+- Implementation plan: `docs/superpowers/plans/2026-09-28-idea1-storage-capacity-reclamation.md`.
+- Two-Track Execution & Production Evidence:
+  - **TRACK A (Host Storage Capacity Expansion)**: `PASS`. Human Owner executed online expansion via `sudo lvextend -L 90G -r /dev/ubuntu-vg/ubuntu-lv`. Root LV expanded from ~58.09 GiB to ~90.00 GiB; underlying ext4 root filesystem expanded from ~56.9 GiB to ~88.3 GiB; `ubuntu-vg` free reserve maintained at <26.19 GiB; Docker root `/var/lib/docker` and volume `aegis_drive_storage` unchanged; external backup `/mnt/aegis-backup` untouched; production containers healthy (`restart 0`, `OOM false`); reboot not required. `TRACK_A_LVM_EXPANSION=PASS`.
+  - **TRACK B (Trash / Physical Reclamation / Storage Accounting)**: `PASS`. Controlled synthetic fixture tests (512 MiB + 1 GiB) empirically verified:
+    - B0 baseline: `/datalake = 30111636 KiB`, `/uploads = 26307676 KiB`, `/versions = 1032 KiB`.
+    - B1 upload 512 MiB + 1 GiB: `/datalake = 31684508 KiB`, `/uploads = 27880548 KiB`, active staging sessions = 0 (`TRACK_B_UPLOAD_PERSISTENCE=PASS`).
+    - B2 move to Trash: `/datalake = 31684508 KiB`, physical bytes retained during soft delete (`TRACK_B_MOVE_TO_TRASH_LOGICAL_ONLY=PASS`).
+    - B3A permanent delete 512 MiB: `/datalake = 31160216 KiB`, `/uploads = 27356256 KiB` (`TRACK_B_PER_ITEM_PURGE=PASS`).
+    - B3B permanent delete 1 GiB: `/datalake = 30111636 KiB`, `/uploads = 26307676 KiB` (returned exactly to B0 logical baseline).
+    - B4 Empty Trash production acceptance: `/datalake = 21302140 KiB`, `/uploads = 17498180 KiB`, `/versions = 1032 KiB`; host filesystem used = `40496644 KiB`, available = `47675816 KiB`; Drive healthy, restartCount = 0, IDEA2 untouched; **physical space reclaimed (B3B → B4) = 8809496 KiB ≈ 8.40 GiB** (`TRACK_B_EMPTY_TRASH=PASS`, `PHYSICAL_BLOB_RECLAMATION=PASS`, `FILESYSTEM_SPACE_RECLAMATION=PASS`).
+    - UI Storage Accounting: total `88.3 GB`, used `51.2 GB` → `42.8 GB`, free `37.1 GB` → `45.5 GB`, AEGIS-accounted `6.0 GB` → `1.3 GB`, other-on-volume `45.2 GB` → `41.5 GB`, previous-versions `5.4 GB` → `764 MB`, other-files `498 MB`, media `103 MB` (`DASHBOARD_STORAGE_ACCOUNTING_AFTER_REFRESH=PASS`).
+    - `OPEN_DESCRIPTOR_LEAK_FOR_CONTROLLED_FIXTURES=NOT_OBSERVED`.
+    - Classification: **Category E (No Backend Defect; Full Physical Reclamation Verified)**.
+- Invariant & Status Truth:
+  - `APPLICATION_SOURCE_CHANGED=NO`
+  - `TRASH_BACKEND_FIX_REQUIRED=NO`
+  - `NEW_STORAGE_API_IMPLEMENTED=NO`
+  - `PRODUCTION_MUTATED=YES`
+  - `DISK_RESIZED=YES`
+  - `HUMAN_OWNER_EXECUTED_MUTATION=YES`
+  - `RAID_CURRENT_STATE=NOT_CONFIGURED`
+  - `IDEA2_STORAGE_INSPECTED=NO`
+  - `IDEA2_STORAGE_MUTATED=NO`
+- Separate UI Findings (Deferred to PR #243):
+  1. Trash destructive reauth autofilled account username (`"admin"`) into Trash search input, hiding remaining rows. Tracked and isolated separately in PR #243.
+  2. Sidebar storage meter refresh latency after purge; correct value displays after dashboard poll, navigation, or full refresh. Tracked in PR #243 UI reconciliation scope.
+  *Neither finding invalidates backend reclamation acceptance.*
+
+### Session Register — IDEA1-STORAGE-CAPACITY-RECLAMATION-1
+
+Earlier rows record their checkpoint-time state; ISCR-S3 supersedes their dependency/next-step wording. This reconciliation does not repeat Production acceptance or change the immutable receipt.
+
+ISCR-S3 verification: `node --test --test-reporter=tap tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs tests/coreEntryGovernanceR4.test.mjs` — 52/52 PASS, 0 fail/skip/cancelled. `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS, two existing owner-data Canvas warnings, 0 errors. Main-relative diff check and added-line credential-pattern scan PASS (0 findings); proposed main-target Draft collaboration policy PASS. Current-head CI is checked after normal push/retarget, not inferred from these local checks.
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| ISCR-S3 | Post-PR220 merge reconciliation and main-target review preparation (2026-09-29) | PASS | Start local/remote `7b4702141148e800882595c00984cd73aac26951`; normal merge of `origin/main` `ed45c1b5a63087aa3810d156a8c19b1f1e48c838`, no conflicts. PR-owned delta remains plan/status/existing receipt only; accepted PR220 history preserved; no PR243 branch imported. Receipt blob remains `908acac8129ef75f98d0e8194ec44c0b50744bdc`. | Merge `1745c5b6024a57a3447c1043632d8e56d9772dec`; documentation traceability checkpoint follows | PR220 dependency SATISFIED; implementation COMPLETE; historical Production acceptance PASS; main reconciliation PASS. No application source, Production, deployment, storage or receipt mutation; no rebase/force push | Current-head governance/guardrails and Human Owner review; Ready transition and PR241 merge not performed | Retarget PR241 to main after verified normal push; keep Draft; STOP before Ready/merge |
+| ISCR-S1 | Initial preparation, two-track implementation plan creation, PR220 baseline stacking, draft PR preparation | COMPLETE | Implementation plan `docs/superpowers/plans/2026-09-28-idea1-storage-capacity-reclamation.md` created; PR240 canonical architecture linked; governance checks pass; zero application source changes; zero production mutations. | Plan checkpoint | Ready for Human Owner Track A execution | Track A Human Owner LVM expansion, followed by Track B controlled reclamation verification | Human Owner Track A LVM expansion |
+| ISCR-S2 | Production evidence reconciliation, Track A LVM expansion verification, Track B controlled reclamation verification, final receipt creation | COMPLETE | Track A PASS: root LV 58.09 GiB → 90.00 GiB, ext4 56.9 GiB → 88.3 GiB, vg free <26.19 GiB. Track B PASS: synthetic 512 MiB + 1 GiB upload/soft delete/permanent purge verified, Empty Trash reclaimed 8,809,496 KiB ≈ 8.40 GiB, Category E confirmed. Zero app code changed; zero backend fix required; separate UI findings deferred to PR #243. Exactly one final receipt added. | Evidence & receipt checkpoint | Track A & B complete; empirical reclamation proven; closeout complete | Human Owner merge of PR218, PR219, PR220, then PR241 | Await PR220 merge before retargeting PR241 |
+
+## Completed Task — IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1
 
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `fix/idea1-vault-convergence-highres-ux`; historical stacked lineage: PR #218 → PR #219 → PR #220. PR #218 merged into main as `6fed4b21`; PR #219 merged into main as `d7a174d3`. Current merge target: `main`.
@@ -34,7 +80,7 @@ edit_policy: owner-writable
   - Login motion polish: PASS
   - HUB brand lockup and mark polish: PASS
 - High-res live thumbnail status: `HIGHRES_LIVE_ACCEPTANCE=FAIL_OPEN`, `HIGHRES_FIX_INCLUDED=NO` (unchanged, not claimed fixed).
-- Dependency state (superseded 2026-09-29, IVCHU-S11): PR #218 and PR #219 are merged into main; PR #220 was reconciled with `origin/main` `7e657823` by normal merge `49062b0d` (no rebase/force) and targets `main`. PR #220 remains Draft; final merge is Human Owner controlled (`PR220_FINAL_MERGE=NOT_DONE`). Immutable task receipt `2026-09-28_192500_kla_idea1-vault-convergence-highres-ux.md` created.
+- Dependency state (superseded 2026-09-29, ISCR-S3): PR #218 and PR #219 are merged into main; PR #220 was reconciled with `origin/main` `7e657823` by normal merge `49062b0d` (no rebase/force), then merged into `main` as `ed45c1b5a63087aa3810d156a8c19b1f1e48c838` (`PR220_FINAL_MERGE=DONE`). Immutable task receipt `2026-09-28_192500_kla_idea1-vault-convergence-highres-ux.md` remains unchanged. Earlier IVCHU session rows preserve their pre-merge chronology, not current blockers.
 - Exact start: `1183df33698588788a82df42bfd616fb5b11d759` (2026-09-26); PR #216, PR #218, and PR #219 remain untouched.
 - Approved scope: converge every eligible Vault lifecycle to `VaultTreeScreen` without role branching; retain explicit Human migration for nonempty FLAT Vaults; generalize the App full-pane marquee contract for Files and Vault; surface semantic TREE collisions; add a measured two-lane image-preview admission path; remove the image double decode.
 - Security/performance boundaries: no Production action, bulk migration, server plaintext derivative, global 256 MiB ceiling increase, Files/Vault transport mutation, Vault chunk/concurrency mutation, Cloudflare/Twingate change, or destructive purge enablement. JavaScript cleanup is best effort, not cryptographic zeroization.
