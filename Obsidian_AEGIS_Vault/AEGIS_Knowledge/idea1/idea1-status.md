@@ -17,13 +17,41 @@ edit_policy: owner-writable
 
 ## Current Task
 
-**IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1 — TRASH LIST PRESERVED ACROSS DESTRUCTIVE REAUTH / REALTIME STORAGE RECONCILIATION / DRAFT PR**
+**IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1 — TRASH LIST PRESERVED ACROSS DESTRUCTIVE REAUTH / PRODUCTION ACCEPTANCE PASS / DRAFT PR**
 
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `fix/idea1-trash-destructive-reauth-ui`; stacked dependency: DRAFT PR on `fix/idea1-vault-convergence-highres-ux` (PR #220).
-- PR243 post-purge reconciliation session (2026-09-29): LOCAL VERIFIED / ACCEPTANCE PENDING; starting source `83c128732de6679d6d2a555900e97984925e029b`. Human reports deployed purge and immediate Sidebar storage refresh PASS, but remaining Trash rows require manual refresh. Plan/performed work: reproduce delayed/out-of-order list and status responses with real rendered Trash tests; preserve immediate storage callback and search/auth form isolation; reconcile authoritative rows before destructive-dialog reset; verify affected tests, client build and governance; checkpoint on the same Draft PR. Locally proven defects: unsequenced older restore listing can resurrect purged rows or reopen metadata after Empty Trash; delayed pre-unlock locked status can erase newer authorized post-purge rows; purge dialog reset preceded authoritative reconciliation. Production's exact triggering sequence remains NOT PROVEN. Scope: `src/screens/Trash.jsx`, directly related tests/fixtures, this owned status note. No backend, schema, deployment tooling, Docker/Compose, Production, PR241, Ready, merge, or final receipt. Previous deployment-certification blockers below are historical, not a request to repeat preflight; this source correction is NOT DEPLOYED.
-- Codex authority-review session (starting SHA `01d7c4ad554115470de814f311d17f4c96b3747b`): affected-code verification PASS; deployment-command preparation BLOCKED. Implementation/evidence checkpoint: `831c2fbac7883536e836d134f19397ab5a6ca881`. Plan and performed work: deferred `/api/trash` relist regression proved RED (12 pass, 1 fail, expected callback count 1 / actual 0); move the existing success callback before that await; GREEN and affected Trash suites 54 pass / 0 fail / 1 PostgreSQL-gated skip; build and governance PASS; normal push on PR243 only. Production mutation allowed: NO. Deployment-command certification remains blocked because the provided attachment contains the preliminary owner summary, not the raw active Compose order, hashes, container identities, and environment fingerprint. The old `pr243-01d7c4ad5541` candidate omits this correction and must not be deployed. No SSH, backend/database change, PR241 change, Ready, merge, retarget, or final receipt.
-- Authority-review limitation: full Windows `npm test` attempted at 2026-09-28T16:41:24Z and explicitly interrupted at 16:48:32Z while running unrelated S5.5 shell fixtures (delay cause not proven); full suite INCOMPLETE, not PASS. Recorded failures before interruption: `Dashboard quick actions live in the page header instead of a full-width content rail`; `TH, EN, and ZH keep exact key parity with no empty values or wrong-script fallback`; `tests/mediaPoster.test.js` (`ERR_MODULE_NOT_FOUND`, local `sharp` dependency absent); `Neo glass is static, stylesheet-owned, and limited to approved shell surfaces`; `NEO-MOTION-4 prefers-reduced-motion switches the whole layer off`; `Neo mobile segmented options meet the 44 by 44 CSS touch-target floor`. No baseline classification claimed in this session, no unrelated fixes. Build output restored; logs retained outside Git. Human browser/password-manager acceptance and independently parsed live preflight remain PENDING.
+- Final Status:
+  - `IMPLEMENTATION_COMPLETE=YES`
+  - `PRODUCTION_DEPLOYED=YES`
+  - `PRODUCTION_ACCEPTANCE=PASS`
+  - `PR_MERGED=NO`
+  - `DEPENDENCY_BLOCKED_BY_PR220=YES`
+- Authoritative Source & Production Deployment:
+  - `SOURCE_SHA=92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f`
+  - `IMAGE=aegis-prod-drive:pr243-92a9ebd86593-r3`
+  - `IMAGE_ID=sha256:4122f82ba5557a456feccdff54892fb382943d012566fd851ec65253b2b84c3c`
+  - `PACKAGE=pr243-92a9-rollout-r3.zip` (SHA256: `2e35469b5f21933b42e0d6872d280801252dc5526fab6ead7988e7e50af65c01`)
+  - Postcheck verification: Drive healthy, restart 0, OOM False; mounts, networks, datalake, media cache preserved; no mutations to HUB, Monitor, Postgres, Public Share, IDEA2, or IDEA3; zero database migrations (`MIGRATION_RUN=NO`).
+- Human Owner Production Acceptance:
+  - `PERMANENT_DELETE=PASS`
+  - `TRASH_DESTRUCTIVE_REAUTH=PASS`
+  - `TRASH_SEARCH_AUTOFILL_ADMIN=NOT_OBSERVED`
+  - `TRASH_REMAINING_ROWS_RECONCILE=PASS`
+  - `MANUAL_USER_REFRESH_REQUIRED=NO`
+  - `SIDEBAR_STORAGE_REFRESH=PASS`
+  - `EMPTY_TRASH=PASS`
+  - `BACKEND_PURGE=PASS`
+  - `UPLOAD_STORAGE_ACCOUNTING=PASS`
+  - `OVERALL_BROWSER_ACCEPTANCE=PASS`
+  - Observable behavior: after destructive confirmation, Trash automatically reconciles to the authoritative remaining-item state without requiring user page reload or navigation.
+- Deployment Engineering Techniques & Lessons:
+  - Exact-source deployment: Candidate strictly pinned to Git SHA `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f`; application source authority remains GitHub.
+  - Drive-only rollout: Existing Compose chain preserved; guarded Drive-only recreation (`--no-deps --force-recreate --no-build --pull never --wait`).
+  - Runtime-user readability gate: Permissions normalized to prevent non-root Node EACCES (resolving earlier V1 packaging issue); verified with disposable probe.
+  - Connector restart-policy authority: Tooling aligned with live authority (`on-failure / MaximumRetryCount=5`).
+  - Docker HostConfig Binds ordering: Binds string ordering normalized; all other configuration drift fail-closed.
+  - Historical package audit: V1, R2, R2.1 retained; R3 is authoritative.
 - Root Cause 1 (Destructive Reauth UI): Password managers and browser credential autofill heuristically associated the preceding unisolated Trash search input with the destructive reauth password modal (`purge` and `empty`), autofilling account username (`"admin"`) into the controlled search input and filtering out non-matching Trash rows.
 - Root Cause 2 (Storage Meter Staleness): After successful permanent delete (`purgeItem`) or Empty Trash (`emptyTrash`), backend unlinked blobs immediately, but the client-side Sidebar storage meter relied on `/api/dashboard` polling (`refreshMs: 30_000`) or navigation, remaining stale until timer expiration or full-page reload.
 - Architectural Fix:
@@ -62,6 +90,7 @@ edit_policy: owner-writable
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
+| TRASH-R3 | PR243 Production rollout R3, deployment postcheck, and Human browser acceptance | PASS | Deployed candidate `aegis-prod-drive:pr243-92a9ebd86593-r3` healthy, restart 0, OOM False; Human acceptance PASS across permanent delete, reauth isolation, row reconciliation, sidebar refresh, empty trash. One final receipt added. | `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f` source; closeout docs | PRODUCTION DEPLOYED & ACCEPTED; IMPLEMENTATION COMPLETE; MERGE BLOCKED BY PR220 | Human Owner merge of PR220, then PR243 | Keep Draft; await PR220 merge |
 | TRASH-R2 | Post-purge authoritative list + stale-response correction | CLOSED | RED→GREEN, 63 pass / 1 PostgreSQL skip, built-App Chrome 6/6, build/root65/vault validation | `dd23ad22760e07425b41c925ef2c81ec2a69c296` | LOCAL VERIFIED; task ACCEPTANCE PENDING | Human source review/live retest not performed; source fix NOT DEPLOYED | Stop at source handoff; no deployment/package, Ready, merge or final receipt |
 
 **IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1 — PRODUCTION DEPLOYED & HUMAN ACCEPTANCE PASS / HIGH-RES LIVE FAIL OPEN / CLOSEOUT PRE-MERGE**
