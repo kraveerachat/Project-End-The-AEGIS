@@ -4,7 +4,7 @@
 ``render`` derives /etc/aegis-idea3/core.env from the repository example plus the two owner-frozen values (AP broker address and
 device id) and the certificate DNS name; it refuses to overwrite. ``check`` proves an installed file: only allowlisted keys, the
 exact production/live/no-containment values, TLS on port 8883 to the AP address only, the Core (not an ESP32) identity, and NO
-secret material (secrets reach the service only through systemd LoadCredential=). Output never echoes secret-looking values.
+secret-bearing key at all, even blank (secrets reach the service only through systemd LoadCredential=). Output never echoes secret-looking values.
 """
 
 from __future__ import annotations
@@ -18,8 +18,9 @@ from pathlib import Path
 
 DEVICE_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}", re.ASCII)
 LABEL_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", re.ASCII)
-FORBIDDEN = frozenset({"AEGIS_MQTT_PASS", "AEGIS_ADMIN_PIN", "AEGIS_P1_C2D_KEY_FILE", "AEGIS_P1_D2C_KEY_FILE"})
-SECRET_IF_SET = frozenset({"AEGIS_TG_TOKEN"})
+# Must mirror FORBIDDEN_ENV in stages/L7/verify.sh, which scans /proc/<MainPID>/environ by NAME: systemd EnvironmentFile= projects
+# even a blank ``KEY=`` into the process environment, so these keys must be ABSENT (not merely empty) from the Production file.
+FORBIDDEN = frozenset({"AEGIS_MQTT_PASS", "AEGIS_ADMIN_PIN", "AEGIS_P1_C2D_KEY_FILE", "AEGIS_P1_D2C_KEY_FILE", "AEGIS_TG_TOKEN"})
 FIXED = {
     "AEGIS_APPLICATION_ROOT": "/opt/aegis-idea3/current",
     "AEGIS_DATA_DIR": "/var/lib/aegis-idea3",
@@ -54,7 +55,7 @@ NUMERIC = {"AEGIS_HEALTH_INTERVAL", "AEGIS_MAX_RESTARTS", "AEGIS_RESTART_WINDOW_
 INERT = {"AEGIS_CORE_DISPATCH_BASE_URL", "AEGIS_CORE_DISPATCH_CA_FILE", "AEGIS_CORE_DISPATCH_CLIENT_CERT", "AEGIS_CORE_DISPATCH_CLIENT_KEY",
          "AEGIS_TG_CHAT"}
 FROM_ARGS = {"AEGIS_BROKER_IP", "AEGIS_P1_DEVICE_ID", "AEGIS_MQTT_TLS_SERVER_NAME"}
-ALLOWED = frozenset(FIXED) | NUMERIC | INERT | FROM_ARGS | SECRET_IF_SET
+ALLOWED = frozenset(FIXED) | NUMERIC | INERT | FROM_ARGS
 
 
 class Refusal(Exception):
@@ -100,6 +101,8 @@ def render(example: Path, ap: str, device: str, name: str, output: Path) -> None
             lines.append(raw)
             continue
         key, _, value = raw.partition("=")
+        if key in FORBIDDEN:  # the shared example keeps a blank AEGIS_TG_TOKEN for non-production; never render it for L7
+            continue
         lines.append(f"{key}={values.get(key, value)}")
     descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -123,8 +126,6 @@ def check(path: Path, ap: str, device: str, name: str) -> None:
     for key, value in seen.items():
         if key in FORBIDDEN:
             raise Refusal("FORBIDDEN_KEY")
-        if key in SECRET_IF_SET and value:
-            raise Refusal("SECRET_VALUE_PRESENT")
         if key not in ALLOWED:
             raise Refusal("UNKNOWN_KEY")
     expected = dict(FIXED)

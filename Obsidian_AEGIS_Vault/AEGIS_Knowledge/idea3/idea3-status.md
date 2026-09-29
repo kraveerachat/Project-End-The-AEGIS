@@ -8076,3 +8076,22 @@ PR202_MODIFIED              = NO
 * [[core/system-overview]]
 * [[idea2/idea2-status]]
 * [[core/security-architecture]]
+
+## IDEA3 PR11 Phase 4 L7 live attempt #4 — PROCESS_ENV_LEAK repository remediation — 2026-09-30
+
+> [!important] Repository-only status entry on branch `fix/idea3-l7-process-env-contract` (base `fdc2dd3d`, not merged). No Production mutation, no L7 authorization created, frozen owner runner not run, no ESP32/L8 work.
+
+```text
+L7_APPLY                 = PASS   (live attempt #4)
+L7_VERIFY                = FAIL reason=PROCESS_ENV_LEAK
+L7_ROLLBACK              = PASS
+L7_MATERIAL_RESIDUE      = NO
+PRE_RB_COMPARE           = PASS
+PRESERVATION_S10         = PASS
+L7_LIVE_ACCEPTANCE       = NOT_PROVEN
+L7_ENV_CONTRACT_FIX      = IMPLEMENTED_REPOSITORY (not merged)
+```
+
+- L7 #4 failed safely because of a repository environment-contract mismatch, not a Production defect. `deploy/aegis-idea3-core.env.example` carries a blank `AEGIS_TG_TOKEN=`; the renderer kept it and the checker allowed it when blank, but systemd `EnvironmentFile=` projects even a blank `KEY=` into the process environment and `stages/L7/verify.sh` scans `/proc/<MainPID>/environ` by name, so `PROCESS_ENV_LEAK` was deterministic. Rollback succeeded; no forbidden names remained under `/etc/systemd/system` or `/etc/aegis-idea3`; the systemd manager environment held none.
+- Fix: `p4-l7-core-env.py` now treats `AEGIS_TG_TOKEN` as a forbidden key (like the other secret keys): `render` omits it, `check` rejects it even when blank. `verify.sh` is unchanged and stays strict. The shared example is unchanged (non-production `config.py` still defaults the token to empty); `AEGIS_TG_CHAT` behaviour is unchanged. A regression test parses `verify.sh` `FORBIDDEN_ENV` and asserts no such name appears in the rendered file.
+- Authorization #4 is consumed and must not be reused. The next live L7 attempt requires this fix merged, a fresh freeze, and a fresh authorization. Acceptance remains NOT_PROVEN.
