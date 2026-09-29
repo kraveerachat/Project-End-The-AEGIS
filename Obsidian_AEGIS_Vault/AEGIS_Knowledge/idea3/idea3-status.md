@@ -18,6 +18,16 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L6c/L7 broker runtime stability gate — repository only — 2026-09-29
+
+> [!important] Repository-only. No Production mutation, no service/nmcli/nft/sysctl command, no A-L6c or K3 created, no L6c live execution, no L7, no MQTT, no ESP32.
+> `L6C_LIVE = NOT_PROVEN`, `BROKER_GATE_READ_ONLY = YES`, `RELEASE_CLOSURE_CHANGED = NO`, `RELEASE_TOOLING_CHANGED = NO`
+
+- **Gap:** after the governed V5 reactivation the L6b broker legitimately recovered through its own systemd auto-restart and retains a non-zero historical `NRestarts` (646 observed). The shared gate `l7_broker_runtime_gate` (`p4-l7-run-lib.sh`, used by the L6c and L7 runners) required `NRestarts=0`, so L6c read-only readiness failed only with `PREDECESSOR_RUNTIME_REACTIVATION_REQUIRED=YES:L7_BROKER_NOT_HEALTHY:NRestarts=646`.
+- **Old policy:** NRestarts must equal 0. **New policy:** historical NRestarts is allowed only when current health, listeners and identity are stable across a bounded read-only window. Active/running/enabled/success, numeric non-zero MainPID, numeric NRestarts, non-empty InvocationID and exactly `10.77.30.1:8883` + `127.0.0.1:8883` must hold on every one of 3 samples 2 s apart, and the MainPID/NRestarts/InvocationID tuple must be identical across them. Window constants are assigned at source time and cannot be shortened by environment variables. Any restart, PID/invocation change, NRestarts increment, bad state, or missing/extra listener fails closed.
+- **Unchanged:** BROKER_PRE snapshots and each runner's `s10_unchanged()` broker PRE→POST PID/NRestarts comparison, `p4-compare.sh`, V5/V6 handlers, release builder/guard/install, `aegis_soc/**`, `requirements.txt`. Staged release `3c8dae69…` stays reusable. The gate issues no start/stop/restart/reset-failed command.
+- **Receipt:** `90-Status/logs/2026-09-29_210000_music_idea3-l6c-broker-stability-gate.md`.
+
 ## IDEA3 PR11 Phase 4 L3/L4 V6 TrustedClock stabilization — repository only — 2026-09-29
 
 > [!important] Repository-only. The first live V6 attempt (`2026-09-29-l34-v6-20260929-170043`, authorization `2026-09-29-l34-v6-auth-20260929-165848`) is CONSUMED and never reused. No live retry, no new authorization/K3, no L6c/L7, no ESP32.
@@ -8066,3 +8076,22 @@ PR202_MODIFIED              = NO
 * [[core/system-overview]]
 * [[idea2/idea2-status]]
 * [[core/security-architecture]]
+
+## IDEA3 PR11 Phase 4 L7 live attempt #4 — PROCESS_ENV_LEAK repository remediation — 2026-09-30
+
+> [!important] Repository-only status entry on branch `fix/idea3-l7-process-env-contract` (base `fdc2dd3d`, not merged). No Production mutation, no L7 authorization created, frozen owner runner not run, no ESP32/L8 work.
+
+```text
+L7_APPLY                 = PASS   (live attempt #4)
+L7_VERIFY                = FAIL reason=PROCESS_ENV_LEAK
+L7_ROLLBACK              = PASS
+L7_MATERIAL_RESIDUE      = NO
+PRE_RB_COMPARE           = PASS
+PRESERVATION_S10         = PASS
+L7_LIVE_ACCEPTANCE       = NOT_PROVEN
+L7_ENV_CONTRACT_FIX      = IMPLEMENTED_REPOSITORY (not merged)
+```
+
+- L7 #4 failed safely because of a repository environment-contract mismatch, not a Production defect. `deploy/aegis-idea3-core.env.example` carries a blank `AEGIS_TG_TOKEN=`; the renderer kept it and the checker allowed it when blank, but systemd `EnvironmentFile=` projects even a blank `KEY=` into the process environment and `stages/L7/verify.sh` scans `/proc/<MainPID>/environ` by name, so `PROCESS_ENV_LEAK` was deterministic. Rollback succeeded; no forbidden names remained under `/etc/systemd/system` or `/etc/aegis-idea3`; the systemd manager environment held none.
+- Fix: `p4-l7-core-env.py` now treats `AEGIS_TG_TOKEN` as a forbidden key (like the other secret keys): `render` omits it, `check` rejects it even when blank. `verify.sh` is unchanged and stays strict. The shared example is unchanged (non-production `config.py` still defaults the token to empty); `AEGIS_TG_CHAT` behaviour is unchanged. A regression test parses `verify.sh` `FORBIDDEN_ENV` and asserts no such name appears in the rendered file.
+- Authorization #4 is consumed and must not be reused. The next live L7 attempt requires this fix merged, a fresh freeze, and a fresh authorization. Acceptance remains NOT_PROVEN.

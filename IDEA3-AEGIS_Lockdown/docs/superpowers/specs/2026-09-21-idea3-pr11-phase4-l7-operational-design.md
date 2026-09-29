@@ -542,3 +542,26 @@ Proven by a new regression test (`test_l7_release_gate_can_see_a_root_owned_0700
 `tests/test_pr11_phase4_l7_runner.py`) that self-revokes all access to a test-owned `/opt/aegis-idea3` fixture
 directory (`chmod 0`) to model the real 0700-root-owned-by-a-different-uid boundary without requiring actual root, then
 proves a stub `sudo` (emulating real sudo's DAC bypass) is required — and sufficient — for the release to be found.
+
+## 10. Amendment 2026-09-30 — L7 #3 verify failure and effective-credential proof
+
+**Historical result (unchanged, not overclaimed).** L7 attempt #3 (MAIN `6317d88d`, release `3c8dae69`, evidence
+`2026-09-30-l7-20260930-012044`) was **NOT accepted**. Apply passed; verify failed with `reason=LOADCREDENTIAL_INVALID`; rollback
+and PRE→RB compare passed with zero new or worsened drift, no L7 material residue, and S10 preserved. `L7_LIVE_ACCEPTANCE` remains
+`NOT_PROVEN`; the L7 #3 authorization is consumed and must not be reused.
+
+**Root cause scope.** Repository verifier assumption only: `verify.sh` parsed `systemctl show -p LoadCredential --value` as a flat
+`name:path` string, and the test fixture reinforced that assumption. The exact systemd 261 textual serialization is not claimed here
+and is no longer relied on at all.
+
+**Revised proof.** (1) Static: the installed unit is still compared byte-for-byte with `deploy/aegis-idea3-core.service.example`
+(the four reviewed `LoadCredential=` lines; `restore.credential` is not one of them) and fails `UNIT_CONTENT_CHANGED` first.
+(2) Effective: after the service health checks, verify reads the Core MainPID's `/proc/<pid>/environ` (contents never printed),
+requires exactly one safe absolute `CREDENTIALS_DIRECTORY`, inspects that directory through the Core's mount namespace
+(`/proc/<pid>/root$CREDENTIALS_DIRECTORY` live), requires a real directory containing exactly `admin.pin`, `k_c2d`, `k_d2c`,
+`mqtt-core.pass` (no `restore.credential`, no extra entry), each a regular non-symlink file byte-identical (`cmp -s`) to
+`/etc/aegis-idea3/credentials/<name>`. Any violation fails `L7_VERIFY=FAIL reason=LOADCREDENTIAL_INVALID`. The fixture systemd now
+models effective delivery and returns an opaque `LoadCredential` property so tests cannot regress to parsing it.
+
+**This amendment does not authorize another live run.** A fresh A-L7 and K3, and a newly frozen runner after this fix is merged,
+remain required. L7 live acceptance is not claimed.

@@ -7,6 +7,7 @@ validator proves the installed file: exact allowlisted keys, production/live/no-
 
 from __future__ import annotations
 
+import re
 import stat
 import subprocess
 import sys
@@ -107,7 +108,7 @@ def mutate(tmp_path: Path, key: str, value: str | None) -> Path:
 @pytest.mark.parametrize("key,value,code", [
     ("AEGIS_MQTT_PASS", "s3cret", "FORBIDDEN_KEY"), ("AEGIS_ADMIN_PIN", "849201", "FORBIDDEN_KEY"),
     ("AEGIS_P1_C2D_KEY_FILE", "/x", "FORBIDDEN_KEY"), ("AEGIS_P1_D2C_KEY_FILE", "/x", "FORBIDDEN_KEY"),
-    ("AEGIS_TG_TOKEN", "123:abc", "SECRET_VALUE_PRESENT"), ("AEGIS_UNKNOWN", "1", "UNKNOWN_KEY"),
+    ("AEGIS_TG_TOKEN", "123:abc", "FORBIDDEN_KEY"), ("AEGIS_TG_TOKEN", "", "FORBIDDEN_KEY"), ("AEGIS_UNKNOWN", "1", "UNKNOWN_KEY"),
     ("AEGIS_AUTO_CONTAIN", "1", "VALUE_INVALID"), ("AEGIS_DRY_RUN", "1", "VALUE_INVALID"), ("AEGIS_PROFILE", "lab", "VALUE_INVALID"),
     ("AEGIS_MQTT_TLS", "0", "VALUE_INVALID"), ("AEGIS_BROKER_PORT", "1883", "VALUE_INVALID"), ("AEGIS_BROKER_IP", "10.77.30.2", "VALUE_INVALID"),
     ("AEGIS_BROKER_IP", "0.0.0.0", "VALUE_INVALID"), ("AEGIS_MQTT_USER", "idea3-dev-aegis-relay-01", "VALUE_INVALID"),
@@ -118,7 +119,7 @@ def mutate(tmp_path: Path, key: str, value: str | None) -> Path:
 def test_check_rejects_violations(tmp_path: Path, key: str, value: str, code: str) -> None:
     res = check(mutate(tmp_path, key, value))
     assert res.returncode == 1 and f"L7_CORE_ENV=FAIL reason={code}" in res.stdout
-    assert value not in res.stdout + res.stderr or value in ("1", "0", "lab", "1883", "other")  # secret values are never echoed
+    assert not value or value not in res.stdout + res.stderr or value in ("1", "0", "lab", "1883", "other")  # secret values are never echoed
 
 
 @pytest.mark.parametrize("key", ["AEGIS_BROKER_IP", "AEGIS_MQTT_TLS_SERVER_NAME", "AEGIS_PROFILE", "AEGIS_MQTT_CA_FILE", "AEGIS_P1_DEVICE_ID"])
@@ -205,10 +206,42 @@ def test_recovery_values_introduce_no_secret_material(tmp_path: Path) -> None:
     assert recovery == RECOVERY
     for value in recovery.values():
         assert "@" not in value and not any(w in value.lower() for w in ("token", "pass", "secret", "pin", "key"))
-    assert not {"AEGIS_MQTT_PASS", "AEGIS_ADMIN_PIN"} & set(env) and env["AEGIS_TG_TOKEN"] == ""
+    assert not {"AEGIS_MQTT_PASS", "AEGIS_ADMIN_PIN"} & set(env) and "AEGIS_TG_TOKEN" not in env
 
 
 @pytest.mark.parametrize("key", ["AEGIS_RECOVERY_IDEA1_URL", "AEGIS_RECOVERY_IDEA2_URL"])
 def test_check_rejects_optional_idea1_idea2_recovery_keys(tmp_path: Path, key: str) -> None:
     res = check(mutate(tmp_path, key, "https://aegis.internal/x"))
     assert res.returncode == 1 and "reason=UNKNOWN_KEY" in res.stdout
+
+
+# --- L7 #4 PROCESS_ENV_LEAK regression: no verify.sh FORBIDDEN_ENV name may reach the Core process environment ----------------
+VERIFY = ROOT / "deploy" / "pr11-phase4" / "stages" / "L7" / "verify.sh"
+
+
+def verify_forbidden_env() -> set[str]:
+    match = re.search(r"^FORBIDDEN_ENV=\(([^)]*)\)", VERIFY.read_text(), re.MULTILINE)
+    assert match, "FORBIDDEN_ENV not found in verify.sh"
+    return set(match.group(1).split())
+
+
+def test_rendered_env_projects_no_verify_forbidden_name(tmp_path: Path) -> None:
+    forbidden = verify_forbidden_env()
+    assert "AEGIS_TG_TOKEN" in forbidden
+    assert render(tmp_path).returncode == 0
+    names = set(parse(tmp_path / "core.env"))  # EnvironmentFile= projects every KEY=, even blank, into /proc/<pid>/environ
+    assert not forbidden & names, sorted(forbidden & names)
+
+
+def test_checker_forbids_every_verify_forbidden_name_even_blank(tmp_path: Path) -> None:
+    for name in sorted(verify_forbidden_env()):
+        res = check(mutate(tmp_path, name, ""))
+        assert res.returncode == 1 and "reason=FORBIDDEN_KEY" in res.stdout, name
+        (tmp_path / "core.env").unlink()
+
+
+def test_render_strips_only_the_telegram_token_from_the_example(tmp_path: Path) -> None:
+    assert render(tmp_path).returncode == 0
+    example, rendered = set(parse(EXAMPLE)), set(parse(tmp_path / "core.env"))
+    assert example - rendered == {"AEGIS_TG_TOKEN"} and rendered <= example
+    assert "AEGIS_TG_CHAT" in rendered and parse(tmp_path / "core.env")["AEGIS_TG_CHAT"] == parse(EXAMPLE)["AEGIS_TG_CHAT"]

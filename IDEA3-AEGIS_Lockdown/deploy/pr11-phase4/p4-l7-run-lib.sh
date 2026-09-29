@@ -96,21 +96,50 @@ l7_core_prestate_gate() {
   [ -n "$user_gid" ] && [ "$user_gid" = "$group_gid" ] || { l7_reason "L7_CORE_IDENTITY_INVALID:PRIMARY_GID_MISMATCH"; return 1; }
 }
 
-# l7_broker_runtime_gate UNIT AP_ADDR — the persistent L6b broker must be healthy and listening on exactly loopback + AP 8883. L7 does
-# not repair it (PREDECESSOR_RUNTIME_REACTIVATION_REQUIRED is a separate owner action).
-l7_broker_runtime_gate() {
-  local unit=$1 ap=$2 out want k got listeners
-  out=$(systemctl show -p ActiveState -p SubState -p UnitFileState -p Result -p NRestarts "$unit" 2>/dev/null) \
+# Bounded broker stability window: fixed constants assigned unconditionally at source time (never read from the environment, so an inherited variable cannot shorten or
+# remove the observation). Prerequisite gate, not a soak test: 3 samples, 2 s apart.
+L7_BROKER_STABILITY_SAMPLES=3
+L7_BROKER_STABILITY_INTERVAL_S=2
+
+# _l7_broker_sample UNIT AP_ADDR — one read-only sample. Prints "MainPID/NRestarts/InvocationID" on success; otherwise emits the
+# reason on stderr (l7_reason, which returns 1). Historical NRestarts > 0 is allowed (the V5 recovery relies on systemd auto-restart).
+_l7_broker_sample() {
+  local unit=$1 ap=$2 out want k got pid nr inv listeners
+  out=$(systemctl show -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID -p NRestarts -p InvocationID "$unit" 2>/dev/null) \
     || { l7_reason "L7_BROKER_NOT_HEALTHY:UNREADABLE"; return 1; }
-  for want in ActiveState=active SubState=running UnitFileState=enabled Result=success NRestarts=0; do
+  for want in ActiveState=active SubState=running UnitFileState=enabled Result=success; do
     k=${want%%=*}
     got=$(awk -F= -v k="$k" '$1 == k { print $2 }' <<< "$out")
     [ "$got" = "${want#*=}" ] \
       || { l7_reason "PREDECESSOR_RUNTIME_REACTIVATION_REQUIRED=YES:L7_BROKER_NOT_HEALTHY:$k=${got:-MISSING}"; return 1; }
   done
+  pid=$(awk -F= '$1 == "MainPID" { print $2 }' <<< "$out")
+  nr=$(awk -F= '$1 == "NRestarts" { print $2 }' <<< "$out")
+  inv=$(awk -F= '$1 == "InvocationID" { print $2 }' <<< "$out")
+  [[ "$pid" =~ ^[0-9]+$ ]] && [ "$pid" -gt 0 ] \
+    || { l7_reason "L7_BROKER_NOT_HEALTHY:MainPID=${pid:-MISSING}"; return 1; }
+  [[ "$nr" =~ ^[0-9]+$ ]] \
+    || { l7_reason "L7_BROKER_NOT_HEALTHY:NRestarts=${nr:-MISSING}"; return 1; }
+  [ -n "$inv" ] \
+    || { l7_reason "L7_BROKER_NOT_HEALTHY:InvocationID=MISSING"; return 1; }
   listeners=$(ss -H -ltn "sport = :8883" | awk '{ print $4 }' | LC_ALL=C sort -u | paste -sd,)
   [ "$listeners" = "$ap:8883,127.0.0.1:8883" ] || [ "$listeners" = "127.0.0.1:8883,$ap:8883" ] \
     || { l7_reason "L7_BROKER_LISTENERS_INVALID"; return 1; }
+  printf '%s/%s/%s' "$pid" "$nr" "$inv"
+}
+
+# l7_broker_runtime_gate UNIT AP_ADDR — the persistent L6b broker must be healthy NOW and stable across a bounded read-only window,
+# listening on exactly loopback + AP 8883. A non-zero historical NRestarts is accepted; any change of MainPID/NRestarts/InvocationID,
+# health or listener set between samples fails closed. L7 does not repair it (PREDECESSOR_RUNTIME_REACTIVATION_REQUIRED is a
+# separate owner action). Strictly read-only.
+l7_broker_runtime_gate() {
+  local unit=$1 ap=$2 i first cur
+  first=$(_l7_broker_sample "$unit" "$ap") || return 1
+  for ((i = 1; i < L7_BROKER_STABILITY_SAMPLES; i++)); do
+    sleep "$L7_BROKER_STABILITY_INTERVAL_S" || { l7_reason "L7_BROKER_STABILITY_WAIT_FAILED"; return 1; }
+    cur=$(_l7_broker_sample "$unit" "$ap") || return 1
+    [ "$cur" = "$first" ] || { l7_reason "L7_BROKER_UNSTABLE:$first->$cur"; return 1; }
+  done
 }
 
 # l7_disk_gate MAX_USED_PCT PATH... — design §6.9: at least 20% free (<= 80% used) on every named path.
