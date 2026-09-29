@@ -1176,3 +1176,48 @@ TASK2_NORMAL_FILES_CONCURRENCY=BLOCKED_PENDING_HUMAN_PROBE
 ### 23.5 Gate decision
 
 Existing evidence is insufficient to prove or experimentally isolate that more than one in-flight Normal Files chunk is a useful application-side lever. Per plan Task 1 Step 5, one minimal Human-run probe per path is prepared in the measurement plan, §20. Task 2 does not start until the upload probe result meets its decision rule. The download result can only inform a later, separately authorized Task 5. It never authorizes Task 2.
+
+## 24. U1 Remote/Twingate upload probe result and Human Owner ruling (2026-09-29)
+
+The Human Owner executed probe U1 exactly as specified in measurement plan §20.1 (commit `32100cb02496c89166e42ff612b3b17cd3ed8976`). Path: P2 Remote/Twingate. Fixtures: three 300,000,000 B files with unique names. This section records the results as supplied by the Human Owner. Sections 7–11 and 23 are unchanged.
+
+### 24.1 Authoritative U1 results
+
+| Run | Files | PUTs per file | aggregateMBps | Per-file MBps | medBodyMs | medTailMs | sumGapMs | HTTP |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| U1-A-single | 1 | 18 | **2.998** | 2.998 | ≈5586 | ≈1 | ≈0 | all 200 |
+| U1-B-dual | 2 | 18 | **3.472** | 1.736 / 1.736 | ≈9540 / ≈9534 | ≈1 / ≈4 | ≈0 | all 200 |
+
+~~~text
+U1_R=1.1581054            # 3.472 / 2.998
+U1_VALID=YES              # no non-200 PUT, no retry observed
+~~~
+
+### 24.2 Interpretation (evidence only)
+
+- **R falls in the `1.15 < R < 1.50` band**, so under the approved U1 rule `UPLOAD_ROOT_CAUSE_CLASSIFICATION=NOT_PROVEN` is unchanged.
+- **Per-request idle overhead is measured negligible on P2.** `medTailMs` ≈ 1–4 ms and `sumGapMs` ≈ 0. The response arrives almost immediately after the body is sent, and the client starts the next PUT without delay. The per-chunk cost is almost entirely body-send time (≈5.6 s for 16,777,216 B ≈ 3.0 MB/s). A fixed per-request RTT, server write tail, or DB-ack overhead does **not** explain the P2 upload rate.
+- **The second lane mostly shares, not adds, capacity.** Per-lane body time rose from ≈5.6 s to ≈9.5 s per chunk (≈1.76 MB/s per lane). Aggregate gain was ≈15.8%. On P2 the upload is dominated by a capacity that both streams share. Candidates are the Remote/Twingate/Internet path or a common HUB/Drive/storage path. U1 alone cannot separate those two.
+- A one-chunk-in-flight change would therefore buy at most ≈16% on P2 while halving per-file speed when users upload two files. That does not justify a platform default of concurrency 2.
+
+### 24.3 Human Owner ruling
+
+~~~text
+UPLOAD_ROOT_CAUSE_CLASSIFICATION=NOT_PROVEN
+HUMAN_OWNER_RULING=DO_NOT_ENTER_TASK2_YET
+TASK2_ENTERED=NO
+UPLOAD_CONCURRENCY_CHANGED=NO
+RUNTIME_SOURCE_CHANGED=NO
+NEXT_DIAGNOSIS=U2_DIRECT_LAN_SINGLE_VS_DUAL + D1_DIRECT_LAN_DOWNLOAD (measurement plan §21)
+~~~
+
+Reason recorded by the Human Owner: dual-stream aggregate gain is only ~15.8%, while each file falls from ~2.998 MB/s to ~1.736 MB/s.
+
+### 24.4 What U2 decides
+
+U2 repeats U1 unchanged on P1 Direct LAN, which removes Twingate and the Internet path. The two hypotheses:
+
+- **A — Remote/Twingate/shared Internet path ceiling.** LAN should then show meaningful multi-stream headroom.
+- **B — Common HUB/Drive/server/storage/application aggregate ceiling.** Present on both paths, so LAN should show little multi-stream gain. The PRE-FIX P1 single-stream ≈5.15 MB/s is itself far below wire rate.
+
+D1 (§20.2) is retained and is required independently, because upload and download root causes must not be conflated.

@@ -934,3 +934,53 @@ Expected observations: `status` 200 on every stream, and `bytes` equal to `size`
 | otherwise | `NOT_PROVEN` |
 
 D1 never authorizes Task 2. Download changes remain outside the approved Task 0–2 range.
+
+## 21. U1 executed; U2 Direct-LAN upload probe packet (prepared 2026-09-29, NOT EXECUTED)
+
+U1 (§20.1) was executed by the Human Owner on P2 Remote/Twingate: `U1_R=1.1581054`, `UPLOAD_ROOT_CAUSE_CLASSIFICATION=NOT_PROVEN`, Human Owner ruling `DO_NOT_ENTER_TASK2_YET`. Full evidence and interpretation are in study design §24. §20.1 and §20.2 are not modified.
+
+### 21.1 Upload probe U2 — U1 methodology on P1 Direct LAN
+
+- Purpose: separate **A**, a Remote/Twingate/shared Internet path ceiling, from **B**, a common HUB/Drive/server/storage/application aggregate ceiling.
+- Path: **P1 Direct LAN**. Twingate OFF. Wired Ethernet. Same Windows reference client and browser as PRE-FIX and U1.
+- Traffic generated: three normal 300,000,000 B Files uploads (about 900 MB). The three probe files can be deleted afterwards through the normal Files UI.
+- Constraints: no Production configuration mutation, no service restart, no SSH, no runtime code mutation.
+- Tracer: **the §20.1 tracer script, byte-for-byte unchanged.** Its URL match (`/api/files/uploads/<id>/chunks/`) is path-independent, so it works unmodified on P1.
+
+Fixture commands (PowerShell, in the folder holding the PRE-FIX `M-300MB.bin` fixture of exactly 300,000,000 B):
+
+~~~powershell
+Copy-Item .\M-300MB.bin .\U2-a.bin
+Copy-Item .\M-300MB.bin .\U2-b.bin
+Copy-Item .\M-300MB.bin .\U2-c.bin
+Get-Item .\U2-a.bin, .\U2-b.bin, .\U2-c.bin | Select-Object Name, Length
+~~~
+
+Every `Length` must be `300000000`.
+
+Steps:
+
+1. Confirm Twingate is OFF and the client is on wired Ethernet on the Direct LAN. Open Drive → Files (an empty test folder is fine). Open DevTools Console and paste the §20.1 tracer unchanged. The console must print `'probe installed'`.
+2. Run A (single): `__AEGIS_LFT_PROBE__.start('U2-A-single')`, then upload `U2-a.bin` alone and wait for Complete. Run `JSON.stringify(__AEGIS_LFT_PROBE__.report())` and copy the output.
+3. Run B (dual): `__AEGIS_LFT_PROBE__.start('U2-B-dual')`, then select **both** `U2-b.bin` and `U2-c.bin` **in one picker selection**, and wait for both to Complete. Run `JSON.stringify(__AEGIS_LFT_PROBE__.report())` and copy the output.
+4. Return both JSON lines. Optionally delete the probe files through the normal Files UI.
+
+Report command (after each run):
+
+~~~javascript
+JSON.stringify(__AEGIS_LFT_PROBE__.report())
+~~~
+
+Expected observations: A `aggregateMBps` near the PRE-FIX P1 upload (~5.06–5.17 MB/s), 18 PUTs per file, all HTTP 200.
+
+**Decision rule U2** (R = U2-B-dual.aggregateMBps ÷ U2-A-single.aggregateMBps; any non-200 PUT or retry invalidates the pair, so repeat once):
+
+| Result | Interpretation | Consequence |
+|---|---|---|
+| R ≥ 1.50 | LAN has meaningful multi-stream headroom. Remote U1 is materially constrained by the Remote/Twingate/network path (hypothesis A). Per-stream behavior may still limit LAN. | Report to the Human Owner. Any Task 2 entry remains a Human Owner decision. |
+| R ≤ 1.15 | The common server/HUB/storage/application path is likely at aggregate capacity even on LAN (hypothesis B). | Investigate the common path before client concurrency. Task 2 stays blocked. |
+| 1.15 < R < 1.50 | Remains `NOT_PROVEN`. | Analyze `medBodyMs`, `medTailMs`, and `sumGapMs` together with available resource evidence. |
+
+### 21.2 Download probe D1 — retained, independently required
+
+D1 is retained exactly as specified in §20.2: P1 Direct LAN, Twingate OFF, the same browser-console script and decision rule. Upload and download root causes must not be conflated, so D1 is required independently of U2. U2 and D1 can run in the same onsite session. Run them one after the other, never overlapping.
