@@ -281,6 +281,61 @@ def test_v5_apply_requires_nrestarts_increase_as_recovery_evidence(tmp_path: Pat
     assert res.returncode == 1 and "L34_V5_BROKER_NRESTARTS_DID_NOT_INCREASE" in res.stderr
 
 
+# ── 4b. broker listener convergence (Type=simple: "running" precedes the 8883 bind) ──────────────────────────────────────
+
+LISTEN_FAST = dict(AEGIS_L34_V5_LISTEN_TRIES="4", AEGIS_L34_V5_LISTEN_INTERVAL="0.01")
+SS_8883 = "ss -H -ltn sport = :8883"
+
+
+def test_v5_listener_poll_knobs_are_pinned_and_not_overridden_by_the_runner() -> None:
+    text = code(APPLY)
+    assert 'LISTEN_TRIES="${AEGIS_L34_V5_LISTEN_TRIES:-15}"' in text
+    assert 'LISTEN_INTERVAL="${AEGIS_L34_V5_LISTEN_INTERVAL:-1}"' in text
+    assert "AEGIS_L34_V5_LISTEN" not in code(RUNNER)  # the frozen runner keeps the handler defaults (15 x 1s)
+
+
+def test_v5_waits_for_broker_listeners_when_running_precedes_the_bind(tmp_path: Path) -> None:
+    fx = v5(tmp_path, broker_listener_lag_polls=2, broker_listener_lag_shape="empty")
+    res = fx.run(APPLY, **LISTEN_FAST)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "L34_V5_APPLY=PASS" in res.stdout
+    assert fx.calls().count(SS_8883) == 3  # two lagging polls, then the exact pair
+
+
+def test_v5_waits_for_broker_listeners_when_only_one_listener_is_bound_first(tmp_path: Path) -> None:
+    fx = v5(tmp_path, broker_listener_lag_polls=2, broker_listener_lag_shape="one")
+    res = fx.run(APPLY, **LISTEN_FAST)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert fx.calls().count(SS_8883) == 3
+
+
+def test_v5_listener_poll_is_bounded_and_records_the_observed_set(tmp_path: Path) -> None:
+    fx = v5(tmp_path, broker_listener_lag_polls=10**6, broker_listener_lag_shape="one")
+    res = fx.run(APPLY, **LISTEN_FAST)
+    assert res.returncode == 1 and "L34_V4_BROKER_LISTENERS_INVALID" in res.stderr
+    assert fx.calls().count(SS_8883) == 4 + 1 + 1  # LISTEN_TRIES polls, the diagnostic capture and the failure-reason re-run
+    observed = (fx.work / "broker-listeners-observed.txt").read_text()
+    assert "127.0.0.1:8883" in observed and "10.77.30.1:8883" not in observed
+
+
+def test_v5_listener_failure_is_rolled_back_without_touching_the_broker(tmp_path: Path) -> None:
+    fx = v5(tmp_path, broker_listener_lag_polls=10**6)
+    assert fx.run(APPLY, **LISTEN_FAST).returncode == 1
+    res = fx.run(ROLLBACK)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "nmcli connection down aegis-idea3-ap" in fx.mutating_calls()
+    for c in fx.mutating_calls():
+        assert "mosquitto" not in c
+
+
+def test_v5_wrong_or_extra_listener_set_still_fails_after_the_wait(tmp_path: Path) -> None:
+    fx = v5(tmp_path, broker_listener_extra=["LISTEN 0 100 0.0.0.0:8883 0.0.0.0:*"])
+    res = fx.run(APPLY, **LISTEN_FAST)
+    assert res.returncode == 1 and "L34_V4_BROKER_LISTENERS_INVALID" in res.stderr
+    observed = (fx.work / "broker-listeners-observed.txt").read_text()
+    assert "0.0.0.0:8883" in observed
+
+
 def test_v5_dnsmasq_syntax_validation_blocks_before_any_mutation(tmp_path: Path) -> None:
     """Finding 4: V5 must restore V3's dnsmasq `--test --conf-file` syntax validation, read-only, before the
     first mutation."""
