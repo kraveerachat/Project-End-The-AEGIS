@@ -679,6 +679,7 @@ def _run_bounded_workload(
     peak_snapshot = _run_workload_guarded(
         _compose_command(
             "exec",
+            "--interactive=false",
             "--no-TTY",
             "postgres",
             "psql",
@@ -710,6 +711,7 @@ def _run_bounded_workload(
     return _run_workload_guarded(
         _compose_command(
             "exec",
+            "--interactive=false",
             "--no-TTY",
             "monitor",
             "node",

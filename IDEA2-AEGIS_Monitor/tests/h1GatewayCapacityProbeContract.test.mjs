@@ -1047,6 +1047,21 @@ test('workload diagnostics identify the exact bounded workload phase', () => {
   assert.match(runner, /WORKLOAD_PHASE_END=/)
 })
 
+
+test('capacity workloads disable Docker Compose interactive stdin', () => {
+  const runner = requiredText(runnerPath)
+
+  assert.match(
+    runner,
+    /_compose_command\(\s*"exec",\s*"--interactive=false",\s*"--no-TTY",\s*"postgres"/,
+  )
+
+  assert.match(
+    runner,
+    /_compose_command\(\s*"exec",\s*"--interactive=false",\s*"--no-TTY",\s*"monitor"/,
+  )
+})
+
 test('cleanup implementation is exact and never uses broad Docker prune operations', () => {
   const cleanup = requiredText(cleanupPath)
   const runner = requiredText(runnerPath)
