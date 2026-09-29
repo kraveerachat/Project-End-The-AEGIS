@@ -235,6 +235,50 @@ def fetch_incidents(limit=100):
         conn.close()
 
 
+def ping() -> bool:
+    """Bounded, read-only self-check: can this process open and query its own audit database."""
+    try:
+        conn = _connect()
+        try:
+            conn.execute("SELECT 1").fetchone()
+            return True
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+
+
+def restore_attempt_exists(incident_id) -> bool:
+    """True when a durable RESTORE_REQUESTED audit row is bound to this incident (a spent R5 attempt)."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM audit_logs WHERE event_type = 'RESTORE_REQUESTED' AND incident_id = ? LIMIT 1",
+            (incident_id,),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def fetch_incident_events(incident_id, event_types, limit=20):
+    """Newest-first audit rows bound to one incident for the given event types (read-only)."""
+    types = tuple(event_types)
+    if not types:
+        return []
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT id, timestamp, level, event_type, details FROM audit_logs "
+            f"WHERE incident_id = ? AND event_type IN ({','.join('?' * len(types))}) ORDER BY id DESC LIMIT ?",
+            (incident_id, *types, max(1, int(limit))),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
 def fetch_all_logs():
     conn = _connect()
     c = conn.cursor()

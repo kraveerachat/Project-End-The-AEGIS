@@ -243,6 +243,45 @@ def _response(ok: bool, code: str, detail: str, *, msg_id=None, seq=None, eviden
     }
 
 
+def restore_evidence_ladder(supervisor, msg_id: str):
+    """The protocol-evidence ladder for one local RESTORE command, or None when no such command exists.
+
+    Shared by the D4 evidence operation and the Core Recovery observer so both report exactly the same
+    reviewed semantics. ``executed == DEVICE_REPORTED_NORMAL`` needs the supervisor's in-memory physical
+    correlation for this exact command; after a Core restart it degrades to ``DEVICE_STATUS_CORRELATED``.
+    """
+    context = supervisor.protocol
+    row = context.store.command(msg_id) if context is not None else None
+    if row is None or row["action"] != RESTORE_UPLINK:
+        return None
+    state = row["state"]
+    if state == "NOT_PUBLISHED":
+        published = "NOT_PUBLISHED"
+    elif row["published_at"] is not None or state in {"PUBLISHED", "ACK_CONSUMED"}:
+        published = "PUBLISHED"
+    else:
+        published = "OUTCOME_UNKNOWN"
+    if row["ack_result"]:
+        ack = row["ack_result"]
+    elif published == "PUBLISHED" and state != "CLOSED":
+        ack = "PENDING"
+    elif published == "OUTCOME_UNKNOWN" or state == "CLOSED":
+        ack = "OUTCOME_UNKNOWN"
+    else:
+        ack = "NOT_APPLICABLE"
+    if row["status_correlated"]:
+        physical = supervisor.awaiting_physical_confirmation
+        observed = physical.get("observed_state") if physical and physical.get("nonce") == msg_id else None
+        executed = {
+            "NORMAL": "DEVICE_REPORTED_NORMAL",
+            "LOCKDOWN": "DEVICE_REPORTED_LOCKDOWN",
+        }.get(observed, "DEVICE_STATUS_CORRELATED")
+    else:
+        executed = "NOT_APPLICABLE" if published == "NOT_PUBLISHED" else "NOT_OBSERVED"
+    ladder = _evidence(requested="ACCEPTED", published=published, ack=ack, executed=executed)
+    return row["seq"], ladder
+
+
 class LocalRestoreGate:
     def __init__(
         self,
@@ -253,9 +292,15 @@ class LocalRestoreGate:
         audit: Callable[..., None] | None = None,
         audit_strict: Callable[..., None] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
+        incident_lookup: Callable[[], dict | None] | None = None,
+        attempt_lookup: Callable[[Any], bool] | None = None,
     ) -> None:
         self.supervisor = supervisor
         self.credential = credential
+        # Core Recovery binding: when an incident is open, a RESTORE attempt is bound to it and a durable
+        # RESTORE_REQUESTED row for that incident permanently consumes the attempt.
+        self.incident_lookup = incident_lookup
+        self.attempt_lookup = attempt_lookup
         self.allowed_uid = int(allowed_uid)
         self.audit = audit or db.log_event
         self.audit_strict = audit_strict or db.log_event_strict
@@ -289,42 +334,12 @@ class LocalRestoreGate:
             int(msg_id, 16)
         except ValueError:
             return self._refuse("MALFORMED_REQUEST", "invalid command identifier", peer)
-        context = self.supervisor.protocol
-        row = context.store.command(msg_id) if context is not None else None
-        if row is None or row["action"] != RESTORE_UPLINK:
+        found = restore_evidence_ladder(self.supervisor, msg_id)
+        if found is None:
             return self._refuse("UNKNOWN_COMMAND", "no local RESTORE command has that identifier", peer)
-        state = row["state"]
-        if state == "NOT_PUBLISHED":
-            published = "NOT_PUBLISHED"
-        elif row["published_at"] is not None or state in {"PUBLISHED", "ACK_CONSUMED"}:
-            published = "PUBLISHED"
-        else:
-            published = "OUTCOME_UNKNOWN"
-        if row["ack_result"]:
-            ack = row["ack_result"]
-        elif published == "PUBLISHED" and state != "CLOSED":
-            ack = "PENDING"
-        elif published == "OUTCOME_UNKNOWN" or state == "CLOSED":
-            ack = "OUTCOME_UNKNOWN"
-        else:
-            ack = "NOT_APPLICABLE"
-        if row["status_correlated"]:
-            physical = self.supervisor.awaiting_physical_confirmation
-            observed = physical.get("observed_state") if physical and physical.get("nonce") == msg_id else None
-            executed = {
-                "NORMAL": "DEVICE_REPORTED_NORMAL",
-                "LOCKDOWN": "DEVICE_REPORTED_LOCKDOWN",
-            }.get(observed, "DEVICE_STATUS_CORRELATED")
-        else:
-            executed = "NOT_APPLICABLE" if published == "NOT_PUBLISHED" else "NOT_OBSERVED"
-        ladder = _evidence(
-            requested="ACCEPTED",
-            published=published,
-            ack=ack,
-            executed=executed,
-        )
+        seq, ladder = found
         return _response(True, "EVIDENCE", "protocol evidence only; not physical evidence", msg_id=msg_id,
-                         seq=row["seq"], evidence=ladder)
+                         seq=seq, evidence=ladder)
 
     def handle(self, body: Any, peer: Peer):
         with self._operation_lock:
@@ -387,9 +402,27 @@ class LocalRestoreGate:
                 return self._refuse("RESTORE_ALREADY_PENDING", "RESTORE is awaiting device status evidence", peer)
 
             reason = body["reason"].strip()
+            incident_id = None
+            if self.incident_lookup is not None:
+                try:
+                    incident = self.incident_lookup()
+                    incident_id = incident["id"] if incident else None
+                    if incident_id is not None and self.attempt_lookup is not None and self.attempt_lookup(incident_id):
+                        return self._refuse(
+                            "RESTORE_ATTEMPT_CONSUMED",
+                            "a RESTORE attempt for this incident already exists; it is never repeated automatically",
+                            peer,
+                        )
+                except Exception:
+                    return self._refuse("AUDIT_UNAVAILABLE", "the incident attempt record is unavailable", peer)
             audit_detail = f"reason={reason} uid={peer.uid} pid={peer.pid} origin={LOCAL_REQUEST_ORIGIN}"
+            if incident_id is not None:
+                audit_detail += f" incident_id={incident_id}"
             try:
-                self.audit_strict("RESTORE_REQUESTED", audit_detail, db.CRITICAL)
+                if incident_id is not None:
+                    self.audit_strict("RESTORE_REQUESTED", audit_detail, db.CRITICAL, incident_id)
+                else:
+                    self.audit_strict("RESTORE_REQUESTED", audit_detail, db.CRITICAL)
             except Exception:
                 return self._refuse("AUDIT_UNAVAILABLE", "durable RESTORE audit is unavailable", peer)
 
@@ -401,6 +434,11 @@ class LocalRestoreGate:
                 authorize_restore=True,
             )
         if result.sent:
+            if incident_id is not None:
+                try:  # best effort: links the command to the incident for the Recovery observer; absence fails R5 closed
+                    self.audit("RESTORE_PUBLISHED", f"msg_id={result.nonce} seq={result.seq}", db.CRITICAL, incident_id)
+                except Exception:
+                    pass
             ladder = _evidence(requested="ACCEPTED", published="PUBLISHED", ack="PENDING", executed="NOT_OBSERVED")
             return _response(True, "PUBLISHED", result.detail, msg_id=result.nonce, seq=result.seq, evidence=ladder)
         if result.dry_run:
