@@ -20,15 +20,15 @@ edit_policy: owner-writable
 **IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1 — TRASH LIST PRESERVED ACROSS DESTRUCTIVE REAUTH / PRODUCTION ACCEPTANCE PASS / DRAFT PR**
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `fix/idea1-trash-destructive-reauth-ui`; PR #243 remains Draft. Historical stacked base: `fix/idea1-vault-convergence-highres-ux` (PR #220); planned current target: `main` after TRASH-R4 reconciliation.
+- Branch: `fix/idea1-trash-destructive-reauth-ui`; PR #243 remains Draft. Historical stacked base: `fix/idea1-vault-convergence-highres-ux` (PR #220); current target: `main` after TRASH-R4 reconciliation (retarget after verified normal push).
 - Final Status:
   - `IMPLEMENTATION_COMPLETE=YES`
   - `PRODUCTION_DEPLOYED=YES`
   - `PRODUCTION_ACCEPTANCE=PASS`
   - `PR_MERGED=NO`
   - `DEPENDENCY_BLOCKED_BY_PR220=NO` — PR220 merged as `ed45c1b5a63087aa3810d156a8c19b1f1e48c838`; PR241 merged as `5fe58ee9562b528ddae4dfd728caa97b1c6c925b`.
-  - `MAIN_RECONCILIATION=IN_PROGRESS` — docs/history only unless a legitimate main application overlap is identified; non-obvious semantic conflict stops work.
-- Authoritative Source & Production Deployment:
+  - `MAIN_RECONCILIATION=PASS` — normal merge `169c089910210725b5fe6047d710f5caf9a71cd4`, only canonical-status conflict; no application source/behavior delta from accepted `92a9...`.
+- Authoritative Accepted Source & Carried-Forward Production Deployment:
   - `SOURCE_SHA=92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f`
   - `IMAGE=aegis-prod-drive:pr243-92a9ebd86593-r3`
   - `IMAGE_ID=sha256:4122f82ba5557a456feccdff54892fb382943d012566fd851ec65253b2b84c3c`
@@ -88,11 +88,24 @@ edit_policy: owner-writable
   - Vault validator: 2 warnings (existing canvas owner reviews), 0 errors PASS.
   - Whitespace & secret scan: `git diff --check` clean, zero committed secrets.
 
+### TRASH-R4 — main reconciliation verification (2026-09-29)
+
+- Chronology: accepted application source `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f` → existing closeout/docs HEAD `3aef01913ac4a415d4df38d07e3a82190b9f4f73` → scope checkpoint `a23865704b128514d7e064483ee2a22c441b3c58` → normal main merge `169c089910210725b5fe6047d710f5caf9a71cd4` → this documentation evidence checkpoint. No history rewrite.
+- Source integrity: `git diff --name-status 92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f HEAD -- IDEA1-AEGIS_Drive_LC` is empty; both tracked IDEA1 subtrees equal `ae70fe852440d04699ba23b6433a849d06baf7b0`. App retains `user={session}` and `onStorageMutationCommitted={dashApi.refresh}`; Trash, tests, dependencies, server and deployment bytes unchanged. PR243 delta vs main is exactly its six original application/test/status/receipt paths; PR241 plan/receipt are main history only; no PR216 or unrelated backend/schema delta.
+- Environment: local Windows, Node v24.14.0. Per-file command `node --test --test-concurrency=1 --test-reporter=tap tests/<file>`: `trashDestructiveReauthUi.test.js` 22/22; `protectedTrashLockedUi.test.js` 11/11; `protectedTrashUi.test.js` 4/4; `protectedTrash.test.js` 12/12; `filesTrashLifecycle.test.js` 14 pass / 1 PostgreSQL-gated skip (`TEST_DATABASE_URL` unavailable). Total 64 tests / 63 pass / 0 fail / 1 skip / 0 cancelled; each exit 0.
+- App/protected-entry integration: `node --test --test-concurrency=1 --test-reporter=tap tests/workspaceAppVaultParity.test.js tests/workspaceMarqueeApp.test.js tests/authBackBoundaryR4.test.js tests/shellThemeR4.test.js` — 27/27 PASS, exit 0.
+- Local build: `npm run build -- --outDir C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-main-reconciliation-20260929/build` — PASS, exit 0, existing >500 kB chunk warning; no tracked build artifact changed. This is a client build, not a Docker image build.
+- Real Chrome: `node C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-main-reconciliation-20260929/browser-check.mjs` — 6/6 PASS, Chrome 154.0.8037.58, loopback-only built-App fixture. Classic/Neo × EN light / TH dark / ZH light; immediate Sidebar refresh before held relist, correct remaining rows, isolated forms, retained query/sort, Empty Trash locked shell, no document reload/page errors. Human live acceptance is carried forward from TRASH-R3, not inferred from fixture checks.
+- Root `node --test --test-concurrency=1 --test-reporter=tap tests/*.test.mjs` (all six discovered root files) — 65/65 PASS. `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS, two existing owner-data Canvas warnings/0 errors. `git diff --check origin/main...HEAD` PASS; added-line high-confidence credential-pattern scan 0 findings. Full IDEA1 suite NOT RERUN, never claimed PASS.
+- Immutable receipt remains blob `b0541b052b26ecbb8b59ba2851c5c06694fa8661`; no duplicate receipt. PR220 accepted history and PR241 storage/reclamation facts preserved. No Production/SSH/image build/deployment/database migration, rebase/reset/force push, Ready transition or PR merge. Current-head collaboration CI remains a post-push/retarget gate; Human review/Ready/merge remain pending.
+
 ### Session Register — IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1
+
+Earlier rows retain checkpoint-time state. TRASH-R4 supersedes their dependency blockers; TRASH-R3 already superseded TRASH-R2 deployment/acceptance pending.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| TRASH-R4 | Post-PR241 merge reconciliation and main-target review preparation (2026-09-29) | IN PROGRESS | Start local/remote `3aef01913ac4a415d4df38d07e3a82190b9f4f73`, clean existing worktree; main `5fe58ee9562b528ddae4dfd728caa97b1c6c925b`; PR220/PR241 merged; accepted source `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f` is ancestor. Baseline bounded Trash suites 63 pass / 1 PostgreSQL-gated skip / 0 fail | Session scope checkpoint; normal merge/evidence checkpoint pending | Reconciliation pending; Production acceptance carried forward, not repeated | Normal main merge; preserve App wiring/Trash bytes and legitimate main history; affected tests/App integration/local build/browser, governance/vault/diff/secrets/current-head CI; receipt unchanged | Stop on non-obvious semantic conflict; no Production/SSH/image build/deploy, PR216 change, rebase/reset/force, Ready/PR merge or duplicate receipt |
+| TRASH-R4 | Post-PR241 merge reconciliation and main-target review preparation (2026-09-29) | PASS | PR220/PR241 merged; one status-only conflict reconciled preserving accepted histories; entire IDEA1 tree equals accepted `92a9...`. Bounded Trash 63 pass/1 PostgreSQL skip/0 fail; App/core-entry 27/27; root 65/65; build, Chrome 6/6, vault/diff/secret checks PASS. Full IDEA1 NOT RERUN; receipt unchanged | Merge `169c089910210725b5fe6047d710f5caf9a71cd4`; scope `a23865704b128514d7e064483ee2a22c441b3c58` | Main reconciliation PASS; no application behavior delta; implementation COMPLETE; carried-forward Production acceptance PASS; final PR243 merge NOT DONE | Independent review, verified normal push/main retarget/current-head CI, then required Human review/Ready/merge | Keep Draft; no Production/SSH/image build/deploy/database migration, PR216 change, rebase/reset/force, Ready/PR merge or duplicate receipt |
 | TRASH-R3 | PR243 Production rollout R3, deployment postcheck, and Human browser acceptance | PASS | Deployed candidate `aegis-prod-drive:pr243-92a9ebd86593-r3` healthy, restart 0, OOM False; Human acceptance PASS across permanent delete, reauth isolation, row reconciliation, sidebar refresh, empty trash. One final receipt added. | `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f` source; closeout docs | PRODUCTION DEPLOYED & ACCEPTED; IMPLEMENTATION COMPLETE; MERGE BLOCKED BY PR220 | Human Owner merge of PR220, then PR243 | Keep Draft; await PR220 merge |
 | TRASH-R2 | Post-purge authoritative list + stale-response correction | CLOSED | RED→GREEN, 63 pass / 1 PostgreSQL skip, built-App Chrome 6/6, build/root65/vault validation | `dd23ad22760e07425b41c925ef2c81ec2a69c296` | LOCAL VERIFIED; task ACCEPTANCE PENDING | Human source review/live retest not performed; source fix NOT DEPLOYED | Stop at source handoff; no deployment/package, Ready, merge or final receipt |
 
