@@ -631,6 +631,8 @@ def test_only_reviewed_stage_handlers_are_registered() -> None:
         "L3": core_handler_files | {"allow-transitions.txt"},
         # L4 reactivates the applied L3 AP, so it owns the narrow target-phy regulatory window for its own comparison.
         "L4": core_handler_files | {"allow-transitions.txt"},
+        # L7 apply/verify/rollback all source this shared, reviewed listener-snapshot helper (PR #246).
+        "L7": core_handler_files | {"l7-listener-lib.sh"},
     }
     for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L8", "L9"):
         expected = expected_by_stage.get(name, core_handler_files)
