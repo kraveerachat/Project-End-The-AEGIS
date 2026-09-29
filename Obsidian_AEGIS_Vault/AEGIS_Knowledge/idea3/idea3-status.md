@@ -18,6 +18,16 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L6c/L7 broker runtime stability gate — repository only — 2026-09-29
+
+> [!important] Repository-only. No Production mutation, no service/nmcli/nft/sysctl command, no A-L6c or K3 created, no L6c live execution, no L7, no MQTT, no ESP32.
+> `L6C_LIVE = NOT_PROVEN`, `BROKER_GATE_READ_ONLY = YES`, `RELEASE_CLOSURE_CHANGED = NO`, `RELEASE_TOOLING_CHANGED = NO`
+
+- **Gap:** after the governed V5 reactivation the L6b broker legitimately recovered through its own systemd auto-restart and retains a non-zero historical `NRestarts` (646 observed). The shared gate `l7_broker_runtime_gate` (`p4-l7-run-lib.sh`, used by the L6c and L7 runners) required `NRestarts=0`, so L6c read-only readiness failed only with `PREDECESSOR_RUNTIME_REACTIVATION_REQUIRED=YES:L7_BROKER_NOT_HEALTHY:NRestarts=646`.
+- **Old policy:** NRestarts must equal 0. **New policy:** historical NRestarts is allowed only when current health, listeners and identity are stable across a bounded read-only window. Active/running/enabled/success, numeric non-zero MainPID, numeric NRestarts, non-empty InvocationID and exactly `10.77.30.1:8883` + `127.0.0.1:8883` must hold on every one of 3 samples 2 s apart, and the MainPID/NRestarts/InvocationID tuple must be identical across them. Window constants are assigned at source time and cannot be shortened by environment variables. Any restart, PID/invocation change, NRestarts increment, bad state, or missing/extra listener fails closed.
+- **Unchanged:** BROKER_PRE snapshots and each runner's `s10_unchanged()` broker PRE→POST PID/NRestarts comparison, `p4-compare.sh`, V5/V6 handlers, release builder/guard/install, `aegis_soc/**`, `requirements.txt`. Staged release `3c8dae69…` stays reusable. The gate issues no start/stop/restart/reset-failed command.
+- **Receipt:** `90-Status/logs/2026-09-29_210000_music_idea3-l6c-broker-stability-gate.md`.
+
 ## IDEA3 PR11 Phase 4 L3/L4 V6 TrustedClock stabilization — repository only — 2026-09-29
 
 > [!important] Repository-only. The first live V6 attempt (`2026-09-29-l34-v6-20260929-170043`, authorization `2026-09-29-l34-v6-auth-20260929-165848`) is CONSUMED and never reused. No live retry, no new authorization/K3, no L6c/L7, no ESP32.

@@ -17,11 +17,106 @@ edit_policy: owner-writable
 
 ## Current Task
 
-**IDEA1-STORAGE-CAPACITY-RECLAMATION-1 — COMPLETE / EMPIRICALLY VERIFIED ON PRODUCTION**
+**IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1 — TRASH LIST PRESERVED ACROSS DESTRUCTIVE REAUTH / PRODUCTION ACCEPTANCE PASS / DRAFT PR**
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `fix/idea1-storage-capacity-reclamation`; Draft PR: #241. Historical stacked base: PR #220 `fix/idea1-vault-convergence-highres-ux`; current target: `main` after ISCR-S3 reconciliation.
-- Dependency: **SATISFIED / MERGED**. PR #220 merged into `main` as `ed45c1b5a63087aa3810d156a8c19b1f1e48c838`. PR241 implementation **COMPLETE**; Production acceptance **PASS** (carried-forward Human evidence); normal main reconciliation **PASS**; PR241 final merge **NOT YET**. Ready transition and final merge remain Human Owner controlled.
+- Branch: `fix/idea1-trash-destructive-reauth-ui`; PR #243 remains Draft. Historical stacked base: `fix/idea1-vault-convergence-highres-ux` (PR #220); current target: `main` after TRASH-R4 reconciliation (retarget after verified normal push).
+- Final Status:
+  - `IMPLEMENTATION_COMPLETE=YES`
+  - `PRODUCTION_DEPLOYED=YES`
+  - `PRODUCTION_ACCEPTANCE=PASS`
+  - `PR_MERGED=NO`
+  - `DEPENDENCY_BLOCKED_BY_PR220=NO` — PR220 merged as `ed45c1b5a63087aa3810d156a8c19b1f1e48c838`; PR241 merged as `5fe58ee9562b528ddae4dfd728caa97b1c6c925b`.
+  - `MAIN_RECONCILIATION=PASS` — normal merge `169c089910210725b5fe6047d710f5caf9a71cd4`, only canonical-status conflict; no application source/behavior delta from accepted `92a9...`.
+- Authoritative Accepted Source & Carried-Forward Production Deployment:
+  - `SOURCE_SHA=92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f`
+  - `IMAGE=aegis-prod-drive:pr243-92a9ebd86593-r3`
+  - `IMAGE_ID=sha256:4122f82ba5557a456feccdff54892fb382943d012566fd851ec65253b2b84c3c`
+  - `PACKAGE=pr243-92a9-rollout-r3.zip` (SHA256: `2e35469b5f21933b42e0d6872d280801252dc5526fab6ead7988e7e50af65c01`)
+  - Postcheck verification: Drive healthy, restart 0, OOM False; mounts, networks, datalake, media cache preserved; no mutations to HUB, Monitor, Postgres, Public Share, IDEA2, or IDEA3; zero database migrations (`MIGRATION_RUN=NO`).
+- Human Owner Production Acceptance:
+  - `PERMANENT_DELETE=PASS`
+  - `TRASH_DESTRUCTIVE_REAUTH=PASS`
+  - `TRASH_SEARCH_AUTOFILL_ADMIN=NOT_OBSERVED`
+  - `TRASH_REMAINING_ROWS_RECONCILE=PASS`
+  - `MANUAL_USER_REFRESH_REQUIRED=NO`
+  - `SIDEBAR_STORAGE_REFRESH=PASS`
+  - `EMPTY_TRASH=PASS`
+  - `BACKEND_PURGE=PASS`
+  - `UPLOAD_STORAGE_ACCOUNTING=PASS`
+  - `OVERALL_BROWSER_ACCEPTANCE=PASS`
+  - Observable behavior: after destructive confirmation, Trash automatically reconciles to the authoritative remaining-item state without requiring user page reload or navigation.
+- Deployment Engineering Techniques & Lessons:
+  - Exact-source deployment: Candidate strictly pinned to Git SHA `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f`; application source authority remains GitHub.
+  - Drive-only rollout: Existing Compose chain preserved; guarded Drive-only recreation (`--no-deps --force-recreate --no-build --pull never --wait`).
+  - Runtime-user readability gate: Permissions normalized to prevent non-root Node EACCES (resolving earlier V1 packaging issue); verified with disposable probe.
+  - Connector restart-policy authority: Tooling aligned with live authority (`on-failure / MaximumRetryCount=5`).
+  - Docker HostConfig Binds ordering: Binds string ordering normalized; all other configuration drift fail-closed.
+  - Historical package audit: V1, R2, R2.1 retained; R3 is authoritative.
+- Root Cause 1 (Destructive Reauth UI): Password managers and browser credential autofill heuristically associated the preceding unisolated Trash search input with the destructive reauth password modal (`purge` and `empty`), autofilling account username (`"admin"`) into the controlled search input and filtering out non-matching Trash rows.
+- Root Cause 2 (Storage Meter Staleness): After successful permanent delete (`purgeItem`) or Empty Trash (`emptyTrash`), backend unlinked blobs immediately, but the client-side Sidebar storage meter relied on `/api/dashboard` polling (`refreshMs: 30_000`) or navigation, remaining stale until timer expiration or full-page reload.
+- Architectural Fix:
+  1. Enclose Trash search input in dedicated `<form role="search" onSubmit={(e) => e.preventDefault()}>` with explicit `type="search"`, `name="trashSearch"`, `autoComplete="off"`, `autoCorrect="off"`, `autoCapitalize="off"`, and `spellCheck="false"`.
+  2. Scope permanent delete (`purge`) modal inside `<form onSubmit={...}>` with an explicit hidden username field (`type="text" name="username" autoComplete="username" value={username} readOnly tabIndex={-1} aria-hidden="true" className="sr-only"`), explicit `name="trashPurgePassword"`, and properly typed `<Btn type="button">` / `<Btn type="submit">`.
+  3. Scope empty trash (`empty`) modal inside `<form onSubmit={...}>` with an explicit hidden username field (`autoComplete="username"`), `name="trashConfirmText"` with `autoComplete="off"`, and `name="trashEmptyPassword"`.
+  4. Scope unlock modal with hidden username field and `name="trashUnlockPassword"`.
+  5. Pass authenticated `user={session}` from `App.jsx` to `Trash` component while safely defaulting when omitted.
+  6. Preserve pre-existing legitimate user search queries across deletion flow.
+  7. Add `onStorageMutationCommitted` callback prop to `<Trash>` in `src/screens/Trash.jsx`, invoking it strictly after successful physical reclamation (`result.ok === true` in `purgeItem` and `emptyTrash`).
+  8. Wire `onStorageMutationCommitted={dashApi.refresh}` to `<Trash>` in `src/App.jsx`.
+  9. `useApi.refresh()` triggers a silent background update (`isRefresh: true`, `hasDataRef: true`, no loading skeleton flash) of `/api/dashboard`, reconciling sidebar storage metrics in realtime.
+  10. Restore action does NOT call `onStorageMutationCommitted` because restored files were already accounted for in datalake storage.
+  11. Failed delete / failed Empty Trash do NOT trigger storage reconciliation.
+  12. Global polling frequency (`refreshMs: 30_000`) and backend storage accounting remain unchanged; zero new endpoints or WebSockets added.
+  13. Successful permanent purge triggers `onStorageMutationCommitted` before awaiting Trash relisting, so slow metadata reconciliation cannot delay the existing silent dashboard refresh. Deferred relist regression also pins exactly-once callback and preservation of legitimate search.
+  14. List request generations reject superseded responses; explicit lock, current authorization expiry, Empty Trash and unmount invalidate pending lists. Authorization epochs reject status sampled before a newer successful explicit unlock. Fresh expiry/423 still clear metadata and require server-authorized unlock. No server auth/session/security semantics change.
+  15. Purge stays busy through authoritative refetch; then dialog/password reset. Escape/scrim/close cannot dismiss the pending operation. Metadata timeout shows truthful ErrorState + GET-only retry, not false empty state or repeated DELETE. Search/sort remain controlled and unchanged; no document reload or navigation.
+- Automated Evidence:
+  - Implementation-era evidence below retains its checkpoint-time pending/limitations wording. TRASH-R3 supersedes live-retest pending; TRASH-R4 supersedes dependency/next-step blockers. Full IDEA1 suite remains NOT RERUN for this bounded PR243 correction/reconciliation, never claimed PASS.
+  - Focused regression suite `IDEA1-AEGIS_Drive_LC/tests/trashDestructiveReauthUi.test.js`: 22/22 PASS (6 reauth/search isolation + 7 realtime storage reconciliation + 9 list/authorization reconciliation tests).
+  - Locked UI suite `tests/protectedTrashLockedUi.test.js`: 11/11 PASS.
+  - Trash UI static contract suite `tests/protectedTrashUi.test.js`: 4/4 PASS.
+  - Backend trash lifecycle suite `tests/protectedTrash.test.js`: 12/12 PASS.
+  - Trash lifecycle hierarchy suite `tests/filesTrashLifecycle.test.js`: 14 passed / 0 failed / 1 PostgreSQL-gated skip.
+  - Final affected command (Windows 10.0.26200, Node v24.14.0): `node --test --test-concurrency=1 --test-reporter=tap tests/trashDestructiveReauthUi.test.js tests/protectedTrashLockedUi.test.js tests/protectedTrashUi.test.js tests/protectedTrash.test.js tests/filesTrashLifecycle.test.js` — exit 0, 64 tests / 63 passed / 0 failed / 1 PostgreSQL-gated skip / 0 cancelled, 7.30s.
+  - RED evidence (2026-09-29): initial 15-test run exit 1, 12 pass / 3 fail (dialog ordering, stale listing after purge, stale listing after Empty Trash). Delayed pre-unlock status regression then exit 1, 19 pass / 1 fail; GREEN after authorization epoch guard. Tests mount the actual Trash component; fixture snapshots at server handling time, with controllable delayed delivery.
+  - Build: `npm run build -- --outDir C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-purge-verification-20260929/build` — exit 0, 9.08s; existing >500kB chunk warning, external outDir not emptied. No tracked build output changed.
+  - Built-App browser evidence: `node C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-purge-verification-20260929/browser-check.mjs` — exit 0, real Chrome 154.0.8037.58, 6/6 local HTTP-fixture cases PASS (Classic/Neo × EN light / TH dark / ZH light). Actual App + apiFetch + Sidebar: immediate 592→528 MB before held Trash relist, remaining visible rows, form isolation, preserved search/sort, Empty Trash locked shell, one document request/no reload, no page errors. Temporary evidence outside Git. Initial harness attempts failed on Windows ESM path syntax and counting same-document auth history as reload; corrected harness, no source change from those failures. Real password-manager/live Production retest remains PENDING.
+  - Independent read-only source review: no actionable critical/important/minor findings; reviewer independently ran rendered Trash/locked suites and diff check. Production triggering sequence and live acceptance explicitly not certified.
+  - Governance: root collaboration and vault tests 50/50 PASS.
+  - Codex authority review: full root `node --test --test-concurrency=1 --test-reporter=tap tests/*.test.mjs` 65/65 PASS; includes executable core-entry governance.
+  - Vault validator: 2 warnings (existing canvas owner reviews), 0 errors PASS.
+  - Whitespace & secret scan: `git diff --check` clean, zero committed secrets.
+
+### TRASH-R4 — main reconciliation verification (2026-09-29)
+
+- Chronology: accepted application source `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f` → existing closeout/docs HEAD `3aef01913ac4a415d4df38d07e3a82190b9f4f73` → scope checkpoint `a23865704b128514d7e064483ee2a22c441b3c58` → normal main merge `169c089910210725b5fe6047d710f5caf9a71cd4` → this documentation evidence checkpoint. No history rewrite.
+- Source integrity: `git diff --name-status 92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f HEAD -- IDEA1-AEGIS_Drive_LC` is empty; both tracked IDEA1 subtrees equal `ae70fe852440d04699ba23b6433a849d06baf7b0`. App retains `user={session}` and `onStorageMutationCommitted={dashApi.refresh}`; Trash, tests, dependencies, server and deployment bytes unchanged. PR243 delta vs main is exactly its six original application/test/status/receipt paths; PR241 plan/receipt are main history only; no PR216 or unrelated backend/schema delta.
+- Environment: local Windows, Node v24.14.0. Per-file command `node --test --test-concurrency=1 --test-reporter=tap tests/<file>`: `trashDestructiveReauthUi.test.js` 22/22; `protectedTrashLockedUi.test.js` 11/11; `protectedTrashUi.test.js` 4/4; `protectedTrash.test.js` 12/12; `filesTrashLifecycle.test.js` 14 pass / 1 PostgreSQL-gated skip (`TEST_DATABASE_URL` unavailable). Total 64 tests / 63 pass / 0 fail / 1 skip / 0 cancelled; each exit 0.
+- App/protected-entry integration: `node --test --test-concurrency=1 --test-reporter=tap tests/workspaceAppVaultParity.test.js tests/workspaceMarqueeApp.test.js tests/authBackBoundaryR4.test.js tests/shellThemeR4.test.js` — 27/27 PASS, exit 0.
+- Local build: `npm run build -- --outDir C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-main-reconciliation-20260929/build` — PASS, exit 0, existing >500 kB chunk warning; no tracked build artifact changed. This is a client build, not a Docker image build.
+- Real Chrome: `node C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-main-reconciliation-20260929/browser-check.mjs` — 6/6 PASS, Chrome 154.0.8037.58, loopback-only built-App fixture. Classic/Neo × EN light / TH dark / ZH light; immediate Sidebar refresh before held relist, correct remaining rows, isolated forms, retained query/sort, Empty Trash locked shell, no document reload/page errors. Human live acceptance is carried forward from TRASH-R3, not inferred from fixture checks.
+- Root `node --test --test-concurrency=1 --test-reporter=tap tests/*.test.mjs` (all six discovered root files) — 65/65 PASS. `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS, two existing owner-data Canvas warnings/0 errors. `git diff --check origin/main...HEAD` PASS; added-line high-confidence credential-pattern scan 0 findings. Full IDEA1 suite NOT RERUN, never claimed PASS.
+- Immutable receipt remains blob `b0541b052b26ecbb8b59ba2851c5c06694fa8661`; no duplicate receipt. PR220 accepted history and PR241 storage/reclamation facts preserved. No Production/SSH/image build/deployment/database migration, rebase/reset/force push, Ready transition or PR merge. Current-head collaboration CI remains a post-push/retarget gate; Human review/Ready/merge remain pending.
+- Review limitation: independent reconciliation reviewer could not complete because the account usage limit was reached; no independent-review PASS claimed. Direct read-only audit PASS: exact six-path delta, accepted IDEA1 tree/receipt equality, preserved App props, PR243 Production/Human facts, main PR241 acceptance/session block and complete PR220/later history. Required Human review/approval remains pending.
+
+### Session Register — IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1
+
+Earlier rows retain checkpoint-time state. TRASH-R4 supersedes their dependency blockers; TRASH-R3 already superseded TRASH-R2 deployment/acceptance pending.
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| TRASH-R4 | Post-PR241 merge reconciliation and main-target review preparation (2026-09-29) | PASS | PR220/PR241 merged; one status-only conflict reconciled preserving accepted histories; entire IDEA1 tree equals accepted `92a9...`. Bounded Trash 63 pass/1 PostgreSQL skip/0 fail; App/core-entry 27/27; root 65/65; build, Chrome 6/6, vault/diff/secret checks PASS. Full IDEA1 NOT RERUN; receipt unchanged | Merge `169c089910210725b5fe6047d710f5caf9a71cd4`; scope `a23865704b128514d7e064483ee2a22c441b3c58` | Main reconciliation PASS; no application behavior delta; implementation COMPLETE; carried-forward Production acceptance PASS; final PR243 merge NOT DONE. Direct integrity audit PASS; independent review unavailable (usage limit) | Verified normal push/main retarget/current-head CI, then required Human review/Ready/merge | Keep Draft; no Production/SSH/image build/deploy/database migration, PR216 change, rebase/reset/force, Ready/PR merge or duplicate receipt |
+| TRASH-R3 | PR243 Production rollout R3, deployment postcheck, and Human browser acceptance | PASS | Deployed candidate `aegis-prod-drive:pr243-92a9ebd86593-r3` healthy, restart 0, OOM False; Human acceptance PASS across permanent delete, reauth isolation, row reconciliation, sidebar refresh, empty trash. One final receipt added. | `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f` source; closeout docs | PRODUCTION DEPLOYED & ACCEPTED; IMPLEMENTATION COMPLETE; MERGE BLOCKED BY PR220 | Human Owner merge of PR220, then PR243 | Keep Draft; await PR220 merge |
+| TRASH-R2 | Post-purge authoritative list + stale-response correction | CLOSED | RED→GREEN, 63 pass / 1 PostgreSQL skip, built-App Chrome 6/6, build/root65/vault validation | `dd23ad22760e07425b41c925ef2c81ec2a69c296` | LOCAL VERIFIED; task ACCEPTANCE PENDING | Human source review/live retest not performed; source fix NOT DEPLOYED | Stop at source handoff; no deployment/package, Ready, merge or final receipt |
+
+## Completed Task — IDEA1-STORAGE-CAPACITY-RECLAMATION-1
+
+**IDEA1-STORAGE-CAPACITY-RECLAMATION-1 — COMPLETE / EMPIRICALLY VERIFIED ON PRODUCTION / MERGED INTO MAIN**
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-storage-capacity-reclamation`; PR #241 merged into `main` as `5fe58ee9562b528ddae4dfd728caa97b1c6c925b`. Historical stacked base: PR #220 `fix/idea1-vault-convergence-highres-ux`, then `main` after ISCR-S3 reconciliation.
+- Dependency: **SATISFIED / MERGED**. PR #220 merged into `main` as `ed45c1b5a63087aa3810d156a8c19b1f1e48c838`. PR241 implementation **COMPLETE**; Production acceptance **PASS** (carried-forward Human evidence); normal main reconciliation **PASS**; PR241 final merge **DONE**. Earlier ISCR rows retain their pre-merge chronology; accepted storage facts and immutable receipt remain unchanged.
 - Canonical architecture authority: PR #240 merged in main (`Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-storage-persistence-architecture.md`).
 - Implementation plan: `docs/superpowers/plans/2026-09-28-idea1-storage-capacity-reclamation.md`.
 - Two-Track Execution & Production Evidence:
