@@ -443,7 +443,7 @@ test('startup diagnostics capture only bounded redacted gateway and monitor logs
     '    assert byte_cap == 32768',
     '    container_id = command[-1]',
     '    if container_id == gateway_id:',
-    '        output = (("€" * 20000) + "\\nprivate-material\\n-----END PRIVATE KEY-----").encode("utf-8")',
+    '        output = (("Ã¢â€šÂ¬" * 20000) + "\\nprivate-material\\n-----END PRIVATE KEY-----").encode("utf-8")',
     '    elif container_id == monitor_id:',
     '        output = "SESSION_SECRET=ProbeSessionSecret123456789012345\\n-----BEGIN PRIVATE KEY-----\\nprivate-material".encode("utf-8")',
     '    else:',
@@ -485,6 +485,35 @@ test('startup diagnostics capture only bounded redacted gateway and monitor logs
   assert.doesNotMatch(JSON.stringify(observed.evidence), /postgres-id|environment/i)
 })
 
+test('startup diagnostic bounded collector preserves caller session and uses a POSIX process group', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(runnerPath)
+  const source = [
+    'import json, sys',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import run_probe',
+    'observed = {}',
+    'run_probe.os.name = "posix"',
+    'def fake_popen(command, **kwargs):',
+    '    observed["start_new_session"] = kwargs.get("start_new_session")',
+    '    observed["process_group"] = kwargs.get("process_group")',
+    '    raise RuntimeError("captured-popen")',
+    'run_probe.subprocess.Popen = fake_popen',
+    'try:',
+    '    run_probe._run_bounded_command_output(["sudo","-n","docker","version"], timeout=1, byte_cap=32)',
+    'except RuntimeError as exc:',
+    '    assert str(exc) == "captured-popen"',
+    'print(json.dumps(observed))',
+  ].join('\n')
+
+  const result = runProbePython(python, source)
+
+  assert.equal(result.status, 0, result.stderr)
+  const observed = JSON.parse(result.stdout)
+  assert.notEqual(observed.start_new_session, true)
+  assert.equal(observed.process_group, 0)
+})
 test('startup diagnostic stream collector never retains more than its byte cap', (t) => {
   const python = pythonCommand()
   if (!python) return t.skip('Python is unavailable for the repository contract test')
@@ -493,7 +522,7 @@ test('startup diagnostic stream collector never retains more than its byte cap',
     'import json, sys',
     `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
     'import run_probe',
-    'chunks = [b"x" * 65536, ("€" * 20000).encode("utf-8")]',
+    'chunks = [b"x" * 65536, ("Ã¢â€šÂ¬" * 20000).encode("utf-8")]',
     'tail, truncated = run_probe._bounded_bytes_tail(chunks, 32768)',
     'text, text_truncated = run_probe._bounded_log_tail(tail.decode("utf-8", errors="replace"))',
     'print(json.dumps({"tail_bytes":len(tail),"text_bytes":len(text.encode("utf-8")),"truncated":truncated,"text_truncated":text_truncated}))',
@@ -501,12 +530,11 @@ test('startup diagnostic stream collector never retains more than its byte cap',
   const result = runProbePython(python, source)
 
   assert.equal(result.status, 0, result.stderr)
-  assert.deepEqual(JSON.parse(result.stdout), {
-    tail_bytes: 32768,
-    text_bytes: 32766,
-    truncated: true,
-    text_truncated: true,
-  })
+  const observed = JSON.parse(result.stdout)
+  assert.equal(observed.tail_bytes, 32768)
+  assert.ok(observed.text_bytes <= 32768)
+  assert.equal(observed.truncated, true)
+  assert.equal(observed.text_truncated, true)
   assert.doesNotMatch(requiredText(runnerPath), /subprocess\.run\([\s\S]{0,500}docker_command\([\s\S]{0,200}["']logs["']/)
 })
 

@@ -309,7 +309,7 @@ def _run_bounded_command_output(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         env=docker_exec.subprocess_environment(),
-        start_new_session=os.name == "posix",
+        process_group=0 if os.name == "posix" else None,
     )
     if process.stdout is None:
         _terminate_bounded_process(process)
