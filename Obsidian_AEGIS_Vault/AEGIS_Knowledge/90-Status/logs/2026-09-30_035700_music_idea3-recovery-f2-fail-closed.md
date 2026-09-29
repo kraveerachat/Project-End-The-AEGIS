@@ -42,9 +42,7 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- Baseline before F2 edit:
-  `~/.venvs/aegis-idea3-core/bin/python -m pytest tests/test_core_recovery_security.py -q`
-  — pass: `36 passed, 1 xfailed`.
+- `~/.venvs/aegis-idea3-core/bin/python -m pytest tests/test_core_recovery_security.py -q` — pass: `36 passed, 1 xfailed`.
 - RED:
   `~/.venvs/aegis-idea3-core/bin/python -m pytest tests/test_core_recovery_security.py::test_init_db_fails_closed_and_preserves_history_when_old_duplicates_exist -q`
   — fail as expected before implementation:
