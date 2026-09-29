@@ -212,7 +212,7 @@ test('watchdog measurements stay behind Docker authority and never read root-own
   if (!python) return t.skip('Python is unavailable for the repository contract test')
   requiredText(watchdogPath)
   const source = [
-    'import json, os, sys, tempfile',
+    'import json, sys, tempfile',
     'from pathlib import Path',
     `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
     'import watchdog',
@@ -421,6 +421,95 @@ test('service discovery rejects a nameless expected project container', (t) => {
   assert.match(evidence.error, /name=missing/i)
 })
 
+test('startup diagnostics capture only bounded redacted gateway and monitor logs', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(runnerPath)
+  const source = [
+    'import json, os, sys, tempfile',
+    'from pathlib import Path',
+    'from types import SimpleNamespace',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import run_probe',
+    'calls = []',
+    'gateway_id = "a" * 64',
+    'monitor_id = "b" * 64',
+    'postgres_id = "c" * 64',
+    'timeouts = []',
+    'clock = iter((0, 0, 6))',
+    'def fake_run(command, *, timeout, byte_cap):',
+    '    calls.append(command)',
+    '    timeouts.append(timeout)',
+    '    assert byte_cap == 32768',
+    '    container_id = command[-1]',
+    '    if container_id == gateway_id:',
+    '        output = (("€" * 20000) + "\\nprivate-material\\n-----END PRIVATE KEY-----").encode("utf-8")',
+    '    elif container_id == monitor_id:',
+    '        output = "SESSION_SECRET=ProbeSessionSecret123456789012345\\n-----BEGIN PRIVATE KEY-----\\nprivate-material".encode("utf-8")',
+    '    else:',
+    '        raise RuntimeError("unexpected container log request")',
+    '    return SimpleNamespace(returncode=0, stdout=output, truncated=True)',
+    'run_probe._run_bounded_command_output = fake_run',
+    'run_probe.time.monotonic = lambda: next(clock)',
+    'readiness = {"containers": [',
+    '    {"container_id":gateway_id,"name":"probe-gateway","service":"gateway","state":"exited","exit_code":1,"health":"none"},',
+    '    {"container_id":monitor_id,"name":"probe-monitor","service":"monitor","state":"exited","exit_code":1,"health":"none"},',
+    '    {"container_id":postgres_id,"name":"probe-postgres","service":"postgres","state":"running","exit_code":0,"health":"healthy"},',
+    ']}',
+    'with tempfile.TemporaryDirectory(prefix="aegis-h1-capacity-probe-startup-logs-") as root:',
+    '    evidence_dir = Path(root)',
+    '    path = run_probe._capture_service_startup_diagnostics(evidence_dir, readiness)',
+    '    evidence = json.loads(path.read_text(encoding="utf-8"))',
+    'print(json.dumps({"calls":calls,"timeouts":timeouts,"evidence":evidence}))',
+  ].join('\n')
+  const result = runProbePython(python, source, {
+    AEGIS_CAPACITY_PROBE_DOCKER_MODE: 'sudo-noninteractive',
+    PROBE_POSTGRES_PASSWORD: 'ProbePassword1234567890',
+    PROBE_SESSION_SECRET: 'ProbeSessionSecret123456789012345',
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  const observed = JSON.parse(result.stdout)
+  assert.equal(observed.calls.length, 2)
+  assert.deepEqual(observed.timeouts, [10, 4])
+  assert.ok(observed.calls.every((command) => command.slice(-4, -1).join(' ') === 'logs --tail 200'))
+  assert.ok(observed.calls.every((command) => !command.includes('c'.repeat(64))))
+  assert.deepEqual(Object.keys(observed.evidence.services).sort(), ['gateway', 'monitor'])
+  assert.equal(observed.evidence.per_service_byte_cap, 32768)
+  assert.equal(observed.evidence.services.gateway.truncated, true)
+  assert.ok(Buffer.byteLength(observed.evidence.services.gateway.log, 'utf8') <= 32768)
+  assert.ok(Buffer.byteLength(observed.evidence.services.monitor.log, 'utf8') <= 32768)
+  assert.doesNotMatch(JSON.stringify(observed.evidence), /ProbePassword1234567890|ProbeSessionSecret123456789012345|private-material/)
+  assert.match(observed.evidence.services.gateway.log, /\[REDACTED PRIVATE KEY\]/)
+  assert.match(observed.evidence.services.monitor.log, /\[REDACTED PRIVATE KEY\]/)
+  assert.doesNotMatch(JSON.stringify(observed.evidence), /postgres-id|environment/i)
+})
+
+test('startup diagnostic stream collector never retains more than its byte cap', (t) => {
+  const python = pythonCommand()
+  if (!python) return t.skip('Python is unavailable for the repository contract test')
+  requiredText(runnerPath)
+  const source = [
+    'import json, sys',
+    `sys.path.insert(0, ${JSON.stringify(probeRoot)})`,
+    'import run_probe',
+    'chunks = [b"x" * 65536, ("€" * 20000).encode("utf-8")]',
+    'tail, truncated = run_probe._bounded_bytes_tail(chunks, 32768)',
+    'text, text_truncated = run_probe._bounded_log_tail(tail.decode("utf-8", errors="replace"))',
+    'print(json.dumps({"tail_bytes":len(tail),"text_bytes":len(text.encode("utf-8")),"truncated":truncated,"text_truncated":text_truncated}))',
+  ].join('\n')
+  const result = runProbePython(python, source)
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), {
+    tail_bytes: 32768,
+    text_bytes: 32766,
+    truncated: true,
+    text_truncated: true,
+  })
+  assert.doesNotMatch(requiredText(runnerPath), /subprocess\.run\([\s\S]{0,500}docker_command\([\s\S]{0,200}["']logs["']/)
+})
+
 test('readiness timeout preserves safe service state and exact cleanup without accepting a snapshot', (t) => {
   const python = pythonCommand()
   if (!python) return t.skip('Python is unavailable for the repository contract test')
@@ -446,6 +535,7 @@ test('readiness timeout preserves safe service state and exact cleanup without a
     'run_probe._run = lambda *args, **kwargs: ""',
     'run_probe._run_guarded = lambda *args, **kwargs: None',
     'run_probe._record_introduced_images = lambda before, evidence, **kwargs: evidence / "introduced-images.json"',
+    'run_probe._capture_service_startup_diagnostics = lambda evidence, readiness: events.append("diagnostic")',
     'def exact_cleanup(**kwargs):',
     '    events.append("cleanup")',
     '    assert kwargs["execute"] is True',
@@ -475,7 +565,7 @@ test('readiness timeout preserves safe service state and exact cleanup without a
   assert.equal(result.status, 0, result.stderr)
   const evidence = JSON.parse(result.stdout)
   assert.equal(evidence.complete, false)
-  assert.deepEqual(evidence.events, ['stop', 'cleanup'])
+  assert.deepEqual(evidence.events, ['diagnostic', 'stop', 'cleanup'])
   assert.deepEqual(evidence.readiness.missing_services, ['gateway'])
   assert.equal(evidence.readiness.containers[0].exit_code, 2)
   assert.match(evidence.error, /gateway.*exited.*exit_code=2/i)
@@ -652,8 +742,10 @@ test('H1 runbook records the exact sudo-only human flow without broad privilege 
   assert.match(spec, /AEGIS_CAPACITY_PROBE_CLEANUP_AUTHORIZED=YES python3 .*cleanup_probe\.py --execute/)
   assert.match(spec, /sudo -n env -u DOCKER_HOST docker/)
   assert.doesNotMatch(combined, /sudo -E python3|--preserve-env|usermod|gpasswd|chmod\s+.*docker\.sock/)
-  assert.match(combined, /ACTIVE_CAPACITY_PROBE=ATTEMPT_3_FAILED_CLEANED/)
-  assert.match(combined, /ATTEMPT_3_HEALTH_INSPECTION=BLOCKED_OPTIONAL_STATE_LOOKUP/)
+  assert.match(combined, /ACTIVE_CAPACITY_PROBE=ATTEMPT_4_FAILED_CLEANED/)
+  assert.match(combined, /ATTEMPT_4_SERVICE_EXIT=GATEWAY_MONITOR_EXIT_1/)
+  assert.match(combined, /STARTUP_EXIT_ROOT_CAUSE=NOT_PROVEN/)
+  assert.match(combined, /STARTUP_LOG_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY/)
   assert.match(combined, /OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY/)
   assert.match(combined, /SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY/)
   assert.match(combined, /ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED/)

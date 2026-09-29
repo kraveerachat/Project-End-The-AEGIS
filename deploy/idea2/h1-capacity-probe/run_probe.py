@@ -14,10 +14,12 @@ import json
 import os
 from pathlib import Path
 import re
+import selectors
+import signal
 import subprocess
 import sys
 import time
-from typing import Any
+from typing import Any, NamedTuple
 
 import cleanup_probe
 import docker_exec
@@ -31,6 +33,11 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 DIGEST_REFERENCE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 SOURCE_SHA = re.compile(r"^[0-9a-f]{40}$")
 PROBE_TAG = re.compile(r"^aegis-h1-capacity-probe-(?:monitor|gateway):[a-z0-9][a-z0-9._-]*$")
+STARTUP_LOG_SERVICES = ("gateway", "monitor")
+STARTUP_LOG_TAIL_LINES = 200
+STARTUP_LOG_BYTE_CAP = 32 * 1024
+STARTUP_LOG_CAPTURE_TIMEOUT_SECONDS = 10
+STARTUP_LOG_READ_CHUNK_BYTES = 4 * 1024
 
 POSITIVE_INTEGER_INPUTS = (
     "POSTGRES_GROWTH_BUDGET_BYTES",
@@ -51,6 +58,12 @@ POSITIVE_INTEGER_INPUTS = (
 
 class ValidationError(RuntimeError):
     pass
+
+
+class _BoundedCommandResult(NamedTuple):
+    returncode: int
+    stdout: bytes
+    truncated: bool
 
 
 def _positive_integer(name: str, errors: list[str]) -> int | None:
@@ -209,6 +222,209 @@ def _run(command: list[str], *, timeout: int = 120, output_file: Path | None = N
     if result.returncode != 0:
         raise RuntimeError(f"command failed: {command[0]} (see redacted probe log)")
     return ""
+
+
+def _redact_startup_log(value: str) -> str:
+    redacted = value
+    for name in ("PROBE_POSTGRES_PASSWORD", "PROBE_SESSION_SECRET"):
+        secret = os.environ.get(name, "")
+        if secret:
+            redacted = redacted.replace(secret, "[REDACTED]")
+    redacted = re.sub(
+        r"(?i)(postgres(?:ql)?://[^:\s/@]+:)[^@\s/]+(@)",
+        r"\1[REDACTED]\2",
+        redacted,
+    )
+    private_key_begin = r"-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----"
+    private_key_end = r"-----END(?: [A-Z0-9]+)* PRIVATE KEY-----"
+    redacted = re.sub(
+        private_key_begin + r".*?" + private_key_end,
+        "[REDACTED PRIVATE KEY]",
+        redacted,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    redacted = re.sub(
+        private_key_begin + r".*\Z",
+        "[REDACTED PRIVATE KEY]",
+        redacted,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    redacted = re.sub(
+        r"\A.*?" + private_key_end,
+        "[REDACTED PRIVATE KEY]",
+        redacted,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    return re.sub(
+        r"(?im)\b(password|passwd|session_secret|secret|token|api_key)\b\s*[:=]\s*\S+",
+        r"\1=[REDACTED]",
+        redacted,
+    )
+
+
+def _bounded_log_tail(value: str) -> tuple[str, bool]:
+    encoded = value.encode("utf-8")
+    if len(encoded) <= STARTUP_LOG_BYTE_CAP:
+        return value, False
+    return encoded[-STARTUP_LOG_BYTE_CAP:].decode("utf-8", errors="ignore"), True
+
+
+def _bounded_bytes_tail(chunks: Any, byte_cap: int) -> tuple[bytes, bool]:
+    tail = bytearray()
+    truncated = False
+    for chunk in chunks:
+        if not isinstance(chunk, (bytes, bytearray)):
+            raise TypeError("bounded output chunks must be bytes")
+        tail.extend(chunk)
+        if len(tail) > byte_cap:
+            del tail[:-byte_cap]
+            truncated = True
+    return bytes(tail), truncated
+
+
+def _terminate_bounded_process(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        process.kill()
+
+
+def _run_bounded_command_output(
+    command: list[str],
+    *,
+    timeout: float,
+    byte_cap: int,
+) -> _BoundedCommandResult:
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=docker_exec.subprocess_environment(),
+        start_new_session=os.name == "posix",
+    )
+    if process.stdout is None:
+        _terminate_bounded_process(process)
+        raise RuntimeError("bounded command output pipe unavailable")
+
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+    deadline = time.monotonic() + timeout
+    tail = b""
+    truncated = False
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout)
+            events = selector.select(timeout=min(0.25, remaining))
+            if not events:
+                continue
+            chunk = os.read(process.stdout.fileno(), STARTUP_LOG_READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            tail, chunk_truncated = _bounded_bytes_tail((tail, chunk), byte_cap)
+            truncated = truncated or chunk_truncated
+        returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+        return _BoundedCommandResult(returncode, tail, truncated)
+    except BaseException:
+        _terminate_bounded_process(process)
+        raise
+    finally:
+        selector.close()
+        process.stdout.close()
+
+
+def _capture_service_startup_diagnostics(
+    evidence_dir: Path,
+    readiness_evidence: dict[str, Any],
+) -> Path:
+    containers = readiness_evidence.get("containers")
+    if not isinstance(containers, list):
+        containers = []
+    evidence: dict[str, Any] = {
+        "tail_lines": STARTUP_LOG_TAIL_LINES,
+        "per_service_byte_cap": STARTUP_LOG_BYTE_CAP,
+        "total_timeout_seconds": STARTUP_LOG_CAPTURE_TIMEOUT_SECONDS,
+        "services": {},
+    }
+    deadline = time.monotonic() + STARTUP_LOG_CAPTURE_TIMEOUT_SECONDS
+    for service in STARTUP_LOG_SERVICES:
+        matches = [
+            container
+            for container in containers
+            if isinstance(container, dict) and container.get("service") == service
+        ]
+        if len(matches) != 1:
+            evidence["services"][service] = {
+                "status": "unavailable",
+                "reason": "container-identity-not-unique",
+                "log": "",
+                "truncated": False,
+            }
+            continue
+        container = matches[0]
+        container_id = str(container.get("container_id") or "")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            evidence["services"][service] = {
+                "container_id": container_id,
+                "name": str(container.get("name") or ""),
+                "status": "unavailable",
+                "reason": "diagnostic-deadline-exhausted",
+                "log": "",
+                "truncated": False,
+            }
+            continue
+        try:
+            result = _run_bounded_command_output(
+                docker_exec.docker_command(
+                    "logs",
+                    "--tail",
+                    str(STARTUP_LOG_TAIL_LINES),
+                    container_id,
+                ),
+                timeout=remaining,
+                byte_cap=STARTUP_LOG_BYTE_CAP,
+            )
+            bounded_output, raw_truncated = _bounded_bytes_tail(
+                (bytes(result.stdout or b""),),
+                STARTUP_LOG_BYTE_CAP,
+            )
+            output = bounded_output.decode("utf-8", errors="ignore")
+            safe_output, redaction_truncated = _bounded_log_tail(
+                _redact_startup_log(output)
+            )
+            evidence["services"][service] = {
+                "container_id": container_id,
+                "name": str(container.get("name") or ""),
+                "status": "captured" if result.returncode == 0 else "unavailable",
+                "reason": None if result.returncode == 0 else "docker-logs-failed",
+                "log": safe_output,
+                "truncated": (
+                    bool(result.truncated) or raw_truncated or redaction_truncated
+                ),
+            }
+        except subprocess.TimeoutExpired:
+            evidence["services"][service] = {
+                "container_id": container_id,
+                "name": str(container.get("name") or ""),
+                "status": "unavailable",
+                "reason": "docker-logs-timeout",
+                "log": "",
+                "truncated": False,
+            }
+    path = evidence_dir / "service-startup-logs.json"
+    path.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding="utf-8")
+    return path
 
 
 def _run_guarded(
@@ -611,8 +827,21 @@ def _run_probe_authorized(configuration: dict[str, Any], evidence_dir: Path) -> 
             time.sleep(2)
         if initial_volume is None or ready_snapshot is None:
             if last_readiness_error is not None:
+                diagnostic_error: str | None = None
+                try:
+                    _capture_service_startup_diagnostics(
+                        evidence_dir,
+                        last_readiness_error.evidence,
+                    )
+                except Exception as exc:
+                    diagnostic_error = type(exc).__name__
                 with log_path.open("a", encoding="utf-8") as stream:
                     stream.write(f"probe readiness timeout: {last_readiness_error}\n")
+                    if diagnostic_error is not None:
+                        stream.write(
+                            "probe startup diagnostic unavailable: "
+                            f"{diagnostic_error}\n"
+                        )
             watchdog.stop_probe()
             if last_readiness_error is not None:
                 raise last_readiness_error

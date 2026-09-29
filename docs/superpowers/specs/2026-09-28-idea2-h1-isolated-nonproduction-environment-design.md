@@ -28,8 +28,10 @@ N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION
 H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
-ACTIVE_CAPACITY_PROBE=ATTEMPT_3_FAILED_CLEANED
-ATTEMPT_3_HEALTH_INSPECTION=BLOCKED_OPTIONAL_STATE_LOOKUP
+ACTIVE_CAPACITY_PROBE=ATTEMPT_4_FAILED_CLEANED
+ATTEMPT_4_SERVICE_EXIT=GATEWAY_MONITOR_EXIT_1
+STARTUP_EXIT_ROOT_CAUSE=NOT_PROVEN
+STARTUP_LOG_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
 OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY
 SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
 ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
@@ -766,6 +768,38 @@ Explicit `healthy` is accepted for any expected running service, while
 duplicate, unexpected, unlabelled, or nameless project containers continue to
 fail closed. The evidence fields remain limited to ID, name, Compose service
 label, state, exit code, and health/no-healthcheck state.
+
+The Human-authorized fourth active attempt passed the sudo-only preflight and
+validate-only gates. PostgreSQL reached `running`, exit code `0`, and
+`health=healthy`, while gateway and Monitor each reached `exited`, exit code
+`1`, and `health=none`. The runner retained those final states, then exact
+cleanup removed every probe container, network, volume, builder, and introduced
+candidate image while the seven-container Production identity remained
+unchanged. The retained `probe.log` did not contain the application startup
+stderr/stdout, so exit code `1` cannot identify either service's crash reason
+and no common source/configuration defect is proven:
+
+```text
+ACTIVE_CAPACITY_PROBE=ATTEMPT_4_FAILED_CLEANED
+ATTEMPT_4_CAPACITY_MEASUREMENTS=NOT_PRODUCED
+ATTEMPT_4_SERVICE_EXIT=GATEWAY_MONITOR_EXIT_1
+STARTUP_EXIT_ROOT_CAUSE=NOT_PROVEN
+STARTUP_LOG_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
+N0_CAPACITY=NOT_PROVEN
+N1_STARTED=NO
+```
+
+The source-only diagnostic remediation captures only the exact gateway and
+Monitor container logs after the unchanged 120-second readiness timeout and
+before exact stop/cleanup. It requests at most the final 200 Docker log lines,
+retains at most 32 KiB per service, removes configured disposable secrets,
+database URL credentials, secret-like assignments, and private-key PEM blocks,
+and writes `service-startup-logs.json` beside the existing readiness evidence.
+It never inspects the PostgreSQL log, container environment, mounts, or TLS key
+file. Missing, duplicate, or unavailable log identity is represented as an
+explicit unavailable diagnostic and does not suppress the original fail-closed
+readiness error or exact cleanup. A future Attempt 5 remains separately
+Human-authorized and is the first run that can provide the missing crash cause.
 
 The remediated measurement resolves the exact PostgreSQL container from the
 probe project labels and invokes non-interactive `docker exec <container> du

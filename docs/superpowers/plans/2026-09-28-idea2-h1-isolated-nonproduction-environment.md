@@ -123,8 +123,10 @@ MONITOR_FINAL_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
 H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY
 CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
-ACTIVE_CAPACITY_PROBE=ATTEMPT_3_FAILED_CLEANED
-ATTEMPT_3_HEALTH_INSPECTION=BLOCKED_OPTIONAL_STATE_LOOKUP
+ACTIVE_CAPACITY_PROBE=ATTEMPT_4_FAILED_CLEANED
+ATTEMPT_4_SERVICE_EXIT=GATEWAY_MONITOR_EXIT_1
+STARTUP_EXIT_ROOT_CAUSE=NOT_PROVEN
+STARTUP_LOG_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
 OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY
 SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY
 ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
@@ -144,6 +146,17 @@ completed and Production identity stayed unchanged. The current remediation
 keeps the timeout and all-state discovery while guarding the optional health
 map and persisting only safe state/exit/health evidence. Another active attempt
 remains a separate Human action after reviewing this source checkpoint.
+
+Attempt 4 proved that optional-health inspection works: PostgreSQL was running
+and healthy, while gateway and Monitor were each retained as exited with code
+`1`. Exact cleanup completed and Production identity stayed unchanged, but the
+retained evidence omitted application startup stderr/stdout. Source inspection
+does not prove a common crash cause across the distinct nginx and Node
+entrypoints, so no startup fix is invented. The bounded source-only remediation
+captures redacted gateway/Monitor startup tails before stop/cleanup, with a
+32-KiB per-service cap and no environment, PostgreSQL-log, or TLS-key-material
+collection. Attempt 5 remains a separate Human action after checkpoint review,
+restaging, preflight, and validate-only.
 
 ---
 
