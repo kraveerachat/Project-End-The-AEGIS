@@ -62,7 +62,27 @@ def init_db():
         )
     """)
     conn.commit()
+    _ensure_restore_one_shot_index(conn)
     conn.close()
+
+
+def _ensure_restore_one_shot_index(conn) -> None:
+    """At most one RESTORE_REQUESTED audit row per non-null incident (the durable one-shot, enforced by SQLite).
+
+    Historical rows are never rewritten. Rows with a NULL incident_id (the original D4 behaviour) are outside the
+    index, so they neither collide nor consume an incident. If old data already violates the invariant the index
+    cannot be built; startup must not fail and history is kept, and the read-side guard
+    (``restore_attempt_exists``) still refuses a second attempt for that incident.
+    """
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_audit_restore_requested_incident "
+            "ON audit_logs (incident_id) WHERE event_type = 'RESTORE_REQUESTED' AND incident_id IS NOT NULL"
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        print("DB warning: duplicate RESTORE_REQUESTED history; one-shot index not created (read guard still applies)")
 
 import hashlib
 
