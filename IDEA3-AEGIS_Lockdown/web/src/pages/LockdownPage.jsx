@@ -3,7 +3,8 @@ import { Ban, RadioTower, ShieldAlert, TerminalSquare } from 'lucide-react'
 import { Panel } from '../components/Panel.jsx'
 import { StatusBadge } from '../components/StatusBadge.jsx'
 import { Timeline } from '../components/Timeline.jsx'
-import { formatEvidenceAge } from '../lib/format.js'
+import { responseChain } from '../lib/chain.js'
+import { formatDateTime, formatEvidenceAge } from '../lib/format.js'
 
 const issueGuidance = {
   COMPONENT_FAILED: 'ยังไม่มี sensor ยืนยันสถานะ Relay ทางกายภาพ ระบบจึงแสดง UNKNOWN',
@@ -12,46 +13,121 @@ const issueGuidance = {
   DEVICE_OFFLINE: 'ตรวจสอบ heartbeat และแหล่งจ่ายไฟของอุปกรณ์',
 }
 
+// What each stage claims, and what it explicitly does not.
+const STAGE_COPY = Object.freeze({
+  requested: { title: 'REQUESTED', meaning: 'Admin ขอให้ตัด Uplink', limit: 'คำขอเท่านั้น ยังไม่ใช่การกักกัน' },
+  accepted: { title: 'ACCEPTED', meaning: 'Server ยอมรับ decision และสร้าง dispatch action', limit: 'ยอมรับ ไม่ได้แปลว่าลงมือทำแล้ว' },
+  dispatch: { title: 'DISPATCH', meaning: 'สถานะการส่งต่อให้ Core (รอ / Core claim / ประกาศ)', limit: 'หลักฐาน dispatch ไม่ใช่หลักฐานการกักกัน' },
+  ack: { title: 'ACK / STATUS', meaning: 'อุปกรณ์ตอบรับ หรือ STATUS ที่ Core จับคู่ได้', limit: 'ACK ไม่ใช่หลักฐานว่า Relay เปลี่ยนสถานะ' },
+  execution: { title: 'EXECUTION PROOF', meaning: 'หลักฐานว่าคำสั่งถูกดำเนินการจริง', limit: 'ยังไม่มีเส้นทางหลักฐานนี้ใน milestone นี้' },
+  physical: { title: 'PHYSICAL VERIFICATION', meaning: 'Sensor ยืนยันสถานะ Relay / Uplink ทางกายภาพ', limit: 'ไม่มี sensor = UNKNOWN เสมอ' },
+})
+
+const KEY_LABELS = Object.freeze({
+  OBSERVED: 'พบหลักฐาน',
+  NOT_OBSERVED: 'ยังไม่พบ',
+  PENDING_DISPATCH: 'รอ dispatch',
+  DISPATCH_PENDING: 'รอ dispatch',
+  DISPATCH_UNAVAILABLE: 'dispatch ไม่พร้อม',
+  CORE_CLAIMED: 'Core claim แล้ว',
+  PUBLISHED: 'ประกาศแล้ว',
+  DRY_RUN_ONLY: 'Dry-run เท่านั้น',
+  OUTCOME_UNKNOWN: 'ไม่ทราบผล',
+  FAILED: 'ล้มเหลว',
+  EXPIRED: 'หมดอายุ',
+  EXPIRED_AT_CORE: 'หมดอายุที่ Core',
+  NOT_VERIFIED: 'ยังไม่ได้ยืนยัน',
+})
+
+function ResponseChain({ incident }) {
+  return (
+    <section className="response-chain" aria-label="ลำดับหลักฐานการตอบสนอง">
+      <header className="section-heading">
+        <div>
+          <h2>ลำดับหลักฐานการตอบสนอง</h2>
+          <p>หกขั้นนี้เป็นคนละข้อเท็จจริง ขั้นหนึ่งไม่อนุมานขั้นถัดไป{incident ? <> · Incident <span className="mono">{incident.id}</span></> : null}</p>
+        </div>
+      </header>
+      {incident ? (
+        <ol className="response-chain__list">
+          {responseChain(incident).map((stage, index) => {
+            const copy = STAGE_COPY[stage.id]
+            return (
+              <li key={stage.id} className={`response-chain__stage response-chain__stage--${stage.observed ? 'observed' : 'open'}`}>
+                <span className="response-chain__index" aria-hidden="true">{index + 1}</span>
+                <strong>{copy.title}</strong>
+                <StatusBadge status={stage.status} compact label={KEY_LABELS[stage.key] ?? stage.key} />
+                <p>{copy.meaning}</p>
+                <small>{copy.limit}</small>
+                {stage.timestamp && <time className="mono" dateTime={new Date(stage.timestamp).toISOString()}>{formatDateTime(stage.timestamp)}</time>}
+              </li>
+            )
+          })}
+        </ol>
+      ) : (
+        <div className="empty-state"><span className="aegis-hatch" aria-hidden="true" /><p>ไม่มี incident ให้ติดตามลำดับหลักฐาน</p></div>
+      )}
+    </section>
+  )
+}
+
+function EmptyNote({ children }) {
+  return <div className="empty-state"><span className="aegis-hatch" aria-hidden="true" /><p>{children}</p></div>
+}
+
 export function LockdownPage({ snapshot }) {
-  const runtime = snapshot.runtime
+  const runtime = snapshot.runtime ?? {}
+  const modeFlags = runtime.modes ?? {}
+  const components = runtime.components ?? []
+  const timeline = runtime.timeline ?? []
+  const readiness = runtime.readiness ?? []
+  const issues = runtime.issues ?? []
   const stale = runtime.freshness === 'STALE'
   const modes = [
-    ['MONITOR ONLY', runtime.modes.monitorOnly], ['DRY RUN', runtime.modes.dryRun],
-    ['ARMED', runtime.modes.armed], ['AUTO CONTAIN', runtime.modes.autoContain],
-    ['RECOVERY AUTH', runtime.modes.recoveryAuthorized],
+    ['MONITOR ONLY', modeFlags.monitorOnly], ['DRY RUN', modeFlags.dryRun],
+    ['ARMED', modeFlags.armed], ['AUTO CONTAIN', modeFlags.autoContain],
+    ['RECOVERY AUTH', modeFlags.recoveryAuthorized],
   ]
 
   return (
     <div className="page-stack">
       <section className="runtime-hero">
         <div><p className="kicker">CYBER-PHYSICAL EVIDENCE CHAIN</p><h2>หลักฐานก่อนคำสั่งเสมอ</h2><p>สถานะรวม <StatusBadge status={runtime.status} compact /> · {formatEvidenceAge(runtime.evidenceAgeMs)}</p></div>
-        <div className="mode-strip">{modes.map(([label, enabled]) => <span key={label} className={enabled ? 'mode-chip mode-chip--on' : 'mode-chip'}><i />{label}</span>)}</div>
+        <div className="mode-strip" role="list" aria-label="โหมด runtime ที่ร้องขอ">{modes.map(([label, enabled]) => <span role="listitem" key={label} className={enabled === true ? 'mode-chip mode-chip--on' : 'mode-chip'}><i aria-hidden="true" />{label}<span className="sr-only">{enabled === true ? ': เปิด' : enabled === false ? ': ปิด' : ': ไม่ทราบ'}</span></span>)}</div>
       </section>
 
-      {stale && <div className="stale-callout" role="status"><ShieldAlert size={18} /><div><strong>หลักฐานล่าสุดเก่าเกินกำหนด</strong><p>ทุก component ถูกลดสถานะเป็น UNKNOWN จนกว่าจะได้รับหลักฐานใหม่ที่ตรวจสอบได้</p></div></div>}
+      {stale && <div className="stale-callout" role="status"><ShieldAlert size={18} aria-hidden="true" /><div><strong>หลักฐานล่าสุดเก่าเกินกำหนด</strong><p>ทุก component ถูกลดสถานะเป็น UNKNOWN จนกว่าจะได้รับหลักฐานใหม่ที่ตรวจสอบได้</p></div></div>}
 
-      <section className="component-grid" aria-label="องค์ประกอบ runtime">
-        {runtime.components.map((component) => <article className="component-card" key={component.id}><span className="component-card__icon"><RadioTower size={17} /></span><div><p>{component.name}</p><small className="mono">{component.id}</small></div><StatusBadge status={component.status} compact /></article>)}
+      <ResponseChain incident={snapshot.incidents?.[0]} />
+
+      <section aria-label="องค์ประกอบ runtime">
+        {components.length ? (
+          <div className="component-grid">
+            {components.map((component) => <article className="component-card" key={component.id}><span className="component-card__icon"><RadioTower size={17} aria-hidden="true" /></span><div><p>{component.name}</p><small className="mono">{component.id}</small></div><StatusBadge status={component.status} compact /></article>)}
+          </div>
+        ) : <EmptyNote>runtime ไม่ได้รายงาน component ใด — สถานะแต่ละส่วนจึงเป็น UNKNOWN</EmptyNote>}
       </section>
 
       <section className="lockdown-grid">
         <Panel title="ลำดับหลักฐาน Runtime" description="เหตุการณ์จากแหล่ง safe runtime status">
-          <Timeline items={runtime.timeline} />
+          {timeline.length ? <Timeline items={timeline} /> : <EmptyNote>ยังไม่มีเหตุการณ์จาก runtime — ไม่ได้แปลว่าไม่มีเหตุการณ์เกิดขึ้น</EmptyNote>}
         </Panel>
         <Panel title="ความพร้อมด้านการตอบสนอง" description="แต่ละเงื่อนไขมีสถานะของตัวเอง">
-          <div className="readiness-ledger">{runtime.readiness.map((item) => <div key={item.label}><span>{item.label}</span><StatusBadge status={item.status} compact /></div>)}</div>
+          {readiness.length ? <div className="readiness-ledger">{readiness.map((item) => <div key={item.label}><span>{item.label}</span><StatusBadge status={item.status} compact /></div>)}</div> : <EmptyNote>runtime ไม่ได้รายงานความพร้อมของเงื่อนไขใด</EmptyNote>}
         </Panel>
       </section>
 
       <section className="lockdown-grid">
         <Panel title="ประเด็นจากหลักฐาน" description="ไม่มี raw runtime text ในหน้าจอ">
-          <div className="issue-list">{runtime.issues.map((issue) => <article key={`${issue.code}-${issue.component}`}><StatusBadge status="DEGRADED" compact /><div><strong>{issue.code}</strong><p>{issueGuidance[issue.code] || 'ตรวจสอบแหล่งหลักฐานจากระบบที่รับผิดชอบ'}</p></div><span className="mono">×{issue.count}</span></article>)}</div>
+          {issues.length
+            ? <div className="issue-list">{issues.map((issue) => <article key={`${issue.code}-${issue.component}`}><StatusBadge status={issue.severity === 'CRITICAL' ? 'FAILED' : 'DEGRADED'} compact /><div><strong>{issue.code}</strong><p>{issueGuidance[issue.code] || 'ตรวจสอบแหล่งหลักฐานจากระบบที่รับผิดชอบ'}</p></div><span className="mono">×{issue.count ?? 1}</span></article>)}</div>
+            : <EmptyNote>runtime ไม่ได้รายงานประเด็น — ไม่ได้แปลว่าไม่มีปัญหา</EmptyNote>}
         </Panel>
         <Panel title="Command boundary" description="ออกแบบให้ไม่มีเส้นทางควบคุมจริงใน milestone นี้">
           <div className="command-boundary">
-            <span className="command-boundary__icon"><Ban /></span>
+            <span className="command-boundary__icon"><Ban aria-hidden="true" /></span>
             <div><strong>Live hardware control ถูกปิด</strong><p>ไม่มี command endpoint ใน milestone นี้ เบราว์เซอร์จึงไม่สามารถส่ง MQTT, GPIO หรือเปลี่ยน Relay ได้</p></div>
-            <button className="button button--danger" disabled aria-describedby="command-disabled-reason"><TerminalSquare size={16} />ตัดการเชื่อมต่อเครือข่าย</button>
+            <button className="button button--danger" disabled aria-describedby="command-disabled-reason"><TerminalSquare size={16} aria-hidden="true" />ตัดการเชื่อมต่อเครือข่าย</button>
             <small id="command-disabled-reason">ต้องผ่าน security review, device ACK และ physical verification ก่อน</small>
           </div>
         </Panel>

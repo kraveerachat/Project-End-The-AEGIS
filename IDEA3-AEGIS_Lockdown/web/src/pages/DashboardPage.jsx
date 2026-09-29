@@ -11,7 +11,8 @@ import {
   activeRuntimeModes, dashboardIssues, engineState, engineStatus, evidenceStatus,
   isAcknowledgedIncident, recommendedActions, runtimeComponent,
 } from '../lib/dashboard.js'
-import { formatCount, formatDateTime, formatEvidenceAge } from '../lib/format.js'
+import { countsTrusted, domainView, evidenceAgeAt, evidenceCount, zeroAwareStatus } from '../lib/evidence.js'
+import { formatDateTime, formatEvidenceAge } from '../lib/format.js'
 import { makeT, normalizeLanguage, statusLabel } from '../lib/i18n.js'
 
 const statusValues = new Set([
@@ -81,6 +82,10 @@ function RouteLink({ route, onNavigate, children, ariaLabel, className = 'dashbo
   )
 }
 
+function formatNumber(value, language) {
+  return evidenceCount(value, true, language)
+}
+
 function localizedValue(value, language, t) {
   const normalizedValue = String(value || 'UNKNOWN').replaceAll(' ', '_')
   if (statusValues.has(normalizedValue)) return statusLabel(normalizedValue, language)
@@ -94,14 +99,12 @@ function badgeCopy(status, language, t) {
 }
 
 function ageAtSnapshot(timestamp, snapshotTimestamp, language, t) {
-  const evidenceTime = Date.parse(timestamp)
-  const snapshotTime = Date.parse(snapshotTimestamp)
-  if (!Number.isFinite(evidenceTime) || !Number.isFinite(snapshotTime)) return t('time.missing')
-  return formatEvidenceAge(Math.max(0, snapshotTime - evidenceTime), language)
+  if (!Number.isFinite(Date.parse(timestamp)) || !Number.isFinite(Date.parse(snapshotTimestamp))) return t('time.missing')
+  return evidenceAgeAt(timestamp, snapshotTimestamp, language)
 }
 
 function SourceHealthTable({ snapshot, language, t }) {
-  const rows = snapshot.sources.map((source) => ({
+  const rows = (snapshot.sources ?? []).map((source) => ({
     ...source,
     displayStatus: evidenceStatus(source),
     age: ageAtSnapshot(source.generatedAt, snapshot.generatedAt, language, t),
@@ -197,7 +200,7 @@ function localizedIssue(issue, language, t) {
   const variables = {
     ...issue.variables,
     component,
-    count: formatCount(issue.variables?.count, language),
+    count: formatNumber(issue.variables?.count, language),
   }
   return {
     ...issue,
@@ -209,7 +212,24 @@ function localizedIssue(issue, language, t) {
 
 function localizedAction(action, language, t) {
   const component = action.componentKey ? t(action.componentKey) : action.component
-  return t(action.actionKey, { ...action.actionVariables, component, count: formatCount(action.variables?.count, language) })
+  return t(action.actionKey, { ...action.actionVariables, component, count: formatNumber(action.variables?.count, language) })
+}
+
+function SourceAttention({ snapshot, language, t }) {
+  const flagged = (snapshot.sources ?? [])
+    .map((source) => ({ source, status: evidenceStatus(source) }))
+    .filter(({ status }) => status !== 'HEALTHY')
+  if (!flagged.length) return null
+  return (
+    <div className="source-attention" aria-label={t('source.needsAttention')}>
+      <strong>{t('source.needsAttention')}</strong>
+      <ul>
+        {flagged.map(({ source, status }) => (
+          <li key={source.id}><StatusBadge status={status} compact {...badgeCopy(status, language, t)} /><span>{`${source.name} · ${statusLabel(status, language)}`}</span></li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRefresh, language = 'th' }) {
@@ -219,22 +239,33 @@ export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRef
   const rawIssues = dashboardIssues(snapshot, { apiConnected })
   const issues = rawIssues.map((issue) => localizedIssue(issue, activeLanguage, t))
   const nextActions = recommendedActions(rawIssues)
-  const idea1Status = evidenceStatus(snapshot.idea1)
-  const idea2Status = evidenceStatus(snapshot.idea2)
+  const idea1 = domainView(snapshot.idea1)
+  const idea2 = domainView(snapshot.idea2)
   const runtimeStatus = evidenceStatus(snapshot.runtime)
   const runtimeModes = activeRuntimeModes(snapshot.runtime)
   const device = snapshot.devices?.[0]
   const correlation = engineState(snapshot.runtime?.engines?.correlation)
   const incidentEngine = engineState(snapshot.runtime?.engines?.incident)
-  const overallFreshness = snapshot.sources.some((source) => source.freshness === 'STALE') ? 'STALE'
-    : Number.isFinite(snapshot.overall.evidenceAgeMs) ? snapshot.overall.status : 'UNKNOWN'
+  const overall = snapshot.overall ?? {}
+  const overallStatus = overall.status ?? 'UNKNOWN'
+  const overallFreshness = (snapshot.sources ?? []).some((source) => source.freshness === 'STALE') ? 'STALE'
+    : Number.isFinite(overall.evidenceAgeMs) ? overallStatus : 'UNKNOWN'
+  const overallTrusted = countsTrusted(overallFreshness)
   const supervisor = runtimeComponent(snapshot.runtime, 'runtime')
   const mqtt = runtimeComponent(snapshot.runtime, 'broker')
   const heartbeat = runtimeComponent(snapshot.runtime, 'heartbeat')
   const ack = runtimeComponent(snapshot.runtime, 'ack')
   const relay = runtimeComponent(snapshot.runtime, 'relay')
   const physicalRelay = device?.physicalRelayState && device.physicalRelayState !== 'UNKNOWN' ? device.physicalRelayState : 'NOT_VERIFIED'
-  const overallLabel = statusLabel(snapshot.overall.status, activeLanguage)
+  const overallLabel = statusLabel(overallStatus, activeLanguage)
+  const physicalVerified = incident?.dispatch?.boundary?.physical_evidence === true
+  const metricCount = (value) => evidenceCount(value, overallTrusted, activeLanguage)
+  const metricStatus = (value, positive) => zeroAwareStatus(value, overallTrusted, overallFreshness, positive)
+  const metricCopy = (status) => ({ statusLabel: statusLabel(status, activeLanguage), statusAriaLabel: t('status.aria', { status: statusLabel(status, activeLanguage) }) })
+  const countDetail = (value, fallback) => (Number.isFinite(value) && (value > 0 || overallTrusted) ? fallback : t('metric.countUnverified'))
+  const domainCount = (view, value) => evidenceCount(value, view.trusted, activeLanguage)
+  const incidentsStatus = metricStatus(overall.activeIncidents, 'DEGRADED')
+  const alertsStatus = metricStatus(overall.highAlerts, 'FAILED')
 
   return (
     <div className="page-stack dashboard-page">
@@ -246,14 +277,16 @@ export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRef
             <span>{t('dashboard.summary')}</span>
           </div>
           <div className="mission-control__actions">
-            <StatusBadge status={snapshot.overall.status} {...badgeCopy(snapshot.overall.status, activeLanguage, t)} />
-            {onRefresh && <button className="button button--secondary" type="button" onClick={onRefresh}><RefreshCw size={15} />{t('dashboard.refresh')}</button>}
+            <StatusBadge status={overallStatus} {...badgeCopy(overallStatus, activeLanguage, t)} />
+            {onRefresh && <button className="button button--secondary" type="button" onClick={onRefresh}><RefreshCw size={15} aria-hidden="true" />{t('dashboard.refresh')}</button>}
           </div>
         </header>
         <div className="global-status-grid">
           <GlobalFact label={t('global.environment')} value={snapshot.mode} status={snapshot.mode === 'DEMO' ? 'DEGRADED' : 'HEALTHY'} detail={t(snapshot.mode === 'DEMO' ? 'global.environmentDemo' : 'global.environmentLive')} language={activeLanguage} t={t} />
+          <GlobalFact label={t('global.freshness')} value={formatEvidenceAge(overall.evidenceAgeMs, activeLanguage)} status={overallFreshness} language={activeLanguage} t={t} />
+          <GlobalFact label={t('global.runtime')} value={statusLabel(runtimeStatus, activeLanguage)} status={runtimeStatus} detail={t('global.runtimeDetail')} language={activeLanguage} t={t} />
+          <GlobalFact label={t('global.containment')} value={incident ? localizedValue(incident.responseState, activeLanguage, t) : t('global.noResponse')} status={physicalVerified ? undefined : 'NOT_VERIFIED'} detail={t('global.containmentDetail')} language={activeLanguage} t={t} />
           <GlobalFact label="API" value={statusLabel(apiConnected ? 'CONNECTED' : 'DISCONNECTED', activeLanguage)} status={apiConnected ? 'HEALTHY' : 'FAILED'} detail={apiConnected ? undefined : t('global.apiDisconnected')} language={activeLanguage} t={t} />
-          <GlobalFact label={t('global.freshness')} value={formatEvidenceAge(snapshot.overall.evidenceAgeMs, activeLanguage)} status={overallFreshness} language={activeLanguage} t={t} />
           <GlobalFact label={t('global.correlation')} value={localizedValue(correlation, activeLanguage, t)} status={engineStatus(correlation)} detail={correlation === 'UNKNOWN' ? t('global.engineUnknown') : undefined} language={activeLanguage} t={t} />
           <GlobalFact label={t('global.incidentEngine')} value={localizedValue(incidentEngine, activeLanguage, t)} status={engineStatus(incidentEngine)} detail={incidentEngine === 'UNKNOWN' ? t('global.engineUnknown') : undefined} language={activeLanguage} t={t} />
           <GlobalFact label={t('global.lastUpdate')} value={formatDateTime(snapshot.generatedAt, activeLanguage)} language={activeLanguage} t={t} />
@@ -261,30 +294,30 @@ export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRef
       </section>
 
       <section className="metric-grid metric-grid--four" aria-label={t('dashboard.summaryAria')}>
-        <MetricCard icon={ShieldAlert} label={t('metric.overall')} value={overallLabel} status={snapshot.overall.status} statusLabel={overallLabel} statusAriaLabel={t('status.aria', { status: overallLabel })} />
-        <MetricCard icon={Activity} label={t('metric.activeIncidents')} value={formatCount(snapshot.overall.activeIncidents, activeLanguage)} suffix={t('count.itemUnit')} status={snapshot.overall.activeIncidents ? 'DEGRADED' : 'HEALTHY'} statusLabel={statusLabel(snapshot.overall.activeIncidents ? 'DEGRADED' : 'HEALTHY', activeLanguage)} statusAriaLabel={t('status.aria', { status: statusLabel(snapshot.overall.activeIncidents ? 'DEGRADED' : 'HEALTHY', activeLanguage) })} detail={incident ? t('metric.latestIncident', { id: incident.id }) : t('metric.noIncident')} />
-        <MetricCard icon={BellRing} label={t('metric.highAlerts')} value={formatCount(snapshot.overall.highAlerts, activeLanguage)} suffix={t('count.itemUnit')} status={snapshot.overall.highAlerts ? 'FAILED' : 'HEALTHY'} statusLabel={statusLabel(snapshot.overall.highAlerts ? 'FAILED' : 'HEALTHY', activeLanguage)} statusAriaLabel={t('status.aria', { status: statusLabel(snapshot.overall.highAlerts ? 'FAILED' : 'HEALTHY', activeLanguage) })} detail={t('metric.highAlertsDetail')} />
-        <MetricCard icon={Database} label={t('metric.dailyEvidence')} value={formatCount(snapshot.overall.eventCount, activeLanguage)} status={overallFreshness} statusLabel={statusLabel(overallFreshness, activeLanguage)} statusAriaLabel={t('status.aria', { status: statusLabel(overallFreshness, activeLanguage) })} detail={formatEvidenceAge(snapshot.overall.evidenceAgeMs, activeLanguage)} />
+        <MetricCard icon={ShieldAlert} label={t('metric.overall')} value={overallLabel} status={overallStatus} statusLabel={overallLabel} statusAriaLabel={t('status.aria', { status: overallLabel })} />
+        <MetricCard icon={Activity} label={t('metric.activeIncidents')} value={metricCount(overall.activeIncidents)} suffix={Number.isFinite(overall.activeIncidents) && (overall.activeIncidents > 0 || overallTrusted) ? t('count.itemUnit') : undefined} status={incidentsStatus} {...metricCopy(incidentsStatus)} detail={incident ? t('metric.latestIncident', { id: incident.id }) : countDetail(overall.activeIncidents, t('metric.noIncident'))} />
+        <MetricCard icon={BellRing} label={t('metric.highAlerts')} value={metricCount(overall.highAlerts)} suffix={Number.isFinite(overall.highAlerts) && (overall.highAlerts > 0 || overallTrusted) ? t('count.itemUnit') : undefined} status={alertsStatus} {...metricCopy(alertsStatus)} detail={countDetail(overall.highAlerts, t('metric.highAlertsDetail'))} />
+        <MetricCard icon={Database} label={t('metric.dailyEvidence')} value={metricCount(overall.eventCount)} status={overallFreshness} {...metricCopy(overallFreshness)} detail={formatEvidenceAge(overall.evidenceAgeMs, activeLanguage)} />
       </section>
 
       <section className="idea-status-grid" aria-label={t('idea.statusAria')}>
-        <IdeaCard testId="idea1-status-card" icon={ShieldCheck} title={t('idea1.title')} mode={t('idea1.mode')} status={idea1Status} route="idea1" onNavigate={onNavigate} language={activeLanguage} t={t}>
+        <IdeaCard testId="idea1-status-card" icon={ShieldCheck} title={t('idea1.title')} mode={t('idea1.mode')} status={idea1.status} route="idea1" onNavigate={onNavigate} language={activeLanguage} t={t}>
           <MiniFacts items={[
-            [t('idea1.denied'), formatCount(snapshot.idea1.summary.denied, activeLanguage)],
-            [t('idea1.blocked'), formatCount(snapshot.idea1.summary.blocked, activeLanguage)],
-            [t('idea1.repeatedIp'), formatCount(snapshot.idea1.summary.repeated, activeLanguage)],
-            [t('idea1.latest'), formatDateTime(snapshot.idea1.generatedAt, activeLanguage)],
-            [t('idea1.freshness'), ageAtSnapshot(snapshot.idea1.generatedAt, snapshot.generatedAt, activeLanguage, t)],
+            [t('idea1.denied'), domainCount(idea1, idea1.summary.denied)],
+            [t('idea1.blocked'), domainCount(idea1, idea1.summary.blocked)],
+            [t('idea1.repeatedIp'), domainCount(idea1, idea1.summary.repeated)],
+            [t('idea1.latest'), formatDateTime(idea1.generatedAt, activeLanguage)],
+            [t('idea1.freshness'), ageAtSnapshot(idea1.generatedAt, snapshot.generatedAt, activeLanguage, t)],
           ]} />
         </IdeaCard>
 
-        <IdeaCard testId="idea2-status-card" icon={Radar} title={t('idea2.title')} mode={t('idea2.mode')} status={idea2Status} route="idea2" onNavigate={onNavigate} language={activeLanguage} t={t}>
+        <IdeaCard testId="idea2-status-card" icon={Radar} title={t('idea2.title')} mode={t('idea2.mode')} status={idea2.status} route="idea2" onNavigate={onNavigate} language={activeLanguage} t={t}>
           <MiniFacts items={[
-            [t('idea2.detections'), formatCount(snapshot.idea2.summary.detections, activeLanguage)],
-            [t('idea2.highCritical'), `${formatCount(snapshot.idea2.summary.high, activeLanguage)} / ${formatCount(snapshot.idea2.summary.critical, activeLanguage)}`],
-            [t('idea2.cameras'), formatCount(snapshot.idea2.summary.cameras, activeLanguage)],
-            [t('idea2.latest'), formatDateTime(snapshot.idea2.generatedAt, activeLanguage)],
-            [t('idea2.freshness'), ageAtSnapshot(snapshot.idea2.generatedAt, snapshot.generatedAt, activeLanguage, t)],
+            [t('idea2.detections'), domainCount(idea2, idea2.summary.detections)],
+            [t('idea2.highCritical'), `${domainCount(idea2, idea2.summary.high)} / ${domainCount(idea2, idea2.summary.critical)}`],
+            [t('idea2.cameras'), domainCount(idea2, idea2.summary.cameras)],
+            [t('idea2.latest'), formatDateTime(idea2.generatedAt, activeLanguage)],
+            [t('idea2.freshness'), ageAtSnapshot(idea2.generatedAt, snapshot.generatedAt, activeLanguage, t)],
           ]} />
         </IdeaCard>
 
@@ -298,7 +331,7 @@ export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRef
             [t('idea3.requested'), localizedValue(device?.requestedRelayState, activeLanguage, t)],
             [t('idea3.physicalRelay'), localizedValue(physicalRelay, activeLanguage, t)],
             [t('idea3.hardware'), localizedValue(snapshot.recovery?.liveHardware ? 'AVAILABLE' : 'DISABLED', activeLanguage, t)],
-            [t('idea3.lastUpdate'), formatDateTime(snapshot.runtime.generatedAt, activeLanguage)],
+            [t('idea3.lastUpdate'), formatDateTime(snapshot.runtime?.generatedAt, activeLanguage)],
           ]} />
           {relay.status === 'UNKNOWN' && <p className="not-verified-note">{t('idea3.relayUnknown')}</p>}
         </IdeaCard>
@@ -320,12 +353,13 @@ export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRef
       </section>
 
       <Panel title={t('source.title')} description={t('source.safetyNote')} action={<RouteLink route="settings" onNavigate={onNavigate}>{t('source.reviewAdapters')}</RouteLink>}>
+        <SourceAttention snapshot={snapshot} language={activeLanguage} t={t} />
         <SourceHealthTable snapshot={snapshot} language={activeLanguage} t={t} />
       </Panel>
 
       <section className="dashboard-operations dashboard-operations--evidence">
         <Panel title={t('event.title')} description={t('event.description')} action={<RouteLink route="alerts" onNavigate={onNavigate}>{t('event.openAlerts')}</RouteLink>}>
-          <DataTable columns={eventColumns(activeLanguage, t)} rows={snapshot.events.slice(0, 6)} emptyLabel={t('event.empty')} />
+          <DataTable columns={eventColumns(activeLanguage, t)} rows={(snapshot.events ?? []).slice(0, 6)} emptyLabel={t('event.empty')} />
         </Panel>
         <Panel title={t('action.title')} description={t('action.description')}>
           {nextActions.length ? <ol className="next-action-list">{nextActions.map((action, index) => {
