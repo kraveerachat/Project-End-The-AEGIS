@@ -71,7 +71,7 @@ Gateway ของ VLAN 10/20/30 ทำงานบน [[infrastructure/network/M
 **Architecture Finding:**
 Layer 3 routing และ TCP port 443 เข้าถึง Beelink HUB สำเร็จโดยไม่ต้องพึ่งพา Twingate แต่ local LAN DNS ยังไม่มี record `aegis.internal` ชี้ไปที่ `192.168.10.10` ทำให้ client ทั่วไปที่ไม่มี local `hosts` mapping ไม่สามารถ resolve ได้.
 
-สัญญาทางสถาปัตยกรรมเป้าหมาย (Switch Access Port PVID 30 + DHCP Option 6 + Central DNS) ถูกกำหนดไว้ใน `docs/superpowers/specs/2026-09-29-aegis-vlan30-direct-lan-dns-design.md`.
+สัญญาทางสถาปัตยกรรมเป้าหมาย (Switch Access Port PVID 30 + DHCP Option 6 + Central DNS) ถูกกำหนดไว้ใน `docs/superpowers/specs/2026-09-29-aegis-vlan30-direct-lan-dns-design.md` และแผนการดำเนินการใน `docs/superpowers/plans/2026-09-30-aegis-vlan30-direct-lan-dns-implementation.md`.
 
 > [!important] Trust Boundary
 > `ARBITRARY_UNMANAGED_WINDOWS_ZERO_SETUP=NOT_CLAIMED`: การแก้ DNS ในระดับเน็ตเวิร์กทำให้ resolve ชื่อและ route สำเร็จแบบ zero-touch แต่เครื่อง unmanaged ที่ยังไม่มี Root CA ใน `LocalMachine\Root` ยังคงต้องพบ TLS certificate warning ตามมาตรฐาน PKI ปกติ (ไม่ใช่ความผิดพลาดของระบบเครือข่าย).
