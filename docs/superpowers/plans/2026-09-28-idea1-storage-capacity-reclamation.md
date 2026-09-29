@@ -222,10 +222,18 @@ Human Owner conducted controlled synthetic fixture tests on production:
   ├─ Classified as Category E (No Backend Defect; Full Physical Reclamation)
   └─ APPLICATION_SOURCE_CHANGED=NO, TRASH_BACKEND_FIX_REQUIRED=NO
 
-[ Gate 4: Closeout & Merging ] ── CURRENT
+[ Gate 4: Closeout & Main Reconciliation ] ── PASS / HUMAN FINAL MERGE PENDING
   ├─ Final immutable receipt created: 2026-09-28_225000_kla_idea1-storage-capacity-reclamation.md
   ├─ Canonical status updated: idea1-status.md
   ├─ PR #241 body updated with complete Track A & B evidence
-  ├─ Maintain Draft state until dependency PR #220 merges
-  └─ Retarget base to main once PR #220 is merged
+  ├─ PR #220 dependency SATISFIED / MERGED: ed45c1b5a63087aa3810d156a8c19b1f1e48c838
+  ├─ Normal main reconciliation from PR241 7b4702141148e800882595c00984cd73aac26951; no conflicts
+  ├─ Retarget PR #241 to main after verified normal push; preserve historical stacked lineage
+  └─ Keep Draft; Human Owner performs final Ready transition and merge (NOT YET)
 ```
+
+### 4.1 Post-PR220 reconciliation — 2026-09-29
+
+PR241 implementation remains COMPLETE; carried-forward Human Production acceptance remains PASS. This session only reconciles documentation and PR metadata with current main. The PR-owned delta stays limited to this plan, `idea1-status.md`, and the existing immutable receipt; the receipt is not edited. PR220 accepted status and legitimate main history are preserved; PR243 branch commits are not imported. No application source change, SSH, Production/storage mutation, deployment, rebase, force push, Ready transition, or PR merge. Application build: NOT_APPLICABLE. Governance/vault/diff/added-line secret checks and current-head collaboration guardrails gate the final handoff.
+
+Local reconciliation checks: four docs/core-entry governance suites 52/52 PASS (0 fail/skip/cancelled); vault validation PASS (two existing owner-data Canvas warnings, 0 errors); main-relative whitespace check PASS; added-line credential-pattern scan 0 findings; main-target Draft collaboration policy PASS. Exact commands/results are recorded in canonical status ISCR-S3 and the PR body. Remote current-head guardrails remain a post-push handoff gate.

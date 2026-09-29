@@ -1,0 +1,12 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 POST-L6b/L6c DEGRADED runtime reactivation (V5): allowed NEW listeners.
+# Unlike V4 (dnsmasq and the broker already bound, so this file is empty there), V5 starts from BOTH crashed: when
+# either of a `per_listener_settings` mosquitto instance's TLS listeners cannot bind, the whole process exits, so
+# NEITHER 8883 listener exists pre-mutation. dnsmasq is fully down too (failed/start-limit-hit). Every listener
+# below is therefore a genuinely NEW, approved listener of this run, and each one is verified exactly (not merely
+# "some new listener appeared") by l34_v4_dnsmasq_listeners_gate / l34_v4_broker_listeners_gate in apply.sh and
+# verify.sh. No plaintext 1883 listener appears here (p4-compare.sh refuses one unconditionally, S-12).
+listen.udp.0.0.0.0%<AEGIS_AP_INTERFACE>:67
+listen.tcp.<AEGIS_AP_ADDRESS>:53
+listen.udp.<AEGIS_AP_ADDRESS>:53
+listen.tcp.127.0.0.1:8883
+listen.tcp.<AEGIS_AP_ADDRESS>:8883
