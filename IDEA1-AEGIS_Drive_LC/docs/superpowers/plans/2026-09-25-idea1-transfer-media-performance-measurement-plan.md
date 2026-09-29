@@ -978,6 +978,35 @@ ttfbShareA = 21 / (21 + 26991) = 0.000778 ≈ 0.0008
 - `ttfbShareA < 0.05`: Startup cost (auth, metadata, audit) is excluded as sustained throughput limiter.
 - `R = 0.993 <= 1.15`: `PROVEN_SHARED_PATH_CAPACITY_LIMITER on P1`. Download throughput is bound by shared path capacity, not per-stream application serialization.
 
+### 21.3 Live hardware telemetry and infrastructure reconciliation (PR #259)
+
+Onsite preflight executed by Human Owner (reconciled with infrastructure PR #259 @ `f8ee2f27b8cbcb1fe53c4dc9c10b153dfcacd555`):
+
+- **MikroTik Router:** `board-name=hEX lite`, `model=RB750r2`, `revision=r3`, `RouterOS=7.18.2 stable` (`RB750R2_IDENTITY=PROVEN_LIVE`).
+- **Router ether2 Trunk:** `rate=100Mbps`, `full-duplex=yes`, `status=link-ok` (`RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX`).
+- **TP-Link TL-SG105E Switch:** Port 1 router trunk = `100MF` (`TP_LINK_PORT1_TRUNK=100MF`), Port 2 Beelink = `1000MF`, Port 5 Admin client = `1000MF`.
+- **Beelink Host:** `enp1s0` Speed: `1000Mb/s`, Duplex: `Full`, Link: `yes` (`BEELINK_LINK=1_GBPS_FULL`).
+- **Admin Test Client:** `Realtek PCIe GbE Family Controller`, LinkSpeed: `1 Gbps` (`ADMIN_CLIENT_LINK=1_GBPS`).
+
+**Classification:**
+~~~text
+RB750R2_IDENTITY=PROVEN_LIVE
+RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX
+TP_LINK_PORT1_TRUNK=100MF
+BEELINK_LINK=1_GBPS_FULL
+ADMIN_CLIENT_LINK=1_GBPS
+P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE
+CURRENT_LAN_THROUGHPUT_LIMITER=PROVEN_HARDWARE_PATH_LIMIT
+P1_SHARED_PATH_CAPACITY_LIMITER=PROVEN_BY_U2_D1_AND_LIVE_NETWORK_TELEMETRY
+CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E
+HARDWARE_REPLACEMENT_AUTHORIZED=NO
+PROCUREMENT_AUTHORIZED=NO
+PRODUCTION_CUTOVER_AUTHORIZED=NO
+REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK
+POST_FIX=NOT_STARTED
+NEW_THROUGHPUT_TEST_EXECUTED=NO
+~~~
+
 ## 22. Remote R1 diagnostic packet — from-home diagnosis (PREPARED / NOT EXECUTED)
 
 - **Status:** `PREPARED / NOT_EXECUTED`.

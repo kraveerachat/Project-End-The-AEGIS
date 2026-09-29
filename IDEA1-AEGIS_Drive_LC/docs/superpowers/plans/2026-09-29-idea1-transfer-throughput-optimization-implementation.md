@@ -259,10 +259,12 @@ Do not choose `4` merely because it is maximum. If concurrency gives no material
   `ttfbShareA = 0.0008 < 0.05` proves that authorization, file metadata lookup, and audit row creation account for under 0.1% of elapsed time and do not limit sustained throughput.
 - End-to-end application inspection confirms no software bottleneck:
   Authenticated download streams directly from disk with normal Node stream backpressure; HUB NGINX route already pins `proxy_buffering off`; zero in-memory buffering; zero rate/connection limiting (`no limit_rate/req/conn`); zero artificial delays.
-- Hardware limiter strongly supported:
-  Canonical hardware baseline records deployed router as MikroTik RB750r2 (hEX lite). Official vendor datasheets establish 5x 10/100 Ethernet ports. The ~11.1 MB/s transfer ceiling matches 100BASE-TX Fast Ethernet wire-rate capacity (~95 Mbps payload).
+- Hardware limiter PROVEN LIVE:
+  Onsite live preflight (reconciled with PR #259) verified deployed router is MikroTik RB750r2 (rev r3, RouterOS 7.18.2 stable) with `ether2` trunk operating at 100 Mbps Full Duplex (`RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX`), matching TP-Link switch Port 1 at `100MF` (`TP_LINK_PORT1_TRUNK=100MF`). Beelink operates at 1 Gbps Full (`BEELINK_LINK=1_GBPS_FULL`) and Admin test client operates at 1 Gbps (`ADMIN_CLIENT_LINK=1_GBPS`).
+  `P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE`, `CURRENT_LAN_THROUGHPUT_LIMITER=PROVEN_HARDWARE_PATH_LIMIT`, `P1_SHARED_PATH_CAPACITY_LIMITER=PROVEN_BY_U2_D1_AND_LIVE_NETWORK_TELEMETRY`.
 - Consequence:
-  `APPLICATION_DEFECT_PROVEN=NO`, `DOWNLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN`. No application code changes will be made.
+  `APPLICATION_DOWNLOAD_DEFECT=NOT_PROVEN`, `APPLICATION_UPLOAD_DEFECT=NOT_PROVEN`, `SAFE_APP_LAYER_FIX=NONE_PROVEN`, `DOWNLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN`. No application code changes will be made.
+  `CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`, `HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`, `REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`.
 
 **Files:**
 - Inspected: `IDEA1-AEGIS_Drive_LC/server/routes/api.js` (no defect found)
@@ -304,64 +306,49 @@ Owner-only download must remain 200 for the owner and 404 for cross-owner access
 
 ### Task 6: Core verification before any Production candidate
 
+**Status: BLOCKED / NOT APPLICABLE AT CURRENT GATE**
+
+- **Why blocked / not applicable:**
+  Task 6 consumes a completed core upload/download candidate from Tasks 2–5. Since Task 2 upload concurrency was skipped (`TASK2_UPLOAD_CONCURRENCY=SKIPPED_NOT_JUSTIFIED`) and Task 5 download optimization proved no application defect (`DOWNLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN`), zero application runtime/config files were modified.
+  There is no source candidate eligible for deployment preparation. Executing pre-deployment verification for a non-existent deployment candidate is blocked and not applicable (`TASK6_STATUS=BLOCKED_NOT_APPLICABLE`).
+
 **Files:**
-- All runtime/test files changed by Tasks 2–5.
+- All runtime/test files changed by Tasks 2–5 (NONE changed).
 
 **Interfaces:**
-- Consumes: completed core upload/download candidate.
-- Produces: a source candidate eligible for Human-controlled deployment preparation.
+- Consumes: completed core upload/download candidate (none produced).
+- Produces: a source candidate eligible for Human-controlled deployment preparation (N/A).
 
-- [ ] **Step 1: Run all focused transfer suites**
-
-At minimum: chunked client, resumable upload, transfer limits, recovery, recovery lifecycle, upload targeting, transfer rate, upload tray/batch, file object authorization, Vault V2 client/API, and HUB drive-transfer edge tests.
-
-- [ ] **Step 2: Run affected broader IDEA1 tests and build**
-
-Run `npm run build`. If the full IDEA1 suite is run, report exact pass/fail/skip counts and classify any baseline failures; do not rewrite historical evidence.
-
-- [ ] **Step 3: Run repository governance**
-
-Run root collaboration/governance tests, vault validation, `git diff --check`, added-line secret scan, and collaboration guardrails.
-
-- [ ] **Step 4: Independent source review**
-
-Review specifically for unbounded concurrency, stale-session state races, progress overcount, duplicate chunk sends, auth/owner regression, Vault crypto regression, whole-file buffering, and unrelated scope creep.
-
-- [ ] **Step 5: Stop before Production mutation**
-
-Report exact candidate SHA, changed files, diagnosis, test evidence, expected benefit, rollback boundary, and remaining uncertainty. Human Owner decides deployment.
+- [ ] **Step 1: Run all focused transfer suites** (BLOCKED / NOT APPLICABLE AT CURRENT GATE)
+- [ ] **Step 2: Run affected broader IDEA1 tests and build** (BLOCKED / NOT APPLICABLE AT CURRENT GATE)
+- [ ] **Step 3: Run repository governance** (BLOCKED / NOT APPLICABLE AT CURRENT GATE)
+- [ ] **Step 4: Independent source review** (BLOCKED / NOT APPLICABLE AT CURRENT GATE)
+- [ ] **Step 5: Stop before Production mutation** (BLOCKED / NOT APPLICABLE AT CURRENT GATE)
 
 ---
 
 ### Task 7: Human-controlled POST-FIX transfer acceptance
+
+**Status: BLOCKED / NOT APPLICABLE AT CURRENT GATE**
+
+- **Why blocked / not applicable:**
+  Task 7 consumes a Human-deployed exact candidate from Task 6 to measure POST-FIX throughput against PRE-FIX baselines.
+  Since no application optimization was deployed and no network/hardware mutation was authorized or executed (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PRODUCTION_MUTATED=NO`), no POST-FIX condition exists (`POST_FIX=NOT_STARTED`, `NEW_THROUGHPUT_TEST_EXECUTED=NO`).
+  Running a POST-FIX matrix against an unmutated production system is blocked and not applicable (`TASK7_STATUS=BLOCKED_NOT_APPLICABLE`). PRE-FIX baselines remain authoritative and immutable.
 
 **Files:**
 - Update after evidence: PR216 study design, measurement plan, `idea1-status.md`.
 - Final immutable receipt only after the complete PR216 task is accepted.
 
 **Interfaces:**
-- Consumes: Human-deployed exact candidate from Task 6.
-- Produces: comparable POST-FIX evidence against the accepted PRE-FIX matrix.
+- Consumes: Human-deployed exact candidate from Task 6 (none deployed).
+- Produces: comparable POST-FIX evidence against the accepted PRE-FIX matrix (N/A).
 
-- [ ] **Step 1: Human deploys the exact reviewed candidate using a bounded Drive-only rollout**
-
-Agent prepares commands/package only. Human Owner executes Production mutation.
-
-- [ ] **Step 2: Run P2 Remote/Twingate POST-FIX matrix**
-
-Files upload and download at 100 MB, 300 MB, 1 GB; three runs each; same measurement method as PRE-FIX. Record median/min/max/mean, retry/failure count, and relevant timing breakdown.
-
-- [ ] **Step 3: Run P1 Direct LAN POST-FIX matrix**
-
-Same S/M/L × upload/download × three-run structure. LAN must not be silently traded away to improve Remote.
-
-- [ ] **Step 4: Compare against PRE-FIX honestly**
-
-Report absolute MB/s and percentage change for every fixture/path. A desirable Remote result such as 10 MB/s+ may be celebrated when supported by the path, but is not a pass/fail promise.
-
-- [ ] **Step 5: Decide keep/revert/continue**
-
-Keep only changes that deliver material repeatable gain without safety regressions or unacceptable resource cost. If a clearly proven application bottleneck remains, return to diagnosis for the next single variable. If residual limitation is the external network/Twingate path, classify it separately rather than stacking speculative application patches.
+- [ ] **Step 1: Human deploys the exact reviewed candidate using a bounded Drive-only rollout** (BLOCKED / NOT APPLICABLE AT CURRENT GATE)
+- [ ] **Step 2: Run P2 Remote/Twingate POST-FIX matrix** (BLOCKED / NOT APPLICABLE AT CURRENT GATE)
+- [ ] **Step 3: Run P1 Direct LAN POST-FIX matrix** (BLOCKED / NOT APPLICABLE AT CURRENT GATE)
+- [ ] **Step 4: Compare against PRE-FIX honestly** (BLOCKED / NOT APPLICABLE AT CURRENT GATE)
+- [ ] **Step 5: Decide keep/revert/continue** (BLOCKED / NOT APPLICABLE AT CURRENT GATE)
 
 ---
 
@@ -397,18 +384,26 @@ RED first, minimal GREEN, then relevant media/Vault tests and a small Human POST
 
 PR216 is not ready for final receipt/Ready/merge until all claims are evidence-backed. The closeout must state separately:
 
-- `UPLOAD_ROOT_CAUSE=`
-- `UPLOAD_OPTIMIZATION=`
-- `UPLOAD_POST_FIX_P1=`
-- `UPLOAD_POST_FIX_P2=`
-- `DOWNLOAD_ROOT_CAUSE=`
-- `DOWNLOAD_OPTIMIZATION=`
-- `DOWNLOAD_POST_FIX_P1=`
-- `DOWNLOAD_POST_FIX_P2=`
-- `VAULT_TRANSFER_REGRESSION=PASS|FAIL|NOT_RUN`
-- `MULTI_ACCOUNT_ISOLATION=PASS|FAIL`
-- `PREVIEW_OPTIMIZATION=IMPLEMENTED|DEFERRED|NOT_REQUIRED`
-- `PRODUCTION_ACCEPTANCE=`
-- `FINAL_RECEIPT=`
+- `UPLOAD_ROOT_CAUSE=P1_SHARED_PATH_CAPACITY_LIMITER (PROVEN LIVE 100 Mbps ROUTER TRUNK CEILING) / APPLICATION_DEFECT_NOT_PROVEN`
+- `UPLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN_AT_CURRENT_GATE (TASK 2 SKIPPED)`
+- `UPLOAD_POST_FIX_P1=NOT_STARTED (NO MUTATION)`
+- `UPLOAD_POST_FIX_P2=NOT_STARTED (NO MUTATION)`
+- `DOWNLOAD_ROOT_CAUSE=P1_SHARED_PATH_CAPACITY_LIMITER (PROVEN LIVE 100 Mbps ROUTER TRUNK CEILING) / APPLICATION_DEFECT_NOT_PROVEN`
+- `DOWNLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN`
+- `DOWNLOAD_POST_FIX_P1=NOT_STARTED (NO MUTATION)`
+- `DOWNLOAD_POST_FIX_P2=NOT_STARTED (NO MUTATION)`
+- `SAFE_APP_LAYER_FIX=NONE_PROVEN`
+- `TASK2_UPLOAD_CONCURRENCY=SKIPPED_NOT_JUSTIFIED`
+- `TASK5_STATUS=DIAGNOSIS_COMPLETE_TO_CURRENT_GATE / NO_SAFE_APP_FIX_PROVEN`
+- `TASK6_STATUS=BLOCKED / NOT_APPLICABLE_AT_CURRENT_GATE`
+- `TASK7_STATUS=BLOCKED / NOT_APPLICABLE_AT_CURRENT_GATE`
+- `HARDWARE_REPLACEMENT_AUTHORIZED=NO`
+- `CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`
+- `REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`
+- `VAULT_TRANSFER_REGRESSION=NOT_RUN (NO APPLICATION MUTATION)`
+- `MULTI_ACCOUNT_ISOLATION=PASS (PRESERVED)`
+- `PREVIEW_OPTIMIZATION=DEFERRED`
+- `PRODUCTION_ACCEPTANCE=NOT_APPLICABLE (NO DEPLOYMENT)`
+- `FINAL_RECEIPT=PENDING_DRAFT`
 
 No result may be upgraded from `NOT_PROVEN` merely because a plausible optimization was implemented.

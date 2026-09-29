@@ -1,11 +1,12 @@
 # AEGIS IDEA1 Transfer Throughput Optimization Design
 
-Status: APPROVED IN CHAT / WRITTEN SPEC REVIEW PENDING
+Status: DIAGNOSIS COMPLETE TO CURRENT GATE / NO_SAFE_APP_FIX_PROVEN
 Task: LFT-PERF-1 / PR216
 Area / owner: IDEA1 / kla
-Production mutation: HUMAN OWNER ONLY
-Application mutation: NOT STARTED
-Root cause: NOT PROVEN
+Production mutation: HUMAN OWNER ONLY / NOT AUTHORIZED
+Application mutation: NONE PROVEN / SKIPPED
+Root cause: P1_SHARED_PATH_CAPACITY_LIMITER (PROVEN LIVE 100 Mbps ROUTER TRUNK CEILING)
+Current production hardware: RB750r2 + TL-SG105E (REPLACEMENT NOT AUTHORIZED)
 
 ## 1. Goal
 
@@ -147,6 +148,14 @@ A diagnosis must distinguish at minimum:
 - Twingate/network path overhead.
 
 One-variable experiments are preferred. Do not bundle chunk size, concurrency, proxy settings, and server buffering into one mutation because the result would not identify causality.
+
+### 7.1 Authoritative live diagnosis summary (reconciled with PR #259)
+
+Onsite probes (U2 upload, D1 download) and router/switch telemetry established:
+- **P1 Direct LAN:** Bound by physical 100 Mbps inter-VLAN trunk (`RB750r2_ETHER2_LINK=100MBPS_FULL_DUPLEX`, `TP_LINK_PORT1_TRUNK=100MF`). Single and dual streams saturate ~10.1–11.1 MB/s (91–95% of Fast Ethernet goodput).
+- **Application Layer:** No upload or download defect proven (`APPLICATION_DEFECT_PROVEN=NO`, `SAFE_APP_LAYER_FIX=NONE_PROVEN`). Task 2 upload concurrency is skipped as unjustified (`TASK2_UPLOAD_CONCURRENCY=SKIPPED_NOT_JUSTIFIED`). Task 5 download optimization has no safe app fix proven (`DOWNLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN`).
+- **Production Hardware:** Frozen at MikroTik hEX lite RB750r2 + TP-Link TL-SG105E (`CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`). Hardware replacement, procurement, and cable cutover are NOT authorized (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`). Remediation design in PR #259 is deferred optional future reference (`REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`).
+- **Remote Path (P2):** Residual limiter remains OPEN (`REMOTE_RESIDUAL_LIMITER=OPEN`).
 
 ## 8. Implementation strategy
 

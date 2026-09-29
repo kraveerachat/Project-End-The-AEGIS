@@ -1288,39 +1288,63 @@ Physical client hardware collected during on-site diagnostic session:
   - Twingate: `DISCONNECTED`
   - Direct transport reachability: `192.168.30.10 -> 192.168.10.10:443` = `TcpTestSucceeded=True`.
 
-### 25.4 MikroTik router finding and truth boundary
+### 25.4 MikroTik router finding and live hardware verification (reconciled with PR #259)
 
 Repository canonical network architecture and hardware notes (`VLAN-IP-Plan.md`, `Hardware-Inventory.md`, `MikroTik-Config.md`) record the deployed router and inter-VLAN path:
 
 ```text
 VLAN 30 client (192.168.30.10)
-  -> TP-Link TL-SG105E Port 5 (Access VLAN30, PVID 30)
-  -> TP-Link Port 1 (802.1Q Trunk)
-  -> MikroTik ether2 (Trunk)
+  -> TP-Link TL-SG105E Port 5 (Access VLAN30, PVID 30) — 1000MF (1 Gbps)
+  -> TP-Link Port 1 (802.1Q Trunk) — 100MF (100 Mbps)
+  -> MikroTik ether2 (Trunk) — 100 Mbps Full Duplex
   -> MikroTik CPU inter-VLAN routing (VLAN30 -> VLAN10)
-  -> same 802.1Q Trunk (MikroTik ether2 -> TP-Link Port 1)
-  -> TP-Link Port 2 (Access VLAN10)
-  -> Beelink AEGIS Host (192.168.10.10:443)
+  -> same 802.1Q Trunk (MikroTik ether2 -> TP-Link Port 1) — 100 Mbps Full Duplex
+  -> TP-Link Port 2 (Access VLAN10) — 1000MF (1 Gbps)
+  -> Beelink AEGIS Host (192.168.10.10:443) — enp1s0 1 Gbps Full
 ```
 
-**Manufacturer Hardware Specifications:**
-- Identified Deployed Router Model: **MikroTik hEX lite (product code RB750r2)**.
-- Official MikroTik vendor hardware specifications establish:
-  - Architecture: MIPSBE (QCA9533)
-  - 10/100 Ethernet Ports: **5 x 10/100 Mbit/s Fast Ethernet ports** (No Gigabit Ethernet interfaces).
-- **Physical Throughput Implications:**
-  - 100BASE-TX Fast Ethernet theoretical maximum payload throughput is approximately 94.9 Mbit/s (~11.87 MB/s).
-  - Both U2 upload single-stream (10.692 MB/s ≈ 85.5 Mbps) and D1 download single-stream (11.115 MB/s ≈ 88.9 Mbps), as well as dual-stream aggregate saturation (10.098 MB/s and 11.032 MB/s), align precisely within 90–95% of a 100 Mbit/s Ethernet ceiling when accounting for IP/TCP/TLS/HTTP framing overhead.
-  - Furthermore, on the router-on-a-stick topology where ingress and egress share the same physical 100 Mbps trunk port (`ether2`), inter-VLAN forwarding traverses the 100 Mbps interface twice.
+**Live Verified Hardware Telemetry (PR #259 Onsite Evidence):**
+- **MikroTik Router Identity:** Verified live via `/system routerboard print` and `/system resource print`:
+  - `board-name=hEX lite`, `model=RB750r2`, `revision=r3`, `RouterOS=7.18.2 stable`.
+  - Status: `RB750R2_IDENTITY=PROVEN_LIVE`.
+- **MikroTik ether2 Interface:** Verified live via `/interface ethernet monitor ether2 once`:
+  - `rate=100Mbps`, `full-duplex=yes`, `status=link-ok`.
+  - Status: `RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX`.
+- **TP-Link TL-SG105E Switch:** Verified live on switch web management (`192.168.30.2`, hw 5.0):
+  - Port 1 (Router Trunk) = `100MF` (`TP_LINK_PORT1_TRUNK=100MF`).
+  - Port 2 (Beelink Host) = `1000MF` (`1 Gbps`).
+  - Port 5 (Admin Client) = `1000MF` (`1 Gbps`).
+- **Beelink Host Link:** Verified live via `ethtool enp1s0` and `/sys/class/net/enp1s0/speed`:
+  - `Speed: 1000Mb/s`, `Duplex: Full`, `Link detected: yes`.
+  - Status: `BEELINK_LINK=1_GBPS_FULL`.
+- **Client Physical Link:** Verified live via `Get-NetAdapter`:
+  - `Realtek PCIe GbE Family Controller`, `LinkSpeed: 1 Gbps` (`ADMIN_CLIENT_LINK=1_GBPS`).
+
+**Physical Throughput Implications:**
+- 100BASE-TX Fast Ethernet theoretical maximum payload throughput is approximately 94.9 Mbit/s (~11.87 MB/s).
+- Both U2 upload single-stream (10.692 MB/s ≈ 85.5 Mbps) and D1 download single-stream (11.115 MB/s ≈ 88.9 Mbps), as well as dual-stream aggregate saturation (10.098 MB/s and 11.032 MB/s), align precisely within 90–95% of a 100 Mbit/s Ethernet ceiling when accounting for IP/TCP/TLS/HTTP framing overhead.
+- On the router-on-a-stick topology where ingress and egress share the same physical 100 Mbps trunk port (`ether2`), inter-VLAN forwarding traverses the 100 Mbps interface twice.
+- The 100 Mbps inter-VLAN trunk is the active physical throughput limiter for all traffic crossing between VLAN 30 and VLAN 10 on P1 Direct LAN.
 
 **Truth Boundary:**
 ~~~text
-MIKROTIK_MODEL = RB750r2
-DEPLOYED_MODEL_IDENTITY = REPO_OBSERVED_NOT_LIVE_REVERIFIED_THIS_SESSION
-MIKROTIK_PORT_CAPABILITY = PROVEN_BY_VENDOR_SPEC_5X_10_100_ETHERNET
-P1_DIRECT_LAN_LIMITER = STRONGLY_SUPPORTED_ROUTER_INTERVLAN_100MBPS_CEILING
+RB750R2_IDENTITY = PROVEN_LIVE
+RB750R2_ETHER2_LINK = 100MBPS_FULL_DUPLEX
+TP_LINK_PORT1_TRUNK = 100MF
+BEELINK_LINK = 1_GBPS_FULL
+ADMIN_CLIENT_LINK = 1_GBPS
+P1_ROUTER_TRUNK_100MBPS_CEILING = PROVEN_LIVE
+CURRENT_LAN_THROUGHPUT_LIMITER = PROVEN_HARDWARE_PATH_LIMIT
+P1_SHARED_PATH_CAPACITY_LIMITER = PROVEN_BY_U2_D1_AND_LIVE_NETWORK_TELEMETRY
+CURRENT_PRODUCTION_ARCHITECTURE = RB750r2_PLUS_TL-SG105E
+HARDWARE_REPLACEMENT_AUTHORIZED = NO
+PROCUREMENT_AUTHORIZED = NO
+PRODUCTION_CUTOVER_AUTHORIZED = NO
+REPLACEMENT_WORK_STATE = DEFERRED_OPTIONAL_FUTURE_WORK
 ~~~
-*Discipline*: Do NOT upgrade the overall limiter classification to fully `PROVEN` solely from vendor datasheets, because physical router interface negotiation (`100M full duplex` vs `1G`) was not directly queried live on the router CLI during this session.
+
+*Infrastructure Scope Boundary (Reconciled with PR #259)*:
+Production hardware remains MikroTik hEX lite RB750r2 and TP-Link TL-SG105E. Hardware replacement, procurement, router model selection, and production cable cutover are NOT authorized (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`). PR #259 documents the capacity boundary and preserves an optional remediation design as deferred future reference only. Hardware replacement is NOT required in the current project scope.
 
 ### 25.5 End-to-end application code diagnosis
 
@@ -1395,13 +1419,31 @@ This network architecture gap is formally specified and tracked in:
 ~~~text
 TASK = LFT-PERF-1
 STATUS = DIAGNOSIS_COMPLETE_TO_CURRENT_GATE / NO_SAFE_APP_FIX_PROVEN
-P1_SHARED_PATH_CAPACITY_LIMITER = PROVEN_BY_U2_D1_BEHAVIOR
-P1_ROUTER_100MBPS_CEILING = STRONGLY_SUPPORTED_NOT_LIVE_DEVICE_REVERIFIED
-APPLICATION_DEFECT_PROVEN = NO
+P1_SHARED_PATH_CAPACITY_LIMITER = PROVEN_BY_U2_D1_AND_LIVE_NETWORK_TELEMETRY
+P1_ROUTER_TRUNK_100MBPS_CEILING = PROVEN_LIVE
+CURRENT_LAN_THROUGHPUT_LIMITER = PROVEN_HARDWARE_PATH_LIMIT
+RB750R2_IDENTITY = PROVEN_LIVE
+RB750R2_ETHER2_LINK = 100MBPS_FULL_DUPLEX
+TP_LINK_PORT1_TRUNK = 100MF
+BEELINK_LINK = 1_GBPS_FULL
+ADMIN_CLIENT_LINK = 1_GBPS
+APPLICATION_UPLOAD_DEFECT = NOT_PROVEN
+APPLICATION_DOWNLOAD_DEFECT = NOT_PROVEN
+SAFE_APP_LAYER_FIX = NONE_PROVEN
 TASK2_UPLOAD_CONCURRENCY = SKIPPED_NOT_JUSTIFIED
 UPLOAD_OPTIMIZATION = NO_SAFE_APP_FIX_PROVEN_AT_CURRENT_GATE
 DOWNLOAD_OPTIMIZATION = NO_SAFE_APP_FIX_PROVEN
+TASK5_STATUS = DIAGNOSIS_COMPLETE_TO_CURRENT_GATE / NO_SAFE_APP_FIX_PROVEN
+TASK6_STATUS = BLOCKED / NOT_APPLICABLE_AT_CURRENT_GATE (no runtime candidate)
+TASK7_STATUS = BLOCKED / NOT_APPLICABLE_AT_CURRENT_GATE (no post-fix run executed)
+HARDWARE_REPLACEMENT_AUTHORIZED = NO
+PROCUREMENT_AUTHORIZED = NO
+PRODUCTION_CUTOVER_AUTHORIZED = NO
+CURRENT_PRODUCTION_ARCHITECTURE = RB750r2_PLUS_TL-SG105E
+REPLACEMENT_WORK_STATE = DEFERRED_OPTIONAL_FUTURE_WORK
 REMOTE_RESIDUAL_LIMITER = OPEN
 POST_FIX = NOT_STARTED
+NEW_THROUGHPUT_TEST_EXECUTED = NO
 PR257_CROSS_REFERENCE = ADDED
+PR259_INFRASTRUCTURE_TRUTH = RECONCILED (head f8ee2f27)
 ~~~
