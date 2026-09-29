@@ -14,6 +14,10 @@
 # IDEA1/IDEA2, NetworkManager, nftables or any predecessor stage, and never publishes RESTORE_UPLINK/CUT_UPLINK.
 set -uo pipefail
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=l7-listener-lib.sh
+source "$HERE/l7-listener-lib.sh"
+
 fail() { printf 'L7_ROLLBACK=FAIL reason=%s\n' "$1" >&2; exit 1; }
 
 UNIT=aegis-idea3-core.service
@@ -212,7 +216,7 @@ if use_systemd; then
   cmp -s "$WORK/legacy-service.txt" "$WORK/legacy-service.rollback" || fail PREDECESSOR_SERVICE_CHANGED
 fi
 if use_ss; then
-  ss_do -H -ltnu | awk '{ print $1 ":" $5 }' | LC_ALL=C sort -u > "$WORK/listeners.rollback"
+  l7_listener_snapshot "$(host_path /proc/sys/net/ipv4/ip_local_port_range)" ss_do -H -ltnu > "$WORK/listeners.rollback"
   cmp -s "$WORK/listeners-baseline.txt" "$WORK/listeners.rollback" || fail LISTENER_CHANGED
 fi
 

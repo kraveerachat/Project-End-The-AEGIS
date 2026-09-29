@@ -31,6 +31,8 @@ FORBIDDEN_ENV=(AEGIS_MQTT_PASS AEGIS_ADMIN_PIN AEGIS_P1_C2D_KEY_FILE AEGIS_P1_D2
 HERE="$(cd "$(dirname "$0")" && pwd)"
 P4_HERE="$(cd "$HERE/../.." && pwd)"
 REPO_ROOT="$(cd "$P4_HERE/../.." && pwd)"
+# shellcheck source=l7-listener-lib.sh
+source "$HERE/l7-listener-lib.sh"
 UNIT_SOURCE="$REPO_ROOT/deploy/aegis-idea3-core.service.example"
 PY="${AEGIS_PYTHON_BIN:-python3}"
 ROOT="${AEGIS_P4_FS_ROOT:-}"
@@ -246,7 +248,7 @@ PYC
 fi
 
 if use_ss; then
-  ss_do -H -ltnu | awk '{ print $1 ":" $5 }' | LC_ALL=C sort -u > "$WORK/listeners.current"
+  l7_listener_snapshot "$(host_path /proc/sys/net/ipv4/ip_local_port_range)" ss_do -H -ltnu > "$WORK/listeners.current"
   [ -z "$(LC_ALL=C comm -13 "$WORK/listeners-baseline.txt" "$WORK/listeners.current")" ] || fail NEW_LISTENER
   [ -z "$(LC_ALL=C comm -23 "$WORK/listeners-baseline.txt" "$WORK/listeners.current")" ] || fail LISTENER_REMOVED
   new_listeners=NONE

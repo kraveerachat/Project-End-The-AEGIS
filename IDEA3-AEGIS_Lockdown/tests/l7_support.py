@@ -236,7 +236,13 @@ if "state established" in args:
         print('ESTAB 0 0 10.77.30.1:51234 10.77.30.1:8883 users:(("python",pid=%d,fd=5))' % u.get("pid", 0))
     sys.exit(0)
 for line in os.environ.get("FAKE_SS_LISTEN", "127.0.0.1:8883\n10.77.30.1:8883\n0.0.0.0:1883\n").splitlines():
-    print("tcp LISTEN 0 100 %s 0.0.0.0:*" % line)
+    if line.startswith("udp:"):
+        netid, local = "udp", line[4:]
+    elif line.startswith("tcp:"):
+        netid, local = "tcp", line[4:]
+    else:
+        netid, local = "tcp", line
+    print("%s LISTEN 0 100 %s 0.0.0.0:*" % (netid, local))
 '''
 
 
