@@ -523,6 +523,19 @@ def test_l7_broker_gate_takes_multiple_samples_and_cannot_be_weakened_by_environ
     assert res.returncode == 1 and "L7_BROKER_UNSTABLE" in res.stderr
 
 
+def test_l7_broker_gate_fails_closed_when_the_stability_wait_fails(tmp_path: Path) -> None:
+    """A failed/interrupted sleep must not silently collapse the observation window, even from an OR-list without set -e."""
+    broker_gate(tmp_path, BROKER_OK, GOOD_LISTEN)  # builds the stubs
+    stub(tmp_path / "bbin", "sleep", "exit 1")
+    e = os.environ.copy()
+    e.update({"SUDO": "", "PATH": f"{tmp_path / 'bbin'}:{e['PATH']}"})
+    res = subprocess.run(["bash", "-c", f"source '{LIB}'; l7_broker_runtime_gate {BROKER_UNIT} 10.77.30.1 || echo GATE_FAILED_CLOSED; echo AFTER"],
+                         text=True, capture_output=True, env=e, check=False)
+    assert "L7_BROKER_STABILITY_WAIT_FAILED" in res.stderr and "GATE_FAILED_CLOSED" in res.stdout
+    res = subprocess.run(["bash", "-c", f"source '{LIB}'; l7_broker_runtime_gate {BROKER_UNIT} 10.77.30.1"], text=True, capture_output=True, env=e, check=False)
+    assert res.returncode == 1 and "L7_BROKER_STABILITY_WAIT_FAILED" in res.stderr
+
+
 def test_l7_broker_gate_is_read_only_and_never_repairs(tmp_path: Path) -> None:
     body = LIB.read_text()
     start = body.index("_l7_broker_sample()")

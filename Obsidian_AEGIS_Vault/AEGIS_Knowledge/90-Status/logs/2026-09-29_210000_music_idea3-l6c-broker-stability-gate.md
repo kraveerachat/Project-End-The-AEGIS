@@ -23,10 +23,11 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `pytest tests/test_pr11_phase4_l7_runner.py` — pass: 123 passed.
+- `pytest tests/test_pr11_phase4_l7_runner.py` — pass: 124 passed.
 - `pytest tests/test_pr11_phase4_l6c_runner.py tests/test_pr11_phase4_l6c_runner_flow.py tests/test_pr11_phase4_l7_runner_flow.py` — pass: 86 passed.
-- `pytest tests/test_pr11_phase4*.py` — pass: 2824 passed, 2 skipped. An earlier run overlapping another pytest process had one failure in `test_pr11_phase4_l6c_capture_gap.py::test_real_end_to_end_capture_then_compare_requires_the_allow_file`; that file passes in isolation on this branch (33) and on unmodified BASE 21b52d5e (33) — load flake, not a regression.
-- `bash -n` on `p4-l7-run-lib.sh` — pass. `git diff --check` — pass.
+- `pytest tests/test_pr11_phase4*.py` — pass: 2825 passed, 2 skipped (final run after the wait-failure fix). An earlier run overlapping another pytest process had one failure in `test_pr11_phase4_l6c_capture_gap.py::test_real_end_to_end_capture_then_compare_requires_the_allow_file`; that file passes in isolation on this branch (33) and on unmodified BASE 21b52d5e (33) — load flake, not a regression.
+- The wait between samples is checked explicitly: a failed/interrupted `sleep` returns `L7_BROKER_STABILITY_WAIT_FAILED` (fail closed, covered by a test).
+- `bash -n` on `p4-l7-run-lib.sh` — pass. `git diff --check` — pass. `node scripts/validate-vault.mjs` — passed.
 - No live command against Production was run.
 
 ## Canonical notes updated
@@ -43,4 +44,4 @@ edit_policy: append-by-new-file
 
 ## Known limitations
 
-- Repository/stub-tested only; not proven against the live broker. The 6 s window is a prerequisite gate, not a soak.
+- Repository/stub-tested only; not proven against the live broker. The 3-sample, 2-second-spacing window (~4 s first-to-last) is a prerequisite gate, not a soak.

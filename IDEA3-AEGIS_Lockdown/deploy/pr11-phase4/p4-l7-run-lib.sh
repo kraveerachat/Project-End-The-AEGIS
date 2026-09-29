@@ -136,7 +136,7 @@ l7_broker_runtime_gate() {
   local unit=$1 ap=$2 i first cur
   first=$(_l7_broker_sample "$unit" "$ap") || return 1
   for ((i = 1; i < L7_BROKER_STABILITY_SAMPLES; i++)); do
-    sleep "$L7_BROKER_STABILITY_INTERVAL_S"
+    sleep "$L7_BROKER_STABILITY_INTERVAL_S" || { l7_reason "L7_BROKER_STABILITY_WAIT_FAILED"; return 1; }
     cur=$(_l7_broker_sample "$unit" "$ap") || return 1
     [ "$cur" = "$first" ] || { l7_reason "L7_BROKER_UNSTABLE:$first->$cur"; return 1; }
   done
