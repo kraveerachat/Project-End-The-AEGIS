@@ -2,14 +2,18 @@
 
 Date: 2026-09-30 · Area: infrastructure · Owner: kla
 Design: `docs/superpowers/specs/2026-09-30-aegis-gigabit-intervlan-remediation-design.md` (Option A)
-Status: **PLAN ONLY — NOT EXECUTED.** Every step that touches a device is performed by the Human Owner, in order, after design approval. No agent runs a router, switch, DNS, DHCP, Twingate, Docker, or cable action.
+Status: **CURRENT SCOPE COMPLETE (Steps 1–3 PASS) / STEPS 4–12 DEFERRED OPTIONAL FUTURE WORK.**
+Production hardware remains MikroTik hEX lite RB750r2 and TP-Link TL-SG105E (`CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`).
+Hardware replacement is NOT authorized (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`, `PRODUCTION_CUTOVER_AUTHORIZED=NO`, `ROUTER_MODEL_SELECTION_REQUIRED=NO`).
+Steps 1–3 (live preflight, config export/backup, and equivalence baseline) are EXECUTED and PASS. Steps 4–12 (preparation, cutover, and post-cutover benchmarks) are classified as `DEFERRED_OPTIONAL_FUTURE_WORK` and require explicit future Human Owner authorization.
 
 ## Global constraints
 
-- Steps 1–3 are read-only. Step 4 writes only to the **new** router while it is disconnected from Production. Steps 6 and 10 are the only Production-changing steps. Both are physical cable moves.
+- Steps 1–3 (executed/pass) were read-only and backup capture. Steps 4–12 are `DEFERRED_OPTIONAL_FUTURE_WORK`: not authorized in current scope.
+- Hardware replacement, router procurement, model selection, and cable cutover are NOT authorized. Current production architecture is frozen at RB750r2 + TL-SG105E.
 - Never paste passwords, PPP/Wi-Fi secrets, certificates, private keys, or Twingate/cloudflared tokens into the repository, the vault, PR comments, or chat. Exports are taken with `show-sensitive=no` (RouterOS v7 hides sensitive values by default; still verify) and stored **outside** the repository.
-- The RB750r2 is never reset, reconfigured, or re-flashed during this plan. It is the rollback.
-- Any step that fails its check stops the plan. Roll back (step 10) if the cutover has already happened.
+- The RB750r2 is never reset, reconfigured, or re-flashed during this plan. It remains the active production router and the rollback device.
+- Any future execution of Steps 4–12 requires explicit Human Owner authorization. Any step that fails its check stops the plan. Roll back (step 10) if the cutover has already happened.
 
 ---
 
@@ -100,7 +104,10 @@ Security boundary notes:
 
 Mismatches are allowed **only** for physical interface names and switch-chip / bridge syntax, and each one must be written down.
 
-### Step 4 — New Gigabit router preparation (offline)
+### Step 4 — New Gigabit router preparation (offline) [DEFERRED_OPTIONAL_FUTURE_WORK]
+
+> [!NOTE]
+> DEFERRED_OPTIONAL_FUTURE_WORK: Hardware replacement is NOT authorized (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`, `ROUTER_MODEL_SELECTION_REQUIRED=NO`). This step is preserved for future reference if procurement is ever authorized by the Human Owner.
 
 1. Unbox the router. Keep it **off** the Production network: power it and connect only the Admin laptop directly.
 2. Upgrade RouterOS and RouterBOOT to the stable v7 release that the step 2 export can be adapted to. Record the versions.
@@ -109,7 +116,7 @@ Mismatches are allowed **only** for physical interface names and switch-chip / b
 5. Import the adapted file with `/import file-name=… verbose=yes` and fix only syntax errors. Policy edits are forbidden in this step.
 6. Set a new management credential (placeholder `<ROUTER_ADMIN_PASSWORD>` in all documentation).
 
-### Step 5 — Isolated / offline validation
+### Step 5 — Isolated / offline validation [DEFERRED_OPTIONAL_FUTURE_WORK]
 
 With the new router still off Production:
 
@@ -124,7 +131,10 @@ With the new router still off Production:
 
 Exit: checklist complete, and the Human Owner signs off on the diff.
 
-### Step 6 — Human-controlled cable cutover (Production)
+### Step 6 — Human-controlled cable cutover (Production) [DEFERRED_OPTIONAL_FUTURE_WORK]
+
+> [!NOTE]
+> DEFERRED_OPTIONAL_FUTURE_WORK: Production cable cutover is NOT authorized (`PRODUCTION_CUTOVER_AUTHORIZED=NO`). Current production router remains RB750r2.
 
 Window: announced. All zones and Remote/Twingate are briefly offline.
 
@@ -134,7 +144,7 @@ Window: announced. All zones and Remote/Twingate are briefly offline.
 4. Leave the RB750r2 powered **off** and configured. Do not reset it.
 5. Start a 60-minute observation timer. Rollback (step 10) is allowed any time within it without further discussion.
 
-### Step 7 — VLAN 10/20/30/40 reachability verification
+### Step 7 — VLAN 10/20/30/40 reachability verification [DEFERRED_OPTIONAL_FUTURE_WORK]
 
 | ID | Check | Pass |
 |---|---|---|
@@ -147,20 +157,20 @@ Window: announced. All zones and Remote/Twingate are briefly offline.
 | R-7 | VLAN 40 IDEA3 controller: renews DHCP on `192.168.40.x/24`, gateway `.1`, MQTT reachability to broker if configured, denied access to unauthorized zones | Matches step 3 |
 | R-8 | Negative check: every path the old forward chain dropped is still dropped (from the E-6 list) | Matches |
 
-### Step 8 — aegis.internal / HUB verification
+### Step 8 — aegis.internal / HUB verification [DEFERRED_OPTIONAL_FUTURE_WORK]
 
 1. If the RB750r2 served DNS for `aegis.internal` (P-7), run `Resolve-DnsName aegis.internal` from the VLAN 30 client and expect `192.168.10.10`. If DNS was not on the router, there is nothing new to check here. PR #257 stays the owner of that contract.
 2. Browser: `https://aegis.internal/` (or the address in use) → HUB → Drive login page and Monitor login page load. The certificate warning behavior is unchanged.
 3. Owner login to Drive and list files. Nothing is uploaded yet.
 
-### Step 9 — Twingate verification
+### Step 9 — Twingate verification [DEFERRED_OPTIONAL_FUTURE_WORK]
 
 1. Beelink: `docker ps` shows `twingate-aegis-connector-02` running and not restarting (read-only).
 2. Twingate Admin Console: Connector `aegis-connector-02` shows Connected.
 3. From an off-site client with Twingate ON, reach the `AEGIS-Beelink-SSH` and `AEGIS-Beelink-Web` resources and open the Drive login page.
 4. Public Share / cloudflared: the tunnel reports healthy, and one Share page loads (no download benchmark needed).
 
-### Step 10 — Rollback procedure
+### Step 10 — Rollback procedure [DEFERRED_OPTIONAL_FUTURE_WORK]
 
 Trigger: any R-, HUB-, or Twingate check fails and is not fixed within the observation window, or the Human Owner calls it.
 
@@ -172,7 +182,7 @@ Trigger: any R-, HUB-, or Twingate check fails and is not fixed within the obser
 
 If the RB750r2 itself fails to come back, restore its `.backup` from step 2 (same model), or import the step 2 text export.
 
-### Step 11 — U2 / D1 POST-remediation quick probe
+### Step 11 — U2 / D1 POST-remediation quick probe [DEFERRED_OPTIONAL_FUTURE_WORK]
 
 Run the PR #216 probes **unchanged** on P1 Direct LAN with Twingate OFF, using the same client if possible:
 
@@ -189,7 +199,7 @@ Record: single and dual MB/s, R, `medBodyMs`/`medTailMs`/`sumGapMs`, `ttfbShareA
 
 No application change follows from this probe alone.
 
-### Step 12 — Full PR #216 POST-FIX P1 matrix (later, separately authorized)
+### Step 12 — Full PR #216 POST-FIX P1 matrix [DEFERRED_OPTIONAL_FUTURE_WORK]
 
 Run the PR #216 measurement plan's P1 Direct-LAN matrix (upload and download, 100 MB / 300 MB / 1 GB, n = 3) as the POST-FIX network-remediation baseline. Compare it against the recorded PRE-FIX values without rewriting them. Record Remote/P2 separately. It is not expected to change (design §5.1).
 
@@ -197,11 +207,11 @@ Run the PR #216 measurement plan's P1 Direct-LAN matrix (upload and download, 10
 
 ## Completion gate
 
-- [x] Step 1 live preflight EXECUTED (2026-09-30): verified RB750r2 `ether2` 100 Mbps, Beelink 1 Gbps, Switch Port 1 100MF, Switch Ports 2/5 1000MF, VLAN 10/20/30/40 topology.
-- [x] Step 2 config export and backup EXECUTED (2026-09-30): `.rsc` (9.6 KiB) and `.backup` (43.9 KiB) saved off-router, SHA-256 available, secrets scan 0 hits.
+- [x] Step 1 live preflight EXECUTED (2026-09-30): verified RB750r2 `ether2` 100 Mbps, Beelink 1 Gbps, Switch Port 1 100MF, Switch Ports 2/5 1000MF, VLAN 10/20/30/40 topology (`STEP1_LIVE_PREFLIGHT=PASS`).
+- [x] Step 2 config export and backup EXECUTED (2026-09-30): `.rsc` (9.6 KiB) and `.backup` (43.9 KiB) saved off-router, SHA-256 available, secrets scan 0 hits (`STEP2_RESULT=PASS`).
 - [x] Step 3 equivalence checklist baseline EXECUTED (2026-09-30): live baseline captured across all checklist rows from export (`STEP3_RESULT=PASS`).
-- [ ] Design approved (Option A) and Gigabit MikroTik model chosen by Human Owner.
-- [ ] Steps 4–5 preparation and checklist fully matched and signed off.
-- [ ] Step 6 cutover, steps 7–9 all pass, **or** step 10 rollback completed and recorded.
-- [ ] Step 11 quick probe recorded.
-- [ ] Vault updated: `Hardware-Inventory.md` (new model and port speed), `MikroTik-Config.md` (backup done, new device), plus one final task receipt.
+- [x] Verified live physical and network topology documented and reconciled with canonical notes (`CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`).
+- [x] 100 Mbps inter-VLAN trunk hardware-path ceiling proven live (`P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE`).
+- [x] Recovery/export/equivalence evidence preserved.
+- [x] Optional remediation design (Option A) preserved as future reference architecture (`REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`).
+- [ ] *[DEFERRED]* Steps 4–12 (new router procurement, offline preparation, physical cutover, post-cutover verification and benchmarks) are deferred optional future work; requires explicit future Human Owner authorization (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`, `PRODUCTION_CUTOVER_AUTHORIZED=NO`, `ROUTER_MODEL_SELECTION_REQUIRED=NO`).

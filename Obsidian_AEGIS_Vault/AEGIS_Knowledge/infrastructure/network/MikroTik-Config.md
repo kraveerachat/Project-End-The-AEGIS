@@ -72,12 +72,14 @@ Internet (ISP)
   * Admin Laptop = 1 Gbps Full
   * PR #216 U2/D1 single ≈ dual ≈ 10.7–11.1 MB/s
   * สถานะ: `P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE`
-* ออกแบบการแก้: เปลี่ยนเป็น Router RouterOS แบบ Gigabit โดย import config เดิม — `docs/superpowers/specs/2026-09-30-aegis-gigabit-intervlan-remediation-design.md` · แผน: `docs/superpowers/plans/2026-09-30-aegis-gigabit-intervlan-remediation.md`
-* สถานะแผน:
-  * Step 1 (Live Preflight): ✅ EXECUTED
+* ออกแบบการแก้: แบบอ้างอิงสำหรับอนาคต (Optional Future Reference) ในกรณีที่ต้องการปลดเพดาน 100 Mbps — `docs/superpowers/specs/2026-09-30-aegis-gigabit-intervlan-remediation-design.md` · แผน: `docs/superpowers/plans/2026-09-30-aegis-gigabit-intervlan-remediation.md`
+* ขอบเขตปัจจุบัน: ฮาร์ดแวร์โปรดักชันคงเดิมคือ **RB750r2 + TL-SG105E** (`CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`), ยังไม่อนุมัติการเปลี่ยนฮาร์ดแวร์หรือจัดซื้อ (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`, `PRODUCTION_CUTOVER_AUTHORIZED=NO`, `ROUTER_MODEL_SELECTION_REQUIRED=NO`)
+* สถานะแผน PR #259:
+  * Step 1 (Live Preflight): ✅ EXECUTED (`STEP1_LIVE_PREFLIGHT=PASS`)
   * Step 2 (Export & Backup): ✅ EXECUTED (`STEP2_RESULT=PASS`)
   * Step 3 (Equivalence Baseline): ✅ EXECUTED (`STEP3_RESULT=PASS`)
-  * ขั้นตอนถัดไป: Human Owner review PR #259 design และเลือกรุ่น Gigabit MikroTik สำหรับจัดซื้อ (`HUMAN_OWNER_REVIEW_PR259_DESIGN_AND_SELECT_GIGABIT_MIKROTIK_MODEL`)
+  * Step 4–12: งานในอนาคตที่ยังไม่ดำเนินการ (`REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`)
+  * งานปัจจุบันถัดไปของโปรเจกต์: นำข้อจำกัดฮาร์ดแวร์ 100 Mbps ที่พิสูจน์แล้วไป reconcile เอกสารใน PR #216 (`RECONCILE_PR216_WITH_LIVE_PROVEN_HARDWARE_PATH_LIMIT`)
 
 ---
 

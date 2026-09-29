@@ -1,10 +1,10 @@
 # AEGIS Gigabit Inter-VLAN Throughput Remediation — Design
 
 Date: 2026-09-30
-Area: infrastructure · Owner: kla · Status: **DESIGN — Human Owner review required**
+Area: infrastructure · Owner: kla · Status: **OPTIONAL FUTURE REFERENCE — Production hardware remains RB750r2 + TL-SG105E**
 Implementation plan: `docs/superpowers/plans/2026-09-30-aegis-gigabit-intervlan-remediation.md`
 
-This document is design only. It authorizes no Production, router, switch, cable, DNS, DHCP, Twingate, Docker, or application change.
+This document is design and reference only. Current production hardware is frozen at MikroTik hEX lite RB750r2 and TP-Link TL-SG105E (`CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`). Hardware replacement, procurement, router model selection, and cutover are NOT authorized (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`, `PRODUCTION_CUTOVER_AUTHORIZED=NO`, `ROUTER_MODEL_SELECTION_REQUIRED=NO`). It authorizes no Production, router, switch, cable, DNS, DHCP, Twingate, Docker, or application change.
 
 ## 1. Problem
 
@@ -99,11 +99,14 @@ Rejected for any option: bridging VLAN 30 into VLAN 10; bypassing or weakening f
 
 ## 4. Options
 
-### Option A — Replace RB750r2 with a Gigabit RouterOS router, same architecture (RECOMMENDED)
+### Option A — Replace RB750r2 with a Gigabit RouterOS router, same architecture (OPTIONAL FUTURE REFERENCE)
 
-Swap the router for a MikroTik device with all-Gigabit Ethernet ports running RouterOS v7. Examples in the product line are hEX RB750Gr3 and hEX refresh (E50UG). The exact model is a Human Owner procurement decision. Import the exported RB750r2 configuration with only interface-name and switch-chip edits. The switch, cabling layout, subnets, gateway IPs, DHCP, DNS, NAT, and firewall rules stay identical.
+> [!NOTE]
+> Option A is an uncommitted, optional future remediation path preserved for reference if the Human Owner later chooses to exceed the physical 100 Mbps ceiling. It is NOT authorized for current implementation (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`, `PRODUCTION_CUTOVER_AUTHORIZED=NO`, `REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`). Production hardware remains RB750r2 + TL-SG105E (`CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`).
 
-Note: `Hardware-Inventory.md` and `90-Status/Document-Conflicts.md` record `RB750Gr3` as a **wrong** model name found in old documents. After any replacement, the inventory must record the newly installed model explicitly so the old conflict note is not misread.
+Swap the router for a MikroTik device with all-Gigabit Ethernet ports running RouterOS v7. Examples in the product line are hEX RB750Gr3 and hEX refresh (E50UG). If the Human Owner ever decides to pursue hardware replacement in the future, the model selection would be an owner procurement decision. Import the exported RB750r2 configuration with only interface-name and switch-chip edits. The switch, cabling layout, subnets, gateway IPs, DHCP, DNS, NAT, and firewall rules stay identical.
+
+Note: `Hardware-Inventory.md` and `90-Status/Document-Conflicts.md` record `RB750Gr3` as a **wrong** model name found in old documents. If a replacement is ever performed in the future, the inventory must record the newly installed model explicitly so the old conflict note is not misread.
 
 ### Option B — Move inter-VLAN routing to another existing Gigabit device
 
@@ -137,22 +140,27 @@ OPTION_B=REJECTED — no existing device in repository evidence can safely assum
 | Config surfaces changed | New router only (same config). Switch unchanged. DHCP/DNS/NAT move with the config | — | Switch VLAN/ACL, router, possibly DHCP relay |
 | Evidence before Production | Complete RB750r2 export; offline config diff; vendor routing-throughput figures for the chosen model with firewall rules; Beelink link speed; equivalence checklist signed off | — | ACL equivalence proof; L3 switch spec |
 
-## 5. Recommendation
+## 5. Optional future remediation design (Option A)
 
 ~~~text
-RECOMMENDED_REMEDIATION=OPTION_A — replace RB750r2 with an all-Gigabit RouterOS v7 MikroTik router, importing the unchanged RB750r2 configuration (interface names adapted only)
+REMEDIATION_REFERENCE_DESIGN=OPTION_A — replace RB750r2 with an all-Gigabit RouterOS v7 MikroTik router, importing the unchanged RB750r2 configuration (interface names adapted only)
+CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E
+HARDWARE_REPLACEMENT_AUTHORIZED=NO
+PROCUREMENT_AUTHORIZED=NO
+PRODUCTION_CUTOVER_AUTHORIZED=NO
+REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK
 ~~~
 
-Reasons: it is the smallest change that removes the 10/100 port; it keeps the same firewall engine, rule order, NAT, DHCP, and DNS semantics; the switch and the Beelink stay untouched; and rollback is physical and immediate because the RB750r2 stays configured and unused on the shelf.
+Reasons Option A is preserved as the reference design: it is the smallest change that removes the 10/100 port; it keeps the same firewall engine, rule order, NAT, DHCP, and DNS semantics; the switch and the Beelink stay untouched; and rollback is physical and immediate because the RB750r2 stays configured and unused on the shelf.
 
-Procurement acceptance criteria (verified before purchase or before cutover):
+Deferred procurement acceptance criteria (for future reference only if procurement is ever authorized):
 
 1. Every Ethernet port is 10/100/1000.
 2. It runs RouterOS v7, the same major version family as the RB750r2 export, or the export has been adapted and reviewed.
 3. The vendor's published routing test figures for the model **with firewall filter rules** (not only the FastTrack / bridging figures) are recorded in the plan, with their source.
 4. VLAN interfaces on a single trunk port (or a bridge with VLAN filtering) are supported, as today.
 
-### 5.1 Expected P1 ceiling after remediation
+### 5.1 Expected P1 ceiling after remediation (reference only)
 
 ~~~text
 EXPECTED_P1_WIRE_CEILING_AFTER=1 Gbps (≈117 MB/s TCP goodput) — a ~10× higher cap
@@ -189,8 +197,13 @@ Pre-existing gaps are carried forward and **not** claimed as fixed: unreviewed f
 
 This PR carries no content from #216 or #257. It only cross-references them.
 
-## 8. Open questions for the Human Owner
+## 8. Current status and scope boundary
 
-1. Review PR #259 design (Option A) and choose the replacement Gigabit RouterOS model for procurement (`HUMAN_OWNER_REVIEW_PR259_DESIGN_AND_SELECT_GIGABIT_MIKROTIK_MODEL`).
-2. FastTrack policy: FastTrack is confirmed enabled (`hw-offload=yes`) on the live RB750r2 baseline; default is to keep it enabled during migration.
-3. Pick a cutover window. All zones and Remote access are briefly offline.
+1. **Hardware replacement NOT authorized**: Current production architecture is frozen at RB750r2 + TL-SG105E (`CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`). No router replacement, switch replacement, hardware procurement, model selection, or cutover is authorized (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`, `PRODUCTION_CUTOVER_AUTHORIZED=NO`, `ROUTER_MODEL_SELECTION_REQUIRED=NO`). Stale action `HUMAN_OWNER_REVIEW_PR259_DESIGN_AND_SELECT_GIGABIT_MIKROTIK_MODEL` is removed.
+2. **Current purpose of PR #259 fulfilled**:
+   - Live physical/network topology documented and verified (`STEP1_LIVE_PREFLIGHT=PASS`).
+   - 100 Mbps inter-VLAN trunk bottleneck proven live on `ether2` / Port 1 (`P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE`).
+   - Router configuration exported and backed up off-router (`STEP2_EXPORT_BACKUP=PASS`).
+   - Live equivalence baseline captured across all VLANs, DHCP, DNS, firewall, NAT, and services (`STEP3_EQUIVALENCE_BASELINE=PASS`).
+   - Remediation design preserved as optional future reference (`REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`).
+3. **Active next action**: `PR259_ACTIVE_NEXT_ACTION=RECONCILE_PR216_WITH_LIVE_PROVEN_HARDWARE_PATH_LIMIT`. Reconcile PR #216 with the proven 100 Mbps hardware ceiling.

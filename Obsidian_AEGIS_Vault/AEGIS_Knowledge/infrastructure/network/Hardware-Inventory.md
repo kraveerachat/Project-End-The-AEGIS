@@ -54,8 +54,11 @@ edit_policy: owner-writable
 
 ผลคือ traffic ข้าม VLAN (เช่น VLAN 30 → HUB บน VLAN 10) ถูกคอขวดที่ `ether2` / Switch Port 1 ซึ่งเป็น 100 Mbps Full Duplex —
 PR #216 วัดเพดานร่วม ~10.7 MB/s (upload) / ~11.1 MB/s (download) ≈ 91–95% ของ TCP goodput บน 100 Mbps
-สถานะ: `P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE` · แนวทางแก้ (ออกแบบเท่านั้น ยังไม่ทำ):
-`docs/superpowers/specs/2026-09-30-aegis-gigabit-intervlan-remediation-design.md`
+สถานะ: `P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE`
+ฮาร์ดแวร์โปรดักชันปัจจุบัน: คงเดิมที่ **RB750r2 + TL-SG105E** (`CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`)
+การเปลี่ยนฮาร์ดแวร์/จัดซื้อ: **ยังไม่อนุมัติ** (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`)
+แนวทางแก้ระดับ Gigabit: เก็บเป็นเอกสารออกแบบอ้างอิงสำหรับอนาคต (`REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`) ที่ `docs/superpowers/specs/2026-09-30-aegis-gigabit-intervlan-remediation-design.md`
+ขั้นตอนถัดไปของโปรเจกต์: นำข้อจำกัดฮาร์ดแวร์ 100 Mbps ที่พิสูจน์แล้วไป reconcile เอกสารใน PR #216 (`RECONCILE_PR216_WITH_LIVE_PROVEN_HARDWARE_PATH_LIMIT`)
 
 > ⚠️ ถ้าเปลี่ยน Router ในอนาคต ให้บันทึกรุ่นใหม่ในตารางด้านบนชัดเจน — `RB750Gr3` ที่ถูกระบุว่า "ผิด" ข้างบนหมายถึงเอกสารเก่า ไม่ใช่ข้อห้ามใช้รุ่นนั้น
 
