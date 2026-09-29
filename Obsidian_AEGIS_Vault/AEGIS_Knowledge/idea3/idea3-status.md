@@ -28,7 +28,7 @@ edit_policy: owner-writable
 - **Limit that this fix does NOT remove:** `PRESERVATION_S10` and the runner's compare gate require `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`. While the IDEA2 baseline is unhealthy (tunnel/runtime `NO`, 18002 absent) the compare therefore still fails S10 by existing design, so a V5 retry cannot pass its PRE→RB/PRE→POST compare on this host until the IDEA2 owner either restores a healthy IDEA2 baseline or the S10 policy is changed. That policy is not touched here.
 - **Also not fixed:** the host no longer matches V5's PRE gate (broker now active/running with 8883 sockets bound, including a stale bind to the removed 10.77.30.1; dnsmasq inactive), so a V5 rerun would refuse at preflight. A V6 baseline decision and a re-freeze are required.
 - **Flaky test:** `test_real_end_to_end_capture_then_compare_requires_the_allow_file` reads the real host journal/listeners. The engine heartbeat drift is one cause and is removed by this fix, but the test still flaked (9 of 40 runs after the fix) on unrelated live-host churn (ephemeral `enp62s0` UDP listeners, IDEA2 tunnel `activating`↔`active`). The fix does **not** make it deterministic.
-- **Receipt:** `90-Status/logs/2026-09-29_120000_music_idea3-l34-v5-convergence-preservation-fix.md`.
+- **Receipt:** `90-Status/logs/2026-09-29_115112_music_idea3-l34-v5-convergence-preservation-fix.md`.
 
 ## IDEA3 Web WEB-R2 Production Refresh — live closeout — 2026-09-28
 
