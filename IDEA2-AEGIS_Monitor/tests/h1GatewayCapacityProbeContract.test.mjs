@@ -1019,6 +1019,34 @@ test('probe enforces a bounded workload, immutable clean build context, immediat
   }
 })
 
+
+test('workload diagnostics identify the exact bounded workload phase', () => {
+  const runner = requiredText(runnerPath)
+
+  assert.match(
+    runner,
+    /def _run_workload_guarded\([\s\S]{0,260}phase:\s*str/,
+  )
+  assert.match(
+    runner,
+    /_run_workload_guarded\([\s\S]{0,700}phase=["']postgres-seed["']/,
+  )
+  assert.match(
+    runner,
+    /_run_workload_guarded\([\s\S]{0,700}phase=["']monitor-health["']/,
+  )
+  assert.match(
+    runner,
+    /guarded workload timed out:\s*\{phase\}/,
+  )
+  assert.match(
+    runner,
+    /workload command failed:\s*\{phase\}/,
+  )
+  assert.match(runner, /WORKLOAD_PHASE_BEGIN=/)
+  assert.match(runner, /WORKLOAD_PHASE_END=/)
+})
+
 test('cleanup implementation is exact and never uses broad Docker prune operations', () => {
   const cleanup = requiredText(cleanupPath)
   const runner = requiredText(runnerPath)

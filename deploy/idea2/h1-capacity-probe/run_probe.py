@@ -488,6 +488,7 @@ def _merge_peak_snapshot(peak: dict[str, Any], snapshot: dict[str, Any]) -> dict
 def _run_workload_guarded(
     command: list[str],
     *,
+    phase: str,
     output_file: Path,
     evidence_dir: Path,
     limits: dict[str, Any],
@@ -498,6 +499,8 @@ def _run_workload_guarded(
 ) -> dict[str, Any]:
     started = time.monotonic()
     with output_file.open("a", encoding="utf-8") as stream:
+        stream.write(f"WORKLOAD_PHASE_BEGIN={phase}\n")
+        stream.flush()
         process = subprocess.Popen(
             command,
             stdout=stream,
@@ -509,7 +512,7 @@ def _run_workload_guarded(
             if time.monotonic() - started > timeout:
                 process.terminate()
                 watchdog.stop_probe()
-                raise RuntimeError(f"guarded workload timed out: {command[0]}")
+                raise RuntimeError(f"guarded workload timed out: {phase}")
             try:
                 snapshot = watchdog.capture_snapshot(
                     evidence_dir,
@@ -532,7 +535,9 @@ def _run_workload_guarded(
                 break
             time.sleep(0.5)
         if process.returncode != 0:
-            raise RuntimeError(f"workload command failed: {command[0]} (see redacted probe log)")
+            raise RuntimeError(f"workload command failed: {phase} (see redacted probe log)")
+        stream.write(f"WORKLOAD_PHASE_END={phase}\n")
+        stream.flush()
     return peak_snapshot
 
 
@@ -686,6 +691,7 @@ def _run_bounded_workload(
             "--command",
             sql,
         ),
+        phase="postgres-seed",
         output_file=output_file,
         evidence_dir=evidence_dir,
         limits=limits,
@@ -711,6 +717,7 @@ def _run_bounded_workload(
             health_script,
             str(request_count),
         ),
+        phase="monitor-health",
         output_file=output_file,
         evidence_dir=evidence_dir,
         limits=limits,
