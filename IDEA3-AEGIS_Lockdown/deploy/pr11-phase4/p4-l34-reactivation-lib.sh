@@ -512,3 +512,160 @@ l34_v5_broker_autorestart_evidence() {
   [[ "$pre_n" =~ ^[0-9]+$ ]] && [[ "$now_n" =~ ^[0-9]+$ ]] || { l34_reason "L34_V5_BROKER_NRESTARTS_UNREADABLE"; return 1; }
   [ "$now_n" -gt "$pre_n" ] || { l34_reason "L34_V5_BROKER_NRESTARTS_DID_NOT_INCREASE"; return 1; }
 }
+
+# ── V6 (STALE-BROKER / AP-DOWN) reactivation: the L6b broker is ALREADY active/running and stable, holding the exact stale 8883 pair
+# (127.0.0.1:8883 and 10.77.30.1:8883, the latter bound before the AP address disappeared), while the AP address is absent and
+# aegis-idea3-dnsmasq.service is cleanly inactive/dead (NOT failed, so no reset-failed on the normal path). V6 brings the AP up and
+# starts dnsmasq, proves the broker TLS path with ONE handshake-only probe, and NEVER issues any command against the broker: it
+# only proves, before and after, that the broker's (MainPID, NRestarts, InvocationID) tuple is exactly the PRE tuple. V1–V5 functions
+# above are unchanged; nothing in this section is reachable from a V1–V5 handler. ─────────────────────────────────────────────────
+
+L34_V6_BROKER_UNIT="aegis-idea3-mosquitto.service"
+L34_V6_BROKER_CONF=$L34_V5_BROKER_CONF
+L34_V6_CA_FILE=/etc/aegis-idea3/mqtt/ca.crt
+L34_V6_STABLE_SAMPLES=3
+L34_V6_SOAK_SAMPLES=6
+L34_V6_PROBE_CMD=""
+
+# l34_v6_unit_props UNIT — the KEY=VALUE tuple every service gate consumes
+l34_v6_unit_props() { systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID "$1"; }
+
+# l34_v6_dnsmasq_pre_gate < `systemctl show …` — the ONE supported V6 dnsmasq state (also the exact state rollback must restore)
+l34_v6_dnsmasq_pre_gate() {
+  local text kv
+  text=$(cat)
+  for kv in LoadState=loaded UnitFileState=enabled ActiveState=inactive SubState=dead Result=success MainPID=0; do
+    grep -qx "$kv" <<< "$text" || { l34_reason "L34_V6_DNSMASQ_PRESTATE_UNEXPECTED:${kv%%=*}"; return 1; }
+  done
+}
+
+# l34_v6_broker_tuple UNIT — three KEY=VALUE lines, always in this order: MainPID, NRestarts, InvocationID (read-only)
+l34_v6_broker_tuple() {
+  local unit=$1 k v
+  for k in MainPID NRestarts InvocationID; do
+    v=$(systemctl show -p "$k" --value "$unit" 2>/dev/null) || { l34_reason "L34_V6_BROKER_TUPLE_UNREADABLE:$k"; return 1; }
+    [ -n "$v" ] || { l34_reason "L34_V6_BROKER_TUPLE_UNREADABLE:$k"; return 1; }
+    printf '%s=%s\n' "$k" "$v"
+  done
+}
+
+# l34_v6_broker_tuple_wellformed FILE — a live broker has a real PID, a numeric restart count and a 32-hex systemd invocation id
+l34_v6_broker_tuple_wellformed() {
+  grep -Eqx 'MainPID=[1-9][0-9]*' "$1" && grep -Eqx 'NRestarts=[0-9]+' "$1" && grep -Eqx 'InvocationID=[0-9a-f]{32}' "$1" \
+    || { l34_reason "L34_V6_BROKER_TUPLE_MALFORMED"; return 1; }
+}
+
+# l34_v6_broker_stable_gate UNIT OUT SAMPLES INTERVAL — SAMPLES reads INTERVAL seconds apart, all identical and well-formed; the first is
+# written to OUT and is the PRE tuple everything later is compared to.
+l34_v6_broker_stable_gate() {
+  local unit=$1 out=$2 n=$3 interval=$4 i cur
+  for ((i = 1; i <= n; i++)); do
+    cur=$(l34_v6_broker_tuple "$unit") || return 1
+    if [ "$i" = 1 ]; then
+      printf '%s\n' "$cur" > "$out"
+      l34_v6_broker_tuple_wellformed "$out" || return 1
+    else
+      [ "$cur" = "$(cat "$out")" ] || { l34_reason "L34_V6_BROKER_TUPLE_UNSTABLE:sample=$i"; return 1; }
+    fi
+    [ "$i" -lt "$n" ] && sleep "$interval"
+  done
+  return 0
+}
+
+# l34_v6_broker_tuple_equal UNIT PRE_FILE — the broker tuple is exactly the PRE tuple (never restarted, replaced or re-invoked)
+l34_v6_broker_tuple_equal() {
+  local now
+  [ -s "$2" ] || { l34_reason "L34_V6_BROKER_TUPLE_PRE_MISSING"; return 1; }
+  now=$(l34_v6_broker_tuple "$1") || return 1
+  [ "$now" = "$(cat "$2")" ] || { l34_reason "L34_V6_BROKER_TUPLE_CHANGED"; return 1; }
+}
+
+# l34_v6_broker_preserved_gate UNIT PRE_FILE AP_ADDR — the complete broker-preservation proof used after every mutation and by rollback:
+# active/running/success/enabled, tuple == PRE, exact stale/live 8883 pair. Read-only; it can only report, never repair.
+l34_v6_broker_preserved_gate() {
+  local unit=$1 pre=$2 addr=$3
+  l34_v6_unit_props "$unit" | l34_v4_service_active_gate "$unit" || return 1
+  l34_v6_broker_tuple_equal "$unit" "$pre" || return 1
+  l34_v4_broker_listeners_gate "$addr" || return 1
+}
+
+# l34_v6_ap_address_absent_gate — the AP address is on NO interface and no route is bound to the AP interface
+l34_v6_ap_address_absent_gate() {
+  local ap=$1 addr=$2 rows
+  rows=$(ip -4 -o addr show 2>/dev/null) || { l34_reason "L34_V6_ADDRESS_LIST_UNREADABLE"; return 1; }
+  ! awk '{ print $4 }' <<< "$rows" | grep -q "^${addr//./\\.}/" || { l34_reason "L34_V6_AP_ADDRESS_PRESENT"; return 1; }
+  [ -z "$(ip route show dev "$ap" 2>/dev/null)" ] || { l34_reason "L34_V6_AP_ROUTE_PRESENT"; return 1; }
+}
+
+# l34_v6_no_ap_dns_dhcp_gate AP_IF AP_ADDR — no DNS/DHCP listener exists on the AP address/interface (no DHCP server anywhere)
+l34_v6_no_ap_dns_dhcp_gate() {
+  local ap=$1 addr=$2 tcp udp rows
+  tcp=$(ss -H -lnt 2>/dev/null) && udp=$(ss -H -lnu 2>/dev/null) || { l34_reason "L34_V6_LISTENERS_UNREADABLE"; return 1; }
+  rows=$(printf '%s\n%s\n' "$tcp" "$udp" | awk 'NF { print $4 }')
+  if grep -Eq "^${addr//./\\.}:(53|67)\$|%${ap}:(53|67)\$|:67\$|^(0\\.0\\.0\\.0|\\*|\\[::\\]):53\$" <<< "$rows"; then
+    l34_reason "L34_V6_AP_DNS_DHCP_LISTENER_PRESENT"; return 1
+  fi
+}
+
+# l34_v6_legacy_1883_rows — every plaintext :1883 TCP listener as "<state> <backlog> <local-address>", sorted, on stdout. An EMPTY result is
+# legal (legacy mosquitto may be absent); a listener on the AP address is never legal.
+l34_v6_legacy_1883_rows() {
+  local rows out
+  rows=$(ss -H -lnt 2>/dev/null) || { l34_reason "L34_V6_LISTENERS_UNREADABLE"; return 1; }
+  out=$(awk '$4 ~ /:1883$/ { print $1, $3, $4 }' <<< "$rows" | LC_ALL=C sort)
+  ! grep -q " ${L34_AP_ADDR//./\\.}:1883\$" <<< "$out" || { l34_reason "L34_V6_PLAINTEXT_1883_ON_AP"; return 1; }
+  [ -z "$out" ] || printf '%s\n' "$out"
+}
+
+# l34_v6_legacy_1883_snapshot OUT — record the PRE rows (possibly none) in OUT
+l34_v6_legacy_1883_snapshot() {
+  local rows
+  rows=$(l34_v6_legacy_1883_rows) || return 1
+  if [ -n "$rows" ]; then printf '%s\n' "$rows" > "$1"; else : > "$1"; fi
+}
+
+# l34_v6_legacy_1883_unchanged PRE_FILE — identical to the PRE snapshot: nothing removed, changed or added (V6 never controls legacy mosquitto)
+l34_v6_legacy_1883_unchanged() {
+  local now
+  now=$(l34_v6_legacy_1883_rows) || return 1
+  [ "$now" = "$(cat "$1")" ] || { l34_reason "L34_V6_LEGACY_1883_CHANGED"; return 1; }
+}
+
+# l34_v6_tls_probe PYTHON P4_DIR REPO_ROOT TIMEOUT — exactly ONE handshake-only probe to the AP broker address through the UNCHANGED
+# p4-l7-broker-probe.py (chain + hostname + TLS>=1.2, no MQTT bytes, no credential read). L34_V6_PROBE_CMD replaces the interpreter+script
+# and is set only by the fixture-mode handlers; live handlers force it empty. Prints the probe PASS line on success.
+l34_v6_tls_probe() {
+  local py=$1 p4=$2 repo=$3 tmo=$4 out rc
+  local -a cmd
+  if [ -n "$L34_V6_PROBE_CMD" ]; then cmd=("$L34_V6_PROBE_CMD"); else cmd=("$py" "$p4/p4-l7-broker-probe.py"); fi
+  out=$(env AEGIS_LOG_PATH=/dev/null timeout "$tmo" "${cmd[@]}" tls --address "$L34_AP_ADDR" --port 8883 --server-name "$L34_BROKER_HOST" \
+    --ca-file "$L34_V6_CA_FILE" --repo-root "$repo" 2>&1)
+  rc=$?
+  [ "$rc" != 124 ] || { l34_reason "L34_V6_TLS_PROBE_TIMEOUT"; return 1; }
+  if [ "$rc" != 0 ]; then
+    l34_reason "L34_V6_TLS_PROBE_FAILED:$(sed -n 's/.*reason=//p' <<< "$out" | head -n 1)"; return 1
+  fi
+  grep -Eqx 'L7_BROKER_TLS_PROBE=PASS tls=TLSv1\.[23]' <<< "$out" || { l34_reason "L34_V6_TLS_PROBE_NOT_PASS"; return 1; }
+  grep -Ex 'L7_BROKER_TLS_PROBE=PASS tls=TLSv1\.[23]' <<< "$out"
+}
+
+# l34_v6_soak_sample AP_IF ROUTE_PRE_FILE BROKER_PRE_FILE — one full soak sample (read-only)
+l34_v6_soak_sample() {
+  local ap=$1 route=$2 pre=$3
+  l34_ap_active_gate "$ap" || return 1
+  [ "$(ip route show default)" = "$(cat "$route")" ] || { l34_reason "L34_DEFAULT_ROUTE_CHANGED"; return 1; }
+  l34_v6_unit_props "$L34_UNIT" | l34_service_active_gate || return 1
+  l34_v4_dnsmasq_listeners_gate "$ap" "$L34_AP_ADDR" || return 1
+  l34_v6_broker_preserved_gate "$L34_V6_BROKER_UNIT" "$pre" "$L34_AP_ADDR" || return 1
+}
+
+# l34_v6_soak AP_IF ROUTE_PRE_FILE BROKER_PRE_FILE SAMPLES INTERVAL — SAMPLES consecutive samples INTERVAL seconds apart; first failure stops it
+l34_v6_soak() {
+  local ap=$1 route=$2 pre=$3 n=$4 interval=$5 i why
+  for ((i = 1; i <= n; i++)); do
+    why=$(l34_v6_soak_sample "$ap" "$route" "$pre" 2>&1 >/dev/null) || { l34_reason "L34_V6_SOAK_FAILED:sample=$i:$(head -n 1 <<< "$why")"; return 1; }
+    printf 'L34_V6_SOAK_SAMPLE=%s PASS\n' "$i"
+    [ "$i" -lt "$n" ] && sleep "$interval"
+  done
+  return 0
+}

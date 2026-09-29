@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-28
+updated: 2026-09-29
 owner: music
 edit_policy: owner-writable
 ---
@@ -17,6 +17,17 @@ edit_policy: owner-writable
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
+
+## IDEA3 PR11 Phase 4 L3/L4 V6 stale-broker/AP-down reactivation — repository implementation only — 2026-09-29
+
+> [!important] Repository-only. No Production mutation, no live authorization or K3 record created, no L4 execution or retry, no L6c/L7, no ESP32. V6 is **not** accepted or proven live; the V5 attempt stays consumed and is never reused.
+> `L34_V6 = REPOSITORY_ONLY (simulator-tested)`, `LIVE_REACTIVATION = NOT_PROVEN`, `AUTHORIZATION_CREATED = NO`, `V5_SEMANTICS_CHANGED = NO`, `BROKER_CONTROL_COMMAND_PRESENT = NO`
+
+- **Baseline `STALE_BROKER_AP_DOWN` (stage `l34-v6-stale-broker-ap-down`):** the L6b broker is active/running and stable (MainPID/NRestarts/InvocationID identical across 3 samples) on the exact stale pair `127.0.0.1:8883` + `10.77.30.1:8883`; the AP address is absent; `aegis-idea3-dnsmasq.service` is cleanly `loaded/enabled/inactive/dead/success/MainPID=0`; V4 wifi/rfkill/radio topology; legacy mosquitto `:1883` may exist. V1–V5 each refuse it.
+- **What V6 does:** one AP activation (autoconnect off/restore), one plain `systemctl start aegis-idea3-dnsmasq.service` (no `reset-failed` on the normal path; rollback alone may issue one exact-unit `reset-failed` if the attempted start left that unit failed), ONE handshake-only TLS probe to `10.77.30.1:8883` through the unchanged `p4-l7-broker-probe.py` (no `openssl`, no MQTT bytes, never `127.0.0.1`), then a fixed 6 x 5 s soak. It never issues any command against the broker; apply, verify, soak and rollback PROVE the broker tuple equals PRE and the stale pair is present, and any change is an S-11 HOLD, never a repair. Legacy `:1883` must stay byte-identical; a new plaintext `:1883` fails.
+- **Owner runner consume order:** pre-gates → handler PREFLIGHT_ONLY → PRE capture + hash → final broker-tuple equality → atomic consume of `L34-V6-REACTIVATION-ATTEMPT-CONSUMED` → full handler preflight → production-mutation marker → first mutation. A PRE capture failure does not consume the attempt. The fresh V6 authorization/K3 contract (scope `L3_L4_RUNTIME_REACTIVATION_V6_STALE_BROKER_AP_DOWN…`, 188 chars) exists only in the runner; the committed runner is an unpinned template that refuses to run.
+- **Limits that remain:** the PRE→POST compare still fails S10 while the IDEA2 baseline is unhealthy (see the V5 section below) — V6 does not change that policy. The V6 runner needs an owner freeze/re-pin, a fresh same-day authorization + K3, and IDEA2 owner (Pub) input before any live run. The live probe's `--repo-root` argument is required by the unchanged probe and is documented in the design spec.
+- **Design:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-09-29-idea3-pr11-phase4-l34-v6-stale-broker-ap-down-design.md`. **Receipt:** `90-Status/logs/2026-09-29_150000_music_idea3-l34-v6-stale-broker-ap-down.md`.
 
 ## IDEA3 PR11 Phase 4 L3/L4 V5 live attempt FAILED (listener race) and rolled back; repository fix — 2026-09-29
 

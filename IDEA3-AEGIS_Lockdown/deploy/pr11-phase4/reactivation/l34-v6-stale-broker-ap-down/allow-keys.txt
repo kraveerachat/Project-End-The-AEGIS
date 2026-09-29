@@ -1,0 +1,27 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 STALE-BROKER / AP-DOWN runtime reactivation (V6): allowed PRE->POST drift keys.
+# Exact keys, no wildcard, no value constraint (p4-compare.sh's own PROTECTED default-deny and every other unconditional rule still
+# apply unchanged; this file only lifts the "must be byte-identical" requirement for the keys below). Persistent artifacts are NOT
+# here: nm.profile.*, fw.idea3_nft, and no dnsmasq/broker config or cert path — those are proven byte/metadata-identical by
+# l34_persistent_verify (apply.sh/verify.sh/rollback.sh), never by this comparator step.
+#
+# The L6b BROKER IS DELIBERATELY ABSENT: V6 never touches it, so NONE of svc.aegis-idea3-mosquitto.service.* (ActiveState, SubState,
+# Result, MainPID, NRestarts, ExecMainStartTimestamp) is approved. Any change to the broker between PRE and POST is real drift and
+# must surface as NEW_OR_WORSENED_DRIFT — that is how the comparator independently backs up the handlers' tuple-equality proof.
+
+# target interface runtime (link, AP mode/SSID/channel, address, connected route, NM device state, active connection; device
+# autoconnect is restored to its PRE value, so its value itself never differs PRE->POST)
+net.link.wlp0s20f3
+net.addr.wlp0s20f3
+net.route4.iface.wlp0s20f3
+nm.active.device.wlp0s20f3
+nm.device.wlp0s20f3.state
+wifi.iface.wlp0s20f3.channel
+wifi.iface.wlp0s20f3.ssid
+wifi.iface.wlp0s20f3.type
+
+# dnsmasq: started by this run (one plain start from a clean inactive/dead/success state) — end-state proven active/running by
+# l34_service_active_gate in verify.sh. Result and NRestarts stay success/0 across a clean start, so they are NOT approved.
+svc.aegis-idea3-dnsmasq.service.ActiveState
+svc.aegis-idea3-dnsmasq.service.SubState
+svc.aegis-idea3-dnsmasq.service.MainPID
+svc.aegis-idea3-dnsmasq.service.ExecMainStartTimestamp
