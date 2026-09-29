@@ -260,11 +260,11 @@ Do not choose `4` merely because it is maximum. If concurrency gives no material
 - End-to-end application inspection confirms no software bottleneck:
   Authenticated download streams directly from disk with normal Node stream backpressure; HUB NGINX route already pins `proxy_buffering off`; zero in-memory buffering; zero rate/connection limiting (`no limit_rate/req/conn`); zero artificial delays.
 - Hardware limiter PROVEN LIVE:
-  Onsite live preflight (reconciled with PR #259) verified deployed router is MikroTik RB750r2 (rev r3, RouterOS 7.18.2 stable) with `ether2` trunk operating at 100 Mbps Full Duplex (`RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX`), matching TP-Link switch Port 1 at `100MF` (`TP_LINK_PORT1_TRUNK=100MF`). Beelink operates at 1 Gbps Full (`BEELINK_LINK=1_GBPS_FULL`) and Admin test client operates at 1 Gbps (`ADMIN_CLIENT_LINK=1_GBPS`).
+  Onsite live preflight (reconciled with PR #259, merged to `main` at `92d479675103988d36240ef219a9193a9a6dcdd4`; `PR259_STATE=MERGED`, `PR259_CURRENT_SCOPE_WORK=COMPLETE`) verified deployed router is MikroTik RB750r2 (rev r3, RouterOS 7.18.2 stable) with `ether2` trunk operating at 100 Mbps Full Duplex (`RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX`), matching TP-Link switch Port 1 at `100MF` (`TP_LINK_PORT1_TRUNK=100MF`). Beelink operates at 1 Gbps Full (`BEELINK_LINK=1_GBPS_FULL`) and Admin test client operates at 1 Gbps (`ADMIN_CLIENT_LINK=1_GBPS`).
   `P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE`, `CURRENT_LAN_THROUGHPUT_LIMITER=PROVEN_HARDWARE_PATH_LIMIT`, `P1_SHARED_PATH_CAPACITY_LIMITER=PROVEN_BY_U2_D1_AND_LIVE_NETWORK_TELEMETRY`.
 - Consequence:
   `APPLICATION_DOWNLOAD_DEFECT=NOT_PROVEN`, `APPLICATION_UPLOAD_DEFECT=NOT_PROVEN`, `SAFE_APP_LAYER_FIX=NONE_PROVEN`, `DOWNLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN`. No application code changes will be made.
-  `CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`, `HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`, `REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`.
+  `CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`, `HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`, `REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`, `PR259_STATE=MERGED`, `PR259_CURRENT_SCOPE_WORK=COMPLETE`.
 
 **Files:**
 - Inspected: `IDEA1-AEGIS_Drive_LC/server/routes/api.js` (no defect found)

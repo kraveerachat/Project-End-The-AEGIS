@@ -154,7 +154,7 @@ One-variable experiments are preferred. Do not bundle chunk size, concurrency, p
 Onsite probes (U2 upload, D1 download) and router/switch telemetry established:
 - **P1 Direct LAN:** Bound by physical 100 Mbps inter-VLAN trunk (`RB750r2_ETHER2_LINK=100MBPS_FULL_DUPLEX`, `TP_LINK_PORT1_TRUNK=100MF`). Single and dual streams saturate ~10.1–11.1 MB/s (91–95% of Fast Ethernet goodput).
 - **Application Layer:** No upload or download defect proven (`APPLICATION_DEFECT_PROVEN=NO`, `SAFE_APP_LAYER_FIX=NONE_PROVEN`). Task 2 upload concurrency is skipped as unjustified (`TASK2_UPLOAD_CONCURRENCY=SKIPPED_NOT_JUSTIFIED`). Task 5 download optimization has no safe app fix proven (`DOWNLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN`).
-- **Production Hardware:** Frozen at MikroTik hEX lite RB750r2 + TP-Link TL-SG105E (`CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`). Hardware replacement, procurement, and cable cutover are NOT authorized (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`). Remediation design in PR #259 is deferred optional future reference (`REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`).
+- **Production Hardware:** Frozen at MikroTik hEX lite RB750r2 + TP-Link TL-SG105E (`CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E`). Hardware replacement, procurement, and cable cutover are NOT authorized (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`). Remediation design in PR #259 (merged to `main` at `92d479675103988d36240ef219a9193a9a6dcdd4`; `PR259_STATE=MERGED`, `PR259_CURRENT_SCOPE_WORK=COMPLETE`) is deferred optional future reference (`REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK`).
 - **Remote Path (P2):** Residual limiter remains OPEN (`REMOTE_RESIDUAL_LIMITER=OPEN`).
 
 ## 8. Implementation strategy

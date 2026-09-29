@@ -980,7 +980,7 @@ ttfbShareA = 21 / (21 + 26991) = 0.000778 ≈ 0.0008
 
 ### 21.3 Live hardware telemetry and infrastructure reconciliation (PR #259)
 
-Onsite preflight executed by Human Owner (reconciled with infrastructure PR #259 @ `f8ee2f27b8cbcb1fe53c4dc9c10b153dfcacd555`):
+Onsite preflight executed by Human Owner (reconciled with infrastructure PR #259, merged to `main` at `92d479675103988d36240ef219a9193a9a6dcdd4`; `PR259_STATE=MERGED`, `PR259_CURRENT_SCOPE_WORK=COMPLETE`):
 
 - **MikroTik Router:** `board-name=hEX lite`, `model=RB750r2`, `revision=r3`, `RouterOS=7.18.2 stable` (`RB750R2_IDENTITY=PROVEN_LIVE`).
 - **Router ether2 Trunk:** `rate=100Mbps`, `full-duplex=yes`, `status=link-ok` (`RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX`).
@@ -1005,6 +1005,9 @@ PRODUCTION_CUTOVER_AUTHORIZED=NO
 REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK
 POST_FIX=NOT_STARTED
 NEW_THROUGHPUT_TEST_EXECUTED=NO
+PR259_STATE=MERGED
+PR259_MERGE_COMMIT=92d479675103988d36240ef219a9193a9a6dcdd4
+PR259_CURRENT_SCOPE_WORK=COMPLETE
 ~~~
 
 ## 22. Remote R1 diagnostic packet — from-home diagnosis (PREPARED / NOT EXECUTED)

@@ -1344,7 +1344,7 @@ REPLACEMENT_WORK_STATE = DEFERRED_OPTIONAL_FUTURE_WORK
 ~~~
 
 *Infrastructure Scope Boundary (Reconciled with PR #259)*:
-Production hardware remains MikroTik hEX lite RB750r2 and TP-Link TL-SG105E. Hardware replacement, procurement, router model selection, and production cable cutover are NOT authorized (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`). PR #259 documents the capacity boundary and preserves an optional remediation design as deferred future reference only. Hardware replacement is NOT required in the current project scope.
+Production hardware remains MikroTik hEX lite RB750r2 and TP-Link TL-SG105E. Hardware replacement, procurement, router model selection, and production cable cutover are NOT authorized (`HARDWARE_REPLACEMENT_AUTHORIZED=NO`, `PROCUREMENT_AUTHORIZED=NO`). PR #259 (merged to `main` at `92d479675103988d36240ef219a9193a9a6dcdd4`; `PR259_STATE=MERGED`, `PR259_CURRENT_SCOPE_WORK=COMPLETE`) documents the capacity boundary and preserves an optional remediation design as deferred future reference only. Hardware replacement is NOT required in the current project scope.
 
 ### 25.5 End-to-end application code diagnosis
 
@@ -1445,5 +1445,8 @@ REMOTE_RESIDUAL_LIMITER = OPEN
 POST_FIX = NOT_STARTED
 NEW_THROUGHPUT_TEST_EXECUTED = NO
 PR257_CROSS_REFERENCE = ADDED
-PR259_INFRASTRUCTURE_TRUTH = RECONCILED (head f8ee2f27)
+PR259_INFRASTRUCTURE_TRUTH = RECONCILED (PR259_STATE=MERGED, commit 92d47967, PR259_CURRENT_SCOPE_WORK=COMPLETE)
+PR259_STATE = MERGED
+PR259_MERGE_COMMIT = 92d479675103988d36240ef219a9193a9a6dcdd4
+PR259_CURRENT_SCOPE_WORK = COMPLETE
 ~~~
