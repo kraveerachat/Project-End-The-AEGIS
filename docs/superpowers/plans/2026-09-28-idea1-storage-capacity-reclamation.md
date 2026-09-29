@@ -2,7 +2,7 @@
 
 - **Task Identity**: `TASK=IDEA1-STORAGE-CAPACITY-RECLAMATION-1`
 - **Area**: `idea1` | **Owner**: `kla` | **Integration Review**: `yes`
-- **Branch**: `fix/idea1-storage-capacity-reclamation` (stacked on PR #220 `fix/idea1-vault-convergence-highres-ux`)
+- **Branch**: `fix/idea1-storage-capacity-reclamation` (historical stacked base: PR #220 `fix/idea1-vault-convergence-highres-ux`; current target: `main`)
 - **Canonical Specification Authority**: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-storage-persistence-architecture.md` (PR #240)
 - **Status**: `COMPLETED & EMPIRICALLY VERIFIED (2026-09-28)`
 
