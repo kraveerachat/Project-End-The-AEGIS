@@ -20,13 +20,14 @@ edit_policy: owner-writable
 **IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1 — TRASH LIST PRESERVED ACROSS DESTRUCTIVE REAUTH / PRODUCTION ACCEPTANCE PASS / DRAFT PR**
 
 - Owner: Kla (`kla`); area: IDEA1.
-- Branch: `fix/idea1-trash-destructive-reauth-ui`; stacked dependency: DRAFT PR on `fix/idea1-vault-convergence-highres-ux` (PR #220).
+- Branch: `fix/idea1-trash-destructive-reauth-ui`; PR #243 remains Draft. Historical stacked base: `fix/idea1-vault-convergence-highres-ux` (PR #220); planned current target: `main` after TRASH-R4 reconciliation.
 - Final Status:
   - `IMPLEMENTATION_COMPLETE=YES`
   - `PRODUCTION_DEPLOYED=YES`
   - `PRODUCTION_ACCEPTANCE=PASS`
   - `PR_MERGED=NO`
-  - `DEPENDENCY_BLOCKED_BY_PR220=YES`
+  - `DEPENDENCY_BLOCKED_BY_PR220=NO` — PR220 merged as `ed45c1b5a63087aa3810d156a8c19b1f1e48c838`; PR241 merged as `5fe58ee9562b528ddae4dfd728caa97b1c6c925b`.
+  - `MAIN_RECONCILIATION=IN_PROGRESS` — docs/history only unless a legitimate main application overlap is identified; non-obvious semantic conflict stops work.
 - Authoritative Source & Production Deployment:
   - `SOURCE_SHA=92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f`
   - `IMAGE=aegis-prod-drive:pr243-92a9ebd86593-r3`
@@ -90,6 +91,7 @@ edit_policy: owner-writable
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
+| TRASH-R4 | Post-PR241 merge reconciliation and main-target review preparation (2026-09-29) | IN PROGRESS | Start local/remote `3aef01913ac4a415d4df38d07e3a82190b9f4f73`, clean existing worktree; main `5fe58ee9562b528ddae4dfd728caa97b1c6c925b`; PR220/PR241 merged; accepted source `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f` is ancestor. Baseline bounded Trash suites 63 pass / 1 PostgreSQL-gated skip / 0 fail | Session scope checkpoint; normal merge/evidence checkpoint pending | Reconciliation pending; Production acceptance carried forward, not repeated | Normal main merge; preserve App wiring/Trash bytes and legitimate main history; affected tests/App integration/local build/browser, governance/vault/diff/secrets/current-head CI; receipt unchanged | Stop on non-obvious semantic conflict; no Production/SSH/image build/deploy, PR216 change, rebase/reset/force, Ready/PR merge or duplicate receipt |
 | TRASH-R3 | PR243 Production rollout R3, deployment postcheck, and Human browser acceptance | PASS | Deployed candidate `aegis-prod-drive:pr243-92a9ebd86593-r3` healthy, restart 0, OOM False; Human acceptance PASS across permanent delete, reauth isolation, row reconciliation, sidebar refresh, empty trash. One final receipt added. | `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f` source; closeout docs | PRODUCTION DEPLOYED & ACCEPTED; IMPLEMENTATION COMPLETE; MERGE BLOCKED BY PR220 | Human Owner merge of PR220, then PR243 | Keep Draft; await PR220 merge |
 | TRASH-R2 | Post-purge authoritative list + stale-response correction | CLOSED | RED→GREEN, 63 pass / 1 PostgreSQL skip, built-App Chrome 6/6, build/root65/vault validation | `dd23ad22760e07425b41c925ef2c81ec2a69c296` | LOCAL VERIFIED; task ACCEPTANCE PENDING | Human source review/live retest not performed; source fix NOT DEPLOYED | Stop at source handoff; no deployment/package, Ready, merge or final receipt |
 
