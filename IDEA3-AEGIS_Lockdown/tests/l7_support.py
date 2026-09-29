@@ -145,6 +145,14 @@ def start():
               "device": "UNKNOWN", "uplink": "UNKNOWN", "armed": "MONITOR_ONLY", "profile": "production", "dry_run": False, "auto_contain": False, "pid": pid}
     json.dump(status, open(ROOT + "/run/aegis-idea3/status.json", "w"))
     os.makedirs(ROOT + "/proc/%d" % pid, exist_ok=True)
+    # effective systemd credential delivery: the four LoadCredential= sources are copied to the runtime credential directory,
+    # restore.credential is NOT projected (it is read directly by the Core), and the process sees CREDENTIALS_DIRECTORY
+    cred_rt = ROOT + "/run/credentials/aegis-idea3-core.service"
+    os.makedirs(cred_rt, exist_ok=True)
+    for n in ("k_c2d", "k_d2c", "mqtt-core.pass", "admin.pin"):
+        data = open(ROOT + "/etc/aegis-idea3/credentials/" + n, "rb").read()
+        open(cred_rt + "/" + n, "wb").write(data)
+        os.chmod(cred_rt + "/" + n, 0o400)
     env = "PATH=/usr/bin\0CREDENTIALS_DIRECTORY=/run/credentials/aegis-idea3-core.service\0"
     if os.environ.get("FAKE_CORE_LEAK_ENV") == "1":
         env += "AEGIS_MQTT_PASS=leaked\0"
@@ -153,7 +161,8 @@ def props(u):
     return {"LoadState": u["load"], "ActiveState": u["active"], "SubState": u["sub"], "Result": u["result"],
             "UnitFileState": ("enabled" if u["enabled"] else "disabled") if u["load"] == "loaded" else "",
             "MainPID": str(u["pid"]), "NRestarts": str(u["nrestarts"]), "ExecMainStartTimestamp": "",
-            "LoadCredential": " ".join("%s:/etc/aegis-idea3/credentials/%s" % (n, n) for n in ("k_c2d", "k_d2c", "mqtt-core.pass", "admin.pin")) if u["load"] == "loaded" else "",
+            # deliberately opaque: the verifier must NOT depend on the textual rendering of this structured property
+            "LoadCredential": os.environ.get("FAKE_LOADCREDENTIAL_TEXT", ""),
             "User": "aegis-idea3"}
 if not argv:
     die("no command", 2)
@@ -194,6 +203,9 @@ if cmd == "stop":
             import shutil
             shutil.rmtree(ROOT + "/run/aegis-idea3", ignore_errors=True)
             shutil.rmtree(ROOT + "/proc/4243", ignore_errors=True)
+            shutil.rmtree(ROOT + "/run/credentials/aegis-idea3-core.service", ignore_errors=True)
+            try: os.rmdir(ROOT + "/run/credentials")  # fixture only: keep the fs tree comparable (an empty parent is harmless live)
+            except OSError: pass
     save(); sys.exit(0)
 if cmd == "disable":
     u = st["units"].get(rest[-1])
