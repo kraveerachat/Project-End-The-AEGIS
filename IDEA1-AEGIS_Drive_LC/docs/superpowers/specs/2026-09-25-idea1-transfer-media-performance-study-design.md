@@ -1076,3 +1076,103 @@ The recent Cloudflare 1033 recovery details are Human Owner evidence supplied
 directly with this task. No repository receipt for that later incident was found
 at the study base, so those facts remain explicitly owner-supplied rather than
 silently presented as repository-measured evidence.
+
+## 23. Task 1 root-cause diagnosis gate (2026-09-29)
+
+Scope: Task 1 of `docs/superpowers/plans/2026-09-29-idea1-transfer-throughput-optimization-implementation.md`.
+Source inspected at PR216 commit `28069f7fbb9934198561a7ba5a165ebe239eb4ee`, the Task 0 normal merge of `origin/main` `21b52d5ecd5ca41a0a3c3429d93405b38dbe81b8`.
+This section adds diagnosis only. It does not rewrite any PRE-FIX run, label, or value in sections 7–11. No application source changed.
+
+### 23.1 Normal Files upload path, traced from current source
+
+| Stage | Current source | Fact |
+|---|---|---|
+| Incremental hash | `src/lib/chunkedUpload.js` `incrementalSha256` | `hash-wasm` SHA-256 over `HASH_SLICE_BYTES = 4 MiB` slices. Runs to completion **before** the session POST. |
+| Session create | `chunkedUpload.js` `createSession` → `server/routes/uploads.js` `POST /` | One POST with the claimed SHA-256. Server checks logical limit and capacity (`statfs`), creates the staged part file, inserts the session row, writes an audit row, returns `chunkSize` (server-owned). |
+| Chunk scheduling | `chunkedUpload.js:227` `for (const index of [...upload.missing])` | **Serial awaited loop. Exactly one chunk PUT in flight per file.** The next PUT starts only after the previous PUT's response is parsed. |
+| Per-chunk request | `chunkedUpload.js` `sendChunk` → `src/lib/api.js` `apiUpload` (XHR) | `file.slice(start, end)` Blob body, `application/octet-stream`, CSRF header, 10 min timeout. |
+| Retry/backoff | `chunkedUpload.js` `CHUNK_ATTEMPTS = 3`, `retryDelayMs = 500 * 2 ** (attempt - 1)` | Retries only on network, 5xx, or 408. Backoff is 500 ms, then 1000 ms. |
+| Edge | `HUB-AEGIS_Entry/nginx.conf` chunk location | TLS with `http2 on`. `proxy_request_buffering off`, `client_max_body_size 64m`, 120 s send/read timeouts. Upstream `drive-proxy:8001` is the Drive container's network alias (`docker-compose.yml`), not a separate proxy tier. |
+| Server write | `uploads.js` `PUT /:uploadId/chunks/:index` → `server/storage/uploadStaging.js` `writeStagedChunk` | Streams `req` through a counting and SHA-256 Transform into `fs.createWriteStream(part, { flags: 'r+', start: index * chunkSize })`. The write is positional, and a different index writes a disjoint byte range. |
+| DB acknowledgement | `server/db/store.js` `recordUploadChunk`, then `listUploadChunks` | Chunk upsert `ON CONFLICT (upload_id, chunk_index)` plus a session `updated_at` update, then the whole chunk list is re-read to build `sessionView` for the response. |
+| Commit | `uploads.js` `POST /:uploadId/commit` | Checks that every chunk is present and correctly sized, claims the session in SQL, compares `stagedPartSize`, streams a full-file SHA-256 (`stagedPartSha256`), and compares it with the claimed hash. |
+| Publish | `publishStagedPartTo` + `store.finishUploadCommit` | Atomic rename, then files row and session close in one transaction. Derivatives are scheduled after the response. |
+
+Current configuration defaults (`server/config/transferLimits.js`): chunk `16 MiB` (range 8–64 MiB), logical limit `5 GiB`, supported ceiling `32 GiB`, session TTL 24 h, commit lease 15 min. `GET /api/files/uploads/limits` returns chunk size, logical limits, TTL, and capacity. It returns no concurrency value because Normal Files has none.
+
+Multi-file behavior (`src/components/UploadDrawer.jsx` `enqueue`): each selected file starts `processFile` without awaiting the others. **Several files in one selection therefore already upload concurrently, one chunk in flight each.** The one-in-flight restriction applies per file, not per page.
+
+1 GB fixture on the current architecture: `ceil(1,000,000,000 / 16,777,216) = 60` PUTs (59 × 16,777,216 B + 1 × 10,144,256 B). This matches the historical audit fact of **63 total requests (60 chunk PUTs + 3 session lifecycle requests)**. That fact is preserved unchanged.
+
+### 23.2 Upload timing budget from existing evidence
+
+The accepted PRE-FIX metric `CHUNK_SPAN` runs from the first PUT `send()` to the last PUT `loadend` (measurement plan §6.1 tracer). It therefore contains only PUT durations plus the gaps between PUTs.
+
+| Component | Value from existing evidence | Basis |
+|---|---|---|
+| HASH_TIME | NOT_MEASURED. **Excluded from the accepted rate by construction** | Hashing finishes before the session POST, which precedes the first PUT. |
+| SESSION_CREATE_TIME | NOT_MEASURED. Excluded by construction | POST, not traced, and before the first PUT. |
+| CHUNK_PAYLOAD_TRANSFER_TIME | NOT_SEPARATED | The tracer recorded only `send`→`loadend` per PUT and the reports kept only the aggregate span. |
+| SERVER_WRITE_TIME | NOT_SEPARATED (inside each PUT duration) | Same. |
+| DB_ACK_TIME | NOT_SEPARATED (inside each PUT duration) | Same. |
+| CHUNK_IDLE_GAP_TIME | NOT_RECORDED. Source-bounded to JavaScript scheduling only: no timer or network call sits between one PUT's `loadend` and the next `send()` on the success path | `chunkedUpload.js:232-251` |
+| RETRY_BACKOFF_TIME | **0 ms in every accepted run** | Every run recorded exactly the expected chunk count of PUTs, all HTTP 200, with zero failures, so no retry fired. |
+| COMMIT_VERIFY_TIME | NOT_MEASURED. Excluded by construction | Commit is a POST after the last PUT. |
+
+Mean wall time per PUT, including any gap (span ÷ 60, 1 GB runs):
+
+| Path | r01 | r02 | r03 |
+|---|---:|---:|---:|
+| P1 Direct LAN | 3,232.6 ms | 3,241.6 ms | 3,235.8 ms |
+| P2 Remote/Twingate | 5,498.1 ms | 5,542.9 ms | 5,526.6 ms |
+
+Interpretation limits:
+
+- The accepted upload ceilings (P1 ≈ 5.06–5.17 MB/s, P2 ≈ 2.98–3.08 MB/s) lie **entirely inside the serial PUT phase**. Client hashing, session creation, commit verification, and retry backoff did not contribute to those numbers.
+- The serial loop is a structural fact. Whether it limits throughput is **not** proven. A fixed per-chunk overhead (response RTT, server tail, DB ack) would need to be about 50% of each 3.2 s LAN PUT (about 1.6 s) for two lanes to double LAN throughput. Existing evidence cannot confirm or exclude that.
+- A per-stream transport limit would also make a second in-flight chunk useful. Candidates include HTTP/2 per-stream flow control at the HUB edge with `proxy_request_buffering off`, and single-stream window/RTT over Twingate. A shared path-capacity limit (network, Twingate, or aggregate HUB/Drive/storage) would not. Existing evidence does not separate these two classes.
+- Server CPU ~6.97%, RAM ~1.32%, and low iostat were sampled during the P2 1 GB upload (§11.7). A server CPU or storage saturation limiter is **not supported**, although only one run was sampled.
+- Historical parallel-transfer experiments, including the Vault 1–4 lane policy, are context only and are not current proof.
+
+### 23.3 Authenticated Files download path, traced from current source
+
+| Stage | Current source | Fact |
+|---|---|---|
+| Authorization + metadata | `server/routes/api.js` `GET /files/:id/download` | `requireAuth`, then `store.findFile`. Owner mismatch returns 404. `keyExists` is checked, then an audit row is written (awaited). These costs are paid **before the first byte (TTFB only)**. |
+| Storage read + response | `api.js` → `server/storage/fileStore.js` `openReadStream` | `fs.createReadStream(abs)` with the default 64 KiB highWaterMark, `.pipe(res)`, `Content-Length` set, no Range support. |
+| drive-proxy | `docker-compose.yml` | Network alias of the Drive container. No extra proxy hop. |
+| HUB NGINX | `HUB-AEGIS_Entry/nginx.conf` `location ~* ^/drive/api/files/[^/]+/download/?$` | **`proxy_buffering off` is present in reconciled source** and pinned by `HUB-AEGIS_Entry/tests/driveTransferEdge.test.mjs` ("large streaming download routes disable only upstream response buffering"). The client side is TLS with `http2 on`. |
+| Client | native `<a download>` stream | Measured by the `.crdownload` observer, which starts after the response headers, so it measures sustained body throughput. |
+
+Structural comparison with Public Share, with no trust semantics carried over: `server/routes/share.js` also serves bytes through `openReadStream(share.filePath)` and `.pipe(res)`, the same Drive storage-read and Node-pipe primitive. C1 delivered **11.7–13.5 MB/s** through Cloudflare, the tunnel, the Public Share gateway, and Drive. P1 authenticated LAN delivered 6.7–7.3 MB/s. So the Drive storage read plus Node pipe primitive **is not by itself** the ~7 MB/s ceiling for a single sequential download. The residual sits in the parts that differ: HUB NGINX with TLS, HTTP/2, and the unbuffered proxy loop, the client network path (inter-VLAN LAN or Twingate), or route startup cost. Route startup cost affects TTFB only and cannot cause a sustained 1 GB body ceiling. No accepted evidence isolates which one.
+
+TTFB versus sustained body: the accepted download method measures body time only. The accepted method never recorded TTFB, so its share is NOT_MEASURED. The awaited route work (find, keyExists, audit) is TTFB-only by construction.
+
+### 23.4 Classification
+
+| Candidate limiter | Upload | Download |
+|---|---|---|
+| Client hash/crypto | **Excluded from the accepted rate by construction** (§23.2) | N/A for Normal Files (no client crypto) |
+| Request serialization / one in flight | NOT_PROVEN (structural fact: serial loop) | N/A (single streaming response) |
+| Per-stream transport (HTTP/2 stream, window/RTT) | NOT_PROVEN | NOT_PROVEN |
+| Server CPU/event loop | Not supported by sampled evidence | NOT_MEASURED |
+| Storage I/O | Not supported by sampled evidence | Drive read primitive alone excluded as the sole ~7 MB/s ceiling (C1) |
+| DB acknowledgement | NOT_SEPARATED | TTFB-only |
+| NGINX/HUB | NOT_PROVEN | NOT_PROVEN (candidate) |
+| Twingate/network path | Contributes (P1 ≈ 1.7× P2). Not the sole limiter (LAN is also far below wire rate) | Contributes (P1 ≈ 1.4× P2). Not the sole limiter |
+
+~~~text
+UPLOAD_ROOT_CAUSE_CLASSIFICATION=NOT_PROVEN
+DOWNLOAD_ROOT_CAUSE_CLASSIFICATION=NOT_PROVEN
+UPLOAD_CLIENT_HASH_IN_ACCEPTED_RATE=EXCLUDED_BY_CONSTRUCTION
+UPLOAD_RETRY_BACKOFF_IN_ACCEPTED_RUNS=0
+UPLOAD_SERIAL_ONE_IN_FLIGHT_PER_FILE=STRUCTURAL_FACT
+UPLOAD_SERIALIZATION_AS_LIMITER=NOT_PROVEN
+DOWNLOAD_PROXY_BUFFERING_OFF_PRESENT=YES
+DOWNLOAD_DRIVE_READ_PRIMITIVE_SOLE_CEILING=EXCLUDED_BY_C1_STRUCTURAL_COMPARISON
+TASK2_NORMAL_FILES_CONCURRENCY=BLOCKED_PENDING_HUMAN_PROBE
+~~~
+
+### 23.5 Gate decision
+
+Existing evidence is insufficient to prove or experimentally isolate that more than one in-flight Normal Files chunk is a useful application-side lever. Per plan Task 1 Step 5, one minimal Human-run probe per path is prepared in the measurement plan, §20. Task 2 does not start until the upload probe result meets its decision rule. The download result can only inform a later, separately authorized Task 5. It never authorizes Task 2.

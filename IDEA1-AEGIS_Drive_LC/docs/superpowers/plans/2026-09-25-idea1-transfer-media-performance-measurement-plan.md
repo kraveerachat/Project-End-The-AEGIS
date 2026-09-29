@@ -811,3 +811,126 @@ CLIENT_CRYPTO_BOTTLENECK=NOT_PROVEN
 FINAL_RECEIPT_CREATED=NO
 NEXT_GATE=DIAGNOSIS_AND_STORAGE_INVESTIGATION
 ~~~
+
+## 20. Task 1 Human probe packet — one upload probe, one download probe (prepared 2026-09-29, NOT EXECUTED)
+
+Diagnosis and rationale: study design §23. Both probes run in the browser tab of the same reference client used for PRE-FIX. Neither probe changes configuration, restarts or recreates a service, or needs SSH. Both use only the Human Owner's own authenticated session. They print no cookie, CSRF token, or session identifier. Upload session ids are replaced with ordinals before printing.
+
+This is **not** the POST-FIX 36-run matrix. Accepted PRE-FIX values are not rewritten. Probe numbers are compared only with the probe's own in-session single-stream baseline.
+
+### 20.1 Upload probe U1 — does a second in-flight PUT raise aggregate throughput?
+
+- Path: **P2 Remote/Twingate** (primary target, and the path with the largest per-request RTT). Twingate ON, same client and browser as PRE-FIX.
+- Traffic generated: three normal 300,000,000 B Files uploads (about 900 MB total). Nothing else is written. The three probe files can be deleted afterwards through the normal Files UI.
+- Why it discriminates: the app already starts every file of one picker selection concurrently (`UploadDrawer.jsx` `enqueue`), with one chunk in flight each. Two files selected together therefore produce exactly two concurrent PUTs over the same HTTP/2 connection and HUB route as Task 2 would, without any code change.
+- Fixtures: three distinct names so that no upload takes the new-version path, created from the PRE-FIX `M-300MB` fixture, for example in PowerShell: `Copy-Item .\M-300MB.bin .\U1-a.bin; Copy-Item .\M-300MB.bin .\U1-b.bin; Copy-Item .\M-300MB.bin .\U1-c.bin`.
+
+Steps:
+
+1. Open Drive → Files (an empty test folder is fine). Open DevTools Console and paste:
+
+~~~javascript
+(() => {
+  const P = window.__AEGIS_LFT_PROBE__ = { runs: [], cur: null,
+    start(label) { this.cur = { label, puts: [] }; this.runs.push(this.cur); return label },
+    report() {
+      const r = this.cur; if (!r || !r.puts.length) return null
+      const ids = [...new Set(r.puts.map(p => p.sid))]
+      const per = ids.map((sid, i) => {
+        const ps = r.puts.filter(p => p.sid === sid).sort((a, b) => a.send - b.send)
+        const gaps = ps.slice(1).map((p, k) => p.send - ps[k].end)
+        const med = a => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : null }
+        const bytes = ps.reduce((a, p) => a + p.bytes, 0)
+        const span = ps[ps.length - 1].end - ps[0].send
+        return { file: i + 1, puts: ps.length, bytes, spanMs: Math.round(span),
+          MBps: +(bytes / 1e6 / (span / 1000)).toFixed(3),
+          medBodyMs: Math.round(med(ps.map(p => p.bodySent - p.send))),
+          medTailMs: Math.round(med(ps.map(p => p.end - p.bodySent))),
+          sumGapMs: Math.round(gaps.reduce((a, g) => a + g, 0)),
+          allHttp200: ps.every(p => p.status === 200) }
+      })
+      const t0 = Math.min(...r.puts.map(p => p.send)), t1 = Math.max(...r.puts.map(p => p.end))
+      const bytes = r.puts.reduce((a, p) => a + p.bytes, 0)
+      return { label: r.label, files: per.length, aggregateBytes: bytes, unionSpanMs: Math.round(t1 - t0),
+        aggregateMBps: +(bytes / 1e6 / ((t1 - t0) / 1000)).toFixed(3), perFile: per }
+    } }
+  const open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send
+  XMLHttpRequest.prototype.open = function (m, u, ...rest) { this.__m = m; this.__u = String(u); return open.call(this, m, u, ...rest) }
+  XMLHttpRequest.prototype.send = function (body) {
+    const m = this.__m === 'PUT' && /\/api\/files\/uploads\/([^/]+)\/chunks\//.exec(this.__u)
+    if (m && P.cur) {
+      const rec = { sid: m[1], send: performance.now(), bodySent: null, end: null, bytes: body?.size ?? 0, status: 0 }
+      this.upload.addEventListener('load', () => { rec.bodySent = performance.now() })
+      this.addEventListener('loadend', () => { rec.end = performance.now(); rec.status = this.status; if (rec.bodySent === null) rec.bodySent = rec.end; P.cur.puts.push(rec) })
+    }
+    return send.call(this, body)
+  }
+  return 'probe installed'
+})()
+~~~
+
+2. Run A (single): `__AEGIS_LFT_PROBE__.start('U1-A-single')`, then upload `U1-a.bin` alone and wait for Complete. Run `JSON.stringify(__AEGIS_LFT_PROBE__.report())` and copy the output.
+3. Run B (dual): `__AEGIS_LFT_PROBE__.start('U1-B-dual')`, then select **both** `U1-b.bin` and `U1-c.bin` **in one picker selection**, and wait for both to Complete. Run `JSON.stringify(__AEGIS_LFT_PROBE__.report())` and copy the output.
+4. Return both JSON lines. Optionally delete the probe files through the normal Files UI.
+
+Expected observations: A `aggregateMBps` near the PRE-FIX P2 upload (~3.0 MB/s), 18 PUTs, all HTTP 200. `medBodyMs` and `medTailMs` split each PUT into body-send time and post-body time (in-flight bytes plus server write tail, DB ack, and the response RTT). `sumGapMs` shows the client idle gaps between PUTs.
+
+**Decision rule U1** (R = B.aggregateMBps ÷ A.aggregateMBps; any non-200 PUT or retry invalidates the pair, so repeat once):
+
+| Result | Classification | Consequence |
+|---|---|---|
+| R ≥ 1.50 | `PROVEN_PER_REQUEST_SERIALIZATION_OR_PER_STREAM_LIMITER` (application-side lever: more than one in-flight chunk is useful) | Task 2 (bounded Normal Files concurrency, default 2) is justified |
+| R ≤ 1.15 | `PROVEN_SHARED_PATH_CAPACITY_LIMITER` (concurrency is not a useful lever on this path) | `TASK2=SKIPPED_CAUSE_MISMATCH`. Diagnose the shared path next (plan amendment required) |
+| 1.15 < R < 1.50 | `NOT_PROVEN` (partial gain) | Report it. Task 2 still requires Human Owner judgement |
+
+Supporting read of run A: if `medTailMs + (sumGapMs ÷ PUTs)` is at least 25% of the mean PUT duration, per-request serialization overhead is material in its own right.
+
+### 20.2 Download probe D1 — TTFB versus body, and per-stream versus shared capacity
+
+- Path: **P1 Direct LAN** (Twingate OFF). P1 has the largest unexplained gap against C1: 7 MB/s against 12 MB/s from the same Drive read primitive.
+- Traffic generated: three authenticated GETs of one existing Normal Files file (at least 300 MB) owned by the Human Owner. That is about 3× the file size. It writes nothing except the normal `FILE_DOWNLOAD` audit rows. Bytes are read in-page and discarded chunk by chunk, so nothing is saved to disk and tab memory stays bounded.
+- Why it discriminates: it separates TTFB from body time on the real authenticated route, and compares one stream against two concurrent streams over the same HTTP/2 connection and HUB `proxy_buffering off` route.
+
+Steps: open Drive → Files and paste into the Console, replacing only the file name:
+
+~~~javascript
+(async () => {
+  const NAME = 'M-300MB.bin' // an existing root-level Files item of at least 300 MB
+  const list = await (await fetch('/drive/api/files', { credentials: 'same-origin' })).json()
+  const f = (list.files || []).find(x => x.name === NAME)
+  if (!f) return 'file not found at root'
+  const url = `/drive/api/files/${encodeURIComponent(f.id)}/download`
+  const one = async (label) => {
+    const t0 = performance.now()
+    const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+    const tHdr = performance.now()
+    const rd = res.body.getReader(); let bytes = 0, tFirst = null
+    for (;;) { const { done, value } = await rd.read(); if (done) break; if (tFirst === null) tFirst = performance.now(); bytes += value.byteLength }
+    const tEnd = performance.now()
+    return { label, status: res.status, bytes, ttfbMs: Math.round(tHdr - t0), bodyMs: Math.round(tEnd - (tFirst ?? tHdr)),
+      bodyMBps: +(bytes / 1e6 / ((tEnd - (tFirst ?? tHdr)) / 1000)).toFixed(3), t0, tEnd }
+  }
+  const A = await one('D1-A-single')
+  const B = await Promise.all([one('D1-B-lane1'), one('D1-B-lane2')])
+  const t0 = Math.min(...B.map(b => b.t0)), t1 = Math.max(...B.map(b => b.tEnd))
+  const aggB = B.reduce((a, b) => a + b.bytes, 0) / 1e6 / ((t1 - t0) / 1000)
+  const strip = ({ t0, tEnd, ...rest }) => rest
+  return JSON.stringify({ size: f.size, A: strip(A), B: B.map(strip), aggregateBMBps: +aggB.toFixed(3),
+    R: +(aggB / A.bodyMBps).toFixed(3), ttfbShareA: +((A.ttfbMs) / (A.ttfbMs + A.bodyMs)).toFixed(4) })
+})()
+~~~
+
+Return the JSON line.
+
+Expected observations: `status` 200 on every stream, and `bytes` equal to `size` on every stream. `A.bodyMBps` should be of the same order as the PRE-FIX P1 download (~7 MB/s). Fetch and the native download are different consumers, so only the in-session R is decisive.
+
+**Decision rule D1** (R = aggregateBMBps ÷ A.bodyMBps):
+
+| Result | Classification |
+|---|---|
+| `ttfbShareA` < 0.05 | Startup cost (auth, metadata, audit) is excluded as the throughput limiter |
+| R ≥ 1.50 | `PROVEN_PER_STREAM_DOWNLOAD_LIMITER` (the HUB HTTP/2 stream / unbuffered proxy loop or the Node response stream per request; candidate for a separately authorized Task 5 diagnosis) |
+| R ≤ 1.15 | `PROVEN_SHARED_PATH_CAPACITY_LIMITER` on P1 (LAN routing or HUB/Drive aggregate; no per-request application fix indicated) |
+| otherwise | `NOT_PROVEN` |
+
+D1 never authorizes Task 2. Download changes remain outside the approved Task 0–2 range.
