@@ -84,12 +84,12 @@ Any replacement must carry every one of these, not only the VLAN gateways:
 1. VLAN 10/20/30/40 gateway addresses (`192.168.10.1/24`, `192.168.20.1/24`, `192.168.30.1/24`, `192.168.40.1/24`) and the 802.1Q trunk.
 2. VLAN 40 (IDEA3) preservation: gateway `192.168.40.1/24`, DHCP server and pool, DNS behavior, firewall policy, MQTT/NTP allowances, and default deny behavior.
 3. Interface lists: RouterOS currently defines WAN=`ether1` and LAN=`bridge,VLAN30-Mgmt,VLAN10-Server`. Note that VLAN 20 and VLAN 40 are **not** members of the LAN interface-list. Migration must preserve this current behavior first without unreviewed alterations.
-4. Forward-chain firewall: the ordered LAN-to-LAN accept rule above the drop rule (`MikroTik-Config.md`). The full rule set must be exported and matched.
-5. WAN NAT (masquerade) on `ether1`, and the input-chain firewall protecting the router.
+4. Forward-chain firewall: the ordered LAN-to-LAN accept rule above the drop rule (`MikroTik-Config.md`). The full rule set was exported in Step 2 (`aegis-rb750r2-pre-gigabit.rsc`) and captured in Step 3 equivalence baseline.
+5. WAN NAT (masquerade) on `ether1`, and the input-chain firewall protecting the router. Three active masquerade rules are captured and preserved.
 6. DHCP on VLAN 10, VLAN 20, VLAN 30, and VLAN 40 (all verified active live).
-7. DNS: `allow-remote-requests=yes`. Static entries currently contain only `router.lan`. The `aegis.internal → 192.168.10.10` static entry is NOT yet implemented live; PR #257 remains the owner of that change.
+7. DNS: `allow-remote-requests=yes`. Static entries currently contain only `router.lan`. The `aegis.internal → 192.168.10.10` static entry is NOT yet implemented live; PR #257 remains the owner of that change (`PR257_DNS_SCOPE_PRESERVED=YES`).
 8. The egress path for the Twingate Connector (outbound only, container `twingate-aegis-connector-02` on the Beelink) and for `cloudflared` (Public Share).
-9. Router management access (Winbox/SSH/API). Restricting it to VLAN 30 is still "⏳ not confirmed".
+9. Router management access (Winbox/SSH/API). The Step 2 export revealed that management services run without IP restrictions and `defconf input drop !LAN` is disabled. This is recorded as `SECURITY_HARDENING_FOLLOWUP_REQUIRED=YES` to be addressed in a separate hardening change, not during cutover.
 
 ## 3. Requirements
 
@@ -174,7 +174,7 @@ Option A preserves every boundary listed in §3:
 - Twingate stays outbound-only through NAT, and no inbound port is opened.
 - No application or authentication change.
 
-Pre-existing gaps are carried forward and **not** claimed as fixed: the unreviewed firewall rule set, the unconfirmed management restriction to VLAN 30, and the unconfirmed switch "Not Member" isolation. The migration export gives the first reliable view of the firewall rules. Any hardening it reveals goes in a separate reviewed change, not in the cutover.
+Pre-existing gaps are carried forward and **not** claimed as fixed: unreviewed firewall rules, management services running without IP restrictions (`SECURITY_HARDENING_FOLLOWUP_REQUIRED=YES`), and unconfirmed switch "Not Member" isolation. The Step 2 migration export gives the first reliable view of the firewall and service configurations. Hardening must occur in a separate reviewed change, not during the cutover.
 
 ## 7. Related work
 
@@ -185,13 +185,12 @@ Pre-existing gaps are carried forward and **not** claimed as fixed: the unreview
 | #18 | X1 post-merge infrastructure reconciliation |
 | #83 | IDEA1 acceptance evidence reconciliation (P1/P2 access paths) |
 | #216 | Performance diagnosis: U2/D1 evidence, 100 Mbps ceiling, no app fix proven. Stays diagnosis-only |
-| #257 | VLAN 30 Direct-LAN DNS contract. Router DHCP/DNS duties must move with the config |
+| #257 | VLAN 30 Direct-LAN DNS contract (`docs(infrastructure): define VLAN30 direct-LAN DNS access contract`). Central DNS implementation remains owned by PR #257 (`PR257_DNS_SCOPE_PRESERVED=YES`) |
 
 This PR carries no content from #216 or #257. It only cross-references them.
 
 ## 8. Open questions for the Human Owner
 
-1. Approve Option A and choose the replacement model (procurement).
-2. Approve a read-only preflight session on the RB750r2 and the Beelink (plan steps 1–2).
-3. Decide whether FastTrack is allowed on the new router (a throughput/visibility trade-off). The default is to keep today's setting unchanged.
-4. Pick a cutover window. All zones and Remote access are briefly offline.
+1. Review PR #259 design (Option A) and choose the replacement Gigabit RouterOS model for procurement (`HUMAN_OWNER_REVIEW_PR259_DESIGN_AND_SELECT_GIGABIT_MIKROTIK_MODEL`).
+2. FastTrack policy: FastTrack is confirmed enabled (`hw-offload=yes`) on the live RB750r2 baseline; default is to keep it enabled during migration.
+3. Pick a cutover window. All zones and Remote access are briefly offline.

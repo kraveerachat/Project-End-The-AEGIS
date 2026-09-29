@@ -65,7 +65,7 @@ PR #216 วัดเพดานร่วม ~10.7 MB/s (upload) / ~11.1 MB/s (d
 
 | งาน | สถานะ | อ้างอิง |
 | :--- | :--- | :--- |
-| Export config backup ของ MikroTik | ⏳ | [[infrastructure/network/MikroTik-Config]] |
+| Export config backup ของ MikroTik | ✅ ทำแล้ว (2026-09-30, Step 2 PR #259) | [[infrastructure/network/MikroTik-Config]] |
 | Backup config ของ Switch | ⏳ | [[infrastructure/network/Switch-VLAN-Config]] |
 | กำหนด Static / DHCP Reservation ให้ Detection Laptop | ⏳ | [[infrastructure/network/VLAN-IP-Plan]] |
 | ตรวจสถานะ ESP32 / Relay | ⏳ | [[idea3/idea3-status]] |

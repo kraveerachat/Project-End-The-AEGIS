@@ -45,39 +45,58 @@ Exit: All preflight items recorded. P-2 and P-4 confirm `ether2` and switch Port
 
 ### Step 2 — Current MikroTik config export / backup
 
-1. `/export show-sensitive=no file=aegis-rb750r2-pre-gigabit` (plain text) and `/system backup save name=aegis-rb750r2-pre-gigabit encryption=aes-sha256 password=<BACKUP_PASSWORD>` (binary, same-model restore only).
-2. Download both files to Human-controlled storage outside the repository and record their SHA-256 values.
-3. Grep the text export for `password=`, `secret=`, `private-key`, and `passphrase`. None may appear. If one does, handle the file as a secret and never commit it.
-4. Record in the vault **only** the checksum, date, and storage location class, never the content.
+Status: **EXECUTED (2026-09-30) / PASS** by Human Owner (`STEP2_RESULT=PASS`).
 
-This also closes the long-standing `MikroTik-Config.md` item "Export Config Backup ⏳".
+1. Plain-text export created:
+   - File: `aegis-rb750r2-pre-gigabit.rsc`
+   - Type: RouterOS script
+   - Size: 9.6 KiB
+2. Encrypted binary backup created:
+   - File: `aegis-rb750r2-pre-gigabit.backup`
+   - Type: RouterOS backup (AES-SHA256)
+   - Size: 43.9 KiB
+   - Password: Kept private to Human Owner (`<BACKUP_PASSWORD>`, not recorded in repo)
+3. Off-router storage & verification:
+   - Both files downloaded from MikroTik to Human Owner controlled off-router storage outside the repository.
+   - SHA-256 calculated locally for both files in off-router storage.
+   - Secret scan audit: Grep for secret patterns (`password=`, `secret=`, `private-key`, `passphrase`) completed with 0 matches (`SECRET_PATTERN_HIT_COUNT=0`).
+   - `STEP2_RESULT=PASS`.
+
+This closes the long-standing `MikroTik-Config.md` item "Export Config Backup ⏳".
 
 ### Step 3 — VLAN / gateway / firewall equivalence checklist
 
-Build a table from the step 2 export. The new router must match every row, in the same order where order matters:
+Status: **EXECUTED (2026-09-30) / BASELINE CAPTURED** by Human Owner from Step 2 export (`STEP3_RESULT=PASS`).
 
-| Row | Item | Old (RB750r2) | New | Match |
+The new router must match every row of this baseline, in the same order where order matters:
+
+| Row | Item | Old (RB750r2 Live Baseline) | New | Match |
 |---|---|---|---|---|
-| E-1 | VLAN 10/20/30/40 IDs on the trunk interface | from export | | |
-| E-2 | Gateway IPs `192.168.10.1/24`, `192.168.20.1/24`, `192.168.30.1/24`, `192.168.40.1/24` | from export | | |
-| E-3 | WAN addressing on `ether1` (DHCP client or static) | from export | | |
-| E-4 | NAT masquerade rule(s) on WAN | from export | | |
-| E-5 | Filter rules, **input** chain, in order | from export | | |
-| E-6 | Filter rules, **forward** chain, in order (LAN-to-LAN accept above drop; VLAN 40 MQTT/NTP allowances and default deny) | from export | | |
-| E-7 | FastTrack rule present / absent (unchanged unless the Human Owner decides otherwise) | from export | | |
-| E-8 | DHCP servers, pools, networks (gateway, DNS option) per VLAN (10, 20, 30, 40) | from export | | |
-| E-9 | DNS settings (`allow-remote-requests=yes`, static `router.lan`; `aegis.internal` not live yet) | from export | | |
-| E-10 | Interface-list membership (`WAN=ether1`, `LAN=bridge,VLAN30-Mgmt,VLAN10-Server`; VLAN 20 and 40 must remain outside LAN) | from export | | |
-| E-11 | `/ip service` enabled set and `address=` restrictions | from export | | |
-| E-12 | Users/groups (names only) | from export | | |
-| E-13 | NTP / clock, identity | from export | | |
+| E-1 | VLAN IDs on trunk interface | `ether2` carrying VLAN 10 (VLAN10-Server), VLAN 20 (VLAN20-IOT), VLAN 30 (VLAN30-Mgmt), VLAN 40 (VLAN40-IDEA3) | | |
+| E-2 | Gateway IPs | `192.168.10.1/24` (VLAN10), `192.168.20.1/24` (VLAN20), `192.168.30.1/24` (VLAN30), `192.168.40.1/24` (VLAN40) | | |
+| E-3 | WAN addressing & default route | `ether1`: DHCP client bound, IP `192.168.1.100/24`, gateway `192.168.1.1`, distance 1, peer-dns=yes, peer-ntp=yes. Default route: dynamic `0.0.0.0/0` via `192.168.1.1%ether1` | | |
+| E-4 | NAT masquerade rules on WAN | 3 active masquerade rules: Rule 0 (`out-interface-list=WAN ipsec-policy=out,none`), Rules 1 & 2 (`out-interface=ether1`). Preserve exact order and rules during initial migration (no deduplication in PR #259) | | |
+| E-5 | Filter rules, **input** chain, in order | Input rules from export. OpenVPN input allow rule: `input accept TCP ether1 dst-port 1194` preserved as-is. Note: `defconf input drop !LAN` is currently DISABLED. | | |
+| E-6 | Filter rules, **forward** chain, in order | Ordered rules: LAN-to-LAN accept above drop rule (`MikroTik-Config.md`); VLAN20 → VLAN30 drop; VLAN40 rules (allow DHCP, allow DNS to 192.168.40.1, drop other router access, allow MQTT to 192.168.10.13:1883/8883, allow NTP to WAN UDP/123, drop other VLAN10, drop VLAN20, drop VLAN30, default deny forward) | | |
+| E-7 | FastTrack rule | `enabled`, `hw-offload=yes` | | |
+| E-8 | DHCP pools, servers & networks | Pools: `default-dhcp` (192.168.88.10-254), `dhcp_pool1` (VLAN20, .20.2-254), `dhcp_pool2` (VLAN10, .10.100-254), `dhcp_pool3` (VLAN30, .30.10-99), `vpn-pool` (VPN, .30.100-200), `dhcp_pool4` (VLAN40, .40.100-199). Servers: `dhcp1` (VLAN20), `dhcp2` (VLAN10), `dhcp3` (VLAN30), `dhcp4` (VLAN40), lease-time=30m. Networks: 10.0/24 (gw .10.1), 20.0/24 (gw .20.1), 30.0/24 (gw .30.1), 40.0/24 (gw .40.1), 88.0/24 (gw .88.1) | | |
+| E-9 | DNS settings | `allow-remote-requests=yes`, static DNS server `8.8.8.8`, dynamic servers `115.178.58.10, 115.178.58.26`. Static entry: `router.lan → 192.168.88.1`. Note: `aegis.internal` is ABSENT (PR #257 owns implementation) | | |
+| E-10 | Interface-list membership | `WAN=ether1`, `LAN=bridge,VLAN30-Mgmt,VLAN10-Server`. *(VLAN 20 and VLAN 40 are NOT members of LAN; do not normalize during migration)* | | |
+| E-11 | `/ip service` enabled set & restrictions | Enabled: telnet (23), ftp (21), www (80), ssh (22), api (8728), winbox (8291), api-ssl (8729). Disabled: www-ssl (443). Address restrictions empty (`SECURITY_HARDENING_FOLLOWUP_REQUIRED=YES`, deferred) | | |
+| E-12 | OpenVPN server state | `name=ovpn-server DISABLED=YES` (port 1194 TCP, mode=ip, profile=ovpn-profiles, cert=aegis-ca, redirect-gateway=disabled). Must preserve DISABLED state during initial migration | | |
+| E-13 | NTP client state | `enabled=no`, `status=stopped` | | |
+| E-14 | Identity & users | `name=MikroTik`, users/groups (names only) | | |
 
 VLAN 40 specific requirements:
 - Gateway `192.168.40.1/24` on trunk sub-interface
-- DHCP server, pool, and network options preserved
-- DNS relay behavior preserved
-- Firewall policy preserved: MQTT allowances to broker (`192.168.10.10:1883`), NTP allowances, default deny to other internal subnets
+- DHCP server (`dhcp4`), pool (`dhcp_pool4`: 192.168.40.100–199), and network options preserved
+- DNS relay behavior preserved (UDP/TCP to 192.168.40.1 allowed)
+- Firewall policy preserved: MQTT allowances to broker (`192.168.10.13:1883,8883`), NTP allowances to WAN UDP/123, drop other router access, drop VLAN10/20/30, default deny forward
 - Interface list: must NOT be added to `LAN` interface-list during migration (preserve existing isolation)
+
+Security boundary notes:
+- `SECURITY_HARDENING_FOLLOWUP_REQUIRED=YES`: Management services (telnet, ftp, www, api, winbox) currently run without address restrictions and `defconf input drop !LAN` is disabled. This is a pre-existing finding. Do NOT attempt to harden management exposure or modify rules during PR #259 initial migration; initial cutover must achieve exact operational equivalence first.
+- `PR257_DNS_SCOPE_PRESERVED=YES`: Central `aegis.internal` DNS record remains absent from live router and is owned exclusively by PR #257.
 
 Mismatches are allowed **only** for physical interface names and switch-chip / bridge syntax, and each one must be written down.
 
@@ -179,9 +198,10 @@ Run the PR #216 measurement plan's P1 Direct-LAN matrix (upload and download, 10
 ## Completion gate
 
 - [x] Step 1 live preflight EXECUTED (2026-09-30): verified RB750r2 `ether2` 100 Mbps, Beelink 1 Gbps, Switch Port 1 100MF, Switch Ports 2/5 1000MF, VLAN 10/20/30/40 topology.
-- [ ] Design approved (Option A) and model chosen.
-- [ ] Step 2 config export and Step 3 equivalence checklist recorded; export artifacts stored outside repo.
-- [ ] Steps 4–5 checklist fully matched and signed off.
+- [x] Step 2 config export and backup EXECUTED (2026-09-30): `.rsc` (9.6 KiB) and `.backup` (43.9 KiB) saved off-router, SHA-256 available, secrets scan 0 hits.
+- [x] Step 3 equivalence checklist baseline EXECUTED (2026-09-30): live baseline captured across all checklist rows from export (`STEP3_RESULT=PASS`).
+- [ ] Design approved (Option A) and Gigabit MikroTik model chosen by Human Owner.
+- [ ] Steps 4–5 preparation and checklist fully matched and signed off.
 - [ ] Step 6 cutover, steps 7–9 all pass, **or** step 10 rollback completed and recorded.
 - [ ] Step 11 quick probe recorded.
 - [ ] Vault updated: `Hardware-Inventory.md` (new model and port speed), `MikroTik-Config.md` (backup done, new device), plus one final task receipt.

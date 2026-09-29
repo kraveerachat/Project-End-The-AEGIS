@@ -2,7 +2,7 @@
 title: MikroTik Edge Router Config (RB750r2)
 tags: [aegis, infrastructure, network, mikrotik, router, firewall, routeros]
 type: infrastructure
-status: ✅ ทำงานจริง+ทดสอบ Routing แล้ว · ⏳ ยังไม่ backup config
+status: ✅ ทำงานจริง+ทดสอบ Routing แล้ว · ✅ backup config สำเร็จแล้ว (2026-09-30)
 created: 2026-08-06
 updated: 2026-09-30
 owner: kla
@@ -21,14 +21,16 @@ edit_policy: owner-writable
 
 | งาน | รายละเอียด | สถานะ |
 | :--- | :--- | :--- |
-| แยกวงบ้านออกจากวง AEGIS | `ether1` = WAN รับสายจาก Router บ้าน, ทำ NAT/Firewall กั้น (100 Mbps Full Duplex) | ✅ ตรวจจริง 2026-09-30 |
+| แยกวงบ้านออกจากวง AEGIS | `ether1` = WAN รับสายจาก Router บ้าน (DHCP client bound `192.168.1.100/24`, gw `192.168.1.1`, NAT/Firewall, 100 Mbps Full Duplex) | ✅ ตรวจจริง 2026-09-30 |
 | สร้าง VLAN Interface | VLAN 10 / 20 / 30 / 40 บน `ether2` (Trunk 802.1Q, 100 Mbps Full Duplex) | ✅ ตรวจจริง 2026-09-30 |
 | ตั้ง Gateway แต่ละวง | `192.168.10.1` · `192.168.20.1` · `192.168.30.1` · `192.168.40.1` | ✅ ตรวจจริง 2026-09-30 |
-| DHCP Server | แจก IP บน VLAN 10, VLAN 20, VLAN 30, VLAN 40 | ✅ ตรวจจริง 2026-09-30 |
-| Inter-VLAN Routing | Routing ข้ามวงทำงานได้ | ✅ ทดสอบแล้ว (ping VLAN30→VLAN10 loss 0%, 0.5–0.8 ms) |
-| จัดลำดับ Firewall Rule | ย้าย rule **LAN-to-LAN ขึ้นเหนือ Drop Rule** จึงยอมให้ข้ามวงได้ | ✅ |
+| DHCP Pools & Servers | แจก IP บน VLAN 10 (`dhcp_pool2`), VLAN 20 (`dhcp_pool1`), VLAN 30 (`dhcp_pool3`), VLAN 40 (`dhcp_pool4`) และ `vpn-pool` | ✅ ตรวจจริง 2026-09-30 |
+| Inter-VLAN Routing | Routing ข้ามวงทำงานได้ (default route `0.0.0.0/0` via `192.168.1.1%ether1`) | ✅ ทดสอบแล้ว (ping VLAN30→VLAN10 loss 0%, 0.5–0.8 ms) |
+| จัดลำดับ Firewall Rule | ย้าย rule **LAN-to-LAN ขึ้นเหนือ Drop Rule** จึงยอมให้ข้ามวงได้; VLAN 40 มี rule เฉพาะ (MQTT ไปยัง 192.168.10.13, NTP, drop อื่น ๆ) | ✅ ตรวจจริง 2026-09-30 |
 | Interface Lists | `WAN=ether1`, `LAN=bridge,VLAN30-Mgmt,VLAN10-Server` (VLAN 20 และ 40 อยู่นอก LAN list) | ✅ ตรวจจริง 2026-09-30 |
-| DNS Relay | `allow-remote-requests=yes` (static: `router.lan`; `aegis.internal` ยังไม่ได้ใส่ ดู PR #257) | ✅ ตรวจจริง 2026-09-30 |
+| DNS Relay | `allow-remote-requests=yes` (static: `router.lan` 88.1; `aegis.internal` ยังไม่ได้ใส่ ดู PR #257) | ✅ ตรวจจริง 2026-09-30 |
+| FastTrack | เปิดใช้งาน `hw-offload=yes` | ✅ ตรวจจริง 2026-09-30 |
+| **Export Config Backup** | Export `.rsc` (9.6 KiB) และ `.backup` (43.9 KiB) เก็บไว้นอกอุปกรณ์, SHA-256 พร้อมใช้งาน, secret scan 0 hits | ✅ สำเร็จ 2026-09-30 (Step 2 PR #259) |
 
 > 💡 **บทเรียน**: บน RouterOS ลำดับของ Firewall Rule สำคัญกว่าตัวเนื้อ rule — rule ที่ถูกต้องแต่ถูกวางใต้ `drop` จะไม่มีผลเลย ตอนแรก Inter-VLAN ping ไม่ผ่านเพราะสาเหตุนี้
 
@@ -39,7 +41,7 @@ edit_policy: owner-writable
 ```
 Internet (ISP)
    └── Router บ้านเพื่อน   ← ⚠️ ทีมไม่มีสิทธิ์ Admin → Port Forward ไม่ได้
-          └── MikroTik ether1 (WAN, 100M Full)   ← NAT ชั้นที่ 2
+          └── MikroTik ether1 (WAN, 100M Full, DHCP 192.168.1.100)   ← NAT ชั้นที่ 2
                  └── ether2 Trunk (100M Full) → TL-SG105E → VLAN 10/20/30/40
 ```
 
@@ -48,14 +50,13 @@ Internet (ISP)
 
 ---
 
-## ⏳ สิ่งที่ยังไม่ได้ทำ
+## ⏳ สิ่งที่ยังไม่ได้ทำ / ข้อสังเกตความปลอดภัย
 
 | งาน | ทำไมสำคัญ | สถานะ |
 | :--- | :--- | :--- |
-| **Export Config Backup** (`/export` + `.backup`) | ถ้าอุปกรณ์พังหรือ reset ตอนนี้ = ต้องตั้งใหม่ทั้งหมดจากศูนย์ | ⏳ **ยังไม่ทำ** (Step 2 ในแผน remediation) |
-| **Review Firewall Rule ครบชุดก่อน Production** | ตอนทดสอบ routing มีการผ่อน rule ชั่วคราว ยังไม่ได้ไล่ตรวจว่าเหลืออะไรเปิดกว้างไว้ | ⏳ **ยังไม่ทำ** |
-| ตรวจว่ามี Service ที่ไม่จำเป็นเปิดอยู่ (`/ip service`) | ลด attack surface บนตัว Router | ⏳ |
-| ตั้งรหัสผ่าน/จำกัดการเข้าถึง Winbox/API ให้เฉพาะ VLAN 30 | Out-of-band management | ⏳ ยังไม่ยืนยัน |
+| **Security Hardening Management Services** | จากการ export พบว่า telnet, ftp, www, ssh, api, winbox เปิดอยู่โดยไม่มี IP restriction และ `defconf input drop !LAN` ถูก disabled | ⏳ **ต้องทำแยก** (`SECURITY_HARDENING_FOLLOWUP_REQUIRED=YES`, ไม่แก้ใน PR #259 เพื่อรักษา equivalence) |
+| **Review Firewall Rule ครบชุดก่อน Production** | Step 2 export ได้ชุด rule ฉบับเต็มมาแล้ว รอ review อย่างเป็นทางการ | ⏳ มี baseline แล้ว (Step 3 PR #259) |
+| ตั้งรหัสผ่าน/จำกัดการเข้าถึง Winbox/API ให้เฉพาะ VLAN 30 | Out-of-band management | ⏳ รวมในงาน hardening |
 
 > ⚠️ **ห้ามเขียนในเล่มว่า Firewall ผ่านการ review แล้ว** — ยังไม่มีหลักฐาน
 
@@ -71,8 +72,12 @@ Internet (ISP)
   * Admin Laptop = 1 Gbps Full
   * PR #216 U2/D1 single ≈ dual ≈ 10.7–11.1 MB/s
   * สถานะ: `P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE`
-* ออกแบบการแก้ (ยังไม่ทำ, รอ Human review): เปลี่ยนเป็น Router RouterOS แบบ Gigabit โดย import config เดิม — `docs/superpowers/specs/2026-09-30-aegis-gigabit-intervlan-remediation-design.md` · แผน: `docs/superpowers/plans/2026-09-30-aegis-gigabit-intervlan-remediation.md` (Step 1 Preflight สำเร็จแล้ว; Step 2 Export Backup เป็นขั้นตอนถัดไป)
-* แผนนี้ต้องทำ **Export Config Backup** (รายการ ⏳ ข้างบน) เป็นขั้นแรกก่อนแตะอุปกรณ์ใด ๆ
+* ออกแบบการแก้: เปลี่ยนเป็น Router RouterOS แบบ Gigabit โดย import config เดิม — `docs/superpowers/specs/2026-09-30-aegis-gigabit-intervlan-remediation-design.md` · แผน: `docs/superpowers/plans/2026-09-30-aegis-gigabit-intervlan-remediation.md`
+* สถานะแผน:
+  * Step 1 (Live Preflight): ✅ EXECUTED
+  * Step 2 (Export & Backup): ✅ EXECUTED (`STEP2_RESULT=PASS`)
+  * Step 3 (Equivalence Baseline): ✅ EXECUTED (`STEP3_RESULT=PASS`)
+  * ขั้นตอนถัดไป: Human Owner review PR #259 design และเลือกรุ่น Gigabit MikroTik สำหรับจัดซื้อ (`HUMAN_OWNER_REVIEW_PR259_DESIGN_AND_SELECT_GIGABIT_MIKROTIK_MODEL`)
 
 ---
 
