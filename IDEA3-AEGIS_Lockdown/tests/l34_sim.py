@@ -96,6 +96,9 @@ DEFAULT_STATE = {
     "broker_crashloop_cause": "ap_bind_missing",  # V5 crashloop journal signature: "ap_bind_missing" | anything else = unrelated cause
     "broker_crashloop_override": {},  # V5 crashloop PRE: per-key systemctl-show overrides (e.g. {"Result": "signal"})
     "broker_recovered_override": {},  # V5 crashloop POST (recovered): per-key systemctl-show overrides (e.g. {"NRestarts": "..."})
+    "broker_listener_lag_polls": 0,   # V5 only: the first N `ss ... sport = :8883` polls see the broker running but its sockets not yet fully bound
+    "broker_listener_lag_shape": "empty",  # what those lagging polls see: "empty" (no 8883 listener) | "one" (127.0.0.1:8883 only)
+    "broker_listener_extra": [],      # extra `ss` rows appended to the broker's 8883 listeners once it is up (wrong/extra listener set)
     "dnsmasq_syntax_ok": True,        # `dnsmasq --test --conf-file=...` result
 }
 
@@ -435,7 +438,14 @@ def main(argv: list[str]) -> int:
         broker_up = _broker_crashloop_recovered(s) if s["broker_mode"] == "crashloop_until_ap" \
             else bool(s["identities"].get("aegis-idea3-mosquitto.service", [0, 0])[0])
         if broker_up:
-            tcp += ["LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*", "LISTEN 0 100 10.77.30.1:8883 0.0.0.0:*"]
+            lagging = False
+            if args == ["-H", "-ltn", "sport = :8883"]:  # calls.log already holds this call, so the count is this poll's 1-based index
+                lagging = sum(1 for l in calls(sim) if l == "ss -H -ltn sport = :8883") <= s["broker_listener_lag_polls"]
+            if lagging:
+                if s["broker_listener_lag_shape"] == "one":
+                    tcp.append("LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*")
+            else:
+                tcp += ["LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*", "LISTEN 0 100 10.77.30.1:8883 0.0.0.0:*"] + list(s["broker_listener_extra"])
         if args == ["-H", "-lnt"]:
             out = tcp
         elif args == ["-H", "-lnu"]:

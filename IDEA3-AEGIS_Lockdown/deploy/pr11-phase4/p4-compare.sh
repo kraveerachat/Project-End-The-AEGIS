@@ -340,6 +340,12 @@ END {
     emit("INCOMPARABLE", "JOURNAL_BOUNDARY_MISMATCH", "meta.journal_since", B["meta.journal_since"], A["meta.journal_since"])
 
   tunnel_unhealthy = (B["idea2.verdict.tunnel_healthy"] == "NO")
+  # The engine's HeartbeatWorker logs one "Monitor unreachable ... Connection refused" warning every 5s for as long as the
+  # IDEA2 monitor (18002) is down. Both captures share one JOURNAL_SINCE, so the window is ~0s in PRE and the whole
+  # mutation window in RB: a growing count is then a window-length artifact, not new drift. Narrowly baseline-only when
+  # the monitor was already down (runtime unhealthy, 18002 absent) in BOTH captures.
+  engine_monitor_down = (B["idea2.verdict.runtime_healthy"] == "NO" && A["idea2.verdict.runtime_healthy"] == "NO" \
+                         && B["idea2.listen.18002"] == "absent" && A["idea2.listen.18002"] == "absent")
   new_class = 0
   for (i in TC) {
     t = "idea2.tunnel.journal." TC[i]
@@ -622,6 +628,9 @@ END {
       emit("NEW_OR_WORSENED_DRIFT", (b == "present" ? "IDEA2_8077_LISTENER_REMOVED" : "IDEA2_8077_STATE_CHANGED"), key, b, a)
     } else if (key == "idea2.listen.18002") {
       emit("NEW_OR_WORSENED_DRIFT", "IDEA2_18002_STATE_CHANGED", key, b, a)
+    } else if (key ~ /^idea2\.engine\.journal\.(heartbeat_failed|refused)$/ && engine_monitor_down \
+               && isnum(b) && isnum(a) && a + 0 >= b + 0) {
+      emit("BASELINE_UNHEALTHY_BUT_UNCHANGED", "IDEA2_ENGINE_HEARTBEAT_BASELINE", key, b, a)
     } else if (key ~ /^idea2\.engine\.journal\./) {
       emit("NEW_OR_WORSENED_DRIFT", "IDEA2_ENGINE_FAILURE_DRIFT", key, b, a)
     } else if (key ~ /^idea2\.engine\./) {
