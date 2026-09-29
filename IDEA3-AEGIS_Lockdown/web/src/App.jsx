@@ -44,7 +44,7 @@ export default function App() {
   const [session, setSession] = useState(null)
   const [snapshot, setSnapshot] = useState(null)
   const [route, setRoute] = useState(() => routeFromPath())
-  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || 'light')
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || 'dark')
   const [language, setLanguage] = useState(initialLanguage)
   const [error, setError] = useState('')
 

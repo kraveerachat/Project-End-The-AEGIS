@@ -19,6 +19,20 @@
   --danger-soft: #fef2f2;
   --shadow: 0 1px 2px rgb(15 23 42 / 5%), 0 8px 28px rgb(15 23 42 / 4%);
   --sidebar-width: 260px;
+  --info: #0e7490;
+  --info-soft: #ecfeff;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --touch-target: 44px;
+  --focus-ring: 0 0 0 2px var(--canvas), 0 0 0 4px var(--accent);
+  --font-sans: InterVariable, "IBM Plex Sans Thai", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
   font-family: InterVariable, "IBM Plex Sans Thai", system-ui, sans-serif;
 
   /* Login background and surface tokens — default / light theme */
@@ -37,14 +51,14 @@
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --canvas: #070a12;
-  --card: #0d1220;
-  --sunken: #131a2b;
+  --canvas: #060910;
+  --card: #0c111d;
+  --sunken: #121a29;
   --ink: #f8fafc;
   --ink-secondary: #cbd5e1;
   --ink-caption: #94a3b8;
-  --line: #29334a;
-  --line-strong: #3a4661;
+  --line: #26314a;
+  --line-strong: #3a4763;
   --accent: #3b82f6;
   --accent-strong: #60a5fa;
   --accent-soft: #101d38;
@@ -54,7 +68,9 @@
   --warning-soft: #30250b;
   --danger: #f87171;
   --danger-soft: #361519;
-  --shadow: 0 1px 2px rgb(0 0 0 / 20%), 0 8px 28px rgb(0 0 0 / 14%);
+  --shadow: 0 1px 2px rgb(0 0 0 / 28%), 0 8px 28px rgb(0 0 0 / 18%);
+  --info: #22d3ee;
+  --info-soft: #082a33;
 
   /* Login background and surface tokens — dark theme */
   --login-bg-image: url('/assets/BG_AEGIS02.png');
