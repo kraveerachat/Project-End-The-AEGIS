@@ -21,9 +21,9 @@ Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
 PR: Draft publication authorized; keep Draft until remaining H1/Task 16 acceptance and the one final task receipt are complete
-Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_N0=PASS; H1_STATE=BLOCKED_PREREQUISITES. Historical Attempts 1–4 failed closed and cleaned up; Attempt 8 blocked at postgres-seed; Attempt 9 passed at `af42604fbdd0dc42ada7d406b832f3267232eb5f`. The first main integration produced `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`, corrected the physical-heartbeat semantic defect through RED→GREEN, and passed a fresh human-run post-merge N0 probe (2026-09-29T19:26:47Z–19:38:21Z, exit 0; postgres-seed, monitor-health, capacity measurements, and cleanup PASS). The probe's fresh Production before/after identity hash was `a9793f92870b39ff961245493901691820bb0114d1f5049c577e921c95e8a5cc` (7 containers, 7 networks, 4 volumes); no Production mutation was performed. Final reviewed main sync `fdc2dd3d3ee5d69f303a6767047509dc37150f75` brought only IDEA1/IDEA3 changes; the actual merged tree `0588a24ee4900b469a0dbf25cccc420c07cb5053` preserved every pinned H1 runtime/build input byte-for-byte. N0 was not rerun. N1–N7, live CA/path acceptance, permanent Machine A install/reboot/account acceptance, and final task closeout remain outstanding.
+Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_N0=PASS; H1_STATE=BLOCKED_PREREQUISITES. Historical Attempts 1–4 failed closed and cleaned up; Attempt 8 blocked at postgres-seed; Attempt 9 passed at `af42604fbdd0dc42ada7d406b832f3267232eb5f`. The first main integration produced `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`, corrected the physical-heartbeat semantic defect through RED→GREEN, and passed a fresh human-run post-merge N0 probe (2026-09-29T19:26:47Z–19:38:21Z, exit 0; postgres-seed, monitor-health, capacity measurements, and cleanup PASS). The probe's fresh Production before/after identity hash was `a9793f92870b39ff961245493901691820bb0114d1f5049c577e921c95e8a5cc` (7 containers, 7 networks, 4 volumes); no Production mutation was performed. Reviewed main syncs `fdc2dd3d3ee5d69f303a6767047509dc37150f75` and `ca8c0133b59695a4b9f0689d7efd61991af8ab32` brought only unrelated IDEA1/IDEA3 changes; the latter actual merge `abd57aa58fc9d52f86e9f700b657fd366f5d8e12` preserved every pinned H1 runtime/build input byte-for-byte. N0 was not rerun. N1–N7, live CA/path acceptance, permanent Machine A install/reboot/account acceptance, and final task closeout remain outstanding.
 Started: 2026-09-19
-Live-accepted source checkpoint: `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`; final unrelated-main merge: `8ed07adf1a29a6b76ca5c776031a4fea6e37223e` (same pinned H1 inputs)
+Live-accepted source checkpoint: `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`; latest unrelated-main merge: `abd57aa58fc9d52f86e9f700b657fd366f5d8e12` (same pinned H1 inputs)
 Production mutation allowed: NO
 
 ```text
@@ -62,11 +62,15 @@ historical test-contract evidence, not as current gate state:
 
 ### Final reviewed main-equivalence evidence (N0, 2026-09-30)
 
-The final merge commit `8ed07adf1a29a6b76ca5c776031a4fea6e37223e`
-has tree `0588a24ee4900b469a0dbf25cccc420c07cb5053`, exactly the
-pre-reviewed hypothetical merge tree. Compared with the live-accepted source
-`5f154a25becfd8cf3c84f19a1585c51fbd4d399c`, the changed paths are only
-15 IDEA1/IDEA3 source/documentation paths. The actual merged H1 identities are:
+The first reviewed main merge `8ed07adf1a29a6b76ca5c776031a4fea6e37223e`
+had tree `0588a24ee4900b469a0dbf25cccc420c07cb5053`. A second approved
+main sync merged `ca8c0133b59695a4b9f0689d7efd61991af8ab32` as
+`abd57aa58fc9d52f86e9f700b657fd366f5d8e12`, with tree
+`5e93dcab71233c02de62acf2e5f6e5f433a2098a`. The second main advance
+changed exactly four IDEA3 paths and no IDEA2 or H1 runtime/build/probe input.
+Compared with the live-accepted source
+`5f154a25becfd8cf3c84f19a1585c51fbd4d399c`, both main advances are
+unrelated IDEA1/IDEA3 source/documentation changes. The latest merged H1 identities are:
 
 | Input | Git object ID |
 |---|---|
@@ -193,7 +197,7 @@ merge, Production deployment, or a claim that Task 16 is complete.
 - **Completed:** Original Task 15 prepared and statically validated the Human Owner installation gate. Human H0-1/H0-2R-1 passed. Fresh WinGet diagnostics proved that the first H0-2R-2 command never selected or ran an installer because Windows PowerShell 5.1 split the nested `--override` at `Program Files`. The corrected exact official-installer path was later authorized and exited zero; `C:\Program Files\Python312\python.exe` proves Python 3.12.10 AMD64 and `py.exe -0p` lists it beside the unchanged-location Python 3.14 baseline. H0-2R-3 stopped only because its registration check incorrectly required the Burn bundle GUID in HKLM.
 - **Completed:** H0 is human-proven complete. The historical H0-2R failures and their bounded corrections remain below as an audit trail rather than current blockers.
 - **Completed:** Repository-only `AEGIS_AGENT_CA_BUNDLE` implementation and local disposable-certificate verification. TLS verification remains mandatory; no live trust material or runtime was provisioned.
-- **Completed:** Attempt 9 and the post-merge human-run disposable H1 N0 capacity probe at live source `5f154a25` passed. Final reviewed main sync `fdc2dd3d` changed no pinned IDEA2/H1 runtime input; targeted non-live tests/build passed. Production identity was unchanged.
+- **Completed:** Attempt 9 and the post-merge human-run disposable H1 N0 capacity probe at live source `5f154a25` passed. Reviewed main syncs `fdc2dd3d` and `ca8c0133` changed no pinned IDEA2/H1 runtime input; targeted non-live tests/build passed after each sync. Production identity was unchanged during the live N0 probe.
 - **Remaining:** N1–N7, reviewed H1 public CA/path acceptance, persistent lab provisioning, permanent Machine A installation, reboot/operator/operator2 acceptance, and the one final receipt. Draft PR publication is authorized, but Ready status and merge remain human-gated.
 
 ### PRE-TASK-12 verified contract and known limitations
