@@ -1,0 +1,40 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 POST-L6b/L6c DEGRADED runtime reactivation (V5): allowed PRE->POST drift keys.
+# Exact keys, no wildcard, no value constraint (unconstrained — p4-compare.sh's own PROTECTED default-deny and every
+# other unconditional rule still apply unchanged; this file only lifts the "must be byte-identical" requirement for
+# the keys below). Persistent artifacts are NOT here: nm.profile.*, fw.idea3_nft, and no dnsmasq/broker config or
+# cert path appears anywhere in this list — those remain proven byte/metadata-identical by
+# l34_persistent_verify (apply.sh/verify.sh), never by this comparator step.
+#
+# V5's own handlers already prove the EXACT required end-state with domain-specific gates before this comparator
+# ever runs (l34_ap_active_gate, l34_service_active_gate, l34_v4_service_active_gate, l34_v4_*_listeners_gate) —
+# this comparator's remaining job is only to prove nothing ELSE moved, so the keys below are deliberately
+# unconstrained rather than routed through a new p4-compare.sh dynamic-transition catalog entry.
+
+# target interface runtime (link, AP mode/SSID/channel, address, connected route, NM device state, active
+# connection, device autoconnect -- restored to its PRE value, so its value itself never differs PRE->POST)
+net.link.wlp0s20f3
+net.addr.wlp0s20f3
+net.route4.iface.wlp0s20f3
+nm.active.device.wlp0s20f3
+nm.device.wlp0s20f3.state
+wifi.iface.wlp0s20f3.channel
+wifi.iface.wlp0s20f3.ssid
+wifi.iface.wlp0s20f3.type
+
+# dnsmasq: reactivated by this run (reset-failed + start, exact V3 pattern) — end-state proven active/running by
+# l34_service_active_gate in verify.sh; this only approves its identity/runtime fields as known-changed
+svc.aegis-idea3-dnsmasq.service.ActiveState
+svc.aegis-idea3-dnsmasq.service.SubState
+svc.aegis-idea3-dnsmasq.service.Result
+svc.aegis-idea3-dnsmasq.service.MainPID
+svc.aegis-idea3-dnsmasq.service.NRestarts
+svc.aegis-idea3-dnsmasq.service.ExecMainStartTimestamp
+
+# the L6b broker: recovers on its own via systemd auto-restart, never commanded by this run — end-state proven
+# active/running by l34_v4_service_active_gate in verify.sh; this only approves its identity/runtime fields
+svc.aegis-idea3-mosquitto.service.ActiveState
+svc.aegis-idea3-mosquitto.service.SubState
+svc.aegis-idea3-mosquitto.service.Result
+svc.aegis-idea3-mosquitto.service.MainPID
+svc.aegis-idea3-mosquitto.service.NRestarts
+svc.aegis-idea3-mosquitto.service.ExecMainStartTimestamp

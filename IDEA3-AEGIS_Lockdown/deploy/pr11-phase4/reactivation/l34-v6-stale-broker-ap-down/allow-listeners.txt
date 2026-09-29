@@ -1,0 +1,8 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 STALE-BROKER / AP-DOWN runtime reactivation (V6): allowed NEW listeners.
+# Only dnsmasq's three AP listeners are new. The broker's 127.0.0.1:8883 and 10.77.30.1:8883 pair is ALREADY present at PRE (the stale
+# pair) and is therefore NOT listed: it must be byte-identical PRE->POST. No plaintext 1883 listener appears here (p4-compare.sh refuses
+# one unconditionally, S-12) and legacy :1883 must be unchanged. Each listener below is verified exactly (not merely "some new
+# listener appeared") by l34_v4_dnsmasq_listeners_gate in apply.sh, verify.sh and every soak sample.
+listen.udp.0.0.0.0%<AEGIS_AP_INTERFACE>:67
+listen.tcp.<AEGIS_AP_ADDRESS>:53
+listen.udp.<AEGIS_AP_ADDRESS>:53

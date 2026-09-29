@@ -77,6 +77,56 @@ S8 retained failed Monitor attempt: parallel full suite reported 42 pass / 1 fai
 | IVCHU-S7 | PR220-R4 protected Welcome/Hub/module Login, authenticated IDEA1 Back, visual/language geometry, shared shell theme | AUTOMATED PASS / HUMAN REVIEW PENDING | RED-first contract tests; real Chrome pre-auth/auth/logout/401/BFCache/theme and 320/375/768/1440 TH/EN/ZH matrix; HUB 53/53, focused IDEA1 118/118, IDEA2 32 pass/2 skip, governance 65/65, three builds, Vault validator, diff check and secret scan PASS. Full IDEA1 suite did not finish on this Windows runner; eight observed failing names match frozen `3ade15c2` baseline exactly (65-case reproduction), so a full-suite PASS is not claimed. | `2f94967d` source/test checkpoint + this docs checkpoint | Core entry contract implemented locally; IDEA1 auth/server and IDEA2 auth unchanged; Production/high-res untouched; high-res live acceptance FAIL_OPEN; no final receipt; PR Draft | Human acceptance and Kla integration review of HUB, IDEA2 entry, AGENTS.md and root tests; full IDEA1 suite on CI/adequate runner | Keep Draft; no deployment or merge |
 | IVCHU-S3 | PR220-R1 Human Acceptance corrective pass: Files full-pane marquee, migration close/lease re-check/collision UX, orphan recovery UX, upload-slowdown source diagnosis | AUTOMATED PASS / HUMAN RETEST PENDING | RED proven before each fix: new real-App test (real App + real Files + real `useApi`) showed rectangle painted 472 px off (left/right/bottom) and no surface `user-select`; C1–C3, D, E REDs recorded. Green: App marquee 8/8; marquee/migration/recovery focused suites pass; full IDEA1 suite 2316 tests: 2056 pass, 98 fail, 162 skipped — all 98 failures fail identically at `7ae227c7` (pre-existing: legacy FLAT preview/autolock/tile/V2 suites, i18n `vaultKeyConfirmLabel` parity, dashboard header regex, PS6-ENV Windows, `sharp` not installed locally). Build PASS; governance 63/63; transfer/server/network/high-res paths unchanged. | `54a3fab9`, `e5dd920a`, `8e949be7`, `eda24164` + docs checkpoint | Upload slowdown cause NOT_PROVEN (no source change on the upload path); cap 16 MP; Production and PR #216 untouched; no receipt | Human browser retest (Admin, DataLake-User, the migration-gate account); PR216-method network measurement if slowdown persists | Build a new PR220 candidate only after Human review |
 
+## Completed Task — IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `docs/idea1-storage-persistence-architecture`; PR: #240 (base: `main`).
+- Scope: Authoritative documentation of IDEA1 Storage & Persistence Architecture, containerized Data Lake topology, metadata vs data byte separation, external backup target, RAID deferred truth, planned 90G LVM expansion boundary, and trash/reclamation lifecycle.
+- Canonical document: `[[idea1/idea1-storage-persistence-architecture]]`.
+- Key Architectural Facts Documented:
+  - Internal SSD (~119.2 GiB usable) partitioned with Ubuntu LVM: Volume Group `ubuntu-vg` is ~116.19 GiB; root LV is allocated ~58.09 GiB with ~58.09 GiB unallocated reserve. Docker root at `/var/lib/docker` is not artificially limited by Docker, but bound to the host root ext4 partition (~57 GiB usable).
+  - Planned controlled host expansion: target root LV ~90 GiB, preserving ~26 GiB safety reserve in `ubuntu-vg` (infrastructure operation, not executed here).
+  - Containerized Data Lake named volume `aegis_drive_storage` mounted at `/datalake` with logical classes `uploads`, `versions`, `vault` (ciphertext), `avatars`, and ephemeral `staging`. Observed preflight snapshot ~28.7–29.0 GB (uploads ~25.1 GB, versions ~1 MB).
+  - Database & Data Lake separation: Data bytes reside exclusively in Data Lake; relational metadata (identity, file metadata, version trees, opaque vault envelopes, shares, audit logs) resides in PostgreSQL (`aegis_drive`).
+  - External Backup Target: Dedicated 1 TB physical disk (931.5 GiB usable ext4) mounted at `/mnt/aegis-backup`. AEGIS-owned data restricted strictly to `/mnt/aegis-backup/AEGIS_BACKUP/aegis-restic/`. Unrelated external files preserved untouched. Ephemeral staging excluded from durable snapshots.
+  - RAID truthfulness: `RAID_CURRENT_STATE=NOT_CONFIGURED`. Backup target is NOT a RAID member. Primary storage + separate backup is not RAID1. Real RAID1 deferred as future hardware.
+  - Trash & Reclamation boundary: Conceptual lifecycle documented (Active file → Protected Trash → Empty Trash → Metadata removal → Blob unlinking → Filesystem free-space release → Telemetry refresh). Open reclamation issue (used space not visibly decreasing after purge) documented truthfully with `ROOT CAUSE: NOT YET PROVEN` and candidate hypotheses.
+  - Operational separation: Trash purge (app level), storage capacity reporting (read-only telemetry), and host LVM expansion (infrastructure) must never be merged into a single privileged API.
+- Safety & Invariants: `APPLICATION_SOURCE_CHANGED=NO`, `PRODUCTION_MUTATED=NO`, `DISK_RESIZED=NO`, `TRASH_FIX_IMPLEMENTED=NO`.
+- Closeout: exactly one immutable task receipt created.
+
+### Session Register — IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| ISPA-S1 | Authoritative storage & persistence architecture note, MOC update, canonical links, governance verification | PASS | Canonical note `idea1-storage-persistence-architecture.md` created; MOC updated; governance 50/50 PASS; vault validation PASS; diff/secret scans PASS. No application changes; no production mutation; no disk resize; no trash fix implementation. Exactly one final receipt created. | Closeout checkpoint | Complete; ready for review | Human Owner review & merge of documentation PR | Merge docs PR |
+
+## Completed Task — IDEA1-FILES-VAULT-PARITY-RECOVERY-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-files-vault-parity-recovery`; PR: #219.
+- State: **CLOSED / IMPLEMENTED & HUMAN ACCEPTED (2026-09-28)** — Merged into main as `d7a174d3b07116445be0f4620746aa673102f863`. Human Owner live acceptance PASS across all target behaviors (`PR219_NATIVE_3_FILE_PICKER=PASS`, `PR219_3_FILE_DRAG_DROP=PASS`, `PR219_HUMAN_ACCEPTANCE=PASS`). Application source unchanged. One immutable receipt `2026-09-28_203000_kla_idea1-files-vault-parity-recovery.md` created.
+
+### Session Register — IDEA1-FILES-VAULT-PARITY-RECOVERY-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| IFVPR-S2 | Human Owner live acceptance recording, PR218 merge dependency reconciliation, base retarget to main, final receipt, and merge readiness | PASS | PR219_NATIVE_3_FILE_PICKER=PASS, PR219_3_FILE_DRAG_DROP=PASS, PR219_HUMAN_ACCEPTANCE=PASS. PRODUCTION_REDEPLOY_REQUIRED=NO. Base retargeted to main; refreshed with current origin/main (6fed4b21); focused 174/174 PASS; build PASS; governance 50/50 PASS; Vault validation PASS (2 Canvas warnings); diff/secret scan PASS. Exactly one final receipt added. | Closeout checkpoint | Accepted; merge readiness complete | Human Owner merge of PR #219 into main | Closed (merged as `d7a174d3`) |
+| IFVPR-S1 | Exact-SHA worktree, historical diff, interaction/upload/media/delete trace, direct regression coverage, verification | AUTOMATED PASS / HUMAN ACCEPTANCE PENDING | PR171→PR212 added the Stage-D queue/reconcile/media fixes; PR212→current changed only App authorization naming and normal-Files drawer presentation. Marquee refs/classes, external drop, full `FileList` enqueue, post-upload barrier, scheduler re-observation, and committed-head reducer reconciliation remain present. Baseline 171/172 exposed one stale V10 source-regex assertion after `screen` became `activeScreen`; corrected test and new real three-file picker/drop coverage yield focused 174/174 PASS. Build PASS; governance 50/50; validator PASS with two existing warnings; diff/secret scans PASS. Application source unchanged. | `9f6c8526` test/status checkpoint; Draft PR #219 | Old-source deployment not proven; no Class-A product source regression proven. Vault upload/delete latency follows encrypted revision publish/put/CAS before immediate committed-head reducer reconciliation; serialized CAS, client crypto, bounded preview work, and media limits remain intentional. Performance tuning deferred to PR #216 after P1 baseline. | Human checks: Vault three-file Explorer drop; three-file native picker; left/right/bottom marquee and blank clear; new supported JPG/GIF/video cover without refresh; delete transition; Files drop/marquee and PR218 drawer/tray; Admin/DataLake parity where applicable | Stop at Human Owner browser acceptance; no receipt or Ready transition |
+
+## Completed Task — IDEA1-ROLE-UPLOAD-UI-POLISH-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-role-upload-ui-polish`; PR: #218.
+- State: **CLOSED / IMPLEMENTED & HUMAN ACCEPTED (2026-09-28)** — Merged into main as `6fed4b2128b8e8444fbf9a329a6f4a758dabd525`. Storage & Backup navigation made Admin-only with fail-closed unauthorized screen resolution; normal Files upload drawer and floating tray made mutually exclusive with preserved transfer continuity. Deployed in PR220 lineage (`aegis-prod-drive:pr220-640bdc3bb3d8`).
+
+### Session Register — IDEA1-ROLE-UPLOAD-UI-POLISH-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| IRUP-S2 | Human browser acceptance, production context reconciliation via PR220 lineage, refresh against origin/main, final receipt, and merge readiness | PASS | Human Owner browser acceptance PASS (Admin Storage nav, DataLake-User restricted nav, drawer/tray mutual exclusion, upload continuity across drawer transitions). Present in deployed PR220 lineage; redeploy not required. Clean refresh against origin/main; focused tests 129/129 PASS; build PASS; governance 50/50 PASS. One final receipt added. | Closeout checkpoint | Accepted; merge readiness complete | Human Owner merge of PR #218 into main | Human Owner merge |
+| IRUP-S1 | Governance, isolated clean worktree, source diagnosis, RED coverage, bounded RBAC/UI implementation | IMPLEMENTED / AUTOMATED PASS | RED proved DataLake-User received `storage`, manual URL selection bypassed first-render authorization, and Files rendered both monitoring surfaces. GREEN: focused 45/45; recovery/transport 84/84; build PASS; governance 50/50; validator PASS; diff/secret checks PASS | `eccad4f00f12a93ec8c7205fccc69e1f4a8d4fce` implementation; PR #218 Draft | Storage nav is Admin-only; unauthorized screens fail closed from server menu; Files drawer/tray are mutually exclusive with one queue and handler set; transport/performance untouched | Human checks for both roles and live Files transfer, then one final receipt | Stop at Human Owner browser acceptance |
+
 ## Completed Task — PRIVATE-VAULT-PRODUCTION-ROLLOUT-1
 
 - Owner: Kla (`kla`); area: IDEA1.

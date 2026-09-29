@@ -1,0 +1,8 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 runtime reactivation V3 preservation model (live attempt 2 evidence, 2026-09-27). Exact catalog members only;
+# nothing here is a generic allow key. See docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l34-v3-preservation-design.md.
+# PRE->RB from the RESIDUAL baseline: the residual state is already the baseline, so rollback must equal PRE except the dnsmasq
+# failed/start-limit-hit -> inactive/dead/success transition.
+operation L34_V3_ROLLBACK_RESIDUAL
+svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive
+svc.aegis-idea3-dnsmasq.service.SubState failed dead
+svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
