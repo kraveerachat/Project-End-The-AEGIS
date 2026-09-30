@@ -15,6 +15,31 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Current Task — IDEA1-UNIFIED-PREVIEW-ARCH-1 — Unified file capability + preview architecture and plans
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-ARCH-1 / IDEA1_UNIFIED_PREVIEW_ARCHITECTURE_AND_PLANNING |
+| Branch | docs/idea1-unified-preview-encrypted-derivatives-spec |
+| PR | #268 (architecture + planning only) |
+| Owner | kla |
+| State | **COMPLETE / ARCHITECTURE + PLANNING REVIEW PASS / RUNTIME NOT STARTED** |
+| Spec | `docs/superpowers/specs/2026-09-30-idea1-unified-preview-encrypted-derivatives-design.md` — FINAL APPROVED FOR IMPLEMENTATION PLANNING (2026-09-30); D-1…D-11 binding |
+| Plans | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-{master-implementation,p0-capability-foundation,p1-audio-text-normal-files,p2a-manifest-v2-reader,p2b-encrypted-thumb-poster,p3-motion-derivatives,p4-video-proxy,p5-documents}.md` |
+| Production mutation allowed | **NO** |
+| Next gate | HUMAN_OWNER_MERGE_PR268 → then P0 from refreshed `origin/main` |
+
+Durable facts:
+
+- PR #268 contains the final-approved Unified Preview architecture spec plus master and P0–P5 plans; architecture/planning review = PASS. Runtime implementation has **not** started.
+- P0 starts only after PR #268 merges, from a freshly fetched `origin/main`.
+- GROUP B upload/download throughput remains deferred; the Vault V2 minimum plaintext chunk stays 8 MiB, audit semantics stay unchanged, Vault ciphertext HTTP caching stays off.
+- Normal Files fast thumbnail/poster/motion path must not regress; Vault thumbnail/poster optimization is the primary cover-speed target.
+- Click-to-preview applies to both Normal Files and the Private Vault; arbitrary upload and byte-exact download remain required independent of preview support; MP3/audio preview is required.
+- Pending gates: D-6 dependency approval (P4 proxy generation, all of P5); T-MAN-SIZE threshold approval before any P2b writer work; P2a Production acceptance before enabling the v1→v2 upgrade flag `VAULT_MANIFEST_V2_UPGRADE` (default OFF).
+- Manifest rules: server accepts manifest schema [1,2] independent of the upgrade flag, rejects 3+; v2 heads are always written as v2 and never downgraded to v1; P2a builds treat v2 Vaults as read-only (P2A-W approved).
+- Zero-Knowledge invariants remain binding: no server Vault plaintext, no server-generated Vault derivatives, no persistent decrypted Vault cache; only client-encrypted ciphertext derivatives may persist (D-10).
+
 ## Current Task
 
 | Field | Current value |
