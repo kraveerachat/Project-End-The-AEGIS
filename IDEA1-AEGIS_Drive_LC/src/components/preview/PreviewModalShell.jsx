@@ -28,6 +28,8 @@ export function PreviewModalShell({
   // timeout is keyed to the loading episode: a new loading status restarts it
   const [timedOutEpisode, setTimedOutEpisode] = useState(null)
   const episode = `${title}|${requested}`
+  // a genuine close ends the episode: reopening the same title must start loading afresh
+  useEffect(() => { if (!open) setTimedOutEpisode(null) }, [open])
   useEffect(() => {
     if (!open || requested !== 'loading' || !(loadingTimeoutMs > 0)) return undefined
     const id = setTimeout(() => setTimedOutEpisode(episode), loadingTimeoutMs)

@@ -109,6 +109,21 @@ test('MS-3 loading never spins forever: it turns into a failure after the timeou
   } finally { await m.unmount() }
 })
 
+test('MS-3b close and reopen of the same title starts a fresh loading episode', async () => {
+  const m = await mount()
+  const state = () => document.querySelector('[data-preview-shell]')?.getAttribute('data-preview-state')
+  try {
+    await m.render(Shell({ status: 'loading', loadingTimeoutMs: 20 }))
+    await act(async () => { await new Promise((r) => setTimeout(r, 60)) })
+    assert.equal(state(), 'failed')
+    await m.render(Shell({ status: 'loading', loadingTimeoutMs: 20, open: false }))
+    await m.render(Shell({ status: 'loading', loadingTimeoutMs: 20 }))
+    assert.equal(state(), 'loading', 'a reopened preview is loading, not the previous failure')
+    await act(async () => { await new Promise((r) => setTimeout(r, 60)) })
+    assert.equal(state(), 'failed', 'the fail-safe still fires for the new episode')
+  } finally { await m.unmount() }
+})
+
 const NOW = 1_800_000_000_000
 const fileItem = (over = {}) => ({ id: 'f1', name: 'report.pdf', kind: 'file', type: 'PDF', ext: 'pdf', size: 1024, modified: NOW, created: NOW, uploader: 'user', vault: false, verified: true, ...over })
 
