@@ -181,7 +181,9 @@ if use_systemd; then
     ! grep -qx -- "$v" <<< "$names" || fail PROCESS_ENV_LEAK
   done
 
-  # runtime status: expected no-device state, broker connected, no containment claim
+  # runtime status: expected no-device state, broker connected, no containment. armed is the operational gate (the
+  # production Core starts ARMED with AEGIS_AUTO_CONTAIN=0); containment is auto_contain/uplink/device plus the
+  # zero-command and zero-actuation checks, so ARMED alone is not treated as containment.
   status=$(host_path /run/aegis-idea3/status.json)
   status_out=$("$PY" - "$status" <<'PYC' 2>/dev/null
 import json, sys
@@ -194,7 +196,7 @@ if s.get("state") not in ("WAIT_DEVICE", "DEGRADED"):
 if s.get("broker") != "CONNECTED":
     print("BROKER_NOT_CONNECTED"); sys.exit(0)
 if (s.get("profile") != "production" or s.get("dry_run") is not False or s.get("auto_contain") is not False
-        or s.get("armed") != "MONITOR_ONLY" or s.get("uplink") == "LOCKDOWN" or s.get("device") == "ONLINE"):
+        or s.get("armed") not in ("ARMED", "MONITOR_ONLY") or s.get("uplink") == "LOCKDOWN" or s.get("device") == "ONLINE"):
     print("STATUS_CONTAINMENT_INVALID"); sys.exit(0)
 print("OK " + s["state"])
 PYC

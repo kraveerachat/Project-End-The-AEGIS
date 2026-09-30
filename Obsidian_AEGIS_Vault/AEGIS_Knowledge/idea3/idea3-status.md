@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-29
+updated: 2026-09-30
 owner: music
 edit_policy: owner-writable
 ---
@@ -17,6 +17,16 @@ edit_policy: owner-writable
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
+
+## IDEA3 PR11 Phase 4 L7 #6 live attempt FAILED (STATUS_CONTAINMENT_INVALID), cleanly rolled back; verifier fix in repository — 2026-09-30
+
+> [!important] Repository-only remediation. No Production mutation, no L7 #7 authorization, no ESP32, no L8. L7 is **NOT proven**.
+> `L7_6 = FAILED / CLEAN ROLLBACK`, `REPOSITORY_REMEDIATION = IMPLEMENTED / TESTED`, `L7_LIVE_ACCEPTANCE = NOT_PROVEN`, `L7_6_AUTHORIZATION = CONSUMED (never reusable)`, `NEXT_LIVE_ATTEMPT = L7 #7 after merge`, `NEW_IMMUTABLE_RELEASE_REQUIRED = NO`, `L6C_RERUN_REQUIRED = NO`, `RUNTIME_PRODUCTION_PAYLOAD_CHANGED = NO`, `L8_STARTED = NO`
+
+- **Live result (main `f2a5cd75`):** apply PASS; verify FAIL `STATUS_CONTAINMENT_INVALID`; rollback PASS, no material residue, PRE→RB compare PASS, S10 preservation PASS. `/opt/aegis-idea3/current` absent; Core not-found/inactive; installed release `f2a5…` remains valid.
+- **Root cause:** the production supervisor intentionally starts `armed=ARMED` (independent of `AEGIS_AUTO_CONTAIN=0`); `verify.sh` and the fake Core fixture required `MONITOR_ONLY`, conflating the operational gate with containment.
+- **Fix:** `stages/L7/verify.sh` accepts `armed` ARMED/MONITOR_ONLY; `auto_contain=false`, uplink not LOCKDOWN, device not ONLINE, empty protocol_commands, no CUT/RESTORE audit evidence and every other gate are unchanged. Runtime `aegis_soc` untouched; `verify.sh` is not in the release payload, so the installed release is reusable.
+- **Tests:** 481 passed (L7 handler/runner/runner-flow, runtime, production runtime). Receipt: `90-Status/logs/2026-09-30_171000_music_idea3-l7-status-containment-contract.md`.
 
 ## IDEA3 PR11 Phase 4 L6c/L7 broker runtime stability gate — repository only — 2026-09-29
 
