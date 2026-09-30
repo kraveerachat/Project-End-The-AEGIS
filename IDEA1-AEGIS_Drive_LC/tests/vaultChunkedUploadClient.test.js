@@ -399,8 +399,23 @@ function gatedServer(base) {
     peak: () => peak,
     live: () => [...live],
     order: () => [...order],
-    /** ปล่อยคำขอที่ค้างอยู่ทั้งหมด แล้วรอให้ worker หมุนต่อ */
-    async releaseAll() {
+    /**
+     * ปล่อยคำขอที่ค้างอยู่ทั้งหมด แล้วรอให้ worker หมุนต่อ
+     * ⚠️ ถ้าส่ง `until` (promise ของการอัปโหลด) มา: ปล่อยต่อไปจนกว่ามันจะ settle — ภายใต้โหลดของ
+     *    full suite WebCrypto อาจเสร็จ "หลัง" จุดที่ไม่เห็น gate ค้าง แล้ว PUT ที่มาช้าจะไม่มีวันถูกปล่อย
+     *    (อาการ: `await running` ค้างตลอดไป — full suite แขวนที่ไฟล์นี้) ใช้ timer yield ให้ threadpool ทำงาน
+     */
+    async releaseAll(until = null) {
+      if (until) {
+        let settled = false
+        until.then(() => { settled = true }, () => { settled = true })
+        const deadline = Date.now() + 30_000
+        while (!settled && Date.now() < deadline) {
+          for (const g of gates.splice(0, gates.length)) g.resolve()
+          await new Promise((r) => setTimeout(r, 1))
+        }
+        return
+      }
       for (let guard = 0; guard < 200; guard += 1) {
         const pending = gates.splice(0, gates.length)
         if (pending.length === 0) {
@@ -414,6 +429,22 @@ function gatedServer(base) {
     },
   }
 }
+
+test('gatedServer.releaseAll(running) keeps releasing until the upload settles, even when a worker reaches its PUT late', async () => {
+  // Under full-suite load WebCrypto can finish after releaseAll() has already seen "no pending gate";
+  // the late PUT must still be released or `await running` never settles (observed full-suite hang).
+  const gated = gatedServer({ sendUpload: async () => ({ ok: true }) })
+  const running = (async () => {
+    await gated.sendUpload('/x/0', {})
+    await new Promise((r) => setTimeout(r, 30)) // "slow encryption" — longer than a few setImmediate ticks
+    await gated.sendUpload('/x/1', {})
+    return 'done'
+  })()
+  for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r))
+  await gated.releaseAll(running)
+  const outcome = await Promise.race([running, new Promise((r) => setTimeout(() => r('STUCK'), 2000))])
+  assert.equal(outcome, 'done', 'the late gate was released')
+})
 
 test('concurrency 2 · ส่งสอง index ที่ต่างกันพร้อมกันจริง และไม่เกินเพดานที่ตั้งไว้', async () => {
   const kek = await fakeKek()
@@ -432,7 +463,7 @@ test('concurrency 2 · ส่งสอง index ที่ต่างกัน�
   assert.equal(live.length, 2, 'ต้องมีสองก้อนวิ่งพร้อมกันจริง ไม่ใช่ทีละก้อน')
   assert.equal(new Set(live).size, 2, 'สองก้อนที่วิ่งอยู่ต้องเป็นคนละ index')
 
-  await gated.releaseAll()
+  await gated.releaseAll(running)
   const res = await running
 
   assert.equal(res.ok, true)
@@ -453,7 +484,7 @@ test('concurrency 4 · จุดสูงสุดที่วัดได้ต
   for (let i = 0; i < 40; i += 1) await new Promise((r) => setImmediate(r))
   assert.equal(gated.live().length, 4)
 
-  await gated.releaseAll()
+  await gated.releaseAll(running)
   assert.equal((await running).ok, true)
 
   assert.ok(gated.peak() <= 4, `จุดสูงสุด ${gated.peak()} เกินเพดาน 4`)
