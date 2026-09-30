@@ -327,7 +327,7 @@ export function VaultTreeScreen({
     setTypeFilter('all')
     setMediaMap(new Map())
     setMotionState(null)
-    capCacheRef.current?.clear()
+    capCacheRef.current?.clear({ seal: true })
   }
 
   /* โหลด head ครั้งแรก + หลัง refresh (TS-1/TS-9); KEY_DEGRADED หนึ่งช่อง = ยังโหลดได้ แต่ mutation ปิด

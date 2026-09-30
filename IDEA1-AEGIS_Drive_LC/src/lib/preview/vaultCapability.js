@@ -22,10 +22,11 @@ export function vaultContentKey(node) {
 
 /**
  * @param {{ onChange?: () => void }} [o]
- * @returns {{ get(node): object|null, record(node, head: Uint8Array): object|null, clear(): void, size(): number }}
+ * @returns {{ get(node): object|null, record(node, head: Uint8Array): object|null, clear(o?: { seal?: boolean }): void, size(): number }}
  */
 export function createVaultCapabilityCache({ onChange = null } = {}) {
   const probes = new Map()
+  let sealed = false
   return Object.freeze({
     get(node) {
       const key = vaultContentKey(node)
@@ -34,14 +35,16 @@ export function createVaultCapabilityCache({ onChange = null } = {}) {
     /** Record derived facts from decrypted leading bytes; the bytes themselves are not kept. */
     record(node, head) {
       const key = vaultContentKey(node)
-      if (!key || !head || !head.length) return null
+      if (sealed || !key || !head || !head.length) return null
       const probe = probeHead(head)
       const prev = probes.get(key)
       probes.set(key, probe)
       if (!prev || prev.sniff !== probe.sniff || prev.textLike !== probe.textLike) onChange?.()
       return probe
     },
-    clear() {
+    /** `seal: true` (lock/logout): also ignore records from jobs that finish after the purge */
+    clear({ seal = false } = {}) {
+      if (seal) sealed = true
       const had = probes.size > 0
       probes.clear()
       if (had) onChange?.()

@@ -72,6 +72,15 @@ test('VC-4 a replaced file (new blobRef) does not inherit the old probe; clear()
   assert.equal(vaultPreviewKind(n, { cache }), 'image')
 })
 
+test('VC-4b a sealed cache (after lock) ignores late records from jobs that were still running', () => {
+  const cache = createVaultCapabilityCache()
+  const n = node('late.png', 'image/png')
+  cache.clear({ seal: true })
+  assert.equal(cache.record(n, PDF_HEAD), null)
+  assert.equal(cache.size(), 0)
+  assert.equal(vaultPreviewKind(n, { cache }), 'image', 'nothing learned after the seal')
+})
+
 test('VC-5 confirmVaultRender is the render gate and returns the confirmed MIME, never the hint', () => {
   const ok = confirmVaultRender(node('x.png', 'application/octet-stream'), new Uint8Array(syntheticPng()))
   assert.deepEqual(ok, { ok: true, kind: 'image', mime: 'image/png' })
