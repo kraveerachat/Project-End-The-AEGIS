@@ -8095,3 +8095,24 @@ L7_ENV_CONTRACT_FIX      = IMPLEMENTED_REPOSITORY (not merged)
 - L7 #4 failed safely because of a repository environment-contract mismatch, not a Production defect. `deploy/aegis-idea3-core.env.example` carries a blank `AEGIS_TG_TOKEN=`; the renderer kept it and the checker allowed it when blank, but systemd `EnvironmentFile=` projects even a blank `KEY=` into the process environment and `stages/L7/verify.sh` scans `/proc/<MainPID>/environ` by name, so `PROCESS_ENV_LEAK` was deterministic. Rollback succeeded; no forbidden names remained under `/etc/systemd/system` or `/etc/aegis-idea3`; the systemd manager environment held none.
 - Fix: `p4-l7-core-env.py` now treats `AEGIS_TG_TOKEN` as a forbidden key (like the other secret keys): `render` omits it, `check` rejects it even when blank. `verify.sh` is unchanged and stays strict. The shared example is unchanged (non-production `config.py` still defaults the token to empty); `AEGIS_TG_CHAT` behaviour is unchanged. A regression test parses `verify.sh` `FORBIDDEN_ENV` and asserts no such name appears in the rendered file.
 - Authorization #4 is consumed and must not be reused. The next live L7 attempt requires this fix merged, a fresh freeze, and a fresh authorization. Acceptance remains NOT_PROVEN.
+
+## IDEA3 PR11 Phase 4 L7 live attempt #5 — BROKER_NOT_CONNECTED status convergence remediation — 2026-09-30
+
+> [!important] Repository-only status entry on branch `fix/idea3-l7-broker-status-convergence` (base `ca8c0133`, not merged). No Production mutation, no L7 live rerun, no authorization #6 created, no ESP32/L8 work. L7 is NOT proven.
+
+```text
+L7_APPLY                 = PASS   (live attempt #5)
+L7_VERIFY                = FAIL reason=BROKER_NOT_CONNECTED
+L7_ROLLBACK              = PASS
+L7_MATERIAL_RESIDUE      = NO
+PRE_RB_COMPARE           = PASS
+PRESERVATION_S10         = PASS
+L7_LIVE_ACCEPTANCE       = NOT_PROVEN
+AUTH_5                   = CONSUMED (NO RETRY)
+L7_BROKER_STATUS_FIX     = IMPLEMENTED_REPOSITORY (not merged)
+```
+
+- Root-cause evidence (owner-run evidence root `2026-09-30-l7-20260930-043702`): the Core connected to the broker over authenticated TLS 1.3 at 04:37:10 (supervisor audit `MQTT connected`; broker journal `client idea3-core connected`) before verify failed, so this was **not** a broker connectivity failure. The persisted `status.json` had not converged: `AegisSupervisor._on_connection` updated the in-memory `status.broker` but did not persist it, `status.json` was only rewritten on the next health-loop pass (default 5 s), and L7 apply waits 3 s before verify.
+- Fix: `_on_connection` now persists the status atomically (`RuntimeStatus.write`) on every connect and disconnect; an `OSError` is logged and never propagates into the MQTT thread. `verify.sh` and `apply.sh` are unchanged: broker must still read CONNECTED, missing/unreadable status still fails, and the established Core to broker :8883 TCP proof stays required. No sleep and no verifier wait was added.
+- Review follow-up (PR #265): `os.replace` is atomic but does not order concurrent writers, so an older supervisor-loop snapshot could land after the callback's CONNECTED write. `RuntimeStatus.write` now serializes snapshot + replace under a lock, covering `transition()`, `set_armed()` and `_on_connection()`; a deterministic out-of-order regression proves an older in-flight write cannot regress CONNECTED.
+- Authorization #5 is consumed and must not be reused. The next live L7 attempt requires this fix merged, a fresh freeze and readiness, and a fresh authorization. Acceptance remains NOT_PROVEN.

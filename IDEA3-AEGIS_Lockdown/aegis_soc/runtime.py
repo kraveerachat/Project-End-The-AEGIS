@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
@@ -255,6 +256,9 @@ class RuntimeSettings:
         return errors, warnings
 
 
+_STATUS_WRITE_LOCK = threading.Lock()
+
+
 @dataclass
 class RuntimeStatus:
     state: str = RuntimeState.INIT
@@ -275,20 +279,25 @@ class RuntimeStatus:
     components: dict[str, str] = field(default_factory=dict)
 
     def write(self, path: Path) -> None:
-        self.updated_at = time.time()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(asdict(self), ensure_ascii=False, sort_keys=True, indent=2)
-        fd, temporary_name = tempfile.mkstemp(prefix="status-", suffix=".tmp", dir=path.parent)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(payload)
-                handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary_name, path)
-        finally:
-            if os.path.exists(temporary_name):
-                os.unlink(temporary_name)
+        # Snapshot and replace under one lock: os.replace is atomic but does not order
+        # concurrent writers, so an older snapshot could otherwise land after a fresher one
+        # (supervisor loop vs. MQTT callback). Serialized, each write snapshots the live
+        # state after every earlier write has landed.
+        with _STATUS_WRITE_LOCK:
+            self.updated_at = time.time()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = json.dumps(asdict(self), ensure_ascii=False, sort_keys=True, indent=2)
+            fd, temporary_name = tempfile.mkstemp(prefix="status-", suffix=".tmp", dir=path.parent)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(payload)
+                    handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary_name, path)
+            finally:
+                if os.path.exists(temporary_name):
+                    os.unlink(temporary_name)
 
 
 def read_status(path: Path) -> dict | None:

@@ -447,6 +447,14 @@ class AegisSupervisor:
     def _on_connection(self, connected: bool) -> None:
         self.mqtt.is_connected = connected
         self.status.broker = "CONNECTED" if connected else "DISCONNECTED"
+        # Persist immediately so status.json converges with the live broker
+        # state instead of waiting for the next health-loop pass. RuntimeStatus.write
+        # serializes snapshot+replace under a lock, so this MQTT-thread write cannot
+        # be overtaken by an older supervisor-loop snapshot.
+        try:
+            self.status.write(self.settings.status_path)
+        except OSError as exc:
+            self.log_event("WARNING", "broker_status_persist_failed", error=type(exc).__name__)
 
     def _on_status(self, state, rssi, heap, command_nonce="") -> None:
         with self._command_lock:
