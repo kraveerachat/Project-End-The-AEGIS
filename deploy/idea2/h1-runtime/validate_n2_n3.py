@@ -131,14 +131,16 @@ def _safe_file(path, *, private=False):
 def check_gateway(gateway, gateway_sha, cert_path, key_path):
     """Reject any N3 gateway rendering outside the exact candidate boundary."""
     require(re.fullmatch(r"[0-9a-f]{40}", gateway_sha) is not None, "invalid gateway source SHA")
-    require(set(gateway) == {
+    require(set(gateway) - {"command", "entrypoint"} == {
         "profiles", "image", "restart", "networks", "ports", "volumes",
         "build", "mem_limit", "security_opt", "logging", "depends_on",
     }, "unreviewed gateway service option")
+    require(gateway.get("command") is None, "gateway command must be inert")
+    require(gateway.get("entrypoint") is None, "gateway entrypoint must be inert")
     require(gateway.get("profiles") == ["n3"], "gateway must not start at N1 or N2")
     require(gateway.get("image") == GATEWAY_IMAGE + gateway_sha, "unreviewed gateway source image")
     require(gateway.get("restart") == "no", "gateway restart policy drift")
-    require(gateway.get("networks") == ["lab_ingress"], "gateway network drift")
+    require(gateway.get("networks") in (["lab_ingress"], {"lab_ingress": None}, {"lab_ingress": {}}), "gateway network drift")
     require(gateway.get("ports") == [{"host_ip": BIND_IPV4, "published": HTTPS_PORT, "target": 443, "protocol": "tcp"}], "gateway must bind only exact candidate IPv4:18443")
     require(str(gateway.get("mem_limit")) == "268435456", "gateway memory ceiling drift")
     require(gateway.get("security_opt") == ["no-new-privileges:true"], "gateway security option drift")

@@ -132,6 +132,44 @@ class N3GatewayConfigTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(self.key.lstat().st_mode), 0o600)
         self.check(self.fixture())
 
+    def test_compose_v5_inert_gateway_fields_and_single_network_are_accepted(self):
+        for network_config in (None, {}):
+            gateway = self.fixture()
+            gateway.update(command=None, entrypoint=None, networks={"lab_ingress": network_config})
+            with self.subTest(network_config=network_config):
+                self.check(gateway)
+
+    def test_compose_v5_rejects_command_and_entrypoint_overrides(self):
+        for field, value in [
+            ("command", ["sh", "-c", "echo unexpected"]),
+            ("command", ""),
+            ("entrypoint", ["sh"]),
+            ("entrypoint", []),
+        ]:
+            gateway = self.fixture()
+            gateway.update(command=None, entrypoint=None, networks={"lab_ingress": None})
+            gateway[field] = value
+            with self.subTest(field=field, value=value), self.assertRaisesRegex(ValueError, f"gateway {field} must be inert"):
+                self.check(gateway)
+
+    def test_compose_v5_rejects_extra_or_configured_networks(self):
+        for networks in [
+            {"lab_ingress": None, "lab_backend": None},
+            {"aegis-prod_default": None},
+            {"lab_ingress": {"aliases": ["other"]}},
+            {"lab_ingress": {"ipv4_address": "172.31.244.3"}},
+        ]:
+            gateway = self.fixture()
+            gateway.update(command=None, entrypoint=None, networks=networks)
+            with self.subTest(networks=networks), self.assertRaisesRegex(ValueError, "gateway network drift"):
+                self.check(gateway)
+
+    def test_compose_v5_rejects_unreviewed_gateway_option(self):
+        gateway = self.fixture()
+        gateway.update(command=None, entrypoint=None, networks={"lab_ingress": None}, hostname="unreviewed")
+        with self.assertRaisesRegex(ValueError, "unreviewed gateway service option"):
+            self.check(gateway)
+
     def test_wildcard_wrong_tuple_and_extra_port_fail_closed(self):
         for mutation in [
             lambda g: g["ports"][0].update(host_ip="0.0.0.0"),
