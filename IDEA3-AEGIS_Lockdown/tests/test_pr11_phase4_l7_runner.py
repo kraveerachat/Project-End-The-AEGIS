@@ -247,13 +247,20 @@ def test_l7_receipt_gate_refuses_when_l7_is_already_accepted(tmp_path: Path) -> 
     assert res.returncode == 1 and "L7_ALREADY_ACCEPTED" in res.stderr
 
 
-def test_l7_receipt_gate_passes_against_the_real_repository_history() -> None:
-    """The gate must accept the actual merged L2..L6b receipts on this branch's base (proves marker/regex compatibility)."""
+def test_l7_receipt_gate_refuses_a_new_attempt_against_the_real_post_l7_repository_history() -> None:
+    """L7 #7 live acceptance is merged, so the real history must satisfy every predecessor AND refuse a new L7 attempt (one-shot)."""
     repo = ROOT.parent
     if subprocess.run(["git", "-C", str(repo), "grep", "-q", "L6B_LIVE_ACCEPTANCE", "HEAD", "--", LOGS], capture_output=True).returncode != 0:
         pytest.skip("L6b acceptance receipt not present at HEAD of this checkout")
+    if subprocess.run(["git", "-C", str(repo), "grep", "-qE", "L7_LIVE_ACCEPTANCE ?= ?`? ?PROVEN", "HEAD", "--", LOGS], capture_output=True).returncode != 0:
+        pytest.skip("L7 live acceptance receipt not present at HEAD of this checkout")
+    # 1. predecessor L2..L6b acceptance history is present and compatible with the gate's markers/regex.
+    pre = lib(f"l6b_receipt_gate '{repo}'")
+    assert pre.returncode == 0, pre.stderr
+    # 2+3+4. L7 acceptance is also merged, so the gate refuses a new L7 attempt with the one-shot reason.
     res = lib(f"l7_receipt_gate '{repo}'")
-    assert res.returncode == 0, res.stderr
+    assert res.returncode == 1 and "L7_ALREADY_ACCEPTED" in res.stderr, res.stderr
+    assert "L7_L6B_ACCEPTANCE_RECEIPT_MISSING" not in res.stderr
 
 
 # ── 4. immutable release gate ────────────────────────────────────────────────────────────────────────────────────────────
