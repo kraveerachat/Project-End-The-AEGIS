@@ -20,6 +20,7 @@ import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../componen
 import { SelectionAction, SelectionActionBar } from '../components/SelectionActionBar.jsx'
 import { readFolderHistory, writeFolderHistory } from '../lib/folderHistory.js'
 import { WorkspaceMarqueeScope, WorkspaceMarqueeSource } from '../components/WorkspaceMarquee.jsx'
+import { PreviewModalShell } from '../components/preview/PreviewModalShell.jsx'
 
 const EXT_ICONS = {
   xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
@@ -713,27 +714,22 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
   }
   const kind = file ? previewKindFor(file) : null
   const src = file ? apiUrl(previewPathFor(file)) : ''
+  // Unified Preview P0: the shared shell owns name/meta/status/Download; a type without a provider
+  // gets the stable fallback instead of an empty frame (spec §19)
+  const status = kind ? phase : 'unsupported'
   return (
-    <Modal open={Boolean(file)} onClose={onClose} width={880} labelledBy="file-preview-title">
-      <ModalClose onClose={onClose} label={t('close')} />
-      <h2 id="file-preview-title" className="text-[16px] font-semibold text-ink pr-8 truncate">{file?.name}</h2>
-      <p className="text-[12px] text-ink-3 mt-1" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {file?.type} · {fmtBytes(file?.size ?? 0)}
-      </p>
-      <div
-        className="mt-4 rounded-[var(--r-tile)] bg-sunken border border-line flex items-center justify-center overflow-hidden relative"
-        style={{ minHeight: 220 }}
-        data-file-preview-kind={kind ?? ''}
-        data-file-preview-phase={phase}
-      >
-        {phase === 'loading' && (
-          <p role="status" className="absolute text-[13px] text-ink-3">{t('previewLoading')}</p>
-        )}
-        {phase === 'failed' ? (
-          <p role="alert" className="text-[13px] font-medium px-6 py-10 text-center max-w-md" style={{ color: 'var(--danger)' }}>
-            {t('previewUnavailable')}
-          </p>
-        ) : kind === 'video' ? (
+    <PreviewModalShell
+      t={t}
+      open={Boolean(file)}
+      onClose={onClose}
+      title={file?.name ?? ''}
+      meta={{ typeLabel: file?.type, size: file?.size ?? 0 }}
+      status={status}
+      labelledBy="file-preview-title"
+      onDownload={() => file && onDownload?.(file)}
+      bodyProps={{ 'data-file-preview-kind': kind ?? '', 'data-file-preview-phase': phase }}
+    >
+        {kind === 'video' ? (
           <video
             controls
             preload="metadata"
@@ -755,15 +751,7 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
             style={{ maxHeight: '68vh', opacity: phase === 'ready' ? 1 : 0 }}
           />
         ) : null}
-      </div>
-      <div className="flex gap-2.5 mt-5 justify-end">
-        <Btn variant="outline" onClick={onClose}>{t('close')}</Btn>
-        <Btn variant="primary" onClick={() => file && onDownload?.(file)}>
-          <Download size={14} strokeWidth={1.5} />
-          {t('download')}
-        </Btn>
-      </div>
-    </Modal>
+    </PreviewModalShell>
   )
 }
 
