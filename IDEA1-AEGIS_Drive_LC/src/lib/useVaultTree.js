@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 import { effectiveState, ancestorsOf, breadcrumbsFor, childrenOf, isDescendant } from './vaultTreeManifest.js'
 import { intents, applyIntent, normalizeSelectionRoots, OpError, newOpaqueId } from './vaultTreeOps.js'
-import { previewKindFor } from './vaultPreview.js'
+import { vaultPreviewKind } from './preview/vaultCapability.js'
 import { VAULT_TREE_CLIENT_LIMITS } from './vaultTreeLimits.js'
 
 export const CONFLICT_CHOICES = Object.freeze({ retry: 'retry', discard: 'discard', chooseDestination: 'chooseDestination' })
@@ -160,7 +160,7 @@ export function planDrop(state, destinationNodeId, { limits = VAULT_TREE_CLIENT_
 const NONE = Object.freeze({ preview: false, download: false, rename: false, move: false, details: false, trash: false, open: false, restore: false, permanentDelete: false, disabledReason: null })
 
 /** ค่าที่ UI ต้องการจาก state: breadcrumbs, children ตามมุมมอง, capabilities ของ selection (VR-5) */
-export function viewSelectors(state) {
+export function viewSelectors(state, { previewKindOf = vaultPreviewKind } = {}) {
   const head = state.head
   if (!head) return { breadcrumbs: [], children: [], capabilities: NONE, keyDegraded: state.keyStatus === 'DEGRADED', selected: [] }
   const index = head.index
@@ -173,7 +173,7 @@ export function viewSelectors(state) {
     const n = selected[0]
     const isFile = n.kind === 'file'
     if (state.view === 'trash') caps = { ...NONE, details: true, restore: !degraded, permanentDelete: !degraded }
-    else caps = { ...NONE, preview: isFile && previewKindFor(n.mediaType) !== null, download: isFile, rename: !degraded, move: !degraded, details: true, trash: !degraded, open: !isFile }
+    else caps = { ...NONE, preview: isFile && previewKindOf(n) !== null, download: isFile, rename: !degraded, move: !degraded, details: true, trash: !degraded, open: !isFile }
   } else if (selected.length > 1) {
     if (state.view === 'trash') caps = { ...NONE, restore: !degraded, permanentDelete: !degraded }
     else caps = { ...NONE, download: selected.some((n) => n.kind === 'file'), move: !degraded, trash: !degraded }
@@ -186,7 +186,7 @@ export function viewSelectors(state) {
  * hook: ผูก reducer เข้ากับ session (vaultTreeSync) และ unlockedState — run(intent) = plan → pending → session.commit →
  * committed | conflict | failed; ทุก dispatch หลัง purge ถูกละเลย (state ถูก reset โดย disposer)
  */
-export function useVaultTree({ session, unlockedState = null, limits = VAULT_TREE_CLIENT_LIMITS }) {
+export function useVaultTree({ session, unlockedState = null, limits = VAULT_TREE_CLIENT_LIMITS, previewKindOf = vaultPreviewKind }) {
   const [state, dispatch] = useReducer(vaultTreeReducer, undefined, initialTreeViewState)
   const alive = useRef(true)
   const stateRef = useRef(state); stateRef.current = state
@@ -224,7 +224,7 @@ export function useVaultTree({ session, unlockedState = null, limits = VAULT_TRE
     }
   }, [state, limits, safeDispatch])
 
-  const selectors = useMemo(() => viewSelectors(state), [state])
+  const selectors = useMemo(() => viewSelectors(state, { previewKindOf }), [state, previewKindOf])
   return {
     state, ...selectors,
     view: state.view, current: state.current, selection: state.selection, conflict: state.conflict, pending: state.pending, drag: state.drag, announcement: state.announcement,
