@@ -178,7 +178,7 @@ const NONE = Object.freeze({ preview: false, download: false, rename: false, mov
 /** ค่าที่ UI ต้องการจาก state: breadcrumbs, children ตามมุมมอง, capabilities ของ selection (VR-5) */
 export function viewSelectors(state, { previewKindOf = vaultPreviewKind } = {}) {
   const head = state.head
-  if (!head) return { breadcrumbs: [], children: [], capabilities: NONE, keyDegraded: state.keyStatus === 'DEGRADED', manifestNewer: false, mutationLock: null, selected: [] }
+  if (!head) return { breadcrumbs: [], children: [], capabilities: NONE, keyDegraded: state.keyStatus === 'DEGRADED', manifestNewer: false, mutationLock: mutationLockOf(state), selected: [] }
   const index = head.index
   const breadcrumbs = state.view === 'active' && has(head, state.current) ? breadcrumbsFor(index, state.current) : [index.nodes.get(head.manifest.rootNodeId)]
   const children = state.view === 'trash' ? childrenOf(index, null, { view: 'trash' }) : childrenOf(index, state.current, { view: 'active' })
