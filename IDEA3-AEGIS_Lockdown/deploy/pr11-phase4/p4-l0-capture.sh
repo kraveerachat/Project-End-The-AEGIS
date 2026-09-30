@@ -657,7 +657,9 @@ else
   p4_rec "$HOST" host.twingate.status UNAVAILABLE
 fi
 for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /etc/aegis-idea3/mqtt /opt/aegis-idea3 /opt/aegis-idea3/current \
-  /opt/aegis-idea3/releases /var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3; do
+  /opt/aegis-idea3/releases /var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3 \
+  /etc/systemd/system/aegis-idea3-core.service.d /etc/tmpfiles.d/aegis-idea3-recovery.conf /run/aegis-idea3-recovery \
+  /run/aegis-idea3-recovery/recovery.sock; do
   if [ -e "$(p4_fs "$p")" ]; then p4_rec "$HOST" "host.path.$p" present; else p4_rec "$HOST" "host.path.$p" absent; fi
 done
 # L6c (immutable release install): a deterministic, non-secret fingerprint of the release catalog under
@@ -703,6 +705,80 @@ if [ -L "$(p4_fs /opt/aegis-idea3/current)" ]; then
   fi
 else
   p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target absent
+fi
+# L7u (post-L7 Recovery Core upgrade): every surface the stage owns is recorded with deterministic, NON-SECRET keys so no L7u mutation is
+# invisible to PRE->POST / PRE->RB evidence. Never recorded: /etc/gshadow, password hashes, core.env content (metadata only, see above),
+# credentials, private keys or any environment value. The group key is derived from /etc/group (world-readable, no secrets).
+recovery_group_name=aegis-idea3-recovery
+if [ -r "$(p4_fs /etc/group)" ]; then
+  group_state=$(awk -F: -v g="$recovery_group_name" '$1 == g { n++; v = "present gid=" $3 " members=" $4 }
+    END { if (n == 0) print "absent"; else if (n == 1) print v; else print "duplicate" }' "$(p4_fs /etc/group)")
+else
+  # A real host always has a readable /etc/group, so a missing one there is a genuine capture gap (PARTIAL); a bare TEST fixture root
+  # simply has no group database, so the dedicated group is absent there (comparable, and the capture stays COMPLETE).
+  group_state=UNREADABLE
+  if [ -z "$P4_FS_ROOT" ]; then partial=1; else group_state=absent; fi
+fi
+p4_rec "$HOST" "host.aegis_idea3.recovery.group.$recovery_group_name" "$group_state"
+recovery_dir=$(p4_fs /run/aegis-idea3-recovery)
+if [ -L "$recovery_dir" ]; then
+  p4_rec "$HOST" host.aegis_idea3.recovery.runtime_dir symlink
+elif [ -d "$recovery_dir" ]; then
+  meta=$(p4_meta "$recovery_dir")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$HOST" host.aegis_idea3.recovery.runtime_dir "${meta%% size=*}"
+elif [ -e "$recovery_dir" ]; then
+  p4_rec "$HOST" host.aegis_idea3.recovery.runtime_dir not-a-directory
+else
+  p4_rec "$HOST" host.aegis_idea3.recovery.runtime_dir absent
+fi
+recovery_sock="$recovery_dir/recovery.sock"
+if [ -S "$recovery_sock" ]; then
+  meta=$(p4_meta "$recovery_sock")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$HOST" host.aegis_idea3.recovery.socket "type=socket ${meta%% size=*}"
+elif [ -e "$recovery_sock" ] || [ -L "$recovery_sock" ]; then
+  p4_rec "$HOST" host.aegis_idea3.recovery.socket type=other
+else
+  p4_rec "$HOST" host.aegis_idea3.recovery.socket absent
+fi
+if run_ro 0 - systemctl show -p SupplementaryGroups -p DropInPaths -p FragmentPath -p ReadWritePaths -p MainPID aegis-idea3-core.service; then
+  core_pid=0
+  for prop in SupplementaryGroups DropInPaths FragmentPath ReadWritePaths; do
+    v=$(printf '%s\n' "$P4_OUT" | sed -n "s/^${prop}=//p" | head -n 1)
+    case "$prop" in
+      SupplementaryGroups) key=supplementary_groups ;; DropInPaths) key=dropin_paths ;;
+      FragmentPath) key=fragment_path ;; ReadWritePaths) key=read_write_paths ;;
+    esac
+    p4_rec "$HOST" "host.aegis_idea3.recovery.core.$key" "${v:-none}"
+  done
+  core_pid=$(printf '%s\n' "$P4_OUT" | sed -n 's/^MainPID=//p' | head -n 1)
+  if [[ "$core_pid" =~ ^[1-9][0-9]*$ ]]; then
+    if [ -r "$(p4_fs "/proc/$core_pid/status")" ]; then
+      pgroups=$(sed -n 's/^Groups:[[:space:]]*//p' "$(p4_fs "/proc/$core_pid/status")" | head -n 1)
+      p4_rec "$HOST" host.aegis_idea3.recovery.core.process_groups "${pgroups:-none}"
+    else
+      # live: an unreadable /proc/<MainPID>/status is a genuine gap (PARTIAL); a bare TEST fixture root has no /proc.
+      if [ -z "$P4_FS_ROOT" ]; then
+        p4_rec "$HOST" host.aegis_idea3.recovery.core.process_groups UNREADABLE
+        partial=1
+      else
+        p4_rec "$HOST" host.aegis_idea3.recovery.core.process_groups none
+      fi
+    fi
+  else
+    p4_rec "$HOST" host.aegis_idea3.recovery.core.process_groups none
+  fi
+else
+  for key in supplementary_groups dropin_paths fragment_path read_write_paths process_groups; do
+    p4_rec "$HOST" "host.aegis_idea3.recovery.core.$key" UNAVAILABLE
+  done
+fi
+while IFS= read -r f; do
+  [ -n "$f" ] && rec_file "$HOST" host.unit_file "$f"
+done < <(tree_files /etc/systemd/system/aegis-idea3-core.service.d)
+if [ -f "$(p4_fs /etc/tmpfiles.d/aegis-idea3-recovery.conf)" ]; then
+  rec_file "$HOST" host.unit_file "$(p4_fs /etc/tmpfiles.d/aegis-idea3-recovery.conf)"
 fi
 # L6b (OD-L6B-01) installs the separate broker unit; it is captured exactly like the Core unit (never a wildcard).
 for unit_file in aegis-idea3-core.service aegis-idea3-mosquitto.service; do

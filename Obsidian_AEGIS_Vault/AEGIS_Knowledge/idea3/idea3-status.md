@@ -33,6 +33,16 @@ edit_policy: owner-writable
 - **Limits:** PRE/POST manifests are root-owned; their SHA256 PASS is taken from the runner log, not re-validated by the closeout session. Shared/Core outstanding-items notes were not edited (integration request in the receipt).
 - **Receipt:** `90-Status/logs/2026-09-30_174430_music_idea3-l7-live-acceptance-closeout.md`.
 
+## IDEA3 PR11 Phase 4 L7u "Post-L7 Recovery Core Upgrade" — new governed stage, repository only — 2026-10-01
+
+> [!important] Repository implementation only. L7u has NOT run, is NOT authorized, nothing was deployed, the Core was NOT restarted, Production was NOT mutated, Recovery was NOT run live, no ESP32, no L8. No A-L7u or K3 exists.
+> `L7U_STAGE = IMPLEMENTED_REPOSITORY (fixture + fake-backend tested)`, `L7U_LIVE_AUTHORIZED = NO`, `L7U_LIVE_EXECUTED = NO`, `L7U_LIVE_ACCEPTANCE = NOT_PROVEN`, `RECOVERY_R1_R8 = NOT_PROVEN`, `LVR = NOT_PROVEN`, `L8_STARTED = NO`, `F1 = UNRESOLVED`, `R5_BREAK_GLASS = UNRESOLVED`
+
+- **Order:** `L7 → L7u → Recovery R1-R8 → LVR → L8`. L7u is the separately governed stage the merged Core-mediated Recovery design requires: new immutable release (existing builder/installer/guard), dedicated transport group `aegis-idea3-recovery` (filesystem access only; `SO_PEERCRED` uid 1000 stays the authority), core.env append of exactly the three owned Recovery settings, a systemd drop-in, a tmpfiles-provisioned `/run/aegis-idea3-recovery` (0750 `aegis-idea3:aegis-idea3-recovery`, because the Core's `UMask=0077` would make the application's own `mkdir` untraversable), an atomic `current` switch and ONE governed restart.
+- **Design finding:** the base unit's `ProtectSystem=strict` makes `/run` read-only, so the drop-in must also grant `ReadWritePaths=/run/aegis-idea3-recovery`; otherwise the Recovery channel would silently fail to bind while the Core stays up.
+- **Governance:** own `A-L7u` + fresh `stage=L7u` K3, own one-attempt marker and receipt gate (requires current L7 acceptance, refuses if L7u is already accepted), PRE capture **before** the attempt is consumed, no `recovery_authorization`. The runner is an unpinned template; rollback is journal-driven, refuses unknown state before acting, and PRE→RB must be zero-drift except the old Core's restart-volatile `MainPID`/start timestamp.
+- **Not proven:** real systemd/tmpfiles/groupadd behaviour on the Core, reboot persistence of the tmpfiles rule, the operator's session picking up the new group (new logins only). Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-01-idea3-pr11-phase4-l7u-post-l7-recovery-core-upgrade.md`.
+
 ## IDEA3 PR11 Phase 4 L7 #6 live attempt FAILED (STATUS_CONTAINMENT_INVALID), cleanly rolled back; verifier fix in repository — 2026-09-30
 
 > [!note] Historical — superseded by L7 #7 (above)

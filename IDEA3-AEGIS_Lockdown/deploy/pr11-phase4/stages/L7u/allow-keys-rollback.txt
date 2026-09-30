@@ -1,0 +1,6 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L7u PRE->RB allowances (rollback compare).
+# PRE->RB must be ZERO-DRIFT for every L7u-owned surface. The ONLY thing it may approve is the restart-volatile identity of the OLD Core:
+# the bounded rollback restarts the old Core once, so its MainPID and start timestamp legitimately differ from PRE. NRestarts, ActiveState,
+# SubState, Result, UnitFileState and every other key must equal PRE.
+svc.aegis-idea3-core.service.MainPID
+svc.aegis-idea3-core.service.ExecMainStartTimestamp

@@ -1,0 +1,12 @@
+# AEGIS IDEA3 L7u — systemd drop-in for aegis-idea3-core.service. Installed by the L7u stage as
+#   /etc/systemd/system/aegis-idea3-core.service.d/10-recovery.conf   (root:root 0644)
+# It adds exactly two things to the existing Core unit and changes nothing else (UMask, RuntimeDirectory, ProtectSystem and every
+# other hardening line in the base unit stay as they are):
+#   * SupplementaryGroups: the Core process joins the dedicated transport group so it may chgrp its Recovery socket to that group.
+#     This is a filesystem-transport mechanism ONLY; Recovery authorization remains the SO_PEERCRED uid check in the Core.
+#   * ReadWritePaths: ProtectSystem=strict makes /run read-only, so the Recovery socket directory must be writable explicitly.
+#     The directory is pre-provisioned by the tmpfiles rule (aegis-idea3-recovery.tmpfiles.example) BEFORE the Core starts; without it the
+#     unit fails at namespace setup (by design: a missing directory must not be silently ignored).
+[Service]
+SupplementaryGroups=aegis-idea3-recovery
+ReadWritePaths=/run/aegis-idea3-recovery

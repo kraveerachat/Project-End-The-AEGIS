@@ -26,11 +26,13 @@ KERNEL_UNSYNCED = "state=UNTRUSTED reason=KERNEL_UNSYNCED maxerror_us=50000 adjt
 MAXERROR = "state=UNTRUSTED reason=MAXERROR_EXCEEDED maxerror_us=1000001 adjtimex_ret=0 status=0x2001 sta_unsync=0 time_error=0"
 UNAVAILABLE = "state=UNKNOWN reason=PROBE_UNAVAILABLE maxerror_us=-1 adjtimex_ret=UNAVAILABLE"
 
-# sha256 at main b7140130 (PR #253): the comparator, the shared L5 predicate and the L0 capture must not change in this remediation.
+# sha256 pins: the comparator, the shared L5 predicate and the L0 capture must not change in the V6 remediation.
+# Re-pinned for p4-compare.sh and p4-l0-capture.sh by the L7u task (2026-10-01): additive L7u observability (recovery group/runtime-dir/socket keys,
+# drop-in + tmpfiles records) and the `stage L7u` token in ALLOW_L6C_RELEASE_FILE; the L5 predicate (p4-l5-clock.py) is unchanged.
 PINS = {
-    "p4-compare.sh": "bbb12ba9f8de68b5899ed3599023aceca6271a59e5ede786827a26389d77c0ea",
+    "p4-compare.sh": "5bdcef6936847ffef414801a7c8642a05a5cc5a7f04d1516d5eeb90d0e023b9e",
     "p4-l5-clock.py": "dd322fbdc0538df09b8a35f01f080422e1523519d70dd8d1e7a1d9bbfd3f41f0",
-    "p4-l0-capture.sh": "5b39785cd0ea11026cc6c70d150529e692937196e6a460372b5e5803e36c1ed2",
+    "p4-l0-capture.sh": "61084c7d88eec9c3c7ac0f0dc2fd860740b665b508d3272f2865b6a31df6b17b",
 }
 
 
