@@ -168,12 +168,58 @@ function Invoke-AgentConfigValidation {
             [Environment]::SetEnvironmentVariable($entry.Key, [string]$entry.Value, 'Process')
         }
         [Environment]::SetEnvironmentVariable('PYTHONPATH', $PackageRoot, 'Process')
-        & $PythonPath -c "from aegis_identity_agent.config import AgentConfig; AgentConfig.from_env(); print('IDENTITY_AGENT_CONFIG=VALID')"
+        & $PythonPath -P -c "from aegis_identity_agent.config import AgentConfig; AgentConfig.from_env(); print('IDENTITY_AGENT_CONFIG=VALID')"
         if ($LASTEXITCODE -ne 0) { throw 'Identity Agent configuration validation failed' }
     }
     finally {
         foreach ($name in $names) {
             [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process')
+        }
+    }
+}
+
+function Invoke-AgentCaBundleValidation {
+    param(
+        [Parameter(Mandatory = $true)][string]$PythonPath,
+        [Parameter(Mandatory = $true)][string]$PackageRoot,
+        [Parameter(Mandatory = $true)][string]$CaBundleSource
+    )
+
+    $savedBundleSource = [Environment]::GetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', 'Process')
+    $savedPythonPath = [Environment]::GetEnvironmentVariable('PYTHONPATH', 'Process')
+    try {
+        [Environment]::SetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', $CaBundleSource, 'Process')
+        [Environment]::SetEnvironmentVariable('PYTHONPATH', $PackageRoot, 'Process')
+        & $PythonPath -P -c "import os; from aegis_identity_agent.config import validate_ca_bundle; validate_ca_bundle(os.environ['AEGIS_CA_BUNDLE_SOURCE']); print('IDENTITY_AGENT_CA_BUNDLE=VALID')"
+        if ($LASTEXITCODE -ne 0) { throw 'Identity Agent CA bundle validation failed' }
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', $savedBundleSource, 'Process')
+        [Environment]::SetEnvironmentVariable('PYTHONPATH', $savedPythonPath, 'Process')
+    }
+}
+
+function Assert-IdentityAgentPreIdentityResume {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigurationRoot,
+        [Parameter(Mandatory = $true)][string]$InstallRoot,
+        [Parameter(Mandatory = $true)][string]$DataRoot,
+        [Parameter(Mandatory = $true)][string]$EvidenceRoot,
+        [Parameter(Mandatory = $true)][string]$ServiceName,
+        [Parameter(Mandatory = $true)][string]$ServiceAccount,
+        [Parameter(Mandatory = $true)][string]$ExpectedSourceSha256
+    )
+
+    $marker = Assert-IdentityAgentInstallationMarker -ConfigurationRoot $ConfigurationRoot `
+        -InstallRoot $InstallRoot -DataRoot $DataRoot -EvidenceRoot $EvidenceRoot -ServiceName $ServiceName
+    if ([string]$marker.state -ne 'IN_PROGRESS' -or
+        [string]$marker.serviceAccount -ne $ServiceAccount -or
+        [string]$marker.sourceSha256 -ne $ExpectedSourceSha256) {
+        throw 'Pre-identity Identity Agent resume requires the bound IN_PROGRESS marker and identical source'
+    }
+    foreach ($name in @('agent.env', 'agent-ca-bundle.pem')) {
+        if (Test-PathExistsIncludingDenied -Path (Join-Path $ConfigurationRoot $name)) {
+            throw 'Pre-identity Identity Agent resume has unexpected managed configuration'
         }
     }
 }
@@ -206,6 +252,15 @@ $caBundleSource = if ($configuration.Contains('AEGIS_AGENT_CA_BUNDLE')) {
 else { $null }
 $dataRootExisted = Test-PathExistsIncludingDenied -Path $DataRoot
 $existingService = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue
+$configurationRootExisted = Test-PathExistsIncludingDenied -Path $ConfigurationRoot
+if (-not $dataRootExisted -and $configurationRootExisted) {
+    if ($null -ne $existingService) {
+        throw 'Pre-identity Identity Agent resume has an unexpected service'
+    }
+    Assert-IdentityAgentPreIdentityResume -ConfigurationRoot $ConfigurationRoot `
+        -InstallRoot $InstallRoot -DataRoot $DataRoot -EvidenceRoot $EvidenceRoot `
+        -ServiceName $ServiceName -ServiceAccount $ServiceAccount -ExpectedSourceSha256 $actualSha
+}
 if ($dataRootExisted) {
     $existingMarker = Assert-IdentityAgentInstallationMarker -ConfigurationRoot $ConfigurationRoot `
         -InstallRoot $InstallRoot -DataRoot $DataRoot -EvidenceRoot $EvidenceRoot -ServiceName $ServiceName
@@ -220,7 +275,6 @@ if (-not $PSCmdlet.ShouldProcess($InstallRoot, 'Install isolated Identity Agent 
     return
 }
 
-$configurationRootExisted = Test-Path -LiteralPath $ConfigurationRoot -PathType Container
 try {
     New-Item -ItemType Directory -Path $ConfigurationRoot -Force | Out-Null
     $inProgressSettings = [ordered]@{
@@ -275,14 +329,14 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     $resolvedBasePython = (Resolve-Path -LiteralPath $BasePythonPath).Path
     New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
     if ([IO.Path]::GetFileName($resolvedBasePython) -ieq 'py.exe') {
-        & $resolvedBasePython -3.12 -m venv $venvRoot
+        & $resolvedBasePython -3.12 -I -m venv $venvRoot
     }
-    else { & $resolvedBasePython -m venv $venvRoot }
+    else { & $resolvedBasePython -I -m venv $venvRoot }
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $python -PathType Leaf)) {
         throw 'Identity Agent virtual environment creation failed'
     }
 }
-& $python -c "import struct,sys; raise SystemExit(0 if sys.version_info[:2] == (3,12) and struct.calcsize('P') == 8 else 1)"
+& $python -I -c "import struct,sys; raise SystemExit(0 if sys.version_info[:2] == (3,12) and struct.calcsize('P') == 8 else 1)"
 if ($LASTEXITCODE -ne 0) {
     throw 'Identity Agent requires 64-bit CPython 3.12 for the reviewed Windows wheel lock'
 }
@@ -299,24 +353,16 @@ Copy-Item -LiteralPath $requirementsSource -Destination $InstallRoot -Force
 Copy-Item -LiteralPath $requirementsLockSource -Destination $InstallRoot -Force
 
 if (-not $SkipDependencyInstall) {
-    & $python -m pip install --disable-pip-version-check --require-hashes `
+    & $python -I -m pip install --disable-pip-version-check --require-hashes `
         --only-binary=:all: --requirement `
         (Join-Path $InstallRoot 'requirements-identity-agent-windows.lock.txt')
     if ($LASTEXITCODE -ne 0) { throw 'Identity Agent dependency installation failed' }
 }
-& $python -c "import win32service, win32serviceutil, win32event, win32security, win32crypt; print('PYWIN32_IMPORTS=PASS')"
+& $python -I -c "import win32service, win32serviceutil, win32event, win32security, win32crypt; print('PYWIN32_IMPORTS=PASS')"
 if ($LASTEXITCODE -ne 0) { throw 'Identity Agent pywin32 import validation failed' }
 
 if ($null -ne $caBundleSource) {
-    $savedBundleSource = [Environment]::GetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', 'Process')
-    try {
-        [Environment]::SetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', $caBundleSource, 'Process')
-        & $python -c "import os; from aegis_identity_agent.config import validate_ca_bundle; validate_ca_bundle(os.environ['AEGIS_CA_BUNDLE_SOURCE']); print('IDENTITY_AGENT_CA_BUNDLE=VALID')"
-        if ($LASTEXITCODE -ne 0) { throw 'Identity Agent CA bundle validation failed' }
-    }
-    finally {
-        [Environment]::SetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', $savedBundleSource, 'Process')
-    }
+    Invoke-AgentCaBundleValidation -PythonPath $python -PackageRoot $InstallRoot -CaBundleSource $caBundleSource
     if (-not [string]::Equals(
             $caBundleSource,
             $managedCaBundlePath,

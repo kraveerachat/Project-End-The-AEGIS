@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +15,203 @@ AGENT_ROOT = WINDOWS_ROOT / "identity-agent"
 
 
 class WindowsIdentityAgentLifecycleTests(unittest.TestCase):
+    def _load_installer_function(self, name: str) -> str:
+        installer = str(AGENT_ROOT / "install_identity_agent.ps1").replace("'", "''")
+        return f"""
+        $tokens = $null
+        $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile('{installer}', [ref]$tokens, [ref]$errors)
+        if ($errors.Count -ne 0) {{ throw 'INSTALLER_PARSE_ERROR' }}
+        $functionAst = $ast.Find({{
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -eq '{name}'
+        }}, $true)
+        if ($null -eq $functionAst) {{ throw 'INSTALLER_FUNCTION_MISSING:{name}' }}
+        . ([scriptblock]::Create($functionAst.Extent.Text))
+        """
+
+    def _run_powershell(self, script: str, *, cwd: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+    def _write_disposable_ca(self, path: Path) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "AEGIS disposable installer test CA")])
+        now = datetime.now(timezone.utc)
+        certificate = (
+            x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(minutes=5))
+            .not_valid_after(now + timedelta(days=1))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+            .sign(key, hashes.SHA256())
+        )
+        path.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+
+    def test_ca_validation_imports_installed_package_from_unrelated_cwd_and_restores_env(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aegis-agent-ca-import-") as raw_root:
+            root = Path(raw_root)
+            install = root / "installed"
+            install.mkdir()
+            shutil.copytree(ENGINE_ROOT / "aegis_identity_agent", install / "aegis_identity_agent")
+            caller = root / "unrelated-cwd"
+            caller.mkdir()
+            hostile_package = caller / "aegis_identity_agent"
+            hostile_package.mkdir()
+            (hostile_package / "__init__.py").write_text(
+                "raise SystemExit('HOSTILE_CWD_PACKAGE_IMPORTED')\n", encoding="ascii"
+            )
+            ca_path = root / "public-ca.pem"
+            self._write_disposable_ca(ca_path)
+            script = self._load_installer_function("Invoke-AgentCaBundleValidation") + f"""
+            $ErrorActionPreference = 'Stop'
+            $beforePath = 'previous-process-pythonpath'
+            $beforeSource = 'previous-process-ca-source'
+            [Environment]::SetEnvironmentVariable('PYTHONPATH', $beforePath, 'Process')
+            [Environment]::SetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', $beforeSource, 'Process')
+            Invoke-AgentCaBundleValidation -PythonPath '{str(Path(sys.executable)).replace("'", "''")}' `
+                -PackageRoot '{str(install).replace("'", "''")}' `
+                -CaBundleSource '{str(ca_path).replace("'", "''")}'
+            if ([Environment]::GetEnvironmentVariable('PYTHONPATH', 'Process') -ne $beforePath) {{ throw 'PYTHONPATH_LEAK' }}
+            if ([Environment]::GetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', 'Process') -ne $beforeSource) {{ throw 'CA_SOURCE_LEAK' }}
+            'CA_IMPORT_FROM_UNRELATED_CWD=PASS'
+            """
+            result = self._run_powershell(script, cwd=caller)
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertIn("IDENTITY_AGENT_CA_BUNDLE=VALID", result.stdout)
+        self.assertIn("CA_IMPORT_FROM_UNRELATED_CWD=PASS", result.stdout)
+
+    def test_ca_validation_still_rejects_malformed_and_private_key_material(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aegis-agent-ca-reject-") as raw_root:
+            root = Path(raw_root)
+            invalid = root / "invalid.pem"
+            invalid.write_text("not a certificate", encoding="ascii")
+            private = root / "private.pem"
+            self._write_disposable_ca(private)
+            with private.open("ab") as stream:
+                stream.write(b"-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n")
+            for label, path in (("MALFORMED", invalid), ("PRIVATE_KEY", private)):
+                with self.subTest(label=label):
+                    script = self._load_installer_function("Invoke-AgentCaBundleValidation") + f"""
+                    $ErrorActionPreference = 'Stop'
+                    $beforePath = 'previous-process-pythonpath'
+                    $beforeSource = 'previous-process-ca-source'
+                    [Environment]::SetEnvironmentVariable('PYTHONPATH', $beforePath, 'Process')
+                    [Environment]::SetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', $beforeSource, 'Process')
+                    try {{
+                        Invoke-AgentCaBundleValidation -PythonPath '{str(Path(sys.executable)).replace("'", "''")}' `
+                            -PackageRoot '{str(ENGINE_ROOT).replace("'", "''")}' `
+                            -CaBundleSource '{str(path).replace("'", "''")}'
+                        throw 'INVALID_CA_ACCEPTED'
+                    }} catch {{
+                        if ($_.Exception.Message -eq 'INVALID_CA_ACCEPTED') {{ throw }}
+                    }}
+                    if ([Environment]::GetEnvironmentVariable('PYTHONPATH', 'Process') -ne $beforePath) {{ throw 'PYTHONPATH_LEAK' }}
+                    if ([Environment]::GetEnvironmentVariable('AEGIS_CA_BUNDLE_SOURCE', 'Process') -ne $beforeSource) {{ throw 'CA_SOURCE_LEAK' }}
+                    'INVALID_CA_REJECTED={label}'
+                    """
+                    result = self._run_powershell(script, cwd=root)
+                    self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+                    self.assertIn(f"INVALID_CA_REJECTED={label}", result.stdout)
+
+    def test_exact_pre_identity_in_progress_resume_is_bound_and_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aegis-agent-in-progress-") as raw_root:
+            root = Path(raw_root)
+            install, config, evidence, data = (root / name for name in ("install", "config", "evidence", "data"))
+            for path in (install, config, evidence):
+                path.mkdir()
+            marker = config / "install.json"
+            script = (
+                self._load_installer_function("Test-PathExistsIncludingDenied")
+                + self._load_installer_function("Assert-IdentityAgentPreIdentityResume")
+                + f"""
+            $ErrorActionPreference = 'Stop'
+            . '{str(AGENT_ROOT / 'identity_agent_safety.ps1').replace("'", "''")}'
+            $install = '{str(install).replace("'", "''")}'
+            $config = '{str(config).replace("'", "''")}'
+            $evidence = '{str(evidence).replace("'", "''")}'
+            $data = '{str(data).replace("'", "''")}'
+            $marker = @{{
+                schemaVersion = 1; state = 'IN_PROGRESS'; serviceName = 'AEGISIdentityAgent'
+                serviceAccount = 'NT SERVICE\\AEGISIdentityAgent'; sourceSha256 = ('A' * 64)
+                installRoot = $install; configurationRoot = $config; dataRoot = $data
+                evidenceRoot = $evidence
+            }}
+            $marker | ConvertTo-Json | Set-Content -LiteralPath '{str(marker).replace("'", "''")}'
+            Assert-IdentityAgentPreIdentityResume -ConfigurationRoot $config -InstallRoot $install `
+                -DataRoot $data -EvidenceRoot $evidence -ServiceName 'AEGISIdentityAgent' `
+                -ServiceAccount 'NT SERVICE\\AEGISIdentityAgent' -ExpectedSourceSha256 ('A' * 64)
+            'EXACT_IN_PROGRESS=ACCEPTED'
+            try {{
+                Assert-IdentityAgentPreIdentityResume -ConfigurationRoot $config -InstallRoot $install `
+                    -DataRoot $data -EvidenceRoot $evidence -ServiceName 'AEGISIdentityAgent' `
+                    -ServiceAccount 'NT SERVICE\\AEGISIdentityAgent' -ExpectedSourceSha256 ('B' * 64)
+                throw 'MISMATCHED_SOURCE_ACCEPTED'
+            }} catch {{ if ($_.Exception.Message -eq 'MISMATCHED_SOURCE_ACCEPTED') {{ throw }} }}
+            'MISMATCHED_SOURCE=REJECTED'
+            New-Item -ItemType File -Path (Join-Path $config 'agent.env') | Out-Null
+            try {{
+                Assert-IdentityAgentPreIdentityResume -ConfigurationRoot $config -InstallRoot $install `
+                    -DataRoot $data -EvidenceRoot $evidence -ServiceName 'AEGISIdentityAgent' `
+                    -ServiceAccount 'NT SERVICE\\AEGISIdentityAgent' -ExpectedSourceSha256 ('A' * 64)
+                throw 'MANAGED_CONFIG_ACCEPTED'
+            }} catch {{ if ($_.Exception.Message -eq 'MANAGED_CONFIG_ACCEPTED') {{ throw }} }}
+            'MANAGED_CONFIG=REJECTED'
+            """
+            )
+            result = self._run_powershell(script, cwd=root)
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        for marker_text in ("EXACT_IN_PROGRESS=ACCEPTED", "MISMATCHED_SOURCE=REJECTED", "MANAGED_CONFIG=REJECTED"):
+            self.assertIn(marker_text, result.stdout)
+
+    def test_pre_identity_resume_guard_and_ca_validation_precede_service_creation(self) -> None:
+        install = self.read_agent("install_identity_agent.ps1")
+        self.assertLess(
+            install.index("Assert-IdentityAgentPreIdentityResume -ConfigurationRoot"),
+            install.index("$inProgressSettings | ConvertTo-Json"),
+        )
+        self.assertLess(
+            install.index("Invoke-AgentCaBundleValidation -PythonPath"),
+            install.index("Invoke-AgentConfigValidation -PythonPath"),
+        )
+        self.assertLess(install.index("Invoke-AgentConfigValidation -PythonPath"), install.index("sc.exe create"))
+        self.assertNotIn("--generate-key", install)
+        self.assertNotIn("--provision-key", install)
+        self.assertNotIn("/demand", install)
+        self.assertEqual(install.count("Start-Service -Name $ServiceName"), 1)
+        self.assertLess(install.index("if ($StartNow)"), install.index("Start-Service -Name $ServiceName"))
+
+    def test_all_installer_python_subprocesses_reject_cwd_import_shadowing(self) -> None:
+        install = self.read_agent("install_identity_agent.ps1")
+        for invocation in (
+            '& $PythonPath -P -c "from aegis_identity_agent.config import AgentConfig',
+            '& $PythonPath -P -c "import os; from aegis_identity_agent.config import validate_ca_bundle',
+            '& $resolvedBasePython -3.12 -I -m venv $venvRoot',
+            '& $resolvedBasePython -I -m venv $venvRoot',
+            '& $python -I -c "import struct,sys;',
+            '& $python -I -m pip install',
+            '& $python -I -c "import win32service,',
+        ):
+            with self.subTest(invocation=invocation):
+                self.assertTrue(invocation in install, f"unsafe Python subprocess: {invocation}")
+
     def read_agent(self, name: str) -> str:
         return (AGENT_ROOT / name).read_text(encoding="utf-8")
 
