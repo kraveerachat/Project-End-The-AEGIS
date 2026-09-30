@@ -11,9 +11,22 @@ edit_policy: append-by-new-file
 # Task Receipt — IDEA3 PR252 Recovery security remediation (F1–F4, R5 ordering)
 
 > [!important] IMPLEMENTED != DEPLOYED
-> Repository only. NOT DEPLOYED, NOT LIVE ACCEPTED, NOT MERGED TO MAIN. Stacked on PR #252 (`feat/idea3-core-mediated-recovery`,
-> Draft, must not merge before L7 #3). No production mutation, Core restart, release build/install, MQTT connection,
+> Repository only. IMPLEMENTED / repository-only; NOT DEPLOYED, NOT LIVE ACCEPTED, NOT MERGED TO MAIN. Stacked on the
+> reconciled PR #252 parent (`feat/idea3-core-mediated-recovery`, reconciled post-L7 with current `main`, parent HEAD
+> `ba5caa3cbf042a00133fcc662c5f1800fd3a8edc`). No production mutation, Core restart, release build/install, MQTT connection,
 > RESTORE/CUT, authorization/K3, or ESP32 access. The historical PR252 receipt is untouched.
+
+> [!note] Post-L7 / post-PR252 reconciliation (current state, supersedes the original hold wording)
+> - **Historical:** when this receipt was first written, PR #255 was held behind L7 (PR #252 "must not merge before L7 #3").
+>   That pre-L7 hold is historical and is now satisfied: L7 #7 live acceptance is PROVEN, the L7 closeout PR #267 and the L7
+>   post-acceptance test fix PR #269 are merged, and PR #252 was reconciled with current `main` and pushed at `ba5caa3c`.
+> - PR #255 remains IMPLEMENTED / repository-only and NOT DEPLOYED. Recovery live acceptance is NOT PROVEN. Production Core has
+>   not been upgraded or restarted for Recovery. PR #262 remains a separate stacked follow-up and is not part of this change.
+> - F1 is still BLOCKED_BY_MISSING_PRODUCTION_ALERT_SOURCE (not solved) and the R5 production precondition / break-glass
+>   (`BREAK_GLASS_OWNER_DECISION_REQUIRED=YES`) is still unsolved; both stay pinned by guard tests and the strict `xfail`.
+>   LVR remains not proven; L8/ESP32 remains blocked.
+> - No Production mutation, Core restart, Recovery live execution, Recovery authorization, or ESP32 access happened during
+>   this reconciliation; only repository files were reconciled and repository-only verification was re-run.
 
 ## What changed
 
@@ -81,6 +94,19 @@ edit_policy: append-by-new-file
 - `git diff --check` — pass.
 - Full IDEA3 suite (`pytest tests -q`): 1 failed, 3954 passed, 8 skipped, 1 xfailed in 932 s. The single failure,
   `tests/test_pr11_phase4_harness.py::test_only_reviewed_stage_handlers_are_registered`, fails identically on the unmodified start HEAD `0796c1c6` (unrelated `l7-listener-lib.sh`), verified in a clean worktree.
+
+### Post-L7 / post-PR252 reconciliation verification (HEAD `1d1e6ee3`, parent `ba5caa3c`)
+
+- `pytest tests/test_core_recovery_security.py` — 36 passed, 1 xfailed. The xfail is
+  `test_production_supervisor_enforces_r3_before_restore`, `strict=True`, reason `BLOCKED_ON_OWNER_DECISION` (break-glass); unchanged.
+- `pytest tests/test_core_recovery.py tests/test_core_recovery_security.py tests/test_local_restore.py tests/test_core_service.py tests/test_mqtt_client.py tests/test_ip_containment.py` — 378 passed, 1 xfailed.
+- `pytest tests/test_pr11_phase4_l7_release_builder.py` — 86 passed.
+- `ruff check` on the four changed Python/test files — pass; `compileall` — pass; `git diff --check` against the parent — pass;
+  `node scripts/validate-vault.mjs` — pass (2 pre-existing canvas warnings); changed-path set against the parent is exactly 5 stack-local paths.
+- Full IDEA3 suite (`pytest tests -q`, nothing deselected): 1 failed, 4186 passed, 8 skipped, 1 xfailed in 1202 s. The single failure,
+  `tests/test_pr11_phase4_l6c_capture_gap.py::test_real_end_to_end_capture_then_compare_requires_the_allow_file`, fails
+  identically on the unmodified parent `ba5caa3c` (run in a temporary detached worktree), so it is not caused by this change and is
+  NOT fixed here. The earlier `test_only_reviewed_stage_handlers_are_registered` failure no longer occurs.
 
 ## Canonical notes updated
 
