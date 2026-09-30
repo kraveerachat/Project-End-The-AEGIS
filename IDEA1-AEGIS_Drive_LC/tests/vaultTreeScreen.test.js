@@ -1005,6 +1005,11 @@ test('VIDEO-POSTER-INITIAL-1..4 / VIDEO-POSTER-FRAME-4/5 a new video gets its po
     return { ok: true, stage: 'complete', blob: { id: newId, formatVersion: 2 } }
   }
   wireBridge()
+  // Unified Preview P0: Vault capability follows the decrypted content signature, so the poster
+  // jobs' chunk reads must return MP4 bytes (an ISO-BMFF ftyp box), not a placeholder payload
+  const mp4Head = new Uint8Array(Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom', 'latin1'), Buffer.alloc(4), Buffer.from('isommp41', 'latin1'), Buffer.alloc(40)]))
+  const bridgedBytes = backend.respondBytes
+  backend.respondBytes = async (req) => (String(req.path).match(/^\/api\/vault\/blobs\/VP[0-9A-Z]+\/chunks\//) ? { ok: true, bytes: mp4Head } : bridgedBytes(req))
   globalThis.__VAULT_BACKEND__ = backend
 
   const seed = modules.sync.createTreeSession({ kek, api: modules.api })
