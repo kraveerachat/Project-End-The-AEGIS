@@ -283,4 +283,6 @@ test('VR-V2-1 (P2A-W) a v2 head: preview/download/details stay, every mutation c
   // v1 head: unchanged behaviour
   const v1 = viewSelectors(r(load(base()), { type: 'select', nodeId: F(1) }))
   assert.equal(v1.manifestNewer, false); assert.equal(v1.mutationLock, null); assert.equal(v1.capabilities.rename, true)
+  // no head yet but both key slots failed (RP-2): mutations stay locked
+  assert.equal(viewSelectors({ ...initialTreeViewState(), keyStatus: 'DEGRADED' }).mutationLock, 'KEY_DEGRADED')
 })
