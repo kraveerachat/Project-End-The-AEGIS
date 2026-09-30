@@ -104,6 +104,7 @@ class N3GatewayConfigTests(unittest.TestCase):
         self.cert.write_text("fixture", encoding="ascii")
         self.key.write_text("fixture", encoding="ascii")
         if sys.platform != "win32":
+            self.cert.chmod(0o644)
             self.key.chmod(0o600)
 
     def fixture(self):
@@ -126,6 +127,9 @@ class N3GatewayConfigTests(unittest.TestCase):
         self.check_gateway(gateway, "a" * 40, self.cert, self.key)
 
     def test_exact_bind_tls_mounts_lab_network_and_source_image(self):
+        if sys.platform != "win32":
+            self.assertEqual(stat.S_IMODE(self.cert.lstat().st_mode), 0o644)
+            self.assertEqual(stat.S_IMODE(self.key.lstat().st_mode), 0o600)
         self.check(self.fixture())
 
     def test_wildcard_wrong_tuple_and_extra_port_fail_closed(self):
@@ -246,6 +250,13 @@ class N3GatewayConfigTests(unittest.TestCase):
         nested.mkdir(parents=True)
         cert = nested / self.cert.name
         cert.write_text("fixture", encoding="ascii")
+        if sys.platform != "win32":
+            nested.parent.chmod(0o755)
+            nested.chmod(0o755)
+            cert.chmod(0o644)
+            self.assertEqual(stat.S_IMODE(nested.parent.lstat().st_mode), 0o755)
+            self.assertEqual(stat.S_IMODE(nested.lstat().st_mode), 0o755)
+            self.assertEqual(stat.S_IMODE(cert.lstat().st_mode), 0o644)
         gateway = self.fixture()
         gateway["volumes"][0]["source"] = str(cert)
         self.check_gateway(gateway, "a" * 40, cert, self.key)
