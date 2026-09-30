@@ -20,13 +20,13 @@ edit_policy: owner-writable
 | Field | Current value |
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-P0 / IDEA1_UNIFIED_PREVIEW_P0_CAPABILITY_FOUNDATION |
-| Branch | feat/idea1-preview-p0-capability-foundation (base `origin/main` `c1dc3c90`) |
+| Branch | feat/idea1-preview-p0-capability-foundation (from `c1dc3c90`; current `main` merged normally at `edbe465e`) |
 | PR | #270 (Draft until Human review) |
 | Owner | kla |
-| State | **IMPLEMENTED + VERIFIED LOCALLY / NOT DEPLOYED** |
+| State | **IMPLEMENTED + HUMAN REVIEW FIXES APPLIED + VERIFIED LOCALLY / NOT DEPLOYED** (full suite: 0 new failures vs baseline) |
 | Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p0-capability-foundation.md` |
 | Production mutation allowed | **NO** (P0 needs no Production testing) |
-| Next gate | HUMAN_REVIEW_P0_PR → then P1 or P2a from refreshed `origin/main` |
+| Next gate | HUMAN_FINAL_REVIEW_P0 → then P1 or P2a from refreshed `origin/main` |
 
 Durable facts:
 
@@ -36,7 +36,9 @@ Durable facts:
 - The Vault tree no longer trusts upload-time `File.type`: capability comes from the decrypted content signature (derived facts only, page memory, sealed and cleared on lock) or from the extension with confirmation before rendering; the modal passes decrypted bytes through a render gate.
 - Behaviour change (spec §5.4): extensionless Vault files whose only type evidence is the client MIME no longer offer Preview until their signature is confirmed.
 - Regression pins: arbitrary upload / byte-exact download (Normal V1/V2, Vault V2) and account neutrality (Admin, existing user, newly created user).
-- Known follow-ups (not P0 scope): Vault download still labels the saved Blob with `mediaType` (spec §3.2 asks for octet-stream); legacy flat-vault screen (`Vault.jsx`) unchanged.
+- Vault Download always saves `application/octet-stream` with exact bytes and the manifest filename; the Vault preview header shows the detected format (confirmed name, "not yet verified" for name-only decisions, "Unknown type" otherwise); a closed preview resets its loading fail-safe.
+- Test-suite reliability: `tests/vaultChunkedUploadClient.test.js` gated-PUT fixture could deadlock under full-suite load (late PUT never released → hung run); fixed test-only (`releaseAll(running)`).
+- Known follow-ups (not P0 scope): legacy flat-vault screen (`Vault.jsx`) unchanged; P1/provider expansion must revisit `canPlayType` gating.
 - GROUP B throughput remains deferred; no Vault persisted derivatives exist yet (P2b).
 
 ## Current Task — IDEA1-UNIFIED-PREVIEW-ARCH-1 — Unified file capability + preview architecture and plans
