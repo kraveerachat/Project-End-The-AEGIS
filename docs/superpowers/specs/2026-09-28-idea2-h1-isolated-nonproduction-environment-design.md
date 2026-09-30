@@ -1,17 +1,21 @@
 # IDEA2 H1 Isolated Non-Production Environment Design and Runbook
 
-**Status:** Approved design; repository-only contract. No live environment has
-been provisioned.
+**Status:** Approved staged design. The Human Owner reports N0 and N1 live PASS;
+N2/N3 are repository-ready only and require separate live authorization.
 
 **Scope:** The smallest environment that can later prove Machine A H1-1 through
 H1-7 and H2/H3 without touching Production. This document authorizes no live
 command by itself. Each numbered phase requires separate Human Owner approval.
 
-**Current N1 repository reconciliation (2026-09-30):** The historical N0
-characterization fields below record earlier checkpoints and must not be read
-as current live N0 state. The canonical IDEA2 status records the later N0 PASS.
-The dedicated N1 runtime source exists, but N1 has not been provisioned or
-accepted live. A separate Human Owner authorization remains mandatory.
+**Current N1/N2/N3 reconciliation (2026-09-30):** The historical N0/N1 fields
+below record earlier source checkpoints, not the current live state. The Human
+Owner reports a healthy isolated N1 lab with PostgreSQL, Monitor, a stable
+migration rerun, three project containers, two internal networks, and no
+PostgreSQL/Monitor host ports. The later remote source-checkout clean-gate retry
+returned `REMOTE_WORKTREE_CLEAN=NO` without path evidence; that separate host
+check remains unresolved and is not silently called PASS. N2 owns candidate
+DNS/trust and offline crypto proof only; N3 owns the first gateway/listener and
+live HTTPS route proof. No N2/N3 live mutation is authorized by this document.
 
 ## Binding classifications
 
@@ -44,9 +48,9 @@ ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED
 N1_STARTED=NO
 ```
 
-Both hostnames and both ports are **CANDIDATE_ONLY**. They are not DNS,
-certificate, listener, firewall, Twingate, container, database, or tunnel
-evidence. Production `aegis.internal`, the `aegis-prod` Compose project, and
+Both hostnames and both ports remain **CANDIDATE_ONLY** for N2/N3. N1 lab
+evidence does not prove DNS, certificate, listener, firewall, Twingate, or
+tunnel acceptance. Production `aegis.internal`, the `aegis-prod` Compose project, and
 the Production PostgreSQL database/volume are forbidden H1 targets.
 
 ## Architecture
@@ -907,7 +911,7 @@ H1_N1_LIVE_STATE=NOT_STARTED
 
 N1's Compose project is fixed to `aegis-h1-lab`. PostgreSQL, a one-shot
 ordered migrator, and Monitor share only project-scoped internal networks;
-PostgreSQL and Monitor publish no host port. The N2 gateway definition is a
+PostgreSQL and Monitor publish no host port. The N3 gateway definition is a
 disabled profile with no N1 TLS material or port and must not be enabled in
 N1. Digest-pinned PostgreSQL 15 Alpine, Node 20 Alpine Monitor base, and nginx
 Alpine gateway base are the reviewed source inputs; the Monitor image tag also
@@ -947,17 +951,29 @@ Production resource hashes/counts.
 
 ### N2 — Establish candidate HTTPS DNS and trust
 
-**Prerequisite:** N1 PASS; candidate DNS, explicit IPv4/18443, private CA
-issuance, Machine A platform trust, and managed Agent CA-bundle lifecycle all
-approved and implemented.
+**Prerequisite:** N1 PASS and separately reviewed candidate DNS, explicit
+IPv4/18443, CA issuance, Machine A platform trust, and managed Agent public
+CA-bundle lifecycle. The existing Agent CA-bundle source/Windows lifecycle is
+reused, not reimplemented. The unresolved remote checkout clean gate must be
+investigated before staging new source on the host.
 
-**Mutation scope:** Create only the candidate DNS record, candidate leaf
-certificate/key on the lab gateway, browser public-CA trust, and managed public
-Agent CA bundle. Never copy the CA private key.
+**Mutation scope:** Under a separate live approval, create only the candidate
+DNS record, reviewed public CA and leaf certificate/key material at approved
+external host paths, Machine A browser public-CA trust, and managed Agent
+public CA bundle. The leaf private key remains on the lab host in an owner-only
+file; the CA private key never enters the repository, lab, or Machine A. N2
+does **not** start or build the gateway and does **not** open port 18443.
 
-**Expected result:** Browser and Agent Python Requests validate the candidate
-hostname/chain with TLS verification enabled; wrong host, wrong CA, expired
-certificate, and absent bundle fail closed.
+**Expected result:** Offline `validate_n2_n3.py` reports only public CA/leaf
+SHA-256 fingerprints, exact single hostname SAN
+`idea2-h1.aegis-lab.internal`, subject/issuer, validity, and matching leaf
+key/verified chain. Existing Agent CA-bundle negative tests cover absent,
+malformed, untrusted, wrong-host, expired, and unmanaged-bundle cases. N2 PASS
+does not imply a reachable HTTPS service or a successful browser/Requests
+connection. The offline helper also rejects linked/replaceable TLS paths and,
+on the Linux lab host, untrusted ownership or group/world-writable parents.
+Managed Agent-bundle and Machine A public-trust identity require separate N2
+human evidence; offline certificate validation alone does not prove either.
 
 **Abort conditions:** CA-bundle feature not implemented, certificate/SAN
 mismatch, private key exposure, trust-store ambiguity, HTTP fallback,
@@ -968,18 +984,28 @@ mutation.
 task-specific public trust entries/bundle after confirming no other consumer;
 preserve unrelated/shared trust.
 
-**Evidence:** Public certificate fingerprint/SAN/expiry, CA public fingerprint,
-browser validation, Python Requests positive/negative results, listener tuple,
-and `N2=PASS|BLOCKED` without PEM/key contents.
+**Evidence:** Reviewed DNS authority/answer, CA and leaf public fingerprints,
+exact SAN/issuer/subject/validity, cert/key match, verified chain, Machine A
+public trust and managed bundle identity, no private CA key on Machine A, and
+`N2=PASS|BLOCKED`. No PEM/key contents or live listener claim.
 
 ### N3 — Validate browser and Agent gateway routes
 
 **Prerequisite:** N2 PASS; isolated Monitor healthy with the canonical audience;
 exact route configuration reviewed.
 
-**Mutation scope:** Start only the lab gateway on the approved IPv4/18443.
+**Mutation scope:** After a separate live approval, render the N3-only Compose
+overlay, validate exact gateway source SHA/image ID, certificate/key mounts,
+N1 resource identity and Production baseline, then start only the lab gateway
+on `192.168.10.10:18443`. N1's original Compose invocation excludes the
+gateway and requires none of the N3 TLS environment inputs.
+Recheck reviewed public fingerprints and path ownership immediately before
+start; a changed value aborts. The reviewed start must not rebuild or recreate
+N1 services, and their identities must be verified again afterward.
 
-**Expected result:** `/monitor/` serves the lab browser; the six exact Agent
+**Expected result:** The browser and Agent's real Python Requests path validate
+the candidate hostname and CA chain with TLS verification enabled; wrong
+host/CA, expired certificate, or absent bundle fail closed. `/monitor/` serves the lab browser; the six exact Agent
 paths proxy to the lab Monitor; prefix rewriting preserves Monitor
 `/internal/...`; every other `/agent/internal/*` and browser
 `/monitor/internal/*` request is denied; Production gateway remains unchanged.
@@ -991,9 +1017,10 @@ bypass, audience drift, or browser/Agent traffic reaching different Monitors.
 **Rollback:** Stop/remove only the lab gateway and its candidate listener;
 retain N1 data for diagnosis unless separately approved for cleanup.
 
-**Evidence:** Exact status matrix for allowed and denied routes, upstream
-container identity, forwarded origin/audience, listener owner, and Production
-gateway hash/state.
+**Evidence:** Browser and Python Requests positive/negative TLS results; exact
+allowed/denied route status matrix; upstream lab Monitor identity; forwarded
+origin/audience; exact listener owner at `192.168.10.10:18443`; and unchanged
+Production gateway hash/state. `N3=PASS` is impossible without live evidence.
 
 ### N4 — Seed logical cameras and operator fixtures
 

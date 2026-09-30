@@ -21,7 +21,7 @@ test('N1 has its own aegis-h1-lab Compose lifecycle, not the disposable probe', 
   assert.match(compose, /^  postgres:$/m)
   assert.match(compose, /^  monitor:$/m)
   assert.match(compose, /^  gateway:$/m)
-  assert.match(compose, /profiles:\s*\["n2"\]/)
+  assert.match(compose, /profiles:\s*\["n3"\]/)
   assert.doesNotMatch(compose, /aegis-h1-capacity-probe|aegis-prod|18078/)
 })
 
@@ -90,7 +90,7 @@ function renderedFixture() {
       postgres: { ...base, restart: 'unless-stopped', image: pgImage, environment: { POSTGRES_DB: 'aegis_h1_lab', POSTGRES_USER: 'postgres_h1_admin', POSTGRES_PASSWORD: 'fixture-secret', H1_APP_PASSWORD: 'fixture-app-secret' }, networks: ['lab_backend'], healthcheck: { test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres_h1_admin -d aegis_h1_lab'] }, volumes: [{ type: 'volume', source: 'postgres_data', target: '/var/lib/postgresql/data' }, { type: 'bind', source: path.join(runtime, 'init-role.sh'), target: '/docker-entrypoint-initdb.d/10-h1-role.sh', read_only: true }] },
       migrate: { ...base, restart: 'no', image: pgImage, entrypoint: ['/bin/sh', '/aegis-h1/migrate.sh'], environment: { PGPASSWORD: 'fixture-secret' }, networks: ['lab_backend'], depends_on: { postgres: { condition: 'service_healthy' } }, volumes: [['/aegis-h1/migrate.sh', path.join(runtime, 'migrate.sh')], ['/aegis-h1/schema.sql', path.join(root, 'IDEA2-AEGIS_Monitor/server/db/schema.sql')], ['/aegis-h1/migrations', path.join(root, 'IDEA2-AEGIS_Monitor/server/db/migrations')]].map(([target, source]) => ({ type: 'bind', source, target, read_only: true })) },
       monitor: { ...base, restart: 'unless-stopped', image: `aegis-h1-lab-monitor:${sha}`, build: { context: path.join(root, 'IDEA2-AEGIS_Monitor'), dockerfile: 'Dockerfile', args: { NODE_BASE_IMAGE: 'node:20-alpine@sha256:afdf98210b07b586eb71fa22ba2e432e058e4cd1304d31ed60888755b8c865fb' } }, networks: ['lab_ingress', 'lab_backend'], depends_on: { migrate: { condition: 'service_completed_successfully' } }, environment: { NODE_ENV: 'production', PORT: '8002', AGENT_AUTH_REQUIRED: 'true', AGENT_AUTH_AUDIENCE: 'https://idea2-h1.aegis-lab.internal:18443', SESSION_SECRET: 'different-fixture-secret', DATABASE_URL: 'postgresql://monitor_h1_app:fixture-app-secret@postgres:5432/aegis_h1_lab' }, healthcheck: { test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8002/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"] } },
-      gateway: { ...base, restart: 'no', mem_limit: 268435456, profiles: ['n2'], networks: ['lab_ingress'], image: 'aegis-h1-lab-gateway:source-only', build: { context: path.join(root, 'deploy/idea2/h1-gateway'), dockerfile: 'Dockerfile', args: { NGINX_BASE_IMAGE: 'nginx:alpine@sha256:0530961ff0592b58c10f767535cc0abdfccf9e389ff7cc90f87320c1bc7e8506' } } },
+      gateway: { ...base, restart: 'no', mem_limit: 268435456, profiles: ['n3'], networks: ['lab_ingress'], image: 'aegis-h1-lab-gateway:source-only', build: { context: path.join(root, 'deploy/idea2/h1-gateway'), dockerfile: 'Dockerfile', args: { NGINX_BASE_IMAGE: 'nginx:alpine@sha256:0530961ff0592b58c10f767535cc0abdfccf9e389ff7cc90f87320c1bc7e8506' } } },
     },
     networks: { lab_backend: { name: 'aegis-h1-lab_lab_backend', internal: true }, lab_ingress: { name: 'aegis-h1-lab_lab_ingress', internal: true } },
     volumes: { postgres_data: { name: 'aegis-h1-lab_postgres_data' } },

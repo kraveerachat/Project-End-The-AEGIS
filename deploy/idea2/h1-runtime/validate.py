@@ -165,7 +165,7 @@ def check(rendered, expected_sha):
 
     if "gateway" in services:
         gateway = services["gateway"]
-        require(gateway.get("profiles") == ["n2"], "gateway must remain excluded from N1")
+        require(gateway.get("profiles") == ["n3"], "gateway must remain excluded from N1 and N2")
         require(set(gateway.get("networks", [])) == {"lab_ingress"}, "gateway network drift")
         require(not gateway.get("volumes"), "gateway TLS material is not an N1 input")
         require(not gateway.get("environment"), "gateway environment is not an N1 input")

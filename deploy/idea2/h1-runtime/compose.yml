@@ -93,10 +93,10 @@ services:
       - lab_ingress
       - lab_backend
 
-  # N2 source placeholder only: never enabled by the N1 command.
+  # N3-only source placeholder: no N2 or N1 listener or TLS input.
   gateway:
     <<: *h1-service
-    profiles: ["n2"]
+    profiles: ["n3"]
     build:
       context: ../h1-gateway
       dockerfile: Dockerfile

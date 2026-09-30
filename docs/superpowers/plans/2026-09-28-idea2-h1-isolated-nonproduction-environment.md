@@ -25,6 +25,69 @@ publishing a repository-only checkpoint. N1 live provisioning, PostgreSQL
 double-run evidence, gateway exposure, Machine A mutation, Production mutation,
 and final receipt remain separate human gates. Keep PR #264 Draft.
 
+## Approved N2/N3 repository continuation (2026-09-30)
+
+The Human Owner reports N1 live PASS: healthy isolated PostgreSQL/Monitor,
+stable migration rerun, three lab containers, two internal networks, no direct
+Monitor/PostgreSQL host ports, and unchanged Production identity. Treat this as
+owner-provided live evidence, not a new live test in this repository session.
+The separate remote source-checkout clean-gate retry returned
+`REMOTE_WORKTREE_CLEAN=NO` with no path evidence; resolve it before staging
+new host source. The older `N1_LIVE_STATE=NOT_STARTED` entries remain historical.
+
+Ruling: the original N2 evidence list incorrectly demanded live browser,
+Requests, and listener proof before N3 started the gateway. N2 now owns only
+candidate DNS, reviewed CA/leaf/key lifecycle, Machine A public trust/managed
+Agent bundle, and offline cryptographic proof. N3 alone mounts TLS, starts the
+gateway at exact `192.168.10.10:18443`, and owns the live TLS and route matrix.
+This keeps the original N1 `up -d --build postgres migrate monitor` invocation
+and PostgreSQL/Monitor service semantics unchanged.
+
+### N2/N3 repository task 1 — fail-closed contracts (TDD)
+
+- [x] Add focused RED tests in `IDEA2-AEGIS_Monitor/tests/h1N2N3Readiness.test.mjs`
+  and `IDEA2-AEGIS_Monitor/tests/test_h1_n2_n3_crypto.py`. They reject an N2
+  gateway profile, missing N3 overlay/validator/cleanup, wrong SAN/CA/expiry,
+  private key in public bundle, mismatched key, wildcard/wrong listener,
+  writable/extra mounts, Production network/image, and Docker namespace escape.
+- [x] Run them against the old source and record expected RED (Node 3/3 fail;
+  Python 10/10 fail before validator, then 5 negative subcases fail before the
+  project-escape rule).
+
+### N2/N3 repository task 2 — bounded source and runbook
+
+- [x] Keep N1 base Compose service definitions unchanged except the disabled
+  gateway profile `n2` → `n3`; place listener, reviewed source tag, and two
+  read-only TLS mounts in `deploy/idea2/h1-runtime/compose.n3.yml` only.
+- [x] Implement offline certificate/chain/key verification and redacted
+  rendered-config checks in `validate_n2_n3.py`; reject Production/wildcard,
+  unexpected mounts/networks/options, and wrong source tags. Reuse existing
+  Agent `AEGIS_AGENT_CA_BUNDLE` instead of changing it.
+- [x] Implement `cleanup_n3.py` as print-only gateway stop/remove, never a
+  project `down` or volume removal. Extend the H1 runtime README/env example
+  with N2/N3 human gates, evidence, abort, and rollback. Reconcile spec and
+  canonical status without changing historical N0/N1 evidence.
+
+### N2/N3 repository task 3 — verification and publication
+
+- [ ] Run focused Node/Python RED→GREEN, all H1 tests, Agent CA-bundle and
+  Windows lifecycle tests, full Monitor regression, static/config/fixture
+  checks, governance/Vault, diff, secret scan, and scoped security review.
+  A missing local Docker CLI means actual Compose rendering must be reported
+  unverified, never silently labeled PASS.
+- Current local evidence: focused Python 16 pass/1 Windows symlink-environment
+  skip; H1 61/61; Monitor 142 pass/3 conditional PostgreSQL skips; Windows
+  lifecycle 37/37; full Agent CA 11/11 with the pre-existing Python 3.14
+  environment; governance 65/65; Vault PASS with two pre-existing canvas
+  warnings. Actual Docker Compose rendering cannot run without a local Docker
+  CLI. Fixture validation is not a substitute for that renderer. Keep the
+  publication checkbox open.
+- [ ] Commit exact implementation/test paths, then record that SHA in a
+  separate canonical status checkpoint. Push normally to the same branch and
+  update Draft PR #264 only if all required repository gates pass. No final
+  receipt, Ready status, merge, DNS/cert issuance, Docker, Machine A, N1 lab,
+  or Production mutation.
+
 ## Global Constraints
 
 - Repository-only design, documentation, and static contract-test work.
