@@ -82,7 +82,9 @@ export async function treeDownloadEntry({
   if (!node?.blobRef || !blob) { onFailed?.('NOT_FOUND'); return }
   const ref = { formatVersion: node.blobRef.formatVersion, id: String(node.blobRef.id) }
   const name = node.name ?? `${ref.id}.bin`
-  const type = node.mediaType ?? ''
+  // spec §3.2: Download saves the exact original bytes as octet-stream — never the upload-time mediaType,
+  // the extension, or the detected preview format (preview needs a render MIME; download does not)
+  const type = 'application/octet-stream'
   const ctrl = new AbortController()
   unlockedState?.registerAbort?.(ctrl)
   try {
@@ -113,7 +115,7 @@ export async function treeDownloadEntry({
         return
       }
       if (sink.kind === 'buffered') {
-        const url = URL.createObjectURL(new Blob(res.result, { type: type || 'application/octet-stream' }))
+        const url = URL.createObjectURL(new Blob(res.result, { type }))
         unlockedState?.registerObjectUrl?.(url)
         const a = document.createElement('a')
         a.href = url
@@ -130,7 +132,7 @@ export async function treeDownloadEntry({
     if (!res.ok) { onFailed?.('DOWNLOAD'); return }
     await decryptBlobMeta(kek, blob)
     const plain = await decryptFileContent(kek, blob, res.bytes)
-    const url = URL.createObjectURL(new Blob([plain], { type: type || 'application/octet-stream' }))
+    const url = URL.createObjectURL(new Blob([plain], { type }))
     unlockedState?.registerObjectUrl?.(url)
     const a = document.createElement('a')
     a.href = url
