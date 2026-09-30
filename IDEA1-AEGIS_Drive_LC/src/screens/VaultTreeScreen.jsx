@@ -271,6 +271,8 @@ export function VaultTreeScreen({
   const kindOfRef = useRef(kindOf)
   kindOfRef.current = kindOf
   const renderMimeOf = (n) => vaultRenderMime(n, { cache: capCacheRef.current })
+  /** Derived signature facts from bytes this session already decrypted for display (no extra fetch) */
+  const recordHead = (n, bytes) => { if (bytes?.length) capCacheRef.current?.record(n, bytes.subarray(0, 8192)) }
   const tree = useVaultTree({ session, unlockedState, previewKindOf: kindOf })
   const vaultApi = useApi('/api/vault')
   const [loadState, setLoadState] = useState('idle')
@@ -603,11 +605,14 @@ export function VaultTreeScreen({
       const out = new Uint8Array(total)
       let at = 0
       for (const part of parts) { out.set(part, at); at += part.length }
+      recordHead(node, out)
       return out
     }
     const r = await apiFetchBytes(`/api/vault/blobs/${encodeURIComponent(ref.id)}`, { signal })
     if (!r.ok) throw new Error('DOWNLOAD')
-    return decryptFileContent(kek, blob, r.bytes)
+    const plain = await decryptFileContent(kek, blob, r.bytes)
+    recordHead(node, plain)
+    return plain
   }, [kek])
 
   // Inventory and manifest refresh independently after upload. Keep one bounded
@@ -632,11 +637,6 @@ export function VaultTreeScreen({
         const blob = mediaBlobIndexRef.current.get(refKey(node.blobRef))
         if (!blob) throw Object.assign(new Error('BLOB_NOT_READY'), { code: 'BLOB_NOT_READY' })
         const kind = kindOfRef.current(node)
-        const readAndRecord = async (args) => {
-          const bytes = await readNodeBytesRef.current(args)
-          capCacheRef.current?.record(args.node, bytes.subarray(0, 8192))
-          return bytes
-        }
         if (kind === 'video') {
           const variant = node.blobRef.formatVersion ?? 1
           const plainSize = node.plainSize ?? 0
@@ -656,7 +656,7 @@ export function VaultTreeScreen({
                 return session
               }
               if (plainSize > MAX_PREVIEW_CEILING_BYTES) throw new Error('TOO_LARGE')
-              const bytes = await readAndRecord({ node, blob, signal })
+              const bytes = await readNodeBytesRef.current({ node, blob, signal })
               const url = URL.createObjectURL(new Blob([bytes], { type: renderMimeOf(node) || 'video/mp4' }))
               localUrls.add(url)
               unlockedState?.registerObjectUrl?.(url)
@@ -683,8 +683,8 @@ export function VaultTreeScreen({
           plainSize: node.plainSize ?? 0, limits: mediaLimitsRef.current,
           variant: imageVariant,
           chunkCount: 1,
-          readChunk: () => readAndRecord({ node, blob, signal }),
-          readWhole: () => readAndRecord({ node, blob, signal }),
+          readChunk: () => readNodeBytesRef.current({ node, blob, signal }),
+          readWhole: () => readNodeBytesRef.current({ node, blob, signal }),
           // V2: decrypted chunks are pulled one at a time (normal lane buffers ≤ imageMaxInputBytes;
           // the reduced lane transfers each chunk into the decode worker and keeps nothing)
           openChunks: imageVariant === 2

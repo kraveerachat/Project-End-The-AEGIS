@@ -112,7 +112,11 @@ test('MEDIA-05 Vault schedules video posters through the existing encrypted prev
   const source = fs.readFileSync(new URL('../src/screens/VaultTreeScreen.jsx', import.meta.url), 'utf8')
   assert.match(source, /openVideoPoster/)
   assert.match(source, /openPreviewSession/)
-  assert.match(source, /previewKindFor\(n\.mediaType\) === 'video'/)
+  // Unified Preview P0: the video kind comes from the shared capability resolver (content signature,
+  // else extension) — never from the upload-time client MIME
+  assert.match(source, /const kind = n\.kind === 'file' \? kindOf\(n\) : null/)
+  assert.match(source, /kind === 'image' \|\| kind === 'video'/)
+  assert.doesNotMatch(source, /previewKindFor\((node|n)\.mediaType\)/)
   assert.match(source, /unwrapVaultV2Dek/)
 })
 
