@@ -1,12 +1,14 @@
 # IDEA1 Unified File Capability, Preview Providers, and Encrypted Vault Derivatives — Design
 
-- **Status:** DRAFT — architecture specification only; awaiting Human Owner review
+- **Status:** DRAFT, HUMAN-REVIEW AMENDED (2026-09-30) — core architecture
+  approved in principle; decisions D-1…D-11 recorded in Appendix A; awaiting
+  Human Owner final spec approval. Architecture specification only.
 - **Date:** 2026-09-30
 - **Area / owner:** `idea1` / `kla`
 - **Repository truth:** `origin/main` at `5df959055075171ea5734238aa83693371d00d9d`
 - **Scope group:** GROUP A — file capability + preview (active). GROUP B —
   upload/download throughput — is **deferred** and not reopened here.
-- **Supersedes (on approval):** the "all Vault derivatives are ephemeral client
+- **Supersedes (D-10 approved 2026-09-30):** the "all Vault derivatives are ephemeral client
   products" clause of
   `docs/superpowers/specs/2026-09-19-idea1-private-vault-encrypted-hierarchy-design.md` §16
   (see §9.4 and Decision D-10). Every other clause of that spec, and all of
@@ -115,10 +117,39 @@ design.
    posters, download, or authorization.
 9. **G-NEUTRAL:** identical behavior for Admin, existing, and future accounts.
 
+### 1.1a Human-approved final product scope (binding)
+
+1. The Normal Files thumbnail/poster path is already fast. Preserve it; do not
+   rewrite it for symmetry (`NORMAL_FILES_THUMBNAIL_REGRESSION_ALLOWED=NO`).
+2. The Vault thumbnail/poster path is the main cover-speed optimization target:
+   approach Normal Files perceived responsiveness while preserving Zero-Knowledge
+   (`VAULT_THUMBNAIL_OPTIMIZATION=REQUIRED`).
+3. Click-to-Preview improvements apply to **both** Normal Files and the Private
+   Vault (`BOTH_CONTEXT_CLICK_PREVIEW=REQUIRED`).
+4. Preview capability applies identically to Admin, current accounts, and
+   future/new accounts (`ACCOUNT_NEUTRALITY=REQUIRED`).
+5. Upload: arbitrary binary files remain accepted independent of preview support
+   (`ARBITRARY_UPLOAD=REQUIRED`).
+6. Download: exact original bytes remain downloadable independent of preview
+   support (`ARBITRARY_DOWNLOAD=REQUIRED`).
+7. Preview is capability-based — not a promise to decode every historical or
+   proprietary format.
+8. Required preview families: image, animated image, video, audio **including
+   MP3** (`MP3_AUDIO_PREVIEW=REQUIRED`), PDF, text/Markdown/JSON/CSV/source-like
+   text, and common Office formats where a safe provider exists.
+9. Unsupported preview: stable metadata/icon state, Download available, no crash,
+   no endless spinner.
+10. Video acceptance: preview, poster, and playback are the best safely
+    achievable under the measured hardware/network ceiling. **Zero buffering and
+    Google Drive quality/performance parity are NOT requirements.**
+
 ### 1.2 Non-goals
 
-- Upload/download throughput (GROUP B), chunk-size tuning of **originals**,
-  transport concurrency, network/hardware remediation.
+- **GROUP B — upload/download throughput optimization remains DEFERRED**
+  (`GROUP_B_THROUGHPUT_SCOPE=DEFERRED`): chunk-size tuning of originals **or of
+  the global V2 minimum** (D-3), transport concurrency, network/hardware
+  remediation. GROUP A uses measured throughput only to choose proxy vs original
+  (§16.2, §33).
 - Claiming that every format can be previewed. Unsupported formats get a stable
   generic representation and download.
 - Server-side Vault processing of any kind; server-side decryption.
@@ -196,7 +227,7 @@ Rules:
 
 ### 3.2 Download
 
-- **Invariant D-1:** download returns exact original bytes for every stored
+- **Invariant DL-1:** download returns exact original bytes for every stored
   file. Normal Files keeps `Content-Type: application/octet-stream`,
   `Content-Disposition: attachment; filename*=UTF-8''…`, `nosniff` for **all**
   types (current behavior — not switched to a detected MIME, because a detected
@@ -263,8 +294,8 @@ HEIF/HEIC and camera RAW stay `unsupported` (no decoder shipped), consistent wit
 `vaultImageFormats.js`.
 
 Legacy binary **DOC** and **PPT** have no safe, maintained browser parser; they
-resolve to `unsupported` with Download (Decision D-7 covers a possible future
-server-side converter for Normal Files only).
+resolve to `PREVIEW_UNSUPPORTED` with `DOWNLOAD_AVAILABLE` (D-7 approved: no
+server LibreOffice or other server-side converter in vp1).
 
 ### 4.3 Extension
 
@@ -359,8 +390,9 @@ identity, immutable caching, batch media-info, admission/queue, eviction) is
 4. Poster/motion derivatives remain images/video only. Audio tiles show an icon
    plus duration; document tiles show an icon (first-page thumbnails are a later,
    separately approved profile).
-5. Optional (Decision D-9b): a server `proxy` derivative for **non-browser-playable
-   containers** (mov/mkv/HEVC) only. Not required for current Human acceptance.
+5. Deferred (D-9 (b)): a server `proxy` derivative for **non-browser-playable
+   containers** (mov/mkv/HEVC) only. Not in vp1; not required for current Human
+   acceptance.
 
 ### 6.3 Client
 
@@ -460,9 +492,12 @@ profile, total manifest still within `maxDecodedBytes` (16 MiB).
 
 Budget: ≈ 300 bytes per preview entry; 10,000 nodes × 3 entries ≈ 9 MB worst
 case, inside the 16 MiB manifest ceiling but large. Implementation must measure
-manifest encode/upload cost per mutation at 1k/5k/10k nodes before enabling
-writers (§36 T-MAN-SIZE); Decision D-1 records the alternative (separate
-encrypted preview index) if the measurement fails.
+manifest encode/decode/upload/CAS cost per mutation at 1k/5k/10k nodes (§36
+T-MAN-SIZE). **D-1 (approved conditionally): the v2 writer MUST NOT be enabled
+until T-MAN-SIZE proves acceptable cost at all three sizes; the P2a v2 reader
+MUST ship and be accepted before the P2b writer (§38).** If T-MAN-SIZE fails, the
+writer stays off and a separate encrypted preview index is designed as a new
+decision.
 
 ### 8.3 Tree operation
 
@@ -517,8 +552,14 @@ account branch is added.
 The hierarchy spec (§2 goal 6, §16) keeps decrypted thumbnails/posters ephemeral
 and client-only. This design keeps **decrypted** derivatives ephemeral and
 client-only, and adds **persisted ciphertext** derivatives produced by the owner's
-browser. Plaintext still never leaves the browser or persists. This is a scope
-amendment and requires explicit Human approval (Decision D-10).
+browser. Plaintext still never leaves the browser or persists. **D-10 approved
+(2026-09-30):**
+
+```
+PERSISTED_VAULT_CIPHERTEXT_DERIVATIVES=ALLOWED
+PERSISTED_VAULT_PLAINTEXT_DERIVATIVES=FORBIDDEN
+SERVER_GENERATED_VAULT_PLAINTEXT_DERIVATIVES=FORBIDDEN
+```
 
 ---
 
@@ -630,15 +671,34 @@ Versioning:
 - A visible control switches "Preview quality ↔ Original"; the choice persists only
   for the modal instance.
 - Both play through the existing SW range-decryption session and read-ahead
-  window; the proxy's small chunks (D-3) make time-to-first-frame bounded by one
-  small chunk rather than 32 MiB.
+  window.
+- **Chunk size uses the current supported V2 rules** (plaintext chunk 8–64 MiB;
+  D-3 is deferred and not approved for vp1). Derivative uploads choose the
+  **current minimum (8 MiB)** chunk size: thumb/poster/motion (≤ 4 MiB) are a
+  single short chunk; a proxy's time-to-first-frame is bounded by one ≤ 8 MiB
+  chunk fetch (vs a 32 MiB original chunk today). Lowering the global minimum is
+  **not** required for P4. If Human POST measurement later proves the 8 MiB
+  minimum is the dominant time-to-first-preview blocker, that becomes a separate
+  cross-cut decision/task with its own TDD and performance evidence.
 
 ### 16.3 Expected effect (targets, not guarantees)
 
-`START_LIVE.mp4` proxy ≈ 120 s × ~1.1 Mbps ≈ **16–17 MB** (vs 1.2 GB). At any
-Remote throughput ≥ ~0.2 MB/s sustained, playback of the proxy does not starve;
-the 4–6 s starvation loops observed on the original are eliminated whenever the
-proxy bitrate fits measured capacity. The original remains subject to physics.
+`START_LIVE.mp4` proxy ≈ 120 s × ~1.1 Mbps ≈ **16–17 MB** (vs 1.2 GB), i.e. ~2–3
+chunks of 8 MiB. Time-to-first-frame ≈ one 8 MiB fetch at the measured download
+throughput (e.g. ~4 s at 2 MB/s); after that, sustained throughput above ~0.2 MB/s
+avoids starvation. The repeated 4–6 s starvation loops observed on the original
+are expected to disappear whenever the proxy bitrate fits measured capacity. The
+original remains subject to the measured ceiling. Zero buffering is not a
+requirement (§1.1a item 10).
+
+### 16.4 Initial profile status (D-9)
+
+The vp1 proxy (854×480, ~1.0 Mbps video, bounded audio bitrate, faststart,
+bounded duration `proxyMaxSeconds`) is an **initial measured profile**, not a
+permanent optimum. Human acceptance: poster appears quickly, Preview opens,
+content is recognizable, and playback is materially better than the original
+where the proxy bitrate fits available throughput. A better profile ships as
+`vp2` (§10).
 
 ## 17. Audio preview lifecycle
 
@@ -699,6 +759,14 @@ Identical providers in both contexts (bytes from `/preview` or decrypted
 bytes). No document derivative in `vp1` (on-demand only); a first-page encrypted
 `thumb` for PDF/Office is a later profile.
 
+**Dependency gate (D-6, not yet approved):** the PDF renderer, DOCX provider,
+XLS/XLSX/ODS parser, PPTX provider, and HTML sanitizer are third-party libraries
+that process attacker-controlled bytes. Before P5, the implementation plan must
+list for each: exact package, purpose, version policy, license, attacker-byte
+exposure, execution boundary (browser/worker/server), CSP implications, and
+replacement/fallback strategy (Appendix A D-6). The same listing applies to the
+MP4/WebM demux/mux tooling used by P3/P4.
+
 CSP: no policy change is expected (workers same-origin, blob: images already
 allowed, `srcdoc` inherits the app CSP). Implementation must **prove** this in a
 real browser before enabling (§36 T-CSP); any CSP change needs integration
@@ -719,7 +787,7 @@ review.
 | Layer | Normal Files | Vault |
 |---|---|---|
 | Server | existing media cache (disk, sha256+profile, eviction) | ciphertext blobs only |
-| HTTP | derivatives `private, immutable` + `Vary: Cookie`; `/preview` `no-store` | chunk reads `no-store` (unchanged; D-5 records an optional ciphertext-only cache for small chunks, default **off**) |
+| HTTP | derivatives `private, immutable` + `Vary: Cookie`; `/preview` `no-store` | chunk reads `no-store` (unchanged; D-5: HTTP caching of Vault ciphertext chunks stays **OFF** for vp1) |
 | Browser memory | image cache | decrypted Object URL LRU (≤ 256, existing) + small **ciphertext** LRU for derivative chunks (≤ 32 MiB, page memory only) |
 | Persistent client | none | **none** — no Cache API, IndexedDB, localStorage, sessionStorage, OPFS for plaintext **or** keys (existing SA-1/SA-SW-1 tests extended to new modules) |
 
@@ -782,11 +850,14 @@ locks (existing idempotent boundary semantics).
 | SW plaintext budget | 64 MiB (existing) |
 | Derivative generation at upload | 1 file at a time; thumb/poster budget 10 s, motion 30 s; proxy 1 worker (provisional) |
 | Derivative uploads | 1 concurrent, deferred while an interactive original upload is active (reuse `deferHighRes` signal) |
-| Lazy backfill | ≤ 1 concurrent, ≤ 50 files per unlocked session (provisional) |
+| Lazy backfill | thumb/poster only (motion/proxy per D-8); ≤ 1 concurrent, ≤ 50 files per unlocked session (provisional) |
 | Document providers | 1 worker per open modal; caps per §18 |
+| Derivative V2 chunk size | current supported minimum, 8 MiB plaintext (D-3 deferred; no change to `vaultTransferLimits.js`) |
+| Vault ciphertext HTTP cache | off (D-5) |
 
 All provisional values must be measured and recorded in a Limits Register update
-(the `vaultTreeLimits.js` rule: values are measured, pinned by tests).
+(the `vaultTreeLimits.js` rule: values are measured, pinned by tests). None of
+these bounds tune transport throughput; GROUP B remains deferred.
 
 ## 25. Cancellation
 
@@ -838,10 +909,12 @@ rule).
 - Vault: derivative blobs use existing owner-scoped V2 routes; cross-owner → 404;
   manifest is per-user; no shared derivative, no cross-account dedup.
 - No new public or share-link surface for previews.
-- Audit volume: derivative tile reads hit the chunk-0 audit rule (`VAULT_V2_READ`
-  per chunk-0 read). Decision D-4 chooses between accepting the volume and
-  session-scoped dedup of read audits (recommended: first read per blob per login
-  session).
+- Audit volume (D-4, `NO_RUNTIME_CHANGE_IN_VP1`): **current audit semantics are
+  kept.** Derivative tile reads hit the existing chunk-0 audit rule
+  (`VAULT_V2_READ` per chunk-0 read) and may increase audit volume. vp1 measures
+  that volume (§34); no session-scoped dedup is introduced to support preview. If
+  the volume becomes an operational problem, a separate security/audit design
+  follows.
 
 ## 30. Admin / current-user / future-user neutrality
 
@@ -865,11 +938,16 @@ rule).
    has already happened for display; backfill adds only a small upload and a CAS.
    Result: each legacy file pays the slow poster cost **once, ever**, not once per
    unlock.
-3. **Motion backfill:** automatic only when the original is small enough to be
-   decoded locally within the motion budget (≤ 64 MiB plaintext, provisional);
-   otherwise via explicit action.
-4. **Proxy backfill:** explicit user action only (full original download + local
-   transcode), with progress, cancel, and estimate (D-8).
+3. **Motion backfill (D-8):** automatic only from plaintext the client has
+   **already decrypted for a user-visible display** (e.g. a small GIF already
+   played on hover, within the motion budget). Otherwise — and always for large
+   legacy videos — only via the explicit **Build Preview** action.
+4. **Proxy backfill (D-8):** explicit user-initiated **Build Preview** action only
+   (full original download + local transcode), with progress, cancel, and
+   estimate.
+4a. **Never** download or transcode a large legacy original merely because the
+   Vault was unlocked. Automatic backfill never fetches original bytes beyond what
+   the existing tile display path already fetches.
 5. Ordering: backfill never competes with interactive work (deferred while
    uploads/downloads/modal playback are active).
 6. No server-side migration, no bulk re-encryption, no change to existing blobs.
@@ -887,19 +965,40 @@ require `2` for derivatives.
 
 ## 33. LAN and Remote behavior
 
-- Same code path; no network-type branching.
+### 33.1 Ceilings are not identical (`REMOTE_EQUALS_LAN=NO`)
+
+- **LAN:** the current path contains a proven ~100 Mbps hardware ceiling
+  (PR216 `P1_SHARED_PATH_CAPACITY_LIMITER`). No software change in this spec
+  claims to exceed it without hardware replacement.
+  `LAN_TARGET` = best safe throughput toward the proven LAN hardware ceiling.
+- **Remote:** the ceiling is end-to-end and **direction-specific**; Remote upload
+  and Remote download can differ. Client ISP, site ISP, Twingate overhead/path,
+  and the shared router path all contribute.
+  `REMOTE_UPLOAD_TARGET` = best safe throughput toward the measured Remote upload
+  end-to-end ceiling; `REMOTE_DOWNLOAD_TARGET` = best safe throughput toward the
+  measured Remote download end-to-end ceiling.
+- These targets belong to **GROUP B, which remains DEFERRED**. GROUP A does not
+  optimize transport throughput.
+
+### 33.2 GROUP A behavior on LAN and Remote
+
+- Same feature path, same security policy, same account behavior everywhere;
+  **no branching of security policy by LAN vs Remote** and no network-type
+  detection.
+- Measured throughput is used **only** to select preview proxy vs original
+  (§16.2): it naturally selects the original where capacity allows and the proxy
+  on constrained paths.
 - Tiles: derivative size dominates → tens of KB per tile on both paths.
-- Proxy/original choice is driven by measured throughput (§16.2), which naturally
-  selects the original on a fast LAN and the proxy on constrained Remote paths.
-- Proxy/motion derivative chunk size: small (D-3) to bound time-to-first-frame on
-  Remote.
+- Derivative chunk size follows the current V2 rules (8 MiB minimum; D-3
+  deferred, §16.2).
 
 ## 34. Observability
 
 - Client diagnostics (extend `vaultPreviewDiagnostics.js`; in-memory only, opt-in
   export as today): derivative hit/miss/corrupt counts, cold-fetch ms, decrypt ms,
   decode ms, generation ms per kind, backfill attempts/successes, proxy-vs-original
-  selections, starvation events (`waiting` count/duration), throughput EWMA. No
+  selections, starvation events (`waiting` count/duration), throughput EWMA,
+  derivative chunk-0 reads per session (to quantify D-4 audit volume). No
   file names, node ids, or plaintext in any counter.
 - Normal Files: existing media-info/state and admin cache status; add `format`
   distribution only in admin status (counts, no names).
@@ -913,7 +1012,7 @@ require `2` for derivatives.
 |---|---|---|---|
 | T1 | Server learns Vault content from derivatives | derivatives encrypted client-side before upload; server stores ciphertext only | — |
 | T2 | Server swaps derivative blobs (show wrong preview) | manifest-held `contentId` check + chunk AAD; `sourceBlobRef` binding | whole-original swap is pre-existing (manifest does not bind originals' contentId); optional hardening noted in §38 |
-| T3 | Metadata leakage: count/size/timing of extra small blobs reveals "this is media" and approximate kind | Accepted and stated honestly; optional size-bucket padding of thumb/poster/motion (D-2) | derivative **count** per upload remains observable unless dummy derivatives are added (not recommended) |
+| T3 | Metadata leakage: count/size/timing of extra small blobs reveals "this is media" and approximate kind | **Accepted for vp1 (D-2)** and stated honestly; **no padding in vp1** (latency/storage/bandwidth prioritized); padding kept as optional future hardening (§38.3) | derivative count and approximate sizes per upload are observable by the server |
 | T4 | Plaintext persists on client | no persistent storage APIs; source-scan tests; lock cleanup | OS swap/crash dumps (pre-existing, acknowledged) |
 | T5 | Malicious file exploits a parser (PDF/Office/image/video) | parsers in workers, no eval, no scripting, sanitized HTML in `sandbox=""` iframe, bounded input sizes, browser-native decoders for media | browser/library 0-days; keep libraries pinned and updated |
 | T6 | Active content execution (SVG/HTML/Markdown XSS) | never rendered as documents; `textContent`; React-only Markdown rendering | — |
@@ -923,7 +1022,7 @@ require `2` for derivatives.
 | T10 | Resource exhaustion (huge/decompression-bomb inputs) | caps on bytes, pixels, pages, cells, frames, durations; generation time budgets | — |
 | T11 | Normal Files regression via server allowlist growth | signature check on `/preview`; audio/PDF/text inline with sandbox CSP + nosniff; office as octet-stream | — |
 | T12 | Downgrade: old client writes v1 manifest over v2 | readers reject unknown schema versions > supported (fail-secure, no write); rollout order §38 | — |
-| T13 | Audit trail flooded by tile reads | D-4 | — |
+| T13 | Audit trail volume grows with derivative tile reads | D-4: current audit semantics kept in vp1; volume measured (§34, T-AUDIT-VOL) | if volume becomes an operational problem, a separate security/audit design is required |
 
 `SERVER_VAULT_PLAINTEXT=FORBIDDEN`, `SERVER_GENERATED_VAULT_PLAINTEXT_DERIVATIVE=FORBIDDEN`,
 `PERSISTENT_DECRYPTED_VAULT_CACHE=FORBIDDEN` hold in every section above.
@@ -956,7 +1055,14 @@ Test-first (RED before GREEN) per the repository's existing discipline.
 - T-MAN-V2: manifest v2 validation (closed keys, kind uniqueness, sourceBlobRef
   mismatch ignored, bounds); v1 still readable; unknown future version rejected
   without write.
-- T-MAN-SIZE: manifest encode/encrypt/upload cost at 1k/5k/10k nodes with previews.
+- T-MAN-SIZE (**gates the P2b writer, D-1**): manifest encode, encrypt, decode,
+  upload, and head-CAS cost at 1k, 5k and 10k nodes with previews, vs the same
+  sizes without previews; the pass threshold is recorded in the implementation
+  plan and approved by the Human Owner before P2b.
+- T-AUDIT-VOL: count `VAULT_V2_READ` rows per unlock + grid view with derivatives
+  (measurement only; no audit behavior change, D-4).
+- T-CHUNK-RULES: derivative uploads use the current V2 chunk rules (8 MiB minimum);
+  `vaultTransferLimits.js` unchanged (D-3).
 - T-DER-CRYPTO: derivative contentId mismatch rejected before decrypt; AEAD
   tamper → corrupted path; no new AAD bytes (pin existing vectors).
 - T-DER-UPLOAD: upload with derivatives = one CAS; derivative failure never
@@ -987,94 +1093,125 @@ Test-first (RED before GREEN) per the repository's existing discipline.
 
 **Performance (measured, not asserted)**
 - T-PERF-VAULT: cold/warm tile latency with derivatives vs Normal Files on LAN and
-  Remote; START_LIVE.mp4 poster time and proxy playback starvation count.
+  Remote; START_LIVE.mp4 poster time, proxy time-to-first-frame, and proxy
+  playback starvation count — each recorded with the measured throughput of the
+  path under test (LAN and Remote judged against their own ceilings, §33.1).
 
 ## 37. Human acceptance matrix
 
 Accounts: **Admin**, one **existing** DataLake user, one **newly created** user —
-every row executed for each account.
+every row executed for each account, on **LAN and Remote** where marked. The
+measured environment is recorded with each run.
 
-| # | Context | Scenario | Pass criterion |
-|---|---|---|---|
-| H1 | Files | upload `.bin`, no-extension, `.xyz` file; download | upload succeeds; SHA-256 identical |
-| H2 | Vault | same as H1 | same |
-| H3 | Files | image grid (`.JPG` + `.jpg`) | thumbnails as fast as before (no regression) |
-| H4 | Vault | image grid after unlock (new uploads) | tiles appear near Files responsiveness; warm = immediate |
-| H5 | Vault | legacy images/videos: first unlock, second unlock | second unlock shows posters without the slow path |
-| H6 | Vault | START_LIVE.mp4 tile poster (new upload) | poster without consuming the original stream |
-| H7 | Vault | START_LIVE.mp4 modal, Remote | proxy plays without repeated 4–6 s starvation; "Original" toggle works |
-| H8 | Both | hover motion | smooth, muted, stops on leave, none under reduced motion |
-| H9 | Both | MP3 / M4A / WAV / FLAC / OGG | play/pause/seek/duration; unsupported codec → message + Download |
-| H10 | Both | PDF multi-page | renders, pages navigate, no script execution |
-| H11 | Both | TXT / MD / JSON / CSV / SVG / HTML | readable; SVG/HTML shown as source |
-| H12 | Both | DOCX / XLSX / PPTX | readable simplified preview |
-| H13 | Both | DOC / PPT / ZIP / unknown | generic fallback, Download works |
-| H14 | Vault | lock during video playback / generation | view locks; playback stops; no preview remains visible |
-| H15 | Both | cross-account id probing | 404 everywhere; no preview leakage |
-| H16 | Files | existing download/authorization | unchanged |
+**Ceiling clarification (`REMOTE_EQUALS_LAN=NO`, §33.1).** LAN is bounded by the
+proven ~100 Mbps hardware ceiling; Remote is bounded by direction-specific
+end-to-end ceilings (Remote upload and Remote download measured separately).
+Rows are judged against the ceiling of the path under test, never against the
+other path and never against Google Drive. Zero buffering is not a criterion.
+Throughput targets themselves are GROUP B (deferred) and are not acceptance
+rows here.
+
+| # | Context | Path | Scenario | Pass criterion |
+|---|---|---|---|---|
+| H1 | Files | LAN+Remote | upload `.bin`, no-extension, `.xyz` file; download | upload succeeds; SHA-256 identical |
+| H2 | Vault | LAN+Remote | same as H1 | same |
+| H3 | Files | LAN+Remote | image grid (`.JPG` + `.jpg`), video posters, hover | no regression vs current fast path |
+| H4 | Vault | LAN+Remote | image grid after unlock (new uploads) | tiles approach Files perceived responsiveness; warm = effectively immediate |
+| H5 | Vault | LAN+Remote | legacy images/videos: first unlock, second unlock | second unlock shows thumbs/posters without the slow original-derived path |
+| H6 | Vault | LAN+Remote | START_LIVE.mp4 tile poster (new upload) | poster appears quickly without consuming the original stream |
+| H7 | Vault | Remote (and LAN) | START_LIVE.mp4 modal | Preview opens; content recognizable; proxy playback materially better than original where the proxy bitrate fits measured download throughput; no repeated 4–6 s starvation loops in that case; "Original" toggle works |
+| H8 | Both | LAN+Remote | hover motion | smooth, muted, stops on leave, none under reduced motion |
+| H9 | Both | LAN | **MP3** (required) / M4A / WAV / FLAC / OGG | play/pause/seek/duration/loading/error; unsupported codec → message + Download |
+| H10 | Both | LAN | PDF multi-page | renders, pages navigate, no script execution |
+| H11 | Both | LAN | TXT / MD / JSON / CSV / SVG / HTML | readable; SVG/HTML shown as source |
+| H12 | Both | LAN | DOCX / XLSX / PPTX (after D-6 approval, P5) | readable simplified preview |
+| H13 | Both | LAN | DOC / PPT / ZIP / unknown | stable metadata/icon, Download works, no crash, no endless spinner |
+| H14 | Vault | LAN | lock during video playback / generation | view locks; playback stops; no preview remains visible |
+| H15 | Both | LAN | cross-account id probing | 404 everywhere; no preview leakage |
+| H16 | Files | LAN+Remote | existing download/authorization | unchanged |
+| H17 | Both | LAN | Firefox/Safari spot check (D-11) | graceful degradation; Download and upload never broken, no data loss |
 
 ## 38. Rollout and rollback boundary
 
 ### 38.1 Phases (each its own PR; each Human-gated)
 
-| Phase | Content | Reversible? |
-|---|---|---|
-| P0 | Detection module + registry + shared modal shell; Vault capability from content signature (fixes the `mediaType`-only gate); arbitrary upload/download regression tests | yes (pure client) |
-| P1 | Audio + text family providers; Normal Files allowlist/format table + `/preview` signature check + media-info `format` | yes |
-| P2a | Manifest **v2 reader** shipped (reads v1+v2, writes v1) | yes |
-| P2b | Manifest **v2 writer** + thumb/poster derivatives at upload + lazy backfill, behind a server-served feature flag | **one-way for manifests** (see 38.2) |
-| P3 | Motion derivatives | yes (entries ignored if disabled) |
-| P4 | Proxy derivatives + playback policy (+ D-3 if approved) | yes (entries ignored) |
-| P5 | PDF + Office providers | yes |
+| Phase | Content | Gate | Reversible? |
+|---|---|---|---|
+| P0 | Detection module + registry + shared modal shell for **both** contexts; Vault capability from content signature (fixes the `mediaType`-only gate); arbitrary upload/download regression tests | — | yes (pure client) |
+| P1 | Audio (incl. MP3) + text family providers in both contexts; Normal Files allowlist/format table + `/preview` signature check + media-info `format` | — | yes |
+| P2a | Manifest **v2 reader** (reads v1+v2, writes v1) | must be deployed and accepted before P2b | yes |
+| P2b | Manifest **v2 writer** + thumb/poster derivatives at upload + automatic lazy thumb/poster backfill, behind a server-served feature flag | **T-MAN-SIZE PASS at 1k/5k/10k (D-1)** and P2a accepted | **one-way for manifests** (38.2) |
+| P3 | Motion derivatives (new uploads; legacy only via Build Preview, D-8) | P2b; MP4/WebM mux tooling listed per D-6 | yes (entries ignored if disabled) |
+| P4 | Proxy derivatives (vp1 initial profile, D-9) + playback policy + Build Preview action; current V2 chunk rules (D-3 not part of P4) | P2b; MP4 mux/demux tooling listed per D-6 | yes (entries ignored) |
+| P5 | PDF + Office providers | **D-6 dependency approval** | yes |
+
+D-6 approval gates P5 (and any phase introducing a third-party parsing/rendering/
+muxing library) but does **not** block P0–P4 implementation planning.
 
 ### 38.2 Rollback boundary
 
-- Once any v2 manifest is written, rollback may only go to a build that contains
-  the **P2a reader**. P2a must be deployed and accepted before P2b is enabled.
+- **One-way rule (D-1):** once any v2 manifest is written, rollback may only go to
+  a build that reads v2 (contains the P2a reader). P2a must be deployed and
+  accepted before the P2b writer is enabled.
 - Disabling the P2b flag stops new derivative writes; existing entries remain and
-  are harmless (a reader that has the flag off still renders them or ignores
-  them — both are safe).
+  are harmless (rendered or ignored — both safe).
 - No rollback may delete blobs, rewrite manifests, or purge
   (`VAULT_DESTRUCTIVE_PURGE_ENABLED=false`, `PRE_TREE_ROLLBACK=FORBIDDEN`).
 - Normal Files phases are revertible by code revert; the media cache is
   regenerable.
 
-### 38.3 Optional hardening (not in scope)
+### 38.3 Optional future hardening (not in vp1)
 
-Record the original blob's `contentId` in the manifest node (`blobRef.contentId`)
-so whole-original substitution becomes detectable, closing T2's residual.
+- Record the original blob's `contentId` in the manifest node
+  (`blobRef.contentId`) so whole-original substitution becomes detectable,
+  closing T2's residual.
+- Power-of-two size-bucket padding of derivatives (declined for vp1, D-2).
+- Session-scoped read-audit dedup (declined for vp1, D-4) — only via a separate
+  security/audit design.
+- Lower global V2 minimum chunk (deferred, D-3) — only via a separate cross-cut
+  task with TDD and performance evidence.
 
 ---
 
-## Appendix A — Decisions required from the Human Owner
+## Appendix A — Human Owner decisions (recorded 2026-09-30)
 
-| id | Decision | Recommendation |
+| id | Decision | Status |
 |---|---|---|
-| D-1 | Store preview references in the encrypted manifest (schema v2) vs. a separate encrypted preview index | Manifest v2 (atomic with CAS, GC-correct), subject to T-MAN-SIZE |
-| D-2 | Accept derivative existence/size leakage; pad thumb/poster/motion to size buckets? | Accept count leakage; pad to power-of-two buckets |
-| D-3 | Lower global V2 min plaintext chunk from 8 MiB to 1 MiB so proxy/motion start quickly (server cannot tell derivatives apart; originals keep 32 MiB default) | Yes, with chunk-count bound review (touches GROUP B limits file; declared cross-cut) |
-| D-4 | Audit volume of derivative chunk-0 reads | Session-scoped dedup: first read per blob per login session |
-| D-5 | HTTP caching of small ciphertext chunks | Off in this scope |
-| D-6 | Third-party libraries and licenses: pdf.js, DOCX→HTML converter, spreadsheet parser, HTML sanitizer, MP4 demux/mux | Human approves the exact packages/licenses before P4/P5 |
-| D-7 | Legacy DOC/PPT (and higher-fidelity PPTX) via server LibreOffice for Normal Files only | No (attack surface, image size); unsupported + Download |
-| D-8 | Explicit "Build preview" action for proxy/motion backfill that downloads the full original | Yes, user-initiated only |
-| D-9 | Proxy profile (854×480, ~1.0 Mbps) and `proxyMaxSeconds`; (b) Normal Files proxy for non-playable containers | 854×480 @ 1.0 Mbps, 3600 s cap; (b) defer |
-| D-10 | Amend hierarchy spec §16: persisted **ciphertext** derivatives allowed; plaintext stays ephemeral | Approve |
-| D-11 | Browser baseline: measured Chromium (Edge/Chrome) full; Firefox/Safari degrade to original-derived path where WebCodecs/WebP encode is missing | Approve |
+| D-1 | Preview references in encrypted Manifest schema v2 | **APPROVED CONDITIONAL** — v2 writer MUST NOT be enabled until T-MAN-SIZE proves acceptable encode/decode/upload/CAS cost at 1k, 5k and 10k nodes; P2a reader precedes P2b writer; one-way rollback boundary preserved (§8.2, §38) |
+| D-2 | Derivative count/size leakage and padding | **ACCEPT LEAKAGE, NO PADDING IN vp1** — latency/storage/bandwidth prioritized; padding is optional future hardening only (§35 T3, §38.3) |
+| D-3 | Lower global V2 minimum plaintext chunk 8 MiB → 1 MiB | **DEFERRED — NOT APPROVED FOR vp1** (`D3_STATUS=DEFERRED_NOT_APPROVED_FOR_VP1`). Current V2 chunk rules apply; not required for P4; revisit only as a separate cross-cut task if Human POST measurement proves it the dominant time-to-first-preview blocker (§16.2, §24, §33) |
+| D-4 | Audit volume of derivative chunk-0 reads | **KEEP CURRENT AUDIT SEMANTICS** (`D4_STATUS=NO_RUNTIME_CHANGE_IN_VP1`) — measure volume first; separate security/audit design later if it becomes an operational problem (§29, §34) |
+| D-5 | HTTP caching of Vault ciphertext chunks | **OFF for vp1** (§20, §24) |
+| D-6 | Third-party parsing/rendering/muxing libraries | **NOT YET APPROVED.** Before P5 or any implementation introducing such a library, the implementation plan must list per package: exact package name, purpose, version or version policy, license, whether it processes attacker-controlled bytes, browser/worker/server execution boundary, CSP implications, replacement/fallback strategy. Minimum coverage: PDF renderer, DOCX provider, XLS/XLSX/ODS parser, PPTX parser/provider, HTML sanitizer, MP4/WebM demux/mux tooling. Does not block P0–P4 planning (§38.1) |
+| D-7 | Legacy DOC/PPT | **APPROVED** — `PREVIEW_UNSUPPORTED`, `DOWNLOAD_AVAILABLE`; no server LibreOffice in vp1 (§4.2, §18.3) |
+| D-8 | Legacy large video proxy/motion backfill | **APPROVED** — user-initiated Build Preview only; automatic lazy thumb/poster backfill allowed; never silently download/transcode a large legacy original because the Vault was unlocked (§28, §31) |
+| D-9 | Proxy profile | **APPROVED AS INITIAL MEASURED PROFILE** — 854×480, ~1.0 Mbps video, bounded audio bitrate, faststart, bounded duration; a starting vp1 profile, not a permanent optimum; Google Drive parity not required; (b) Normal Files proxy deferred (§10, §16.4, §37 H7) |
+| D-10 | Hierarchy spec §16 amendment | **APPROVED** — `PERSISTED_VAULT_CIPHERTEXT_DERIVATIVES=ALLOWED`, `PERSISTED_VAULT_PLAINTEXT_DERIVATIVES=FORBIDDEN`, `SERVER_GENERATED_VAULT_PLAINTEXT_DERIVATIVES=FORBIDDEN` (§9.4) |
+| D-11 | Browser baseline | **APPROVED** — Chromium/Edge/Chrome full measured baseline; Firefox/Safari degrade gracefully by real capability detection; no browser-specific data loss or broken Download (§37 H17) |
 
-## Appendix B — Self-review record (2026-09-30)
+## Appendix B — Self-review record
+
+### B.1 Initial draft (2026-09-30, `d9d96ca8`)
 
 | Check | Result |
 |---|---|
 | All 38 required sections present (§1–§38) | yes |
 | Every "current behavior" claim traced to a source path at `5df95905` (§0) | yes |
-| No server plaintext, no server-generated Vault derivative, no persistent decrypted cache anywhere in the design | yes (§8, §9, §20, §35) |
-| No new cryptographic primitive, AAD layout, or server table | yes — derivatives reuse V2 blobs and KEK-wrapped DEKs; manifest schema v2 is the only format change (client-side, encrypted) |
-| Normal Files derivative pipeline unchanged | yes — additive allowlist/format table, media-info `format`, `/preview` signature check only |
-| Account neutrality stated as an enforceable test | yes (§30, T-NEUTRAL) |
-| Performance statements framed as targets with measurement gates | yes (§16.3, §24, §36 T-PERF-VAULT, §37) |
-| Provisional numbers marked and routed to a Limits Register update | yes (§24) |
-| Irreversible step identified with a rollback boundary | yes — manifest v2 writer (§38.2) |
-| Open items that change scope/security routed to Human decisions | yes (Appendix A) |
-| Known residual risks stated rather than hidden | T2 whole-original swap (pre-existing), T3 derivative count/size leakage, T5 parser 0-days, D-4 audit volume |
-| Areas needing proof in a real browser before enabling | CSP compatibility of pdf.js/office workers/`srcdoc` (T-CSP); WebCodecs encode availability (D-11) |
+| No server plaintext, no server-generated Vault derivative, no persistent decrypted cache | yes (§8, §9, §20, §35) |
+| No new cryptographic primitive, AAD layout, or server table | yes — manifest schema v2 is the only format change (client-side, encrypted) |
+| Normal Files derivative pipeline unchanged | yes |
+| Account neutrality enforceable by test | yes (§30, T-NEUTRAL) |
+| Irreversible step identified with rollback boundary | yes (§38.2) |
+
+### B.2 Human-review amendment (2026-09-30)
+
+| Check | Result |
+|---|---|
+| §1, §16, §24, §33, §37, §38, Appendix A agree on D-1…D-11 | yes — D-1 gate in §8.2/§38.1/§38.2; D-3 deferred in §1.2/§16.2/§24/§33.2/§38; D-4 in §29/§34; D-5 in §20/§24; D-8 in §24/§31/§38.1; D-9 in §16.4/§37 |
+| No remaining text requires lowering the global V2 minimum chunk for P4 | yes (§16.2, §38.1 P4) |
+| No remaining text proposes derivative padding or audit dedup for vp1 | yes (§35 T3/T13, §38.3) |
+| GROUP B throughput still deferred | yes (§1.2, §24, §33.1) |
+| `REMOTE_EQUALS_LAN=NO` stated with direction-specific Remote ceilings | yes (§33.1, §37) |
+| Measured throughput used only for proxy-vs-original selection; no LAN/Remote security branching | yes (§16.2, §33.2) |
+| Final product scope recorded as binding | yes (§1.1a) |
+| Runtime source changed | no — spec file only |
