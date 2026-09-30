@@ -142,7 +142,9 @@ def start():
         proto.execute("INSERT INTO protocol_commands VALUES ('m1', 'dev', 1, 'CUT_UPLINK', 'PUBLISHED')")
     proto.commit(); proto.close()
     status = {"state": os.environ.get("FAKE_CORE_STATE", "WAIT_DEVICE"), "broker": os.environ.get("FAKE_CORE_BROKER", "CONNECTED"),
-              "device": "UNKNOWN", "uplink": "UNKNOWN", "armed": "MONITOR_ONLY", "profile": "production", "dry_run": False, "auto_contain": False, "pid": pid}
+              "armed": os.environ.get("FAKE_CORE_ARMED", "ARMED"), "profile": "production", "dry_run": False,
+              "auto_contain": os.environ.get("FAKE_CORE_AUTO_CONTAIN", "0") == "1", "device": os.environ.get("FAKE_CORE_DEVICE", "UNKNOWN"),
+              "uplink": os.environ.get("FAKE_CORE_UPLINK", "UNKNOWN"), "pid": pid}
     json.dump(status, open(ROOT + "/run/aegis-idea3/status.json", "w"))
     os.makedirs(ROOT + "/proc/%d" % pid, exist_ok=True)
     # effective systemd credential delivery: the four LoadCredential= sources are copied to the runtime credential directory,
