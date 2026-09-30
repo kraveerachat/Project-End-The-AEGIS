@@ -59,6 +59,19 @@ edit_policy: append-by-new-file
 - `git diff --check` — pass.
 - `node scripts/validate-vault.mjs` — pass: 2 pre-existing canvas warnings.
 
+## Final post-PR #269 verification
+
+The earlier post-L7 run above (4150 passed, 8 skipped, 1 failed, `L7_ALREADY_ACCEPTED`) is preserved as historical evidence. It is superseded, not erased.
+
+- The stale test (`test_l7_receipt_gate_passes_against_the_real_repository_history`) was fixed separately by PR #269 (L7 post-acceptance test regression fix), which is merged into `main`. The fix is outside PR #252.
+- PR #252 merged latest `main` `ff6447193ab6c25736d5332e05e8450ec4e3ee43` at source HEAD `49a14ef2dcf63a1e84c1010ea5332a2913d2d7b2`: `LATEST_MAIN_ANCESTOR=PASS`, `PR252_CHECKPOINT_PRESERVED=PASS`, `L7_TEST_FIX_PRESENT=PASS`, `DIFF_CHECK=PASS`.
+- Final focused runs: `tests/test_core_recovery.py` 73 passed; `test_local_restore.py` + `test_runtime.py` + `test_cli_ip_containment.py` 229 passed; `test_pr11_phase4_l7_release_builder.py` 86 passed; the post-L7 real-history regression 1 passed.
+- Final full IDEA3 suite: **4151 passed, 8 skipped, 0 failed**, nothing deselected (`PR252_FINAL_VERIFY_RC=0`).
+- The earlier single failure is a current-main regression fixed outside PR #252; it is no longer a current result.
+- Exact PR #252 scope remains 14 paths (`CHANGED_FILE_COUNT=14`). No source code changed after this verification; this amendment is documentation-only and the full suite was not rerun for it.
+- Recovery remains IMPLEMENTED != DEPLOYED. `RECOVERY_LIVE_ACCEPTANCE = NOT_PROVEN`. The Production Core has not been upgraded or restarted for Recovery. LVR is not proven. L8/ESP32 remains blocked.
+- Safety: `PRODUCTION_MUTATION_PERFORMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `CORE_RESTARTED=NO`, `ESP32_TOUCHED=NO`, `L8_STARTED=NO`.
+
 ## Canonical notes updated
 
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` — added the dated Core-mediated Recovery section (implemented, not deployed).
