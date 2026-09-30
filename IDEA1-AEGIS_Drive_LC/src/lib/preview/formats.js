@@ -174,11 +174,14 @@ function formatForExtension(ext) {
 }
 const isTextFormat = (format) => familyOf(format) === 'text'
 
-/** UTF-16 BOM, or valid UTF-8 without NUL in the inspected window */
+/** C0 controls that occur in real text: TAB, LF, FF, CR, ESC (ANSI colour in logs) */
+const TEXT_CONTROLS = new Set([0x09, 0x0a, 0x0c, 0x0d, 0x1b])
+
+/** UTF-16 BOM, or valid UTF-8 with no NUL and no other C0 control byte in the inspected window */
 function textLike(u8) {
   if (u8.length >= 2 && ((u8[0] === 0xff && u8[1] === 0xfe) || (u8[0] === 0xfe && u8[1] === 0xff))) return true
   const window = u8.subarray(0, Math.min(u8.length, 8192))
-  for (let i = 0; i < window.length; i++) if (window[i] === 0) return false
+  for (let i = 0; i < window.length; i++) if (window[i] < 0x20 && !TEXT_CONTROLS.has(window[i])) return false
   try {
     // a multi-byte sequence may be cut at the window edge: tolerate an incomplete tail
     new TextDecoder('utf-8', { fatal: true }).decode(window, { stream: true })

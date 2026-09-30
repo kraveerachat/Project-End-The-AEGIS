@@ -13,7 +13,7 @@ const probeHead = (...a) => formats.probeHead(...a)
 const detectFormat = (...a) => formats.detectFormat(...a)
 const familyOf = (...a) => formats.familyOf(...a)
 
-const bytes = (...parts) => new Uint8Array(Buffer.concat(parts.map((p) => (typeof p === 'string' ? Buffer.from(p, 'latin1') : Buffer.from(p)))))
+const bytes = (...parts) => new Uint8Array(Buffer.concat(parts.map((p) => (typeof p === 'string' ? Buffer.from(p, 'utf8') : Buffer.from(p)))))
 const pad = (u8, n = 64) => { const out = new Uint8Array(Math.max(n, u8.length)); out.set(u8); return out }
 
 test('PF-1 normalizeExtension is case-insensitive and takes the last segment', () => {
@@ -89,6 +89,8 @@ test('PF-5 detectFormat: extension-only and text-family rules', () => {
   assert.equal(detectFormat({ head: bytes('plain utf-8 text ✓\n'), name: 'a.txt' }).format, 'text')
   assert.equal(detectFormat({ head: bytes('plain utf-8 text ✓\n'), name: 'a.txt' }).basis, 'signature')
   assert.equal(detectFormat({ head: bytes('abc', [0], 'def'), name: 'bin.txt' }).format, 'unknown')
+  assert.equal(detectFormat({ head: bytes([1, 2, 3, 4]), name: 'bin.txt' }).format, 'unknown', 'C0 control bytes are binary, not text')
+  assert.equal(detectFormat({ head: bytes('col1\tcol2\r\nvalue\f\x1b[0m\n'), name: 'a.log' }).format, 'text', 'tab/CR/LF/FF/ESC are text')
   assert.equal(detectFormat({ head: bytes([0xff, 0xfe], 'h\0i\0'), name: 'wide.txt' }).format, 'text', 'UTF-16 BOM is text')
   assert.equal(detectFormat({ name: 'page.html' }).format, 'html')
   assert.equal(detectFormat({ name: 'icon.svg' }).family, 'text', 'SVG is source text, never an image')
