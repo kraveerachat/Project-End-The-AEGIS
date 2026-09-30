@@ -1,8 +1,10 @@
 # IDEA1 Unified File Capability, Preview Providers, and Encrypted Vault Derivatives — Design
 
-- **Status:** DRAFT, HUMAN-REVIEW AMENDED (2026-09-30) — core architecture
-  approved in principle; decisions D-1…D-11 recorded in Appendix A; awaiting
-  Human Owner final spec approval. Architecture specification only.
+- **Status:** FINAL APPROVED FOR IMPLEMENTATION PLANNING (2026-09-30) — Human
+  Owner final spec approval recorded (`HUMAN_FINAL_SPEC_APPROVAL=APPROVED`,
+  `IMPLEMENTATION_PLANNING=APPROVED`); D-1…D-11 in Appendix A remain binding.
+  Runtime implementation remains phase-gated by the approved plans under
+  `docs/superpowers/plans/2026-09-30-idea1-unified-preview-*.md`.
 - **Date:** 2026-09-30
 - **Area / owner:** `idea1` / `kla`
 - **Repository truth:** `origin/main` at `5df959055075171ea5734238aa83693371d00d9d`
