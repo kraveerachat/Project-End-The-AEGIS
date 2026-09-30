@@ -37,4 +37,6 @@ account.
 This change alters the headless runtime closure and Core source. A running production Core does not have it. Going live needs a
 separate owner-approved, post-L7 Core upgrade stage (new immutable release install, governed restart, a socket directory the
 operator uid can reach, and the operator uid setting). That stage is not defined or executed here, and this branch must not
-merge before L7 #3 is accepted.
+be deployed by merging alone. (Historical sequencing: this branch was initially held behind L7 acceptance. L7 #7 is now
+live-acceptance proven, so that merge blocker is satisfied, and the branch was reconciled with post-L7 `main`
+`5df959055075171ea5734238aa83693371d00d9d`. Recovery remains IMPLEMENTED != DEPLOYED and not live accepted.)

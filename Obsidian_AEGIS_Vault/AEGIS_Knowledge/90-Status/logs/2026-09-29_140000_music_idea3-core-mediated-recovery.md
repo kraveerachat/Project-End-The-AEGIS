@@ -12,8 +12,15 @@ edit_policy: append-by-new-file
 
 > [!important] IMPLEMENTED != DEPLOYED
 > Repository only. No Production mutation, no MQTT connection, no RESTORE/CUT, no live Recovery, no V6/L4/L6c/L7 change.
-> This PR supersedes the desktop-driven PR238/PR249 Recovery wiring for production (neither was modified) and must NOT
-> merge before L7 #3 is accepted. Going live needs a separate owner-approved post-L7 Core upgrade stage.
+> This PR supersedes the desktop-driven PR238/PR249 Recovery wiring for production (neither was modified).
+> Going live needs a separate owner-approved post-L7 Core upgrade stage.
+
+> [!note] Post-L7 reconciliation (2026-09-30, same unmerged task; receipt corrected in place)
+> Historical sequencing: this task was initially held behind L7 acceptance. That blocker is now satisfied: L7 #7 is **LIVE ACCEPTANCE PROVEN** (`L7_7_RUNNER_RC=0`, authorization consumed, Core remained active/running/enabled).
+> The branch was reconciled with post-L7 `main` `5df959055075171ea5734238aa83693371d00d9d` (clean merge, PR scope still exactly these 14 paths).
+> Repository implementation remains **NOT DEPLOYED / NOT LIVE ACCEPTED** (`RECOVERY_DEPLOYED=NO`, `RECOVERY_LIVE_ACCEPTANCE=NOT_PROVEN`). The running Production Core still uses the pre-Recovery release.
+> Going live still requires a separately governed post-L7 Core upgrade, followed by Recovery authorization and live evidence. LVR remains not proven; L8/ESP32 remains blocked.
+> No Production mutation, Core restart, live Recovery, or ESP32/L8 work occurred during reconciliation. PR #255 and #262 are separate stacked follow-ups, not part of this PR.
 
 ## What changed
 
@@ -46,6 +53,7 @@ edit_policy: append-by-new-file
 - `pytest tests/test_local_restore.py tests/test_runtime.py tests/test_cli_ip_containment.py` — pass: 229 passed (D4, supervisor and CLI unchanged behavior).
 - `pytest tests/test_pr11_phase4_l7_release_builder.py` — pass: 86 passed (after updating the pinned closure; it failed before, proving the closure change).
 - `pytest tests` (full, two known unrelated tests deselected) — pass: 3917 passed, 8 skipped, 2 deselected. Deselected: `test_pr11_phase4_harness.py::test_only_reviewed_stage_handlers_are_registered` (fails on unmodified main; fixed by separate PR #251) and the host-coupled flaky `test_pr11_phase4_l6c_capture_gap.py::test_real_end_to_end_capture_then_compare_requires_the_allow_file`.
+- Post-L7 reconciliation re-run on HEAD `3863b995` (merged with `main` `5df95905`), no deselection: `pytest tests` — 4150 passed, 8 skipped, **1 failed**: `test_pr11_phase4_l7_runner.py::test_l7_receipt_gate_passes_against_the_real_repository_history` (`L7_ALREADY_ACCEPTED`). Classification: current-main / pre-existing, not introduced by this PR — the identical single failure reproduces on a clean detached `origin/main` (123 passed, 1 failed) because the test expects L7 to be unproven and `main` now records L7 #7 as proven. Not fixed here (out of PR #252 scope); needs a separate fix. The earlier two deselected tests passed in this run. Focused Recovery/local-restore/runtime/CLI/release-builder suites (73/229/86) passed.
 - `ruff check` on every new/changed source file and `tests/test_core_recovery.py` — pass. Two pre-existing `PLW1510` findings remain in `test_pr11_phase4_l7_release_builder.py` lines this task did not touch.
 - `python -m compileall -q aegis_soc tests/test_core_recovery.py` — pass.
 - `git diff --check` — pass.
@@ -61,12 +69,12 @@ edit_policy: append-by-new-file
 
 ## Integration requests
 
-- None — no cross-scope path changed. Owner sequencing: do not merge before L7 #3 is accepted; a separate post-L7 Core upgrade stage is required before live Recovery.
+- None — no cross-scope path changed. Historical owner sequencing (hold behind L7) is satisfied by L7 #7; a separate post-L7 Core upgrade stage is still required before live Recovery.
 
 ## Known limitations
 
 - Repository/simulator proof only: no live evidence, no real containment helper, no broker, no device.
-- The Core runtime closure changed (23 modules); a release built after merge differs from the L7 #3 release, and a running production Core has none of this.
+- The Core runtime closure changed (23 modules); a release built after merge differs from the currently installed L7-accepted release, and the running production Core has none of this.
 - The D4 gate does not itself require R1–R3 before a terminal `aegisctl restore`; Recovery reports R5/R8 accordingly and R8 refuses closure without them.
 - The operator uid reaching the socket needs a provisioned directory/group and the operator uid setting in the deployment stage; the L7 `core.env` renderer was not changed.
 - R7 web readiness depends on the Core's TLS trust for the readiness URL (`AEGIS_CORE_DISPATCH_CA_FILE` is used when set) and was not proven live.

@@ -8102,7 +8102,7 @@ PR202_MODIFIED              = NO
 
 ## IDEA3 Core-mediated evidence-driven Recovery — repository implementation — 2026-09-29
 
-> [!important] Repository-only. IMPLEMENTED != DEPLOYED. No Production mutation, no MQTT connection, no RESTORE/CUT, no live Recovery. This PR must not merge before L7 #3 is accepted and does not alter V6 → L4 → L6c → L7.
+> [!important] Repository-only. IMPLEMENTED != DEPLOYED. No Production mutation, no MQTT connection, no RESTORE/CUT, no live Recovery. Historical sequencing: PR #252 was initially held behind L7 acceptance; L7 #7 is now LIVE ACCEPTANCE PROVEN, so that merge blocker is satisfied, and the branch was reconciled with post-L7 `main` `5df959055075171ea5734238aa83693371d00d9d`. Merging does not deploy it, and it does not alter V6 → L4 → L6c → L7.
 
 ```text
 PRODUCTION_RECOVERY_MODEL      = CORE_MEDIATED   (desktop = unprivileged observer; Core = sole authority)
@@ -8112,13 +8112,17 @@ R4_R5_AUTHORITY                = D4 ONLY (aegisctl restore, scrypt credential); 
 R5_DURABLE_ONE_SHOT            = IMPLEMENTED_REPOSITORY  (any RESTORE_REQUESTED audit row bound to the incident consumes the attempt)
 RECOVERY_SOCKET                = IMPLEMENTED_REPOSITORY  (Core-owned AF_UNIX, SO_PEERCRED, STATUS/ISOLATE/PROBE/RESTORE_STATUS/CLOSE)
 SAFE_RECOVERY_UI               = IMPLEMENTED_REPOSITORY  (python -m aegis_soc.recovery_ui; server_admin.py is NOT the production Recovery entrypoint)
-RECOVERY_DEPLOYED              = NO
+PR252_REPOSITORY_IMPLEMENTED   = YES
+PR252_RECONCILED_POST_L7       = YES   (main 5df959055075171ea5734238aa83693371d00d9d)
+RECOVERY_DEPLOYED              = NO    (running Production Core is the pre-Recovery release)
+RECOVERY_LIVE_ACCEPTANCE       = NOT_PROVEN
 CORE_UPGRADE_STAGE             = REQUIRED (separate owner-approved post-L7 stage; not defined or run here)
 LVR_6_LVR_9                    = OWNER RUNBOOK (not implemented in application code)
 ```
 
 - Supersedes the desktop-driven PR238/PR249 wiring for production; those PRs are untouched. Their pure logic (gate order, probe helpers, incident binding) is reused inside the Core.
-- Changes the headless runtime closure (`recovery_core`, `recovery_protocol` join the shipped `aegis_soc` set; `recovery_client`, `recovery_ui` do not) and edits `supervisor.py`, `local_restore.py`, `database.py`, `config.py`. A release built after merge differs from the L7 #3 release; merging earlier would force a rebuild.
+- Changes the headless runtime closure (`recovery_core`, `recovery_protocol` join the shipped `aegis_soc` set; `recovery_client`, `recovery_ui` do not) and edits `supervisor.py`, `local_restore.py`, `database.py`, `config.py`. A release built after merge differs from the L7-accepted release `f2a5cd75…` currently installed.
+- Going live still requires a separately governed post-L7 Core release/install/restart, then Recovery authorization and live R1–R8 evidence. LVR is not proven; L8/ESP32 remains blocked. PR #255 and PR #262 are separate stacked follow-ups and are not part of PR #252.
 - The channel is off unless a production Core sets `AEGIS_RECOVERY_OPERATOR_UID`; the L7 `core.env` renderer was not changed.
 - Known limits: no live evidence; R7 web readiness depends on the Core's TLS trust for the readiness URL (uses `AEGIS_CORE_DISPATCH_CA_FILE` when set); the operator uid reaching the socket needs a provisioned directory/group in the deployment stage; the D4 gate does not itself require R1–R3 before a terminal `aegisctl restore` (the Recovery observer reports R5 accordingly and R8 refuses closure without them).
 
