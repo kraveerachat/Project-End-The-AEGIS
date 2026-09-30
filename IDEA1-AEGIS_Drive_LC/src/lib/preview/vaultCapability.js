@@ -85,8 +85,41 @@ export function confirmVaultRender(node, head, { cache = null, env = EMPTY_ENV }
   const descriptor = { ...detectFormat({ head, name: node?.name, hintMime: node?.mediaType }), size: node?.plainSize ?? 0 }
   const cap = resolveCapability(descriptor, 'vault', env)
   const kind = previewKindOf(cap)
-  if (!kind) return { ok: false, capability: cap }
-  return { ok: true, kind, mime: MIME_BY_FORMAT[descriptor.format] }
+  const detected = { format: descriptor.format, basis: descriptor.basis }
+  if (!kind) return { ok: false, capability: cap, detected }
+  return { ok: true, kind, mime: MIME_BY_FORMAT[descriptor.format], detected }
+}
+
+/** Short, language-neutral format names for the preview header (spec §5.3: signature is authoritative). */
+const FORMAT_NAME = Object.freeze({
+  jpeg: 'JPEG', png: 'PNG', apng: 'APNG', gif: 'GIF', webp: 'WebP', 'webp-animated': 'WebP', bmp: 'BMP', avif: 'AVIF', heif: 'HEIF', raw: 'RAW',
+  mp4: 'MP4', mov: 'MOV', webm: 'WebM', mkv: 'MKV', 'ogg-video': 'OGG',
+  mp3: 'MP3', aac: 'AAC', m4a: 'M4A', 'ogg-audio': 'OGG', opus: 'Opus', wav: 'WAV', flac: 'FLAC',
+  pdf: 'PDF', zip: 'ZIP', 'ooxml-docx': 'DOCX', 'ooxml-xlsx': 'XLSX', 'ooxml-pptx': 'PPTX', 'odf-ods': 'ODS', 'cfb-legacy': 'DOC/XLS/PPT',
+  text: 'TXT', markdown: 'Markdown', json: 'JSON', csv: 'CSV', tsv: 'TSV', svg: 'SVG', html: 'HTML', xml: 'XML', source: 'Source',
+})
+
+/**
+ * Detected format of a Vault node from what this session already knows (cached signature probe, or
+ * decrypted head bytes passed in) — never re-reads plaintext, never fetches, never uses the hint.
+ * @returns {{ format: string, basis: 'signature'|'extension'|'none' }}
+ */
+export function vaultDetectedType(node, { cache = null, head = null } = {}) {
+  const probe = head ? probeHead(head) : cache?.get(node) ?? null
+  const { format, basis } = detectFormat({ probe, name: node?.name })
+  return { format, basis }
+}
+
+/**
+ * Header label: confirmed signature → format name; name-only guess → explicitly unverified; otherwise unknown.
+ * @param {Function} t translator
+ * @param {{ format: string, basis: string } | null | undefined} detected
+ */
+export function vaultTypeLabel(t, detected) {
+  const name = detected && detected.format !== 'unknown' ? FORMAT_NAME[detected.format] : null
+  if (!name) return t('previewTypeUnknown')
+  if (detected.basis === 'signature') return name
+  return t('previewTypeUnverified', { type: name })
 }
 
 /** Content type for a render path that cannot sniff first (streamed large video): from the extension, never the hint. */

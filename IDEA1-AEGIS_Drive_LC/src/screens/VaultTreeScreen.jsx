@@ -37,7 +37,7 @@ import { openVideoMotion, openVideoPoster, videoPosterEstimateBytes, videoPrevie
 import { attachPosterVideo, drawPosterFrame } from '../lib/vaultVideoDom.js'
 import { closePreviewSession, openPreviewSession, supportsLargeVideoPreview } from '../lib/vaultPreviewSession.js'
 import { createVaultPreviewBlob } from '../lib/vaultPreviewBlob.js'
-import { confirmVaultRender, createVaultCapabilityCache, vaultNodeCapability, vaultPreviewKind, vaultRenderMime } from '../lib/preview/vaultCapability.js'
+import { confirmVaultRender, createVaultCapabilityCache, vaultDetectedType, vaultNodeCapability, vaultPreviewKind, vaultRenderMime, vaultTypeLabel } from '../lib/preview/vaultCapability.js'
 import { PreviewModalShell } from '../components/preview/PreviewModalShell.jsx'
 import { useReducedMotion } from '../lib/hooks.js'
 import { VAULT_TREE_CLIENT_LIMITS } from '../lib/vaultTreeLimits.js'
@@ -243,12 +243,6 @@ function leadingBytes(bytes, limit) {
     at += take.length
   }
   return out
-}
-
-/** Type label for the preview shell: the detected family, never the upload-time MIME */
-function vaultTypeLabel(node) {
-  const ext = String(node?.name ?? '').split('.').pop()
-  return ext && ext !== node?.name ? ext.toUpperCase() : ''
 }
 
 /* ── จอหลัก ──────────────────────────────────────────────────────────────────── */
@@ -513,7 +507,7 @@ export function VaultTreeScreen({
         }
         if (!secureSession?.ok) throw new Error(secureSession?.reason ?? 'PREVIEW_SESSION')
         previewStreamToken.current = secureSession.token
-        setPreview({ node, kind, url: secureSession.url, loading: false, failed: false, tooLarge: false, streamed: true })
+        setPreview({ node, kind, url: secureSession.url, loading: false, failed: false, tooLarge: false, streamed: true, detected: vaultDetectedType(node, { cache: capCacheRef.current }) })
         return
       }
       if (ref.formatVersion === 2 && plainSize > MAX_PREVIEW_CEILING_BYTES) {
@@ -535,13 +529,13 @@ export function VaultTreeScreen({
       // render gate: the decrypted signature must confirm the format before any renderer sees the bytes
       const confirmed = confirmVaultRender(node, leadingBytes(bytes, 8192), { cache: capCacheRef.current })
       if (!confirmed.ok) {
-        setPreview({ node, kind, url: null, loading: false, failed: false, tooLarge: false, streamed: false, unsupported: true })
+        setPreview({ node, kind, url: null, loading: false, failed: false, tooLarge: false, streamed: false, unsupported: true, detected: confirmed.detected })
         return
       }
       const url = URL.createObjectURL(createVaultPreviewBlob(bytes, confirmed.mime))
       unlockedState?.registerObjectUrl?.(url)
       previewUrlRef.current = url
-      setPreview({ node, kind: confirmed.kind, url, loading: false, failed: false, tooLarge: false, streamed: false })
+      setPreview({ node, kind: confirmed.kind, url, loading: false, failed: false, tooLarge: false, streamed: false, detected: confirmed.detected })
     } catch {
       if (request === previewRequestRef.current) setPreview({ node, kind, url: null, loading: false, failed: true, tooLarge: false, streamed: false })
     }
@@ -1323,7 +1317,7 @@ export function VaultTreeScreen({
           width={720}
           labelledBy="vault-tree-preview-title"
           title={preview.node.name}
-          meta={{ typeLabel: vaultTypeLabel(preview.node), size: preview.node.plainSize ?? undefined }}
+          meta={{ typeLabel: vaultTypeLabel(t, preview.detected ?? vaultDetectedType(preview.node, { cache: capCacheRef.current })), size: preview.node.plainSize ?? undefined }}
           status={preview.loading ? 'loading' : preview.tooLarge ? 'too-large' : preview.unsupported ? 'unsupported' : preview.failed ? 'failed' : 'ready'}
           reason={preview.loading ? null : preview.tooLarge ? t('vaultPreviewTooLarge') : preview.failed ? t('vaultPreviewUnavailable') : null}
           onDownload={() => void startBulkDownload([preview.node])}

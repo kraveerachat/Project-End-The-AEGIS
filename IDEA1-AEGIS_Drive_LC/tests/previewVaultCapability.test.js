@@ -83,7 +83,7 @@ test('VC-4b a sealed cache (after lock) ignores late records from jobs that were
 
 test('VC-5 confirmVaultRender is the render gate and returns the confirmed MIME, never the hint', () => {
   const ok = confirmVaultRender(node('x.png', 'application/octet-stream'), new Uint8Array(syntheticPng()))
-  assert.deepEqual(ok, { ok: true, kind: 'image', mime: 'image/png' })
+  assert.deepEqual(ok, { ok: true, kind: 'image', mime: 'image/png', detected: { format: 'png', basis: 'signature' } })
   const bad = confirmVaultRender(node('x.png', 'image/png'), PDF_HEAD)
   assert.equal(bad.ok, false)
   assert.equal(bad.capability.download, true)
@@ -91,6 +91,39 @@ test('VC-5 confirmVaultRender is the render gate and returns the confirmed MIME,
   assert.equal(random.ok, false)
   assert.equal(vaultRenderMime(node('movie.MP4', 'video/quicktime')), 'video/mp4')
   assert.equal(vaultRenderMime(node('notes.txt', 'video/mp4')), null)
+})
+
+const vaultTypeLabel = cap('vaultTypeLabel')
+const tt = (key, vars) => (key === 'previewTypeUnknown' ? 'Unknown type' : key === 'previewTypeUnverified' ? `${vars.type} (not yet verified)` : key)
+const MP4_HEAD = new Uint8Array(Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom', 'latin1'), Buffer.alloc(4), Buffer.from('isommp41', 'latin1'), Buffer.alloc(16)]))
+
+test('VC-7 the type label comes from the confirmed signature, never the name or the hint', () => {
+  // A. photo.JPG + JPEG bytes → JPEG
+  const a = confirmVaultRender(node('photo.JPG', ''), JPEG_HEAD)
+  assert.equal(a.ok, true)
+  assert.equal(vaultTypeLabel(tt, a.detected), 'JPEG')
+  // B. fake.png + PDF bytes → unsupported, labelled PDF (not PNG)
+  const b = confirmVaultRender(node('fake.png', 'image/png'), PDF_HEAD)
+  assert.equal(b.ok, false)
+  assert.equal(vaultTypeLabel(tt, b.detected), 'PDF')
+  // C. movie.bin + MP4 bytes → MP4 (not BIN), and previewable as video
+  const c = confirmVaultRender(node('movie.bin', ''), MP4_HEAD)
+  assert.deepEqual({ ok: c.ok, kind: c.kind }, { ok: true, kind: 'video' })
+  assert.equal(vaultTypeLabel(tt, c.detected), 'MP4')
+  // D. unknown bytes + misleading extension → stable unknown, never the extension
+  const d = confirmVaultRender(node('photo.jpg', 'image/jpeg'), new Uint8Array(64).fill(7))
+  assert.equal(d.ok, false)
+  assert.equal(vaultTypeLabel(tt, d.detected), 'Unknown type')
+})
+
+test('VC-8 before any bytes were seen the label is explicitly unverified; a cached probe makes it confirmed', () => {
+  const cache = createVaultCapabilityCache()
+  const n = node('clip.MP4', 'video/quicktime')
+  const cap0 = vaultCapability.vaultDetectedType(n, { cache })
+  assert.equal(vaultTypeLabel(tt, cap0), 'MP4 (not yet verified)')
+  cache.record(n, MP4_HEAD)
+  assert.equal(vaultTypeLabel(tt, vaultCapability.vaultDetectedType(n, { cache })), 'MP4')
+  assert.equal(vaultTypeLabel(tt, vaultCapability.vaultDetectedType(node('README', 'text/plain', 'N3'), { cache })), 'Unknown type')
 })
 
 test('VC-6 locked and folders reveal nothing', () => {
@@ -201,6 +234,9 @@ test('VC-S3 PDF bytes behind a .png name never reach an <img>; the modal falls b
     assert.equal(Boolean(modal), true, 'the preview modal opened')
     assert.equal(Boolean(modal.querySelector('img, video')), false, 'no renderer receives unconfirmed bytes')
     assert.equal(modal.getAttribute('data-preview-state'), 'unsupported')
+    const header = doc().querySelector('[role="dialog"] h2 + p')?.textContent ?? ''
+    assert.equal(header.includes('PDF'), true, `detected type is shown (got "${header}")`)
+    assert.equal(header.includes('PNG'), false, 'the misleading extension is not presented as the type')
     assert.equal(Boolean(doc().querySelector('[role="dialog"] [data-preview-download]')), true, 'Download stays in the modal')
     assert.equal(guards.writes, 0, 'no storage writes')
   } finally { await h.unmount() }
