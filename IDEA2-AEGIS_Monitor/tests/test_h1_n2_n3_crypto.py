@@ -195,6 +195,61 @@ class N3GatewayConfigTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.check(gateway)
 
+    def _assert_virtual_link_source_rejected(self, source, link, *, target=None, private=False):
+        """Exercise the original mount/CLI spelling even without Windows symlink privilege."""
+        from validate_n2_n3 import _safe_file
+
+        target = target or self.cert
+        original_lstat = Path.lstat
+        original_resolve = Path.resolve
+
+        def inspect(candidate, *args, **kwargs):
+            if candidate == link:
+                return SimpleNamespace(st_mode=stat.S_IFLNK | 0o777, st_file_attributes=0, st_size=0)
+            if candidate == source:
+                return original_lstat(target, *args, **kwargs)
+            if candidate.is_relative_to(link):
+                return original_lstat(self.cert.parent, *args, **kwargs)
+            return original_lstat(candidate, *args, **kwargs)
+
+        def resolve(candidate, *args, **kwargs):
+            if candidate == source:
+                return target
+            return original_resolve(candidate, *args, **kwargs)
+
+        with patch.object(Path, "lstat", inspect), patch.object(Path, "resolve", resolve):
+            if private:
+                with self.assertRaises(ValueError):
+                    _safe_file(source, private=True)
+            else:
+                gateway = self.fixture()
+                gateway["volumes"][0]["source"] = str(source)
+                with self.assertRaises(ValueError):
+                    self.check(gateway)
+
+    def test_tls_source_direct_symlink_fails_closed_even_when_target_is_valid(self):
+        source = self.cert.parent / "linked.crt"
+        self._assert_virtual_link_source_rejected(source, source)
+
+    def test_tls_source_nested_symlink_parent_fails_closed_even_when_target_is_valid(self):
+        link = self.cert.parent / "linked"
+        source = link / "nested" / self.cert.name
+        self._assert_virtual_link_source_rejected(source, link)
+
+    def test_env_file_symlink_parent_fails_closed_even_when_target_is_valid(self):
+        link = self.key.parent / "linked"
+        source = link / "nested" / self.key.name
+        self._assert_virtual_link_source_rejected(source, link, target=self.key, private=True)
+
+    def test_normal_nested_real_directory_source_is_accepted(self):
+        nested = self.cert.parent / "real" / "nested"
+        nested.mkdir(parents=True)
+        cert = nested / self.cert.name
+        cert.write_text("fixture", encoding="ascii")
+        gateway = self.fixture()
+        gateway["volumes"][0]["source"] = str(cert)
+        self.check_gateway(gateway, "a" * 40, cert, self.key)
+
     def test_tls_source_rejects_reparse_parent_even_if_final_file_is_regular(self):
         original = Path.lstat
         parent = self.cert.parent

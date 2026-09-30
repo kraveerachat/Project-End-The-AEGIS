@@ -154,7 +154,7 @@ def check_gateway(gateway, gateway_sha, cert_path, key_path):
     for mount in mounts:
         target = mount.get("target")
         require(target in expected and mount.get("type") == "bind" and mount.get("read_only") is True, "gateway TLS mount must be exact and read-only")
-        require(Path(mount.get("source", "")).resolve(strict=True) == expected[target], "gateway TLS source drift")
+        require(_safe_file(Path(mount.get("source", "")), private=target == KEY_TARGET) == expected[target], "gateway TLS source drift")
     require({mount["target"] for mount in mounts} == set(expected), "gateway TLS target drift")
 
 
