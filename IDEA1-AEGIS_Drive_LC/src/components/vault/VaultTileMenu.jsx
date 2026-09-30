@@ -25,10 +25,12 @@ const ICONS = Object.freeze({
 
 /**
  * รายการเมนูตามสัญญา — ผู้เรียกคุม kind/view/previewKind/keyDegraded
+ * lockReason (optional) = เหตุผลที่ปิด mutation (KEY_DEGRADED | MANIFEST_NEWER_THAN_WRITER); ไม่ส่ง = ใช้ keyDegraded เดิม
  * @returns {Array<{ id: string, label: string, danger?: boolean, disabled?: boolean, reason?: string }>}
  */
-export function vaultTreeMenuItems({ t, kind, view, previewKind = null, keyDegraded = false }) {
-  const deg = (id) => (keyDegraded ? { disabled: true, reason: 'KEY_DEGRADED' } : {})
+export function vaultTreeMenuItems({ t, kind, view, previewKind = null, keyDegraded = false, lockReason = null }) {
+  const reason = lockReason ?? (keyDegraded ? 'KEY_DEGRADED' : null)
+  const deg = (id) => (reason ? { disabled: true, reason } : {})
   if (view === 'trash') {
     return [
       { id: 'restore', label: t('vaultTreeMenuRestore'), ...deg() },

@@ -1735,3 +1735,50 @@ test('VAULT-DRAWER-QUEUE-5 an interrupted job offers Resume and Discard inside t
     else delete globalThis.localStorage
   }
 })
+
+/* ── Unified Preview P2a · Decision P2A-W: a v2 head is browse/preview/download-only ─────────────── */
+test('TS-V2-1 v2 head: tiles render, Preview/Download stay enabled, every mutation is disabled with the reload message, Upload is disabled, zero publish/CAS', async () => {
+  const { createTreeSession } = await import('../src/lib/vaultTreeSync.js')
+  const h0 = await createTreeSession({ kek, api: fakeTree.api }).loadHead()
+  const FOLDER = 'D'.repeat(22), FILE = 'F'.repeat(22)
+  const nodes = new Map(h0.manifest.nodes)
+  nodes.set(FOLDER, { nodeId: FOLDER, kind: 'folder', parentNodeId: fakeTree.rootNodeId, name: 'Docs', createdAtClient: 1, modifiedAtClient: 1, lifecycle: { state: 'active' } })
+  nodes.set(FILE, {
+    nodeId: FILE, kind: 'file', parentNodeId: fakeTree.rootNodeId, name: 'photo.png', createdAtClient: 1, modifiedAtClient: 1, lifecycle: { state: 'active' },
+    blobRef: { formatVersion: 2, id: 'orig-1' }, mediaType: 'image/png', plainSize: 1234, contentFormat: 'png',
+    previews: [{ kind: 'thumb', profile: 'vp1', blobRef: { formatVersion: 2, id: 'deriv-1' }, contentId: 'AAECAwQFBgcICQoLDA0ODw==', sourceBlobRef: { formatVersion: 2, id: 'orig-1' }, mime: 'image/webp', width: 64, height: 64, plainSize: 500, createdAtClient: 1 }],
+  })
+  await fakeTree.seedHead({ ...h0.manifest, nodes, schemaVersion: 2 })
+  fakeTree.state.log.length = 0
+  const writesNow = () => fakeTree.state.log.filter((l) => l.method !== 'GET').length
+  const h = await mountUnlocked()
+  try {
+    const banner = q('[data-testid="vault-tree-manifest-newer"]')
+    assert.ok(banner, 'the reload message is shown')
+    assert.equal(banner.textContent.trim(), t('vaultTreeManifestNewer'))
+    assert.ok(tileByName('Docs') && tileByName('photo.png'), 'browse works: v2 nodes render')
+    const upload = q('[data-testid="vault-tree-upload"]')
+    assert.equal(upload.disabled, true, 'Upload is disabled')
+    assert.equal(upload.getAttribute('title'), t('vaultTreeManifestNewer'))
+    assert.equal(q('[data-testid="vault-tree-new-folder"]'), null, 'New Folder is hidden')
+    await click(dom, tileMenuButton(FILE))
+    await tick()
+    for (const id of ['preview', 'download', 'details']) assert.equal(menuItem(id)?.disabled, false, `${id} stays enabled`)
+    for (const id of ['rename', 'move', 'trash']) {
+      assert.equal(menuItem(id)?.disabled, true, `${id} disabled`)
+      assert.equal(menuItem(id)?.getAttribute('data-reason'), 'MANIFEST_NEWER_THAN_WRITER')
+    }
+    await click(dom, menuItem('rename'))
+    await tick()
+    assert.equal(q('[data-testid="vault-dialog-name-input"]'), null, 'no rename dialog opens')
+    await click(dom, tileMenuButton(FILE))
+    await tick()
+    await click(dom, tileMenuButton(FOLDER))
+    await tick()
+    for (const id of ['rename', 'move', 'trash']) assert.equal(menuItem(id)?.disabled, true, `folder ${id} disabled`)
+    assert.equal(writesNow(), 0, 'zero publishRevision / PUT / casHead')
+    assert.equal(casCount(), 0)
+  } finally {
+    await h.unmount()
+  }
+})

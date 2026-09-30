@@ -7,12 +7,12 @@ import { AnchoredMenu } from '../ui.jsx'
 import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../FileCardPresentation.jsx'
 import { VaultTileMenu, vaultTreeMenuItems } from './VaultTileMenu.jsx'
 
-export function VaultFolderTile({ t, node, tileRef = null, layout = 'grid', view = 'active', selected = false, onSelect, onOpen, onAction, keyDegraded = false, childCount, ...rest }) {
+export function VaultFolderTile({ t, node, tileRef = null, layout = 'grid', view = 'active', selected = false, onSelect, onOpen, onAction, keyDegraded = false, lockReason = null, childCount, ...rest }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
   const menuBtnRef = useRef(null)
   const dragOccurredRef = useRef(false)
-  const items = menuOpen ? vaultTreeMenuItems({ t, kind: 'folder', view, keyDegraded }) : []
+  const items = menuOpen ? vaultTreeMenuItems({ t, kind: 'folder', view, keyDegraded, lockReason }) : []
 
   return (
     <FileCardShell

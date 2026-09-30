@@ -212,6 +212,24 @@ test('TUC-REAL-1 (Task 5.5) uploadTreeFile and recoverOrphan against the real va
   for (const l of srv.state.log) wire.push({ method: l.method, path: l.path, body: l.body, headers: '{}' })
 })
 
+test('TUC-V2-1 (P2A-W) v2 head: uploadTreeFile refuses before ANY byte is uploaded; recoverOrphan refuses; zero publish/CAS; the orphan stays UNREFERENCED', async () => {
+  const srv = await createFakeTreeServer({ kek })
+  const h = await createTreeSession({ kek, api: srv.api }).loadHead()
+  const seeded = await srv.seedHead({ ...h.manifest, schemaVersion: 2 }) // a newer build wrote the head as v2
+  const session = createTreeSession({ kek, api: srv.api })
+  await session.loadHead()
+  srv.state.log.length = 0
+  const t = fakeTransport()
+  const newer = (e) => e?.code === 'MANIFEST_NEWER_THAN_WRITER' && e?.name === 'ManifestNewerThanWriterError'
+  await assert.rejects(uploadTreeFile({ kek, file: mkFile(CHUNK), parentNodeId: srv.rootNodeId, session, plaintextChunkBytes: CHUNK, concurrency: 1, fetchJson: t.fetchJson, sendUpload: t.sendUpload }), newer)
+  assert.equal(t.state.calls.length, 0, 'no upload session, chunk or commit request was made')
+  srv.state.blobStates.set('2:orphan-v2', { formatVersion: 2, id: 'orphan-v2', lifecycle: 'UNREFERENCED' })
+  await assert.rejects(recoverOrphan({ session, blobRef: { formatVersion: 2, id: 'orphan-v2' }, parentNodeId: srv.rootNodeId, name: 'x.bin', plainSize: 1 }), newer)
+  assert.equal(srv.state.blobStates.get('2:orphan-v2').lifecycle, 'UNREFERENCED')
+  assert.equal(srv.state.log.filter((l) => l.method !== 'GET').length, 0, 'zero publishRevision / PUT / casHead')
+  assert.equal(srv.state.head.revisionId, seeded.revisionId)
+})
+
 test('TUC-4 (NO-LEAK-4) no request in this suite contains the file name, parentNodeId or any nodeId; no browser storage was written', () => {
   assert.ok(wire.length > 10)
   const all = wire.map((w) => `${w.method} ${w.path}\n${w.headers}\n${w.body}`).join('\n')

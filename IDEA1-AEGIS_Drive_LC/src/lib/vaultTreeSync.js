@@ -155,6 +155,7 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
     chk()
     if (!head) throw new SyncError('NOT_LOADED')
     if (keyStatus === 'DEGRADED') throw new SyncError('KEY_DEGRADED', keyBadSlot)
+    if (!headWritable(head)) throw new ManifestNewerThanWriterError(head.manifestSchemaVersion)
     const sc = scope(signal)
     try {
       let base = head
@@ -163,6 +164,8 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
       let replayed = 0
       for (;;) {
         sc.guard()
+        // P2A-W: never apply/publish/CAS on top of a head this build cannot write (checked on every attempt)
+        if (!headWritable(base)) throw new ManifestNewerThanWriterError(base.manifestSchemaVersion)
         // ── apply (client-side semantics) ─────────────────────────────────────
         let applied
         try {
@@ -220,6 +223,8 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
         const fresh = outcome.fresh ?? await fetchHead(sc.signal)
         sc.guard()
         head = fresh
+        // the head moved to a newer schema: discard the v1 intent — rebasing it would overwrite (downgrade) the v2 head
+        if (!headWritable(fresh)) throw new ManifestNewerThanWriterError(fresh.manifestSchemaVersion)
         const rb = rebaseIntent(current, { baseIndex: base.index, headIndex: fresh.index, headRecentOperationIds: fresh.manifest.recentOperationIds })
         if (rb.kind === 'ALREADY_APPLIED') return { generation: fresh.generation, revisionId: fresh.revisionId, manifest: fresh.manifest, changedNodeIds: [], nodeId: null, operationId: current.operationId ?? null, rebased, replayed, alreadyApplied: true }
         if (rb.kind === 'CONFLICT') return { conflict: rb, intent: current }
@@ -265,6 +270,10 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
     get head() { return head },
     get keyStatus() { return keyStatus },
     get keyBadSlot() { return keyBadSlot },
+    /** false while the loaded head is a schema this build reads but must not write (P2A-W); null before load */
+    get writable() { return head ? headWritable(head) : null },
+    /** throw ManifestNewerThanWriterError before any side effect (e.g. uploading bytes) when the head is not writable */
+    assertWritable() { if (head && !headWritable(head)) throw new ManifestNewerThanWriterError(head.manifestSchemaVersion) },
     get treeId() { return treeId },
     get alive() { return alive && !dead() },
   }
