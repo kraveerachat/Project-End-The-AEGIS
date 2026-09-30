@@ -12,7 +12,7 @@
 //   TS-9  อีกอุปกรณ์ลบโฟลเดอร์ปัจจุบัน → refresh ถอยไปบรรพบุรุษ + ประกาศ + เคลียร์ selection
 //   TS-10 ล็อกขณะไดอะล็อกเปิด → purge; ไม่มีชื่อใดค้างใน DOM
 //   TS-11 treeUiEnabled=false → ผิวอ่าน/ส่งออกอย่างเดียว (ชื่อ + Download + Details ไม่มีควบคุมแก้ไข)
-//   TS-12 จอ FLAT เลกาซีไม่ถูกแตะ (in-file smoke; ชุดเดิมวิ่งซ้ำใน focused regression)
+//   TS-12 FLAT ที่มีข้อมูลเข้าถึงได้เฉพาะ migration gate ไม่ย้อนกลับไปจอปฏิบัติการเลกาซี
 import assert from 'node:assert/strict'
 import test, { after, before, beforeEach } from 'node:test'
 import React, { act } from 'react'
@@ -312,12 +312,12 @@ test('SEL-01/02/03 SCREEN-INTEGRATION-1/2 expanded Vault surface selects, ignore
   try {
     await newFolder('A')
     await newFolder('B')
-    const canvas = q('[data-vault-marquee-canvas]')
+    const canvas = q('[data-testid="vault-tree-screen"][data-marquee-canvas]')
     const workspace = q('[data-testid="vault-tree-workspace"]')
     const toolbar = q('[data-testid="vault-workspace-toolbar"]')
     const [a, b] = folderTiles()
     assert.ok(canvas, 'Vault grid exposes an empty-canvas marquee surface')
-    assert.ok(canvas.hasAttribute('data-vault-marquee-surface'), 'one semantic expanded surface owns marquee input')
+    assert.ok(canvas.hasAttribute('data-workspace-marquee-surface'), 'the one shared workspace surface owns marquee input')
     assert.ok(canvas.contains(toolbar) && canvas.contains(workspace), 'expanded surface contains toolbar gaps and the old lower workspace')
     canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 500, width: 600, height: 500 })
     a.getBoundingClientRect = () => ({ left: 20, top: 80, right: 180, bottom: 160, width: 160, height: 80 })
@@ -333,8 +333,8 @@ test('SEL-01/02/03 SCREEN-INTEGRATION-1/2 expanded Vault surface selects, ignore
     assert.equal(canvas.style.userSelect, 'none', 'primary mouse down on blank canvas starts marquee tracking')
     await act(async () => pointer(dom.window, 'pointermove', { clientX: 190, clientY: 175 }))
     await tick()
-    assert.ok(q('[data-testid="vault-marquee-rect"]'), 'the marquee rectangle is visible while dragging')
-    assert.equal(q('[data-testid="vault-marquee-rect"]').style.width, '185px')
+    assert.ok(q('[data-marquee-rect]'), 'the marquee rectangle is visible while dragging')
+    assert.equal(q('[data-marquee-rect]').style.width, '185px')
     assert.equal(q('[data-testid="vault-tree-selection-count"]')?.textContent.includes('1'), true)
     assert.ok(q('[data-testid="vault-tree-selection-bar"]')?.classList.contains('fixed'), 'Vault selection actions float like the Files action bar')
     await act(async () => pointer(dom.window, 'pointerup', {}))
@@ -533,14 +533,17 @@ test('TS-11 treeUiEnabled=false renders the read/export-only rollback surface', 
 })
 
 /* ── TS-12 ────────────────────────────────────────────────────────────────── */
-test('TS-12 the legacy FLAT screen is untouched by the tree branch (in-file smoke)', async () => {
-  backend = makeVaultTreeBackend() // default FLAT + genesisMigrationEnabled
+test('TS-12 nonempty FLAT exposes only the explicit migration gate, never legacy operations', async () => {
+  backend = makeVaultTreeBackend({ flags: { treeUiEnabled: true } })
+  backend.state['/api/vault'].data.blobs = [serverBlob({ id: 'f'.repeat(22), name: 'legacy.txt', type: 'text/plain' })]
   wireBridge()
   globalThis.__VAULT_BACKEND__ = backend
   const h = await mountUnlocked()
   try {
     assert.ok(!q('[data-testid="vault-tree-screen"]'), 'FLAT never renders the tree screen')
-    assert.ok(q('[data-testid="vault-migration-entry"]'), 'the FLAT upgrade entry point still renders')
+    assert.ok(q('[data-testid="vault-migration-explain"]'), 'nonempty FLAT renders the explicit migration gate')
+    assert.ok(!q('[data-testid="vault-migration-entry"]'), 'legacy migration entry is removed')
+    assert.ok(!q('[data-vault-tile-menu]'), 'legacy operational cards are unreachable')
     assert.ok(!q('[data-testid="vault-tree-rollback"]'), 'FLAT has no rollback surface')
   } finally {
     await h.unmount()

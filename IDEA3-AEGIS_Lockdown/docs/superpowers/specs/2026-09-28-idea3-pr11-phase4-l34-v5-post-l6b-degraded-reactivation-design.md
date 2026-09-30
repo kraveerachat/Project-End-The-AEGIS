@@ -95,6 +95,10 @@ unrecognized and refused before any mutation.
    already-configured systemd auto-restart. NO start/stop/restart/reset-failed command is ever issued against
    it — a grep-based regression test (`test_v5_never_issues_a_broker_start_stop_restart_reset_failed`) enforces
    this statically across apply.sh, verify.sh, rollback.sh and the owner-run script.
+   Amendment 2026-09-29 (V5 attempt 1 forensic): the broker unit is Type=simple, so "active/running" precedes
+   the 8883 bind by ~20 ms. After that wait the exact-set listener gate (unchanged) is itself polled, read-only and
+   bounded (default 15 attempts × 1s, AEGIS_L34_V5_LISTEN_TRIES/_INTERVAL); on final failure the observed 8883 set is
+   written to `broker-listeners-observed.txt`. Wrong or extra listeners still fail after the bound.
 ```
 
 No rfkill command, no `nmcli radio wifi on/off`, no `systemctl start/stop/restart/reset-failed` of

@@ -309,6 +309,24 @@ fake completeness. Use the existing `PRODUCT.md` and `DESIGN.md`, verify the
 running surface when possible, and record honest status in the area receipt and
 canonical note.
 
+## Protected Core Entry UX Contract
+
+Human Owner controls Welcome → Hub → module Login navigation, the authenticated
+IDEA1 Back boundary, the canonical `aegis_shell_theme` preference (fresh default
+Light; one-time valid `aegis_theme` migration), IDEA1 Login visual parity with
+`IDEA2-AEGIS_Monitor/src/screens/Login.jsx`, and stable TH/EN/ZH login geometry.
+Future agents MUST NOT casually alter these during unrelated UI work. This is a
+review rule, not technical immutability. Changes require an explicit task naming
+this contract, RED regression evidence first, functional-owner and integration
+review, affected builds/tests, and preserved auth/session/CSRF/RBAC semantics.
+
+Executable regression guards (run from each package directory after its build):
+
+- `HUB-AEGIS_Entry/tests/backNavigation.test.mjs` and `HUB-AEGIS_Entry/tests/coreEntryR4.browser.test.mjs`: `node --test tests/backNavigation.test.mjs tests/coreEntryR4.browser.test.mjs` from `HUB-AEGIS_Entry/`. The browser test also needs built IDEA1/IDEA2 `dist` and local Chrome/Edge.
+- `IDEA1-AEGIS_Drive_LC/tests/authBackBoundaryR4.test.js`, `IDEA1-AEGIS_Drive_LC/tests/shellThemeR4.test.js`, `IDEA1-AEGIS_Drive_LC/tests/loginExperienceR3.test.js`, and `IDEA1-AEGIS_Drive_LC/tests/themeAuthTransition.test.js`: `node --test --test-concurrency=1 tests/authBackBoundaryR4.test.js tests/shellThemeR4.test.js tests/loginExperienceR3.test.js tests/themeAuthTransition.test.js` from `IDEA1-AEGIS_Drive_LC/`.
+- `IDEA2-AEGIS_Monitor/tests/shellThemeR4.test.mjs`: `node --test tests/shellThemeR4.test.mjs` from `IDEA2-AEGIS_Monitor/`.
+- `node --test tests/coreEntryGovernanceR4.test.mjs` from repository root.
+
 ## 12. Security boundaries
 
 Preserve server-side authorization, identity decoupling, fail-secure behavior,

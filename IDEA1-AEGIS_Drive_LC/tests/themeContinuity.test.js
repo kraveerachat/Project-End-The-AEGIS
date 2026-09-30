@@ -94,12 +94,12 @@ test('re-picking the theme the account already stores does not write to the acco
   )
 })
 
-test('with no explicit choice the account preference decides and nothing is overwritten', () => {
-  // Account switching: a dark hint left behind by the previous session must not
-  // rewrite this account's stored light preference when the user touched nothing.
+test('the shared shell theme wins after authentication; account is fallback when absent', () => {
+  // R4: Welcome/Hub Dark must continue through Login to Dashboard. An account
+  // preference is only used when no shell selection exists.
   assert.deepEqual(
     resolveAuthenticatedTheme({ selection: null, accountTheme: 'light', shellTheme: 'dark' }),
-    { theme: 'light', source: 'account', persistToAccount: false },
+    { theme: 'dark', source: 'shell', persistToAccount: true },
   )
   assert.deepEqual(
     resolveAuthenticatedTheme({ selection: null, accountTheme: 'system', shellTheme: null }),
