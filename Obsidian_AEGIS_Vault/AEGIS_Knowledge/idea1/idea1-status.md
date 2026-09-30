@@ -21,7 +21,7 @@ edit_policy: owner-writable
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-P0 / IDEA1_UNIFIED_PREVIEW_P0_CAPABILITY_FOUNDATION |
 | Branch | feat/idea1-preview-p0-capability-foundation (base `origin/main` `c1dc3c90`) |
-| PR | Draft PR (number recorded on creation) (Draft until Human review) |
+| PR | #270 (Draft until Human review) |
 | Owner | kla |
 | State | **IMPLEMENTED + VERIFIED LOCALLY / NOT DEPLOYED** |
 | Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p0-capability-foundation.md` |
