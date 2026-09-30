@@ -247,3 +247,61 @@ test('SY-11 stale-after-lock: a session created before the lock cannot commit af
   const s2 = session(srv); await s2.loadHead(); s2.close()
   await rejectsSync(s2.commit(intent), 'ABORTED')
 })
+
+// ── Unified Preview P2a: per-revision schema version on read (Task 4) ─────────
+
+const FILE_ID = 'F'.repeat(22)
+const V2_PREVIEW = { kind: 'thumb', profile: 'vp1', blobRef: { formatVersion: 2, id: 'deriv-thumb-1' }, contentId: 'AAECAwQFBgcICQoLDA0ODw==', sourceBlobRef: { formatVersion: 2, id: 'orig-1' }, mime: 'image/webp', width: 512, height: 288, plainSize: 40_000, createdAtClient: 1_790_000_000_000 }
+/** a newer build committed a v2 head (one file with a thumb preview) on top of the current head */
+async function seedV2Head(srv, o = {}) {
+  const h = await session(srv).loadHead()
+  const nodes = new Map(h.manifest.nodes)
+  nodes.set(FILE_ID, { nodeId: FILE_ID, kind: 'file', parentNodeId: srv.rootNodeId, name: 'clip.mp4', createdAtClient: 1, modifiedAtClient: 1, lifecycle: { state: 'active' }, blobRef: { formatVersion: 2, id: 'orig-1' }, mediaType: 'video/mp4', plainSize: 9_000_000, contentFormat: 'mp4', previews: [V2_PREVIEW] })
+  const m = await srv.seedHead({ ...h.manifest, nodes, schemaVersion: 2 }, o)
+  srv.state.log.length = 0
+  return m
+}
+const writes = (srv) => ({
+  publish: srv.state.log.filter((l) => l.method === 'POST' && l.path === '/api/vault/tree/revisions').length,
+  cas: srv.state.log.filter((l) => l.method === 'POST' && l.path === '/api/vault/tree/head').length,
+  put: srv.state.log.filter((l) => l.method === 'PUT').length,
+})
+
+test('SY-V2-1 a v2 head (encrypted with schema 2 in the AAD) opens: nodes listed, previews in the in-memory manifest, nothing written', async () => {
+  const srv = await server()
+  const seeded = await seedV2Head(srv)
+  const s = session(srv)
+  const head = await s.loadHead()
+  assert.equal(head.manifestSchemaVersion, 2)
+  assert.equal(head.revisionId, seeded.revisionId)
+  assert.equal(head.manifest.schemaVersion, 2)
+  assert.deepEqual(head.manifest.nodes.get(FILE_ID).previews, [V2_PREVIEW])
+  assert.ok(head.index.nodes.has(FILE_ID))
+  assert.deepEqual(writes(srv), { publish: 0, cas: 0, put: 0 })
+})
+
+test('SY-V2-2 a v1 head keeps working and reports schema 1', async () => {
+  const srv = await server()
+  const head = await session(srv).loadHead()
+  assert.equal(head.manifestSchemaVersion, 1); assert.equal(head.manifest.schemaVersion, 1)
+})
+
+test('SY-V2-3 a head advertising schema 3 (or none) fails secure BEFORE the ciphertext is fetched or decrypted; no partial head, no write', async () => {
+  for (const advertisedSchemaVersion of [3, 0, '2', null]) {
+    const srv = await server()
+    await seedV2Head(srv, { advertisedSchemaVersion })
+    const s = session(srv)
+    await rejectsSync(s.loadHead(), 'UNSUPPORTED_SCHEMA_VERSION')
+    assert.equal(s.head, null, `no partial head for ${String(advertisedSchemaVersion)}`)
+    assert.deepEqual(srv.state.log.map((l) => `${l.method} ${l.path}`), ['GET /api/vault/tree/head'], 'revision bytes never requested')
+    assert.deepEqual(writes(srv), { publish: 0, cas: 0, put: 0 })
+  }
+})
+
+test('SY-V2-4 a v2 revision advertised as schema 1 does not decrypt (AAD binds the version) — fail closed, no head', async () => {
+  const srv = await server()
+  await seedV2Head(srv, { advertisedSchemaVersion: 1 })
+  const s = session(srv)
+  await assert.rejects(s.loadHead(), (e) => e?.name === 'ManifestCryptoError')
+  assert.equal(s.head, null)
+})
