@@ -157,7 +157,12 @@ def test_init_db_adds_the_invariant_to_an_existing_database_and_keeps_history(tm
     assert db.restore_attempt_exists(7) is True
 
 
-def test_init_db_does_not_crash_or_delete_history_when_old_duplicates_exist(tmp_path, monkeypatch):
+def test_init_db_fails_closed_and_preserves_history_when_old_duplicates_exist(tmp_path, monkeypatch):
+    """Historical duplicates mean the durable one-shot invariant cannot be proven.
+
+    Startup must fail closed instead of silently falling back to a process/read-side
+    guard, and the existing audit history must remain untouched.
+    """
     path = tmp_path / "dup.sqlite3"
     monkeypatch.setattr(config, "DB_PATH", str(path))
     with sqlite3.connect(path) as conn:
@@ -165,9 +170,24 @@ def test_init_db_does_not_crash_or_delete_history_when_old_duplicates_exist(tmp_
                      " event_type TEXT, details TEXT, incident_id INTEGER, hash TEXT)")
         for _ in range(2):
             conn.execute("INSERT INTO audit_logs (event_type, details, incident_id) VALUES ('RESTORE_REQUESTED', 'old', 7)")
-    db.init_db()
-    assert len(db.fetch_incident_events(7, ("RESTORE_REQUESTED",), 10)) == 2
-    assert db.restore_attempt_exists(7) is True  # the SELECT guard still holds where the index cannot be built
+
+    with pytest.raises(sqlite3.IntegrityError):
+        db.init_db()
+
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT event_type, details, incident_id FROM audit_logs ORDER BY id"
+        ).fetchall()
+        index = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='index' AND name='ux_audit_restore_requested_incident'"
+        ).fetchone()
+
+    assert rows == [
+        ("RESTORE_REQUESTED", "old", 7),
+        ("RESTORE_REQUESTED", "old", 7),
+    ]
+    assert index is None
 
 
 def test_concurrent_writers_on_separate_connections_create_exactly_one_attempt(env):
