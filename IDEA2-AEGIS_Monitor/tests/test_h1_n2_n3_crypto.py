@@ -195,6 +195,32 @@ class N3GatewayConfigTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaisesRegex(ValueError, "gateway must bind only exact candidate IPv4:18443"):
                 self.check(gateway)
 
+    def test_compose_v5_required_healthy_monitor_dependency_is_accepted(self):
+        gateway = self.fixture()
+        gateway.update(command=None, entrypoint=None, networks={"lab_ingress": None})
+        gateway["ports"][0]["mode"] = "ingress"
+        gateway["depends_on"] = {"monitor": {"condition": "service_healthy", "required": True}}
+        self.check(gateway)
+
+    def test_gateway_dependency_rejects_non_equivalent_compose_v5_forms(self):
+        rejected = [
+            ("not required", {"monitor": {"condition": "service_healthy", "required": False}}),
+            ("string required", {"monitor": {"condition": "service_healthy", "required": "true"}}),
+            ("integer required", {"monitor": {"condition": "service_healthy", "required": 1}}),
+            ("wrong condition", {"monitor": {"condition": "service_started", "required": True}}),
+            ("missing condition", {"monitor": {"required": True}}),
+            ("missing monitor", {}),
+            ("second service", {"monitor": {"condition": "service_healthy", "required": True}, "postgres": {"condition": "service_healthy"}}),
+            ("extra monitor field", {"monitor": {"condition": "service_healthy", "required": True, "restart": True}}),
+            ("scalar monitor", {"monitor": "service_healthy"}),
+            ("list monitor", {"monitor": ["service_healthy"]}),
+        ]
+        for name, dependency in rejected:
+            gateway = self.fixture()
+            gateway["depends_on"] = dependency
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "gateway must depend only on healthy lab Monitor"):
+                self.check(gateway)
+
     def test_wildcard_wrong_tuple_and_extra_port_fail_closed(self):
         for mutation in [
             lambda g: g["ports"][0].update(host_ip="0.0.0.0"),

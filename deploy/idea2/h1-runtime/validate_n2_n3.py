@@ -149,7 +149,14 @@ def check_gateway(gateway, gateway_sha, cert_path, key_path):
     require(str(gateway.get("mem_limit")) == "268435456", "gateway memory ceiling drift")
     require(gateway.get("security_opt") == ["no-new-privileges:true"], "gateway security option drift")
     require(gateway.get("logging") == {"driver": "json-file", "options": {"max-size": "10m", "max-file": "2"}}, "gateway log cap drift")
-    require(gateway.get("depends_on") == {"monitor": {"condition": "service_healthy"}}, "gateway must depend only on healthy lab Monitor")
+    dependency = gateway.get("depends_on")
+    legacy_dependency = {"monitor": {"condition": "service_healthy"}}
+    compose_v5_dependency = {"monitor": {"condition": "service_healthy", "required": True}}
+    require(
+        dependency == legacy_dependency
+        or (dependency == compose_v5_dependency and dependency["monitor"]["required"] is True),
+        "gateway must depend only on healthy lab Monitor",
+    )
     build = gateway.get("build", {})
     require(set(build) == {"context", "dockerfile", "args"}, "gateway build option drift")
     require(Path(build.get("context", "")).resolve() == ROOT / "deploy/idea2/h1-gateway", "gateway source context drift")
