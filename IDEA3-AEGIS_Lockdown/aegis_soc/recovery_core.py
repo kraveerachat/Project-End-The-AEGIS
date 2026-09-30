@@ -90,7 +90,11 @@ class CoreRecoveryService:
         self._web_probe = web_probe or _http_readiness_probe
         self._containment = containment
         self._clock = clock
+        # ``_lock`` serialises operator operations (which may sit in sequential network probes). ``_bind_lock`` guards
+        # only the incident row: the alert path takes it and never ``_lock``, so containment never waits on PROBE.
+        # Order when both are needed: ``_lock`` then ``_bind_lock`` (the alert path holds only the latter).
         self._lock = threading.RLock()
+        self._bind_lock = threading.RLock()
         self._probe_records: dict[str, dict[str, Any]] = {}
         self._probe_incident: int | None = None
 
@@ -129,7 +133,7 @@ class CoreRecoveryService:
         if address.is_unspecified or address.is_loopback or address.is_multicast or address.is_link_local:
             return {"action": "REFUSED", "reason": "NOT_AN_ATTACKER_ADDRESS"}
         safe_ip = str(address)
-        with self._lock:
+        with self._bind_lock:
             existing = db.get_open_incident()
             if existing is not None:
                 bound = existing.get("attacker_ip")
@@ -285,6 +289,34 @@ class CoreRecoveryService:
         data = {"gates": [r4, r5], "restore": ladder, "restore_channel": "aegisctl restore (Core-local D4, terminal only)"}
         return rp.response(True, "RESTORE_STATUS", "evidence from the Core; not physical evidence", data)
 
+    # ------------------------------------------------------------------ R5 ordering (pure; not wired to production yet)
+
+    def restore_precondition_unmet(self, incident: dict | None) -> str | None:
+        """Why a RESTORE must not be recorded yet, or None. R1 VERIFIED, durable R3 VERIFIED, then one fresh R2 probe.
+
+        Pure of authority: it neither issues nor records anything. It is NOT wired into the production D4 gate until
+        the owner approves a break-glass path (otherwise it could lock the owner out); see the design note.
+        """
+        r1 = self._incident_gate(incident)
+        if r1["status"] != rp.VERIFIED:
+            return "R1 is not verified: no Core-bound incident"
+        if self._isolation_gate(incident)["status"] != rp.VERIFIED:
+            return "R3 is not verified: isolate the attacker first"
+        if self._run_r2(r1)["status"] != rp.VERIFIED:
+            return "R2 is not verified: management access probe failed"
+        return None
+
+    def r3_precedes_restore(self, incident_id: Any) -> bool:
+        """True only when a VERIFIED R3 result row was recorded before the RESTORE_REQUESTED row (audit id order)."""
+        restore = db.fetch_incident_events(incident_id, ("RESTORE_REQUESTED",), 1)
+        if not restore:
+            return False
+        for row in db.fetch_incident_events(incident_id, ("RECOVERY_R3_RESULT",), 200):
+            match = _R3_RE.match(row["details"])
+            if match and match.group(1) == "VERIFIED" and row["id"] < restore[0]["id"]:
+                return True
+        return False
+
     # ------------------------------------------------------------------ R2 / R6 / R7: Core-run probes
 
     def _run_r2(self, r1: dict[str, Any]) -> dict[str, Any]:
@@ -405,11 +437,15 @@ class CoreRecoveryService:
                     {"gates": [gates[g] for g in rp.CLOSURE_REQUIRED]},
                 )
             incident_id = incident["id"]
-            try:
-                db.log_event_strict("RECOVERY_R8_CLOSE", f"summary={summary}", db.INFO, incident_id)
-            except Exception:
-                return rp.response(False, "AUDIT_UNAVAILABLE", "durable audit is unavailable; the incident was not closed")
-            db.close_incident(incident_id, summary)
+            with self._bind_lock:  # brief: the alert path may bind while probes ran; re-check the same incident and target
+                current = db.get_open_incident()
+                if current is None or current["id"] != incident_id or current.get("attacker_ip") != incident.get("attacker_ip"):
+                    return rp.response(False, "CLOSURE_REFUSED", "the incident changed while it was being verified; retry")
+                try:
+                    db.log_event_strict("RECOVERY_R8_CLOSE", f"summary={summary}", db.INFO, incident_id)
+                except Exception:
+                    return rp.response(False, "AUDIT_UNAVAILABLE", "durable audit is unavailable; the incident was not closed")
+                db.close_incident(incident_id, summary)
             db.log_event("INCIDENT_CLOSED", summary, db.INFO, incident_id)
             self._probe_records = {}
             self._probe_incident = None
@@ -451,6 +487,9 @@ def _peer_from(connection: socket.socket) -> lr.Peer:
     return lr.Peer(uid=uid, pid=pid)
 
 
+REQUEST_DEADLINE_SEC = 5.0  # one monotonic budget for reading a whole request (not per recv)
+
+
 class RecoveryServer:
     """Core-owned AF_UNIX server: local only, peer-credential checked, bounded, allowlisted, no network listener."""
 
@@ -463,6 +502,7 @@ class RecoveryServer:
         self.service = service
         self.allowed_uid = int(allowed_uid)
         self.socket_gid = socket_gid
+        self.request_deadline = REQUEST_DEADLINE_SEC
         self._listener: socket.socket | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -527,12 +567,13 @@ class RecoveryServer:
             except OSError:
                 break
             with connection:
-                connection.settimeout(5)
+                connection.settimeout(self.request_deadline)  # bounds the reply write as well
                 try:
                     response = self._read_and_handle(connection)
                 except Exception:
                     response = rp.response(False, "OUTCOME_UNKNOWN", "the Recovery result was lost; do not assume success")
                 try:
+                    connection.settimeout(self.request_deadline)  # the read loop shrinks it; the reply gets a fresh bound
                     connection.sendall(json.dumps(response, ensure_ascii=False).encode("utf-8") + b"\n")
                 except OSError:
                     pass
@@ -541,8 +582,19 @@ class RecoveryServer:
         peer = lr.Peer(uid=-1, pid=-1)
         try:
             peer = _peer_from(connection)
+        except OSError:
+            return self.service.handle(None, peer, allowed_uid=self.allowed_uid)
+        if peer.uid != self.allowed_uid:
+            # Refuse before reading a single request byte: an unauthorized peer can neither trickle nor pipeline.
+            return self.service.handle(None, peer, allowed_uid=self.allowed_uid)
+        deadline = time.monotonic() + self.request_deadline
+        try:
             data = bytearray()
             while len(data) <= rp.MAX_MESSAGE_BYTES:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("request deadline exceeded")
+                connection.settimeout(remaining)
                 chunk = connection.recv(min(1024, rp.MAX_MESSAGE_BYTES + 1 - len(data)))
                 if not chunk:
                     break

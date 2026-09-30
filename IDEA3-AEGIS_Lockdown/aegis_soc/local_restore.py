@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import socket
+import sqlite3
 import stat
 import struct
 import threading
@@ -294,6 +295,7 @@ class LocalRestoreGate:
         monotonic: Callable[[], float] = time.monotonic,
         incident_lookup: Callable[[], dict | None] | None = None,
         attempt_lookup: Callable[[Any], bool] | None = None,
+        precondition_lookup: Callable[[dict | None], str | None] | None = None,
     ) -> None:
         self.supervisor = supervisor
         self.credential = credential
@@ -301,6 +303,10 @@ class LocalRestoreGate:
         # RESTORE_REQUESTED row for that incident permanently consumes the attempt.
         self.incident_lookup = incident_lookup
         self.attempt_lookup = attempt_lookup
+        # Inert unless wired (the production supervisor does not wire it yet: owner break-glass decision pending).
+        # Called with the open incident after credential + confirmation and before the command guard; returns None
+        # when R1/R3/R2 preconditions hold, otherwise a short reason. A refusal never consumes the one-shot.
+        self.precondition_lookup = precondition_lookup
         self.allowed_uid = int(allowed_uid)
         self.audit = audit or db.log_event
         self.audit_strict = audit_strict or db.log_event_strict
@@ -392,6 +398,13 @@ class LocalRestoreGate:
             return self._refuse(problem, "a bounded, printable operator reason is required", peer)
         if body.get("origin") != LOCAL_REQUEST_ORIGIN:
             return self._refuse("ORIGIN_REFUSED", "request origin is not the approved local console", peer)
+        if self.precondition_lookup is not None:
+            try:
+                unmet = self.precondition_lookup(self.incident_lookup() if self.incident_lookup else None)
+            except Exception:
+                unmet = "precondition check failed"
+            if unmet:
+                return self._refuse("RECOVERY_PRECONDITION_UNMET", str(unmet)[:120], peer)
         with self.supervisor.command_guard():
             if self.supervisor.pending_command is not None:
                 return self._refuse("COMMAND_PENDING", "another relay command is awaiting ACK", peer)
@@ -423,6 +436,13 @@ class LocalRestoreGate:
                     self.audit_strict("RESTORE_REQUESTED", audit_detail, db.CRITICAL, incident_id)
                 else:
                     self.audit_strict("RESTORE_REQUESTED", audit_detail, db.CRITICAL)
+            except sqlite3.IntegrityError:
+                # The database-level one-shot (one RESTORE_REQUESTED per incident) fired: another attempt won the race.
+                return self._refuse(
+                    "RESTORE_ATTEMPT_CONSUMED",
+                    "a RESTORE attempt for this incident already exists; it is never repeated automatically",
+                    peer,
+                )
             except Exception:
                 return self._refuse("AUDIT_UNAVAILABLE", "durable RESTORE audit is unavailable", peer)
 
