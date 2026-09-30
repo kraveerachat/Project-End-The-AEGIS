@@ -21,13 +21,15 @@ Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
 PR: Draft publication authorized; keep Draft until remaining H1/Task 16 acceptance and the one final task receipt are complete
-Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_N0=PASS; H1_STATE=BLOCKED_PREREQUISITES. Historical Attempts 1–4 failed closed and cleaned up; Attempt 8 blocked at postgres-seed; Attempt 9 passed at `af42604fbdd0dc42ada7d406b832f3267232eb5f`. The first main integration produced `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`, corrected the physical-heartbeat semantic defect through RED→GREEN, and passed a fresh human-run post-merge N0 probe (2026-09-29T19:26:47Z–19:38:21Z, exit 0; postgres-seed, monitor-health, capacity measurements, and cleanup PASS). The probe's fresh Production before/after identity hash was `a9793f92870b39ff961245493901691820bb0114d1f5049c577e921c95e8a5cc` (7 containers, 7 networks, 4 volumes); no Production mutation was performed. Reviewed main syncs `fdc2dd3d3ee5d69f303a6767047509dc37150f75` and `ca8c0133b59695a4b9f0689d7efd61991af8ab32` brought only unrelated IDEA1/IDEA3 changes; the latter actual merge `abd57aa58fc9d52f86e9f700b657fd366f5d8e12` preserved every pinned H1 runtime/build input byte-for-byte. N0 was not rerun. N1–N7, live CA/path acceptance, permanent Machine A install/reboot/account acceptance, and final task closeout remain outstanding.
+Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_N0=PASS; H1_STATE=BLOCKED_PREREQUISITES. Dedicated N1 persistent lab Compose, lab-only env contract, ordered migrator, rendered-config validator, and print-only rollback plan are repository source only; no N1 lab has been provisioned. Historical Attempts 1–4 failed closed and cleaned up; Attempt 8 blocked at postgres-seed; Attempt 9 passed at `af42604fbdd0dc42ada7d406b832f3267232eb5f`. The first main integration produced `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`, corrected the physical-heartbeat semantic defect through RED→GREEN, and passed a fresh human-run post-merge N0 probe (2026-09-29T19:26:47Z–19:38:21Z, exit 0; postgres-seed, monitor-health, capacity measurements, and cleanup PASS). The probe's fresh Production before/after identity hash was `a9793f92870b39ff961245493901691820bb0114d1f5049c577e921c95e8a5cc` (7 containers, 7 networks, 4 volumes); no Production mutation was performed. Reviewed main syncs `fdc2dd3d3ee5d69f303a6767047509dc37150f75` and `ca8c0133b59695a4b9f0689d7efd61991af8ab32` brought only unrelated IDEA1/IDEA3 changes; the latter actual merge `abd57aa58fc9d52f86e9f700b657fd366f5d8e12` preserved every pinned H1 runtime/build input byte-for-byte. N0 was not rerun. N1–N7, live CA/path acceptance, permanent Machine A install/reboot/account acceptance, and final task closeout remain outstanding.
 Started: 2026-09-19
 Live-accepted source checkpoint: `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`; latest unrelated-main merge: `abd57aa58fc9d52f86e9f700b657fd366f5d8e12` (same pinned H1 inputs)
 Production mutation allowed: NO
 
 ```text
 H1_PERSISTENT_LAB_PROVISIONED=NO
+H1_N1_REPOSITORY_ARTIFACT=IMPLEMENTED_SOURCE_ONLY
+H1_N1_LIVE_STATE=NOT_STARTED
 PRODUCTION_MUTATION=NO
 MACHINE_A_RUNTIME_MUTATION=NO
 N0_CAPACITY_CRITERION=OWNER_APPROVED_FORMULA_AND_LIMITS

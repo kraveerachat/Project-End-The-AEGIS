@@ -7,6 +7,12 @@ been provisioned.
 H1-7 and H2/H3 without touching Production. This document authorizes no live
 command by itself. Each numbered phase requires separate Human Owner approval.
 
+**Current N1 repository reconciliation (2026-09-30):** The historical N0
+characterization fields below record earlier checkpoints and must not be read
+as current live N0 state. The canonical IDEA2 status records the later N0 PASS.
+The dedicated N1 runtime source exists, but N1 has not been provisioned or
+accepted live. A separate Human Owner authorization remains mandatory.
+
 ## Binding classifications
 
 ```text
@@ -883,6 +889,39 @@ LAB_RESOURCE_COLLISION=NONE_REPORTED
 ```
 
 ### N1 — Create isolated PostgreSQL and Monitor runtime
+
+The older `H1_COMPOSE_ARTIFACT=deploy/idea2/h1-capacity-probe.compose.yml`
+entry in the candidate artifact inventory above is historical **N0 probe**
+evidence, not permanent N1 deployment authority. Current artifact identities:
+
+```text
+H1_N0_PROBE_COMPOSE_ARTIFACT=deploy/idea2/h1-capacity-probe.compose.yml
+H1_N1_RUNTIME_COMPOSE_ARTIFACT=deploy/idea2/h1-runtime/compose.yml
+H1_N1_ENV_CONTRACT=deploy/idea2/h1-runtime/env.example
+H1_N1_VALIDATION_ARTIFACT=deploy/idea2/h1-runtime/validate.py
+H1_N1_MIGRATION_ARTIFACT=deploy/idea2/h1-runtime/migrate.sh
+H1_N1_CLEANUP_ARTIFACT=deploy/idea2/h1-runtime/cleanup.py
+H1_N1_REPOSITORY_ARTIFACT=IMPLEMENTED_SOURCE_ONLY
+H1_N1_LIVE_STATE=NOT_STARTED
+```
+
+N1's Compose project is fixed to `aegis-h1-lab`. PostgreSQL, a one-shot
+ordered migrator, and Monitor share only project-scoped internal networks;
+PostgreSQL and Monitor publish no host port. The N2 gateway definition is a
+disabled profile with no N1 TLS material or port and must not be enabled in
+N1. Digest-pinned PostgreSQL 15 Alpine, Node 20 Alpine Monitor base, and nginx
+Alpine gateway base are the reviewed source inputs; the Monitor image tag also
+binds the exact reviewed Git source SHA, with immutable image ID checked at
+live build time. The owner-only lab env file remains outside Git. A dedicated
+lab administrator creates a separate non-superuser Monitor database login
+on a **new** project-scoped PostgreSQL volume. The Monitor URL is constrained
+to that app role, `postgres`, and `aegis_h1_lab`; Production credentials and
+any existing volume are forbidden. The migrator runs schema then migrations
+001–004 with `ON_ERROR_STOP=1`; Monitor readiness depends on its success.
+Live N1 must run the migration a second time and compare schema/row evidence.
+`deploy/idea2/h1-runtime/README.md` is the bounded preflight and rollback
+procedure. Repository tests do not substitute for live PostgreSQL, image-ID,
+resource, or Production-isolation evidence.
 
 **Prerequisite:** N0 PASS; exact Compose file/image digests and lab-only secret
 delivery mechanism reviewed; separate authorization granted.

@@ -1,0 +1,128 @@
+name: aegis-h1-lab
+
+# Persistent, non-Production N1 foundation. Gateway is excluded from N1.
+x-h1-service: &h1-service
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "2"
+
+services:
+  postgres:
+    <<: *h1-service
+    image: postgres:15-alpine@sha256:25d430274d8a31184f9435cc5b2f56aff254952065bbbcac0c51acedb5a1d1e7
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aegis_h1_lab
+      POSTGRES_USER: postgres_h1_admin
+      POSTGRES_PASSWORD: ${H1_POSTGRES_PASSWORD:?set a unique lab-only PostgreSQL admin password}
+      H1_APP_PASSWORD: ${H1_APP_PASSWORD:?set a different lab-only Monitor role password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres_h1_admin -d aegis_h1_lab"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+    mem_limit: "1073741824"
+    volumes:
+      - type: volume
+        source: postgres_data
+        target: /var/lib/postgresql/data
+      - type: bind
+        source: ./init-role.sh
+        target: /docker-entrypoint-initdb.d/10-h1-role.sh
+        read_only: true
+    networks:
+      - lab_backend
+
+  migrate:
+    <<: *h1-service
+    image: postgres:15-alpine@sha256:25d430274d8a31184f9435cc5b2f56aff254952065bbbcac0c51acedb5a1d1e7
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${H1_POSTGRES_PASSWORD:?set a unique lab-only PostgreSQL admin password}
+    entrypoint: ["/bin/sh", "/aegis-h1/migrate.sh"]
+    mem_limit: "1073741824"
+    volumes:
+      - type: bind
+        source: ./migrate.sh
+        target: /aegis-h1/migrate.sh
+        read_only: true
+      - type: bind
+        source: ../../../IDEA2-AEGIS_Monitor/server/db/schema.sql
+        target: /aegis-h1/schema.sql
+        read_only: true
+      - type: bind
+        source: ../../../IDEA2-AEGIS_Monitor/server/db/migrations
+        target: /aegis-h1/migrations
+        read_only: true
+    networks:
+      - lab_backend
+
+  monitor:
+    <<: *h1-service
+    build:
+      context: ../../../IDEA2-AEGIS_Monitor
+      dockerfile: Dockerfile
+      args:
+        NODE_BASE_IMAGE: node:20-alpine@sha256:afdf98210b07b586eb71fa22ba2e432e058e4cd1304d31ed60888755b8c865fb
+    image: aegis-h1-lab-monitor:${H1_MONITOR_SOURCE_SHA:?set the reviewed 40-character source commit SHA}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      PORT: "8002"
+      DATABASE_URL: ${H1_DATABASE_URL:?set a lab-only URL for monitor_h1_app at postgres/aegis_h1_lab}
+      SESSION_SECRET: ${H1_SESSION_SECRET:?set a unique lab-only session secret}
+      AGENT_AUTH_REQUIRED: "true"
+      AGENT_AUTH_AUDIENCE: https://idea2-h1.aegis-lab.internal:18443
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8002/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+    mem_limit: "1073741824"
+    networks:
+      - lab_ingress
+      - lab_backend
+
+  # N2 source placeholder only: never enabled by the N1 command.
+  gateway:
+    <<: *h1-service
+    profiles: ["n2"]
+    build:
+      context: ../h1-gateway
+      dockerfile: Dockerfile
+      args:
+        NGINX_BASE_IMAGE: nginx:alpine@sha256:0530961ff0592b58c10f767535cc0abdfccf9e389ff7cc90f87320c1bc7e8506
+    image: aegis-h1-lab-gateway:source-only
+    restart: "no"
+    depends_on:
+      monitor:
+        condition: service_healthy
+    mem_limit: "268435456"
+    networks:
+      - lab_ingress
+
+networks:
+  lab_ingress:
+    internal: true
+    labels:
+      com.aegis.scope: h1-lab
+  lab_backend:
+    internal: true
+    labels:
+      com.aegis.scope: h1-lab
+
+volumes:
+  postgres_data:
+    name: aegis-h1-lab_postgres_data
+    labels:
+      com.aegis.scope: h1-lab

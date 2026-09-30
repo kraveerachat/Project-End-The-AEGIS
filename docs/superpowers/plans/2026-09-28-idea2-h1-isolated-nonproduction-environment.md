@@ -10,6 +10,21 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-28-idea2-h1-isolated-nonproduction-environment-design.md`
 
+## Current N1 repository-only follow-up (2026-09-30)
+
+The N0 statements below are historical planning evidence. Later human-run N0
+and post-main-equivalence gates passed as recorded in the canonical IDEA2
+status. The dedicated persistent N1 artifact is
+`deploy/idea2/h1-runtime/compose.yml`; the capacity-probe Compose remains
+disposable N0-only infrastructure and is not repurposed. Focused RED tests
+must prove the absence of the N1 artifact before source creation, then cover
+the fixed lab project, digest/build source, app-role isolation, private
+networks/volume, memory ceilings, ordered migration/readiness, and scoped
+cleanup. Run the H1, Monitor, governance, Vault, diff, and security gates before
+publishing a repository-only checkpoint. N1 live provisioning, PostgreSQL
+double-run evidence, gateway exposure, Machine A mutation, Production mutation,
+and final receipt remain separate human gates. Keep PR #264 Draft.
+
 ## Global Constraints
 
 - Repository-only design, documentation, and static contract-test work.
