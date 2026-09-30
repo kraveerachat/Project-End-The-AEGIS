@@ -170,6 +170,31 @@ class N3GatewayConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unreviewed gateway service option"):
             self.check(gateway)
 
+    def test_compose_v5_ingress_port_preserves_exact_candidate_exposure(self):
+        gateway = self.fixture()
+        gateway["ports"][0]["mode"] = "ingress"
+        self.check(gateway)
+
+    def test_compose_v5_ingress_port_rejects_exposure_drift(self):
+        mutations = [
+            ("host mode", lambda g: g["ports"][0].update(mode="host")),
+            ("unknown mode", lambda g: g["ports"][0].update(mode="other")),
+            ("non-string mode", lambda g: g["ports"][0].update(mode=None)),
+            ("extra port option", lambda g: g["ports"][0].update(name="unreviewed")),
+            ("second port", lambda g: g["ports"].append(dict(g["ports"][0]))),
+            ("wildcard bind", lambda g: g["ports"][0].update(host_ip="0.0.0.0")),
+            ("wrong bind", lambda g: g["ports"][0].update(host_ip="192.168.10.11")),
+            ("wrong published port", lambda g: g["ports"][0].update(published="18444")),
+            ("wrong target", lambda g: g["ports"][0].update(target=444)),
+            ("wrong protocol", lambda g: g["ports"][0].update(protocol="udp")),
+        ]
+        for name, mutate in mutations:
+            gateway = self.fixture()
+            gateway["ports"][0]["mode"] = "ingress"
+            mutate(gateway)
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "gateway must bind only exact candidate IPv4:18443"):
+                self.check(gateway)
+
     def test_wildcard_wrong_tuple_and_extra_port_fail_closed(self):
         for mutation in [
             lambda g: g["ports"][0].update(host_ip="0.0.0.0"),

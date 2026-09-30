@@ -141,7 +141,11 @@ def check_gateway(gateway, gateway_sha, cert_path, key_path):
     require(gateway.get("image") == GATEWAY_IMAGE + gateway_sha, "unreviewed gateway source image")
     require(gateway.get("restart") == "no", "gateway restart policy drift")
     require(gateway.get("networks") in (["lab_ingress"], {"lab_ingress": None}, {"lab_ingress": {}}), "gateway network drift")
-    require(gateway.get("ports") == [{"host_ip": BIND_IPV4, "published": HTTPS_PORT, "target": 443, "protocol": "tcp"}], "gateway must bind only exact candidate IPv4:18443")
+    expected_port = {"host_ip": BIND_IPV4, "published": HTTPS_PORT, "target": 443, "protocol": "tcp"}
+    require(
+        gateway.get("ports") in ([expected_port], [{**expected_port, "mode": "ingress"}]),
+        "gateway must bind only exact candidate IPv4:18443",
+    )
     require(str(gateway.get("mem_limit")) == "268435456", "gateway memory ceiling drift")
     require(gateway.get("security_opt") == ["no-new-privileges:true"], "gateway security option drift")
     require(gateway.get("logging") == {"driver": "json-file", "options": {"max-size": "10m", "max-file": "2"}}, "gateway log cap drift")
