@@ -15,7 +15,12 @@ import { VAULT_TREE_CLIENT_LIMITS } from './vaultTreeLimits.js'
 
 const te = new TextEncoder()
 
-export const MANIFEST_SCHEMA_VERSION = 1
+// Unified Preview P2a: this build READS schema 1 and 2 but WRITES only 1 (P2A_WRITES_V2=NO).
+// Any other version fails secure (UNSUPPORTED_SCHEMA_VERSION) — never "best effort" read a newer schema.
+export const MANIFEST_SCHEMA_VERSION_WRITE = 1
+export const MANIFEST_SCHEMA_VERSIONS_READ = Object.freeze([1, 2])
+/** kept for existing importers — always the WRITE version */
+export const MANIFEST_SCHEMA_VERSION = MANIFEST_SCHEMA_VERSION_WRITE
 export const NODE_KINDS = Object.freeze(['folder', 'file'])
 export const LIFECYCLE_STATES = Object.freeze(['active', 'trashed', 'purge-pending'])
 const BLOB_FORMAT_VERSIONS = Object.freeze([1, 2])
@@ -124,8 +129,8 @@ function validateNode(id, n, limits, rootNodeId) {
  */
 export function validateManifest(m, limits = VAULT_TREE_CLIENT_LIMITS) {
   if (!m || typeof m !== 'object' || Array.isArray(m)) fail('BAD_FIELD', 'manifest')
+  if (!MANIFEST_SCHEMA_VERSIONS_READ.includes(m.schemaVersion)) fail('UNSUPPORTED_SCHEMA_VERSION', String(m.schemaVersion))
   checkKeys(m, TOP_KEYS, 'manifest')
-  if (m.schemaVersion !== MANIFEST_SCHEMA_VERSION) fail('BAD_SCHEMA')
   if (!isId(m.treeId) || !isId(m.revisionId) || !isId(m.rootNodeId)) fail('BAD_FIELD', 'ids')
   if (!(m.baseRevisionId === null || isId(m.baseRevisionId))) fail('BAD_FIELD', 'baseRevisionId')
   if (!Number.isSafeInteger(m.generation) || m.generation < 1) fail('BAD_FIELD', 'generation')
