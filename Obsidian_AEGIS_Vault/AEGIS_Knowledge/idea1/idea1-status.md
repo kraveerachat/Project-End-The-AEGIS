@@ -15,6 +15,30 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Current Task — IDEA1-UNIFIED-PREVIEW-P0 — Capability foundation (implementation)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P0 / IDEA1_UNIFIED_PREVIEW_P0_CAPABILITY_FOUNDATION |
+| Branch | feat/idea1-preview-p0-capability-foundation (base `origin/main` `c1dc3c90`) |
+| PR | Draft PR (number recorded on creation) (Draft until Human review) |
+| Owner | kla |
+| State | **IMPLEMENTED + VERIFIED LOCALLY / NOT DEPLOYED** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p0-capability-foundation.md` |
+| Production mutation allowed | **NO** (P0 needs no Production testing) |
+| Next gate | HUMAN_REVIEW_P0_PR → then P1 or P2a from refreshed `origin/main` |
+
+Durable facts:
+
+- Shared preview core under `IDEA1-AEGIS_Drive_LC/src/lib/preview/` (formats, registry, env, vaultCapability) and one `PreviewModalShell` used by Normal Files and the Vault tree; Download is always available and a type without a provider shows a stable fallback (no empty frame, loading times out).
+- Format detection is signature-first; extensions are case-insensitive (`.JPG` = `.jpg`); the client MIME is never used to choose a format.
+- Normal Files previewable set unchanged (= server `/preview` allowlist); the poster/motion derivative pipeline was not touched.
+- The Vault tree no longer trusts upload-time `File.type`: capability comes from the decrypted content signature (derived facts only, page memory, sealed and cleared on lock) or from the extension with confirmation before rendering; the modal passes decrypted bytes through a render gate.
+- Behaviour change (spec §5.4): extensionless Vault files whose only type evidence is the client MIME no longer offer Preview until their signature is confirmed.
+- Regression pins: arbitrary upload / byte-exact download (Normal V1/V2, Vault V2) and account neutrality (Admin, existing user, newly created user).
+- Known follow-ups (not P0 scope): Vault download still labels the saved Blob with `mediaType` (spec §3.2 asks for octet-stream); legacy flat-vault screen (`Vault.jsx`) unchanged.
+- GROUP B throughput remains deferred; no Vault persisted derivatives exist yet (P2b).
+
 ## Current Task — IDEA1-UNIFIED-PREVIEW-ARCH-1 — Unified file capability + preview architecture and plans
 
 | Field | Current value |
