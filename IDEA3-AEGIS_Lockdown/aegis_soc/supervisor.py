@@ -21,6 +21,8 @@ from pathlib import Path
 from . import config
 from . import database as db
 from . import local_restore as lr
+from . import recovery_core as rc
+from . import recovery_protocol as rp
 from .controller import AegisCommandController, CommandResult
 from .dispatch_worker import (
     ACTIVE,
@@ -227,6 +229,8 @@ class AegisSupervisor:
         )
         self.restore_credential = restore_credential if d4_enabled else None
         self.local_restore = None
+        self.recovery = rc.CoreRecoveryService(self)
+        self.recovery_server = None
         self._command_lock = threading.RLock()
         self._containment_count_lock = threading.Lock()
         self._containment_count = 0
@@ -561,6 +565,10 @@ class AegisSupervisor:
             self.log_event("WARNING", "invalid_attacker_ip", value=str(ip)[:64])
             return
         self.log_event("WARNING", "detector_alert", attacker_ip=safe_ip)
+        try:  # Core-owned R1: record the incident from a validated alert; never contains or cuts by itself
+            self.recovery.bind_incident(safe_ip)
+        except Exception as error:
+            self.log_event("ERROR", "incident_bind_failed", error=type(error).__name__)
         if not self.settings.auto_contain:
             return
         if self.status.armed != "ARMED":
@@ -613,6 +621,8 @@ class AegisSupervisor:
             audit=db.log_event,
             audit_strict=db.log_event_strict,
             monotonic=self.monotonic,
+            incident_lookup=db.get_open_incident,
+            attempt_lookup=db.restore_attempt_exists,
         )
         server = lr.LocalRestoreServer(self.settings.runtime_dir / lr.CHANNEL_NAME, gate)
         server.start()
@@ -620,6 +630,32 @@ class AegisSupervisor:
 
     def stop_local_restore(self) -> None:
         server, self.local_restore = self.local_restore, None
+        if server is not None:
+            server.close()
+
+    def start_recovery(self) -> None:
+        """Start the Core-owned Recovery AF_UNIX channel. Optional: it never blocks or fails the Core."""
+        if self.recovery_server is not None:
+            return
+        operator_uid = config.RECOVERY_OPERATOR_UID
+        if self.settings.profile != "production" or operator_uid is None or not lr.local_restore_supported():
+            self.log_event("INFO", "recovery_channel_disabled", profile=self.settings.profile)
+            return
+        server = rc.RecoveryServer(
+            config.RECOVERY_SOCKET or rp.DEFAULT_SOCKET_PATH,
+            self.recovery,
+            allowed_uid=operator_uid,
+            socket_gid=config.RECOVERY_SOCKET_GID,
+        )
+        try:
+            server.start()
+        except (rc.RecoveryChannelError, OSError) as error:
+            self.log_event("ERROR", "recovery_channel_failed", error=type(error).__name__)
+            return
+        self.recovery_server = server
+
+    def stop_recovery(self) -> None:
+        server, self.recovery_server = self.recovery_server, None
         if server is not None:
             server.close()
 
@@ -724,6 +760,7 @@ class AegisSupervisor:
             self.bind_callbacks()
             self.recover_protocol_state()
             self.start_local_restore()
+            self.start_recovery()
             if self.dispatch_worker is not None:
                 self.dispatch_worker.start()
             if not self.settings.dry_run:
@@ -755,6 +792,7 @@ class AegisSupervisor:
             return 1
         finally:
             self.stop_requested = True
+            self.stop_recovery()
             self.stop_local_restore()
             self.children.stop_all()
             self.mqtt.stop()

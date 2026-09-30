@@ -941,6 +941,37 @@ combined child output to `logs/aegis-components.log`, daemon console output to
 `logs/aegis-supervisor.log`, and atomic lifecycle status under `.aegis-runtime/`.
 These runtime artifacts are ignored by Git.
 
+## Core-mediated Recovery (R1–R8) — IMPLEMENTED != DEPLOYED
+
+Production incident Recovery has one authority: the headless Core. The desktop is an unprivileged observer/operator and
+never becomes a second Core.
+
+- **Entrypoint:** `python -m aegis_soc.recovery_ui` (`--once` prints the status and exits).
+  `server_admin.py` is not the production Recovery entrypoint: it starts the full `AegisAdminGUI` (its own MQTT
+  session, heartbeat publisher, Telegram control and desktop demo defaults) and must never be used for it.
+- **Transport:** a Core-owned AF_UNIX socket (`aegis_soc/recovery_core.py`, default
+  `/run/aegis-idea3-recovery/recovery.sock`) with `SO_PEERCRED` peer validation against one configured operator uid,
+  a 4 KB request bound, and a fixed operation allowlist: `STATUS`, `ISOLATE`, `PROBE`, `RESTORE_STATUS`, `CLOSE`. No
+  operation carries an IP, path, command, PIN or secret. It is production-profile only and disabled unless
+  `AEGIS_RECOVERY_OPERATOR_UID` is set (optional `AEGIS_RECOVERY_SOCKET`, `AEGIS_RECOVERY_SOCKET_GID`).
+- **R1:** the Core binds or creates the single open incident from a validated production attacker alert (idempotent,
+  audited, no containment). Opening the UI never creates an incident.
+- **R3:** `ISOLATE` has no IP parameter. The Core blocks the attacker IP it bound to the incident through the
+  containment helper, reads it back independently with `contains()`, and audits with the incident id.
+- **R4/R5:** RESTORE remains the owner's terminal-only Core-local D4 step (`aegisctl restore`, scrypt credential,
+  exact confirmation). A durable `RESTORE_REQUESTED` audit row bound to the incident is the one-shot record: any such
+  row consumes the incident's attempt, survives UI and Core restarts, and is never cleared or retried automatically.
+  R5 is VERIFIED only for a correlated ACCEPTED ACK plus a correlated STATUS=NORMAL for that command; a Core restart
+  that loses the in-memory physical correlation leaves it not verified.
+- **R2/R6/R7:** probed by the Core (management/network targets, the running Core's DB, MQTT connection, device,
+  uplink, dispatch and web readiness). **R8:** the Core re-checks R1–R7 and closes the incident itself; the UI supplies
+  only bounded lessons-learned text.
+- LVR-6 and LVR9 remain owner-runbook ceremonies; the application does not implement them.
+
+**IMPLEMENTED != DEPLOYED.** A production Core built before this change has none of it. Going live needs a separate,
+owner-approved post-L7 Core upgrade stage (a new immutable release install plus a governed Core restart, a provisioned
+socket directory the operator uid can reach, and the operator uid setting). No such stage is part of this change.
+
 ## Quick Start — Standalone/Lab (Legacy Manual Flow)
 
 ### 1. เข้า Project
