@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-30
+updated: 2026-10-01
 owner: music
 edit_policy: owner-writable
 ---
@@ -17,6 +17,19 @@ edit_policy: owner-writable
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
 ---
+
+## IDEA3 PR11 Phase 4 L3/L4 V7 radio-disabled + broker-churn reactivation — repository implementation only — 2026-10-01
+
+> [!important] Repository-only. V7 has NOT run, is NOT authorized, and is NOT proven live. No authorization or K3 record was created. Production was NOT mutated by this task, the Core was NOT restarted, Recovery R1-R8 was NOT run, no ESP32, no L8. Recovery runtime stays **BLOCKED** until the AP is reactivated through a governed path.
+> `L34_V7 = REPOSITORY_ONLY (simulator-tested)`, `LIVE_REACTIVATION = NOT_PROVEN`, `READY_FOR_LIVE_REACTIVATION = NO`, `V1_V6_FILES_CHANGED = NO`, `BROKER_CONTROL_COMMAND_PRESENT = NO`, `CORE_CONTROL_COMMAND_PRESENT = NO`, `RECOVERY_R1_R8 = NOT_PROVEN`, `L8_STARTED = NO`
+
+- **Why V7 exists (exact baseline gap):** after L7u post-merge verification the host was `rfkill` soft-blocked (hard not blocked), NM Wi-Fi radio disabled, `wlp0s20f3` unavailable, `aegis-idea3-ap` inactive, no `10.77.30.1/28`, dnsmasq failed/`start-limit-hit`, and `aegis-idea3-mosquitto` crash-looping every ~5 s (`listener 8883 127.0.0.1` + `listener 8883 10.77.30.1`; the second cannot bind while the AP address is absent), Core healthy. V1-V3 own the rfkill/radio head but their owner runner requires the broker inactive; V4/V5/V6 require the radio already enabled. No handler matched; the original L34 runner is deliberately NOT weakened.
+- **Earlier temporary owner mutation (2026-10-01 ~05:38-05:40 +07) — `PRODUCTION_MUTATION_PERFORMED=YES` for that event:** manual `rfkill unblock`, `nmcli radio wifi on`, `nmcli connection up aegis-idea3-ap` (FAILED, `No suitable device found ... (device enp62s0 ... mismatching interface name)`), then a manual rollback. Read-only diagnosis: the activation **raced NetworkManager** (radio on :39.1468, activation refused :39.1748, `wlp0s20f3` `unavailable -> disconnected` only at :39.1907) and was apparently not `ifname`-bound; the profile is compatible with the device. dnsmasq and broker failures were downstream of the missing AP address. The rollback was **safe-equivalent** (radio disabled, phy0 soft-blocked, AP inactive, no IPv4, residual wpa_supplicant/p2p/TH = the accepted V3 RESIDUAL set); the **exact original pre-state was NOT proven**. Core never restarted (`MainPID 883`, `NRestarts 0`); Recovery, ESP32 and L8 untouched.
+- **What V7 does (stage `l34-v7-radio-disabled-broker-churn`):** fail-closed exact baseline gate (V3 FRESH/RESIDUAL classifier + strict broker-churn contract: `Restart=on-failure`, `RestartUSec=5s`, `activating/auto-restart`, `MainPID=0`, `Result=exit-code`, `ExecMainStatus=1`, the bind-failure journal signature AND no other `Error:` line, the exact two-listener broker config, no 8883 listener, AP address absent, healthy Core); then exact-ID rfkill unblock, autoconnect off, ONE radio enable, **bounded wait for `disconnected` (the load-bearing race control)**, ONE `nmcli connection up aegis-idea3-ap ifname wlp0s20f3`, autoconnect restore, dnsmasq reset-failed+start, a READ-ONLY wait for the broker's own restart, exact 8883 pair, ONE handshake-only TLS probe (`p4-l7-broker-probe.py`), a 4 x 5 s broker-tuple stability sample and a Core-tuple-unchanged proof. It never issues any command against the broker or Core and never edits any configuration.
+- **Rollback:** journal/ownership-based, SAFE_EQUIVALENT (V3 model); unknown/foreign journal entries fail closed; an unrelated active Wi-Fi profile escalates before any radio/rfkill action. **Limit:** because broker control is forbidden, rollback cannot restore the broker's crash loop; it may crash-loop again or keep a stale `10.77.30.1:8883` (the V6 baseline).
+- **Evidence (simulated host only):** new tests `test_pr11_phase4_l34_v7_radio_disabled_broker_churn.py`, `..._v7_owner_run_flow.py`, `..._v7_scope_contract.py`; RED first (73/73 failed before implementation); negative control proved the readiness-wait invariant load-bearing (3 race tests fail with the wait removed, pass when restored). V1-V6 handlers/allow files/runners and the shared library prefix are pinned byte-identical.
+- **Not proven / limits:** no real-host run; the new V7 allow files and the reuse of the exact V3 comparator catalogs have not been exercised against a real capture; the PRE->POST compare still fails S10 while the IDEA2 baseline is unhealthy (unchanged policy). Live use needs a merged PR, an owner-frozen runner, a fresh same-day `stage=L4` authorization with the exact V7 scope (183 chars) and K3 record.
+- **Design:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-01-idea3-pr11-phase4-l34-v7-radio-disabled-broker-churn-design.md`. Branch `fix/idea3-l34-v7-radio-disabled-broker-churn`; the final receipt is added at task closeout.
 
 ## IDEA3 PR11 Phase 4 L7 #7 — LIVE ACCEPTANCE PROVEN — 2026-09-30
 
