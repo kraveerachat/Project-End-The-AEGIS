@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -15,6 +16,73 @@ AGENT_ROOT = WINDOWS_ROOT / "identity-agent"
 
 
 class WindowsIdentityAgentLifecycleTests(unittest.TestCase):
+    def test_service_create_and_config_preserve_exact_native_image_path_arguments(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="aegis-agent-service-argv-") as raw_root:
+            root = Path(raw_root)
+            capture = root / "capture.py"
+            capture.write_text(
+                "import json, sys\nfrom pathlib import Path\n"
+                "Path(sys.argv[1]).write_text(json.dumps(sys.argv[2:]), encoding='utf-8')\n",
+                encoding="ascii",
+            )
+            image_path = (
+                '"C:\\Program Files\\AEGIS\\IdentityAgent\\.venv\\Scripts\\python.exe" '
+                '"C:\\Program Files\\AEGIS\\IdentityAgent\\run_identity_agent.py" --service'
+            )
+            for operation in ("create", "config"):
+                with self.subTest(operation=operation):
+                    output = root / f"{operation}.json"
+                    script = (
+                        self._load_installer_function("Get-IdentityAgentServiceOptions")
+                        + self._load_installer_function("Invoke-CheckedExternal")
+                        + f"""
+                    $ErrorActionPreference = 'Stop'
+                    $options = @(Get-IdentityAgentServiceOptions -ExpectedBinPath '{image_path}' `
+                        -ServiceAccount 'NT SERVICE\\AEGISIdentityAgent')
+                    Invoke-CheckedExternal '{str(Path(sys.executable)).replace("'", "''")}' `
+                        '{str(capture).replace("'", "''")}' '{str(output).replace("'", "''")}' `
+                        '{operation}' 'AEGISIdentityAgent' @options
+                    """
+                    )
+                    result = self._run_powershell(script, cwd=root)
+                    self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+                    self.assertEqual(
+                        json.loads(output.read_text(encoding="utf-8")),
+                        [operation, "AEGISIdentityAgent", "binPath=", image_path,
+                         "obj=", "NT SERVICE\\AEGISIdentityAgent", "start=", "auto"],
+                    )
+
+    def test_service_options_reject_malformed_image_path_and_wrong_account(self) -> None:
+        cases = (
+            (r'C:\Program Files\AEGIS\IdentityAgent\python.exe --service',
+             r'NT SERVICE\AEGISIdentityAgent'),
+            ('"C:\\Program Files\\python.exe" "C:\\run.py" --service & whoami',
+             r'NT SERVICE\AEGISIdentityAgent'),
+            ('"C:\\Program Files\\python.exe" "C:\\run.py" --service\nextra',
+             r'NT SERVICE\AEGISIdentityAgent'),
+            ('"C:\\Program Files\\python.exe" "C:\\run.py" --service',
+             r'LocalSystem'),
+        )
+        with tempfile.TemporaryDirectory(prefix="aegis-agent-service-reject-") as raw_root:
+            root = Path(raw_root)
+            for image_path, account in cases:
+                with self.subTest(image_path=image_path, account=account):
+                    escaped_image = image_path.replace("'", "''")
+                    script = self._load_installer_function("Get-IdentityAgentServiceOptions") + f"""
+                    $ErrorActionPreference = 'Stop'
+                    try {{
+                        Get-IdentityAgentServiceOptions -ExpectedBinPath '{escaped_image}' `
+                            -ServiceAccount '{account}' | Out-Null
+                        throw 'MALFORMED_SERVICE_OPTIONS_ACCEPTED'
+                    }} catch {{
+                        if ($_.Exception.Message -eq 'MALFORMED_SERVICE_OPTIONS_ACCEPTED') {{ throw }}
+                    }}
+                    'MALFORMED_SERVICE_OPTIONS_REJECTED'
+                    """
+                    result = self._run_powershell(script, cwd=root)
+                    self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+                    self.assertIn("MALFORMED_SERVICE_OPTIONS_REJECTED", result.stdout)
+
     def _load_installer_function(self, name: str) -> str:
         installer = str(AGENT_ROOT / "install_identity_agent.ps1").replace("'", "''")
         return f"""
@@ -387,7 +455,7 @@ class WindowsIdentityAgentLifecycleTests(unittest.TestCase):
             "Get-CimInstance Win32_Service",
             "service account mismatch",
             "service executable mismatch",
-            "start= auto",
+            "'start=', 'auto'",
         ):
             self.assertIn(required, install)
         self.assertNotIn("pip install pywin32", install)

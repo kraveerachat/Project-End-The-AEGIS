@@ -58,6 +58,22 @@ function Invoke-CheckedExternal {
     if ($LASTEXITCODE -ne 0) { throw "$FilePath failed with exit code $LASTEXITCODE" }
 }
 
+function Get-IdentityAgentServiceOptions {
+    param(
+        [Parameter(Mandatory = $true)][string]$ExpectedBinPath,
+        [Parameter(Mandatory = $true)][string]$ServiceAccount
+    )
+    if ($ExpectedBinPath -cnotmatch '^"[A-Za-z]:\\[^"\r\n]+\.exe" "[A-Za-z]:\\[^"\r\n]+\.py" --service$') {
+        throw 'Identity Agent service image path must contain exactly a quoted executable and runner'
+    }
+    if ($ServiceAccount -cne 'NT SERVICE\AEGISIdentityAgent') {
+        throw 'Unexpected Identity Agent service account'
+    }
+    # Windows PowerShell 5.1 strips embedded quotes when forwarding native arguments.
+    # Backslash-escape them so sc.exe receives the exact quoted ImagePath as one value.
+    return @('binPath=', $ExpectedBinPath.Replace('"', '\"'), 'obj=', $ServiceAccount, 'start=', 'auto')
+}
+
 function Test-PathExistsIncludingDenied {
     param([Parameter(Mandatory = $true)][string]$Path)
     try {
@@ -382,11 +398,12 @@ elseif (Test-Path -LiteralPath $managedCaBundlePath) {
 }
 Invoke-AgentConfigValidation -PythonPath $python -Values $configuration -PackageRoot $InstallRoot
 
+$serviceOptions = @(Get-IdentityAgentServiceOptions -ExpectedBinPath $expectedBinPath -ServiceAccount $ServiceAccount)
 if ($null -eq $existingService) {
-    Invoke-CheckedExternal sc.exe create $ServiceName "binPath= $expectedBinPath" "obj= $ServiceAccount" 'start= auto'
+    Invoke-CheckedExternal sc.exe create $ServiceName @serviceOptions
 }
 else {
-    Invoke-CheckedExternal sc.exe config $ServiceName "binPath= $expectedBinPath" "obj= $ServiceAccount" 'start= auto'
+    Invoke-CheckedExternal sc.exe config $ServiceName @serviceOptions
 }
 Invoke-CheckedExternal sc.exe sidtype $ServiceName unrestricted
 Invoke-CheckedExternal sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/15000/none/0
