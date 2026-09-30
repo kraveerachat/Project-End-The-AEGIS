@@ -37,7 +37,7 @@
                 │                                                        │
                 ▼                                                        │
                P2b  v2 writer + encrypted thumb/poster (flag default OFF) ◄┘
-                │   [GATE G-ENABLE] Human enables writer flag in Production
+                │   [GATE G-ENABLE] Human enables v1→v2 UPGRADE flag in Production
                 ▼
                P3   motion derivatives
                 │
@@ -51,9 +51,9 @@
 Rules:
 
 1. P1 and P2a both depend only on P0 and may be developed in parallel on separate branches; they share no files except the registry table (P1 appends providers; P2a touches none of it).
-2. **P2a MUST be deployed and accepted in Production before the P2b writer flag is enabled** (§38.2). P2b source may be developed and merged with the flag OFF after P2a is merged, but enabling requires P2a acceptance.
-3. **The P2b writer MUST remain disabled unless T-MAN-SIZE passes at 1,000, 5,000 and 10,000 nodes** against thresholds the Human Owner has approved in writing (G-THR). If it fails: `P2B_WRITER_ENABLE=BLOCKED`, and a separate encrypted preview index becomes a new architecture task (D-1).
-4. P3 requires P2b merged (manifest `previews` entries and `setNodePreviews` exist). It does not require the writer flag to be enabled in Production for development, but its Production acceptance does.
+2. **P2a MUST be deployed and accepted in Production before any v1→v2 upgrade** (§38.2). P2b source (including server v2 revision compatibility, which accepts schema versions [1,2] independent of any flag) may be developed, merged, and deployed with `VAULT_MANIFEST_V2_UPGRADE` OFF after P2a is merged; enabling the upgrade flag requires P2a acceptance. Server v2 compatibility alone creates no v2 manifest.
+3. **The P2b v1→v2 upgrade flag MUST remain OFF, and P2b writer tasks must not start, unless T-MAN-SIZE passes at 1,000, 5,000 and 10,000 nodes** against thresholds the Human Owner has approved in writing (G-THR). If it fails: `P2B_WRITER_ENABLE=BLOCKED`, and a separate encrypted preview index becomes a new architecture task (D-1).
+4. P3 requires P2b merged (manifest `previews` entries and `setNodePreviews` exist). It does not require the upgrade flag to be enabled in Production for development, but its Production acceptance requires v2 Vaults (upgrade flag enabled per G-ENABLE).
 5. P4 policy tasks require P3. P4 generation tasks additionally require G-D6-MUX.
 6. P5 requires P0/P1 shared modal + registry and G-D6-DOC. P5 does not block P0–P4.
 
@@ -138,17 +138,17 @@ Conventional commits, one RED/GREEN cycle per commit where practical, e.g. `test
 | Gate | Owner | Evidence | Unblocks |
 |---|---|---|---|
 | G-P0 | Human review | P0 PR checks + H1/H2/H13 manual | P1, P2a |
-| G-P2a-ACCEPT | Human Owner | P2a deployed; Vault opens for ADMIN/EXISTING/NEW; no v2 written | P2b flag enable |
+| G-P2a-ACCEPT | Human Owner | P2a deployed; Vault opens for ADMIN/EXISTING/NEW; no v2 written | P2b upgrade-flag enable |
 | G-MAN | Agent | T-MAN-SIZE evidence table (P2b Task 1) | G-THR |
 | G-THR | Human Owner | Written approval of thresholds for each metric at 1k/5k/10k | P2b writer tasks + flag |
-| G-ENABLE | Human Owner | P2b merged, P2a accepted, G-THR passed | Production writer flag ON |
+| G-ENABLE | Human Owner | P2b merged, P2a accepted, G-THR passed, T-MAN-SIZE post-implementation PASS | Production `VAULT_MANIFEST_V2_UPGRADE` ON |
 | G-D6-MUX | Human Owner | Dependency table in P4 plan §D6 | P4 generation tasks |
 | G-D6-DOC | Human Owner | Dependency table in P5 plan §D6 | all P5 execution |
 
 ## 6. Rollback boundary (restated, binding)
 
 - P0, P1, P2a, P3, P4, P5: code revert.
-- P2b: **once any v2 manifest has been written, rollback may only go to a build that can READ v2** (i.e. contains P2a). Preferred target: a P2b build with the writer flag OFF — it stops v1→v2 upgrades and new derivative generation but still writes v2 back for heads that are already v2, preserving preview entries. A P2a build is also valid but treats v2 heads as read-only (P2a Decision P2A-W).
+- P2b: **once any v2 manifest has been written, rollback may only go to a build that can READ v2** (i.e. contains P2a). **Preferred target:** a P2b-capable build with `VAULT_MANIFEST_V2_UPGRADE` OFF — it stops upgrading untouched v1 manifests and stops new v1→v2 preview-writer activation, but keeps reading v2 and keeps mutating existing v2 heads as v2 (its server accepts schema versions [1,2] regardless of the flag), preserving preview references. **Conservative fallback:** a P2a build (Decision P2A-W, approved) — reads v2, treats v2 Vaults as read-only, never writes v2. **v2→v1 downgrade is forbidden** in every build.
 - No phase may delete blobs, rewrite manifests, purge, or roll back to a pre-tree Vault (`PRE_TREE_ROLLBACK=FORBIDDEN`, `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`).
 
 ## 7. Requirement → phase traceability
@@ -199,6 +199,7 @@ Conventional commits, one RED/GREEN cycle per commit where practical, e.g. `test
 | Every binding spec requirement mapped (§7 above) | yes |
 | GROUP B not reopened; no transport/chunk tuning task | yes |
 | P2a precedes P2b writer; writer gated by T-MAN-SIZE + Human thresholds | yes (§2 rules 2–3, §5) |
+| Server v2 revision acceptance ([1,2], 3+ rejected) independent of the upgrade flag; flag controls only v1→v2 upgrade; truth table v1/OFF→v1, v1/ON→v2, v2/OFF→v2, v2/ON→v2, v3+→fail-secure; no v2→v1 downgrade (amendment 2026-09-30) | yes (P2b "Manifest version semantics", Tasks 2–3; P2a P2A-W approved as conservative fallback) |
 | 8 MiB global minimum unchanged in all plans | yes (P2b T5 + T14, P3 T3, P4 T4 assert it) |
 | Audit semantics unchanged; only measured | yes (P2b T14) |
 | Vault ciphertext HTTP cache stays off | yes (P2b T8 + T14 assert `no-store`) |

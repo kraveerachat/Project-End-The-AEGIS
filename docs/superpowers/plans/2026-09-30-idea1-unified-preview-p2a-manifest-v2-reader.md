@@ -26,9 +26,9 @@ UI_RENDERS_PREVIEW_ENTRIES=NO
 - The v1 canonical encoding must remain byte-identical (golden vectors) — existing revisions must decrypt unchanged.
 - No new storage API; no new network call.
 
-## Decision P2A-W (gap closure, not an architecture change)
+## Decision P2A-W — APPROVED by the Human Owner (2026-09-30)
 
-The spec requires P2a to read v2 and write only v1, and requires any post-v2 rollback target to read v2. It does not state what a v1-writing build does when asked to mutate a v2 head. Writing v1 would silently drop preview references (regenerable, but leaves derivative blobs as permanently TREE_MANAGED orphans because purge is disabled); writing v2 would violate `P2A_WRITES_V2=NO`. **This plan chooses fail-secure read-only on a v2 head**: browsing, preview, and download work; mutations show "This Vault was updated by a newer version of Drive — reload to make changes" and perform no publish or CAS. The intended rollback target after v2 writes is a P2b build with the writer flag OFF (P2b defines that such a build still writes v2 back when the head is already v2). **Human acknowledgement of P2A-W is requested at the P2a review gate.**
+The spec requires P2a to read v2 and write only v1, and requires any post-v2 rollback target to read v2. It does not state what a v1-writing build does when asked to mutate a v2 head. Writing v1 would silently drop preview references (regenerable, but leaves derivative blobs as permanently TREE_MANAGED orphans because purge is disabled); writing v2 would violate `P2A_WRITES_V2=NO`. **This plan chooses fail-secure read-only on a v2 head**: browsing, preview, and download work; mutations show "This Vault was updated by a newer version of Drive — reload to make changes" and perform no publish or CAS. P2a therefore remains a valid **conservative** rollback target. The **preferred** post-v2 rollback target is a P2b-capable build with `VAULT_MANIFEST_V2_UPGRADE` OFF: its server accepts schema versions [1,2] independent of the flag, and its client keeps mutating existing v2 heads as v2 (preserving preview references) while never upgrading v1 heads. No build ever downgrades v2→v1.
 
 ## File Map
 
@@ -150,7 +150,6 @@ Fully reversible: P2a writes nothing new. Reverting restores v1-only reading, wh
 
 ## Human review gate (G-P2a-ACCEPT)
 
-1. Human acknowledges Decision P2A-W.
-2. P2a deployed to Production by the Human Owner.
-3. Human verifies on ADMIN, EXISTING_USER, NEWLY_CREATED_USER: Vault unlocks, browse/rename/upload/download unchanged (v1 heads), no console errors.
-4. Human records `P2A_ACCEPTED=YES` — prerequisite for enabling the P2b writer flag.
+1. P2a deployed to Production by the Human Owner.
+2. Human verifies on ADMIN, EXISTING_USER, NEWLY_CREATED_USER: Vault unlocks, browse/rename/upload/download unchanged (v1 heads), no console errors.
+3. Human records `P2A_ACCEPTED=YES` — prerequisite for enabling the P2b v1→v2 upgrade flag (`VAULT_MANIFEST_V2_UPGRADE`).

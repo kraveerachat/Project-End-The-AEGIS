@@ -10,7 +10,7 @@
 
 **Spec:** §10 (motion), §13, §15, §21–§25, §28, §31 item 3 (D-8), §35, §36 (T-LOCK, T-NEUTRAL), §37 H8, H14.
 
-**Depends on:** P2b merged (manifest `previews`, `setNodePreviews`, derivative upload/read). Production acceptance requires the P2b writer flag enabled. **Branch:** `feat/idea1-preview-p3-motion` from `origin/main`.
+**Depends on:** P2b merged (manifest `previews`, `setNodePreviews`, derivative upload/read). Production acceptance requires v2 Vaults (P2b `VAULT_MANIFEST_V2_UPGRADE` enabled per G-ENABLE). **Branch:** `feat/idea1-preview-p3-motion` from `origin/main`.
 
 ## Global Constraints
 
@@ -84,7 +84,7 @@ export function createMotionController(o: { reducedMotion: () => boolean, read: 
 
 **Files:** `src/lib/vaultTreeUpload.js`, `tests/vaultDerivativeUploadFlow.test.js`.
 
-- [ ] **Step 1 — RED:** video/animated upload: thumb/poster attach as in P2b; motion generated after; if ready within the attach window → same CAS, else follow-up `setNodePreviews` CAS; motion failure never affects upload result; derivative session `chunkSize === 8 MiB + 16`; flag-off + v1 head → no generation.
+- [ ] **Step 1 — RED:** video/animated upload: thumb/poster attach as in P2b; motion generated after; if ready within the attach window → same CAS, else follow-up `setNodePreviews` CAS; motion failure never affects upload result; derivative session `chunkSize === 8 MiB + 16`; v1 head with upgrade OFF → no generation; v2 head with upgrade OFF → generation proceeds.
 - [ ] **Step 2 — verify RED.** **Step 3 — GREEN.** **Step 4 — verify GREEN** + `node --test --test-concurrency=1 tests/vaultTreeUploadClient.test.js tests/previewGuardrails.test.js`.
 - [ ] **Step 5 — commit:** `feat(idea1): attach encrypted motion derivatives to new Vault uploads`.
 
@@ -113,7 +113,7 @@ export function createMotionController(o: { reducedMotion: () => boolean, read: 
   - unlock + grid render of 20 legacy videos → zero original chunk requests attributable to motion (spy), zero motion generation.
   - small GIF (≤ `gifMaxFullPlayBytes`) played on hover via the existing path → `offer({ kind:'motion', origin:'visible-plaintext' })` accepted → one derivative upload + `setNodePreviews`; `offer` of `motion` without that origin → rejected.
   - Build Preview on a legacy video: dialog shows estimated bytes to fetch; confirm → one generation via the original's SW range session URL (user-initiated), progress, cancel aborts and uploads nothing; completion attaches motion.
-  - Build Preview hidden when a valid motion entry exists or the writer cannot write.
+  - Build Preview hidden when a valid motion entry exists or `canWritePreviews()` is false (v1 head with `VAULT_MANIFEST_V2_UPGRADE` OFF).
 - [ ] **Step 2 — verify RED.** **Step 3 — GREEN.** **Step 4 — verify GREEN.**
 - [ ] **Step 5 — commit:** `feat(idea1): add user-initiated Build Preview for legacy motion`.
 

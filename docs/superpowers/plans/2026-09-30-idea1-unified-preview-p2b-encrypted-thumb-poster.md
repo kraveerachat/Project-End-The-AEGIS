@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make Private Vault tiles approach Normal Files perceived responsiveness by persisting small, **client-generated and client-encrypted** thumbnail/poster derivatives as ordinary V2 blobs referenced from an encrypted manifest v2 — behind a default-OFF, server-served writer flag that may only be enabled after T-MAN-SIZE passes Human-approved thresholds and P2a is accepted in Production.
+**Goal:** Make Private Vault tiles approach Normal Files perceived responsiveness by persisting small, **client-generated and client-encrypted** thumbnail/poster derivatives as ordinary V2 blobs referenced from an encrypted manifest v2. Server v2 revision compatibility ships unconditionally with P2b; the only switch is a default-OFF, server-served **v1→v2 upgrade** flag (`VAULT_MANIFEST_V2_UPGRADE`) that may only be enabled after T-MAN-SIZE passes Human-approved thresholds and P2a is accepted in Production.
 
 **Architecture:** Derivatives reuse the existing V2 upload session, random per-blob DEK wrapped by the KEK, per-chunk AAD, and owner-scoped routes — no new crypto, AAD layout, or server table (§8.1, §9). The manifest records `contentId` + `sourceBlobRef` per derivative (§8.2); readers verify `contentId` before decrypting. New uploads generate thumb/poster from the local plaintext `File`; legacy files are backfilled lazily from bytes the existing tile path already decrypted. Upload success never depends on derivative success.
 
@@ -23,12 +23,33 @@ DERIVATIVE_PADDING=NONE                       (D-2)
 VAULT_V2_MIN_PLAINTEXT_CHUNK=8 MiB            (D-3; derivative uploads use exactly the minimum)
 AUDIT_SEMANTICS=UNCHANGED                     (D-4)
 VAULT_CIPHERTEXT_HTTP_CACHE=OFF               (D-5)
-WRITER_FLAG_DEFAULT=OFF
+SERVER_ACCEPTED_MANIFEST_SCHEMA_VERSIONS=[1,2]   (after P2b server deploy; independent of any flag; 3+ rejected)
+UPGRADE_FLAG=VAULT_MANIFEST_V2_UPGRADE           (default OFF; controls ONLY v1→v2 upgrade permission)
+V2_TO_V1_DOWNGRADE=FORBIDDEN
 AUTOMATIC_BACKFILL=THUMB_AND_POSTER_ONLY, NO_EXTRA_ORIGINAL_FETCH   (D-8)
 ```
 
 - Master plan §3 block applies verbatim. `PRE_TREE_ROLLBACK=FORBIDDEN`, `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`.
 - No new dependency (thumb/poster use native canvas/`<video>`).
+
+## Manifest version semantics (binding)
+
+Two separate concerns:
+
+1. **Server v2 revision compatibility** — once P2b server code is deployed, `POST /api/vault/tree/revisions` accepts `manifestSchemaVersion` ∈ {1, 2} and rejects 3+. This does **not** depend on any flag. Accepting v2 envelopes does not itself create v2 manifests (the server cannot decrypt or author manifests).
+2. **V1→V2 upgrade authorization** — `VAULT_MANIFEST_V2_UPGRADE` (default OFF, served to the client as `features.manifestV2Upgrade`) decides only whether a client may upgrade a **v1** head to v2 (and therefore start writing preview references into a previously-v1 Vault).
+
+Client writer truth table (`writerSchemaVersion`):
+
+| Head | Upgrade flag | Write |
+|---|---|---|
+| v1 | OFF | v1 |
+| v1 | ON | v2 |
+| v2 | OFF | v2 (preserve every preview entry) |
+| v2 | ON | v2 |
+| v3+ | any | FAIL_SECURE (no publish, no CAS) |
+
+Derivative generation/attachment runs only when the resulting write is v2 (head v2, or head v1 with upgrade ON). A v2 head is never downgraded to v1.
 
 ## ⛔ PRE-IMPLEMENTATION / PRE-ENABLE GATE (G-MAN → G-THR)
 
@@ -44,10 +65,10 @@ Task 17 re-runs the same measurement with the real writer code before the flag c
 | Action | Path | Responsibility |
 |---|---|---|
 | Create | `scripts/measure/vault-manifest-size.mjs` | T-MAN-SIZE harness (Node WebCrypto + local Drive server) |
-| Create | `server/config/vaultPreviewFeatures.js` | `VAULT_MANIFEST_V2_WRITE` env flag (default `false`) |
-| Modify | `server/routes/vaultTree.js` | revisions accept `manifestSchemaVersion` 2 **only when the flag is on**; `GET /state` returns `features.manifestV2Write` |
+| Create | `server/config/vaultPreviewFeatures.js` | `VAULT_MANIFEST_V2_UPGRADE` env flag (default `false`) — v1→v2 upgrade permission only |
+| Modify | `server/routes/vaultTree.js` | revisions accept `manifestSchemaVersion` ∈ {1,2} **unconditionally**, reject 3+; `GET /state` returns `features.manifestV2Upgrade` |
 | Modify | `src/lib/vaultTreeManifest.js` | `MANIFEST_SCHEMA_VERSION_WRITE` becomes dynamic via `writerSchemaVersion({ flag, headVersion })` |
-| Modify | `src/lib/vaultTreeSync.js` | write v2 when head is v2 (always) or when flag on (upgrade); P2A-W refusal removed for P2b builds |
+| Modify | `src/lib/vaultTreeSync.js` | write per truth table (v2 head → v2 always; v1 head → v2 only with upgrade ON); v3+ fail-secure; P2A-W refusal replaced by v2 writing in P2b builds |
 | Modify | `src/lib/vaultTreeOps.js`, `src/lib/vaultTreeRebase.js` | `setNodePreviews` intent; `attachBlob` accepts `previews`/`contentFormat` |
 | Create | `src/lib/vaultDerivativeUpload.js` | encrypt + upload one derivative as a V2 blob |
 | Create | `src/lib/vaultDerivativeRead.js` | verified fetch/decrypt of a derivative; ciphertext LRU |
@@ -66,11 +87,13 @@ Task 17 re-runs the same measurement with the real writer code before the flag c
 
 ```ts
 // server/config/vaultPreviewFeatures.js
-export function vaultPreviewFeaturesFrom(env): Readonly<{ manifestV2Write: boolean }>   // 'true' only enables
+export function vaultPreviewFeaturesFrom(env): Readonly<{ manifestV2Upgrade: boolean }>   // VAULT_MANIFEST_V2_UPGRADE; literal 'true' only enables
+export const ACCEPTED_MANIFEST_SCHEMA_VERSIONS: readonly [1, 2]                       // not flag-dependent
 
 // src/lib/vaultTreeManifest.js
-export function writerSchemaVersion(o: { flag: boolean, headVersion: 1 | 2 }): 1 | 2
-  // headVersion 2 → 2 (preserve entries, rollback-target semantics); headVersion 1 → flag ? 2 : 1
+export function writerSchemaVersion(o: { upgradeAllowed: boolean, headVersion: number }): 1 | 2
+  // headVersion 2 → 2 (always; preserve entries); headVersion 1 → upgradeAllowed ? 2 : 1;
+  // any other headVersion → throw ManifestError('UNSUPPORTED_SCHEMA_VERSION') (fail secure, no publish/CAS)
 
 // src/lib/vaultTreeOps.js
 setNodePreviews: (o: { nodeId: string, expectedSourceBlobRef: BlobRef, contentFormat?: string,
@@ -95,7 +118,8 @@ export async function generatePoster(file: File, o: { profile, env, signal, budg
 
 // src/lib/vaultDerivativeBackfill.js
 export function createBackfillQueue(o: { maxConcurrent: 1, maxPerSession: 50, isDeferred: () => boolean,
-                                         canWrite: () => boolean, upload: typeof uploadDerivative, submitIntent })
+                                         canWritePreviews: () => boolean, upload: typeof uploadDerivative, submitIntent })
+  // canWritePreviews() === (writerSchemaVersion({ upgradeAllowed, headVersion }) === 2)
   : { offer(nodeId, kind, bytes, meta): void, clear(): void, stats(): object }
 ```
 
@@ -140,31 +164,34 @@ Threshold proposal (explicitly **NOT APPROVED** — for the Human Owner to accep
 - [ ] **Step 3 — commit:** `test(idea1): add manifest v2 size and cost measurement harness` (script only).
 - [ ] **Step 4 — ⛔ STOP.** Report `T_MAN_SIZE_EVIDENCE=READY`, `THRESHOLDS=AWAITING_HUMAN_APPROVAL`. Resume only on written Human approval. On failure: `P2B_WRITER_ENABLE=BLOCKED`.
 
-### Task 2: Server flag for v2 revision acceptance
+### Task 2: Server v2 revision compatibility + upgrade flag exposure
 
-**Files:** Create `server/config/vaultPreviewFeatures.js`; modify `server/routes/vaultTree.js`; extend `tests/vaultTreeApi.test.js`.
+**Files:** Create `server/config/vaultPreviewFeatures.js`; modify `server/routes/vaultTree.js`; extend `tests/vaultTreeApi.test.js` (the existing `{ manifestSchemaVersion: 2 } → 400` case is intentionally replaced).
 
-- [ ] **Step 1 — RED:** flag unset → `manifestSchemaVersion: 2` publish still 400 (existing case); flag `true` → 2 accepted, 3 rejected, 1 accepted; `GET /api/vault/tree/state` includes `features: { manifestV2Write: <bool> }`; values other than the literal `'true'` keep it off; cross-owner and auth behaviour unchanged.
+- [ ] **Step 1 — RED:** for **both** `VAULT_MANIFEST_V2_UPGRADE` unset and `'true'`: `manifestSchemaVersion` 1 accepted, 2 accepted, 3 / 0 / `'2'` rejected with 400 — i.e. v2 acceptance is independent of the flag (parameterized test over both flag values); `GET /api/vault/tree/state` includes `features: { manifestV2Upgrade: <bool> }` (true only for the literal `'true'`); stored/returned `manifestSchemaVersion` round-trips; cross-owner and auth behaviour unchanged.
 - [ ] **Step 2 — verify RED.**
 - [ ] **Step 3 — GREEN.**
 - [ ] **Step 4 — verify GREEN:** memory + `bash scripts/pg-integration-env.sh node --test --test-concurrency=1 tests/vaultTreeApi.test.js tests/vaultTreePostgres.test.js`.
-- [ ] **Step 5 — commit:** `feat(idea1): gate manifest v2 revision acceptance behind a default-off flag`.
+- [ ] **Step 5 — commit:** `feat(idea1): accept manifest v2 revisions and expose the v1-to-v2 upgrade flag`.
 
-### Task 3: Writer schema selection (rollback-target semantics)
+### Task 3: Writer schema selection and rollback-target semantics
 
-**Files:** `src/lib/vaultTreeManifest.js`, `src/lib/vaultTreeSync.js`, `tests/vaultTreeSync.test.js`.
+**Files:** `src/lib/vaultTreeManifest.js`, `src/lib/vaultTreeSync.js`, `tests/vaultTreeSync.test.js`, create `tests/vaultManifestRollbackSemantics.test.js`.
 
-- [ ] **Step 1 — RED:** `writerSchemaVersion` truth table; flag off + v1 head → publishes v1 (unchanged); flag off + v2 head → publishes v2 preserving every preview entry (P2A-W refusal no longer applies in this build); flag on + v1 head → first mutation publishes v2 with no previews; AAD ctx version always equals plaintext `schemaVersion`.
+- [ ] **Step 1 — RED:**
+  - Client truth table (publish body `manifestSchemaVersion` **and** decrypted plaintext `schemaVersion` both asserted): v1 + upgrade OFF → v1; v1 + upgrade ON → v2 (no previews on first upgrade); v2 + upgrade OFF → v2; v2 + upgrade ON → v2; head v3 → `UNSUPPORTED_SCHEMA_VERSION`, zero publish/CAS.
+  - Rollback semantics (fake server accepting [1,2], upgrade OFF, seeded v2 head with thumb/poster entries on several nodes): rename, move, create folder, upload-attach, trash, restore each succeed and publish v2; every pre-existing preview entry is still present and byte-identical after each mutation; no publish ever carries `manifestSchemaVersion: 1` for a v2 head (no downgrade); an untouched v1 Vault under upgrade OFF stays v1 across the same mutations.
+  - AAD ctx version always equals plaintext `schemaVersion`.
 - [ ] **Step 2 — verify RED.**
 - [ ] **Step 3 — GREEN.**
 - [ ] **Step 4 — verify GREEN** + `node --test --test-concurrency=1 tests/vaultTreeRebase.test.js tests/vaultTreeManifestV2.test.js tests/vaultTreeManifestCrypto.test.js`.
-- [ ] **Step 5 — commit:** `feat(idea1): select manifest writer version from flag and head`.
+- [ ] **Step 5 — commit:** `feat(idea1): select manifest writer version from head and upgrade flag`.
 
 ### Task 4: `setNodePreviews` operation and `attachBlob` previews
 
 **Files:** `src/lib/vaultTreeOps.js`, `src/lib/vaultTreeRebase.js`, `tests/vaultTreeOps.test.js`, `tests/vaultTreeRebase.test.js`, `tests/vaultTreeOpsProperty.test.js`.
 
-- [ ] **Step 1 — RED:** upsert/remove semantics; idempotent `operationId`; rebase drops intent when node trashed/missing or `blobRef` changed; concurrent same-kind upsert → last writer wins; `attachBlob` with initial previews validates via P2a rules; ops refused on a v1 manifest when writer version is 1 (flag off, v1 head).
+- [ ] **Step 1 — RED:** upsert/remove semantics; idempotent `operationId`; rebase drops intent when node trashed/missing or `blobRef` changed; concurrent same-kind upsert → last writer wins; `attachBlob` with initial previews validates via P2a rules; ops refused when the writer version is 1 (v1 head with upgrade OFF); accepted on a v2 head regardless of the flag.
 - [ ] **Step 2 — verify RED.**
 - [ ] **Step 3 — GREEN.**
 - [ ] **Step 4 — verify GREEN.**
@@ -194,7 +221,7 @@ Threshold proposal (explicitly **NOT APPROVED** — for the Human Owner to accep
 
 **Files:** `src/lib/vaultTreeUpload.js`, `src/components/VaultUploadDrawer.jsx`, `tests/vaultTreeUploadClient.test.js`, create `tests/vaultDerivativeUploadFlow.test.js`.
 
-- [ ] **Step 1 — RED:** (a) happy path: original committed, derivatives uploaded, **one** CAS whose `attachBlobIds` contains original + derivatives and whose manifest node has `previews` + `contentFormat`; (b) generation throws/times out → original attached without previews, upload reported success; (c) derivative upload fails after commit → original attached, derivative blob left UNREFERENCED; (d) flag off and v1 head → no generation at all; (e) batch > 64 media files splits CAS within `maxAttachBlobIdsPerCas` (256); (f) upload result object identical in shape to today.
+- [ ] **Step 1 — RED:** (a) happy path: original committed, derivatives uploaded, **one** CAS whose `attachBlobIds` contains original + derivatives and whose manifest node has `previews` + `contentFormat`; (b) generation throws/times out → original attached without previews, upload reported success; (c) derivative upload fails after commit → original attached, derivative blob left UNREFERENCED; (d) v1 head with upgrade OFF → no generation at all; v2 head with upgrade OFF → generation and attach proceed; (e) batch > 64 media files splits CAS within `maxAttachBlobIdsPerCas` (256); (f) upload result object identical in shape to today.
 - [ ] **Step 2 — verify RED.**
 - [ ] **Step 3 — GREEN.**
 - [ ] **Step 4 — verify GREEN** + `node --test --test-concurrency=1 tests/vaultTreeUploadClient.test.js tests/vaultTreeUploadsApi.test.js tests/uploadRecoveryLifecycle.test.js`.
@@ -214,7 +241,7 @@ Threshold proposal (explicitly **NOT APPROVED** — for the Human Owner to accep
 
 **Files:** Create `src/lib/vaultDerivativeBackfill.js`, `tests/vaultDerivativeBackfill.test.js`; modify `src/lib/vaultImageThumb.js` (`returnBytes`), `src/screens/VaultTreeScreen.jsx`.
 
-- [ ] **Step 1 — RED:** legacy node without previews: first display via existing path → bytes offered → one derivative upload + one `setNodePreviews` → next unlock renders from derivative (T-BACKFILL); backfill module never calls `fetchChunk`/`openSession` itself (spy — no extra original fetch); ≤ 1 concurrent; ≤ 50 per session; deferred while an interactive upload/download/modal playback is active; `canWrite()` false (flag off + v1 head) → nothing uploaded; motion/proxy kinds rejected by `offer` (P3/P4 only, D-8); rebase-dropped intent (file replaced) leaves derivative UNREFERENCED without error.
+- [ ] **Step 1 — RED:** legacy node without previews: first display via existing path → bytes offered → one derivative upload + one `setNodePreviews` → next unlock renders from derivative (T-BACKFILL); backfill module never calls `fetchChunk`/`openSession` itself (spy — no extra original fetch); ≤ 1 concurrent; ≤ 50 per session; deferred while an interactive upload/download/modal playback is active; `canWritePreviews()` false (v1 head + upgrade OFF) → nothing uploaded; true on a v2 head even with upgrade OFF; motion/proxy kinds rejected by `offer` (P3/P4 only, D-8); rebase-dropped intent (file replaced) leaves derivative UNREFERENCED without error.
 - [ ] **Step 2 — verify RED.**
 - [ ] **Step 3 — GREEN.**
 - [ ] **Step 4 — verify GREEN.**
@@ -275,20 +302,23 @@ Threshold proposal (explicitly **NOT APPROVED** — for the Human Owner to accep
 - [ ] Vault regression: `node --test --test-concurrency=1 tests/vault*.test.js tests/arbitraryTransferRegression.test.js tests/previewAccountNeutrality.test.js tests/previewGuardrails.test.js`.
 - [ ] Normal Files regression: `node --test --test-concurrency=1 tests/media*.test.js tests/filesMediaTiles.test.js tests/filesPreviewRoute.test.js`.
 - [ ] PG: `bash scripts/pg-integration-env.sh node --test --test-concurrency=1 tests/vaultTreePostgres.test.js tests/vaultTreeApi.test.js tests/previewAccountNeutrality.test.js`.
-- [ ] `npm run build && git checkout -- dist`; `git diff --check`; policy validation (declare `server/routes/vaultTree.js`, `server/config/vaultPreviewFeatures.js` in PR as owned server paths; any `.env.example` documentation of `VAULT_MANIFEST_V2_WRITE` is a cross-scope path requiring `integration-review: yes`).
+- [ ] `npm run build && git checkout -- dist`; `git diff --check`; policy validation (declare `server/routes/vaultTree.js`, `server/config/vaultPreviewFeatures.js` in PR as owned server paths; any `.env.example` documentation of `VAULT_MANIFEST_V2_UPGRADE` is a cross-scope path requiring `integration-review: yes`).
 - [ ] Receipt; push.
 
 ### Task 17: Pre-enable re-measurement (G-ENABLE evidence)
 
-- [ ] Re-run Task 1 harness with the real P2b writer (server flag on in a local instance, true v2 revisions). Compare against the Human-approved thresholds. Report `T_MAN_SIZE_POST_IMPL=PASS|FAIL`. FAIL → flag stays OFF; escalate.
+- [ ] Re-run Task 1 harness with the real P2b writer (local instance, upgrade flag ON, true v2 revisions). Compare against the Human-approved thresholds. Report `T_MAN_SIZE_POST_IMPL=PASS|FAIL`. FAIL → upgrade flag stays OFF in Production; escalate.
 
 ## Rollback boundary
 
-- Merged with flag OFF: fully reversible by revert (no v2 can be written).
-- **After the Human enables the flag and any v2 manifest is written: one-way.** Rollback may only go to a build that reads v2 — a P2b build with the flag OFF (preferred; still writes v2 back for v2 heads, preserving entries) or a P2a build (read-only for v2 heads, Decision P2A-W). Never delete blobs, rewrite manifests, or purge.
+- Deployed with the upgrade flag OFF and no v2 manifest yet: fully reversible by revert. The server accepting v2 envelopes creates no v2 manifest by itself; with upgrade OFF, clients keep every v1 head at v1.
+- **After the Human enables the upgrade flag and any v2 manifest is written: one-way.** Rollback may only go to a build that reads v2:
+  - **Preferred:** a P2b-capable build with `VAULT_MANIFEST_V2_UPGRADE` OFF — stops upgrading untouched v1 manifests, stops new v1→v2 preview-writer activation, keeps reading v2, keeps safely mutating existing v2 heads as v2 (server still accepts [1,2]), preserves preview references, never downgrades.
+  - **Conservative fallback:** a P2a build (Decision P2A-W, approved) — reads v2, treats v2 Vaults as read-only, never writes v2, never downgrades.
+- Never delete blobs, rewrite manifests, purge, or downgrade v2→v1 (`PRE_TREE_ROLLBACK=FORBIDDEN`, `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`).
 
 ## Human review gates
 
 1. **G-THR** after Task 1 (threshold approval) — mandatory before Task 2.
-2. **G-ENABLE** after Task 17: requires `P2A_ACCEPTED=YES`, `T_MAN_SIZE_POST_IMPL=PASS`, PR merged. The Human Owner alone sets `VAULT_MANIFEST_V2_WRITE=true` in Production.
+2. **G-ENABLE** after Task 17: requires `P2A_ACCEPTED=YES`, `T_MAN_SIZE_POST_IMPL=PASS`, PR merged. Until then `VAULT_MANIFEST_V2_UPGRADE` stays OFF. The Human Owner alone sets `VAULT_MANIFEST_V2_UPGRADE=true` in Production.
 3. Acceptance on ADMIN, EXISTING_USER, NEWLY_CREATED_USER, LAN and Remote: §37 H4 (tiles near Files responsiveness; warm immediate), H5 (second unlock uses derivatives), H6 (new-upload poster without consuming the original), H14 (lock mid-work), H15 (cross-account 404), H2 (arbitrary Vault upload/download still byte-exact).
