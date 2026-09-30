@@ -98,7 +98,7 @@ function renderedFixture() {
 }
 
 function runValidator(python, fixture) {
-  const source = 'import json,runpy,sys; ns=runpy.run_path(sys.argv[1]); ns["check"](json.loads(sys.stdin.read()),sys.argv[2])'
+  const source = 'import json,pathlib,runpy,sys; sys.path.insert(0,str(pathlib.Path(sys.argv[1]).parent)); ns=runpy.run_path(sys.argv[1]); ns["check"](json.loads(sys.stdin.read()),sys.argv[2])'
   return spawnSync(python[0], [...python.slice(1), '-c', source, path.join(runtime, 'validate.py'), sha], {
     input: JSON.stringify(fixture), encoding: 'utf8', cwd: root,
   })

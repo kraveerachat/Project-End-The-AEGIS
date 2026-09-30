@@ -14,6 +14,8 @@ import stat
 import subprocess
 from urllib.parse import unquote, urlsplit
 
+from docker_exec import docker_command
+
 
 ROOT = Path(__file__).resolve().parents[3]
 COMPOSE = Path(__file__).with_name("compose.yml")
@@ -33,6 +35,11 @@ EXPECTED_BIND_SOURCES = {
 def require(condition, reason):
     if not condition:
         raise ValueError(reason)
+
+
+def ensure_unprivileged_python():
+    get_euid = getattr(os, "geteuid", None)
+    require(get_euid is None or get_euid() != 0, "N1 validator Python must not run as root")
 
 
 def check_mount(mount, target):
@@ -181,6 +188,7 @@ def main():
             require(not args.env_file, "choose one input")
             rendered = json.loads(args.config_json.read_text(encoding="utf-8"))
         else:
+            ensure_unprivileged_python()
             check_reviewed_checkout(args.source_sha)
             require(args.env_file is not None and args.env_file.is_absolute(), "absolute env-file path required")
             env_path = args.env_file.resolve(strict=True)
@@ -190,14 +198,15 @@ def main():
                 mode = stat.S_IMODE(env_path.stat().st_mode)
                 require(mode & 0o077 == 0 and env_path.stat().st_uid == os.getuid(), "lab secret file must be owner-only")
             result = subprocess.run(
-                ["docker", "compose", "--project-name", PROJECT, "--env-file", str(env_path), "-f", str(COMPOSE), "config", "--format", "json"],
+                docker_command("compose", "--project-name", PROJECT, "--env-file", str(env_path), "-f", str(COMPOSE), "config", "--format", "json"),
                 capture_output=True, text=True, check=False, timeout=30,
             )
             require(result.returncode == 0, "Docker Compose render failed (details withheld to protect secrets)")
             rendered = json.loads(result.stdout)
         check(rendered, args.source_sha)
-    except (ValueError, OSError, json.JSONDecodeError, subprocess.TimeoutExpired) as error:
-        print(f"H1_N1_CONFIG_VALIDATION=FAIL reason={error if isinstance(error, ValueError) else 'invalid input or unavailable Docker CLI'}")
+    except (ValueError, OSError, subprocess.TimeoutExpired):
+        # Rendered values may be embedded in parser/URL errors; never echo them.
+        print("H1_N1_CONFIG_VALIDATION=FAIL reason=invalid input or unavailable Docker CLI")
         return 2
     print("H1_N1_CONFIG_VALIDATION=PASS")
     return 0

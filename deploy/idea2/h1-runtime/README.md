@@ -43,13 +43,26 @@ secret file path and `H1_MONITOR_SOURCE_SHA` to the exact reviewed HEAD. The
 following commands are read-only and must not print Compose's interpolated
 JSON, because that JSON contains secrets:
 
+On `aegis-system`, leave Python, Git, and the owner-only secret file under the
+invoking human account. Run `sudo -v` separately in the human terminal, then
+select `AEGIS_H1_N1_DOCKER_MODE=sudo-noninteractive`. Only Docker commands use
+`sudo -n env -u DOCKER_HOST docker --host unix:///var/run/docker.sock`. The
+explicit local socket prevents an elevated Docker configuration from selecting
+a remote daemon. Do not run the validator as root or use
+`sudo -E`. Abort if sudo cannot run non-interactively, or if `DOCKER_HOST` or
+`DOCKER_CONTEXT` is set. `direct` is the validator's default mode for hosts
+where direct local Docker authorization has been separately proven; it is not
+the reviewed `aegis-system` host mode.
+
 ```sh
+sudo -v
+export AEGIS_H1_N1_DOCKER_MODE=sudo-noninteractive
 test "$(git rev-parse HEAD)" = "$H1_MONITOR_SOURCE_SHA"
 test -z "$(git status --porcelain --untracked-files=all)"
 test -z "$(git ls-files --others --ignored --exclude-standard -- IDEA2-AEGIS_Monitor)"
 python3 deploy/idea2/h1-runtime/validate.py \
   --env-file "$H1_ENV_FILE" --source-sha "$H1_MONITOR_SOURCE_SHA"
-docker compose --project-name aegis-h1-lab --env-file "$H1_ENV_FILE" \
+sudo -n env -u DOCKER_HOST docker --host unix:///var/run/docker.sock compose --project-name aegis-h1-lab --env-file "$H1_ENV_FILE" \
   -f deploy/idea2/h1-runtime/compose.yml config --quiet
 ```
 
@@ -65,7 +78,7 @@ without `--quiet` in a log or terminal recording.
 Only after a new explicit live approval and the read-only preflight PASS:
 
 ```sh
-docker compose --project-name aegis-h1-lab --env-file "$H1_ENV_FILE" \
+sudo -n env -u DOCKER_HOST docker --host unix:///var/run/docker.sock compose --project-name aegis-h1-lab --env-file "$H1_ENV_FILE" \
   -f deploy/idea2/h1-runtime/compose.yml up -d --build postgres migrate monitor
 ```
 
@@ -77,7 +90,7 @@ required second schema application, run the same migrator in the same project
 under separate approval, then compare catalog/table/row-count evidence:
 
 ```sh
-docker compose --project-name aegis-h1-lab --env-file "$H1_ENV_FILE" \
+sudo -n env -u DOCKER_HOST docker --host unix:///var/run/docker.sock compose --project-name aegis-h1-lab --env-file "$H1_ENV_FILE" \
   -f deploy/idea2/h1-runtime/compose.yml run --rm migrate
 ```
 
@@ -96,3 +109,10 @@ command. Removing `aegis-h1-lab_postgres_data` is a **separate irreversible
 data-loss decision** after exact volume identity and evidence review. No
 automatic `-v`, prune, Production project operation, or broad cleanup is
 permitted. Recheck Production identity and resource counts after rollback.
+For clarity, the separately approved project-only stop command in the reviewed
+host mode is:
+
+```sh
+sudo -n env -u DOCKER_HOST docker --host unix:///var/run/docker.sock compose --project-name aegis-h1-lab --env-file "$H1_ENV_FILE" \
+  -f deploy/idea2/h1-runtime/compose.yml down
+```
