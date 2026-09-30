@@ -448,9 +448,9 @@ class AegisSupervisor:
         self.mqtt.is_connected = connected
         self.status.broker = "CONNECTED" if connected else "DISCONNECTED"
         # Persist immediately so status.json converges with the live broker
-        # state instead of waiting for the next health-loop pass. RuntimeStatus
-        # writes atomically (unique temp file + os.replace), so this MQTT-thread
-        # write is safe against the supervisor loop's own writes.
+        # state instead of waiting for the next health-loop pass. RuntimeStatus.write
+        # serializes snapshot+replace under a lock, so this MQTT-thread write cannot
+        # be overtaken by an older supervisor-loop snapshot.
         try:
             self.status.write(self.settings.status_path)
         except OSError as exc:

@@ -15,13 +15,15 @@ edit_policy: append-by-new-file
 - Task: L7 #5 BROKER_NOT_CONNECTED repository remediation. Base main `ca8c0133b59695a4b9f0689d7efd61991af8ab32` (freshness rechecked, exact match).
 - Historical L7 #5 live result (owner-run, before this task): `L7_APPLY=PASS`, `L7_VERIFY=FAIL reason=BROKER_NOT_CONNECTED`, `L7_ROLLBACK=PASS`, `L7_MATERIAL_RESIDUE=NO`, `PRE_RB_COMPARE=PASS`, `PRESERVATION_S10=PASS`, `L7_LIVE_ACCEPTANCE=NOT_PROVEN`. Authorization #5 is CONSUMED; no retry.
 - Root cause: the Core connected to the broker over TLS 1.3 at 04:37:10 (supervisor audit and broker journal agree), but `AegisSupervisor._on_connection` only updated in-memory state; `status.json` was rewritten by the next health-loop pass (default 5 s) while L7 apply waits 3 s before verify, so verify read a stale broker value. Classified as a repository/runtime status convergence defect, not broker connectivity.
-- Implementation: `_on_connection` persists status atomically via `RuntimeStatus.write` on every connect/disconnect (unique temp file + `os.replace`; concurrent supervisor-loop writes stay safe); `OSError` is logged and never raised into the MQTT thread. `verify.sh` and `apply.sh` are unchanged; no sleep or verifier wait added; all L7 checks remain strict.
+- Implementation: `_on_connection` persists status via `RuntimeStatus.write` on every connect/disconnect; `OSError` is logged and never raised into the MQTT thread. `verify.sh` and `apply.sh` are unchanged; no sleep or verifier wait added; all L7 checks remain strict.
+- Review finding (PR #265): `os.replace` is atomic but does not order concurrent writers, so an older supervisor-loop snapshot (taken while broker=UNKNOWN) could land after the callback's CONNECTED write. Remediation: `RuntimeStatus.write` now takes a module-level lock around snapshot + temp write + `os.replace`, so every writer (`transition()`, `set_armed()`, `_on_connection()`) snapshots live state after all earlier writes have landed. No verifier wait or sleep was added; `verify.sh`/`apply.sh` remain unchanged and strict.
 - Production mutation = NO. L7 live rerun = NO. Authorization #6 = NOT_CREATED. ESP32/L8 = NOT_STARTED. L7 is not claimed proven.
 
 ## Source files changed
 
 - `IDEA3-AEGIS_Lockdown/aegis_soc/supervisor.py` — persist broker status on the MQTT connection callback
-- `IDEA3-AEGIS_Lockdown/tests/test_supervisor_broker_status_convergence.py` — new regression tests (connect, disconnect, write-failure safety)
+- `IDEA3-AEGIS_Lockdown/aegis_soc/runtime.py` — serialize `RuntimeStatus.write` (snapshot + replace) under a lock
+- `IDEA3-AEGIS_Lockdown/tests/test_supervisor_broker_status_convergence.py` — new regression tests (connect, disconnect, write-failure safety, out-of-order in-flight write for `transition` and `set_armed`)
 
 ## Verification evidence
 
@@ -48,3 +50,8 @@ edit_policy: append-by-new-file
 
 - Repository-verified only; L7 live acceptance remains NOT_PROVEN.
 - The next live attempt requires merge + fresh freeze + fresh readiness + fresh A-L7/K3-L7.
+
+## Post-review verification history (PR #265)
+
+- After merging main `1ea2efbf` into the branch: full suite run 1 — 1 failed, 4066 passed, 8 skipped; failing test `tests/test_pr11_phase4_l6c_capture_gap.py::test_real_end_to_end_capture_then_compare_requires_the_allow_file`; that module passed alone (33 passed); full suite run 2 — 4067 passed, 8 skipped. The intermittent run is disclosed, cause not established.
+- Concurrency RED (2 failed: file regressed to UNKNOWN for both in-flight `transition` and `set_armed`), GREEN after the lock (5 passed). Final full-suite result for the remediated head is recorded in the PR body.

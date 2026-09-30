@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 from dataclasses import replace
 from types import SimpleNamespace
+
+import pytest
 
 from aegis_soc.runtime import RuntimeSettings
 from aegis_soc.supervisor import AegisSupervisor
@@ -55,3 +59,50 @@ def test_a_status_write_failure_never_breaks_the_connection_callback(tmp_path, m
 
     assert supervisor.mqtt.is_connected is True
     assert supervisor.status.broker == "CONNECTED"
+
+
+@pytest.mark.parametrize("in_flight_write", ["transition", "set_armed"])
+def test_an_older_in_flight_status_write_cannot_regress_a_connected_broker(tmp_path, monkeypatch, in_flight_write):
+    """An older supervisor write is mid-flight (snapshot taken, replace pending) when the MQTT
+    callback persists CONNECTED; the older write finishing afterwards must not restore UNKNOWN.
+
+    Deterministic seam: the first os.replace (the older write) parks until the callback's
+    replace has happened. If persistence is serialized the callback cannot replace first, so
+    the parked write is released by a bounded safety timeout and still lands before CONNECTED.
+    """
+    supervisor = _supervisor(tmp_path)
+    real_replace = os.replace
+    older_in_flight = threading.Event()
+    callback_replaced = threading.Event()
+    calls = []
+    calls_lock = threading.Lock()
+
+    def replace(src, dst):
+        with calls_lock:
+            calls.append(threading.current_thread().name)
+            is_older = len(calls) == 1
+        if is_older:
+            older_in_flight.set()
+            callback_replaced.wait(timeout=2.0)  # safety bound only; never gates correctness
+            real_replace(src, dst)
+        else:
+            real_replace(src, dst)
+            callback_replaced.set()
+
+    monkeypatch.setattr(os, "replace", replace)
+
+    if in_flight_write == "transition":
+        older = threading.Thread(target=supervisor.transition, args=("WAIT_DEVICE", "startup"), name="older")
+    else:
+        older = threading.Thread(target=supervisor.set_armed, args=(True,), name="older")
+    older.start()
+    assert older_in_flight.wait(timeout=5.0)
+    assert supervisor.status.broker == "UNKNOWN"  # the older snapshot was taken while UNKNOWN
+
+    callback = threading.Thread(target=supervisor._on_connection, args=(True,), name="callback")
+    callback.start()
+    callback.join(timeout=10.0)
+    older.join(timeout=10.0)
+    assert not callback.is_alive() and not older.is_alive()
+
+    assert _persisted_broker(supervisor) == "CONNECTED"
