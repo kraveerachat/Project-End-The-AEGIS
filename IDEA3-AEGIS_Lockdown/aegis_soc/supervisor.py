@@ -231,6 +231,7 @@ class AegisSupervisor:
         self.local_restore = None
         self.recovery = rc.CoreRecoveryService(self)
         self.recovery_server = None
+        self.alert_server = None
         self._command_lock = threading.RLock()
         self._containment_count_lock = threading.Lock()
         self._containment_count = 0
@@ -659,6 +660,37 @@ class AegisSupervisor:
         if server is not None:
             server.close()
 
+    def on_production_alert(self, ip: str) -> dict:
+        """R1 only: record the validated attacker candidate as the bound incident. Never acts on the host."""
+        result = self.recovery.bind_incident(ip)
+        self.log_event("WARNING", "production_alert", attacker_ip=ip, action=str(result.get("action")))
+        return result
+
+    def start_alert_ingress(self) -> None:
+        """Start the Core-local alert ingress (the production R1 source). Optional: it never blocks or fails the Core."""
+        if self.alert_server is not None:
+            return
+        source_uid = config.ALERT_SOURCE_UID
+        if self.settings.profile != "production" or source_uid is None or not lr.local_restore_supported():
+            self.log_event("INFO", "alert_ingress_disabled", profile=self.settings.profile)
+            return
+        server = rc.AlertServer(
+            self.settings.runtime_dir / rc.ALERT_CHANNEL_NAME,
+            rc.AlertIngress(self.on_production_alert),
+            allowed_uid=source_uid,
+        )
+        try:
+            server.start()
+        except (rc.RecoveryChannelError, OSError) as error:
+            self.log_event("ERROR", "alert_ingress_failed", error=type(error).__name__)
+            return
+        self.alert_server = server
+
+    def stop_alert_ingress(self) -> None:
+        server, self.alert_server = self.alert_server, None
+        if server is not None:
+            server.close()
+
     def _tick_dispatch(self) -> None:
         if self.dispatch_worker is None:
             self.status.dispatch = DISABLED
@@ -761,6 +793,7 @@ class AegisSupervisor:
             self.recover_protocol_state()
             self.start_local_restore()
             self.start_recovery()
+            self.start_alert_ingress()
             if self.dispatch_worker is not None:
                 self.dispatch_worker.start()
             if not self.settings.dry_run:
@@ -792,6 +825,7 @@ class AegisSupervisor:
             return 1
         finally:
             self.stop_requested = True
+            self.stop_alert_ingress()
             self.stop_recovery()
             self.stop_local_restore()
             self.children.stop_all()

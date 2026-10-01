@@ -1,8 +1,8 @@
 """PR252 security remediation (F1-F4, R5 ordering, import graph). Repository-only, hermetic.
 
-Nothing here opens a broker, a device, the root containment socket or a network listener. F1 has no test that
-reaches ``_on_attacker`` through production because no approved production alert source exists (see
-``test_no_production_alert_source_reaches_the_incident_binding``).
+Nothing here opens a broker, a device, the root containment socket or a network listener. F1 (production R1) is served by
+the Core-local AF_UNIX alert ingress (``test_core_alert_ingress.py``); Protocol v1 and its broker ACL are unchanged, so no
+MQTT path reaches the incident binding (see ``test_no_production_alert_source_reaches_the_incident_binding``).
 """
 
 from __future__ import annotations
@@ -86,12 +86,12 @@ def within(seconds, target, *args):
     return not thread.is_alive(), thread
 
 
-# --------------------------------------------------------------------------- F1: no invented alert source
+# --------------------------------------------------------------------------- F1: no MQTT alert source
 
 
 def test_no_production_alert_source_reaches_the_incident_binding():
-    """F1 is BLOCKED_BY_MISSING_PRODUCTION_ALERT_SOURCE: Protocol v1 has no alert kind, production subscribes only
-    to ACK/STATUS, and the only attacker source is the unsigned legacy-v0-lab topic. Nothing may be wired to it."""
+    """Protocol v1 still has no alert kind, production subscribes only to ACK/STATUS, and the unsigned legacy-v0-lab topic
+    stays lab-only. The production R1 source is the AF_UNIX alert ingress, never MQTT and never a Recovery request."""
     assert p1.KINDS == frozenset({p1.COMMAND, p1.HEARTBEAT, p1.ACK, p1.STATUS})
     v1 = mqtt_client.MQTTManager.__new__(mqtt_client.MQTTManager)
     v1.legacy = False
