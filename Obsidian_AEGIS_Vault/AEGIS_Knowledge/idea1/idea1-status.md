@@ -22,7 +22,7 @@ edit_policy: owner-writable
 | Task | IDEA1-UNIFIED-PREVIEW-D1-PLAN / implementation planning only |
 | Branch | `docs/idea1-preview-d1-implementation-plan` from `origin/main` `fff78feb7f7296a742794a31dffeb35a134a7660` (PR #279 merged) |
 | Owner | kla |
-| PR | Draft (opened by this task; plan-only) |
+| PR | #280 (Draft; plan-only) |
 | State | **PLANNED — IMPLEMENTATION_PLAN_COMPLETE=YES, AWAITING_HUMAN_REVIEW**; `IMPLEMENTATION_STARTED=NO`, `IMPLEMENTATION_AUTHORIZED=NO` |
 | Production mutation allowed | **NO** |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
