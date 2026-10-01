@@ -42,6 +42,9 @@ import { PreviewModalShell } from '../components/preview/PreviewModalShell.jsx'
 import { AudioPreview } from '../components/preview/providers/AudioPreview.jsx'
 import { detectCanPlay } from '../lib/preview/env.js'
 import { openVaultAudioPreview } from '../lib/preview/vaultAudio.js'
+import { readTextHead } from '../lib/preview/textHead.js'
+import { readVaultPlainHead } from '../lib/preview/vaultTextHead.js'
+import { TextBody } from '../components/preview/providers/TextFamilyPreview.jsx'
 import { useReducedMotion } from '../lib/hooks.js'
 import { VAULT_TREE_CLIENT_LIMITS } from '../lib/vaultTreeLimits.js'
 import * as treeApi from '../lib/vaultTreeApi.js'
@@ -529,6 +532,36 @@ export function VaultTreeScreen({
           setPreview({ node, kind, url: audio.url, loading: false, failed: false, tooLarge: false, streamed: true, detected: vaultDetectedType(node, { cache: capCacheRef.current }) })
           return
         }
+      }
+      // Unified Preview P1 — text family: only the plaintext head (textPreviewMaxBytes) is decrypted/held;
+      // the decrypted bytes must prove text-likeness before anything renders, and render as inert text nodes.
+      if (kind === 'text') {
+        if (ref.formatVersion !== 2 && plainSize > MAX_PREVIEW_CEILING_BYTES) {
+          if (request === previewRequestRef.current) setPreview({ node, kind, url: null, loading: false, failed: false, tooLarge: true, streamed: false })
+          return
+        }
+        let raw = new Uint8Array(0)
+        const head = await readTextHead({
+          kind: 'vault', totalBytes: plainSize,
+          readPlainRange: async (_start, end) => {
+            if (ref.formatVersion === 2) {
+              raw = await readVaultPlainHead({ download: ({ sink, signal }) => downloadVaultV2({ kek, blob, sink, signal }), maxBytes: end, plainSize })
+            } else {
+              const r = await apiFetchBytes(`/api/vault/blobs/${encodeURIComponent(ref.id)}`)
+              if (!r.ok) throw new Error('PREVIEW')
+              raw = (await decryptFileContent(kek, blob, r.bytes)).subarray(0, end)
+            }
+            return raw
+          },
+        }, { maxBytes: VAULT_TREE_CLIENT_LIMITS.textPreviewMaxBytes })
+        if (request !== previewRequestRef.current || unlockedState?.isPurged?.()) return
+        const confirmed = confirmVaultRender(node, raw.subarray(0, 8192), { cache: capCacheRef.current, env: previewEnv })
+        if (!confirmed.ok || confirmed.kind !== 'text') {
+          setPreview({ node, kind, url: null, loading: false, failed: false, tooLarge: false, streamed: false, unsupported: true, detected: confirmed.detected })
+          return
+        }
+        setPreview({ node, kind: 'text', url: null, text: head.text, truncated: head.truncated, provider: confirmed.provider, loading: false, failed: false, tooLarge: false, streamed: false, detected: confirmed.detected })
+        return
       }
       // Preserve the proven PR157 range-decryption path for large V2 video.
       // The worker receives a non-extractable key and serves only requested ranges;
@@ -1383,6 +1416,10 @@ export function VaultTreeScreen({
         >
             {preview.kind === 'image' ? (
               <img src={preview.url} alt={preview.node.name} className="max-h-[60vh] rounded-[10px]" />
+            ) : preview.kind === 'text' ? (
+              preview.text === undefined ? null : (
+                <TextBody t={t} provider={preview.provider ?? null} text={preview.text} truncated={Boolean(preview.truncated)} maxBytes={VAULT_TREE_CLIENT_LIMITS.textPreviewMaxBytes} />
+              )
             ) : preview.kind === 'audio' ? (
               <AudioPreview
                 t={t}

@@ -22,6 +22,11 @@ export const AUDIO_MIME_BY_FORMAT = Object.freeze({
 })
 const canPlayAudio = (format, env) => env?.canPlay?.[AUDIO_MIME_BY_FORMAT[format]] === true
 
+/** P1: text family — the server /preview route serves these as text/plain; charset=utf-8 after a text check */
+const FILES_TEXT_EXTS = Object.freeze(('txt log md markdown json csv tsv xml svg html htm css js mjs cjs ts tsx jsx py java c h cpp hpp cs go '
+  + 'rs rb php sh ps1 bat yml yaml toml ini cfg conf sql kt swift').split(' '))
+const TEXT_FORMATS = Object.freeze(['text', 'source', 'svg', 'html', 'xml', 'markdown', 'json', 'csv', 'tsv'])
+
 export const PROVIDERS = Object.freeze([
   Object.freeze({
     id: 'image-native', family: 'image', source: 'range-url-or-bytes',
@@ -44,6 +49,12 @@ export const PROVIDERS = Object.freeze([
     formats: Object.freeze({ files: Object.freeze(Object.keys(AUDIO_MIME_BY_FORMAT)), vault: Object.freeze(Object.keys(AUDIO_MIME_BY_FORMAT)) }),
     filesExtensions: FILES_AUDIO_EXTS,
     playable: canPlayAudio,
+  }),
+  // P1: bounded head (1 MiB) shown as inert text — SVG/HTML/XML are source, never active content
+  Object.freeze({
+    id: 'text-plain', family: 'text', source: 'text-head',
+    formats: Object.freeze({ files: TEXT_FORMATS, vault: TEXT_FORMATS }),
+    filesExtensions: FILES_TEXT_EXTS,
   }),
 ])
 

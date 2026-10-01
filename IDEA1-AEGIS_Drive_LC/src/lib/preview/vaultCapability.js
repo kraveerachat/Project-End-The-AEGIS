@@ -96,7 +96,7 @@ export function confirmVaultRender(node, head, { cache = null, env = EMPTY_ENV }
   const kind = previewModeOf(cap)
   const detected = { format: descriptor.format, basis: descriptor.basis }
   if (!kind) return { ok: false, capability: cap, detected }
-  return { ok: true, kind, mime: MIME_BY_FORMAT[descriptor.format], detected }
+  return { ok: true, kind, mime: MIME_BY_FORMAT[descriptor.format], detected, provider: cap.provider }
 }
 
 /** Short, language-neutral format names for the preview header (spec §5.3: signature is authoritative). */
