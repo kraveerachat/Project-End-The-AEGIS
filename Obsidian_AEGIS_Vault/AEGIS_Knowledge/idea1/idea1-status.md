@@ -15,19 +15,40 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-P1 — Audio and inert text preview (final closeout)
+## Current Task — IDEA1-UNIFIED-PREVIEW-P2B — T-MAN-SIZE pre-implementation gate
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P2B / Session 1, Tasks 0–1 only |
+| Branch | `feat/idea1-preview-p2b-encrypted-thumb-poster` (from `origin/main` `64f59fbfb0c4d7a731f24e5f0d673a420529c67b`) |
+| PR | #278 (Draft; final receipt pending full P2b handoff) |
+| Owner | kla |
+| State | **TASKS 0–1 MEASURED / WRITER NOT STARTED / THRESHOLDS AWAITING HUMAN APPROVAL** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p2b-encrypted-thumb-poster.md` |
+| Production mutation allowed | **NO** |
+| Next gate | Human Owner reviews T-MAN-SIZE evidence and explicitly approves thresholds before Task 2. P2a Production acceptance remains a separate later flag-enable prerequisite. |
+
+Session register:
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| P2B-S1 | Baseline plus 1k/5k/10k manifest size/cost measurement, no writer | Measurement complete; no Production mutation | Six cells × 20 runs on Node/Chrome and local in-memory/PostgreSQL routes; exact table in Draft PR #278. Baseline Linux full suite: 2,271 pass / 99 fail / 160 skip (existing base, no P2b changes). | Script-only `4c5a5dff`, correction `cc8d2db1`, separate status checkpoint | Human threshold decision; P2a Production acceptance later | Stop after Task 1; do not start Task 2 without written approval |
+
+T-MAN-SIZE evidence: Product limit counts total nodes, so the 10k fixture contains 9,994 files, root, and five folders. The 10k/three-preview manifest measured 14,632,866 canonical bytes and the 16,777,216-byte padding bucket; ciphertext is 16,777,232 bytes, exactly the current maximum. Node and real Chrome agree on bytes in all six cells. The local server measurements use valid decryptable schema-v1 revisions padded to each v2 ciphertext bucket, proving only opaque payload/row-write cost—not server v2 compatibility. The Human Owner has not approved thresholds; no writer, flag, derivative, or v2 Production manifest exists from this task.
+
+## Completed Task — IDEA1-UNIFIED-PREVIEW-P1 — Audio and inert text preview
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-P1 / IDEA1_UNIFIED_PREVIEW_P1_AUDIO_TEXT |
 | Branch | feat/idea1-preview-p1-audio-text (from `origin/main` `7cabf28a`) |
-| PR | #276 (Ready for final review/merge; P1_CLOSED=NO) |
+| PR | #276 (merged to `main` at `64f59fbfb0c4d7a731f24e5f0d673a420529c67b`; P1_CLOSED=YES) |
 | Owner | kla |
-| State | **IMPLEMENTED + VERIFIED + DEPLOYED + ACCEPTED / P1_CLOSED=NO** |
+| State | **IMPLEMENTED + VERIFIED + DEPLOYED + ACCEPTED + MERGED / P1_CLOSED=YES** |
 | Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p1-audio-text-normal-files.md` |
 | Deployed runtime SHA | `8634360f74ed2f50b2fcb49925a3d273c605a8a2` |
 | Image | `aegis-prod-drive:p1-8634360f74ed` |
-| Next gate | Human review + merge of PR #276 (P1_CLOSED remains NO until merged) |
+| Next gate | P2b T-MAN-SIZE Human threshold decision; P1 closeout complete |
 
 Durable facts:
 
@@ -40,8 +61,8 @@ Durable facts:
 - Final server acceptance: `P1_PRODUCTION_CUTOVER=PASS`, `DRIVE_HEALTH=healthy`, `DRIVE_RESTARTS=0`, `DRIVE_OOM=false`, `HEALTHZ=200`, `NON_DRIVE_CONTAINERS_UNCHANGED=PASS`, `VAULT_MANIFEST_V2_UPGRADE=<unset>`, `P2B_STARTED=NO`, `ROLLBACK_REQUIRED=NO`.
 - Historical deployment note: Initial cutover reached healthy / healthz=200, but verification harness failed due to normal user attempting to read root-owned 0600 snapshot; controlled rollback to P2a completed cleanly; harness permission fixed and retry passed full cutover and verification sequence.
 - Human functional acceptance: Normal Files and Private Vault both exercised with the same applicable P1 preview set (MP3 upload, preview, playback, seek, no stutter, functional download; TXT, JSON, CSV, TSV preview; Markdown and JS shown inertly as plain source; no P1 browser/runtime errors). `DOWNLOAD_SHA256` not claimed as before/after hash comparison was not recorded.
-- P2b writer not started (`P2B_STARTED=NO`).
-- PR #276 is ready for final review/merge; `P1_CLOSED=NO` until Human Owner performs merge.
+- P2b measurement/gating has started; the P2b writer has not started and remains blocked on Human-approved thresholds.
+- PR #276 merged on 2026-10-01 (`P1_CLOSED=YES`); the immutable P1 receipt was not changed.
 
 ## Current Task — IDEA1-UNIFIED-PREVIEW-P2A — Manifest v2 reader (implementation)
 
@@ -49,12 +70,12 @@ Durable facts:
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-P2A / IDEA1_UNIFIED_PREVIEW_P2A_MANIFEST_V2_READER |
 | Branch | feat/idea1-preview-p2a-manifest-v2-reader (from `origin/main` `07633c93`) |
-| PR | see receipt `2026-10-01_*_kla_idea1-unified-preview-p2a-manifest-v2-reader.md` |
+| PR | #273 (merged to `main` at `352b755083b23c97642d84e0c1400bdc436adb4e`) |
 | Owner | kla |
-| State | **IMPLEMENTED + VERIFIED LOCALLY / NOT DEPLOYED** |
+| State | **IMPLEMENTED + VERIFIED LOCALLY + MERGED; code included in accepted P1 runtime; separate P2A_ACCEPTED evidence not recorded here** |
 | Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p2a-manifest-v2-reader.md` |
 | Production mutation allowed | **NO** (deploy is Human Owner only) |
-| Next gate | Human review + merge → G-P2a-ACCEPT (Human deploys P2a, verifies ADMIN / EXISTING_USER / NEWLY_CREATED_USER, records `P2A_ACCEPTED=YES`) → prerequisite for the P2b writer flag |
+| Next gate | Human Owner records explicit G-P2a-ACCEPT evidence (`P2A_ACCEPTED=YES`) before any P2b writer flag enable |
 
 Durable facts:
 
