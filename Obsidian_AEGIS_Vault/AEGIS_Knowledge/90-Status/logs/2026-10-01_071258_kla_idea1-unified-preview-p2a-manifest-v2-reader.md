@@ -12,7 +12,7 @@ edit_policy: append-by-new-file
 
 ## What changed
 
-- Implemented P2a of the approved Unified Preview plan (`docs/superpowers/plans/2026-09-30-idea1-unified-preview-p2a-manifest-v2-reader.md`) from `origin/main` `07633c939ae1edfe5a340e081b0be36af418e78b` (P0 present: PR #270 merged at `e3e02862`). TDD per task (RED → verify RED → GREEN → focused verification). Not deployed; no Production mutation.
+- Implemented P2a of the approved Unified Preview plan (`docs/superpowers/plans/2026-09-30-idea1-unified-preview-p2a-manifest-v2-reader.md`) from `origin/main` `07633c939ae1edfe5a340e081b0be36af418e78b` (P0 present: PR #270 merged at `e3e02862`). TDD per task (RED → verify RED → GREEN → focused verification). `main` advanced during the task (`42039d47`, PR #272, IDEA3-only); merged normally at `c8edb055` (no rebase, no conflicts, no IDEA1 path changed). Not deployed; no Production mutation.
 
 ```
 TASK=IDEA1_UNIFIED_PREVIEW_P2A_MANIFEST_V2_READER
