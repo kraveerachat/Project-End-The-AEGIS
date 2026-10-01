@@ -1094,9 +1094,48 @@ def build_boot_verifier(
         raise L8Error(f"BOOT_VERIFICATION_NOT_CONFIGURED: {exc}") from None
 
 
+# ---------------------------------------------------------------------------
+# stage profile (the ONLY extension point for a stage that reuses this flow)
+# ---------------------------------------------------------------------------
+
+def _d4_recovery_gate(args, input_dir: Path, binding: dict[str, str]) -> None:
+    """The default L8 recovery gate: D4 live must be attested (OD-L8-08)."""
+    parse_d4_attestation(input_dir / "d4.attestation")
+
+
+class StageProfile(NamedTuple):
+    """What differs between L8 and a stage that reuses its device flow (L8p, OD-L8P-01).
+
+    Everything else - identity binding, live gate, geometry, readbacks, the single terminal reset, boot verification, evidence - is the one
+    canonical flow. The recovery gate is mandatory and runs BEFORE any device access. Every hook is fail-closed: any exception, not only
+    an L8Error, aborts the run before the first write. The default profile is L8 with D4 as its recovery gate; a stage must opt in
+    explicitly to anything else.
+    """
+
+    name: str = "L8"
+    evidence_prefix: str = "l8"
+    recovery_gate: Callable[[argparse.Namespace, Path, dict[str, str]], None] = _d4_recovery_gate
+    pre_device_gate: Callable[[argparse.Namespace, Path, dict[str, str]], None] | None = None
+    nvs_gate: Callable[[Path, object], None] | None = None
+
+
+L8_PROFILE = StageProfile()
+
+
+def _run_hook(label: str, hook, *hook_args) -> None:
+    """Run a profile hook fail-closed: any failure is an L8Error and aborts before the first write."""
+    try:
+        hook(*hook_args)
+    except L8Error:
+        raise
+    except Exception as exc:
+        raise L8Error(f"{label} failed closed ({type(exc).__name__})") from None
+
+
 def provision(
     args: argparse.Namespace,
     *,
+    stage_profile: StageProfile = L8_PROFILE,
     executor: CommandExecutor | None = None,
     boot_verifier: Callable[[], str] | None = None,
     boot_client_factory: Callable[[str], object] | None = None,
@@ -1122,8 +1161,13 @@ def provision(
     # 1. OV-12 identity binding, before anything else exists.
     binding = parse_identity_binding(input_dir / "device.identity")
 
-    # 2. D4-only recovery prerequisite.
-    parse_d4_attestation(input_dir / "d4.attestation")
+    # 2. Recovery prerequisite of the stage profile (L8: D4-only; L8p: the owner-attested physical recovery, OD-L8P-01), then the
+    #    profile's own device-free gate. Both run before the live gate and before any device access.
+    if not isinstance(stage_profile, StageProfile) or not callable(stage_profile.recovery_gate):
+        raise L8Error("a stage profile must supply its recovery gate")
+    _run_hook(f"{stage_profile.name} recovery gate", stage_profile.recovery_gate, args, input_dir, binding)
+    if stage_profile.pre_device_gate is not None:
+        _run_hook(f"{stage_profile.name} pre-device gate", stage_profile.pre_device_gate, args, input_dir, binding)
 
     # 3. Live-authorization gate, before anything is read or built for hardware.
     live_authorized = getattr(args, "live_authorized", "NO") == "YES"
@@ -1166,7 +1210,7 @@ def provision(
 
     try:
         return _provision_with_device(
-            args, device, boot_obj, binding, provisioner, input_dir, work_dir, evidence_dir
+            args, device, boot_obj, binding, provisioner, input_dir, work_dir, evidence_dir, stage_profile
         )
     finally:
         close = getattr(boot_obj, "close", None)
@@ -1175,10 +1219,10 @@ def provision(
 
 
 def _provision_with_device(
-    args, device, boot_obj, binding, provisioner, input_dir, work_dir, evidence_dir
+    args, device, boot_obj, binding, provisioner, input_dir, work_dir, evidence_dir, stage_profile=L8_PROFILE
 ) -> int:
     marker = work_dir / "first-write.marker"
-    evidence_path = evidence_dir / f"l8-{args.run_id}.json"
+    evidence_path = evidence_dir / f"{stage_profile.evidence_prefix}-{args.run_id}.json"
 
     # 4. Everything that needs no device: geometry from the reviewed table, the
     #    compile-only build identity, the trust anchor and the network profile.
@@ -1237,6 +1281,8 @@ def _provision_with_device(
         wifi_ssid=args.wifi_ssid,
         ntp=ntp,
     )
+    if stage_profile.nvs_gate is not None:  # the stage profile may pin the exact rendered NVS schema (fail-closed, before any write)
+        _run_hook(f"{stage_profile.name} NVS gate", stage_profile.nvs_gate, csv_path, provisioner)
 
     nvs_image_path = work_dir / "nvs.bin"
     generate_nvs_partition(args.nvs_generator, csv_path, nvs_image_path, nvs_size)

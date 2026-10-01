@@ -1,0 +1,4 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L8p allowed new listeners.
+#
+# ZERO active entries by contract: L8p opens no listener on the Core host.
+#
