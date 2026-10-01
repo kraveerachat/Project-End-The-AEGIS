@@ -18,6 +18,17 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3/L4 V7 python-path forwarding fix — repository only — 2026-10-01
+
+> [!important] Repository-only fix after a safe preflight stop. The owner's first live attempt (2026-10-01 16:49 +07, frozen runner sha256 `477ac802…bcef1`, main `352b7550`) stopped in the read-only handler preflight with `L34_V7_APPLY=FAIL reason=V7_PROBE_PYTHON_INVALID`. Nothing was changed, the one-shot authorization was NOT consumed (no `L34-V7-REACTIVATION-ATTEMPT-CONSUMED`), no production-mutation marker exists, Core was NOT restarted, no ESP32, no L8, Recovery R1-R8 NOT run. V7 has NOT run live.
+> `V7_ROOT_CAUSE = OWNER_RUNNER_PYTHON_ENV_NOT_FORWARDED`, `HOST_BASELINE_FAILURE = NO`, `V7_PYTHON_FORWARDING_FIX = REPOSITORY_ONLY (simulator-tested, Draft PR, awaiting human merge)`, `V7_LIVE = NOT_RUN`, `FROZEN_RUNNER_352b7550 = DO_NOT_RETRY`
+
+- **Cause:** `reactivation/l34-v7-radio-disabled-broker-churn/apply.sh` reads `PY="${AEGIS_L34_V7_PYTHON:-python3}"` and in live mode accepts only an absolute executable path; the V7 owner runner defined the frozen absolute `PY` but its `handler()` never passed `AEGIS_L34_V7_PYTHON`, so `sudo env` left the handler on `python3`. The V6 runner already forwards `AEGIS_L34_V6_PYTHON="$PY"`.
+- **Fix:** the V7 runner template `handler()` now passes `AEGIS_L34_V7_PYTHON="$PY"`. `apply.sh` is unchanged and stays fail-closed on a PATH-relative or non-executable python.
+- **Still required before any live V7:** human merge of this fix, post-merge verification, a NEW owner-frozen runner at the new main (the `477ac802…` frozen runner must not be retried), a fresh same-day `stage=L4` authorization plus K3 record, and an explicit owner live authorization. S10 pre-V7 evidence (`PRE_V7_PURE_S10 = FAIL_EXPECTED_BROKER_CHURN`, `FRESH_IDEA2_HEALTH = PASS_LIMITED`) was collected earlier today and is unchanged by this fix.
+
+---
+
 ## IDEA3 PR11 Phase 4 L3/L4 V7 pre-live hardening (F1/F2/F3) — repository only — 2026-10-01
 
 > [!important] Repository-only follow-up to the merged V7 (PR #272). V7 has NOT run live; no authorization or K3 record was created or consumed; production was NOT mutated; Core NOT restarted; no ESP32; no L8; Recovery R1-R8 NOT run.

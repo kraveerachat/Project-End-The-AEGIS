@@ -162,6 +162,8 @@ preflight → PRE capture → consume the marker → first mutation. A refused p
 usable; once the marker is consumed (immediately before `apply.sh`) the attempt is spent, even if apply or verify fails and rollback runs. It prints `RECOVERY_R1_R8_PROVEN=NO` and
 `L8_AUTHORIZED=NO`. The PRE->POST comparison reuses the exact V3 catalogs of the baseline the preflight reported (FRESH|RESIDUAL); no catalog is widened.
 
+**Python authority forwarding (live attempt stopped 2026-10-01 16:49 +07).** The runner's frozen absolute `PY` is forwarded to every handler call as `AEGIS_L34_V7_PYTHON="$PY"` (the V6 runner already did the same with `AEGIS_L34_V6_PYTHON`). `apply.sh` is unchanged: in live mode it still refuses a PATH-relative or non-executable python (`V7_PROBE_PYTHON_INVALID`). Without the forwarding, `sudo env` resets the environment, `PY` falls back to `python3`, and the handler preflight stops before any change and before the authorization is consumed.
+
 ## 7. Non-goals (enforced by static regression tests)
 
 No broker configuration change, AP-listener removal, broker start/stop/restart/reset-failed/kill, Core restart, L7u change, Recovery R1–R8, ESP32, L8,
