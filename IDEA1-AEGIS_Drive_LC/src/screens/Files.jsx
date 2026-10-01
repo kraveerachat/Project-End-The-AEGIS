@@ -14,7 +14,9 @@ import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
 import { UploadDrawer } from '../components/UploadDrawer.jsx'
 import { AEGIS_ITEMS_TYPE, canDropOn, dragPayloadFor, isExternalFileDrag, readDragPayload, writeDragPayload } from '../lib/fileDragDrop.js'
-import { DEFAULT_SORT, SORT_LABEL_KEYS, SORT_MODES, filterItems, previewKindFor, previewPathFor, sectionItems } from '../lib/filesView.js'
+import { DEFAULT_SORT, SORT_LABEL_KEYS, SORT_MODES, filterItems, filesPreviewCapability, previewPathFor, sectionItems } from '../lib/filesView.js'
+import { previewModeOf } from '../lib/preview/registry.js'
+import { AudioPreview } from '../components/preview/providers/AudioPreview.jsx'
 import { MediaProvider, MediaThumb, useOwnedMediaRuntime } from '../components/MediaThumb.jsx'
 import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../components/FileCardPresentation.jsx'
 import { SelectionAction, SelectionActionBar } from '../components/SelectionActionBar.jsx'
@@ -105,7 +107,7 @@ export function FileMenu({ t, onAction, onClose, file }) {
   const isFolder = file?.kind === 'folder'
   // Preview มีเฉพาะไฟล์ปกติชนิดที่แสดงผลได้ — ไม่มีสำหรับโฟลเดอร์ (ไม่มีไบต์) และไม่มีสำหรับ
   // Private Vault (เซิร์ฟเวอร์ไม่มี plaintext ให้ — Vault มีเส้นทาง preview ของตัวเองในจอ Vault)
-  const previewable = previewKindFor(file) !== null
+  const previewable = previewModeOf(filesPreviewCapability(file)) !== null
   const items = [
     ...(previewable ? [{ id: 'preview', icon: Eye, label: t('preview') }] : []),
     // โฟลเดอร์ไม่มีไบต์ให้ดาวน์โหลดหรือตรวจ checksum — คำสั่งที่กดแล้วไม่เกิดอะไรคือคำสั่งที่โกหก
@@ -712,11 +714,14 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
     setSeenIdentity(identity)
     setPhase('loading')
   }
-  const kind = file ? previewKindFor(file) : null
+  // Unified Preview P1: image | video | audio | text — tiles still use previewKindFor (image/video only)
+  const cap = file ? filesPreviewCapability(file) : null
+  const kind = previewModeOf(cap)
   const src = file ? apiUrl(previewPathFor(file)) : ''
   // Unified Preview P0: the shared shell owns name/meta/status/Download; a type without a provider
   // gets the stable fallback instead of an empty frame (spec §19)
   const status = kind ? phase : 'unsupported'
+  const reason = cap?.state === 'unsupported-codec' ? t('previewAudioCodecUnsupported') : null
   return (
     <PreviewModalShell
       t={t}
@@ -725,6 +730,7 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
       title={file?.name ?? ''}
       meta={{ typeLabel: file?.type, size: file?.size ?? 0 }}
       status={status}
+      reason={reason}
       labelledBy="file-preview-title"
       onDownload={() => file && onDownload?.(file)}
       bodyProps={{ 'data-file-preview-kind': kind ?? '', 'data-file-preview-phase': phase }}
@@ -740,6 +746,8 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
             className="max-w-full"
             style={{ maxHeight: '68vh', opacity: phase === 'ready' ? 1 : 0 }}
           />
+        ) : kind === 'audio' ? (
+          <AudioPreview t={t} src={src} fileName={file?.name ?? ''} onPhase={setPhase} />
         ) : kind === 'image' ? (
           <img
             src={src}
@@ -1039,7 +1047,7 @@ export function Files({
       downloadFile(file)
     } else if (action === 'preview') {
       // "ดู" เป็นคำสั่งของตัวเอง — ไม่ใช่ทางลัดไป Download และไม่แตะการคลิกการ์ดเดิม
-      if (previewKindFor(file)) setPreview(file)
+      if (previewModeOf(filesPreviewCapability(file))) setPreview(file)
     } else if (action === 'meta' || action === 'verify') {
       openDetail(file)
     } else if (action === 'link') {
