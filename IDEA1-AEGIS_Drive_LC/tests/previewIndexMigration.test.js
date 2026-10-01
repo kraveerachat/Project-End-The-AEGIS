@@ -174,3 +174,26 @@ test('PI-PG-3 generations and blob refs are immutable and undeletable except by 
     for (const t of NEW_TABLES) assert.equal((await db.query(`SELECT count(*)::int AS n FROM ${t}`)).rows[0].n, 0, `${t} cascades with its owner`)
   })
 })
+
+// ── boot probe (A.4) ─────────────────────────────────────────────────────────
+const { probePreviewIndexSchema } = await import('../server/db/vaultTreeSchemaProbe.js')
+
+test('PI-PROBE-1 probe reports missing tables and an un-widened lifecycle CHECK; memory mode has nothing missing', async () => {
+  assert.deepEqual(await probePreviewIndexSchema({ pg: false }), { missing: [], lifecycleValuesOk: true })
+  const old = "CHECK ((lifecycle = ANY (ARRAY['UNREFERENCED'::text, 'TREE_MANAGED'::text, 'PURGE_PENDING'::text, 'PURGED'::text])))"
+  const widened = old.replace("'PURGED'::text]", "'PURGED'::text, 'INDEX_STAGED'::text, 'INDEX_MANAGED'::text]")
+  const fake = (present, def) => async (sql, params) => ({ rows: sql.includes('to_regclass($1)') ? [{ oid: present.includes(params[0].replace('public.', '')) ? 'x' : null }] : [{ def }] })
+  assert.deepEqual(await probePreviewIndexSchema({ pg: true, q: fake([], old) }), { missing: NEW_TABLES, lifecycleValuesOk: false })
+  assert.deepEqual(await probePreviewIndexSchema({ pg: true, q: fake(NEW_TABLES, widened) }), { missing: [], lifecycleValuesOk: true })
+  assert.deepEqual(await probePreviewIndexSchema({ pg: true, q: fake(NEW_TABLES, old) }), { missing: [], lifecycleValuesOk: false })
+})
+
+test('PI-PG-4 boot probe on a real pre-012 database fails; after 012 it passes', { skip: pgSkip }, async () => {
+  await withDisposableDb('probe', async (db) => {
+    const q = (sql, params) => db.query(sql, params)
+    await toPre012(db)
+    assert.deepEqual(await probePreviewIndexSchema({ pg: true, q }), { missing: NEW_TABLES, lifecycleValuesOk: false })
+    await db.query(migrationSql())
+    assert.deepEqual(await probePreviewIndexSchema({ pg: true, q }), { missing: [], lifecycleValuesOk: true })
+  })
+})
