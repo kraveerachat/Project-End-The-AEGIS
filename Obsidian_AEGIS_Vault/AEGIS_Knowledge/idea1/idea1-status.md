@@ -15,6 +15,28 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1 — Separate encrypted preview-index design
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 / architecture only |
+| Branch | `docs/idea1-preview-d1-encrypted-preview-index-design` from `origin/main` `a54e699594053fc87018720b9f9f25c9c482a6b0` (PR #278 merged) |
+| Owner | kla |
+| PR | #279 (Draft; Human design review pending) |
+| State | **DESIGN WRITTEN / AWAITING HUMAN REVIEW**; no implementation approval or final receipt |
+| Production mutation allowed | **NO** |
+| Next gate | Human Owner reviews the D-1 design before any implementation plan or product change. |
+
+### Session Register — D1
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1-S1 | Compare separate encrypted-index architectures; write and self-review design only | CLOSED | PR #278 rejected size gate; current Vault source/contracts; 49/49 governance tests; vault validation pass with two existing canvas warnings; `git diff --check` pass; Draft PR #279 | `984b64e2358183312de5673ddc097c2de31d7c16` | Human architecture approval; no implementation plan | Human decision; no writer, flag, migration, or Production work |
+
+Session D1-S1 started 2026-10-02 from `a54e699594053fc87018720b9f9f25c9c482a6b0`. Scope: the new D-1 spec and this owner status checkpoint only. Safety: no runtime source, database, implementation plan, writer, `VAULT_MANIFEST_V2_UPGRADE`, or Production mutation. Expected evidence: comparison, quantitative 1k/5k/10k model, security/rollback review, collaboration/vault validation, and a Draft PR. The approved earlier D-1 manifest-embedded path remains blocked at G-THR; this design is a proposal, not approval.
+
+D1-S1 work performed: compared single, sharded, and sidecar indexes; proposed sharded V2-encrypted root/shards/derivatives with an independent owner-scoped head and **zero** main-manifest linkage. The 1k/5k/10k index model is explicitly estimated from PR #278, not newly benchmarked. New route/storage/CAS, orphan classification, residual request-pattern leakage, and malicious-server replay are explicit blockers/decisions. Spec checkpoint `984b64e2358183312de5673ddc097c2de31d7c16`; Draft PR #279. Verification: `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs` 49 pass/0 fail/0 skip; `node scripts/validate-vault.mjs` pass with two pre-existing owner-data canvas warnings; diff check pass. Runtime/source/config changed: **NO**. Production mutation: **NO**. No final receipt until Human-approved task closeout. Next: Human architecture review; implementation planning remains forbidden until approval.
+
 ## Closed Task — IDEA1-UNIFIED-PREVIEW-P2B — T-MAN-SIZE blocked gate
 
 | Field | Current value |
