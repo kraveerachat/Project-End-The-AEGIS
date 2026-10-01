@@ -18,6 +18,17 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L7u release-builder Recovery runtime fix — repository only — 2026-10-01
+
+> [!important] Repository-only fix after a safe preflight stop. The owner's first L7u live attempt (2026-10-01 ~20:11 +07, frozen runner sha256 `f2d8203a…8834`, main `7cabf28a`) stopped in the engine preflight with `L7U_PREFLIGHT=FAIL reason=NEW_RELEASE_LACKS_RECOVERY_RUNTIME`, before PRE capture and before `L7u-ATTEMPT-CONSUMED`. No production mutation, Core NOT restarted (release pointer still `f2a5cd75…`), no Recovery R1-R8, no ESP32, no L8. L7u has NOT run live.
+> `L7U_ROOT_CAUSE = RELEASE_BUILDER_CLOSURE_OMITS_RECOVERY_OBSERVER`, `L7U_BUILDER_FIX = REPOSITORY_ONLY (Draft PR, awaiting human merge)`, `L7U_LIVE = NOT_RUN`, `FROZEN_RUNNER_f2d8203a = DO_NOT_RETRY`
+
+- **Cause:** `p4-l7-build-release.py` shipped only the runtime closure of `supervisor`; `recovery_ui.py` and `recovery_client.py` (the observer entrypoint `python -m aegis_soc.recovery_ui`) are not imported by the Core and were omitted. The scratch build of the failed attempt held 24 modules without those two.
+- **Fix:** builder and verifier use the union closure of `ENTRYPOINTS = ("supervisor", "recovery_ui")`; the L7u preflight check is not weakened.
+- **Still required before any live L7u:** human merge, a NEW execution worktree and NEW frozen runner at the new main, a fresh same-day `stage=L7u` authorization plus K3 record, and explicit owner live authorization. The `f2d8203a…` runner and `l7u-auth-20261001-194525` must not be reused.
+
+---
+
 ## IDEA3 PR11 Phase 4 L3/L4 V7 python-path forwarding fix — repository only — 2026-10-01
 
 > [!important] Repository-only fix after a safe preflight stop. The owner's first live attempt (2026-10-01 16:49 +07, frozen runner sha256 `477ac802…bcef1`, main `352b7550`) stopped in the read-only handler preflight with `L34_V7_APPLY=FAIL reason=V7_PROBE_PYTHON_INVALID`. Nothing was changed, the one-shot authorization was NOT consumed (no `L34-V7-REACTIVATION-ATTEMPT-CONSUMED`), no production-mutation marker exists, Core was NOT restarted, no ESP32, no L8, Recovery R1-R8 NOT run. V7 has NOT run live.
