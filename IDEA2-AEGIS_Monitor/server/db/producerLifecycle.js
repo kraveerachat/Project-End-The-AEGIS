@@ -75,13 +75,23 @@ async function retire(client, physicalCameraId) {
           AND d.viewer_user_id IS NOT NULL AND d.logical_camera_id IS NOT NULL))`, [physicalCameraId])
 }
 
-async function extendEpoch(client, generation) {
-  await client.query(`UPDATE camera_producer_epochs e SET lease_expires_at = (
+async function extendEpoch(client, generation, demandOwnerId) {
+  const result = await client.query(`UPDATE camera_producer_epochs e SET lease_expires_at = (
     SELECT max(d.lease_expires_at) FROM camera_producer_demands d
     WHERE d.producer_generation = e.producer_generation AND d.released_at IS NULL
       AND d.lease_expires_at > clock_timestamp() AND d.viewer_user_id IS NOT NULL
       AND d.logical_camera_id IS NOT NULL)
-    WHERE e.producer_generation = $1 AND e.released_at IS NULL`, [generation])
+    WHERE e.producer_generation = $1 AND e.released_at IS NULL
+      AND e.lease_expires_at > clock_timestamp()
+      AND EXISTS (SELECT 1 FROM camera_producer_demands current_demand
+        WHERE current_demand.producer_generation = e.producer_generation
+          AND current_demand.demand_owner_id = $2 AND current_demand.released_at IS NULL
+          AND current_demand.lease_expires_at > clock_timestamp()
+          AND current_demand.viewer_user_id IS NOT NULL AND current_demand.logical_camera_id IS NOT NULL)`,
+  [generation, demandOwnerId])
+  // Time still advances while the physical row is locked. A later write must
+  // reject expiry independently, rolling back any earlier demand write.
+  if (result.rowCount !== 1) throw deny()
 }
 
 // Internal-only handles must never be serialized into an HTTP response.
@@ -106,17 +116,25 @@ export function createProducerLifecycle({ transact = withTransaction, secret = p
           WHERE physical_camera_id = $1 AND released_at IS NULL AND lease_expires_at > clock_timestamp()
           FOR UPDATE`, [access.physicalCameraId])).rows[0]
         if (epoch && epoch.node_id !== access.nodeId) throw deny()
+        const newEpoch = !epoch
         if (!epoch) {
           epoch = (await client.query(`INSERT INTO camera_producer_epochs (physical_camera_id, node_id, lease_expires_at)
             VALUES ($1, $2, clock_timestamp() + $3 * interval '1 millisecond') RETURNING producer_generation::text`,
           [access.physicalCameraId, access.nodeId, PRODUCER_LEASE_MS])).rows[0]
         }
         const demandOwnerId = parseCanonicalBase64Url(randomBytes(32).toString('base64url'), 32, 'demand owner')
-        await client.query(`INSERT INTO camera_producer_demands
+        const inserted = await client.query(`INSERT INTO camera_producer_demands
           (producer_generation, demand_owner_id, session_binding_hash, viewer_user_id, logical_camera_id, lease_expires_at)
-          VALUES ($1, $2, $3, $4, $5, clock_timestamp() + $6 * interval '1 millisecond')`,
-        [epoch.producer_generation, demandOwnerId, sessionBindingHash, access.userId, access.logicalCameraId, DEMAND_LEASE_MS])
-        await extendEpoch(client, epoch.producer_generation)
+          SELECT $1, $2, $3, $4, $5, clock_timestamp() + $6 * interval '1 millisecond'
+          FROM camera_producer_epochs e WHERE e.producer_generation = $1
+            AND e.released_at IS NULL AND e.lease_expires_at > clock_timestamp()
+            AND ($7::boolean OR EXISTS (SELECT 1 FROM camera_producer_demands previous_demand
+              WHERE previous_demand.producer_generation = e.producer_generation
+                AND previous_demand.released_at IS NULL AND previous_demand.lease_expires_at > clock_timestamp()
+                AND previous_demand.viewer_user_id IS NOT NULL AND previous_demand.logical_camera_id IS NOT NULL))`,
+        [epoch.producer_generation, demandOwnerId, sessionBindingHash, access.userId, access.logicalCameraId, DEMAND_LEASE_MS, newEpoch])
+        if (inserted.rowCount !== 1) throw deny()
+        await extendEpoch(client, epoch.producer_generation, demandOwnerId)
         return Object.freeze({ ...access, producerGeneration: epoch.producer_generation, demandOwnerId, sessionBindingHash })
       })
     },
@@ -140,7 +158,7 @@ export function createProducerLifecycle({ transact = withTransaction, secret = p
           RETURNING d.producer_generation`, [handle.producerGeneration, handle.demandOwnerId, hash,
           access.physicalCameraId, access.nodeId, access.userId, access.logicalCameraId, DEMAND_LEASE_MS])
         if (result.rowCount !== 1) throw deny()
-        await extendEpoch(client, handle.producerGeneration)
+        await extendEpoch(client, handle.producerGeneration, handle.demandOwnerId)
         return Object.freeze(handle)
       })
     },

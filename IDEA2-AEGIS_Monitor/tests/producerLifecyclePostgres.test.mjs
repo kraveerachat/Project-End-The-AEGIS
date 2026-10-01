@@ -274,6 +274,73 @@ for (const operation of ['acquire', 'renew']) {
   })
 }
 
+for (const boundary of ['acquire_epoch', 'acquire_last_demand', 'renew_epoch']) {
+  dbTest(`${boundary}_expiry_at_write_boundary_is_denied_and_rolled_back`, async ({ db, transact, service }) => {
+    const old = await acquire(service)
+    // Keep an existing valid demand before the new viewer joins. For the
+    // last-demand case only that demand expires; the epoch itself stays live.
+    await db.query(`UPDATE camera_producer_epochs SET lease_expires_at = clock_timestamp()
+      + interval '${boundary === 'acquire_last_demand' ? '10 seconds' : '1500 milliseconds'}'`)
+    await db.query(`UPDATE camera_producer_demands SET lease_expires_at = clock_timestamp()
+      + interval '${boundary === 'acquire_last_demand' ? '1500 milliseconds' : '10 seconds'}'`)
+    const epochsBefore = (await db.query('SELECT * FROM camera_producer_epochs')).rows
+    const demandsBefore = (await db.query('SELECT * FROM camera_producer_demands')).rows
+    const entered = deferred()
+    const proceed = deferred()
+    let paused = false
+    let clockAtEntry
+    let boundaryRows
+    const target = boundary.startsWith('acquire')
+      ? /^\s*INSERT INTO camera_producer_demands\b/i
+      : /^\s*UPDATE camera_producer_epochs e SET lease_expires_at\b/i
+    const guarded = createProducerLifecycle({ secret, transact: fn => transact(client => fn({
+      query: async (...args) => {
+        const atBoundary = !paused && target.test(args[0])
+        if (atBoundary) {
+          paused = true
+          clockAtEntry = (await client.query(`SELECT
+            e.lease_expires_at > clock_timestamp() AS epoch_live,
+            EXISTS (SELECT 1 FROM camera_producer_demands d
+              WHERE d.producer_generation = e.producer_generation AND d.released_at IS NULL
+                AND d.viewer_user_id IS NOT NULL AND d.lease_expires_at > clock_timestamp()) AS demand_live
+            FROM camera_producer_epochs e WHERE e.producer_generation = $1`, [old.producerGeneration])).rows[0]
+          entered.resolve()
+          await proceed.promise
+        }
+        const result = await client.query(...args)
+        if (atBoundary) boundaryRows = result.rowCount
+        return result
+      },
+    })) })
+    const running = (boundary.startsWith('acquire') ? acquire(guarded, access('a', 2)) : renew(guarded, old))
+      .then(value => ({ value }), error => ({ error }))
+    try {
+      await waitForBarrier(entered.promise)
+      assert.deepEqual(clockAtEntry, { epoch_live: true, demand_live: true })
+      const expiredTable = boundary === 'acquire_last_demand' ? 'camera_producer_demands' : 'camera_producer_epochs'
+      const deadline = Date.now() + 5000
+      while ((await db.query(`SELECT lease_expires_at > clock_timestamp() AS live FROM ${expiredTable}`)).rows[0].live) {
+        assert.ok(Date.now() < deadline, 'DB write-boundary lease must expire within bounded wait')
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      proceed.resolve()
+      const result = await running
+      assert.equal(result.error?.status, 403, 'expired authority must not return a handle')
+      assert.equal(boundaryRows, 0, 'the guarded write must affect zero rows')
+      assert.deepEqual((await db.query('SELECT * FROM camera_producer_epochs')).rows, epochsBefore)
+      assert.deepEqual((await db.query('SELECT * FROM camera_producer_demands')).rows, demandsBefore,
+        'a rejected renewal must roll back its earlier demand UPDATE')
+      const fresh = await acquire(service)
+      assert.notEqual(fresh.producerGeneration, old.producerGeneration)
+      assert.ok((await db.query('SELECT released_at FROM camera_producer_epochs WHERE producer_generation = $1',
+        [old.producerGeneration])).rows[0].released_at)
+    } finally {
+      proceed.resolve()
+      await running
+    }
+  })
+}
+
 const mutations = [
   ['assignment_revocation', "DELETE FROM camera_assignment WHERE camera_id = 'CAM-01'"],
   ['assignment_update', "UPDATE camera_assignment SET user_id = 2 WHERE camera_id = 'CAM-01'"],
