@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-01
+updated: 2026-10-02
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -15,19 +15,92 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-P1 — Audio and inert text preview (final closeout)
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-PLAN — D-1 implementation plan (plan only)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1-PLAN / implementation planning only |
+| Branch | `docs/idea1-preview-d1-implementation-plan` from `origin/main` `fff78feb7f7296a742794a31dffeb35a134a7660` (PR #279 merged) |
+| Owner | kla |
+| PR | #280 (Draft; plan-only) |
+| State | **PLANNED — Revision 2 `PLAN_REVIEW=APPROVED` (`APPROVED_PLAN_REVISION_SHA=5279be8e9f7ce99461ca53e22493e847121c27e4`); PR #280 Ready, Human merge pending**; `IMPLEMENTATION_STARTED=NO`, `IMPLEMENTATION_AUTHORIZED=NO` |
+| Production mutation allowed | **NO** |
+| Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
+| Next gate | Human merge of PR #280; implementation needs a separate Human authorization (Task A.0 not started). |
+
+### Session Register — D1-PLAN
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1P-S1 | Read governance, approved D-1 spec, PR #278 receipt and current Vault runtime source; write and self-review the implementation plan; no runtime change | PASS | plan self-review (10-point checklist in plan §8); governance validation recorded in the final receipt | recorded in the final receipt | Human plan review | HG-0 |
+| D1P-S2 | Apply three required review corrections to the plan only | PASS | plan §8 R1–R10 review-revision checks; governance tests, vault validation, policy validation, diff/secret checks (PR #280 body) | `5279be8e` | Human merge | separate implementation authorization |
+
+D1P-S2 (2026-10-02): Human/architecture review returned `PLAN_REVIEW=APPROVE_WITH_REQUIRED_CHANGES`, `PR280_MERGE=HOLD`. Revision 2 supersedes the D1P-S1 split/stage summary above: (1) a **server-enforced per-owner retained-storage budget** (`maxPreviewIndexRetainedBytesPerOwner`, PROVISIONAL, approved only at HG-G) counts committed `INDEX_STAGED` + `INDEX_MANAGED` ciphertext, is checked at preview-index upload create and authoritatively at commit under the owner lock, and on exhaustion rejects only new preview persistence (originals, downloads, main manifest and existing index objects unaffected; nothing deleted); new tasks C.7 (PR-C) and E.4 (PR-D); boot refuses `WRITE=true` without the budget; (2) **Stage 1 = PR-A + PR-B merged** with SCHEMA=true, READ=true, WRITE=false, PURGE=false, acceptance `GET /preview-index/head` → 404; no Production deployment between PR-A and PR-B; rollback target = previous accepted P1 image with migration 012 retained; (3) `supersededBlobIds` are advisory bookkeeping only and never deletion authority; future GC needs its own architecture/plan and HG-GC. Existing P3–P5 plans are stale for D-1 and must be re-planned after D-1 closes. Task count 44 → 46. Human re-review then returned `PLAN_REVIEW=APPROVED`, `REQUIRED_CHANGES_RESOLVED=YES`, and authorized correcting this task's one unmerged receipt in place; the receipt now records Revision 2 (46 tasks, revised split, `APPROVED_PLAN_REVISION_SHA=5279be8e`). Runtime/DB/Production change: **NO**.
+
+D1P-S1 (2026-10-02, start `fff78feb`): plan only. Scope: the new plan file, this status block and one final receipt. Safety: no runtime source, DB schema, server route, writer, flag, deployment, or Production action. Source inspection confirmed none of the separate-index machinery exists and surfaced three planning facts now recorded in the plan: (1) `vault_tree_blob_state.lifecycle` CHECK must be widened with `INDEX_STAGED`/`INDEX_MANAGED` so index/derivative blobs are never `UNREFERENCED` (old clients list every `UNREFERENCED` blob as recoverable); (2) `GET /api/vault` returns every envelope on unlock, so retained index blobs must be excluded server-side and served by a bounded envelope route; (3) with destructive GC forbidden, superseded copy-on-write shard bytes accumulate and must be measured at the IDX-SIZE gate. Plan: 44 tasks in phases A–I, Production stages J1–J4 (Human-only), closeout K; recommended split PR-A (compat/read-only, first Production stage) → PR-B (codec/reader) → PR-C (CAS/lifecycle/orphans) → PR-D (writer OFF + thumb/poster) → PR-E (capacity/security/compat/rollback evidence). Capability env `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (concept `VAULT_PREVIEW_INDEX_WRITE`) defaults false. All shard/root limits remain PROVISIONAL until Human approval after measurement.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1 — Separate encrypted preview-index design closeout
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 / architecture only |
+| Branch | `docs/idea1-preview-d1-encrypted-preview-index-design` from `origin/main` `a54e699594053fc87018720b9f9f25c9c482a6b0` (PR #278 merged) |
+| Owner | kla |
+| PR | #279 (design-only closeout; merged into `main` at `fff78feb7f7296a742794a31dffeb35a134a7660`) |
+| State | **DESIGN_SPEC_APPROVED=YES / D1_ARCHITECTURE=APPROVED_WITH_CONDITIONS / DESIGN TASK CLOSED**; implementation and Production mutation not authorized |
+| Production mutation allowed | **NO** |
+| Next gate | Closed — PR #279 merged; implementation planning continues in IDEA1-UNIFIED-PREVIEW-D1-PLAN above. |
+
+### Session Register — D1
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1-S1 | Compare separate encrypted-index architectures; write and self-review design only | CLOSED | PR #278 rejected size gate; current Vault source/contracts; 49/49 governance tests; vault validation pass with two existing canvas warnings; `git diff --check` pass; Draft PR #279 | `984b64e2358183312de5673ddc097c2de31d7c16` | Human architecture approval; no implementation plan | Human decision; no writer, flag, migration, or Production work |
+| D1-S2 | Record Human approval with conditions and close design PR only | CLOSED | Human Owner decision 2026-10-02; 49/49 governance tests, vault validation pass with two existing canvas warnings, `git diff --check` pass on design checkpoint | `6d221f3e` | Human PR review/merge; implementation separate and unauthorized | Human reviews/merges PR #279 |
+
+Session D1-S1 started 2026-10-02 from `a54e699594053fc87018720b9f9f25c9c482a6b0`. Scope: the new D-1 spec and this owner status checkpoint only. Safety: no runtime source, database, implementation plan, writer, `VAULT_MANIFEST_V2_UPGRADE`, or Production mutation. Expected evidence: comparison, quantitative 1k/5k/10k model, security/rollback review, collaboration/vault validation, and a Draft PR. At that checkpoint, the earlier manifest-embedded path was blocked at G-THR and the replacement design was only a proposal; the later Human decision is recorded in D1-S2 below.
+
+D1-S1 work performed: compared single, sharded, and sidecar indexes; proposed sharded V2-encrypted root/shards/derivatives with an independent owner-scoped head and **zero** main-manifest linkage. The 1k/5k/10k index model is explicitly estimated from PR #278, not newly benchmarked. New route/storage/CAS, orphan classification, residual request-pattern leakage, and malicious-server replay were explicit blockers/decisions. Spec checkpoint `984b64e2358183312de5673ddc097c2de31d7c16`; Draft PR #279. Verification: `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs` 49 pass/0 fail/0 skip; `node scripts/validate-vault.mjs` pass with two pre-existing owner-data canvas warnings; diff check pass. Runtime/source/config changed: **NO**. Production mutation: **NO**. At D1-S1 no final receipt existed; Human architecture review was next. D1-S2 records the subsequent decision; approval still does not authorize an implementation plan in this branch.
+
+D1-S2 Human decision (2026-10-02): owner-scoped sharded encrypted preview index **approved with conditions**; main-manifest linkage **none**, main manifest **v1**. Request-pattern leakage accepted with documented limitation; malicious-server replay accepted as inherited limitation. Initial 64-shard routing is provisional; decoded cap, live-shard cap, and padded bucket await real IDX-SIZE measurement before any writer. Initial destructive GC is forbidden; authenticated orphan classification and reachability come first; destructive GC needs a separate Human gate. Writer capability must default OFF. `VAULT_MANIFEST_V2_UPGRADE_REQUIRED_FOR_D1=NO`; flag remains OFF. `IMPLEMENTATION_AUTHORIZED=NO`; `PRODUCTION_MUTATION_AUTHORIZED=NO`. This session changes the design spec/status/one final receipt only; no implementation plan, runtime code, DB, server, flag, or Production action.
+
+D1-S2 closeout checkpoint: `6d221f3e` records the Human decision in the spec and canonical note. Local verification at that tree: `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs` 49 pass/0 fail/0 skip; `node scripts/validate-vault.mjs` exit 0 with two pre-existing owner-data canvas warnings; `git diff --check` exit 0. The one final D-1 receipt is added at task handoff; current PR #279 remains design-only. No runtime/build/Production result is claimed. Handoff: Human Owner reviews and merges PR #279; any implementation plan, writer, schema, feature flag, deployment, or destructive GC belongs to a separately authorized future task.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-P2B — T-MAN-SIZE blocked gate
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P2B / Session 1, Tasks 0–1 only |
+| Branch | `feat/idea1-preview-p2b-encrypted-thumb-poster` (from `origin/main` `64f59fbfb0c4d7a731f24e5f0d673a420529c67b`) |
+| PR | #278 (blocked-gate closeout; merged into `main` at `a54e699594053fc87018720b9f9f25c9c482a6b0`) |
+| Owner | kla |
+| State | **P2B_T_MAN_SIZE=COMPLETE / P2B_G_THR=REJECTED / CAPACITY_GATE=FAIL / WRITER BLOCKED** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p2b-encrypted-thumb-poster.md` |
+| Production mutation allowed | **NO** |
+| Next gate | Separate architecture task for D-1 encrypted preview index; direction only, not an approved or implemented design. Tasks 2–17 of this plan must not execute. |
+
+Session register:
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| P2B-S1 | Baseline plus 1k/5k/10k manifest size/cost measurement, no writer | Complete; no Production mutation | Six cells × 20 runs on Node/Chrome and local in-memory/PostgreSQL routes; exact table in PR #278. Baseline Linux full suite: 2,271 pass / 99 fail / 160 skip (existing base, no P2b changes). | Script-only `4c5a5dff`, correction `cc8d2db1`, measurement HEAD `4dd4714f` | Human G-THR decision | Task 2 blocked pending gate decision |
+| P2B-S2 | Human G-THR decision and final blocked-gate closeout | REJECTED / terminally BLOCKED | 10k + previews ciphertext 16,777,232 B equals the current maximum; 0% headroom. Timing is not the blocking reason. | Final blocked receipt in PR #278 | Separate D-1 architecture task, not part of PR #278 | Human Owner reviews/merges blocked evidence PR; no writer work |
+
+T-MAN-SIZE evidence: `P2B_STARTED=YES` means measurement/gating only, not writer implementation or enablement. Product limit counts total nodes, so the 10k fixture contains 9,994 files, root, and five folders. The 10k/three-preview manifest measured 14,632,866 canonical bytes and the 16,777,216-byte padding bucket; ciphertext is 16,777,232 bytes, exactly the current maximum. Node and real Chrome agree on bytes in all six cells. The local server measurements use valid decryptable schema-v1 revisions padded to each v2 ciphertext bucket, proving only opaque payload/row-write cost—not server v2 compatibility. Chrome decrypt+decode+validate p95 was 371.2 ms; no end-to-end mutation p95 was measured. The Human Owner rejected the current manifest-embedded design on 2026-10-01 because 0% ciphertext headroom is insufficient at 10k nodes. `P2B_G_THR=REJECTED`; `P2B_WRITER_IMPLEMENTED=NO`; `P2B_WRITER_ENABLE=BLOCKED`; `VAULT_MANIFEST_V2_UPGRADE_ENABLED=NO`; `PRODUCTION_MUTATION_PERFORMED=NO`; Tasks 2–17 were not executed. D-1 separate encrypted preview index is the next architecture direction, not implemented or approved in this PR.
+
+## Completed Task — IDEA1-UNIFIED-PREVIEW-P1 — Audio and inert text preview
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-P1 / IDEA1_UNIFIED_PREVIEW_P1_AUDIO_TEXT |
 | Branch | feat/idea1-preview-p1-audio-text (from `origin/main` `7cabf28a`) |
-| PR | #276 (Ready for final review/merge; P1_CLOSED=NO) |
+| PR | #276 (merged to `main` at `64f59fbfb0c4d7a731f24e5f0d673a420529c67b`; P1_CLOSED=YES) |
 | Owner | kla |
-| State | **IMPLEMENTED + VERIFIED + DEPLOYED + ACCEPTED / P1_CLOSED=NO** |
+| State | **IMPLEMENTED + VERIFIED + DEPLOYED + ACCEPTED + MERGED / P1_CLOSED=YES** |
 | Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p1-audio-text-normal-files.md` |
 | Deployed runtime SHA | `8634360f74ed2f50b2fcb49925a3d273c605a8a2` |
 | Image | `aegis-prod-drive:p1-8634360f74ed` |
-| Next gate | Human review + merge of PR #276 (P1_CLOSED remains NO until merged) |
+| Next gate | P1 closeout complete; P2b manifest-embedded design rejected at G-THR |
 
 Durable facts:
 
@@ -40,8 +113,8 @@ Durable facts:
 - Final server acceptance: `P1_PRODUCTION_CUTOVER=PASS`, `DRIVE_HEALTH=healthy`, `DRIVE_RESTARTS=0`, `DRIVE_OOM=false`, `HEALTHZ=200`, `NON_DRIVE_CONTAINERS_UNCHANGED=PASS`, `VAULT_MANIFEST_V2_UPGRADE=<unset>`, `P2B_STARTED=NO`, `ROLLBACK_REQUIRED=NO`.
 - Historical deployment note: Initial cutover reached healthy / healthz=200, but verification harness failed due to normal user attempting to read root-owned 0600 snapshot; controlled rollback to P2a completed cleanly; harness permission fixed and retry passed full cutover and verification sequence.
 - Human functional acceptance: Normal Files and Private Vault both exercised with the same applicable P1 preview set (MP3 upload, preview, playback, seek, no stutter, functional download; TXT, JSON, CSV, TSV preview; Markdown and JS shown inertly as plain source; no P1 browser/runtime errors). `DOWNLOAD_SHA256` not claimed as before/after hash comparison was not recorded.
-- P2b writer not started (`P2B_STARTED=NO`).
-- PR #276 is ready for final review/merge; `P1_CLOSED=NO` until Human Owner performs merge.
+- P2b measurement/gating completed; the Human Owner rejected the current manifest-embedded design at G-THR. The P2b writer was not started.
+- PR #276 merged on 2026-10-01 (`P1_CLOSED=YES`); the immutable P1 receipt was not changed.
 
 ## Current Task — IDEA1-UNIFIED-PREVIEW-P2A — Manifest v2 reader (implementation)
 
@@ -49,15 +122,16 @@ Durable facts:
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-P2A / IDEA1_UNIFIED_PREVIEW_P2A_MANIFEST_V2_READER |
 | Branch | feat/idea1-preview-p2a-manifest-v2-reader (from `origin/main` `07633c93`) |
-| PR | see receipt `2026-10-01_*_kla_idea1-unified-preview-p2a-manifest-v2-reader.md` |
+| PR | #273 (merged to `main` at `352b755083b23c97642d84e0c1400bdc436adb4e`) |
 | Owner | kla |
-| State | **IMPLEMENTED + VERIFIED LOCALLY / NOT DEPLOYED** |
+| State | **IMPLEMENTED + VERIFIED LOCALLY + MERGED; code included in accepted P1 runtime; P2A_ACCEPTED=YES by Human Owner declaration** |
 | Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p2a-manifest-v2-reader.md` |
 | Production mutation allowed | **NO** (deploy is Human Owner only) |
-| Next gate | Human review + merge → G-P2a-ACCEPT (Human deploys P2a, verifies ADMIN / EXISTING_USER / NEWLY_CREATED_USER, records `P2A_ACCEPTED=YES`) → prerequisite for the P2b writer flag |
+| Next gate | P2a acceptance does not override the rejected P2b capacity gate; no P2b writer flag enable |
 
 Durable facts:
 
+- `P2A_ACCEPTED=YES` is the Human Owner's 2026-10-01 blocked-gate closeout declaration. This task performed no new Production action and does not claim a newly supplied separate ADMIN / EXISTING_USER / NEWLY_CREATED_USER test matrix.
 - The Vault client reads encrypted manifest schema **1 and 2** and writes **only 1** (`MANIFEST_SCHEMA_VERSION_WRITE = 1`, `MANIFEST_SCHEMA_VERSIONS_READ = [1, 2]`); any other version fails secure (`UNSUPPORTED_SCHEMA_VERSION`, before the revision ciphertext is fetched).
 - v2 adds two optional file-node keys, `contentFormat` (a P0 `FormatId` or `''`) and `previews` (≤ 4, one per kind, closed keys, derivative `blobRef.formatVersion === 2`, per-profile bounds from `src/lib/vaultPreviewProfiles.js`). v1 manifests carrying them are `UNKNOWN_KEY`. `effectivePreviews(node)` ignores entries for a replaced original or an unknown profile.
 - v1 canonical bytes are frozen by a golden vector captured at `07633c93` (`tests/fixtures/vaultManifestV1Golden.json`).
