@@ -8,8 +8,9 @@ Produces, in a USER-OWNED staging directory, the release layout the L7 release g
 /opt/aegis-idea3/releases/<release-id>/ :
 
     venv/bin/python                  (copied interpreter, dependencies installed from a LOCAL wheelhouse)
-    aegis_soc/...                    (exactly the union of the runtime closures of the two release entrypoints, computed from source:
-                                      `python -m aegis_soc.supervisor` (Core) and `python -m aegis_soc.recovery_ui` (Recovery observer))
+    aegis_soc/...                    (exactly the union of the runtime closures of the three release entrypoints, computed from source:
+                                      `python -m aegis_soc.supervisor` (Core), `python -m aegis_soc.recovery_ui` (Recovery observer) and
+                                      `python -m aegis_soc.production_detector` (F1 alert source; stdlib only))
     requirements.txt
     RELEASE-MANIFEST.json            (exact allowlisted fields, no username/host/environment/secret paths)
     RELEASE-SHA256SUMS               (every payload file except itself, sorted)
@@ -50,9 +51,11 @@ SCHEMA_VERSION = 1
 PACKAGE = "aegis_soc"
 PROJECT_DIR = "IDEA3-AEGIS_Lockdown"
 ENTRYPOINT = "supervisor"
-# The release ships exactly two runtime entrypoints. recovery_ui is the Recovery observer (README "Core-mediated Recovery"); it is NOT
+# The release ships exactly three runtime entrypoints. recovery_ui is the Recovery observer (README "Core-mediated Recovery"); it is NOT
 # imported by the Core, so a supervisor-only closure would silently omit it and its recovery_client (L7u refuses such a release).
-ENTRYPOINTS = (ENTRYPOINT, "recovery_ui")
+# production_detector is the F1 alert source (deploy/aegis-idea3-detector.service.example): it is not imported by the Core either, and its
+# closure (alert_sink, ip_containment) adds no third-party import.
+ENTRYPOINTS = (ENTRYPOINT, "recovery_ui", "production_detector")
 
 RELEASE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", re.ASCII)
 SHA1_RE = re.compile(r"[0-9a-f]{40}", re.ASCII)

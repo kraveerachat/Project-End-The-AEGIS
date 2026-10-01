@@ -62,7 +62,7 @@ def test_manifest_and_checksums_cover_the_recovery_runtime(built) -> None:
     assert all(f"aegis_soc/{n}" in covered for n in REQUIRED)
 
 
-def test_canonical_verify_passes_and_package_is_exactly_the_two_entrypoint_closure(tool, built) -> None:
+def test_canonical_verify_passes_and_package_is_exactly_the_entrypoint_closure(tool, built) -> None:
     info = tool.verify_release(built[0], expect_owner="self", release_id=s.NEW_ID)
     assert info["release_id"] == s.NEW_ID
     names = {p.stem for p in (built[0] / "aegis_soc").glob("*.py")}
@@ -70,13 +70,16 @@ def test_canonical_verify_passes_and_package_is_exactly_the_two_entrypoint_closu
     assert not names & b.NOT_RUNTIME, "unrelated modules must not be swept into the release"
 
 
-def test_closure_is_the_union_of_exactly_the_supervisor_and_recovery_ui_entrypoints(tool) -> None:
+def test_closure_is_the_union_of_exactly_the_supervisor_recovery_ui_and_f1_detector_entrypoints(tool) -> None:
     project = b.ROOT
     core, _ = tool.runtime_closure(project, "supervisor")
     observer, third = tool.runtime_closure(project, "recovery_ui")
+    detector, detector_third = tool.runtime_closure(project, "production_detector")
     both, _ = tool.runtime_closure(project)
-    assert tool.ENTRYPOINTS == ("supervisor", "recovery_ui")
-    assert set(both) == set(core) | set(observer)
+    assert tool.ENTRYPOINTS == ("supervisor", "recovery_ui", "production_detector")
+    assert set(both) == set(core) | set(observer) | set(detector)
+    assert {"alert_sink", "production_detector"} <= set(both) - set(core), "the Core never reaches the F1 alert source"
+    assert detector_third == set(), "the F1 alert source adds no third-party dependency"
     assert {"recovery_client", "recovery_ui"} <= set(both) - set(core), "the Core alone never reaches the Recovery observer"
     assert observer == ["recovery_client", "recovery_protocol", "recovery_ui"] and third == set()
 

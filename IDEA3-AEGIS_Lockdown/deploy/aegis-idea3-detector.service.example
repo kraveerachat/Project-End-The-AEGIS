@@ -1,0 +1,62 @@
+# AEGIS IDEA3 F1 production detector (alert source) — repository template. NOTHING here is installed, enabled or started by merging it.
+#
+# Render with:  deploy/pr11-phase4/p4-f1-alert-source.py render-unit --uid <AEGIS_ALERT_SOURCE_UID> --output <file>
+# The only placeholder is @AEGIS_ALERT_SOURCE_UID@. It is a frozen, owner-supplied, non-secret numeric uid (F1_ALERT_SOURCE_IDENTITY =
+# OWNER_INPUT_REQUIRED) and it MUST equal AEGIS_ALERT_SOURCE_UID in the installed core.env: the Core accepts exactly that SO_PEERCRED uid and
+# answers any other peer PEER_REFUSED before reading a byte, so a mismatch fails closed. `verify-unit` / `verify-env` prove the match.
+#
+# Transport: AF_UNIX to /run/aegis-idea3/alert.sock only (never MQTT, never a network socket). The payload is exactly
+# {"v":1,"attacker_ip":"<IPv4>"}; the Core only binds an incident. The detector requests no containment, CUT or RESTORE.
+#
+# Start order (enforced by Requires=/After= and by ExecStartPre, and by `start-detector`): Core release installed -> core.env carries the
+# verified uid -> Core (re)started -> alert.sock present, Core-owned 0600 and answering SO_PEERCRED -> only then this unit. ExecStartPre waits a
+# bounded time for the socket and fails closed; Restart=no means a failure is never retried automatically.
+[Unit]
+Description=AEGIS IDEA3 F1 production detector (Core alert source)
+Requires=aegis-idea3-core.service
+After=aegis-idea3-core.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=@AEGIS_ALERT_SOURCE_UID@
+UMask=0077
+WorkingDirectory=/opt/aegis-idea3/current
+SupplementaryGroups=systemd-journal
+ExecStartPre=/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.alert_sink check-socket --wait-sec 15
+ExecStart=/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.production_detector
+Restart=no
+TimeoutStartSec=30
+TimeoutStopSec=15
+KillMode=control-group
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# Connecting to the Core's 0600 socket in the 0700 runtime directory needs DAC override unless the account is the Core's own (which the
+# package refuses). This is the only capability the unit may hold.
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+AmbientCapabilities=
+SystemCallArchitectures=native
+
+MemoryAccounting=true
+TasksAccounting=true
+
+[Install]
+WantedBy=multi-user.target
