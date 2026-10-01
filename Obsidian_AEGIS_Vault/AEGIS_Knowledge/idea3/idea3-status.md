@@ -18,6 +18,17 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3/L4 V7 pre-live hardening (F1/F2/F3) — repository only — 2026-10-01
+
+> [!important] Repository-only follow-up to the merged V7 (PR #272). V7 has NOT run live; no authorization or K3 record was created or consumed; production was NOT mutated; Core NOT restarted; no ESP32; no L8; Recovery R1-R8 NOT run.
+> `V7_PRELIVE_HARDENING = REPOSITORY_ONLY (simulator-tested, Draft PR, awaiting human merge)`, `V7_LIVE = NOT_RUN`, `REAL_HOST_COMPARATOR_EVIDENCE = MISSING`, `S10_FRESH = NOT_YET_COLLECTED`
+
+- **F1 (authorization ordering):** the V7 owner runner now orders pre-gates → handler preflight → PRE capture → consume the one-shot marker → first mutation. A refused preflight or failed PRE capture leaves the authorization usable; after consumption (immediately before `apply.sh`) the attempt is spent even if apply/verify fails and rollback runs; a replay is refused before any work.
+- **F2 (broker failure evidence binding):** the broker bind-failure journal is read only with `-b` and `_SYSTEMD_INVOCATION_ID=<failed broker InvocationID>` from the same `systemctl show` capture the churn gate reads; the gate requires a non-empty 32-hex id and a matching correlation line. Previous-boot or earlier-invocation bind evidence (alone or combined with an unrelated current exit failure) is refused. Every existing churn check is unchanged; no broker start/stop/restart was added.
+- **F3 (regressions):** tests for missing/mismatched rfkill identity evidence (verify and rollback) and rollback fail-closed ownership (missing journal, non-numeric rfkill id, no block without a journal-proven unblock).
+- **Evidence:** simulated host only; RED first; load-bearing negative controls (consume-before-preflight; dropping `-b`; dropping the invocation filter; dropping the gate correlation; dropping the id validity check) each fail the targeted tests and the source was restored byte-identical. Not live evidence.
+- **Still required before any live V7:** human merge of the hardening PR, post-merge verification, fresh formal IDEA2/S10 evidence, an owner-frozen runner, a fresh same-day `stage=L4` authorization plus K3 record, and an explicit owner live authorization.
+
 ## IDEA3 PR11 Phase 4 L3/L4 V7 radio-disabled + broker-churn reactivation — repository implementation only — 2026-10-01
 
 > [!important] Repository-only. V7 has NOT run, is NOT authorized, and is NOT proven live. No authorization or K3 record was created. Production was NOT mutated by this task, the Core was NOT restarted, Recovery R1-R8 was NOT run, no ESP32, no L8. Recovery runtime stays **BLOCKED** until the AP is reactivated through a governed path.

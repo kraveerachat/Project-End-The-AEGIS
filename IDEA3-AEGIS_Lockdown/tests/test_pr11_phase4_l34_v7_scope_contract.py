@@ -144,7 +144,7 @@ def test_v7_owner_run_freeze_auth_and_one_attempt_semantics() -> None:
     assert 'sudo -v' in text and '[ "$(id -u)" != 0 ]' in text
 
 
-def test_v7_consume_order_is_pre_gates_then_consume_then_preflight_then_pre_capture_then_one_apply() -> None:
+def test_v7_consume_order_is_pre_gates_then_preflight_then_pre_capture_then_consume_then_one_apply() -> None:  # F1
     lines = [l for l in RUNNER_V7.read_text().splitlines() if not l.lstrip().startswith("#")]
 
     def at(pattern: str) -> int:
@@ -158,7 +158,7 @@ def test_v7_consume_order_is_pre_gates_then_consume_then_preflight_then_pre_capt
     i_cap = at(r'capture PRE "\$EVID/pre-root"')
     i_mut = at(r"MUTATED=1")
     i_app = at(r"apply_rc=0; apply_out=\$\(handler apply\.sh")
-    assert i_gate < i_con < i_pre < i_cap < i_mut <= i_app
+    assert i_gate < i_pre < i_cap < i_con < i_mut <= i_app, "the one-shot authorization is consumed only after preflight and PRE capture"
     assert len([l for l in lines if "set -o noclobber" in l]) == 1
     assert len([l for l in lines if re.search(r'handler apply\.sh(?! "\$PREFLIGHT_WORK")', l)]) == 1, "exactly one apply invocation: never a retry"
     assert not any("rollback_flow" in l and "() {" not in l for l in lines[:i_con])
