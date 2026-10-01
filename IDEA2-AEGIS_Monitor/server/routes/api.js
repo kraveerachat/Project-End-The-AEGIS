@@ -31,6 +31,11 @@ import {
 } from '../db/connection.js'
 import * as store from '../db/store.js'
 import { createUpstreamLifecycle, waitForDrainOrClose } from '../streamLifecycle.js'
+import {
+  createProducerLifecycle,
+  STREAM_REVALIDATE_MS as PRODUCER_REVALIDATE_MS,
+  RENEW_BEFORE_MS,
+} from '../db/producerLifecycle.js'
 import { approvedStreamUrlForPhysicalCamera } from '../auth/physicalStreamSource.js'
 import { BrowserAssociationChallengeStore } from '../nodeIdentity/browserAssociationChallenges.js'
 import {
@@ -59,8 +64,9 @@ const STREAM_STALE_MS = 45_000
 const STREAM_IDLE_MS = 6_000
 
 // ตรวจซ้ำว่าเซสชันยังอยู่ และยังมีสิทธิ์เห็นกล้องนี้อยู่ไหม ระหว่างที่สตรีมเปิดค้าง
-const STREAM_REVALIDATE_MS = 10_000
+const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS
 const REQUIRE_LOCAL_NODE_ASSOCIATION = parseLocalNodeAssociationRequirement()
+const producerLifecycle = createProducerLifecycle()
 
 /**
  * Present one authenticated physical heartbeat under the account's logical
@@ -491,8 +497,15 @@ apiRouter.get('/cameras', requireAuth, async (req, res, next) => {
 // ⚠️ ห้ามสลับลำดับ: การตรวจสิทธิ์ต้องจบ "ก่อน" เปิด socket ไปหา engine เสมอ
 apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
   const cameraId = req.params.id
+  let demandHandle = null
+  let lifecycle = null
+  let idleTimer = null
+  let revalidateTimer = null
+  let revalidation = Promise.resolve()
+  const abort = () => lifecycle?.abort()
   try {
     let src
+    let access
     let liveRouteUser = req.user
     let strictOperator = false
     if (REQUIRE_LOCAL_NODE_ASSOCIATION) {
@@ -509,10 +522,13 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     }
     if (strictOperator) {
       try {
-        ;({ source: src } = await resolvePhysicalStreamTarget(req, cameraId, Date.now(), {
+        ;({ access, source: src } = await resolvePhysicalStreamTarget(req, cameraId, Date.now(), {
           resolveOperatorAccess,
           streamSourceForPhysicalCamera: store.streamSourceForPhysicalCamera,
         }))
+        if (!(await canSeeCamera(liveRouteUser, cameraId))) {
+          return res.status(403).json({ error: 'Forbidden' })
+        }
       } catch (error) {
         if (error instanceof CameraAccessError) {
           return res.status(error.status).json({ error: error.code })
@@ -537,20 +553,78 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     // ยกเลิก upstream ทันทีเมื่อ client ตัดการเชื่อมต่อ (ปิดแท็บ/เปลี่ยนกล้อง/logout)
     // — ถ้าไม่ทำ socket ไปหา engine จะค้างไว้ตลอดกาลและ engine จะนับ viewer ค้าง
     const ctrl = new AbortController()
-    const lifecycle = createUpstreamLifecycle(ctrl)
-    const abort = () => lifecycle.abort()
+    lifecycle = createUpstreamLifecycle(ctrl)
     res.once('close', abort)
+    if (res.destroyed) abort()
+
+    if (strictOperator) {
+      demandHandle = await producerLifecycle.acquire({ access, sessionBinding: currentNodeSessionBinding(req) })
+    }
+    if (lifecycle.closed) return
+
+    // One awaited cycle owns session reload, live authorization and renewal.
+    // Scheduling only after completion prevents overlapping DB renewals.
+    const revalidate = async () => {
+      try {
+        await new Promise((resolve, reject) => {
+          if (!req.session?.reload) return reject(new Error('session ended'))
+          req.session.reload(error => error ? reject(error) : resolve())
+        })
+        if (lifecycle.closed) return
+        const user = currentUser(req)
+        if (!user) throw new Error('session ended')
+        if (strictOperator) {
+          const liveAccess = await resolveOperatorAccess(req, cameraId, Date.now())
+          if (lifecycle.closed) return
+          if (!(await canSeeCamera({ ...user, id: liveAccess.userId, role: ROLES.OPERATOR }, cameraId))) {
+            throw new Error('access revoked')
+          }
+          if (lifecycle.closed) return
+          await producerLifecycle.renew({ handle: demandHandle, access: liveAccess,
+            sessionBinding: currentNodeSessionBinding(req) })
+        } else {
+          const actor = REQUIRE_LOCAL_NODE_ASSOCIATION ? await resolveLiveCameraActor(req) : null
+          const liveUser = actor ? { ...user, id: actor.userId, username: actor.username, role: actor.role } : user
+          if ((actor && actor.role !== ROLES.SOC) || !(await canSeeCamera(liveUser, cameraId))) {
+            throw new Error('access revoked')
+          }
+        }
+      } catch {
+        // No raw session binding, registry context or DB error enters logs.
+        abort()
+      }
+    }
+    const scheduleRevalidation = () => {
+      revalidateTimer = setTimeout(() => {
+        revalidation = revalidate().finally(() => {
+          if (!lifecycle.closed) scheduleRevalidation()
+        })
+      }, Math.min(STREAM_REVALIDATE_MS, RENEW_BEFORE_MS))
+    }
+    scheduleRevalidation()
+
+    const armIdle = () => {
+      clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => {
+        console.warn(`[aegis-monitor] stream ${cameraId}: no data for ${STREAM_IDLE_MS}ms — closing`)
+        abort()
+      }, STREAM_IDLE_MS)
+    }
+    armIdle()
 
     let upstream
     try {
       upstream = await fetch(src.url, {
         signal: ctrl.signal,
         redirect: 'error',
-        headers: { 'X-Detection-Engine-Key': process.env.DETECTION_ENGINE_API_KEY ?? '' },
+        headers: {
+          'X-Detection-Engine-Key': process.env.DETECTION_ENGINE_API_KEY ?? '',
+          ...(strictOperator ? { 'X-Aegis-Producer-Generation': demandHandle.producerGeneration } : {}),
+        },
       })
     } catch (err) {
       abort()
-      if (res.headersSent) return
+      if (res.headersSent || res.destroyed) return
       return res.status(504).json({ error: 'Detection Engine unreachable' })
     }
 
@@ -558,6 +632,9 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
       abort()
       return res.status(502).json({ error: `Upstream stream error (${upstream.status})` })
     }
+    const reader = upstream.body.getReader()
+    lifecycle.attachReader(reader)
+    if (lifecycle.closed) return
 
     // ส่งต่อ content-type พร้อม boundary เดิม — <img> ฝั่งเบราว์เซอร์อ่านตรงนี้
     res.status(200)
@@ -579,43 +656,6 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     //    ต่อไปจนกว่าจะปิดแท็บเอง ซึ่งขัดกับหลัก server-side enforcement ของโปรเจกต์
     //    จึง reload เซสชันจาก store เป็นระยะ และตรวจ camera_assignment ซ้ำด้วย
     //    (SOC ย้ายกล้องออกจาก operator ระหว่างที่เขาดูอยู่ = ต้องถูกตัดภายในรอบถัดไป)
-    const revalidate = setInterval(() => {
-      req.session?.reload((err) => {
-        if (lifecycle.closed) return
-        if (err || !req.session?.user) {
-          console.warn(`[aegis-monitor] stream ${cameraId}: session ended — closing`)
-          abort()
-          return
-        }
-        const authorization = strictOperator
-          ? resolveOperatorAccess(req, cameraId, Date.now()).then(() => true)
-          : REQUIRE_LOCAL_NODE_ASSOCIATION
-            ? resolveLiveCameraActor(req).then((actor) => actor.role === ROLES.SOC
-              && canSeeCamera({ ...req.session.user, id: actor.userId, username: actor.username, role: actor.role }, cameraId))
-            : canSeeCamera(req.session.user, cameraId)
-        authorization.then((ok) => {
-          if (!ok && !lifecycle.closed) {
-            console.warn(`[aegis-monitor] stream ${cameraId}: access revoked — closing`)
-            abort()
-          }
-        }).catch(() => {
-          // Strict mode is fail-closed on any live-registry uncertainty.
-          if (REQUIRE_LOCAL_NODE_ASSOCIATION && !lifecycle.closed) abort()
-        })
-      })
-    }, STREAM_REVALIDATE_MS)
-
-    const reader = upstream.body.getReader()
-    lifecycle.attachReader(reader)
-    let idleTimer = null
-    const armIdle = () => {
-      clearTimeout(idleTimer)
-      idleTimer = setTimeout(() => {
-        console.warn(`[aegis-monitor] stream ${cameraId}: no data for ${STREAM_IDLE_MS}ms — closing`)
-        abort()
-      }, STREAM_IDLE_MS)
-    }
-
     try {
       armIdle()
       for (;;) {
@@ -630,16 +670,26 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     } catch {
       // upstream ตายกลางคัน / ถูก watchdog ยกเลิก / client ตัดไปแล้ว
       // ทั้งหมดจบทางเดียวกัน: ปิด response เพื่อให้ฝั่งเบราว์เซอร์รู้ตัว
-    } finally {
-      clearTimeout(idleTimer)
-      clearInterval(revalidate)
-      abort()
-      res.off('close', abort)
-      if (!res.writableEnded) res.end()
     }
   } catch (err) {
     if (res.headersSent) { try { res.end() } catch { /* already gone */ } return }
+    if (err instanceof CameraAccessError) {
+      return res.status(err.status).json({ error: err.code })
+    }
     next(err)
+  } finally {
+    clearTimeout(idleTimer)
+    clearTimeout(revalidateTimer)
+    abort()
+    res.off('close', abort)
+    // A pending renewal must finish before release, never resurrecting a
+    // demand after cleanup. The DB lease bounds a failed cleanup attempt.
+    await revalidation
+    if (demandHandle) {
+      try { await producerLifecycle.release(demandHandle) }
+      catch { console.warn('[aegis-monitor] producer demand cleanup failed; lease will expire') }
+    }
+    if (lifecycle && !res.writableEnded && !res.destroyed) res.end()
   }
 })
 

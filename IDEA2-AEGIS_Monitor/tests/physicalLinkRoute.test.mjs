@@ -23,7 +23,7 @@ globalThis.__physicalLinkFixture = {
   actor: { userId: 2, username: 'operator', role: 'CCTV-Operator' },
   access: {
     kind: 'verified-node', viewerMode: 'demanding', userId: 2,
-    nodeId: 'machine-a-node', physicalCameraId: 41, logicalCameraId: 'CAM-01',
+    nodeId: 'machine-a-node', physicalCameraId: 41, logicalCameraId: 'CAM-01', keyVersion: 1,
   },
   source: {
     nodeId: 'machine-a-node',
@@ -33,6 +33,11 @@ globalThis.__physicalLinkFixture = {
   },
   physicalLookups: [],
   logicalLinkCalls: 0,
+  assignmentActive: true,
+  assignmentChecks: [],
+  acquireCalls: [],
+  releaseCalls: [],
+  sessionBinding: Buffer.alloc(32, 5).toString('base64url'),
 }
 
 const express = (await import('express')).default
@@ -109,6 +114,8 @@ test('strict stream rejects redirects before the Engine credential reaches anoth
   const originalKey = process.env.DETECTION_ENGINE_API_KEY
   let redirectedRequests = 0
   let redirectedCredential
+  let originGeneration
+  let originCredential
 
   const redirectTarget = http.createServer((req, res) => {
     redirectedRequests += 1
@@ -119,7 +126,9 @@ test('strict stream rejects redirects before the Engine credential reaches anoth
   redirectTarget.listen(0, '127.0.0.1')
   await once(redirectTarget, 'listening')
 
-  const redirector = http.createServer((_req, res) => {
+  const redirector = http.createServer((req, res) => {
+    originCredential = req.headers['x-detection-engine-key']
+    originGeneration = req.headers['x-aegis-producer-generation']
     const { port } = redirectTarget.address()
     res.writeHead(302, { Location: `http://127.0.0.1:${port}/capture` })
     res.end()
@@ -132,6 +141,7 @@ test('strict stream rejects redirects before the Engine credential reaches anoth
     req.session = {
       createdAt: Date.now(),
       user: { id: 2, username: 'operator', role: 'CCTV-Operator' },
+      nodeSessionBinding: fixture.sessionBinding,
       destroy(callback) { callback?.() },
     }
     next()
@@ -160,4 +170,9 @@ test('strict stream rejects redirects before the Engine credential reaches anoth
   assert.equal(redirectedRequests, 0)
   assert.equal(redirectedCredential, undefined)
   assert.equal(response.status, 504)
+  assert.equal(originCredential, 'test-only-redirect-sentinel')
+  assert.equal(originGeneration, '9007199254740993')
+  assert.deepEqual(fixture.assignmentChecks, [[2, 'CAM-01']])
+  assert.equal(fixture.acquireCalls.length, 1)
+  assert.deepEqual(fixture.releaseCalls, fixture.acquireCalls)
 })
