@@ -35,9 +35,9 @@ MANIFEST_FIELDS = {"schema_version", "release_id", "source_git_sha", "source_tre
                    "requirements_sha256", "file_count", "created_by_tool_version"}
 CLOSURE = {"__init__", "comms", "config", "controller", "database", "dispatch_client", "dispatch_ledger", "dispatch_worker",
            "ip_containment", "local_restore", "mqtt_client", "paths", "platform_lock", "protocol_inbound", "protocol_runtime",
-           "protocol_store", "protocol_v1", "recovery_core", "recovery_protocol", "runtime", "security", "supervisor",
-           "systemd_credentials", "trusted_time"}
-NOT_RUNTIME = {"cli", "gui", "production_runtime", "recovery_client", "recovery_ui", "telegram_control", "theme",
+           "protocol_store", "protocol_v1", "recovery_client", "recovery_core", "recovery_protocol", "recovery_ui", "runtime",
+           "security", "supervisor", "systemd_credentials", "trusted_time"}
+NOT_RUNTIME = {"cli", "gui", "production_runtime", "telegram_control", "theme",
                "windows_launcher", "wizard"}
 
 
