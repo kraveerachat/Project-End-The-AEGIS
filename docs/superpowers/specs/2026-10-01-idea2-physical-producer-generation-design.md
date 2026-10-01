@@ -98,10 +98,18 @@ server-approved physical source and acquires a demand in PostgreSQL. Strict
 mode has no in-memory or logical-heartbeat producer-authority fallback; absent
 schema/registry/DB authority fails closed.
 
-Acquisition runs in one transaction, serializing contenders on the registered
-`physical_cameras` row (`FOR UPDATE`) and relying on the active physical unique
-index as a second guard. Under that lock it rechecks active Node/physical
-binding and the applicable alias/assignment authority. It retires expired
+Acquisition and renewal run in a transaction. They lock the authoritative
+user, Node, physical camera, alias-policy, applicable account-alias, and
+assignment rows in a deterministic order, using locks that conflict with
+authority updates/deletes; the registered `physical_cameras` row additionally
+serializes physical producers (`FOR UPDATE`), and the active physical unique
+index is a second guard. After all applicable locks are held and before any
+demand/epoch write, they recheck user and Node activity, Node key version,
+physical binding/activity, applicable alias policy, and live assignment. A
+revocation committed first must deny acquisition with no authority written;
+one committed after acquisition locks must serialize behind it. Merely locking
+the physical row while reading other authority rows unlocked is not sufficient.
+The transaction retires expired
 demands/epochs, reuses an unexpired epoch only when its physical camera and
 Node match, or inserts one new epoch. PostgreSQL's identity value is the
 positive `producer_generation`; preserve its decimal string without unsafe
@@ -172,6 +180,7 @@ live HTTP evidence. Keep the successor PR Draft, stacked on
 `feat/idea2-machine-a-no-powershell-runtime`; never merge or deploy it here.
 
 Production rollout prerequisites remain separately approved migration 001–005
-execution, explicit Node and physical registration, alias policy setup,
+execution, configured `SESSION_SECRET` presence (never disclose its value),
+explicit Node and physical registration, alias policy setup,
 server-approved physical stream destination, Engine source/image provenance,
 and real Machine A browser/stream acceptance. None is performed by this task.
