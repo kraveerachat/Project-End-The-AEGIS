@@ -50,8 +50,26 @@ The hardware backend is unreachable without `AEGIS_L8P_LIVE_AUTHORIZED=YES`, and
 * **Handlers**: `stages/L8p/{apply,verify,rollback}.sh` and empty `allow-keys.txt` / `allow-listeners.txt` (zero Core-host drift). The stage id fits the existing suffix convention
   and is registered between `L7u` and `L8` (`p4-lib.sh`, `p4-stage-gate.sh`).
 
-## 4. Not done / owner actions
+## 4. Owner runner (repository template; inert)
 
-Nothing here is live. Still needed: the stage owner runner (not part of this change), the exact reviewed firmware image, partition table and pins, the real MQTT CA header, the NVS
+`deploy/pr11-phase4/owner-run/run-l8p-owner.sh` with its gate library `p4-l8p-run-lib.sh` follow the L7u owner-run pattern. The committed copy is an **inert template**: sixteen `PIN_`
+values (the merged main SHA, the reviewed firmware and partition-table SHA-256, the owner input directory, the reviewed artifacts, the pinned flash tool, the MQTT CA and broker
+credential files, the broker address and TLS name, the Wi-Fi SSID, the NTP server, the compile-only build command) make it refuse until the owner freeze workflow copies it outside the
+repository and pins them after the FINAL source set is merged. It holds no device logic: every device operation is the canonical L8p handler set.
+
+Sequence: read-only pre-gates (same-day `stage=L8p` authorization with `physical_recovery_attestation` and no `recovery_authorization`, K3, pinned clean main, registered handlers, the
+reused `p4-stage-gate.sh --stage L8p --mode live`, the predecessor receipt chain read from the pinned commit **including a PROVEN final L7u**, Core/service/IDEA2/disk/forwarding runtime
+gates, the exact owner input directory, the frozen artifact digests) -> PRE L0 capture and checksum -> consume the single attempt (`L8p-ATTEMPT-CONSUMED`) -> `apply.sh` once ->
+`verify.sh` -> POST capture -> PRE/POST compare (empty L8p allow files) -> secret scan -> narrow result. The hardware backend is requested in exactly one place, after the attempt is
+consumed. Any failure after consumption calls the canonical `rollback.sh` (it must report `L8P_DEVICE_ACTION_TAKEN=NONE` and, after the first write,
+`L8P_ROLLBACK=FAIL_SECURE_HOLD_AND_EVIDENCE`), then a mandatory RB capture and PRE->RB compare, and holds/escalates; hardware zero drift is not claimed after the first write. The runner never
+retries, reflashes, erases, sends CUT or RESTORE, opens plaintext 1883 or performs the physical recovery (manual, out-of-band).
+
+A successful run may claim only `L8P_LIVE_EXECUTED=YES` and `L8P_PROVISIONING=PASS`, and states `RECOVERY_R1_R8_PROVEN=NO`, `LVR_PROVEN=NO`, `L8_ACCEPTANCE=NO`,
+`ELECTRICAL_RELAY_PROOF=NO`. Today a real run fails closed: no FINAL L7u live acceptance receipt exists.
+
+## 5. Not done / owner actions
+
+Nothing here is live. Still needed: freezing the runner (after the final source set is merged), the exact reviewed firmware image, partition table and pins, the real MQTT CA header, the NVS
 generator, OV-12, the written physical recovery procedure, a same-day authorization and K3, and Kla integration review of the shared edits (`p4-lib.sh`, `p4-stage-gate.sh`,
 `tests/test_pr11_phase4_harness.py`, the L7u governance order assertion, and the small profile extension in `p4-l8-device.py`). Recovery R1-R8, LVR and L8 remain unproven.

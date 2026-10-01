@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L8p owner runner (inert template) — repository only — 2026-10-02
+
+> [!important] Repository-only; branch `feat/idea3-l8p-owner-runner`. **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, L8p, Recovery and L8 not run.
+> `L8P_OWNER_RUNNER_REPOSITORY_IMPLEMENTED = YES`, `L8P_OWNER_RUNNER_LOCAL_VERIFIED = YES`, `L8P_LIVE = NOT_AUTHORIZED`, `REAL_ESP32_TOUCHED = NO`, `REAL_SERIAL_ACCESSED = NO`, `L7U_LIVE_FINAL = NOT_PROVEN`, `RECOVERY_LIVE = NOT_RUN`, `LVR = NOT_RUN`, `L8_LIVE = NOT_RUN`, `ELECTRICAL_RELAY_PROOF = NO`
+
+- **What it is:** `deploy/pr11-phase4/owner-run/run-l8p-owner.sh` (+ `p4-l8p-run-lib.sh`), following the L7u owner-run pattern. The committed copy is an **inert template**: sixteen `PIN_` values make it refuse until the owner freezes it outside the repository after the FINAL source set is merged. It holds no device logic; every device operation is the canonical L8p handler set (merged L8 `HardwareDevice` and signed BOOT verifier).
+- **Gates and flow:** same-day `stage=L8p` authorization + K3 through the reused `p4-stage-gate.sh --stage L8p --mode live`; predecessor receipts from the pinned commit **including a PROVEN final L7u** (none exists, so a real run fails closed today); runtime gates; PRE capture and checksum; one attempt (`L8p-ATTEMPT-CONSUMED`, never reused from L7u); apply once, verify, POST capture, PRE/POST compare, secret scan. A failure calls the canonical rollback (`L8P_DEVICE_ACTION_TAKEN=NONE`, after the first write `L8P_ROLLBACK=FAIL_SECURE_HOLD_AND_EVIDENCE`), then a mandatory RB capture and PRE->RB compare; no retry, reflash, erase, CUT, RESTORE or plaintext 1883; physical recovery stays manual.
+- **Success boundary:** only `L8P_LIVE_EXECUTED=YES` and `L8P_PROVISIONING=PASS`; `RECOVERY_R1_R8_PROVEN=NO`, `LVR_PROVEN=NO`, `L8_ACCEPTANCE=NO`, `ELECTRICAL_RELAY_PROOF=NO` (signed BOOT LOCKDOWN is firmware-reported, not electrical proof).
+- **Verification:** hermetic stub-only tests; see the receipt `90-Status/logs/2026-10-02_041051_music_idea3-l8p-owner-runner.md`.
+- **Still required before any live L8p:** a merged PROVEN final L7u receipt, freezing the runner, reviewed pins/artifacts and the written physical recovery procedure, same-day authorization and K3, and explicit owner live authorization. OD-L8P-01 stays `APPROVED` (L8p only; L8 remains `D4_ONLY`).
+
+---
+
 ## IDEA3 PR11 Phase 4 L8p device provisioning stage on the canonical L8 backend — repository only — 2026-10-02
 
 > [!important] Repository-only; branch `feat/idea3-l8p-canonical-provisioning-stage` pushed normally (no force-push) to **Draft PR #284**, unmerged. **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, Recovery and L8 not run.
