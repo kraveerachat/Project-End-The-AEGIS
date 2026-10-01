@@ -28,6 +28,7 @@ import { intents } from '../lib/vaultTreeOps.js'
 import { uploadTreeFile } from '../lib/vaultTreeUpload.js'
 import { childrenOf, effectiveState } from '../lib/vaultTreeManifest.js'
 import { createThumbScheduler } from '../lib/vaultThumbScheduler.js'
+import { createPreviewIndexTiles } from '../lib/vaultPreviewIndexTiles.js'
 import { makeImageThumb } from '../lib/vaultImageThumb.js'
 import { createImageDecodeAdmission } from '../lib/vaultImageDecodeAdmission.js'
 import { detectReducedDecodeCapability, startReducedDecodeJob } from '../lib/vaultImageReducedDecode.js'
@@ -640,6 +641,16 @@ export function VaultTreeScreen({
      posters via the bounded scheduler; GIF hover decrypts whole only under the limits;
      videos ride the existing preview session (RANGE_V2). Every failure is a truthful reason. */
   const mediaEnabled = Boolean(treeState?.flags?.mediaPreviewEnabled) && Boolean(unlockedState)
+  // D-1 (PR-B): derivative-first tiles from the separate encrypted preview index — read-only, built only when the
+  // server serves previewIndexReadEnabled=true. Every miss/failure falls through to the unchanged original path below.
+  const previewIndexEnabled = mediaEnabled && treeState?.flags?.previewIndexReadEnabled === true
+  const previewTiles = useMemo(
+    () => (previewIndexEnabled && unlockedState && kek ? createPreviewIndexTiles({ kek, unlockedState }) : null),
+    [previewIndexEnabled, unlockedState, kek],
+  )
+  const previewTilesRef = useRef(previewTiles)
+  previewTilesRef.current = previewTiles
+  useEffect(() => () => { previewTiles?.clear() }, [previewTiles])
   const reducedMotion = useReducedMotion()
   const [mediaMap, setMediaMap] = useState(() => new Map())
   const [motionState, setMotionState] = useState(null)
@@ -706,6 +717,9 @@ export function VaultTreeScreen({
       load: async (key, { signal } = {}) => {
         const node = mediaHeadRef.current?.index.nodes.get(key)
         if (!node?.blobRef) throw new Error('NOT_FOUND')
+        // D-1: a verified encrypted thumb/poster for this exact file version, if the index has one (never the original)
+        const fromIndex = await previewTilesRef.current?.tryTile(node, kindOfRef.current(node), { signal, index: mediaHeadRef.current?.index })
+        if (fromIndex) return fromIndex
         const blob = mediaBlobIndexRef.current.get(refKey(node.blobRef))
         if (!blob) throw Object.assign(new Error('BLOB_NOT_READY'), { code: 'BLOB_NOT_READY' })
         const kind = kindOfRef.current(node)
@@ -778,6 +792,11 @@ export function VaultTreeScreen({
   schedulerRef.current = scheduler
 
   useEffect(() => () => { void scheduler?.releaseAll?.() }, [scheduler])
+
+  // D-1: (re)read the preview-index head whenever the decrypted main head changes (one GET; 404 = no index)
+  useEffect(() => {
+    if (previewTiles && head) void previewTiles.load(head)
+  }, [previewTiles, head?.treeId, head?.revisionId])
 
   const prevFolderRef = useRef(null)
   useEffect(() => {
