@@ -14,6 +14,7 @@ function validBody({
   sharedSurfaces = 'None',
   receipt = `- \`Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_${owner}_policy-test.md\``,
   integrationRequests = 'None',
+  inheritedReceipts = 'None',
 } = {}) {
   return `<!-- collaboration-policy
 area: ${area}
@@ -29,6 +30,9 @@ integration-review: ${integrationReview}
 
 ## Obsidian receipt
 ${receipt}
+
+## Inherited task receipts
+${inheritedReceipts}
 
 ## Canonical notes updated
 - Relevant area status note.
@@ -92,6 +96,7 @@ function runPolicy({
   draft = false,
   changes,
   receiptContent,
+  receiptContents = {},
 }) {
   const fixtureDir = mkdtempSync(join(tmpdir(), 'aegis-policy-'));
   const eventPath = join(fixtureDir, 'event.json');
@@ -114,7 +119,7 @@ function runPolicy({
       mkdirSync(dirname(absoluteReceiptPath), { recursive: true });
       writeFileSync(
         absoluteReceiptPath,
-        receiptContent ?? validReceipt({ area: policy.area, owner: policy.owner, branch }),
+        receiptContents[path] ?? receiptContent ?? validReceipt({ area: policy.area, owner: policy.owner, branch }),
       );
     }
   }
@@ -582,4 +587,168 @@ test('Obsidian uses immutable per-task receipts and freezes the legacy shared lo
   assert.match(schema, /90-Status\/logs/i);
   assert.match(schema, /legacy.*frozen/is);
   assert.doesNotMatch(schema, /log\.md remains the source of truth/i);
+});
+
+
+test('accepts a Draft stacked PR with one explicitly declared inherited receipt and deferred own receipt', () => {
+  const inheritedPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170001_pub_inherited-policy-test.md';
+  const result = runPolicy({
+    draft: true,
+    body: validBody({
+      receipt: 'Pending — task remains Draft and in progress.',
+      inheritedReceipts: `- \`${inheritedPath}\` — inherited from a completed IDEA2 child task.`,
+    }),
+    changes: [
+      'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+      `A\t${inheritedPath}`,
+    ].join('\n'),
+    receiptContents: {
+      [inheritedPath]: validReceipt({ area: 'idea2', owner: 'pub', branch: 'fix/idea2-child-task' }),
+    },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /collaboration policy passed/i);
+});
+
+test('rejects an undeclared foreign-branch receipt in a stacked PR', () => {
+  const inheritedPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170001_pub_inherited-policy-test.md';
+  const result = runPolicy({
+    draft: true,
+    body: validBody({ receipt: 'Pending — task remains Draft and in progress.' }),
+    changes: `A\t${inheritedPath}`,
+    receiptContents: {
+      [inheritedPath]: validReceipt({ area: 'idea2', owner: 'pub', branch: 'fix/idea2-child-task' }),
+    },
+  });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /explicitly declared under Inherited task receipts/i);
+});
+
+test('requires a current-task receipt before Ready even when inherited receipts are present', () => {
+  const inheritedPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170001_pub_inherited-policy-test.md';
+  const result = runPolicy({
+    body: validBody({
+      receipt: 'Pending — task remains in progress.',
+      inheritedReceipts: `- \`${inheritedPath}\` — inherited from a completed IDEA2 child task.`,
+    }),
+    changes: `A\t${inheritedPath}`,
+    receiptContents: {
+      [inheritedPath]: validReceipt({ area: 'idea2', owner: 'pub', branch: 'fix/idea2-child-task' }),
+    },
+  });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /final current-task Obsidian receipt.*Ready\/non-Draft/i);
+});
+
+test('accepts Ready PR with one current-task receipt plus an explicitly declared inherited receipt', () => {
+  const currentPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_kla_policy-test.md';
+  const inheritedPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170001_pub_inherited-policy-test.md';
+  const result = runPolicy({
+    body: validBody({
+      receipt: `- \`${currentPath}\``,
+      inheritedReceipts: `- \`${inheritedPath}\` — inherited from a completed IDEA2 child task.`,
+    }),
+    changes: [`A\t${currentPath}`, `A\t${inheritedPath}`].join('\n'),
+    receiptContents: {
+      [currentPath]: validReceipt({ area: 'idea1', owner: 'kla', branch: 'feat/idea1-policy-test' }),
+      [inheritedPath]: validReceipt({ area: 'idea2', owner: 'pub', branch: 'fix/idea2-child-task' }),
+    },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test('rejects two current-task receipts even when stacked receipts are supported', () => {
+  const firstPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_kla_policy-test.md';
+  const secondPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170001_kla_second-policy-test.md';
+  const result = runPolicy({
+    draft: true,
+    body: validBody({ receipt: `- \`${firstPath}\`\n- \`${secondPath}\`` }),
+    changes: [`A\t${firstPath}`, `A\t${secondPath}`].join('\n'),
+  });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /at most one current-task.*receipt/i);
+});
+
+test('does not require an inherited receipt to list later parent cross-scope paths', () => {
+  const currentPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_kla_policy-test.md';
+  const inheritedPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170001_pub_inherited-policy-test.md';
+  const result = runPolicy({
+    body: validBody({
+      integrationReview: 'yes',
+      receipt: `- \`${currentPath}\``,
+      inheritedReceipts: `- \`${inheritedPath}\` — inherited from a completed IDEA2 child task.`,
+      sharedSurfaces: '- `gateway/nginx.conf` — parent task cross-scope route.',
+      integrationRequests: '- Gateway owner must review the route.',
+    }),
+    changes: ['M\tgateway/nginx.conf', `A\t${currentPath}`, `A\t${inheritedPath}`].join('\n'),
+    receiptContents: {
+      [currentPath]: validReceipt({
+        area: 'idea1',
+        owner: 'kla',
+        branch: 'feat/idea1-policy-test',
+        sharedSurfaces: '- `gateway/nginx.conf` — parent task cross-scope route.',
+        integrationRequests: '- Gateway owner must review the route.',
+      }),
+      [inheritedPath]: validReceipt({ area: 'idea2', owner: 'pub', branch: 'fix/idea2-child-task' }),
+    },
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test('still rejects a current-task receipt that omits a parent cross-scope path', () => {
+  const currentPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170000_kla_policy-test.md';
+  const inheritedPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170001_pub_inherited-policy-test.md';
+  const result = runPolicy({
+    body: validBody({
+      integrationReview: 'yes',
+      receipt: `- \`${currentPath}\``,
+      inheritedReceipts: `- \`${inheritedPath}\` — inherited from a completed IDEA2 child task.`,
+      sharedSurfaces: '- `gateway/nginx.conf` — parent task cross-scope route.',
+      integrationRequests: '- Gateway owner must review the route.',
+    }),
+    changes: ['M\tgateway/nginx.conf', `A\t${currentPath}`, `A\t${inheritedPath}`].join('\n'),
+    receiptContents: {
+      [currentPath]: validReceipt({ area: 'idea1', owner: 'kla', branch: 'feat/idea1-policy-test' }),
+      [inheritedPath]: validReceipt({ area: 'idea2', owner: 'pub', branch: 'fix/idea2-child-task' }),
+    },
+  });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /Receipt Shared surfaces touched must name gateway\/nginx\.conf/i);
+});
+
+test('rejects fake inherited receipt declarations that are not added foreign-branch receipts', () => {
+  const inheritedPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-13_170001_pub_inherited-policy-test.md';
+  const result = runPolicy({
+    draft: true,
+    body: validBody({
+      receipt: 'Pending — task remains Draft and in progress.',
+      inheritedReceipts: `- \`${inheritedPath}\` — claimed inherited receipt.`,
+    }),
+    changes: 'M\tIDEA1-AEGIS_Drive_LC/src/App.jsx',
+  });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /declaration does not match an added foreign-branch receipt/i);
+});
+
+test('preserves receipt immutability for declared inherited history', () => {
+  const inheritedPath = 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-08-12_120000_pub_previous-task.md';
+  const result = runPolicy({
+    draft: true,
+    body: validBody({
+      receipt: 'Pending — task remains Draft and in progress.',
+      inheritedReceipts: `- \`${inheritedPath}\` — inherited historical receipt.`,
+    }),
+    changes: `M\t${inheritedPath}`,
+  });
+
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /existing Obsidian task receipts are immutable/i);
 });
