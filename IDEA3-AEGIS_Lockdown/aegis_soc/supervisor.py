@@ -299,8 +299,21 @@ class AegisSupervisor:
         origin: str = "unknown",
         authorize_restore: bool = False,
         not_after: float | None = None,
+        restore_basis: str | None = None,
     ):
         """Issue a physical command and let Core own pending-ACK state."""
+        if (
+            action == "RESTORE_UPLINK"
+            and self.settings.profile == "production"
+            and restore_basis not in lr.PRODUCTION_RESTORE_BASES
+        ):
+            # Production chokepoint: no caller can publish RESTORE without the explicit Recovery policy basis, which only the
+            # D4 gate supplies after the preconditions passed. Break-glass is not a basis (owner decision pending).
+            detail = "RESTORE_UPLINK rejected: production RESTORE requires the verified Recovery policy basis"
+            db.log_event("COMMAND_REJECTED", f"{detail} (origin={origin})", db.WARN)
+            return CommandResult(
+                action, False, False, self.controller.dry_run, None, detail, reason_code="RESTORE_POLICY_REQUIRED",
+            )
         containment = action == "CUT_UPLINK"
         if containment:
             with self._containment_count_lock:
@@ -624,6 +637,11 @@ class AegisSupervisor:
             monotonic=self.monotonic,
             incident_lookup=db.get_open_incident,
             attempt_lookup=db.restore_attempt_exists,
+            # Production only: a non-production Core cannot satisfy the Recovery gates (they refuse NOT_PRODUCTION), so the
+            # lab D4 gate keeps its original behaviour. In production the policy is mandatory (see issue_command).
+            precondition_lookup=(
+                self.recovery.restore_precondition_unmet if self.settings.profile == "production" else None
+            ),
         )
         server = lr.LocalRestoreServer(self.settings.runtime_dir / lr.CHANNEL_NAME, gate)
         server.start()

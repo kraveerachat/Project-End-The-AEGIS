@@ -99,6 +99,7 @@ def make_env(tmp_path, monkeypatch, credential, *, profile="production", contain
         monotonic=lambda: env.core.now[0],
         incident_lookup=db.get_open_incident,
         attempt_lookup=db.restore_attempt_exists,
+        precondition_lookup=env.service.restore_precondition_unmet,  # the same wiring the production supervisor applies
     )
     env.peer = lr.Peer(uid=os.geteuid(), pid=4242)
     return env
@@ -123,7 +124,16 @@ def incident_count():
     return len(db.fetch_incidents(1000))
 
 
+def isolate_first(env):
+    """The production R5 policy: R1 bound and a verified R3 for the open incident before D4 may publish a RESTORE."""
+    if db.get_open_incident() is None:
+        env.service.bind_incident(IP)
+    if gates(op(env, rp.OP_STATUS))[rp.R3]["status"] != rp.VERIFIED:
+        assert op(env, rp.OP_ISOLATE)["code"] == "R3_VERIFIED"
+
+
 def run_restore_to_normal(env, *, ack=True, normal=True):
+    isolate_first(env)
     published = env.core.ask(request())
     assert published["code"] == "PUBLISHED"
     msg_id, seq = published["msg_id"], published["seq"]
@@ -354,13 +364,25 @@ def test_any_durable_restore_row_for_the_incident_blocks_a_second_attempt(env):
     assert env.core.commands() == [] and env.core.client.published == []
 
 
-def test_a_restore_without_an_open_incident_keeps_the_original_d4_behavior(env):
-    assert env.core.ask(request())["code"] == "PUBLISHED"
-    assert not any(row for row in db.fetch_all_logs() if row[5] is not None and row[3] == "RESTORE_REQUESTED")
+def test_a_production_restore_without_an_open_incident_is_refused_and_only_the_lab_gate_keeps_the_original_behavior(
+    env, tmp_path, monkeypatch, credential,
+):
+    refused = env.core.ask(request())
+    assert (refused["ok"], refused["code"]) == (False, "RECOVERY_PRECONDITION_UNMET") and env.core.client.published == []
+    lab = make_env(tmp_path / "lab", monkeypatch, credential, profile="development", db_path=tmp_path / "lab.sqlite3")
+    try:
+        lab.core.supervisor.start_local_restore()
+        gate = lab.core.supervisor.local_restore.gate
+        assert gate.precondition_lookup is None  # a non-production Core cannot satisfy the Recovery gates
+        assert gate.handle(request(), lab.peer)["code"] == "PUBLISHED"
+        assert not any(row for row in db.fetch_all_logs() if row[5] is not None and row[3] == "RESTORE_REQUESTED")
+    finally:
+        lab.core.close()
 
 
 def test_the_spent_attempt_survives_a_ui_close_and_a_core_restart(env, tmp_path, monkeypatch, credential):
     incident_id = env.service.bind_incident(IP)["incident_id"]
+    isolate_first(env)
     assert env.core.ask(request())["code"] == "PUBLISHED"
     audit_path = config.DB_PATH
     env.core.close()
@@ -379,7 +401,7 @@ def test_the_spent_attempt_survives_a_ui_close_and_a_core_restart(env, tmp_path,
 
 
 def test_a_definitively_unsent_attempt_still_consumes_the_one_shot(env):
-    env.service.bind_incident(IP)
+    isolate_first(env)
     env.core.client.publish_rc = 1
     first = env.core.ask(request())
     assert first["ok"] is False and first["evidence"]["published"] == "NOT_PUBLISHED"
@@ -452,6 +474,7 @@ def full_chain(env):
 
 def test_probes_run_in_the_core_and_report_the_running_core_state(env):
     full_chain(env)
+    env.tcp_targets.clear()  # the RESTORE precondition made its own fresh R2 probe; count only PROBE's
     response = op(env, rp.OP_PROBE)
     by_gate = gates(response)
     assert [by_gate[g]["status"] for g in (rp.R2, rp.R6, rp.R7)] == [rp.VERIFIED] * 3

@@ -203,6 +203,15 @@ def get_open_incident():
     return {"id": row[0], "opened_at": row[1], "state": row[2], "attacker_ip": row[3]}
 
 
+def count_open_incidents():
+    """Number of incidents that are not CLOSED (Recovery requires exactly one before it allows a RESTORE)."""
+    conn = _connect()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM incidents WHERE state != 'CLOSED'").fetchone()[0]
+    finally:
+        conn.close()
+
+
 def set_incident_state(incident_id, state):
     conn = _connect()
     c = conn.cursor()

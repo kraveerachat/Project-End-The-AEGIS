@@ -295,18 +295,26 @@ class CoreRecoveryService:
         data = {"gates": [r4, r5], "restore": ladder, "restore_channel": "aegisctl restore (Core-local D4, terminal only)"}
         return rp.response(True, "RESTORE_STATUS", "evidence from the Core; not physical evidence", data)
 
-    # ------------------------------------------------------------------ R5 ordering (pure; not wired to production yet)
+    # ------------------------------------------------------------------ R5 normal-path policy (wired into the production D4 gate)
 
     def restore_precondition_unmet(self, incident: dict | None) -> str | None:
-        """Why a RESTORE must not be recorded yet, or None. R1 VERIFIED, durable R3 VERIFIED, then one fresh R2 probe.
+        """Why a RESTORE must not be recorded yet, or None. Evaluated against ONE incident snapshot passed by the D4 gate.
 
-        Pure of authority: it neither issues nor records anything. It is NOT wired into the production D4 gate until
-        the owner approves a break-glass path (otherwise it could lock the owner out); see the design note.
+        Requires exactly one open incident, R1 (a valid bound attacker address), R3 for THIS incident (the latest result
+        row is VERIFIED for the same address AND the containment read-back still agrees now), then one fresh R2 probe.
+        It neither issues nor records anything. There is no break-glass: with no incident or an unmet gate the answer is a
+        refusal, and that stays an owner decision.
         """
         r1 = self._incident_gate(incident)
         if r1["status"] != rp.VERIFIED:
             return "R1 is not verified: no Core-bound incident"
-        if self._isolation_gate(incident)["status"] != rp.VERIFIED:
+        try:
+            open_incidents = db.count_open_incidents()
+        except Exception:
+            return "R1 is not verified: the incident record is unavailable"
+        if open_incidents != 1:
+            return "R1 is not verified: exactly one open incident is required"
+        if self._isolation_live_gate(incident)["status"] != rp.VERIFIED:
             return "R3 is not verified: isolate the attacker first"
         if self._run_r2(r1)["status"] != rp.VERIFIED:
             return "R2 is not verified: management access probe failed"

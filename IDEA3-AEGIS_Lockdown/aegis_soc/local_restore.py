@@ -29,6 +29,14 @@ from .controller import RESTORE_UPLINK
 
 CHANNEL_NAME = "local-restore.sock"
 CONTROLLER_ORIGIN = "aegisctl-local"
+
+# Production RESTORE policy basis. The D4 gate hands the supervisor exactly one approved basis, and only after the Recovery
+# preconditions (one open incident, R1, live R3 for the same address, fresh R2) passed on one incident snapshot.
+RESTORE_BASIS_R3_VERIFIED = "R3_VERIFIED"
+PRODUCTION_RESTORE_BASES = frozenset({RESTORE_BASIS_R3_VERIFIED})
+# No break-glass basis exists: a RESTORE with no incident or an unmet R3 is refused in production until the owner decides
+# the authority, the second confirmation and the retry identifier.
+BREAK_GLASS = "OWNER_DECISION_REQUIRED"
 LOCAL_REQUEST_ORIGIN = "core-local-console"
 CONFIRMATION = "RESTORE UPLINK"
 REASON_MIN_CHARS = 12
@@ -283,6 +291,10 @@ def restore_evidence_ladder(supervisor, msg_id: str):
     return row["seq"], ladder
 
 
+def _incident_key(incident: dict | None):
+    return (incident.get("id"), incident.get("attacker_ip"), incident.get("state")) if incident else None
+
+
 class LocalRestoreGate:
     def __init__(
         self,
@@ -303,9 +315,10 @@ class LocalRestoreGate:
         # RESTORE_REQUESTED row for that incident permanently consumes the attempt.
         self.incident_lookup = incident_lookup
         self.attempt_lookup = attempt_lookup
-        # Inert unless wired (the production supervisor does not wire it yet: owner break-glass decision pending).
-        # Called with the open incident after credential + confirmation and before the command guard; returns None
-        # when R1/R3/R2 preconditions hold, otherwise a short reason. A refusal never consumes the one-shot.
+        # The production supervisor wires the Recovery policy here. Called with ONE incident snapshot after credential +
+        # confirmation + reason + origin, a spent-attempt check and before the command guard (it may probe the network);
+        # returns None when the preconditions hold, otherwise a short reason. A refusal never consumes the one-shot.
+        # Unwired (None) only in lab/test gates, where the production chokepoint in the supervisor does not apply.
         self.precondition_lookup = precondition_lookup
         self.allowed_uid = int(allowed_uid)
         self.audit = audit or db.log_event
@@ -398,13 +411,42 @@ class LocalRestoreGate:
             return self._refuse(problem, "a bounded, printable operator reason is required", peer)
         if body.get("origin") != LOCAL_REQUEST_ORIGIN:
             return self._refuse("ORIGIN_REFUSED", "request origin is not the approved local console", peer)
+        # ONE incident snapshot: evaluated here, compared again under the guard, and the only incident the audit row binds.
+        snapshot = None
+        if self.incident_lookup is not None:
+            try:
+                snapshot = self.incident_lookup()
+            except Exception:
+                return self._refuse("AUDIT_UNAVAILABLE", "the incident record is unavailable", peer)
+        incident_id = snapshot["id"] if snapshot else None
+        if incident_id is not None and self.attempt_lookup is not None:
+            try:
+                spent = self.attempt_lookup(incident_id)
+            except Exception:
+                return self._refuse("AUDIT_UNAVAILABLE", "the incident attempt record is unavailable", peer)
+            if spent:
+                return self._refuse(
+                    "RESTORE_ATTEMPT_CONSUMED",
+                    "a RESTORE attempt for this incident already exists; it is never repeated automatically",
+                    peer,
+                )
+        basis = None
         if self.precondition_lookup is not None:
             try:
-                unmet = self.precondition_lookup(self.incident_lookup() if self.incident_lookup else None)
+                unmet = self.precondition_lookup(snapshot)
             except Exception:
                 unmet = "precondition check failed"
             if unmet:
                 return self._refuse("RECOVERY_PRECONDITION_UNMET", str(unmet)[:120], peer)
+            if incident_id is None:
+                # Defense in depth: even a policy that wrongly passes can never publish a production RESTORE whose durable
+                # RESTORE_REQUESTED row would carry a NULL incident_id (the one-shot index does not cover NULL).
+                return self._refuse("RECOVERY_PRECONDITION_UNMET", "a production RESTORE needs a Core-bound incident", peer)
+            basis = RESTORE_BASIS_R3_VERIFIED
+        elif getattr(getattr(self.supervisor, "settings", None), "profile", None) == "production":
+            # A production gate without the Recovery policy would be refused by the supervisor chokepoint only AFTER the
+            # durable one-shot row was written; refuse here so a miswired gate can never spend an attempt.
+            return self._refuse("RECOVERY_PRECONDITION_UNMET", "the production RESTORE policy is not wired", peer)
         with self.supervisor.command_guard():
             if self.supervisor.pending_command is not None:
                 return self._refuse("COMMAND_PENDING", "another relay command is awaiting ACK", peer)
@@ -415,11 +457,13 @@ class LocalRestoreGate:
                 return self._refuse("RESTORE_ALREADY_PENDING", "RESTORE is awaiting device status evidence", peer)
 
             reason = body["reason"].strip()
-            incident_id = None
             if self.incident_lookup is not None:
                 try:
-                    incident = self.incident_lookup()
-                    incident_id = incident["id"] if incident else None
+                    current = self.incident_lookup()
+                    if _incident_key(current) != _incident_key(snapshot):
+                        return self._refuse(
+                            "INCIDENT_CHANGED", "the open incident changed while RESTORE was being checked; nothing was sent", peer,
+                        )
                     if incident_id is not None and self.attempt_lookup is not None and self.attempt_lookup(incident_id):
                         return self._refuse(
                             "RESTORE_ATTEMPT_CONSUMED",
@@ -452,6 +496,7 @@ class LocalRestoreGate:
                 critical=True,
                 origin=CONTROLLER_ORIGIN,
                 authorize_restore=True,
+                restore_basis=basis,
             )
         if result.sent:
             if incident_id is not None:
