@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -37,7 +38,7 @@ EXPECTED_SCOPE = (
 DNSMASQ_PROPS = {"LoadState": "loaded", "ActiveState": "failed", "SubState": "failed", "UnitFileState": "enabled", "Result": "start-limit-hit", "MainPID": "0"}
 BROKER_PROPS = {
     "LoadState": "loaded", "ActiveState": "activating", "SubState": "auto-restart", "UnitFileState": "enabled", "Result": "exit-code", "MainPID": "0",
-    "NRestarts": "832", "ExecMainStatus": "1", "Restart": "on-failure", "RestartUSec": "5s",
+    "NRestarts": "832", "ExecMainStatus": "1", "Restart": "on-failure", "RestartUSec": "5s", "InvocationID": "0123456789abcdef0123456789abcdef",
 }
 HEALTHY = {"ActiveState": "active", "SubState": "running", "LoadState": "loaded", "Result": "success", "MainPID": "883", "NRestarts": "0"}
 SIGNATURE = "1790808305: Error: Cannot assign requested address"
@@ -48,16 +49,23 @@ HANDLER = r'''#!/usr/bin/env bash
 name=$(basename "$0" .sh)
 echo "$name" >> "$SIM_DIR/calls.log"
 mkdir -p "$AEGIS_L34_WORK_DIR"
+marker_state() { if [ -e "$(cat "$SIM_DIR/marker-path")" ]; then echo yes; else echo no; fi; }
 case "$name" in
   apply)
-    if [ "${AEGIS_L34_PREFLIGHT_ONLY:-NO}" = YES ]; then echo "L34_BASELINE=RESIDUAL"; echo "L34_V7_PREFLIGHT=PASS"; exit 0; fi
+    if [ "${AEGIS_L34_PREFLIGHT_ONLY:-NO}" = YES ]; then
+      echo "marker@preflight:$(marker_state)" >> "$SIM_DIR/calls.log"
+      [ ! -e "$SIM_DIR/fail-preflight" ] || { echo "L34_V7_PREFLIGHT=FAIL reason=SIM" >&2; exit 1; }
+      echo "L34_BASELINE=RESIDUAL"; echo "L34_V7_PREFLIGHT=PASS"; exit 0
+    fi
+    echo "marker@apply:$(marker_state)" >> "$SIM_DIR/calls.log"
     echo YES > "$AEGIS_L34_WORK_DIR/production-mutation"
+    [ ! -e "$SIM_DIR/fail-apply" ] || { echo "L34_V7_APPLY=FAIL reason=SIM" >&2; exit 1; }
     echo "L34_V7_APPLY=PASS" ;;
   verify) echo "L34_V7_VERIFY=PASS" ;;
   rollback) echo "L34_V7_ROLLBACK=PASS" ;;
 esac
 '''
-CAPTURE = '#!/usr/bin/env bash\necho "capture:$CAPTURE_LABEL" >> "$SIM_DIR/calls.log"\nmkdir -p "$EVID_DIR"\necho "L0_CAPTURE=COMPLETE" > "$EVID_DIR/capture.log"\n(cd "$EVID_DIR" && sha256sum capture.log > SHA256SUMS)\n'
+CAPTURE = '#!/usr/bin/env bash\necho "capture:$CAPTURE_LABEL" >> "$SIM_DIR/calls.log"\nif [ -e "$(cat "$SIM_DIR/marker-path")" ]; then echo "marker@capture-$CAPTURE_LABEL:yes" >> "$SIM_DIR/calls.log"; else echo "marker@capture-$CAPTURE_LABEL:no" >> "$SIM_DIR/calls.log"; fi\n[ ! -e "$SIM_DIR/fail-capture-$CAPTURE_LABEL" ] || exit 1\nmkdir -p "$EVID_DIR"\necho "L0_CAPTURE=COMPLETE" > "$EVID_DIR/capture.log"\n(cd "$EVID_DIR" && sha256sum capture.log > SHA256SUMS)\n'
 COMPARE = ('#!/usr/bin/env bash\necho "compare:$*" >> "$SIM_DIR/calls.log"\nenv | grep -E "^ALLOW_" >> "$SIM_DIR/calls.log"\n'
            "printf 'FINDINGS_NEW_OR_WORSENED_DRIFT=0\\nFINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0\\nFINDINGS_INCOMPARABLE=0\\nPRESERVATION_S10=PASS\\nCOMPARE_RESULT=PASS\\n'\n")
 STAGE_GATE = "#!/usr/bin/env bash\nprintf 'AUTHORIZATION_RECORD=VALID\\nK3_CONFIRMATION=VALID\\n'\n"
@@ -170,10 +178,17 @@ class Sim:
         self.runner = self.dir / "run-l34-v7-owner.sh"
         self.runner.write_text(text)
         self.evid_base.mkdir()
+        (self.dir / "marker-path").write_text(str(self.auth / "L34-V7-REACTIVATION-ATTEMPT-CONSUMED"))
 
     def run(self) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ, SIM_DIR=str(self.dir), PATH=f"{self.bin}:{os.environ['PATH']}", TZ="Asia/Bangkok")
         return subprocess.run(["bash", str(self.runner), str(self.auth)], text=True, capture_output=True, env=env, check=False)
+
+    def inject(self, name: str) -> None:
+        (self.dir / name).write_text("1\n")
+
+    def clear(self, name: str) -> None:
+        (self.dir / name).unlink()
 
     def marker(self) -> bool:
         return (self.auth / "L34-V7-REACTIVATION-ATTEMPT-CONSUMED").exists()
@@ -209,6 +224,8 @@ def test_v7_runner_compare_uses_the_v7_catalogs_and_the_exact_v3_baseline_catalo
 @pytest.mark.parametrize("kw,needle", [
     (dict(journal="mosquitto[1]: Error: Unable to load server certificate"), "L34_V7_BROKER_JOURNAL_SIGNATURE_MISSING"),
     (dict(journal=SIGNATURE + "\nmosquitto[1]: Error: Unable to load server certificate"), "L34_V7_BROKER_JOURNAL_OTHER_ERROR"),
+    (dict(broker={"InvocationID": ""}), "L34_V7_BROKER_INVOCATION_ID_INVALID"),
+    (dict(broker={"InvocationID": "not-a-valid-invocation-id"}), "L34_V7_BROKER_INVOCATION_ID_INVALID"),
     (dict(broker={"Restart": "always"}), "L34_V7_BROKER_PRESTATE_UNEXPECTED:Restart"),
     (dict(broker={"ActiveState": "active", "SubState": "running", "MainPID": "5100"}), "L34_V7_BROKER_PRESTATE_UNEXPECTED"),
     (dict(listener_rows="LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*"), "L34_V7_UNEXPECTED_8883_LISTENER"),
@@ -234,3 +251,79 @@ def test_v7_runner_leaves_the_original_l34_runner_and_its_broker_gate_untouched(
     assert 'gate "L6b broker is not inactive (L6b must not have started)"' in text
     assert "V7" not in text and "v7" not in text
     assert "run-l34-v7" not in RUNNER.read_text().replace("run-l34-v7-radio-disabled-broker-churn-owner.sh", "")
+
+
+# ── F1: the one-shot authorization is consumed only AFTER handler preflight and PRE capture, immediately before the first mutation ──────────────
+
+def _non_mutating_calls(sim: Sim) -> list[str]:
+    return [c for c in sim.calls() if not c.startswith(("marker@", "compare:", "ALLOW_"))]
+
+
+def test_v7_f1_preflight_failure_does_not_consume_the_authorization(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    sim.inject("fail-preflight")
+    res = sim.run()
+    assert res.returncode == 1 and "preflight failed; NOTHING was changed" in res.stdout + res.stderr, res.stdout + res.stderr
+    assert not sim.marker(), "a refused preflight must leave the one-shot authorization intact"
+    assert _non_mutating_calls(sim) == ["apply"], "only the read-only preflight ran; no PRE capture, no mutation"
+    assert "marker@apply:no" not in sim.calls() and "marker@apply:yes" not in sim.calls()
+
+
+def test_v7_f1_authorization_is_reusable_after_a_refused_preflight(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    sim.inject("fail-preflight")
+    assert sim.run().returncode == 1 and not sim.marker()
+    sim.clear("fail-preflight")
+    time.sleep(1.1)  # the evidence directory name has one-second resolution; a real owner retry is always later than that
+    retry = sim.run()
+    assert retry.returncode == 0 and sim.marker(), retry.stdout + retry.stderr
+
+
+def test_v7_f1_pre_capture_failure_does_not_consume_the_authorization(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    sim.inject("fail-capture-pre")
+    res = sim.run()
+    assert res.returncode == 1 and "PRE capture failed; nothing changed" in res.stdout + res.stderr, res.stdout + res.stderr
+    assert not sim.marker()
+    assert [c for c in sim.calls() if c in ("apply", "verify", "rollback")] == ["apply"], "preflight only: the mutating apply never ran"
+    assert "marker@apply:yes" not in sim.calls() and "marker@apply:no" not in sim.calls()
+
+
+def test_v7_f1_successful_preflight_and_pre_capture_then_consume_immediately_before_mutation(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    calls = sim.calls()
+    assert "marker@preflight:no" in calls, "nothing is consumed before the handler preflight"
+    assert "marker@capture-pre:no" in calls, "nothing is consumed before the PRE capture"
+    assert "marker@apply:yes" in calls, "the mutating apply starts only after the authorization was consumed"
+    assert calls.index("marker@capture-pre:no") < calls.index("marker@apply:yes")
+
+
+def test_v7_f1_apply_failure_leaves_the_authorization_consumed_and_rolls_back(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    sim.inject("fail-apply")
+    res = sim.run()
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert sim.marker(), "once mutation started the attempt is spent, even after a failure"
+    assert [c for c in sim.calls() if c in ("apply", "verify", "rollback")] == ["apply", "apply", "rollback"]
+
+
+def test_v7_f1_replay_after_a_failed_mutation_is_refused_before_any_work(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    sim.inject("fail-apply")
+    assert sim.run().returncode == 1 and sim.marker()
+    before = len(sim.calls())
+    sim.clear("fail-apply")
+    second = sim.run()
+    assert second.returncode == 1 and "already consumed its one bounded attempt" in second.stderr
+    assert len(sim.calls()) == before, "a replay must not even run the preflight"
+
+
+def test_v7_f1_runner_source_consumes_the_marker_after_pre_capture_and_before_apply() -> None:
+    text = RUNNER.read_text()
+    pre_cap = text.index('capture PRE "$EVID/pre-root"')
+    consume = text.index("set -o noclobber")
+    apply = text.index("handler apply.sh 2>&1")
+    preflight = text.index("AEGIS_L34_PREFLIGHT_ONLY_RUN=YES handler apply.sh")
+    assert preflight < pre_cap < consume < apply

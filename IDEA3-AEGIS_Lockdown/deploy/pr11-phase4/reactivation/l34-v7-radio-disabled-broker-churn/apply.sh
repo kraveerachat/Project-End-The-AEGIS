@@ -152,7 +152,7 @@ l34_v4_autoconnect_pre_gate "$dev_ac_pre" "$ap_profile_ac" || fail "$(reason_of 
 
 # broker: the strict churn contract, and no 8883 listener of any kind
 l34_v7_broker_show "$BROKER_UNIT" > "$WORK/broker-pre.txt" || fail L34_V7_BROKER_SHOW_FAILED
-journalctl -u "$BROKER_UNIT" -n 30 --no-pager > "$WORK/broker-journal-pre.txt" 2>&1 || fail L34_V7_BROKER_JOURNAL_UNREADABLE
+l34_v7_broker_journal_capture "$BROKER_UNIT" "$WORK/broker-pre.txt" "$WORK/broker-journal-pre.txt" || fail "$(reason_of l34_v7_broker_journal_capture "$BROKER_UNIT" "$WORK/broker-pre.txt" "$WORK/broker-journal-pre.txt")"
 l34_v7_broker_churn_gate "$WORK/broker-journal-pre.txt" < "$WORK/broker-pre.txt" \
   || fail "$(l34_v7_broker_churn_gate "$WORK/broker-journal-pre.txt" < "$WORK/broker-pre.txt" 2>&1 | head -n 1)"
 l34_v7_no_8883_listener_gate || fail "$(reason_of l34_v7_no_8883_listener_gate)"

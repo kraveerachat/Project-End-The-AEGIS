@@ -104,8 +104,12 @@ unit            LoadState=loaded, UnitFileState=enabled
 restart policy  Restart=on-failure and RestartUSec=5s (the expected unit policy)
 state           ActiveState=activating, SubState=auto-restart, MainPID=0 (between automatic restarts)
 last exit       Result=exit-code and ExecMainStatus=1 (plain non-zero exit: not a signal, OOM, timeout or start-limit-hit); NRestarts numeric
-journal         the broker's own bind-failure signature "Error: Cannot assign requested address" is present in the bounded tail (journalctl -n 30)
-                AND no other "Error:" line is present (a second, unrelated failure signature refuses the baseline)
+identity        InvocationID (systemctl show) is a non-empty 32-hex id of the failed broker invocation (pre-lock hardening F2)
+journal         the bounded tail is read ONLY with `journalctl -u UNIT -b _SYSTEMD_INVOCATION_ID=<that id> -n 30` (current boot + that invocation), its first
+                line records `# AEGIS-V7-CORRELATION boot=current unit=... invocation=<id>` and the gate re-checks it against the same `systemctl show` capture;
+                within it the broker's own bind-failure signature "Error: Cannot assign requested address" is present
+                AND no other "Error:" line is present (a second, unrelated failure signature refuses the baseline). Bind evidence from a previous boot or an
+                earlier invocation is never visible to the gate, so it cannot combine with an unrelated current exit failure.
 config          the broker config (only ever READ) has exactly the active listeners `listener 8883 127.0.0.1` and `listener 8883 10.77.30.1`,
                 no other listener, no global port/bind_address; persisted and re-verified byte/metadata-identical after the run (l34_persistent_verify)
 listeners       NO 8883 listener of any kind exists (ss sport = :8883 is empty)
@@ -153,7 +157,9 @@ allows the broker's runtime fields and the approved listener set, and records `L
 workflow pins it. It requires a same-day `stage=L4` authorization whose `scope=` equals the exact V7 scope (<=200 printable ASCII), a valid K3 record
 through the unchanged `p4-stage-gate.sh --mode live`, a clean worktree at the pinned main (= origin/main), the historical L3/L4 acceptance receipts, a
 non-root invoking user with `sudo`, and the exact V7 host baseline (dnsmasq pre-state, broker-churn contract, no 8883 listener, healthy Core, healthy
-legacy/IDEA2 units). One bounded attempt per authorization (atomic `noclobber` marker), no retry. It prints `RECOVERY_R1_R8_PROVEN=NO` and
+legacy/IDEA2 units). One bounded attempt per authorization (atomic `noclobber` marker), no retry. **Ordering (pre-lock hardening F1):** pre-gates → handler
+preflight → PRE capture → consume the marker → first mutation. A refused preflight or failed PRE capture changes nothing and leaves the authorization
+usable; once the marker is consumed (immediately before `apply.sh`) the attempt is spent, even if apply or verify fails and rollback runs. It prints `RECOVERY_R1_R8_PROVEN=NO` and
 `L8_AUTHORIZED=NO`. The PRE->POST comparison reuses the exact V3 catalogs of the baseline the preflight reported (FRESH|RESIDUAL); no catalog is widened.
 
 ## 7. Non-goals (enforced by static regression tests)

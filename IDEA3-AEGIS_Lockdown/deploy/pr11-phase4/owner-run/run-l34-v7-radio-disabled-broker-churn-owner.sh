@@ -84,19 +84,20 @@ for u in "$ENGINE" "$TUNNEL" twingate.service mosquitto.service "$CORE_UNIT"; do
 done
 unit_props() { systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID "$1"; }
 unit_props "$DNSMASQ_UNIT" | l34_service_pre_gate || gate "$(unit_props "$DNSMASQ_UNIT" | l34_service_pre_gate 2>&1 | head -n 1)"
-BROKER_JOURNAL_PREGATE=$(mktemp) || die "could not create temporary broker journal capture file"
-trap 'rm -f "$BROKER_JOURNAL_PREGATE"' EXIT
-journalctl -u "$BROKER_UNIT" -n 30 --no-pager > "$BROKER_JOURNAL_PREGATE" 2>&1 || gate "broker journal capture failed"
-l34_v7_broker_show "$BROKER_UNIT" | l34_v7_broker_churn_gate "$BROKER_JOURNAL_PREGATE" \
-  || gate "$(l34_v7_broker_show "$BROKER_UNIT" | l34_v7_broker_churn_gate "$BROKER_JOURNAL_PREGATE" 2>&1 | head -n 1)"
+BROKER_JOURNAL_PREGATE=$(mktemp) && BROKER_SHOW_PREGATE=$(mktemp) || die "could not create temporary broker capture files"
+trap 'rm -f "$BROKER_JOURNAL_PREGATE" "$BROKER_SHOW_PREGATE"' EXIT
+# one systemd read feeds BOTH the journal binding (current boot + failed InvocationID) and the churn gate, so they cannot disagree
+l34_v7_broker_show "$BROKER_UNIT" > "$BROKER_SHOW_PREGATE" || gate "broker show failed"
+l34_v7_broker_journal_capture "$BROKER_UNIT" "$BROKER_SHOW_PREGATE" "$BROKER_JOURNAL_PREGATE" \
+  || gate "$(l34_v7_broker_journal_capture "$BROKER_UNIT" "$BROKER_SHOW_PREGATE" "$BROKER_JOURNAL_PREGATE" 2>&1 | head -n 1)"
+l34_v7_broker_churn_gate "$BROKER_JOURNAL_PREGATE" < "$BROKER_SHOW_PREGATE" \
+  || gate "$(l34_v7_broker_churn_gate "$BROKER_JOURNAL_PREGATE" < "$BROKER_SHOW_PREGATE" 2>&1 | head -n 1)"
 l34_v7_no_8883_listener_gate || gate "$(l34_v7_no_8883_listener_gate 2>&1 | head -n 1)"
 [ "$GATE_FAILED" = 0 ] || die "one or more pre-gates failed; NOTHING was created or changed"
 
-# 4. the bounded attempt is consumed here: a second invocation for this AUTH_DIR is refused, even after a failure
+# 4. evidence directory (read-only host effect only). The one-shot authorization is NOT consumed yet: it is consumed only after the handler preflight and
+#    the PRE capture have both succeeded, immediately before the first host mutation (see "consume" below).
 marker="$AUTH_DIR/L34-V7-REACTIVATION-ATTEMPT-CONSUMED"
-( set -o noclobber; printf 'consumed_at=%s\n' "$(date -u +%FT%TZ)" > "$marker" ) 2>/dev/null \
-  || die "could not consume the one-attempt marker"
-
 mkdir -m 700 "$EVID"; exec > >(tee -a "$EVID/owner-run.log") 2>&1
 JOURNAL_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S UTC'); printf '%s\n' "$JOURNAL_SINCE" > "$EVID/journal_since.txt"
 cp "$AUTH_DIR/authorization-L4.txt" "$AUTH_DIR/k3-L4.txt" "$EVID/"
@@ -152,6 +153,10 @@ BASELINE=$(printf '%s\n' "$pf_out" | sed -n 's/^L34_BASELINE=//p' | tr 'A-Z' 'a-
 echo "BASELINE=$BASELINE" >> "$EVID/frozen-inputs.txt"
 
 echo "== PRE capture (before rfkill, NetworkManager, reset-failed and dnsmasq changes)"; capture PRE "$EVID/pre-root" || die "PRE capture failed; nothing changed"
+# consume: the bounded attempt is spent here, after every refusable check passed and immediately before the first mutation. A second invocation for
+# this AUTH_DIR is refused from now on, even after a failure. A refused preflight or failed PRE capture above leaves the authorization usable.
+( set -o noclobber; printf 'consumed_at=%s\n' "$(date -u +%FT%TZ)" > "$marker" ) 2>/dev/null \
+  || die "could not consume the one-attempt marker; nothing changed"
 echo "== L3/L4 V7 reactivation APPLY (once)"; MUTATED=1
 apply_rc=0; apply_out=$(handler apply.sh 2>&1) || apply_rc=$?; printf '%s\n' "$apply_out"; own_work
 { [ "$apply_rc" = 0 ] && printf '%s\n' "$apply_out" | grep -qx 'L34_V7_APPLY=PASS'; } || rollback_flow "L34_V7_APPLY failed (rc=$apply_rc)"
