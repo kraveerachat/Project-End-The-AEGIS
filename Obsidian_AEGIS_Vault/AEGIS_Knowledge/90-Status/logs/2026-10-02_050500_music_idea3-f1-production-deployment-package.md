@@ -38,8 +38,6 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-All evidence is local and simulated (fake hosts/backends, temporary AF_UNIX sockets; no host, broker, Core or device). Scratch Python: system 3.14.7 venv with `paho-mqtt==2.1.0` from the owner's offline wheelhouse (the host's system `paho-mqtt` is 1.6.1).
-
 - `pytest tests/test_core_alert_ingress.py -q` — pass: `60 passed`.
 - `pytest tests/test_detector.py -q` — pass: `6 passed`.
 - `pytest tests/test_f1_alert_sink.py tests/test_f1_alert_source_package.py -q` — pass: `196 passed`.
@@ -55,6 +53,7 @@ All evidence is local and simulated (fake hosts/backends, temporary AF_UNIX sock
 - `bash -n` — not applicable: no shell file changed.
 - `systemd-analyze verify --man=no` on the rendered detector unit — pass (rc 0), also run as a skippable test.
 - `git diff --check` — pass. `node scripts/validate-vault.mjs` — pass (2 pre-existing canvas warnings). `node scripts/validate-collaboration-policy.mjs` against the prepared Draft PR body and exact changed-file list — pass. Changed-content secret scan (private-key, cloud-key, GitHub-token, JWT, Slack, Google-key and password patterns over the added lines) — pass: 0 hits.
+- Scope of all evidence: local and simulated only (fake hosts/backends, temporary AF_UNIX sockets; no host, broker, Core or device). Scratch Python was the system 3.14.7 venv with `paho-mqtt==2.1.0` from the owner's offline wheelhouse; the host's system `paho-mqtt` is 1.6.1.
 
 ## Canonical notes updated
 
