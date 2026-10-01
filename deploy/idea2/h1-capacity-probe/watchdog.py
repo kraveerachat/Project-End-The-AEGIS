@@ -1,0 +1,528 @@
+#!/usr/bin/env python3
+"""Fail-closed resource watchdog for the isolated H1 capacity probe.
+
+This module does not authorize or start the probe. Live modes inspect only the
+fixed probe project and stop that exact project if a measurement fails or an
+owner-provided boundary is crossed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+from typing import Any
+
+import docker_exec
+
+
+PROJECT_NAME = "aegis-h1-capacity-probe"
+POSTGRES_VOLUME = "aegis-h1-capacity-probe_postgres_data"
+EXPECTED_SERVICES = ("gateway", "monitor", "postgres")
+COMPOSE_FILE = Path(__file__).resolve().parents[1] / "h1-capacity-probe.compose.yml"
+SIZE_PATTERN = re.compile(r"^([0-9]+(?:\.[0-9]+)?)\s*([KMGT]?i?B)?$", re.IGNORECASE)
+
+
+class ProbeBlocked(RuntimeError):
+    """The probe must stop because a required measurement or limit failed."""
+
+
+class ProbeServicesUnavailable(ProbeBlocked):
+    """Expected probe services are not all in a sustained measurable state."""
+
+    def __init__(
+        self,
+        missing_services: list[str] | tuple[str, ...],
+        containers: list[dict[str, Any]],
+        invalid_containers: list[dict[str, Any]] | None = None,
+    ) -> None:
+        missing = sorted(set(missing_services))
+        safe_containers = [dict(container) for container in containers]
+        safe_invalid_containers = [dict(container) for container in (invalid_containers or [])]
+        self.evidence = {
+            "expected_services": list(EXPECTED_SERVICES),
+            "missing_services": missing,
+            "containers": safe_containers,
+            "invalid_containers": safe_invalid_containers,
+        }
+        states = []
+        for container in safe_containers:
+            states.append(
+                "id={container_id},name={name},service={service},state={state},"
+                "exit_code={exit_code},health={health}".format(
+                    container_id=container["container_id"],
+                    name=container["name"] or "missing",
+                    service=container["service"] or "unlabelled",
+                    state=container["state"],
+                    exit_code=container["exit_code"],
+                    health=container["health"],
+                )
+            )
+        state_summary = ";".join(states) if states else "none"
+        super().__init__(
+            "probe service readiness unavailable: "
+            f"missing={','.join(missing)}; containers=[{state_summary}]"
+        )
+
+
+def _positive_integer(value: Any, field: str) -> int:
+    if isinstance(value, bool):
+        raise ProbeBlocked(f"{field} must be a positive integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ProbeBlocked(f"{field} must be a positive integer") from exc
+    if parsed <= 0:
+        raise ProbeBlocked(f"{field} must be a positive integer")
+    return parsed
+
+
+def limits_from_mapping(values: dict[str, Any]) -> dict[str, Any]:
+    service_values = values.get("service_memory_ceiling_bytes")
+    if not isinstance(service_values, dict):
+        raise ProbeBlocked("service_memory_ceiling_bytes must contain all probe services")
+    return {
+        "disk_safety_reserve_bytes": _positive_integer(values.get("disk_safety_reserve_bytes"), "disk_safety_reserve_bytes"),
+        "inode_safety_reserve_count": _positive_integer(values.get("inode_safety_reserve_count"), "inode_safety_reserve_count"),
+        "host_ram_reserve_bytes": _positive_integer(values.get("host_ram_reserve_bytes"), "host_ram_reserve_bytes"),
+        "evidence_log_cap_bytes": _positive_integer(values.get("evidence_log_cap_bytes"), "evidence_log_cap_bytes"),
+        "postgres_growth_budget_bytes": _positive_integer(values.get("postgres_growth_budget_bytes"), "postgres_growth_budget_bytes"),
+        "characterization_max_new_bytes": _positive_integer(
+            values.get("characterization_max_new_bytes"),
+            "characterization_max_new_bytes",
+        ),
+        "service_memory_ceiling_bytes": {
+            service: _positive_integer(service_values.get(service), f"service_memory_ceiling_bytes.{service}")
+            for service in EXPECTED_SERVICES
+        },
+    }
+
+
+def limits_from_environment() -> dict[str, Any]:
+    return limits_from_mapping(
+        {
+            "disk_safety_reserve_bytes": os.environ.get("DISK_SAFETY_RESERVE_BYTES"),
+            "inode_safety_reserve_count": os.environ.get("INODE_SAFETY_RESERVE_COUNT"),
+            "host_ram_reserve_bytes": os.environ.get("HOST_RAM_RESERVE_BYTES"),
+            "evidence_log_cap_bytes": os.environ.get("EVIDENCE_LOG_CAP_BYTES"),
+            "postgres_growth_budget_bytes": os.environ.get("POSTGRES_GROWTH_BUDGET_BYTES"),
+            "characterization_max_new_bytes": os.environ.get("CHARACTERIZATION_MAX_NEW_BYTES"),
+            "service_memory_ceiling_bytes": {
+                "gateway": os.environ.get("GATEWAY_MEMORY_CEILING_BYTES"),
+                "monitor": os.environ.get("MONITOR_MEMORY_CEILING_BYTES"),
+                "postgres": os.environ.get("POSTGRES_MEMORY_CEILING_BYTES"),
+            },
+        }
+    )
+
+
+def evaluate_snapshot(snapshot: dict[str, Any], limits: dict[str, Any]) -> list[str]:
+    """Return every blocking condition. Missing or malformed data blocks."""
+
+    violations: list[str] = []
+
+    def measured(field: str) -> int | None:
+        try:
+            value = int(snapshot[field])
+        except (KeyError, TypeError, ValueError):
+            violations.append(f"MEASUREMENT_MISSING:{field}")
+            return None
+        if value < 0:
+            violations.append(f"MEASUREMENT_INVALID:{field}")
+            return None
+        return value
+
+    comparisons = (
+        ("host_available_bytes", "disk_safety_reserve_bytes", "DISK_RESERVE_CROSSED", "minimum"),
+        ("host_available_inodes", "inode_safety_reserve_count", "INODE_RESERVE_CROSSED", "minimum"),
+        ("host_mem_available_bytes", "host_ram_reserve_bytes", "RAM_RESERVE_CROSSED", "minimum"),
+        ("evidence_log_bytes", "evidence_log_cap_bytes", "EVIDENCE_LOG_CAP_EXCEEDED", "maximum"),
+        ("postgres_growth_bytes", "postgres_growth_budget_bytes", "POSTGRES_GROWTH_BUDGET_EXCEEDED", "maximum"),
+        ("probe_new_bytes", "characterization_max_new_bytes", "CHARACTERIZATION_MAX_NEW_BYTES_EXCEEDED", "maximum"),
+    )
+    for metric_field, limit_field, code, mode in comparisons:
+        metric = measured(metric_field)
+        limit_value = int(limits[limit_field])
+        if metric is None:
+            continue
+        if mode == "minimum" and metric <= limit_value:
+            violations.append(code)
+        if mode == "maximum" and metric > limit_value:
+            violations.append(code)
+
+    service_memory = snapshot.get("service_memory_usage_bytes")
+    if not isinstance(service_memory, dict):
+        violations.append("MEASUREMENT_MISSING:service_memory_usage_bytes")
+    else:
+        for service in EXPECTED_SERVICES:
+            try:
+                usage = int(service_memory[service])
+            except (KeyError, TypeError, ValueError):
+                violations.append(f"MEASUREMENT_MISSING:service_memory_usage_bytes.{service}")
+                continue
+            if usage < 0:
+                violations.append(f"MEASUREMENT_INVALID:service_memory_usage_bytes.{service}")
+            elif usage > int(limits["service_memory_ceiling_bytes"][service]):
+                violations.append(f"SERVICE_MEMORY_CEILING_EXCEEDED:{service}")
+
+    return violations
+
+
+def _run(
+    command: list[str],
+    *,
+    timeout_seconds: int = 30,
+    operation: str = "measurement command",
+) -> str:
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            env=docker_exec.subprocess_environment(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ProbeBlocked(f"{operation} timed out after {timeout_seconds} seconds") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "no diagnostic").strip().splitlines()[-1]
+        raise ProbeBlocked(f"{operation} failed: {command[0]} ({detail})")
+    return result.stdout.strip()
+
+
+def _directory_bytes(root: Path) -> int:
+    if not root.exists() or not root.is_dir():
+        raise ProbeBlocked(f"measurement directory is missing: {root}")
+    total = 0
+    for current_root, directories, files in os.walk(root, followlinks=False):
+        current = Path(current_root)
+        for name in directories:
+            if (current / name).is_symlink():
+                raise ProbeBlocked("measurement directory contains a symbolic link")
+        for name in files:
+            candidate = current / name
+            if candidate.is_symlink():
+                raise ProbeBlocked("measurement directory contains a symbolic link")
+            total += candidate.stat().st_size
+    return total
+
+
+def _parse_memory_size(value: str) -> int:
+    token = value.split("/", 1)[0].strip()
+    match = SIZE_PATTERN.fullmatch(token)
+    if not match:
+        raise ProbeBlocked(f"unrecognized Docker memory value: {token}")
+    number = float(match.group(1))
+    unit = (match.group(2) or "B").upper()
+    powers = {
+        "B": 1,
+        "KB": 1000,
+        "MB": 1000**2,
+        "GB": 1000**3,
+        "TB": 1000**4,
+        "KIB": 1024,
+        "MIB": 1024**2,
+        "GIB": 1024**3,
+        "TIB": 1024**4,
+    }
+    return int(number * powers[unit])
+
+
+def _docker_log_capacity(value: str) -> int:
+    try:
+        payload = json.loads(value)
+        configuration = payload["Config"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise ProbeBlocked("Docker log configuration is unavailable") from exc
+    if payload.get("Type") != "json-file" or configuration.get("max-file") != "1":
+        raise ProbeBlocked("probe Docker logging is not bounded to one json-file")
+    match = re.fullmatch(r"([1-9][0-9]*)([kKmMgG])", str(configuration.get("max-size", "")))
+    if not match:
+        raise ProbeBlocked("probe Docker log max-size is invalid")
+    multiplier = {"k": 1024, "m": 1024**2, "g": 1024**3}[match.group(2).lower()]
+    return int(match.group(1)) * multiplier
+
+
+def _host_metrics() -> tuple[int, int, int]:
+    stats = os.statvfs("/")
+    available_bytes = stats.f_bavail * stats.f_frsize
+    available_inodes = stats.f_favail
+    meminfo = Path("/proc/meminfo")
+    if not meminfo.exists():
+        raise ProbeBlocked("/proc/meminfo is unavailable")
+    match = re.search(r"^MemAvailable:\s+(\d+)\s+kB$", meminfo.read_text(encoding="utf-8"), re.MULTILINE)
+    if not match:
+        raise ProbeBlocked("MemAvailable is unavailable")
+    return available_bytes, available_inodes, int(match.group(1)) * 1024
+
+
+def capture_preflight_snapshot(evidence_dir: Path) -> dict[str, Any]:
+    """Measure host-only boundaries before probe services exist."""
+
+    available_bytes, available_inodes, available_ram = _host_metrics()
+    return {
+        "host_available_bytes": available_bytes,
+        "host_available_inodes": available_inodes,
+        "host_mem_available_bytes": available_ram,
+        "evidence_log_bytes": _directory_bytes(evidence_dir),
+        "postgres_growth_bytes": 0,
+        "probe_new_bytes": 0,
+        "service_memory_usage_bytes": {service: 0 for service in EXPECTED_SERVICES},
+    }
+
+
+def _probe_container_states() -> list[dict[str, Any]]:
+    identifiers = _run(
+        docker_exec.docker_command(
+            "ps",
+            "--all",
+            "--quiet",
+            "--filter",
+            f"label=com.docker.compose.project={PROJECT_NAME}",
+        ),
+        operation="probe container discovery",
+    )
+    container_ids = [line.strip() for line in identifiers.splitlines() if line.strip()]
+    if not container_ids:
+        return []
+
+    output = _run(
+        docker_exec.docker_command(
+            "inspect",
+            "--format",
+            '{{.Id}}|{{.Name}}|{{index .Config.Labels "com.docker.compose.service"}}|'
+            "{{.State.Status}}|{{.State.ExitCode}}|"
+            '{{with index .State "Health"}}{{.Status}}{{else}}none{{end}}',
+            *container_ids,
+        ),
+        operation="probe container state inspection",
+    )
+    states: list[dict[str, Any]] = []
+    for line in output.splitlines():
+        if not line:
+            continue
+        fields = line.split("|")
+        if len(fields) != 6:
+            raise ProbeBlocked("probe container state inspection returned malformed output")
+        container_id, name, service, state, exit_code, health = fields
+        try:
+            parsed_exit_code = int(exit_code)
+        except ValueError as exc:
+            raise ProbeBlocked("probe container state inspection returned an invalid exit code") from exc
+        states.append(
+            {
+                "container_id": container_id,
+                "name": name.removeprefix("/"),
+                "service": None if service in ("", "<no value>") else service,
+                "state": state,
+                "exit_code": parsed_exit_code,
+                "health": health or "none",
+            }
+        )
+    return sorted(states, key=lambda container: (container["service"] or "", container["container_id"]))
+
+
+def _probe_containers() -> dict[str, str]:
+    states = _probe_container_states()
+    containers: dict[str, str] = {}
+    missing: list[str] = []
+    invalid_containers: list[dict[str, Any]] = []
+    for container in states:
+        reasons = []
+        if not container["name"]:
+            reasons.append("missing-container-name")
+        if container["service"] not in EXPECTED_SERVICES:
+            reasons.append("unexpected-service-label")
+        if reasons:
+            invalid_containers.append({**container, "reasons": reasons})
+    for service in EXPECTED_SERVICES:
+        matches = [container for container in states if container["service"] == service]
+        expected_health = matches[0]["health"] if len(matches) == 1 else None
+        healthy = expected_health == "healthy" if service == "postgres" else expected_health in ("none", "healthy")
+        if len(matches) == 1 and matches[0]["state"] == "running" and healthy:
+            containers[service] = str(matches[0]["container_id"])
+        else:
+            missing.append(service)
+    if missing or invalid_containers:
+        raise ProbeServicesUnavailable(missing, states, invalid_containers)
+    return containers
+
+
+def _postgres_volume_bytes(container_id: str) -> int:
+    output = _run(
+        docker_exec.docker_command(
+            "exec",
+            container_id,
+            "du",
+            "-sk",
+            "/var/lib/postgresql/data",
+        ),
+        operation="PostgreSQL volume measurement",
+    )
+    blocks, separator, _ = output.partition("\t")
+    if not separator:
+        blocks = output.split(maxsplit=1)[0] if output else ""
+    if not blocks.isdigit():
+        raise ProbeBlocked("probe PostgreSQL volume measurement is unavailable")
+    return int(blocks) * 1024
+
+
+def capture_snapshot(
+    evidence_dir: Path,
+    postgres_initial_volume_bytes: int | None,
+    host_baseline_available_bytes: int,
+) -> dict[str, Any]:
+    available_bytes, available_inodes, available_ram = _host_metrics()
+    containers = _probe_containers()
+    memory_usage: dict[str, int] = {}
+    writable: dict[str, int] = {}
+    log_bytes = 0
+    for service, container_id in containers.items():
+        memory_usage[service] = _parse_memory_size(
+            _run(
+                docker_exec.docker_command(
+                    "stats", "--no-stream", "--format", "{{.MemUsage}}", container_id
+                )
+            )
+        )
+        size_rw = _run(
+            docker_exec.docker_command(
+                "inspect", "--size", "--format", "{{.SizeRw}}", container_id
+            )
+        )
+        writable[service] = int(size_rw)
+        log_configuration = _run(
+            docker_exec.docker_command(
+                "inspect", "--format", "{{json .HostConfig.LogConfig}}", container_id
+            )
+        )
+        log_bytes += _docker_log_capacity(log_configuration)
+
+    volume_bytes = _postgres_volume_bytes(containers["postgres"])
+    postgres_growth_bytes = (
+        0
+        if postgres_initial_volume_bytes is None
+        else max(0, volume_bytes - postgres_initial_volume_bytes)
+    )
+    return {
+        "host_available_bytes": available_bytes,
+        "host_available_inodes": available_inodes,
+        "host_mem_available_bytes": available_ram,
+        "evidence_log_bytes": _directory_bytes(evidence_dir) + log_bytes,
+        "postgres_growth_bytes": postgres_growth_bytes,
+        "probe_new_bytes": max(0, host_baseline_available_bytes - available_bytes),
+        "postgres_volume_bytes": volume_bytes,
+        "service_memory_usage_bytes": memory_usage,
+        "service_writable_layer_bytes": writable,
+        "aggregate_lab_memory_usage_bytes": sum(memory_usage.values()),
+    }
+
+
+def stop_probe() -> None:
+    result = subprocess.run(
+        docker_exec.docker_command(
+            "--project-name",
+            PROJECT_NAME,
+            "--file",
+            str(COMPOSE_FILE),
+            "stop",
+            "--timeout",
+            "10",
+            compose=True,
+        ),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=45,
+        env=docker_exec.subprocess_environment(),
+    )
+    if result.returncode != 0:
+        raise ProbeBlocked(
+            "exact probe stop failed; refresh the reviewed sudo authorization with sudo -v and run exact cleanup"
+        )
+
+
+def _load_json(path: str) -> dict[str, Any]:
+    value = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ProbeBlocked(f"JSON object required: {path}")
+    return value
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--evaluate", action="store_true")
+    parser.add_argument("--check-once", action="store_true")
+    parser.add_argument("--loop", action="store_true")
+    parser.add_argument("--limits-json")
+    parser.add_argument("--snapshot-json")
+    parser.add_argument("--evidence-dir")
+    parser.add_argument("--postgres-initial-volume-bytes")
+    parser.add_argument("--host-baseline-available-bytes")
+    parser.add_argument("--interval-seconds", type=float, default=2.0)
+    args = parser.parse_args()
+
+    try:
+        if args.evaluate:
+            if not args.limits_json or not args.snapshot_json:
+                raise ProbeBlocked("--evaluate requires --limits-json and --snapshot-json")
+            limits = limits_from_mapping(_load_json(args.limits_json))
+            violations = evaluate_snapshot(_load_json(args.snapshot_json), limits)
+            if violations:
+                print(f"BLOCKED:{','.join(violations)}")
+                return 2
+            print("PASS")
+            return 0
+
+        if not (args.check_once or args.loop):
+            raise ProbeBlocked("choose --evaluate, --check-once, or --loop")
+        if (
+            not args.evidence_dir
+            or args.postgres_initial_volume_bytes is None
+            or args.host_baseline_available_bytes is None
+        ):
+            raise ProbeBlocked("live watchdog requires evidence, PostgreSQL, and host baseline inputs")
+
+        docker_exec.ensure_unprivileged_python()
+        docker_exec.ensure_docker_authorized()
+        docker_exec.require_compose_environment(Path(args.evidence_dir))
+
+        limits = limits_from_environment()
+        evidence_dir = Path(args.evidence_dir).resolve()
+        postgres_initial = _positive_integer(
+            args.postgres_initial_volume_bytes,
+            "postgres_initial_volume_bytes",
+        )
+        host_baseline_available = _positive_integer(
+            args.host_baseline_available_bytes,
+            "host_baseline_available_bytes",
+        )
+        while True:
+            snapshot = capture_snapshot(evidence_dir, postgres_initial, host_baseline_available)
+            violations = evaluate_snapshot(snapshot, limits)
+            if violations:
+                stop_probe()
+                print(f"BLOCKED:{','.join(violations)}")
+                return 2
+            print(json.dumps(snapshot, sort_keys=True))
+            if args.check_once:
+                return 0
+            time.sleep(max(args.interval_seconds, 0.5))
+    except Exception as exc:  # Fail closed on any missing or stale measurement.
+        if not args.evaluate:
+            try:
+                stop_probe()
+            except Exception as stop_exc:
+                print(f"BLOCKED:exact probe stop unavailable: {stop_exc}", file=sys.stderr)
+        print(f"BLOCKED:{exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

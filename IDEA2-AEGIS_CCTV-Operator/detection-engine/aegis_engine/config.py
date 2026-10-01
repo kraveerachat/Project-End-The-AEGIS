@@ -93,6 +93,8 @@ class EngineConfig:
 
     # --- Identity ---------------------------------------------------------
     node_id: str = "edge-node-01"
+    # Event-time logical alias and bounded legacy heartbeat identity. Strict
+    # physical availability is derived from authenticated Agent registration.
     camera_id: str = "CAM-05"
     camera_label: str = "Reception"
     camera_device_name: Optional[str] = None
@@ -152,6 +154,9 @@ class EngineConfig:
     monitor_api_base: Optional[str] = None
     detection_engine_api_key: Optional[str] = None
     monitor_http_timeout_s: float = 5.0
+    monitor_ingest_mode: str = "legacy_shared_key"
+    identity_agent_pipe_name: str = r"\\.\pipe\AEGIS.IdentityAgent.v1"
+    identity_agent_timeout_s: float = 5.0
 
     # --- NAS sync (NASSyncWorker) ----------------------------------------
     # Development must start without production NAS infrastructure. Enabling
@@ -183,9 +188,8 @@ class EngineConfig:
     stream_enabled: bool = True
     stream_jpeg_quality: int = 70   # 1-100; 70 is a sane quality/bandwidth point
     stream_max_fps: float = 12.0    # cap independent of capture fps
-    # Advertised to Monitor in each heartbeat so the proxy knows where to pull
-    # from. Blank -> derived from api_host/api_port (localhost is rewritten to
-    # 127.0.0.1 since 0.0.0.0 is not dialable).
+    # Advertised only by bounded legacy heartbeat mode. In strict mode the
+    # dedicated Agent owns the reviewed physical stream endpoint.
     stream_public_url: Optional[str] = None
     # A cold YOLO+SFace worker can take materially longer than a normal frame
     # interval to load models and publish its first annotated JPEG. Keep this
@@ -281,6 +285,15 @@ class EngineConfig:
             detection_engine_api_key=_env_opt("AEGIS_DETECTION_ENGINE_API_KEY"),
             monitor_http_timeout_s=_env_float(
                 "AEGIS_MONITOR_HTTP_TIMEOUT_S", cls.monitor_http_timeout_s
+            ),
+            monitor_ingest_mode=_env_str(
+                "AEGIS_MONITOR_INGEST_MODE", cls.monitor_ingest_mode
+            ).strip().lower(),
+            identity_agent_pipe_name=_env_str(
+                "AEGIS_IDENTITY_AGENT_PIPE_NAME", cls.identity_agent_pipe_name
+            ).strip(),
+            identity_agent_timeout_s=_env_float(
+                "AEGIS_IDENTITY_AGENT_TIMEOUT_S", cls.identity_agent_timeout_s
             ),
             nas_enabled=_env_bool("AEGIS_NAS_ENABLED", cls.nas_enabled),
             nas_method=_env_str("AEGIS_NAS_METHOD", cls.nas_method),
@@ -402,6 +415,14 @@ class EngineConfig:
                 "AEGIS_CAPTURE_ON_DEMAND requires AEGIS_DETECTION_ENGINE_API_KEY; "
                 "an unauthenticated viewer must never activate the camera"
             )
+        if self.monitor_ingest_mode not in {"legacy_shared_key", "identity_agent"}:
+            raise ValueError(
+                "AEGIS_MONITOR_INGEST_MODE must be legacy_shared_key or identity_agent"
+            )
+        if not self.identity_agent_pipe_name.startswith("\\\\.\\pipe\\"):
+            raise ValueError("AEGIS_IDENTITY_AGENT_PIPE_NAME must be a local Windows pipe")
+        if not 0.1 <= self.identity_agent_timeout_s <= 5.0:
+            raise ValueError("AEGIS_IDENTITY_AGENT_TIMEOUT_S must be between 0.1 and 5")
         if self.stream_first_frame_timeout_s <= 0:
             raise ValueError("AEGIS_STREAM_FIRST_FRAME_TIMEOUT_S must be > 0")
         if self.stream_idle_timeout_s <= 0:

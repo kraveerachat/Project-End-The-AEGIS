@@ -24,6 +24,7 @@ test('maps authoritative detection-node registrations without heartbeat authorit
     public_key: 'PUBLIC KEY ONLY',
     public_key_fingerprint: 'SHA256:fixture',
     key_version: 2,
+    ingest_auth_mode: 'ed25519_required',
     active: true,
   }), {
     nodeId: 'edge-a',
@@ -31,6 +32,7 @@ test('maps authoritative detection-node registrations without heartbeat authorit
     publicKey: 'PUBLIC KEY ONLY',
     publicKeyFingerprint: 'SHA256:fixture',
     keyVersion: 2,
+    ingestAuthMode: 'ed25519_required',
     active: true,
   })
   assert.equal(connection.detectionNodeFromRow(null), null)
@@ -44,6 +46,7 @@ test('legacy logical-camera lookup fails closed when an alias maps to multiple n
     public_key: 'PUBLIC KEY A',
     public_key_fingerprint: 'SHA256:a',
     key_version: 1,
+    ingest_auth_mode: 'legacy_shared_key',
     active: true,
   }
   const nodeC = {
@@ -130,6 +133,7 @@ test('physical stream-source lookup stays distinct from logical producer selecti
   const end = source.indexOf('\nexport async function ', start + 1)
   const implementation = source.slice(start, end < 0 ? undefined : end)
   assert.match(implementation, /FROM physical_camera_heartbeat/)
+  assert.match(implementation, /SELECT node_id, stream_url, camera_connected/)
   assert.match(implementation, /WHERE physical_camera_id = \$1/)
   assert.doesNotMatch(implementation, /camera_producer_epochs|node_camera_alias_policy/)
 })

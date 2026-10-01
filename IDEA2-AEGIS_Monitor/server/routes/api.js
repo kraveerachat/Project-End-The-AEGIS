@@ -8,12 +8,49 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Router } from 'express'
 import { verifyCredentials } from '../auth/login.js'
-import { establishSession, currentUser, currentCsrfToken, destroySession, markPasswordReset } from '../auth/session.js'
+import {
+  bindLocalNode,
+  currentNodeSessionBinding,
+  establishSession,
+  currentUser,
+  currentCsrfToken,
+  destroySession,
+  markPasswordReset,
+} from '../auth/session.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { getMenuForRole, ROLES } from '../rbac/permissions.js'
 import { requireAuth } from '../middleware/requireRole.js'
-import { getVisibleCameras, canSeeCamera, getUserById, updatePasswordHash } from '../db/connection.js'
+import {
+  getVisibleCameras,
+  canSeeCamera,
+  getUserById,
+  getUserByUsername,
+  getDetectionNode,
+  getPhysicalCameraForNode,
+  updatePasswordHash,
+} from '../db/connection.js'
+import * as store from '../db/store.js'
 import { createUpstreamLifecycle, waitForDrainOrClose } from '../streamLifecycle.js'
+import {
+  createProducerLifecycle,
+  STREAM_REVALIDATE_MS as PRODUCER_REVALIDATE_MS,
+  RENEW_BEFORE_MS,
+} from '../db/producerLifecycle.js'
+import { approvedStreamUrlForPhysicalCamera } from '../auth/physicalStreamSource.js'
+import { BrowserAssociationChallengeStore } from '../nodeIdentity/browserAssociationChallenges.js'
+import {
+  canonicalBrowserAssociationPayload,
+  verifyBrowserAssociationProof,
+} from '../nodeIdentity/browserAssociationProof.js'
+import { parseCanonicalBase64Url, parseStrictJsonBytes } from '../nodeIdentity/agentProtocol.js'
+import {
+  CameraAccessError,
+  parseLocalNodeAssociationRequirement,
+  resolveLiveCameraActor,
+  resolveOperatorCameraAccess,
+  resolveOperatorAccess,
+  resolvePhysicalStreamTarget,
+} from '../auth/cameraAccess.js'
 
 // ข้อความล้มเหลว "รูปแบบเดียว" ทุกกรณี — กัน username enumeration
 const INVALID_CREDENTIALS = 'Invalid credentials'
@@ -27,11 +64,325 @@ const STREAM_STALE_MS = 45_000
 const STREAM_IDLE_MS = 6_000
 
 // ตรวจซ้ำว่าเซสชันยังอยู่ และยังมีสิทธิ์เห็นกล้องนี้อยู่ไหม ระหว่างที่สตรีมเปิดค้าง
-const STREAM_REVALIDATE_MS = 10_000
+const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS
+const REQUIRE_LOCAL_NODE_ASSOCIATION = parseLocalNodeAssociationRequirement()
+const producerLifecycle = createProducerLifecycle()
+
+/**
+ * Present one authenticated physical heartbeat under the account's logical
+ * alias. This is availability only: it never acquires demand or opens capture.
+ * The physical lookup is registry-derived by resolveOperatorCameraAccess; logical
+ * camera heartbeat rows are intentionally not consulted in strict mode.
+ */
+export async function resolveOperatorPhysicalLinkStatus(
+  req,
+  nowMs = Date.now(),
+  {
+    resolveOperatorCameraAccess: resolveAccess = resolveOperatorCameraAccess,
+    streamSourceForPhysicalCamera: loadPhysicalSource = store.streamSourceForPhysicalCamera,
+    approvedStreamUrlForPhysicalCamera: loadApprovedUrl = approvedStreamUrlForPhysicalCamera,
+    outageActive = store.simulatedOutageActive,
+  } = {},
+) {
+  const access = await resolveAccess(req, nowMs)
+
+  let source = null
+  let approvedUrl = null
+  try {
+    ;[source, approvedUrl] = await Promise.all([
+      loadPhysicalSource(access.physicalCameraId),
+      loadApprovedUrl(access.physicalCameraId, access.nodeId),
+    ])
+  } catch {
+    // Availability endpoints report a closed/lost source. The demanding
+    // stream route independently fails with PHYSICAL_STREAM_UNAVAILABLE.
+  }
+  const ageMs = Number(source?.ageMs)
+  const sourceValid = source?.nodeId === access.nodeId
+    && Boolean(approvedUrl)
+    && source?.url === approvedUrl
+    && typeof source?.url === 'string'
+    && source.url.length > 0
+    && Number.isFinite(ageMs)
+    && ageMs >= 0
+  const availability = store.heartbeatAvailability({
+    ageMs: sourceValid ? ageMs : null,
+    streamUrl: sourceValid ? source.url : null,
+    cameraConnected: sourceValid && source.cameraConnected === true,
+  })
+  const lastSeenAt = sourceValid ? Math.round(nowMs - ageMs) : null
+  const simulated = outageActive()
+  return {
+    status: simulated ? 'lost' : availability.status,
+    lastFrameAt: lastSeenAt,
+    simulated,
+    realStatus: availability.status,
+    cameras: [{
+      cam: access.logicalCameraId,
+      status: availability.status,
+      lastSeenAt,
+      ageMs: sourceValid ? Math.round(ageMs) : null,
+      nodeId: access.nodeId,
+      cameraConnected: availability.cameraConnected,
+      hasStream: availability.hasStream,
+    }],
+  }
+}
 
 const publicUser = (u) => ({ username: u.username, displayName: u.displayName, role: u.role, mustResetPassword: Boolean(u.mustResetPassword) })
 
 export const apiRouter = Router()
+
+const ASSOCIATION_TTL_MS = 5 * 60 * 1000
+const ASSOCIATION_RENEW_BEFORE_MS = 60 * 1000
+const ASSOCIATION_ISSUE_WINDOW_MS = 60 * 1000
+const ASSOCIATION_ISSUE_LIMIT = 12
+const ASSOCIATION_GLOBAL_ISSUE_LIMIT = 256
+const NODE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+
+export class LocalNodeAssociationError extends Error {
+  constructor(status, code) {
+    super(code)
+    this.name = 'LocalNodeAssociationError'
+    this.status = status
+    this.code = code
+  }
+}
+
+const associationError = (status, code) => new LocalNodeAssociationError(status, code)
+
+function exactAssertion(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const keys = Object.keys(value).sort()
+  return keys.length === 2 && keys[0] === 'claims' && keys[1] === 'signature'
+}
+
+function canonicalAssertion(value) {
+  if (!exactAssertion(value) || !value.claims || typeof value.signature !== 'string') return false
+  try {
+    canonicalBrowserAssociationPayload(value.claims)
+    parseCanonicalBase64Url(value.signature, 64, 'signature')
+  } catch {
+    return false
+  }
+  return NODE_ID_RE.test(value.claims.node_id)
+}
+
+function assertionMatchesChallenge(claims, challenge) {
+  return claims.audience === challenge.audience
+    && claims.session_binding === challenge.session_binding
+    && claims.challenge_id === challenge.challenge_id
+    && claims.challenge_nonce === challenge.challenge_nonce
+    && claims.issued_at_ms === challenge.issued_at_ms
+    && claims.expires_at_ms === challenge.expires_at_ms
+}
+
+function usableRegistration(node, physical) {
+  return Boolean(
+    node?.active
+    && typeof node.nodeId === 'string'
+    && typeof node.publicKey === 'string'
+    && node.publicKey.length > 0
+    && Number.isSafeInteger(Number(node.keyVersion))
+    && Number(node.keyVersion) > 0
+    && physical?.active
+    && physical.nodeId === node.nodeId
+    && Number.isSafeInteger(Number(physical.physicalCameraId))
+    && Number(physical.physicalCameraId) > 0
+  )
+}
+
+export function createBrowserAssociationService({
+  audience = process.env.BROWSER_ASSOCIATION_AUDIENCE,
+  now = Date.now,
+  challengeStore = new BrowserAssociationChallengeStore({ now }),
+  getUserByUsername: loadUser = getUserByUsername,
+  getDetectionNode: loadNode = getDetectionNode,
+  getPhysicalCameraForNode: loadPhysical = getPhysicalCameraForNode,
+  verifyProof = verifyBrowserAssociationProof,
+  issueWindowMs = ASSOCIATION_ISSUE_WINDOW_MS,
+  issueLimit = ASSOCIATION_ISSUE_LIMIT,
+  globalIssueLimit = ASSOCIATION_GLOBAL_ISSUE_LIMIT,
+} = {}) {
+  if (
+    !Number.isSafeInteger(issueWindowMs) || issueWindowMs <= 0
+    || !Number.isSafeInteger(issueLimit) || issueLimit <= 0
+    || !Number.isSafeInteger(globalIssueLimit) || globalIssueLimit <= 0
+  ) throw new TypeError('association issuance limits must be positive safe integers')
+  const issueHistory = new Map()
+  const globalIssueHistory = []
+
+  function admitIssue(sessionBinding) {
+    const instant = now()
+    if (!Number.isSafeInteger(instant) || instant < 0) {
+      throw associationError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
+    }
+    const cutoff = instant - issueWindowMs
+    const globalRecent = globalIssueHistory.filter((timestamp) => timestamp > cutoff)
+    globalIssueHistory.splice(0, globalIssueHistory.length, ...globalRecent)
+    for (const [binding, timestamps] of issueHistory) {
+      const recent = timestamps.filter((timestamp) => timestamp > cutoff)
+      if (recent.length === 0) issueHistory.delete(binding)
+      else if (recent.length !== timestamps.length) issueHistory.set(binding, recent)
+    }
+    const recent = issueHistory.get(sessionBinding) ?? []
+    if (recent.length >= issueLimit || globalIssueHistory.length >= globalIssueLimit) {
+      throw associationError(429, 'LOCAL_NODE_ASSOCIATION_RATE_LIMITED')
+    }
+    recent.push(instant)
+    issueHistory.set(sessionBinding, recent)
+    globalIssueHistory.push(instant)
+  }
+
+  async function liveOperator(session) {
+    const cached = session?.user
+    if (!cached?.username) throw associationError(403, 'LOCAL_NODE_ASSOCIATION_DENIED')
+    let user
+    try {
+      user = await loadUser(cached.username)
+    } catch {
+      throw associationError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
+    }
+    if (
+      !user
+      || user.active === false
+      || user.id !== cached.id
+      || user.username !== cached.username
+      || user.role !== ROLES.OPERATOR
+      || user.mustResetPassword
+    ) throw associationError(403, 'LOCAL_NODE_ASSOCIATION_DENIED')
+    return user
+  }
+
+  return Object.freeze({
+    async issue(session) {
+      if (typeof audience !== 'string' || audience.length === 0) {
+        throw associationError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
+      }
+      const sessionBinding = currentNodeSessionBinding(session)
+      if (!sessionBinding) throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+      admitIssue(sessionBinding)
+      await liveOperator(session)
+      try {
+        return challengeStore.issue({ sessionBinding, audience })
+      } catch {
+        throw associationError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
+      }
+    },
+
+    async verify(session, assertion) {
+      if (!canonicalAssertion(assertion)) {
+        throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+      }
+      const sessionBinding = currentNodeSessionBinding(session)
+      const challenge = sessionBinding
+        ? challengeStore.consume({ challengeId: assertion.claims.challenge_id, sessionBinding })
+        : null
+      if (!challenge) throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+      if (!assertionMatchesChallenge(assertion.claims, challenge)) {
+        throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+      }
+
+      const nodeId = assertion.claims.node_id
+      let user
+      let node
+      let physical
+      try {
+        ;[user, node, physical] = await Promise.all([
+          liveOperator(session),
+          loadNode(nodeId),
+          loadPhysical(nodeId),
+        ])
+      } catch (error) {
+        if (error instanceof LocalNodeAssociationError) throw error
+        throw associationError(503, 'LOCAL_NODE_REGISTRY_UNAVAILABLE')
+      }
+      void user
+      if (
+        !usableRegistration(node, physical)
+        || node.nodeId !== nodeId
+        || Number(node.keyVersion) !== Number(assertion.claims.key_version)
+      ) throw associationError(403, 'LOCAL_NODE_ASSOCIATION_DENIED')
+
+      const verifiedAt = now()
+      const valid = verifyProof({
+        claims: assertion.claims,
+        signature: assertion.signature,
+        publicKeyPem: node.publicKey,
+        expected: {
+          audience: challenge.audience,
+          sessionBinding: challenge.session_binding,
+          challengeId: challenge.challenge_id,
+          challengeNonce: challenge.challenge_nonce,
+          issuedAtMs: challenge.issued_at_ms,
+          expiresAtMs: challenge.expires_at_ms,
+        },
+        nowMs: verifiedAt,
+      })
+      if (!valid) throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+
+      const expiresAt = verifiedAt + ASSOCIATION_TTL_MS
+      bindLocalNode(session, {
+        nodeId: node.nodeId,
+        physicalCameraId: Number(physical.physicalCameraId),
+        keyVersion: Number(node.keyVersion),
+        verifiedAt,
+        expiresAt,
+      })
+      return {
+        associated: true,
+        expiresAt,
+        renewAfterMs: ASSOCIATION_TTL_MS - ASSOCIATION_RENEW_BEFORE_MS,
+      }
+    },
+  })
+}
+
+function sendAssociationError(res, error) {
+  if (error instanceof LocalNodeAssociationError) {
+    return res.status(error.status).json({ error: error.code })
+  }
+  return res.status(503).json({ error: 'LOCAL_NODE_REGISTRY_UNAVAILABLE' })
+}
+
+function requireLocalNodeAuth(req, res, next) {
+  const user = currentUser(req)
+  if (!user) return res.status(401).json({ error: 'NOT_AUTHENTICATED' })
+  if (user.mustResetPassword) {
+    return res.status(403).json({ error: 'LOCAL_NODE_ASSOCIATION_DENIED' })
+  }
+  req.user = user
+  next()
+}
+
+export function createLocalNodeAssociationRouter({ service = createBrowserAssociationService() } = {}) {
+  const router = Router()
+  router.post('/local-node/challenge', requireLocalNodeAuth, async (req, res) => {
+    try {
+      return res.status(200).json(await service.issue(req.session))
+    } catch (error) {
+      return sendAssociationError(res, error)
+    }
+  })
+  router.post('/local-node/verify', requireLocalNodeAuth, async (req, res) => {
+    try {
+      let assertion
+      try {
+        assertion = parseStrictJsonBytes(req.rawBody ?? Buffer.alloc(0))
+      } catch {
+        throw associationError(401, 'LOCAL_NODE_PROOF_INVALID')
+      }
+      const result = await service.verify(req.session, assertion)
+      await new Promise((resolve, reject) => req.session.save((error) => error ? reject(error) : resolve()))
+      return res.status(200).json(result)
+    } catch (error) {
+      return sendAssociationError(res, error)
+    }
+  })
+  return router
+}
+
+apiRouter.use(createLocalNodeAssociationRouter())
 
 apiRouter.post('/login', async (req, res) => {
   const { username, password, remember } = req.body ?? {}
@@ -141,42 +492,139 @@ apiRouter.get('/cameras', requireAuth, async (req, res, next) => {
 //   1. requireAuth              — ต้องมีเซสชัน
 //   2. canSeeCamera             — "ตรรกะเดียวกับ /api/cameras" (getVisibleCameras)
 //                                 operator ขอกล้องที่ไม่ได้รับมอบหมาย → 403
-//   3. ค่อยไปดึงต้นทางจาก camera_heartbeat.stream_url แล้ว pipe ต่อ
+//   3. strict Operator ใช้ physical_camera_heartbeat ของ verified Node เท่านั้น;
+//      compatibility mode เดิมจึงค่อยใช้ camera_heartbeat.stream_url
 // ⚠️ ห้ามสลับลำดับ: การตรวจสิทธิ์ต้องจบ "ก่อน" เปิด socket ไปหา engine เสมอ
 apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
   const cameraId = req.params.id
+  let demandHandle = null
+  let lifecycle = null
+  let idleTimer = null
+  let revalidateTimer = null
+  let revalidation = Promise.resolve()
+  const abort = () => lifecycle?.abort()
   try {
-    // ด่านเดียวกับ /api/cameras — ไม่มีทางลัด ไม่เชื่อ id จาก client
-    if (!(await canSeeCamera(req.user, cameraId))) {
-      return res.status(403).json({ error: 'Forbidden' })
+    let src
+    let access
+    let liveRouteUser = req.user
+    let strictOperator = false
+    if (REQUIRE_LOCAL_NODE_ASSOCIATION) {
+      try {
+        const actor = await resolveLiveCameraActor(req)
+        liveRouteUser = { ...req.user, id: actor.userId, username: actor.username, role: actor.role }
+        strictOperator = actor.role === ROLES.OPERATOR
+      } catch (error) {
+        if (error instanceof CameraAccessError) {
+          return res.status(error.status).json({ error: error.code })
+        }
+        throw error
+      }
     }
-
-    const src = await store.streamSourceFor(cameraId)
-    if (!src) {
-      // ไม่เคยมี engine รายงานกล้องนี้ / engine ไม่ได้เปิดสตรีม → บอกตรง ๆ
-      return res.status(503).json({ error: 'No live stream for this camera' })
-    }
-    if (src.ageMs > STREAM_STALE_MS) {
-      // heartbeat เก่าเกิน = engine น่าจะตายไปแล้ว ไม่ต้องเสียเวลา dial ให้ client รอ
-      return res.status(503).json({ error: 'Detection Engine is not reporting' })
+    if (strictOperator) {
+      try {
+        ;({ access, source: src } = await resolvePhysicalStreamTarget(req, cameraId, Date.now(), {
+          resolveOperatorAccess,
+          streamSourceForPhysicalCamera: store.streamSourceForPhysicalCamera,
+        }))
+        if (!(await canSeeCamera(liveRouteUser, cameraId))) {
+          return res.status(403).json({ error: 'Forbidden' })
+        }
+      } catch (error) {
+        if (error instanceof CameraAccessError) {
+          return res.status(error.status).json({ error: error.code })
+        }
+        throw error
+      }
+    } else {
+      // Compatibility path while the rollout switch remains false. This path
+      // keeps the existing camera_assignment and logical-heartbeat behavior.
+      if (!(await canSeeCamera(liveRouteUser, cameraId))) {
+        return res.status(403).json({ error: 'Forbidden' })
+      }
+      src = await store.streamSourceFor(cameraId)
+      if (!src) {
+        return res.status(503).json({ error: 'No live stream for this camera' })
+      }
+      if (src.ageMs > STREAM_STALE_MS) {
+        return res.status(503).json({ error: 'Detection Engine is not reporting' })
+      }
     }
 
     // ยกเลิก upstream ทันทีเมื่อ client ตัดการเชื่อมต่อ (ปิดแท็บ/เปลี่ยนกล้อง/logout)
     // — ถ้าไม่ทำ socket ไปหา engine จะค้างไว้ตลอดกาลและ engine จะนับ viewer ค้าง
     const ctrl = new AbortController()
-    const lifecycle = createUpstreamLifecycle(ctrl)
-    const abort = () => lifecycle.abort()
+    lifecycle = createUpstreamLifecycle(ctrl)
     res.once('close', abort)
+    if (res.destroyed) abort()
+
+    if (strictOperator) {
+      demandHandle = await producerLifecycle.acquire({ access, sessionBinding: currentNodeSessionBinding(req) })
+    }
+    if (lifecycle.closed) return
+
+    // One awaited cycle owns session reload, live authorization and renewal.
+    // Scheduling only after completion prevents overlapping DB renewals.
+    const revalidate = async () => {
+      try {
+        await new Promise((resolve, reject) => {
+          if (!req.session?.reload) return reject(new Error('session ended'))
+          req.session.reload(error => error ? reject(error) : resolve())
+        })
+        if (lifecycle.closed) return
+        const user = currentUser(req)
+        if (!user) throw new Error('session ended')
+        if (strictOperator) {
+          const liveAccess = await resolveOperatorAccess(req, cameraId, Date.now())
+          if (lifecycle.closed) return
+          if (!(await canSeeCamera({ ...user, id: liveAccess.userId, role: ROLES.OPERATOR }, cameraId))) {
+            throw new Error('access revoked')
+          }
+          if (lifecycle.closed) return
+          await producerLifecycle.renew({ handle: demandHandle, access: liveAccess,
+            sessionBinding: currentNodeSessionBinding(req) })
+        } else {
+          const actor = REQUIRE_LOCAL_NODE_ASSOCIATION ? await resolveLiveCameraActor(req) : null
+          const liveUser = actor ? { ...user, id: actor.userId, username: actor.username, role: actor.role } : user
+          if ((actor && actor.role !== ROLES.SOC) || !(await canSeeCamera(liveUser, cameraId))) {
+            throw new Error('access revoked')
+          }
+        }
+      } catch {
+        // No raw session binding, registry context or DB error enters logs.
+        abort()
+      }
+    }
+    const scheduleRevalidation = () => {
+      revalidateTimer = setTimeout(() => {
+        revalidation = revalidate().finally(() => {
+          if (!lifecycle.closed) scheduleRevalidation()
+        })
+      }, Math.min(STREAM_REVALIDATE_MS, RENEW_BEFORE_MS))
+    }
+    scheduleRevalidation()
+
+    const armIdle = () => {
+      clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => {
+        console.warn(`[aegis-monitor] stream ${cameraId}: no data for ${STREAM_IDLE_MS}ms — closing`)
+        abort()
+      }, STREAM_IDLE_MS)
+    }
+    armIdle()
 
     let upstream
     try {
       upstream = await fetch(src.url, {
         signal: ctrl.signal,
-        headers: { 'X-Detection-Engine-Key': process.env.DETECTION_ENGINE_API_KEY ?? '' },
+        redirect: 'error',
+        headers: {
+          'X-Detection-Engine-Key': process.env.DETECTION_ENGINE_API_KEY ?? '',
+          ...(strictOperator ? { 'X-Aegis-Producer-Generation': demandHandle.producerGeneration } : {}),
+        },
       })
     } catch (err) {
       abort()
-      if (res.headersSent) return
+      if (res.headersSent || res.destroyed) return
       return res.status(504).json({ error: 'Detection Engine unreachable' })
     }
 
@@ -184,6 +632,9 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
       abort()
       return res.status(502).json({ error: `Upstream stream error (${upstream.status})` })
     }
+    const reader = upstream.body.getReader()
+    lifecycle.attachReader(reader)
+    if (lifecycle.closed) return
 
     // ส่งต่อ content-type พร้อม boundary เดิม — <img> ฝั่งเบราว์เซอร์อ่านตรงนี้
     res.status(200)
@@ -205,34 +656,6 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     //    ต่อไปจนกว่าจะปิดแท็บเอง ซึ่งขัดกับหลัก server-side enforcement ของโปรเจกต์
     //    จึง reload เซสชันจาก store เป็นระยะ และตรวจ camera_assignment ซ้ำด้วย
     //    (SOC ย้ายกล้องออกจาก operator ระหว่างที่เขาดูอยู่ = ต้องถูกตัดภายในรอบถัดไป)
-    const revalidate = setInterval(() => {
-      req.session?.reload((err) => {
-        if (lifecycle.closed) return
-        if (err || !req.session?.user) {
-          console.warn(`[aegis-monitor] stream ${cameraId}: session ended — closing`)
-          abort()
-          return
-        }
-        canSeeCamera(req.session.user, cameraId).then((ok) => {
-          if (!ok && !lifecycle.closed) {
-            console.warn(`[aegis-monitor] stream ${cameraId}: access revoked — closing`)
-            abort()
-          }
-        }).catch(() => { /* ตรวจไม่ได้ก็ปล่อยรอบหน้า */ })
-      })
-    }, STREAM_REVALIDATE_MS)
-
-    const reader = upstream.body.getReader()
-    lifecycle.attachReader(reader)
-    let idleTimer = null
-    const armIdle = () => {
-      clearTimeout(idleTimer)
-      idleTimer = setTimeout(() => {
-        console.warn(`[aegis-monitor] stream ${cameraId}: no data for ${STREAM_IDLE_MS}ms — closing`)
-        abort()
-      }, STREAM_IDLE_MS)
-    }
-
     try {
       armIdle()
       for (;;) {
@@ -247,16 +670,26 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     } catch {
       // upstream ตายกลางคัน / ถูก watchdog ยกเลิก / client ตัดไปแล้ว
       // ทั้งหมดจบทางเดียวกัน: ปิด response เพื่อให้ฝั่งเบราว์เซอร์รู้ตัว
-    } finally {
-      clearTimeout(idleTimer)
-      clearInterval(revalidate)
-      abort()
-      res.off('close', abort)
-      if (!res.writableEnded) res.end()
     }
   } catch (err) {
     if (res.headersSent) { try { res.end() } catch { /* already gone */ } return }
+    if (err instanceof CameraAccessError) {
+      return res.status(err.status).json({ error: err.code })
+    }
     next(err)
+  } finally {
+    clearTimeout(idleTimer)
+    clearTimeout(revalidateTimer)
+    abort()
+    res.off('close', abort)
+    // A pending renewal must finish before release, never resurrecting a
+    // demand after cleanup. The DB lease bounds a failed cleanup attempt.
+    await revalidation
+    if (demandHandle) {
+      try { await producerLifecycle.release(demandHandle) }
+      catch { console.warn('[aegis-monitor] producer demand cleanup failed; lease will expire') }
+    }
+    if (lifecycle && !res.writableEnded && !res.destroyed) res.end()
   }
 })
 
@@ -278,21 +711,29 @@ apiRouter.get('/cameras/:id', requireAuth, async (req, res, next) => {
 // ⚠️ ทุกตัว: (1) requireAuth (2) ตรวจ role (3) สำหรับ Operator — ข้อมูลถูกกรอง
 //    ผ่าน camera_assignment "ฝั่งเซิร์ฟเวอร์" เสมอ — ห้ามเชื่อ filter จาก client
 import { requireRole } from '../middleware/requireRole.js'
-import * as store from '../db/store.js'
-
 /** เซ็ตกล้องที่ผู้เรียกเห็นได้ — ทุก endpoint ข้อมูลเรียกตัวนี้ก่อนเสมอ */
 async function visibleIdsOf(user) {
   const cams = await getVisibleCameras(user)
   return new Set(cams.map((c) => c.id))
 }
 
-// Edge link status — คำนวณจาก camera_heartbeat จริง (อายุของ heartbeat ล่าสุด)
-// ขอบเขต: เฉพาะกล้องที่ผู้เรียกเห็นได้ — operator เห็นสุขภาพของ "กล้องตัวเอง"
-// ไม่ใช่ของทั้ง fleet (กรองผ่าน camera_assignment เหมือนทุก endpoint ข้อมูล)
+// Edge link status — strict Operator แสดง physical heartbeat ภายใต้ account alias;
+// SOC/compatibility mode ยังคงอ่าน logical camera_heartbeat สำหรับ fleet telemetry.
 apiRouter.get('/link', requireAuth, async (req, res, next) => {
   try {
+    if (REQUIRE_LOCAL_NODE_ASSOCIATION) {
+      const actor = await resolveLiveCameraActor(req)
+      if (actor.role === ROLES.OPERATOR) {
+        return res.json(await resolveOperatorPhysicalLinkStatus(req))
+      }
+    }
     res.json(await store.linkStatus(await visibleIdsOf(req.user)))
-  } catch (err) { next(err) }
+  } catch (err) {
+    if (err instanceof CameraAccessError) {
+      return res.status(err.status).json({ error: err.code })
+    }
+    next(err)
+  }
 })
 
 // demo control: จำลอง link ล่ม (แทนการดึงสาย LAN ให้ผู้ตรวจดู degraded→lost)

@@ -20,6 +20,7 @@ export function createUpstreamLifecycle(controller) {
 
   return {
     get closed() { return closed },
+    get signal() { return controller.signal },
     attachReader(nextReader) {
       reader = nextReader
       if (closed) cancelReader()
@@ -33,8 +34,8 @@ export function createUpstreamLifecycle(controller) {
   }
 }
 
-/** Resolve on either writable progress or disconnect, so backpressure cannot
- * strand the proxy loop forever after the browser closes its tab. */
+/** Writable progress, browser disconnect or server-side upstream abort must
+ * wake the proxy loop so idle/revocation cleanup cannot strand its demand. */
 export function waitForDrainOrClose(response, lifecycle) {
   if (lifecycle.closed || response.destroyed) return Promise.resolve()
 
@@ -45,10 +46,12 @@ export function waitForDrainOrClose(response, lifecycle) {
       settled = true
       response.off('drain', finish)
       response.off('close', finish)
+      lifecycle.signal?.removeEventListener('abort', finish)
       resolve()
     }
     response.once('drain', finish)
     response.once('close', finish)
+    lifecycle.signal?.addEventListener('abort', finish, { once: true })
     if (lifecycle.closed || response.destroyed) finish()
   })
 }

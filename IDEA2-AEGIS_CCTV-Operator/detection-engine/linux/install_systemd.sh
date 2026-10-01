@@ -11,11 +11,11 @@ base_python="/usr/bin/python"
 tunnel_host=""
 identity_file=""
 known_hosts_file=""
-monitor_target_host="172.18.0.2"
+monitor_target_host=""
 monitor_target_port="8002"
 local_forward_port="18002"
-remote_bind_address="172.18.0.1"
-remote_port="18077"
+remote_bind_address=""
+remote_port=""
 engine_port="8077"
 skip_dependency_install="false"
 start_now="false"
@@ -29,15 +29,15 @@ usage() {
     '  --tunnel-host USER@HOST    SSH endpoint used for both forwards' \
     '  --identity-file PATH       Machine-local private key' \
     '  --known-hosts-file PATH    Verified known_hosts file' \
+    '  --monitor-target-host HOST Required deployment-owned Monitor host' \
+    '  --remote-bind-address ADDR Required deployment-owned server bind address' \
+    '  --remote-port PORT         Required server-approved unique reverse port' \
     '' \
     'Optional:' \
     '  --runtime-root PATH        Default: ~/.local/share/aegis/detection-engine' \
     '  --python PATH              Default: /usr/bin/python' \
-    '  --monitor-target-host HOST Default: 172.18.0.2' \
     '  --monitor-target-port PORT Default: 8002' \
     '  --local-forward-port PORT  Default: 18002' \
-    '  --remote-bind-address ADDR Default: 172.18.0.1' \
-    '  --remote-port PORT         Default: 18077; must be unique on the server' \
     '  --engine-port PORT         Default: 8077' \
     '  --skip-dependency-install  Reuse the existing runtime virtual environment' \
     '  --start-now                Enable and start both services after installation'
@@ -56,6 +56,19 @@ validate_port() {
   local name="$1" value="$2"
   [[ "$value" =~ ^[0-9]+$ ]] || die "$name must be an integer"
   (( value >= 1 && value <= 65535 )) || die "$name must be between 1 and 65535"
+}
+
+validate_explicit_ipv4() {
+  local name="$1" value="$2"
+  local first second third fourth octet
+  [[ "$value" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || \
+    die "$name must be a literal IPv4 server interface"
+  IFS=. read -r first second third fourth <<<"$value"
+  for octet in "$first" "$second" "$third" "$fourth"; do
+    (( 10#$octet <= 255 )) || die "$name must be a literal IPv4 server interface"
+  done
+  [[ "$value" != "0.0.0.0" && "$first" != "127" ]] || \
+    die "$name must identify one explicit non-loopback server interface"
 }
 
 while (($#)); do
@@ -84,9 +97,12 @@ done
 [[ -n "$tunnel_host" ]] || die "--tunnel-host is required"
 [[ -n "$identity_file" ]] || die "--identity-file is required"
 [[ -n "$known_hosts_file" ]] || die "--known-hosts-file is required"
+[[ -n "$monitor_target_host" ]] || die "--monitor-target-host is required"
+[[ -n "$remote_bind_address" ]] || die "--remote-bind-address is required"
+[[ -n "$remote_port" ]] || die "--remote-port is required"
 [[ "$tunnel_host" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._:-]+$ ]] || die "--tunnel-host must use user@host"
 [[ "$monitor_target_host" =~ ^[A-Za-z0-9._:-]+$ ]] || die "Invalid --monitor-target-host"
-[[ "$remote_bind_address" =~ ^[A-Za-z0-9._:-]+$ ]] || die "Invalid --remote-bind-address"
+validate_explicit_ipv4 --remote-bind-address "$remote_bind_address"
 [[ "$runtime_root" != *[[:space:]]* ]] || die "--runtime-root must not contain whitespace"
 
 validate_port --monitor-target-port "$monitor_target_port"

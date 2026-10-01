@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS detection_nodes (
   public_key             TEXT NOT NULL,
   public_key_fingerprint TEXT NOT NULL UNIQUE,
   key_version            INTEGER NOT NULL CHECK (key_version > 0),
+  ingest_auth_mode       TEXT NOT NULL DEFAULT 'legacy_shared_key'
+                         CHECK (ingest_auth_mode IN ('legacy_shared_key', 'ed25519_required')),
   active                 BOOLEAN NOT NULL DEFAULT TRUE,
   registered_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -94,20 +96,16 @@ CREATE TABLE IF NOT EXISTS node_account_camera_alias (
   PRIMARY KEY (node_id, user_id)
 );
 
--- Schema primitives only; producer lifecycle is implemented in a later checkpoint.
+-- Producer ownership is physical; the nullable epoch alias retains history only.
 CREATE TABLE IF NOT EXISTS camera_producer_epochs (
   producer_generation BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  logical_camera_id    TEXT NOT NULL REFERENCES cameras(id) ON DELETE RESTRICT,
+  logical_camera_id    TEXT REFERENCES cameras(id) ON DELETE RESTRICT,
   physical_camera_id   BIGINT NOT NULL REFERENCES physical_cameras(physical_camera_id) ON DELETE RESTRICT,
   node_id              TEXT NOT NULL REFERENCES detection_nodes(node_id) ON DELETE RESTRICT,
   acquired_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   lease_expires_at     TIMESTAMPTZ NOT NULL,
   released_at          TIMESTAMPTZ
 );
-
-CREATE UNIQUE INDEX IF NOT EXISTS camera_producer_epochs_active_logical_idx
-  ON camera_producer_epochs (logical_camera_id)
-  WHERE released_at IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS camera_producer_epochs_active_physical_idx
   ON camera_producer_epochs (physical_camera_id)
@@ -117,6 +115,8 @@ CREATE TABLE IF NOT EXISTS camera_producer_demands (
   producer_generation  BIGINT NOT NULL REFERENCES camera_producer_epochs(producer_generation) ON DELETE CASCADE,
   demand_owner_id      TEXT NOT NULL,
   session_binding_hash TEXT NOT NULL,
+  logical_camera_id    TEXT NOT NULL REFERENCES cameras(id) ON DELETE RESTRICT,
+  viewer_user_id       BIGINT REFERENCES users(id) ON DELETE RESTRICT,
   lease_expires_at     TIMESTAMPTZ NOT NULL,
   released_at          TIMESTAMPTZ,
   PRIMARY KEY (producer_generation, demand_owner_id)

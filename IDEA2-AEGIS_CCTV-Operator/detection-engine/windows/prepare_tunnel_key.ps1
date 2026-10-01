@@ -12,7 +12,8 @@ param(
     [string]$ResultFile,
     [string]$RuntimeRoot = '',
     [string]$SshPath = "$env:SystemRoot\System32\OpenSSH\ssh.exe",
-    [string]$MonitorTargetHost = '172.18.0.2',
+    [Parameter(Mandatory = $true)]
+    [string]$MonitorTargetHost,
     [ValidateRange(1, 65535)]
     [int]$MonitorTargetPort = 8002,
     [ValidateRange(1, 65535)]

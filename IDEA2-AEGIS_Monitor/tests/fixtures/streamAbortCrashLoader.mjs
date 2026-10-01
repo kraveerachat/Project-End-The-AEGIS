@@ -39,14 +39,14 @@ export async function load(url, context, nextLoad) {
 
   const original = loaded.source.toString()
   assert.match(original, /const STREAM_IDLE_MS = 6_000/)
-  assert.match(original, /const STREAM_REVALIDATE_MS = 10_000/)
+  assert.match(original, /const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS/)
   const source = original
     .replace('const STREAM_IDLE_MS = 6_000', `const STREAM_IDLE_MS = ${streamIdleMs}`)
     .replace(
-      'const STREAM_REVALIDATE_MS = 10_000',
+      'const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS',
       `const STREAM_REVALIDATE_MS = ${streamRevalidateMs}`,
     )
   assert.doesNotMatch(source, /const STREAM_IDLE_MS = 6_000/)
-  assert.doesNotMatch(source, /const STREAM_REVALIDATE_MS = 10_000/)
+  assert.doesNotMatch(source, /const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS/)
   return { ...loaded, source }
 }
