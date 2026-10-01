@@ -30,7 +30,9 @@
 #   SELF_ATTESTATION != INDEPENDENT_IDEA1_OWNER_CONFIRMATION; it does not prove
 #   IDEA1 is inactive. S10 PRE/POST evidence remains the empirical protection.
 #   + L1/L7: d6_notice=pub, L2: integration_review=kla,
-#     L8: recovery_authorization=<link>
+#     L8: recovery_authorization=<link>, L8p: physical_recovery_attestation=<link>
+#   L7u (post-L7 Recovery Core upgrade) carries NONE of these extras: recovery_authorization is an L8-specific gate, and L7u success never
+#   authorizes L8. An L7u record that carries d6_notice, integration_review or recovery_authorization is AUTHORIZATION_MALFORMED.
 #
 # Exit 0 = STAGE_GATE=PASS_SIMULATION or PASS_READ_ONLY; 1 = STAGE_GATE=FAIL.
 set -uo pipefail
@@ -109,7 +111,7 @@ EXTRA=$(p4_stage_auth_extra "$STAGE")
 if [ -z "$AUTH" ]; then
   fail AUTHORIZATION_MISSING
 elif ! parse_record "$AUTH" AEGIS_P4_AUTHORIZATION_V1 \
-  "stage date authorizer scope reference d6_notice integration_review recovery_authorization" \
+  "stage date authorizer scope reference d6_notice integration_review recovery_authorization physical_recovery_attestation" \
   "stage date authorizer scope reference $EXTRA"; then
   fail AUTHORIZATION_MALFORMED
 elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[authorizer]}" != music ] \
@@ -117,10 +119,19 @@ elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[authorizer]}" != music ] \
   || ! [[ "${R[reference]}" =~ $REF_RE ]] || [[ "${R[reference]^^}" =~ $PLACEHOLDER_RE ]] \
   || { [ -n "${R[d6_notice]+set}" ] && [ "${R[d6_notice]}" != pub ]; } \
   || { [ -n "${R[integration_review]+set}" ] && [ "${R[integration_review]}" != kla ]; } \
-  || { [ -n "${R[recovery_authorization]+set}" ] && ! [[ "${R[recovery_authorization]}" =~ $REF_RE ]]; }; then
+  || { [ -n "${R[recovery_authorization]+set}" ] && ! [[ "${R[recovery_authorization]}" =~ $REF_RE ]]; } \
+  || { [ -n "${R[physical_recovery_attestation]+set}" ] && { ! [[ "${R[physical_recovery_attestation]}" =~ $REF_RE ]] || [[ "${R[physical_recovery_attestation]^^}" =~ $PLACEHOLDER_RE ]]; }; }; then
   fail AUTHORIZATION_MALFORMED
 elif [ "${R[stage]}" != "$STAGE" ]; then
   fail AUTHORIZATION_STAGE_MISMATCH
+elif { [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ]; } && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ]; }; then
+  # L8p likewise never carries the L8-only recovery_authorization nor the L7/L2 notices (it has its own physical_recovery_attestation).
+  # recovery_authorization is an L8-specific gate; L7u never carries it (nor the L7/L2 notices). Checked after the stage match so that an
+  # authorization minted for another stage is reported as a stage mismatch first.
+  fail AUTHORIZATION_MALFORMED
+elif [ "$STAGE" != L8p ] && [ -n "${R[physical_recovery_attestation]+set}" ]; then
+  # physical_recovery_attestation belongs to L8p alone.
+  fail AUTHORIZATION_MALFORMED
 elif [ "${R[date]}" != "$TODAY" ]; then
   fail AUTHORIZATION_STALE
 else

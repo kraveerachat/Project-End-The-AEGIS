@@ -344,3 +344,17 @@ test('IV ของทุกก้อนต่างกัน — สมบัต
   assert.equal(new Set(ivs).size, ivs.length)
   assert.equal(bytesToB64(new Uint8Array(12)).length, ivs[0].length)
 })
+
+// ── Unified Preview P1 (spec §18.1): non-video SW responses are inert ─────────
+test('P1-SW-HEADERS audio (non-video) responses carry nosniff + sandbox CSP; video responses are unchanged', async () => {
+  const audio = await makeVaultBlob({ plainSize: 4196, type: 'audio/mpeg' })
+  for (const res of [planPreviewResponse(audio.session, { rangeHeader: 'bytes=0-99' }), planPreviewResponse(audio.session, {})]) {
+    assert.equal(res.headers['Content-Type'], 'audio/mpeg')
+    assert.equal(res.headers['X-Content-Type-Options'], 'nosniff')
+    assert.equal(res.headers['Content-Security-Policy'], "default-src 'none'; sandbox")
+    assert.equal(res.headers['Cache-Control'], 'no-store')
+  }
+  const video = await makeVaultBlob({ plainSize: 4196, type: 'video/mp4' })
+  const v = planPreviewResponse(video.session, { rangeHeader: 'bytes=0-99' })
+  assert.deepEqual(Object.keys(v.headers).sort(), ['Accept-Ranges', 'Cache-Control', 'Content-Length', 'Content-Range', 'Content-Type'])
+})

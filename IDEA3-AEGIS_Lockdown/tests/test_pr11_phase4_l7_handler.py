@@ -9,6 +9,7 @@ never be caused by an unrelated precondition (the previous negative tests never 
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -817,6 +818,36 @@ def test_l7_verify_rejects_plaintext_secret_variables_in_the_process_environment
 def test_l7_verify_status_contract(fx: Fx, env: dict, code: str) -> None:
     applied(fx, **env)
     assert vreason(verified(fx)) == code
+
+
+def test_l7_verify_accepts_real_production_startup_status_armed_without_auto_contain(fx: Fx) -> None:
+    # L7 #6 live failure: the production Core starts armed=ARMED with auto_contain=false (operational gate != containment)
+    applied(fx)
+    status = json.loads((fx.root / "run/aegis-idea3/status.json").read_text())
+    assert status["armed"] == "ARMED" and status["auto_contain"] is False
+    assert verified(fx).returncode == 0
+
+
+@pytest.mark.parametrize("env,code", [
+    ({"FAKE_CORE_AUTO_CONTAIN": "1"}, "STATUS_CONTAINMENT_INVALID"),
+    ({"FAKE_CORE_UPLINK": "LOCKDOWN"}, "STATUS_CONTAINMENT_INVALID"),
+    ({"FAKE_CORE_DEVICE": "ONLINE"}, "STATUS_CONTAINMENT_INVALID"),
+    ({"FAKE_CORE_ARMED": "LOCKDOWN"}, "STATUS_CONTAINMENT_INVALID"),
+    ({"FAKE_CORE_ARMED": ""}, "STATUS_CONTAINMENT_INVALID"),
+    ({"FAKE_CORE_ACTUATE": "1"}, None),
+])
+def test_l7_verify_armed_acceptance_does_not_bypass_containment_protections(fx: Fx, env: dict, code) -> None:
+    applied(fx, **env)
+    res = verified(fx)
+    assert res.returncode != 0
+    if code:
+        assert vreason(res) == code
+
+
+@pytest.mark.parametrize("armed", ["ARMED", "MONITOR_ONLY"])
+def test_l7_verify_accepts_operational_armed_values(fx: Fx, armed: str) -> None:
+    applied(fx, FAKE_CORE_ARMED=armed)
+    assert verified(fx).returncode == 0
 
 
 @pytest.mark.parametrize("state", ["WAIT_DEVICE", "DEGRADED"])

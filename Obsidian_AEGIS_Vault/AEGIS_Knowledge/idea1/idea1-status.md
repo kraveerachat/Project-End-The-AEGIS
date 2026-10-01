@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-29
+updated: 2026-10-02
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -15,10 +15,286 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-A — D-1 PR-A compatibility + read-only preview-index API
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 PR-A / plan Phase A, Tasks A.0–A.6 only |
+| Branch | `feat/idea1-preview-d1-a-compat-read` from `origin/main` `2dc596d1e0bd46319647da75fd34bdd02a7b5f91` (PR #280 merged) |
+| Owner | kla |
+| PR | #283 |
+| State | **IMPLEMENTED + LOCALLY VERIFIED**; not deployed; `IMPLEMENTATION_AUTHORIZED=YES` (Phase A only); `PRODUCTION_MUTATION_AUTHORIZED=NO` |
+| Production mutation allowed | **NO** |
+| Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
+| Next gate | Human review/merge of PR #283 (HG-A, integration review: migration 012). **PR-A is never deployed alone — Stage 1 requires PR-A + PR-B.** Phase B not started. |
+
+### Session Register — D1-A
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1A-S1 | Plan Tasks A.0–A.6: baseline, flags/budget config, migration 012, read/accounting store, read-only routes + inventory exclusion + boot probe, client read wrappers, compatibility tests | PASS | full-suite name diff vs A.0 baseline; PG 15 suites; build; governance/vault/policy/secret checks (receipt) | `7083ef43` | Human review/merge (HG-A) | PR-B (Phase B) after separate authorization |
+
+D1A-S1 (2026-10-02, start `2dc596d1`): Phase A only. Implemented default-OFF chained flags `VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE` → `_READ_ENABLED` (+ `VAULT_MEDIA_PREVIEW_ENABLED`) → `_WRITE_ENABLED`; budget `VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER` has no approved value (unset → null; WRITE=true without it fails boot; PROVISIONAL until HG-G). Migration 012 + `schema.sql`: `vault_preview_index_heads`, `vault_preview_index_generations`, `vault_preview_index_blob_refs` (immutable/undeletable except owner cascade by trigger; superseded refs advisory only) and lifecycle CHECK widened with `INDEX_STAGED`/`INDEX_MANAGED`, no row rewrite, no down-migration. Read store (`getIndexHead`, `listIndexEnvelopes`, `listIndexBlobs`, `excludeIndexBlobIds`, `getRetainedIndexBytes`), GET-only `/api/vault/tree/preview-index/{head,envelopes,blobs}`, `INDEX_*` excluded from `GET /api/vault` and `/tree/blobs`, migration-012 boot probe, client read wrappers. No codec, reader, CAS, preview upload mode, writer, derivative generation, budget enforcement or flag enablement. Evidence: baseline at `2dc596d1` 2530 tests / 2268 pass / 100 fail / 162 skip; PR-A at `7083ef43` 2575 / 2303 / 101 / 171 — the only differing failure name is `vaultTreeApi OR-4` (Windows EPERM on a temp manifest file), reproduced on the untouched baseline (1 of 6 isolated runs) and on PR-A (1 of 3), so it is a pre-existing environmental flake, not a regression. PostgreSQL 15 (disposable `pg-integration-env.sh`, drive_app): `vaultTreePostgres` 35/35, `vaultV2Postgres` 17/17, `vaultPostgres` 9/9 on both baseline and PR-A; new `previewIndexMigration` 9/9 and `previewIndexStorePostgres` 5/5. `npm run build` pass (dist restored). Production: not touched.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-PLAN — D-1 implementation plan (plan only)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1-PLAN / implementation planning only |
+| Branch | `docs/idea1-preview-d1-implementation-plan` from `origin/main` `fff78feb7f7296a742794a31dffeb35a134a7660` (PR #279 merged) |
+| Owner | kla |
+| PR | #280 (merged into `main` at `2dc596d1e0bd46319647da75fd34bdd02a7b5f91`) |
+| State | **CLOSED — Revision 2 `PLAN_REVIEW=APPROVED` (`APPROVED_PLAN_REVISION_SHA=5279be8e9f7ce99461ca53e22493e847121c27e4`); merged** |
+| Production mutation allowed | **NO** |
+| Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
+| Next gate | Closed. Phase A continues in IDEA1-UNIFIED-PREVIEW-D1-A above. |
+
+### Session Register — D1-PLAN
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1P-S1 | Read governance, approved D-1 spec, PR #278 receipt and current Vault runtime source; write and self-review the implementation plan; no runtime change | PASS | plan self-review (10-point checklist in plan §8); governance validation recorded in the final receipt | recorded in the final receipt | Human plan review | HG-0 |
+| D1P-S2 | Apply three required review corrections to the plan only | PASS | plan §8 R1–R10 review-revision checks; governance tests, vault validation, policy validation, diff/secret checks (PR #280 body) | `5279be8e` | Human merge | separate implementation authorization |
+
+D1P-S2 (2026-10-02): Human/architecture review returned `PLAN_REVIEW=APPROVE_WITH_REQUIRED_CHANGES`, `PR280_MERGE=HOLD`. Revision 2 supersedes the D1P-S1 split/stage summary above: (1) a **server-enforced per-owner retained-storage budget** (`maxPreviewIndexRetainedBytesPerOwner`, PROVISIONAL, approved only at HG-G) counts committed `INDEX_STAGED` + `INDEX_MANAGED` ciphertext, is checked at preview-index upload create and authoritatively at commit under the owner lock, and on exhaustion rejects only new preview persistence (originals, downloads, main manifest and existing index objects unaffected; nothing deleted); new tasks C.7 (PR-C) and E.4 (PR-D); boot refuses `WRITE=true` without the budget; (2) **Stage 1 = PR-A + PR-B merged** with SCHEMA=true, READ=true, WRITE=false, PURGE=false, acceptance `GET /preview-index/head` → 404; no Production deployment between PR-A and PR-B; rollback target = previous accepted P1 image with migration 012 retained; (3) `supersededBlobIds` are advisory bookkeeping only and never deletion authority; future GC needs its own architecture/plan and HG-GC. Existing P3–P5 plans are stale for D-1 and must be re-planned after D-1 closes. Task count 44 → 46. Human re-review then returned `PLAN_REVIEW=APPROVED`, `REQUIRED_CHANGES_RESOLVED=YES`, and authorized correcting this task's one unmerged receipt in place; the receipt now records Revision 2 (46 tasks, revised split, `APPROVED_PLAN_REVISION_SHA=5279be8e`). Runtime/DB/Production change: **NO**.
+
+D1P-S1 (2026-10-02, start `fff78feb`): plan only. Scope: the new plan file, this status block and one final receipt. Safety: no runtime source, DB schema, server route, writer, flag, deployment, or Production action. Source inspection confirmed none of the separate-index machinery exists and surfaced three planning facts now recorded in the plan: (1) `vault_tree_blob_state.lifecycle` CHECK must be widened with `INDEX_STAGED`/`INDEX_MANAGED` so index/derivative blobs are never `UNREFERENCED` (old clients list every `UNREFERENCED` blob as recoverable); (2) `GET /api/vault` returns every envelope on unlock, so retained index blobs must be excluded server-side and served by a bounded envelope route; (3) with destructive GC forbidden, superseded copy-on-write shard bytes accumulate and must be measured at the IDX-SIZE gate. Plan: 44 tasks in phases A–I, Production stages J1–J4 (Human-only), closeout K; recommended split PR-A (compat/read-only, first Production stage) → PR-B (codec/reader) → PR-C (CAS/lifecycle/orphans) → PR-D (writer OFF + thumb/poster) → PR-E (capacity/security/compat/rollback evidence). Capability env `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (concept `VAULT_PREVIEW_INDEX_WRITE`) defaults false. All shard/root limits remain PROVISIONAL until Human approval after measurement.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1 — Separate encrypted preview-index design closeout
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 / architecture only |
+| Branch | `docs/idea1-preview-d1-encrypted-preview-index-design` from `origin/main` `a54e699594053fc87018720b9f9f25c9c482a6b0` (PR #278 merged) |
+| Owner | kla |
+| PR | #279 (design-only closeout; merged into `main` at `fff78feb7f7296a742794a31dffeb35a134a7660`) |
+| State | **DESIGN_SPEC_APPROVED=YES / D1_ARCHITECTURE=APPROVED_WITH_CONDITIONS / DESIGN TASK CLOSED**; implementation and Production mutation not authorized |
+| Production mutation allowed | **NO** |
+| Next gate | Closed — PR #279 merged; implementation planning continues in IDEA1-UNIFIED-PREVIEW-D1-PLAN above. |
+
+### Session Register — D1
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1-S1 | Compare separate encrypted-index architectures; write and self-review design only | CLOSED | PR #278 rejected size gate; current Vault source/contracts; 49/49 governance tests; vault validation pass with two existing canvas warnings; `git diff --check` pass; Draft PR #279 | `984b64e2358183312de5673ddc097c2de31d7c16` | Human architecture approval; no implementation plan | Human decision; no writer, flag, migration, or Production work |
+| D1-S2 | Record Human approval with conditions and close design PR only | CLOSED | Human Owner decision 2026-10-02; 49/49 governance tests, vault validation pass with two existing canvas warnings, `git diff --check` pass on design checkpoint | `6d221f3e` | Human PR review/merge; implementation separate and unauthorized | Human reviews/merges PR #279 |
+
+Session D1-S1 started 2026-10-02 from `a54e699594053fc87018720b9f9f25c9c482a6b0`. Scope: the new D-1 spec and this owner status checkpoint only. Safety: no runtime source, database, implementation plan, writer, `VAULT_MANIFEST_V2_UPGRADE`, or Production mutation. Expected evidence: comparison, quantitative 1k/5k/10k model, security/rollback review, collaboration/vault validation, and a Draft PR. At that checkpoint, the earlier manifest-embedded path was blocked at G-THR and the replacement design was only a proposal; the later Human decision is recorded in D1-S2 below.
+
+D1-S1 work performed: compared single, sharded, and sidecar indexes; proposed sharded V2-encrypted root/shards/derivatives with an independent owner-scoped head and **zero** main-manifest linkage. The 1k/5k/10k index model is explicitly estimated from PR #278, not newly benchmarked. New route/storage/CAS, orphan classification, residual request-pattern leakage, and malicious-server replay were explicit blockers/decisions. Spec checkpoint `984b64e2358183312de5673ddc097c2de31d7c16`; Draft PR #279. Verification: `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs` 49 pass/0 fail/0 skip; `node scripts/validate-vault.mjs` pass with two pre-existing owner-data canvas warnings; diff check pass. Runtime/source/config changed: **NO**. Production mutation: **NO**. At D1-S1 no final receipt existed; Human architecture review was next. D1-S2 records the subsequent decision; approval still does not authorize an implementation plan in this branch.
+
+D1-S2 Human decision (2026-10-02): owner-scoped sharded encrypted preview index **approved with conditions**; main-manifest linkage **none**, main manifest **v1**. Request-pattern leakage accepted with documented limitation; malicious-server replay accepted as inherited limitation. Initial 64-shard routing is provisional; decoded cap, live-shard cap, and padded bucket await real IDX-SIZE measurement before any writer. Initial destructive GC is forbidden; authenticated orphan classification and reachability come first; destructive GC needs a separate Human gate. Writer capability must default OFF. `VAULT_MANIFEST_V2_UPGRADE_REQUIRED_FOR_D1=NO`; flag remains OFF. `IMPLEMENTATION_AUTHORIZED=NO`; `PRODUCTION_MUTATION_AUTHORIZED=NO`. This session changes the design spec/status/one final receipt only; no implementation plan, runtime code, DB, server, flag, or Production action.
+
+D1-S2 closeout checkpoint: `6d221f3e` records the Human decision in the spec and canonical note. Local verification at that tree: `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs` 49 pass/0 fail/0 skip; `node scripts/validate-vault.mjs` exit 0 with two pre-existing owner-data canvas warnings; `git diff --check` exit 0. The one final D-1 receipt is added at task handoff; current PR #279 remains design-only. No runtime/build/Production result is claimed. Handoff: Human Owner reviews and merges PR #279; any implementation plan, writer, schema, feature flag, deployment, or destructive GC belongs to a separately authorized future task.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-P2B — T-MAN-SIZE blocked gate
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P2B / Session 1, Tasks 0–1 only |
+| Branch | `feat/idea1-preview-p2b-encrypted-thumb-poster` (from `origin/main` `64f59fbfb0c4d7a731f24e5f0d673a420529c67b`) |
+| PR | #278 (blocked-gate closeout; merged into `main` at `a54e699594053fc87018720b9f9f25c9c482a6b0`) |
+| Owner | kla |
+| State | **P2B_T_MAN_SIZE=COMPLETE / P2B_G_THR=REJECTED / CAPACITY_GATE=FAIL / WRITER BLOCKED** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p2b-encrypted-thumb-poster.md` |
+| Production mutation allowed | **NO** |
+| Next gate | Separate architecture task for D-1 encrypted preview index; direction only, not an approved or implemented design. Tasks 2–17 of this plan must not execute. |
+
+Session register:
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| P2B-S1 | Baseline plus 1k/5k/10k manifest size/cost measurement, no writer | Complete; no Production mutation | Six cells × 20 runs on Node/Chrome and local in-memory/PostgreSQL routes; exact table in PR #278. Baseline Linux full suite: 2,271 pass / 99 fail / 160 skip (existing base, no P2b changes). | Script-only `4c5a5dff`, correction `cc8d2db1`, measurement HEAD `4dd4714f` | Human G-THR decision | Task 2 blocked pending gate decision |
+| P2B-S2 | Human G-THR decision and final blocked-gate closeout | REJECTED / terminally BLOCKED | 10k + previews ciphertext 16,777,232 B equals the current maximum; 0% headroom. Timing is not the blocking reason. | Final blocked receipt in PR #278 | Separate D-1 architecture task, not part of PR #278 | Human Owner reviews/merges blocked evidence PR; no writer work |
+
+T-MAN-SIZE evidence: `P2B_STARTED=YES` means measurement/gating only, not writer implementation or enablement. Product limit counts total nodes, so the 10k fixture contains 9,994 files, root, and five folders. The 10k/three-preview manifest measured 14,632,866 canonical bytes and the 16,777,216-byte padding bucket; ciphertext is 16,777,232 bytes, exactly the current maximum. Node and real Chrome agree on bytes in all six cells. The local server measurements use valid decryptable schema-v1 revisions padded to each v2 ciphertext bucket, proving only opaque payload/row-write cost—not server v2 compatibility. Chrome decrypt+decode+validate p95 was 371.2 ms; no end-to-end mutation p95 was measured. The Human Owner rejected the current manifest-embedded design on 2026-10-01 because 0% ciphertext headroom is insufficient at 10k nodes. `P2B_G_THR=REJECTED`; `P2B_WRITER_IMPLEMENTED=NO`; `P2B_WRITER_ENABLE=BLOCKED`; `VAULT_MANIFEST_V2_UPGRADE_ENABLED=NO`; `PRODUCTION_MUTATION_PERFORMED=NO`; Tasks 2–17 were not executed. D-1 separate encrypted preview index is the next architecture direction, not implemented or approved in this PR.
+
+## Completed Task — IDEA1-UNIFIED-PREVIEW-P1 — Audio and inert text preview
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P1 / IDEA1_UNIFIED_PREVIEW_P1_AUDIO_TEXT |
+| Branch | feat/idea1-preview-p1-audio-text (from `origin/main` `7cabf28a`) |
+| PR | #276 (merged to `main` at `64f59fbfb0c4d7a731f24e5f0d673a420529c67b`; P1_CLOSED=YES) |
+| Owner | kla |
+| State | **IMPLEMENTED + VERIFIED + DEPLOYED + ACCEPTED + MERGED / P1_CLOSED=YES** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p1-audio-text-normal-files.md` |
+| Deployed runtime SHA | `8634360f74ed2f50b2fcb49925a3d273c605a8a2` |
+| Image | `aegis-prod-drive:p1-8634360f74ed` |
+| Next gate | P1 closeout complete; P2b manifest-embedded design rejected at G-THR |
+
+Durable facts:
+
+- Unified Preview P1 Audio/Text is implemented for both Normal Files and the Private Vault.
+- Inline-servable audio (MP3, WAV, FLAC, AAC, M4A, OGG, WEBA) and text-family files (TXT, LOG, MD, JSON, CSV, TSV, code/config source files) are verified with server-side signature sniffing against the first 8 KiB (mismatch -> 415).
+- Active HTML, SVG, and XML are rendered strictly inert as plain source text in `<pre>` blocks; zero raw HTML execution.
+- Text preview is bounded to the first 1 MiB (Files via single Range request; Vault via chunked decrypt stopping after crossing 1 MiB).
+- Private Vault whole-audio decryption ceiling set to 32 MiB (`audioWholeDecryptMaxBytes`); non-video Service Worker responses enforce `nosniff` + `CSP default-src 'none'; sandbox`.
+- Production deployment verified: image `aegis-prod-drive:p1-8634360f74ed`, running revision `8634360f74ed2f50b2fcb49925a3d273c605a8a2`, overlay `/opt/aegis/runtime/preview-p1/drive-image-8634360f74ed.yml` (SHA256 `de6b877b13d8fe1d8ee5c550589d54816cd536c141d345be3e69ceda3379a1f7`).
+- Final server acceptance: `P1_PRODUCTION_CUTOVER=PASS`, `DRIVE_HEALTH=healthy`, `DRIVE_RESTARTS=0`, `DRIVE_OOM=false`, `HEALTHZ=200`, `NON_DRIVE_CONTAINERS_UNCHANGED=PASS`, `VAULT_MANIFEST_V2_UPGRADE=<unset>`, `P2B_STARTED=NO`, `ROLLBACK_REQUIRED=NO`.
+- Historical deployment note: Initial cutover reached healthy / healthz=200, but verification harness failed due to normal user attempting to read root-owned 0600 snapshot; controlled rollback to P2a completed cleanly; harness permission fixed and retry passed full cutover and verification sequence.
+- Human functional acceptance: Normal Files and Private Vault both exercised with the same applicable P1 preview set (MP3 upload, preview, playback, seek, no stutter, functional download; TXT, JSON, CSV, TSV preview; Markdown and JS shown inertly as plain source; no P1 browser/runtime errors). `DOWNLOAD_SHA256` not claimed as before/after hash comparison was not recorded.
+- P2b measurement/gating completed; the Human Owner rejected the current manifest-embedded design at G-THR. The P2b writer was not started.
+- PR #276 merged on 2026-10-01 (`P1_CLOSED=YES`); the immutable P1 receipt was not changed.
+
+## Current Task — IDEA1-UNIFIED-PREVIEW-P2A — Manifest v2 reader (implementation)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P2A / IDEA1_UNIFIED_PREVIEW_P2A_MANIFEST_V2_READER |
+| Branch | feat/idea1-preview-p2a-manifest-v2-reader (from `origin/main` `07633c93`) |
+| PR | #273 (merged to `main` at `352b755083b23c97642d84e0c1400bdc436adb4e`) |
+| Owner | kla |
+| State | **IMPLEMENTED + VERIFIED LOCALLY + MERGED; code included in accepted P1 runtime; P2A_ACCEPTED=YES by Human Owner declaration** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p2a-manifest-v2-reader.md` |
+| Production mutation allowed | **NO** (deploy is Human Owner only) |
+| Next gate | P2a acceptance does not override the rejected P2b capacity gate; no P2b writer flag enable |
+
+Durable facts:
+
+- `P2A_ACCEPTED=YES` is the Human Owner's 2026-10-01 blocked-gate closeout declaration. This task performed no new Production action and does not claim a newly supplied separate ADMIN / EXISTING_USER / NEWLY_CREATED_USER test matrix.
+- The Vault client reads encrypted manifest schema **1 and 2** and writes **only 1** (`MANIFEST_SCHEMA_VERSION_WRITE = 1`, `MANIFEST_SCHEMA_VERSIONS_READ = [1, 2]`); any other version fails secure (`UNSUPPORTED_SCHEMA_VERSION`, before the revision ciphertext is fetched).
+- v2 adds two optional file-node keys, `contentFormat` (a P0 `FormatId` or `''`) and `previews` (≤ 4, one per kind, closed keys, derivative `blobRef.formatVersion === 2`, per-profile bounds from `src/lib/vaultPreviewProfiles.js`). v1 manifests carrying them are `UNKNOWN_KEY`. `effectivePreviews(node)` ignores entries for a replaced original or an unknown profile.
+- v1 canonical bytes are frozen by a golden vector captured at `07633c93` (`tests/fixtures/vaultManifestV1Golden.json`).
+- Each revision decrypts with its own `manifestSchemaVersion` in the AAD; the plaintext `schemaVersion` must equal it (encrypt and decrypt).
+- Decision P2A-W: a v2 head is browse/preview/download-only; every mutation (rename, move, upload attach, trash, create, restore, orphan recovery) is refused as `MANIFEST_NEWER_THAN_WRITER` with zero publish/CAS; uploads are refused before any byte is sent; a v1 intent whose rebase target becomes v2 is discarded. The UI shows "This Vault was updated by a newer version of Drive — reload to make changes." and disables Upload.
+- vp1 proxy reader ceiling (D-9 `proxyMaxSeconds` has no value yet): ≤ 3,600,000 ms and ≤ 1 GiB; the P4 writer must stay inside it or ship a new profile.
+- Server unchanged: `POST /api/vault/tree/revisions` still rejects `manifestSchemaVersion !== 1`.
+
+## Completed Task — IDEA1-UNIFIED-PREVIEW-P0 — Capability foundation (implementation)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P0 / IDEA1_UNIFIED_PREVIEW_P0_CAPABILITY_FOUNDATION |
+| Branch | feat/idea1-preview-p0-capability-foundation (from `c1dc3c90`; current `main` merged normally at `edbe465e`) |
+| PR | #270 — merged to `main` at `e3e02862` |
+| Owner | kla |
+| State | **MERGED / G-P0 CLOSED by Human Owner / NOT DEPLOYED** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p0-capability-foundation.md` |
+| Production mutation allowed | **NO** (P0 needs no Production testing) |
+| Next gate | none — P1 and P2a may start from refreshed `origin/main` |
+
+Durable facts:
+
+- Shared preview core under `IDEA1-AEGIS_Drive_LC/src/lib/preview/` (formats, registry, env, vaultCapability) and one `PreviewModalShell` used by Normal Files and the Vault tree; Download is always available and a type without a provider shows a stable fallback (no empty frame, loading times out).
+- Format detection is signature-first; extensions are case-insensitive (`.JPG` = `.jpg`); the client MIME is never used to choose a format.
+- Normal Files previewable set unchanged (= server `/preview` allowlist); the poster/motion derivative pipeline was not touched.
+- The Vault tree no longer trusts upload-time `File.type`: capability comes from the decrypted content signature (derived facts only, page memory, sealed and cleared on lock) or from the extension with confirmation before rendering; the modal passes decrypted bytes through a render gate.
+- Behaviour change (spec §5.4): extensionless Vault files whose only type evidence is the client MIME no longer offer Preview until their signature is confirmed.
+- Regression pins: arbitrary upload / byte-exact download (Normal V1/V2, Vault V2) and account neutrality (Admin, existing user, newly created user).
+- Vault Download always saves `application/octet-stream` with exact bytes and the manifest filename; the Vault preview header shows the detected format (confirmed name, "not yet verified" for name-only decisions, "Unknown type" otherwise); a closed preview resets its loading fail-safe.
+- Test-suite reliability: `tests/vaultChunkedUploadClient.test.js` gated-PUT fixture could deadlock under full-suite load (late PUT never released → hung run); fixed test-only (`releaseAll(running)`).
+- Known follow-ups (not P0 scope): legacy flat-vault screen (`Vault.jsx`) unchanged; P1/provider expansion must revisit `canPlayType` gating.
+- GROUP B throughput remains deferred; no Vault persisted derivatives exist yet (P2b).
+
+## Current Task — IDEA1-UNIFIED-PREVIEW-ARCH-1 — Unified file capability + preview architecture and plans
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-ARCH-1 / IDEA1_UNIFIED_PREVIEW_ARCHITECTURE_AND_PLANNING |
+| Branch | docs/idea1-unified-preview-encrypted-derivatives-spec |
+| PR | #268 (architecture + planning only) |
+| Owner | kla |
+| State | **COMPLETE / ARCHITECTURE + PLANNING REVIEW PASS / RUNTIME NOT STARTED** |
+| Spec | `docs/superpowers/specs/2026-09-30-idea1-unified-preview-encrypted-derivatives-design.md` — FINAL APPROVED FOR IMPLEMENTATION PLANNING (2026-09-30); D-1…D-11 binding |
+| Plans | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-{master-implementation,p0-capability-foundation,p1-audio-text-normal-files,p2a-manifest-v2-reader,p2b-encrypted-thumb-poster,p3-motion-derivatives,p4-video-proxy,p5-documents}.md` |
+| Production mutation allowed | **NO** |
+| Next gate | HUMAN_OWNER_MERGE_PR268 → then P0 from refreshed `origin/main` |
+
+Durable facts:
+
+- PR #268 contains the final-approved Unified Preview architecture spec plus master and P0–P5 plans; architecture/planning review = PASS. Runtime implementation has **not** started.
+- P0 starts only after PR #268 merges, from a freshly fetched `origin/main`.
+- GROUP B upload/download throughput remains deferred; the Vault V2 minimum plaintext chunk stays 8 MiB, audit semantics stay unchanged, Vault ciphertext HTTP caching stays off.
+- Normal Files fast thumbnail/poster/motion path must not regress; Vault thumbnail/poster optimization is the primary cover-speed target.
+- Click-to-preview applies to both Normal Files and the Private Vault; arbitrary upload and byte-exact download remain required independent of preview support; MP3/audio preview is required.
+- Pending gates: D-6 dependency approval (P4 proxy generation, all of P5); T-MAN-SIZE threshold approval before any P2b writer work; P2a Production acceptance before enabling the v1→v2 upgrade flag `VAULT_MANIFEST_V2_UPGRADE` (default OFF).
+- Manifest rules: server accepts manifest schema [1,2] independent of the upgrade flag, rejects 3+; v2 heads are always written as v2 and never downgraded to v1; P2a builds treat v2 Vaults as read-only (P2A-W approved).
+- Zero-Knowledge invariants remain binding: no server Vault plaintext, no server-generated Vault derivatives, no persistent decrypted Vault cache; only client-encrypted ciphertext derivatives may persist (D-10).
+
 ## Current Task
+
+| Field | Current value |
+|---|---|
+| Task | LFT-PERF-1 / TRANSFER_AND_MEDIA_PREVIEW_PERFORMANCE_STUDY |
+| Branch | docs/idea1-transfer-media-performance-study |
+| PR | #216 (Ready for review) |
+| Owner | kla |
+| State | **COMPLETE / LIVE HARDWARE PATH RECONCILED / PR259 MERGED / NO_SAFE_APP_FIX_PROVEN** |
+| Scope | Live hardware-path reconciliation with PR #259 onsite evidence (RB750r2 ether2 100M full, switch Port 1 100MF, Beelink 1G, client 1G; proven 100 Mbps trunk ceiling); PR #259 merged to main (92d47967); U1/U2/D1 diagnostic results preserved; Task 2 upload concurrency skipped as unjustified; Task 5 download diagnosis complete with no safe app fix proven; Tasks 6–7 blocked/not applicable at current gate; Remote residual limiter open; prepared Remote R1 diagnostic packet; PR #257 and PR #259 cross-referenced; PR #216 closeout complete |
+| Design | IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-25-idea1-transfer-media-performance-study-design.md |
+| Plan | IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-25-idea1-transfer-media-performance-measurement-plan.md |
+| Production mutation allowed | **NO** (`CORE_PERFORMANCE_MUTATION_GATE=PRE_FIX_BASELINES_CAPTURED`; `PERFORMANCE_MUTATION_AUTHORIZED=NO`) |
+| Current result | U1_REMOTE_R=1.1581054; U2_DIRECT_LAN_UPLOAD_R=0.944; D1_DIRECT_LAN_DOWNLOAD_R=0.993; D1_TTFB_SHARE=0.0008; CLIENT_ETHERNET_LINK=1_GBPS; RB750R2_IDENTITY=PROVEN_LIVE; RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX; TP_LINK_PORT1_TRUNK=100MF; BEELINK_LINK=1_GBPS_FULL; P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE; CURRENT_LAN_THROUGHPUT_LIMITER=PROVEN_HARDWARE_PATH_LIMIT; P1_SHARED_PATH_CAPACITY_LIMITER=PROVEN_BY_U2_D1_AND_LIVE_NETWORK_TELEMETRY; UPLOAD_APPLICATION_DEFECT_PROVEN=NO; DOWNLOAD_APPLICATION_DEFECT_PROVEN=NO; SAFE_APP_LAYER_FIX=NONE_PROVEN; TASK2_UPLOAD_CONCURRENCY=SKIPPED_NOT_JUSTIFIED; UPLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN_AT_CURRENT_GATE; DOWNLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN; TASK6_STATUS=BLOCKED_NOT_APPLICABLE; TASK7_STATUS=BLOCKED_NOT_APPLICABLE; HARDWARE_REPLACEMENT_AUTHORIZED=NO; PROCUREMENT_AUTHORIZED=NO; CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E; REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK; REMOTE_RESIDUAL_LIMITER=OPEN; POST_FIX=NOT_STARTED; NEW_THROUGHPUT_TEST_EXECUTED=NO; PR257_CROSS_REFERENCE=ADDED; PR259_INFRASTRUCTURE_TRUTH=RECONCILED; PR259_STATE=MERGED; PR259_MERGE_COMMIT=92d479675103988d36240ef219a9193a9a6dcdd4; PR259_CURRENT_SCOPE_WORK=COMPLETE |
+| Optimization spec / plan | `IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-29-idea1-transfer-throughput-optimization-design.md`; `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-29-idea1-transfer-throughput-optimization-implementation.md` (Task 2 skipped; Task 5 diagnosis complete; Tasks 6–7 blocked/not applicable) |
+| Next gate | HUMAN_OWNER_FINAL_MERGE_PR216_THEN_BEGIN_PR257_LIVE_DESIGN_RECONCILIATION |
+
+This task operationalizes the existing LFT-PERF-1 backlog and consolidates the
+separately recorded FILES-TRANSFER-PERF-1 plus PR187/PR212 deferred transfer and
+media-preview performance scope.
+
+Phase B0 Production baseline is executed (2026-09-25T14:35:03Z), confirming Drive
+`aegis-prod-drive:vault-stage-d-fix-f8c876754dd6` (healthy, restarts 0, oom false),
+SSD-backed Data Lake at 77% (61.1 GB total, 13.4 GB available), Files 5 GiB logical
+limit, and Vault limits endpoint `/drive/api/vault/uploads/limits`.
+
+P1 Onsite Direct LAN PRE-FIX is complete across 18 controlled runs on wired Ethernet / Management VLAN30:
+- Files Download (PowerShell `.crdownload` observer): 100 MB median 6.744 MB/s (mean 6.756 MB/s), 300 MB median 7.253 MB/s (mean 7.277 MB/s), 1 GB median 7.026 MB/s (mean 7.017 MB/s). Sustained download ≈ 6.7–7.3 MB/s.
+- Files Upload (in-page XHR tracer `window.__AEGIS_LFT_TRACE__`): 100 MB median 5.056 MB/s (mean 5.080 MB/s), 300 MB median 5.172 MB/s (mean 5.170 MB/s), 1 GB median 5.151 MB/s (mean 5.149 MB/s). Sustained upload ≈ 5.06–5.17 MB/s (remarkably flat).
+- Source verification audit: All three 1 GB upload runs verified as actual measured browser-console tracer runs (63 total requests: 60 chunk PUTs + 3 session lifecycle requests; exact millisecond spans; zero request failures).
+- P1 asymmetry: Download throughput is consistently 33–40% higher (~1.36x) than upload throughput across all fixtures.
+- 3-Way comparison: P1 LAN is ~1.4x–1.45x faster for download and ~1.7x faster for upload than P2 Remote Twingate, demonstrating measurable network overlay overhead. However, LAN upload capping at ~5.15 MB/s and download at ~7.0–7.25 MB/s (well below Gigabit wire rate) proves that Twingate is NOT the sole bottleneck. C1 Public Share download (~11.7–13.5 MB/s) is faster than both P1 and P2, but runs over a different unauthenticated continuous streaming path.
+
+P2 Remote + Twingate PRE-FIX is complete across 18 controlled runs:
+- Files Upload (in-page XHR chunk span): 100 MB median 2.981 MB/s, 300 MB median 3.080 MB/s, 1 GB median 3.016 MB/s (sustained ~3.0 MB/s; no file-size degradation).
+- Files Download (PowerShell `.crdownload` observer): 100 MB median 4.799 MB/s, 300 MB median 5.050 MB/s, 1 GB median 4.829 MB/s (sustained ~4.8–5.1 MB/s).
+- Download throughput is consistently 60–64% higher (~1.6x) than upload throughput across all fixtures.
+- Sampled server telemetry during 1 GB upload: CPU ~6.97%, RAM ~1.32%, low iostat utilization/await (`STORAGE_SATURATION=NOT_SUPPORTED_BY_SAMPLED_EVIDENCE`; storage bottleneck not proven false).
+- Status: `TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN`; `UPLOAD_SPECIFIC_BOTTLENECK=STRONGER_CANDIDATE`; `ROOT_CAUSE=NOT_PROVEN`.
+
+C1 Public Share / Cloudflare PRE-FIX is complete across 9 valid controlled runs:
+- Download (PowerShell `.crdownload` observer with password redemption): 100 MB median 13.546 MB/s (mean ~12.890 MB/s), 300 MB median 11.978 MB/s (mean ~12.063 MB/s), 1 GB median 11.666 MB/s (mean 11.675 MB/s).
+- Sustained delivery ≈ 11.7 to 13.5 MB/s by median across the tested range. Highly stable across repetitions.
+- Under tested client environment, Public Share delivery achieved substantially higher download throughput (~2.4x–2.8x) than authenticated P2 Remote + Twingate Files download across all fixtures.
+- Invalid pilot run: initial 100 MB attempt classified `C1_100MB_INITIAL_ATTEMPT=INVALID_MEASUREMENT` (reason: `HARNESS_FINAL_FILE_RESOLUTION_FAILED`); test harness observer defect, not AEGIS/Cloudflare defect, excluded from n=3.
+- Status: `PUBLIC_SHARE_PATH_PENALTY=NOT_OBSERVED`; `PUBLIC_SHARE_SLOWER_THAN_P2=NOT_SUPPORTED_BY_CURRENT_EVIDENCE`; `CLOUDFLARE_BOTTLENECK=NOT_PROVEN`; `TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN`; `ROOT_CAUSE=NOT_PROVEN`.
+
+Separate defect discovered during P1: Production storage capacity / accounting discrepancy:
+- Docker named volume `aegis_drive_storage` at `/var/lib/docker/volumes/aegis_drive_storage/_data` (~29 GB volume data).
+- Host root filesystem `/` at ~95% utilization (~51 GB used of ~57 GB, ~3.1 GB available). External ~1 TB disk is mounted for backup only (`/mnt/backup`).
+- Deleting test files and emptying Drive Trash did not visibly reduce Dashboard storage accounting usage.
+- Strict governance: Do NOT fix in PR #216. Do NOT prune Docker. Do NOT delete Vault ciphertext/orphans. Do NOT modify storage layout. Status: `STORAGE_ACCOUNTING_DEFECT_RECORDED=YES`, recorded as a separate investigation/blocker.
+
+Mutation gates enforced:
+- `CORE_PERFORMANCE_MUTATION_GATE=PRE_FIX_BASELINES_CAPTURED`
+- `PERFORMANCE_MUTATION_AUTHORIZED=NO`
+- `PUBLIC_SHARE_SPECIFIC_MUTATION_GATE=PRE_FIX_BASELINE_CAPTURED`
+- `PUBLIC_SHARE_MUTATION_AUTHORIZED=NO`
+- `SHARED_MUTATION=BLOCKED_PENDING_DIAGNOSIS`
+
+Immediate next gate is root-cause diagnosis and storage accounting investigation.
+All performance mutations, parameter changes, and code optimizations remain strictly blocked
+pending diagnosis and separate Human Owner authorization. PR #216 is complete and ready for review with one final receipt.
+
+### Session Register — LFT-PERF-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| LFT-PERF-1-S1 | Establish study design, measurement plan, and preliminary matrix | PASS / DRAFT | Initial design and measurement plan committed | `0d471942` | PASS | Production B0, PRE-FIX measurements | Human review of measurement plan |
+| LFT-PERF-1-S2 | Reconcile B0 baseline, upload method correction (XHR tracer), 18 controlled remote runs (Upload ~3.0 MB/s, Download ~4.8–5.1 MB/s), upload vs download asymmetry (~1.6x), mutation gate enforcement | PASS / IN PROGRESS | B0 baseline executed; 18 remote runs complete; docs reconciled; no mutation | Docs reconciliation checkpoint | PASS | P1 Onsite Direct LAN Pre-Fix (18 runs), bottleneck analysis, post-fix matrix | P1 Onsite Direct LAN Pre-Fix baseline |
+| LFT-PERF-1-S3 | Reconcile C1 Public Share / Cloudflare PRE-FIX (9 valid runs: 100 MB 13.546, 300 MB 11.978, 1 GB 11.666 MB/s), invalid pilot classification, P2 vs C1 comparison (~2.4x–2.8x), PRE/POST study structure, Case A/B change classification, and mutation gates | PASS / IN PROGRESS | C1 9 valid runs complete; docs reconciled; 27 total controlled runs; zero mutations | Docs reconciliation checkpoint | PASS | P1 Onsite Direct LAN Pre-Fix (18 runs), bottleneck analysis, post-fix matrix | P1 Onsite Direct LAN Pre-Fix baseline |
+| LFT-PERF-1-S4 | Reconcile P1 Onsite Direct LAN PRE-FIX (18 runs: Upload ~5.06–5.17 MB/s, Download ~6.7–7.3 MB/s), 3-way comparison (P1 vs P2 vs C1), storage capacity/accounting defect discovery, and mutation gate transition | PASS / IN PROGRESS | P1 18 runs complete; 45 total controlled runs (36/36 core); docs reconciled; zero mutations | Docs reconciliation checkpoint | PASS | Bottleneck diagnosis, storage accounting investigation, post-fix matrix | Bottleneck diagnosis & storage accounting investigation |
+| LFT-PERF-1-S5 | Task 0: normal merge of `origin/main` `21b52d5e` (PR220/PR241/PR243 merged) into PR216; only this canonical note conflicted | PASS / IN PROGRESS | Ancestry verified by git; conflict resolved preserving main completed chronology plus PR216 as Current Task; no application source/config delta from reconciliation | Task 0 reconciliation commit | PASS | Task 1 diagnosis, conditional Task 2 | Task 1 root-cause diagnosis |
+| LFT-PERF-1-S6 | Task 1 diagnosis gate + U1 Remote/Twingate single-vs-dual upload probe | NOT_PROVEN / IN PROGRESS | Diagnosis `32100cb0`; Human U1: single 2.998 MB/s, dual aggregate 3.472 MB/s (1.736 per file), R=1.1581054, medTailMs≈1–4, sumGapMs≈0, all 200 | Docs checkpoint | Upload NOT_PROVEN; Task 2 not entered (Human ruling DO_NOT_ENTER_TASK2_YET); no runtime change | U2 Direct-LAN upload probe, D1 Direct-LAN download probe | Human runs U2 + D1 (measurement plan §21) |
+| LFT-PERF-1-S7 | U2 Direct-LAN upload probe, D1 Direct-LAN download probe, client LinkSpeed, router 100 Mbps ceiling diagnosis, Task 2 skipped, Task 5 complete (no safe app fix), Remote residual open, PR257 cross-reference | DIAGNOSIS COMPLETE / IN PROGRESS | U2-A 10.692 MB/s, U2-B aggregate 10.098 MB/s (5.050/5.052), U2_R=0.944; D1-A 11.115 MB/s, D1-B aggregate 11.032 MB/s, D1_R=0.993, ttfbShareA=0.0008; client Realtek PCIe GbE 1 Gbps (WSL 10G virtual ignored); MikroTik RB750r2 5x 10/100 Ethernet per vendor spec; inter-VLAN 100 Mbps ceiling strongly supported; application defect NOT proven; Task 2 SKIPPED_NOT_JUSTIFIED; Task 5 NO_SAFE_APP_FIX_PROVEN; Remote residual OPEN; PR #257 cross-referenced | Docs checkpoint | P1 shared-path capacity limitation established; router 100 Mbps ceiling strongly supported; app defect NOT proven; Task 2 SKIPPED; Task 5 NO_SAFE_APP_FIX; Remote residual OPEN; no runtime change; no final receipt | Execute prepared Remote R1 diagnostic packet from home | R1 from-home diagnostic execution |
+| LFT-PERF-1-S8 | Live hardware-path reconciliation with PR #259 onsite evidence (RB750r2 ether2 100M full, switch Port 1 100MF, Beelink 1G, client 1G; proven 100 Mbps trunk ceiling; no safe app fix; Tasks 6–7 blocked) | DIAGNOSIS COMPLETE / IN PROGRESS | PR #259 onsite preflight evidence: RB750r2 rev r3 7.18.2, ether2 rate=100Mbps full-duplex=yes; TL-SG105E Port 1=100MF, Port 2=1000MF, Port 5=1000MF; Beelink enp1s0=1000Mb/s Full; Realtek GbE=1 Gbps; P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE; CURRENT_LAN_THROUGHPUT_LIMITER=PROVEN_HARDWARE_PATH_LIMIT; app defect NOT proven; Task 2 SKIPPED; Task 5 NO_SAFE_APP_FIX; Tasks 6–7 BLOCKED_NOT_APPLICABLE; hardware replacement DEFERRED; PR #259 cross-referenced | Docs checkpoint | 100 Mbps hardware trunk ceiling proven live; U2/D1 ~10.7–11.1 MB/s ceiling explained; app defect NOT proven; Task 2 SKIPPED; Task 5 NO_SAFE_APP_FIX; Tasks 6–7 BLOCKED_NOT_APPLICABLE; Remote residual OPEN; no runtime change; no final receipt | Execute prepared Remote R1 diagnostic packet from home | R1 from-home diagnostic execution |
+| LFT-PERF-1-S9 | Post-PR259 merge sync, dependency reconciliation, and final closeout | PASS / READY FOR REVIEW | PR #259 merged to main (92d47967); PR216 synchronized via normal merge; PR259 dependency satisfied; hardware ceiling and diagnosis preserved; zero app defects; Tasks 6–7 blocked/not applicable; exactly one final receipt added | Closeout commit | PASS | None (PR ready for review) | Human Owner merge of PR #216 |
+
+## Completed Task — IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1
 
 **IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1 — TRASH LIST PRESERVED ACROSS DESTRUCTIVE REAUTH / PRODUCTION ACCEPTANCE PASS / DRAFT PR**
 
+- Merge reconciliation note (PR216 Task 0, 2026-09-29): PR #243 merged into `main` as `21b52d5ecd5ca41a0a3c3429d93405b38dbe81b8` (verified by `git merge-base --is-ancestor`). The chronology below is preserved verbatim from `main` and predates that merge.
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `fix/idea1-trash-destructive-reauth-ui`; PR #243 remains Draft. Historical stacked base: `fix/idea1-vault-convergence-highres-ux` (PR #220); current target: `main` after TRASH-R4 reconciliation (retarget after verified normal push).
 - Final Status:

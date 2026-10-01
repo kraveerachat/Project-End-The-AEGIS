@@ -46,6 +46,8 @@ export async function uploadTreeFile({
   plaintextChunkBytes, concurrency, resume = null, onStage, onProgress, onSession, fetchJson, sendUpload,
   upload = uploadVaultFileChunked,
 }) {
+  // P2A-W: a head this build cannot write (manifest v2) is refused BEFORE any byte leaves — no orphan is created
+  session?.assertWritable?.()
   const ctrl = transferSignal({ signal, unlockedState })
   if (ctrl.signal.aborted) return { ok: false, stage: 'cancelled', reason: 'cancelled', resume: null }
 

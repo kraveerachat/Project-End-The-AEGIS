@@ -11,12 +11,14 @@
 //   • conflict จาก session ไม่ถูกแก้เอง: state.conflict + choices (retry / discard / chooseDestination เฉพาะ move/restore)
 //     ผู้ใช้ตัดสินเสมอ (design §10: no silent last-write-wins)
 //   • กุญแจ DEGRADED = ทุก mutation ปิดด้วย reason KEY_DEGRADED; อ่าน/ดาวน์โหลด/preview ยังได้
+//   • head เป็น manifest schema ที่ build นี้อ่านได้แต่เขียนไม่ได้ (v2, Decision P2A-W) = ปิดทุก mutation ด้วย reason
+//     MANIFEST_NEWER_THAN_WRITER แบบเดียวกัน (session.commit ปฏิเสธซ้ำอีกชั้นก่อน publish/CAS)
 //   • ไม่มี storage ใด; ชื่อ/parent/node id ไม่ออกจากไฟล์นี้ไปที่ใดนอกจาก session.commit (ซึ่งเข้ารหัสก่อนส่ง)
 
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
-import { effectiveState, ancestorsOf, breadcrumbsFor, childrenOf, isDescendant } from './vaultTreeManifest.js'
+import { effectiveState, ancestorsOf, breadcrumbsFor, childrenOf, isDescendant, MANIFEST_SCHEMA_VERSION_WRITE } from './vaultTreeManifest.js'
 import { intents, applyIntent, normalizeSelectionRoots, OpError, newOpaqueId } from './vaultTreeOps.js'
-import { previewKindFor } from './vaultPreview.js'
+import { vaultPreviewKind } from './preview/vaultCapability.js'
 import { VAULT_TREE_CLIENT_LIMITS } from './vaultTreeLimits.js'
 
 export const CONFLICT_CHOICES = Object.freeze({ retry: 'retry', discard: 'discard', chooseDestination: 'chooseDestination' })
@@ -27,6 +29,18 @@ export function initialTreeViewState() {
 }
 
 const has = (head, id) => Boolean(head?.index?.nodes?.has(id))
+
+/** head ถูกเขียนด้วย schema ที่ build นี้เขียนไม่ได้ (P2a: v2) — อ่าน/preview/download ได้ แก้ไม่ได้ */
+export function headIsNewerThanWriter(head) {
+  const v = head?.manifestSchemaVersion ?? head?.manifest?.schemaVersion
+  return v !== undefined && v !== MANIFEST_SCHEMA_VERSION_WRITE
+}
+/** เหตุผลเดียวที่ปิด mutation ทั้งหมด หรือ null */
+export function mutationLockOf(state) {
+  if (state.keyStatus === 'DEGRADED') return 'KEY_DEGRADED'
+  if (headIsNewerThanWriter(state.head)) return 'MANIFEST_NEWER_THAN_WRITER'
+  return null
+}
 const active = (head, id) => has(head, id) && effectiveState(head.index, id) === 'active'
 
 /** ตำแหน่งที่ยังมีอยู่และ active ใกล้ที่สุดของ id เดิม บน head ใหม่ (id เอง → บรรพบุรุษเดิมทีละชั้น → root) */
@@ -130,7 +144,8 @@ export function vaultTreeReducer(state, action) {
 /** ตรวจ intent กับ head ปัจจุบันบน clone — ok:false ไม่ยิงเน็ตเวิร์ก */
 export function planRun(state, intent, { limits = VAULT_TREE_CLIENT_LIMITS } = {}) {
   if (!state.head) return { ok: false, error: { code: 'NOT_LOADED' } }
-  if (state.keyStatus === 'DEGRADED') return { ok: false, error: { code: 'KEY_DEGRADED' } }
+  const lock = mutationLockOf(state)
+  if (lock) return { ok: false, error: { code: lock } }
   try {
     applyIntent(state.head.manifest, intent, { limits })
     return { ok: true, intent }
@@ -151,42 +166,45 @@ export function planDrop(state, destinationNodeId, { limits = VAULT_TREE_CLIENT_
   for (const id of payloadIds) if (id === destinationNodeId || isDescendant(index, destinationNodeId, id)) return { ok: false, reason: 'CYCLE' }
   if (payloadIds.every((id) => index.nodes.get(id)?.parentNodeId === destinationNodeId)) return { ok: false, reason: 'NO_OP' }
   const intent = intentOverride || intents.move({ nodeIds: payloadIds, destinationNodeId })
-  const plan = planRun({ ...state, keyStatus: 'HEALTHY' }, intent, { limits })
+  const plan = planRun({ ...state, keyStatus: 'HEALTHY', head: { ...state.head, manifestSchemaVersion: MANIFEST_SCHEMA_VERSION_WRITE } }, intent, { limits })
   if (!plan.ok) return { ok: false, reason: plan.error.code }
-  if (state.keyStatus === 'DEGRADED') return { ok: false, reason: 'KEY_DEGRADED' }
+  const lock = mutationLockOf(state)
+  if (lock) return { ok: false, reason: lock }
   return { ok: true, intent }
 }
 
 const NONE = Object.freeze({ preview: false, download: false, rename: false, move: false, details: false, trash: false, open: false, restore: false, permanentDelete: false, disabledReason: null })
 
 /** ค่าที่ UI ต้องการจาก state: breadcrumbs, children ตามมุมมอง, capabilities ของ selection (VR-5) */
-export function viewSelectors(state) {
+export function viewSelectors(state, { previewKindOf = vaultPreviewKind } = {}) {
   const head = state.head
-  if (!head) return { breadcrumbs: [], children: [], capabilities: NONE, keyDegraded: state.keyStatus === 'DEGRADED', selected: [] }
+  if (!head) return { breadcrumbs: [], children: [], capabilities: NONE, keyDegraded: state.keyStatus === 'DEGRADED', manifestNewer: false, mutationLock: mutationLockOf(state), selected: [] }
   const index = head.index
   const breadcrumbs = state.view === 'active' && has(head, state.current) ? breadcrumbsFor(index, state.current) : [index.nodes.get(head.manifest.rootNodeId)]
   const children = state.view === 'trash' ? childrenOf(index, null, { view: 'trash' }) : childrenOf(index, state.current, { view: 'active' })
   const selected = [...state.selection].filter((id) => has(head, id)).map((id) => index.nodes.get(id))
   const degraded = state.keyStatus === 'DEGRADED'
+  const lock = mutationLockOf(state)
+  const locked = lock !== null
   let caps = NONE
   if (selected.length === 1) {
     const n = selected[0]
     const isFile = n.kind === 'file'
-    if (state.view === 'trash') caps = { ...NONE, details: true, restore: !degraded, permanentDelete: !degraded }
-    else caps = { ...NONE, preview: isFile && previewKindFor(n.mediaType) !== null, download: isFile, rename: !degraded, move: !degraded, details: true, trash: !degraded, open: !isFile }
+    if (state.view === 'trash') caps = { ...NONE, details: true, restore: !locked, permanentDelete: !locked }
+    else caps = { ...NONE, preview: isFile && previewKindOf(n) !== null, download: isFile, rename: !locked, move: !locked, details: true, trash: !locked, open: !isFile }
   } else if (selected.length > 1) {
-    if (state.view === 'trash') caps = { ...NONE, restore: !degraded, permanentDelete: !degraded }
-    else caps = { ...NONE, download: selected.some((n) => n.kind === 'file'), move: !degraded, trash: !degraded }
+    if (state.view === 'trash') caps = { ...NONE, restore: !locked, permanentDelete: !locked }
+    else caps = { ...NONE, download: selected.some((n) => n.kind === 'file'), move: !locked, trash: !locked }
   }
-  if (degraded && selected.length) caps = { ...caps, disabledReason: 'KEY_DEGRADED' }
-  return { breadcrumbs, children, capabilities: caps, keyDegraded: degraded, selected }
+  if (locked && selected.length) caps = { ...caps, disabledReason: lock }
+  return { breadcrumbs, children, capabilities: caps, keyDegraded: degraded, manifestNewer: headIsNewerThanWriter(head), mutationLock: lock, selected }
 }
 
 /**
  * hook: ผูก reducer เข้ากับ session (vaultTreeSync) และ unlockedState — run(intent) = plan → pending → session.commit →
  * committed | conflict | failed; ทุก dispatch หลัง purge ถูกละเลย (state ถูก reset โดย disposer)
  */
-export function useVaultTree({ session, unlockedState = null, limits = VAULT_TREE_CLIENT_LIMITS }) {
+export function useVaultTree({ session, unlockedState = null, limits = VAULT_TREE_CLIENT_LIMITS, previewKindOf = vaultPreviewKind }) {
   const [state, dispatch] = useReducer(vaultTreeReducer, undefined, initialTreeViewState)
   const alive = useRef(true)
   const stateRef = useRef(state); stateRef.current = state
@@ -219,12 +237,14 @@ export function useVaultTree({ session, unlockedState = null, limits = VAULT_TRE
       else safeDispatch({ type: 'committed', result: res, head: s.head })
       return res
     } catch (e) {
+      // the head moved to a newer schema during rebase: show it (read-only) instead of the stale v1 head
+      if (e?.code === 'MANIFEST_NEWER_THAN_WRITER' && s?.head) safeDispatch({ type: 'head', head: s.head })
       safeDispatch({ type: 'failed', code: e?.code ?? 'FAILED' })
       throw e
     }
   }, [state, limits, safeDispatch])
 
-  const selectors = useMemo(() => viewSelectors(state), [state])
+  const selectors = useMemo(() => viewSelectors(state, { previewKindOf }), [state, previewKindOf])
   return {
     state, ...selectors,
     view: state.view, current: state.current, selection: state.selection, conflict: state.conflict, pending: state.pending, drag: state.drag, announcement: state.announcement,

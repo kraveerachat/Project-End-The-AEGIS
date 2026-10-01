@@ -112,6 +112,13 @@ DEFAULT_STATE = {
     "legacy_1883_mutate": False,       # once the AP has been up, the legacy :1883 listener row changes (bind address differs)
     "new_1883_on_ap": False,           # once the AP has been up, a NEW plaintext 10.77.30.1:1883 listener appears
     "ap_ever_up": False,               # set by `nmcli connection up` (sticky; drives the *_mutate triggers above)
+    # ── V7 (RADIO_DISABLED + BROKER_CHURN) only: all keys default to the V1–V6 behaviour ─────────────────────────────────────
+    "nm_ready_lag_polls": 0,          # after the radio is enabled, the target stays `unavailable` for this many `device status` polls (the live race)
+    "stray_8883": [],                 # extra `ss` 8883 rows present at all times (an unexpected listener)
+    "broker_restart_every_shows": 0,  # crashloop mode, after recovery: every K-th `systemctl show` of the broker counts one more restart (0 = stable)
+    "broker_recovered_shows": 0,      # internal counter for the key above
+    "broker_journal_extra": [],       # extra journal lines appended to the broker crash-loop tail (a second, unrelated failure signature)
+    "broker_journal_stale_bind": "",  # "" | "previous_boot" | "earlier_invocation": the bind-failure lines belong to stale evidence, not to the current failed invocation
 }
 
 WRAPPER = "#!/usr/bin/env bash\nexec {python} {sim} {name} \"$@\"\n"
@@ -163,6 +170,8 @@ def _device_state(s: dict) -> str:
     if _wifi_radio(s) == "disabled":
         return "unavailable"
     if not s["nm_ready_after_unblock"]:
+        return "unavailable"
+    if s["nm_ready_lag_polls"] > 0:
         return "unavailable"
     if s["ap_active"]:
         return "connected"
@@ -239,13 +248,18 @@ def _broker_props(s: dict) -> dict[str, str]:
     never started/stopped/restarted by any stub command, purely a function of ap_active (systemd's own
     auto-restart, driven by the bind address becoming available)."""
     if _broker_crashloop_recovered(s):
+        extra = s["broker_recovered_shows"] // s["broker_restart_every_shows"] if s["broker_restart_every_shows"] > 0 else 0
         recovered = {"LoadState": "loaded", "ActiveState": "active", "SubState": "running", "UnitFileState": "enabled",
-                     "Result": "success", "MainPID": str(s["broker_pid"]), "NRestarts": str(s["broker_nrestarts_pre"] + 1),
+                     "Result": "success", "MainPID": str(s["broker_pid"]), "NRestarts": str(s["broker_nrestarts_pre"] + 1 + extra),
                      "ExecMainStartTimestamp": "Sun 2026-09-28 17:24:40 +07"}
+        recovered.update({"Restart": "on-failure", "RestartUSec": "5s", "ExecMainStatus": "0"})
+        recovered["InvocationID"] = _invocation_id("aegis-idea3-mosquitto.service", s["broker_pid"], s["broker_nrestarts_pre"] + 1 + extra)
         recovered.update(s["broker_recovered_override"])
         return recovered
     base = {"LoadState": "loaded", "ActiveState": "activating", "SubState": "auto-restart", "UnitFileState": "enabled",
-            "Result": "exit-code", "MainPID": "0", "NRestarts": str(s["broker_nrestarts_pre"]), "ExecMainStartTimestamp": ""}
+            "Result": "exit-code", "MainPID": "0", "NRestarts": str(s["broker_nrestarts_pre"]), "ExecMainStartTimestamp": "",
+            "Restart": "on-failure", "RestartUSec": "5s", "ExecMainStatus": "1",
+            "InvocationID": _invocation_id("aegis-idea3-mosquitto.service", 0, s["broker_nrestarts_pre"])}
     base.update(s["broker_crashloop_override"])
     return base
 
@@ -325,6 +339,9 @@ def main(argv: list[str]) -> int:
         else:
             rc = 99
     elif name == "nmcli":
+        if args[:3] == ["-t", "-f", "DEVICE,STATE"] or args == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
+            if s["nm_ready_lag_polls"] > 0 and _wifi_radio(s) == "enabled":
+                s["nm_ready_lag_polls"] -= 1
         if args[:5] == ["-t", "-f", "DEVICE,STATE", "device", "status"]:
             out = [f"wlp0s20f3:{_device_state(s)}", f"enp62s0:{s['wired_ifname_state']}", "lo:unmanaged"]
             out += [f"{n}:{st}" for n, _ty, st in _p2p_rows(s)]
@@ -469,6 +486,8 @@ def main(argv: list[str]) -> int:
         if args and args[0] == "show":
             props = [args[i + 1] for i, a in enumerate(args) if a == "-p"]
             unit = args[-1]
+            if unit == "aegis-idea3-mosquitto.service" and s["broker_mode"] == "crashloop_until_ap" and _broker_crashloop_recovered(s):
+                s["broker_recovered_shows"] += 1
             data = _unit_props(s, unit)
             if "--value" in args:
                 out = [data.get(props[0], "")]
@@ -510,6 +529,7 @@ def main(argv: list[str]) -> int:
             tcp[0] = "LISTEN 0 100 127.0.0.1:1883 0.0.0.0:*"  # legacy listener rebound to another address
         if s["ap_ever_up"] and s["new_1883_on_ap"]:
             tcp.append("LISTEN 0 100 10.77.30.1:1883 0.0.0.0:*")
+        tcp += list(s["stray_8883"])
         if s["dnsmasq"] == "active":
             tcp.append("LISTEN 0 32 10.77.30.1:53 0.0.0.0:*")
             udp += ["UNCONN 0 0 10.77.30.1:53 0.0.0.0:*", "UNCONN 0 0 0.0.0.0%wlp0s20f3:67 0.0.0.0:*"]
@@ -538,21 +558,37 @@ def main(argv: list[str]) -> int:
         else:
             rc = 99
     elif name == "journalctl":
-        # bounded, read-only tail: `journalctl -u UNIT -n N --no-pager` (V5 broker crash-loop cause evidence only)
+        # bounded, read-only tail: `journalctl -u UNIT [-b] [_SYSTEMD_INVOCATION_ID=ID] -n N --no-pager` (V5/V7 broker crash-loop cause evidence only).
+        # Every journal entry carries (boot, invocation); `-b` keeps only the current boot, the field match keeps only that invocation.
         if args[:1] == ["-u"] and "--no-pager" in args:
             unit = args[1]
+            entries: list[tuple[str, str, str]] = []   # (boot, invocation id, line)
             if unit == "aegis-idea3-mosquitto.service" and s["broker_mode"] == "crashloop_until_ap" \
                     and not _broker_crashloop_recovered(s):
-                if s["broker_crashloop_cause"] == "ap_bind_missing":
-                    out = ["mosquitto[7579]: Opening ipv4 listen socket on port 8883.",
-                           "mosquitto[7579]: Error: Cannot assign requested address",
-                           "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
+                cur = _broker_props(s)["InvocationID"]
+                stale = s["broker_journal_stale_bind"]
+                stale_boot, stale_inv = ("previous", cur) if stale == "previous_boot" else ("current", _invocation_id(unit, 0, -1))
+                bind = ["mosquitto[7579]: Opening ipv4 listen socket on port 8883.",
+                        "mosquitto[7579]: Error: Cannot assign requested address",
+                        "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
+                if s["broker_crashloop_cause"] == "ap_bind_missing" and not stale:
+                    entries += [("current", cur, l) for l in bind]
+                    entries += [("current", cur, l) for l in s["broker_journal_extra"]]
                 else:
-                    out = ["mosquitto[7579]: Error: Unable to load server certificate "
-                           "\"/etc/aegis-idea3/pki/mqtt-server.crt\".",
-                           "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
-            else:
-                out = ["-- No entries --"]
+                    if s["broker_crashloop_cause"] != "ap_bind_missing":
+                        entries += [("current", cur, "mosquitto[7579]: Error: Unable to load server certificate "
+                                                     "\"/etc/aegis-idea3/pki/mqtt-server.crt\"."),
+                                    ("current", cur, "mosquitto[7579]: mosquitto version 2.1.2 terminating")]
+                    else:
+                        entries += [("current", cur, "systemd[1]: aegis-idea3-mosquitto.service: Main process exited, code=exited, status=1/FAILURE")]
+                    if stale:
+                        entries += [(stale_boot, stale_inv, l) for l in bind]
+            if "-b" in args:
+                entries = [e for e in entries if e[0] == "current"]
+            for a in args:
+                if a.startswith("_SYSTEMD_INVOCATION_ID="):
+                    entries = [e for e in entries if e[1] == a.split("=", 1)[1]]
+            out = [e[2] for e in entries] or ["-- No entries --"]
         else:
             rc = 99
     else:

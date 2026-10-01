@@ -669,3 +669,102 @@ l34_v6_soak() {
   done
   return 0
 }
+
+# ── V7 (RADIO-DISABLED + BROKER-CHURN) reactivation: the target phy is soft-blocked, the NetworkManager Wi-Fi radio is disabled, wlp0s20f3 is
+# unavailable, dnsmasq is failed/start-limit-hit and the L6b broker is crash-looping through its OWN systemd Restart=on-failure because the AP
+# address 10.77.30.1 does not exist. V1–V3 own the rfkill/radio head (their owner runner also demands the broker inactive); V4–V6 demand the radio
+# already enabled. V7 reuses the V3 head (exact-ID rfkill unblock, autoconnect guard, ONE radio enable, bounded ready-wait, ifname-bound activation)
+# and the V5 tail (dnsmasq reset-failed+start, then a READ-ONLY wait for the broker's own auto-restart), under a stricter broker-churn contract.
+# Broker churn is NOT a bypass: it is accepted only when every one of the facts below holds together. V1–V6 functions above are unchanged and
+# nothing in this section is reachable from a V1–V6 handler. ─────────────────────────────────────────────────────────────────────────────────
+
+L34_V7_BROKER_UNIT="aegis-idea3-mosquitto.service"
+L34_V7_CORE_UNIT="aegis-idea3-core.service"
+L34_V7_BROKER_CONF=$L34_V5_BROKER_CONF
+L34_V7_STABLE_SAMPLES=4
+L34_V7_RESTART_USEC=5s
+L34_V7_PROBE_CMD=""
+L34_V7_BIND_SIGNATURE='Error: Cannot assign requested address'
+
+# l34_v7_broker_show UNIT — the KEY=VALUE tuple the churn contract consumes (read-only)
+l34_v7_broker_show() {
+  systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID -p NRestarts -p ExecMainStatus -p Restart -p RestartUSec -p InvocationID "$1"
+}
+
+# l34_v7_broker_journal_capture UNIT SHOW_FILE OUT — bounded, READ-ONLY journal tail bound to the CURRENT boot and to the failed broker's own systemd
+# InvocationID (taken from the SAME `l34_v7_broker_show` capture the churn gate reads, so both see one identity). The first line of OUT records that
+# binding; l34_v7_broker_churn_gate refuses any journal whose binding line does not match. Anything from a previous boot or an earlier invocation is
+# excluded by journalctl itself (-b plus the _SYSTEMD_INVOCATION_ID field match), never by text heuristics.
+l34_v7_broker_journal_capture() {
+  local unit=$1 show=$2 out=$3 inv
+  inv=$(sed -n 's/^InvocationID=//p' "$show")
+  [[ "$inv" =~ ^[0-9a-f]{32}$ ]] || { l34_reason "L34_V7_BROKER_INVOCATION_ID_INVALID"; return 1; }
+  { printf '# AEGIS-V7-CORRELATION boot=current unit=%s invocation=%s\n' "$unit" "$inv"
+    journalctl -u "$unit" -b "_SYSTEMD_INVOCATION_ID=$inv" -n 30 --no-pager 2>&1; } > "$out" \
+    || { l34_reason "L34_V7_BROKER_JOURNAL_UNREADABLE"; return 1; }
+}
+
+# l34_v7_broker_conf_gate FILE — the broker configuration is the proven listener pair and nothing wider: among the ACTIVE directives exactly
+# `listener 8883 127.0.0.1` and `listener 8883 10.77.30.1`, no other listener, and no global port/bind_address. It is only READ; V7 never edits it.
+l34_v7_broker_conf_gate() {
+  local f=$1 active
+  [ -f "$f" ] && [ ! -L "$f" ] || { l34_reason "L34_V7_BROKER_CONF_MISSING"; return 1; }
+  active=$(grep -Ev '^[[:space:]]*(#|$)' "$f" | awk '{ $1 = $1; print }' | grep -E '^(listener|listeners|port|bind_address)( |$)' | LC_ALL=C sort)
+  [ "$active" = "$(printf '%s\n' "listener 8883 $L34_AP_ADDR" "listener 8883 127.0.0.1" | LC_ALL=C sort)" ] \
+    || { l34_reason "L34_V7_BROKER_CONF_LISTENERS_NOT_EXPECTED"; return 1; }
+}
+
+# l34_v7_broker_churn_gate JOURNAL_TAIL_FILE < `l34_v7_broker_show UNIT` — the ONE supported broker PRE-state. systemd state alone cannot tell "crash-looping
+# because 10.77.30.1 is absent" from any other crash loop, so ALL of these must hold together: loaded+enabled unit, Restart=on-failure with the expected
+# RestartUSec, a non-empty valid InvocationID whose current-boot journal (l34_v7_broker_journal_capture) is the only evidence considered, currently
+# between automatic restarts (activating/auto-restart, MainPID=0), last run ended in a plain exit status 1 (Result=exit-code;
+# not a signal, OOM, timeout or start-limit-hit), a numeric restart counter, the broker's own bind-failure signature in the bounded journal tail, and
+# NO other `Error:` line in that tail (a second, unrelated failure signature refuses the baseline).
+l34_v7_broker_churn_gate() {
+  local journal=${1:-} text kv inv
+  [ -n "$journal" ] && [ -r "$journal" ] || { l34_reason "L34_V7_BROKER_JOURNAL_UNREADABLE"; return 1; }
+  text=$(cat)
+  inv=$(sed -n 's/^InvocationID=//p' <<< "$text")
+  [[ "$inv" =~ ^[0-9a-f]{32}$ ]] || { l34_reason "L34_V7_BROKER_INVOCATION_ID_INVALID"; return 1; }
+  [ "$(head -n 1 "$journal")" = "# AEGIS-V7-CORRELATION boot=current unit=$L34_V7_BROKER_UNIT invocation=$inv" ] \
+    || { l34_reason "L34_V7_BROKER_JOURNAL_NOT_CORRELATED"; return 1; }
+  for kv in LoadState=loaded ActiveState=activating SubState=auto-restart UnitFileState=enabled Result=exit-code MainPID=0 ExecMainStatus=1 \
+    Restart=on-failure "RestartUSec=$L34_V7_RESTART_USEC"; do
+    grep -qx "$kv" <<< "$text" || { l34_reason "L34_V7_BROKER_PRESTATE_UNEXPECTED:${kv%%=*}"; return 1; }
+  done
+  grep -Eqx 'NRestarts=[0-9]+' <<< "$text" || { l34_reason "L34_V7_BROKER_PRESTATE_UNEXPECTED:NRestarts"; return 1; }
+  grep -qF "$L34_V7_BIND_SIGNATURE" "$journal" || { l34_reason "L34_V7_BROKER_JOURNAL_SIGNATURE_MISSING"; return 1; }
+  ! grep -F 'Error:' "$journal" | grep -vqF "$L34_V7_BIND_SIGNATURE" || { l34_reason "L34_V7_BROKER_JOURNAL_OTHER_ERROR"; return 1; }
+}
+
+# l34_v7_no_8883_listener_gate — no TLS listener of any kind exists (the churning broker cannot have bound one, and nothing else may hold 8883)
+l34_v7_no_8883_listener_gate() {
+  local rows
+  rows=$(ss -H -ltn "sport = :8883" 2>/dev/null) || { l34_reason "L34_V7_LISTENERS_UNREADABLE"; return 1; }
+  [ -z "$rows" ] || { l34_reason "L34_V7_UNEXPECTED_8883_LISTENER"; return 1; }
+}
+
+# l34_v7_core_gate < `systemctl show -p LoadState,ActiveState,SubState,Result,MainPID UNIT` — Core is active/running with a real PID
+l34_v7_core_gate() {
+  local text kv
+  text=$(cat)
+  for kv in LoadState=loaded ActiveState=active SubState=running Result=success; do
+    grep -qx "$kv" <<< "$text" || { l34_reason "L34_V7_CORE_NOT_HEALTHY:${kv%%=*}"; return 1; }
+  done
+  grep -Eq '^MainPID=[1-9][0-9]*$' <<< "$text" || { l34_reason "L34_V7_CORE_NOT_HEALTHY:MainPID"; return 1; }
+}
+
+# l34_v7_core_unchanged UNIT PRE_FILE — Core's (MainPID, NRestarts, InvocationID) tuple is exactly the PRE tuple (never restarted or re-invoked)
+l34_v7_core_unchanged() {
+  local now
+  [ -s "$2" ] || { l34_reason "L34_V7_CORE_TUPLE_PRE_MISSING"; return 1; }
+  now=$(l34_v6_broker_tuple "$1" 2>/dev/null) || { l34_reason "L34_V7_CORE_CHANGED:UNREADABLE"; return 1; }
+  [ "$now" = "$(cat "$2")" ] || { l34_reason "L34_V7_CORE_CHANGED"; return 1; }
+}
+
+# l34_v7_broker_stable_gate UNIT OUT SAMPLES INTERVAL — after the broker recovered on its own: SAMPLES identical, well-formed (MainPID, NRestarts,
+# InvocationID) reads INTERVAL seconds apart. A broker that keeps restarting changes the tuple and is refused. Read-only.
+l34_v7_broker_stable_gate() {
+  local why
+  why=$(l34_v6_broker_stable_gate "$@" 2>&1 >/dev/null) || { l34_reason "L34_V7_BROKER_NOT_STABLE:$(head -n 1 <<< "$why")"; return 1; }
+}

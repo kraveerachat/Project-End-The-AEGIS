@@ -133,6 +133,36 @@ MQTT_CLIENT_ID = "idea3-core"  # fixed Core broker identity; ESP32 identities ar
 DRY_RUN = _env_bool("AEGIS_DRY_RUN", False)
 AUTO_CONTAIN = _env_bool("AEGIS_AUTO_CONTAIN", False)
 
+# ---- Core-mediated Recovery (R1-R8) ----
+# Probe targets are non-secret and unset means NOT_CONFIGURED, never a passing check. The Core runs the probes;
+# no desktop process supplies or executes them.
+RECOVERY_MANAGEMENT_PROBE_TARGET = os.getenv("AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET", "").strip()
+RECOVERY_NETWORK_PROBE_TARGETS = os.getenv("AEGIS_RECOVERY_NETWORK_PROBE_TARGETS", "").strip()
+RECOVERY_WEB_READINESS_URL = os.getenv("AEGIS_RECOVERY_WEB_READINESS_URL", "").strip()
+
+
+def _optional_int(name):
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
+# The Recovery AF_UNIX server starts only when an operator uid is configured (production profile only); unset or
+# invalid keeps it disabled. The socket group is optional and only widens the file mode to 0660 for that group;
+# the SO_PEERCRED uid check remains the authority.
+RECOVERY_OPERATOR_UID = _optional_int("AEGIS_RECOVERY_OPERATOR_UID")
+RECOVERY_SOCKET_GID = _optional_int("AEGIS_RECOVERY_SOCKET_GID")
+RECOVERY_SOCKET = os.getenv("AEGIS_RECOVERY_SOCKET", "").strip()
+
+# F1: the Core-local production alert ingress (R1 source). One numeric uid (the account running the detector) may submit
+# an IPv4 attacker candidate over <runtime_dir>/alert.sock. Unset or invalid keeps the channel disabled (fail closed).
+ALERT_SOURCE_UID = _optional_int("AEGIS_ALERT_SOURCE_UID")
+
 
 def validate_config():
     """ตรวจค่าตั้งตอนเริ่มโปรแกรม — คืน list ของคำเตือน (ไม่ถึงกับ error แต่ควรรู้)"""

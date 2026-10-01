@@ -316,10 +316,35 @@ Design: `docs/superpowers/specs/2026-09-27-idea3-pr11-phase4-l6c-release-install
 - `stages/L6c/rollback.sh` derives its release-guard ownership expectation the same way `verify.sh` does (`any` under a fixture root, `root` by live default) rather than a hard-coded `any`, so a live rollback can never delete a tree whose ownership has drifted away from root.
 - `L6C_RELEASE_INSTALL = PROVEN` is a prerequisite FACT for L7, never an authorization: L7's own `l7_release_gate` independently re-runs the release guard read-only before consuming `A-L7`. L6c PASS does not authorize L7; a fresh `A-L7` and L7 K3 are still required, and neither record can be reused across L6c/L6b/L7 (`p4-stage-gate.sh`'s `stage=` match).
 
+### L7u handler (Post-L7 Recovery Core Upgrade) — NEW 2026-10-01, repository only, NOT live
+
+Stage order: `L7 → L7u → Recovery R1-R8 → LVR → L8`. L7u moves the running Core onto a NEW immutable release that contains the merged Core-mediated
+Recovery runtime and provisions its transport surface. It does **not** prove Recovery R1-R8, does **not** prove LVR and does **not** authorize L8 (and
+carries no `recovery_authorization`; that stays L8-only). Design/spec:
+`docs/superpowers/specs/2026-10-01-idea3-pr11-phase4-l7u-post-l7-recovery-core-upgrade.md`.
+
+- `p4-l7u-upgrade.py` — the engine (`preflight|apply|verify|rollback|delta`). Every mutation is journaled before it happens; rollback refuses unknown or
+  mismatched state before changing anything. The CLI always acts on the real host and has no host-root option; only the Python API (fixture tests) takes a
+  fixture `Host`/`Backend`. Backend argv is fixed: one owned group (`aegis-idea3-recovery`), `gpasswd -a|-d`, one tmpfiles rule file, and
+  `systemctl daemon-reload|restart|stop|start|reset-failed|show` on `aegis-idea3-core.service` only.
+- `stages/L7u/{apply,verify,rollback}.sh` — thin root-only wrappers (refuse without `AEGIS_L7U_LIVE_AUTHORIZED=YES`); `allow-keys.txt` (exact approved
+  PRE→POST keys), `allow-listeners.txt` (empty: the channel is an AF_UNIX socket), `allow-keys-rollback.txt` (only the old Core's restart-volatile `MainPID`
+  and `ExecMainStartTimestamp`; every other key must equal PRE).
+- `../aegis-idea3-core-recovery.dropin.example` (`SupplementaryGroups=aegis-idea3-recovery`, `ReadWritePaths=/run/aegis-idea3-recovery` — the base unit's
+  `ProtectSystem=strict` makes `/run` read-only) and `../aegis-idea3-recovery.tmpfiles.example` (`d /run/aegis-idea3-recovery 0750 aegis-idea3
+  aegis-idea3-recovery -`): the directory is pre-provisioned because the Core's `UMask=0077` would make the application's own `mkdir` 0700.
+- `p4-l7u-run-lib.sh` — own one-attempt marker, receipt gate (current L7 acceptance required; refuses if L7u is already recorded), exact running-Core baseline
+  gate, exact operator-identity gate, evidence secret scan. `owner-run/run-l7u-owner.sh` — unpinned template (three `PIN_` values; refuses to run as
+  committed): gates → build the release with `p4-l7-build-release.py` → engine preflight → **PRE capture** → consume the one attempt → apply (once) → verify → POST capture
+  → PRE→POST compare + exact-value delta + secret scan → persistent on success; bounded rollback + PRE→RB zero-drift compare on failure; no retry.
+- Observability: `p4-l0-capture.sh` records the `host.aegis_idea3.recovery.*` group/runtime-dir/socket/Core-property keys, the drop-in and tmpfiles files, and the
+  relevant `host.path.*` flags; `p4-compare.sh` accepts the `host.aegis_idea3.recovery.` key family and the single stage line `stage L7u` in `ALLOW_L6C_RELEASE_FILE`.
+- Live boundary: nothing here has run on a host. The owner freeze workflow must pin the runner; Kla/Pub integration review applies to the shared harness files.
+
 ### L8 handler (ESP32 inspection / NVS provisioning / firmware flash)
 
 - Registered the reviewed L8 stage handler (`stages/L8/`) under the G-15 handler framework (`apply.sh`, `verify.sh`, `rollback.sh`, `allow-keys.txt`, `allow-listeners.txt`) conforming to operational design OD-L8-01 through OD-L8-09.
-- Device backend: repository fixture backend only; hardware backend fails closed at two independent layers (`LIVE_L8=NOT_AUTHORIZED`).
+- Device backends: `fixture` (file-backed, no serial code path) and `hardware` (`HARDWARE_BACKEND_IMPLEMENTED_REPOSITORY`): a subprocess adapter over the PlatformIO-pinned `tool-esptoolpy` 2.41100.0 (esptool 4.11.x). It is reachable only with `AEGIS_L8_BACKEND=hardware` AND `AEGIS_L8_LIVE_AUTHORIZED=YES` plus `AEGIS_L8_ESPTOOL` (absolute path to the pinned `esptool.py`); the serial port comes only from `device.identity`. Every command passes one injectable executor and a strict argv allowlist (`flash_id`, `write_flash`, `read_flash` only, on the two derived partition regions). Boot verification is a passive, subscribe-only signed BOOT STATUS check (`p4-l8-boot-verify.py`: TLS 8883, the staged Core broker credential, real Protocol v1 verifier over ephemeral state, 180 s deadline, PASS = authenticated firmware-reported LOCKDOWN, not electrical proof); hardware also needs `AEGIS_L8_BROKER_ADDRESS`, `AEGIS_L8_BROKER_TLS_NAME`, `AEGIS_L8_MQTT_CA_FILE`, `AEGIS_L8_BROKER_CREDENTIAL_FILE`, and refuses before any device access without them (`BOOT_VERIFICATION_NOT_CONFIGURED`). Live hardware was never exercised: `LIVE_L8=NOT_AUTHORIZED`, `LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN`.
 - Input contracts: `device.identity`, `d4.attestation`, `k_c2d`, `k_d2c`, `wifi.psk`, `mqtt.pass` from private owner-only files (mode 0600 or 0400).
 - Zero host drift: `allow-keys.txt` and `allow-listeners.txt` carry zero active entries.
 - Rollback: splits at first hardware write; holds fail-secure (`D4_ONLY`).

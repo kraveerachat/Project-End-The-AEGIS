@@ -268,3 +268,21 @@ test('DRAG-CONTRACT: multi-item selection, single-item unselected, breadcrumb dr
   const occurrences = [...rootNodes.values()].filter(n => n.nodeId === F(1)).length
   assert.equal(occurrences, 1, 'NO_COPY_DUPLICATE: exactly one node')
 })
+
+test('VR-V2-1 (P2A-W) a v2 head: preview/download/details stay, every mutation capability is off with MANIFEST_NEWER_THAN_WRITER; planRun/planDrop refuse without a network call', () => {
+  const m = base(); m.schemaVersion = 2
+  const s = vaultTreeReducer(initialTreeViewState(), { type: 'head', head: { ...headOf(m), manifestSchemaVersion: 2 } })
+  const sel = viewSelectors(r(s, { type: 'select', nodeId: F(1) }))
+  assert.equal(sel.manifestNewer, true); assert.equal(sel.mutationLock, 'MANIFEST_NEWER_THAN_WRITER'); assert.equal(sel.keyDegraded, false)
+  assert.deepEqual(sel.capabilities, { preview: true, download: true, rename: false, move: false, details: true, trash: false, open: false, restore: false, permanentDelete: false, disabledReason: 'MANIFEST_NEWER_THAN_WRITER' })
+  const multi = viewSelectors(r(r(s, { type: 'select', nodeId: F(1) }), { type: 'select', nodeId: D(4), additive: true }))
+  assert.deepEqual({ download: multi.capabilities.download, move: multi.capabilities.move, trash: multi.capabilities.trash }, { download: true, move: false, trash: false })
+  assert.deepEqual(planRun(s, intents.rename({ nodeId: F(1), name: 'x.mp4' })), { ok: false, error: { code: 'MANIFEST_NEWER_THAN_WRITER' } })
+  const dragging = r(s, { type: 'dragStart', nodeId: F(1) })
+  assert.deepEqual(planDrop(dragging, D(4)), { ok: false, reason: 'MANIFEST_NEWER_THAN_WRITER' })
+  // v1 head: unchanged behaviour
+  const v1 = viewSelectors(r(load(base()), { type: 'select', nodeId: F(1) }))
+  assert.equal(v1.manifestNewer, false); assert.equal(v1.mutationLock, null); assert.equal(v1.capabilities.rename, true)
+  // no head yet but both key slots failed (RP-2): mutations stay locked
+  assert.equal(viewSelectors({ ...initialTreeViewState(), keyStatus: 'DEGRADED' }).mutationLock, 'KEY_DEGRADED')
+})

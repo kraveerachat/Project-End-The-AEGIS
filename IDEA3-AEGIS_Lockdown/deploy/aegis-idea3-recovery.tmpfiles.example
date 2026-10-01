@@ -1,0 +1,8 @@
+# AEGIS IDEA3 L7u — systemd-tmpfiles rule for the Core-mediated Recovery socket directory. Installed by the L7u stage as
+#   /etc/tmpfiles.d/aegis-idea3-recovery.conf   (root:root 0644)
+# Why tmpfiles and not the application: the Core unit runs with UMask=0077, so RecoveryServer's mkdir(mode=0o755) would create a 0700
+# directory the operator cannot traverse. This rule recreates the directory on every boot with the exact contract, before the Core:
+#   owner aegis-idea3 (the Core, so RecoveryServer's "directory must be Core-owned" check passes),
+#   group aegis-idea3-recovery, mode 0750 (group read/traverse only; never group/world writable).
+# The socket inside is created by the Core as aegis-idea3:aegis-idea3-recovery 0660.
+d /run/aegis-idea3-recovery 0750 aegis-idea3 aegis-idea3-recovery -

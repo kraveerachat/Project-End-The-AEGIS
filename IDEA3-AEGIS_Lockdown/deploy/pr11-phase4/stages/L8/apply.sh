@@ -5,13 +5,17 @@
 # Authority: docs/superpowers/specs/
 #   2026-09-21-idea3-pr11-phase4-l8-operational-design.md (OD-L8-01..OD-L8-09)
 #
-# Fails closed on any constraint violation. The only implemented device
-# backend is the fixture backend; the hardware backend is refused, because
-# this repository contains no Production write tool.
+# Fails closed on any constraint violation. Two device backends exist: the
+# fixture backend (file-backed, no serial code path) and the hardware backend
+# (HARDWARE_BACKEND_IMPLEMENTED_REPOSITORY), a subprocess adapter over the
+# PlatformIO-pinned esptool in p4-l8-device.py. The hardware backend is
+# unreachable unless AEGIS_L8_BACKEND=hardware AND
+# AEGIS_L8_LIVE_AUTHORIZED=YES. LIVE_L8=NOT_AUTHORIZED.
 #
 # OD-L8-05: serial access resets the ESP32, so L8 is
-# NON_WRITING_BUT_DEVICE_RESETTING and never "passive". Nothing here opens a
-# serial device.
+# NON_WRITING_BUT_DEVICE_RESETTING and never "passive". This script itself
+# never opens a serial device; only the reviewed helper can, and only behind
+# the live gate below. The serial port comes solely from device.identity.
 set -euo pipefail
 
 fail() {
@@ -49,9 +53,14 @@ RUN_ID="$AEGIS_L8_RUN_ID"
 
 # 2. Backend and live-authorization gate (OD-L8-05)
 #
-# The gate is defense in depth, not a capability: even an explicit
-# AEGIS_L8_LIVE_AUTHORIZED=YES cannot open a live path, because no hardware
-# backend is implemented. LIVE_L8=NOT_AUTHORIZED.
+# Hardware needs BOTH the explicit backend and an explicit live authorization.
+# Without AEGIS_L8_LIVE_AUTHORIZED=YES the hardware path is unreachable and no
+# device is opened. The helper enforces the same gate independently. Boot
+# verification is a passive, subscribe-only signed BOOT STATUS check
+# (p4-l8-boot-verify.py: TLS 8883, the staged Core broker credential, no
+# publish path), so its inputs are mandatory for hardware; the helper refuses
+# before any device access without them (BOOT_VERIFICATION_NOT_CONFIGURED).
+# LIVE_L8 stays NOT_AUTHORIZED.
 case "$BACKEND" in
   fixture)
     require_env AEGIS_L8_FIXTURE_DEVICE
@@ -60,7 +69,15 @@ case "$BACKEND" in
     esac
     ;;
   hardware)
-    fail "HARDWARE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY (LIVE_L8=NOT_AUTHORIZED)"
+    [ "${AEGIS_L8_LIVE_AUTHORIZED:-NO}" = YES ] ||
+      fail "HARDWARE_BACKEND_LIVE_L8_NOT_AUTHORIZED (AEGIS_L8_LIVE_AUTHORIZED=YES required)"
+    require_env AEGIS_L8_ESPTOOL
+    require_env AEGIS_L8_BROKER_ADDRESS
+    require_env AEGIS_L8_BROKER_TLS_NAME
+    require_env AEGIS_L8_MQTT_CA_FILE
+    require_env AEGIS_L8_BROKER_CREDENTIAL_FILE
+    [ -z "${AEGIS_L8_FIXTURE_DEVICE:-}" ] ||
+      fail "the hardware backend must not be combined with a fixture device descriptor"
     ;;
   *)
     fail "unknown device backend: $BACKEND"
@@ -111,6 +128,12 @@ PYTHON_BIN="${AEGIS_PYTHON_BIN:-python3}"
   --evidence-dir "$EVIDENCE_DIR" \
   --backend "$BACKEND" \
   --fixture-device "${AEGIS_L8_FIXTURE_DEVICE:-}" \
+  --esptool "${AEGIS_L8_ESPTOOL:-}" \
+  --live-authorized "${AEGIS_L8_LIVE_AUTHORIZED:-NO}" \
+  --broker-address "${AEGIS_L8_BROKER_ADDRESS:-}" \
+  --broker-tls-name "${AEGIS_L8_BROKER_TLS_NAME:-}" \
+  --broker-ca-file "${AEGIS_L8_MQTT_CA_FILE:-}" \
+  --broker-credential-file "${AEGIS_L8_BROKER_CREDENTIAL_FILE:-}" \
   --partition-table "$AEGIS_L8_PARTITION_TABLE" \
   --secrets-header "$AEGIS_L8_SECRETS_HEADER" \
   --firmware-image "$AEGIS_L8_FIRMWARE_IMAGE" \

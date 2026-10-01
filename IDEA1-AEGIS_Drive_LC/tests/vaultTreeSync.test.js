@@ -247,3 +247,148 @@ test('SY-11 stale-after-lock: a session created before the lock cannot commit af
   const s2 = session(srv); await s2.loadHead(); s2.close()
   await rejectsSync(s2.commit(intent), 'ABORTED')
 })
+
+// ── Unified Preview P2a: per-revision schema version on read (Task 4) ─────────
+
+const FILE_ID = 'F'.repeat(22)
+const V2_PREVIEW = { kind: 'thumb', profile: 'vp1', blobRef: { formatVersion: 2, id: 'deriv-thumb-1' }, contentId: 'AAECAwQFBgcICQoLDA0ODw==', sourceBlobRef: { formatVersion: 2, id: 'orig-1' }, mime: 'image/webp', width: 512, height: 288, plainSize: 40_000, createdAtClient: 1_790_000_000_000 }
+/** a newer build committed a v2 head (one file with a thumb preview) on top of the current head */
+async function seedV2Head(srv, o = {}) {
+  const h = await session(srv).loadHead()
+  const nodes = new Map(h.manifest.nodes)
+  nodes.set(FILE_ID, { nodeId: FILE_ID, kind: 'file', parentNodeId: srv.rootNodeId, name: 'clip.mp4', createdAtClient: 1, modifiedAtClient: 1, lifecycle: { state: 'active' }, blobRef: { formatVersion: 2, id: 'orig-1' }, mediaType: 'video/mp4', plainSize: 9_000_000, contentFormat: 'mp4', previews: [V2_PREVIEW] })
+  const m = await srv.seedHead({ ...h.manifest, nodes, schemaVersion: 2 }, o)
+  srv.state.log.length = 0
+  return m
+}
+const writes = (srv) => ({
+  publish: srv.state.log.filter((l) => l.method === 'POST' && l.path === '/api/vault/tree/revisions').length,
+  cas: srv.state.log.filter((l) => l.method === 'POST' && l.path === '/api/vault/tree/head').length,
+  put: srv.state.log.filter((l) => l.method === 'PUT').length,
+})
+
+test('SY-V2-1 a v2 head (encrypted with schema 2 in the AAD) opens: nodes listed, previews in the in-memory manifest, nothing written', async () => {
+  const srv = await server()
+  const seeded = await seedV2Head(srv)
+  const s = session(srv)
+  const head = await s.loadHead()
+  assert.equal(head.manifestSchemaVersion, 2)
+  assert.equal(head.revisionId, seeded.revisionId)
+  assert.equal(head.manifest.schemaVersion, 2)
+  assert.deepEqual(head.manifest.nodes.get(FILE_ID).previews, [V2_PREVIEW])
+  assert.ok(head.index.nodes.has(FILE_ID))
+  assert.deepEqual(writes(srv), { publish: 0, cas: 0, put: 0 })
+})
+
+test('SY-V2-2 a v1 head keeps working and reports schema 1', async () => {
+  const srv = await server()
+  const head = await session(srv).loadHead()
+  assert.equal(head.manifestSchemaVersion, 1); assert.equal(head.manifest.schemaVersion, 1)
+})
+
+test('SY-V2-3 a head advertising schema 3 (or none) fails secure BEFORE the ciphertext is fetched or decrypted; no partial head, no write', async () => {
+  for (const advertisedSchemaVersion of [3, 0, '2', null]) {
+    const srv = await server()
+    await seedV2Head(srv, { advertisedSchemaVersion })
+    const s = session(srv)
+    await rejectsSync(s.loadHead(), 'UNSUPPORTED_SCHEMA_VERSION')
+    assert.equal(s.head, null, `no partial head for ${String(advertisedSchemaVersion)}`)
+    assert.deepEqual(srv.state.log.map((l) => `${l.method} ${l.path}`), ['GET /api/vault/tree/head'], 'revision bytes never requested')
+    assert.deepEqual(writes(srv), { publish: 0, cas: 0, put: 0 })
+  }
+})
+
+test('SY-V2-4 a v2 revision advertised as schema 1 does not decrypt (AAD binds the version) — fail closed, no head', async () => {
+  const srv = await server()
+  await seedV2Head(srv, { advertisedSchemaVersion: 1 })
+  const s = session(srv)
+  await assert.rejects(s.loadHead(), (e) => e?.name === 'ManifestCryptoError')
+  assert.equal(s.head, null)
+})
+
+// ── Unified Preview P2a: v1-only writer + v2-head mutation refusal (Task 5, Decision P2A-W) ──
+
+const { ManifestNewerThanWriterError } = await import('../src/lib/vaultTreeSync.js')
+const { MANIFEST_SCHEMA_VERSION_WRITE } = await import('../src/lib/vaultTreeManifest.js')
+/** count the two write calls at the API boundary (not just the fake server log) */
+function spyWrites(srv) {
+  const calls = { publishRevision: 0, casHead: 0 }
+  for (const k of Object.keys(calls)) {
+    const orig = srv.api[k]
+    srv.api[k] = (...a) => { calls[k]++; return orig(...a) }
+  }
+  return calls
+}
+const rejectsNewer = (p) => assert.rejects(p, (e) => e instanceof ManifestNewerThanWriterError && e instanceof SyncError && e.code === 'MANIFEST_NEWER_THAN_WRITER' && e.detail?.headSchemaVersion === 2)
+
+test('SY-V2-5 v1 head + mutation → the published revision is schema 1 in the body AND in the decrypted plaintext', async () => {
+  assert.equal(MANIFEST_SCHEMA_VERSION_WRITE, 1)
+  const srv = await server()
+  const s = session(srv)
+  await s.loadHead()
+  assert.equal(s.writable, true)
+  const f = await s.commit(intents.createFolder({ parentNodeId: srv.rootNodeId, name: 'a' }))
+  await s.commit(intents.rename({ nodeId: f.nodeId, name: 'b' }))
+  const published = srv.state.log.filter((l) => l.method === 'POST' && l.path === '/api/vault/tree/revisions').map((l) => JSON.parse(l.body))
+  assert.equal(published.length, 2)
+  for (const b of published) assert.equal(b.manifestSchemaVersion, 1)
+  const fresh = await session(srv).loadHead()
+  assert.equal(fresh.manifestSchemaVersion, 1); assert.equal(fresh.manifest.schemaVersion, 1)
+  assert.equal(fresh.manifest.nodes.get(f.nodeId).name, 'b')
+  assert.equal(s.head.manifestSchemaVersion, 1)
+})
+
+test('SY-V2-6 v2 head: rename / move / upload-attach / trash / createFolder are refused with ZERO publishRevision and ZERO casHead', async () => {
+  const srv = await server()
+  const seeded = await seedV2Head(srv)
+  const s = session(srv)
+  await s.loadHead()
+  assert.equal(s.writable, false)
+  // a folder to move into (exists in the v2 head via a second seed would need a newer writer — use root as the only folder)
+  const calls = spyWrites(srv)
+  const attempts = [
+    intents.rename({ nodeId: FILE_ID, name: 'renamed.mp4' }),
+    intents.move({ nodeIds: [FILE_ID], destinationNodeId: srv.rootNodeId }),
+    intents.attachBlob({ parentNodeId: srv.rootNodeId, name: 'new.bin', plainSize: 3, blobRef: { formatVersion: 2, id: 'new-blob' } }),
+    intents.trash({ nodeIds: [FILE_ID] }),
+    intents.createFolder({ parentNodeId: srv.rootNodeId, name: 'x' }),
+  ]
+  for (const intent of attempts) await rejectsNewer(s.commit(intent))
+  assert.deepEqual(calls, { publishRevision: 0, casHead: 0 })
+  assert.deepEqual(writes(srv), { publish: 0, cas: 0, put: 0 })
+  assert.equal(srv.state.head.revisionId, seeded.revisionId, 'the v2 head is untouched')
+  // reading still works after a refusal
+  assert.deepEqual(s.head.manifest.nodes.get(FILE_ID).previews, [V2_PREVIEW])
+  assert.equal(s.head.manifestSchemaVersion, 2)
+})
+
+test('SY-V2-7 rebase onto a v2 head: the v1 intent is refused and discarded — the v2 head is never overwritten by v1', async () => {
+  const srv = await server()
+  const a = session(srv)
+  await a.loadHead() // v1 head
+  const seeded = await seedV2Head(srv) // a newer build moves the head to v2 meanwhile
+  const calls = spyWrites(srv)
+  await rejectsNewer(a.commit(intents.createFolder({ parentNodeId: srv.rootNodeId, name: 'mine' })))
+  assert.deepEqual(calls, { publishRevision: 1, casHead: 1 }, 'only the original (losing) v1 attempt against the stale v1 base — no retry on the v2 head')
+  assert.equal(srv.state.head.revisionId, seeded.revisionId)
+  assert.equal([...srv.state.revisions.values()].filter((r) => r.state === 'ORPHANED').length, 1, 'the losing v1 candidate is orphaned, never committed')
+  assert.equal(a.head.manifestSchemaVersion, 2, 'session now shows the v2 head read-only')
+  assert.equal(a.writable, false)
+})
+
+test('SY-V2-8 response loss while the head moved to v2 → refused, no CAS replay onto the v2 head', async () => {
+  const srv = await server()
+  const s = session(srv)
+  await s.loadHead()
+  let seeded = null
+  srv.hooks.dropNextCasBeforeApply = true
+  const origFetch = srv.api.casHead
+  srv.api.casHead = async (...args) => {
+    const out = origFetch(...args)
+    if (!seeded) { await out.catch(() => {}); seeded = await seedV2Head(srv) }
+    return out
+  }
+  await rejectsNewer(s.commit(intents.createFolder({ parentNodeId: srv.rootNodeId, name: 'lost' })))
+  assert.equal(srv.state.head.revisionId, seeded.revisionId)
+  assert.equal(s.writable, false)
+})
