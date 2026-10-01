@@ -113,7 +113,7 @@ if [ -n "${ALLOW_KEYS_FILE:-}" ]; then
     [[ "$k" =~ $ALLOW_KEY_PAT ]] || stop "malformed allow key"
     [[ "$k" =~ $PROTECTED ]] && stop "protected key cannot be approved: $k"
     if [[ "$k" =~ ^host\. ]]; then
-      if ! [[ "$k" =~ ^host\.(aegis_idea3\.(file|recovery)\.|path\.|symlink\.|unit_file\.) ]]; then
+      if ! [[ "$k" =~ ^host\.(aegis_idea3\.(file|recovery|alert)\.|path\.|symlink\.|unit_file\.) ]]; then
         stop "protected key cannot be approved: $k"
       fi
     fi

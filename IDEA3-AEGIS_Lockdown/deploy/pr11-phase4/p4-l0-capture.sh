@@ -659,7 +659,7 @@ fi
 for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /etc/aegis-idea3/mqtt /opt/aegis-idea3 /opt/aegis-idea3/current \
   /opt/aegis-idea3/releases /var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3 \
   /etc/systemd/system/aegis-idea3-core.service.d /etc/tmpfiles.d/aegis-idea3-recovery.conf /run/aegis-idea3-recovery \
-  /run/aegis-idea3-recovery/recovery.sock; do
+  /run/aegis-idea3-recovery/recovery.sock /etc/tmpfiles.d/aegis-idea3-alert.conf /run/aegis-idea3-alert /run/aegis-idea3-alert/alert.sock; do
   if [ -e "$(p4_fs "$p")" ]; then p4_rec "$HOST" "host.path.$p" present; else p4_rec "$HOST" "host.path.$p" absent; fi
 done
 # L6c (immutable release install): a deterministic, non-secret fingerprint of the release catalog under
@@ -742,6 +742,38 @@ elif [ -e "$recovery_sock" ] || [ -L "$recovery_sock" ]; then
 else
   p4_rec "$HOST" host.aegis_idea3.recovery.socket absent
 fi
+# OD-F1-DEPLOY-01 (F1 alert surface, owned by L7u): same non-secret metadata-only treatment as the Recovery surface above.
+alert_group_name=aegis-idea3-alert
+if [ -r "$(p4_fs /etc/group)" ]; then
+  alert_group_state=$(awk -F: -v g="$alert_group_name" '$1 == g { n++; v = "present gid=" $3 " members=" $4 }
+    END { if (n == 0) print "absent"; else if (n == 1) print v; else print "duplicate" }' "$(p4_fs /etc/group)")
+else
+  alert_group_state=UNREADABLE
+  if [ -z "$P4_FS_ROOT" ]; then partial=1; else alert_group_state=absent; fi
+fi
+p4_rec "$HOST" "host.aegis_idea3.alert.group.$alert_group_name" "$alert_group_state"
+alert_dir=$(p4_fs /run/aegis-idea3-alert)
+if [ -L "$alert_dir" ]; then
+  p4_rec "$HOST" host.aegis_idea3.alert.runtime_dir symlink
+elif [ -d "$alert_dir" ]; then
+  meta=$(p4_meta "$alert_dir")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$HOST" host.aegis_idea3.alert.runtime_dir "${meta%% size=*}"
+elif [ -e "$alert_dir" ]; then
+  p4_rec "$HOST" host.aegis_idea3.alert.runtime_dir not-a-directory
+else
+  p4_rec "$HOST" host.aegis_idea3.alert.runtime_dir absent
+fi
+alert_sock="$alert_dir/alert.sock"
+if [ -S "$alert_sock" ]; then
+  meta=$(p4_meta "$alert_sock")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$HOST" host.aegis_idea3.alert.socket "type=socket ${meta%% size=*}"
+elif [ -e "$alert_sock" ] || [ -L "$alert_sock" ]; then
+  p4_rec "$HOST" host.aegis_idea3.alert.socket type=other
+else
+  p4_rec "$HOST" host.aegis_idea3.alert.socket absent
+fi
 if run_ro 0 - systemctl show -p SupplementaryGroups -p DropInPaths -p FragmentPath -p ReadWritePaths -p MainPID aegis-idea3-core.service; then
   core_pid=0
   for prop in SupplementaryGroups DropInPaths FragmentPath ReadWritePaths; do
@@ -779,6 +811,9 @@ while IFS= read -r f; do
 done < <(tree_files /etc/systemd/system/aegis-idea3-core.service.d)
 if [ -f "$(p4_fs /etc/tmpfiles.d/aegis-idea3-recovery.conf)" ]; then
   rec_file "$HOST" host.unit_file "$(p4_fs /etc/tmpfiles.d/aegis-idea3-recovery.conf)"
+fi
+if [ -f "$(p4_fs /etc/tmpfiles.d/aegis-idea3-alert.conf)" ]; then
+  rec_file "$HOST" host.unit_file "$(p4_fs /etc/tmpfiles.d/aegis-idea3-alert.conf)"
 fi
 # L6b (OD-L6B-01) installs the separate broker unit; it is captured exactly like the Core unit (never a wildcard).
 for unit_file in aegis-idea3-core.service aegis-idea3-mosquitto.service; do

@@ -1,0 +1,12 @@
+# AEGIS IDEA3 L7u — systemd drop-in (OD-F1-DEPLOY-01) for aegis-idea3-core.service. Installed by the L7u stage as
+#   /etc/systemd/system/aegis-idea3-core.service.d/20-f1-alert.conf   (root:root 0644)
+# It is SEPARATE from 10-recovery.conf: the Recovery drop-in stays byte-identical and the Recovery group/socket are never exposed here.
+# It adds exactly two things to the Core unit:
+#   * SupplementaryGroups: the Core process joins the dedicated F1 alert transport group so it may chgrp its alert socket to that group.
+#     This is filesystem reachability ONLY. F1 authorization stays the SO_PEERCRED uid == AEGIS_ALERT_SOURCE_UID check in the Core;
+#     the group alone never authorizes an alert and no capability (in particular no DAC override) is involved.
+#   * ReadWritePaths: ProtectSystem=strict makes /run read-only, so the dedicated alert directory must be writable explicitly. It is
+#     pre-provisioned by aegis-idea3-alert.tmpfiles.example BEFORE the Core restarts (a missing directory fails the unit by design).
+[Service]
+SupplementaryGroups=aegis-idea3-alert
+ReadWritePaths=/run/aegis-idea3-alert

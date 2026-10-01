@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 """F1 alert-source deployment package: render / verify / ordered start / bounded stop (repository tooling; merging it authorizes nothing live).
 
-Companion of the merged Core-local alert ingress (<runtime_dir>/alert.sock, SO_PEERCRED, ``AEGIS_ALERT_SOURCE_UID``) and of the production
-detector (``python -m aegis_soc.production_detector``). It carries the contract a FUTURE governed deployment must satisfy:
+Companion of the Core-local alert ingress (SO_PEERCRED, ``AEGIS_ALERT_SOURCE_UID``) and of the production detector
+(``python -m aegis_soc.production_detector``). Owner decision OD-F1-DEPLOY-01 fixes the contract a FUTURE governed deployment must satisfy:
 
-    1. new Core release installed            (L7u / owner stage; not this tool)
-    2. core.env holds ONE verified AEGIS_ALERT_SOURCE_UID   -> ``verify-env``
-    3. Core started/restarted                (L7u / owner stage; not this tool; this tool never restarts the Core)
-    4. alert.sock present, Core-owned 0600, the account can reach it, the running Core carries the uid   -> ``start-detector`` gate
-    5. only then the detector unit may start -> ``start-detector`` (exactly one ``systemctl start`` of the F1 detector unit)
+    1. new Core release installed + alert group / runtime policy + core.env uid + Core supplementary group + ONE Core restart + Core alert
+       socket verified                        (L7u owns ALL of this; this tool never touches the Core, core.env or the group database)
+    2. only then the detector unit may start  -> ``start-detector`` re-proves every gate, then issues exactly one ``systemctl start``
 
-Identity is an owner-supplied, frozen, non-secret numeric uid (F1_ALERT_SOURCE_IDENTITY = OWNER_INPUT_REQUIRED). The tool never creates an
-account, never chooses a uid, and refuses (fail closed) a uid that the merged Core socket contract cannot serve (0600 socket in a 0700
-directory, both Core-owned: only root or the Core account can connect) and the Core's own uid (a sender indistinguishable from the Core).
+Identity: the dedicated NON-ROOT account ``aegis-idea3-detector`` whose numeric uid is owner-frozen (= AEGIS_ALERT_SOURCE_UID). Root and the
+Core account are forbidden; ``getpwnam`` must resolve the exact account name to exactly the frozen uid. The tool never creates the account,
+never chooses a uid and never takes an account name as input. Transport group ``aegis-idea3-alert`` is filesystem reachability ONLY (traverse
+the dedicated /run/aegis-idea3-alert directory 2750, connect to alert.sock 0620): the SO_PEERCRED uid is the authentication authority, no
+capability (CAP_DAC_OVERRIDE is forbidden) is ever held.
 
 Boundaries: no useradd/groupadd, no Core verb at all (no restart/stop/start of aegis-idea3-core.service, only ``show``), no MQTT, no ESP32, no
 CUT/RESTORE, no containment, no shell, no automatic retry, no host-root option. ``start-detector``/``stop-detector`` act on the real host only
 with AEGIS_F1_LIVE_AUTHORIZED=YES and root; the Python API is driven by a ``Host``/``Backend`` pair so the fixture tests never touch a host.
 Output is fixed reason codes and non-secret identifiers only; never environment content.
+
+Phase A gap (recorded, deliberate): the Core AlertServer still creates alert.sock under its general runtime directory until the Phase B hook
+lands after PR #287. This tool targets ONLY the dedicated surface, so until Phase B a real start is impossible (the dedicated socket never
+exists): CORE_ALERT_SOCKET_HOOK_IMPLEMENTED=NO.
 """
 
 from __future__ import annotations
@@ -38,15 +42,17 @@ DEPLOY_DIR = HERE.parent
 DETECTOR_UNIT = "aegis-idea3-detector.service"
 CORE_UNIT = "aegis-idea3-core.service"
 CORE_USER = "aegis-idea3"
+DETECTOR_ACCOUNT = "aegis-idea3-detector"
+ALERT_GROUP = "aegis-idea3-alert"
 UNIT_TEMPLATE = DEPLOY_DIR / "aegis-idea3-detector.service.example"
 UNIT_PATH = f"/etc/systemd/system/{DETECTOR_UNIT}"
 CORE_ENV = "/etc/aegis-idea3/core.env"
-RUNTIME_DIR = "/run/aegis-idea3"
+RUNTIME_DIR = "/run/aegis-idea3-alert"  # dedicated; NEVER the general /run/aegis-idea3 and never the Recovery directory
 SOCKET_PATH = f"{RUNTIME_DIR}/alert.sock"
-PLACEHOLDER = "@AEGIS_ALERT_SOURCE_UID@"
 ENV_KEY = "AEGIS_ALERT_SOURCE_UID"
-SOCKET_MODE = 0o600
-RUNTIME_DIR_MODE = 0o700  # RuntimeDirectoryMode of the Core unit
+SOCKET_MODE = 0o620  # owner rw, group write (connect) only, nothing for others
+RUNTIME_DIR_MODE = 0o2750  # setgid, owner rwx, group r-x: traverse only, no group create/delete, nothing for others
+UNIT_SUPPLEMENTARY_GROUPS = (ALERT_GROUP, "systemd-journal")  # alert = transport; journal = journalctl (unrelated to the alert path)
 STOP_TIMEOUT_SEC = 30.0
 START_TIMEOUT_SEC = 45.0
 SHOW_TIMEOUT_SEC = 10.0
@@ -57,14 +63,14 @@ EXEC_PRE = "/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.alert_sink che
 EXEC_START = "/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.production_detector"
 REQUIRED_UNIT_LINES = (
     "Requires=aegis-idea3-core.service", "After=aegis-idea3-core.service", "Restart=no", "NoNewPrivileges=true",
-    "RestrictAddressFamilies=AF_UNIX", "CapabilityBoundingSet=CAP_DAC_OVERRIDE", "ProtectSystem=strict", "PrivateTmp=true",
+    "RestrictAddressFamilies=AF_UNIX", "CapabilityBoundingSet=", "AmbientCapabilities=", "ProtectSystem=strict", "PrivateTmp=true",
     f"ExecStartPre={EXEC_PRE}", f"ExecStart={EXEC_START}",
 )
-SINGLE_VALUE_KEYS = ("User", "Group", "ExecStart", "ExecStartPre", "Restart", "EnvironmentFile", "Environment", "ExecStartPost",
+SINGLE_VALUE_KEYS = ("User", "Group", "SupplementaryGroups", "CapabilityBoundingSet", "AmbientCapabilities", "ExecStart", "ExecStartPre", "Restart", "EnvironmentFile", "Environment", "ExecStartPost",
                      "ExecStop", "ExecStopPost", "ExecReload", "LoadCredential", "ReadWritePaths", "RestrictAddressFamilies")
 # Substrings that must never appear on an active unit line: MQTT transport/topic, plaintext broker port, shells, containment verbs.
 FORBIDDEN_ACTIVE = ("mqtt", "paho", "attacker_ip", "1883", "8883", "/bin/sh", "/bin/bash", "bash ", "sh -c", "&&", "||", ";", "|", "`",
-                    "$(", "nft", "iptables", "containment", "restore", "environmentfile", "loadcredential", "ExecStartPost",
+                    "$(", "cap_", "nft", "iptables", "containment", "restore", "environmentfile", "loadcredential", "ExecStartPost",
                     "ExecStop=", "ExecReload", "AF_INET", "AF_NETLINK", "AF_PACKET")
 CUT_WORD = re.compile(r"\bcut\b", re.IGNORECASE)
 
@@ -104,26 +110,41 @@ def parse_uid(text: str) -> int:
 # ── identity / socket contract ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def can_connect(uid: int, *, socket_uid: int, socket_mode: int, dir_uid: int, dir_mode: int) -> bool:
-    """Whether ``uid`` (no supplementary groups assumed) can connect(2) to a socket with this ownership and these modes.
+def can_connect(uid: int, gids: tuple[int, ...], *, socket_uid: int, socket_gid: int, socket_mode: int, dir_uid: int, dir_gid: int,
+                dir_mode: int) -> bool:
+    """Whether ``uid`` with supplementary ``gids`` can connect(2) to a socket with this ownership and these modes.
 
-    root passes (CAP_DAC_OVERRIDE, which the unit retains); otherwise it needs search permission on the directory and write permission on the
-    socket as owner or as other. The merged Core ingress creates the socket 0600 and the runtime directory is 0700, both Core-owned.
+    Plain DAC with NO capability and NO root special case (DAC override is forbidden): the owner, group and other classes are chosen
+    exactly as the kernel does. It needs search permission on the directory and write permission on the socket.
     """
-    if uid == 0:
-        return True
-    dir_ok = bool(dir_mode & (0o100 if uid == dir_uid else 0o001))
-    sock_ok = bool(socket_mode & (0o200 if uid == socket_uid else 0o002))
-    return dir_ok and sock_ok
+    def allowed(owner: int, group: int, mode: int, owner_bit: int) -> bool:
+        if uid == owner:
+            return bool(mode & owner_bit)
+        if group in gids:
+            return bool(mode & (owner_bit >> 3))
+        return bool(mode & (owner_bit >> 6))
+
+    return allowed(dir_uid, dir_gid, dir_mode, 0o100) and allowed(socket_uid, socket_gid, socket_mode, 0o200)
 
 
-def verify_identity(uid: int, core_uid: int, *, socket_mode: int = SOCKET_MODE, dir_mode: int = RUNTIME_DIR_MODE) -> None:
+def verify_identity(uid: int, core_uid: int) -> None:
+    """The frozen uid: non-root and not the Core account (a sender indistinguishable from the Core)."""
     if core_uid <= 0:
         refuse("CORE_UID_INVALID")
+    if uid <= 0:
+        refuse("ALERT_SOURCE_IS_ROOT")
     if uid == core_uid:
         refuse("ALERT_SOURCE_IS_CORE_ACCOUNT")
-    if not can_connect(uid, socket_uid=core_uid, socket_mode=socket_mode, dir_uid=core_uid, dir_mode=dir_mode):
-        refuse("ALERT_SOURCE_CANNOT_REACH_SOCKET")
+
+
+def verify_account(host: Host, uid: int, core_uid: int) -> None:
+    """The exact account ``aegis-idea3-detector`` must exist and resolve to exactly the frozen uid. No other name is ever consulted."""
+    verify_identity(uid, core_uid)
+    resolved = host.resolve_user(DETECTOR_ACCOUNT)
+    if resolved is None:
+        refuse("DETECTOR_ACCOUNT_MISSING")
+    if resolved != uid:
+        refuse("DETECTOR_UID_MISMATCH")
 
 
 # ── unit ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -133,20 +154,13 @@ def _active_lines(text: str) -> list[str]:
     return [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
 
 
-def render_unit(template: bytes, uid: int) -> bytes:
-    try:
-        text = template.decode("utf-8")
-    except UnicodeDecodeError:
-        refuse("TEMPLATE_INVALID")
-    if sum(line.count(PLACEHOLDER) for line in _active_lines(text)) != 1:
-        refuse("TEMPLATE_INVALID")
-    out = text.replace(f"User={PLACEHOLDER}", f"User={uid}")
-    if PLACEHOLDER in "\n".join(_active_lines(out)):
-        refuse("TEMPLATE_INVALID")
-    return out.encode("utf-8")
+def render_unit(template: bytes) -> bytes:
+    """The unit is static (it names the account, not a uid): rendering is the contract check plus a byte-exact copy."""
+    verify_unit(template)
+    return template
 
 
-def verify_unit(data: bytes, uid: int) -> None:
+def verify_unit(data: bytes) -> None:
     """Static contract of an installed/rendered detector unit. Raises a fixed reason on the first violation."""
     try:
         text = data.decode("utf-8")
@@ -162,16 +176,23 @@ def verify_unit(data: bytes, uid: int) -> None:
     for key in SINGLE_VALUE_KEYS:
         if sum(1 for line in lines if line.startswith(f"{key}=")) > 1:
             refuse(f"UNIT_DUPLICATE_KEY:{key}")
+    if "CAP_DAC_OVERRIDE" in text:
+        refuse("UNIT_CAPABILITY_NOT_ALLOWED")  # not even in a comment: the model is gone, so the name must be gone
     users = [line for line in lines if line.startswith("User=")]
     if len(users) != 1:
         refuse("UNIT_USER_MISSING")
-    if users[0] != f"User={uid}":
-        refuse("UNIT_USER_MISMATCH")
+    if users[0] != f"User={DETECTOR_ACCOUNT}":
+        refuse("UNIT_USER_MISMATCH")  # exactly the dedicated account: no uid, no other name, never root
     if any(line.startswith("Group=") for line in lines):
-        refuse("UNIT_GROUP_NOT_ALLOWED")  # the primary group follows the frozen uid; an extra group is an unreviewed identity
+        refuse("UNIT_GROUP_NOT_ALLOWED")  # the primary group follows the account; an extra group is an unreviewed identity
     for required in REQUIRED_UNIT_LINES:
         if required not in lines:
             refuse(f"UNIT_REQUIRED_LINE_MISSING:{required.split('=', 1)[0]}")
+    if any(line.startswith(("CapabilityBoundingSet=", "AmbientCapabilities=")) and line.split("=", 1)[1].strip() for line in lines):
+        refuse("UNIT_CAPABILITY_NOT_ALLOWED")  # both stay EMPTY: no capability of any kind
+    groups = [line for line in lines if line.startswith("SupplementaryGroups=")]
+    if len(groups) != 1 or tuple(groups[0].split("=", 1)[1].split()) != UNIT_SUPPLEMENTARY_GROUPS:
+        refuse("UNIT_SUPPLEMENTARY_GROUPS_UNEXPECTED")
     if any(line.startswith(("ExecStartPre=", "ExecStart=")) and line not in (f"ExecStartPre={EXEC_PRE}", f"ExecStart={EXEC_START}")
            for line in lines):
         refuse("UNIT_EXEC_UNEXPECTED")
@@ -186,6 +207,8 @@ def verify_unit(data: bytes, uid: int) -> None:
 
 def verify_env(data: bytes, uid: int, *, core_uid: int | None = None) -> None:
     """core.env must carry exactly one AEGIS_ALERT_SOURCE_UID line equal to ``uid`` and no secret-bearing key. Values are never echoed."""
+    if uid <= 0:
+        refuse("ALERT_SOURCE_IS_ROOT")
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
@@ -227,6 +250,30 @@ class Host:
     def proc_environ(self, pid: int) -> bytes:
         return Path(f"/proc/{int(pid)}/environ").read_bytes()
 
+    def proc_groups(self, pid: int) -> list[int]:
+        text = Path(f"/proc/{int(pid)}/status").read_text(encoding="utf-8", errors="replace")
+        match = re.search(r"^Groups:\s*(.*)$", text, re.MULTILINE)
+        if match is None:
+            refuse("CORE_PROCESS_UNREADABLE")
+        return [int(x) for x in match.group(1).split() if x.isdigit()]
+
+    def resolve_user(self, name: str) -> int | None:
+        """getpwnam(name).pw_uid, or None when the account does not exist."""
+        import pwd
+
+        try:
+            return pwd.getpwnam(name).pw_uid
+        except KeyError:
+            return None
+
+    def resolve_group(self, name: str) -> int | None:
+        import grp
+
+        try:
+            return grp.getgrnam(name).gr_gid
+        except KeyError:
+            return None
+
 
 class Backend:
     """Allow-listed systemctl: ``show`` of the Core, ``start``/``stop`` of the F1 detector unit ONLY. Anything else is refused."""
@@ -252,8 +299,10 @@ def _core_props(backend: Backend) -> dict[str, str]:
     return dict(line.split("=", 1) for line in result.out.splitlines() if "=" in line)
 
 
-def verify_socket(host: Host, core_uid: int, uid: int, *, socket_path: str = SOCKET_PATH, runtime_dir: str = RUNTIME_DIR) -> None:
-    """Static facts only (no connect, so no alert is ever created): socket type, owner, mode, directory, and that ``uid`` can reach it."""
+def verify_socket(host: Host, core_uid: int, uid: int, gid: int, *, socket_path: str = SOCKET_PATH,
+                  runtime_dir: str = RUNTIME_DIR) -> None:
+    """Static facts only (no connect, so no alert is ever created): socket type, owner, group, mode, the dedicated directory, and that the
+    detector (``uid`` + the alert group, no capability) can reach it."""
     try:
         directory = host.lstat(runtime_dir)
         sock = host.lstat(socket_path)
@@ -261,33 +310,41 @@ def verify_socket(host: Host, core_uid: int, uid: int, *, socket_path: str = SOC
         refuse("ALERT_SOCKET_MISSING")
     except OSError:
         refuse("ALERT_SOCKET_UNREADABLE")
-    if not stat.S_ISDIR(directory.st_mode) or directory.st_uid != core_uid or stat.S_IMODE(directory.st_mode) & 0o022:
+    if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != core_uid or directory.st_gid != gid
+            or stat.S_IMODE(directory.st_mode) != RUNTIME_DIR_MODE):
         refuse("ALERT_RUNTIME_DIR_UNEXPECTED")
     if not stat.S_ISSOCK(sock.st_mode):
         refuse("ALERT_SOCKET_NOT_A_SOCKET")
-    if sock.st_uid != core_uid:
+    if sock.st_uid != core_uid or sock.st_gid != gid:
         refuse("ALERT_SOCKET_WRONG_OWNER")
     if stat.S_IMODE(sock.st_mode) != SOCKET_MODE:
         refuse("ALERT_SOCKET_WRONG_MODE")
-    verify_identity(uid, core_uid, socket_mode=stat.S_IMODE(sock.st_mode), dir_mode=stat.S_IMODE(directory.st_mode))
+    if not can_connect(uid, (gid,), socket_uid=sock.st_uid, socket_gid=sock.st_gid, socket_mode=stat.S_IMODE(sock.st_mode),
+                       dir_uid=directory.st_uid, dir_gid=directory.st_gid, dir_mode=stat.S_IMODE(directory.st_mode)):
+        refuse("ALERT_SOURCE_CANNOT_REACH_SOCKET")
 
 
 def start_detector(uid: int, core_uid: int, host: Host, backend: Backend) -> dict[str, str]:
     """The ordered gate. Every earlier step must pass before the single ``systemctl start`` of the F1 detector unit; nothing is retried."""
-    verify_identity(uid, core_uid)
-    verify_env(host.read_bytes(CORE_ENV), uid, core_uid=core_uid)  # 2. core.env carries the verified uid
-    verify_unit(host.read_bytes(UNIT_PATH), uid)  # the unit that would start is the rendered one for this uid
-    props = _core_props(backend)  # 3. the Core is up ...
+    verify_account(host, uid, core_uid)  # the exact dedicated, non-root, non-Core account at exactly the frozen uid
+    gid = host.resolve_group(ALERT_GROUP)
+    if gid is None or gid <= 0:
+        refuse("ALERT_GROUP_MISSING")
+    verify_env(host.read_bytes(CORE_ENV), uid, core_uid=core_uid)  # core.env carries the verified uid (written by L7u)
+    verify_unit(host.read_bytes(UNIT_PATH))  # the unit that would start is the reviewed static one
+    props = _core_props(backend)  # the Core is up ...
     if props.get("ActiveState") != "active" or props.get("SubState") != "running":
         refuse("CORE_NOT_RUNNING")
     pid = props.get("MainPID", "0")
     if not pid.isdigit() or int(pid) <= 0:
         refuse("CORE_NOT_RUNNING")
     projected = [line for line in host.proc_environ(int(pid)).decode("utf-8", "replace").split("\0") if line.startswith(f"{ENV_KEY}=")]
-    if projected != [f"{ENV_KEY}={uid}"]:  # ... and the RUNNING Core actually carries the uid (restarted after core.env changed)
+    if projected != [f"{ENV_KEY}={uid}"]:  # ... the RUNNING Core actually carries the uid (restarted after core.env changed) ...
         refuse("CORE_RUNNING_WITHOUT_ALERT_SOURCE_UID")
-    verify_socket(host, core_uid, uid)  # 4. alert.sock exists with the expected owner/mode
-    if backend.systemctl("start", DETECTOR_UNIT).rc != 0:  # 5. only now
+    if gid not in host.proc_groups(int(pid)):  # ... and the alert group (L7u drop-in applied by that same single restart)
+        refuse("CORE_LACKS_ALERT_GROUP")
+    verify_socket(host, core_uid, uid, gid)  # the dedicated alert.sock exists with the exact owner/group/mode
+    if backend.systemctl("start", DETECTOR_UNIT).rc != 0:  # only now
         refuse("DETECTOR_START_FAILED")
     return {"F1_DETECTOR_START": "PASS"}
 
@@ -316,10 +373,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     sp = sub.add_parser("render-unit")
-    sp.add_argument("--uid", required=True)
     sp.add_argument("--output", required=True)
     sp = sub.add_parser("verify-unit")
-    sp.add_argument("--uid", required=True)
     sp.add_argument("--file", required=True)
     sp = sub.add_parser("verify-env")
     sp.add_argument("--uid", required=True)
@@ -338,18 +393,16 @@ def main(argv: list[str] | None = None) -> int:
             if os.geteuid() != 0:
                 refuse("ROOT_REQUIRED")
         if args.command == "render-unit":
-            uid = parse_uid(args.uid)
             output = Path(args.output)
             if output.exists() or output.is_symlink():
                 refuse("OUTPUT_EXISTS")
-            blob = render_unit(UNIT_TEMPLATE.read_bytes(), uid)
-            verify_unit(blob, uid)
+            blob = render_unit(UNIT_TEMPLATE.read_bytes())
             descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(blob)
             result = {label: "PASS"}
         elif args.command == "verify-unit":
-            verify_unit(Path(args.file).read_bytes(), parse_uid(args.uid))
+            verify_unit(Path(args.file).read_bytes())
             result = {label: "PASS"}
         elif args.command == "verify-env":
             core = parse_uid(args.core_uid) if args.core_uid is not None else None

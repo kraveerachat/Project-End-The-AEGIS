@@ -1,15 +1,18 @@
 # AEGIS IDEA3 F1 production detector (alert source) — repository template. NOTHING here is installed, enabled or started by merging it.
 #
-# Render with:  deploy/pr11-phase4/p4-f1-alert-source.py render-unit --uid <AEGIS_ALERT_SOURCE_UID> --output <file>
-# The only placeholder is @AEGIS_ALERT_SOURCE_UID@. It is a frozen, owner-supplied, non-secret numeric uid (F1_ALERT_SOURCE_IDENTITY =
-# OWNER_INPUT_REQUIRED) and it MUST equal AEGIS_ALERT_SOURCE_UID in the installed core.env: the Core accepts exactly that SO_PEERCRED uid and
-# answers any other peer PEER_REFUSED before reading a byte, so a mismatch fails closed. `verify-unit` / `verify-env` prove the match.
+# Render with:  deploy/pr11-phase4/p4-f1-alert-source.py render-unit --output <file>      (no placeholder; the unit is static)
+# Identity (OD-F1-DEPLOY-01): the dedicated NON-ROOT account aegis-idea3-detector. Its numeric uid is owner-frozen and MUST equal
+# AEGIS_ALERT_SOURCE_UID in the installed core.env: the Core accepts exactly that SO_PEERCRED uid and answers any other peer
+# PEER_REFUSED before reading a byte, so a mismatch fails closed. `start-detector` re-proves getpwnam(account) == frozen uid.
+# The account is created by the owner (a precondition of live work); this repository tooling only VERIFIES it.
+# Group (SupplementaryGroups=aegis-idea3-alert): filesystem reachability ONLY (traverse the alert directory, connect to the socket). It is
+# never an authorization. There is NO capability here: the unit holds none (empty bounding set), in particular no DAC override.
 #
-# Transport: AF_UNIX to /run/aegis-idea3/alert.sock only (never MQTT, never a network socket). The payload is exactly
+# Transport: AF_UNIX to /run/aegis-idea3-alert/alert.sock only (never MQTT, never a network socket). The payload is exactly
 # {"v":1,"attacker_ip":"<IPv4>"}; the Core only binds an incident. The detector requests no containment, CUT or RESTORE.
 #
 # Start order (enforced by Requires=/After= and by ExecStartPre, and by `start-detector`): Core release installed -> core.env carries the
-# verified uid -> Core (re)started -> alert.sock present, Core-owned 0600 and answering SO_PEERCRED -> only then this unit. ExecStartPre waits a
+# verified uid -> Core (re)started -> alert.sock present, Core-owned 0620 group aegis-idea3-alert and answering SO_PEERCRED -> only then this unit. ExecStartPre waits a
 # bounded time for the socket and fails closed; Restart=no means a failure is never retried automatically.
 [Unit]
 Description=AEGIS IDEA3 F1 production detector (Core alert source)
@@ -20,10 +23,11 @@ StartLimitBurst=3
 
 [Service]
 Type=simple
-User=@AEGIS_ALERT_SOURCE_UID@
+User=aegis-idea3-detector
 UMask=0077
 WorkingDirectory=/opt/aegis-idea3/current
-SupplementaryGroups=systemd-journal
+# aegis-idea3-alert = the F1 alert transport (reachability only). systemd-journal = read the journal (journalctl); unrelated to the alert path.
+SupplementaryGroups=aegis-idea3-alert systemd-journal
 ExecStartPre=/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.alert_sink check-socket --wait-sec 15
 ExecStart=/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.production_detector
 Restart=no
@@ -49,9 +53,8 @@ RestrictNamespaces=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
-# Connecting to the Core's 0600 socket in the 0700 runtime directory needs DAC override unless the account is the Core's own (which the
-# package refuses). This is the only capability the unit may hold.
-CapabilityBoundingSet=CAP_DAC_OVERRIDE
+# No capability at all: access to the alert socket comes from the supplementary group, never from a capability.
+CapabilityBoundingSet=
 AmbientCapabilities=
 SystemCallArchitectures=native
 

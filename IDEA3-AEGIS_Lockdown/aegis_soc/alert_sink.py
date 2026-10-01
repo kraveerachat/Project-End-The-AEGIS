@@ -22,12 +22,17 @@ from typing import NamedTuple
 
 from . import ip_containment
 
-ALERT_SOCKET_PATH = "/run/aegis-idea3/alert.sock"
+# OD-F1-DEPLOY-01: ONE dedicated F1 alert surface. The general /run/aegis-idea3 directory and the Recovery socket are never used here.
+ALERT_RUNTIME_DIR = "/run/aegis-idea3-alert"
+ALERT_SOCKET_PATH = f"{ALERT_RUNTIME_DIR}/alert.sock"
 CORE_USER = "aegis-idea3"
+ALERT_GROUP = "aegis-idea3-alert"  # filesystem reachability only; SO_PEERCRED uid stays the authentication authority
+DETECTOR_ACCOUNT = "aegis-idea3-detector"
 PAYLOAD_VERSION = 1
 SEND_TIMEOUT_SEC = 2.0  # one monotonic budget for connect + write + read (the Core's own request deadline is 2 s)
 MAX_REPLY_BYTES = 4096
-SOCKET_MODE = 0o600  # the Core creates the ingress socket Core-owned 0600 (AlertServer: no socket group)
+SOCKET_MODE = 0o620  # Core-owned, group aegis-idea3-alert: owner rw, group write (= connect) only, nothing for others
+RUNTIME_DIR_MODE = 0o2750  # setgid, owner rwx, group r-x (traverse only; no group create/delete), nothing for others
 CHECK_WAIT_MAX_SEC = 60.0
 CHECK_POLL_SEC = 0.5
 
@@ -73,6 +78,12 @@ def core_uid() -> int:
     import pwd
 
     return pwd.getpwnam(CORE_USER).pw_uid
+
+
+def alert_gid() -> int:
+    import grp
+
+    return grp.getgrnam(ALERT_GROUP).gr_gid
 
 
 def send_alert(address: object, *, path: str = ALERT_SOCKET_PATH, expected_core_uid: int | None = None,
@@ -144,27 +155,41 @@ def _interpret(reply: bytes) -> AlertResult:
 # ---------------------------------------------------------------- start-time socket check (detector ExecStartPre)
 
 
-def check_socket(path: str = ALERT_SOCKET_PATH, *, expected_core_uid: int | None = None, wait_sec: float = 0.0,
-                 sleep=time.sleep, clock=time.monotonic) -> str:
+def check_socket(path: str = ALERT_SOCKET_PATH, *, expected_core_uid: int | None = None, expected_gid: int | None = None,
+                 wait_sec: float = 0.0, sleep=time.sleep, clock=time.monotonic) -> str:
     """Return ``ALERT_SOCKET_OK`` or a stable failure code. Bounded: polls at most ``wait_sec`` (capped), never indefinitely.
 
-    Passes only when the path is a socket owned by the Core account with mode 0600 and a live Core listener answers the peer
-    credential check. No byte is written, so no alert is created by the check.
+    Passes only when the path is a socket owned by the Core account, group ``aegis-idea3-alert``, mode 0620, inside a Core-owned
+    0o2750 directory of the same group, and a live Core listener answers the peer credential check. No byte is written, so no alert is
+    created by the check.
     """
     wait = min(max(float(wait_sec), 0.0), CHECK_WAIT_MAX_SEC)
     deadline = clock() + wait
     while True:
-        verdict = _check_once(path, expected_core_uid)
+        verdict = _check_once(path, expected_core_uid, expected_gid)
         if verdict == "ALERT_SOCKET_OK" or verdict != "ALERT_SOCKET_MISSING" or clock() >= deadline:
             return verdict
         sleep(CHECK_POLL_SEC)
 
 
-def _check_once(path: str, expected_core_uid: int | None) -> str:
+def _check_once(path: str, expected_core_uid: int | None, expected_gid: int | None) -> str:
     try:
         want_uid = core_uid() if expected_core_uid is None else int(expected_core_uid)
     except (KeyError, ImportError):
         return "ALERT_SOCKET_CORE_ACCOUNT_UNRESOLVED"
+    try:
+        want_gid = alert_gid() if expected_gid is None else int(expected_gid)
+    except (KeyError, ImportError):
+        return "ALERT_SOCKET_GROUP_UNRESOLVED"
+    try:
+        directory = os.lstat(os.path.dirname(path))
+    except FileNotFoundError:
+        return "ALERT_SOCKET_MISSING"
+    except OSError:
+        return "ALERT_SOCKET_UNREADABLE"
+    if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != want_uid or directory.st_gid != want_gid
+            or stat.S_IMODE(directory.st_mode) != RUNTIME_DIR_MODE):
+        return "ALERT_RUNTIME_DIR_UNEXPECTED"
     try:
         metadata = os.lstat(path)
     except FileNotFoundError:
@@ -173,7 +198,7 @@ def _check_once(path: str, expected_core_uid: int | None) -> str:
         return "ALERT_SOCKET_UNREADABLE"
     if not stat.S_ISSOCK(metadata.st_mode):
         return "ALERT_SOCKET_NOT_A_SOCKET"
-    if metadata.st_uid != want_uid:
+    if metadata.st_uid != want_uid or metadata.st_gid != want_gid:
         return "ALERT_SOCKET_WRONG_OWNER"
     if stat.S_IMODE(metadata.st_mode) != SOCKET_MODE:
         return "ALERT_SOCKET_WRONG_MODE"

@@ -504,9 +504,9 @@ def test_a_mutation_outside_the_approved_delta_is_not_laundered_by_the_allowance
     if surface == "current":  # value-level: approved KEY, but the exact-value proof is the engine delta check
         post_records["host.symlink./opt/aegis-idea3/current.target"] = "/opt/aegis-idea3/releases/intruder"
         with pytest.raises(fx.engine.Refusal):
-            fx.engine.delta(pre_records, post_records, fx.cfg, s.NEW_GROUP_GID)
+            fx.engine.delta(pre_records, post_records, fx.cfg, s.NEW_GROUP_GID, alert_gid=s.NEW_ALERT_GROUP_GID)
         return
-    assert fx.engine.delta(pre_records, post_records, fx.cfg, s.NEW_GROUP_GID)["L7U_DELTA"] == "PASS"
+    assert fx.engine.delta(pre_records, post_records, fx.cfg, s.NEW_GROUP_GID, alert_gid=s.NEW_ALERT_GROUP_GID)["L7U_DELTA"] == "PASS"
     if surface == "core_env":
         post_records["host.aegis_idea3.file./etc/aegis-idea3/credentials/x.meta"] = "mode=600 uid=0 gid=0 size=1 mtime=1"
     elif surface == "dropin":
@@ -521,7 +521,7 @@ def test_a_mutation_outside_the_approved_delta_is_not_laundered_by_the_allowance
         post_records["host.aegis_idea3.recovery.runtime_dir"] = "mode=755 uid=952 gid=1000"
     if surface in ("group", "socket", "runtime_dir"):
         with pytest.raises(fx.engine.Refusal):
-            fx.engine.delta(pre_records, post_records, fx.cfg, s.NEW_GROUP_GID)
+            fx.engine.delta(pre_records, post_records, fx.cfg, s.NEW_GROUP_GID, alert_gid=s.NEW_ALERT_GROUP_GID)
         return
     res = run_compare(pre, bundle(fx, "post", post_records), post=True, release_id=s.NEW_ID, tmp=tmp_path)
     assert res.returncode == 1 and "NEW_OR_WORSENED_DRIFT" in res.stdout

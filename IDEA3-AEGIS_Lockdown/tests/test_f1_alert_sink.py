@@ -43,6 +43,16 @@ def sockdir():
     shutil.rmtree(directory, ignore_errors=True)
 
 
+GID = os.getgid()
+
+
+@pytest.fixture
+def alertdir(sockdir):
+    """The dedicated surface as the Core's tmpfiles rule provisions it: setgid 2750, owned by the test account and its group."""
+    os.chmod(sockdir, 0o2750)
+    return sockdir
+
+
 class FakeServer:
     """One-connection-at-a-time AF_UNIX server recording raw request bytes; ``reply`` None means close without answering."""
 
@@ -188,8 +198,13 @@ def test_sink_and_core_ingress_agree_on_every_address_class():
 # --------------------------------------------------------------------------- AF_UNIX only, path never from detection input
 
 
-def test_the_production_socket_path_is_the_single_core_constant():
-    assert alert_sink.ALERT_SOCKET_PATH == "/run/aegis-idea3/alert.sock" == f"/run/aegis-idea3/{recovery_core.ALERT_CHANNEL_NAME}"
+def test_the_production_socket_path_is_the_one_dedicated_f1_surface():
+    """OD-F1-DEPLOY-01: ONE canonical dedicated path. The Core name constant is shared; the directory is NOT the general runtime directory.
+    (The Core-side hook that serves this path is Phase B: CORE_ALERT_SOCKET_HOOK_IMPLEMENTED=NO.)"""
+    assert alert_sink.ALERT_SOCKET_PATH == f"/run/aegis-idea3-alert/{recovery_core.ALERT_CHANNEL_NAME}"
+    assert alert_sink.ALERT_RUNTIME_DIR == "/run/aegis-idea3-alert" and alert_sink.ALERT_SOCKET_PATH != "/run/aegis-idea3/alert.sock"
+    assert (alert_sink.ALERT_GROUP, alert_sink.DETECTOR_ACCOUNT) == ("aegis-idea3-alert", "aegis-idea3-detector")
+    assert (alert_sink.SOCKET_MODE, alert_sink.RUNTIME_DIR_MODE) == (0o620, 0o2750)
 
 
 def test_the_detector_never_passes_a_path_to_the_sink():
@@ -286,10 +301,10 @@ def test_the_result_never_contains_the_payload_or_the_socket_path(sockdir):
 # --------------------------------------------------------------------------- start-time socket check (ExecStartPre)
 
 
-def test_check_socket_missing_is_bounded_and_does_not_wait_forever(sockdir):
+def test_check_socket_missing_is_bounded_and_does_not_wait_forever(alertdir):
     sleeps = []
     clock = iter(range(1000)).__next__
-    verdict = alert_sink.check_socket(str(sockdir / "alert.sock"), expected_core_uid=UID, wait_sec=3,
+    verdict = alert_sink.check_socket(str(alertdir / "alert.sock"), expected_core_uid=UID, expected_gid=GID, wait_sec=3,
                                       sleep=lambda s: sleeps.append(s), clock=lambda: float(clock()))
     assert verdict == "ALERT_SOCKET_MISSING" and 1 <= len(sleeps) <= 8
 
@@ -306,32 +321,57 @@ def test_check_socket_wait_is_capped():
     assert len(sleeps) <= alert_sink.CHECK_WAIT_MAX_SEC + 2
 
 
-def test_check_socket_requires_core_owner_mode_0600_and_a_live_listener(sockdir):
-    path = sockdir / "alert.sock"
+def test_check_socket_requires_core_owner_group_mode_0620_and_a_live_listener(alertdir):
+    path = alertdir / "alert.sock"
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(path))
-    os.chmod(path, 0o660)
-    assert alert_sink.check_socket(str(path), expected_core_uid=UID) == "ALERT_SOCKET_WRONG_MODE"
-    os.chmod(path, 0o600)
-    assert alert_sink.check_socket(str(path), expected_core_uid=UID) == "ALERT_SOCKET_NOT_LISTENING"  # bound, not listening
+    for wrong in (0o660, 0o600, 0o622, 0o666):  # group-readable, the legacy 0600, world-writable
+        os.chmod(path, wrong)
+        assert alert_sink.check_socket(str(path), expected_core_uid=UID, expected_gid=GID) == "ALERT_SOCKET_WRONG_MODE", oct(wrong)
+    os.chmod(path, 0o620)
+    assert alert_sink.check_socket(str(path), expected_core_uid=UID, expected_gid=GID) == "ALERT_SOCKET_NOT_LISTENING"  # bound, not listening
     listener.listen(1)
-    assert alert_sink.check_socket(str(path), expected_core_uid=UID) == "ALERT_SOCKET_OK"
-    assert alert_sink.check_socket(str(path), expected_core_uid=UID + 1) == "ALERT_SOCKET_WRONG_OWNER"
+    assert alert_sink.check_socket(str(path), expected_core_uid=UID, expected_gid=GID) == "ALERT_SOCKET_OK"
+    assert alert_sink.check_socket(str(path), expected_core_uid=UID + 1, expected_gid=GID) in ("ALERT_SOCKET_WRONG_OWNER", "ALERT_RUNTIME_DIR_UNEXPECTED")
+    assert alert_sink.check_socket(str(path), expected_core_uid=UID, expected_gid=GID + 1) in ("ALERT_SOCKET_WRONG_OWNER", "ALERT_RUNTIME_DIR_UNEXPECTED")
     listener.close()
 
 
-def test_check_socket_refuses_a_non_socket(sockdir):
-    (sockdir / "alert.sock").write_text("x")
-    os.chmod(sockdir / "alert.sock", 0o600)
-    assert alert_sink.check_socket(str(sockdir / "alert.sock"), expected_core_uid=UID) == "ALERT_SOCKET_NOT_A_SOCKET"
-
-
-def test_check_socket_never_writes_an_alert(sockdir):
+@pytest.mark.parametrize("mode", [0o700, 0o750, 0o2770, 0o2755, 0o2751, 0o3750])
+def test_check_socket_refuses_a_runtime_directory_other_than_the_exact_2750(sockdir, mode):
     path = sockdir / "alert.sock"
     server = FakeServer(path)
-    os.chmod(path, 0o600)
+    os.chmod(path, 0o620)
+    os.chmod(sockdir, mode)
     try:
-        assert alert_sink.check_socket(str(path), expected_core_uid=UID) == "ALERT_SOCKET_OK"
+        assert alert_sink.check_socket(str(path), expected_core_uid=UID, expected_gid=GID) == "ALERT_RUNTIME_DIR_UNEXPECTED"
+    finally:
+        server.close()
+
+
+def test_check_socket_resolves_the_group_by_the_dedicated_name_and_fails_closed_when_absent(alertdir, monkeypatch):
+    import grp
+
+    def missing(name):
+        assert name == "aegis-idea3-alert"
+        raise KeyError(name)
+
+    monkeypatch.setattr(grp, "getgrnam", missing)
+    assert alert_sink.check_socket(str(alertdir / "alert.sock"), expected_core_uid=UID) == "ALERT_SOCKET_GROUP_UNRESOLVED"
+
+
+def test_check_socket_refuses_a_non_socket(alertdir):
+    (alertdir / "alert.sock").write_text("x")
+    os.chmod(alertdir / "alert.sock", 0o620)
+    assert alert_sink.check_socket(str(alertdir / "alert.sock"), expected_core_uid=UID, expected_gid=GID) == "ALERT_SOCKET_NOT_A_SOCKET"
+
+
+def test_check_socket_never_writes_an_alert(alertdir):
+    path = alertdir / "alert.sock"
+    server = FakeServer(path)
+    os.chmod(path, 0o620)
+    try:
+        assert alert_sink.check_socket(str(path), expected_core_uid=UID, expected_gid=GID) == "ALERT_SOCKET_OK"
         time.sleep(0.2)
         assert all(chunk == b"" for chunk in server.received)
     finally:

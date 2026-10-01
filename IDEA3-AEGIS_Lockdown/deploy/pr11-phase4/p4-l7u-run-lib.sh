@@ -68,6 +68,19 @@ l7u_identity_gate() {
   [ "$(id -un "$user" 2>/dev/null)" = "$user" ] && [ "$(id -u "$user" 2>/dev/null)" = "$uid" ] || { l7u_reason "L7U_OPERATOR_IDENTITY_MISMATCH"; return 1; }
 }
 
+# l7u_alert_identity_gate ACCOUNT UID CORE_ACCOUNT OPERATOR_UID — OD-F1-DEPLOY-01: the frozen alert source uid is exactly the uid of the dedicated
+# account (exact name, never an input), non-root, not the Core account's uid and not the operator's. Read-only (`id` only). The account itself is
+# an owner precondition: this gate VERIFIES it and never creates it.
+l7u_alert_identity_gate() {
+  local account=${1:-} uid=${2:-} core=${3:-} operator_uid=${4:-} core_uid
+  [ "$account" = "aegis-idea3-detector" ] || { l7u_reason "L7U_ALERT_ACCOUNT_NAME_INVALID"; return 1; }
+  [[ "$uid" =~ ^[1-9][0-9]{0,9}$ ]] || { l7u_reason "L7U_ALERT_SOURCE_UID_INVALID"; return 1; }
+  [ "$(id -u "$account" 2>/dev/null)" = "$uid" ] || { l7u_reason "L7U_ALERT_ACCOUNT_UID_MISMATCH"; return 1; }
+  core_uid=$(id -u "$core" 2>/dev/null) || { l7u_reason "L7U_CORE_ACCOUNT_UNRESOLVED"; return 1; }
+  [ "$uid" != "$core_uid" ] || { l7u_reason "L7U_ALERT_SOURCE_IS_CORE_ACCOUNT"; return 1; }
+  [ "$uid" != "$operator_uid" ] || { l7u_reason "L7U_ALERT_SOURCE_IS_OPERATOR"; return 1; }
+}
+
 # l7u_secret_scan EVID_DIR PY — none of the evidence may contain a private-key block, a password hash, or any secret-bearing core.env key.
 # L7u handles no owner secret of its own; this is the generic evidence scan. Prints only counts, never values.
 l7u_secret_scan() {
