@@ -57,6 +57,18 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 F1 production deployment package — repository only — 2026-10-02
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1-production-deployment-package` on `main` `bfbe1dc68c241c36e7ed6d354545567a581b5553`, Draft PR (unmerged). Nothing was deployed or started: `PRODUCTION_MUTATION_PERFORMED = NO`, Core not restarted, L7u/Recovery/L8p/L8 not run, no ESP32.
+> `F1_REPOSITORY_IMPLEMENTED = YES`, `F1_DEPLOYMENT_PACKAGE_REPOSITORY_IMPLEMENTED = YES`, `F1_DEPLOYMENT_PACKAGE_LOCAL_VERIFIED = YES`, `F1_PRODUCTION_DEPLOYED = NO`, `F1_REAL_DETECTOR_ACCEPTANCE = NO`, `CORE_RESTARTED = NO`, `RECOVERY_LIVE = NOT_RUN`, `F1_ALERT_SOURCE_IDENTITY = OWNER_INPUT_REQUIRED`, `L7U_INTEGRATION_IMPLEMENTED = OWNER_POLICY_REQUIRED`
+
+- **What:** production sink `aegis_soc/alert_sink.py` (AF_UNIX only, constant `/run/aegis-idea3/alert.sock`, exact `{"v":1,"attacker_ip":"<IPv4>"}`, Core peer checked first, bounded, one attempt, stable codes) and `aegis_soc/production_detector.py` (same three rules/thresholds as the unchanged legacy `detector.py`; stops after three consecutive transport failures); `deploy/aegis-idea3-detector.service.example`; `deploy/pr11-phase4/p4-f1-alert-source.py` (render/verify, ordered live-gated `start-detector`, detector-only `stop-detector`); optional `--alert-source-uid` in `p4-l7-core-env.py`. The release builder gains `production_detector` as a third entrypoint (stdlib only, no new dependency).
+- **Identity is not decided here:** the uid is a frozen owner-supplied non-secret value that must equal `AEGIS_ALERT_SOURCE_UID`. With the merged Core contract (Core-owned `0600` socket in a `0700` directory) only root or the Core account can connect; the package refuses the Core account, so a dedicated non-root source account needs a separate owner-approved Core change.
+- **L7u:** not changed. Adding a fourth owned key with an owner-supplied uid is a new owner policy; tests prove an existing key is preserved and rolled back byte-for-byte with one restart and that L7u never touches the detector unit.
+- **Receipt:** `90-Status/logs/2026-10-02_050500_music_idea3-f1-production-deployment-package.md`.
+
+---
+
 ## IDEA3 PR11 Phase 4 L7u release-builder Recovery runtime fix — repository only — 2026-10-01
 
 > [!important] Repository-only fix after a safe preflight stop. The owner's first L7u live attempt (2026-10-01 ~20:11 +07, frozen runner sha256 `f2d8203a…8834`, main `7cabf28a`) stopped in the engine preflight with `L7U_PREFLIGHT=FAIL reason=NEW_RELEASE_LACKS_RECOVERY_RUNTIME`, before PRE capture and before `L7u-ATTEMPT-CONSUMED`. No production mutation, Core NOT restarted (release pointer still `f2a5cd75…`), no Recovery R1-R8, no ESP32, no L8. L7u has NOT run live.
