@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-30
+updated: 2026-10-01
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -15,18 +15,41 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-P0 — Capability foundation (implementation)
+## Current Task — IDEA1-UNIFIED-PREVIEW-P2A — Manifest v2 reader (implementation)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P2A / IDEA1_UNIFIED_PREVIEW_P2A_MANIFEST_V2_READER |
+| Branch | feat/idea1-preview-p2a-manifest-v2-reader (from `origin/main` `07633c93`) |
+| PR | see receipt `2026-10-01_*_kla_idea1-unified-preview-p2a-manifest-v2-reader.md` |
+| Owner | kla |
+| State | **IMPLEMENTED + VERIFIED LOCALLY / NOT DEPLOYED** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p2a-manifest-v2-reader.md` |
+| Production mutation allowed | **NO** (deploy is Human Owner only) |
+| Next gate | Human review + merge → G-P2a-ACCEPT (Human deploys P2a, verifies ADMIN / EXISTING_USER / NEWLY_CREATED_USER, records `P2A_ACCEPTED=YES`) → prerequisite for the P2b writer flag |
+
+Durable facts:
+
+- The Vault client reads encrypted manifest schema **1 and 2** and writes **only 1** (`MANIFEST_SCHEMA_VERSION_WRITE = 1`, `MANIFEST_SCHEMA_VERSIONS_READ = [1, 2]`); any other version fails secure (`UNSUPPORTED_SCHEMA_VERSION`, before the revision ciphertext is fetched).
+- v2 adds two optional file-node keys, `contentFormat` (a P0 `FormatId` or `''`) and `previews` (≤ 4, one per kind, closed keys, derivative `blobRef.formatVersion === 2`, per-profile bounds from `src/lib/vaultPreviewProfiles.js`). v1 manifests carrying them are `UNKNOWN_KEY`. `effectivePreviews(node)` ignores entries for a replaced original or an unknown profile.
+- v1 canonical bytes are frozen by a golden vector captured at `07633c93` (`tests/fixtures/vaultManifestV1Golden.json`).
+- Each revision decrypts with its own `manifestSchemaVersion` in the AAD; the plaintext `schemaVersion` must equal it (encrypt and decrypt).
+- Decision P2A-W: a v2 head is browse/preview/download-only; every mutation (rename, move, upload attach, trash, create, restore, orphan recovery) is refused as `MANIFEST_NEWER_THAN_WRITER` with zero publish/CAS; uploads are refused before any byte is sent; a v1 intent whose rebase target becomes v2 is discarded. The UI shows "This Vault was updated by a newer version of Drive — reload to make changes." and disables Upload.
+- vp1 proxy reader ceiling (D-9 `proxyMaxSeconds` has no value yet): ≤ 3,600,000 ms and ≤ 1 GiB; the P4 writer must stay inside it or ship a new profile.
+- Server unchanged: `POST /api/vault/tree/revisions` still rejects `manifestSchemaVersion !== 1`.
+
+## Completed Task — IDEA1-UNIFIED-PREVIEW-P0 — Capability foundation (implementation)
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-P0 / IDEA1_UNIFIED_PREVIEW_P0_CAPABILITY_FOUNDATION |
 | Branch | feat/idea1-preview-p0-capability-foundation (from `c1dc3c90`; current `main` merged normally at `edbe465e`) |
-| PR | #270 (Draft until Human review) |
+| PR | #270 — merged to `main` at `e3e02862` |
 | Owner | kla |
-| State | **IMPLEMENTED + HUMAN REVIEW FIXES APPLIED + VERIFIED LOCALLY / NOT DEPLOYED** (full suite: 0 new failures vs baseline) |
+| State | **MERGED / G-P0 CLOSED by Human Owner / NOT DEPLOYED** |
 | Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p0-capability-foundation.md` |
 | Production mutation allowed | **NO** (P0 needs no Production testing) |
-| Next gate | HUMAN_FINAL_REVIEW_P0 → then P1 or P2a from refreshed `origin/main` |
+| Next gate | none — P1 and P2a may start from refreshed `origin/main` |
 
 Durable facts:
 

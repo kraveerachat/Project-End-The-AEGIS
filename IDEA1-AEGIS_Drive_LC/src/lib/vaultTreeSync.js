@@ -20,12 +20,12 @@
 import { TreeApiError } from './vaultTreeApi.js'
 import { unwrapTrkSlots, repairTrkSlot } from './vaultTreeKeys.js'
 import { encryptManifestRevision, decryptManifestRevision } from './vaultTreeManifestCrypto.js'
-import { validateManifest, MANIFEST_SCHEMA_VERSION } from './vaultTreeManifest.js'
+import { validateManifest, MANIFEST_SCHEMA_VERSION_WRITE, MANIFEST_SCHEMA_VERSIONS_READ } from './vaultTreeManifest.js'
 import { applyIntent, newOpaqueId, OpError } from './vaultTreeOps.js'
 import { rebaseIntent } from './vaultTreeRebase.js'
 import { VAULT_TREE_CLIENT_LIMITS } from './vaultTreeLimits.js'
 
-export const SYNC_ERROR = Object.freeze(['STALE_HEAD', 'REBASE_EXHAUSTED', 'CONFLICT', 'PROTOCOL_DISABLED', 'ABORTED', 'KEY_DEGRADED', 'NOT_LOADED', 'TRANSPORT'])
+export const SYNC_ERROR = Object.freeze(['STALE_HEAD', 'REBASE_EXHAUSTED', 'CONFLICT', 'PROTOCOL_DISABLED', 'ABORTED', 'KEY_DEGRADED', 'NOT_LOADED', 'TRANSPORT', 'UNSUPPORTED_SCHEMA_VERSION', 'MANIFEST_NEWER_THAN_WRITER'])
 
 export class SyncError extends Error {
   constructor(code, detail = null, cause = undefined) {
@@ -35,6 +35,21 @@ export class SyncError extends Error {
     this.detail = detail
   }
 }
+
+/**
+ * Unified Preview P2a (Decision P2A-W): this build reads manifest schema v2 but writes only v1. A head written
+ * as v2 (by a newer build) is browse/preview/download-only here — any mutation is refused BEFORE publish/CAS,
+ * so a v2 head is never overwritten or downgraded to v1 and preview references are never dropped.
+ */
+export class ManifestNewerThanWriterError extends SyncError {
+  constructor(headSchemaVersion) {
+    super('MANIFEST_NEWER_THAN_WRITER', { headSchemaVersion, writerSchemaVersion: MANIFEST_SCHEMA_VERSION_WRITE })
+    this.name = 'ManifestNewerThanWriterError'
+  }
+}
+
+/** true when this build may publish a revision on top of `head` */
+export const headWritable = (head) => head?.manifestSchemaVersion === MANIFEST_SCHEMA_VERSION_WRITE
 
 const PROTOCOL_VERSION = 1
 const MAX_REPLAYS = 3
@@ -95,12 +110,15 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
   }
 
   const trkCtx = () => ({ ownerScopeId: keyEnvelope.ownerScopeIdB64, treeId, protocolVersion: PROTOCOL_VERSION, keyEnvelopeVersion: keyEnvelope.keyEnvelopeVersion ?? 1 })
-  const revCtx = (r) => ({ treeId: r.treeId ?? treeId, revisionId: r.revisionId, baseRevisionId: r.baseRevisionId, generation: r.generation, manifestSchemaVersion: r.manifestSchemaVersion ?? MANIFEST_SCHEMA_VERSION })
+  // every read uses THAT revision's own schema version in the AAD — never the writer constant
+  const revCtx = (r) => ({ treeId: r.treeId ?? treeId, revisionId: r.revisionId, baseRevisionId: r.baseRevisionId, generation: r.generation, manifestSchemaVersion: r.manifestSchemaVersion })
 
   async function fetchHead(signal) {
     let h
     try { h = await api.getTreeHead({ signal }) } catch (e) { throw syncErrorFrom(e) }
     chk()
+    // unknown (newer, missing, malformed) schema version → fail secure before fetching or decrypting anything
+    if (!MANIFEST_SCHEMA_VERSIONS_READ.includes(h?.manifestSchemaVersion)) throw new SyncError('UNSUPPORTED_SCHEMA_VERSION', String(h?.manifestSchemaVersion))
     treeId = h.treeId
     keyEnvelope = h.keyEnvelope
     if (!keyRef.trk) {
@@ -114,7 +132,7 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
     const manifest = await decryptManifestRevision(keyRef.trk, { ciphertext: bytes, ivB64: h.ivB64, wrappedManifestDekB64: h.wrappedManifestDekB64, wrapIvB64: h.wrapIvB64 }, revCtx(h), limits)
     chk()
     const { index } = validateManifest(manifest, limits)
-    return { treeId: h.treeId, revisionId: h.revisionId, baseRevisionId: h.baseRevisionId, generation: h.generation, manifestSchemaVersion: h.manifestSchemaVersion ?? MANIFEST_SCHEMA_VERSION, ciphertextSize: h.ciphertextSize ?? bytes.length, manifest, index }
+    return { treeId: h.treeId, revisionId: h.revisionId, baseRevisionId: h.baseRevisionId, generation: h.generation, manifestSchemaVersion: h.manifestSchemaVersion, ciphertextSize: h.ciphertextSize ?? bytes.length, manifest, index }
   }
 
   async function loadHead({ signal } = {}) {
@@ -130,13 +148,14 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
 
   /** ผลลัพธ์ของ CAS ที่สำเร็จ → head ใหม่ในหน่วยความจำ */
   function adopt(candidate, r) {
-    head = { treeId, revisionId: candidate.revisionId, baseRevisionId: candidate.baseRevisionId, generation: r?.generation ?? candidate.generation, manifestSchemaVersion: MANIFEST_SCHEMA_VERSION, ciphertextSize: candidate.ciphertextSize, manifest: candidate.manifest, index: candidate.index }
+    head = { treeId, revisionId: candidate.revisionId, baseRevisionId: candidate.baseRevisionId, generation: r?.generation ?? candidate.generation, manifestSchemaVersion: MANIFEST_SCHEMA_VERSION_WRITE, ciphertextSize: candidate.ciphertextSize, manifest: candidate.manifest, index: candidate.index }
   }
 
   async function commit(intent, { signal } = {}) {
     chk()
     if (!head) throw new SyncError('NOT_LOADED')
     if (keyStatus === 'DEGRADED') throw new SyncError('KEY_DEGRADED', keyBadSlot)
+    if (!headWritable(head)) throw new ManifestNewerThanWriterError(head.manifestSchemaVersion)
     const sc = scope(signal)
     try {
       let base = head
@@ -145,6 +164,8 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
       let replayed = 0
       for (;;) {
         sc.guard()
+        // P2A-W: never apply/publish/CAS on top of a head this build cannot write (checked on every attempt)
+        if (!headWritable(base)) throw new ManifestNewerThanWriterError(base.manifestSchemaVersion)
         // ── apply (client-side semantics) ─────────────────────────────────────
         let applied
         try {
@@ -158,7 +179,7 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
         m.revisionId = newId()
         m.baseRevisionId = base.revisionId
         const { index } = validateManifest(m, limits)
-        const ctx = { treeId, revisionId: m.revisionId, baseRevisionId: m.baseRevisionId, generation: m.generation, manifestSchemaVersion: MANIFEST_SCHEMA_VERSION }
+        const ctx = { treeId, revisionId: m.revisionId, baseRevisionId: m.baseRevisionId, generation: m.generation, manifestSchemaVersion: MANIFEST_SCHEMA_VERSION_WRITE }
         const enc = await encryptManifestRevision(keyRef.trk, m, ctx, limits, { skipValidation: true })
         sc.guard()
         const candidate = { revisionId: m.revisionId, baseRevisionId: m.baseRevisionId, generation: m.generation, manifest: m, index, ciphertextSize: enc.ciphertext.length }
@@ -169,7 +190,7 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
         }
         // ── publish + put ────────────────────────────────────────────────────
         try {
-          await api.publishRevision({ revisionId: m.revisionId, baseRevisionId: m.baseRevisionId, generation: m.generation, ivB64: enc.ivB64, wrappedManifestDekB64: enc.wrappedManifestDekB64, wrapIvB64: enc.wrapIvB64, manifestSchemaVersion: MANIFEST_SCHEMA_VERSION, idempotencyKey }, { signal: sc.signal })
+          await api.publishRevision({ revisionId: m.revisionId, baseRevisionId: m.baseRevisionId, generation: m.generation, ivB64: enc.ivB64, wrappedManifestDekB64: enc.wrappedManifestDekB64, wrapIvB64: enc.wrapIvB64, manifestSchemaVersion: MANIFEST_SCHEMA_VERSION_WRITE, idempotencyKey }, { signal: sc.signal })
           sc.guard()
           await api.putRevisionCiphertext(m.revisionId, enc.ciphertext, { signal: sc.signal })
         } catch (e) { throw syncErrorFrom(e) }
@@ -202,6 +223,8 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
         const fresh = outcome.fresh ?? await fetchHead(sc.signal)
         sc.guard()
         head = fresh
+        // the head moved to a newer schema: discard the v1 intent — rebasing it would overwrite (downgrade) the v2 head
+        if (!headWritable(fresh)) throw new ManifestNewerThanWriterError(fresh.manifestSchemaVersion)
         const rb = rebaseIntent(current, { baseIndex: base.index, headIndex: fresh.index, headRecentOperationIds: fresh.manifest.recentOperationIds })
         if (rb.kind === 'ALREADY_APPLIED') return { generation: fresh.generation, revisionId: fresh.revisionId, manifest: fresh.manifest, changedNodeIds: [], nodeId: null, operationId: current.operationId ?? null, rebased, replayed, alreadyApplied: true }
         if (rb.kind === 'CONFLICT') return { conflict: rb, intent: current }
@@ -247,6 +270,10 @@ export function createTreeSession({ kek = null, trk = null, api, limits = VAULT_
     get head() { return head },
     get keyStatus() { return keyStatus },
     get keyBadSlot() { return keyBadSlot },
+    /** false while the loaded head is a schema this build reads but must not write (P2A-W); null before load */
+    get writable() { return head ? headWritable(head) : null },
+    /** throw ManifestNewerThanWriterError before any side effect (e.g. uploading bytes) when the head is not writable */
+    assertWritable() { if (head && !headWritable(head)) throw new ManifestNewerThanWriterError(head.manifestSchemaVersion) },
     get treeId() { return treeId },
     get alive() { return alive && !dead() },
   }

@@ -14,10 +14,11 @@ const res = (status, data) => ({ ok: status >= 200 && status < 400, status, data
 const err = (status, code, extra = {}) => res(status, { error: code, code, ...extra })
 
 /**
- * @param {{ kek: CryptoKey, limits?: object, now?: () => number }} p
- * สร้าง TREE_V1 ที่ generation 1 (genesis) ให้ทันที; คืน { fetchJson, fetchBytes, api, state, trk, hooks }
+ * @param {{ kek: CryptoKey, limits?: object, now?: () => number, acceptManifestSchemaVersions?: number[] }} p
+ * สร้าง TREE_V1 ที่ generation 1 (genesis) ให้ทันที; คืน { fetchJson, fetchBytes, api, state, trk, hooks, seedHead }
+ * acceptManifestSchemaVersions: เหมือนเซิร์ฟเวอร์จริง (server/routes/vaultTree.js) ค่าเริ่มต้น [1] — P2b จะเป็น [1, 2]
  */
-export async function createFakeTreeServer({ kek, limits = VAULT_TREE_CLIENT_LIMITS, now = () => Date.now(), blobs = [] } = {}) {
+export async function createFakeTreeServer({ kek, limits = VAULT_TREE_CLIENT_LIMITS, now = () => Date.now(), blobs = [], acceptManifestSchemaVersions = [1] } = {}) {
   const treeId = randomId(), rootNodeId = randomId(), ownerScopeIdB64 = randomId(), revisionId = randomId()
   const trkBytes = generateTrkBytes()
   const keyEnvelope = await wrapTrkSlots(kek, new Uint8Array(trkBytes), { ownerScopeId: ownerScopeIdB64, treeId, protocolVersion: 1, keyEnvelopeVersion: 1 })
@@ -49,12 +50,12 @@ export async function createFakeTreeServer({ kek, limits = VAULT_TREE_CLIENT_LIM
     const b = opts.body ?? {}
     if (method === 'GET' && path === '/api/vault/tree/head') {
       const rev = state.revisions.get(state.head.revisionId)
-      return res(200, { treeId, revisionId: rev.revisionId, baseRevisionId: rev.baseRevisionId, generation: rev.generation, ivB64: rev.ivB64, wrappedManifestDekB64: rev.wrappedManifestDekB64, wrapIvB64: rev.wrapIvB64, manifestSchemaVersion: 1, ciphertextSize: rev.bytes.length, keyEnvelope: { ownerScopeIdB64: state.envelope.ownerScopeIdB64, keyEnvelopeVersion: 1, envelopeCasVersion: state.envelope.envelopeCasVersion, primary: state.envelope.primary, recovery: state.envelope.recovery } })
+      return res(200, { treeId, revisionId: rev.revisionId, baseRevisionId: rev.baseRevisionId, generation: rev.generation, ivB64: rev.ivB64, wrappedManifestDekB64: rev.wrappedManifestDekB64, wrapIvB64: rev.wrapIvB64, manifestSchemaVersion: 'advertisedSchemaVersion' in rev ? rev.advertisedSchemaVersion : rev.manifestSchemaVersion, ciphertextSize: rev.bytes.length, keyEnvelope: { ownerScopeIdB64: state.envelope.ownerScopeIdB64, keyEnvelopeVersion: 1, envelopeCasVersion: state.envelope.envelopeCasVersion, primary: state.envelope.primary, recovery: state.envelope.recovery } })
     }
     if (method === 'POST' && path === '/api/vault/tree/revisions') {
       const existing = [...state.revisions.values()].find((r) => r.idempotencyKey === b.idempotencyKey)
       if (existing) return res(200, { revisionId: existing.revisionId, state: existing.state })
-      if (!b.revisionId || !b.baseRevisionId || b.generation < 2 || !b.ivB64 || !b.wrappedManifestDekB64 || !b.wrapIvB64 || b.manifestSchemaVersion !== 1) return err(400, 'INVALID_INPUT')
+      if (!b.revisionId || !b.baseRevisionId || b.generation < 2 || !b.ivB64 || !b.wrappedManifestDekB64 || !b.wrapIvB64 || !acceptManifestSchemaVersions.includes(b.manifestSchemaVersion)) return err(400, 'INVALID_INPUT')
       state.revisions.set(b.revisionId, { ...b, state: 'CREATED', bytes: null })
       return res(201, { revisionId: b.revisionId, state: 'CREATED' })
     }
@@ -127,5 +128,19 @@ export async function createFakeTreeServer({ kek, limits = VAULT_TREE_CLIENT_LIM
     casKeyEnvelope: (body, o) => treeApi.casKeyEnvelope(body, t(o)),
     listTreeBlobs: (o) => treeApi.listTreeBlobs(t(o)),
   }
-  return { fetchJson, fetchBytes, api, state, trk, hooks, treeId, rootNodeId }
+  /**
+   * test-only: commit `manifest` as the next head, encrypted as `schemaVersion` (as a newer build would).
+   * `advertisedSchemaVersion` lets the head route lie about it (e.g. 3) to prove the client refuses before decrypting.
+   * Generation/revision/base are taken from the current head; bypasses the route plan (no log entry).
+   */
+  async function seedHead(manifest, { schemaVersion = manifest.schemaVersion, advertisedSchemaVersion = undefined } = {}) {
+    const cur = state.revisions.get(state.head.revisionId)
+    const m = { ...manifest, schemaVersion, generation: cur.generation + 1, revisionId: randomId(), baseRevisionId: cur.revisionId }
+    const e = await encryptManifestRevision(trk, m, { treeId, revisionId: m.revisionId, baseRevisionId: m.baseRevisionId, generation: m.generation, manifestSchemaVersion: schemaVersion }, limits)
+    cur.state = 'SUPERSEDED'
+    state.revisions.set(m.revisionId, { revisionId: m.revisionId, baseRevisionId: m.baseRevisionId, generation: m.generation, ivB64: e.ivB64, wrappedManifestDekB64: e.wrappedManifestDekB64, wrapIvB64: e.wrapIvB64, manifestSchemaVersion: schemaVersion, advertisedSchemaVersion: advertisedSchemaVersion === undefined ? schemaVersion : advertisedSchemaVersion, state: 'HEAD_COMMITTED', bytes: e.ciphertext, idempotencyKey: randomId() })
+    state.head = { revisionId: m.revisionId, generation: m.generation }
+    return m
+  }
+  return { fetchJson, fetchBytes, api, state, trk, hooks, treeId, rootNodeId, seedHead }
 }

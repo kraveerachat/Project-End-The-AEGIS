@@ -74,7 +74,7 @@ test('MF-4 field rejections: blobRef presence per kind, format version, sizes, m
   const ts2 = FIVE(); ts2.nodes.get(ID(2)).modifiedAtClient = -1; rejects(ts2, 'BAD_FIELD')
   const kind = FIVE(); kind.nodes.get(ID(2)).kind = 'symlink'; rejects(kind, 'BAD_FIELD')
   const badId = FIVE(); badId.nodes.get(ID(2)).blobRef.id = ''; rejects(badId, 'BAD_BLOB_REF')
-  const schema = FIVE(); schema.schemaVersion = 2; rejects(schema, 'BAD_SCHEMA')
+  const schema = FIVE(); schema.schemaVersion = 3; rejects(schema, 'UNSUPPORTED_SCHEMA_VERSION') // P2a: 2 is readable, 3 is not
   const gen = FIVE(); gen.generation = 0; rejects(gen, 'BAD_FIELD')
   const ids = FIVE(); ids.treeId = 'short'; rejects(ids, 'BAD_FIELD')
   const rootName = FIVE(); rootName.nodes.get(ID(0)).name = 'root'; rejects(rootName, 'BAD_FIELD')

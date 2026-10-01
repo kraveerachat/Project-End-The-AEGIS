@@ -440,12 +440,17 @@ export function VaultTreeScreen({
       announce('vaultTreeUploadComplete', { name })
       return res
     } catch (error) {
-      if (error?.name !== 'AbortError' && error?.code !== 'ABORTED') announce('vaultTreeUploadFailed')
+      if (error?.code === 'MANIFEST_NEWER_THAN_WRITER') {
+        announce('vaultTreeManifestNewer')
+        if (session?.head) treeRef.current?.refreshHead(session.head)
+      } else if (error?.name !== 'AbortError' && error?.code !== 'ABORTED') announce('vaultTreeUploadFailed')
       throw error
     }
   }, [kek, session, unlockedState, vaultApi.refresh])
 
   const enqueueVaultFiles = useCallback((files, parentNodeId = treeRef.current?.current) => {
+    // P2A-W: never start uploading bytes that could not be attached to a v2 head
+    if (treeRef.current?.manifestNewer) { announce('vaultTreeManifestNewer'); return }
     uploadQueueRef.current?.enqueueFiles(files, { parentNodeId })
   }, [])
 
@@ -854,6 +859,7 @@ export function VaultTreeScreen({
   /* ── ป้าย/announcements ─────────────────────────────────────────────────── */
   const REJECT_COPY = {
     CYCLE: 'vaultTreeDropCycle', NOT_FOLDER: 'vaultTreeDropNotFolder', EFFECTIVELY_TRASHED: 'vaultTreeDropTrashed',
+    MANIFEST_NEWER_THAN_WRITER: 'vaultTreeManifestNewer',
   }
   const announcementText = (() => {
     const a = tree.announcement
@@ -862,7 +868,7 @@ export function VaultTreeScreen({
       return t(k, a.reason ? { reason: a.reason } : undefined)
     }
     if (a?.kind === 'reconciled') return t('vaultTreeReconcile')
-    if (a?.kind === 'failed') return t('vaultTreeLoadError')
+    if (a?.kind === 'failed') return t(a.code === 'MANIFEST_NEWER_THAN_WRITER' ? 'vaultTreeManifestNewer' : 'vaultTreeLoadError')
     return notice ? t(notice.key, notice.vars ?? undefined) : null
   })()
 
@@ -1019,6 +1025,12 @@ export function VaultTreeScreen({
       <p role="alert" data-testid="vault-tree-notice" data-marquee-ignore="" className="text-[12.5px] text-ink-3 mb-3 min-h-[16px]">
         {announcementText ?? ''}
       </p>
+      {/* Decision P2A-W: head written by a newer Drive (manifest v2) — browse/preview/download only until reload */}
+      {tree.manifestNewer && (
+        <p role="status" data-testid="vault-tree-manifest-newer" data-marquee-ignore="" className="text-[12.5px] text-ink-2 mb-3 rounded-[var(--r-tile)] border border-line bg-card px-3 py-2">
+          {t('vaultTreeManifestNewer')}
+        </p>
+      )}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         {head && (
           <VaultBreadcrumbs
@@ -1107,13 +1119,19 @@ export function VaultTreeScreen({
             <option value="trash">{t('vaultTreeMenuTrash')}</option>
           </PillSelect>
         </div>
-        {tree.keyDegraded === false && !isTrashView && (
+        {!tree.mutationLock && !isTrashView && (
           <Btn variant="outline" data-testid="vault-tree-new-folder" onClick={() => setDialog({ kind: 'createFolder' })}>
             <FolderPlus size={15} strokeWidth={1.6} />
             {t('vaultTreeNewFolderTitle')}
           </Btn>
         )}
-        <Btn variant="primary" onClick={() => setUploadOpen(true)} data-testid="vault-tree-upload">
+        <Btn
+          variant="primary"
+          onClick={() => setUploadOpen(true)}
+          data-testid="vault-tree-upload"
+          disabled={tree.manifestNewer}
+          title={tree.manifestNewer ? t('vaultTreeManifestNewer') : undefined}
+        >
           <Plus size={15} strokeWidth={1.8} />
           {t('upload')}
         </Btn>
@@ -1171,14 +1189,14 @@ export function VaultTreeScreen({
       )}
       {/* ลากไฟล์จากเครื่อง: หน้าตาเดียวกับ Files ผ่าน ExternalFileDropSurface — ตัวนี้วาดสถานะอย่างเดียว
           การวางจริงยังไหลขึ้นไปหา onDrop ของจอ (เข้ารหัส → enqueueVaultFiles) เส้นทางเดิมทุกประการ */}
-      <ExternalFileDropSurface hint={t('vaultDropHint')} enabled={!isTrashView && !tree.drag}>
+      <ExternalFileDropSurface hint={t('vaultDropHint')} enabled={!isTrashView && !tree.drag && !tree.manifestNewer}>
       {loadState === 'ready' && head && (
         workspace.folders.length === 0 && workspace.files.length === 0 ? (
           <Card>
             <EmptyState
               icon={FolderPlus}
               title={query || typeFilter !== 'all' ? t('emptyNoFilesFiltered') : isTrashView ? t('vaultTreeEmptyTrash') : t('vaultTreeEmptyFolderView')}
-              action={!query && typeFilter === 'all' && !isTrashView && !tree.keyDegraded ? (
+              action={!query && typeFilter === 'all' && !isTrashView && !tree.mutationLock ? (
                 <Btn variant="primary" size="sm" data-testid="vault-tree-new-folder-empty" onClick={() => setDialog({ kind: 'createFolder' })}>
                   {t('vaultTreeNewFolderTitle')}
                 </Btn>
@@ -1215,6 +1233,7 @@ export function VaultTreeScreen({
                     onOpen={navigateTo}
                     onAction={actionFor}
                     keyDegraded={tree.keyDegraded}
+                    lockReason={tree.mutationLock}
                     {...dragPropsFor(n)}
                     {...dropPropsFor(n)}
                   />
@@ -1243,6 +1262,7 @@ export function VaultTreeScreen({
                     onPreview={actionPreview}
                     onAction={actionFor}
                     keyDegraded={tree.keyDegraded}
+                    lockReason={tree.mutationLock}
                     {...dragPropsFor(n)}
                     {...dropPropsFor(n)}
                   />

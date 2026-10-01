@@ -207,7 +207,7 @@ export function VaultRecoveryPanel({
                 size="sm"
                 variant="primary"
                 data-testid="vault-tree-orphan-recover-all"
-                disabled={tree.keyDegraded || Boolean(bulk)}
+                disabled={Boolean(tree.mutationLock ?? tree.keyDegraded) || Boolean(bulk)}
                 aria-busy={bulk ? true : undefined}
                 onClick={() => void recoverAll()}
               >
@@ -240,7 +240,7 @@ export function VaultRecoveryPanel({
                       size="sm"
                       variant="primary"
                       data-testid="vault-tree-orphan-recover-rename"
-                      disabled={tree.keyDegraded || Boolean(bulk)}
+                      disabled={Boolean(tree.mutationLock ?? tree.keyDegraded) || Boolean(bulk)}
                       onClick={() => openRename(o, entry.destinationNodeId)}
                     >
                       {t('vaultTreeOrphanRecoverRename')}
@@ -250,7 +250,7 @@ export function VaultRecoveryPanel({
                     size="sm"
                     variant="outline"
                     data-testid="vault-tree-orphan-recover"
-                    disabled={tree.keyDegraded || Boolean(bulk)}
+                    disabled={Boolean(tree.mutationLock ?? tree.keyDegraded) || Boolean(bulk)}
                     onClick={() => setChooser(o)}
                   >
                     {t('vaultTreeOrphanRecover')}
