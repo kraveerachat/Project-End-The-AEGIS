@@ -48,6 +48,11 @@ STUB_NOOP_CMDS = ("rfkill", "nmcli", "iw", "ip", "nft", "sysctl", "dnsmasq")
 HANDLER = r'''#!/usr/bin/env bash
 name=$(basename "$0" .sh)
 echo "$name" >> "$SIM_DIR/calls.log"
+echo "${AEGIS_L34_V7_PYTHON-<unset>}" >> "$SIM_DIR/py.log"
+PY="${AEGIS_L34_V7_PYTHON:-python3}"
+if [ "$name" = apply ]; then  # models apply.sh live mode: the python authority must be an absolute executable path, never PATH-resolved
+  case "$PY" in /*) [ -x "$PY" ] || { echo "L34_V7_APPLY=FAIL reason=V7_PROBE_PYTHON_INVALID" >&2; exit 1; } ;; *) echo "L34_V7_APPLY=FAIL reason=V7_PROBE_PYTHON_INVALID" >&2; exit 1 ;; esac
+fi
 mkdir -p "$AEGIS_L34_WORK_DIR"
 marker_state() { if [ -e "$(cat "$SIM_DIR/marker-path")" ]; then echo yes; else echo no; fi; }
 case "$name" in
@@ -107,7 +112,7 @@ done
 
 class Sim:
     def __init__(self, tmp: Path, *, journal: str = SIGNATURE, broker: dict | None = None, core: dict | None = None,
-                 listener_rows: str = "", scope: str = EXPECTED_SCOPE) -> None:
+                 listener_rows: str = "", scope: str = EXPECTED_SCOPE, py: str | None = None, forward_python: bool = True) -> None:
         self.dir = tmp / "sim"
         self.repo = self.dir / "repo"
         self.p4 = self.repo / "IDEA3-AEGIS_Lockdown" / "deploy" / "pr11-phase4"
@@ -119,6 +124,7 @@ class Sim:
         self.profile = self.dir / "profile.nmconnection"
         self.profile.write_text(f"[wifi-security]\npsk={PSK}\n")
         self.journal, self.listener_rows, self.scope = journal, listener_rows, scope
+        self.py, self.forward_python = py if py is not None else sys.executable, forward_python
         self.broker = {**BROKER_PROPS, **(broker or {})}
         self.core = {**HEALTHY, **(core or {})}
         self.build()
@@ -172,7 +178,9 @@ class Sim:
         text = text.replace("EXPECTED_MAIN=PIN_MAIN_SHA", f"EXPECTED_MAIN={self.head}")
         text = text.replace("REPO=/home/kittipat/Workspace/IDEA3-Cyber-Last/worktrees/Project-End-The-AEGIS-L34LIVE   # clean pinned execution worktree at merged main",
                             f"REPO={self.repo}")
-        text = text.replace("PY=/home/kittipat/.venvs/aegis-idea3-core/bin/python", f"PY={sys.executable}")
+        text = text.replace("PY=/home/kittipat/.venvs/aegis-idea3-core/bin/python", f"PY={self.py}")
+        if not self.forward_python:  # negative control: the pre-fix runner, whose handler() never forwarded the frozen python
+            text = text.replace(' AEGIS_L34_V7_PYTHON="$PY"', "")
         text = text.replace("PROFILE=/etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection", f"PROFILE={self.profile}")
         text = text.replace("EVID=/home/kittipat/Workspace/idea3-p4-evidence/$TODAY-l34-v7-$STAMP", f"EVID={self.evid_base}/$TODAY-l34-v7-$STAMP")
         self.runner = self.dir / "run-l34-v7-owner.sh"
@@ -327,3 +335,63 @@ def test_v7_f1_runner_source_consumes_the_marker_after_pre_capture_and_before_ap
     apply = text.index("handler apply.sh 2>&1")
     preflight = text.index("AEGIS_L34_PREFLIGHT_ONLY_RUN=YES handler apply.sh")
     assert preflight < pre_cap < consume < apply
+
+
+# ── frozen absolute python authority is forwarded to the root handler (live attempt 2026-10-01 16:49 +07 stopped at V7_PROBE_PYTHON_INVALID) ──────
+
+def _py_log(sim: Sim) -> list[str]:
+    return (sim.dir / "py.log").read_text().splitlines() if (sim.dir / "py.log").exists() else []
+
+
+def _production_mutation_files(sim: Sim) -> list[Path]:
+    return list(sim.evid_base.rglob("production-mutation"))
+
+
+def test_v7_runner_forwards_the_frozen_absolute_python_to_every_handler_call(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "V7_PROBE_PYTHON_INVALID" not in res.stdout + res.stderr
+    assert _py_log(sim) == [sys.executable] * 3, "preflight apply, apply and verify must all receive the frozen absolute PY"
+
+
+def test_v7_runner_source_forwards_aegis_l34_v7_python_from_the_frozen_py_constant() -> None:
+    text = RUNNER.read_text()
+    handler_line = next(line for line in text.splitlines() if line.lstrip().startswith("sudo env AEGIS_L34_LIVE_AUTHORIZED=YES"))
+    assert 'AEGIS_L34_V7_PYTHON="$PY"' in handler_line
+    assert "AEGIS_L34_V6_PYTHON" not in text, "V7 must not borrow the V6 variable"
+    assert next(line for line in text.splitlines() if line.startswith("PY=")).startswith("PY=/"), "the frozen PY constant stays an absolute path"
+    apply_text = (DEPLOY / "reactivation" / HND_NAME / "apply.sh").read_text()
+    assert 'PY="${AEGIS_L34_V7_PYTHON:-python3}"' in apply_text, "the runner forwards the exact variable apply.sh reads"
+
+
+def test_v7_apply_keeps_the_absolute_python_fail_closed_requirement() -> None:
+    apply_text = (DEPLOY / "reactivation" / HND_NAME / "apply.sh").read_text()
+    assert 'case "$PY" in /*) [ -x "$PY" ] || fail V7_PROBE_PYTHON_INVALID ;; *) fail V7_PROBE_PYTHON_INVALID ;; esac' in apply_text, \
+        "live mode must still refuse a PATH-relative or non-executable python"
+
+
+def test_v7_runner_forwards_python_the_same_way_as_the_v6_reference_runner() -> None:
+    v6 = (DEPLOY / "owner-run" / "run-l34-v6-stale-broker-ap-down-owner.sh").read_text()
+    assert 'AEGIS_L34_V6_PYTHON="$PY"' in v6
+
+
+def test_v7_negative_control_without_forwarding_reproduces_v7_probe_python_invalid(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, forward_python=False)
+    assert 'AEGIS_L34_V7_PYTHON="$PY"' not in sim.runner.read_text(), "the control must really strip the forwarding"
+    res = sim.run()
+    assert res.returncode == 1 and "V7_PROBE_PYTHON_INVALID" in res.stdout + res.stderr, res.stdout + res.stderr
+    assert "preflight failed; NOTHING was changed" in res.stdout + res.stderr
+    assert not sim.marker() and _non_mutating_calls(sim) == ["apply"]
+    assert _py_log(sim) == ["<unset>"]
+
+
+@pytest.mark.parametrize("bad_py", ["/nonexistent/aegis/python", "python3", "bin/python", ""])
+def test_v7_missing_or_non_absolute_python_stays_fail_closed_without_consuming_or_mutating(tmp_path: Path, bad_py: str) -> None:
+    sim = Sim(tmp_path, py=bad_py)
+    res = sim.run()
+    assert res.returncode == 1 and "V7_PROBE_PYTHON_INVALID" in res.stdout + res.stderr, res.stdout + res.stderr
+    assert "preflight failed; NOTHING was changed" in res.stdout + res.stderr
+    assert not sim.marker(), "a refused preflight must leave the one-shot authorization intact"
+    assert _non_mutating_calls(sim) == ["apply"], "only the read-only preflight ran: no PRE capture, no apply, no rollback"
+    assert not _production_mutation_files(sim)
