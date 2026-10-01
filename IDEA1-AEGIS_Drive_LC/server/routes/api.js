@@ -15,7 +15,9 @@ import {
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { requestSourceIp } from '../request/sourceIp.js'
 import { publicShareUrl } from '../config/publicShare.js'
-import { previewMimeForName } from '../config/previewMedia.js'
+import { inlineEntryForName } from '../config/previewMedia.js'
+import { SIGNATURE_HEAD_BYTES, sniffFormatServer, familyMatches } from '../config/formatSignatures.js'
+import { open as openFileHandle } from 'node:fs/promises'
 import { parseByteRange } from '../request/byteRange.js'
 import { mediaRouter, scheduleDerivativesAfterResponse } from './media.js'
 import { getNavForRole } from '../rbac/permissions.js'
@@ -699,6 +701,18 @@ apiRouter.get('/files/:id/download', requireAuth, async (req, res, next) => {
 //    ciphertext ไม่มี plaintext ให้ preview และต้องไม่มีวันมี (ดู /vault/blobs/:id/chunks)
 //    allowlist ตัวจริงอยู่ที่ config/previewMedia.js (แหล่งเดียว ใช้ร่วมกับท่อ media derivative)
 
+/** at most `max` leading bytes of a stored file (one bounded read; the handle is always closed) */
+async function readFileHead(abs, max) {
+  const fh = await openFileHandle(abs, 'r')
+  try {
+    const buf = Buffer.alloc(max)
+    const { bytesRead } = await fh.read(buf, 0, max, 0)
+    return buf.subarray(0, bytesRead)
+  } finally {
+    await fh.close()
+  }
+}
+
 apiRouter.get('/files/:id/preview', requireAuth, async (req, res, next) => {
   try {
     const file = await store.findFile(req.params.id)
@@ -715,13 +729,21 @@ apiRouter.get('/files/:id/preview', requireAuth, async (req, res, next) => {
     }
     if (file.kind === 'folder' || file.type === 'Folder') return res.status(400).json({ error: 'Not a file' })
 
-    const mime = previewMimeForName(file.name)
-    if (!mime) return res.status(415).json({ error: 'Preview not supported for this type' })
+    const entry = inlineEntryForName(file.name)
+    if (!entry) return res.status(415).json({ error: 'Preview not supported for this type' })
+    const mime = entry.inlineMime
 
     const abs = resolveKey(file.path)
     if (!abs || !(await keyExists(file.path))) {
       await auditAct(req, 'FILE_PREVIEW', file.name, 'DENIED')
       return res.status(404).json({ error: 'Not found' })
+    }
+    // Unified Preview P1: audio/text entries are confirmed against the head bytes (≤ 8 KiB) before any
+    // byte is served — a PNG named .mp3 or a binary named .txt is 415, never inline. The derivative-
+    // eligible image/video set keeps its prior path unchanged (media/probe.js verifies it for derivatives).
+    if (entry.derivative === 'none') {
+      const head = await readFileHead(abs, SIGNATURE_HEAD_BYTES)
+      if (!familyMatches(entry, sniffFormatServer(head), head)) return res.status(415).json({ error: 'Preview not supported for this type' })
     }
     // ขนาดจริงบนดิสก์ — Content-Range ต้องตรงกับไบต์ที่ส่งจริง ไม่ใช่คอลัมน์ที่อาจคลาดเคลื่อน
     const size = await sizeOfFile(abs)
