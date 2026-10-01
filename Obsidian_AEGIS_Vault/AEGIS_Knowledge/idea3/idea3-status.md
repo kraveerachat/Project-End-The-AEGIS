@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L8p device provisioning stage on the canonical L8 backend — repository only — 2026-10-02
+
+> [!important] Repository-only; local branch `feat/idea3-l8p-canonical-provisioning-stage`, not pushed. **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, Recovery and L8 not run.
+> `OD_L8P_01 = APPROVED`, `L8_HARDWARE_BACKEND = IMPLEMENTED_REPOSITORY / MERGED (PR #247)`, `L8P_REPOSITORY_IMPLEMENTED = YES`, `L8P_LOCAL_VERIFIED = YES`, `L8P_LIVE = NOT_AUTHORIZED`, `REAL_ESP32_TOUCHED = NO`, `RECOVERY_LIVE = NOT_RUN`, `LVR = NOT_RUN`, `L8_LIVE = NOT_RUN`, `ELECTRICAL_RELAY_PROOF = NO`
+
+- **Decision (OD-L8P-01):** for L8p only, `D4_LIVE_REQUIRED_BEFORE_L8P_FLASH = NO`; an owner-attested physical recovery procedure satisfies the pre-write recovery prerequisite. L8 is unchanged: `OD14_L8_RECOVERY_POLICY = D4_ONLY`, `INTERIM_RECOVERY_PROCEDURE = NOT_APPROVED`, `D4_LIVE_REQUIRED_BEFORE_L8_FLASH = YES`. Recorded in the L8 operational design.
+- **Stage:** `L8p` sits between `L7u` and `L8` (`L7 -> L7u -> L8p -> Recovery R1-R8 -> LVR -> L8`); it provisions the ESP32 only and claims no Recovery, LVR, L8 live or electrical-relay result. Spec: `docs/superpowers/specs/2026-10-02-idea3-pr11-phase4-l8p-device-provisioning-only.md`.
+- **One canonical flow:** L8p reuses the merged L8 `HardwareDevice`, executor, argv validator, NVS and firmware readback, single terminal reset, signed BOOT verifier and the 12-field evidence (file `l8p-<run_id>.json`, no 13th field). The old L8p backend (`f626776c`) was not ported. `p4-l8p-device.py` is thin governance (attestation, pins, NVS schema); the canonical `p4-l8-device.py` gained only a small fail-closed `StageProfile` hook (default = L8 with D4).
+- **Verification:** see the receipt `90-Status/logs/2026-10-02_023247_music_idea3-l8p-canonical-provisioning-stage.md`. Fixture and fake executor only.
+- **Still required before any live L8p:** owner runner, reviewed firmware/partition pins and the written physical recovery procedure, same-day authorization plus K3, and explicit owner live authorization. F1 (PR #282) is preserved untouched.
+
+---
+
 ## IDEA3 F1 production alert ingress (Recovery R1 source) — repository only — 2026-10-01
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Nothing was deployed, Production was NOT mutated, the Core was NOT restarted, L7u was NOT run, Recovery R1-R8 was NOT run live, no ESP32, no L8. F1 is inert until a separate governed deployment stage sets `AEGIS_ALERT_SOURCE_UID`.
