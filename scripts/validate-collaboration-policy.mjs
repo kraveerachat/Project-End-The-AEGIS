@@ -109,24 +109,24 @@ if (nonAppendReceiptChanges.length > 0) {
   );
 }
 
-if (newReceipts.length > 1) {
-  errors.push(`A task Pull Request may add at most one final Obsidian task receipt; found ${newReceipts.length}.`);
-} else if (newReceipts.length === 0 && !isDraft) {
-  errors.push('A final Obsidian task receipt is required before Ready/non-Draft review; found 0.');
-} else if (newReceipts.length === 1) {
-  const receiptPath = newReceipts[0].path;
-  const receiptOwner = receiptPath.match(receiptPattern)?.[2];
-  if (owner && receiptOwner !== owner) {
-    errors.push(`Receipt owner ${receiptOwner} does not match Pull Request owner ${owner}.`);
-  }
-  if (!body.includes(receiptPath)) {
-    errors.push('The Obsidian receipt section must name the newly added receipt path.');
-  }
+const inheritedReceiptSection = extractSection(body, 'Inherited task receipts');
+const declaredInheritedReceiptPaths = [
+  ...inheritedReceiptSection.matchAll(/`([^`]+)`/g),
+].map((match) => match[1]).filter((path) => receiptPattern.test(path));
 
+const expectedReceiptOwners = {
+  idea1: 'kla',
+  idea2: 'pub',
+  idea3: 'music',
+  infrastructure: 'kla',
+  shared: 'kla',
+};
+
+function readReceipt(receiptPath) {
   try {
     const receipt = readFileSync(receiptPath, 'utf8');
     const frontmatter = receipt.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] || '';
-    const receiptMetadata = Object.fromEntries(
+    const metadata = Object.fromEntries(
       frontmatter
         .split(/\r?\n/)
         .map((line) => {
@@ -137,37 +137,93 @@ if (newReceipts.length > 1) {
         })
         .filter(([key]) => key),
     );
-    const invalidMetadata = [];
-    if (receiptMetadata.owner !== owner) invalidMetadata.push('owner');
-    if (receiptMetadata.area !== area) invalidMetadata.push('area');
-    if (receiptMetadata.branch !== branch) invalidMetadata.push('branch');
-    if (!['complete', 'partial', 'blocked'].includes(receiptMetadata.status)) invalidMetadata.push('status');
-    if (receiptMetadata.edit_policy !== 'append-by-new-file') invalidMetadata.push('edit_policy');
-    if (invalidMetadata.length > 0) {
-      errors.push(`Receipt is missing required metadata or has mismatched values: ${invalidMetadata.join(', ')}.`);
-    }
-
-    const requiredSections = [
-      'What changed',
-      'Source files changed',
-      'Verification evidence',
-      'Canonical notes updated',
-      'Shared surfaces touched',
-      'Integration requests',
-      'Known limitations',
-    ];
-    for (const title of requiredSections) {
-      const content = extractSection(receipt, title);
-      if (!content) errors.push(`Receipt is missing required section content: ${title}.`);
-    }
-    const receiptVerification = extractSection(receipt, 'Verification evidence');
-    receiptSharedSurfaces = extractSection(receipt, 'Shared surfaces touched');
-    receiptIntegrationRequests = extractSection(receipt, 'Integration requests');
-    if (!/`[^`]+`/.test(receiptVerification) || !/\b(pass(?:ed)?|fail(?:ed)?)\b/i.test(receiptVerification)) {
-      errors.push('Receipt verification evidence must contain a command in backticks and its pass/fail result.');
-    }
+    return { path: receiptPath, receipt, metadata };
   } catch (error) {
     errors.push(`Unable to read the new Obsidian receipt ${receiptPath}: ${error.message}`);
+    return null;
+  }
+}
+
+function validateReceiptShape(parsed, { currentTask }) {
+  if (!parsed) return;
+  const { path: receiptPath, receipt, metadata } = parsed;
+  const filenameOwner = receiptPath.match(receiptPattern)?.[2];
+  const invalidMetadata = [];
+
+  if (currentTask) {
+    if (filenameOwner !== owner) {
+      errors.push(`Receipt owner ${filenameOwner} does not match Pull Request owner ${owner}.`);
+    }
+    if (metadata.owner !== owner) invalidMetadata.push('owner');
+    if (metadata.area !== area) invalidMetadata.push('area');
+    if (metadata.branch !== branch) invalidMetadata.push('branch');
+  } else {
+    if (!Object.hasOwn(expectedReceiptOwners, metadata.area)) invalidMetadata.push('area');
+    if (!['kla', 'pub', 'music'].includes(metadata.owner)) invalidMetadata.push('owner');
+    if (
+      Object.hasOwn(expectedReceiptOwners, metadata.area)
+      && metadata.owner !== expectedReceiptOwners[metadata.area]
+    ) invalidMetadata.push('owner');
+    if (filenameOwner && metadata.owner !== filenameOwner) invalidMetadata.push('owner');
+    if (!/^(feat|fix|docs|infra|deploy|chore|codex)\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(metadata.branch || '')) {
+      invalidMetadata.push('branch');
+    }
+  }
+
+  if (!['complete', 'partial', 'blocked'].includes(metadata.status)) invalidMetadata.push('status');
+  if (metadata.edit_policy !== 'append-by-new-file') invalidMetadata.push('edit_policy');
+  if (invalidMetadata.length > 0) {
+    errors.push(`Receipt is missing required metadata or has mismatched values: ${[...new Set(invalidMetadata)].join(', ')}.`);
+  }
+
+  const requiredSections = [
+    'What changed',
+    'Source files changed',
+    'Verification evidence',
+    'Canonical notes updated',
+    'Shared surfaces touched',
+    'Integration requests',
+    'Known limitations',
+  ];
+  for (const title of requiredSections) {
+    const content = extractSection(receipt, title);
+    if (!content) errors.push(`Receipt is missing required section content: ${title}.`);
+  }
+  const receiptVerification = extractSection(receipt, 'Verification evidence');
+  if (!/`[^`]+`/.test(receiptVerification) || !/\b(pass(?:ed)?|fail(?:ed)?)\b/i.test(receiptVerification)) {
+    errors.push('Receipt verification evidence must contain a command in backticks and its pass/fail result.');
+  }
+}
+
+const parsedReceipts = newReceipts.map(({ path }) => readReceipt(path)).filter(Boolean);
+const currentTaskReceipts = parsedReceipts.filter(({ metadata }) => metadata.branch === branch);
+const inheritedTaskReceipts = parsedReceipts.filter(({ metadata }) => metadata.branch !== branch);
+
+if (currentTaskReceipts.length > 1) {
+  errors.push(`A task Pull Request may add at most one current-task final Obsidian receipt; found ${currentTaskReceipts.length}.`);
+} else if (currentTaskReceipts.length === 0 && !isDraft) {
+  errors.push('A final current-task Obsidian receipt is required before Ready/non-Draft review; found 0.');
+}
+
+for (const parsed of currentTaskReceipts) {
+  if (!body.includes(parsed.path)) {
+    errors.push('The Obsidian receipt section must name the newly added current-task receipt path.');
+  }
+  validateReceiptShape(parsed, { currentTask: true });
+  receiptSharedSurfaces = extractSection(parsed.receipt, 'Shared surfaces touched');
+  receiptIntegrationRequests = extractSection(parsed.receipt, 'Integration requests');
+}
+
+for (const parsed of inheritedTaskReceipts) {
+  if (!declaredInheritedReceiptPaths.includes(parsed.path)) {
+    errors.push(`Inherited task receipt must be explicitly declared under Inherited task receipts: ${parsed.path}.`);
+  }
+  validateReceiptShape(parsed, { currentTask: false });
+}
+
+for (const declaredPath of declaredInheritedReceiptPaths) {
+  if (!inheritedTaskReceipts.some(({ path }) => path === declaredPath)) {
+    errors.push(`Inherited task receipt declaration does not match an added foreign-branch receipt: ${declaredPath}.`);
   }
 }
 
@@ -238,12 +294,12 @@ for (const path of crossScopePaths) {
   if (!sharedSurfaces.includes(path)) {
     errors.push(`Shared surfaces touched must name ${path}.`);
   }
-  if (newReceipts.length === 1 && !receiptSharedSurfaces.includes(path)) {
+  if (currentTaskReceipts.length === 1 && !receiptSharedSurfaces.includes(path)) {
     errors.push(`Receipt Shared surfaces touched must name ${path}.`);
   }
 }
 if (
-  newReceipts.length === 1
+  currentTaskReceipts.length === 1
   &&
   crossScopePaths.length > 0
   && (!receiptIntegrationRequests || /^-?\s*none\b/i.test(receiptIntegrationRequests))
