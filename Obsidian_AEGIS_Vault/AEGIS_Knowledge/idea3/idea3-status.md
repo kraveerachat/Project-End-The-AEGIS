@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 F1 production alert ingress (Recovery R1 source) — repository only — 2026-10-01
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Nothing was deployed, Production was NOT mutated, the Core was NOT restarted, L7u was NOT run, Recovery R1-R8 was NOT run live, no ESP32, no L8. F1 is inert until a separate governed deployment stage sets `AEGIS_ALERT_SOURCE_UID`.
+> `F1_REPOSITORY_IMPLEMENTED = YES`, `F1_LOCAL_VERIFIED = YES`, `F1_PRODUCTION_DEPLOYED = NO`, `F1_REAL_DETECTOR_ACCEPTANCE = NO`, `F1_MERGE_ALONE_CREATES_RESTORE_LOCKOUT = NO`, `R5_REPOSITORY_MERGED = NO`, `BREAK_GLASS_IMPLEMENTED = NO`, `R5_READY_FOR_PR = NO`
+
+- **What:** a Core-local AF_UNIX alert ingress in `aegis_soc/recovery_core.py` (`AlertIngress`, `AlertServer`) makes Recovery R1 reachable in production without MQTT. `SO_PEERCRED` authenticates the one uid in `AEGIS_ALERT_SOURCE_UID` before any request byte is read; the socket is `<runtime_dir>/alert.sock` (`0600`), production profile only, disabled when the uid is unset. Payload is exactly `{"v":1,"attacker_ip":"x.x.x.x"}` (256 bytes, 2 s deadline, token bucket, strict IPv4). The only effect is `recovery.bind_incident` via `supervisor.on_production_alert`; same IP `EXISTING`, a different IP while an incident is open `IGNORED_DIFFERENT_IP`. It cannot request containment, CUT, RESTORE or MQTT publish, does not use the legacy `_on_attacker` path, and Protocol v1 and the broker ACL are unchanged.
+- **Evidence (local/simulated):** 60 F1 tests; Recovery 109 passed + 1 xfailed; full IDEA3 suite `4654 passed, 8 skipped, 1 xfailed, 0 failed`; a real scratch release build and canonical verify PASS with the four Recovery files and the F1 code present, no new dependency and no module sweep; L7u preflight guard PASS. Baseline close-channel and L6c capture tests are known host-state flakes, recorded in the receipt and not caused by F1.
+- **Not included:** the detector sink, the detector systemd unit, `AEGIS_ALERT_SOURCE_UID` in the production `core.env` and a governed Core restart (a separate governed deployment stage). The protected first-IP R3 dead end is unchanged and belongs with R5/break-glass.
+- **R5 held back:** the R5 normal-path RESTORE enforcement is preserved locally and is NOT merged; merged without break-glass it would make production RESTORE unavailable. F1 does not touch `local_restore.py`.
+- **Receipt:** `90-Status/logs/2026-10-01_233900_music_idea3-f1-production-alert-ingress.md`.
+
+---
+
 ## IDEA3 PR11 Phase 4 L7u release-builder Recovery runtime fix — repository only — 2026-10-01
 
 > [!important] Repository-only fix after a safe preflight stop. The owner's first L7u live attempt (2026-10-01 ~20:11 +07, frozen runner sha256 `f2d8203a…8834`, main `7cabf28a`) stopped in the engine preflight with `L7U_PREFLIGHT=FAIL reason=NEW_RELEASE_LACKS_RECOVERY_RUNTIME`, before PRE capture and before `L7u-ATTEMPT-CONSUMED`. No production mutation, Core NOT restarted (release pointer still `f2a5cd75…`), no Recovery R1-R8, no ESP32, no L8. L7u has NOT run live.
