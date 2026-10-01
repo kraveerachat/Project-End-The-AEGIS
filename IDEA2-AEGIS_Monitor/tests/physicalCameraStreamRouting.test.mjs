@@ -608,6 +608,17 @@ test('real PostgreSQL HTTP viewers share one epoch; final route cleanup retires 
   const schema = `aegis_route_${randomBytes(12).toString('hex')}`
   const pool = new pg.Pool({ connectionString: process.env.AEGIS_MONITOR_TEST_DATABASE_URL, max: 5 })
   const admin = await pool.connect()
+  const transactionTimeoutMs = 5_000
+  let state
+  let one
+  let two
+  const waitForRelease = async (handle, context) => {
+    const started = Date.now()
+    while (!state.released.includes(handle) && Date.now() - started < transactionTimeoutMs)
+      await new Promise(resolve => setTimeout(resolve, 5))
+    t.diagnostic(`${context}: releaseCompleted=${state.released.includes(handle)} waitMs=${Date.now() - started}`)
+    assert.ok(state.released.includes(handle), `${context}: real transaction must release before DB assertions/teardown`)
+  }
   try {
     await admin.query(`CREATE SCHEMA "${schema}"`)
     await admin.query(`SET search_path TO "${schema}"`)
@@ -629,7 +640,7 @@ test('real PostgreSQL HTTP viewers share one epoch; final route cleanup retires 
       const client = await pool.connect()
       try {
         await client.query(`SET search_path TO "${schema}"`)
-        await client.query("SET statement_timeout = '5s'")
+        await client.query(`SET statement_timeout = '${transactionTimeoutMs}ms'`)
         await client.query('BEGIN')
         const result = await fn(client)
         await client.query('COMMIT')
@@ -638,9 +649,10 @@ test('real PostgreSQL HTTP viewers share one epoch; final route cleanup retires 
       finally { client.release() }
     }
     const service = createProducerLifecycle({ transact, secret: 'route-test-only-session-secret' })
-    const { state, open, settle } = await streamHarness(t, 'real-viewers', service)
-    const one = await open('CAM-01', 2)
-    const two = await open('CAM-02', 3)
+    const harness = await streamHarness(t, 'real-viewers', service)
+    state = harness.state
+    one = await harness.open('CAM-01', 2)
+    two = await harness.open('CAM-02', 3)
     assert.equal(one.statusCode, 200)
     assert.equal(two.statusCode, 200)
     assert.deepEqual(state.fetched.map(entry => entry.options.headers['X-Aegis-Producer-Generation']),
@@ -649,18 +661,26 @@ test('real PostgreSQL HTTP viewers share one epoch; final route cleanup retires 
     assert.deepEqual(rows, [{ logical_camera_id: 'CAM-01', viewer_user_id: '2' },
       { logical_camera_id: 'CAM-02', viewer_user_id: '3' }])
     one.destroy()
-    const deadline = Date.now() + 200
-    while (!state.released.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 1))
+    await waitForRelease(state.acquired[0], 'first viewer close')
     assert.equal((await admin.query('SELECT * FROM camera_producer_demands WHERE released_at IS NULL')).rowCount, 1)
     assert.equal((await admin.query('SELECT * FROM camera_producer_epochs WHERE released_at IS NULL')).rowCount, 1)
-    await settle(two, true)
+    two.destroy()
+    await waitForRelease(state.acquired[1], 'final viewer close')
     assert.equal((await admin.query('SELECT * FROM camera_producer_demands WHERE released_at IS NULL')).rowCount, 0)
     assert.equal((await admin.query('SELECT * FROM camera_producer_epochs WHERE released_at IS NULL')).rowCount, 0)
   } finally {
-    await admin.query('ROLLBACK')
-    await admin.query('SET search_path TO public')
-    await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
-    admin.release()
-    await pool.end()
+    // Close both viewers even when an earlier assertion fails, then wait for
+    // real route cleanup before removing the schema those transactions use.
+    try {
+      one?.destroy()
+      two?.destroy()
+      for (const handle of state?.acquired ?? []) await waitForRelease(handle, 'fixture teardown')
+    } finally {
+      await admin.query('ROLLBACK')
+      await admin.query('SET search_path TO public')
+      await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+      admin.release()
+      await pool.end()
+    }
   }
 })
