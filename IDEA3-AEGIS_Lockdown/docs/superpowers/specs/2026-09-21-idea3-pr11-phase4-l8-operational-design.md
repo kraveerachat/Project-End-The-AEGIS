@@ -493,6 +493,25 @@ host drift whatsoever.
 
 ---
 
+### OD-L8P-01 — L8p physical recovery exception (OWNER APPROVED 2026-10-02)
+
+- **DECISION**: Stage **L8p** (device provisioning ONLY, placed `L7u -> L8p -> Recovery R1-R8 -> LVR -> L8`) may flash the Protocol-v1 ESP32 without
+  D4 live, because Recovery R4/R5 need the device that L8p provisions (the circularity: D4 live needs the device, and L8 needs D4 live).
+  For L8p only: `D4_LIVE_REQUIRED_BEFORE_L8P_FLASH = NO`. An **owner-attested physical recovery procedure** satisfies the pre-write recovery
+  prerequisite instead (`physical-recovery.attestation`, contract in the L8p spec).
+- **SCOPE (applies ONLY to L8p)**. L8p is provisioning-only. It does NOT claim Recovery R1-R8 acceptance, LVR acceptance, L8 live acceptance, or
+  electrical relay proof, and it does not run any of them.
+- **L8 IS UNCHANGED**: `OD14_L8_RECOVERY_POLICY = D4_ONLY`, `INTERIM_RECOVERY_PROCEDURE = NOT_APPROVED`, `D4_LIVE_REQUIRED_BEFORE_L8_FLASH = YES`.
+  The default recovery gate of the canonical flow stays the D4 attestation; L8p opts into its own recovery profile explicitly.
+- **FAILURE POLICY (unchanged in kind)**: after the first write there is no automatic retry, reflash, rollback write, RESTORE or legacy/plaintext fallback;
+  `rollback.sh` performs zero device mutation; any post-write failure is `FAIL_SECURE_HOLD_AND_EVIDENCE`. The physical recovery is a MANUAL, out-of-band
+  owner action, never part of the automated rollback.
+- **EVIDENCE**: the canonical OD-L8-09 12-field bundle, unchanged (no stage field); L8p is identified by the governed stage and the file name `l8p-<run_id>.json`.
+- **OWNER_STATUS**: `OWNER_APPROVED`. `LIVE_L8P = NOT_AUTHORIZED`, `LIVE_L8 = NOT_AUTHORIZED`, `LIVE_L8_PHYSICAL_PROOF = NOT_PROVEN`,
+  `ELECTRICAL_RELAY_PROOF = NO`.
+
+---
+
 ## 5. Repository Implementation Plan
 
 | Path | Change | Class |
