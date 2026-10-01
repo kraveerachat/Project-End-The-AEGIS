@@ -118,6 +118,7 @@ DEFAULT_STATE = {
     "broker_restart_every_shows": 0,  # crashloop mode, after recovery: every K-th `systemctl show` of the broker counts one more restart (0 = stable)
     "broker_recovered_shows": 0,      # internal counter for the key above
     "broker_journal_extra": [],       # extra journal lines appended to the broker crash-loop tail (a second, unrelated failure signature)
+    "broker_journal_stale_bind": "",  # "" | "previous_boot" | "earlier_invocation": the bind-failure lines belong to stale evidence, not to the current failed invocation
 }
 
 WRAPPER = "#!/usr/bin/env bash\nexec {python} {sim} {name} \"$@\"\n"
@@ -257,7 +258,8 @@ def _broker_props(s: dict) -> dict[str, str]:
         return recovered
     base = {"LoadState": "loaded", "ActiveState": "activating", "SubState": "auto-restart", "UnitFileState": "enabled",
             "Result": "exit-code", "MainPID": "0", "NRestarts": str(s["broker_nrestarts_pre"]), "ExecMainStartTimestamp": "",
-            "Restart": "on-failure", "RestartUSec": "5s", "ExecMainStatus": "1", "InvocationID": ""}
+            "Restart": "on-failure", "RestartUSec": "5s", "ExecMainStatus": "1",
+            "InvocationID": _invocation_id("aegis-idea3-mosquitto.service", 0, s["broker_nrestarts_pre"])}
     base.update(s["broker_crashloop_override"])
     return base
 
@@ -556,21 +558,37 @@ def main(argv: list[str]) -> int:
         else:
             rc = 99
     elif name == "journalctl":
-        # bounded, read-only tail: `journalctl -u UNIT -n N --no-pager` (V5 broker crash-loop cause evidence only)
+        # bounded, read-only tail: `journalctl -u UNIT [-b] [_SYSTEMD_INVOCATION_ID=ID] -n N --no-pager` (V5/V7 broker crash-loop cause evidence only).
+        # Every journal entry carries (boot, invocation); `-b` keeps only the current boot, the field match keeps only that invocation.
         if args[:1] == ["-u"] and "--no-pager" in args:
             unit = args[1]
+            entries: list[tuple[str, str, str]] = []   # (boot, invocation id, line)
             if unit == "aegis-idea3-mosquitto.service" and s["broker_mode"] == "crashloop_until_ap" \
                     and not _broker_crashloop_recovered(s):
-                if s["broker_crashloop_cause"] == "ap_bind_missing":
-                    out = ["mosquitto[7579]: Opening ipv4 listen socket on port 8883.",
-                           "mosquitto[7579]: Error: Cannot assign requested address",
-                           "mosquitto[7579]: mosquitto version 2.1.2 terminating"] + list(s["broker_journal_extra"])
+                cur = _broker_props(s)["InvocationID"]
+                stale = s["broker_journal_stale_bind"]
+                stale_boot, stale_inv = ("previous", cur) if stale == "previous_boot" else ("current", _invocation_id(unit, 0, -1))
+                bind = ["mosquitto[7579]: Opening ipv4 listen socket on port 8883.",
+                        "mosquitto[7579]: Error: Cannot assign requested address",
+                        "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
+                if s["broker_crashloop_cause"] == "ap_bind_missing" and not stale:
+                    entries += [("current", cur, l) for l in bind]
+                    entries += [("current", cur, l) for l in s["broker_journal_extra"]]
                 else:
-                    out = ["mosquitto[7579]: Error: Unable to load server certificate "
-                           "\"/etc/aegis-idea3/pki/mqtt-server.crt\".",
-                           "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
-            else:
-                out = ["-- No entries --"]
+                    if s["broker_crashloop_cause"] != "ap_bind_missing":
+                        entries += [("current", cur, "mosquitto[7579]: Error: Unable to load server certificate "
+                                                     "\"/etc/aegis-idea3/pki/mqtt-server.crt\"."),
+                                    ("current", cur, "mosquitto[7579]: mosquitto version 2.1.2 terminating")]
+                    else:
+                        entries += [("current", cur, "systemd[1]: aegis-idea3-mosquitto.service: Main process exited, code=exited, status=1/FAILURE")]
+                    if stale:
+                        entries += [(stale_boot, stale_inv, l) for l in bind]
+            if "-b" in args:
+                entries = [e for e in entries if e[0] == "current"]
+            for a in args:
+                if a.startswith("_SYSTEMD_INVOCATION_ID="):
+                    entries = [e for e in entries if e[1] == a.split("=", 1)[1]]
+            out = [e[2] for e in entries] or ["-- No entries --"]
         else:
             rc = 99
     else:

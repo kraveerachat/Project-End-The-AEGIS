@@ -688,7 +688,20 @@ L34_V7_BIND_SIGNATURE='Error: Cannot assign requested address'
 
 # l34_v7_broker_show UNIT — the KEY=VALUE tuple the churn contract consumes (read-only)
 l34_v7_broker_show() {
-  systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID -p NRestarts -p ExecMainStatus -p Restart -p RestartUSec "$1"
+  systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Result -p MainPID -p NRestarts -p ExecMainStatus -p Restart -p RestartUSec -p InvocationID "$1"
+}
+
+# l34_v7_broker_journal_capture UNIT SHOW_FILE OUT — bounded, READ-ONLY journal tail bound to the CURRENT boot and to the failed broker's own systemd
+# InvocationID (taken from the SAME `l34_v7_broker_show` capture the churn gate reads, so both see one identity). The first line of OUT records that
+# binding; l34_v7_broker_churn_gate refuses any journal whose binding line does not match. Anything from a previous boot or an earlier invocation is
+# excluded by journalctl itself (-b plus the _SYSTEMD_INVOCATION_ID field match), never by text heuristics.
+l34_v7_broker_journal_capture() {
+  local unit=$1 show=$2 out=$3 inv
+  inv=$(sed -n 's/^InvocationID=//p' "$show")
+  [[ "$inv" =~ ^[0-9a-f]{32}$ ]] || { l34_reason "L34_V7_BROKER_INVOCATION_ID_INVALID"; return 1; }
+  { printf '# AEGIS-V7-CORRELATION boot=current unit=%s invocation=%s\n' "$unit" "$inv"
+    journalctl -u "$unit" -b "_SYSTEMD_INVOCATION_ID=$inv" -n 30 --no-pager 2>&1; } > "$out" \
+    || { l34_reason "L34_V7_BROKER_JOURNAL_UNREADABLE"; return 1; }
 }
 
 # l34_v7_broker_conf_gate FILE — the broker configuration is the proven listener pair and nothing wider: among the ACTIVE directives exactly
@@ -703,13 +716,18 @@ l34_v7_broker_conf_gate() {
 
 # l34_v7_broker_churn_gate JOURNAL_TAIL_FILE < `l34_v7_broker_show UNIT` — the ONE supported broker PRE-state. systemd state alone cannot tell "crash-looping
 # because 10.77.30.1 is absent" from any other crash loop, so ALL of these must hold together: loaded+enabled unit, Restart=on-failure with the expected
-# RestartUSec, currently between automatic restarts (activating/auto-restart, MainPID=0), last run ended in a plain exit status 1 (Result=exit-code;
+# RestartUSec, a non-empty valid InvocationID whose current-boot journal (l34_v7_broker_journal_capture) is the only evidence considered, currently
+# between automatic restarts (activating/auto-restart, MainPID=0), last run ended in a plain exit status 1 (Result=exit-code;
 # not a signal, OOM, timeout or start-limit-hit), a numeric restart counter, the broker's own bind-failure signature in the bounded journal tail, and
 # NO other `Error:` line in that tail (a second, unrelated failure signature refuses the baseline).
 l34_v7_broker_churn_gate() {
-  local journal=${1:-} text kv
+  local journal=${1:-} text kv inv
   [ -n "$journal" ] && [ -r "$journal" ] || { l34_reason "L34_V7_BROKER_JOURNAL_UNREADABLE"; return 1; }
   text=$(cat)
+  inv=$(sed -n 's/^InvocationID=//p' <<< "$text")
+  [[ "$inv" =~ ^[0-9a-f]{32}$ ]] || { l34_reason "L34_V7_BROKER_INVOCATION_ID_INVALID"; return 1; }
+  [ "$(head -n 1 "$journal")" = "# AEGIS-V7-CORRELATION boot=current unit=$L34_V7_BROKER_UNIT invocation=$inv" ] \
+    || { l34_reason "L34_V7_BROKER_JOURNAL_NOT_CORRELATED"; return 1; }
   for kv in LoadState=loaded ActiveState=activating SubState=auto-restart UnitFileState=enabled Result=exit-code MainPID=0 ExecMainStatus=1 \
     Restart=on-failure "RestartUSec=$L34_V7_RESTART_USEC"; do
     grep -qx "$kv" <<< "$text" || { l34_reason "L34_V7_BROKER_PRESTATE_UNEXPECTED:${kv%%=*}"; return 1; }

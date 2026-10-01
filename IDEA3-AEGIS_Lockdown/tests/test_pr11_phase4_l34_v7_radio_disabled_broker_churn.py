@@ -133,7 +133,7 @@ def test_v7_never_issues_a_core_control_command() -> None:  # M
 
 def test_v7_handlers_never_touch_firewall_nat_forwarding_profile_or_broker_config() -> None:
     for script in (APPLY, VERIFY, ROLLBACK, RUNNER):
-        text = code(script).replace('trap \'rm -f "$BROKER_JOURNAL_PREGATE"\' EXIT', "")  # the runner's only rm: its own mktemp journal capture
+        text = code(script).replace('trap \'rm -f "$BROKER_JOURNAL_PREGATE" "$BROKER_SHOW_PREGATE"\' EXIT', "")  # the runner's only rm: its own mktemp broker captures
         for pat in (r"\bnft\s+(add|delete|flush|-f|insert|replace)", r"sysctl\s+-w", r"nmcli\s+connection\s+(modify|delete|add|reload|import|edit)",
                     r"rfkill\s+(un)?block\s+all", r"iw\s+reg\s+set", r"\btee\s+/etc", r"\bsed\s+-i", r"\brm\s", r"\bmv\s", r"esptool",
                     r"mosquitto_pub", r"\bpaho\b", r"run-l7-owner", r"stages/L7", r"stages/L8", r"recovery_r[1-8]"):
@@ -595,3 +595,161 @@ def test_v7_never_prints_the_psk(tmp_path: Path) -> None:
     res = applied(fx)
     ver = run(fx, VERIFY)
     assert base.PSK not in res.stdout + res.stderr + ver.stdout + ver.stderr
+
+
+# ── 11. F2: broker failure evidence is bound to the CURRENT boot and the failed broker's CURRENT systemd InvocationID ──────────────────────────────
+
+INVOCATION = "0123456789abcdef0123456789abcdef"
+SHOW_TUPLE = (
+    "LoadState=loaded\nActiveState=activating\nSubState=auto-restart\nUnitFileState=enabled\nResult=exit-code\nMainPID=0\nNRestarts=182\n"
+    "ExecMainStatus=1\nRestart=on-failure\nRestartUSec=5s\n"
+)
+BIND_JOURNAL = "mosquitto[7579]: Opening ipv4 listen socket on port 8883.\nmosquitto[7579]: Error: Cannot assign requested address\n"
+
+
+def lib_call(body: str, tmp: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["bash", "-c", f'source "{LIB}"\n{body}'], text=True, capture_output=True, cwd=tmp, check=False)
+
+
+def gate_call(tmp: Path, show: str, journal: str) -> subprocess.CompletedProcess[str]:
+    (tmp / "show.txt").write_text(show)
+    (tmp / "journal.txt").write_text(journal)
+    return lib_call('l34_v7_broker_churn_gate "$PWD/journal.txt" < "$PWD/show.txt"', tmp)
+
+
+def header(boot: str = "current", inv: str = INVOCATION, unit: str = BROKER_UNIT) -> str:
+    return f"# AEGIS-V7-CORRELATION boot={boot} unit={unit} invocation={inv}\n"
+
+
+def test_v7_f2_gate_accepts_only_journal_evidence_correlated_to_the_shows_invocation(tmp_path: Path) -> None:
+    ok = gate_call(tmp_path, SHOW_TUPLE + f"InvocationID={INVOCATION}\n", header() + BIND_JOURNAL)
+    assert ok.returncode == 0, ok.stderr
+
+
+@pytest.mark.parametrize("show_extra,journal_head,reason", [
+    ("", header(), "L34_V7_BROKER_INVOCATION_ID_INVALID"),                                                    # no InvocationID line at all
+    ("InvocationID=\n", header(), "L34_V7_BROKER_INVOCATION_ID_INVALID"),                                     # empty
+    ("InvocationID=not-hex\n", header(inv="not-hex"), "L34_V7_BROKER_INVOCATION_ID_INVALID"),                 # malformed
+    ("InvocationID=" + INVOCATION.upper() + "\n", header(inv=INVOCATION.upper()), "L34_V7_BROKER_INVOCATION_ID_INVALID"),
+    (f"InvocationID={INVOCATION}\n", "", "L34_V7_BROKER_JOURNAL_NOT_CORRELATED"),                              # uncorrelated (legacy shape)
+    (f"InvocationID={INVOCATION}\n", header(inv="f" * 32), "L34_V7_BROKER_JOURNAL_NOT_CORRELATED"),           # earlier/other invocation
+    (f"InvocationID={INVOCATION}\n", header(boot="previous"), "L34_V7_BROKER_JOURNAL_NOT_CORRELATED"),        # previous boot
+    (f"InvocationID={INVOCATION}\n", header(unit="aegis-idea3-core.service"), "L34_V7_BROKER_JOURNAL_NOT_CORRELATED"),  # wrong unit
+])
+def test_v7_f2_gate_refuses_missing_or_uncorrelated_identity(tmp_path: Path, show_extra: str, journal_head: str, reason: str) -> None:
+    res = gate_call(tmp_path, SHOW_TUPLE + show_extra, journal_head + BIND_JOURNAL)
+    assert res.returncode == 1 and reason in res.stderr, res.stderr
+
+
+def test_v7_f2_capture_queries_the_current_boot_and_the_failed_invocation(tmp_path: Path) -> None:
+    fx = v7(tmp_path)
+    res = run(fx, APPLY, AEGIS_L34_PREFLIGHT_ONLY="YES")
+    assert res.returncode == 0, res.stderr
+    inv = sim._invocation_id(BROKER_UNIT, 0, fx.state()["broker_nrestarts_pre"])
+    assert f"journalctl -u {BROKER_UNIT} -b _SYSTEMD_INVOCATION_ID={inv} -n 30 --no-pager" in fx.calls()
+    first = (fx.work / "broker-journal-pre.txt").read_text().splitlines()[0]
+    assert first == f"# AEGIS-V7-CORRELATION boot=current unit={BROKER_UNIT} invocation={inv}"
+
+
+@pytest.mark.parametrize("over", [
+    dict(broker_journal_stale_bind="previous_boot"),                                          # expected bind evidence from a previous boot
+    dict(broker_journal_stale_bind="earlier_invocation"),                                     # expected bind evidence from an earlier invocation
+    dict(broker_journal_stale_bind="earlier_invocation", broker_crashloop_cause="other"),     # stale bind + unrelated current failure
+    dict(broker_journal_stale_bind="previous_boot", broker_crashloop_cause="other"),
+])
+def test_v7_f2_stale_bind_evidence_never_satisfies_the_baseline(tmp_path: Path, over: dict) -> None:
+    fx = v7(tmp_path, **over)
+    res = run(fx, APPLY)
+    assert res.returncode == 1 and "L34_V7_BROKER_JOURNAL_SIGNATURE_MISSING" in res.stderr, res.stderr
+    no_mutation(fx)
+
+
+@pytest.mark.parametrize("inv", ["", "not-a-hex-id", "ABCDEF0123456789ABCDEF0123456789"])
+def test_v7_f2_missing_or_malformed_invocation_id_is_refused(tmp_path: Path, inv: str) -> None:
+    fx = v7(tmp_path, broker_crashloop_override={"InvocationID": inv})
+    res = run(fx, APPLY)
+    assert res.returncode == 1 and "L34_V7_BROKER_INVOCATION_ID_INVALID" in res.stderr, res.stderr
+    no_mutation(fx)
+
+
+def test_v7_f2_unrelated_current_failure_is_still_refused(tmp_path: Path) -> None:
+    fx = v7(tmp_path, broker_crashloop_cause="other")
+    res = run(fx, APPLY)
+    assert res.returncode == 1 and "L34_V7_BROKER_JOURNAL_SIGNATURE_MISSING" in res.stderr
+    no_mutation(fx)
+
+
+def test_v7_f2_does_not_add_any_broker_control_and_keeps_every_other_churn_check() -> None:
+    body = lib_v7()
+    assert "_SYSTEMD_INVOCATION_ID=" in body and "journalctl -u" in body and " -b " in body
+    assert not re.search(r"systemctl\s+(start|stop|restart|reset-failed|kill)", body)
+    gate = body.split("l34_v7_broker_churn_gate() {", 1)[1].split("\n}\n", 1)[0]
+    for kept in ("LoadState=loaded", "ActiveState=activating", "SubState=auto-restart", "UnitFileState=enabled", "Result=exit-code", "MainPID=0",
+                 "ExecMainStatus=1", "Restart=on-failure", "RestartUSec=$L34_V7_RESTART_USEC", "NRestarts=", "L34_V7_BIND_SIGNATURE", "OTHER_ERROR"):
+        assert kept in gate, kept
+
+
+# ── 12. F3: rfkill identity evidence and rollback fail-closed ownership ──────────────────────────────────────────────────
+
+def test_v7_f3_verify_refuses_missing_rfkill_identity_evidence(tmp_path: Path) -> None:
+    fx = v7(tmp_path)
+    applied(fx)
+    (fx.work / "rfkill_id").unlink()
+    ver = run(fx, VERIFY)
+    assert ver.returncode == 1 and "PRE_BASELINE_MISSING:rfkill_id" in ver.stderr
+
+
+def test_v7_f3_verify_refuses_mismatched_rfkill_identity_evidence(tmp_path: Path) -> None:
+    fx = v7(tmp_path)
+    applied(fx)
+    (fx.work / "rfkill_id").write_text("0\n")   # the bluetooth rfkill, not the recorded wlan target (1)
+    ver = run(fx, VERIFY)
+    assert ver.returncode == 1, ver.stdout
+    assert "L34_RFKILL_NON_TARGET_CHANGED" in ver.stderr or "L34_TARGET_RFKILL_NOT_UNBLOCKED" in ver.stderr, ver.stderr
+
+
+def test_v7_f3_rollback_refuses_missing_rfkill_identity_evidence_when_it_unblocked(tmp_path: Path) -> None:
+    fx = v7(tmp_path)
+    applied(fx)
+    (fx.work / "rfkill_id").unlink()
+    rb = run(fx, ROLLBACK)
+    assert rb.returncode == 1 and "RFKILL_ID_JOURNAL_MISMATCH" in rb.stderr
+    assert not [c for c in fx.calls() if c.startswith("rfkill block")], "no block command may be issued without proven identity"
+
+
+def test_v7_f3_rollback_refuses_mismatched_rfkill_identity_evidence(tmp_path: Path) -> None:
+    fx = v7(tmp_path)
+    applied(fx)
+    (fx.work / "rfkill_id").write_text("0\n")
+    rb = run(fx, ROLLBACK)
+    assert rb.returncode == 1 and "RFKILL_ID_JOURNAL_MISMATCH" in rb.stderr
+    assert not [c for c in fx.calls() if c.startswith("rfkill block")]
+
+
+def test_v7_f3_rollback_refuses_a_journaled_rfkill_id_that_is_not_numeric(tmp_path: Path) -> None:
+    fx = v7(tmp_path)
+    applied(fx)
+    with (fx.work / "journal.tsv").open("a") as fh:
+        fh.write("RFKILL_UNBLOCK\tall\n")
+    rb = run(fx, ROLLBACK)
+    assert rb.returncode == 1 and "JOURNAL_ENTRY_NOT_OWNED" in rb.stderr
+    assert not [c for c in fx.calls() if c.startswith("rfkill block")]
+
+
+def test_v7_f3_rollback_without_any_journal_fails_closed_and_mutates_nothing(tmp_path: Path) -> None:
+    fx = v7(tmp_path)
+    applied(fx)
+    (fx.work / "journal.tsv").unlink()
+    before = len(fx.mutating_calls())
+    rb = run(fx, ROLLBACK)
+    assert rb.returncode == 1 and "JOURNAL_MISSING" in rb.stderr
+    assert len(fx.mutating_calls()) == before
+
+
+def test_v7_f3_rollback_never_blocks_rfkill_it_did_not_unblock(tmp_path: Path) -> None:
+    fx = v7(tmp_path)
+    applied(fx)
+    kept = [l for l in (fx.work / "journal.tsv").read_text().splitlines() if not l.startswith("RFKILL_UNBLOCK")]
+    (fx.work / "journal.tsv").write_text("\n".join(kept) + "\n")
+    run(fx, ROLLBACK)
+    assert not [c for c in fx.calls() if c.startswith("rfkill block")], "ownership is proven only by the journal entry"
