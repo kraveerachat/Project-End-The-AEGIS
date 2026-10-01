@@ -184,7 +184,7 @@ def test_shared_gate_library_was_only_appended_to() -> None:
     assert text.count(V6_MARKER) == 1
     prefix = text.split(V6_MARKER, 1)[0]
     assert hashlib.sha256((prefix.rstrip("\n") + "\n").encode()).hexdigest() == LIB_PRE_V6_SHA256
-    v6 = text.split(V6_MARKER, 1)[1]
+    v6 = text.split(V6_MARKER, 1)[1].split("# ── V7 (RADIO-DISABLED + BROKER-CHURN) reactivation", 1)[0]  # V7 (a later, separate section) appends after V6
     assert not re.search(r"^l34_(?!v6_)\w+\(\)", v6, re.M), "V6 adds only l34_v6_* functions"
     for script in (DEPLOY / "reactivation" / d for d in ("l34", "l34-v4-post-l6b", "l34-v5-post-l6b-degraded")):
         assert "l34_v6_" not in "".join(p.read_text() for p in script.glob("*.sh"))
