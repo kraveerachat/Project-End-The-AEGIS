@@ -285,7 +285,7 @@ async function streamHarness(t, scenario = 'normal', service = null) {
   const express = (await import('express')).default
   const state = { acquired: [], released: [], fetched: [], renewed: [], cancelled: 0, aborted: 0,
     authorization: [], live: true, assignment: true, active: new Set(), retired: false, maxRenewing: 0,
-    events: [], reloads: 0 }
+    events: [], reloads: 0, drainEvents: 0, closesBeforeRelease: 0 }
   let renewing = 0
   const generation = '9007199254740993'
   const binding = Buffer.alloc(32, 7).toString('base64url')
@@ -329,7 +329,8 @@ async function streamHarness(t, scenario = 'normal', service = null) {
       renewing += 1
       state.maxRenewing = Math.max(state.maxRenewing, renewing)
       try {
-        if (scenario === 'renewal-failure') throw new CameraAccessError(403, 'PRODUCER_AUTHORITY_DENIED')
+        if (scenario === 'renewal-failure' || scenario === 'backpressure-renewal')
+          throw new CameraAccessError(403, 'PRODUCER_AUTHORITY_DENIED')
         if (scenario === 'slow-renewal') await new Promise(resolve => setTimeout(resolve, 40))
         return service ? await service.renew({ handle, access, sessionBinding }) : handle
       } finally { renewing -= 1; state.events.push('renew-end') }
@@ -355,8 +356,10 @@ async function streamHarness(t, scenario = 'normal', service = null) {
     let reads = 0
     let pendingResolve
     let frameTimer
+    let readerClosed = false
     const reader = {
       read() {
+        if (readerClosed) return Promise.resolve({ done: true })
         reads += 1
         if (scenario === 'reader-read-throw') throw new Error('reader failed')
         if (reads === 1) return Promise.resolve({ done: false, value: Buffer.from('frame') })
@@ -369,6 +372,7 @@ async function streamHarness(t, scenario = 'normal', service = null) {
         })
       },
       cancel() {
+        readerClosed = true
         clearTimeout(frameTimer)
         state.cancelled += 1
         pendingResolve?.({ done: true })
@@ -384,13 +388,19 @@ async function streamHarness(t, scenario = 'normal', service = null) {
   const app = express()
   app.use(express.json())
   app.use((req, _res, next) => {
+    if (scenario.startsWith('backpressure-')) {
+      const write = _res.write.bind(_res)
+      _res.write = (...args) => { write(...args); return false }
+      _res.on('drain', () => { state.drainEvents += 1 })
+      _res.on('close', () => { if (!state.released.length) state.closesBeforeRelease += 1 })
+    }
     req.session = { createdAt: Date.now(), nodeSessionBinding: binding,
       user: { id: req.headers['x-test-user'] === '3' ? 3 : 2, username: 'operator', role: 'CCTV-Operator' },
       reload(callback) {
         state.reloads += 1
         if (scenario === 'slow-reload') return setTimeout(callback, 40)
         if (scenario === 'session-revoked') return callback(new Error('revoked'))
-        if (scenario === 'assignment-revoked') state.assignment = false
+        if (scenario === 'assignment-revoked' || scenario === 'backpressure-revoked') state.assignment = false
         if (!state.live) return callback(new Error('session destroyed'))
         if (scenario === 'absolute-expiry') req.session.createdAt = 1
         callback()
@@ -567,6 +577,30 @@ test('socket close during acquire releases the returned demand without opening E
   assert.deepEqual(state.released, state.acquired)
   assert.equal(state.fetched.length, 0)
 })
+
+for (const scenario of ['backpressure-idle', 'backpressure-revoked', 'backpressure-renewal']) {
+  test(`connected non-draining HTTP viewer releases demand on ${scenario}`, async t => {
+    const { state, open } = await streamHarness(t, scenario)
+    const response = await open()
+    response.resume()
+    try {
+      const deadline = Date.now() + 250
+      while (!state.released.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5))
+      assert.equal(state.released.length, 1, 'server abort must reach finally without browser close/drain')
+      assert.deepEqual(state.released, state.acquired)
+      assert.equal(state.drainEvents, 0)
+      assert.equal(state.closesBeforeRelease, 0)
+      assert.equal(state.cancelled, 1)
+      assert.equal(state.aborted, 1)
+      if (scenario === 'backpressure-revoked') assert.equal(state.renewed.length, 0)
+      if (scenario === 'backpressure-renewal') assert.equal(state.renewed.length, 1)
+    } finally {
+      response.destroy()
+      const cleanupDeadline = Date.now() + 200
+      while (!state.released.length && Date.now() < cleanupDeadline) await new Promise(resolve => setTimeout(resolve, 5))
+    }
+  })
+}
 
 test('real PostgreSQL HTTP viewers share one epoch; final route cleanup retires it', {
   skip: !process.env.AEGIS_MONITOR_TEST_DATABASE_URL && 'requires explicit disposable AEGIS_MONITOR_TEST_DATABASE_URL',
