@@ -20,20 +20,21 @@ edit_policy: owner-writable
 
 ## IDEA3 R5 normal-path RESTORE + break-glass (OD-R5-BG-01) — repository only — 2026-10-02
 
-> [!important] Repository/local only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-recovery-r5-normal-path-rebuild`, Draft PR. No Production mutation, Core restart, L7u, Recovery, ESP32, L8p or L8 execution. This section supersedes the F1 section's `R5_REPOSITORY_MERGED = NO` / `BREAK_GLASS_IMPLEMENTED = NO` held-back note for the branch state; PR #286 (L8p owner runner) is now merged on main (`bfbe1dc6`), superseding the "Draft/unmerged" wording above.
+> [!important] Repository/local only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-recovery-r5-normal-path-rebuild`, Draft PR. No Production mutation, Core restart, L7u, Recovery, ESP32, L8p or L8 execution. This section supersedes the F1 section's `R5_REPOSITORY_MERGED = NO` / `BREAK_GLASS_IMPLEMENTED = NO` held-back note for the branch state; PR #286 (L8p owner runner) is **MERGED** on main (`bfbe1dc68c241c36e7ed6d354545567a581b5553`); the L8p owner runner section below is reconciled accordingly.
 > `R5_REPOSITORY_IMPLEMENTED = YES`, `R5_LOCAL_VERIFIED = YES`, `BREAK_GLASS_IMPLEMENTED = YES`, `OD_R5_BG_01 = APPROVED`, `R5_PRODUCTION_DEPLOYED = NO`, `RECOVERY_LIVE = NOT_RUN`, `L7U_LIVE_FINAL = NOT_PROVEN`, `L8P_LIVE = NOT_AUTHORIZED`, `L8_LIVE = NOT_RUN`, `BREAK_GLASS_COUNTS_AS_R4 = NO`, `BREAK_GLASS_COUNTS_AS_R5 = NO`
 
 - **Normal RESTORE (R5):** R1 VERIFIED -> R3 VERIFIED -> live containment read-back -> fresh R2 VERIFIED -> D4 -> RESTORE. Missing live containment after a VERIFIED R3 is not convertible to break-glass.
 - **Break-glass (operational recovery only):** authenticated v1 LOCKDOWN, durable lockdown episode, fresh current-process LOCKDOWN proof, fresh R2 VERIFIED, D4, `RESTORE UPLINK`, `BREAK GLASS RESTORE UPLINK`, reason, explicit `break_glass=true`; one durable claim per episode spent before publish; normal path takes priority; Case A (no incident) and Case B (latest durable R3 FAILED) only.
 - **Boundary:** break-glass gives no R4/R5 acceptance credit. Merging requires a separate governed deployment stage.
-- **Receipt:** `90-Status/logs/2026-10-02_120000_music_idea3-r5-break-glass.md`.
+- **Receipt:** `90-Status/logs/2026-10-02_055732_music_idea3-r5-break-glass.md`.
+- **Authoritative main at this reconciliation:** `bfbe1dc68c241c36e7ed6d354545567a581b5553`. `PR #284 = MERGED`, `PR #286 = MERGED` (merge commit `bfbe1dc68c241c36e7ed6d354545567a581b5553`).
 
 ---
 
 ## IDEA3 PR11 Phase 4 L8p owner runner (inert template) — repository only — 2026-10-02
 
-> [!important] Repository-only; branch `feat/idea3-l8p-owner-runner`, pushed normally (no force-push) to **Draft PR #286, unmerged** (the owner runner is NOT merged and is not part of main). **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, L8p, Recovery and L8 not run.
-> `L8P_OWNER_RUNNER_REPOSITORY_IMPLEMENTED = YES`, `L8P_OWNER_RUNNER_LOCAL_VERIFIED = YES`, `L8P_LIVE = NOT_AUTHORIZED`, `REAL_ESP32_TOUCHED = NO`, `REAL_SERIAL_ACCESSED = NO`, `L7U_LIVE_FINAL = NOT_PROVEN`, `RECOVERY_LIVE = NOT_RUN`, `LVR = NOT_RUN`, `L8_LIVE = NOT_RUN`, `ELECTRICAL_RELAY_PROOF = NO`
+> [!important] Repository-only; branch `feat/idea3-l8p-owner-runner`, pushed normally (no force-push) as PR #286, which is now **MERGED** at `bfbe1dc68c241c36e7ed6d354545567a581b5553` (the owner runner is part of main; it remains an inert template). **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, L8p, Recovery and L8 not run.
+> `L8P_OWNER_RUNNER_REPOSITORY_IMPLEMENTED = YES`, `L8P_OWNER_RUNNER_MERGED = YES`, `L8P_OWNER_RUNNER_LOCAL_VERIFIED = YES`, `L8P_LIVE = NOT_AUTHORIZED`, `REAL_ESP32_TOUCHED = NO`, `REAL_SERIAL_ACCESSED = NO`, `L7U_LIVE_FINAL = NOT_PROVEN`, `RECOVERY_LIVE = NOT_RUN`, `LVR = NOT_RUN`, `L8_LIVE = NOT_RUN`, `ELECTRICAL_RELAY_PROOF = NO`
 
 - **What it is:** `deploy/pr11-phase4/owner-run/run-l8p-owner.sh` (+ `p4-l8p-run-lib.sh`), following the L7u owner-run pattern. The committed copy is an **inert template**: eighteen `PIN_` values (including the frozen operator user and uid, enforced by the reused L7u identity gate before anything else) make it refuse until the owner freezes it outside the repository after the FINAL source set is merged. It holds no device logic; every device operation is the canonical L8p handler set (merged L8 `HardwareDevice` and signed BOOT verifier).
 - **Gates and flow:** same-day `stage=L8p` authorization + K3 through the reused `p4-stage-gate.sh --stage L8p --mode live`; predecessor receipts from the pinned commit **including a PROVEN final L7u** (none exists, so a real run fails closed today); runtime gates; PRE capture and checksum; one attempt (`L8p-ATTEMPT-CONSUMED`, never reused from L7u); apply once, verify, POST capture, PRE/POST compare, secret scan. A failure calls the canonical rollback (`L8P_DEVICE_ACTION_TAKEN=NONE`, after the first write `L8P_ROLLBACK=FAIL_SECURE_HOLD_AND_EVIDENCE`), then a mandatory RB capture and PRE->RB compare; no retry, reflash, erase, CUT, RESTORE or plaintext 1883; physical recovery stays manual.
@@ -45,14 +46,14 @@ edit_policy: owner-writable
 
 ## IDEA3 PR11 Phase 4 L8p device provisioning stage on the canonical L8 backend — repository only — 2026-10-02
 
-> [!important] Repository-only. **PR #284 = MERGED** (merge commit `097416e0aba6d71a2e5d215fd5d43b3982c18f09`; current main `fa22edd5d5db18e692e7814b895f7af3d3c166dc` also contains later PR #283). **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, Recovery and L8 not run.
+> [!important] Repository-only. **PR #284 = MERGED** (merge commit `097416e0aba6d71a2e5d215fd5d43b3982c18f09`; main at the time was `fa22edd5…`; current authoritative main is `bfbe1dc68c241c36e7ed6d354545567a581b5553`). **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, Recovery and L8 not run.
 > `OD_L8P_01 = APPROVED`, `L8_HARDWARE_BACKEND = IMPLEMENTED_REPOSITORY / MERGED (PR #247)`, `L8P_REPOSITORY_IMPLEMENTED = YES`, `L8P_LOCAL_VERIFIED = YES`, `L8P_LIVE = NOT_AUTHORIZED`, `REAL_ESP32_TOUCHED = NO`, `RECOVERY_LIVE = NOT_RUN`, `LVR = NOT_RUN`, `L8_LIVE = NOT_RUN`, `ELECTRICAL_RELAY_PROOF = NO`
 
 - **Decision (OD-L8P-01):** for L8p only, `D4_LIVE_REQUIRED_BEFORE_L8P_FLASH = NO`; an owner-attested physical recovery procedure satisfies the pre-write recovery prerequisite. L8 is unchanged: `OD14_L8_RECOVERY_POLICY = D4_ONLY`, `INTERIM_RECOVERY_PROCEDURE = NOT_APPROVED`, `D4_LIVE_REQUIRED_BEFORE_L8_FLASH = YES`. Recorded in the L8 operational design.
 - **Stage:** `L8p` sits between `L7u` and `L8` (`L7 -> L7u -> L8p -> Recovery R1-R8 -> LVR -> L8`); it provisions the ESP32 only and claims no Recovery, LVR, L8 live or electrical-relay result. Spec: `docs/superpowers/specs/2026-10-02-idea3-pr11-phase4-l8p-device-provisioning-only.md`.
 - **One canonical flow:** L8p reuses the merged L8 `HardwareDevice`, executor, argv validator, NVS and firmware readback, single terminal reset, signed BOOT verifier and the 12-field evidence (file `l8p-<run_id>.json`, no 13th field). The old L8p backend (`f626776c`) was not ported. `p4-l8p-device.py` is thin governance (attestation, pins, NVS schema); the canonical `p4-l8-device.py` gained only a small fail-closed `StageProfile` hook (default = L8 with D4).
 - **Verification:** see the receipt `90-Status/logs/2026-10-02_023247_music_idea3-l8p-canonical-provisioning-stage.md`. Fixture and fake executor only.
-- **Still required before any live L8p:** a merged owner runner (`L8P_OWNER_RUNNER_REPOSITORY_IMPLEMENTED = YES` in Draft PR #286, **unmerged**, not yet part of main), a merged PROVEN final L7u receipt, freezing the runner, reviewed firmware/partition pins and the written physical recovery procedure, same-day authorization plus K3, and explicit owner live authorization. `L8P_LIVE = NOT_AUTHORIZED`. F1 (PR #282) is preserved untouched.
+- **Still required before any live L8p:** the merged owner runner (`L8P_OWNER_RUNNER_REPOSITORY_IMPLEMENTED = YES`, `L8P_OWNER_RUNNER_MERGED = YES`, PR #286 **MERGED** at `bfbe1dc68c241c36e7ed6d354545567a581b5553`; still an inert template the owner must freeze), a merged PROVEN final L7u receipt, freezing the runner, reviewed firmware/partition pins and the written physical recovery procedure, same-day authorization plus K3, and explicit owner live authorization. `L8P_LIVE = NOT_AUTHORIZED`. F1 (PR #282) is preserved untouched.
 
 ---
 

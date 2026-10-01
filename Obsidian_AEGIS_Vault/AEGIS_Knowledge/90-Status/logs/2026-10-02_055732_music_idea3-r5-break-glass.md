@@ -1,6 +1,6 @@
 ---
 title: Task Receipt — IDEA3 R5 normal-path RESTORE + OD-R5-BG-01 break-glass (repository only)
-date: 2026-10-02T12:00:00+07:00
+date: 2026-10-02T05:57:32+07:00
 owner: music
 area: idea3
 branch: feat/idea3-recovery-r5-normal-path-rebuild
@@ -28,8 +28,11 @@ edit_policy: append-by-new-file
 ## Verification evidence
 
 - Post-merge `pytest` (venv `aegis-idea3-core`): break-glass 63 passed; restore-policy 50 passed; core_recovery + core_recovery_security + mqtt_client + supervisor convergence 145 passed; local_restore 150 passed; alert_ingress (F1) 60 passed; L7u stage governance 84, L8p provisioning 96, L8p owner runner 96 passed; L7/L7u release builder, guard helper and runtime contract 153 passed.
-- Scratch immutable release built with `p4-l7-build-release.py build` (offline stub wheelhouse, source SHA `502eefdd`, tree clean, 40 files) and `verify --expect-owner self` PASS; seven runtime files present and byte-identical to source; lockdown episode, break-glass, status callback, F1 ingress present. Not installed to Production.
-- L7u recovery-runtime/preflight guard exercised in fixture/non-Production mode only (contract and release-builder tests above); L7u was not run live.
+- **Chronology:** the earlier source-verification run was `FULL_TESTS=5132 passed, 8 skipped, 0 failed` plus the targeted post-merge runs above. The final review-fix commit changes documentation/provenance only (no source or test change), so that run is retained as the source verification and the full suite was not rerun; after the fixes only the targeted sanity suites were rerun.
+- **Superseded evidence:** the earlier scratch release used the test-suite STUB wheelhouse (source `502eefdd`); it is not final evidence.
+- **Final release (REAL owner offline wheelhouse):** `p4-l7-build-release.py build --source-root <this worktree> --release-id r5-bg-final-36d34083 --wheelhouse /home/kittipat/Workspace/idea3-p4-evidence/l7u-wheelhouse` (the same wheelhouse PR #288's release verification used; `paho_mqtt-2.1.0` only, no network, interpreter `~/.venvs/aegis-idea3-core`). `L7_RELEASE_BUILD=PASS`, `SOURCE_GIT_SHA=36d3408385ca1a1faa45ec8fdac6ebaa10f07c7d`, `SOURCE_TREE_DIRTY=NO`, `FILE_COUNT=50`; scratch path `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-02-r5-final-build-055755/r5-bg-final-36d34083`. `verify --expect-owner self`: `L7_RELEASE_VERIFY=PASS`. Source SHA `36d34083` is the final source tree; the review-fix commit that follows touches only vault documents.
+- Release runtime files `recovery_core.py`, `recovery_protocol.py`, `recovery_client.py`, `recovery_ui.py`, `local_restore.py`, `database.py`, `supervisor.py` are byte-identical to source (`cmp`). Present in the release: R5 chokepoint (`RecoveryCore._restore_gate` / `restore_precondition_unmet`), lockdown episode model (`database.get_open_lockdown_episode` / `fetch_lockdown_episodes`), break-glass gate (`break_glass_unmet`, `break_glass_claim_for_episode`), authenticated status callback (`Supervisor._on_authenticated_status`), F1 alert ingress (`recovery_core.AlertIngress`, `Supervisor.start_alert_ingress`). Not installed to Production.
+- **Actual L7u guard invocation (fixture / non-Production, not a pytest):** `p4-l7u-upgrade.py`'s own `load_guard()` -> `guard.check("<RELEASES>/r5-bg-final-36d34083", <scratch release>, "self")` returned `("r5-bg-final-36d34083", "36d3408385ca1a1faa45ec8fdac6ebaa10f07c7d")`, plus the engine's `RECOVERY_RUNTIME_FILES` presence check (none missing). `L7U_PREFLIGHT_GUARD=PASS`. L7u was not run live.
 
 ## Canonical notes updated
 
