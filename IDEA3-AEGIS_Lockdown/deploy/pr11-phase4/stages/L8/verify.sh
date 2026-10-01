@@ -41,6 +41,7 @@ ALLOWED = {
     "firmware_sha256",
     "nvs_schema_version",
     "nvs_readback_match",
+    "firmware_readback_match",
     "flash_result",
     "boot_verification_result",
     "failure_boundary",
@@ -58,6 +59,10 @@ if not isinstance(bundle, dict) or set(bundle) != ALLOWED:
 
 if bundle["nvs_readback_match"] != "PASS":
     sys.stderr.write("NVS_READBACK_NOT_PASS\n")
+    raise SystemExit(2)
+
+if bundle["firmware_readback_match"] != "PASS":
+    sys.stderr.write("FIRMWARE_READBACK_NOT_PASS\n")
     raise SystemExit(2)
 
 if bundle["flash_result"] != "PASS":

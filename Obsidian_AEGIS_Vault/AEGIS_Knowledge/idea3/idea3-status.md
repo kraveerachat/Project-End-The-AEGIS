@@ -144,6 +144,36 @@ edit_policy: owner-writable
 - **Flaky test:** `test_real_end_to_end_capture_then_compare_requires_the_allow_file` reads the real host journal/listeners. The engine heartbeat drift is one cause and is removed by this fix, but the test still flaked (9 of 40 runs after the fix) on unrelated live-host churn (ephemeral `enp62s0` UDP listeners, IDEA2 tunnel `activating`↔`active`). The fix does **not** make it deterministic.
 - **Receipt:** `90-Status/logs/2026-09-29_115112_music_idea3-l34-v5-convergence-preservation-fix.md`.
 
+---
+
+## IDEA3 PR11 Phase 4 L8 real-hardware backend and boot verification — repository implementation only — 2026-09-29
+
+> [!important] Repository-only. **No hardware was accessed**: no serial port opened, no esptool/pio run, no firmware flashed, no NVS written, no flash erased, no relay actuated, no broker contacted. `LIVE_L8 = NOT_AUTHORIZED`. Boot verification is now implemented in the repository (signed BOOT STATUS, fake-client tested) but never exercised live.
+
+```text
+Task                          = IDEA3 PR11 L8 real hardware backend (repository-only)
+Branch                        = feat/idea3-pr11-l8-hardware-backend
+HARDWARE_BACKEND              = IMPLEMENTED_REPOSITORY (was HARDWARE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY)
+HARDWARE_TESTED_WITH          = FAKE_EXECUTOR_ONLY
+LIVE_L8                       = NOT_AUTHORIZED
+LIVE_L8_PHYSICAL_PROOF        = NOT_PROVEN
+BOOT_VERIFICATION_IMPLEMENTED_REPOSITORY = YES (signed BOOT STATUS; fake client only)
+BOOT_PASS_SEMANTICS           = AUTHENTICATED_FIRMWARE_REPORTED_LOCKDOWN (not electrical relay proof)
+L9_REUSES_L8_BOOT_EVENT       = YES
+LIVE_L8_ACCEPTANCE            = NOT_PROVEN
+D4_LIVE                       = NOT_PROVEN
+```
+
+- **Toolchain binding:** subprocess adapter over the PlatformIO-pinned `tool-esptoolpy` 2.41100.0 (esptool 4.11.x) that `espressif32@7.0.1` resolves; baud from `platformio.ini` `upload_speed`. No pyserial, no second flasher.
+- **Gate:** hardware needs `AEGIS_L8_BACKEND=hardware` **and** `AEGIS_L8_LIVE_AUTHORIZED=YES` (+ `AEGIS_L8_ESPTOOL`); enforced by `apply.sh` and, independently, by `p4-l8-device.py`. Import/construct/parse/validate touch nothing.
+- **Containment:** one injectable executor and one argv allowlist (`flash_id`, `write_flash`, `read_flash` only) bound to the OV-12 serial port and the two table-derived regions. Erase, `write_mem`, eFuse, PlatformIO upload, CUT/RESTORE, MQTT and 1883 are unreachable.
+- **Failure policy unchanged:** first-write marker before the first write; any later failure is contained as evidence (`DEVICE_WRITE` / `NVS_READBACK` / `FIRMWARE_READBACK` / `BOOT_VERIFICATION`) and held `FAIL_SECURE_HOLD_AND_EVIDENCE`; no retry/reflash/restore; `rollback.sh` post-write performs zero device action; evidence is the exact 12-field write-once 0600 bundle (the original eleven plus `firmware_readback_match`, allowed values `PASS` / `FAIL`; OD-L8-09 amendment, owner approved).
+- **Boot verification:** `p4-l8-boot-verify.py` is a subscribe-only signed-BOOT-STATUS check (no publish path; TLS 8883; staged Core broker credential, no new broker user or ACL; real Protocol v1 `InboundVerifier` over ephemeral state, never the Core replay store; armed after identity and before the first write; 180 s deadline; PASS requires an authenticated non-retained `BOOT`/`LOCKDOWN`/`SYNCED` frame carrying the new NVS `seq_hi` and `device_time >= T0-2`; `NORMAL` = FAIL; else NOT_PROVEN, held as `FAIL_SECURE_HOLD_AND_EVIDENCE`). Hardware needs four extra broker inputs or refuses before device access (`BOOT_VERIFICATION_NOT_CONFIGURED`). L9 keeps PERIODIC, HEARTBEAT, the negative matrix and Core liveness, and reuses this BOOT event. Electrical relay proof stays outside the verifier. Details: L8 operational design §8.4.
+- **Reconciled to current main and hardened (2026-10-01; repository only; pushed to PR #247, which is Ready for review and not merged):** `PR247_RECONCILED_TO_CURRENT_MAIN = YES` (current main `fff78feb7f7296a742794a31dffeb35a134a7660` was merged normally into the PR branch, with no rebase and no force-push; the branch is no longer behind main and the head moved by a normal fast-forward from `946bf968`), `FIRMWARE_READBACK_IMPLEMENTED = YES` (application region read back at the exact written offset and length, compared in memory, boolean only), `SINGLE_TERMINAL_RESET_IMPLEMENTED = YES` (reads never reset; one `flash_id --after hard_reset` after both readbacks compared equal; none on a mismatch or tool failure), `OD_L8_09_12_FIELD_AMENDMENT = APPROVED` (owner; new field `firmware_readback_match` PASS/FAIL; no raw firmware or NVS bytes, no secrets in evidence).
+- **Repository verification of that hardening:** hardware 80, boot 69, L8 handler 77, firmware readback 21, L7 + L7u 893, L9 154, full Phase 4 `3437 passed, 2 skipped, 0 failed`. `REAL_HARDWARE_ACCESSED = NO`, `ESP32_TOUCHED = NO`, `REAL_SERIAL_ACCESSED = NO`, `LIVE_L8 = NOT_AUTHORIZED`, `LIVE_L8_PHYSICAL_PROOF = NOT_PROVEN`, `ELECTRICAL_RELAY_PROOF = NO` (boot PASS stays firmware-reported lockdown). No Production deployment is claimed. The separate L8p provisioning-only stage is not part of this work and is not merged.
+- **Tests:** `tests/test_pr11_phase4_l8_boot_verify.py` (69, fake client/executor/clock, no network); `tests/test_pr11_phase4_l8_hardware_backend.py` (80, fake executor, autouse guard against real devices); `test_pr11_phase4_l8_handler.py` 77 (two stale refusal tests reconciled).
+- **Receipt:** `90-Status/logs/2026-09-29_055833_music_idea3-l8-hardware-backend-repository.md`.
+
 ## IDEA3 Web WEB-R2 Production Refresh — live closeout — 2026-09-28
 
 > [!important] The IDEA3 Security Center Web visual refresh is **DEPLOYED / VERIFIED** in Production. This section supersedes older broad language that said Web production deployment remained open **only for the Web visual-refresh scope**. Live IDEA1/IDEA2/IDEA3 status-adapter wiring, PR11 Phase 4 runtime completion, V4/L7/L8, and ESP32 work remain separate and open.
@@ -6438,6 +6468,7 @@ Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; 
 
 L8_HANDLER_REGISTERED         = YES
 L8_REPOSITORY_IMPLEMENTED     = YES
+L8_HARDWARE_BACKEND          = IMPLEMENTED_REPOSITORY (2026-09-29; fake-executor tested; live not exercised — see the L8 hardware backend section at the top)
 L8_OPERATIONAL_DESIGN         = COMPLETE (commit c2422924)
 RED_FIRST_PROVEN              = YES (53 failed / 17 passed, no import or syntax failure)
 
