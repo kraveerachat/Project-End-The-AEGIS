@@ -17,7 +17,7 @@ function iconFor(mediaType = '') {
 
 export const VAULT_MEDIA_HOLD_MS = 250
 
-export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view = 'active', previewKind = null, selected = false, onSelect, onPreview, onAction, keyDegraded = false, media = null, onDragStart, ...rest }) {
+export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view = 'active', previewKind = null, selected = false, onSelect, onPreview, onAction, keyDegraded = false, lockReason = null, media = null, onDragStart, ...rest }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [cardHovered, setCardHovered] = useState(false)
   const [hovering, setHovering] = useState(false)
@@ -29,7 +29,7 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
   const motionActiveRef = useRef(false)
   const mediaRef = useRef(media)
   mediaRef.current = media
-  const items = menuOpen ? vaultTreeMenuItems({ t, kind: 'file', view, previewKind, keyDegraded }) : []
+  const items = menuOpen ? vaultTreeMenuItems({ t, kind: 'file', view, previewKind, keyDegraded, lockReason }) : []
   const FileIcon = iconFor(node.mediaType)
   const previewClass = layout === 'list'
     ? 'size-12 rounded-[8px] bg-sunken flex items-center justify-center overflow-hidden shrink-0'
@@ -140,6 +140,11 @@ export function VaultFileTile({ t, node, tileRef = null, layout = 'grid', view =
           <span data-testid="vault-file-info" className="block text-[12px] text-ink-3 truncate w-full mt-0.5">
             {node.mediaType ? `${node.mediaType} · ${fmtBytes(node.plainSize)}` : fmtBytes(node.plainSize)}
           </span>
+          {media?.reasonLabel && (
+            <span data-testid="vault-media-reason" role="status" className="block text-[11px] leading-snug text-ink-3 mt-1">
+              {media.reasonLabel}
+            </span>
+          )}
         </span>
       </button>
       <FileCardMenuButton

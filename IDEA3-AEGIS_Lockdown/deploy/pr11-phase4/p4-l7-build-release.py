@@ -8,7 +8,8 @@ Produces, in a USER-OWNED staging directory, the release layout the L7 release g
 /opt/aegis-idea3/releases/<release-id>/ :
 
     venv/bin/python                  (copied interpreter, dependencies installed from a LOCAL wheelhouse)
-    aegis_soc/...                    (exactly the runtime closure of `python -m aegis_soc.supervisor`, computed from source)
+    aegis_soc/...                    (exactly the union of the runtime closures of the two release entrypoints, computed from source:
+                                      `python -m aegis_soc.supervisor` (Core) and `python -m aegis_soc.recovery_ui` (Recovery observer))
     requirements.txt
     RELEASE-MANIFEST.json            (exact allowlisted fields, no username/host/environment/secret paths)
     RELEASE-SHA256SUMS               (every payload file except itself, sorted)
@@ -49,6 +50,9 @@ SCHEMA_VERSION = 1
 PACKAGE = "aegis_soc"
 PROJECT_DIR = "IDEA3-AEGIS_Lockdown"
 ENTRYPOINT = "supervisor"
+# The release ships exactly two runtime entrypoints. recovery_ui is the Recovery observer (README "Core-mediated Recovery"); it is NOT
+# imported by the Core, so a supervisor-only closure would silently omit it and its recovery_client (L7u refuses such a release).
+ENTRYPOINTS = (ENTRYPOINT, "recovery_ui")
 
 RELEASE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", re.ASCII)
 SHA1_RE = re.compile(r"[0-9a-f]{40}", re.ASCII)
@@ -130,11 +134,12 @@ def _requirement_names(text: str) -> set[str]:
     return names
 
 
-def runtime_closure(project_root: Path, entry: str = ENTRYPOINT) -> tuple[list[str], set[str]]:
-    """Return (sorted aegis_soc module names reachable from `entry`, excluding __init__; set of third-party import roots)."""
+def runtime_closure(project_root: Path, entry: str | tuple[str, ...] = ENTRYPOINTS) -> tuple[list[str], set[str]]:
+    """Return (sorted aegis_soc module names reachable from the entrypoint(s) `entry`, excluding __init__; set of third-party import roots)."""
     pkg = project_root / PACKAGE
     modules = {p.stem for p in pkg.glob("*.py")}
-    if entry not in modules:
+    entries = (entry,) if isinstance(entry, str) else tuple(entry)
+    if not entries or any(e not in modules for e in entries):
         raise ReleaseError("ENTRYPOINT_MISSING")
     init_names: set[str] = set()
     init = pkg / "__init__.py"
@@ -145,7 +150,7 @@ def runtime_closure(project_root: Path, entry: str = ENTRYPOINT) -> tuple[list[s
     stdlib = set(sys.stdlib_module_names)
     seen: set[str] = set()
     third: set[str] = set()
-    todo = [entry]
+    todo = list(entries)
     while todo:
         name = todo.pop()
         if name in seen:
@@ -485,7 +490,7 @@ def verify_release(release_dir, *, expect_owner: str = "self", release_id: str |
         if m and not manifest["python_version"].startswith(m.group(1)):
             raise ReleaseError("PYTHON_VERSION_MISMATCH")
 
-    # The shipped package must be EXACTLY the runtime closure of its own entrypoint, and nothing but modules.
+    # The shipped package must be EXACTLY the runtime closure of its own entrypoints, and nothing but modules.
     pkg_files = sorted(p.name for p in (root / PACKAGE).iterdir())
     if any(not n.endswith(".py") for n in pkg_files):
         raise ReleaseError("NON_MODULE_FILE_IN_PACKAGE")

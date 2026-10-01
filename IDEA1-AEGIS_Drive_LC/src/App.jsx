@@ -5,12 +5,14 @@ import { makeT } from './lib/strings.js'
 import { useApi, useReducedMotion } from './lib/hooks.js'
 import { isPlatformWired } from './lib/fetchState.js'
 import { buildLocationForIntent, normalizeNavigationIntent, readLocationIntent, resolveAuthorizedScreen, visiblePrimaryNav } from './lib/navigationIntent.js'
+import { armAuthenticatedBackBoundary, authenticatedNavigationState, handleAuthenticatedBack, releaseAuthenticatedBackBoundary } from './lib/authBackBoundary.js'
 import { HatchDefs, SkeletonLoader } from './components/ui.jsx'
 import { Sidebar } from './components/Sidebar.jsx'
 import { useScrollReveal } from './lib/useScrollReveal.js'
 import { TopBar } from './components/TopBar.jsx'
 import { GlobalSearch } from './components/GlobalSearch.jsx'
 import { DashboardQuickActions } from './components/DashboardQuickActions.jsx'
+import { WorkspaceMarqueeSurface } from './components/WorkspaceMarquee.jsx'
 import { themeAssetsFor } from './components/AegisMark.jsx'
 import {
   applyThemeToDocument, readShellTheme, readStoredShellTheme,
@@ -27,6 +29,7 @@ const lazyNamed = (loader, name) => lazy(() => loader().then((module) => ({ defa
 const Dashboard = lazyNamed(() => import('./screens/Dashboard.jsx'), 'Dashboard')
 const Files = lazyNamed(() => import('./screens/Files.jsx'), 'Files')
 const Vault = lazyNamed(() => import('./screens/Vault.jsx'), 'Vault')
+const WORKSPACE_SCREENS = new Set(['files', 'vault'])
 const Shares = lazyNamed(() => import('./screens/Shares.jsx'), 'Shares')
 const FileHistory = lazyNamed(() => import('./screens/FileHistory.jsx'), 'FileHistory')
 const Trash = lazyNamed(() => import('./screens/Trash.jsx'), 'Trash')
@@ -62,10 +65,18 @@ export default function App() {
   // และบันทึกกู้คืนการอัปโหลดที่จำกัดขอบเขตตามรายบัญชี (upload recovery metadata) โดยไม่มี token หรือ session secret ใด ๆ
   const [session, setSession] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
+  // AEGIS CORE ENTRY UX CONTRACT — HUMAN OWNER CONTROLLED.
+  // This ref controls browser Back UX only; the server remains auth authority.
+  // Explicit scope, RED tests, preserved auth semantics, Human/integration review required.
+  const authBoundaryActive = useRef(false)
 
   // เซสชันหมดอายุกลางคัน (401 จาก endpoint ใดก็ตาม) → กลับประตูทันที ไม่ค้างจอ
   useEffect(() => {
     registerUnauthorizedHandler(() => {
+      if (authBoundaryActive.current) {
+        authBoundaryActive.current = false
+        releaseAuthenticatedBackBoundary(window.history)
+      }
       clearAuthenticatedInterfaceStyle()
       setSession(null)
     })
@@ -153,6 +164,8 @@ export default function App() {
    * ธีมถูกตัดสินที่นี่จุดเดียว — ไม่มี component ไหนตั้งธีมหลังล็อกอินแข่งกับที่นี่อีก
    */
   const applyAuthenticatedSession = useCallback(({ user, menu }) => {
+    armAuthenticatedBackBoundary(window.history, `${window.location.pathname}${window.location.search}`)
+    authBoundaryActive.current = true
     const continuity = logoutThemeContinuity.current
     logoutThemeContinuity.current = null // one-shot: การล็อกอินครั้งถัดไปใช้หรือทิ้งทันที
     const decision = resolveAuthenticatedTheme({
@@ -216,11 +229,6 @@ export default function App() {
   const t = useMemo(() => makeT(lang), [lang])
   const reduced = useReducedMotion()
   const mainRef = useRef(null)
-  const vaultMarqueeSurfaceRef = useRef(null)
-  const vaultMarqueePointerDownRef = useRef(null)
-  const registerVaultMarqueePointerDown = useCallback((handler) => {
-    vaultMarqueePointerDownRef.current = handler
-  }, [])
 
   /* ⚠️ ต้องอยู่เหนือ early return ทุกอันของคอมโพเนนต์นี้ (ตรวจ auth / หน้า login /
      บังคับรีเซ็ตรหัสผ่าน) — hook ที่ถูกเรียกบ้างไม่เรียกบ้างทำให้ลำดับ hook ของ
@@ -237,6 +245,8 @@ export default function App() {
   // Do not infer authorization from role on the client. Intersect even manual/stale
   // URL selections with the exact menu the server authorized for this session.
   const activeScreen = resolveAuthorizedScreen(screen, serverNav)
+  const workspaceSurfaceActive = WORKSPACE_SCREENS.has(activeScreen)
+  const PageSurface = workspaceSurfaceActive ? WorkspaceMarqueeSurface : 'div'
 
   const go = useCallback((destination, params = {}, options = {}) => {
     const intent = normalizeNavigationIntent(destination, params)
@@ -245,12 +255,16 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const nextLocation = buildLocationForIntent(intent, import.meta.env.BASE_URL)
       const method = options.replace ? 'replaceState' : 'pushState'
-      window.history[method](null, '', nextLocation)
+      const state = authBoundaryActive.current
+        ? authenticatedNavigationState(window.history.state, Boolean(options.replace))
+        : null
+      window.history[method](state, '', nextLocation)
     }
   }, [])
 
   useEffect(() => {
     const onPopState = () => {
+      if (handleAuthenticatedBack(window.history, authBoundaryActive.current)) return
       const intent = readLocationIntent(window.location.pathname, window.location.search, import.meta.env.BASE_URL)
       setScreen(intent.screen)
       setNavigationParams(intent.params)
@@ -367,12 +381,15 @@ export default function App() {
       : { userId: session.id, theme }
     // ทำลายเซสชันฝั่งเซิร์ฟเวอร์ แล้วล้างสำเนา session ในหน่วยความจำทันที
     apiLogout()
+    authBoundaryActive.current = false
+    releaseAuthenticatedBackBoundary(window.history)
     clearAuthenticatedInterfaceStyle()
     setSession(null)
     // ⚠️ ธีมไม่ถูกรีเซ็ตตอนออกจากระบบโดยเจตนา — จอ Login ต้องรับช่วงธีมของแอปต่อทันที
     //    (App Dark → Logout → Login Dark) shell hint ถูกเขียนไว้แล้วตั้งแต่ตอนเลือกธีม
     loginThemeSelection.current = null // เริ่มเซสชัน Login ใหม่แบบ "ยังไม่มีการเลือกใหม่"
-    go('dashboard', {}, { replace: true })
+    setScreen('dashboard')
+    setNavigationParams({})
   }
 
   // ด่านนี้มาก่อนการสร้าง protected screen ทุกจอ: ไม่มี Sidebar/TopBar และไม่มี
@@ -460,20 +477,23 @@ export default function App() {
     // ⚠️ `userId` ไม่ได้มีไว้อนุญาตอะไร (เซิร์ฟเวอร์ทำหน้าที่นั้นอยู่แล้วทุกเส้นทาง) แต่มีไว้
     //    ผูกบันทึกกู้คืนการอัปโหลดในเครื่องกับบัญชี — เบราว์เซอร์เครื่องเดียวถูกใช้หลาย
     //    บัญชีได้ และบันทึกนั้นมีชื่อไฟล์ที่ยังอัปโหลดไม่เสร็จอยู่ในนั้น
-    files: <Files t={t} lang={lang} go={go} userId={session?.id ?? null} navigationParams={navigationParams} placeholderMode={placeholderMode} />,
+    files: (
+      <Files
+        t={t} lang={lang} go={go} userId={session?.id ?? null}
+        navigationParams={navigationParams} placeholderMode={placeholderMode}
+      />
+    ),
     vault: (
       <Vault
         t={t}
         lang={lang}
         placeholderMode={placeholderMode}
         userId={session?.id ?? null}
-        marqueeSurfaceRef={vaultMarqueeSurfaceRef}
-        registerMarqueePointerDown={registerVaultMarqueePointerDown}
       />
     ),
     shares: <Shares t={t} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
     versions: <FileHistory t={t} lang={lang} initialFileId={navigationParams.fileId} placeholderMode={placeholderMode} />,
-    trash: <Trash t={t} lang={lang} />,
+    trash: <Trash t={t} lang={lang} user={session} onStorageMutationCommitted={dashApi.refresh} />,
     storage: <Storage t={t} go={go} placeholderMode={placeholderMode} />,
     audit: <Audit t={t} placeholderMode={placeholderMode} />,
     access: <Access t={t} user={session} placeholderMode={placeholderMode} />,
@@ -532,17 +552,15 @@ export default function App() {
           onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 4)}
           className="flex-1 overflow-y-auto"
         >
-          <div
+          {/* Files and Vault: the whole main pane is ONE shared marquee surface (it paints the
+              rectangle and owns the drag); the screen inside only registers its selection. */}
+          <PageSurface
             key={activeScreen}
             data-testid="app-page-content"
-            ref={activeScreen === 'vault' ? vaultMarqueeSurfaceRef : null}
-            data-vault-marquee-surface={activeScreen === 'vault' ? '' : undefined}
-            data-vault-marquee-canvas={activeScreen === 'vault' ? '' : undefined}
-            onPointerDown={activeScreen === 'vault' ? (event) => vaultMarqueePointerDownRef.current?.(event) : undefined}
-            className={activeScreen === 'vault' ? 'vault-full-pane-surface relative min-h-full flex flex-col' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
+            className={workspaceSurfaceActive ? 'workspace-full-pane-surface min-h-full flex flex-col' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
           >
             {/* One composed header: breadcrumb + title on the left, search/actions on the right. */}
-            <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${activeScreen === 'vault' ? 'vault-pane-content pt-7 max-md:pt-5' : ''}`}>
+            <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${workspaceSurfaceActive ? 'workspace-pane-content pt-7 max-md:pt-5' : ''}`}>
               <nav aria-label={t('breadcrumb')} className="flex items-center gap-2 text-xs font-mono font-medium tracking-wider text-slate-400 dark:text-slate-500 uppercase select-none">
                 <span>AEGIS</span>
                 <span className="opacity-40">/</span>
@@ -579,10 +597,10 @@ export default function App() {
               <SkeletonLoader type={getSkeletonType(loadingScreen)} />
             ) : (
               <Suspense fallback={<SkeletonLoader type={getSkeletonType(activeScreen)} />}>
-                <div className={`fade-in ${activeScreen === 'vault' ? 'flex flex-1 flex-col' : ''}`}>{screenEl}</div>
+                <div className={`fade-in ${workspaceSurfaceActive ? 'flex flex-1 flex-col' : ''} ${activeScreen === 'files' ? 'workspace-pane-content pb-7 max-md:pb-5' : ''}`}>{screenEl}</div>
               </Suspense>
             )}
-          </div>
+          </PageSurface>
         </main>
       </div>
     </div>

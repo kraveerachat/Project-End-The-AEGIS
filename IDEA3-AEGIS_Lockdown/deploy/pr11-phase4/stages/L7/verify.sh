@@ -2,8 +2,8 @@
 # AEGIS IDEA3 PR11 Phase 4 — L7 Core verification handler. READ-ONLY (probes and reads only).
 # Proves: the staged material is exactly what apply installed (modes, owner:group, entry set), core.env and the unit are the reviewed
 # ones, the release pointer + immutable release guard hold, the Core is active/running/enabled with zero restarts and exactly the four
-# LoadCredential bindings, no plaintext secret variable is in its environment, the runtime status is the expected no-device state
-# (WAIT_DEVICE or DEGRADED) with the broker CONNECTED and no containment, ZERO actuation exists in the protocol store and audit DB,
+# projected credentials (effective CREDENTIALS_DIRECTORY view, byte parity with the staged sources), no plaintext secret variable is in
+# its environment, the runtime status is the expected no-device state (WAIT_DEVICE or DEGRADED) with the broker CONNECTED and no containment, ZERO actuation exists in the protocol store and audit DB,
 # no new listener appeared, the Core holds an outbound TLS connection to the AP broker port 8883, the D4 credential is readable by the
 # Core account, the journal holds no secret and no command, and legacy mosquitto / the L6b broker are unchanged.
 # It never prints passwords, keys, PINs or hashes.
@@ -31,6 +31,8 @@ FORBIDDEN_ENV=(AEGIS_MQTT_PASS AEGIS_ADMIN_PIN AEGIS_P1_C2D_KEY_FILE AEGIS_P1_D2
 HERE="$(cd "$(dirname "$0")" && pwd)"
 P4_HERE="$(cd "$HERE/../.." && pwd)"
 REPO_ROOT="$(cd "$P4_HERE/../.." && pwd)"
+# shellcheck source=l7-listener-lib.sh
+source "$HERE/l7-listener-lib.sh"
 UNIT_SOURCE="$REPO_ROOT/deploy/aegis-idea3-core.service.example"
 PY="${AEGIS_PYTHON_BIN:-python3}"
 ROOT="${AEGIS_P4_FS_ROOT:-}"
@@ -147,23 +149,41 @@ if use_systemd; then
   [ "$(sysctl_do show -p SubState --value "$UNIT")" = running ] || fail CORE_SERVICE_NOT_RUNNING
   [ "$(sysctl_do show -p Result --value "$UNIT")" = success ] || fail CORE_SERVICE_RESULT_INVALID
   [ "$(sysctl_do show -p NRestarts --value "$UNIT")" = 0 ] || fail CORE_SERVICE_RESTARTED
-  bindings=$(sysctl_do show -p LoadCredential --value "$UNIT")
-  for n in k_c2d k_d2c mqtt-core.pass admin.pin; do
-    grep -qF -- "$n:$CREDS_DIR/$n" <<< "$bindings" || fail LOADCREDENTIAL_INVALID
-  done
-  ! grep -qF -- "restore.credential" <<< "$bindings" || fail LOADCREDENTIAL_INVALID
   pid=$(sysctl_do show -p MainPID --value "$UNIT")
   [[ "$pid" =~ ^[1-9][0-9]*$ ]] || fail CORE_SERVICE_NOT_RUNNING
 
   # no plaintext secret variable may be in the service process environment (secrets arrive only via LoadCredential=)
   environ=$(host_path "/proc/$pid/environ")
   [ -r "$environ" ] || fail PROCESS_ENV_UNREADABLE
+  # effective LoadCredential= proof. The four reviewed LoadCredential= directives are proven statically (exact unit comparison above);
+  # here the credentials systemd actually delivered to THIS process are proven from its own view. systemctl's textual rendering of the
+  # structured LoadCredential property is deliberately never consulted.
+  mapfile -d '' -t env_entries < "$environ" || fail LOADCREDENTIAL_INVALID
+  cred_dir_entries=()
+  for e in "${env_entries[@]}"; do
+    [[ "$e" == CREDENTIALS_DIRECTORY=* ]] && cred_dir_entries+=("${e#CREDENTIALS_DIRECTORY=}")
+  done
+  [ "${#cred_dir_entries[@]}" -eq 1 ] || fail LOADCREDENTIAL_INVALID
+  cred_rt=${cred_dir_entries[0]}
+  [[ "$cred_rt" =~ ^/[A-Za-z0-9._@:-]+(/[A-Za-z0-9._@:-]+)*$ ]] || fail LOADCREDENTIAL_INVALID
+  case "/$cred_rt/" in */../*|*/./*) fail LOADCREDENTIAL_INVALID ;; esac
+  # live: resolve through the Core's own mount namespace (the host view need not equal the service's view); fixture: below the fs root
+  if [ -z "$ROOT" ]; then rt_dir="/proc/$pid/root$cred_rt"; else rt_dir=$(host_path "$cred_rt"); fi
+  [ -d "$rt_dir" ] && [ ! -L "$rt_dir" ] || fail LOADCREDENTIAL_INVALID
+  [ "$(ls -A "$rt_dir" | LC_ALL=C sort | paste -sd,)" = "admin.pin,k_c2d,k_d2c,mqtt-core.pass" ] || fail LOADCREDENTIAL_INVALID
+  for n in admin.pin k_c2d k_d2c mqtt-core.pass; do
+    [ -f "$rt_dir/$n" ] && [ ! -L "$rt_dir/$n" ] || fail LOADCREDENTIAL_INVALID
+    cmp -s -- "$creds_dir/$n" "$rt_dir/$n" || fail LOADCREDENTIAL_INVALID
+  done
+
   names=$(tr '\0' '\n' < "$environ" | cut -d= -f1)
   for v in "${FORBIDDEN_ENV[@]}"; do
     ! grep -qx -- "$v" <<< "$names" || fail PROCESS_ENV_LEAK
   done
 
-  # runtime status: expected no-device state, broker connected, no containment claim
+  # runtime status: expected no-device state, broker connected, no containment. armed is the operational gate (the
+  # production Core starts ARMED with AEGIS_AUTO_CONTAIN=0); containment is auto_contain/uplink/device plus the
+  # zero-command and zero-actuation checks, so ARMED alone is not treated as containment.
   status=$(host_path /run/aegis-idea3/status.json)
   status_out=$("$PY" - "$status" <<'PYC' 2>/dev/null
 import json, sys
@@ -176,7 +196,7 @@ if s.get("state") not in ("WAIT_DEVICE", "DEGRADED"):
 if s.get("broker") != "CONNECTED":
     print("BROKER_NOT_CONNECTED"); sys.exit(0)
 if (s.get("profile") != "production" or s.get("dry_run") is not False or s.get("auto_contain") is not False
-        or s.get("armed") != "MONITOR_ONLY" or s.get("uplink") == "LOCKDOWN" or s.get("device") == "ONLINE"):
+        or s.get("armed") not in ("ARMED", "MONITOR_ONLY") or s.get("uplink") == "LOCKDOWN" or s.get("device") == "ONLINE"):
     print("STATUS_CONTAINMENT_INVALID"); sys.exit(0)
 print("OK " + s["state"])
 PYC
@@ -246,7 +266,7 @@ PYC
 fi
 
 if use_ss; then
-  ss_do -H -ltnu | awk '{ print $1 ":" $5 }' | LC_ALL=C sort -u > "$WORK/listeners.current"
+  l7_listener_snapshot "$(host_path /proc/sys/net/ipv4/ip_local_port_range)" ss_do -H -ltnu > "$WORK/listeners.current"
   [ -z "$(LC_ALL=C comm -13 "$WORK/listeners-baseline.txt" "$WORK/listeners.current")" ] || fail NEW_LISTENER
   [ -z "$(LC_ALL=C comm -23 "$WORK/listeners-baseline.txt" "$WORK/listeners.current")" ] || fail LISTENER_REMOVED
   new_listeners=NONE

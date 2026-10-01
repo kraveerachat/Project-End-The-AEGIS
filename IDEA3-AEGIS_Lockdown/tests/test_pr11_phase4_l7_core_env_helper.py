@@ -7,7 +7,7 @@ validator proves the installed file: exact allowlisted keys, production/live/no-
 
 from __future__ import annotations
 
-import os
+import re
 import stat
 import subprocess
 import sys
@@ -108,7 +108,7 @@ def mutate(tmp_path: Path, key: str, value: str | None) -> Path:
 @pytest.mark.parametrize("key,value,code", [
     ("AEGIS_MQTT_PASS", "s3cret", "FORBIDDEN_KEY"), ("AEGIS_ADMIN_PIN", "849201", "FORBIDDEN_KEY"),
     ("AEGIS_P1_C2D_KEY_FILE", "/x", "FORBIDDEN_KEY"), ("AEGIS_P1_D2C_KEY_FILE", "/x", "FORBIDDEN_KEY"),
-    ("AEGIS_TG_TOKEN", "123:abc", "SECRET_VALUE_PRESENT"), ("AEGIS_UNKNOWN", "1", "UNKNOWN_KEY"),
+    ("AEGIS_TG_TOKEN", "123:abc", "FORBIDDEN_KEY"), ("AEGIS_TG_TOKEN", "", "FORBIDDEN_KEY"), ("AEGIS_UNKNOWN", "1", "UNKNOWN_KEY"),
     ("AEGIS_AUTO_CONTAIN", "1", "VALUE_INVALID"), ("AEGIS_DRY_RUN", "1", "VALUE_INVALID"), ("AEGIS_PROFILE", "lab", "VALUE_INVALID"),
     ("AEGIS_MQTT_TLS", "0", "VALUE_INVALID"), ("AEGIS_BROKER_PORT", "1883", "VALUE_INVALID"), ("AEGIS_BROKER_IP", "10.77.30.2", "VALUE_INVALID"),
     ("AEGIS_BROKER_IP", "0.0.0.0", "VALUE_INVALID"), ("AEGIS_MQTT_USER", "idea3-dev-aegis-relay-01", "VALUE_INVALID"),
@@ -119,7 +119,7 @@ def mutate(tmp_path: Path, key: str, value: str | None) -> Path:
 def test_check_rejects_violations(tmp_path: Path, key: str, value: str, code: str) -> None:
     res = check(mutate(tmp_path, key, value))
     assert res.returncode == 1 and f"L7_CORE_ENV=FAIL reason={code}" in res.stdout
-    assert value not in res.stdout + res.stderr or value in ("1", "0", "lab", "1883", "other")  # secret values are never echoed
+    assert not value or value not in res.stdout + res.stderr or value in ("1", "0", "lab", "1883", "other")  # secret values are never echoed
 
 
 @pytest.mark.parametrize("key", ["AEGIS_BROKER_IP", "AEGIS_MQTT_TLS_SERVER_NAME", "AEGIS_PROFILE", "AEGIS_MQTT_CA_FILE", "AEGIS_P1_DEVICE_ID"])
@@ -142,3 +142,106 @@ def test_tool_is_read_only_except_for_render_output() -> None:
     text = TOOL.read_text()
     for banned in ("subprocess", "os.system", "shutil", "os.remove", ".unlink(", "chown("):
         assert banned not in text, banned
+
+
+# --- PR238 recovery runtime configuration (non-secret, exact approved production values) -------------------------------------
+RECOVERY = {
+    "AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET": "192.168.10.10:22",
+    "AEGIS_RECOVERY_NETWORK_PROBE_TARGETS": "192.168.1.1:53,192.168.10.10:22",
+    "AEGIS_RECOVERY_WEB_READINESS_URL": "https://aegis.internal/security/",
+}
+
+
+def test_example_carries_the_three_approved_recovery_values() -> None:
+    env = parse(EXAMPLE)
+    for key, want in RECOVERY.items():
+        assert env.get(key) == want, key
+
+
+def test_render_includes_the_exact_recovery_values(tmp_path: Path) -> None:
+    assert render(tmp_path).returncode == 0
+    env = parse(tmp_path / "core.env")
+    for key, want in RECOVERY.items():
+        assert env[key] == want, key
+
+
+def test_check_accepts_exact_approved_recovery_values(tmp_path: Path) -> None:
+    assert render(tmp_path).returncode == 0
+    res = check(tmp_path / "core.env")
+    assert res.returncode == 0 and "L7_CORE_ENV=PASS" in res.stdout
+
+
+@pytest.mark.parametrize("key", sorted(RECOVERY))
+def test_check_rejects_missing_recovery_key(tmp_path: Path, key: str) -> None:
+    res = check(mutate(tmp_path, key, None))
+    assert res.returncode == 1 and "L7_CORE_ENV=FAIL reason=REQUIRED_KEY_MISSING" in res.stdout
+
+
+@pytest.mark.parametrize("key,value", [
+    ("AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET", "192.168.10.11:22"),
+    ("AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET", "192.168.10.10:2222"),
+    ("AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET", "192.168.10.10"),
+    ("AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET", ""),
+    ("AEGIS_RECOVERY_NETWORK_PROBE_TARGETS", "192.168.1.1:53"),
+    ("AEGIS_RECOVERY_NETWORK_PROBE_TARGETS", "192.168.10.10:22,192.168.1.1:53"),
+    ("AEGIS_RECOVERY_NETWORK_PROBE_TARGETS", "192.168.1.1:53,192.168.10.10:22,8.8.8.8:53"),
+    ("AEGIS_RECOVERY_NETWORK_PROBE_TARGETS", "192.168.1.1:53, 192.168.10.10:22"),
+    ("AEGIS_RECOVERY_NETWORK_PROBE_TARGETS", "192.168.1.1:5x,192.168.10.10:22"),
+    ("AEGIS_RECOVERY_WEB_READINESS_URL", "http://aegis.internal/security/"),
+    ("AEGIS_RECOVERY_WEB_READINESS_URL", "https://evil.example/security/"),
+    ("AEGIS_RECOVERY_WEB_READINESS_URL", "https://user:pw@aegis.internal/security/"),
+    ("AEGIS_RECOVERY_WEB_READINESS_URL", "https://aegis.internal/security/?token=abc"),
+    ("AEGIS_RECOVERY_WEB_READINESS_URL", "ftp://aegis.internal/security/"),
+    ("AEGIS_RECOVERY_WEB_READINESS_URL", ""),
+])
+def test_check_rejects_altered_recovery_values(tmp_path: Path, key: str, value: str) -> None:
+    res = check(mutate(tmp_path, key, value))
+    assert res.returncode == 1 and "L7_CORE_ENV=FAIL reason=VALUE_INVALID" in res.stdout
+
+
+def test_recovery_values_introduce_no_secret_material(tmp_path: Path) -> None:
+    assert render(tmp_path).returncode == 0
+    env = parse(tmp_path / "core.env")
+    recovery = {k: v for k, v in env.items() if k.startswith("AEGIS_RECOVERY_")}
+    assert recovery == RECOVERY
+    for value in recovery.values():
+        assert "@" not in value and not any(w in value.lower() for w in ("token", "pass", "secret", "pin", "key"))
+    assert not {"AEGIS_MQTT_PASS", "AEGIS_ADMIN_PIN"} & set(env) and "AEGIS_TG_TOKEN" not in env
+
+
+@pytest.mark.parametrize("key", ["AEGIS_RECOVERY_IDEA1_URL", "AEGIS_RECOVERY_IDEA2_URL"])
+def test_check_rejects_optional_idea1_idea2_recovery_keys(tmp_path: Path, key: str) -> None:
+    res = check(mutate(tmp_path, key, "https://aegis.internal/x"))
+    assert res.returncode == 1 and "reason=UNKNOWN_KEY" in res.stdout
+
+
+# --- L7 #4 PROCESS_ENV_LEAK regression: no verify.sh FORBIDDEN_ENV name may reach the Core process environment ----------------
+VERIFY = ROOT / "deploy" / "pr11-phase4" / "stages" / "L7" / "verify.sh"
+
+
+def verify_forbidden_env() -> set[str]:
+    match = re.search(r"^FORBIDDEN_ENV=\(([^)]*)\)", VERIFY.read_text(), re.MULTILINE)
+    assert match, "FORBIDDEN_ENV not found in verify.sh"
+    return set(match.group(1).split())
+
+
+def test_rendered_env_projects_no_verify_forbidden_name(tmp_path: Path) -> None:
+    forbidden = verify_forbidden_env()
+    assert "AEGIS_TG_TOKEN" in forbidden
+    assert render(tmp_path).returncode == 0
+    names = set(parse(tmp_path / "core.env"))  # EnvironmentFile= projects every KEY=, even blank, into /proc/<pid>/environ
+    assert not forbidden & names, sorted(forbidden & names)
+
+
+def test_checker_forbids_every_verify_forbidden_name_even_blank(tmp_path: Path) -> None:
+    for name in sorted(verify_forbidden_env()):
+        res = check(mutate(tmp_path, name, ""))
+        assert res.returncode == 1 and "reason=FORBIDDEN_KEY" in res.stdout, name
+        (tmp_path / "core.env").unlink()
+
+
+def test_render_strips_only_the_telegram_token_from_the_example(tmp_path: Path) -> None:
+    assert render(tmp_path).returncode == 0
+    example, rendered = set(parse(EXAMPLE)), set(parse(tmp_path / "core.env"))
+    assert example - rendered == {"AEGIS_TG_TOKEN"} and rendered <= example
+    assert "AEGIS_TG_CHAT" in rendered and parse(tmp_path / "core.env")["AEGIS_TG_CHAT"] == parse(EXAMPLE)["AEGIS_TG_CHAT"]

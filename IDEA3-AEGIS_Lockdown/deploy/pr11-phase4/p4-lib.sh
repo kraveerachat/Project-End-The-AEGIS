@@ -22,7 +22,7 @@ readonly P4_FS_ROOT="${AEGIS_P4_FS_ROOT:-${P4_FS_ROOT:-}}"
 readonly P4_WINDOW_TZ=Asia/Bangkok
 
 # ── stages (execution document §9, §12) ──────────────────────────────────────
-readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L8 L9"
+readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8 L9"
 
 p4_stage_known() { [[ " $P4_STAGES " == *" $1 "* ]] && [ -n "$1" ]; }
 
@@ -45,6 +45,9 @@ p4_stage_gaps() {
     # credential/LoadCredential wiring (G-12) applies, because it never provisions a key or a credential.
     L6c) echo none ;;
     L7) echo G-11,G-12 ;;
+    # L7u (post-L7 Recovery Core upgrade) installs one already-built immutable release and provisions the Recovery transport surface only:
+    # no protocol-key generation (G-11) and no credential wiring (G-12), which L7 already delivered. It never authorizes L8.
+    L7u) echo none ;;
     L8) echo G-04,G-11,G-16 ;;
     L9) echo none ;;
   esac

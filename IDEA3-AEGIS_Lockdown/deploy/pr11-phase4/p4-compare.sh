@@ -113,7 +113,7 @@ if [ -n "${ALLOW_KEYS_FILE:-}" ]; then
     [[ "$k" =~ $ALLOW_KEY_PAT ]] || stop "malformed allow key"
     [[ "$k" =~ $PROTECTED ]] && stop "protected key cannot be approved: $k"
     if [[ "$k" =~ ^host\. ]]; then
-      if ! [[ "$k" =~ ^host\.(aegis_idea3\.file\.|path\.|symlink\.|unit_file\.) ]]; then
+      if ! [[ "$k" =~ ^host\.(aegis_idea3\.(file|recovery)\.|path\.|symlink\.|unit_file\.) ]]; then
         stop "protected key cannot be approved: $k"
       fi
     fi
@@ -267,9 +267,9 @@ if [ -n "${ALLOW_DYNAMIC_TRANSITIONS_FILE:-}" ]; then
   ! grep -q $'\r' "$ALLOW_DYNAMIC_TRANSITIONS_FILE" || stop "ALLOW_DYNAMIC_TRANSITIONS_FILE must not contain CR"
 fi
 
-# ALLOW_L6C_RELEASE_FILE (stage L6c only): names the ONE exact new release id this run is authorized to add to
-# host.aegis_idea3.release_catalog. Strict contract: exactly two active lines, `stage L6c` once and `release_id <id>`
-# once, single-space separated, no CR, no other token. It never approves a mutation or removal of any id already present
+# ALLOW_L6C_RELEASE_FILE (stage L6c, or stage L7u for the post-L7 Recovery Core upgrade): names the ONE exact new release id this run is
+# authorized to add to host.aegis_idea3.release_catalog. Strict contract: exactly two active lines, exactly one stage line (`stage L6c` OR
+# `stage L7u`) and `release_id <id>` once, single-space separated, no CR, no other token. It never approves a mutation or removal of any id already present
 # in BEFORE — that check is unconditional (see the release-catalog rule below) and cannot be satisfied by this file.
 L6C_RELEASE_ID=""
 if [ -n "${ALLOW_L6C_RELEASE_FILE:-}" ]; then
@@ -278,15 +278,15 @@ if [ -n "${ALLOW_L6C_RELEASE_FILE:-}" ]; then
   while IFS= read -r line || [ -n "$line" ]; do
     [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
     case "$line" in
-      'stage L6c') n_stage=$((n_stage + 1)) ;;
+      'stage L6c' | 'stage L7u') n_stage=$((n_stage + 1)) ;;
       release_id\ *)
         rid=${line#release_id }
         [[ "$rid" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || stop "malformed release_id in ALLOW_L6C_RELEASE_FILE"
         L6C_RELEASE_ID="$rid"; n_rid=$((n_rid + 1)) ;;
-      *) stop "malformed ALLOW_L6C_RELEASE_FILE line: only 'stage L6c' and 'release_id <id>' are approvable" ;;
+      *) stop "malformed ALLOW_L6C_RELEASE_FILE line: only one 'stage L6c'|'stage L7u' line and 'release_id <id>' are approvable" ;;
     esac
   done < "$ALLOW_L6C_RELEASE_FILE"
-  [ "$n_stage" = 1 ] && [ "$n_rid" = 1 ] || stop "ALLOW_L6C_RELEASE_FILE must declare exactly one stage (L6c) once and exactly one release_id once"
+  [ "$n_stage" = 1 ] && [ "$n_rid" = 1 ] || stop "ALLOW_L6C_RELEASE_FILE must declare exactly one stage (L6c or L7u) once and exactly one release_id once"
   ! grep -q $'\r' "$ALLOW_L6C_RELEASE_FILE" || stop "ALLOW_L6C_RELEASE_FILE must not contain CR"
 fi
 
@@ -340,6 +340,12 @@ END {
     emit("INCOMPARABLE", "JOURNAL_BOUNDARY_MISMATCH", "meta.journal_since", B["meta.journal_since"], A["meta.journal_since"])
 
   tunnel_unhealthy = (B["idea2.verdict.tunnel_healthy"] == "NO")
+  # The engine's HeartbeatWorker logs one "Monitor unreachable ... Connection refused" warning every 5s for as long as the
+  # IDEA2 monitor (18002) is down. Both captures share one JOURNAL_SINCE, so the window is ~0s in PRE and the whole
+  # mutation window in RB: a growing count is then a window-length artifact, not new drift. Narrowly baseline-only when
+  # the monitor was already down (runtime unhealthy, 18002 absent) in BOTH captures.
+  engine_monitor_down = (B["idea2.verdict.runtime_healthy"] == "NO" && A["idea2.verdict.runtime_healthy"] == "NO" \
+                         && B["idea2.listen.18002"] == "absent" && A["idea2.listen.18002"] == "absent")
   new_class = 0
   for (i in TC) {
     t = "idea2.tunnel.journal." TC[i]
@@ -622,6 +628,9 @@ END {
       emit("NEW_OR_WORSENED_DRIFT", (b == "present" ? "IDEA2_8077_LISTENER_REMOVED" : "IDEA2_8077_STATE_CHANGED"), key, b, a)
     } else if (key == "idea2.listen.18002") {
       emit("NEW_OR_WORSENED_DRIFT", "IDEA2_18002_STATE_CHANGED", key, b, a)
+    } else if (key ~ /^idea2\.engine\.journal\.(heartbeat_failed|refused)$/ && engine_monitor_down \
+               && isnum(b) && isnum(a) && a + 0 >= b + 0) {
+      emit("BASELINE_UNHEALTHY_BUT_UNCHANGED", "IDEA2_ENGINE_HEARTBEAT_BASELINE", key, b, a)
     } else if (key ~ /^idea2\.engine\.journal\./) {
       emit("NEW_OR_WORSENED_DRIFT", "IDEA2_ENGINE_FAILURE_DRIFT", key, b, a)
     } else if (key ~ /^idea2\.engine\./) {

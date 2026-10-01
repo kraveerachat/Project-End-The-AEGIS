@@ -40,6 +40,8 @@ NM_TRIES="${AEGIS_L34_NM_TRIES:-20}"
 NM_INTERVAL="${AEGIS_L34_NM_INTERVAL:-0.5}"
 BROKER_TRIES="${AEGIS_L34_V5_BROKER_TRIES:-30}"
 BROKER_INTERVAL="${AEGIS_L34_V5_BROKER_INTERVAL:-2}"
+LISTEN_TRIES="${AEGIS_L34_V5_LISTEN_TRIES:-15}"
+LISTEN_INTERVAL="${AEGIS_L34_V5_LISTEN_INTERVAL:-1}"
 DNSMASQ_UNIT=aegis-idea3-dnsmasq.service
 BROKER_UNIT=aegis-idea3-mosquitto.service
 EXAMPLE_UNIT="$(cd "$P4_HERE/../network" && pwd)/aegis-idea3-dnsmasq.service.example"
@@ -179,7 +181,18 @@ for ((i = 1; i <= BROKER_TRIES; i++)); do
   [ "$i" -lt "$BROKER_TRIES" ] && sleep "$BROKER_INTERVAL"
 done
 [ "$broker_ok" = 0 ] || fail "L34_V5_BROKER_DID_NOT_RECOVER:$(unit_props "$BROKER_UNIT" | l34_v4_service_active_gate "$BROKER_UNIT" 2>&1 | head -n 1)"
-l34_v4_broker_listeners_gate "$L34_AP_ADDR" || fail "$(l34_v4_broker_listeners_gate "$L34_AP_ADDR" 2>&1 | head -n 1)"
+# A Type=simple unit is "active/running" the instant systemd execs it, before mosquitto has bound its sockets, so the
+# exact-set listener gate must be polled (bounded, read-only) rather than sampled once. The gate itself is unchanged:
+# only the exact approved pair passes, and a wrong/extra listener still fails after the bound.
+listen_ok=1
+for ((i = 1; i <= LISTEN_TRIES; i++)); do
+  if l34_v4_broker_listeners_gate "$L34_AP_ADDR" 2>/dev/null; then listen_ok=0; break; fi
+  [ "$i" -lt "$LISTEN_TRIES" ] && sleep "$LISTEN_INTERVAL"
+done
+if [ "$listen_ok" != 0 ]; then
+  ss -H -ltn "sport = :8883" > "$WORK/broker-listeners-observed.txt" 2>&1 || true  # evidence of what the gate last saw
+  fail "$(l34_v4_broker_listeners_gate "$L34_AP_ADDR" 2>&1 | head -n 1)"
+fi
 l34_v5_broker_autorestart_evidence "$BROKER_UNIT" "$WORK/broker-identity-pre.txt" \
   || fail "$(l34_v5_broker_autorestart_evidence "$BROKER_UNIT" "$WORK/broker-identity-pre.txt" 2>&1 | head -n 1)"
 

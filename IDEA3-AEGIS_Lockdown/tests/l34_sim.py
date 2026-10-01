@@ -8,6 +8,7 @@ fails the test loudly.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -96,7 +97,28 @@ DEFAULT_STATE = {
     "broker_crashloop_cause": "ap_bind_missing",  # V5 crashloop journal signature: "ap_bind_missing" | anything else = unrelated cause
     "broker_crashloop_override": {},  # V5 crashloop PRE: per-key systemctl-show overrides (e.g. {"Result": "signal"})
     "broker_recovered_override": {},  # V5 crashloop POST (recovered): per-key systemctl-show overrides (e.g. {"NRestarts": "..."})
+    "broker_listener_lag_polls": 0,   # V5 only: the first N `ss ... sport = :8883` polls see the broker running but its sockets not yet fully bound
+    "broker_listener_lag_shape": "empty",  # what those lagging polls see: "empty" (no 8883 listener) | "one" (127.0.0.1:8883 only)
+    "broker_listener_extra": [],      # extra `ss` rows appended to the broker's 8883 listeners once it is up (wrong/extra listener set)
     "dnsmasq_syntax_ok": True,        # `dnsmasq --test --conf-file=...` result
+    # ── V6 (STALE_BROKER_AP_DOWN) only: all keys default to the V1–V5 behaviour ──────────────────────────────────────────────
+    "dnsmasq_start_fails_rc": False,  # `systemctl start aegis-idea3-dnsmasq.service` returns 1 AND leaves the unit failed
+    "dnsmasq_props_override": {},      # per-key systemctl-show overrides for aegis-idea3-dnsmasq.service (e.g. {"UnitFileState": "disabled"})
+    "broker_mutate": {},               # {"field": MainPID|NRestarts|InvocationID, "trigger": "ap_active"|"dnsmasq_active"|"shows:N"}
+    "broker_pair_missing": "",         # "" | "loopback" | "ap": the broker's stale pair is missing that member
+    "stray_ap_listeners": [],          # extra AP DNS/DHCP rows present at PRE: any of "tcp53" "udp53" "udp67"
+    "foreign_ap_addr": False,          # 10.77.30.1/28 already configured on ANOTHER interface (global address list)
+    "ap_route_present": False,         # a route is bound to the AP interface while the AP is down
+    "legacy_1883_mutate": False,       # once the AP has been up, the legacy :1883 listener row changes (bind address differs)
+    "new_1883_on_ap": False,           # once the AP has been up, a NEW plaintext 10.77.30.1:1883 listener appears
+    "ap_ever_up": False,               # set by `nmcli connection up` (sticky; drives the *_mutate triggers above)
+    # ── V7 (RADIO_DISABLED + BROKER_CHURN) only: all keys default to the V1–V6 behaviour ─────────────────────────────────────
+    "nm_ready_lag_polls": 0,          # after the radio is enabled, the target stays `unavailable` for this many `device status` polls (the live race)
+    "stray_8883": [],                 # extra `ss` 8883 rows present at all times (an unexpected listener)
+    "broker_restart_every_shows": 0,  # crashloop mode, after recovery: every K-th `systemctl show` of the broker counts one more restart (0 = stable)
+    "broker_recovered_shows": 0,      # internal counter for the key above
+    "broker_journal_extra": [],       # extra journal lines appended to the broker crash-loop tail (a second, unrelated failure signature)
+    "broker_journal_stale_bind": "",  # "" | "previous_boot" | "earlier_invocation": the bind-failure lines belong to stale evidence, not to the current failed invocation
 }
 
 WRAPPER = "#!/usr/bin/env bash\nexec {python} {sim} {name} \"$@\"\n"
@@ -149,6 +171,8 @@ def _device_state(s: dict) -> str:
         return "unavailable"
     if not s["nm_ready_after_unblock"]:
         return "unavailable"
+    if s["nm_ready_lag_polls"] > 0:
+        return "unavailable"
     if s["ap_active"]:
         return "connected"
     if s["other_wifi_active"]:
@@ -186,7 +210,21 @@ def _wpa_props(s: dict) -> dict[str, str]:
     return props
 
 
+_SIM_DIR: Path | None = None  # set by main(); V6 broker mutation triggers count `systemctl show` calls recorded in calls.log
+
+
+def _invocation_id(unit: str, pid: int, nrestarts: int) -> str:
+    """systemd InvocationID is 32 lowercase hex chars; derived deterministically so a changed pid/restart count changes it too."""
+    return hashlib.md5(f"{unit}:{pid}:{nrestarts}".encode()).hexdigest()
+
+
 def _dnsmasq_props(s: dict) -> dict[str, str]:
+    props = _dnsmasq_props_base(s)
+    props.update(s["dnsmasq_props_override"])
+    return props
+
+
+def _dnsmasq_props_base(s: dict) -> dict[str, str]:
     st = s["dnsmasq"]
     base = {"LoadState": "loaded", "UnitFileState": "enabled"}
     if st == "failed":
@@ -210,13 +248,18 @@ def _broker_props(s: dict) -> dict[str, str]:
     never started/stopped/restarted by any stub command, purely a function of ap_active (systemd's own
     auto-restart, driven by the bind address becoming available)."""
     if _broker_crashloop_recovered(s):
+        extra = s["broker_recovered_shows"] // s["broker_restart_every_shows"] if s["broker_restart_every_shows"] > 0 else 0
         recovered = {"LoadState": "loaded", "ActiveState": "active", "SubState": "running", "UnitFileState": "enabled",
-                     "Result": "success", "MainPID": str(s["broker_pid"]), "NRestarts": str(s["broker_nrestarts_pre"] + 1),
+                     "Result": "success", "MainPID": str(s["broker_pid"]), "NRestarts": str(s["broker_nrestarts_pre"] + 1 + extra),
                      "ExecMainStartTimestamp": "Sun 2026-09-28 17:24:40 +07"}
+        recovered.update({"Restart": "on-failure", "RestartUSec": "5s", "ExecMainStatus": "0"})
+        recovered["InvocationID"] = _invocation_id("aegis-idea3-mosquitto.service", s["broker_pid"], s["broker_nrestarts_pre"] + 1 + extra)
         recovered.update(s["broker_recovered_override"])
         return recovered
     base = {"LoadState": "loaded", "ActiveState": "activating", "SubState": "auto-restart", "UnitFileState": "enabled",
-            "Result": "exit-code", "MainPID": "0", "NRestarts": str(s["broker_nrestarts_pre"]), "ExecMainStartTimestamp": ""}
+            "Result": "exit-code", "MainPID": "0", "NRestarts": str(s["broker_nrestarts_pre"]), "ExecMainStartTimestamp": "",
+            "Restart": "on-failure", "RestartUSec": "5s", "ExecMainStatus": "1",
+            "InvocationID": _invocation_id("aegis-idea3-mosquitto.service", 0, s["broker_nrestarts_pre"])}
     base.update(s["broker_crashloop_override"])
     return base
 
@@ -230,14 +273,42 @@ def _unit_props(s: dict, unit: str) -> dict[str, str]:
         return _broker_props(s)
     pid, nr = s["identities"].get(unit, [0, 0])
     active = "active" if pid else "inactive"
-    return {"LoadState": "loaded" if pid else "not-found", "ActiveState": active, "SubState": "running" if pid else "dead",
-            "UnitFileState": "enabled", "Result": "success", "MainPID": str(pid), "NRestarts": str(nr),
-            "ExecMainStartTimestamp": "Sat 2026-09-26 23:46:50 +07"}
+    props = {"LoadState": "loaded" if pid else "not-found", "ActiveState": active, "SubState": "running" if pid else "dead",
+             "UnitFileState": "enabled", "Result": "success", "MainPID": str(pid), "NRestarts": str(nr),
+             "ExecMainStartTimestamp": "Sat 2026-09-26 23:46:50 +07", "InvocationID": _invocation_id(unit, pid, nr)}
+    if unit == "aegis-idea3-mosquitto.service" and _broker_mutation_due(s):
+        field = s["broker_mutate"]["field"]
+        if field == "MainPID":
+            props["MainPID"] = str(pid + 1000)
+        elif field == "NRestarts":
+            props["NRestarts"] = str(nr + 1)
+        elif field == "InvocationID":
+            props["InvocationID"] = _invocation_id(unit, pid, nr + 9999)
+    return props
+
+
+def _broker_mutation_due(s: dict) -> bool:
+    """V6: the broker tuple drifts when the configured trigger has fired. The stubs never mutate the broker themselves; this only
+    models an external actor (or a crash) changing it, so the handlers' read-only tuple proofs have something to catch."""
+    m = s["broker_mutate"]
+    if not m:
+        return False
+    trig = m["trigger"]
+    if trig == "ap_active":
+        return bool(s["ap_ever_up"])
+    if trig == "dnsmasq_active":
+        return s["dnsmasq"] == "active"
+    if trig.startswith("shows:") and _SIM_DIR is not None:
+        n = sum(1 for l in calls(_SIM_DIR) if l.startswith("systemctl show") and l.endswith("aegis-idea3-mosquitto.service"))
+        return n > int(trig.split(":", 1)[1])
+    return False
 
 
 def main(argv: list[str]) -> int:
+    global _SIM_DIR
     name, args = argv[1], argv[2:]
     sim = _sim_dir()
+    _SIM_DIR = sim
     s = load(sim)
     original = json.dumps(s, sort_keys=True)
     with (sim / "calls.log").open("a") as fh:
@@ -268,6 +339,9 @@ def main(argv: list[str]) -> int:
         else:
             rc = 99
     elif name == "nmcli":
+        if args[:3] == ["-t", "-f", "DEVICE,STATE"] or args == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
+            if s["nm_ready_lag_polls"] > 0 and _wifi_radio(s) == "enabled":
+                s["nm_ready_lag_polls"] -= 1
         if args[:5] == ["-t", "-f", "DEVICE,STATE", "device", "status"]:
             out = [f"wlp0s20f3:{_device_state(s)}", f"enp62s0:{s['wired_ifname_state']}", "lo:unmanaged"]
             out += [f"{n}:{st}" for n, _ty, st in _p2p_rows(s)]
@@ -320,6 +394,7 @@ def main(argv: list[str]) -> int:
                 if s["nm_init_side_effects"]:
                     s["phy_country"] = "TH"
                 s["ap_active"] = 1
+                s["ap_ever_up"] = True
                 s["other_wifi_active"] = False
             else:
                 rc = 4
@@ -361,6 +436,15 @@ def main(argv: list[str]) -> int:
             if s["ap_active"]:
                 addr = s["ap_addr_override"] or "10.77.30.1/28"
                 out = [f"3: wlp0s20f3    inet {addr} brd 10.77.30.15 scope global wlp0s20f3"]
+        elif args == ["-4", "-o", "addr", "show"]:  # V6: the GLOBAL address list
+            out = ["2: enp62s0    inet 192.168.1.144/24 brd 192.168.1.255 scope global enp62s0"]
+            if s["ap_active"]:
+                out.append(f"3: wlp0s20f3    inet {s['ap_addr_override'] or '10.77.30.1/28'} brd 10.77.30.15 scope global wlp0s20f3")
+            if s["foreign_ap_addr"]:
+                out.append("5: dummy0    inet 10.77.30.1/28 scope global dummy0")
+        elif args == ["route", "show", "dev", "wlp0s20f3"]:  # V6: routes bound to the AP interface
+            if s["ap_active"] or s["ap_route_present"]:
+                out = ["10.77.30.0/28 proto kernel scope link src 10.77.30.1"]
         elif args[:3] == ["-6", "-o", "addr"]:
             out = []
         elif args == ["route", "show", "default"]:
@@ -402,6 +486,8 @@ def main(argv: list[str]) -> int:
         if args and args[0] == "show":
             props = [args[i + 1] for i, a in enumerate(args) if a == "-p"]
             unit = args[-1]
+            if unit == "aegis-idea3-mosquitto.service" and s["broker_mode"] == "crashloop_until_ap" and _broker_crashloop_recovered(s):
+                s["broker_recovered_shows"] += 1
             data = _unit_props(s, unit)
             if "--value" in args:
                 out = [data.get(props[0], "")]
@@ -418,6 +504,9 @@ def main(argv: list[str]) -> int:
         elif args[:2] == ["start", "aegis-idea3-dnsmasq.service"]:
             if s["dnsmasq"] == "failed":
                 rc = 1  # start-limit-hit still in force
+            elif s["dnsmasq_start_fails_rc"]:
+                s["dnsmasq"] = "failed"
+                rc = 1
             elif s["ap_active"] and s["dnsmasq_start_works"]:
                 s["dnsmasq"] = "active"
             else:
@@ -429,13 +518,37 @@ def main(argv: list[str]) -> int:
     elif name == "ss":
         tcp = ["LISTEN 0 100 0.0.0.0:1883 0.0.0.0:*", "LISTEN 0 100 [::]:1883 [::]:*", "LISTEN 0 4096 127.0.0.53%lo:53 0.0.0.0:*"]
         udp = ["UNCONN 0 0 127.0.0.53%lo:53 0.0.0.0:*", "UNCONN 0 0 0.0.0.0%enp62s0:68 0.0.0.0:*"]
+        stray = set(s["stray_ap_listeners"])
+        if "tcp53" in stray:
+            tcp.append("LISTEN 0 32 10.77.30.1:53 0.0.0.0:*")
+        if "udp53" in stray:
+            udp.append("UNCONN 0 0 10.77.30.1:53 0.0.0.0:*")
+        if "udp67" in stray:
+            udp.append("UNCONN 0 0 0.0.0.0%wlp0s20f3:67 0.0.0.0:*")
+        if s["ap_ever_up"] and s["legacy_1883_mutate"]:
+            tcp[0] = "LISTEN 0 100 127.0.0.1:1883 0.0.0.0:*"  # legacy listener rebound to another address
+        if s["ap_ever_up"] and s["new_1883_on_ap"]:
+            tcp.append("LISTEN 0 100 10.77.30.1:1883 0.0.0.0:*")
+        tcp += list(s["stray_8883"])
         if s["dnsmasq"] == "active":
             tcp.append("LISTEN 0 32 10.77.30.1:53 0.0.0.0:*")
             udp += ["UNCONN 0 0 10.77.30.1:53 0.0.0.0:*", "UNCONN 0 0 0.0.0.0%wlp0s20f3:67 0.0.0.0:*"]
         broker_up = _broker_crashloop_recovered(s) if s["broker_mode"] == "crashloop_until_ap" \
             else bool(s["identities"].get("aegis-idea3-mosquitto.service", [0, 0])[0])
         if broker_up:
-            tcp += ["LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*", "LISTEN 0 100 10.77.30.1:8883 0.0.0.0:*"]
+            lagging = False
+            if args == ["-H", "-ltn", "sport = :8883"]:  # calls.log already holds this call, so the count is this poll's 1-based index
+                lagging = sum(1 for l in calls(sim) if l == "ss -H -ltn sport = :8883") <= s["broker_listener_lag_polls"]
+            if lagging:
+                if s["broker_listener_lag_shape"] == "one":
+                    tcp.append("LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*")
+            else:
+                pair = ["LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*", "LISTEN 0 100 10.77.30.1:8883 0.0.0.0:*"]
+                if s["broker_pair_missing"] == "loopback":
+                    pair = pair[1:]
+                elif s["broker_pair_missing"] == "ap":
+                    pair = pair[:1]
+                tcp += pair + list(s["broker_listener_extra"])
         if args == ["-H", "-lnt"]:
             out = tcp
         elif args == ["-H", "-lnu"]:
@@ -445,21 +558,37 @@ def main(argv: list[str]) -> int:
         else:
             rc = 99
     elif name == "journalctl":
-        # bounded, read-only tail: `journalctl -u UNIT -n N --no-pager` (V5 broker crash-loop cause evidence only)
+        # bounded, read-only tail: `journalctl -u UNIT [-b] [_SYSTEMD_INVOCATION_ID=ID] -n N --no-pager` (V5/V7 broker crash-loop cause evidence only).
+        # Every journal entry carries (boot, invocation); `-b` keeps only the current boot, the field match keeps only that invocation.
         if args[:1] == ["-u"] and "--no-pager" in args:
             unit = args[1]
+            entries: list[tuple[str, str, str]] = []   # (boot, invocation id, line)
             if unit == "aegis-idea3-mosquitto.service" and s["broker_mode"] == "crashloop_until_ap" \
                     and not _broker_crashloop_recovered(s):
-                if s["broker_crashloop_cause"] == "ap_bind_missing":
-                    out = ["mosquitto[7579]: Opening ipv4 listen socket on port 8883.",
-                           "mosquitto[7579]: Error: Cannot assign requested address",
-                           "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
+                cur = _broker_props(s)["InvocationID"]
+                stale = s["broker_journal_stale_bind"]
+                stale_boot, stale_inv = ("previous", cur) if stale == "previous_boot" else ("current", _invocation_id(unit, 0, -1))
+                bind = ["mosquitto[7579]: Opening ipv4 listen socket on port 8883.",
+                        "mosquitto[7579]: Error: Cannot assign requested address",
+                        "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
+                if s["broker_crashloop_cause"] == "ap_bind_missing" and not stale:
+                    entries += [("current", cur, l) for l in bind]
+                    entries += [("current", cur, l) for l in s["broker_journal_extra"]]
                 else:
-                    out = ["mosquitto[7579]: Error: Unable to load server certificate "
-                           "\"/etc/aegis-idea3/pki/mqtt-server.crt\".",
-                           "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
-            else:
-                out = ["-- No entries --"]
+                    if s["broker_crashloop_cause"] != "ap_bind_missing":
+                        entries += [("current", cur, "mosquitto[7579]: Error: Unable to load server certificate "
+                                                     "\"/etc/aegis-idea3/pki/mqtt-server.crt\"."),
+                                    ("current", cur, "mosquitto[7579]: mosquitto version 2.1.2 terminating")]
+                    else:
+                        entries += [("current", cur, "systemd[1]: aegis-idea3-mosquitto.service: Main process exited, code=exited, status=1/FAILURE")]
+                    if stale:
+                        entries += [(stale_boot, stale_inv, l) for l in bind]
+            if "-b" in args:
+                entries = [e for e in entries if e[0] == "current"]
+            for a in args:
+                if a.startswith("_SYSTEMD_INVOCATION_ID="):
+                    entries = [e for e in entries if e[1] == a.split("=", 1)[1]]
+            out = [e[2] for e in entries] or ["-- No entries --"]
         else:
             rc = 99
     else:

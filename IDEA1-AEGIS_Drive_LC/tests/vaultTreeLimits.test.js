@@ -25,11 +25,27 @@ const REGISTER = Object.freeze({
   // Phase 7 media previews (Task 0.2 bench → G1-validated)
   imageMaxInputBytes: 16 * MIB,
   imageMaxDecodedPixels: 16_000_000,
+  imageNormalMaxDecodedPixels: 16_000_000,
+  imageHighResMaxDecodedPixels: 152_000_000,   // PR220-R2 reduced-decode envelope (Edge 154 native measurement)
+  imageHighResMaxInputBytes: 40 * MIB,          // PR220-R2 largest measured encoded input class + margin
+  imageHighResMaxConcurrentJobs: 1,
   gifMaxFullPlayBytes: 8 * MIB,
   posterMaxEdge: 512,
   maxConcurrentJobs: 4,
   maxRetainedObjectUrls: 256,
   memoryCeilingBytes: 256 * MIB,
+  // Unified Preview P1 (provisional; plan Task 9 measures the audio cap in a real browser)
+  audioWholeDecryptMaxBytes: 32 * MIB,
+  textPreviewMaxBytes: 1 * MIB,
+})
+
+test('LM-HIGHRES normal lane stays 16 MP; the reduced-decode lane carries the measured envelope', () => {
+  assert.equal(VAULT_TREE_CLIENT_LIMITS.imageNormalMaxDecodedPixels, 16_000_000)
+  assert.equal(VAULT_TREE_CLIENT_LIMITS.imageMaxDecodedPixels, 16_000_000, 'full-bitmap decode never exceeds 16 MP')
+  assert.equal(VAULT_TREE_CLIENT_LIMITS.imageHighResMaxDecodedPixels, 152_000_000)
+  assert.equal(VAULT_TREE_CLIENT_LIMITS.imageHighResMaxInputBytes, 40 * MIB)
+  assert.equal(VAULT_TREE_CLIENT_LIMITS.imageHighResMaxConcurrentJobs, 1)
+  assert.equal(VAULT_TREE_CLIENT_LIMITS.memoryCeilingBytes, 256 * MIB)
 })
 
 // Smallest genesis manifest measured in Task 0.1 was 28 676 bytes at 100 nodes; an

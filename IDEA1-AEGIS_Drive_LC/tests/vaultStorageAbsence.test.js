@@ -57,6 +57,16 @@ test('SA-SW-1 the preview worker and vaultPreview libraries never touch storage'
   assert.deepEqual(offenders, [], 'no preview module touches Cache API/IndexedDB/localStorage/sessionStorage')
 })
 
+test('SA-IMAGE-ADMISSION the image decode gate has no storage, filesystem, server decoder, or network path', () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const file = path.join(root, 'src/lib/vaultImageDecodeAdmission.js')
+  const code = fs.readFileSync(file, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^[ \t]*\/\/.*$/gm, ' ')
+  assert.doesNotMatch(code, /\bcaches\b|\bindexedDB\b|\blocalStorage\b|\bsessionStorage\b|\bfetch\s*\(|\bWebSocket\b|\bsharp\b|\bffmpeg\b|node:fs|\/server\//i)
+  assert.doesNotMatch(code, /^\s*import\s/m, 'admission is a pure client-only module')
+})
+
 test('PVUX-4 / VAULT-RECOVERY-5 Vault upload queue has no direct storage path; persistence goes only through the allowlisted sealed recovery store', async () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const source = path.join(root, 'src/components/VaultUploadDrawer.jsx')

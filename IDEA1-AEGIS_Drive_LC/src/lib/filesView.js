@@ -10,24 +10,39 @@
 // ⚠️ ห้ามใช้ชื่อหรือนามสกุลตัดสินกลุ่ม — นั่นคือ heuristic ที่ migration 010 ลบทิ้งไป
 //    ไฟล์ชื่อ `README` คือไฟล์ โฟลเดอร์ชื่อ `v2.0` คือโฟลเดอร์ ตัวตนอยู่ที่ `kind` เท่านั้น
 
-/** นามสกุลของภาพที่เบราว์เซอร์แสดงได้อย่างปลอดภัย (ไม่มี svg — svg คือเอกสารที่รันสคริปต์ได้) */
-export const PREVIEW_IMAGE_EXTS = Object.freeze(['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp'])
-/** วิดีโอที่เบราว์เซอร์เล่นจากสตรีมได้จริง (mov/mkv ไม่ใช่ — ถ้าใส่ไว้จะได้ปุ่มที่กดแล้วเงียบ) */
-export const PREVIEW_VIDEO_EXTS = Object.freeze(['mp4', 'webm'])
+import { detectFormat } from './preview/formats.js'
+import { previewKindOf, resolveCapability } from './preview/registry.js'
+import { detectCanPlay } from './preview/env.js'
+
+/** Files ไม่ขึ้นกับ codec ของเบราว์เซอร์ใน P0 (ชุดเดิมเล่นได้เสมอ) — env ว่างคงที่ */
+const FILES_ENV = Object.freeze({})
 
 /**
  * ชนิดของ preview ที่ไฟล์นี้ได้: 'image' | 'video' | null
  *
- * ⚠️ Private Vault คืน null เสมอ — เซิร์ฟเวอร์เห็นแค่ ciphertext จึงไม่มี thumbnail แบบ
- *    plaintext ให้ และการวาดกล่องรูปทับภาษาภาพ hatch ของ Vault คือการโกหกเรื่องขอบเขต
- *    การเข้ารหัส เส้นทาง preview ของ Vault เป็นคนละเส้นทาง (ถอดรหัสฝั่ง client)
+ * ⚠️ Unified Preview P0: ตัดสินผ่าน resolver กลาง (src/lib/preview/) ตัวเดียวกับ Private Vault
+ *    ชุดที่ preview ได้ยังเท่าเดิมทุกประการ = allowlist ของ route /preview ฝั่งเซิร์ฟเวอร์
+ *    (jpg jpeg png gif webp avif bmp mp4 webm ไม่สนตัวพิมพ์; ไม่มี svg — svg คือเอกสารที่รันสคริปต์ได้)
+ *    `file.ext` ที่เซิร์ฟเวอร์คำนวณเป็นแหล่งหลัก; แถวที่มีแค่ชื่อใช้นามสกุลจากชื่อ
+ * ⚠️ Private Vault คืน null เสมอ — เส้นทาง preview ของ Vault ถอดรหัสฝั่ง client (preview/vaultCapability.js)
  */
 export function previewKindFor(file) {
   if (!file || file.kind === 'folder' || file.vault) return null
-  const ext = String(file.ext ?? '').toLowerCase()
-  if (PREVIEW_IMAGE_EXTS.includes(ext)) return 'image'
-  if (PREVIEW_VIDEO_EXTS.includes(ext)) return 'video'
-  return null
+  const name = file.ext ? `file.${file.ext}` : String(file.name ?? '')
+  return previewKindOf(resolveCapability({ ...detectFormat({ name }), size: file.size ?? 0 }, 'files', FILES_ENV))
+}
+
+/**
+ * Unified Preview P1 — capability for the preview MODAL / menu (image, video, audio, text).
+ * ⚠️ Tiles keep previewKindFor (image/video only): audio/text files never trigger media-info requests.
+ * ⚠️ The decision is name-only here; the server /preview route verifies the head signature (415 on mismatch).
+ * @param {object} file Files row
+ * @param {{ canPlay?: Record<string, boolean> }} [env] defaults to this browser's canPlayType answers
+ */
+export function filesPreviewCapability(file, env = { canPlay: detectCanPlay(globalThis) }) {
+  if (!file || file.kind === 'folder' || file.vault) return resolveCapability(null, 'files', env)
+  const name = file.ext ? `file.${file.ext}` : String(file.name ?? '')
+  return resolveCapability({ ...detectFormat({ name }), size: file.size ?? 0 }, 'files', env)
 }
 
 /** เส้นทาง API ของ preview — client รู้แค่ id ไม่มีวันรู้ storage key */

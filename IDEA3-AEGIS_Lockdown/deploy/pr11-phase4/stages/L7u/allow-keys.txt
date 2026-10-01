@@ -1,0 +1,28 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L7u (post-L7 Recovery Core upgrade) allowed PRE->POST drift.
+# Exact keys only; wildcards are forbidden. This is the ONLY delta a successful L7u PRE->POST compare may approve. Key approval is by key;
+# the exact VALUES are proven separately by `p4-l7u-upgrade.py delta` (current target old->new, catalog gains exactly the new release,
+# group gid/members, drop-in and tmpfiles digests, runtime-directory and socket mode/owner, supplementary/process groups).
+# The release catalog is NOT listed: it is approved only by the relational ALLOW_L6C_RELEASE_FILE rule (`stage L7u` + the one new release id).
+# Deliberately NOT listed: any credential/pki/mqtt file, /run/aegis-idea3, /var/lib|log/aegis-idea3, the base unit file, any listener,
+# sysctl, firewall, network, time, MQTT, IDEA2 key.
+host.symlink./opt/aegis-idea3/current.target
+host.path./etc/systemd/system/aegis-idea3-core.service.d
+host.path./etc/tmpfiles.d/aegis-idea3-recovery.conf
+host.path./run/aegis-idea3-recovery
+host.path./run/aegis-idea3-recovery/recovery.sock
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.d/10-recovery.conf.class
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.d/10-recovery.conf.meta
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.d/10-recovery.conf.sha256
+host.unit_file./etc/tmpfiles.d/aegis-idea3-recovery.conf.class
+host.unit_file./etc/tmpfiles.d/aegis-idea3-recovery.conf.meta
+host.unit_file./etc/tmpfiles.d/aegis-idea3-recovery.conf.sha256
+host.aegis_idea3.file./etc/aegis-idea3/core.env.meta
+host.aegis_idea3.recovery.group.aegis-idea3-recovery
+host.aegis_idea3.recovery.runtime_dir
+host.aegis_idea3.recovery.socket
+host.aegis_idea3.recovery.core.supplementary_groups
+host.aegis_idea3.recovery.core.dropin_paths
+host.aegis_idea3.recovery.core.read_write_paths
+host.aegis_idea3.recovery.core.process_groups
+svc.aegis-idea3-core.service.MainPID
+svc.aegis-idea3-core.service.ExecMainStartTimestamp

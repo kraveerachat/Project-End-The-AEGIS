@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-28
+updated: 2026-10-01
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -15,9 +15,442 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1 — Separate encrypted preview-index design closeout
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 / architecture only |
+| Branch | `docs/idea1-preview-d1-encrypted-preview-index-design` from `origin/main` `a54e699594053fc87018720b9f9f25c9c482a6b0` (PR #278 merged) |
+| Owner | kla |
+| PR | #279 (design-only closeout; Human merge pending) |
+| State | **DESIGN_SPEC_APPROVED=YES / D1_ARCHITECTURE=APPROVED_WITH_CONDITIONS / DESIGN TASK CLOSED**; implementation and Production mutation not authorized |
+| Production mutation allowed | **NO** |
+| Next gate | Human review/merge of PR #279. Future implementation needs a separately authorized task. |
+
+### Session Register — D1
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1-S1 | Compare separate encrypted-index architectures; write and self-review design only | CLOSED | PR #278 rejected size gate; current Vault source/contracts; 49/49 governance tests; vault validation pass with two existing canvas warnings; `git diff --check` pass; Draft PR #279 | `984b64e2358183312de5673ddc097c2de31d7c16` | Human architecture approval; no implementation plan | Human decision; no writer, flag, migration, or Production work |
+| D1-S2 | Record Human approval with conditions and close design PR only | CLOSED | Human Owner decision 2026-10-02; 49/49 governance tests, vault validation pass with two existing canvas warnings, `git diff --check` pass on design checkpoint | `6d221f3e` | Human PR review/merge; implementation separate and unauthorized | Human reviews/merges PR #279 |
+
+Session D1-S1 started 2026-10-02 from `a54e699594053fc87018720b9f9f25c9c482a6b0`. Scope: the new D-1 spec and this owner status checkpoint only. Safety: no runtime source, database, implementation plan, writer, `VAULT_MANIFEST_V2_UPGRADE`, or Production mutation. Expected evidence: comparison, quantitative 1k/5k/10k model, security/rollback review, collaboration/vault validation, and a Draft PR. At that checkpoint, the earlier manifest-embedded path was blocked at G-THR and the replacement design was only a proposal; the later Human decision is recorded in D1-S2 below.
+
+D1-S1 work performed: compared single, sharded, and sidecar indexes; proposed sharded V2-encrypted root/shards/derivatives with an independent owner-scoped head and **zero** main-manifest linkage. The 1k/5k/10k index model is explicitly estimated from PR #278, not newly benchmarked. New route/storage/CAS, orphan classification, residual request-pattern leakage, and malicious-server replay were explicit blockers/decisions. Spec checkpoint `984b64e2358183312de5673ddc097c2de31d7c16`; Draft PR #279. Verification: `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs` 49 pass/0 fail/0 skip; `node scripts/validate-vault.mjs` pass with two pre-existing owner-data canvas warnings; diff check pass. Runtime/source/config changed: **NO**. Production mutation: **NO**. At D1-S1 no final receipt existed; Human architecture review was next. D1-S2 records the subsequent decision; approval still does not authorize an implementation plan in this branch.
+
+D1-S2 Human decision (2026-10-02): owner-scoped sharded encrypted preview index **approved with conditions**; main-manifest linkage **none**, main manifest **v1**. Request-pattern leakage accepted with documented limitation; malicious-server replay accepted as inherited limitation. Initial 64-shard routing is provisional; decoded cap, live-shard cap, and padded bucket await real IDX-SIZE measurement before any writer. Initial destructive GC is forbidden; authenticated orphan classification and reachability come first; destructive GC needs a separate Human gate. Writer capability must default OFF. `VAULT_MANIFEST_V2_UPGRADE_REQUIRED_FOR_D1=NO`; flag remains OFF. `IMPLEMENTATION_AUTHORIZED=NO`; `PRODUCTION_MUTATION_AUTHORIZED=NO`. This session changes the design spec/status/one final receipt only; no implementation plan, runtime code, DB, server, flag, or Production action.
+
+D1-S2 closeout checkpoint: `6d221f3e` records the Human decision in the spec and canonical note. Local verification at that tree: `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs` 49 pass/0 fail/0 skip; `node scripts/validate-vault.mjs` exit 0 with two pre-existing owner-data canvas warnings; `git diff --check` exit 0. The one final D-1 receipt is added at task handoff; current PR #279 remains design-only. No runtime/build/Production result is claimed. Handoff: Human Owner reviews and merges PR #279; any implementation plan, writer, schema, feature flag, deployment, or destructive GC belongs to a separately authorized future task.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-P2B — T-MAN-SIZE blocked gate
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P2B / Session 1, Tasks 0–1 only |
+| Branch | `feat/idea1-preview-p2b-encrypted-thumb-poster` (from `origin/main` `64f59fbfb0c4d7a731f24e5f0d673a420529c67b`) |
+| PR | #278 (blocked-gate closeout; merged into `main` at `a54e699594053fc87018720b9f9f25c9c482a6b0`) |
+| Owner | kla |
+| State | **P2B_T_MAN_SIZE=COMPLETE / P2B_G_THR=REJECTED / CAPACITY_GATE=FAIL / WRITER BLOCKED** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p2b-encrypted-thumb-poster.md` |
+| Production mutation allowed | **NO** |
+| Next gate | Separate architecture task for D-1 encrypted preview index; direction only, not an approved or implemented design. Tasks 2–17 of this plan must not execute. |
+
+Session register:
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| P2B-S1 | Baseline plus 1k/5k/10k manifest size/cost measurement, no writer | Complete; no Production mutation | Six cells × 20 runs on Node/Chrome and local in-memory/PostgreSQL routes; exact table in PR #278. Baseline Linux full suite: 2,271 pass / 99 fail / 160 skip (existing base, no P2b changes). | Script-only `4c5a5dff`, correction `cc8d2db1`, measurement HEAD `4dd4714f` | Human G-THR decision | Task 2 blocked pending gate decision |
+| P2B-S2 | Human G-THR decision and final blocked-gate closeout | REJECTED / terminally BLOCKED | 10k + previews ciphertext 16,777,232 B equals the current maximum; 0% headroom. Timing is not the blocking reason. | Final blocked receipt in PR #278 | Separate D-1 architecture task, not part of PR #278 | Human Owner reviews/merges blocked evidence PR; no writer work |
+
+T-MAN-SIZE evidence: `P2B_STARTED=YES` means measurement/gating only, not writer implementation or enablement. Product limit counts total nodes, so the 10k fixture contains 9,994 files, root, and five folders. The 10k/three-preview manifest measured 14,632,866 canonical bytes and the 16,777,216-byte padding bucket; ciphertext is 16,777,232 bytes, exactly the current maximum. Node and real Chrome agree on bytes in all six cells. The local server measurements use valid decryptable schema-v1 revisions padded to each v2 ciphertext bucket, proving only opaque payload/row-write cost—not server v2 compatibility. Chrome decrypt+decode+validate p95 was 371.2 ms; no end-to-end mutation p95 was measured. The Human Owner rejected the current manifest-embedded design on 2026-10-01 because 0% ciphertext headroom is insufficient at 10k nodes. `P2B_G_THR=REJECTED`; `P2B_WRITER_IMPLEMENTED=NO`; `P2B_WRITER_ENABLE=BLOCKED`; `VAULT_MANIFEST_V2_UPGRADE_ENABLED=NO`; `PRODUCTION_MUTATION_PERFORMED=NO`; Tasks 2–17 were not executed. D-1 separate encrypted preview index is the next architecture direction, not implemented or approved in this PR.
+
+## Completed Task — IDEA1-UNIFIED-PREVIEW-P1 — Audio and inert text preview
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P1 / IDEA1_UNIFIED_PREVIEW_P1_AUDIO_TEXT |
+| Branch | feat/idea1-preview-p1-audio-text (from `origin/main` `7cabf28a`) |
+| PR | #276 (merged to `main` at `64f59fbfb0c4d7a731f24e5f0d673a420529c67b`; P1_CLOSED=YES) |
+| Owner | kla |
+| State | **IMPLEMENTED + VERIFIED + DEPLOYED + ACCEPTED + MERGED / P1_CLOSED=YES** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p1-audio-text-normal-files.md` |
+| Deployed runtime SHA | `8634360f74ed2f50b2fcb49925a3d273c605a8a2` |
+| Image | `aegis-prod-drive:p1-8634360f74ed` |
+| Next gate | P1 closeout complete; P2b manifest-embedded design rejected at G-THR |
+
+Durable facts:
+
+- Unified Preview P1 Audio/Text is implemented for both Normal Files and the Private Vault.
+- Inline-servable audio (MP3, WAV, FLAC, AAC, M4A, OGG, WEBA) and text-family files (TXT, LOG, MD, JSON, CSV, TSV, code/config source files) are verified with server-side signature sniffing against the first 8 KiB (mismatch -> 415).
+- Active HTML, SVG, and XML are rendered strictly inert as plain source text in `<pre>` blocks; zero raw HTML execution.
+- Text preview is bounded to the first 1 MiB (Files via single Range request; Vault via chunked decrypt stopping after crossing 1 MiB).
+- Private Vault whole-audio decryption ceiling set to 32 MiB (`audioWholeDecryptMaxBytes`); non-video Service Worker responses enforce `nosniff` + `CSP default-src 'none'; sandbox`.
+- Production deployment verified: image `aegis-prod-drive:p1-8634360f74ed`, running revision `8634360f74ed2f50b2fcb49925a3d273c605a8a2`, overlay `/opt/aegis/runtime/preview-p1/drive-image-8634360f74ed.yml` (SHA256 `de6b877b13d8fe1d8ee5c550589d54816cd536c141d345be3e69ceda3379a1f7`).
+- Final server acceptance: `P1_PRODUCTION_CUTOVER=PASS`, `DRIVE_HEALTH=healthy`, `DRIVE_RESTARTS=0`, `DRIVE_OOM=false`, `HEALTHZ=200`, `NON_DRIVE_CONTAINERS_UNCHANGED=PASS`, `VAULT_MANIFEST_V2_UPGRADE=<unset>`, `P2B_STARTED=NO`, `ROLLBACK_REQUIRED=NO`.
+- Historical deployment note: Initial cutover reached healthy / healthz=200, but verification harness failed due to normal user attempting to read root-owned 0600 snapshot; controlled rollback to P2a completed cleanly; harness permission fixed and retry passed full cutover and verification sequence.
+- Human functional acceptance: Normal Files and Private Vault both exercised with the same applicable P1 preview set (MP3 upload, preview, playback, seek, no stutter, functional download; TXT, JSON, CSV, TSV preview; Markdown and JS shown inertly as plain source; no P1 browser/runtime errors). `DOWNLOAD_SHA256` not claimed as before/after hash comparison was not recorded.
+- P2b measurement/gating completed; the Human Owner rejected the current manifest-embedded design at G-THR. The P2b writer was not started.
+- PR #276 merged on 2026-10-01 (`P1_CLOSED=YES`); the immutable P1 receipt was not changed.
+
+## Current Task — IDEA1-UNIFIED-PREVIEW-P2A — Manifest v2 reader (implementation)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P2A / IDEA1_UNIFIED_PREVIEW_P2A_MANIFEST_V2_READER |
+| Branch | feat/idea1-preview-p2a-manifest-v2-reader (from `origin/main` `07633c93`) |
+| PR | #273 (merged to `main` at `352b755083b23c97642d84e0c1400bdc436adb4e`) |
+| Owner | kla |
+| State | **IMPLEMENTED + VERIFIED LOCALLY + MERGED; code included in accepted P1 runtime; P2A_ACCEPTED=YES by Human Owner declaration** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p2a-manifest-v2-reader.md` |
+| Production mutation allowed | **NO** (deploy is Human Owner only) |
+| Next gate | P2a acceptance does not override the rejected P2b capacity gate; no P2b writer flag enable |
+
+Durable facts:
+
+- `P2A_ACCEPTED=YES` is the Human Owner's 2026-10-01 blocked-gate closeout declaration. This task performed no new Production action and does not claim a newly supplied separate ADMIN / EXISTING_USER / NEWLY_CREATED_USER test matrix.
+- The Vault client reads encrypted manifest schema **1 and 2** and writes **only 1** (`MANIFEST_SCHEMA_VERSION_WRITE = 1`, `MANIFEST_SCHEMA_VERSIONS_READ = [1, 2]`); any other version fails secure (`UNSUPPORTED_SCHEMA_VERSION`, before the revision ciphertext is fetched).
+- v2 adds two optional file-node keys, `contentFormat` (a P0 `FormatId` or `''`) and `previews` (≤ 4, one per kind, closed keys, derivative `blobRef.formatVersion === 2`, per-profile bounds from `src/lib/vaultPreviewProfiles.js`). v1 manifests carrying them are `UNKNOWN_KEY`. `effectivePreviews(node)` ignores entries for a replaced original or an unknown profile.
+- v1 canonical bytes are frozen by a golden vector captured at `07633c93` (`tests/fixtures/vaultManifestV1Golden.json`).
+- Each revision decrypts with its own `manifestSchemaVersion` in the AAD; the plaintext `schemaVersion` must equal it (encrypt and decrypt).
+- Decision P2A-W: a v2 head is browse/preview/download-only; every mutation (rename, move, upload attach, trash, create, restore, orphan recovery) is refused as `MANIFEST_NEWER_THAN_WRITER` with zero publish/CAS; uploads are refused before any byte is sent; a v1 intent whose rebase target becomes v2 is discarded. The UI shows "This Vault was updated by a newer version of Drive — reload to make changes." and disables Upload.
+- vp1 proxy reader ceiling (D-9 `proxyMaxSeconds` has no value yet): ≤ 3,600,000 ms and ≤ 1 GiB; the P4 writer must stay inside it or ship a new profile.
+- Server unchanged: `POST /api/vault/tree/revisions` still rejects `manifestSchemaVersion !== 1`.
+
+## Completed Task — IDEA1-UNIFIED-PREVIEW-P0 — Capability foundation (implementation)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P0 / IDEA1_UNIFIED_PREVIEW_P0_CAPABILITY_FOUNDATION |
+| Branch | feat/idea1-preview-p0-capability-foundation (from `c1dc3c90`; current `main` merged normally at `edbe465e`) |
+| PR | #270 — merged to `main` at `e3e02862` |
+| Owner | kla |
+| State | **MERGED / G-P0 CLOSED by Human Owner / NOT DEPLOYED** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p0-capability-foundation.md` |
+| Production mutation allowed | **NO** (P0 needs no Production testing) |
+| Next gate | none — P1 and P2a may start from refreshed `origin/main` |
+
+Durable facts:
+
+- Shared preview core under `IDEA1-AEGIS_Drive_LC/src/lib/preview/` (formats, registry, env, vaultCapability) and one `PreviewModalShell` used by Normal Files and the Vault tree; Download is always available and a type without a provider shows a stable fallback (no empty frame, loading times out).
+- Format detection is signature-first; extensions are case-insensitive (`.JPG` = `.jpg`); the client MIME is never used to choose a format.
+- Normal Files previewable set unchanged (= server `/preview` allowlist); the poster/motion derivative pipeline was not touched.
+- The Vault tree no longer trusts upload-time `File.type`: capability comes from the decrypted content signature (derived facts only, page memory, sealed and cleared on lock) or from the extension with confirmation before rendering; the modal passes decrypted bytes through a render gate.
+- Behaviour change (spec §5.4): extensionless Vault files whose only type evidence is the client MIME no longer offer Preview until their signature is confirmed.
+- Regression pins: arbitrary upload / byte-exact download (Normal V1/V2, Vault V2) and account neutrality (Admin, existing user, newly created user).
+- Vault Download always saves `application/octet-stream` with exact bytes and the manifest filename; the Vault preview header shows the detected format (confirmed name, "not yet verified" for name-only decisions, "Unknown type" otherwise); a closed preview resets its loading fail-safe.
+- Test-suite reliability: `tests/vaultChunkedUploadClient.test.js` gated-PUT fixture could deadlock under full-suite load (late PUT never released → hung run); fixed test-only (`releaseAll(running)`).
+- Known follow-ups (not P0 scope): legacy flat-vault screen (`Vault.jsx`) unchanged; P1/provider expansion must revisit `canPlayType` gating.
+- GROUP B throughput remains deferred; no Vault persisted derivatives exist yet (P2b).
+
+## Current Task — IDEA1-UNIFIED-PREVIEW-ARCH-1 — Unified file capability + preview architecture and plans
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-ARCH-1 / IDEA1_UNIFIED_PREVIEW_ARCHITECTURE_AND_PLANNING |
+| Branch | docs/idea1-unified-preview-encrypted-derivatives-spec |
+| PR | #268 (architecture + planning only) |
+| Owner | kla |
+| State | **COMPLETE / ARCHITECTURE + PLANNING REVIEW PASS / RUNTIME NOT STARTED** |
+| Spec | `docs/superpowers/specs/2026-09-30-idea1-unified-preview-encrypted-derivatives-design.md` — FINAL APPROVED FOR IMPLEMENTATION PLANNING (2026-09-30); D-1…D-11 binding |
+| Plans | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-{master-implementation,p0-capability-foundation,p1-audio-text-normal-files,p2a-manifest-v2-reader,p2b-encrypted-thumb-poster,p3-motion-derivatives,p4-video-proxy,p5-documents}.md` |
+| Production mutation allowed | **NO** |
+| Next gate | HUMAN_OWNER_MERGE_PR268 → then P0 from refreshed `origin/main` |
+
+Durable facts:
+
+- PR #268 contains the final-approved Unified Preview architecture spec plus master and P0–P5 plans; architecture/planning review = PASS. Runtime implementation has **not** started.
+- P0 starts only after PR #268 merges, from a freshly fetched `origin/main`.
+- GROUP B upload/download throughput remains deferred; the Vault V2 minimum plaintext chunk stays 8 MiB, audit semantics stay unchanged, Vault ciphertext HTTP caching stays off.
+- Normal Files fast thumbnail/poster/motion path must not regress; Vault thumbnail/poster optimization is the primary cover-speed target.
+- Click-to-preview applies to both Normal Files and the Private Vault; arbitrary upload and byte-exact download remain required independent of preview support; MP3/audio preview is required.
+- Pending gates: D-6 dependency approval (P4 proxy generation, all of P5); T-MAN-SIZE threshold approval before any P2b writer work; P2a Production acceptance before enabling the v1→v2 upgrade flag `VAULT_MANIFEST_V2_UPGRADE` (default OFF).
+- Manifest rules: server accepts manifest schema [1,2] independent of the upgrade flag, rejects 3+; v2 heads are always written as v2 and never downgraded to v1; P2a builds treat v2 Vaults as read-only (P2A-W approved).
+- Zero-Knowledge invariants remain binding: no server Vault plaintext, no server-generated Vault derivatives, no persistent decrypted Vault cache; only client-encrypted ciphertext derivatives may persist (D-10).
+
 ## Current Task
 
-**IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1 — COMPLETE**
+| Field | Current value |
+|---|---|
+| Task | LFT-PERF-1 / TRANSFER_AND_MEDIA_PREVIEW_PERFORMANCE_STUDY |
+| Branch | docs/idea1-transfer-media-performance-study |
+| PR | #216 (Ready for review) |
+| Owner | kla |
+| State | **COMPLETE / LIVE HARDWARE PATH RECONCILED / PR259 MERGED / NO_SAFE_APP_FIX_PROVEN** |
+| Scope | Live hardware-path reconciliation with PR #259 onsite evidence (RB750r2 ether2 100M full, switch Port 1 100MF, Beelink 1G, client 1G; proven 100 Mbps trunk ceiling); PR #259 merged to main (92d47967); U1/U2/D1 diagnostic results preserved; Task 2 upload concurrency skipped as unjustified; Task 5 download diagnosis complete with no safe app fix proven; Tasks 6–7 blocked/not applicable at current gate; Remote residual limiter open; prepared Remote R1 diagnostic packet; PR #257 and PR #259 cross-referenced; PR #216 closeout complete |
+| Design | IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-25-idea1-transfer-media-performance-study-design.md |
+| Plan | IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-25-idea1-transfer-media-performance-measurement-plan.md |
+| Production mutation allowed | **NO** (`CORE_PERFORMANCE_MUTATION_GATE=PRE_FIX_BASELINES_CAPTURED`; `PERFORMANCE_MUTATION_AUTHORIZED=NO`) |
+| Current result | U1_REMOTE_R=1.1581054; U2_DIRECT_LAN_UPLOAD_R=0.944; D1_DIRECT_LAN_DOWNLOAD_R=0.993; D1_TTFB_SHARE=0.0008; CLIENT_ETHERNET_LINK=1_GBPS; RB750R2_IDENTITY=PROVEN_LIVE; RB750R2_ETHER2_LINK=100MBPS_FULL_DUPLEX; TP_LINK_PORT1_TRUNK=100MF; BEELINK_LINK=1_GBPS_FULL; P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE; CURRENT_LAN_THROUGHPUT_LIMITER=PROVEN_HARDWARE_PATH_LIMIT; P1_SHARED_PATH_CAPACITY_LIMITER=PROVEN_BY_U2_D1_AND_LIVE_NETWORK_TELEMETRY; UPLOAD_APPLICATION_DEFECT_PROVEN=NO; DOWNLOAD_APPLICATION_DEFECT_PROVEN=NO; SAFE_APP_LAYER_FIX=NONE_PROVEN; TASK2_UPLOAD_CONCURRENCY=SKIPPED_NOT_JUSTIFIED; UPLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN_AT_CURRENT_GATE; DOWNLOAD_OPTIMIZATION=NO_SAFE_APP_FIX_PROVEN; TASK6_STATUS=BLOCKED_NOT_APPLICABLE; TASK7_STATUS=BLOCKED_NOT_APPLICABLE; HARDWARE_REPLACEMENT_AUTHORIZED=NO; PROCUREMENT_AUTHORIZED=NO; CURRENT_PRODUCTION_ARCHITECTURE=RB750r2_PLUS_TL-SG105E; REPLACEMENT_WORK_STATE=DEFERRED_OPTIONAL_FUTURE_WORK; REMOTE_RESIDUAL_LIMITER=OPEN; POST_FIX=NOT_STARTED; NEW_THROUGHPUT_TEST_EXECUTED=NO; PR257_CROSS_REFERENCE=ADDED; PR259_INFRASTRUCTURE_TRUTH=RECONCILED; PR259_STATE=MERGED; PR259_MERGE_COMMIT=92d479675103988d36240ef219a9193a9a6dcdd4; PR259_CURRENT_SCOPE_WORK=COMPLETE |
+| Optimization spec / plan | `IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-29-idea1-transfer-throughput-optimization-design.md`; `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-29-idea1-transfer-throughput-optimization-implementation.md` (Task 2 skipped; Task 5 diagnosis complete; Tasks 6–7 blocked/not applicable) |
+| Next gate | HUMAN_OWNER_FINAL_MERGE_PR216_THEN_BEGIN_PR257_LIVE_DESIGN_RECONCILIATION |
+
+This task operationalizes the existing LFT-PERF-1 backlog and consolidates the
+separately recorded FILES-TRANSFER-PERF-1 plus PR187/PR212 deferred transfer and
+media-preview performance scope.
+
+Phase B0 Production baseline is executed (2026-09-25T14:35:03Z), confirming Drive
+`aegis-prod-drive:vault-stage-d-fix-f8c876754dd6` (healthy, restarts 0, oom false),
+SSD-backed Data Lake at 77% (61.1 GB total, 13.4 GB available), Files 5 GiB logical
+limit, and Vault limits endpoint `/drive/api/vault/uploads/limits`.
+
+P1 Onsite Direct LAN PRE-FIX is complete across 18 controlled runs on wired Ethernet / Management VLAN30:
+- Files Download (PowerShell `.crdownload` observer): 100 MB median 6.744 MB/s (mean 6.756 MB/s), 300 MB median 7.253 MB/s (mean 7.277 MB/s), 1 GB median 7.026 MB/s (mean 7.017 MB/s). Sustained download ≈ 6.7–7.3 MB/s.
+- Files Upload (in-page XHR tracer `window.__AEGIS_LFT_TRACE__`): 100 MB median 5.056 MB/s (mean 5.080 MB/s), 300 MB median 5.172 MB/s (mean 5.170 MB/s), 1 GB median 5.151 MB/s (mean 5.149 MB/s). Sustained upload ≈ 5.06–5.17 MB/s (remarkably flat).
+- Source verification audit: All three 1 GB upload runs verified as actual measured browser-console tracer runs (63 total requests: 60 chunk PUTs + 3 session lifecycle requests; exact millisecond spans; zero request failures).
+- P1 asymmetry: Download throughput is consistently 33–40% higher (~1.36x) than upload throughput across all fixtures.
+- 3-Way comparison: P1 LAN is ~1.4x–1.45x faster for download and ~1.7x faster for upload than P2 Remote Twingate, demonstrating measurable network overlay overhead. However, LAN upload capping at ~5.15 MB/s and download at ~7.0–7.25 MB/s (well below Gigabit wire rate) proves that Twingate is NOT the sole bottleneck. C1 Public Share download (~11.7–13.5 MB/s) is faster than both P1 and P2, but runs over a different unauthenticated continuous streaming path.
+
+P2 Remote + Twingate PRE-FIX is complete across 18 controlled runs:
+- Files Upload (in-page XHR chunk span): 100 MB median 2.981 MB/s, 300 MB median 3.080 MB/s, 1 GB median 3.016 MB/s (sustained ~3.0 MB/s; no file-size degradation).
+- Files Download (PowerShell `.crdownload` observer): 100 MB median 4.799 MB/s, 300 MB median 5.050 MB/s, 1 GB median 4.829 MB/s (sustained ~4.8–5.1 MB/s).
+- Download throughput is consistently 60–64% higher (~1.6x) than upload throughput across all fixtures.
+- Sampled server telemetry during 1 GB upload: CPU ~6.97%, RAM ~1.32%, low iostat utilization/await (`STORAGE_SATURATION=NOT_SUPPORTED_BY_SAMPLED_EVIDENCE`; storage bottleneck not proven false).
+- Status: `TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN`; `UPLOAD_SPECIFIC_BOTTLENECK=STRONGER_CANDIDATE`; `ROOT_CAUSE=NOT_PROVEN`.
+
+C1 Public Share / Cloudflare PRE-FIX is complete across 9 valid controlled runs:
+- Download (PowerShell `.crdownload` observer with password redemption): 100 MB median 13.546 MB/s (mean ~12.890 MB/s), 300 MB median 11.978 MB/s (mean ~12.063 MB/s), 1 GB median 11.666 MB/s (mean 11.675 MB/s).
+- Sustained delivery ≈ 11.7 to 13.5 MB/s by median across the tested range. Highly stable across repetitions.
+- Under tested client environment, Public Share delivery achieved substantially higher download throughput (~2.4x–2.8x) than authenticated P2 Remote + Twingate Files download across all fixtures.
+- Invalid pilot run: initial 100 MB attempt classified `C1_100MB_INITIAL_ATTEMPT=INVALID_MEASUREMENT` (reason: `HARNESS_FINAL_FILE_RESOLUTION_FAILED`); test harness observer defect, not AEGIS/Cloudflare defect, excluded from n=3.
+- Status: `PUBLIC_SHARE_PATH_PENALTY=NOT_OBSERVED`; `PUBLIC_SHARE_SLOWER_THAN_P2=NOT_SUPPORTED_BY_CURRENT_EVIDENCE`; `CLOUDFLARE_BOTTLENECK=NOT_PROVEN`; `TWINGATE_SOLE_BOTTLENECK=NOT_PROVEN`; `ROOT_CAUSE=NOT_PROVEN`.
+
+Separate defect discovered during P1: Production storage capacity / accounting discrepancy:
+- Docker named volume `aegis_drive_storage` at `/var/lib/docker/volumes/aegis_drive_storage/_data` (~29 GB volume data).
+- Host root filesystem `/` at ~95% utilization (~51 GB used of ~57 GB, ~3.1 GB available). External ~1 TB disk is mounted for backup only (`/mnt/backup`).
+- Deleting test files and emptying Drive Trash did not visibly reduce Dashboard storage accounting usage.
+- Strict governance: Do NOT fix in PR #216. Do NOT prune Docker. Do NOT delete Vault ciphertext/orphans. Do NOT modify storage layout. Status: `STORAGE_ACCOUNTING_DEFECT_RECORDED=YES`, recorded as a separate investigation/blocker.
+
+Mutation gates enforced:
+- `CORE_PERFORMANCE_MUTATION_GATE=PRE_FIX_BASELINES_CAPTURED`
+- `PERFORMANCE_MUTATION_AUTHORIZED=NO`
+- `PUBLIC_SHARE_SPECIFIC_MUTATION_GATE=PRE_FIX_BASELINE_CAPTURED`
+- `PUBLIC_SHARE_MUTATION_AUTHORIZED=NO`
+- `SHARED_MUTATION=BLOCKED_PENDING_DIAGNOSIS`
+
+Immediate next gate is root-cause diagnosis and storage accounting investigation.
+All performance mutations, parameter changes, and code optimizations remain strictly blocked
+pending diagnosis and separate Human Owner authorization. PR #216 is complete and ready for review with one final receipt.
+
+### Session Register — LFT-PERF-1
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| LFT-PERF-1-S1 | Establish study design, measurement plan, and preliminary matrix | PASS / DRAFT | Initial design and measurement plan committed | `0d471942` | PASS | Production B0, PRE-FIX measurements | Human review of measurement plan |
+| LFT-PERF-1-S2 | Reconcile B0 baseline, upload method correction (XHR tracer), 18 controlled remote runs (Upload ~3.0 MB/s, Download ~4.8–5.1 MB/s), upload vs download asymmetry (~1.6x), mutation gate enforcement | PASS / IN PROGRESS | B0 baseline executed; 18 remote runs complete; docs reconciled; no mutation | Docs reconciliation checkpoint | PASS | P1 Onsite Direct LAN Pre-Fix (18 runs), bottleneck analysis, post-fix matrix | P1 Onsite Direct LAN Pre-Fix baseline |
+| LFT-PERF-1-S3 | Reconcile C1 Public Share / Cloudflare PRE-FIX (9 valid runs: 100 MB 13.546, 300 MB 11.978, 1 GB 11.666 MB/s), invalid pilot classification, P2 vs C1 comparison (~2.4x–2.8x), PRE/POST study structure, Case A/B change classification, and mutation gates | PASS / IN PROGRESS | C1 9 valid runs complete; docs reconciled; 27 total controlled runs; zero mutations | Docs reconciliation checkpoint | PASS | P1 Onsite Direct LAN Pre-Fix (18 runs), bottleneck analysis, post-fix matrix | P1 Onsite Direct LAN Pre-Fix baseline |
+| LFT-PERF-1-S4 | Reconcile P1 Onsite Direct LAN PRE-FIX (18 runs: Upload ~5.06–5.17 MB/s, Download ~6.7–7.3 MB/s), 3-way comparison (P1 vs P2 vs C1), storage capacity/accounting defect discovery, and mutation gate transition | PASS / IN PROGRESS | P1 18 runs complete; 45 total controlled runs (36/36 core); docs reconciled; zero mutations | Docs reconciliation checkpoint | PASS | Bottleneck diagnosis, storage accounting investigation, post-fix matrix | Bottleneck diagnosis & storage accounting investigation |
+| LFT-PERF-1-S5 | Task 0: normal merge of `origin/main` `21b52d5e` (PR220/PR241/PR243 merged) into PR216; only this canonical note conflicted | PASS / IN PROGRESS | Ancestry verified by git; conflict resolved preserving main completed chronology plus PR216 as Current Task; no application source/config delta from reconciliation | Task 0 reconciliation commit | PASS | Task 1 diagnosis, conditional Task 2 | Task 1 root-cause diagnosis |
+| LFT-PERF-1-S6 | Task 1 diagnosis gate + U1 Remote/Twingate single-vs-dual upload probe | NOT_PROVEN / IN PROGRESS | Diagnosis `32100cb0`; Human U1: single 2.998 MB/s, dual aggregate 3.472 MB/s (1.736 per file), R=1.1581054, medTailMs≈1–4, sumGapMs≈0, all 200 | Docs checkpoint | Upload NOT_PROVEN; Task 2 not entered (Human ruling DO_NOT_ENTER_TASK2_YET); no runtime change | U2 Direct-LAN upload probe, D1 Direct-LAN download probe | Human runs U2 + D1 (measurement plan §21) |
+| LFT-PERF-1-S7 | U2 Direct-LAN upload probe, D1 Direct-LAN download probe, client LinkSpeed, router 100 Mbps ceiling diagnosis, Task 2 skipped, Task 5 complete (no safe app fix), Remote residual open, PR257 cross-reference | DIAGNOSIS COMPLETE / IN PROGRESS | U2-A 10.692 MB/s, U2-B aggregate 10.098 MB/s (5.050/5.052), U2_R=0.944; D1-A 11.115 MB/s, D1-B aggregate 11.032 MB/s, D1_R=0.993, ttfbShareA=0.0008; client Realtek PCIe GbE 1 Gbps (WSL 10G virtual ignored); MikroTik RB750r2 5x 10/100 Ethernet per vendor spec; inter-VLAN 100 Mbps ceiling strongly supported; application defect NOT proven; Task 2 SKIPPED_NOT_JUSTIFIED; Task 5 NO_SAFE_APP_FIX_PROVEN; Remote residual OPEN; PR #257 cross-referenced | Docs checkpoint | P1 shared-path capacity limitation established; router 100 Mbps ceiling strongly supported; app defect NOT proven; Task 2 SKIPPED; Task 5 NO_SAFE_APP_FIX; Remote residual OPEN; no runtime change; no final receipt | Execute prepared Remote R1 diagnostic packet from home | R1 from-home diagnostic execution |
+| LFT-PERF-1-S8 | Live hardware-path reconciliation with PR #259 onsite evidence (RB750r2 ether2 100M full, switch Port 1 100MF, Beelink 1G, client 1G; proven 100 Mbps trunk ceiling; no safe app fix; Tasks 6–7 blocked) | DIAGNOSIS COMPLETE / IN PROGRESS | PR #259 onsite preflight evidence: RB750r2 rev r3 7.18.2, ether2 rate=100Mbps full-duplex=yes; TL-SG105E Port 1=100MF, Port 2=1000MF, Port 5=1000MF; Beelink enp1s0=1000Mb/s Full; Realtek GbE=1 Gbps; P1_ROUTER_TRUNK_100MBPS_CEILING=PROVEN_LIVE; CURRENT_LAN_THROUGHPUT_LIMITER=PROVEN_HARDWARE_PATH_LIMIT; app defect NOT proven; Task 2 SKIPPED; Task 5 NO_SAFE_APP_FIX; Tasks 6–7 BLOCKED_NOT_APPLICABLE; hardware replacement DEFERRED; PR #259 cross-referenced | Docs checkpoint | 100 Mbps hardware trunk ceiling proven live; U2/D1 ~10.7–11.1 MB/s ceiling explained; app defect NOT proven; Task 2 SKIPPED; Task 5 NO_SAFE_APP_FIX; Tasks 6–7 BLOCKED_NOT_APPLICABLE; Remote residual OPEN; no runtime change; no final receipt | Execute prepared Remote R1 diagnostic packet from home | R1 from-home diagnostic execution |
+| LFT-PERF-1-S9 | Post-PR259 merge sync, dependency reconciliation, and final closeout | PASS / READY FOR REVIEW | PR #259 merged to main (92d47967); PR216 synchronized via normal merge; PR259 dependency satisfied; hardware ceiling and diagnosis preserved; zero app defects; Tasks 6–7 blocked/not applicable; exactly one final receipt added | Closeout commit | PASS | None (PR ready for review) | Human Owner merge of PR #216 |
+
+## Completed Task — IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1
+
+**IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1 — TRASH LIST PRESERVED ACROSS DESTRUCTIVE REAUTH / PRODUCTION ACCEPTANCE PASS / DRAFT PR**
+
+- Merge reconciliation note (PR216 Task 0, 2026-09-29): PR #243 merged into `main` as `21b52d5ecd5ca41a0a3c3429d93405b38dbe81b8` (verified by `git merge-base --is-ancestor`). The chronology below is preserved verbatim from `main` and predates that merge.
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-trash-destructive-reauth-ui`; PR #243 remains Draft. Historical stacked base: `fix/idea1-vault-convergence-highres-ux` (PR #220); current target: `main` after TRASH-R4 reconciliation (retarget after verified normal push).
+- Final Status:
+  - `IMPLEMENTATION_COMPLETE=YES`
+  - `PRODUCTION_DEPLOYED=YES`
+  - `PRODUCTION_ACCEPTANCE=PASS`
+  - `PR_MERGED=NO`
+  - `DEPENDENCY_BLOCKED_BY_PR220=NO` — PR220 merged as `ed45c1b5a63087aa3810d156a8c19b1f1e48c838`; PR241 merged as `5fe58ee9562b528ddae4dfd728caa97b1c6c925b`.
+  - `MAIN_RECONCILIATION=PASS` — normal merge `169c089910210725b5fe6047d710f5caf9a71cd4`, only canonical-status conflict; no application source/behavior delta from accepted `92a9...`.
+- Authoritative Accepted Source & Carried-Forward Production Deployment:
+  - `SOURCE_SHA=92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f`
+  - `IMAGE=aegis-prod-drive:pr243-92a9ebd86593-r3`
+  - `IMAGE_ID=sha256:4122f82ba5557a456feccdff54892fb382943d012566fd851ec65253b2b84c3c`
+  - `PACKAGE=pr243-92a9-rollout-r3.zip` (SHA256: `2e35469b5f21933b42e0d6872d280801252dc5526fab6ead7988e7e50af65c01`)
+  - Postcheck verification: Drive healthy, restart 0, OOM False; mounts, networks, datalake, media cache preserved; no mutations to HUB, Monitor, Postgres, Public Share, IDEA2, or IDEA3; zero database migrations (`MIGRATION_RUN=NO`).
+- Human Owner Production Acceptance:
+  - `PERMANENT_DELETE=PASS`
+  - `TRASH_DESTRUCTIVE_REAUTH=PASS`
+  - `TRASH_SEARCH_AUTOFILL_ADMIN=NOT_OBSERVED`
+  - `TRASH_REMAINING_ROWS_RECONCILE=PASS`
+  - `MANUAL_USER_REFRESH_REQUIRED=NO`
+  - `SIDEBAR_STORAGE_REFRESH=PASS`
+  - `EMPTY_TRASH=PASS`
+  - `BACKEND_PURGE=PASS`
+  - `UPLOAD_STORAGE_ACCOUNTING=PASS`
+  - `OVERALL_BROWSER_ACCEPTANCE=PASS`
+  - Observable behavior: after destructive confirmation, Trash automatically reconciles to the authoritative remaining-item state without requiring user page reload or navigation.
+- Deployment Engineering Techniques & Lessons:
+  - Exact-source deployment: Candidate strictly pinned to Git SHA `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f`; application source authority remains GitHub.
+  - Drive-only rollout: Existing Compose chain preserved; guarded Drive-only recreation (`--no-deps --force-recreate --no-build --pull never --wait`).
+  - Runtime-user readability gate: Permissions normalized to prevent non-root Node EACCES (resolving earlier V1 packaging issue); verified with disposable probe.
+  - Connector restart-policy authority: Tooling aligned with live authority (`on-failure / MaximumRetryCount=5`).
+  - Docker HostConfig Binds ordering: Binds string ordering normalized; all other configuration drift fail-closed.
+  - Historical package audit: V1, R2, R2.1 retained; R3 is authoritative.
+- Root Cause 1 (Destructive Reauth UI): Password managers and browser credential autofill heuristically associated the preceding unisolated Trash search input with the destructive reauth password modal (`purge` and `empty`), autofilling account username (`"admin"`) into the controlled search input and filtering out non-matching Trash rows.
+- Root Cause 2 (Storage Meter Staleness): After successful permanent delete (`purgeItem`) or Empty Trash (`emptyTrash`), backend unlinked blobs immediately, but the client-side Sidebar storage meter relied on `/api/dashboard` polling (`refreshMs: 30_000`) or navigation, remaining stale until timer expiration or full-page reload.
+- Architectural Fix:
+  1. Enclose Trash search input in dedicated `<form role="search" onSubmit={(e) => e.preventDefault()}>` with explicit `type="search"`, `name="trashSearch"`, `autoComplete="off"`, `autoCorrect="off"`, `autoCapitalize="off"`, and `spellCheck="false"`.
+  2. Scope permanent delete (`purge`) modal inside `<form onSubmit={...}>` with an explicit hidden username field (`type="text" name="username" autoComplete="username" value={username} readOnly tabIndex={-1} aria-hidden="true" className="sr-only"`), explicit `name="trashPurgePassword"`, and properly typed `<Btn type="button">` / `<Btn type="submit">`.
+  3. Scope empty trash (`empty`) modal inside `<form onSubmit={...}>` with an explicit hidden username field (`autoComplete="username"`), `name="trashConfirmText"` with `autoComplete="off"`, and `name="trashEmptyPassword"`.
+  4. Scope unlock modal with hidden username field and `name="trashUnlockPassword"`.
+  5. Pass authenticated `user={session}` from `App.jsx` to `Trash` component while safely defaulting when omitted.
+  6. Preserve pre-existing legitimate user search queries across deletion flow.
+  7. Add `onStorageMutationCommitted` callback prop to `<Trash>` in `src/screens/Trash.jsx`, invoking it strictly after successful physical reclamation (`result.ok === true` in `purgeItem` and `emptyTrash`).
+  8. Wire `onStorageMutationCommitted={dashApi.refresh}` to `<Trash>` in `src/App.jsx`.
+  9. `useApi.refresh()` triggers a silent background update (`isRefresh: true`, `hasDataRef: true`, no loading skeleton flash) of `/api/dashboard`, reconciling sidebar storage metrics in realtime.
+  10. Restore action does NOT call `onStorageMutationCommitted` because restored files were already accounted for in datalake storage.
+  11. Failed delete / failed Empty Trash do NOT trigger storage reconciliation.
+  12. Global polling frequency (`refreshMs: 30_000`) and backend storage accounting remain unchanged; zero new endpoints or WebSockets added.
+  13. Successful permanent purge triggers `onStorageMutationCommitted` before awaiting Trash relisting, so slow metadata reconciliation cannot delay the existing silent dashboard refresh. Deferred relist regression also pins exactly-once callback and preservation of legitimate search.
+  14. List request generations reject superseded responses; explicit lock, current authorization expiry, Empty Trash and unmount invalidate pending lists. Authorization epochs reject status sampled before a newer successful explicit unlock. Fresh expiry/423 still clear metadata and require server-authorized unlock. No server auth/session/security semantics change.
+  15. Purge stays busy through authoritative refetch; then dialog/password reset. Escape/scrim/close cannot dismiss the pending operation. Metadata timeout shows truthful ErrorState + GET-only retry, not false empty state or repeated DELETE. Search/sort remain controlled and unchanged; no document reload or navigation.
+- Automated Evidence:
+  - Implementation-era evidence below retains its checkpoint-time pending/limitations wording. TRASH-R3 supersedes live-retest pending; TRASH-R4 supersedes dependency/next-step blockers. Full IDEA1 suite remains NOT RERUN for this bounded PR243 correction/reconciliation, never claimed PASS.
+  - Focused regression suite `IDEA1-AEGIS_Drive_LC/tests/trashDestructiveReauthUi.test.js`: 22/22 PASS (6 reauth/search isolation + 7 realtime storage reconciliation + 9 list/authorization reconciliation tests).
+  - Locked UI suite `tests/protectedTrashLockedUi.test.js`: 11/11 PASS.
+  - Trash UI static contract suite `tests/protectedTrashUi.test.js`: 4/4 PASS.
+  - Backend trash lifecycle suite `tests/protectedTrash.test.js`: 12/12 PASS.
+  - Trash lifecycle hierarchy suite `tests/filesTrashLifecycle.test.js`: 14 passed / 0 failed / 1 PostgreSQL-gated skip.
+  - Final affected command (Windows 10.0.26200, Node v24.14.0): `node --test --test-concurrency=1 --test-reporter=tap tests/trashDestructiveReauthUi.test.js tests/protectedTrashLockedUi.test.js tests/protectedTrashUi.test.js tests/protectedTrash.test.js tests/filesTrashLifecycle.test.js` — exit 0, 64 tests / 63 passed / 0 failed / 1 PostgreSQL-gated skip / 0 cancelled, 7.30s.
+  - RED evidence (2026-09-29): initial 15-test run exit 1, 12 pass / 3 fail (dialog ordering, stale listing after purge, stale listing after Empty Trash). Delayed pre-unlock status regression then exit 1, 19 pass / 1 fail; GREEN after authorization epoch guard. Tests mount the actual Trash component; fixture snapshots at server handling time, with controllable delayed delivery.
+  - Build: `npm run build -- --outDir C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-purge-verification-20260929/build` — exit 0, 9.08s; existing >500kB chunk warning, external outDir not emptied. No tracked build output changed.
+  - Built-App browser evidence: `node C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-purge-verification-20260929/browser-check.mjs` — exit 0, real Chrome 154.0.8037.58, 6/6 local HTTP-fixture cases PASS (Classic/Neo × EN light / TH dark / ZH light). Actual App + apiFetch + Sidebar: immediate 592→528 MB before held Trash relist, remaining visible rows, form isolation, preserved search/sort, Empty Trash locked shell, one document request/no reload, no page errors. Temporary evidence outside Git. Initial harness attempts failed on Windows ESM path syntax and counting same-document auth history as reload; corrected harness, no source change from those failures. Real password-manager/live Production retest remains PENDING.
+  - Independent read-only source review: no actionable critical/important/minor findings; reviewer independently ran rendered Trash/locked suites and diff check. Production triggering sequence and live acceptance explicitly not certified.
+  - Governance: root collaboration and vault tests 50/50 PASS.
+  - Codex authority review: full root `node --test --test-concurrency=1 --test-reporter=tap tests/*.test.mjs` 65/65 PASS; includes executable core-entry governance.
+  - Vault validator: 2 warnings (existing canvas owner reviews), 0 errors PASS.
+  - Whitespace & secret scan: `git diff --check` clean, zero committed secrets.
+
+### TRASH-R4 — main reconciliation verification (2026-09-29)
+
+- Chronology: accepted application source `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f` → existing closeout/docs HEAD `3aef01913ac4a415d4df38d07e3a82190b9f4f73` → scope checkpoint `a23865704b128514d7e064483ee2a22c441b3c58` → normal main merge `169c089910210725b5fe6047d710f5caf9a71cd4` → this documentation evidence checkpoint. No history rewrite.
+- Source integrity: `git diff --name-status 92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f HEAD -- IDEA1-AEGIS_Drive_LC` is empty; both tracked IDEA1 subtrees equal `ae70fe852440d04699ba23b6433a849d06baf7b0`. App retains `user={session}` and `onStorageMutationCommitted={dashApi.refresh}`; Trash, tests, dependencies, server and deployment bytes unchanged. PR243 delta vs main is exactly its six original application/test/status/receipt paths; PR241 plan/receipt are main history only; no PR216 or unrelated backend/schema delta.
+- Environment: local Windows, Node v24.14.0. Per-file command `node --test --test-concurrency=1 --test-reporter=tap tests/<file>`: `trashDestructiveReauthUi.test.js` 22/22; `protectedTrashLockedUi.test.js` 11/11; `protectedTrashUi.test.js` 4/4; `protectedTrash.test.js` 12/12; `filesTrashLifecycle.test.js` 14 pass / 1 PostgreSQL-gated skip (`TEST_DATABASE_URL` unavailable). Total 64 tests / 63 pass / 0 fail / 1 skip / 0 cancelled; each exit 0.
+- App/protected-entry integration: `node --test --test-concurrency=1 --test-reporter=tap tests/workspaceAppVaultParity.test.js tests/workspaceMarqueeApp.test.js tests/authBackBoundaryR4.test.js tests/shellThemeR4.test.js` — 27/27 PASS, exit 0.
+- Local build: `npm run build -- --outDir C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-main-reconciliation-20260929/build` — PASS, exit 0, existing >500 kB chunk warning; no tracked build artifact changed. This is a client build, not a Docker image build.
+- Real Chrome: `node C:/Users/User/.codex/visualizations/2026/09/27/01a0e426-604c-7d32-9482-32d4793f7cdf/pr243-post-main-reconciliation-20260929/browser-check.mjs` — 6/6 PASS, Chrome 154.0.8037.58, loopback-only built-App fixture. Classic/Neo × EN light / TH dark / ZH light; immediate Sidebar refresh before held relist, correct remaining rows, isolated forms, retained query/sort, Empty Trash locked shell, no document reload/page errors. Human live acceptance is carried forward from TRASH-R3, not inferred from fixture checks.
+- Root `node --test --test-concurrency=1 --test-reporter=tap tests/*.test.mjs` (all six discovered root files) — 65/65 PASS. `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS, two existing owner-data Canvas warnings/0 errors. `git diff --check origin/main...HEAD` PASS; added-line high-confidence credential-pattern scan 0 findings. Full IDEA1 suite NOT RERUN, never claimed PASS.
+- Immutable receipt remains blob `b0541b052b26ecbb8b59ba2851c5c06694fa8661`; no duplicate receipt. PR220 accepted history and PR241 storage/reclamation facts preserved. No Production/SSH/image build/deployment/database migration, rebase/reset/force push, Ready transition or PR merge. Current-head collaboration CI remains a post-push/retarget gate; Human review/Ready/merge remain pending.
+- Review limitation: independent reconciliation reviewer could not complete because the account usage limit was reached; no independent-review PASS claimed. Direct read-only audit PASS: exact six-path delta, accepted IDEA1 tree/receipt equality, preserved App props, PR243 Production/Human facts, main PR241 acceptance/session block and complete PR220/later history. Required Human review/approval remains pending.
+
+### Session Register — IDEA1-TRASH-DESTRUCTIVE-REAUTH-UI-1
+
+Earlier rows retain checkpoint-time state. TRASH-R4 supersedes their dependency blockers; TRASH-R3 already superseded TRASH-R2 deployment/acceptance pending.
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| TRASH-R4 | Post-PR241 merge reconciliation and main-target review preparation (2026-09-29) | PASS | PR220/PR241 merged; one status-only conflict reconciled preserving accepted histories; entire IDEA1 tree equals accepted `92a9...`. Bounded Trash 63 pass/1 PostgreSQL skip/0 fail; App/core-entry 27/27; root 65/65; build, Chrome 6/6, vault/diff/secret checks PASS. Full IDEA1 NOT RERUN; receipt unchanged | Merge `169c089910210725b5fe6047d710f5caf9a71cd4`; scope `a23865704b128514d7e064483ee2a22c441b3c58` | Main reconciliation PASS; no application behavior delta; implementation COMPLETE; carried-forward Production acceptance PASS; final PR243 merge NOT DONE. Direct integrity audit PASS; independent review unavailable (usage limit) | Verified normal push/main retarget/current-head CI, then required Human review/Ready/merge | Keep Draft; no Production/SSH/image build/deploy/database migration, PR216 change, rebase/reset/force, Ready/PR merge or duplicate receipt |
+| TRASH-R3 | PR243 Production rollout R3, deployment postcheck, and Human browser acceptance | PASS | Deployed candidate `aegis-prod-drive:pr243-92a9ebd86593-r3` healthy, restart 0, OOM False; Human acceptance PASS across permanent delete, reauth isolation, row reconciliation, sidebar refresh, empty trash. One final receipt added. | `92a9ebd8659319ce5d2efc9b182faaec7b4fcc8f` source; closeout docs | PRODUCTION DEPLOYED & ACCEPTED; IMPLEMENTATION COMPLETE; MERGE BLOCKED BY PR220 | Human Owner merge of PR220, then PR243 | Keep Draft; await PR220 merge |
+| TRASH-R2 | Post-purge authoritative list + stale-response correction | CLOSED | RED→GREEN, 63 pass / 1 PostgreSQL skip, built-App Chrome 6/6, build/root65/vault validation | `dd23ad22760e07425b41c925ef2c81ec2a69c296` | LOCAL VERIFIED; task ACCEPTANCE PENDING | Human source review/live retest not performed; source fix NOT DEPLOYED | Stop at source handoff; no deployment/package, Ready, merge or final receipt |
+
+## Completed Task — IDEA1-STORAGE-CAPACITY-RECLAMATION-1
+
+**IDEA1-STORAGE-CAPACITY-RECLAMATION-1 — COMPLETE / EMPIRICALLY VERIFIED ON PRODUCTION / MERGED INTO MAIN**
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-storage-capacity-reclamation`; PR #241 merged into `main` as `5fe58ee9562b528ddae4dfd728caa97b1c6c925b`. Historical stacked base: PR #220 `fix/idea1-vault-convergence-highres-ux`, then `main` after ISCR-S3 reconciliation.
+- Dependency: **SATISFIED / MERGED**. PR #220 merged into `main` as `ed45c1b5a63087aa3810d156a8c19b1f1e48c838`. PR241 implementation **COMPLETE**; Production acceptance **PASS** (carried-forward Human evidence); normal main reconciliation **PASS**; PR241 final merge **DONE**. Earlier ISCR rows retain their pre-merge chronology; accepted storage facts and immutable receipt remain unchanged.
+- Canonical architecture authority: PR #240 merged in main (`Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-storage-persistence-architecture.md`).
+- Implementation plan: `docs/superpowers/plans/2026-09-28-idea1-storage-capacity-reclamation.md`.
+- Two-Track Execution & Production Evidence:
+  - **TRACK A (Host Storage Capacity Expansion)**: `PASS`. Human Owner executed online expansion via `sudo lvextend -L 90G -r /dev/ubuntu-vg/ubuntu-lv`. Root LV expanded from ~58.09 GiB to ~90.00 GiB; underlying ext4 root filesystem expanded from ~56.9 GiB to ~88.3 GiB; `ubuntu-vg` free reserve maintained at <26.19 GiB; Docker root `/var/lib/docker` and volume `aegis_drive_storage` unchanged; external backup `/mnt/aegis-backup` untouched; production containers healthy (`restart 0`, `OOM false`); reboot not required. `TRACK_A_LVM_EXPANSION=PASS`.
+  - **TRACK B (Trash / Physical Reclamation / Storage Accounting)**: `PASS`. Controlled synthetic fixture tests (512 MiB + 1 GiB) empirically verified:
+    - B0 baseline: `/datalake = 30111636 KiB`, `/uploads = 26307676 KiB`, `/versions = 1032 KiB`.
+    - B1 upload 512 MiB + 1 GiB: `/datalake = 31684508 KiB`, `/uploads = 27880548 KiB`, active staging sessions = 0 (`TRACK_B_UPLOAD_PERSISTENCE=PASS`).
+    - B2 move to Trash: `/datalake = 31684508 KiB`, physical bytes retained during soft delete (`TRACK_B_MOVE_TO_TRASH_LOGICAL_ONLY=PASS`).
+    - B3A permanent delete 512 MiB: `/datalake = 31160216 KiB`, `/uploads = 27356256 KiB` (`TRACK_B_PER_ITEM_PURGE=PASS`).
+    - B3B permanent delete 1 GiB: `/datalake = 30111636 KiB`, `/uploads = 26307676 KiB` (returned exactly to B0 logical baseline).
+    - B4 Empty Trash production acceptance: `/datalake = 21302140 KiB`, `/uploads = 17498180 KiB`, `/versions = 1032 KiB`; host filesystem used = `40496644 KiB`, available = `47675816 KiB`; Drive healthy, restartCount = 0, IDEA2 untouched; **physical space reclaimed (B3B → B4) = 8809496 KiB ≈ 8.40 GiB** (`TRACK_B_EMPTY_TRASH=PASS`, `PHYSICAL_BLOB_RECLAMATION=PASS`, `FILESYSTEM_SPACE_RECLAMATION=PASS`).
+    - UI Storage Accounting: total `88.3 GB`, used `51.2 GB` → `42.8 GB`, free `37.1 GB` → `45.5 GB`, AEGIS-accounted `6.0 GB` → `1.3 GB`, other-on-volume `45.2 GB` → `41.5 GB`, previous-versions `5.4 GB` → `764 MB`, other-files `498 MB`, media `103 MB` (`DASHBOARD_STORAGE_ACCOUNTING_AFTER_REFRESH=PASS`).
+    - `OPEN_DESCRIPTOR_LEAK_FOR_CONTROLLED_FIXTURES=NOT_OBSERVED`.
+    - Classification: **Category E (No Backend Defect; Full Physical Reclamation Verified)**.
+- Invariant & Status Truth:
+  - `APPLICATION_SOURCE_CHANGED=NO`
+  - `TRASH_BACKEND_FIX_REQUIRED=NO`
+  - `NEW_STORAGE_API_IMPLEMENTED=NO`
+  - `PRODUCTION_MUTATED=YES`
+  - `DISK_RESIZED=YES`
+  - `HUMAN_OWNER_EXECUTED_MUTATION=YES`
+  - `RAID_CURRENT_STATE=NOT_CONFIGURED`
+  - `IDEA2_STORAGE_INSPECTED=NO`
+  - `IDEA2_STORAGE_MUTATED=NO`
+- Separate UI Findings (Deferred to PR #243):
+  1. Trash destructive reauth autofilled account username (`"admin"`) into Trash search input, hiding remaining rows. Tracked and isolated separately in PR #243.
+  2. Sidebar storage meter refresh latency after purge; correct value displays after dashboard poll, navigation, or full refresh. Tracked in PR #243 UI reconciliation scope.
+  *Neither finding invalidates backend reclamation acceptance.*
+
+### Session Register — IDEA1-STORAGE-CAPACITY-RECLAMATION-1
+
+Earlier rows record their checkpoint-time state; ISCR-S3 supersedes their dependency/next-step wording. This reconciliation does not repeat Production acceptance or change the immutable receipt.
+
+ISCR-S3 verification: `node --test --test-reporter=tap tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs tests/coreEntryGovernanceR4.test.mjs` — 52/52 PASS, 0 fail/skip/cancelled. `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS, two existing owner-data Canvas warnings, 0 errors. Main-relative diff check and added-line credential-pattern scan PASS (0 findings); proposed main-target Draft collaboration policy PASS. Current-head CI is checked after normal push/retarget, not inferred from these local checks.
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| ISCR-S3 | Post-PR220 merge reconciliation and main-target review preparation (2026-09-29) | PASS | Start local/remote `7b4702141148e800882595c00984cd73aac26951`; normal merge of `origin/main` `ed45c1b5a63087aa3810d156a8c19b1f1e48c838`, no conflicts. PR-owned delta remains plan/status/existing receipt only; accepted PR220 history preserved; no PR243 branch imported. Receipt blob remains `908acac8129ef75f98d0e8194ec44c0b50744bdc`. | Merge `1745c5b6024a57a3447c1043632d8e56d9772dec`; documentation traceability checkpoint follows | PR220 dependency SATISFIED; implementation COMPLETE; historical Production acceptance PASS; main reconciliation PASS. No application source, Production, deployment, storage or receipt mutation; no rebase/force push | Current-head governance/guardrails and Human Owner review; Ready transition and PR241 merge not performed | Retarget PR241 to main after verified normal push; keep Draft; STOP before Ready/merge |
+| ISCR-S1 | Initial preparation, two-track implementation plan creation, PR220 baseline stacking, draft PR preparation | COMPLETE | Implementation plan `docs/superpowers/plans/2026-09-28-idea1-storage-capacity-reclamation.md` created; PR240 canonical architecture linked; governance checks pass; zero application source changes; zero production mutations. | Plan checkpoint | Ready for Human Owner Track A execution | Track A Human Owner LVM expansion, followed by Track B controlled reclamation verification | Human Owner Track A LVM expansion |
+| ISCR-S2 | Production evidence reconciliation, Track A LVM expansion verification, Track B controlled reclamation verification, final receipt creation | COMPLETE | Track A PASS: root LV 58.09 GiB → 90.00 GiB, ext4 56.9 GiB → 88.3 GiB, vg free <26.19 GiB. Track B PASS: synthetic 512 MiB + 1 GiB upload/soft delete/permanent purge verified, Empty Trash reclaimed 8,809,496 KiB ≈ 8.40 GiB, Category E confirmed. Zero app code changed; zero backend fix required; separate UI findings deferred to PR #243. Exactly one final receipt added. | Evidence & receipt checkpoint | Track A & B complete; empirical reclamation proven; closeout complete | Human Owner merge of PR218, PR219, PR220, then PR241 | Await PR220 merge before retargeting PR241 |
+
+## Completed Task — IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1
+
+- Owner: Kla (`kla`); area: IDEA1.
+- Branch: `fix/idea1-vault-convergence-highres-ux`; historical stacked lineage: PR #218 → PR #219 → PR #220. PR #218 merged into main as `6fed4b21`; PR #219 merged into main as `d7a174d3`. Current merge target: `main`.
+- Final source HEAD: `640bdc3bb3d893d617e9440eb89c3df31970cbd1`.
+- Production deployment: Drive deployed at `aegis-prod-drive:pr220-640bdc3bb3d8`, Hub deployed at `aegis-prod-hub:pr220-640bdc3bb3d8`, Monitor remains on R4 image `aegis-prod-monitor:pr220-ed34a0b2fbf9`.
+- Container health: Drive healthy, restart 0, OOM false; Hub healthy, restart 0, OOM false; Monitor healthy, restart 0, OOM false. Unrelated production containers unchanged.
+- Final Human acceptance: **PASS** across all targeted verification scopes:
+  - Final UI acceptance: PASS
+  - Browser Back flows (Welcome→Hub→Drive/Monitor→Back→Hub→Back→Welcome): PASS
+  - Authenticated IDEA1 Back boundary (stays in app, releases on logout/unauthorized): PASS
+  - Light/Dark theme continuity: PASS
+  - TH/EN/ZH multi-language geometry and rapid cycles: PASS
+  - Login white sweep removal: PASS
+  - Login motion polish: PASS
+  - HUB brand lockup and mark polish: PASS
+- High-res live thumbnail status: `HIGHRES_LIVE_ACCEPTANCE=FAIL_OPEN`, `HIGHRES_FIX_INCLUDED=NO` (unchanged, not claimed fixed).
+- Dependency state (superseded 2026-09-29, ISCR-S3): PR #218 and PR #219 are merged into main; PR #220 was reconciled with `origin/main` `7e657823` by normal merge `49062b0d` (no rebase/force), then merged into `main` as `ed45c1b5a63087aa3810d156a8c19b1f1e48c838` (`PR220_FINAL_MERGE=DONE`). Immutable task receipt `2026-09-28_192500_kla_idea1-vault-convergence-highres-ux.md` remains unchanged. Earlier IVCHU session rows preserve their pre-merge chronology, not current blockers.
+- Exact start: `1183df33698588788a82df42bfd616fb5b11d759` (2026-09-26); PR #216, PR #218, and PR #219 remain untouched.
+- Approved scope: converge every eligible Vault lifecycle to `VaultTreeScreen` without role branching; retain explicit Human migration for nonempty FLAT Vaults; generalize the App full-pane marquee contract for Files and Vault; surface semantic TREE collisions; add a measured two-lane image-preview admission path; remove the image double decode.
+- Security/performance boundaries: no Production action, bulk migration, server plaintext derivative, global 256 MiB ceiling increase, Files/Vault transport mutation, Vault chunk/concurrency mutation, Cloudflare/Twingate change, or destructive purge enablement. JavaScript cleanup is best effort, not cryptographic zeroization.
+- Design checkpoint: `fa966a07`; plan checkpoint: `1cf6da81`. TDD implementation converges setup/empty-FLAT accounts to TREE_V1, gates nonempty FLAT data behind explicit migration, shares the full-pane Files/Vault marquee contract, surfaces semantic upload collisions, and introduces an abortable single-decode admission lane with high-resolution concurrency fixed at 1.
+- Native browser gate (isolated Edge, disposable generated JPEGs, process-tree working set): 16 MP boundary PASS (`19,202,048`-byte peak delta); 25.96 MP representative FAIL (`308,486,144`-byte peak delta); 32 MP proposed bound FAIL (`287,391,744`-byte peak delta); above 32 MP rejected before decode. Both failing deltas exceed the unchanged 256 MiB policy, so the active cap remains 16 MP and 25.96 MP support is not enabled.
+- Automated evidence: focused matrix 115/115 PASS; build PASS with existing chunk-size warning and generated `dist/index.html` restored; governance 49/49 PASS; Vault validator PASS with two existing Canvas owner-data warnings; diff check and secret scan PASS. PR #216/#218/#219 and Production remain untouched.
+- Superseded by PR220-R2 (below): the 16 MP full-bitmap cap is unchanged, and >16 MP JPEGs now use a separate reduced-decode lane instead of a larger full-bitmap cap.
+- PR220-R1 (2026-09-27): first candidate `aegis-prod-drive:vault-convergence-7ae227c7b292` technical cutover PASS, Human Acceptance FAIL (`FILES_FULL_PANE_MARQUEE=FAIL`, `VAULT_TREE_FULL_PANE_MARQUEE=PASS`, `VAULT_ACCOUNT_UI_PARITY=FAIL`, `MIGRATION_CLOSE_CONTROL=FAIL`, `MIGRATION_COLLISION_UX=FAIL`, `VAULT_RECOVERY_UX=FAIL`, `UPLOAD_PERFORMANCE_REGRESSION=OBSERVED` / root cause `NOT_PROVEN`). Corrective pass from `7ae227c7`: Files rectangle was painted inside a `relative` Files wrapper (offset one gutter + header, off-screen from the right gutter) → one App-owned `WorkspaceMarqueeSurface` now paints the rectangle for Files and Vault; migration Close locks via the existing purge lifecycle; foreign lease gets a real `/tree/state` re-check and an expiry timer (takeover only after expiry); collision step pre-fills unique NFC/case-fold suggestions with a visible inline reason; orphan panel copy is truthful and adds sequential "Recover all to Vault". Upload-path source diff vs PR219 and the `main` merge-base: none in transport/concurrency/chunking/server/Vault upload → no transfer setting changed. High-res cap stays 16 MP. Design addendum: spec §10. Human retest required; no receipt.
+- PR220-R2 (2026-09-27, start `ea23f2f1` after Human R1 retest PASS for core Admin/DataLake-User flows, Files/Vault marquee and Vault role parity): (A) one shared `NameEntryDialog` renders Files New Folder and Vault New Folder/Rename with the Files presentation, validation stays caller-owned; (B) Vault orphan panel collapses to "รายการรอกู้คืน (n)", a COLLISION reads "มีไฟล์ชื่อนี้อยู่ในโฟลเดอร์นี้แล้ว" and offers "กู้ด้วยชื่อใหม่" (editable NFC/case-fold `name (n).ext` suggestion, one CAS attach of the existing blob on confirm, no re-upload/overwrite/delete, bulk never renames); (C) >16 MP JPEGs use a reduced-decode lane — decrypted V2 chunks transferred into a Dedicated Worker WebCodecs `ImageDecoder` with a bounded desired size (DCT 1/8) → ≤512 px poster, never a full-resolution bitmap; capability-gated to the measured Chromium engine, codec by magic bytes (no filename case branch), RAW/AVIF/HEIF not claimed, high-res concurrency 1, 256 MiB ceiling unchanged; (D) high-res admission waits while a Vault upload is active, no transfer code changed. Native production-path measurement (Edge 154 process tree; 32 MiB chunks): 26 MP +41.9 MiB, 45 MP +51.8, 61 MP +56.1, 100 MP +103.0 (×3 +120.7), 151 MP +166.3; Human IMG_3107.JPG +32.3, IMG_3207.JPG +40.6; Chrome 154 cross-check lower or equal; built worker bundle verified. Active envelope 152 MP / 40 MiB encoded. Finding: the unchanged normal lane peaks +200 MiB at 16 MP (≈3× its estimate) — combinations with the high-res lane now use that observed factor. `UPLOAD_SLOWDOWN_CURRENTLY_REPRODUCED=NO`, root cause NOT_PROVEN. Design addendum: spec §11. Human review of the high-res evidence, then final live retest; no receipt.
+- PR220-R2 Human Acceptance (2026-09-27/28): deployed `aegis-prod-drive:pr220-8baa4e205407` technical cutover PASS (healthy, 0 restarts, network/mount preservation PASS, TREE schema + protocol enabled, destructive purge false); Human Acceptance FAIL for Admin and DataLake-User on (A) Vault create-folder presentation and (B) missing Files-style external-drop affordance; `HIGHRES_LIVE_ACCEPTANCE=FAIL` (IMG_3107/IMG_3207 fell back instead of thumbnailing) recorded, not fixed here. Corrective (start `8baa4e20`): real-App regression (real App + Files + Vault/VaultTreeScreen, Thai, both roles) proved the running source already renders the shared dialog — only the primary copy differed (`สร้าง` vs Files `โฟลเดอร์ใหม่`) → Vault New Folder now uses the Files `newFolder` key. The screenshot's missing label/raw input/unequal footer equals pre-`e1856a9a` markup and is not reproducible from `8baa4e20` source or its exact build; most consistent explanation is a browser still executing a pre-cutover Vault chunk (NOT PROVEN; no production access). (B) Vault had only functional drop handlers → Files' drop presentation extracted verbatim into `ExternalFileDropSurface`, consumed by Files (pinned unchanged) and Vault (visual-only, drop still bubbles to the unchanged encrypted-upload handler; Trash/internal drag excluded). Design addendum: spec §12. Retest must start from a hard reload. No receipt.
+- PR220-R3 (2026-09-28, frozen start `a220f905`): IDEA1 login gains a light/dark security field converging with Monitor's visual grammar, a compact mobile brand lockup, native form submission and accessible controls; Layer 1 status now represents only the observed login result, while Layers 0/2/3 are explicitly architecture descriptions. No demo credential hint, auth/session/CSRF/rate-limit contract change, or GSAP dependency. Cross-scope HUB fixes browser Back after Drive/Monitor handoff, BFCache lifecycle cleanup, and duplicate handoff while retaining a stateless module picker (no HUB auth/SSO). Isolated Track A/B commits `5cdc974c`/`01659357`; integrated as `27273c39`/`c71819c9`. Expanded focused IDEA1 login/theme tests 21/21 pass serially (including 401/CSRF, locale, password eye, and failed-login timer cleanup); HUB tests 37/37 pass; both builds pass. Local mobile light/dark visual inspection complete; broader breakpoint, assistive-technology, and Human acceptance remain pending. Production untouched; high-res live acceptance remains FAIL_OPEN; PR remains Draft; no final receipt.
+- PR220-R4 (2026-09-28, frozen start `3ade15c2`, source checkpoint `2f94967d`): Human-controlled core entry contract makes Welcome→Hub reversible while preserving module-login Back/BFCache/duplicate handoff; bounded authenticated IDEA1 history keeps ordinary Back inside the app and releases on logout/unauthorized. Monitor remains the Login visual authority; reserved TH/EN/ZH geometry at 320/375/768/1440, truthful auth/Layer/error semantics, canonical `aegis_shell_theme`, fresh Light, legacy migration/precedence, system OS resolution and Dashboard/Settings continuity are protected by source warnings, AGENTS.md and executable tests. S8 completion gate supersedes the Windows timeout: Linux monolithic COMPLETE (26m 23s, exit 1), 2414 tests / 2160 pass / 94 fail / 160 skip / 0 cancelled; exhaustive matrix 207/207 files, missing 0, same counts. Clean `3ade15c2` baseline: 205/205 files, 2405 tests / 2151 pass / 94 fail / 160 skip. All 94 current failures match baseline file/name/assertion/type (nonsemantic temp paths/durations/source dumps normalized); `R4_NEW_REGRESSIONS=0`, `FULL_IDEA1_SUITE=COMPLETE_WITH_BASELINE_FAILURES`, never PASS. No source/test correction; `vaultKeyConfirmLabel` remains outside R4. HUB 53/53, directly affected IDEA1 101/101, Monitor 43 pass/2 skip, root 65/65, three builds, real Chrome extended precheck 31/31, Vault validator (two existing Canvas warnings), diff/secret checks PASS. Only owned status evidence changed. Production/high-res untouched; `HIGHRES_LIVE_ACCEPTANCE=FAIL_OPEN`; PR Draft, one final Human browser/visual acceptance and integration review pending, no final receipt.
+
+### Session Register — IDEA1-VAULT-CONVERGENCE-HIGHRES-UX-1
+
+PR220 final UI polish continuation (2026-09-28, frozen start `ed34a0b2fbf9216ff4b4b3ef045f7f8728d711b7`): Human Owner reports R4 navigation/auth/theme/login/language baseline accepted and explicitly approves bounded Login/HUB polish. `HUMAN_R4_BASELINE_ACCEPTED=YES` (owner-supplied evidence); `FINAL_UI_POLISH_PENDING_HUMAN_RETEST=YES`. Owned changes: `IDEA1-AEGIS_Drive_LC/src/screens/Login.jsx`, `IDEA1-AEGIS_Drive_LC/src/index.css`, `IDEA1-AEGIS_Drive_LC/tests/loginExperienceR3.test.js`, this status note. Exact cross-scope changes: `HUB-AEGIS_Entry/src/screens/Hub.jsx`, `HUB-AEGIS_Entry/src/index.css`, `HUB-AEGIS_Entry/tests/coreEntryR4.browser.test.mjs` (Kla integration review required). Source/test checkpoint `72f10d9a2976b663d86b49dcc4aedfcfc60e20ff`; documentation checkpoint follows. No auth/session/CSRF/RBAC/API/backend, Monitor source, dependency, high-res/TREE/Files transport, deployment/config/Production, merge/Ready or receipt change.
+
+S9 implementation: primary artifact was `.login-mark-stage::after` white gradient, `login-mark-sweep` translating -160%→160% with retained final fill; removed alongside moving `login-energy-line` and pulsing linear `login-field-trace`. Static background, dots/circuit, halo, aura, ambient beam, logo backlight and card glow remain. Eleven Login reveal groups use existing Framer Motion: 10px vertical reveal, 320ms shared easing, 55ms stagger, once-only lower Layer in-view reveal; inputs immediately usable. Hover/press/focus feedback is scoped to controls. Reduced motion removes reveals/press movement without removing the password button's structural centering. HUB mark 28px→38px desktop/tablet, 32px mobile; solid AEGIS wordmark remains visible at 320px; descriptor `EDGE-GUARD INFRASTRUCTURE` appears at ≥640px. Existing handoff/routing/lifecycle bytes remain unchanged. Latin heading language and reserved subtitle rows keep TH/EN/ZH geometry stable. Existing approved Login tagline gradient is retained as baseline identity, not expanded or suppressed from the design audit.
+
+S9 evidence: genuine RED (Login 5 pass/2 expected fail; built-browser 0 pass/5 expected fail), then affected IDEA1 102/102, HUB 68/68 (real Chrome 154, 26 core browser tests plus preserved Back/theme/BFCache/duplicate guards), root 65/65 PASS. Light/dark × TH/EN/ZH × 320/375/768/1024/1440: stable measured card/brand/form/fields/submit/Layer/control rectangles, no clipping/overlap/horizontal overflow; retained credentials/remember/password visibility, actual stagger, once-only mobile reveal and reduced-motion interaction checks pass. Temporary screenshots inspected; Human visual approval of this polish is not claimed. Both `npm run build` pass; Drive retains its existing >500 kB chunk warning. Vault validator passes with two existing Canvas owner-data warnings; diff/credential scan passes; generated tracked HTML restored, no generated artifacts committed.
+
+S9 exhaustive IDEA1: Linux Node 24.14.0/npm 11.9.0, 20 CPUs, ~15.5 GB available; grouped attempts interrupted by WSL wrapper/distro termination without a final summary (cause not proven, not a suite PASS). Deterministic sorted recursive inventory and per-file fallback completes 207/207 files, missing 0; 2415 tests, 2161 pass/94 fail/160 skip/0 cancelled. Same clean baseline `3ade15c2029619798a31060430f3d0124e892a05` evidence: 205 files, 2405 tests, 2151 pass/94 fail/160 skip; all 94 final failures match exact file/name/predicate/type, with full messages retained and only nonsemantic source dumps/temp paths/UUIDs/durations normalized. `R4_NEW_REGRESSIONS=0`; `FULL_IDEA1_SUITE=COMPLETE_WITH_BASELINE_FAILURES`, not PASS. Baseline per-file `--test-force-exit` procedure used; complete natural-exit bridge/firewall/runtime runs prove 22/22, 39/39, 58/58, and natural Postgres rerun replaces an incomplete 34-skip flush with 35 skips. All per-file totals match S8 plus the one added Login test. Runtime interruptions, initial incoherent build fixture, corrected test selector/hover sampling, initial RED diagnostic OOM, and reduced-motion centering/press RED attempts are retained or explicitly recorded; no historical failures fixed to make totals green. Temporary CSV/JSON/screenshots are outside Git under the local `r4-polish` evidence directory.
+
+S9 commands: IDEA1 `node --test --test-concurrency=1 tests/authBackBoundaryR4.test.js tests/shellThemeR4.test.js tests/loginExperienceR3.test.js tests/themeAuthTransition.test.js tests/themeContinuity.test.js tests/navigationIntent.test.js tests/roleNavigation.test.js tests/passwordResetGate.test.js tests/interfaceStyleAuthTransition.test.js tests/settingsSecurityContract.test.js tests/settingsSecurityDefaultsUi.test.js tests/userPreferences.test.js tests/uiNegativeCases.test.js tests/profileIdentity.test.js`; full attempt `node --test --test-concurrency=1 "tests/**/*.test.js"`; fallback `node --test --test-concurrency=1 --test-force-exit <every inventoried file>` with declared natural-exit replacements. HUB/root each `node --test --test-concurrency=1 tests/*.test.mjs`; HUB/IDEA1 each `npm run build`; `node scripts/validate-vault.mjs`; `git diff --check`; added-diff credential-pattern scan and exact protected-section/path audit. Full matrix evidence carries forward only while IDEA1 source/test/dependency bytes remain identical. Next: Controller/Kla integration review, separately authorized affected-artifact build/deploy and Human final polish visual acceptance. PR stays OPEN/DRAFT; no final receipt; high-res live FAIL_OPEN remains separate.
+
+PR220-R4 completion-gate continuation (input `a3e5414adb44a43df91936b379be5a3f83cb22f5`; comparison `3ade15c2029619798a31060430f3d0124e892a05`): verification only, no new feature. Linux exhaustive current/baseline evidence, final-head contracts/builds/browser checks, protected-source audit, and Draft collaboration guardrails are the scope. No Production, deploy, merge, Ready transition, high-res correction, or final receipt. Source/test corrections are allowed only for a proven new R4 regression.
+
+S8 retained failed Monitor attempt: parallel full suite reported 42 pass / 1 fail / 2 skip (`watchdog and browser response-close overlap remains idempotent`, expected `CLIENT_CLOSE_REQUESTED=YES`, actual `NO`; cleanup count 1 and service survives). Identical named assertion/type/full output reproduced naturally on clean `3ade15c2` (isolated attempt 15) and current source (attempt 11), same Windows Node 24.14.0 and lockfile dependencies. Classification: BASELINE_IDENTICAL timing-sensitive fixture, not an R4 regression; server/stream/test/fixture/lockfile diff is empty. Serial full Monitor rerun passes 43/2. No unrelated server or fixture fix applied; failed attempts retained in temporary evidence. Full IDEA1 evidence carries forward across the documentation-only checkpoints because application/test/dependency/config bytes are unchanged; final R4 focused tests and all three builds are rerun on final HEAD.
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| IVCHU-S11 | PR220 post-PR219-merge reconciliation with `main` and main-target merge readiness | PASS | PR #219 merged as `d7a174d3` (final head `f30d94ae` in main, not in PR220 start `e29d8e12`). Normal merge of `origin/main` `7e657823` → `49062b0d`; only conflict this status note (PR #220 kept Current; PR #240/#219/#218 sections kept verbatim as Completed). Final diff vs main: 73 files, identical file set to the stacked diff; all 72 non-status blobs byte-identical to `e29d8e12`; main changed only IDEA3 + IDEA1 docs since merge-base; no PR #241/#243 commits. Verification at `49062b0d`: focused IDEA1 34 files 332/332; HUB 68/68 after three builds (first run without fresh `dist` 44/68 all built-surface timeouts, second 67/68 one `page.reload net::ERR_ABORTED` race passing 3/3 isolated, third full 68/68); IDEA2 43 pass/2 skip; root 65/65; three builds PASS (Drive existing chunk warning; tracked `dist/index.html` restored); Vault validator PASS (two existing Canvas warnings); secret scan PASS (test-only fixtures). `git diff --check origin/main` reports one pre-existing blank line at EOF in `src/lib/vaultImageDecodeAdmission.js` (since `4155b5f3`, identical in deployed `640bdc3b`), not changed here. Full IDEA1 suite not rerun; historical `FULL_IDEA1_SUITE=COMPLETE_WITH_BASELINE_FAILURES` stands. | `49062b0d` merge; this docs checkpoint | `PR220_IMPLEMENTATION_COMPLETE=YES`, `PR220_PRODUCTION_ACCEPTANCE=PASS` (approved scope), `PR220_RECONCILED_WITH_MAIN=YES`, `PR220_FINAL_MERGE=NOT_DONE`; `HIGHRES_LIVE_ACCEPTANCE=FAIL_OPEN` accepted separate follow-up; no Production/deploy/receipt change | Human Owner final review, Ready transition and merge into `main`; PR #241/#243 retarget after merge | Keep Draft; STOP |
+| IVCHU-S10 | PR220 final closeout, production deployment verification, and Human acceptance reconciliation | PASS | Production deployed: Drive aegis-prod-drive:pr220-640bdc3bb3d8, Hub aegis-prod-hub:pr220-640bdc3bb3d8, Monitor aegis-prod-monitor:pr220-ed34a0b2fbf9 (healthy, restart 0, OOM false). Final Human acceptance PASS across Back flows, auth boundary, themes, languages, Login motion/sweep removal, HUB brand polish. Stacked on PR219 on PR218; PR220 remains Draft until dependencies merge. One final receipt added. | 640bdc3b source HEAD; closeout commit | Production deployed and accepted; high-res live FAIL_OPEN separate; closeout complete | Human Owner merge of PR218, PR219, then PR220 | Merge PR218 -> PR219 -> PR220 |
+| IVCHU-S9 | Human-approved final Login motion/sweep removal and responsive HUB top-bar brand | PASS | RED→GREEN; affected IDEA1 102/102, HUB 68/68, root 65/65; both builds, Chrome light/dark × five widths × TH/EN/ZH/motion/auth/navigation, validator/diff/secret audit PASS. Exhaustive IDEA1 207/207, 2161 pass/94 baseline-identical fail/160 skip; new regressions 0. | `72f10d9a2976b663d86b49dcc4aedfcfc60e20ff` source/test checkpoint; documentation follows | SOURCE IMPLEMENTED / LOCAL VERIFIED; baseline Human acceptance owner-supplied; new polish Human retest pending. Monitor/auth/backend/Production/dependencies untouched; no receipt | Final-head guardrails, Controller/Kla integration review and Human polish acceptance; high-res separate | Normal push, remain Draft, STOP; no deployment/merge/Ready/final receipt |
+| IVCHU-S8 | PR220-R4 completion gate: exhaustive Linux comparison and pre-Human browser/quality verification | PASS | Input `a3e5414a`, unchanged application/test tree. Linux Node 24.14.0/npm 11.9.0, 20 CPUs, ~15.5–15.9 GB available: complete monolithic 2026-09-28 07:10:48.917Z–07:37:12.837Z, exit 1; final matrix 207/207 files and 2414 tests, 2160 pass/94 fail/160 skip/0 cancelled. Baseline `3ade15c2`: 205/205, 2405 tests, 2151 pass/94 fail/160 skip; all 94 current failures BASELINE_IDENTICAL, new regressions 0. Full suite COMPLETE_WITH_BASELINE_FAILURES. Natural-exit shell reruns at both revisions prove 39/39 + 58/58 after rejecting incomplete force-exit counts; interrupted unchanged upload fixture passes complete 20/20 at both and final matrix. Windows Settings EPERM reproduces at baseline; Linux passes. Chrome 154.0.8037.57 precheck 31/31; real BFCache persisted=true on both Hub returns, cold=false; repeated auth Back constant history length 5. Both themes × four widths × three languages/rapid cycles have stable rects, retained form state and no clipping/overlap/horizontal overflow. Visual parity precheck only; Human approval not claimed. HUB 53/53, IDEA1 affected 101/101, Monitor 43 pass/2 skip, root 65/65, three builds, validator/diff/secret audit PASS. | `0f4b5222` session scope/evidence checkpoint; `a3e5414a` unchanged R4 input | No source/test fix; owned status evidence only; local artifacts outside repository; no Production/high-res mutation or receipt; PR Draft | Publish final evidence; require current-head collaboration guardrails; one Human browser/visual acceptance and owner/integration review | Keep Draft; only after Human acceptance may exact-SHA production preparation begin |
+| IVCHU-S1 | Exact-base worktree; source/state-machine/media trace; approved architecture; written design; detailed TDD plan | DESIGN/PLAN COMPLETE / IMPLEMENTATION PENDING | Design pins lifecycle convergence, explicit nonempty-FLAT migration, role independence, shared Files/Vault full-pane interaction, semantic `COLLISION`, normal ≤16 MP and serialized high-resolution preview lanes, one bitmap decode, abort/late-result invalidation, unchanged zero-knowledge invariants, and a real browser/process working-set measurement gate before selecting any cap above 16 MP. | `fa966a07` design-first checkpoint; plan checkpoint follows | No application source changed; Production and PR #216/#218/#219 untouched; no final receipt | RED tests, incremental implementation, native/process memory qualification with 25.96 MP and upper-bound fixtures, focused/full verification, Human browser acceptance | Commit plan/status checkpoint; stop for Human review before implementation |
+| IVCHU-S2 | TDD implementation of Vault convergence, shared full-pane marquee, semantic collision copy, single-decode admission, native-memory gate, focused verification | PARTIAL / HIGH-RES ACTIVATION BLOCKED | Lifecycle and interaction implementation complete; collision copy localized; high-res queue serialized at 1; one bitmap decode with `finally` cleanup and abort/late-result guards. Isolated Edge measurements: 16 MP `19,202,048`-byte peak delta PASS; 25.96 MP `308,486,144` and 32 MP `287,391,744` peak deltas FAIL the 256 MiB policy; >32 MP zero decode. Focused 115/115, governance 49/49, build, validator, diff check, and secret scan PASS. | `93be4ad4` implementation checkpoint before status update | Active cap retained at 16 MP; 25.96 MP not supported; Production and PR #216/#218/#219 untouched; no receipt | Human/controller decision on a different bounded-memory browser architecture or revised scope; Human browser acceptance not run | Stop after documentation checkpoint; do not deploy or mark Ready |
+| IVCHU-S4 | PR220-R2: shared name-entry dialog, orphan collision recovery with confirmed new name, reduced-decode high-res camera previews, upload-aware admission | AUTOMATED + NATIVE MEASUREMENT PASS / HUMAN REVIEW PENDING | RED recorded before each part (A 4/5 fail, B 4 fail, C 13 fail + wiring 2 fail + observed-factor 1 fail). GREEN: focused suites pass; affected vault/files/upload/workspace/media set diffed by failing test name against `ea23f2f1` (see PR220 body). Production-path native memory table in spec §11.4 (Edge + Chrome 154, synthetic 26–151 MP and the two Human 6240×4160 files). Transfer-critical files (api/chunkedUpload/vaultChunkedUpload/vaultChunkedDownload/vaultChunkCrypto/vaultTreeUpload/upload recovery/UploadDrawer/server/deploy/vite config) unchanged vs start. Build PASS (worker emitted as its own asset; `dist` restored). | `e1856a9a`, `cfd65ad3`, `4155b5f3` + docs checkpoint | Envelope 152 MP / 40 MiB active on Chromium only; Firefox/Safari truthful unsupported; no new dependency; Production and PR #216 untouched; no receipt | Human review of high-res evidence; Human live retest on Admin + DataLake-User with IMG_3107/IMG_3207 | Stop; do not deploy, mark Ready or merge |
+| IVCHU-S5 | PR220-R2 Human Acceptance corrective: Vault create-folder parity (A) and Files-style external-drop affordance in Vault (B) | AUTOMATED PASS / REDEPLOY + HUMAN RETEST PENDING | RED at `8baa4e20`: new `workspaceAppVaultParity` 8/11 fail (APP-NF-1 ×2 primary copy only; APP-DROP-1/2/3 ×2 no affordance). GREEN 11/11. Focused Files/Vault/workspace/name-entry/upload-drawer set 256: 255 pass, 1 skip, 0 fail. Full IDEA1 suite 2367: 2106 pass, 99 fail, 162 skip; every failing file re-run at `8baa4e20` fails with identical test names (legacy FLAT vault suites, i18n, dashboard header, Stage B Windows phantoms), plus `vaultTreeApi` OR-4 Windows EPERM temp-file flake (file 3/3 PASS on rerun; server untouched). Build PASS (`dist` restored); governance 63/63; validator PASS (2 existing canvas warnings); diff check and secret scan PASS. `src/lib` (except strings), server, deploy, upload drawers: zero diff. | corrective commit + docs checkpoint | Live old dialog markup cause NOT PROVEN (source/build exonerated); high-res live failure open and untouched; Production and PR #216 untouched; no receipt | Exact-SHA build → image-only Drive cutover → Human retest A + B from a hard reload (Admin + DataLake-User) | Stop; do not deploy, mark Ready or merge |
+| IVCHU-S6 | PR220-R3 login visual convergence and cross-scope HUB Back navigation | AUTOMATED PASS / HUMAN REVIEW PENDING | Frozen `a220f905` two-worktree implementation; Track A RED security-field test then expanded 21/21 focused login/theme PASS serially, IDEA1 build PASS, local mobile light/dark inspected; 401/CSRF tests exposed and verified cleanup of the failed-login shake timer on unmount. Track B real Chrome cold Back reproduction (new document, not BFCache), synthetic persisted-page cleanup, duplicate-click guard; HUB 37/37 PASS and build PASS. One parallel Node test-file run failed transiently; serial rerun passed. | `27273c39`, `c71819c9` + docs checkpoint/follow-up | Auth/session/server unchanged; HUB remains stateless; Production untouched; high-res live acceptance FAIL_OPEN; no receipt; PR Draft | Human login and HUB Back acceptance across target breakpoints, languages, motion modes; Kla integration review of three HUB paths | Keep Draft; no deployment or merge |
+| IVCHU-S7 | PR220-R4 protected Welcome/Hub/module Login, authenticated IDEA1 Back, visual/language geometry, shared shell theme | AUTOMATED PASS / HUMAN REVIEW PENDING | RED-first contract tests; real Chrome pre-auth/auth/logout/401/BFCache/theme and 320/375/768/1440 TH/EN/ZH matrix; HUB 53/53, focused IDEA1 118/118, IDEA2 32 pass/2 skip, governance 65/65, three builds, Vault validator, diff check and secret scan PASS. Full IDEA1 suite did not finish on this Windows runner; eight observed failing names match frozen `3ade15c2` baseline exactly (65-case reproduction), so a full-suite PASS is not claimed. | `2f94967d` source/test checkpoint + this docs checkpoint | Core entry contract implemented locally; IDEA1 auth/server and IDEA2 auth unchanged; Production/high-res untouched; high-res live acceptance FAIL_OPEN; no final receipt; PR Draft | Human acceptance and Kla integration review of HUB, IDEA2 entry, AGENTS.md and root tests; full IDEA1 suite on CI/adequate runner | Keep Draft; no deployment or merge |
+| IVCHU-S3 | PR220-R1 Human Acceptance corrective pass: Files full-pane marquee, migration close/lease re-check/collision UX, orphan recovery UX, upload-slowdown source diagnosis | AUTOMATED PASS / HUMAN RETEST PENDING | RED proven before each fix: new real-App test (real App + real Files + real `useApi`) showed rectangle painted 472 px off (left/right/bottom) and no surface `user-select`; C1–C3, D, E REDs recorded. Green: App marquee 8/8; marquee/migration/recovery focused suites pass; full IDEA1 suite 2316 tests: 2056 pass, 98 fail, 162 skipped — all 98 failures fail identically at `7ae227c7` (pre-existing: legacy FLAT preview/autolock/tile/V2 suites, i18n `vaultKeyConfirmLabel` parity, dashboard header regex, PS6-ENV Windows, `sharp` not installed locally). Build PASS; governance 63/63; transfer/server/network/high-res paths unchanged. | `54a3fab9`, `e5dd920a`, `8e949be7`, `eda24164` + docs checkpoint | Upload slowdown cause NOT_PROVEN (no source change on the upload path); cap 16 MP; Production and PR #216 untouched; no receipt | Human browser retest (Admin, DataLake-User, the migration-gate account); PR216-method network measurement if slowdown persists | Build a new PR220 candidate only after Human review |
+
+## Completed Task — IDEA1-STORAGE-PERSISTENCE-ARCHITECTURE-1
 
 - Owner: Kla (`kla`); area: IDEA1.
 - Branch: `docs/idea1-storage-persistence-architecture`; PR: #240 (base: `main`).

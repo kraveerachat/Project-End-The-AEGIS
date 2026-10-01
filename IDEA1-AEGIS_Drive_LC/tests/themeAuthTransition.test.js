@@ -15,8 +15,8 @@
 // Precedence under test (the single model — see resolveAuthenticatedTheme):
 //   1. a theme the user explicitly picked on the Login screen this session
 //   2. same-account one-shot logout continuity
-//   3. the authenticated account preference
-//   4. the persisted shell hint
+//   3. the shared shell preference across Welcome/Hub/Drive
+//   4. the authenticated account preference only if no shell preference exists
 //   5. light
 import test, { after, before, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
@@ -319,7 +319,7 @@ test('light app logout continuity returns the same account to a light app', asyn
   }
 })
 
-test('a different account does not inherit another user logout continuity', async () => {
+test('a different account keeps the shared shell appearance without inheriting identity state', async () => {
   resetBackend({ account: { theme: 'light' }, persistPreferences: false })
   const app = await loadApp()
   try {
@@ -337,8 +337,9 @@ test('a different account does not inherit another user logout continuity', asyn
     backend().account = { theme: 'light', language: 'th', density: 'comfortable' }
     await app.signIn()
 
-    assert.equal(app.theme, 'light', 'the second account must receive its own preference')
-    assert.equal(app.shellHint, 'light')
+    assert.equal(app.theme, 'dark', 'R4 shared shell appearance persists across accounts')
+    assert.equal(app.shellHint, 'dark')
+    assert.equal(backend().user.id, '2', 'the second account identity still comes from the server')
   } finally {
     await app.cleanup()
   }
@@ -445,10 +446,8 @@ test('a completely fresh client defaults to light even when the OS prefers dark'
   }
 })
 
-test('an account preference still wins when the login screen was left untouched', async () => {
-  // Account switching: the shell is dark from a previous session, but this user
-  // made no choice on this login screen, so their own stored preference decides
-  // and is not silently overwritten by the leftover hint.
+test('a selected shell appearance wins over a stale account preference', async () => {
+  // R4: Welcome/Hub/Drive Login dark must remain dark after authentication.
   resetBackend({ account: { theme: 'light' } })
   const app = await loadApp({ shell: 'dark' })
   try {
@@ -456,10 +455,10 @@ test('an account preference still wins when the login screen was left untouched'
 
     await app.signIn()
 
-    assert.equal(app.theme, 'light', 'the account preference decides when nothing was picked')
-    assert.equal(app.shellHint, 'light', 'the hint follows the account so all three agree')
-    assert.equal(backend().account.theme, 'light')
-    assert.deepEqual(backend().patches, [], 'no write: the account already held this value')
+    assert.equal(app.theme, 'dark', 'the chosen shell appearance must not flip at Dashboard')
+    assert.equal(app.shellHint, 'dark')
+    assert.equal(backend().account.theme, 'dark')
+    assert.deepEqual(backend().patches.map((p) => p.theme), ['dark'], 'account converges after auth')
   } finally {
     await app.cleanup()
   }

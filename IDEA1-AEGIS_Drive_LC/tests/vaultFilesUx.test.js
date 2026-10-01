@@ -81,10 +81,12 @@ test('REC-01 recovery copy is explicit and the Thai security note states traffic
   const { STRINGS } = await import('../src/lib/strings.js')
   const th = STRINGS.th
 
-  assert.equal(th.vaultTreeOrphansTitle, 'ไฟล์ที่รอจัดเข้าโฟลเดอร์')
-  assert.equal(
+  // PR220-R1: Human read the old wording as "failed upload". The upload DID finish; the
+  // items are only not yet linked into the encrypted folder structure — say exactly that.
+  assert.equal(th.vaultTreeOrphansTitle, 'รายการที่อัปโหลดแล้วแต่ยังไม่อยู่ในโฟลเดอร์')
+  assert.ok(
+    th.vaultTreeOrphansDescription.startsWith('อัปโหลดข้อมูลเสร็จแล้ว แต่รายการเหล่านี้ยังไม่ได้เชื่อมเข้ากับโครงสร้างโฟลเดอร์ของห้องนิรภัย'),
     th.vaultTreeOrphansDescription,
-    'ไฟล์เหล่านี้ถูกเข้ารหัสแล้ว แต่ยังไม่ได้จัดเข้าโครงสร้างโฟลเดอร์ของห้องนิรภัย',
   )
   assert.equal(
     th.vaultTreeSecurityNote,
@@ -110,7 +112,11 @@ test('MEDIA-05 Vault schedules video posters through the existing encrypted prev
   const source = fs.readFileSync(new URL('../src/screens/VaultTreeScreen.jsx', import.meta.url), 'utf8')
   assert.match(source, /openVideoPoster/)
   assert.match(source, /openPreviewSession/)
-  assert.match(source, /previewKindFor\(n\.mediaType\) === 'video'/)
+  // Unified Preview P0: the video kind comes from the shared capability resolver (content signature,
+  // else extension) — never from the upload-time client MIME
+  assert.match(source, /const kind = n\.kind === 'file' \? kindOf\(n\) : null/)
+  assert.match(source, /kind === 'image' \|\| kind === 'video'/)
+  assert.doesNotMatch(source, /previewKindFor\((node|n)\.mediaType\)/)
   assert.match(source, /unwrapVaultV2Dek/)
 })
 

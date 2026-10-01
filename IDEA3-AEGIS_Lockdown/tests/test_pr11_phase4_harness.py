@@ -613,7 +613,7 @@ def test_flush_ruleset_never_appears_in_t1(path: Path) -> None:
 def test_only_reviewed_stage_handlers_are_registered() -> None:
     stages = DEPLOY / "stages"
     assert stages.is_dir()
-    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L8", "L9"}
+    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8", "L9"}
     core_handler_files = {
         "apply.sh",
         "verify.sh",
@@ -631,8 +631,12 @@ def test_only_reviewed_stage_handlers_are_registered() -> None:
         "L3": core_handler_files | {"allow-transitions.txt"},
         # L4 reactivates the applied L3 AP, so it owns the narrow target-phy regulatory window for its own comparison.
         "L4": core_handler_files | {"allow-transitions.txt"},
+        # L7 apply/verify/rollback all source this shared, reviewed listener-snapshot helper (PR #246).
+        "L7": core_handler_files | {"l7-listener-lib.sh"},
+        # L7u (post-L7 Recovery Core upgrade): its PRE->RB compare may approve only the old Core's restart-volatile properties.
+        "L7u": core_handler_files | {"allow-keys-rollback.txt"},
     }
-    for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L8", "L9"):
+    for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8", "L9"):
         expected = expected_by_stage.get(name, core_handler_files)
         assert {p.name for p in (stages / name).iterdir() if p.is_file()} == expected
 
@@ -902,6 +906,88 @@ def test_unhealthy_baseline_unchanged_is_distinguished_but_still_blocks_s10(tmp_
     assert "COMPARE_RESULT=FAIL" in result.stdout
 
 
+# ── IDEA2 engine heartbeat window artifact (L34 V5 forensic, 2026-09-29) ────────────────────────────────────────────────
+# Both captures share one JOURNAL_SINCE: PRE covers ~0s, RB the whole mutation window, so the engine's 5s
+# "Monitor unreachable ... Connection refused" warning appears only in RB while the monitor (18002) stays down.
+
+HB_LINE = ("2026-09-29 11:16:06 | WARNING | HeartbeatWorker  | MonitorClient | Monitor unreachable for /internal/heartbeat "
+           "(ConnectionError: Max retries exceeded ... [Errno 111] Connection refused) — event not persisted\n")
+MONITOR_DOWN_18002 = "tcp   LISTEN 0      128         127.0.0.1:18002     0.0.0.0:*\n"
+
+
+def monitor_down(fix: dict[str, str], engine_journal: str = "") -> dict[str, str]:
+    fix[fx("ss", "-H", "-ltnu")] = LISTENERS_HEALTHY.replace(MONITOR_DOWN_18002, "")
+    fix[f"journal/{ENGINE}"] = engine_journal
+    return fix
+
+
+def engine_drift_keys(result: subprocess.CompletedProcess, klass: str) -> set[str]:
+    return {key for k, code, key in findings(result) if k == klass and key.startswith("idea2.engine.journal.")}
+
+
+def test_engine_heartbeat_growth_pre_zero_rb_one_is_baseline_when_monitor_already_down(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before", fixtures=monitor_down(healthy_fixtures()))
+    after = capture(tmp_path, "after", fixtures=monitor_down(healthy_fixtures(), HB_LINE))
+    assert before.records()["idea2.engine.journal.heartbeat_failed"] == "0"
+    assert after.records()["idea2.engine.journal.heartbeat_failed"] == "1"
+    assert after.records()["idea2.engine.journal.refused"] == "1"
+    result = compare(before, after)
+    assert engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT") == set()
+    assert engine_drift_keys(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED") == {
+        "idea2.engine.journal.heartbeat_failed", "idea2.engine.journal.refused"}
+    assert "IDEA2_ENGINE_HEARTBEAT_BASELINE" in codes(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED")
+    assert "FINDINGS_NEW_OR_WORSENED_DRIFT=0" in result.stdout
+    # An unhealthy IDEA2 baseline still never yields PRESERVATION_S10=PASS: only the false drift is reclassified.
+    assert "PRESERVATION_S10=FAIL" in result.stdout
+
+
+def test_engine_heartbeat_growth_is_still_drift_when_idea2_was_healthy_before(tmp_path: Path) -> None:
+    def mutate(f):
+        f[f"journal/{ENGINE}"] = HB_LINE
+    result = drift(tmp_path, mutate)  # healthy baseline: 18002 present, runtime healthy
+    assert engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT") == {
+        "idea2.engine.journal.heartbeat_failed", "idea2.engine.journal.refused"}
+    assert "PRESERVATION_S10=FAIL" in result.stdout
+
+
+def test_engine_heartbeat_growth_is_still_drift_when_monitor_goes_down_during_the_window(tmp_path: Path) -> None:
+    def mutate(f):
+        monitor_down(f, HB_LINE)
+    result = drift(tmp_path, mutate)  # PRE healthy (18002 present) -> RB unhealthy (18002 absent)
+    assert "IDEA2_18002_STATE_CHANGED" in codes(result, "NEW_OR_WORSENED_DRIFT")
+    assert engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT") >= {"idea2.engine.journal.heartbeat_failed"}
+
+
+def test_engine_heartbeat_growth_is_still_drift_when_18002_state_changes_from_down_to_up(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before", fixtures=monitor_down(healthy_fixtures()))
+    after = capture(tmp_path, "after", fixtures=healthy_fixtures() | {f"journal/{ENGINE}": HB_LINE})
+    result = compare(before, after)
+    assert "IDEA2_18002_STATE_CHANGED" in codes(result, "NEW_OR_WORSENED_DRIFT")
+    assert engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT") >= {"idea2.engine.journal.heartbeat_failed"}
+
+
+def test_engine_heartbeat_counter_decrease_is_still_drift(tmp_path: Path) -> None:
+    before = capture(tmp_path, "before", fixtures=monitor_down(healthy_fixtures(), HB_LINE * 3))
+    after = capture(tmp_path, "after", fixtures=monitor_down(healthy_fixtures(), HB_LINE))
+    result = compare(before, after)
+    assert engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT") == {
+        "idea2.engine.journal.heartbeat_failed", "idea2.engine.journal.refused"}
+
+
+@pytest.mark.parametrize("line,key", [
+    ("Traceback (most recent call last):\n", "exception"),
+    ("aegis-detection-engine.service: Failed with result 'exit-code'.\n", "unit_failed"),
+    ("aegis-detection-engine.service: Scheduled restart job, restart counter is at 3.\n", "restart_scheduled"),
+    ("upstream read timed out\n", "timeout"),
+])
+def test_engine_other_failure_classes_are_still_drift_when_monitor_already_down(tmp_path: Path, line: str, key: str) -> None:
+    before = capture(tmp_path, "before", fixtures=monitor_down(healthy_fixtures()))
+    after = capture(tmp_path, "after", fixtures=monitor_down(healthy_fixtures(), HB_LINE + line))
+    result = compare(before, after)
+    assert f"idea2.engine.journal.{key}" in engine_drift_keys(result, "NEW_OR_WORSENED_DRIFT")
+    assert f"idea2.engine.journal.{key}" not in engine_drift_keys(result, "BASELINE_UNHEALTHY_BUT_UNCHANGED")
+
+
 def test_unhealthy_baseline_identical_capture_still_fails_s10(tmp_path: Path) -> None:
     before = capture(tmp_path, "before", fixtures=live_like_unhealthy(healthy_fixtures()))
     after = capture(tmp_path, "after", fixtures=live_like_unhealthy(healthy_fixtures()))
@@ -1121,7 +1207,7 @@ def test_gate_malformed_authorization_fails(tmp_path: Path, record: str) -> None
               "AUTHORIZATION_MALFORMED")
 
 
-@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L8", "L9"])
+@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8", "L9"])
 def test_gate_mutating_stage_without_k3_fails(tmp_path: Path, stage: str) -> None:
     gate_fail(gate(tmp_path, "--stage", stage, "--mode", "simulate", auth=auth_record(stage)), "K3_MISSING")
 
@@ -1145,7 +1231,7 @@ def test_gate_m16_v1_kraveerachat_k3_remains_valid(tmp_path: Path) -> None:
     assert "K3_CONFIRMATION=VALID" in result.stdout
 
 
-@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L8", "L9"])
+@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8", "L9"])
 def test_gate_m16_v2_owner_self_k3_is_valid(tmp_path: Path, stage: str) -> None:
     result = gate(tmp_path, "--stage", stage, "--mode", "simulate", auth=auth_record(stage), k3=k3v2_record(stage))
     assert result.returncode == 0, result.stdout + result.stderr
