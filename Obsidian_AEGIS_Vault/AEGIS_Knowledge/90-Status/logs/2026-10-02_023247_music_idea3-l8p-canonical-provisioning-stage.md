@@ -54,4 +54,4 @@ edit_policy: append-by-new-file
 
 - Nothing was exercised against real hardware, a real serial port, a real broker or network; esptool output is asserted from documented behavior and fakes. Boot PASS stays AUTHENTICATED_FIRMWARE_REPORTED_LOCKDOWN, not electrical relay proof.
 - Still required before any live L8p: the stage owner runner (not part of this change), reviewed firmware, partition table and pins, the written physical recovery procedure, a same-day authorization plus K3, and an explicit owner live authorization. Recovery R1-R8, LVR and L8 remain unproven.
-- Local only: not pushed and no PR was opened.
+- Final PR state: the branch was pushed normally (new branch, fast-forward, `FORCE_PUSH_USED=NO`) and Draft PR #284 against `main` exists; it is unmerged and was not marked Ready. Source verification is unchanged; the later provenance corrections are documentation-only (this receipt and the status note). No Production, ESP32, serial port or live execution occurred.

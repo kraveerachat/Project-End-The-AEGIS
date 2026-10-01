@@ -20,7 +20,7 @@ edit_policy: owner-writable
 
 ## IDEA3 PR11 Phase 4 L8p device provisioning stage on the canonical L8 backend — repository only — 2026-10-02
 
-> [!important] Repository-only; local branch `feat/idea3-l8p-canonical-provisioning-stage`, not pushed. **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, Recovery and L8 not run.
+> [!important] Repository-only; branch `feat/idea3-l8p-canonical-provisioning-stage` pushed normally (no force-push) to **Draft PR #284**, unmerged. **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, Recovery and L8 not run.
 > `OD_L8P_01 = APPROVED`, `L8_HARDWARE_BACKEND = IMPLEMENTED_REPOSITORY / MERGED (PR #247)`, `L8P_REPOSITORY_IMPLEMENTED = YES`, `L8P_LOCAL_VERIFIED = YES`, `L8P_LIVE = NOT_AUTHORIZED`, `REAL_ESP32_TOUCHED = NO`, `RECOVERY_LIVE = NOT_RUN`, `LVR = NOT_RUN`, `L8_LIVE = NOT_RUN`, `ELECTRICAL_RELAY_PROOF = NO`
 
 - **Decision (OD-L8P-01):** for L8p only, `D4_LIVE_REQUIRED_BEFORE_L8P_FLASH = NO`; an owner-attested physical recovery procedure satisfies the pre-write recovery prerequisite. L8 is unchanged: `OD14_L8_RECOVERY_POLICY = D4_ONLY`, `INTERIM_RECOVERY_PROCEDURE = NOT_APPROVED`, `D4_LIVE_REQUIRED_BEFORE_L8_FLASH = YES`. Recorded in the L8 operational design.
