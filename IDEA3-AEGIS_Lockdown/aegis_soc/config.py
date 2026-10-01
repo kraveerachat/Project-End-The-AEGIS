@@ -159,6 +159,10 @@ RECOVERY_OPERATOR_UID = _optional_int("AEGIS_RECOVERY_OPERATOR_UID")
 RECOVERY_SOCKET_GID = _optional_int("AEGIS_RECOVERY_SOCKET_GID")
 RECOVERY_SOCKET = os.getenv("AEGIS_RECOVERY_SOCKET", "").strip()
 
+# F1: the Core-local production alert ingress (R1 source). One numeric uid (the account running the detector) may submit
+# an IPv4 attacker candidate over <runtime_dir>/alert.sock. Unset or invalid keeps the channel disabled (fail closed).
+ALERT_SOURCE_UID = _optional_int("AEGIS_ALERT_SOURCE_UID")
+
 
 def validate_config():
     """ตรวจค่าตั้งตอนเริ่มโปรแกรม — คืน list ของคำเตือน (ไม่ถึงกับ error แต่ควรรู้)"""

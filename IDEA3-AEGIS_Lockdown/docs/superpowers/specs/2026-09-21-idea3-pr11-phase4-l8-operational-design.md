@@ -15,7 +15,9 @@ Merged-authority reconciliations:
 - `G-16` firmware non-blocking Wi-Fi join (`CLOSED_REPOSITORY`)
 - `G-11` NVS provisioning tool (`PARTIAL_REPOSITORY`, `p4-nvs-provision.py` render-only)
 - `G-04` static addressing (`NOT_APPLICABLE_UNDER_SELECTED_ADDRESS_MODEL`; address model is DHCP)
-Repository Implementation: COMPLETE (fixture backend only)
+Repository Implementation: COMPLETE — fixture backend, plus hardware backend implemented in the repository (2026-09-29, tested only against a fake executor; see §8)
+Hardware backend: HARDWARE_BACKEND_IMPLEMENTED_REPOSITORY — live hardware never exercised
+Boot verification: IMPLEMENTED_REPOSITORY — signed BOOT STATUS, AUTHENTICATED_FIRMWARE_REPORTED_LOCKDOWN (§8.4); never exercised live
 Live L8: NOT AUTHORIZED / NOT RUN
 Production Mutation: NO
 ESP32 Mutation: NO
@@ -322,20 +324,21 @@ host drift whatsoever.
   in turn re-enters boot with the relay held in its fail-secure CUT state.
   Inspection therefore **requires a maintenance window**
   (`L8_INSPECTION_REQUIRES_MAINTENANCE_WINDOW=YES`) and must never be described
-  as side-effect-free or passive. In repository scope the refusal is
-  **unconditional and structural**, not merely policy: the only implemented
-  backend is `fixture`, which has no serial code path at all, and selecting
-  `hardware` fails closed at two independent layers (the stage handler's
-  backend gate and the device tool's backend loader). Because no hardware
-  backend exists, even an explicit `AEGIS_L8_LIVE_AUTHORIZED=YES` cannot open a
-  live path.
+  as side-effect-free or passive. The repository now also contains a hardware backend (§8). The refusal
+  is therefore no longer structural: it is a **fail-closed gate**. The
+  hardware backend is reachable only when `AEGIS_L8_BACKEND=hardware` **and**
+  `AEGIS_L8_LIVE_AUTHORIZED=YES`, enforced independently by the stage handler
+  and by the device tool's backend loader, and even then it refuses before the
+  first write unless the signed-BOOT-STATUS verifier is configured
+  (`BOOT_VERIFICATION_NOT_CONFIGURED`, §8.4). `LIVE_L8=NOT_AUTHORIZED` is unchanged.
 - **BASIS**: Owner classification; `firmware/platformio.ini`
   (`monitor_dtr = 0`, `monitor_rts = 0` reduce but do not eliminate the reset);
   `firmware/src/main.cpp` boot path (`BOOT_GRACE_MS`, relay driven to
   `RELAY_TRIGGER` at boot).
 - **OWNER_STATUS**: `OWNER_APPROVED`.
-- **CURRENTLY_PROVEN**: Repository-provable only as a refusal: fixture mode
-  performs no serial access.
+- **CURRENTLY_PROVEN**: Repository-provable only as refusals: fixture mode
+  performs no serial access, and the hardware backend is unreachable without
+  explicit live authorization (fake-executor tests only; no device opened).
 - **REPOSITORY_IMPLEMENTATION_REQUIRED**: A defense-in-depth live gate; a
   fixture backend with no serial code path; an explicit refusal when a real
   `/dev/tty*` path is combined with the fixture backend.
@@ -457,9 +460,10 @@ host drift whatsoever.
   `WRITE_ONCE_NO_OVERWRITE`. The bundle is a single JSON file created under the
   stage evidence directory with mode `0600` and `O_EXCL | O_NOFOLLOW`; a second
   write to the same path fails closed rather than overwriting.
-  The bundle contains **exactly and only** these eleven fields:
+  The bundle contains **exactly and only** these twelve fields (the original eleven plus `firmware_readback_match`, a PASS/FAIL boolean;
+  see the 2026-10-01 owner-approved amendment recorded below):
   `schema_version`, `run_id`, `device_mac`, `chip_identity`, `flash_size`,
-  `firmware_sha256`, `nvs_schema_version`, `nvs_readback_match`, `flash_result`,
+  `firmware_sha256`, `nvs_schema_version`, `nvs_readback_match`, `firmware_readback_match`, `flash_result`,
   `boot_verification_result`, `failure_boundary`.
   Never recorded, in any form: `wifi_psk`, `mqtt_password`/`mqtt_pass`, `k_c2d`,
   `k_d2c`, `admin.pin`, raw NVS contents, or any other raw secret.
@@ -467,6 +471,15 @@ host drift whatsoever.
   convention in `p4-lib.sh` (secret-bearing files recorded by metadata only,
   never content and never a digest).
 - **OWNER_STATUS**: `OWNER_APPROVED`.
+- **AMENDMENT (OWNER APPROVED, 2026-10-01) — evidence schema 11 -> 12 fields**:
+  `EVIDENCE_FIELD_COUNT=12`. The new field is `firmware_readback_match`; its only allowed values are `PASS` and `FAIL`, and it records ONLY the
+  result of the application-region readback comparison. The hardware flow performs an actual application-region readback (exact written offset
+  and exact image length) and compares it **entirely in memory**, so the evidence must truthfully record that verification. Anything not
+  proven equal is recorded `FAIL`, never `PASS`. Raw firmware bytes in evidence are FORBIDDEN, raw NVS bytes in evidence are FORBIDDEN, and
+  secret material in evidence is FORBIDDEN. The amendment is repository capability only: it does NOT change `LIVE_L8` authorization, the
+  physical-proof status, Recovery or LVR status, the electrical relay proof status, the D4 policy, or the firmware/NVS secret handling.
+  `LIVE_L8=NOT_AUTHORIZED`, `LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN`, `ELECTRICAL_RELAY_PROOF=NO`,
+  `BOOT_VERIFICATION_IS_FIRMWARE_REPORTED=YES`.
 - **CURRENTLY_PROVEN**: Repository-provable once implemented; nothing live.
 - **REPOSITORY_IMPLEMENTATION_REQUIRED**: Exact-allowlist serialisation that
   rejects any extra key; write-once creation; secret-exclusion assertions.
@@ -491,6 +504,9 @@ host drift whatsoever.
 | `deploy/pr11-phase4/stages/L8/allow-listeners.txt` | new — zero active entries | contract |
 | `deploy/pr11-phase4/p4-l8-device.py` | new — backend abstraction, partition geometry derivation, readback compare, evidence bundle | repository tool, fixture backend only |
 | `tests/test_pr11_phase4_l8_handler.py` | new — RED-first acceptance suite | test |
+| `tests/test_pr11_phase4_l8_hardware_backend.py` | added 2026-09-29 — hardware-backend suite, fake executor only | test |
+| `deploy/pr11-phase4/p4-l8-boot-verify.py` | added 2026-09-29 — subscribe-only signed BOOT STATUS verifier (§8.4) | repository tool, fake-client tested only |
+| `tests/test_pr11_phase4_l8_boot_verify.py` | added 2026-09-29 — boot-verification suite, fake client/executor/clock only | test |
 | `tests/test_pr11_phase4_harness.py` | edit — add L8 to the reviewed-handler set; move the unregistered-mutating-stage example to L9 | shared harness guardrail |
 
 `p4-lib.sh`, `p4-l0-capture.sh`, `p4-compare.sh`, `p4-stage-gate.sh`,
@@ -543,3 +559,159 @@ LIVE_L8=NOT_AUTHORIZED
 LIVE_L8_PHYSICAL_PROOF_REQUIRED=YES
 LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN
 ```
+
+---
+
+## 8. Hardware Backend (added 2026-09-29, repository-only)
+
+```text
+HARDWARE_BACKEND_IMPLEMENTED_REPOSITORY=YES
+LIVE_L8=NOT_AUTHORIZED
+LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN
+BOOT_VERIFICATION=IMPLEMENTED_REPOSITORY (never exercised live)
+```
+
+This section records repository capability only. It does not change any
+OD-L8 safety decision and authorizes no live access. Everything below is proven
+against a fake executor; no serial port, esptool run, flash, or device exists in
+any test.
+
+### 8.1 Architecture
+
+- `p4-l8-device.py` gains `HardwareDevice`, selected by `load_backend("hardware")`.
+  It is a subprocess adapter over the toolchain the repository already pins:
+  `platform = espressif32@7.0.1` resolves `tool-esptoolpy` `2.41100.0` (esptool
+  4.11.x). No pyserial and no second flashing stack were added.
+  `resolve_pinned_esptool` accepts only an absolute `esptool.py` whose sibling
+  `package.json` names exactly that package and version; the baud rate is the
+  `upload_speed = 115200` of `firmware/platformio.ini`.
+- **One executor seam.** Every command goes through `CommandExecutor.run`.
+  `SubprocessExecutor` is the only code that spawns a process; it is built only
+  after the live gate and refuses any argv that is not the pinned launcher plus
+  an allowed subcommand. Tests inject a fake executor.
+- **One argv allowlist.** `validate_esptool_argv` accepts exactly
+  `flash_id`, `write_flash <addr> <scratch>` and `read_flash <addr> <size> <scratch>`,
+  with the launcher, chip, **bound serial port**, baud and reset mode fixed in a
+  prefix. Erase, memory access, eFuse, PlatformIO upload, option smuggling,
+  unbound offsets and non-scratch files are unreachable. There is no relay
+  CUT/RESTORE, no MQTT and no plaintext 1883 anywhere in the backend.
+- **No side effect before the gate.** Importing the module, constructing
+  `HardwareDevice`, parsing identity and validating artifacts touch nothing.
+  `load_backend("hardware")` raises `HARDWARE_BACKEND_LIVE_L8_NOT_AUTHORIZED`
+  unless live authorization is explicitly true.
+
+### 8.2 Identity
+
+The serial port is taken exclusively from the validated `device.identity`
+binding: it is not a CLI argument, and there is no device discovery or
+substitution. One `flash_id` invocation observes MAC, chip and flash size;
+`parse_esptool_identity` requires exactly one well-formed line of each,
+rejects repeated, missing, malformed or contradictory output, rejects any
+non-classic-ESP32 chip and any `Serial port` line naming another port. The
+observed MAC must equal `expected_mac`, and the derived partition geometry must
+fit the observed flash size, before the first write.
+
+### 8.3 Write and readback contract
+
+Order inside `provision`: OV-12 binding, D4 attestation, live authorization,
+boot-verifier construction (no I/O), then all device-free gates (reviewed partition
+geometry, compile-only build command, trust anchor, firmware SHA-256, NTP,
+evidence-path free), then observed identity, then **arming the boot verifier**,
+then keys and NVS generation
+(image length must equal the partition size), then the first-write marker,
+then the writes. The device-free gates run first so a bad CA or table never
+causes a device reset.
+
+- Writes: exactly the NVS image at the table-derived `nvs` offset and the
+  reviewed application image at the table-derived application offset, each
+  through a private (0600, `O_EXCL`) scratch file that is removed afterwards.
+- Readback (amended 2026-10-01): `read_flash` of exactly the written NVS region, then of exactly the written application region (exact
+  offset and exact image length), each compared privately in memory; only `PASS`/`FAIL` is emitted
+  (`nvs_readback_match`, `firmware_readback_match`) and no NVS or firmware byte is recorded. Reads use `--after no_reset` and NEVER reset.
+  A mismatch or tool failure stops everything: no further read, no reset, no retry, no reflash, no restore (`NVS_READBACK` /
+  `FIRMWARE_READBACK`, then `FAIL_SECURE_HOLD_AND_EVIDENCE`).
+- Terminal reset (amended 2026-10-01): exactly one `--after hard_reset`, issued by `reset_into_new_image()` as the read-only `flash_id` verb
+  (no new tool verb), only after BOTH regions were written AND read back AND compared equal; a second reset or any device access afterwards is
+  refused. Sequence: `flash_id(no_reset)` -> arm verifier -> `write_flash` nvs -> `write_flash` firmware -> `read_flash` nvs -> compare ->
+  `read_flash` firmware -> compare -> `flash_id(hard_reset)` -> verify signed BOOT STATUS. No extra reboot reaches the L9 hand-off.
+- Any exception at or after the first write is contained: evidence is written
+  with the stage reached in `failure_boundary` (`DEVICE_WRITE`, `NVS_READBACK`,
+  `FIRMWARE_READBACK` or `BOOT_VERIFICATION`), then `FAIL_SECURE_HOLD_AND_EVIDENCE`. No retry, no
+  reflash, no restore. `rollback.sh` after the first write still performs zero
+  device action. Evidence is the exact 12-field write-once 0600 bundle;
+  no NVS digest was added.
+
+### 8.4 Boot verification — signed BOOT STATUS
+
+Owner-approved contract (2026-09-29):
+
+```text
+L8_BOOT_SIGNAL=SIGNED_BOOT_STATUS
+L8_BOOT_PASS_SEMANTICS=AUTHENTICATED_FIRMWARE_REPORTED_LOCKDOWN
+ELECTRICAL_RELAY_PROOF=OUTSIDE_BOOT_VERIFIER
+MQTT_VERIFIER_IDENTITY=REUSE_STAGED_CORE_BROKER_CREDENTIAL
+NEW_BROKER_USER=NO
+NEW_BROKER_ACL_MUTATION=NO
+BOOT_VERIFICATION_DEADLINE_SEC=180
+L9_REUSES_L8_BOOT_EVENT=YES
+BOOT_VERIFICATION_IMPLEMENTED_REPOSITORY=YES
+```
+
+**What PASS means.** An authenticated, fresh BOOT STATUS reporting LOCKDOWN,
+carrying the `seq_hi` of the NVS just written, was observed after the
+flash-tool reset boundary. It proves the new image ran `setup()`, loaded the new
+NVS (so `device_id` and `k_d2c` are right), joined Wi-Fi, NTP, TLS and MQTT, and
+that the firmware itself reports LOCKDOWN. It does **not** prove the relay pin or
+contact is physically at CUT, nor which firmware image signed the frame;
+electrical relay proof is outside the boot verifier.
+
+**Implementation** (`p4-l8-boot-verify.py`): a subscribe-only source. The MQTT
+client is private to the source, only connect/subscribe/loop/disconnect are ever
+called on it, and the module contains no publish path, so COMMAND, HEARTBEAT,
+CUT and RESTORE are unreachable. It subscribes to exactly
+`aegis/idea3/v1/<device_id>/status` (QoS 0; wildcards and other suffixes are
+refused) over TLS on 8883 with the pinned CA, hostname verification and TLS 1.2+,
+using the staged Core broker credential (`idea3-core`; owner-only file) and a
+distinct `aegis-l8-boot-<run_id>` client id. It runs the real Protocol v1
+`InboundVerifier` over an in-memory `EphemeralSeenStore`; it never opens or
+mutates the Core replay store, and it does not import `aegis_soc.mqtt_client`,
+`config` or `database`.
+
+**Timing.** The verifier is armed after observed identity and before the first
+write, and fixes `T0` from the Core trusted clock (from that point the chip sits
+in the bootloader, so no old firmware can speak). Frames are collected after the
+terminal reset (`flash_id --after hard_reset`, after both readbacks), which boots the new image, for at most 180 s. L8 never
+reboots the device to create another BOOT event.
+
+**PASS requires all of:** expected topic and `device_id`; Protocol v1 STATUS;
+valid DEVICE_TO_CORE MAC (`k_d2c`); not retained; `reason=BOOT`;
+`output_state=LOCKDOWN`; `time_trust=SYNCED`; empty `cmd_msg_id`; `cmd_seq=0`;
+`device_seq_hwm` equal to the initial `seq_hi` written in the new NVS; `msg_id`
+unseen; the existing skew rule; `device_time >= T0 - 2`; received within the
+deadline.
+
+**Verdicts.** An authenticated, post-`T0` frame with `output_state=NORMAL` is
+`FAIL`. Everything else short of a valid proof — no frame by the deadline, bad
+MAC, stale, replayed, retained, untrusted or wrong-device frames, or a verifier
+error — is `NOT_PROVEN`; unauthenticated noise can never decide a verdict. After
+the first write, `FAIL` and `NOT_PROVEN` both record
+`failure_boundary=BOOT_VERIFICATION` and hold as
+`FAIL_SECURE_HOLD_AND_EVIDENCE`, with no retry, restore or reflash. The verifier
+cannot be armed (broker unreachable, subscription refused, Core clock untrusted)
+=> abort before any device write.
+
+**Configuration.** Hardware requires `AEGIS_L8_BROKER_ADDRESS`,
+`AEGIS_L8_BROKER_TLS_NAME`, `AEGIS_L8_MQTT_CA_FILE` and
+`AEGIS_L8_BROKER_CREDENTIAL_FILE`; without them the helper refuses before any
+device access (`BOOT_VERIFICATION_NOT_CONFIGURED`).
+
+**L8 / L9 boundary.** L8 proves only this one post-flash BOOT/LOCKDOWN event. The
+running Core will independently accept the same frame; L9 reuses that event.
+L9 remains responsible for PERIODIC STATUS, Core-to-device HEARTBEAT, the full
+replay / wrong-key / tamper / freshness / retained / malformed negative matrix,
+and live Core liveness acceptance.
+
+**Limits.** Repository-implemented and fake-client tested only. Live proof
+additionally needs the broker, Wi-Fi, NTP and PKI stages healthy inside the
+window; a network fault yields `NOT_PROVEN` and a hold, not a false PASS.
+`LIVE_L8=NOT_AUTHORIZED`, `LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN`.
