@@ -52,7 +52,7 @@ function parseArgs(args) {
     if (process.env.P2B_LOCAL_PG_CONFIRMED !== '1') throw new Error('pg requires explicit confirmation of the disposable local harness')
     if (!process.env.TEST_DATABASE_URL) throw new Error('pg requires TEST_DATABASE_URL for a disposable local test database')
     const db = new URL(process.env.TEST_DATABASE_URL)
-    if (db.protocol !== 'postgresql:' || db.hostname !== '127.0.0.1' || db.port !== '55433' || db.pathname !== '/aegis_drive_test') throw new Error('pg refuses any database outside the repository disposable local harness')
+    if (db.protocol !== 'postgresql:' || db.hostname !== '127.0.0.1' || db.port !== '55433' || db.pathname !== '/aegis_drive_test' || db.username !== 'drive_app' || db.search || db.hash) throw new Error('pg refuses any database outside the repository disposable local harness')
   }
   if (o.browser && o.server !== 'none') throw new Error('browser run measures client operations only; run local server separately')
   return o
@@ -70,7 +70,7 @@ function nameFor(n) {
 function previewFor(kind, n, sourceBlobRef) {
   const isMotion = kind === 'motion'
   return {
-    kind, profile: 'vp1', blobRef: { formatVersion: 2, id: `pv-${kind}-${n}` },
+    kind, profile: 'vp1', blobRef: { formatVersion: 2, id: { thumb: 'a', poster: 'b', motion: 'c' }[kind] + n.toString(16).padStart(47, '0') },
     contentId: CONTENT_ID, sourceBlobRef, mime: isMotion ? 'video/mp4' : 'image/webp',
     width: isMotion ? 480 : 512, height: isMotion ? 270 : 512,
     ...(isMotion ? { durationMs: 3000 } : {}), plainSize: isMotion ? 500_000 : 80_000,
@@ -87,7 +87,9 @@ function fixture(totalNodes, variant, schemaVersion = 2) {
     m.nodes.set(ID(n), { nodeId: ID(n), kind: 'folder', parentNodeId: ID(n - 1), name: `archive-${n}-reports-2026`, createdAtClient: NOW, modifiedAtClient: NOW, lifecycle: { state: 'active' } })
   }
   for (let n = 6; n < totalNodes; n++) {
-    const sourceBlobRef = { formatVersion: 2, id: `blob-${n}` }
+    // Production V2 blob IDs are 24 random bytes encoded as 48 lowercase hex.
+    // Deterministic fixture IDs preserve the exact serialized size and shape.
+    const sourceBlobRef = { formatVersion: 2, id: n.toString(16).padStart(48, '0') }
     m.nodes.set(ID(n), {
       nodeId: ID(n), kind: 'file', parentNodeId: ID(1 + n % 5), name: nameFor(n),
       createdAtClient: NOW, modifiedAtClient: NOW, lifecycle: { state: 'active' },
@@ -228,6 +230,8 @@ async function measureCell(totalNodes, variant, runs, trk, server) {
 async function browserMeasurement(args) {
   if (!args.out) throw new Error('--browser requires --out')
   if (await fs.stat(args.out).then(() => true, () => false)) throw new Error('--out already exists; refusing to overwrite browser evidence')
+  // vite preview serves built dist, not the raw /src modules used here.
+  // The existing static bench driver serves those exact product modules on loopback.
   const browserDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'vault-tree')
   const nonce = Buffer.from(randomBytes(8)).toString('hex')
   const pageName = `.p2b-${nonce}.html`
