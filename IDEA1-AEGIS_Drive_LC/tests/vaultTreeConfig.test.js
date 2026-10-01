@@ -13,9 +13,9 @@ const STORAGE_ROOT = await fs.mkdtemp(path.join(os.tmpdir(), 'aegis-vault-tree-c
 process.env.STORAGE_ROOT = STORAGE_ROOT
 process.env.SESSION_SECRET = 'test-only-session-secret-not-used-in-production'
 delete process.env.DATABASE_URL
-for (const k of Object.keys(process.env)) if (k.startsWith('VAULT_TREE_') || k === 'VAULT_MEDIA_PREVIEW_ENABLED' || k === 'VAULT_DESTRUCTIVE_PURGE_ENABLED') delete process.env[k]
+for (const k of Object.keys(process.env)) if (k.startsWith('VAULT_TREE_') || k.startsWith('VAULT_PREVIEW_INDEX_') || k === 'VAULT_MEDIA_PREVIEW_ENABLED' || k === 'VAULT_DESTRUCTIVE_PURGE_ENABLED') delete process.env[k]
 
-const { vaultTreeConfigFromEnv, VAULT_TREE_PROTOCOL_VERSION, verifyTreeSchema, TREE_TABLES } = await import('../server/config/vaultTreeLimits.js')
+const { vaultTreeConfigFromEnv, VAULT_TREE_PROTOCOL_VERSION, verifyTreeSchema, TREE_TABLES, PREVIEW_INDEX_TABLES, verifyPreviewIndexSchema } = await import('../server/config/vaultTreeLimits.js')
 const { createApp } = await import('../server/app.js')
 const { initStorage } = await import('../server/storage/fileStore.js')
 
@@ -28,11 +28,16 @@ const REGISTER_LIMITS = Object.freeze({
   purgeRetentionMs: 604_800_000,
   maxAttachBlobIdsPerCas: 256,
   maxPurgeBlobIdsPerRequest: 256,
+  // D-1 preview index (PROVISIONAL / TO_BE_MEASURED — approved values only after HG-G)
+  maxPreviewIndexAttachPerCas: 64,
+  maxPreviewIndexSupersededPerCas: 64,
+  maxPreviewIndexEnvelopeBatch: 32,
+  maxPreviewIndexRetainedBytesPerOwner: null,
 })
-const ALL_OFF = Object.freeze({ schemaAvailable: false, protocolEnabled: false, genesisMigrationEnabled: false, treeUiEnabled: false, mediaPreviewEnabled: false, destructivePurgeEnabled: false })
+const ALL_OFF = Object.freeze({ schemaAvailable: false, protocolEnabled: false, genesisMigrationEnabled: false, treeUiEnabled: false, mediaPreviewEnabled: false, destructivePurgeEnabled: false, previewIndexSchemaAvailable: false, previewIndexReadEnabled: false, previewIndexWriteEnabled: false })
 const ALL_ON = { VAULT_TREE_SCHEMA_AVAILABLE: 'true', VAULT_TREE_PROTOCOL_ENABLED: 'true', VAULT_TREE_GENESIS_MIGRATION_ENABLED: 'true', VAULT_TREE_UI_ENABLED: 'true', VAULT_MEDIA_PREVIEW_ENABLED: 'true', VAULT_DESTRUCTIVE_PURGE_ENABLED: 'true' }
 
-test('CF-1 empty env → all six flags false; limits equal the Limits Register server values; deep-frozen', () => {
+test('CF-1 empty env → all flags false (six tree + three preview-index); limits equal the Limits Register server values; deep-frozen', () => {
   const c = vaultTreeConfigFromEnv({})
   assert.deepEqual({ ...c.flags }, ALL_OFF)
   assert.deepEqual({ ...c.limits }, REGISTER_LIMITS)
@@ -69,7 +74,7 @@ test('FLAG-CHAIN-1..5 a flag whose prerequisite is false throws at boot', () => 
   assert.throws(() => vaultTreeConfigFromEnv({ VAULT_TREE_SCHEMA_AVAILABLE: 'true', VAULT_TREE_PROTOCOL_ENABLED: 'true', VAULT_MEDIA_PREVIEW_ENABLED: 'true' }), /VAULT_MEDIA_PREVIEW_ENABLED.*VAULT_TREE_UI_ENABLED/)
   assert.throws(() => vaultTreeConfigFromEnv({ VAULT_TREE_SCHEMA_AVAILABLE: 'true', VAULT_DESTRUCTIVE_PURGE_ENABLED: 'true' }), /VAULT_DESTRUCTIVE_PURGE_ENABLED.*VAULT_TREE_PROTOCOL_ENABLED/)
   const on = vaultTreeConfigFromEnv(ALL_ON)
-  assert.deepEqual({ ...on.flags }, { schemaAvailable: true, protocolEnabled: true, genesisMigrationEnabled: true, treeUiEnabled: true, mediaPreviewEnabled: true, destructivePurgeEnabled: true })
+  assert.deepEqual({ ...on.flags }, { schemaAvailable: true, protocolEnabled: true, genesisMigrationEnabled: true, treeUiEnabled: true, mediaPreviewEnabled: true, destructivePurgeEnabled: true, previewIndexSchemaAvailable: false, previewIndexReadEnabled: false, previewIndexWriteEnabled: false })
 })
 
 test('BOOT-1 schemaAvailable=true with a missing table rejects naming it; BOOT-2 schemaAvailable=false never probes', async () => {
@@ -82,6 +87,77 @@ test('BOOT-1 schemaAvailable=true with a missing table rejects naming it; BOOT-2
   assert.equal(probes, 2)
   await verifyTreeSchema(vaultTreeConfigFromEnv({}), missingProbe)
   assert.equal(probes, 2, 'schemaAvailable=false must not call the probe')
+})
+
+// ── D-1 preview index (PR-A, Task A.1) ───────────────────────────────────────
+const TREE_ON = { VAULT_TREE_SCHEMA_AVAILABLE: 'true', VAULT_TREE_PROTOCOL_ENABLED: 'true', VAULT_TREE_UI_ENABLED: 'true', VAULT_MEDIA_PREVIEW_ENABLED: 'true' }
+const PI_SCHEMA = { ...TREE_ON, VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE: 'true' }
+const PI_READ = { ...PI_SCHEMA, VAULT_PREVIEW_INDEX_READ_ENABLED: 'true' }
+const MIB = 1_048_576
+
+test('PI-CF-1 preview-index flags parse only true/false and are all false by default', () => {
+  const c = vaultTreeConfigFromEnv({})
+  assert.equal(c.flags.previewIndexSchemaAvailable, false)
+  assert.equal(c.flags.previewIndexReadEnabled, false)
+  assert.equal(c.flags.previewIndexWriteEnabled, false)
+  for (const name of ['VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE', 'VAULT_PREVIEW_INDEX_READ_ENABLED', 'VAULT_PREVIEW_INDEX_WRITE_ENABLED']) {
+    for (const bad of ['yes', '1', '', 'TRUE']) assert.throws(() => vaultTreeConfigFromEnv({ ...PI_READ, [name]: bad }), new RegExp(name), `${name}=${JSON.stringify(bad)}`)
+  }
+  assert.deepEqual(PREVIEW_INDEX_TABLES, ['vault_preview_index_heads', 'vault_preview_index_generations', 'vault_preview_index_blob_refs'])
+})
+
+test('PI-CHAIN-1..4 preview-index flags are a fail-closed chain', () => {
+  assert.throws(() => vaultTreeConfigFromEnv({ VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE: 'true' }), /VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE.*VAULT_TREE_SCHEMA_AVAILABLE/)
+  assert.throws(() => vaultTreeConfigFromEnv({ ...TREE_ON, VAULT_PREVIEW_INDEX_READ_ENABLED: 'true' }), /VAULT_PREVIEW_INDEX_READ_ENABLED.*VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE/)
+  const noMedia = { VAULT_TREE_SCHEMA_AVAILABLE: 'true', VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE: 'true', VAULT_PREVIEW_INDEX_READ_ENABLED: 'true' }
+  assert.throws(() => vaultTreeConfigFromEnv(noMedia), /VAULT_PREVIEW_INDEX_READ_ENABLED.*VAULT_MEDIA_PREVIEW_ENABLED/)
+  assert.throws(() => vaultTreeConfigFromEnv({ ...PI_SCHEMA, VAULT_PREVIEW_INDEX_WRITE_ENABLED: 'true', VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: String(64 * MIB) }), /VAULT_PREVIEW_INDEX_WRITE_ENABLED.*VAULT_PREVIEW_INDEX_READ_ENABLED/)
+  const read = vaultTreeConfigFromEnv(PI_READ)
+  assert.equal(read.flags.previewIndexSchemaAvailable, true)
+  assert.equal(read.flags.previewIndexReadEnabled, true)
+  assert.equal(read.flags.previewIndexWriteEnabled, false)
+})
+
+test('PI-CF-2 provisional preview-index limits parse within range', () => {
+  const c = vaultTreeConfigFromEnv({ VAULT_PREVIEW_INDEX_MAX_ATTACH_PER_CAS: '8', VAULT_PREVIEW_INDEX_MAX_SUPERSEDED_PER_CAS: '0', VAULT_PREVIEW_INDEX_MAX_ENVELOPE_BATCH: '128' })
+  assert.equal(c.limits.maxPreviewIndexAttachPerCas, 8)
+  assert.equal(c.limits.maxPreviewIndexSupersededPerCas, 0)
+  assert.equal(c.limits.maxPreviewIndexEnvelopeBatch, 128)
+  assert.throws(() => vaultTreeConfigFromEnv({ VAULT_PREVIEW_INDEX_MAX_ATTACH_PER_CAS: '0' }), /VAULT_PREVIEW_INDEX_MAX_ATTACH_PER_CAS/)
+  assert.throws(() => vaultTreeConfigFromEnv({ VAULT_PREVIEW_INDEX_MAX_ATTACH_PER_CAS: '257' }), /VAULT_PREVIEW_INDEX_MAX_ATTACH_PER_CAS/)
+  assert.throws(() => vaultTreeConfigFromEnv({ VAULT_PREVIEW_INDEX_MAX_SUPERSEDED_PER_CAS: '257' }), /VAULT_PREVIEW_INDEX_MAX_SUPERSEDED_PER_CAS/)
+  assert.throws(() => vaultTreeConfigFromEnv({ VAULT_PREVIEW_INDEX_MAX_ENVELOPE_BATCH: '0' }), /VAULT_PREVIEW_INDEX_MAX_ENVELOPE_BATCH/)
+  assert.throws(() => vaultTreeConfigFromEnv({ VAULT_PREVIEW_INDEX_MAX_ENVELOPE_BATCH: '129' }), /VAULT_PREVIEW_INDEX_MAX_ENVELOPE_BATCH/)
+})
+
+test('PI-BUDGET-1 retained-storage budget: unset → null (no invented value); range 1 MiB..64 GiB; integers only', () => {
+  assert.equal(vaultTreeConfigFromEnv({}).limits.maxPreviewIndexRetainedBytesPerOwner, null)
+  assert.equal(vaultTreeConfigFromEnv({ VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: String(MIB) }).limits.maxPreviewIndexRetainedBytesPerOwner, MIB)
+  assert.equal(vaultTreeConfigFromEnv({ VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: String(64 * 1024 * MIB) }).limits.maxPreviewIndexRetainedBytesPerOwner, 64 * 1024 * MIB)
+  for (const bad of [String(MIB - 1), String(64 * 1024 * MIB + 1), '1.5', 'abc', '-1', '']) {
+    assert.throws(() => vaultTreeConfigFromEnv({ VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: bad }), /VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER/, JSON.stringify(bad))
+  }
+})
+
+test('PI-BUDGET-2 WRITE=false with the budget unset boots; WRITE=true without a budget fails closed at boot', () => {
+  const readOnly = vaultTreeConfigFromEnv({ ...PI_READ, VAULT_PREVIEW_INDEX_WRITE_ENABLED: 'false' })
+  assert.equal(readOnly.flags.previewIndexWriteEnabled, false)
+  assert.equal(readOnly.limits.maxPreviewIndexRetainedBytesPerOwner, null)
+  assert.throws(() => vaultTreeConfigFromEnv({ ...PI_READ, VAULT_PREVIEW_INDEX_WRITE_ENABLED: 'true' }), /VAULT_PREVIEW_INDEX_WRITE_ENABLED=true requires VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER/)
+  const budgeted = vaultTreeConfigFromEnv({ ...PI_READ, VAULT_PREVIEW_INDEX_WRITE_ENABLED: 'true', VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: String(32 * MIB) })
+  assert.equal(budgeted.flags.previewIndexWriteEnabled, true)
+  assert.equal(budgeted.limits.maxPreviewIndexRetainedBytesPerOwner, 32 * MIB)
+})
+
+test('PI-BOOT-1 preview-index schema probe: missing table or missing lifecycle values reject; flag off never probes', async () => {
+  let probes = 0
+  const cfg = vaultTreeConfigFromEnv(PI_SCHEMA)
+  await assert.rejects(verifyPreviewIndexSchema(cfg, async () => { probes++; return { missing: ['vault_preview_index_heads'], lifecycleValuesOk: true } }), /vault_preview_index_heads/)
+  await assert.rejects(verifyPreviewIndexSchema(cfg, async () => { probes++; return { missing: [], lifecycleValuesOk: false } }), /INDEX_STAGED/)
+  assert.deepEqual(await verifyPreviewIndexSchema(cfg, async () => { probes++; return { missing: [], lifecycleValuesOk: true } }), { probed: true, missing: [] })
+  assert.equal(probes, 3)
+  assert.deepEqual(await verifyPreviewIndexSchema(vaultTreeConfigFromEnv(TREE_ON), async () => { probes++; return { missing: ['x'], lifecycleValuesOk: false } }), { probed: false, missing: [] })
+  assert.equal(probes, 3, 'previewIndexSchemaAvailable=false must not call the probe')
 })
 
 let server, baseUrl
