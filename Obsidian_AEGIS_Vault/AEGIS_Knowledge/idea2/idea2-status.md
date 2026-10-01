@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-30
+updated: 2026-10-02
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,105 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## Concurrent stacked source task — physical producer generation (2026-10-02)
+
+This bounded source task does **not** replace the Machine A Current Task or
+H1 facts below, close Task 16, or create that predecessor task's final receipt.
+
+Task: Monitor-side physical producer generation and per-viewer demand lifecycle.
+Branch: `fix/idea2-camera-producer-generation`; owner: Pub.
+Dependency/base: `feat/idea2-machine-a-no-powershell-runtime` at
+`37db029fc641ec9dff687dc6506c88f67a438631`; publish only as a stacked Draft.
+PR: Not created at this checkpoint; controller owns publication after review.
+Current state: PARTIAL — SOURCE IMPLEMENTED / LOCAL VERIFIED; integration
+review and separately authorized Production/external acceptance remain pending.
+Implementation/evidence checkpoint: `e5e8f82d9e3ad7b533f7a4d21cace1d91753447d`
+(parent `94141e2b63b91d8a7f78c3b53e518f080f7ff8fa`).
+Production mutation allowed: NO; Production mutation performed: NO.
+
+### Source contract and scope
+
+- One physical camera/registered Node owns the DB generation; concurrent
+  authorized CAM-01/CAM-02 account aliases share it. Identical aliases on
+  different physical cameras do not collide. Each viewer owns a separate
+  random demand, authenticated user/alias and keyed session-binding hash.
+- Strict Operator authorization precedes acquisition and Engine fetch;
+  acquire/renew lock and revalidate live authority transactionally. PostgreSQL
+  post-lock/write-boundary wall clock controls fixed 30-second leases.
+  Serialized 10-second revalidation renews exact authority or aborts.
+- Exact positive BIGINT decimal generation is sent only in server-side
+  `X-Aegis-Producer-Generation` beside the existing Engine key. No browser
+  authority, raw session binding, Engine key or handle is returned/logged.
+  Per-viewer release and final epoch retirement cover normal close, errors,
+  logout/revocation and connected non-draining backpressure abort.
+- Add migration 005; migrations 001–004 retain byte-identical Git blobs
+  against the design base. Fresh schema matches post-005 physical ownership.
+  Heartbeat remains availability, never registry/producer authority; explicit
+  host-side `manage_nodes.py` registration remains unchanged.
+- Changed source/tests/package stay within Monitor; exact cross-scope documents
+  are `docs/superpowers/plans/2026-10-01-idea2-physical-producer-generation.md`
+  and `docs/superpowers/specs/2026-10-01-idea2-physical-producer-generation-design.md`,
+  requiring Kla integration review. Engine, UI, deployment files, installed
+  Machine A, H1 and original dirty checkout were not changed by this task.
+
+### Source-task Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining / Next |
+|---|---|---|---|---|---|---|
+| S1 | Migration 005 and fresh schema | PASS | Static/real-PG parity, upgrade, history, rerun and unsafe-backfill negatives | `3f12522d383e35f8b015bdf6abbabc52fd8cb660` | LOCAL VERIFIED | Owner-gated migration rollout |
+| S2 | Physical epoch/demand service | PASS | Real-PG alias/concurrency/revocation/expiry/write-boundary proofs | `7ef474f000206d68b72f08420395489ac6d47fe1` | LOCAL VERIFIED | Runtime rollout/acceptance |
+| S3 | Stream integration and abort cleanup | PASS | HTTP header/authorization/revalidation/release and backpressure negatives | `94141e2b63b91d8a7f78c3b53e518f080f7ff8fa` | LOCAL VERIFIED | External Engine provenance |
+| S4 | Final source verification and fixture synchronization | PASS | Final neutral matrix, twice-green real-PG gate, build, governance and scoped review | `e5e8f82d9e3ad7b533f7a4d21cace1d91753447d` | SOURCE HANDOFF ONLY | One partial receipt, controller review/publication; no Production acceptance |
+
+### Fresh final evidence and honest failure history
+
+Windows isolated source checkout, Node 24.14.0, PostgreSQL 15.19; commands from
+Monitor unless stated. Neutral runs remove both database URL variables and set
+`AEGIS_TEST_PYTHON=C:/Program Files/Python312/python.exe` for cross-language proof.
+
+- `node --test tests/producerLifecycle.test.mjs tests/producerLifecyclePostgres.test.mjs tests/physicalCameraStreamRouting.test.mjs tests/machineAAccountSymmetry.test.mjs tests/streamLifecycle.test.mjs tests/nodeRegistry.test.mjs tests/registryMigrations.test.mjs tests/physicalCameraHeartbeat.test.mjs tests/viewerDemandAvailability.test.mjs tests/liveCamera.test.mjs` — 138 total, 81 pass, 0 fail, 57 conditional DB skips.
+- Neutral `npm test` — 236 total, 178 pass, 0 fail, 58 conditional DB skips.
+- Only disposable `AEGIS_MONITOR_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55448/postgres`, with default `DATABASE_URL` unset: `node --test tests/physicalCameraStreamRouting.test.mjs tests/streamLifecycle.test.mjs tests/machineAAccountSymmetry.test.mjs tests/physicalLinkRoute.test.mjs tests/producerLifecycle.test.mjs tests/producerLifecyclePostgres.test.mjs tests/registryMigrations.test.mjs` — twice 122 pass, 0 fail, 0 skips. Exact test schemas/other clients absent afterward; controller owns cluster shutdown.
+- Initial combined PG runs failed at the real HTTP viewer cleanup assertion
+  (2 active demands versus 1; complete repeated RED: 121 pass / 1 fail / 0 skip).
+  Isolated case passed. Controller-approved test-only synchronization now
+  explicitly waits for completed real release (5-second statement-timeout
+  bound), preserves every DB lifecycle assertion and closes both viewers
+  before schema teardown. Conservative classification: fixture synchronization/
+  cleanup defect; prior latency beyond 200 ms was **not measured**. Subsequent
+  combined GREEN repeated twice; original failures are retained, not erased.
+- `npm run build` — PASS, 2,077 modules. Root governance/Vault/collaboration
+  tests 52/52; Vault validator PASS with two pre-existing owner-data Canvas
+  warnings; all 14 changed JS/MJS syntax checks and diff checks PASS.
+  Changed-content secret scan PASS; scoped review Critical 0 / Important 0 /
+  Minor 0. Publication policy/remote CI and final whole-branch review remain
+  controller-owned; local Draft policy fixture passed.
+
+### Evidence boundary, remaining work and handoff
+
+- Engine generation validation/tests: `NOT_PRESENT_IN_THIS_SOURCE_BRANCH`.
+  Controlled Monitor upstream tests prove its request contract only. Owner
+  live preflight (401 without key; 400 invalid producer generation with key)
+  is EXTERNAL evidence; reconcile live Engine source/image/version provenance
+  before deployment. No Engine validation was weakened or implemented here.
+- The pre-existing DB-enabled WHOLE-suite fixture/pool hang remains unresolved;
+  no DB-enabled full-suite green is claimed. Other legacy DB fixture coverage
+  is not substituted by the affected lifecycle/migration/HTTP gate.
+- Production prerequisites: separately approved migrations 001–005, reviewed
+  `SESSION_SECRET` presence/configuration (never its value), explicit Node and
+  physical registration, account alias/assignment reconciliation, server-
+  approved stream destination, Engine provenance, rollout/rollback decision,
+  and real external acceptance. Nothing in Production was inspected/mutated.
+- Machine A browser/camera/reboot acceptance, Telegram, recording/download,
+  SOC passive/no-wake and fleet/soak acceptance are NOT accepted/implemented
+  by this source task. DB outage may defer immediate release until bounded
+  lease expiry; indefinitely hung dependency recovery is not proven. Existing
+  other fixture SQL-cleanup robustness limitations remain deferred.
+- Next: exactly one partial final receipt for this successor source task,
+  then controller independent whole-branch review and Draft stacked publication;
+  Pub functional review and Kla integration decisions remain required. No push,
+  PR creation, merge, rebase, Production action or predecessor closure here.
 
 ## Current Task
 

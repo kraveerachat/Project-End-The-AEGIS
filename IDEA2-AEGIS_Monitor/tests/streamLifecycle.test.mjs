@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { EventEmitter } from 'node:events'
+import { EventEmitter, getEventListeners } from 'node:events'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import {
@@ -65,6 +65,85 @@ test('backpressure wait resolves when the browser closes', async () => {
 
   assert.equal(response.listenerCount('drain'), 0)
   assert.equal(response.listenerCount('close'), 0)
+})
+
+test('upstream abort wakes a connected backpressure wait without drain or close', async () => {
+  const response = new EventEmitter()
+  response.destroyed = false
+  const controller = new AbortController()
+  const lifecycle = createUpstreamLifecycle(controller)
+  let cancelled = 0
+  lifecycle.attachReader({ cancel: async () => { cancelled += 1 } })
+  let settled = false
+  const waiting = waitForDrainOrClose(response, lifecycle).then(() => { settled = true })
+  try {
+    lifecycle.abort()
+    lifecycle.abort()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(lifecycle.closed, true)
+    assert.equal(response.destroyed, false)
+    assert.equal(settled, true, 'abort must unblock cleanup even if the connected browser never drains')
+    assert.equal(cancelled, 1)
+    assert.equal(response.listenerCount('drain'), 0)
+    assert.equal(response.listenerCount('close'), 0)
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0)
+  } finally {
+    // Only test cleanup emits close; it cannot satisfy the assertion above.
+    response.emit('close')
+    await waiting
+  }
+})
+
+test('normal backpressure still waits for drain and removes the abort listener', async () => {
+  const response = new EventEmitter()
+  response.destroyed = false
+  const controller = new AbortController()
+  const lifecycle = createUpstreamLifecycle(controller)
+  let settled = false
+  const waiting = waitForDrainOrClose(response, lifecycle).then(() => { settled = true })
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 1)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(settled, false)
+  response.emit('drain')
+  await waiting
+  assert.equal(lifecycle.closed, false)
+  assert.equal(response.listenerCount('drain'), 0)
+  assert.equal(response.listenerCount('close'), 0)
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0)
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    const nextWait = waitForDrainOrClose(response, lifecycle)
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 1)
+    response.emit('drain')
+    await nextWait
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0)
+  }
+  lifecycle.abort()
+})
+
+test('abort before or during listener registration leaves no stranded wait or listeners', async () => {
+  for (const duringRegistration of [false, true]) {
+    const response = new EventEmitter()
+    response.destroyed = false
+    const controller = new AbortController()
+    const lifecycle = createUpstreamLifecycle(controller)
+    if (duringRegistration) {
+      const once = response.once.bind(response)
+      response.once = (event, callback) => {
+        const result = once(event, callback)
+        if (event === 'close') lifecycle.abort()
+        return result
+      }
+    } else lifecycle.abort()
+    let settled = false
+    const waiting = waitForDrainOrClose(response, lifecycle).then(() => { settled = true })
+    try {
+      await new Promise(resolve => setImmediate(resolve))
+      assert.equal(settled, true)
+      assert.equal(response.listenerCount('drain'), 0)
+      assert.equal(response.listenerCount('close'), 0)
+      assert.equal(getEventListeners(controller.signal, 'abort').length, 0)
+    } finally { response.emit('close'); await waiting }
+  }
 })
 
 function runRouteFixture(scenario) {

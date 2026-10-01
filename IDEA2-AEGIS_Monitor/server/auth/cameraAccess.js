@@ -113,6 +113,7 @@ export function createCameraAccessResolver({
       userId: user.id,
       nodeId: verifiedNode.nodeId,
       physicalCameraId: verifiedNode.physicalCameraId,
+      keyVersion: verifiedNode.keyVersion,
       logicalCameraId: alias.logicalCameraId,
     }
   }
