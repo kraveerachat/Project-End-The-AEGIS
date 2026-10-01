@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-01
+updated: 2026-10-02
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -15,17 +15,38 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-D1 — Separate encrypted preview-index design closeout
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-PLAN — D-1 implementation plan (plan only)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1-PLAN / implementation planning only |
+| Branch | `docs/idea1-preview-d1-implementation-plan` from `origin/main` `fff78feb7f7296a742794a31dffeb35a134a7660` (PR #279 merged) |
+| Owner | kla |
+| PR | Draft (opened by this task; plan-only) |
+| State | **PLANNED — IMPLEMENTATION_PLAN_COMPLETE=YES, AWAITING_HUMAN_REVIEW**; `IMPLEMENTATION_STARTED=NO`, `IMPLEMENTATION_AUTHORIZED=NO` |
+| Production mutation allowed | **NO** |
+| Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
+| Next gate | Human review of the plan (HG-0); implementation needs a separate Human authorization. |
+
+### Session Register — D1-PLAN
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1P-S1 | Read governance, approved D-1 spec, PR #278 receipt and current Vault runtime source; write and self-review the implementation plan; no runtime change | PASS | plan self-review (10-point checklist in plan §8); governance validation recorded in the final receipt | recorded in the final receipt | Human plan review | HG-0 |
+
+D1P-S1 (2026-10-02, start `fff78feb`): plan only. Scope: the new plan file, this status block and one final receipt. Safety: no runtime source, DB schema, server route, writer, flag, deployment, or Production action. Source inspection confirmed none of the separate-index machinery exists and surfaced three planning facts now recorded in the plan: (1) `vault_tree_blob_state.lifecycle` CHECK must be widened with `INDEX_STAGED`/`INDEX_MANAGED` so index/derivative blobs are never `UNREFERENCED` (old clients list every `UNREFERENCED` blob as recoverable); (2) `GET /api/vault` returns every envelope on unlock, so retained index blobs must be excluded server-side and served by a bounded envelope route; (3) with destructive GC forbidden, superseded copy-on-write shard bytes accumulate and must be measured at the IDX-SIZE gate. Plan: 44 tasks in phases A–I, Production stages J1–J4 (Human-only), closeout K; recommended split PR-A (compat/read-only, first Production stage) → PR-B (codec/reader) → PR-C (CAS/lifecycle/orphans) → PR-D (writer OFF + thumb/poster) → PR-E (capacity/security/compat/rollback evidence). Capability env `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (concept `VAULT_PREVIEW_INDEX_WRITE`) defaults false. All shard/root limits remain PROVISIONAL until Human approval after measurement.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1 — Separate encrypted preview-index design closeout
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-D1 / architecture only |
 | Branch | `docs/idea1-preview-d1-encrypted-preview-index-design` from `origin/main` `a54e699594053fc87018720b9f9f25c9c482a6b0` (PR #278 merged) |
 | Owner | kla |
-| PR | #279 (design-only closeout; Human merge pending) |
+| PR | #279 (design-only closeout; merged into `main` at `fff78feb7f7296a742794a31dffeb35a134a7660`) |
 | State | **DESIGN_SPEC_APPROVED=YES / D1_ARCHITECTURE=APPROVED_WITH_CONDITIONS / DESIGN TASK CLOSED**; implementation and Production mutation not authorized |
 | Production mutation allowed | **NO** |
-| Next gate | Human review/merge of PR #279. Future implementation needs a separately authorized task. |
+| Next gate | Closed — PR #279 merged; implementation planning continues in IDEA1-UNIFIED-PREVIEW-D1-PLAN above. |
 
 ### Session Register — D1
 
