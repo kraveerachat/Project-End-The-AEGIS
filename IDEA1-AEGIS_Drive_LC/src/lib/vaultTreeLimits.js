@@ -70,6 +70,12 @@ export const VAULT_TREE_CLIENT_LIMITS = Object.freeze({
   maxRetainedObjectUrls: 256,
   /** เพดานหน่วยความจำประมาณการรวมของพรีวิวที่มีชีวิต (Task 0.2) */
   memoryCeilingBytes: 256 * MIB,
+  /** ── Unified Preview P1 (Limits Register; PROVISIONAL until the plan's Task 9 browser measurement) ──
+      Vault audio up to this plaintext size is decrypted whole into one Blob URL; larger V2 audio streams
+      through the range-decryption Service Worker session; larger V1 audio is download-only. */
+  audioWholeDecryptMaxBytes: 32 * MIB,
+  /** Text-family preview reads at most this much plaintext from the start of the file (head only). */
+  textPreviewMaxBytes: 1 * MIB,
 })
 
 const KEYS = Object.freeze(Object.keys(VAULT_TREE_CLIENT_LIMITS))

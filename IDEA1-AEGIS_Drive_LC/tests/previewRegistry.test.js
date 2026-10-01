@@ -53,11 +53,14 @@ test('RG-4 Vault providers preserve today’s previewable set and gain signature
   for (const f of ['jpeg', 'png', 'webp']) assert.equal(resolveCapability(desc(f), 'vault', ENV).provider, 'image-native', f)
   for (const f of ['gif', 'apng', 'webp-animated']) assert.equal(resolveCapability(desc(f), 'vault', ENV).provider, 'animated-native', f)
   for (const f of ['mp4', 'webm', 'ogg-video']) assert.equal(resolveCapability(desc(f), 'vault', ENV).provider, 'video-native', f)
-  for (const f of ['heif', 'raw', 'avif', 'bmp', 'mov', 'mkv', 'zip', 'unknown', 'pdf', 'mp3', 'text', 'cfb-legacy']) {
+  for (const f of ['heif', 'raw', 'avif', 'bmp', 'mov', 'mkv', 'zip', 'unknown', 'pdf', 'cfb-legacy']) {
     const cap = resolveCapability(desc(f), 'vault', ENV)
     assert.equal(cap.state, 'unsupported', f)
     assert.equal(cap.tile, 'icon', f)
   }
+  // Unified Preview P1: audio is gated on canPlayType (this ENV probes nothing → unsupported-codec); still an icon tile
+  const mp3 = resolveCapability(desc('mp3'), 'vault', ENV)
+  assert.deepEqual([mp3.provider, mp3.state, mp3.tile], ['audio-native', 'unsupported-codec', 'icon'])
 })
 
 test('RG-5 Files providers mirror the server /preview allowlist exactly', () => {

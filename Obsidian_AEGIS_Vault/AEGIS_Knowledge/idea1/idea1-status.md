@@ -15,6 +15,34 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Current Task — IDEA1-UNIFIED-PREVIEW-P1 — Audio and inert text preview (final closeout)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-P1 / IDEA1_UNIFIED_PREVIEW_P1_AUDIO_TEXT |
+| Branch | feat/idea1-preview-p1-audio-text (from `origin/main` `7cabf28a`) |
+| PR | #276 (Ready for final review/merge; P1_CLOSED=NO) |
+| Owner | kla |
+| State | **IMPLEMENTED + VERIFIED + DEPLOYED + ACCEPTED / P1_CLOSED=NO** |
+| Plan | `docs/superpowers/plans/2026-09-30-idea1-unified-preview-p1-audio-text-normal-files.md` |
+| Deployed runtime SHA | `8634360f74ed2f50b2fcb49925a3d273c605a8a2` |
+| Image | `aegis-prod-drive:p1-8634360f74ed` |
+| Next gate | Human review + merge of PR #276 (P1_CLOSED remains NO until merged) |
+
+Durable facts:
+
+- Unified Preview P1 Audio/Text is implemented for both Normal Files and the Private Vault.
+- Inline-servable audio (MP3, WAV, FLAC, AAC, M4A, OGG, WEBA) and text-family files (TXT, LOG, MD, JSON, CSV, TSV, code/config source files) are verified with server-side signature sniffing against the first 8 KiB (mismatch -> 415).
+- Active HTML, SVG, and XML are rendered strictly inert as plain source text in `<pre>` blocks; zero raw HTML execution.
+- Text preview is bounded to the first 1 MiB (Files via single Range request; Vault via chunked decrypt stopping after crossing 1 MiB).
+- Private Vault whole-audio decryption ceiling set to 32 MiB (`audioWholeDecryptMaxBytes`); non-video Service Worker responses enforce `nosniff` + `CSP default-src 'none'; sandbox`.
+- Production deployment verified: image `aegis-prod-drive:p1-8634360f74ed`, running revision `8634360f74ed2f50b2fcb49925a3d273c605a8a2`, overlay `/opt/aegis/runtime/preview-p1/drive-image-8634360f74ed.yml` (SHA256 `de6b877b13d8fe1d8ee5c550589d54816cd536c141d345be3e69ceda3379a1f7`).
+- Final server acceptance: `P1_PRODUCTION_CUTOVER=PASS`, `DRIVE_HEALTH=healthy`, `DRIVE_RESTARTS=0`, `DRIVE_OOM=false`, `HEALTHZ=200`, `NON_DRIVE_CONTAINERS_UNCHANGED=PASS`, `VAULT_MANIFEST_V2_UPGRADE=<unset>`, `P2B_STARTED=NO`, `ROLLBACK_REQUIRED=NO`.
+- Historical deployment note: Initial cutover reached healthy / healthz=200, but verification harness failed due to normal user attempting to read root-owned 0600 snapshot; controlled rollback to P2a completed cleanly; harness permission fixed and retry passed full cutover and verification sequence.
+- Human functional acceptance: Normal Files and Private Vault both exercised with the same applicable P1 preview set (MP3 upload, preview, playback, seek, no stutter, functional download; TXT, JSON, CSV, TSV preview; Markdown and JS shown inertly as plain source; no P1 browser/runtime errors). `DOWNLOAD_SHA256` not claimed as before/after hash comparison was not recorded.
+- P2b writer not started (`P2B_STARTED=NO`).
+- PR #276 is ready for final review/merge; `P1_CLOSED=NO` until Human Owner performs merge.
+
 ## Current Task — IDEA1-UNIFIED-PREVIEW-P2A — Manifest v2 reader (implementation)
 
 | Field | Current value |

@@ -128,8 +128,9 @@ test('R8-PREVIEW-MIME · only allowlisted image/video types are served inline wi
     assert.match(res.headers.get('content-security-policy') ?? '', /sandbox/, ext)
     assert.equal(res.headers.get('content-disposition')?.includes('uploads/'), false)
   }
-  // ชนิดที่รันโค้ดได้/ไม่รู้จัก → 415 และไม่มีไบต์ออกไป
-  for (const ext of ['svg', 'html', 'txt', 'pdf', 'mkv', 'js']) {
+  // Unified Preview P1: svg/html/txt/js are now served — but ONLY as inert text/plain (see P1-TEXT below).
+  // types still without an inline entry → 415 and no bytes leave
+  for (const ext of ['pdf', 'mkv', 'docx', 'exe', 'heic']) {
     const file = await upload(owner, uniqueName('deny', ext), Buffer.from('<svg onload="alert(1)"></svg>'))
     const res = await preview(owner, file.id)
     assert.equal(res.status, 415, ext)
@@ -230,4 +231,110 @@ test('R8-PREVIEW-10 · a large media preview is streamed per request, never buff
   assert.equal(transferred, 24 * 4096)
   const grown = process.memoryUsage().arrayBuffers - before
   assert.ok(grown < size / 2, `ไบต์ที่ค้างในหน่วยความจำต้องไม่ใกล้ขนาดไฟล์ (โต ${grown} bytes)`)
+})
+
+/* ══ Unified Preview P1 · audio + text family with head-signature verification (T-NF-AUDIO/TEXT) ══ */
+
+const { loginAccountClasses } = await import('./helpers/accountClasses.mjs')
+const { craftedPng } = await import('./helpers/mediaFixtures.mjs')
+const { readAudit } = await import('../server/db/connection.js')
+const MP3 = Buffer.concat([Buffer.from('ID3'), Buffer.from([4, 0, 0, 0, 0, 0, 0]), randomBytes(4086)])
+const STABLE_HEADERS = ['content-type', 'x-content-type-options', 'content-security-policy', 'cross-origin-resource-policy', 'accept-ranges', 'cache-control']
+const headerSnapshot = (h) => Object.fromEntries(STABLE_HEADERS.map((k) => [k, h.get(k)]))
+const deniedCount = async () => (await readAudit(500)).filter((e) => e.action === 'FILE_PREVIEW' && e.result === 'DENIED').length
+
+test('P1-AUDIO · song.mp3 (ID3 head) → 200 audio/mpeg with inert headers; Range 0-99 → 206 with a truthful Content-Range', async () => {
+  const owner = await loginClient(baseUrl, DEMO_USER.username, DEMO_USER.password)
+  const file = await upload(owner, uniqueName('song', 'MP3'), MP3)
+  const res = await preview(owner, file.id)
+  assert.equal(res.status, 200)
+  assert.deepEqual(headerSnapshot(res.headers), {
+    'content-type': 'audio/mpeg', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
+    'cross-origin-resource-policy': 'same-origin', 'accept-ranges': 'bytes', 'cache-control': 'private, no-store',
+  })
+  assert.ok(res.body.equals(MP3))
+  const part = await preview(owner, file.id, { Range: 'bytes=0-99' })
+  assert.equal(part.status, 206)
+  assert.equal(part.headers.get('content-range'), `bytes 0-99/${MP3.length}`)
+  assert.ok(part.body.equals(MP3.subarray(0, 100)))
+  // a mid-file range (what <audio> seeking sends) still verifies the head, then serves the slice
+  const mid = await preview(owner, file.id, { Range: 'bytes=2000-2099' })
+  assert.equal(mid.status, 206)
+  assert.ok(mid.body.equals(MP3.subarray(2000, 2100)))
+})
+
+test('P1-TEXT · text family is served as text/plain; charset=utf-8 — HTML/SVG/XML never get an active MIME', async () => {
+  const owner = await loginClient(baseUrl, DEMO_USER.username, DEMO_USER.password)
+  const cases = [
+    ['notes', 'md', '# Title\n\nbody ไทย\n'], ['page', 'html', '<!doctype html><script>alert(1)</script>'],
+    ['icon', 'svg', '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>'], ['feed', 'xml', '<?xml version="1.0"?><a/>'],
+    ['data', 'json', '{"a":[1,2]}'], ['table', 'csv', 'a,b\n1,2\n'], ['tab', 'tsv', 'a\tb\n'], ['app', 'log', 'x\n'], ['main', 'js', 'alert(1)\n'],
+  ]
+  for (const [label, ext, body] of cases) {
+    const bytes = Buffer.from(body, 'utf8')
+    const file = await upload(owner, uniqueName(label, ext), bytes)
+    const res = await preview(owner, file.id)
+    assert.equal(res.status, 200, ext)
+    assert.equal(res.headers.get('content-type'), 'text/plain; charset=utf-8', ext)
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff', ext)
+    assert.equal(res.headers.get('content-security-policy'), "default-src 'none'; sandbox", ext)
+    assert.ok(res.body.equals(bytes), ext)
+  }
+  const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('hi', 'utf16le')])
+  assert.equal((await preview(owner, (await upload(owner, uniqueName('u16', 'txt'), utf16)).id)).status, 200, 'UTF-16 LE BOM text')
+})
+
+test('P1-SIG · misleading names fail with 415 after the owner gate: PNG named .mp3, NUL bytes named .txt, MP3 named .txt', async () => {
+  const owner = await loginClient(baseUrl, DEMO_USER.username, DEMO_USER.password)
+  for (const [label, ext, bytes] of [
+    ['fake', 'mp3', Buffer.from(craftedPng())], ['bin', 'txt', Buffer.from('abc\x00def')], ['mp3as', 'txt', MP3],
+    ['textas', 'mp3', Buffer.from('just some text\n')], ['pngas', 'svg', Buffer.from(craftedPng())],
+  ]) {
+    const file = await upload(owner, uniqueName(label, ext), bytes)
+    const res = await preview(owner, file.id)
+    assert.equal(res.status, 415, `${label}.${ext}`)
+    assert.doesNotMatch(res.headers.get('content-type') ?? '', /^(audio|text\/plain|image|video)/, `${label}.${ext}: no inline bytes`)
+    assert.equal(res.headers.get('content-range'), null)
+  }
+  // a mismatching file probed with a Range still gets 415, never 206/416
+  const fake = await upload(owner, uniqueName('fake2', 'mp3'), Buffer.from(craftedPng()))
+  assert.equal((await preview(owner, fake.id, { Range: 'bytes=0-9' })).status, 415)
+})
+
+test('P1-ORDER · cross-owner (even Admin) on a mismatching or valid P1 file → 404 + DENIED audit, never 415/206', async () => {
+  const owner = await loginClient(baseUrl, DEMO_USER.username, DEMO_USER.password)
+  const admin = await loginClient(baseUrl, DEMO_ADMIN.username, DEMO_ADMIN.password)
+  const fake = await upload(owner, uniqueName('xo-fake', 'mp3'), Buffer.from(craftedPng()))
+  const real = await upload(owner, uniqueName('xo-real', 'mp3'), MP3)
+  const text = await upload(owner, uniqueName('xo-text', 'md'), Buffer.from('# secret\n'))
+  const before = await deniedCount()
+  for (const f of [fake, real, text]) {
+    for (const range of [undefined, 'bytes=0-9', 'bytes=999999-']) {
+      const res = await preview(admin, f.id, range ? { Range: range } : {})
+      assert.equal(res.status, 404, `${f.name} ${range ?? ''}`)
+      assert.equal(res.headers.get('content-range'), null)
+      assert.equal(res.headers.get('accept-ranges'), null)
+      assert.doesNotMatch(res.headers.get('content-type') ?? '', /^(audio|text\/plain)/)
+    }
+  }
+  assert.equal(await deniedCount() - before, 9, 'every cross-owner attempt is audited as DENIED')
+  const folder = await makeFolder(owner, uniqueName('p1dir', 'd').replace('.d', ''))
+  assert.equal((await preview(owner, folder.id)).status, 400)
+})
+
+test('P1-NEUTRAL · ADMIN, EXISTING_USER and NEWLY_CREATED_USER get identical status and headers for their own audio/text', async () => {
+  const accounts = await loginAccountClasses(baseUrl)
+  const snapshots = []
+  for (const { client, className } of accounts) {
+    const song = await upload(client, uniqueName(`n-${className}`, 'mp3'), MP3)
+    const note = await upload(client, uniqueName(`n-${className}`, 'svg'), Buffer.from('<svg onload="x()"/>'))
+    const a = await preview(client, song.id, { Range: 'bytes=0-99' })
+    const b = await preview(client, note.id)
+    snapshots.push({ a: [a.status, headerSnapshot(a.headers)], b: [b.status, headerSnapshot(b.headers)] })
+    for (const other of accounts.filter((x) => x.className !== className)) {
+      assert.equal((await preview(other.client, song.id)).status, 404, `${other.className} cannot read ${className}'s audio`)
+    }
+  }
+  assert.deepEqual(snapshots[1], snapshots[0]); assert.deepEqual(snapshots[2], snapshots[0])
+  assert.equal(snapshots[0].a[0], 206); assert.equal(snapshots[0].b[0], 200)
 })

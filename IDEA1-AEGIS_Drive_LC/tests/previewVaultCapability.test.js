@@ -83,7 +83,7 @@ test('VC-4b a sealed cache (after lock) ignores late records from jobs that were
 
 test('VC-5 confirmVaultRender is the render gate and returns the confirmed MIME, never the hint', () => {
   const ok = confirmVaultRender(node('x.png', 'application/octet-stream'), new Uint8Array(syntheticPng()))
-  assert.deepEqual(ok, { ok: true, kind: 'image', mime: 'image/png', detected: { format: 'png', basis: 'signature' } })
+  assert.deepEqual(ok, { ok: true, kind: 'image', mime: 'image/png', detected: { format: 'png', basis: 'signature' }, provider: 'image-native' })
   const bad = confirmVaultRender(node('x.png', 'image/png'), PDF_HEAD)
   assert.equal(bad.ok, false)
   assert.equal(bad.capability.download, true)

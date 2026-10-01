@@ -12,6 +12,7 @@
 
 import { detectFormat } from './preview/formats.js'
 import { previewKindOf, resolveCapability } from './preview/registry.js'
+import { detectCanPlay } from './preview/env.js'
 
 /** Files ไม่ขึ้นกับ codec ของเบราว์เซอร์ใน P0 (ชุดเดิมเล่นได้เสมอ) — env ว่างคงที่ */
 const FILES_ENV = Object.freeze({})
@@ -29,6 +30,19 @@ export function previewKindFor(file) {
   if (!file || file.kind === 'folder' || file.vault) return null
   const name = file.ext ? `file.${file.ext}` : String(file.name ?? '')
   return previewKindOf(resolveCapability({ ...detectFormat({ name }), size: file.size ?? 0 }, 'files', FILES_ENV))
+}
+
+/**
+ * Unified Preview P1 — capability for the preview MODAL / menu (image, video, audio, text).
+ * ⚠️ Tiles keep previewKindFor (image/video only): audio/text files never trigger media-info requests.
+ * ⚠️ The decision is name-only here; the server /preview route verifies the head signature (415 on mismatch).
+ * @param {object} file Files row
+ * @param {{ canPlay?: Record<string, boolean> }} [env] defaults to this browser's canPlayType answers
+ */
+export function filesPreviewCapability(file, env = { canPlay: detectCanPlay(globalThis) }) {
+  if (!file || file.kind === 'folder' || file.vault) return resolveCapability(null, 'files', env)
+  const name = file.ext ? `file.${file.ext}` : String(file.name ?? '')
+  return resolveCapability({ ...detectFormat({ name }), size: file.size ?? 0 }, 'files', env)
 }
 
 /** เส้นทาง API ของ preview — client รู้แค่ id ไม่มีวันรู้ storage key */

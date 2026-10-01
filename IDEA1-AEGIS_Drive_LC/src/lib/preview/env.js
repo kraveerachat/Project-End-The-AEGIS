@@ -26,11 +26,12 @@ function deepFreeze(value) {
 }
 
 /**
- * @param {Window|object} [win] defaults to globalThis
- * @returns {Readonly<{ canPlay: Record<string, boolean>, webCodecs: { videoDecode: boolean, videoEncode: boolean, imageDecode: boolean },
- *                     swRange: boolean, webpEncode: boolean, engine: 'chromium'|'gecko'|'webkit'|'other' }>}
+ * canPlayType for every probed media type only (no canvas, no other probe) — what the audio/video
+ * providers consult. Never throws; a missing API gives `false`.
+ * @param {Window|object} [win]
+ * @returns {Readonly<Record<string, boolean>>}
  */
-export function detectPreviewEnv(win = globalThis) {
+export function detectCanPlay(win = globalThis) {
   const w = win && typeof win === 'object' ? win : {}
   const canPlay = {}
   let probe = null
@@ -40,6 +41,17 @@ export function detectPreviewEnv(win = globalThis) {
     try { ok = typeof probe?.canPlayType === 'function' && probe.canPlayType(type) !== '' } catch { ok = false }
     canPlay[type] = ok
   }
+  return Object.freeze(canPlay)
+}
+
+/**
+ * @param {Window|object} [win] defaults to globalThis
+ * @returns {Readonly<{ canPlay: Record<string, boolean>, webCodecs: { videoDecode: boolean, videoEncode: boolean, imageDecode: boolean },
+ *                     swRange: boolean, webpEncode: boolean, engine: 'chromium'|'gecko'|'webkit'|'other' }>}
+ */
+export function detectPreviewEnv(win = globalThis) {
+  const w = win && typeof win === 'object' ? win : {}
+  const canPlay = { ...detectCanPlay(w) }
   let webpEncode = false
   try {
     const canvas = w.document?.createElement?.('canvas')

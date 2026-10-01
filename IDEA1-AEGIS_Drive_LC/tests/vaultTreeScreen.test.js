@@ -1782,3 +1782,116 @@ test('TS-V2-1 v2 head: tiles render, Preview/Download stay enabled, every mutati
     await h.unmount()
   }
 })
+
+/* ── Unified Preview P1 · Vault audio (whole-decrypt path, real screen) ───────────────────────────── */
+test('VAULT-AUDIO-1 an MP3 in the Vault previews in a native <audio> from a registered Blob URL; close and lock revoke it; no tile media work', async () => {
+  const id = 'A1'.padEnd(22, 'A')
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id }] })
+  backend.uploadImpl = async () => ({ ok: true, stage: 'complete', blob: { id, formatVersion: 2 } })
+  backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: [serverBlobV2({ id, name: 'song.mp3', type: 'video/mp4', plainSize: 64 })] }, error: null }
+  const ID3 = new Uint8Array([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0, ...new Array(54).fill(0x55)])
+  let downloads = 0
+  backend.downloadImpl = async ({ sink }) => { downloads += 1; await sink.write(ID3); return { ok: true, result: [ID3] } }
+  backend.treeFlags.mediaPreviewEnabled = true // tile thumbnails ON: audio must still not be scheduled
+  const proto = dom.window.HTMLMediaElement.prototype
+  const prevCanPlay = proto.canPlayType
+  proto.canPlayType = (type) => (type === 'audio/mpeg' ? 'probably' : '')
+  const h = await mountUnlocked()
+  try {
+    await tick(2)
+    const dropEv = new dom.window.Event('drop', { bubbles: true })
+    // the browser's File.type lies (video/mp4): the decision must come from the name, then the decrypted bytes
+    Object.defineProperty(dropEv, 'dataTransfer', { value: { types: ['Files'], files: [new dom.window.File(['x'], 'song.mp3', { type: 'video/mp4' })] } })
+    await act(async () => q('[data-testid="vault-tree-screen"]').dispatchEvent(dropEv))
+    await tick(4)
+    const tile = fileTiles().find((el) => el.textContent.includes('song.mp3'))
+    assert.ok(tile, 'the MP3 tile renders')
+    assert.equal(downloads, 0, 'no tile thumbnail/poster decrypt for audio')
+    const urls = env.trackObjectUrls()
+    await click(dom, tileMenuButton(tile.getAttribute('data-node-id')))
+    assert.ok(menuItem('preview'), 'Preview is offered for audio')
+    await click(dom, menuItem('preview'))
+    await tick(4)
+    const audio = q('[data-testid="vault-tree-preview"] audio')
+    assert.ok(audio, 'native audio element')
+    assert.equal(audio.hasAttribute('controls'), true)
+    assert.equal(audio.hasAttribute('autoplay'), false)
+    assert.match(audio.getAttribute('src') ?? '', /^blob:/)
+    assert.equal(urls.live().length, 1, 'one decrypted Blob URL is alive while the preview is open')
+    assert.equal(q('[data-testid="vault-tree-preview"]').getAttribute('data-preview-state'), 'ready')
+    assert.ok(q('[role="dialog"]').textContent.includes('MP3'), 'header shows the detected format')
+    await click(dom, qa('[role="dialog"] button').find((b) => b.textContent.trim() === t('close')))
+    await tick(2)
+    assert.equal(urls.live().length, 0, 'closing revokes the Blob URL')
+    // reopen, then lock: the URL is revoked and the modal is gone
+    await click(dom, tileMenuButton(tile.getAttribute('data-node-id')))
+    await click(dom, menuItem('preview'))
+    await tick(4)
+    assert.equal(urls.live().length, 1)
+    await click(dom, qa('button').find((b) => b.textContent.trim() === t('lockVault')))
+    await tick(3)
+    assert.equal(urls.live().length, 0, 'lock revokes the Blob URL')
+    assert.equal(q('[data-testid="vault-tree-preview"]'), null)
+  } finally {
+    proto.canPlayType = prevCanPlay
+    backend.downloadImpl = null
+    await h.unmount()
+  }
+})
+
+/* ── Unified Preview P1 · Vault text family (inert source view, bounded head) ──────────────────────── */
+test('VAULT-TEXT-1 a Vault .html shows its SOURCE as text (no script/svg/iframe element); NUL bytes named .txt are refused; lock clears it', async () => {
+  const ids = { 'page.html': 'H1'.padEnd(22, 'H'), 'notes.txt': 'T1'.padEnd(22, 'T') }
+  fakeTree = await createFakeTreeServer({ kek, blobs: Object.values(ids).map((id) => ({ formatVersion: 2, id })) })
+  backend.uploadImpl = async ({ file }) => ({ ok: true, stage: 'complete', blob: { id: ids[file.name], formatVersion: 2 } })
+  backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: Object.entries(ids).map(([name, id]) => serverBlobV2({ id, name, type: 'text/html', plainSize: 200 })) }, error: null }
+  const ACTIVE = '<!doctype html><script>alert(1)</script><svg onload="alert(2)"></svg><iframe src="javascript:alert(3)"></iframe>'
+  const bodies = { [ids['page.html']]: new TextEncoder().encode(ACTIVE), [ids['notes.txt']]: new Uint8Array([0x61, 0x00, 0x62, 0x00, 0x01]) }
+  const downloads = []
+  backend.downloadImpl = async ({ blob, sink, signal }) => {
+    downloads.push({ id: blob.id, hasSignal: signal instanceof AbortSignal })
+    const b = bodies[blob.id]; await sink.write(b); return { ok: true, result: [b] }
+  }
+  const h = await mountUnlocked()
+  try {
+    await tick(2)
+    const dropEv = new dom.window.Event('drop', { bubbles: true })
+    Object.defineProperty(dropEv, 'dataTransfer', { value: { types: ['Files'], files: Object.keys(ids).map((n) => new dom.window.File([new TextDecoder().decode(bodies[ids[n]])], n, { type: 'text/html' })) } })
+    await act(async () => q('[data-testid="vault-tree-screen"]').dispatchEvent(dropEv))
+    await tick(5)
+    const open = async (name) => {
+      const tile = fileTiles().find((el) => el.textContent.includes(name))
+      await click(dom, tileMenuButton(tile.getAttribute('data-node-id')))
+      await click(dom, menuItem('preview'))
+      await tick(4)
+    }
+    await open('page.html')
+    const body = q('[data-testid="vault-tree-preview"]')
+    assert.equal(body.getAttribute('data-preview-state'), 'ready')
+    const pre = body.querySelector('pre')
+    assert.equal(pre?.textContent, ACTIVE, 'the source is shown verbatim')
+    assert.deepEqual([...pre.childNodes].map((n) => n.nodeType), [3], 'the source is one inert text node, never parsed markup')
+    // Scope: the preview body only — the modal's own chrome (close/download icons) is app SVG, not file content.
+    // Compare tag names, not DOM elements: a failing assert on a jsdom node serialises the whole DOM graph (OOM).
+    const active = [...body.querySelectorAll('script, svg, iframe, object, embed, img, link, style, a[href]')].map((el) => el.tagName)
+    assert.deepEqual(active, [], 'no active element from the file is mounted inside the preview body')
+    assert.deepEqual(downloads, [{ id: ids['page.html'], hasSignal: true }], 'one abortable head read through the chunked decrypt path')
+    await click(dom, qa('[role="dialog"] button').find((b) => b.textContent.trim() === t('close')))
+    await tick(2)
+    await open('notes.txt')
+    assert.equal(q('[data-testid="vault-tree-preview"]').getAttribute('data-preview-state'), 'unsupported', 'binary bytes named .txt never render')
+    assert.equal(q('[data-testid="vault-tree-preview"] pre') === null, true, 'no text body for refused bytes')
+    assert.equal(downloads.length, 2, 'the refused file was decrypted once (head) and nothing more')
+    await click(dom, qa('[role="dialog"] button').find((b) => b.textContent.trim() === t('close')))
+    await tick(2)
+    await open('page.html')
+    assert.equal(q('[data-testid="vault-tree-preview"] pre')?.textContent, ACTIVE, 'reopened before lock')
+    await click(dom, qa('button').find((b) => b.textContent.trim() === t('lockVault')))
+    await tick(3)
+    assert.equal(q('[data-testid="vault-tree-preview"]') === null, true, 'lock closes the preview')
+    assert.equal(doc().body.textContent.includes('alert(1)'), false, 'no decrypted text stays in the DOM after lock')
+  } finally {
+    backend.downloadImpl = null
+    await h.unmount()
+  }
+})

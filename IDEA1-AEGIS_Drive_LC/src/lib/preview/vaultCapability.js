@@ -9,7 +9,7 @@
 //    ({ sniff, textLike }) — never plaintext, never storage (no localStorage/IndexedDB/Cache API).
 //    The screen clears it through its unlocked-state disposer on lock/logout.
 import { detectFormat, probeHead } from './formats.js'
-import { resolveCapability, previewKindOf } from './registry.js'
+import { resolveCapability, previewKindOf, previewModeOf, AUDIO_MIME_BY_FORMAT } from './registry.js'
 
 const EMPTY_ENV = Object.freeze({ canPlay: Object.freeze({}), webCodecs: Object.freeze({ videoDecode: false, videoEncode: false, imageDecode: false }), swRange: false, webpEncode: false, engine: 'other' })
 
@@ -70,24 +70,33 @@ export function vaultPreviewKind(node, opts) {
   return previewKindOf(vaultNodeCapability(node, opts))
 }
 
+/**
+ * Unified Preview P1 — what the preview MODAL renders: 'image' | 'video' | 'audio' | 'text' | null.
+ * ⚠️ Tiles keep vaultPreviewKind (image/video only): audio/text never enter the thumbnail scheduler.
+ */
+export function vaultPreviewMode(node, opts) {
+  return previewModeOf(vaultNodeCapability(node, opts))
+}
+
 /** Normalised MIME for the confirmed format (used as the Blob / SW content type instead of the hint). */
 const MIME_BY_FORMAT = Object.freeze({
   jpeg: 'image/jpeg', png: 'image/png', apng: 'image/png', gif: 'image/gif', webp: 'image/webp', 'webp-animated': 'image/webp',
   mp4: 'video/mp4', webm: 'video/webm', 'ogg-video': 'video/ogg',
+  ...AUDIO_MIME_BY_FORMAT,
 })
 
 /**
  * Render gate: confirm decrypted leading bytes before any renderer receives them.
- * @returns {{ ok: true, kind: 'image'|'video', mime: string } | { ok: false, capability: object }}
+ * @returns {{ ok: true, kind: 'image'|'video'|'audio'|'text', mime: string } | { ok: false, capability: object }}
  */
 export function confirmVaultRender(node, head, { cache = null, env = EMPTY_ENV } = {}) {
   if (cache && head) cache.record(node, head)
   const descriptor = { ...detectFormat({ head, name: node?.name, hintMime: node?.mediaType }), size: node?.plainSize ?? 0 }
   const cap = resolveCapability(descriptor, 'vault', env)
-  const kind = previewKindOf(cap)
+  const kind = previewModeOf(cap)
   const detected = { format: descriptor.format, basis: descriptor.basis }
   if (!kind) return { ok: false, capability: cap, detected }
-  return { ok: true, kind, mime: MIME_BY_FORMAT[descriptor.format], detected }
+  return { ok: true, kind, mime: MIME_BY_FORMAT[descriptor.format], detected, provider: cap.provider }
 }
 
 /** Short, language-neutral format names for the preview header (spec §5.3: signature is authoritative). */
@@ -125,7 +134,7 @@ export function vaultTypeLabel(t, detected) {
 /** Content type for a render path that cannot sniff first (streamed large video): from the extension, never the hint. */
 export function vaultRenderMime(node, opts) {
   const cap = vaultNodeCapability(node, opts)
-  if (previewKindOf(cap) === null) return null
+  if (previewModeOf(cap) === null) return null
   const probe = opts?.cache?.get(node) ?? null
   const { format } = detectFormat({ probe, name: node?.name })
   return MIME_BY_FORMAT[format] ?? null

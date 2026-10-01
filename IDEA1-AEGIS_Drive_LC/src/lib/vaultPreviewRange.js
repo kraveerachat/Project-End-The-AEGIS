@@ -149,6 +149,12 @@ export function buildPreviewHeaders({ contentType, contentLength, contentRange =
     'Cache-Control': 'no-store',
   }
   if (contentRange) headers['Content-Range'] = contentRange
+  // Unified Preview P1 (spec §18.1): anything that is not video (audio now; text/PDF later) is served
+  // inert — the browser must not sniff it into an active type, and a direct navigation gets no rights.
+  if (!String(contentType ?? '').startsWith('video/')) {
+    headers['X-Content-Type-Options'] = 'nosniff'
+    headers['Content-Security-Policy'] = "default-src 'none'; sandbox"
+  }
   return headers
 }
 
