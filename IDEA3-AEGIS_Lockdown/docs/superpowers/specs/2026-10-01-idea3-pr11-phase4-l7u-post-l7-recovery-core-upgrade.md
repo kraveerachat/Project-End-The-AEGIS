@@ -209,3 +209,13 @@ group-is-transport-only, no network listener, unprivileged observer UI). `tests/
 * Recovery R1–R8, LVR and L8 remain unproven and separately gated; F1 and the R5 break-glass owner decision remain unresolved.
 * Owner action required before any live run: freeze and pin the runner, same-day A-L7u and K3 for stage L7u, a clean pinned execution worktree, the
   builder wheelhouse, and Kla/Pub integration review of the shared-surface changes (`p4-lib.sh`, `p4-stage-gate.sh`, `p4-l0-capture.sh`, `p4-compare.sh`).
+
+## 11. Release builder ships the Recovery runtime (live preflight finding, 2026-10-01)
+
+The first live L7u attempt stopped in the engine preflight with `NEW_RELEASE_LACKS_RECOVERY_RUNTIME` (before PRE capture and before the attempt was
+consumed). Cause: `p4-l7-build-release.py` computed the runtime closure of `aegis_soc.supervisor` only. The Core imports `recovery_core` and
+`recovery_protocol`, but the Recovery observer entrypoint `python -m aegis_soc.recovery_ui` and its `recovery_client` are not imported by the Core, so a
+real build omitted both while the repository test fixtures (hand-made releases) hid it. The builder and its verifier now use the union of the closures of
+exactly two entrypoints, `ENTRYPOINTS = ("supervisor", "recovery_ui")`; the package stays exactly that closure (no unrelated module is added; the
+observer's extra reach is `recovery_client` and `recovery_protocol`, all stdlib). The L7u preflight check is unchanged. Regression:
+`tests/test_pr11_phase4_l7u_release_builder_recovery_runtime.py` builds a real release and feeds it to the real engine preflight.
