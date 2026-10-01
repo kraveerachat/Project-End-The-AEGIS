@@ -613,7 +613,7 @@ def test_flush_ruleset_never_appears_in_t1(path: Path) -> None:
 def test_only_reviewed_stage_handlers_are_registered() -> None:
     stages = DEPLOY / "stages"
     assert stages.is_dir()
-    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8", "L9"}
+    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8p", "L8", "L9"}
     core_handler_files = {
         "apply.sh",
         "verify.sh",
@@ -636,7 +636,7 @@ def test_only_reviewed_stage_handlers_are_registered() -> None:
         # L7u (post-L7 Recovery Core upgrade): its PRE->RB compare may approve only the old Core's restart-volatile properties.
         "L7u": core_handler_files | {"allow-keys-rollback.txt"},
     }
-    for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8", "L9"):
+    for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8p", "L8", "L9"):
         expected = expected_by_stage.get(name, core_handler_files)
         assert {p.name for p in (stages / name).iterdir() if p.is_file()} == expected
 
@@ -1086,7 +1086,8 @@ def today(offset: int = 0) -> str:
 
 
 EXTRA_AUTH = {"L1": "d6_notice=pub\n", "L2": "integration_review=kla\n", "L7": "d6_notice=pub\n",
-              "L8": "recovery_authorization=https://example.invalid/aegis-p4-test-recovery\n"}
+              "L8": "recovery_authorization=https://example.invalid/aegis-p4-test-recovery\n",
+              "L8p": "physical_recovery_attestation=https://example.invalid/aegis-p4-test-physical-recovery\n"}
 
 
 def auth_record(stage: str, date: str | None = None, **overrides: str) -> str:
@@ -1207,7 +1208,7 @@ def test_gate_malformed_authorization_fails(tmp_path: Path, record: str) -> None
               "AUTHORIZATION_MALFORMED")
 
 
-@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8", "L9"])
+@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8p", "L8", "L9"])
 def test_gate_mutating_stage_without_k3_fails(tmp_path: Path, stage: str) -> None:
     gate_fail(gate(tmp_path, "--stage", stage, "--mode", "simulate", auth=auth_record(stage)), "K3_MISSING")
 
@@ -1231,7 +1232,7 @@ def test_gate_m16_v1_kraveerachat_k3_remains_valid(tmp_path: Path) -> None:
     assert "K3_CONFIRMATION=VALID" in result.stdout
 
 
-@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8", "L9"])
+@pytest.mark.parametrize("stage", ["L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8p", "L8", "L9"])
 def test_gate_m16_v2_owner_self_k3_is_valid(tmp_path: Path, stage: str) -> None:
     result = gate(tmp_path, "--stage", stage, "--mode", "simulate", auth=auth_record(stage), k3=k3v2_record(stage))
     assert result.returncode == 0, result.stdout + result.stderr
