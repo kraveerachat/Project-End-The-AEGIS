@@ -19,7 +19,13 @@ import { listVaultV2Blobs } from './vaultV2Store.js'
 
 export const PROTOCOL_STATES = Object.freeze(['FLAT', 'MIGRATING_TREE_V1', 'TREE_V1'])
 export const REVISION_STATES = Object.freeze(['CREATED', 'PUBLISHED', 'HEAD_COMMITTED', 'SUPERSEDED', 'ORPHANED', 'NON_RECOVERABLE', 'FORENSIC_DELETED'])
-export const BLOB_LIFECYCLES = Object.freeze(['UNREFERENCED', 'TREE_MANAGED', 'PURGE_PENDING', 'PURGED'])
+// D-1 (migration 012): INDEX_STAGED/INDEX_MANAGED belong to preview-index root/shard/derivative blobs only.
+// They are never recoverable as user files and never attachable by the main head CAS (which accepts only UNREFERENCED).
+export const BLOB_LIFECYCLES = Object.freeze(['UNREFERENCED', 'TREE_MANAGED', 'PURGE_PENDING', 'PURGED', 'INDEX_STAGED', 'INDEX_MANAGED'])
+/** the only lifecycle a client may offer as a recoverable orphan user file */
+export const RECOVERABLE_BLOB_LIFECYCLES = Object.freeze(['UNREFERENCED'])
+/** lifecycles owned by the D-1 preview index (excluded from user inventories; counted by the retained-storage budget) */
+export const PREVIEW_INDEX_LIFECYCLES = Object.freeze(['INDEX_STAGED', 'INDEX_MANAGED'])
 
 /** ข้อผิดพลาดเชิงโปรโตคอลที่ store รายงานเป็นค่า (ไม่โยน) — route แปลเป็น HTTP */
 export const STORE_CODE = Object.freeze({

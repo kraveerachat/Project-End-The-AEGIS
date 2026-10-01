@@ -379,7 +379,10 @@ vaultTreeRouter.get('/blobs', async (req, res, next) => {
     const blobs = envelopes.map((b) => {
       const s = byKey.get(`${b.formatVersion}:${String(b.id)}`)
       return { ...b, lifecycle: s?.lifecycle ?? 'UNREFERENCED', attachedGeneration: s?.attachedGeneration ?? null, orphanSince: s?.lifecycle === 'UNREFERENCED' || !s ? (s?.createdAt ?? b.createdAt ?? null) : null }
-    }).filter((b) => lifecycle === null || b.lifecycle === lifecycle)
+    })
+      // D-1: preview-index root/shard/derivative blobs (INDEX_*) are never part of the user inventory, whatever the filter
+      .filter((b) => !tree.PREVIEW_INDEX_LIFECYCLES.includes(b.lifecycle))
+      .filter((b) => lifecycle === null || b.lifecycle === lifecycle)
     // Task 4.2: ค่า retention ของ orphan blob เป็น "คำอธิบายประกอบ" ให้ client แสดงอายุของ orphan — ไม่มีอะไรลบ blob ใน PR นี้ (OR-3)
     return ok(res, 200, { blobs, orphanRetentionMs: cfg.limits.orphanBlobRetentionMs })
   } catch (err) { return next(err) }

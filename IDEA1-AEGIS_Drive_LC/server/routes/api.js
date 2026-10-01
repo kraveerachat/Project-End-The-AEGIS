@@ -39,6 +39,8 @@ import { uploadsRouter } from './uploads.js'
 import { vaultUploadsRouter, publicVaultV2Blob } from './vaultUploads.js'
 import { vaultTreeRouter, requireVaultProtocolState } from './vaultTree.js'
 import { vaultTreeUploadsRouter } from './vaultTreeUploads.js'
+import { vaultPreviewIndexRouter } from './vaultPreviewIndex.js'
+import { excludeIndexBlobIds } from '../db/vaultPreviewIndexStore.js'
 import * as vaultV2 from '../db/vaultV2Store.js'
 import { isValidVaultBlobId } from '../storage/vaultStaging.js'
 // Server Telemetry — ประกอบจาก host agent (Unix socket) + ค่าที่ Drive วัดเองได้
@@ -1661,6 +1663,8 @@ apiRouter.post('/sessions/revoke-others', requireAuth, async (req, res, next) =>
 // ── Private Vault encrypted hierarchy — opaque tree protocol (PR #157) ───────
 // ⚠️ mount ก่อน '/vault/uploads' และ '/vault/blobs/:id': prefix '/vault/tree' ต้องไม่ถูก route เก่าจับ
 // ⚠️ ครอบครัว tree-aware upload (Task 4.1) mount ก่อน '/vault/tree' เพื่อไม่ให้ router ของ tree วิ่งผ่านคำขอของมันโดยเปล่าประโยชน์
+// ⚠️ D-1 preview index (read-only in PR-A) mounts before both tree routers for the same reason
+apiRouter.use('/vault/tree/preview-index', vaultPreviewIndexRouter)
 apiRouter.use('/vault/tree/uploads', vaultTreeUploadsRouter)
 apiRouter.use('/vault/tree', vaultTreeRouter)
 
@@ -1686,10 +1690,16 @@ apiRouter.get('/vault', requireAuth, async (req, res, next) => {
       // ยังไม่เคยตั้งค่า — client เข้าสู่ setup flow (ไม่ใช่ error)
       return res.json({ configured: false, blobs: [] })
     }
-    const [v1Blobs, v2Blobs] = await Promise.all([
+    // D-1: preview-index root/shard/derivative blobs (lifecycle INDEX_*) are not user files and are excluded here
+    //   (their envelopes are served in bounded batches by GET /api/vault/tree/preview-index/envelopes). The lookup
+    //   reads vault_tree_blob_state, so it runs only when the tree schema (migration 011) is declared available.
+    const treeSchema = req.app.get('vaultTreeConfig')?.flags?.schemaAvailable === true
+    const [v1Blobs, v2All, indexIds] = await Promise.all([
       store.listVaultBlobs(req.user.id),
       vaultV2.listVaultV2Blobs(req.user.id),
+      treeSchema ? excludeIndexBlobIds(req.user.id) : new Set(),
     ])
+    const v2Blobs = indexIds.size ? v2All.filter((b) => !indexIds.has(String(b.id))) : v2All
     // ส่ง envelope ครบเพื่อให้ client แกะ "ชื่อไฟล์" เองได้หลังปลดล็อก
     // storageKey ไม่ถูกส่งออกไป — เป็นรายละเอียดภายในของ Storage Layer
     const blobs = [

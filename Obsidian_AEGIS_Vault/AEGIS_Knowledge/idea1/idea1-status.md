@@ -15,18 +15,39 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-D1-PLAN — D-1 implementation plan (plan only)
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-A — D-1 PR-A compatibility + read-only preview-index API
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 PR-A / plan Phase A, Tasks A.0–A.6 only |
+| Branch | `feat/idea1-preview-d1-a-compat-read` from `origin/main` `2dc596d1e0bd46319647da75fd34bdd02a7b5f91` (PR #280 merged) |
+| Owner | kla |
+| PR | #283 |
+| State | **IMPLEMENTED + LOCALLY VERIFIED**; not deployed; `IMPLEMENTATION_AUTHORIZED=YES` (Phase A only); `PRODUCTION_MUTATION_AUTHORIZED=NO` |
+| Production mutation allowed | **NO** |
+| Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
+| Next gate | Human review/merge of PR #283 (HG-A, integration review: migration 012). **PR-A is never deployed alone — Stage 1 requires PR-A + PR-B.** Phase B not started. |
+
+### Session Register — D1-A
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1A-S1 | Plan Tasks A.0–A.6: baseline, flags/budget config, migration 012, read/accounting store, read-only routes + inventory exclusion + boot probe, client read wrappers, compatibility tests | PASS | full-suite name diff vs A.0 baseline; PG 15 suites; build; governance/vault/policy/secret checks (receipt) | `7083ef43` | Human review/merge (HG-A) | PR-B (Phase B) after separate authorization |
+
+D1A-S1 (2026-10-02, start `2dc596d1`): Phase A only. Implemented default-OFF chained flags `VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE` → `_READ_ENABLED` (+ `VAULT_MEDIA_PREVIEW_ENABLED`) → `_WRITE_ENABLED`; budget `VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER` has no approved value (unset → null; WRITE=true without it fails boot; PROVISIONAL until HG-G). Migration 012 + `schema.sql`: `vault_preview_index_heads`, `vault_preview_index_generations`, `vault_preview_index_blob_refs` (immutable/undeletable except owner cascade by trigger; superseded refs advisory only) and lifecycle CHECK widened with `INDEX_STAGED`/`INDEX_MANAGED`, no row rewrite, no down-migration. Read store (`getIndexHead`, `listIndexEnvelopes`, `listIndexBlobs`, `excludeIndexBlobIds`, `getRetainedIndexBytes`), GET-only `/api/vault/tree/preview-index/{head,envelopes,blobs}`, `INDEX_*` excluded from `GET /api/vault` and `/tree/blobs`, migration-012 boot probe, client read wrappers. No codec, reader, CAS, preview upload mode, writer, derivative generation, budget enforcement or flag enablement. Evidence: baseline at `2dc596d1` 2530 tests / 2268 pass / 100 fail / 162 skip; PR-A at `7083ef43` 2575 / 2303 / 101 / 171 — the only differing failure name is `vaultTreeApi OR-4` (Windows EPERM on a temp manifest file), reproduced on the untouched baseline (1 of 6 isolated runs) and on PR-A (1 of 3), so it is a pre-existing environmental flake, not a regression. PostgreSQL 15 (disposable `pg-integration-env.sh`, drive_app): `vaultTreePostgres` 35/35, `vaultV2Postgres` 17/17, `vaultPostgres` 9/9 on both baseline and PR-A; new `previewIndexMigration` 9/9 and `previewIndexStorePostgres` 5/5. `npm run build` pass (dist restored). Production: not touched.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-PLAN — D-1 implementation plan (plan only)
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-D1-PLAN / implementation planning only |
 | Branch | `docs/idea1-preview-d1-implementation-plan` from `origin/main` `fff78feb7f7296a742794a31dffeb35a134a7660` (PR #279 merged) |
 | Owner | kla |
-| PR | #280 (Draft; plan-only) |
-| State | **PLANNED — Revision 2 `PLAN_REVIEW=APPROVED` (`APPROVED_PLAN_REVISION_SHA=5279be8e9f7ce99461ca53e22493e847121c27e4`); PR #280 Ready, Human merge pending**; `IMPLEMENTATION_STARTED=NO`, `IMPLEMENTATION_AUTHORIZED=NO` |
+| PR | #280 (merged into `main` at `2dc596d1e0bd46319647da75fd34bdd02a7b5f91`) |
+| State | **CLOSED — Revision 2 `PLAN_REVIEW=APPROVED` (`APPROVED_PLAN_REVISION_SHA=5279be8e9f7ce99461ca53e22493e847121c27e4`); merged** |
 | Production mutation allowed | **NO** |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
-| Next gate | Human merge of PR #280; implementation needs a separate Human authorization (Task A.0 not started). |
+| Next gate | Closed. Phase A continues in IDEA1-UNIFIED-PREVIEW-D1-A above. |
 
 ### Session Register — D1-PLAN
 
