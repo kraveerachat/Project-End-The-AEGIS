@@ -99,6 +99,7 @@ test('A/B/C x operator/operator2 keeps physical identity machine-based and alias
           userId: ctx.user.id,
           nodeId: ctx.machine.nodeId,
           physicalCameraId: ctx.machine.physicalCameraId,
+          keyVersion: 7,
           logicalCameraId: expectedAlias[account],
         },
       )
