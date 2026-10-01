@@ -288,11 +288,26 @@ class CoreRecoveryService:
             ), ladder
         return self._record(rp.R5, rp.CHECKING, "Waiting for correlated ACK and correlated STATUS=NORMAL"), ladder
 
+    def _break_glass_report(self) -> str:
+        context = self.supervisor.protocol
+        try:
+            episodes = db.fetch_lockdown_episodes(context.device_id) if context is not None else []
+            claim = db.break_glass_claim_for_episode(episodes[-1]["id"]) if episodes else None
+        except Exception:
+            return "UNKNOWN"
+        return "OPERATIONAL_RECOVERY_ONLY" if claim else "NONE"
+
     def restore_status(self) -> dict[str, Any]:
         incident = db.get_open_incident()
         r4 = self._authorization_gate(incident)
         r5, ladder = self._restore_gate(incident)
-        data = {"gates": [r4, r5], "restore": ladder, "restore_channel": "aegisctl restore (Core-local D4, terminal only)"}
+        data = {
+            "gates": [r4, r5],
+            "restore": ladder,
+            "restore_channel": "aegisctl restore (Core-local D4, terminal only)",
+            # Reported separately: a break-glass RESTORE is operational recovery only and never satisfies R4/R5/R8.
+            "break_glass_restore": self._break_glass_report(),
+        }
         return rp.response(True, "RESTORE_STATUS", "evidence from the Core; not physical evidence", data)
 
     # ------------------------------------------------------------------ R5 normal-path policy (wired into the production D4 gate)
@@ -320,6 +335,39 @@ class CoreRecoveryService:
             return "R2 is not verified: management access probe failed"
         return None
 
+    def break_glass_unmet(self, incident: dict | None) -> tuple[str | None, str, str]:
+        """Break-glass eligibility on ONE incident snapshot: ``(refusal_code, detail, case)``; code None means eligible.
+
+        Break-glass is available only when the normal RESTORE is NOT valid, in exactly one approved case:
+        NO_INCIDENT (no Core-bound open incident) or R3_FAILED (an open incident whose R3 was actually attempted and
+        whose latest durable result is FAILED). Every operation needs a fresh R2 probe (no bypass, no cached result).
+        It neither issues, records nor mutates containment, and never marks R1/R3.
+        """
+        try:
+            open_incidents = db.count_open_incidents()
+        except Exception:
+            return "AUDIT_UNAVAILABLE", "the incident record is unavailable", ""
+        if incident is None:
+            if open_incidents:
+                return "BREAK_GLASS_INELIGIBLE", "an open incident exists that is not the evaluated snapshot", ""
+            case = "NO_INCIDENT"
+        else:
+            if open_incidents != 1:
+                return "BREAK_GLASS_INELIGIBLE", "exactly one open incident is required to evaluate R3", ""
+            if self._isolation_live_gate(incident)["status"] == rp.VERIFIED and self._incident_gate(incident)["status"] == rp.VERIFIED:
+                return "BREAK_GLASS_NOT_REQUIRED", "the normal RESTORE path is available; use it", ""
+            try:
+                rows = db.fetch_incident_events(incident["id"], ("RECOVERY_R3_RESULT",), 1)
+            except Exception:
+                return "AUDIT_UNAVAILABLE", "the R3 record is unavailable", ""
+            match = _R3_RE.match(rows[0]["details"]) if rows else None
+            if not match or match.group(1) != "FAILED" or match.group(2) != incident.get("attacker_ip"):
+                return "BREAK_GLASS_INELIGIBLE", "R3 was not attempted and recorded as FAILED for this incident", ""
+            case = "R3_FAILED"
+        if self._probe_management()["status"] != rp.VERIFIED:
+            return "BREAK_GLASS_PRECONDITION_UNMET", "R2 is not verified: fresh management access probe failed", ""
+        return None, "", case
+
     def r3_precedes_restore(self, incident_id: Any) -> bool:
         """True only when a VERIFIED R3 result row was recorded before the RESTORE_REQUESTED row (audit id order)."""
         restore = db.fetch_incident_events(incident_id, ("RESTORE_REQUESTED",), 1)
@@ -336,6 +384,10 @@ class CoreRecoveryService:
     def _run_r2(self, r1: dict[str, Any]) -> dict[str, Any]:
         if r1["status"] != rp.VERIFIED:
             return self._record(rp.R2, rp.PENDING, "Waiting for R1")
+        return self._probe_management()
+
+    def _probe_management(self) -> dict[str, Any]:
+        """One fresh, bounded R2 probe; never cached."""
         target = config.RECOVERY_MANAGEMENT_PROBE_TARGET
         if not target:
             return self._record(rp.R2, rp.NOT_CONFIGURED, "No management probe target is configured")

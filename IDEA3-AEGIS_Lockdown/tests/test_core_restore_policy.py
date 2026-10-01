@@ -1,8 +1,8 @@
 """R5 NORMAL path: a production RESTORE is publishable only for the one open incident whose R3 isolation is verified.
 
 Hermetic (see test_core_recovery): a real supervisor, Protocol v1 store, MQTT adapter and D4 gate over a temporary audit
-database; only paho, the containment helper and the probes are fakes. Break-glass is deliberately NOT implemented:
-``BREAK_GLASS=OWNER_DECISION_REQUIRED``. No incident, no R3, a stale or foreign R3, a mismatched address, an absent
+database; only paho, the containment helper and the probes are fakes. Break-glass (OD-R5-BG-01) is a separate emergency
+path covered by test_core_break_glass; this file pins the normal path unchanged. No incident, no R3, a stale or foreign R3, a mismatched address, an absent
 containment entry, a failed R2 probe, a lookup or audit failure, or a spent attempt each refuse, and a refusal never
 consumes the durable one-shot.
 """
@@ -72,7 +72,7 @@ def test_a_restore_with_a_verified_r3_for_the_open_incident_is_published_and_bin
 
 
 def test_a_restore_without_an_open_incident_is_refused_in_production(env):
-    refused(env)  # the former silent "no incident" fallback is gone; break-glass is an owner decision
+    refused(env)  # the former silent "no incident" fallback is gone; a normal RESTORE needs a bound incident
 
 
 def test_a_restore_without_r3_is_refused(env):
@@ -309,8 +309,9 @@ def test_a_miswired_production_gate_refuses_before_any_audit_row_is_written(env)
     assert env.core.client.published == [] and not [r for r in db.fetch_all_logs() if r[3] == "RESTORE_REQUESTED"]
 
 
-def test_break_glass_is_not_implemented_and_stays_an_owner_decision():
-    assert lr.BREAK_GLASS == "OWNER_DECISION_REQUIRED"
+def test_break_glass_is_a_separate_basis_and_never_a_normal_string_basis():
+    # OD-R5-BG-01: break-glass is its own unforgeable-by-string basis (see test_core_break_glass); the normal set is unchanged.
+    assert lr.PRODUCTION_RESTORE_BASES == frozenset({"R3_VERIFIED"})
     assert "BREAK_GLASS" not in lr.PRODUCTION_RESTORE_BASES
 
 

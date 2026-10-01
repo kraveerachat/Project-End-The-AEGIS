@@ -18,7 +18,7 @@ WARN = "WARN"
 CRITICAL = "CRITICAL"
 
 # เหตุการณ์ที่ให้ยิงเข้า Telegram (ops alert) ด้วย
-_OPS_ALERT_EVENTS = {"SECURITY_ALERT", "UFW_BLOCK", "RECOVERY_STEP", "INCIDENT_CLOSED"}
+_OPS_ALERT_EVENTS = {"SECURITY_ALERT", "UFW_BLOCK", "RECOVERY_STEP", "INCIDENT_CLOSED", "RESTORE_BREAK_GLASS_CLAIM"}
 
 # ---- file logger ----
 _logger = logging.getLogger("aegis_soc")
@@ -63,6 +63,7 @@ def init_db():
     """)
     conn.commit()
     _ensure_restore_one_shot_index(conn)
+    _ensure_break_glass_schema(conn)
     conn.close()
 
 
@@ -83,6 +84,182 @@ def _ensure_restore_one_shot_index(conn) -> None:
     except sqlite3.IntegrityError:
         conn.rollback()
         raise
+
+def _ensure_break_glass_schema(conn) -> None:
+    """Durable lockdown episodes and the one-claim-per-episode break-glass records (idempotent, history preserved).
+
+    ``lockdown_episodes`` begins only from an authenticated Protocol-v1 STATUS=LOCKDOWN and is closed only by a later
+    authenticated STATUS=NORMAL; the partial unique index allows at most one open episode per device. Every episode
+    allows at most one claim (``episode_id`` is UNIQUE), enforced by SQLite across processes and connections. Rows are
+    never deleted. If old data already violates an invariant the index cannot be built and initialization fails closed;
+    nothing is rewritten.
+    """
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS lockdown_episodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT NOT NULL,
+                opened_at TEXT NOT NULL,
+                open_msg_id TEXT NOT NULL,
+                closed_at TEXT,
+                close_msg_id TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_lockdown_episode_open ON lockdown_episodes (device_id) "
+            "WHERE closed_at IS NULL"
+        )
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS restore_break_glass_claims (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                episode_id INTEGER NOT NULL UNIQUE REFERENCES lockdown_episodes (id),
+                claimed_at TEXT NOT NULL,
+                claim_case TEXT NOT NULL CHECK (claim_case IN ('NO_INCIDENT', 'R3_FAILED')),
+                incident_id INTEGER,
+                reason TEXT NOT NULL,
+                dispatched_at TEXT
+            )
+        """)
+        for table in ("lockdown_episodes", "restore_break_glass_claims"):
+            conn.execute(
+                f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_delete BEFORE DELETE ON {table} "
+                "BEGIN SELECT RAISE(ABORT, 'history is never deleted'); END"
+            )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        raise
+
+
+def record_authenticated_status(device_id, state, msg_id):
+    """Apply one AUTHENTICATED Protocol-v1 STATUS to the durable lockdown-episode model.
+
+    LOCKDOWN opens an episode unless one is already open for the device (it never multiplies); NORMAL closes the open
+    episode. Returns the open episode id after a LOCKDOWN, otherwise None. Raises on any database failure.
+    """
+    if state not in ("LOCKDOWN", "NORMAL") or not device_id or not msg_id:
+        return None
+    t_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT id FROM lockdown_episodes WHERE device_id = ? AND closed_at IS NULL", (device_id,)
+        ).fetchone()
+        episode_id = None
+        if state == "LOCKDOWN":
+            if row:
+                episode_id = row[0]
+            else:
+                episode_id = conn.execute(
+                    "INSERT INTO lockdown_episodes (device_id, opened_at, open_msg_id) VALUES (?, ?, ?)",
+                    (device_id, t_str, msg_id),
+                ).lastrowid
+        elif row:
+            conn.execute(
+                "UPDATE lockdown_episodes SET closed_at = ?, close_msg_id = ? WHERE id = ?", (t_str, msg_id, row[0])
+            )
+        conn.commit()
+        return episode_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def get_open_lockdown_episode(device_id):
+    """The one open durable lockdown episode for a device, or None. Durable identity only: NOT live eligibility."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT id, opened_at, open_msg_id FROM lockdown_episodes WHERE device_id = ? AND closed_at IS NULL",
+            (device_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return {"id": row[0], "opened_at": row[1], "open_msg_id": row[2]} if row else None
+
+
+def fetch_lockdown_episodes(device_id=None):
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    try:
+        sql = "SELECT id, device_id, opened_at, open_msg_id, closed_at, close_msg_id FROM lockdown_episodes"
+        rows = conn.execute(sql + (" WHERE device_id = ?" if device_id else "") + " ORDER BY id", (device_id,) if device_id else ()).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def break_glass_claim_for_episode(episode_id):
+    conn = _connect()
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM restore_break_glass_claims WHERE episode_id = ?", (episode_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def claim_break_glass(episode_id, claim_case, incident_id, reason, details):
+    """Spend the one break-glass claim of an OPEN episode and append its dedicated audit row, in ONE transaction.
+
+    Raises ``sqlite3.IntegrityError`` when the episode already has a claim (the database-level uniqueness), or when it
+    is no longer open. The audit row is ``RESTORE_BREAK_GLASS_CLAIM`` with a NULL incident_id on purpose: it is neither a
+    normal ``RESTORE_REQUESTED`` (R4 / one-shot) nor an incident-bound R5 publication. Returns the claim id.
+    """
+    t_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    with _AUDIT_WRITE_LOCK:
+        conn = _connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            open_row = conn.execute(
+                "SELECT 1 FROM lockdown_episodes WHERE id = ? AND closed_at IS NULL", (episode_id,)
+            ).fetchone()
+            if open_row is None:
+                raise sqlite3.IntegrityError("lockdown episode is not open")
+            claim_id = conn.execute(
+                "INSERT INTO restore_break_glass_claims (episode_id, claimed_at, claim_case, incident_id, reason) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (episode_id, t_str, claim_case, incident_id, reason),
+            ).lastrowid
+            full = f"claim_id={claim_id} episode_id={episode_id} case={claim_case} {details}"
+            prev_hash = _get_last_hash(conn)
+            conn.execute(
+                "INSERT INTO audit_logs (timestamp, level, event_type, details, incident_id, hash) "
+                "VALUES (?, ?, ?, ?, NULL, ?)",
+                (t_str, CRITICAL, "RESTORE_BREAK_GLASS_CLAIM", full,
+                 _compute_hash(t_str, CRITICAL, "RESTORE_BREAK_GLASS_CLAIM", full, prev_hash)),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+    try:  # notification is after durability; it never unspends or retries the claim
+        _emit_event("RESTORE_BREAK_GLASS_CLAIM", full, CRITICAL)
+    except Exception:
+        pass
+    return claim_id
+
+
+def consume_break_glass_claim(claim_id, episode_id) -> bool:
+    """Atomically mark a real, spent claim as dispatched exactly once (a forged or reused basis cannot pass)."""
+    t_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            "UPDATE restore_break_glass_claims SET dispatched_at = ? "
+            "WHERE id = ? AND episode_id = ? AND dispatched_at IS NULL",
+            (t_str, claim_id, episode_id),
+        )
+        conn.commit()
+        return cursor.rowcount == 1
+    finally:
+        conn.close()
+
 
 import hashlib
 
