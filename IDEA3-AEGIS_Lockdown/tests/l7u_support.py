@@ -279,7 +279,7 @@ def make_system_class(engine):
 
         def _create_alert_socket(self, env: dict[str, str], supp: list[int]) -> None:
             """The fixture Core models the PHASE B hook: it creates the dedicated alert socket only when ``alert_hook`` is on (the real
-            Core code does not yet, CORE_ALERT_SOCKET_HOOK_IMPLEMENTED=NO), the frozen uid is in its env and the runtime dir exists."""
+            Core code does this since Phase B), the frozen uid is in its env and the runtime dir exists."""
             st = self.state
             alert_gid = next((int(r[2]) for r in self._groups() if r[0] == ALERT_GROUP), None)
             if not (st.alert_hook and st.fail != "no_alert_channel" and "AEGIS_ALERT_SOURCE_UID" in env and self.host.lexists(ALERT_DIR)

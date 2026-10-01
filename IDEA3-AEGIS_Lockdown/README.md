@@ -956,13 +956,14 @@ never becomes a second Core.
   `AEGIS_RECOVERY_OPERATOR_UID` is set (optional `AEGIS_RECOVERY_SOCKET`, `AEGIS_RECOVERY_SOCKET_GID`).
 - **R1:** the Core binds or creates the single open incident from a validated production attacker alert (idempotent,
   audited, no containment). Opening the UI never creates an incident. The production alert source is a Core-local
-  AF_UNIX ingress (`<runtime_dir>/alert.sock`, 0600): only the one uid in `AEGIS_ALERT_SOURCE_UID` (unset = disabled) may
+  AF_UNIX ingress (dedicated `/run/aegis-idea3-alert/alert.sock`, Core:`aegis-idea3-alert` 0620 in a Core-owned 2750 directory; the group only
+  grants connect reachability): only the one non-root, non-Core uid in `AEGIS_ALERT_SOURCE_UID` (unset = disabled) may
   send exactly `{"v":1,"attacker_ip":"<IPv4>"}` (256 bytes, 2 s, rate-limited, `SO_PEERCRED` checked before any byte is
   read). It can only record the candidate; it cannot request containment, CUT or RESTORE, and the legacy
   `aegis/attacker_ip` topic and Protocol v1 are unchanged. The repository code is inert until a separate governed
   deployment stage supplies the detector sink, its service unit, the uid setting and a Core restart.
 - **F1 deployment package (repository only, not deployed):** `aegis_soc/alert_sink.py` is the production sink (one bounded
-  AF_UNIX request to the constant `/run/aegis-idea3/alert.sock`, exact payload, Core peer verified before any write, stable
+  AF_UNIX request to the constant `/run/aegis-idea3-alert/alert.sock`, exact payload, Core peer verified before any write, stable
   result codes, no retry) and `aegis_soc/production_detector.py` is its detector (same three rules and thresholds as the
   legacy `detector.py`, which is unchanged and still the only MQTT `aegis/attacker_ip` publisher). Material for a future governed
   deployment: `deploy/aegis-idea3-detector.service.example`, `deploy/pr11-phase4/p4-f1-alert-source.py`

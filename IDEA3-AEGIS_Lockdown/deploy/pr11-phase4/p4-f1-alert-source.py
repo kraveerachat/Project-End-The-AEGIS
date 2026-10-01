@@ -19,9 +19,9 @@ CUT/RESTORE, no containment, no shell, no automatic retry, no host-root option. 
 with AEGIS_F1_LIVE_AUTHORIZED=YES and root; the Python API is driven by a ``Host``/``Backend`` pair so the fixture tests never touch a host.
 Output is fixed reason codes and non-secret identifiers only; never environment content.
 
-Phase A gap (recorded, deliberate): the Core AlertServer still creates alert.sock under its general runtime directory until the Phase B hook
-lands after PR #287. This tool targets ONLY the dedicated surface, so until Phase B a real start is impossible (the dedicated socket never
-exists): CORE_ALERT_SOCKET_HOOK_IMPLEMENTED=NO.
+Phase B (repository): the Core AlertServer creates alert.sock only in the dedicated directory (Core:aegis-idea3-alert 0620 inside a Core-owned
+2750 directory) and authenticates the exact SO_PEERCRED uid. This tool targets ONLY that surface and never starts the detector unless the Core
+socket already answers: CORE_ALERT_SOCKET_HOOK_IMPLEMENTED=YES (repository only; nothing is deployed).
 """
 
 from __future__ import annotations

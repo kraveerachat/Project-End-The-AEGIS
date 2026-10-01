@@ -562,6 +562,7 @@ class RecoveryServer:
     family = socket.AF_UNIX
     max_message_bytes = rp.MAX_MESSAGE_BYTES
     thread_name = "aegis-core-recovery"
+    socket_group_mode = 0o660
 
     def __init__(
         self, path: Path | str, service: CoreRecoveryService, *, allowed_uid: int, socket_gid: int | None = None,
@@ -584,6 +585,9 @@ class RecoveryServer:
             or stat.S_IMODE(parent.st_mode) & 0o022
         ):
             raise RecoveryChannelError("the Recovery runtime directory must be Core-owned and not group/world writable")
+        self._clear_stale_socket()
+
+    def _clear_stale_socket(self) -> None:
         try:
             metadata = self.path.lstat()
         except FileNotFoundError:
@@ -612,7 +616,7 @@ class RecoveryServer:
             listener.bind(str(self.path))
             if self.socket_gid is not None:
                 os.chown(self.path, -1, self.socket_gid)
-                os.chmod(self.path, 0o660)
+                os.chmod(self.path, self.socket_group_mode)
             else:
                 os.chmod(self.path, 0o600)
             listener.listen(4)
@@ -694,6 +698,8 @@ class RecoveryServer:
 # --------------------------------------------------------------------------- F1: production alert ingress
 
 ALERT_CHANNEL_NAME = "alert.sock"
+ALERT_RUNTIME_DIR_MODE = 0o2750  # setgid, Core rwx, alert group r-x (traverse only), nothing for others
+ALERT_SOCKET_MODE = 0o620  # Core rw, alert group write (= connect) only, nothing for others
 ALERT_MAX_BYTES = 256  # {"v":1,"attacker_ip":"255.255.255.255"} is about 40 bytes
 ALERT_REQUEST_DEADLINE_SEC = 2.0
 ALERT_RATE_BURST = 5
@@ -801,18 +807,40 @@ class AlertIngress:
 class AlertServer(RecoveryServer):
     """The ingress socket: same peer-first, bounded AF_UNIX server as Recovery, with a 256-byte request and a 2 s deadline.
 
-    No socket group is ever configured, so the file is Core-owned 0600; the SO_PEERCRED uid check is the authority.
+    Without ``socket_gid`` (hermetic fixtures only) the file is Core-owned 0600. With ``socket_gid`` (production, OD-F1-DEPLOY-01) the
+    dedicated F1 directory must already exist as Core-owned, group ``socket_gid``, mode exactly 2750 (it is never created or widened
+    here) and the socket becomes Core:``socket_gid`` 0620 (connect reachability only, nothing for others). In both modes the
+    SO_PEERCRED uid check, made before any request byte is read, is the sole authority: a member of the transport group with any
+    other uid is refused.
     """
 
     max_message_bytes = ALERT_MAX_BYTES
     thread_name = "aegis-core-alert"
+    socket_group_mode = ALERT_SOCKET_MODE
 
-    def __init__(self, path: Path | str, ingress: AlertIngress, *, allowed_uid: int) -> None:
-        super().__init__(path, ingress, allowed_uid=allowed_uid, socket_gid=None)  # type: ignore[arg-type]
+    def __init__(self, path: Path | str, ingress: AlertIngress, *, allowed_uid: int, socket_gid: int | None = None) -> None:
+        super().__init__(path, ingress, allowed_uid=allowed_uid, socket_gid=socket_gid)  # type: ignore[arg-type]
         self.request_deadline = ALERT_REQUEST_DEADLINE_SEC
+
+    def _prepare_path(self) -> None:
+        if self.socket_gid is None:
+            super()._prepare_path()
+            return
+        try:
+            parent = self.path.parent.lstat()
+        except FileNotFoundError:
+            raise RecoveryChannelError("the dedicated alert runtime directory is missing (provision it before the Core starts)") from None
+        if (
+            not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid != os.geteuid()
+            or parent.st_gid != self.socket_gid
+            or stat.S_IMODE(parent.st_mode) != ALERT_RUNTIME_DIR_MODE
+        ):
+            raise RecoveryChannelError("the alert runtime directory must be a Core-owned 2750 directory of the alert group")
+        self._clear_stale_socket()
 
 
 __all__ = [
-    "ALERT_CHANNEL_NAME", "AlertIngress", "AlertRequestError", "AlertServer", "CoreRecoveryService", "RecoveryChannelError",
+    "ALERT_CHANNEL_NAME", "ALERT_RUNTIME_DIR_MODE", "ALERT_SOCKET_MODE", "AlertIngress", "AlertRequestError", "AlertServer", "CoreRecoveryService", "RecoveryChannelError",
     "RecoveryServer", "parse_alert",
 ]

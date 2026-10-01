@@ -200,7 +200,7 @@ def test_sink_and_core_ingress_agree_on_every_address_class():
 
 def test_the_production_socket_path_is_the_one_dedicated_f1_surface():
     """OD-F1-DEPLOY-01: ONE canonical dedicated path. The Core name constant is shared; the directory is NOT the general runtime directory.
-    (The Core-side hook that serves this path is Phase B: CORE_ALERT_SOCKET_HOOK_IMPLEMENTED=NO.)"""
+    (The Core-side hook that serves this path is implemented in Phase B: see test_core_alert_ingress.py.)"""
     assert alert_sink.ALERT_SOCKET_PATH == f"/run/aegis-idea3-alert/{recovery_core.ALERT_CHANNEL_NAME}"
     assert alert_sink.ALERT_RUNTIME_DIR == "/run/aegis-idea3-alert" and alert_sink.ALERT_SOCKET_PATH != "/run/aegis-idea3/alert.sock"
     assert (alert_sink.ALERT_GROUP, alert_sink.DETECTOR_ACCOUNT) == ("aegis-idea3-alert", "aegis-idea3-detector")

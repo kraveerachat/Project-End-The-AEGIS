@@ -633,20 +633,22 @@ def test_every_other_start_path_is_gated_by_the_core_alert_socket_check():
     assert [i for i, line in enumerate(lines) if line.startswith("ExecStartPre=")] < [i for i, line in enumerate(lines) if line.startswith("ExecStart=")]
 
 
-# ═══ Phase A gap: the real Core hook is NOT implemented, so a live success claim is impossible ═════════════════════════════════
+# ═══ Phase B: the real Core hook ═════════════════════════════════════════════════════════════════════════════════════════════
 
 
-def test_phase_a_gap_the_real_core_still_creates_its_socket_at_the_legacy_path_so_the_dedicated_surface_never_exists():
-    """CORE_ALERT_SOCKET_HOOK_IMPLEMENTED=NO. The Core AlertServer (PR #287-shared files) is untouched in Phase A: it builds the socket from its
-    general runtime directory. This tripwire fails the moment Phase B changes that, forcing the status flags to be revisited together."""
-    core_source = (ROOT / "aegis_soc" / "recovery_core.py").read_text() + (ROOT / "aegis_soc" / "supervisor.py").read_text()
-    assert "/run/aegis-idea3-alert" not in core_source and "aegis-idea3-alert" not in core_source
-    assert "self.settings.runtime_dir / rc.ALERT_CHANNEL_NAME" in (ROOT / "aegis_soc" / "supervisor.py").read_text()
-    assert tool.SOCKET_PATH != "/run/aegis-idea3/alert.sock"
+def test_phase_b_the_real_core_creates_its_socket_only_at_the_dedicated_path_never_the_general_runtime():
+    """CORE_ALERT_SOCKET_HOOK_IMPLEMENTED=YES. The Core builds the alert socket from the dedicated F1 constants (group-reachable 0620,
+    uid-authenticated), never from its general runtime directory, and never from the Recovery runtime."""
+    config_source = (ROOT / "aegis_soc" / "config.py").read_text()
+    supervisor_source = (ROOT / "aegis_soc" / "supervisor.py").read_text()
+    assert 'ALERT_SOCKET_PATH = ALERT_RUNTIME_DIR + "/alert.sock"' in config_source and 'ALERT_RUNTIME_DIR = "/run/aegis-idea3-alert"' in config_source
+    assert "config.ALERT_SOCKET_PATH" in supervisor_source and "socket_gid=alert_gid" in supervisor_source
+    assert "self.settings.runtime_dir / rc.ALERT_CHANNEL_NAME" not in supervisor_source
+    assert tool.SOCKET_PATH == "/run/aegis-idea3-alert/alert.sock"
 
 
-def test_phase_a_gap_cannot_produce_a_successful_start_even_with_every_other_gate_green():
-    """A host where L7u had provisioned everything but the (unimplemented) Core hook never created the dedicated socket: the start gate
+def test_a_host_without_the_dedicated_socket_can_never_start_the_detector():
+    """A host where the Core never created the dedicated socket: the start gate
     refuses at the socket check and issues no `systemctl start`."""
     host, backend = FakeHost(with_socket=False), FakeBackend()
     assert refusal(tool.start_detector, DETECTOR_UID, CORE_UID, host, backend) == "ALERT_SOCKET_MISSING"
