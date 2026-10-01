@@ -15,6 +15,32 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## PR #264 repository-integration scope reconciliation (2026-10-02)
+
+PR #264 is now treated as a **repository/source integration closeout**, not as
+proof that the H1 live environment or Production rollout has completed.
+This supersedes earlier instructions that kept PR #264 Draft solely until
+H1 N2-N7 live acceptance finished.
+
+- H1 N0 remains PASS and H1 N1 remains PASS by Human Owner report.
+- H1 N2-N7 remain **live/pre-H1 acceptance gates** and are still required
+  before N8 may authorize bounded H1 runtime work. Their evidence is not
+  backfilled, inferred, or promoted by merging PR #264.
+- The dedicated Identity Agent live/service path remains deferred and must not
+  be started merely because this repository PR merges.
+- The Camera-first Monitor/physical-producer source is repository-integrated
+  independently of H1 live acceptance. Production migrations 001-005, explicit
+  Node/physical registration, alias policy, Monitor deployment, real browser
+  stream acceptance, Telegram acceptance, and later recording/download remain
+  separate post-merge owner-gated work.
+- Therefore `PR264_REPOSITORY_MERGE_BLOCKED_BY_H1_N2_N7=NO` while
+  `H1_N8_AUTHORIZED=NO`, `PRODUCTION_DEPLOYED=NO`, and
+  `MACHINE_A_IDENTITY_AGENT_LIVE=DEFERRED`.
+- Authoritative main reconciled into the PR branch:
+  `812eabeea1450f3e947c9f9d9032351eca26efe0` -> merge commit
+  `aa05ebf20749029bb3fd6b23e2d62d3de825e022`; no force push or rebase.
+
+
 ## Concurrent stacked source task — physical producer generation (2026-10-02)
 
 This bounded source task does **not** replace the Machine A Current Task or
