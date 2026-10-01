@@ -460,9 +460,8 @@ host drift whatsoever.
   `WRITE_ONCE_NO_OVERWRITE`. The bundle is a single JSON file created under the
   stage evidence directory with mode `0600` and `O_EXCL | O_NOFOLLOW`; a second
   write to the same path fails closed rather than overwriting.
-  The bundle contains **exactly and only** these twelve fields (the original eleven plus `firmware_readback_match`, a PASS/FAIL boolean,
-  added 2026-10-01 after review found that only the NVS region was read back; this amends the owner-approved eleven-field list and needs
-  owner confirmation):
+  The bundle contains **exactly and only** these twelve fields (the original eleven plus `firmware_readback_match`, a PASS/FAIL boolean;
+  see the 2026-10-01 owner-approved amendment recorded below):
   `schema_version`, `run_id`, `device_mac`, `chip_identity`, `flash_size`,
   `firmware_sha256`, `nvs_schema_version`, `nvs_readback_match`, `firmware_readback_match`, `flash_result`,
   `boot_verification_result`, `failure_boundary`.
@@ -472,6 +471,15 @@ host drift whatsoever.
   convention in `p4-lib.sh` (secret-bearing files recorded by metadata only,
   never content and never a digest).
 - **OWNER_STATUS**: `OWNER_APPROVED`.
+- **AMENDMENT (OWNER APPROVED, 2026-10-01) — evidence schema 11 -> 12 fields**:
+  `EVIDENCE_FIELD_COUNT=12`. The new field is `firmware_readback_match`; its only allowed values are `PASS` and `FAIL`, and it records ONLY the
+  result of the application-region readback comparison. The hardware flow performs an actual application-region readback (exact written offset
+  and exact image length) and compares it **entirely in memory**, so the evidence must truthfully record that verification. Anything not
+  proven equal is recorded `FAIL`, never `PASS`. Raw firmware bytes in evidence are FORBIDDEN, raw NVS bytes in evidence are FORBIDDEN, and
+  secret material in evidence is FORBIDDEN. The amendment is repository capability only: it does NOT change `LIVE_L8` authorization, the
+  physical-proof status, Recovery or LVR status, the electrical relay proof status, the D4 policy, or the firmware/NVS secret handling.
+  `LIVE_L8=NOT_AUTHORIZED`, `LIVE_L8_PHYSICAL_PROOF=NOT_PROVEN`, `ELECTRICAL_RELAY_PROOF=NO`,
+  `BOOT_VERIFICATION_IS_FIRMWARE_REPORTED=YES`.
 - **CURRENTLY_PROVEN**: Repository-provable once implemented; nothing live.
 - **REPOSITORY_IMPLEMENTATION_REQUIRED**: Exact-allowlist serialisation that
   rejects any extra key; write-once creation; secret-exclusion assertions.
