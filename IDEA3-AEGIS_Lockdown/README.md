@@ -955,7 +955,12 @@ never becomes a second Core.
   operation carries an IP, path, command, PIN or secret. It is production-profile only and disabled unless
   `AEGIS_RECOVERY_OPERATOR_UID` is set (optional `AEGIS_RECOVERY_SOCKET`, `AEGIS_RECOVERY_SOCKET_GID`).
 - **R1:** the Core binds or creates the single open incident from a validated production attacker alert (idempotent,
-  audited, no containment). Opening the UI never creates an incident.
+  audited, no containment). Opening the UI never creates an incident. The production alert source is a Core-local
+  AF_UNIX ingress (`<runtime_dir>/alert.sock`, 0600): only the one uid in `AEGIS_ALERT_SOURCE_UID` (unset = disabled) may
+  send exactly `{"v":1,"attacker_ip":"<IPv4>"}` (256 bytes, 2 s, rate-limited, `SO_PEERCRED` checked before any byte is
+  read). It can only record the candidate; it cannot request containment, CUT or RESTORE, and the legacy
+  `aegis/attacker_ip` topic and Protocol v1 are unchanged. The repository code is inert until a separate governed
+  deployment stage supplies the detector sink, its service unit, the uid setting and a Core restart.
 - **R3:** `ISOLATE` has no IP parameter. The Core blocks the attacker IP it bound to the incident through the
   containment helper, reads it back independently with `contains()`, and audits with the incident id.
 - **R4/R5:** RESTORE remains the owner's terminal-only Core-local D4 step (`aegisctl restore`, scrypt credential,

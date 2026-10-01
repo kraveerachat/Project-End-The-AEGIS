@@ -39,7 +39,13 @@ from . import database as db
 from . import local_restore as lr
 from . import recovery_protocol as rp
 from .dispatch_worker import PAUSED_CREDENTIAL, UNAVAILABLE
-from .ip_containment import ContainmentClient, ContainmentRejected, ContainmentUnavailable, parse_ipv4
+from .ip_containment import (
+    ContainmentClient,
+    ContainmentRejected,
+    ContainmentUnavailable,
+    parse_ipv4,
+    validate_block_target,
+)
 
 _PUBLISHED_RE = re.compile(r"^msg_id=([0-9a-f]{32})\b")
 _R3_RE = re.compile(r"^result=(VERIFIED|FAILED) ip=(\S+)")
@@ -494,6 +500,8 @@ class RecoveryServer:
     """Core-owned AF_UNIX server: local only, peer-credential checked, bounded, allowlisted, no network listener."""
 
     family = socket.AF_UNIX
+    max_message_bytes = rp.MAX_MESSAGE_BYTES
+    thread_name = "aegis-core-recovery"
 
     def __init__(
         self, path: Path | str, service: CoreRecoveryService, *, allowed_uid: int, socket_gid: int | None = None,
@@ -554,7 +562,7 @@ class RecoveryServer:
             raise
         self._listener = listener
         self._stop.clear()
-        self._thread = threading.Thread(target=self._serve, name="aegis-core-recovery", daemon=True)
+        self._thread = threading.Thread(target=self._serve, name=self.thread_name, daemon=True)
         self._thread.start()
 
     def _serve(self) -> None:
@@ -590,18 +598,18 @@ class RecoveryServer:
         deadline = time.monotonic() + self.request_deadline
         try:
             data = bytearray()
-            while len(data) <= rp.MAX_MESSAGE_BYTES:
+            while len(data) <= self.max_message_bytes:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError("request deadline exceeded")
                 connection.settimeout(remaining)
-                chunk = connection.recv(min(1024, rp.MAX_MESSAGE_BYTES + 1 - len(data)))
+                chunk = connection.recv(min(1024, self.max_message_bytes + 1 - len(data)))
                 if not chunk:
                     break
                 data.extend(chunk)
                 if b"\n" in chunk:
                     break
-            if len(data) > rp.MAX_MESSAGE_BYTES:
+            if len(data) > self.max_message_bytes:
                 raise ValueError("message too large")
             body = json.loads(bytes(data).split(b"\n", 1)[0].decode("utf-8"))
         except (OSError, UnicodeError, ValueError):
@@ -623,4 +631,128 @@ class RecoveryServer:
             pass
 
 
-__all__ = ["CoreRecoveryService", "RecoveryChannelError", "RecoveryServer"]
+# --------------------------------------------------------------------------- F1: production alert ingress
+
+ALERT_CHANNEL_NAME = "alert.sock"
+ALERT_MAX_BYTES = 256  # {"v":1,"attacker_ip":"255.255.255.255"} is about 40 bytes
+ALERT_REQUEST_DEADLINE_SEC = 2.0
+ALERT_RATE_BURST = 5
+ALERT_RATE_PER_MIN = 10.0
+_ALERT_AUDIT_WINDOW_SEC = 60.0
+_ALERT_KEYS = frozenset({"v", "attacker_ip"})
+
+
+class AlertRequestError(ValueError):
+    """An alert the ingress refuses before doing anything; ``code`` is a stable, secret-free reason."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def parse_alert(body: Any) -> str:
+    """Strict contract: exactly ``{"v": 1, "attacker_ip": "<IPv4>"}``. Returns the validated address text."""
+    if not isinstance(body, dict) or set(body) != _ALERT_KEYS:
+        raise AlertRequestError("MALFORMED_REQUEST")
+    version = body["v"]
+    if type(version) is not int or version != 1:
+        raise AlertRequestError("MALFORMED_REQUEST")
+    try:
+        # The same address rules the root helper applies to a block target (unspecified, this-network, loopback,
+        # multicast, link-local, reserved). Protected-network membership is the helper's call at isolation time.
+        return str(validate_block_target(body["attacker_ip"], ()))
+    except ContainmentRejected:
+        raise AlertRequestError("BAD_ADDRESS") from None
+
+
+class AlertIngress:
+    """Core-local production alert ingress: one configured uid may submit one IPv4 attacker candidate.
+
+    The only effect of an accepted alert is the ``on_alert`` callback (the supervisor's R1 binding). The request
+    carries no action, path, command or secret, so a sender can neither choose a target nor ask for anything beyond
+    recording what it observed. A bounded token bucket caps the rate; refusal audit rows are capped as well.
+    """
+
+    def __init__(self, on_alert: Callable[[str], dict[str, Any]], *, clock: Callable[[], float] = time.monotonic) -> None:
+        self._on_alert = on_alert
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._tokens = float(ALERT_RATE_BURST)
+        self._stamp = clock()
+        self._audit_stamp: dict[str, float] = {}
+
+    def _take_token(self) -> bool:
+        with self._lock:
+            now = self._clock()
+            elapsed = max(0.0, now - self._stamp)
+            self._stamp = now
+            self._tokens = min(float(ALERT_RATE_BURST), self._tokens + elapsed * ALERT_RATE_PER_MIN / 60.0)
+            if self._tokens < 1.0:
+                return False
+            self._tokens -= 1.0
+            return True
+
+    def _audit_limited(self, event_type: str, detail: str) -> None:
+        """At most one row per event type per window for the cheap-to-trigger refusals."""
+        with self._lock:
+            now = self._clock()
+            last = self._audit_stamp.get(event_type)
+            if last is not None and now - last < _ALERT_AUDIT_WINDOW_SEC:
+                return
+            self._audit_stamp[event_type] = now
+        try:
+            db.log_event(event_type, detail, db.WARN)
+        except Exception:
+            pass
+
+    def handle(self, body: Any, peer: lr.Peer, *, allowed_uid: int) -> dict[str, Any]:
+        if peer.uid != allowed_uid:
+            self._audit_limited("ALERT_PEER_REFUSED", f"uid={peer.uid} pid={peer.pid}")
+            return rp.response(False, "PEER_REFUSED", "request is not from the configured alert source")
+        if not self._take_token():
+            self._audit_limited("ALERT_RATE_LIMITED", "alert rate limit reached; further alerts are dropped")
+            return rp.response(False, "RATE_LIMITED", "alert rate limit reached")
+        try:
+            address = parse_alert(body)
+        except AlertRequestError as error:
+            try:
+                db.log_event("ALERT_REFUSED", f"code={error.code} uid={peer.uid} pid={peer.pid}", db.WARN)
+            except Exception:
+                pass
+            return rp.response(False, error.code, "invalid alert request")
+        try:
+            result = self._on_alert(address)
+        except Exception:
+            return rp.response(False, "ALERT_FAILED", "the alert could not be recorded; nothing was done")
+        action = result.get("action")
+        if action == "SKIPPED":
+            return rp.response(False, "NOT_PRODUCTION", "alerts are accepted on a production Core only")
+        if action == "REFUSED":
+            return rp.response(False, "BAD_ADDRESS", "the address is not an attacker candidate")
+        if action == "IGNORED_DIFFERENT_IP":
+            return rp.response(False, "IGNORED_DIFFERENT_IP", "an incident is already bound to a different address")
+        if result.get("audited") is False:
+            return rp.response(False, "AUDIT_UNAVAILABLE", "the incident was bound but its audit row could not be written")
+        if action == "EXISTING":
+            return rp.response(True, "EXISTING", "the incident is already bound to this address")
+        return rp.response(True, "BOUND", "the incident was bound to this address")
+
+
+class AlertServer(RecoveryServer):
+    """The ingress socket: same peer-first, bounded AF_UNIX server as Recovery, with a 256-byte request and a 2 s deadline.
+
+    No socket group is ever configured, so the file is Core-owned 0600; the SO_PEERCRED uid check is the authority.
+    """
+
+    max_message_bytes = ALERT_MAX_BYTES
+    thread_name = "aegis-core-alert"
+
+    def __init__(self, path: Path | str, ingress: AlertIngress, *, allowed_uid: int) -> None:
+        super().__init__(path, ingress, allowed_uid=allowed_uid, socket_gid=None)  # type: ignore[arg-type]
+        self.request_deadline = ALERT_REQUEST_DEADLINE_SEC
+
+
+__all__ = [
+    "ALERT_CHANNEL_NAME", "AlertIngress", "AlertRequestError", "AlertServer", "CoreRecoveryService", "RecoveryChannelError",
+    "RecoveryServer", "parse_alert",
+]
