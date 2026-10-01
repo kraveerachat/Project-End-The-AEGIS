@@ -40,3 +40,36 @@ operator uid can reach, and the operator uid setting). That stage is not defined
 be deployed by merging alone. (Historical sequencing: this branch was initially held behind L7 acceptance. L7 #7 is now
 live-acceptance proven, so that merge blocker is satisfied, and the branch was reconciled with post-L7 `main`
 `5df959055075171ea5734238aa83693371d00d9d`. Recovery remains IMPLEMENTED != DEPLOYED and not live accepted.)
+
+## OD-R5-BG-01 — break-glass RESTORE (owner approved; local implementation, not deployed)
+
+Break-glass is an **emergency operational recovery path only**. It never satisfies or claims Recovery R4, R5, R8, final
+Recovery acceptance, LVR or L8 acceptance. The normal path stays the default and is unchanged:
+R1 VERIFIED → R3 VERIFIED + live containment read-back → fresh R2 VERIFIED → D4 credential → RESTORE, with an incident-bound
+`RESTORE_REQUESTED`, the database one-shot, and production NULL-incident normal RESTORE prohibited.
+
+* **Authority.** Only the Core-local terminal D4 authority (peer uid, D4 credential, `RESTORE UPLINK`, mandatory reason) plus
+  `break_glass=true` and the second exact confirmation `BREAK GLASS RESTORE UPLINK`. No Web, Recovery-UI, MQTT or remote
+  authority; the strict request schema refuses unknown keys. `aegisctl restore --break-glass` is the only client.
+* **Authenticated lockdown only.** Eligibility needs an authenticated Protocol-v1 `STATUS=LOCKDOWN` through the existing
+  reviewed inbound verifier (no second parser; legacy, plaintext or unauthenticated status never qualifies).
+* **Durable episode model.** `lockdown_episodes` opens on an authenticated LOCKDOWN and closes on a later authenticated
+  NORMAL; at most one open episode per device (partial unique index); history is never deleted or rewritten; unsafe
+  historical data fails `init_db` closed.
+* **Fresh proof.** The durable episode is replay/audit identity. Live eligibility additionally needs a process-local fresh
+  authenticated LOCKDOWN observation, which a Core restart clears and which is never rebuilt from the database.
+* **Eligibility.** Only when the normal RESTORE is not valid, and exactly one case: **A** no Core-bound open incident, or
+  **B** an open incident whose R3 was actually attempted and whose latest durable result is `FAILED` for the bound address.
+  Never because R3 was never attempted, is pending, containment was skipped, or the normal path passes (that is refused
+  `BREAK_GLASS_NOT_REQUIRED`). A fresh R2 probe is mandatory every time (no bypass, no cache). The gate never fabricates R1/R3,
+  creates an incident, binds an IP, issues CUT or mutates containment.
+* **One claim per episode.** `restore_break_glass_claims.episode_id` is UNIQUE (database level), written with the dedicated
+  `RESTORE_BREAK_GLASS_CLAIM` audit row (NULL `incident_id`, so it is never a `RESTORE_REQUESTED` or an R5 publication row) in
+  one transaction BEFORE any command reservation or publication. An unknown publication outcome leaves the episode spent; a
+  new authenticated NORMAL→LOCKDOWN episode is eligible again. No time cooldown, no automatic retry.
+* **Basis.** The supervisor's production RESTORE chokepoint accepts exactly `NORMAL_R5_BASIS` (`R3_VERIFIED`) or a
+  `BreakGlassBasis` that must name a real, spent, not-yet-dispatched claim of the fresh episode and is consumed once.
+* **Reporting.** R4/R5/R8 ignore it; `RESTORE_STATUS` reports `break_glass_restore = OPERATIONAL_RECOVERY_ONLY` separately.
+  The ops notification follows the durable claim; its failure neither unspends nor retries.
+
+Status: IMPLEMENTED locally with tests; **not** pushed, not deployed, not live-proven.

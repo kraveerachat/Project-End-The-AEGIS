@@ -189,6 +189,8 @@ def _print_restore_result(response) -> None:
     evidence = response.get("evidence") or {}
     for rung in ("requested", "published", "ack", "executed", "relay_confirmation", "physical_evidence"):
         print(f"{rung}: {evidence.get(rung, 'UNKNOWN')}")
+    if response.get("break_glass"):
+        print(f"BREAK_GLASS_RESTORE: {response['break_glass']} (not Recovery R4/R5)")
     print("Protocol ACK/STATUS is not physical evidence.")
 
 
@@ -218,12 +220,19 @@ def command_restore(
     if typed != lr.CONFIRMATION:
         print("RESTORE refused: confirmation did not match", file=sys.stderr)
         return 2
+    break_glass_typed = None
+    if getattr(args, "break_glass", False):
+        print("BREAK-GLASS: emergency operational recovery only; it is not Recovery R4/R5/R8 and is spent once per lockdown episode.")
+        break_glass_typed = read_line(f"Type {lr.BREAK_GLASS_CONFIRMATION!r} exactly to continue: ")
+        if break_glass_typed != lr.BREAK_GLASS_CONFIRMATION:
+            print("RESTORE refused: break-glass confirmation did not match", file=sys.stderr)
+            return 2
     if args.wait < 0 or args.wait > 300:
         print("RESTORE refused: --wait must be between 0 and 300 seconds", file=sys.stderr)
         return 2
     path = RuntimeSettings.from_profile("development").runtime_dir / lr.CHANNEL_NAME
     try:
-        response = send(path, lr.restore_request(secret, typed, args.reason), timeout=5)
+        response = send(path, lr.restore_request(secret, typed, args.reason, break_glass_confirmation=break_glass_typed), timeout=5)
     except lr.ChannelUnavailable:
         print("Core-local RESTORE unavailable; nothing was sent", file=sys.stderr)
         return 1
@@ -338,6 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
     restore = sub.add_parser("restore", help="request one authenticated Core-local RESTORE")
     restore.add_argument("--reason")
     restore.add_argument("--wait", type=float, default=0.0)
+    restore.add_argument("--break-glass", action="store_true", help="emergency operational recovery (second confirmation required)")
     restore.set_defaults(handler=command_restore)
     credential = sub.add_parser("restore-credential", help="provision a private local RESTORE credential")
     credential.add_argument("--output")

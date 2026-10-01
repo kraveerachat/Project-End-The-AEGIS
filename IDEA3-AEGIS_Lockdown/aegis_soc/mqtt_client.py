@@ -109,6 +109,8 @@ class MQTTManager:
         # callbacks (set by the GUI or supervisor)
         self.log_callback = None          # (message: str, level: str)
         self.status_callback = None       # (state, rssi, heap, command_nonce)
+        # (state, device_id, msg_id): ONLY an authenticated Protocol-v1 STATUS reaches it (never legacy v0 / unsigned).
+        self.authenticated_status_callback = None
         self.connection_callback = None   # (connected: bool)
         self.ack_callback = None          # (ack, detail, nonce)
         self.attacker_callback = None     # legacy lab mode only
@@ -225,6 +227,11 @@ class MQTTManager:
 
         level = db.CRITICAL if state == "LOCKDOWN" else db.INFO
         self._log(f"[{time.strftime('%H:%M:%S')}] [STATUS] {state} | {reason} | RSSI:{rssi}dBm | Heap:{heap}B", level)
+        if self.authenticated_status_callback:
+            try:
+                self.authenticated_status_callback(state, device_id, fields["msg_id"])
+            except Exception as error:
+                print(f"Authenticated status hook failed: {type(error).__name__}")
         if self.status_callback:
             self.status_callback(state, rssi, heap, command_nonce)
         db.log_event("DEVICE_STATUS", f"{state} ({reason})", level)
