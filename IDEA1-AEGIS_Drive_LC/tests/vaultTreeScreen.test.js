@@ -1782,3 +1782,59 @@ test('TS-V2-1 v2 head: tiles render, Preview/Download stay enabled, every mutati
     await h.unmount()
   }
 })
+
+/* ── Unified Preview P1 · Vault audio (whole-decrypt path, real screen) ───────────────────────────── */
+test('VAULT-AUDIO-1 an MP3 in the Vault previews in a native <audio> from a registered Blob URL; close and lock revoke it; no tile media work', async () => {
+  const id = 'A1'.padEnd(22, 'A')
+  fakeTree = await createFakeTreeServer({ kek, blobs: [{ formatVersion: 2, id }] })
+  backend.uploadImpl = async () => ({ ok: true, stage: 'complete', blob: { id, formatVersion: 2 } })
+  backend.state['/api/vault'] = { loading: false, data: { configured: true, blobs: [serverBlobV2({ id, name: 'song.mp3', type: 'video/mp4', plainSize: 64 })] }, error: null }
+  const ID3 = new Uint8Array([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0, ...new Array(54).fill(0x55)])
+  let downloads = 0
+  backend.downloadImpl = async ({ sink }) => { downloads += 1; await sink.write(ID3); return { ok: true, result: [ID3] } }
+  backend.treeFlags.mediaPreviewEnabled = true // tile thumbnails ON: audio must still not be scheduled
+  const proto = dom.window.HTMLMediaElement.prototype
+  const prevCanPlay = proto.canPlayType
+  proto.canPlayType = (type) => (type === 'audio/mpeg' ? 'probably' : '')
+  const h = await mountUnlocked()
+  try {
+    await tick(2)
+    const dropEv = new dom.window.Event('drop', { bubbles: true })
+    // the browser's File.type lies (video/mp4): the decision must come from the name, then the decrypted bytes
+    Object.defineProperty(dropEv, 'dataTransfer', { value: { types: ['Files'], files: [new dom.window.File(['x'], 'song.mp3', { type: 'video/mp4' })] } })
+    await act(async () => q('[data-testid="vault-tree-screen"]').dispatchEvent(dropEv))
+    await tick(4)
+    const tile = fileTiles().find((el) => el.textContent.includes('song.mp3'))
+    assert.ok(tile, 'the MP3 tile renders')
+    assert.equal(downloads, 0, 'no tile thumbnail/poster decrypt for audio')
+    const urls = env.trackObjectUrls()
+    await click(dom, tileMenuButton(tile.getAttribute('data-node-id')))
+    assert.ok(menuItem('preview'), 'Preview is offered for audio')
+    await click(dom, menuItem('preview'))
+    await tick(4)
+    const audio = q('[data-testid="vault-tree-preview"] audio')
+    assert.ok(audio, 'native audio element')
+    assert.equal(audio.hasAttribute('controls'), true)
+    assert.equal(audio.hasAttribute('autoplay'), false)
+    assert.match(audio.getAttribute('src') ?? '', /^blob:/)
+    assert.equal(urls.live().length, 1, 'one decrypted Blob URL is alive while the preview is open')
+    assert.equal(q('[data-testid="vault-tree-preview"]').getAttribute('data-preview-state'), 'ready')
+    assert.ok(q('[role="dialog"]').textContent.includes('MP3'), 'header shows the detected format')
+    await click(dom, qa('[role="dialog"] button').find((b) => b.textContent.trim() === t('close')))
+    await tick(2)
+    assert.equal(urls.live().length, 0, 'closing revokes the Blob URL')
+    // reopen, then lock: the URL is revoked and the modal is gone
+    await click(dom, tileMenuButton(tile.getAttribute('data-node-id')))
+    await click(dom, menuItem('preview'))
+    await tick(4)
+    assert.equal(urls.live().length, 1)
+    await click(dom, qa('button').find((b) => b.textContent.trim() === t('lockVault')))
+    await tick(3)
+    assert.equal(urls.live().length, 0, 'lock revokes the Blob URL')
+    assert.equal(q('[data-testid="vault-tree-preview"]'), null)
+  } finally {
+    proto.canPlayType = prevCanPlay
+    backend.downloadImpl = null
+    await h.unmount()
+  }
+})

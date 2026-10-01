@@ -37,8 +37,11 @@ import { openVideoMotion, openVideoPoster, videoPosterEstimateBytes, videoPrevie
 import { attachPosterVideo, drawPosterFrame } from '../lib/vaultVideoDom.js'
 import { closePreviewSession, openPreviewSession, supportsLargeVideoPreview } from '../lib/vaultPreviewSession.js'
 import { createVaultPreviewBlob } from '../lib/vaultPreviewBlob.js'
-import { confirmVaultRender, createVaultCapabilityCache, vaultDetectedType, vaultNodeCapability, vaultPreviewKind, vaultRenderMime, vaultTypeLabel } from '../lib/preview/vaultCapability.js'
+import { confirmVaultRender, createVaultCapabilityCache, vaultDetectedType, vaultNodeCapability, vaultPreviewKind, vaultPreviewMode, vaultRenderMime, vaultTypeLabel } from '../lib/preview/vaultCapability.js'
 import { PreviewModalShell } from '../components/preview/PreviewModalShell.jsx'
+import { AudioPreview } from '../components/preview/providers/AudioPreview.jsx'
+import { detectCanPlay } from '../lib/preview/env.js'
+import { openVaultAudioPreview } from '../lib/preview/vaultAudio.js'
 import { useReducedMotion } from '../lib/hooks.js'
 import { VAULT_TREE_CLIENT_LIMITS } from '../lib/vaultTreeLimits.js'
 import * as treeApi from '../lib/vaultTreeApi.js'
@@ -266,10 +269,17 @@ export function VaultTreeScreen({
   }, [capCache, capVersion])
   const kindOfRef = useRef(kindOf)
   kindOfRef.current = kindOf
-  const renderMimeOf = (n) => vaultRenderMime(n, { cache: capCacheRef.current })
+  // Unified Preview P1: what the preview MODAL can render (image/video/audio/…); audio needs this browser's
+  // canPlayType answers. Tiles keep kindOf above (image/video only) — audio never enters the thumb scheduler.
+  const previewEnv = useMemo(() => ({ canPlay: detectCanPlay(globalThis) }), [])
+  const modeOf = useCallback((n) => {
+    void capVersion
+    return vaultPreviewMode(n, { cache: capCache, env: previewEnv })
+  }, [capCache, capVersion, previewEnv])
+  const renderMimeOf = (n) => vaultRenderMime(n, { cache: capCacheRef.current, env: previewEnv })
   /** Derived signature facts from bytes this session already decrypted for display (no extra fetch) */
   const recordHead = (n, bytes) => { if (bytes?.length) capCacheRef.current?.record(n, bytes.subarray(0, 8192)) }
-  const tree = useVaultTree({ session, unlockedState, previewKindOf: kindOf })
+  const tree = useVaultTree({ session, unlockedState, previewKindOf: modeOf })
   const vaultApi = useApi('/api/vault')
   const [loadState, setLoadState] = useState('idle')
   const [loadErrorCode, setLoadErrorCode] = useState(null)
@@ -478,7 +488,7 @@ export function VaultTreeScreen({
      range-decryption session. Every failure is announced truthfully; the URL is registered with the
      unlocked state so a lock revokes it. */
   const actionPreview = (node) => {
-    const kind = kindOf(node)
+    const kind = modeOf(node)
     if (kind) void openPreviewModal(node, kind)
   }
 
@@ -492,6 +502,34 @@ export function VaultTreeScreen({
     const plainSize = node.plainSize ?? Math.max(0, (blob?.size ?? 0) - (blob?.chunkCount ?? 0) * 16)
     setPreview({ node, kind, url: null, loading: true, failed: false, tooLarge: false, streamed: false })
     try {
+      // Unified Preview P1 — audio: ≤ audioWholeDecryptMaxBytes decrypts whole (shared path + render gate below);
+      // larger V2 streams through the same range-decryption SW session as large video, typed from the
+      // DETECTED format; anything else is too large (no whole-file fallback).
+      if (kind === 'audio') {
+        const audio = await openVaultAudioPreview({
+          variant: ref.formatVersion, plainSize, limits: VAULT_TREE_CLIENT_LIMITS, streamSupported: supportsLargeVideoPreview(),
+          contentType: renderMimeOf(node) || 'application/octet-stream',
+          openStream: async ({ contentType }) => {
+            const dek = await unwrapVaultV2Dek(kek, blob)
+            if (request !== previewRequestRef.current) return { ok: false, reason: 'STALE' }
+            return openPreviewSession({ dek, blob, contentType, plainSize, isUnlocked: () => !unlockedState?.isPurged?.(), unlockedState })
+          },
+        })
+        if (audio.path === 'too-large') {
+          if (request === previewRequestRef.current) setPreview({ node, kind, url: null, loading: false, failed: false, tooLarge: true, streamed: false })
+          return
+        }
+        if (audio.path === 'stream') {
+          if (request !== previewRequestRef.current || unlockedState?.isPurged?.()) {
+            if (audio.token) await closePreviewSession(audio.token)
+            return
+          }
+          if (!audio.ok) throw new Error(audio.reason)
+          previewStreamToken.current = audio.token
+          setPreview({ node, kind, url: audio.url, loading: false, failed: false, tooLarge: false, streamed: true, detected: vaultDetectedType(node, { cache: capCacheRef.current }) })
+          return
+        }
+      }
       // Preserve the proven PR157 range-decryption path for large V2 video.
       // The worker receives a non-extractable key and serves only requested ranges;
       // no plaintext route or whole-file fallback is introduced.
@@ -532,7 +570,7 @@ export function VaultTreeScreen({
       }
       if (request !== previewRequestRef.current || unlockedState?.isPurged?.()) return
       // render gate: the decrypted signature must confirm the format before any renderer sees the bytes
-      const confirmed = confirmVaultRender(node, leadingBytes(bytes, 8192), { cache: capCacheRef.current })
+      const confirmed = confirmVaultRender(node, leadingBytes(bytes, 8192), { cache: capCacheRef.current, env: previewEnv })
       if (!confirmed.ok) {
         setPreview({ node, kind, url: null, loading: false, failed: false, tooLarge: false, streamed: false, unsupported: true, detected: confirmed.detected })
         return
@@ -1255,7 +1293,7 @@ export function VaultTreeScreen({
                     tileRef={registerMarqueeTile(n.nodeId)}
                     layout={layout}
                     view={tree.view}
-                    previewKind={kindOf(n)}
+                    previewKind={modeOf(n)}
                     media={mediaFor(n)}
                     selected={tree.selection.has(n.nodeId)}
                     onSelect={tree.select}
@@ -1345,6 +1383,13 @@ export function VaultTreeScreen({
         >
             {preview.kind === 'image' ? (
               <img src={preview.url} alt={preview.node.name} className="max-h-[60vh] rounded-[10px]" />
+            ) : preview.kind === 'audio' ? (
+              <AudioPreview
+                t={t}
+                src={preview.url}
+                fileName={preview.node.name}
+                onPhase={(phase) => { if (phase === 'failed') setPreview((cur) => (cur && cur.url === preview.url ? { ...cur, failed: true } : cur)) }}
+              />
             ) : (
               <video
                 src={preview.url}
