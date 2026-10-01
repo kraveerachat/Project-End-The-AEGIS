@@ -52,10 +52,14 @@ The hardware backend is unreachable without `AEGIS_L8P_LIVE_AUTHORIZED=YES`, and
 
 ## 4. Owner runner (repository template; inert)
 
-`deploy/pr11-phase4/owner-run/run-l8p-owner.sh` with its gate library `p4-l8p-run-lib.sh` follow the L7u owner-run pattern. The committed copy is an **inert template**: sixteen `PIN_`
-values (the merged main SHA, the reviewed firmware and partition-table SHA-256, the owner input directory, the reviewed artifacts, the pinned flash tool, the MQTT CA and broker
+`deploy/pr11-phase4/owner-run/run-l8p-owner.sh` with its gate library `p4-l8p-run-lib.sh` follow the L7u owner-run pattern. The committed copy is an **inert template**: eighteen `PIN_`
+values (the merged main SHA, the frozen operator user and uid, the reviewed firmware and partition-table SHA-256, the owner input directory, the reviewed artifacts, the pinned flash tool, the MQTT CA and broker
 credential files, the broker address and TLS name, the Wi-Fi SSID, the NTP server, the compile-only build command) make it refuse until the owner freeze workflow copies it outside the
 repository and pins them after the FINAL source set is merged. It holds no device logic: every device operation is the canonical L8p handler set.
+
+The runner is bound to the frozen operator identity by the reused L7u identity gate (current `id -un`/`id -u` equal the frozen `OPERATOR_USER`/`OPERATOR_UID`, which
+must resolve to the same account, uid non-root) BEFORE `sudo`, the evidence directory, the PRE capture, the attempt marker, any handler and any device access; the owner input
+files must be owned by that frozen uid.
 
 Sequence: read-only pre-gates (same-day `stage=L8p` authorization with `physical_recovery_attestation` and no `recovery_authorization`, K3, pinned clean main, registered handlers, the
 reused `p4-stage-gate.sh --stage L8p --mode live`, the predecessor receipt chain read from the pinned commit **including a PROVEN final L7u**, Core/service/IDEA2/disk/forwarding runtime

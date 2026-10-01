@@ -4,7 +4,7 @@
 # repository, replaces the PIN_ values (the merged main SHA, the reviewed artifact digests and the host-specific input locations), records the frozen
 # file's SHA-256, and only then authorizes a run. Nothing in this repository executes it. The frozen values are chosen AFTER the final source set is merged.
 # Design: docs/superpowers/specs/2026-10-02-idea3-pr11-phase4-l8p-device-provisioning-only.md (owner decision OD-L8P-01).
-# Usage (the operator, NOT root):  bash run-l8p-owner.sh <AUTH_DIR>     AUTH_DIR holds authorization-L8p.txt and k3-L8p.txt (same-day, stage=L8p)
+# Usage (the FROZEN operator user/uid, NOT root):  bash run-l8p-owner.sh <AUTH_DIR>     AUTH_DIR holds authorization-L8p.txt and k3-L8p.txt (same-day, stage=L8p)
 # Stage order: L7 -> L7u -> L8p -> Recovery R1-R8 -> LVR -> L8. L8p provisions the ESP32 only. It requires a PROVEN final L7u (receipt gate against the
 # pinned commit), consumes ONE attempt (L8p-ATTEMPT-CONSUMED) and has NO automatic second attempt. This runner holds NO device logic: it never touches
 # the flashing tool, the serial port, the broker protocol or the device; every device operation is the canonical L8p handler set (stages/L8p/*.sh over
@@ -17,6 +17,8 @@ umask 077
 
 # ---- frozen pins: the committed template refuses while ANY of these is unpinned ------------------------------------------------------------------
 EXPECTED_MAIN=PIN_MAIN_SHA
+OPERATOR_USER=PIN_OPERATOR_USER
+OPERATOR_UID=PIN_OPERATOR_UID
 FIRMWARE_SHA256=PIN_FIRMWARE_SHA256
 PARTITION_TABLE_SHA256=PIN_PARTITION_TABLE_SHA256
 INPUT_DIR=PIN_INPUT_DIR
@@ -32,11 +34,13 @@ BROKER_TLS_NAME=PIN_BROKER_TLS_NAME
 WIFI_SSID=PIN_WIFI_SSID
 NTP_SERVER=PIN_NTP_SERVER
 FIRMWARE_BUILD_CMD=PIN_FIRMWARE_BUILD_CMD
-for pin in EXPECTED_MAIN FIRMWARE_SHA256 PARTITION_TABLE_SHA256 INPUT_DIR FIRMWARE_IMAGE PARTITION_TABLE SECRETS_HEADER NVS_GENERATOR FLASH_TOOL_SCRIPT \
+for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID FIRMWARE_SHA256 PARTITION_TABLE_SHA256 INPUT_DIR FIRMWARE_IMAGE PARTITION_TABLE SECRETS_HEADER NVS_GENERATOR FLASH_TOOL_SCRIPT \
            MQTT_CA_FILE BROKER_CREDENTIAL_FILE BROKER_ADDRESS BROKER_TLS_NAME WIFI_SSID NTP_SERVER FIRMWARE_BUILD_CMD; do
   case "${!pin}" in PIN_*) echo "STOP: runner is not pinned ($pin). Run the owner freeze workflow first."; exit 2 ;; esac
 done
 [[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ ]] || { echo "STOP: EXPECTED_MAIN is not a 40-hex SHA."; exit 2; }
+[[ "$OPERATOR_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "STOP: OPERATOR_USER is not a valid account identifier."; exit 2; }
+[[ "$OPERATOR_UID" =~ ^[1-9][0-9]*$ ]] || { echo "STOP: OPERATOR_UID is not a valid non-root uid."; exit 2; }
 for pin in FIRMWARE_SHA256 PARTITION_TABLE_SHA256; do
   [[ "${!pin}" =~ ^[0-9a-f]{64}$ ]] || { echo "STOP: $pin is not a 64-hex SHA-256."; exit 2; }
 done
@@ -70,6 +74,10 @@ show() { systemctl show -p "$2" --value "$1"; }
 [ -f "$LIB" ] || die "gate library missing: $LIB (is $REPO at the pinned main?)"
 # shellcheck disable=SC1090
 source "$LIB"
+
+# The runner is invoked by exactly the frozen operator identity (the owner-controlled local physical recovery / serial access authority; the reused L7u
+# identity gate). It runs BEFORE sudo, the evidence directory, the PRE capture, the attempt marker, any handler and any device access.
+l7u_identity_gate "$OPERATOR_USER" "$OPERATOR_UID" || die "operator identity is not the frozen L8p operator (see reason above); nothing was created or touched"
 
 echo "RECOVERY_R1_R8_PROVEN=NO"
 echo "LVR_PROVEN=NO"
@@ -106,7 +114,7 @@ l7_disk_gate 80 / /var /opt /run || gate "disk headroom below 20% free (see reas
 for k in net.ipv4.ip_forward net.ipv4.conf.all.forwarding net.ipv6.conf.all.forwarding; do [ "$(sysctl -n $k)" = 0 ] || gate "$k is not 0"; done
 
 # 4. owner inputs and reviewed artifacts (existence, ownership and the frozen digests only; the handler validates every content)
-l8p_input_gate "$INPUT_DIR" || gate "the owner input directory contract failed (see reason above)"
+l8p_input_gate "$INPUT_DIR" "$OPERATOR_UID" || gate "the owner input directory contract failed (see reason above)"
 l8p_artifact_gate "$FIRMWARE_IMAGE" "$FIRMWARE_SHA256" firmware || gate "reviewed firmware does not match its frozen digest (see reason above)"
 l8p_artifact_gate "$PARTITION_TABLE" "$PARTITION_TABLE_SHA256" partition-table || gate "reviewed partition table does not match its frozen digest (see reason above)"
 l8p_file_gate "$SECRETS_HEADER" secrets-header || gate "MQTT CA trust-anchor header missing (see reason above)"

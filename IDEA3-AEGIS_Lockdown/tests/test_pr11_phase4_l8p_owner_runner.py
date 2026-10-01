@@ -24,6 +24,8 @@ RUNNER = DEPLOY / "owner-run" / "run-l8p-owner.sh"
 LIB = DEPLOY / "p4-l8p-run-lib.sh"
 REAL_LIBS = ("p4-l6b-run-lib.sh", "p4-l7-run-lib.sh", "p4-l7u-run-lib.sh", "p4-l8p-run-lib.sh", "p4-lib.sh", "p4-stage-gate.sh")
 LOGS = "Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs"
+REAL_USER = subprocess.run(["id", "-un"], text=True, capture_output=True, check=True).stdout.strip()
+REAL_UID = subprocess.run(["id", "-u"], text=True, capture_output=True, check=True).stdout.strip()
 TODAY = subprocess.run(["date", "+%F"], text=True, capture_output=True, env=dict(os.environ, TZ="Asia/Bangkok"), check=True).stdout.strip()
 SECRET = {"wifi.psk": "CANARY-wifi-psk-9f2c41ab", "mqtt.pass": "CANARY-mqtt-pass-77de09c3", "k_c2d": "CANARY" + "a1" * 29, "k_d2c": "CANARY" + "b2" * 29}
 FIRMWARE = b"\xe9AEGIS-REVIEWED-FIRMWARE-IMAGE" * 8
@@ -70,7 +72,7 @@ done
 
 class Sim:
     def __init__(self, tmp: Path, *, l7u: bool = True, l8p_done: bool = False, auth_over: dict | None = None, k3: str | None = "v2",
-                 authorization: str | None = None) -> None:
+                 authorization: str | None = None, operator_user: str | None = None, operator_uid: str | None = None) -> None:
         self.dir = tmp / "sim"
         self.repo = self.dir / "repo"
         self.p4 = self.repo / "IDEA3-AEGIS_Lockdown" / "deploy" / "pr11-phase4"
@@ -81,6 +83,8 @@ class Sim:
         for d in (self.auth, self.bin, self.evid_base, self.dir / "props"):
             d.mkdir(parents=True)
         self.l7u, self.l8p_done, self.auth_over, self.k3_kind, self.authorization = l7u, l8p_done, auth_over or {}, k3, authorization
+        self.operator_user = operator_user if operator_user is not None else REAL_USER
+        self.operator_uid = operator_uid if operator_uid is not None else REAL_UID
         self.build()
 
     def _git(self, *args: str) -> str:
@@ -134,6 +138,7 @@ class Sim:
         (self.bin / "sudo").write_text('#!/usr/bin/env bash\n[ "$1" = -v ] && exit 0\nexec "$@"\n')
         (self.bin / "systemctl").write_text(SYSTEMCTL_STUB)
         (self.bin / "sysctl").write_text("#!/usr/bin/env bash\necho 0\n")
+        (self.bin / "id").write_text('#!/usr/bin/env bash\nif [ "$1" = -u ] && [ -n "${2:-}" ] && [ -e "$SIM_DIR/resolved-uid" ]; then cat "$SIM_DIR/resolved-uid"; exit 0; fi\nexec /usr/bin/id "$@"\n')
         (self.bin / "df").write_text("#!/usr/bin/env bash\necho 'Filesystem 1K-blocks Used Available Use% Mounted'\necho '/dev/x 100 10 90 10% /'\n")
         for f in self.bin.iterdir():
             f.chmod(0o755)
@@ -151,6 +156,7 @@ class Sim:
         text = RUNNER.read_text()
         pins = {
             "EXPECTED_MAIN=PIN_MAIN_SHA": f"EXPECTED_MAIN={self.head}",
+            "OPERATOR_USER=PIN_OPERATOR_USER": f"OPERATOR_USER={self.operator_user}", "OPERATOR_UID=PIN_OPERATOR_UID": f"OPERATOR_UID={self.operator_uid}",
             "FIRMWARE_SHA256=PIN_FIRMWARE_SHA256": f"FIRMWARE_SHA256={self.sha(self.firmware)}",
             "PARTITION_TABLE_SHA256=PIN_PARTITION_TABLE_SHA256": f"PARTITION_TABLE_SHA256={self.sha(self.table)}",
             "INPUT_DIR=PIN_INPUT_DIR": f"INPUT_DIR={self.inputs}", "FIRMWARE_IMAGE=PIN_FIRMWARE_IMAGE": f"FIRMWARE_IMAGE={self.firmware}",
@@ -217,7 +223,7 @@ def test_repository_runner_refuses_while_unpinned(tmp_path: Path) -> None:
     assert "PIN_MAIN_SHA" in RUNNER.read_text()
 
 
-@pytest.mark.parametrize("pin", ["FIRMWARE_SHA256", "PARTITION_TABLE_SHA256", "INPUT_DIR", "FIRMWARE_IMAGE", "PARTITION_TABLE", "SECRETS_HEADER", "NVS_GENERATOR",
+@pytest.mark.parametrize("pin", ["OPERATOR_USER", "OPERATOR_UID", "FIRMWARE_SHA256", "PARTITION_TABLE_SHA256", "INPUT_DIR", "FIRMWARE_IMAGE", "PARTITION_TABLE", "SECRETS_HEADER", "NVS_GENERATOR",
                                  "FLASH_TOOL_SCRIPT", "MQTT_CA_FILE", "BROKER_CREDENTIAL_FILE", "BROKER_ADDRESS", "BROKER_TLS_NAME", "WIFI_SSID", "NTP_SERVER",
                                  "FIRMWARE_BUILD_CMD"])
 def test_runner_refuses_each_unpinned_value_even_with_main_pinned(tmp_path: Path, pin: str) -> None:
@@ -230,18 +236,20 @@ def test_runner_refuses_each_unpinned_value_even_with_main_pinned(tmp_path: Path
     assert not sim.marker() and sim.calls() == []
 
 
-@pytest.mark.parametrize("pin,bad", [("EXPECTED_MAIN", "abc"), ("FIRMWARE_SHA256", "xyz"), ("PARTITION_TABLE_SHA256", "12")])
+@pytest.mark.parametrize("pin,bad", [("EXPECTED_MAIN", "abc"), ("FIRMWARE_SHA256", "xyz"), ("PARTITION_TABLE_SHA256", "12"), ("OPERATOR_UID", "0"),
+                                     ("OPERATOR_UID", "abc"), ("OPERATOR_UID", "-5"), ("OPERATOR_USER", "Bad User"), ("OPERATOR_USER", "root;id"), ("OPERATOR_USER", "A")])
 def test_runner_refuses_malformed_pins(tmp_path: Path, pin: str, bad: str) -> None:
     sim = Sim(tmp_path)
-    sim.runner.write_text(re.sub(rf"^{pin}=.*$", f"{pin}={bad}", sim.runner.read_text(), count=1, flags=re.MULTILINE))
+    sim.runner.write_text(re.sub(rf"^{pin}=.*$", lambda _m: f"{pin}='{bad}'", sim.runner.read_text(), count=1, flags=re.MULTILINE))
     res = sim.run()
-    assert res.returncode == 2 and "is not a" in res.stdout and sim.calls() == []
+    assert res.returncode == 2 and "is not a" in res.stdout and sim.calls() == [] and not sim.marker()
 
 
 def test_the_committed_template_is_not_pinned_to_the_current_main() -> None:
     text = RUNNER.read_text()
     assert not re.search(r"^EXPECTED_MAIN=[0-9a-f]{40}", text, re.MULTILINE)
-    assert len(re.findall(r"=PIN_[A-Z_0-9]+$", text, re.MULTILINE)) == 16
+    assert len(re.findall(r"=PIN_[A-Z_0-9]+$", text, re.MULTILINE)) == 18
+    assert "OPERATOR_USER=PIN_OPERATOR_USER" in text and "OPERATOR_UID=PIN_OPERATOR_UID" in text
 
 
 def test_the_runner_never_runs_as_root_and_needs_sudo_before_any_mutation() -> None:
@@ -561,6 +569,70 @@ def test_run_against_the_current_repository_state_fails_closed(tmp_path: Path) -
     """A real execution today must fail: no FINAL L7u live acceptance receipt exists in the repository."""
     res = subprocess.run(["bash", "-c", f". '{LIB}'; l8p_receipt_gate '{ROOT.parent}'"], capture_output=True, text=True, check=False)
     assert res.returncode == 1 and ("L8P_L7U_ACCEPTANCE_RECEIPT_MISSING" in res.stderr or "RECEIPT_MISSING" in res.stderr or "NO_HEAD" in res.stderr)
+
+
+# ═══════════════════════════════════════ 4b. frozen operator identity (the L7u identity gate, reused) ═══════════════════════
+
+
+def test_the_correct_frozen_operator_passes_the_identity_gate(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "operator identity is not the frozen" not in res.stdout + res.stderr
+
+
+def test_the_runner_reuses_the_l7u_identity_gate_without_a_second_parser() -> None:
+    code = code_only(RUNNER)
+    assert code.count('l7u_identity_gate "$OPERATOR_USER" "$OPERATOR_UID"') == 1
+    assert "id -un" not in code and "id -u" not in code.replace("$(id -u)", ""), "no duplicated identity parsing in the runner"
+
+
+def test_root_remains_refused() -> None:
+    code = code_only(RUNNER)
+    assert '[ "$(id -u)" != 0 ]' in code and "[1-9][0-9]*" in code, "root is refused and a root uid pin is malformed"
+
+
+def test_a_wrong_current_username_refuses_before_anything_happens(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, operator_user="someoneelse")
+    refuses(sim, "L7U_OPERATOR_IDENTITY_MISMATCH")
+
+
+def test_a_wrong_current_uid_refuses_before_anything_happens(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, operator_uid=str(int(REAL_UID) + 1))
+    refuses(sim, "L7U_OPERATOR_IDENTITY_MISMATCH")
+
+
+def test_a_frozen_username_that_resolves_to_a_different_uid_refuses(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    (sim.dir / "resolved-uid").write_text(str(int(REAL_UID) + 7) + "\n")
+    refuses(sim, "L7U_OPERATOR_IDENTITY_MISMATCH")
+
+
+def test_identity_refusal_precedes_pre_capture_the_attempt_and_every_handler_or_device_path(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, operator_user="someoneelse")
+    res = sim.run()
+    assert res.returncode == 1 and sim.calls() == [], "no PRE capture, no handler, no rollback"
+    assert not sim.marker() and not list(sim.evid_base.iterdir()), "no attempt consumed and no evidence directory"
+    assert "capture:pre" not in sim.calls() and "env:apply" not in "\n".join(sim.calls())
+
+
+def test_the_identity_gate_precedes_sudo_the_evidence_directory_the_marker_and_the_handlers_in_the_source() -> None:
+    text = code_only(RUNNER)
+    gate = text.index('l7u_identity_gate "$OPERATOR_USER" "$OPERATOR_UID"')
+    for later in ("sudo -v", "mkdir -m 700", "capture PRE", "l8p_consume_attempt", "handler apply.sh", "l8p_input_gate"):
+        assert gate < text.index(later), later
+
+
+def test_input_ownership_is_checked_against_the_frozen_operator_uid(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    assert 'l8p_input_gate "$INPUT_DIR" "$OPERATOR_UID"' in code_only(RUNNER), "the runner passes the FROZEN uid, not merely the current caller"
+    for uid_arg, expect in ((REAL_UID, 0), (str(int(REAL_UID) + 1), 1)):
+        r = subprocess.run(["bash", "-c", f". '{LIB}'; l8p_input_gate '{sim.inputs}' '{uid_arg}'"], text=True, capture_output=True, check=False)
+        assert r.returncode == expect, r.stderr
+        if expect:
+            assert "L8P_INPUT_DIR_OWNER_MISMATCH" in r.stderr
+    bad = subprocess.run(["bash", "-c", f". '{LIB}'; l8p_input_gate '{sim.inputs}' 0"], text=True, capture_output=True, check=False)
+    assert bad.returncode == 1 and "L8P_INPUT_OPERATOR_UID_INVALID" in bad.stderr
 
 
 # ═══════════════════════════════════════ 5. library unit tests ═══════════════════════════════════════════════════════════

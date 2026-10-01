@@ -47,18 +47,19 @@ l8p_receipt_gate() {
     || { l8p_reason "L8P_ALREADY_PROVISIONED (an L8p result is recorded; a new live attempt needs a new owner decision)"; return 1; }
 }
 
-# l8p_input_gate DIR — the private owner input directory: owned by the operator, mode 0700, exactly the seven L8p inputs, each a regular non-symlink file
-# owned by the operator. Contents are validated by the canonical handler (p4-l8p-device.py) and are NEVER read or printed here.
+# l8p_input_gate DIR [OPERATOR_UID] — the private owner input directory: owned by the FROZEN operator uid (default: the current caller, which the runner has
+# already bound to the frozen operator by l7u_identity_gate), mode 0700, exactly the seven L8p inputs, each a regular non-symlink file owned by that uid. Contents are validated by the canonical handler (p4-l8p-device.py) and are NEVER read or printed here.
 l8p_input_gate() {
-  local dir=${1:-} f
+  local dir=${1:-} uid=${2:-$(id -u)} f
+  [[ "$uid" =~ ^[1-9][0-9]*$ ]] || { l8p_reason "L8P_INPUT_OPERATOR_UID_INVALID"; return 1; }
   [ -d "$dir" ] && [ ! -L "$dir" ] || { l8p_reason "L8P_INPUT_DIR_INVALID"; return 1; }
   [ "$(stat -c %a "$dir")" = 700 ] || { l8p_reason "L8P_INPUT_DIR_MODE_NOT_0700"; return 1; }
-  [ "$(stat -c %u "$dir")" = "$(id -u)" ] || { l8p_reason "L8P_INPUT_DIR_OWNER_MISMATCH"; return 1; }
+  [ "$(stat -c %u "$dir")" = "$uid" ] || { l8p_reason "L8P_INPUT_DIR_OWNER_MISMATCH"; return 1; }
   [ "$(ls -A "$dir" | LC_ALL=C sort | paste -sd,)" = "device.identity,k_c2d,k_d2c,mqtt.pass,physical-recovery.attestation,provisioning.pins,wifi.psk" ] \
     || { l8p_reason "L8P_INPUT_ENTRIES_NOT_EXACT"; return 1; }
   for f in device.identity provisioning.pins physical-recovery.attestation k_c2d k_d2c wifi.psk mqtt.pass; do
     [ -f "$dir/$f" ] && [ ! -L "$dir/$f" ] || { l8p_reason "L8P_INPUT_NOT_A_REGULAR_FILE:$f"; return 1; }
-    [ "$(stat -c %u "$dir/$f")" = "$(id -u)" ] || { l8p_reason "L8P_INPUT_OWNER_MISMATCH:$f"; return 1; }
+    [ "$(stat -c %u "$dir/$f")" = "$uid" ] || { l8p_reason "L8P_INPUT_OWNER_MISMATCH:$f"; return 1; }
   done
 }
 
