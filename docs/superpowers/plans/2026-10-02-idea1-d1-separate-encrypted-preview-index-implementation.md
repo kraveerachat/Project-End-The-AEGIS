@@ -4,6 +4,8 @@
 
 **Plan status:** PLANNED — `IMPLEMENTATION_STARTED=NO`, `IMPLEMENTATION_AUTHORIZED=NO`, `PRODUCTION_MUTATION_AUTHORIZED=NO`.
 
+**Revision 2 (2026-10-02, PR #280 review `APPROVE_WITH_REQUIRED_CHANGES`):** (1) server-enforced per-owner preview-index retained-storage budget (A.1, A.3, new C.7, new E.4, F.2, G.1–G.3, H.1, Stage 3); (2) Stage 1 requires PR-A **and** PR-B merged — no Production deployment between them; (3) client-declared superseded refs are advisory only and never deletion authority. Existing P3–P5 plans are stale for D-1. Task count 44 → 46.
+
 **Goal:** Ship client-generated, client-encrypted thumb/poster derivatives for the Private Vault, referenced from a **separate owner-scoped, sharded, encrypted preview index** that is invisible to the main manifest, so tiles can render from small verified derivatives while the main manifest stays schema v1 with **zero** added bytes.
 
 **Architecture:** One optional server-side index head per `(owner, treeId)` points at an encrypted **root catalog** (an ordinary V2 blob). The root maps opaque hash-prefix shards to encrypted **shard** blobs; each shard maps opaque `nodeId` → validated `vp1` thumb/poster entries pointing at encrypted **derivative** blobs. Every object reuses the existing V2 envelope (random DEK wrapped by KEK, AES-256-GCM, chunk AAD) unchanged. The server stores only opaque ids, lengths, lifecycle and CAS metadata. Index CAS is independent from main-head CAS; the reader's `sourceBlobRef` check against the **current** decrypted main node is the consistency bridge. The original file path stays the universal fallback.
@@ -37,6 +39,14 @@ IDX_SIZE_BEFORE_WRITER_ENABLE=MANDATORY       real 1k/5k/10k, Node + Chrome + Po
 SHARD_LIMITS=PROVISIONAL                      64 prefixes / 192 KiB decoded / 128 live / 256 KiB padded are planning targets only
 INITIAL_DESTRUCTIVE_GC=FORBIDDEN              no DELETE, purge or physical removal of any index/derivative blob in D-1
 VAULT_DESTRUCTIVE_PURGE_ENABLED=false         unchanged
+PREVIEW_INDEX_STORAGE_BUDGET=SERVER_ENFORCED  per owner; counts committed INDEX_STAGED + INDEX_MANAGED ciphertext (root, shard, derivative)
+BUDGET_SCOPE=PER_OWNER                        ordinary user files never count and are never blocked by it
+BUDGET_VALUE=PROVISIONAL / TO_BE_MEASURED     final value approved only at HG-G, before Stage 3
+BUDGET_EXCEEDED=FAIL_CLOSED_FOR_PREVIEW_ONLY  reject new preview-index persistence; never touch main manifest, original upload, download, or existing index objects
+SUPERSEDED_REF=ADVISORY_ONLY                  client-declared supersededBlobIds are bookkeeping/measurement rows
+SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO       no current or future D-1 code may delete or purge a blob because it was declared superseded
+STAGE_1_BUILD=PR_A_MERGED + PR_B_MERGED       no Production deployment between PR-A and PR-B
+EXISTING_P3_P5_PLANS=STALE_FOR_D1_ARCHITECTURE  not executed; re-planned only after D1_THUMB_POSTER=CLOSED
 REQUEST_PATTERN_LEAKAGE=ACCEPTED_DOCUMENTED   never claim zero additional leakage
 MALICIOUS_SERVER_VALID_HEAD_REPLAY=ACCEPTED_INHERITED   never claim durable anti-rollback
 WRITE_KINDS=thumb,poster (profile vp1)        no motion/proxy writer in D-1
@@ -97,12 +107,12 @@ FULL() { timeout --kill-after=30 5400 node --test --test-concurrency=1 "tests/**
 | Modify | `server/config/vaultTreeLimits.js` | three new chained flags, provisional server limits, `PREVIEW_INDEX_TABLES`, `verifyPreviewIndexSchema` | A / PR-A |
 | Modify | `server/index.js` | boot probe for preview-index schema | A / PR-A |
 | Modify | `server/db/vaultTreeSchemaProbe.js` | probe new tables + lifecycle CHECK values | A / PR-A |
-| Create | `server/db/vaultPreviewIndexStore.js` | owner-scoped head read, envelope/blob listing, CAS (memory + PG) | A, C |
+| Create | `server/db/vaultPreviewIndexStore.js` | owner-scoped head read, envelope/blob listing, retained-bytes accounting (A); CAS + budget enforcement (C) — memory + PG | A, C |
 | Modify | `server/db/vaultTreeStore.js` | `BLOB_LIFECYCLES` += `INDEX_STAGED`, `INDEX_MANAGED`; `RECOVERABLE_BLOB_LIFECYCLES` | A / PR-A |
 | Create | `server/routes/vaultPreviewIndex.js` | read gates, `GET /head`, `GET /envelopes`, `GET /blobs`; later `POST /head`, uploads router | A, C |
 | Modify | `server/routes/api.js` | mount preview-index routers before `/vault/tree`; exclude `INDEX_*` from `GET /api/vault` | A / PR-A |
 | Modify | `server/routes/vaultTree.js` | exclude `INDEX_*` from `GET /tree/blobs` | A / PR-A |
-| Modify | `server/routes/vaultUploads.js` | factory mode `previewIndex` (commit → `INDEX_STAGED`) | C / PR-C |
+| Modify | `server/routes/vaultUploads.js` | factory mode `previewIndex` (commit → `INDEX_STAGED`; per-owner retained-storage budget at create + commit, C.7) | C / PR-C |
 | Modify | `src/lib/vaultTreeApi.js` | `getPreviewIndexHead`, `getPreviewIndexEnvelopes`, `listPreviewIndexBlobs`, `casPreviewIndexHead` | A, C |
 | Modify | `src/lib/vaultTreeCanonical.js` | export generic `canonicalEncodeValue` / `canonicalParseStrict` (no byte change) | B / PR-B |
 | Modify | `src/lib/vaultTreeManifest.js` | export existing `validatePreview` as `validatePreviewEntry` (no behavior change) | B / PR-B |
@@ -143,6 +153,11 @@ flags.previewIndexWriteEnabled: boolean      // default false — never defaulte
 limits.maxPreviewIndexAttachPerCas: number   // env VAULT_PREVIEW_INDEX_MAX_ATTACH_PER_CAS, default 64, range 1..256 — PROVISIONAL
 limits.maxPreviewIndexSupersededPerCas: number // env VAULT_PREVIEW_INDEX_MAX_SUPERSEDED_PER_CAS, default 64, 0..256 — PROVISIONAL
 limits.maxPreviewIndexEnvelopeBatch: number  // env VAULT_PREVIEW_INDEX_MAX_ENVELOPE_BATCH, default 32, 1..128 — PROVISIONAL
+limits.maxPreviewIndexRetainedBytesPerOwner: number | null
+  // env VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER, integer bytes, range 1 MiB..64 GiB — PROVISIONAL / TO_BE_MEASURED.
+  // No approved default exists: unset → null. VAULT_PREVIEW_INDEX_WRITE_ENABLED=true with null → boot throws (fail-closed).
+  // HG-G approves the value; Task G.3 records it. Counted bytes = SUM(vault_v2_blobs.ciphertext_size) of the owner's
+  // V2 blobs whose vault_tree_blob_state.lifecycle ∈ ('INDEX_STAGED','INDEX_MANAGED').
 export const PREVIEW_INDEX_TABLES: readonly ['vault_preview_index_heads','vault_preview_index_generations','vault_preview_index_blob_refs']
 export async function verifyPreviewIndexSchema(config, probe: () => Promise<{ missing: string[], lifecycleValuesOk: boolean }>)
 
@@ -161,12 +176,19 @@ export async function listIndexEnvelopes(userId, ids: string[])          // only
 export async function listIndexBlobs(userId, { after: string|null, limit: number })   // opaque ids + lifecycle + createdAt, paginated
   : Promise<{ blobs: Array<{ id, lifecycle, createdAt }>, next: string|null }>
 export async function excludeIndexBlobIds(userId): Promise<Set<string>>  // V2 ids with lifecycle ∈ PREVIEW_INDEX_LIFECYCLES (inventory filter)
+export async function getRetainedIndexBytes(userId, { client = null } = {}): Promise<number>
+  // SUM of committed ciphertext of the owner's INDEX_STAGED + INDEX_MANAGED blobs; user files excluded by construction
+export async function assertIndexBudgetWithinCommit(client, userId, { addBytes, maxBytes })
+  : Promise<void>   // Phase C; called inside the previewIndex commit transaction AFTER locking the owner's vault_tree_state row
+                    // FOR UPDATE; throws IndexBudgetExceeded (→ transaction rollback) when retained + addBytes > maxBytes
 export async function casIndexHead(userId, {                              // Phase C
   expectedGeneration,        // 0 = "no head yet"
   expectedRootBlobId,        // null iff expectedGeneration === 0
   rootBlobId, rootContentIdB64,
   attachBlobIds,             // must include rootBlobId; every id lifecycle INDEX_STAGED and owned
-  supersededBlobIds,         // client-declared, recorded only (never deleted in D-1); each lifecycle INDEX_MANAGED
+  supersededBlobIds,         // SUPERSEDED_REF=ADVISORY_ONLY: client-declared, recorded as role='SUPERSEDED' rows for
+                             // bookkeeping/measurement only; changes no lifecycle; is NEVER deletion or purge authority
+                             // (no D-1 code reads these rows to mutate or delete anything); each must be INDEX_MANAGED
   idempotencyKey, requestDigest,
 }): Promise<{ ok: true, replay: boolean, indexGeneration, rootBlobId }
           | { ok: false, code, current?: { indexGeneration, rootBlobId } | null }>
@@ -174,6 +196,7 @@ export async function __resetPreviewIndexForTests()
 
 // server/routes/vaultPreviewIndex.js  (mounted: '/vault/tree/preview-index/uploads' then '/vault/tree/preview-index', both before '/vault/tree/uploads')
 export const PREVIEW_INDEX_ERROR  // { PREVIEW_INDEX_DISABLED, PREVIEW_INDEX_WRITE_DISABLED, PREVIEW_INDEX_NOT_FOUND,
+                                  //   PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED (507 on preview-index upload create/commit only),
                                   //   PREVIEW_INDEX_CONFLICT, PREVIEW_INDEX_IDEMPOTENCY_MISMATCH, PREVIEW_INDEX_BLOB_STATE_CONFLICT,
                                   //   PREVIEW_INDEX_ROOT_MISMATCH, TREE_STATE_CONFLICT, INVALID_INPUT }
 export function requirePreviewIndexRead(req, res, next)   // 503 PREVIEW_INDEX_DISABLED unless schema+read flags
@@ -266,10 +289,12 @@ export async function reachabilityReport({ reader, api, signal }): Promise<{ rea
 
 // src/lib/vaultPreviewIndexWriter.js
 export function createPreviewIndexWriter({ kek, api, reader, getMainHead, upload, unlockedState, writeAllowed: () => boolean, limits, diagnostics })
-  : { offer(job: { nodeId, kind: 'thumb'|'poster', sourceBlobRef, bytes, mime, width, height }): 'QUEUED'|'DISABLED'|'REJECTED'|'FULL',
-      flush(): Promise<{ committed: number, dropped: number, failed: number }>,
+  : { offer(job: { nodeId, kind: 'thumb'|'poster', sourceBlobRef, bytes, mime, width, height }): 'QUEUED'|'DISABLED'|'REJECTED'|'FULL'|'BUDGET_EXHAUSTED',
+      flush(): Promise<{ committed: number, dropped: number, failed: number, budgetExhausted: boolean }>,
       dispose(): void, stats(): object }
   // writeAllowed() false → offer() returns 'DISABLED' and performs NO network request
+  // any PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED response latches a per-session circuit breaker: queue cleared, every later
+  // offer() → 'BUDGET_EXHAUSTED' with NO network request until the next unlocked session; never throws to callers
 
 // src/lib/vaultDerivativeGenerate.js
 export async function generateThumbFromFile(file, { signal, env, budgetMs }): Promise<{ bytes, mime, width, height } | null>
@@ -295,7 +320,7 @@ The writer only ever creates `thumb`/`poster` entries with profile `vp1`. The re
 
 ## PHASE A — Baseline / compatibility foundation (PR-A)
 
-Target deployment of this phase: `COMPATIBILITY_READER_ONLY`, `WRITER=OFF`. Nothing in Phase A can create an index.
+Target deployment: `COMPATIBILITY_READER_ONLY`, `WRITER=OFF` — **only together with Phase B**. PR-A is reviewed and merged on its own, but it is **never deployed to Production alone**: Stage 1 requires PR-A **and** PR-B merged (§0 `STAGE_1_BUILD`). Nothing in Phase A can create an index.
 
 ### Task A.0 — Baseline capture
 
@@ -312,7 +337,7 @@ Target deployment of this phase: `COMPATIBILITY_READER_ONLY`, `WRITER=OFF`. Noth
 - **Depends on:** A.0.
 - **Files:** Modify `server/config/vaultTreeLimits.js`; extend `tests/vaultTreeConfig.test.js`.
 - **Interface:** §4.1 config additions.
-- [ ] **RED:** (a) all three flags default `false` with an empty env; (b) each flag accepts only literal `'true'`/`'false'`, anything else throws; (c) chain: `VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE=true` without `VAULT_TREE_SCHEMA_AVAILABLE` throws; `READ` without `SCHEMA` or without `VAULT_MEDIA_PREVIEW_ENABLED` throws; `WRITE` without `READ` throws; (d) new limits default to 64/64/32 and reject out-of-range values; (e) CF-1 default snapshot extended with the three new flags/limits — every pre-existing key/value unchanged; (f) `vaultTreeConfigFromEnv` output is deep-frozen.
+- [ ] **RED:** (a) all three flags default `false` with an empty env; (b) each flag accepts only literal `'true'`/`'false'`, anything else throws; (c) chain: `VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE=true` without `VAULT_TREE_SCHEMA_AVAILABLE` throws; `READ` without `SCHEMA` or without `VAULT_MEDIA_PREVIEW_ENABLED` throws; `WRITE` without `READ` throws; (d) new limits default to 64/64/32 and reject out-of-range values; (e) storage budget: unset → `maxPreviewIndexRetainedBytesPerOwner === null`; a value below 1 MiB, above 64 GiB, or non-integer throws; `WRITE=true` with the budget unset throws at boot (fail-closed: the writer can never run unbudgeted); `WRITE=false` with the budget unset boots; (f) CF-1 default snapshot extended with the new flags/limits — every pre-existing key/value unchanged; (g) `vaultTreeConfigFromEnv` output is deep-frozen.
 - [ ] **RED verify:** `$T tests/vaultTreeConfig.test.js` → new cases fail on missing keys.
 - [ ] **GREEN:** add flags to `flags` and `chain`, limits via `readInteger`, export `PREVIEW_INDEX_TABLES` and `verifyPreviewIndexSchema` (mirrors `verifyTreeSchema`; also throws when `lifecycleValuesOk` is false).
 - [ ] **GREEN verify:** `$T tests/vaultTreeConfig.test.js tests/vaultTreeApi.test.js tests/vaultTreeFence.test.js`.
@@ -340,8 +365,8 @@ Target deployment of this phase: `COMPATIBILITY_READER_ONLY`, `WRITER=OFF`. Noth
 
 - **Depends on:** A.2.
 - **Files:** Modify `server/db/vaultTreeStore.js`; create `server/db/vaultPreviewIndexStore.js`; create `tests/previewIndexStore.test.js` + `tests/helpers/previewIndexStoreSpec.mjs` (same spec runs memory and PG, like `vaultTreeStoreSpec.mjs`).
-- **Interface:** §4.1 store (read half only: `getIndexHead`, `listIndexEnvelopes`, `listIndexBlobs`, `excludeIndexBlobIds`, `__resetPreviewIndexForTests`).
-- [ ] **RED:** `BLOB_LIFECYCLES` has six values with the original four first and unchanged; `upsertBlobState` accepts `INDEX_STAGED`; `getIndexHead` → `null` for a fresh owner and for another owner's row; seeded head round-trips; `listIndexEnvelopes` returns only the caller's `INDEX_*` blobs (a user blob id or another owner's id is silently absent); `listIndexBlobs` paginates stably with `limit ≤ 500`; `excludeIndexBlobIds` returns exactly the caller's `INDEX_*` ids; every function requires `userId`.
+- **Interface:** §4.1 store (read/accounting half only: `getIndexHead`, `listIndexEnvelopes`, `listIndexBlobs`, `excludeIndexBlobIds`, `getRetainedIndexBytes`, `__resetPreviewIndexForTests`). Enforcement (`assertIndexBudgetWithinCommit`) is Task C.7.
+- [ ] **RED:** `BLOB_LIFECYCLES` has six values with the original four first and unchanged; `upsertBlobState` accepts `INDEX_STAGED`; `getIndexHead` → `null` for a fresh owner and for another owner's row; seeded head round-trips; `listIndexEnvelopes` returns only the caller's `INDEX_*` blobs (a user blob id or another owner's id is silently absent); `listIndexBlobs` paginates stably with `limit ≤ 500`; `excludeIndexBlobIds` returns exactly the caller's `INDEX_*` ids; `getRetainedIndexBytes` = exact sum of `ciphertext_size` over the caller's `INDEX_STAGED` + `INDEX_MANAGED` V2 blobs, 0 for a fresh owner, ignores `UNREFERENCED`/`TREE_MANAGED` user blobs and every other owner's blobs; every function requires `userId`.
 - [ ] **RED verify:** `$T tests/previewIndexStore.test.js`; `PGRUN tests/previewIndexStore.test.js`.
 - [ ] **GREEN:** implement; test-only seed helper `__seedIndexHeadForTests` (never routed).
 - [ ] **GREEN verify:** above + `$T tests/vaultTreeStore.test.js`.
@@ -375,7 +400,7 @@ Target deployment of this phase: `COMPATIBILITY_READER_ONLY`, `WRITER=OFF`. Noth
 - [ ] **RED:** (a) with all D-1 flags off, every existing tree route response shape is unchanged (snapshot vs A.0 fixtures); (b) main `POST /revisions` still rejects `manifestSchemaVersion: 2`; (c) client `MANIFEST_SCHEMA_VERSION_WRITE === 1`; (d) no client module references `VAULT_MANIFEST_V2_UPGRADE`, `setNodePreviews` or `manifestV2Upgrade` (source scan over `src/` and `server/`); (e) main `casHead` with an `INDEX_MANAGED` blob in `attachBlobIds` → 409 `TREE_BLOB_STATE_CONFLICT`.
 - [ ] **Verify:** `$T tests/previewIndexCompatA.test.js`; full regression `FULL > "$SCRATCH/d1-a-full.txt"` → diff failing names vs A.0 (0 new); PG suites from A.0 + `PGRUN tests/previewIndexMigration.test.js tests/previewIndexStore.test.js tests/previewIndexApi.test.js`; `npm run build && git checkout -- dist`.
 - [ ] **Commit:** `test(idea1): pin preview-index compatibility boundary`.
-- **PR-A closeout:** canonical status update, one final receipt, PR body declaring `.env.example` and `docs/superpowers/**` (if touched) as cross-scope with `integration-review: yes`. Stop for Human review/merge (**HG-A**).
+- **PR-A closeout:** canonical status update, one final receipt, PR body declaring `.env.example` and `docs/superpowers/**` (if touched) as cross-scope with `integration-review: yes`. Stop for Human review/merge (**HG-A**). Merging PR-A authorizes **no** deployment: PR-A is not deployed to Production until PR-B is also merged (Stage 1).
 
 ---
 
@@ -457,7 +482,7 @@ No writer. With no index in any environment, every lookup returns `null` and til
 - [ ] **Step 3:** `node scripts/measure/vault-preview-index-size.mjs --mode codec --nodes 1000,5000,10000 --variants 2,3 --runs 20 --out "$SCRATCH/idx-size-codec.json"` (exclusive-create output).
 - [ ] **Commit:** `test(idea1): add preview-index size probe (codec mode)`.
 - **Acceptance:** numbers are recorded in the PR body labelled `CODEC_ONLY_PRELIMINARY` — **not** the IDX-SIZE gate. If the 10k/2-entry largest shard already exceeds the provisional 192 KiB cap or live shards exceed 128, stop and report to the Human Owner before Phase C (limits are provisional; re-planning shard parameters is a Human decision).
-- **PR-B closeout:** regression (`FULL` name diff vs A.0), canonical status, receipt, Draft → Human review (**HG-B**).
+- **PR-B closeout:** regression (`FULL` name diff vs A.0), canonical status, receipt, Draft → Human review (**HG-B**). After PR-A **and** PR-B are merged, `origin/main` is the Stage 1 candidate build (Phase J); no earlier Production deployment exists.
 
 ---
 
@@ -469,8 +494,8 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 - **Depends on:** PR-B merged (or stacked on PR-B branch, declared).
 - **Files:** Extend `server/db/vaultPreviewIndexStore.js`, `tests/helpers/previewIndexStoreSpec.mjs`, `tests/previewIndexStore.test.js`.
-- **Transaction (PG), in order:** lock owner's `vault_tree_state` row `FOR UPDATE`; require `TREE_V1` and an existing main head (else `TREE_STATE_CONFLICT`); idempotency lookup by `(user_id, idempotency_key)` → same `request_digest` ⇒ `{ ok:true, replay:true, … }`, different ⇒ `PREVIEW_INDEX_IDEMPOTENCY_MISMATCH`; lock index head `FOR UPDATE`; `expectedGeneration`/`expectedRootBlobId` must equal current (`0`/`null` ⇔ no head) else `PREVIEW_INDEX_CONFLICT` + current; `rootBlobId ∈ attachBlobIds`; every attach id is the caller's V2 blob with lifecycle `INDEX_STAGED` (`FOR UPDATE`) else `PREVIEW_INDEX_BLOB_STATE_CONFLICT` and full rollback; root blob `content_id_b64 === rootContentIdB64` else `PREVIEW_INDEX_ROOT_MISMATCH`; every superseded id is the caller's `INDEX_MANAGED` blob else `PREVIEW_INDEX_BLOB_STATE_CONFLICT`; head `tree_id` := main head `tree_id`; insert generation row (`index_generation = expected + 1`), `ATTACHED`/`SUPERSEDED` ref rows, set prior generation `superseded_at`; promote attach `INDEX_STAGED → INDEX_MANAGED`; upsert head. **No row or blob is ever deleted.**
-- [ ] **RED:** every branch above, in both modes, via the shared spec; first creation (0/null); replay returns identical result and changes nothing; cross-owner blob in attach → blob-state conflict (no existence leak); a user `UNREFERENCED`/`TREE_MANAGED` blob in attach → conflict; root not in attach → `INVALID` (route-level) / store conflict; memory critical section has no `await`.
+- **Transaction (PG), in order:** lock owner's `vault_tree_state` row `FOR UPDATE`; require `TREE_V1` and an existing main head (else `TREE_STATE_CONFLICT`); idempotency lookup by `(user_id, idempotency_key)` → same `request_digest` ⇒ `{ ok:true, replay:true, … }`, different ⇒ `PREVIEW_INDEX_IDEMPOTENCY_MISMATCH`; lock index head `FOR UPDATE`; `expectedGeneration`/`expectedRootBlobId` must equal current (`0`/`null` ⇔ no head) else `PREVIEW_INDEX_CONFLICT` + current; `rootBlobId ∈ attachBlobIds`; every attach id is the caller's V2 blob with lifecycle `INDEX_STAGED` (`FOR UPDATE`) else `PREVIEW_INDEX_BLOB_STATE_CONFLICT` and full rollback; root blob `content_id_b64 === rootContentIdB64` else `PREVIEW_INDEX_ROOT_MISMATCH`; every superseded id is the caller's `INDEX_MANAGED` blob else `PREVIEW_INDEX_BLOB_STATE_CONFLICT`; head `tree_id` := main head `tree_id`; insert generation row (`index_generation = expected + 1`), `ATTACHED`/`SUPERSEDED` ref rows, set prior generation `superseded_at`; promote attach `INDEX_STAGED → INDEX_MANAGED`; upsert head. **No row or blob is ever deleted.** Superseded ids are `SUPERSEDED_REF=ADVISORY_ONLY`: the CAS writes a `role='SUPERSEDED'` ref row and nothing else — no lifecycle transition, no purge candidate, no retention timer, and they do not reduce the retained-storage budget (a superseded blob is still counted because it still exists).
+- [ ] **RED:** every branch above, in both modes, via the shared spec; first creation (0/null); declaring ids in `supersededBlobIds` leaves their lifecycle `INDEX_MANAGED`, their V2 rows and ciphertext files present, no `vault_tree_purge_candidates` row, and `getRetainedIndexBytes` unchanged; replay returns identical result and changes nothing; cross-owner blob in attach → blob-state conflict (no existence leak); a user `UNREFERENCED`/`TREE_MANAGED` blob in attach → conflict; root not in attach → `INVALID` (route-level) / store conflict; memory critical section has no `await`.
 - [ ] **RED verify / GREEN verify:** `$T tests/previewIndexStore.test.js`; `PGRUN tests/previewIndexStore.test.js`.
 - [ ] **Commit:** `feat(idea1): add atomic owner-scoped preview-index CAS store`.
 
@@ -508,6 +533,34 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 - [ ] **RED:** disjoint upserts from two writers on the same shard both survive rebase; disjoint shards both survive root rebase; same node/kind: existing entry whose `sourceBlobRef` equals the current node `blobRef` wins (`EXISTING_VALID`, ours dropped — no churn); existing stale entry is replaced; upsert for a node missing from the current main manifest → `NODE_MISSING`; upsert whose `sourceBlobRef` ≠ current → `STALE_SOURCE`; non-D-1 kind → `BAD_KIND`; prune removes entries of nodes absent from the main manifest or with mismatched source (trashed nodes are **kept** for restore); `planSplit` splits at `maxShardDecodedBytes` into `prefix+'0'`/`prefix+'1'` with every entry routed correctly; at `maxPrefixBits` → `{ overflow: true }` (caller skips, never truncates); `rebaseRoot` when the other writer split a prefix we changed → our upserts re-applied to the correct child shard; > `maxShards` → `{ overflow: true }`; timestamps never decide a winner.
 - [ ] **Verify:** `$T tests/previewIndexMerge.test.js`. **Commit:** `feat(idea1): merge preview-index changes without last-writer-wins`.
 
+### Task C.7 — Server-enforced per-owner retained-storage budget (circuit breaker)
+
+- **Depends on:** C.4 (upload family), A.1 (budget config), A.3 (`getRetainedIndexBytes`).
+- **Owner/PR:** PR-C.
+- **Files:** Modify `server/routes/vaultUploads.js` (mode `previewIndex` only), `server/db/vaultPreviewIndexStore.js` (`assertIndexBudgetWithinCommit`, memory + PG); create `tests/previewIndexStorageBudget.test.js` (memory + PG) and `tests/previewIndexStorageBudgetPostgres.test.js` (PG concurrency; explicit skip reason when `TEST_DATABASE_URL` unset, evidence run must show 0 skips).
+- **Enforcement points (both server-side; the client is never trusted for this):**
+  1. **Create (early reject, advisory):** `POST /preview-index/uploads` → if `getRetainedIndexBytes(owner) + declared ciphertextSize > maxPreviewIndexRetainedBytesPerOwner` → 507 `PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED` before any byte is staged.
+  2. **Commit (authoritative):** inside the existing `finishVaultV2Commit` transaction via `withinCommit` for mode `previewIndex`: lock the owner's `vault_tree_state` row `FOR UPDATE` (the same serialization point as main and index CAS), compute retained bytes, and if `retained + session.ciphertextSize > max` throw `IndexBudgetExceeded` → the whole transaction rolls back (no blob row, no lifecycle row). The route then answers 507 `PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED` and discards **only the uncommitted staged upload** through the existing cancel/abort path (the same cleanup a cancelled upload already gets) — no committed blob, index object, or user file is touched. Otherwise write `INDEX_STAGED` in the same transaction as today.
+  - Counted: every committed `INDEX_STAGED` and `INDEX_MANAGED` V2 blob of the owner (root, shard, derivative, including ones that lost CAS and superseded ones). Not counted: `UNREFERENCED`/`TREE_MANAGED` user blobs, V1 blobs, uncommitted upload sessions (bounded by the existing session TTL cleanup).
+  - Boundary rule: `retained + new ≤ max` succeeds; `> max` is rejected.
+  - Legacy `legacy` and `tree` upload families never consult the budget.
+- [ ] **RED (memory + PG via shared spec):**
+  - below budget: commit succeeds, lifecycle `INDEX_STAGED`, retained bytes grow by the blob's ciphertext size;
+  - exactly at boundary: a blob that makes `retained + new == max` succeeds;
+  - next blob exceeding: `retained + new == max + 1` → 507 at create (declared size) and, when forced past create (budget lowered between create and commit), 507 at commit with no blob row, no lifecycle row, staged bytes discarded;
+  - another owner: owner B at budget does not affect owner A, and vice versa;
+  - user files unaffected: with owner's preview budget exhausted, `/api/vault/tree/uploads` (original upload) and main `POST /head` attach still succeed; `GET /api/vault/blobs/:id/chunks/:i` downloads still succeed;
+  - no deletion: after rejection, every previously committed `INDEX_*` blob, its V2 row, and its ciphertext file still exist; request/SQL log shows no `DELETE` against blob, lifecycle, generation, ref, or V2 tables and no purge-candidate insert;
+  - main manifest untouched: no revision/head change caused by a rejection;
+  - CAS-loss growth bounded: repeated "upload root/shard then lose CAS" loops stop at the budget (every lost-CAS blob stays counted);
+  - write flag off: create still 503 `PREVIEW_INDEX_WRITE_DISABLED` (flag check precedes budget check).
+- [ ] **RED (PG concurrency):** owner at `max − S` with 10 parallel commits of size `S` → exactly one succeeds, nine get 507, final retained bytes `≤ max`; mixed parallel commits from two owners each respect only their own budget; parallel index CAS + preview commit for one owner do not deadlock (5 s statement timeout).
+- [ ] **RED verify:** `$T tests/previewIndexStorageBudget.test.js`; `PGRUN tests/previewIndexStorageBudget.test.js tests/previewIndexStorageBudgetPostgres.test.js` → fail on missing enforcement.
+- [ ] **GREEN:** implement both enforcement points; error body `{ error, code }` only (no byte counts echoed beyond the code, to avoid turning the route into a usage oracle for anything but the owner's own preview data).
+- [ ] **GREEN verify:** above + `$T tests/previewIndexUploads.test.js tests/vaultTreeUploadsApi.test.js tests/vaultV2Api.test.js`.
+- [ ] **Commit:** `feat(idea1): enforce a per-owner preview-index storage budget`.
+- **Acceptance:** persistent preview-index storage per owner is bounded by a server-enforced value without any deletion; budget exhaustion can only stop new preview persistence.
+
 ---
 
 ## PHASE D — Lifecycle / orphan classification (PR-C, continued)
@@ -532,7 +585,7 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 - **Depends on:** C.4.
 - **Files:** Create `tests/previewIndexLifecycleGuards.test.js` (memory + PG).
-- [ ] **RED-first characterization (expected GREEN once C.4 lands):** main `casHead` attach of `INDEX_STAGED`/`INDEX_MANAGED` → `TREE_BLOB_STATE_CONFLICT`; legacy `DELETE /api/vault/blobs/:id` remains fenced (426) for `TREE_V1` owners; `VAULT_DESTRUCTIVE_PURGE_ENABLED` default false and `purgeBlobIds` still `TREE_PURGE_NOT_SUPPORTED`; no route in `vaultPreviewIndex.js` handles `DELETE`; no store function in `vaultPreviewIndexStore.js` issues `DELETE` against blob, generation, ref, or V2 tables (source scan of SQL strings); falsifiability shown once by a local, uncommitted mutation (record in PR body).
+- [ ] **RED-first characterization (expected GREEN once C.4 lands):** main `casHead` attach of `INDEX_STAGED`/`INDEX_MANAGED` → `TREE_BLOB_STATE_CONFLICT`; legacy `DELETE /api/vault/blobs/:id` remains fenced (426) for `TREE_V1` owners; `VAULT_DESTRUCTIVE_PURGE_ENABLED` default false and `purgeBlobIds` still `TREE_PURGE_NOT_SUPPORTED`; no route in `vaultPreviewIndex.js` handles `DELETE`; no store function in `vaultPreviewIndexStore.js` issues `DELETE` against blob, generation, ref, or V2 tables (source scan of SQL strings); `SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO`: no server or client module reads `role = 'SUPERSEDED'` rows (or `supersededBlobIds`) to drive any lifecycle change, purge candidate, deletion, or storage-file removal (source scan over `server/` and `src/` — the only allowed readers are the read-only reachability report and measurement scripts); a CAS declaring every prior shard/root as superseded leaves all of them present and `INDEX_MANAGED`; falsifiability shown once by a local, uncommitted mutation (record in PR body).
 - [ ] **Verify:** `$T tests/previewIndexLifecycleGuards.test.js`; `PGRUN tests/previewIndexLifecycleGuards.test.js`. **Commit:** `test(idea1): pin non-destructive preview-index lifecycle`.
 
 ### Task D.4 — Read-only reachability report and retention policy
@@ -540,9 +593,9 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 - **Depends on:** D.1, B.7.
 - **Files:** Extend `src/lib/vaultPreviewIndexOrphans.js`, `tests/previewIndexOrphans.test.js`.
 - [ ] **RED:** reachable set = current root + its shards + their derivatives; report counts `stagedUnreachable` (upload succeeded, CAS lost/failed) and `managedUnreachable` (superseded generations' blobs) using `listPreviewIndexBlobs` pagination; retained generations counted from server generations (no client deletion); report contains counts only (no ids/names) and never issues a mutating request; runs only on explicit diagnostics invocation, never on unlock.
-- **Retention policy (documented in module header, enforced by D.3):** every generation and every `INDEX_*` blob is retained in D-1. Any physical deletion requires a separate future plan + Human gate **HG-GC** with retention, reachability, recovery and rollback evidence.
+- **Retention policy (documented in module header, enforced by D.3 and C.7):** every generation and every `INDEX_*` blob is retained in D-1. Growth is bounded **only** by the server-enforced per-owner retained-storage budget (C.7); when it is reached, new preview persistence stops and tiles use originals. Client-declared superseded refs are advisory bookkeeping and never deletion authority. Any physical deletion requires a separate future architecture + plan + Human gate **HG-GC** that **independently** proves reachability and retention safety (it may not rely on client-declared superseded refs as authority) with recovery and rollback evidence. HG-GC is outside D-1.
 - [ ] **Commit:** `feat(idea1): report preview-index reachability without deleting anything`.
-- **PR-C closeout:** PG evidence, regression name diff, canonical status, receipt; integration review required (DB/CAS) (**HG-C**).
+- **PR-C closeout:** PG evidence (C.2 and C.7 concurrency with 0 skips), regression name diff, canonical status, receipt; integration review required (DB/CAS/storage budget) (**HG-C**).
 
 ---
 
@@ -570,6 +623,13 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 - [ ] **RED/GREEN:** with server flags `READ=true, WRITE=false`: upload 5 images + 2 videos, browse, open tiles, rename, move, trash, restore, lock, unlock → request log contains **zero** calls to `/preview-index/uploads*` and `POST /preview-index/head`, zero derivative/root/shard blobs created, upload results identical in shape to baseline; same with `READ=false`; server-side: a direct `POST /preview-index/head` or upload create with `WRITE=false` → 503 (from C.3/C.4).
 - [ ] **Commit:** `test(idea1): prove the preview-index writer is inert when disabled`.
 
+### Task E.4 — Writer fail-soft on storage-budget exhaustion
+
+- **Depends on:** E.2, C.7, C.5. **Owner/PR:** PR-D.
+- **Files:** Extend `src/lib/vaultPreviewIndexWriter.js`, `src/lib/vaultDerivativeBackfill.js` (once F.3 exists; otherwise its test lands with F.3), `src/lib/vaultPreviewDiagnostics.js`; create `tests/previewIndexWriterBudget.test.js`.
+- [ ] **RED:** fake server answers 507 `PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED` at derivative create, at shard/root create, and at commit (three cases): the batch ends with `flush()` → `{ budgetExhausted: true }`, no exception reaches the caller; the circuit breaker latches for the unlocked session — subsequent `offer()` returns `'BUDGET_EXHAUSTED'` and issues **zero** requests; queued jobs are cleared; backfill stops offering; no CAS is attempted with a partial attach list; no DELETE/cancel of any committed blob is issued (request log); tiles keep rendering via existing index entries or the original path; diagnostics record reason `BUDGET_EXHAUSTED` as a counter only (no ids, sizes, names); a new unlocked session starts with the breaker reset but the server still decides (first request again 507 → latch again, one request only).
+- [ ] **Verify:** `$T tests/previewIndexWriterBudget.test.js tests/previewIndexWriter.test.js`. **Commit:** `feat(idea1): stop preview writes fail-soft when the storage budget is exhausted`.
+
 ---
 
 ## PHASE F — Thumb / poster generation (PR-D)
@@ -585,7 +645,7 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 - **Depends on:** F.1, E.2.
 - **Files:** Modify `src/screens/VaultTreeScreen.jsx` (`runVaultUpload` post-reconcile hook only; `uploadTreeFile` unchanged); create `tests/previewIndexUploadFlow.test.js`.
-- [ ] **RED:** writer ON: derivative generation starts only after `uploadTreeFile` returned `ok` **and** `reconcileVaultAfterUpload` resolved; `res` returned to the drawer is identical to today (same object shape, same timing contract — derivative work is queued, not awaited); generation/upload/CAS failure never changes the upload result or announcement; `attach-conflict`/cancel/pause → no derivative work; writer OFF → no generation at all (no decode cost); bounded: at most `backfillConcurrency` generation jobs, paused while `activeUploadsRef.current > 0`.
+- [ ] **RED:** writer ON: derivative generation starts only after `uploadTreeFile` returned `ok` **and** `reconcileVaultAfterUpload` resolved; `res` returned to the drawer is identical to today (same object shape, same timing contract — derivative work is queued, not awaited); generation/upload/CAS failure never changes the upload result or announcement; with the owner's preview budget exhausted (server 507 on every preview-index create) the original upload still completes, attaches, reconciles and announces success exactly as today; `attach-conflict`/cancel/pause → no derivative work; writer OFF → no generation at all (no decode cost); bounded: at most `backfillConcurrency` generation jobs, paused while `activeUploadsRef.current > 0`.
 - [ ] **Verify:** `$T tests/previewIndexUploadFlow.test.js tests/vaultTreeUploadClient.test.js tests/vaultTreeScreen.test.js tests/vaultFilesUx.test.js tests/filesVaultPresentation.test.js`. **Commit:** `feat(idea1): queue encrypted previews after a successful Vault upload`.
 
 ### Task F.3 — Lazy backfill from already-decrypted tile bytes
@@ -627,6 +687,7 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 | Root | canonical / padded / cipher bytes |
 | Shards | canonical / padded / cipher bytes: largest, average, p95; live shard count; split count during incremental build |
 | Storage | total encrypted index bytes (current generation); **superseded index bytes retained per entry written** (no GC in D-1); `GET /api/vault` inventory bytes with and without the `INDEX_*` exclusion |
+| Retained-budget inputs | per owner: retained `INDEX_STAGED` + `INDEX_MANAGED` bytes (`getRetainedIndexBytes`) after (a) a full initial build of 2/3 entries per file, (b) one full lazy backfill, (c) N simulated sessions of steady-state churn (re-uploads/replacements at a stated rate), (d) injected CAS-loss loops; growth curve retained-bytes vs entries written; bytes at which budget enforcement triggers for candidate budgets; C.7 commit-time budget check p50/p95 on PG at 1k/5k/10k |
 | Requests | requests for a cold visible tile set of 60 (head + root + envelope batches + distinct shards + derivatives) |
 | Time (Node, Chrome) | encode / encrypt / decrypt / decode p50/p95 for root and largest shard |
 | Server (memory, PG) | index CAS p50/p95; upload of shard/root/derivative p50/p95 |
@@ -645,7 +706,8 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 | Main manifest delta = 0 B at 1k/5k/10k | binding condition, not a threshold |
 | 10k/2-entry largest shard decoded ≤ provisional cap; live shards ≤ provisional cap | validates or replaces §7 targets |
 | Cold 60-tile request count and p95 latency on LAN within a Human-chosen budget | spec §19 |
-| Superseded bytes per written entry within a Human-chosen storage budget, given GC is forbidden | retained storage grows until a future GC gate |
+| Superseded bytes per written entry within a Human-chosen storage budget, given GC is forbidden | retained storage grows until the per-owner budget stops it |
+| `maxPreviewIndexRetainedBytesPerOwner` = a Human-chosen value derived from the retained-budget inputs (e.g. full 10k build + backfill + stated churn headroom) — **value deliberately not proposed here** | REQUIRED CHANGE 1: server-enforced bound without GC; HG-G must approve an explicit number |
 | End-to-end mutation p95 within a Human-chosen budget | spec §19 / G-THR lesson |
 
 - [ ] **⛔ STOP.** Report exactly: `IDX_SIZE_EVIDENCE=READY`, `LIMITS=AWAITING_HUMAN_APPROVAL`, `WRITER_ENABLE=BLOCKED_PENDING_HUMAN`. Do not change any limit, flag, overlay, or Production setting. If any cell cannot be measured, report it as `NOT_MEASURED` with the reason; the gate cannot pass with an unmeasured required cell.
@@ -654,7 +716,7 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 - **Depends on:** **HG-G** written approval naming each approved value.
 - **Files:** `src/lib/vaultPreviewIndexConstants.js`, `server/config/vaultTreeLimits.js`, `tests/previewIndexConstants.test.js`, `tests/vaultTreeConfig.test.js`.
-- [ ] **RED:** tests assert the approved values and move them from `PROVISIONAL_KEYS` to `APPROVED_KEYS` with the approval date/source. **GREEN:** set values. If the Human rejects, `D1_WRITER_ENABLE=BLOCKED`; return to design with the evidence (no silent relaxation).
+- [ ] **RED:** tests assert the approved values and move them from `PROVISIONAL_KEYS` to `APPROVED_KEYS` with the approval date/source; the approved `maxPreviewIndexRetainedBytesPerOwner` is recorded and the Stage 3 overlay checklist (Phase J) requires `VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER` set to exactly that value (boot still throws when `WRITE=true` and the budget is unset). **GREEN:** set values. If the Human rejects any value (including the budget), `D1_WRITER_ENABLE=BLOCKED`; return to design with the evidence (no silent relaxation).
 - [ ] **Commit:** `feat(idea1): adopt Human-approved preview-index limits`.
 
 ---
@@ -682,6 +744,8 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 | no secret logging | no `console.*` in D-1 modules; diagnostics regex scan (F.5) |
 | no new server-side MIME/name leakage | every captured request body/URL/header across upload, CAS, envelopes, reads contains no plaintext name, MIME of user file, nodeId, prefix, or kind |
 | main manifest untouched | after a full writer run, every main revision published is schema 1 and byte-equal in structure to the no-index path (no preview fields) |
+| `STORAGE_BUDGET_EXCEEDED => FAIL_CLOSED_FOR_PREVIEW_ONLY` | C.7 + E.4 + F.2 re-run: preview persistence rejected server-side; original upload/download, main manifest and existing index objects unaffected; nothing deleted |
+| `SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO` | D.3 scan + C.1 test re-run: declared superseded blobs stay present and counted |
 | old valid-head replay | test **documents** the accepted limitation: a server replaying an older valid head is accepted after a fresh unlock; within one page session an older generation is rejected; no durable anti-rollback claim |
 
 - [ ] **Negative controls:** for CONTENT_ID, owner check, source binding, and CAS expectation: temporarily break the invariant in a local uncommitted edit, observe the named test fail, restore, observe pass, prove clean tree (`git status --short` empty). Record in PR body. Never against Production.
@@ -724,6 +788,9 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 | C | writer-capable build with WRITE off → compatibility build (PR-B level) | identical behavior; zero index writes before and after |
 | D | writer-capable build after index creation → compatibility reader | existing index read-only and used for tiles; no writes; originals intact |
 | E | writer disabled in place (env `WRITE=false`, restart) | `/state` flag false; writer inert; existing index still read (READ on) or ignored (READ off); originals intact |
+| A′ | Stage 1 build (PR-A + PR-B) → previous accepted P1 runtime image, migration 012 retained | P1 image boots on the migrated DB; all P1 flows pass; no index exists to ignore |
+
+Baseline servers have no preview-index upload family or CAS route, so no index object can be created while rolled back; the storage budget is therefore not needed there.
 
 - [ ] **Never** a down-migration; no table, row, or blob is deleted in any case.
 - [ ] **Commit:** `test(idea1): prove preview-index rollback without down-migration`.
@@ -743,18 +810,20 @@ Every stage below runs from its own `deploy/idea1-preview-d1-stage<N>` branch an
 
 ### Stage 1 — Compatibility / read-only (writer OFF)
 
-- **Build:** `origin/main` containing PR-A (+ PR-B when merged). **DB:** `psql -v ON_ERROR_STOP=1 -f 012_vault_preview_index_v1.sql` as the migration superuser, after a verified backup.
-- **Overlay:** `VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE=true`, `VAULT_PREVIEW_INDEX_READ_ENABLED=true` (only once PR-B is in the build; otherwise `false`), `VAULT_PREVIEW_INDEX_WRITE_ENABLED=false`, all existing Vault flags unchanged, `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`.
-- **Gates:** **HG-S1** authorization → server acceptance (`/healthz`, `/state` flags, `GET /preview-index/head` → 404 for every account) → browser acceptance (ADMIN / EXISTING_USER / NEWLY_CREATED_USER, LAN and Remote where applicable: unlock, browse, tiles via original path, upload, download, rename, move, trash/restore, lock) → rollback proof (Case A: redeploy previous image with migration retained; flows pass; redeploy Stage 1).
+- **Build (binding):** `STAGE_1_BUILD = PR_A_MERGED + PR_B_MERGED` — an exact `origin/main` SHA that contains **both** PR-A and PR-B. PR-A alone is never deployed; there is no Production deployment between PR-A and PR-B. **DB:** `psql -v ON_ERROR_STOP=1 -f 012_vault_preview_index_v1.sql` as the migration superuser, after a verified backup.
+- **Overlay:** `VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE=true`, `VAULT_PREVIEW_INDEX_READ_ENABLED=true`, `VAULT_PREVIEW_INDEX_WRITE_ENABLED=false`, `VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER` unset (allowed only because WRITE is false), all existing Vault flags unchanged (including `VAULT_MEDIA_PREVIEW_ENABLED=true`, required by the READ chain), `VAULT_DESTRUCTIVE_PURGE_ENABLED=false`.
+- **Consistency:** with SCHEMA=true and READ=true, `GET /api/vault/tree/preview-index/head` reaches the store and returns **404 `PREVIEW_INDEX_NOT_FOUND`** when no index exists (503 `PREVIEW_INDEX_DISABLED` would mean READ is off — a Stage 1 configuration failure, not acceptance). The client reader treats 404 as `ABSENT` and tiles use the original path.
+- **Gates:** **HG-S1** authorization → server acceptance (`/healthz`; `/state` flags show `previewIndexSchemaAvailable=true, previewIndexReadEnabled=true, previewIndexWriteEnabled=false`; `GET /preview-index/head` → **404** for every test account; preview-index write routes → 503) → browser acceptance (ADMIN / EXISTING_USER / NEWLY_CREATED_USER, LAN and Remote where applicable: unlock, browse, tiles via original path after one `head` 404, upload, download, rename, move, trash/restore, lock) → rollback proof (Case A′: redeploy the **previous accepted P1 runtime image** with migration 012 retained; flows pass; redeploy Stage 1).
+- **Rollback target:** previous accepted P1 runtime image; migration 012 retained; no down-migration.
 
 ### Stage 2 — Writer-capable build, writer still OFF
 
-- **Build:** `origin/main` containing PR-C, PR-D, PR-E. Overlay identical to Stage 1 with `WRITE=false`.
+- **Build:** `origin/main` containing PR-C, PR-D, PR-E. Overlay identical to Stage 1 with `WRITE=false` (budget may remain unset while WRITE is false).
 - **Gates:** **HG-S2** → negative-control proof in Production (request/audit log shows zero `/preview-index/uploads*` and `POST /preview-index/head`; zero `INDEX_*` rows: `SELECT count(*) FROM vault_tree_blob_state WHERE lifecycle IN ('INDEX_STAGED','INDEX_MANAGED')` = 0 and `vault_preview_index_heads` empty) → security gate review accepted (H.1 evidence) → capacity gate accepted (G.2 + G.3) → browser acceptance as Stage 1 → rollback proof (Case C).
 
 ### Stage 3 — Enable writer (Human authorization required)
 
-- **Preconditions:** `IDX_SIZE_GATE=PASS` with approved limits (HG-G), `SECURITY_GATES=PASS` (HG-H), Stage 2 accepted, rollback Cases B/D/E rehearsed on a non-Production replica.
+- **Preconditions:** `IDX_SIZE_GATE=PASS` with approved limits **and an explicitly approved retained-storage budget** (HG-G, codified by G.3), `SECURITY_GATES=PASS` (HG-H), Stage 2 accepted, rollback Cases B/D/E rehearsed on a non-Production replica. The Stage 3 overlay sets `VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER` to the approved value together with `WRITE=true` (boot refuses WRITE without it).
 - **Action:** **HG-S3** — the Human Owner alone sets `VAULT_PREVIEW_INDEX_WRITE_ENABLED=true` via a new overlay and restarts Drive.
 
 ### Stage 4 — Human functional acceptance
@@ -773,7 +842,7 @@ LOCALLY_VERIFIED=YES               full-suite name diff 0 new, PG suites, Chrome
 INDEPENDENT_REVIEW=PASS            per PR, plus security review of H.1 (TEST PASS ≠ SECURITY REVIEW PASS)
 COMPATIBILITY_DEPLOYED=YES         Stage 1 accepted
 WRITER_CAPABILITY_DEPLOYED_OFF=YES Stage 2 accepted with zero-write negative control
-IDX_SIZE_GATE=PASS                 G.2 evidence + G.3 Human-approved limits
+IDX_SIZE_GATE=PASS                 G.2 evidence + G.3 Human-approved limits and retained-storage budget
 SECURITY_GATES=PASS                H.1–H.3 accepted
 HUMAN_WRITER_ENABLE=APPROVED       HG-S3
 PRODUCTION_WRITER_ENABLED=YES      Stage 3 executed by the Human Owner
@@ -783,17 +852,17 @@ FINAL_RECEIPT=YES                  one receipt per task/PR; final D-1 closeout r
 MERGED=YES
 ```
 
-After D-1 closes: `NEXT=P3_MOTION` → P4 video proxy → P5 PDF/Office → full Unified Preview acceptance → `UNIFIED_PREVIEW_WORKSTREAM=CLOSED`. Each later phase needs its own re-plan against the D-1 index (the original P3–P5 plans assumed manifest-embedded previews and must be revised before execution).
+`EXISTING_P3_P5_PLANS=STALE_FOR_D1_ARCHITECTURE`: the existing P3, P4 and P5 plans assume manifest-embedded previews and must not be executed. No P3/P4/P5 runtime work belongs to D-1. After `D1_THUMB_POSTER=CLOSED`: `NEXT=P3_MOTION` — first re-plan P3 against the D-1 index; then reconcile/re-plan P4 (video proxy); then reconcile/re-plan P5 (PDF/Office); each re-plan is its own Human-reviewed task → full Unified Preview acceptance → `UNIFIED_PREVIEW_WORKSTREAM=CLOSED`.
 
 ## 5. Recommended implementation PR split
 
 | PR | Changes | Does NOT change | Independently deployable | Production deploy required | Rollback target | Human gate | Receipt boundary |
 |---|---|---|---|---|---|---|---|
-| **PR-A** compat/storage/read-only API (A.0–A.6) | migration 012, schema.sql, flags, read store, `GET head/envelopes/blobs`, inventory exclusion, client read wrappers, `.env.example` docs | main manifest, main CAS, upload families, any UI, any write path | Yes | Yes — Stage 1 (migration + build, writer OFF) | previous image; migration retained (no down-migration) | HG-A merge; HG-S1 deploy | one receipt at PR-A closeout |
-| **PR-B** codec + reader (B.1–B.10) | canonical/validator exports, constants, routing, codec, object seal/open, reader, derivative read, derivative-first tiles behind READ flag, codec size probe | server, DB, any write path | Yes (reads only; with no index, behavior = baseline) | Optional; normally rides in Stage 1 or Stage 2 | PR-A build, or `READ=false` | HG-B merge | one receipt |
-| **PR-C** CAS + lifecycle + orphan safety (C.1–C.6, D.1–D.4) | CAS store/route, `previewIndex` upload mode, client CAS, merge library, classification, recovery hardening, lifecycle pins, reachability report | writer, generation, UI tiles, flags defaults | Yes (all writes 503 with WRITE off) | Rides in Stage 2 | PR-B build; WRITE stays off | HG-C merge (integration review: DB/CAS) | one receipt |
-| **PR-D** writer OFF + thumb/poster (E.1–E.3, F.1–F.5) | writer, generation, upload-flow hook, backfill, lock cleanup, diagnostics | server, DB, flag defaults | Yes (inert while WRITE off) | Rides in Stage 2 | PR-C build or `WRITE=false` | HG-D merge | one receipt |
-| **PR-E** evidence + enablement prep (G.1–G.3, H.1–H.3, I.1–I.3) | measurement harnesses, security/neutrality/compat/rollback suites, approved-limit codification after HG-G | product behavior (except G.3 limit values after approval) | Yes (tests/scripts; G.3 values) | Rides in Stage 2 | PR-D build | HG-G limits; HG-H security; then HG-S2/S3/S4 via deploy branches | one receipt |
+| **PR-A** compat/storage/read-only API (A.0–A.6) | migration 012, schema.sql, flags (incl. budget config, fail-closed when WRITE without budget), read/accounting store (`getRetainedIndexBytes`), `GET head/envelopes/blobs`, inventory exclusion, client read wrappers, `.env.example` docs | main manifest, main CAS, upload families, any UI, any write path, budget enforcement | Reviewable/mergeable alone; **not deployable alone** | No — never deployed before PR-B is merged | n/a (not deployed alone) | HG-A merge | one receipt at PR-A closeout |
+| **PR-B** codec + reader (B.1–B.10) | canonical/validator exports, constants, routing, codec, object seal/open, reader, derivative read, derivative-first tiles behind READ flag, codec size probe | server, DB, any write path | Together with PR-A only | **Yes — Stage 1 = PR-A + PR-B** (migration 012, SCHEMA=true, READ=true, WRITE=false, PURGE=false) | previous accepted P1 runtime image, migration 012 retained | HG-B merge; HG-S1 deploy | one receipt |
+| **PR-C** CAS + lifecycle + orphan safety + storage budget (C.1–C.7, D.1–D.4) | CAS store/route (advisory superseded refs), `previewIndex` upload mode, **server-enforced per-owner retained-storage budget**, client CAS, merge library, classification, recovery hardening, lifecycle pins, reachability report | writer, generation, UI tiles, flag defaults, budget value | Yes (all writes 503 with WRITE off) | Rides in Stage 2 | Stage 1 build; WRITE stays off | HG-C merge (integration review: DB/CAS/storage budget) | one receipt |
+| **PR-D** writer OFF + thumb/poster (E.1–E.4, F.1–F.5) | writer, budget-exhaustion circuit breaker (fail-soft), generation, upload-flow hook, backfill, lock cleanup, diagnostics | server, DB, flag defaults | Yes (inert while WRITE off) | Rides in Stage 2 | PR-C build or `WRITE=false` | HG-D merge | one receipt |
+| **PR-E** evidence + enablement prep (G.1–G.3, H.1–H.3, I.1–I.3) | measurement harnesses (incl. retained-budget inputs), security/neutrality/compat/rollback suites, approved-limit and approved-budget codification after HG-G | product behavior (except G.3 values after approval) | Yes (tests/scripts; G.3 values) | Rides in Stage 2 | PR-D build | HG-G limits + budget; HG-H security; then HG-S2/S3/S4 via deploy branches | one receipt |
 
 Stacking: PR-B may stack on PR-A; PR-C on PR-B; each must be rebased by merge (never rebase/force-push) onto `origin/main` after its dependency merges, per `AGENTS.md` §4.
 
@@ -802,23 +871,26 @@ Stacking: PR-B may stack on PR-A; PR-C on PR-B; each must be rebased by merge (n
 | Gate | Decides | Blocks |
 |---|---|---|
 | HG-0 | approve/merge this plan; separately authorize implementation | every task |
-| HG-A / HG-B / HG-C / HG-D | review + merge each PR (HG-C needs integration review: DB/CAS/lifecycle) | the next dependent PR |
-| HG-S1 | Stage 1 migration + compatibility deploy | Stage 2 |
-| HG-G | accept/reject measured IDX-SIZE limits and budgets | G.3, Stage 3 |
+| HG-A / HG-B / HG-C / HG-D | review + merge each PR (HG-C needs integration review: DB/CAS/lifecycle/storage budget); merging PR-A authorizes no deployment | the next dependent PR |
+| HG-S1 | Stage 1 migration + compatibility **reader** deploy of PR-A + PR-B (never PR-A alone) | Stage 2 |
+| HG-G | accept/reject measured IDX-SIZE limits, latency/audit budgets, and an **explicit `maxPreviewIndexRetainedBytesPerOwner` value** | G.3, Stage 3 |
 | HG-H | security gate review (independent of test pass) | Stage 3 |
 | HG-S2 | Stage 2 writer-capable deploy with WRITE off | Stage 3 |
 | HG-S3 | enable `VAULT_PREVIEW_INDEX_WRITE_ENABLED` in Production | Stage 4 |
 | HG-S4 | functional acceptance | D-1 closeout |
 | HG-ROLLBACK | any Production rollback/flag-off action | — |
-| HG-GC (future, outside D-1) | any physical deletion of index/derivative blobs | — (forbidden in D-1) |
+| HG-GC (future, outside D-1) | any physical deletion of index/derivative blobs; requires a separate architecture + plan that independently proves reachability/retention safety; client-declared superseded refs are never sufficient authority | — (forbidden in D-1) |
+
+Writer enablement (HG-S3) is impossible before HG-G **and** HG-H: Stage 3 preconditions list both, and the boot check refuses `WRITE=true` without the approved budget value that only G.3 (after HG-G) records.
 
 ## 7. Risks surfaced by source inspection (for Human awareness)
 
 1. **Inventory growth.** `GET /api/vault` returns every envelope on unlock; retained index/derivative blobs would grow it without bound. Mitigated by server-side `INDEX_*` exclusion (A.4) and the envelope batch route. After a rollback to a baseline server (Case B) the exclusion disappears and the payload grows by the retained index size — measured in G.1, documented in I.2.
-2. **Retained copy-on-write storage.** Every index write rewrites a whole shard and the root; with destructive GC forbidden, superseded shard bytes accumulate. G.1 measures "superseded bytes per written entry"; batching (`maxEntriesPerCas`) limits but does not remove it. The Human storage budget at HG-G decides whether D-1 can enable the writer before a future GC gate.
-3. **Lifecycle CHECK widening** is the only non-`CREATE` DDL; it widens a constraint and rewrites no row. Baseline servers tolerate the new values (they filter by `UNREFERENCED` and attach only from `UNREFERENCED`), proven in I.2.
-4. **Audit volume.** Each derivative/shard read adds a `VAULT_V2_READ` row (chunk 0). Measured in H.3; no semantic change.
-5. **Request-pattern leakage** (accepted): head/envelope/shard/derivative request co-occurrence and CAS attach lists reveal index activity and likely relationships between opaque ids.
+2. **Retained copy-on-write storage.** Every index write rewrites a whole shard and the root; with destructive GC forbidden, superseded shard bytes (and lost-CAS staged blobs) accumulate. Measurement alone does not bound this, so D-1 adds a **server-enforced per-owner retained-storage budget** (C.7) counting every committed `INDEX_STAGED` + `INDEX_MANAGED` byte; at the budget, new preview persistence is rejected fail-closed and tiles fall back to originals (E.4). Batching (`maxEntriesPerCas`) slows growth. The budget value is PROVISIONAL until HG-G; reaching it is expected to become common for heavy users until a future, separately gated GC exists. Client-declared superseded refs are advisory only (`SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO`) and do not reduce the counted bytes.
+3. **Budget check cost.** The commit-time budget check sums retained bytes under the owner lock; its PG cost at 10k-scale retained blobs is measured in G.1. If too slow, a maintained per-owner counter is a later design change requiring its own review (not assumed here).
+4. **Lifecycle CHECK widening** is the only non-`CREATE` DDL; it widens a constraint and rewrites no row. Baseline servers tolerate the new values (they filter by `UNREFERENCED` and attach only from `UNREFERENCED`), proven in I.2.
+5. **Audit volume.** Each derivative/shard read adds a `VAULT_V2_READ` row (chunk 0). Measured in H.3; no semantic change.
+6. **Request-pattern leakage** (accepted): head/envelope/shard/derivative request co-occurrence and CAS attach lists reveal index activity and likely relationships between opaque ids.
 
 ## 8. Self-review (writing-plans checklist)
 
@@ -826,11 +898,26 @@ Stacking: PR-B may stack on PR-A; PR-C on PR-B; each must be rebased by merge (n
 2. **Step granularity:** every runtime task is one module or one integration seam with its own RED/GREEN/commit.
 3. **Interface consistency:** names in §4 are the only names used in tasks (`getIndexHead`, `casIndexHead`, `PREVIEW_INDEX_LIFECYCLES`, `previewIndexWriteEnabled`, `openIndexObject`, `validatePreviewEntry`, …); error codes are defined once in §4.
 4. **Review focus:** DB/CAS (HG-C), security (HG-H), capacity (HG-G) and every Production action (HG-S*) have named gates.
-5. **Proportionality:** five PRs, each independently reviewable and rollbackable; measurement starts early (B.10) to avoid building a writer on a failing shape.
-6. **Every Human condition mapped:** 1–2 → A.6/H.1; 3 → A.3/C.1; 4 → B.6; 5–7 → B.6/H.1/F.1 (client-only generation); 8 → F.4; 9–11 → B.7–B.9/F.2/H.1; 12 → A.1/E.1/E.3; 13–14 → G.1–G.3; 15–17 → D.3/D.4/HG-GC; 18–19 → §7, H.1; 20 → out of scope (future project); 21 → A.6 scan; 22 → A.6 scan, §0.
+5. **Proportionality:** five PRs, each independently reviewable; PR-A + PR-B deploy together as Stage 1; measurement starts early (B.10) to avoid building a writer on a failing shape.
+6. **Every Human condition mapped:** 1–2 → A.6/H.1; 3 → A.3/C.1; 4 → B.6; 5–7 → B.6/H.1/F.1 (client-only generation); 8 → F.4; 9–11 → B.7–B.9/F.2/H.1/E.4; 12 → A.1/E.1/E.3; 13–14 → G.1–G.3; 15–17 → D.3/D.4/C.7/HG-GC; 18–19 → §7, H.1; 20 → out of scope (future project); 21 → A.6 scan; 22 → A.6 scan, §0.
 7. **Destructive/Production steps gated:** only Phase J touches Production, each stage by HG-S*; no task deletes data; migration 012 is applied only by the Human in Stage 1.
-8. **No implicit writer enable:** flag defaults false in code and tests; only HG-S3 sets it; E.3 proves inertness; G.2 stops.
+8. **No implicit writer enable:** flag defaults false in code and tests; only HG-S3 sets it; E.3 proves inertness; G.2 stops; boot refuses WRITE without an approved budget.
 9. **No main-manifest preview arrays:** A.6/H.1 assert schema-1 writes and no preview fields; `setNodePreviews`/attach-with-previews forbidden by scan.
 10. **No `VAULT_MANIFEST_V2_UPGRADE` dependency:** never read or set; A.6 scan.
 
-Task count: 44 (A 7, B 10, C 6, D 4, E 3, F 5, G 3, H 3, I 3 + Phase J stages and Phase K criteria, which are gates, not code tasks).
+**Review-revision checks (PR #280 review, 2026-10-02):**
+
+| # | Check | Result |
+|---|---|---|
+| R1 | Persistent preview-index storage is bounded without destructive GC | PASS — C.7 server-enforced per-owner budget over committed `INDEX_STAGED` + `INDEX_MANAGED` ciphertext at upload create (advisory) and commit (authoritative, under owner lock); lost-CAS and superseded blobs stay counted; no deletion path exists (D.3) |
+| R2 | Stage 1 cannot occur before PR-A + PR-B | PASS — §0 `STAGE_1_BUILD`, Phase A header, A.6/B closeouts, §5 table (PR-A "not deployable alone"), Stage 1 build rule, HG-S1 |
+| R3 | READ=true / WRITE=false Stage 1 acceptance is consistent | PASS — Stage 1 overlay SCHEMA=true, READ=true (with existing `VAULT_MEDIA_PREVIEW_ENABLED=true` satisfying the chain), WRITE=false, PURGE=false; acceptance expects `GET head` 404 and treats 503 as misconfiguration |
+| R4 | Client-declared superseded refs never authorize deletion | PASS — §0, §4.1 CAS contract, C.1 store note + test, D.3 source scan, D.4 retention, §6 HG-GC, §7 risk 2, H.1 row |
+| R5 | Budget exhaustion never affects original file success | PASS — C.7 (tree upload, main attach, chunk download unaffected), E.4 (writer fail-soft, latched breaker), F.2 (original upload success under exhausted budget), H.1 row |
+| R6 | PostgreSQL concurrent commits cannot exceed the approved cap | PASS — C.7 commit check runs in the commit transaction after `vault_tree_state … FOR UPDATE`; PG test: 10 parallel commits at `max − S` → exactly one succeeds, final ≤ max |
+| R7 | No writer enable before HG-G and HG-H | PASS — Stage 3 preconditions; §6 note; boot refuses WRITE without the HG-G budget recorded by G.3 |
+| R8 | No `VAULT_MANIFEST_V2_UPGRADE` dependency | PASS — §0, A.6 scan |
+| R9 | No main-manifest preview arrays | PASS — §0, A.6, H.1 |
+| R10 | P3–P5 remain blocked pending re-plan | PASS — §0 `EXISTING_P3_P5_PLANS=STALE_FOR_D1_ARCHITECTURE`; Phase K sequence P3 re-plan → P4 reconcile → P5 reconcile; no P3–P5 task in this plan |
+
+Task count: 46 (A 7, B 10, C 7, D 4, E 4, F 5, G 3, H 3, I 3 + Phase J stages and Phase K criteria, which are gates, not code tasks). Revision added C.7 (server budget enforcement, PR-C) and E.4 (writer fail-soft on budget exhaustion, PR-D); budget config/accounting foundations extend A.1/A.3 (PR-A); budget measurement and approval extend G.1–G.3 (PR-E, HG-G).
