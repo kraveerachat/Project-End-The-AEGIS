@@ -49,6 +49,7 @@ export function detectionNodeFromRow(row) {
     publicKey: row.public_key,
     publicKeyFingerprint: row.public_key_fingerprint,
     keyVersion: row.key_version,
+    ingestAuthMode: row.ingest_auth_mode,
     active: row.active,
   }
 }
@@ -90,7 +91,7 @@ export function accountAliasFromRow(row) {
 export async function getDetectionNode(nodeId) {
   if (!pool) return null
   const { rows } = await pool.query(
-    `SELECT node_id, camera_id, public_key, public_key_fingerprint, key_version, active
+    `SELECT node_id, camera_id, public_key, public_key_fingerprint, key_version, ingest_auth_mode, active
        FROM detection_nodes WHERE node_id = $1 LIMIT 1`,
     [nodeId],
   )
@@ -106,7 +107,7 @@ export async function getActiveDetectionNode(nodeId) {
 export async function getDetectionNodeForCamera(cameraId) {
   if (!pool) return null
   const { rows } = await pool.query(
-    `SELECT node_id, camera_id, public_key, public_key_fingerprint, key_version, active
+    `SELECT node_id, camera_id, public_key, public_key_fingerprint, key_version, ingest_auth_mode, active
        FROM detection_nodes WHERE camera_id = $1 LIMIT 2`,
     [cameraId],
   )

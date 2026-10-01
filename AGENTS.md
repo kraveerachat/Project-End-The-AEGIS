@@ -199,7 +199,10 @@ The receipt must record:
 - honest limitations.
 
 Receipts are **append-by-new-file**. Never edit, rename, or replace another
-task's receipt. Do not append new task entries to frozen legacy `log.md`.
+task's receipt. A stacked PR may carry immutable receipts introduced by dependency
+history; list each one explicitly under `## Inherited task receipts`. Inherited
+receipts remain evidence for their original branch and do not count as the current
+task's one final receipt. Do not append new task entries to frozen legacy `log.md`.
 Meaningful sessions and checkpoint commits within the same task are tracked in
 the owner-maintained canonical status note under the session workflow; they do
 not create additional receipts.
@@ -254,8 +257,10 @@ The PR must include:
 - correct `area`, `owner`, and `integration-review` metadata;
 - concise summary and observable behavior;
 - exact verification commands/results;
-- the one new receipt path, or `Pending — task still Draft/in progress` before
-  final handoff;
+- the one current-task receipt path, or `Pending — task still Draft/in progress`
+  before final handoff;
+- any dependency receipts visible in the PR diff under `## Inherited task receipts`,
+  without editing or re-owning those historical receipts;
 - canonical notes updated;
 - exact shared/cross-scope paths and reasons;
 - migration, rollout, rollback, known limitations, and dependencies where relevant;
@@ -295,7 +300,8 @@ A task is ready for merge only when all applicable items are true:
 - [ ] no unrelated file, secret, or local artifact is staged;
 - [ ] affected tests/builds/integration checks ran;
 - [ ] claims match evidence and limitations are explicit;
-- [ ] exactly one new correctly owned receipt exists;
+- [ ] exactly one current-task correctly owned receipt exists, and any inherited
+      dependency receipts are explicitly declared without modification;
 - [ ] canonical updates obey functional ownership;
 - [ ] PR policy and required CI checks pass;
 - [ ] functional and integration reviewers have approved where required;

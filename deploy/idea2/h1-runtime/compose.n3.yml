@@ -1,0 +1,21 @@
+# N3-only overlay. Never pass this file to the unchanged N1 command.
+# Owner-provided paths are external to Git; validate_n2_n3.py checks the
+# rendered result and certificate material before any separately approved start.
+services:
+  gateway:
+    profiles: ["n3"]
+    image: aegis-h1-lab-gateway:${H1_GATEWAY_SOURCE_SHA:?set reviewed 40-character gateway source commit}
+    ports:
+      - target: 443
+        published: ${H1_GATEWAY_HTTPS_PORT:?set reviewed candidate HTTPS port}
+        host_ip: ${H1_GATEWAY_BIND_IPV4:?set reviewed explicit IPv4 bind}
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: ${H1_TLS_CERT_PATH:?set absolute reviewed candidate leaf certificate path}
+        target: /run/aegis-h1-tls/tls.crt
+        read_only: true
+      - type: bind
+        source: ${H1_TLS_KEY_PATH:?set absolute reviewed candidate leaf private key path}
+        target: /run/aegis-h1-tls/tls.key
+        read_only: true

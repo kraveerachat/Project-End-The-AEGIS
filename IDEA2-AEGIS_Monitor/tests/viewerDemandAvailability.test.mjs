@@ -6,7 +6,7 @@ test('fresh idle viewer-demand camera remains stream-requestable', () => {
   assert.deepEqual(
     heartbeatAvailability({
       ageMs: 5_000,
-      streamUrl: 'http://172.18.0.1:18078/stream.mjpg',
+      streamUrl: 'http://127.0.0.1:8077/stream.mjpg',
       cameraConnected: false,
     }),
     {
@@ -21,7 +21,7 @@ test('degraded heartbeat can reconnect but does not pretend the camera is open',
   assert.deepEqual(
     heartbeatAvailability({
       ageMs: 30_000,
-      streamUrl: 'http://172.18.0.1:18078/stream.mjpg',
+      streamUrl: 'http://127.0.0.1:8077/stream.mjpg',
       cameraConnected: false,
     }),
     {
@@ -37,7 +37,7 @@ test('missing endpoint and stale heartbeat remain unavailable', () => {
   assert.deepEqual(
     heartbeatAvailability({
       ageMs: 45_001,
-      streamUrl: 'http://172.18.0.1:18078/stream.mjpg',
+      streamUrl: 'http://127.0.0.1:8077/stream.mjpg',
       cameraConnected: true,
     }),
     {

@@ -155,7 +155,7 @@ export async function streamSourceForPhysicalCamera(physicalCameraId) {
   if (!usingPostgres) return null
   if (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1) return null
   const { rows } = await query(
-    `SELECT stream_url, camera_connected,
+    `SELECT node_id, stream_url, camera_connected,
             EXTRACT(EPOCH FROM (now() - last_seen_at)) * 1000 AS age_ms
        FROM physical_camera_heartbeat WHERE physical_camera_id = $1`,
     [physicalCameraId],
@@ -164,6 +164,7 @@ export async function streamSourceForPhysicalCamera(physicalCameraId) {
   const row = rows[0]
   if (!row.stream_url) return null
   return {
+    nodeId: row.node_id,
     url: row.stream_url,
     ageMs: Math.round(Number(row.age_ms)),
     cameraConnected: row.camera_connected,
@@ -209,15 +210,100 @@ function safeStreamUrl(raw) {
   return u.toString()
 }
 
-/** เขียน heartbeat หนึ่งครั้งจาก Detection Engine (UPSERT — เก็บค่าล่าสุดเท่านั้น) */
-export async function recordHeartbeat(input) {
-  if (!usingPostgres) return { error: 'database unavailable', status: 503 }
-  const cameraId = String(input?.cameraId ?? '').trim()
-  if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
-  if (!(await cameraExists(cameraId))) return { error: `unknown camera ${cameraId}`, status: 400 }
-
+/** Build one bounded heartbeat write without consulting mutable telemetry authority. */
+export function prepareHeartbeatWrite(input, ingestAuth = { kind: 'legacy_unverified' }) {
   const numOrNull = (v) => (Number.isFinite(Number(v)) ? Number(v) : null)
   const intOrZero = (v) => (Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0)
+  const values = {
+    cameraConnected: Boolean(input?.cameraConnected),
+    cameraReconnects: intOrZero(input?.cameraReconnects),
+    captureFps: numOrNull(input?.captureFps),
+    detectFps: numOrNull(input?.detectFps),
+    latencyMs: numOrNull(input?.latencyMs),
+    latencyMsAvg: numOrNull(input?.latencyMsAvg),
+    uptimeS: numOrNull(input?.uptimeS),
+    framesCaptured: numOrNull(input?.framesCaptured),
+    segmentsWritten: intOrZero(input?.segmentsWritten),
+    nasLastStatus: input?.nasLastStatus != null ? String(input.nasLastStatus).slice(0, 32) : null,
+    nasPending: intOrZero(input?.nasPending),
+    streamUrl: safeStreamUrl(input?.streamUrl),
+  }
+
+  const verifiedNode = ingestAuth?.kind === 'ed25519' ? ingestAuth.verifiedNode : null
+  if (ingestAuth?.kind === 'ed25519') {
+    const nodeId = String(verifiedNode?.nodeId ?? '').trim()
+    const physicalCameraId = Number(verifiedNode?.physicalCameraId)
+    if (!nodeId || nodeId.length > 64 || !Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1) {
+      return { error: 'invalid physical provenance', status: 401 }
+    }
+    return { kind: 'physical', nodeId, physicalCameraId, ...values }
+  }
+
+  const cameraId = String(input?.cameraId ?? '').trim()
+  if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
+  return {
+    kind: 'legacy',
+    cameraId,
+    nodeId: input?.nodeId != null ? String(input.nodeId).slice(0, 120) : null,
+    ...values,
+  }
+}
+
+/** เขียน heartbeat หนึ่งครั้งจาก Detection Engine (UPSERT — เก็บค่าล่าสุดเท่านั้น) */
+export async function recordHeartbeat(input, ingestAuth = { kind: 'legacy_unverified' }) {
+  if (!usingPostgres) return { error: 'database unavailable', status: 503 }
+  const write = prepareHeartbeatWrite(input, ingestAuth)
+  if (write.error) return write
+
+  if (write.kind === 'physical') {
+    const { rows } = await query(
+      `INSERT INTO physical_camera_heartbeat (
+          physical_camera_id, node_id, last_seen_at, camera_connected, camera_reconnects,
+          capture_fps, detect_fps, latency_ms, latency_ms_avg, uptime_s,
+          frames_captured, segments_written, nas_last_status, nas_pending, stream_url)
+       VALUES ($1, $2, now(), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       ON CONFLICT (physical_camera_id) DO UPDATE SET
+          node_id = EXCLUDED.node_id,
+          last_seen_at = now(),
+          camera_connected = EXCLUDED.camera_connected,
+          camera_reconnects = EXCLUDED.camera_reconnects,
+          capture_fps = EXCLUDED.capture_fps,
+          detect_fps = EXCLUDED.detect_fps,
+          latency_ms = EXCLUDED.latency_ms,
+          latency_ms_avg = EXCLUDED.latency_ms_avg,
+          uptime_s = EXCLUDED.uptime_s,
+          frames_captured = EXCLUDED.frames_captured,
+          segments_written = EXCLUDED.segments_written,
+          nas_last_status = EXCLUDED.nas_last_status,
+          nas_pending = EXCLUDED.nas_pending,
+          stream_url = EXCLUDED.stream_url
+       RETURNING EXTRACT(EPOCH FROM last_seen_at) * 1000 AS last_seen_ms`,
+      [
+        write.physicalCameraId,
+        write.nodeId,
+        write.cameraConnected,
+        write.cameraReconnects,
+        write.captureFps,
+        write.detectFps,
+        write.latencyMs,
+        write.latencyMsAvg,
+        write.uptimeS,
+        write.framesCaptured,
+        write.segmentsWritten,
+        write.nasLastStatus,
+        write.nasPending,
+        write.streamUrl,
+      ],
+    )
+    return {
+      physicalCameraId: write.physicalCameraId,
+      lastSeenAt: Math.round(Number(rows[0].last_seen_ms)),
+    }
+  }
+
+  if (!(await cameraExists(write.cameraId))) {
+    return { error: `unknown camera ${write.cameraId}`, status: 400 }
+  }
 
   const { rows } = await query(
     `INSERT INTO camera_heartbeat (
@@ -242,25 +328,25 @@ export async function recordHeartbeat(input) {
         stream_url = EXCLUDED.stream_url
      RETURNING EXTRACT(EPOCH FROM last_seen_at) * 1000 AS last_seen_ms`,
     [
-      cameraId,
-      input?.nodeId != null ? String(input.nodeId).slice(0, 120) : null,
-      Boolean(input?.cameraConnected),
-      intOrZero(input?.cameraReconnects),
-      numOrNull(input?.captureFps),
-      numOrNull(input?.detectFps),
-      numOrNull(input?.latencyMs),
-      numOrNull(input?.latencyMsAvg),
-      numOrNull(input?.uptimeS),
-      numOrNull(input?.framesCaptured),
-      intOrZero(input?.segmentsWritten),
-      input?.nasLastStatus != null ? String(input.nasLastStatus).slice(0, 32) : null,
-      intOrZero(input?.nasPending),
+      write.cameraId,
+      write.nodeId,
+      write.cameraConnected,
+      write.cameraReconnects,
+      write.captureFps,
+      write.detectFps,
+      write.latencyMs,
+      write.latencyMsAvg,
+      write.uptimeS,
+      write.framesCaptured,
+      write.segmentsWritten,
+      write.nasLastStatus,
+      write.nasPending,
       // ยอมรับเฉพาะ http/https ที่ parse ได้ — กัน SSRF ผ่านค่าที่ engine ส่งมา
       // (engine ผ่าน API key แล้วก็จริง แต่ค่านี้กลายเป็นปลายทางที่ proxy จะยิงต่อ)
-      safeStreamUrl(input?.streamUrl),
+      write.streamUrl,
     ],
   )
-  return { cameraId, lastSeenAt: Math.round(Number(rows[0].last_seen_ms)) }
+  return { cameraId: write.cameraId, lastSeenAt: Math.round(Number(rows[0].last_seen_ms)) }
 }
 
 // ════ Detection Engine ingest — เขียนตารางจริง (ผ่าน POST /internal/*) ═══════
@@ -278,7 +364,7 @@ async function cameraExists(id) {
  *  เฟรมที่มีหลายคน → หลายแถว = มองเห็น tailgating ได้ (ตรงกับ schema.sql)
  *  รับ entities จาก engine (status/name/confidence) — เก็บเฉพาะ Authorized/Unknown
  *  (NoFace ไม่ลงตาราง; result CHECK อนุญาตแค่สองค่านี้) */
-export async function insertDetection(input) {
+export async function insertDetection(input, ingestAuth = { kind: 'legacy_unverified' }) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
   const cameraId = String(input?.cameraId ?? '').trim()
   if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
@@ -303,13 +389,24 @@ export async function insertDetection(input) {
   if (valid.length === 0) return { error: 'no recognizable faces in payload', status: 400 }
 
   const faces = valid.length
+  const physicalCameraId = ingestAuth?.kind === 'ed25519'
+    ? Number(ingestAuth.verifiedNode?.physicalCameraId)
+    : null
+  if (ingestAuth?.kind === 'ed25519' && (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1)) {
+    return { error: 'invalid physical provenance', status: 401 }
+  }
   await withTransaction(async (client) => {
     for (const e of valid) {
       await client.query(
-        `INSERT INTO detections (frame_id, at, camera_id, faces_in_frame, result, matched_name, confidence)
-         VALUES ($1, COALESCE($2::timestamptz, now()), $3, $4, $5, $6, $7)`,
+        `INSERT INTO detections (
+           frame_id, at, camera_id, physical_camera_id,
+           faces_in_frame, result, matched_name, confidence)
+         VALUES ($1, COALESCE($2::timestamptz, now()), $3, $4, $5, $6, $7, $8)`,
         // matched_name เป็น NULL เสมอเมื่อ Unknown (ไม่มีตัวตนให้จับคู่)
-        [frameId, atIso, cameraId, faces, e.result, e.result === 'Unknown' ? null : e.name, e.confidence],
+        [
+          frameId, atIso, cameraId, physicalCameraId, faces,
+          e.result, e.result === 'Unknown' ? null : e.name, e.confidence,
+        ],
       )
     }
   })
@@ -319,7 +416,7 @@ export async function insertDetection(input) {
 /** เขียน clip หนึ่งช่วง — เรียกโดย nas_sync "หลัง" ยืนยัน sha256 บน NAS สำเร็จเท่านั้น
  *  ⚠️ stored_on_nas ต้องเป็น TRUE ก็ต่อเมื่อ verify ผ่านแล้ว — ห้ามตั้งแบบ optimistic
  *  (ผู้เรียกเดียวคือ nas_sync._finish_ok ซึ่งอยู่หลังด่าน verify) */
-export async function insertClip(input) {
+export async function insertClip(input, ingestAuth = { kind: 'legacy_unverified' }) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
   const cameraId = String(input?.cameraId ?? '').trim()
   if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
@@ -331,18 +428,25 @@ export async function insertClip(input) {
   if (!started || Number.isNaN(started.getTime())) return { error: 'invalid started_at', status: 400 }
   const durationSec = Number.isFinite(Number(input?.durationSec)) ? Math.max(0, Math.round(Number(input.durationSec))) : 600
   const storedOnNas = Boolean(input?.storedOnNas)
+  const physicalCameraId = ingestAuth?.kind === 'ed25519'
+    ? Number(ingestAuth.verifiedNode?.physicalCameraId)
+    : null
+  if (ingestAuth?.kind === 'ed25519' && (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1)) {
+    return { error: 'invalid physical provenance', status: 401 }
+  }
 
   const { rows } = await query(
-    `INSERT INTO clips (camera_id, started_at, duration_sec, file_path, stored_on_nas)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [cameraId, started.toISOString(), durationSec, filePath.slice(0, 1024), storedOnNas],
+    `INSERT INTO clips (
+       camera_id, physical_camera_id, started_at, duration_sec, file_path, stored_on_nas)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [cameraId, physicalCameraId, started.toISOString(), durationSec, filePath.slice(0, 1024), storedOnNas],
   )
   return { id: String(rows[0].id) }
 }
 
 /** เขียน alert หนึ่งรายการ — เรียกโดย alert_manager "หลัง" พยายามส่ง Telegram
  *  (สำเร็จหรือไม่ก็ persist เสมอ — บันทึกไม่หายแม้ Telegram ล่ม) */
-export async function insertAlert(input) {
+export async function insertAlert(input, ingestAuth = { kind: 'legacy_unverified' }) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
   const cameraId = String(input?.cameraId ?? '').trim()
   if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
@@ -355,11 +459,19 @@ export async function insertAlert(input) {
   const title = String(input?.title ?? 'Unknown person detected').slice(0, 200)
   const snapshotPath = input?.snapshotPath ? String(input.snapshotPath).slice(0, 1024) : null
   const telegramSent = Boolean(input?.telegramSent)
+  const physicalCameraId = ingestAuth?.kind === 'ed25519'
+    ? Number(ingestAuth.verifiedNode?.physicalCameraId)
+    : null
+  if (ingestAuth?.kind === 'ed25519' && (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1)) {
+    return { error: 'invalid physical provenance', status: 401 }
+  }
 
   const { rows } = await query(
-    `INSERT INTO alerts (severity, type, title, camera_id, snapshot_path, telegram_sent, acked)
-     VALUES ($1, $2, $3, $4, $5, $6, FALSE) RETURNING id`,
-    [severity, type, title, cameraId, snapshotPath, telegramSent],
+    `INSERT INTO alerts (
+       severity, type, title, camera_id, physical_camera_id,
+       snapshot_path, telegram_sent, acked)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE) RETURNING id`,
+    [severity, type, title, cameraId, physicalCameraId, snapshotPath, telegramSent],
   )
   return { id: String(rows[0].id) }
 }
@@ -468,17 +580,67 @@ export async function listAlerts(visibleIds, limit = 15) {
  * heartbeat ล่าสุดที่สุดของกล้องใด ๆ ก็ได้ ใช้ logic เดียวกับ statusFromAge ที่
  * /api/link ใช้อยู่แล้ว (ไม่สร้างตรรกะใหม่ซ้ำ) เพียงแต่มองภาพรวมทั้ง engine แทน
  * รายกล้อง — ใช้โดย GET /api/integration/events (IDEA3 "detector status")
+ *
+ * physical heartbeat เป็น authority เมื่อ node มี telemetry แบบ authenticated แล้ว;
+ * legacy heartbeat ของ node เดียวกันจึงห้ามกลบสถานะนั้น แต่ node แบบ
+ * legacy_shared_key (และแถว compatibility ที่ยังไม่มี registry) ยังอ่านได้ตามเดิม
  */
-export async function readDetectorStatus() {
-  if (!usingPostgres) return { status: 'lost', ageMs: null, cameras: 0 }
-  const { rows } = await query(
-    `SELECT count(*)::int AS cameras,
-            EXTRACT(EPOCH FROM (now() - max(last_seen_at))) * 1000 AS age_ms
-       FROM camera_heartbeat`,
+export async function readDetectorStatus({
+  executeQuery = query,
+  postgresEnabled = usingPostgres,
+  nowMs = Date.now(),
+} = {}) {
+  if (!postgresEnabled) return { status: 'lost', ageMs: null, cameras: 0 }
+  const { rows } = await executeQuery(
+    `SELECT 'physical'::text AS source_kind,
+            h.node_id,
+            h.physical_camera_id::text AS camera_key,
+            EXTRACT(EPOCH FROM h.last_seen_at) * 1000 AS last_seen_ms,
+            n.ingest_auth_mode,
+            n.active AS node_active
+       FROM physical_camera_heartbeat h
+       JOIN physical_cameras p
+         ON p.physical_camera_id = h.physical_camera_id
+        AND p.node_id = h.node_id
+        AND p.active = TRUE
+       JOIN detection_nodes n
+         ON n.node_id = h.node_id
+        AND n.active = TRUE
+      UNION ALL
+     SELECT 'legacy'::text AS source_kind,
+            h.node_id,
+            h.camera_id AS camera_key,
+            EXTRACT(EPOCH FROM h.last_seen_at) * 1000 AS last_seen_ms,
+            n.ingest_auth_mode,
+            n.active AS node_active
+       FROM camera_heartbeat h
+       LEFT JOIN detection_nodes n ON n.node_id = h.node_id`,
   )
-  const r = rows[0] ?? {}
-  const ageMs = r.age_ms == null ? null : Math.round(Number(r.age_ms))
-  return { status: statusFromAge(ageMs), ageMs, cameras: Number(r.cameras ?? 0) }
+
+  const physicalNodeIds = new Set(
+    rows
+      .filter((row) => row.source_kind === 'physical' && row.node_id)
+      .map((row) => row.node_id),
+  )
+  const authoritative = new Map()
+  for (const row of rows) {
+    const isPhysical = row.source_kind === 'physical'
+    const isLegacy = row.source_kind === 'legacy'
+    if (!isPhysical && !isLegacy) continue
+    if (isLegacy && row.node_id && physicalNodeIds.has(row.node_id)) continue
+    if (isLegacy && row.node_active === false) continue
+    if (isLegacy && row.ingest_auth_mode && row.ingest_auth_mode !== 'legacy_shared_key') continue
+
+    const lastSeenMs = Number(row.last_seen_ms)
+    if (!Number.isFinite(lastSeenMs)) continue
+    const key = `${row.source_kind}:${row.camera_key}`
+    const previous = authoritative.get(key)
+    if (previous == null || lastSeenMs > previous) authoritative.set(key, lastSeenMs)
+  }
+
+  const freshest = authoritative.size > 0 ? Math.max(...authoritative.values()) : null
+  const ageMs = freshest == null ? null : Math.max(0, Math.round(nowMs - freshest))
+  return { status: statusFromAge(ageMs), ageMs, cameras: authoritative.size }
 }
 
 /**

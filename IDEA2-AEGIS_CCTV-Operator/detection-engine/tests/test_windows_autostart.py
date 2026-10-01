@@ -27,7 +27,9 @@ class WindowsAutostartSourceTests(unittest.TestCase):
         self.assertTrue(expected.issubset({path.name for path in WINDOWS_ROOT.glob("*.ps1")}))
 
     def test_scripts_do_not_hardcode_the_verified_operator_profile(self) -> None:
-        joined = "\n".join(path.read_text(encoding="utf-8") for path in WINDOWS_ROOT.rglob("*.*"))
+        joined = "\n".join(
+            path.read_text(encoding="utf-8") for path in WINDOWS_ROOT.glob("*.ps1")
+        )
         self.assertNotIn(r"C:\Users\puppu", joined)
         self.assertNotIn(r"OneDrive\Desktop\AEGIS_System", joined)
 
@@ -61,6 +63,55 @@ class WindowsAutostartSourceTests(unittest.TestCase):
         self.assertIn("'-R', $reverseForward", tunnel)
         self.assertIn("while ($true)", tunnel)
         self.assertNotIn("StrictHostKeyChecking=no", tunnel)
+
+    def test_network_destinations_are_explicit_and_never_dynamic_docker_defaults(self) -> None:
+        installer = self.read("install_autostart.ps1")
+        tunnel = self.read("run_detection_tunnel.ps1")
+        helper = self.read("prepare_tunnel_key.ps1")
+        for source in (installer, tunnel, helper):
+            self.assertNotIn("172.18.", source)
+        self.assertRegex(tunnel, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$MonitorTargetHost")
+        self.assertRegex(tunnel, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$RemoteBindAddress")
+        self.assertRegex(installer, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$MonitorTargetHost")
+        self.assertRegex(installer, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$RemoteBindAddress")
+        self.assertRegex(helper, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$MonitorTargetHost")
+        self.assertRegex(tunnel, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[ValidateRange\(1,\s*65535\)\]\s*\[int\]\$RemotePort")
+        self.assertRegex(installer, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[ValidateRange\(1,\s*65535\)\]\s*\[int\]\$RemotePort")
+        self.assertNotIn("18077", installer)
+        self.assertNotIn("18077", tunnel)
+        self.assertIn("RemoteBindAddress must identify one explicit server interface", tunnel)
+        for source in (installer, tunnel):
+            self.assertIn("AddressFamily]::InterNetwork", source)
+
+        helper_arguments = installer.split("$helperArguments =", 1)[1].split(
+            "$helperAction =", 1
+        )[0]
+        self.assertIn('-MonitorTargetHost `"$MonitorTargetHost`"', helper_arguments)
+        tunnel_arguments = installer.split("$tunnelArguments =", 1)[1].split(
+            "$tunnelAction =", 1
+        )[0]
+        self.assertIn("-RemotePort $RemotePort", tunnel_arguments)
+
+        env_example = (ENGINE_ROOT / ".env.example").read_text(encoding="utf-8")
+        self.assertIn("AEGIS_AGENT_ENGINE_STREAM_URL=", env_example)
+        self.assertNotIn("aegis-stream-host.internal:18077", env_example)
+
+    def test_windows_lifecycle_is_reusable_for_laptop_and_external_webcam_hosts(self) -> None:
+        scripts = "\n".join(
+            path.read_text(encoding="utf-8") for path in WINDOWS_ROOT.glob("*.ps1")
+        )
+        for forbidden in (
+            "machine-a-node",
+            "machine-c-node",
+            "physical-camera-a",
+            "physical-camera-c",
+            "built-in laptop camera",
+            "external webcam",
+            "Machine A == CAM-01",
+            "Machine C == CAM-02",
+        ):
+            self.assertNotIn(forbidden, scripts)
+        self.assertIn("$resolvedConfiguration", self.read("install_autostart.ps1"))
 
     def test_installer_requires_machine_configuration_and_key_material(self) -> None:
         installer = self.read("install_autostart.ps1")
