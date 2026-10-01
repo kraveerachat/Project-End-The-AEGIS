@@ -121,6 +121,13 @@ function validatePreview(p) {
   if (b.maxDurationMs !== null && p.durationMs > b.maxDurationMs) fail('PREVIEW_OUT_OF_BOUNDS')
 }
 
+/**
+ * The manifest-v2 preview entry rule, exported unchanged for the D-1 preview-index shard codec:
+ * structure always; vp1 bounds (MIME, edges, size, duration) only for profiles this build knows.
+ * Throws ManifestError (PREVIEW_*); an unknown profile passes structurally and must be ignored by readers.
+ */
+export const validatePreviewEntry = validatePreview
+
 /** v2-only file keys; a folder may carry neither */
 function validateNodeV2Fields(n) {
   if (n.kind !== 'file') {
