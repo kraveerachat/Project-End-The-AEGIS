@@ -69,6 +69,7 @@ EVIDENCE_FIELDS = (
     "firmware_sha256",
     "nvs_schema_version",
     "nvs_readback_match",
+    "firmware_readback_match",
     "flash_result",
     "boot_verification_result",
     "failure_boundary",
@@ -490,6 +491,9 @@ class FixtureDevice:
     def bind_regions(self, regions: dict[str, tuple[int, int]]) -> None:
         """The fixture writes plain files, so region binding is informational."""
 
+    def reset_into_new_image(self) -> None:
+        """Fixture: there is no device to reset."""
+
     def verify_boot(self) -> str:
         return BOOT_FIXTURE_MARKER
 
@@ -760,6 +764,8 @@ class HardwareDevice:
         self._boot_verifier = boot_verifier
         self._regions: dict[str, tuple[int, int]] = {}
         self._written: dict[tuple[str, int], int] = {}
+        self._read_back: set[tuple[str, int]] = set()
+        self._reset_done = False
         self.launcher = [python or sys.executable, str(esptool_script)]
         self.argv_prefix = self.launcher + [
             "--chip", HARDWARE_CHIP,
@@ -784,6 +790,8 @@ class HardwareDevice:
         return {offset: size for (_r, offset), size in self._written.items()}
 
     def _invoke(self, argv: list[str], timeout: float) -> ExecResult:
+        if self._reset_done:
+            raise L8Error("the device was already reset into the new image; no further device access")
         validate_esptool_argv(
             argv,
             self.argv_prefix,
@@ -853,10 +861,9 @@ class HardwareDevice:
         self._written[(region, offset)] = len(payload)
 
     def read_region(self, region: str, offset: int) -> bytes:
-        """Read back exactly the bytes that were written; boots the new image.
+        """Read back exactly the bytes that were written. NEVER resets the device (``--after no_reset``).
 
-        This is the terminal device operation, so it is the one that resets the
-        chip into the freshly written firmware (``--after hard_reset``).
+        The one reset is ``reset_into_new_image()``, issued only after every region was read back and compared.
         """
         size = self._written.get((region, offset))
         if size is None:
@@ -865,7 +872,7 @@ class HardwareDevice:
         try:
             result = self._invoke(
                 self.build_argv(
-                    "read_flash", hex(offset), hex(size), str(scratch), after="hard_reset"
+                    "read_flash", hex(offset), hex(size), str(scratch), after="no_reset"
                 ),
                 TOOL_TIMEOUT_READ_S,
             )
@@ -878,7 +885,26 @@ class HardwareDevice:
             scratch.unlink(missing_ok=True)
         if len(data) != size:
             raise L8Error(f"hardware readback of {region} returned a wrong length")
+        self._read_back.add((region, offset))
         return data
+
+    def reset_into_new_image(self) -> None:
+        """The single terminal reset: boot the freshly flashed image, exactly once, after every readback.
+
+        It reuses the read-only ``flash_id`` verb with ``--after hard_reset`` (no new tool verb). It is refused unless both bound
+        regions were written AND read back, and refused a second time; afterwards the device is not accessed again.
+        """
+        if self._reset_done:
+            raise L8Error("the device was already reset into the new image")
+        for region, (offset, _size) in self._regions.items():
+            if (region, offset) not in self._written:
+                raise L8Error(f"refusing to reset: {region} was not written")
+            if (region, offset) not in self._read_back:
+                raise L8Error(f"refusing to reset: {region} was not read back")
+        result = self._invoke(self.build_argv("flash_id", after="hard_reset"), TOOL_TIMEOUT_IDENTITY_S)
+        self._reset_done = True
+        if result.returncode != 0:
+            raise L8Error(f"terminal reset failed with status {result.returncode}")
 
     def verify_boot(self) -> str:
         """Delegate to the injected verifier; anything unproven is NOT_PROVEN.
@@ -887,7 +913,7 @@ class HardwareDevice:
         It must never issue CUT or RESTORE. The repository's verifier is the
         subscribe-only signed BOOT STATUS check in p4-l8-boot-verify.py.
         """
-        if self._boot_verifier is None:
+        if self._boot_verifier is None or not self._reset_done:
             return "NOT_PROVEN"
         try:
             verdict = self._boot_verifier()
@@ -1231,6 +1257,7 @@ def _provision_with_device(
     failure_boundary = "NONE"
     flash_result = "FAIL"
     readback_match = "FAIL"
+    firmware_match = "FAIL"  # anything not proven equal is FAIL, never a pass
     boot_result = BOOT_FIXTURE_MARKER if device.name == "fixture" else "NOT_PROVEN"
 
     try:
@@ -1243,7 +1270,8 @@ def _provision_with_device(
         # rather than raised past the bundle. No retry, no reflash, no restore.
         failure_boundary = "DEVICE_WRITE"
 
-    # 8. Private readback: only the boolean outcome leaves this scope.
+    # 8. Private readbacks, entirely in memory; only booleans leave this scope. Order: NVS (no reset) -> compare -> firmware (no
+    #    reset) -> compare. A mismatch or tool failure stops everything: no further read, no reset, no retry, no reflash, no restore.
     if flash_result == "PASS":
         try:
             readback_match = "PASS" if compare_nvs_readback(
@@ -1253,11 +1281,24 @@ def _provision_with_device(
             readback_match = "FAIL"
         if readback_match != "PASS":
             failure_boundary = "NVS_READBACK"
+        else:
+            try:
+                firmware_match = "PASS" if compare_nvs_readback(  # same digest comparison, bytes never recorded
+                    firmware_image, device.read_region("firmware", app_offset)
+                ) else "FAIL"
+            except Exception:
+                firmware_match = "FAIL"
+            if firmware_match != "PASS":
+                failure_boundary = "FIRMWARE_READBACK"
 
-    # 9. Boot verification (OD-L8-07). Only meaningful once the image is proven
-    #    to be on the device; it never issues CUT or RESTORE.
-    if readback_match == "PASS":
-        boot_result = device.verify_boot()
+    # 9. The ONE terminal reset (only after both readbacks compared equal), then boot verification (OD-L8-07). It never issues
+    #    CUT or RESTORE; the reset only boots the image that was just proven to be on the device.
+    if readback_match == "PASS" and firmware_match == "PASS":
+        try:
+            device.reset_into_new_image()
+            boot_result = device.verify_boot()
+        except Exception:
+            boot_result = "NOT_PROVEN"
         if boot_result not in ("PASS", BOOT_FIXTURE_MARKER):
             failure_boundary = "BOOT_VERIFICATION"
 
@@ -1272,6 +1313,7 @@ def _provision_with_device(
             "firmware_sha256": image_digest,
             "nvs_schema_version": provisioner.NVS_SCHEMA_VERSION,
             "nvs_readback_match": readback_match,
+            "firmware_readback_match": firmware_match,
             "flash_result": flash_result,
             "boot_verification_result": boot_result,
             "failure_boundary": failure_boundary,
@@ -1281,6 +1323,7 @@ def _provision_with_device(
     print(f"L8_NVS_OFFSET={nvs_offset:#x}")
     print(f"L8_FLASH_RESULT={flash_result}")
     print(f"L8_NVS_READBACK_MATCH={readback_match}")
+    print(f"L8_FIRMWARE_READBACK_MATCH={firmware_match}")
     print(f"L8_BOOT_VERIFICATION={boot_result}")
     print(f"L8_FAILURE_BOUNDARY={failure_boundary}")
     detail = getattr(boot_obj, "detail", None)
@@ -1289,6 +1332,7 @@ def _provision_with_device(
 
     accepted = (
         readback_match == "PASS"
+        and firmware_match == "PASS"
         and flash_result == "PASS"
         and boot_result in ("PASS", BOOT_FIXTURE_MARKER)
     )

@@ -592,7 +592,7 @@ def test_boot_pass_end_to_end_records_pass(tmp_path):
     _, bundle = HW.evidence(env)
     assert bundle["boot_verification_result"] == "PASS"
     assert bundle["failure_boundary"] == "NONE"
-    assert set(bundle) == H.EVIDENCE_ALLOWED_FIELDS and len(bundle) == 11
+    assert set(bundle) == H.EVIDENCE_ALLOWED_FIELDS and len(bundle) == 12
 
 
 def test_verifier_is_armed_after_identity_and_before_the_first_write(tmp_path):
@@ -606,7 +606,7 @@ def test_l8_does_not_reboot_the_device_to_manufacture_a_boot_event(tmp_path):
     mod, env, ex, *_ = run_provision(tmp_path, _boot_ok)
     resets = [c for c in ex.calls if "--after" in c and c[c.index("--after") + 1] == "hard_reset"]
     assert len(resets) == 1, "exactly one reset: the one that boots the freshly flashed image"
-    assert ex.subcommands() == ["flash_id", "write_flash", "write_flash", "read_flash"]
+    assert ex.subcommands() == ["flash_id", "write_flash", "write_flash", "read_flash", "read_flash", "flash_id"]
 
 
 def test_contradictory_boot_state_is_fail_and_holds_without_recovery(tmp_path):
@@ -619,7 +619,7 @@ def test_contradictory_boot_state_is_fail_and_holds_without_recovery(tmp_path):
     assert bundle["boot_verification_result"] == "FAIL"
     assert bundle["failure_boundary"] == "BOOT_VERIFICATION"
     assert bundle["flash_result"] == "PASS" and bundle["nvs_readback_match"] == "PASS"
-    assert ex.subcommands() == ["flash_id", "write_flash", "write_flash", "read_flash"], "no retry/reflash/restore"
+    assert ex.subcommands() == ["flash_id", "write_flash", "write_flash", "read_flash", "read_flash", "flash_id"], "no retry/reflash/restore"
     res = H.run_stage("rollback.sh", env)
     assert "FAIL_SECURE_HOLD_AND_EVIDENCE" in res.stdout and "L8_DEVICE_ACTION_TAKEN=NONE" in res.stdout
 
@@ -633,7 +633,7 @@ def test_no_valid_proof_before_the_deadline_is_not_proven(tmp_path):
     _, bundle = HW.evidence(env)
     assert bundle["boot_verification_result"] == "NOT_PROVEN"
     assert bundle["failure_boundary"] == "BOOT_VERIFICATION"
-    assert ex.subcommands().count("write_flash") == 2 and ex.subcommands()[-1] == "read_flash"
+    assert ex.subcommands().count("write_flash") == 2 and ex.subcommands() == ["flash_id", "write_flash", "write_flash", "read_flash", "read_flash", "flash_id"], "only the one read-only terminal reset follows"
 
 
 def test_arm_failure_aborts_before_any_device_write(tmp_path):
@@ -685,7 +685,7 @@ def test_live_verifier_is_built_from_broker_inputs_and_passes_with_a_fake_client
     assert bundle["boot_verification_result"] == "PASS"
     assert fake.published == [], "the verifier must never publish"
     assert ("connect", BROKER_ADDRESS, 8883) in fake.calls
-    assert ex.subcommands() == ["flash_id", "write_flash", "write_flash", "read_flash"]
+    assert ex.subcommands() == ["flash_id", "write_flash", "write_flash", "read_flash", "read_flash", "flash_id"]
 
 
 def test_credential_and_frames_never_reach_output_or_evidence(tmp_path, capsys):

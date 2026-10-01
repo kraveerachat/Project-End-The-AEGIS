@@ -533,7 +533,7 @@ def test_readback_reads_exactly_the_written_nvs_region_and_passes(tmp_path):
     mod, env, ex, rc = run_hw(tmp_path)
     assert rc == 0, rc
     reads = [c for c in ex.calls if "read_flash" in c]
-    assert len(reads) == 1
+    assert len(reads) == 2, "NVS and then the application region (see test_pr11_phase4_l8_firmware_readback.py)"
     i = reads[0].index("read_flash")
     assert int(reads[0][i + 1], 0) == NVS_OFFSET
     assert int(reads[0][i + 2], 0) == NVS_SIZE
@@ -580,7 +580,7 @@ def test_no_secret_or_raw_nvs_or_tool_output_is_emitted(tmp_path, capsys, kw):
         assert EXEC_CANARY not in text
         if raw_nvs:
             assert raw_nvs[:32].hex() not in text
-    assert set(bundle) == H.EVIDENCE_ALLOWED_FIELDS, "the 11-field schema must not grow"
+    assert set(bundle) == H.EVIDENCE_ALLOWED_FIELDS, "the evidence schema is exactly the twelve approved fields"
 
 
 def test_scratch_payload_files_do_not_outlive_the_run(tmp_path):
@@ -658,7 +658,7 @@ def test_a_full_run_only_ever_uses_the_three_allowed_subcommands(tmp_path):
     mod, env, ex, rc = run_hw(tmp_path)
     assert rc == 0
     assert set(ex.subcommands()) <= {"flash_id", "write_flash", "read_flash"}
-    assert ex.subcommands() == ["flash_id", "write_flash", "write_flash", "read_flash"]
+    assert ex.subcommands() == ["flash_id", "write_flash", "write_flash", "read_flash", "read_flash", "flash_id"]
     for argv in ex.calls:
         # Path tokens (tmp dirs, the tool path) are data; check the verbs/options.
         text = " ".join(a for a in argv if not a.startswith("/")).lower()
@@ -729,7 +729,8 @@ def test_no_marker_before_identity_is_observed(tmp_path):
 
     ex = Spy(mod, work_dir=env["AEGIS_L8_WORK_DIR"])
     mod.provision(hw_args(mod, env), executor=ex, boot_verifier=lambda: "PASS")
-    assert present_at_identity == [False]
+    assert present_at_identity[0] is False, "no marker before the identity observation"
+    assert present_at_identity[1:] == [True], "only the terminal read-only reset runs after the first write"
 
 
 @pytest.mark.parametrize("failing_write", [1, 2])
@@ -773,10 +774,10 @@ def test_rollback_after_a_hardware_write_performs_zero_device_action(tmp_path, m
 # O. evidence schema, and the boot-verification design gap
 # ===========================================================================
 
-def test_hardware_evidence_is_the_exact_private_eleven_field_bundle(tmp_path):
+def test_hardware_evidence_is_the_exact_private_twelve_field_bundle(tmp_path):
     mod, env, ex, rc = run_hw(tmp_path)
     path, bundle = evidence(env)
-    assert set(bundle) == H.EVIDENCE_ALLOWED_FIELDS and len(bundle) == 11
+    assert set(bundle) == H.EVIDENCE_ALLOWED_FIELDS and len(bundle) == 12
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert bundle["device_mac"] == H.FIXTURE_MAC
     assert bundle["chip_identity"] == "ESP32-D0WD-V3"
@@ -825,7 +826,7 @@ def test_non_pass_boot_verification_is_recorded_and_fails_secure(tmp_path, verdi
     assert bundle["boot_verification_result"] == verdict
     assert bundle["failure_boundary"] == boundary
     assert bundle["flash_result"] == "PASS"
-    assert ex.subcommands() == ["flash_id", "write_flash", "write_flash", "read_flash"]
+    assert ex.subcommands() == ["flash_id", "write_flash", "write_flash", "read_flash", "read_flash", "flash_id"]
 
 
 def test_a_raising_or_bogus_boot_verifier_is_not_proven(tmp_path):

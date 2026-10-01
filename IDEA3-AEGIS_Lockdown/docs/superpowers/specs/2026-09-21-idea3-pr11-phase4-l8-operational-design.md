@@ -460,9 +460,11 @@ host drift whatsoever.
   `WRITE_ONCE_NO_OVERWRITE`. The bundle is a single JSON file created under the
   stage evidence directory with mode `0600` and `O_EXCL | O_NOFOLLOW`; a second
   write to the same path fails closed rather than overwriting.
-  The bundle contains **exactly and only** these eleven fields:
+  The bundle contains **exactly and only** these twelve fields (the original eleven plus `firmware_readback_match`, a PASS/FAIL boolean,
+  added 2026-10-01 after review found that only the NVS region was read back; this amends the owner-approved eleven-field list and needs
+  owner confirmation):
   `schema_version`, `run_id`, `device_mac`, `chip_identity`, `flash_size`,
-  `firmware_sha256`, `nvs_schema_version`, `nvs_readback_match`, `flash_result`,
+  `firmware_sha256`, `nvs_schema_version`, `nvs_readback_match`, `firmware_readback_match`, `flash_result`,
   `boot_verification_result`, `failure_boundary`.
   Never recorded, in any form: `wifi_psk`, `mqtt_password`/`mqtt_pass`, `k_c2d`,
   `k_d2c`, `admin.pin`, raw NVS contents, or any other raw secret.
@@ -615,14 +617,20 @@ causes a device reset.
 - Writes: exactly the NVS image at the table-derived `nvs` offset and the
   reviewed application image at the table-derived application offset, each
   through a private (0600, `O_EXCL`) scratch file that is removed afterwards.
-- Readback: `read_flash` of exactly the written NVS region, compared privately
-  in memory; only `PASS`/`FAIL` is emitted. It is the terminal device operation
-  and uses `--after hard_reset`, which boots the new image.
+- Readback (amended 2026-10-01): `read_flash` of exactly the written NVS region, then of exactly the written application region (exact
+  offset and exact image length), each compared privately in memory; only `PASS`/`FAIL` is emitted
+  (`nvs_readback_match`, `firmware_readback_match`) and no NVS or firmware byte is recorded. Reads use `--after no_reset` and NEVER reset.
+  A mismatch or tool failure stops everything: no further read, no reset, no retry, no reflash, no restore (`NVS_READBACK` /
+  `FIRMWARE_READBACK`, then `FAIL_SECURE_HOLD_AND_EVIDENCE`).
+- Terminal reset (amended 2026-10-01): exactly one `--after hard_reset`, issued by `reset_into_new_image()` as the read-only `flash_id` verb
+  (no new tool verb), only after BOTH regions were written AND read back AND compared equal; a second reset or any device access afterwards is
+  refused. Sequence: `flash_id(no_reset)` -> arm verifier -> `write_flash` nvs -> `write_flash` firmware -> `read_flash` nvs -> compare ->
+  `read_flash` firmware -> compare -> `flash_id(hard_reset)` -> verify signed BOOT STATUS. No extra reboot reaches the L9 hand-off.
 - Any exception at or after the first write is contained: evidence is written
-  with the stage reached in `failure_boundary` (`DEVICE_WRITE`, `NVS_READBACK`
-  or `BOOT_VERIFICATION`), then `FAIL_SECURE_HOLD_AND_EVIDENCE`. No retry, no
+  with the stage reached in `failure_boundary` (`DEVICE_WRITE`, `NVS_READBACK`,
+  `FIRMWARE_READBACK` or `BOOT_VERIFICATION`), then `FAIL_SECURE_HOLD_AND_EVIDENCE`. No retry, no
   reflash, no restore. `rollback.sh` after the first write still performs zero
-  device action. Evidence remains the exact 11-field write-once 0600 bundle;
+  device action. Evidence is the exact 12-field write-once 0600 bundle;
   no NVS digest was added.
 
 ### 8.4 Boot verification — signed BOOT STATUS
@@ -664,7 +672,7 @@ mutates the Core replay store, and it does not import `aegis_soc.mqtt_client`,
 **Timing.** The verifier is armed after observed identity and before the first
 write, and fixes `T0` from the Core trusted clock (from that point the chip sits
 in the bootloader, so no old firmware can speak). Frames are collected after the
-readback step, whose `hard_reset` boots the new image, for at most 180 s. L8 never
+terminal reset (`flash_id --after hard_reset`, after both readbacks), which boots the new image, for at most 180 s. L8 never
 reboots the device to create another BOOT event.
 
 **PASS requires all of:** expected topic and `device_id`; Protocol v1 STATUS;

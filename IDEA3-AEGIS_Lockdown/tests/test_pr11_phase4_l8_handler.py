@@ -68,6 +68,7 @@ EVIDENCE_ALLOWED_FIELDS = {
     "firmware_sha256",
     "nvs_schema_version",
     "nvs_readback_match",
+    "firmware_readback_match",
     "flash_result",
     "boot_verification_result",
     "failure_boundary",
