@@ -1218,7 +1218,12 @@ def delta(pre: dict[str, str], post: dict[str, str], cfg: Config, group_gid: int
 def read_records(capture_dir: Path) -> dict[str, str]:
     records: dict[str, str] = {}
     for name in ("host.tsv", "services.tsv"):
-        for line in (capture_dir / name).read_text(encoding="utf-8").splitlines():
+        try:
+            text = (capture_dir / name).read_text(encoding="utf-8")
+        except PermissionError:
+            # the L0 captures are root-owned 0700 by design and are never loosened: the read-only `delta` must run with the same privilege as the capture
+            refuse("DELTA_CAPTURE_UNREADABLE_ROOT_REQUIRED")
+        for line in text.splitlines():
             key, _, value = line.partition("\t")
             records.setdefault(key, value)
     return records

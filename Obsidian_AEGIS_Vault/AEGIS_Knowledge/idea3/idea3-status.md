@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L7u first LIVE attempt FAILED at the exact-value delta (permission boundary); auto-rollback PASS; repository fix in progress — 2026-10-02
+
+> [!warning] The one-shot L7u attempt (main `9d04b797`, 2026-10-02 ~20:12 +07, owner-run) is **consumed** (`consumed_at=2026-10-02T13:12:28Z`). Forward APPLY, VERIFY, POST capture and PRE→POST compare PASSED; the exact-value delta then failed with `UNEXPECTED:PermissionError` and the runner rolled back automatically. **Production WAS mutated by the attempt and the Core was restarted twice (forward and rollback).** It is not reusable.
+> `L7U_LIVE_ACCEPTANCE = NOT_PROVEN`, `ATTEMPT = CONSUMED`, `ROLLBACK_RESULT = PASS`, `OLD_RELEASE_RESTORED = YES (f2a5cd75…)`, `RECOVERY_R1_R8_PROVEN = NO`, `LVR_PROVEN = NO`, `L8_AUTHORIZED = NO`, `F1_DETECTOR_STARTED = NO`, `ESP32_TOUCHED = NO`, `DELTA_FIX = REPOSITORY_ONLY (Draft PR, awaiting human merge)`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-02-l7u-20261002-201221`. Log: `CAPTURE_PRE=COMPLETE SHA256=PASS`; `L7U_APPLY=PASS` (`L7U_CORE_RESTARTS=1`, `L7U_DETECTOR_STARTED=NO`); `L7U_VERIFY=PASS` (`L7U_RECOVERY_CHANNEL=PRESENT`, `L7U_ALERT_CHANNEL=PRESENT`); `CAPTURE_POST=COMPLETE SHA256=PASS`; PRE→POST `COMPARE_RESULT=PASS` (new/worsened drift 0, baseline-unhealthy 0, incomparable 0, `PRESERVATION_S10=PASS`); `L7U_DELTA=FAIL reason=UNEXPECTED:PermissionError`; `L7U_ROLLBACK=PASS`; `CAPTURE_RB=COMPLETE SHA256=PASS`; PRE→RB `COMPARE_RESULT=PASS`.
+- **Root cause (PROVEN):** the runner invoked `p4-l7u-upgrade.py delta` as the normal user; `read_records` opens `host.tsv`/`services.tsv` under the root-owned `0700` `pre-root`/`post-root` captures. A read-only check confirmed the owner user cannot open them. Reproduced RED by a CLI test (`UNEXPECTED:PermissionError`).
+- **Read-only state check afterwards:** `current` → `f2a5cd75…` (the old release); the new release directory, the Recovery/alert groups, `/run` directories, drop-ins and tmpfiles rules are absent; `core.env` unchanged (size/mtime/mode/owner); Core active/running/enabled, `Result=success`, `NRestarts=0` (MainPID/start time differ from PRE, which the bounded rollback allows); IDEA2/Twingate/legacy mosquitto/L6b broker/dnsmasq active; forwarding 0; no detector running.
+- **Fix (Draft PR):** `delta` now runs through the existing sudo boundary and an unreadable capture is the explicit refusal `DELTA_CAPTURE_UNREADABLE_ROOT_REQUIRED`. Captures stay root-owned; apply/verify/rollback unchanged. Spec §12.
+- **Still required before any new attempt:** human merge of the fix, a NEW owner-frozen runner at the then-current main, fresh qualification, fresh same-day A-L7u + K3 in a brand-new `AUTH_DIR`, and an explicit owner decision. `delta` had never run against a real host before this attempt, so another live-only defect is possible.
+
+---
+
 ## IDEA3 PR11 Phase 4 L3/L4 V8 governed-successor LIVE closeout — PASS (runtime recovery only) — 2026-10-02
 
 > [!important] The owner executed the governed successor V8 attempt once (main `3d8028f4`, 2026-10-02 19:42 +07). It is **consumed and not reusable**. Repository closeout only: no runtime/source/runner/handler change, no new Production mutation by this closeout, no reboot.
