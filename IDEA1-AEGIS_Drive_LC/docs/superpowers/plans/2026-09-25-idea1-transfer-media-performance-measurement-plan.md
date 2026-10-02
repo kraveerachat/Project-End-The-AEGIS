@@ -1038,3 +1038,131 @@ When executed from the remote home environment:
 4. **Step 4: Report results**
    - Return raw values for ISP speed, connection mode, and D1-Remote.
    - Compare D1-Remote R against P1 D1 (`R=0.993`).
+
+## 23. P1 Direct LAN Final Report Measurement (Executed 2026-10-02)
+
+- **Date:** 2026-10-02
+- **Environment:** Onsite P1 Direct LAN (`192.168.30.98`) -> Production Drive Host (`192.168.10.10:443`)
+- **Classification:** `FINAL_REPORT_MEASUREMENT` (Explicitly: `NOT PRE_FIX`, `NOT POST_FIX`)
+- **Status:** `LAN_FINAL_REPORT_MEASUREMENT=COMPLETE` (18/18 valid runs: 9 upload, 9 download)
+
+### 23.1 Path verification and environment sanity check
+
+Path reachability and interface verification executed prior to measurement:
+~~~text
+P1_DIRECT_LAN=PASS
+TcpTestSucceeded=True
+SourceAddress=192.168.30.98
+InterfaceAlias=Ethernet
+RemoteTarget=192.168.10.10:443
+FINAL_PATH_SANITY_CHECK=PASS
+~~~
+Twingate client was NOT used for the final LAN measurement. The test client operated via physical Ethernet on VLAN 30 (`192.168.30.98`), routing directly across the router trunk to VLAN 10 (`192.168.10.10:443`).
+
+### 23.2 Upload final report measurement (P1 Direct LAN)
+
+Executed across standard fixture sizes (100 MB, 300 MB, 1 GB) using the authenticated in-page XHR tracer method:
+
+| Fixture | Run | Measured MB/s | Chunks | Status | Bytes | Notes |
+|---|---|---:|---:|---|---:|---|
+| **100 MB** | r01 | 10.534 | 6 | allHttp200=true | 100,000,000 | Tracer label: `LU-S-warmup` (`TRACER_LABEL_MISMATCH_ONLY`) |
+| **100 MB** | r02 | 10.735 | 6 | allHttp200=true | 100,000,000 | Tracer label: `LU-S-warmup` (`TRACER_LABEL_MISMATCH_ONLY`) |
+| **100 MB** | r03 | 10.588 | 6 | allHttp200=true | 100,000,000 | Tracer label: `LU-S-warmup` (`TRACER_LABEL_MISMATCH_ONLY`) |
+| **300 MB** | r01 | 10.752 | 18 | allHttp200=true | 300,000,000 | Clean run |
+| **300 MB** | r02 | 10.729 | 18 | allHttp200=true | 300,000,000 | Clean run |
+| **300 MB** | r03 | 10.757 | 18 | allHttp200=true | 300,000,000 | Clean run |
+| **1 GB** | r01 | 10.608 | 60 | allHttp200=true | 1,000,000,000 | Clean run |
+| **1 GB** | r02 | 10.591 | 60 | allHttp200=true | 1,000,000,000 | Clean run |
+| **1 GB** | r03 | 10.557 | 60 | allHttp200=true | 1,000,000,000 | Clean run |
+
+**Upload Medians:**
+- 100 MB median: **10.588 MB/s**
+- 300 MB median: **10.752 MB/s**
+- 1 GB median: **10.591 MB/s**
+- Overall Upload Median across all sizes: **~10.6 MB/s**
+
+**Methodological Notes:**
+- `LAN_UPLOAD_VALID_RUNS=9/9`.
+- **Tracer Label Anomaly:** In the 100 MB upload set, individual measured runs retained the harness label `LU-S-warmup` in console output despite being distinct measured runs. Preserved honestly as `TRACER_LABEL_MISMATCH_ONLY`. The underlying byte counts (100,000,000 B), chunk counts (6 × 16 MiB chunks), HTTP 200 statuses, and timing sequences are verified and valid.
+
+### 23.3 Download final report measurement (P1 Direct LAN)
+
+Executed across standard fixture sizes (100 MB, 300 MB, 1 GB) using the authenticated in-page stream reader with SHA-256 integrity verification:
+
+| Fixture | Run | Measured MB/s | HTTP | SHA-256 Digest | Integrity |
+|---|---|---:|---|---|---|
+| **100 MB** | r01 | 11.143 | 200 | `f079cad53add0091ed5d0409b0469f9f5cb745b8c280be685dda73203dea90e8` | PASS |
+| **100 MB** | r02 | 11.006 | 200 | `f079cad53add0091ed5d0409b0469f9f5cb745b8c280be685dda73203dea90e8` | PASS |
+| **100 MB** | r03 | 11.042 | 200 | `f079cad53add0091ed5d0409b0469f9f5cb745b8c280be685dda73203dea90e8` | PASS |
+| **300 MB** | r01 | 11.279 | 200 | `81ba1dbe05118eab211ea9b613860870950891052c7784ce9ba6aabd44c42efb` | PASS |
+| **300 MB** | r02 | 10.954 | 200 | `81ba1dbe05118eab211ea9b613860870950891052c7784ce9ba6aabd44c42efb` | PASS |
+| **300 MB** | r03 | 11.068 | 200 | `81ba1dbe05118eab211ea9b613860870950891052c7784ce9ba6aabd44c42efb` | PASS |
+| **1 GB** | r01 | 10.994 | 200 | `3e6f285b2180c18eab7f808ed59d9b30a5b8400734b9cf0f447a6bb5dce7e188` | PASS |
+| **1 GB** | r02 | 10.958 | 200 | `3e6f285b2180c18eab7f808ed59d9b30a5b8400734b9cf0f447a6bb5dce7e188` | PASS |
+| **1 GB** | r03 | 11.029 | 200 | `3e6f285b2180c18eab7f808ed59d9b30a5b8400734b9cf0f447a6bb5dce7e188` | PASS |
+
+**Download Medians:**
+- 100 MB median: **11.042 MB/s**
+- 300 MB median: **11.068 MB/s**
+- 1 GB median: **10.994 MB/s**
+- Overall Download Median across all sizes: **~11.0 MB/s**
+
+**Methodological Notes & Excluded Observer Attempt:**
+- `LAN_DOWNLOAD_VALID_RUNS=9/9`.
+- `DOWNLOAD_INTEGRITY=PASS` (all 9 runs matched expected byte-exact SHA-256 digests).
+- **Excluded Pilot Attempt:** An initial attempt on `LD-S-r01` suffered a test harness final file resolution failure (`FINAL_FILE resolution failed / ambiguous`).
+  ~~~text
+  RESULT=EXCLUDED
+  REASON=FINAL_FILE_RESOLUTION_FAILED
+  ~~~
+  This attempt was formally excluded from the 9-run dataset. Its derived result and stale hash variable are not used.
+
+### 23.4 Summary and interpretation boundary
+
+~~~text
+LAN_UPLOAD_VALID_RUNS=9/9
+LAN_DOWNLOAD_VALID_RUNS=9/9
+LAN_TOTAL_VALID_MEASURED_RUNS=18/18
+LAN_FINAL_REPORT_MEASUREMENT=COMPLETE
+P1_DIRECT_LAN=PASS
+FINAL_PATH_SANITY_CHECK=PASS
+DOWNLOAD_INTEGRITY=PASS
+~~~
+
+**Interpretation Boundary:**
+- Sustained LAN throughput sits cleanly at **Upload ~10.6 MB/s** and **Download ~11.0 MB/s**.
+- These figures reflect **~85–88 Mbps wire payload rate**, perfectly consistent with the live hardware telemetry established by infrastructure PR #259 (MikroTik RB750r2 `ether2` 100 Mbps full duplex trunk ceiling, TL-SG105E Port 1 100MF trunk).
+- **Strict Boundary:** Do NOT claim:
+  - a new application optimization (none was applied);
+  - `POST_FIX` (no post-fix code or config was deployed);
+  - network remediation (the 100 Mbps inter-VLAN trunk is unchanged);
+  - router replacement;
+  - Twingate as the sole remote root cause;
+  - Remote throughput closure.
+
+### 23.5 Remote next sequence and onsite revisit policy
+
+**Remote R1 Status:** `PENDING`.
+
+**Expected Execution Sequence:**
+1. `P1 LAN FINAL_REPORT_MEASUREMENT = COMPLETE`.
+2. Return to Remote environment.
+3. Execute Remote R1 targeted diagnostic packet (§22).
+4. Classify Remote root cause.
+5. Decision path:
+   - **Path A: SIMPLE_SAFE_FIX_PROVEN**
+     - Requires separate Human Owner authorization.
+     - Implement exactly one bounded fix.
+     - Execute post-fix verification.
+   - **Path B: NO_SAFE_FIX_PROVEN**
+     - No Production mutation.
+     - Document limitation honestly in canonical notes.
+     - Close throughput workstream.
+
+**Onsite Revisit Policy:**
+~~~text
+ONSITE_REVISIT_NOW = NO
+~~~
+- If an eventual authorized fix is Remote/Twingate-specific: `LAN_REVISIT_REQUIRED=NO`.
+- If no fix is implemented: `LAN_REVISIT_REQUIRED=NO`.
+- If an authorized fix modifies a shared/common surface (Drive transfer implementation, common NGINX proxy behavior, server NIC/storage host path, shared network infrastructure): `LAN_POST_FIX_REVERIFICATION=MAY_BE_REQUIRED`.

@@ -15,6 +15,34 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Current Task — IDEA1-TRANSFER-FINAL-REPORT-MEASUREMENT — P1 Direct LAN Final Report Measurement & Pending Remote Closure
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-TRANSFER-FINAL-REPORT-MEASUREMENT / P1 Direct LAN Final Report Measurement & Pending Remote Closure |
+| Branch | `docs/idea1-transfer-final-report-measurement` from `origin/main` `05af825f6b82b72445aab52ed6e2cc50a96a57f1` |
+| Owner | kla |
+| PR | Draft successor PR |
+| State | **IN PROGRESS (LAN COMPLETE / REMOTE R1 PENDING)**. P1 Direct LAN final report measurement executed onsite on 2026-10-02 (18/18 valid measured runs, 9 upload + 9 download, SHA-256 integrity PASS). Sustained LAN throughput ~10.6 MB/s upload, ~11.0 MB/s download (~85–88 Mbps wire payload rate), consistent with proven 100 Mbps inter-VLAN trunk ceiling (PR #259). Excluded initial `LD-S-r01` harness resolution failure. Remote R1 diagnostic packet prepared, status PENDING. `PRE_FIX_REWRITTEN=NO`, `POST_FIX_CLAIMED=NO`, `APPLICATION_DEFECT_PROVEN=NO`, `NO_SAFE_APP_FIX_PROVEN`. No application code, runtime, network, or Production mutation. |
+| Production mutation allowed | **NO** |
+| Plans & Specs | `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-25-idea1-transfer-media-performance-measurement-plan.md` (§§21–23); `IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-25-idea1-transfer-media-performance-study-design.md` (§§25–26) |
+| Next gate | REMOTE_R1 execution from home environment; decide fix vs limitation documentation. |
+
+### Session Register — LFT-FINAL-1
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| LFT-FINAL-1-S1 | Reconcile onsite P1 Direct LAN final report measurements (18 runs: 9 upload, 9 download, integrity PASS, tracer note, pilot exclusion); update measurement plan §23 and study design §26; establish Draft PR | IN PROGRESS | Onsite measurements (upload medians 100MB: 10.588, 300MB: 10.752, 1GB: 10.591 MB/s; download medians 100MB: 11.042, 300MB: 11.068, 1GB: 10.994 MB/s; SHA-256 all PASS; 100 Mbps trunk ceiling consistent); governance and vault validation PASS; Draft PR | docs checkpoint | Remote R1 diagnostic packet execution; root cause classification | Remote R1 from-home diagnosis |
+
+Onsite Direct LAN final report measurement executed 2026-10-02:
+- Path verification: `P1_DIRECT_LAN=PASS`, `TcpTestSucceeded=True`, `SourceAddress=192.168.30.98`, `InterfaceAlias=Ethernet`, `RemoteTarget=192.168.10.10:443`, `FINAL_PATH_SANITY_CHECK=PASS`. Twingate not used.
+- Upload (9/9 valid runs): 100 MB median 10.588 MB/s; 300 MB median 10.752 MB/s; 1 GB median 10.591 MB/s. Overall median ~10.6 MB/s. Tracer label note: 100 MB runs retained `LU-S-warmup` label (`TRACER_LABEL_MISMATCH_ONLY`); underlying metrics, chunk counts, HTTP 200, byte counts verified.
+- Download (9/9 valid runs): 100 MB median 11.042 MB/s; 300 MB median 11.068 MB/s; 1 GB median 10.994 MB/s. Overall median ~11.0 MB/s. `DOWNLOAD_INTEGRITY=PASS` (all 9 SHA-256 digests bit-exact PASS).
+- Excluded run: initial `LD-S-r01` attempt failed final file resolution (`RESULT=EXCLUDED`, `REASON=FINAL_FILE_RESOLUTION_FAILED`). Excluded from 9-run dataset.
+- Throughput ~10.6 MB/s upload and ~11.0 MB/s download corresponds to ~85–88 Mbps wire payload rate, aligning with the 100 Mbps full duplex inter-VLAN trunk ceiling (MikroTik RB750r2 `ether2` / TL-SG105E Port 1) proven in PR #259.
+- Status: `FINAL_REPORT_MEASUREMENT=COMPLETE`, `PRE_FIX_REWRITTEN=NO`, `POST_FIX_CLAIMED=NO`, `APPLICATION_DEFECT_PROVEN=NO`, `APPLICATION_SOURCE_CHANGED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`, `NETWORK_MUTATION_PERFORMED=NO`, `REMOTE_R1_STATUS=PENDING`.
+- Remote R1 execution is next gate. Onsite revisit: `ONSITE_REVISIT_NOW=NO`. Revisit required only if a shared application or common infrastructure fix is authorized and deployed.
+
 ## Current Task — IDEA1-UNIFIED-PREVIEW-D1-C — D-1 PR-C CAS, upload lifecycle, storage budget, orphan safety
 
 | Field | Current value |
@@ -301,7 +329,7 @@ Durable facts:
 - Manifest rules: server accepts manifest schema [1,2] independent of the upgrade flag, rejects 3+; v2 heads are always written as v2 and never downgraded to v1; P2a builds treat v2 Vaults as read-only (P2A-W approved).
 - Zero-Knowledge invariants remain binding: no server Vault plaintext, no server-generated Vault derivatives, no persistent decrypted Vault cache; only client-encrypted ciphertext derivatives may persist (D-10).
 
-## Current Task
+## Closed Task — IDEA1-LFT-PERF-1 — Large File Transfer Performance Study & Optimization (Historical Baseline / PR #216 Merged)
 
 | Field | Current value |
 |---|---|

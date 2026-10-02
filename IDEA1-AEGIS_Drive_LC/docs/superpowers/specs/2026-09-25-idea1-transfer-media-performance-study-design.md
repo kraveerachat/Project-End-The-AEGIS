@@ -1450,3 +1450,60 @@ PR259_STATE = MERGED
 PR259_MERGE_COMMIT = 92d479675103988d36240ef219a9193a9a6dcdd4
 PR259_CURRENT_SCOPE_WORK = COMPLETE
 ~~~
+
+## 26. Onsite Direct LAN Final Report Measurement Synthesis (2026-10-02)
+
+### 26.1 Executive summary
+
+On 2026-10-02, the full onsite P1 Direct LAN measurement suite was executed by Human Owner on the physical test client (`192.168.30.98`) against Production Drive (`192.168.10.10:443`).
+
+- **Classification:** `FINAL_REPORT_MEASUREMENT` (Explicitly: `NOT PRE_FIX`, `NOT POST_FIX`).
+- **Path Verification:** `P1_DIRECT_LAN=PASS`, `TcpTestSucceeded=True`, `SourceAddress=192.168.30.98`, `InterfaceAlias=Ethernet`, `RemoteTarget=192.168.10.10:443`, `FINAL_PATH_SANITY_CHECK=PASS`. Twingate was not used.
+- **Upload:** 9/9 valid runs (100 MB median 10.588 MB/s; 300 MB median 10.752 MB/s; 1 GB median 10.591 MB/s; overall median **~10.6 MB/s**).
+- **Download:** 9/9 valid runs (100 MB median 11.042 MB/s; 300 MB median 11.068 MB/s; 1 GB median 10.994 MB/s; overall median **~11.0 MB/s**).
+- **Download Integrity:** `DOWNLOAD_INTEGRITY=PASS` (all 9 SHA-256 digests match bit-for-bit).
+- **Tracer Note:** 100 MB upload runs retained `LU-S-warmup` harness labels (`TRACER_LABEL_MISMATCH_ONLY`); underlying metrics, chunk counts, HTTP 200, and byte sequences verified.
+- **Excluded Run:** `LD-S-r01` pilot excluded (`REASON=FINAL_FILE_RESOLUTION_FAILED`).
+
+### 26.2 Reconciliation with PR #216 and PR #259
+
+1. **PR #216 (Historical Performance Study & Baseline):**
+   - PR #216 established the original 36-run PRE-FIX matrix (executed 2026-09-25) and initial diagnostic probes (U1, U2, D1).
+   - Historical PRE-FIX values (Upload ~5.06–5.17 MB/s, Download ~6.7–7.3 MB/s under initial test conditions) remain preserved unchanged in §11.
+   - The new 18-run final report measurement reflects sustained performance on the dedicated Gigabit client Ethernet interface over the router trunk.
+
+2. **PR #259 (Live Physical-Path Telemetry & 100 Mbps Trunk Ceiling):**
+   - PR #259 proved conclusively on live hardware that MikroTik RB750r2 `ether2` and TL-SG105E Port 1 operate at `100 Mbps Full Duplex`.
+   - The measured LAN throughput (~10.6 MB/s upload, ~11.0 MB/s download) represents **~85–88 Mbps effective wire payload rate**, which accounts for standard TCP/IP and TLS overhead on a 100 Mbps Fast Ethernet link.
+   - The physical link rate is the sole physical limiter for Direct LAN transfer.
+
+### 26.3 Remote residual limiter and next gate
+
+- **Remote Status:** Remote R1 remains `PENDING`.
+- **Remote Diagnosis:** Home execution of the prepared R1 diagnostic packet (§22 of measurement plan) is required to evaluate external ISP uplink/downlink, Twingate direct vs relayed mode, and transport windowing.
+- **Onsite Revisit Policy:** `ONSITE_REVISIT_NOW=NO`. Revisit required only if a shared application or common infrastructure fix is authorized and deployed.
+
+### 26.4 Architectural status block
+
+~~~text
+TASK = IDEA1_TRANSFER_FINAL_REPORT_MEASUREMENT
+MEASUREMENT_CLASSIFICATION = FINAL_REPORT_MEASUREMENT
+PRE_FIX_REWRITTEN = NO
+POST_FIX_CLAIMED = NO
+P1_DIRECT_LAN = PASS
+FINAL_PATH_SANITY_CHECK = PASS
+LAN_UPLOAD_VALID_RUNS = 9/9
+LAN_DOWNLOAD_VALID_RUNS = 9/9
+LAN_TOTAL_VALID_MEASURED_RUNS = 18/18
+DOWNLOAD_INTEGRITY = PASS
+LAN_UPLOAD_MEDIAN = ~10.6 MB/s (100MB: 10.588, 300MB: 10.752, 1GB: 10.591)
+LAN_DOWNLOAD_MEDIAN = ~11.0 MB/s (100MB: 11.042, 300MB: 11.068, 1GB: 10.994)
+LIMITER_EXPLANATION = PROVEN_100MBPS_ROUTER_TRUNK_CEILING (PR #259)
+APPLICATION_DEFECT_PROVEN = NO
+APPLICATION_SOURCE_CHANGED = NO
+PRODUCTION_MUTATION_PERFORMED = NO
+NETWORK_MUTATION_PERFORMED = NO
+REMOTE_R1_STATUS = PENDING
+NEXT_GATE = REMOTE_R1
+FINAL_RECEIPT_CREATED = NO
+~~~
