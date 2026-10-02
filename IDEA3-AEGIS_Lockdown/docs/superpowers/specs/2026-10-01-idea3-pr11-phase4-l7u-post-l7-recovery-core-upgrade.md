@@ -232,3 +232,9 @@ form as `preflight`; no widening, no live-authorization flag), and `read_records
 `DELTA_CAPTURE_UNREADABLE_ROOT_REQUIRED` instead of `UNEXPECTED:PermissionError`. Capture permissions are not loosened, `apply`/`verify`/`rollback` semantics are
 unchanged, and the proof still runs after the PRE->POST compare with a failure still rolling back. Regression: `tests/test_pr11_phase4_l7u_delta_privilege.py`.
 **Limit:** this was the first time `delta` ran against the real host; any further live-only defect behind it stays undiscovered until the next attempt. L7u is NOT live-accepted.
+
+## 13. Live result (closeout, 2026-10-02)
+
+- **First attempt** (evidence `2026-10-02-l7u-20261002-201221`): failed at the exact-value delta (§12), rolled back, consumed, `L7U_LIVE_ACCEPTANCE = NOT_PROVEN`. Historical.
+- **Second governed attempt** after PR #302 (main `55c7d181`, evidence `2026-10-02-l7u-20261002-211217`, frozen runner SHA-256 `5ac7264d…dad0f`): `L7U_APPLY=PASS`, `L7U_VERIFY=PASS`, PRE→POST `COMPARE_RESULT=PASS`, `L7U_DELTA=PASS`, `SECRET_SCAN_HITS=0`, `L7U_CORE_RESTART_COUNT=ONE`, `L7U_STARTS_DETECTOR=NO`; the Core now runs release `55c7d181…` with the Recovery and F1 alert transport present. Consumed and persistent.
+- **Not claimed:** Recovery R1–R8, LVR, L8, F1 detector start, ESP32. New group membership applies to new login sessions only.
