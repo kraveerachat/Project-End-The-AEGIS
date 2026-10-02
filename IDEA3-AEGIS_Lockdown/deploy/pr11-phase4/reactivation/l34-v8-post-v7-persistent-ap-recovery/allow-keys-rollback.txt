@@ -1,0 +1,16 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 POST-V7 PERSISTENT AP RECOVERY (V8): rollback-only allowance (PRE->RB).
+# After reset-failed + start + stop, systemd legitimately reports dnsmasq NRestarts 0 (was 5) and a new ExecMainStartTimestamp; the rollback never
+# recreates the stale start-limit-hit artifact. The broker is never commanded: tearing the AP down returns it to its own crash loop, so its runtime
+# fields keep moving exactly as they did before this run (PRE was already mid-churn). The AP profile was rewritten twice by NetworkManager itself
+# (autoconnect no -> yes -> no), so its metadata record (size/mtime) is the one approved persistent-artifact key; rollback.sh proves the profile is
+# semantically identical to PRE (canonical records; key order and the daemon uuid ignored), autoconnect=false restored. Nothing about the AP, rfkill, listeners or other persistent files is approved here;
+# dnsmasq ActiveState/SubState/Result and the regulatory window move only through the exact V3 rollback catalogs.
+nm.profile./etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection.meta
+svc.aegis-idea3-dnsmasq.service.NRestarts
+svc.aegis-idea3-dnsmasq.service.ExecMainStartTimestamp
+svc.aegis-idea3-mosquitto.service.ActiveState
+svc.aegis-idea3-mosquitto.service.SubState
+svc.aegis-idea3-mosquitto.service.Result
+svc.aegis-idea3-mosquitto.service.MainPID
+svc.aegis-idea3-mosquitto.service.NRestarts
+svc.aegis-idea3-mosquitto.service.ExecMainStartTimestamp
