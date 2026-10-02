@@ -654,3 +654,19 @@ Restarting `systemd-timesyncd` (the L5 rollback) legitimately reselects one of i
   `SHA256SUMS` manifest; originals are never modified.
 - Unchanged: exact chrony.conf mtime rollback, constrained `time.timesyncd.ServerName` INFO policy, S10 fail-closed comparison, the three
   rollback-only allowance keys, one attempt per authorization, no automatic retry.
+
+## 10. Governed dnsmasq unit boot-order repair (`dnsmasq-unit-boot-order-repair`) — repository implementation
+
+> **IMPLEMENTED != DEPLOYED.** Nothing in this section has been run on the host. Design: `docs/superpowers/specs/2026-10-03-idea3-dnsmasq-unit-boot-order-governed-repair-design.md`.
+
+- **What it is for.** PR #305 fixed the canonical `deploy/network/aegis-idea3-dnsmasq.service.example` in the repository, and the corrected L34 authority now refuses the OLD pre-PR305 unit that is still
+  installed on the host, so every L34/V5–V8 reactivation is blocked until the repaired unit is installed and qualified. This task-specific package does ONLY that — it is not an L-stage, invents no L-number
+  and replays no V-stage.
+- **Files.** `p4-dnsmasq-repair-lib.sh`; `reactivation/dnsmasq-unit-boot-order-repair/{apply,verify,rollback,reboot-verify}.sh` plus its allow files; `owner-run/run-dnsmasq-unit-boot-order-repair-owner.sh`
+  (frozen, one attempt, inert as committed); `owner-run/verify-dnsmasq-boot-order-after-reboot.sh` (separate, read-only, never reboots).
+- **Mutation scope.** Render the canonical template with the fixed approved values, atomically install the unit, `daemon-reload`, then `reset-failed` + `start` (failed/start-limit-hit baseline) or `restart`
+  (running baseline) of `aegis-idea3-dnsmasq.service` only. No AP, NetworkManager, nftables, forwarding, broker, Twingate, Core, Recovery, F1, L8p or ESP32 action.
+- **Governance.** Fresh same-day `stage=L4` authorization with the exact repair scope + K3, exact-main frozen runner, marker `DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED` consumed after preflight + PRE capture, PRE → APPLY → VERIFY →
+  POST → exact comparator → journal-owned rollback, terminal verdict `PASS | ROLLED_BACK | ROLLBACK_FAILED_ESCALATE | NOT_STARTED_NO_MUTATION`, no automatic retry.
+- **K12.** The repair run claims no reboot persistence. The separate reboot verification records `K12_PERSISTENCE_OBSERVED` and, independently, `K12_FORMALLY_PROVEN=NO`; `K12_AUTOMATIC_REBOOT_PERSISTENCE`
+  stays `NOT_PROVEN` until the owner/integration reviewer records an acceptance decision.

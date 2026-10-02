@@ -1,0 +1,7 @@
+# AEGIS IDEA3 PR11 Phase 4 — governed dnsmasq UNIT boot-order REPAIR, FAILED baseline PRE->RB: the dnsmasq failed/start-limit-hit -> inactive/dead/success
+# window (rollback leaves the unit safely stopped and never recreates the stale start-limit-hit artifact), as exact members of the existing approved comparator
+# catalog L34_RUNTIME_REACTIVATION_ROLLBACK. The RUNNING baseline needs no dynamic window.
+operation L34_RUNTIME_REACTIVATION_ROLLBACK
+svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive
+svc.aegis-idea3-dnsmasq.service.SubState failed dead
+svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success

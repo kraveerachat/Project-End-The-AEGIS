@@ -1,0 +1,8 @@
+# AEGIS IDEA3 PR11 Phase 4 — governed dnsmasq UNIT boot-order REPAIR: rollback-only allowance (PRE->RB).
+# After reset-failed + start + stop (FAILED baseline) or restart (RUNNING baseline) systemd legitimately reports a new dnsmasq MainPID / NRestarts /
+# ExecMainStartTimestamp; the rollback never recreates the stale start-limit-hit artifact. dnsmasq ActiveState/SubState/Result move only through the exact catalog
+# in allow-dynamic-transitions-failed-rollback.txt (FAILED baseline). Nothing else is approved: the AP, profile, configuration, nftables, rfkill, broker and Core
+# must equal PRE.
+svc.aegis-idea3-dnsmasq.service.MainPID
+svc.aegis-idea3-dnsmasq.service.NRestarts
+svc.aegis-idea3-dnsmasq.service.ExecMainStartTimestamp
