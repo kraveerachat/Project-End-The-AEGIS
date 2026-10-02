@@ -37,6 +37,11 @@ const READ = vaultTreeConfigFromEnv({ ...TREE, VAULT_PREVIEW_INDEX_SCHEMA_AVAILA
 const SCHEMA_ONLY = vaultTreeConfigFromEnv({ ...TREE, VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE: 'true' })
 const TREE_ONLY = vaultTreeConfigFromEnv(TREE)
 const ALL_OFF = vaultTreeConfigFromEnv({})
+// PR-C: writer-capable server (budget is mandatory with WRITE; 1 MiB is the smallest accepted value — PROVISIONAL test value)
+const WRITE = vaultTreeConfigFromEnv({
+  ...TREE, VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE: 'true', VAULT_PREVIEW_INDEX_READ_ENABLED: 'true', VAULT_PREVIEW_INDEX_WRITE_ENABLED: 'true',
+  VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: String(1024 * 1024), VAULT_PREVIEW_INDEX_MAX_ATTACH_PER_CAS: '3', VAULT_PREVIEW_INDEX_MAX_SUPERSEDED_PER_CAS: '2',
+})
 const FAST = { memorySizeKiB: 19_456, iterations: 2, parallelism: 1 }
 const CONTENT_ID = 'AAECAwQFBgcICQoLDA0ODw=='
 
@@ -46,7 +51,7 @@ const deps = { v2, tree }
 
 before(async () => {
   await initStorage(); await initVaultStorage(); await initVaultManifestStorage(); await initVaultStaging()
-  for (const [k, cfg] of Object.entries({ read: READ, schemaOnly: SCHEMA_ONLY, treeOnly: TREE_ONLY, off: ALL_OFF })) {
+  for (const [k, cfg] of Object.entries({ read: READ, write: WRITE, schemaOnly: SCHEMA_ONLY, treeOnly: TREE_ONLY, off: ALL_OFF })) {
     const s = createApp({ vaultTreeConfig: cfg }).listen(0, '127.0.0.1')
     await new Promise((r) => s.once('listening', r))
     servers[k] = { s, base: `http://127.0.0.1:${s.address().port}` }
@@ -163,14 +168,17 @@ test('PI-API-7 blobs: paginated opaque listing; bad limit/after → 400', async 
   }
 })
 
-test('PI-API-8 no mutating preview-index route exists in PR-A (POST/PUT/DELETE → 404) and nothing changes', async () => {
+test('PI-API-8 no PUT/PATCH/DELETE preview-index route exists; POST /head exists only behind the WRITE gate (503 here)', async () => {
   const c = await login()
   const a = await indexedOwner(ownerId)
   const before = JSON.stringify(await pindex.getIndexHead(ownerId))
-  for (const [m, p] of [['POST', '/api/vault/tree/preview-index/head'], ['PUT', '/api/vault/tree/preview-index/head'], ['DELETE', '/api/vault/tree/preview-index/head'], ['POST', '/api/vault/tree/preview-index/uploads'], ['DELETE', `/api/vault/tree/preview-index/blobs/${a.root.id}`]]) {
+  for (const [m, p] of [['PUT', '/api/vault/tree/preview-index/head'], ['PATCH', '/api/vault/tree/preview-index/head'], ['DELETE', '/api/vault/tree/preview-index/head'], ['DELETE', `/api/vault/tree/preview-index/blobs/${a.root.id}`], ['DELETE', '/api/vault/tree/preview-index/blobs']]) {
     const r = await c.req(p, { method: m, body: m === 'DELETE' ? undefined : { expectedGeneration: 3 } })
     assert.equal(r.status, 404, `${m} ${p}`)
   }
+  const post = await c.req('/api/vault/tree/preview-index/head', { method: 'POST', body: { expectedGeneration: 3 } })
+  assert.equal(post.status, 503, 'WRITE is off on this server')
+  assert.equal(post.data.code, 'PREVIEW_INDEX_WRITE_DISABLED')
   assert.equal(JSON.stringify(await pindex.getIndexHead(ownerId)), before)
   assert.equal((await pindex.listIndexEnvelopes(ownerId, [a.root.id, a.shard.id, a.staged.id])).length, 3)
 })
@@ -211,4 +219,143 @@ test('PI-INV-2 with no INDEX_* rows, GET /api/vault and /tree/blobs list exactly
   assert.deepEqual(inv.data.blobs.map((b) => String(b.id)).sort(), [u1.id, u2.id].sort())
   const all = await c.req('/api/vault/tree/blobs')
   assert.deepEqual(all.data.blobs.map((b) => [b.id, b.lifecycle]).sort(), [[u1.id, 'UNREFERENCED'], [u2.id, 'TREE_MANAGED']].sort())
+})
+
+// ── PR-C Task C.3 — write-gated CAS route ───────────────────────────────────
+
+const { readAudit, sha256Hex } = await import('../server/db/connection.js')
+const { seedTreeOwner } = await import('./helpers/previewIndexCasSpec.mjs')
+const casBody = (o) => ({
+  expectedGeneration: 0, expectedRootBlobId: null, rootBlobId: o.root.id, rootContentIdB64: o.root.contentIdB64,
+  attachBlobIds: o.attach ?? [o.root.id], supersededBlobIds: o.superseded ?? [], idempotencyKey: o.key ?? 'K'.padStart(22, 'k'), ...o.over,
+})
+const casAudit = async () => (await readAudit(500)).filter((e) => e.action === 'VAULT_PREVIEW_INDEX_CAS')
+const lifecycleOf = async (u, id) => (await tree.listBlobStates(u)).find((x) => x.formatVersion === 2 && x.id === id)?.lifecycle ?? null
+const postCas = (c, body) => c.req('/api/vault/tree/preview-index/head', { method: 'POST', body })
+
+test('PI-CAS-API-1 WRITE flag off → 503 for a valid body, with zero store mutation and no audit', async () => {
+  await seedTreeOwner(deps, ownerId)
+  const root = await seedV2Blob(deps, ownerId, { lifecycle: 'INDEX_STAGED' })
+  const before = (await casAudit()).length
+  for (const [k, code] of [['read', 'PREVIEW_INDEX_WRITE_DISABLED'], ['schemaOnly', 'PREVIEW_INDEX_DISABLED'], ['treeOnly', 'PREVIEW_INDEX_DISABLED'], ['off', 'TREE_PROTOCOL_DISABLED']]) {
+    const c = await login(k)
+    const r = await postCas(c, casBody({ root }))
+    assert.equal(r.status, 503, k); noStore(r)
+    assert.equal(r.data.code, code, k)
+  }
+  assert.equal(await pindex.getIndexHead(ownerId), null)
+  assert.deepEqual(await pindex.listIndexGenerations(ownerId), [])
+  assert.equal(await lifecycleOf(ownerId, root.id), 'INDEX_STAGED')
+  assert.equal((await casAudit()).length, before)
+})
+
+test('PI-CAS-API-2 the existing /api chain (CSRF, then auth) runs before the route', async () => {
+  const { Client } = await import('./helpers/testClient.mjs')
+  const anon = new Client(servers.write.base)
+  assert.equal((await postCas(anon, {})).status, 403, 'anonymous mutation has no CSRF token → rejected before auth')
+  const c = await login('write')
+  const saved = c.csrf; c.csrf = null
+  const r = await postCas(c, {})
+  c.csrf = saved
+  assert.equal(r.status, 403, 'missing CSRF token is rejected by the /api chain')
+})
+
+test('PI-CAS-API-3 success, replay and server-computed digest (id order does not matter); exact shapes; no-store', async () => {
+  await seedTreeOwner(deps, ownerId)
+  const c = await login('write')
+  const root = await seedV2Blob(deps, ownerId, { lifecycle: 'INDEX_STAGED' }), shard = await seedV2Blob(deps, ownerId, { lifecycle: 'INDEX_STAGED' })
+  const body = casBody({ root, attach: [root.id, shard.id] })
+  const r = await postCas(c, body)
+  assert.equal(r.status, 200, JSON.stringify(r.data)); noStore(r)
+  assert.deepEqual(r.data, { indexGeneration: 1, rootBlobId: root.id })
+  const replay = await postCas(c, { ...body, attachBlobIds: [shard.id, root.id] })
+  assert.equal(replay.status, 200); assert.deepEqual(replay.data, { indexGeneration: 1, rootBlobId: root.id })
+  const head = await c.req('/api/vault/tree/preview-index/head')
+  assert.equal(head.status, 200)
+  assert.equal(head.data.indexGeneration, 1)
+  assert.deepEqual(head.data.rootBlobRef, { formatVersion: 2, id: root.id })
+})
+
+test('PI-CAS-API-4 conflicts: 409 PREVIEW_INDEX_CONFLICT exposes only currentGeneration/currentRootBlobId; other 409s only {error, code}', async () => {
+  await seedTreeOwner(deps, ownerId)
+  const c = await login('write')
+  const g1 = await seedV2Blob(deps, ownerId, { lifecycle: 'INDEX_STAGED' })
+  assert.equal((await postCas(c, casBody({ root: g1 }))).status, 200)
+  const r2 = await seedV2Blob(deps, ownerId, { lifecycle: 'INDEX_STAGED' })
+  const stale = await postCas(c, casBody({ root: r2, key: 'S'.padStart(22, 's') }))
+  assert.equal(stale.status, 409); noStore(stale)
+  assert.deepEqual(stale.data, { error: 'Preview index changed', code: 'PREVIEW_INDEX_CONFLICT', currentGeneration: 1, currentRootBlobId: g1.id })
+  const mismatch = await postCas(c, casBody({ root: r2, over: { expectedGeneration: 1, expectedRootBlobId: g1.id } }))
+  assert.equal(mismatch.status, 409); assert.deepEqual(Object.keys(mismatch.data).sort(), ['code', 'error']); assert.equal(mismatch.data.code, 'PREVIEW_INDEX_IDEMPOTENCY_MISMATCH')
+  const user = await seedV2Blob(deps, ownerId, { lifecycle: 'UNREFERENCED' })
+  const blob = await postCas(c, casBody({ root: r2, attach: [r2.id, user.id], key: 'B'.padStart(22, 'b'), over: { expectedGeneration: 1, expectedRootBlobId: g1.id } }))
+  assert.equal(blob.status, 409); assert.deepEqual(Object.keys(blob.data).sort(), ['code', 'error']); assert.equal(blob.data.code, 'PREVIEW_INDEX_BLOB_STATE_CONFLICT')
+  const rootMis = await postCas(c, casBody({ root: { ...r2, contentIdB64: g1.contentIdB64 }, key: 'R'.padStart(22, 'r'), over: { expectedGeneration: 1, expectedRootBlobId: g1.id } }))
+  assert.equal(rootMis.status, 409); assert.equal(rootMis.data.code, 'PREVIEW_INDEX_ROOT_MISMATCH')
+  assert.equal(await lifecycleOf(ownerId, r2.id), 'INDEX_STAGED')
+})
+
+test('PI-CAS-API-5 strict body: unknown keys, bad syntax, limits → 400 INVALID_INPUT without echoing client values', async () => {
+  await seedTreeOwner(deps, ownerId)
+  const c = await login('write')
+  const root = await seedV2Blob(deps, ownerId, { lifecycle: 'INDEX_STAGED' })
+  const secret = 'quarterly-board-minutes.pdf'
+  let n = 0
+  const hex = () => String(++n).padStart(48, 'a')
+  const bads = [
+    { over: { name: secret } }, { over: { [secret]: 1 } }, { over: { requestDigest: 'f'.repeat(64) } },
+    { over: { rootBlobId: secret } }, { over: { rootContentIdB64: secret } }, { over: { idempotencyKey: secret } },
+    { over: { expectedGeneration: -1 } }, { over: { expectedGeneration: '0' } }, { over: { expectedGeneration: 1 } },
+    { over: { expectedRootBlobId: root.id } }, { over: { attachBlobIds: [] } }, { over: { attachBlobIds: [root.id, root.id] } },
+    { over: { attachBlobIds: [hex()] } }, { over: { supersededBlobIds: null } }, { over: { supersededBlobIds: [root.id] } },
+    { attach: [root.id, hex(), hex(), hex()] }, { superseded: [hex(), hex(), hex()] }, { over: { attachBlobIds: undefined } },
+  ]
+  for (const b of bads) {
+    const r = await postCas(c, casBody({ root, ...b }))
+    assert.equal(r.status, 400, JSON.stringify(b)); noStore(r)
+    assert.equal(r.data.code, 'INVALID_INPUT')
+    assert.equal(JSON.stringify(r.data).includes(secret), false)
+  }
+  for (const raw of [[], 'x']) {
+    const r = await postCas(c, raw)
+    assert.equal(r.status, 400, JSON.stringify(raw))
+  }
+  assert.equal(await pindex.getIndexHead(ownerId), null)
+  assert.equal(await lifecycleOf(ownerId, root.id), 'INDEX_STAGED')
+})
+
+test('PI-CAS-API-6 owner isolation: FLAT → 409 TREE_STATE_CONFLICT; another owner\'s blob is indistinguishable from an unknown id', async () => {
+  const c = await login('write')
+  const rootFlat = await seedV2Blob(deps, ownerId, { lifecycle: 'INDEX_STAGED' })
+  const flat = await postCas(c, casBody({ root: rootFlat }))
+  assert.equal(flat.status, 409); assert.equal(flat.data.code, 'TREE_STATE_CONFLICT')
+  await seedTreeOwner(deps, ownerId)
+  await seedTreeOwner(deps, otherId, { treeId: 'B'.padStart(22, 'O') })
+  const foreign = await seedV2Blob(deps, otherId, { lifecycle: 'INDEX_STAGED' })
+  const mine = await seedV2Blob(deps, ownerId, { lifecycle: 'INDEX_STAGED' })
+  const viaForeign = await postCas(c, casBody({ root: mine, attach: [mine.id, foreign.id] }))
+  const viaUnknown = await postCas(c, casBody({ root: mine, attach: [mine.id, 'e'.repeat(48)], key: 'U'.padStart(22, 'u') }))
+  assert.equal(viaForeign.status, 409); assert.deepEqual(viaForeign.data, viaUnknown.data)
+  const foreignRoot = await postCas(c, casBody({ root: foreign, key: 'F'.padStart(22, 'f') }))
+  assert.equal(foreignRoot.status, 409); assert.deepEqual(foreignRoot.data, viaUnknown.data)
+  assert.equal(await lifecycleOf(otherId, foreign.id), 'INDEX_STAGED')
+  assert.equal(await pindex.getIndexHead(otherId), null)
+})
+
+test('PI-CAS-API-7 audit: VAULT_PREVIEW_INDEX_CAS once per real commit (hash of root id only), DENIED on failure, none on replay', async () => {
+  await seedTreeOwner(deps, ownerId)
+  const c = await login('write')
+  const before = (await casAudit()).length
+  const root = await seedV2Blob(deps, ownerId, { lifecycle: 'INDEX_STAGED' })
+  const body = casBody({ root })
+  assert.equal((await postCas(c, body)).status, 200)
+  assert.equal((await postCas(c, body)).status, 200)
+  const r2 = await seedV2Blob(deps, ownerId, { lifecycle: 'INDEX_STAGED' })
+  assert.equal((await postCas(c, casBody({ root: r2, key: 'D'.padStart(22, 'd') }))).status, 409)
+  const all = await casAudit()
+  const rows = all.slice(0, all.length - before)
+  assert.deepEqual(rows.map((e) => e.result).sort(), ['DENIED', 'OK'])
+  assert.equal(rows.find((e) => e.result === 'OK').targetHash, sha256Hex(root.id))
+  const text = JSON.stringify(rows)
+  for (const leak of [root.contentIdB64, 'K'.padStart(22, 'k'), r2.id, root.id]) assert.equal(text.includes(leak), false)
 })
