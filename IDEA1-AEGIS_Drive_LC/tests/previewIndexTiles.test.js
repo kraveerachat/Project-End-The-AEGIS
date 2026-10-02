@@ -92,7 +92,7 @@ test('PIT-6 VaultTreeScreen wiring: gated by previewIndexReadEnabled, tried befo
   assert.match(src, /import \{ createPreviewIndexTiles \} from '\.\.\/lib\/vaultPreviewIndexTiles\.js'/)
   assert.match(src, /import \{ createDerivativeFirstScheduler \} from '\.\.\/lib\/vaultPreviewIndexTileLane\.js'/)
   assert.match(src, /const previewIndexEnabled = mediaEnabled && treeState\?\.flags\?\.previewIndexReadEnabled === true/)
-  assert.match(src, /previewIndexEnabled && unlockedState && kek \? createPreviewIndexTiles\(\{ kek, unlockedState \}\) : null/)
+  assert.match(src, /previewIndexEnabled && unlockedState && kek \? createPreviewIndexTiles\(\{ kek, unlockedState, diagnostics: previewCounters \}\) : null/) // PR-D adds only the counters
   const load = src.indexOf('load: async (key, { signal } = {}) => {')
   const staged = src.indexOf('combined?.take(key)', load)
   const original = src.indexOf("const blob = mediaBlobIndexRef.current.get(refKey(node.blobRef))", load)
