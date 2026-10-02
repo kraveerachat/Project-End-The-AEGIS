@@ -60,6 +60,19 @@ D1S1-S2 (2026-10-02): Human decisions — `STAGE1_WRITE_ROUTE_PRESENT=NO`, `STAG
 
 The read path is default OFF and may return DISABLED, MISSING, CORRUPT, or ABORTED without blocking original preview. Index objects remain encrypted and separate from schema-v1 main manifest; no writer, CAS, index upload, derivative generation, destructive GC, or rollout is present. The codec probe is `CODEC_ONLY_PRELIMINARY`, not the required IDX-SIZE capacity gate or approved budget. This task has not enabled `VAULT_PREVIEW_INDEX_WRITE_ENABLED` and has not touched Production.
 
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-PRIV — preview-index DELETE privilege contract (pre-Stage-1 correction)
+
+| Field | Current value |
+|---|---|
+| Task | Restore the D-1 database privilege contract: `drive_app` has SELECT/INSERT/UPDATE only on `vault_preview_index_heads`, `vault_preview_index_generations`, `vault_preview_index_blob_refs` (no DELETE/TRUNCATE) on both the upgrade and fresh-install paths |
+| Branch | `fix/idea1-d1-preview-index-delete-privilege` from `origin/main` `fc4839957aff109f8f1a81fbc04a4ea37820f66a` |
+| Owner | kla |
+| State | **IMPLEMENTED + LOCALLY VERIFIED; READY FOR HUMAN REVIEW**; not merged; no Production mutation |
+| Root cause | `postgres/init/02-app-roles.sh` grants DELETE on all tables and through `ALTER DEFAULT PRIVILEGES`; migration 012 only added a GRANT and never revoked, and schema.sql + 02 gave blanket DML on fresh installs. PI-PG-2 passed because default privileges are per database and its disposable database never ran the role script. |
+| Fix | 012 role block: `REVOKE ALL` then `GRANT SELECT, INSERT, UPDATE` per preview-index table; 02-app-roles.sh and its three mirrors (pg-integration-env.sh, public-share integration and managed-tunnel db-init) narrow the same three tables after their blanket grant, guarded by `to_regclass`. No other table changes. |
+| Effect on Stage 1 | Migration 012 bytes change (SHA-256 `aac26537…b239`, was `aaeee44a…edb5`). Stage 1 candidate `4a8cc3c9` and the PR #294 runbook (which currently expects DELETE) must be rebuilt on the merge of this fix before HG-S1. |
+| Next gate | Human review + integration review (database role surfaces); after merge, refresh the Stage 1 package |
+
 ## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-A — D-1 PR-A compatibility + read-only preview-index API
 
 | Field | Current value |

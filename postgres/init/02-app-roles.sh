@@ -81,4 +81,26 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 SQL
 done
 
+# ── D-1 preview-index privilege contract (aegis_drive only) ──────────────────
+# The blanket grant above (and its ALTER DEFAULT PRIVILEGES) would give drive_app DELETE on
+# the three D-1 preview-index tables too. Their contract is SELECT, INSERT, UPDATE only:
+# index objects are never deleted by the application (no destructive GC in D-1). Owner
+# deletion still cascades because FK actions run with the table owner's rights. Only these
+# three tables are narrowed; every other table keeps the blanket DML. Migration 012 applies
+# the same narrowing on the upgrade path. Guarded so an older schema without them still boots.
+echo "[aegis-postgres] narrowing drive_app on D-1 preview-index tables (SELECT, INSERT, UPDATE only)"
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" -d aegis_drive <<'SQL'
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['vault_preview_index_heads', 'vault_preview_index_generations', 'vault_preview_index_blob_refs'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON %I FROM drive_app', t);
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE ON %I TO drive_app', t);
+    END IF;
+  END LOOP;
+END
+$$;
+SQL
+
 echo "[aegis-postgres] scoped roles done — drive_app→aegis_drive, monitor_app→aegis_monitor"
