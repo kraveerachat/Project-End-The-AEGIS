@@ -14,6 +14,7 @@
 import { uploadVaultFileChunked } from './vaultChunkedUpload.js'
 import { decryptBlobMeta } from './vaultCrypto.js'
 import { decryptVaultV2Meta } from './vaultChunkCrypto.js'
+import { classifyDecryptedMeta, RESERVED_BLOB_CLASSES } from './vaultPreviewIndexOrphans.js'
 
 /** ครอบครัว endpoint ของ tree-aware upload (handler ชุดเดียวกับ /api/vault/uploads บนเซิร์ฟเวอร์) */
 export const TREE_UPLOAD_ROUTE_BASE = '/api/vault/tree/uploads'
@@ -74,19 +75,31 @@ const refKey = (r) => `${r.formatVersion}:${String(r.id)}`
  * ซองถอดไม่ได้ (คนละ KEK / เสียหาย) ยังถูกคืนมาพร้อม undecryptable=true เพื่อให้ UI แสดง id ทึบตามจริง
  * @returns {Promise<Array<{ blobRef, name, mediaType, plainSize, orphanSince, orphanRetentionMs, undecryptable, blob }>>}
  */
-export async function listOrphanBlobs({ kek, api, index, signal = null }) {
+export async function listOrphanBlobs(o) {
+  return (await listOrphanBlobsDetailed(o)).orphans
+}
+
+/**
+ * D-1 (PR-C Task D.2): the same list, plus how many UNREFERENCED blobs were withheld because their AUTHENTICATED
+ * metadata marks them as preview-index objects (root/shard/derivative — e.g. from an old server that predates
+ * INDEX_STAGED). Only a count is reported: no id or name of a withheld blob ever reaches the UI.
+ * @returns {Promise<{ orphans: Array<object>, reservedHidden: number }>}
+ */
+export async function listOrphanBlobsDetailed({ kek, api, index, signal = null }) {
   const data = await api.listTreeBlobs({ lifecycle: 'UNREFERENCED', signal })
   const referenced = new Set()
   for (const n of index?.nodes?.values?.() ?? []) if (n?.blobRef) referenced.add(refKey(n.blobRef))
   const out = []
+  let reservedHidden = 0
   for (const blob of data?.blobs ?? []) {
-    if (blob?.lifecycle !== 'UNREFERENCED') continue
+    if (blob?.lifecycle !== 'UNREFERENCED') continue // an INDEX_* row is never a recoverable user file
     const blobRef = { formatVersion: blob.formatVersion, id: String(blob.id) }
     if (referenced.has(refKey(blobRef))) continue
     let meta = null
     try {
       meta = blob.formatVersion === 1 ? await decryptBlobMeta(kek, blob) : blob.formatVersion === 2 ? await decryptVaultV2Meta(kek, blob) : null
     } catch { meta = null }
+    if (blob.formatVersion === 2 && RESERVED_BLOB_CLASSES.includes(classifyDecryptedMeta(meta))) { reservedHidden += 1; continue }
     const plainSize = meta && (Number.isSafeInteger(meta.plainSize) ? meta.plainSize : Number.isSafeInteger(meta.size) ? meta.size : null)
     out.push({
       blobRef,
@@ -99,14 +112,17 @@ export async function listOrphanBlobs({ kek, api, index, signal = null }) {
       blob,
     })
   }
-  return out
+  return { orphans: out, reservedHidden }
 }
 
 /**
  * กู้ orphan: ผูกเข้าโฟลเดอร์ที่ผู้ใช้เลือกด้วยชื่อที่ผู้ใช้ยืนยัน (อาจแก้ชื่อได้) — ผ่าน session.commit เท่านั้น
+ * D-1 (PR-C Task D.2): fail closed — without an explicit non-empty name nothing is committed (no name is ever invented
+ * for an unnamed or undecryptable blob); throws an Error with code NAME_REQUIRED.
  * @returns {Promise<{ generation, revisionId, nodeId } | { conflict, orphan: blobRef }>}
  */
 export async function recoverOrphan({ session, blobRef, parentNodeId, name, mediaType = '', plainSize = null, signal = null }) {
+  if (typeof name !== 'string' || name.trim() === '') throw Object.assign(new Error('A name is required to recover this file'), { code: 'NAME_REQUIRED' })
   const intent = attachBlobIntent({ parentNodeId, name, mediaType, plainSize, blobRef })
   const committed = await session.commit(intent, { signal })
   if (committed?.conflict) return { conflict: committed.conflict, orphan: intent.blobRef }
