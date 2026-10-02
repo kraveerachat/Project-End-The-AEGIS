@@ -1142,27 +1142,151 @@ DOWNLOAD_INTEGRITY=PASS
 
 ### 23.5 Remote next sequence and onsite revisit policy
 
-**Remote R1 Status:** `PENDING`.
+**Remote R1 Status:** `COMPLETE` (executed 2026-10-02 / 2026-10-03; see §24).
 
-**Expected Execution Sequence:**
-1. `P1 LAN FINAL_REPORT_MEASUREMENT = COMPLETE`.
-2. Return to Remote environment.
-3. Execute Remote R1 targeted diagnostic packet (§22).
-4. Classify Remote root cause.
-5. Decision path:
-   - **Path A: SIMPLE_SAFE_FIX_PROVEN**
-     - Requires separate Human Owner authorization.
-     - Implement exactly one bounded fix.
-     - Execute post-fix verification.
-   - **Path B: NO_SAFE_FIX_PROVEN**
-     - No Production mutation.
-     - Document limitation honestly in canonical notes.
-     - Close throughput workstream.
+**Decision:** `Path B: NO_SAFE_FIX_PROVEN` selected. No Production mutation; Remote residual limitation documented; throughput workstream closed.
 
 **Onsite Revisit Policy:**
 ~~~text
-ONSITE_REVISIT_NOW = NO
+ONSITE_REVISIT_REQUIRED = NO
 ~~~
-- If an eventual authorized fix is Remote/Twingate-specific: `LAN_REVISIT_REQUIRED=NO`.
-- If no fix is implemented: `LAN_REVISIT_REQUIRED=NO`.
-- If an authorized fix modifies a shared/common surface (Drive transfer implementation, common NGINX proxy behavior, server NIC/storage host path, shared network infrastructure): `LAN_POST_FIX_REVERIFICATION=MAY_BE_REQUIRED`.
+- Because no application fix is implemented, no LAN re-verification is required.
+- Historical PRE-FIX baseline (PR #216) and live physical-path evidence (PR #259) remain unchanged and cross-referenced.
+
+## 24. Remote R1 Diagnostic Packet Execution & Final Decision (Executed 2026-10-02 / 2026-10-03)
+
+- **Date:** 2026-10-02 / 2026-10-03
+- **Environment:** Remote Client via Twingate -> Production Drive Host (`192.168.10.10:443`)
+- **Status:** `REMOTE_R1=COMPLETE`
+
+### 24.1 R1-A Remote Path Verification & Twingate Activity
+
+- **Client physical link:** Wi-Fi (Intel Wi-Fi 6E AX211, LinkSpeed=866.7 Mbps)
+- **Twingate Client IP:** `100.127.255.164`
+- **AEGIS Path Verification:**
+  - Remote Target: `192.168.10.10:443`
+  - `TcpTestSucceeded=True`
+  - `SourceAddress=100.127.255.164`
+  - `InterfaceAlias=Twingate`
+- **Twingate Admin Activity Telemetry:**
+  - Resource: `aegis.internal`
+  - Protocol/Port: `TCP/443`
+  - Connector: `aegis-connector-02`
+  - Connection Type: `Peer to peer`
+  - STUN Discovery: `Available`
+- **Classification:**
+  ~~~text
+  TWINGATE_CONNECTION = P2P
+  TWINGATE_RELAY_PATH = NO
+  TWINGATE_RELAY_BOTTLENECK = NOT_APPLICABLE
+  ~~~
+
+### 24.2 R1-B Single Remote Upload
+
+Executed with one 300,000,000 B fixture using the in-page XHR tracer:
+
+- **Run Label:** `RU-M-r01`
+- **Total Bytes:** 300,000,000 bytes
+- **Chunks:** 18 chunks
+- **Chunk Span:** 107,690.4 ms
+- **Throughput:** **2.786 MB/s**
+- **HTTP Status:** All 18 PUTs returned HTTP 200 (`allHttp200=true`)
+- **Classification:** `REMOTE_SINGLE_UPLOAD=PASS`, `REMOTE_UPLOAD_MBPS=2.786`
+
+### 24.3 R1-C Single Remote Download
+
+Executed with one 300,000,000 B fixture using the authenticated download stream observer:
+
+- **Run ID:** `RD-M-r01`
+- **Total Bytes:** 300,000,000 bytes
+- **Download Duration:** 71,331 ms
+- **Throughput:** **4.206 MB/s**
+- **SHA-256 Digest:** `81ba1dbe05118eab211ea9b613860870950891052c7784ce9ba6aabd44c42efb`
+- **Integrity Result:** `HASH_PASS=True`
+- **Classification:** `REMOTE_SINGLE_DOWNLOAD=PASS`, `REMOTE_DOWNLOAD_MBPS=4.206`
+
+### 24.4 R1-D Dual Remote Download
+
+Executed with exactly two concurrent 300,000,000 B downloads:
+
+- **Run ID:** `RD-M-dual-r01`
+- **Concurrency:** Exactly 2 concurrent downloads (authoritative controlled run; an accidental screenshot showing 3 visible downloads was clarified by Human Owner as not reflecting the controlled test; the recorded test runner output is authoritative).
+- **Span:** 144,906 ms
+- **Aggregate Throughput:** **4.141 MB/s**
+- **Integrity:** `HASH1_PASS=True`, `HASH2_PASS=True` (both streams byte-exact verified)
+- **Single Download Reference:** 4.206 MB/s
+- **Dual/Single Ratio:**
+  ~~~text
+  DUAL_SINGLE_RATIO = 4.141 / 4.206 ≈ 0.985
+  ~~~
+- **Classification:**
+  ~~~text
+  REMOTE_DUAL_DOWNLOAD = PASS
+  REMOTE_DUAL_AGGREGATE_MBPS = 4.141
+  REMOTE_SHARED_THROUGHPUT_CEILING = OBSERVED
+  ~~~
+  With `DUAL_SINGLE_RATIO ≈ 0.985`, aggregate download throughput is flat between 1 and 2 streams, demonstrating that the Remote throughput limiter acts as a shared channel/path capacity constraint rather than application stream serialization.
+
+### 24.5 R1-E Server Read-Only Telemetry
+
+Server telemetry captured during remote traffic:
+
+- **Host Uptime / Load:** load average ≈ 1.22 / 1.33 / 1.33 (well within Beelink 4-core capacity)
+- **Host Memory:** Total 7.0 GiB, Used 1.7 GiB, Available 5.3 GiB (75% free)
+- **Host Swap:** Total 4.0 GiB, Used 1.8 GiB, vmstat `si`/`so` ≈ 0 throughout observation (zero active paging)
+- **Host Filesystem:** Root `/` 89 GiB total, 55 GiB used, 30 GiB available (66% utilization)
+- **Host vmstat:** CPU idle 92–98%, I/O wait 0%, no blocking process queue pressure
+- **Container Telemetry Snapshot:**
+  - `aegis-prod-drive-1`: CPU 0.00%, MEM 127.5 MiB / 7.035 GiB (1.77%)
+  - `twingate-aegis-connector-02`: CPU 8.68%, MEM 31.72 MiB / 7.035 GiB (0.44%)
+- **Methodological Note on Docker NET I/O:** Docker NET I/O metrics represent cumulative counters since container creation, not instantaneous link transfer rates, and must not be cited as bandwidth metrics.
+- **Classification:**
+  ~~~text
+  SERVER_CPU_SATURATION = NOT_OBSERVED
+  SERVER_MEMORY_PRESSURE = NOT_OBSERVED
+  SERVER_IO_WAIT_BOTTLENECK = NOT_OBSERVED
+  DRIVE_CONTAINER_RESOURCE_PRESSURE = NOT_OBSERVED
+  TWINGATE_CONNECTOR_RESOURCE_PRESSURE = NOT_OBSERVED
+  ~~~
+
+### 24.6 Home ISP Baseline
+
+Measured from the remote client home connection:
+
+- **Twingate OFF (Primary Baseline):**
+  - Download: **58.65 Mbps**
+  - Upload: **28.40 Mbps**
+  - Latency / Ping: **5 ms**
+- **Twingate ON (Supplementary Baseline):**
+  - Download: **58.33 Mbps**
+  - Upload: **28.53 Mbps**
+  - Latency / Ping: **4 ms**
+- **Interpretation Boundary:**
+  - Ordinary Internet Speedtest traffic under Twingate ON does not prove traversal of the AEGIS Twingate Resource tunnel (split tunneling / direct bypass).
+  - Twingate OFF numbers serve as the primary local ISP baseline.
+  - Do NOT claim: `TWINGATE_HAS_ZERO_OVERHEAD`.
+  - Record: `HOME_ISP_BASELINE_AVAILABLE=YES`.
+
+### 24.7 Final Remote Classification and Workstream Closure
+
+~~~text
+REMOTE_R1 = COMPLETE
+APPLICATION_UPLOAD_DEFECT = NOT_PROVEN
+APPLICATION_DOWNLOAD_DEFECT = NOT_PROVEN
+SERVER_RESOURCE_BOTTLENECK = NOT_OBSERVED
+TWINGATE_CONNECTION = P2P
+TWINGATE_RELAY_BOTTLENECK = NOT_APPLICABLE
+REMOTE_SHARED_THROUGHPUT_CEILING = OBSERVED
+EXACT_REMOTE_ROOT_CAUSE = NOT_PROVEN
+SAFE_APPLICATION_FIX_PROVEN = NO
+SIMPLE_SAFE_FIX_PROVEN = NO
+PERFORMANCE_MUTATION_AUTHORIZED = NO
+PERFORMANCE_MUTATION_PERFORMED = NO
+FINAL_DECISION = NO_SAFE_FIX_PROVEN
+ONSITE_REVISIT_REQUIRED = NO
+~~~
+
+**Throughput Workstream Verdict:**
+- Because no application defect is proven and no safe, bounded application fix exists, no code or configuration changes will be made to Production.
+- Remote transfer performance (~2.8 MB/s upload, ~4.1–4.2 MB/s download) remains bound by remote transport path characteristics (ISP uplink/downlink, residential latency/windowing, WireGuard/P2P framing), not an AEGIS application flaw.
+- Throughput workstream is formally closed with documented limitations.
