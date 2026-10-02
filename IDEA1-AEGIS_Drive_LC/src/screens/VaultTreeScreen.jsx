@@ -31,6 +31,11 @@ import { createThumbScheduler } from '../lib/vaultThumbScheduler.js'
 import { createPreviewIndexTiles } from '../lib/vaultPreviewIndexTiles.js'
 import { createDerivativeFirstScheduler } from '../lib/vaultPreviewIndexTileLane.js'
 import { PREVIEW_INDEX_LIMITS } from '../lib/vaultPreviewIndexConstants.js'
+import { createPreviewIndexWriter, previewIndexWriteAllowed } from '../lib/vaultPreviewIndexWriter.js'
+import { createUploadDerivativeQueue } from '../lib/vaultDerivativeGenerate.js'
+import { createDerivativeBackfill } from '../lib/vaultDerivativeBackfill.js'
+import { createPreviewIndexCounters } from '../lib/vaultPreviewDiagnostics.js'
+import { previewKindFor } from '../lib/vaultPreview.js'
 import { makeImageThumb } from '../lib/vaultImageThumb.js'
 import { createImageDecodeAdmission } from '../lib/vaultImageDecodeAdmission.js'
 import { detectReducedDecodeCapability, startReducedDecodeJob } from '../lib/vaultImageReducedDecode.js'
@@ -454,6 +459,12 @@ export function VaultTreeScreen({
         reloadInventory: () => vaultApi.refresh(),
       })
       announce('vaultTreeUploadComplete', { name })
+      // D-1 (PR-D): derivative work starts only now (original committed AND reconciled), is queued, never awaited,
+      // and can never change this result or its announcement
+      try {
+        const k = previewKindFor(mediaType)
+        uploadDerivativesRef.current?.afterUpload({ file, nodeId: res.nodeId, sourceBlobRef: res.blobRef, kind: k === 'image' ? 'thumb' : k === 'video' ? 'poster' : null })
+      } catch { /* preview work never affects the upload */ }
       return res
     } catch (error) {
       if (error?.code === 'MANIFEST_NEWER_THAN_WRITER') {
@@ -646,9 +657,14 @@ export function VaultTreeScreen({
   // D-1 (PR-B): derivative-first tiles from the separate encrypted preview index — read-only, built only when the
   // server serves previewIndexReadEnabled=true. Every miss/failure falls through to the unchanged original path below.
   const previewIndexEnabled = mediaEnabled && treeState?.flags?.previewIndexReadEnabled === true
+  // D-1 (PR-D): privacy-safe counters (allow-listed names, counts/ms only) for this unlocked session's index work
+  const previewCounters = useMemo(
+    () => (previewIndexEnabled && unlockedState ? createPreviewIndexCounters({ unlockedState }) : null),
+    [previewIndexEnabled, unlockedState],
+  )
   const previewTiles = useMemo(
-    () => (previewIndexEnabled && unlockedState && kek ? createPreviewIndexTiles({ kek, unlockedState }) : null),
-    [previewIndexEnabled, unlockedState, kek],
+    () => (previewIndexEnabled && unlockedState && kek ? createPreviewIndexTiles({ kek, unlockedState, diagnostics: previewCounters }) : null),
+    [previewIndexEnabled, unlockedState, kek, previewCounters],
   )
   const previewTilesRef = useRef(previewTiles)
   previewTilesRef.current = previewTiles
@@ -674,7 +690,46 @@ export function VaultTreeScreen({
   const onActiveUploadsChange = useCallback((count) => {
     activeUploadsRef.current = count
     admissionRef.current?.notifyMemoryChanged?.()
+    uploadDerivativesRef.current?.resume()
   }, [])
+
+  // D-1 (PR-D): the default-off preview-index WRITER, built only when the server serves previewIndexWriteEnabled=true
+  // (the server chains it behind the reader). The capability is re-read from the served /state on every offer; a flag
+  // change needs a fresh /state. Every failure — budget included — is preview-only and fail-soft.
+  const treeStateRef = useRef(treeState)
+  treeStateRef.current = treeState
+  const previewIndexWriteEnabled = previewIndexEnabled && previewIndexWriteAllowed(treeState)
+  const previewWriter = useMemo(
+    () => (previewIndexWriteEnabled && unlockedState && kek ? createPreviewIndexWriter({
+      kek, unlockedState,
+      // the session's head is the latest decrypted main manifest (React state may lag one render behind)
+      getMainHead: () => session?.head ?? treeRef.current?.state?.head ?? null,
+      writeAllowed: () => previewIndexWriteAllowed(treeStateRef.current),
+      diagnostics: previewCounters,
+    }) : null),
+    [previewIndexWriteEnabled, unlockedState, kek, session, previewCounters],
+  )
+  useEffect(() => () => { previewWriter?.dispose() }, [previewWriter])
+  const uploadDerivatives = useMemo(
+    () => (previewWriter ? createUploadDerivativeQueue({ writer: previewWriter, unlockedState, isDeferred: () => activeUploadsRef.current > 0, diagnostics: previewCounters }) : null),
+    [previewWriter, unlockedState, previewCounters],
+  )
+  const uploadDerivativesRef = useRef(uploadDerivatives)
+  uploadDerivativesRef.current = uploadDerivatives
+  useEffect(() => () => { uploadDerivatives?.clear() }, [uploadDerivatives])
+  // lazy backfill: only bytes an original-path tile already produced; deferred during interactive transfers/playback
+  const interactiveRef = useRef({ download: false, modal: false })
+  interactiveRef.current = { download: downloadBusy, modal: Boolean(preview) }
+  const previewBackfill = useMemo(
+    () => (previewWriter ? createDerivativeBackfill({
+      writer: previewWriter, unlockedState, diagnostics: previewCounters,
+      isDeferred: () => activeUploadsRef.current > 0 || interactiveRef.current.download || interactiveRef.current.modal,
+    }) : null),
+    [previewWriter, unlockedState, previewCounters],
+  )
+  const backfillRef = useRef(previewBackfill)
+  backfillRef.current = previewBackfill
+  useEffect(() => () => { previewBackfill?.clear() }, [previewBackfill])
 
   useEffect(() => () => { void admission?.releaseAll?.() }, [admission])
 
@@ -765,11 +820,14 @@ export function VaultTreeScreen({
               await closePreviewSession(token)
             },
             attachVideo: attachPosterVideo,
-            drawFrame: drawPosterFrame,
+            // D-1 (PR-D): with the writer on, the tile frame is drawn at the vp1 edge so backfill can reuse it as is
+            drawFrame: (video) => drawPosterFrame(video, backfillRef.current ? { maxEdge: 512 } : undefined),
           })
           for (const url of localUrls) URL.revokeObjectURL(url)
           if (!poster.ok) throw new Error(poster.unsupported ?? 'VIDEO_POSTER')
-          return { width: 640, height: 360, bytes: poster.posterBytes, mime: 'image/jpeg' }
+          const posterTile = { width: 640, height: 360, bytes: poster.posterBytes, mime: 'image/jpeg' }
+          backfillRef.current?.offerTileResult(node, 'poster', posterTile) // copies; never fetches
+          return posterTile
         }
         const imageVariant = node.blobRef?.formatVersion ?? 1
         const thumb = await makeImageThumb({
@@ -790,7 +848,9 @@ export function VaultTreeScreen({
           admission, signal, skipUrl: true,
         })
         if (!thumb.ok) throw new Error(thumb.unsupported)
-        return { width: thumb.width, height: thumb.height, bytes: thumb.posterBytes }
+        const thumbTile = { width: thumb.width, height: thumb.height, bytes: thumb.posterBytes }
+        backfillRef.current?.offerTileResult(node, 'thumb', thumbTile) // copies; never fetches
+        return thumbTile
       },
       onChange: () => setMediaMap(combined?.snapshot() ?? nextScheduler.snapshot()),
     })

@@ -27,7 +27,10 @@ async function sealBytes({ kek, bytes, type, transport, upload, signal }) {
     fetchJson: transport?.fetchJson ?? apiFetch, sendUpload: transport?.sendUpload ?? apiUpload,
     routeBase: PREVIEW_INDEX_UPLOAD_ROUTE_BASE,
   })
-  if (!res?.ok) throw new Error(`SEAL_FAILED:${res?.reason ?? 'unknown'}`)
+  if (!res?.ok) {
+    // the server's opaque error code (e.g. PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED) lets the writer fail soft precisely
+    throw Object.assign(new Error(`SEAL_FAILED:${res?.reason ?? 'unknown'}`), { code: res?.response?.data?.code ?? null, stage: res?.stage ?? null })
+  }
   return { blobRef: { formatVersion: 2, id: String(res.blob.id) }, contentId: res.blob.contentIdB64, cipherBytes: Number(res.blob.size) }
 }
 

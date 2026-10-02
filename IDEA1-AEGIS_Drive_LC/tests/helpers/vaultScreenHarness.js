@@ -32,7 +32,7 @@ const STUBBED = new Set([
   '/src/lib/vaultCrypto.js',
 ])
 
-export async function startVaultScreenEnv({ previewIndexTilesStub = false } = {}) {
+export async function startVaultScreenEnv({ previewIndexTilesStub = false, derivativeGenerateStub = false } = {}) {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost/drive/vault',
     pretendToBeVisual: true,
@@ -85,6 +85,10 @@ export async function startVaultScreenEnv({ previewIndexTilesStub = false } = {}
       resolveId: (source) => {
         if (previewIndexTilesStub && source === '../lib/vaultPreviewIndexTiles.js') {
           return normalizePath(path.join(rootDir, 'tests/fixtures/previewIndexTilesScreenStub.js'))
+        }
+        // D-1 PR-D: jsdom has no image/video decoder — the screen's derivative generation is driven by the test
+        if (derivativeGenerateStub && source === '../lib/vaultDerivativeGenerate.js') {
+          return normalizePath(path.join(rootDir, 'tests/fixtures/derivativeGenerateScreenStub.js'))
         }
         return STUBBED.has(source) ? backendStub : null
       },

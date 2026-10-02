@@ -30,7 +30,7 @@ export function createPreviewIndexTiles({ kek, unlockedState = null, api = treeA
   return {
     /** (re)load the index head for this main head; tiles wait for the latest load */
     load(mainHead) {
-      ready = reader.load(mainHead).catch(() => null)
+      ready = reader.load(mainHead).then((r) => { if (r?.reason !== 'SUPERSEDED') count(`head.${r?.status}`); return r }, () => null)
       return ready
     },
     /** verified derivative tile, or null → original path */
@@ -39,7 +39,7 @@ export function createPreviewIndexTiles({ kek, unlockedState = null, api = treeA
       if (!kind) return null
       await ready
       const entry = await reader.lookup(node, kind, { signal, index })
-      if (!entry) return null
+      if (!entry) { count('derivative.MISS'); return null }
       let r
       try { r = await readDerivative({ kek, entry, envelopeOf: reader.envelopeOf, fetchBytes, signal, decodeImage }) }
       catch { count('derivative.ERROR'); return null }
