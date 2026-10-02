@@ -23,7 +23,7 @@ applied. Fresh read-only evidence (owner, 2026-09-27):
 | NetworkManager | `nmcli radio wifi` → `disabled`; `wlp0s20f3` DOWN, managed |
 | Regulatory | global and phy0 (self-managed) `00`; channel 6 (2437 MHz) present with no disabled / No-IR / passive / radar / indoor flag → M-14 Model B satisfied |
 | Profile | `aegis-idea3-ap` intact: `mode=ap ssid=AEGIS-IDEA3 band=bg channel=6 ipv4.method=manual 10.77.30.1/28 never-default`; 0600 root:root |
-| dnsmasq | `/etc/aegis-idea3/dnsmasq-ap.conf` passes `dnsmasq --test`; unit byte-identical to `deploy/network/aegis-idea3-dnsmasq.service.example`; unit `enabled`, `ActiveState=failed`, `Result=start-limit-hit`, `NRestarts=5` (it started at boot before the AP address existed) |
+| dnsmasq | `/etc/aegis-idea3/dnsmasq-ap.conf` passes `dnsmasq --test`; unit byte-identical to the canonical repository template `deploy/network/aegis-idea3-dnsmasq.service.example` after rendering it with the fixed approved L34 values (`L34_AP_IF`, `L34_AP_ADDR`, `L34_AP_PREFIX`, `L34_CHANNEL`; the raw placeholder template is never an acceptable installed unit, see `l34_dnsmasq_unit_gate`); unit `enabled`, `ActiveState=failed`, `Result=start-limit-hit`, `NRestarts=5` (it started at boot before the AP address existed) |
 
 This is a runtime failure, not missing configuration. Historical L3/L4 acceptance receipts stay authoritative.
 

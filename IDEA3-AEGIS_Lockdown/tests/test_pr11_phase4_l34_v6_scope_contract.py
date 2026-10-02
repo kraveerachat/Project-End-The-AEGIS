@@ -35,7 +35,9 @@ AUTHORITATIVE_V6_SCOPE = (
 )
 V6_MARKER = "# ── V6 (STALE-BROKER / AP-DOWN) reactivation"
 # sha256 of the shared gate library as merged in PR #250/#251 (main a888457e): V6 may only append after V6_MARKER.
-LIB_PRE_V6_SHA256 = "1adb7a803dc3652070ce7ac88b6f28e5dbd97cf68e825381caacd282dcb8716c"
+# AMENDED (PR #305, owner-approved re-pin): the only change to the shared lib is l34_dnsmasq_unit_gate + new l34_render_dnsmasq_unit, so the byte-identity
+# authority is the canonical template rendered with the fixed L34 values. The pre-amendment pin was 1adb7a803dc3652070ce7ac88b6f28e5dbd97cf68e825381caacd282dcb8716c.
+LIB_PRE_V6_SHA256 = "fd31f01ca1f0ba979ef0752ed2c260fa0428080b04a367f99b77a9e27c8fd845"
 
 # sha256 of every V1–V5 handler / allow file / owner runner at main a888457e. A deliberate future V1–V5 change must update this pin.
 V1_V5_PINS = {
