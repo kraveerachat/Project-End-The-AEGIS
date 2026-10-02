@@ -44,10 +44,10 @@ Onsite Direct LAN final report measurement executed 2026-10-02:
 
 Remote R1 diagnostic packet executed 2026-10-02 / 2026-10-03:
 - Path verification: Intel Wi-Fi 6E AX211 (866.7 Mbps), Client IP `100.127.255.164`, `TcpTestSucceeded=True`, Interface `Twingate`.
-- Twingate Admin activity: Resource `aegis.internal`, Connector `aegis-connector-02`, Connection Type `Peer to peer`, STUN Discovery `Available`. `TWINGATE_CONNECTION=P2P`, `TWINGATE_RELAY_PATH=NO`.
+- Twingate Admin activity: Resource `aegis.internal`, Connector `aegis-connector-02`, Connection Type `Peer to peer` (activity event confirmed "Established peer-to-peer connection"); STUN Discovery `Available` (supporting telemetry, not itself the proof of P2P). `TWINGATE_CONNECTION=P2P`, `TWINGATE_RELAY_PATH=NO`.
 - Single Upload: `RU-M-r01` (300 MB, 18 chunks) = **2.786 MB/s**, all HTTP 200.
 - Single Download: `RD-M-r01` (300 MB) = **4.206 MB/s**, SHA-256 bit-exact match (`HASH_PASS=True`).
-- Dual Download: `RD-M-dual-r01` (2 concurrent 300 MB downloads) = aggregate **4.141 MB/s**, both SHA-256 PASS, single ref 4.206 MB/s, ratio ≈ **0.985** (`REMOTE_SHARED_THROUGHPUT_CEILING=OBSERVED`). Note: accidental screenshot showing 3 downloads clarified as not reflecting the controlled 2-stream run.
+- Dual Download: `RD-M-dual-r01` (2 concurrent 300 MB downloads) = aggregate **4.141 MB/s**, both SHA-256 PASS, single ref 4.206 MB/s, ratio ≈ **0.985** (`REMOTE_SHARED_THROUGHPUT_CEILING=OBSERVED`). The single-versus-dual probe observed a flat aggregate throughput ceiling (~0.985 ratio), showing that concurrency did not increase aggregate Remote throughput. This is consistent with a shared Remote-path/channel ceiling, but the exact limiting component is not proven. Note: accidental screenshot showing 3 downloads clarified as not reflecting the controlled 2-stream run.
 - Server telemetry: load 1.22 / 1.33 / 1.33, RAM 1.7G used / 5.3G avail, swap 1.8G used (`si`/`so` ≈ 0), root 55G used / 30G avail (66%), CPU idle 92–98%, I/O wait 0%. Container CPU/RAM: Drive 0.00% CPU, 127.5 MiB; Connector 8.68% CPU, 31.72 MiB. Docker NET I/O cumulative note respected.
 - Home ISP baseline: Twingate OFF 58.65 Mbps down / 28.40 Mbps up / 5 ms ping (primary baseline); Twingate ON 58.33 / 28.53 / 4 ms (supplementary).
 

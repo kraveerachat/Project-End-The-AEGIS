@@ -1516,7 +1516,7 @@ ONSITE_REVISIT_REQUIRED = NO
 On 2026-10-02/2026-10-03, Human Owner executed the prepared Remote R1 diagnostic packet from the home environment over Wi-Fi (Intel Wi-Fi 6E AX211, link speed 866.7 Mbps) through Twingate to Production Drive (`192.168.10.10:443`).
 
 - **Path Verification:** `TcpTestSucceeded=True`, `SourceAddress=100.127.255.164`, `InterfaceAlias=Twingate`.
-- **Twingate Activity Telemetry:** Admin console confirmed resource `aegis.internal` routed via `aegis-connector-02` with **Connection Type: Peer to peer** and **STUN Discovery: Available**.
+- **Twingate Activity Telemetry:** Admin console confirmed resource `aegis.internal` routed via `aegis-connector-02` with **Connection Type: Peer to peer** (Twingate activity event confirmed "Established peer-to-peer connection"); **STUN Discovery: Available** serves as supporting telemetry.
   ~~~text
   TWINGATE_CONNECTION = P2P
   TWINGATE_RELAY_PATH = NO
@@ -1529,7 +1529,7 @@ On 2026-10-02/2026-10-03, Human Owner executed the prepared Remote R1 diagnostic
   DUAL_SINGLE_RATIO = 4.141 / 4.206 ≈ 0.985
   REMOTE_SHARED_THROUGHPUT_CEILING = OBSERVED
   ~~~
-  With the ratio at ~0.985, aggregate throughput does not scale with stream concurrency, proving that remote throughput is constrained by shared path/channel transport capacity rather than application-layer serialization.
+  The single-versus-dual probe observed a flat aggregate throughput ceiling (~0.985 ratio), showing that concurrency did not increase aggregate Remote throughput. This is consistent with a shared Remote-path/channel ceiling, but the exact limiting component is not proven.
 
 ### 27.2 Server telemetry and local ISP baseline
 
@@ -1561,6 +1561,7 @@ On 2026-10-02/2026-10-03, Human Owner executed the prepared Remote R1 diagnostic
 - Neither upload nor download exhibits an application defect.
 - Server resources operate with abundant headroom.
 - Twingate relay is not engaged (direct P2P established).
+- The single-versus-dual probe observed a flat aggregate throughput ceiling (~0.985 ratio), showing that concurrency did not increase aggregate Remote throughput. This is consistent with a shared Remote-path/channel ceiling, but the exact limiting component is not proven.
 - No safe, proven application-layer fix exists (`SAFE_APPLICATION_FIX_PROVEN=NO`, `SIMPLE_SAFE_FIX_PROVEN=NO`).
 - In strict adherence to AEGIS governance, no arbitrary code changes or Production mutations are authorized.
 - The throughput workstream is concluded with documented operational limitations.

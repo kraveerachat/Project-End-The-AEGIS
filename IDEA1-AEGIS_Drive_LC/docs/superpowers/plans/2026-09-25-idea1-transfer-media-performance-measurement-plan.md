@@ -1172,8 +1172,8 @@ ONSITE_REVISIT_REQUIRED = NO
   - Resource: `aegis.internal`
   - Protocol/Port: `TCP/443`
   - Connector: `aegis-connector-02`
-  - Connection Type: `Peer to peer`
-  - STUN Discovery: `Available`
+  - Connection Type: `Peer to peer` (verified by Twingate activity event showing "Established peer-to-peer connection" / Connection Type "Peer to peer")
+  - STUN Discovery: `Available` (supporting telemetry, not itself the proof of P2P)
 - **Classification:**
   ~~~text
   TWINGATE_CONNECTION = P2P
@@ -1225,7 +1225,7 @@ Executed with exactly two concurrent 300,000,000 B downloads:
   REMOTE_DUAL_AGGREGATE_MBPS = 4.141
   REMOTE_SHARED_THROUGHPUT_CEILING = OBSERVED
   ~~~
-  With `DUAL_SINGLE_RATIO ≈ 0.985`, aggregate download throughput is flat between 1 and 2 streams, demonstrating that the Remote throughput limiter acts as a shared channel/path capacity constraint rather than application stream serialization.
+  The single-versus-dual probe observed a flat aggregate throughput ceiling (~0.985 ratio), showing that concurrency did not increase aggregate Remote throughput. This is consistent with a shared Remote-path/channel ceiling, but the exact limiting component is not proven.
 
 ### 24.5 R1-E Server Read-Only Telemetry
 
@@ -1288,5 +1288,6 @@ ONSITE_REVISIT_REQUIRED = NO
 
 **Throughput Workstream Verdict:**
 - Because no application defect is proven and no safe, bounded application fix exists, no code or configuration changes will be made to Production.
-- Remote transfer performance (~2.8 MB/s upload, ~4.1–4.2 MB/s download) remains bound by remote transport path characteristics (ISP uplink/downlink, residential latency/windowing, WireGuard/P2P framing), not an AEGIS application flaw.
+- The single-versus-dual probe observed a flat aggregate throughput ceiling (~0.985 ratio), showing that concurrency did not increase aggregate Remote throughput. This is consistent with a shared Remote-path/channel ceiling, but the exact limiting component is not proven.
+- Remote transfer performance (~2.8 MB/s upload, ~4.1–4.2 MB/s download) reflects observed Remote-path characteristics; no application defect is proven.
 - Throughput workstream is formally closed with documented limitations.
