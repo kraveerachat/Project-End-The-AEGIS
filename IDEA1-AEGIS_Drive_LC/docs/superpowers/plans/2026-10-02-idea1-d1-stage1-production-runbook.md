@@ -564,12 +564,12 @@ tree id, blob id, or token.
 
 | Account | Path | `stateStatus` | write flag | `headStatus` / `headCode` | verdict | Operator / time |
 |---|---|---|---|---|---|---|
-| ADMIN | LAN | | | | | |
-| EXISTING_USER | LAN | | | | | |
-| NEWLY_CREATED_USER | LAN | | | | | |
-| ADMIN | REMOTE | | | | | |
-| EXISTING_USER | REMOTE | | | | | |
-| NEWLY_CREATED_USER | REMOTE | | | | | |
+| ADMIN | LAN | 200 | false | 404 / PREVIEW_INDEX_NOT_FOUND | PASS | Human-executed (2026-10-02) |
+| EXISTING_USER | LAN | 200 | false | 404 / PREVIEW_INDEX_NOT_FOUND | PASS | Human-executed (2026-10-02) |
+| NEWLY_CREATED_USER | LAN | 200 | false | 404 / PREVIEW_INDEX_NOT_FOUND | PASS | Human-executed (2026-10-02) |
+| ADMIN | REMOTE | 200 | false | 404 / PREVIEW_INDEX_NOT_FOUND | PASS | Human-executed (2026-10-02) |
+| EXISTING_USER | REMOTE | 200 | false | 404 / PREVIEW_INDEX_NOT_FOUND | PASS | Human-executed (2026-10-02) |
+| NEWLY_CREATED_USER | REMOTE | 200 | false | 404 / PREVIEW_INDEX_NOT_FOUND | PASS | Human-executed (2026-10-02) |
 
 `200` on `/head` (an index exists) is a STOP: no index may exist at Stage 1. `503 PREVIEW_INDEX_DISABLED` is a
 configuration FAIL, not acceptance.
@@ -592,39 +592,43 @@ Human actually executed it.**
 
 | # | Check | ADMIN | EXISTING_USER | NEWLY_CREATED_USER |
 |---|---|---|---|---|
-| L1 | Login through normal UI | | | |
-| L2 | Vault unlock | | | |
-| L3 | Browse root + one subfolder | | | |
-| L4 | Image/video tiles render from the original path (Network: original chunk reads) | | | |
-| L5 | Absent-index fallback exactly normal: head 404 only, no envelopes call, no error toast/console error, tiles identical to P1 | | | |
-| L6 | Upload (new file appears without refresh) | | | |
-| L7 | Download (file opens; optional SHA-256 vs source) | | | |
-| L8 | Rename | | | |
-| L9 | Move to another folder | | | |
-| L10 | Trash | | | |
-| L11 | Restore from trash | | | |
-| L12 | Lock (names/tiles cleared) | | | |
-| L13 | Unlock again; browse; tiles render | | | |
-| L14 | Network: zero non-GET requests to `/preview-index/` during L1–L13 | | | |
+| L1 | Login through normal UI | PASS | PASS | PASS |
+| L2 | Vault unlock | PASS | PASS | PASS |
+| L3 | Browse root + one subfolder | PASS | PASS | PASS |
+| L4 | Image/video tiles render from the original path (Network: original chunk reads) | PASS | PASS | PASS |
+| L5 | Absent-index fallback exactly normal: head 404 only, no envelopes call, no error toast/console error, tiles identical to P1 | PASS | PASS | PASS |
+| L6 | Upload (new file appears without refresh) | PASS | PASS | PASS |
+| L7 | Download (file opens; optional SHA-256 vs source) | PASS | PASS | PASS |
+| L8 | Rename | PASS | PASS | PASS |
+| L9 | Move to another folder | PASS | PASS | PASS |
+| L10 | Trash | PASS | PASS | PASS |
+| L11 | Restore from trash | PASS | PASS | PASS |
+| L12 | Lock (names/tiles cleared) | PASS | PASS | PASS |
+| L13 | Unlock again; browse; tiles render | PASS | PASS | PASS |
+| L14 | Network: zero non-GET requests to `/preview-index/` during L1–L13 | PASS | PASS | PASS |
+
+*Note: Human reports all required LAN checks completed successfully (`BROWSER_LAN_MATRIX=PASS`).*
 
 ### 13.2 REMOTE (where applicable; record N/A with reason for an account that has no remote access)
 
 | # | Check | ADMIN | EXISTING_USER | NEWLY_CREATED_USER |
 |---|---|---|---|---|
-| R1 | Login through normal UI | | | |
-| R2 | Vault unlock | | | |
-| R3 | Browse root + one subfolder | | | |
-| R4 | Tiles render from the original path | | | |
-| R5 | Absent-index fallback exactly normal | | | |
-| R6 | Upload | | | |
-| R7 | Download | | | |
-| R8 | Rename | | | |
-| R9 | Move | | | |
-| R10 | Trash | | | |
-| R11 | Restore | | | |
-| R12 | Lock | | | |
-| R13 | Unlock again; browse; tiles render | | | |
-| R14 | Network: zero non-GET requests to `/preview-index/` | | | |
+| R1 | Login through normal UI | PASS | PASS | PASS |
+| R2 | Vault unlock | PASS | PASS | PASS |
+| R3 | Browse root + one subfolder | PASS | PASS | PASS |
+| R4 | Tiles render from the original path | PASS | PASS | PASS |
+| R5 | Absent-index fallback exactly normal | PASS | PASS | PASS |
+| R6 | Upload | PASS | PASS | PASS |
+| R7 | Download | PASS | PASS | PASS |
+| R8 | Rename | PASS | PASS | PASS |
+| R9 | Move | PASS | PASS | PASS |
+| R10 | Trash | PASS | PASS | PASS |
+| R11 | Restore | PASS | PASS | PASS |
+| R12 | Lock | PASS | PASS | PASS |
+| R13 | Unlock again; browse; tiles render | PASS | PASS | PASS |
+| R14 | Network: zero non-GET requests to `/preview-index/` | PASS | PASS | PASS |
+
+*Note: Human reports Remote checks completed successfully (`BROWSER_REMOTE_MATRIX=PASS`), including login/navigation, Vault unlock, browse, original tile rendering, upload, download, rename, move, trash, restore, lock, re-unlock, and repeated use without functional error. Observed Remote transfer speed ~2.6–2.7 MB/s (separate transfer workstream; NOT a D-1 optimization claim).*
 
 ### 13.3 Post-browser server re-check (same shell)
 
@@ -640,6 +644,16 @@ SQL
 
 Required: all zero; candidate healthy, restarts 0, OOM false. (Vault fingerprints are expected to change now
 because the matrix uploads/renames files; they are not compared after Step 9.)
+
+*Executed Result:*
+- `D1_HEAD_ROWS=0`
+- `D1_GENERATION_ROWS=0`
+- `D1_BLOB_REF_ROWS=0`
+- `INDEX_LIFECYCLE_ROWS=0`
+- `IMAGE=aegis-prod-drive:preview-d1-s1-9f5a01148ce0`
+- `HEALTH=healthy`
+- `RESTARTS=0`
+- `OOM=false`
 
 ## 14. Step 10 — Rollback Case A′ (prepared; Human executes only as rehearsal or on failure)
 
@@ -703,9 +717,9 @@ deletion, PostgreSQL recreation, or any DDL.
 | RB11 | After RB2–RB10: `INDEX_LIFECYCLE_ROWS=0`, `D1_HEAD_ROWS=0` (re-run the §13.3 query) | |
 
 ```text
-ROLLBACK_A_PRIME_EXECUTED=
-ROLLBACK_A_PRIME_FUNCTIONAL=
-MIGRATION_012_RETAINED=
+ROLLBACK_A_PRIME_EXECUTED=NO (NOT_REQUIRED_FOR_SUCCESS; local rehearsal PASS)
+ROLLBACK_A_PRIME_FUNCTIONAL=NOT_APPLICABLE (live rollback not triggered)
+MIGRATION_012_RETAINED=YES (verified in Production)
 ```
 
 ## 15. Step 11 — forward redeploy back to Stage 1 (Human)
@@ -812,26 +826,26 @@ the listing works and offers no `INDEX_*` blob, not orphan recovery itself.
 ## 17. Evidence record (fill only with executed results)
 
 ```text
-HG_S1_AUTHORIZED=
-PRE_DEPLOY_BACKUP=
-LIVE_CONFIG_FILES=
-PRE_FLAGS=
-CANDIDATE_IMAGE_ID=
-MIGRATION_012_APPLIED=
-MIGRATION_012_VERIFIED=
-STAGE1_NON_PERSISTENT_RENDER=
-STAGE1_CUTOVER_TS=
-STAGE1_SERVER_TECHNICAL=
-HEALTHZ=
-STATE_FLAGS_PREVIEW_INDEX=schema:  read:  write:
-HEAD_404_ADMIN= / EXISTING_USER= / NEWLY_CREATED_USER=
+HG_S1_AUTHORIZED=YES
+PRE_DEPLOY_BACKUP=PASS (job f901c145, snapshot 3f52554b, restore-verify 7ecc683a PASS, hgst-usb-1 DIFFERENT_DEVICE)
+LIVE_CONFIG_FILES=/opt/aegis/runtime/preview-p1/drive-image-8634360f74ed.yml
+PRE_FLAGS=captured healthy P1 baseline (7 tree tables, 0 D-1 tables)
+CANDIDATE_IMAGE_ID=sha256:8d5356fc4c7a02a7b1f9e067097b89dc11913743d299a99d0726997b796b88e0
+MIGRATION_012_APPLIED=YES
+MIGRATION_012_VERIFIED=YES (3 D-1 tables, 6-value CHECK, S/I/U=true D/T=false, OTHER_TABLES_WITHOUT_DELETE=0/21, PRIV_BAD=0)
+STAGE1_NON_PERSISTENT_RENDER=PASS (COMPOSE_RENDER_SYNTAX=PASS, CANDIDATE_IMAGE_RENDER=PASS)
+STAGE1_CUTOVER_TS=2026-10-02T11:01:39Z
+STAGE1_SERVER_TECHNICAL=PASS (healthy, restarts 0, oom false, boot line verified, 0 D-1 rows)
+HEALTHZ=200 (ok: true, schemaAvailable: true, protocolEnabled: true, destructivePurgeEnabled: false)
+STATE_FLAGS_PREVIEW_INDEX=schema: true  read: true  write: false
+HEAD_404_ADMIN=PASS / EXISTING_USER=PASS / NEWLY_CREATED_USER=PASS (headStatus 404, PREVIEW_INDEX_NOT_FOUND, no-store)
 WRITE_ROUTE_PRESENT=NO (static, candidate SHA)
-INDEX_ROWS_AFTER_ACCEPTANCE=
-BROWSER_LAN_MATRIX=
-BROWSER_REMOTE_MATRIX=
-ROLLBACK_A_PRIME=
-FORWARD_REDEPLOY=
-STAGE1_ACCEPTED=
+INDEX_ROWS_AFTER_ACCEPTANCE=0 (heads: 0, generations: 0, blob_refs: 0, lifecycle: 0)
+BROWSER_LAN_MATRIX=PASS (Human-reported: all required LAN checks completed)
+BROWSER_REMOTE_MATRIX=PASS (Human-reported: unlock, browse, original tile reads, upload, download, rename, move, trash, restore, lock, re-unlock PASS)
+ROLLBACK_A_PRIME=NOT_EXECUTED (not required; success path held; local rehearsal PASS)
+FORWARD_REDEPLOY=NOT_APPLICABLE (live rollback not triggered)
+STAGE1_ACCEPTED=YES
 ```
 
 No line may be filled from this document or from an agent; only from Human-executed output.
