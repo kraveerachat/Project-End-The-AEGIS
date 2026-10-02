@@ -97,8 +97,8 @@ state but its own proof failed with the same invariant (S-11 HOLD). A read-only 
 `[connection]/timestamp=1790896283` (profile mode `600 root:root` and `psk_lines=1` unchanged). The previous offline libnm check had covered key re-ordering and
 the uuid but not the `timestamp` property, which libnm's writer emits once the connection has been activated. The fix excludes exactly that numeric
 `[connection]/timestamp` record; the committed `profile-libnm-autoconnect-{yes,no}-timestamp` fixtures are libnm-writer output (regenerated and compared byte
-for byte by a `gi`-conditional test). The consumed attempt, its authorization and its evidence are historical and are not reused; a new stage needs a fresh
-runner freeze, a fresh preflight and a fresh same-day authorization. The same function backs post-apply verification and rollback verification
+for byte by a `gi`-conditional test). The consumed attempt, its authorization and its evidence are historical and are not reused; any later attempt is a
+governed successor attempt under §5.1 (fresh runner freeze, fresh preflight, fresh same-day authorization and a brand-new `AUTH_DIR`), never a retry. The same function backs post-apply verification and rollback verification
 (`l34_v8_persistent_verify`), so the claim is **semantically identical except for the explicitly approved autoconnect transition, with ordering and the
 daemon-assigned uuid ignored** (not byte or order identity). Every other persistent file (dnsmasq conf, unit, nft, broker conf) keeps the exact V1–V7 record
 (mode, owner, size, mtime, ctime, sha256).
@@ -142,6 +142,30 @@ failed rollback the runner prints `S-11 HOLD — ESCALATE; do NOT retry`.
   size/mtime); the profile `.class` key, `net.idea3_dnsmasq_conf.*`, `fw.idea3_nft` and every broker/rfkill/NetworkManager-state path are never approved.
   The value-level radio/p2p/wpa/regulatory windows come only from the existing V3 catalogs, selected by the reported baseline.
 
+### 5.1 Governed successor attempt (clarification, 2026-10-02)
+
+**A failed or consumed V8 attempt is NEVER retryable.** Its `AUTH_DIR`, authorization, K3, attempt marker, frozen runner and mutable evidence directory are
+historical and MUST NOT be reused, resumed, edited or re-consumed. `V8_RETRY_ALLOWED=NO` means exactly this: the consumed attempt itself cannot be rerun.
+
+It does NOT prohibit a separately authorized **governed successor attempt** under the SAME canonical stage `l34-v8-post-v7-persistent-ap-recovery`
+(the stage ID, handlers, runner template, scope string and marker filename are not renamed or duplicated). A successor attempt is not a retry of the consumed
+attempt; it is a new, independently authorized one-shot attempt, and it may be authorized by the owner only when ALL of the following hold:
+
+1. the root cause of the earlier failure is fixed on `main` (merged), and the fix did not widen the V8 scope or forbidden list;
+2. the host has been restored to an accepted V8 baseline (FRESH or RESIDUAL per the V3 classifier, plus the V8 preconditions of §1.2), by an owner-governed
+   action, and a read-only check on the day of the attempt still finds it;
+3. a NEW runner freeze exists, copied outside the repository, pinned to the exact then-current `origin/main` with a new SHA-256 (a frozen runner whose pin is
+   no longer `origin/main` is stale and is never repinned in place);
+4. a NEW root read-only preflight, pinned to that same SHA, passes;
+5. a fresh same-day (Asia/Bangkok) `stage=L4` authorization and K3 with the exact V8 scope are created for this attempt;
+6. a brand-new `AUTH_DIR` is used, which carries no marker; and
+7. the per-`AUTH_DIR` marker `L34-V8-REACTIVATION-ATTEMPT-CONSUMED` is unconsumed. The successor uses that same filename only inside its own new
+   `AUTH_DIR`; it is consumed once, immediately before the first mutation, exactly as in §5, after which that successor attempt is also spent.
+
+Each successor attempt is itself one-shot: if it fails after consuming its marker, it too is never retryable and a further successor needs a new run of all
+seven conditions. Nothing in this section creates, freezes, authorizes or runs anything; it changes no runner, handler, marker, classifier or NetworkManager
+logic. The successor attempt is NOT RUN as of this clarification.
+
 ## 6. Forbidden (statically enforced by tests)
 
 Broker `start|stop|restart|reset-failed|kill|enable|disable|mask`; Core control; `rfkill unblock all`; direct edits of `/var/lib/systemd/rfkill`,
@@ -157,3 +181,10 @@ Broker `start|stop|restart|reset-failed|kill|enable|disable|mask`; Core control;
   shutdown. **K12 automatic reboot persistence is NOT proven and is a separate later activity.**
 - Radio disablement from a desktop session (as at 08:23:09) is an operator action; V8 neither prevents nor detects it.
 - The wired management path is assumed present (`l34_ap_pre_gate` requires an alternate default route); the owner remains responsible for out-of-band access.
+
+## 8. Live results (closeout, 2026-10-02)
+
+- **Original V8 attempt** (main `9f5a0114`, `AUTH_DIR` `l34-v8-auth-9f5a0114-20261002`): FAILED / S-11 HOLD / consumed / historical. Unchanged by anything below.
+- **Governed successor V8** (§5.1; main `3d8028f4`, new `AUTH_DIR` `l34-v8-governed-successor-auth-3d8028f49313-20261002-194044`, frozen runner SHA-256 `04fb5f5c…d6006f`, evidence `2026-10-02-l34-v8-20261002-194210`): `V8_RUNTIME_RECOVERY = PASS`, marker consumed (`consumed_at=2026-10-02T12:42:12Z`). It is spent and not reusable.
+  `L34_V8_APPLY=PASS`, `L34_V8_VERIFY=PASS`, PRE and POST captures `COMPLETE SHA256=PASS`, PRE→POST `COMPARE_RESULT=PASS` with `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `PRESERVATION_S10=PASS`; the one persistent change was `aegis-idea3-ap` `connection.autoconnect` no → yes (profile `.meta` size 378 → 360, which the approved `.meta` key covers).
+- **Not claimed:** `L3_LIVE_ACCEPTANCE`, `L4_LIVE_ACCEPTANCE`, `L6B_LIVE_ACCEPTANCE`, `K12_AUTOMATIC_REBOOT_PERSISTENCE` (NOT_PROVEN), Recovery R1–R8 (NO), L7u (NOT executed), L8 (NOT authorized), ESP32.
