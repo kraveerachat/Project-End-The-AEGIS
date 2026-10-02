@@ -97,8 +97,8 @@ state but its own proof failed with the same invariant (S-11 HOLD). A read-only 
 `[connection]/timestamp=1790896283` (profile mode `600 root:root` and `psk_lines=1` unchanged). The previous offline libnm check had covered key re-ordering and
 the uuid but not the `timestamp` property, which libnm's writer emits once the connection has been activated. The fix excludes exactly that numeric
 `[connection]/timestamp` record; the committed `profile-libnm-autoconnect-{yes,no}-timestamp` fixtures are libnm-writer output (regenerated and compared byte
-for byte by a `gi`-conditional test). The consumed attempt, its authorization and its evidence are historical and are not reused; a new stage needs a fresh
-runner freeze, a fresh preflight and a fresh same-day authorization. The same function backs post-apply verification and rollback verification
+for byte by a `gi`-conditional test). The consumed attempt, its authorization and its evidence are historical and are not reused; any later attempt is a
+governed successor attempt under §5.1 (fresh runner freeze, fresh preflight, fresh same-day authorization and a brand-new `AUTH_DIR`), never a retry. The same function backs post-apply verification and rollback verification
 (`l34_v8_persistent_verify`), so the claim is **semantically identical except for the explicitly approved autoconnect transition, with ordering and the
 daemon-assigned uuid ignored** (not byte or order identity). Every other persistent file (dnsmasq conf, unit, nft, broker conf) keeps the exact V1–V7 record
 (mode, owner, size, mtime, ctime, sha256).
@@ -141,6 +141,30 @@ failed rollback the runner prints `S-11 HOLD — ESCALATE; do NOT retry`.
 - Comparator: `allow-keys.txt` approves the V7 runtime keys plus exactly ONE persistent key, the AP profile `.meta` record (a keyfile rewrite changes
   size/mtime); the profile `.class` key, `net.idea3_dnsmasq_conf.*`, `fw.idea3_nft` and every broker/rfkill/NetworkManager-state path are never approved.
   The value-level radio/p2p/wpa/regulatory windows come only from the existing V3 catalogs, selected by the reported baseline.
+
+### 5.1 Governed successor attempt (clarification, 2026-10-02)
+
+**A failed or consumed V8 attempt is NEVER retryable.** Its `AUTH_DIR`, authorization, K3, attempt marker, frozen runner and mutable evidence directory are
+historical and MUST NOT be reused, resumed, edited or re-consumed. `V8_RETRY_ALLOWED=NO` means exactly this: the consumed attempt itself cannot be rerun.
+
+It does NOT prohibit a separately authorized **governed successor attempt** under the SAME canonical stage `l34-v8-post-v7-persistent-ap-recovery`
+(the stage ID, handlers, runner template, scope string and marker filename are not renamed or duplicated). A successor attempt is not a retry of the consumed
+attempt; it is a new, independently authorized one-shot attempt, and it may be authorized by the owner only when ALL of the following hold:
+
+1. the root cause of the earlier failure is fixed on `main` (merged), and the fix did not widen the V8 scope or forbidden list;
+2. the host has been restored to an accepted V8 baseline (FRESH or RESIDUAL per the V3 classifier, plus the V8 preconditions of §1.2), by an owner-governed
+   action, and a read-only check on the day of the attempt still finds it;
+3. a NEW runner freeze exists, copied outside the repository, pinned to the exact then-current `origin/main` with a new SHA-256 (a frozen runner whose pin is
+   no longer `origin/main` is stale and is never repinned in place);
+4. a NEW root read-only preflight, pinned to that same SHA, passes;
+5. a fresh same-day (Asia/Bangkok) `stage=L4` authorization and K3 with the exact V8 scope are created for this attempt;
+6. a brand-new `AUTH_DIR` is used, which carries no marker; and
+7. the per-`AUTH_DIR` marker `L34-V8-REACTIVATION-ATTEMPT-CONSUMED` is unconsumed. The successor uses that same filename only inside its own new
+   `AUTH_DIR`; it is consumed once, immediately before the first mutation, exactly as in §5, after which that successor attempt is also spent.
+
+Each successor attempt is itself one-shot: if it fails after consuming its marker, it too is never retryable and a further successor needs a new run of all
+seven conditions. Nothing in this section creates, freezes, authorizes or runs anything; it changes no runner, handler, marker, classifier or NetworkManager
+logic. The successor attempt is NOT RUN as of this clarification.
 
 ## 6. Forbidden (statically enforced by tests)
 
