@@ -1450,3 +1450,156 @@ PR259_STATE = MERGED
 PR259_MERGE_COMMIT = 92d479675103988d36240ef219a9193a9a6dcdd4
 PR259_CURRENT_SCOPE_WORK = COMPLETE
 ~~~
+
+## 26. Onsite Direct LAN Final Report Measurement Synthesis (2026-10-02)
+
+### 26.1 Executive summary
+
+On 2026-10-02, the full onsite P1 Direct LAN measurement suite was executed by Human Owner on the physical test client (`192.168.30.98`) against Production Drive (`192.168.10.10:443`).
+
+- **Classification:** `FINAL_REPORT_MEASUREMENT` (Explicitly: `NOT PRE_FIX`, `NOT POST_FIX`).
+- **Path Verification:** `P1_DIRECT_LAN=PASS`, `TcpTestSucceeded=True`, `SourceAddress=192.168.30.98`, `InterfaceAlias=Ethernet`, `RemoteTarget=192.168.10.10:443`, `FINAL_PATH_SANITY_CHECK=PASS`. Twingate was not used.
+- **Upload:** 9/9 valid runs (100 MB median 10.588 MB/s; 300 MB median 10.752 MB/s; 1 GB median 10.591 MB/s; overall median **~10.6 MB/s**).
+- **Download:** 9/9 valid runs (100 MB median 11.042 MB/s; 300 MB median 11.068 MB/s; 1 GB median 10.994 MB/s; overall median **~11.0 MB/s**).
+- **Download Integrity:** `DOWNLOAD_INTEGRITY=PASS` (all 9 SHA-256 digests match bit-for-bit).
+- **Tracer Note:** 100 MB upload runs retained `LU-S-warmup` harness labels (`TRACER_LABEL_MISMATCH_ONLY`); underlying metrics, chunk counts, HTTP 200, and byte sequences verified.
+- **Excluded Run:** `LD-S-r01` pilot excluded (`REASON=FINAL_FILE_RESOLUTION_FAILED`).
+
+### 26.2 Reconciliation with PR #216 and PR #259
+
+1. **PR #216 (Historical Performance Study & Baseline):**
+   - PR #216 established the original 36-run PRE-FIX matrix (executed 2026-09-25) and initial diagnostic probes (U1, U2, D1).
+   - Historical PRE-FIX values (Upload ~5.06–5.17 MB/s, Download ~6.7–7.3 MB/s under initial test conditions) remain preserved unchanged in §11.
+   - The new 18-run final report measurement reflects sustained performance on the dedicated Gigabit client Ethernet interface over the router trunk.
+
+2. **PR #259 (Live Physical-Path Telemetry & 100 Mbps Trunk Ceiling):**
+   - PR #259 proved conclusively on live hardware that MikroTik RB750r2 `ether2` and TL-SG105E Port 1 operate at `100 Mbps Full Duplex`.
+   - The measured LAN throughput (~10.6 MB/s upload, ~11.0 MB/s download) represents **~85–88 Mbps effective wire payload rate**, which accounts for standard TCP/IP and TLS overhead on a 100 Mbps Fast Ethernet link.
+   - The physical link rate is the sole physical limiter for Direct LAN transfer.
+
+### 26.3 Remote residual limiter and next gate
+
+- **Remote Status:** Remote R1 is **COMPLETE** (executed 2026-10-02 / 2026-10-03; see §27).
+- **Remote Synthesis:** Diagnostic packet executed from home environment. Twingate P2P verified, upload 2.786 MB/s, download single 4.206 MB/s, download dual aggregate 4.141 MB/s (ratio ~0.985, shared ceiling observed). Server resources unconstrained.
+- **Final Decision:** `NO_SAFE_FIX_PROVEN`. No application defect proven; no safe code fix proven; no Production mutation; throughput workstream closed.
+- **Onsite Revisit Policy:** `ONSITE_REVISIT_REQUIRED=NO`.
+
+### 26.4 Architectural status block (LAN Final Report Stage)
+
+~~~text
+TASK = IDEA1_TRANSFER_FINAL_REPORT_MEASUREMENT
+MEASUREMENT_CLASSIFICATION = FINAL_REPORT_MEASUREMENT
+PRE_FIX_REWRITTEN = NO
+POST_FIX_CLAIMED = NO
+P1_DIRECT_LAN = PASS
+FINAL_PATH_SANITY_CHECK = PASS
+LAN_UPLOAD_VALID_RUNS = 9/9
+LAN_DOWNLOAD_VALID_RUNS = 9/9
+LAN_TOTAL_VALID_MEASURED_RUNS = 18/18
+DOWNLOAD_INTEGRITY = PASS
+LAN_UPLOAD_MEDIAN = ~10.6 MB/s (100MB: 10.588, 300MB: 10.752, 1GB: 10.591)
+LAN_DOWNLOAD_MEDIAN = ~11.0 MB/s (100MB: 11.042, 300MB: 11.068, 1GB: 10.994)
+LIMITER_EXPLANATION = PROVEN_100MBPS_ROUTER_TRUNK_CEILING (PR #259)
+APPLICATION_DEFECT_PROVEN = NO
+APPLICATION_SOURCE_CHANGED = NO
+PRODUCTION_MUTATION_PERFORMED = NO
+NETWORK_MUTATION_PERFORMED = NO
+REMOTE_R1_STATUS = COMPLETE
+FINAL_DECISION = NO_SAFE_FIX_PROVEN
+ONSITE_REVISIT_REQUIRED = NO
+~~~
+
+## 27. Remote R1 Diagnostic Synthesis and Final Throughput Workstream Closure (2026-10-03)
+
+### 27.1 Remote path verification and transfer probes
+
+On 2026-10-02/2026-10-03, Human Owner executed the prepared Remote R1 diagnostic packet from the home environment over Wi-Fi (Intel Wi-Fi 6E AX211, link speed 866.7 Mbps) through Twingate to Production Drive (`192.168.10.10:443`).
+
+- **Path Verification:** `TcpTestSucceeded=True`, `SourceAddress=100.127.255.164`, `InterfaceAlias=Twingate`.
+- **Twingate Activity Telemetry:** Admin console confirmed resource `aegis.internal` routed via `aegis-connector-02` with **Connection Type: Peer to peer** (Twingate activity event confirmed "Established peer-to-peer connection"); **STUN Discovery: Available** serves as supporting telemetry.
+  ~~~text
+  TWINGATE_CONNECTION = P2P
+  TWINGATE_RELAY_PATH = NO
+  TWINGATE_RELAY_BOTTLENECK = NOT_APPLICABLE
+  ~~~
+- **Single Upload Probe (`RU-M-r01`):** 300 MB fixture, 18 chunks, 107,690.4 ms chunk span, **2.786 MB/s**, all 18 PUTs HTTP 200.
+- **Single Download Probe (`RD-M-r01`):** 300 MB fixture, 71,331 ms, **4.206 MB/s**, SHA-256 `81ba1dbe05118eab211ea9b613860870950891052c7784ce9ba6aabd44c42efb` bit-exact match (`HASH_PASS=True`).
+- **Dual Download Probe (`RD-M-dual-r01`):** Exactly 2 concurrent 300 MB downloads (controlled test run; an accidental screenshot showing 3 visible downloads was clarified by Human Owner as not reflecting the controlled test; the recorded test runner output is authoritative). Span 144,906 ms, aggregate **4.141 MB/s**, both SHA-256 digests bit-exact match.
+  ~~~text
+  DUAL_SINGLE_RATIO = 4.141 / 4.206 ≈ 0.985
+  REMOTE_SHARED_THROUGHPUT_CEILING = OBSERVED
+  ~~~
+  The single-versus-dual probe observed a flat aggregate throughput ceiling (~0.985 ratio), showing that concurrency did not increase aggregate Remote throughput. This is consistent with a shared Remote-path/channel ceiling, but the exact limiting component is not proven.
+
+### 27.2 Server telemetry and local ISP baseline
+
+- **Server Telemetry:** During active remote transfer, host metrics remained completely unconstrained:
+  - Load average ≈ 1.22 / 1.33 / 1.33 (4-core host)
+  - Memory: 1.7 GiB used of 7.0 GiB total (5.3 GiB free)
+  - Swap: 1.8 GiB used, vmstat `si`/`so` ≈ 0 throughout observation (zero active swapping)
+  - Root filesystem: 55 GiB used of 89 GiB total (66% used, 30 GiB available)
+  - CPU idle: 92–98%, I/O wait: 0%
+  - Containers: `aegis-prod-drive-1` 0.00% CPU, 127.5 MiB RAM (1.77%); `twingate-aegis-connector-02` 8.68% CPU, 31.72 MiB RAM (0.44%).
+  - Docker NET I/O metrics are cumulative byte counters since container startup and are not cited as link rates.
+  ~~~text
+  SERVER_CPU_SATURATION = NOT_OBSERVED
+  SERVER_MEMORY_PRESSURE = NOT_OBSERVED
+  SERVER_IO_WAIT_BOTTLENECK = NOT_OBSERVED
+  DRIVE_CONTAINER_RESOURCE_PRESSURE = NOT_OBSERVED
+  TWINGATE_CONNECTOR_RESOURCE_PRESSURE = NOT_OBSERVED
+  ~~~
+- **Home ISP Baseline:**
+  - Twingate OFF: Download 58.65 Mbps, Upload 28.40 Mbps, Ping 5 ms.
+  - Twingate ON: Download 58.33 Mbps, Upload 28.53 Mbps, Ping 4 ms.
+  - Twingate-OFF serves as the primary local ISP baseline; public Speedtest traffic with Twingate ON does not prove traversal of the AEGIS private tunnel.
+  ~~~text
+  HOME_ISP_BASELINE_AVAILABLE = YES
+  ~~~
+
+### 27.3 Final decision and throughput workstream closure
+
+- Neither upload nor download exhibits an application defect.
+- Server resources operate with abundant headroom.
+- Twingate relay is not engaged (direct P2P established).
+- The single-versus-dual probe observed a flat aggregate throughput ceiling (~0.985 ratio), showing that concurrency did not increase aggregate Remote throughput. This is consistent with a shared Remote-path/channel ceiling, but the exact limiting component is not proven.
+- No safe, proven application-layer fix exists (`SAFE_APPLICATION_FIX_PROVEN=NO`, `SIMPLE_SAFE_FIX_PROVEN=NO`).
+- In strict adherence to AEGIS governance, no arbitrary code changes or Production mutations are authorized.
+- The throughput workstream is concluded with documented operational limitations.
+- Onsite revisit policy: `ONSITE_REVISIT_REQUIRED=NO`.
+
+### 27.4 Final architectural status block
+
+~~~text
+TASK = IDEA1_TRANSFER_FINAL_REPORT_MEASUREMENT
+STATUS = COMPLETE / NO_SAFE_FIX_PROVEN / WORKSTREAM_CLOSED
+MEASUREMENT_CLASSIFICATION = FINAL_REPORT_MEASUREMENT
+PRE_FIX_REWRITTEN = NO
+POST_FIX_CLAIMED = NO
+P1_DIRECT_LAN = PASS
+LAN_UPLOAD_VALID_RUNS = 9/9
+LAN_DOWNLOAD_VALID_RUNS = 9/9
+LAN_TOTAL_VALID_MEASURED_RUNS = 18/18
+DOWNLOAD_INTEGRITY = PASS
+LAN_UPLOAD_MEDIAN = ~10.6 MB/s (100MB: 10.588, 300MB: 10.752, 1GB: 10.591)
+LAN_DOWNLOAD_MEDIAN = ~11.0 MB/s (100MB: 11.042, 300MB: 11.068, 1GB: 10.994)
+LIMITER_EXPLANATION = PROVEN_100MBPS_ROUTER_TRUNK_CEILING (PR #259)
+REMOTE_R1 = COMPLETE
+TWINGATE_CONNECTION = P2P
+TWINGATE_RELAY_BOTTLENECK = NOT_APPLICABLE
+REMOTE_SINGLE_UPLOAD_MBPS = 2.786
+REMOTE_SINGLE_DOWNLOAD_MBPS = 4.206
+REMOTE_DUAL_AGGREGATE_MBPS = 4.141
+REMOTE_DUAL_SINGLE_RATIO = ~0.985
+REMOTE_SHARED_THROUGHPUT_CEILING = OBSERVED
+SERVER_RESOURCE_BOTTLENECK = NOT_OBSERVED
+APPLICATION_DEFECT_PROVEN = NO
+SAFE_APPLICATION_FIX_PROVEN = NO
+SIMPLE_SAFE_FIX_PROVEN = NO
+APPLICATION_SOURCE_CHANGED = NO
+PRODUCTION_MUTATION_PERFORMED = NO
+NETWORK_MUTATION_PERFORMED = NO
+FINAL_DECISION = NO_SAFE_FIX_PROVEN
+ONSITE_REVISIT_REQUIRED = NO
+FINAL_RECEIPT_CREATED = YES
+NEXT_GATE = HUMAN_REVIEW_AND_MERGE
+~~~

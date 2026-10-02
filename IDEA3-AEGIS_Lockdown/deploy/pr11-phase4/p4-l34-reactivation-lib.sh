@@ -82,10 +82,24 @@ l34_dnsmasq_conf_gate() {
   done < "$f"
 }
 
-# l34_dnsmasq_unit_gate FILE EXAMPLE — the installed unit is byte-identical to the accepted repository unit
+# l34_render_dnsmasq_unit TEMPLATE — the canonical dnsmasq unit template rendered with the FIXED approved L34 values (pure; stdout).
+# There is no second unit definition: the single template under deploy/network is the only source, and the four placeholders are the only
+# thing substituted (the L4 handler and p4-ap-network.py render the same template with the same four values).
+l34_render_dnsmasq_unit() {
+  sed -e "s|<AEGIS_AP_INTERFACE>|$L34_AP_IF|g" -e "s|<AEGIS_AP_ADDRESS>|$L34_AP_ADDR|g" \
+      -e "s|<AEGIS_AP_PREFIXLEN>|$L34_AP_PREFIX|g" -e "s|<AEGIS_AP_CHANNEL>|$L34_CHANNEL|g" -- "$1"
+}
+
+# l34_dnsmasq_unit_gate FILE TEMPLATE — the installed unit is byte-identical to the canonical repository template RENDERED with the fixed
+# approved L34 values. The raw placeholder template is never an acceptable installed unit, and an authority that still carries an
+# unresolved placeholder is refused rather than ignored.
 l34_dnsmasq_unit_gate() {
   [ -f "$1" ] && [ ! -L "$1" ] || { l34_reason "L34_DNSMASQ_UNIT_MISSING"; return 1; }
-  cmp -s "$1" "$2" || { l34_reason "L34_DNSMASQ_UNIT_NOT_ACCEPTED_AUTHORITY"; return 1; }
+  [ -f "$2" ] && [ ! -L "$2" ] || { l34_reason "L34_DNSMASQ_UNIT_TEMPLATE_MISSING"; return 1; }
+  local rendered
+  rendered=$(l34_render_dnsmasq_unit "$2") && [ -n "$rendered" ] || { l34_reason "L34_DNSMASQ_UNIT_TEMPLATE_UNRESOLVED"; return 1; }
+  ! grep -q '<AEGIS_' <<< "$rendered" || { l34_reason "L34_DNSMASQ_UNIT_TEMPLATE_UNRESOLVED"; return 1; }  # no pipe: pipefail/SIGPIPE cannot invert this
+  cmp -s "$1" <(l34_render_dnsmasq_unit "$2") || { l34_reason "L34_DNSMASQ_UNIT_NOT_ACCEPTED_AUTHORITY"; return 1; }
 }
 
 # l34_persistent_line FILE — one snapshot record: path, metadata (mode:uid:gid:size:mtime:ctime) and digest. The PSK-bearing profile gets

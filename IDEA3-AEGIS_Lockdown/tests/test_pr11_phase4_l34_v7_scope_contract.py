@@ -32,7 +32,9 @@ STAGE_GATE = DEPLOY / "p4-stage-gate.sh"
 LIB = DEPLOY / "p4-l34-reactivation-lib.sh"
 V7_MARKER = "# ── V7 (RADIO-DISABLED + BROKER-CHURN) reactivation"
 # sha256 of the shared gate library up to (excluding) the V7 section, as merged at main 07633c93: V7 may only append after V7_MARKER.
-LIB_PRE_V7_SHA256 = "f985a26e506e1694c907821707df301b935eee4782da9cadf12b91839685c035"
+# AMENDED (PR #305, owner-approved re-pin): the only change to the shared lib is l34_dnsmasq_unit_gate + new l34_render_dnsmasq_unit, so the byte-identity
+# authority is the canonical template rendered with the fixed L34 values. The pre-amendment pin was f985a26e506e1694c907821707df301b935eee4782da9cadf12b91839685c035.
+LIB_PRE_V7_SHA256 = "ee5f992ab4486e1238788de40d0f74faca9e7ebad8d64546f83a1df7c36afdd3"
 # sha256 of every V1–V6 handler / allow file / owner runner at main 07633c93. A deliberate future V1–V6 change must update this pin.
 V1_V6_PINS = {
     "reactivation/l34/allow-dynamic-transitions-rollback.txt": "0768b4c5aa08f67e28fc8da7f39162d7023ec95b0f6b23e79f9740fa7500f18c",
