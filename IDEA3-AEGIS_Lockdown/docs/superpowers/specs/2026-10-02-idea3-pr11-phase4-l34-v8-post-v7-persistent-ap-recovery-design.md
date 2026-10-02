@@ -181,3 +181,10 @@ Broker `start|stop|restart|reset-failed|kill|enable|disable|mask`; Core control;
   shutdown. **K12 automatic reboot persistence is NOT proven and is a separate later activity.**
 - Radio disablement from a desktop session (as at 08:23:09) is an operator action; V8 neither prevents nor detects it.
 - The wired management path is assumed present (`l34_ap_pre_gate` requires an alternate default route); the owner remains responsible for out-of-band access.
+
+## 8. Live results (closeout, 2026-10-02)
+
+- **Original V8 attempt** (main `9f5a0114`, `AUTH_DIR` `l34-v8-auth-9f5a0114-20261002`): FAILED / S-11 HOLD / consumed / historical. Unchanged by anything below.
+- **Governed successor V8** (§5.1; main `3d8028f4`, new `AUTH_DIR` `l34-v8-governed-successor-auth-3d8028f49313-20261002-194044`, frozen runner SHA-256 `04fb5f5c…d6006f`, evidence `2026-10-02-l34-v8-20261002-194210`): `V8_RUNTIME_RECOVERY = PASS`, marker consumed (`consumed_at=2026-10-02T12:42:12Z`). It is spent and not reusable.
+  `L34_V8_APPLY=PASS`, `L34_V8_VERIFY=PASS`, PRE and POST captures `COMPLETE SHA256=PASS`, PRE→POST `COMPARE_RESULT=PASS` with `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `PRESERVATION_S10=PASS`; the one persistent change was `aegis-idea3-ap` `connection.autoconnect` no → yes (profile `.meta` size 378 → 360, which the approved `.meta` key covers).
+- **Not claimed:** `L3_LIVE_ACCEPTANCE`, `L4_LIVE_ACCEPTANCE`, `L6B_LIVE_ACCEPTANCE`, `K12_AUTOMATIC_REBOOT_PERSISTENCE` (NOT_PROVEN), Recovery R1–R8 (NO), L7u (NOT executed), L8 (NOT authorized), ESP32.

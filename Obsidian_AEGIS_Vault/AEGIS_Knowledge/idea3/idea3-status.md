@@ -18,10 +18,24 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3/L4 V8 governed-successor LIVE closeout — PASS (runtime recovery only) — 2026-10-02
+
+> [!important] The owner executed the governed successor V8 attempt once (main `3d8028f4`, 2026-10-02 19:42 +07). It is **consumed and not reusable**. Repository closeout only: no runtime/source/runner/handler change, no new Production mutation by this closeout, no reboot.
+> `V8_RUNTIME_RECOVERY = PASS`, `ORIGINAL_V8_ATTEMPT = FAILED / S-11 HOLD / CONSUMED / HISTORICAL` (unchanged), `GOVERNED_SUCCESSOR_V8 = PASS / CONSUMED`, `SUCCESSOR_ATTEMPT_CONSUMED = YES`, `AUTH_REUSABLE = NO`, `K3_REUSABLE = NO`, `RUNNER_REUSABLE_FOR_ANOTHER_ATTEMPT = NO`, `V8_RETRY_ALLOWED = NO`
+> `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `RECOVERY_R1_R8_PROVEN = NO`, `L7U_EXECUTED = NO`, `L8_AUTHORIZED = NO`, `L3_LIVE_ACCEPTANCE / L4_LIVE_ACCEPTANCE / L6B_LIVE_ACCEPTANCE = NOT CLAIMED`, `ESP32 = NOT_PROVEN`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-02-l34-v8-20261002-194210`. Owner-run log: baseline `FRESH`; read-only handler preflight `L34_V8_PREFLIGHT=PASS`; `CAPTURE_PRE=COMPLETE SHA256=PASS`; `L34_V8_APPLY=PASS`; `L34_V8_VERIFY=PASS`; PSK output scan `115 files, 0 hits`; `CAPTURE_POST=COMPLETE SHA256=PASS`; PRE→POST `COMPARE_RESULT=PASS`, `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0` (39 approved changes, 4 info), `PRESERVATION_S10=PASS`.
+- **The one persistent change:** NetworkManager `aegis-idea3-ap` `connection.autoconnect` no → yes (the canonical comparison tolerated the libnm `[connection]/timestamp` per PR #299). The profile `.meta` record changed (size 378 → 360) and is the single approved persistent key; every other persistent file was unchanged.
+- **Runtime state recorded at POST:** AP active (`AEGIS-IDEA3`, channel 6, `10.77.30.1/28`), rfkill target unblocked, NM radio enabled, dnsmasq active/running (reset-failed + one start), broker active/running via its own systemd auto-restart (`BROKER_CONTROL_COMMAND_ISSUED=NO`, tuple stable), `TLS_PROBE=PASS`, Core unchanged (no control command; MainPID unchanged), unrelated Wi-Fi inactive, forwarding zero, legacy mosquitto/Twingate/IDEA2 unchanged. A later read-only check by this closeout still saw the AP, dnsmasq, broker and Core active and `connection.autoconnect=yes`.
+- **Historical objects, untouched:** the original attempt's `AUTH_DIR`, marker (`consumed_at=2026-10-02T09:50:11Z`), runner pin `9f5a0114` and evidence, and its receipt; the `8739847` and `98c3e77` freezes (stale, never used).
+- **Not proven:** reboot persistence (K12): dnsmasq may still lose its boot race with the interface, and the rfkill state file records the last shutdown state. Recovery R1–R8, L7u and L8 are separate later activities. `pre-root`/`post-root` are root-owned; this closeout relied on the runner's recorded `SHA256=PASS` for them and did not re-verify the capture checksums.
+
+---
+
 ## IDEA3 PR11 Phase 4 L3/L4 V8 governed-successor clarification (docs only) — 2026-10-02
 
 > [!important] Governance clarification only (Draft PR, awaiting human merge). No runtime, runner, handler, marker or classifier change; Production not mutated; no Auth/K3; no runner freeze; no preflight; **no V8 live attempt and no successor attempt has run.** The sections below remain true.
-> `ORIGINAL_V8_ATTEMPT = FAILED / CONSUMED`, `ORIGINAL_AUTH_K3 = NOT_REUSABLE`, `V8_RETRY_ALLOWED = NO` (the consumed attempt itself can never be rerun), `GOVERNED_SUCCESSOR_ALLOWED = YES`, `CANONICAL_STAGE_ID_REUSED = YES` (`l34-v8-post-v7-persistent-ap-recovery`), `REQUIRES_NEW_AUTH_DIR = YES`, `REQUIRES_NEW_FREEZE = YES`, `REQUIRES_NEW_PREFLIGHT = YES`, `REQUIRES_FRESH_SAME_DAY_AUTH_K3 = YES`, `SUCCESSOR_LIVE = NOT_RUN`
+> `ORIGINAL_V8_ATTEMPT = FAILED / CONSUMED`, `ORIGINAL_AUTH_K3 = NOT_REUSABLE`, `V8_RETRY_ALLOWED = NO` (the consumed attempt itself can never be rerun), `GOVERNED_SUCCESSOR_ALLOWED = YES`, `CANONICAL_STAGE_ID_REUSED = YES` (`l34-v8-post-v7-persistent-ap-recovery`), `REQUIRES_NEW_AUTH_DIR = YES`, `REQUIRES_NEW_FREEZE = YES`, `REQUIRES_NEW_PREFLIGHT = YES`, `REQUIRES_FRESH_SAME_DAY_AUTH_K3 = YES`, `SUCCESSOR_LIVE = see the governed-successor LIVE closeout section above (superseded; it has run once and PASSED, consumed)`
 
 - **Resolves:** the older wording "a NEW stage or governed successor" below. A governed successor reuses the canonical V8 stage ID; it does not need a renamed stage. It is not a retry: the prior `AUTH_DIR`, authorization, K3, marker, frozen runner and evidence directory are never reused, and the successor uses the marker filename `L34-V8-REACTIVATION-ATTEMPT-CONSUMED` only inside its own brand-new `AUTH_DIR`. The seven conditions are in spec §5.1 (`IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-02-idea3-pr11-phase4-l34-v8-post-v7-persistent-ap-recovery-design.md`).
 - **Not claimed:** V8 live success, L3/L4/L6b acceptance, K12 reboot persistence.
