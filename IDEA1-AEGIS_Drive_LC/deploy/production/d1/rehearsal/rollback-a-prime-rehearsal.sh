@@ -5,9 +5,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 S=${REHEARSAL_OUT:-$(mktemp -d)}   # state/migration copy/logs; never inside the repository
 echo "REHEARSAL_OUT=$S"
 P1_ROOT=${P1_ROOT:?set P1_ROOT to the IDEA1-AEGIS_Drive_LC dir of a clean detached worktree at 8634360f (node_modules installed)}
-S1_ROOT=${S1_ROOT:?set S1_ROOT to the IDEA1-AEGIS_Drive_LC dir of a clean detached worktree at 4a8cc3c9 (node_modules installed)}
+S1_ROOT=${S1_ROOT:?set S1_ROOT to the IDEA1-AEGIS_Drive_LC dir of a clean detached worktree at the Stage 1 candidate (node_modules installed)}
+S1_SHA=${S1_SHA:-9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f}   # Stage 1 candidate (post-PR #297)
+EXPECTED_MIGRATION_SHA256=aac26537c1500737f2fada157696ca5522d34e3386099f3d580151c45cbcb239
 P1_IMAGE=${P1_IMAGE:-aegis-local-rehearsal-drive:p1-8634360f74ed}   # built from exact revision 8634360f (runbook §16.1)
-S1_IMAGE=${S1_IMAGE:-aegis-local-rehearsal-drive:preview-d1-s1-4a8cc3c95e2f}
+S1_IMAGE=${S1_IMAGE:-aegis-local-rehearsal-drive:preview-d1-s1-9f5a01148ce0}
 NET=aegis-d1rb-net; PG=aegis-d1rb-pg; DRIVE=aegis-d1rb-drive; VOL=aegis-d1rb-datalake; MVOL=aegis-d1rb-media
 PORT=58801; BASE=http://127.0.0.1:$PORT
 STATE=$S/rb-state.json; rm -f "$STATE"
@@ -90,14 +92,33 @@ SEED_IDS=$(PSQL_RO <<<"SELECT string_agg(quote_literal(id), ',') FROM vault_v2_b
 echo "PRE_MIGRATION_V2_BLOB_FINGERPRINT=$PRE_SEED_PROTECTED"
 
 log "3. apply migration 012 exactly as the runbook (superuser, ON_ERROR_STOP, lock/statement timeouts; verbatim Git blob)"
-git -C "$S1_ROOT" show 4a8cc3c95e2f4147fbab9c505079c0377a271d99:IDEA1-AEGIS_Drive_LC/server/db/migrations/012_vault_preview_index_v1.sql > "$S/rb-012.sql"
-echo "MIGRATION_SHA256=$(sha256sum "$S/rb-012.sql" | cut -d' ' -f1)"
-if docker exec -i -e PGOPTIONS='-c lock_timeout=10s -c statement_timeout=300s' "$PG" \
-     sh -lc 'psql -X -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1 -f -' < "$S/rb-012.sql"; then echo 'MIGRATION_012_APPLIED=YES'; else echo 'STOP: migration failed' >&2; exit 1; fi
-PSQL_RO <<'SQL'
+git -C "$S1_ROOT" show "$S1_SHA:IDEA1-AEGIS_Drive_LC/server/db/migrations/012_vault_preview_index_v1.sql" > "$S/rb-012.sql"
+MIG_SHA=$(sha256sum "$S/rb-012.sql" | cut -d' ' -f1); echo "MIGRATION_SHA256=$MIG_SHA"
+test "$MIG_SHA" = "$EXPECTED_MIGRATION_SHA256" || { echo 'STOP: migration 012 bytes differ from the package' >&2; exit 1; }
+apply012() {
+  if docker exec -i -e PGOPTIONS='-c lock_timeout=10s -c statement_timeout=300s' "$PG" \
+       sh -lc 'psql -X -U "$POSTGRES_USER" -d aegis_drive -v ON_ERROR_STOP=1 -f -' < "$S/rb-012.sql"; then echo 'MIGRATION_012_APPLIED=YES'; else echo 'STOP: migration failed' >&2; exit 1; fi
+}
+privq() { PSQL_RO <<'SQL'
 SELECT 'DRIVE_APP_D1_GRANTS=' || string_agg(table_name || ':' || privilege_type, ',' ORDER BY table_name, privilege_type) FROM information_schema.role_table_grants WHERE grantee='drive_app' AND table_name LIKE 'vault_preview_index_%';
+SELECT 'DRIVE_APP_PRIV ' || t || ' S=' || has_table_privilege('drive_app',t,'SELECT') || ' I=' || has_table_privilege('drive_app',t,'INSERT') || ' U=' || has_table_privilege('drive_app',t,'UPDATE') || ' D=' || has_table_privilege('drive_app',t,'DELETE') || ' T=' || has_table_privilege('drive_app',t,'TRUNCATE') FROM unnest(ARRAY['vault_preview_index_heads','vault_preview_index_generations','vault_preview_index_blob_refs']) t;
+SELECT 'OTHER_TABLES=' || count(*) || ' WITHOUT_FULL_DML=' || count(*) FILTER (WHERE NOT (has_table_privilege('drive_app',c.oid,'SELECT') AND has_table_privilege('drive_app',c.oid,'INSERT') AND has_table_privilege('drive_app',c.oid,'UPDATE') AND has_table_privilege('drive_app',c.oid,'DELETE'))) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') AND c.relname NOT LIKE 'vault_preview_index_%';
 SELECT 'LIFECYCLE_CHECK=' || pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='vault_tree_blob_state'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%lifecycle%';
 SQL
+}
+privcheck() { # D-1 contract (PR #297): SELECT/INSERT/UPDATE only on preview-index tables; every other table keeps blanket DML
+  local out; out=$(privq); printf '%s\n' "$out"
+  [[ $(grep -c 'S=true I=true U=true D=false T=false' <<<"$out") = 3 ]] || { echo 'STOP: preview-index privileges are not SELECT/INSERT/UPDATE only' >&2; exit 1; }
+  grep -q 'WITHOUT_FULL_DML=0$' <<<"$out" || { echo 'STOP: an unrelated table lost drive_app DML' >&2; exit 1; }
+  echo 'PRIVILEGE_CONTRACT=PASS'
+}
+apply012
+privcheck
+PRE_REAPPLY_DB=$(dbq)
+log "3b. re-apply corrected migration 012 (must be a no-op)"
+apply012
+privcheck
+test "$(dbq)" = "$PRE_REAPPLY_DB" && echo 'MIGRATION_012_REAPPLY_NOOP=YES' || { echo 'STOP: re-apply changed state' >&2; exit 1; }
 dbq
 
 log "4. Stage 1 candidate boot on migrated DB + Stage 1 state (all three account classes)"

@@ -17,12 +17,14 @@ Precedent: `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-23-private-vault
 
 ```text
 REPOSITORY=kraveerachat/Project-End-The-AEGIS
-STAGE1_CANDIDATE_SHA=4a8cc3c95e2f4147fbab9c505079c0377a271d99   # merge of PR #285 into main
+STAGE1_CANDIDATE_SHA=9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f   # merge of PR #297 into main (post-privilege-fix authority)
 PR_A=#283 MERGED at fa22edd5d5db18e692e7814b895f7af3d3c166dc    # ancestor of the candidate: verified
-PR_B=#285 MERGED at 4a8cc3c95e2f4147fbab9c505079c0377a271d99    # head 3747a183 is an ancestor: verified
-STAGE_1_BUILD=PR_A_MERGED + PR_B_MERGED                          # plan §0 binding condition satisfied
-CANDIDATE_IMAGE=aegis-prod-drive:preview-d1-s1-4a8cc3c95e2f
-CANDIDATE_OCI_REVISION=4a8cc3c95e2f4147fbab9c505079c0377a271d99
+PR_B=#285 MERGED at 4a8cc3c95e2f4147fbab9c505079c0377a271d99    # ancestor of the candidate: verified
+PR_297=#297 MERGED at 9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f  # preview-index DELETE privilege fix (head 04890e18)
+STAGE_1_BUILD=PR_A_MERGED + PR_B_MERGED + PR_297_MERGED          # plan §0 binding condition satisfied
+SUPERSEDED_CANDIDATE=4a8cc3c95e2f4147fbab9c505079c0377a271d99    # NOT deployable: its migration 012 left drive_app DELETE on preview-index tables
+CANDIDATE_IMAGE=aegis-prod-drive:preview-d1-s1-9f5a01148ce0
+CANDIDATE_OCI_REVISION=9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f
 CANDIDATE_OCI_SOURCE=https://github.com/kraveerachat/Project-End-The-AEGIS
 
 ROLLBACK_TARGET_IMAGE=aegis-prod-drive:p1-8634360f74ed             # previous accepted P1 runtime
@@ -31,19 +33,20 @@ ROLLBACK_TARGET_P1_OVERLAY=/opt/aegis/runtime/preview-p1/drive-image-8634360f74e
 ROLLBACK_TARGET_P1_OVERLAY_SHA256=de6b877b13d8fe1d8ee5c550589d54816cd536c141d345be3e69ceda3379a1f7
 
 MIGRATION=IDEA1-AEGIS_Drive_LC/server/db/migrations/012_vault_preview_index_v1.sql
-MIGRATION_GIT_BLOB=4777eab1852cb0717361b8723dca83ec6c8c3185
-MIGRATION_SHA256=aaeee44afc11ada90e91e311ce3dcafe88ddcf493586fc06c6b45defbed1edb5   # `git show <SHA>:<path> | sha256sum` (LF bytes)
+MIGRATION_GIT_BLOB=540e2a4e091211b15a64dbf221a0b9f64ccd5a2f
+MIGRATION_SHA256=aac26537c1500737f2fada157696ca5522d34e3386099f3d580151c45cbcb239   # `git show <SHA>:<path> | sha256sum` (LF bytes)
 
-OVERLAY_IMAGE=IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-image-4a8cc3c95e2f.yml
-OVERLAY_IMAGE_SHA256=3007843780120322fae5d5d8bf7f7edcf15e7982ba454a7d4fa28c6d39dd9151
-OVERLAY_FLAGS=IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-preview-index-stage1-4a8cc3c95e2f.yml
+OVERLAY_IMAGE=IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-image-9f5a01148ce0.yml
+OVERLAY_IMAGE_SHA256=49b0ad5fbe0f49a9cfe168ec28c12aeb3f6fe1ead6dd870105423f4b37b96f78
+OVERLAY_FLAGS=IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-preview-index-stage1-9f5a01148ce0.yml
 OVERLAY_FLAGS_SHA256=7c5f0df78c3f5cf46bb2edd83bb8b015ed63d9645ed8de22c69eb1d8d6216a59
 PRODUCTION_RUNTIME_DIR=/opt/aegis/runtime/preview-d1
 ```
 
-Server code delta from the accepted P1 runtime (`8634360f..4a8cc3c9`, `IDEA1-AEGIS_Drive_LC/server` +
+Server code delta from the accepted P1 runtime (`8634360f..9f5a0114`, `IDEA1-AEGIS_Drive_LC/server` +
 `package*.json` + `Dockerfile`): 10 server files, all D-1 PR-A (flags, migration 012 + `schema.sql`, read store,
-schema probe, read-only router, inventory exclusion, boot log). `package.json`, `package-lock.json`, and
+schema probe, read-only router, inventory exclusion, boot log); `4a8cc3c9..9f5a0114` changes only migration 012
+(PR #297 privilege narrowing) in Drive runtime inputs. `package.json`, `package-lock.json`, and
 `Dockerfile` are unchanged since P1, so the runtime toolchain is the P1 toolchain.
 
 ### Effective Stage 1 configuration
@@ -86,10 +89,12 @@ are missing. A failed boot is a configuration STOP, not something to work around
 | D1 | `D1_STAGE1_WRITE_503_SUBSTITUTE=APPROVED`. The Stage 1 build has **no** preview-index mutation route: `requirePreviewIndexWrite` (503 `PREVIEW_INDEX_WRITE_DISABLED`) is defined in `server/routes/vaultPreviewIndex.js` but mounted on no route (static mutating-handler count `0`; test `PI-API-8`). An authenticated `POST /api/vault/tree/preview-index/head` returns **404 `{"error":"Not found"}`**; a browser request without a CSRF token is rejected 403 earlier. No runtime code is changed to produce a 503. | `STAGE1_WRITE_ROUTE_PRESENT=NO`, `STAGE1_WRITE_ROUTE_404=EXPECTED`, `STAGE1_WRITE_CAPABILITY=NOT_ROUTABLE`, `STAGE2_WRITE_DISABLED_503_REQUIRED=YES`. Stage 1 S-WRITE = `/state previewIndexWriteEnabled=false` + mutation route absent/404 + boot line `write disabled` + zero preview-index rows. **503 is not required at Stage 1**; the live 503 write-gate acceptance moves to Stage 2 (post-PR-C). Do not send mutating probes to Production. |
 | D2 | `D2_NEW_USER_SETUP_PRECONDITION=APPROVED`. `GET /preview-index/head` requires TREE_V1; before Vault setup it answers **409 `TREE_STATE_CONFLICT`**. | NEWLY_CREATED_USER before Vault setup: `409 = ACCOUNT_NOT_SETUP` — neither PASS nor FAIL. The account completes normal Vault setup; only a subsequent **404 `PREVIEW_INDEX_NOT_FOUND`** may PASS that cell. |
 | D3 | `D3_SERVER_SIDE_HEAD_CHECK_REQUIRED=APPROVED`. The client maps both 404 `PREVIEW_INDEX_NOT_FOUND` and 503 `PREVIEW_INDEX_DISABLED` to the original fallback, so browser behaviour alone cannot prove READ is on. | S-HEAD (direct authenticated `GET /api/vault/tree/preview-index/head`) is mandatory per account. After Vault setup expect 404 `PREVIEW_INDEX_NOT_FOUND`; 503 `PREVIEW_INDEX_DISABLED` = Stage 1 configuration FAIL. |
-| D4 | `D4_LOCAL_ROLLBACK_A_PRIME_REQUIRED_BEFORE_HG_S1=YES`; `HG_S1=WITHHELD_PENDING_LOCAL_ROLLBACK_A_PRIME`. | Local disposable rehearsal recorded in §16.1. HG-S1 may be requested only after it passes. |
+| D4 | `D4_LOCAL_ROLLBACK_A_PRIME_REQUIRED_BEFORE_HG_S1=YES`; `HG_S1=WITHHELD_PENDING_LOCAL_ROLLBACK_A_PRIME`. | Local disposable rehearsal recorded in §16.1, re-run on the post-PR #297 candidate `9f5a0114` with corrected migration 012. HG-S1 may be requested only after it passes. |
 | D5 | `D5_LIVE_COMPOSE_DISCOVERY_FAIL_CLOSED=APPROVED`. | Step 2 discovers the live chain read-only from container labels and STOPs if the chain cannot be determined, an unexpected Compose file is present, the active image/revision differs from the expected authority, an unrelated overlay would be dropped, or any discovered state contradicts this runbook. No mutation during discovery. |
 
-Corroborating independent rehearsal (Codex, local, recorded as reported to the Human Owner; it did **not** cover rollback A′):
+Corroborating independent rehearsal (Codex, local, recorded as reported to the Human Owner; it did **not** cover rollback A′).
+Historical: it ran against the **superseded** candidate `4a8cc3c9` (pre-PR #297 migration 012); it is not evidence for
+the current package's privilege state:
 
 ```text
 MAIN_SHA=4a8cc3c95e2f4147fbab9c505079c0377a271d99
@@ -110,42 +115,47 @@ Run in **Git Bash** (not PowerShell: `>` in PowerShell re-encodes bytes and brea
 
 ```bash
 set -euo pipefail
-SHA=4a8cc3c95e2f4147fbab9c505079c0377a271d99
+SHA=9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f
 REPO=/c/path/to/AEGIS_System            # any clone of kraveerachat/Project-End-The-AEGIS
-WT=/c/aegis-build-d1-s1-4a8cc3c95e2f
+WT=/c/aegis-build-d1-s1-9f5a01148ce0
 
 git -C "$REPO" fetch origin
 git -C "$REPO" merge-base --is-ancestor fa22edd5d5db18e692e7814b895f7af3d3c166dc "$SHA" && echo PR_A_IN_CANDIDATE=YES
 git -C "$REPO" merge-base --is-ancestor 3747a183 "$SHA" && echo PR_B_IN_CANDIDATE=YES
-git -C "$REPO" worktree add --detach "$WT" "$SHA"
+git -C "$REPO" merge-base --is-ancestor 04890e18 "$SHA" && echo PR_297_IN_CANDIDATE=YES
+git -C "$REPO" -c core.autocrlf=false worktree add --detach "$WT" "$SHA"   # LF checkout: image bytes match Git
 test -z "$(git -C "$WT" status --porcelain)" || { echo 'STOP: build worktree is not clean' >&2; exit 1; }
 
 cd "$WT/IDEA1-AEGIS_Drive_LC"
 docker build \
   --label org.opencontainers.image.revision=$SHA \
   --label org.opencontainers.image.source=https://github.com/kraveerachat/Project-End-The-AEGIS \
-  -t aegis-prod-drive:preview-d1-s1-4a8cc3c95e2f .
+  -t aegis-prod-drive:preview-d1-s1-9f5a01148ce0 .
 
-docker image inspect aegis-prod-drive:preview-d1-s1-4a8cc3c95e2f \
+docker image inspect aegis-prod-drive:preview-d1-s1-9f5a01148ce0 \
   --format 'ID={{.Id}} REV={{index .Config.Labels "org.opencontainers.image.revision"}} SOURCE={{index .Config.Labels "org.opencontainers.image.source"}} USER={{.Config.User}}'
 
 # Image must not carry Vault flags, DATABASE_URL, or credentials.
-docker image inspect aegis-prod-drive:preview-d1-s1-4a8cc3c95e2f --format '{{range .Config.Env}}{{println .}}{{end}}' \
+docker image inspect aegis-prod-drive:preview-d1-s1-9f5a01148ce0 --format '{{range .Config.Env}}{{println .}}{{end}}' \
   | cut -d= -f1 | grep -E '^(VAULT_|DATABASE_URL|PG|POSTGRES|SESSION|SECRET)' && { echo 'STOP: image bakes forbidden env' >&2; exit 1; } || echo 'IMAGE_ENV_CLEAN=YES'
 
 # Exact migration and overlays from Git objects (LF bytes), plus hashes.
 OUT="$USERPROFILE/Downloads/aegis-d1-s1"; mkdir -p "$OUT"
 git -C "$REPO" show "$SHA:IDEA1-AEGIS_Drive_LC/server/db/migrations/012_vault_preview_index_v1.sql" > "$OUT/012_vault_preview_index_v1.sql"
 DEPLOY_REF=origin/deploy/idea1-preview-d1-stage1   # or the exact reviewed commit of this package PR
-git -C "$REPO" show "$DEPLOY_REF:IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-image-4a8cc3c95e2f.yml" > "$OUT/drive-image-4a8cc3c95e2f.yml"
-git -C "$REPO" show "$DEPLOY_REF:IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-preview-index-stage1-4a8cc3c95e2f.yml" > "$OUT/drive-preview-index-stage1-4a8cc3c95e2f.yml"
+git -C "$REPO" show "$DEPLOY_REF:IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-image-9f5a01148ce0.yml" > "$OUT/drive-image-9f5a01148ce0.yml"
+git -C "$REPO" show "$DEPLOY_REF:IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-preview-index-stage1-9f5a01148ce0.yml" > "$OUT/drive-preview-index-stage1-9f5a01148ce0.yml"
 sha256sum "$OUT"/*
-docker save --output "$OUT/aegis-prod-drive-preview-d1-s1-4a8cc3c95e2f.tar" aegis-prod-drive:preview-d1-s1-4a8cc3c95e2f
-sha256sum "$OUT/aegis-prod-drive-preview-d1-s1-4a8cc3c95e2f.tar"
+docker save --output "$OUT/aegis-prod-drive-preview-d1-s1-9f5a01148ce0.tar" aegis-prod-drive:preview-d1-s1-9f5a01148ce0
+sha256sum "$OUT/aegis-prod-drive-preview-d1-s1-9f5a01148ce0.tar"
 ```
 
-Required: `PR_A_IN_CANDIDATE=YES`, `PR_B_IN_CANDIDATE=YES`, `REV=4a8cc3c9…`, `USER=node`, `IMAGE_ENV_CLEAN=YES`,
-migration SHA-256 `aaeee44a…edb5`, overlay SHA-256 values from §1. Record `CANDIDATE_IMAGE_ID` and the archive
+Build from an LF checkout (`core.autocrlf=false` above). A Windows CRLF checkout still produces a working image,
+but its copied source files (including the unused in-image copy of migration 012) differ from Git bytes, so it is not
+byte-reproducible. Migration 012 is always applied from the Git blob (§8), never from the image.
+
+Required: `PR_A_IN_CANDIDATE=YES`, `PR_B_IN_CANDIDATE=YES`, `PR_297_IN_CANDIDATE=YES`, `REV=9f5a0114…`, `USER=node`, `IMAGE_ENV_CLEAN=YES`,
+migration SHA-256 `aac26537…b239`, overlay SHA-256 values from §1. Record `CANDIDATE_IMAGE_ID` and the archive
 SHA-256. Transfer with the established mechanism (PR187 §B: `scp -i ~/.ssh/id_ed25519_admin-main_thispc … admin-main@192.168.10.10:/tmp/`):
 the archive, the migration file, and both overlays, all to `/tmp/` on the host.
 
@@ -305,31 +315,31 @@ Run the remaining steps in a controlled maintenance window with no intentional u
 ## 7. Step 3 — verify transfer, load image, install overlays (Human)
 
 ```bash
-EXPECTED_MIGRATION_SHA256=aaeee44afc11ada90e91e311ce3dcafe88ddcf493586fc06c6b45defbed1edb5
-EXPECTED_OVERLAY_IMAGE_SHA256=3007843780120322fae5d5d8bf7f7edcf15e7982ba454a7d4fa28c6d39dd9151
+EXPECTED_MIGRATION_SHA256=aac26537c1500737f2fada157696ca5522d34e3386099f3d580151c45cbcb239
+EXPECTED_OVERLAY_IMAGE_SHA256=49b0ad5fbe0f49a9cfe168ec28c12aeb3f6fe1ead6dd870105423f4b37b96f78
 EXPECTED_OVERLAY_FLAGS_SHA256=7c5f0df78c3f5cf46bb2edd83bb8b015ed63d9645ed8de22c69eb1d8d6216a59
-CANDIDATE_IMAGE=aegis-prod-drive:preview-d1-s1-4a8cc3c95e2f
-CANDIDATE_REVISION=4a8cc3c95e2f4147fbab9c505079c0377a271d99
+CANDIDATE_IMAGE=aegis-prod-drive:preview-d1-s1-9f5a01148ce0
+CANDIDATE_REVISION=9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f
 RT=/opt/aegis/runtime/preview-d1
-OV_IMAGE=$RT/drive-image-4a8cc3c95e2f.yml
-OV_FLAGS=$RT/drive-preview-index-stage1-4a8cc3c95e2f.yml
+OV_IMAGE=$RT/drive-image-9f5a01148ce0.yml
+OV_FLAGS=$RT/drive-preview-index-stage1-9f5a01148ce0.yml
 
 test "$(sha256sum /tmp/012_vault_preview_index_v1.sql | cut -d' ' -f1)" = "$EXPECTED_MIGRATION_SHA256" || { echo 'STOP: migration 012 SHA-256 mismatch' >&2; exit 1; }
-test "$(sha256sum /tmp/drive-image-4a8cc3c95e2f.yml | cut -d' ' -f1)" = "$EXPECTED_OVERLAY_IMAGE_SHA256" || { echo 'STOP: image overlay SHA-256 mismatch' >&2; exit 1; }
-test "$(sha256sum /tmp/drive-preview-index-stage1-4a8cc3c95e2f.yml | cut -d' ' -f1)" = "$EXPECTED_OVERLAY_FLAGS_SHA256" || { echo 'STOP: flags overlay SHA-256 mismatch' >&2; exit 1; }
+test "$(sha256sum /tmp/drive-image-9f5a01148ce0.yml | cut -d' ' -f1)" = "$EXPECTED_OVERLAY_IMAGE_SHA256" || { echo 'STOP: image overlay SHA-256 mismatch' >&2; exit 1; }
+test "$(sha256sum /tmp/drive-preview-index-stage1-9f5a01148ce0.yml | cut -d' ' -f1)" = "$EXPECTED_OVERLAY_FLAGS_SHA256" || { echo 'STOP: flags overlay SHA-256 mismatch' >&2; exit 1; }
 
-SERVER_ARCHIVE_SHA256=$(sha256sum /tmp/aegis-prod-drive-preview-d1-s1-4a8cc3c95e2f.tar | cut -d' ' -f1)
+SERVER_ARCHIVE_SHA256=$(sha256sum /tmp/aegis-prod-drive-preview-d1-s1-9f5a01148ce0.tar | cut -d' ' -f1)
 printf 'SERVER_ARCHIVE_SHA256=%s\n' "$SERVER_ARCHIVE_SHA256"
 read -r -p 'Paste approved workstation archive SHA-256: ' APPROVED_ARCHIVE_SHA256
 test "${APPROVED_ARCHIVE_SHA256,,}" = "$SERVER_ARCHIVE_SHA256" || { echo 'STOP: archive SHA-256 mismatch' >&2; exit 1; }
-"${D[@]}" load --input /tmp/aegis-prod-drive-preview-d1-s1-4a8cc3c95e2f.tar
+"${D[@]}" load --input /tmp/aegis-prod-drive-preview-d1-s1-9f5a01148ce0.tar
 "${D[@]}" image inspect "$CANDIDATE_IMAGE" --format 'ID={{.Id}} REV={{index .Config.Labels "org.opencontainers.image.revision"}} SOURCE={{index .Config.Labels "org.opencontainers.image.source"}} USER={{.Config.User}}'
 test "$("${D[@]}" image inspect "$CANDIDATE_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$CANDIDATE_REVISION" || { echo 'STOP: candidate OCI revision mismatch' >&2; exit 1; }
 test "$("${D[@]}" image inspect "$CANDIDATE_IMAGE" --format '{{.Config.User}}')" = node || { echo 'STOP: candidate image user mismatch' >&2; exit 1; }
 
 sudo install -d -m 0755 "$RT"
-sudo install -m 0644 /tmp/drive-image-4a8cc3c95e2f.yml "$OV_IMAGE"
-sudo install -m 0644 /tmp/drive-preview-index-stage1-4a8cc3c95e2f.yml "$OV_FLAGS"
+sudo install -m 0644 /tmp/drive-image-9f5a01148ce0.yml "$OV_IMAGE"
+sudo install -m 0644 /tmp/drive-preview-index-stage1-9f5a01148ce0.yml "$OV_FLAGS"
 printf '%s\n' "$LIVE_CONFIG_FILES" | sudo tee "$RT/pre-stage1-live-chain.txt" >/dev/null   # file paths only, no secrets
 test "$(sha256sum "$OV_IMAGE" | cut -d' ' -f1)" = "$EXPECTED_OVERLAY_IMAGE_SHA256" || { echo 'STOP: installed image overlay mismatch' >&2; exit 1; }
 test "$(sha256sum "$OV_FLAGS" | cut -d' ' -f1)" = "$EXPECTED_OVERLAY_FLAGS_SHA256" || { echo 'STOP: installed flags overlay mismatch' >&2; exit 1; }
@@ -377,6 +387,13 @@ SELECT 'D1_TRIGGERS=' || string_agg(tgname, ',' ORDER BY tgname) FROM pg_trigger
  WHERE NOT tgisinternal AND tgname IN ('vault_preview_index_generations_immutable','vault_preview_index_blob_refs_immutable','vault_tree_revisions_immutable');
 SELECT 'DRIVE_APP_D1_GRANTS=' || string_agg(table_name || ':' || privilege_type, ',' ORDER BY table_name, privilege_type)
   FROM information_schema.role_table_grants WHERE grantee = 'drive_app' AND table_name LIKE 'vault_preview_index_%';
+SELECT 'DRIVE_APP_PRIV ' || t || ' S=' || has_table_privilege('drive_app', t, 'SELECT') || ' I=' || has_table_privilege('drive_app', t, 'INSERT')
+    || ' U=' || has_table_privilege('drive_app', t, 'UPDATE') || ' D=' || has_table_privilege('drive_app', t, 'DELETE') || ' T=' || has_table_privilege('drive_app', t, 'TRUNCATE')
+  FROM unnest(ARRAY['vault_preview_index_heads','vault_preview_index_generations','vault_preview_index_blob_refs']) t;
+SELECT 'OTHER_TABLES_WITHOUT_DRIVE_APP_DELETE=' || count(*) FILTER (WHERE NOT has_table_privilege('drive_app', c.oid, 'DELETE'))
+    || ' OF ' || count(*)
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND c.relname NOT LIKE 'vault_preview_index_%';
 SELECT 'D1_HEAD_ROWS=' || count(*) FROM vault_preview_index_heads;
 SELECT 'D1_GENERATION_ROWS=' || count(*) FROM vault_preview_index_generations;
 SELECT 'D1_BLOB_REF_ROWS=' || count(*) FROM vault_preview_index_blob_refs;
@@ -392,13 +409,24 @@ test "$POST_MIG_PROTECTED_VAULT_SHA256" = "$PRE_PROTECTED_VAULT_SHA256" || { ech
 test "$POST_MIG_TREE_STATE_SHA256" = "$PRE_TREE_STATE_SHA256" || { echo 'STOP_FOR_HUMAN_INVESTIGATION: tree lifecycle/head rows changed' >&2; exit 1; }
 test "$POST_MIG_SCHEMA_SHA256" != "$PRE_SCHEMA_SHA256" || { echo 'STOP_FOR_HUMAN_INVESTIGATION: schema did not change after migration 012' >&2; exit 1; }
 "${D[@]}" inspect aegis-prod-drive-1 --format '{{.Config.Image}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}|{{.State.OOMKilled}}'
+PRIV_BAD=$(PSQL_RO <<'SQL'
+SELECT count(*) FROM unnest(ARRAY['vault_preview_index_heads','vault_preview_index_generations','vault_preview_index_blob_refs']) t
+ WHERE NOT (has_table_privilege('drive_app', t, 'SELECT') AND has_table_privilege('drive_app', t, 'INSERT') AND has_table_privilege('drive_app', t, 'UPDATE'))
+    OR has_table_privilege('drive_app', t, 'DELETE') OR has_table_privilege('drive_app', t, 'TRUNCATE');
+SQL
+)
+test "$PRIV_BAD" = 0 || { echo 'STOP_FOR_HUMAN_INVESTIGATION: drive_app preview-index privileges are not SELECT/INSERT/UPDATE only' >&2; exit 1; }
 echo 'MIGRATION_012_VERIFIED=YES'
 ```
 
 Required: `D1_TABLE_COUNT=3`; `TREE_TABLE_COUNT=7`; `LIFECYCLE_CHECK_COUNT=1` named
 `vault_tree_blob_state_lifecycle_check` listing all six values (`UNREFERENCED, TREE_MANAGED, PURGE_PENDING, PURGED,
 INDEX_STAGED, INDEX_MANAGED`); `D1_TRIGGERS` contains both D-1 triggers and the 011 trigger;
-`DRIVE_APP_D1_GRANTS` contains `INSERT, SELECT, UPDATE` on each of the three tables and **no `TRUNCATE`, `REFERENCES`, or `TRIGGER`**. `DELETE` is **expected** as well on Production: `postgres/init/02-app-roles.sh` sets `ALTER DEFAULT PRIVILEGES … GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO drive_app` for the superuser that runs this migration, so new tables inherit it (12 entries; the local rehearsal with the same role model reproduced exactly this). Deletion of generations and blob refs is still refused by the two D-1 triggers; `vault_preview_index_heads` has no delete trigger, and no Stage 1 code path writes or deletes any preview-index row (noted for the PR-C/HG-C integration review). Record the exact list;
+`DRIVE_APP_D1_GRANTS` = exactly `INSERT, SELECT, UPDATE` on each of the three tables (9 entries); each
+`DRIVE_APP_PRIV` line `S=true I=true U=true D=false T=false` (**no DELETE, no TRUNCATE** — PR #297 contract: 012
+revokes what `ALTER DEFAULT PRIVILEGES` from `postgres/init/02-app-roles.sh` granted and re-grants SELECT/INSERT/UPDATE);
+`OTHER_TABLES_WITHOUT_DRIVE_APP_DELETE=0 OF <n>` (every unrelated table keeps the blanket DML); `PRIV_BAD=0` is enforced
+above;
 all three `D1_*_ROWS=0`; `INDEX_LIFECYCLE_ROWS=0`; `LIFECYCLE_ROWS` identical to the Step 2 baseline;
 `INVALID_INDEX_COUNT=0`; both data fingerprints equal; schema fingerprint changed (expected); P1 Drive still healthy.
 
@@ -486,7 +514,7 @@ Required: all four `D1_*`/`INDEX_*` row counts `0`.
 Workstation, Git Bash, against the exact candidate SHA:
 
 ```bash
-SHA=4a8cc3c95e2f4147fbab9c505079c0377a271d99
+SHA=9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f
 git show $SHA:IDEA1-AEGIS_Drive_LC/server/routes/vaultPreviewIndex.js | grep -cE 'vaultPreviewIndexRouter\.(post|put|patch|delete|all)\('   # expect 0
 git grep -n requirePreviewIndexWrite $SHA -- IDEA1-AEGIS_Drive_LC/server                                                             # expect definition only
 ```
@@ -700,19 +728,22 @@ Then repeat, with `CUTOVER_TS=$FWD_TS`:
 | FW3 | ADMIN LAN: unlock, browse, tiles via original path, upload, download, lock | |
 | FW4 | §13.3 re-check: zero index rows; candidate healthy | |
 
-## 16. Package-preparation evidence (local, non-Production; 2026-10-02)
+## 16. Package-preparation evidence (local, non-Production; refreshed 2026-10-02 for candidate `9f5a0114`)
 
 These checks validate the package, not Production. None of them is Stage 1 acceptance.
 
 | Check | Result |
 |---|---|
-| `git merge-base --is-ancestor fa22edd5 4a8cc3c9` / `3747a183 4a8cc3c9` | PR-A and PR-B both in candidate |
-| `origin/main` at package start | `4a8cc3c95e2f4147fbab9c505079c0377a271d99` (unchanged from handoff) |
-| `bash -n` on every ```bash block of this runbook; `node --check` on the console snippet | all pass |
-| Disposable `postgres:15-alpine` (15.18), P1-era `schema.sql` at `8634360f`, seeded lifecycle rows, **no default privileges** (first pass), §6 2.5 SQL → §8 migration (verbatim file, SHA-256 `aaeee44a…edb5`) → §9 verification → §12 S-DB → second application | pre: 7 tree tables, 0 D-1 tables, four-value CHECK; migration output exactly as listed in §8; post: 3 D-1 tables, one six-value CHECK, 3 triggers, 9 explicit `drive_app` grants (`SELECT/INSERT/UPDATE`; `DELETE`/`TRUNCATE` false without default privileges — with the Production default-privilege model `DELETE` is also granted, see §16.1), all D-1/INDEX rows 0, lifecycle distribution unchanged, protected-Vault and tree-state fingerprints unchanged, schema fingerprint changed; re-application no-op with schema fingerprint unchanged |
-| `docker compose config` with a synthetic base + PR187-style flags + both D-1 overlays | `--quiet` pass; images = candidate only; rendered flags = SCHEMA/READ true, WRITE false, media true, purge false, `VAULT_TREE_*` inherited, no budget variable; without D-1 overlays the render returns the P1 image |
-| `vaultTreeConfigFromEnv` (candidate) with the Stage 1 env | boots; budget `null`; READ with media off rejected; WRITE without budget rejected |
-| Static write-route count at candidate SHA | `0`; `requirePreviewIndexWrite` defined only, mounted nowhere |
+| `origin/main` at refresh; PR #297 | `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f` = merge of PR #297 (MERGED) |
+| Ancestry: PR-A `fa22edd5`, PR-B head `3747a183`, PR #297 head `04890e18` | all ancestors of the candidate |
+| Migration 012 at candidate (LF Git bytes) | SHA-256 `aac26537c1500737f2fada157696ca5522d34e3386099f3d580151c45cbcb239`; Git blob `540e2a4e…` |
+| Drive runtime-input delta `4a8cc3c9..9f5a0114` | migration 012 only; `package*.json` and `Dockerfile` identical to P1 |
+| `bash -n` on every bash block of this runbook; `node --check` on the console snippet | all pass |
+| Runbook SQL verbatim (§6 2.5 → §8 → §9 incl. `PRIV_BAD` STOP check → re-apply §8/§9) on disposable `postgres:15-alpine` 15.18 with P1-era `schema.sql` (`8634360f`), **Production role model** (exact Drive SQL of `postgres/init/02-app-roles.sh`, incl. `ALTER DEFAULT PRIVILEGES`), seeded lifecycle rows | pre: 7 tree tables, 0 D-1 tables, four-value CHECK. Post: 3 D-1 tables, one six-value CHECK, 3 triggers; `DRIVE_APP_D1_GRANTS` = exactly 9 (`INSERT/SELECT/UPDATE` ×3); every `DRIVE_APP_PRIV` `S=true I=true U=true D=false T=false`; `OTHER_TABLES_WITHOUT_DRIVE_APP_DELETE=0 OF 21`; `PRIV_BAD=0`; 0 D-1/`INDEX_*` rows; lifecycle distribution, protected-Vault and tree-state fingerprints unchanged; schema fingerprint changed. Re-apply: identical output, schema fingerprint unchanged |
+| Fresh-install path (schema.sql + `02-app-roles.sh` via the real Postgres init sequence) | proven at the same merged files by PR #297: preview-index tables `SELECT/INSERT/UPDATE` only, DELETE/TRUNCATE false; 21 other Drive tables full DML; 15 Monitor tables keep DELETE |
+| `docker compose config` with a synthetic base + PR187-style flags + both D-1 overlays | `--quiet` pass; images = `aegis-prod-drive:preview-d1-s1-9f5a01148ce0` only; SCHEMA/READ true, WRITE false, media true, purge false, `VAULT_TREE_*` inherited, no budget variable; without D-1 overlays the render returns the P1 image |
+| `vaultTreeConfigFromEnv` (candidate) with the Stage 1 env | boots; budget `null` |
+| Static mutating-handler count in `vaultPreviewIndex.js` at the candidate | `0` (route absent → 404 at Stage 1) |
 
 Not covered by package preparation: the Production image build, the Production live chain, any Production HTTP
 acceptance, any browser check.
@@ -724,7 +755,8 @@ Harness (committed, reproducible): `IDEA1-AEGIS_Drive_LC/deploy/production/d1/re
 the same revision** (P1 client against P1, candidate client against Stage 1): cookie + CSRF login with the forced
 first-login reset, Argon2id Vault setup/unlock, genesis to TREE_V1, chunked V2 tree upload, manifest CAS commits
 (create folder / rename / move / trash / restore), chunked V2 download with SHA-256 comparison, recovery listing,
-and lock via the unlocked-state purge.
+and lock via the unlocked-state purge. After migration 012 the harness enforces the PR #297 privilege contract and
+re-applies 012 to prove it is a no-op.
 
 Environment: Docker 28.3.2 (Windows), `postgres:15-alpine` 15.18, one disposable network, PostgreSQL container, and
 two named volumes (`/datalake`, media cache) shared by every boot; all removed at the end. Database = P1-era
@@ -735,38 +767,41 @@ two named volumes (`/datalake`, media cache) shared by every boot; all removed a
 tree flags (schema/protocol/genesis/UI/media true, purge false); Stage 1 adds SCHEMA/READ true, WRITE false.
 
 ```text
-P1_IMAGE_LOCAL=aegis-local-rehearsal-drive:p1-8634360f74ed   (docker build of the exact P1 tree, OCI revision label 8634360f74ed2f50b2fcb49925a3d273c605a8a2)
+P1_IMAGE_LOCAL=aegis-local-rehearsal-drive:p1-8634360f74ed   (sha256:b8285def…2f09; docker build of the exact P1 tree, OCI revision 8634360f74ed2f50b2fcb49925a3d273c605a8a2)
 ROLLBACK_IMAGE_EXACT_PRODUCTION_ARTIFACT=NO                  (aegis-prod-drive:p1-8634360f74ed is not present on the rehearsal host)
 ROLLBACK_CODE_REVISION_EXACT=YES                             (package.json / package-lock.json / Dockerfile identical between P1 and the candidate)
-STAGE1_IMAGE_LOCAL=aegis-local-rehearsal-drive:preview-d1-s1-4a8cc3c95e2f (exact candidate tree, OCI revision 4a8cc3c95e2f4147fbab9c505079c0377a271d99)
-P1_IMAGE_LOCAL_ID=sha256:b8285defb87c50a1b14570ba6c75e34d35e442892d47396f3df325eccd862f09   (local; differs from the Production artifact ID by construction)
-STAGE1_IMAGE_LOCAL_ID=sha256:0eea28d0a5bd14eb28d4dfcbf591bcce6e99164c42a2d5271ca733af197b000e
-RUNTIME=node v20.20.2 / Alpine 3.23.4 / user node (both images)
+STAGE1_IMAGE_LOCAL=aegis-local-rehearsal-drive:preview-d1-s1-9f5a01148ce0 (sha256:21c967c3…9922; exact candidate tree, OCI revision 9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f)
+RUNTIME=node v20.20.2 / Alpine 3.23.4 / user node
+LOCAL_BUILD_CHECKOUT=Windows CRLF (behaviour-equivalent; not byte-identical to an LF build — see §4)
 ```
 
 | Step | Result |
 |---|---|
-| 1–2 P1 on pre-migration DB; seed ADMIN + EXISTING_USER (setup, genesis TREE_V1, folder, 2 files each, byte-exact read-back) | `PHASE_SEED=PASS (10/10)`; healthz 200; 7 tree tables, 0 D-1 tables; 4 V2 blobs `TREE_MANAGED`; heads g4/g4 |
-| 3 Migration 012 exactly as §8 (verbatim Git blob SHA-256 `aaeee44a…edb5`, superuser, `ON_ERROR_STOP`, timeouts) | applied; output as listed in §8; six-value CHECK; **12** `drive_app` grants incl. `DELETE` via default privileges (no `TRUNCATE`); 0 D-1 rows; lifecycle rows, users, blobs, heads unchanged |
-| 4 Stage 1 boot on the migrated DB; all three account classes | `PHASE_STAGE1=PASS (19/19)`; boot line `schema verified, read enabled, write disabled`; `/state` schema/read true, write false; `GET head` → 404 `PREVIEW_INDEX_NOT_FOUND` + `no-store` (ADMIN, EXISTING_USER, NEWLY_CREATED_USER); authenticated `POST head` → `404 {"error":"Not found"}`; NEWLY_CREATED_USER before Vault setup → **409 `TREE_STATE_CONFLICT` (ACCOUNT_NOT_SETUP)**, after setup → 404; seed files byte-exact; one Stage 1 upload |
+| 1–2 P1 on pre-migration DB; seed ADMIN + EXISTING_USER (setup, genesis TREE_V1, folder, 2 files each, byte-exact read-back) | `PHASE_SEED=PASS (10/10)`; healthz 200; 7 tree tables, 0 D-1 tables |
+| 3 **Corrected** migration 012 exactly as §8 (verbatim Git blob SHA-256 `aac26537…b239`, superuser, `ON_ERROR_STOP`, timeouts) | applied; `PRIVILEGE_CONTRACT=PASS`: each preview-index table `S=true I=true U=true D=false T=false`; `OTHER_TABLES=21 WITHOUT_FULL_DML=0` |
+| 3b Re-apply 012 | `PRIVILEGE_CONTRACT=PASS`; `MIGRATION_012_REAPPLY_NOOP=YES` (identical table/row/lifecycle state) |
+| 4 Refreshed Stage 1 boot (`9f5a0114`) on the migrated DB; all three account classes | `PHASE_STAGE1=PASS (19/19)`; boot line `schema verified, read enabled, write disabled`; `/state` schema/read true, write false; `GET head` → 404 `PREVIEW_INDEX_NOT_FOUND` + `no-store` (ADMIN, EXISTING_USER, NEWLY_CREATED_USER); authenticated `POST head` → `404 {"error":"Not found"}`; NEWLY_CREATED_USER before Vault setup → 409 (`ACCOUNT_NOT_SETUP`), after setup → 404; seed files byte-exact; one Stage 1 upload |
 | 5 Stop Stage 1 application only | PostgreSQL + volumes kept; 0 D-1 rows; 0 `INDEX_*` rows |
-| 6–12 **Rollback A′**: P1 on the same migrated DB, no down-migration; all three accounts | `PHASE_P1=PASS (47/47)`; healthz 200; restarts 0; OOM false; login, unlock, browse, ordinary upload, download byte-exact (seed, Stage 1, new), rename, move, trash, restore, byte-exact after rename/move/restore, recovery listing (0 orphans, nothing offered), lock; P1 `GET /preview-index/head` → 404 (no route) |
-| 10–12 after rollback | `D1_TABLE_COUNT=3` (**migration 012 retained**); 0 D-1 rows; 0 `INDEX_*` rows; seed `vault_v2_blobs` rows fingerprint identical to pre-migration (`SEED_BLOB_ROWS_INTACT=YES`) |
-| 13–15 Stop P1; **forward** Stage 1 on the same DB | `PHASE_FORWARD=PASS (23/23)`; healthz 200; boot line `write disabled`; flags schema/read true, write false; head 404 for all three; POST head 404; every known file (seed, Stage 1, P1-rollback) byte-exact; lock; 0 D-1 / `INDEX_*` rows |
+| 6–12 **Rollback A′**: exact P1 code revision on the same migrated DB, no down-migration; all three accounts | `PHASE_P1=PASS (47/47)`; healthz 200; restarts 0; OOM false; login, unlock, browse, ordinary upload, byte-exact download (seed, Stage 1, new), rename, move, trash, restore, byte-exact after rename/move/restore, recovery listing (0 orphans, nothing offered), lock |
+| 10–12 after rollback | `D1_TABLE_COUNT=3` (**migration 012 and preview-index tables retained**); 0 D-1 rows; 0 `INDEX_*` rows; seed `vault_v2_blobs` rows identical to pre-migration (`SEED_BLOB_ROWS_INTACT=YES`) |
+| 13–15 Stop P1; **forward** refreshed Stage 1 on the same DB | `PHASE_FORWARD=PASS (23/23)`; boot line `write disabled`; flags schema/read true, write false; head 404 for all three TREE_V1 accounts; POST head 404; every known file (seed, Stage 1, P1-rollback) byte-exact; lock; 0 D-1 / `INDEX_*` rows |
 | Cleanup | containers, volumes, network removed |
 
-The whole sequence ran twice end to end (a working copy, then the committed harness verbatim with `P1_ROOT`/`S1_ROOT`
-pointing at clean detached worktrees of `8634360f` and `4a8cc3c9`); both runs produced the identical result above.
+The sequence ran twice against `9f5a0114` (a harness revision before the OID-based privilege query, then the committed
+harness verbatim); both runs produced the result above.
 
 ```text
-ROLLBACK_A_PRIME_LOCAL=PASS
-P1_BOOT_ON_MIGRATION012=PASS
+ROLLBACK_A_PRIME_LOCAL=PASS (corrected migration 012, candidate 9f5a0114)
+P1_BOOT_ON_CORRECTED_012=PASS
 P1_EXISTING_FLOWS=PASS (3 account classes)
 MIGRATION012_RETAINED=YES
 INDEX_ROWS_AFTER_ROLLBACK=0
 FORWARD_STAGE1_BOOT=PASS
 FORWARD_STAGE1_HEAD_404=PASS (3 account classes)
 ```
+
+Superseded: two earlier runs of the same sequence against candidate `4a8cc3c9` with the pre-PR #297 migration also
+passed functionally but showed `drive_app` DELETE on the preview-index tables; they are not evidence for this package.
 
 Limits of this rehearsal: not the Production image artifact (exact code revision, local build); not Production data
 volume or scale; no gateway/Twingate path; no browser UI (client modules run in Node, so tile rendering and browser
