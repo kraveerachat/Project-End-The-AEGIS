@@ -55,13 +55,13 @@ class ViewerDemandTests(unittest.TestCase):
             first_chunk_sent = asyncio.Event()
 
             async def body():
-                hub.add_viewer()
+                lease = hub.add_viewer(producer_generation=1)
                 try:
                     while True:
                         yield b"frame"
                         await asyncio.sleep(0)
                 finally:
-                    hub.remove_viewer()
+                    hub.remove_viewer(*lease)
 
             async def receive():
                 return await receive_queue.get()
@@ -100,13 +100,13 @@ class ViewerDemandTests(unittest.TestCase):
                 capture_demand_event=demand,
             )
 
-        hub.add_viewer()
-        hub.add_viewer()
+        first = hub.add_viewer(producer_generation=1)
+        second = hub.add_viewer(producer_generation=1)
         self.assertTrue(demand.is_set())
 
-        hub.remove_viewer()
+        hub.remove_viewer(*first)
         self.assertTrue(demand.is_set())
-        hub.remove_viewer()
+        hub.remove_viewer(*second)
         self.assertFalse(demand.is_set())
         self.assertIsNone(hub.latest())
 
@@ -141,9 +141,13 @@ class ViewerDemandTests(unittest.TestCase):
             ),
         ):
             hub = StreamHub(EngineConfig(), frames)
-            hub.add_viewer()
+            hub.add_viewer(producer_generation=1)
             source = np.zeros((120, 160, 3), dtype=np.uint8)
-            frame = Frame(seq=7, image=source)
+            frame = Frame(
+                seq=7,
+                image=source,
+                captured_at=hub._viewer_started_at + 0.001,
+            )
             result = DetectionResult(
                 camera_id="CAM-05",
                 frame_seq=7,
