@@ -1,0 +1,39 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 POST-V7 PERSISTENT AP RECOVERY (V8): allowed PRE->POST drift keys.
+# Exact keys, no wildcard, no value constraint — p4-compare.sh's own PROTECTED default-deny and every other unconditional rule still apply unchanged.
+# V8 makes exactly ONE persistent change (NetworkManager aegis-idea3-ap connection.autoconnect no -> yes), so exactly ONE persistent-artifact key is approved:
+# the AP profile's metadata record (a keyfile rewrite changes size/mtime). The comparator cannot see WHAT changed inside a metadata-only (secret) file, so
+# apply.sh/verify.sh prove it exactly: the canonical non-secret profile record set (key order, daemon uuid and autoconnect ignored) equals PRE (l34_v8_persistent_verify) and the autoconnect
+# value is the authorized one. The profile CLASS key (`.class`), `net.idea3_dnsmasq_conf.*`, `fw.idea3_nft`, any broker/dnsmasq config, unit or cert path,
+# and every rfkill/NetworkManager state file are NOT here: they are proven byte/metadata-identical, never approved.
+# The value-level windows of the radio-disabled baseline (NM WIFI disabled->enabled, p2p pseudo-device, wpa_supplicant lifecycle, dnsmasq
+# failed->active, regulatory 00->TH) are approved ONLY by the existing exact V3 catalogs (reactivation/l34/allow-dynamic-transitions-v3-*.txt and
+# allow-transitions.txt), selected by the baseline the handler preflight reported. V7's own handlers already prove the EXACT end-state with
+# domain-specific gates before this comparator runs; its remaining job is to prove nothing ELSE moved.
+
+# the ONE approved persistent artifact change: the AP profile metadata after the autoconnect no -> yes rewrite
+nm.profile./etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection.meta
+
+# target interface runtime (link, AP mode/SSID/channel, address, connected route, NM device state, active connection, soft rfkill)
+net.link.wlp0s20f3
+net.addr.wlp0s20f3
+net.route4.iface.wlp0s20f3
+nm.active.device.wlp0s20f3
+nm.device.wlp0s20f3.state
+wifi.iface.wlp0s20f3.channel
+wifi.iface.wlp0s20f3.ssid
+wifi.iface.wlp0s20f3.type
+wifi.rfkill.iface.wlp0s20f3.soft
+
+# dnsmasq runtime bookkeeping after reset-failed + start (its ActiveState/SubState/Result move only through the V3 catalog)
+svc.aegis-idea3-dnsmasq.service.MainPID
+svc.aegis-idea3-dnsmasq.service.NRestarts
+svc.aegis-idea3-dnsmasq.service.ExecMainStartTimestamp
+
+# the L6b broker: recovers on its own via systemd auto-restart, never commanded by this run — end-state proven active/running, exact 8883 pair,
+# TLS probe and a stable tuple by apply.sh/verify.sh; this only approves its runtime fields as known-changed
+svc.aegis-idea3-mosquitto.service.ActiveState
+svc.aegis-idea3-mosquitto.service.SubState
+svc.aegis-idea3-mosquitto.service.Result
+svc.aegis-idea3-mosquitto.service.MainPID
+svc.aegis-idea3-mosquitto.service.NRestarts
+svc.aegis-idea3-mosquitto.service.ExecMainStartTimestamp
