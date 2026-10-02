@@ -84,9 +84,21 @@ own writer: `[wifi]` becomes band/channel/mode/ssid, `[ipv4]` address1/method/ne
 file-order digest would therefore flag a legitimate rewrite as drift (the blocker found in the PR #291 review). The proof is instead computed on canonical
 records: the file is parsed with section context, each non-secret key becomes one `[section]/key=value` line (whitespace around `=` trimmed; comments, blank
 lines and empty sections ignored), the lines are `LC_ALL=C sort`ed and hashed. Excluded, and ONLY these: `[connection]/autoconnect` (the one approved transition,
-verified separately), `[connection]/uuid` (daemon-assigned), and secret keys in any section (`psk`, `wep-key*`, `leap-password`, `password`,
+verified separately), `[connection]/uuid` (daemon-assigned), `[connection]/timestamp` **only when its value is a non-negative decimal integer** (the
+last-activation epoch that libnm's own keyfile writer persists when the daemon rewrites an already-activated profile; see the 2026-10-02 live S-11 hold below),
+and secret keys in any section (`psk`, `wep-key*`, `leap-password`, `password`,
 `private-key-password`, `pin`; values never printed or hashed). Everything else is still detected: an added or removed non-secret key, a changed value
-(SSID, channel, `address1`, IPv4 `method`, ...), or a key moved to a different section. The same function backs post-apply verification and rollback verification
+(SSID, channel, `address1`, IPv4 `method`, ...), a key moved to a different section, a `timestamp` in any other section or with a non-numeric value, or any
+other unknown key.
+
+**Amendment — live S-11 hold, 2026-10-02 (timestamp false positive).** The first live V8 attempt (main `9f5a0114`) applied the one `nmcli connection modify`,
+then `l34_v8_persistent_verify … yes` failed with `L34_V8_PROFILE_CHANGED_BEYOND_AUTOCONNECT:aegis-idea3-ap.nmconnection`; the rollback restored the runtime
+state but its own proof failed with the same invariant (S-11 HOLD). A read-only canonical diff by the human owner proved the ONLY difference was
+`[connection]/timestamp=1790896283` (profile mode `600 root:root` and `psk_lines=1` unchanged). The previous offline libnm check had covered key re-ordering and
+the uuid but not the `timestamp` property, which libnm's writer emits once the connection has been activated. The fix excludes exactly that numeric
+`[connection]/timestamp` record; the committed `profile-libnm-autoconnect-{yes,no}-timestamp` fixtures are libnm-writer output (regenerated and compared byte
+for byte by a `gi`-conditional test). The consumed attempt, its authorization and its evidence are historical and are not reused; a new stage needs a fresh
+runner freeze, a fresh preflight and a fresh same-day authorization. The same function backs post-apply verification and rollback verification
 (`l34_v8_persistent_verify`), so the claim is **semantically identical except for the explicitly approved autoconnect transition, with ordering and the
 daemon-assigned uuid ignored** (not byte or order identity). Every other persistent file (dnsmasq conf, unit, nft, broker conf) keeps the exact V1–V7 record
 (mode, owner, size, mtime, ctime, sha256).
