@@ -57,8 +57,8 @@ if ($PSCmdlet.ShouldProcess($ServiceName, 'Run DPAPI CurrentUser preflight under
     $original = $service.PathName
     if (Test-Path -LiteralPath $passPath) { Remove-Item -LiteralPath $passPath -Force }
     $preflightCommand = ('"{0}" "{1}" --dpapi-preflight --preflight-output "{2}"' -f $PythonPath, $RunnerPath, $passPath)
-    Invoke-CheckedServiceControl $ServiceName config "binPath= $preflightCommand"
     try {
+        Invoke-CheckedServiceControl $ServiceName config 'binPath=' $preflightCommand
         Invoke-CheckedServiceControl $ServiceName start
         $deadline = [DateTime]::UtcNow.AddSeconds(30)
         while (-not (Test-Path -LiteralPath $passPath) -and [DateTime]::UtcNow -lt $deadline) {
@@ -74,12 +74,16 @@ if ($PSCmdlet.ShouldProcess($ServiceName, 'Run DPAPI CurrentUser preflight under
         $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
     }
     finally {
-        $serviceController = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-        if ($null -ne $serviceController -and $serviceController.Status -ne 'Stopped') {
-            Invoke-CheckedServiceControl $ServiceName stop
-            $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+        try {
+            $serviceController = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+            if ($null -ne $serviceController -and $serviceController.Status -ne 'Stopped') {
+                Invoke-CheckedServiceControl $ServiceName stop
+                $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+            }
         }
-        Invoke-CheckedServiceControl $ServiceName config "binPath= $original"
+        finally {
+            Invoke-CheckedServiceControl $ServiceName config 'binPath=' $original
+        }
     }
     $preflightExecuted = $true
 }
