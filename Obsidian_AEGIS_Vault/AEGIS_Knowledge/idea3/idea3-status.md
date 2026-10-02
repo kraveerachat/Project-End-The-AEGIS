@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 dnsmasq boot-order repair — repository only — 2026-10-02
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-dnsmasq-boot-order`, Draft PR, not merged. Nothing was deployed or restarted: `PRODUCTION_MUTATION_PERFORMED = NO`, `DNSMASQ_RESTARTED = NO`, `NETWORK_CHANGED = NO`, `CORE_RESTARTED = NO`, `ESP32_TOUCHED = NO`, L8p / F1 detector / Recovery R1-R8 not run.
+> `DNSMASQ_ROOT_CAUSE = PROVEN` (boot ordering race), `REPAIR_REPOSITORY_IMPLEMENTED = YES`, `REPAIR_DEPLOYED = NO`, `V8_RUNTIME_RECOVERY = PASS (historical, preserved)`, `K12_PERSISTENCE_OBSERVED = YES`, `K12_FORMALLY_PROVEN = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **Reboot (read-only evidence):** operator-initiated `sudo /usr/bin/reboot` on tty3 at 21:58:50 and 22:00:55 +07; orderly, no crash indicators; the operator's reason is not in the journal. The Core returned on release `55c7d181…` with both sockets recreated, which is an observation, not a K12 acceptance.
+- **Finding:** `aegis-idea3-dnsmasq.service` failed on every observed boot with `unknown interface wlp0s20f3` and `start-limit-hit`: it started after `NetworkManager.service` but about three seconds before NetworkManager auto-activated `aegis-idea3-ap` and assigned `10.77.30.1/28`. Config valid, no port conflict. The reboot observation identified a separate dnsmasq startup-order gap outside the previously proven V8 runtime acceptance; V8 acceptance is not invalidated.
+- **Repository fix:** the canonical unit template gains a read-only, bounded (30 s per attempt, five attempts, about 160 s worst case) `ExecStartPre` gate for the exact approved interface, IPv4/prefix, AP mode and channel, rendered identically by `p4-ap-network.py` and the L4 handler (the inline L4 copy was replaced by the shared template). dnsmasq config, AP values, DHCP/DNS, NetworkManager profile and V8 `autoconnect=yes` are unchanged.
+- **Still required:** review/merge, then a separately governed live stage to install and qualify the unit and observe a reboot, before the device-network path (R5/R7) is relied on. L8p stays serial-only and is not blocked by dnsmasq.
+- **Receipt:** `90-Status/logs/2026-10-02_222500_music_idea3-dnsmasq-boot-order-repair.md`.
+
+---
+
 ## IDEA3 PR11 Phase 4 L7u SECOND governed LIVE attempt — SUCCESS, persistent — 2026-10-02
 
 > [!important] After PR #302 fixed the delta privilege boundary, the owner executed a DISTINCT second L7u attempt (main `55c7d181`, 2026-10-02 21:12 +07). It is **consumed** (`consumed_at=2026-10-02T14:12:19Z`) and its result is **persistent**. Repository closeout only: no runtime/source change, no new Production mutation by this closeout, no restart.
