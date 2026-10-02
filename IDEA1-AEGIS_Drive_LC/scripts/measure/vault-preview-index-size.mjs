@@ -29,7 +29,7 @@ const hex48 = () => randomBytes(24).toString('hex')
 const cid = () => randomBytes(16).toString('base64')
 const id22 = () => randomBytes(16).toString('base64url')
 const pct = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)] }
-const stats = (xs) => ({ p50: +pct(xs, 0.5).toFixed(3), p95: +pct(xs, 0.95).toFixed(3), min: +Math.min(...xs).toFixed(3), max: +Math.max(...xs).toFixed(3), samples: xs.length })
+const stats = (xs) => ({ p50: +pct(xs, 0.5).toFixed(3), p95: +pct(xs, 0.95).toFixed(3), min: +Math.min(...xs).toFixed(3), max: +Math.max(...xs).toFixed(3), unit: 'ms', runs: xs.length, samples: xs.length })
 const time = async (fn) => { const t = performance.now(); const r = await fn(); return [performance.now() - t, r] }
 const ENC_LIMITS = { maxJsonDepth: L.maxJsonDepth, maxDecodedBytes: Number.MAX_SAFE_INTEGER }
 
@@ -228,7 +228,7 @@ async function mainManifestDelta(nodes) {
   const bucketBytes = padToBucket(before, PADDING_BUCKETS).paddedLength
   return { nodes, files, nonFileNodes: 1 + folders.length, mainManifestCanonicalBytes: before.length,
     bucketBytes, cipherBytes: bucketBytes + 16, headroomBytes: VAULT_TREE_CLIENT_LIMITS.maxCiphertextBytes - bucketBytes - 16,
-    deltaBytes: after.length - before.length, canonicalBytesEqual }
+    deltaBytes: after.length - before.length, canonicalBytesEqual, unit: 'B' }
 }
 
 async function main() {

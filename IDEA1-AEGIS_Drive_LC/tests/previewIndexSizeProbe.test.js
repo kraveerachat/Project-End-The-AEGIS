@@ -4,6 +4,18 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { getInventoryWithRetry } from '../scripts/measure/vault-preview-index-e2e.mjs'
+
+test('PIS-G1 inventory retries one failed idempotent local read and records attempts', async () => {
+  let attempts = 0
+  const response = await getInventoryWithRetry({ req: async () => {
+    attempts++
+    if (attempts === 1) throw Object.assign(new Error('read reset'), { code: 'ECONNRESET' })
+    return { status: 200, data: { configured: true, blobs: [] } }
+  } })
+  assert.equal(response.attempts, 2)
+  assert.equal(response.result.status, 200)
+})
 
 test('PIS-1 codec probe models six non-file nodes and measures unchanged main bytes', () => {
   const dir = mkdtempSync(join(tmpdir(), 'aegis-pis-'))
@@ -34,12 +46,15 @@ test('PIS-G1 e2e memory probe reports measured matrix groups and an unchanged ma
     assert.equal(result.cells.length, 1)
     assert.equal(result.cells[0].runs, 20)
     assert.equal(result.cells[0].mainManifest.deltaBytes, 0)
+    assert.equal(result.cells[0].mainManifest.unit, 'B')
+    assert.equal(result.cells[0].nodeTimings.rootEncode.unit, 'ms')
     for (const group of ['root', 'shards', 'storage', 'retainedBudget', 'coldTiles', 'nodeTimings', 'serverTimings', 'mutationTimings', 'audit']) {
       assert.ok(result.cells[0][group], `${group} must not be omitted`)
     }
     for (const input of ['A', 'B', 'C', 'D']) {
       assert.ok(Number.isSafeInteger(result.cells[0].retainedBudget[input].bytes), `${input} must be measured in bytes`)
     }
+    assert.equal(result.cells[0].retainedBudget.B.writerSessions, 1)
     assert.equal(result.cells[0].mutationTimings.singleEntry.runs, 20)
     assert.equal(result.cells[0].mutationTimings.fullBatch.runs, 20)
     assert.ok(Number.isSafeInteger(result.cells[0].audit.batchWriteRows))

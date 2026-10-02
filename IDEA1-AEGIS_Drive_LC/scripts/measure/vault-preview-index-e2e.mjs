@@ -48,7 +48,7 @@ function transportFor(client) {
     const r = await fetch(client.baseUrl + route, {
       method: opts.method ?? 'GET', headers: headers(opts.body === undefined ? {} : { 'Content-Type': 'application/json' }),
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body), signal: opts.signal,
-    })
+    }).catch((error) => { throw new Error(`local fetchJson ${opts.method ?? 'GET'} ${route} failed`, { cause: error }) })
     if (route === '/api/vault/tree/preview-index/head' && opts.method === 'POST') timings.cas.push(performance.now() - start)
     return result(r)
   }
@@ -56,6 +56,7 @@ function transportFor(client) {
     counts.upload++
     const start = performance.now()
     const r = await fetch(client.baseUrl + route, { method: opts.method ?? 'PUT', headers: headers(opts.headers), body: opts.body, signal: opts.signal })
+      .catch((error) => { throw new Error(`local sendUpload ${opts.method ?? 'PUT'} ${route} failed`, { cause: error }) })
     timings.uploadPut.push(performance.now() - start)
     opts.onProgress?.({ loadedBytes: opts.body.size, totalBytes: opts.body.size })
     return result(r)
@@ -63,6 +64,7 @@ function transportFor(client) {
   const fetchBytes = async (route, opts = {}) => {
     counts.bytes++
     const r = await fetch(client.baseUrl + route, { headers: headers(), signal: opts.signal })
+      .catch((error) => { throw new Error(`local fetchBytes GET ${route} failed`, { cause: error }) })
     return { ok: r.ok, status: r.status, headers: r.headers, bytes: new Uint8Array(await r.arrayBuffer()) }
   }
   return { fetchJson, sendUpload, fetchBytes, counts, timings, objectUploads }
@@ -276,8 +278,8 @@ function changeSource(mainHead, item) {
   return node.blobRef
 }
 
-async function writeJobs(server, owner, transport, mainHead, jobs) {
-  const writer = newWriter(owner, transport, mainHead)
+async function writeJobs(server, owner, transport, mainHead, jobs, sessionWriter = null) {
+  const writer = sessionWriter ?? newWriter(owner, transport, mainHead)
   const beforeAudit = await auditCount(server, owner.userId)
   const beforeRequests = { ...transport.counts }
   try {
@@ -293,7 +295,7 @@ async function writeJobs(server, owner, transport, mainHead, jobs) {
     }
     return { elapsedMs, auditRows: (await auditCount(server, owner.userId)) - beforeAudit,
       requests: Object.values(transport.counts).reduce((a, b) => a + b, 0) - Object.values(beforeRequests).reduce((a, b) => a + b, 0) }
-  } finally { writer.dispose() }
+  } finally { if (!sessionWriter) writer.dispose() }
 }
 
 function jobFor(mainHead, item, kind) {
@@ -307,10 +309,13 @@ async function measureMutations(server, owner, transport, mainHead, items, runs)
   // B: one full D-1 lazy backfill after every source changes; the stress-only motion entry is not a D-1 write kind.
   for (const item of items) changeSource(mainHead, item)
   const backfillAuditStart = await auditCount(server, owner.userId)
-  for (let i = 0; i < items.length; i += 8) {
-    const batch = items.slice(i, i + 8).flatMap((item) => [jobFor(mainHead, item, 'thumb'), jobFor(mainHead, item, 'poster')])
-    await writeJobs(server, owner, transport, mainHead, batch)
-  }
+  const backfillWriter = newWriter(owner, transport, mainHead)
+  try {
+    for (let i = 0; i < items.length; i += 8) {
+      const batch = items.slice(i, i + 8).flatMap((item) => [jobFor(mainHead, item, 'thumb'), jobFor(mainHead, item, 'poster')])
+      await writeJobs(server, owner, transport, mainHead, batch, backfillWriter)
+    }
+  } finally { backfillWriter.dispose() }
   const retainedB = await server.pindex.getRetainedIndexBytes(owner.userId)
   const backfillAuditRows = (await auditCount(server, owner.userId)) - backfillAuditStart
 
@@ -377,15 +382,25 @@ async function candidateBudgetSamples(server, owner, retainedBytes) {
   return candidates
 }
 
+export async function getInventoryWithRetry(client) {
+  for (let attempts = 1; attempts <= 2; attempts++) {
+    try { return { result: await client.req('/api/vault'), attempts } } catch (error) {
+      const code = error?.code ?? error?.cause?.code ?? error?.cause?.cause?.code
+      if (attempts === 2 || code !== 'ECONNRESET') throw new Error('local inventory GET /api/vault failed', { cause: error })
+    }
+  }
+  throw new Error('unreachable inventory retry state')
+}
+
 async function inventoryBytes(server, owner) {
-  const actual = await owner.client.req('/api/vault')
+  const { result: actual, attempts } = await getInventoryWithRetry(owner.client)
   if (actual.status !== 200) throw new Error(`inventory HTTP ${actual.status}`)
   const ids = await server.pindex.excludeIndexBlobIds(owner.userId)
   const all = await server.v2.listVaultV2Blobs(owner.userId)
   const excluded = all.filter((blob) => ids.has(String(blob.id)))
   return { withExclusionBytes: utf8(actual.data), withoutExclusionCounterfactualBytes: utf8({ ...actual.data,
     blobs: [...actual.data.blobs, ...excluded] }), excludedBlobCount: excluded.length, unit: 'JSON UTF-8 B',
-    method: 'actual GET /api/vault and counterfactual serialization of the same public V2 envelope rows' }
+    attempts, method: 'actual GET /api/vault and counterfactual serialization of the same public V2 envelope rows' }
 }
 
 async function measureServerCell(server, nodes, variant, runs, f) {
@@ -401,6 +416,7 @@ async function measureServerCell(server, nodes, variant, runs, f) {
     entry.contentId = uploaded.contentIdB64
     derivativeIds.push(uploaded.id); derivativeSizes.push(uploaded.size)
   }
+  process.stderr.write(`[idx-size] uploaded derivatives nodes=${nodes} variant=${variant} count=${derivativeIds.length}\n`)
   const descriptors = [], shardSizes = [], shardIds = []
   for (const [prefix, group] of [...shards.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const plaintext = await encodeShard({ schemaVersion: 1, treeId: f.treeId, prefix,
@@ -412,19 +428,25 @@ async function measureServerCell(server, nodes, variant, runs, f) {
     plaintext.fill(0)
   }
   const attached = await attachAll(server, owner, transport, f.treeId, [...derivativeIds, ...shardIds], descriptors)
+  process.stderr.write(`[idx-size] attached initial index nodes=${nodes} variant=${variant} generations=${attached.generation}\n`)
   const retainedA = await server.pindex.getRetainedIndexBytes(owner.userId)
   const currentCipherBytes = derivativeSizes.reduce((a, b) => a + b, 0) + shardSizes.reduce((a, s) => a + s.cipherBytes, 0) + attached.root.cipherBytes
   const coldRuns = []
   for (let i = 0; i < runs; i++) coldRuns.push(await measureColdTiles(server, owner, transport, mainHead, items))
+  process.stderr.write(`[idx-size] cold views nodes=${nodes} variant=${variant} runs=${runs}\n`)
   const cold = { visibleTiles: 60, requests: coldRuns.map((r) => r.requests),
     requestDistribution: { p50: median(coldRuns.map((r) => r.requests), 0.5), p95: median(coldRuns.map((r) => r.requests), 0.95), unit: 'HTTP requests', runs },
     latency: samplesMs(coldRuns.map((r) => r.elapsedMs)),
     auditRows: coldRuns.map((r) => r.auditRows),
     auditDistribution: { p50: median(coldRuns.map((r) => r.auditRows), 0.5), p95: median(coldRuns.map((r) => r.auditRows), 0.95), unit: 'rows', runs } }
   const mutation = await measureMutations(server, owner, transport, mainHead, items, runs)
+  process.stderr.write(`[idx-size] mutations nodes=${nodes} variant=${variant} backfill=${items.length * 2} churn=${runs}\n`)
   const budgetCheck = await budgetCheckSamples(server, owner, runs)
+  process.stderr.write(`[idx-size] budget-check samples nodes=${nodes} variant=${variant} runs=${runs}\n`)
   const candidateBudgets = await candidateBudgetSamples(server, owner, mutation.retainedD)
+  process.stderr.write(`[idx-size] budget candidates nodes=${nodes} variant=${variant} count=${candidateBudgets.length}\n`)
   const inventory = await inventoryBytes(server, owner)
+  process.stderr.write(`[idx-size] inventory nodes=${nodes} variant=${variant} actualBytes=${inventory.withExclusionBytes}\n`)
   const measuredSizes = (key) => ({ largest: Math.max(...shardSizes.map((s) => s[key])),
     average: shardSizes.reduce((a, s) => a + s[key], 0) / shardSizes.length,
     p95: median(shardSizes.map((s) => s[key]), 0.95), unit: 'B' })
@@ -437,7 +459,8 @@ async function measureServerCell(server, nodes, variant, runs, f) {
       inventory, unit: 'B' },
     retainedBudget: {
       A: { bytes: retainedA, entries: derivativeIds.length, method: 'full initial encrypted build; getRetainedIndexBytes' },
-      B: { bytes: mutation.retainedB, entries: items.length * 2, method: 'full thumb+poster lazy backfill after source replacement; getRetainedIndexBytes' },
+      B: { bytes: mutation.retainedB, entries: items.length * 2, writerSessions: 1,
+        method: 'one persistent real writer session, full thumb+poster lazy backfill after source replacement; getRetainedIndexBytes' },
       C: { bytes: mutation.retainedC, sessions: runs, entriesPerSession: `1 + ${Math.min(16, items.length)}`,
         curve: mutation.curve, method: 'real writer source-replacement churn; getRetainedIndexBytes' },
       D: { bytes: mutation.retainedD, injectedLossLoops: runs, curve: mutation.lossCurve,
