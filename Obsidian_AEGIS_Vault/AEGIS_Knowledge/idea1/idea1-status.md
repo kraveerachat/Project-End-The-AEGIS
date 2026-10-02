@@ -15,18 +15,48 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-D1-B — D-1 PR-B codec, crypto, and read-only reader
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-STAGE1 — D-1 Stage 1 Production package and live acceptance
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 Phase J Stage 1 (compatibility / read-only, writer OFF) |
+| Branch | `deploy/idea1-preview-d1-stage1`; candidate `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f` |
+| Owner | kla |
+| PR | #294 (Ready for final review/merge; LIVE_ACCEPTANCE=PASS; STAGE1_ACCEPTED=YES) |
+| State | **DEPLOYED=YES / ACCEPTED=YES / LIVE_ACCEPTANCE=PASS / READY_FOR_HUMAN_MERGE**. Human HG-S1 authorized, fresh backup verified, migration 012 applied and verified (`drive_app` S/I/U=true, D/T=false, `PRIV_BAD=0`), candidate `9f5a0114` cut over at `2026-10-02T11:01:39Z`, image `aegis-prod-drive:preview-d1-s1-9f5a01148ce0` healthy, `/healthz` 200, stateStatus 200, write=false, headStatus 404 `PREVIEW_INDEX_NOT_FOUND` across 3 account classes, LAN matrix PASS, Remote matrix PASS, 0 preview-index rows after acceptance, writer remains OFF (`WRITER_ENABLED=NO`), live rollback NOT_EXECUTED (success path held). PR #294 unmerged. |
+| Production mutation allowed | **NO** (Stage 1 completed; future stages Human-only) |
+| Candidate | `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f`; image `aegis-prod-drive:preview-d1-s1-9f5a01148ce0` (`sha256:8d5356fc4c7a02a7b1f9e067097b89dc11913743d299a99d0726997b796b88e0`); migration 012 applied. |
+| Next gate | Human review and merge of PR #294 (P1_CLOSED=NO until merge). |
+
+### Session Register — D1-STAGE1
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1S1-S1 | Stage 1 overlay, migration-012 runbook, server acceptance, LAN/REMOTE browser matrix, rollback A′ and forward redeploy checklists | Package reviewed: D1–D5 decided | Candidate contains PR-A and PR-B; runbook bash/JS syntax pass; runbook SQL rehearsed on disposable PostgreSQL 15.18 with P1-era schema (migration 012 applies, re-applies as no-op, Vault/tree fingerprints unchanged, `drive_app` has no DELETE/TRUNCATE); overlay merge rendered with synthetic chain; Stage 1 env boots candidate config with budget unset | `482967b1` | — | D1S1-S2 |
+| D1S1-S2 | Apply decisions D1–D5; local disposable rollback A′ runtime rehearsal (D4) | PASS | P1 code `8634360f` (local build, not the Production artifact) on PostgreSQL 15.18 with migration 012 + Production role model: seed 10/10, Stage 1 19/19, P1 rollback 47/47 (3 account classes: login, unlock, browse, upload, byte-exact download, rename, move, trash, restore, recovery listing, lock), forward Stage 1 23/23; migration 012 retained; 0 preview-index / `INDEX_*` rows throughout; run twice, identical | `a442d0b8` | — | D1S1-S3 |
+| D1S1-S3 | Refresh after PR #297: merge `9f5a0114`, retarget overlays/image/migration hash, restore "no DELETE" in runbook §9 with an enforced privilege STOP check, re-run SQL rehearsal and rollback A′ | PASS | Runbook SQL on Production role model: preview-index `S/I/U=true D/T=false`, 0 of 21 unrelated tables lost DELETE, re-apply no-op; rollback A′ on candidate `9f5a0114`: seed 10/10, privilege contract PASS twice (apply + re-apply), Stage 1 19/19, P1 rollback 47/47, forward 23/23; 0 preview-index rows throughout; run twice | `b1aee5c7` | Human HG-S1 decision; Human execution | D1S1-S4 |
+| D1S1-S4 | Live Production deployment, migration 012 verification, server technical verification, LAN/Remote browser acceptance | PASS | Fresh backup PASS (f901c145, restore-verify 7ecc683a); migration 012 verified (S/I/U=true D/T=false, PRIV_BAD=0); candidate healthy, restarts 0, oom false; /healthz 200; stateStatus 200, write=false, head 404 PREVIEW_INDEX_NOT_FOUND across 3 accounts; LAN matrix PASS; Remote matrix PASS; 0 index rows post-acceptance; STAGE1_ACCEPTED=YES | This branch | Human merge PR #294 | Human merge PR #294 |
+
+D1S1-S1 (2026-10-02): source inspection found the Stage 1 build has **no** preview-index write route (`requirePreviewIndexWrite` is defined but unmounted until PR-C; mutating requests return 404, or 403 at the CSRF gate in a browser), so the "write route → 503 `PREVIEW_INDEX_WRITE_DISABLED`" expectation applies at Stage 2; Stage 1 substitutes static absence + `/state` write=false + boot line + zero index rows. `GET /preview-index/head` returns 409 for a non-TREE_V1 account, and the client maps both 404 and 503 to "no index", so per-account server-side head checks are mandatory.
+
+D1S1-S2 (2026-10-02): Human decisions — `STAGE1_WRITE_ROUTE_PRESENT=NO`, `STAGE1_WRITE_ROUTE_404=EXPECTED`, `STAGE1_WRITE_CAPABILITY=NOT_ROUTABLE`, `STAGE2_WRITE_DISABLED_503_REQUIRED=YES`; NEWLY_CREATED_USER 409 before Vault setup = `ACCOUNT_NOT_SETUP` (neither PASS nor FAIL); direct server head check mandatory; live Compose discovery fail-closed. The rehearsal also found that Production default privileges (`postgres/init/02-app-roles.sh`) grant `drive_app` DELETE on the three new tables; this contradicted the D-1 contract and was corrected at the source by PR #297 (superseding the temporary "expect DELETE" runbook text). Rollback evidence uses `ROLLBACK_IMAGE_EXACT_PRODUCTION_ARTIFACT=NO`, `ROLLBACK_CODE_REVISION_EXACT=YES`.
+
+D1S1-S3 (2026-10-02): PR #297 merged at `9f5a0114`; the Stage 1 package now targets that candidate. Runbook §9 requires exactly SELECT/INSERT/UPDATE (no DELETE/TRUNCATE) on the three preview-index tables and STOPs otherwise; its unrelated-table check uses OIDs (a name-based `has_table_privilege` over `pg_tables` can error on system tables, found by the rehearsal). Local rehearsal images were built from a Windows CRLF checkout (behaviour-equivalent); the Production build step now uses an LF checkout.
+
+D1S1-S4 (2026-10-02): Human Owner executed Stage 1 in Production after HG-S1 authorization and fresh backup verification (job `f901c145`, restore verify `7ecc683a` PASS). Migration 012 applied and verified with correct privileges (`PRIV_BAD=0`). Candidate image `aegis-prod-drive:preview-d1-s1-9f5a01148ce0` cut over at `2026-10-02T11:01:39Z`. Technical acceptance passed: `/healthz` 200, restarts 0, OOM false, stateStatus 200, headStatus 404 `PREVIEW_INDEX_NOT_FOUND` on all 3 accounts. Browser LAN matrix and Remote matrix passed completely. Post-browser re-check confirmed 0 preview-index rows. Writer remains OFF. Live rollback A′ NOT_EXECUTED because success path held. Final verdict `STAGE1_ACCEPTED=YES`. No D-1 bulk throughput claim (Remote ~2.6–2.7 MB/s is separate workstream). Ready for Human Owner merge of PR #294.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-B — D-1 PR-B codec, crypto, and read-only reader
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-D1 PR-B / plan Phase B, Tasks B.1–B.10 only |
 | Branch | `feat/idea1-preview-d1-b-codec-reader` from merged PR-A / `origin/main` `fa22edd5d5db18e692e7814b895f7af3d3c166dc` at task start |
 | Owner | kla |
-| PR | #285 (Draft during verification) |
-| State | **IMPLEMENTED + LOCALLY VERIFIED; PR READY, POLICY CI PASS, HUMAN REVIEW REQUIRED**. Codec, crypto, read-only reader, derivative read, tile integration, and codec-only size probe; no writer/CAS/Phase C/Production mutation. Latest `origin/main` `fd4df610` merged normally at `0d65b042`; no IDEA1 path overlap. |
+| PR | #285 |
+| State | **IMPLEMENTED + LOCALLY VERIFIED + MERGED** at `4a8cc3c95e2f4147fbab9c505079c0377a271d99`; not deployed. Codec, crypto, read-only reader, derivative read, tile integration, and codec-only size probe; no writer/CAS/Phase C/Production mutation. |
 | Production mutation allowed | **NO** |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
-| Next gate | Human review and merge of PR #285; any later head update must pass CI before merge. Separate IDX-SIZE/PG/browser/Production gates remain open; do not enable WRITE. |
+| Next gate | PR #285 merged. Stage 1 (PR-A + PR-B) package is the D1-STAGE1 task above. Separate IDX-SIZE/PG/browser gates remain open; do not enable WRITE. |
 
 ### Session Register — D1-B
 
@@ -36,18 +66,18 @@ edit_policy: owner-writable
 
 The read path is default OFF and may return DISABLED, MISSING, CORRUPT, or ABORTED without blocking original preview. Index objects remain encrypted and separate from schema-v1 main manifest; no writer, CAS, index upload, derivative generation, destructive GC, or rollout is present. The codec probe is `CODEC_ONLY_PRELIMINARY`, not the required IDX-SIZE capacity gate or approved budget. This task has not enabled `VAULT_PREVIEW_INDEX_WRITE_ENABLED` and has not touched Production.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-D1-PRIV — preview-index DELETE privilege contract (pre-Stage-1 correction)
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-PRIV — preview-index DELETE privilege contract (pre-Stage-1 correction)
 
 | Field | Current value |
 |---|---|
 | Task | Restore the D-1 database privilege contract: `drive_app` has SELECT/INSERT/UPDATE only on `vault_preview_index_heads`, `vault_preview_index_generations`, `vault_preview_index_blob_refs` (no DELETE/TRUNCATE) on both the upgrade and fresh-install paths |
 | Branch | `fix/idea1-d1-preview-index-delete-privilege` from `origin/main` `fc4839957aff109f8f1a81fbc04a4ea37820f66a` |
 | Owner | kla |
-| State | **IMPLEMENTED + LOCALLY VERIFIED; READY FOR HUMAN REVIEW**; not merged; no Production mutation |
+| State | **IMPLEMENTED + LOCALLY VERIFIED + MERGED** (PR #297 at `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f`); no Production mutation |
 | Root cause | `postgres/init/02-app-roles.sh` grants DELETE on all tables and through `ALTER DEFAULT PRIVILEGES`; migration 012 only added a GRANT and never revoked, and schema.sql + 02 gave blanket DML on fresh installs. PI-PG-2 passed because default privileges are per database and its disposable database never ran the role script. |
 | Fix | 012 role block: `REVOKE ALL` then `GRANT SELECT, INSERT, UPDATE` per preview-index table; 02-app-roles.sh and its three mirrors (pg-integration-env.sh, public-share integration and managed-tunnel db-init) narrow the same three tables after their blanket grant, guarded by `to_regclass`. No other table changes. |
-| Effect on Stage 1 | Migration 012 bytes change (SHA-256 `aac26537…b239`, was `aaeee44a…edb5`). Stage 1 candidate `4a8cc3c9` and the PR #294 runbook (which currently expects DELETE) must be rebuilt on the merge of this fix before HG-S1. |
-| Next gate | Human review + integration review (database role surfaces); after merge, refresh the Stage 1 package |
+| Effect on Stage 1 | Migration 012 bytes change (SHA-256 `aac26537…b239`, was `aaeee44a…edb5`). Stage 1 package (PR #294) refreshed onto `9f5a0114` — see D1-STAGE1 above. |
+| Next gate | Done; Stage 1 refresh is D1S1-S3 |
 
 ## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-A — D-1 PR-A compatibility + read-only preview-index API
 
