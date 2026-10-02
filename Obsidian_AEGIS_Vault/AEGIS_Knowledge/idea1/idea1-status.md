@@ -15,7 +15,28 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-D1-A — D-1 PR-A compatibility + read-only preview-index API
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-B — D-1 PR-B codec, crypto, and read-only reader
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 PR-B / plan Phase B, Tasks B.1–B.10 only |
+| Branch | `feat/idea1-preview-d1-b-codec-reader` from merged PR-A / `origin/main` `fa22edd5d5db18e692e7814b895f7af3d3c166dc` at task start |
+| Owner | kla |
+| PR | #285 (Draft during verification) |
+| State | **IMPLEMENTED + LOCALLY VERIFIED; PR READY, POLICY CI PASS, HUMAN REVIEW REQUIRED**. Codec, crypto, read-only reader, derivative read, tile integration, and codec-only size probe; no writer/CAS/Phase C/Production mutation. Latest `origin/main` `fd4df610` merged normally at `0d65b042`; no IDEA1 path overlap. |
+| Production mutation allowed | **NO** |
+| Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
+| Next gate | Human review and merge of PR #285; any later head update must pass CI before merge. Separate IDX-SIZE/PG/browser/Production gates remain open; do not enable WRITE. |
+
+### Session Register — D1-B
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1B-S1 | Existing B.1–B.10 implementation; continuation fixed read fallbacks, load/source races, image validation, independent derivative concurrency, staged admission, parser/cache/prefetch bounds, and codec probe fixture | Implemented and locally verified; PR Ready, Human review required | Focused Phase B 120 pass / 0 fail / 9 PG-gated skip; reviewer 7 screen/lane pass, no remaining Critical/Important; 10k/2 codec-only max largest shard 139,845 B and max 64 live shards; final full suite 2,643 tests / 2,366 pass / 105 fail / 172 skip vs pristine merged-PR-A baseline 2,580 / 2,302 / 106 / 172, with zero new failure names; only baseline-only known OR-4 Windows EPERM flake; final post-merge build pass, governance 59/59 pass, and Ready-state collaboration-guardrails pass | Implementation `76781d57`; status-only closeout commits on same branch | Human review/merge; CI required on every new head | Human owner reviews PR-B; no Production mutation |
+
+The read path is default OFF and may return DISABLED, MISSING, CORRUPT, or ABORTED without blocking original preview. Index objects remain encrypted and separate from schema-v1 main manifest; no writer, CAS, index upload, derivative generation, destructive GC, or rollout is present. The codec probe is `CODEC_ONLY_PRELIMINARY`, not the required IDX-SIZE capacity gate or approved budget. This task has not enabled `VAULT_PREVIEW_INDEX_WRITE_ENABLED` and has not touched Production.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-A — D-1 PR-A compatibility + read-only preview-index API
 
 | Field | Current value |
 |---|---|
@@ -23,10 +44,10 @@ edit_policy: owner-writable
 | Branch | `feat/idea1-preview-d1-a-compat-read` from `origin/main` `2dc596d1e0bd46319647da75fd34bdd02a7b5f91` (PR #280 merged) |
 | Owner | kla |
 | PR | #283 |
-| State | **IMPLEMENTED + LOCALLY VERIFIED**; not deployed; `IMPLEMENTATION_AUTHORIZED=YES` (Phase A only); `PRODUCTION_MUTATION_AUTHORIZED=NO` |
+| State | **IMPLEMENTED + LOCALLY VERIFIED + MERGED** at `fa22edd5d5db18e692e7814b895f7af3d3c166dc`; not deployed; `PRODUCTION_MUTATION_AUTHORIZED=NO` |
 | Production mutation allowed | **NO** |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
-| Next gate | Human review/merge of PR #283 (HG-A, integration review: migration 012). **PR-A is never deployed alone — Stage 1 requires PR-A + PR-B.** Phase B not started. |
+| Next gate | PR #283 merged. **PR-A is never deployed alone — Stage 1 requires PR-A + PR-B.** Phase B is in PR #285 above; Production deployment remains Human-only. |
 
 ### Session Register — D1-A
 

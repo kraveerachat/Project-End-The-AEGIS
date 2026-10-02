@@ -28,6 +28,9 @@ import { intents } from '../lib/vaultTreeOps.js'
 import { uploadTreeFile } from '../lib/vaultTreeUpload.js'
 import { childrenOf, effectiveState } from '../lib/vaultTreeManifest.js'
 import { createThumbScheduler } from '../lib/vaultThumbScheduler.js'
+import { createPreviewIndexTiles } from '../lib/vaultPreviewIndexTiles.js'
+import { createDerivativeFirstScheduler } from '../lib/vaultPreviewIndexTileLane.js'
+import { PREVIEW_INDEX_LIMITS } from '../lib/vaultPreviewIndexConstants.js'
 import { makeImageThumb } from '../lib/vaultImageThumb.js'
 import { createImageDecodeAdmission } from '../lib/vaultImageDecodeAdmission.js'
 import { detectReducedDecodeCapability, startReducedDecodeJob } from '../lib/vaultImageReducedDecode.js'
@@ -640,6 +643,16 @@ export function VaultTreeScreen({
      posters via the bounded scheduler; GIF hover decrypts whole only under the limits;
      videos ride the existing preview session (RANGE_V2). Every failure is a truthful reason. */
   const mediaEnabled = Boolean(treeState?.flags?.mediaPreviewEnabled) && Boolean(unlockedState)
+  // D-1 (PR-B): derivative-first tiles from the separate encrypted preview index — read-only, built only when the
+  // server serves previewIndexReadEnabled=true. Every miss/failure falls through to the unchanged original path below.
+  const previewIndexEnabled = mediaEnabled && treeState?.flags?.previewIndexReadEnabled === true
+  const previewTiles = useMemo(
+    () => (previewIndexEnabled && unlockedState && kek ? createPreviewIndexTiles({ kek, unlockedState }) : null),
+    [previewIndexEnabled, unlockedState, kek],
+  )
+  const previewTilesRef = useRef(previewTiles)
+  previewTilesRef.current = previewTiles
+  useEffect(() => () => { previewTiles?.clear() }, [previewTiles])
   const reducedMotion = useReducedMotion()
   const [mediaMap, setMediaMap] = useState(() => new Map())
   const [motionState, setMotionState] = useState(null)
@@ -700,12 +713,20 @@ export function VaultTreeScreen({
 
   const scheduler = useMemo(() => {
     if (!mediaEnabled || !unlockedState || !head) return null
+    let combined = null
     const nextScheduler = createThumbScheduler({
-      limits: mediaLimitsRef.current,
+      // Reserve the largest possible six vp1 decoded tiles while the separate derivative lane is active.
+      limits: previewIndexEnabled
+        ? { ...mediaLimitsRef.current, memoryCeilingBytes: Math.max(0, mediaLimitsRef.current.memoryCeilingBytes - 8 * 1024 * 1024) }
+        : mediaLimitsRef.current,
       unlockedState,
       load: async (key, { signal } = {}) => {
         const node = mediaHeadRef.current?.index.nodes.get(key)
         if (!node?.blobRef) throw new Error('NOT_FOUND')
+        // D-1: a verified result enters this scheduler only after the separate derivative lane completed.
+        const fromIndex = combined?.take(key)
+        if (fromIndex) return fromIndex
+        if (previewIndexEnabled && effectiveState(mediaHeadRef.current.index, key) !== 'active') throw new Error('NOT_ACTIVE')
         const blob = mediaBlobIndexRef.current.get(refKey(node.blobRef))
         if (!blob) throw Object.assign(new Error('BLOB_NOT_READY'), { code: 'BLOB_NOT_READY' })
         const kind = kindOfRef.current(node)
@@ -771,13 +792,37 @@ export function VaultTreeScreen({
         if (!thumb.ok) throw new Error(thumb.unsupported)
         return { width: thumb.width, height: thumb.height, bytes: thumb.posterBytes }
       },
-      onChange: () => setMediaMap(nextScheduler.snapshot()),
+      onChange: () => setMediaMap(combined?.snapshot() ?? nextScheduler.snapshot()),
     })
-    return nextScheduler
-  }, [mediaEnabled, unlockedState, Boolean(head), kek, admission])
+    if (!previewIndexEnabled) return nextScheduler
+    combined = createDerivativeFirstScheduler({
+      original: nextScheduler,
+      maxConcurrentJobs: PREVIEW_INDEX_LIMITS.derivativeLaneConcurrency,
+      unlockedState,
+      getCurrentSourceBlobId: (key) => {
+        const index = mediaHeadRef.current?.index
+        const node = index?.nodes.get(key)
+        try {
+          return node?.kind === 'file' && node.blobRef && effectiveState(index, key) === 'active'
+            ? `${node.blobRef.formatVersion}:${node.blobRef.id}` : null
+        } catch { return null }
+      },
+      tryTile: async (key, { signal }) => previewTilesRef.current?.tryTile(
+        mediaHeadRef.current?.index.nodes.get(key), kindOfRef.current(mediaHeadRef.current?.index.nodes.get(key)),
+        { signal, index: mediaHeadRef.current?.index },
+      ),
+      onChange: () => setMediaMap(combined?.snapshot() ?? nextScheduler.snapshot()),
+    })
+    return combined
+  }, [mediaEnabled, previewIndexEnabled, unlockedState, Boolean(head), kek, admission])
   schedulerRef.current = scheduler
 
   useEffect(() => () => { void scheduler?.releaseAll?.() }, [scheduler])
+
+  // D-1: (re)read the preview-index head whenever the decrypted main head changes (one GET; 404 = no index)
+  useEffect(() => {
+    if (previewTiles && head) void previewTiles.load(head)
+  }, [previewTiles, head?.treeId, head?.revisionId])
 
   const prevFolderRef = useRef(null)
   useEffect(() => {
@@ -786,11 +831,14 @@ export function VaultTreeScreen({
       scheduler.releaseFolder(prevFolderRef.current)
     }
     prevFolderRef.current = tree.current
+    const visible = new Set()
     for (const n of tree.children) {
       const kind = n.kind === 'file' ? kindOf(n) : null
       if (kind === 'image' || kind === 'video') {
+        visible.add(n.nodeId)
         scheduler.observe(n.nodeId, {
           folderId: tree.current,
+          sourceBlobId: n.blobRef ? `${n.blobRef.formatVersion}:${n.blobRef.id}` : null,
           estimateBytes: kind === 'video'
             ? videoPosterEstimateBytes({
               variant: n.blobRef?.formatVersion ?? 1,
@@ -802,6 +850,7 @@ export function VaultTreeScreen({
         })
       }
     }
+    scheduler.reconcileVisible?.(visible)
   }, [scheduler, head, tree.children, tree.current, blobIndex, kindOf])
 
   const motionRequestRef = useRef(0)
