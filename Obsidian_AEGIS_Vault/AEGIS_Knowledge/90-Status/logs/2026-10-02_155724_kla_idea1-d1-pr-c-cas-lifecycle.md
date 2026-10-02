@@ -19,6 +19,7 @@ edit_policy: append-by-new-file
 - Independent whole-branch review: 0 Critical / 0 Important; Minor fixes applied (507 cleanup never 500, invalid CAS body audited DENIED, cancel-only DELETE pinned, frozen-head comment). `WRITER_IMPLEMENTED=NO`, `WRITER_ENABLED=NO`, `PRODUCTION_DB_CHANGED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
 
 - Post-PR-#297 reconciliation: `origin/main` `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f` (preview-index tables: `drive_app` SELECT/INSERT/UPDATE only, no DELETE/TRUNCATE) merged normally, no conflict, no PR-C code change required.
+- Post-Stage-1 reconciliation: `origin/main` `bef58a47d9304725cfe000741e0331a0091c4ae6` (PR #294 merged; Stage 1 accepted in Production with STAGE1_ACCEPTED=YES, 0 index rows, writer OFF) merged normally; single conflict in `idea1-status.md` resolved by preserving Stage 1 package and live acceptance evidence; no PR-C code changes required.
 
 ## Source files changed
 
@@ -46,10 +47,11 @@ edit_policy: append-by-new-file
 - `npm run build` — pass (2,760 modules); tracked `dist` restored. `node --test tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs tests/collaborationPolicy.test.mjs` — pass 59/59. `git diff --check 4a8cc3c9...HEAD` — pass. Changed-path and added-line secret scan — 0 sensitive paths, 0 secret-pattern matches.
 
 - Post-PR-#297 PostgreSQL re-verification (disposable, role script narrowing applied) — pass, 0 skips: previewIndexMigration 13/13, previewIndexStorePostgres 15/15, previewIndexCasPostgres 6/6, previewIndexStorageBudgetPostgres 3/3, vaultV2Postgres 17/17, `PI_UPLOAD_PG=1` previewIndexUploads 7/7, previewIndexStorageBudget 10/10, previewIndexLifecycleGuards 6/6. Memory C/D + upload/recovery regressions 149 pass / 0 fail / 7 PG-gated skip. Scratch compromised-role probe (not committed): `drive_app` DELETE on heads/generations/refs → `permission denied`; head row intact; CAS continues normally (stuck-index path closed). Governance 59/59 pass.
+- Post-Stage-1 re-verification (disposable PostgreSQL 15 `scripts/pg-integration-env.sh` on port 55433) — pass, 0 skips: previewIndexMigration 13/13, previewIndexStorePostgres 15/15, previewIndexCasPostgres 6/6, previewIndexStorageBudgetPostgres 3/3, `PI_UPLOAD_PG=1` previewIndexUploads 7/7, previewIndexStorageBudget 10/10, previewIndexLifecycleGuards 6/6, vaultV2Postgres 17/17. Memory C/D + upload/recovery regressions: 97/97 pass on focused memory suites, 77/77 pass on upload/recovery suites. Privilege contract verified: `drive_app` on preview-index tables retains SELECT=true, INSERT=true, UPDATE=true, DELETE=false, TRUNCATE=false. Governance 59/59 pass; `validate-vault` pass (2 warnings); `git diff --check` pass; secret scan pass (0 matches).
 
 ## Canonical notes updated
 
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — PR-B recorded as merged; PR-C current task, evidence, limitations and next gate (HG-C).
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — Stage 1 recorded as deployed, accepted and merged; PR-C current task, session register, evidence and limitations retained.
 
 ## Shared surfaces touched
 
