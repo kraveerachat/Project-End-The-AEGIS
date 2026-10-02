@@ -1,15 +1,26 @@
 # AEGIS IDEA3 dedicated dnsmasq instance — TEMPLATE, NOT DEPLOYED.
+#
+# Boot order: NetworkManager.service alone does not mean the AP is up. NetworkManager auto-activates aegis-idea3-ap a few
+# seconds after it starts, and dnsmasq (bind-interfaces) refuses an interface that has no address yet. The first
+# ExecStartPre is a read-only, bounded readiness gate for the exact approved AP state (interface, IPv4/prefix, AP mode,
+# channel). It changes nothing: no NetworkManager call, no interface or service control. If the AP is not ready inside the
+# wait, the start fails closed; the start limit then trips after 5 attempts (about 160 s) instead of burning them in 1 s.
 
 [Unit]
 Description=AEGIS IDEA3 private AP DHCP and Core-local DNS
 After=NetworkManager.service
 Requires=NetworkManager.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
+TimeoutStartSec=45
+ExecStartPre=/usr/bin/timeout 30 /usr/bin/sh -c 'until /usr/bin/ip -4 -o addr show dev <AEGIS_AP_INTERFACE> 2>/dev/null | /usr/bin/grep -Fq "inet <AEGIS_AP_ADDRESS>/<AEGIS_AP_PREFIXLEN> " && /usr/bin/iw dev <AEGIS_AP_INTERFACE> info 2>/dev/null | /usr/bin/grep -Fq "type AP" && /usr/bin/iw dev <AEGIS_AP_INTERFACE> info 2>/dev/null | /usr/bin/grep -Fq "channel <AEGIS_AP_CHANNEL> "; do /usr/bin/sleep 1; done'
 ExecStartPre=/usr/bin/dnsmasq --test --conf-file=/etc/aegis-idea3/dnsmasq-ap.conf
 ExecStart=/usr/bin/dnsmasq --keep-in-foreground --conf-file=/etc/aegis-idea3/dnsmasq-ap.conf --pid-file=
 Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target
