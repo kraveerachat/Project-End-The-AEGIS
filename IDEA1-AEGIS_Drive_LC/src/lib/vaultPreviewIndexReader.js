@@ -39,6 +39,8 @@ export function createPreviewIndexReader({ kek, api = treeApi, fetchBytes = apiF
   let ciphertextBytes = 0
   const controllers = new Set()
   const count = (name) => { try { diagnostics?.count?.(name) } catch { /* diagnostics never break reads */ } }
+  const clock = () => globalThis.performance?.now?.() ?? Date.now()
+  const timing = (name, t0) => { try { diagnostics?.timing?.(name, clock() - t0) } catch { /* diagnostics never break reads */ } }
   const purged = () => cleared || Boolean(unlockedState?.isPurged?.())
 
   function fetchIndexBytes(path, options) {
@@ -138,16 +140,19 @@ export function createPreviewIndexReader({ kek, api = treeApi, fetchBytes = apiF
       if (root && head && head.indexGeneration === h.indexGeneration && head.rootBlobRef?.id === h.rootBlobRef?.id && head.rootContentIdB64 === h.rootContentIdB64) {
         status = 'READY'; return { status: 'READY' }
       }
+      const fetchT0 = clock()
       const env = await envelopeFor(String(h.rootBlobRef?.id), ctrl.signal)
       const opened = await openIndexObject({
         kek, envelope: env, expected: { blobRef: h.rootBlobRef, contentId: h.rootContentIdB64 }, marker: INDEX_ROOT_MARKER,
         maxPaddedBytes: limits.rootPaddingBuckets.at(-1), fetchBytes: fetchIndexBytes, signal: ctrl.signal,
         onAuthenticatedCiphertext: cacheAuthenticatedCiphertext,
       })
+      timing('root.fetchMs', fetchT0)
       if (!current()) { if (opened.ok) opened.plaintext.fill(0); return { status: 'FAILED', reason: purged() ? 'PURGED' : 'SUPERSEDED' } }
       if (!opened.ok) return fail(`ROOT_${opened.reason}`)
       let decoded
-      try { decoded = decodeRoot(opened.plaintext, { treeId: h.treeId, indexGeneration: h.indexGeneration }) } catch (e) { return fail(`ROOT_${e?.code ?? 'DECODE'}`) } finally { opened.plaintext.fill(0) }
+      const decodeT0 = clock()
+      try { decoded = decodeRoot(opened.plaintext, { treeId: h.treeId, indexGeneration: h.indexGeneration }) } catch (e) { return fail(`ROOT_${e?.code ?? 'DECODE'}`) } finally { opened.plaintext.fill(0); timing('root.decodeMs', decodeT0) }
       if (!current() || h.indexGeneration < lastGeneration) return { status: 'FAILED', reason: 'SUPERSEDED' }
       head = h; root = decoded; lastGeneration = h.indexGeneration
       shards.clear()
@@ -166,14 +171,17 @@ export function createPreviewIndexReader({ kek, api = treeApi, fetchBytes = apiF
     const p = (async () => {
       const ctrl = newController()
       try {
+        const fetchT0 = clock()
         const env = await envelopeFor(d.blobRef.id, ctrl.signal)
         const opened = await openIndexObject({
           kek, envelope: env, expected: { blobRef: d.blobRef, contentId: d.contentId }, marker: INDEX_SHARD_MARKER,
           maxPaddedBytes: limits.shardPaddingBuckets.at(-1), fetchBytes: fetchIndexBytes, signal: ctrl.signal,
           onAuthenticatedCiphertext: cacheAuthenticatedCiphertext,
         })
+        timing('shard.fetchMs', fetchT0)
         if (!opened.ok) { count(`shard.${opened.reason}`); return null }
-        try { return await decodeShard(opened.plaintext, { treeId, prefix: d.prefix }) } catch (e) { count(`shard.${e?.code ?? 'DECODE'}`); return null } finally { opened.plaintext.fill(0) }
+        const decodeT0 = clock()
+        try { return await decodeShard(opened.plaintext, { treeId, prefix: d.prefix }) } catch (e) { count(`shard.${e?.code ?? 'DECODE'}`); return null } finally { opened.plaintext.fill(0); timing('shard.decodeMs', decodeT0) }
       } finally { controllers.delete(ctrl) }
     })().catch(() => null)
     shards.set(key, p)

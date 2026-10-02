@@ -15,6 +15,27 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-D — D-1 PR-D default-off writer + thumb/poster
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 PR-D / plan Phase E (E.1–E.4) + Phase F (F.1–F.5) only |
+| Branch | `feat/idea1-preview-d1-d-writer-thumb-poster` from post-PR-C `origin/main` `98c3e7741984ba28db50c7aa89d9748ca4cd70c3` (PR #295 verified MERGED first) |
+| Owner | kla |
+| PR | #303 (`integration-review: no` — client-only; no server/DB/migration/config change) |
+| State | **IMPLEMENTED + VERIFIED_LOCAL; HUMAN REVIEW REQUIRED (HG-D)**. Client writer capability derived only from served `flags.previewIndexWriteEnabled === true` (env `VAULT_PREVIEW_INDEX_WRITE_ENABLED`, default false); writer core (derivative seal → latest main head + index re-read → merge/split → seal shards/root → independent index CAS, ≤ casMaxAttempts, lost-response identical resend); per-session storage-budget circuit breaker (507 → latch, queue cleared, no partial CAS, no deletion); thumb/poster generation from the local File; post-upload queue (after upload ok AND reconcile, never awaited); lazy backfill from original-path tile bytes (no transport/crypto import); unlocked-state cleanup for all seven purge reasons; allow-listed privacy-safe counters. `WRITER_ENABLED=NO` anywhere; main manifest unchanged (schema 1, 0 preview bytes); no GC/purge; no Production mutation. |
+| Production mutation allowed | **NO** |
+| Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
+| Next gate | Human review/merge of PR #303 (HG-D). PR-E (G.1–G.3, H.1–H.3, I.1–I.3) only after HG-D. Budget value stays PROVISIONAL until HG-G; WRITE stays false in every environment. |
+
+### Session Register — D1-D
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1D-S1 | E.1–E.4, F.1–F.5 with focused RED/GREEN per task; independent review (1 finding — lost-response detection on thrown transport errors; not reachable through `apiFetch`, hardened anyway with PIW-17) | Implemented and locally verified; Human review required | E.3 end-to-end screen negative control (5 images + 2 videos, browse, rename, move, trash, restore, lock, unlock): READ on/off with WRITE=false → 0 preview-index mutations, 0 generation; WRITE=true positive control catches the writer; F.4 lock matrix 7 reasons × 6 in-flight stages (mutation-checked); PR-C PostgreSQL contract suites 0 skips; full-suite name diff in the receipt | branch head on PR #303 | HG-D review | PR-E after HG-D |
+
+Known PR-D limitations: with WRITE=true the original-path video tile poster is drawn at the vp1 edge (512 px instead of 640) so backfill can reuse it; the client attach cap (64) mirrors the server default and is not read from the server; an index whose root/shard cannot be verified is not repaired by the writer (fails soft until a future task); counters are page-memory only and not emitted anywhere; no browser (Chrome) evidence — jsdom/Node only.
+
 ## Closed Task — IDEA1-TRANSFER-FINAL-REPORT-MEASUREMENT — P1 Direct LAN Final Report Measurement & Remote R1 Closeout
 
 | Field | Current value |
@@ -68,7 +89,7 @@ Final classification & workstream decision:
 - `ONSITE_REVISIT_REQUIRED=NO`
 - Workstream closed. Historical PRE-FIX baseline (PR #216) and live physical-path evidence (PR #259) preserved and cross-referenced. Exactly one immutable receipt added.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-D1-C — D-1 PR-C CAS, upload lifecycle, storage budget, orphan safety
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-C — D-1 PR-C CAS, upload lifecycle, storage budget, orphan safety
 
 | Field | Current value |
 |---|---|
@@ -76,7 +97,7 @@ Final classification & workstream decision:
 | Branch | `feat/idea1-preview-d1-c-cas-lifecycle` from post-PR-B `origin/main` `4a8cc3c95e2f4147fbab9c505079c0377a271d99` |
 | Owner | kla |
 | PR | #295 (`integration-review: yes` — DB, CAS, upload/storage lifecycle, storage budget) |
-| State | **IMPLEMENTED + LOCALLY VERIFIED; HUMAN + INTEGRATION REVIEW REQUIRED (HG-C)**. Owner-scoped index CAS (memory + PostgreSQL), write-gated `POST /preview-index/head`, `previewIndex` upload family committing `INDEX_STAGED` in the blob transaction, transport-only client CAS wrapper, pure merge/rebase/split/prune, server-enforced per-owner retained-storage budget (advisory at create, authoritative under the owner lock at commit, 507 `PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED`), authenticated orphan classification, recovery fail-closed naming, pinned non-destructive lifecycle, read-only reachability report. `WRITER_IMPLEMENTED=NO`, `WRITER_ENABLED=NO`, WRITE default OFF; no deletion/GC; no Production mutation. |
+| State | **MERGED** (PR #295 → `98c3e774`, 2026-10-02). Was: IMPLEMENTED + LOCALLY VERIFIED; HG-C. Owner-scoped index CAS (memory + PostgreSQL), write-gated `POST /preview-index/head`, `previewIndex` upload family committing `INDEX_STAGED` in the blob transaction, transport-only client CAS wrapper, pure merge/rebase/split/prune, server-enforced per-owner retained-storage budget (advisory at create, authoritative under the owner lock at commit, 507 `PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED`), authenticated orphan classification, recovery fail-closed naming, pinned non-destructive lifecycle, read-only reachability report. `WRITER_IMPLEMENTED=NO`, `WRITER_ENABLED=NO`, WRITE default OFF; no deletion/GC; no Production mutation. |
 | Production mutation allowed | **NO** |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
 | Next gate | Human + integration review/merge of PR #295 (HG-C). PR-D (writer, Phase E/F) only after separate authorization; budget value stays PROVISIONAL until HG-G; do not enable WRITE. |
