@@ -56,7 +56,7 @@ $preflightExecuted = $false
 if ($PSCmdlet.ShouldProcess($ServiceName, 'Run DPAPI CurrentUser preflight under the verified service identity')) {
     $original = $service.PathName
     if (Test-Path -LiteralPath $passPath) { Remove-Item -LiteralPath $passPath -Force }
-    $preflightCommand = ('"{0}" "{1}" --dpapi-preflight --preflight-output "{2}"' -f $PythonPath, $RunnerPath, $passPath)
+    $preflightCommand = ('"{0}" "{1}" --service --dpapi-preflight --preflight-output "{2}"' -f $PythonPath, $RunnerPath, $passPath)
     try {
         Invoke-CheckedServiceControl $ServiceName config 'binPath=' $preflightCommand
         Invoke-CheckedServiceControl $ServiceName start
@@ -65,13 +65,14 @@ if ($PSCmdlet.ShouldProcess($ServiceName, 'Run DPAPI CurrentUser preflight under
             Start-Sleep -Milliseconds 250
         }
         if (-not (Test-Path -LiteralPath $passPath)) { throw 'DPAPI CurrentUser PASS evidence was not produced' }
+        $serviceController = Get-Service -Name $ServiceName -ErrorAction Stop
+        $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+        Assert-IdentityAgentMaintenanceServiceSucceeded -ServiceName $ServiceName
         $evidence = Get-Content -LiteralPath $passPath -Raw | ConvertFrom-Json
         if ($evidence.result -ne 'PASS' -or $evidence.protectionScope -ne 'CurrentUser' -or
             $evidence.serviceAccount -ne $ExpectedAccount -or $evidence.keyGenerated -ne $false) {
             throw 'DPAPI CurrentUser PASS evidence is invalid'
         }
-        $serviceController = Get-Service -Name $ServiceName -ErrorAction Stop
-        $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
     }
     finally {
         try {

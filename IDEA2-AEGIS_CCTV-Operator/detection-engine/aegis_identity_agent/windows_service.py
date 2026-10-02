@@ -53,7 +53,7 @@ class IdentityAgentServiceHost:
             self._on_stop()
 
 
-def build_pywin32_service(host_factory):
+def build_pywin32_service(host_factory, *, maintenance_action=None):
     """Create the pywin32 class lazily so non-Windows tests can import safely."""
     try:
         import win32event
@@ -70,14 +70,22 @@ def build_pywin32_service(host_factory):
         def __init__(self, args):
             super().__init__(args)
             self._stop_handle = win32event.CreateEvent(None, 0, 0, None)
-            self._host = host_factory()
+            self._maintenance_action = maintenance_action
+            self._host = None if maintenance_action is not None else host_factory()
 
         def SvcStop(self):
             self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
-            self._host.stop()
+            if self._host is not None:
+                self._host.stop()
             win32event.SetEvent(self._stop_handle)
 
         def SvcDoRun(self):
-            self._host.run()
+            if self._maintenance_action is None:
+                self._host.run()
+                return
+            # The inherited pywin32 SvcRun/native host owns final service
+            # status. Returning reports a clean stop; propagating an exception
+            # reports ERROR_SERVICE_SPECIFIC_ERROR without a duplicate STOPPED.
+            self._maintenance_action()
 
     return AEGISIdentityAgentService

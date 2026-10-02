@@ -46,13 +46,14 @@ if (Test-Path -LiteralPath $resultPath -PathType Leaf) {
 }
 $original = $service.PathName
 $requireKeyArgument = if ($RequireKey) { ' --require-key' } else { '' }
-$validationCommand = ('"{0}" "{1}" --validate-key-store-acl{2} --result-output "{3}"' -f
+$validationCommand = ('"{0}" "{1}" --service --validate-key-store-acl{2} --result-output "{3}"' -f
     $python, $runner, $requireKeyArgument, $resultPath)
 try {
     Invoke-CheckedServiceControl $ServiceName config 'binPath=' $validationCommand
     Invoke-CheckedServiceControl $ServiceName start
     $serviceController = Get-Service -Name $ServiceName -ErrorAction Stop
     $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+    Assert-IdentityAgentMaintenanceServiceSucceeded -ServiceName $ServiceName
     if (-not (Test-Path -LiteralPath $resultPath -PathType Leaf)) {
         throw 'Service-identity ACL validation evidence was not produced'
     }
