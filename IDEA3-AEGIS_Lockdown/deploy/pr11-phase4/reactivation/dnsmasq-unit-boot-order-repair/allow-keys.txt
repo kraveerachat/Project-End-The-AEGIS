@@ -1,0 +1,10 @@
+# AEGIS IDEA3 PR11 Phase 4 — governed dnsmasq UNIT boot-order REPAIR: allowed PRE->POST drift keys.
+# Exact keys, no wildcard, no value constraint — p4-compare.sh's own PROTECTED default-deny and every other unconditional rule still apply unchanged.
+# This package changes ONE unit file and restarts ONE service, so the only approved drift is that service's own process bookkeeping. Nothing about the AP, the
+# NetworkManager profile (`nm.profile.*`), the dnsmasq configuration (`net.idea3_dnsmasq_conf.*`), nftables (`fw.*`), forwarding, rfkill, the broker, Core, Twingate,
+# IDEA2 or any other persistent artifact is approved here: they must be IDENTICAL, and apply.sh/verify.sh prove it independently of this comparator.
+# The dnsmasq unit file itself is not part of the L0 capture; apply.sh/verify.sh prove its exact bytes (corrected L34 authority).
+# The value-level failed -> active window (FAILED baseline only) is approved ONLY by the exact catalog members in allow-dynamic-transitions-failed-post.txt.
+svc.aegis-idea3-dnsmasq.service.MainPID
+svc.aegis-idea3-dnsmasq.service.NRestarts
+svc.aegis-idea3-dnsmasq.service.ExecMainStartTimestamp

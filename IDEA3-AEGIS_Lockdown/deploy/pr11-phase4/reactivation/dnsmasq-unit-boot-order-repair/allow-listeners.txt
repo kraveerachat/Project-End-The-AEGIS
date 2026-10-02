@@ -1,0 +1,7 @@
+# AEGIS IDEA3 PR11 Phase 4 — governed dnsmasq UNIT boot-order REPAIR: allowed NEW listeners.
+# The FAILED baseline has NO dnsmasq listener, so the three below are genuinely NEW, approved listeners of this run (the RUNNING baseline already holds them and
+# adds nothing). Each is verified exactly by l34_v4_dnsmasq_listeners_gate in apply.sh and verify.sh. No plaintext 1883 listener appears here (p4-compare.sh
+# refuses one unconditionally, S-12) and no broker listener is approved: the broker is never commanded.
+listen.udp.0.0.0.0%<AEGIS_AP_INTERFACE>:67
+listen.tcp.<AEGIS_AP_ADDRESS>:53
+listen.udp.<AEGIS_AP_ADDRESS>:53

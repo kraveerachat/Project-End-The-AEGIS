@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-02
+updated: 2026-10-03
 owner: music
 edit_policy: owner-writable
 ---
@@ -20,7 +20,7 @@ edit_policy: owner-writable
 
 ## IDEA3 dnsmasq boot-order repair — repository only — 2026-10-02
 
-> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-dnsmasq-boot-order`, Draft PR, not merged. Nothing was deployed or restarted: `PRODUCTION_MUTATION_PERFORMED = NO`, `DNSMASQ_RESTARTED = NO`, `NETWORK_CHANGED = NO`, `CORE_RESTARTED = NO`, `ESP32_TOUCHED = NO`, L8p / F1 detector / Recovery R1-R8 not run.
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-dnsmasq-boot-order`, merged as PR #305 (`827251f2`; updated 2026-10-03, the live host is still on the old unit). Nothing was deployed or restarted: `PRODUCTION_MUTATION_PERFORMED = NO`, `DNSMASQ_RESTARTED = NO`, `NETWORK_CHANGED = NO`, `CORE_RESTARTED = NO`, `ESP32_TOUCHED = NO`, L8p / F1 detector / Recovery R1-R8 not run.
 > `DNSMASQ_ROOT_CAUSE = PROVEN` (boot ordering race), `REPAIR_REPOSITORY_IMPLEMENTED = YES`, `REPAIR_DEPLOYED = NO`, `V8_RUNTIME_RECOVERY = PASS (historical, preserved)`, `K12_PERSISTENCE_OBSERVED = YES`, `K12_FORMALLY_PROVEN = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
 
 - **Reboot (read-only evidence):** operator-initiated `sudo /usr/bin/reboot` on tty3 at 21:58:50 and 22:00:55 +07; orderly, no crash indicators; the operator's reason is not in the journal. The Core returned on release `55c7d181…` with both sockets recreated, which is an observation, not a K12 acceptance.
@@ -29,6 +29,18 @@ edit_policy: owner-writable
 - **Independent review (fixed before merge):** the first revision would have broken every L34/V5–V8 reactivation, because `l34_dnsmasq_unit_gate` compared the installed unit byte-for-byte with the now-placeholder raw template, and the L34 fixtures hid it by installing the raw template. The gate now compares against the canonical template rendered with the fixed approved L34 values (still exact byte identity; raw template, old pre-gate unit and any mutation are refused). No live mutation occurred. The shared library hash changed intentionally after V8 (owner-approved re-pin of only the V6, V7 and V8 library pins; old -> new hashes in the receipt); handlers, runners, allow files and historical V6/V7/V8 live results are untouched.
 - **Still required:** review/merge, then a separately governed live stage to install and qualify the unit and observe a reboot, before the device-network path (R5/R7) is relied on. L8p stays serial-only and is not blocked by dnsmasq.
 - **Receipt:** `90-Status/logs/2026-10-02_222500_music_idea3-dnsmasq-boot-order-repair.md`.
+
+---
+
+## IDEA3 governed dnsmasq unit repair package (`dnsmasq-unit-boot-order-repair`) — repository only — 2026-10-03
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-dnsmasq-governed-live-repair`, Draft PR, not merged. `PR305_REPOSITORY_FIX = MERGED` (PR #305, merge `827251f2478f03822c42ab43eadb50f73005d432`, an ancestor of main `1579712866ef0e83c5b949b0afed7a7969e0f80f`). `LIVE_REPAIR_EXECUTED = NO`, `REBOOT_VERIFICATION_EXECUTED = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `L8P_LIVE_EXECUTED = NO`, `RECOVERY_R1_R8 = NOT_RUN`, `LVR = NOT_RUN`, `L8 = NOT_RUN`, `ESP32_TOUCHED = NO`. No authorization, K3, frozen runner, attempt marker or evidence exists; nothing was deployed, restarted or changed on the host.
+
+- **Why:** the host still has the OLD pre-PR305 `aegis-idea3-dnsmasq.service`; the corrected L34 authority deliberately refuses it, so every L34/V5–V8 reactivation is blocked until the repaired unit is installed and qualified. No existing governed stage can do only that (V4–V8 require the unit to already match; L4 renders the whole AP network; V7/V8 are historical and never replayed), so a task-specific package follows the existing conventions. No L-number was invented.
+- **Live mutation scope (when separately authorized):** render the canonical template with the fixed approved values, atomically install the unit, `daemon-reload`, `reset-failed` + `start` (failed/start-limit-hit baseline) or one `restart` (running baseline) of `aegis-idea3-dnsmasq.service` only. Never the AP, NetworkManager, SSID/channel/IPv4, DHCP/DNS, nftables/forwarding, broker, Twingate, Core, Recovery, F1 detector, L8p, ESP32, serial, firmware, NVS or relay/CUT/RESTORE.
+- **Governance:** fresh same-day authorization + K3 (`stage=L4` records with the exact repair scope; no L4 acceptance claimed), exact-main frozen runner (inert as committed), one-shot attempt marker `DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED` consumed only after preflight and PRE capture, PRE → APPLY → VERIFY → POST → exact comparator → journal-owned rollback (before/after the unit replacement), explicit terminal verdict, no automatic retry.
+- **Reboot verification is separate** (`verify-dnsmasq-boot-order-after-reboot.sh`, read-only, never reboots): it records `K12_PERSISTENCE_OBSERVED` and, separately, `K12_FORMALLY_PROVEN = NO` (the repository holds no canonical K12 acceptance contract; that is an owner/integration decision).
+- **Design / receipt:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-03-idea3-dnsmasq-unit-boot-order-governed-repair-design.md`; `90-Status/logs/2026-10-03_*_music_idea3-dnsmasq-governed-live-repair.md`.
 
 ---
 

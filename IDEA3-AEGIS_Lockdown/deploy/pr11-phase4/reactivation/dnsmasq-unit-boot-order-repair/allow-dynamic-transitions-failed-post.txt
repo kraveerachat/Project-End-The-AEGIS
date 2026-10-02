@@ -1,0 +1,7 @@
+# AEGIS IDEA3 PR11 Phase 4 — governed dnsmasq UNIT boot-order REPAIR, FAILED baseline PRE->POST: the dnsmasq failed/start-limit-hit -> active/running/success
+# window, as exact members of the existing approved comparator catalog L34_RUNTIME_REACTIVATION (a subset: no NetworkManager radio rule, nothing else).
+# The RUNNING baseline needs no dynamic window (active/running -> active/running).
+operation L34_RUNTIME_REACTIVATION
+svc.aegis-idea3-dnsmasq.service.ActiveState failed active
+svc.aegis-idea3-dnsmasq.service.SubState failed running
+svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
