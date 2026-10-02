@@ -238,6 +238,49 @@ Monitor unless stated. Neutral runs remove both database URL variables and set
 
 ## Current Task
 
+Task: IDEA2 pre-live Windows Identity Agent blocker fixes and safe Node key rotation
+Branch: `fix/idea2-prelive-windows-agent-blockers`
+Owner: Pub
+PR: Pending Draft publication after repository-only verification
+Current state: IN PROGRESS — source-only RED→GREEN implementation
+Started: 2026-10-02
+Starting SHA: `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f`
+Production mutation allowed: NO
+
+### Goal
+
+Repair the confirmed pywin32 312 SID-comparison incompatibility, split the
+fresh DataRoot `icacls` owner/grant lifecycle into checked safe operations, and
+make public-node key rotation compare-and-swap on an explicit current key
+version before the human resumes any live Machine A or Production action.
+
+### Scope and safety
+
+Only Identity Agent ACL source/tests, the Windows installer lifecycle
+source/tests, Monitor Node CLI source/tests/documentation, this canonical note,
+the task plan, and one final immutable receipt may change. Machine A, the
+installed service/runtime, keys, camera, tunnel, Production, Production DB, and
+containers remain untouched. Real Windows acceptance remains pending after
+human merge.
+
+### Acceptance criteria
+
+The new tests must fail against the starting source and pass after the minimal
+fixes. ACL validation remains canonical-SID based and fail-closed; the final
+DataRoot owner/DACL remains service/SYSTEM only; rotation requires a positive
+expected version and atomically updates exactly one matching row while
+preserving the reviewed `active = TRUE` reactivation behavior. Targeted and
+broader relevant tests, PowerShell parsing, governance, Vault, diff, secret
+scan, source hash, clean Git state, normal push, and one Draft PR are required.
+
+## Session Register — Pre-Live Blocker Fix A
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PLB-A-S1 | Canonical SID validation, fresh DataRoot ACL ordering, Node key CAS, final source-only verification/publication | IN PROGRESS | Untouched baseline: Agent ACL/lifecycle 54/54; Monitor Node CLI 25/25. Source audit confirms direct missing `EqualSid`, combined `icacls ... /setowner`, and node-id-only rotation with reviewed `active = TRUE`. | — | pending RED→GREEN | implementation, final receipt, Draft PR | write and run RED tests |
+
+## Parent Task Context — Machine A No-PowerShell Runtime
+
 Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub

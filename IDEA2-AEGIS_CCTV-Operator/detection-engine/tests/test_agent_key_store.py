@@ -1,7 +1,9 @@
 import pathlib
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 
 ENGINE_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -12,7 +14,83 @@ from aegis_identity_agent.key_store import (
     DpapiCurrentUserProtector,
     IdentityKeyStore,
     KeyStoreError,
+    validate_windows_service_acl,
 )
+
+
+FILE_ALL_ACCESS = 0x1F01FF
+
+
+class FakeSid:
+    def __init__(self, canonical, display):
+        self.canonical = canonical
+        self.display = display
+
+    def __str__(self):
+        return self.display
+
+
+class FakeDacl:
+    def __init__(self, aces):
+        self.aces = tuple(aces)
+
+    def GetAceCount(self):
+        return len(self.aces)
+
+    def GetAce(self, index):
+        return self.aces[index]
+
+
+class FakeDescriptor:
+    def __init__(self, owner, aces, *, protected=True):
+        self.owner = owner
+        self.dacl = None if aces is None else FakeDacl(aces)
+        self.protected = protected
+
+    def GetSecurityDescriptorControl(self):
+        return (4 if self.protected else 0, 1)
+
+    def GetSecurityDescriptorOwner(self):
+        return self.owner
+
+    def GetSecurityDescriptorDacl(self):
+        return self.dacl
+
+
+def windows_acl_modules(descriptor=None, *, descriptor_error=None):
+    service_lookup = FakeSid("S-1-5-80-service", "service lookup")
+    system_lookup = FakeSid("S-1-5-18", "system lookup")
+    conversion_calls = []
+
+    def get_named_security_info(*_args):
+        if descriptor_error is not None:
+            raise descriptor_error
+        return descriptor
+
+    def lookup_account_name(_system, account):
+        if account == r"NT SERVICE\AEGISIdentityAgent":
+            return service_lookup, "AEGIS"
+        if account == r"NT AUTHORITY\SYSTEM":
+            return system_lookup, "NT AUTHORITY"
+        raise AssertionError(f"unexpected account lookup: {account}")
+
+    def convert_sid_to_string_sid(sid):
+        conversion_calls.append(sid)
+        return sid.canonical
+
+    win32security = types.SimpleNamespace(
+        ACCESS_ALLOWED_ACE_TYPE=0,
+        DACL_SECURITY_INFORMATION=2,
+        INHERITED_ACE=16,
+        OWNER_SECURITY_INFORMATION=1,
+        SE_DACL_PROTECTED=4,
+        SE_FILE_OBJECT=1,
+        ConvertSidToStringSid=convert_sid_to_string_sid,
+        GetNamedSecurityInfo=get_named_security_info,
+        LookupAccountName=lookup_account_name,
+    )
+    ntsecuritycon = types.SimpleNamespace(FILE_ALL_ACCESS=FILE_ALL_ACCESS)
+    return win32security, ntsecuritycon, conversion_calls
 
 
 class FakeProtector:
@@ -103,6 +181,76 @@ class IdentityKeyStoreTests(unittest.TestCase):
         self.assertEqual(b"protected", protector.protect(b"plain", b"entropy"))
         self.assertEqual(b"plain", protector.unprotect(b"protected", b"entropy"))
         self.assertEqual([0, 0], [item[1] for item in calls])
+
+    def test_windows_acl_accepts_exact_canonical_sids_without_equalsid(self):
+        service_owner = FakeSid("S-1-5-80-service", "localized service display")
+        service_ace = FakeSid("S-1-5-80-service", "different service display")
+        system_ace = FakeSid("S-1-5-18", "localized system display")
+        descriptor = FakeDescriptor(
+            service_owner,
+            (
+                ((0, 0), FILE_ALL_ACCESS, service_ace),
+                ((0, 0), FILE_ALL_ACCESS, system_ace),
+            ),
+        )
+        win32security, ntsecuritycon, conversions = windows_acl_modules(descriptor)
+
+        self.assertFalse(hasattr(win32security, "EqualSid"))
+        with mock.patch.dict(
+            sys.modules,
+            {"win32security": win32security, "ntsecuritycon": ntsecuritycon},
+        ):
+            self.assertTrue(validate_windows_service_acl(pathlib.Path("identity")))
+
+        self.assertGreaterEqual(len(conversions), 5)
+        self.assertIn(service_owner, conversions)
+        self.assertIn(service_ace, conversions)
+        self.assertIn(system_ace, conversions)
+
+    def test_windows_acl_rejects_wrong_owner_and_non_exact_ace_sets(self):
+        service = FakeSid("S-1-5-80-service", "service")
+        system = FakeSid("S-1-5-18", "system")
+        other = FakeSid("S-1-5-32-544", "administrators")
+        cases = {
+            "wrong owner": FakeDescriptor(other, (((0, 0), FILE_ALL_ACCESS, service), ((0, 0), FILE_ALL_ACCESS, system))),
+            "extra ace": FakeDescriptor(service, (((0, 0), FILE_ALL_ACCESS, service), ((0, 0), FILE_ALL_ACCESS, system), ((0, 0), FILE_ALL_ACCESS, other))),
+            "duplicate ace": FakeDescriptor(service, (((0, 0), FILE_ALL_ACCESS, service), ((0, 0), FILE_ALL_ACCESS, service))),
+            "inherited ace": FakeDescriptor(service, (((0, 16), FILE_ALL_ACCESS, service), ((0, 0), FILE_ALL_ACCESS, system))),
+            "deny ace": FakeDescriptor(service, (((1, 0), FILE_ALL_ACCESS, service), ((0, 0), FILE_ALL_ACCESS, system))),
+            "insufficient rights": FakeDescriptor(service, (((0, 0), FILE_ALL_ACCESS - 1, service), ((0, 0), FILE_ALL_ACCESS, system))),
+            "excess rights": FakeDescriptor(service, (((0, 0), FILE_ALL_ACCESS | 0x01000000, service), ((0, 0), FILE_ALL_ACCESS, system))),
+            "unprotected dacl": FakeDescriptor(service, (((0, 0), FILE_ALL_ACCESS, service), ((0, 0), FILE_ALL_ACCESS, system)), protected=False),
+            "missing dacl": FakeDescriptor(service, None),
+        }
+
+        for label, descriptor in cases.items():
+            with self.subTest(label=label):
+                win32security, ntsecuritycon, _conversions = windows_acl_modules(descriptor)
+                with mock.patch.dict(
+                    sys.modules,
+                    {"win32security": win32security, "ntsecuritycon": ntsecuritycon},
+                ):
+                    self.assertFalse(validate_windows_service_acl(pathlib.Path("identity")))
+
+    def test_windows_acl_unreadable_or_malformed_descriptor_fails_closed(self):
+        win32security, ntsecuritycon, _conversions = windows_acl_modules(
+            descriptor_error=OSError("descriptor unavailable")
+        )
+        with mock.patch.dict(
+            sys.modules,
+            {"win32security": win32security, "ntsecuritycon": ntsecuritycon},
+        ):
+            self.assertFalse(validate_windows_service_acl(pathlib.Path("identity")))
+
+        malformed = types.SimpleNamespace(
+            GetSecurityDescriptorControl=lambda: (_ for _ in ()).throw(ValueError("malformed"))
+        )
+        win32security, ntsecuritycon, _conversions = windows_acl_modules(malformed)
+        with mock.patch.dict(
+            sys.modules,
+            {"win32security": win32security, "ntsecuritycon": ntsecuritycon},
+        ):
+            self.assertFalse(validate_windows_service_acl(pathlib.Path("identity")))
 
     def test_preflight_and_provision_scripts_preserve_the_service_identity_boundary(self):
         scripts = ENGINE_ROOT / "windows" / "identity-agent"

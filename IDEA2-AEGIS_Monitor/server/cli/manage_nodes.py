@@ -35,6 +35,16 @@ def validate_identifier(value: str, label: str) -> str:
     return value
 
 
+def positive_integer(value: str) -> int:
+    try:
+        parsed = int(str(value), 10)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
 def parse_account_alias(value: str) -> tuple[str, str]:
     username, separator, camera_id = str(value).partition("=")
     if not separator or "=" in camera_id:
@@ -234,6 +244,7 @@ def cmd_disable(args: argparse.Namespace) -> None:
 
 def cmd_rotate_key(args: argparse.Namespace) -> None:
     node_id = validate_identifier(args.node_id, "node id")
+    expected_version = positive_integer(args.expected_current_key_version)
     public_key, fingerprint = load_public_key(args.public_key)
     conn = connect()
     try:
@@ -248,13 +259,24 @@ def cmd_rotate_key(args: argparse.Namespace) -> None:
                            active = TRUE,
                            updated_at = now()
                      WHERE node_id = %s
+                       AND key_version = %s
                  RETURNING key_version
                     """,
-                    (public_key, fingerprint, node_id),
+                    (public_key, fingerprint, node_id, expected_version),
                 )
                 row = cur.fetchone()
                 if not row:
-                    raise ValueError(f"node '{node_id}' does not exist")
+                    cur.execute(
+                        "SELECT key_version FROM detection_nodes WHERE node_id = %s",
+                        (node_id,),
+                    )
+                    current = cur.fetchone()
+                    if not current:
+                        raise ValueError(f"node '{node_id}' does not exist")
+                    raise ValueError(
+                        f"node '{node_id}' key version mismatch: "
+                        f"expected {expected_version}, current {current['key_version']}"
+                    )
     finally:
         conn.close()
     print(f"rotated node={node_id} fingerprint={fingerprint} version={row['key_version']}")
@@ -624,6 +646,11 @@ def build_parser() -> argparse.ArgumentParser:
     rotate = commands.add_parser("rotate-key", help="replace a node public key")
     rotate.add_argument("--node-id", required=True)
     rotate.add_argument("--public-key", required=True, type=pathlib.Path)
+    rotate.add_argument(
+        "--expected-current-key-version",
+        required=True,
+        type=positive_integer,
+    )
     rotate.set_defaults(handler=cmd_rotate_key)
 
     ingest_mode = commands.add_parser(
