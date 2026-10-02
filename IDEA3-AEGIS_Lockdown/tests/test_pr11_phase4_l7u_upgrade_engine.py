@@ -197,9 +197,9 @@ def test_a_preexisting_empty_system_group_is_adopted_and_never_deleted(tmp_path:
     plan = fx.engine.preflight(fx.cfg, fx.host, fx.system)
     assert plan.group_exists and not plan.group_created_by_attempt and plan.group_gid == s.NEW_GROUP_GID
     do_apply(fx)
-    assert not any(c[0] == "groupadd" for c in fx.system.state.calls)
+    assert ("groupadd", s.GROUP) not in fx.system.state.calls
     do_rollback(fx)
-    assert not any(c[0] == "groupdel" for c in fx.system.state.calls)
+    assert ("groupdel", s.GROUP) not in fx.system.state.calls
     assert any(r.startswith(f"{s.GROUP}:") for r in fx.host.read_text("/etc/group").splitlines())
 
 
@@ -207,9 +207,9 @@ def test_a_preexisting_group_already_holding_only_the_operator_is_adopted_and_me
     fx = s.build(tmp_path, group_rows=[f"{s.GROUP}:x:{s.NEW_GROUP_GID}:{s.OPERATOR}"])
     before = s.snapshot(fx)
     do_apply(fx)
-    assert not any(c[0] in ("groupadd", "gpasswd_add") for c in fx.system.state.calls)
+    assert not any(c[0] in ("groupadd", "gpasswd_add") and c[-1] == s.GROUP for c in fx.system.state.calls)
     do_rollback(fx)
-    assert not any(c[0] in ("groupdel", "gpasswd_del") for c in fx.system.state.calls)
+    assert not any(c[0] in ("groupdel", "gpasswd_del") and c[-1] == s.GROUP for c in fx.system.state.calls)
     assert s.snapshot(fx) == before
 
 
@@ -259,6 +259,7 @@ def test_apply_performs_the_exact_l7u_mutation_set(tmp_path: Path) -> None:
     rel_new = s.NEW_LOGICAL.lstrip("/")
     allowed_prefix = (rel_new, "etc/group", "etc/aegis-idea3/core.env", "etc/systemd/system/aegis-idea3-core.service.d",
                       "etc/tmpfiles.d/aegis-idea3-recovery.conf", "run/aegis-idea3-recovery", "opt/aegis-idea3/current",
+                      "etc/tmpfiles.d/aegis-idea3-alert.conf", "run/aegis-idea3-alert",
                       "opt/aegis-idea3/releases")
     for k in changed:
         assert k.startswith(allowed_prefix), k
@@ -314,7 +315,7 @@ def test_the_core_process_really_gets_the_group_through_systemd_supplementary_gr
 # ── 4. core.env ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def test_core_env_preserves_every_preexisting_byte_and_appends_only_the_three_owned_settings(tmp_path: Path) -> None:
+def test_core_env_preserves_every_preexisting_byte_and_appends_only_the_four_owned_settings(tmp_path: Path) -> None:
     fx = s.build(tmp_path)
     pre = fx.host.read_bytes(CORE_ENV)
     do_apply(fx)
@@ -322,7 +323,7 @@ def test_core_env_preserves_every_preexisting_byte_and_appends_only_the_three_ow
     assert post.startswith(pre)
     suffix = post[len(pre):].decode().splitlines()
     assert suffix == [f"AEGIS_RECOVERY_OPERATOR_UID={s.OPERATOR_UID}", f"AEGIS_RECOVERY_SOCKET_GID={s.NEW_GROUP_GID}",
-                      "AEGIS_RECOVERY_SOCKET=/run/aegis-idea3-recovery/recovery.sock"]
+                      "AEGIS_RECOVERY_SOCKET=/run/aegis-idea3-recovery/recovery.sock", f"AEGIS_ALERT_SOURCE_UID={s.DETECTOR_UID}"]
     ident = fx.host.identity(CORE_ENV)
     assert (ident.mode, ident.uid, ident.gid) == (0o640, 0, s.CORE_GID)
 
@@ -597,7 +598,8 @@ def test_rollback_removes_membership_only_if_this_attempt_added_it_and_the_group
     do_rollback(fx)
     calls = fx.system.state.calls
     assert ("gpasswd_del", s.OPERATOR, s.GROUP) in calls and ("groupdel", s.GROUP) in calls
-    assert [c for c in calls if c[0] in ("gpasswd_del", "groupdel")] == [("gpasswd_del", s.OPERATOR, s.GROUP), ("groupdel", s.GROUP)]
+    assert [c for c in calls if c[0] in ("gpasswd_del", "groupdel")] == [("gpasswd_del", s.OPERATOR, s.GROUP), ("groupdel", s.GROUP),
+                                                                         ("groupdel", s.ALERT_GROUP)]
 
 
 def test_adopted_group_with_unrelated_later_member_is_not_deleted_on_rollback(tmp_path: Path) -> None:
@@ -776,7 +778,8 @@ def test_engine_cli_has_no_host_root_option_so_a_live_run_cannot_be_redirected()
 def test_engine_cli_refuses_without_root_and_the_live_flag(tmp_path: Path) -> None:
     res = subprocess.run([sys.executable, str(s.ENGINE_PATH), "apply", "--old-release-id", s.OLD_ID, "--new-release-id", s.NEW_ID,
                           "--expected-main", s.MAIN, "--source-dir", str(tmp_path), "--work-dir", str(tmp_path / "w"),
-                          "--operator-user", "kittipat", "--operator-uid", "1000"], capture_output=True, text=True,
+                          "--operator-user", "kittipat", "--operator-uid", "1000", "--alert-source-uid", "953"],
+                         capture_output=True, text=True,
                          env={"PATH": os.environ["PATH"]}, check=False)
     assert res.returncode != 0 and "LIVE_AUTHORIZATION_FLAG_REQUIRED" in res.stdout + res.stderr
     assert not (tmp_path / "w").exists()

@@ -1,0 +1,65 @@
+# AEGIS IDEA3 F1 production detector (alert source) — repository template. NOTHING here is installed, enabled or started by merging it.
+#
+# Render with:  deploy/pr11-phase4/p4-f1-alert-source.py render-unit --output <file>      (no placeholder; the unit is static)
+# Identity (OD-F1-DEPLOY-01): the dedicated NON-ROOT account aegis-idea3-detector. Its numeric uid is owner-frozen and MUST equal
+# AEGIS_ALERT_SOURCE_UID in the installed core.env: the Core accepts exactly that SO_PEERCRED uid and answers any other peer
+# PEER_REFUSED before reading a byte, so a mismatch fails closed. `start-detector` re-proves getpwnam(account) == frozen uid.
+# The account is created by the owner (a precondition of live work); this repository tooling only VERIFIES it.
+# Group (SupplementaryGroups=aegis-idea3-alert): filesystem reachability ONLY (traverse the alert directory, connect to the socket). It is
+# never an authorization. There is NO capability here: the unit holds none (empty bounding set), in particular no DAC override.
+#
+# Transport: AF_UNIX to /run/aegis-idea3-alert/alert.sock only (never MQTT, never a network socket). The payload is exactly
+# {"v":1,"attacker_ip":"<IPv4>"}; the Core only binds an incident. The detector requests no containment, CUT or RESTORE.
+#
+# Start order (enforced by Requires=/After= and by ExecStartPre, and by `start-detector`): Core release installed -> core.env carries the
+# verified uid -> Core (re)started -> alert.sock present, Core-owned 0620 group aegis-idea3-alert and answering SO_PEERCRED -> only then this unit. ExecStartPre waits a
+# bounded time for the socket and fails closed; Restart=no means a failure is never retried automatically.
+[Unit]
+Description=AEGIS IDEA3 F1 production detector (Core alert source)
+Requires=aegis-idea3-core.service
+After=aegis-idea3-core.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=aegis-idea3-detector
+UMask=0077
+WorkingDirectory=/opt/aegis-idea3/current
+# aegis-idea3-alert = the F1 alert transport (reachability only). systemd-journal = read the journal (journalctl); unrelated to the alert path.
+SupplementaryGroups=aegis-idea3-alert systemd-journal
+ExecStartPre=/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.alert_sink check-socket --wait-sec 15
+ExecStart=/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.production_detector
+Restart=no
+TimeoutStartSec=30
+TimeoutStopSec=15
+KillMode=control-group
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# No capability at all: access to the alert socket comes from the supplementary group, never from a capability.
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+
+MemoryAccounting=true
+TasksAccounting=true
+
+[Install]
+WantedBy=multi-user.target

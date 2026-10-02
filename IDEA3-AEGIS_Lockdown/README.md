@@ -956,11 +956,23 @@ never becomes a second Core.
   `AEGIS_RECOVERY_OPERATOR_UID` is set (optional `AEGIS_RECOVERY_SOCKET`, `AEGIS_RECOVERY_SOCKET_GID`).
 - **R1:** the Core binds or creates the single open incident from a validated production attacker alert (idempotent,
   audited, no containment). Opening the UI never creates an incident. The production alert source is a Core-local
-  AF_UNIX ingress (`<runtime_dir>/alert.sock`, 0600): only the one uid in `AEGIS_ALERT_SOURCE_UID` (unset = disabled) may
+  AF_UNIX ingress (dedicated `/run/aegis-idea3-alert/alert.sock`, Core:`aegis-idea3-alert` 0620 in a Core-owned 2750 directory; the group only
+  grants connect reachability): only the one non-root, non-Core uid in `AEGIS_ALERT_SOURCE_UID` (unset = disabled) may
   send exactly `{"v":1,"attacker_ip":"<IPv4>"}` (256 bytes, 2 s, rate-limited, `SO_PEERCRED` checked before any byte is
   read). It can only record the candidate; it cannot request containment, CUT or RESTORE, and the legacy
   `aegis/attacker_ip` topic and Protocol v1 are unchanged. The repository code is inert until a separate governed
   deployment stage supplies the detector sink, its service unit, the uid setting and a Core restart.
+- **F1 deployment package (repository only, not deployed):** `aegis_soc/alert_sink.py` is the production sink (one bounded
+  AF_UNIX request to the constant `/run/aegis-idea3-alert/alert.sock`, exact payload, Core peer verified before any write, stable
+  result codes, no retry) and `aegis_soc/production_detector.py` is its detector (same three rules and thresholds as the
+  legacy `detector.py`, which is unchanged and still the only MQTT `aegis/attacker_ip` publisher). Material for a future governed
+  deployment: `deploy/aegis-idea3-detector.service.example`, `deploy/pr11-phase4/p4-f1-alert-source.py`
+  (`render-unit`, `verify-unit`, `verify-env`, and the live-gated ordered `start-detector` / `stop-detector`) and the optional
+  `--alert-source-uid` of `p4-l7-core-env.py`. The source uid is an owner-supplied frozen value
+  (`F1_ALERT_SOURCE_IDENTITY = OWNER_INPUT_REQUIRED`) and must equal `AEGIS_ALERT_SOURCE_UID`; with the merged Core socket contract
+  (Core-owned `0600` socket in a `0700` directory) only root or the Core account can connect, and the package refuses the Core
+  account, so a dedicated non-root account needs a separate owner-approved Core change. Start order: Core release, verified
+  `core.env` uid, Core restart, `alert.sock` verified, then the detector; the detector unit never restarts itself.
 - **R3:** `ISOLATE` has no IP parameter. The Core blocks the attacker IP it bound to the incident through the
   containment helper, reads it back independently with `contains()`, and audits with the incident id.
 - **R4/R5:** RESTORE remains the owner's terminal-only Core-local D4 step (`aegisctl restore`, scrypt credential,

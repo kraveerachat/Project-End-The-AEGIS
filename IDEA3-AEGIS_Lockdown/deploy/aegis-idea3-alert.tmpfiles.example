@@ -1,0 +1,9 @@
+# AEGIS IDEA3 L7u — systemd-tmpfiles rule (OD-F1-DEPLOY-01) for the dedicated F1 alert surface. Installed by the L7u stage as
+#   /etc/tmpfiles.d/aegis-idea3-alert.conf   (root:root 0644)
+# Dedicated directory; the general /run/aegis-idea3 runtime directory is NOT broadened and the Recovery socket directory is untouched:
+#   owner aegis-idea3 (the Core), group aegis-idea3-alert, mode 2750 = setgid, owner rwx, group r-x (traverse/read only: the group can
+#   neither create nor delete entries), no access for others.
+# The Core creates alert.sock inside it as aegis-idea3:aegis-idea3-alert 0620 (owner rw, group write = connect only, no others): the
+# detector reaches it through the group, and is still refused BEFORE any request byte is read unless SO_PEERCRED uid ==
+# AEGIS_ALERT_SOURCE_UID (the frozen uid of aegis-idea3-detector).
+d /run/aegis-idea3-alert 2750 aegis-idea3 aegis-idea3-alert -
