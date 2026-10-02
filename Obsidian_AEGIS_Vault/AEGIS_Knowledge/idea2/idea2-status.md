@@ -242,7 +242,7 @@ Task: IDEA2 pre-live Windows Identity Agent blocker fixes and safe Node key rota
 Branch: `fix/idea2-prelive-windows-agent-blockers`
 Owner: Pub
 PR: Pending Draft publication after repository-only verification
-Current state: IN PROGRESS — source-only RED→GREEN implementation
+Current state: SOURCE VERIFIED — Draft PR publication pending; real Windows retest required
 Started: 2026-10-02
 Starting SHA: `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f`
 Production mutation allowed: NO
@@ -277,7 +277,15 @@ scan, source hash, clean Git state, normal push, and one Draft PR are required.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PLB-A-S1 | Canonical SID validation, fresh DataRoot ACL ordering, Node key CAS, final source-only verification/publication | IN PROGRESS | Untouched baseline: Agent ACL/lifecycle 54/54; Monitor Node CLI 25/25. Source audit confirms direct missing `EqualSid`, combined `icacls ... /setowner`, and node-id-only rotation with reviewed `active = TRUE`. | — | pending RED→GREEN | implementation, final receipt, Draft PR | write and run RED tests |
+| PLB-A-S1 | Canonical SID validation, fresh DataRoot ACL ordering, Node key CAS, final source-only verification/publication | SOURCE VERIFIED | RED reproduced for missing `EqualSid`, combined owner/grant command, and missing CAS. GREEN: ACL 9/9; Windows/Agent lifecycle 91/91; adjacent Agent protocol 53 pass/2 native-pywin32 skips; Node CLI 28/28; Monitor 179 pass/58 conditional PostgreSQL skips; governance/Vault 58/58; Vite build, PowerShell parse, diff, and secret scan pass. | `fb98dfac75846ec8771a88f92ccb61af796e2f0e` | canonical SID equality and exact mask; checked grant→owner→temporary-admin removal; expected-version CAS preserving reviewed reactivation | human merge and real Machine A Windows retest; no live key rotation performed | publish one Draft PR and wait for human review |
+
+Authoritative Identity Agent source hash after the fix:
+`D1EEAE02CDF7F9E6A58D775F73E238905EE99618D17F28C511D81DAA45278F48`.
+The source-only verification does not claim live pywin32 312, `icacls`, service,
+DPAPI, key-rotation, camera, tunnel, or Production acceptance. The full Engine
+discovery run remains environment-limited by absent optional `requests`,
+OpenCV, and Starlette packages; all affected installed-dependency suites listed
+above passed.
 
 ## Parent Task Context — Machine A No-PowerShell Runtime
 
