@@ -15,18 +15,39 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-D1-B — D-1 PR-B codec, crypto, and read-only reader
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-STAGE1 — D-1 Stage 1 Production package (preparation only)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 Phase J Stage 1 (compatibility / read-only, writer OFF) — deployment package preparation only |
+| Branch | `deploy/idea1-preview-d1-stage1` from `origin/main` `4a8cc3c95e2f4147fbab9c505079c0377a271d99` (PR-A #283 + PR-B #285 merged) |
+| Owner | kla |
+| PR | Draft, do not merge until package review completes |
+| State | **STAGE1_PACKAGE=READY_FOR_HUMAN_REVIEW**. Overlays under `IDEA1-AEGIS_Drive_LC/deploy/production/d1/` and runbook `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-10-02-idea1-d1-stage1-production-runbook.md` prepared. `PRODUCTION_MIGRATION_EXECUTED=NO`, `PRODUCTION_DEPLOYED=NO`, `PRODUCTION_FLAGS_CHANGED=NO`, `WRITER_ENABLED=NO`. |
+| Production mutation allowed | **NO** (Human-only after HG-S1) |
+| Candidate | image `aegis-prod-drive:preview-d1-s1-4a8cc3c95e2f` (not built); rollback A′ target `aegis-prod-drive:p1-8634360f74ed` with migration 012 retained |
+| Next gate | Human package review, then decisions D1–D5 in runbook §3 (write-route 503 unobservable at Stage 1; NEWLY_CREATED_USER must be TREE_V1; Case A′ not locally rehearsed; live chain captured at run time), then HG-S1 |
+
+### Session Register — D1-STAGE1
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1S1-S1 | Stage 1 overlay, migration-012 runbook, server acceptance, LAN/REMOTE browser matrix, rollback A′ and forward redeploy checklists | Package ready for Human review | Candidate contains PR-A and PR-B; runbook bash/JS syntax pass; runbook SQL rehearsed on disposable PostgreSQL 15.18 with P1-era schema (migration 012 applies, re-applies as no-op, Vault/tree fingerprints unchanged, `drive_app` has no DELETE/TRUNCATE); overlay merge rendered with synthetic chain; Stage 1 env boots candidate config with budget unset | This branch | Human review; HG-S1; Human execution | No agent Production action |
+
+D1S1-S1 (2026-10-02): source inspection found the Stage 1 build has **no** preview-index write route (`requirePreviewIndexWrite` is defined but unmounted until PR-C; mutating requests return 404, or 403 at the CSRF gate in a browser), so the "write route → 503 `PREVIEW_INDEX_WRITE_DISABLED`" expectation applies at Stage 2; Stage 1 substitutes static absence + `/state` write=false + boot line + zero index rows. `GET /preview-index/head` returns 409 for a non-TREE_V1 account, and the client maps both 404 and 503 to "no index", so per-account server-side head checks are mandatory.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-B — D-1 PR-B codec, crypto, and read-only reader
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-D1 PR-B / plan Phase B, Tasks B.1–B.10 only |
 | Branch | `feat/idea1-preview-d1-b-codec-reader` from merged PR-A / `origin/main` `fa22edd5d5db18e692e7814b895f7af3d3c166dc` at task start |
 | Owner | kla |
-| PR | #285 (Draft during verification) |
-| State | **IMPLEMENTED + LOCALLY VERIFIED; PR READY, POLICY CI PASS, HUMAN REVIEW REQUIRED**. Codec, crypto, read-only reader, derivative read, tile integration, and codec-only size probe; no writer/CAS/Phase C/Production mutation. Latest `origin/main` `fd4df610` merged normally at `0d65b042`; no IDEA1 path overlap. |
+| PR | #285 |
+| State | **IMPLEMENTED + LOCALLY VERIFIED + MERGED** at `4a8cc3c95e2f4147fbab9c505079c0377a271d99`; not deployed. Codec, crypto, read-only reader, derivative read, tile integration, and codec-only size probe; no writer/CAS/Phase C/Production mutation. |
 | Production mutation allowed | **NO** |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
-| Next gate | Human review and merge of PR #285; any later head update must pass CI before merge. Separate IDX-SIZE/PG/browser/Production gates remain open; do not enable WRITE. |
+| Next gate | PR #285 merged. Stage 1 (PR-A + PR-B) package is the D1-STAGE1 task above. Separate IDX-SIZE/PG/browser gates remain open; do not enable WRITE. |
 
 ### Session Register — D1-B
 
