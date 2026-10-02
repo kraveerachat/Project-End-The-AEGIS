@@ -33,6 +33,7 @@ import { createDerivativeFirstScheduler } from '../lib/vaultPreviewIndexTileLane
 import { PREVIEW_INDEX_LIMITS } from '../lib/vaultPreviewIndexConstants.js'
 import { createPreviewIndexWriter, previewIndexWriteAllowed } from '../lib/vaultPreviewIndexWriter.js'
 import { createUploadDerivativeQueue } from '../lib/vaultDerivativeGenerate.js'
+import { createDerivativeBackfill } from '../lib/vaultDerivativeBackfill.js'
 import { previewKindFor } from '../lib/vaultPreview.js'
 import { makeImageThumb } from '../lib/vaultImageThumb.js'
 import { createImageDecodeAdmission } from '../lib/vaultImageDecodeAdmission.js'
@@ -709,6 +710,19 @@ export function VaultTreeScreen({
   const uploadDerivativesRef = useRef(uploadDerivatives)
   uploadDerivativesRef.current = uploadDerivatives
   useEffect(() => () => { uploadDerivatives?.clear() }, [uploadDerivatives])
+  // lazy backfill: only bytes an original-path tile already produced; deferred during interactive transfers/playback
+  const interactiveRef = useRef({ download: false, modal: false })
+  interactiveRef.current = { download: downloadBusy, modal: Boolean(preview) }
+  const previewBackfill = useMemo(
+    () => (previewWriter ? createDerivativeBackfill({
+      writer: previewWriter, unlockedState,
+      isDeferred: () => activeUploadsRef.current > 0 || interactiveRef.current.download || interactiveRef.current.modal,
+    }) : null),
+    [previewWriter, unlockedState],
+  )
+  const backfillRef = useRef(previewBackfill)
+  backfillRef.current = previewBackfill
+  useEffect(() => () => { previewBackfill?.clear() }, [previewBackfill])
 
   useEffect(() => () => { void admission?.releaseAll?.() }, [admission])
 
@@ -799,11 +813,14 @@ export function VaultTreeScreen({
               await closePreviewSession(token)
             },
             attachVideo: attachPosterVideo,
-            drawFrame: drawPosterFrame,
+            // D-1 (PR-D): with the writer on, the tile frame is drawn at the vp1 edge so backfill can reuse it as is
+            drawFrame: (video) => drawPosterFrame(video, backfillRef.current ? { maxEdge: 512 } : undefined),
           })
           for (const url of localUrls) URL.revokeObjectURL(url)
           if (!poster.ok) throw new Error(poster.unsupported ?? 'VIDEO_POSTER')
-          return { width: 640, height: 360, bytes: poster.posterBytes, mime: 'image/jpeg' }
+          const posterTile = { width: 640, height: 360, bytes: poster.posterBytes, mime: 'image/jpeg' }
+          backfillRef.current?.offerTileResult(node, 'poster', posterTile) // copies; never fetches
+          return posterTile
         }
         const imageVariant = node.blobRef?.formatVersion ?? 1
         const thumb = await makeImageThumb({
@@ -824,7 +841,9 @@ export function VaultTreeScreen({
           admission, signal, skipUrl: true,
         })
         if (!thumb.ok) throw new Error(thumb.unsupported)
-        return { width: thumb.width, height: thumb.height, bytes: thumb.posterBytes }
+        const thumbTile = { width: thumb.width, height: thumb.height, bytes: thumb.posterBytes }
+        backfillRef.current?.offerTileResult(node, 'thumb', thumbTile) // copies; never fetches
+        return thumbTile
       },
       onChange: () => setMediaMap(combined?.snapshot() ?? nextScheduler.snapshot()),
     })

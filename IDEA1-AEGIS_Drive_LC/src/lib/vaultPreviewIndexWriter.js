@@ -398,7 +398,7 @@ export function createPreviewIndexWriter({
 
   function stats() {
     return {
-      queued: queue.length, busy: Boolean(running), budgetExhausted, serverDisabled,
+      enabled: allowed() && !budgetExhausted, queued: queue.length, busy: Boolean(running), budgetExhausted, serverDisabled,
       offered: counters.offered, rejected: counters.rejected, committed: counters.committed, failed: counters.failed,
       casAttempts: counters.casAttempts, casConflicts: counters.casConflicts,
       dropped: { ...counters.dropped }, failedReasons: { ...counters.failedReasons },
