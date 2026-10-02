@@ -21,7 +21,8 @@ python3 manage_nodes.py list
 python3 manage_nodes.py disable --node-id edge-node-new
 python3 manage_nodes.py rotate-key \
   --node-id edge-node-new \
-  --public-key /secure/path/replacement-public.pem
+  --public-key /secure/path/replacement-public.pem \
+  --expected-current-key-version 1
 
 # Separate reviewed rollout action after the Agent proof path is verified.
 python3 manage_nodes.py set-ingest-auth-mode \
@@ -38,6 +39,13 @@ preserves that mode for existing rows. Changing one exact Node to
 its physical camera or logical-alias policy. Apply migrations 001–004 through the reviewed deployment process
 before using this CLI. These source tests do not authorize running migrations
 or registration commands against Production.
+
+`rotate-key` uses the explicit positive expected version as a compare-and-swap
+guard. A missing Node or stale/future expected version fails without changing
+the public key, fingerprint, or version. A successful rotation increments the
+version exactly once and preserves the existing reviewed behavior of
+reactivating that same Node; it does not change ingest-auth mode, physical
+camera registration, or logical-alias policy.
 
 Account policy remains independent from physical identity:
 

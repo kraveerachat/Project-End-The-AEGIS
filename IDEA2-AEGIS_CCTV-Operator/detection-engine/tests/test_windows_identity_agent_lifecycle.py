@@ -745,20 +745,46 @@ class WindowsIdentityAgentLifecycleTests(unittest.TestCase):
 
     def test_install_separates_admin_managed_runtime_from_service_only_identity_data(self) -> None:
         install = self.read_agent("install_identity_agent.ps1")
+        normalized = install.replace("`\n", " ")
         self.assertIn("ConfigurationRoot", install)
         self.assertIn("Join-Path $ConfigurationRoot 'agent.env'", install)
         self.assertIn("Join-Path $ConfigurationRoot 'install.json'", install)
         self.assertIn('"${ServiceAccount}:(OI)(CI)RX"', install)
         self.assertIn("'BUILTIN\\Administrators:(OI)(CI)F'", install)
         self.assertIn(
-            "icacls.exe $DataRoot /inheritance:r /grant:r "
-            '"${ServiceAccount}:(OI)(CI)F" \'SYSTEM:(OI)(CI)F\'',
-            install.replace("`\n", ""),
+            "icacls.exe $DataRoot /inheritance:r /grant:r",
+            normalized,
         )
+        self.assertIn('"${ServiceAccount}:(OI)(CI)F"', normalized)
+        self.assertIn("'SYSTEM:(OI)(CI)F'", normalized)
+        self.assertIn("'BUILTIN\\Administrators:(OI)(CI)F'", normalized)
         self.assertNotIn("Join-Path $DataRoot 'agent.env'", install)
         self.assertNotIn("Join-Path $DataRoot 'install.json'", install)
         self.assertIn("$dataRootExisted", install)
         self.assertIn("if (-not $dataRootExisted)", install)
+
+    def test_fresh_data_root_acl_uses_checked_staged_owner_transition(self) -> None:
+        install = self.read_agent("install_identity_agent.ps1")
+        fresh_block = install[
+            install.index("if (-not $dataRootExisted)") :
+            install.index("Invoke-CheckedExternal icacls.exe $ConfigurationRoot")
+        ]
+        normalized = fresh_block.replace("`\n", " ")
+
+        self.assertNotRegex(normalized, r"/grant:r[^\n]+/setowner")
+        grant = 'Invoke-CheckedExternal icacls.exe $DataRoot /inheritance:r /grant:r'
+        set_owner = 'Invoke-CheckedExternal icacls.exe $DataRoot /setowner $ServiceAccount'
+        remove_admin = (
+            "Invoke-CheckedExternal icacls.exe $DataRoot /remove:g "
+            "'BUILTIN\\Administrators'"
+        )
+        self.assertIn(grant, fresh_block)
+        self.assertIn('BUILTIN\\Administrators:(OI)(CI)F', fresh_block)
+        self.assertIn(set_owner, fresh_block)
+        self.assertIn(remove_admin, fresh_block)
+        self.assertLess(fresh_block.index(grant), fresh_block.index(set_owner))
+        self.assertLess(fresh_block.index(set_owner), fresh_block.index(remove_admin))
+        self.assertEqual(3, fresh_block.count("Invoke-CheckedExternal icacls.exe $DataRoot"))
 
     def test_start_now_relies_on_fail_closed_service_start_not_admin_key_read(self) -> None:
         install = self.read_agent("install_identity_agent.ps1")

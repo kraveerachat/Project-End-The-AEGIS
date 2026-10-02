@@ -320,7 +320,14 @@ rm -f "$WORK/dnsmasq-ap.conf.tmp"
 # Render and install dedicated dnsmasq systemd service
 dnsmasq_unit_target="$(host_path "$DNSMASQ_UNIT_DEST")"
 mkdir -p "$(dirname "$dnsmasq_unit_target")"
-printf "# AEGIS IDEA3 dedicated dnsmasq instance — TEMPLATE, NOT DEPLOYED.\n\n[Unit]\nDescription=AEGIS IDEA3 private AP DHCP and Core-local DNS\nAfter=NetworkManager.service\nRequires=NetworkManager.service\n\n[Service]\nType=simple\nExecStartPre=/usr/bin/dnsmasq --test --conf-file=/etc/aegis-idea3/dnsmasq-ap.conf\nExecStart=/usr/bin/dnsmasq --keep-in-foreground --conf-file=/etc/aegis-idea3/dnsmasq-ap.conf --pid-file=\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n" > "$WORK/aegis-idea3-dnsmasq.service.tmp"
+# Rendered from the single canonical template (the same one p4-ap-network.py renders), so the boot-order readiness gate names
+# exactly the approved interface, address/prefix and channel. All four values were validated above; no value is user free text.
+DNSMASQ_UNIT_TEMPLATE="$P4_HERE/../network/aegis-idea3-dnsmasq.service.example"
+[ -f "$DNSMASQ_UNIT_TEMPLATE" ] || fail DNSMASQ_UNIT_TEMPLATE_MISSING
+sed -e "s|<AEGIS_AP_INTERFACE>|$AP_IF|g" -e "s|<AEGIS_AP_ADDRESS>|$AP_ADDR|g" \
+    -e "s|<AEGIS_AP_PREFIXLEN>|$PREFIX_LEN|g" -e "s|<AEGIS_AP_CHANNEL>|$AP_CHANNEL|g" \
+    "$DNSMASQ_UNIT_TEMPLATE" > "$WORK/aegis-idea3-dnsmasq.service.tmp"
+! grep -q '<AEGIS_' "$WORK/aegis-idea3-dnsmasq.service.tmp" || fail DNSMASQ_UNIT_PLACEHOLDER_UNRESOLVED
 
 install -D -m 0644 "$WORK/aegis-idea3-dnsmasq.service.tmp" "$dnsmasq_unit_target"
 rm -f "$WORK/aegis-idea3-dnsmasq.service.tmp"

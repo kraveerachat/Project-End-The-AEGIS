@@ -29,7 +29,22 @@ APPLY, VERIFY, ROLLBACK = (HND / n for n in ("apply.sh", "verify.sh", "rollback.
 LIB = DEPLOY / "p4-l34-reactivation-lib.sh"
 RUNNER = DEPLOY / "owner-run" / "run-l34-reactivation-owner.sh"
 COMPARE = DEPLOY / "p4-compare.sh"
-EXAMPLE_UNIT = ROOT / "deploy" / "network" / "aegis-idea3-dnsmasq.service.example"
+EXAMPLE_UNIT = ROOT / "deploy" / "network" / "aegis-idea3-dnsmasq.service.example"  # a TEMPLATE with <AEGIS_*> placeholders
+
+
+def canonical_dnsmasq_unit() -> str:
+    """The accepted L34 authority: the canonical template rendered with the fixed approved L34 values (independent of the gate).
+
+    The raw template is never a valid installed unit; a fixture that installs ``EXAMPLE_UNIT.read_text()`` masks the real behaviour.
+    """
+    text = EXAMPLE_UNIT.read_text()
+    for placeholder, value in (
+        ("<AEGIS_AP_INTERFACE>", "wlp0s20f3"), ("<AEGIS_AP_ADDRESS>", "10.77.30.1"),
+        ("<AEGIS_AP_PREFIXLEN>", "28"), ("<AEGIS_AP_CHANNEL>", "6"),
+    ):
+        text = text.replace(placeholder, value)
+    assert "<AEGIS_" not in text
+    return text
 PSK = "CANARY-wifi-psk-4f9a8b7c6d5e"
 
 PROFILE_REL = "etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection"
@@ -146,7 +161,7 @@ def build(tmp_path: Path, **sim_over) -> Fx:
         (PROFILE_REL, PROFILE, 0o600),
         (CONF_REL, CONF, 0o644),
         (NFT_REL, "table inet aegis_idea3 {}\n", 0o644),
-        (UNIT_REL, EXAMPLE_UNIT.read_text(), 0o644),
+        (UNIT_REL, canonical_dnsmasq_unit(), 0o644),
     ):
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -543,6 +558,13 @@ def test_duplicate_dnsmasq_directive_is_rejected(fx: Fx) -> None:
 
 def test_dnsmasq_unit_must_equal_accepted_repository_authority(fx: Fx) -> None:
     edit(fx, UNIT_REL, lambda t: t.replace("Restart=on-failure", "Restart=always"))
+    res = fx.run(APPLY)
+    assert res.returncode != 0 and "L34_DNSMASQ_UNIT_NOT_ACCEPTED_AUTHORITY" in res.stderr
+    no_mutation(fx)
+
+
+def test_raw_placeholder_template_is_not_a_valid_installed_unit(fx: Fx) -> None:
+    edit(fx, UNIT_REL, lambda _t: EXAMPLE_UNIT.read_text())
     res = fx.run(APPLY)
     assert res.returncode != 0 and "L34_DNSMASQ_UNIT_NOT_ACCEPTED_AUTHORITY" in res.stderr
     no_mutation(fx)

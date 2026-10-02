@@ -30,6 +30,7 @@ Backpressure/liveness contract
 from __future__ import annotations
 
 import queue
+import secrets
 import threading
 import time
 from typing import Optional, Tuple
@@ -44,6 +45,12 @@ from .logging_setup import get_logger
 from .models import DetectionResult, DetectionStatus, Frame
 
 log = get_logger("StreamHub")
+
+_MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807
+
+
+class StaleProducerGenerationError(ValueError):
+    """The requested physical producer generation is no longer authoritative."""
 
 
 class StreamHub(threading.Thread):
@@ -64,6 +71,9 @@ class StreamHub(threading.Thread):
         self._seq = 0
         self._jpeg: Optional[bytes] = None
         self._viewers = 0
+        self._current_producer_generation: Optional[int] = None
+        self._viewer_lease_generation = 0
+        self._viewer_leases: dict[str, int] = {}
         self._viewer_started_at = float("inf")
         self._encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(config.stream_jpeg_quality)]
 
@@ -77,7 +87,7 @@ class StreamHub(threading.Thread):
         if result.frame_seq != frame.seq:
             return
         with self._cond:
-            if self._viewers == 0 or frame.captured_at < self._viewer_started_at:
+            if self._viewers == 0 or frame.captured_at <= self._viewer_started_at:
                 return
 
         image = frame.image.copy()
@@ -133,7 +143,7 @@ class StreamHub(threading.Thread):
         )
         with self._cond:
             # Inference/drawing may span a disconnect and a new session.
-            if self._viewers == 0 or frame.captured_at < self._viewer_started_at:
+            if self._viewers == 0 or frame.captured_at <= self._viewer_started_at:
                 return
             try:
                 self._queue.put_nowait(annotated)
@@ -152,9 +162,54 @@ class StreamHub(threading.Thread):
             self._cond.notify_all()  # unblock any waiting viewer so it can exit
 
     # -- viewer bookkeeping (drives the "N watching" number in metrics/logs) --
-    def add_viewer(self) -> None:
+    @staticmethod
+    def _validate_producer_generation(producer_generation: Optional[int]) -> None:
+        if producer_generation is None:
+            return
+        if (
+            isinstance(producer_generation, bool)
+            or not isinstance(producer_generation, int)
+            or not 1 <= producer_generation <= _MAX_POSTGRES_BIGINT
+        ):
+            raise ValueError("invalid producer generation")
+
+    def _prepare_producer_generation_locked(
+        self, producer_generation: Optional[int]
+    ) -> None:
+        if producer_generation is None:
+            if self._current_producer_generation is not None:
+                raise StaleProducerGenerationError("stale producer generation")
+            return
+        current = self._current_producer_generation
+        if current is not None and producer_generation < current:
+            raise StaleProducerGenerationError("stale producer generation")
+        if current is None or producer_generation > current:
+            self._current_producer_generation = producer_generation
+            self._viewer_lease_generation += 1
+            self._viewer_leases.clear()
+            self._viewers = 0
+            if self._capture_demand_event is not None:
+                self._capture_demand_event.clear()
+            self._jpeg = None
+            self._drain_frame_queue()
+            self._cond.notify_all()
+
+    def prepare_producer_generation(self, producer_generation: int) -> None:
+        """Fail closed before an HTTP stream response accepts stale authority."""
+        self._validate_producer_generation(producer_generation)
         with self._cond:
-            self._viewers += 1
+            self._prepare_producer_generation_locked(producer_generation)
+
+    def add_viewer(
+        self, *, producer_generation: Optional[int] = None
+    ) -> tuple[str, int]:
+        self._validate_producer_generation(producer_generation)
+        with self._cond:
+            self._prepare_producer_generation_locked(producer_generation)
+            owner_id = secrets.token_hex(16)
+            lease = (owner_id, self._viewer_lease_generation)
+            self._viewer_leases[owner_id] = self._viewer_lease_generation
+            self._viewers = len(self._viewer_leases)
             n = self._viewers
             if n == 1:
                 # Never replay a previous session's final frame to a newly
@@ -165,10 +220,14 @@ class StreamHub(threading.Thread):
                 if self._capture_demand_event is not None:
                     self._capture_demand_event.set()
         log.info("viewer connected (%d watching)", n)
+        return lease
 
-    def remove_viewer(self) -> None:
+    def remove_viewer(self, owner_id: str, lease_generation: int) -> None:
         with self._cond:
-            self._viewers = max(0, self._viewers - 1)
+            if self._viewer_leases.get(owner_id) != lease_generation:
+                return
+            del self._viewer_leases[owner_id]
+            self._viewers = len(self._viewer_leases)
             n = self._viewers
             if n == 0:
                 if self._capture_demand_event is not None:
@@ -176,6 +235,10 @@ class StreamHub(threading.Thread):
                 self._jpeg = None
                 self._drain_frame_queue()
         log.info("viewer disconnected (%d watching)", n)
+
+    def viewer_is_active(self, owner_id: str, lease_generation: int) -> bool:
+        with self._cond:
+            return self._viewer_leases.get(owner_id) == lease_generation
 
     def _drain_frame_queue(self) -> None:
         while True:
@@ -240,7 +303,7 @@ class StreamHub(threading.Thread):
                 if not ok:
                     continue
                 with self._cond:
-                    if self._viewers == 0 or frame.captured_at < self._viewer_started_at:
+                    if self._viewers == 0 or frame.captured_at <= self._viewer_started_at:
                         continue
                     self._seq += 1
                     self._jpeg = buf.tobytes()

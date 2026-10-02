@@ -97,8 +97,11 @@ def validate_windows_service_acl(path: Path) -> bool:
             win32security.LookupAccountName(None, r"NT SERVICE\AEGISIdentityAgent")[0],
             win32security.LookupAccountName(None, r"NT AUTHORITY\SYSTEM")[0],
         ]
+        allowed_canonical = [
+            win32security.ConvertSidToStringSid(sid) for sid in allowed
+        ]
         owner = descriptor.GetSecurityDescriptorOwner()
-        if not win32security.EqualSid(owner, allowed[0]):
+        if win32security.ConvertSidToStringSid(owner) != allowed_canonical[0]:
             return False
         dacl = descriptor.GetSecurityDescriptorDacl()
         if dacl is None or dacl.GetAceCount() != 2:
@@ -110,9 +113,10 @@ def validate_windows_service_acl(path: Path) -> bool:
                 return False
             if header[1] & win32security.INHERITED_ACE:
                 return False
-            if mask & ntsecuritycon.FILE_ALL_ACCESS != ntsecuritycon.FILE_ALL_ACCESS:
+            if mask != ntsecuritycon.FILE_ALL_ACCESS:
                 return False
-            matches = [win32security.EqualSid(sid, expected) for expected in allowed]
+            canonical_sid = win32security.ConvertSidToStringSid(sid)
+            matches = [canonical_sid == expected for expected in allowed_canonical]
             if matches.count(True) != 1:
                 return False
             seen[matches.index(True)] = True

@@ -412,7 +412,10 @@ Invoke-CheckedExternal icacls.exe $InstallRoot /inheritance:r /grant:r `
     "${ServiceAccount}:(OI)(CI)RX" 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F'
 if (-not $dataRootExisted) {
     New-Item -ItemType Directory -Path $DataRoot -Force | Out-Null
-    Invoke-CheckedExternal icacls.exe $DataRoot /inheritance:r /grant:r "${ServiceAccount}:(OI)(CI)F" 'SYSTEM:(OI)(CI)F' /setowner $ServiceAccount
+    Invoke-CheckedExternal icacls.exe $DataRoot /inheritance:r /grant:r `
+        "${ServiceAccount}:(OI)(CI)F" 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F'
+    Invoke-CheckedExternal icacls.exe $DataRoot /setowner $ServiceAccount
+    Invoke-CheckedExternal icacls.exe $DataRoot /remove:g 'BUILTIN\Administrators'
 }
 Invoke-CheckedExternal icacls.exe $ConfigurationRoot /inheritance:r /grant:r `
     "${ServiceAccount}:(OI)(CI)RX" 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F'
