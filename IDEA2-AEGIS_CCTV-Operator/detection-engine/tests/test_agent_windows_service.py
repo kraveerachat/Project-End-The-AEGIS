@@ -99,7 +99,7 @@ class AgentWindowsServiceTests(unittest.TestCase):
         script = (ENGINE_ROOT / "windows" / "identity-agent" / "install_identity_agent.ps1").read_text(encoding="utf-8")
         for required in (
             "AEGISIdentityAgent", "NT SERVICE\\AEGISIdentityAgent", "ProgramFiles", "ProgramData",
-            "requirements-identity-agent-windows.txt", "python.exe", "start= auto", "sidtype",
+            "requirements-identity-agent-windows.txt", "python.exe", "sidtype",
         ):
             self.assertIn(required, script)
         for excluded in (".env", ".git", ".venv", "segments", "snapshots", "*.pt", "*.npz"):

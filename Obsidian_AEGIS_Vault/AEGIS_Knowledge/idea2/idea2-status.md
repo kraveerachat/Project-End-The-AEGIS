@@ -15,6 +15,25 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Identity Agent `sc.exe config` argument hotfix (2026-10-02)
+
+The Machine A DPAPI preflight stopped before key generation when the temporary
+service `binPath` configuration returned `sc.exe` exit 1639. On branch
+`fix/idea2-identity-agent-sc-config-argv`, a source-only correction passes
+`binPath=` and its complete command as separate arguments for DPAPI preflight,
+key provisioning, ACL validation, and restoration of the original service
+path. Restoration is attempted even if temporary configuration or stopping
+fails. The shared helper preserves embedded path quotes for Windows PowerShell
+5.1 and rejects the former packed argument shape. Focused Windows/Identity
+Agent tests: 60/60 pass; adjacent protocol/autostart tests: 69 pass, 2
+environment skips; five relevant PowerShell scripts parse cleanly.
+
+This is **not** Machine A acceptance: the installed service/runtime was not
+changed, no key was generated, and the DPAPI preflight was not rerun. The
+reviewed fix must reach the intended release through a PR/merge and an
+explicitly approved runtime update before a new Machine A preflight attempt.
+Production and its database remain unchanged.
+
 ## PR #264 repository-integration scope reconciliation (2026-10-02)
 
 PR #264 is now treated as a **repository/source integration closeout**, not as

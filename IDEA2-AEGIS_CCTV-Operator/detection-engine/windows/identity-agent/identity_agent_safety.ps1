@@ -212,7 +212,17 @@ function Invoke-CheckedServiceControl {
     Assert-IdentityAgentServiceName -ServiceName $ServiceName
     if ($Arguments.Count -lt 1) { throw 'A service-control verb is required' }
     $verb = $Arguments[0]
-    $remaining = if ($Arguments.Count -gt 1) { $Arguments[1..($Arguments.Count - 1)] } else { @() }
+    [string[]]$remaining = @()
+    if ($Arguments.Count -gt 1) { $remaining = $Arguments[1..($Arguments.Count - 1)] }
+    if ($verb -eq 'config') {
+        if ($remaining.Count -ne 2 -or $remaining[0] -cne 'binPath=' -or
+            [string]::IsNullOrWhiteSpace($remaining[1])) {
+            throw 'Service config requires a separate binPath= option and value'
+        }
+        # Windows PowerShell 5.1 strips embedded quotes from native arguments.
+        # Preserve the quoted executable and script paths within the single value.
+        $remaining[1] = $remaining[1].Replace('"', '\"')
+    }
     & sc.exe $verb $ServiceName @remaining | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "sc.exe failed with exit code $LASTEXITCODE"
