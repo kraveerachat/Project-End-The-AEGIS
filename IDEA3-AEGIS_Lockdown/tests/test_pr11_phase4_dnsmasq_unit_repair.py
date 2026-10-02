@@ -215,7 +215,8 @@ REFUSALS = [
     (dict(ap_addr_override="10.77.30.1/24"), "L34_AP_ADDRESS_MISMATCH", "failed"),
     (dict(ap_default_route=True), "L34_AP_INTERFACE_HAS_DEFAULT_ROUTE", "failed"),
     # dnsmasq state
-    (dict(dnsmasq="inactive"), "DNSREPAIR_DNSMASQ_BASELINE_UNSUPPORTED", "failed"),
+    # the exact inactive/dead/success/MainPID 0 state is now the SAFE_STOPPED baseline (test_pr11_phase4_dnsmasq_safe_stopped_successor.py); every other inactive shape refuses
+    (dict(dnsmasq="inactive", dnsmasq_props_override={"Result": "exit-code"}), "DNSREPAIR_DNSMASQ_BASELINE_UNSUPPORTED", "failed"),
     (dict(dnsmasq_props_override={"Result": "exit-code"}), "DNSREPAIR_DNSMASQ_BASELINE_UNSUPPORTED", "failed"),
     (dict(dnsmasq_props_override={"UnitFileState": "disabled"}), "DNSREPAIR_DNSMASQ_BASELINE_UNSUPPORTED", "failed"),
     (dict(stray_ap_listeners=["udp67"]), "L34_V6_AP_DNS_DHCP_LISTENER_PRESENT", "failed"),

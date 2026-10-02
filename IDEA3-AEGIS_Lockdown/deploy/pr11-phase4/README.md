@@ -670,3 +670,7 @@ Restarting `systemd-timesyncd` (the L5 rollback) legitimately reselects one of i
   POST → exact comparator → journal-owned rollback, terminal verdict `PASS | ROLLED_BACK | ROLLBACK_FAILED_ESCALATE | NOT_STARTED_NO_MUTATION`, no automatic retry.
 - **K12.** The repair run claims no reboot persistence. The separate reboot verification records `K12_PERSISTENCE_OBSERVED` and, independently, `K12_FORMALLY_PROVEN=NO`; `K12_AUTOMATIC_REBOOT_PERSISTENCE`
   stays `NOT_PROVEN` until the owner/integration reviewer records an acceptance decision.
+
+### 10.1 Governed successor (SAFE_STOPPED + pre-consume S10 guard) — repository only
+
+The first live attempt of this package was consumed and ended `ROLLBACK_FAILED_ESCALATE` at S10 (IDEA2 already unhealthy); it is never replayed (`OLD_ATTEMPT_RETRY_ALLOWED=NO`, historical AUTH_DIR on a denylist, brand-new AUTH_DIR required). The package now also accepts the exact `SAFE_STOPPED` baseline (`daemon-reload` → `start`, no `reset-failed`/`restart`; comparator operation `DNSMASQ_SAFE_STOPPED_POST` via `allow-dynamic-transitions-safe-stopped-post.txt`) and the owner runner takes a read-only PRE→S10 stability capture/compare **before** the attempt marker is consumed. See `docs/superpowers/specs/2026-10-03-idea3-dnsmasq-safe-stopped-governed-successor-design.md`. Nothing was executed live.

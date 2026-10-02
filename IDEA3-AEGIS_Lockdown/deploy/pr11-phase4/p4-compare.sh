@@ -50,6 +50,8 @@
 #                                      svc.aegis-idea3-dnsmasq.service.SubState failed running
 #                                      svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
 #                                      nm.general#WIFI disabled enabled
+#   DNSMASQ_SAFE_STOPPED_POST          svc.aegis-idea3-dnsmasq.service.ActiveState inactive active   (governed dnsmasq repair successor; PRE->POST only)
+#                                      svc.aegis-idea3-dnsmasq.service.SubState dead running
 #   L34_RUNTIME_REACTIVATION_ROLLBACK  svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive
 #                                      svc.aegis-idea3-dnsmasq.service.SubState failed dead
 #                                      svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
@@ -206,6 +208,12 @@ if [ -n "${ALLOW_DYNAMIC_TRANSITIONS_FILE:-}" ]; then
     "svc.aegis-idea3-dnsmasq.service.SubState failed dead"
     "svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success"
   )
+  # governed dnsmasq repair successor (SAFE_STOPPED baseline): the ONLY value-level window is the stopped -> running pair; Result stays success. A task-specific
+  # catalog, so the L34 / V3 catalogs above and below are not widened.
+  DYN_CATALOG_DNSMASQ_SAFE_STOPPED_POST=(
+    "svc.aegis-idea3-dnsmasq.service.ActiveState inactive active"
+    "svc.aegis-idea3-dnsmasq.service.SubState dead running"
+  )
   _svc_dnsmasq_post=(
     "svc.aegis-idea3-dnsmasq.service.ActiveState failed active"
     "svc.aegis-idea3-dnsmasq.service.SubState failed running"
@@ -248,7 +256,7 @@ if [ -n "${ALLOW_DYNAMIC_TRANSITIONS_FILE:-}" ]; then
   while IFS= read -r line || [ -n "$line" ]; do
     [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
     case "$line" in
-      'operation L34_RUNTIME_REACTIVATION'|'operation L34_RUNTIME_REACTIVATION_ROLLBACK'|'operation L34_V3_POST_FRESH'|'operation L34_V3_POST_RESIDUAL'|'operation L34_V3_ROLLBACK_FRESH'|'operation L34_V3_ROLLBACK_RESIDUAL')
+      'operation L34_RUNTIME_REACTIVATION'|'operation L34_RUNTIME_REACTIVATION_ROLLBACK'|'operation L34_V3_POST_FRESH'|'operation L34_V3_POST_RESIDUAL'|'operation L34_V3_ROLLBACK_FRESH'|'operation L34_V3_ROLLBACK_RESIDUAL'|'operation DNSMASQ_SAFE_STOPPED_POST')
         n_op=$((n_op + 1)); DYN_OP="${line#operation }" ;;
       *)
         [ -n "$DYN_OP" ] || stop "dynamic transition rule before the operation declaration"
