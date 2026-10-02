@@ -64,7 +64,7 @@ $provisionExecuted = $false
 if ($PSCmdlet.ShouldProcess($keyPath, 'Create one DPAPI CurrentUser-protected Ed25519 identity')) {
     if (Test-Path -LiteralPath $resultPath) { Remove-Item -LiteralPath $resultPath -Force }
     $original = $service.PathName
-    $generateCommand = ('"{0}" "{1}" --provision-key --node-id "{2}" --key-version {3} --key-path "{4}" --public-key-export "{5}" --result-output "{6}"' -f
+    $generateCommand = ('"{0}" "{1}" --service --provision-key --node-id "{2}" --key-version {3} --key-path "{4}" --public-key-export "{5}" --result-output "{6}"' -f
         $python, $runner, $NodeId, $KeyVersion, $keyPath, $PublicKeyExport, $resultPath)
     try {
         Invoke-CheckedServiceControl $ServiceName config 'binPath=' $generateCommand
@@ -76,6 +76,7 @@ if ($PSCmdlet.ShouldProcess($keyPath, 'Create one DPAPI CurrentUser-protected Ed
         if (-not (Test-Path -LiteralPath $resultPath)) { throw 'Service-identity key generation did not produce evidence' }
         $serviceController = Get-Service -Name $ServiceName -ErrorAction Stop
         $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+        Assert-IdentityAgentMaintenanceServiceSucceeded -ServiceName $ServiceName
     }
     finally {
         try {

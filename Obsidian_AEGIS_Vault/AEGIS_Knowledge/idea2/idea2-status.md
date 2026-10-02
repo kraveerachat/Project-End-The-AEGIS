@@ -15,6 +15,37 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — SCM-compatible one-shot maintenance (2026-10-02)
+
+Branch: `fix/idea2-identity-agent-scm-oneshot`; owner: Pub. Source base:
+`f967ac4c11d0b02dbf4c08c98aac48437ff2efb5`.
+
+State: SOURCE IMPLEMENTED / LOCAL VERIFIED — repository-only hotfix. Machine A
+proved that the service-identity maintenance command completed its DPAPI
+CurrentUser action, but SCM returned error 1053 because the process exited
+before entering `StartServiceCtrlDispatcher`. The corrected temporary commands
+retain `--service`; the process enters the dispatcher and defers exactly one of
+DPAPI preflight, resumable provisioning, or ACL attestation to `SvcDoRun`.
+Maintenance never constructs the normal browser/named-pipe host. Pywin32 alone
+owns final service status, and every wrapper requires a stopped service with
+zero Win32 and service-specific exit codes before accepting current evidence.
+
+Focused Windows lifecycle/key-store/service verification passes 67/67;
+adjacent Agent/Windows verification passes 69 with two native-pywin32
+environment skips. The CA-bundle suite remains honestly limited in this local
+runtime: 8 tests pass and 3 error because `requests` is absent; CA source was
+not changed. Independent scoped review found Critical=0, Important=0, Minor=0.
+Machine A has not rerun this corrected source. Production, its database,
+installed Machine A runtime, service state, evidence, and private identity
+remain unchanged. A reviewed PR/merge and separately authorized runtime refresh
+remain required before another live maintenance attempt.
+
+### Session register
+
+| ID | Scope | State | Evidence | Remaining / Next |
+|---|---|---|---|---|
+| S1 | Reproduce dispatcher bypass; implement and verify bounded service maintenance dispatch | PASS | RED: dispatcher combination rejected, direct maintenance executed, no one-shot service host; GREEN: 67/67 focused plus 69 pass / 2 environment skips adjacent | Open and review a PR, then merge before owner-authorized Machine A runtime refresh and live SCM rerun |
+
 ## Identity Agent `sc.exe config` argument hotfix (2026-10-02)
 
 The Machine A DPAPI preflight stopped before key generation when the temporary

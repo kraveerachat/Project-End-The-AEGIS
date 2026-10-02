@@ -228,3 +228,20 @@ function Invoke-CheckedServiceControl {
         throw "sc.exe failed with exit code $LASTEXITCODE"
     }
 }
+
+function Assert-IdentityAgentMaintenanceServiceSucceeded {
+    param([Parameter(Mandatory = $true)][string]$ServiceName)
+    Assert-IdentityAgentServiceName -ServiceName $ServiceName
+    $service = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction Stop
+    if ($null -eq $service -or [string]$service.State -ne 'Stopped') {
+        throw 'Identity Agent maintenance service final state is unavailable'
+    }
+    if ($null -eq $service.ExitCode -or $null -eq $service.ServiceSpecificExitCode) {
+        throw 'Identity Agent maintenance service exit status is unavailable'
+    }
+    $exitCode = [uint32]$service.ExitCode
+    $serviceSpecificExitCode = [uint32]$service.ServiceSpecificExitCode
+    if ($exitCode -ne 0 -or $serviceSpecificExitCode -ne 0) {
+        throw "Identity Agent maintenance service failed (ExitCode=$exitCode; ServiceSpecificExitCode=$serviceSpecificExitCode)"
+    }
+}
