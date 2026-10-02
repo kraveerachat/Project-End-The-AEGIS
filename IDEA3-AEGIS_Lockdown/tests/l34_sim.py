@@ -119,6 +119,13 @@ DEFAULT_STATE = {
     "broker_recovered_shows": 0,      # internal counter for the key above
     "broker_journal_extra": [],       # extra journal lines appended to the broker crash-loop tail (a second, unrelated failure signature)
     "broker_journal_stale_bind": "",  # "" | "previous_boot" | "earlier_invocation": the bind-failure lines belong to stale evidence, not to the current failed invocation
+    # ── V8 (POST_V7 PERSISTENT AP RECOVERY) only: `nmcli connection modify aegis-idea3-ap connection.autoconnect yes|no`; all keys default to V1–V7 behaviour ──
+    "profile_modify_works": True,     # `connection modify` exits 0 and changes the persisted profile; False = exit 1 with NO change
+    "profile_modify_writes": "omit",  # how NetworkManager serializes autoconnect=yes in the keyfile: "omit" (default value is not written) | "true"
+    "profile_modify_corrupts": False, # the keyfile rewrite ALSO changes another non-secret line (NetworkManager re-serialization drift)
+    "profile_modify_reorders": False, # the keyfile rewrite re-serializes like libnm: keys re-ordered inside sections, comments/blank lines dropped
+    "profile_modify_adds_uuid": False,  # the keyfile rewrite adds the daemon-assigned `uuid=` line to [connection]
+    "profile_modify_extra": "",       # "section|key=value": the rewrite ALSO adds this non-secret key
 }
 
 WRAPPER = "#!/usr/bin/env bash\nexec {python} {sim} {name} \"$@\"\n"
@@ -304,6 +311,67 @@ def _broker_mutation_due(s: dict) -> bool:
     return False
 
 
+def _rewrite_profile_autoconnect(s: dict, value: str) -> None:
+    """V8: model NetworkManager rewriting the persisted keyfile in place (same mode/owner, new mtime). `no` writes `autoconnect=false`; `yes`
+    removes the line (NetworkManager does not serialize a default value) or writes `autoconnect=true`. Fixture root comes from AEGIS_P4_FS_ROOT."""
+    root = os.environ.get("AEGIS_P4_FS_ROOT")
+    if not root:
+        return
+    f = Path(root) / "etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection"
+    if not f.is_file():
+        return
+    lines = [l for l in f.read_text().splitlines() if not l.strip().startswith("autoconnect=")]
+    new = {"no": "autoconnect=false", "yes": "autoconnect=true" if s["profile_modify_writes"] == "true" else ""}[value]
+    if new:
+        at = next((i for i, l in enumerate(lines) if l.strip() == "[connection]"), -1) + 1
+        lines.insert(at, new)
+    if s["profile_modify_corrupts"]:
+        lines = [l.replace("channel=6", "channel=11") for l in lines]
+    if s["profile_modify_adds_uuid"] or s["profile_modify_reorders"] or s["profile_modify_extra"]:
+        lines = _reserialize_like_libnm(lines, s)
+    f.write_text("\n".join(lines) + "\n")
+
+
+_CONNECTION_ORDER = ["id", "uuid", "type", "autoconnect", "interface-name"]
+
+
+def _reserialize_like_libnm(lines: list[str], s: dict) -> list[str]:
+    """V8: emulate NetworkManager's keyfile writer on the hand-rendered AP profile. Sections keep their order; inside [connection] keys follow libnm's order
+    (id, uuid, type, autoconnect, interface-name); inside every other section keys are alphabetical; comments and blank lines are dropped. Optionally the
+    daemon-assigned uuid is added and an extra non-secret key is appended to a section. Reordering is only applied when profile_modify_reorders is set."""
+    sections: list[tuple[str, list[tuple[str, str]]]] = []
+    for l in lines:
+        st = l.strip()
+        if not st or st.startswith(("#", ";")):
+            continue
+        if st.startswith("[") and st.endswith("]"):
+            sections.append((st[1:-1], []))
+        elif sections and "=" in st:
+            k, v = st.split("=", 1)
+            sections[-1][1].append((k.strip(), v.strip()))
+    if s["profile_modify_adds_uuid"]:
+        for name, kv in sections:
+            if name == "connection":
+                kv.append(("uuid", "b158569b-6281-4b88-b3bc-639a1b1c40c7"))
+    if s["profile_modify_extra"]:
+        sec, kv_text = s["profile_modify_extra"].split("|", 1)
+        k, v = kv_text.split("=", 1)
+        for name, kv in sections:
+            if name == sec:
+                kv.append((k, v))
+    out: list[str] = []
+    for name, kv in sections:
+        if s["profile_modify_reorders"]:
+            if name == "connection":
+                kv = sorted(kv, key=lambda p: (_CONNECTION_ORDER.index(p[0]) if p[0] in _CONNECTION_ORDER else len(_CONNECTION_ORDER), p[0]))
+            else:
+                kv = sorted(kv, key=lambda p: p[0])
+        out.append(f"[{name}]")
+        out += [f"{k}={v}" for k, v in kv]
+        out.append("")
+    return out[:-1] if out and out[-1] == "" else out
+
+
 def main(argv: list[str]) -> int:
     global _SIM_DIR
     name, args = argv[1], argv[2:]
@@ -386,6 +454,12 @@ def main(argv: list[str]) -> int:
                 out.append("802-11-wireless:wlp0s20f3")
             if s["other_wifi_active"]:
                 out.append("802-11-wireless:wlp0s20f3")
+        elif args[:3] == ["connection", "modify", "aegis-idea3-ap"] and len(args) == 5 and args[3] == "connection.autoconnect" and args[4] in ("yes", "no"):
+            if s["profile_modify_works"]:
+                s["ap_profile_autoconnect"] = args[4]
+                _rewrite_profile_autoconnect(s, args[4])
+            else:
+                rc = 1
         elif args[:2] == ["connection", "up"]:
             conn = args[2] if len(args) > 2 else ""
             ok = (len(args) == 5 and args[3] == "ifname" and args[4] == "wlp0s20f3" and conn == "aegis-idea3-ap"
