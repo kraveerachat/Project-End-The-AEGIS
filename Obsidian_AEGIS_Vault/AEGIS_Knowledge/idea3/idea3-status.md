@@ -18,6 +18,16 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3/L4 V8 post-V7 persistent AP recovery (OD-L34-V8-01) — repository only — 2026-10-02
+
+> [!important] New governed one-shot stage, repository implementation only. V8 has NOT run live; no authorization or K3 record was created; Production was NOT mutated; Core NOT restarted; no ESP32; no L7u; Recovery R1–R8 NOT executed.
+> `V8_STAGE = l34-v8-post-v7-persistent-ap-recovery`, `V8_REPOSITORY = IMPLEMENTED (simulator-tested, Draft PR, awaiting human merge)`, `V8_LIVE = NOT_RUN`, `V7_HISTORICAL_RESULT = IMMUTABLE`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **Why:** V7 was explicitly `RUNTIME_ONLY`. After two reboots the AP profile (`autoconnect=no`) was never activated, `aegis-idea3-dnsmasq` hit its start limit and the L6b broker crash-looped again; the operator desktop session then disabled the Wi-Fi radio (read-only journal evidence, 2026-10-02). V7 is one-shot and must not be replayed.
+- **What:** a NEW stage with its own handlers, runner, marker (`L34-V8-REACTIVATION-ATTEMPT-CONSUMED`) and gate library (`p4-l34-v8-lib.sh`). It recovers the V7 baseline class (exact-id rfkill unblock, one radio enable, bounded ready-wait, one ifname-bound AP activation, dnsmasq reset-failed + one start, read-only wait for the broker's own restart, one TLS probe, stable broker/Core tuples) and makes exactly ONE persistent change: NetworkManager `aegis-idea3-ap` `connection.autoconnect` no → yes, journaled before it is made.
+- **Rollback:** journal-owned; restores `autoconnect=no` first, then unwinds dnsmasq, the AP, the radio, device autoconnect and the exact rfkill id; proves the profile identical to PRE in every non-secret line. It never touches the broker or Core, and never edits `/var/lib/systemd/rfkill` or NetworkManager state files.
+- **Still required before any live V8:** human merge, post-merge verification, a NEW owner-frozen runner at the new main, a fresh same-day `stage=L4` authorization and K3 record with the exact V8 scope (a V7 marker or V7 scope is refused), and a read-only preflight that finds the exact baseline. Reboot persistence acceptance (K12) remains a separate later activity. Spec: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-02-idea3-pr11-phase4-l34-v8-post-v7-persistent-ap-recovery-design.md`.
+
 ## IDEA3 R5 normal-path RESTORE + break-glass (OD-R5-BG-01) — repository only — 2026-10-02
 
 > [!important] Repository/local only (IMPLEMENTED != DEPLOYED). PR #287 (`feat/idea3-recovery-r5-normal-path-rebuild`) is **MERGED** on main (`8a41a8548c82c99d5934e89ea8b3428f3dae79f8`; `PR287_MERGED = YES`, `R5_REPOSITORY_MERGED = YES`). No Production mutation, Core restart, L7u, Recovery, ESP32, L8p or L8 execution. This section supersedes the F1 section's `R5_REPOSITORY_MERGED = NO` / `BREAK_GLASS_IMPLEMENTED = NO` held-back note for the branch state; PR #286 (L8p owner runner) is **MERGED** on main (`bfbe1dc68c241c36e7ed6d354545567a581b5553`); the L8p owner runner section below is reconciled accordingly.

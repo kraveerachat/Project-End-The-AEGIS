@@ -1,0 +1,9 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 POST-V7 PERSISTENT AP RECOVERY (V8): allowed NEW listeners.
+# V8 starts with NEITHER 8883 listener (the crash-looping broker cannot bind 10.77.30.1, so the whole process exits) and dnsmasq fully down, so
+# every listener below is a genuinely NEW, approved listener of this run. Each is verified exactly by l34_v4_dnsmasq_listeners_gate /
+# l34_v4_broker_listeners_gate in apply.sh and verify.sh. No plaintext 1883 listener appears here (p4-compare.sh refuses one unconditionally, S-12).
+listen.udp.0.0.0.0%<AEGIS_AP_INTERFACE>:67
+listen.tcp.<AEGIS_AP_ADDRESS>:53
+listen.udp.<AEGIS_AP_ADDRESS>:53
+listen.tcp.127.0.0.1:8883
+listen.tcp.<AEGIS_AP_ADDRESS>:8883

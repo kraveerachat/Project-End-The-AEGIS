@@ -1,0 +1,137 @@
+# AEGIS IDEA3 PR11 Phase 4 — L3/L4 Post-V7 Persistent AP Recovery Design (V8)
+
+Date: 2026-10-02 (Asia/Bangkok). Owner: music. Decision: **OD-L34-V8-01 = APPROVED**. Status: **repository implementation only. Live execution NOT authorized.**
+
+```text
+V8_STAGE_NAME                    = l34-v8-post-v7-persistent-ap-recovery
+V8_BASELINE_ID                   = POST_V7_RADIO_DISABLED_AP_DOWN_BROKER_CHURN
+BASE_MAIN                        = a4b48cde2bc294927fa5b0c7da79aa358b374376
+RECOVERY_EXECUTED                = NO
+LIVE_RECOVERY_AUTHORIZED         = NO
+PRODUCTION_MUTATION              = NO   (this document and its implementation)
+A_L4_CREATED                     = NO
+K3_L4_CREATED                    = NO
+V7_AUTH / V7_MARKER / V7_RUNNER  = NEVER REUSED (V7 is historical and one-shot; its live result is immutable)
+CORE_RESTARTED                   = NO
+L7U_EXECUTED                     = NO
+RECOVERY_R1_R8_PROVEN            = NO
+L8_AUTHORIZED                    = NO
+ESP32                            = NOT TOUCHED
+K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN (V8 does not prove it; reboot persistence acceptance is a separate later activity)
+L3 / L4 / L6B_LIVE_ACCEPTANCE    = PROVEN historically (unchanged, not re-claimed; the L6b broker is NEVER mutated by this workflow)
+```
+
+## 0. Why this stage exists
+
+V7 (`l34-v7-radio-disabled-broker-churn`) recovered the AP, dnsmasq and the L6b broker on 2026-10-01 19:33 and recorded, explicitly, `RUNTIME_ONLY`,
+`PERSISTENT_FILES_REWRITTEN=NO` and `K12_AUTOMATIC_REBOOT_PERSISTENCE=NOT_PROVEN`. The host was rebooted twice afterwards (2026-10-02 06:11 and 08:01) and,
+read-only evidence from the journal shows, came back with the radio enabled by NetworkManager's state file but **the AP profile never activated**
+(`aegis-idea3-ap` has `connection.autoconnect=no`), `aegis-idea3-dnsmasq` failed at 08:17:09 with `unknown interface wlp0s20f3` and hit its start limit, and
+the broker crash-looped from 08:17:14 with `Error: Cannot assign requested address`. At 08:23:09 the operator's desktop session disabled the Wi-Fi radio
+(`radio-control wireless-enabled:off uid=1000 pid=<plasmashell>`), which also rewrote the systemd rfkill state file to blocked. The host is therefore back in
+the V7 class of baseline. V7 must NOT be replayed (its one-shot marker, authorization and frozen runner are spent); no other accepted stage supports a
+radio-disabled host (V4–V6 need the radio enabled). V8 is the new governed stage, and it additionally persists the one policy whose absence made the
+recovery runtime-only.
+
+## 1. Frozen decisions
+
+1. **New stage, new files only.** `reactivation/l34-v8-post-v7-persistent-ap-recovery/{apply,verify,rollback}.sh`, three allow files,
+   `owner-run/run-l34-v8-post-v7-persistent-ap-recovery-owner.sh`, and a NEW gate library `p4-l34-v8-lib.sh`. **No V1–V7 file changes**
+   (the shared `p4-l34-reactivation-lib.sh`, V7 handlers, allow files and runner, the stage gate, registry, comparator and capture are pinned byte-for-byte by
+   `test_pr11_phase4_l34_v8_scope_contract.py`). V8 reuses the V7/V5/V3 gate functions by calling them, never by copying or editing them.
+2. **Baseline = V7's baseline, plus the persistent precondition.** The V3 classifier (FRESH or RESIDUAL), the strict broker-churn contract with the
+   current-boot / current-invocation journal correlation (`l34_v7_broker_journal_capture` + `l34_v7_broker_churn_gate`, unchanged), no `:8883` listener,
+   healthy Core, and a management alternate default route are all retained. New: the persisted profile must be at `connection.autoconnect=no` (NetworkManager value
+   `no` AND keyfile `autoconnect=false`). A profile that already autoconnects is **refused** (`L34_V8_AP_PROFILE_ALREADY_AUTOCONNECT`).
+3. **The ONE persistent change** is `nmcli connection modify aegis-idea3-ap connection.autoconnect yes` (OD-L34-V8-01), performed exactly once by NetworkManager
+   itself. V8 never edits `/var/lib/systemd/rfkill/*`, any NetworkManager state file, dnsmasq or broker configuration, or any unit file.
+4. **The readiness wait precedes the persistent modify** and device autoconnect is off while it happens, so nothing can grab the device between the modify and
+   the single ifname-bound activation (the 2026-10-01 live race remains the load-bearing control).
+5. **No broker or Core command, ever.** The broker recovers through its own `Restart=on-failure` once 10.77.30.1 exists.
+6. **Rollback is journal-owned and restores the persistent value FIRST.**
+
+## 2. Apply order (every mutation is journaled BEFORE it is made)
+
+```text
+ 1 exact-id rfkill unblock                          RFKILL_UNBLOCK <id>
+ 2 device autoconnect off                           NM_DEVICE_AUTOCONNECT_DISABLE <PRE value>
+ 3 ONE `nmcli radio wifi on` (only if still off)    NM_WIFI_RADIO_ENABLE disabled
+ 4 bounded wait: wlp0s20f3 == disconnected          (read-only)
+ 5 PERSIST  nmcli connection modify aegis-idea3-ap connection.autoconnect yes      NM_PROFILE_AUTOCONNECT_ENABLE no
+   then: NM value == yes; keyfile autoconnect != false; every OTHER non-secret profile line identical; l34_profile_gate + effective gate still pass
+ 6 ONE nmcli connection up aegis-idea3-ap ifname wlp0s20f3                          NM_UP aegis-idea3-ap
+ 7 restore device autoconnect to its exact PRE value                                NM_DEVICE_AUTOCONNECT_RESTORED
+ 8 verify AP / interface / address / regulatory / default-route invariants
+ 9 systemctl reset-failed aegis-idea3-dnsmasq.service                               DNSMASQ_RESET_FAILED
+10 ONE systemctl start aegis-idea3-dnsmasq.service                                  DNSMASQ_START
+11 bounded READ-ONLY wait for the broker's OWN auto-restart; 12 exact 8883 pair; 13 ONE handshake-only TLS probe; 14 broker tuple stable
+15 Core (MainPID, NRestarts, InvocationID) == PRE tuple
+16 persistent invariants: every artifact identical to PRE except the one authorized autoconnect field
+```
+
+`journal.tsv` is the ownership record. The preflight (`AEGIS_L34_PREFLIGHT_ONLY=YES`) runs every read-only gate and mutates nothing.
+
+## 3. The persistent-change proof (`p4-l34-v8-lib.sh`)
+
+NetworkManager serializes a default `autoconnect=true` by **omitting** the line, so the persisted `yes` state normally looks like "no autoconnect line".
+`l34_v8_profile_file_autoconnect` therefore reports `false | true | absent`; PRE must be exactly `false`, POST must be `absent` or `true`.
+
+The profile is PSK-bearing, so it is snapshotted without ever digesting a secret: `l34_v8_profile_record` stores `mode:uid:gid` (no size/mtime/ctime, which the one
+approved rewrite legitimately changes), the sha256 of the **non-secret lines excluding the autoconnect line**, and the **count** of secret lines
+(`psk_lines=N`). `l34_v8_persistent_verify SNAPSHOT yes|no` requires that record to be unchanged in both states plus the expected autoconnect value; every other
+persistent file (dnsmasq conf, unit, nft, broker conf) keeps the exact V1–V7 record (mode, owner, size, mtime, ctime, sha256).
+
+If a real NetworkManager rewrite ever re-serializes ANY other non-secret line, the proof fails closed (`L34_V8_PROFILE_CHANGED_BEYOND_AUTOCONNECT`). That is
+deliberate: V8 never "repairs" a drifted line. The first live run is the first time a real NetworkManager performs this rewrite; the simulator models it but
+cannot prove it (see Limitations).
+
+## 4. Rollback (failure/abort path only)
+
+Journal-owned, idempotent, never touches the broker or Core. Order:
+
+```text
+0 restore connection.autoconnect=no          only if NM_PROFILE_AUTOCONNECT_ENABLE is journaled AND the profile is not already `no`
+                                             (the entry is written BEFORE the modify, so a modify that failed without effect issues no second modify)
+1 stop aegis-idea3-dnsmasq.service           only if DNSMASQ_START journaled
+2 device autoconnect off                     only while the AP comes down / radio goes off
+3 nmcli connection down aegis-idea3-ap       only while it is the active connection of wlp0s20f3
+3b escalate: a DIFFERENT Wi-Fi profile active → fail closed, never touched
+4 nmcli radio wifi off                       only if this run enabled it
+5 restore device autoconnect to its PRE value
+6 re-block exactly the journaled rfkill id   only if it was soft-blocked before this run
+```
+
+Proofs: the profile is identical to PRE in every non-secret line, `autoconnect=false` included, and `connection.autoconnect` reports `no`; every other
+persistent file identical; L2/forwarding/identities unchanged; Core tuple unchanged; the V3 safe-equivalent boundary (p2p pseudo-device, wpa_supplicant
+running, phy TH|00 are the only tolerated residuals). A journal entry that is not exactly owned, an unknown kind, or a missing rfkill id fails closed. After a
+failed rollback the runner prints `S-11 HOLD — ESCALATE; do NOT retry`.
+
+## 5. One-shot governance
+
+- Marker `L34-V8-REACTIVATION-ATTEMPT-CONSUMED` in the authorization directory; a `L34-V7-REACTIVATION-ATTEMPT-CONSUMED` marker in that directory **refuses**
+  the run; V7 authorization/K3 records carry the V7 scope and fail the V8 scope check.
+- Authorization: `AEGIS_P4_AUTHORIZATION_V1`, `stage=L4`, same-day (Asia/Bangkok), `authorizer=music`, `scope=` exactly the frozen V8 scope (<=200 ASCII);
+  K3: V1 (`kraveerachat`) or V2 (`music` self-attestation) per the existing stage gate. **None is created by this change.**
+- Runner order: pre-gates (read-only) → handler preflight → PRE capture → **consume marker** → apply (once) → verify → PSK leak scan → POST capture →
+  PRE→POST compare → identity check. No rollback path exists before the marker is consumed; after consume a failure rolls back once and the attempt is spent.
+- The runner is an inert repository template (`EXPECTED_MAIN=PIN_MAIN_SHA`); the owner freeze copies it OUTSIDE the repository and pins the merged main.
+  Its `REPO` constant points at the future clean execution worktree `...-L34V8LIVE`.
+- Comparator: `allow-keys.txt` approves the V7 runtime keys plus exactly ONE persistent key, the AP profile `.meta` record (a keyfile rewrite changes
+  size/mtime); the profile `.class` key, `net.idea3_dnsmasq_conf.*`, `fw.idea3_nft` and every broker/rfkill/NetworkManager-state path are never approved.
+  The value-level radio/p2p/wpa/regulatory windows come only from the existing V3 catalogs, selected by the reported baseline.
+
+## 6. Forbidden (statically enforced by tests)
+
+Broker `start|stop|restart|reset-failed|kill|enable|disable|mask`; Core control; `rfkill unblock all`; direct edits of `/var/lib/systemd/rfkill`,
+`/var/lib/NetworkManager`, `NetworkManager.state`; any `nmcli connection` verb other than the one exact `modify … connection.autoconnect`; `nft`,
+`sysctl -w`, `iw reg set`; `tee`/`cp`/`mv`/`rm` in handlers; Twingate, IDEA1/IDEA2, ESP32, MQTT, Recovery R1–R8, L7u, L8.
+
+## 7. Limitations (honest)
+
+- Simulator-tested only. The real `nmcli connection modify` keyfile rewrite, the real `sudo env` environment reset and the real comparator behaviour on the
+  profile `.meta` key are verified only by the first live attempt, which fails closed and rolls back.
+- V8 does not make the AP survive a reboot by itself: `autoconnect=yes` plus a free device is the intended mechanism, but dnsmasq (`Requires=NetworkManager`,
+  no `BindsTo` the device) may still lose its race with the interface at boot, and the rfkill state file records whatever state the radio had at the last
+  shutdown. **K12 automatic reboot persistence is NOT proven and is a separate later activity.**
+- Radio disablement from a desktop session (as at 08:23:09) is an operator action; V8 neither prevents nor detects it.
+- The wired management path is assumed present (`l34_ap_pre_gate` requires an alternate default route); the owner remains responsible for out-of-band access.
