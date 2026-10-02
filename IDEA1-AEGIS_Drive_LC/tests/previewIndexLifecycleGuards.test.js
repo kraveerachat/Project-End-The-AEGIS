@@ -93,9 +93,14 @@ test('LG-4 no preview-index DELETE route except uncommitted-upload cancel (refus
 
 test('LG-5 SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO: no module uses superseded refs to change lifecycle, purge or remove anything', () => {
   const files = [...walk('server'), ...walk('src')]
-  // (a) the client-declared list only travels through the route into the store
+  // (a) the client-declared list only travels through the route into the store; the one client module that names it is
+  //     the PR-D writer, which only PRODUCES it as a CAS body field (replaced shard + old root ids) and never reads it back
   const supersededUsers = files.filter((f) => /supersededBlobIds/.test(code(read(f))))
-  assert.deepEqual(supersededUsers.sort(), ['server/db/vaultPreviewIndexStore.js', 'server/routes/vaultPreviewIndex.js'])
+  assert.deepEqual(supersededUsers.sort(), ['server/db/vaultPreviewIndexStore.js', 'server/routes/vaultPreviewIndex.js', 'src/lib/vaultPreviewIndexWriter.js'])
+  const writerUses = code(read('src/lib/vaultPreviewIndexWriter.js')).split(/\r?\n/).filter((l) => /supersededBlobIds/.test(l)).map((l) => l.trim())
+  assert.equal(writerUses.length, 2, 'declared once, placed once into the CAS body')
+  assert.match(writerUses[0], /^const supersededBlobIds = \[/)
+  assert.match(writerUses[1], /attachBlobIds, supersededBlobIds, idempotencyKey/)
   // (b) only the store (writer + read-only listing) touches the ref table; the config only names it for the boot probe
   const refTable = files.filter((f) => /vault_preview_index_blob_refs/.test(code(read(f))))
   assert.deepEqual(refTable.sort(), ['server/config/vaultTreeLimits.js', 'server/db/vaultPreviewIndexStore.js'])
