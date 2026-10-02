@@ -18,6 +18,8 @@ edit_policy: append-by-new-file
 - D.1 authenticated classification; D.2 recovery never offers reserved blobs, unnamed/undecryptable recover only under a user-entered non-empty name; D.3 lifecycle guards pinned with falsifiability; D.4 read-only reachability report (counts only, never automatic). Retention: KEEP EVERYTHING; growth bounded only by the C.7 budget.
 - Independent whole-branch review: 0 Critical / 0 Important; Minor fixes applied (507 cleanup never 500, invalid CAS body audited DENIED, cancel-only DELETE pinned, frozen-head comment). `WRITER_IMPLEMENTED=NO`, `WRITER_ENABLED=NO`, `PRODUCTION_DB_CHANGED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
 
+- Post-PR-#297 reconciliation: `origin/main` `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f` (preview-index tables: `drive_app` SELECT/INSERT/UPDATE only, no DELETE/TRUNCATE) merged normally, no conflict, no PR-C code change required.
+
 ## Source files changed
 
 - `IDEA1-AEGIS_Drive_LC/server/db/vaultPreviewIndexStore.js` — index CAS, generation/ref listings, budget enforcement (`assertIndexBudgetWithinCommit`, `stageIndexBlobWithinBudget`).
@@ -42,6 +44,8 @@ edit_policy: append-by-new-file
 - Concurrency: same-generation CAS → 1 winner; 20 writers → generations 1..20, no gaps; main + index CAS → no deadlock (5 s timeouts); lost response → replay; key reuse + different body → rejected; owner at max − S, 10 parallel commits → 1×201, 9×507, retained = max. Falsifiability: removing the CAS row locks fails 4/6 CAS tests; removing the budget owner lock fails PIB-PG-1/2; making superseded ids PURGE_PENDING fails LG-4/5/6 and PI-CAS-4 (local, uncommitted, restored).
 - Focused memory suites at final head — pass: store 16, API 17, client 6, uploads 7, merge 12 (seeded property), budget 10, orphans 6, lifecycle 6, recovery UI 13, source scan 4, vaultTreeUploadsApi/vaultV2Api/uploadRecoveryLifecycle/vaultTreeUploadClient/vaultUploadRecovery/uploadRecovery regressions 0 fail.
 - `npm run build` — pass (2,760 modules); tracked `dist` restored. `node --test tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs tests/collaborationPolicy.test.mjs` — pass 59/59. `git diff --check 4a8cc3c9...HEAD` — pass. Changed-path and added-line secret scan — 0 sensitive paths, 0 secret-pattern matches.
+
+- Post-PR-#297 PostgreSQL re-verification (disposable, role script narrowing applied) — pass, 0 skips: previewIndexMigration 13/13, previewIndexStorePostgres 15/15, previewIndexCasPostgres 6/6, previewIndexStorageBudgetPostgres 3/3, vaultV2Postgres 17/17, `PI_UPLOAD_PG=1` previewIndexUploads 7/7, previewIndexStorageBudget 10/10, previewIndexLifecycleGuards 6/6. Memory C/D + upload/recovery regressions 149 pass / 0 fail / 7 PG-gated skip. Scratch compromised-role probe (not committed): `drive_app` DELETE on heads/generations/refs → `permission denied`; head row intact; CAS continues normally (stuck-index path closed). Governance 59/59 pass.
 
 ## Canonical notes updated
 
