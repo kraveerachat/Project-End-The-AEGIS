@@ -53,9 +53,9 @@ test('PIC-CAN-3 strict parser fails secure', () => {
   assert.throws(() => canon.canonicalParseStrict(new Uint8Array([0x7b, 0xff, 0x7d]), LIM), (e) => e.code === 'BAD_SYNTAX')
   assert.throws(() => canon.canonicalParseStrict(new Uint8Array(5000).fill(0x20), LIM), (e) => e.code === 'LIMIT_DECODED_BYTES')
   assert.throws(() => canon.canonicalParseStrict('{}', LIM), (e) => e.code === 'BAD_TYPE')
-  const proto = canon.canonicalParseStrict(te.encode('{"__proto__":{"x":1}}'), LIM)
-  assert.equal(({}).x, undefined, 'no prototype pollution')
-  assert.ok(Object.hasOwn(proto, '__proto__'))
+  for (const key of ['__proto__', 'constructor', 'prototype']) {
+    assert.throws(() => canon.canonicalParseStrict(te.encode(`{"${key}":{}}`), LIM), (e) => e.code === 'UNKNOWN_KEY', `${key} rejected at parser boundary`)
+  }
   // manifest decode keeps its own errors
   assert.throws(() => canon.canonicalDecode(te.encode('[]')), (e) => e.code === 'BAD_SYNTAX')
   assert.throws(() => canon.canonicalDecode(te.encode('{"evil":1}')), (e) => e.code === 'UNKNOWN_KEY')

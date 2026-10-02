@@ -148,6 +148,7 @@ class Parser {
       this.ws()
       if (this.s[this.i] !== '"') this.fail()
       const key = this.string()
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') this.fail('UNKNOWN_KEY', `unsafe key ${JSON.stringify(key)}`)
       if (key in out) this.fail('DUPLICATE_KEY', `duplicate key ${JSON.stringify(key)}`)
       this.ws()
       if (this.s[this.i] !== ':') this.fail()

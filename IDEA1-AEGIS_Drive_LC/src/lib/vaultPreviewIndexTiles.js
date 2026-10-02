@@ -22,7 +22,7 @@ export function previewIndexKindFor(tileKind) {
  * @param {{ kek: CryptoKey, unlockedState?: object|null, api?: object, fetchBytes?: Function,
  *           diagnostics?: { count?: (name: string) => void } | null }} o
  */
-export function createPreviewIndexTiles({ kek, unlockedState = null, api = treeApi, fetchBytes = apiFetchBytes, diagnostics = null }) {
+export function createPreviewIndexTiles({ kek, unlockedState = null, api = treeApi, fetchBytes = apiFetchBytes, diagnostics = null, decodeImage = undefined }) {
   const reader = createPreviewIndexReader({ kek, api, fetchBytes, unlockedState, diagnostics })
   const count = (name) => { try { diagnostics?.count?.(name) } catch { /* diagnostics never break tiles */ } }
   let ready = Promise.resolve()
@@ -40,8 +40,16 @@ export function createPreviewIndexTiles({ kek, unlockedState = null, api = treeA
       await ready
       const entry = await reader.lookup(node, kind, { signal, index })
       if (!entry) return null
-      const r = await readDerivative({ kek, entry, envelopeOf: reader.envelopeOf, fetchBytes, signal })
+      let r
+      try { r = await readDerivative({ kek, entry, envelopeOf: reader.envelopeOf, fetchBytes, signal, decodeImage }) }
+      catch { count('derivative.ERROR'); return null }
       if (!r.ok) { count(`derivative.${r.reason}`); return null }
+      const current = await reader.lookup(node, kind, { signal, index })
+      if (!current || current.contentId !== entry.contentId || String(current.blobRef.id) !== String(entry.blobRef.id)) {
+        r.bytes.fill(0)
+        count('derivative.STALE_SOURCE')
+        return null
+      }
       count('derivative.HIT')
       return { width: r.width, height: r.height, bytes: r.bytes, mime: r.mime }
     },

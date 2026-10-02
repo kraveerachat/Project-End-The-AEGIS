@@ -59,7 +59,7 @@ export async function sealDerivative({ kek, bytes, mime, transport = null, uploa
  * with `acceptMeta`. Shared by index objects (here) and derivatives (vaultDerivativeRead.js).
  * @returns {Promise<{ ok: true, bytes: Uint8Array, meta: object } | { ok: false, reason: string }>}
  */
-export async function openSingleChunkV2({ kek, envelope, expected, maxPlainBytes, acceptMeta, fetchBytes = apiFetchBytes, signal = null, onIntegrityFailure = null }) {
+export async function openSingleChunkV2({ kek, envelope, expected, maxPlainBytes, acceptMeta, fetchBytes = apiFetchBytes, signal = null, onIntegrityFailure = null, onAuthenticatedCiphertext = null }) {
   const aborted = () => Boolean(signal?.aborted)
   if (aborted()) return { ok: false, reason: 'ABORTED' }
   if (!envelope) return { ok: false, reason: 'MISSING' }
@@ -78,7 +78,12 @@ export async function openSingleChunkV2({ kek, envelope, expected, maxPlainBytes
   const verdict = acceptMeta(meta)
   if (verdict !== true) return { ok: false, reason: verdict }
   if (meta.plainSize !== plainSize) return integrity()
-  const res = await fetchBytes(`/api/vault/blobs/${encodeURIComponent(envelope.id)}/chunks/0`, { signal })
+  let res
+  try {
+    res = await fetchBytes(`/api/vault/blobs/${encodeURIComponent(envelope.id)}/chunks/0`, { signal })
+  } catch {
+    return { ok: false, reason: aborted() ? 'ABORTED' : 'MISSING' }
+  }
   if (aborted()) return { ok: false, reason: 'ABORTED' }
   if (!res?.ok || !res.bytes) return { ok: false, reason: 'MISSING' }
   const ivB64 = res.headers?.get?.('X-Vault-Chunk-IV')
@@ -89,6 +94,7 @@ export async function openSingleChunkV2({ kek, envelope, expected, maxPlainBytes
   } catch { return integrity() }
   if (aborted()) { plain.fill(0); return { ok: false, reason: 'ABORTED' } }
   if (plain.length !== plainSize) { plain.fill(0); return integrity() }
+  try { onAuthenticatedCiphertext?.(envelope.id, res.bytes, ivB64) } catch { /* cache failure must not affect authenticated read */ }
   return { ok: true, bytes: plain, meta }
 }
 
@@ -96,15 +102,19 @@ export async function openSingleChunkV2({ kek, envelope, expected, maxPlainBytes
  * Open a root/shard object: expected contentId first, reserved marker + empty name, bounded padded size, unpadded result.
  * @returns {Promise<{ ok: true, plaintext: Uint8Array } | { ok: false, reason: 'MISSING'|'CONTENT_ID_MISMATCH'|'MARKER_MISMATCH'|'INTEGRITY'|'BOUNDS'|'ABORTED' }>}
  */
-export async function openIndexObject({ kek, envelope, expected, marker, maxPaddedBytes, fetchBytes = apiFetchBytes, signal = null }) {
+export async function openIndexObject({ kek, envelope, expected, marker, maxPaddedBytes, fetchBytes = apiFetchBytes, signal = null, onAuthenticatedCiphertext = null }) {
   if (!MARKERS.has(marker)) return { ok: false, reason: 'MARKER_MISMATCH' }
+  let authenticated = null
   const r = await openSingleChunkV2({
     kek, envelope, expected, maxPlainBytes: maxPaddedBytes, fetchBytes, signal,
+    onAuthenticatedCiphertext: (id, bytes, ivB64) => { authenticated = { id, bytes, ivB64 } },
     acceptMeta: (meta) => (meta && meta.name === '' && meta.type === marker ? true : 'MARKER_MISMATCH'),
   })
   if (!r.ok) return r
   try {
-    return { ok: true, plaintext: stripPadding(r.bytes) }
+    const plaintext = stripPadding(r.bytes)
+    if (authenticated) { try { onAuthenticatedCiphertext?.(authenticated.id, authenticated.bytes, authenticated.ivB64) } catch { /* cache failure must not affect read */ } }
+    return { ok: true, plaintext }
   } catch {
     r.bytes.fill(0)
     return { ok: false, reason: 'INTEGRITY' }

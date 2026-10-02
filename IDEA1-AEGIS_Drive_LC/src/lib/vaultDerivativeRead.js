@@ -66,7 +66,10 @@ export function imageDimensions(bytes, mime) {
  * @returns {Promise<{ ok: true, bytes: Uint8Array, mime: string, width: number, height: number }
  *                 | { ok: false, reason: 'MISSING'|'CONTENT_ID_MISMATCH'|'META_MISMATCH'|'INTEGRITY'|'SIGNATURE'|'BOUNDS'|'ABORTED' }>}
  */
-export async function readDerivative({ kek, entry, envelopeOf, fetchBytes = apiFetchBytes, signal = null }) {
+export async function readDerivative({ kek, entry, envelopeOf, fetchBytes = apiFetchBytes, signal = null, decodeImage = (blob) => {
+  if (typeof globalThis.createImageBitmap !== 'function') throw new Error('IMAGE_DECODER_UNAVAILABLE')
+  return globalThis.createImageBitmap(blob)
+} }) {
   if (signal?.aborted) return { ok: false, reason: 'ABORTED' }
   const bounds = entry ? previewProfileBounds(entry.profile, entry.kind) : null
   if (!bounds || !DERIVATIVE_MIMES.includes(entry.mime) || !bounds.mimes.includes(entry.mime) || entry.plainSize > bounds.maxPlainSize) return { ok: false, reason: 'BOUNDS' }
@@ -83,5 +86,12 @@ export async function readDerivative({ kek, entry, envelopeOf, fetchBytes = apiF
   if (!dims || dims.width !== entry.width || dims.height !== entry.height) return reject('BOUNDS')
   const long = Math.max(dims.width, dims.height), short = Math.min(dims.width, dims.height)
   if (long > bounds.maxLongEdge || short > bounds.maxShortEdge) return reject('BOUNDS')
+  let bitmap
+  try {
+    bitmap = await decodeImage(new Blob([r.bytes], { type: entry.mime }))
+    if (signal?.aborted) return reject('ABORTED')
+    if (!bitmap || bitmap.width !== dims.width || bitmap.height !== dims.height) return reject('BOUNDS')
+  } catch { return reject(signal?.aborted ? 'ABORTED' : 'SIGNATURE') }
+  finally { try { bitmap?.close?.() } catch { /* decoder resource already closed */ } }
   return { ok: true, bytes: r.bytes, mime: entry.mime, width: dims.width, height: dims.height }
 }

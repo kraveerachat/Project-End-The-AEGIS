@@ -32,7 +32,7 @@ const STUBBED = new Set([
   '/src/lib/vaultCrypto.js',
 ])
 
-export async function startVaultScreenEnv() {
+export async function startVaultScreenEnv({ previewIndexTilesStub = false } = {}) {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost/drive/vault',
     pretendToBeVisual: true,
@@ -82,7 +82,12 @@ export async function startVaultScreenEnv() {
     plugins: [{
       name: 'vault-screen-backend-stub',
       enforce: 'pre',
-      resolveId: (source) => (STUBBED.has(source) ? backendStub : null),
+      resolveId: (source) => {
+        if (previewIndexTilesStub && source === '../lib/vaultPreviewIndexTiles.js') {
+          return normalizePath(path.join(rootDir, 'tests/fixtures/previewIndexTilesScreenStub.js'))
+        }
+        return STUBBED.has(source) ? backendStub : null
+      },
     }],
     server: { middlewareMode: true },
     optimizeDeps: { noDiscovery: true, include: [] },

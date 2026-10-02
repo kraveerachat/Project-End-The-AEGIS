@@ -184,15 +184,27 @@ async function measureCell(nodes, variant, runs) {
 }
 
 async function mainManifestDelta(nodes) {
-  // the D-1 index adds NO field to the main manifest (schema v1 unchanged); encode the same tree with and without an index → identical bytes
+  // The index is encoded as a separate object. Re-encode an independent main-manifest copy after that operation;
+  // no index field may appear in the schema-v1 manifest and the canonical bytes must remain identical.
   const m = createGenesisManifest({ treeId: TREE_ID, rootNodeId: 'R'.repeat(22), revisionId: 'V'.repeat(22), now: 1_759_300_000_000 })
-  for (let i = 0; i < nodes - 1; i++) {
+  const folders = []
+  for (let i = 0; i < FOLDERS; i++) {
     const nodeId = id22()
-    m.nodes.set(nodeId, { nodeId, kind: 'file', parentNodeId: 'R'.repeat(22), name: `photo-${i}.jpg`, createdAtClient: 1, modifiedAtClient: 1, lifecycle: { state: 'active' }, blobRef: { formatVersion: 2, id: hex48() }, mediaType: 'image/jpeg', plainSize: 1_000_000 })
+    folders.push(nodeId)
+    m.nodes.set(nodeId, { nodeId, kind: 'folder', parentNodeId: 'R'.repeat(22), name: `folder-${i}`, createdAtClient: 1, modifiedAtClient: 1, lifecycle: { state: 'active' } })
   }
-  const without = canonicalEncode(m, { maxJsonDepth: 8, maxDecodedBytes: 64 * 1024 * 1024 }).length
-  const withIndex = without // nothing to add: there is no index linkage in the main manifest
-  return { nodes, mainManifestCanonicalBytes: without, deltaBytes: withIndex - without }
+  const files = nodes - 1 - FOLDERS
+  if (files < 0) throw new RangeError('nodes must include root and five folders')
+  for (let i = 0; i < files; i++) {
+    const nodeId = id22()
+    m.nodes.set(nodeId, { nodeId, kind: 'file', parentNodeId: folders[i % folders.length], name: `photo-${i}.jpg`, createdAtClient: 1, modifiedAtClient: 1, lifecycle: { state: 'active' }, blobRef: { formatVersion: 2, id: hex48() }, mediaType: 'image/jpeg', plainSize: 1_000_000 })
+  }
+  const opts = { maxJsonDepth: 8, maxDecodedBytes: 64 * 1024 * 1024 }
+  const before = canonicalEncode(m, opts)
+  encodeRoot({ schemaVersion: 1, treeId: TREE_ID, indexGeneration: 1, createdAtClient: 1_759_300_000_000, shards: [] })
+  const after = canonicalEncode(structuredClone(m), opts)
+  const canonicalBytesEqual = Buffer.from(before).equals(Buffer.from(after))
+  return { nodes, files, nonFileNodes: 1 + folders.length, mainManifestCanonicalBytes: before.length, deltaBytes: after.length - before.length, canonicalBytesEqual }
 }
 
 async function main() {

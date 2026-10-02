@@ -113,7 +113,7 @@ test('PIRD-6 clear(): aborts in-flight work, empties caches; unlockedState purge
   release()
   assert.equal((await loading).status, 'FAILED')
   assert.equal(await r.lookup(fx.nodes.get(fx.fileIds[0]), 'thumb'), null, 'purged reader serves nothing')
-  assert.deepEqual(r.stats(), { status: 'CLEARED', shards: 0, envelopes: 0, inflight: 0 })
+  assert.deepEqual(r.stats(), { status: 'CLEARED', shards: 0, envelopes: 0, ciphertextBytes: 0, inflight: 0 })
   assert.equal(counts.writes, 0); assert.equal(counts.reads, 0)
   const after = reader(fx, { unlockedState: us })
   assert.equal((await after.load(fx.mainHead)).status, 'FAILED', 'a reader created on a purged session never loads')
@@ -145,4 +145,99 @@ test('PIRD-8 an entry with an unknown (future) profile is structurally valid but
   assert.equal((await r.load(fx.mainHead)).status, 'READY')
   assert.equal((await r.shardForPrefixForTests(prefix)).entries.get(nodeId)[0].profile, 'vp9', 'kept structurally')
   assert.equal(await r.lookup(node, 'thumb'), null, 'never rendered')
+})
+
+test('PIRD-9 older in-flight load cannot replace a newer generation', async () => {
+  const fx = await buildIndex({ files: 1, generation: 1 })
+  const first = await fx.api.getPreviewIndexHead()
+  const rootPlain = encodeRoot({ schemaVersion: 1, treeId: TREE_ID, indexGeneration: 2, createdAtClient: 2, shards: fx.shards })
+  const newer = await sealIndexObject({ kek: fx.kek, marker: INDEX_ROOT_MARKER, plaintext: rootPlain, buckets: PREVIEW_INDEX_LIMITS.rootPaddingBuckets, transport: fx.t })
+  const second = { ...first, indexGeneration: 2, rootBlobRef: newer.blobRef, rootContentIdB64: newer.contentId }
+  let headCalls = 0
+  fx.api.getPreviewIndexHead = async () => (++headCalls === 1 ? first : second)
+  let release, entered
+  const gate = new Promise((resolve) => { release = resolve })
+  const started = new Promise((resolve) => { entered = resolve })
+  const realFetch = fx.t.fetchBytes
+  const r = reader(fx, { fetchBytes: async (path, opts) => {
+    if (path.includes(first.rootBlobRef.id)) { entered(); await gate }
+    return realFetch(path, opts)
+  } })
+  const oldLoad = r.load(fx.mainHead)
+  await started
+  assert.equal((await r.load(fx.mainHead)).status, 'READY')
+  release()
+  await oldLoad
+  assert.equal(r.snapshot().head.indexGeneration, 2)
+})
+
+test('PIRD-10 lookup binds to latest node after shard fetch and rejects replaced or trashed source', async () => {
+  const fx = await buildIndex({ files: 1 })
+  const id = fx.fileIds[0], stale = fx.nodes.get(id)
+  const r = reader(fx)
+  await r.load(fx.mainHead)
+  fx.nodes.set(id, { ...stale, blobRef: { formatVersion: 2, id: 'f'.repeat(48) } })
+  assert.equal(await r.lookup(stale, 'thumb'), null, 'caller-held old node cannot authorize a stale derivative')
+  fx.nodes.set(id, stale)
+  const fx2 = await buildIndex({ files: 1 })
+  const id2 = fx2.fileIds[0], node2 = fx2.nodes.get(id2)
+  let release, entered
+  const gate = new Promise((resolve) => { release = resolve })
+  const started = new Promise((resolve) => { entered = resolve })
+  const realFetch = fx2.t.fetchBytes
+  const r2 = reader(fx2, { fetchBytes: async (path, opts) => {
+    if (fx2.shards.some((s) => path.includes(s.blobRef.id))) { entered(); await gate }
+    return realFetch(path, opts)
+  } })
+  await r2.load(fx2.mainHead)
+  const pending = r2.lookup(node2, 'thumb')
+  await started
+  fx2.nodes.set(id2, { ...node2, lifecycle: { state: 'trashed', trashedAtClient: 2, trashedFromParentNodeId: 'R'.repeat(22) } })
+  release()
+  assert.equal(await pending, null, 'node trashed during fetch cannot render a derivative')
+})
+
+test('PIRD-11 disabled reader makes no request and reports DISABLED', async () => {
+  const fx = await buildIndex({ files: 1 })
+  const r = reader(fx, { readEnabled: false })
+  assert.deepEqual(await r.load(fx.mainHead), { status: 'DISABLED' })
+  assert.equal(r.stats().status, 'DISABLED')
+  assert.equal(fx.calls.head, 0)
+})
+
+test('PIRD-12 envelope prefetch is bounded and stops on purge', async () => {
+  const fx = await buildIndex({ files: 1 })
+  const us = createUnlockedVaultState({ revokeObjectUrl: () => {}, closeAllPreviewSessions: () => {} })
+  const r = reader(fx, { unlockedState: us })
+  const ids = Array.from({ length: 1100 }, (_, i) => `e-${i}`)
+  await r.prefetchEnvelopes(ids)
+  assert.ok(r.stats().envelopes <= 1024)
+  assert.ok(fx.calls.envelopes <= 32, 'no more than 32 batches')
+  const calls = fx.calls.envelopes
+  us.purge('MANUAL_LOCK')
+  await r.prefetchEnvelopes(ids)
+  assert.equal(fx.calls.envelopes, calls)
+  assert.equal(r.stats().envelopes, 0)
+})
+
+test('PIRD-13 authenticated ciphertext cache reuses shard fetch and obeys byte ceiling', async () => {
+  const fx = await buildIndex({ files: 1 })
+  const r = reader(fx, { limits: { ...PREVIEW_INDEX_LIMITS, maxLiveDecodedShards: 0 } })
+  await r.load(fx.mainHead)
+  const prefix = fx.shards[0].prefix
+  assert.ok(await r.shardForPrefixForTests(prefix))
+  const fetched = fx.chunkGets().length
+  assert.ok(await r.shardForPrefixForTests(prefix))
+  assert.equal(fx.chunkGets().length, fetched, 'authenticated ciphertext reused after decoded shard eviction')
+  assert.ok(await r.shardForPrefixForTests(prefix), 'cached ciphertext remains intact after another authenticated read')
+  assert.ok(r.stats().ciphertextBytes <= PREVIEW_INDEX_LIMITS.ciphertextLruBytes)
+
+  const fx2 = await buildIndex({ files: 1 })
+  const tiny = reader(fx2, { limits: { ...PREVIEW_INDEX_LIMITS, maxLiveDecodedShards: 0, ciphertextLruBytes: 1 } })
+  await tiny.load(fx2.mainHead)
+  assert.ok(await tiny.shardForPrefixForTests(fx2.shards[0].prefix))
+  const first = fx2.chunkGets().length
+  assert.ok(await tiny.shardForPrefixForTests(fx2.shards[0].prefix))
+  assert.equal(fx2.chunkGets().length, first + 1, 'oversized ciphertext is not retained')
+  assert.equal(tiny.stats().ciphertextBytes, 0)
 })

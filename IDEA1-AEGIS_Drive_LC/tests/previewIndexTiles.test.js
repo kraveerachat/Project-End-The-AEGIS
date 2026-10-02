@@ -10,7 +10,7 @@ import { createPreviewIndexTiles, previewIndexKindFor } from '../src/lib/vaultPr
 import { createUnlockedVaultState } from '../src/lib/vaultUnlockedState.js'
 import { buildIndex } from './helpers/previewIndexFixture.mjs'
 
-const tiles = (fx, o = {}) => createPreviewIndexTiles({ kek: fx.kek, api: fx.api, fetchBytes: fx.t.fetchBytes, ...o })
+const tiles = (fx, o = {}) => createPreviewIndexTiles({ kek: fx.kek, api: fx.api, fetchBytes: fx.t.fetchBytes, decodeImage: async () => ({ width: 320, height: 240, close() {} }), ...o })
 const originalGets = (fx) => fx.chunkGets().filter((p) => [...fx.nodes.values()].some((n) => n.blobRef && p.includes(n.blobRef.id)))
 
 test('PIT-1 kind mapping: image → thumb, video → poster, anything else → none', () => {
@@ -68,16 +68,40 @@ test('PIT-5 purge clears everything; later tiles return null without requests', 
   assert.equal(fx.t.requests.length, before)
 })
 
+test('PIT-7 source replacement during derivative decrypt falls back before publishing bytes', async () => {
+  const fx = await buildIndex({ files: 1 })
+  const id = fx.fileIds[0], node = fx.nodes.get(id)
+  let release, entered
+  const gate = new Promise((resolve) => { release = resolve })
+  const started = new Promise((resolve) => { entered = resolve })
+  const fetch = fx.t.fetchBytes
+  const t = tiles(fx, { fetchBytes: async (path, opts) => {
+    if (path.includes(fx.derivs.get(`${id}:thumb`).blobRef.id)) { entered(); await gate }
+    return fetch(path, opts)
+  } })
+  await t.load(fx.mainHead)
+  const pending = t.tryTile(node, 'image', { index: fx.mainHead.index })
+  await started
+  fx.nodes.set(id, { ...node, blobRef: { formatVersion: 2, id: 'f'.repeat(48) } })
+  release()
+  assert.equal(await pending, null)
+})
+
 test('PIT-6 VaultTreeScreen wiring: gated by previewIndexReadEnabled, tried before the original path, Download/Open untouched', () => {
   const src = fs.readFileSync(new URL('../src/screens/VaultTreeScreen.jsx', import.meta.url), 'utf8')
   assert.match(src, /import \{ createPreviewIndexTiles \} from '\.\.\/lib\/vaultPreviewIndexTiles\.js'/)
+  assert.match(src, /import \{ createDerivativeFirstScheduler \} from '\.\.\/lib\/vaultPreviewIndexTileLane\.js'/)
   assert.match(src, /const previewIndexEnabled = mediaEnabled && treeState\?\.flags\?\.previewIndexReadEnabled === true/)
   assert.match(src, /previewIndexEnabled && unlockedState && kek \? createPreviewIndexTiles\(\{ kek, unlockedState \}\) : null/)
   const load = src.indexOf('load: async (key, { signal } = {}) => {')
-  const tried = src.indexOf('previewTilesRef.current?.tryTile(', load)
+  const staged = src.indexOf('combined?.take(key)', load)
   const original = src.indexOf("const blob = mediaBlobIndexRef.current.get(refKey(node.blobRef))", load)
-  assert.ok(load > 0 && tried > load && original > tried, 'derivative tried first, then the unchanged original path')
-  assert.match(src.slice(tried, original), /if \(fromIndex\) return fromIndex/)
+  assert.ok(load > 0 && staged > load && original > staged, 'verified derivative result is consumed before original work')
+  assert.match(src.slice(staged, original), /if \(fromIndex\) return fromIndex/)
+  assert.match(src, /maxConcurrentJobs: PREVIEW_INDEX_LIMITS\.derivativeLaneConcurrency/)
+  assert.match(src, /getCurrentSourceBlobId: \(key\) =>/)
+  assert.match(src, /scheduler\.reconcileVisible\?\.\(visible\)/)
+  assert.match(src, /tryTile: async \(key, \{ signal \}\) => previewTilesRef\.current\?\.tryTile/)
   const download = src.slice(src.indexOf('export async function treeDownloadEntry'), src.indexOf('export async function treeDownloadEntry') + 3000)
   assert.equal(/previewTiles|PreviewIndex/.test(download), false, 'download path does not consult the preview index')
 })

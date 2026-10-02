@@ -1,6 +1,7 @@
 // tests/vaultDerivativeRead.test.js — AEGIS Drive (IDEA1) · D-1 PR-B Task B.8 · verified encrypted derivative read
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import sharp from 'sharp'
 import { readDerivative, imageDimensions } from '../src/lib/vaultDerivativeRead.js'
 import { sealDerivative } from '../src/lib/vaultPreviewIndexObject.js'
 import { createPreviewIndexFakeTransport } from './helpers/previewIndexFakeTransport.mjs'
@@ -17,7 +18,8 @@ async function sealedEntry({ bytes = fakeJpeg(), mime = 'image/jpeg', entryMime 
   const envelopeOf = async (ref) => { envelopeLookups++; return t.envelopeOf(ref.id) }
   return { t, kek, entry, bytes, envelopeOf, lookups: () => envelopeLookups }
 }
-const read = (s, o = {}) => readDerivative({ kek: s.kek, entry: s.entry, envelopeOf: s.envelopeOf, fetchBytes: s.t.fetchBytes, ...o })
+const headerDecoder = async () => ({ width: 320, height: 240, close() {} })
+const read = (s, o = {}) => readDerivative({ kek: s.kek, entry: s.entry, envelopeOf: s.envelopeOf, fetchBytes: s.t.fetchBytes, decodeImage: headerDecoder, ...o })
 
 test('PIDR-1 happy path (JPEG and WebP): one envelope lookup, one derivative chunk GET, no original fetch, exact bytes', async () => {
   for (const [bytes, mime] of [[fakeJpeg(), 'image/jpeg'], [fakeWebp(), 'image/webp']]) {
@@ -85,6 +87,29 @@ test('PIDR-7 abort and missing envelope', async () => {
   const c = new AbortController(); c.abort()
   assert.deepEqual(await read(s, { signal: c.signal }), { ok: false, reason: 'ABORTED' })
   assert.deepEqual(await read(s, { envelopeOf: async () => null }), { ok: false, reason: 'MISSING' })
+})
+
+test('PIDR-9 chunk transport failure fails soft without returning plaintext', async () => {
+  const s = await sealedEntry()
+  const unavailable = () => { throw new Error('network unavailable') }
+  assert.deepEqual(await read(s, { fetchBytes: unavailable }), { ok: false, reason: 'MISSING' })
+  const c = new AbortController()
+  const aborted = () => { c.abort(); throw new DOMException('aborted', 'AbortError') }
+  assert.deepEqual(await read(s, { fetchBytes: aborted, signal: c.signal }), { ok: false, reason: 'ABORTED' })
+})
+
+test('PIDR-10 authenticated image headers without decodable pixels fall back', async () => {
+  const decodeImage = async (blob) => {
+    const decoded = await sharp(Buffer.from(await blob.arrayBuffer())).metadata()
+    return { width: decoded.width, height: decoded.height, close() {} }
+  }
+  const malformed = await sealedEntry({ bytes: fakeJpeg() })
+  assert.deepEqual(await read(malformed, { decodeImage }), { ok: false, reason: 'SIGNATURE' })
+  const validBytes = await sharp({ create: { width: 320, height: 240, channels: 3, background: '#0a3040' } }).jpeg().toBuffer()
+  const valid = await sealedEntry({ bytes: validBytes })
+  const result = await read(valid, { decodeImage })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.bytes, new Uint8Array(validBytes))
 })
 
 test('PIDR-8 imageDimensions parses JPEG SOF and WebP VP8X/VP8/VP8L; garbage → null', () => {
