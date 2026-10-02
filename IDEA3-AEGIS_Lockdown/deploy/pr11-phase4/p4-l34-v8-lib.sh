@@ -47,9 +47,12 @@ l34_v8_pre_autoconnect_gate() {
 # l34_v8_profile_canonical FILE — the canonical, order-insensitive record set of a keyfile profile, one `[section]/key=value` line per non-secret key, sorted
 # (LC_ALL=C). Parsed with section context (a key moved to another section changes its record), whitespace around `=` trimmed, comments/blank lines and empty
 # sections ignored (NetworkManager drops/adds them when it re-serializes the keyfile). Excluded, and ONLY these: (1) `[connection]/autoconnect` — the one
-# approved transition, verified separately; (2) `[connection]/uuid` — assigned by the NetworkManager daemon, never part of the reviewed profile; (3) secret keys
-# (psk, wep-key*, leap-password, password, private-key-password, pin) in any section — their VALUES are never printed or hashed. Everything else (added or
-# removed keys, changed values such as ssid/channel/address1/method, a key moved between sections) changes the canonical set.
+# approved transition, verified separately; (2) `[connection]/uuid` — assigned by the NetworkManager daemon, never part of the reviewed profile; (3)
+# `[connection]/timestamp` WHEN its value is a non-negative decimal integer — the last-activation epoch that libnm's own keyfile writer persists on the daemon's
+# rewrite of an already-activated profile (live S-11 hold 2026-10-02: the only canonical difference was `[connection]/timestamp=1790896283`); it is runtime
+# bookkeeping, not configuration, and it is not secret; (4) secret keys (psk, wep-key*, leap-password, password, private-key-password, pin) in any section —
+# their VALUES are never printed or hashed. Everything else (added or removed keys, changed values such as ssid/channel/address1/method, a key moved between
+# sections, a `timestamp` in any other section or with a non-numeric value, any other unknown key) changes the canonical set.
 # Reason this exists: a real libnm rewrite of the hand-rendered AP keyfile re-orders keys inside sections (verified offline with libnm's own writer), so a
 # file-order digest would flag a legitimate NetworkManager rewrite as drift.
 l34_v8_profile_canonical() {
@@ -64,6 +67,7 @@ l34_v8_profile_canonical() {
       if (i == 0) { k = trim($0); v = "" } else { k = trim(substr($0, 1, i - 1)); v = trim(substr($0, i + 1)) }
       if (k ~ /^(psk|wep-key[0-9]*|leap-password|password|private-key-password|pin)$/) next
       if (sec == "connection" && (k == "autoconnect" || k == "uuid")) next
+      if (sec == "connection" && k == "timestamp" && v ~ /^[0-9]+$/) next
       print "[" sec "]/" k "=" v
     }' "$f" | LC_ALL=C sort
 }

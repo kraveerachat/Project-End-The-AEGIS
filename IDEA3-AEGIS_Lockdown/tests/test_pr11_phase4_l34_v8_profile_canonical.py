@@ -31,6 +31,9 @@ FIX = Path(__file__).parent / "fixtures" / "l34_v8"
 TEMPLATE = (FIX / "profile-template-order.nmconnection").read_text()
 LIBNM_YES = (FIX / "profile-libnm-autoconnect-yes.nmconnection").read_text()
 LIBNM_NO = (FIX / "profile-libnm-autoconnect-no.nmconnection").read_text()
+LIBNM_YES_TS = (FIX / "profile-libnm-autoconnect-yes-timestamp.nmconnection").read_text()
+LIBNM_NO_TS = (FIX / "profile-libnm-autoconnect-no-timestamp.nmconnection").read_text()
+TIMESTAMP = "1790896283"  # the value observed in the live S-11 hold, 2026-10-02
 PSK = "NOT-A-REAL-PSK-FIXTURE"
 
 
@@ -190,6 +193,95 @@ def test_profile_mode_owner_change_still_fails(tmp_path: Path) -> None:
     assert p.verify("yes").returncode == 1
 
 
+# ── S-11 (live V8, 2026-10-02): NetworkManager persists connection.timestamp on its own rewrite ──────────────────────────
+
+def test_networkmanager_maintained_connection_timestamp_is_ignored_in_both_directions(tmp_path: Path) -> None:  # TIMESTAMP_REGRESSION_TEST
+    p = Prof(tmp_path)
+    assert f"timestamp={TIMESTAMP}" in LIBNM_YES_TS and f"timestamp={TIMESTAMP}" in LIBNM_NO_TS
+    p.write(LIBNM_YES_TS)
+    assert p.verify("yes").returncode == 0, "apply direction: the libnm rewrite after `nmcli connection modify … autoconnect yes`"
+    p.write(LIBNM_NO_TS)
+    assert p.verify("no").returncode == 0, "rollback direction: no -> NetworkManager rewrite with timestamp -> canonical integrity still passes"
+    p.write(with_uuid(LIBNM_YES_TS))
+    assert p.verify("yes").returncode == 0, "uuid and timestamp together, exactly as the daemon writes them"
+
+
+def test_the_timestamp_is_the_only_difference_from_the_proven_fixtures() -> None:
+    assert LIBNM_YES_TS.replace(f"timestamp={TIMESTAMP}\n", "") == LIBNM_YES
+    assert LIBNM_NO_TS.replace(f"timestamp={TIMESTAMP}\n", "") == LIBNM_NO
+
+
+@pytest.mark.parametrize("stamp", ["0", "1", TIMESTAMP, "9999999999"])
+def test_any_numeric_timestamp_value_is_ignored(tmp_path: Path, stamp: str) -> None:
+    p = Prof(tmp_path)
+    p.write(LIBNM_YES_TS.replace(TIMESTAMP, stamp))
+    assert p.verify("yes").returncode == 0
+
+
+@pytest.mark.parametrize("stamp", ["", "abc", "-1", "12 34", "1790896283x", "0x10", "1.5"])
+def test_a_non_numeric_timestamp_is_not_ignored(tmp_path: Path, stamp: str) -> None:  # TIMESTAMP_NOT_A_BYPASS_TEST
+    p = Prof(tmp_path)
+    p.write(LIBNM_YES_TS.replace(f"timestamp={TIMESTAMP}", f"timestamp={stamp}"))
+    res = p.verify("yes")
+    assert res.returncode == 1 and "L34_V8_PROFILE_CHANGED_BEYOND_AUTOCONNECT" in res.stderr, (stamp, res.stderr)
+
+
+@pytest.mark.parametrize("section", ["wifi", "wifi-security", "ipv4", "ipv6", "proxy"])
+def test_a_timestamp_key_outside_the_connection_section_is_not_ignored(tmp_path: Path, section: str) -> None:  # TIMESTAMP_SECTION_NEGATIVE_TEST
+    p = Prof(tmp_path)
+    body = LIBNM_YES + f"\n[{section}]\ntimestamp={TIMESTAMP}\n"
+    p.write(body)
+    res = p.verify("yes")
+    assert res.returncode == 1 and "L34_V8_PROFILE_CHANGED_BEYOND_AUTOCONNECT" in res.stderr, section
+
+
+@pytest.mark.parametrize("other", ["hidden=true", "permissions=user:root:;", "timestamps=1", "last-timestamp=1", "Timestamp=1", "stamp=1", "metered=2"])
+def test_timestamp_exception_is_not_a_generic_unknown_key_bypass(tmp_path: Path, other: str) -> None:  # NO_UNKNOWN_KEY_BYPASS_TEST
+    p = Prof(tmp_path)
+    p.write(LIBNM_YES_TS.replace(f"timestamp={TIMESTAMP}\n", f"timestamp={TIMESTAMP}\n{other}\n", 1))
+    res = p.verify("yes")
+    assert res.returncode == 1 and "L34_V8_PROFILE_CHANGED_BEYOND_AUTOCONNECT" in res.stderr, (other, res.stderr)
+
+
+@pytest.mark.parametrize("name", sorted(NEG))
+def test_protected_values_still_fail_when_the_networkmanager_timestamp_is_present(tmp_path: Path, name: str) -> None:  # PROTECTED_WITH_TIMESTAMP_TEST
+    old, new = NEG[name]
+    assert old in LIBNM_YES_TS
+    p = Prof(tmp_path)
+    p.write(LIBNM_YES_TS.replace(old, new, 1))
+    res = p.verify("yes")
+    assert res.returncode == 1 and "L34_V8_PROFILE_CHANGED_BEYOND_AUTOCONNECT" in res.stderr, (name, res.stderr)
+
+
+def test_psk_line_count_mismatch_and_mode_change_still_fail_with_the_timestamp_present(tmp_path: Path) -> None:
+    p = Prof(tmp_path)
+    p.write(LIBNM_YES_TS.replace(f"psk={PSK}\n", ""))
+    assert p.verify("yes").returncode == 1, "PSK line removed"
+    p.write(LIBNM_YES_TS + f"psk={PSK}\n")
+    assert p.verify("yes").returncode == 1, "PSK line duplicated"
+    p.write(LIBNM_YES_TS)
+    p.file.chmod(0o640)
+    assert p.verify("yes").returncode == 1, "mode drift"
+
+
+def test_autoconnect_is_still_enforced_with_the_timestamp_present(tmp_path: Path) -> None:
+    p = Prof(tmp_path)
+    p.write(LIBNM_YES_TS)
+    res = p.verify("no")
+    assert res.returncode == 1 and "L34_V8_PROFILE_AUTOCONNECT_NOT_FALSE" in res.stderr
+    p.write(LIBNM_NO_TS)
+    res = p.verify("yes")
+    assert res.returncode == 1 and "L34_V8_PROFILE_AUTOCONNECT_NOT_ENABLED" in res.stderr
+
+
+def test_the_timestamp_never_reaches_the_canonical_output_and_secrets_stay_out(tmp_path: Path) -> None:
+    p = Prof(tmp_path)
+    p.write(LIBNM_YES_TS)
+    out = bash(f'l34_v8_profile_canonical "{p.file}"', tmp_path).stdout
+    assert "timestamp" not in out and PSK not in out
+    assert out == bash(f'l34_v8_profile_canonical "{FIX / "profile-libnm-autoconnect-no.nmconnection"}"', tmp_path).stdout
+
+
 # ── secret boundary ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 def test_canonical_records_and_the_snapshot_never_contain_a_secret_value(tmp_path: Path) -> None:
@@ -223,12 +315,16 @@ def test_one_canonical_record_function_backs_snapshot_apply_verify_and_rollback(
     assert "l34_v8_profile_record" in ver
 
 
-def test_only_the_three_approved_exclusions_exist_in_the_canonicalizer() -> None:
-    body = V8_LIB.read_text().split("l34_v8_profile_canonical() {", 1)[1].split("\n}\n", 1)[0]
-    assert re.findall(r'k == "([a-z-]+)"', body) == ["autoconnect", "uuid"]
+def test_only_the_approved_exclusions_exist_in_the_canonicalizer() -> None:
+    body = canonicalizer_body()
+    assert re.findall(r'k == "([a-z-]+)"', body) == ["autoconnect", "uuid", "timestamp"]
     assert 'sec == "connection"' in body
     assert "(psk|wep-key[0-9]*|leap-password|password|private-key-password|pin)" in body
-    assert body.count("next") == 4, "comments/blank, section headers, secret keys and the two approved connection keys only"
+    assert body.count("next") == 5, "comments/blank, section headers, secret keys, the two approved connection keys and the numeric connection timestamp only"
+
+
+def canonicalizer_body() -> str:
+    return V8_LIB.read_text().split("l34_v8_profile_canonical() {", 1)[1].split("\n}\n", 1)[0]
 
 
 # ── handler-level: the simulator re-serializes like NetworkManager ─────────────────────────────────────────────────────
@@ -238,6 +334,8 @@ def test_only_the_three_approved_exclusions_exist_in_the_canonicalizer() -> None
     dict(profile_modify_reorders=True, profile_modify_adds_uuid=True),
     dict(profile_modify_adds_uuid=True),
     dict(profile_modify_reorders=True, profile_modify_adds_uuid=True, profile_modify_writes="true"),
+    dict(profile_modify_adds_timestamp=True),                                                      # S-11 regression
+    dict(profile_modify_reorders=True, profile_modify_adds_uuid=True, profile_modify_adds_timestamp=True),  # S-11 regression: exactly what the daemon writes
 ])
 def test_apply_verify_and_rollback_accept_a_networkmanager_style_rewrite(tmp_path: Path, over: dict) -> None:
     fx = h.v8(tmp_path, **over)
@@ -248,6 +346,8 @@ def test_apply_verify_and_rollback_accept_a_networkmanager_style_rewrite(tmp_pat
         assert text.index("band=bg") < text.index("mode=ap"), "the simulator really re-ordered the keyfile"
     if over.get("profile_modify_adds_uuid"):
         assert "uuid=" in text
+    if over.get("profile_modify_adds_timestamp"):
+        assert f"timestamp={TIMESTAMP}" in text, "the simulator really persisted the NetworkManager timestamp"
     ver = h.run(fx, h.VERIFY)
     assert ver.returncode == 0, ver.stdout + ver.stderr
     rb = h.run(fx, h.ROLLBACK)
@@ -256,9 +356,9 @@ def test_apply_verify_and_rollback_accept_a_networkmanager_style_rewrite(tmp_pat
     assert "semantically identical" in rb.stdout
 
 
-@pytest.mark.parametrize("extra", ["wifi|hidden=true", "ipv4|dns=10.77.30.1", "connection|permissions=user:root:;"])
+@pytest.mark.parametrize("extra", ["wifi|hidden=true", "ipv4|dns=10.77.30.1", "connection|permissions=user:root:;", "wifi|timestamp=1790896283", "connection|timestamp=notanumber"])
 def test_apply_fails_closed_when_the_rewrite_adds_an_unrelated_non_secret_key(tmp_path: Path, extra: str) -> None:
-    fx = h.v8(tmp_path, profile_modify_reorders=True, profile_modify_extra=extra)
+    fx = h.v8(tmp_path, profile_modify_reorders=True, profile_modify_adds_timestamp=True, profile_modify_extra=extra)
     res = h.run(fx, h.APPLY)
     assert res.returncode == 1 and "L34_V8_PROFILE_CHANGED_BEYOND_AUTOCONNECT" in res.stderr, res.stdout + res.stderr
     assert (fx.work / "production-mutation").exists() and "nmcli connection up aegis-idea3-ap ifname wlp0s20f3" not in fx.calls()
@@ -312,3 +412,16 @@ def test_libnm_output_for_the_real_template_passes_the_canonical_proof_live_rege
     conn.get_setting_connection().set_property("autoconnect", True)
     p.write(NM.keyfile_write(conn, NM.KeyfileHandlerFlags.NONE, None, None).to_data()[0])
     assert p.verify("yes").returncode == 0
+
+
+
+def test_committed_timestamp_fixtures_are_byte_for_byte_libnm_output() -> None:
+    NM, GLib = _libnm()
+    kf = GLib.KeyFile.new()
+    kf.load_from_file(str(FIX / "profile-template-order.nmconnection"), GLib.KeyFileFlags.NONE)
+    conn = NM.keyfile_read(kf, str(FIX), NM.KeyfileHandlerFlags.NONE, None, None)
+    for name, value, committed in (("yes", True, LIBNM_YES_TS), ("no", False, LIBNM_NO_TS)):
+        sc = conn.get_setting_connection()
+        sc.set_property("autoconnect", value)
+        sc.set_property("timestamp", int(TIMESTAMP))
+        assert NM.keyfile_write(conn, NM.KeyfileHandlerFlags.NONE, None, None).to_data()[0] == committed, name
