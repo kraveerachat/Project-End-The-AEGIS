@@ -23,16 +23,16 @@ edit_policy: owner-writable
 | Branch | `feat/idea1-preview-d1-b-codec-reader` from merged PR-A / `origin/main` `fa22edd5d5db18e692e7814b895f7af3d3c166dc` at task start |
 | Owner | kla |
 | PR | #285 (Draft during verification) |
-| State | **IMPLEMENTED + LOCALLY VERIFIED; PR DRAFT AWAITING CI/HUMAN REVIEW**. Codec, crypto, read-only reader, derivative read, tile integration, and codec-only size probe; no writer/CAS/Phase C/Production mutation. Latest `origin/main` `fd4df610` merged normally at `0d65b042`; no IDEA1 path overlap. |
+| State | **IMPLEMENTED + LOCALLY VERIFIED; PR READY, POLICY CI PASS, HUMAN REVIEW REQUIRED**. Codec, crypto, read-only reader, derivative read, tile integration, and codec-only size probe; no writer/CAS/Phase C/Production mutation. Latest `origin/main` `fd4df610` merged normally at `0d65b042`; no IDEA1 path overlap. |
 | Production mutation allowed | **NO** |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
-| Next gate | Push PR #285 with its one final receipt, require collaboration policy/CI before Ready and Human owner review/merge. Separate IDX-SIZE/PG/browser/Production gates remain open; do not enable WRITE. |
+| Next gate | Human review and merge of PR #285 after the final documentation-only CI rerun passes. Separate IDX-SIZE/PG/browser/Production gates remain open; do not enable WRITE. |
 
 ### Session Register — D1-B
 
 | ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
 |---|---|---|---|---|---|---|
-| D1B-S1 | Existing B.1–B.10 implementation; continuation fixed read fallbacks, load/source races, image validation, independent derivative concurrency, staged admission, parser/cache/prefetch bounds, and codec probe fixture | Implemented and locally verified; Draft pending CI/Human | Focused Phase B 120 pass / 0 fail / 9 PG-gated skip; reviewer 7 screen/lane pass, no remaining Critical/Important; 10k/2 codec-only max largest shard 139,845 B and max 64 live shards; final full suite 2,643 tests / 2,366 pass / 105 fail / 172 skip vs pristine merged-PR-A baseline 2,580 / 2,302 / 106 / 172, with zero new failure names; only baseline-only known OR-4 Windows EPERM flake; final post-merge build pass and governance 59/59 pass | `0d65b042` plus final PR-B source/status/receipt commit pending | CI, Human review/merge | Human owner reviews PR-B; no Production mutation |
+| D1B-S1 | Existing B.1–B.10 implementation; continuation fixed read fallbacks, load/source races, image validation, independent derivative concurrency, staged admission, parser/cache/prefetch bounds, and codec probe fixture | Implemented and locally verified; PR Ready, Human review required | Focused Phase B 120 pass / 0 fail / 9 PG-gated skip; reviewer 7 screen/lane pass, no remaining Critical/Important; 10k/2 codec-only max largest shard 139,845 B and max 64 live shards; final full suite 2,643 tests / 2,366 pass / 105 fail / 172 skip vs pristine merged-PR-A baseline 2,580 / 2,302 / 106 / 172, with zero new failure names; only baseline-only known OR-4 Windows EPERM flake; final post-merge build pass, governance 59/59 pass, and Ready-state collaboration-guardrails pass | `76781d57` plus documentation-only status correction pending | Final documentation-only CI rerun; Human review/merge | Human owner reviews PR-B; no Production mutation |
 
 The read path is default OFF and may return DISABLED, MISSING, CORRUPT, or ABORTED without blocking original preview. Index objects remain encrypted and separate from schema-v1 main manifest; no writer, CAS, index upload, derivative generation, destructive GC, or rollout is present. The codec probe is `CODEC_ONLY_PRELIMINARY`, not the required IDX-SIZE capacity gate or approved budget. This task has not enabled `VAULT_PREVIEW_INDEX_WRITE_ENABLED` and has not touched Production.
 
