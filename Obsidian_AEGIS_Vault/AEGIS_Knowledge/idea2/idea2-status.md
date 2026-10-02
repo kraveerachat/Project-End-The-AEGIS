@@ -15,7 +15,31 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
-## Current task — SCM-compatible one-shot maintenance (2026-10-02)
+## Current task — Production Agent HTTPS ingress (2026-10-02)
+
+Branch: `fix/idea2-production-agent-https-ingress`; owner: Pub. Source base:
+`4a8cc3c95e2f4147fbab9c505079c0377a271d99`.
+
+State: IN PROGRESS — repository-only edge and configuration contract work.
+Production currently denies every `/monitor/internal/*` request at the HUB,
+while the Machine Identity Agent's canonical Monitor base naturally targets six
+registry-backed or signed routes below that prefix. This task is adding a
+case-sensitive, exact-route, POST-only, query-free, 16 KiB machine allowlist
+ahead of the existing deny-by-default guard. Browser Cookie and Authorization
+headers are removed at the edge; Agent proof headers and all Monitor-side
+registry, signature, replay, and legacy-auth behavior remain authoritative.
+
+No Production, database, Machine A runtime, key, camera, or tunnel mutation is
+authorized. Source verification, shared-infrastructure integration review, and
+a Draft PR are required before any separately approved rollout.
+
+### Session register
+
+| ID | Scope | State | Evidence | Remaining / Next |
+|---|---|---|---|---|
+| S1 | Exact Production HTTPS machine-ingress contract and canonical audience examples | IN PROGRESS | Approved bounded design; isolated worktree at the exact source base | RED routing/config tests, GREEN implementation, full verification, receipt, Draft PR |
+
+## Previous task — SCM-compatible one-shot maintenance (2026-10-02)
 
 Branch: `fix/idea2-identity-agent-scm-oneshot`; owner: Pub. Source base:
 `f967ac4c11d0b02dbf4c08c98aac48437ff2efb5`.

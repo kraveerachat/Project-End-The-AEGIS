@@ -33,7 +33,7 @@ const CONFIGS = [
       Forwarded: '""',
     },
     upstreamSet: '$drive_upstream drive-proxy:8001',
-    monitorGuard: 'location ~* ^/monitor/internal(/|$)',
+    monitorGuard: 'location ~* ^/monitor/internal',
   },
   {
     name: 'development gateway',

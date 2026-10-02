@@ -63,13 +63,14 @@ function publishedPort(container, containerPort) {
   return Number(match[1])
 }
 
-function request({ protocol, port, path, method = 'GET', ca, body = Buffer.alloc(0) }) {
+function request({ protocol, port, path, method = 'GET', ca, body = Buffer.alloc(0), headers: extraHeaders = {} }) {
   const transport = protocol === 'https:' ? https : http
   const headers = {
     Host: 'aegis-smoke.internal',
     Forwarded: 'for=203.0.113.40;proto=http',
     'X-Forwarded-For': '203.0.113.41',
     'X-Real-IP': '203.0.113.42',
+    ...extraHeaders,
   }
   if (body.length > 0) {
     headers['Content-Type'] = 'application/octet-stream'
@@ -97,6 +98,57 @@ function request({ protocol, port, path, method = 'GET', ca, body = Buffer.alloc
     req.on('error', reject)
     req.end(body)
   })
+}
+
+async function verifyProductionAgentIngress({ port, ca }) {
+  const approved = [
+    '/monitor/internal/agent-auth/challenge',
+    '/monitor/internal/agent-auth/verify',
+    '/monitor/internal/heartbeat',
+    '/monitor/internal/detections',
+    '/monitor/internal/alerts',
+    '/monitor/internal/clips',
+  ]
+  for (const path of approved) {
+    const response = await request({
+      protocol: 'https:', port, ca, path, method: 'POST', body: Buffer.from('{"fixture":true}'),
+      headers: {
+        Cookie: 'browser-session=must-not-cross-edge',
+        Authorization: 'Bearer browser-credential-must-not-cross-edge',
+        'X-Aegis-Agent-Session': 'agent-session-fixture',
+        'X-Aegis-Request-Signature': 'agent-signature-fixture',
+      },
+    })
+    assert.equal(response.status, 200, `${path} reaches Monitor only for canonical POST`)
+    const upstream = JSON.parse(response.body)
+    assert.equal(upstream.url, path.slice('/monitor'.length), 'the /monitor prefix is removed exactly once')
+    assert.equal(upstream.headers.cookie, undefined, 'browser Cookie is stripped')
+    assert.equal(upstream.headers.authorization, undefined, 'browser Authorization is stripped')
+    assert.equal(upstream.headers['x-aegis-agent-session'], 'agent-session-fixture')
+    assert.equal(upstream.headers['x-aegis-request-signature'], 'agent-signature-fixture')
+  }
+
+  for (const method of ['GET', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
+    const response = await request({ protocol: 'https:', port, ca, path: approved[2], method })
+    assert.equal(response.status, 403, `${method} is rejected before Monitor`)
+  }
+  for (const path of [
+    '/monitor/internal',
+    '/monitor/internal/unknown',
+    '/monitor/Internal/heartbeat',
+    '/monitor/internal/Heartbeat',
+    '/monitor/internal/heartbeat/x',
+    '/monitor/internalx/heartbeat',
+    '/monitor/internal/heartbeat?x=1',
+    '/monitor/internal/agent-auth/challenge?node=edge-a',
+  ]) {
+    const response = await request({ protocol: 'https:', port, ca, path, method: 'POST' })
+    assert.equal(response.status, 404, `${path} remains denied at the edge`)
+  }
+  const oversized = await request({
+    protocol: 'https:', port, ca, path: approved[3], method: 'POST', body: Buffer.alloc((16 * 1024) + 1),
+  })
+  assert.equal(oversized.status, 413, 'machine ingress body is bounded to 16 KiB')
 }
 
 async function waitForEdge(options) {
@@ -185,11 +237,12 @@ try {
 
   const stubProgram = [
     "const http=require('http')",
-    "http.createServer((req,res)=>{let bytes=0;req.on('data',c=>bytes+=c.length);req.on('end',()=>{res.setHeader('content-type','application/json');res.end(JSON.stringify({method:req.method,url:req.url,headers:req.headers,bytes}))})}).listen(8001,'0.0.0.0')",
+    "const handler=(req,res)=>{let bytes=0;req.on('data',c=>bytes+=c.length);req.on('end',()=>{res.setHeader('content-type','application/json');res.end(JSON.stringify({method:req.method,url:req.url,headers:req.headers,bytes}))})}",
+    "for(const port of [8001,8002])http.createServer(handler).listen(port,'0.0.0.0')",
   ].join(';')
   docker([
     'run', '-d', '--name', stubName,
-    '--network', networkName, '--network-alias', 'drive-proxy',
+    '--network', networkName, '--network-alias', 'drive-proxy', '--network-alias', 'monitor',
     'node:20-alpine', 'node', '-e', stubProgram,
   ])
   createdContainers.push(stubName)
@@ -232,9 +285,10 @@ try {
 
   await verifyEdge({ name: 'production HUB', protocol: 'https:', port: hubPort, ca })
   await verifyEdge({ name: 'development gateway', protocol: 'http:', port: gatewayPort })
+  await verifyProductionAgentIngress({ port: hubPort, ca })
   console.log('NGINX_RUNTIME_SYNTAX_GATE=PASS')
   console.log('NGINX_FUNCTIONAL_ROUTING_SMOKE=PASS')
-  console.log('NGINX_SMOKE_CASES=12')
+  console.log('NGINX_SMOKE_CASES=32')
 } catch (error) {
   for (const container of createdContainers) {
     try {
