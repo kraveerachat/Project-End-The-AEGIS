@@ -15,6 +15,59 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Closed Task — IDEA1-TRANSFER-FINAL-REPORT-MEASUREMENT — P1 Direct LAN Final Report Measurement & Remote R1 Closeout
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-TRANSFER-FINAL-REPORT-MEASUREMENT / P1 Direct LAN Final Report Measurement & Remote R1 Closeout |
+| Branch | `docs/idea1-transfer-final-report-measurement` from `origin/main` `79ad60dd56fa87d1590fc0819777174ea6d747d9` |
+| Owner | kla |
+| PR | #306 (Ready for human review) |
+| State | **CLOSED — FINAL_REPORT_MEASUREMENT COMPLETE / REMOTE R1 COMPLETE / NO_SAFE_FIX_PROVEN / WORKSTREAM CLOSED**. P1 Direct LAN final report measurement executed onsite on 2026-10-02 (18/18 valid measured runs, 9 upload + 9 download, SHA-256 integrity PASS; sustained LAN throughput ~10.6 MB/s upload, ~11.0 MB/s download, consistent with proven 100 Mbps inter-VLAN trunk ceiling). Remote R1 diagnostic packet executed on 2026-10-02/2026-10-03 (P2P verified, upload 2.786 MB/s, download single 4.206 MB/s, download dual aggregate 4.141 MB/s, ratio ~0.985, server resources unconstrained, ISP baseline captured). Final decision `NO_SAFE_FIX_PROVEN`. No application defect proven; no safe code fix proven; no Production mutation; `ONSITE_REVISIT_REQUIRED=NO`. Throughput workstream formally closed with documented limitations. Exactly one immutable receipt added. |
+| Production mutation allowed | **NO** |
+| Plans & Specs | `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-09-25-idea1-transfer-media-performance-measurement-plan.md` (§§21–24); `IDEA1-AEGIS_Drive_LC/docs/superpowers/specs/2026-09-25-idea1-transfer-media-performance-study-design.md` (§§25–27) |
+| Next gate | Human review and merge of PR #306. |
+
+### Session Register — LFT-FINAL-1
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| LFT-FINAL-1-S1 | Reconcile onsite P1 Direct LAN final report measurements (18 runs: 9 upload, 9 download, integrity PASS, tracer note, pilot exclusion); update measurement plan §23 and study design §26; establish Draft PR | CLOSED | Onsite measurements (upload medians 100MB: 10.588, 300MB: 10.752, 1GB: 10.591 MB/s; download medians 100MB: 11.042, 300MB: 11.068, 1GB: 10.994 MB/s; SHA-256 all PASS; 100 Mbps trunk ceiling consistent); governance and vault validation PASS; Draft PR #306 | `7c07fc08` | Remote R1 diagnostic packet execution | S2 |
+| LFT-FINAL-1-S2 | Remote R1 diagnostic packet execution (P2P verified, upload 2.786 MB/s, download 4.206 MB/s single / 4.141 MB/s dual, ratio 0.985, server unconstrained, ISP baseline captured); final decision NO_SAFE_FIX_PROVEN; closeout docs, canonical status update, final receipt, and PR ready | CLOSED | Remote R1 telemetry (P2P, 0% IO wait, idle 92-98%, no resource pressure); ISP 58.65/28.40 Mbps; flat dual download ceiling; governance 59/59 PASS, vault validation PASS, diff check PASS, secret scan PASS; immutable receipt | This branch | None (workstream closed) | Human review and merge PR #306 |
+
+Onsite Direct LAN final report measurement executed 2026-10-02:
+- Path verification: `P1_DIRECT_LAN=PASS`, `TcpTestSucceeded=True`, `SourceAddress=192.168.30.98`, `InterfaceAlias=Ethernet`, `RemoteTarget=192.168.10.10:443`, `FINAL_PATH_SANITY_CHECK=PASS`. Twingate not used.
+- Upload (9/9 valid runs): 100 MB median 10.588 MB/s; 300 MB median 10.752 MB/s; 1 GB median 10.591 MB/s. Overall median ~10.6 MB/s. Tracer label note: 100 MB runs retained `LU-S-warmup` label (`TRACER_LABEL_MISMATCH_ONLY`); underlying metrics, chunk counts, HTTP 200, byte counts verified.
+- Download (9/9 valid runs): 100 MB median 11.042 MB/s; 300 MB median 11.068 MB/s; 1 GB median 10.994 MB/s. Overall median ~11.0 MB/s. `DOWNLOAD_INTEGRITY=PASS` (all 9 SHA-256 digests bit-exact PASS).
+- Excluded run: initial `LD-S-r01` attempt failed final file resolution (`RESULT=EXCLUDED`, `REASON=FINAL_FILE_RESOLUTION_FAILED`). Excluded from 9-run dataset.
+- Throughput ~10.6 MB/s upload and ~11.0 MB/s download corresponds to ~85–88 Mbps wire payload rate, aligning with the 100 Mbps full duplex inter-VLAN trunk ceiling (MikroTik RB750r2 `ether2` / TL-SG105E Port 1) proven in PR #259.
+
+Remote R1 diagnostic packet executed 2026-10-02 / 2026-10-03:
+- Path verification: Intel Wi-Fi 6E AX211 (866.7 Mbps), Client IP `100.127.255.164`, `TcpTestSucceeded=True`, Interface `Twingate`.
+- Twingate Admin activity: Resource `aegis.internal`, Connector `aegis-connector-02`, Connection Type `Peer to peer` (activity event confirmed "Established peer-to-peer connection"); STUN Discovery `Available` (supporting telemetry, not itself the proof of P2P). `TWINGATE_CONNECTION=P2P`, `TWINGATE_RELAY_PATH=NO`.
+- Single Upload: `RU-M-r01` (300 MB, 18 chunks) = **2.786 MB/s**, all HTTP 200.
+- Single Download: `RD-M-r01` (300 MB) = **4.206 MB/s**, SHA-256 bit-exact match (`HASH_PASS=True`).
+- Dual Download: `RD-M-dual-r01` (2 concurrent 300 MB downloads) = aggregate **4.141 MB/s**, both SHA-256 PASS, single ref 4.206 MB/s, ratio ≈ **0.985** (`REMOTE_SHARED_THROUGHPUT_CEILING=OBSERVED`). The single-versus-dual probe observed a flat aggregate throughput ceiling (~0.985 ratio), showing that concurrency did not increase aggregate Remote throughput. This is consistent with a shared Remote-path/channel ceiling, but the exact limiting component is not proven. Note: accidental screenshot showing 3 downloads clarified as not reflecting the controlled 2-stream run.
+- Server telemetry: load 1.22 / 1.33 / 1.33, RAM 1.7G used / 5.3G avail, swap 1.8G used (`si`/`so` ≈ 0), root 55G used / 30G avail (66%), CPU idle 92–98%, I/O wait 0%. Container CPU/RAM: Drive 0.00% CPU, 127.5 MiB; Connector 8.68% CPU, 31.72 MiB. Docker NET I/O cumulative note respected.
+- Home ISP baseline: Twingate OFF 58.65 Mbps down / 28.40 Mbps up / 5 ms ping (primary baseline); Twingate ON 58.33 / 28.53 / 4 ms (supplementary).
+
+Final classification & workstream decision:
+- `REMOTE_R1=COMPLETE`
+- `APPLICATION_UPLOAD_DEFECT=NOT_PROVEN`
+- `APPLICATION_DOWNLOAD_DEFECT=NOT_PROVEN`
+- `SERVER_RESOURCE_BOTTLENECK=NOT_OBSERVED`
+- `TWINGATE_CONNECTION=P2P`
+- `TWINGATE_RELAY_BOTTLENECK=NOT_APPLICABLE`
+- `REMOTE_SHARED_THROUGHPUT_CEILING=OBSERVED`
+- `EXACT_REMOTE_ROOT_CAUSE=NOT_PROVEN`
+- `SAFE_APPLICATION_FIX_PROVEN=NO`
+- `SIMPLE_SAFE_FIX_PROVEN=NO`
+- `PERFORMANCE_MUTATION_AUTHORIZED=NO`
+- `PERFORMANCE_MUTATION_PERFORMED=NO`
+- `FINAL_DECISION=NO_SAFE_FIX_PROVEN`
+- `ONSITE_REVISIT_REQUIRED=NO`
+- Workstream closed. Historical PRE-FIX baseline (PR #216) and live physical-path evidence (PR #259) preserved and cross-referenced. Exactly one immutable receipt added.
+
 ## Current Task — IDEA1-UNIFIED-PREVIEW-D1-C — D-1 PR-C CAS, upload lifecycle, storage budget, orphan safety
 
 | Field | Current value |
@@ -301,7 +354,7 @@ Durable facts:
 - Manifest rules: server accepts manifest schema [1,2] independent of the upgrade flag, rejects 3+; v2 heads are always written as v2 and never downgraded to v1; P2a builds treat v2 Vaults as read-only (P2A-W approved).
 - Zero-Knowledge invariants remain binding: no server Vault plaintext, no server-generated Vault derivatives, no persistent decrypted Vault cache; only client-encrypted ciphertext derivatives may persist (D-10).
 
-## Current Task
+## Closed Task — IDEA1-LFT-PERF-1 — Large File Transfer Performance Study & Optimization (Historical Baseline / PR #216 Merged)
 
 | Field | Current value |
 |---|---|

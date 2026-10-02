@@ -1038,3 +1038,256 @@ When executed from the remote home environment:
 4. **Step 4: Report results**
    - Return raw values for ISP speed, connection mode, and D1-Remote.
    - Compare D1-Remote R against P1 D1 (`R=0.993`).
+
+## 23. P1 Direct LAN Final Report Measurement (Executed 2026-10-02)
+
+- **Date:** 2026-10-02
+- **Environment:** Onsite P1 Direct LAN (`192.168.30.98`) -> Production Drive Host (`192.168.10.10:443`)
+- **Classification:** `FINAL_REPORT_MEASUREMENT` (Explicitly: `NOT PRE_FIX`, `NOT POST_FIX`)
+- **Status:** `LAN_FINAL_REPORT_MEASUREMENT=COMPLETE` (18/18 valid runs: 9 upload, 9 download)
+
+### 23.1 Path verification and environment sanity check
+
+Path reachability and interface verification executed prior to measurement:
+~~~text
+P1_DIRECT_LAN=PASS
+TcpTestSucceeded=True
+SourceAddress=192.168.30.98
+InterfaceAlias=Ethernet
+RemoteTarget=192.168.10.10:443
+FINAL_PATH_SANITY_CHECK=PASS
+~~~
+Twingate client was NOT used for the final LAN measurement. The test client operated via physical Ethernet on VLAN 30 (`192.168.30.98`), routing directly across the router trunk to VLAN 10 (`192.168.10.10:443`).
+
+### 23.2 Upload final report measurement (P1 Direct LAN)
+
+Executed across standard fixture sizes (100 MB, 300 MB, 1 GB) using the authenticated in-page XHR tracer method:
+
+| Fixture | Run | Measured MB/s | Chunks | Status | Bytes | Notes |
+|---|---|---:|---:|---|---:|---|
+| **100 MB** | r01 | 10.534 | 6 | allHttp200=true | 100,000,000 | Tracer label: `LU-S-warmup` (`TRACER_LABEL_MISMATCH_ONLY`) |
+| **100 MB** | r02 | 10.735 | 6 | allHttp200=true | 100,000,000 | Tracer label: `LU-S-warmup` (`TRACER_LABEL_MISMATCH_ONLY`) |
+| **100 MB** | r03 | 10.588 | 6 | allHttp200=true | 100,000,000 | Tracer label: `LU-S-warmup` (`TRACER_LABEL_MISMATCH_ONLY`) |
+| **300 MB** | r01 | 10.752 | 18 | allHttp200=true | 300,000,000 | Clean run |
+| **300 MB** | r02 | 10.729 | 18 | allHttp200=true | 300,000,000 | Clean run |
+| **300 MB** | r03 | 10.757 | 18 | allHttp200=true | 300,000,000 | Clean run |
+| **1 GB** | r01 | 10.608 | 60 | allHttp200=true | 1,000,000,000 | Clean run |
+| **1 GB** | r02 | 10.591 | 60 | allHttp200=true | 1,000,000,000 | Clean run |
+| **1 GB** | r03 | 10.557 | 60 | allHttp200=true | 1,000,000,000 | Clean run |
+
+**Upload Medians:**
+- 100 MB median: **10.588 MB/s**
+- 300 MB median: **10.752 MB/s**
+- 1 GB median: **10.591 MB/s**
+- Overall Upload Median across all sizes: **~10.6 MB/s**
+
+**Methodological Notes:**
+- `LAN_UPLOAD_VALID_RUNS=9/9`.
+- **Tracer Label Anomaly:** In the 100 MB upload set, individual measured runs retained the harness label `LU-S-warmup` in console output despite being distinct measured runs. Preserved honestly as `TRACER_LABEL_MISMATCH_ONLY`. The underlying byte counts (100,000,000 B), chunk counts (6 × 16 MiB chunks), HTTP 200 statuses, and timing sequences are verified and valid.
+
+### 23.3 Download final report measurement (P1 Direct LAN)
+
+Executed across standard fixture sizes (100 MB, 300 MB, 1 GB) using the authenticated in-page stream reader with SHA-256 integrity verification:
+
+| Fixture | Run | Measured MB/s | HTTP | SHA-256 Digest | Integrity |
+|---|---|---:|---|---|---|
+| **100 MB** | r01 | 11.143 | 200 | `f079cad53add0091ed5d0409b0469f9f5cb745b8c280be685dda73203dea90e8` | PASS |
+| **100 MB** | r02 | 11.006 | 200 | `f079cad53add0091ed5d0409b0469f9f5cb745b8c280be685dda73203dea90e8` | PASS |
+| **100 MB** | r03 | 11.042 | 200 | `f079cad53add0091ed5d0409b0469f9f5cb745b8c280be685dda73203dea90e8` | PASS |
+| **300 MB** | r01 | 11.279 | 200 | `81ba1dbe05118eab211ea9b613860870950891052c7784ce9ba6aabd44c42efb` | PASS |
+| **300 MB** | r02 | 10.954 | 200 | `81ba1dbe05118eab211ea9b613860870950891052c7784ce9ba6aabd44c42efb` | PASS |
+| **300 MB** | r03 | 11.068 | 200 | `81ba1dbe05118eab211ea9b613860870950891052c7784ce9ba6aabd44c42efb` | PASS |
+| **1 GB** | r01 | 10.994 | 200 | `3e6f285b2180c18eab7f808ed59d9b30a5b8400734b9cf0f447a6bb5dce7e188` | PASS |
+| **1 GB** | r02 | 10.958 | 200 | `3e6f285b2180c18eab7f808ed59d9b30a5b8400734b9cf0f447a6bb5dce7e188` | PASS |
+| **1 GB** | r03 | 11.029 | 200 | `3e6f285b2180c18eab7f808ed59d9b30a5b8400734b9cf0f447a6bb5dce7e188` | PASS |
+
+**Download Medians:**
+- 100 MB median: **11.042 MB/s**
+- 300 MB median: **11.068 MB/s**
+- 1 GB median: **10.994 MB/s**
+- Overall Download Median across all sizes: **~11.0 MB/s**
+
+**Methodological Notes & Excluded Observer Attempt:**
+- `LAN_DOWNLOAD_VALID_RUNS=9/9`.
+- `DOWNLOAD_INTEGRITY=PASS` (all 9 runs matched expected byte-exact SHA-256 digests).
+- **Excluded Pilot Attempt:** An initial attempt on `LD-S-r01` suffered a test harness final file resolution failure (`FINAL_FILE resolution failed / ambiguous`).
+  ~~~text
+  RESULT=EXCLUDED
+  REASON=FINAL_FILE_RESOLUTION_FAILED
+  ~~~
+  This attempt was formally excluded from the 9-run dataset. Its derived result and stale hash variable are not used.
+
+### 23.4 Summary and interpretation boundary
+
+~~~text
+LAN_UPLOAD_VALID_RUNS=9/9
+LAN_DOWNLOAD_VALID_RUNS=9/9
+LAN_TOTAL_VALID_MEASURED_RUNS=18/18
+LAN_FINAL_REPORT_MEASUREMENT=COMPLETE
+P1_DIRECT_LAN=PASS
+FINAL_PATH_SANITY_CHECK=PASS
+DOWNLOAD_INTEGRITY=PASS
+~~~
+
+**Interpretation Boundary:**
+- Sustained LAN throughput sits cleanly at **Upload ~10.6 MB/s** and **Download ~11.0 MB/s**.
+- These figures reflect **~85–88 Mbps wire payload rate**, perfectly consistent with the live hardware telemetry established by infrastructure PR #259 (MikroTik RB750r2 `ether2` 100 Mbps full duplex trunk ceiling, TL-SG105E Port 1 100MF trunk).
+- **Strict Boundary:** Do NOT claim:
+  - a new application optimization (none was applied);
+  - `POST_FIX` (no post-fix code or config was deployed);
+  - network remediation (the 100 Mbps inter-VLAN trunk is unchanged);
+  - router replacement;
+  - Twingate as the sole remote root cause;
+  - Remote throughput closure.
+
+### 23.5 Remote next sequence and onsite revisit policy
+
+**Remote R1 Status:** `COMPLETE` (executed 2026-10-02 / 2026-10-03; see §24).
+
+**Decision:** `Path B: NO_SAFE_FIX_PROVEN` selected. No Production mutation; Remote residual limitation documented; throughput workstream closed.
+
+**Onsite Revisit Policy:**
+~~~text
+ONSITE_REVISIT_REQUIRED = NO
+~~~
+- Because no application fix is implemented, no LAN re-verification is required.
+- Historical PRE-FIX baseline (PR #216) and live physical-path evidence (PR #259) remain unchanged and cross-referenced.
+
+## 24. Remote R1 Diagnostic Packet Execution & Final Decision (Executed 2026-10-02 / 2026-10-03)
+
+- **Date:** 2026-10-02 / 2026-10-03
+- **Environment:** Remote Client via Twingate -> Production Drive Host (`192.168.10.10:443`)
+- **Status:** `REMOTE_R1=COMPLETE`
+
+### 24.1 R1-A Remote Path Verification & Twingate Activity
+
+- **Client physical link:** Wi-Fi (Intel Wi-Fi 6E AX211, LinkSpeed=866.7 Mbps)
+- **Twingate Client IP:** `100.127.255.164`
+- **AEGIS Path Verification:**
+  - Remote Target: `192.168.10.10:443`
+  - `TcpTestSucceeded=True`
+  - `SourceAddress=100.127.255.164`
+  - `InterfaceAlias=Twingate`
+- **Twingate Admin Activity Telemetry:**
+  - Resource: `aegis.internal`
+  - Protocol/Port: `TCP/443`
+  - Connector: `aegis-connector-02`
+  - Connection Type: `Peer to peer` (verified by Twingate activity event showing "Established peer-to-peer connection" / Connection Type "Peer to peer")
+  - STUN Discovery: `Available` (supporting telemetry, not itself the proof of P2P)
+- **Classification:**
+  ~~~text
+  TWINGATE_CONNECTION = P2P
+  TWINGATE_RELAY_PATH = NO
+  TWINGATE_RELAY_BOTTLENECK = NOT_APPLICABLE
+  ~~~
+
+### 24.2 R1-B Single Remote Upload
+
+Executed with one 300,000,000 B fixture using the in-page XHR tracer:
+
+- **Run Label:** `RU-M-r01`
+- **Total Bytes:** 300,000,000 bytes
+- **Chunks:** 18 chunks
+- **Chunk Span:** 107,690.4 ms
+- **Throughput:** **2.786 MB/s**
+- **HTTP Status:** All 18 PUTs returned HTTP 200 (`allHttp200=true`)
+- **Classification:** `REMOTE_SINGLE_UPLOAD=PASS`, `REMOTE_UPLOAD_MBPS=2.786`
+
+### 24.3 R1-C Single Remote Download
+
+Executed with one 300,000,000 B fixture using the authenticated download stream observer:
+
+- **Run ID:** `RD-M-r01`
+- **Total Bytes:** 300,000,000 bytes
+- **Download Duration:** 71,331 ms
+- **Throughput:** **4.206 MB/s**
+- **SHA-256 Digest:** `81ba1dbe05118eab211ea9b613860870950891052c7784ce9ba6aabd44c42efb`
+- **Integrity Result:** `HASH_PASS=True`
+- **Classification:** `REMOTE_SINGLE_DOWNLOAD=PASS`, `REMOTE_DOWNLOAD_MBPS=4.206`
+
+### 24.4 R1-D Dual Remote Download
+
+Executed with exactly two concurrent 300,000,000 B downloads:
+
+- **Run ID:** `RD-M-dual-r01`
+- **Concurrency:** Exactly 2 concurrent downloads (authoritative controlled run; an accidental screenshot showing 3 visible downloads was clarified by Human Owner as not reflecting the controlled test; the recorded test runner output is authoritative).
+- **Span:** 144,906 ms
+- **Aggregate Throughput:** **4.141 MB/s**
+- **Integrity:** `HASH1_PASS=True`, `HASH2_PASS=True` (both streams byte-exact verified)
+- **Single Download Reference:** 4.206 MB/s
+- **Dual/Single Ratio:**
+  ~~~text
+  DUAL_SINGLE_RATIO = 4.141 / 4.206 ≈ 0.985
+  ~~~
+- **Classification:**
+  ~~~text
+  REMOTE_DUAL_DOWNLOAD = PASS
+  REMOTE_DUAL_AGGREGATE_MBPS = 4.141
+  REMOTE_SHARED_THROUGHPUT_CEILING = OBSERVED
+  ~~~
+  The single-versus-dual probe observed a flat aggregate throughput ceiling (~0.985 ratio), showing that concurrency did not increase aggregate Remote throughput. This is consistent with a shared Remote-path/channel ceiling, but the exact limiting component is not proven.
+
+### 24.5 R1-E Server Read-Only Telemetry
+
+Server telemetry captured during remote traffic:
+
+- **Host Uptime / Load:** load average ≈ 1.22 / 1.33 / 1.33 (well within Beelink 4-core capacity)
+- **Host Memory:** Total 7.0 GiB, Used 1.7 GiB, Available 5.3 GiB (75% free)
+- **Host Swap:** Total 4.0 GiB, Used 1.8 GiB, vmstat `si`/`so` ≈ 0 throughout observation (zero active paging)
+- **Host Filesystem:** Root `/` 89 GiB total, 55 GiB used, 30 GiB available (66% utilization)
+- **Host vmstat:** CPU idle 92–98%, I/O wait 0%, no blocking process queue pressure
+- **Container Telemetry Snapshot:**
+  - `aegis-prod-drive-1`: CPU 0.00%, MEM 127.5 MiB / 7.035 GiB (1.77%)
+  - `twingate-aegis-connector-02`: CPU 8.68%, MEM 31.72 MiB / 7.035 GiB (0.44%)
+- **Methodological Note on Docker NET I/O:** Docker NET I/O metrics represent cumulative counters since container creation, not instantaneous link transfer rates, and must not be cited as bandwidth metrics.
+- **Classification:**
+  ~~~text
+  SERVER_CPU_SATURATION = NOT_OBSERVED
+  SERVER_MEMORY_PRESSURE = NOT_OBSERVED
+  SERVER_IO_WAIT_BOTTLENECK = NOT_OBSERVED
+  DRIVE_CONTAINER_RESOURCE_PRESSURE = NOT_OBSERVED
+  TWINGATE_CONNECTOR_RESOURCE_PRESSURE = NOT_OBSERVED
+  ~~~
+
+### 24.6 Home ISP Baseline
+
+Measured from the remote client home connection:
+
+- **Twingate OFF (Primary Baseline):**
+  - Download: **58.65 Mbps**
+  - Upload: **28.40 Mbps**
+  - Latency / Ping: **5 ms**
+- **Twingate ON (Supplementary Baseline):**
+  - Download: **58.33 Mbps**
+  - Upload: **28.53 Mbps**
+  - Latency / Ping: **4 ms**
+- **Interpretation Boundary:**
+  - Ordinary Internet Speedtest traffic under Twingate ON does not prove traversal of the AEGIS Twingate Resource tunnel (split tunneling / direct bypass).
+  - Twingate OFF numbers serve as the primary local ISP baseline.
+  - Do NOT claim: `TWINGATE_HAS_ZERO_OVERHEAD`.
+  - Record: `HOME_ISP_BASELINE_AVAILABLE=YES`.
+
+### 24.7 Final Remote Classification and Workstream Closure
+
+~~~text
+REMOTE_R1 = COMPLETE
+APPLICATION_UPLOAD_DEFECT = NOT_PROVEN
+APPLICATION_DOWNLOAD_DEFECT = NOT_PROVEN
+SERVER_RESOURCE_BOTTLENECK = NOT_OBSERVED
+TWINGATE_CONNECTION = P2P
+TWINGATE_RELAY_BOTTLENECK = NOT_APPLICABLE
+REMOTE_SHARED_THROUGHPUT_CEILING = OBSERVED
+EXACT_REMOTE_ROOT_CAUSE = NOT_PROVEN
+SAFE_APPLICATION_FIX_PROVEN = NO
+SIMPLE_SAFE_FIX_PROVEN = NO
+PERFORMANCE_MUTATION_AUTHORIZED = NO
+PERFORMANCE_MUTATION_PERFORMED = NO
+FINAL_DECISION = NO_SAFE_FIX_PROVEN
+ONSITE_REVISIT_REQUIRED = NO
+~~~
+
+**Throughput Workstream Verdict:**
+- Because no application defect is proven and no safe, bounded application fix exists, no code or configuration changes will be made to Production.
+- The single-versus-dual probe observed a flat aggregate throughput ceiling (~0.985 ratio), showing that concurrency did not increase aggregate Remote throughput. This is consistent with a shared Remote-path/channel ceiling, but the exact limiting component is not proven.
+- Remote transfer performance (~2.8 MB/s upload, ~4.1–4.2 MB/s download) reflects observed Remote-path characteristics; no application defect is proven.
+- Throughput workstream is formally closed with documented limitations.
