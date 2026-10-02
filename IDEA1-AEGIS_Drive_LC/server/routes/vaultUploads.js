@@ -543,7 +543,8 @@ export function createVaultUploadHandlers({ mode, writeGate = null, budget = nul
           // (the same cleanup an aborted session gets); no committed blob, index object or user file is touched.
           const restored = await restoreStagedVaultPart(session.uploadId, finalKey).catch(() => false)
           if (!restored) await removeVaultCiphertext(finalKey).catch(() => {})
-          await removeStagedVaultSession(session.uploadId)
+          // best effort: a cleanup error must not turn the budget answer into a 500 (stale staging is swept later)
+          await removeStagedVaultSession(session.uploadId).catch(() => {})
           await v2.setVaultV2SessionStatus(session.uploadId, req.user.id, 'aborted').catch(() => {})
           await auditAct(req, 'VAULT_V2_COMMIT', session.uploadId, 'DENIED')
           return budgetExceeded(res)

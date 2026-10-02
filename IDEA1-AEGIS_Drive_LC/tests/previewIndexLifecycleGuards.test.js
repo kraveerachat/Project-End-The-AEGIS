@@ -70,7 +70,7 @@ test('LG-3 destructive purge stays off by default and the main CAS still refuses
   assert.deepEqual(r, { ok: false, code: 'TREE_PURGE_NOT_SUPPORTED' })
 })
 
-test('LG-4 no preview-index DELETE route and no deleting SQL anywhere on the preview-index path', async () => {
+test('LG-4 no preview-index DELETE route except uncommitted-upload cancel (refuses committed sessions); no deleting SQL', async () => {
   const route = code(read('server/routes/vaultPreviewIndex.js'))
   assert.doesNotMatch(route, /\.(delete|put|patch)\s*\(/i)
   const store = code(read('server/db/vaultPreviewIndexStore.js'))
@@ -80,6 +80,15 @@ test('LG-4 no preview-index DELETE route and no deleting SQL anywhere on the pre
   for (const p of ['/api/vault/tree/preview-index/head', `/api/vault/tree/preview-index/blobs/${'a'.repeat(48)}`, `/api/vault/tree/preview-index/envelopes?ids=${'a'.repeat(48)}`]) {
     assert.equal((await c.req(p, { method: 'DELETE' })).status, 404, p)
   }
+  // the only DELETE under /preview-index is the upload-family cancel: it discards uncommitted staging only
+  const kek = await H.setupVault(c)
+  await H.treeOwner()
+  const id = await H.staged(c, kek)
+  const done = await H.commit(c, id)
+  assert.equal(done.status, 201)
+  const r = await H.cancel(c, id)
+  assert.equal(r.status, 409); assert.equal(r.data.code, 'SESSION_COMMITTED')
+  assert.equal((await H.blobStateOf(done.data.blob.id)).lifecycle, 'INDEX_STAGED', 'a committed preview blob survives a cancel attempt')
 })
 
 test('LG-5 SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO: no module uses superseded refs to change lifecycle, purge or remove anything', () => {

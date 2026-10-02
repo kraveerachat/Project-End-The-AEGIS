@@ -298,6 +298,8 @@ export async function casIndexHead(userId, input) {
         if ((head?.indexGeneration ?? 0) !== expectedGeneration || (head?.rootBlobId ?? null) !== expectedRootBlobId) {
           return { ok: false, code: INDEX_STORE_CODE.PREVIEW_INDEX_CONFLICT, current: currentOf(head) }
         }
+        // a main treeId is fixed at genesis, so this is unreachable today; if it ever happens the index head is
+        // deliberately frozen (fail closed, reader shows 404) — replacing it needs its own reviewed migration path
         if (head && head.treeId !== treeId) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_TREE_MISMATCH)
         // 4. attach: the caller's committed INDEX_STAGED V2 blobs (locked; sorted ids → stable lock order)
         const { rows: att } = await c.query(

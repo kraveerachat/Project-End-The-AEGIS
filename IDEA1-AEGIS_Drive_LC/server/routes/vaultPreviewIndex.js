@@ -189,7 +189,10 @@ mountVaultUploadHandlers(vaultPreviewIndexUploadsRouter, createVaultUploadHandle
 vaultPreviewIndexRouter.post('/head', requirePreviewIndexWrite, requireTreeV1, async (req, res, next) => {
   try {
     const v = parseCasBody(req.body, treeConfigOf(req).limits)
-    if (!v) return fail(res, 400, PREVIEW_INDEX_ERROR.INVALID_INPUT, 'Invalid preview index CAS request')
+    if (!v) {
+      await auditAct(req, 'VAULT_PREVIEW_INDEX_CAS', null, 'DENIED') // no client value is hashed or recorded
+      return fail(res, 400, PREVIEW_INDEX_ERROR.INVALID_INPUT, 'Invalid preview index CAS request')
+    }
     const r = await pindex.casIndexHead(req.user.id, { ...v, requestDigest: casRequestDigest(v) })
     if (!r.ok) {
       await auditAct(req, 'VAULT_PREVIEW_INDEX_CAS', v.rootBlobId, 'DENIED')
