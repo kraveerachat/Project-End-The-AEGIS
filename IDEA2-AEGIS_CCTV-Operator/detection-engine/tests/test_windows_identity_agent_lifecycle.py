@@ -18,13 +18,28 @@ AGENT_ROOT = WINDOWS_ROOT / "identity-agent"
 class WindowsIdentityAgentLifecycleTests(unittest.TestCase):
     def test_temporary_service_commands_pass_binpath_option_and_value_separately(self) -> None:
         commands = {
-            "invoke_dpapi_preflight.ps1": '"C:\\Program Files\\AEGIS\\agent.exe" --dpapi-preflight',
-            "provision_identity_key.ps1": '"C:\\Program Files\\AEGIS\\agent.exe" --provision-key',
-            "invoke_acl_validation.ps1": '"C:\\Program Files\\AEGIS\\agent.exe" --validate-key-store-acl',
+            "invoke_dpapi_preflight.ps1": (
+                "$preflightCommand",
+                '"C:\\Program Files\\AEGIS\\agent.exe" --service --dpapi-preflight',
+                '\"{0}\" \"{1}\" --service --dpapi-preflight',
+            ),
+            "provision_identity_key.ps1": (
+                "$generateCommand",
+                '"C:\\Program Files\\AEGIS\\agent.exe" --service --provision-key',
+                '\"{0}\" \"{1}\" --service --provision-key',
+            ),
+            "invoke_acl_validation.ps1": (
+                "$validationCommand",
+                '"C:\\Program Files\\AEGIS\\agent.exe" --service --validate-key-store-acl',
+                '\"{0}\" \"{1}\" --service --validate-key-store-acl',
+            ),
         }
         original = '"C:\\Program Files\\AEGIS\\agent.exe" --service'
-        for script_name, temporary in commands.items():
+        for script_name, (variable, temporary, source_shape) in commands.items():
             with self.subTest(script=script_name):
+                source = self.read_agent(script_name)
+                self.assertIn(variable, source)
+                self.assertIn(source_shape, source)
                 script_path = str(AGENT_ROOT / script_name).replace("'", "''")
                 script = f"""
                 $ErrorActionPreference = 'Stop'
@@ -62,6 +77,44 @@ class WindowsIdentityAgentLifecycleTests(unittest.TestCase):
                         ["AEGISIdentityAgent", "config", "binPath=", original],
                     ],
                 )
+
+    def test_maintenance_service_exit_codes_are_checked_before_evidence_is_accepted(self) -> None:
+        for script_name in (
+            "invoke_dpapi_preflight.ps1",
+            "provision_identity_key.ps1",
+            "invoke_acl_validation.ps1",
+        ):
+            with self.subTest(script=script_name):
+                source = self.read_agent(script_name)
+                self.assertIn("Assert-IdentityAgentMaintenanceServiceSucceeded", source)
+                self.assertLess(
+                    source.index("Assert-IdentityAgentMaintenanceServiceSucceeded"),
+                    source.rindex("ConvertFrom-Json"),
+                )
+
+        safety_path = str(AGENT_ROOT / "identity_agent_safety.ps1").replace("'", "''")
+        script = f"""
+        $ErrorActionPreference = 'Stop'
+        . '{safety_path}'
+        function Get-CimInstance {{
+            [pscustomobject]@{{
+                State = 'Stopped'
+                ExitCode = 1066
+                ServiceSpecificExitCode = 1
+            }}
+        }}
+        try {{
+            Assert-IdentityAgentMaintenanceServiceSucceeded -ServiceName 'AEGISIdentityAgent'
+            throw 'FAILED_SERVICE_ACCEPTED'
+        }} catch {{
+            if ($_.Exception.Message -eq 'FAILED_SERVICE_ACCEPTED') {{ throw }}
+            if ($_.Exception.Message -notmatch 'maintenance service failed') {{ throw }}
+        }}
+        'FAILED_SERVICE_REJECTED'
+        """
+        result = self._run_powershell(script, cwd=ENGINE_ROOT)
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertIn("FAILED_SERVICE_REJECTED", result.stdout)
 
     def test_service_control_rejects_packed_binpath_and_preserves_native_quote_escape(self) -> None:
         safety_path = str(AGENT_ROOT / "identity_agent_safety.ps1").replace("'", "''")
