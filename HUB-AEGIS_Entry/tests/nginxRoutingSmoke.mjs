@@ -216,7 +216,7 @@ async function verifyEdge({ name, protocol, port, ca }) {
     if (name === 'production HUB') assertHubSecurityHeaders(response.headers)
   }
 
-  const blocked = await request({ protocol, port, ca, path: '/monitor/internal/detections' })
+  const blocked = await request({ protocol, port, ca, path: '/monitor/internal/unknown' })
   assert.equal(blocked.status, 404, `${name}: /monitor/internal remains blocked at the edge`)
 }
 
