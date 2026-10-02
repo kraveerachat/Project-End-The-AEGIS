@@ -174,3 +174,81 @@ export async function generatePosterFromFile(file, { signal = null, env = DEFAUL
     if (url) e.revokeObjectURL(url)
   }
 }
+
+/**
+ * Post-upload derivative queue (plan Task F.2). The screen calls afterUpload() only after the ORIGINAL upload returned
+ * ok AND the manifest/inventory reconcile resolved; the call is synchronous and never awaited by the upload flow, so the
+ * drawer's result and announcement are exactly what they were before D-1. Bounded: ≤ backfillConcurrency generation
+ * jobs, ≤ writeQueueMax pending files, paused while `isDeferred()` (an interactive upload is running). Anything that
+ * fails is simply not offered; the writer decides persistence. Purge (lock/logout/pagehide/unmount) aborts and drops all.
+ * @param {{ writer: { offer: Function, stats: Function } | null, isDeferred?: () => boolean, unlockedState?: object|null,
+ *           limits?: typeof PREVIEW_INDEX_LIMITS, generateThumb?: Function, generatePoster?: Function, retryMs?: number,
+ *           diagnostics?: { count?: (name: string) => void } | null }} o
+ */
+export function createUploadDerivativeQueue({
+  writer, isDeferred = () => false, unlockedState = null, limits = PREVIEW_INDEX_LIMITS,
+  generateThumb = generateThumbFromFile, generatePoster = generatePosterFromFile, retryMs = 1000, diagnostics = null,
+} = {}) {
+  const pending = []
+  const controllers = new Set()
+  let running = 0
+  let cleared = false
+  let timer = null
+  const count = (name) => { try { diagnostics?.count?.(name) } catch { /* diagnostics never break uploads */ } }
+  const dead = () => cleared || Boolean(unlockedState?.isPurged?.())
+  const writerBlocked = () => { try { const s = writer?.stats?.(); return !writer || Boolean(s?.budgetExhausted || s?.serverDisabled) } catch { return true } }
+  const deferred = () => { try { return isDeferred() === true } catch { return true } }
+
+  function clear() {
+    cleared = true
+    if (timer) { clearTimeout(timer); timer = null }
+    for (const c of controllers) { try { c.abort() } catch { /* already aborted */ } }
+    controllers.clear()
+    pending.length = 0
+  }
+  try { unlockedState?.registerDisposer?.(clear) } catch { cleared = true }
+
+  function afterUpload({ file, nodeId, sourceBlobRef, kind } = {}) {
+    if (dead() || writerBlocked() || !file || typeof nodeId !== 'string' || !sourceBlobRef?.id || (kind !== 'thumb' && kind !== 'poster') || pending.length >= limits.writeQueueMax) {
+      count('upload.generate.SKIPPED')
+      return 'SKIPPED'
+    }
+    pending.push({ file, nodeId, kind, sourceBlobRef: { formatVersion: sourceBlobRef.formatVersion, id: String(sourceBlobRef.id) } })
+    count('upload.generate.QUEUED')
+    pump()
+    return 'QUEUED'
+  }
+
+  function pump() {
+    if (dead()) return
+    while (running < limits.backfillConcurrency && pending.length) {
+      if (writerBlocked()) { pending.length = 0; return }
+      if (deferred()) {
+        if (!timer) timer = setTimeout(() => { timer = null; pump() }, retryMs)
+        return
+      }
+      const job = pending.shift()
+      running++
+      void run(job).finally(() => { running--; pump() })
+    }
+  }
+
+  async function run(job) {
+    const ctrl = new AbortController()
+    try { unlockedState?.registerAbort?.(ctrl) } catch { return }
+    controllers.add(ctrl)
+    let r = null
+    try {
+      const gen = job.kind === 'thumb' ? generateThumb : generatePoster
+      r = await gen(job.file, { signal: ctrl.signal, registerObjectUrl: (url) => unlockedState?.registerObjectUrl?.(url) })
+    } catch { r = null } finally { controllers.delete(ctrl) }
+    job.file = null
+    if (!r || dead() || ctrl.signal.aborted) { try { r?.bytes?.fill?.(0) } catch { /* detached */ } count('upload.generate.NULL'); return }
+    try {
+      writer.offer({ nodeId: job.nodeId, kind: job.kind, sourceBlobRef: job.sourceBlobRef, bytes: r.bytes, mime: r.mime, width: r.width, height: r.height })
+      count('upload.generate.OFFERED')
+    } catch { /* the writer never throws; belt and braces */ } finally { try { r.bytes.fill(0) } catch { /* detached */ } }
+  }
+
+  return { afterUpload, resume: pump, clear, stats: () => ({ pending: pending.length, running }) }
+}

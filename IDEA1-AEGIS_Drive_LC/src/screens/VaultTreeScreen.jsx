@@ -31,6 +31,9 @@ import { createThumbScheduler } from '../lib/vaultThumbScheduler.js'
 import { createPreviewIndexTiles } from '../lib/vaultPreviewIndexTiles.js'
 import { createDerivativeFirstScheduler } from '../lib/vaultPreviewIndexTileLane.js'
 import { PREVIEW_INDEX_LIMITS } from '../lib/vaultPreviewIndexConstants.js'
+import { createPreviewIndexWriter, previewIndexWriteAllowed } from '../lib/vaultPreviewIndexWriter.js'
+import { createUploadDerivativeQueue } from '../lib/vaultDerivativeGenerate.js'
+import { previewKindFor } from '../lib/vaultPreview.js'
 import { makeImageThumb } from '../lib/vaultImageThumb.js'
 import { createImageDecodeAdmission } from '../lib/vaultImageDecodeAdmission.js'
 import { detectReducedDecodeCapability, startReducedDecodeJob } from '../lib/vaultImageReducedDecode.js'
@@ -454,6 +457,12 @@ export function VaultTreeScreen({
         reloadInventory: () => vaultApi.refresh(),
       })
       announce('vaultTreeUploadComplete', { name })
+      // D-1 (PR-D): derivative work starts only now (original committed AND reconciled), is queued, never awaited,
+      // and can never change this result or its announcement
+      try {
+        const k = previewKindFor(mediaType)
+        uploadDerivativesRef.current?.afterUpload({ file, nodeId: res.nodeId, sourceBlobRef: res.blobRef, kind: k === 'image' ? 'thumb' : k === 'video' ? 'poster' : null })
+      } catch { /* preview work never affects the upload */ }
       return res
     } catch (error) {
       if (error?.code === 'MANIFEST_NEWER_THAN_WRITER') {
@@ -674,7 +683,32 @@ export function VaultTreeScreen({
   const onActiveUploadsChange = useCallback((count) => {
     activeUploadsRef.current = count
     admissionRef.current?.notifyMemoryChanged?.()
+    uploadDerivativesRef.current?.resume()
   }, [])
+
+  // D-1 (PR-D): the default-off preview-index WRITER, built only when the server serves previewIndexWriteEnabled=true
+  // (the server chains it behind the reader). The capability is re-read from the served /state on every offer; a flag
+  // change needs a fresh /state. Every failure — budget included — is preview-only and fail-soft.
+  const treeStateRef = useRef(treeState)
+  treeStateRef.current = treeState
+  const previewIndexWriteEnabled = previewIndexEnabled && previewIndexWriteAllowed(treeState)
+  const previewWriter = useMemo(
+    () => (previewIndexWriteEnabled && unlockedState && kek ? createPreviewIndexWriter({
+      kek, unlockedState,
+      // the session's head is the latest decrypted main manifest (React state may lag one render behind)
+      getMainHead: () => session?.head ?? treeRef.current?.state?.head ?? null,
+      writeAllowed: () => previewIndexWriteAllowed(treeStateRef.current),
+    }) : null),
+    [previewIndexWriteEnabled, unlockedState, kek, session],
+  )
+  useEffect(() => () => { previewWriter?.dispose() }, [previewWriter])
+  const uploadDerivatives = useMemo(
+    () => (previewWriter ? createUploadDerivativeQueue({ writer: previewWriter, unlockedState, isDeferred: () => activeUploadsRef.current > 0 }) : null),
+    [previewWriter, unlockedState],
+  )
+  const uploadDerivativesRef = useRef(uploadDerivatives)
+  uploadDerivativesRef.current = uploadDerivatives
+  useEffect(() => () => { uploadDerivatives?.clear() }, [uploadDerivatives])
 
   useEffect(() => () => { void admission?.releaseAll?.() }, [admission])
 
