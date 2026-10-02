@@ -15,18 +15,39 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-D1-B — D-1 PR-B codec, crypto, and read-only reader
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-C — D-1 PR-C CAS, upload lifecycle, storage budget, orphan safety
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 PR-C / plan Phase C (C.1–C.7) + Phase D (D.1–D.4) only |
+| Branch | `feat/idea1-preview-d1-c-cas-lifecycle` from post-PR-B `origin/main` `4a8cc3c95e2f4147fbab9c505079c0377a271d99` |
+| Owner | kla |
+| PR | #295 (`integration-review: yes` — DB, CAS, upload/storage lifecycle, storage budget) |
+| State | **IMPLEMENTED + LOCALLY VERIFIED; HUMAN + INTEGRATION REVIEW REQUIRED (HG-C)**. Owner-scoped index CAS (memory + PostgreSQL), write-gated `POST /preview-index/head`, `previewIndex` upload family committing `INDEX_STAGED` in the blob transaction, transport-only client CAS wrapper, pure merge/rebase/split/prune, server-enforced per-owner retained-storage budget (advisory at create, authoritative under the owner lock at commit, 507 `PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED`), authenticated orphan classification, recovery fail-closed naming, pinned non-destructive lifecycle, read-only reachability report. `WRITER_IMPLEMENTED=NO`, `WRITER_ENABLED=NO`, WRITE default OFF; no deletion/GC; no Production mutation. |
+| Production mutation allowed | **NO** |
+| Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
+| Next gate | Human + integration review/merge of PR #295 (HG-C). PR-D (writer, Phase E/F) only after separate authorization; budget value stays PROVISIONAL until HG-G; do not enable WRITE. |
+
+### Session Register — D1-C
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1C-S1 | C.1–C.7, D.1–D.4 with focused RED/GREEN per task; independent whole-branch review (0 Critical/Important; Minor fixes applied: 507 cleanup never 500, invalid CAS body audited DENIED, cancel-only DELETE pinned) | Implemented and locally verified; Human/integration review required | PostgreSQL 15 disposable (`drive_app`) 0 skips: CAS concurrency 6/6 (same-generation single winner, 20 writers → 1..20 no gaps, main+index CAS no deadlock, replay, key reuse rejected); budget concurrency 3/3 (owner at max−S, 10 parallel commits → 1×201 + 9×507, retained = max); lock-removal mutations make both proofs fail; full suite and failure-name diff recorded in the receipt | branch head on PR #295 | HG-C review; CI on every new head | PR-D only after separate Human authorization |
+
+Known PR-C limitations: upload sessions are not bound to the family that opened them (owner-only effect, no budget bypass; binding needs a schema change, deferred); `reservedHidden` is computed but not shown in the recovery UI; the reachability report counts derivatives of an unverifiable shard as unreachable (diagnostics only); `PG-MG-2` remains a pre-existing intermittent PostgreSQL genesis-race test (reproduced on base 3/10).
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-B — D-1 PR-B codec, crypto, and read-only reader
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-D1 PR-B / plan Phase B, Tasks B.1–B.10 only |
 | Branch | `feat/idea1-preview-d1-b-codec-reader` from merged PR-A / `origin/main` `fa22edd5d5db18e692e7814b895f7af3d3c166dc` at task start |
 | Owner | kla |
-| PR | #285 (Draft during verification) |
-| State | **IMPLEMENTED + LOCALLY VERIFIED; PR READY, POLICY CI PASS, HUMAN REVIEW REQUIRED**. Codec, crypto, read-only reader, derivative read, tile integration, and codec-only size probe; no writer/CAS/Phase C/Production mutation. Latest `origin/main` `fd4df610` merged normally at `0d65b042`; no IDEA1 path overlap. |
+| PR | #285 — **merged** 2026-10-02 at `4a8cc3c95e2f4147fbab9c505079c0377a271d99` |
+| State | **MERGED; not deployed**. Codec, crypto, read-only reader, derivative read, tile integration, and codec-only size probe; no writer/CAS/Production mutation. |
 | Production mutation allowed | **NO** |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
-| Next gate | Human review and merge of PR #285; any later head update must pass CI before merge. Separate IDX-SIZE/PG/browser/Production gates remain open; do not enable WRITE. |
+| Next gate | Stage 1 (PR-A + PR-B) Production rollout is Human-only. Phase C continues in PR #295 above. |
 
 ### Session Register — D1-B
 
