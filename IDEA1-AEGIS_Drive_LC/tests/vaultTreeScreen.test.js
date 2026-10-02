@@ -835,6 +835,32 @@ test('TS-18 with the flag off the tiles never open preview sessions or observe t
   }
 })
 
+test('PIT-SCREEN-1 READ-off mounts with zero preview-index requests', async () => {
+  backend.treeFlags.mediaPreviewEnabled = true
+  backend.treeFlags.previewIndexReadEnabled = false
+  const h = await mountUnlocked()
+  try {
+    assert.ok(q('[data-testid="vault-tree-screen"]'))
+    assert.deepEqual(backend.requests.filter((r) => String(r.path).includes('/preview-index/')), [])
+  } finally { await h.unmount() }
+})
+
+test('PIT-SCREEN-2 READ-on absent index requests one head and no index objects', async () => {
+  backend.treeFlags.mediaPreviewEnabled = true
+  backend.treeFlags.previewIndexReadEnabled = true
+  const inner = backend.respond
+  backend.respond = (req) => req.path === '/api/vault/tree/preview-index/head'
+    ? Promise.resolve({ ok: false, status: 404, data: { code: 'PREVIEW_INDEX_NOT_FOUND' }, errorKind: 'server' })
+    : inner(req)
+  const h = await mountUnlocked()
+  try {
+    await tick(3)
+    assert.ok(q('[data-testid="vault-tree-screen"]'))
+    const indexRequests = backend.requests.filter((r) => String(r.path).includes('/preview-index/'))
+    assert.deepEqual(indexRequests.map((r) => r.path), ['/api/vault/tree/preview-index/head'])
+  } finally { await h.unmount() }
+})
+
 /* ── REAL-DRAG-1..10 ──────────────────────────────────────────────────────── */
 test('REAL-DRAG-1..10 multi-item drag payload, breadcrumb/folder drop, atomic move, selection clear, click suppression', async () => {
   const { AEGIS_ITEMS_TYPE, isInternalItemDrag, readDragPayload } = await env.load('/src/lib/fileDragDrop.js')
