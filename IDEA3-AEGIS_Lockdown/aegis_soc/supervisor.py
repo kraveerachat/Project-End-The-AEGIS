@@ -738,10 +738,22 @@ class AegisSupervisor:
         if self.settings.profile != "production" or source_uid is None or not lr.local_restore_supported():
             self.log_event("INFO", "alert_ingress_disabled", profile=self.settings.profile)
             return
+        if source_uid == 0 or source_uid == os.geteuid():
+            # The detector is a dedicated non-root account that is not the Core: root and the Core uid never author alerts.
+            self.log_event("ERROR", "alert_ingress_failed", error="SOURCE_UID_NOT_DEDICATED")
+            return
+        import grp  # POSIX only; reached only after lr.local_restore_supported()
+
+        try:
+            alert_gid = grp.getgrnam(config.ALERT_GROUP).gr_gid
+        except KeyError:
+            self.log_event("ERROR", "alert_ingress_failed", error="ALERT_GROUP_UNRESOLVED")
+            return
         server = rc.AlertServer(
-            self.settings.runtime_dir / rc.ALERT_CHANNEL_NAME,
+            config.ALERT_SOCKET_PATH,
             rc.AlertIngress(self.on_production_alert),
             allowed_uid=source_uid,
+            socket_gid=alert_gid,
         )
         try:
             server.start()
