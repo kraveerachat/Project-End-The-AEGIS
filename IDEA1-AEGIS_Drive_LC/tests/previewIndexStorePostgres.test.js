@@ -31,6 +31,8 @@ const v2 = await import('../server/db/vaultV2Store.js')
 const { usingPostgres, closePool, createUserWithTempPassword } = await import('../server/db/connection.js')
 const { ROLES } = await import('../server/rbac/permissions.js')
 const { definePreviewIndexStoreSpec } = await import('./helpers/previewIndexStoreSpec.mjs')
+const { definePreviewIndexCasSpec } = await import('./helpers/previewIndexCasSpec.mjs')
+const { query } = await import('../server/db/connection.js')
 
 before(() => { if (!skip) assert.equal(usingPostgres, true) })
 after(async () => {
@@ -47,3 +49,5 @@ const newOwner = async () => {
 }
 
 definePreviewIndexStoreSpec({ test, store, tree, v2, newOwner, skip })
+const countPurgeCandidates = async (userId) => Number((await query('SELECT count(*)::int AS n FROM vault_tree_purge_candidates WHERE user_id = $1', [userId])).rows[0].n)
+definePreviewIndexCasSpec({ test, store, tree, v2, newOwner, skip, countPurgeCandidates })

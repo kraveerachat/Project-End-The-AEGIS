@@ -733,6 +733,17 @@ export async function __setProtocolStateForTests(userId, protocolState, { leaseM
   Object.assign(memState(u), { protocolState, ...fields, updatedAt: nowMs() })
 }
 
+/**
+ * D-1 (PR-C) memory mode only: the owner's LIVE state/head/blob-state rows, read synchronously so the preview-index
+ * CAS and the retained-storage budget can check-and-mutate inside one critical section with no `await`.
+ * Never routed; PostgreSQL callers must use row locks instead (throws there).
+ */
+export function _memTreeRowsSync(userId) {
+  if (usingPostgres) throw new Error('vaultTreeStore: _memTreeRowsSync is memory-mode only')
+  const u = uid(userId)
+  return { state: mem.state.get(u) ?? null, head: mem.heads.get(u) ?? null, blobs: memBlobMap(u) }
+}
+
 /** ล้าง state ของ tree ทั้งหมด — ชุดทดสอบเท่านั้น (DELETE ไม่ใช่ TRUNCATE: drive_app มีแค่ DML) */
 export async function __resetVaultTreeForTests() {
   if (usingPostgres) {

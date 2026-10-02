@@ -13,18 +13,19 @@ export const TREE_ID = 'T'.padStart(22, 'P')
 
 /**
  * Commit one V2 blob for `userId` through the real V2 store and set its tree lifecycle in the same commit.
- * @returns {Promise<{ id: string, size: number }>}
+ * @returns {Promise<{ id: string, size: number, contentIdB64: string }>}
  */
 export async function seedV2Blob({ v2, tree }, userId, { lifecycle, size = 4_112 + 16 }) {
   const id = hex48()
+  const contentIdB64 = b64(16)
   await v2.finishVaultV2Commit({
     uploadId: `seed-${id}`, userId, blobId: id, storageKey: `vault/v2/seed-${id}.aegisenc`,
-    ciphertextSize: size, chunkSize: 8 * 1024 * 1024 + 16, chunkCount: 1, contentIdB64: b64(16),
+    ciphertextSize: size, chunkSize: 8 * 1024 * 1024 + 16, chunkCount: 1, contentIdB64,
     envelope: { wrappedDekB64: b64(48), wrapIvB64: b64(12), metaIvB64: b64(12), metaB64: b64(40) },
     chunks: [{ index: 0, size, sha256: 'c'.repeat(64), ivB64: b64(12) }],
     withinCommit: lifecycle ? (client) => tree.upsertBlobState(userId, { formatVersion: 2, id }, lifecycle, { client }) : null,
   })
-  return { id, size }
+  return { id, size, contentIdB64 }
 }
 
 /**

@@ -1,23 +1,46 @@
-// server/db/vaultPreviewIndexStore.js — AEGIS Drive (IDEA1) · D-1 separate encrypted preview index · opaque store (PR-A: read + accounting)
+// server/db/vaultPreviewIndexStore.js — AEGIS Drive (IDEA1) · D-1 separate encrypted preview index · opaque store
+//   PR-A: read + accounting.  PR-C: owner-scoped index CAS (Task C.1) + retained-storage budget enforcement (Task C.7).
 //
 // ⚠️ Rules for the whole file (same as vaultTreeStore.js):
 //    1. No function accepts or returns a name, path, parent, node id, MIME, preview kind or shard prefix —
 //       only opaque tree/blob ids, generations, sizes, content ids and lifecycle values.
 //    2. Every function requires userId and filters by it in SQL; another owner's rows are simply absent.
-//    3. PR-A is read-only: nothing here creates, updates, promotes, deletes or purges anything.
-//       The index CAS and the retained-storage budget enforcement arrive in PR-C (plan Tasks C.1, C.7).
-//    4. Nothing here (or anywhere in D-1) deletes an index object. Initial destructive GC is forbidden.
+//    3. The only writes are: the index CAS (generation row, ATTACHED/SUPERSEDED ref rows, prior generation
+//       superseded_at, INDEX_STAGED → INDEX_MANAGED promotion, head upsert) and nothing else.
+//    4. Nothing here (or anywhere in D-1) deletes an index object, a generation, a ref row or a V2 row.
+//       Initial destructive GC is forbidden. SUPERSEDED_REF=ADVISORY_ONLY: a SUPERSEDED ref row is bookkeeping /
+//       measurement only — it changes no lifecycle, schedules nothing, and is never deletion or purge authority
+//       (SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO). No code may read SUPERSEDED rows to mutate anything.
+//    5. Every mutation serializes on the owner's vault_tree_state row (SELECT … FOR UPDATE) — the same point as the
+//       main head CAS and the preview-index upload commit (budget), so the three never interleave per owner.
 //
 // ⚠️ The in-memory fallback composes the existing V2 and tree stores, so both modes answer from the same
 //    facts: a blob is "preview-index owned" iff its vault_tree_blob_state lifecycle is INDEX_STAGED or
 //    INDEX_MANAGED. Concurrency evidence can only come from PostgreSQL.
 
-import { query, usingPostgres } from './connection.js'
-import { listBlobStates, PREVIEW_INDEX_LIFECYCLES } from './vaultTreeStore.js'
-import { listVaultV2Blobs } from './vaultV2Store.js'
+import { query, usingPostgres, withTransaction } from './connection.js'
+import { listBlobStates, PREVIEW_INDEX_LIFECYCLES, _memTreeRowsSync } from './vaultTreeStore.js'
+import { listVaultV2Blobs, _memV2BlobSync } from './vaultV2Store.js'
 import { publicVaultV2Blob } from '../routes/vaultUploads.js'
 
 export const MAX_INDEX_BLOB_PAGE = 500
+
+/** protocol outcomes reported as values (never thrown) — the route maps them to HTTP */
+export const INDEX_STORE_CODE = Object.freeze({
+  NOT_FOUND: 'NOT_FOUND',
+  INVALID_INPUT: 'INVALID_INPUT',
+  TREE_STATE_CONFLICT: 'TREE_STATE_CONFLICT',
+  PREVIEW_INDEX_CONFLICT: 'PREVIEW_INDEX_CONFLICT',
+  PREVIEW_INDEX_IDEMPOTENCY_MISMATCH: 'PREVIEW_INDEX_IDEMPOTENCY_MISMATCH',
+  PREVIEW_INDEX_BLOB_STATE_CONFLICT: 'PREVIEW_INDEX_BLOB_STATE_CONFLICT',
+  PREVIEW_INDEX_ROOT_MISMATCH: 'PREVIEW_INDEX_ROOT_MISMATCH',
+  PREVIEW_INDEX_TREE_MISMATCH: 'PREVIEW_INDEX_TREE_MISMATCH',
+})
+
+/** thrown inside the preview-index upload commit transaction (→ ROLLBACK) when the owner's budget would be exceeded */
+export class IndexBudgetExceeded extends Error {
+  constructor() { super('preview-index retained-storage budget exceeded'); this.name = 'IndexBudgetExceeded'; this.code = 'PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED' }
+}
 
 const uid = (userId) => {
   if (userId === null || userId === undefined) throw new Error('vaultPreviewIndexStore: userId is required')
@@ -30,7 +53,12 @@ const mapHead = (r) => ({
 })
 
 // ── in-memory fallback ───────────────────────────────────────────────────────
-const mem = { heads: new Map() } // userId → head row
+const mem = {
+  heads: new Map(),       // userId → head row
+  generations: new Map(), // userId → [generation rows] (append-only)
+  refs: new Map(),        // userId → [{ indexGeneration, blobId, role }] (append-only)
+}
+const memList = (m, u) => { if (!m.has(u)) m.set(u, []); return m.get(u) }
 
 /** V2 blob ids of this owner whose tree lifecycle is INDEX_* (memory mode), with their lifecycle and createdAt */
 async function memIndexStates(u) {
@@ -151,6 +179,197 @@ export async function getRetainedIndexBytes(userId, { client = null } = {}) {
   return total
 }
 
+// ── index CAS (PR-C Task C.1) ────────────────────────────────────────────────
+
+const BLOB_ID_RE = /^[0-9a-f]{48}$/
+const OPAQUE_ID_RE = /^[A-Za-z0-9_-]{22}$/
+const DIGEST_RE = /^[0-9a-f]{64}$/
+const CONTENT_ID_RE = /^[A-Za-z0-9+/]{22}==$/
+const isGen = (v) => Number.isSafeInteger(v) && v >= 0
+const idList = (v, { min }) => Array.isArray(v) && v.length >= min && v.every((x) => typeof x === 'string' && BLOB_ID_RE.test(x)) && new Set(v).size === v.length
+
+/** structural validation only (the route validates HTTP shape first); every failure → INVALID_INPUT before any write */
+function validCasInput(b) {
+  if (!b || typeof b !== 'object') return false
+  if (!isGen(b.expectedGeneration)) return false
+  if ((b.expectedGeneration === 0) !== (b.expectedRootBlobId === null)) return false
+  if (b.expectedRootBlobId !== null && (typeof b.expectedRootBlobId !== 'string' || !BLOB_ID_RE.test(b.expectedRootBlobId))) return false
+  if (typeof b.rootBlobId !== 'string' || !BLOB_ID_RE.test(b.rootBlobId)) return false
+  if (typeof b.rootContentIdB64 !== 'string' || !CONTENT_ID_RE.test(b.rootContentIdB64)) return false
+  if (!idList(b.attachBlobIds, { min: 1 }) || !idList(b.supersededBlobIds, { min: 0 })) return false
+  if (typeof b.idempotencyKey !== 'string' || !OPAQUE_ID_RE.test(b.idempotencyKey)) return false
+  return typeof b.requestDigest === 'string' && DIGEST_RE.test(b.requestDigest)
+}
+
+/** rollback sentinel: abort the transaction and report a non-ok result */
+class Abort extends Error { constructor(result) { super('abort'); this.result = result } }
+
+const conflict = (code) => ({ ok: false, code })
+const currentOf = (h) => (h ? { indexGeneration: h.indexGeneration, rootBlobId: h.rootBlobId } : null)
+
+/**
+ * Owner-scoped preview-index head CAS: advance (expectedGeneration, expectedRootBlobId) → generation + 1 at rootBlobId.
+ *   - attachBlobIds: must include rootBlobId; each must be the caller's V2 blob with lifecycle INDEX_STAGED;
+ *     all are promoted to INDEX_MANAGED atomically with the head move (any failure → full rollback).
+ *   - supersededBlobIds: SUPERSEDED_REF=ADVISORY_ONLY — each must be the caller's INDEX_MANAGED blob; recorded as
+ *     role='SUPERSEDED' rows and NOTHING else (no lifecycle change, no purge candidate, budget still counts them).
+ *   - idempotency: same (owner, key) + same requestDigest → the original result (replay); different digest → mismatch.
+ * Nothing is ever deleted.
+ */
+export async function casIndexHead(userId, input) {
+  const u = uid(userId)
+  if (!validCasInput(input)) return conflict(INDEX_STORE_CODE.INVALID_INPUT)
+  const { expectedGeneration, expectedRootBlobId, rootBlobId, rootContentIdB64, idempotencyKey, requestDigest } = input
+  const attach = [...input.attachBlobIds].sort()
+  const superseded = [...input.supersededBlobIds].sort()
+  if (!attach.includes(rootBlobId) || superseded.some((id) => attach.includes(id))) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_BLOB_STATE_CONFLICT)
+  const nextGeneration = expectedGeneration + 1
+
+  if (usingPostgres) {
+    try {
+      return await withTransaction(async (c) => {
+        // 1. owner serialization point (same row as main head CAS and the preview-index upload commit)
+        const { rows: st } = await c.query(`SELECT protocol_state FROM vault_tree_state WHERE user_id = $1 FOR UPDATE`, [u])
+        if (!st.length || st[0].protocol_state !== 'TREE_V1') return conflict(INDEX_STORE_CODE.TREE_STATE_CONFLICT)
+        const { rows: mh } = await c.query(`SELECT tree_id FROM vault_tree_heads WHERE user_id = $1`, [u])
+        if (!mh.length) return conflict(INDEX_STORE_CODE.TREE_STATE_CONFLICT)
+        const treeId = mh[0].tree_id
+        // 2. idempotency (answered even after the head moved on, so a lost response can be recovered)
+        const { rows: prior } = await c.query(
+          `SELECT index_generation, root_blob_id, request_digest FROM vault_preview_index_generations WHERE user_id = $1 AND idempotency_key = $2`,
+          [u, idempotencyKey],
+        )
+        if (prior.length) {
+          if (prior[0].request_digest !== requestDigest) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_IDEMPOTENCY_MISMATCH)
+          return { ok: true, replay: true, indexGeneration: Number(prior[0].index_generation), rootBlobId: prior[0].root_blob_id }
+        }
+        // 3. head expectation
+        const { rows: hd } = await c.query(`SELECT * FROM vault_preview_index_heads WHERE user_id = $1 FOR UPDATE`, [u])
+        const head = hd.length ? mapHead(hd[0]) : null
+        if ((head?.indexGeneration ?? 0) !== expectedGeneration || (head?.rootBlobId ?? null) !== expectedRootBlobId) {
+          return { ok: false, code: INDEX_STORE_CODE.PREVIEW_INDEX_CONFLICT, current: currentOf(head) }
+        }
+        if (head && head.treeId !== treeId) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_TREE_MISMATCH)
+        // 4. attach: the caller's committed INDEX_STAGED V2 blobs (locked; sorted ids → stable lock order)
+        const { rows: att } = await c.query(
+          `SELECT s.blob_id, s.lifecycle, b.content_id_b64 FROM vault_tree_blob_state s
+             JOIN vault_v2_blobs b ON b.user_id = s.user_id AND b.id = s.blob_id
+            WHERE s.user_id = $1 AND s.blob_format_version = 2 AND s.blob_id = ANY($2::text[])
+            ORDER BY s.blob_id FOR UPDATE OF s`,
+          [u, attach],
+        )
+        if (att.length !== attach.length || att.some((r) => r.lifecycle !== 'INDEX_STAGED')) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_BLOB_STATE_CONFLICT)
+        if (att.find((r) => r.blob_id === rootBlobId).content_id_b64 !== rootContentIdB64) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_ROOT_MISMATCH)
+        // 5. superseded: advisory rows only; each must be the caller's INDEX_MANAGED blob
+        if (superseded.length) {
+          const { rows: sup } = await c.query(
+            `SELECT s.blob_id, s.lifecycle FROM vault_tree_blob_state s
+               JOIN vault_v2_blobs b ON b.user_id = s.user_id AND b.id = s.blob_id
+              WHERE s.user_id = $1 AND s.blob_format_version = 2 AND s.blob_id = ANY($2::text[])
+              ORDER BY s.blob_id FOR SHARE OF s`,
+            [u, superseded],
+          )
+          if (sup.length !== superseded.length || sup.some((r) => r.lifecycle !== 'INDEX_MANAGED')) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_BLOB_STATE_CONFLICT)
+        }
+        // 6. commit the generation (append-only), its refs, the prior generation's superseded_at, promotion, head
+        await c.query(
+          `INSERT INTO vault_preview_index_generations
+             (user_id, index_generation, tree_id, base_generation, root_blob_id, root_content_id_b64, idempotency_key, request_digest)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [u, nextGeneration, treeId, expectedGeneration, rootBlobId, rootContentIdB64, idempotencyKey, requestDigest],
+        )
+        await c.query(
+          `INSERT INTO vault_preview_index_blob_refs (user_id, index_generation, blob_id, role)
+           SELECT $1, $2, x.id, x.role FROM unnest($3::text[], $4::text[]) AS x(id, role)`,
+          [u, nextGeneration, [...attach, ...superseded], [...attach.map(() => 'ATTACHED'), ...superseded.map(() => 'SUPERSEDED')]],
+        )
+        if (expectedGeneration > 0) {
+          await c.query(`UPDATE vault_preview_index_generations SET superseded_at = now() WHERE user_id = $1 AND index_generation = $2 AND superseded_at IS NULL`, [u, expectedGeneration])
+        }
+        const { rowCount } = await c.query(
+          `UPDATE vault_tree_blob_state SET lifecycle = 'INDEX_MANAGED', updated_at = now()
+            WHERE user_id = $1 AND blob_format_version = 2 AND blob_id = ANY($2::text[]) AND lifecycle = 'INDEX_STAGED'`,
+          [u, attach],
+        )
+        if (rowCount !== attach.length) throw new Abort(conflict(INDEX_STORE_CODE.PREVIEW_INDEX_BLOB_STATE_CONFLICT))
+        await c.query(
+          `INSERT INTO vault_preview_index_heads (user_id, tree_id, index_generation, root_blob_id, root_content_id_b64)
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (user_id) DO UPDATE SET tree_id = EXCLUDED.tree_id, index_generation = EXCLUDED.index_generation,
+             root_blob_id = EXCLUDED.root_blob_id, root_content_id_b64 = EXCLUDED.root_content_id_b64, updated_at = now()`,
+          [u, treeId, nextGeneration, rootBlobId, rootContentIdB64],
+        )
+        return { ok: true, replay: false, indexGeneration: nextGeneration, rootBlobId }
+      })
+    } catch (e) { if (e instanceof Abort) return e.result; throw e }
+  }
+
+  // ── memory CAS critical section: begin (synchronous: check and mutate with no interleaving) ──
+  const { state, head: mainHead, blobs } = _memTreeRowsSync(u)
+  if (state?.protocolState !== 'TREE_V1' || !mainHead) return conflict(INDEX_STORE_CODE.TREE_STATE_CONFLICT)
+  const gens = memList(mem.generations, u)
+  const prior = gens.find((g) => g.idempotencyKey === idempotencyKey)
+  if (prior) {
+    if (prior.requestDigest !== requestDigest) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_IDEMPOTENCY_MISMATCH)
+    return { ok: true, replay: true, indexGeneration: prior.indexGeneration, rootBlobId: prior.rootBlobId }
+  }
+  const head = mem.heads.get(u) ?? null
+  if ((head?.indexGeneration ?? 0) !== expectedGeneration || (head?.rootBlobId ?? null) !== expectedRootBlobId) {
+    return { ok: false, code: INDEX_STORE_CODE.PREVIEW_INDEX_CONFLICT, current: currentOf(head) }
+  }
+  if (head && head.treeId !== mainHead.treeId) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_TREE_MISMATCH)
+  const stateOf = (id) => (_memV2BlobSync(u, id) ? blobs.get(`2:${id}`) ?? null : null)
+  const attachRows = attach.map(stateOf)
+  if (attachRows.some((r) => r?.lifecycle !== 'INDEX_STAGED')) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_BLOB_STATE_CONFLICT)
+  if (_memV2BlobSync(u, rootBlobId).contentIdB64 !== rootContentIdB64) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_ROOT_MISMATCH)
+  if (superseded.map(stateOf).some((r) => r?.lifecycle !== 'INDEX_MANAGED')) return conflict(INDEX_STORE_CODE.PREVIEW_INDEX_BLOB_STATE_CONFLICT)
+  const now = Date.now()
+  const prev = gens.find((g) => g.indexGeneration === expectedGeneration)
+  if (prev && prev.supersededAt === null) prev.supersededAt = now
+  gens.push({ indexGeneration: nextGeneration, baseGeneration: expectedGeneration, treeId: mainHead.treeId, rootBlobId, rootContentIdB64, idempotencyKey, requestDigest, committedAt: now, supersededAt: null })
+  const refs = memList(mem.refs, u)
+  for (const id of attach) refs.push({ indexGeneration: nextGeneration, blobId: id, role: 'ATTACHED' })
+  for (const id of superseded) refs.push({ indexGeneration: nextGeneration, blobId: id, role: 'SUPERSEDED' })
+  for (const r of attachRows) Object.assign(r, { lifecycle: 'INDEX_MANAGED', updatedAt: now })
+  mem.heads.set(u, { treeId: mainHead.treeId, indexGeneration: nextGeneration, rootBlobId, rootContentIdB64, updatedAt: now })
+  return { ok: true, replay: false, indexGeneration: nextGeneration, rootBlobId }
+  // ── memory CAS critical section: end
+}
+
+/** this owner's committed generations, ascending (opaque; read-only — diagnostics and tests) */
+export async function listIndexGenerations(userId) {
+  const u = uid(userId)
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT index_generation, base_generation, tree_id, root_blob_id, committed_at, superseded_at
+         FROM vault_preview_index_generations WHERE user_id = $1 ORDER BY index_generation`,
+      [u],
+    )
+    return rows.map((r) => ({
+      indexGeneration: Number(r.index_generation), baseGeneration: Number(r.base_generation), treeId: r.tree_id,
+      rootBlobId: r.root_blob_id, committedAt: ts(r.committed_at), supersededAt: ts(r.superseded_at),
+    }))
+  }
+  return memList(mem.generations, u).map((g) => ({
+    indexGeneration: g.indexGeneration, baseGeneration: g.baseGeneration, treeId: g.treeId,
+    rootBlobId: g.rootBlobId, committedAt: g.committedAt, supersededAt: g.supersededAt,
+  }))
+}
+
+/** opaque { blobId, role } rows of one generation, sorted (read-only — diagnostics and tests; never deletion input) */
+export async function listIndexBlobRefs(userId, indexGeneration) {
+  const u = uid(userId)
+  const order = (a, b) => (a.blobId < b.blobId ? -1 : a.blobId > b.blobId ? 1 : a.role < b.role ? -1 : a.role > b.role ? 1 : 0)
+  if (usingPostgres) {
+    const { rows } = await query(
+      `SELECT blob_id, role FROM vault_preview_index_blob_refs WHERE user_id = $1 AND index_generation = $2`,
+      [u, Number(indexGeneration)],
+    )
+    return rows.map((r) => ({ blobId: r.blob_id, role: r.role })).sort(order)
+  }
+  return memList(mem.refs, u).filter((r) => r.indexGeneration === Number(indexGeneration)).map((r) => ({ blobId: r.blobId, role: r.role })).sort(order)
+}
+
 // ── tests only ───────────────────────────────────────────────────────────────
 
 /** tests only: install a head (PostgreSQL: writes the generation row it must reference). Never routed. */
@@ -174,11 +393,18 @@ export async function __seedIndexHeadForTests(userId, { treeId, indexGeneration 
     )
     return
   }
-  mem.heads.set(u, { treeId, indexGeneration, rootBlobId, rootContentIdB64, updatedAt: Date.now() })
+  const now = Date.now()
+  const gens = memList(mem.generations, u)
+  for (let g = 1; g <= indexGeneration; g++) {
+    if (!gens.some((x) => x.indexGeneration === g)) {
+      gens.push({ indexGeneration: g, baseGeneration: g - 1, treeId, rootBlobId, rootContentIdB64, idempotencyKey: `seed-${u}-${g}`, requestDigest: '0'.repeat(64), committedAt: now, supersededAt: null })
+    }
+  }
+  mem.heads.set(u, { treeId, indexGeneration, rootBlobId, rootContentIdB64, updatedAt: now })
 }
 
-/** tests only (memory mode): forget every head. PostgreSQL generations are undeletable by design — PG tests isolate by owner. */
+/** tests only (memory mode): forget every head/generation/ref. PostgreSQL generations are undeletable by design — PG tests isolate by owner. */
 export async function __resetPreviewIndexForTests() {
   if (usingPostgres) return
-  mem.heads.clear()
+  for (const m of Object.values(mem)) m.clear()
 }
