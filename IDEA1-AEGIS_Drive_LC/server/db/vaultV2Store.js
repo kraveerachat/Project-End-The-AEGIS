@@ -414,6 +414,15 @@ export async function finishVaultV2Commit({
 
 // ── Published blobs ──────────────────────────────────────────────────────────
 
+/**
+ * D-1 (PR-C) memory mode only: this owner's live V2 blob row (or null), read synchronously so the preview-index CAS
+ * and retained-storage budget critical sections contain no `await`. Never routed; throws on PostgreSQL.
+ */
+export function _memV2BlobSync(userId, id) {
+  if (usingPostgres) throw new Error('vaultV2Store: _memV2BlobSync is memory-mode only')
+  return memBlobs.find((b) => b.userId === String(userId) && b.id === String(id)) ?? null
+}
+
 /** blob V2 ทั้งหมดของผู้ใช้คนนี้ — ไม่คืน storageKey ออกนอกชั้นนี้โดยผู้เรียกที่เป็น route */
 export async function listVaultV2Blobs(userId) {
   if (usingPostgres) {

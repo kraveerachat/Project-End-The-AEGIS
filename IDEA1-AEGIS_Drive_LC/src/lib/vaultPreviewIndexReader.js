@@ -217,6 +217,13 @@ export function createPreviewIndexReader({ kek, api = treeApi, fetchBytes = apiF
     /** envelope of a derivative blob (cached, batched) — for vaultDerivativeRead */
     envelopeOf: (blobRef, { signal } = {}) => (purged() ? Promise.resolve(null) : envelopeFor(String(blobRef.id), signal)),
     snapshot: () => ({ head, root }),
+    /** PR-C D.4 (read-only diagnostics): the decoded shard of the loaded root at `prefix`, or null (not READY, purged,
+     *  missing, or failed verification) — same verified path and page-memory cache as lookup */
+    shardOf: (prefix) => {
+      if (purged() || status !== 'READY' || !root) return Promise.resolve(null)
+      const d = root.shards.find((s) => s.prefix === prefix)
+      return d ? loadShard(d) : Promise.resolve(null)
+    },
     stats: () => ({ status, shards: shards.size, envelopes: envelopes.size, ciphertextBytes, inflight: controllers.size }),
     /** tests only: the decoded shard for a prefix of the loaded root (null when missing or invalid) */
     shardForPrefixForTests: (prefix) => { const d = root?.shards.find((s) => s.prefix === prefix); return d ? loadShard(d) : Promise.resolve(null) },

@@ -15,18 +15,43 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-D1-STAGE1 — D-1 Stage 1 Production package and live acceptance
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-C — D-1 PR-C CAS, upload lifecycle, storage budget, orphan safety
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 PR-C / plan Phase C (C.1–C.7) + Phase D (D.1–D.4) only |
+| Branch | `feat/idea1-preview-d1-c-cas-lifecycle` from post-PR-B `origin/main` `4a8cc3c95e2f4147fbab9c505079c0377a271d99` |
+| Owner | kla |
+| PR | #295 (`integration-review: yes` — DB, CAS, upload/storage lifecycle, storage budget) |
+| State | **IMPLEMENTED + LOCALLY VERIFIED; HUMAN + INTEGRATION REVIEW REQUIRED (HG-C)**. Owner-scoped index CAS (memory + PostgreSQL), write-gated `POST /preview-index/head`, `previewIndex` upload family committing `INDEX_STAGED` in the blob transaction, transport-only client CAS wrapper, pure merge/rebase/split/prune, server-enforced per-owner retained-storage budget (advisory at create, authoritative under the owner lock at commit, 507 `PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED`), authenticated orphan classification, recovery fail-closed naming, pinned non-destructive lifecycle, read-only reachability report. `WRITER_IMPLEMENTED=NO`, `WRITER_ENABLED=NO`, WRITE default OFF; no deletion/GC; no Production mutation. |
+| Production mutation allowed | **NO** |
+| Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
+| Next gate | Human + integration review/merge of PR #295 (HG-C). PR-D (writer, Phase E/F) only after separate authorization; budget value stays PROVISIONAL until HG-G; do not enable WRITE. |
+
+### Session Register — D1-C
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1C-S1 | C.1–C.7, D.1–D.4 with focused RED/GREEN per task; independent whole-branch review (0 Critical/Important; Minor fixes applied: 507 cleanup never 500, invalid CAS body audited DENIED, cancel-only DELETE pinned) | Implemented and locally verified; Human/integration review required | PostgreSQL 15 disposable (`drive_app`) 0 skips: CAS concurrency 6/6 (same-generation single winner, 20 writers → 1..20 no gaps, main+index CAS no deadlock, replay, key reuse rejected); budget concurrency 3/3 (owner at max−S, 10 parallel commits → 1×201 + 9×507, retained = max); lock-removal mutations make both proofs fail; full suite and failure-name diff recorded in the receipt | branch head on PR #295 | HG-C review; CI on every new head | PR-D only after separate Human authorization |
+
+Post-PR-#297 reconciliation (2026-10-02): `origin/main` `9f5a0114` merged normally into PR-C (no conflict). Under the new contract (`drive_app` SELECT/INSERT/UPDATE only on the three preview-index tables) PR-C re-verified on disposable PostgreSQL with 0 skips: migration 13/13, store 15/15, CAS concurrency 6/6, budget concurrency 3/3, uploads 7/7, budget 10/10, lifecycle guards 6/6, vaultV2 17/17. A scratch compromised-role probe now gets `permission denied` for DELETE on heads/generations/refs, so the earlier stuck-index (head deletion) path is closed; PR-C needs no DELETE. Residual (pre-existing, outside D-1 preview-index tables): `drive_app` still has DELETE on `vault_tree_blob_state` and `vault_v2_blobs`.
+
+Post-Stage-1 reconciliation (2026-10-02): `origin/main` `bef58a47` (PR #294 merged; Stage 1 accepted in Production with `STAGE1_ACCEPTED=YES`, 0 index rows, writer OFF) merged normally into PR-C. No code changes required; Stage 1 status preserved; re-verified focused suites and privilege contract.
+
+Known PR-C limitations: upload sessions are not bound to the family that opened them (owner-only effect, no budget bypass; binding needs a schema change, deferred); `reservedHidden` is computed but not shown in the recovery UI; the reachability report counts derivatives of an unverifiable shard as unreachable (diagnostics only); `PG-MG-2` remains a pre-existing intermittent PostgreSQL genesis-race test (reproduced on base 3/10).
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-STAGE1 — D-1 Stage 1 Production package and live acceptance
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-D1 Phase J Stage 1 (compatibility / read-only, writer OFF) |
 | Branch | `deploy/idea1-preview-d1-stage1`; candidate `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f` |
 | Owner | kla |
-| PR | #294 (Ready for final review/merge; LIVE_ACCEPTANCE=PASS; STAGE1_ACCEPTED=YES) |
-| State | **DEPLOYED=YES / ACCEPTED=YES / LIVE_ACCEPTANCE=PASS / READY_FOR_HUMAN_MERGE**. Human HG-S1 authorized, fresh backup verified, migration 012 applied and verified (`drive_app` S/I/U=true, D/T=false, `PRIV_BAD=0`), candidate `9f5a0114` cut over at `2026-10-02T11:01:39Z`, image `aegis-prod-drive:preview-d1-s1-9f5a01148ce0` healthy, `/healthz` 200, stateStatus 200, write=false, headStatus 404 `PREVIEW_INDEX_NOT_FOUND` across 3 account classes, LAN matrix PASS, Remote matrix PASS, 0 preview-index rows after acceptance, writer remains OFF (`WRITER_ENABLED=NO`), live rollback NOT_EXECUTED (success path held). PR #294 unmerged. |
+| PR | #294 — **merged** at `bef58a47d9304725cfe000741e0331a0091c4ae6` (LIVE_ACCEPTANCE=PASS; STAGE1_ACCEPTED=YES) |
+| State | **DEPLOYED=YES / ACCEPTED=YES / LIVE_ACCEPTANCE=PASS / MERGED**. Human HG-S1 authorized, fresh backup verified, migration 012 applied and verified (`drive_app` S/I/U=true, D/T=false, `PRIV_BAD=0`), candidate `9f5a0114` cut over at `2026-10-02T11:01:39Z`, image `aegis-prod-drive:preview-d1-s1-9f5a01148ce0` healthy, `/healthz` 200, stateStatus 200, write=false, headStatus 404 `PREVIEW_INDEX_NOT_FOUND` across 3 account classes, LAN matrix PASS, Remote matrix PASS, 0 preview-index rows after acceptance, writer remains OFF (`WRITER_ENABLED=NO`), live rollback NOT_EXECUTED (success path held). PR #294 merged into `main`. |
 | Production mutation allowed | **NO** (Stage 1 completed; future stages Human-only) |
 | Candidate | `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f`; image `aegis-prod-drive:preview-d1-s1-9f5a01148ce0` (`sha256:8d5356fc4c7a02a7b1f9e067097b89dc11913743d299a99d0726997b796b88e0`); migration 012 applied. |
-| Next gate | Human review and merge of PR #294 (P1_CLOSED=NO until merge). |
+| Next gate | Stage 1 merged. Phase C (PR #295) post-Stage-1 reconciliation and Human review/merge (HG-C). |
 
 ### Session Register — D1-STAGE1
 
@@ -52,11 +77,11 @@ D1S1-S4 (2026-10-02): Human Owner executed Stage 1 in Production after HG-S1 aut
 | Task | IDEA1-UNIFIED-PREVIEW-D1 PR-B / plan Phase B, Tasks B.1–B.10 only |
 | Branch | `feat/idea1-preview-d1-b-codec-reader` from merged PR-A / `origin/main` `fa22edd5d5db18e692e7814b895f7af3d3c166dc` at task start |
 | Owner | kla |
-| PR | #285 |
-| State | **IMPLEMENTED + LOCALLY VERIFIED + MERGED** at `4a8cc3c95e2f4147fbab9c505079c0377a271d99`; not deployed. Codec, crypto, read-only reader, derivative read, tile integration, and codec-only size probe; no writer/CAS/Phase C/Production mutation. |
+| PR | #285 — **merged** 2026-10-02 at `4a8cc3c95e2f4147fbab9c505079c0377a271d99` |
+| State | **MERGED; deployed to Production in Stage 1 (`9f5a01148ce0`)**. Codec, crypto, read-only reader, derivative read, tile integration, and codec-only size probe; no writer/CAS/Phase C/Production mutation. |
 | Production mutation allowed | **NO** |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
-| Next gate | PR #285 merged. Stage 1 (PR-A + PR-B) package is the D1-STAGE1 task above. Separate IDX-SIZE/PG/browser gates remain open; do not enable WRITE. |
+| Next gate | Stage 1 (PR-A + PR-B) deployed and accepted in Production. Phase C continues in PR #295 above. |
 
 ### Session Register — D1-B
 
@@ -73,7 +98,7 @@ The read path is default OFF and may return DISABLED, MISSING, CORRUPT, or ABORT
 | Task | Restore the D-1 database privilege contract: `drive_app` has SELECT/INSERT/UPDATE only on `vault_preview_index_heads`, `vault_preview_index_generations`, `vault_preview_index_blob_refs` (no DELETE/TRUNCATE) on both the upgrade and fresh-install paths |
 | Branch | `fix/idea1-d1-preview-index-delete-privilege` from `origin/main` `fc4839957aff109f8f1a81fbc04a4ea37820f66a` |
 | Owner | kla |
-| State | **IMPLEMENTED + LOCALLY VERIFIED + MERGED** (PR #297 at `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f`); no Production mutation |
+| State | **MERGED** as PR #297 at `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f`; deployed to Production in Stage 1 (`9f5a01148ce0`); no Production mutation |
 | Root cause | `postgres/init/02-app-roles.sh` grants DELETE on all tables and through `ALTER DEFAULT PRIVILEGES`; migration 012 only added a GRANT and never revoked, and schema.sql + 02 gave blanket DML on fresh installs. PI-PG-2 passed because default privileges are per database and its disposable database never ran the role script. |
 | Fix | 012 role block: `REVOKE ALL` then `GRANT SELECT, INSERT, UPDATE` per preview-index table; 02-app-roles.sh and its three mirrors (pg-integration-env.sh, public-share integration and managed-tunnel db-init) narrow the same three tables after their blanket grant, guarded by `to_regclass`. No other table changes. |
 | Effect on Stage 1 | Migration 012 bytes change (SHA-256 `aac26537…b239`, was `aaeee44a…edb5`). Stage 1 package (PR #294) refreshed onto `9f5a0114` — see D1-STAGE1 above. |

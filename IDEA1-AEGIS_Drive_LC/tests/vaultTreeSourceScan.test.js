@@ -72,13 +72,16 @@ test('SS-3 client vault modules contain no browser-storage or Cache API access',
   }
 })
 
-test('SS-PI-1 D-1 preview-index server modules (PR-A) import nothing from src/, register no mutating route, and issue no DELETE/TRUNCATE SQL', () => {
+test('SS-PI-1 D-1 preview-index server modules import nothing from src/, register no PUT/PATCH/DELETE (only the write-gated POST /head), and issue no DELETE/TRUNCATE SQL', () => {
   const route = fs.readFileSync(path.join(ROOT, 'server/routes/vaultPreviewIndex.js'), 'utf8')
   const store = fs.readFileSync(path.join(ROOT, 'server/db/vaultPreviewIndexStore.js'), 'utf8')
   for (const [name, src] of [['vaultPreviewIndex.js', route], ['vaultPreviewIndexStore.js', store]]) {
     for (const spec of importsOf(src)) assert.doesNotMatch(spec, /(^|\/)src\//, `${name} imports ${spec}`)
   }
-  assert.doesNotMatch(route, /\.(post|put|patch|delete)\s*\(/i, 'PR-A preview-index routes are GET only')
+  assert.doesNotMatch(route, /\.(put|patch|delete)\s*\(/i, 'no PUT/PATCH/DELETE preview-index route')
+  // PR-C: the single POST registered directly here is the write-gated index CAS
+  assert.deepEqual(route.match(/\.post\s*\(\s*'[^']*'/gi), ["vaultPreviewIndexRouter.post('/head'"].map((s) => s.slice(s.indexOf('.'))))
+  assert.match(route, /\.post\('\/head', requirePreviewIndexWrite, /)
   const code = (s) => s.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\*)/.test(l)).join('\n')
   assert.doesNotMatch(code(store), /\b(DELETE\s+FROM|TRUNCATE|DROP\s+TABLE)\b/i, 'the preview-index store never deletes')
   assert.doesNotMatch(code(store), /VAULT_MANIFEST_V2_UPGRADE|manifestV2Upgrade/)
