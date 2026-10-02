@@ -37,10 +37,14 @@
 -- destructive GC is forbidden in D-1.
 --
 -- ── GRANTS ──────────────────────────────────────────────────────────────────
--- This migration grants drive_app SELECT, INSERT, UPDATE only — no DELETE. Fresh installs
--- get the blanket DML grant from postgres/init/02-app-roles.sh, so the prohibition on
--- deleting generations and blob references is enforced by the triggers below (only an
--- owner-deletion cascade may remove them), not by privileges alone.
+-- drive_app ends with exactly SELECT, INSERT, UPDATE on the three new tables — never DELETE
+-- or TRUNCATE. postgres/init/02-app-roles.sh installs ALTER DEFAULT PRIVILEGES (… SELECT,
+-- INSERT, UPDATE, DELETE ON TABLES TO drive_app) for the superuser that runs this migration,
+-- so CREATE TABLE below already hands drive_app DELETE; the role-guarded block at the end
+-- therefore REVOKEs ALL on these three tables and re-grants SELECT, INSERT, UPDATE. Fresh
+-- installs get the same narrowing from 02-app-roles.sh after its blanket grant. Owner deletion
+-- still cascades (FK actions run with the table owner's rights). The triggers below remain a
+-- second, independent guard against deleting generations and blob references.
 
 BEGIN;
 
@@ -158,13 +162,19 @@ CREATE TRIGGER vault_preview_index_blob_refs_immutable
   FOR EACH ROW EXECUTE FUNCTION vault_preview_index_blob_refs_guard();
 
 -- ── Scoped application DML — explicit, idempotent, role-guarded ─────────────
--- ⚠️ SELECT/INSERT/UPDATE only on this path. drive_app never owns these tables and never
---    receives CREATE, ALTER, DROP or TRUNCATE on them. No sequence grant.
+-- ⚠️ SELECT/INSERT/UPDATE only. drive_app never owns these tables and never holds DELETE,
+--    TRUNCATE, REFERENCES, TRIGGER, ALTER or DROP on them. REVOKE ALL first removes whatever
+--    ALTER DEFAULT PRIVILEGES granted at CREATE TABLE above (Production: … DELETE). Only these
+--    three tables are touched; every other table keeps its existing grants. No sequence grant.
+--    Re-running is a no-op (same end state).
 DO $$
+DECLARE t text;
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'drive_app') THEN
-    EXECUTE 'GRANT SELECT, INSERT, UPDATE ON '
-         || 'vault_preview_index_heads, vault_preview_index_generations, vault_preview_index_blob_refs TO drive_app';
+    FOREACH t IN ARRAY ARRAY['vault_preview_index_heads', 'vault_preview_index_generations', 'vault_preview_index_blob_refs'] LOOP
+      EXECUTE format('REVOKE ALL ON %I FROM drive_app', t);
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE ON %I TO drive_app', t);
+    END LOOP;
   END IF;
 END
 $$;

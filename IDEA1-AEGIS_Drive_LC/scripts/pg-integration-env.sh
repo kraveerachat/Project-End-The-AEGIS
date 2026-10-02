@@ -117,6 +117,19 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO $APP_ROLE;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO $APP_ROLE;
+-- D-1 preview-index privilege contract (mirrors postgres/init/02-app-roles.sh): SELECT, INSERT,
+-- UPDATE only on the three preview-index tables; skipped where an older schema lacks them.
+DO \$\$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['vault_preview_index_heads', 'vault_preview_index_generations', 'vault_preview_index_blob_refs'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON %I FROM $APP_ROLE', t);
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE ON %I TO $APP_ROLE', t);
+    END IF;
+  END LOOP;
+END
+\$\$;
 SQL
 }
 
