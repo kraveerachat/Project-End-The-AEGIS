@@ -66,8 +66,8 @@ if ($PSCmdlet.ShouldProcess($keyPath, 'Create one DPAPI CurrentUser-protected Ed
     $original = $service.PathName
     $generateCommand = ('"{0}" "{1}" --provision-key --node-id "{2}" --key-version {3} --key-path "{4}" --public-key-export "{5}" --result-output "{6}"' -f
         $python, $runner, $NodeId, $KeyVersion, $keyPath, $PublicKeyExport, $resultPath)
-    Invoke-CheckedServiceControl $ServiceName config "binPath= $generateCommand"
     try {
+        Invoke-CheckedServiceControl $ServiceName config 'binPath=' $generateCommand
         Invoke-CheckedServiceControl $ServiceName start
         $deadline = [DateTime]::UtcNow.AddSeconds(30)
         while (-not (Test-Path -LiteralPath $resultPath) -and [DateTime]::UtcNow -lt $deadline) {
@@ -78,12 +78,16 @@ if ($PSCmdlet.ShouldProcess($keyPath, 'Create one DPAPI CurrentUser-protected Ed
         $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
     }
     finally {
-        $serviceController = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-        if ($null -ne $serviceController -and $serviceController.Status -ne 'Stopped') {
-            Invoke-CheckedServiceControl $ServiceName stop
-            $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+        try {
+            $serviceController = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+            if ($null -ne $serviceController -and $serviceController.Status -ne 'Stopped') {
+                Invoke-CheckedServiceControl $ServiceName stop
+                $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+            }
         }
-        Invoke-CheckedServiceControl $ServiceName config "binPath= $original"
+        finally {
+            Invoke-CheckedServiceControl $ServiceName config 'binPath=' $original
+        }
     }
     $provisionExecuted = $true
 }

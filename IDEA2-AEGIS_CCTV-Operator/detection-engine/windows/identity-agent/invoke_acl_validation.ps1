@@ -48,8 +48,8 @@ $original = $service.PathName
 $requireKeyArgument = if ($RequireKey) { ' --require-key' } else { '' }
 $validationCommand = ('"{0}" "{1}" --validate-key-store-acl{2} --result-output "{3}"' -f
     $python, $runner, $requireKeyArgument, $resultPath)
-Invoke-CheckedServiceControl $ServiceName config "binPath= $validationCommand"
 try {
+    Invoke-CheckedServiceControl $ServiceName config 'binPath=' $validationCommand
     Invoke-CheckedServiceControl $ServiceName start
     $serviceController = Get-Service -Name $ServiceName -ErrorAction Stop
     $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
@@ -67,12 +67,16 @@ try {
     }
 }
 finally {
-    $serviceController = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if ($null -ne $serviceController -and $serviceController.Status -ne 'Stopped') {
-        Invoke-CheckedServiceControl $ServiceName stop
-        $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+    try {
+        $serviceController = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+        if ($null -ne $serviceController -and $serviceController.Status -ne 'Stopped') {
+            Invoke-CheckedServiceControl $ServiceName stop
+            $serviceController.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+        }
     }
-    Invoke-CheckedServiceControl $ServiceName config "binPath= $original"
+    finally {
+        Invoke-CheckedServiceControl $ServiceName config 'binPath=' $original
+    }
 }
 
 'ACL_VALIDATION=PASS'

@@ -16,6 +16,143 @@ AGENT_ROOT = WINDOWS_ROOT / "identity-agent"
 
 
 class WindowsIdentityAgentLifecycleTests(unittest.TestCase):
+    def test_temporary_service_commands_pass_binpath_option_and_value_separately(self) -> None:
+        commands = {
+            "invoke_dpapi_preflight.ps1": '"C:\\Program Files\\AEGIS\\agent.exe" --dpapi-preflight',
+            "provision_identity_key.ps1": '"C:\\Program Files\\AEGIS\\agent.exe" --provision-key',
+            "invoke_acl_validation.ps1": '"C:\\Program Files\\AEGIS\\agent.exe" --validate-key-store-acl',
+        }
+        original = '"C:\\Program Files\\AEGIS\\agent.exe" --service'
+        for script_name, temporary in commands.items():
+            with self.subTest(script=script_name):
+                script_path = str(AGENT_ROOT / script_name).replace("'", "''")
+                script = f"""
+                $ErrorActionPreference = 'Stop'
+                $tokens = $null
+                $errors = $null
+                $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+                    '{script_path}', [ref]$tokens, [ref]$errors)
+                if ($errors.Count -ne 0) {{ throw 'SCRIPT_PARSE_ERROR' }}
+                $calls = @($ast.FindAll({{
+                    param($node)
+                    $node -is [System.Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -eq 'Invoke-CheckedServiceControl' -and
+                    $node.CommandElements.Count -ge 3 -and
+                    $node.CommandElements[2].Extent.Text -eq 'config'
+                }}, $true))
+                if ($calls.Count -ne 2) {{ throw 'EXPECTED_TEMPORARY_AND_RESTORE_CONFIG_CALLS' }}
+                function Invoke-CheckedServiceControl {{
+                    param([string]$ServiceName,
+                        [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+                    ConvertTo-Json -InputObject @($ServiceName, $Arguments[0], $Arguments[1], $Arguments[2]) -Compress
+                }}
+                $ServiceName = 'AEGISIdentityAgent'
+                $original = '{original}'
+                $preflightCommand = '{temporary}'
+                $generateCommand = '{temporary}'
+                $validationCommand = '{temporary}'
+                foreach ($call in $calls) {{ & ([scriptblock]::Create($call.Extent.Text)) }}
+                """
+                result = self._run_powershell(script, cwd=ENGINE_ROOT)
+                self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+                self.assertEqual(
+                    [json.loads(line) for line in result.stdout.splitlines() if line.strip()],
+                    [
+                        ["AEGISIdentityAgent", "config", "binPath=", temporary],
+                        ["AEGISIdentityAgent", "config", "binPath=", original],
+                    ],
+                )
+
+    def test_service_control_rejects_packed_binpath_and_preserves_native_quote_escape(self) -> None:
+        safety_path = str(AGENT_ROOT / "identity_agent_safety.ps1").replace("'", "''")
+        script = f"""
+        $ErrorActionPreference = 'Stop'
+        . '{safety_path}'
+        $script:scCalls = @()
+        $script:scExit = 0
+        function sc.exe {{
+            $script:scCalls += ,@($args)
+            $global:LASTEXITCODE = $script:scExit
+        }}
+        $imagePath = '"C:\\Program Files\\AEGIS\\agent.exe" --service'
+        Invoke-CheckedServiceControl AEGISIdentityAgent config 'binPath=' $imagePath
+        Invoke-CheckedServiceControl AEGISIdentityAgent start
+        Invoke-CheckedServiceControl AEGISIdentityAgent stop
+        try {{
+            Invoke-CheckedServiceControl AEGISIdentityAgent config "binPath= $imagePath"
+            throw 'PACKED_BINPATH_ACCEPTED'
+        }} catch {{
+            if ($_.Exception.Message -eq 'PACKED_BINPATH_ACCEPTED') {{ throw }}
+        }}
+        $script:scExit = 1639
+        try {{
+            Invoke-CheckedServiceControl AEGISIdentityAgent config 'binPath=' $imagePath
+            throw 'SC_FAILURE_IGNORED'
+        }} catch {{
+            if ($_.Exception.Message -ne 'sc.exe failed with exit code 1639') {{ throw }}
+        }}
+        if ($script:scCalls.Count -ne 4) {{ throw 'UNEXPECTED_SC_CALL_COUNT' }}
+        foreach ($call in $script:scCalls) {{ ConvertTo-Json -InputObject $call -Compress }}
+        """
+        result = self._run_powershell(script, cwd=ENGINE_ROOT)
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertEqual(
+            [json.loads(line) for line in result.stdout.splitlines() if line.strip()],
+            [
+                ["config", "AEGISIdentityAgent", "binPath=", '\\"C:\\Program Files\\AEGIS\\agent.exe\\" --service'],
+                ["start", "AEGISIdentityAgent"],
+                ["stop", "AEGISIdentityAgent"],
+                ["config", "AEGISIdentityAgent", "binPath=", '\\"C:\\Program Files\\AEGIS\\agent.exe\\" --service'],
+            ],
+        )
+
+    def test_one_shot_service_restores_original_path_even_when_stop_fails(self) -> None:
+        for script_name in (
+            "invoke_dpapi_preflight.ps1",
+            "provision_identity_key.ps1",
+            "invoke_acl_validation.ps1",
+        ):
+            with self.subTest(script=script_name):
+                script_path = str(AGENT_ROOT / script_name).replace("'", "''")
+                script = f"""
+                $ErrorActionPreference = 'Stop'
+                $tokens = $null
+                $errors = $null
+                $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+                    '{script_path}', [ref]$tokens, [ref]$errors)
+                if ($errors.Count -ne 0) {{ throw 'SCRIPT_PARSE_ERROR' }}
+                $tries = @($ast.FindAll({{
+                    param($node)
+                    $node -is [System.Management.Automation.Language.TryStatementAst] -and
+                    $null -ne $node.Finally -and
+                    $node.Body.Extent.Text -match "config 'binPath='"
+                }}, $true))
+                if ($tries.Count -ne 1) {{ throw 'EXPECTED_ONE_SHOT_TRY_FINALLY' }}
+                if ($tries[0].Body.Extent.Text -notmatch "config 'binPath='") {{
+                    throw 'TEMPORARY_CONFIG_OUTSIDE_RESTORATION_TRY'
+                }}
+                $finallyBody = ($tries[0].Finally.Statements | ForEach-Object {{ $_.Extent.Text }}) -join "`n"
+                $script:calls = @()
+                $ServiceName = 'AEGISIdentityAgent'
+                $original = '"C:\\Program Files\\AEGIS\\agent.exe" --service'
+                function Get-Service {{ return [pscustomobject]@{{ Status = 'Running' }} }}
+                function Invoke-CheckedServiceControl {{
+                    param([string]$ServiceName,
+                        [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+                    $script:calls += ,@($Arguments)
+                    if ($Arguments[0] -eq 'stop') {{ throw 'STOP_FAILED' }}
+                }}
+                try {{ & ([scriptblock]::Create($finallyBody)); throw 'STOP_NOT_PROPAGATED' }}
+                catch {{ if ($_.Exception.Message -ne 'STOP_FAILED') {{ throw }} }}
+                foreach ($call in $script:calls) {{ ConvertTo-Json -InputObject $call -Compress }}
+                """
+                result = self._run_powershell(script, cwd=ENGINE_ROOT)
+                self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+                self.assertEqual(
+                    [json.loads(line) for line in result.stdout.splitlines() if line.strip()],
+                    [["stop"], ["config", "binPath=", '"C:\\Program Files\\AEGIS\\agent.exe" --service']],
+                )
+
     def test_service_create_and_config_preserve_exact_native_image_path_arguments(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aegis-agent-service-argv-") as raw_root:
             root = Path(raw_root)
