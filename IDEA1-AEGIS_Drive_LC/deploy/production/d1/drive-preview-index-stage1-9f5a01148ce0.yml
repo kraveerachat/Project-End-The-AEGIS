@@ -1,0 +1,12 @@
+# IDEA1 D-1 Stage 1 — compatibility / read-only preview index. Writer OFF.
+# Migration 012 must be applied and verified before this overlay is used.
+# VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER is deliberately absent (allowed only while WRITE=false).
+# Every other Vault flag is inherited unchanged from the live chain; media/purge are restated at their live values.
+services:
+  drive:
+    environment:
+      VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE: "true"
+      VAULT_PREVIEW_INDEX_READ_ENABLED: "true"
+      VAULT_PREVIEW_INDEX_WRITE_ENABLED: "false"
+      VAULT_MEDIA_PREVIEW_ENABLED: "true"
+      VAULT_DESTRUCTIVE_PURGE_ENABLED: "false"

@@ -39,7 +39,7 @@ import { uploadsRouter } from './uploads.js'
 import { vaultUploadsRouter, publicVaultV2Blob } from './vaultUploads.js'
 import { vaultTreeRouter, requireVaultProtocolState } from './vaultTree.js'
 import { vaultTreeUploadsRouter } from './vaultTreeUploads.js'
-import { vaultPreviewIndexRouter } from './vaultPreviewIndex.js'
+import { vaultPreviewIndexRouter, vaultPreviewIndexUploadsRouter } from './vaultPreviewIndex.js'
 import { excludeIndexBlobIds } from '../db/vaultPreviewIndexStore.js'
 import * as vaultV2 from '../db/vaultV2Store.js'
 import { isValidVaultBlobId } from '../storage/vaultStaging.js'
@@ -1663,7 +1663,9 @@ apiRouter.post('/sessions/revoke-others', requireAuth, async (req, res, next) =>
 // ── Private Vault encrypted hierarchy — opaque tree protocol (PR #157) ───────
 // ⚠️ mount ก่อน '/vault/uploads' และ '/vault/blobs/:id': prefix '/vault/tree' ต้องไม่ถูก route เก่าจับ
 // ⚠️ ครอบครัว tree-aware upload (Task 4.1) mount ก่อน '/vault/tree' เพื่อไม่ให้ router ของ tree วิ่งผ่านคำขอของมันโดยเปล่าประโยชน์
-// ⚠️ D-1 preview index (read-only in PR-A) mounts before both tree routers for the same reason
+// ⚠️ D-1 preview index mounts before both tree routers for the same reason; its upload family (PR-C, write-gated)
+//    mounts before its read router so the read gate never runs on upload requests
+apiRouter.use('/vault/tree/preview-index/uploads', vaultPreviewIndexUploadsRouter)
 apiRouter.use('/vault/tree/preview-index', vaultPreviewIndexRouter)
 apiRouter.use('/vault/tree/uploads', vaultTreeUploadsRouter)
 apiRouter.use('/vault/tree', vaultTreeRouter)

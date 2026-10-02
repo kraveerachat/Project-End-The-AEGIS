@@ -176,7 +176,8 @@ ver_rc=0; ver_out=$(handler verify.sh 2>&1) || ver_rc=$?; printf '%s\n' "$ver_ou
 { [ "$ver_rc" = 0 ] && printf '%s\n' "$ver_out" | grep -qx 'L7U_VERIFY=PASS' && printf '%s\n' "$ver_out" | grep -qx 'L7U_RECOVERY_CHANNEL=PRESENT' && printf '%s\n' "$ver_out" | grep -qx 'L7U_ALERT_CHANNEL=PRESENT'; } || rollback_flow "L7U_VERIFY failed"
 echo "== POST capture"; capture POST "$EVID/post-root" || rollback_flow "POST capture failed"
 echo "== PRE -> POST compare (approved exact L7u delta only)"; compare "$EVID/pre-root" "$EVID/post-root" "$EVID/compare-pre-post.txt" post || rollback_flow "PRE->POST compare failed"
-echo "== exact-value delta proof"; "$PY" "$P4/p4-l7u-upgrade.py" delta --old-release-id "$OLD_RELEASE_ID" --new-release-id "$NEW_RELEASE_ID" --expected-main "$EXPECTED_MAIN" \
+# delta only READS the root-owned (0700) pre-root/post-root captures and the live identity files, so it runs through the same sudo boundary as preflight; the captures are never chmod-ed.
+echo "== exact-value delta proof"; sudo "$PY" "$P4/p4-l7u-upgrade.py" delta --old-release-id "$OLD_RELEASE_ID" --new-release-id "$NEW_RELEASE_ID" --expected-main "$EXPECTED_MAIN" \
   --source-dir "$SOURCE_DIR" --work-dir "$WORK" --operator-user "$OPERATOR_USER" --operator-uid "$OPERATOR_UID" --alert-source-uid "$ALERT_SOURCE_UID" --pre-dir "$EVID/pre-root" --post-dir "$EVID/post-root" \
   || rollback_flow "exact-value delta proof failed"
 l7u_secret_scan "$EVID" "$PY" || rollback_flow "SECRET_OUTPUT_SCAN failed"

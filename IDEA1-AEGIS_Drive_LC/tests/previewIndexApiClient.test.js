@@ -57,9 +57,41 @@ test('PIC-3 envelopes: empty list makes no request; server errors throw TreeApiE
   await assert.rejects(treeApi.listPreviewIndexBlobs({}, { fetchJson: recorder(srvErr(503, 'PREVIEW_INDEX_DISABLED')).fetchJson }), (e) => e.code === 'PREVIEW_INDEX_DISABLED')
 })
 
-test('PIC-4 PR-A ships no preview-index write wrapper and the module touches no browser storage', async () => {
-  for (const name of Object.keys(treeApi)) assert.doesNotMatch(name, /^(cas|put|post|delete|upload).*PreviewIndex|PreviewIndex.*(Cas|Write|Upload|Delete)/, name)
+test('PIC-4 the only preview-index write wrapper is casPreviewIndexHead (PR-C); no delete/upload wrapper; no browser storage', async () => {
+  const writers = Object.keys(treeApi).filter((name) => /^(cas|put|post|delete|upload).*PreviewIndex|PreviewIndex.*(Cas|Write|Upload|Delete)/.test(name))
+  assert.deepEqual(writers, ['casPreviewIndexHead'])
   const fs = await import('node:fs')
   const src = fs.readFileSync(new URL('../src/lib/vaultTreeApi.js', import.meta.url), 'utf8')
   assert.doesNotMatch(src, /\b(localStorage|sessionStorage|indexedDB|caches\.)/)
+})
+
+// ── PR-C Task C.5 — transport-only CAS wrapper (no writer logic, no retry) ────
+const CAS_BODY = Object.freeze({
+  expectedGeneration: 1, expectedRootBlobId: ID1, rootBlobId: ID2, rootContentIdB64: 'AAECAwQFBgcICQoLDA0ODw==',
+  attachBlobIds: [ID2], supersededBlobIds: [ID1], idempotencyKey: 'K'.repeat(22),
+})
+
+test('PIC-5 casPreviewIndexHead POSTs the body through exactly, with the caller signal, once', async () => {
+  const { fetchJson, calls } = recorder(ok({ indexGeneration: 2, rootBlobId: ID2 }))
+  const out = await treeApi.casPreviewIndexHead(CAS_BODY, { fetchJson, signal: SIGNAL })
+  assert.deepEqual(out, { indexGeneration: 2, rootBlobId: ID2 })
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].path, '/api/vault/tree/preview-index/head')
+  assert.equal(calls[0].opts.method, 'POST')
+  assert.equal(calls[0].opts.body, CAS_BODY, 'the caller body object is passed through untouched')
+  assert.equal(calls[0].opts.signal, SIGNAL)
+})
+
+test('PIC-6 409 → TreeApiError with code and data.currentGeneration/currentRootBlobId; transport failure surfaces its class; no retry', async () => {
+  const conflict = { ok: false, status: 409, data: { error: 'Preview index changed', code: 'PREVIEW_INDEX_CONFLICT', currentGeneration: 3, currentRootBlobId: ID1 }, errorKind: 'server' }
+  const r409 = recorder(conflict)
+  await assert.rejects(treeApi.casPreviewIndexHead(CAS_BODY, { fetchJson: r409.fetchJson }), (e) => e instanceof treeApi.TreeApiError
+    && e.code === 'PREVIEW_INDEX_CONFLICT' && e.status === 409 && e.data.currentGeneration === 3 && e.data.currentRootBlobId === ID1)
+  assert.equal(r409.calls.length, 1, 'no client retry')
+  const rNet = recorder(net())
+  await assert.rejects(treeApi.casPreviewIndexHead(CAS_BODY, { fetchJson: rNet.fetchJson }), (e) => e instanceof treeApi.TreeApiError && e.code === 'network' && e.status === 0)
+  assert.equal(rNet.calls.length, 1, 'the caller decides whether to replay with the same idempotency key')
+  for (const [status, code] of [[503, 'PREVIEW_INDEX_WRITE_DISABLED'], [400, 'INVALID_INPUT'], [409, 'PREVIEW_INDEX_IDEMPOTENCY_MISMATCH']]) {
+    await assert.rejects(treeApi.casPreviewIndexHead(CAS_BODY, { fetchJson: recorder(srvErr(status, code)).fetchJson }), (e) => e.code === code && e.status === status, code)
+  }
 })

@@ -125,6 +125,7 @@ DEFAULT_STATE = {
     "profile_modify_corrupts": False, # the keyfile rewrite ALSO changes another non-secret line (NetworkManager re-serialization drift)
     "profile_modify_reorders": False, # the keyfile rewrite re-serializes like libnm: keys re-ordered inside sections, comments/blank lines dropped
     "profile_modify_adds_uuid": False,  # the keyfile rewrite adds the daemon-assigned `uuid=` line to [connection]
+    "profile_modify_adds_timestamp": False,  # the keyfile rewrite adds the NetworkManager-maintained `timestamp=<nonzero epoch>` line to [connection] (live S-11, 2026-10-02)
     "profile_modify_extra": "",       # "section|key=value": the rewrite ALSO adds this non-secret key
 }
 
@@ -327,12 +328,12 @@ def _rewrite_profile_autoconnect(s: dict, value: str) -> None:
         lines.insert(at, new)
     if s["profile_modify_corrupts"]:
         lines = [l.replace("channel=6", "channel=11") for l in lines]
-    if s["profile_modify_adds_uuid"] or s["profile_modify_reorders"] or s["profile_modify_extra"]:
+    if s["profile_modify_adds_uuid"] or s["profile_modify_adds_timestamp"] or s["profile_modify_reorders"] or s["profile_modify_extra"]:
         lines = _reserialize_like_libnm(lines, s)
     f.write_text("\n".join(lines) + "\n")
 
 
-_CONNECTION_ORDER = ["id", "uuid", "type", "autoconnect", "interface-name"]
+_CONNECTION_ORDER = ["id", "uuid", "type", "autoconnect", "interface-name", "timestamp"]
 
 
 def _reserialize_like_libnm(lines: list[str], s: dict) -> list[str]:
@@ -353,6 +354,10 @@ def _reserialize_like_libnm(lines: list[str], s: dict) -> list[str]:
         for name, kv in sections:
             if name == "connection":
                 kv.append(("uuid", "b158569b-6281-4b88-b3bc-639a1b1c40c7"))
+    if s["profile_modify_adds_timestamp"]:
+        for name, kv in sections:
+            if name == "connection":
+                kv.append(("timestamp", "1790896283"))
     if s["profile_modify_extra"]:
         sec, kv_text = s["profile_modify_extra"].split("|", 1)
         k, v = kv_text.split("=", 1)

@@ -219,3 +219,22 @@ real build omitted both while the repository test fixtures (hand-made releases) 
 exactly two entrypoints, `ENTRYPOINTS = ("supervisor", "recovery_ui")`; the package stays exactly that closure (no unrelated module is added; the
 observer's extra reach is `recovery_client` and `recovery_protocol`, all stdlib). The L7u preflight check is unchanged. Regression:
 `tests/test_pr11_phase4_l7u_release_builder_recovery_runtime.py` builds a real release and feeds it to the real engine preflight.
+
+## 12. First live attempt: exact-value delta privilege boundary (live finding, 2026-10-02)
+
+The first L7u live attempt (main `9d04b797`, 2026-10-02 20:12 +07, consumed `consumed_at=2026-10-02T13:12:28Z`) applied and verified, passed the PRE->POST compare, then
+failed `L7U_DELTA=FAIL reason=UNEXPECTED:PermissionError` and rolled back automatically (`L7U_ROLLBACK=PASS`, PRE->RB `COMPARE_RESULT=PASS`). Cause: the owner runner
+ran `p4-l7u-upgrade.py delta` as the NORMAL user, but its first action (`read_records`) opens `host.tsv` and `services.tsv` in the root-owned `0700` `pre-root` and
+`post-root` L0 capture directories. The engine tests called `engine.delta(...)` on in-memory records only, so neither the real runner line nor the real CLI was covered.
+
+Fix (privilege boundary only; the exact-value proof itself is unchanged): the runner runs `delta` through the existing sudo boundary (`sudo "$PY" ... delta`, the same
+form as `preflight`; no widening, no live-authorization flag), and `read_records` turns an unreadable capture into the explicit refusal
+`DELTA_CAPTURE_UNREADABLE_ROOT_REQUIRED` instead of `UNEXPECTED:PermissionError`. Capture permissions are not loosened, `apply`/`verify`/`rollback` semantics are
+unchanged, and the proof still runs after the PRE->POST compare with a failure still rolling back. Regression: `tests/test_pr11_phase4_l7u_delta_privilege.py`.
+**Limit:** this was the first time `delta` ran against the real host; any further live-only defect behind it stays undiscovered until the next attempt. L7u is NOT live-accepted.
+
+## 13. Live result (closeout, 2026-10-02)
+
+- **First attempt** (evidence `2026-10-02-l7u-20261002-201221`): failed at the exact-value delta (§12), rolled back, consumed, `L7U_LIVE_ACCEPTANCE = NOT_PROVEN`. Historical.
+- **Second governed attempt** after PR #302 (main `55c7d181`, evidence `2026-10-02-l7u-20261002-211217`, frozen runner SHA-256 `5ac7264d…dad0f`): `L7U_APPLY=PASS`, `L7U_VERIFY=PASS`, PRE→POST `COMPARE_RESULT=PASS`, `L7U_DELTA=PASS`, `SECRET_SCAN_HITS=0`, `L7U_CORE_RESTART_COUNT=ONE`, `L7U_STARTS_DETECTOR=NO`; the Core now runs release `55c7d181…` with the Recovery and F1 alert transport present. Consumed and persistent.
+- **Not claimed:** Recovery R1–R8, LVR, L8, F1 detector start, ESP32. New group membership applies to new login sessions only.
