@@ -197,3 +197,131 @@ test('PI-PG-4 boot probe on a real pre-012 database fails; after 012 it passes',
     assert.deepEqual(await probePreviewIndexSchema({ pg: true, q }), { missing: [], lifecycleValuesOk: true })
   })
 })
+
+// ── Production privilege model (pre-Stage-1 security correction) ─────────────
+// ⚠️ ALTER DEFAULT PRIVILEGES is per database. Every PG test above builds its own disposable database, so the
+//    defaults that postgres/init/02-app-roles.sh installs in Production (… GRANT SELECT, INSERT, UPDATE, DELETE ON
+//    TABLES TO drive_app) never existed there, and PI-PG-2's "no DELETE" passed without modelling Production. The
+//    tests below run the real role SQL extracted from 02-app-roles.sh inside each disposable database, in
+//    Production order, for both the upgrade path (011-era DB → role model → 012) and the fresh-install path
+//    (schema.sql → role model), and pin the D-1 contract: drive_app SELECT/INSERT/UPDATE only on the three
+//    preview-index tables, while every other table keeps the blanket DML grant.
+const REPO = path.resolve(ROOT, '..')
+const ROLE_SCRIPT = path.join(REPO, 'postgres/init/02-app-roles.sh')
+const PRIVS = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']
+const D1_EXPECTED = { SELECT: true, INSERT: true, UPDATE: true, DELETE: false, TRUNCATE: false, REFERENCES: false, TRIGGER: false }
+const HEREDOC_OPEN = new RegExp("<<'SQL'\\s*$")
+
+/** every psql heredoc of 02-app-roles.sh that runs inside the Drive database, in file order, with :"role" → drive_app */
+function productionDriveRoleSql() {
+  const lines = read(ROLE_SCRIPT).split('\n')
+  const out = []
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]
+    if (!HEREDOC_OPEN.test(l) || !(/-d "\$db"/.test(l) || /-d aegis_drive\b/.test(l))) continue
+    const body = []
+    for (i += 1; i < lines.length && lines[i] !== 'SQL'; i++) body.push(lines[i])
+    out.push(body.join('\n').replace(/:"role"/g, 'drive_app'))
+  }
+  assert.ok(out.length >= 1, '02-app-roles.sh must contain the Drive DML heredoc')
+  return out
+}
+
+async function ensureDriveAppRole() {
+  const admin = new pg.Client({ connectionString: SUPER_URL })
+  await admin.connect()
+  try {
+    await admin.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'drive_app') THEN CREATE ROLE drive_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT; END IF; END $$`)
+  } finally { await admin.end() }
+}
+
+async function applyProductionRoleModel(db) {
+  for (const sql of productionDriveRoleSql()) await db.query(sql)
+  const { rows } = await db.query(`SELECT count(*)::int AS n FROM pg_default_acl d WHERE d.defaclobjtype = 'r' AND array_to_string(d.defaclacl, ',') LIKE '%drive_app=arwd%'`)
+  assert.equal(rows[0].n, 1, 'Production default privileges (arwd for drive_app on new tables) must be active in this database')
+}
+
+async function privilegesOf(db, table) {
+  const out = {}
+  for (const p of PRIVS) out[p] = (await db.query(`SELECT has_table_privilege('drive_app', $1, $2) AS ok`, [table, p])).rows[0].ok
+  return out
+}
+
+async function otherTablePrivileges(db) {
+  const { rows } = await db.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> ALL($1) ORDER BY tablename`, [NEW_TABLES])
+  const out = {}
+  for (const { tablename } of rows) out[tablename] = await privilegesOf(db, `public.${tablename}`)
+  return out
+}
+
+function assertBlanketDml(others) {
+  assert.ok(Object.keys(others).length > 20, 'the unrelated table set must be the real schema')
+  for (const [t, p] of Object.entries(others)) {
+    assert.deepEqual([p.SELECT, p.INSERT, p.UPDATE, p.DELETE], [true, true, true, true], `${t} keeps the blanket drive_app DML (incl. DELETE)`)
+    assert.equal(p.TRUNCATE, false, `${t}: TRUNCATE never granted`)
+  }
+}
+
+test('PI-PG-5 upgrade path under the Production role model: 012 leaves drive_app SELECT/INSERT/UPDATE only on preview-index tables, every other table unchanged', { skip: pgSkip }, async () => {
+  await ensureDriveAppRole()
+  await withDisposableDb('produpg', async (db) => {
+    await toPre012(db)
+    await applyProductionRoleModel(db)
+    const before = await otherTablePrivileges(db)
+    assertBlanketDml(before)
+    await db.query(migrationSql())
+    for (const t of NEW_TABLES) assert.deepEqual(await privilegesOf(db, t), D1_EXPECTED, `upgrade: ${t}`)
+    assert.deepEqual(await otherTablePrivileges(db), before, 'no unrelated table privilege changed')
+    await db.query(migrationSql())
+    for (const t of NEW_TABLES) assert.deepEqual(await privilegesOf(db, t), D1_EXPECTED, `upgrade re-run: ${t}`)
+    assert.deepEqual(await otherTablePrivileges(db), before, 'no unrelated table privilege changed after re-run')
+  })
+})
+
+test('PI-PG-6 fresh install under the Production role model: schema.sql + 02-app-roles.sh give drive_app SELECT/INSERT/UPDATE only on preview-index tables', { skip: pgSkip }, async () => {
+  await ensureDriveAppRole()
+  await withDisposableDb('prodfresh', async (db) => {
+    await applyProductionRoleModel(db)
+    for (const t of NEW_TABLES) assert.deepEqual(await privilegesOf(db, t), D1_EXPECTED, `fresh: ${t}`)
+    assertBlanketDml(await otherTablePrivileges(db))
+  })
+})
+
+test('PI-PG-7 as drive_app under the Production model: preview-index rows cannot be deleted directly, head stays updatable, owner deletion still cascades', { skip: pgSkip }, async () => {
+  await ensureDriveAppRole()
+  await withDisposableDb('prodrole', async (db) => {
+    await toPre012(db)
+    await applyProductionRoleModel(db)
+    await db.query(migrationSql())
+    const owner = await seedUser(db, 'pimig_role')
+    await db.query(`INSERT INTO vault_preview_index_generations (user_id, index_generation, tree_id, base_generation, root_blob_id, root_content_id_b64, idempotency_key, request_digest) VALUES ($1, 1, 't', 0, 'r1', 'c1', 'k1', $2)`, [owner, 'a'.repeat(64)])
+    await db.query(`INSERT INTO vault_preview_index_blob_refs (user_id, index_generation, blob_id, role) VALUES ($1, 1, 'r1', 'ATTACHED')`, [owner])
+    await db.query(`SET ROLE drive_app`)
+    try {
+      await db.query(`INSERT INTO vault_preview_index_heads (user_id, tree_id, index_generation, root_blob_id, root_content_id_b64) VALUES ($1, 't', 1, 'r1', 'c1')`, [owner])
+      await db.query(`UPDATE vault_preview_index_heads SET updated_at = now() WHERE user_id = $1`, [owner])
+      for (const t of NEW_TABLES) {
+        await assert.rejects(db.query(`DELETE FROM ${t} WHERE user_id = $1`, [owner]), /permission denied/, `drive_app DELETE on ${t}`)
+        await assert.rejects(db.query(`TRUNCATE ${t}`), /permission denied|must be owner/, `drive_app TRUNCATE on ${t}`)
+      }
+      assert.equal((await db.query(`SELECT count(*)::int AS n FROM vault_preview_index_heads WHERE user_id = $1`, [owner])).rows[0].n, 1)
+      await db.query(`DELETE FROM users WHERE id = $1`, [owner])
+    } finally {
+      await db.query(`RESET ROLE`)
+    }
+    for (const t of NEW_TABLES) assert.equal((await db.query(`SELECT count(*)::int AS n FROM ${t}`)).rows[0].n, 0, `${t} cascades with its owner even though drive_app has no DELETE on it`)
+  })
+})
+
+test('PI-MIG-5 every mirrored Drive role setup narrows the preview-index tables after its blanket grant; 012 revokes defaults before re-granting', () => {
+  const MARK = 'D-1 preview-index privilege contract'
+  for (const rel of ['postgres/init/02-app-roles.sh', 'IDEA1-AEGIS_Drive_LC/scripts/pg-integration-env.sh', 'gateway/public-share/integration/db-init/00-aegis-drive.sh', 'gateway/public-share/managed-tunnel/db-init/00-aegis-drive.sh']) {
+    const text = read(path.join(REPO, rel))
+    const blanket = text.indexOf('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES')
+    const narrow = text.indexOf(MARK)
+    assert.ok(blanket >= 0, `${rel}: blanket grant present`)
+    assert.ok(narrow > blanket, `${rel}: preview-index narrowing must follow the blanket grant`)
+    for (const t of NEW_TABLES) assert.ok(text.slice(narrow).includes(t), `${rel}: narrows ${t}`)
+  }
+  assert.match(norm(migrationSql()), /REVOKE ALL ON/i, '012 revokes whatever default privileges granted before re-granting exactly SELECT, INSERT, UPDATE')
+})
