@@ -194,8 +194,9 @@ test('preservation: the Monitor route, its internal guard, health and landing pa
   assert.ok(monitor.directives.includes('rewrite ^/monitor/?(.*)$ /$1 break'))
   assert.ok(monitor.directives.includes('proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for'))
   assert.deepEqual(locationBlock(server, 'location = /monitor').directives, ['return 301 /monitor/'])
-  // Defense in depth for the Detection Engine ingest surface, case-insensitive.
-  assert.deepEqual(locationBlock(server, 'location ~* ^/monitor/internal(/|$)').directives, ['return 404'])
+  // The narrow Machine Agent allowlist is followed by a case-insensitive,
+  // similar-prefix-safe deny for every other internal path.
+  assert.deepEqual(locationBlock(server, 'location ~* ^/monitor/internal').directives, ['return 404'])
 
   const health = locationBlock(server, 'location = /healthz')
   assert.ok(health.directives.some((d) => d.startsWith('return 200') && d.includes('routing-only')))

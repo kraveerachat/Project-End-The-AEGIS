@@ -36,7 +36,7 @@ function fixture(overrides = {}) {
   const app = express()
   app.disable('x-powered-by')
   app.use('/internal/agent-auth', createAgentAuthRouter({
-    audience: AUDIENCE,
+    audience: overrides.audience === undefined ? AUDIENCE : overrides.audience,
     challengeStore: challenges,
     sessionStore: sessions,
     ...adapters,
@@ -172,6 +172,28 @@ test('registry failures and bounded state exhaustion use a non-secret availabili
   assert.deepEqual(await ctx.request('/challenge', { nodeId: 'edge-a' }), {
     status: 503,
     body: { error: 'IDENTITY_SERVICE_UNAVAILABLE' },
+  })
+})
+
+test('missing and mismatched Agent audiences fail closed', async (t) => {
+  const missing = fixture({ audience: '' })
+  t.after(() => missing.close())
+  assert.deepEqual(await missing.request('/challenge', { nodeId: missing.node.nodeId }), {
+    status: 503,
+    body: { error: 'IDENTITY_SERVICE_UNAVAILABLE' },
+  })
+
+  const mismatch = fixture()
+  t.after(() => mismatch.close())
+  const challenge = mismatch.challenges.issue({
+    nodeId: mismatch.node.nodeId,
+    audience: 'https://attacker.invalid',
+    keyVersion: mismatch.node.keyVersion,
+    physicalCameraId: mismatch.physical.physicalCameraId,
+  })
+  assert.deepEqual(await mismatch.request('/verify', proof(mismatch, challenge)), {
+    status: 401,
+    body: { error: 'AUTHENTICATION_FAILED' },
   })
 })
 
