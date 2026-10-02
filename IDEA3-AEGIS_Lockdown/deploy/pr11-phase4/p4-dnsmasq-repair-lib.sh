@@ -13,6 +13,15 @@
 
 DNSREPAIR_STAGE_NAME="dnsmasq-unit-boot-order-repair"
 DNSREPAIR_MARKER_NAME="DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED"
+# GOVERNED SUCCESSOR MODEL (amendment 2026-10-03). The first live attempt (PR #308 runner) was CONSUMED and ended ROLLBACK_FAILED_ESCALATE at S10 because IDEA2 was
+# already unhealthy. It is historical and immutable: its AUTH_DIR, Authorization, K3, marker, frozen runner and evidence directory are NEVER reused, and a retry of it
+# is never allowed. A successor is a NEW one-shot attempt with its own fresh same-day AUTH_DIR, a NEW exact-main frozen runner and an explicit owner authorization.
+DNSREPAIR_OLD_ATTEMPT_RETRY_ALLOWED=NO
+DNSREPAIR_HISTORICAL_CONSUMED_AUTH_DIRS=(/home/kittipat/Workspace/idea3-p4-owner-run/2026-10-03-dnsmasq-unit-repair/auth)
+# sha256 of the EXACT first-attempt records (digests only; the contents are never read here, copied or printed). A successor whose authorization-L4.txt or k3-L4.txt is
+# byte-identical to either is refused wherever it is stored: copying the historical records into a new directory does not make them a fresh authorization.
+DNSREPAIR_HISTORICAL_AUTHORIZATION_SHA256=ae49d20902735ca41a387a34d8a23c7938b50df4cf08691c5bff227fe4a76689
+DNSREPAIR_HISTORICAL_K3_SHA256=863f141624a42649c86634bbadc4bca22abf5eea4d02955a1bab2defe0d19912
 # PR #305 (merge commit): the repository fix this package installs. A pinned runner must contain it.
 DNSREPAIR_PR305_MERGE=827251f2478f03822c42ab43eadb50f73005d432
 # sha256 of the EXACT pre-PR305 unit that stages/L4/apply.sh rendered (printf of the unit without the readiness gate). It is the only installed unit this
@@ -55,8 +64,9 @@ dnsrepair_analyze_gate() {
 }
 
 # dnsrepair_baseline_classify < `systemctl show -p LoadState,ActiveState,SubState,UnitFileState,Result,MainPID aegis-idea3-dnsmasq.service`
-# Prints FAILED (the observed boot failure: failed / start-limit-hit, MainPID 0) or RUNNING (active/running under the old unit). Anything else —
-# inactive, activating, a different failure Result, disabled, masked — is unsupported and refused.
+# Prints FAILED (the observed boot failure: failed / start-limit-hit, MainPID 0), RUNNING (active/running under the old unit) or SAFE_STOPPED (the exact state a
+# governed rollback leaves behind: loaded / enabled / inactive / dead / Result=success / MainPID 0). Anything else — any other inactive or activating state, a
+# different failure Result, disabled, masked — is unsupported and refused. SAFE_STOPPED is admitted ONLY by this exact property set; it widens no other baseline.
 dnsrepair_baseline_classify() {
   local text kv
   text=$(cat)
@@ -71,6 +81,11 @@ dnsrepair_baseline_classify() {
     done
     grep -Eq '^MainPID=[1-9][0-9]*$' <<< "$text" || { l34_reason "DNSREPAIR_DNSMASQ_BASELINE_UNSUPPORTED:MainPID"; return 1; }
     printf 'RUNNING\n'
+  elif grep -qx 'ActiveState=inactive' <<< "$text"; then
+    for kv in LoadState=loaded UnitFileState=enabled ActiveState=inactive SubState=dead Result=success MainPID=0; do
+      grep -qx "$kv" <<< "$text" || { l34_reason "DNSREPAIR_DNSMASQ_BASELINE_UNSUPPORTED:${kv%%=*}"; return 1; }
+    done
+    printf 'SAFE_STOPPED\n'
   else
     l34_reason "DNSREPAIR_DNSMASQ_BASELINE_UNSUPPORTED:ActiveState"; return 1
   fi

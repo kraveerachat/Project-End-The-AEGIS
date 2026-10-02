@@ -5,6 +5,8 @@
 #                        and the file on disk agree again (a rename always changes the fragment mtime, so a reload is required even if the old bytes are back)
 #   DNSMASQ_RESET_FAILED / DNSMASQ_START (baseline FAILED)  -> `systemctl stop aegis-idea3-dnsmasq.service` (exact unit): safe, stopped; the stale start-limit-hit
 #                        artifact is never recreated and nothing is started
+#   DNSMASQ_START (baseline SAFE_STOPPED)  -> the same exact `systemctl stop`: back to the exact SAFE_STOPPED state (inactive/dead/success/MainPID 0). Only a journaled
+#                        start of THIS run is undone; there was never a reset-failed, and no start-limit-hit is manufactured.
 #   DNSMASQ_RESTART (baseline RUNNING) -> only if dnsmasq is not active/running: `reset-failed` (if failed) + one `restart` of the exact unit under the restored old
 #                        unit, so the pre-repair DHCP/DNS service is back; a running dnsmasq is left alone (no second blip)
 # Failure BEFORE the unit replacement (no UNIT_INSTALL journaled): nothing is restored, reloaded, reset or stopped; it only proves nothing moved.
@@ -58,7 +60,7 @@ else
   done
 fi
 baseline=$(cat "$WORK/baseline.txt")
-[[ "$baseline" =~ ^(FAILED|RUNNING)$ ]] || fail BASELINE_UNRECOGNIZED
+[[ "$baseline" =~ ^(FAILED|RUNNING|SAFE_STOPPED)$ ]] || fail BASELINE_UNRECOGNIZED
 unit_file=$(host_path "$L34_DNSMASQ_UNIT")
 
 # ── journal: only fixed, known entries are acted on — exactly this run's owned mutations, nothing else ────────────────
@@ -91,7 +93,7 @@ if [ "$j_install" = 1 ]; then
 fi
 
 # 2. dnsmasq: only the exact dedicated unit, only what this run owns
-if [ "$baseline" = FAILED ]; then
+if [ "$baseline" = FAILED ] || [ "$baseline" = SAFE_STOPPED ]; then
   if [ "$j_reset" = 1 ] || [ "$j_start" = 1 ]; then
     systemctl stop "$DNSMASQ_UNIT" || fail DNSMASQ_SERVICE_STOP_FAILED
   fi
@@ -118,9 +120,11 @@ else
 fi
 [ "$(stat -c '%a' -- "$unit_file")" = 644 ] || fail UNIT_MODE_NOT_RESTORED
 dnsrepair_need_reload_gate || fail "$(reason_of dnsrepair_need_reload_gate)"
-if [ "$baseline" = FAILED ]; then
+if [ "$baseline" = FAILED ] || [ "$baseline" = SAFE_STOPPED ]; then
   if [ "$j_reset" = 1 ] || [ "$j_start" = 1 ]; then
     ! unit_props "$DNSMASQ_UNIT" | grep -qx 'ActiveState=active' || fail DNSMASQ_STILL_RUNNING
+    # SAFE_STOPPED must return to EXACTLY the safe stopped service state (never a manufactured start-limit-hit, never a leftover process)
+    [ "$baseline" != SAFE_STOPPED ] || [ "$(unit_props "$DNSMASQ_UNIT" | dnsrepair_baseline_classify 2>/dev/null)" = SAFE_STOPPED ] || fail DNSMASQ_NOT_RETURNED_TO_SAFE_STOPPED
   else
     unit_props "$DNSMASQ_UNIT" | dnsrepair_baseline_classify >/dev/null || fail DNSMASQ_PRE_STATE_NOT_PRESERVED
   fi

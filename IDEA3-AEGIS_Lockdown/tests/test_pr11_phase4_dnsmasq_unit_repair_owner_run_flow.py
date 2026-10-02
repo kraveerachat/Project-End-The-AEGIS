@@ -10,6 +10,7 @@ failure after consumption, never retries, and emits the explicit terminal verdic
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -71,9 +72,22 @@ esac
 CAPTURE = ('#!/usr/bin/env bash\necho "capture:$CAPTURE_LABEL" >> "$SIM_DIR/calls.log"\n'
            'if [ -e "$(cat "$SIM_DIR/marker-path")" ]; then echo "marker@capture-$CAPTURE_LABEL:yes" >> "$SIM_DIR/calls.log"; else echo "marker@capture-$CAPTURE_LABEL:no" >> "$SIM_DIR/calls.log"; fi\n'
            '[ ! -e "$SIM_DIR/fail-capture-$CAPTURE_LABEL" ] || exit 1\nmkdir -p "$EVID_DIR"\necho "L0_CAPTURE=COMPLETE" > "$EVID_DIR/capture.log"\n(cd "$EVID_DIR" && sha256sum capture.log > SHA256SUMS)\n')
-COMPARE = ('#!/usr/bin/env bash\necho "compare:$*" >> "$SIM_DIR/calls.log"\nenv | grep -E "^ALLOW_" >> "$SIM_DIR/calls.log"\n'
-           '[ ! -e "$SIM_DIR/fail-compare-$(basename "$1")-$(basename "$2")" ] || { echo "COMPARE_RESULT=FAIL"; exit 1; }\n'
-           "printf 'FINDINGS_NEW_OR_WORSENED_DRIFT=0\\nFINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0\\nFINDINGS_INCOMPARABLE=0\\nPRESERVATION_S10=PASS\\nCOMPARE_RESULT=PASS\\n'\n")
+COMPARE_SH = r'''#!/usr/bin/env bash
+echo "compare:$*" >> "$SIM_DIR/calls.log"
+env | grep -E "^ALLOW_" >> "$SIM_DIR/calls.log"
+[ ! -e "$SIM_DIR/fail-compare-$(basename "$1")-$(basename "$2")" ] || { echo "COMPARE_RESULT=FAIL"; exit 1; }
+lines="FINDINGS_NEW_OR_WORSENED_DRIFT=0
+FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0
+FINDINGS_INCOMPARABLE=0
+PRESERVATION_S10=PASS
+COMPARE_RESULT=PASS"
+# s10-line injection (S10 guard tests only): replace the named line's exact text with the injected text
+if [ "$(basename "$2")" = s10-root ] && [ -e "$SIM_DIR/s10-line" ]; then
+  key=$(cut -d= -f1 "$SIM_DIR/s10-line"); lines=$(printf '%s\n' "$lines" | sed "s|^$key=.*|$(cat "$SIM_DIR/s10-line")|")
+fi
+printf '%s\n' "$lines"
+'''
+COMPARE = COMPARE_SH
 STAGE_GATE = "#!/usr/bin/env bash\nprintf 'AUTHORIZATION_RECORD=VALID\\nK3_CONFIRMATION=VALID\\n'\n"
 
 
@@ -94,7 +108,10 @@ done
 
 
 class Sim:
-    def __init__(self, tmp: Path, *, scope: str = EXPECTED_SCOPE, baseline: str = "FAILED", pr305_in_history: bool = True) -> None:
+    def __init__(self, tmp: Path, *, scope: str = EXPECTED_SCOPE, baseline: str = "FAILED", pr305_in_history: bool = True, historical_auth: bool = False,
+                 hist_digests: tuple[str, ...] = ()) -> None:
+        self.historical_auth = historical_auth
+        self.hist_digests = hist_digests
         self.dir = tmp / "sim"
         self.repo = self.dir / "repo"
         self.origin = self.dir / "origin.git"
@@ -125,7 +142,7 @@ class Sim:
         for name in ("apply.sh", "verify.sh", "rollback.sh"):
             (hnd / name).write_text(HANDLER)
         for name in ("allow-keys.txt", "allow-keys-rollback.txt", "allow-listeners.txt", "allow-dynamic-transitions-failed-post.txt",
-                     "allow-dynamic-transitions-failed-rollback.txt"):
+                     "allow-dynamic-transitions-failed-rollback.txt", "allow-dynamic-transitions-safe-stopped-post.txt"):
             (hnd / name).write_text("")
         (self.repo / LOGS).mkdir(parents=True)
         (self.repo / LOGS / ".keep").write_text("")
@@ -141,6 +158,15 @@ class Sim:
         # the runner-visible PR305 constant is the stand-in commit, so the REAL ancestry gate is exercised; the negative control points it outside history
         lib = self.p4 / "p4-dnsmasq-repair-lib.sh"
         text = lib.read_text().replace(f"DNSREPAIR_PR305_MERGE={PR305}", f"DNSREPAIR_PR305_MERGE={pr305 if self.pr305_in_history else '1' * 40}")
+        if self.historical_auth:  # stand-in: the sim's own AUTH_DIR plays the consumed first-attempt directory
+            old = "DNSREPAIR_HISTORICAL_CONSUMED_AUTH_DIRS=(/home/kittipat/Workspace/idea3-p4-owner-run/2026-10-03-dnsmasq-unit-repair/auth)"
+            assert old in text
+            text = text.replace(old, f"DNSREPAIR_HISTORICAL_CONSUMED_AUTH_DIRS=({self.auth})")
+        # stand-in historical record digests: the sha256 of what write_auth() writes in THIS sim (the real constants are pinned separately)
+        self.write_auth(TODAY, TODAY)
+        for which, const, fname in (("auth", "DNSREPAIR_HISTORICAL_AUTHORIZATION_SHA256", "authorization-L4.txt"), ("k3", "DNSREPAIR_HISTORICAL_K3_SHA256", "k3-L4.txt")):
+            if which in self.hist_digests:
+                text = re.sub(rf"{const}=[0-9a-f]{{64}}", f"{const}={hashlib.sha256((self.auth / fname).read_bytes()).hexdigest()}", text)
         lib.write_text(text)
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "pin constants")
@@ -164,6 +190,8 @@ class Sim:
         text = text.replace("EXPECTED_MAIN=PIN_MAIN_SHA", f"EXPECTED_MAIN={self.head}")
         text = text.replace("REPO=/home/kittipat/Workspace/IDEA3-Cyber-Last/worktrees/Project-End-The-AEGIS-DNSMASQREPAIRLIVE   # clean pinned execution worktree at merged main",
                             f"REPO={self.repo}")
+        text = text.replace("S10_WINDOW_SEC=30 ", "S10_WINDOW_SEC=0 ")
+        assert "S10_WINDOW_SEC=0 " in text, "the frozen S10 window line must be substitutable"
         text = text.replace("PY=/home/kittipat/.venvs/aegis-idea3-core/bin/python", f"PY={sys.executable}")
         text = text.replace("PROFILE=/etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection", f"PROFILE={self.profile}")
         text = text.replace("EVID=/home/kittipat/Workspace/idea3-p4-evidence/$TODAY-dnsmasq-unit-repair-$STAMP", f"EVID={self.evid_base}/$TODAY-dnsmasq-unit-repair-$STAMP")
@@ -433,3 +461,209 @@ def test_runner_scope_is_printable_ascii_le_200_and_the_runner_never_touches_oth
         assert pat not in code, pat
     assert not re.search(r"(^|[;&|(]\s*)(sudo\s+)?(reboot|poweroff|shutdown|halt)\b|systemctl\s+(reboot|poweroff|halt|kexec)", code, re.M)
     assert 'DNSREPAIR_MARKER_NAME' in code and 'L34-V' not in code
+
+
+# ── governed successor: SAFE_STOPPED baseline, pre-consume S10 guard, historical attempt never reused ───────────────────────
+
+def test_safe_stopped_full_flow_uses_only_the_task_specific_safe_stopped_catalog(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, baseline="SAFE_STOPPED")
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    calls = "\n".join(sim.calls())
+    assert "DNSMASQ_REPAIR_RESULT=PASS" in sim.verdict() and "BASELINE=safe_stopped" in sim.verdict()
+    assert f"ALLOW_DYNAMIC_TRANSITIONS_FILE={sim.p4}/reactivation/{HND_NAME}/allow-dynamic-transitions-safe-stopped-post.txt" in calls
+    assert "allow-dynamic-transitions-failed-post.txt" not in calls and "allow-dynamic-transitions-failed-rollback.txt" not in calls
+
+
+def test_safe_stopped_rollback_compare_has_no_dynamic_window(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, baseline="SAFE_STOPPED")
+    sim.inject("fail-apply")
+    res = sim.run()
+    assert res.returncode == 1 and "DNSMASQ_REPAIR_RESULT=ROLLED_BACK" in res.stdout
+    rb = [i for i, c in enumerate(sim.calls()) if c.startswith("compare:") and "rb-root" in c]
+    assert rb and not any(c.startswith("ALLOW_DYNAMIC") for c in sim.calls()[rb[-1] + 1: rb[-1] + 5])
+
+
+def test_s10_guard_pass_runs_between_pre_capture_and_consume_with_no_allowance(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    res = sim.run()
+    assert res.returncode == 0 and "S10_STABILITY_GUARD=PASS" in res.stdout
+    calls = sim.calls()
+    assert calls.index("capture:pre") < calls.index("capture:s10") < calls.index("marker@apply:yes")
+    guard = [i for i, c in enumerate(calls) if c.startswith("compare:") and "s10-root" in c]
+    assert len(guard) == 1 and "pre-root" in calls[guard[0]]
+    assert not any(c.startswith("ALLOW_") for c in calls[guard[0] + 1: guard[0] + 4]), "the guard compare approves nothing"
+
+
+@pytest.mark.parametrize("line", [
+    "FINDINGS_NEW_OR_WORSENED_DRIFT=1", "FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=2", "FINDINGS_INCOMPARABLE=1", "PRESERVATION_S10=FAIL", "COMPARE_RESULT=FAIL",
+])
+def test_s10_guard_refuses_each_unsatisfied_line_before_the_marker_and_any_mutation(tmp_path: Path, line: str) -> None:
+    """The historical failure: IDEA2 tunnel unhealthy / :18002 absent at PRE -> baseline-unhealthy-but-unchanged. The marker must stay absent."""
+    sim = Sim(tmp_path)
+    sim.inject("s10-line", line)
+    res = sim.run()
+    assert res.returncode == 1 and "S10_STABILITY_GUARD failed" in res.stdout + res.stderr, res.stdout + res.stderr
+    assert not sim.marker() and sim.handler_calls() == ["apply"], "only the read-only preflight ran; no apply, no rollback"
+    assert "DNSMASQ_REPAIR_RESULT=NOT_STARTED_NO_MUTATION" in res.stdout + res.stderr and "authorization NOT consumed" in res.stdout + res.stderr
+    assert sim.verdict().strip() == "DNSMASQ_REPAIR_RESULT=NOT_STARTED_NO_MUTATION" or sim.verdict() == ""
+    assert not any(c == "marker@apply:yes" for c in sim.calls())
+
+
+def test_s10_guard_comparator_failure_and_capture_failure_leave_the_authorization_unconsumed(tmp_path: Path) -> None:
+    for inj in ("fail-compare-pre-root-s10-root", "fail-capture-s10"):
+        sim = Sim(tmp_path / inj)
+        sim.inject(inj)
+        res = sim.run()
+        assert res.returncode == 1 and not sim.marker() and sim.handler_calls() == ["apply"], (inj, res.stdout + res.stderr)
+        assert "authorization NOT consumed" in res.stdout + res.stderr or "nothing changed" in res.stdout + res.stderr
+
+
+def test_authorization_is_reusable_after_a_refused_s10_guard(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    sim.inject("s10-line", "FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=1")
+    assert sim.run().returncode == 1 and not sim.marker()
+    sim.clear("s10-line")
+    time.sleep(1.1)
+    assert sim.run().returncode == 0 and sim.marker()
+
+
+def test_runner_source_order_has_the_s10_guard_between_pre_capture_and_consume() -> None:
+    text = RUNNER.read_text()
+    pre_cap = text.index('capture PRE "$EVID/pre-root"')
+    guard = text.index('capture S10 "$EVID/s10-root"')
+    consume = text.index("set -o noclobber")
+    assert pre_cap < guard < consume
+    assert text.count("set -o noclobber") == 1, "the marker is still created exactly once, immediately before the first mutation"
+    guard_code = text[text.index("PRE-CONSUME S10"): consume]
+    assert "ALLOW_" not in "\n".join(l for l in guard_code.splitlines() if not l.lstrip().startswith("#")), "the guard approves nothing"
+    assert "p4-l0-capture.sh" in text and "p4-compare.sh" in text and "p4-s10" not in text, "the canonical capture/compare, not a second S10 implementation"
+
+
+def test_the_historical_consumed_auth_dir_is_refused_even_without_its_marker(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, historical_auth=True)
+    res = sim.run()
+    assert res.returncode == 1 and "historical CONSUMED first-attempt authorization directory" in res.stderr
+    assert not sim.marker() and sim.calls() == [] and not list(sim.evid_base.iterdir())
+
+
+def test_the_real_historical_auth_dir_is_in_the_denylist_and_old_retry_is_not_allowed() -> None:
+    lib = (DEPLOY / "p4-dnsmasq-repair-lib.sh").read_text()
+    assert "DNSREPAIR_HISTORICAL_CONSUMED_AUTH_DIRS=(/home/kittipat/Workspace/idea3-p4-owner-run/2026-10-03-dnsmasq-unit-repair/auth)" in lib
+    assert "DNSREPAIR_OLD_ATTEMPT_RETRY_ALLOWED=NO" in lib
+
+
+def test_a_successor_needs_a_brand_new_auth_dir_the_consumed_one_stays_refused(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    assert sim.run().returncode == 0 and sim.marker()
+    second = sim.run()
+    assert second.returncode == 1 and "already consumed its one bounded attempt" in second.stderr
+    fresh = sim.dir / "auth-successor"
+    shutil.copytree(sim.auth, fresh, ignore=shutil.ignore_patterns("*ATTEMPT-CONSUMED*"))
+    sim.auth = fresh
+    (sim.dir / "marker-path").write_text(str(fresh / "DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED"))
+    time.sleep(1.1)
+    third = sim.run()
+    assert third.returncode == 0 and (fresh / "DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED").exists()
+
+
+# ── NB-1: exact historical Authorization / K3 DIGEST denial (independent of the AUTH_DIR path) ────────────────────────────
+
+REAL_HIST_AUTH_SHA = "ae49d20902735ca41a387a34d8a23c7938b50df4cf08691c5bff227fe4a76689"
+REAL_HIST_K3_SHA = "863f141624a42649c86634bbadc4bca22abf5eea4d02955a1bab2defe0d19912"
+
+
+def _fresh_copy(sim: Sim, name: str = "auth-fresh", *, keep: tuple[str, ...] = ("authorization-L4.txt", "k3-L4.txt")) -> Path:
+    fresh = sim.dir / name
+    fresh.mkdir()
+    for f in keep:
+        shutil.copy(sim.auth / f, fresh / f)
+    return fresh
+
+
+def _assert_refused_before_everything(sim: Sim, res: subprocess.CompletedProcess[str], reason: str) -> None:
+    out = res.stdout + res.stderr
+    assert res.returncode == 1 and reason in out, out
+    assert "DNSMASQ_REPAIR_RESULT=NOT_STARTED_NO_MUTATION" in out
+    assert sim.calls() == [], "no preflight, capture, S10 guard, apply, verify or rollback ran"
+    assert not sim.marker() and not any(p.name == "DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED" for p in sim.auth.iterdir())
+    assert not list(sim.evid_base.iterdir()), "no evidence directory was even created"
+    for forbidden in ("AEGIS_P4_AUTHORIZATION_V1", "AEGIS_P4_K3_CONFIRMATION_V2", "reference=sim/ref", "authorizer=music", EXPECTED_SCOPE):
+        assert forbidden not in out, "record contents must never be logged"
+
+
+def test_the_real_historical_record_digests_are_pinned() -> None:
+    lib = (DEPLOY / "p4-dnsmasq-repair-lib.sh").read_text()
+    assert f"DNSREPAIR_HISTORICAL_AUTHORIZATION_SHA256={REAL_HIST_AUTH_SHA}" in lib
+    assert f"DNSREPAIR_HISTORICAL_K3_SHA256={REAL_HIST_K3_SHA}" in lib
+
+
+def test_historical_authorization_digest_in_a_different_fresh_auth_dir_is_refused(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, hist_digests=("auth",))
+    original = {f: (sim.auth / f).read_bytes() for f in ("authorization-L4.txt", "k3-L4.txt")}
+    sim.auth = _fresh_copy(sim)
+    (sim.dir / "marker-path").write_text(str(sim.auth / "DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED"))
+    _assert_refused_before_everything(sim, sim.run(), "HISTORICAL_AUTHORIZATION_RECORD_REUSE_FORBIDDEN")
+    assert all((sim.dir / "auth" / f).read_bytes() == b for f, b in original.items()), "the historical files were not modified"
+
+
+def test_historical_k3_digest_in_a_different_fresh_auth_dir_is_refused(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, hist_digests=("k3",))
+    sim.auth = _fresh_copy(sim)
+    (sim.dir / "marker-path").write_text(str(sim.auth / "DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED"))
+    _assert_refused_before_everything(sim, sim.run(), "HISTORICAL_K3_RECORD_REUSE_FORBIDDEN")
+
+
+@pytest.mark.parametrize("name", ["auth-a", "some/nested/dir", "z" * 40])
+def test_changing_the_auth_dir_path_does_not_bypass_digest_denial(tmp_path: Path, name: str) -> None:
+    sim = Sim(tmp_path, hist_digests=("auth", "k3"))
+    fresh = sim.dir / name
+    fresh.mkdir(parents=True)
+    for f in ("authorization-L4.txt", "k3-L4.txt"):
+        shutil.copy(sim.auth / f, fresh / f)
+    sim.auth = fresh
+    (sim.dir / "marker-path").write_text(str(fresh / "DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED"))
+    _assert_refused_before_everything(sim, sim.run(), "HISTORICAL_AUTHORIZATION_RECORD_REUSE_FORBIDDEN")
+
+
+def test_a_genuinely_different_valid_pair_with_the_same_structure_is_not_refused(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, hist_digests=("auth", "k3"))
+    fresh = sim.dir / "auth-new"
+    fresh.mkdir()
+    sim.auth = fresh
+    sim.write_auth(TODAY, TODAY)  # same field structure ...
+    (fresh / "authorization-L4.txt").write_text((fresh / "authorization-L4.txt").read_text().replace("reference=sim/ref", "reference=owner-approval/successor-new"))
+    (fresh / "k3-L4.txt").write_text((fresh / "k3-L4.txt").read_text().replace("reference=sim/ref", "reference=owner-approval/successor-k3-new"))  # ... different bytes
+    (sim.dir / "marker-path").write_text(str(fresh / "DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED"))
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert sim.marker() and "HISTORICAL_" not in res.stdout + res.stderr
+
+
+def test_changing_only_one_record_still_refuses_for_the_other(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, hist_digests=("auth", "k3"))
+    fresh = _fresh_copy(sim)
+    (fresh / "k3-L4.txt").write_text((fresh / "k3-L4.txt").read_text().replace("reference=sim/ref", "reference=owner-approval/new-k3"))
+    sim.auth = fresh
+    (sim.dir / "marker-path").write_text(str(fresh / "DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED"))
+    _assert_refused_before_everything(sim, sim.run(), "HISTORICAL_AUTHORIZATION_RECORD_REUSE_FORBIDDEN")
+
+
+def test_the_historical_auth_dir_path_denylist_still_works_alongside_the_digest_denial(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, historical_auth=True)
+    res = sim.run()
+    assert res.returncode == 1 and "historical CONSUMED first-attempt authorization directory" in res.stderr and sim.calls() == []
+
+
+def test_digest_denial_runs_before_the_stage_gate_the_s10_guard_and_the_marker() -> None:
+    text = RUNNER.read_text()
+    auth_deny = text.index("HISTORICAL_AUTHORIZATION_RECORD_REUSE_FORBIDDEN")
+    k3_deny = text.index("HISTORICAL_K3_RECORD_REUSE_FORBIDDEN")
+    gate = text.index('bash "$P4/p4-stage-gate.sh"')
+    guard = text.index('capture S10 "$EVID/s10-root"')
+    consume = text.index("set -o noclobber")
+    apply = text.index("handler apply.sh 2>&1")
+    assert max(auth_deny, k3_deny) < gate < guard < consume < apply
+    assert text.index("source \"$LIB\"") < auth_deny, "the denylist constants are loaded first"
+    code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
+    assert "cat \"$AUTH_DIR" not in code and "echo \"$(cat" not in code, "record contents are never printed"

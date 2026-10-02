@@ -343,7 +343,8 @@ SHARED_PINS = {
     "p4-l34-v8-lib.sh": "4398216c5e83caa4f276d8a0bf66370a8db59c4e1d7a6a7d769733933b695ee0",
     "p4-stage-gate.sh": "11cc4251bd081eb172bcdb0155d48d6984ec4cfee1c08fc09c03fc639afa50b4",
     "p4-lib.sh": "9cf03684a79f2706a22776d90ae3a243afbcdeb2275c0b244388971cf5af9a36",
-    "p4-compare.sh": "86ef5f1fcaf5485fbd2555d2cc19aad1ee1cc528b000b4c9dcef9b25054ea16c",
+    # re-pinned by the SAFE_STOPPED governed-successor task (2026-10-03): ONE additive, task-specific catalog DNSMASQ_SAFE_STOPPED_POST; no existing catalog changed
+    "p4-compare.sh": "6caa482def07b50e462828f10ba117fb66779e9dde67e1fea8fad5b9b9f71c08",
     "p4-l0-capture.sh": "f49f6f74d43dc38058b9ee77bd1511a17394e9eaad4d873c07dfdc09f4bf4722",
     "p4-ap-network.py": "45d2a87a0d7c2c563154466f63cc9994f02dc841ccb0c89832d6001b005f71ef",
     "stages/L4/apply.sh": "c31a7471a0d81514c716d6db670197ea45a6940fbbae84a7f5801485720ed58e",
@@ -379,8 +380,8 @@ def test_historical_receipts_are_immutable(name: str, digest: str) -> None:
 
 def test_the_new_package_has_exactly_the_frozen_file_set() -> None:
     assert sorted(p.name for p in HND.iterdir()) == [
-        "allow-dynamic-transitions-failed-post.txt", "allow-dynamic-transitions-failed-rollback.txt", "allow-keys-rollback.txt", "allow-keys.txt",
-        "allow-listeners.txt", "apply.sh", "reboot-verify.sh", "rollback.sh", "verify.sh"]
+        "allow-dynamic-transitions-failed-post.txt", "allow-dynamic-transitions-failed-rollback.txt", "allow-dynamic-transitions-safe-stopped-post.txt",
+        "allow-keys-rollback.txt", "allow-keys.txt", "allow-listeners.txt", "apply.sh", "reboot-verify.sh", "rollback.sh", "verify.sh"]
     assert (DEPLOY / "p4-dnsmasq-repair-lib.sh").is_file()
 
 
