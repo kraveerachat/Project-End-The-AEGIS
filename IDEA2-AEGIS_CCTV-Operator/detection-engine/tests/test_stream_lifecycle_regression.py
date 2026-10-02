@@ -21,16 +21,16 @@ class StreamLifecycleRegressionTests(unittest.TestCase):
 
     def test_late_detection_from_closed_session_is_not_queued(self):
         hub = self.hub()
-        hub.add_viewer()
+        old_lease = hub.add_viewer(producer_generation=1)
         old = Frame(1, np.zeros((40, 40, 3), dtype=np.uint8))
-        hub.remove_viewer()
-        hub.add_viewer()
+        hub.remove_viewer(*old_lease)
+        hub.add_viewer(producer_generation=2)
         hub.submit_detection(DetectionResult('CAM-01', 1, [], 0), old)
         self.assertTrue(hub._queue.empty())
 
     def test_wrong_frame_result_pair_is_not_drawn(self):
         hub = self.hub()
-        hub.add_viewer()
+        hub.add_viewer(producer_generation=1)
         frame = Frame(2, np.zeros((40, 40, 3), dtype=np.uint8))
         hub.submit_detection(DetectionResult('CAM-01', 1, [], 0), frame)
         self.assertTrue(hub._queue.empty())
@@ -48,13 +48,13 @@ class StreamLifecycleRegressionTests(unittest.TestCase):
             return True, np.array([1, 2, 3], dtype=np.uint8)
 
         with patch('aegis_engine.stream_hub.cv2.imencode', side_effect=encode):
-            hub.add_viewer()
+            old_lease = hub.add_viewer(producer_generation=1)
             hub.start()
             try:
                 hub._queue.put(Frame(1, np.zeros((40, 40, 3), dtype=np.uint8)))
                 self.assertTrue(encoding.wait(1))
-                hub.remove_viewer()
-                hub.add_viewer()
+                hub.remove_viewer(*old_lease)
+                hub.add_viewer(producer_generation=2)
                 release.set()
                 self.assertTrue(finished.wait(1))
                 self.assertIsNone(hub.wait_for(-1, .1))
@@ -84,7 +84,7 @@ class StreamLifecycleRegressionTests(unittest.TestCase):
 
     def test_camera_failure_is_degraded_not_idle_when_demanded(self):
         hub = self.hub()
-        hub.add_viewer()
+        hub.add_viewer(producer_generation=1)
         api = LocalEventAPI(EngineConfig(capture_on_demand=True), MetricsRegistry(),
                             stream_hub=hub, capture_demand_event=hub._capture_demand_event)
         endpoint = next(r.endpoint for r in api._app.routes if r.path == '/health')
@@ -97,7 +97,10 @@ class StreamLifecycleRegressionTests(unittest.TestCase):
             api = LocalEventAPI(cfg, MetricsRegistry(), stream_hub=hub,
                                 capture_demand_event=hub._capture_demand_event)
             endpoint = next(r.endpoint for r in api._app.routes if r.path == '/stream.mjpg')
-            response = await endpoint(Request({'type': 'http', 'headers': [(b'x-detection-engine-key', b'test-key')]}))
+            response = await endpoint(Request({'type': 'http', 'headers': [
+                (b'x-detection-engine-key', b'test-key'),
+                (b'x-aegis-producer-generation', b'1'),
+            ]}))
             self.assertEqual(response.status_code, 200)
             self.assertEqual(hub.viewers, 0)
             events = asyncio.Queue()
@@ -129,13 +132,13 @@ class StreamLifecycleRegressionTests(unittest.TestCase):
             reached_send = asyncio.Event()
 
             async def body():
-                hub.add_viewer()
+                lease = hub.add_viewer(producer_generation=1)
                 try:
                     while True:
                         yield b'frame'
                         await asyncio.sleep(0)
                 finally:
-                    hub.remove_viewer()
+                    hub.remove_viewer(*lease)
 
             async def receive():
                 await asyncio.Future()

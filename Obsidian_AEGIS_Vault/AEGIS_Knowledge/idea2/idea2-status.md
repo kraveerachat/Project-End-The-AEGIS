@@ -236,13 +236,59 @@ Monitor unless stated. Neutral runs remove both database URL variables and set
   Pub functional review and Kla integration decisions remain required. No push,
   PR creation, merge, rebase, Production action or predecessor closure here.
 
-## Current Task
+## Current Task — Engine producer generation reconciliation v2
+
+Task: reconcile the stranded historical Engine generation contract with PR #298 merged current main
+Branch: `fix/idea2-engine-producer-generation-reconcile-v2`
+Owner: Pub
+PR: Draft publication pending; human review and merge only
+Current state: SOURCE IMPLEMENTED / LOCAL VERIFIED / REAL MACHINE ACCEPTANCE PENDING
+Started: 2026-10-03
+Base SHA: `1579712866ef0e83c5b949b0afed7a7969e0f80f`
+Implementation checkpoint: `86eec04b3d22c62a97ca07da9783806fe291d11b`
+Production mutation allowed: NO
+
+The predecessor reconciliation worktree stopped when `main` advanced. Its
+uncommitted receipt and 10-file candidate remain untouched and are historical
+context only; this successor was created from main after PR #298 merged.
+PR #298 brought canonical SID comparison, staged DataRoot ACL lifecycle, and
+expected-current-key-version rotation CAS into main. These Agent/CLI paths are
+outside this successor diff.
+
+Historical Engine generation source exists at `f24367bd32ba369be765ce105d981ce3a0f024a7`
+and `dceb52f3b5452a11cee3f815af0d52fe74de1bd7`, neither in current main.
+The current Monitor already sends server-owned `X-Aegis-Producer-Generation`
+with its independent Engine key for strict Operator streams. The Engine now
+validates one canonical positive PostgreSQL BIGINT header after key auth and
+leases viewers per physical producer generation. Same-generation viewers share
+capture; newer generations invalidate old leases and frames; final current
+viewer release removes demand. Always-on compatibility may omit the header,
+but cannot join an already numbered producer. Stale preflight returns 409;
+supersession after response start closes cleanly without stale demand.
+
+### Session Register — Engine generation successor
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| EG-V2-S1 | Current-main Engine generation source, tests, and Monitor fixture | PASS | RED: 11 tests, 15 failures/6 errors on base; GREEN: focused Engine 30/30, full Engine/Agent 232/232; focused Monitor 59 pass/1 conditional PostgreSQL skip; full Monitor 179 pass/58 conditional PostgreSQL skips; Vite build, governance 61/61 and Vault validation PASS | `86eec04b3d22c62a97ca07da9783806fe291d11b` | SOURCE IMPLEMENTED / LOCAL VERIFIED | Draft publication; exact installed Engine artifact and Machine A acceptance unproven; SOC passive-live separate | one new partial receipt, then Draft PR |
+
+Machine A configuration remains a Human-gated deployment requirement:
+`AEGIS_MONITOR_INGEST_MODE=identity_agent`,
+`AEGIS_CAPTURE_ON_DEMAND=true`, `AEGIS_STREAM_ENABLED=true`, and both
+`AEGIS_AGENT_ENGINE_STREAM_URL` and `AEGIS_STREAM_PUBLIC_URL` equal
+`http://aegis-stream-host.internal:18077/stream.mjpg`. Repository defaults are
+not evidence that those values are installed. No live configuration was read.
+The installed Engine source/image SHA is unproven. The strict SOC route still
+lacks server-owned generation and a passive no-wake viewer contract; resolve
+that in a separate task before capture-on-demand Production rollout.
+
+## Previous Task — Pre-Live Blocker Fix A (PR #298 merged)
 
 Task: IDEA2 pre-live Windows Identity Agent blocker fixes and safe Node key rotation
 Branch: `fix/idea2-prelive-windows-agent-blockers`
 Owner: Pub
-PR: Pending Draft publication after repository-only verification
-Current state: SOURCE VERIFIED — Draft PR publication pending; real Windows retest required
+PR: #298 merged into main at `1579712866ef0e83c5b949b0afed7a7969e0f80f`
+Current state: SOURCE MERGED — real Windows retest required
 Started: 2026-10-02
 Starting SHA: `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f`
 Production mutation allowed: NO
@@ -277,7 +323,7 @@ scan, source hash, clean Git state, normal push, and one Draft PR are required.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PLB-A-S1 | Canonical SID validation, fresh DataRoot ACL ordering, Node key CAS, final source-only verification/publication | SOURCE VERIFIED | RED reproduced for missing `EqualSid`, combined owner/grant command, and missing CAS. GREEN: ACL 9/9; Windows/Agent lifecycle 91/91; adjacent Agent protocol 53 pass/2 native-pywin32 skips; Node CLI 28/28; Monitor 179 pass/58 conditional PostgreSQL skips; governance/Vault 58/58; Vite build, PowerShell parse, diff, and secret scan pass. | `fb98dfac75846ec8771a88f92ccb61af796e2f0e` | canonical SID equality and exact mask; checked grant→owner→temporary-admin removal; expected-version CAS preserving reviewed reactivation | human merge and real Machine A Windows retest; no live key rotation performed | publish one Draft PR and wait for human review |
+| PLB-A-S1 | Canonical SID validation, fresh DataRoot ACL ordering, Node key CAS, final source-only verification/publication | SOURCE MERGED | RED reproduced for missing `EqualSid`, combined owner/grant command, and missing CAS. GREEN: ACL 9/9; Windows/Agent lifecycle 91/91; adjacent Agent protocol 53 pass/2 native-pywin32 skips; Node CLI 28/28; Monitor 179 pass/58 conditional PostgreSQL skips; governance/Vault 58/58; Vite build, PowerShell parse, diff, and secret scan pass. | `fb98dfac75846ec8771a88f92ccb61af796e2f0e` | canonical SID equality and exact mask; checked grant→owner→temporary-admin removal; expected-version CAS preserving reviewed reactivation | real Machine A Windows retest; no live key rotation performed | Human-gated runtime recheck |
 
 Authoritative Identity Agent source hash after the fix:
 `D1EEAE02CDF7F9E6A58D775F73E238905EE99618D17F28C511D81DAA45278F48`.

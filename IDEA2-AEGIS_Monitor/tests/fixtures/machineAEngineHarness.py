@@ -148,7 +148,10 @@ def _contract_probe() -> int:
         connection.request(
             "GET",
             "/stream.mjpg",
-            headers={"X-Detection-Engine-Key": engine.key},
+            headers={
+                "X-Detection-Engine-Key": engine.key,
+                "X-Aegis-Producer-Generation": "1",
+            },
         )
         response = connection.getresponse()
         if response.status != 200:
