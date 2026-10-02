@@ -34,6 +34,7 @@ import { PREVIEW_INDEX_LIMITS } from '../lib/vaultPreviewIndexConstants.js'
 import { createPreviewIndexWriter, previewIndexWriteAllowed } from '../lib/vaultPreviewIndexWriter.js'
 import { createUploadDerivativeQueue } from '../lib/vaultDerivativeGenerate.js'
 import { createDerivativeBackfill } from '../lib/vaultDerivativeBackfill.js'
+import { createPreviewIndexCounters } from '../lib/vaultPreviewDiagnostics.js'
 import { previewKindFor } from '../lib/vaultPreview.js'
 import { makeImageThumb } from '../lib/vaultImageThumb.js'
 import { createImageDecodeAdmission } from '../lib/vaultImageDecodeAdmission.js'
@@ -656,9 +657,14 @@ export function VaultTreeScreen({
   // D-1 (PR-B): derivative-first tiles from the separate encrypted preview index — read-only, built only when the
   // server serves previewIndexReadEnabled=true. Every miss/failure falls through to the unchanged original path below.
   const previewIndexEnabled = mediaEnabled && treeState?.flags?.previewIndexReadEnabled === true
+  // D-1 (PR-D): privacy-safe counters (allow-listed names, counts/ms only) for this unlocked session's index work
+  const previewCounters = useMemo(
+    () => (previewIndexEnabled && unlockedState ? createPreviewIndexCounters({ unlockedState }) : null),
+    [previewIndexEnabled, unlockedState],
+  )
   const previewTiles = useMemo(
-    () => (previewIndexEnabled && unlockedState && kek ? createPreviewIndexTiles({ kek, unlockedState }) : null),
-    [previewIndexEnabled, unlockedState, kek],
+    () => (previewIndexEnabled && unlockedState && kek ? createPreviewIndexTiles({ kek, unlockedState, diagnostics: previewCounters }) : null),
+    [previewIndexEnabled, unlockedState, kek, previewCounters],
   )
   const previewTilesRef = useRef(previewTiles)
   previewTilesRef.current = previewTiles
@@ -699,13 +705,14 @@ export function VaultTreeScreen({
       // the session's head is the latest decrypted main manifest (React state may lag one render behind)
       getMainHead: () => session?.head ?? treeRef.current?.state?.head ?? null,
       writeAllowed: () => previewIndexWriteAllowed(treeStateRef.current),
+      diagnostics: previewCounters,
     }) : null),
-    [previewIndexWriteEnabled, unlockedState, kek, session],
+    [previewIndexWriteEnabled, unlockedState, kek, session, previewCounters],
   )
   useEffect(() => () => { previewWriter?.dispose() }, [previewWriter])
   const uploadDerivatives = useMemo(
-    () => (previewWriter ? createUploadDerivativeQueue({ writer: previewWriter, unlockedState, isDeferred: () => activeUploadsRef.current > 0 }) : null),
-    [previewWriter, unlockedState],
+    () => (previewWriter ? createUploadDerivativeQueue({ writer: previewWriter, unlockedState, isDeferred: () => activeUploadsRef.current > 0, diagnostics: previewCounters }) : null),
+    [previewWriter, unlockedState, previewCounters],
   )
   const uploadDerivativesRef = useRef(uploadDerivatives)
   uploadDerivativesRef.current = uploadDerivatives
@@ -715,10 +722,10 @@ export function VaultTreeScreen({
   interactiveRef.current = { download: downloadBusy, modal: Boolean(preview) }
   const previewBackfill = useMemo(
     () => (previewWriter ? createDerivativeBackfill({
-      writer: previewWriter, unlockedState,
+      writer: previewWriter, unlockedState, diagnostics: previewCounters,
       isDeferred: () => activeUploadsRef.current > 0 || interactiveRef.current.download || interactiveRef.current.modal,
     }) : null),
-    [previewWriter, unlockedState],
+    [previewWriter, unlockedState, previewCounters],
   )
   const backfillRef = useRef(previewBackfill)
   backfillRef.current = previewBackfill
