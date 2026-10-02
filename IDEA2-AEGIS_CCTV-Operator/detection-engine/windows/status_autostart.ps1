@@ -2,7 +2,6 @@
 param(
     [string]$RuntimeRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'AEGIS\DetectionEngine'),
     [string]$TunnelTaskName = 'AEGIS Detection Tunnel',
-    [int]$LogTail = 30,
     [switch]$SkipHealthRequests
 )
 
@@ -185,6 +184,20 @@ $sshErrorFlags = Get-SshErrorFlags -LogDirectory $logDirectory
 $port8077 = Test-LocalTcpPort -Port $enginePort
 $port18002 = Test-LocalTcpPort -Port $localForwardPort
 $supervisorPids = @($supervisorProcesses | ForEach-Object { $_.ProcessId }) -join ','
+$legacyEngineTask = Get-ScheduledTask -TaskName 'AEGIS Detection Engine' -ErrorAction SilentlyContinue
+$engineService = Get-CimInstance Win32_Service -Filter "Name='AEGIS Detection Engine'" -ErrorAction SilentlyContinue
+$engineOwnerCount = @(
+    -not [string]::IsNullOrWhiteSpace([string]$runEntry),
+    ($null -ne $legacyEngineTask -and [string]$legacyEngineTask.State -ne 'Disabled'),
+    $null -ne $engineService
+) | Where-Object { $_ } | Measure-Object | Select-Object -ExpandProperty Count
+$engineStartupOwner = if ($engineOwnerCount -gt 1) {
+    'CONFLICT'
+}
+elseif ($engineOwnerCount -eq 1 -and -not [string]::IsNullOrWhiteSpace([string]$runEntry)) {
+    'HKCU_RUN'
+}
+else { 'MISSING' }
 
 [pscustomobject]@{
     RuntimeRoot = $RuntimeRoot
@@ -213,25 +226,23 @@ $supervisorPids = @($supervisorProcesses | ForEach-Object { $_.ProcessId }) -joi
     EnginePortListening = $port8077
     MonitorForwardPort = $localForwardPort
     MonitorForwardListening = $port18002
+    ENGINE_STARTUP_OWNER = $engineStartupOwner
 } | Format-List
+
+$identityStatus = Join-Path $runtimeApp 'windows\identity-agent\status_identity_agent.ps1'
+if (-not (Test-Path -LiteralPath $identityStatus -PathType Leaf)) {
+    $identityStatus = Join-Path $PSScriptRoot 'identity-agent\status_identity_agent.ps1'
+}
+if (Test-Path -LiteralPath $identityStatus -PathType Leaf) {
+    & $identityStatus -EngineRuntimeRoot $RuntimeRoot -TunnelTaskName $TunnelTaskName
+}
+else {
+    'IDENTITY_AGENT_INSTALLATION_STATE=NOT_INSTALLED'
+}
 
 if (-not $SkipHealthRequests) {
     Get-HealthResult -Uri "http://127.0.0.1:$enginePort/health" | Format-List
     Get-HealthResult -Uri "http://127.0.0.1:$localForwardPort/healthz" | Format-List
 }
 
-$logFiles = @(
-    'detection-engine-supervisor.log',
-    'detection-engine-wrapper.log',
-    'detection-engine.stderr.log',
-    'detection-tunnel-wrapper.log',
-    'detection-tunnel-ssh.stderr.log',
-    'key-migration-ssh.stderr.log'
-)
-foreach ($name in $logFiles) {
-    $path = Join-Path $logDirectory $name
-    if (Test-Path -LiteralPath $path -PathType Leaf) {
-        Write-Host "Last $LogTail lines: $path"
-        Get-Content -LiteralPath $path -Tail $LogTail
-    }
-}
+Write-Output 'RAW_LOG_CONTENT_EMITTED=NO'

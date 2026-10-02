@@ -233,6 +233,7 @@ class AegisSupervisor:
         self.recovery_server = None
         self.alert_server = None
         self._command_lock = threading.RLock()
+        self._fresh_lockdown: tuple[str, int] | None = None  # process-local; never restored from the database
         self._containment_count_lock = threading.Lock()
         self._containment_count = 0
         self._containment_pending = threading.Event()
@@ -290,6 +291,46 @@ class AegisSupervisor:
             self.log_event("INFO", "state_transition", state=state, reason=detail)
         self.status.write(self.settings.status_path)
 
+    def _restore_basis_approved(self, basis) -> bool:
+        if isinstance(basis, lr.BreakGlassBasis):
+            # A forged basis cannot pass: it must name a real, spent claim of the fresh episode, consumed exactly once.
+            if self.fresh_lockdown_episode() != basis.episode_id:
+                return False
+            try:
+                return db.consume_break_glass_claim(basis.claim_id, basis.episode_id)
+            except Exception:
+                return False
+        return isinstance(basis, str) and basis in lr.PRODUCTION_RESTORE_BASES
+
+    def fresh_lockdown_episode(self) -> int | None:
+        """The open durable lockdown episode id ONLY while THIS process holds a fresh authenticated LOCKDOWN for it.
+
+        The proof is process-local and is never reconstructed from the database, so a Core restart clears it.
+        """
+        proof = self._fresh_lockdown
+        context = self.protocol
+        if proof is None or context is None or proof[0] != context.device_id:
+            return None
+        try:
+            episode = db.get_open_lockdown_episode(proof[0])
+        except Exception:
+            return None
+        return proof[1] if episode and episode["id"] == proof[1] else None
+
+    def _on_authenticated_status(self, state, device_id, msg_id) -> None:
+        """Authenticated Protocol-v1 STATUS only: update the durable episode model and the process-local freshness proof."""
+        if state not in ("LOCKDOWN", "NORMAL"):
+            return
+        with self._command_lock:
+            self._fresh_lockdown = None
+            try:
+                episode_id = db.record_authenticated_status(device_id, state, msg_id)
+            except Exception as exc:
+                self.log_event("ERROR", "lockdown_episode_record_failed", error=type(exc).__name__)
+                return
+            if state == "LOCKDOWN" and episode_id is not None:
+                self._fresh_lockdown = (device_id, episode_id)
+
     def issue_command(
         self,
         action: str,
@@ -299,8 +340,22 @@ class AegisSupervisor:
         origin: str = "unknown",
         authorize_restore: bool = False,
         not_after: float | None = None,
+        restore_basis: str | None = None,
     ):
         """Issue a physical command and let Core own pending-ACK state."""
+        if (
+            action == "RESTORE_UPLINK"
+            and self.settings.profile == "production"
+            and not self._restore_basis_approved(restore_basis)
+        ):
+            # Production chokepoint: no caller can publish RESTORE without exactly one approved basis, which only the D4 gate
+            # supplies: NORMAL_R5_BASIS after the Recovery preconditions passed, or BREAK_GLASS_BASIS after the durable
+            # one-per-lockdown-episode claim (OD-R5-BG-01). No basis: refuse.
+            detail = "RESTORE_UPLINK rejected: production RESTORE requires the verified Recovery policy basis"
+            db.log_event("COMMAND_REJECTED", f"{detail} (origin={origin})", db.WARN)
+            return CommandResult(
+                action, False, False, self.controller.dry_run, None, detail, reason_code="RESTORE_POLICY_REQUIRED",
+            )
         containment = action == "CUT_UPLINK"
         if containment:
             with self._containment_count_lock:
@@ -609,6 +664,7 @@ class AegisSupervisor:
     def bind_callbacks(self) -> None:
         self.mqtt.connection_callback = self._on_connection
         self.mqtt.status_callback = self._on_status
+        self.mqtt.authenticated_status_callback = self._on_authenticated_status
         self.mqtt.ack_callback = self._on_ack
         self.mqtt.attacker_callback = self._on_attacker
 
@@ -624,6 +680,14 @@ class AegisSupervisor:
             monotonic=self.monotonic,
             incident_lookup=db.get_open_incident,
             attempt_lookup=db.restore_attempt_exists,
+            # Production only: a non-production Core cannot satisfy the Recovery gates (they refuse NOT_PRODUCTION), so the
+            # lab D4 gate keeps its original behaviour. In production the policy is mandatory (see issue_command).
+            precondition_lookup=(
+                self.recovery.restore_precondition_unmet if self.settings.profile == "production" else None
+            ),
+            # OD-R5-BG-01 break-glass: production only, with the same recovery service and the process-local fresh proof.
+            break_glass_lookup=self.recovery.break_glass_unmet if self.settings.profile == "production" else None,
+            episode_lookup=self.fresh_lockdown_episode if self.settings.profile == "production" else None,
         )
         server = lr.LocalRestoreServer(self.settings.runtime_dir / lr.CHANNEL_NAME, gate)
         server.start()
@@ -674,10 +738,22 @@ class AegisSupervisor:
         if self.settings.profile != "production" or source_uid is None or not lr.local_restore_supported():
             self.log_event("INFO", "alert_ingress_disabled", profile=self.settings.profile)
             return
+        if source_uid == 0 or source_uid == os.geteuid():
+            # The detector is a dedicated non-root account that is not the Core: root and the Core uid never author alerts.
+            self.log_event("ERROR", "alert_ingress_failed", error="SOURCE_UID_NOT_DEDICATED")
+            return
+        import grp  # POSIX only; reached only after lr.local_restore_supported()
+
+        try:
+            alert_gid = grp.getgrnam(config.ALERT_GROUP).gr_gid
+        except KeyError:
+            self.log_event("ERROR", "alert_ingress_failed", error="ALERT_GROUP_UNRESOLVED")
+            return
         server = rc.AlertServer(
-            self.settings.runtime_dir / rc.ALERT_CHANNEL_NAME,
+            config.ALERT_SOCKET_PATH,
             rc.AlertIngress(self.on_production_alert),
             allowed_uid=source_uid,
+            socket_gid=alert_gid,
         )
         try:
             server.start()

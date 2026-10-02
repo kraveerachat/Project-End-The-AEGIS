@@ -312,23 +312,124 @@ def test_the_channel_stays_disabled_outside_the_production_profile(tmp_path, mon
         instance.core.close()
 
 
-def test_a_configured_production_core_serves_a_0600_unix_socket_in_its_runtime_directory(env, monkeypatch):
-    monkeypatch.setattr(config, "ALERT_SOURCE_UID", os.geteuid())
+@pytest.fixture
+def dedicated(env, monkeypatch):
+    """A fixture stand-in for /run/aegis-idea3-alert: Core(=test)-owned, own group, mode 2750; the group name resolves to our gid."""
+    import grp
+    import types
+
+    directory = Path(tempfile.mkdtemp(prefix="aegis-al-ded-"))
+    os.chown(directory, -1, os.getegid())
+    os.chmod(directory, recovery_core.ALERT_RUNTIME_DIR_MODE)  # after chown: chown may clear setgid
+    monkeypatch.setattr(config, "ALERT_SOCKET_PATH", str(directory / "alert.sock"))
+    monkeypatch.setattr(grp, "getgrnam", lambda name: types.SimpleNamespace(gr_gid=os.getegid()) if name == "aegis-idea3-alert" else (_ for _ in ()).throw(KeyError(name)))
+    monkeypatch.setattr(config, "ALERT_SOURCE_UID", os.geteuid() + 1)  # a dedicated non-root, non-Core uid
+    env.directory = directory
+    yield env
+    shutil.rmtree(directory, ignore_errors=True)
+
+
+def test_the_production_constants_are_the_dedicated_f1_transport_and_never_the_general_runtime():
+    from aegis_soc import alert_sink
+
+    assert config.ALERT_RUNTIME_DIR == alert_sink.ALERT_RUNTIME_DIR == "/run/aegis-idea3-alert"
+    assert config.ALERT_SOCKET_PATH == alert_sink.ALERT_SOCKET_PATH == "/run/aegis-idea3-alert/alert.sock"
+    assert config.ALERT_GROUP == alert_sink.ALERT_GROUP == "aegis-idea3-alert"
+    assert recovery_core.ALERT_RUNTIME_DIR_MODE == alert_sink.RUNTIME_DIR_MODE == 0o2750
+    assert recovery_core.ALERT_SOCKET_MODE == alert_sink.SOCKET_MODE == 0o620
+    assert not (recovery_core.ALERT_RUNTIME_DIR_MODE | recovery_core.ALERT_SOCKET_MODE) & 0o007  # no world permission
+    source = inspect.getsource(supervisor.AegisSupervisor.start_alert_ingress)
+    assert "runtime_dir" not in source and "ALERT_CHANNEL_NAME" not in source  # the old /run/aegis-idea3/alert.sock is not used
+
+
+def test_a_configured_production_core_serves_the_dedicated_0620_group_socket(dedicated):
+    env = dedicated
     env.core.supervisor.start_alert_ingress()
     try:
         server = env.core.supervisor.alert_server
-        assert server is not None and server.path == env.core.runtime_dir / "alert.sock"
-        mode = server.path.lstat().st_mode
-        assert stat.S_ISSOCK(mode) and stat.S_IMODE(mode) == 0o600
+        assert server is not None and server.path == env.directory / "alert.sock"
+        assert server.path != env.core.runtime_dir / "alert.sock"
+        meta = server.path.lstat()
+        assert stat.S_ISSOCK(meta.st_mode) and stat.S_IMODE(meta.st_mode) == 0o620
+        assert meta.st_uid == os.geteuid() and meta.st_gid == os.getegid()
+        directory = env.directory.lstat()
+        assert stat.S_IMODE(directory.st_mode) == 0o2750 and directory.st_uid == os.geteuid() and directory.st_gid == os.getegid()
+        assert not (env.core.runtime_dir / "alert.sock").exists()
+    finally:
+        env.core.supervisor.stop_alert_ingress()
+    assert env.core.supervisor.alert_server is None and not (env.directory / "alert.sock").exists()
+
+
+def test_a_wrong_uid_is_refused_before_any_byte_is_read_even_with_alert_group_reachability(dedicated):
+    env = dedicated  # our gid owns the 0620 socket and directory, i.e. we are a transport-group member whose uid is not the source uid
+    env.core.supervisor.start_alert_ingress()
+    try:
+        server = env.core.supervisor.alert_server
+        assert server is not None and server.allowed_uid == os.geteuid() + 1 != os.geteuid()
+        reply, _ = exchange(server.path, alert(IP))
+        assert (reply["ok"], reply["code"]) == (False, "PEER_REFUSED")
+        assert incident_count() == 0
+    finally:
+        env.core.supervisor.stop_alert_ingress()
+
+
+def test_the_exact_detector_uid_is_accepted_on_the_dedicated_socket(dedicated, tmp_path):
+    env = dedicated
+    server = recovery_core.AlertServer(env.directory / "alert.sock", env.ingress, allowed_uid=os.geteuid(), socket_gid=os.getegid())
+    server.start()
+    try:
+        assert stat.S_IMODE(server.path.lstat().st_mode) == 0o620
         reply, _ = exchange(server.path, alert(IP))
         assert (reply["ok"], reply["code"]) == (True, "BOUND")
     finally:
-        env.core.supervisor.stop_alert_ingress()
-    assert env.core.supervisor.alert_server is None and not (env.core.runtime_dir / "alert.sock").exists()
+        server.close()
+
+
+@pytest.mark.parametrize("which", ["root", "core"])
+def test_a_root_or_core_alert_source_uid_keeps_the_ingress_disabled(dedicated, monkeypatch, which):
+    monkeypatch.setattr(config, "ALERT_SOURCE_UID", 0 if which == "root" else os.geteuid())
+    env = dedicated
+    env.core.supervisor.start_alert_ingress()
+    assert env.core.supervisor.alert_server is None and not (env.directory / "alert.sock").exists()
+
+
+def test_an_unresolved_alert_group_keeps_the_ingress_disabled(dedicated, monkeypatch):
+    monkeypatch.setattr(config, "ALERT_GROUP", "aegis-idea3-no-such-group")
+    dedicated.core.supervisor.start_alert_ingress()
+    assert dedicated.core.supervisor.alert_server is None
+
+
+@pytest.mark.parametrize("mutate", ["mode_755", "mode_2770", "mode_2751", "wrong_group", "missing"])
+def test_the_dedicated_directory_must_be_exactly_core_owned_2750_of_the_alert_group_and_is_never_created(dedicated, mutate):
+    env = dedicated
+    gid = os.getegid()
+    if mutate == "mode_755":
+        os.chmod(env.directory, 0o755)
+    elif mutate == "mode_2770":
+        os.chmod(env.directory, 0o2770)
+    elif mutate == "mode_2751":
+        os.chmod(env.directory, 0o2751)
+    elif mutate == "wrong_group":
+        gid = os.getegid() + 1  # the directory belongs to our gid, so a different expected gid must refuse
+    else:
+        shutil.rmtree(env.directory)
+    server = recovery_core.AlertServer(env.directory / "alert.sock", env.ingress, allowed_uid=os.geteuid() + 1, socket_gid=gid)
+    with pytest.raises(recovery_core.RecoveryChannelError):
+        server.start()
+    assert mutate != "missing" or not env.directory.exists()  # no mkdir
+    assert mutate == "missing" or not (env.directory / "alert.sock").exists()
+
+
+def test_recovery_and_local_restore_filesystem_policy_is_unchanged():
+    assert recovery_core.RecoveryServer.socket_group_mode == 0o660 and recovery_core.RecoveryServer.socket_group_mode != recovery_core.ALERT_SOCKET_MODE
+    assert recovery_core.RecoveryServer.max_message_bytes != recovery_core.AlertServer.max_message_bytes
+    assert lr.CHANNEL_NAME == "local-restore.sock"
+    text = inspect.getsource(supervisor.AegisSupervisor.start_alert_ingress)
+    assert "RECOVERY_SOCKET" not in text and "lr.CHANNEL_NAME" not in text and "recovery_server" not in text
 
 
 def test_a_channel_failure_never_stops_the_core(env, monkeypatch):
-    monkeypatch.setattr(config, "ALERT_SOURCE_UID", os.geteuid())
+    monkeypatch.setattr(config, "ALERT_SOURCE_UID", os.geteuid() + 1)
     monkeypatch.setattr(recovery_core.AlertServer, "start", lambda self: (_ for _ in ()).throw(OSError("no")))
     env.core.supervisor.start_alert_ingress()
     assert env.core.supervisor.alert_server is None

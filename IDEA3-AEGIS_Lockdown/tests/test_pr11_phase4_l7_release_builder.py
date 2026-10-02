@@ -33,9 +33,9 @@ TOOL = ROOT / "deploy" / "pr11-phase4" / "p4-l7-build-release.py"
 
 MANIFEST_FIELDS = {"schema_version", "release_id", "source_git_sha", "source_tree_dirty", "python_version",
                    "requirements_sha256", "file_count", "created_by_tool_version"}
-CLOSURE = {"__init__", "comms", "config", "controller", "database", "dispatch_client", "dispatch_ledger", "dispatch_worker",
+CLOSURE = {"__init__", "alert_sink", "comms", "config", "controller", "database", "dispatch_client", "dispatch_ledger", "dispatch_worker",
            "ip_containment", "local_restore", "mqtt_client", "paths", "platform_lock", "protocol_inbound", "protocol_runtime",
-           "protocol_store", "protocol_v1", "recovery_client", "recovery_core", "recovery_protocol", "recovery_ui", "runtime",
+           "production_detector", "protocol_store", "protocol_v1", "recovery_client", "recovery_core", "recovery_protocol", "recovery_ui", "runtime",
            "security", "supervisor", "systemd_credentials", "trusted_time"}
 NOT_RUNTIME = {"cli", "gui", "production_runtime", "telegram_control", "theme",
                "windows_launcher", "wizard"}
@@ -574,7 +574,7 @@ def test_expect_owner_root_fails_for_a_user_owned_release(tool, rel) -> None:
 def test_cli_build_and_verify_roundtrip(repo, wh, tmp_path) -> None:
     py = sys.executable
     b = subprocess.run([py, str(TOOL), "build", "--source-root", str(repo), "--staging-root", str(tmp_path / "s"),
-                        "--release-id", "r9", "--wheelhouse", str(wh)], text=True, capture_output=True)
+                        "--release-id", "r9", "--wheelhouse", str(wh)], text=True, capture_output=True, check=False)
     assert b.returncode == 0, b.stderr
     assert "L7_RELEASE_BUILD=PASS" in b.stdout and "PRODUCTION_MUTATION_PERFORMED=NO" in b.stdout
     v = subprocess.run([py, str(TOOL), "verify", str(tmp_path / "s/r9")], text=True, capture_output=True, check=False)
@@ -587,7 +587,7 @@ def test_cli_build_and_verify_roundtrip(repo, wh, tmp_path) -> None:
 
 def test_cli_refuses_bad_release_id_without_traceback(repo, wh, tmp_path) -> None:
     r = subprocess.run([sys.executable, str(TOOL), "build", "--source-root", str(repo), "--staging-root", str(tmp_path / "s"),
-                        "--release-id", "../x", "--wheelhouse", str(wh)], text=True, capture_output=True)
+                        "--release-id", "../x", "--wheelhouse", str(wh)], text=True, capture_output=True, check=False)
     assert r.returncode != 0 and "Traceback" not in r.stderr and "L7_RELEASE_BUILD=FAIL" in r.stderr + r.stdout
 
 

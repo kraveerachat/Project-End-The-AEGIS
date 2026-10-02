@@ -21,6 +21,8 @@ DEPLOY = ROOT / "deploy" / "pr11-phase4"
 ENGINE_PATH = DEPLOY / "p4-l7u-upgrade.py"
 DROPIN_TEMPLATE = ROOT / "deploy" / "aegis-idea3-core-recovery.dropin.example"
 TMPFILES_TEMPLATE = ROOT / "deploy" / "aegis-idea3-recovery.tmpfiles.example"
+ALERT_DROPIN_TEMPLATE = ROOT / "deploy" / "aegis-idea3-core-alert.dropin.example"
+ALERT_TMPFILES_TEMPLATE = ROOT / "deploy" / "aegis-idea3-alert.tmpfiles.example"
 
 OLD_ID = "f2a5cd758ff3abe0e5cfb933f63af1960318dad0"
 MAIN = "81f201a41bdb2153820c8ead61762d7ffb97ca3c"
@@ -29,7 +31,15 @@ OLD_LOGICAL = f"/opt/aegis-idea3/releases/{OLD_ID}"
 NEW_LOGICAL = f"/opt/aegis-idea3/releases/{NEW_ID}"
 UNIT = "aegis-idea3-core.service"
 GROUP = "aegis-idea3-recovery"
+ALERT_GROUP = "aegis-idea3-alert"
+DETECTOR = "aegis-idea3-detector"
 CORE_UID, CORE_GID = 952, 950
+DETECTOR_UID, DETECTOR_GID = 953, 951  # a fixture value: the real uid is owner-frozen and never committed
+NEW_ALERT_GROUP_GID = 948
+ALERT_DIR = "/run/aegis-idea3-alert"
+ALERT_SOCK = f"{ALERT_DIR}/alert.sock"
+ALERT_DROPIN = "/etc/systemd/system/aegis-idea3-core.service.d/20-f1-alert.conf"
+ALERT_TMPFILES = "/etc/tmpfiles.d/aegis-idea3-alert.conf"
 OPERATOR, OPERATOR_UID, OPERATOR_GID = "kittipat", 1000, 1000
 NEW_GROUP_GID = 949
 ENV_SECRET_CANARY = "CANARY-env-secret-7f3a9c41"
@@ -139,13 +149,15 @@ class FakeSystemState:
     sub: str = "running"
     enabled: str = "enabled"
     result: str = "success"
+    alert_hook: bool = True
 
 
 def make_system_class(engine):
     class FakeSystem(engine.Backend):
-        def __init__(self, host, *, new_gid: int = NEW_GROUP_GID, fail: str = "") -> None:
+        def __init__(self, host, *, new_gid: int = NEW_GROUP_GID, alert_gid: int = NEW_ALERT_GROUP_GID, fail: str = "") -> None:
             self.host = host
             self.new_gid = new_gid
+            self.alert_gid = alert_gid
             self.state = FakeSystemState(fail=fail)
             self._rollback_started = False
 
@@ -162,7 +174,7 @@ def make_system_class(engine):
             if self.state.fail == "groupadd":
                 raise engine.Refusal("GROUPADD_FAILED")
             rows = self._groups()
-            rows.append([name, "x", str(self.new_gid), ""])
+            rows.append([name, "x", str(self.alert_gid if name == ALERT_GROUP else self.new_gid), ""])
             self._save_groups(rows)
 
         def groupdel(self, name: str) -> None:
@@ -193,7 +205,7 @@ def make_system_class(engine):
         # ── systemd-tmpfiles: a real parse of the installed rule ──
         def tmpfiles_create(self, conf_logical: str) -> None:
             self.state.calls.append(("tmpfiles_create", conf_logical))
-            if self.state.fail == "tmpfiles":
+            if self.state.fail == ("alert_tmpfiles" if conf_logical == ALERT_TMPFILES else "tmpfiles"):
                 raise engine.Refusal("TMPFILES_FAILED")
             for line in self.host.read_text(conf_logical).splitlines():
                 if not line.strip() or line.startswith("#"):
@@ -204,7 +216,8 @@ def make_system_class(engine):
                 gid = next(int(r[2]) for r in self._groups() if r[0] == group)
                 if not self.host.lexists(path):
                     self.host.mkdir(path, 0o700, uid, gid)
-                effective = 0o700 if self.state.fail == "tmpfiles_wrong_mode" else int(mode, 8)  # the UMask-0077 trap: a 0700 directory
+                wrong = self.state.fail == ("alert_tmpfiles_wrong_mode" if path == ALERT_DIR else "tmpfiles_wrong_mode")
+                effective = 0o700 if wrong else int(mode, 8)  # the UMask-0077 trap: a 0700 directory
                 os.chmod(self.host.p(path), effective)
                 self.host.chown(path, uid, gid)
 
@@ -241,9 +254,10 @@ def make_system_class(engine):
             return "\n".join(f"{k}={table[k]}" for k in wanted)
 
         def _drop_socket(self) -> None:
-            sock = self.host.p("/run/aegis-idea3-recovery/recovery.sock")
-            if sock.exists() or sock.is_symlink():
-                sock.unlink()
+            for logical in ("/run/aegis-idea3-recovery/recovery.sock", ALERT_SOCK):
+                sock = self.host.p(logical)
+                if sock.exists() or sock.is_symlink():
+                    sock.unlink()
 
         def _env(self) -> dict[str, str]:
             out = {}
@@ -255,13 +269,26 @@ def make_system_class(engine):
 
         def _supplementary(self) -> list[int]:
             gids = []
-            dropin = "/etc/systemd/system/aegis-idea3-core.service.d/10-recovery.conf"
-            if self.host.lexists(dropin):
-                for line in self.host.read_text(dropin).splitlines():
-                    if line.startswith("SupplementaryGroups="):
-                        for name in line.split("=", 1)[1].split():
-                            gids += [int(r[2]) for r in self._groups() if r[0] == name]
+            for dropin in ("/etc/systemd/system/aegis-idea3-core.service.d/10-recovery.conf", ALERT_DROPIN):
+                if self.host.lexists(dropin):
+                    for line in self.host.read_text(dropin).splitlines():
+                        if line.startswith("SupplementaryGroups="):
+                            for name in line.split("=", 1)[1].split():
+                                gids += [int(r[2]) for r in self._groups() if r[0] == name]
             return gids
+
+        def _create_alert_socket(self, env: dict[str, str], supp: list[int]) -> None:
+            """The fixture Core models the PHASE B hook: it creates the dedicated alert socket only when ``alert_hook`` is on (the real
+            Core code does this since Phase B), the frozen uid is in its env and the runtime dir exists."""
+            st = self.state
+            alert_gid = next((int(r[2]) for r in self._groups() if r[0] == ALERT_GROUP), None)
+            if not (st.alert_hook and st.fail != "no_alert_channel" and "AEGIS_ALERT_SOURCE_UID" in env and self.host.lexists(ALERT_DIR)
+                    and alert_gid in supp):
+                return
+            sock = self.host.p(ALERT_SOCK)
+            os.mknod(sock, stat.S_IFSOCK | 0o600)
+            os.chmod(sock, 0o600 if st.fail == "bad_alert_socket_mode" else 0o620)
+            self.host.chown(ALERT_SOCK, CORE_UID, alert_gid)
 
         def _boot(self, *, restart: bool):
             st = self.state
@@ -291,6 +318,7 @@ def make_system_class(engine):
                 return 0, ""
             if restart and st.fail == "no_supp_group":
                 self.host.write_atomic(f"/proc/{st.pid}/status", f"Name:\tpython\nGroups:\t{CORE_GID}\n".encode(), mode=0o644, uid=0, gid=0)
+            self._create_alert_socket(env, supp)
             runtime = "/run/aegis-idea3-recovery"
             if has_recovery and "AEGIS_RECOVERY_OPERATOR_UID" in env and self.host.lexists(runtime) and st.fail != "no_channel":
                 ident = self.host.identity(runtime)
@@ -308,7 +336,8 @@ def make_system_class(engine):
 
 def build(tmp_path: Path, *, group_rows: list[str] | None = None, passwd_extra: list[str] | None = None, env_lines: list[str] | None = None,
           env_newline: bool = True, current_target: str | None = None, core_active: bool = True, new_sha: str = MAIN,
-          new_recovery: bool = True, old_recovery: bool = False, fail: str = "", stable_samples: int = 2) -> Fx:
+          new_recovery: bool = True, old_recovery: bool = False, fail: str = "", stable_samples: int = 2, no_detector: bool = False,
+          detector_uid: int = DETECTOR_UID, alert_source_uid: int = DETECTOR_UID, alert_hook: bool = True) -> Fx:
     engine = load_engine()
     root = tmp_path / "root"
     work = tmp_path / "work"
@@ -319,10 +348,11 @@ def build(tmp_path: Path, *, group_rows: list[str] | None = None, passwd_extra: 
     make_release(root / "opt/aegis-idea3/releases", OLD_ID, OLD_ID, recovery=old_recovery)
     os.symlink(current_target or OLD_LOGICAL, root / "opt/aegis-idea3/current")
     passwd = ["root:x:0:0:root:/root:/bin/bash", f"aegis-idea3:x:{CORE_UID}:{CORE_GID}::/var/lib/aegis-idea3:/usr/bin/nologin",
-              f"{OPERATOR}:x:{OPERATOR_UID}:{OPERATOR_GID}::/home/{OPERATOR}:/bin/zsh", *(passwd_extra or [])]
+              f"{OPERATOR}:x:{OPERATOR_UID}:{OPERATOR_GID}::/home/{OPERATOR}:/bin/zsh",
+              *([] if no_detector else [f"{DETECTOR}:x:{detector_uid}:{DETECTOR_GID}::/nonexistent:/usr/bin/nologin"]), *(passwd_extra or [])]
     (root / "etc/passwd").write_text("\n".join(passwd) + "\n")
-    groups = ["root:x:0:", f"aegis-idea3:x:{CORE_GID}:", f"{OPERATOR}:x:{OPERATOR_GID}:", "wheel:x:998:" + OPERATOR,
-              *(group_rows or [])]
+    groups = ["root:x:0:", f"aegis-idea3:x:{CORE_GID}:", f"{OPERATOR}:x:{OPERATOR_GID}:", f"{DETECTOR}:x:{DETECTOR_GID}:",
+              "wheel:x:998:" + OPERATOR, *(group_rows or [])]
     (root / "etc/group").write_text("\n".join(groups) + "\n")
     body = "\n".join(env_lines if env_lines is not None else CORE_ENV_LINES) + ("\n" if env_newline else "")
     (root / "etc/aegis-idea3/core.env").write_text(body)
@@ -336,10 +366,11 @@ def build(tmp_path: Path, *, group_rows: list[str] | None = None, passwd_extra: 
     host.chown("/etc/aegis-idea3/core.env", 0, CORE_GID)
     host.chown("/run/aegis-idea3", CORE_UID, CORE_GID)
     system = make_system_class(engine)(host, fail=fail)
+    system.state.alert_hook = alert_hook
     if not core_active:
         system.state.active, system.state.sub = "inactive", "dead"
     cfg = engine.Config(old_release_id=OLD_ID, new_release_id=NEW_ID, expected_main=MAIN, source_dir=source, work_dir=work,
-                        operator_user=OPERATOR, operator_uid=OPERATOR_UID, owner_expect="any", stable_wait_sec=0, stable_samples=stable_samples)
+                        operator_user=OPERATOR, operator_uid=OPERATOR_UID, alert_source_uid=alert_source_uid, owner_expect="any", stable_wait_sec=0, stable_samples=stable_samples)
     return Fx(tmp=tmp_path, root=root, work=work, source=source, engine=engine, host=host, system=system, cfg=cfg)
 
 

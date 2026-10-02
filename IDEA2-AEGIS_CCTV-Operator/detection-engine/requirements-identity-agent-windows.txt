@@ -1,0 +1,4 @@
+# Dedicated Windows Identity Agent only. Do not install into the Engine runtime.
+cryptography==50.0.1
+requests==2.34.2
+pywin32==312

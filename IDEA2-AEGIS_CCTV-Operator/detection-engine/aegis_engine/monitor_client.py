@@ -2,11 +2,10 @@
 MonitorClient — ship detection/clip/alert events to the AEGIS Monitor backend.
 
 The Detection Engine never talks to Postgres directly. It POSTs to Monitor's
-Node backend over HTTP, authenticated with a shared service key
-(``X-Detection-Engine-Key``) — Monitor's backend does the actual database
-write. This keeps the trust boundary identical to the rest of the system:
-only an app's own backend ever touches its own database. If this laptop
-(VLAN 20) is compromised, it still holds no database credential.
+Node backend either through the local Identity Agent (strict Ed25519 mode) or
+the explicitly selected transitional shared-key path. Monitor's backend does
+the actual database write; the Engine never receives a database credential or
+the Agent private key/session.
 
 Resilience
 ----------
@@ -19,13 +18,13 @@ best-effort mirror that can be back-filled, not a hard dependency.
 
 Configuration (environment)
 ---------------------------
-``AEGIS_MONITOR_API_BASE``        e.g. ``http://localhost/monitor`` (through the
-                                  gateway) or ``http://monitor:8002`` on the LAN.
-``AEGIS_DETECTION_ENGINE_API_KEY``the shared key; must equal Monitor's
-                                  ``DETECTION_ENGINE_API_KEY``. If unset, the
-                                  client is DISABLED (logs once, posts nothing)
-                                  — same fail-secure stance as the server.
-``AEGIS_MONITOR_HTTP_TIMEOUT_S``  per-request timeout (default 5s).
+``AEGIS_MONITOR_INGEST_MODE``     ``identity_agent`` (strict) or the explicit
+                                  transitional ``legacy_shared_key`` mode.
+``AEGIS_MONITOR_API_BASE``        legacy-mode Monitor base URL.
+``AEGIS_DETECTION_ENGINE_API_KEY``legacy-mode shared key; never used as a
+                                  fallback in ``identity_agent`` mode.
+``AEGIS_IDENTITY_AGENT_PIPE_NAME``local strict-mode pipe endpoint.
+``AEGIS_MONITOR_HTTP_TIMEOUT_S``  legacy per-request timeout (default 5s).
 """
 
 from __future__ import annotations
@@ -48,17 +47,30 @@ class MonitorClient:
         base_url: object = _UNSET,
         api_key: object = _UNSET,
         timeout_s: Optional[float] = None,
+        identity_agent_client=None,
+        ingest_mode: str = "legacy_shared_key",
     ) -> None:
-        self._base = (
-            base_url if base_url is not _UNSET
-            else os.environ.get("AEGIS_MONITOR_API_BASE", "")
-        )
-        self._base = str(self._base or "").rstrip("/")
-        self._key = (
-            api_key if api_key is not _UNSET
-            else os.environ.get("AEGIS_DETECTION_ENGINE_API_KEY", "")
-        )
-        self._key = str(self._key or "")
+        self._ingest_mode = str(ingest_mode).strip().lower()
+        if self._ingest_mode not in {"legacy_shared_key", "identity_agent"}:
+            raise ValueError("unsupported Monitor ingest mode")
+        if self._ingest_mode == "identity_agent":
+            # Strict ingest has no Monitor destination or application key. The
+            # local Agent owns both. The existing Engine API key remains a
+            # separate inbound stream-demand credential until that boundary is
+            # replaced by its later lifecycle task.
+            self._base = ""
+            self._key = ""
+        else:
+            self._base = (
+                base_url if base_url is not _UNSET
+                else os.environ.get("AEGIS_MONITOR_API_BASE", "")
+            )
+            self._base = str(self._base or "").rstrip("/")
+            self._key = (
+                api_key if api_key is not _UNSET
+                else os.environ.get("AEGIS_DETECTION_ENGINE_API_KEY", "")
+            )
+            self._key = str(self._key or "")
         try:
             self._timeout = float(timeout_s if timeout_s is not None
                                   else os.environ.get("AEGIS_MONITOR_HTTP_TIMEOUT_S", "5"))
@@ -67,16 +79,27 @@ class MonitorClient:
         # One warning, not one per dropped event, if we're not wired up.
         self._warned_disabled = False
         self._warn_lock = threading.Lock()
+        self._agent = identity_agent_client
 
-        self._enabled = bool(self._base and self._key)
+        self._enabled = (
+            self._agent is not None
+            if self._ingest_mode == "identity_agent"
+            else bool(self._base and self._key)
+        )
         if not self._enabled:
+            requirement = (
+                "a reachable local Identity Agent"
+                if self._ingest_mode == "identity_agent"
+                else "AEGIS_MONITOR_API_BASE and AEGIS_DETECTION_ENGINE_API_KEY"
+            )
             log.warning(
-                "MonitorClient DISABLED — set AEGIS_MONITOR_API_BASE and "
-                "AEGIS_DETECTION_ENGINE_API_KEY to persist events to Monitor. "
-                "Detection still runs; rows just won't be written."
+                "MonitorClient DISABLED — configure %s to persist events to Monitor. "
+                "Detection still runs; rows just won't be written.",
+                requirement,
             )
         else:
-            log.info("MonitorClient → %s (events will be persisted to Monitor)", self._base)
+            destination = "local Identity Agent" if self._agent is not None else self._base
+            log.info("MonitorClient → %s (events will be persisted to Monitor)", destination)
 
     # -- public API: one method per table, all fail-soft -------------------
     def post_detection(
@@ -89,7 +112,7 @@ class MonitorClient:
             body["frameId"] = frame_id
         if at is not None:
             body["at"] = at
-        self._post("/internal/detections", body)
+        self._post("detection", "/internal/detections", body)
 
     def post_clip(
         self, camera_id: str, started_at: str, duration_sec: float,
@@ -97,7 +120,7 @@ class MonitorClient:
     ) -> None:
         """A finalized ~segment. Call ONLY after NAS sha256-verify succeeds so
         ``stored_on_nas`` is never set optimistically."""
-        self._post("/internal/clips", {
+        self._post("clip", "/internal/clips", {
             "cameraId": camera_id,
             "startedAt": started_at,
             "durationSec": duration_sec,
@@ -106,10 +129,11 @@ class MonitorClient:
         })
 
     def post_heartbeat(
-        self, camera_id: str, node_id: str, snapshot: Dict[str, Any],
-        stream_url: Optional[str] = None, camera_device_name: Optional[str] = None,
+        self, snapshot: Dict[str, Any], *, camera_id: Optional[str] = None,
+        node_id: Optional[str] = None, stream_url: Optional[str] = None,
+        camera_device_name: Optional[str] = None,
     ) -> None:
-        """Liveness + live metrics for one camera.
+        """Liveness + live metrics for one physical runtime.
 
         This is the ONLY source behind Monitor's ``/api/link``. Before this
         existed the web app's "Edge node: online" pill was a hard-coded
@@ -122,9 +146,7 @@ class MonitorClient:
         """
         nas = snapshot.get("nas") or {}
         recorder = snapshot.get("recorder") or {}
-        self._post("/internal/heartbeat", {
-            "cameraId": camera_id,
-            "nodeId": node_id,
+        body = {
             "cameraConnected": bool(snapshot.get("camera_connected")),
             "cameraReconnects": snapshot.get("camera_reconnects"),
             "captureFps": snapshot.get("capture_fps"),
@@ -136,16 +158,22 @@ class MonitorClient:
             "segmentsWritten": recorder.get("segments_written"),
             "nasLastStatus": nas.get("last_status"),
             "nasPending": nas.get("pending"),
-            "streamUrl": stream_url,
             "cameraDeviceName": camera_device_name,
-        })
+        }
+        if self._ingest_mode == "legacy_shared_key":
+            # Bounded Detector B compatibility remains logical-camera keyed.
+            # Strict Agent mode intentionally never serializes these values.
+            body["cameraId"] = camera_id
+            body["nodeId"] = node_id
+            body["streamUrl"] = stream_url
+        self._post("heartbeat", "/internal/heartbeat", body)
 
     def post_alert(
         self, camera_id: str, severity: str, alert_type: str, title: str,
         snapshot_path: Optional[str], telegram_sent: bool,
     ) -> None:
         """An alert. Persist whether or not Telegram delivery succeeded."""
-        self._post("/internal/alerts", {
+        self._post("alert", "/internal/alerts", {
             "cameraId": camera_id,
             "severity": severity,          # 'amber' | 'red' (already mapped by caller)
             "alertType": alert_type,
@@ -155,9 +183,14 @@ class MonitorClient:
         })
 
     # -- transport (never raises) ------------------------------------------
-    def _post(self, path: str, body: Dict[str, Any]) -> None:
+    def _post(self, operation: str, path: str, body: Dict[str, Any]) -> None:
         if not self._enabled:
             self._warn_once()
+            return
+        if self._ingest_mode == "identity_agent":
+            result = self._agent.submit(operation, body)
+            if not result.ok:
+                log.warning("Identity Agent rejected %s (%s)", operation, result.error)
             return
         try:
             import requests  # lazy import — same pattern as alert_manager

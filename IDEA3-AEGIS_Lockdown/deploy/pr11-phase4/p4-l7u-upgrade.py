@@ -13,6 +13,12 @@ contains the merged Core-mediated Recovery runtime, and provisions the filesyste
     5. a systemd-tmpfiles rule + the pre-provisioned runtime directory (0750 aegis-idea3:aegis-idea3-recovery) — never the application's mkdir,
     6. daemon-reload, an atomic ``current`` pointer switch, ONE governed Core restart, and verification of the Recovery channel.
 
+OD-F1-DEPLOY-01 (F1 alert ingress) adds, inside the SAME single restart: the owner-frozen ``AEGIS_ALERT_SOURCE_UID`` (verified against the exact
+account ``aegis-idea3-detector``; root, the Core and the operator are refused), the dedicated group ``aegis-idea3-alert`` (no members; the Core
+gets it through a separate ``20-f1-alert.conf`` drop-in), the dedicated ``/run/aegis-idea3-alert`` directory (2750 aegis-idea3:aegis-idea3-alert,
+tmpfiles) and verification of ``alert.sock`` (0620, same group). L7u NEVER starts, stops or installs the detector unit, and never restarts the
+Core a second time; the detector is activated later by the F1 package, only after this stage verified the Core alert socket.
+
 Everything is journaled BEFORE it is changed so that ``rollback`` knows exactly what this attempt created or changed. Rollback refuses any
 unknown or mismatched state before it touches anything, restores the exact prestate (pointer, core.env bytes+metadata, drop-in, tmpfiles,
 runtime directory, membership, group, the new release), restarts the OLD Core only as part of that bounded rollback, and verifies it.
@@ -53,27 +59,43 @@ CURRENT = "/opt/aegis-idea3/current"
 CORE_ENV = "/etc/aegis-idea3/core.env"
 RUNTIME_DIR = "/run/aegis-idea3-recovery"
 SOCKET_PATH = f"{RUNTIME_DIR}/recovery.sock"
+ALERT_GROUP_NAME = "aegis-idea3-alert"
+DETECTOR_USER = "aegis-idea3-detector"
+ALERT_RUNTIME_DIR = "/run/aegis-idea3-alert"
+ALERT_SOCKET_PATH = f"{ALERT_RUNTIME_DIR}/alert.sock"
+ALERT_SOCKET_NAME = "alert.sock"
+ALERT_DIR_MODE = 0o2750
+ALERT_SOCKET_MODE = 0o620
 DROPIN_DIR = "/etc/systemd/system/aegis-idea3-core.service.d"
 DROPIN_PATH = f"{DROPIN_DIR}/10-recovery.conf"
 TMPFILES_DIR = "/etc/tmpfiles.d"
 TMPFILES_PATH = f"{TMPFILES_DIR}/aegis-idea3-recovery.conf"
 DROPIN_TEMPLATE = DEPLOY_DIR / "aegis-idea3-core-recovery.dropin.example"
 TMPFILES_TEMPLATE = DEPLOY_DIR / "aegis-idea3-recovery.tmpfiles.example"
+ALERT_DROPIN_PATH = f"{DROPIN_DIR}/20-f1-alert.conf"
+ALERT_TMPFILES_PATH = f"{TMPFILES_DIR}/aegis-idea3-alert.conf"
+ALERT_DROPIN_TEMPLATE = DEPLOY_DIR / "aegis-idea3-core-alert.dropin.example"
+ALERT_TMPFILES_TEMPLATE = DEPLOY_DIR / "aegis-idea3-alert.tmpfiles.example"
 DROPIN_ACTIVE = ["[Service]", f"SupplementaryGroups={GROUP_NAME}", f"ReadWritePaths={RUNTIME_DIR}"]
 TMPFILES_ACTIVE = [f"d {RUNTIME_DIR} 0750 {CORE_USER} {GROUP_NAME} -"]
+ALERT_DROPIN_ACTIVE = ["[Service]", f"SupplementaryGroups={ALERT_GROUP_NAME}", f"ReadWritePaths={ALERT_RUNTIME_DIR}"]
+ALERT_TMPFILES_ACTIVE = [f"d {ALERT_RUNTIME_DIR} 2750 {CORE_USER} {ALERT_GROUP_NAME} -"]
 ENV_KEY_UID = "AEGIS_RECOVERY_OPERATOR_UID"
 ENV_KEY_GID = "AEGIS_RECOVERY_SOCKET_GID"
 ENV_KEY_SOCKET = "AEGIS_RECOVERY_SOCKET"
-OWNED_ENV_KEYS = (ENV_KEY_UID, ENV_KEY_GID, ENV_KEY_SOCKET)
+ENV_KEY_ALERT_UID = "AEGIS_ALERT_SOURCE_UID"
+OWNED_ENV_KEYS = (ENV_KEY_UID, ENV_KEY_GID, ENV_KEY_SOCKET, ENV_KEY_ALERT_UID)
 PROBE_ENV_KEYS = ("AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET", "AEGIS_RECOVERY_NETWORK_PROBE_TARGETS", "AEGIS_RECOVERY_WEB_READINESS_URL")
 RECOVERY_RUNTIME_FILES = ("recovery_core.py", "recovery_protocol.py", "recovery_client.py", "recovery_ui.py")
 SYSTEM_GID_MAX = 999
 RELEASE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", re.ASCII)
 USER_RE = re.compile(r"[a-z_][a-z0-9_-]{0,31}", re.ASCII)
+ALERT_UID_RE = re.compile(r"[1-9][0-9]{0,9}", re.ASCII)  # canonical decimal, never 0 (root forbidden)
+ALERT_UID_MAX = 4294967294
 MAIN_RE = re.compile(r"[0-9a-f]{40}", re.ASCII)
 ENV_LINE_RE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$")
-JOURNAL_KINDS = ("RELEASE_INSTALL", "GROUP", "MEMBERSHIP", "CORE_ENV", "DROPIN", "TMPFILES", "RUNTIME_DIR", "DAEMON_RELOAD", "CURRENT_SWITCH",
-                 "CORE_RESTART")
+JOURNAL_KINDS = ("RELEASE_INSTALL", "GROUP", "MEMBERSHIP", "ALERT_GROUP", "CORE_ENV", "DROPIN", "ALERT_DROPIN", "TMPFILES", "ALERT_TMPFILES",
+                 "RUNTIME_DIR", "ALERT_RUNTIME_DIR", "DAEMON_RELOAD", "CURRENT_SWITCH", "CORE_RESTART")
 HEALTHY = {"LoadState": "loaded", "ActiveState": "active", "SubState": "running", "UnitFileState": "enabled", "Result": "success"}
 
 
@@ -99,6 +121,7 @@ class Config:
     work_dir: Path
     operator_user: str
     operator_uid: int
+    alert_source_uid: int  # owner-frozen uid of the dedicated account ``aegis-idea3-detector`` (= AEGIS_ALERT_SOURCE_UID)
     owner_expect: str = "root"  # 'any' is fixture-only: it is refused unless the Host has a fixture root
     stable_wait_sec: float = 3.0
     stable_samples: int = 3
@@ -126,6 +149,10 @@ class Plan:
     env_missing: list[str]
     env_identity: Identity
     core_pid: int
+    detector_primary_gid: int = 0
+    alert_group_exists: bool = False
+    alert_group_gid: int | None = None
+    alert_group_created_by_attempt: bool = True
     old_source_sha: str = ""
 
 
@@ -283,7 +310,7 @@ class SystemBackend(Backend):
 
     @staticmethod
     def _owned_group(name: str) -> None:
-        if name != GROUP_NAME:
+        if name not in (GROUP_NAME, ALERT_GROUP_NAME):
             refuse("BACKEND_GROUP_NOT_OWNED")
 
     @staticmethod
@@ -304,6 +331,8 @@ class SystemBackend(Backend):
     def gpasswd_add(self, user: str, group: str) -> None:
         self._owned_group(group)
         self._member(user)
+        if group != GROUP_NAME:  # the alert group never has members: neither account is added, systemd grants it by name
+            refuse("BACKEND_GROUP_NOT_OWNED")
         if self._run(["gpasswd", "-a", user, group]).rc != 0:
             refuse("GPASSWD_ADD_FAILED")
 
@@ -314,7 +343,7 @@ class SystemBackend(Backend):
             refuse("GPASSWD_DEL_FAILED")
 
     def tmpfiles_create(self, conf_logical: str) -> None:
-        if conf_logical != TMPFILES_PATH:
+        if conf_logical not in (TMPFILES_PATH, ALERT_TMPFILES_PATH):
             refuse("BACKEND_TMPFILES_NOT_OWNED")
         if self._run(["systemd-tmpfiles", "--create", conf_logical]).rc != 0:
             refuse("TMPFILES_FAILED")
@@ -401,9 +430,9 @@ def parse_groups(host: Host) -> list[tuple[str, int, list[str]]]:
     return rows
 
 
-def group_row(host: Host) -> tuple[int, list[str]] | None:
+def group_row(host: Host, name: str = GROUP_NAME) -> tuple[int, list[str]] | None:
     rows = parse_groups(host)
-    named = [r for r in rows if r[0] == GROUP_NAME]
+    named = [r for r in rows if r[0] == name]
     if len(named) > 1:
         refuse("GROUP_DB_DUPLICATE")
     if not named:
@@ -419,8 +448,8 @@ def primary_gids(passwd: dict[str, tuple[int, int]]) -> set[int]:
     return {gid for _, gid in passwd.values()}
 
 
-def check_group_safe(gid: int, core_gid: int, operator_gid: int) -> None:
-    if gid == 0 or gid in (core_gid, operator_gid):
+def check_group_safe(gid: int, core_gid: int, operator_gid: int, *others: int) -> None:
+    if gid == 0 or gid in (core_gid, operator_gid, *others):
         refuse("GROUP_GID_CONFLICT")
     if not 1 <= gid <= SYSTEM_GID_MAX:
         refuse("GROUP_GID_NOT_SYSTEM")
@@ -442,7 +471,8 @@ def parse_env(data: bytes) -> tuple[dict[str, list[tuple[str, str]]], int]:
 
 
 def expected_env(cfg: Config, gid: int | None) -> dict[str, str | None]:
-    return {ENV_KEY_UID: str(cfg.operator_uid), ENV_KEY_GID: None if gid is None else str(gid), ENV_KEY_SOCKET: SOCKET_PATH}
+    return {ENV_KEY_UID: str(cfg.operator_uid), ENV_KEY_GID: None if gid is None else str(gid), ENV_KEY_SOCKET: SOCKET_PATH,
+            ENV_KEY_ALERT_UID: str(cfg.alert_source_uid)}
 
 
 def check_env(cfg: Config, data: bytes, gid: int | None, *, require_all: bool) -> list[str]:
@@ -468,15 +498,28 @@ def check_env(cfg: Config, data: bytes, gid: int | None, *, require_all: bool) -
     return missing
 
 
+def _template_active(blob: bytes) -> list[str]:
+    return [line for line in blob.decode("utf-8").splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
 def check_templates() -> tuple[bytes, bytes]:
     try:
         dropin, tmpfiles = DROPIN_TEMPLATE.read_bytes(), TMPFILES_TEMPLATE.read_bytes()
     except OSError:
         refuse("TEMPLATE_INVALID")
-    def active(blob: bytes) -> list[str]:
-        return [l for l in blob.decode("utf-8").splitlines() if l.strip() and not l.lstrip().startswith("#")]
-    if active(dropin) != DROPIN_ACTIVE or active(tmpfiles) != TMPFILES_ACTIVE:
+    if _template_active(dropin) != DROPIN_ACTIVE or _template_active(tmpfiles) != TMPFILES_ACTIVE:
         refuse("TEMPLATE_INVALID")
+    return dropin, tmpfiles
+
+
+def check_alert_templates() -> tuple[bytes, bytes]:
+    """The OD-F1-DEPLOY-01 drop-in and tmpfiles templates, byte-exact; nothing but the dedicated alert group and directory."""
+    try:
+        dropin, tmpfiles = ALERT_DROPIN_TEMPLATE.read_bytes(), ALERT_TMPFILES_TEMPLATE.read_bytes()
+    except OSError:
+        refuse("ALERT_TEMPLATE_INVALID")
+    if _template_active(dropin) != ALERT_DROPIN_ACTIVE or _template_active(tmpfiles) != ALERT_TMPFILES_ACTIVE:
+        refuse("ALERT_TEMPLATE_INVALID")
     return dropin, tmpfiles
 
 
@@ -494,6 +537,10 @@ def validate_config(cfg: Config, host: Host) -> None:
         refuse("OWNER_ANY_REQUIRES_FIXTURE_ROOT")
     if not USER_RE.fullmatch(cfg.operator_user) or cfg.operator_uid <= 0:
         refuse("OPERATOR_IDENTITY_MISMATCH")
+    if not 1 <= cfg.alert_source_uid <= ALERT_UID_MAX:
+        refuse("ALERT_SOURCE_UID_INVALID")  # root (0) and the reserved (uid_t)-1 are never a valid frozen alert source
+    if cfg.alert_source_uid == cfg.operator_uid:
+        refuse("ALERT_SOURCE_IS_OPERATOR")
 
 
 def check_work_dir(cfg: Config, host: Host) -> None:
@@ -549,6 +596,23 @@ def check_recovery_channel(host: Host, gid: int, core_uid: int, pid: int) -> Non
         refuse("CORE_PROCESS_LACKS_RECOVERY_GROUP")
 
 
+def check_alert_channel(host: Host, gid: int, core_uid: int, pid: int) -> None:
+    """The dedicated F1 alert surface after the restart: 2750 directory, 0620 socket, both Core-owned in the alert group, and the running
+    Core process carries that group. Metadata only; nothing connects, so no alert is ever created."""
+    if not host.lexists(ALERT_RUNTIME_DIR):
+        refuse("ALERT_RUNTIME_DIR_METADATA_INVALID")
+    directory = host.identity(ALERT_RUNTIME_DIR)
+    if (directory.kind, directory.mode, directory.uid, directory.gid) != ("dir", ALERT_DIR_MODE, core_uid, gid):
+        refuse("ALERT_RUNTIME_DIR_METADATA_INVALID")
+    if not host.lexists(ALERT_SOCKET_PATH):
+        refuse("ALERT_CHANNEL_MISSING")
+    sock = host.identity(ALERT_SOCKET_PATH)
+    if (sock.kind, sock.mode, sock.uid, sock.gid) != ("socket", ALERT_SOCKET_MODE, core_uid, gid):
+        refuse("ALERT_CHANNEL_METADATA_INVALID")
+    if gid not in process_groups(host, pid):
+        refuse("CORE_PROCESS_LACKS_ALERT_GROUP")
+
+
 # ── preflight (read-only) ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 
@@ -565,7 +629,16 @@ def preflight(cfg: Config, host: Host, backend: Backend) -> Plan:
         refuse("OPERATOR_IDENTITY_MISMATCH")
     if cfg.operator_user == CORE_USER or cfg.operator_uid == core[0]:
         refuse("OPERATOR_IS_CORE_ACCOUNT")
-    if GROUP_NAME in passwd:
+    detector = passwd.get(DETECTOR_USER)  # OD-F1-DEPLOY-01: the exact dedicated account at exactly the frozen uid; this tool never creates it
+    if detector is None:
+        refuse("DETECTOR_ACCOUNT_MISSING")
+    if detector[0] != cfg.alert_source_uid:
+        refuse("DETECTOR_UID_MISMATCH")
+    if detector[0] == core[0] or detector[1] == core[1]:
+        refuse("ALERT_SOURCE_IS_CORE_ACCOUNT")
+    if sum(1 for uid, _ in passwd.values() if uid == cfg.alert_source_uid) != 1:
+        refuse("DETECTOR_UID_SHARED")  # SO_PEERCRED sees a uid: another account on it would be indistinguishable from the detector
+    if GROUP_NAME in passwd or ALERT_GROUP_NAME in passwd:
         refuse("GROUP_NAME_IS_USER")
     row = group_row(host)
     group_exists = row is not None
@@ -580,6 +653,16 @@ def preflight(cfg: Config, host: Host, backend: Backend) -> Plan:
         if row[0] in primary_gids(passwd):
             refuse("GROUP_IS_PRIMARY_GROUP_OF_USER")
         operator_member = cfg.operator_user in row[1]
+
+    alert_row = group_row(host, ALERT_GROUP_NAME)
+    if alert_row is not None:  # reuse is safe only for a pristine system group: no members, not a primary group, not shared, not the Recovery group
+        check_group_safe(alert_row[0], core[1], operator[1], detector[1])
+        if gid_is_shared(host, alert_row[0]) or (row is not None and alert_row[0] == row[0]):
+            refuse("GROUP_DB_DUPLICATE")
+        if alert_row[1]:
+            refuse("ALERT_GROUP_UNEXPECTED_MEMBERS")
+        if alert_row[0] in primary_gids(passwd):
+            refuse("GROUP_IS_PRIMARY_GROUP_OF_USER")
 
     props = core_health(backend, prestate=True)
 
@@ -615,6 +698,11 @@ def preflight(cfg: Config, host: Host, backend: Backend) -> Plan:
         refuse("TMPFILES_DIR_NOT_DIRECTORY")
     if host.lexists(RUNTIME_DIR):
         refuse("RUNTIME_DIR_ALREADY_EXISTS")
+    check_alert_templates()
+    for path, code in ((ALERT_DROPIN_PATH, "ALERT_DROPIN_ALREADY_EXISTS"), (ALERT_TMPFILES_PATH, "ALERT_TMPFILES_ALREADY_EXISTS"),
+                       (ALERT_RUNTIME_DIR, "ALERT_RUNTIME_DIR_ALREADY_EXISTS")):
+        if host.lexists(path):
+            refuse(code)
 
     if not host.lexists(CORE_ENV) or host.identity(CORE_ENV).kind != "file":
         refuse("CORE_ENV_NOT_REGULAR")
@@ -624,7 +712,9 @@ def preflight(cfg: Config, host: Host, backend: Backend) -> Plan:
     missing = check_env(cfg, data, gid, require_all=False)
     return Plan(core_uid=core[0], core_gid=core[1], operator_primary_gid=operator[1], group_exists=group_exists, group_gid=gid,
                 group_created_by_attempt=not group_exists, operator_is_member=operator_member, env_missing=missing,
-                env_identity=host.identity(CORE_ENV), core_pid=int(props["MainPID"]), old_source_sha=old_sha)
+                env_identity=host.identity(CORE_ENV), core_pid=int(props["MainPID"]), detector_primary_gid=detector[1],
+                alert_group_exists=alert_row is not None, alert_group_gid=None if alert_row is None else alert_row[0],
+                alert_group_created_by_attempt=alert_row is None, old_source_sha=old_sha)
 
 
 # ── apply ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -644,6 +734,7 @@ def apply(cfg: Config, host: Host, backend: Backend) -> dict[str, str]:
     check_work_dir(cfg, host)
     plan = preflight(cfg, host, backend)
     dropin_bytes, tmpfiles_bytes = check_templates()
+    alert_dropin_bytes, alert_tmpfiles_bytes = check_alert_templates()
     os.mkdir(cfg.work_dir, 0o700)
     journal = Journal(cfg.work_dir)
     marker = cfg.work_dir / "production-mutation"
@@ -681,6 +772,20 @@ def apply(cfg: Config, host: Host, backend: Backend) -> dict[str, str]:
     if after is None or operator not in after[1] or set(after[1]) - {operator}:
         refuse("MEMBERSHIP_STATE_INVALID")
 
+    # 3b. dedicated F1 alert transport group: filesystem reachability only, NEVER any member (the Core and the detector get it by name from systemd)
+    journal.append("ALERT_GROUP", {"name": ALERT_GROUP_NAME, "created": plan.alert_group_created_by_attempt})
+    if plan.alert_group_created_by_attempt:
+        backend.groupadd(ALERT_GROUP_NAME)
+    alert_row = group_row(host, ALERT_GROUP_NAME)
+    if alert_row is None:
+        refuse("ALERT_GROUP_MISSING_AFTER_CREATE")
+    alert_gid = alert_row[0]
+    check_group_safe(alert_gid, plan.core_gid, plan.operator_primary_gid, plan.detector_primary_gid, gid)
+    if gid_is_shared(host, alert_gid):
+        refuse("GROUP_DB_DUPLICATE")
+    if alert_row[1]:
+        refuse("ALERT_GROUP_UNEXPECTED_MEMBERS")
+
     # 4. core.env: append only the missing owned lines; every pre-existing byte stays
     data = host.read_bytes(CORE_ENV)
     missing = check_env(cfg, data, gid, require_all=False)
@@ -706,6 +811,10 @@ def apply(cfg: Config, host: Host, backend: Backend) -> dict[str, str]:
     if tmpfiles_dir_created:
         host.mkdir(TMPFILES_DIR, 0o755, 0, 0)
     host.write_atomic(TMPFILES_PATH, tmpfiles_bytes, mode=0o644, uid=0, gid=0)
+    journal.append("ALERT_DROPIN", {"file": ALERT_DROPIN_PATH, "dir": DROPIN_DIR, "sha256": sha256_bytes(alert_dropin_bytes)})
+    host.write_atomic(ALERT_DROPIN_PATH, alert_dropin_bytes, mode=0o644, uid=0, gid=0)
+    journal.append("ALERT_TMPFILES", {"file": ALERT_TMPFILES_PATH, "dir": TMPFILES_DIR, "sha256": sha256_bytes(alert_tmpfiles_bytes)})
+    host.write_atomic(ALERT_TMPFILES_PATH, alert_tmpfiles_bytes, mode=0o644, uid=0, gid=0)
 
     # 6. the runtime directory is provisioned by tmpfiles and VERIFIED before the Core restarts (never the application's mkdir under UMask 0077)
     journal.append("RUNTIME_DIR", {"path": RUNTIME_DIR})
@@ -715,6 +824,14 @@ def apply(cfg: Config, host: Host, backend: Backend) -> dict[str, str]:
     directory = host.identity(RUNTIME_DIR)
     if (directory.kind, directory.mode, directory.uid, directory.gid) != ("dir", 0o750, plan.core_uid, gid) or host.listdir(RUNTIME_DIR):
         refuse("RUNTIME_DIR_METADATA_INVALID")
+    journal.append("ALERT_RUNTIME_DIR", {"path": ALERT_RUNTIME_DIR})
+    backend.tmpfiles_create(ALERT_TMPFILES_PATH)
+    if not host.lexists(ALERT_RUNTIME_DIR):
+        refuse("ALERT_RUNTIME_DIR_METADATA_INVALID")
+    alert_dir = host.identity(ALERT_RUNTIME_DIR)
+    if (alert_dir.kind, alert_dir.mode, alert_dir.uid, alert_dir.gid) != ("dir", ALERT_DIR_MODE, plan.core_uid, alert_gid) \
+            or host.listdir(ALERT_RUNTIME_DIR):
+        refuse("ALERT_RUNTIME_DIR_METADATA_INVALID")
 
     # 7. daemon-reload, atomic pointer switch, ONE governed restart
     journal.append("DAEMON_RELOAD", {})
@@ -729,12 +846,12 @@ def apply(cfg: Config, host: Host, backend: Backend) -> dict[str, str]:
     journal.append("CORE_RESTART", {"pre_main_pid": plan.core_pid})
     if backend.systemctl("restart", CORE_UNIT).rc != 0:
         refuse("CORE_RESTART_FAILED")
-    _post_restart_checks(cfg, host, backend, plan, gid)
+    _post_restart_checks(cfg, host, backend, plan, gid, alert_gid)
     return {"L7U_APPLY": "PASS", "L7U_SECRETS_PRINTED": "NO", "L7U_CORE_RESTARTS": "1", "L7U_NEW_RELEASE": cfg.new_release_id,
-            "L7U_GROUP": GROUP_NAME}
+            "L7U_GROUP": GROUP_NAME, "L7U_ALERT_GROUP": ALERT_GROUP_NAME, "L7U_DETECTOR_STARTED": "NO"}
 
 
-def _post_restart_checks(cfg: Config, host: Host, backend: Backend, plan: Plan, gid: int) -> None:
+def _post_restart_checks(cfg: Config, host: Host, backend: Backend, plan: Plan, gid: int, alert_gid: int) -> None:
     first: tuple[str, str] | None = None
     for index in range(max(1, cfg.stable_samples)):
         if index:
@@ -747,6 +864,7 @@ def _post_restart_checks(cfg: Config, host: Host, backend: Backend, plan: Plan, 
             refuse("CORE_NOT_HEALTHY:UNSTABLE")
         first = sample
     check_recovery_channel(host, gid, plan.core_uid, int(first[0]))  # type: ignore[index]
+    check_alert_channel(host, alert_gid, plan.core_uid, int(first[0]))  # type: ignore[index]  # the Core alert socket, BEFORE L7u may succeed
 
 
 # ── verify (read-only) ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -759,6 +877,17 @@ def verify(cfg: Config, host: Host, backend: Backend) -> dict[str, str]:
     operator = passwd.get(cfg.operator_user)
     if core is None or operator is None or operator[0] != cfg.operator_uid:
         refuse("OPERATOR_IDENTITY_MISMATCH")
+    detector = passwd.get(DETECTOR_USER)
+    if detector is None:
+        refuse("DETECTOR_ACCOUNT_MISSING")
+    if detector[0] != cfg.alert_source_uid or detector[0] == core[0]:
+        refuse("DETECTOR_UID_MISMATCH")
+    alert_row = group_row(host, ALERT_GROUP_NAME)
+    if alert_row is None:
+        refuse("ALERT_GROUP_MISSING")
+    if alert_row[1]:
+        refuse("ALERT_GROUP_MEMBERS_INVALID")
+    check_group_safe(alert_row[0], core[1], operator[1], detector[1])
     row = group_row(host)
     if row is None:
         refuse("GROUP_MISSING")
@@ -777,9 +906,16 @@ def verify(cfg: Config, host: Host, backend: Backend) -> dict[str, str]:
         refuse("DROPIN_MODIFIED")
     if not host.lexists(TMPFILES_PATH) or host.read_bytes(TMPFILES_PATH) != tmpfiles:
         refuse("TMPFILES_MODIFIED")
+    alert_dropin, alert_tmpfiles = check_alert_templates()
+    if not host.lexists(ALERT_DROPIN_PATH) or host.read_bytes(ALERT_DROPIN_PATH) != alert_dropin:
+        refuse("ALERT_DROPIN_MODIFIED")
+    if not host.lexists(ALERT_TMPFILES_PATH) or host.read_bytes(ALERT_TMPFILES_PATH) != alert_tmpfiles:
+        refuse("ALERT_TMPFILES_MODIFIED")
     props = core_health(backend, prestate=False)
     check_recovery_channel(host, gid, core[0], int(props["MainPID"]))
-    return {"L7U_VERIFY": "PASS", "L7U_RECOVERY_CHANNEL": "PRESENT", "L7U_GROUP_GID": str(gid), "L7U_SECRETS_PRINTED": "NO"}
+    check_alert_channel(host, alert_row[0], core[0], int(props["MainPID"]))
+    return {"L7U_VERIFY": "PASS", "L7U_RECOVERY_CHANNEL": "PRESENT", "L7U_ALERT_CHANNEL": "PRESENT", "L7U_GROUP_GID": str(gid),
+            "L7U_ALERT_GROUP_GID": str(alert_row[0]), "L7U_SECRETS_PRINTED": "NO"}
 
 
 # ── rollback ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -805,6 +941,10 @@ def _read_journal(cfg: Config) -> dict[str, dict]:
     owned = {
         "RELEASE_INSTALL": {"logical": new_logical, "release_id": cfg.new_release_id},
         "GROUP": {"name": GROUP_NAME},
+        "ALERT_GROUP": {"name": ALERT_GROUP_NAME},
+        "ALERT_DROPIN": {"file": ALERT_DROPIN_PATH, "dir": DROPIN_DIR},
+        "ALERT_TMPFILES": {"file": ALERT_TMPFILES_PATH, "dir": TMPFILES_DIR},
+        "ALERT_RUNTIME_DIR": {"path": ALERT_RUNTIME_DIR},
         "MEMBERSHIP": {"user": cfg.operator_user, "group": GROUP_NAME},
         "DROPIN": {"file": DROPIN_PATH, "dir": DROPIN_DIR},
         "TMPFILES": {"file": TMPFILES_PATH, "dir": TMPFILES_DIR},
@@ -887,24 +1027,32 @@ def rollback(cfg: Config, host: Host, backend: Backend) -> dict[str, str]:
             refuse(code)
         return True
 
-    remove_dropin = check_owned_file("DROPIN", DROPIN_PATH, "DROPIN_MODIFIED")
-    remove_tmpfiles = check_owned_file("TMPFILES", TMPFILES_PATH, "TMPFILES_MODIFIED")
-    for kind, path, file_path in (("DROPIN", DROPIN_DIR, DROPIN_PATH), ("TMPFILES", TMPFILES_DIR, TMPFILES_PATH)):
-        if kind in journal and journal[kind].get("dir_created") and host.lexists(path) \
-                and set(host.listdir(path)) - {file_path.rsplit("/", 1)[1]}:
-            refuse(f"{kind}_DIR_NOT_EMPTY")
+    remove_files = [(kind, path) for kind, path, code in (
+        ("DROPIN", DROPIN_PATH, "DROPIN_MODIFIED"), ("ALERT_DROPIN", ALERT_DROPIN_PATH, "ALERT_DROPIN_MODIFIED"),
+        ("TMPFILES", TMPFILES_PATH, "TMPFILES_MODIFIED"), ("ALERT_TMPFILES", ALERT_TMPFILES_PATH, "ALERT_TMPFILES_MODIFIED"),
+    ) if check_owned_file(kind, path, code)]
+    owned_names = {DROPIN_DIR: {DROPIN_PATH, ALERT_DROPIN_PATH}, TMPFILES_DIR: {TMPFILES_PATH, ALERT_TMPFILES_PATH}}
+    for kind, path in (("DROPIN", DROPIN_DIR), ("TMPFILES", TMPFILES_DIR)):  # a directory this attempt created may hold ONLY this attempt's files
+        if kind in journal and journal[kind].get("dir_created") and host.lexists(path):
+            mine = {f.rsplit("/", 1)[1] for f in owned_names[path]}
+            if set(host.listdir(path)) - mine:
+                refuse(f"{kind}_DIR_NOT_EMPTY")
 
-    remove_socket = remove_runtime = False
-    if "RUNTIME_DIR" in journal and host.lexists(RUNTIME_DIR):
-        if host.identity(RUNTIME_DIR).kind != "dir":
-            refuse("RUNTIME_DIR_UNKNOWN_STATE")
-        names = host.listdir(RUNTIME_DIR)
-        if names not in ([], ["recovery.sock"]):
-            refuse("RUNTIME_DIR_NOT_EMPTY")
-        remove_socket = bool(names)
-        if remove_socket and host.identity(SOCKET_PATH).kind != "socket":
-            refuse("RUNTIME_DIR_NOT_EMPTY")
-        remove_runtime = True
+    remove_sockets: list[str] = []
+    remove_runtimes: list[str] = []
+    for kind, directory, sock_path, sock_name in (("RUNTIME_DIR", RUNTIME_DIR, SOCKET_PATH, "recovery.sock"),
+                                                   ("ALERT_RUNTIME_DIR", ALERT_RUNTIME_DIR, ALERT_SOCKET_PATH, ALERT_SOCKET_NAME)):
+        if kind in journal and host.lexists(directory):
+            if host.identity(directory).kind != "dir":
+                refuse(f"{kind}_UNKNOWN_STATE")
+            names = host.listdir(directory)
+            if names not in ([], [sock_name]):
+                refuse(f"{kind}_NOT_EMPTY")
+            if names:
+                if host.identity(sock_path).kind != "socket":
+                    refuse(f"{kind}_NOT_EMPTY")
+                remove_sockets.append(sock_path)
+            remove_runtimes.append(directory)
 
     release_present = False
     if "RELEASE_INSTALL" in journal and host.lexists(new_logical):
@@ -915,6 +1063,13 @@ def rollback(cfg: Config, host: Host, backend: Backend) -> dict[str, str]:
         if rid != cfg.new_release_id or sha != cfg.expected_main:
             refuse("RELEASE_DRIFTED:IDENTITY")
         release_present = True
+
+    delete_alert_group = False
+    alert_row = group_row(host, ALERT_GROUP_NAME)
+    if alert_row is not None and journal.get("ALERT_GROUP", {}).get("created"):
+        if alert_row[1] or alert_row[0] in primary_gids(passwd):
+            refuse("GROUP_IN_USE_REFUSING_DELETE")
+        delete_alert_group = True
 
     remove_member = delete_group = False
     row = group_row(host)
@@ -932,14 +1087,16 @@ def rollback(cfg: Config, host: Host, backend: Backend) -> dict[str, str]:
     # ── phase 2: act, in a fixed order ───────────────────────────────────────────────────────────────────────────────────────
     if restart_journaled and backend.systemctl("stop", CORE_UNIT).rc != 0:
         refuse("ROLLBACK_CORE_STOP_FAILED")
-    if remove_socket and host.lexists(SOCKET_PATH):  # the stopped Core may already have removed it
-        if host.identity(SOCKET_PATH).kind != "socket":
-            refuse("RUNTIME_DIR_NOT_EMPTY")
-        host.remove_file(SOCKET_PATH)
-    if remove_runtime and host.lexists(RUNTIME_DIR):
-        if host.listdir(RUNTIME_DIR):
-            refuse("RUNTIME_DIR_NOT_EMPTY")
-        host.rmdir(RUNTIME_DIR)
+    for sock_path in remove_sockets:
+        if host.lexists(sock_path):  # the stopped Core may already have removed it
+            if host.identity(sock_path).kind != "socket":
+                refuse("RUNTIME_DIR_NOT_EMPTY")
+            host.remove_file(sock_path)
+    for directory in remove_runtimes:
+        if host.lexists(directory):
+            if host.listdir(directory):
+                refuse("RUNTIME_DIR_NOT_EMPTY")
+            host.rmdir(directory)
     if restore_current:
         host.symlink_atomic(CURRENT, old_logical)
         if host.readlink(CURRENT) != old_logical:
@@ -952,19 +1109,19 @@ def rollback(cfg: Config, host: Host, backend: Backend) -> dict[str, str]:
         host.chmod(CORE_ENV, int(entry["mode"]))
         host.chown(CORE_ENV, int(entry["uid"]), int(entry["gid"]))
         host.utime(CORE_ENV, int(entry["mtime_ns"]))
-    if remove_dropin:
-        host.remove_file(DROPIN_PATH)
-    if remove_tmpfiles:
-        host.remove_file(TMPFILES_PATH)
+    for _, path in remove_files:
+        host.remove_file(path)
     for kind, path in (("DROPIN", DROPIN_DIR), ("TMPFILES", TMPFILES_DIR)):
         if kind in journal and journal[kind].get("dir_created") and host.lexists(path) and not host.listdir(path):
             host.rmdir(path)
-    if ("DROPIN" in journal or "DAEMON_RELOAD" in journal) and not already_done and backend.systemctl("daemon-reload").rc != 0:
+    if ("DROPIN" in journal or "ALERT_DROPIN" in journal or "DAEMON_RELOAD" in journal) and not already_done and backend.systemctl("daemon-reload").rc != 0:
         refuse("ROLLBACK_DAEMON_RELOAD_FAILED")
     if remove_member:
         backend.gpasswd_del(operator, GROUP_NAME)
     if delete_group:
         backend.groupdel(GROUP_NAME)
+    if delete_alert_group:
+        backend.groupdel(ALERT_GROUP_NAME)
     if release_present:
         _remove_tree(host, new_logical)
     if restart_journaled:
@@ -998,7 +1155,7 @@ def _catalog(value: str) -> dict[str, str]:
     return dict(item.split(":", 1) for item in value.split(","))
 
 
-def delta(pre: dict[str, str], post: dict[str, str], cfg: Config, group_gid: int, *, core_uid: int | None = None,
+def delta(pre: dict[str, str], post: dict[str, str], cfg: Config, group_gid: int, *, alert_gid: int, core_uid: int | None = None,
           require_systemd: bool = False) -> dict[str, str]:
     old_logical, new_logical = logical_release(cfg.old_release_id), logical_release(cfg.new_release_id)
     cur = "host.symlink./opt/aegis-idea3/current.target"
@@ -1010,11 +1167,18 @@ def delta(pre: dict[str, str], post: dict[str, str], cfg: Config, group_gid: int
     group_key = f"host.aegis_idea3.recovery.group.{GROUP_NAME}"
     if post.get(group_key) != f"present gid={group_gid} members={cfg.operator_user}":
         refuse("DELTA_GROUP")
+    if post.get(f"host.aegis_idea3.alert.group.{ALERT_GROUP_NAME}") != f"present gid={alert_gid} members=":
+        refuse("DELTA_ALERT_GROUP")
     dropin, tmpfiles = check_templates()
-    for path, blob, directory in ((DROPIN_PATH, dropin, "/etc/systemd/system/aegis-idea3-core.service.d/"), (TMPFILES_PATH, tmpfiles, "/etc/tmpfiles.d/")):
+    alert_dropin, alert_tmpfiles = check_alert_templates()
+    for path, blob, directory in ((DROPIN_PATH, dropin, "/etc/systemd/system/aegis-idea3-core.service.d/"), (TMPFILES_PATH, tmpfiles, "/etc/tmpfiles.d/"),
+                                  (ALERT_DROPIN_PATH, alert_dropin, "/etc/systemd/system/aegis-idea3-core.service.d/"),
+                                  (ALERT_TMPFILES_PATH, alert_tmpfiles, "/etc/tmpfiles.d/")):
         if post.get(f"host.unit_file.{path}.sha256") != sha256_bytes(blob):
             refuse("DELTA_TEMPLATE_FILE")
-        extra = {k for k in post if k.startswith(f"host.unit_file.{directory}") and k not in pre and not k.startswith(f"host.unit_file.{path}.")}
+        owned = (DROPIN_PATH, ALERT_DROPIN_PATH) if "service.d" in directory else (TMPFILES_PATH, ALERT_TMPFILES_PATH)
+        extra = {k for k in post if k.startswith(f"host.unit_file.{directory}") and k not in pre
+                 and not any(k.startswith(f"host.unit_file.{o}.") for o in owned)}
         if extra:
             refuse("DELTA_UNEXPECTED_KEY")
     directory, sock = post.get("host.aegis_idea3.recovery.runtime_dir", ""), post.get("host.aegis_idea3.recovery.socket", "")
@@ -1028,12 +1192,26 @@ def delta(pre: dict[str, str], post: dict[str, str], cfg: Config, group_gid: int
         for match in (want_dir, want_sock):
             if (int(match.group(1)), int(match.group(2))) != (core_uid, group_gid):
                 refuse("DELTA_OWNER")
+    alert_directory, alert_sock = post.get("host.aegis_idea3.alert.runtime_dir", ""), post.get("host.aegis_idea3.alert.socket", "")
+    want_alert_dir = re.fullmatch(r"mode=2750 uid=(\d+) gid=(\d+)", alert_directory)
+    want_alert_sock = re.fullmatch(r"type=socket mode=620 uid=(\d+) gid=(\d+)", alert_sock)
+    if not want_alert_dir:
+        refuse("DELTA_ALERT_RUNTIME_DIR")
+    if not want_alert_sock:
+        refuse("DELTA_ALERT_SOCKET")
+    if core_uid is not None:
+        for match in (want_alert_dir, want_alert_sock):
+            if (int(match.group(1)), int(match.group(2))) != (core_uid, alert_gid):
+                refuse("DELTA_ALERT_OWNER")
     groups_key = "host.aegis_idea3.recovery.core.supplementary_groups"
     if require_systemd:
         if GROUP_NAME not in post.get(groups_key, "").split():
             refuse("DELTA_SUPPLEMENTARY_GROUPS")
         if str(group_gid) not in post.get("host.aegis_idea3.recovery.core.process_groups", "").split():
             refuse("DELTA_PROCESS_GROUPS")
+        if ALERT_GROUP_NAME not in post.get(groups_key, "").split() or str(alert_gid) not in post.get(
+                "host.aegis_idea3.recovery.core.process_groups", "").split():
+            refuse("DELTA_ALERT_SUPPLEMENTARY_GROUPS")
     return {"L7U_DELTA": "PASS"}
 
 
@@ -1049,10 +1227,17 @@ def read_records(capture_dir: Path) -> dict[str, str]:
 # ── CLI (always the real host; no host-root option by design) ────────────────────────────────────────────────────────────────
 
 
+def _parse_alert_uid(text: str) -> int:
+    """The owner-frozen alert source uid: canonical decimal, non-root; the same syntax contract as p4-l7-core-env.py."""
+    if not ALERT_UID_RE.fullmatch(text) or int(text) > ALERT_UID_MAX:
+        refuse("ALERT_SOURCE_UID_INVALID")
+    return int(text)
+
+
 def _config(args: argparse.Namespace) -> Config:
     return Config(old_release_id=args.old_release_id, new_release_id=args.new_release_id, expected_main=args.expected_main,
                   source_dir=Path(args.source_dir), work_dir=Path(args.work_dir), operator_user=args.operator_user,
-                  operator_uid=int(args.operator_uid), owner_expect="root")
+                  operator_uid=int(args.operator_uid), alert_source_uid=_parse_alert_uid(args.alert_source_uid), owner_expect="root")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1067,6 +1252,7 @@ def main(argv: list[str] | None = None) -> int:
         sp.add_argument("--work-dir", required=True)
         sp.add_argument("--operator-user", required=True)
         sp.add_argument("--operator-uid", required=True)
+        sp.add_argument("--alert-source-uid", required=True)
         if name == "delta":
             sp.add_argument("--pre-dir", required=True)
             sp.add_argument("--post-dir", required=True)
@@ -1090,10 +1276,13 @@ def main(argv: list[str] | None = None) -> int:
         else:
             pre, post = read_records(Path(args.pre_dir)), read_records(Path(args.post_dir))
             row = group_row(host)
+            alert_row = group_row(host, ALERT_GROUP_NAME)
             passwd = parse_passwd(host)
             if row is None or CORE_USER not in passwd:
                 refuse("DELTA_GROUP")
-            result = delta(pre, post, cfg, row[0], core_uid=passwd[CORE_USER][0], require_systemd=True)
+            if alert_row is None:
+                refuse("DELTA_ALERT_GROUP")
+            result = delta(pre, post, cfg, row[0], alert_gid=alert_row[0], core_uid=passwd[CORE_USER][0], require_systemd=True)
     except Refusal as exc:
         print(f"{label}=FAIL reason={exc}", file=sys.stderr)
         return 1

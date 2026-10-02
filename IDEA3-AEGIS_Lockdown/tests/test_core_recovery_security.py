@@ -2,7 +2,8 @@
 
 Nothing here opens a broker, a device, the root containment socket or a network listener. F1 (production R1) is served by
 the Core-local AF_UNIX alert ingress (``test_core_alert_ingress.py``); Protocol v1 and its broker ACL are unchanged, so no
-MQTT path reaches the incident binding (see ``test_no_production_alert_source_reaches_the_incident_binding``).
+MQTT path reaches the incident binding (see ``test_no_production_alert_source_reaches_the_incident_binding``). The R5
+normal-path policy is covered by ``test_core_restore_policy.py``.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from test_core_recovery import (
     OTHER_IP,
     SUMMARY,
     incident_count,
+    isolate_first,
     make_env,
     op,
     raw_exchange,
@@ -139,6 +141,7 @@ def test_historical_rows_without_an_incident_neither_collide_nor_consume(env):
     db.log_event_strict("RESTORE_REQUESTED", "legacy two", db.CRITICAL)  # NULL incident_id is not one shared incident
     incident_id = env.service.bind_incident(IP)["incident_id"]
     assert db.restore_attempt_exists(incident_id) is False
+    isolate_first(env)  # the production R5 policy: R3 must be verified for this incident
     assert env.core.ask(request())["code"] == "PUBLISHED"
 
 
@@ -214,6 +217,7 @@ def test_concurrent_writers_on_separate_connections_create_exactly_one_attempt(e
 def test_a_second_process_lookup_race_collides_at_the_database_and_never_publishes_a_second_restore(env):
     """The gate's SELECT can be stale (second process / TOCTOU). The INSERT collision must refuse and not publish."""
     incident_id = env.service.bind_incident(IP)["incident_id"]
+    isolate_first(env)
     env.core.gate.attempt_lookup = lambda _incident: False  # stale: pretends nothing was spent
     db.log_event_strict("RESTORE_REQUESTED", "the other process won", db.CRITICAL, incident_id)
     response = env.core.ask(request())
@@ -223,7 +227,7 @@ def test_a_second_process_lookup_race_collides_at_the_database_and_never_publish
 
 
 def test_a_failing_audit_write_keeps_the_incident_bound_restore_fail_closed(env):
-    env.service.bind_incident(IP)
+    isolate_first(env)
 
     def broken(*_args, **_kwargs):
         raise sqlite3.OperationalError("database is locked")
@@ -236,6 +240,7 @@ def test_a_failing_audit_write_keeps_the_incident_bound_restore_fail_closed(env)
 
 def test_restart_still_sees_the_spent_one_shot_at_the_database_level(env, tmp_path, monkeypatch, credential):
     incident_id = env.service.bind_incident(IP)["incident_id"]
+    isolate_first(env)
     assert env.core.ask(request())["code"] == "PUBLISHED"
     path = config.DB_PATH
     env.core.close()
@@ -617,15 +622,16 @@ def test_r8_detects_restore_requested_recorded_before_the_r3_result(env):
     assert env.service.r3_precedes_restore(incident_id) is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BLOCKED_ON_OWNER_DECISION: production wiring of precondition_lookup / R8 ordering needs an approved "
-    "break-glass so the owner cannot be locked out; the confirmation string and authority are NOT invented here",
-)
 def test_production_supervisor_enforces_r3_before_restore(env):
-    assert lr.LocalRestoreGate.__init__  # keep the reference honest
-    source = inspect.getsource(supervisor.AegisSupervisor.start_local_restore)
-    assert "precondition_lookup" in source
+    """Formerly a strict xfail (BLOCKED_ON_OWNER_DECISION). The NORMAL path is now wired; break-glass stays an owner decision."""
+    assert "precondition_lookup" in inspect.getsource(supervisor.AegisSupervisor.start_local_restore)
+    env.core.supervisor.recovery = env.service
+    env.core.supervisor.start_local_restore()
+    gate = env.core.supervisor.local_restore.gate
+    env.service.bind_incident(IP)
+    refusal = gate.handle(request(), lr.Peer(uid=os.geteuid(), pid=4242))
+    assert (refusal["ok"], refusal["code"]) == (False, "RECOVERY_PRECONDITION_UNMET") and "R3" in refusal["detail"]
+    assert env.core.client.published == []
 
 
 # --------------------------------------------------------------------------- recovery_ui import graph

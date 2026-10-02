@@ -1,0 +1,29 @@
+{
+  "auth": {
+    "fields": {
+      "challengeId": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "nonce": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+      "issuedAtMs": "1700000000000",
+      "expiresAtMs": "1700000060000",
+      "audience": "urn:aegis:monitor:idea2:test",
+      "purpose": "agent-authenticate",
+      "nodeId": "edge-a",
+      "keyVersion": "7"
+    },
+    "canonical": "AEGIS-AGENT-AUTH-V1\nchallenge_id=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nnonce=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE\nissued_at_ms=1700000000000\nexpires_at_ms=1700000060000\naudience_b64=dXJuOmFlZ2lzOm1vbml0b3I6aWRlYTI6dGVzdA\npurpose_b64=YWdlbnQtYXV0aGVudGljYXRl\nnode_id_b64=ZWRnZS1h\nkey_version=7"
+  },
+  "request": {
+    "body": "{\"camera_connected\":false}",
+    "fields": {
+      "domain": "AEGIS-AGENT-HEARTBEAT-V1",
+      "sessionId": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+      "requestNonce": "AwMDAwMDAwMDAwMDAwMDAw",
+      "timestampMs": "1700000000000",
+      "sequence": "18446744073709551615",
+      "method": "POST",
+      "path": "/internal/heartbeat",
+      "bodySha256": "fdd4dd388de9dbc8aed564507d5adb318a70534bb891d404e43b1a297e1fc406"
+    },
+    "canonical": "AEGIS-AGENT-HEARTBEAT-V1\nsession_id=AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI\nrequest_nonce=AwMDAwMDAwMDAwMDAwMDAw\ntimestamp_ms=1700000000000\nsequence=18446744073709551615\nmethod_b64=UE9TVA\npath_b64=L2ludGVybmFsL2hlYXJ0YmVhdA\nbody_sha256=fdd4dd388de9dbc8aed564507d5adb318a70534bb891d404e43b1a297e1fc406"
+  }
+}

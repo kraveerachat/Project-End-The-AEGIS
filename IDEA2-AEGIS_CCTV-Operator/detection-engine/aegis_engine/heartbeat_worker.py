@@ -8,9 +8,11 @@ numbers only ever reached the *local* FastAPI endpoint on the edge node, which
 the web app never calls — so Monitor had no way to know whether this process
 was alive, and its "Edge node: online" pill was a hard-coded string.
 
-This thread closes that loop: every ``heartbeat_interval_s`` it takes a metrics
-snapshot and POSTs it to ``/internal/heartbeat``. Monitor stores one row per
-camera and derives link status purely from how old that row is.
+This thread closes that loop: every ``heartbeat_interval_s`` it takes one
+physical-runtime metrics snapshot and submits it through ``MonitorClient``.
+Strict mode routes it through the local Identity Agent, whose authenticated
+Node registration supplies physical provenance; heartbeat never supplies that
+authority itself.
 
 Design notes
 ------------
@@ -60,9 +62,9 @@ class HeartbeatWorker(threading.Thread):
             log.info("heartbeat disabled (interval <= 0)")
             return
         log.info(
-            "heartbeat worker started · every %.1fs for %s",
+            "physical availability heartbeat started · every %.1fs for node %s",
             interval,
-            self._cfg.camera_id,
+            self._cfg.node_id,
         )
         try:
             # Send one immediately so Monitor flips to online without waiting a
@@ -78,15 +80,16 @@ class HeartbeatWorker(threading.Thread):
     def _beat(self) -> None:
         try:
             snapshot = self._metrics.snapshot()
+            legacy = self._cfg.monitor_ingest_mode == "legacy_shared_key"
             self._monitor.post_heartbeat(
-                camera_id=self._cfg.camera_id,
-                node_id=self._cfg.node_id,
-                snapshot=snapshot,
-                # Where Monitor's proxy should pull MJPEG for this camera. Sent
-                # every beat rather than configured on Monitor, so a node that
-                # moves or changes port self-heals on the next heartbeat, and a
-                # node that dies takes its stream URL out of service with it.
-                stream_url=self._cfg.resolved_stream_url(),
+                snapshot,
+                # Transitional Detector B compatibility continues to publish
+                # logical identity and its own URL. Strict mode does not even
+                # read those values: the Agent owns the physical source URL and
+                # authenticated Node registration owns physical provenance.
+                camera_id=self._cfg.camera_id if legacy else None,
+                node_id=self._cfg.node_id if legacy else None,
+                stream_url=self._cfg.resolved_stream_url() if legacy else None,
                 camera_device_name=self._cfg.camera_device_name,
             )
             self._sent += 1

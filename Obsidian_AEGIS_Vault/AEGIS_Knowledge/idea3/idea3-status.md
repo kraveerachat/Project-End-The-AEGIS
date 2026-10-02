@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-01
+updated: 2026-10-02
 owner: music
 edit_policy: owner-writable
 ---
@@ -18,10 +18,33 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3/L4 V8 post-V7 persistent AP recovery (OD-L34-V8-01) — repository only — 2026-10-02
+
+> [!important] New governed one-shot stage, repository implementation only. V8 has NOT run live; no authorization or K3 record was created; Production was NOT mutated; Core NOT restarted; no ESP32; no L7u; Recovery R1–R8 NOT executed.
+> `V8_STAGE = l34-v8-post-v7-persistent-ap-recovery`, `V8_REPOSITORY = IMPLEMENTED (simulator-tested, Draft PR, awaiting human merge)`, `V8_LIVE = NOT_RUN`, `V7_HISTORICAL_RESULT = IMMUTABLE`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **Why:** V7 was explicitly `RUNTIME_ONLY`. After two reboots the AP profile (`autoconnect=no`) was never activated, `aegis-idea3-dnsmasq` hit its start limit and the L6b broker crash-looped again; the operator desktop session then disabled the Wi-Fi radio (read-only journal evidence, 2026-10-02). V7 is one-shot and must not be replayed.
+- **What:** a NEW stage with its own handlers, runner, marker (`L34-V8-REACTIVATION-ATTEMPT-CONSUMED`) and gate library (`p4-l34-v8-lib.sh`). It recovers the V7 baseline class (exact-id rfkill unblock, one radio enable, bounded ready-wait, one ifname-bound AP activation, dnsmasq reset-failed + one start, read-only wait for the broker's own restart, one TLS probe, stable broker/Core tuples) and makes exactly ONE persistent change: NetworkManager `aegis-idea3-ap` `connection.autoconnect` no → yes, journaled before it is made.
+- **Rollback:** journal-owned; restores `autoconnect=no` first, then unwinds dnsmasq, the AP, the radio, device autoconnect and the exact rfkill id; proves the profile semantically identical to PRE (canonical `[section]/key=value` records; key order and the daemon-assigned uuid ignored, autoconnect=false restored). It never touches the broker or Core, and never edits `/var/lib/systemd/rfkill` or NetworkManager state files.
+- **Still required before any live V8:** human merge, post-merge verification, a NEW owner-frozen runner at the new main, a fresh same-day `stage=L4` authorization and K3 record with the exact V8 scope (a V7 marker or V7 scope is refused), and a read-only preflight that finds the exact baseline. Reboot persistence acceptance (K12) remains a separate later activity. Spec: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-02-idea3-pr11-phase4-l34-v8-post-v7-persistent-ap-recovery-design.md`.
+
+## IDEA3 R5 normal-path RESTORE + break-glass (OD-R5-BG-01) — repository only — 2026-10-02
+
+> [!important] Repository/local only (IMPLEMENTED != DEPLOYED). PR #287 (`feat/idea3-recovery-r5-normal-path-rebuild`) is **MERGED** on main (`8a41a8548c82c99d5934e89ea8b3428f3dae79f8`; `PR287_MERGED = YES`, `R5_REPOSITORY_MERGED = YES`). No Production mutation, Core restart, L7u, Recovery, ESP32, L8p or L8 execution. This section supersedes the F1 section's `R5_REPOSITORY_MERGED = NO` / `BREAK_GLASS_IMPLEMENTED = NO` held-back note for the branch state; PR #286 (L8p owner runner) is **MERGED** on main (`bfbe1dc68c241c36e7ed6d354545567a581b5553`); the L8p owner runner section below is reconciled accordingly.
+> `R5_REPOSITORY_IMPLEMENTED = YES`, `R5_LOCAL_VERIFIED = YES`, `BREAK_GLASS_IMPLEMENTED = YES`, `OD_R5_BG_01 = APPROVED`, `R5_PRODUCTION_DEPLOYED = NO`, `RECOVERY_LIVE = NOT_RUN`, `L7U_LIVE_FINAL = NOT_PROVEN`, `L8P_LIVE = NOT_AUTHORIZED`, `L8_LIVE = NOT_RUN`, `BREAK_GLASS_COUNTS_AS_R4 = NO`, `BREAK_GLASS_COUNTS_AS_R5 = NO`
+
+- **Normal RESTORE (R5):** R1 VERIFIED -> R3 VERIFIED -> live containment read-back -> fresh R2 VERIFIED -> D4 -> RESTORE. Missing live containment after a VERIFIED R3 is not convertible to break-glass.
+- **Break-glass (operational recovery only):** authenticated v1 LOCKDOWN, durable lockdown episode, fresh current-process LOCKDOWN proof, fresh R2 VERIFIED, D4, `RESTORE UPLINK`, `BREAK GLASS RESTORE UPLINK`, reason, explicit `break_glass=true`; one durable claim per episode spent before publish; normal path takes priority; Case A (no incident) and Case B (latest durable R3 FAILED) only.
+- **Boundary:** break-glass gives no R4/R5 acceptance credit. Merging requires a separate governed deployment stage.
+- **Receipt:** `90-Status/logs/2026-10-02_055732_music_idea3-r5-break-glass.md`.
+- **Authoritative main at this reconciliation:** `bfbe1dc68c241c36e7ed6d354545567a581b5553`. `PR #284 = MERGED`, `PR #286 = MERGED` (merge commit `bfbe1dc68c241c36e7ed6d354545567a581b5553`).
+
+---
+
 ## IDEA3 PR11 Phase 4 L8p owner runner (inert template) — repository only — 2026-10-02
 
-> [!important] Repository-only; branch `feat/idea3-l8p-owner-runner`, pushed normally (no force-push) to **Draft PR #286, unmerged** (the owner runner is NOT merged and is not part of main). **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, L8p, Recovery and L8 not run.
-> `L8P_OWNER_RUNNER_REPOSITORY_IMPLEMENTED = YES`, `L8P_OWNER_RUNNER_LOCAL_VERIFIED = YES`, `L8P_LIVE = NOT_AUTHORIZED`, `REAL_ESP32_TOUCHED = NO`, `REAL_SERIAL_ACCESSED = NO`, `L7U_LIVE_FINAL = NOT_PROVEN`, `RECOVERY_LIVE = NOT_RUN`, `LVR = NOT_RUN`, `L8_LIVE = NOT_RUN`, `ELECTRICAL_RELAY_PROOF = NO`
+> [!important] Repository-only; branch `feat/idea3-l8p-owner-runner`, pushed normally (no force-push) as PR #286, which is now **MERGED** at `bfbe1dc68c241c36e7ed6d354545567a581b5553` (the owner runner is part of main; it remains an inert template). **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, L8p, Recovery and L8 not run.
+> `L8P_OWNER_RUNNER_REPOSITORY_IMPLEMENTED = YES`, `L8P_OWNER_RUNNER_MERGED = YES`, `L8P_OWNER_RUNNER_LOCAL_VERIFIED = YES`, `L8P_LIVE = NOT_AUTHORIZED`, `REAL_ESP32_TOUCHED = NO`, `REAL_SERIAL_ACCESSED = NO`, `L7U_LIVE_FINAL = NOT_PROVEN`, `RECOVERY_LIVE = NOT_RUN`, `LVR = NOT_RUN`, `L8_LIVE = NOT_RUN`, `ELECTRICAL_RELAY_PROOF = NO`
 
 - **What it is:** `deploy/pr11-phase4/owner-run/run-l8p-owner.sh` (+ `p4-l8p-run-lib.sh`), following the L7u owner-run pattern. The committed copy is an **inert template**: eighteen `PIN_` values (including the frozen operator user and uid, enforced by the reused L7u identity gate before anything else) make it refuse until the owner freezes it outside the repository after the FINAL source set is merged. It holds no device logic; every device operation is the canonical L8p handler set (merged L8 `HardwareDevice` and signed BOOT verifier).
 - **Gates and flow:** same-day `stage=L8p` authorization + K3 through the reused `p4-stage-gate.sh --stage L8p --mode live`; predecessor receipts from the pinned commit **including a PROVEN final L7u** (none exists, so a real run fails closed today); runtime gates; PRE capture and checksum; one attempt (`L8p-ATTEMPT-CONSUMED`, never reused from L7u); apply once, verify, POST capture, PRE/POST compare, secret scan. A failure calls the canonical rollback (`L8P_DEVICE_ACTION_TAKEN=NONE`, after the first write `L8P_ROLLBACK=FAIL_SECURE_HOLD_AND_EVIDENCE`), then a mandatory RB capture and PRE->RB compare; no retry, reflash, erase, CUT, RESTORE or plaintext 1883; physical recovery stays manual.
@@ -33,14 +56,14 @@ edit_policy: owner-writable
 
 ## IDEA3 PR11 Phase 4 L8p device provisioning stage on the canonical L8 backend — repository only — 2026-10-02
 
-> [!important] Repository-only. **PR #284 = MERGED** (merge commit `097416e0aba6d71a2e5d215fd5d43b3982c18f09`; current main `fa22edd5d5db18e692e7814b895f7af3d3c166dc` also contains later PR #283). **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, Recovery and L8 not run.
+> [!important] Repository-only. **PR #284 = MERGED** (merge commit `097416e0aba6d71a2e5d215fd5d43b3982c18f09`; main at the time was `fa22edd5…`; current authoritative main is `bfbe1dc68c241c36e7ed6d354545567a581b5553`). **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, Recovery and L8 not run.
 > `OD_L8P_01 = APPROVED`, `L8_HARDWARE_BACKEND = IMPLEMENTED_REPOSITORY / MERGED (PR #247)`, `L8P_REPOSITORY_IMPLEMENTED = YES`, `L8P_LOCAL_VERIFIED = YES`, `L8P_LIVE = NOT_AUTHORIZED`, `REAL_ESP32_TOUCHED = NO`, `RECOVERY_LIVE = NOT_RUN`, `LVR = NOT_RUN`, `L8_LIVE = NOT_RUN`, `ELECTRICAL_RELAY_PROOF = NO`
 
 - **Decision (OD-L8P-01):** for L8p only, `D4_LIVE_REQUIRED_BEFORE_L8P_FLASH = NO`; an owner-attested physical recovery procedure satisfies the pre-write recovery prerequisite. L8 is unchanged: `OD14_L8_RECOVERY_POLICY = D4_ONLY`, `INTERIM_RECOVERY_PROCEDURE = NOT_APPROVED`, `D4_LIVE_REQUIRED_BEFORE_L8_FLASH = YES`. Recorded in the L8 operational design.
 - **Stage:** `L8p` sits between `L7u` and `L8` (`L7 -> L7u -> L8p -> Recovery R1-R8 -> LVR -> L8`); it provisions the ESP32 only and claims no Recovery, LVR, L8 live or electrical-relay result. Spec: `docs/superpowers/specs/2026-10-02-idea3-pr11-phase4-l8p-device-provisioning-only.md`.
 - **One canonical flow:** L8p reuses the merged L8 `HardwareDevice`, executor, argv validator, NVS and firmware readback, single terminal reset, signed BOOT verifier and the 12-field evidence (file `l8p-<run_id>.json`, no 13th field). The old L8p backend (`f626776c`) was not ported. `p4-l8p-device.py` is thin governance (attestation, pins, NVS schema); the canonical `p4-l8-device.py` gained only a small fail-closed `StageProfile` hook (default = L8 with D4).
 - **Verification:** see the receipt `90-Status/logs/2026-10-02_023247_music_idea3-l8p-canonical-provisioning-stage.md`. Fixture and fake executor only.
-- **Still required before any live L8p:** a merged owner runner (`L8P_OWNER_RUNNER_REPOSITORY_IMPLEMENTED = YES` in Draft PR #286, **unmerged**, not yet part of main), a merged PROVEN final L7u receipt, freezing the runner, reviewed firmware/partition pins and the written physical recovery procedure, same-day authorization plus K3, and explicit owner live authorization. `L8P_LIVE = NOT_AUTHORIZED`. F1 (PR #282) is preserved untouched.
+- **Still required before any live L8p:** the merged owner runner (`L8P_OWNER_RUNNER_REPOSITORY_IMPLEMENTED = YES`, `L8P_OWNER_RUNNER_MERGED = YES`, PR #286 **MERGED** at `bfbe1dc68c241c36e7ed6d354545567a581b5553`; still an inert template the owner must freeze), a merged PROVEN final L7u receipt, freezing the runner, reviewed firmware/partition pins and the written physical recovery procedure, same-day authorization plus K3, and explicit owner live authorization. `L8P_LIVE = NOT_AUTHORIZED`. F1 (PR #282) is preserved untouched.
 
 ---
 
@@ -54,6 +77,20 @@ edit_policy: owner-writable
 - **Not included:** the detector sink, the detector systemd unit, `AEGIS_ALERT_SOURCE_UID` in the production `core.env` and a governed Core restart (a separate governed deployment stage). The protected first-IP R3 dead end is unchanged and belongs with R5/break-glass.
 - **R5 held back:** the R5 normal-path RESTORE enforcement is preserved locally and is NOT merged; merged without break-glass it would make production RESTORE unavailable. F1 does not touch `local_restore.py`.
 - **Receipt:** `90-Status/logs/2026-10-01_233900_music_idea3-f1-production-alert-ingress.md`.
+
+---
+
+## IDEA3 F1 production deployment package — repository only — 2026-10-02
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1-production-deployment-package` (PR #288, Draft, unmerged), reconciled onto current main. Nothing was deployed or started: `PRODUCTION_MUTATION_PERFORMED = NO`, Core not restarted, L7u/Recovery/L8p/L8 not run, no ESP32.
+> `CURRENT_MAIN_AT_RECONCILIATION = 858c26faad5b1aa98a94693a68c533c0e6ccd23c`, `PR287_MERGED = YES`, `R5_REPOSITORY_MERGED = YES`, `BREAK_GLASS_IMPLEMENTED = YES`, `OD_R5_BG_01 = APPROVED`, `OD_F1_DEPLOY_01 = APPROVED`
+> `F1_ALERT_SOURCE_IDENTITY = DEDICATED_NON_ROOT`, `F1_DETECTOR_ACCOUNT = aegis-idea3-detector`, `F1_ALERT_TRANSPORT_GROUP = aegis-idea3-alert`, `CAP_DAC_OVERRIDE = FORBIDDEN`, `SO_PEERCRED_UID_AUTH = REQUIRED`, `L7U_F1_INTEGRATION_IMPLEMENTED = YES`, `CORE_ALERT_SOCKET_HOOK_IMPLEMENTED = YES`
+> Still NOT live: `F1_PRODUCTION_DEPLOYED = NO`, `F1_REAL_DETECTOR_ACCEPTANCE = NO`, `L7U_LIVE_FINAL = NOT_PROVEN`, `RECOVERY_LIVE = NOT_RUN`, `L8P_LIVE = NOT_AUTHORIZED`, `L8_LIVE = NOT_RUN`, `CORE_RESTARTED = NO`
+
+- **What:** production sink `aegis_soc/alert_sink.py` (AF_UNIX only, constant `/run/aegis-idea3-alert/alert.sock`, exact `{"v":1,"attacker_ip":"<IPv4>"}`, Core peer checked first, bounded, one attempt, stable codes) and `aegis_soc/production_detector.py` (same three rules/thresholds as the unchanged legacy `detector.py`; stops after three consecutive transport failures); `deploy/aegis-idea3-detector.service.example` (`User=aegis-idea3-detector`, `SupplementaryGroups=aegis-idea3-alert`, no capability, `Restart=no`); `deploy/pr11-phase4/p4-f1-alert-source.py` (render/verify, ordered live-gated `start-detector`, detector-only `stop-detector`); `--alert-source-uid` in `p4-l7-core-env.py`. The release builder gains `production_detector` as a third entrypoint (stdlib only, no new dependency).
+- **Core alert socket hook (Phase B):** the Core `AlertServer` now serves only `/run/aegis-idea3-alert/alert.sock` (Core:`aegis-idea3-alert`, `0620`) inside a pre-provisioned Core-owned `2750` directory of that group (never created or widened by the Core; missing/wrong mode/wrong group fails closed and disables the ingress without stopping the Core). The group grants connect reachability only: authorization stays `SO_PEERCRED uid == AEGIS_ALERT_SOURCE_UID`, checked before any request byte is read, so an alert-group member with another uid is refused. A root or Core-uid source and an unresolvable group keep the ingress disabled. The old `/run/aegis-idea3/alert.sock` is no longer the alert authority; the Recovery runtime, `local-restore.sock`, RESTORE policy, break-glass and containment are untouched.
+- **L7u (final):** the engine installs the frozen `AEGIS_ALERT_SOURCE_UID` line, the `aegis-idea3-alert` group, the Core supplementary-group drop-in and the alert tmpfiles/runtime directory with journaled prestate, inside the same ONE Core restart, verifies the dedicated alert socket, and never starts the detector (`L7U_CORE_RESTART_COUNT = ONE`, `L7U_STARTS_DETECTOR = NO`). Rollback restores every surface from the journal and never starts the detector, sends CUT/RESTORE, touches ESP32 or containment. Live execution remains unproven.
+- **Receipt:** `90-Status/logs/2026-10-02_050500_music_idea3-f1-production-deployment-package.md`.
 
 ---
 

@@ -29,10 +29,12 @@ UNAVAILABLE = "state=UNKNOWN reason=PROBE_UNAVAILABLE maxerror_us=-1 adjtimex_re
 # sha256 pins: the comparator, the shared L5 predicate and the L0 capture must not change in the V6 remediation.
 # Re-pinned for p4-compare.sh and p4-l0-capture.sh by the L7u task (2026-10-01): additive L7u observability (recovery group/runtime-dir/socket keys,
 # drop-in + tmpfiles records) and the `stage L7u` token in ALLOW_L6C_RELEASE_FILE; the L5 predicate (p4-l5-clock.py) is unchanged.
+# Re-pinned again by OD-F1-DEPLOY-01 (2026-10-02): additive F1 alert observability (alert group/runtime-dir/socket keys, alert tmpfiles record,
+# the `alert` key family in p4-compare.sh's approvable host keys); the L5 predicate (p4-l5-clock.py) is still unchanged.
 PINS = {
-    "p4-compare.sh": "5bdcef6936847ffef414801a7c8642a05a5cc5a7f04d1516d5eeb90d0e023b9e",
+    "p4-compare.sh": "86ef5f1fcaf5485fbd2555d2cc19aad1ee1cc528b000b4c9dcef9b25054ea16c",
     "p4-l5-clock.py": "dd322fbdc0538df09b8a35f01f080422e1523519d70dd8d1e7a1d9bbfd3f41f0",
-    "p4-l0-capture.sh": "61084c7d88eec9c3c7ac0f0dc2fd860740b665b508d3272f2865b6a31df6b17b",
+    "p4-l0-capture.sh": "f49f6f74d43dc38058b9ee77bd1511a17394e9eaad4d873c07dfdc09f4bf4722",
 }
 
 

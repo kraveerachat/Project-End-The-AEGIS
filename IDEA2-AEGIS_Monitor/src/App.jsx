@@ -18,6 +18,7 @@ import { buildSections, viewOrderOf } from './nav.js'
 import { fetchMe, fetchCameras, logout as apiLogout } from './lib/auth.js'
 import { selectedCamera } from './lib/liveCamera.js'
 import { registerUnauthorizedHandler } from './lib/api.js'
+import { maintainLocalNodeAssociation } from './lib/localNode.js'
 import { readShellTheme, resolveShellTheme, SHELL_THEME_KEY, isValidShellTheme } from './lib/shellTheme.js'
 
 export default function App() {
@@ -135,6 +136,14 @@ export default function App() {
         setHeroCam((current) => selectedCamera(cams, current)?.id ?? null)
     })
     return () => { alive = false }
+  }, [session])
+
+  // Invisible Operator-only machine association. It transports only public
+  // proof material and creates no camera stream or viewer demand of its own.
+  useEffect(() => {
+    if (!session) return undefined
+    const association = maintainLocalNodeAssociation({ session })
+    return () => association.stop()
   }, [session])
 
   // ถ้าวิวปัจจุบันหลุดจากเมนู (เช่นเพิ่งล็อกอินเป็น role อื่น) — กลับวิวแรก
