@@ -14,7 +14,7 @@ if str(ENGINE_ROOT) not in sys.path:
 from aegis_identity_agent.config import AgentConfig
 from aegis_identity_agent.protocol import REQUEST_PROOFS, canonical_auth_payload
 from aegis_identity_agent.sequence import SequenceAllocator, SequenceExhausted
-from aegis_identity_agent.session_client import AgentSessionClient
+from aegis_identity_agent.session_client import AgentAuthenticationError, AgentSessionClient
 from aegis_identity_agent.transport import AgentTransport
 
 
@@ -82,6 +82,17 @@ def challenge(now=100_000):
 
 
 class AgentConfigTests(unittest.TestCase):
+    def test_production_https_origin_contract_is_accepted_without_changing_stream_authority(self):
+        cfg = AgentConfig.from_env(config_env(
+            AEGIS_AGENT_MONITOR_BASE_URL="https://aegis.internal/monitor",
+            AEGIS_AGENT_AUTH_AUDIENCE="https://aegis.internal",
+            AEGIS_IDENTITY_BROWSER_ALLOWED_ORIGINS="https://aegis.internal",
+        ))
+        self.assertEqual("https://aegis.internal/monitor", cfg.monitor_base_url)
+        self.assertEqual("https://aegis.internal", cfg.audience)
+        self.assertEqual(("https://aegis.internal",), cfg.browser_allowed_origins)
+        self.assertEqual("http://aegis-stream-host.internal:18077/stream.mjpg", cfg.engine_stream_url)
+
     def test_machine_a_advertises_stable_server_endpoint_not_runtime_ip(self):
         cfg = AgentConfig.from_env(config_env(
             AEGIS_AGENT_ENGINE_STREAM_URL="http://aegis-stream-host.internal:18077/stream.mjpg",
@@ -135,6 +146,21 @@ class AgentConfigTests(unittest.TestCase):
 
 
 class AgentSessionTests(unittest.TestCase):
+    def test_audience_mismatch_fails_before_verify_and_browser_authorization_is_unused(self):
+        wrong = {**challenge(), "audience": "https://attacker.invalid"}
+        http = FakeHttp([Response(200, wrong)])
+        client = AgentSessionClient(
+            AgentConfig.from_env(config_env()), RecordingSigner(), http=http, now_ms=lambda: 100_000
+        )
+
+        with self.assertRaises(AgentAuthenticationError):
+            client.ensure_session()
+
+        self.assertEqual(1, len(http.calls), "mismatched audience must not reach verify")
+        _, kwargs = http.calls[0]
+        self.assertNotIn("Authorization", kwargs.get("headers", {}))
+        self.assertNotIn("Cookie", kwargs.get("headers", {}))
+
     def test_authentication_uses_exact_canonical_proof_and_renews_at_threshold(self):
         now = [100_000]
         first = challenge(now[0])
