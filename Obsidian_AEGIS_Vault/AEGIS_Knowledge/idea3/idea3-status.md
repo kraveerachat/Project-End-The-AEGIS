@@ -18,6 +18,16 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PR11 Phase 4 L3/L4 V8 governed-successor clarification (docs only) — 2026-10-02
+
+> [!important] Governance clarification only (Draft PR, awaiting human merge). No runtime, runner, handler, marker or classifier change; Production not mutated; no Auth/K3; no runner freeze; no preflight; **no V8 live attempt and no successor attempt has run.** The sections below remain true.
+> `ORIGINAL_V8_ATTEMPT = FAILED / CONSUMED`, `ORIGINAL_AUTH_K3 = NOT_REUSABLE`, `V8_RETRY_ALLOWED = NO` (the consumed attempt itself can never be rerun), `GOVERNED_SUCCESSOR_ALLOWED = YES`, `CANONICAL_STAGE_ID_REUSED = YES` (`l34-v8-post-v7-persistent-ap-recovery`), `REQUIRES_NEW_AUTH_DIR = YES`, `REQUIRES_NEW_FREEZE = YES`, `REQUIRES_NEW_PREFLIGHT = YES`, `REQUIRES_FRESH_SAME_DAY_AUTH_K3 = YES`, `SUCCESSOR_LIVE = NOT_RUN`
+
+- **Resolves:** the older wording "a NEW stage or governed successor" below. A governed successor reuses the canonical V8 stage ID; it does not need a renamed stage. It is not a retry: the prior `AUTH_DIR`, authorization, K3, marker, frozen runner and evidence directory are never reused, and the successor uses the marker filename `L34-V8-REACTIVATION-ATTEMPT-CONSUMED` only inside its own brand-new `AUTH_DIR`. The seven conditions are in spec §5.1 (`IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-02-idea3-pr11-phase4-l34-v8-post-v7-persistent-ap-recovery-design.md`).
+- **Not claimed:** V8 live success, L3/L4/L6b acceptance, K12 reboot persistence.
+
+---
+
 ## IDEA3 PR11 Phase 4 L3/L4 V8 live attempt FAILED (S-11 HOLD) — timestamp false positive; repository fix in progress — 2026-10-02
 
 > [!warning] The one-shot V8 live attempt (main `9f5a0114`, 2026-10-02 ~16:50 +07, owner-run) FAILED and its rollback proof also failed: **S-11 HOLD is ACTIVE; the host is in a safe hold; no host recovery was performed.** The consumed V8 authorization, marker (`consumed_at=2026-10-02T09:50:11Z`) and evidence (`2026-10-02-l34-v8-20261002-165006`) are historical and not reusable. V8 must not be retried.
