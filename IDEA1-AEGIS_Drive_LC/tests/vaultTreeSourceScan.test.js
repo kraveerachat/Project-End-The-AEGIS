@@ -86,3 +86,19 @@ test('SS-PI-1 D-1 preview-index server modules import nothing from src/, registe
   assert.doesNotMatch(code(store), /\b(DELETE\s+FROM|TRUNCATE|DROP\s+TABLE)\b/i, 'the preview-index store never deletes')
   assert.doesNotMatch(code(store), /VAULT_MANIFEST_V2_UPGRADE|manifestV2Upgrade/)
 })
+
+test('SS-PI-2 D-1 client modules never touch browser storage, the Cache API, navigator.storage or the console', () => {
+  const D1 = [
+    'vaultPreviewIndexConstants.js', 'vaultPreviewIndexRouting.js', 'vaultPreviewIndexCodec.js', 'vaultPreviewIndexObject.js',
+    'vaultPreviewIndexReader.js', 'vaultDerivativeRead.js', 'vaultPreviewIndexTiles.js', 'vaultPreviewIndexTileLane.js',
+    'vaultPreviewIndexMerge.js', 'vaultPreviewIndexOrphans.js',
+    // PR-D
+    'vaultPreviewIndexWriter.js', 'vaultDerivativeGenerate.js', 'vaultDerivativeBackfill.js',
+  ]
+  const forbidden = /\b(localStorage|sessionStorage|indexedDB|caches|openDatabase)\b|navigator\.storage|\bconsole\./
+  for (const name of D1) {
+    const src = fs.readFileSync(path.join(ROOT, 'src/lib', name), 'utf8')
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split(/\r?\n/).map((l) => l.replace(/\/\/.*$/, '')).join('\n')
+    assert.doesNotMatch(code, forbidden, name)
+  }
+})

@@ -260,3 +260,25 @@ test('US-6 after purge no DOM node contains a decrypted name and the locked veil
 test('US-7 storage absence: instrumented localStorage/sessionStorage/indexedDB/caches record zero writes across the whole screen suite', () => {
   assert.equal(guards.writes, 0); assert.equal(winGuards.writes, 0)
 })
+
+test('US-D1 PR-D writer, backfill and post-upload queue register on the unlocked state and are released by every purge reason', async () => {
+  const { createUnlockedVaultState, PURGE_REASONS } = await import('../src/lib/vaultUnlockedState.js')
+  const { createPreviewIndexWriter } = await import('../src/lib/vaultPreviewIndexWriter.js')
+  const { createDerivativeBackfill } = await import('../src/lib/vaultDerivativeBackfill.js')
+  const { createUploadDerivativeQueue } = await import('../src/lib/vaultDerivativeGenerate.js')
+  const { fakeJpeg, fileNode, id22 } = await import('./helpers/previewIndexFixture.mjs')
+  assert.deepEqual(Object.keys(PURGE_REASONS).sort(), ['AUTO_LOCK', 'LOGOUT', 'MANUAL_LOCK', 'NAVIGATION', 'PAGE_HIDE', 'SESSION_INVALIDATED', 'UNMOUNT'])
+  for (const reason of Object.values(PURGE_REASONS)) {
+    const state = createUnlockedVaultState({ closeAllPreviewSessions: () => {} })
+    const writer = createPreviewIndexWriter({ kek: null, unlockedState: state, writeAllowed: () => true, autoFlush: false, getMainHead: () => null })
+    const backfill = createDerivativeBackfill({ writer, unlockedState: state, isDeferred: () => true, retryMs: 5 })
+    const queue = createUploadDerivativeQueue({ writer, unlockedState: state, isDeferred: () => true, retryMs: 5, generateThumb: async () => null })
+    const n = fileNode(id22(), 'a'.repeat(48))
+    assert.equal(writer.offer({ nodeId: n.nodeId, kind: 'thumb', sourceBlobRef: n.blobRef, bytes: fakeJpeg(), mime: 'image/jpeg', width: 320, height: 240 }), 'QUEUED')
+    assert.equal(backfill.offerTileResult(n, 'poster', { bytes: fakeJpeg(), width: 320, height: 240 }), 'OFFERED')
+    assert.equal(queue.afterUpload({ file: new File([new Uint8Array(1)], 'a.jpg'), nodeId: n.nodeId, sourceBlobRef: n.blobRef, kind: 'thumb' }), 'QUEUED')
+    const report = state.purge(reason)
+    assert.ok(report.disposers >= 3, reason)
+    assert.deepEqual([writer.stats().queued, backfill.stats().pending, queue.stats().pending], [0, 0, 0], reason)
+  }
+})
