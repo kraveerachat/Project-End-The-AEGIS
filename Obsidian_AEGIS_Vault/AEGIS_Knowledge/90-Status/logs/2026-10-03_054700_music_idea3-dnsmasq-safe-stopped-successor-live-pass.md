@@ -63,9 +63,10 @@ PRODUCTION_MUTATION_PERFORMED_BY_THIS_CLOSEOUT=NO
 
 ## Verification evidence
 
-- Read-only correlation of console transcript + attempt marker + evidence directory (`terminal-verdict.txt`, `frozen-inputs.txt`, `compare-pre-s10.txt`, `compare-pre-post.txt`, `owner-run.log`), and a read-only final host check — consistent.
-- `CAPTURE_INTEGRITY_INDEPENDENTLY_RECHECKED=NO`. The capture directories (`pre-root`, `s10-root`, `post-root`) are root-owned mode 0700 and the closeout session had no sudo, so their `SHA256SUMS` were **not** independently re-verified. `RUNNER_REPORTED_CAPTURE_SHA256=PASS` — the runner itself reported `CAPTURE_PRE`, `CAPTURE_S10` and `CAPTURE_POST` as `COMPLETE SHA256=PASS`. This is not an independent verification claim.
-- `git diff --check`, `node scripts/validate-vault.mjs`, the collaboration-policy check and a changed-line secret scan: see the PR body.
+- `read-only correlation of live-console-20261003-054504.log + DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED + evidence terminal-verdict.txt / frozen-inputs.txt / compare-pre-s10.txt / compare-pre-post.txt / owner-run.log` — pass: consistent (`DNSMASQ_REPAIR_RESULT=PASS`, no rollback artifacts).
+- `systemctl show aegis-idea3-dnsmasq.service` + `ss -lntp` + Monitor `/healthz` + `systemctl is-active` on the six required services (read-only, after the run) — pass: active/running, `Result=success`, `NRestarts=0`, `NeedDaemonReload=no`, ports 18002/8077 LISTEN, all services active.
+- `sha256sum -c --quiet --strict SHA256SUMS` in `pre-root` / `s10-root` / `post-root` (independent re-check) — fail: not performed, permission denied (root-owned 0700, no sudo). `CAPTURE_INTEGRITY_INDEPENDENTLY_RECHECKED=NO`; `RUNNER_REPORTED_CAPTURE_SHA256=PASS` (the runner's own `CAPTURE_PRE/S10/POST … SHA256=PASS`). This is not an independent verification claim.
+- `git diff --check` — pass. `node scripts/validate-vault.mjs` — pass (2 existing canvas warnings). Collaboration-policy check and the changed-line secret scan — pass (see the PR body).
 
 ## Canonical notes updated
 
