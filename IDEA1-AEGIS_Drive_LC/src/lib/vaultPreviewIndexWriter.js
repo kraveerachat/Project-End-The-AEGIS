@@ -381,12 +381,15 @@ export function createPreviewIndexWriter({
       if (e?.code === WRITE_DISABLED_CODE) { serverDisabled = true; return 'WRITE_DISABLED' }
       return typeof e?.code === 'string' && /^[A-Z_]{1,48}$/.test(e.code) ? e.code : 'CAS_ERROR'
     }
-    if (!(Number(first?.status) === 0)) return classify(first)
+    // apiFetch resolves network/timeout/abort as status 0 (TreeApiError.status 0); a transport that THROWS instead carries
+    // no HTTP status either — both mean "the CAS may have applied", so both take the idempotent resend path
+    const lost = (e) => !(Number(e?.status) > 0)
+    if (!lost(first)) return classify(first)
     // transport loss: the CAS may have applied — resend the IDENTICAL body and key once (server replays)
     if (!live()) return 'PURGED'
     count('cas.resend')
     try { await api.casPreviewIndexHead(body, opts(signal)); return 'COMMITTED' } catch (e) {
-      if (Number(e?.status) !== 0) return classify(e)
+      if (!lost(e)) return classify(e)
     }
     if (!live()) return 'PURGED'
     try {

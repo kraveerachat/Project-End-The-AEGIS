@@ -396,3 +396,25 @@ test('PIW-16 attach list = applied derivatives + new shards + root; superseded =
   const [, oldShard] = g1.attachBlobIds // order: derivatives, shards, root
   assert.deepEqual([...g2.supersededBlobIds].sort(), [g1.rootBlobId, oldShard].sort())
 })
+
+test('PIW-17 a transport that THROWS (no HTTP status) on CAS is treated as possible loss: identical resend', async () => {
+  const kek = await newKek()
+  const server = createWriterFakeServer()
+  const head = mainHead(1)
+  const [a] = head.files()
+  const inner = server.transport.fetchJson
+  let thrown = 0
+  const transport = { ...server.transport, fetchJson: async (p, o = {}) => {
+    const r = await inner(p, o)
+    if (p === `${PI}/head` && o.method === 'POST' && thrown++ === 0) throw new TypeError('Failed to fetch') // applied, response lost
+    return r
+  } }
+  const w = createPreviewIndexWriter({ kek, transport, getMainHead: async () => head, writeAllowed: () => true, autoFlush: false })
+  w.offer(jobFor(a))
+  const r = await w.flush()
+  assert.equal(r.committed, 1)
+  const posts = server.casPosts()
+  assert.equal(posts.length, 2)
+  assert.deepEqual(posts[1].body, posts[0].body)
+  assert.equal(server.state.head.indexGeneration, 1)
+})
