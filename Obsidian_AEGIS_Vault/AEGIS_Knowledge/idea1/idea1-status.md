@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-02
+updated: 2026-10-03
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -15,7 +15,26 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-D1-D — D-1 PR-D default-off writer + thumb/poster
+## Current Task — IDEA1-UNIFIED-PREVIEW-D1-E — D-1 PR-E IDX-SIZE evidence (G.1–G.2 only)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1-UNIFIED-PREVIEW-D1 PR-E / plan Phase G.1 measurement harness and G.2 Memory, PostgreSQL, Chrome matrix only; stop at HG-G |
+| Branch | `codex/idea1-pr-e-idx-size` from `origin/main` `522ac2ce113148f0099a6bd3fab9dda2b23c90e3` (PR #303 verified MERGED) |
+| Owner | kla |
+| PR | Draft PR pending creation; exactly one PR-E branch, this agent the only writer |
+| State | **IN PROGRESS — NOT YET IDX-SIZE READY.** G.1 harness supports codec/e2e, local disposable Memory/PG and Chrome, all 1k/5k/10k × 2/3 cells at 20 runs, retained-budget A–D, requests, timings, CAS/upload and audit metrics. G.2 raw measurements are in progress; no limit or retained-byte budget has been approved. |
+| Production mutation allowed | **NO**. Production writer remains OFF. |
+| Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
+| Next gate | Complete and audit all G.2 cells; then **HG-G Human approval required** for measured limits and explicit retained-byte budget. G.3/H/I are not started. |
+
+### Session Register — D1-E
+
+| ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
+|---|---|---|---|---|---|---|
+| D1E-S1 | G.1 harness and G.2 disposable-local matrix; no Production changes | Active | PR #303 MERGED at `522ac2ce`; Chrome six-cell 20-run measurement complete with 0 B main-manifest delta; Memory/PG and cell audit pending | This branch | Complete Memory, PG, and evidence table; focused/PG/build/governance/secret/policy gates | Stop at HG-G; no G.3 or writer enable |
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-D — D-1 PR-D default-off writer + thumb/poster
 
 | Field | Current value |
 |---|---|
@@ -23,10 +42,10 @@ edit_policy: owner-writable
 | Branch | `feat/idea1-preview-d1-d-writer-thumb-poster` from post-PR-C `origin/main` `98c3e7741984ba28db50c7aa89d9748ca4cd70c3` (PR #295 verified MERGED first) |
 | Owner | kla |
 | PR | #303 (`integration-review: no` — client-only; no server/DB/migration/config change) |
-| State | **IMPLEMENTED + VERIFIED_LOCAL; HUMAN REVIEW REQUIRED (HG-D)**. Client writer capability derived only from served `flags.previewIndexWriteEnabled === true` (env `VAULT_PREVIEW_INDEX_WRITE_ENABLED`, default false); writer core (derivative seal → latest main head + index re-read → merge/split → seal shards/root → independent index CAS, ≤ casMaxAttempts, lost-response identical resend); per-session storage-budget circuit breaker (507 → latch, queue cleared, no partial CAS, no deletion); thumb/poster generation from the local File; post-upload queue (after upload ok AND reconcile, never awaited); lazy backfill from original-path tile bytes (no transport/crypto import); unlocked-state cleanup for all seven purge reasons; allow-listed privacy-safe counters. `WRITER_ENABLED=NO` anywhere; main manifest unchanged (schema 1, 0 preview bytes); no GC/purge; no Production mutation. |
+| State | **MERGED** (PR #303 → `522ac2ce`, 2026-10-02). Client writer capability derived only from served `flags.previewIndexWriteEnabled === true` (env `VAULT_PREVIEW_INDEX_WRITE_ENABLED`, default false); writer core (derivative seal → latest main head + index re-read → merge/split → seal shards/root → independent index CAS, ≤ casMaxAttempts, lost-response identical resend); per-session storage-budget circuit breaker (507 → latch, queue cleared, no partial CAS, no deletion); thumb/poster generation from the local File; post-upload queue (after upload ok AND reconcile, never awaited); lazy backfill from original-path tile bytes (no transport/crypto import); unlocked-state cleanup for all seven purge reasons; allow-listed privacy-safe counters. `WRITER_ENABLED=NO` anywhere; main manifest unchanged (schema 1, 0 preview bytes); no GC/purge; no Production mutation. |
 | Production mutation allowed | **NO** |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
-| Next gate | Human review/merge of PR #303 (HG-D). PR-E (G.1–G.3, H.1–H.3, I.1–I.3) only after HG-D. Budget value stays PROVISIONAL until HG-G; WRITE stays false in every environment. |
+| Next gate | PR-E G.1/G.2 measurement and HG-G Human approval. Budget value stays PROVISIONAL until HG-G; WRITE stays false in every environment. |
 
 ### Session Register — D1-D
 
