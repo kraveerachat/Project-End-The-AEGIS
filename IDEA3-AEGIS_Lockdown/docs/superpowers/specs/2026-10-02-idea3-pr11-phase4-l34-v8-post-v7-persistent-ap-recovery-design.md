@@ -58,7 +58,7 @@ recovery runtime-only.
  3 ONE `nmcli radio wifi on` (only if still off)    NM_WIFI_RADIO_ENABLE disabled
  4 bounded wait: wlp0s20f3 == disconnected          (read-only)
  5 PERSIST  nmcli connection modify aegis-idea3-ap connection.autoconnect yes      NM_PROFILE_AUTOCONNECT_ENABLE no
-   then: NM value == yes; keyfile autoconnect != false; every OTHER non-secret profile line identical; l34_profile_gate + effective gate still pass
+   then: NM value == yes; keyfile autoconnect != false; every OTHER non-secret profile record semantically identical (order/uuid ignored); l34_profile_gate + effective gate still pass
  6 ONE nmcli connection up aegis-idea3-ap ifname wlp0s20f3                          NM_UP aegis-idea3-ap
  7 restore device autoconnect to its exact PRE value                                NM_DEVICE_AUTOCONNECT_RESTORED
  8 verify AP / interface / address / regulatory / default-route invariants
@@ -66,7 +66,7 @@ recovery runtime-only.
 10 ONE systemctl start aegis-idea3-dnsmasq.service                                  DNSMASQ_START
 11 bounded READ-ONLY wait for the broker's OWN auto-restart; 12 exact 8883 pair; 13 ONE handshake-only TLS probe; 14 broker tuple stable
 15 Core (MainPID, NRestarts, InvocationID) == PRE tuple
-16 persistent invariants: every artifact identical to PRE except the one authorized autoconnect field
+16 persistent invariants: every artifact identical to PRE (the profile: semantically identical, key order and daemon uuid ignored) except the one authorized autoconnect field
 ```
 
 `journal.tsv` is the ownership record. The preflight (`AEGIS_L34_PREFLIGHT_ONLY=YES`) runs every read-only gate and mutates nothing.
@@ -76,14 +76,24 @@ recovery runtime-only.
 NetworkManager serializes a default `autoconnect=true` by **omitting** the line, so the persisted `yes` state normally looks like "no autoconnect line".
 `l34_v8_profile_file_autoconnect` therefore reports `false | true | absent`; PRE must be exactly `false`, POST must be `absent` or `true`.
 
-The profile is PSK-bearing, so it is snapshotted without ever digesting a secret: `l34_v8_profile_record` stores `mode:uid:gid` (no size/mtime/ctime, which the one
-approved rewrite legitimately changes), the sha256 of the **non-secret lines excluding the autoconnect line**, and the **count** of secret lines
-(`psk_lines=N`). `l34_v8_persistent_verify SNAPSHOT yes|no` requires that record to be unchanged in both states plus the expected autoconnect value; every other
-persistent file (dnsmasq conf, unit, nft, broker conf) keeps the exact V1–V7 record (mode, owner, size, mtime, ctime, sha256).
+The profile is PSK-bearing, so it is snapshotted without ever printing or digesting a secret. `l34_v8_profile_record` stores `mode:uid:gid` (no size/mtime/ctime, which
+the one approved rewrite legitimately changes), the sha256 of the **canonical record set**, and the **count** of secret lines (`psk_lines=N`).
 
-If a real NetworkManager rewrite ever re-serializes ANY other non-secret line, the proof fails closed (`L34_V8_PROFILE_CHANGED_BEYOND_AUTOCONNECT`). That is
-deliberate: V8 never "repairs" a drifted line. The first live run is the first time a real NetworkManager performs this rewrite; the simulator models it but
-cannot prove it (see Limitations).
+**Canonicalization (`l34_v8_profile_canonical`).** A real libnm rewrite of the hand-rendered AP keyfile re-orders keys inside sections (verified offline with libnm's
+own writer: `[wifi]` becomes band/channel/mode/ssid, `[ipv4]` address1/method/never-default) and the NetworkManager daemon assigns a connection `uuid`. A
+file-order digest would therefore flag a legitimate rewrite as drift (the blocker found in the PR #291 review). The proof is instead computed on canonical
+records: the file is parsed with section context, each non-secret key becomes one `[section]/key=value` line (whitespace around `=` trimmed; comments, blank
+lines and empty sections ignored), the lines are `LC_ALL=C sort`ed and hashed. Excluded, and ONLY these: `[connection]/autoconnect` (the one approved transition,
+verified separately), `[connection]/uuid` (daemon-assigned), and secret keys in any section (`psk`, `wep-key*`, `leap-password`, `password`,
+`private-key-password`, `pin`; values never printed or hashed). Everything else is still detected: an added or removed non-secret key, a changed value
+(SSID, channel, `address1`, IPv4 `method`, ...), or a key moved to a different section. The same function backs post-apply verification and rollback verification
+(`l34_v8_persistent_verify`), so the claim is **semantically identical except for the explicitly approved autoconnect transition, with ordering and the
+daemon-assigned uuid ignored** (not byte or order identity). Every other persistent file (dnsmasq conf, unit, nft, broker conf) keeps the exact V1–V7 record
+(mode, owner, size, mtime, ctime, sha256).
+
+If a real NetworkManager rewrite ever changes a non-secret VALUE, adds or removes a non-secret key, or moves a key between sections, the proof fails closed
+(`L34_V8_PROFILE_CHANGED_BEYOND_AUTOCONNECT`); V8 never "repairs" a drifted profile. Regression coverage uses real libnm-serialized fixtures
+(`tests/fixtures/l34_v8/`). The first live run is still the first time the real daemon performs this rewrite on the real file (see Limitations).
 
 ## 4. Rollback (failure/abort path only)
 
@@ -101,7 +111,7 @@ Journal-owned, idempotent, never touches the broker or Core. Order:
 6 re-block exactly the journaled rfkill id   only if it was soft-blocked before this run
 ```
 
-Proofs: the profile is identical to PRE in every non-secret line, `autoconnect=false` included, and `connection.autoconnect` reports `no`; every other
+Proofs: the profile is semantically identical to PRE (canonical records; key order and daemon uuid ignored), `autoconnect=false` restored, and `connection.autoconnect` reports `no`; every other
 persistent file identical; L2/forwarding/identities unchanged; Core tuple unchanged; the V3 safe-equivalent boundary (p2p pseudo-device, wpa_supplicant
 running, phy TH|00 are the only tolerated residuals). A journal entry that is not exactly owned, an unknown kind, or a missing rfkill id fails closed. After a
 failed rollback the runner prints `S-11 HOLD — ESCALATE; do NOT retry`.

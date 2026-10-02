@@ -2,7 +2,7 @@
 # Exact keys, no wildcard, no value constraint — p4-compare.sh's own PROTECTED default-deny and every other unconditional rule still apply unchanged.
 # V8 makes exactly ONE persistent change (NetworkManager aegis-idea3-ap connection.autoconnect no -> yes), so exactly ONE persistent-artifact key is approved:
 # the AP profile's metadata record (a keyfile rewrite changes size/mtime). The comparator cannot see WHAT changed inside a metadata-only (secret) file, so
-# apply.sh/verify.sh prove it exactly: every non-secret profile line except `autoconnect` is identical to PRE (l34_v8_persistent_verify) and the autoconnect
+# apply.sh/verify.sh prove it exactly: the canonical non-secret profile record set (key order, daemon uuid and autoconnect ignored) equals PRE (l34_v8_persistent_verify) and the autoconnect
 # value is the authorized one. The profile CLASS key (`.class`), `net.idea3_dnsmasq_conf.*`, `fw.idea3_nft`, any broker/dnsmasq config, unit or cert path,
 # and every rfkill/NetworkManager state file are NOT here: they are proven byte/metadata-identical, never approved.
 # The value-level windows of the radio-disabled baseline (NM WIFI disabled->enabled, p2p pseudo-device, wpa_supplicant lifecycle, dnsmasq

@@ -12,7 +12,7 @@
 # target phy regulatory state (TH or 00; this workflow never runs `iw reg set`) are the only tolerated residuals, and nothing is stopped, deleted or reset
 # to make them go away. It never recreates the stale start-limit-hit artifact and NEVER issues any command against aegis-idea3-mosquitto.service or
 # aegis-idea3-core.service: tearing the AP down leaves the broker crash-looping again exactly as its own restart policy decides. After rollback every
-# non-secret profile line (autoconnect=false included) and every other persistent file is proven identical to PRE. Ownership that cannot be proven from the
+# canonical non-secret profile record (key order and the daemon-assigned uuid ignored; autoconnect=false included) and every other persistent file is proven identical to PRE (the profile: semantically identical). Ownership that cannot be proven from the
 # journal fails closed and escalates; a DIFFERENT Wi-Fi profile found active is never touched. It never edits /var/lib/systemd/rfkill or any NM state file.
 set -uo pipefail
 export LC_ALL=C
@@ -180,7 +180,7 @@ printf 'DNSMASQ_RUNNING=NO\n'
 printf 'AP_PROFILE_AUTOCONNECT_RESTORED=%s\n' "$([ "$j_prof" = 1 ] && echo 'YES (no)' || echo NOT_CHANGED)"
 printf 'L6B_BROKER_TOUCHED=NO (never commanded; tearing the AP down leaves it crash-looping again or holding a stale 8883 pair, exactly as its own restart policy decides)\n'
 printf 'CORE_TOUCHED=NO\n'
-printf 'PERSISTENT_FILES_UNCHANGED=YES (profile identical to PRE including autoconnect=false)\n'
+printf 'PERSISTENT_FILES_UNCHANGED=YES (profile semantically identical to PRE, key order and daemon uuid ignored, autoconnect=false restored)\n'
 printf 'RFKILL_PRE_STATE_RESTORED=%s\n' "$([ "$j_rfkill" = 1 ] && echo YES || echo NOT_CHANGED)"
 printf 'NM_WIFI_RADIO_RESTORED=%s\n' "$([ "$j_radio" = 1 ] && echo YES || echo NOT_CHANGED)"
 printf 'DEVICE_AUTOCONNECT_RESTORED=%s\n' "$([ "$j_acdis" = 1 ] && echo YES || echo NOT_CHANGED)"

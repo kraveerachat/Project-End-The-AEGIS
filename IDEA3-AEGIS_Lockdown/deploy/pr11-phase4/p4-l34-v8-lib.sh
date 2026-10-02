@@ -7,7 +7,8 @@
 # V8 exists because V7 was explicitly RUNTIME_ONLY and K12_AUTOMATIC_REBOOT_PERSISTENCE was NOT_PROVEN: after two reboots the AP profile (autoconnect=no)
 # was never activated, dnsmasq hit its start limit and the L6b broker crash-looped again. V8 recovers that state like V7 AND performs exactly ONE reviewed
 # persistent change: the NetworkManager `aegis-idea3-ap` connection.autoconnect transition no -> yes (OD-L34-V8-01). Every other persistent artifact must
-# stay byte/metadata identical; the profile itself must stay identical in every non-secret line except its autoconnect line.
+# stay byte/metadata identical; the profile itself must stay SEMANTICALLY identical (canonical section-qualified records; see l34_v8_profile_canonical)
+# except for the explicitly approved autoconnect transition, with key ORDER and the daemon-assigned connection uuid ignored.
 # V8 does NOT prove K12 automatic reboot persistence, L3, L4 or L6b acceptance.
 
 L34_V8_STAGE_NAME="l34-v8-post-v7-persistent-ap-recovery"
@@ -43,13 +44,38 @@ l34_v8_pre_autoconnect_gate() {
   [ "$file" = false ] || { l34_reason "L34_V8_AP_PROFILE_FILE_AUTOCONNECT_NOT_FALSE:$file"; return 1; }
 }
 
+# l34_v8_profile_canonical FILE — the canonical, order-insensitive record set of a keyfile profile, one `[section]/key=value` line per non-secret key, sorted
+# (LC_ALL=C). Parsed with section context (a key moved to another section changes its record), whitespace around `=` trimmed, comments/blank lines and empty
+# sections ignored (NetworkManager drops/adds them when it re-serializes the keyfile). Excluded, and ONLY these: (1) `[connection]/autoconnect` — the one
+# approved transition, verified separately; (2) `[connection]/uuid` — assigned by the NetworkManager daemon, never part of the reviewed profile; (3) secret keys
+# (psk, wep-key*, leap-password, password, private-key-password, pin) in any section — their VALUES are never printed or hashed. Everything else (added or
+# removed keys, changed values such as ssid/channel/address1/method, a key moved between sections) changes the canonical set.
+# Reason this exists: a real libnm rewrite of the hand-rendered AP keyfile re-orders keys inside sections (verified offline with libnm's own writer), so a
+# file-order digest would flag a legitimate NetworkManager rewrite as drift.
+l34_v8_profile_canonical() {
+  local f=$1
+  [ -f "$f" ] && [ ! -L "$f" ] || { l34_reason "L34_V8_PROFILE_MISSING"; return 1; }
+  awk '
+    function trim(s) { sub(/^[ \t\r]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
+    /^[ \t\r]*([#;].*)?$/ { next }
+    /^[ \t\r]*\[.*\][ \t\r]*$/ { sec = trim($0); sub(/^\[/, "", sec); sub(/\]$/, "", sec); next }
+    {
+      i = index($0, "=")
+      if (i == 0) { k = trim($0); v = "" } else { k = trim(substr($0, 1, i - 1)); v = trim(substr($0, i + 1)) }
+      if (k ~ /^(psk|wep-key[0-9]*|leap-password|password|private-key-password|pin)$/) next
+      if (sec == "connection" && (k == "autoconnect" || k == "uuid")) next
+      print "[" sec "]/" k "=" v
+    }' "$f" | LC_ALL=C sort
+}
+
 # l34_v8_profile_record FILE — one snapshot record for the PSK-bearing profile: path, mode:uid:gid (NO size/mtime/ctime: the one approved rewrite changes
-# them), the digest of its NON-secret lines EXCLUDING the autoconnect line, and the NUMBER of secret lines (a count, never a value or a digest of one).
+# them), the sha256 of the canonical record set (l34_v8_profile_canonical: order-, uuid- and autoconnect-insensitive, secret-free), and the NUMBER of secret
+# `psk` lines (a count, never a value or a digest of one).
 l34_v8_profile_record() {
   local f=$1 meta digest psk
   [ -f "$f" ] && [ ! -L "$f" ] || { l34_reason "L34_V8_PROFILE_MISSING"; return 1; }
   meta=$(stat -c '%a:%u:%g' -- "$f")
-  digest=$(grep -viE '^[[:space:]]*(psk|wep-key[0-9]*|leap-password|password|private-key-password|pin|autoconnect)[[:space:]]*=' "$f" | sha256sum | cut -d' ' -f1)
+  digest=$(l34_v8_profile_canonical "$f" | sha256sum | cut -d' ' -f1)
   psk=$(grep -ciE '^[[:space:]]*psk[[:space:]]*=' "$f" || true)
   printf '%s\t%s\t%s\tpsk_lines=%s\n' "$f" "$meta" "$digest" "$psk"
 }
@@ -70,7 +96,7 @@ l34_v8_persistent_snapshot() {
 
 # l34_v8_persistent_verify SNAPSHOT EXPECT — EXPECT=no  : the profile is back to autoconnect=false (apply not yet made, or rolled back);
 #                                            EXPECT=yes : the profile carries the ONE approved change (autoconnect absent|true).
-# In both cases every non-secret profile line except autoconnect is identical to the snapshot, and every other persistent file is byte/metadata identical.
+# In both cases the profile's canonical non-secret record set (order, uuid and autoconnect ignored) equals the snapshot's, and every other persistent file is byte/metadata identical.
 l34_v8_persistent_verify() {
   local snap=$1 expect=$2 rec f cur val
   [ -s "$snap" ] || { l34_reason "L34_PERSISTENT_SNAPSHOT_MISSING"; return 1; }

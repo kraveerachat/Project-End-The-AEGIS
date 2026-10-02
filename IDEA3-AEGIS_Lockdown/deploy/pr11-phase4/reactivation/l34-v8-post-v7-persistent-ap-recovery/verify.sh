@@ -2,7 +2,7 @@
 # AEGIS IDEA3 PR11 Phase 4 — L3/L4 POST-V7 PERSISTENT AP RECOVERY verification handler (V8). Read-only.
 # Proves the AP, dnsmasq and the L6b broker runtime are active with their exact expected listeners, that the radio/rfkill/autoconnect/wpa/p2p side effects
 # are exactly the ones this run owns, that the AP profile carries the ONE authorized persistent change (connection.autoconnect no -> yes, journaled exactly
-# once) and is identical in every other non-secret line, and that nothing else moved: dnsmasq/broker/unit/nft files unchanged, L2 nft unchanged,
+# once) and is semantically identical in every other non-secret record (key order and the daemon uuid ignored), and that nothing else moved: dnsmasq/broker/unit/nft files unchanged, L2 nft unchanged,
 # forwarding zero, no NAT, no unrelated Wi-Fi active, legacy mosquitto/Twingate/IDEA2 and Core identities unchanged. Never prints the PSK.
 set -uo pipefail
 export LC_ALL=C
@@ -124,7 +124,7 @@ printf 'L34_V8_VERIFY=PASS\n'
 printf 'L34_BASELINE=%s\n' "$(cat "$WORK/baseline.txt")"
 printf 'AP_RUNTIME=ACTIVE SSID=%s CHANNEL=%s ADDRESS=%s/%s\n' "$L34_SSID" "$L34_CHANNEL" "$L34_AP_ADDR" "$L34_AP_PREFIX"
 printf 'RFKILL_TARGET=UNBLOCKED NM_WIFI_RADIO=ENABLED\n'
-printf 'AP_PROFILE_AUTOCONNECT=YES (the one authorized persistent change; every other non-secret profile line unchanged)\n'
+printf 'AP_PROFILE_AUTOCONNECT=YES (the one authorized persistent change; every other non-secret profile record semantically unchanged; key order and daemon uuid ignored)\n'
 printf 'DNSMASQ=ACTIVE_RUNNING (reactivated this run)\n'
 printf 'L6B_BROKER=ACTIVE_RUNNING (recovered through its own systemd auto-restart; no broker service-control command issued; tuple stable)\n'
 printf 'CORE_UNCHANGED=YES\n'
