@@ -20,7 +20,9 @@ edit_policy: owner-writable
 Branch: `fix/idea2-production-agent-https-ingress`; owner: Pub. Source base:
 `4a8cc3c95e2f4147fbab9c505079c0377a271d99`.
 
-State: IN PROGRESS — repository-only edge and configuration contract work.
+State: SOURCE IMPLEMENTED / LOCAL STATIC VERIFIED / RUNTIME SMOKE BLOCKED —
+repository-only edge and configuration contract work at checkpoints
+`9c65a5af` and `535634a9`.
 Production currently denies every `/monitor/internal/*` request at the HUB,
 while the Machine Identity Agent's canonical Monitor base naturally targets six
 registry-backed or signed routes below that prefix. This task is adding a
@@ -29,15 +31,35 @@ ahead of the existing deny-by-default guard. Browser Cookie and Authorization
 headers are removed at the edge; Agent proof headers and all Monitor-side
 registry, signature, replay, and legacy-auth behavior remain authoritative.
 
-No Production, database, Machine A runtime, key, camera, or tunnel mutation is
-authorized. Source verification, shared-infrastructure integration review, and
-a Draft PR are required before any separately approved rollout.
+The exact six-route, lowercase, POST-only contract now rejects every raw URI
+containing a query delimiter or other non-canonical spelling, enforces 16 KiB,
+and removes Cookie and Authorization before proxying. Source inspection and
+tests confirm the Agent does not use browser Authorization: challenge/verify
+use JSON and signed writes use `X-Aegis-*` proof headers. Production examples
+now use `https://aegis.internal` for both Agent and browser-association
+audiences without enabling strict local-node rollout by default.
+
+Focused HUB routing passes 36/36, HUB navigation preservation passes 11/11,
+focused Monitor identity/authentication passes 33/33, focused Agent
+configuration/session passes 11/11, and the neutral Monitor suite passes 179
+with 58 explicit conditional PostgreSQL skips. HUB and Monitor Vite builds,
+collaboration governance (33/33), Vault validation, diff check, and changed-
+content secret scan pass. Fresh scoped review found Critical=0, Important=1
+(fixed by `535634a9`), Minor=1 deferred. The disposable real-Nginx smoke was
+not executed because the local Docker API was unavailable; its script parses
+cleanly and remains an explicit pre-rollout gate. A broader Engine run was also
+environment-limited by absent optional Python packages; no Engine source
+changed and the affected Agent tests are green.
+
+No Production, database, Machine A runtime, key, camera, or tunnel mutation was
+performed. Kla integration review of the shared HUB surface, a reviewed merge,
+real-Nginx smoke, and separately authorized Production rollout remain required.
 
 ### Session register
 
 | ID | Scope | State | Evidence | Remaining / Next |
 |---|---|---|---|---|
-| S1 | Exact Production HTTPS machine-ingress contract and canonical audience examples | IN PROGRESS | Approved bounded design; isolated worktree at the exact source base | RED routing/config tests, GREEN implementation, full verification, receipt, Draft PR |
+| S1 | Exact Production HTTPS machine-ingress contract and canonical audience examples | PARTIAL | RED 1/5 pass and 4/5 expected failures; GREEN focused suites, builds, governance/Vault/diff/secret gates above; real Nginx smoke blocked by unavailable Docker API | Publish Draft PR for Pub/Kla review; run real-Nginx smoke before owner-approved rollout |
 
 ## Previous task — SCM-compatible one-shot maintenance (2026-10-02)
 
