@@ -72,6 +72,16 @@ for f in authorization-L4.txt k3-L4.txt; do
   grep -qx "stage=L4" "$AUTH_DIR/$f" 2>/dev/null || gate "$f is not stage=L4"
 done
 grep -qxF "scope=$EXPECTED_SCOPE" "$AUTH_DIR/authorization-L4.txt" 2>/dev/null || gate "authorization scope is not exactly the approved dnsmasq repair scope"
+# exact historical-record digest denial (independent of the AUTH_DIR path): a byte-identical copy of the consumed first attempt's Authorization or K3 is refused here, BEFORE
+# the stage gate, the pre-consume S10 guard, the marker and any mutation. Only digests are compared; record contents are never printed.
+if [ -f "$AUTH_DIR/authorization-L4.txt" ] && [ -r "$AUTH_DIR/authorization-L4.txt" ]; then
+  [ "$(sha256sum -- "$AUTH_DIR/authorization-L4.txt" | cut -d' ' -f1)" != "$DNSREPAIR_HISTORICAL_AUTHORIZATION_SHA256" ] \
+    || die "HISTORICAL_AUTHORIZATION_RECORD_REUSE_FORBIDDEN: authorization-L4.txt is byte-identical to the consumed first attempt's record; a successor needs a brand-new Authorization"
+fi
+if [ -f "$AUTH_DIR/k3-L4.txt" ] && [ -r "$AUTH_DIR/k3-L4.txt" ]; then
+  [ "$(sha256sum -- "$AUTH_DIR/k3-L4.txt" | cut -d' ' -f1)" != "$DNSREPAIR_HISTORICAL_K3_SHA256" ] \
+    || die "HISTORICAL_K3_RECORD_REUSE_FORBIDDEN: k3-L4.txt is byte-identical to the consumed first attempt's record; a successor needs a brand-new K3"
+fi
 marker="$AUTH_DIR/$DNSREPAIR_MARKER_NAME"
 [ ! -e "$marker" ] || gate "this authorization already consumed its one bounded attempt"
 # this package never reuses any other governed run's authorization directory: ANY other attempt marker refuses
