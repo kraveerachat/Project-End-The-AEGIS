@@ -178,7 +178,13 @@ const CAS_STATUS = Object.freeze({
 // run first).
 export const vaultPreviewIndexUploadsRouter = Router({ mergeParams: true })
 vaultPreviewIndexUploadsRouter.use(requireAuth, requireTreeProtocol)
-mountVaultUploadHandlers(vaultPreviewIndexUploadsRouter, createVaultUploadHandlers({ mode: 'previewIndex', writeGate: requirePreviewIndexWrite }))
+mountVaultUploadHandlers(vaultPreviewIndexUploadsRouter, createVaultUploadHandlers({ mode: 'previewIndex', writeGate: requirePreviewIndexWrite, budget: {
+  // PROVISIONAL / TO_BE_MEASURED value from VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER (boot refuses WRITE without it)
+  maxBytesOf: (req) => treeConfigOf(req)?.limits?.maxPreviewIndexRetainedBytesPerOwner ?? null,
+  retainedBytes: (userId) => pindex.getRetainedIndexBytes(userId),
+  stageWithinBudget: pindex.stageIndexBlobWithinBudget,
+  isExceeded: (err) => err instanceof pindex.IndexBudgetExceeded,
+} }))
 
 vaultPreviewIndexRouter.post('/head', requirePreviewIndexWrite, requireTreeV1, async (req, res, next) => {
   try {

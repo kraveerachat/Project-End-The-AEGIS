@@ -156,9 +156,20 @@ const unknownField = (res) => res.status(400).json({ error: 'Unknown field', cod
 const MODES = ['legacy', 'tree', 'previewIndex']
 const COMMIT_LIFECYCLE = Object.freeze({ tree: 'UNREFERENCED', previewIndex: 'INDEX_STAGED' })
 
-export function createVaultUploadHandlers({ mode, writeGate = null }) {
+// D-1 PR-C Task C.7: mode 'previewIndex' also takes `budget` — the server-enforced per-owner retained-storage budget
+//   { maxBytesOf(req) → number|null, retainedBytes(userId) → Promise<number>,
+//     stageWithinBudget(client, userId, blobId, { addBytes, maxBytes }) (lock + check + INDEX_STAGED, in the commit txn),
+//     isExceeded(err) → boolean }
+//   create: advisory early reject (declared ciphertextSize) before any byte is staged;
+//   commit: authoritative check inside the blob transaction → rollback → 507, and only the uncommitted staged upload
+//   is discarded. Legacy and tree modes never receive a budget, so they can never be blocked by it.
+const BUDGET_EXCEEDED = 'PREVIEW_INDEX_STORAGE_BUDGET_EXCEEDED'
+const budgetExceeded = (res) => res.status(507).json({ error: 'Preview index storage budget exceeded', code: BUDGET_EXCEEDED })
+
+export function createVaultUploadHandlers({ mode, writeGate = null, budget = null }) {
   if (!MODES.includes(mode)) throw new Error(`createVaultUploadHandlers: unknown mode ${String(mode)}`)
-  if (mode === 'previewIndex' && typeof writeGate !== 'function') throw new Error('createVaultUploadHandlers: previewIndex mode needs writeGate')
+  if (mode === 'previewIndex' && (typeof writeGate !== 'function' || !budget)) throw new Error('createVaultUploadHandlers: previewIndex mode needs writeGate and budget')
+  if (mode !== 'previewIndex' && budget) throw new Error('createVaultUploadHandlers: only previewIndex mode has a budget')
   const strict = mode !== 'legacy'
   const treeFence = requireVaultProtocolState({ allow: mode === 'legacy' ? ['FLAT'] : ['TREE_V1'] })
   // the write gate runs before the protocol fence: a disabled writer reveals nothing about the owner's state
@@ -243,6 +254,15 @@ export function createVaultUploadHandlers({ mode, writeGate = null }) {
       // ต้องตั้งค่า vault ก่อนถึงจะมี KEK ให้ห่อ DEK ได้
       const meta = await store.getVaultMeta(req.user.id)
       if (!meta) return res.status(409).json({ error: 'Vault not configured' })
+
+      // previewIndex (C.7): advisory early reject on the declared size — the commit check is the authoritative one
+      if (budget && mode === 'previewIndex') {
+        const maxBytes = budget.maxBytesOf(req)
+        if (!Number.isSafeInteger(maxBytes) || (await budget.retainedBytes(req.user.id)) + ciphertextSize > maxBytes) {
+          await auditAct(req, 'VAULT_V2_UPLOAD_START', String(req.user.id), 'DENIED')
+          return budgetExceeded(res)
+        }
+      }
 
       if (derivedPlainSize > VAULT_TRANSFER_LIMITS.maxLogicalFileBytes) {
         await auditAct(req, 'VAULT_V2_UPLOAD_START', String(req.user.id), 'DENIED')
@@ -509,12 +529,25 @@ export function createVaultUploadHandlers({ mode, writeGate = null }) {
           chunks: ordered.map((c) => ({ index: c.index, size: c.size, sha256: c.sha256, ivB64: c.ivB64 })),
           // tree: สถานะ blob = UNREFERENCED ถูกเขียน "ใน transaction เดียวกับแถว blob" — ไม่มีช่วงเวลาที่ blob
           //   มีอยู่โดยไม่มี lifecycle (TU-3) การผูกเข้าต้นไม้ (TREE_MANAGED) เกิดผ่าน head CAS ของ client เท่านั้น
-          // previewIndex: INDEX_STAGED in the same transaction (never an UNREFERENCED user-file orphan)
-          withinCommit: strict
-            ? (client) => tree.upsertBlobState(req.user.id, { formatVersion: 2, id: blobId }, COMMIT_LIFECYCLE[mode], { client })
-            : null,
+          // previewIndex: budget check under the owner lock + INDEX_STAGED in the same transaction
+          //   (never an UNREFERENCED user-file orphan; over budget → IndexBudgetExceeded → ROLLBACK)
+          withinCommit: budget && mode === 'previewIndex'
+            ? (client) => budget.stageWithinBudget(client, req.user.id, blobId, { addBytes: session.ciphertextSize, maxBytes: budget.maxBytesOf(req) })
+            : strict
+              ? (client) => tree.upsertBlobState(req.user.id, { formatVersion: 2, id: blobId }, COMMIT_LIFECYCLE[mode], { client })
+              : null,
         })
       } catch (dbErr) {
+        if (budget && budget.isExceeded(dbErr)) {
+          // the transaction rolled back: no blob row, no lifecycle row. Discard ONLY this uncommitted upload's bytes
+          // (the same cleanup an aborted session gets); no committed blob, index object or user file is touched.
+          const restored = await restoreStagedVaultPart(session.uploadId, finalKey).catch(() => false)
+          if (!restored) await removeVaultCiphertext(finalKey).catch(() => {})
+          await removeStagedVaultSession(session.uploadId)
+          await v2.setVaultV2SessionStatus(session.uploadId, req.user.id, 'aborted').catch(() => {})
+          await auditAct(req, 'VAULT_V2_COMMIT', session.uploadId, 'DENIED')
+          return budgetExceeded(res)
+        }
         // transaction ถูก ROLLBACK ไปแล้ว จึงไม่มีแถว blob และ session ยัง committing —
         // เก็บกวาดในคำขอนี้ให้เรียบร้อย แต่ถ้าโปรเซสตายตรงนี้พอดี งานกู้คืนทำสิ่งเดียวกันได้เอง
         const restored = await restoreStagedVaultPart(session.uploadId, finalKey).catch(() => false)

@@ -19,7 +19,7 @@
 //    INDEX_MANAGED. Concurrency evidence can only come from PostgreSQL.
 
 import { query, usingPostgres, withTransaction } from './connection.js'
-import { listBlobStates, PREVIEW_INDEX_LIFECYCLES, _memTreeRowsSync } from './vaultTreeStore.js'
+import { listBlobStates, upsertBlobState, PREVIEW_INDEX_LIFECYCLES, _memTreeRowsSync } from './vaultTreeStore.js'
 import { listVaultV2Blobs, _memV2BlobSync } from './vaultV2Store.js'
 import { publicVaultV2Blob } from '../routes/vaultUploads.js'
 
@@ -177,6 +177,55 @@ export async function getRetainedIndexBytes(userId, { client = null } = {}) {
   let total = 0
   for (const b of await listVaultV2Blobs(u)) if (owned.has(b.id)) total += Number(b.size)
   return total
+}
+
+// ── retained-storage budget enforcement (PR-C Task C.7) ─────────────────────
+
+/** memory mode: the same sum as getRetainedIndexBytes, computed synchronously from the live rows */
+function memRetainedSync(u) {
+  let total = 0
+  for (const s of _memTreeRowsSync(u).blobs.values()) {
+    if (s.formatVersion !== 2 || !PREVIEW_INDEX_LIFECYCLES.includes(s.lifecycle)) continue
+    const b = _memV2BlobSync(u, s.id)
+    if (b) total += Number(b.size)
+  }
+  return total
+}
+
+const validBudget = (addBytes, maxBytes) => Number.isSafeInteger(addBytes) && addBytes >= 0 && Number.isSafeInteger(maxBytes) && maxBytes > 0
+
+/**
+ * Authoritative budget check, called INSIDE the preview-index upload commit transaction: locks the owner's
+ * vault_tree_state row FOR UPDATE (the same serialization point as the main and index CAS), sums the owner's committed
+ * INDEX_STAGED + INDEX_MANAGED ciphertext, and throws IndexBudgetExceeded (→ ROLLBACK) when retained + addBytes > maxBytes.
+ * The blob being committed has no lifecycle row yet, so it is not part of `retained`.
+ */
+export async function assertIndexBudgetWithinCommit(client, userId, { addBytes, maxBytes }) {
+  const u = uid(userId)
+  if (!validBudget(addBytes, maxBytes)) throw new IndexBudgetExceeded() // fail closed on a missing/invalid budget
+  if (usingPostgres) {
+    if (!client) throw new Error('vaultPreviewIndexStore: budget check needs the commit transaction client')
+    await client.query(`SELECT 1 FROM vault_tree_state WHERE user_id = $1 FOR UPDATE`, [u])
+    const retained = await getRetainedIndexBytes(u, { client })
+    if (retained + addBytes > maxBytes) throw new IndexBudgetExceeded()
+    return
+  }
+  if (memRetainedSync(u) + addBytes > maxBytes) throw new IndexBudgetExceeded()
+}
+
+/**
+ * The previewIndex commit hook: budget check + lifecycle INDEX_STAGED in the blob transaction.
+ * Memory mode does both without yielding (no await between check and write), mirroring the PG row lock.
+ */
+export async function stageIndexBlobWithinBudget(client, userId, blobId, { addBytes, maxBytes }) {
+  const ref = { formatVersion: 2, id: String(blobId) }
+  if (usingPostgres) {
+    await assertIndexBudgetWithinCommit(client, userId, { addBytes, maxBytes })
+    return upsertBlobState(userId, ref, 'INDEX_STAGED', { client })
+  }
+  const u = uid(userId)
+  if (!validBudget(addBytes, maxBytes) || memRetainedSync(u) + addBytes > maxBytes) throw new IndexBudgetExceeded()
+  return upsertBlobState(userId, ref, 'INDEX_STAGED') // memory branch writes synchronously before its first await
 }
 
 // ── index CAS (PR-C Task C.1) ────────────────────────────────────────────────
