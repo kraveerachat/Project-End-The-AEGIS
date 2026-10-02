@@ -24,6 +24,7 @@ import * as tree from '../db/vaultTreeStore.js'
 import * as pindex from '../db/vaultPreviewIndexStore.js'
 import { isValidContentIdB64 } from '../db/vaultV2Store.js'
 import { isValidVaultBlobId } from '../storage/vaultStaging.js'
+import { createVaultUploadHandlers, mountVaultUploadHandlers } from './vaultUploads.js'
 
 export const PREVIEW_INDEX_ERROR = Object.freeze({
   PREVIEW_INDEX_DISABLED: 'PREVIEW_INDEX_DISABLED',
@@ -169,6 +170,15 @@ const CAS_STATUS = Object.freeze({
   [pindex.INDEX_STORE_CODE.PREVIEW_INDEX_TREE_MISMATCH]: 409,
   [pindex.INDEX_STORE_CODE.INVALID_INPUT]: 400,
 })
+
+// ── preview-index upload family (PR-C Task C.4) ─────────────────────────────
+// The V2 upload family in mode 'previewIndex': mutations pass the WRITE gate then the TREE_V1 fence; commit writes
+// INDEX_STAGED in the blob transaction. limits/status/cancel stay safe reads (cancel only discards uncommitted bytes).
+// Mounted at '/vault/tree/preview-index/uploads' BEFORE '/vault/tree/preview-index' (whose read gate would otherwise
+// run first).
+export const vaultPreviewIndexUploadsRouter = Router({ mergeParams: true })
+vaultPreviewIndexUploadsRouter.use(requireAuth, requireTreeProtocol)
+mountVaultUploadHandlers(vaultPreviewIndexUploadsRouter, createVaultUploadHandlers({ mode: 'previewIndex', writeGate: requirePreviewIndexWrite }))
 
 vaultPreviewIndexRouter.post('/head', requirePreviewIndexWrite, requireTreeV1, async (req, res, next) => {
   try {
