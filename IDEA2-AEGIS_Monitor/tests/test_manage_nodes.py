@@ -474,28 +474,124 @@ class ManageNodesTests(unittest.TestCase):
         connection.commit.assert_not_called()
         connection.close.assert_called_once_with()
 
-    def test_rotate_key_increments_version_and_reactivates_registration(self):
+    def test_rotate_key_compare_and_swap_increments_once_and_preserves_authority(self):
         module = load_module()
         cursor = mock.MagicMock()
         cursor.__enter__.return_value = cursor
-        cursor.fetchone.return_value = {"key_version": 3}
+        cursor.fetchone.return_value = {"key_version": 2}
         connection = mock.MagicMock()
         connection.__enter__.return_value = connection
         connection.cursor.return_value = cursor
         args = types.SimpleNamespace(
             node_id="edge-new",
             public_key=pathlib.Path("replacement.pub"),
+            expected_current_key_version=1,
+        )
+        output = io.StringIO()
+
+        with mock.patch.object(module, "connect", return_value=connection), mock.patch.object(
+            module, "load_public_key", return_value=("NEW PUBLIC PEM\n", "SHA256:new")
+        ), redirect_stdout(output):
+            module.cmd_rotate_key(args)
+
+        query, params = cursor.execute.call_args.args
+        self.assertEqual(1, query.count("key_version = key_version + 1"))
+        self.assertIn("active = TRUE", query)
+        self.assertRegex(query, r"WHERE\s+node_id\s*=\s*%s\s+AND\s+key_version\s*=\s*%s")
+        self.assertEqual(("NEW PUBLIC PEM\n", "SHA256:new", "edge-new", 1), params)
+        self.assertNotIn("ingest_auth_mode", query)
+        self.assertNotIn("physical_cameras", query)
+        self.assertNotIn("node_camera_alias", query)
+        self.assertNotIn("NEW PUBLIC PEM", output.getvalue())
+        self.assertIn("version=2", output.getvalue())
+        connection.close.assert_called_once_with()
+
+    def test_rotate_key_requires_positive_expected_current_version(self):
+        module = load_module()
+        parser = module.build_parser()
+        commands = next(
+            action.choices for action in parser._actions if getattr(action, "choices", None)
+        )
+        rotate = commands["rotate-key"]
+        actions = {action.dest: action for action in rotate._actions}
+        self.assertTrue(actions["expected_current_key_version"].required)
+
+        parsed = parser.parse_args(
+            [
+                "rotate-key",
+                "--node-id",
+                "edge-new",
+                "--public-key",
+                "replacement.pub",
+                "--expected-current-key-version",
+                "1",
+            ]
+        )
+        self.assertEqual(1, parsed.expected_current_key_version)
+        for invalid in ("0", "-1", "not-an-integer"):
+            with self.subTest(invalid=invalid), self.assertRaises(SystemExit):
+                parser.parse_args(
+                    [
+                        "rotate-key",
+                        "--node-id",
+                        "edge-new",
+                        "--public-key",
+                        "replacement.pub",
+                        "--expected-current-key-version",
+                        invalid,
+                    ]
+                )
+
+    def test_rotate_key_stale_or_future_version_fails_without_key_mutation(self):
+        module = load_module()
+        for expected, current in ((1, 2), (3, 2)):
+            with self.subTest(expected=expected, current=current):
+                cursor = mock.MagicMock()
+                cursor.__enter__.return_value = cursor
+                cursor.fetchone.side_effect = [None, {"key_version": current}]
+                connection = mock.MagicMock()
+                connection.cursor.return_value = cursor
+                args = types.SimpleNamespace(
+                    node_id="edge-new",
+                    public_key=pathlib.Path("replacement.pub"),
+                    expected_current_key_version=expected,
+                )
+
+                with mock.patch.object(module, "connect", return_value=connection), mock.patch.object(
+                    module, "load_public_key", return_value=("NEW PUBLIC PEM\n", "SHA256:new")
+                ):
+                    with self.assertRaisesRegex(ValueError, "key version mismatch"):
+                        module.cmd_rotate_key(args)
+
+                update, lookup = cursor.execute.call_args_list
+                self.assertIn("AND key_version = %s", update.args[0])
+                self.assertEqual(("NEW PUBLIC PEM\n", "SHA256:new", "edge-new", expected), update.args[1])
+                self.assertTrue(lookup.args[0].lstrip().upper().startswith("SELECT"))
+                self.assertEqual(("edge-new",), lookup.args[1])
+                connection.close.assert_called_once_with()
+
+    def test_rotate_key_missing_node_fails_without_key_mutation(self):
+        module = load_module()
+        cursor = mock.MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.side_effect = [None, None]
+        connection = mock.MagicMock()
+        connection.cursor.return_value = cursor
+        args = types.SimpleNamespace(
+            node_id="missing-node",
+            public_key=pathlib.Path("replacement.pub"),
+            expected_current_key_version=1,
         )
 
         with mock.patch.object(module, "connect", return_value=connection), mock.patch.object(
             module, "load_public_key", return_value=("NEW PUBLIC PEM\n", "SHA256:new")
         ):
-            module.cmd_rotate_key(args)
+            with self.assertRaisesRegex(ValueError, "does not exist"):
+                module.cmd_rotate_key(args)
 
-        query, params = cursor.execute.call_args.args
-        self.assertIn("key_version = key_version + 1", query)
-        self.assertIn("active = TRUE", query)
-        self.assertEqual(("NEW PUBLIC PEM\n", "SHA256:new", "edge-new"), params)
+        update, lookup = cursor.execute.call_args_list
+        self.assertIn("AND key_version = %s", update.args[0])
+        self.assertTrue(lookup.args[0].lstrip().upper().startswith("SELECT"))
         connection.close.assert_called_once_with()
 
     def test_parser_exposes_atomic_account_alias_reconciliation(self):

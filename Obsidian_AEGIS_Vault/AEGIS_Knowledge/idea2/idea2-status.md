@@ -238,6 +238,57 @@ Monitor unless stated. Neutral runs remove both database URL variables and set
 
 ## Current Task
 
+Task: IDEA2 pre-live Windows Identity Agent blocker fixes and safe Node key rotation
+Branch: `fix/idea2-prelive-windows-agent-blockers`
+Owner: Pub
+PR: Pending Draft publication after repository-only verification
+Current state: SOURCE VERIFIED — Draft PR publication pending; real Windows retest required
+Started: 2026-10-02
+Starting SHA: `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f`
+Production mutation allowed: NO
+
+### Goal
+
+Repair the confirmed pywin32 312 SID-comparison incompatibility, split the
+fresh DataRoot `icacls` owner/grant lifecycle into checked safe operations, and
+make public-node key rotation compare-and-swap on an explicit current key
+version before the human resumes any live Machine A or Production action.
+
+### Scope and safety
+
+Only Identity Agent ACL source/tests, the Windows installer lifecycle
+source/tests, Monitor Node CLI source/tests/documentation, this canonical note,
+the task plan, and one final immutable receipt may change. Machine A, the
+installed service/runtime, keys, camera, tunnel, Production, Production DB, and
+containers remain untouched. Real Windows acceptance remains pending after
+human merge.
+
+### Acceptance criteria
+
+The new tests must fail against the starting source and pass after the minimal
+fixes. ACL validation remains canonical-SID based and fail-closed; the final
+DataRoot owner/DACL remains service/SYSTEM only; rotation requires a positive
+expected version and atomically updates exactly one matching row while
+preserving the reviewed `active = TRUE` reactivation behavior. Targeted and
+broader relevant tests, PowerShell parsing, governance, Vault, diff, secret
+scan, source hash, clean Git state, normal push, and one Draft PR are required.
+
+## Session Register — Pre-Live Blocker Fix A
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PLB-A-S1 | Canonical SID validation, fresh DataRoot ACL ordering, Node key CAS, final source-only verification/publication | SOURCE VERIFIED | RED reproduced for missing `EqualSid`, combined owner/grant command, and missing CAS. GREEN: ACL 9/9; Windows/Agent lifecycle 91/91; adjacent Agent protocol 53 pass/2 native-pywin32 skips; Node CLI 28/28; Monitor 179 pass/58 conditional PostgreSQL skips; governance/Vault 58/58; Vite build, PowerShell parse, diff, and secret scan pass. | `fb98dfac75846ec8771a88f92ccb61af796e2f0e` | canonical SID equality and exact mask; checked grant→owner→temporary-admin removal; expected-version CAS preserving reviewed reactivation | human merge and real Machine A Windows retest; no live key rotation performed | publish one Draft PR and wait for human review |
+
+Authoritative Identity Agent source hash after the fix:
+`D1EEAE02CDF7F9E6A58D775F73E238905EE99618D17F28C511D81DAA45278F48`.
+The source-only verification does not claim live pywin32 312, `icacls`, service,
+DPAPI, key-rotation, camera, tunnel, or Production acceptance. The full Engine
+discovery run remains environment-limited by absent optional `requests`,
+OpenCV, and Starlette packages; all affected installed-dependency suites listed
+above passed.
+
+## Parent Task Context — Machine A No-PowerShell Runtime
+
 Task: IDEA2 Machine A permanent No-PowerShell runtime
 Branch: `feat/idea2-machine-a-no-powershell-runtime`
 Owner: Pub
