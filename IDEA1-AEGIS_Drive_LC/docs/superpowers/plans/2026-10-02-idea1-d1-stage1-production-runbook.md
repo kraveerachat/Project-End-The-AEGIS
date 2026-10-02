@@ -1,6 +1,7 @@
 # IDEA1 D-1 Stage 1 — Compatibility / read-only Production runbook
 
-> **Package status:** `STAGE1_PACKAGE=READY_FOR_HUMAN_REVIEW`.
+> **Package status:** `STAGE1_PACKAGE=READY_FOR_HUMAN_REVIEW`; Human package-review decisions D1–D5 recorded in §3;
+> local rollback A′ rehearsal (D4) recorded in §16.1. `HG_S1` is the Human Owner's decision and is **not** granted by this document.
 > **Nothing in this document has been executed.** `PRODUCTION_MIGRATION_EXECUTED=NO`,
 > `PRODUCTION_DEPLOYED=NO`, `PRODUCTION_FLAGS_CHANGED=NO`, `WRITER_ENABLED=NO`.
 > Every command below is for the **Human Owner** to run, only after separate
@@ -78,15 +79,30 @@ are missing. A failed boot is a configuration STOP, not something to work around
 - Never create preview-index data. Stage 1 must end with zero index rows.
 - Any `STOP` line ends the session. Never rewrite an expected value to make a check pass.
 
-## 3. Open items the Human Owner must decide before HG-S1
+## 3. Human package-review decisions (2026-10-02)
 
-| # | Finding (verified against source at the candidate SHA) | Effect on Stage 1 acceptance | Recommended decision |
-|---|---|---|---|
-| D1 | **No preview-index write route exists in the Stage 1 build.** `requirePreviewIndexWrite` (503 `PREVIEW_INDEX_WRITE_DISABLED`) is defined in `server/routes/vaultPreviewIndex.js` but mounted on no route; the router has zero `post/put/patch/delete/all` handlers (static count `0`). Test `PI-API-8` pins that `POST/PUT/DELETE /api/vault/tree/preview-index/*` return **404**. In a browser, a mutating request without a CSRF token is rejected **403** by the CSRF gate before it reaches the router. | The handoff/plan expectation "write route → 503 `PREVIEW_INDEX_WRITE_DISABLED`" **cannot be observed at Stage 1**. It becomes observable only at Stage 2 when PR-C mounts the CAS/upload routes. | Replace S-WRITE with: (a) static proof `WRITE_ROUTE_PRESENT=NO` at the exact SHA, (b) `/state previewIndexWriteEnabled=false`, (c) boot log `write disabled`, (d) zero index rows before and after acceptance. Do **not** send mutating probes to Production. Carry the 503 check into Stage 2. |
-| D2 | `GET /preview-index/head` requires the caller to be `TREE_V1`; otherwise it answers **409 `TREE_STATE_CONFLICT`**, not 404. | A `NEWLY_CREATED_USER` that has not completed normal Vault setup reaches 409, not the 404 the matrix expects. | Each test account completes ordinary Vault setup/unlock through the UI **before** S-HEAD. A 409 is recorded as `ACCOUNT_NOT_TREE_V1`, never as PASS or as a Stage 1 configuration failure. |
-| D3 | The client wrapper `getPreviewIndexHead` maps **both** 404 `PREVIEW_INDEX_NOT_FOUND` **and** 503 `PREVIEW_INDEX_DISABLED` to "no index". | Browser behaviour is identical whether READ is correctly on or wrongly off, so the browser matrix alone cannot prove Stage 1 config. | S-HEAD (server response code per account) is mandatory; 503 = Stage 1 FAIL. |
-| D4 | Plan Task I.2 (local rollback matrix incl. Case A′) belongs to PR-E and **has not been executed**. Case A′ safety here is by source inspection only: the P1 boot probe checks only the seven migration-011 tables with `to_regclass`; migration 012 creates three new tables and widens one CHECK (all P1 lifecycle values remain valid) and rewrites no row. | Rollback A′ in Production would be its first execution. | Either accept the source-level argument and treat the Production A′ rehearsal (Step 12) as the proof, or require a local A′ rehearsal (P1 server on PostgreSQL 15 with 011+012 applied) before HG-S1. |
-| D5 | The full live Compose chain after P1 is not recorded in the repository (only the P1 overlay path and SHA-256 are). | The chain cannot be pinned in this document. | Step 2 captures the live chain from the running container's Compose labels and requires it to end with the recorded P1 overlay. Any unexplained element stops the rollout. |
+| # | Decision | Effect on this runbook |
+|---|---|---|
+| D1 | `D1_STAGE1_WRITE_503_SUBSTITUTE=APPROVED`. The Stage 1 build has **no** preview-index mutation route: `requirePreviewIndexWrite` (503 `PREVIEW_INDEX_WRITE_DISABLED`) is defined in `server/routes/vaultPreviewIndex.js` but mounted on no route (static mutating-handler count `0`; test `PI-API-8`). An authenticated `POST /api/vault/tree/preview-index/head` returns **404 `{"error":"Not found"}`**; a browser request without a CSRF token is rejected 403 earlier. No runtime code is changed to produce a 503. | `STAGE1_WRITE_ROUTE_PRESENT=NO`, `STAGE1_WRITE_ROUTE_404=EXPECTED`, `STAGE1_WRITE_CAPABILITY=NOT_ROUTABLE`, `STAGE2_WRITE_DISABLED_503_REQUIRED=YES`. Stage 1 S-WRITE = `/state previewIndexWriteEnabled=false` + mutation route absent/404 + boot line `write disabled` + zero preview-index rows. **503 is not required at Stage 1**; the live 503 write-gate acceptance moves to Stage 2 (post-PR-C). Do not send mutating probes to Production. |
+| D2 | `D2_NEW_USER_SETUP_PRECONDITION=APPROVED`. `GET /preview-index/head` requires TREE_V1; before Vault setup it answers **409 `TREE_STATE_CONFLICT`**. | NEWLY_CREATED_USER before Vault setup: `409 = ACCOUNT_NOT_SETUP` — neither PASS nor FAIL. The account completes normal Vault setup; only a subsequent **404 `PREVIEW_INDEX_NOT_FOUND`** may PASS that cell. |
+| D3 | `D3_SERVER_SIDE_HEAD_CHECK_REQUIRED=APPROVED`. The client maps both 404 `PREVIEW_INDEX_NOT_FOUND` and 503 `PREVIEW_INDEX_DISABLED` to the original fallback, so browser behaviour alone cannot prove READ is on. | S-HEAD (direct authenticated `GET /api/vault/tree/preview-index/head`) is mandatory per account. After Vault setup expect 404 `PREVIEW_INDEX_NOT_FOUND`; 503 `PREVIEW_INDEX_DISABLED` = Stage 1 configuration FAIL. |
+| D4 | `D4_LOCAL_ROLLBACK_A_PRIME_REQUIRED_BEFORE_HG_S1=YES`; `HG_S1=WITHHELD_PENDING_LOCAL_ROLLBACK_A_PRIME`. | Local disposable rehearsal recorded in §16.1. HG-S1 may be requested only after it passes. |
+| D5 | `D5_LIVE_COMPOSE_DISCOVERY_FAIL_CLOSED=APPROVED`. | Step 2 discovers the live chain read-only from container labels and STOPs if the chain cannot be determined, an unexpected Compose file is present, the active image/revision differs from the expected authority, an unrelated overlay would be dropped, or any discovered state contradicts this runbook. No mutation during discovery. |
+
+Corroborating independent rehearsal (Codex, local, recorded as reported to the Human Owner; it did **not** cover rollback A′):
+
+```text
+MAIN_SHA=4a8cc3c95e2f4147fbab9c505079c0377a271d99
+MIGRATION012_LOCAL=PASS
+SERVER_BOOT=PASS
+HEALTHZ=200
+STATE_FLAGS=schema=true,read=true,write=false
+HEAD_ABSENT_404=PASS
+WRITE_ROUTE_POST=404_EXPECTED_FOR_STAGE1
+INDEX_ROWS_CREATED=0
+FOCUSED_COMPAT_TESTS=60/60 PASS
+PRODUCTION_TOUCHED=NO
+```
 
 ## 4. Step 0 — approved build workstation: build the exact-source image (Human)
 
@@ -185,12 +201,19 @@ LIVE_CONFIG_FILES=$("${D[@]}" inspect aegis-prod-drive-1 --format '{{index .Conf
 printf 'LIVE_PROJECT=%s\nLIVE_SERVICE=%s\nLIVE_CONFIG_FILES=%s\n' "$LIVE_PROJECT" "$LIVE_SERVICE" "$LIVE_CONFIG_FILES"
 test "$LIVE_PROJECT" = aegis-prod || { echo 'STOP: live Drive Compose project mismatch' >&2; exit 1; }
 test "$LIVE_SERVICE" = drive || { echo 'STOP: live Drive Compose service mismatch' >&2; exit 1; }
+test -n "$LIVE_CONFIG_FILES" || { echo 'STOP: live Compose chain cannot be determined' >&2; exit 1; }
+LIVE_ENV_FILE=$("${D[@]}" inspect aegis-prod-drive-1 --format '{{index .Config.Labels "com.docker.compose.project.environment_file"}}')
+printf 'LIVE_ENV_FILE=%s
+' "$LIVE_ENV_FILE"   # path only; never print its contents
+test "$LIVE_ENV_FILE" = /opt/aegis/Project-End-The-AEGIS/.env || { echo 'STOP: live env-file differs from the runbook COMPOSE definition' >&2; exit 1; }
 IFS=',' read -r -a LIVE_FILES <<< "$LIVE_CONFIG_FILES"
 CHAIN=(); for f in "${LIVE_FILES[@]}"; do test -f "$f" || { echo "STOP: live chain file missing: $f" >&2; exit 1; }; CHAIN+=(-f "$f"); done
 test "${LIVE_FILES[-1]}" = "$EXPECTED_P1_OVERLAY" || { echo 'STOP: live chain does not end with the accepted P1 overlay' >&2; exit 1; }
 case "$LIVE_CONFIG_FILES" in *preview-d1*) echo 'STOP: a D-1 overlay is already in the live chain' >&2; exit 1;; esac
 test "$(sha256sum "$EXPECTED_P1_OVERLAY" | cut -d' ' -f1)" = "$EXPECTED_P1_OVERLAY_SHA256" || { echo 'STOP: P1 overlay SHA-256 mismatch' >&2; exit 1; }
-# Human: read the printed chain and confirm every element is explained. Any unexplained file → STOP.
+# Human: read the printed chain and confirm every element is explained. Any unexplained or unexpected file → STOP.
+# Every live file is re-used verbatim in CHAIN, so no unrelated overlay can be dropped by Stage 1 or by rollback A′.
+# Discovery is read-only: nothing above writes, restarts, or renders to disk.
 
 # 2.2 Running Drive / PostgreSQL / rollback image presence
 IFS='|' read -r CUR_IMAGE CUR_HEALTH CUR_RESTARTS CUR_OOM < <("${D[@]}" inspect aegis-prod-drive-1 --format '{{.Config.Image}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}|{{.State.OOMKilled}}')
@@ -202,6 +225,8 @@ P1_REV=$("${D[@]}" image inspect "$EXPECTED_CURRENT_DRIVE_IMAGE" --format '{{ind
 P1_IMAGE_ID=$("${D[@]}" image inspect "$EXPECTED_CURRENT_DRIVE_IMAGE" --format '{{.Id}}')
 printf 'P1_REV=%s\nP1_IMAGE_ID=%s\n' "$P1_REV" "$P1_IMAGE_ID"
 test "$P1_REV" = "$EXPECTED_CURRENT_REVISION" || { echo 'STOP: rollback image revision mismatch' >&2; exit 1; }
+RUNNING_IMAGE_ID=$("${D[@]}" inspect aegis-prod-drive-1 --format '{{.Image}}')
+test "$RUNNING_IMAGE_ID" = "$P1_IMAGE_ID" || { echo 'STOP: running Drive image ID differs from the tagged P1 image (tag moved?)' >&2; exit 1; }
 IFS='|' read -r PG_IMAGE PG_HEALTH PG_RESTARTS PG_OOM < <("${D[@]}" inspect aegis-prod-postgres-1 --format '{{.Config.Image}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}|{{.State.OOMKilled}}')
 printf 'PG_IMAGE=%s\nPG_HEALTH=%s\nPG_RESTARTS=%s\nPG_OOM=%s\n' "$PG_IMAGE" "$PG_HEALTH" "$PG_RESTARTS" "$PG_OOM"
 test "$PG_HEALTH" = healthy || { echo 'STOP: PostgreSQL not healthy' >&2; exit 1; }
@@ -373,7 +398,7 @@ echo 'MIGRATION_012_VERIFIED=YES'
 Required: `D1_TABLE_COUNT=3`; `TREE_TABLE_COUNT=7`; `LIFECYCLE_CHECK_COUNT=1` named
 `vault_tree_blob_state_lifecycle_check` listing all six values (`UNREFERENCED, TREE_MANAGED, PURGE_PENDING, PURGED,
 INDEX_STAGED, INDEX_MANAGED`); `D1_TRIGGERS` contains both D-1 triggers and the 011 trigger;
-`DRIVE_APP_D1_GRANTS` = `INSERT, SELECT, UPDATE` on each of the three tables (9 entries, **no DELETE / TRUNCATE**);
+`DRIVE_APP_D1_GRANTS` contains `INSERT, SELECT, UPDATE` on each of the three tables and **no `TRUNCATE`, `REFERENCES`, or `TRIGGER`**. `DELETE` is **expected** as well on Production: `postgres/init/02-app-roles.sh` sets `ALTER DEFAULT PRIVILEGES … GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO drive_app` for the superuser that runs this migration, so new tables inherit it (12 entries; the local rehearsal with the same role model reproduced exactly this). Deletion of generations and blob refs is still refused by the two D-1 triggers; `vault_preview_index_heads` has no delete trigger, and no Stage 1 code path writes or deletes any preview-index row (noted for the PR-C/HG-C integration review). Record the exact list;
 all three `D1_*_ROWS=0`; `INDEX_LIFECYCLE_ROWS=0`; `LIFECYCLE_ROWS` identical to the Step 2 baseline;
 `INVALID_INDEX_COUNT=0`; both data fingerprints equal; schema fingerprint changed (expected); P1 Drive still healthy.
 
@@ -469,9 +494,19 @@ git grep -n requirePreviewIndexWrite $SHA -- IDEA1-AEGIS_Drive_LC/server        
 Pre-filled from package preparation at the candidate SHA: mutating-handler count `0`; `requirePreviewIndexWrite`
 appears only at its definition (`server/routes/vaultPreviewIndex.js:44`), mounted nowhere.
 
-Stage 1 S-WRITE verdict = `WRITE_ROUTE_PRESENT=NO` + `/state previewIndexWriteEnabled=false` (S-STATE) + boot line
-`write disabled` (S-BOOT) + zero index rows (S-DB, and again after browser acceptance). The 503
-`PREVIEW_INDEX_WRITE_DISABLED` live probe is a **Stage 2** acceptance item.
+Stage 1 S-WRITE verdict (Human decision D1) = `/state previewIndexWriteEnabled=false` (S-STATE) + preview-index mutation
+route **absent / 404** (static count above; reproduced locally: authenticated `POST /api/vault/tree/preview-index/head`
+→ `404 {"error":"Not found"}`) + boot line `write disabled` (S-BOOT) + zero preview-index rows (S-DB, and again after
+browser acceptance). Do not send mutating probes to Production.
+
+```text
+STAGE1_WRITE_ROUTE_PRESENT=NO
+STAGE1_WRITE_ROUTE_404=EXPECTED
+STAGE1_WRITE_CAPABILITY=NOT_ROUTABLE
+STAGE2_WRITE_DISABLED_503_REQUIRED=YES
+```
+
+503 `PREVIEW_INDEX_WRITE_DISABLED` is **not** a Stage 1 requirement; it is a mandatory Stage 2 (post-PR-C) acceptance item.
 
 ### S-STATE and S-HEAD — authenticated, once per test account (browser DevTools console)
 
@@ -491,7 +526,7 @@ tree id, blob id, or token.
   }
   out.verdict =
     hd.s === 503 && out.headCode === 'PREVIEW_INDEX_DISABLED' ? 'FAIL_CONFIG_READ_OFF' :
-    hd.s === 409 ? 'ACCOUNT_NOT_TREE_V1' :
+    hd.s === 409 ? 'ACCOUNT_NOT_SETUP' :
     (st.s === 200 && out.previewIndexSchemaAvailable === true && out.previewIndexReadEnabled === true && out.previewIndexWriteEnabled === false &&
      out.mediaPreviewEnabled === true && out.destructivePurgeEnabled === false &&
      hd.s === 404 && out.headCode === 'PREVIEW_INDEX_NOT_FOUND' && /no-store/.test(out.headCacheControl ?? '')) ? 'PASS' : 'FAIL'
@@ -510,6 +545,10 @@ tree id, blob id, or token.
 
 `200` on `/head` (an index exists) is a STOP: no index may exist at Stage 1. `503 PREVIEW_INDEX_DISABLED` is a
 configuration FAIL, not acceptance.
+
+`ACCOUNT_NOT_SETUP` (409 before Vault setup) is neither PASS nor FAIL (§3 D2): complete normal Vault setup in the UI, re-run
+the snippet, and only a `404 PREVIEW_INDEX_NOT_FOUND` result may mark the cell PASS. Record both runs for
+NEWLY_CREATED_USER.
 
 ## 13. Step 9 — browser acceptance matrix (Human)
 
@@ -670,13 +709,70 @@ These checks validate the package, not Production. None of them is Stage 1 accep
 | `git merge-base --is-ancestor fa22edd5 4a8cc3c9` / `3747a183 4a8cc3c9` | PR-A and PR-B both in candidate |
 | `origin/main` at package start | `4a8cc3c95e2f4147fbab9c505079c0377a271d99` (unchanged from handoff) |
 | `bash -n` on every ```bash block of this runbook; `node --check` on the console snippet | all pass |
-| Disposable `postgres:15-alpine` (15.18), P1-era `schema.sql` at `8634360f`, seeded lifecycle rows, §6 2.5 SQL → §8 migration (verbatim file, SHA-256 `aaeee44a…edb5`) → §9 verification → §12 S-DB → second application | pre: 7 tree tables, 0 D-1 tables, four-value CHECK; migration output exactly as listed in §8; post: 3 D-1 tables, one six-value CHECK, 3 triggers, 9 `drive_app` grants (`SELECT/INSERT/UPDATE`; `DELETE`/`TRUNCATE` false), all D-1/INDEX rows 0, lifecycle distribution unchanged, protected-Vault and tree-state fingerprints unchanged, schema fingerprint changed; re-application no-op with schema fingerprint unchanged |
+| Disposable `postgres:15-alpine` (15.18), P1-era `schema.sql` at `8634360f`, seeded lifecycle rows, **no default privileges** (first pass), §6 2.5 SQL → §8 migration (verbatim file, SHA-256 `aaeee44a…edb5`) → §9 verification → §12 S-DB → second application | pre: 7 tree tables, 0 D-1 tables, four-value CHECK; migration output exactly as listed in §8; post: 3 D-1 tables, one six-value CHECK, 3 triggers, 9 explicit `drive_app` grants (`SELECT/INSERT/UPDATE`; `DELETE`/`TRUNCATE` false without default privileges — with the Production default-privilege model `DELETE` is also granted, see §16.1), all D-1/INDEX rows 0, lifecycle distribution unchanged, protected-Vault and tree-state fingerprints unchanged, schema fingerprint changed; re-application no-op with schema fingerprint unchanged |
 | `docker compose config` with a synthetic base + PR187-style flags + both D-1 overlays | `--quiet` pass; images = candidate only; rendered flags = SCHEMA/READ true, WRITE false, media true, purge false, `VAULT_TREE_*` inherited, no budget variable; without D-1 overlays the render returns the P1 image |
 | `vaultTreeConfigFromEnv` (candidate) with the Stage 1 env | boots; budget `null`; READ with media off rejected; WRITE without budget rejected |
 | Static write-route count at candidate SHA | `0`; `requirePreviewIndexWrite` defined only, mounted nowhere |
 
-Not covered by package preparation: building the image, the Production live chain, the P1 image on a migrated
-database at runtime (§3 D4), any HTTP acceptance, any browser check.
+Not covered by package preparation: the Production image build, the Production live chain, any Production HTTP
+acceptance, any browser check.
+
+### 16.1 Local rollback A′ runtime rehearsal (Human decision D4; LOCAL / DISPOSABLE; no Production)
+
+Harness (committed, reproducible): `IDEA1-AEGIS_Drive_LC/deploy/production/d1/rehearsal/rollback-a-prime-rehearsal.sh`
++ `rollback-a-prime-driver.mjs`. The driver drives each running server over HTTP with the **real client modules of
+the same revision** (P1 client against P1, candidate client against Stage 1): cookie + CSRF login with the forced
+first-login reset, Argon2id Vault setup/unlock, genesis to TREE_V1, chunked V2 tree upload, manifest CAS commits
+(create folder / rename / move / trash / restore), chunked V2 download with SHA-256 comparison, recovery listing,
+and lock via the unlocked-state purge.
+
+Environment: Docker 28.3.2 (Windows), `postgres:15-alpine` 15.18, one disposable network, PostgreSQL container, and
+two named volumes (`/datalake`, media cache) shared by every boot; all removed at the end. Database = P1-era
+`schema.sql` + `seed.sql` from `8634360f` plus the Production role model of `postgres/init/02-app-roles.sh`
+(`drive_app` NOSUPERUSER/NOINHERIT, DML grants, `ALTER DEFAULT PRIVILEGES`). Drive containers run with
+`NODE_ENV=production` (image default), `DATABASE_URL` as `drive_app`, `COOKIE_SECURE=false` (plain local HTTP),
+`TRUSTED_PROXY_CIDRS=172.19.255.2/32` (approved HUB identity; required for production boot), and the PR187 Stage D
+tree flags (schema/protocol/genesis/UI/media true, purge false); Stage 1 adds SCHEMA/READ true, WRITE false.
+
+```text
+P1_IMAGE_LOCAL=aegis-local-rehearsal-drive:p1-8634360f74ed   (docker build of the exact P1 tree, OCI revision label 8634360f74ed2f50b2fcb49925a3d273c605a8a2)
+ROLLBACK_IMAGE_EXACT_PRODUCTION_ARTIFACT=NO                  (aegis-prod-drive:p1-8634360f74ed is not present on the rehearsal host)
+ROLLBACK_CODE_REVISION_EXACT=YES                             (package.json / package-lock.json / Dockerfile identical between P1 and the candidate)
+STAGE1_IMAGE_LOCAL=aegis-local-rehearsal-drive:preview-d1-s1-4a8cc3c95e2f (exact candidate tree, OCI revision 4a8cc3c95e2f4147fbab9c505079c0377a271d99)
+P1_IMAGE_LOCAL_ID=sha256:b8285defb87c50a1b14570ba6c75e34d35e442892d47396f3df325eccd862f09   (local; differs from the Production artifact ID by construction)
+STAGE1_IMAGE_LOCAL_ID=sha256:0eea28d0a5bd14eb28d4dfcbf591bcce6e99164c42a2d5271ca733af197b000e
+RUNTIME=node v20.20.2 / Alpine 3.23.4 / user node (both images)
+```
+
+| Step | Result |
+|---|---|
+| 1–2 P1 on pre-migration DB; seed ADMIN + EXISTING_USER (setup, genesis TREE_V1, folder, 2 files each, byte-exact read-back) | `PHASE_SEED=PASS (10/10)`; healthz 200; 7 tree tables, 0 D-1 tables; 4 V2 blobs `TREE_MANAGED`; heads g4/g4 |
+| 3 Migration 012 exactly as §8 (verbatim Git blob SHA-256 `aaeee44a…edb5`, superuser, `ON_ERROR_STOP`, timeouts) | applied; output as listed in §8; six-value CHECK; **12** `drive_app` grants incl. `DELETE` via default privileges (no `TRUNCATE`); 0 D-1 rows; lifecycle rows, users, blobs, heads unchanged |
+| 4 Stage 1 boot on the migrated DB; all three account classes | `PHASE_STAGE1=PASS (19/19)`; boot line `schema verified, read enabled, write disabled`; `/state` schema/read true, write false; `GET head` → 404 `PREVIEW_INDEX_NOT_FOUND` + `no-store` (ADMIN, EXISTING_USER, NEWLY_CREATED_USER); authenticated `POST head` → `404 {"error":"Not found"}`; NEWLY_CREATED_USER before Vault setup → **409 `TREE_STATE_CONFLICT` (ACCOUNT_NOT_SETUP)**, after setup → 404; seed files byte-exact; one Stage 1 upload |
+| 5 Stop Stage 1 application only | PostgreSQL + volumes kept; 0 D-1 rows; 0 `INDEX_*` rows |
+| 6–12 **Rollback A′**: P1 on the same migrated DB, no down-migration; all three accounts | `PHASE_P1=PASS (47/47)`; healthz 200; restarts 0; OOM false; login, unlock, browse, ordinary upload, download byte-exact (seed, Stage 1, new), rename, move, trash, restore, byte-exact after rename/move/restore, recovery listing (0 orphans, nothing offered), lock; P1 `GET /preview-index/head` → 404 (no route) |
+| 10–12 after rollback | `D1_TABLE_COUNT=3` (**migration 012 retained**); 0 D-1 rows; 0 `INDEX_*` rows; seed `vault_v2_blobs` rows fingerprint identical to pre-migration (`SEED_BLOB_ROWS_INTACT=YES`) |
+| 13–15 Stop P1; **forward** Stage 1 on the same DB | `PHASE_FORWARD=PASS (23/23)`; healthz 200; boot line `write disabled`; flags schema/read true, write false; head 404 for all three; POST head 404; every known file (seed, Stage 1, P1-rollback) byte-exact; lock; 0 D-1 / `INDEX_*` rows |
+| Cleanup | containers, volumes, network removed |
+
+The whole sequence ran twice end to end (a working copy, then the committed harness verbatim with `P1_ROOT`/`S1_ROOT`
+pointing at clean detached worktrees of `8634360f` and `4a8cc3c9`); both runs produced the identical result above.
+
+```text
+ROLLBACK_A_PRIME_LOCAL=PASS
+P1_BOOT_ON_MIGRATION012=PASS
+P1_EXISTING_FLOWS=PASS (3 account classes)
+MIGRATION012_RETAINED=YES
+INDEX_ROWS_AFTER_ROLLBACK=0
+FORWARD_STAGE1_BOOT=PASS
+FORWARD_STAGE1_HEAD_404=PASS (3 account classes)
+```
+
+Limits of this rehearsal: not the Production image artifact (exact code revision, local build); not Production data
+volume or scale; no gateway/Twingate path; no browser UI (client modules run in Node, so tile rendering and browser
+DevTools checks remain for the Human matrices); "lock" is the client-side unlocked-state purge, which is how the
+product implements lock (the server has no lock endpoint); the recovery listing had no orphan to show, so it proves
+the listing works and offers no `INDEX_*` blob, not orphan recovery itself.
 
 ## 17. Evidence record (fill only with executed results)
 

@@ -22,19 +22,22 @@ edit_policy: owner-writable
 | Task | IDEA1-UNIFIED-PREVIEW-D1 Phase J Stage 1 (compatibility / read-only, writer OFF) — deployment package preparation only |
 | Branch | `deploy/idea1-preview-d1-stage1` from `origin/main` `4a8cc3c95e2f4147fbab9c505079c0377a271d99` (PR-A #283 + PR-B #285 merged) |
 | Owner | kla |
-| PR | Draft, do not merge until package review completes |
-| State | **STAGE1_PACKAGE=READY_FOR_HUMAN_REVIEW**. Overlays under `IDEA1-AEGIS_Drive_LC/deploy/production/d1/` and runbook `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-10-02-idea1-d1-stage1-production-runbook.md` prepared. `PRODUCTION_MIGRATION_EXECUTED=NO`, `PRODUCTION_DEPLOYED=NO`, `PRODUCTION_FLAGS_CHANGED=NO`, `WRITER_ENABLED=NO`. |
+| PR | #294 (Draft; do not merge) |
+| State | **STAGE1_PACKAGE=READY_FOR_HUMAN_REVIEW; Human decisions D1–D5 recorded; local rollback A′ PASS; `HG_S1` pending Human decision**. Overlays under `IDEA1-AEGIS_Drive_LC/deploy/production/d1/` and runbook `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-10-02-idea1-d1-stage1-production-runbook.md` prepared. `PRODUCTION_MIGRATION_EXECUTED=NO`, `PRODUCTION_DEPLOYED=NO`, `PRODUCTION_FLAGS_CHANGED=NO`, `WRITER_ENABLED=NO`. |
 | Production mutation allowed | **NO** (Human-only after HG-S1) |
 | Candidate | image `aegis-prod-drive:preview-d1-s1-4a8cc3c95e2f` (not built); rollback A′ target `aegis-prod-drive:p1-8634360f74ed` with migration 012 retained |
-| Next gate | Human package review, then decisions D1–D5 in runbook §3 (write-route 503 unobservable at Stage 1; NEWLY_CREATED_USER must be TREE_V1; Case A′ not locally rehearsed; live chain captured at run time), then HG-S1 |
+| Next gate | Human Owner HG-S1 decision (was `WITHHELD_PENDING_LOCAL_ROLLBACK_A_PRIME`; that rehearsal now PASS — runbook §16.1). Production execution remains Human-only. |
 
 ### Session Register — D1-STAGE1
 
 | ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
 |---|---|---|---|---|---|---|
-| D1S1-S1 | Stage 1 overlay, migration-012 runbook, server acceptance, LAN/REMOTE browser matrix, rollback A′ and forward redeploy checklists | Package ready for Human review | Candidate contains PR-A and PR-B; runbook bash/JS syntax pass; runbook SQL rehearsed on disposable PostgreSQL 15.18 with P1-era schema (migration 012 applies, re-applies as no-op, Vault/tree fingerprints unchanged, `drive_app` has no DELETE/TRUNCATE); overlay merge rendered with synthetic chain; Stage 1 env boots candidate config with budget unset | This branch | Human review; HG-S1; Human execution | No agent Production action |
+| D1S1-S1 | Stage 1 overlay, migration-012 runbook, server acceptance, LAN/REMOTE browser matrix, rollback A′ and forward redeploy checklists | Package reviewed: D1–D5 decided | Candidate contains PR-A and PR-B; runbook bash/JS syntax pass; runbook SQL rehearsed on disposable PostgreSQL 15.18 with P1-era schema (migration 012 applies, re-applies as no-op, Vault/tree fingerprints unchanged, `drive_app` has no DELETE/TRUNCATE); overlay merge rendered with synthetic chain; Stage 1 env boots candidate config with budget unset | `482967b1` | — | D1S1-S2 |
+| D1S1-S2 | Apply decisions D1–D5; local disposable rollback A′ runtime rehearsal (D4) | PASS | P1 code `8634360f` (local build, not the Production artifact) on PostgreSQL 15.18 with migration 012 + Production role model: seed 10/10, Stage 1 19/19, P1 rollback 47/47 (3 account classes: login, unlock, browse, upload, byte-exact download, rename, move, trash, restore, recovery listing, lock), forward Stage 1 23/23; migration 012 retained; 0 preview-index / `INDEX_*` rows throughout; run twice, identical | This branch | Human HG-S1 decision; Human execution | No agent Production action |
 
 D1S1-S1 (2026-10-02): source inspection found the Stage 1 build has **no** preview-index write route (`requirePreviewIndexWrite` is defined but unmounted until PR-C; mutating requests return 404, or 403 at the CSRF gate in a browser), so the "write route → 503 `PREVIEW_INDEX_WRITE_DISABLED`" expectation applies at Stage 2; Stage 1 substitutes static absence + `/state` write=false + boot line + zero index rows. `GET /preview-index/head` returns 409 for a non-TREE_V1 account, and the client maps both 404 and 503 to "no index", so per-account server-side head checks are mandatory.
+
+D1S1-S2 (2026-10-02): Human decisions — `STAGE1_WRITE_ROUTE_PRESENT=NO`, `STAGE1_WRITE_ROUTE_404=EXPECTED`, `STAGE1_WRITE_CAPABILITY=NOT_ROUTABLE`, `STAGE2_WRITE_DISABLED_503_REQUIRED=YES`; NEWLY_CREATED_USER 409 before Vault setup = `ACCOUNT_NOT_SETUP` (neither PASS nor FAIL); direct server head check mandatory; live Compose discovery fail-closed. The rehearsal also found that Production default privileges (`postgres/init/02-app-roles.sh`) grant `drive_app` DELETE on the three new tables; the runbook previously required "no DELETE" and would have stopped falsely, and now expects it. `vault_preview_index_heads` has no delete trigger (noted for PR-C/HG-C review). Rollback evidence uses `ROLLBACK_IMAGE_EXACT_PRODUCTION_ARTIFACT=NO`, `ROLLBACK_CODE_REVISION_EXACT=YES`.
 
 ## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-B — D-1 PR-B codec, crypto, and read-only reader
 
