@@ -115,7 +115,7 @@ check LIVE_CHAIN_ORDER_SHA256 "$(sha256sum "$TMP/chain.txt" | awk '{print $1}')"
 check LIVE_CHAIN_MANIFEST_SHA256 "$(sha256sum "$TMP/chain.sha256" | awk '{print $1}')" "$(auth LIVE_STAGE1_CHAIN_MANIFEST_SHA256)"
 check LIVE_CHAIN_COUNT "$(wc -l < "$TMP/chain.txt" | tr -d ' ')" "$N"
 check LIVE_CHAIN_MANIFEST_COUNT "$(wc -l < "$TMP/chain.sha256" | tr -d ' ')" "$N"
-check LIVE_CHAIN_NO_CR "$(grep -c $'\r' "$TMP/chain.txt" "$TMP/chain.sha256" | awk -F: '{s+=$2} END {print s}')" 0
+check LIVE_CHAIN_NO_CR "$(cat "$TMP/chain.txt" "$TMP/chain.sha256" | tr -dc '\r' | wc -c | tr -d ' ')" 0
 check LIVE_CHAIN_UNIQUE "$(sort -u "$TMP/chain.txt" | wc -l | tr -d ' ')" "$N"
 check LIVE_CHAIN_ABSOLUTE_RUNTIME "$(grep -cvE '^/opt/aegis/runtime/[A-Za-z0-9._/-]+\.ya?ml$' "$TMP/chain.txt" || true)" 0
 check LIVE_CHAIN_NO_TRAVERSAL "$(grep -c '\.\.' "$TMP/chain.txt" || true)" 0
