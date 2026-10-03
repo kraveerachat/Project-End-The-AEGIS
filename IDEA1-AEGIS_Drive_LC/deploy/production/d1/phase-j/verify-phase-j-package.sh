@@ -70,7 +70,31 @@ done
 
 # Only the declared live/build facts may stay unresolved.
 PENDING=$(grep -E '^[A-Z0-9_]+=<' "$TMP/authority.txt" | cut -d= -f1 | sort | tr '\n' ' ')
-check PENDING_SET "$PENDING" "LIVE_CURRENT_IMAGE LIVE_POSTGRES_USER LIVE_STAGE1_CHAIN LIVE_STAGE1_OVERLAY_PATHS LIVE_STAGE1_OVERLAY_SHA256 S2_IMAGE_ARCHIVE_SHA256 S2_IMAGE_ID S2_OCI_REVISION "
+check PENDING_SET "$PENDING" "LIVE_CURRENT_IMAGE LIVE_POSTGRES_USER LIVE_STAGE1_CHAIN LIVE_STAGE1_OVERLAY_PATHS LIVE_STAGE1_OVERLAY_SHA256 "
+
+# Stage 2 image artifact bindings (recorded at the Step 0 build).
+check S2_OCI_REVISION "$(auth S2_OCI_REVISION)" "$S2_SHA"
+for key in S2_IMAGE_ID S2_IMAGE_CONFIG_DIGEST; do
+  [[ "$(auth "$key")" =~ ^sha256:[0-9a-f]{64}$ ]] && pass "${key}_FORMAT" || fail "${key}_FORMAT"
+done
+[[ "$(auth S2_IMAGE_ARCHIVE_SHA256)" =~ ^[0-9a-f]{64}$ ]] && pass S2_IMAGE_ARCHIVE_SHA256_FORMAT || fail S2_IMAGE_ARCHIVE_SHA256_FORMAT
+[[ "$(auth S2_IMAGE_ARCHIVE_BYTES)" =~ ^[1-9][0-9]*$ ]] && pass S2_IMAGE_ARCHIVE_BYTES_FORMAT || fail S2_IMAGE_ARCHIVE_BYTES_FORMAT
+
+# Optional: when the built archive is present locally, prove it matches the bindings.
+if [ -n "${S2_IMAGE_ARCHIVE_LOCAL:-}" ]; then
+  check S2_ARCHIVE_LOCAL_SHA256 "$(sha256sum "$S2_IMAGE_ARCHIVE_LOCAL" | awk '{print $1}')" "$(auth S2_IMAGE_ARCHIVE_SHA256)"
+  check S2_ARCHIVE_LOCAL_BYTES "$(wc -c < "$S2_IMAGE_ARCHIVE_LOCAL" | tr -d ' ')" "$(auth S2_IMAGE_ARCHIVE_BYTES)"
+  check S2_ARCHIVE_CONFIG_DIGEST \
+    "sha256:$(tar -xOf "$S2_IMAGE_ARCHIVE_LOCAL" manifest.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)[0].Config.split("/").pop()))')" \
+    "$(auth S2_IMAGE_CONFIG_DIGEST)"
+  check S2_ARCHIVE_REPOTAG \
+    "$(tar -xOf "$S2_IMAGE_ARCHIVE_LOCAL" manifest.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)[0].RepoTags.join(",")))')" \
+    "$S2_IMAGE"
+  CFG_BLOB="blobs/sha256/$(auth S2_IMAGE_CONFIG_DIGEST | cut -d: -f2)"
+  check S2_ARCHIVE_REVISION_USER \
+    "$(tar -xOf "$S2_IMAGE_ARCHIVE_LOCAL" "$CFG_BLOB" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const c=JSON.parse(s).config;console.log(c.Labels["org.opencontainers.image.revision"]+"|"+c.User)})')" \
+    "$S2_SHA|$(auth IMAGE_USER)"
+fi
 
 # Overlay bytes (Git LF blob) must match the bound SHA-256.
 blob "$(auth S2_OVERLAY_REPO)" > "$TMP/s2.yml"

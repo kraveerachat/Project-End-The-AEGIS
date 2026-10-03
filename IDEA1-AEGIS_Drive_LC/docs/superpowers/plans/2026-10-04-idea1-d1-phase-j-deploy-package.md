@@ -44,7 +44,7 @@ Every `<PENDING_PHASE_J_DEPLOY_PR>` in V6 resolves as follows. Paste these exact
 | `S2_OVERLAY` | `/opt/aegis/runtime/preview-d1/drive-preview-index-stage2-2cbeb8363acd.yml` |
 | `S2_OVERLAY_SHA256` | `75f992bdb29994238f1d1e1985e4d40113baf346c99e7ba453da2273620b601e` |
 | `IMAGE_ARCHIVE` | `/tmp/aegis-prod-drive-preview-d1-s2-2cbeb8363acd.tar` |
-| `IMAGE_ARCHIVE_SHA256` | **pending** `S2_IMAGE_ARCHIVE_SHA256` (recorded at Step 0 build) |
+| `IMAGE_ARCHIVE_SHA256` | `8ef9aa88fce4e9fe5fd37eb21fb58367077827a601cf29c69d65cabb0de0e922` (Step 0 record below) |
 | `IMAGE_REVISION_LABEL` | `2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b` |
 | `IMAGE_USER` | `node` |
 | `S3_OVERLAY` | `/opt/aegis/runtime/preview-d1/drive-preview-index-stage3-2cbeb8363acd.yml` |
@@ -54,9 +54,10 @@ Overlay SHA-256 values are over Git blob (LF) bytes: `git show <ref>:<path> | sh
 Host paths follow the Stage 1 precedent: archive transferred to `/tmp/`, overlays installed under
 `$RT=/opt/aegis/runtime/preview-d1` (V6 §2).
 
-### Live / build facts still pending
+### Live facts still pending
 
-These cannot be derived from Git or V6 and are captured by the Human / live-capture session only:
+The Stage 2 image artifact is bound (§4 record). These live facts cannot be derived from Git, V6, or the
+build, and are captured by the Human / live-capture session only:
 
 | Token | Captured where |
 |---|---|
@@ -65,9 +66,6 @@ These cannot be derived from Git or V6 and are captured by the Human / live-capt
 | `LIVE_STAGE1_OVERLAY_SHA256` | V6 §S2.2.1 (`pre-stage2-live-chain.sha256`); expected to equal Stage 1 `49b0ad5f…6f78` / `7c5f0df7…6a59` |
 | `LIVE_POSTGRES_USER` | V6 §2 Common Authority Block (resolved dynamically; never hardcoded) |
 | `LIVE_CURRENT_IMAGE` | V6 §S2.3.1; must equal `aegis-prod-drive:preview-d1-s1-9f5a01148ce0` |
-| `S2_IMAGE_ARCHIVE_SHA256` | Step 0 below, and re-checked on the host |
-| `S2_IMAGE_ID` | Step 0 below |
-| `S2_OCI_REVISION` | Step 0 below; must equal `S2_SHA` |
 
 ## 3. Stage contracts
 
@@ -131,13 +129,35 @@ sha256sum "$OUT/aegis-prod-drive-preview-d1-s2-2cbeb8363acd.tar"
 ```
 
 Required: `STAGE1_IN_CANDIDATE=YES`, `REV=2cbeb836…b24b`, `USER=node`, `IMAGE_ENV_CLEAN=YES`,
-`PHASE_J_PACKAGE_VERIFY=PASS`, both overlay hashes as in §2. Record:
+`PHASE_J_PACKAGE_VERIFY=PASS`, both overlay hashes as in §2.
+
+### Step 0 record (build workstation, 2026-10-04 — local only, no Production connection)
 
 ```text
-S2_IMAGE_ID=
-S2_OCI_REVISION=
-S2_IMAGE_ARCHIVE_SHA256=
+SOURCE_SHA=2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b      # detached LF worktree, clean
+BUILD_CONTEXT=IDEA1-AEGIS_Drive_LC  DOCKERFILE=IDEA1-AEGIS_Drive_LC/Dockerfile   # same as Stage 1
+BUILD_INPUTS_SINCE_STAGE1=UNCHANGED                      # Dockerfile, package.json, package-lock.json: 9f5a0114..2cbeb836 empty diff
+BUILDER=Docker Desktop 28.3.2 (containerd image store), linux/amd64
+S2_IMAGE=aegis-prod-drive:preview-d1-s2-2cbeb8363acd
+S2_IMAGE_ID=sha256:3a924636d1b09effcc7eee7f2115f14a735abb6e606eb334bf7dd4f55b9e36ff        # local .Id (OCI index digest; Stage 1 convention)
+S2_IMAGE_CONFIG_DIGEST=sha256:5e1a0096cc487a32028e1643e16bc228b33ae51358b38844d336953299648819  # .Id reported by a classic-store daemon after docker load
+S2_OCI_REVISION=2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b
+S2_OCI_SOURCE=https://github.com/kraveerachat/Project-End-The-AEGIS
+CONTAINER_USER=node (uid=1000 gid=1000)
+IMAGE_ENV_CLEAN=YES
+IMAGE_SOURCE_EQ_GIT=YES                                  # 97/97 files (server/**, package.json, package-lock.json) byte-equal to Git blobs
+SANITY (--network none): node v20.20.2, Alpine 3.23.4, ffmpeg/ffprobe 8.0.1, sharp loads, dist/index.html present,
+  /datalake and /var/cache/aegis-media owned by node, `node --check server/index.js` OK, boot-line source present
+S2_IMAGE_ARCHIVE_LOCAL=C:\Users\User\Downloads\aegis-d1-s2\aegis-prod-drive-preview-d1-s2-2cbeb8363acd.tar
+S2_IMAGE_ARCHIVE_SHA256=8ef9aa88fce4e9fe5fd37eb21fb58367077827a601cf29c69d65cabb0de0e922
+S2_IMAGE_ARCHIVE_BYTES=146528768
 ```
+
+Re-check a local archive against these bindings:
+`S2_IMAGE_ARCHIVE_LOCAL=<path> bash IDEA1-AEGIS_Drive_LC/deploy/production/d1/phase-j/verify-phase-j-package.sh`
+(adds SHA-256, byte count, RepoTag, config digest, and config revision/user checks from inside the archive).
+After V6 §S2.4 `docker load`, the host `docker image inspect "$S2_IMAGE" --format '{{.Id}}'` must equal
+`S2_IMAGE_CONFIG_DIGEST` (classic store) or `S2_IMAGE_ID` (containerd store).
 
 Transfer with the established mechanism (Stage 1 runbook §4 / PR187 §B) — archive and both overlays to `/tmp/` on the host.
 
