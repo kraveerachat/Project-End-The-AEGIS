@@ -72,7 +72,9 @@ done
 
 class Sim:
     def __init__(self, tmp: Path, *, l7u: bool = True, l8p_done: bool = False, auth_over: dict | None = None, k3: str | None = "v2",
-                 authorization: str | None = None, operator_user: str | None = None, operator_uid: str | None = None) -> None:
+                 authorization: str | None = None, operator_user: str | None = None, operator_uid: str | None = None,
+                 l8p_receipts: dict[str, str] | None = None) -> None:
+        self.l8p_receipts = l8p_receipts or {}
         self.dir = tmp / "sim"
         self.repo = self.dir / "repo"
         self.p4 = self.repo / "IDEA3-AEGIS_Lockdown" / "deploy" / "pr11-phase4"
@@ -101,7 +103,10 @@ class Sim:
         if self.l7u:
             (logs / "2026-10-05_000000_music_idea3-l7u-live-acceptance.md").write_text("`L7U_LIVE_ACCEPTANCE = PROVEN`\n")
         if self.l8p_done:
-            (logs / "2026-10-06_000000_music_idea3-l8p-live.md").write_text("`L8P_PROVISIONING = PASS`\n")
+            # an authoritative LIVE result receipt: BOTH result fields, each on its own whole line, in the SAME receipt
+            (logs / "2026-10-06_000000_music_idea3-l8p-live.md").write_text("`L8P_LIVE_EXECUTED = YES`\n`L8P_PROVISIONING = PASS`\n")
+        for name, text in self.l8p_receipts.items():
+            (logs / name).write_text(text)
         stg = self.p4 / "stages" / "L8p"
         stg.mkdir(parents=True)
         for name in ("apply.sh", "verify.sh", "rollback.sh"):
@@ -505,6 +510,53 @@ def test_an_already_recorded_l8p_result_refuses_a_new_attempt(tmp_path: Path) ->
     refuses(Sim(tmp_path, l8p_done=True), "L8P_ALREADY_PROVISIONED")
 
 
+def _gate_passes(sim: Sim) -> None:
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "L8P_ALREADY_PROVISIONED" not in res.stdout + res.stderr
+
+
+def test_prose_mentioning_the_future_success_claim_does_not_block(tmp_path: Path) -> None:
+    prose = "- Success claims only `L8P_LIVE_EXECUTED=YES` and `L8P_PROVISIONING=PASS`, retaining `L8_ACCEPTANCE=NO`.\nThe run will record L8P_PROVISIONING=PASS when it passes.\n"
+    _gate_passes(Sim(tmp_path, l8p_receipts={"2026-10-02_041051_music_idea3-l8p-owner-runner.md": prose}))
+
+
+def test_provisioning_pass_alone_does_not_block(tmp_path: Path) -> None:
+    _gate_passes(Sim(tmp_path, l8p_receipts={"2026-10-06_000000_music_idea3-x.md": "L8P_PROVISIONING=PASS\nL8P_LIVE_EXECUTED=NO\n"}))
+
+
+def test_live_executed_alone_does_not_block(tmp_path: Path) -> None:
+    _gate_passes(Sim(tmp_path, l8p_receipts={"2026-10-06_000000_music_idea3-x.md": "L8P_LIVE_EXECUTED=YES\nL8P_PROVISIONING=NOT_PROVEN\n"}))
+
+
+def test_both_exact_fields_in_the_same_receipt_refuse(tmp_path: Path) -> None:
+    for i, body in enumerate(("L8P_LIVE_EXECUTED=YES\nL8P_PROVISIONING=PASS\n", "`L8P_LIVE_EXECUTED = YES`\n`L8P_PROVISIONING = PASS`\n",
+                              "- L8P_LIVE_EXECUTED=YES\n- `L8P_PROVISIONING=PASS`\nother text\n", "  L8P_PROVISIONING = PASS  \n\n  L8P_LIVE_EXECUTED=YES\n")):
+        refuses(Sim(tmp_path / str(i), l8p_receipts={"2026-10-06_000000_music_idea3-live.md": body}), "L8P_ALREADY_PROVISIONED")
+
+
+def test_the_two_fields_in_two_different_receipts_do_not_combine(tmp_path: Path) -> None:
+    _gate_passes(Sim(tmp_path, l8p_receipts={"2026-10-06_000000_music_idea3-a.md": "L8P_LIVE_EXECUTED=YES\n", "2026-10-06_000001_music_idea3-b.md": "L8P_PROVISIONING=PASS\n"}))
+
+
+@pytest.mark.parametrize("line", ["Result: L8P_PROVISIONING=PASS (expected)", "not L8P_LIVE_EXECUTED=YES yet", "XL8P_PROVISIONING=PASS", "L8P_PROVISIONING=PASSED", "L8P_LIVE_EXECUTED=YES, L8P_PROVISIONING=PASS"])
+def test_unanchored_or_embedded_mentions_do_not_count(tmp_path: Path, line: str) -> None:
+    _gate_passes(Sim(tmp_path, l8p_receipts={"2026-10-06_000000_music_idea3-m.md": f"{line}\nL8P_LIVE_EXECUTED=YES\n" if "LIVE" not in line else f"{line}\nL8P_PROVISIONING=PASS\n"}))
+
+
+def test_only_the_canonical_status_log_path_is_searched() -> None:
+    lib = LIB.read_text() if hasattr(LIB, "read_text") else Path(LIB).read_text()
+    block = lib[lib.index("l8p_result_field_files()"):lib.index("l8p_input_gate")]
+    assert '"$L6B_LOGS_REL"' in block and "tests/" not in block and "docs/" not in block and "deploy/" not in block
+
+
+def test_the_receipt_gate_change_adds_no_hardware_or_production_command() -> None:
+    lib = Path(LIB).read_text()
+    block = lib[lib.index("l8p_result_field_files()"):lib.index("l8p_input_gate")]
+    for forbidden in ("esptool", "/dev/tty", "systemctl", "sudo", "nmcli", "serial", "mosquitto"):
+        assert forbidden not in block, forbidden
+
+
 def test_missing_l8p_handlers_refuse(tmp_path: Path) -> None:
     sim = Sim(tmp_path)
     (sim.p4 / "stages" / "L8p" / "apply.sh").unlink()
@@ -565,10 +617,21 @@ def test_a_pre_checksum_failure_refuses_before_the_attempt_is_consumed(tmp_path:
     assert res.returncode == 1 and not sim.marker() and sim.calls() == ["capture:pre"]
 
 
-def test_run_against_the_current_repository_state_fails_closed(tmp_path: Path) -> None:
-    """A real execution today must fail: no FINAL L7u live acceptance receipt exists in the repository."""
+def test_the_receipt_gate_passes_on_the_current_repository_state(tmp_path: Path) -> None:
+    """Repository-only gate (it reads the pinned commit's status-log receipts, never the host): the final L7 and FINAL L7u acceptances are merged and PROVEN, and no
+    actual L8p LIVE result receipt exists — the prose in the repository-only owner-runner receipt that merely mentions the future success claim is not a result."""
     res = subprocess.run(["bash", "-c", f". '{LIB}'; l8p_receipt_gate '{ROOT.parent}'"], capture_output=True, text=True, check=False)
-    assert res.returncode == 1 and ("L8P_L7U_ACCEPTANCE_RECEIPT_MISSING" in res.stderr or "RECEIPT_MISSING" in res.stderr or "NO_HEAD" in res.stderr)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "L8P_ALREADY_PROVISIONED" not in res.stderr
+
+
+def test_the_repository_only_owner_runner_receipt_prose_is_not_an_l8p_result() -> None:
+    """Root cause of the former false positive: a bullet sentence listing the future success claims. It carries both strings but not as whole-line result fields."""
+    receipt = ROOT.parent / LOGS / "2026-10-02_041051_music_idea3-l8p-owner-runner.md"
+    text = receipt.read_text()
+    assert "L8P_LIVE_EXECUTED=YES" in text and "L8P_PROVISIONING=PASS" in text, "the prose that used to be misread is still there (history is not rewritten)"
+    whole = re.compile(r"^\s*([-*]\s+)?`?(L8P_LIVE_EXECUTED\s*=\s*YES|L8P_PROVISIONING\s*=\s*PASS)`?\s*$", re.M)
+    assert not whole.search(text)
 
 
 # ═══════════════════════════════════════ 4b. frozen operator identity (the L7u identity gate, reused) ═══════════════════════
