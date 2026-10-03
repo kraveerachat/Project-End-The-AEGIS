@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-02
+updated: 2026-10-03
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,35 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## Concurrent task — M2-E3 Identity Agent idle pipe publication (2026-10-03)
+
+Branch: `fix/idea2-identity-agent-idle-pipe-publish`; owner: Pub. Source
+checkpoint: `534db82408df97817496cfb809c7ac96958932aa` on main base
+`6227635c4e9efd89563494c180c49e70a38baaa6`.
+
+State: SOURCE FIXED / LOCAL WINDOWS VERIFIED / MACHINE A ACCEPTANCE PENDING.
+Owner-provided live M2-E3 evidence showed the installed Agent service running but
+the named pipe absent in 200 observations across about 20 seconds; a separate
+pywin32 diagnostic pipe worked. Source/tests reproduced the boundary: an idle
+`ConnectNamedPipe` timeout previously escaped `serve_once` and triggered the
+service host's retry backoff, leaving publication gaps near the Engine's
+five-second heartbeat cadence. Only a cancelled, drained idle accept now
+returns normally so the next pipe instance can publish without backoff.
+Unexpected cancellation-drain errors still propagate; connected read/write
+timeouts, SID checks, pipe ACL/first-instance flags, and zero camera-demand
+side effects remain covered.
+
+Focused Agent/Windows tests pass 42/42 and full Detection Engine tests pass
+237/237 in the local Python 3.12/pywin32 test environment. A native Windows
+same-name republish plus authorized one-shot heartbeat test passes and was
+repeated three times. Independent scoped review reports Critical=0,
+Important=0, Minor=0. These are local source tests, not evidence that the
+installed Machine A Agent has been updated or that its live heartbeat has
+recovered. Production, Machine A runtime/service/key, camera, tunnel, and
+PR #293 were not changed. After owner review/merge, a separately approved
+source refresh and bounded Machine A pipe/heartbeat acceptance remain required
+before M2-E3 can close or Browser Association begins.
 
 ## Current task — Production Agent HTTPS ingress (2026-10-02)
 
