@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:executing-plans` to implement this plan task by task, in order. Steps use checkbox (`- [ ]`) syntax. Do **not** start any task until the Human Owner has merged this plan **and** separately authorized implementation. Every ⛔ marker is a hard stop that only a written Human decision can lift.
 
-**Plan status:** IN PROGRESS — PR-A through PR-D are merged; PR-E G.1–G.3 and H.1–H.3 are complete (2026-10-03); I.1–I.3 are not started. `PRODUCTION_MUTATION_AUTHORIZED=NO`; Production writer enablement is blocked pending later gates.
+**Plan status:** IN PROGRESS — PR-A through PR-D are merged; PR-E G.1–G.3, H.1–H.3 and I.1–I.3 are complete (2026-10-03); HG-H review, the one PR-E receipt, Ready and Human merge remain. `PRODUCTION_MUTATION_AUTHORIZED=NO`; Production writer enablement is blocked pending later gates.
 
 **Revision 2 (2026-10-02, PR #280 review `APPROVE_WITH_REQUIRED_CHANGES`):** (1) server-enforced per-owner preview-index retained-storage budget (A.1, A.3, new C.7, new E.4, F.2, G.1–G.3, H.1, Stage 3); (2) Stage 1 requires PR-A **and** PR-B merged — no Production deployment between them; (3) client-declared superseded refs are advisory only and never deletion authority. Existing P3–P5 plans are stale for D-1. Task count 44 → 46.
 
@@ -783,8 +783,8 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 - **Depends on:** PR-D merged.
 - **Files:** Create `tests/previewIndexOldClientCompat.test.js`. Requires `D1_BASELINE_ROOT` = a linked worktree of the exact pre-D-1 baseline SHA (A.0 base) with `node_modules` junctioned (remove the junction after the run). Without it the test skips with an explicit reason; the evidence run must report 0 skips.
-- [ ] **RED/GREEN:** new server (memory + PG) with an index created by the new writer; old client modules imported from `D1_BASELINE_ROOT` perform: unlock, load head/browse, rename, move, upload (tree family), download (byte-exact), trash, restore, recovery listing; assertions: all succeed; recovery lists **no** index/derivative blob; main revisions remain schema 1; old-client writes that replace a file make the new reader reject the stale entry (source binding).
-- [ ] **Commit:** `test(idea1): prove baseline clients keep working after index creation`.
+- [x] **RED/GREEN:** (done: `tests/helpers/previewIndexOldClientSpec.mjs`, `tests/previewIndexOldClientCompat.test.js`, `tests/previewIndexOldClientCompatPostgres.test.js`; `D1_BASELINE_ROOT` = `2dc596d1`; the baseline client has no replace intent, so stale-entry rejection is proven via trash/restore here and via SG-SRC-1 for a replaced blobRef) new server (memory + PG) with an index created by the new writer; old client modules imported from `D1_BASELINE_ROOT` perform: unlock, load head/browse, rename, move, upload (tree family), download (byte-exact), trash, restore, recovery listing; assertions: all succeed; recovery lists **no** index/derivative blob; main revisions remain schema 1; old-client writes that replace a file make the new reader reject the stale entry (source binding).
+- [x] **Commit:** `test(idea1): prove baseline clients keep working after index creation` (`52de775d`).
 
 ### Task I.2 — Rollback matrix
 
@@ -802,14 +802,14 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 Baseline servers have no preview-index upload family or CAS route, so no index object can be created while rolled back; the storage budget is therefore not needed there.
 
-- [ ] **Never** a down-migration; no table, row, or blob is deleted in any case.
-- [ ] **Commit:** `test(idea1): prove preview-index rollback without down-migration`.
+- [x] **Never** a down-migration; no table, row, or blob is deleted in any case. (Done in `tests/previewIndexRollback.test.js`: one PostgreSQL database and storage root served side by side by current, Stage 1 `9f5a0114` via `D1_STAGE1_ROOT` and baseline/P1 `2dc596d1` code; every SQL statement captured.)
+- [x] **Commit:** `test(idea1): prove preview-index rollback without down-migration` (`48afe548`).
 
 ### Task I.3 — Chrome browser evidence
 
 - **Depends on:** I.2.
 - **Files:** none committed beyond an optional harness page under `scripts/measure/` if needed; screenshots/logs in `$SCRATCH` only.
-- [ ] Local stack (built `dist`, disposable PG): writer ON locally only; record derivative-first tile render, cold/warm request counts, fallback on injected corruption, lock mid-backfill, pagehide, memory peak vs the existing 256 MiB ceiling, Object URL count ≤ 256, no extra original GET during backfill (DevTools network log). Restore `dist`.
+- [x] (done with `scripts/measure/vault-preview-index-browser-i3.mjs`, `f69f7aa6`: real Chrome, built dist behind a local /drive proxy, approved budget) Local stack (built `dist`, disposable PG): writer ON locally only; record derivative-first tile render, cold/warm request counts, fallback on injected corruption, lock mid-backfill, pagehide, memory peak vs the existing 256 MiB ceiling, Object URL count ≤ 256, no extra original GET during backfill (DevTools network log). Restore `dist`.
 - **PR-E closeout:** evidence tables, receipt, Draft → independent review (**HG-H**). `IDX_SIZE` result and `LIMITS` decision recorded as Human-pending if G.3 has not happened.
 
 ---
