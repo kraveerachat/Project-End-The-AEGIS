@@ -15,6 +15,7 @@ ERROR_IO_PENDING = 997
 ERROR_PIPE_CONNECTED = 535
 ERROR_NOT_FOUND = 1168
 ERROR_BROKEN_PIPE = 109
+ERROR_NO_DATA = 232
 ERROR_OPERATION_ABORTED = 995
 _SID_RE = re.compile(r"^S-[0-9]+(?:-[0-9]+)+$")
 
@@ -176,15 +177,18 @@ def _wait_for_client_close(
     timeout_ms: int,
 ) -> None:
     """Boundedly retain the response until the one-shot client closes."""
+    # Only after a complete response write, Windows may report either a
+    # broken pipe or a pipe being closed for the one-shot peer's close.
+    peer_close_errors = (ERROR_BROKEN_PIPE, ERROR_NO_DATA)
     overlapped = _new_overlapped(pywintypes, win32event)
     buffer = win32file.AllocateReadBuffer(1)
     try:
         error_code, _ = win32file.ReadFile(handle, buffer, overlapped)
     except pywintypes.error as exc:
-        if getattr(exc, "winerror", None) == ERROR_BROKEN_PIPE:
+        if getattr(exc, "winerror", None) in peer_close_errors:
             return
         raise
-    if error_code == ERROR_BROKEN_PIPE:
+    if error_code in peer_close_errors:
         return
     if error_code == ERROR_IO_PENDING:
         try:
@@ -196,14 +200,14 @@ def _wait_for_client_close(
                 timeout_ms=timeout_ms,
             )
         except pywintypes.error as exc:
-            if getattr(exc, "winerror", None) == ERROR_BROKEN_PIPE:
+            if getattr(exc, "winerror", None) in peer_close_errors:
                 return
             raise
     elif error_code in (None, 0):
         try:
             transferred = win32file.GetOverlappedResult(handle, overlapped, False)
         except pywintypes.error as exc:
-            if getattr(exc, "winerror", None) == ERROR_BROKEN_PIPE:
+            if getattr(exc, "winerror", None) in peer_close_errors:
                 return
             raise
     else:
