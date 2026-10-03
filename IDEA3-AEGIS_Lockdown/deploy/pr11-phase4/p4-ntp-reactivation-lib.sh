@@ -61,14 +61,15 @@ ntpreact_ap_gate() {
 }
 
 # ── /etc/chrony.conf authority ─────────────────────────────────────────────────────────────────────────────────────────
+# NTPREACT_SUDO (default empty) prefixes the two reads of the root-owned 0640 config so an UNPRIVILEGED caller (the L8p runner) can use the same gate.
 # ntpreact_conf_gate — regular non-symlink file, approved mode/owner, SHA-256 equal to the approved rendered L5 config, exactly the four approved active directives.
 ntpreact_conf_gate() {
   local conf=$NTPREACT_CHRONY_CONF active
   [ -L "$conf" ] && { ntpreact_reason "NTPREACT_CHRONY_CONF_IS_SYMLINK"; return 1; }
   [ -f "$conf" ] || { ntpreact_reason "NTPREACT_CHRONY_CONF_MISSING"; return 1; }
   [ "$(stat -c %a:%u:%g "$conf")" = "$NTPREACT_CHRONY_CONF_MODE_OWNER" ] || { ntpreact_reason "NTPREACT_CHRONY_CONF_MODE_OWNER_MISMATCH"; return 1; }
-  [ "$(sha256sum "$conf" | awk '{ print $1 }')" = "$NTPREACT_CHRONY_CONF_SHA256" ] || { ntpreact_reason "NTPREACT_CHRONY_CONF_NOT_APPROVED_L5_CONTENT"; return 1; }
-  active=$(grep -v '^[[:space:]]*#' "$conf" | grep -v '^[[:space:]]*$' || true)
+  [ "$(${NTPREACT_SUDO-} sha256sum "$conf" | awk '{ print $1 }')" = "$NTPREACT_CHRONY_CONF_SHA256" ] || { ntpreact_reason "NTPREACT_CHRONY_CONF_NOT_APPROVED_L5_CONTENT"; return 1; }
+  active=$(${NTPREACT_SUDO-} grep -v '^[[:space:]]*#' "$conf" | grep -v '^[[:space:]]*$' || true)
   [ "$active" = "$(printf 'server 2.arch.pool.ntp.org iburst\nbindaddress %s\nallow %s\nrtcsync' "$NTPREACT_AP_ADDR" "$NTPREACT_AP_SUBNET")" ] \
     || { ntpreact_reason "NTPREACT_CHRONY_CONF_DIRECTIVES_NOT_APPROVED"; return 1; }
 }
@@ -88,7 +89,9 @@ ntpreact_alt_config_gate() {
   done
   while IFS= read -r tok; do
     [ "$tok" = "$NTPREACT_CHRONY_CONF" ] || bad=1   # an empty token (a bare -f) is as unproven as any other path
-  done < <(grep -oE '(^|[[:space:]=])-f[[:space:]]*[^[:space:];}]*' <<< "$text" | sed -E 's/^[[:space:]=]*-f[[:space:]]*//')
+  # `|| true`: a runner with `set -E` and an ERR trap runs this gate; grep's no-match status inside the process substitution would otherwise fire that inherited
+  # trap in the subshell and its output line would be read as a bogus `-f` token.
+  done < <(grep -oE '(^|[[:space:]=])-f[[:space:]]*[^[:space:];}]*' <<< "$text" | sed -E 's/^[[:space:]=]*-f[[:space:]]*//' || true)
   [ "$bad" = 0 ] || { ntpreact_reason "NTPREACT_CHRONYD_ALTERNATE_CONFIG_PATH"; return 1; }
 }
 
@@ -135,6 +138,20 @@ ntpreact_clock_gate() {
   [[ "$NTPREACT_CLOCK_LINE" =~ ^state=SYNCED\ reason=OK\ maxerror_us=([0-9]+)\  ]] || { ntpreact_reason "NTPREACT_TRUSTEDCLOCK_NOT_OK:UNPARSEABLE"; return 1; }
   maxerr=${BASH_REMATCH[1]}
   [ "$maxerr" -le "$NTPREACT_MAXERROR_BOUND_US" ] || { ntpreact_reason "NTPREACT_MAXERROR_EXCEEDED:$maxerr"; return 1; }
+}
+
+# ── current-runtime readiness (shared by the NTP runner's FINAL check and the L8p runner's pre-consume gates) ─────────────────────────────────────────────────
+# ntpreact_runtime_ready_gate — the approved PRE-L8p NTP runtime is TRUE RIGHT NOW. Strictly read-only (systemctl show, ss, kernel clock probe, config reads):
+# chronyd active/running + disabled, systemd-timesyncd inactive/dead + enabled (the approved UnitFileStates), exactly one port-123 listener = udp 10.77.30.1:123
+# (no wildcard, no TCP, no other address), TrustedClock SYNCED within the L5 bound, the approved chrony config and no alternate config path. It repairs nothing
+# and starts/stops nothing. A caller that is not root sets NTPREACT_SUDO=sudo for the config reads. Prints one stable reason line to stderr on failure.
+ntpreact_runtime_ready_gate() {
+  ntpreact_unit_expect chronyd.service loaded active running disabled || return 1
+  ntpreact_unit_expect systemd-timesyncd.service loaded inactive dead enabled || return 1
+  ntpreact_listener_exact_gate || return 1
+  ntpreact_clock_gate || return 1
+  ntpreact_conf_gate || return 1
+  ntpreact_alt_config_gate || return 1
 }
 
 # ── runner-side gates ──────────────────────────────────────────────────────────────────────────────────────────────────

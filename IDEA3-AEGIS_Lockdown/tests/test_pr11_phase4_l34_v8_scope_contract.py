@@ -58,7 +58,7 @@ V7_AND_SHARED_PINS = {
     "p4-stage-gate.sh": "11cc4251bd081eb172bcdb0155d48d6984ec4cfee1c08fc09c03fc639afa50b4",
     "p4-lib.sh": "9cf03684a79f2706a22776d90ae3a243afbcdeb2275c0b244388971cf5af9a36",
     "p4-compare.sh": "6caa482def07b50e462828f10ba117fb66779e9dde67e1fea8fad5b9b9f71c08",
-    "p4-l0-capture.sh": "f49f6f74d43dc38058b9ee77bd1511a17394e9eaad4d873c07dfdc09f4bf4722",
+    "p4-l0-capture.sh": "370c0db47ea0ceed878ec8ca5565593d67fe158529b73d4f8d548c132542e4d4",
 }
 V7_RECEIPT_PINS = {
     "2026-10-01_061747_music_idea3-l34-v7-radio-disabled-broker-churn.md": "8afd6eb96aead14598cd57299090ef01988d89643ed93ea2598467fe70873a06",

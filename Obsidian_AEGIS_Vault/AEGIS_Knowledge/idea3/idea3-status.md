@@ -18,6 +18,18 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 post-NTP forensic fix — capture read-only + final NTP gates — repository only — 2026-10-03
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-post-ntp-capture-readonly-and-l8p-ntp-gates`, based on `0ab80a1a`. Nothing was executed live: `PRODUCTION_MUTATION_PERFORMED = NO`, no time daemon started or stopped, `timedatectl show-timesync` never run on the host, no serial/esptool/ESP32 access, no Authorization, K3, attempt marker or frozen runner created.
+> `OLD_NTP_ATTEMPT_STATUS = CONSUMED` (APPLY and pre-POST VERIFY passed; final readiness after the POST capture INVALIDATED / NOT_PROVEN; never rerun or reused), `SUCCESSOR_REQUIRED = YES`, `NTP_RUNTIME_READY_FOR_L8P = NO` (host observed timesyncd active / chronyd inactive / no UDP :123), `L8P_LIVE_EXECUTED = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`.
+
+- **Root cause (from code; journal timing consistent):** `p4-l0-capture.sh` ran `timedatectl show-timesync`, which activates a stopped `systemd-timesyncd`; `chronyd.service` has `Conflicts=systemd-timesyncd.service`, so the POST capture stopped chronyd. The NTP runner then printed PASS from the stale pre-POST VERIFY.
+- **Fix:** capture queries timesyncd only while already `active`/`running`, else the sentinel `TIMESYNCD_INACTIVE_NOT_QUERIED`; NTP runner PASS requires a FINAL read-only `ntpreact_runtime_ready_gate` after POST capture/compare (rollback otherwise); the L8p owner runner runs the same gate in its pre-gates and again after the PRE capture before the attempt is consumed (no attempt, serial access, reset or write if NTP is absent). Disk, receipt, one-shot, S10, secret and no-CUT/RESTORE gates are unchanged.
+- **Still open:** a new governed NTP successor attempt (new frozen runner, AUTH_DIR, Authorization/K3, owner authorization); the observed `/` disk gate (81% vs the runner's 80%); L8p itself.
+- **Receipt:** `90-Status/logs/2026-10-03_180500_music_idea3-post-ntp-capture-readonly-fix.md`.
+
+---
+
 ## IDEA3 PRE-L8p NTP runtime reactivation successor — repository only — 2026-10-03
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-pre-l8p-ntp-runtime-reactivation`, based on `2f174eca`. Nothing was executed live: `PRODUCTION_MUTATION_PERFORMED = NO`, no `systemctl` action, no serial/esptool/ESP32 access, no MQTT publish, no CUT/RESTORE, no relay/uplink wiring. No Authorization, K3, attempt marker, frozen runner or evidence directory was created.
