@@ -87,6 +87,20 @@ def compare(before: Path, after: Path, *, allow_release_file: Path | None = None
     return subprocess.run(["bash", str(COMPARE), str(before), str(after)], text=True, capture_output=True, env=env, check=False)
 
 
+def release_drift(res: subprocess.CompletedProcess[str]) -> list[tuple[str, str]]:
+    """(code, key) of every NEW_OR_WORSENED_DRIFT finding that concerns the L6c release surface (the two parent-directory
+    host.path keys and the release catalog). The real capture also reads the live test host, so unrelated drift (e.g. an
+    ephemeral UDP listener appearing between PRE and POST) can legitimately add findings elsewhere; the L6c proofs must be
+    decided by the release surface alone. Production capture/compare semantics are deliberately NOT narrowed."""
+    out = []
+    for line in res.stdout.splitlines():
+        f = line.split("\t")
+        if len(f) >= 4 and f[0] == "FINDING" and f[1] == "NEW_OR_WORSENED_DRIFT" and (
+                f[3].startswith("host.path./opt/aegis-idea3") or f[3].startswith(RELEASE_CATALOG_KEY)):
+            out.append((f[2], f[3]))
+    return out
+
+
 def release_allow_file(tmp_path: Path, release_id: str, *, name: str = "allow-release.txt") -> Path:
     f = tmp_path / name
     f.write_text(f"stage L6c\nrelease_id {release_id}\n")
@@ -264,13 +278,38 @@ def test_real_end_to_end_capture_then_compare_requires_the_allow_file(tmp_path: 
     assert capture(root, post, "post").returncode in (0, 3)
     denied = compare(pre, post)
     assert denied.returncode == 1 and "COMPARE_RESULT=FAIL" in denied.stdout
+    assert ("RELEASE_UNAPPROVED_ADDITION", f"{RELEASE_CATALOG_KEY}#rel-a") in release_drift(denied)
     # a real L6c apply also creates the two parent-directory host.path keys it had to create (see design L6C_MUTATION_BOUNDARY)
     keys = tmp_path / "allow-keys.txt"
     keys.write_text("host.path./opt/aegis-idea3\nhost.path./opt/aegis-idea3/releases\n")
     ok = compare(pre, post, allow_release_file=release_allow_file(tmp_path, "rel-a"), allow_keys_file=keys)
-    # FINDINGS_NEW_OR_WORSENED_DRIFT=0 is the release-specific proof; overall COMPARE_RESULT can still fail on this bare,
-    # unprivileged test fixture for unrelated reasons (e.g. nft/boot_id require real host capabilities this sandbox lacks).
-    assert "FINDINGS_NEW_OR_WORSENED_DRIFT=0" in ok.stdout, ok.stdout + ok.stderr
+    # The release-specific proof is that NO drift finding remains on the release surface once the allow files are given.
+    # The host-wide FINDINGS_NEW_OR_WORSENED_DRIFT total and COMPARE_RESULT are intentionally not asserted: the real capture
+    # reads the live host (ephemeral UDP listeners, nft/boot_id need privileges this sandbox lacks), which made this flaky.
+    assert release_drift(ok) == [], ok.stdout + ok.stderr
+    assert "L6C_RELEASE_INSTALLED" in ok.stdout
+
+
+def test_unrelated_host_listener_churn_cannot_decide_the_release_proof(tmp_path: Path) -> None:
+    """Regression for the 2026-10-03 flake: a UDP listener that appears between PRE and POST is real host drift that the
+    production compare MUST keep reporting, but it must not change the L6c release-surface verdict of this harness."""
+    import socket
+
+    root = tmp_path / "fs"
+    (root / "etc/aegis-idea3").mkdir(parents=True)
+    pre = tmp_path / "pre"
+    assert capture(root, pre, "pre").returncode in (0, 3)
+    install_release(root, "rel-a", tmp_path)
+    keys = tmp_path / "allow-keys.txt"
+    keys.write_text("host.path./opt/aegis-idea3\nhost.path./opt/aegis-idea3/releases\n")
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+        udp.bind(("0.0.0.0", 0))  # an unrelated ephemeral high-port UDP listener, alive only during the POST capture
+        post = tmp_path / "post"
+        assert capture(root, post, "post").returncode in (0, 3)
+    denied = compare(pre, post)
+    assert ("RELEASE_UNAPPROVED_ADDITION", f"{RELEASE_CATALOG_KEY}#rel-a") in release_drift(denied)
+    ok = compare(pre, post, allow_release_file=release_allow_file(tmp_path, "rel-a"), allow_keys_file=keys)
+    assert release_drift(ok) == [], ok.stdout + ok.stderr
     assert "L6C_RELEASE_INSTALLED" in ok.stdout
 
 
