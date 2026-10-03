@@ -33,6 +33,7 @@ from aegis_identity_agent.pipe_server import (
     _connect_overlapped,
     _read_overlapped_message,
     _wait_for_overlapped,
+    _write_overlapped_message,
     pipe_open_mode,
     pipe_security_sddl,
 )
@@ -95,6 +96,56 @@ class RecordingTransport:
 
 
 class PipeProtocolTests(unittest.TestCase):
+    @staticmethod
+    def _idle_accept_modules(calls):
+        class CancelledOperation(Exception):
+            winerror = 995
+
+        class Overlapped:
+            hEvent = None
+
+        class SecurityAttributes:
+            SECURITY_DESCRIPTOR = None
+
+        def create_pipe(name, open_mode, pipe_mode, *_args):
+            handle = f"pipe-{len(calls['created']) + 1}"
+            calls["created"].append((handle, name, open_mode, pipe_mode))
+            return handle
+
+        def drain_cancelled(handle, _overlapped, wait):
+            calls["drained"].append((handle, wait))
+            raise CancelledOperation("overlapped operation cancelled")
+
+        return {
+            "pywintypes": SimpleNamespace(OVERLAPPED=Overlapped, SECURITY_ATTRIBUTES=SecurityAttributes, error=OSError),
+            "win32api": SimpleNamespace(),
+            "win32con": SimpleNamespace(),
+            "win32event": SimpleNamespace(
+                WAIT_OBJECT_0=0,
+                WAIT_TIMEOUT=258,
+                CreateEvent=lambda *_args: "event",
+                WaitForSingleObject=lambda *_args: 258,
+            ),
+            "win32file": SimpleNamespace(
+                CancelIoEx=lambda handle, _overlapped: calls["cancelled"].append(handle),
+                GetOverlappedResult=drain_cancelled,
+                CloseHandle=lambda handle: calls["closed"].append(handle),
+            ),
+            "win32pipe": SimpleNamespace(
+                PIPE_ACCESS_DUPLEX=3,
+                PIPE_TYPE_MESSAGE=4,
+                PIPE_READMODE_MESSAGE=8,
+                PIPE_WAIT=16,
+                PIPE_REJECT_REMOTE_CLIENTS=32,
+                CreateNamedPipe=create_pipe,
+                ConnectNamedPipe=lambda _handle, _overlapped: 997,
+            ),
+            "win32security": SimpleNamespace(
+                SDDL_REVISION_1=1,
+                ConvertStringSecurityDescriptorToSecurityDescriptor=lambda sddl, _revision: sddl,
+            ),
+        }
+
     def test_exact_four_operation_allowlist_has_no_generic_signing(self):
         self.assertEqual({"heartbeat", "detection", "alert", "clip"}, PIPE_OPERATIONS)
         for operation, payload in samples().items():
@@ -206,6 +257,13 @@ class PipeProtocolTests(unittest.TestCase):
 
     def test_overlapped_timeout_cancels_handle_and_drains_operation_completion(self):
         calls = []
+        class CancelledOperation(Exception):
+            winerror = 995
+
+        def drain_cancelled(handle, overlapped, wait):
+            calls.append(("result", handle, overlapped, wait))
+            raise CancelledOperation("overlapped operation cancelled")
+
         fake_event = SimpleNamespace(
             WAIT_TIMEOUT=258,
             WAIT_OBJECT_0=0,
@@ -213,9 +271,7 @@ class PipeProtocolTests(unittest.TestCase):
         )
         fake_file = SimpleNamespace(
             CancelIoEx=lambda handle, overlapped: calls.append(("cancel", handle, overlapped)),
-            GetOverlappedResult=lambda handle, overlapped, wait: calls.append(
-                ("result", handle, overlapped, wait)
-            ),
+            GetOverlappedResult=drain_cancelled,
         )
         with self.assertRaises(TimeoutError):
             _wait_for_overlapped(
@@ -231,6 +287,121 @@ class PipeProtocolTests(unittest.TestCase):
         self.assertEqual(("result", "pipe"), result[:2])
         self.assertTrue(result[3], "cancelled OVERLAPPED must remain alive until completion")
         self.assertEqual(1, len([call for call in calls if call[0] == "wait"]))
+
+    def test_unexpected_accept_drain_failure_is_not_classified_as_idle(self):
+        calls = {"created": [], "cancelled": [], "drained": [], "closed": []}
+        modules = self._idle_accept_modules(calls)
+
+        class DrainFailure(Exception):
+            winerror = 5
+
+        def fail_drain(handle, _overlapped, wait):
+            calls["drained"].append((handle, wait))
+            raise DrainFailure("unexpected overlapped drain failure")
+
+        modules["win32file"].GetOverlappedResult = fail_drain
+        server = WindowsNamedPipeServer(
+            PipeRequestHandler(RecordingTransport(), allowed_caller_sids={"S-1-5-21-222"}),
+            service_sid="S-1-5-80-111",
+            engine_sid="S-1-5-21-222",
+            read_timeout_s=0.1,
+        )
+
+        with patch.dict(sys.modules, modules), self.assertRaises(DrainFailure):
+            server.serve_once()
+
+        self.assertEqual([("pipe-1", True)], calls["drained"])
+        self.assertEqual(["pipe-1"], calls["closed"])
+        self.assertIsNone(server._active_handle)
+
+    def test_idle_accept_timeout_is_normal_and_closes_the_cancelled_instance(self):
+        calls = {"created": [], "cancelled": [], "drained": [], "closed": []}
+        modules = self._idle_accept_modules(calls)
+        server = WindowsNamedPipeServer(
+            PipeRequestHandler(RecordingTransport(), allowed_caller_sids={"S-1-5-21-222"}),
+            service_sid="S-1-5-80-111",
+            engine_sid="S-1-5-21-222",
+            read_timeout_s=0.1,
+        )
+
+        with patch.dict(sys.modules, modules):
+            self.assertIsNone(server.serve_once())
+
+        self.assertEqual(["pipe-1"], calls["cancelled"])
+        self.assertEqual([("pipe-1", True)], calls["drained"])
+        self.assertEqual(["pipe-1"], calls["closed"])
+        self.assertIsNone(server._active_handle)
+        _, name, open_mode, pipe_mode = calls["created"][0]
+        self.assertEqual(server.pipe_name, name)
+        self.assertTrue(open_mode & FILE_FLAG_FIRST_PIPE_INSTANCE)
+        self.assertTrue(open_mode & FILE_FLAG_OVERLAPPED)
+        self.assertTrue(pipe_mode & modules["win32pipe"].PIPE_REJECT_REMOTE_CLIENTS)
+        self.assertEqual(0, server.handler.camera_demand_side_effects)
+
+    def test_idle_accept_republishes_without_service_retry_backoff(self):
+        from aegis_identity_agent.windows_service import IdentityAgentServiceHost
+
+        calls = {"created": [], "cancelled": [], "drained": [], "closed": []}
+        modules = self._idle_accept_modules(calls)
+        server = WindowsNamedPipeServer(
+            PipeRequestHandler(RecordingTransport(), allowed_caller_sids={"S-1-5-21-222"}),
+            service_sid="S-1-5-80-111",
+            engine_sid="S-1-5-21-222",
+            read_timeout_s=0.1,
+        )
+
+        class StopAfterTwoAccepts:
+            waits = []
+
+            def is_set(self):
+                return len(calls["created"]) >= 2
+
+            def wait(self, delay):
+                self.waits.append(delay)
+
+        stop = StopAfterTwoAccepts()
+        host = IdentityAgentServiceHost(
+            run_once=server.serve_once,
+            stop_event=stop,
+            interval_s=0.05,
+            retry_max_s=1.0,
+            wait_after_success=False,
+        )
+        with patch.dict(sys.modules, modules):
+            host.run()
+
+        self.assertEqual(2, len(calls["created"]))
+        self.assertEqual([], stop.waits)
+        self.assertEqual(["pipe-1", "pipe-2"], calls["cancelled"])
+        self.assertEqual(["pipe-1", "pipe-2"], calls["closed"])
+        self.assertEqual(0, host.camera_demand_side_effects)
+
+    def test_connected_read_and_write_timeouts_still_fail_closed(self):
+        calls = []
+        fake_event = SimpleNamespace(
+            WAIT_OBJECT_0=0,
+            WAIT_TIMEOUT=258,
+            CreateEvent=lambda *_args: "event",
+            WaitForSingleObject=lambda *_args: 258,
+        )
+        fake_file = SimpleNamespace(
+            AllocateReadBuffer=lambda size: bytearray(size),
+            ReadFile=lambda *_args: (997, None),
+            WriteFile=lambda *_args: (997, None),
+            CancelIoEx=lambda handle, _overlapped: calls.append(("cancel", handle)),
+            GetOverlappedResult=lambda handle, _overlapped, wait: calls.append(("drain", handle, wait)) or 0,
+        )
+
+        class Overlapped:
+            hEvent = None
+
+        pywintypes = SimpleNamespace(OVERLAPPED=Overlapped)
+        with self.assertRaises(TimeoutError):
+            _read_overlapped_message(pywintypes, fake_event, fake_file, handle="connected", timeout_ms=50)
+        with self.assertRaises(TimeoutError):
+            _write_overlapped_message(pywintypes, fake_event, fake_file, handle="connected", data=b"response", timeout_ms=50)
+        self.assertEqual(2, calls.count(("cancel", "connected")))
+        self.assertEqual(2, calls.count(("drain", "connected", True)))
 
     def test_overlapped_read_decodes_only_the_completed_prefix(self):
         message = encode_request("heartbeat", samples()["heartbeat"])
@@ -382,6 +553,80 @@ class PipeProtocolTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(201, result.status)
         self.assertEqual(1, len(transport.calls))
+
+    @unittest.skipUnless(
+        os.name == "nt" and importlib.util.find_spec("win32pipe") is not None,
+        "native pywin32 acceptance dependency is unavailable",
+    )
+    def test_native_idle_accept_republishes_for_real_engine_authorized_client(self):
+        win32pipe_spec = importlib.util.find_spec("win32pipe")
+        dependency_root = pathlib.Path(win32pipe_spec.origin).parent.parent
+        dll_cookie = os.add_dll_directory(str(dependency_root / "pywin32_system32"))
+        self.addCleanup(dll_cookie.close)
+        import win32api
+        import win32con
+        import win32pipe
+        import win32security
+
+        from aegis_engine.identity_agent_client import _windows_connector
+
+        token = win32security.OpenProcessToken(
+            win32api.GetCurrentProcess(), win32con.TOKEN_QUERY
+        )
+        sid = win32security.ConvertSidToStringSid(
+            win32security.GetTokenInformation(token, win32security.TokenUser)[0]
+        )
+        pipe_name = rf"\\.\pipe\AEGIS.IdentityAgent.IdleTest.{uuid.uuid4().hex}"
+        transport = RecordingTransport()
+        server = WindowsNamedPipeServer(
+            PipeRequestHandler(transport, allowed_caller_sids={sid}),
+            service_sid=sid,
+            engine_sid=sid,
+            pipe_name=pipe_name,
+            read_timeout_s=2,
+        )
+        self.addCleanup(server.close)
+
+        # No client arrives for the first bounded accept. It must leave no
+        # active handle and must not prevent reusing the same first-instance name.
+        self.assertIsNone(server.serve_once())
+        self.assertIsNone(server._active_handle)
+        self.assertEqual([], transport.calls)
+
+        server_errors = []
+
+        def serve_again():
+            try:
+                server.serve_once()
+            except Exception as exc:
+                server_errors.append(exc)
+
+        worker = threading.Thread(target=serve_again)
+        worker.start()
+        deadline = time.monotonic() + 1
+        while True:
+            try:
+                win32pipe.WaitNamedPipe(pipe_name, 50)
+                break
+            except Exception:
+                if time.monotonic() >= deadline:
+                    server.close()
+                    worker.join(1)
+                    self.fail("replacement pipe instance did not become available")
+                time.sleep(0.01)
+
+        response = _windows_connector(
+            pipe_name,
+            encode_request("heartbeat", samples()["heartbeat"]),
+            2,
+            MAX_RESPONSE_BYTES,
+        )
+        worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([], server_errors)
+        self.assertTrue(decode_response(response).ok)
+        self.assertEqual(1, len(transport.calls))
+        self.assertEqual(0, server.handler.camera_demand_side_effects)
 
     @unittest.skipUnless(
         os.name == "nt" and importlib.util.find_spec("win32pipe") is not None,

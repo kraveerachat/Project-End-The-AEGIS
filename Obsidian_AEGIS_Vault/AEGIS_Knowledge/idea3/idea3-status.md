@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PRE-L8p NTP runtime reactivation successor — repository only — 2026-10-03
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-pre-l8p-ntp-runtime-reactivation`, based on `2f174eca`. Nothing was executed live: `PRODUCTION_MUTATION_PERFORMED = NO`, no `systemctl` action, no serial/esptool/ESP32 access, no MQTT publish, no CUT/RESTORE, no relay/uplink wiring. No Authorization, K3, attempt marker, frozen runner or evidence directory was created.
+> `L5_LIVE_ACCEPTANCE = HISTORICAL_PROVEN_UNCHANGED` (not re-run, not invalidated), `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `PRE_L8P_NTP_RUNTIME_REACTIVATION = NOT_RUN`, `NTP_RUNTIME_READY_FOR_L8P = NO`, `L8P_LIVE_EXECUTED = NO`, `L8_ACCEPTANCE = NO`.
+
+- **Why the post-reboot state is expected:** L5 mutated runtime `ActiveState` only (stop `systemd-timesyncd`, start `chronyd`) and never enabled/disabled either unit, so after a reboot `chronyd` is inactive/disabled, `systemd-timesyncd` is active/enabled and nothing listens on UDP/123, while `/etc/chrony.conf` is still the rendered L5 config. That matches the approved L5 design and `K12 = NOT_PROVEN`; it is not a defect.
+- **Successor package:** `deploy/pr11-phase4/reactivation/pre-l8p-ntp-runtime-reactivation/` (+ `p4-ntp-reactivation-lib.sh`, inert pinned template `owner-run/run-pre-l8p-ntp-runtime-reactivation-owner.sh`). The whole live mutation is `systemctl stop systemd-timesyncd.service` then `systemctl start chronyd.service`; no enable/disable, no `/etc/chrony.conf` write, `UnitFileState` asserted before and proven unchanged. Read-only PRE gates cover exact unit states, AP `10.77.30.1/28`, the approved config SHA-256 (`20e283e4…35fe`, equal to the L5 renderer output), no alternate chronyd config path, no port-123 listener and the shared L5 TrustedClock predicate. Rollback restores the exact runtime baseline and only proves (never repairs) `UnitFileState` and the config.
+- **Governance:** fresh same-day `stage=L5` Authorization/K3 with the exact `PRE_L8P_NTP_RUNTIME_REACTIVATION` scope, a dedicated one-attempt marker consumed after preflight, PRE capture and a pre-consume S10 guard, frozen operator identity and runner digest, no reuse of any L5 Authorization/K3/marker (the historical L5 reference is refused), no automatic retry.
+- **On success only:** `PRE_L8P_NTP_RUNTIME_REACTIVATION=PASS`, `NTP_RUNTIME_READY_FOR_L8P=YES`, `NTP_LISTENER_ADDRESS=10.77.30.1:123`; runtime readiness is perishable (the next reboot returns to timesyncd). L8p needs its own fresh authorization.
+- **Design:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-03-idea3-pre-l8p-ntp-runtime-reactivation-design.md`. **Receipt:** `90-Status/logs/2026-10-03_095200_music_idea3-pre-l8p-ntp-runtime-reactivation.md`.
+
+---
+
 ## IDEA3 dnsmasq boot-order repair — repository only — 2026-10-02
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-dnsmasq-boot-order`, merged as PR #305 (`827251f2`; updated 2026-10-03, the live host is still on the old unit). Nothing was deployed or restarted: `PRODUCTION_MUTATION_PERFORMED = NO`, `DNSMASQ_RESTARTED = NO`, `NETWORK_CHANGED = NO`, `CORE_RESTARTED = NO`, `ESP32_TOUCHED = NO`, L8p / F1 detector / Recovery R1-R8 not run.
@@ -34,6 +47,8 @@ edit_policy: owner-writable
 
 ## IDEA3 governed dnsmasq unit repair package (`dnsmasq-unit-boot-order-repair`) — repository only — 2026-10-03
 
+> [!note] Superseded (state only) 2026-10-03: this package's first live attempt was consumed and failed closed at S10; the SAFE_STOPPED successor later PASSED live — see the two sections above. The "no live repair executed" wording below is the historical state at PR #308 time.
+
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-dnsmasq-governed-live-repair`, merged as PR #308 (`61786bfb9bd4ff07ef70c19294442e750c594c6b`; updated 2026-10-03 — its first live attempt was consumed and failed at S10, see the next section). `PR305_REPOSITORY_FIX = MERGED` (PR #305, merge `827251f2478f03822c42ab43eadb50f73005d432`, an ancestor of main `1579712866ef0e83c5b949b0afed7a7969e0f80f`). `LIVE_REPAIR_EXECUTED = NO`, `REBOOT_VERIFICATION_EXECUTED = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `L8P_LIVE_EXECUTED = NO`, `RECOVERY_R1_R8 = NOT_RUN`, `LVR = NOT_RUN`, `L8 = NOT_RUN`, `ESP32_TOUCHED = NO`. No authorization, K3, frozen runner, attempt marker or evidence exists; nothing was deployed, restarted or changed on the host.
 
 - **Why:** the host still has the OLD pre-PR305 `aegis-idea3-dnsmasq.service`; the corrected L34 authority deliberately refuses it, so every L34/V5–V8 reactivation is blocked until the repaired unit is installed and qualified. No existing governed stage can do only that (V4–V8 require the unit to already match; L4 renders the whole AP network; V7/V8 are historical and never replayed), so a task-specific package follows the existing conventions. No L-number was invented.
@@ -44,7 +59,24 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 dnsmasq SAFE_STOPPED governed successor — LIVE PASS — 2026-10-03
+
+> [!important] `DNSMASQ_SAFE_STOPPED_SUCCESSOR_LIVE = PASS`, `SUCCESSOR_LIVE_EXECUTED = YES`, `SUCCESSOR_LIVE_RESULT = PASS` (this supersedes only the older "SUCCESSOR_LIVE_EXECUTED = NO / repository only" readiness claim below). `DNSMASQ_UNIT_REPAIR_DEPLOYED = YES`, `DNSMASQ_S11_HOLD = RESOLVED`, `SUCCESSOR_ATTEMPT_CONSUMED = YES`, `SUCCESSOR_RETRY_ALLOWED = NO`. `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `REBOOT_VERIFICATION_EXECUTED = NO`, `L34_REACTIVATION = NOT_RUN`, `RECOVERY_R1_R8 = NOT_RUN`, `LVR = NOT_RUN`, `L8P = NOT_RUN`, `L8 = NOT_RUN`, `ESP32_TOUCHED = NO`, `CORE_RESTARTED = NO`.
+
+- **What ran:** one owner-authorized governed attempt on main `6227635c4e9efd89563494c180c49e70a38baaa6` (merge of PR #309) from the exact SAFE_STOPPED baseline, 2026-10-03 05:45 +07, from a real terminal. Frozen runner SHA-256 `3c5c6b94…6a31`; fresh Authorization SHA-256 `4ac19af2…8b91` and K3 V2 (`IDEA3_OWNER_SELF_ATTESTATION`, `NONE_KNOWN`) SHA-256 `14a37c54…db19`; marker consumed at 05:45:56 +07, after the pre-consume S10 guard.
+- **Result:** `S10_STABILITY_GUARD = PASS`; `DNSMASQ_REPAIR_APPLY = PASS` (unit install, `daemon-reload`, `start`; no reset-failed/restart); `DNSMASQ_REPAIR_VERIFY = PASS` (unit authority PASS, active/running, no start-limit-hit, AP mode/SSID/channel/IPv4 PASS, Core health PASS, broker unchanged PASS, forwarding policy PASS). PRE→POST comparator: `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `FINDINGS_APPROVED_CHANGE=7`, `FINDINGS_INFO=3`, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`; the approved changes were only dnsmasq inactive→active / dead→running, the three dnsmasq listeners (TCP and UDP `10.77.30.1:53`, UDP `:67` on `wlp0s20f3`) and dnsmasq `MainPID` / `ExecMainStartTimestamp`. Terminal verdict `DNSMASQ_REPAIR_RESULT = PASS`, `UNEXPECTED_DRIFT = NONE`, `BASELINE = safe_stopped`. Rollback `NOT_RUN`.
+- **Final observed state (read-only):** dnsmasq loaded/enabled/active/running, `Result=success`, `NRestarts=0`, `NeedDaemonReload=no`; the IDEA2 tunnel unchanged (active/running, same MainPID, historical `NRestarts=200`); `127.0.0.1:18002` and `0.0.0.0:8077` LISTEN; Monitor health PASS; all six required services active. `runtime_healthy = NOT_PROVEN` is not itself a failure under the accepted canonical S10 comparator when every required finding is zero.
+- **First attempt unchanged:** `FIRST_ATTEMPT_RESULT = ROLLBACK_FAILED_ESCALATE`, `FIRST_ATTEMPT_RETRY_ALLOWED = NO`; its AUTH_DIR, records, marker, runner and evidence were not touched or reused (the successor Authorization/K3 are fresh, enforced by path and digest denial).
+- **Limitation:** `CAPTURE_INTEGRITY_INDEPENDENTLY_RECHECKED = NO` (the capture directories are root-owned 0700 and no sudo was available to the closeout session); `RUNNER_REPORTED_CAPTURE_SHA256 = PASS`. The shell exit status of the live command was not persisted.
+- **Not claimed:** K12 PASS, reboot persistence, L34 acceptance, Recovery, LVR, L8p, L8, electrical relay proof, CUT/RESTORE proof.
+- **Next sequence:** L8p → Recovery R1–R8 → LVR → full L8 acceptance (each separately authorized). The dnsmasq orderly-reboot verification remains a separate unproven K12 item and is not a prerequisite to L8p.
+- **Receipt:** `90-Status/logs/2026-10-03_054700_music_idea3-dnsmasq-safe-stopped-successor-live-pass.md`.
+
+---
+
 ## IDEA3 dnsmasq repair — first attempt CONSUMED (S10), SAFE_STOPPED governed successor — repository only — 2026-10-03
+
+> [!note] Superseded (state only) 2026-10-03: the successor described below was later executed live once and **PASSED** — see the section above. The `SUCCESSOR_LIVE_EXECUTED = NO` / `PRODUCTION_MUTATION_PERFORMED = NO` wording below is the historical state at implementation time and is kept unedited in meaning.
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-dnsmasq-safe-stopped-successor` (base `61786bfb`). `FIRST_ATTEMPT = CONSUMED_FAILED_S10` and is never replayed (`OLD_ATTEMPT_RETRY_ALLOWED = NO`). `SUCCESSOR_IMPLEMENTATION = REPOSITORY_ONLY`, `SUCCESSOR_LIVE_EXECUTED = NO`, `PRODUCTION_MUTATION_PERFORMED = NO` in this task, `ESP32_TOUCHED = NO`. No Authorization, K3, frozen runner or marker exists for a successor.
 
