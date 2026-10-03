@@ -15,6 +15,63 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — M2-E3 final Windows pipe response lifecycle hardening (2026-10-03)
+
+Branch: `fix/idea2-agent-pipe-peer-disconnect-final`; base:
+`27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf`; source checkpoint:
+`7f00f78a776c01e47551a7b0cb2398702a1daa5d`, followed by the bounded
+pre-write acquisition amendment on the same PR #318 branch.
+
+State: SOURCE FIXED / LOCAL WINDOWS PIPE TESTS VERIFIED / MACHINE A LIVE
+RECOVERY NOT VERIFIED. After merged PR #317 and PR #316 were installed on
+Machine A, the owner observed seven new Engine `AGENT_UNAVAILABLE` warnings in
+40 seconds despite repeated automatic HUB heartbeat HTTP 200 responses and
+successful challenge/verify requests. Engine remained idle with camera
+connected=false, demanded=false, viewers=0. That is owner-provided live
+evidence of the pre-fix problem, not post-fix acceptance.
+
+RED tests exposed Win32 233 on the post-complete-response close path, a
+completed Engine response masked by a client `CloseHandle` failure, failed
+wait/cancel paths that did not drain pending OVERLAPPED I/O, unsafe publish
+diagnostic absence, and a zero-byte close completion during the cancel race.
+GREEN now classifies only 109/232/233 as normal peer close after the complete
+Agent response write. Connect, request read, and response write still fail on
+233; incomplete/invalid write counts, ordinary timeout, and trailing data
+remain failures. The Engine retains its separate <=5-second local pipe and
+<=30-second Agent response budgets. Close/publish diagnostics record only
+phase, exception class, and numeric Win32 code, never payload or exception
+message. ACL/SID, DPAPI, signing/session protocol, HTTPS, camera demand, and
+service failure backoff were not weakened.
+
+Local Windows verification: focused pipe/client 52/52, explicit Identity
+Agent modules 114/114, Windows lifecycle 49/49, full Engine/Agent 261/261,
+all five native pywin32 tests executed with zero skips at the original PR
+checkpoint. The immutable receipt for that checkpoint records its historical
+limitation and remains unchanged.
+
+The later PR #318 amendment closes the local no-instance gap without retrying
+an Agent transaction: only Win32 2/231 during `WaitNamedPipe`/`CreateFile`
+before handle acquisition may retry within the original at-most-five-second
+local deadline. Win32 121 and deadline exhaustion terminate as timeout;
+unrelated errors fail immediately. Once a handle is acquired, write/read
+failure cannot replay the request. The separately bounded Agent response
+wait remains unchanged. RED reproduced early failure on transient missing/busy
+instances and a deadline-expired wait that still attempted `CreateFile`.
+GREEN: focused pipe/client 60/60 and full Engine/Agent 269/269 on local
+Windows; the native 50/100 sequential transactions now call the real Engine
+connector back-to-back with no external pipe pre-poll, each reaching the
+Agent transport once. Service success has no backoff, injected unrelated
+failure retains backoff, and camera-demand side effects remain zero.
+Governance 61/61, Vault validation PASS with two pre-existing Canvas warnings,
+ten PowerShell parses, diff check, and changed-content secret scan passed.
+Independent read-only review: Critical 0, Important 0.
+
+This supersedes the receipt's former unsynchronized-acquisition limitation
+as a local source/test fact only. Installed Machine A heartbeat recovery is
+still not verified and remains owner-gated after human review/merge. No
+Machine A runtime, camera, private key, tunnel, Production, or Production DB
+was modified; M2-E3 is not closed.
+
 ## Current task — M2-E3 successful Agent pipe-close lifecycle (2026-10-03)
 
 Branch: `fix/idea2-agent-pipe-close-lifecycle`; owner: Pub. Base:
