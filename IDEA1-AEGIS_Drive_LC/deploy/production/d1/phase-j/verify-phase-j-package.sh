@@ -69,7 +69,7 @@ for key in V6_SHA256 S2_OVERLAY_SHA256 S3_OVERLAY_SHA256; do
 done
 
 # Only the declared live/build facts may stay unresolved.
-PENDING=$(grep -E '^[A-Z0-9_]+=<' "$TMP/authority.txt" | cut -d= -f1 | sort | tr '\n' ' ')
+PENDING=$( (grep -E '^[A-Z0-9_]+=<' "$TMP/authority.txt" || true) | cut -d= -f1 | sort | tr '\n' ' ')
 check PENDING_SET "$PENDING" ""
 
 # Stage 2 image artifact bindings (recorded at the Step 0 build).
