@@ -110,3 +110,20 @@ test('AN-3 shared preview code contains no role, username, user-id, or account-a
     assert.equal(forbidden.test(code), false, `${rel} must not branch on account identity`)
   }
 })
+
+test('AN-4 (D-1 H.2) preview-index client and server code never branches on account identity (role, Admin, username, account age)', async () => {
+  const root = fileURLToPath(new URL('../', import.meta.url))
+  const targets = [
+    'src/lib/vaultPreviewIndexCodec.js', 'src/lib/vaultPreviewIndexConstants.js', 'src/lib/vaultPreviewIndexMerge.js', 'src/lib/vaultPreviewIndexObject.js',
+    'src/lib/vaultPreviewIndexOrphans.js', 'src/lib/vaultPreviewIndexReader.js', 'src/lib/vaultPreviewIndexRouting.js', 'src/lib/vaultPreviewIndexTileLane.js',
+    'src/lib/vaultPreviewIndexTiles.js', 'src/lib/vaultPreviewIndexWriter.js', 'src/lib/vaultDerivativeBackfill.js', 'src/lib/vaultDerivativeGenerate.js',
+    'src/lib/vaultDerivativeRead.js', 'server/routes/vaultPreviewIndex.js', 'server/db/vaultPreviewIndexStore.js',
+  ]
+  // recording the actor in an audit row (`role: req.user.role`) is not a branch; comparing identity is
+  const forbidden = /\b(ROLES|isAdmin|accountAge)\b|\b(role|username)\s*(===|!==|==|!=)|(===|!==|==|!=)\s*['"]DataLake-(Admin|User)['"]/
+  for (const rel of targets) {
+    const src = await fs.readFile(path.join(root, rel), 'utf8')
+    const code = src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+    assert.equal(forbidden.test(code), false, `${rel} must not branch on account identity`)
+  }
+})
