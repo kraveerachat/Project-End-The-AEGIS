@@ -11,6 +11,8 @@
 _L8P_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=p4-l7u-run-lib.sh
 . "$_L8P_LIB_DIR/p4-l7u-run-lib.sh"
+# shellcheck source=p4-ntp-reactivation-lib.sh
+. "$_L8P_LIB_DIR/p4-ntp-reactivation-lib.sh"
 
 l8p_reason() { printf '%s\n' "$1" >&2; return 1; }
 
@@ -92,6 +94,15 @@ l8p_service_gate() {
     [ "$(systemctl show -p ActiveState --value "$u" 2>/dev/null)" = active ] && [ "$(systemctl show -p SubState --value "$u" 2>/dev/null)" = running ] \
       || { l8p_reason "L8P_SERVICE_NOT_ACTIVE:$u"; return 1; }
   done
+}
+
+# l8p_ntp_runtime_gate — the approved PRE-L8p NTP runtime is TRUE NOW (the firmware's only time source is the AP NTP server 10.77.30.1:123): chronyd active/running,
+# systemd-timesyncd inactive, exactly udp 10.77.30.1:123 and no wildcard :123, TrustedClock SYNCED within the L5 bound, the approved chrony config unchanged and both
+# UnitFileStates as approved. A historical NTP PASS receipt is NEVER a substitute: the 2026-10-03 attempt lost chronyd to its own POST capture. Read-only (systemctl show,
+# ss, the kernel clock probe, `$SUDO` reads of the root-owned config); it never starts, stops or repairs a time daemon. The runner calls it in the pre-gates AND again after the PRE capture, immediately before the attempt is consumed.
+l8p_ntp_runtime_gate() {
+  NTPREACT_SUDO="$SUDO" ntpreact_runtime_ready_gate \
+    || { l8p_reason "L8P_NTP_RUNTIME_NOT_READY (L8p never repairs it; a governed NTP runtime reactivation must be PROVEN after its own evidence capture first)"; return 1; }
 }
 
 # l8p_rollback_output_gate FIRST_WRITE_STARTED(0|1) OUTPUT — the canonical L8p rollback handler's own report must carry its fail-secure semantics.

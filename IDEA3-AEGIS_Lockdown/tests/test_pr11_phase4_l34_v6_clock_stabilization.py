@@ -34,7 +34,7 @@ UNAVAILABLE = "state=UNKNOWN reason=PROBE_UNAVAILABLE maxerror_us=-1 adjtimex_re
 PINS = {
     "p4-compare.sh": "6caa482def07b50e462828f10ba117fb66779e9dde67e1fea8fad5b9b9f71c08",
     "p4-l5-clock.py": "dd322fbdc0538df09b8a35f01f080422e1523519d70dd8d1e7a1d9bbfd3f41f0",
-    "p4-l0-capture.sh": "f49f6f74d43dc38058b9ee77bd1511a17394e9eaad4d873c07dfdc09f4bf4722",
+    "p4-l0-capture.sh": "370c0db47ea0ceed878ec8ca5565593d67fe158529b73d4f8d548c132542e4d4",
 }
 
 
