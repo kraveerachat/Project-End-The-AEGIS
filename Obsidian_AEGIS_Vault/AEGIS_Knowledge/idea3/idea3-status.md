@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 PRE-L8p NTP runtime reactivation successor — repository only — 2026-10-03
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-pre-l8p-ntp-runtime-reactivation`, based on `2f174eca`. Nothing was executed live: `PRODUCTION_MUTATION_PERFORMED = NO`, no `systemctl` action, no serial/esptool/ESP32 access, no MQTT publish, no CUT/RESTORE, no relay/uplink wiring. No Authorization, K3, attempt marker, frozen runner or evidence directory was created.
+> `L5_LIVE_ACCEPTANCE = HISTORICAL_PROVEN_UNCHANGED` (not re-run, not invalidated), `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `PRE_L8P_NTP_RUNTIME_REACTIVATION = NOT_RUN`, `NTP_RUNTIME_READY_FOR_L8P = NO`, `L8P_LIVE_EXECUTED = NO`, `L8_ACCEPTANCE = NO`.
+
+- **Why the post-reboot state is expected:** L5 mutated runtime `ActiveState` only (stop `systemd-timesyncd`, start `chronyd`) and never enabled/disabled either unit, so after a reboot `chronyd` is inactive/disabled, `systemd-timesyncd` is active/enabled and nothing listens on UDP/123, while `/etc/chrony.conf` is still the rendered L5 config. That matches the approved L5 design and `K12 = NOT_PROVEN`; it is not a defect.
+- **Successor package:** `deploy/pr11-phase4/reactivation/pre-l8p-ntp-runtime-reactivation/` (+ `p4-ntp-reactivation-lib.sh`, inert pinned template `owner-run/run-pre-l8p-ntp-runtime-reactivation-owner.sh`). The whole live mutation is `systemctl stop systemd-timesyncd.service` then `systemctl start chronyd.service`; no enable/disable, no `/etc/chrony.conf` write, `UnitFileState` asserted before and proven unchanged. Read-only PRE gates cover exact unit states, AP `10.77.30.1/28`, the approved config SHA-256 (`20e283e4…35fe`, equal to the L5 renderer output), no alternate chronyd config path, no port-123 listener and the shared L5 TrustedClock predicate. Rollback restores the exact runtime baseline and only proves (never repairs) `UnitFileState` and the config.
+- **Governance:** fresh same-day `stage=L5` Authorization/K3 with the exact `PRE_L8P_NTP_RUNTIME_REACTIVATION` scope, a dedicated one-attempt marker consumed after preflight, PRE capture and a pre-consume S10 guard, frozen operator identity and runner digest, no reuse of any L5 Authorization/K3/marker (the historical L5 reference is refused), no automatic retry.
+- **On success only:** `PRE_L8P_NTP_RUNTIME_REACTIVATION=PASS`, `NTP_RUNTIME_READY_FOR_L8P=YES`, `NTP_LISTENER_ADDRESS=10.77.30.1:123`; runtime readiness is perishable (the next reboot returns to timesyncd). L8p needs its own fresh authorization.
+- **Design:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-03-idea3-pre-l8p-ntp-runtime-reactivation-design.md`. **Receipt:** `90-Status/logs/2026-10-03_095200_music_idea3-pre-l8p-ntp-runtime-reactivation.md`.
+
+---
+
 ## IDEA3 dnsmasq boot-order repair — repository only — 2026-10-02
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-dnsmasq-boot-order`, merged as PR #305 (`827251f2`; updated 2026-10-03, the live host is still on the old unit). Nothing was deployed or restarted: `PRODUCTION_MUTATION_PERFORMED = NO`, `DNSMASQ_RESTARTED = NO`, `NETWORK_CHANGED = NO`, `CORE_RESTARTED = NO`, `ESP32_TOUCHED = NO`, L8p / F1 detector / Recovery R1-R8 not run.
