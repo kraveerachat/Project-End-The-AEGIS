@@ -690,6 +690,7 @@ class PipeProtocolTests(unittest.TestCase):
                 encode_request("heartbeat", samples()["heartbeat"]),
                 0.1,
                 MAX_RESPONSE_BYTES,
+                0.1,  # short response budget is explicit; local wait stays separate
             )
         elapsed = time.monotonic() - started
         self.assertTrue(entered.wait(1))

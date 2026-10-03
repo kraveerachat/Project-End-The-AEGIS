@@ -32,6 +32,7 @@ def _windows_connector_with_modules(
     request: bytes,
     timeout_s: float,
     response_limit: int,
+    response_timeout_s: float = 30.0,
     *,
     pywintypes,
     win32con,
@@ -40,6 +41,8 @@ def _windows_connector_with_modules(
     win32pipe,
     monotonic=time.monotonic,
 ) -> bytes:
+    # The local pipe acquisition/write budget must not be spent waiting for
+    # the Agent's separately bounded HTTPS transaction after a valid write.
     deadline = monotonic() + timeout_s
 
     def remaining_ms() -> int:
@@ -74,12 +77,20 @@ def _windows_connector_with_modules(
             data=request,
             timeout_ms=remaining_ms(),
         )
+        response_deadline = monotonic() + response_timeout_s
+
+        def response_remaining_ms() -> int:
+            remaining = response_deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError("identity Agent response timed out")
+            return max(1, int(remaining * 1000))
+
         return _read_overlapped_message(
             pywintypes,
             win32event,
             win32file,
             handle=handle,
-            timeout_ms=remaining_ms(),
+            timeout_ms=response_remaining_ms(),
             max_bytes=response_limit,
         )
     finally:
@@ -90,7 +101,13 @@ def _windows_connector_with_modules(
         win32file.CloseHandle(handle)
 
 
-def _windows_connector(pipe_name: str, request: bytes, timeout_s: float, response_limit: int) -> bytes:
+def _windows_connector(
+    pipe_name: str,
+    request: bytes,
+    timeout_s: float,
+    response_limit: int,
+    response_timeout_s: float = 30.0,
+) -> bytes:
     try:
         import pywintypes
         import win32con
@@ -104,6 +121,7 @@ def _windows_connector(pipe_name: str, request: bytes, timeout_s: float, respons
         request,
         timeout_s,
         response_limit,
+        response_timeout_s,
         pywintypes=pywintypes,
         win32con=win32con,
         win32event=win32event,
@@ -118,14 +136,18 @@ class IdentityAgentClient:
         *,
         pipe_name: str = DEFAULT_PIPE_NAME,
         timeout_s: float = 5.0,
+        response_timeout_s: float = 30.0,
         connector=None,
     ):
         if not isinstance(pipe_name, str) or not pipe_name.startswith("\\\\.\\pipe\\"):
             raise ValueError("identity Agent pipe name must be local")
         if not 0.1 <= float(timeout_s) <= 5.0:
             raise ValueError("identity Agent timeout must be between 0.1 and 5 seconds")
+        if not 0.1 <= float(response_timeout_s) <= 30.0:
+            raise ValueError("identity Agent response timeout must be between 0.1 and 30 seconds")
         self.pipe_name = pipe_name
         self.timeout_s = float(timeout_s)
+        self.response_timeout_s = float(response_timeout_s)
         self._connector = connector or _windows_connector
         self.camera_demand_side_effects = 0
 
@@ -137,6 +159,7 @@ class IdentityAgentClient:
                 request,
                 self.timeout_s,
                 MAX_RESPONSE_BYTES,
+                self.response_timeout_s,
             )
             response = decode_response(raw)
         except Exception:
