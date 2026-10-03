@@ -52,6 +52,7 @@ case "$BACKEND" in
     [ "${AEGIS_L8P_LIVE_AUTHORIZED:-NO}" = YES ] ||
       fail "HARDWARE_BACKEND_LIVE_L8P_NOT_AUTHORIZED (AEGIS_L8P_LIVE_AUTHORIZED=YES required)"
     require_env AEGIS_L8P_ESPTOOL
+    require_env AEGIS_L8P_ESPTOOL_PYTHON
     require_env AEGIS_L8P_BROKER_ADDRESS
     require_env AEGIS_L8P_BROKER_TLS_NAME
     require_env AEGIS_L8P_MQTT_CA_FILE
@@ -110,6 +111,7 @@ out=$("$PYTHON_BIN" "$P4_HERE/p4-l8p-device.py" provision \
   --backend "$BACKEND" \
   --fixture-device "${AEGIS_L8P_FIXTURE_DEVICE:-}" \
   --esptool "${AEGIS_L8P_ESPTOOL:-}" \
+  --esptool-python "${AEGIS_L8P_ESPTOOL_PYTHON:-}" \
   --live-authorized "${AEGIS_L8P_LIVE_AUTHORIZED:-NO}" \
   --broker-address "${AEGIS_L8P_BROKER_ADDRESS:-}" \
   --broker-tls-name "${AEGIS_L8P_BROKER_TLS_NAME:-}" \

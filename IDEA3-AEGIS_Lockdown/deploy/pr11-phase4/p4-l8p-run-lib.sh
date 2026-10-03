@@ -87,6 +87,23 @@ l8p_file_gate() {
   [ "$mode" != exec ] || [ -x "$file" ] || { l8p_reason "L8P_FILE_NOT_EXECUTABLE:$label"; return 1; }
 }
 
+# l8p_esptool_python_gate PYTHON SCRIPT — the FROZEN esptool interpreter can load the EXACT pinned esptool.py, proven BEFORE the attempt is consumed. The esptool subprocess runs under
+# this interpreter ONLY (never AEGIS_PYTHON_BIN, which orchestrates the L8p flow and does not carry esptool's dependencies). It runs the pinned script with `--help`, exactly the way the
+# real launcher does, so every import the tool needs (pyserial, intelhex, ...) is exercised; `--help` opens no serial port and issues no flash_id/read_flash/write_flash. No PATH lookup,
+# no fallback interpreter, no package installation. Prints one `reason` line to stderr on failure.
+l8p_esptool_python_gate() {
+  local py=${1:-} script=${2:-} out tail_line
+  [[ "$py" == /* ]] || { l8p_reason "L8P_ESPTOOL_PYTHON_NOT_ABSOLUTE"; return 1; }
+  [ -f "$py" ] && [ -x "$py" ] || { l8p_reason "L8P_ESPTOOL_PYTHON_NOT_EXECUTABLE"; return 1; }
+  [[ "$(basename -- "$py")" == python* ]] || { l8p_reason "L8P_ESPTOOL_PYTHON_NOT_A_PYTHON_INTERPRETER"; return 1; }
+  [[ "$script" == /* ]] && [ -f "$script" ] && [ ! -L "$script" ] || { l8p_reason "L8P_ESPTOOL_SCRIPT_MISSING"; return 1; }
+  if ! out=$(cd / && env -i PATH=/usr/bin:/bin LC_ALL=C PYTHONDONTWRITEBYTECODE=1 timeout 60 "$py" "$script" --help 2>&1 </dev/null); then
+    tail_line=$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -n 1 | tr -cd '[:print:]' | cut -c1-160)
+    l8p_reason "L8P_ESPTOOL_PYTHON_CANNOT_LOAD_PINNED_ESPTOOL:${tail_line:-no-output}"; return 1
+  fi
+  grep -qE 'esptool\.py v4\.11\.[0-9]+' <<< "$out" || { l8p_reason "L8P_ESPTOOL_PYTHON_UNEXPECTED_ESPTOOL_BUILD"; return 1; }
+}
+
 # l8p_service_gate UNIT... — each unit is active/running NOW. Read-only; never repairs anything.
 l8p_service_gate() {
   local u
