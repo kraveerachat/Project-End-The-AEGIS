@@ -327,16 +327,14 @@ test('the global HUB landing-page policy gains neither blob: nor wasm-unsafe-eva
   assert.deepEqual(directives.get('connect-src'), ["'self'"])
 })
 
-test('/monitor is not widened and still inherits the strict server policy', () => {
-  // IDEA2 asked for nothing here. A location that declares no add_header of its
-  // own inherits the server block's, so /monitor is governed by the global HUB
-  // policy asserted above — and this task must not change that.
-  assert.equal(addedHeaders(monitorLocation).size, 0,
-    '/monitor declares no add_header of its own; it inherits the stricter server policy')
+test('/monitor remains isolated from Drive blob and Wasm grants', () => {
+  // The separate IDEA2 Browser Association exception is tested in
+  // monitorCspAssociation.test.mjs; Drive media/Wasm permissions stay absent.
+  const monitorPolicy = addedHeaders(monitorLocation).get('content-security-policy')
+  assert.equal(typeof monitorPolicy, 'string', '/monitor declares its own narrow policy')
 
-  const raw = JSON.stringify(monitorLocation)
-  assert.equal(raw.includes('blob:'), false, '/monitor must not gain blob:')
-  assert.equal(raw.includes('wasm-unsafe-eval'), false, '/monitor must not gain wasm permissions')
+  assert.equal(monitorPolicy.includes('blob:'), false, '/monitor must not gain blob:')
+  assert.equal(monitorPolicy.includes('wasm-unsafe-eval'), false, '/monitor must not gain wasm permissions')
 
   // And the guard in front of the service-to-service ingest surface is untouched.
   const guard = tlsServer().blocks.find((block) => block.header.startsWith('location ~*'))

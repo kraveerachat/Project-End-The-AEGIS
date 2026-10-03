@@ -15,6 +15,28 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — Browser Association CSP narrow source fix (2026-10-04)
+
+Branch `fix/idea2-browser-association-csp` is a repository-only fix for the
+confirmed Production browser denial of the Operator's local Agent association
+request. Monitor's own CSP and the browser-facing HUB `/monitor/` CSP now grant
+only `http://127.0.0.1:8078` in `connect-src`. The HUB `/monitor/` location
+retains the existing upstream security headers and CSP intersection while
+repeating the six HUB headers so nginx location-level `add_header` does not
+drop them. No other effective CSP directive is intentionally widened.
+HUB root, Drive, IDEA3, and `/monitor/internal/*` are unchanged. Existing
+browser-flow tests still prove credentials are omitted, SOC does not associate,
+and association does not request a camera stream.
+
+Local evidence: the new/existing focused CSP and association tests passed
+24/24; applicable HUB config tests passed 41/41; full neutral Monitor tests
+passed 179 with 58 conditional skips and zero failures; HUB and Monitor Vite
+builds passed. The broader HUB browser suite was attempted but did not finish
+within the bounded local run; it is not claimed green. Production nginx syntax
+or browser acceptance has not been tested here. This branch does **not** deploy
+the CSP change or prove Machine A live association/camera recovery. Kla must
+review the cross-scope HUB policy before any Production rollout.
+
 ## Current task — M2-E3 persistent idle pipe accept (2026-10-04)
 
 Branch: `fix/idea2-agent-persistent-idle-pipe-accept`, based on main
