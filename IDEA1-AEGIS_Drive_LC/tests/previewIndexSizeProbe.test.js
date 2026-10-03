@@ -55,6 +55,10 @@ test('PIS-G1 e2e memory probe reports measured matrix groups and an unchanged ma
       assert.ok(Number.isSafeInteger(result.cells[0].retainedBudget[input].bytes), `${input} must be measured in bytes`)
     }
     assert.equal(result.cells[0].retainedBudget.B.writerSessions, 1)
+    assert.ok(Number.isSafeInteger(result.cells[0].storage.currentGenerationFinalCipherBytes))
+    assert.ok(Number.isSafeInteger(result.cells[0].storage.supersededAfterChurnCipherBytes))
+    assert.equal(result.cells[0].storage.casLossStagedCipherBytes,
+      result.cells[0].retainedBudget.D.bytes - result.cells[0].retainedBudget.C.bytes)
     assert.equal(result.cells[0].mutationTimings.singleEntry.runs, 20)
     assert.equal(result.cells[0].mutationTimings.fullBatch.runs, 20)
     assert.ok(Number.isSafeInteger(result.cells[0].audit.batchWriteRows))

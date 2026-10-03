@@ -403,6 +403,29 @@ async function inventoryBytes(server, owner) {
     attempts, method: 'actual GET /api/vault and counterfactual serialization of the same public V2 envelope rows' }
 }
 
+async function currentGenerationCipherBytes(server, owner, transport, mainHead) {
+  const reader = createPreviewIndexReader({ kek: owner.kek, api: writerApi(transport), fetchBytes: transport.fetchBytes })
+  try {
+    const loaded = await reader.load(mainHead)
+    if (loaded.status !== 'READY') throw new Error(`final index reader ${loaded.status}:${loaded.reason ?? ''}`)
+    const { head, root } = reader.snapshot()
+    const ids = new Set([String(head.rootBlobRef.id)])
+    for (const descriptor of root.shards) {
+      ids.add(String(descriptor.blobRef.id))
+      const shard = await reader.shardOf(descriptor.prefix)
+      if (!shard) throw new Error(`final shard unreadable: ${descriptor.prefix}`)
+      for (const entries of shard.entries.values()) for (const entry of entries) ids.add(String(entry.blobRef.id))
+    }
+    const sizes = new Map((await server.v2.listVaultV2Blobs(owner.userId)).map((blob) => [String(blob.id), Number(blob.size)]))
+    let bytes = 0
+    for (const id of ids) {
+      if (!Number.isSafeInteger(sizes.get(id))) throw new Error('current-generation blob missing from owner store')
+      bytes += sizes.get(id)
+    }
+    return { bytes, blobs: ids.size, method: 'verified final head/root/shards and distinct referenced derivative ids; owner V2 ciphertext sizes' }
+  } finally { reader.clear() }
+}
+
 async function measureServerCell(server, nodes, variant, runs, f) {
   const owner = await server.newOwner(f.treeId)
   const transport = transportFor(owner.client)
@@ -430,7 +453,7 @@ async function measureServerCell(server, nodes, variant, runs, f) {
   const attached = await attachAll(server, owner, transport, f.treeId, [...derivativeIds, ...shardIds], descriptors)
   process.stderr.write(`[idx-size] attached initial index nodes=${nodes} variant=${variant} generations=${attached.generation}\n`)
   const retainedA = await server.pindex.getRetainedIndexBytes(owner.userId)
-  const currentCipherBytes = derivativeSizes.reduce((a, b) => a + b, 0) + shardSizes.reduce((a, s) => a + s.cipherBytes, 0) + attached.root.cipherBytes
+  const initialGenerationCipherBytes = derivativeSizes.reduce((a, b) => a + b, 0) + shardSizes.reduce((a, s) => a + s.cipherBytes, 0) + attached.root.cipherBytes
   const coldRuns = []
   for (let i = 0; i < runs; i++) coldRuns.push(await measureColdTiles(server, owner, transport, mainHead, items))
   process.stderr.write(`[idx-size] cold views nodes=${nodes} variant=${variant} runs=${runs}\n`)
@@ -441,6 +464,10 @@ async function measureServerCell(server, nodes, variant, runs, f) {
     auditDistribution: { p50: median(coldRuns.map((r) => r.auditRows), 0.5), p95: median(coldRuns.map((r) => r.auditRows), 0.95), unit: 'rows', runs } }
   const mutation = await measureMutations(server, owner, transport, mainHead, items, runs)
   process.stderr.write(`[idx-size] mutations nodes=${nodes} variant=${variant} backfill=${items.length * 2} churn=${runs}\n`)
+  const finalGeneration = await currentGenerationCipherBytes(server, owner, transport, mainHead)
+  const supersededAfterChurnCipherBytes = mutation.retainedC - finalGeneration.bytes
+  if (supersededAfterChurnCipherBytes < 0) throw new Error('final reachable bytes exceed retained C')
+  const entriesWrittenThroughC = derivativeIds.length + items.length * 2 + runs * (1 + Math.min(16, items.length))
   const budgetCheck = await budgetCheckSamples(server, owner, runs)
   process.stderr.write(`[idx-size] budget-check samples nodes=${nodes} variant=${variant} runs=${runs}\n`)
   const candidateBudgets = await candidateBudgetSamples(server, owner, mutation.retainedD)
@@ -454,8 +481,11 @@ async function measureServerCell(server, nodes, variant, runs, f) {
     root: { canonicalBytes: attached.rootPlain.length, paddedBytes: attached.root.paddedBytes, cipherBytes: attached.root.cipherBytes, unit: 'B' },
     shards: { count: shardSizes.length, splitCount: splits, canonical: measuredSizes('canonicalBytes'),
       padded: measuredSizes('paddedBytes'), cipher: measuredSizes('cipherBytes'), unit: 'B' },
-    storage: { currentGenerationCipherBytes: currentCipherBytes, retainedCipherBytes: retainedA,
-      supersededCipherBytes: retainedA - currentCipherBytes, supersededBytesPerEntryWritten: (retainedA - currentCipherBytes) / derivativeIds.length,
+    storage: { initialGenerationCipherBytes, currentGenerationFinalCipherBytes: finalGeneration.bytes,
+      currentGenerationFinalBlobCount: finalGeneration.blobs, retainedAfterChurnCipherBytes: mutation.retainedC,
+      supersededAfterChurnCipherBytes, supersededBytesPerEntryWritten: supersededAfterChurnCipherBytes / entriesWrittenThroughC,
+      entriesWrittenThroughC, casLossStagedCipherBytes: mutation.retainedD - mutation.retainedC,
+      method: `${finalGeneration.method}; superseded after churn = retained C - final reachable; no GC`,
       inventory, unit: 'B' },
     retainedBudget: {
       A: { bytes: retainedA, entries: derivativeIds.length, method: 'full initial encrypted build; getRetainedIndexBytes' },
