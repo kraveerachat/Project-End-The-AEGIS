@@ -15,7 +15,7 @@ from aegis_engine.config import EngineConfig
 from aegis_engine.engine import DetectionEngine
 from aegis_engine.identity_agent_client import IdentityAgentClient, _windows_connector_with_modules
 from aegis_engine.monitor_client import MonitorClient
-from aegis_identity_agent.pipe_protocol import decode_request, encode_response
+from aegis_identity_agent.pipe_protocol import decode_request, decode_response, encode_response
 
 
 class RecordingConnector:
@@ -32,6 +32,169 @@ class RecordingConnector:
 
 
 class IdentityAgentClientTests(unittest.TestCase):
+    def _exercise_acquisition(self, *, waits=(), opens=(), wait_advance=0.0,
+                              write_error=None, read_error=None):
+        """Exercise the real connector with scripted Win32 acquisition outcomes."""
+        class Win32Failure(OSError):
+            def __init__(self, code):
+                super().__init__(f"Win32 {code}")
+                self.winerror = code
+
+        class Clock:
+            value = 0.0
+
+            @classmethod
+            def monotonic(cls):
+                return cls.value
+
+            @classmethod
+            def sleep(cls, seconds):
+                cls.value += seconds
+
+        request = b"{}\n"
+        response = encode_response(ok=True, status=200)
+        buffer = bytearray(4097)
+        buffer[:len(response)] = response
+        outcomes = {"wait": iter(waits), "open": iter(opens)}
+        calls = {"wait": [], "open": [], "write": [], "read": [], "close": [], "sleep": []}
+        transfers = iter((len(request), len(response)))
+
+        def wait_pipe(_name, timeout_ms):
+            calls["wait"].append(timeout_ms)
+            Clock.value += wait_advance
+            code = next(outcomes["wait"], None)
+            if code is not None:
+                raise Win32Failure(code)
+
+        def open_pipe(*_args):
+            calls["open"].append(Clock.value)
+            code = next(outcomes["open"], None)
+            if code is not None:
+                raise Win32Failure(code)
+            return "pipe"
+
+        def write_pipe(_handle, data, _overlapped):
+            calls["write"].append(data)
+            if write_error is not None:
+                raise Win32Failure(write_error)
+            return (0, len(data))
+
+        def read_pipe(_handle, _buffer, _overlapped):
+            calls["read"].append(True)
+            if read_error is not None:
+                raise Win32Failure(read_error)
+            return (0, buffer)
+
+        def sleep(seconds):
+            calls["sleep"].append(seconds)
+            Clock.sleep(seconds)
+
+        fake_file = SimpleNamespace(
+            CreateFile=open_pipe,
+            WriteFile=write_pipe,
+            ReadFile=read_pipe,
+            AllocateReadBuffer=lambda _size: buffer,
+            GetOverlappedResult=lambda *_args: next(transfers),
+            CancelIoEx=lambda *_args: None,
+            CloseHandle=lambda handle: calls["close"].append(handle),
+        )
+        fake_pipe = SimpleNamespace(
+            PIPE_READMODE_MESSAGE=2,
+            WaitNamedPipe=wait_pipe,
+            SetNamedPipeHandleState=lambda *_args: None,
+        )
+        fake_con = SimpleNamespace(
+            GENERIC_READ=1, GENERIC_WRITE=2, OPEN_EXISTING=3,
+        )
+        fake_event = SimpleNamespace(CreateEvent=lambda *_args: "event")
+        fake_pywintypes = SimpleNamespace(OVERLAPPED=lambda: SimpleNamespace(hEvent=None))
+        with patch("aegis_engine.identity_agent_client.time.sleep", side_effect=sleep):
+            try:
+                result = _windows_connector_with_modules(
+                    r"\\.\pipe\AEGIS.IdentityAgent.v1", request, 5.0, 4096, 30.0,
+                    pywintypes=fake_pywintypes, win32con=fake_con,
+                    win32event=fake_event, win32file=fake_file, win32pipe=fake_pipe,
+                    monotonic=Clock.monotonic,
+                )
+                return calls, Clock.value, result, None
+            except Exception as exc:
+                return calls, Clock.value, None, exc
+
+    def test_transient_no_instance_before_write_retries_within_local_budget(self):
+        calls, elapsed, result, error = self._exercise_acquisition(waits=(2, 2, None))
+        self.assertIsNone(error)
+        self.assertEqual(200, decode_response(result).status)
+        self.assertEqual(3, len(calls["wait"]))
+        self.assertEqual(1, len(calls["open"]))
+        self.assertEqual([b"{}\n"], calls["write"])
+        self.assertEqual(["pipe"], calls["close"])
+        self.assertLess(elapsed, 5.0)
+        self.assertTrue(calls["sleep"])
+
+    def test_transient_pipe_busy_wait_retries_before_write(self):
+        calls, _, result, error = self._exercise_acquisition(waits=(231, None))
+        self.assertIsNone(error)
+        self.assertEqual(200, decode_response(result).status)
+        self.assertEqual(2, len(calls["wait"]))
+        self.assertEqual(1, len(calls["open"]))
+        self.assertEqual([b"{}\n"], calls["write"])
+
+    def test_transient_busy_or_no_instance_after_wait_retries_before_write(self):
+        for code in (2, 231):
+            with self.subTest(code=code):
+                calls, _, result, error = self._exercise_acquisition(
+                    waits=(None, None), opens=(code, None),
+                )
+                self.assertIsNone(error)
+                self.assertEqual(200, decode_response(result).status)
+                self.assertEqual(2, len(calls["open"]))
+                self.assertEqual([b"{}\n"], calls["write"])
+
+    def test_unavailable_pipe_exhausts_local_budget_without_response_budget(self):
+        calls, elapsed, result, error = self._exercise_acquisition(waits=(2,) * 300)
+        self.assertIsNone(result)
+        self.assertIsInstance(error, TimeoutError)
+        self.assertLessEqual(elapsed, 5.0)
+        self.assertEqual([], calls["open"])
+        self.assertEqual([], calls["write"])
+        self.assertLessEqual(len(calls["wait"]), 252)
+
+    def test_wait_consuming_local_budget_does_not_attempt_open_or_write(self):
+        calls, elapsed, result, error = self._exercise_acquisition(
+            waits=(None,), wait_advance=5.0,
+        )
+        self.assertIsNone(result)
+        self.assertIsInstance(error, TimeoutError)
+        self.assertEqual(5.0, elapsed)
+        self.assertEqual([], calls["open"])
+        self.assertEqual([], calls["write"])
+
+    def test_unrelated_access_denied_is_not_retried(self):
+        calls, _, result, error = self._exercise_acquisition(waits=(5,))
+        self.assertIsNone(result)
+        self.assertEqual(5, error.winerror)
+        self.assertEqual(1, len(calls["wait"]))
+        self.assertEqual([], calls["sleep"])
+        self.assertEqual([], calls["write"])
+
+    def test_win32_wait_timeout_is_not_retried(self):
+        calls, _, result, error = self._exercise_acquisition(waits=(121,))
+        self.assertIsNone(result)
+        self.assertIsInstance(error, TimeoutError)
+        self.assertEqual(1, len(calls["wait"]))
+        self.assertEqual([], calls["sleep"])
+
+    def test_post_handle_write_or_read_failure_never_replays_request(self):
+        for boundary in ("write_error", "read_error"):
+            with self.subTest(boundary=boundary):
+                calls, _, result, error = self._exercise_acquisition(**{boundary: 2})
+                self.assertIsNone(result)
+                self.assertEqual(2, error.winerror)
+                self.assertEqual(1, len(calls["open"]))
+                self.assertEqual(1, len(calls["write"]))
+                self.assertEqual([], calls["sleep"])
+                self.assertEqual(["pipe"], calls["close"])
+
     def test_native_connector_accepts_agent_response_after_local_five_second_window(self):
         """A completed local write must not spend the Agent's HTTPS response budget."""
         class Overlapped:
@@ -49,6 +212,7 @@ class IdentityAgentClientTests(unittest.TestCase):
         buffer = bytearray(4097)
         buffer[:len(response)] = response
         waits = []
+        closed = []
         transfers = iter((len(request), len(response)))
 
         def wait_for_response(_event, timeout_ms):
@@ -75,7 +239,7 @@ class IdentityAgentClientTests(unittest.TestCase):
             ReadFile=lambda *_args: (997, buffer),
             GetOverlappedResult=lambda *_args: next(transfers),
             CancelIoEx=lambda *_args: None,
-            CloseHandle=lambda *_args: None,
+            CloseHandle=lambda handle: closed.append(handle),
         )
         fake_pipe = SimpleNamespace(
             PIPE_READMODE_MESSAGE=2,
@@ -95,6 +259,8 @@ class IdentityAgentClientTests(unittest.TestCase):
             monotonic=FakeClock.monotonic,
         )
         self.assertEqual(response, actual)
+        self.assertEqual(200, decode_response(actual).status)
+        self.assertEqual(["pipe"], closed)
         self.assertGreaterEqual(waits[0], 16_000)
         self.assertLessEqual(waits[0], 17_000)
 
@@ -116,6 +282,47 @@ class IdentityAgentClientTests(unittest.TestCase):
             )
         self.assertEqual(1, len(waits))
         self.assertLessEqual(waits[0], 5000)
+
+    def test_complete_agent_response_survives_client_handle_close_error(self):
+        response = encode_response(ok=True, status=200)
+        buffer = bytearray(4097)
+        buffer[:len(response)] = response
+        transfers = iter((len(b"{}\n"), len(response)))
+        closed = []
+
+        class CloseFailure(Exception):
+            winerror = "private-winerror-marker"
+
+        def close_with_error(handle):
+            closed.append(handle)
+            raise CloseFailure("private response content must not be logged")
+
+        with self.assertLogs("aegis_engine.identity_agent_client", level="WARNING") as captured:
+            actual = _windows_connector_with_modules(
+                r"\\.\pipe\AEGIS.IdentityAgent.v1", b"{}\n", 5.0, 4096,
+                pywintypes=SimpleNamespace(OVERLAPPED=lambda: SimpleNamespace(hEvent=None)),
+                win32con=SimpleNamespace(GENERIC_READ=1, GENERIC_WRITE=2, OPEN_EXISTING=3),
+                win32event=SimpleNamespace(CreateEvent=lambda *_args: "event"),
+                win32file=SimpleNamespace(
+                    CreateFile=lambda *_args: "pipe",
+                    WriteFile=lambda *_args: (0, 0),
+                    AllocateReadBuffer=lambda _size: buffer,
+                    ReadFile=lambda *_args: (0, buffer),
+                    GetOverlappedResult=lambda *_args: next(transfers),
+                    CancelIoEx=lambda *_args: None,
+                    CloseHandle=close_with_error,
+                ),
+                win32pipe=SimpleNamespace(
+                    PIPE_READMODE_MESSAGE=2,
+                    WaitNamedPipe=lambda *_args: None,
+                    SetNamedPipeHandleState=lambda *_args: None,
+                ),
+            )
+        self.assertEqual(200, decode_response(actual).status)
+        self.assertEqual(["pipe"], closed)
+        self.assertIn("winerror=none", " ".join(captured.output))
+        self.assertNotIn("private response content", " ".join(captured.output))
+        self.assertNotIn("private-winerror-marker", " ".join(captured.output))
 
     def test_distinct_budgets_reach_injected_connector_without_camera_authority(self):
         connector = RecordingConnector(response=encode_response(ok=True, status=200))
