@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import time
 
 from aegis_identity_agent.pipe_protocol import (
@@ -18,6 +19,9 @@ from aegis_identity_agent.pipe_server import (
     _cancel_io,
     _write_overlapped_message,
 )
+
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -98,7 +102,16 @@ def _windows_connector_with_modules(
             _cancel_io(handle, win32file)
         except Exception:
             pass
-        win32file.CloseHandle(handle)
+        try:
+            win32file.CloseHandle(handle)
+        except Exception as exc:
+            # Cleanup must not replace a completed Agent response (or mask the
+            # original transaction failure). Never log the exception message.
+            code = getattr(exc, "winerror", None)
+            _LOG.warning(
+                "identity Agent pipe handle close failed: type=%s winerror=%s",
+                type(exc).__name__, code if isinstance(code, int) else "none",
+            )
 
 
 def _windows_connector(

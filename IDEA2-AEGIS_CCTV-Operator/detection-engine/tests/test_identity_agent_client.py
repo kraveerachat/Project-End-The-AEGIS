@@ -15,7 +15,7 @@ from aegis_engine.config import EngineConfig
 from aegis_engine.engine import DetectionEngine
 from aegis_engine.identity_agent_client import IdentityAgentClient, _windows_connector_with_modules
 from aegis_engine.monitor_client import MonitorClient
-from aegis_identity_agent.pipe_protocol import decode_request, encode_response
+from aegis_identity_agent.pipe_protocol import decode_request, decode_response, encode_response
 
 
 class RecordingConnector:
@@ -49,6 +49,7 @@ class IdentityAgentClientTests(unittest.TestCase):
         buffer = bytearray(4097)
         buffer[:len(response)] = response
         waits = []
+        closed = []
         transfers = iter((len(request), len(response)))
 
         def wait_for_response(_event, timeout_ms):
@@ -75,7 +76,7 @@ class IdentityAgentClientTests(unittest.TestCase):
             ReadFile=lambda *_args: (997, buffer),
             GetOverlappedResult=lambda *_args: next(transfers),
             CancelIoEx=lambda *_args: None,
-            CloseHandle=lambda *_args: None,
+            CloseHandle=lambda handle: closed.append(handle),
         )
         fake_pipe = SimpleNamespace(
             PIPE_READMODE_MESSAGE=2,
@@ -95,6 +96,8 @@ class IdentityAgentClientTests(unittest.TestCase):
             monotonic=FakeClock.monotonic,
         )
         self.assertEqual(response, actual)
+        self.assertEqual(200, decode_response(actual).status)
+        self.assertEqual(["pipe"], closed)
         self.assertGreaterEqual(waits[0], 16_000)
         self.assertLessEqual(waits[0], 17_000)
 
@@ -116,6 +119,47 @@ class IdentityAgentClientTests(unittest.TestCase):
             )
         self.assertEqual(1, len(waits))
         self.assertLessEqual(waits[0], 5000)
+
+    def test_complete_agent_response_survives_client_handle_close_error(self):
+        response = encode_response(ok=True, status=200)
+        buffer = bytearray(4097)
+        buffer[:len(response)] = response
+        transfers = iter((len(b"{}\n"), len(response)))
+        closed = []
+
+        class CloseFailure(Exception):
+            winerror = "private-winerror-marker"
+
+        def close_with_error(handle):
+            closed.append(handle)
+            raise CloseFailure("private response content must not be logged")
+
+        with self.assertLogs("aegis_engine.identity_agent_client", level="WARNING") as captured:
+            actual = _windows_connector_with_modules(
+                r"\\.\pipe\AEGIS.IdentityAgent.v1", b"{}\n", 5.0, 4096,
+                pywintypes=SimpleNamespace(OVERLAPPED=lambda: SimpleNamespace(hEvent=None)),
+                win32con=SimpleNamespace(GENERIC_READ=1, GENERIC_WRITE=2, OPEN_EXISTING=3),
+                win32event=SimpleNamespace(CreateEvent=lambda *_args: "event"),
+                win32file=SimpleNamespace(
+                    CreateFile=lambda *_args: "pipe",
+                    WriteFile=lambda *_args: (0, 0),
+                    AllocateReadBuffer=lambda _size: buffer,
+                    ReadFile=lambda *_args: (0, buffer),
+                    GetOverlappedResult=lambda *_args: next(transfers),
+                    CancelIoEx=lambda *_args: None,
+                    CloseHandle=close_with_error,
+                ),
+                win32pipe=SimpleNamespace(
+                    PIPE_READMODE_MESSAGE=2,
+                    WaitNamedPipe=lambda *_args: None,
+                    SetNamedPipeHandleState=lambda *_args: None,
+                ),
+            )
+        self.assertEqual(200, decode_response(actual).status)
+        self.assertEqual(["pipe"], closed)
+        self.assertIn("winerror=none", " ".join(captured.output))
+        self.assertNotIn("private response content", " ".join(captured.output))
+        self.assertNotIn("private-winerror-marker", " ".join(captured.output))
 
     def test_distinct_budgets_reach_injected_connector_without_camera_authority(self):
         connector = RecordingConnector(response=encode_response(ok=True, status=200))
