@@ -1,8 +1,8 @@
 // src/lib/vaultPreviewIndexConstants.js — AEGIS Drive (IDEA1) · D-1 separate encrypted preview index · constants
 //
-// ⚠️ Every numeric limit below is PROVISIONAL / TO_BE_MEASURED. None is approved: the IDX-SIZE gate (plan Phase G)
-//    measures them and the Human Owner approves values at HG-G; Task G.3 then moves keys from PROVISIONAL_KEYS to
-//    APPROVED_KEYS. Do not harden or relax a value silently.
+// HG-G (2026-10-03, PR #310 reviewed head 89da7f84) approved the named KEEP values below after G.2.
+// Other keys remain provisional: six named KEEP_UNMEASURED configuration values retain their current values
+// without a measurement claim; padding buckets and backfillConcurrency had no explicit HG-G disposition.
 // ⚠️ The markers only ever appear inside encrypted V2 metadata ({ name: '', type: marker }); the server never sees them.
 // ⚠️ Pure data — no I/O, no storage, no DOM.
 
@@ -50,7 +50,15 @@ export const PREVIEW_INDEX_LIMITS = Object.freeze({
   maxJsonDepth: 8,
 })
 
-/** limits still awaiting measurement + Human approval (HG-G) */
-export const PROVISIONAL_KEYS = Object.freeze(Object.keys(PREVIEW_INDEX_LIMITS).filter((k) => k !== 'maxJsonDepth'))
-/** limits approved by the Human Owner (none yet) */
-export const APPROVED_KEYS = Object.freeze([])
+/** Written Human HG-G decision; approval applies only to APPROVED_KEYS. */
+export const HG_G_APPROVAL = Object.freeze({
+  date: '2026-10-03',
+  source: 'HG_G_APPROVED / PR #310 / 89da7f84d7279871f6e10df5df3e6b78594e5ef8',
+})
+export const APPROVED_KEYS = Object.freeze([
+  'initialPrefixBits', 'maxPrefixBits', 'maxShards', 'maxShardDecodedBytes',
+  'maxRootDecodedBytes', 'maxEntriesPerCas', 'ciphertextLruBytes',
+])
+/** Not approved as measured limits; includes Human-accepted unchanged KEEP_UNMEASURED values. */
+export const PROVISIONAL_KEYS = Object.freeze(Object.keys(PREVIEW_INDEX_LIMITS)
+  .filter((k) => k !== 'maxJsonDepth' && !APPROVED_KEYS.includes(k)))

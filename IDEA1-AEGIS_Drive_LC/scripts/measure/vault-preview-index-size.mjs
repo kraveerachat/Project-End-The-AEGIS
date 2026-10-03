@@ -9,6 +9,7 @@
 //   node scripts/measure/vault-preview-index-size.mjs --mode codec --nodes 1000,5000,10000 --variants 2,3 --runs 20 --out <scratch>/idx-size-codec.json
 // The output path is exclusive-create (never overwrites).
 import fs from 'node:fs/promises'
+import path from 'node:path'
 import os from 'node:os'
 import { performance } from 'node:perf_hooks'
 import { randomBytes } from 'node:crypto'
@@ -18,6 +19,8 @@ import { routingBits, prefixOf } from '../../src/lib/vaultPreviewIndexRouting.js
 import { PREVIEW_INDEX_LIMITS as L } from '../../src/lib/vaultPreviewIndexConstants.js'
 import { createVaultV2Envelope, encryptVaultChunk, decryptVaultChunk } from '../../src/lib/vaultChunkCrypto.js'
 import { createGenesisManifest } from '../../src/lib/vaultTreeManifest.js'
+import { PADDING_BUCKETS, VAULT_TREE_CLIENT_LIMITS } from '../../src/lib/vaultTreeLimits.js'
+import { runE2eMatrix } from './vault-preview-index-e2e.mjs'
 
 const LABEL = 'CODEC_ONLY_PRELIMINARY'
 const TREE_ID = 'T'.repeat(22)
@@ -26,12 +29,12 @@ const hex48 = () => randomBytes(24).toString('hex')
 const cid = () => randomBytes(16).toString('base64')
 const id22 = () => randomBytes(16).toString('base64url')
 const pct = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)] }
-const stats = (xs) => ({ p50: +pct(xs, 0.5).toFixed(3), p95: +pct(xs, 0.95).toFixed(3), min: +Math.min(...xs).toFixed(3), max: +Math.max(...xs).toFixed(3), samples: xs.length })
+const stats = (xs) => ({ p50: +pct(xs, 0.5).toFixed(3), p95: +pct(xs, 0.95).toFixed(3), min: +Math.min(...xs).toFixed(3), max: +Math.max(...xs).toFixed(3), unit: 'ms', runs: xs.length, samples: xs.length })
 const time = async (fn) => { const t = performance.now(); const r = await fn(); return [performance.now() - t, r] }
 const ENC_LIMITS = { maxJsonDepth: L.maxJsonDepth, maxDecodedBytes: Number.MAX_SAFE_INTEGER }
 
 function parseArgs(argv) {
-  const o = { mode: 'codec', nodes: [1000, 5000, 10000], variants: [2, 3], runs: 20, out: null }
+  const o = { mode: 'codec', nodes: [1000, 5000, 10000], variants: [2, 3], runs: 20, server: null, browser: null, out: null }
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i], v = argv[i + 1]
     if (v === undefined) throw new Error(`missing value for ${k}`)
@@ -39,12 +42,30 @@ function parseArgs(argv) {
     else if (k === '--nodes') o.nodes = v.split(',').map(Number)
     else if (k === '--variants') o.variants = v.split(',').map(Number)
     else if (k === '--runs') o.runs = Number(v)
+    else if (k === '--server') o.server = v
+    else if (k === '--browser') o.browser = v
     else if (k === '--out') o.out = v
     else throw new Error(`unknown argument ${k}`)
   }
-  if (o.mode !== 'codec') throw new Error('only --mode codec exists in PR-B (Phase G adds e2e)')
+  if (!['codec', 'e2e'].includes(o.mode)) throw new Error('--mode must be codec or e2e')
   if (!o.out) throw new Error('--out is required')
-  if (o.runs < 20) throw new Error('--runs must be >= 20')
+  if (!Number.isSafeInteger(o.runs) || o.runs < 20) throw new Error('--runs must be >= 20')
+  if (!o.nodes.length || o.nodes.some((n) => !Number.isSafeInteger(n) || n < 7 || n > 10_000)) throw new Error('--nodes must be total nodes 7..10000')
+  if (!o.variants.length || o.variants.some((v) => ![2, 3].includes(v))) throw new Error('--variants must be 2,3')
+  if (o.mode === 'codec' && (o.server || o.browser)) throw new Error('codec mode has no server or browser')
+  if (o.mode === 'e2e' && !o.browser && !['memory', 'pg'].includes(o.server)) throw new Error('e2e requires --server memory|pg or --browser')
+  if (o.browser && o.server) throw new Error('run browser separately from a server matrix')
+  if (o.server === 'pg') {
+    if (process.env.D1_IDX_SIZE_PG_CONFIRMED !== '1') throw new Error('pg requires D1_IDX_SIZE_PG_CONFIRMED=1')
+    if (!process.env.TEST_DATABASE_URL || !process.env.AEGIS_PGTEST_SUPER_URL) throw new Error('pg requires disposable TEST_DATABASE_URL and AEGIS_PGTEST_SUPER_URL')
+    const db = new URL(process.env.TEST_DATABASE_URL)
+    if (db.protocol !== 'postgresql:' || db.hostname !== '127.0.0.1' || db.username !== 'drive_app' || db.pathname !== '/aegis_drive_test' || !['55433', '55750'].includes(db.port) || db.search || db.hash) throw new Error('pg refuses database outside the local disposable harness')
+    const superDb = new URL(process.env.AEGIS_PGTEST_SUPER_URL)
+    if (superDb.protocol !== 'postgresql:' || superDb.hostname !== '127.0.0.1' || superDb.username !== 'lftv2_admin'
+      || superDb.pathname !== '/postgres' || superDb.port !== db.port || superDb.search || superDb.hash) {
+      throw new Error('pg refuses a superuser URL outside the same local disposable harness')
+    }
+  }
   return o
 }
 
@@ -204,32 +225,48 @@ async function mainManifestDelta(nodes) {
   encodeRoot({ schemaVersion: 1, treeId: TREE_ID, indexGeneration: 1, createdAtClient: 1_759_300_000_000, shards: [] })
   const after = canonicalEncode(structuredClone(m), opts)
   const canonicalBytesEqual = Buffer.from(before).equals(Buffer.from(after))
-  return { nodes, files, nonFileNodes: 1 + folders.length, mainManifestCanonicalBytes: before.length, deltaBytes: after.length - before.length, canonicalBytesEqual }
+  const bucketBytes = padToBucket(before, PADDING_BUCKETS).paddedLength
+  return { nodes, files, nonFileNodes: 1 + folders.length, mainManifestCanonicalBytes: before.length,
+    bucketBytes, cipherBytes: bucketBytes + 16, headroomBytes: VAULT_TREE_CLIENT_LIMITS.maxCiphertextBytes - bucketBytes - 16,
+    deltaBytes: after.length - before.length, canonicalBytesEqual, unit: 'B' }
 }
 
 async function main() {
   const o = parseArgs(process.argv.slice(2))
-  const started = new Date().toISOString()
-  const cells = []
-  for (const nodes of o.nodes) for (const variant of o.variants) {
-    process.stderr.write(`[idx-size] ${LABEL} nodes=${nodes} variant=${variant} runs=${o.runs}\n`)
-    cells.push(await measureCell(nodes, variant, o.runs))
-  }
-  const manifest = []
-  for (const nodes of o.nodes) manifest.push(await mainManifestDelta(nodes))
-  const out = {
-    label: LABEL, notGate: 'NOT IDX_SIZE_GATE_PASS — codec-only preliminary signal; Phase G is the gate',
-    started, finished: new Date().toISOString(),
-    env: { node: process.version, platform: `${os.type()} ${os.release()} ${os.arch()}`, cpus: os.cpus().length, cpu: os.cpus()[0]?.model },
-    provisionalLimits: { ...L, shardPaddingBuckets: [...L.shardPaddingBuckets], rootPaddingBuckets: [...L.rootPaddingBuckets] },
-    cells, mainManifest: manifest,
-  }
-  const fh = await fs.open(o.out, 'wx')
-  await fh.writeFile(JSON.stringify(out, null, 2))
-  await fh.close()
-  for (const c of cells) {
-    const s = c.sizes
-    process.stdout.write(`${LABEL} nodes=${c.nodes} variant=${c.variant} liveShards=${JSON.stringify(s.liveShards)} largestShardCanonical=${JSON.stringify(s.largestShardCanonical)} splits=${JSON.stringify(s.splits)} rootCanonical=${JSON.stringify(s.rootCanonical)} rootErrors=${JSON.stringify(c.rootErrors)}\n`)
+  const fh = await fs.open(path.resolve(o.out), 'wx')
+  try {
+    if (o.mode === 'e2e') {
+      const result = await runE2eMatrix(o, { measureCell, mainManifestDelta, buildOnce, stats, pct, time, treeId: TREE_ID })
+      await fh.writeFile(JSON.stringify(result, null, 2) + '\n')
+      process.stdout.write(`IDX_SIZE_EVIDENCE cells=${result.cells.length} server=${o.server ?? 'chrome'} out=${o.out}\n`)
+      return
+    }
+    const started = new Date().toISOString()
+    const cells = []
+    for (const nodes of o.nodes) for (const variant of o.variants) {
+      process.stderr.write(`[idx-size] ${LABEL} nodes=${nodes} variant=${variant} runs=${o.runs}\n`)
+      cells.push(await measureCell(nodes, variant, o.runs))
+    }
+    const manifest = []
+    for (const nodes of o.nodes) manifest.push(await mainManifestDelta(nodes))
+    const out = {
+      label: LABEL, notGate: 'NOT IDX_SIZE_GATE_PASS — codec-only preliminary signal; Phase G is the gate',
+      started, finished: new Date().toISOString(),
+      env: { node: process.version, platform: `${os.type()} ${os.release()} ${os.arch()}`, cpus: os.cpus().length, cpu: os.cpus()[0]?.model },
+      provisionalLimits: { ...L, shardPaddingBuckets: [...L.shardPaddingBuckets], rootPaddingBuckets: [...L.rootPaddingBuckets] },
+      cells, mainManifest: manifest,
+    }
+    await fh.writeFile(JSON.stringify(out, null, 2))
+    for (const c of cells) {
+      const s = c.sizes
+      process.stdout.write(`${LABEL} nodes=${c.nodes} variant=${c.variant} liveShards=${JSON.stringify(s.liveShards)} largestShardCanonical=${JSON.stringify(s.largestShardCanonical)} splits=${JSON.stringify(s.splits)} rootCanonical=${JSON.stringify(s.rootCanonical)} rootErrors=${JSON.stringify(c.rootErrors)}\n`)
+    }
+  } catch (error) {
+    await fh.writeFile(JSON.stringify({ label: 'IDX_SIZE_EVIDENCE', status: 'FAILED', mode: o.mode,
+      server: o.server ?? (o.browser ? 'chrome' : null), errorName: error?.name ?? 'Error', failedAt: new Date().toISOString() }) + '\n')
+    throw error
+  } finally {
+    await fh.close()
   }
 }
 
