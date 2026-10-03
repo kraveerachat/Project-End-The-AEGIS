@@ -19,14 +19,14 @@ edit_policy: owner-writable
 
 | Field | Current value |
 |---|---|
-| Task | IDEA1-UNIFIED-PREVIEW-D1 PR-E / plan Phase G.1 measurement harness and G.2 Memory, PostgreSQL, Chrome matrix only; stop at HG-G |
+| Task | IDEA1-UNIFIED-PREVIEW-D1 PR-E / plan Phase G.1 measurement harness and Human-revised G.2 PostgreSQL/Chrome high-scale plus exact Memory 1k parity matrix only; stop at HG-G |
 | Branch | `codex/idea1-pr-e-idx-size` from `origin/main` `522ac2ce113148f0099a6bd3fab9dda2b23c90e3` (PR #303 verified MERGED) |
 | Owner | kla |
 | PR | #310 (Draft); exactly one PR-E branch, this agent the only writer |
-| State | **IN PROGRESS — NOT YET IDX-SIZE READY.** G.1 harness supports codec/e2e, local disposable Memory/PG and Chrome, all 1k/5k/10k × 2/3 cells at 20 runs, retained-budget A–D, requests, timings, CAS/upload and audit metrics. Chrome 6/6, Memory 1k/2 + 1k/3, and PostgreSQL 6/6 cells have complete raw evidence (14/18 environment cells, each 20 runs and 0 B measured main-manifest delta). Four high-scale Memory cells are NOT_MEASURED. Human direction: keep the exact Memory backend and report impractical 5k/10k cells as gaps; do not substitute an optimized test backend. IDX_SIZE_EVIDENCE=NOT_READY; no limit or retained-byte budget approved. |
+| State | **IN PROGRESS — G.2 IDX-SIZE EVIDENCE READY UNDER HUMAN-APPROVED REVISION 3; HG-G LIMITS PENDING.** G.1 harness supports codec/e2e, local disposable Memory/PG and Chrome. Human decision `D1_G2_PLAN_REVISION_OPTION_B_APPROVED` at reviewed PR head `ab54092aacab1bde0122cd7a770176c813c0a086` makes PostgreSQL 6/6 high-scale server/storage, Chrome 6/6 high-scale browser, and exact Memory 1k 2/2 local parity/correctness the 14 required cells. All 14 have 20-run raw evidence and 0 B measured main-manifest delta; selected raw hashes match the PR evidence index 9/9 and the required-cell structural audit found 0 issues. Memory 5k/2, 5k/3, 10k/2 and 10k/3 were previously `NOT_MEASURED` and now are `NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION`, never measured. `IDX_SIZE_EVIDENCE=READY`; `LIMITS=AWAITING_HUMAN_APPROVAL`; `WRITER_ENABLE=BLOCKED_PENDING_HUMAN`. No limit or retained-byte budget approved. |
 | Production mutation allowed | **NO**. Production writer remains OFF. |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
-| Next gate | Complete and audit all G.2 cells; then **HG-G Human approval required** for measured limits and explicit retained-byte budget. G.3/H/I are not started. |
+| Next gate | **HG-G Human approval required** for measured limits and explicit retained-byte budget. G.3/H/I are not started. G.2 evidence readiness is not approval to enable the writer or deploy. |
 
 ### Session Register — D1-E
 
@@ -34,19 +34,20 @@ edit_policy: owner-writable
 |---|---|---|---|---|---|---|
 | D1E-S1 | G.1 harness and G.2 disposable-local matrix; no Production changes | IN PROGRESS | PR #303 MERGED at `522ac2ce`; Draft PR #310; Chrome 6/6 cells × 20 runs and Memory/PG 1k/2 × 20 runs complete with 0 B main-manifest delta; Memory inventory read needed one idempotent retry after local `ECONNRESET`; other server cells unmeasured | `2640a27e` first checkpoint | Complete Memory/PG matrix and evidence table; final checks | Stop at HG-G; no G.3 or writer enable |
 | D1E-S2 | Retained superseded-byte accounting, normal main merges, sequential scale measurements | IN PROGRESS | PostgreSQL 6/6 and Memory 1k/2 + 1k/3 × 20 runs complete, all 0 B main-manifest delta; four final-accounting reruns complete with original partial files preserved. Main advances to `d5091d89` and `0ab80a1a` merged normally at `eb08e79f` and `089eaaae`, no conflicts. Evidence audit: 14/18 complete, 0 required-field issues in completed files. Post-latest-merge focused 5/5 with Chrome permissions, PG 24/24 (0 skips), governance 61/61, build PASS (2,764 modules), vault validation PASS (2 pre-existing canvas warnings). Restricted Chrome and build attempts failed on sandbox permissions, then passed unchanged under required permissions. Human chose exact Memory backend and explicit gaps over a test-backend optimization. | `089eaaae` | Final diff/secret/policy checks; preserve raw evidence | HG-G blocked by four NOT_MEASURED Memory cells; no G.3/H/I |
+| D1E-S3 | Human-approved G.2 Option B plan revision and evidence closeout; no new measurement or Production work | CLOSED | Started at reviewed head `ab54092aacab1bde0122cd7a770176c813c0a086`; Human decision `D1_G2_PLAN_REVISION_OPTION_B_APPROVED`. Exact PG 6/6 + Chrome 6/6 + Memory 1k 2/2 = 14/14 required cells, all 20 runs and 0 B main-manifest delta; structural audit 0 issues, 9/9 raw SHA-256 matches. Four Memory high-scale cells historically `NOT_MEASURED`, now `NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION`. Focused 5/5, disposable PG 24/24 (0 skips, environment removed), governance 61/61, vault validation PASS (2 pre-existing canvas warnings), build PASS (2,764 modules, separate temp output), diff check PASS, high-confidence secret scan 0 sensitive paths/0 matches, collaboration policy PASS. Restricted Chrome focused run timed out and restricted build could not read Vite config; unchanged reruns passed with required permissions. PR #310 remains Draft/in progress; evidence limitations and cross-scope plan integration review declared. | `7abf17000977ea31d1720d463e6192d82a3b6f52` plan/evidence checkpoint | HG-G Human limits and retained-budget decision; PR-E G.3/H/I remain separately unauthorized | Stop at HG-G; no Production mutation, writer enablement, or merge |
 
 ### PR-E G.2 retained-budget evidence (measured inputs only)
 
-Every number below is bytes from a 20-run, local disposable real-backend cell. A=initial build; B=full thumb/poster backfill; C=20 churn sessions; D=20 injected CAS-loss loops. These are **not** proposed Production budgets. Full root/shard, Node/Chrome, CAS/upload, request and audit tables with method/run counts are in Draft PR #310 and its exclusive-create raw JSON.
+Every numeric value below is bytes from a 20-run, local disposable real-backend cell. A=initial build; B=full thumb/poster backfill; C=20 churn sessions; D=20 injected CAS-loss loops. These are **not** proposed Production budgets. Full root/shard, Node/Chrome, CAS/upload, request and audit tables with method/run counts are in Draft PR #310 and its exclusive-create raw JSON.
 
 | Backend/cell | A (B) | B (B) | C (B) | D (B) |
 |---|---:|---:|---:|---:|
 | Memory 1k/2 | 141,538,620 | 198,845,596 | 211,309,020 | 211,709,340 |
 | Memory 1k/3 | 2,592,371,285 | 2,649,891,493 | 2,662,404,133 | 2,662,804,453 |
-| Memory 5k/2 | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED |
-| Memory 5k/3 | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED |
-| Memory 10k/2 | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED |
-| Memory 10k/3 | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED |
+| Memory 5k/2 | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION |
+| Memory 5k/3 | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION |
+| Memory 10k/2 | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION |
+| Memory 10k/3 | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION | NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION |
 | PostgreSQL 1k/2 | 140,558,009 | 197,832,121 | 210,246,297 | 210,646,617 |
 | PostgreSQL 1k/3 | 2,604,573,664 | 2,661,995,280 | 2,674,770,032 | 2,675,170,352 |
 | PostgreSQL 5k/2 | 707,200,722 | 1,117,298,066 | 1,146,456,898 | 1,146,857,218 |
@@ -54,7 +55,9 @@ Every number below is bytes from a 20-run, local disposable real-backend cell. A
 | PostgreSQL 10k/2 | 1,409,685,823 | 2,606,101,727 | 2,655,642,319 | 2,656,042,639 |
 | PostgreSQL 10k/3 | 26,496,541,308 | 27,677,293,884 | 27,724,147,292 | 27,724,547,612 |
 
-`IDX_SIZE_EVIDENCE=NOT_READY`; `LIMITS=AWAITING_HUMAN_APPROVAL`; `WRITER_ENABLE=BLOCKED_PENDING_HUMAN`. The four missing Memory cells block HG-G. No G.3/H/I or Production mutation.
+Historical record: the four excluded Memory rows above were `NOT_MEASURED` before the Human's Option B decision; no high-scale exact-Memory measurement was performed or inferred. The exact Memory backend is a non-durable local parity/correctness fallback; PostgreSQL and Chrome provide the high-scale authorities. Evidence limitations accepted for G.2: raw timings retain aggregate p50/p95 rather than samples; raw JSON lacks embedded Git SHA/seed (preserved hashes and PR provenance bind it to the reviewed head; the Human records Claude #2's measurement-path verification and byte-identical first-commit Chrome code); server latency is **LOCAL LOOPBACK**, never LAN; Memory JSON's PostgreSQL-lock wording is a hard-coded label error and immutable raw was not rewritten; Memory inventory `attempts=2` remains disclosed; cold views use fresh readers but warm server/database caches; Chrome display rounding is cosmetic. Future tooling should record SHA/seed. Live LAN timing is a later Production Stage acceptance concern.
+
+`IDX_SIZE_EVIDENCE=READY` under the approved 14-cell G.2 scope; `LIMITS=AWAITING_HUMAN_APPROVAL`; `WRITER_ENABLE=BLOCKED_PENDING_HUMAN`. G.3/H/I, Production mutation, writer enablement and PR merge remain blocked/not started.
 
 ## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-D — D-1 PR-D default-off writer + thumb/poster
 
