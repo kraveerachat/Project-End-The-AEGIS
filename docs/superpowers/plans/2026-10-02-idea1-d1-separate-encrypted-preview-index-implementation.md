@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:executing-plans` to implement this plan task by task, in order. Steps use checkbox (`- [ ]`) syntax. Do **not** start any task until the Human Owner has merged this plan **and** separately authorized implementation. Every ⛔ marker is a hard stop that only a written Human decision can lift.
 
-**Plan status:** PLANNED — `IMPLEMENTATION_STARTED=NO`, `IMPLEMENTATION_AUTHORIZED=NO`, `PRODUCTION_MUTATION_AUTHORIZED=NO`.
+**Plan status:** IN PROGRESS — PR-A through PR-D are merged; PR-E G.1 is implemented and G.2 evidence is ready under Revision 3. G.3/H/I are not started. `PRODUCTION_MUTATION_AUTHORIZED=NO`; Production writer enablement is blocked pending later gates.
 
 **Revision 2 (2026-10-02, PR #280 review `APPROVE_WITH_REQUIRED_CHANGES`):** (1) server-enforced per-owner preview-index retained-storage budget (A.1, A.3, new C.7, new E.4, F.2, G.1–G.3, H.1, Stage 3); (2) Stage 1 requires PR-A **and** PR-B merged — no Production deployment between them; (3) client-declared superseded refs are advisory only and never deletion authority. Existing P3–P5 plans are stale for D-1. Task count 44 → 46.
+
+**Revision 3 (2026-10-03, Human decision `D1_G2_PLAN_REVISION_OPTION_B_APPROVED`, PR #310 reviewed head `ab54092aacab1bde0122cd7a770176c813c0a086`):** G.2 required authority is PostgreSQL 1k/5k/10k × variants 2/3 (server/storage), Chrome 1k/5k/10k × 2/3 (browser), and exact Memory 1k × 2/3 (local parity/correctness): 14 required cells. Memory 5k/2, 5k/3, 10k/2, 10k/3 are `NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION`, with their earlier `NOT_MEASURED` history preserved. The G.1 harness remains capable of the original full matrix; this changes G.2 gate applicability only. Evidence limitations in G.2 are accepted for this gate, not erased. No PREVIEW_INDEX_LIMIT, retained-byte budget, G.3/H/I, Production deployment, writer enablement, or merge is approved.
 
 **Goal:** Ship client-generated, client-encrypted thumb/poster derivatives for the Private Vault, referenced from a **separate owner-scoped, sharded, encrypted preview index** that is invisible to the main manifest, so tiles can render from small verified derivatives while the main manifest stays schema v1 with **zero** added bytes.
 
@@ -678,7 +680,7 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 - **Depends on:** PR-D merged (real writer path exists).
 - **Files:** Extend `scripts/measure/vault-preview-index-size.mjs` (modes `codec`, `e2e`, `--server memory|pg`, `--browser <Chrome path>`).
-- **Matrix:** total nodes 1k/5k/10k (994/4,994/9,994 files + 6 folders/root) × variants `2` (thumb+poster) and `3` (stress shape) × ≥ 20 runs. Local disposable server only (memory store and PG via `pg-integration-env.sh`); exclusive-create outputs; never a Production endpoint or credential.
+- **Harness capability:** total nodes 1k/5k/10k (994/4,994/9,994 files + 6 folders/root) × variants `2` (thumb+poster) and `3` (stress shape) × ≥ 20 runs. Local disposable server only (memory store and PG via `pg-integration-env.sh`); exclusive-create outputs; never a Production endpoint or credential. Revision 3 narrows the **G.2 required cells**, not this harness capability.
 - **Metrics (every cell filled, units explicit):**
 
 | Group | Metric |
@@ -698,8 +700,9 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 ### Task G.2 — Run the matrix and STOP
 
-- [ ] Run: `node scripts/measure/vault-preview-index-size.mjs --mode e2e --nodes 1000,5000,10000 --variants 2,3 --runs 20 --server memory --out "$SCRATCH/idx-size-memory.json"`; same with `--server pg` (after `pg-integration-env.sh up`, `P2B`-style explicit local confirmation env); same with `--browser "<Chrome path>"`.
-- [ ] Fill the evidence table in the PR body and canonical status with measured numbers only; every threshold below is a **non-binding proposal**:
+- [ ] Required authority after written Human decision `D1_G2_PLAN_REVISION_OPTION_B_APPROVED`: PostgreSQL 1k/5k/10k × variants 2/3 is the high-scale server/storage authority; Chrome 1k/5k/10k × variants 2/3 is the high-scale browser authority; the exact, unmodified Memory backend 1k × variants 2/3 is the local parity/correctness authority. Each required cell uses ≥20 runs where specified in G.1. PostgreSQL runs require `pg-integration-env.sh up` and explicit local confirmation; every run uses exclusive-create scratch output, never a Production endpoint or credential.
+- [ ] Memory 5k/2, 5k/3, 10k/2 and 10k/3 are **not required gate cells**. Record each exactly as `NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION`, cite this Human approval, retain the earlier `NOT_MEASURED` history, and never represent an excluded cell as measured. Do not replace the exact Memory backend with an optimized test backend.
+- [ ] Fill the PR and canonical evidence tables with measured numbers only. Every one of the 14 required environment cells must have applicable values, explicit units, run counts/method, and 0 B main-manifest delta. Preserve raw hashes and provenance; disclose every failed/missing required value. Every threshold below is a **non-binding proposal**:
 
 | Proposed criterion (NOT APPROVED) | Rationale |
 |---|---|
@@ -710,7 +713,8 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 | `maxPreviewIndexRetainedBytesPerOwner` = a Human-chosen value derived from the retained-budget inputs (e.g. full 10k build + backfill + stated churn headroom) — **value deliberately not proposed here** | REQUIRED CHANGE 1: server-enforced bound without GC; HG-G must approve an explicit number |
 | End-to-end mutation p95 within a Human-chosen budget | spec §19 / G-THR lesson |
 
-- [ ] **⛔ STOP.** Report exactly: `IDX_SIZE_EVIDENCE=READY`, `LIMITS=AWAITING_HUMAN_APPROVAL`, `WRITER_ENABLE=BLOCKED_PENDING_HUMAN`. Do not change any limit, flag, overlay, or Production setting. If any cell cannot be measured, report it as `NOT_MEASURED` with the reason; the gate cannot pass with an unmeasured required cell.
+- [ ] Disclose accepted G.2 limitations: timing raw files retain aggregate p50/p95, not all samples; raw JSON lacks embedded Git SHA and deterministic seed (preserve hashes and exact provenance; future tooling should record both); server latencies are **LOCAL LOOPBACK**, not LAN (live LAN timing belongs to later Production Stage acceptance); Memory raw JSON's PostgreSQL-lock phrase is a hard-coded label error and must not be rewritten; Memory inventory `attempts=2` remains visible; each cold view uses a fresh reader while server/database caches remain warm across repeated runs; Chrome display rounding is cosmetic. Record that Claude #2 verified measurement paths against the reviewed head and the Chrome measurement code was byte-identical to its first committed version. These limitations do not authorize invented measurements or changed raw files.
+- [ ] **⛔ STOP.** Only after all 14 required cells validate, report exactly: `IDX_SIZE_EVIDENCE=READY`, `LIMITS=AWAITING_HUMAN_APPROVAL`, `WRITER_ENABLE=BLOCKED_PENDING_HUMAN`. Otherwise report `IDX_SIZE_EVIDENCE=NOT_READY` and each missing required cell. Do not change any limit, retained-byte budget, flag, overlay, or Production setting; no G.3/H/I or writer enablement. HG-G still requires a separate Human decision on limits and the explicit retained-byte budget.
 
 ### Task G.3 — Codify approved limits (only after written Human approval)
 
