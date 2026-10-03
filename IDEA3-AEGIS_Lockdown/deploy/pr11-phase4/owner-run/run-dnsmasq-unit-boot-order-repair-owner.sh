@@ -10,6 +10,10 @@
 # AP/dnsmasq network stage; the exact scope string below is what binds an authorization to THIS repair, and no L3/L4 acceptance is claimed.
 # The whole live mutation is: render the canonical deploy/network/aegis-idea3-dnsmasq.service.example with the fixed approved values, install it, daemon-reload, and
 # reset-failed + start (failed baseline) or restart (running baseline) aegis-idea3-dnsmasq.service ONLY — see reactivation/dnsmasq-unit-boot-order-repair/apply.sh.
+# GOVERNED SUCCESSOR (amendment 2026-10-03): the first live attempt of this package was CONSUMED and ended ROLLBACK_FAILED_ESCALATE at the S10 comparator (IDEA2 was already
+# unhealthy). It is historical and is NEVER replayed (OLD_ATTEMPT_RETRY_ALLOWED=NO): its AUTH_DIR, Authorization, K3, marker, frozen runner and evidence directory are
+# refused/never reused. A successor needs a NEW exact-main frozen runner, a BRAND-NEW same-day AUTH_DIR/Authorization/K3 and the owner's explicit authorization of ONE attempt.
+# This runner additionally accepts the exact SAFE_STOPPED dnsmasq baseline and runs a PRE-CONSUME read-only S10 stability guard (see below).
 # It issues NO command against the AP, NetworkManager, nftables, forwarding, the broker, Twingate, Core, Recovery, the F1 detector, L8p or any ESP32, and it claims NO
 # K12 reboot persistence (the separate orderly-reboot verification is owner-run/verify-dnsmasq-boot-order-after-reboot.sh). NO automatic retry.
 set -Eeuo pipefail
@@ -19,6 +23,7 @@ EXPECTED_MAIN=PIN_MAIN_SHA
 case "$EXPECTED_MAIN" in PIN_*) echo "STOP: runner is not pinned (EXPECTED_MAIN). Run the owner freeze workflow first."; exit 2 ;; esac
 [[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ ]] || { echo "STOP: EXPECTED_MAIN is not a 40-hex SHA."; exit 2; }
 [ "$(id -u)" != 0 ] || { echo "Run as your normal user, not root."; exit 2; }
+S10_WINDOW_SEC=30   # frozen length of the pre-consume S10 stability window (the owner has no knob; tests substitute this line only)
 AUTH_DIR=${1:-}
 [ -n "$AUTH_DIR" ] && [ -d "$AUTH_DIR" ] || { echo "usage: bash $0 <AUTH_DIR with authorization-L4.txt and k3-L4.txt>"; exit 2; }
 
@@ -50,6 +55,10 @@ show() { systemctl show -p "$2" --value "$1"; }
 [ -f "$LIB" ] && [ -f "$V8LIB" ] && [ -f "$RLIB" ] || die "gate library missing under $P4 (is $REPO at the pinned main?)"
 # shellcheck disable=SC1090
 source "$LIB"; source "$V8LIB"; source "$RLIB"
+auth_real=$(readlink -f -- "$AUTH_DIR")
+for hist in "${DNSREPAIR_HISTORICAL_CONSUMED_AUTH_DIRS[@]}"; do
+  [ "$auth_real" != "$(readlink -f -- "$hist" 2>/dev/null || printf '%s' "$hist")" ] || die "AUTH_DIR is the historical CONSUMED first-attempt authorization directory; a successor needs a brand-new same-day AUTH_DIR (OLD_ATTEMPT_RETRY_ALLOWED=NO)"
+done
 
 echo "K12_AUTOMATIC_REBOOT_PERSISTENCE=NOT_PROVEN"
 echo "REBOOT_VERIFICATION_EXECUTED=NO"
@@ -63,6 +72,16 @@ for f in authorization-L4.txt k3-L4.txt; do
   grep -qx "stage=L4" "$AUTH_DIR/$f" 2>/dev/null || gate "$f is not stage=L4"
 done
 grep -qxF "scope=$EXPECTED_SCOPE" "$AUTH_DIR/authorization-L4.txt" 2>/dev/null || gate "authorization scope is not exactly the approved dnsmasq repair scope"
+# exact historical-record digest denial (independent of the AUTH_DIR path): a byte-identical copy of the consumed first attempt's Authorization or K3 is refused here, BEFORE
+# the stage gate, the pre-consume S10 guard, the marker and any mutation. Only digests are compared; record contents are never printed.
+if [ -f "$AUTH_DIR/authorization-L4.txt" ] && [ -r "$AUTH_DIR/authorization-L4.txt" ]; then
+  [ "$(sha256sum -- "$AUTH_DIR/authorization-L4.txt" | cut -d' ' -f1)" != "$DNSREPAIR_HISTORICAL_AUTHORIZATION_SHA256" ] \
+    || die "HISTORICAL_AUTHORIZATION_RECORD_REUSE_FORBIDDEN: authorization-L4.txt is byte-identical to the consumed first attempt's record; a successor needs a brand-new Authorization"
+fi
+if [ -f "$AUTH_DIR/k3-L4.txt" ] && [ -r "$AUTH_DIR/k3-L4.txt" ]; then
+  [ "$(sha256sum -- "$AUTH_DIR/k3-L4.txt" | cut -d' ' -f1)" != "$DNSREPAIR_HISTORICAL_K3_SHA256" ] \
+    || die "HISTORICAL_K3_RECORD_REUSE_FORBIDDEN: k3-L4.txt is byte-identical to the consumed first attempt's record; a successor needs a brand-new K3"
+fi
 marker="$AUTH_DIR/$DNSREPAIR_MARKER_NAME"
 [ ! -e "$marker" ] || gate "this authorization already consumed its one bounded attempt"
 # this package never reuses any other governed run's authorization directory: ANY other attempt marker refuses
@@ -104,10 +123,11 @@ capture() { sudo env EVID_DIR="$2" CAPTURE_LABEL="${1,,}" JOURNAL_SINCE="$JOURNA
 compare() {
   local kind=${4:-post} rc=0
   local -a env_allow
-  [[ "$BASELINE" =~ ^(failed|running)$ ]] || { echo "COMPARE_BASELINE_UNKNOWN"; return 1; }
+  [[ "$BASELINE" =~ ^(failed|running|safe_stopped)$ ]] || { echo "COMPARE_BASELINE_UNKNOWN"; return 1; }
   if [ "$kind" = post ]; then
     env_allow=(ALLOW_KEYS_FILE="$HND/allow-keys.txt" ALLOW_LISTENERS_FILE="$HND/allow-listeners.txt")
     [ "$BASELINE" != failed ] || env_allow+=(ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions-failed-post.txt")
+    [ "$BASELINE" != safe_stopped ] || env_allow+=(ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions-safe-stopped-post.txt")
   else
     env_allow=(ALLOW_KEYS_FILE="$HND/allow-keys-rollback.txt" ALLOW_LISTENERS_FILE="$HND/allow-listeners.txt")
     [ "$BASELINE" != failed ] || env_allow+=(ALLOW_DYNAMIC_TRANSITIONS_FILE="$HND/allow-dynamic-transitions-failed-rollback.txt")
@@ -140,11 +160,24 @@ echo "== read-only preflight through the handler (as root; writes only into the 
 pf_out=$(AEGIS_DNSREPAIR_PREFLIGHT_ONLY_RUN=YES handler apply.sh "$PREFLIGHT_WORK" 2>&1) || { printf '%s\n' "$pf_out"; own_work; die "preflight failed; NOTHING was changed"; }
 printf '%s\n' "$pf_out"; own_work
 printf '%s\n' "$pf_out" | grep -qx 'DNSMASQ_REPAIR_PREFLIGHT=PASS' || die "preflight did not report DNSMASQ_REPAIR_PREFLIGHT=PASS"
-case "$(printf '%s\n' "$pf_out" | grep -x 'DNSMASQ_REPAIR_BASELINE=\(FAILED\|RUNNING\)' | wc -l)" in 1) ;; *) die "preflight did not report exactly one recognized DNSMASQ_REPAIR_BASELINE" ;; esac
+case "$(printf '%s\n' "$pf_out" | grep -x 'DNSMASQ_REPAIR_BASELINE=\(FAILED\|RUNNING\|SAFE_STOPPED\)' | wc -l)" in 1) ;; *) die "preflight did not report exactly one recognized DNSMASQ_REPAIR_BASELINE" ;; esac
 BASELINE=$(printf '%s\n' "$pf_out" | sed -n 's/^DNSMASQ_REPAIR_BASELINE=//p' | tr 'A-Z' 'a-z')
 echo "BASELINE=$BASELINE" >> "$EVID/frozen-inputs.txt"
 
 echo "== PRE capture (before the unit replacement, daemon-reload and the dnsmasq service action)"; capture PRE "$EVID/pre-root" || die "PRE capture failed; nothing changed"
+# PRE-CONSUME S10 STABILITY GUARD (read-only; the canonical p4-l0-capture.sh and p4-compare.sh, no second S10 implementation). The first attempt consumed its marker while
+# IDEA2 was already unhealthy (:18002 absent although the tunnel unit was active/running), so the S10 comparator failed after the mutation. Here a SECOND fresh capture is
+# taken after a bounded window and compared with PRE with NO allowance: any drift, any unhealthy-but-unchanged IDEA2/Core/broker baseline or any incomparable key refuses the
+# run NOW -> NO attempt marker, NO Production mutation, the authorization stays unconsumed.
+echo "== pre-consume S10 stability guard (read-only; window ${S10_WINDOW_SEC}s)"
+sleep "$S10_WINDOW_SEC"
+capture S10 "$EVID/s10-root" || die "S10_STABILITY_GUARD: second capture failed; nothing changed, authorization NOT consumed"
+s10_rc=0; sudo env DISK_THRESHOLD_PCT=90 AEGIS_AP_INTERFACE="$AP_IF" AEGIS_AP_ADDRESS="$AP_ADDR" bash "$P4/p4-compare.sh" "$EVID/pre-root" "$EVID/s10-root" > "$EVID/compare-pre-s10.txt" 2>&1 || s10_rc=$?
+for l in FINDINGS_NEW_OR_WORSENED_DRIFT=0 FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0 FINDINGS_INCOMPARABLE=0 PRESERVATION_S10=PASS COMPARE_RESULT=PASS; do
+  [ "$s10_rc" = 0 ] && grep -qx "$l" "$EVID/compare-pre-s10.txt" 2>/dev/null || { grep -E '^(FINDING|FINDINGS_|PRESERVATION_S10|COMPARE_RESULT)' "$EVID/compare-pre-s10.txt" 2>/dev/null || true
+    die "S10_STABILITY_GUARD failed ($l not satisfied; IDEA2/Core/broker not stable and healthy); nothing changed, authorization NOT consumed"; }
+done
+echo "S10_STABILITY_GUARD=PASS"
 # consume: the bounded attempt is spent here, after every refusable check passed and immediately before the first mutation. A second invocation for this AUTH_DIR is
 # refused from now on, even after a failure. A refused preflight or failed PRE capture above leaves the authorization usable.
 ( set -o noclobber; printf 'consumed_at=%s\n' "$(date -u +%FT%TZ)" > "$marker" ) 2>/dev/null \

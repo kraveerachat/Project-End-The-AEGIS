@@ -15,6 +15,7 @@ ERROR_IO_PENDING = 997
 ERROR_PIPE_CONNECTED = 535
 ERROR_NOT_FOUND = 1168
 ERROR_BROKEN_PIPE = 109
+ERROR_OPERATION_ABORTED = 995
 _SID_RE = re.compile(r"^S-[0-9]+(?:-[0-9]+)+$")
 
 
@@ -69,8 +70,9 @@ def _wait_for_overlapped(
             # any attached buffer alive until Windows reports completion;
             # ERROR_OPERATION_ABORTED is the expected result.
             win32file.GetOverlappedResult(handle, overlapped, True)
-        except Exception:
-            pass
+        except Exception as exc:
+            if getattr(exc, "winerror", None) != ERROR_OPERATION_ABORTED:
+                raise
         raise TimeoutError("named-pipe operation timed out")
     raise RuntimeError("named-pipe wait failed")
 
@@ -343,14 +345,20 @@ class WindowsNamedPipeServer:
             self._active_handle = handle
         try:
             timeout_ms = int(self.read_timeout_s * 1000)
-            _connect_overlapped(
-                pywintypes,
-                win32event,
-                win32file,
-                win32pipe,
-                handle=handle,
-                timeout_ms=timeout_ms,
-            )
+            try:
+                _connect_overlapped(
+                    pywintypes,
+                    win32event,
+                    win32file,
+                    win32pipe,
+                    handle=handle,
+                    timeout_ms=timeout_ms,
+                )
+            except TimeoutError:
+                # An idle accept is normal: _wait_for_overlapped has already
+                # cancelled and drained it. The finally block closes this
+                # instance; the service loop can publish the next one now.
+                return
             # Windows permits named-pipe impersonation only after the server
             # has read client data. The read remains bounded and no payload is
             # decoded or submitted before the caller SID is validated.

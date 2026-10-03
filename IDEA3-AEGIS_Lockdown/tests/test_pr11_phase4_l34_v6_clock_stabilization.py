@@ -32,7 +32,7 @@ UNAVAILABLE = "state=UNKNOWN reason=PROBE_UNAVAILABLE maxerror_us=-1 adjtimex_re
 # Re-pinned again by OD-F1-DEPLOY-01 (2026-10-02): additive F1 alert observability (alert group/runtime-dir/socket keys, alert tmpfiles record,
 # the `alert` key family in p4-compare.sh's approvable host keys); the L5 predicate (p4-l5-clock.py) is still unchanged.
 PINS = {
-    "p4-compare.sh": "86ef5f1fcaf5485fbd2555d2cc19aad1ee1cc528b000b4c9dcef9b25054ea16c",
+    "p4-compare.sh": "6caa482def07b50e462828f10ba117fb66779e9dde67e1fea8fad5b9b9f71c08",
     "p4-l5-clock.py": "dd322fbdc0538df09b8a35f01f080422e1523519d70dd8d1e7a1d9bbfd3f41f0",
     "p4-l0-capture.sh": "f49f6f74d43dc38058b9ee77bd1511a17394e9eaad4d873c07dfdc09f4bf4722",
 }

@@ -57,7 +57,7 @@ V7_AND_SHARED_PINS = {
     "p4-l34-reactivation-lib.sh": "08dd7de16cbc57a43b79f35f11e7b1dff011b29dffca5ddeef478f3524621a37",
     "p4-stage-gate.sh": "11cc4251bd081eb172bcdb0155d48d6984ec4cfee1c08fc09c03fc639afa50b4",
     "p4-lib.sh": "9cf03684a79f2706a22776d90ae3a243afbcdeb2275c0b244388971cf5af9a36",
-    "p4-compare.sh": "86ef5f1fcaf5485fbd2555d2cc19aad1ee1cc528b000b4c9dcef9b25054ea16c",
+    "p4-compare.sh": "6caa482def07b50e462828f10ba117fb66779e9dde67e1fea8fad5b9b9f71c08",
     "p4-l0-capture.sh": "f49f6f74d43dc38058b9ee77bd1511a17394e9eaad4d873c07dfdc09f4bf4722",
 }
 V7_RECEIPT_PINS = {

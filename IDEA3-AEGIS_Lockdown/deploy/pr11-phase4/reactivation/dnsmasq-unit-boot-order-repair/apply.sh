@@ -7,8 +7,10 @@
 #   1 backup of the installed old unit into the evidence directory   2 atomic install of the canonical template RENDERED with the fixed approved values
 #   3 `systemctl daemon-reload`                                      4 FAILED baseline: `systemctl reset-failed` + `systemctl start` of aegis-idea3-dnsmasq.service
 #                                                                      RUNNING baseline: `systemctl restart` of aegis-idea3-dnsmasq.service
+#                                                                      SAFE_STOPPED baseline: `systemctl start` ONLY (no reset-failed: Result is already success; no restart)
 #   5 bounded read-only wait for active/running, the exact listeners, and proof that nothing else moved.
-# It supports EXACTLY two baselines (AP up and exactly approved + the exact old unit installed + dnsmasq either failed/start-limit-hit or active/running) and
+# It supports EXACTLY three baselines (AP up and exactly approved + the exact old unit installed + dnsmasq either failed/start-limit-hit, active/running, or the exact
+# SAFE_STOPPED state a governed rollback leaves: loaded/enabled/inactive/dead/success/MainPID 0 with no dnsmasq DNS/DHCP listener) and
 # NEVER touches: the AP interface / NetworkManager / its profile (SSID, channel, IPv4), the DHCP pool or DNS mapping, nftables / forwarding, the broker, Twingate,
 # Core, Recovery, the F1 detector, L8p, ESP32, serial ports, firmware, NVS or relay/CUT/RESTORE. It claims NO K12 reboot persistence, L3, L4 or L6b acceptance.
 set -uo pipefail
@@ -102,7 +104,7 @@ OLD_SHA=$(dnsrepair_sha256 "$unit_file"); NEW_SHA=$(dnsrepair_sha256 "$RENDERED"
 # 2d. the dnsmasq baseline: exactly FAILED (start-limit-hit, no listener) or RUNNING (exact three listeners); anything else is refused
 unit_props "$DNSMASQ_UNIT" > "$WORK/dnsmasq-pre.txt" || fail L34_DNSMASQ_SHOW_FAILED
 baseline=$(dnsrepair_baseline_classify < "$WORK/dnsmasq-pre.txt") || fail "$(dnsrepair_baseline_classify < "$WORK/dnsmasq-pre.txt" 2>&1 >/dev/null | head -n 1)"
-if [ "$baseline" = FAILED ]; then
+if [ "$baseline" = FAILED ] || [ "$baseline" = SAFE_STOPPED ]; then
   l34_v6_no_ap_dns_dhcp_gate "$AP_IF" "$L34_AP_ADDR" || fail "$(reason_of l34_v6_no_ap_dns_dhcp_gate "$AP_IF" "$L34_AP_ADDR")"
 else
   l34_v4_dnsmasq_listeners_gate "$AP_IF" "$L34_AP_ADDR" || fail "$(reason_of l34_v4_dnsmasq_listeners_gate "$AP_IF" "$L34_AP_ADDR")"
@@ -160,9 +162,13 @@ dnsrepair_need_reload_gate || fail "$(reason_of dnsrepair_need_reload_gate)"
 inject after_reload
 
 # 3d. the existing accepted dnsmasq service ONLY. No enable/disable. FAILED: clear the stale start-limit bookkeeping, then start. RUNNING: one restart.
+# SAFE_STOPPED: start only (Result is already success, so there is nothing to reset, and a restart would be a second action on a stopped service).
 if [ "$baseline" = FAILED ]; then
   journal DNSMASQ_RESET_FAILED "$DNSMASQ_UNIT"
   systemctl reset-failed "$DNSMASQ_UNIT" || fail DNSMASQ_RESET_FAILED_FAILED
+  journal DNSMASQ_START "$DNSMASQ_UNIT"
+  systemctl start "$DNSMASQ_UNIT" || fail DNSMASQ_SERVICE_START_FAILED
+elif [ "$baseline" = SAFE_STOPPED ]; then
   journal DNSMASQ_START "$DNSMASQ_UNIT"
   systemctl start "$DNSMASQ_UNIT" || fail DNSMASQ_SERVICE_START_FAILED
 else
