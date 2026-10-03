@@ -18,6 +18,18 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 L8p attempt 1 forensic closeout + PRE-capture / compare fixes — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-pre-capture-contract-and-compare-arity`, based on `720ca262`. This fix touched no Production service, NTP, serial device or ESP32 and created no Authorization/K3.
+> Historical, immutable: L8p attempt 1 (freeze `2026-10-04-l8p-19pin`) CONSUMED its one-shot authorization and stopped **before the first hardware write**: `ATTEMPT1_L8P_PROVISIONING = NOT_PROVEN`, `ATTEMPT1_FIRST_HARDWARE_WRITE = NOT_STARTED`, `ATTEMPT1_FIRST_WRITE_MARKER = NO`, `ATTEMPT1_DEVICE_ACTION_TAKEN = NONE`, `ATTEMPT1_FLASH_PERFORMED = NO`. Owner forensic PRE->RB comparison with the real two-argument comparator: `COMPARE_RESULT = PASS`, `PRESERVATION_S10 = PASS`, 0 new/worsened drift, 0 incomparable (only 3 informational disk-space deltas). Old Authorization/K3 and the old frozen runner are NOT reusable; a successor attempt is required. No L8p acceptance is claimed.
+
+- **Root cause 1:** `stages/L8p/apply.sh` required the whole PRE `capture.log` line to equal `L0_CAPTURE=COMPLETE`; the canonical log line is `<TIMESTAMP> L0_CAPTURE=COMPLETE evidence=<path>`. Fixed with a field-aware check; `SHA256SUMS` verification unchanged.
+- **Root cause 2:** the L8p owner runner passed the report path as a third positional argument to the two-argument `p4-compare.sh`. Fixed: the report path is only the redirection target; no allow keys added.
+- **Tests:** stand-ins now behave like the real scripts (real log format; comparator exits 2 unless `$# == 2`); tests also run the REAL capture and the REAL comparator.
+- **Receipt:** `90-Status/logs/2026-10-04_032049_music_idea3-l8p-attempt1-forensic-and-pre-capture-compare-fix.md`.
+
+---
+
 ## IDEA3 L8p esptool interpreter pin — repository only — 2026-10-04
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-esptool-interpreter-pin`, based on `a47ad8f3`. Nothing was executed live: `PRODUCTION_MUTATION_PERFORMED = NO`, `ESP32_TOUCHED = NO`, `SERIAL_ACCESSED = NO`, `FLASH_PERFORMED = NO`, `L8P_LIVE_EXECUTED = NO`. No L8p Authorization/K3, frozen runner or attempt marker was created. This does not claim L8p acceptance.

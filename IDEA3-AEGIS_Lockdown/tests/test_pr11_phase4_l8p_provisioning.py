@@ -81,13 +81,23 @@ def attestation_text(support, drop=(), **over) -> str:
     return "AEGIS_P4_L8P_PHYSICAL_RECOVERY_ATTESTATION_V1\n" + "".join(f"{k}={v}\n" for k, v in fields.items())
 
 
-def make_pre_evidence(base: Path, *, complete: bool = True, tamper: bool = False) -> Path:
+LIVE_CAPTURE_LOG = (
+    "2026-10-03T20:07:36Z L0 capture start label=pre evidence={pre} (read-only)\n"
+    "2026-10-03T20:07:36Z IDEA2 process_active=YES tunnel_healthy=NO_FAILURE_OBSERVED runtime_healthy=NOT_PROVEN (separate verdicts)\n"
+    "2026-10-03T20:07:37Z L0_CAPTURE=COMPLETE evidence={pre}\n")
+
+
+def make_pre_evidence(base: Path, *, complete: bool = True, tamper: bool = False, log: str | None = None) -> Path:
+    """PRE evidence bundle. By default the capture log has the REAL p4-l0-capture.sh / p4_log shape (timestamped, with an evidence= suffix, preceded by other
+    log lines) - the live 2026-10-04 attempt showed that the canonical log is NOT the bare line `L0_CAPTURE=COMPLETE`. ``log`` overrides it verbatim."""
     pre = base / "pre-root"
     pre.mkdir(parents=True, exist_ok=True)
-    (pre / "capture.log").write_text("L0_CAPTURE=COMPLETE\n" if complete else "L0_CAPTURE=INCOMPLETE\n")
+    if log is None:
+        log = LIVE_CAPTURE_LOG.format(pre=pre) if complete else LIVE_CAPTURE_LOG.format(pre=pre).replace("L0_CAPTURE=COMPLETE", "L0_CAPTURE=INCOMPLETE")
+    (pre / "capture.log").write_text(log)
     (pre / "SHA256SUMS").write_text(f"{hashlib.sha256((pre / 'capture.log').read_bytes()).hexdigest()}  capture.log\n")
     if tamper:
-        (pre / "capture.log").write_text("L0_CAPTURE=COMPLETE\nextra\n")
+        (pre / "capture.log").write_text(log + "extra\n")
     return pre
 
 
@@ -580,6 +590,64 @@ def test_pre_evidence_must_exist_complete_and_unmodified(tmp_path: Path) -> None
         assert run("apply.sh", e2).returncode != 0
 
 
+# ── PRE capture completeness: the REAL p4_log line format (live attempt 1 failure) ─────────────────────────────────────────────────────────
+
+CANONICAL_LINE = "2026-10-03T20:07:37Z L0_CAPTURE=COMPLETE evidence=/home/owner/evidence/pre-root"
+
+
+def test_the_old_whole_line_check_rejected_the_canonical_log_line_which_is_the_live_failure() -> None:
+    """Documents the root cause: `grep -qx 'L0_CAPTURE=COMPLETE'` can never match the timestamped canonical line."""
+    assert subprocess.run(["grep", "-qx", "L0_CAPTURE=COMPLETE"], input=CANONICAL_LINE + "\n", text=True, check=False).returncode == 1
+
+
+@pytest.mark.parametrize("name,log", [
+    ("canonical-p4_log-line", CANONICAL_LINE + "\n"),
+    ("live-multiline-log", LIVE_CAPTURE_LOG.format(pre="/home/owner/evidence/pre-root")),
+    ("bare-line", "L0_CAPTURE=COMPLETE\n"),
+    ("bare-line-among-others", "something first\nL0_CAPTURE=COMPLETE\nsomething after\n"),
+    ("tab-delimited", "2026-10-03T20:07:37Z\tL0_CAPTURE=COMPLETE\tevidence=/x\n"),
+], ids=lambda v: v if isinstance(v, str) and "\n" not in v and len(v) < 30 else "")
+def test_a_correctly_checksummed_pre_bundle_with_a_canonical_complete_field_is_accepted(tmp_path: Path, name: str, log: str) -> None:
+    env = stage_env(tmp_path)
+    make_pre_evidence(tmp_path, log=log)
+    res = run("apply.sh", env)
+    assert res.returncode == 0, out(res)
+    assert "L8P_APPLY=COMPLETE" in res.stdout
+
+
+@pytest.mark.parametrize("name,log", [
+    ("incomplete", "2026-10-03T20:07:37Z L0_CAPTURE=INCOMPLETE evidence=/x\n"),
+    ("bare-incomplete", "L0_CAPTURE=INCOMPLETE\n"),
+    ("not-prefixed", "2026-10-03T20:07:37Z NOT_L0_CAPTURE=COMPLETE evidence=/x\n"),
+    ("bare-not-prefixed", "NOT_L0_CAPTURE=COMPLETE\n"),
+    ("completed-suffix", "2026-10-03T20:07:37Z L0_CAPTURE=COMPLETED evidence=/x\n"),
+    ("glued-prefix", "2026-10-03T20:07:37Z XL0_CAPTURE=COMPLETE evidence=/x\n"),
+    ("embedded-in-a-value", "2026-10-03T20:07:37Z note=L0_CAPTURE=COMPLETE\n"),
+    ("absent", "2026-10-03T20:07:36Z L0 capture start label=pre\n"),
+    ("empty", ""),
+])
+def test_a_pre_bundle_without_a_distinct_complete_field_is_refused_before_any_write(tmp_path: Path, name: str, log: str) -> None:
+    env = stage_env(tmp_path)
+    make_pre_evidence(tmp_path, log=log)
+    res = run("apply.sh", env)
+    assert res.returncode != 0 and "PRE evidence capture is not complete" in out(res).replace("COMPLETE", "complete"), out(res)
+    assert not Path(env["AEGIS_L8P_WORK_DIR"]).exists(), "refused before the work directory, the first-write marker or any device action existed"
+    assert not (Path(env["AEGIS_L8P_WORK_DIR"]) / "first-write.marker").exists()
+    assert device_files(env) == []
+
+
+def test_the_checksum_requirement_is_not_weakened_by_the_canonical_format(tmp_path: Path) -> None:
+    env = stage_env(tmp_path)
+    pre = make_pre_evidence(tmp_path, log=CANONICAL_LINE + "\n")
+    assert run("apply.sh", stage_env(tmp_path / "ok")).returncode == 0  # control: a fresh valid bundle passes
+    (pre / "capture.log").write_text(CANONICAL_LINE + "\ntampered after checksum\n")
+    res = run("apply.sh", env)
+    assert res.returncode != 0 and "checksum" in out(res).lower() and device_files(env) == []
+    (pre / "SHA256SUMS").unlink()
+    res = run("apply.sh", env)
+    assert res.returncode != 0 and "checksum" in out(res).lower()
+
+
 # ═════════════════════════════════════════ 5. canonical hardware flow: readbacks, one reset, boot verifier, failure policy ═════
 
 
@@ -754,3 +822,29 @@ def test_the_canonical_extension_is_small_and_leaves_the_flow_unchanged() -> Non
 def test_this_file_never_reaches_real_hardware() -> None:
     text = Path(__file__).read_text()
     assert not re.search(r"^\s*(import|from)\s+(serial|esptool|platformio)\b", text, re.MULTILINE)
+
+
+# ── against the REAL scripts, not stubs ────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_bundle_produced_by_the_real_capture_script_passes_the_l8p_pre_evidence_gate(tmp_path: Path) -> None:
+    """Live attempt 1: the real p4-l0-capture.sh bundle was rejected by apply.sh. Run the REAL capture (hermetic fixtures) and feed its evidence dir to the gate."""
+    cap = harness.capture(tmp_path, "pre")
+    assert cap.result.returncode == 0, cap.result.stdout + cap.result.stderr
+    log = (cap.evid / "capture.log").read_text()
+    assert any(l.split()[1:2] == ["L0_CAPTURE=COMPLETE"] for l in log.splitlines()), log   # '<TIMESTAMP> L0_CAPTURE=COMPLETE evidence=<path>'
+    assert "L0_CAPTURE=COMPLETE" not in log.splitlines(), "the real log never contains the bare line"
+    env = stage_env(tmp_path / "stage", AEGIS_L8P_PRE_EVIDENCE_DIR=str(cap.evid))
+    res = run("apply.sh", env)
+    assert res.returncode == 0 and "L8P_APPLY=COMPLETE" in res.stdout, out(res)
+
+
+def test_the_real_comparator_stops_at_its_usage_gate_on_a_third_argument_and_runs_with_two(tmp_path: Path) -> None:
+    a = harness.capture(tmp_path, "before")
+    b = harness.capture(tmp_path, "after")
+    comparator = DEPLOY / "p4-compare.sh"
+    base = {"PATH": str(a.bindir), "HOME": str(tmp_path), "LC_ALL": "C", "DISK_THRESHOLD_PCT": "90"}
+    three = subprocess.run(["bash", str(comparator), str(a.evid), str(b.evid), str(tmp_path / "report.txt")], text=True, capture_output=True, env=base, check=False)
+    assert three.returncode == 2 and "usage: p4-compare.sh <BEFORE_DIR> <AFTER_DIR>" in three.stdout + three.stderr, "a third positional argument is refused"
+    two = subprocess.run(["bash", str(comparator), str(a.evid), str(b.evid)], text=True, capture_output=True, env=base, check=False)
+    assert two.returncode in (0, 1) and "P4_COMPARE_SCHEMA=1" in two.stdout and "COMPARE_RESULT=" in two.stdout

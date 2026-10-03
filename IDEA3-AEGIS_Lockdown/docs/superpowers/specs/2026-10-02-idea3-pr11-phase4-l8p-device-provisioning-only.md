@@ -86,3 +86,11 @@ That interpreter cannot import the pinned esptool's dependencies, so a live run 
 builds the `SubprocessExecutor` and the `HardwareDevice` from that one interpreter and refuses a mismatch; the L8p stage profile makes the explicit interpreter mandatory in hardware mode (no `sys.executable`
 or `python3` fallback), while L8 keeps its legacy behaviour. A read-only pre-gate (`l8p_esptool_python_gate`) runs in the runner's pre-gates, before the PRE capture and the attempt marker: it executes the
 pinned `esptool.py --help` under the frozen interpreter in a scrubbed environment (no serial open, no flash command, no installation), so a missing dependency fails the run with no attempt consumed and the device untouched.
+
+## 7. Addendum (2026-10-04): live attempt 1 findings (two repository defects, both pre-first-write)
+
+The first owner-run attempt consumed its one-shot authorization and stopped before any device action: `apply.sh` refused the PRE evidence, then the rollback's PRE->RB comparison failed on usage. (1) The PRE completeness check
+required the whole `capture.log` line to equal `L0_CAPTURE=COMPLETE`, but the canonical `p4-l0-capture.sh` log is `p4_log` output (`<TIMESTAMP> L0_CAPTURE=COMPLETE evidence=<path>`); the check now accepts the field as a distinct
+whitespace-delimited token (and refuses `INCOMPLETE`, `NOT_L0_CAPTURE=COMPLETE`, `COMPLETED` and embedded substrings) and the mandatory `SHA256SUMS` verification is unchanged. (2) The owner runner passed the report path to
+`p4-compare.sh` as a third positional argument; the comparator takes exactly `<BEFORE_DIR> <AFTER_DIR>`, so the report path is now only the runner's redirection target. The first attempt's records and evidence stay immutable; a successor
+attempt needs a new freeze, a fresh same-day Authorization/K3 and explicit owner authorization.

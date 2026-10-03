@@ -55,10 +55,15 @@ case "$name" in
 esac
 '''
 CAPTURE_STUB = ('#!/usr/bin/env bash\necho "capture:$CAPTURE_LABEL" >> "$SIM_DIR/calls.log"\n[ ! -e "$SIM_DIR/fail-capture-$CAPTURE_LABEL" ] || exit 1\n'
-                'mkdir -p "$EVID_DIR"\necho "L0_CAPTURE=COMPLETE" > "$EVID_DIR/capture.log"\n'
+                'mkdir -p "$EVID_DIR"\n'
+                'T=$(date -u +%FT%TZ)\nprintf \'%s L0 capture start label=%s evidence=%s (read-only)\\n%s L0_CAPTURE=COMPLETE evidence=%s\\n\' "$T" "$CAPTURE_LABEL" "$EVID_DIR" "$T" "$EVID_DIR" > "$EVID_DIR/capture.log"\n'
                 '[ ! -e "$SIM_DIR/ntp-lost-by-pre-capture" ] || [ "$CAPTURE_LABEL" != pre ] || echo inactive > "$SIM_DIR/props/chronyd.service.ActiveState"\n'
                 '(cd "$EVID_DIR" && sha256sum capture.log > SHA256SUMS)\n[ ! -e "$SIM_DIR/bad-sums-$CAPTURE_LABEL" ] || echo "0  capture.log" > "$EVID_DIR/SHA256SUMS"\n')
-COMPARE_STUB = ('#!/usr/bin/env bash\necho "compare:$1:$2:$(env | grep -E \'^ALLOW_\' | sort | tr \'\\n\' \' \')" >> "$SIM_DIR/calls.log"\n'
+COMPARE_STUB = ('#!/usr/bin/env bash\n'
+                'echo "argc:$#" >> "$SIM_DIR/calls.log"\n'
+                '# the REAL p4-compare.sh contract: exactly <BEFORE_DIR> <AFTER_DIR>; anything else stops at its usage gate (exit 2)\n'
+                '[ "$#" = 2 ] || { echo "STOP: usage: p4-compare.sh <BEFORE_DIR> <AFTER_DIR>"; exit 2; }\n'
+                'echo "compare:$1:$2:$(env | grep -E \'^ALLOW_\' | sort | tr \'\\n\' \' \')" >> "$SIM_DIR/calls.log"\n'
                 'label=$(basename "$2" | sed s/-root//)\n[ ! -e "$SIM_DIR/fail-compare-$label" ] || { echo COMPARE_RESULT=FAIL; exit 1; }\n'
                 "printf 'FINDINGS_NEW_OR_WORSENED_DRIFT=0\\nFINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0\\nFINDINGS_INCOMPARABLE=0\\nPRESERVATION_S10=PASS\\nCOMPARE_RESULT=PASS\\n'\n")
 SYSTEMCTL_STUB = r'''#!/usr/bin/env bash
@@ -1034,3 +1039,68 @@ def test_the_esptool_gate_only_runs_help_and_opens_no_device_or_package_manager(
         assert banned not in body, banned
     assert "env -i" in body and "PATH=/usr/bin:/bin" in body, "a scrubbed environment: no inherited PYTHONPATH/venv state"
     assert "timeout 60" in body
+
+
+# ═════════════ 13. live attempt 1 regression: the comparator takes EXACTLY two positional arguments ═════════════
+# The merged runner called `p4-compare.sh "$1" "$2" "$3" > "$3"`; the real comparator stops at its usage gate on a third argument, so the PRE->POST / PRE->RB comparison could never run
+# (live attempt 1: COMPARE_RESULT=FAIL after a pre-first-write rollback). The stub above now behaves like the real comparator and exits 2 unless $# == 2.
+
+
+def test_the_comparator_is_invoked_with_exactly_two_positional_arguments(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    argcs = [c for c in sim.calls() if c.startswith("argc:")]
+    assert argcs and set(argcs) == {"argc:2"}, argcs
+    compares = [c for c in sim.calls() if c.startswith("compare:")]
+    assert len(compares) == 1
+    before, after = compares[0].split(":")[1:3]
+    assert before.endswith("/pre-root") and after.endswith("/post-root"), compares
+
+
+def test_the_comparator_report_is_captured_at_the_runner_supplied_path_not_passed_as_an_argument(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    assert sim.run().returncode == 0
+    evid = next(sim.evid_base.iterdir())
+    report = evid / "compare-pre-post.txt"
+    assert report.is_file(), "the runner redirects the comparator output to its own report path"
+    text = report.read_text()
+    assert "COMPARE_RESULT=PASS" in text and "FINDINGS_NEW_OR_WORSENED_DRIFT=0" in text and "usage" not in text.lower()
+    code = code_only(RUNNER)
+    line = next(l for l in code.splitlines() if 'bash "$P4/p4-compare.sh"' in l)
+    assert re.search(r'p4-compare\.sh" "\$1" "\$2" > "\$3" 2>&1', line), line
+
+
+def test_a_pre_first_write_rollback_runs_the_formal_pre_to_rb_comparator_successfully(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    sim.inject("fail-before-write")      # apply fails BEFORE the first device write: stage-local rollback, then the mandatory PRE->RB compare
+    res = sim.run()
+    out = res.stdout + res.stderr
+    assert res.returncode == 1 and "PRE_RB_COMPARE=PASS" in out and "PRE_RB_COMPARE=FAIL" not in out, out
+    assert "L8P_PROVISIONING=NOT_PROVEN" in out and "NOT retrying" in out
+    argcs = [c for c in sim.calls() if c.startswith("argc:")]
+    assert argcs and set(argcs) == {"argc:2"}, argcs
+    rb = [c for c in sim.calls() if c.startswith("compare:") and "rb-root" in c]
+    assert len(rb) == 1 and rb[0].split(":")[1].endswith("/pre-root"), rb
+    evid = next(sim.evid_base.iterdir())
+    assert "COMPARE_RESULT=PASS" in (evid / "compare-pre-rb.txt").read_text()
+    assert not list(sim.evid_base.glob("**/first-write.marker")), "no first write happened"
+    assert sim.calls().count("apply") == 1 and "verify" not in sim.calls()
+
+
+def test_the_consumed_attempt_stays_consumed_after_a_pre_first_write_failure(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    sim.inject("fail-before-write")
+    assert sim.run().returncode == 1 and sim.marker()
+    again = sim.run()
+    assert again.returncode != 0 and "L8P_ATTEMPT_ALREADY_CONSUMED" in again.stdout + again.stderr
+    assert sim.calls().count("apply") == 1, "no second attempt"
+
+
+def test_the_capture_stub_now_emits_the_real_p4_log_line_so_the_runner_gate_is_exercised_on_it(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    assert sim.run().returncode == 0
+    evid = next(sim.evid_base.iterdir())
+    log = (evid / "pre-root" / "capture.log").read_text()
+    assert re.search(r"^\d{4}-\d\d-\d\dT[\d:]+Z L0_CAPTURE=COMPLETE evidence=\S+$", log, re.MULTILINE), log
+    assert "L0_CAPTURE=COMPLETE" not in log.splitlines()  # never the bare line
