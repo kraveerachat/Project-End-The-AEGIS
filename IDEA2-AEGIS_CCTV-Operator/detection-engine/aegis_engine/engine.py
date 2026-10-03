@@ -122,6 +122,7 @@ class DetectionEngine:
             IdentityAgentClient(
                 pipe_name=cfg.identity_agent_pipe_name,
                 timeout_s=cfg.identity_agent_timeout_s,
+                response_timeout_s=cfg.identity_agent_response_timeout_s,
             )
             if cfg.monitor_ingest_mode == "identity_agent" else None
         )

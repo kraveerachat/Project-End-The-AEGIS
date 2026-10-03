@@ -15,6 +15,41 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — M2-E3 Engine→Agent response timeout budget (2026-10-03)
+
+Branch: `fix/idea2-engine-agent-response-timeout-budget`; owner: Pub. Source
+checkpoint: `c357b7b07556e5e7d539cd3f58d4033dfb14089e` from `origin/main`
+`7649d180d01bc92501a7cad792a9f8a610988490`.
+
+State: SOURCE FIXED / LOCAL WINDOWS TESTS VERIFIED / MACHINE A HEARTBEAT
+RECOVERY NOT VERIFIED. Owner-provided live evidence after the Engine pywin32
+installation showed five of five local Engine→Agent pipe controls succeeded,
+while automatic Engine heartbeats still logged `AGENT_UNAVAILABLE`; the
+Production HUB access log observed an automatic heartbeat HTTP 200. This is
+consistent with the Engine's former single five-second deadline expiring while
+the Agent completes allowed HTTPS challenge/verify/heartbeat work, but source
+tests alone do not prove that this explains every live heartbeat failure.
+
+The Engine now keeps the existing at-most-five-second local pipe
+availability/connect/request-write budget and separately waits at most 30
+seconds by default for the Agent response after a completed write.
+`AEGIS_IDENTITY_AGENT_RESPONSE_TIMEOUT_S` is bounded to 0.1–30 seconds;
+`AEGIS_IDENTITY_AGENT_TIMEOUT_S` remains bounded to 0.1–5 seconds. The Agent
+HTTP defaults, protocol, identity authority, heartbeat cadence, camera demand,
+and legacy shared-key behavior were not changed. RED proved the old connector
+timed out on a response delayed beyond the local window. GREEN: focused
+Engine/pipe tests 48/48 and full Engine suite 245/245 on Windows, including
+native cancellation. Governance 61/61, Vault validation PASS with two existing
+canvas owner-review warnings, PowerShell parser checks, diff check, and
+changed-content secret scan passed. Independent review found no Critical or
+Important issue; its minor non-default-budget coverage observation was fixed
+and rerun. No installed Machine A, Agent service/configuration, private key,
+camera, tunnel, Production, Browser Association, or PR #293 state was changed.
+
+The previous Engine pywin32 dependency checkpoint below is historical and its
+dependency blocker is closed by owner-provided installation/import evidence;
+the separate live response/heartbeat acceptance gate remains open.
+
 ## Current task — M2-E3 Engine Windows named-pipe client dependency (2026-10-03)
 
 Branch: `fix/idea2-engine-windows-pipe-client-dependency`; owner: Pub. Source
