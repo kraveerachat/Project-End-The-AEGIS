@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-02
+updated: 2026-10-03
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -14,6 +14,30 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
+
+## Current Task — IDEA1-TRASH-PREVIEW-PANE (parallel to D-1 PR-E)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1 Trash right-side preview/details pane and one Human-approved read-only Trash preview GET route |
+| Branch | `feat/idea1-trash-preview-pane` from `origin/main` `27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf` |
+| Owner | kla |
+| PR | #319 (Draft; no merge) |
+| State | **SOURCE IMPLEMENTED / LOCAL VERIFIED / HUMAN UI REVIEW PENDING**. No Production deployment or browser acceptance claimed. |
+| Production mutation allowed | **NO** |
+| Scope | IDEA1 Trash UI, shared Normal Files preview renderer extraction, and one read-only `GET /api/trash/:id/preview`. No D-1 preview-index, deployment, Restore/delete semantics, right-click, or Production change. |
+| Acceptance | Left-click selection and right pane; narrow-screen modal; image/video/audio/text through the existing preview policy; unsupported fallback; owner + unlock + current-Trash gates; no selecting/previewing mutation; Human UI review. |
+| Next | Kla reviews PR #319 UI/security behavior and decides Ready/merge. PR #310 remains independently owned and untouched by this branch. |
+
+### Session Register — IDEA1-TRASH-PREVIEW-PANE
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| TP-S1 | Isolated implementation, route and UI regressions, Draft PR, documentation closeout | PASS (local) | Focused matrix 112 total / 110 pass / 0 fail / 2 PostgreSQL-only skip; build PASS with pre-existing chunk-size warning; related Files UI 33/33; `i18nCopyAudit` 6/7 with pre-existing `vaultKeyConfirmLabel` missing in TH/ZH on base | `7fe26a271f087c41ea71c84508490ca75ae274df` | Source and local tests verified; Draft PR #319 | PostgreSQL-specific legacy Vault-row test, human browser/visual acceptance, Production deployment (not authorized) | Final policy/receipt checks, then Human UI review |
+
+The Trash GET route shares the existing Files MIME allowlist, signature validation, bounded Range streaming, inert headers, and Vault refusal. It first requires authentication, an unlocked Trash session, and the owner-scoped currently-trashed lookup. It never restores, deletes, moves, generates a derivative, or changes the purge timer. Normal live-file preview behavior remains unchanged. Selection is cleared on lock, expired authorization, failed listing, item removal, and explicit close.
+
+Known local limits: no `TEST_DATABASE_URL` was configured, so the two PostgreSQL-only route checks were skipped; no browser visual acceptance or Production runtime check was performed. The repository's existing `i18nCopyAudit` parity failure is unrelated to this task: `vaultKeyConfirmLabel` exists only in English at the base SHA. The four new Trash labels are present in EN/TH/ZH. The code checkpoint was created before this documentation checkpoint; the final task receipt records exact paths and verification.
 
 ## Current Task — IDEA1-UNIFIED-PREVIEW-D1-D — D-1 PR-D default-off writer + thumb/poster
 
