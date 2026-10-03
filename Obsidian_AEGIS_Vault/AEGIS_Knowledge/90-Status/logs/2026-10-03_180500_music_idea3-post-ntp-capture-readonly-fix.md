@@ -47,10 +47,11 @@ PRODUCTION_MUTATION_PERFORMED=NO
 
 ## Verification evidence
 
-- `pytest -q -p no:cacheprovider tests -k "pr11_phase4 or pr11_phase2 or firmware_contract"` — FAIL (1 failure, not caused by this branch): 4569 passed, 5 skipped, 1 failed, run twice on the FINAL tree (branch HEAD `11091af6` containing `origin/main` `27ac710f`, PR #317, IDEA2-only paths, no overlap, no conflicts). The single failure, both times, is `tests/test_pr11_phase4_l6c_capture_gap.py::test_real_end_to_end_capture_then_compare_requires_the_allow_file`: it runs the REAL capture against the live Core host and sees ephemeral high-port UDP listeners appear between its pre and post captures (`LISTENER_ADDED`, none on port 123). The same full suite on pristine `origin/main` `27ac710f` (no branch changes) fails the same test the same way (4526 passed, 5 skipped, 1 failed). The test passes in isolation (6/6 on the branch, 6/6 on main) and passed in three earlier full runs of this branch; it is host-state dependent. No test or code was changed to hide it.
+- `pytest -q -p no:cacheprovider tests -k "pr11_phase4 or pr11_phase2 or firmware_contract"` — PASS, 4571 passed, 5 skipped, 0 failed, on the FINAL tree: this branch after merging `origin/main` `ed351310` (PR #320, which repaired the live-host-dependent L6c capture-gap test; PR #320's test and receipt are inherited from main, not modified here). Merge had no conflicts; this branch changes no IDEA1/IDEA2 path. Simulated host only; nothing live.
 - `pytest tests/test_pr11_phase4_capture_timesyncd_readonly.py` — PASS, 19 passed (14 of them fail on the old capture).
 - `pytest tests/test_pr11_phase4_pre_l8p_ntp_reactivation_owner_run_flow.py` — PASS, 67 passed.
 - `pytest tests/test_pr11_phase4_l8p_owner_runner.py` — PASS, 124 passed.
+- `pytest tests/test_pr11_phase4_l6c_capture_gap.py` — PASS, 34 passed (the previously flaky test now passes through the PR #320 repair).
 - `bash -n` on every changed `.sh` (5 files) — PASS. `git diff --check origin/main HEAD` — PASS.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS (0 errors; 2 pre-existing canvas warnings).
 - `scripts/validate-collaboration-policy.mjs` needs a PR event payload and is left to CI.
