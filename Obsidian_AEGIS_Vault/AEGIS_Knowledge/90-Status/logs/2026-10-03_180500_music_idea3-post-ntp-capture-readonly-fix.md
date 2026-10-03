@@ -47,10 +47,15 @@ PRODUCTION_MUTATION_PERFORMED=NO
 
 ## Verification evidence
 
-- `pytest tests -k "pr11_phase4 or pr11_phase2 or firmware_contract"` — first full run: 4569 passed, 5 skipped, 1 failed (the NTP allow-catalog subset invariant); that test was then amended to permit exactly `time.timesyncd.FallbackNTPServers` and `pytest tests/test_pr11_phase4_pre_l8p_ntp_reactivation.py` — PASS, 96 passed. Targeted: `tests/test_pr11_phase4_capture_timesyncd_readonly.py` PASS (19), `…_l8p_owner_runner.py` PASS (124), `…_pre_l8p_ntp_reactivation_owner_run_flow.py` PASS (67). Simulated host only.
-- The new capture tests FAIL on the old capture (14 failures) and PASS on the repaired one.
-- `bash -n` on every changed `.sh` — PASS. `git diff --cached --check` — PASS.
-- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS after this section (0 errors; 2 pre-existing canvas warnings).
+All results below are from the FINAL tree after merging `origin/main` `7649d180` (PR #315, IDEA2-only paths, no overlap, no conflicts) into the branch (HEAD `7d2edaea` before this receipt update). Simulated host only; nothing live.
+
+- `pytest -q -p no:cacheprovider tests -k "pr11_phase4 or pr11_phase2 or firmware_contract"` — PASS, 4570 passed, 5 skipped, 0 failed.
+- `pytest tests/test_pr11_phase4_capture_timesyncd_readonly.py` — PASS, 19 passed (14 of them fail on the old capture).
+- `pytest tests/test_pr11_phase4_pre_l8p_ntp_reactivation_owner_run_flow.py` — PASS, 67 passed.
+- `pytest tests/test_pr11_phase4_l8p_owner_runner.py` — PASS, 124 passed.
+- `bash -n` on every changed `.sh` (5 files) — PASS. `git diff --check origin/main HEAD` — PASS.
+- `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS (0 errors; 2 pre-existing canvas warnings).
+- `scripts/validate-collaboration-policy.mjs` needs a PR event payload and is left to CI.
 
 ## Canonical notes updated
 
