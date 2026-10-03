@@ -55,17 +55,35 @@ def _windows_connector_with_modules(
             raise TimeoutError("identity Agent transaction timed out")
         return max(1, int(remaining * 1000))
 
-    # pywin32's BOOLAPI wrapper returns None on success and raises on failure.
-    win32pipe.WaitNamedPipe(pipe_name, remaining_ms())
-    handle = win32file.CreateFile(
-        pipe_name,
-        win32con.GENERIC_READ | win32con.GENERIC_WRITE,
-        0,
-        None,
-        win32con.OPEN_EXISTING,
-        FILE_FLAG_OVERLAPPED,
-        None,
-    )
+    # A server can close its last instance between sequential transactions,
+    # and an available instance can disappear between WaitNamedPipe/CreateFile.
+    # Retry only before acquiring a handle or writing request bytes; a retry
+    # after either point could replay an Agent-owned HTTPS transaction.
+    while True:
+        try:
+            # pywin32's BOOLAPI wrapper returns None on success and raises on failure.
+            win32pipe.WaitNamedPipe(pipe_name, remaining_ms())
+            remaining_ms()  # The wait must not consume the budget before open.
+            handle = win32file.CreateFile(
+                pipe_name,
+                win32con.GENERIC_READ | win32con.GENERIC_WRITE,
+                0,
+                None,
+                win32con.OPEN_EXISTING,
+                FILE_FLAG_OVERLAPPED,
+                None,
+            )
+            break
+        except Exception as exc:
+            code = getattr(exc, "winerror", None)
+            if code == 121:  # ERROR_SEM_TIMEOUT
+                raise TimeoutError("identity Agent local pipe timed out") from exc
+            if code not in (2, 231):  # ERROR_FILE_NOT_FOUND / ERROR_PIPE_BUSY
+                raise
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError("identity Agent local pipe timed out") from exc
+            time.sleep(min(0.02, remaining))
     try:
         win32pipe.SetNamedPipeHandleState(
             handle,

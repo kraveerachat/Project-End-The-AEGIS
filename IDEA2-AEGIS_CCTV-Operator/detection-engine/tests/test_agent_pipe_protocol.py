@@ -1157,7 +1157,6 @@ class PipeProtocolTests(unittest.TestCase):
         self.addCleanup(dll_cookie.close)
         import win32api
         import win32con
-        import win32pipe
         import win32security
 
         from aegis_engine.identity_agent_client import _windows_connector
@@ -1217,18 +1216,8 @@ class PipeProtocolTests(unittest.TestCase):
         worker.start()
         try:
             for round_number in range(rounds):
-                # WaitNamedPipe can return immediately between one-shot pipe
-                # instances; this proves eventual republish, not gap-free
-                # acquisition of every unsynchronised heartbeat.
-                deadline = time.monotonic() + 5
-                while True:
-                    try:
-                        win32pipe.WaitNamedPipe(pipe_name, 50)
-                        break
-                    except Exception:
-                        if errors or waits or time.monotonic() >= deadline:
-                            self.fail(f"same-name pipe was not republished at {round_number}: {errors!r}")
-                        time.sleep(0.01)
+                # Intentionally do not pre-poll for the next one-shot instance:
+                # the real Engine connector must tolerate the publication gap.
                 response = _windows_connector(
                     pipe_name,
                     encode_request("heartbeat", samples()["heartbeat"]),

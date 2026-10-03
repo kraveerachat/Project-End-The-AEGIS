@@ -19,7 +19,8 @@ edit_policy: owner-writable
 
 Branch: `fix/idea2-agent-pipe-peer-disconnect-final`; base:
 `27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf`; source checkpoint:
-`7f00f78a776c01e47551a7b0cb2398702a1daa5d`.
+`7f00f78a776c01e47551a7b0cb2398702a1daa5d`, followed by the bounded
+pre-write acquisition amendment on the same PR #318 branch.
 
 State: SOURCE FIXED / LOCAL WINDOWS PIPE TESTS VERIFIED / MACHINE A LIVE
 RECOVERY NOT VERIFIED. After merged PR #317 and PR #316 were installed on
@@ -44,18 +45,30 @@ service failure backoff were not weakened.
 
 Local Windows verification: focused pipe/client 52/52, explicit Identity
 Agent modules 114/114, Windows lifecycle 49/49, full Engine/Agent 261/261,
-all five native pywin32 tests executed with zero skips. Real one-shot
-same-name stress passed 50 and 100 sequential transactions, with successful
-transactions separated from idle accepts and injected failure still causing
-backoff. Governance 59/59, Vault validation PASS with two pre-existing Canvas
-owner-review warnings, Python AST/import 4/4, ten PowerShell parses, diff
-check, and changed-content secret scan passed. Independent read-only review:
-Critical 0, Important 0 after fixes.
+all five native pywin32 tests executed with zero skips at the original PR
+checkpoint. The immutable receipt for that checkpoint records its historical
+limitation and remains unchanged.
 
-One-shot first-instance close/recreate has a short no-instance interval;
-native polling proves eventual republish, not that every unsynchronized
-heartbeat can acquire during that interval. No Engine retry was added.
-Installed Machine A recovery remains owner-gated after review/merge. No
+The later PR #318 amendment closes the local no-instance gap without retrying
+an Agent transaction: only Win32 2/231 during `WaitNamedPipe`/`CreateFile`
+before handle acquisition may retry within the original at-most-five-second
+local deadline. Win32 121 and deadline exhaustion terminate as timeout;
+unrelated errors fail immediately. Once a handle is acquired, write/read
+failure cannot replay the request. The separately bounded Agent response
+wait remains unchanged. RED reproduced early failure on transient missing/busy
+instances and a deadline-expired wait that still attempted `CreateFile`.
+GREEN: focused pipe/client 60/60 and full Engine/Agent 269/269 on local
+Windows; the native 50/100 sequential transactions now call the real Engine
+connector back-to-back with no external pipe pre-poll, each reaching the
+Agent transport once. Service success has no backoff, injected unrelated
+failure retains backoff, and camera-demand side effects remain zero.
+Governance 61/61, Vault validation PASS with two pre-existing Canvas warnings,
+ten PowerShell parses, diff check, and changed-content secret scan passed.
+Independent read-only review: Critical 0, Important 0.
+
+This supersedes the receipt's former unsynchronized-acquisition limitation
+as a local source/test fact only. Installed Machine A heartbeat recovery is
+still not verified and remains owner-gated after human review/merge. No
 Machine A runtime, camera, private key, tunnel, Production, or Production DB
 was modified; M2-E3 is not closed.
 
