@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, status, backlog, todo, priority]
 type: status
 status: 🔧 living-document
 created: 2026-08-06
-updated: 2026-09-06
+updated: 2026-09-29
 owner: kla
 edit_policy: owner-writable
 ---
@@ -229,6 +229,7 @@ data-preservation map และ runtime integrity baseline ถูกบันท
 - ⚠️ **OPEN / FUTURE HARDENING — Private PKI CRL/OCSP:** trusted Root CA และ `aegis.internal` hostname validation ผ่านแล้ว แต่ PKI ยังไม่มี revocation publication; X1 จึงรายงาน `PASS_WITH_REVOCATION_LIMITATION` โดยไม่ใช้ `-k`/`--insecure`
 - ⚠️ **OPEN / TEST ON DISPOSABLE VM — Clean Windows Twingate first-install:** accepted client มี Twingate อยู่ก่อนแล้ว; ห้ามถอน client ที่ใช้งานจริงเพื่อทดสอบ ให้ใช้ Windows VM/test PC แยก
 - ⏳ **FUTURE — Enterprise endpoint deployment:** X1 เป็น endpoint onboarding package; Intune/MDM centralized certificate, Twingate client และ shortcut rollout ยังไม่ได้ทำ
+- ⚠️ **OPEN / ARCHITECTURE SPEC READY — VLAN30 Direct-LAN Central DNS Resolution:** บน VLAN 30 Layer 3 routing และ TCP port 443 เข้าถึง Beelink HUB (`192.168.10.10:443`) ได้โดยไม่ต้องต่อ Twingate (`TcpTestSucceeded=True`, `curl /healthz` 200 OK) แต่ local LAN DNS ยังไม่มี record `aegis.internal` ทำให้ client ทั่วไป resolve ไม่ได้และต้องใช้ local `hosts` mapping ชั่วคราว (PR #216 U2/D1). สัญญาทางสถาปัตยกรรม (Switch Access Port PVID 30 + DHCP Option 6 + Central DNS) ถูกกำหนดไว้ใน `docs/superpowers/specs/2026-09-29-aegis-vlan30-direct-lan-dns-design.md` รอ human owner review; unmanaged client ยังคงต้องติดตั้ง Root CA สำหรับ trusted TLS (`ARBITRARY_UNMANAGED_WINDOWS_ZERO_SETUP=NOT_CLAIMED`).
 - ทำ monitoring/alerting และ incident runbook โดยไม่แก้สถานะ infrastructure pass ย้อนหลัง
 - reconcile รายงาน/diagram เก่าที่อ้างว่า Beelink ว่างหรือ stack ยังไม่อยู่บน host
 

@@ -4,7 +4,7 @@ tags: [aegis, infrastructure, remote-access, twingate, ztna, zero-trust, securit
 type: infrastructure
 status: ✅ remote SSH, AEGIS Web, private CA and Windows onboarding verified
 created: 2026-08-06
-updated: 2026-08-16
+updated: 2026-09-29
 owner: kla
 edit_policy: owner-writable
 ---
@@ -39,7 +39,12 @@ edit_policy: owner-writable
 
 Resource-level paths ชี้ตรงไปยัง Beelink VLAN 10 และไม่ให้สิทธิ์ทั้ง VLAN 30
 ส่วน VLAN 30 เป็น direct on-site management path แยกต่างหากตาม
-[[infrastructure/network/VLAN-IP-Plan]]
+[[infrastructure/network/VLAN-IP-Plan]].
+
+> [!important] Remote ZTNA vs. Direct-LAN Separation
+> Twingate client ทำการ intercept และ resolve `aegis.internal` ผ่าน Twingate virtual adapter ชี้ตรงเข้า Connector (`192.168.10.10`) บนเครือข่ายภายนอก
+> ในขณะที่ Direct-LAN บน VLAN 30 เป็นการเชื่อมต่อ on-site ผ่าน access switch port โดยตรง ซึ่งไม่ผ่าน Twingate และต้องพึ่งพา Central LAN DNS บน MikroTik/router เพื่อ resolve `aegis.internal → 192.168.10.10`
+> (ดูสถาปัตยกรรมและช่องว่าง DNS หน้างานที่พบใน PR #216 ได้ที่ `docs/superpowers/specs/2026-09-29-aegis-vlan30-direct-lan-dns-design.md`).
 
 ## ✅ VERIFIED — X1 AEGIS Endpoint Onboarding Automation
 
