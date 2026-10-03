@@ -54,18 +54,40 @@ Overlay SHA-256 values are over Git blob (LF) bytes: `git show <ref>:<path> | sh
 Host paths follow the Stage 1 precedent: archive transferred to `/tmp/`, overlays installed under
 `$RT=/opt/aegis/runtime/preview-d1` (V6 §2).
 
-### Live facts still pending
+### Live Production bindings (read-only preflight, 2026-10-03T18:56:30Z)
 
-The Stage 2 image artifact is bound (§4 record). These live facts cannot be derived from Git, V6, or the
-build, and are captured by the Human / live-capture session only:
+`LIVE_BINDINGS_PENDING=NONE`, `LIVE_BINDINGS_READY=YES`. Captured by a read-only preflight (no mutation;
+PostgreSQL `TRANSACTION_READ_ONLY=on`). The evidence file stays **outside Git** (it also holds terminal
+prompt output): `phase-j-prod-readonly-preflight-20261004T015504.txt`,
+SHA-256 `ee5f993d72b8d9b4581fce6cec4f1617f307ec873181df07023a8c7c38d1fa08`. Stage 2 has **not** been executed.
 
-| Token | Captured where |
+| Fact | Bound value |
 |---|---|
-| `LIVE_STAGE1_CHAIN` | V6 §S2.2.1 (`pre-stage2-live-chain.txt`) |
-| `LIVE_STAGE1_OVERLAY_PATHS` | V6 §S2.2.1 (Stage 1 overlays as they appear in the live chain) |
-| `LIVE_STAGE1_OVERLAY_SHA256` | V6 §S2.2.1 (`pre-stage2-live-chain.sha256`); expected to equal Stage 1 `49b0ad5f…6f78` / `7c5f0df7…6a59` |
-| `LIVE_POSTGRES_USER` | V6 §2 Common Authority Block (resolved dynamically; never hardcoded) |
-| `LIVE_CURRENT_IMAGE` | V6 §S2.3.1; must equal `aegis-prod-drive:preview-d1-s1-9f5a01148ce0` |
+| `LIVE_CURRENT_IMAGE` | `aegis-prod-drive:preview-d1-s1-9f5a01148ce0` (ID `sha256:8d5356fc…88e0`, revision `9f5a0114…`, user `node`) = V6 `EXPECTED_STAGE1_IMAGE` |
+| `LIVE_POSTGRES_USER` | `aegis` (V6 still resolves it dynamically; this is the expected value) |
+| `LIVE_STAGE1_CHAIN` | `phase-j/live-stage1-chain.txt` — exact ordered **31-file** drive-container chain (`com.docker.compose.project.config_files`); order SHA-256 `197a22837026e1d9ea94220ef282d5a5a262b6d4738227dc13009a29765a703b` |
+| live chain manifest | `phase-j/live-stage1-chain.sha256` — per-file SHA-256 as captured; SHA-256 `d3a8cd04aae6d095ec98a4bf8fb9e44acc33b4519f062c3ee69cedb4b44a52bc` |
+| `LIVE_STAGE1_OVERLAY_PATHS` | `/opt/aegis/runtime/preview-d1/drive-image-9f5a01148ce0.yml`, `/opt/aegis/runtime/preview-d1/drive-preview-index-stage1-9f5a01148ce0.yml` (chain positions 30, 31) |
+| `LIVE_STAGE1_OVERLAY_SHA256` | `49b0ad5f…6f78`, `7c5f0df7…6a59` — equal to the Git blobs of the Stage 1 overlays |
+| `PREVIEW_D1_DIR_EXISTS` | `YES` (`root:root 755`) |
+| Flags | `SCHEMA_ENABLED=YES`, `READ_ENABLED=YES`, `WRITE_ENABLED=NO`, `BUDGET_ENV=UNSET` |
+| Owners | `TOTAL_USERS=3`, `TREE_V1_OWNERS=2`, `MIGRATING_TREE_V1_OWNERS=0`, `ELIGIBLE_OWNER_UNION=2`, `CAPACITY_REVIEW_REQUIRED=NO` |
+| Originals | `TOTAL_V2_BLOBS=62`, `TOTAL_V2_CIPHERTEXT_BYTES=3916387459` |
+| D-1 state | heads 0, generations 0, blob_refs 0, `INDEX_STAGED_BYTES=0`, `INDEX_MANAGED_BYTES=0`, `INDEX_RETAINED_BYTES_TOTAL=0`, `INDEX_STATE_WITHOUT_BLOB=0` |
+| Storage | `STORAGE_MOUNT=/var/lib/docker/volumes/aegis_drive_storage/_data`, `FS_TOTAL_BYTES=94793244672`, `FS_AVAILABLE_BYTES=31212642304` |
+| Baseline | `STAGE2_ZERO_WRITE_BASELINE_READY=YES` |
+
+The two chain files are byte-identical to what V6 §S2.2.1 writes on the host (`tr ',' '\n'` of the label;
+`sha256sum` lines). At Stage 2 entry: `sha256sum $RT/pre-stage2-live-chain.txt` must print `197a2283…703b`
+and `$RT/pre-stage2-live-chain.sha256` must equal `d3a8cd04…52bc`; any difference means the live chain moved
+since the preflight → STOP and re-capture.
+
+Observations for the operator (no action by this package):
+
+- The **project**-level chain from `docker compose ls` has 35 files (it adds 4 monitor overlays). V6 uses the
+  **drive container** label (31 files), as Stage 1 did; `up -d --no-deps --no-build drive` touches only `drive`.
+- Worst-case Stage 3 retained exposure is `2 × 8589934592 = 17179869184` B against `FS_AVAILABLE_BYTES=31212642304`;
+  V6 §S3.1 re-measures before enablement.
 
 ## 3. Stage contracts
 
@@ -189,7 +211,9 @@ The image archive stays in `/tmp/`; V6 §S2.4 verifies `IMAGE_ARCHIVE_SHA256` an
 bash IDEA1-AEGIS_Drive_LC/deploy/production/d1/phase-j/verify-phase-j-package.sh [ref]
 ```
 
-Checks authority bindings and the pending set, overlay Git-blob SHA-256, the static overlay contract, and
+Checks authority bindings (pending set must be empty), live-chain structure (count, order and manifest hashes,
+uniqueness, absolute `/opt/aegis/runtime` paths, Stage 1 overlays last with Git-equal hashes, P1 overlay hash,
+S2/S3 overlays absent, zero D-1 state, eligible-owner capacity rule), overlay Git-blob SHA-256, the static overlay contract, and
 renders `fixture base → Stage 1 image → Stage 1 flags → Stage 2 → Stage 3` with `docker compose config`
 using the V6 §S2.4 / §S3.4 extraction expressions (images, WRITE, budget) plus non-drive equality. It never
 runs `up`, `pull`, `load`, or contacts a host. The fixture (`phase-j/fixtures/live-chain-base.fixture.yml`) stands

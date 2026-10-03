@@ -70,7 +70,7 @@ done
 
 # Only the declared live/build facts may stay unresolved.
 PENDING=$(grep -E '^[A-Z0-9_]+=<' "$TMP/authority.txt" | cut -d= -f1 | sort | tr '\n' ' ')
-check PENDING_SET "$PENDING" "LIVE_CURRENT_IMAGE LIVE_POSTGRES_USER LIVE_STAGE1_CHAIN LIVE_STAGE1_OVERLAY_PATHS LIVE_STAGE1_OVERLAY_SHA256 "
+check PENDING_SET "$PENDING" ""
 
 # Stage 2 image artifact bindings (recorded at the Step 0 build).
 check S2_OCI_REVISION "$(auth S2_OCI_REVISION)" "$S2_SHA"
@@ -106,6 +106,41 @@ check S2_OVERLAY_SHA256 "$(sha256sum "$TMP/s2.yml" | awk '{print $1}')" "$(auth 
 check S3_OVERLAY_SHA256 "$(sha256sum "$TMP/s3.yml" | awk '{print $1}')" "$(auth S3_OVERLAY_SHA256)"
 check S1_IMAGE_OVERLAY_SHA256 "$(sha256sum "$TMP/s1-image.yml" | awk '{print $1}')" 49b0ad5fbe0f49a9cfe168ec28c12aeb3f6fe1ead6dd870105423f4b37b96f78
 check S1_FLAGS_OVERLAY_SHA256 "$(sha256sum "$TMP/s1-flags.yml" | awk '{print $1}')" 7c5f0df78c3f5cf46bb2edd83bb8b015ed63d9645ed8de22c69eb1d8d6216a59
+
+# ---------- 1b. live Stage 1 chain binding (structure only; contents are the captured live facts) ----------
+blob "$(auth LIVE_STAGE1_CHAIN)" > "$TMP/chain.txt"
+blob "$(auth LIVE_STAGE1_CHAIN_SHA256_MANIFEST)" > "$TMP/chain.sha256"
+N=$(auth LIVE_STAGE1_CHAIN_COUNT)
+check LIVE_CHAIN_ORDER_SHA256 "$(sha256sum "$TMP/chain.txt" | awk '{print $1}')" "$(auth LIVE_STAGE1_CHAIN_ORDER_SHA256)"
+check LIVE_CHAIN_MANIFEST_SHA256 "$(sha256sum "$TMP/chain.sha256" | awk '{print $1}')" "$(auth LIVE_STAGE1_CHAIN_MANIFEST_SHA256)"
+check LIVE_CHAIN_COUNT "$(wc -l < "$TMP/chain.txt" | tr -d ' ')" "$N"
+check LIVE_CHAIN_MANIFEST_COUNT "$(wc -l < "$TMP/chain.sha256" | tr -d ' ')" "$N"
+check LIVE_CHAIN_NO_CR "$(grep -c $'\r' "$TMP/chain.txt" "$TMP/chain.sha256" | awk -F: '{s+=$2} END {print s}')" 0
+check LIVE_CHAIN_UNIQUE "$(sort -u "$TMP/chain.txt" | wc -l | tr -d ' ')" "$N"
+check LIVE_CHAIN_ABSOLUTE_RUNTIME "$(grep -cvE '^/opt/aegis/runtime/[A-Za-z0-9._/-]+\.ya?ml$' "$TMP/chain.txt" || true)" 0
+check LIVE_CHAIN_NO_TRAVERSAL "$(grep -c '\.\.' "$TMP/chain.txt" || true)" 0
+check LIVE_CHAIN_FIRST "$(head -1 "$TMP/chain.txt")" /opt/aegis/runtime/docker-compose.production.yml
+check LIVE_CHAIN_MANIFEST_FORMAT "$(grep -cvE '^[0-9a-f]{64}  /' "$TMP/chain.sha256" || true)" 0
+check LIVE_CHAIN_MANIFEST_ORDER "$(sed -E 's/^[0-9a-f]{64}  //' "$TMP/chain.sha256" | sha256sum | awk '{print $1}')" "$(sha256sum < "$TMP/chain.txt" | awk '{print $1}')"
+check LIVE_CHAIN_TAIL_EQ_STAGE1_OVERLAYS "$(tail -2 "$TMP/chain.txt" | paste -sd, -)" "$(auth LIVE_STAGE1_OVERLAY_PATHS)"
+check LIVE_CHAIN_TAIL_SHA_EQ_STAGE1 "$(tail -2 "$TMP/chain.sha256" | awk '{print $1}' | paste -sd, -)" "$(auth LIVE_STAGE1_OVERLAY_SHA256)"
+check LIVE_STAGE1_OVERLAY_SHA256_EQ_GIT "$(auth LIVE_STAGE1_OVERLAY_SHA256)" \
+  "$(sha256sum "$TMP/s1-image.yml" | awk '{print $1}'),$(sha256sum "$TMP/s1-flags.yml" | awk '{print $1}')"
+check LIVE_STAGE1_OVERLAYS_IN_RT "$(auth LIVE_STAGE1_OVERLAY_PATHS)" \
+  "$RT/drive-image-9f5a01148ce0.yml,$RT/drive-preview-index-stage1-9f5a01148ce0.yml"
+# Precedent cross-check: the P1 overlay (Stage 1 rollback target) keeps its Stage 1 runbook hash.
+check LIVE_CHAIN_P1_OVERLAY_SHA256 "$(grep -F '  /opt/aegis/runtime/preview-p1/drive-image-8634360f74ed.yml' "$TMP/chain.sha256" | awk '{print $1}')" \
+  de6b877b13d8fe1d8ee5c550589d54816cd536c141d345be3e69ceda3379a1f7
+check S2_OVERLAY_NOT_IN_LIVE_CHAIN "$(grep -cFx "$S2_OVERLAY" "$TMP/chain.txt" || true)" 0
+check S3_OVERLAY_NOT_IN_LIVE_CHAIN "$(grep -cFx "$S3_OVERLAY" "$TMP/chain.txt" || true)" 0
+check LIVE_CURRENT_IMAGE "$(auth LIVE_CURRENT_IMAGE)" "$EXPECTED_STAGE1_IMAGE"
+check LIVE_CURRENT_OCI_REVISION "$(auth LIVE_CURRENT_OCI_REVISION)" "$(auth EXPECTED_STAGE1_REVISION)"
+check LIVE_POSTGRES_USER_SET "$( [[ "$(auth LIVE_POSTGRES_USER)" =~ ^[a-z_][a-z0-9_]*$ ]] && echo ok )" ok
+check LIVE_FLAGS "$(auth LIVE_SCHEMA_ENABLED)/$(auth LIVE_READ_ENABLED)/$(auth LIVE_WRITE_ENABLED)/$(auth LIVE_BUDGET_ENV)" YES/YES/NO/UNSET
+check LIVE_ZERO_D1 "$(( $(auth LIVE_INDEX_HEAD_ROWS) + $(auth LIVE_INDEX_GENERATION_ROWS) + $(auth LIVE_INDEX_BLOB_REF_ROWS) + $(auth LIVE_INDEX_RETAINED_BYTES_TOTAL) + $(auth LIVE_INDEX_STATE_WITHOUT_BLOB) ))" 0
+check LIVE_ELIGIBLE_UNION "$(( $(auth LIVE_TREE_V1_OWNERS) + $(auth LIVE_MIGRATING_TREE_V1_OWNERS) ))" "$(auth LIVE_ELIGIBLE_OWNER_UNION)"
+# V6 S3.1.2 hard stop: more than 2 eligible owners requires a new capacity review.
+check LIVE_CAPACITY_REVIEW "$( [ "$(auth LIVE_ELIGIBLE_OWNER_UNION)" -le 2 ] && echo NO || echo YES )" "$(auth LIVE_CAPACITY_REVIEW_REQUIRED)"
 
 # ---------- 2. static overlay contract (YAML keys only; comments stripped) ----------
 grep -vE '^[[:space:]]*#' "$TMP/s2.yml" > "$TMP/s2.keys"
