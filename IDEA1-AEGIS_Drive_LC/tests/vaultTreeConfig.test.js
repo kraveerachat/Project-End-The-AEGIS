@@ -15,7 +15,7 @@ process.env.SESSION_SECRET = 'test-only-session-secret-not-used-in-production'
 delete process.env.DATABASE_URL
 for (const k of Object.keys(process.env)) if (k.startsWith('VAULT_TREE_') || k.startsWith('VAULT_PREVIEW_INDEX_') || k === 'VAULT_MEDIA_PREVIEW_ENABLED' || k === 'VAULT_DESTRUCTIVE_PURGE_ENABLED') delete process.env[k]
 
-const { vaultTreeConfigFromEnv, VAULT_TREE_PROTOCOL_VERSION, verifyTreeSchema, TREE_TABLES, PREVIEW_INDEX_TABLES, verifyPreviewIndexSchema } = await import('../server/config/vaultTreeLimits.js')
+const { vaultTreeConfigFromEnv, VAULT_TREE_PROTOCOL_VERSION, verifyTreeSchema, TREE_TABLES, PREVIEW_INDEX_TABLES, verifyPreviewIndexSchema, HG_G_RETAINED_BUDGET_APPROVAL } = await import('../server/config/vaultTreeLimits.js')
 const { createApp } = await import('../server/app.js')
 const { initStorage } = await import('../server/storage/fileStore.js')
 
@@ -147,6 +147,19 @@ test('PI-BUDGET-2 WRITE=false with the budget unset boots; WRITE=true without a 
   const budgeted = vaultTreeConfigFromEnv({ ...PI_READ, VAULT_PREVIEW_INDEX_WRITE_ENABLED: 'true', VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: String(32 * MIB) })
   assert.equal(budgeted.flags.previewIndexWriteEnabled, true)
   assert.equal(budgeted.limits.maxPreviewIndexRetainedBytesPerOwner, 32 * MIB)
+})
+
+test('PI-BUDGET-3 HG-G records exact 8 GiB without changing null default or fail-closed boot', () => {
+  assert.deepEqual(HG_G_RETAINED_BUDGET_APPROVAL, {
+    date: '2026-10-03',
+    source: 'HG_G_APPROVED / PR #310 / 89da7f84d7279871f6e10df5df3e6b78594e5ef8',
+    bytes: 8_589_934_592,
+  })
+  assert.equal(vaultTreeConfigFromEnv({}).limits.maxPreviewIndexRetainedBytesPerOwner, null)
+  assert.throws(() => vaultTreeConfigFromEnv({ ...PI_READ, VAULT_PREVIEW_INDEX_WRITE_ENABLED: 'true' }), /requires VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER/)
+  const prepared = vaultTreeConfigFromEnv({ ...PI_READ, VAULT_PREVIEW_INDEX_WRITE_ENABLED: 'false', VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: '8589934592' })
+  assert.equal(prepared.flags.previewIndexWriteEnabled, false)
+  assert.equal(prepared.limits.maxPreviewIndexRetainedBytesPerOwner, 8_589_934_592)
 })
 
 test('PI-BOOT-1 preview-index schema probe: missing table or missing lifecycle values reject; flag off never probes', async () => {
