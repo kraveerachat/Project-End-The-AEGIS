@@ -23,7 +23,7 @@ edit_policy: owner-writable
 | Branch | `codex/idea1-pr-e-idx-size` from `origin/main` `522ac2ce113148f0099a6bd3fab9dda2b23c90e3` (PR #303 verified MERGED) |
 | Owner | kla |
 | PR | #310 (Draft); exactly one PR-E branch, this agent the only writer |
-| State | **IN PROGRESS — NOT YET IDX-SIZE READY.** G.1 harness supports codec/e2e, local disposable Memory/PG and Chrome, all 1k/5k/10k × 2/3 cells at 20 runs, retained-budget A–D, requests, timings, CAS/upload and audit metrics. Chrome 6/6, Memory 1k/2 + 1k/3, and PostgreSQL 1k/2 + 1k/3 + 5k/2 + 5k/3 + 10k/2 cells have raw evidence (13/18 environment cells; 9 fully populated). Earlier four server files lack the later final-generation/superseded-byte accounting fields, so those submetrics remain NOT_MEASURED until rerun. Remaining environment cells are not measured; no limit or retained-byte budget has been approved. Human direction: keep the exact Memory backend and report impractical 5k/10k cells as gaps; do not substitute an optimized test backend. |
+| State | **IN PROGRESS — NOT YET IDX-SIZE READY.** G.1 harness supports codec/e2e, local disposable Memory/PG and Chrome, all 1k/5k/10k × 2/3 cells at 20 runs, retained-budget A–D, requests, timings, CAS/upload and audit metrics. Chrome 6/6, Memory 1k/2 + 1k/3, and PostgreSQL 6/6 cells have complete raw evidence (14/18 environment cells, each 20 runs and 0 B measured main-manifest delta). Four high-scale Memory cells are NOT_MEASURED. Human direction: keep the exact Memory backend and report impractical 5k/10k cells as gaps; do not substitute an optimized test backend. IDX_SIZE_EVIDENCE=NOT_READY; no limit or retained-byte budget approved. |
 | Production mutation allowed | **NO**. Production writer remains OFF. |
 | Plan | `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md` |
 | Next gate | Complete and audit all G.2 cells; then **HG-G Human approval required** for measured limits and explicit retained-byte budget. G.3/H/I are not started. |
@@ -33,7 +33,28 @@ edit_policy: owner-writable
 | ID | Scope | State | Evidence | Checkpoint | Remaining | Next |
 |---|---|---|---|---|---|---|
 | D1E-S1 | G.1 harness and G.2 disposable-local matrix; no Production changes | IN PROGRESS | PR #303 MERGED at `522ac2ce`; Draft PR #310; Chrome 6/6 cells × 20 runs and Memory/PG 1k/2 × 20 runs complete with 0 B main-manifest delta; Memory inventory read needed one idempotent retry after local `ECONNRESET`; other server cells unmeasured | `2640a27e` first checkpoint | Complete Memory/PG matrix and evidence table; final checks | Stop at HG-G; no G.3 or writer enable |
-| D1E-S2 | Retained superseded-byte accounting, normal main merge, sequential scale measurements | IN PROGRESS | PostgreSQL 5k/2, Memory 1k/3, PostgreSQL 1k/3, PostgreSQL 5k/3, and PostgreSQL 10k/2 × 20 runs complete, all 0 B main-manifest delta; PostgreSQL 1k/3, 5k/3, and 10k/2 directly measure final-generation/superseded-byte fields. Main advanced to `d5091d89` and was merged normally at `eb08e79f` (no conflict); post-merge focused 5/5 and governance 61/61 PASS; PostgreSQL 10k/3 running. Human chose exact Memory backend and explicit gaps over a test-backend optimization. | `6f4c0fde` | Finish feasible cells, retain raw exclusive-create JSON, enumerate missing cells, rerun gates | No HG-G submission until every required cell exists; no G.3/H/I |
+| D1E-S2 | Retained superseded-byte accounting, normal main merge, sequential scale measurements | IN PROGRESS | PostgreSQL 6/6 and Memory 1k/2 + 1k/3 × 20 runs complete, all 0 B main-manifest delta; four final-accounting reruns complete with original partial files preserved. Main advanced to `d5091d89` and was merged normally at `eb08e79f` (no conflict); post-merge focused 5/5 and governance 61/61 PASS. Human chose exact Memory backend and explicit gaps over a test-backend optimization. | `be38f6bc` | Audit raw JSON and hashes, enumerate missing cells, rerun gates | No HG-G submission until every required cell exists; no G.3/H/I |
+
+### PR-E G.2 retained-budget evidence (measured inputs only)
+
+Every number below is bytes from a 20-run, local disposable real-backend cell. A=initial build; B=full thumb/poster backfill; C=20 churn sessions; D=20 injected CAS-loss loops. These are **not** proposed Production budgets. Full root/shard, Node/Chrome, CAS/upload, request and audit tables with method/run counts are in Draft PR #310 and its exclusive-create raw JSON.
+
+| Backend/cell | A (B) | B (B) | C (B) | D (B) |
+|---|---:|---:|---:|---:|
+| Memory 1k/2 | 141,538,620 | 198,845,596 | 211,309,020 | 211,709,340 |
+| Memory 1k/3 | 2,592,371,285 | 2,649,891,493 | 2,662,404,133 | 2,662,804,453 |
+| Memory 5k/2 | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED |
+| Memory 5k/3 | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED |
+| Memory 10k/2 | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED |
+| Memory 10k/3 | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED | NOT_MEASURED |
+| PostgreSQL 1k/2 | 140,558,009 | 197,832,121 | 210,246,297 | 210,646,617 |
+| PostgreSQL 1k/3 | 2,604,573,664 | 2,661,995,280 | 2,674,770,032 | 2,675,170,352 |
+| PostgreSQL 5k/2 | 707,200,722 | 1,117,298,066 | 1,146,456,898 | 1,146,857,218 |
+| PostgreSQL 5k/3 | 13,177,260,162 | 13,588,045,858 | 13,616,418,114 | 13,616,818,434 |
+| PostgreSQL 10k/2 | 1,409,685,823 | 2,606,101,727 | 2,655,642,319 | 2,656,042,639 |
+| PostgreSQL 10k/3 | 26,496,541,308 | 27,677,293,884 | 27,724,147,292 | 27,724,547,612 |
+
+`IDX_SIZE_EVIDENCE=NOT_READY`; `LIMITS=AWAITING_HUMAN_APPROVAL`; `WRITER_ENABLE=BLOCKED_PENDING_HUMAN`. The four missing Memory cells block HG-G. No G.3/H/I or Production mutation.
 
 ## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-D — D-1 PR-D default-off writer + thumb/poster
 
