@@ -15,6 +15,45 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — M2-E3 successful Agent pipe-close lifecycle (2026-10-03)
+
+Branch: `fix/idea2-agent-pipe-close-lifecycle`; owner: Pub. Base:
+`d5e4072525bc213bba29e6ae491aac8dfc0de009`; source/test checkpoint:
+`11cfd3214b6058b5780dbd457a87615c201b5747`.
+
+State: SOURCE FIXED / LOCAL WINDOWS TESTS VERIFIED / MACHINE A HEARTBEAT
+RECOVERY NOT VERIFIED. Owner-provided live evidence after the prior response
+timeout change showed 22 automatic heartbeat HTTP 200s, successful Agent auth,
+and database heartbeat updates, while the Engine still reported
+`AGENT_UNAVAILABLE` and heartbeat gaps expanded to about 10–60 seconds. Machine A
+was safely rolled back before this repository-only task. These observations
+narrowed the suspected fault to the successful Agent response/pipe-close path,
+but they do not prove this source fix has recovered the installed runtime.
+
+RED: `test_post_response_peer_close_accepts_only_broken_or_closing_pipe`
+failed on Win32 232 in initial, pending, and immediate close-wait paths;
+`test_successful_close_republishes_same_first_instance_without_service_backoff`
+showed the successful HTTP 200 response followed by service backoff instead of
+republishing. GREEN: only the post-complete-response close wait now accepts
+Win32 109 or 232. Error 233, unrelated errors, response-write failures,
+partial writes, ordinary close timeouts, and trailing protocol data remain
+failures. Three sequential same-name first-instance round trips pass in both
+controlled and native Windows tests; the old handle closes once, no service
+backoff follows a successful client close, and camera-demand side effects stay
+zero. Engine request/response budgets, client connector, Agent HTTPS,
+DACL/SIDs, wire protocol, key/session authority, and retry policy are unchanged.
+
+Local Windows verification: focused pipe/client 43/43, Identity Agent 154/154,
+full Detection Engine 252/252, including native pywin32 tests with zero native
+skips. Governance 61/61, Vault validation PASS with two existing Canvas
+owner-review warnings, Python syntax/import, four relevant PowerShell parses,
+diff check, and changed-content secret scan passed. Independent read-only
+review found Critical 0 and Important 0; its two optional test-coverage
+observations were addressed before the final full-suite run. Installed Machine A,
+its Agent service, camera, private key, tunnel, Browser Association, Production,
+and PR #293 were not modified. Live Machine A acceptance remains a separate
+owner-gated step after review and merge.
+
 ## Current task — M2-E3 Engine→Agent response timeout budget (2026-10-03)
 
 Branch: `fix/idea2-engine-agent-response-timeout-budget`; owner: Pub. Source
