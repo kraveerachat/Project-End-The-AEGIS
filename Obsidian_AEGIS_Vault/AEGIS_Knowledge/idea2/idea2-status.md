@@ -15,6 +15,34 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — M2-E3 Engine Windows named-pipe client dependency (2026-10-03)
+
+Branch: `fix/idea2-engine-windows-pipe-client-dependency`; owner: Pub. Source
+checkpoint: `6824a41361eae2651bb3bd0b37c682e51ac9c9e8` from `origin/main`
+`0ab80a1a7d9ff2b45dbcdfb021aba900841cd128`.
+
+State: SOURCE FIXED / LOCAL WINDOWS DEPENDENCY VERIFIED / MACHINE A HEARTBEAT
+ACCEPTANCE PENDING. The Engine requirements now install `pywin32==312` only on
+Windows, and the existing Windows installer preflight imports the five named-pipe
+client modules (`pywintypes`, `win32con`, `win32event`, `win32file`, `win32pipe`).
+Normal repair delegates to that installer; the Engine and Identity Agent remain
+separate virtual environments. The Engine receives no Agent private key,
+session, or signing authority. Focused adjacent tests pass 113/113; the full
+Engine suite passes 239/239. A fresh disposable Windows Engine venv installed
+the Engine requirements, imported all five modules at version 312, passed
+`pip check`, and passed its 29/29 focused tests. The installed Machine A Engine
+venv was not changed or tested by this checkpoint.
+
+Owner-provided post-PR #313 Machine A evidence supersedes the earlier Agent
+acceptance-pending statement below: the Agent's named pipe answered 400/400
+observations after source refresh, with its protected identity/configuration
+preserved and camera idle. The remaining observed physical-heartbeat blocker
+was the installed Engine venv missing the five pywin32 modules, producing
+`AGENT_UNAVAILABLE`. The local source/dependency fix does not prove that a
+reviewed Machine A Engine refresh or live heartbeat acceptance has happened.
+Production, Machine A runtime, Agent identity/configuration, and PR #293 were
+not modified in this task.
+
 ## Concurrent task — M2-E3 Identity Agent idle pipe publication (2026-10-03)
 
 Branch: `fix/idea2-identity-agent-idle-pipe-publish`; owner: Pub. Source
