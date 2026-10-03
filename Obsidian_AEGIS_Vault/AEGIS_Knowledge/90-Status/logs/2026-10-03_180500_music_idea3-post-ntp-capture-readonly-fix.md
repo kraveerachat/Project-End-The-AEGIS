@@ -47,7 +47,7 @@ PRODUCTION_MUTATION_PERFORMED=NO
 
 ## Verification evidence
 
-- `pytest -q -p no:cacheprovider tests -k "pr11_phase4 or pr11_phase2 or firmware_contract"` — PASS, 4570 passed, 5 skipped, 0 failed (FINAL tree: branch after merging `origin/main` `d5e40725`, PR #316, IDEA2-only paths, no overlap, no conflicts; simulated host only, nothing live).
+- `pytest -q -p no:cacheprovider tests -k "pr11_phase4 or pr11_phase2 or firmware_contract"` — FAIL (1 failure, not caused by this branch): 4569 passed, 5 skipped, 1 failed, run twice on the FINAL tree (branch HEAD `11091af6` containing `origin/main` `27ac710f`, PR #317, IDEA2-only paths, no overlap, no conflicts). The single failure, both times, is `tests/test_pr11_phase4_l6c_capture_gap.py::test_real_end_to_end_capture_then_compare_requires_the_allow_file`: it runs the REAL capture against the live Core host and sees ephemeral high-port UDP listeners appear between its pre and post captures (`LISTENER_ADDED`, none on port 123). The same full suite on pristine `origin/main` `27ac710f` (no branch changes) fails the same test the same way (4526 passed, 5 skipped, 1 failed). The test passes in isolation (6/6 on the branch, 6/6 on main) and passed in three earlier full runs of this branch; it is host-state dependent. No test or code was changed to hide it.
 - `pytest tests/test_pr11_phase4_capture_timesyncd_readonly.py` — PASS, 19 passed (14 of them fail on the old capture).
 - `pytest tests/test_pr11_phase4_pre_l8p_ntp_reactivation_owner_run_flow.py` — PASS, 67 passed.
 - `pytest tests/test_pr11_phase4_l8p_owner_runner.py` — PASS, 124 passed.
