@@ -32,6 +32,7 @@ from aegis_identity_agent.pipe_server import (
     WindowsNamedPipeServer,
     _connect_overlapped,
     _read_overlapped_message,
+    _wait_for_client_close,
     _wait_for_overlapped,
     _write_overlapped_message,
     pipe_open_mode,
@@ -403,6 +404,320 @@ class PipeProtocolTests(unittest.TestCase):
         self.assertEqual(2, calls.count(("cancel", "connected")))
         self.assertEqual(2, calls.count(("drain", "connected", True)))
 
+    def test_post_response_peer_close_accepts_only_broken_or_closing_pipe(self):
+        class Win32Failure(Exception):
+            def __init__(self, code):
+                self.winerror = code
+                super().__init__(f"Win32 error {code}")
+
+        class Overlapped:
+            hEvent = None
+
+        fake_pywin = SimpleNamespace(OVERLAPPED=Overlapped, error=Win32Failure)
+        fake_event = SimpleNamespace(
+            WAIT_OBJECT_0=0,
+            WAIT_TIMEOUT=258,
+            CreateEvent=lambda *_args: "event",
+            WaitForSingleObject=lambda *_args: 0,
+        )
+
+        def fail(code):
+            raise Win32Failure(code)
+
+        for phase in ("initial_exception", "initial_result", "pending_result", "immediate_result"):
+            for code in (109, 232):
+                with self.subTest(phase=phase, code=code):
+                    read = (
+                        (lambda *_args: fail(code)) if phase == "initial_exception"
+                        else (lambda *_args: (code, None)) if phase == "initial_result"
+                        else (lambda *_args: (997, None)) if phase == "pending_result"
+                        else (lambda *_args: (0, None))
+                    )
+                    fake_file = SimpleNamespace(
+                        AllocateReadBuffer=lambda size: bytearray(size),
+                        ReadFile=read,
+                        GetOverlappedResult=lambda *_args: fail(code),
+                    )
+                    self.assertIsNone(_wait_for_client_close(
+                        fake_pywin, fake_event, fake_file, handle="response-written", timeout_ms=50,
+                    ))
+
+        for phase in ("initial_exception", "initial_result", "pending_result", "immediate_result"):
+            for code in (5, 233):
+                with self.subTest(unrelated_code=code, phase=phase):
+                    read = (
+                        (lambda *_args: fail(code)) if phase == "initial_exception"
+                        else (lambda *_args: (code, None)) if phase == "initial_result"
+                        else (lambda *_args: (997, None)) if phase == "pending_result"
+                        else (lambda *_args: (0, None))
+                    )
+                    fake_file = SimpleNamespace(
+                        AllocateReadBuffer=lambda size: bytearray(size),
+                        ReadFile=read,
+                        GetOverlappedResult=lambda *_args: fail(code),
+                    )
+                    with self.assertRaises((Win32Failure, RuntimeError)) as raised:
+                        _wait_for_client_close(
+                            fake_pywin, fake_event, fake_file,
+                            handle="response-written", timeout_ms=50,
+                        )
+                    if isinstance(raised.exception, Win32Failure):
+                        self.assertEqual(code, raised.exception.winerror)
+                    else:
+                        self.assertIn(str(code), str(raised.exception))
+
+    def test_post_response_close_timeout_remains_failure(self):
+        class CancelledOperation(Exception):
+            winerror = 995
+
+        class Overlapped:
+            hEvent = None
+
+        fake_event = SimpleNamespace(
+            WAIT_OBJECT_0=0,
+            WAIT_TIMEOUT=258,
+            CreateEvent=lambda *_args: "event",
+            WaitForSingleObject=lambda *_args: 258,
+        )
+        calls = []
+        fake_file = SimpleNamespace(
+            AllocateReadBuffer=lambda size: bytearray(size),
+            ReadFile=lambda *_args: (997, None),
+            CancelIoEx=lambda handle, _overlapped: calls.append(("cancel", handle)),
+            GetOverlappedResult=lambda *_args: (_ for _ in ()).throw(CancelledOperation()),
+        )
+        with self.assertRaises(TimeoutError):
+            _wait_for_client_close(
+                SimpleNamespace(OVERLAPPED=Overlapped, error=Exception),
+                fake_event, fake_file, handle="response-written", timeout_ms=50,
+            )
+        self.assertEqual([("cancel", "response-written")], calls)
+
+    def test_close_timeout_drain_accepts_only_an_observed_peer_close(self):
+        class Win32Failure(Exception):
+            def __init__(self, code):
+                self.winerror = code
+                super().__init__(f"Win32 error {code}")
+
+        class Overlapped:
+            hEvent = None
+
+        fake_event = SimpleNamespace(
+            WAIT_OBJECT_0=0,
+            WAIT_TIMEOUT=258,
+            CreateEvent=lambda *_args: "event",
+            WaitForSingleObject=lambda *_args: 258,
+        )
+        for code in (109, 232, 233):
+            with self.subTest(code=code):
+                calls = []
+
+                def drain(handle, _overlapped, wait):
+                    calls.append(("drain", handle, wait))
+                    raise Win32Failure(code)
+
+                fake_file = SimpleNamespace(
+                    AllocateReadBuffer=lambda size: bytearray(size),
+                    ReadFile=lambda *_args: (997, None),
+                    CancelIoEx=lambda handle, _overlapped: calls.append(("cancel", handle)),
+                    GetOverlappedResult=drain,
+                )
+                args = (
+                    SimpleNamespace(OVERLAPPED=Overlapped, error=Win32Failure),
+                    fake_event, fake_file,
+                )
+                if code == 233:
+                    with self.assertRaises(Win32Failure):
+                        _wait_for_client_close(*args, handle="response-written", timeout_ms=50)
+                else:
+                    self.assertIsNone(_wait_for_client_close(
+                        *args, handle="response-written", timeout_ms=50,
+                    ))
+                self.assertEqual(
+                    [("cancel", "response-written"), ("drain", "response-written", True)],
+                    calls,
+                )
+
+    def test_post_response_trailing_data_still_fails_closed(self):
+        class Overlapped:
+            hEvent = None
+
+        fake_event = SimpleNamespace(
+            WAIT_OBJECT_0=0,
+            WAIT_TIMEOUT=258,
+            CreateEvent=lambda *_args: "event",
+            WaitForSingleObject=lambda *_args: 0,
+        )
+        for read_result in (0, 997):
+            with self.subTest(read_result=read_result):
+                fake_file = SimpleNamespace(
+                    AllocateReadBuffer=lambda size: bytearray(size),
+                    ReadFile=lambda *_args: (read_result, None),
+                    GetOverlappedResult=lambda *_args: 1,
+                )
+                with self.assertRaisesRegex(RuntimeError, "trailing protocol data"):
+                    _wait_for_client_close(
+                        SimpleNamespace(OVERLAPPED=Overlapped, error=OSError),
+                        fake_event, fake_file,
+                        handle="response-written", timeout_ms=50,
+                    )
+
+    def test_response_write_errors_are_not_classified_as_successful_peer_close(self):
+        class Win32Failure(Exception):
+            def __init__(self, code):
+                self.winerror = code
+                super().__init__(f"Win32 error {code}")
+
+        class Overlapped:
+            hEvent = None
+
+        fake_pywin = SimpleNamespace(OVERLAPPED=Overlapped, error=Win32Failure)
+        fake_event = SimpleNamespace(
+            WAIT_OBJECT_0=0,
+            WAIT_TIMEOUT=258,
+            CreateEvent=lambda *_args: "event",
+            WaitForSingleObject=lambda *_args: 0,
+        )
+        for code in (109, 232):
+            with self.subTest(code=code, path="WriteFile exception"):
+                fake_file = SimpleNamespace(
+                    WriteFile=lambda *_args: (_ for _ in ()).throw(Win32Failure(code)),
+                )
+                with self.assertRaises(Win32Failure):
+                    _write_overlapped_message(
+                        fake_pywin, fake_event, fake_file,
+                        handle="connected", data=b"response", timeout_ms=50,
+                    )
+            with self.subTest(code=code, path="pending result"):
+                fake_file = SimpleNamespace(
+                    WriteFile=lambda *_args: (997, None),
+                    GetOverlappedResult=lambda *_args: (_ for _ in ()).throw(Win32Failure(code)),
+                )
+                with self.assertRaises(Win32Failure):
+                    _write_overlapped_message(
+                        fake_pywin, fake_event, fake_file,
+                        handle="connected", data=b"response", timeout_ms=50,
+                    )
+        fake_file = SimpleNamespace(
+            WriteFile=lambda *_args: (0, None),
+            GetOverlappedResult=lambda *_args: len(b"response") - 1,
+        )
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            _write_overlapped_message(
+                fake_pywin, fake_event, fake_file,
+                handle="connected", data=b"response", timeout_ms=50,
+            )
+
+    def test_successful_close_republishes_same_first_instance_without_service_backoff(self):
+        from aegis_identity_agent.windows_service import IdentityAgentServiceHost
+
+        class Win32Failure(Exception):
+            winerror = 232
+
+        class Overlapped:
+            hEvent = None
+
+        class SecurityAttributes:
+            SECURITY_DESCRIPTOR = None
+
+        pipe_name = r"\\.\pipe\AEGIS.IdentityAgent.SequentialTest"
+        request = encode_request("heartbeat", samples()["heartbeat"])
+        created, closed, responses, last_operation, waits = [], [], [], {}, []
+
+        def create_pipe(name, open_mode, pipe_mode, *_args):
+            self.assertEqual(pipe_name, name)
+            self.assertTrue(open_mode & FILE_FLAG_FIRST_PIPE_INSTANCE)
+            self.assertEqual(len(created), len(closed), "previous instance must close before republish")
+            handle = f"pipe-{len(created) + 1}"
+            created.append(handle)
+            return handle
+
+        def read_file(handle, buffer, _overlapped):
+            if len(buffer) == 1:
+                raise Win32Failure("client closed after complete response")
+            buffer[:len(request)] = request
+            last_operation[handle] = ("read", len(request))
+            return 0, None
+
+        def write_file(handle, data, _overlapped):
+            responses.append(decode_response(data))
+            last_operation[handle] = ("write", len(data))
+            return 0, None
+
+        modules = {
+            "pywintypes": SimpleNamespace(OVERLAPPED=Overlapped, SECURITY_ATTRIBUTES=SecurityAttributes, error=Win32Failure),
+            "win32api": SimpleNamespace(GetCurrentThread=lambda: "thread"),
+            "win32con": SimpleNamespace(TOKEN_QUERY=1),
+            "win32event": SimpleNamespace(CreateEvent=lambda *_args: "event"),
+            "win32file": SimpleNamespace(
+                AllocateReadBuffer=lambda size: bytearray(size),
+                ReadFile=read_file,
+                WriteFile=write_file,
+                GetOverlappedResult=lambda handle, *_args: last_operation[handle][1],
+                CloseHandle=lambda handle: closed.append(handle),
+            ),
+            "win32pipe": SimpleNamespace(
+                PIPE_ACCESS_DUPLEX=3,
+                PIPE_TYPE_MESSAGE=4,
+                PIPE_READMODE_MESSAGE=8,
+                PIPE_WAIT=16,
+                PIPE_REJECT_REMOTE_CLIENTS=32,
+                CreateNamedPipe=create_pipe,
+                ConnectNamedPipe=lambda *_args: 535,
+            ),
+            "win32security": SimpleNamespace(
+                SDDL_REVISION_1=1,
+                TokenUser=1,
+                ConvertStringSecurityDescriptorToSecurityDescriptor=lambda sddl, _revision: sddl,
+                ImpersonateNamedPipeClient=lambda _handle: None,
+                OpenThreadToken=lambda *_args: "token",
+                GetTokenInformation=lambda *_args: ("sid", None),
+                ConvertSidToStringSid=lambda _sid: "S-1-5-21-222",
+                RevertToSelf=lambda: None,
+            ),
+        }
+        transport = RecordingTransport(result=SimpleNamespace(ok=True, status=200, error=None))
+        server = WindowsNamedPipeServer(
+            PipeRequestHandler(transport, allowed_caller_sids={"S-1-5-21-222"}),
+            service_sid="S-1-5-80-111", engine_sid="S-1-5-21-222",
+            pipe_name=pipe_name, read_timeout_s=0.1,
+        )
+
+        class StopAfterThree:
+            def is_set(self):
+                return len(created) >= 3 or bool(waits)
+
+            def wait(self, delay):
+                waits.append(delay)
+
+        errors = []
+
+        def run_once():
+            try:
+                server.serve_once()
+            except Exception as exc:
+                errors.append(exc)
+                raise
+
+        host = IdentityAgentServiceHost(
+            run_once=run_once,
+            stop_event=StopAfterThree(),
+            interval_s=0.05, retry_max_s=1,
+            wait_after_success=False,
+        )
+        with patch.dict(sys.modules, modules):
+            host.run()
+
+        self.assertEqual([], errors)
+        self.assertEqual(["pipe-1", "pipe-2", "pipe-3"], created)
+        self.assertEqual(created, closed)
+        self.assertEqual([], waits, "a normal client close must not trigger retry/backoff")
+        self.assertEqual(3, len(transport.calls))
+        self.assertTrue(all(response.ok and response.status == 200 for response in responses))
+        self.assertIsNone(server._active_handle)
+        self.assertEqual(0, server.handler.camera_demand_side_effects)
+        self.assertEqual(0, host.camera_demand_side_effects)
+
     def test_overlapped_read_decodes_only_the_completed_prefix(self):
         message = encode_request("heartbeat", samples()["heartbeat"])
         allocated = bytearray(MAX_REQUEST_BYTES + 1)
@@ -626,6 +941,79 @@ class PipeProtocolTests(unittest.TestCase):
         self.assertEqual([], server_errors)
         self.assertTrue(decode_response(response).ok)
         self.assertEqual(1, len(transport.calls))
+        self.assertEqual(0, server.handler.camera_demand_side_effects)
+
+    @unittest.skipUnless(
+        os.name == "nt" and importlib.util.find_spec("win32pipe") is not None,
+        "native pywin32 acceptance dependency is unavailable",
+    )
+    def test_native_three_sequential_responses_republish_same_first_instance(self):
+        win32pipe_spec = importlib.util.find_spec("win32pipe")
+        dependency_root = pathlib.Path(win32pipe_spec.origin).parent.parent
+        dll_cookie = os.add_dll_directory(str(dependency_root / "pywin32_system32"))
+        self.addCleanup(dll_cookie.close)
+        import win32api
+        import win32con
+        import win32pipe
+        import win32security
+
+        from aegis_engine.identity_agent_client import _windows_connector
+
+        token = win32security.OpenProcessToken(
+            win32api.GetCurrentProcess(), win32con.TOKEN_QUERY
+        )
+        sid = win32security.ConvertSidToStringSid(
+            win32security.GetTokenInformation(token, win32security.TokenUser)[0]
+        )
+        pipe_name = rf"\\.\pipe\AEGIS.IdentityAgent.SequentialTest.{uuid.uuid4().hex}"
+        transport = RecordingTransport(result=SimpleNamespace(ok=True, status=200, error=None))
+        server = WindowsNamedPipeServer(
+            PipeRequestHandler(transport, allowed_caller_sids={sid}),
+            service_sid=sid, engine_sid=sid,
+            pipe_name=pipe_name, read_timeout_s=2,
+        )
+        self.addCleanup(server.close)
+        errors = []
+
+        def serve_three():
+            try:
+                for _ in range(3):
+                    server.serve_once()
+            except Exception as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=serve_three)
+        worker.start()
+        try:
+            for _ in range(3):
+                deadline = time.monotonic() + 2
+                while True:
+                    try:
+                        win32pipe.WaitNamedPipe(pipe_name, 50)
+                        break
+                    except Exception:
+                        if errors or time.monotonic() >= deadline:
+                            self.fail(f"same-name pipe was not republished: {errors!r}")
+                        time.sleep(0.01)
+                response = _windows_connector(
+                    pipe_name,
+                    encode_request("heartbeat", samples()["heartbeat"]),
+                    2,
+                    MAX_RESPONSE_BYTES,
+                    2,
+                )
+                result = decode_response(response)
+                self.assertTrue(result.ok)
+                self.assertEqual(200, result.status)
+        finally:
+            worker.join(6)
+            if worker.is_alive():
+                server.close()
+                worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([], errors)
+        self.assertEqual(3, len(transport.calls))
+        self.assertIsNone(server._active_handle)
         self.assertEqual(0, server.handler.camera_demand_side_effects)
 
     @unittest.skipUnless(
