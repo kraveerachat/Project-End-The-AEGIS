@@ -83,15 +83,17 @@ check S3_OVERLAY_SHA256 "$(sha256sum "$TMP/s3.yml" | awk '{print $1}')" "$(auth 
 check S1_IMAGE_OVERLAY_SHA256 "$(sha256sum "$TMP/s1-image.yml" | awk '{print $1}')" 49b0ad5fbe0f49a9cfe168ec28c12aeb3f6fe1ead6dd870105423f4b37b96f78
 check S1_FLAGS_OVERLAY_SHA256 "$(sha256sum "$TMP/s1-flags.yml" | awk '{print $1}')" 7c5f0df78c3f5cf46bb2edd83bb8b015ed63d9645ed8de22c69eb1d8d6216a59
 
-# ---------- 2. static overlay contract ----------
-check S2_IMAGE_LINES "$(grep -cE '^[[:space:]]*image:' "$TMP/s2.yml")" 1
-check S2_IMAGE_VALUE "$(grep -E '^[[:space:]]*image:' "$TMP/s2.yml" | awk '{print $2}')" "$S2_IMAGE"
-check S2_WRITE_FALSE "$(grep -c 'VAULT_PREVIEW_INDEX_WRITE_ENABLED: "false"' "$TMP/s2.yml")" 1
-check S2_BUDGET_ABSENT "$(grep -c 'VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER' "$TMP/s2.yml" || true)" 0
-check S3_IMAGE_ABSENT "$(grep -cE '^[[:space:]]*(image|build):' "$TMP/s3.yml" || true)" 0
-check S3_WRITE_TRUE "$(grep -c 'VAULT_PREVIEW_INDEX_WRITE_ENABLED: "true"' "$TMP/s3.yml")" 1
-check S3_BUDGET_EXACT "$(grep -c "VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: \"$APPROVED_BUDGET\"" "$TMP/s3.yml")" 1
-check S3_SERVICES "$(grep -cE '^  [a-z][a-z0-9_-]*:$' "$TMP/s3.yml")" 1
+# ---------- 2. static overlay contract (YAML keys only; comments stripped) ----------
+grep -vE '^[[:space:]]*#' "$TMP/s2.yml" > "$TMP/s2.keys"
+grep -vE '^[[:space:]]*#' "$TMP/s3.yml" > "$TMP/s3.keys"
+check S2_IMAGE_LINES "$(grep -cE '^[[:space:]]*image:' "$TMP/s2.keys")" 1
+check S2_IMAGE_VALUE "$(grep -E '^[[:space:]]*image:' "$TMP/s2.keys" | awk '{print $2}')" "$S2_IMAGE"
+check S2_WRITE_FALSE "$(grep -c 'VAULT_PREVIEW_INDEX_WRITE_ENABLED: "false"' "$TMP/s2.keys")" 1
+check S2_BUDGET_ABSENT "$(grep -c 'VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER' "$TMP/s2.keys" || true)" 0
+check S3_IMAGE_ABSENT "$(grep -cE '^[[:space:]]*(image|build):' "$TMP/s3.keys" || true)" 0
+check S3_WRITE_TRUE "$(grep -c 'VAULT_PREVIEW_INDEX_WRITE_ENABLED: "true"' "$TMP/s3.keys")" 1
+check S3_BUDGET_EXACT "$(grep -c "VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: \"$APPROVED_BUDGET\"" "$TMP/s3.keys")" 1
+check S3_SERVICES "$(grep -cE '^  [a-z][a-z0-9_-]*:$' "$TMP/s3.keys")" 1
 
 # ---------- 3. fixture render with docker compose config (no daemon, no mutation) ----------
 if ! env -u DOCKER_HOST docker compose version >/dev/null 2>&1; then
