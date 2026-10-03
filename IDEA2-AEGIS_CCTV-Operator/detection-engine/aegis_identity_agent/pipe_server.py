@@ -112,6 +112,49 @@ def _new_overlapped(pywintypes, win32event):
     return overlapped
 
 
+def _wait_for_idle_connect(win32event, win32file, *, handle, overlapped, stop_event):
+    """Keep the published accept pending; only shutdown may cancel it."""
+    def cancel_and_drain():
+        cancel_error = None
+        try:
+            _cancel_io(handle, win32file)
+        except Exception as exc:
+            if getattr(exc, "winerror", None) != ERROR_NOT_FOUND:
+                cancel_error = exc
+        drain_error = None
+        try:
+            # CancelIoEx is asynchronous; retain OVERLAPPED until completion.
+            win32file.GetOverlappedResult(handle, overlapped, True)
+        except Exception as exc:
+            if getattr(exc, "winerror", None) != ERROR_OPERATION_ABORTED:
+                drain_error = exc
+        if cancel_error is not None:
+            raise cancel_error
+        if drain_error is not None:
+            raise drain_error
+
+    while True:
+        try:
+            state = win32event.WaitForSingleObject(overlapped.hEvent, 100)
+        except Exception:
+            cancel_and_drain()
+            raise
+        if state == win32event.WAIT_OBJECT_0:
+            try:
+                win32file.GetOverlappedResult(handle, overlapped, False)
+            except Exception as exc:
+                if stop_event.is_set() and getattr(exc, "winerror", None) == ERROR_OPERATION_ABORTED:
+                    return False
+                raise
+            return not stop_event.is_set()
+        if state != win32event.WAIT_TIMEOUT and not stop_event.is_set():
+            cancel_and_drain()
+            raise RuntimeError("named-pipe idle connect wait failed")
+        if stop_event.is_set():
+            cancel_and_drain()
+            return False
+
+
 def _connect_overlapped(
     pywintypes,
     win32event,
@@ -120,15 +163,25 @@ def _connect_overlapped(
     *,
     handle,
     timeout_ms: int,
-) -> None:
+    stop_event=None,
+) -> bool:
     overlapped = _new_overlapped(pywintypes, win32event)
+    if stop_event is not None and stop_event.is_set():
+        return False
     try:
         result = win32pipe.ConnectNamedPipe(handle, overlapped)
     except pywintypes.error as exc:
         result = getattr(exc, "winerror", None)
+    if result == ERROR_OPERATION_ABORTED and stop_event is not None and stop_event.is_set():
+        return False
     if result in (None, 0, ERROR_PIPE_CONNECTED):
-        return
+        return stop_event is None or not stop_event.is_set()
     if result == ERROR_IO_PENDING:
+        if stop_event is not None:
+            return _wait_for_idle_connect(
+                win32event, win32file, handle=handle,
+                overlapped=overlapped, stop_event=stop_event,
+            )
         _wait_for_overlapped(
             win32event,
             win32file,
@@ -136,7 +189,7 @@ def _connect_overlapped(
             overlapped=overlapped,
             timeout_ms=timeout_ms,
         )
-        return
+        return True
     raise RuntimeError(f"named-pipe connect failed with error {result}")
 
 
@@ -385,19 +438,15 @@ class WindowsNamedPipeServer:
         phase = "connect"
         try:
             timeout_ms = int(self.read_timeout_s * 1000)
-            try:
-                _connect_overlapped(
-                    pywintypes,
-                    win32event,
-                    win32file,
-                    win32pipe,
-                    handle=handle,
-                    timeout_ms=timeout_ms,
-                )
-            except TimeoutError:
-                # An idle accept is normal: _wait_for_overlapped has already
-                # cancelled and drained it. The finally block closes this
-                # instance; the service loop can publish the next one now.
+            if not _connect_overlapped(
+                pywintypes,
+                win32event,
+                win32file,
+                win32pipe,
+                handle=handle,
+                timeout_ms=timeout_ms,
+                stop_event=self._closed,
+            ):
                 return
             # Windows permits named-pipe impersonation only after the server
             # has read client data. The read remains bounded and no payload is
