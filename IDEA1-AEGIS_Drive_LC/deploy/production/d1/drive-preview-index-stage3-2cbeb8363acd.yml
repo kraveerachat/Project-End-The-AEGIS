@@ -1,0 +1,9 @@
+# IDEA1 D-1 Phase J Stage 3 - writer enablement (runbook V6 S3_OVERLAY). Human HG-S3 only.
+# Append after the authenticated live Stage 2 chain, which must end with the Stage 2 overlay.
+# No image key: Stage 3 runs the exact Stage 2 image (aegis-prod-drive:preview-d1-s2-2cbeb8363acd).
+# Budget is the HG-G approved value, 8 GiB per owner; boot refuses WRITE=true without it.
+services:
+  drive:
+    environment:
+      VAULT_PREVIEW_INDEX_WRITE_ENABLED: "true"
+      VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: "8589934592"
