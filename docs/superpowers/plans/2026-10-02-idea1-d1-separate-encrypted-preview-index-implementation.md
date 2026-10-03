@@ -727,7 +727,7 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 - **KEEP_UNMEASURED, unchanged and not measured:** `casMaxAttempts=5`, `writeQueueMax=64`, `backfillMaxPerSession=50`, `derivativeLaneConcurrency=6`, `maxLiveDecodedShards=16`, `generationBudgetMs=10000`, `maxPreviewIndexSupersededPerCas=64`. Padding buckets and `backfillConcurrency` have no explicit HG-G approval disposition and remain provisional; `maxJsonDepth` remains structural. Variant 3 is a deferred future stress profile and does not drive current D-1 limits. G.2 server latency was local loopback, not LAN SLA; live latency thresholds defer to Stage 4.
 - **Capacity guard:** Human-supplied Production snapshot: available 31,215,161,344 B; datalake `du` 30,458,823,520 B; users 3, TREE_V1 owners 2; V2 ciphertext 3,916,387,459 B; index staged/managed 0 B each; D-1 head/generation/blob-ref rows 0 each. At 2 writer-eligible owners, maximum approved preview-index exposure is 17,179,869,184 B. **Before allowing more than 2 TREE_V1 writer-eligible owners, repeat Production filesystem-capacity review.** This is a planning guard, not a claim that Production was touched in G.3.
 - **Preparation artifact:** `IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-preview-index-stage3-budget-prep.yml` records the approved budget with `WRITE=false`. It is not a Stage 3 enable overlay and must not be deployed by this task. A future dedicated Stage 3 deploy branch/PR can use the exact budget only after its own Human gates.
-- [ ] **Commit:** `feat(idea1): adopt Human-approved preview-index limits`.
+- [x] **Commit:** `feat(idea1): adopt Human-approved preview-index limits` (`7c51dced`).
 
 ---
 
