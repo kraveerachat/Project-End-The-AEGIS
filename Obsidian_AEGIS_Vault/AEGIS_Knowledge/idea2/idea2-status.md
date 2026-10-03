@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-03
+updated: 2026-10-04
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,31 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## Current task — M2-E3 persistent idle pipe accept (2026-10-04)
+
+Branch: `fix/idea2-agent-persistent-idle-pipe-accept`, based on main
+`ed351310ed2e0161c2e0fadb68c0f858cdc315bb`. The Agent now keeps its
+overlapped `ConnectNamedPipe` pending while idle instead of cancelling and
+republishing the first pipe instance at the five-second read timeout. Intentional
+shutdown cancels and drains the idle accept, clears the active handle, and
+closes it once; Win32 995 is normal only in that idle-shutdown context. Once a
+client connects, the existing bounded request read, response write, and
+post-response close remain unchanged. Engine local acquisition and Agent
+response budgets, ACL/SID authorization, wire protocol, and camera-demand
+boundaries are unchanged.
+
+RED reproduced the premature idle close and service-loop republish. GREEN:
+native Windows connector reached the original pipe after 12.2 seconds idle;
+two requests crossed the former five-second boundary; native idle shutdown
+completed; the existing 50/100 no-prepoll stress cases passed. Focused Agent
+pipe tests 41/41 and full Engine/Agent tests 273/273 passed locally. Governance
+and Vault validation passed; independent review found Critical 0, Important 0.
+
+This is repository source/test evidence only. Installed Machine A heartbeat
+recovery has **not** been verified. No Machine A runtime, Identity Agent service,
+Production, private key, camera, or tunnel was modified. The earlier PR #318
+receipt remains immutable and historical. `M2_E3=NOT_CLOSED_PENDING_POST_MERGE_MACHINE_A_ACCEPTANCE`.
 
 ## Current task — M2-E3 final Windows pipe response lifecycle hardening (2026-10-03)
 
