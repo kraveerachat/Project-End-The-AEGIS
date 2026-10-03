@@ -142,10 +142,10 @@ echo "EVIDENCE_ROOT=$EVID MAIN=$EXPECTED_MAIN"
 ATTEMPTED=0; ROLLED_BACK=0
 capture() { sudo env EVID_DIR="$2" CAPTURE_LABEL="${1,,}" JOURNAL_SINCE="$JOURNAL_SINCE" bash "$P4/p4-l0-capture.sh" || return 1
   sudo grep -q 'L0_CAPTURE=COMPLETE' "$2/capture.log" || return 1; sudo bash -c "cd '$2' && sha256sum -c --quiet --strict SHA256SUMS" || return 1; echo "CAPTURE_$1=COMPLETE SHA256=PASS"; }
-compare() {  # compare BEFORE AFTER OUTFILE: the L8p allow files are EMPTY, so any Core-host drift fails the comparison
+compare() {  # compare BEFORE AFTER OUTFILE: the L8p allow files are EMPTY, so any Core-host drift fails the comparison. p4-compare.sh takes EXACTLY two positional arguments; OUTFILE is only our redirection target.
   local rc=0
   sudo env DISK_THRESHOLD_PCT=90 AEGIS_AP_INTERFACE="$AP_IF" AEGIS_AP_ADDRESS="$AP_ADDR" ALLOW_KEYS_FILE="$STG/allow-keys.txt" ALLOW_LISTENERS_FILE="$STG/allow-listeners.txt" \
-    bash "$P4/p4-compare.sh" "$1" "$2" "$3" > "$3" 2>&1 || rc=$?
+    bash "$P4/p4-compare.sh" "$1" "$2" > "$3" 2>&1 || rc=$?
   grep -E '^(FINDING|FINDINGS_|PRESERVATION_S10|COMPARE_RESULT)' "$3" || true; [ "$rc" = 0 ] || return 1
   for l in FINDINGS_NEW_OR_WORSENED_DRIFT=0 FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0 FINDINGS_INCOMPARABLE=0 PRESERVATION_S10=PASS COMPARE_RESULT=PASS; do
     grep -qx "$l" "$3" || { echo "COMPARE_REQUIREMENT_FAILED: $l"; return 1; }; done; }
