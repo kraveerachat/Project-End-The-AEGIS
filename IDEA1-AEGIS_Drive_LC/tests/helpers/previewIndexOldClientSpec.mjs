@@ -52,7 +52,7 @@ export function transportOf(client, treeApi) {
   return { api, fetchJson, sendUpload, fetchBytes }
 }
 
-async function loadClientModules(root) {
+export async function loadClientModules(root) {
   const imp = (p) => import(pathToFileURL(path.join(root, p)).href)
   const [crypt, treeApi, migration, sync, ops, upload, manifest, download, unlocked] = await Promise.all([
     imp('src/lib/vaultCrypto.js'), imp('src/lib/vaultTreeApi.js'), imp('src/lib/vaultTreeMigration.js'), imp('src/lib/vaultTreeSync.js'),
@@ -153,23 +153,12 @@ export function definePreviewIndexOldClientSpec({ test, H, skip = false }) {
   })
 
   test('OC-2 the current writer path creates a preview index for one of those files (derivative + shard + root + CAS)', { skip: s }, async () => {
-    const { sealDerivative, sealIndexObject } = await import('../../src/lib/vaultPreviewIndexObject.js')
-    const { encodeShard, encodeRoot } = await import('../../src/lib/vaultPreviewIndexCodec.js')
-    const { routingBits, prefixOf } = await import('../../src/lib/vaultPreviewIndexRouting.js')
-    const { INDEX_ROOT_MARKER, INDEX_SHARD_MARKER, PREVIEW_INDEX_LIMITS: L } = await import('../../src/lib/vaultPreviewIndexConstants.js')
-    const treeApi = await import('../../src/lib/vaultTreeApi.js')
     const o = await unlockOld()
     const node = findChild(o.session, rootId(o.session), 'photo-a.txt')
-    const t = transportOf(ctx.client, treeApi)
-    const bytes = fakeJpeg()
-    const d = await sealDerivative({ kek: ctx.kek, bytes, mime: 'image/jpeg', transport: t })
-    const entry = { kind: 'thumb', profile: 'vp1', blobRef: d.blobRef, contentId: d.contentId, sourceBlobRef: node.blobRef, mime: 'image/jpeg', width: 320, height: 240, plainSize: bytes.length, createdAtClient: 1_759_300_000_000 }
-    const prefix = prefixOf(await routingBits(node.nodeId), L.initialPrefixBits)
-    const shard = await sealIndexObject({ kek: ctx.kek, marker: INDEX_SHARD_MARKER, plaintext: await encodeShard({ schemaVersion: 1, treeId: o.session.head.treeId, prefix, entries: new Map([[node.nodeId, [entry]]]) }), buckets: L.shardPaddingBuckets, transport: t })
-    const root = await sealIndexObject({ kek: ctx.kek, marker: INDEX_ROOT_MARKER, plaintext: encodeRoot({ schemaVersion: 1, treeId: o.session.head.treeId, indexGeneration: 1, createdAtClient: 1_759_300_000_000, shards: [{ prefix, blobRef: shard.blobRef, contentId: shard.contentId }] }), buckets: L.rootPaddingBuckets, transport: t })
-    const cas = await ctx.client.req(`${PI}/head`, { method: 'POST', body: { expectedGeneration: 0, expectedRootBlobId: null, rootBlobId: root.blobRef.id, rootContentIdB64: root.contentId, attachBlobIds: [d.blobRef.id, shard.blobRef.id, root.blobRef.id], supersededBlobIds: [], idempotencyKey: crypto.randomBytes(16).toString('base64url') } })
-    assert.equal(cas.status, 200, JSON.stringify(cas.data))
-    ctx.index = { derivative: d.blobRef.id, shard: shard.blobRef.id, root: root.blobRef.id }
+    const built = await buildPreviewIndexFor({ client: ctx.client, kek: ctx.kek, treeId: o.session.head.treeId, node })
+    assert.equal(built.status, 200, JSON.stringify(built.data))
+    const d = { blobRef: { formatVersion: 2, id: built.ids.derivative } }
+    ctx.index = built.ids
     const now = await currentLookup('photo-a.txt')
     assert.equal(now.loaded.status, 'READY')
     assert.deepEqual(now.entry?.blobRef, d.blobRef, 'current reader serves the new derivative')
@@ -253,6 +242,27 @@ export function definePreviewIndexOldClientSpec({ test, H, skip = false }) {
     o.unlocked.purge(OLD().PURGE_REASONS.MANUAL_LOCK)
     await assert.rejects(() => o.session.loadHead(), (e) => /ABORTED/.test(String(e?.code ?? e?.message)))
   })
+}
+
+/**
+ * The current writer path, step by step: seal one vp1 thumb for `node` (source-bound to its blobRef), seal its shard and
+ * a generation-1 root, and CAS the index head. Returns the CAS response and the three object ids.
+ */
+export async function buildPreviewIndexFor({ client, kek, treeId, node }) {
+  const { sealDerivative, sealIndexObject } = await import('../../src/lib/vaultPreviewIndexObject.js')
+  const { encodeShard, encodeRoot } = await import('../../src/lib/vaultPreviewIndexCodec.js')
+  const { routingBits, prefixOf } = await import('../../src/lib/vaultPreviewIndexRouting.js')
+  const { INDEX_ROOT_MARKER, INDEX_SHARD_MARKER, PREVIEW_INDEX_LIMITS: L } = await import('../../src/lib/vaultPreviewIndexConstants.js')
+  const treeApi = await import('../../src/lib/vaultTreeApi.js')
+  const t = transportOf(client, treeApi)
+  const bytes = fakeJpeg()
+  const d = await sealDerivative({ kek, bytes, mime: 'image/jpeg', transport: t })
+  const entry = { kind: 'thumb', profile: 'vp1', blobRef: d.blobRef, contentId: d.contentId, sourceBlobRef: node.blobRef, mime: 'image/jpeg', width: 320, height: 240, plainSize: bytes.length, createdAtClient: 1_759_300_000_000 }
+  const prefix = prefixOf(await routingBits(node.nodeId), L.initialPrefixBits)
+  const shard = await sealIndexObject({ kek, marker: INDEX_SHARD_MARKER, plaintext: await encodeShard({ schemaVersion: 1, treeId, prefix, entries: new Map([[node.nodeId, [entry]]]) }), buckets: L.shardPaddingBuckets, transport: t })
+  const root = await sealIndexObject({ kek, marker: INDEX_ROOT_MARKER, plaintext: encodeRoot({ schemaVersion: 1, treeId, indexGeneration: 1, createdAtClient: 1_759_300_000_000, shards: [{ prefix, blobRef: shard.blobRef, contentId: shard.contentId }] }), buckets: L.rootPaddingBuckets, transport: t })
+  const r = await client.req('/api/vault/tree/preview-index/head', { method: 'POST', body: { expectedGeneration: 0, expectedRootBlobId: null, rootBlobId: root.blobRef.id, rootContentIdB64: root.contentId, attachBlobIds: [d.blobRef.id, shard.blobRef.id, root.blobRef.id], supersededBlobIds: [], idempotencyKey: crypto.randomBytes(16).toString('base64url') } })
+  return { status: r.status, data: r.data, ids: { derivative: d.blobRef.id, shard: shard.blobRef.id, root: root.blobRef.id } }
 }
 
 /** the PR187 Production tree flags (schema/protocol/genesis/UI/media on, purge off) + preview index R/W with the approved budget */
