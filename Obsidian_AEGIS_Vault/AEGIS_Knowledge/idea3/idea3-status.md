@@ -18,6 +18,18 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 L8p esptool interpreter pin — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-esptool-interpreter-pin`, based on `a47ad8f3`. Nothing was executed live: `PRODUCTION_MUTATION_PERFORMED = NO`, `ESP32_TOUCHED = NO`, `SERIAL_ACCESSED = NO`, `FLASH_PERFORMED = NO`, `L8P_LIVE_EXECUTED = NO`. No L8p Authorization/K3, frozen runner or attempt marker was created. This does not claim L8p acceptance.
+
+- **Root cause (found by the L8p final preflight):** the L8p orchestration Python (`PY` / `AEGIS_PYTHON_BIN`) was also the implicit esptool launcher (`[sys.executable, esptool.py, ...]`). The `aegis-idea3-core` interpreter cannot import the pinned esptool's dependencies (`No module named 'serial'`), so a live run would have failed after the one-shot attempt was consumed.
+- **Fix:** a nineteenth frozen runner pin `ESPTOOL_PYTHON` (never committed with a value), passed as `AEGIS_L8P_ESPTOOL_PYTHON` -> `apply.sh` -> `--esptool-python` -> `load_backend` -> `HardwareDevice` + `SubprocessExecutor` (one launcher, a mismatch is refused). `AEGIS_PYTHON_BIN` is unchanged. The L8p stage profile makes the explicit interpreter mandatory in hardware mode (no fallback); L8 is unchanged.
+- **Pre-consume gate:** `l8p_esptool_python_gate` runs the pinned `esptool.py --help` under the frozen interpreter in a scrubbed environment in the runner's pre-gates, before the PRE capture and the attempt marker (no serial open, no flash command, no installation). Smoke-tested read-only: it fails under `aegis-idea3-core` and passes under `aegis-esptool` and the PlatformIO `penv` interpreter.
+- **Still open:** merge/review, a new freeze pinned to the then-current main with `ESPTOOL_PYTHON` chosen by the owner, a fresh same-day L8p Authorization/K3, the owner-run LIVE attempt.
+- **Receipt:** `90-Status/logs/2026-10-04_021000_music_idea3-l8p-esptool-interpreter-pin.md`.
+
+---
+
 ## IDEA3 post-NTP forensic fix — capture read-only + final NTP gates — repository only — 2026-10-03
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-post-ntp-capture-readonly-and-l8p-ntp-gates`, based on `0ab80a1a`. Nothing was executed live: `PRODUCTION_MUTATION_PERFORMED = NO`, no time daemon started or stopped, `timedatectl show-timesync` never run on the host, no serial/esptool/ESP32 access, no Authorization, K3, attempt marker or frozen runner created.

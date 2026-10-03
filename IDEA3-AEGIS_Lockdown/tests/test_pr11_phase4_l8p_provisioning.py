@@ -176,7 +176,7 @@ def hw_args(env):
             "--secrets-header", env["AEGIS_L8P_SECRETS_HEADER"], "--firmware-image", env["AEGIS_L8P_FIRMWARE_IMAGE"],
             "--build-command", env["AEGIS_L8P_FIRMWARE_BUILD_CMD"], "--nvs-generator", env["AEGIS_L8P_NVS_PARTITION_GEN"],
             "--wifi-ssid", env["AEGIS_L8P_WIFI_SSID"], "--ntp", env["AEGIS_L8P_NTP"], "--run-id", env["AEGIS_L8P_RUN_ID"],
-            "--esptool", HW.FAKE_ESPTOOL, "--live-authorized", "YES"]
+            "--esptool", HW.FAKE_ESPTOOL, "--esptool-python", sys.executable, "--live-authorized", "YES"]
     return mod.build_parser().parse_args(argv)
 
 

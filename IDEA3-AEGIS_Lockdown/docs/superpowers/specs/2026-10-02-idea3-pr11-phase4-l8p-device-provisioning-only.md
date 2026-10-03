@@ -52,8 +52,8 @@ The hardware backend is unreachable without `AEGIS_L8P_LIVE_AUTHORIZED=YES`, and
 
 ## 4. Owner runner (repository template; inert)
 
-`deploy/pr11-phase4/owner-run/run-l8p-owner.sh` with its gate library `p4-l8p-run-lib.sh` follow the L7u owner-run pattern. The committed copy is an **inert template**: eighteen `PIN_`
-values (the merged main SHA, the frozen operator user and uid, the reviewed firmware and partition-table SHA-256, the owner input directory, the reviewed artifacts, the pinned flash tool, the MQTT CA and broker
+`deploy/pr11-phase4/owner-run/run-l8p-owner.sh` with its gate library `p4-l8p-run-lib.sh` follow the L7u owner-run pattern. The committed copy is an **inert template**: nineteen `PIN_`
+values (the merged main SHA, the frozen operator user and uid, the reviewed firmware and partition-table SHA-256, the owner input directory, the reviewed artifacts, the pinned flash tool and its own frozen Python interpreter (`ESPTOOL_PYTHON`), the MQTT CA and broker
 credential files, the broker address and TLS name, the Wi-Fi SSID, the NTP server, the compile-only build command) make it refuse until the owner freeze workflow copies it outside the
 repository and pins them after the FINAL source set is merged. It holds no device logic: every device operation is the canonical L8p handler set.
 
@@ -77,3 +77,12 @@ A successful run may claim only `L8P_LIVE_EXECUTED=YES` and `L8P_PROVISIONING=PA
 Nothing here is live. Still needed: freezing the runner (after the final source set is merged), the exact reviewed firmware image, partition table and pins, the real MQTT CA header, the NVS
 generator, OV-12, the written physical recovery procedure, a same-day authorization and K3, and Kla integration review of the shared edits (`p4-lib.sh`, `p4-stage-gate.sh`,
 `tests/test_pr11_phase4_harness.py`, the L7u governance order assertion, and the small profile extension in `p4-l8-device.py`). Recovery R1-R8, LVR and L8 remain unproven.
+
+## 6. Addendum (2026-10-04): the esptool interpreter is a separate frozen pin
+
+The L8p final preflight found that the orchestration interpreter (`PY` / `AEGIS_PYTHON_BIN`, used to run `p4-l8p-device.py`) was also the implicit esptool launcher (`[sys.executable, esptool.py, ...]`).
+That interpreter cannot import the pinned esptool's dependencies, so a live run would have failed after the one-shot attempt was consumed. The runner now has a nineteenth pin, `ESPTOOL_PYTHON`
+(an absolute interpreter path, never committed), passed to the handler as `AEGIS_L8P_ESPTOOL_PYTHON` and to `p4-l8p-device.py` as `--esptool-python`; `AEGIS_PYTHON_BIN` is untouched. The canonical flow
+builds the `SubprocessExecutor` and the `HardwareDevice` from that one interpreter and refuses a mismatch; the L8p stage profile makes the explicit interpreter mandatory in hardware mode (no `sys.executable`
+or `python3` fallback), while L8 keeps its legacy behaviour. A read-only pre-gate (`l8p_esptool_python_gate`) runs in the runner's pre-gates, before the PRE capture and the attempt marker: it executes the
+pinned `esptool.py --help` under the frozen interpreter in a scrubbed environment (no serial open, no flash command, no installation), so a missing dependency fails the run with no attempt consumed and the device untouched.

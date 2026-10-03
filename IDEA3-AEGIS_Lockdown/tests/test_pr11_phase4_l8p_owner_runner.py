@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -35,6 +36,7 @@ name=$(basename "$0" .sh)
 echo "$name" >> "$SIM_DIR/calls.log"
 echo "env:$name:backend=${AEGIS_L8P_BACKEND-<unset>} live=${AEGIS_L8P_LIVE_AUTHORIZED-<unset>} pre_ok=$([ -f "$AEGIS_L8P_PRE_EVIDENCE_DIR/capture.log" ] && echo yes || echo no)" >> "$SIM_DIR/calls.log"
 echo "marker@$name:$([ -e "$(cat "$SIM_DIR/marker-path")" ] && echo yes || echo no)" >> "$SIM_DIR/calls.log"
+echo "py:$name:control=${AEGIS_PYTHON_BIN-<unset>} esptool=${AEGIS_L8P_ESPTOOL_PYTHON-<unset>}" >> "$SIM_DIR/calls.log"
 mkdir -p "$AEGIS_L8P_WORK_DIR" "$AEGIS_L8P_EVIDENCE_DIR"
 case "$name" in
   apply)
@@ -74,8 +76,9 @@ done
 class Sim:
     def __init__(self, tmp: Path, *, l7u: bool = True, l8p_done: bool = False, auth_over: dict | None = None, k3: str | None = "v2",
                  authorization: str | None = None, operator_user: str | None = None, operator_uid: str | None = None,
-                 l8p_receipts: dict[str, str] | None = None) -> None:
+                 l8p_receipts: dict[str, str] | None = None, esptool_python: str | None = None) -> None:
         self.l8p_receipts = l8p_receipts or {}
+        self.esptool_python = esptool_python if esptool_python is not None else sys.executable
         self.dir = tmp / "sim"
         self.repo = self.dir / "repo"
         self.p4 = self.repo / "IDEA3-AEGIS_Lockdown" / "deploy" / "pr11-phase4"
@@ -137,8 +140,14 @@ class Sim:
         self.firmware, self.table = self.dir / "firmware.bin", self.dir / "partitions.csv"
         self.firmware.write_bytes(FIRMWARE)
         self.table.write_bytes(TABLE)
-        for name in ("secrets.h", "tool.py", "ca.pem", "broker.cred"):
+        for name in ("secrets.h", "ca.pem", "broker.cred"):
             (self.dir / name).write_text("x\n")
+        # the pinned esptool stand-in: `--help` exercises the same import path the real launcher uses (the gate runs it under the frozen esptool Python)
+        (self.dir / "tool.py").write_text(
+            "import os, sys\n"
+            f"if os.path.exists({str(self.dir / 'esptool-dep-missing')!r}):\n    import intelhex_dependency_is_not_installed\n"
+            f"print(open({str(self.dir / 'esptool-banner')!r}).read().strip())\nprint('usage: esptool [-h] ...')\n")
+        (self.dir / "esptool-banner").write_text("esptool.py v4.11.0 - ESP8266 & ESP32 ROM Bootloader Utility\n")
         (self.dir / "nvs-gen").write_text("#!/bin/sh\n")
         (self.dir / "nvs-gen").chmod(0o755)
 
@@ -174,6 +183,7 @@ class Sim:
             "BROKER_ADDRESS=PIN_BROKER_ADDRESS": "BROKER_ADDRESS=10.77.30.1", "BROKER_TLS_NAME=PIN_BROKER_TLS_NAME": "BROKER_TLS_NAME=mqtt.aegis.home.arpa",
             "WIFI_SSID=PIN_WIFI_SSID": "WIFI_SSID=SIM-AP", "NTP_SERVER=PIN_NTP_SERVER": "NTP_SERVER=203.0.113.9",
             "FIRMWARE_BUILD_CMD=PIN_FIRMWARE_BUILD_CMD": "FIRMWARE_BUILD_CMD='pio run -e esp32dev'",
+            "ESPTOOL_PYTHON=PIN_ESPTOOL_PYTHON": f"ESPTOOL_PYTHON={self.esptool_python}",
         }
         for a, b in pins.items():
             assert a in text, a
@@ -259,7 +269,7 @@ def test_repository_runner_refuses_while_unpinned(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("pin", ["OPERATOR_USER", "OPERATOR_UID", "FIRMWARE_SHA256", "PARTITION_TABLE_SHA256", "INPUT_DIR", "FIRMWARE_IMAGE", "PARTITION_TABLE", "SECRETS_HEADER", "NVS_GENERATOR",
-                                 "FLASH_TOOL_SCRIPT", "MQTT_CA_FILE", "BROKER_CREDENTIAL_FILE", "BROKER_ADDRESS", "BROKER_TLS_NAME", "WIFI_SSID", "NTP_SERVER",
+                                 "FLASH_TOOL_SCRIPT", "ESPTOOL_PYTHON", "MQTT_CA_FILE", "BROKER_CREDENTIAL_FILE", "BROKER_ADDRESS", "BROKER_TLS_NAME", "WIFI_SSID", "NTP_SERVER",
                                  "FIRMWARE_BUILD_CMD"])
 def test_runner_refuses_each_unpinned_value_even_with_main_pinned(tmp_path: Path, pin: str) -> None:
     sim = Sim(tmp_path)
@@ -283,7 +293,7 @@ def test_runner_refuses_malformed_pins(tmp_path: Path, pin: str, bad: str) -> No
 def test_the_committed_template_is_not_pinned_to_the_current_main() -> None:
     text = RUNNER.read_text()
     assert not re.search(r"^EXPECTED_MAIN=[0-9a-f]{40}", text, re.MULTILINE)
-    assert len(re.findall(r"=PIN_[A-Z_0-9]+$", text, re.MULTILINE)) == 18
+    assert len(re.findall(r"=PIN_[A-Z_0-9]+$", text, re.MULTILINE)) == 19
     assert "OPERATOR_USER=PIN_OPERATOR_USER" in text and "OPERATOR_UID=PIN_OPERATOR_UID" in text
 
 
@@ -768,6 +778,9 @@ def test_secret_scan_reports_only_counts_and_fails_on_any_secret_value(tmp_path:
 def test_the_runner_never_invokes_the_flash_tool_or_any_device_operation_itself() -> None:
     for path in (RUNNER, LIB):
         code = code_only(path)
+        # The ONE sanctioned exception is the read-only pre-consume interpreter gate (`l8p_esptool_python_gate`, pinned to `--help` by the test below) and its call.
+        code = re.sub(r"l8p_esptool_python_gate\(\) \{.*?\n\}\n", "", code, flags=re.DOTALL)
+        code = "\n".join(l for l in code.splitlines() if "l8p_esptool_python_gate" not in l)
         assert not re.search(r"esptool|platformio|\bpio\b|write_flash|read_flash|erase|efuse|write_mem|/dev/tty|picocom|minicom|screen ", code.replace("AEGIS_L8P_ESPTOOL", "")), path.name
     assert "p4-l8-device.py" not in code_only(RUNNER) and "HardwareDevice" not in code_only(RUNNER)
     assert len([l for l in code_only(RUNNER).splitlines() if "p4-l8p-device.py" in l]) == 1, "only the existence gate; the handlers reach it"
@@ -900,3 +913,124 @@ def test_the_ntp_gate_does_not_weaken_the_disk_gate_the_receipt_gate_or_one_shot
     assert "the PRE-L8p NTP runtime is not true now" in res.stdout + res.stderr and not sim.marker()
     code = code_only(RUNNER)
     assert "l7_disk_gate 80 / /var /opt /run" in code and "l8p_attempt_unconsumed" in code and "l7_idea2_s10_gate" in code
+
+
+# ═══════════ 12. the esptool interpreter is its own frozen pin and is proven loadable BEFORE the attempt is consumed ═══════════
+# Root cause: the orchestration Python (PY / AEGIS_PYTHON_BIN) was also the implicit esptool launcher, and it cannot import the pinned esptool's dependencies, so a live run would have failed
+# after the one-shot attempt was consumed. ESPTOOL_PYTHON is a separate frozen pin; l8p_esptool_python_gate runs the PINNED script with `--help` (no serial, no flash command) in the pre-gates.
+
+
+def test_the_committed_template_carries_the_esptool_python_pin_unresolved_and_hardcodes_no_interpreter() -> None:
+    text = RUNNER.read_text()
+    assert re.search(r"^ESPTOOL_PYTHON=PIN_ESPTOOL_PYTHON$", text, re.MULTILINE)
+    assert "ESPTOOL_PYTHON" in re.search(r"^for pin in .*?; do", text, re.MULTILINE | re.DOTALL).group(0), "it is part of the frozen-pin refusal loop"
+    assert not re.search(r"^ESPTOOL_PYTHON=/", text, re.MULTILINE), "no local interpreter path is committed"
+    assert "aegis-esptool" not in text
+    res = subprocess.run(["bash", str(RUNNER), "/nonexistent"], text=True, capture_output=True, check=False)
+    assert res.returncode == 2 and "runner is not pinned" in res.stdout
+
+
+def test_freeze_substitution_supports_the_new_pin_and_changes_only_pin_lines(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    frozen = sim.runner.read_text().splitlines()
+    template = RUNNER.read_text().splitlines()
+    assert not [l for l in frozen if re.match(r"^[A-Z_0-9]+=PIN_", l)], "no unresolved pin value remains"
+    assert f"ESPTOOL_PYTHON={sys.executable}" in frozen
+    changed = {t.split("=")[0] for t, f in zip(template, frozen) if t != f and re.match(r"^[A-Z_0-9]+=PIN_", t)}
+    assert "ESPTOOL_PYTHON" in changed
+
+
+def test_a_healthy_esptool_python_passes_the_gate_and_the_run_completes(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+
+
+ESPTOOL_BREAKERS = [
+    ("nonexistent-interpreter", lambda s: setattr(s, "esptool_python", "/nonexistent/venv-esptool/bin/python"), "L8P_ESPTOOL_PYTHON_NOT_EXECUTABLE"),
+    ("relative-interpreter", lambda s: setattr(s, "esptool_python", "python3"), "L8P_ESPTOOL_PYTHON_NOT_ABSOLUTE"),
+    ("not-a-python-name", lambda s: setattr(s, "esptool_python", shutil.which("true")), "L8P_ESPTOOL_PYTHON_NOT_A_PYTHON_INTERPRETER"),
+    ("missing-esptool-dependency", lambda s: s.inject("esptool-dep-missing"), "L8P_ESPTOOL_PYTHON_CANNOT_LOAD_PINNED_ESPTOOL:ModuleNotFoundError: No module named 'intelhex_dependency_is_not_installed'"),
+    ("unexpected-esptool-build", lambda s: (s.dir / "esptool-banner").write_text("esptool v5.4.0\n"), "L8P_ESPTOOL_PYTHON_UNEXPECTED_ESPTOOL_BUILD"),
+]
+
+
+@pytest.mark.parametrize("name,breaker,reason", ESPTOOL_BREAKERS, ids=[b[0] for b in ESPTOOL_BREAKERS])
+def test_an_unusable_esptool_python_fails_in_the_pre_gates_with_no_attempt_and_no_device_access(tmp_path: Path, name: str, breaker, reason: str) -> None:
+    sim = Sim(tmp_path)
+    breaker(sim)
+    # the interpreter pin is substituted into the frozen runner at build time: rebuild it for the value-changing cases
+    sim.runner.write_text(re.sub(r"^ESPTOOL_PYTHON=.*$", lambda _m: f"ESPTOOL_PYTHON={sim.esptool_python}", sim.runner.read_text(), count=1, flags=re.MULTILINE))
+    res = sim.run()
+    out = res.stdout + res.stderr
+    assert res.returncode == 1, out
+    assert reason in out and "the pinned esptool Python cannot load the pinned esptool" in out
+    assert not sim.marker(), "ATTEMPT_CONSUMED=NO"
+    assert sim.calls() == [], "no capture, no handler (hence no serial/reset/write): ESP32_TOUCHED=NO"
+    assert not list(sim.evid_base.iterdir()), "no evidence directory is created by a failed pre-gate"
+
+
+def test_a_broken_interpreter_that_exits_nonzero_fails_the_gate_before_the_attempt(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    broken = sim.dir / "python-broken"
+    broken.write_text("#!/usr/bin/env bash\necho \"ImportError: cannot import name 'serial'\" >&2\nexit 1\n")
+    broken.chmod(0o755)
+    sim.esptool_python = str(broken)
+    sim.runner.write_text(re.sub(r"^ESPTOOL_PYTHON=.*$", lambda _m: f"ESPTOOL_PYTHON={broken}", sim.runner.read_text(), count=1, flags=re.MULTILINE))
+    res = sim.run()
+    assert res.returncode == 1 and "CANNOT_LOAD_PINNED_ESPTOOL:ImportError: cannot import name 'serial'" in res.stdout + res.stderr
+    assert not sim.marker() and sim.calls() == []
+
+
+def test_a_non_executable_interpreter_file_fails_the_gate_before_the_attempt(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    noexec = sim.dir / "python-noexec"
+    noexec.write_text("#!/bin/sh\n")
+    noexec.chmod(0o644)
+    sim.runner.write_text(re.sub(r"^ESPTOOL_PYTHON=.*$", lambda _m: f"ESPTOOL_PYTHON={noexec}", sim.runner.read_text(), count=1, flags=re.MULTILINE))
+    res = sim.run()
+    assert res.returncode == 1 and "L8P_ESPTOOL_PYTHON_NOT_EXECUTABLE" in res.stdout + res.stderr
+    assert not sim.marker() and sim.calls() == []
+
+
+def test_the_orchestration_python_and_the_esptool_python_stay_separate_in_the_handler_environment(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    assert sim.run().returncode == 0
+    seen = [c for c in sim.calls() if c.startswith("py:")]
+    assert seen, "the handler stubs recorded their environment"
+    for line in seen:
+        control = line.split("control=")[1].split(" esptool=")[0]
+        tool = line.split(" esptool=")[1]
+        assert control == "python3", line               # AEGIS_PYTHON_BIN is the orchestration interpreter (PY), unchanged
+        assert tool == sys.executable, line             # the esptool interpreter is the frozen, distinct pin
+        assert control != tool
+
+
+def test_the_runner_threads_the_separate_variable_and_never_repurposes_the_orchestration_interpreter() -> None:
+    code = code_only(RUNNER)
+    assert 'AEGIS_PYTHON_BIN="$PY"' in code and 'AEGIS_L8P_ESPTOOL_PYTHON="$ESPTOOL_PYTHON"' in code
+    assert re.search(r"^PY=/home/kittipat/\.venvs/aegis-idea3-core/bin/python$", code, re.MULTILINE), "the orchestration interpreter is untouched"
+    assert not re.search(r"^PY=.*ESPTOOL", code, re.MULTILINE)
+    uses = [l.strip() for l in code.splitlines() if "$ESPTOOL_PYTHON" in l]
+    assert len(uses) == 2 and any("l8p_esptool_python_gate" in l for l in uses) and any("AEGIS_L8P_ESPTOOL_PYTHON=" in l for l in uses), uses
+
+
+def test_the_esptool_gate_runs_in_the_pre_gates_before_the_pre_capture_and_the_attempt_marker() -> None:
+    code = code_only(RUNNER)
+    gate = code.index("l8p_esptool_python_gate")
+    assert code.index("l8p_receipt_gate") < gate < code.index("capture PRE") < code.index("l8p_consume_attempt")
+    assert code.index("l8p_file_gate \"$FLASH_TOOL_SCRIPT\"") < gate, "the script existence gate precedes it"
+    assert code.count("l8p_esptool_python_gate") == 1
+
+
+def test_the_esptool_gate_only_runs_help_and_opens_no_device_or_package_manager() -> None:
+    lib = code_only(LIB)
+    body = lib[lib.index("l8p_esptool_python_gate()"):]
+    body = body[:body.index("\n}\n")]
+    assert '"$py" "$script" --help' in body
+    assert "</dev/null" in body, "stdin is closed so the tool can never prompt or read a device"
+    body = body.replace("</dev/null", "")
+    for banned in ("flash_id", "read_flash", "write_flash", "erase", "write_mem", "reset", "/dev/", "pip", "pacman", "sudo", "curl", "wget", "python3 ", "command -v", "which "):
+        assert banned not in body, banned
+    assert "env -i" in body and "PATH=/usr/bin:/bin" in body, "a scrubbed environment: no inherited PYTHONPATH/venv state"
+    assert "timeout 60" in body
