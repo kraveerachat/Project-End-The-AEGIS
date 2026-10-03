@@ -57,13 +57,13 @@ The runner prints its success claim only on the full success path, which attempt
 
 ## Verification evidence
 
-- `pytest -q -p no:cacheprovider tests -k "pr11_phase4 or pr11_phase2 or firmware_contract"` — PASS, 4671 passed, 5 skipped, 0 failed, on the final tree (based on `origin/main` `b440b102`; simulated host only). An earlier full run of the same code failed exactly one test, the harness registry pin of reviewed stage handlers (`cleanup.sh` was not yet registered for L8p); it was fixed and the full suite rerun.
+- `pytest -q -p no:cacheprovider tests -k "pr11_phase4 or pr11_phase2 or firmware_contract"` — PASS, 4671 passed, 5 skipped, 0 failed, on the final tree (merged with `origin/main` `6ddcf184`, PR #326, IDEA2/HUB-only paths, no conflicts; simulated host only). An earlier full run of the same code failed exactly one test, the harness registry pin of reviewed stage handlers (`cleanup.sh` was not yet registered for L8p); it was fixed and the full suite rerun, and it was rerun once more on the merged final tree with the same result.
 - `pytest tests/test_pr11_phase4_l8p_owner_runner.py` — PASS, 171 passed. `pytest tests/test_pr11_phase4_l8p_provisioning.py` — PASS, 131 passed. `pytest tests/test_pr11_phase4_l8p_esptool_interpreter.py` — PASS, 18 passed.
 - `pytest` on L8 handler / hardware backend / boot verify / NVS provision / firmware contract / p4 harness — PASS, 77 / 80 / 69 / 10 / 16 / 235 passed.
 - RED before the fix: the success-path test failed with `SECRET_OUTPUT_SCAN failed` followed by a rollback, and the independent root-cause test showed exactly the two staging files as the only hits (with the unchanged scanner); both pass after the fix, and all 28 real-leak cases (each of four secrets into five non-work locations plus the work directory) still fail the scan.
 - `bash -n` on `run-l8p-owner.sh`, `p4-l8p-run-lib.sh`, `stages/L8p/{apply,verify,rollback,cleanup}.sh` — PASS. `git diff --check` — PASS.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS (0 errors; 2 pre-existing canvas warnings).
-- `scripts/validate-collaboration-policy.mjs` needs a PR event payload; run locally against the PR body and changed paths before pushing.
+- `scripts/validate-collaboration-policy.mjs` — PASS, run locally against the PR body and the 9 changed paths before pushing (CI runs it on the PR).
 
 ## Canonical notes updated
 
