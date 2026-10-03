@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:executing-plans` to implement this plan task by task, in order. Steps use checkbox (`- [ ]`) syntax. Do **not** start any task until the Human Owner has merged this plan **and** separately authorized implementation. Every ⛔ marker is a hard stop that only a written Human decision can lift.
 
-**Plan status:** IN PROGRESS — PR-A through PR-D are merged; PR-E G.1 is implemented and G.2 evidence is ready under Revision 3. HG-G approved G.3 codification on 2026-10-03; H/I are not started. `PRODUCTION_MUTATION_AUTHORIZED=NO`; Production writer enablement is blocked pending later gates.
+**Plan status:** IN PROGRESS — PR-A through PR-D are merged; PR-E G.1–G.3 and H.1–H.3 are complete (2026-10-03); I.1–I.3 are not started. `PRODUCTION_MUTATION_AUTHORIZED=NO`; Production writer enablement is blocked pending later gates.
 
 **Revision 2 (2026-10-02, PR #280 review `APPROVE_WITH_REQUIRED_CHANGES`):** (1) server-enforced per-owner preview-index retained-storage budget (A.1, A.3, new C.7, new E.4, F.2, G.1–G.3, H.1, Stage 3); (2) Stage 1 requires PR-A **and** PR-B merged — no Production deployment between them; (3) client-declared superseded refs are advisory only and never deletion authority. Existing P3–P5 plans are stale for D-1. Task count 44 → 46.
 
@@ -758,22 +758,22 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 | `SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO` | D.3 scan + C.1 test re-run: declared superseded blobs stay present and counted |
 | old valid-head replay | test **documents** the accepted limitation: a server replaying an older valid head is accepted after a fresh unlock; within one page session an older generation is rejected; no durable anti-rollback claim |
 
-- [ ] **Negative controls:** for CONTENT_ID, owner check, source binding, and CAS expectation: temporarily break the invariant in a local uncommitted edit, observe the named test fail, restore, observe pass, prove clean tree (`git status --short` empty). Record in PR body. Never against Production.
-- [ ] **Commit:** `test(idea1): consolidate preview-index security gates`.
+- [x] **Negative controls:** (done 2026-10-03: CONTENT_ID, owner check, source binding, CAS expectation, plus write gate and budget — each break → named gate FAIL → restore → PASS → clean source tree) for CONTENT_ID, owner check, source binding, and CAS expectation: temporarily break the invariant in a local uncommitted edit, observe the named test fail, restore, observe pass, prove clean tree (`git status --short` empty). Record in PR body. Never against Production.
+- [x] **Commit:** `test(idea1): consolidate preview-index security gates` (`7db1e36c`; files: `tests/helpers/previewIndexSecurityGateSpec.mjs` shared memory/PostgreSQL server spec, `tests/previewIndexSecurityGates.test.js`, `tests/previewIndexSecurityGatesPostgres.test.js`).
 
 ### Task H.2 — Account neutrality (ADMIN / EXISTING_USER / NEWLY_CREATED_USER)
 
 - **Depends on:** H.1.
 - **Files:** Extend `tests/previewAccountNeutrality.test.js` (uses `tests/helpers/accountClasses.mjs`).
-- [ ] **RED:** identical index create/read/write behavior for all three classes; Admin has no override on another owner's index; identical bytes uploaded by two classes yield distinct blob ids and contentIds (no dedup); memory and `PGRUN`.
-- [ ] **Commit:** `test(idea1): prove preview-index isolation across account classes`.
+- [x] **RED:** (done; `tests/previewAccountNeutrality.test.js` boots its own app and cannot share the preview-index harness, so it gains the AN-4 D-1 source scan while the behaviour runs in `tests/previewIndexAccountNeutrality.test.js` + `tests/previewIndexAccountNeutralityPostgres.test.js` via `tests/helpers/previewIndexNeutralitySpec.mjs`) identical index create/read/write behavior for all three classes; Admin has no override on another owner's index; identical bytes uploaded by two classes yield distinct blob ids and contentIds (no dedup); memory and `PGRUN`.
+- [x] **Commit:** `test(idea1): prove preview-index isolation across account classes` (`21a992f4`).
 
 ### Task H.3 — Audit volume measurement
 
 - **Depends on:** G.1.
 - **Files:** Create `scripts/measure/vault-preview-index-audit-volume.mjs`.
-- [ ] Simulated unlock + 60-tile cold view + one backfill batch against a local server → audit rows by action (`VAULT_V2_READ`, `VAULT_V2_COMMIT`, `VAULT_PREVIEW_INDEX_CAS`); compare with the no-index baseline; audit rows contain no secret/plaintext fields. Measurement only; **no** deduplication or semantic change. Record in PR body for the Human audit budget decision.
-- [ ] **Commit:** `test(idea1): measure preview-index audit volume`.
+- [x] Simulated unlock + 60-tile cold view + one backfill batch against a local server → audit rows by action (`VAULT_V2_READ`, `VAULT_V2_COMMIT`, `VAULT_PREVIEW_INDEX_CAS`); compare with the no-index baseline; audit rows contain no secret/plaintext fields. Measurement only; **no** deduplication or semantic change. Record in PR body for the Human audit budget decision.
+- [x] **Commit:** `test(idea1): measure preview-index audit volume` (`60539bc7`; probe guards `tests/previewIndexAuditVolumeProbe.test.js`; evidence recorded in PR #310).
 
 ---
 
