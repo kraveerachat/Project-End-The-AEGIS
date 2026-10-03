@@ -56,7 +56,13 @@ Install Agent dependencies only into its dedicated virtual environment:
 requirements-identity-agent-windows.txt
 ```
 
-Do not install `pywin32` into or otherwise mutate the existing Engine runtime.
+The Windows Engine runtime installs its own `pywin32==312` named-pipe client
+dependency through the Windows-marked Engine requirements. Its virtual
+environment remains separate from the Agent's: the Engine imports client
+primitives only and receives no Agent key, session, or signing authority.
+The normal Windows install/repair path installs this requirement into the
+Engine venv; `-SkipDependencyInstall` does not reconcile a missing package
+and the installer preflight will reject that incomplete runtime.
 
 Object detection is not identity. The modular runtime does not import the
 legacy `YOLO/object -> Authorized/Admin` behavior and must never infer access

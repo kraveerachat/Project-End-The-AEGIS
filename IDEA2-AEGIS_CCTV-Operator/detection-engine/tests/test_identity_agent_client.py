@@ -1,4 +1,6 @@
+import os
 import pathlib
+import subprocess
 import sys
 import unittest
 from types import SimpleNamespace
@@ -29,6 +31,30 @@ class RecordingConnector:
 
 
 class IdentityAgentClientTests(unittest.TestCase):
+    def test_client_import_stays_lazy_and_fail_soft_without_pywin32(self):
+        script = (
+            "import sys\n"
+            "from aegis_engine.identity_agent_client import IdentityAgentClient\n"
+            "assert not any(name in sys.modules for name in "
+            "('pywintypes', 'win32con', 'win32event', 'win32file', 'win32pipe'))\n"
+            "client = IdentityAgentClient()\n"
+            "result = client.submit('heartbeat', {'cameraConnected': False})\n"
+            "assert not result.ok and result.error == 'AGENT_UNAVAILABLE'\n"
+            "assert client.camera_demand_side_effects == 0\n"
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(ENGINE_ROOT)
+        completed = subprocess.run(
+            [sys.executable, "-S", "-B", "-c", script],
+            cwd=ENGINE_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+
     def test_all_four_operations_use_bounded_local_pipe_requests(self):
         connector = RecordingConnector()
         client = IdentityAgentClient(
