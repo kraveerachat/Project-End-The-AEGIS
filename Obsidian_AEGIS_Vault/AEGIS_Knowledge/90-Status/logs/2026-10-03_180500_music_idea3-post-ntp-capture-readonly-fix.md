@@ -47,9 +47,7 @@ PRODUCTION_MUTATION_PERFORMED=NO
 
 ## Verification evidence
 
-All results below are from the FINAL tree after merging `origin/main` `7649d180` (PR #315, IDEA2-only paths, no overlap, no conflicts) into the branch (HEAD `7d2edaea` before this receipt update). Simulated host only; nothing live.
-
-- `pytest -q -p no:cacheprovider tests -k "pr11_phase4 or pr11_phase2 or firmware_contract"` — PASS, 4570 passed, 5 skipped, 0 failed.
+- `pytest -q -p no:cacheprovider tests -k "pr11_phase4 or pr11_phase2 or firmware_contract"` — PASS, 4570 passed, 5 skipped, 0 failed (FINAL tree: branch after merging `origin/main` `7649d180`, PR #315, IDEA2-only paths, no overlap, no conflicts; simulated host only, nothing live).
 - `pytest tests/test_pr11_phase4_capture_timesyncd_readonly.py` — PASS, 19 passed (14 of them fail on the old capture).
 - `pytest tests/test_pr11_phase4_pre_l8p_ntp_reactivation_owner_run_flow.py` — PASS, 67 passed.
 - `pytest tests/test_pr11_phase4_l8p_owner_runner.py` — PASS, 124 passed.
