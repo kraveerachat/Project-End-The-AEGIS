@@ -1,4 +1,4 @@
-// tests/previewIndexConstants.test.js — AEGIS Drive (IDEA1) · D-1 PR-B Task B.2 · preview-index constants (all limits PROVISIONAL)
+// tests/previewIndexConstants.test.js — AEGIS Drive (IDEA1) · D-1 preview-index limit disposition
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as C from '../src/lib/vaultPreviewIndexConstants.js'
@@ -25,7 +25,7 @@ test('PIK-2 markers never collide with any MIME the app knows', () => {
   assert.equal(known.includes(C.INDEX_SHARD_MARKER), false)
 })
 
-test('PIK-3 every numeric limit is listed as PROVISIONAL (none approved yet) and has the planned value', () => {
+test('PIK-3 HG-G approved values stay exact; unapproved keys remain explicit', () => {
   assert.deepEqual({ ...C.PREVIEW_INDEX_LIMITS, shardPaddingBuckets: [...C.PREVIEW_INDEX_LIMITS.shardPaddingBuckets], rootPaddingBuckets: [...C.PREVIEW_INDEX_LIMITS.rootPaddingBuckets] }, {
     initialPrefixBits: 6, maxPrefixBits: 7, maxShards: 128, maxShardDecodedBytes: 192 * KiB,
     shardPaddingBuckets: [16 * KiB, 32 * KiB, 64 * KiB, 128 * KiB, 256 * KiB],
@@ -34,8 +34,18 @@ test('PIK-3 every numeric limit is listed as PROVISIONAL (none approved yet) and
     derivativeLaneConcurrency: 6, ciphertextLruBytes: 32 * MiB, maxLiveDecodedShards: 16, generationBudgetMs: 10_000,
     maxJsonDepth: 8,
   })
-  assert.deepEqual([...C.PROVISIONAL_KEYS].sort(), Object.keys(C.PREVIEW_INDEX_LIMITS).filter((k) => k !== 'maxJsonDepth').sort(), 'G.3 must move a key out of PROVISIONAL_KEYS explicitly')
-  assert.deepEqual([...C.APPROVED_KEYS], [])
+  assert.deepEqual([...C.APPROVED_KEYS].sort(), [
+    'initialPrefixBits', 'maxPrefixBits', 'maxShards', 'maxShardDecodedBytes',
+    'maxRootDecodedBytes', 'maxEntriesPerCas', 'ciphertextLruBytes',
+  ].sort())
+  assert.deepEqual([...C.PROVISIONAL_KEYS].sort(), [
+    'shardPaddingBuckets', 'rootPaddingBuckets', 'casMaxAttempts', 'writeQueueMax',
+    'backfillMaxPerSession', 'backfillConcurrency', 'derivativeLaneConcurrency',
+    'maxLiveDecodedShards', 'generationBudgetMs',
+  ].sort())
+  assert.deepEqual([...C.APPROVED_KEYS, ...C.PROVISIONAL_KEYS].sort(), Object.keys(C.PREVIEW_INDEX_LIMITS).filter((k) => k !== 'maxJsonDepth').sort())
+  assert.equal(C.HG_G_APPROVAL.date, '2026-10-03')
+  assert.equal(C.HG_G_APPROVAL.source, 'HG_G_APPROVED / PR #310 / 89da7f84d7279871f6e10df5df3e6b78594e5ef8')
   assert.ok(C.PREVIEW_INDEX_LIMITS.maxShardDecodedBytes + 5 <= C.PREVIEW_INDEX_LIMITS.shardPaddingBuckets.at(-1))
   assert.ok(C.PREVIEW_INDEX_LIMITS.maxRootDecodedBytes + 5 <= C.PREVIEW_INDEX_LIMITS.rootPaddingBuckets.at(-1))
   assert.equal(2 ** C.PREVIEW_INDEX_LIMITS.maxPrefixBits, C.PREVIEW_INDEX_LIMITS.maxShards)

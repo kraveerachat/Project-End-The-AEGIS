@@ -17,8 +17,8 @@
 //        └ VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE   ← ตั้งได้หลัง apply migration 012 เท่านั้น (บูต probe ตาราง + ค่า lifecycle)
 //            └ VAULT_PREVIEW_INDEX_READ_ENABLED   ← ต้องมี VAULT_MEDIA_PREVIEW_ENABLED ด้วย
 //                └ VAULT_PREVIEW_INDEX_WRITE_ENABLED   (capability VAULT_PREVIEW_INDEX_WRITE)
-//    WRITE=true ต้องมี VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER ที่ตั้งไว้ชัด ๆ — ไม่มีค่า default ที่ "อนุมัติแล้ว"
-//    (PROVISIONAL / TO_BE_MEASURED; Human อนุมัติที่ HG-G) ไม่ตั้ง = null และ writer บูตไม่ขึ้น (fail-closed)
+//    WRITE=true ต้องมี VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER ที่ตั้งไว้ชัด ๆ — ไม่มี runtime default
+//    HG-G approved 8 GiB/owner, but approval does not supply the env value: ไม่ตั้ง = null และ writer บูตไม่ขึ้น (fail-closed)
 //
 // ⚠️ ไม่มี flag ใดเปิดการแก้ไขแบบ flat (POST/DELETE /api/vault/blobs) ให้เจ้าของที่ไม่ได้อยู่ใน FLAT
 //    กลับมาได้ — การกั้นนั้นอยู่ที่ requireVaultProtocolState และอ่านจากสถานะของเจ้าของ ไม่ใช่จาก flag
@@ -42,6 +42,13 @@ export const TREE_TABLES = Object.freeze([
 const MIB = 1_048_576
 const GIB = 1024 * MIB
 const DAY_MS = 86_400_000
+
+/** Approval record only, never a runtime default. Stage 3 requires a separately authorized overlay. */
+export const HG_G_RETAINED_BUDGET_APPROVAL = Object.freeze({
+  date: '2026-10-03',
+  source: 'HG_G_APPROVED / PR #310 / 89da7f84d7279871f6e10df5df3e6b78594e5ef8',
+  bytes: 8_589_934_592,
+})
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -115,7 +122,7 @@ export function vaultTreeConfigFromEnv(env = process.env) {
     purgeRetentionMs: readInteger(env, 'VAULT_TREE_PURGE_RETENTION_MS', 7 * DAY_MS, { min: 1_000, max: 365 * DAY_MS }),
     maxAttachBlobIdsPerCas: readInteger(env, 'VAULT_TREE_MAX_ATTACH_PER_CAS', 256, { min: 1, max: 256 }),
     maxPurgeBlobIdsPerRequest: readInteger(env, 'VAULT_TREE_MAX_PURGE_PER_REQUEST', 256, { min: 1, max: 256 }),
-    // D-1 preview index — ทุกค่า PROVISIONAL / TO_BE_MEASURED จนกว่า Human จะอนุมัติที่ HG-G (plan Task G.3)
+    // D-1 preview index — attach/envelope defaults approved KEEP at HG-G; superseded-per-CAS KEEP_UNMEASURED.
     maxPreviewIndexAttachPerCas: readInteger(env, 'VAULT_PREVIEW_INDEX_MAX_ATTACH_PER_CAS', 64, { min: 1, max: 256 }),
     maxPreviewIndexSupersededPerCas: readInteger(env, 'VAULT_PREVIEW_INDEX_MAX_SUPERSEDED_PER_CAS', 64, { min: 0, max: 256 }),
     maxPreviewIndexEnvelopeBatch: readInteger(env, 'VAULT_PREVIEW_INDEX_MAX_ENVELOPE_BATCH', 32, { min: 1, max: 128 }),
