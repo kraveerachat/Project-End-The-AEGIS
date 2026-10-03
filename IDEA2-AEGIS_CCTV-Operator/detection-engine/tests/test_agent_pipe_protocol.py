@@ -358,6 +358,7 @@ class PipeProtocolTests(unittest.TestCase):
             raise DrainFailure("unexpected overlapped drain failure")
 
         modules["win32file"].GetOverlappedResult = fail_drain
+        modules["win32event"].WaitForSingleObject = lambda *_args: 0
         server = WindowsNamedPipeServer(
             PipeRequestHandler(RecordingTransport(), allowed_caller_sids={"S-1-5-21-222"}),
             service_sid="S-1-5-80-111",
@@ -368,7 +369,22 @@ class PipeProtocolTests(unittest.TestCase):
         with patch.dict(sys.modules, modules), self.assertRaises(DrainFailure):
             server.serve_once()
 
-        self.assertEqual([("pipe-1", True)], calls["drained"])
+        self.assertEqual([("pipe-1", False)], calls["drained"])
+        self.assertEqual(["pipe-1"], calls["closed"])
+        self.assertIsNone(server._active_handle)
+
+    def test_aborted_idle_accept_without_shutdown_remains_a_failure(self):
+        calls = {"created": [], "cancelled": [], "drained": [], "closed": []}
+        modules = self._idle_accept_modules(calls)
+        modules["win32event"].WaitForSingleObject = lambda *_args: 0
+        server = WindowsNamedPipeServer(
+            PipeRequestHandler(RecordingTransport(), allowed_caller_sids={"S-1-5-21-222"}),
+            service_sid="S-1-5-80-111", engine_sid="S-1-5-21-222",
+            read_timeout_s=0.1,
+        )
+        with patch.dict(sys.modules, modules), self.assertRaisesRegex(Exception, "cancelled"):
+            server.serve_once()
+        self.assertEqual([], calls["cancelled"])
         self.assertEqual(["pipe-1"], calls["closed"])
         self.assertIsNone(server._active_handle)
 
@@ -432,9 +448,10 @@ class PipeProtocolTests(unittest.TestCase):
         self.assertIsNone(server._active_handle)
         self.assertEqual([], calls["closed"])
 
-    def test_idle_accept_timeout_is_normal_and_closes_the_cancelled_instance(self):
+    def test_idle_accept_remains_published_past_read_timeout_until_shutdown(self):
         calls = {"created": [], "cancelled": [], "drained": [], "closed": []}
         modules = self._idle_accept_modules(calls)
+        modules["win32event"].WaitForSingleObject = lambda *_args: time.sleep(0.001) or 258
         server = WindowsNamedPipeServer(
             PipeRequestHandler(RecordingTransport(), allowed_caller_sids={"S-1-5-21-222"}),
             service_sid="S-1-5-80-111",
@@ -442,10 +459,24 @@ class PipeProtocolTests(unittest.TestCase):
             read_timeout_s=0.1,
         )
 
+        worker = threading.Thread(target=server.serve_once)
         with patch.dict(sys.modules, modules):
-            self.assertIsNone(server.serve_once())
+            worker.start()
+            try:
+                deadline = time.monotonic() + 1
+                while not calls["created"] and time.monotonic() < deadline:
+                    time.sleep(0.001)
+                self.assertEqual(1, len(calls["created"]))
+                time.sleep(0.25)
+                self.assertTrue(worker.is_alive(), "idle accept must outlive the read timeout")
+                self.assertEqual([], calls["cancelled"])
+                self.assertEqual([], calls["closed"])
+            finally:
+                server.close()
+                worker.join(1)
 
-        self.assertEqual(["pipe-1"], calls["cancelled"])
+        self.assertFalse(worker.is_alive(), "shutdown must drain idle accept promptly")
+        self.assertEqual(["pipe-1", "pipe-1"], calls["cancelled"])
         self.assertEqual([("pipe-1", True)], calls["drained"])
         self.assertEqual(["pipe-1"], calls["closed"])
         self.assertIsNone(server._active_handle)
@@ -456,7 +487,7 @@ class PipeProtocolTests(unittest.TestCase):
         self.assertTrue(pipe_mode & modules["win32pipe"].PIPE_REJECT_REMOTE_CLIENTS)
         self.assertEqual(0, server.handler.camera_demand_side_effects)
 
-    def test_idle_accept_republishes_without_service_retry_backoff(self):
+    def test_idle_accept_shutdown_does_not_trigger_service_retry_backoff(self):
         from aegis_identity_agent.windows_service import IdentityAgentServiceHost
 
         calls = {"created": [], "cancelled": [], "drained": [], "closed": []}
@@ -468,16 +499,18 @@ class PipeProtocolTests(unittest.TestCase):
             read_timeout_s=0.1,
         )
 
-        class StopAfterTwoAccepts:
+        modules["win32event"].WaitForSingleObject = lambda *_args: time.sleep(0.001) or 258
+
+        class StopAfterShutdown:
             waits = []
 
             def is_set(self):
-                return len(calls["created"]) >= 2
+                return server._closed.is_set()
 
             def wait(self, delay):
                 self.waits.append(delay)
 
-        stop = StopAfterTwoAccepts()
+        stop = StopAfterShutdown()
         host = IdentityAgentServiceHost(
             run_once=server.serve_once,
             stop_event=stop,
@@ -485,13 +518,25 @@ class PipeProtocolTests(unittest.TestCase):
             retry_max_s=1.0,
             wait_after_success=False,
         )
+        worker = threading.Thread(target=host.run)
         with patch.dict(sys.modules, modules):
-            host.run()
+            worker.start()
+            try:
+                deadline = time.monotonic() + 1
+                while not calls["created"] and time.monotonic() < deadline:
+                    time.sleep(0.001)
+                self.assertEqual(1, len(calls["created"]))
+                time.sleep(0.25)
+                self.assertEqual(1, len(calls["created"]))
+            finally:
+                server.close()
+                worker.join(1)
 
-        self.assertEqual(2, len(calls["created"]))
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(1, len(calls["created"]))
         self.assertEqual([], stop.waits)
-        self.assertEqual(["pipe-1", "pipe-2"], calls["cancelled"])
-        self.assertEqual(["pipe-1", "pipe-2"], calls["closed"])
+        self.assertEqual(["pipe-1", "pipe-1"], calls["cancelled"])
+        self.assertEqual(["pipe-1"], calls["closed"])
         self.assertEqual(0, host.camera_demand_side_effects)
 
     def test_connected_read_and_write_timeouts_still_fail_closed(self):
@@ -981,6 +1026,32 @@ class PipeProtocolTests(unittest.TestCase):
         )
         self.assertEqual([], waits)
 
+    def test_connect_abort_995_is_normal_only_for_intentional_shutdown(self):
+        class Aborted(OSError):
+            winerror = 995
+
+        stopped = threading.Event()
+        calls = []
+
+        def abort_connect(*_args):
+            calls.append("connect")
+            stopped.set()
+            raise Aborted("cancelled")
+
+        fake_pywin = SimpleNamespace(OVERLAPPED=lambda: SimpleNamespace(hEvent=None), error=Aborted)
+        fake_event = SimpleNamespace(CreateEvent=lambda *_args: "event")
+        fake_pipe = SimpleNamespace(ConnectNamedPipe=abort_connect)
+        self.assertFalse(_connect_overlapped(
+            fake_pywin, fake_event, SimpleNamespace(), fake_pipe,
+            handle="pipe", timeout_ms=50, stop_event=stopped,
+        ))
+        self.assertEqual(["connect"], calls)
+        with self.assertRaisesRegex(RuntimeError, "995"):
+            _connect_overlapped(
+                fake_pywin, fake_event, SimpleNamespace(), fake_pipe,
+                handle="pipe", timeout_ms=50, stop_event=threading.Event(),
+            )
+
     def test_close_cancels_but_operation_owner_closes_active_handle(self):
         calls = []
         fake_file = SimpleNamespace(
@@ -1080,14 +1151,13 @@ class PipeProtocolTests(unittest.TestCase):
         os.name == "nt" and importlib.util.find_spec("win32pipe") is not None,
         "native pywin32 acceptance dependency is unavailable",
     )
-    def test_native_idle_accept_republishes_for_real_engine_authorized_client(self):
+    def test_native_persistent_idle_accept_after_twelve_seconds(self):
         win32pipe_spec = importlib.util.find_spec("win32pipe")
         dependency_root = pathlib.Path(win32pipe_spec.origin).parent.parent
         dll_cookie = os.add_dll_directory(str(dependency_root / "pywin32_system32"))
         self.addCleanup(dll_cookie.close)
         import win32api
         import win32con
-        import win32pipe
         import win32security
 
         from aegis_engine.identity_agent_client import _windows_connector
@@ -1105,52 +1175,88 @@ class PipeProtocolTests(unittest.TestCase):
             service_sid=sid,
             engine_sid=sid,
             pipe_name=pipe_name,
-            read_timeout_s=2,
+            read_timeout_s=1,
         )
         self.addCleanup(server.close)
-
-        # No client arrives for the first bounded accept. It must leave no
-        # active handle and must not prevent reusing the same first-instance name.
-        self.assertIsNone(server.serve_once())
-        self.assertIsNone(server._active_handle)
-        self.assertEqual([], transport.calls)
-
         server_errors = []
 
-        def serve_again():
+        def serve():
             try:
                 server.serve_once()
             except Exception as exc:
                 server_errors.append(exc)
 
-        worker = threading.Thread(target=serve_again)
+        worker = threading.Thread(target=serve)
         worker.start()
-        deadline = time.monotonic() + 1
-        while True:
-            try:
-                win32pipe.WaitNamedPipe(pipe_name, 50)
-                break
-            except Exception:
-                if time.monotonic() >= deadline:
-                    server.close()
-                    worker.join(1)
-                    self.fail("replacement pipe instance did not become available")
-                time.sleep(0.01)
-
-        response = _windows_connector(
-            pipe_name,
-            encode_request("heartbeat", samples()["heartbeat"]),
-            2,
-            MAX_RESPONSE_BYTES,
-        )
-        worker.join(2)
+        try:
+            # No WaitNamedPipe pre-poll: the real Engine connector must find
+            # the original pipe instance after a long idle period.
+            time.sleep(12.2)
+            self.assertTrue(worker.is_alive())
+            self.assertIsNotNone(server._active_handle)
+            self.assertEqual([], transport.calls)
+            response = _windows_connector(
+                pipe_name,
+                encode_request("heartbeat", samples()["heartbeat"]),
+                2,
+                MAX_RESPONSE_BYTES,
+            )
+        finally:
+            server.close()
+            worker.join(2)
         self.assertFalse(worker.is_alive())
         self.assertEqual([], server_errors)
         self.assertTrue(decode_response(response).ok)
         self.assertEqual(1, len(transport.calls))
         self.assertEqual(0, server.handler.camera_demand_side_effects)
 
-    def _run_native_sequential_responses(self, rounds):
+    @unittest.skipUnless(
+        os.name == "nt" and importlib.util.find_spec("win32pipe") is not None,
+        "native pywin32 acceptance dependency is unavailable",
+    )
+    def test_native_shutdown_drains_idle_accept_without_client(self):
+        win32pipe_spec = importlib.util.find_spec("win32pipe")
+        dependency_root = pathlib.Path(win32pipe_spec.origin).parent.parent
+        dll_cookie = os.add_dll_directory(str(dependency_root / "pywin32_system32"))
+        self.addCleanup(dll_cookie.close)
+        import win32api
+        import win32con
+        import win32security
+
+        token = win32security.OpenProcessToken(win32api.GetCurrentProcess(), win32con.TOKEN_QUERY)
+        sid = win32security.ConvertSidToStringSid(
+            win32security.GetTokenInformation(token, win32security.TokenUser)[0]
+        )
+        transport = RecordingTransport()
+        server = WindowsNamedPipeServer(
+            PipeRequestHandler(transport, allowed_caller_sids={sid}),
+            service_sid=sid, engine_sid=sid,
+            pipe_name=rf"\\.\pipe\AEGIS.IdentityAgent.IdleShutdown.{uuid.uuid4().hex}",
+            read_timeout_s=1,
+        )
+        failures = []
+        worker = threading.Thread(target=lambda: self._record_pipe_server_result(server, failures))
+        worker.start()
+        try:
+            time.sleep(1.2)
+            self.assertTrue(worker.is_alive())
+            self.assertIsNotNone(server._active_handle)
+        finally:
+            server.close()
+            worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([], failures)
+        self.assertIsNone(server._active_handle)
+        self.assertEqual([], transport.calls)
+
+    @staticmethod
+    def _record_pipe_server_result(server, failures):
+        try:
+            server.serve_once()
+        except Exception as exc:
+            failures.append(exc)
+
+    def _run_native_sequential_responses(self, rounds, *, idle_gaps=None):
         win32pipe_spec = importlib.util.find_spec("win32pipe")
         dependency_root = pathlib.Path(win32pipe_spec.origin).parent.parent
         dll_cookie = os.add_dll_directory(str(dependency_root / "pywin32_system32"))
@@ -1216,6 +1322,8 @@ class PipeProtocolTests(unittest.TestCase):
         worker.start()
         try:
             for round_number in range(rounds):
+                if idle_gaps is not None:
+                    time.sleep(idle_gaps[round_number])
                 # Intentionally do not pre-poll for the next one-shot instance:
                 # the real Engine connector must tolerate the publication gap.
                 response = _windows_connector(
@@ -1257,6 +1365,13 @@ class PipeProtocolTests(unittest.TestCase):
     )
     def test_native_hundred_sequential_responses_republish_without_service_backoff(self):
         self._run_native_sequential_responses(100)
+
+    @unittest.skipUnless(
+        os.name == "nt" and importlib.util.find_spec("win32pipe") is not None,
+        "native pywin32 acceptance dependency is unavailable",
+    )
+    def test_native_repeated_requests_across_former_five_second_boundary(self):
+        self._run_native_sequential_responses(2, idle_gaps=(4.9, 5.1))
 
     @unittest.skipUnless(
         os.name == "nt" and importlib.util.find_spec("win32pipe") is not None,
