@@ -36,7 +36,7 @@ STAGE = DEPLOY / "stages" / "L8p"
 MODULE_PATH = DEPLOY / "p4-l8p-device.py"
 CANON_PATH = DEPLOY / "p4-l8-device.py"
 P4_LIB = DEPLOY / "p4-lib.sh"
-HANDLER_FILES = {"apply.sh", "verify.sh", "rollback.sh", "allow-keys.txt", "allow-listeners.txt"}
+HANDLER_FILES = {"apply.sh", "verify.sh", "rollback.sh", "cleanup.sh", "allow-keys.txt", "allow-listeners.txt"}
 
 SECRETS = (H.FIXTURE_C2D, H.FIXTURE_D2C, H.FIXTURE_WIFI_PSK, H.FIXTURE_MQTT_PASS)
 ACCEPTANCE_CLAIM = re.compile(r"(RECOVERY|LVR|L8|L9|D4)[A-Z0-9_]*(ACCEPTANCE|PROVEN|SUCCESS|LIVE_VERIFIED|PASS)=(YES|PASS|PROVEN)")
@@ -848,3 +848,166 @@ def test_the_real_comparator_stops_at_its_usage_gate_on_a_third_argument_and_run
     assert three.returncode == 2 and "usage: p4-compare.sh <BEFORE_DIR> <AFTER_DIR>" in three.stdout + three.stderr, "a third positional argument is refused"
     two = subprocess.run(["bash", str(comparator), str(a.evid), str(b.evid)], text=True, capture_output=True, env=base, check=False)
     assert two.returncode in (0, 1) and "P4_COMPARE_SCHEMA=1" in two.stdout and "COMPARE_RESULT=" in two.stdout
+
+
+# ═════════════ secret-staging lifecycle (live attempt 2): nvs.csv / nvs.bin are TEMPORARY secret-bearing work artifacts, not evidence ═════════════
+# Live attempt 2 provisioned the device (flash, readbacks, boot PASS) and failed only at the final full-EVID secret scan, because the canonical flow's own work artifacts hold the plaintext
+# secrets. cleanup.sh (success path) and the post-first-write branch of rollback.sh remove EXACTLY those two files, host side only; the scan keeps no exclusions.
+
+LIB_PATH = DEPLOY / "p4-l8p-run-lib.sh"
+HISTORICAL = ("2026-10-04-l8p-successor2", "2026-10-04-l8p-20261004-041840", "2026-10-04-l8p-19pin", "2026-10-04-l8p-20261004-030730")
+
+
+def secret_hit_files(*roots: Path) -> dict[str, int]:
+    """Files under the given roots holding any owner secret value (counts of classes only; never the values)."""
+    values = [v.encode() if isinstance(v, str) else v for v in SECRETS]
+    return {f"{root.name}/{f.relative_to(root)}": sum(v in f.read_bytes() for v in values) for root in roots for f in sorted(root.rglob("*"))
+            if f.is_file() and any(v in f.read_bytes() for v in values)}
+
+
+def provisioned(tmp_path: Path):
+    env = stage_env(tmp_path)
+    assert run("apply.sh", env).returncode == 0
+    return env, Path(env["AEGIS_L8P_WORK_DIR"]), Path(env["AEGIS_L8P_EVIDENCE_DIR"])
+
+
+def test_a_real_provisioning_leaves_secret_bearing_work_artifacts_that_the_unchanged_scan_would_flag(tmp_path: Path) -> None:
+    env, work, evid = provisioned(tmp_path)
+    assert (work / "nvs.csv").is_file() and (work / "nvs.bin").is_file() and (work / "first-write.marker").is_file()
+    hits = secret_hit_files(work, evid)
+    assert "work/nvs.csv" in hits and set(hits) <= {"work/nvs.csv", "work/nvs.bin"}, hits   # only the staging artifacts; the canonical evidence and the marker hold no secret value
+    assert oct((work / "nvs.csv").stat().st_mode & 0o777) == "0o600" and oct((work / "nvs.bin").stat().st_mode & 0o777) == "0o600"
+
+
+def test_cleanup_removes_exactly_the_two_artifacts_and_keeps_the_marker_and_the_json_evidence(tmp_path: Path) -> None:
+    env, work, evid = provisioned(tmp_path)
+    (work / "other.txt").write_text("kept\n")
+    (work / "nvs.csv.keep").write_text("kept\n")
+    before_flash = {p.name: p.read_bytes() for p in (work / "fixture-flash").iterdir()}
+    json_before = {p.name: p.read_bytes() for p in evid.glob("*.json")}
+    res = run("cleanup.sh", env)
+    assert res.returncode == 0, out(res)
+    for line in ("NVS_CSV_PRESENT=NO", "NVS_BIN_PRESENT=NO", "FIRST_WRITE_MARKER_PRESENT=YES", "L8P_DEVICE_ACTION_TAKEN=NONE", "L8P_SECRET_WORK_CLEANUP=PASS"):
+        assert line in res.stdout.splitlines(), out(res)
+    assert not (work / "nvs.csv").exists() and not (work / "nvs.bin").exists()
+    assert (work / "first-write.marker").is_file() and (work / "other.txt").is_file() and (work / "nvs.csv.keep").is_file()
+    assert {p.name: p.read_bytes() for p in evid.glob("*.json")} == json_before and len(json_before) == 1
+    assert {p.name: p.read_bytes() for p in (work / "fixture-flash").iterdir()} == before_flash, "the (simulated) device flash is untouched"
+    assert secret_hit_files(work, evid) == {}, "the work and evidence trees hold no secret value after the cleanup"
+    assert not any(v in out(res) for v in SECRETS)
+
+
+def test_cleanup_is_idempotent_and_safe_when_nothing_is_there(tmp_path: Path) -> None:
+    env, work, _ = provisioned(tmp_path)
+    assert run("cleanup.sh", env).returncode == 0
+    again = run("cleanup.sh", env)
+    assert again.returncode == 0 and "L8P_SECRET_WORK_CLEANUP=PASS" in again.stdout
+    empty = tmp_path / "emptywork"
+    empty.mkdir()
+    only = run("cleanup.sh", {**env, "AEGIS_L8P_WORK_DIR": str(empty)})
+    assert only.returncode == 0 and "FIRST_WRITE_MARKER_PRESENT=NO" in only.stdout
+
+
+@pytest.mark.parametrize("name", ["relative", "dotdot", "dot", "double-slash", "empty", "missing-dir"])
+def test_cleanup_refuses_an_unsafe_work_dir_and_removes_nothing(tmp_path: Path, name: str) -> None:
+    env, work, _ = provisioned(tmp_path)
+    bad = {"relative": "work", "dotdot": f"{work}/../work", "dot": f"{work}/./", "double-slash": str(work).replace("/work", "//work"), "empty": "", "missing-dir": str(tmp_path / "nope")}[name]
+    res = run("cleanup.sh", {**env, "AEGIS_L8P_WORK_DIR": bad})
+    assert res.returncode != 0 and "L8P_SECRET_WORK_CLEANUP=FAIL" in out(res), out(res)
+    assert (work / "nvs.csv").is_file() and (work / "nvs.bin").is_file() and (work / "first-write.marker").is_file()
+
+
+def test_cleanup_refuses_a_symlinked_work_dir_and_a_symlinked_parent_and_never_follows_them(tmp_path: Path) -> None:
+    env, work, _ = provisioned(tmp_path)
+    link = tmp_path / "worklink"
+    link.symlink_to(work)
+    res = run("cleanup.sh", {**env, "AEGIS_L8P_WORK_DIR": str(link)})
+    assert res.returncode != 0 and "L8P_SECRET_WORK_CLEANUP=FAIL" in out(res)
+    parent_link = tmp_path / "parentlink"
+    parent_link.symlink_to(work.parent)
+    res = run("cleanup.sh", {**env, "AEGIS_L8P_WORK_DIR": f"{parent_link}/work"})
+    assert res.returncode != 0 and "L8P_SECRET_WORK_CLEANUP=FAIL" in out(res)
+    assert (work / "nvs.csv").is_file() and (work / "nvs.bin").is_file()
+
+
+@pytest.mark.parametrize("script", ["cleanup.sh", "rollback.sh"])
+def test_a_symlinked_or_non_regular_artifact_is_refused_and_the_outside_target_is_never_touched(tmp_path: Path, script: str) -> None:
+    env, work, _ = provisioned(tmp_path)
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_text("must survive\n")
+    (work / "nvs.csv").unlink()
+    (work / "nvs.csv").symlink_to(outside)
+    res = run(script, env)
+    assert res.returncode != 0 and "FAIL" in out(res), out(res)
+    assert outside.read_text() == "must survive\n" and (work / "nvs.bin").is_file(), "refused before removing anything"
+    (work / "nvs.csv").unlink()
+    (work / "nvs.csv").mkdir()
+    res = run(script, env)
+    assert res.returncode != 0 and (work / "nvs.csv").is_dir() and (work / "nvs.bin").is_file()
+
+
+def test_post_first_write_rollback_does_zero_device_action_but_removes_the_secret_staging_files(tmp_path: Path) -> None:
+    env, work, evid = provisioned(tmp_path)
+    flash = work / "fixture-flash"
+    before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in flash.iterdir()}
+    json_before = {p.name: p.read_bytes() for p in evid.glob("*.json")}
+    bindir = tmp_path / "trapbin"
+    bindir.mkdir()
+    log = tmp_path / "tool-calls.log"
+    for tool in ("esptool", "esptool.py", "pio", "python3", "python", "mosquitto_pub", "systemctl", "sudo"):
+        (bindir / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> "{log}"\nexit 97\n')
+        (bindir / tool).chmod(0o755)
+    env2 = {**env, "PATH": f"{bindir}:{env['PATH']}"}
+    res = run("rollback.sh", env2)
+    assert res.returncode == 0, out(res)
+    for line in ("NVS_CSV_PRESENT=NO", "NVS_BIN_PRESENT=NO", "FIRST_WRITE_MARKER_PRESENT=YES", "L8P_FIRST_HARDWARE_WRITE=STARTED", "L8P_DEVICE_ACTION_TAKEN=NONE",
+                 "L8P_ROLLBACK=FAIL_SECURE_HOLD_AND_EVIDENCE", "L8P_EVIDENCE_PRESERVED=YES"):
+        assert line in res.stdout.splitlines(), out(res)
+    assert not log.exists(), "no tool of any kind was started"
+    assert {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in flash.iterdir()} == before
+    assert not (work / "nvs.csv").exists() and not (work / "nvs.bin").exists() and (work / "first-write.marker").is_file()
+    assert {p.name: p.read_bytes() for p in evid.glob("*.json")} == json_before, "the canonical JSON evidence survives byte for byte"
+    again = run("rollback.sh", env2)
+    assert again.returncode == 0 and "L8P_ROLLBACK=FAIL_SECURE_HOLD_AND_EVIDENCE" in again.stdout, "idempotent"
+
+
+def test_pre_first_write_rollback_keeps_its_existing_cleanup_semantics(tmp_path: Path) -> None:
+    env = stage_env(tmp_path)
+    work = Path(env["AEGIS_L8P_WORK_DIR"])
+    work.mkdir(parents=True)
+    (work / "nvs.csv").write_text("x\n")
+    (work / "nvs.bin").write_bytes(b"x")
+    res = run("rollback.sh", env)
+    assert res.returncode == 0 and "L8P_FIRST_HARDWARE_WRITE=NOT_STARTED" in res.stdout and "L8P_ROLLBACK=COMPLETE" in res.stdout and "L8P_DEVICE_ACTION_TAKEN=NONE" in res.stdout
+    assert not (work / "nvs.csv").exists() and not (work / "nvs.bin").exists() and not (work / "first-write.marker").exists()
+
+
+def test_the_cleanup_handler_and_the_rollback_branch_start_nothing_but_coreutils() -> None:
+    for name in ("cleanup.sh", "rollback.sh"):
+        code = "\n".join(l for l in (STAGE / name).read_text().splitlines() if not l.lstrip().startswith("#"))
+        assert not re.search(r"esptool|pio\b|python|mosquitto|systemctl|sudo|curl|nc |ssh|/dev/tty|write_flash|read_flash|erase_flash|RESTORE|\bCUT\b", code), name
+    rollback = "\n".join(l for l in (STAGE / "rollback.sh").read_text().splitlines() if not l.lstrip().startswith("#"))
+    post_write = rollback[rollback.index('if [ -f "$MARKER" ]; then'):rollback.index("exit 0")]
+    assert "rm -rf" not in post_write and "find " not in post_write and post_write.count("for artifact in nvs.csv nvs.bin") == 2, "the post-first-write branch removes only the two named files"
+    cleanup = (STAGE / "cleanup.sh").read_text()
+    assert "rm -rf" not in cleanup and "find " not in cleanup and "-r " not in cleanup
+    assert re.findall(r'rm -f -- "\$\{WORK_DIR:\?\}/\$artifact"', cleanup) and cleanup.count("for artifact in nvs.csv nvs.bin") == 3
+
+
+def test_the_full_evid_secret_scan_still_has_no_exclusions() -> None:
+    text = LIB_PATH.read_text()
+    scan = text[text.index("l8p_secret_scan() {"):]
+    scan = scan[:scan.index("\n}\n")]
+    assert 'for f in ev.rglob("*")' in scan and "ev = pathlib.Path(sys.argv[1])" in scan.replace(", inp", "") or "ev, inp = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])" in scan
+    for banned in ("l8p-work", "work", "exclude", "skip", "ignore", "whitelist", "allowlist", "startswith", "endswith", "relative_to", "parent"):
+        assert banned not in scan.replace("scanned", ""), banned
+    assert scan.count("continue") == 1, "the only skip is for non-files and files of 50 MB or more (unchanged)"
+
+
+def test_the_historical_attempt_directories_are_never_referenced_by_the_tests() -> None:
+    for path in (Path(__file__), Path(__file__).parent / "test_pr11_phase4_l8p_owner_runner.py"):
+        code = "\n".join(l for l in path.read_text().splitlines() if "HISTORICAL" not in l and not l.lstrip().startswith("#"))
+        for hist in HISTORICAL:
+            if path.name == Path(__file__).name:
+                code = code.replace(f'"{hist}"', "")
+            assert hist not in code, (path.name, hist)

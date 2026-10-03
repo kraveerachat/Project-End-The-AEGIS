@@ -635,6 +635,8 @@ def test_only_reviewed_stage_handlers_are_registered() -> None:
         "L7": core_handler_files | {"l7-listener-lib.sh"},
         # L7u (post-L7 Recovery Core upgrade): its PRE->RB compare may approve only the old Core's restart-volatile properties.
         "L7u": core_handler_files | {"allow-keys-rollback.txt"},
+        # L8p owns one host-only handler that removes exactly the temporary secret-bearing work artifacts nvs.csv and nvs.bin (never evidence, never the device) before the full-EVID secret scan.
+        "L8p": core_handler_files | {"cleanup.sh"},
     }
     for name in ("L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8p", "L8", "L9"):
         expected = expected_by_stage.get(name, core_handler_files)

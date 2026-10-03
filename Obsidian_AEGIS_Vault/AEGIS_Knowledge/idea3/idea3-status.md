@@ -18,6 +18,18 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 L8p attempt 2 forensic closeout + secret-staging lifecycle fix — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-secret-staging-lifecycle`, based on `b440b102`. This fix touched no Production service, NTP, serial device or ESP32 and created no Authorization/K3. Attempt 2's records, marker, frozen runner and evidence were not modified.
+> Historical, immutable: L8p attempt 2 CONSUMED its authorization; the first hardware write STARTED; flash, NVS readback, firmware readback and signed boot verification all PASS (`PASS_BOOT_LOCKDOWN`), failure boundary NONE, verify PASS, PRE->POST/PRE->RB compares PASS, S10 PASS — and the runner then failed only at the final secret scan (2 hits, both stage-owned work artifacts), after which the post-write rollback held fail-secure with zero device action and no retry. `L8P_PROVISIONING = NOT_PROVEN` stands; no acceptance is claimed.
+
+- **Root cause:** `l8p-work/nvs.csv` (all four secrets, plaintext) and `l8p-work/nvs.bin` (Wi-Fi/MQTT values) are the canonical flow's temporary staging files, and they sit inside the EVID tree the full scan covers. No secret value was found anywhere else (owner forensic: 209 files, 2 hits).
+- **Fix:** new host-only `stages/L8p/cleanup.sh` removes exactly those two files after apply+verify (before the POST capture and the scan); the post-first-write `rollback.sh` branch does the same (zero device action, hold-and-evidence unchanged). `l8p_secret_scan` is unchanged and has no exclusions.
+- **Reconciliation of attempt 2:** `OWNER_DECISION_REQUIRED` — no existing repository contract defines a post-hoc closeout of a consumed post-write attempt, and none states physical recovery as a hard gate before later stages.
+- **Receipt:** `90-Status/logs/$(basename $R)`.
+
+---
+
 ## IDEA3 L8p attempt 1 forensic closeout + PRE-capture / compare fixes — repository only — 2026-10-04
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-pre-capture-contract-and-compare-arity`, based on `720ca262`. This fix touched no Production service, NTP, serial device or ESP32 and created no Authorization/K3.

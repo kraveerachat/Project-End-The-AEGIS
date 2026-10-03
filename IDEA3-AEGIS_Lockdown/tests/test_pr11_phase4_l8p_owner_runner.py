@@ -42,6 +42,20 @@ case "$name" in
   apply)
     [ ! -e "$SIM_DIR/fail-before-write" ] || { echo "L8P_APPLY=FAIL reason=SIM_BEFORE_WRITE" >&2; exit 1; }
     echo started > "$AEGIS_L8P_WORK_DIR/first-write.marker"
+    # What the REAL canonical flow leaves in WORK_DIR: nvs.csv holds ALL FOUR provisioned secrets in plaintext, nvs.bin holds the encoded Wi-Fi/MQTT values (never printed here).
+    {
+      printf 'key,type,encoding,value\naegis-p1,namespace,,\n'
+      printf 'wifi_psk,data,string,%s\nmqtt_pass,data,string,%s\n' "$(cat "$AEGIS_L8P_INPUT_DIR/wifi.psk")" "$(cat "$AEGIS_L8P_INPUT_DIR/mqtt.pass")"
+      printf 'k_c2d,data,hex2bin,%s\nk_d2c,data,hex2bin,%s\n' "$(cat "$AEGIS_L8P_INPUT_DIR/k_c2d")" "$(cat "$AEGIS_L8P_INPUT_DIR/k_d2c")"
+    } > "$AEGIS_L8P_WORK_DIR/nvs.csv"
+    { head -c 128 /dev/zero; cat "$AEGIS_L8P_INPUT_DIR/wifi.psk"; head -c 64 /dev/zero; cat "$AEGIS_L8P_INPUT_DIR/mqtt.pass"; head -c 20000 /dev/zero; } > "$AEGIS_L8P_WORK_DIR/nvs.bin"
+    chmod 0600 "$AEGIS_L8P_WORK_DIR/nvs.csv" "$AEGIS_L8P_WORK_DIR/nvs.bin"
+    printf '{"schema_version":"1","run_id":"%s","flash_result":"PASS","nvs_readback_match":"PASS","firmware_readback_match":"PASS","boot_verification_result":"PASS","failure_boundary":"NONE"}\n' "$AEGIS_L8P_RUN_ID" > "$AEGIS_L8P_EVIDENCE_DIR/l8p-$AEGIS_L8P_RUN_ID.json"
+    chmod 0600 "$AEGIS_L8P_EVIDENCE_DIR/l8p-$AEGIS_L8P_RUN_ID.json"
+    if [ -e "$SIM_DIR/leak-secret-extra" ]; then   # a REAL leak of one owner secret value into a chosen path under the EVID tree
+      leak_where=$(sed -n 1p "$SIM_DIR/leak-where"); leak_val=$(sed -n 2p "$SIM_DIR/leak-where"); leak_evid=$(dirname "$AEGIS_L8P_WORK_DIR")
+      mkdir -p "$(dirname "$leak_evid/$leak_where")"; printf '%s\n' "$leak_val" >> "$leak_evid/$leak_where"
+    fi
     [ ! -e "$SIM_DIR/leak-secret" ] || cat "$(dirname "$AEGIS_L8P_INPUT_DIR")/leak-source" > "$AEGIS_L8P_EVIDENCE_DIR/leak.txt"
     [ ! -e "$SIM_DIR/fail-apply" ] || { echo "L8P_APPLY=FAIL reason=SIM" >&2; exit 1; }
     echo "L8P_APPLY=COMPLETE" ;;
@@ -81,8 +95,9 @@ done
 class Sim:
     def __init__(self, tmp: Path, *, l7u: bool = True, l8p_done: bool = False, auth_over: dict | None = None, k3: str | None = "v2",
                  authorization: str | None = None, operator_user: str | None = None, operator_uid: str | None = None,
-                 l8p_receipts: dict[str, str] | None = None, esptool_python: str | None = None) -> None:
+                 l8p_receipts: dict[str, str] | None = None, esptool_python: str | None = None, real_rollback: bool = False) -> None:
         self.l8p_receipts = l8p_receipts or {}
+        self.real_rollback = real_rollback
         self.esptool_python = esptool_python if esptool_python is not None else sys.executable
         self.dir = tmp / "sim"
         self.repo = self.dir / "repo"
@@ -122,6 +137,10 @@ class Sim:
             (stg / name).write_text(HANDLER_STUB)
         for name in ("allow-keys.txt", "allow-listeners.txt"):
             (stg / name).write_text("# empty by contract\n")
+        real_stage = DEPLOY / "stages" / "L8p"
+        shutil.copy(real_stage / "cleanup.sh", stg / "cleanup.sh")   # the REAL host-only secret-work cleanup handler
+        if self.real_rollback:
+            shutil.copy(real_stage / "rollback.sh", stg / "rollback.sh")  # the REAL rollback handler (lifecycle tests)
         (self.p4 / "p4-l8p-device.py").write_text("# stand-in\n")
         (self.p4 / "p4-l0-capture.sh").write_text(CAPTURE_STUB)
         (self.p4 / "p4-compare.sh").write_text(COMPARE_STUB)
@@ -1104,3 +1123,85 @@ def test_the_capture_stub_now_emits_the_real_p4_log_line_so_the_runner_gate_is_e
     log = (evid / "pre-root" / "capture.log").read_text()
     assert re.search(r"^\d{4}-\d\d-\d\dT[\d:]+Z L0_CAPTURE=COMPLETE evidence=\S+$", log, re.MULTILINE), log
     assert "L0_CAPTURE=COMPLETE" not in log.splitlines()  # never the bare line
+
+
+# ═════════════ 14. live attempt 2 regression: secret-bearing WORK artifacts must not survive into the tree the final secret scan covers ═════════════
+# Live attempt 2 provisioned the device successfully (flash/readback/boot PASS, verify PASS) and then failed ONLY at l8p_secret_scan: the canonical flow's own work artifacts nvs.csv (all four
+# secrets, plaintext) and nvs.bin (Wi-Fi/MQTT values) live under $EVID/l8p-work, inside the EVID tree the scan covers with no exclusions. They are TEMPORARY secret-bearing staging files, not evidence.
+
+SECRET_VALUES = [SECRET["wifi.psk"], SECRET["mqtt.pass"], SECRET["k_c2d"], SECRET["k_d2c"]]
+
+
+def _evid(sim: Sim) -> Path:
+    return next(sim.evid_base.iterdir())
+
+
+def _hits(root: Path) -> dict[str, list[str]]:
+    """Per file under root: which secret CLASSES (never values) it contains."""
+    names = ["wifi.psk", "mqtt.pass", "k_c2d", "k_d2c"]
+    found: dict[str, list[str]] = {}
+    for f in sorted(root.rglob("*")):
+        if f.is_file():
+            data = f.read_bytes()
+            classes = [n for n, v in zip(names, SECRET_VALUES) if v.encode() in data]
+            if classes:
+                found[str(f.relative_to(root))] = classes
+    return found
+
+
+def test_root_cause_the_only_secret_hits_in_a_provisioned_tree_are_the_two_work_artifacts(tmp_path: Path) -> None:
+    """Independent of any fix: build the tree a real provisioning leaves behind and scan it with the UNCHANGED merged scanner."""
+    sim = Sim(tmp_path)
+    work, outev = tmp_path / "evid" / "l8p-work", tmp_path / "evid" / "l8p-evidence"
+    work.mkdir(parents=True), outev.mkdir(parents=True)
+    env = dict(os.environ, SIM_DIR=str(sim.dir), AEGIS_L8P_INPUT_DIR=str(sim.inputs), AEGIS_L8P_WORK_DIR=str(work), AEGIS_L8P_EVIDENCE_DIR=str(outev), AEGIS_L8P_RUN_ID="l8p-x",
+               AEGIS_L8P_PRE_EVIDENCE_DIR=str(tmp_path / "pre"), AEGIS_L8P_BACKEND="hardware", AEGIS_L8P_LIVE_AUTHORIZED="YES")
+    (tmp_path / "pre").mkdir()
+    assert subprocess.run(["bash", str(sim.p4 / "stages" / "L8p" / "apply.sh")], env=env, capture_output=True, text=True, check=False).returncode == 0
+    (tmp_path / "evid" / "owner-run.log").write_text("clean log\n")
+    hits = _hits(tmp_path / "evid")
+    assert hits == {"l8p-work/nvs.bin": ["wifi.psk", "mqtt.pass"], "l8p-work/nvs.csv": ["wifi.psk", "mqtt.pass", "k_c2d", "k_d2c"]}, hits
+    scan = subprocess.run(["bash", "-c", f"source '{sim.p4}/p4-l8p-run-lib.sh'; SUDO= l8p_secret_scan '{tmp_path / 'evid'}' '{sim.inputs}' python3"], capture_output=True, text=True, check=False)
+    assert scan.returncode == 1 and "L8P_SECRET_VALUE_SCAN_HITS=2" in scan.stdout
+    assert not any(v in scan.stdout + scan.stderr for v in SECRET_VALUES), "no secret value is ever printed"
+
+
+def test_a_successful_run_leaves_no_secret_bearing_artifact_and_passes_the_unchanged_full_evid_secret_scan(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, real_rollback=True)
+    res = sim.run()
+    out = res.stdout + res.stderr
+    assert res.returncode == 0, out
+    assert "L8P_SECRET_VALUE_SCAN_HITS=0" in out and "SECRET_OUTPUT_SCAN failed" not in out
+    evid = _evid(sim)
+    work = evid / "l8p-work"
+    assert not (work / "nvs.csv").exists() and not (work / "nvs.bin").exists()
+    assert (work / "first-write.marker").is_file(), "the first-write marker survives"
+    assert len(list((evid / "l8p-evidence").glob("l8p-*.json"))) == 1, "the canonical JSON evidence survives"
+    assert _hits(evid) == {}, "no secret value anywhere in the whole EVID tree"
+    assert not any(v in out for v in SECRET_VALUES)
+    assert "L8P_SECRET_WORK_CLEANUP=PASS" in out and "NVS_CSV_PRESENT=NO" in out and "NVS_BIN_PRESENT=NO" in out and "FIRST_WRITE_MARKER_PRESENT=YES" in out
+    assert "L8P_PROVISIONING=PASS" in out
+
+
+def test_the_cleanup_runs_only_after_apply_and_verify_succeeded_and_before_the_post_capture(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, real_rollback=True)
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    marks = ["== L8p APPLY", "L8P_APPLY=COMPLETE", "== L8p VERIFY", "L8P_VERIFY=PASS", "== L8p SECRET-WORK CLEANUP", "L8P_SECRET_WORK_CLEANUP=PASS", "== POST capture", "L8P_SECRET_VALUE_SCAN_HITS=0"]
+    positions = [res.stdout.index(m) for m in marks]
+    assert positions == sorted(positions), dict(zip(marks, positions))
+    code = code_only(RUNNER)
+    assert code.index("handler apply.sh") < code.index("handler verify.sh") < code.index("handler cleanup.sh") < code.index("capture POST") < code.index("l8p_secret_scan")
+
+
+@pytest.mark.parametrize("where", ["owner-run.log", "l8p-evidence/leak.txt", "pre-root/leak.txt", "post-root/leak.txt", "unrelated.txt", "l8p-work/other.txt"])
+@pytest.mark.parametrize("secret", ["wifi.psk", "mqtt.pass", "k_c2d", "k_d2c"])
+def test_a_real_secret_value_anywhere_outside_the_two_cleaned_artifacts_still_fails_the_scan(tmp_path: Path, where: str, secret: str) -> None:
+    sim = Sim(tmp_path, real_rollback=True)
+    sim.inject("leak-secret-extra")
+    (sim.dir / "leak-where").write_text(f"{where}\n{SECRET[secret]}\n")
+    res = sim.run()
+    out = res.stdout + res.stderr
+    assert res.returncode == 1 and "SECRET_OUTPUT_SCAN failed" in out and "L8P_PROVISIONING=PASS" not in out, out
+    assert not any(v in out for v in SECRET_VALUES), "no raw secret value is ever printed"
+    assert "L8P_ROLLBACK_SEMANTICS=FAIL" not in out and sim.marker()

@@ -94,3 +94,12 @@ required the whole `capture.log` line to equal `L0_CAPTURE=COMPLETE`, but the ca
 whitespace-delimited token (and refuses `INCOMPLETE`, `NOT_L0_CAPTURE=COMPLETE`, `COMPLETED` and embedded substrings) and the mandatory `SHA256SUMS` verification is unchanged. (2) The owner runner passed the report path to
 `p4-compare.sh` as a third positional argument; the comparator takes exactly `<BEFORE_DIR> <AFTER_DIR>`, so the report path is now only the runner's redirection target. The first attempt's records and evidence stay immutable; a successor
 attempt needs a new freeze, a fresh same-day Authorization/K3 and explicit owner authorization.
+
+## 8. Addendum (2026-10-04): live attempt 2 and the secret-staging lifecycle
+
+Attempt 2 reached the device: first write started, flash, NVS and firmware readbacks equal, signed BOOT verification `PASS_BOOT_LOCKDOWN`, `failure_boundary = NONE`, verify PASS, PRE->POST and PRE->RB compares PASS, S10 PASS. It then failed only at the runner's final
+`l8p_secret_scan`, and the post-write rollback correctly held fail-secure with zero device action. Root cause: the canonical flow's own work artifacts `l8p-work/nvs.csv` (all four provisioned secrets, plaintext) and `l8p-work/nvs.bin` (the encoded Wi-Fi/MQTT values)
+live inside the EVID tree that the scan covers with no exclusions. They are TEMPORARY secret-bearing staging files, not evidence. The scan is unchanged and still covers the entire tree; the lifecycle changes instead: a new host-only handler `stages/L8p/cleanup.sh` removes EXACTLY
+`nvs.csv` and `nvs.bin` (exact WORK_DIR, never a symlink or non-regular file, never the first-write marker or the JSON evidence, coreutils only) after apply and verify have passed and before the POST capture and the scan, and the post-first-write branch of `rollback.sh` applies the same
+removal (still zero device action, still `FAIL_SECURE_HOLD_AND_EVIDENCE`; the pre-first-write branch already removed these files). Attempt 2 stays consumed and its formal result stays `NOT_PROVEN`: no repository contract defines a post-hoc closeout of a consumed post-write attempt (the success claim is
+emitted only by the runner's full success path), so reconciling it, and whether physical recovery is required first, is an owner decision.
