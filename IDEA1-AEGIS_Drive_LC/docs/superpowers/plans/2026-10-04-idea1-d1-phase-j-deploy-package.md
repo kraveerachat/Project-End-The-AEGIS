@@ -1,0 +1,182 @@
+# IDEA1 D-1 Phase J — Stage 2 / Stage 3 deploy package (binds runbook V6)
+
+> **Package status:** `PHASE_J_DEPLOY_PACKAGE=PREPARED`. **Nothing here has been executed.**
+> `PRODUCTION_MUTATION=NO`, `WRITER_ENABLED=NO`. Every command is for the **Human Owner** only, after the
+> gates in runbook V6 §1 (HG-H signed off, replica rollback rehearsal B/D/E, `PRE_DEPLOY_BACKUP=PASS`) and
+> per-stage authorization (HG-S2, HG-S3). An agent never builds-and-ships, loads an image, installs an
+> overlay, runs `docker compose up`, restarts Drive, or changes Production environment.
+
+Plan: `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md`, Phase J, Stages 2–3.
+Precedent: `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-10-02-idea1-d1-stage1-production-runbook.md` (Stage 1 build/transfer/install).
+Operational runbook (outside Git, bound by hash): `d1-stage234-final-runbook-v6.md`.
+
+## 1. Authorities
+
+```text
+REPOSITORY=kraveerachat/Project-End-The-AEGIS
+PR_E=#310 MERGED
+PR_E_MERGE_SHA=2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b      # origin/main at package time; contains PR #303 and PR-E
+V6_RUNBOOK=d1-stage234-final-runbook-v6.md
+V6_SHA256=7911e780f35ead33ed50a52e3786fb7e2653a69ab75fc462749416a9d059b62e
+STAGE1_ACCEPTED_IMAGE=aegis-prod-drive:preview-d1-s1-9f5a01148ce0   # V6 EXPECTED_STAGE1_IMAGE (Stage 1 receipt 2026-10-02)
+STAGE1_ACCEPTED_REVISION=9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f   # ancestor of PR_E_MERGE_SHA: verified
+APPROVED_BUDGET=8589934592                                   # HG-G 2026-10-03, 8 GiB per owner
+WRITER_KINDS=thumb,poster
+```
+
+Machine-readable copy: `IDEA1-AEGIS_Drive_LC/deploy/production/d1/phase-j/phase-j-authority.txt`.
+
+Runtime delta `9f5a0114..2cbeb836` in Drive build inputs: server JS only (`server/config/vaultTreeLimits.js`,
+`server/db/vaultPreviewIndexStore.js`, `server/db/vaultTreeStore.js`, `server/db/vaultV2Store.js`,
+`server/routes/api.js`, `server/routes/vaultPreviewIndex.js`, `server/routes/vaultUploads.js`) plus client
+sources. **No new migration** (latest is still `012_vault_preview_index_v1.sql`, applied in Stage 1);
+`Dockerfile`, `package.json`, `package-lock.json` unchanged since Stage 1.
+
+## 2. V6 placeholder bindings
+
+Every `<PENDING_PHASE_J_DEPLOY_PR>` in V6 resolves as follows. Paste these exact values into V6 §S2.4,
+§S3.3, §S3.4 and §S3.7 (fresh-shell blocks).
+
+| V6 variable | Bound value |
+|---|---|
+| `S2_SHA` | `2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b` |
+| `S2_IMAGE` | `aegis-prod-drive:preview-d1-s2-2cbeb8363acd` |
+| `S2_OVERLAY` | `/opt/aegis/runtime/preview-d1/drive-preview-index-stage2-2cbeb8363acd.yml` |
+| `S2_OVERLAY_SHA256` | `75f992bdb29994238f1d1e1985e4d40113baf346c99e7ba453da2273620b601e` |
+| `IMAGE_ARCHIVE` | `/tmp/aegis-prod-drive-preview-d1-s2-2cbeb8363acd.tar` |
+| `IMAGE_ARCHIVE_SHA256` | **pending** `S2_IMAGE_ARCHIVE_SHA256` (recorded at Step 0 build) |
+| `IMAGE_REVISION_LABEL` | `2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b` |
+| `IMAGE_USER` | `node` |
+| `S3_OVERLAY` | `/opt/aegis/runtime/preview-d1/drive-preview-index-stage3-2cbeb8363acd.yml` |
+| `S3_OVERLAY_SHA256` | `c7a4538f671e6632ae4f74e792e01f75fe343b8d34ac9fc69b1a9312b0e0eb60` |
+
+Overlay SHA-256 values are over Git blob (LF) bytes: `git show <ref>:<path> | sha256sum`.
+Host paths follow the Stage 1 precedent: archive transferred to `/tmp/`, overlays installed under
+`$RT=/opt/aegis/runtime/preview-d1` (V6 §2).
+
+### Live / build facts still pending
+
+These cannot be derived from Git or V6 and are captured by the Human / live-capture session only:
+
+| Token | Captured where |
+|---|---|
+| `LIVE_STAGE1_CHAIN` | V6 §S2.2.1 (`pre-stage2-live-chain.txt`) |
+| `LIVE_STAGE1_OVERLAY_PATHS` | V6 §S2.2.1 (Stage 1 overlays as they appear in the live chain) |
+| `LIVE_STAGE1_OVERLAY_SHA256` | V6 §S2.2.1 (`pre-stage2-live-chain.sha256`); expected to equal Stage 1 `49b0ad5f…6f78` / `7c5f0df7…6a59` |
+| `LIVE_POSTGRES_USER` | V6 §2 Common Authority Block (resolved dynamically; never hardcoded) |
+| `LIVE_CURRENT_IMAGE` | V6 §S2.3.1; must equal `aegis-prod-drive:preview-d1-s1-9f5a01148ce0` |
+| `S2_IMAGE_ARCHIVE_SHA256` | Step 0 below, and re-checked on the host |
+| `S2_IMAGE_ID` | Step 0 below |
+| `S2_OCI_REVISION` | Step 0 below; must equal `S2_SHA` |
+
+## 3. Stage contracts
+
+| Variable | Stage 2 (`stage2` overlay) | Stage 3 (`stage2` + `stage3` overlays) |
+|---|---|---|
+| `image` | `aegis-prod-drive:preview-d1-s2-2cbeb8363acd` | **same** — Stage 3 overlay has no `image`/`build` key |
+| `VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE` | `true` | `true` (inherited) |
+| `VAULT_PREVIEW_INDEX_READ_ENABLED` | `true` | `true` (inherited) |
+| `VAULT_PREVIEW_INDEX_WRITE_ENABLED` | `false` | `true` |
+| `VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER` | **absent** | `8589934592` |
+| `VAULT_MEDIA_PREVIEW_ENABLED` | `true` (restated) | `true` (inherited) |
+| `VAULT_DESTRUCTIVE_PURGE_ENABLED` | `false` (restated) | `false` (inherited) |
+| Boot line (V6) | `schema verified, read enabled, write disabled` | `schema verified, read enabled, write ENABLED` |
+
+Same-image enforcement: (a) the Stage 3 overlay contains no `image`/`build`; (b) V6 §S3.3.2 requires the live
+chain to end with `S2_OVERLAY`; (c) V6 §S3.4 requires the rendered Stage 3 drive image to equal `S2_IMAGE`;
+(d) `verify-phase-j-package.sh` proves (a) and (c) on a fixture chain before shipping.
+
+Stage 3 enables the writer **server-wide** for all eligible TREE_V1 owners (V6 §S3.1); the capacity preflight
+and `ELIGIBLE_OWNERS <= 2` stop remain mandatory.
+
+## 4. Step 0 — approved build workstation (Human)
+
+Run in **Git Bash** (PowerShell `>` re-encodes bytes and breaks SHA-256 checks).
+
+```bash
+set -euo pipefail
+SHA=2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b
+TAG=aegis-prod-drive:preview-d1-s2-2cbeb8363acd
+REPO=/c/path/to/AEGIS_System                 # any clone of kraveerachat/Project-End-The-AEGIS
+WT=/c/aegis-build-d1-s2-2cbeb8363acd
+DEPLOY_REF=origin/feat/idea1-d1-phase-j-deploy   # or the exact reviewed commit of this package PR
+
+git -C "$REPO" fetch origin
+git -C "$REPO" merge-base --is-ancestor 9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f "$SHA" && echo STAGE1_IN_CANDIDATE=YES
+git -C "$REPO" -c core.autocrlf=false worktree add --detach "$WT" "$SHA"   # LF checkout
+test -z "$(git -C "$WT" status --porcelain)" || { echo 'STOP: build worktree is not clean' >&2; exit 1; }
+
+cd "$WT/IDEA1-AEGIS_Drive_LC"
+docker build \
+  --label org.opencontainers.image.revision=$SHA \
+  --label org.opencontainers.image.source=https://github.com/kraveerachat/Project-End-The-AEGIS \
+  -t "$TAG" .
+
+docker image inspect "$TAG" \
+  --format 'ID={{.Id}} REV={{index .Config.Labels "org.opencontainers.image.revision"}} USER={{.Config.User}}'
+docker image inspect "$TAG" --format '{{range .Config.Env}}{{println .}}{{end}}' \
+  | cut -d= -f1 | grep -E '^(VAULT_|DATABASE_URL|PG|POSTGRES|SESSION|SECRET)' && { echo 'STOP: image bakes forbidden env' >&2; exit 1; } || echo 'IMAGE_ENV_CLEAN=YES'
+
+# Package self-check at the reviewed deploy ref (local only; renders a fixture chain).
+git -C "$REPO" worktree add --detach /c/aegis-verify-phase-j "$DEPLOY_REF"
+bash /c/aegis-verify-phase-j/IDEA1-AEGIS_Drive_LC/deploy/production/d1/phase-j/verify-phase-j-package.sh HEAD
+
+OUT="$USERPROFILE/Downloads/aegis-d1-s2"; mkdir -p "$OUT"
+for f in drive-preview-index-stage2-2cbeb8363acd.yml drive-preview-index-stage3-2cbeb8363acd.yml; do
+  git -C "$REPO" show "$DEPLOY_REF:IDEA1-AEGIS_Drive_LC/deploy/production/d1/$f" > "$OUT/$f"
+done
+sha256sum "$OUT"/*.yml     # must equal §2 S2_OVERLAY_SHA256 / S3_OVERLAY_SHA256
+docker save --output "$OUT/aegis-prod-drive-preview-d1-s2-2cbeb8363acd.tar" "$TAG"
+sha256sum "$OUT/aegis-prod-drive-preview-d1-s2-2cbeb8363acd.tar"
+```
+
+Required: `STAGE1_IN_CANDIDATE=YES`, `REV=2cbeb836…b24b`, `USER=node`, `IMAGE_ENV_CLEAN=YES`,
+`PHASE_J_PACKAGE_VERIFY=PASS`, both overlay hashes as in §2. Record:
+
+```text
+S2_IMAGE_ID=
+S2_OCI_REVISION=
+S2_IMAGE_ARCHIVE_SHA256=
+```
+
+Transfer with the established mechanism (Stage 1 runbook §4 / PR187 §B) — archive and both overlays to `/tmp/` on the host.
+
+## 5. Step T — host: verify transfer and install overlays (Human, before V6 §S2.4)
+
+V6 §S2.4 / §S3.4 require `S2_OVERLAY` and `S3_OVERLAY` to exist at their host paths. Installing a file is not
+a service mutation; it changes nothing running. Run after the V6 §2 Common Authority Block.
+
+```bash
+set -euo pipefail
+RT=/opt/aegis/runtime/preview-d1
+S2_OVERLAY_SHA256=75f992bdb29994238f1d1e1985e4d40113baf346c99e7ba453da2273620b601e
+S3_OVERLAY_SHA256=c7a4538f671e6632ae4f74e792e01f75fe343b8d34ac9fc69b1a9312b0e0eb60
+for pair in "drive-preview-index-stage2-2cbeb8363acd.yml:$S2_OVERLAY_SHA256" "drive-preview-index-stage3-2cbeb8363acd.yml:$S3_OVERLAY_SHA256"; do
+  f=${pair%%:*}; h=${pair##*:}
+  test "$(sha256sum "/tmp/$f" | cut -d' ' -f1)" = "$h" || { echo "STOP: /tmp/$f SHA-256 mismatch" >&2; exit 1; }
+  sudo test ! -e "$RT/$f" || { echo "STOP: $RT/$f already exists — inspect before overwrite" >&2; exit 1; }
+  sudo install -m 0644 "/tmp/$f" "$RT/$f"
+  test "$(sha256sum "$RT/$f" | cut -d' ' -f1)" = "$h" || { echo "STOP: installed $f mismatch" >&2; exit 1; }
+done
+echo PHASE_J_OVERLAYS_INSTALLED=YES
+```
+
+The image archive stays in `/tmp/`; V6 §S2.4 verifies `IMAGE_ARCHIVE_SHA256` and loads it.
+
+## 6. Local verification (agent-safe)
+
+```bash
+bash IDEA1-AEGIS_Drive_LC/deploy/production/d1/phase-j/verify-phase-j-package.sh [ref]
+```
+
+Checks authority bindings and the pending set, overlay Git-blob SHA-256, the static overlay contract, and
+renders `fixture base → Stage 1 image → Stage 1 flags → Stage 2 → Stage 3` with `docker compose config`
+using the V6 §S2.4 / §S3.4 extraction expressions (images, WRITE, budget) plus non-drive equality. It never
+runs `up`, `pull`, `load`, or contacts a host. The fixture (`phase-j/fixtures/live-chain-base.fixture.yml`) stands
+in for the live base chain and is never shipped.
+
+## 7. Rollback references
+
+- Case C (Stage 2 → Stage 1, zero D-1 rows): V6 §S2.7, re-applies the authenticated `pre-stage2-live-chain.txt`.
+- Case D (writer-capable → Stage 1 with D-1 rows): V6 §S2.8, separate Human authorization.
+- Case E (Stage 3 → Stage 2): V6 §S3.7 with `S2_IMAGE` / `S2_OVERLAY` from §2; budget must be absent afterwards.

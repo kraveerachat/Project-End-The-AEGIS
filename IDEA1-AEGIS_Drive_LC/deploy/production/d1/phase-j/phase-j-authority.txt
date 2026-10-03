@@ -1,0 +1,40 @@
+# IDEA1 D-1 Phase J deploy authority (runbook V6). Data only; no secrets; never sourced by Production services.
+# Values marked <LIVE_...> or <S2_...> are live/build facts not yet captured; every other value is bound.
+# Overlay SHA-256 values are over Git blob (LF) bytes: git show <ref>:<path> | sha256sum
+
+PR_E_MERGE_SHA=2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b
+PR_E_PR=310
+V6_RUNBOOK=d1-stage234-final-runbook-v6.md
+V6_SHA256=7911e780f35ead33ed50a52e3786fb7e2653a69ab75fc462749416a9d059b62e
+
+EXPECTED_STAGE1_IMAGE=aegis-prod-drive:preview-d1-s1-9f5a01148ce0
+EXPECTED_STAGE1_REVISION=9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f
+
+S2_SHA=2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b
+S2_IMAGE=aegis-prod-drive:preview-d1-s2-2cbeb8363acd
+IMAGE_REVISION_LABEL=2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b
+IMAGE_SOURCE_LABEL=https://github.com/kraveerachat/Project-End-The-AEGIS
+IMAGE_USER=node
+IMAGE_ARCHIVE=/tmp/aegis-prod-drive-preview-d1-s2-2cbeb8363acd.tar
+
+RT=/opt/aegis/runtime/preview-d1
+S2_OVERLAY_REPO=IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-preview-index-stage2-2cbeb8363acd.yml
+S2_OVERLAY=/opt/aegis/runtime/preview-d1/drive-preview-index-stage2-2cbeb8363acd.yml
+S2_OVERLAY_SHA256=75f992bdb29994238f1d1e1985e4d40113baf346c99e7ba453da2273620b601e
+S3_OVERLAY_REPO=IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-preview-index-stage3-2cbeb8363acd.yml
+S3_OVERLAY=/opt/aegis/runtime/preview-d1/drive-preview-index-stage3-2cbeb8363acd.yml
+S3_OVERLAY_SHA256=c7a4538f671e6632ae4f74e792e01f75fe343b8d34ac9fc69b1a9312b0e0eb60
+
+APPROVED_BUDGET=8589934592
+WRITER_KINDS=thumb,poster
+STAGE2_WRITE=false
+STAGE3_WRITE=true
+
+LIVE_STAGE1_CHAIN=<LIVE_STAGE1_CHAIN>
+LIVE_STAGE1_OVERLAY_PATHS=<LIVE_STAGE1_OVERLAY_PATHS>
+LIVE_STAGE1_OVERLAY_SHA256=<LIVE_STAGE1_OVERLAY_SHA256>
+LIVE_POSTGRES_USER=<LIVE_POSTGRES_USER>
+LIVE_CURRENT_IMAGE=<LIVE_CURRENT_IMAGE>
+S2_IMAGE_ARCHIVE_SHA256=<S2_IMAGE_ARCHIVE_SHA256>
+S2_IMAGE_ID=<S2_IMAGE_ID>
+S2_OCI_REVISION=<S2_OCI_REVISION>
