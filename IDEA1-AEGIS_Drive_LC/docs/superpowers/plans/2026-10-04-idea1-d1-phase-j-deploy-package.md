@@ -224,3 +224,100 @@ in for the live base chain and is never shipped.
 - Case C (Stage 2 → Stage 1, zero D-1 rows): V6 §S2.7, re-applies the authenticated `pre-stage2-live-chain.txt`.
 - Case D (writer-capable → Stage 1 with D-1 rows): V6 §S2.8, separate Human authorization.
 - Case E (Stage 3 → Stage 2): V6 §S3.7 with `S2_IMAGE` / `S2_OVERLAY` from §2; budget must be absent afterwards.
+
+## 8. Non-Production replica rollback rehearsal — Cases B, D, E (V6 §1 precondition)
+
+`REPLICA_ROLLBACK_REHEARSAL=COMPLETE` — `CASE_B=PASS`, `CASE_D=PASS`, `CASE_E=PASS` (run 6, 2026-10-04, 57/57 harness
+checks, 0 failures). `REPLICA_ROLLBACK_REHEARSAL_REF=replica-bde-run6-20261004.tar`
+(SHA-256 `c70c8c414504d92718e9727ea9f06d1be4b1b96869a90fe96d72755991073478`, 1382400 B, kept outside Git with the
+preflight evidence). `PRODUCTION_CONNECTION=NO`, `PRODUCTION_MUTATION=NO`.
+
+### Case definitions used
+
+- **Case D** — V6 §S2.8 (lines 592–636), executed as written: writer-capable Stage 2/3 build → Stage 1 accepted
+  read-only build when D-1 rows exist, re-applying the authenticated `pre-stage2-live-chain.*`.
+- **Case E** — V6 §S3.7 (lines 962–1030), executed as written: Stage 3 → Stage 2, same image, writer false,
+  budget unset, re-applying the authenticated `pre-stage3-live-chain.*` that must end with `S2_OVERLAY`.
+- **Case B** — V6 names it (§1 lines 27, 65) but defines **no procedure**. V6's governing standard (plan Task I.2)
+  defines it: *new reader/server → baseline server after an index exists*; must prove baseline boots,
+  `/tree/blobs?lifecycle=UNREFERENCED` excludes `INDEX_*`, main `casHead` refuses `INDEX_*`, `GET /api/vault`
+  carries the index envelopes (documented degraded payload, size recorded), baseline UI ignores them, no data loss.
+  Baseline = the accepted P1 runtime `8634360f` (its server/src/Dockerfile/package inputs are byte-identical to the
+  plan's `2dc596d1` baseline), reached through the authenticated `pre-stage1` chain as in the Stage 1 runbook.
+- **Case C** (negative control, not requested): V6 §S2.7 run with D-1 rows present must refuse without mutation.
+
+### Replica
+
+| Item | Value |
+|---|---|
+| Isolation | Compose project `aegis-d1rep`, own network/volumes, bind-mounted disposable `/datalake`, `127.0.0.1:58811`, generated throw-away secrets; harness refuses `DOCKER_HOST` and non-local Docker contexts |
+| Platform | Windows 11, Git Bash, Docker Desktop 28.3.2 (containerd store), Compose 2.38.2, Node 24.14.0 (driver) |
+| PostgreSQL | `postgres:15-alpine`, `log_statement=all`; P1-era `schema.sql` + `seed.sql` (Git `8634360f`), production `drive_app` role/grant model, migration 012 from Git `9f5a0114` (SHA-256 `aac26537…b239`) |
+| Images | P1 `aegis-prod-drive:p1-8634360f74ed` (built from exact `8634360f`, id `sha256:f38dfda1…5fc09`); Stage 1 `…:preview-d1-s1-9f5a01148ce0` (id `sha256:8d5356fc…88e0` = Production); Stage 2 `…:preview-d1-s2-2cbeb8363acd` (id `sha256:3a924636…36ff`, loaded from the bound archive by V6 §S2.4) |
+| Chain | replica base + replica P1 overlay + Git Stage 1 overlays (`49b0ad5f…`, `7c5f0df7…`) + Git Stage 2/3 overlays (`75f992bd…`, `c7a4538f…`) |
+| Client code | real client modules of each build: Stage 1 `9f5a0114`, Stage 2/3 `2cbeb836` (writer path), P1 `8634360f` |
+
+### Lifecycle replayed on one database and one storage root
+
+Setup (before `RUNTIME_BEGIN`) → Stage 1 (2 TREE_V1 owners + 1 provisioned user, 6 originals) → **V6 §S2.2–§S2.5**
+(`PRE_STAGE2_ZERO_STATE_ASSERTED`, `STAGE2_BUDGET_UNSET_VERIFIED`, `STAGE2_BOOT_LINE_VERIFIED`,
+`STAGE2_ZERO_STATE_ASSERTED`) → **V6 §S3.1–§S3.6** (`ELIGIBLE_OWNERS=2`, `BUDGET_BINDING_VERIFIED` 8589934592,
+`STAGE3_BOOT_LINE_VERIFIED`) → real D-1 state through the Stage 2/3 writer path for 3 owners (heads 3, generations 3,
+blob_refs 9, `INDEX_MANAGED` 9) → **Case E** → **Case C refusal** → **Case D** → **Case B**.
+
+V6 blocks are extracted from the hash-verified V6 file and executed unchanged except authority tokens (35 logged
+substitutions: Compose project/dir/env-file, `$RT`, container names, the `<PENDING_PHASE_J_DEPLOY_PR>` values bound in
+§2 re-targeted to replica paths) plus a platform prelude (`sudo` → direct call with Docker Desktop VM-path → host-path
+mapping; GNU `sha256sum` backslash-escape normalisation). The extractor fails if any Production path, container,
+project, host address, or unresolved placeholder remains.
+
+### Results
+
+| Case | V6 / harness | Client (real modules) | D-1 snapshot | Originals |
+|---|---|---|---|---|
+| E | §S3.7 rc 0, `CASE_E_BUDGET_UNSET_VERIFIED=YES`, image = `S2_IMAGE`, env `WRITE=false` | 46/46: `/state` write=false; `POST /preview-index/head` and `/uploads` → 503 `PREVIEW_INDEX_WRITE_DISABLED`; reader READY on retained index; byte-exact downloads; upload/rename/move/trash/restore; 0 orphans | unchanged | unchanged |
+| C (neg.) | §S2.7 rc 1: `CRITICAL: D-1 rows exist (12). Case C rollback is INVALID`; container image/StartedAt unchanged | — | unchanged | unchanged |
+| D | §S2.8 rc 0, image = Stage 1 accepted image | 46/46: Stage 1 flags; write routes 404; Stage 1 reader READY on retained index; byte-exact downloads; ordinary flows; 0 orphans | unchanged | unchanged |
+| B | authenticated pre-stage1 chain, image P1 (revision `8634360f`), restarts 0, OOM false, `/healthz` 200 | 49/49: no preview-index route; UNREFERENCED excludes all 9 index blobs; main CAS attaching a derivative → 409 `TREE_BLOB_STATE_CONFLICT` (×3); `GET /api/vault` carries index envelopes (degraded payload: 8/8/6 envelopes, 3929/3953/3061 B vs 3/3/1 on Stage 3); byte-exact downloads; ordinary flows; 0 orphans | unchanged | unchanged |
+
+- **D-1 snapshot** (every `INDEX_*` blob with size/storage key, every head/generation/blob_ref row; 24 rows,
+  SHA-256 `2d358be7…1828`) identical after E, D and B. Schema identical throughout (3 D-1 tables, widened lifecycle
+  CHECK, 2 immutability triggers, `drive_app` has no DELETE on D-1 tables). `NON_V1_MAIN_REVISIONS=0` everywhere.
+- **Originals**: 14 non-index blob rows + chunk rows (SHA-256 `23a2c6f5…cb4d`) unchanged after every case; all 29
+  on-disk files present at Stage 3 still present with identical SHA-256 after every case; client downloads byte-exact.
+- **Destructive-SQL audit** (`RUNTIME_BEGIN..RUNTIME_END`, 3254 statements, `drive_app` 3208): `NO_DOWNMIGRATION=YES`,
+  `NO_DESTRUCTIVE_D1_DELETE=YES`, `NO_PURGE=YES`; no DDL, no DROP/TRUNCATE, no `DELETE FROM` a protected table, no
+  purge-candidate insert, no preview-index write and no `INDEX_*` lifecycle write after the index was frozen; the
+  superuser issued only reads. Only application `DELETE`: `DELETE FROM vault_tree_frozen_inventory WHERE user_id=$1`
+  (tree genesis bookkeeping of the newly set-up vault; not D-1 or original state). Positive control: injected
+  DELETE/TRUNCATE/purge-insert/ALTER statements are all detected (`SQL_CAPTURE_VERIFY=FAIL`).
+- **Rollback chains**: V6 wrote `pre-stage2` (4 files) and `pre-stage3` (5 files, ending with `S2_OVERLAY`) lists,
+  per-file manifests and order hashes; each order hash recomputed independently; Case D/E re-verified them
+  (`sha256sum -c`, line-count and arg-count checks) before mutating.
+
+### Reproduce
+
+```bash
+# clean detached LF worktrees (P1 8634360f, Stage 1 9f5a0114, Stage 2 2cbeb836) with node_modules; the three
+# images above present locally; Stage 2 archive from §4.
+P1_ROOT=<8634360f>/IDEA1-AEGIS_Drive_LC S1_ROOT=<9f5a0114>/IDEA1-AEGIS_Drive_LC S2_ROOT=<2cbeb836>/IDEA1-AEGIS_Drive_LC \
+V6=<d1-stage234-final-runbook-v6.md> S2_ARCHIVE=<aegis-prod-drive-preview-d1-s2-2cbeb8363acd.tar> OUT=<dir outside repo> \
+bash IDEA1-AEGIS_Drive_LC/deploy/production/d1/phase-j/rehearsal/rehearse-bde.sh   # → REPLICA_ROLLBACK_REHEARSAL=COMPLETE
+```
+
+Cleanup is part of the run (only project `aegis-d1rep`; `REMAINING_REPLICA_RESOURCES=0`).
+
+### Limitations
+
+- Replica, not Production: Windows/Docker Desktop host, 3 accounts and 6–25 small files, not the 31-file live chain
+  (replica base + P1 stand-in overlay; Production P1 overlay bytes are not in Git). Live chain authenticity remains
+  V6's job at execution time.
+- D-1 state is created through the real writer path modules (`buildPreviewIndexFor`: seal derivative, shard, root,
+  CAS) with a synthetic JPEG derivative, as in plan Task I.2; no browser canvas/thumbnail generation.
+- V6 browser checks (§S2.3.3, §S2.5.2–3, §S3.3.3, §S3.6.2, Case E browser check) are exercised over HTTP with the
+  build's own client modules, not a browser.
+- V6 §S3.1.3 ran against the replica bind mount (host free space of the build workstation, not Production).
+- Five harness-only runs preceded run 6 and were discarded (global MSYS path-conversion override broke `git -C`;
+  missing replica `TRUSTED_PROXY_CIDRS`; probe file absent for the third account; Docker Desktop bind-path form;
+  audit regex false positive on a read-only query plus an abort trap that overwrote the statement log).
+  None touched Production; each replica was removed.
