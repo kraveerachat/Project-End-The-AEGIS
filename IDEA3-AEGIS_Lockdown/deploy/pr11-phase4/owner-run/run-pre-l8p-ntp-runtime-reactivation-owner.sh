@@ -151,8 +151,16 @@ done
 echo "== POST capture"; capture POST "$EVID/post-root" || rollback_flow "POST capture failed"
 echo "== PRE -> POST compare (the two units' runtime bookkeeping, time state and the AP NTP listener only)"; compare "$EVID/pre-root" "$EVID/post-root" "$EVID/compare-pre-post.txt" || rollback_flow "PRE->POST compare failed"
 identity_unchanged || rollback_flow "legacy mosquitto/Twingate/IDEA2/Core/broker identity changed"
+# FINAL read-only verification, AFTER every evidence capture and comparison. The VERIFY output above predates the POST capture and is NOT the readiness claim: the consumed
+# 2026-10-03 attempt passed VERIFY and then lost chronyd to its own POST capture. The PASS verdict below is therefore derived from THIS check of the runtime as it is NOW.
+echo "== FINAL read-only NTP runtime verification (after the POST capture and compare; nothing below this line may change the NTP runtime)"
+final_rc=0; final_out=$(NTPREACT_SUDO=sudo ntpreact_runtime_ready_gate 2>&1) || final_rc=$?
+if [ "$final_rc" != 0 ]; then printf '%s\n' "$final_out"; echo "FINAL_NTP_RUNTIME_VERIFICATION=FAIL (the NTP runtime is not true after all evidence capture; PRE_L8P_NTP_RUNTIME_REACTIVATION is NOT proven)"
+  rollback_flow "final NTP runtime verification after the POST capture failed"; fi
+echo "FINAL_NTP_RUNTIME_VERIFICATION=PASS_AFTER_POST_CAPTURE"; echo "FINAL_NTP_RUNTIME_VERIFICATION=PASS_AFTER_POST_CAPTURE" > "$EVID/final-ntp-runtime-verification.txt"
 trap - ERR INT TERM
 { printf '%s\n' "$ver_out" | grep -E '^(CHRONYD_ACTIVE|TIMESYNCD_INACTIVE|NTP_LISTENER|WILDCARD_NTP_LISTENER|TRUSTEDCLOCK|MAXERROR_WITHIN_L5_BOUND|CHRONYD_UNITFILESTATE|TIMESYNCD_UNITFILESTATE|CHRONY_CONF_SHA256_PRE_EQ_POST)='
+  echo "FINAL_NTP_RUNTIME_VERIFICATION=PASS_AFTER_POST_CAPTURE"
   echo "UNITFILESTATE_MUTATION=NO"; echo "CHRONY_CONFIG_MUTATION=NO"; echo "UNEXPECTED_DRIFT=NONE"
   echo "PRE_L8P_NTP_RUNTIME_REACTIVATION=PASS"; echo "NTP_RUNTIME_READY_FOR_L8P=YES"; echo "NTP_LISTENER_ADDRESS=$NTPREACT_AP_ADDR:123"
   echo "L5_LIVE_ACCEPTANCE=HISTORICAL_PROVEN_UNCHANGED"; echo "K12_AUTOMATIC_REBOOT_PERSISTENCE=NOT_PROVEN"

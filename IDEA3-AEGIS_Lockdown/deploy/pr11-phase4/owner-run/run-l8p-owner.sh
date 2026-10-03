@@ -111,6 +111,7 @@ l7u_core_running_gate "$CORE_UNIT" || gate "the Core is not in the running basel
 l8p_service_gate twingate.service mosquitto.service "$BROKER_UNIT" || gate "a preserved service is not active/running (see reason above)"
 l7_idea2_s10_gate "$ENGINE" "$TUNNEL" || gate "IDEA2 §10 fresh preservation precondition failed (see reason above)"
 l7_disk_gate 80 / /var /opt /run || gate "disk headroom below 20% free (see reason above)"
+l8p_ntp_runtime_gate || gate "the PRE-L8p NTP runtime is not true now (see reason above)"
 for k in net.ipv4.ip_forward net.ipv4.conf.all.forwarding net.ipv6.conf.all.forwarding; do [ "$(sysctl -n $k)" = 0 ] || gate "$k is not 0"; done
 
 # 4. owner inputs and reviewed artifacts (existence, ownership and the frozen digests only; the handler validates every content)
@@ -177,6 +178,8 @@ echo "== PRE capture (read-only; BEFORE the attempt is consumed and before any d
 capture PRE "$PRE" || die "PRE capture failed; nothing changed and nothing consumed"
 own_pre "$PRE"
 ( cd "$PRE" && sha256sum -c --quiet --strict SHA256SUMS ) || die "PRE checksum verification failed; nothing changed and nothing consumed"
+# The PRE capture ran just now: prove the NTP runtime is STILL true after it and BEFORE the one attempt is consumed (no serial access, reset, write or marker has happened).
+l8p_ntp_runtime_gate || die "the PRE-L8p NTP runtime is not true after the PRE capture (see reason above); the attempt was NOT consumed and the device was NOT touched"
 
 # one attempt: from this point a second invocation for this AUTH_DIR is refused, even after a failure
 l8p_consume_attempt "$AUTH_DIR" || die "could not consume the one-attempt marker"

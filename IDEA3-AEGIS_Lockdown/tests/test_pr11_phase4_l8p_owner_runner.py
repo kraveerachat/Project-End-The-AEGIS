@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = ROOT / "deploy" / "pr11-phase4"
 RUNNER = DEPLOY / "owner-run" / "run-l8p-owner.sh"
 LIB = DEPLOY / "p4-l8p-run-lib.sh"
-REAL_LIBS = ("p4-l6b-run-lib.sh", "p4-l7-run-lib.sh", "p4-l7u-run-lib.sh", "p4-l8p-run-lib.sh", "p4-lib.sh", "p4-stage-gate.sh")
+REAL_LIBS = ("p4-l6b-run-lib.sh", "p4-l7-run-lib.sh", "p4-l7u-run-lib.sh", "p4-l8p-run-lib.sh", "p4-lib.sh", "p4-stage-gate.sh", "p4-ntp-reactivation-lib.sh")
 LOGS = "Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs"
 REAL_USER = subprocess.run(["id", "-un"], text=True, capture_output=True, check=True).stdout.strip()
 REAL_UID = subprocess.run(["id", "-u"], text=True, capture_output=True, check=True).stdout.strip()
@@ -54,6 +54,7 @@ esac
 '''
 CAPTURE_STUB = ('#!/usr/bin/env bash\necho "capture:$CAPTURE_LABEL" >> "$SIM_DIR/calls.log"\n[ ! -e "$SIM_DIR/fail-capture-$CAPTURE_LABEL" ] || exit 1\n'
                 'mkdir -p "$EVID_DIR"\necho "L0_CAPTURE=COMPLETE" > "$EVID_DIR/capture.log"\n'
+                '[ ! -e "$SIM_DIR/ntp-lost-by-pre-capture" ] || [ "$CAPTURE_LABEL" != pre ] || echo inactive > "$SIM_DIR/props/chronyd.service.ActiveState"\n'
                 '(cd "$EVID_DIR" && sha256sum capture.log > SHA256SUMS)\n[ ! -e "$SIM_DIR/bad-sums-$CAPTURE_LABEL" ] || echo "0  capture.log" > "$EVID_DIR/SHA256SUMS"\n')
 COMPARE_STUB = ('#!/usr/bin/env bash\necho "compare:$1:$2:$(env | grep -E \'^ALLOW_\' | sort | tr \'\\n\' \' \')" >> "$SIM_DIR/calls.log"\n'
                 'label=$(basename "$2" | sed s/-root//)\n[ ! -e "$SIM_DIR/fail-compare-$label" ] || { echo COMPARE_RESULT=FAIL; exit 1; }\n'
@@ -118,6 +119,7 @@ class Sim:
         (self.p4 / "p4-compare.sh").write_text(COMPARE_STUB)
         for name in REAL_LIBS:
             shutil.copy(DEPLOY / name, self.p4 / name)
+        self.build_ntp_sandbox()
         self._git("init", "-q")
         self._git("checkout", "-q", "-B", "main")
         self._git("add", "-A")
@@ -142,6 +144,7 @@ class Sim:
 
         (self.bin / "sudo").write_text('#!/usr/bin/env bash\n[ "$1" = -v ] && exit 0\nexec "$@"\n')
         (self.bin / "systemctl").write_text(SYSTEMCTL_STUB)
+        (self.bin / "ss").write_text('#!/usr/bin/env bash\n[ "$*" = "-H -ltnu" ] || exit 1\ncat "$SIM_DIR/ss-lines"\n')
         (self.bin / "sysctl").write_text("#!/usr/bin/env bash\necho 0\n")
         (self.bin / "id").write_text('#!/usr/bin/env bash\nif [ "$1" = -u ] && [ -n "${2:-}" ] && [ -e "$SIM_DIR/resolved-uid" ]; then cat "$SIM_DIR/resolved-uid"; exit 0; fi\nexec /usr/bin/id "$@"\n')
         (self.bin / "df").write_text("#!/usr/bin/env bash\necho 'Filesystem 1K-blocks Used Available Use% Mounted'\necho '/dev/x 100 10 90 10% /'\n")
@@ -181,6 +184,33 @@ class Sim:
         self.runner = self.dir / "run-l8p-owner.sh"
         self.runner.write_text(text)
         (self.dir / "marker-path").write_text(str(self.auth / "L8p-ATTEMPT-CONSUMED"))
+
+    def build_ntp_sandbox(self) -> None:
+        """The REAL ntpreact_runtime_ready_gate runs against a sandbox host: the config path/hash/mode constants of the COPIED lib point at a sandbox file, `ss` and the
+        clock probe are stand-ins, and the unit states come from the systemctl stub's props directory (healthy PRE-L8p NTP runtime by default)."""
+        conf = self.dir / "chrony.conf"
+        conf.write_text("# approved L5 runtime configuration (sandbox)\nserver 2.arch.pool.ntp.org iburst\nbindaddress 10.77.30.1\nallow 10.77.30.0/28\nrtcsync\n")
+        conf.chmod(0o640)
+        lib = self.p4 / "p4-ntp-reactivation-lib.sh"
+        text = lib.read_text()
+        for pattern, repl in ((r'^NTPREACT_CHRONY_CONF="[^"]*"$', f'NTPREACT_CHRONY_CONF="{conf}"'),
+                              (r'^NTPREACT_CHRONY_CONF_SHA256="[0-9a-f]{64}"$', f'NTPREACT_CHRONY_CONF_SHA256="{self.sha(conf)}"'),
+                              (r'^NTPREACT_CHRONY_CONF_MODE_OWNER="[^"]*"', f'NTPREACT_CHRONY_CONF_MODE_OWNER="640:{os.getuid()}:{os.getgid()}"')):
+            text, n = re.subn(pattern, lambda _m, r=repl: r, text, count=1, flags=re.MULTILINE)
+            assert n == 1, pattern
+        lib.write_text(text)
+        (self.p4 / "p4-l5-clock.py").write_text(
+            "import os, sys\nsim = os.environ['SIM_DIR']\n"
+            "if os.path.exists(os.path.join(sim, 'clock-unsynced')):\n    print('state=UNSYNCED reason=KERNEL_UNSYNCED maxerror_us=16000000 sim=1'); sys.exit(1)\n"
+            "print('state=SYNCED reason=OK maxerror_us=' + open(os.path.join(sim, 'clock-maxerror')).read().strip() + ' sim=1')\n")
+        (self.dir / "clock-maxerror").write_text("1000\n")
+        for unit, state in (("chronyd.service", ("active", "running", "disabled")), ("systemd-timesyncd.service", ("inactive", "dead", "enabled"))):
+            for key, value in zip(("ActiveState", "SubState", "UnitFileState"), state):
+                self.prop(unit, key, value + "\n")
+        self.ss_lines("udp UNCONN 0 0 10.77.30.1:123 0.0.0.0:*", "udp UNCONN 0 0 127.0.0.1:323 0.0.0.0:*")
+
+    def ss_lines(self, *lines: str) -> None:
+        (self.dir / "ss-lines").write_text("".join(f"{line}\n" for line in lines))
 
     @staticmethod
     def sha(path: Path) -> str:
@@ -777,3 +807,96 @@ def test_the_runner_reuses_the_canonical_handlers_and_stage_gate_without_duplica
     assert '"$STG/$1"' in code and "p4-stage-gate.sh" in code and "p4-l0-capture.sh" in code and "p4-compare.sh" in code
     assert "stages/L8p" in code or 'STG=$P4/stages/L8p' in code
     assert not re.search(r"sha256sum -c.*first-write|first-write\.marker\" *>", code)
+
+
+# ═══════════════ 11. the PRE-L8p NTP runtime must be TRUE NOW, before the attempt is consumed and before any device access ═══════════════
+# Root cause behind these gates: the consumed 2026-10-03 NTP reactivation passed VERIFY and then lost chronyd to its own POST capture. L8p's PRE capture comes before
+# the attempt marker, so the runner proves the NTP runtime in the pre-gates AND again after the PRE capture, immediately before consuming the attempt.
+
+NTP_BREAKERS = [
+    ("chronyd-inactive", lambda s: s.prop("chronyd.service", "ActiveState", "inactive\n"), "NTPREACT_UNIT_STATE_MISMATCH:chronyd.service.ActiveState=inactive"),
+    ("timesyncd-active", lambda s: (s.prop("systemd-timesyncd.service", "ActiveState", "active\n"), s.prop("systemd-timesyncd.service", "SubState", "running\n")),
+     "NTPREACT_UNIT_STATE_MISMATCH:systemd-timesyncd.service.ActiveState=active"),
+    ("chronyd-unitfile-enabled", lambda s: s.prop("chronyd.service", "UnitFileState", "enabled\n"), "NTPREACT_UNIT_STATE_MISMATCH:chronyd.service.UnitFileState=enabled"),
+    ("timesyncd-unitfile-disabled", lambda s: s.prop("systemd-timesyncd.service", "UnitFileState", "disabled\n"),
+     "NTPREACT_UNIT_STATE_MISMATCH:systemd-timesyncd.service.UnitFileState=disabled"),
+    ("no-listener", lambda s: s.ss_lines("udp UNCONN 0 0 127.0.0.1:323 0.0.0.0:*"), "AP_NTP_LISTENER_MISSING_OR_DUPLICATED:0"),
+    ("wildcard-listener", lambda s: s.ss_lines("udp UNCONN 0 0 0.0.0.0:123 0.0.0.0:*"), "WILDCARD_NTP_LISTENER_FORBIDDEN"),
+    ("foreign-address-listener", lambda s: s.ss_lines("udp UNCONN 0 0 192.0.2.1:123 0.0.0.0:*"), "NON_AP_NTP_LISTENER_FORBIDDEN:192.0.2.1"),
+    ("extra-wildcard-listener", lambda s: s.ss_lines("udp UNCONN 0 0 10.77.30.1:123 0.0.0.0:*", "udp UNCONN 0 0 [::]:123 [::]:*"), "WILDCARD_NTP_LISTENER_FORBIDDEN"),
+    ("clock-unsynced", lambda s: s.inject("clock-unsynced"), "NTPREACT_TRUSTEDCLOCK_NOT_OK"),
+    ("clock-maxerror-over-bound", lambda s: (s.dir / "clock-maxerror").write_text("1000001\n"), "NTPREACT_MAXERROR_EXCEEDED:1000001"),
+    ("chrony-conf-changed", lambda s: (s.dir / "chrony.conf").write_text("server evil.example iburst\n"), "NTPREACT_CHRONY_CONF_NOT_APPROVED_L5_CONTENT"),
+]
+
+
+def _assert_nothing_consumed_or_touched(sim: Sim, res: subprocess.CompletedProcess[str]) -> None:
+    assert res.returncode != 0 and "L8P_PROVISIONING=PASS" not in res.stdout + res.stderr
+    assert not sim.marker(), "no attempt may be consumed"
+    calls = sim.calls()
+    for forbidden in ("apply", "verify", "rollback"):
+        assert forbidden not in calls, f"{forbidden} handler (the only device path) must not run"
+    assert not any(c.startswith("env:") for c in calls), "no handler (hence no serial access, reset or first write) may start"
+    assert not list(sim.evid_base.glob("**/first-write.marker")), "no first write"
+
+
+@pytest.mark.parametrize("name,breaker,reason", NTP_BREAKERS, ids=[b[0] for b in NTP_BREAKERS])
+def test_an_absent_ntp_runtime_refuses_in_the_pre_gates_before_anything_is_created(tmp_path: Path, name: str, breaker, reason: str) -> None:
+    sim = Sim(tmp_path)
+    breaker(sim)
+    res = sim.run()
+    out = res.stdout + res.stderr
+    _assert_nothing_consumed_or_touched(sim, res)
+    assert reason in out and "L8P_NTP_RUNTIME_NOT_READY" in out and "the PRE-L8p NTP runtime is not true now" in out
+    assert "capture:pre" not in sim.calls(), "the pre-gate must fail before the PRE capture and before the evidence directory exists"
+    assert not any(sim.evid_base.iterdir()), "no evidence directory is created when a pre-gate fails"
+
+
+def test_a_healthy_ntp_runtime_lets_the_runner_pass_the_gate_and_reach_the_device_handlers(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert sim.calls().count("apply") == 1
+
+
+def test_ntp_lost_by_the_pre_capture_itself_refuses_before_the_attempt_is_consumed(tmp_path: Path) -> None:
+    """The exact consumed-attempt failure mode: the NTP runtime is true in the pre-gates, then the evidence capture stops chronyd."""
+    sim = Sim(tmp_path)
+    sim.inject("ntp-lost-by-pre-capture")
+    res = sim.run()
+    out = res.stdout + res.stderr
+    assert res.returncode == 1 and "the PRE-L8p NTP runtime is not true after the PRE capture" in out
+    assert "NTPREACT_UNIT_STATE_MISMATCH:chronyd.service.ActiveState=inactive" in out
+    assert "the attempt was NOT consumed and the device was NOT touched" in out
+    assert "capture:pre" in sim.calls(), "the first (pre-gate) check passed and the PRE capture ran"
+    _assert_nothing_consumed_or_touched(sim, res)
+
+
+def test_the_ntp_gate_runs_in_the_pre_gates_and_again_after_the_pre_capture_and_before_the_marker() -> None:
+    code = code_only(RUNNER)
+    assert code.count("l8p_ntp_runtime_gate") == 2
+    first, second = (m.start() for m in re.finditer(r"l8p_ntp_runtime_gate", code))
+    pre_capture, consume = code.index("capture PRE"), code.index("l8p_consume_attempt")
+    assert code.index("l7_disk_gate") < first < pre_capture < second < consume
+    assert code.index("l8p_receipt_gate") < first, "the receipt gate is not weakened or reordered"
+    assert code.index("handler apply.sh") > consume > second, "the only device path (apply.sh) is reached only after the second gate and the consumed attempt"
+    # the gate itself is the shared read-only predicate: it can never start, stop or repair a time daemon
+    lib = code_only(LIB)
+    assert "ntpreact_runtime_ready_gate" in lib
+    assert not re.search(r"systemctl\s+(start|stop|restart|enable|disable|mask|reload)", lib)
+    ntp = code_only(DEPLOY / "p4-ntp-reactivation-lib.sh")
+    gate_body = ntp[ntp.index("ntpreact_runtime_ready_gate()"):]
+    gate_body = gate_body[:gate_body.index("\n}\n")]
+    for needle in ("start", "stop", "restart", "enable", "disable", "timedatectl", "show-timesync", "chronyc"):
+        assert not re.search(rf"\b{needle}\b", gate_body), needle
+
+
+def test_the_ntp_gate_does_not_weaken_the_disk_gate_the_receipt_gate_or_one_shot_semantics(tmp_path: Path) -> None:
+    refuses(Sim(tmp_path / "a", l8p_done=True), "L8P_ALREADY_PROVISIONED")
+    sim = Sim(tmp_path / "b")
+    sim.prop("chronyd.service", "ActiveState", "inactive\n")
+    sim.inject("clock-unsynced")
+    res = sim.run()
+    assert "the PRE-L8p NTP runtime is not true now" in res.stdout + res.stderr and not sim.marker()
+    code = code_only(RUNNER)
+    assert "l7_disk_gate 80 / /var /opt /run" in code and "l8p_attempt_unconsumed" in code and "l7_idea2_s10_gate" in code
