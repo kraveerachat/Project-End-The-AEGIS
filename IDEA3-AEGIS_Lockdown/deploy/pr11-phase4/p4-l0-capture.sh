@@ -368,20 +368,38 @@ if run_ro 1 timedatectl timedatectl show -p NTP -p NTPSynchronized -p CanNTP -p 
 else
   p4_rec "$TIME" time.NTPSynchronized UNAVAILABLE
 fi
-if run_ro 0 timesync timedatectl show-timesync -p ServerName -p SystemNTPServers; then
-  while IFS='=' read -r k v; do
-    [[ "$k" =~ ^(ServerName|SystemNTPServers)$ ]] && p4_rec "$TIME" "time.timesyncd.$k" "$v"
-  done <<< "$P4_OUT"
-else
-  p4_rec "$TIME" time.timesyncd.ServerName UNAVAILABLE
+# `timedatectl show-timesync` is NOT read-only on a host where systemd-timesyncd is stopped: it asks timesyncd over its bus/varlink endpoint, which
+# ACTIVATES the daemon, and chronyd.service carries Conflicts=systemd-timesyncd.service, so the query silently stops a running chronyd (the consumed
+# 2026-10-03 PRE-L8p NTP reactivation lost its NTP runtime to its own POST capture this way). The timesyncd-specific properties are therefore queried ONLY
+# while systemd-timesyncd is ALREADY active/running (the query then activates nothing). Otherwise the stable sentinel below is recorded and no timesync
+# command is issued. The configured server set stays comparable through the timesyncd.conf / timesyncd.conf.d file records below.
+TIMESYNCD_INACTIVE_SENTINEL=TIMESYNCD_INACTIVE_NOT_QUERIED
+timesyncd_running_now=0
+if run_ro 0 - systemctl show -p ActiveState -p SubState systemd-timesyncd.service; then
+  ts_active=$(printf '%s\n' "$P4_OUT" | sed -n 's/^ActiveState=//p' | head -n 1)
+  ts_sub=$(printf '%s\n' "$P4_OUT" | sed -n 's/^SubState=//p' | head -n 1)
+  [ "$ts_active" = active ] && [ "$ts_sub" = running ] && timesyncd_running_now=1
 fi
-# Configured fallback set: canonical evidence for the constrained informational treatment of time.timesyncd.ServerName.
-if run_ro 0 timesync-fallback timedatectl show-timesync -p FallbackNTPServers; then
-  while IFS='=' read -r k v; do
-    [ "$k" = FallbackNTPServers ] && p4_rec "$TIME" time.timesyncd.FallbackNTPServers "$v"
-  done <<< "$P4_OUT"
+if [ "$timesyncd_running_now" = 1 ]; then
+  if run_ro 0 timesync timedatectl show-timesync -p ServerName -p SystemNTPServers; then
+    while IFS='=' read -r k v; do
+      [[ "$k" =~ ^(ServerName|SystemNTPServers)$ ]] && p4_rec "$TIME" "time.timesyncd.$k" "$v"
+    done <<< "$P4_OUT"
+  else
+    p4_rec "$TIME" time.timesyncd.ServerName UNAVAILABLE
+  fi
+  # Configured fallback set: canonical evidence for the constrained informational treatment of time.timesyncd.ServerName.
+  if run_ro 0 timesync-fallback timedatectl show-timesync -p FallbackNTPServers; then
+    while IFS='=' read -r k v; do
+      [ "$k" = FallbackNTPServers ] && p4_rec "$TIME" time.timesyncd.FallbackNTPServers "$v"
+    done <<< "$P4_OUT"
+  else
+    p4_rec "$TIME" time.timesyncd.FallbackNTPServers UNAVAILABLE
+  fi
 else
-  p4_rec "$TIME" time.timesyncd.FallbackNTPServers UNAVAILABLE
+  p4_rec "$TIME" time.timesyncd.ServerName "$TIMESYNCD_INACTIVE_SENTINEL"
+  p4_rec "$TIME" time.timesyncd.SystemNTPServers "$TIMESYNCD_INACTIVE_SENTINEL"
+  p4_rec "$TIME" time.timesyncd.FallbackNTPServers "$TIMESYNCD_INACTIVE_SENTINEL"
 fi
 # Kernel-based TrustedClock verdict (state only; maxerror is volatile and is not recorded). Live: the shared read-only
 # probe; test fixtures: the fixture value. Never adjusts the clock.
