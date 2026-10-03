@@ -35,7 +35,13 @@ l8p_consume_attempt() {
 
 # l8p_receipt_gate REPO — predecessor ACCEPTANCE proven by receipts read from the PINNED commit, never the working tree: the L2..L6a chain, L7 AND the
 # FINAL L7u live acceptance (L8p follows L7u). Nothing is invented: until a merged receipt records `L7U_LIVE_ACCEPTANCE = PROVEN` this refuses.
-# It also refuses when an L8p provisioning result is already recorded (one-shot: re-provisioning needs a new owner decision).
+# It also refuses when an L8p provisioning result is already recorded (one-shot: re-provisioning needs a new owner decision). "Recorded" means ONE status-log
+# receipt in the pinned commit carries BOTH authoritative result fields, each occupying a whole logical line (`L8P_LIVE_EXECUTED=YES` and `L8P_PROVISIONING=PASS`;
+# spaces around `=`, an optional list marker and optional backticks are tolerated). A prose sentence that merely mentions the future success claim (as the
+# repository-only owner-runner receipt does) is NOT a result, and the two fields in two different receipts do not combine. Only the canonical status-log path is read.
+l8p_result_field_files() { # REPO FIELD VALUE — status-log receipts of the pinned commit holding FIELD=VALUE as a whole line
+  git -C "$1" grep -lE "^[[:space:]]*([-*][[:space:]]+)?\`?$2[[:space:]]*=[[:space:]]*$3\`?[[:space:]]*\$" HEAD -- "$L6B_LOGS_REL" 2>/dev/null | sort
+}
 l8p_receipt_gate() {
   local repo=${1:-}
   l6b_receipt_gate "$repo" >/dev/null || return 1
@@ -43,7 +49,7 @@ l8p_receipt_gate() {
     || { l8p_reason "L8P_L7_ACCEPTANCE_RECEIPT_MISSING"; return 1; }
   git -C "$repo" grep -qE "L7U_LIVE_ACCEPTANCE ?= ?\`? ?PROVEN" HEAD -- "$L6B_LOGS_REL" \
     || { l8p_reason "L8P_L7U_ACCEPTANCE_RECEIPT_MISSING (L8p follows a PROVEN final L7u; none is recorded)"; return 1; }
-  ! git -C "$repo" grep -qE "L8P_PROVISIONING ?= ?\`? ?PASS" HEAD -- "$L6B_LOGS_REL" \
+  [ -z "$(comm -12 <(l8p_result_field_files "$repo" L8P_LIVE_EXECUTED YES) <(l8p_result_field_files "$repo" L8P_PROVISIONING PASS))" ] \
     || { l8p_reason "L8P_ALREADY_PROVISIONED (an L8p result is recorded; a new live attempt needs a new owner decision)"; return 1; }
 }
 
