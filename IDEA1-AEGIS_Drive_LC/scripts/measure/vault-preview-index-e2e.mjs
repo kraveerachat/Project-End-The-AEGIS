@@ -23,7 +23,7 @@ const utf8 = (value) => Buffer.byteLength(JSON.stringify(value), 'utf8')
 const median = (xs, p) => [...xs].sort((a, b) => a - b)[Math.ceil(xs.length * p) - 1]
 const samplesMs = (xs) => ({ p50: median(xs, 0.5), p95: median(xs, 0.95), unit: 'ms', runs: xs.length })
 
-function webpStub(length, width, height) {
+export function webpStub(length, width, height) {
   const b = Buffer.alloc(length)
   b.write('RIFF', 0, 'ascii'); b.writeUInt32LE(length - 8, 4); b.write('WEBPVP8X', 8, 'ascii')
   b.writeUInt32LE(10, 16)
@@ -32,7 +32,7 @@ function webpStub(length, width, height) {
   return b
 }
 
-function transportFor(client) {
+export function transportFor(client) {
   const counts = { json: 0, upload: 0, bytes: 0 }
   const timings = { cas: [], uploadPut: [] }
   const objectUploads = { derivative: [], shard: [], root: [] }
@@ -83,7 +83,7 @@ async function measuredUpload(transport, options) {
   return result
 }
 
-async function localServer(mode) {
+export async function localServer(mode, { retainedBudgetBytes = 64 * 1024 ** 3 } = {}) {
   const storage = await fs.mkdtemp(path.join(os.tmpdir(), 'aegis-idx-size-'))
   let server = null, superPool = null, database = null, connection = null
   try {
@@ -110,7 +110,7 @@ async function localServer(mode) {
     await fileStore.initStorage(); await vaultStore.initVaultStorage(); await manifestStore.initVaultManifestStorage(); await staging.initVaultStaging()
     const flags = { VAULT_TREE_SCHEMA_AVAILABLE: 'true', VAULT_TREE_PROTOCOL_ENABLED: 'true', VAULT_TREE_UI_ENABLED: 'true',
       VAULT_MEDIA_PREVIEW_ENABLED: 'true', VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE: 'true', VAULT_PREVIEW_INDEX_READ_ENABLED: 'true',
-      VAULT_PREVIEW_INDEX_WRITE_ENABLED: 'true', VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: String(64 * 1024 ** 3) }
+      VAULT_PREVIEW_INDEX_WRITE_ENABLED: 'true', VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: String(retainedBudgetBytes) }
     const app = appMod.createApp({ vaultTreeConfig: cfgMod.vaultTreeConfigFromEnv(flags) })
     server = app.listen(0, '127.0.0.1')
     await new Promise((resolve) => server.once('listening', resolve))
@@ -146,7 +146,7 @@ async function localServer(mode) {
   }
 }
 
-async function uploadEntry(kek, transport, entry) {
+export async function uploadEntry(kek, transport, entry) {
   const bytes = entry.kind === 'motion' ? Buffer.alloc(entry.plainSize) : webpStub(entry.plainSize, entry.width, entry.height)
   const file = new File([bytes], '', { type: entry.mime })
   const start = performance.now()
@@ -156,7 +156,7 @@ async function uploadEntry(kek, transport, entry) {
   return { ...result.blob, elapsedMs: performance.now() - start }
 }
 
-async function uploadIndex(kek, transport, marker, plaintext, buckets) {
+export async function uploadIndex(kek, transport, marker, plaintext, buckets) {
   const start = performance.now()
   const result = await sealIndexObject({ kek, marker, plaintext, buckets, transport,
     upload: (options) => measuredUpload(transport, options) })
@@ -174,7 +174,7 @@ function mainHeadOf(items, treeId) {
   return { treeId, generation: 1, index: { nodes, rootNodeId: ROOT_ID, limits: { maxDepth: 64 } } }
 }
 
-async function attachAll(server, owner, transport, treeId, ids, descriptors) {
+export async function attachAll(server, owner, transport, treeId, ids, descriptors) {
   let generation = 0, prior = null, root = null, rootPlain = null
   const casMs = [], rootUploadMs = []
   const pending = [...ids]
@@ -266,19 +266,19 @@ function writerApi(transport) {
   }
 }
 
-function newWriter(owner, transport, mainHead) {
+export function newWriter(owner, transport, mainHead) {
   return createPreviewIndexWriter({ kek: owner.kek, api: writerApi(transport), transport,
     getMainHead: () => mainHead, writeAllowed: () => true, autoFlush: false,
     upload: (options) => measuredUpload(transport, options) })
 }
 
-function changeSource(mainHead, item) {
+export function changeSource(mainHead, item) {
   const node = mainHead.index.nodes.get(item.nodeId)
   node.blobRef = { formatVersion: 2, id: hex48() }
   return node.blobRef
 }
 
-async function writeJobs(server, owner, transport, mainHead, jobs, sessionWriter = null) {
+export async function writeJobs(server, owner, transport, mainHead, jobs, sessionWriter = null) {
   const writer = sessionWriter ?? newWriter(owner, transport, mainHead)
   const beforeAudit = await auditCount(server, owner.userId)
   const beforeRequests = { ...transport.counts }
