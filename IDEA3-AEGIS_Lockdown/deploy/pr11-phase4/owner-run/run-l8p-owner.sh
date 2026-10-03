@@ -99,7 +99,7 @@ l8p_attempt_unconsumed "$AUTH_DIR" || gate "this authorization already consumed 
 [ -z "$(git -C "$REPO" status --porcelain)" ] || gate "worktree is not clean"
 git -C "$REPO" fetch -q origin 2>/dev/null && [ "$(git -C "$REPO" rev-parse origin/main)" = "$EXPECTED_MAIN" ] \
   || gate "origin/main is not $EXPECTED_MAIN (or fetch failed); not silently re-pinning"
-for f in apply.sh verify.sh rollback.sh allow-keys.txt allow-listeners.txt; do [ -f "$STG/$f" ] || gate "handler file $f missing"; done
+for f in apply.sh verify.sh rollback.sh cleanup.sh allow-keys.txt allow-listeners.txt; do [ -f "$STG/$f" ] || gate "handler file $f missing"; done
 [ -f "$P4/p4-l8p-device.py" ] || gate "p4-l8p-device.py missing"
 gate_out=$(TZ=Asia/Bangkok bash "$P4/p4-stage-gate.sh" --stage L8p --mode live --authorization "$AUTH_DIR/authorization-L8p.txt" --k3 "$AUTH_DIR/k3-L8p.txt" 2>&1) || gate "stage gate failed"
 for l in AUTHORIZATION_RECORD=VALID K3_CONFIRMATION=VALID ROLLBACK_HANDLER=REGISTERED; do printf '%s\n' "$gate_out" | grep -qx "$l" || gate "stage gate did not report $l"; done
@@ -193,6 +193,11 @@ apply_rc=0; apply_out=$(handler apply.sh 2>&1) || apply_rc=$?; printf '%s\n' "$a
 echo "== L8p VERIFY (read-only evidence check)"
 ver_rc=0; ver_out=$(handler verify.sh 2>&1) || ver_rc=$?; printf '%s\n' "$ver_out"
 { [ "$ver_rc" = 0 ] && printf '%s\n' "$ver_out" | grep -qx 'L8P_VERIFY=PASS'; } || rollback_flow "L8P_VERIFY failed"
+# Temporary secret-bearing WORK artifacts (nvs.csv, nvs.bin) are not evidence: remove exactly those two (host only, no device) BEFORE the full-EVID secret scan below, which keeps NO exclusions.
+echo "== L8p SECRET-WORK CLEANUP (host only: exactly nvs.csv + nvs.bin; never the device, the first-write marker or the JSON evidence)"
+cl_rc=0; cl_out=$(handler cleanup.sh 2>&1) || cl_rc=$?; printf '%s\n' "$cl_out"
+cl_ok=1; for l in L8P_SECRET_WORK_CLEANUP=PASS NVS_CSV_PRESENT=NO NVS_BIN_PRESENT=NO FIRST_WRITE_MARKER_PRESENT=YES L8P_DEVICE_ACTION_TAKEN=NONE; do printf '%s\n' "$cl_out" | grep -qx "$l" || cl_ok=0; done
+{ [ "$cl_rc" = 0 ] && [ "$cl_ok" = 1 ]; } || rollback_flow "L8P_SECRET_WORK_CLEANUP failed"
 echo "== POST capture"; capture POST "$EVID/post-root" || rollback_flow "POST capture failed"
 own_pre "$EVID/post-root"
 echo "== PRE -> POST compare (Core host zero drift: the L8p allow files are empty)"; compare "$PRE" "$EVID/post-root" "$EVID/compare-pre-post.txt" || rollback_flow "PRE->POST compare failed"
