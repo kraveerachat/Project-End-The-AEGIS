@@ -15,6 +15,50 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — M2-E3 final Windows pipe response lifecycle hardening (2026-10-03)
+
+Branch: `fix/idea2-agent-pipe-peer-disconnect-final`; base:
+`27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf`; source checkpoint:
+`7f00f78a776c01e47551a7b0cb2398702a1daa5d`.
+
+State: SOURCE FIXED / LOCAL WINDOWS PIPE TESTS VERIFIED / MACHINE A LIVE
+RECOVERY NOT VERIFIED. After merged PR #317 and PR #316 were installed on
+Machine A, the owner observed seven new Engine `AGENT_UNAVAILABLE` warnings in
+40 seconds despite repeated automatic HUB heartbeat HTTP 200 responses and
+successful challenge/verify requests. Engine remained idle with camera
+connected=false, demanded=false, viewers=0. That is owner-provided live
+evidence of the pre-fix problem, not post-fix acceptance.
+
+RED tests exposed Win32 233 on the post-complete-response close path, a
+completed Engine response masked by a client `CloseHandle` failure, failed
+wait/cancel paths that did not drain pending OVERLAPPED I/O, unsafe publish
+diagnostic absence, and a zero-byte close completion during the cancel race.
+GREEN now classifies only 109/232/233 as normal peer close after the complete
+Agent response write. Connect, request read, and response write still fail on
+233; incomplete/invalid write counts, ordinary timeout, and trailing data
+remain failures. The Engine retains its separate <=5-second local pipe and
+<=30-second Agent response budgets. Close/publish diagnostics record only
+phase, exception class, and numeric Win32 code, never payload or exception
+message. ACL/SID, DPAPI, signing/session protocol, HTTPS, camera demand, and
+service failure backoff were not weakened.
+
+Local Windows verification: focused pipe/client 52/52, explicit Identity
+Agent modules 114/114, Windows lifecycle 49/49, full Engine/Agent 261/261,
+all five native pywin32 tests executed with zero skips. Real one-shot
+same-name stress passed 50 and 100 sequential transactions, with successful
+transactions separated from idle accepts and injected failure still causing
+backoff. Governance 59/59, Vault validation PASS with two pre-existing Canvas
+owner-review warnings, Python AST/import 4/4, ten PowerShell parses, diff
+check, and changed-content secret scan passed. Independent read-only review:
+Critical 0, Important 0 after fixes.
+
+One-shot first-instance close/recreate has a short no-instance interval;
+native polling proves eventual republish, not that every unsynchronized
+heartbeat can acquire during that interval. No Engine retry was added.
+Installed Machine A recovery remains owner-gated after review/merge. No
+Machine A runtime, camera, private key, tunnel, Production, or Production DB
+was modified; M2-E3 is not closed.
+
 ## Current task — M2-E3 successful Agent pipe-close lifecycle (2026-10-03)
 
 Branch: `fix/idea2-agent-pipe-close-lifecycle`; owner: Pub. Base:
