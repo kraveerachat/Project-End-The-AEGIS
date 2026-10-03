@@ -335,7 +335,7 @@ if (-not $SkipDependencyInstall) {
 
 Push-Location -LiteralPath $runtimeApp
 try {
-    & $runtimePython -c "from aegis_engine.config import EngineConfig; EngineConfig.from_env().validate(); from aegis_engine.engine import DetectionEngine; print('AEGIS Windows preflight passed')"
+    & $runtimePython -c "import pywintypes, win32con, win32event, win32file, win32pipe; from aegis_engine.config import EngineConfig; EngineConfig.from_env().validate(); from aegis_engine.engine import DetectionEngine; print('AEGIS Windows preflight passed')"
     if ($LASTEXITCODE -ne 0) {
         throw 'Detection Engine preflight failed.'
     }

@@ -4,6 +4,9 @@ import re
 import unittest
 from pathlib import Path
 
+from pip._vendor.packaging.requirements import Requirement
+from pip._vendor.packaging.utils import canonicalize_name
+
 
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
 WINDOWS_ROOT = ENGINE_ROOT / "windows"
@@ -40,6 +43,35 @@ class WindowsAutostartSourceTests(unittest.TestCase):
         self.assertIn("$runtimePython = Join-Path $runtimeVenv 'Scripts\\python.exe'", installer)
         for excluded in ("'.env'", "'segments'", "'snapshots'", "'__pycache__'"):
             self.assertIn(excluded, installer)
+
+    def test_engine_pipe_client_dependency_flows_through_install_and_repair_only_on_windows(self) -> None:
+        requirements = [
+            Requirement(line.strip())
+            for line in (ENGINE_ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        win32 = [item for item in requirements if canonicalize_name(item.name) == "pywin32"]
+        self.assertEqual(1, len(win32), "Engine Windows named-pipe client must be provisioned")
+        self.assertEqual("==312", str(win32[0].specifier))
+        self.assertIsNotNone(win32[0].marker)
+        self.assertTrue(win32[0].marker.evaluate({"sys_platform": "win32"}))
+        self.assertFalse(win32[0].marker.evaluate({"sys_platform": "linux"}))
+
+        installer = self.read("install_autostart.ps1")
+        repair = self.read("repair_autostart.ps1")
+        self.assertIn("Copy-Item -LiteralPath $item.FullName -Destination $runtimeApp", installer)
+        self.assertNotIn("'requirements.txt'", installer.split("$excludedNames =", 1)[1].split(")", 1)[0])
+        self.assertRegex(
+            installer,
+            r"& \$runtimePython -m pip install[^\n]*--requirement\s*`\s*\r?\n\s*"
+            r"\(Join-Path \$runtimeApp 'requirements\.txt'\)",
+        )
+        self.assertIn("& $installer @arguments", repair)
+        self.assertIn("SkipDependencyInstall = $SkipDependencyInstall", repair)
+        self.assertIn("[switch]$SkipDependencyInstall", repair)
+
+        for module in ("pywintypes", "win32con", "win32event", "win32file", "win32pipe"):
+            self.assertRegex(installer, rf"\bimport\s+[^\n]*\b{module}\b")
 
     def test_engine_uses_hkcu_supervisor_not_interactive_task(self) -> None:
         installer = self.read("install_autostart.ps1")

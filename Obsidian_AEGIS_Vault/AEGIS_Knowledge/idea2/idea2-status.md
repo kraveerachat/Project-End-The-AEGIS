@@ -15,6 +15,69 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — M2-E3 Engine→Agent response timeout budget (2026-10-03)
+
+Branch: `fix/idea2-engine-agent-response-timeout-budget`; owner: Pub. Source
+checkpoint: `c357b7b07556e5e7d539cd3f58d4033dfb14089e` from `origin/main`
+`7649d180d01bc92501a7cad792a9f8a610988490`.
+
+State: SOURCE FIXED / LOCAL WINDOWS TESTS VERIFIED / MACHINE A HEARTBEAT
+RECOVERY NOT VERIFIED. Owner-provided live evidence after the Engine pywin32
+installation showed five of five local Engine→Agent pipe controls succeeded,
+while automatic Engine heartbeats still logged `AGENT_UNAVAILABLE`; the
+Production HUB access log observed an automatic heartbeat HTTP 200. This is
+consistent with the Engine's former single five-second deadline expiring while
+the Agent completes allowed HTTPS challenge/verify/heartbeat work, but source
+tests alone do not prove that this explains every live heartbeat failure.
+
+The Engine now keeps the existing at-most-five-second local pipe
+availability/connect/request-write budget and separately waits at most 30
+seconds by default for the Agent response after a completed write.
+`AEGIS_IDENTITY_AGENT_RESPONSE_TIMEOUT_S` is bounded to 0.1–30 seconds;
+`AEGIS_IDENTITY_AGENT_TIMEOUT_S` remains bounded to 0.1–5 seconds. The Agent
+HTTP defaults, protocol, identity authority, heartbeat cadence, camera demand,
+and legacy shared-key behavior were not changed. RED proved the old connector
+timed out on a response delayed beyond the local window. GREEN: focused
+Engine/pipe tests 48/48 and full Engine suite 245/245 on Windows, including
+native cancellation. Governance 61/61, Vault validation PASS with two existing
+canvas owner-review warnings, PowerShell parser checks, diff check, and
+changed-content secret scan passed. Independent review found no Critical or
+Important issue; its minor non-default-budget coverage observation was fixed
+and rerun. No installed Machine A, Agent service/configuration, private key,
+camera, tunnel, Production, Browser Association, or PR #293 state was changed.
+
+The previous Engine pywin32 dependency checkpoint below is historical and its
+dependency blocker is closed by owner-provided installation/import evidence;
+the separate live response/heartbeat acceptance gate remains open.
+
+## Current task — M2-E3 Engine Windows named-pipe client dependency (2026-10-03)
+
+Branch: `fix/idea2-engine-windows-pipe-client-dependency`; owner: Pub. Source
+checkpoint: `6824a41361eae2651bb3bd0b37c682e51ac9c9e8` from `origin/main`
+`0ab80a1a7d9ff2b45dbcdfb021aba900841cd128`.
+
+State: SOURCE FIXED / LOCAL WINDOWS DEPENDENCY VERIFIED / MACHINE A HEARTBEAT
+ACCEPTANCE PENDING. The Engine requirements now install `pywin32==312` only on
+Windows, and the existing Windows installer preflight imports the five named-pipe
+client modules (`pywintypes`, `win32con`, `win32event`, `win32file`, `win32pipe`).
+Normal repair delegates to that installer; the Engine and Identity Agent remain
+separate virtual environments. The Engine receives no Agent private key,
+session, or signing authority. Focused adjacent tests pass 113/113; the full
+Engine suite passes 239/239. A fresh disposable Windows Engine venv installed
+the Engine requirements, imported all five modules at version 312, passed
+`pip check`, and passed its 29/29 focused tests. The installed Machine A Engine
+venv was not changed or tested by this checkpoint.
+
+Owner-provided post-PR #313 Machine A evidence supersedes the earlier Agent
+acceptance-pending statement below: the Agent's named pipe answered 400/400
+observations after source refresh, with its protected identity/configuration
+preserved and camera idle. The remaining observed physical-heartbeat blocker
+was the installed Engine venv missing the five pywin32 modules, producing
+`AGENT_UNAVAILABLE`. The local source/dependency fix does not prove that a
+reviewed Machine A Engine refresh or live heartbeat acceptance has happened.
+Production, Machine A runtime, Agent identity/configuration, and PR #293 were
+not modified in this task.
+
 ## Concurrent task — M2-E3 Identity Agent idle pipe publication (2026-10-03)
 
 Branch: `fix/idea2-identity-agent-idle-pipe-publish`; owner: Pub. Source

@@ -15,6 +15,10 @@ requests>=2.31
 # Optional convenience: auto-load a local .env file if present.
 python-dotenv>=1.0
 
+# Windows Engine named-pipe client only. Keep the Engine and Identity Agent
+# virtual environments separate; the Agent's key/session authority stays there.
+pywin32==312; sys_platform == "win32"
+
 # ---------------------------------------------------------------------------
 # NOT listed here (intentionally):
 #   * The face-recognition model + its deps (torch / onnxruntime / insightface

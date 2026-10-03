@@ -1,4 +1,6 @@
+import os
 import pathlib
+import subprocess
 import sys
 import unittest
 from types import SimpleNamespace
@@ -10,6 +12,7 @@ if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
 
 from aegis_engine.config import EngineConfig
+from aegis_engine.engine import DetectionEngine
 from aegis_engine.identity_agent_client import IdentityAgentClient, _windows_connector_with_modules
 from aegis_engine.monitor_client import MonitorClient
 from aegis_identity_agent.pipe_protocol import decode_request, encode_response
@@ -21,14 +24,164 @@ class RecordingConnector:
         self.error = error
         self.calls = []
 
-    def __call__(self, pipe_name, request, timeout_s, response_limit):
-        self.calls.append((pipe_name, request, timeout_s, response_limit))
+    def __call__(self, pipe_name, request, timeout_s, response_limit, response_timeout_s):
+        self.calls.append((pipe_name, request, timeout_s, response_limit, response_timeout_s))
         if self.error:
             raise self.error
         return self.response
 
 
 class IdentityAgentClientTests(unittest.TestCase):
+    def test_native_connector_accepts_agent_response_after_local_five_second_window(self):
+        """A completed local write must not spend the Agent's HTTPS response budget."""
+        class Overlapped:
+            hEvent = None
+
+        class FakeClock:
+            value = 100.0
+
+            @classmethod
+            def monotonic(cls):
+                return cls.value
+
+        request = b"{}\n"
+        response = encode_response(ok=True, status=200)
+        buffer = bytearray(4097)
+        buffer[:len(response)] = response
+        waits = []
+        transfers = iter((len(request), len(response)))
+
+        def wait_for_response(_event, timeout_ms):
+            waits.append(timeout_ms)
+            if timeout_ms < 6000:
+                return 258
+            FakeClock.value += 6.0
+            return 0
+
+        def write_request(_handle, data, _overlapped):
+            self.assertEqual(request, data)
+            FakeClock.value += 4.0  # completed within the local 5-second budget
+            return (0, len(data))
+
+        fake_event = SimpleNamespace(
+            WAIT_OBJECT_0=0, WAIT_TIMEOUT=258,
+            CreateEvent=lambda *_args: "event",
+            WaitForSingleObject=wait_for_response,
+        )
+        fake_file = SimpleNamespace(
+            CreateFile=lambda *_args: "pipe",
+            AllocateReadBuffer=lambda _size: buffer,
+            WriteFile=write_request,
+            ReadFile=lambda *_args: (997, buffer),
+            GetOverlappedResult=lambda *_args: next(transfers),
+            CancelIoEx=lambda *_args: None,
+            CloseHandle=lambda *_args: None,
+        )
+        fake_pipe = SimpleNamespace(
+            PIPE_READMODE_MESSAGE=2,
+            WaitNamedPipe=lambda _name, timeout_ms: self.assertLessEqual(timeout_ms, 5000),
+            SetNamedPipeHandleState=lambda *_args: None,
+        )
+        fake_con = SimpleNamespace(
+            GENERIC_READ=1, GENERIC_WRITE=2, OPEN_EXISTING=3,
+            FILE_FLAG_OVERLAPPED=0x40000000,
+        )
+
+        actual = _windows_connector_with_modules(
+            r"\\.\pipe\AEGIS.IdentityAgent.v1", request, 5.0, 4096, 17.0,
+            pywintypes=SimpleNamespace(OVERLAPPED=Overlapped),
+            win32con=fake_con, win32event=fake_event,
+            win32file=fake_file, win32pipe=fake_pipe,
+            monotonic=FakeClock.monotonic,
+        )
+        self.assertEqual(response, actual)
+        self.assertGreaterEqual(waits[0], 16_000)
+        self.assertLessEqual(waits[0], 17_000)
+
+    def test_missing_pipe_does_not_receive_the_agent_response_budget(self):
+        waits = []
+
+        def unavailable(_name, timeout_ms):
+            waits.append(timeout_ms)
+            raise FileNotFoundError("local Agent pipe not published")
+
+        with self.assertRaises(FileNotFoundError):
+            _windows_connector_with_modules(
+                r"\\.\pipe\AEGIS.IdentityAgent.v1", b"{}\n", 5.0, 4096,
+                pywintypes=SimpleNamespace(),
+                win32con=SimpleNamespace(),
+                win32event=SimpleNamespace(),
+                win32file=SimpleNamespace(),
+                win32pipe=SimpleNamespace(WaitNamedPipe=unavailable),
+            )
+        self.assertEqual(1, len(waits))
+        self.assertLessEqual(waits[0], 5000)
+
+    def test_distinct_budgets_reach_injected_connector_without_camera_authority(self):
+        connector = RecordingConnector(response=encode_response(ok=True, status=200))
+        client = IdentityAgentClient(timeout_s=5, response_timeout_s=17, connector=connector)
+
+        result = client.submit("heartbeat", {"cameraConnected": False})
+
+        self.assertTrue(result.ok)
+        self.assertEqual((5, 17), (connector.calls[0][2], connector.calls[0][4]))
+        self.assertEqual(0, client.camera_demand_side_effects)
+
+    def test_engine_wires_configured_response_budget_to_real_agent_client(self):
+        engine = DetectionEngine(
+            config=EngineConfig(
+                monitor_ingest_mode="identity_agent",
+                identity_agent_timeout_s=5,
+                identity_agent_response_timeout_s=17,
+            )
+        )
+        agent = engine._monitor._agent
+        self.assertIsInstance(agent, IdentityAgentClient)
+        self.assertEqual(5, agent.timeout_s)
+        self.assertEqual(17, agent.response_timeout_s)
+        self.assertEqual(0, agent.camera_demand_side_effects)
+
+    def test_unauthorized_and_malformed_agent_responses_remain_fail_closed(self):
+        unauthorized = IdentityAgentClient(
+            connector=RecordingConnector(
+                response=encode_response(ok=False, status=None, error="UNAUTHORIZED_CALLER")
+            )
+        )
+        denied = unauthorized.submit("heartbeat", {"cameraConnected": False})
+        self.assertFalse(denied.ok)
+        self.assertEqual("UNAUTHORIZED_CALLER", denied.error)
+        self.assertEqual(0, unauthorized.camera_demand_side_effects)
+
+        malformed = IdentityAgentClient(connector=RecordingConnector(response=b"not-json"))
+        invalid = malformed.submit("heartbeat", {"cameraConnected": False})
+        self.assertFalse(invalid.ok)
+        self.assertEqual("AGENT_UNAVAILABLE", invalid.error)
+        self.assertEqual(0, malformed.camera_demand_side_effects)
+
+    def test_client_import_stays_lazy_and_fail_soft_without_pywin32(self):
+        script = (
+            "import sys\n"
+            "from aegis_engine.identity_agent_client import IdentityAgentClient\n"
+            "assert not any(name in sys.modules for name in "
+            "('pywintypes', 'win32con', 'win32event', 'win32file', 'win32pipe'))\n"
+            "client = IdentityAgentClient()\n"
+            "result = client.submit('heartbeat', {'cameraConnected': False})\n"
+            "assert not result.ok and result.error == 'AGENT_UNAVAILABLE'\n"
+            "assert client.camera_demand_side_effects == 0\n"
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(ENGINE_ROOT)
+        completed = subprocess.run(
+            [sys.executable, "-S", "-B", "-c", script],
+            cwd=ENGINE_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+
     def test_all_four_operations_use_bounded_local_pipe_requests(self):
         connector = RecordingConnector()
         client = IdentityAgentClient(
@@ -52,6 +205,7 @@ class IdentityAgentClientTests(unittest.TestCase):
             self.assertTrue(client.submit(operation, payload).ok)
         self.assertEqual(list(payloads), [decode_request(call[1]).operation for call in connector.calls])
         self.assertTrue(all(call[2] == 5 for call in connector.calls))
+        self.assertTrue(all(call[4] == 30 for call in connector.calls))
 
     def test_timeout_broken_pipe_and_oversized_response_fail_soft(self):
         cases = (
@@ -136,6 +290,7 @@ class IdentityAgentClientTests(unittest.TestCase):
                 "AEGIS_MONITOR_INGEST_MODE": "identity_agent",
                 "AEGIS_IDENTITY_AGENT_PIPE_NAME": r"\\.\pipe\AEGIS.IdentityAgent.v1",
                 "AEGIS_IDENTITY_AGENT_TIMEOUT_S": "5",
+                "AEGIS_IDENTITY_AGENT_RESPONSE_TIMEOUT_S": "18",
                 "AEGIS_DETECTION_ENGINE_API_KEY": "legacy-stream-key",
             },
             clear=True,
@@ -144,7 +299,18 @@ class IdentityAgentClientTests(unittest.TestCase):
         self.assertEqual("identity_agent", cfg.monitor_ingest_mode)
         self.assertEqual(r"\\.\pipe\AEGIS.IdentityAgent.v1", cfg.identity_agent_pipe_name)
         self.assertEqual(5, cfg.identity_agent_timeout_s)
+        self.assertEqual(18, cfg.identity_agent_response_timeout_s)
         self.assertNotEqual("legacy_shared_key", cfg.monitor_ingest_mode)
+
+    def test_response_budget_defaults_to_thirty_and_rejects_unbounded_values(self):
+        with patch.dict("os.environ", {}, clear=True):
+            cfg = EngineConfig.from_env().validate()
+        self.assertEqual(5, cfg.identity_agent_timeout_s)
+        self.assertEqual(30, cfg.identity_agent_response_timeout_s)
+        for value in (0, -1, 30.1, float("inf"), float("nan")):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "AEGIS_IDENTITY_AGENT_RESPONSE_TIMEOUT_S"):
+                    EngineConfig(identity_agent_response_timeout_s=value).validate()
 
     def test_native_connector_bounds_an_established_pipe_transaction(self):
         calls = []

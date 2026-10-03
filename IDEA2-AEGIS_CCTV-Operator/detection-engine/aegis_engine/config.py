@@ -157,6 +157,7 @@ class EngineConfig:
     monitor_ingest_mode: str = "legacy_shared_key"
     identity_agent_pipe_name: str = r"\\.\pipe\AEGIS.IdentityAgent.v1"
     identity_agent_timeout_s: float = 5.0
+    identity_agent_response_timeout_s: float = 30.0
 
     # --- NAS sync (NASSyncWorker) ----------------------------------------
     # Development must start without production NAS infrastructure. Enabling
@@ -295,6 +296,10 @@ class EngineConfig:
             identity_agent_timeout_s=_env_float(
                 "AEGIS_IDENTITY_AGENT_TIMEOUT_S", cls.identity_agent_timeout_s
             ),
+            identity_agent_response_timeout_s=_env_float(
+                "AEGIS_IDENTITY_AGENT_RESPONSE_TIMEOUT_S",
+                cls.identity_agent_response_timeout_s,
+            ),
             nas_enabled=_env_bool("AEGIS_NAS_ENABLED", cls.nas_enabled),
             nas_method=_env_str("AEGIS_NAS_METHOD", cls.nas_method),
             nas_user=_env_opt("AEGIS_NAS_USER"),
@@ -423,6 +428,10 @@ class EngineConfig:
             raise ValueError("AEGIS_IDENTITY_AGENT_PIPE_NAME must be a local Windows pipe")
         if not 0.1 <= self.identity_agent_timeout_s <= 5.0:
             raise ValueError("AEGIS_IDENTITY_AGENT_TIMEOUT_S must be between 0.1 and 5")
+        if not 0.1 <= self.identity_agent_response_timeout_s <= 30.0:
+            raise ValueError(
+                "AEGIS_IDENTITY_AGENT_RESPONSE_TIMEOUT_S must be between 0.1 and 30"
+            )
         if self.stream_first_frame_timeout_s <= 0:
             raise ValueError("AEGIS_STREAM_FIRST_FRAME_TIMEOUT_S must be > 0")
         if self.stream_idle_timeout_s <= 0:
