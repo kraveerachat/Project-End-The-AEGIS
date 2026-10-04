@@ -703,6 +703,7 @@ export async function listClips(visibleIds) {
             ) AS has_unknown
        FROM clips c
       WHERE c.camera_id = ANY($1)
+        AND c.stored_on_nas = TRUE
       ORDER BY c.started_at DESC
       LIMIT 60`,
     [ids],
