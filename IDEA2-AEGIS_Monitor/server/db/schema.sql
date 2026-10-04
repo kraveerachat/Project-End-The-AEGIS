@@ -223,14 +223,14 @@ CREATE TABLE IF NOT EXISTS physical_camera_heartbeat (
   stream_url         TEXT
 );
 
--- ── clips — บันทึกต่อเนื่องตัดเป็นช่วง ~10 นาที (interval-based, ไม่ใช่ detection-triggered) ──
+-- ── clips — บันทึกต่อเนื่อง: full clip 5 นาที + final partial ตามเวลาจริง ──
 CREATE TABLE IF NOT EXISTS clips (
   id            BIGSERIAL PRIMARY KEY,
   camera_id     TEXT NOT NULL REFERENCES cameras(id),
   physical_camera_id BIGINT REFERENCES physical_cameras(physical_camera_id),
   producer_generation BIGINT REFERENCES camera_producer_epochs(producer_generation),
   started_at    TIMESTAMPTZ NOT NULL,
-  duration_sec  INTEGER NOT NULL DEFAULT 600,
+  duration_sec  INTEGER NOT NULL DEFAULT 300,
   file_path     TEXT NOT NULL,
   stored_on_nas BOOLEAN NOT NULL DEFAULT FALSE, -- rsync/scp + verify แล้วจึงเป็น TRUE
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
