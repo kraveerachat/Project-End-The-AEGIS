@@ -23,7 +23,22 @@ let opened = []
 let closed = []
 const active = new Map()
 let counter = 0
-const assigned = () => scenario === 'empty' ? [] : allCameras.slice(0, scenario === 'two-cameras' ? 2 : 4)
+const socScenario = () => ['two-cameras', 'soc-error', 'soc-all-streams'].includes(scenario)
+const assigned = () => scenario === 'empty' ? []
+  : ['single-camera', 'no-live-menu'].includes(scenario) ? allCameras.slice(0, 1)
+  : scenario === 'single-camera-2' ? allCameras.slice(1, 2)
+  : allCameras.slice(0, ['two-cameras', 'soc-error'].includes(scenario) ? 2 : 4)
+const fixtureSession = () => ({
+  user: { username: scenario === 'single-camera-2' ? 'fixture-operator2' : 'fixture-user',
+    displayName: socScenario() ? 'Test SOC' : 'Test Operator',
+    role: socScenario() ? 'SOC-Responder' : 'CCTV-Operator' },
+  menu: [
+    ...(scenario === 'no-live-menu' ? [] : [{ id: 'live', group: 'navObservation' }]),
+    { id: 'archive', group: 'navObservation' },
+    ...(socScenario() ? [] : [{ id: 'diagnostics', group: 'navInfra' }]),
+    { id: 'settings', group: 'navPrefs' },
+  ],
+})
 // Moving test patterns prove the thumbnail is live, not a cached screenshot.
 // These generated pixels are fixtures only; no real camera images are read.
 function pngChunk(type, bytes) {
@@ -74,17 +89,17 @@ function handler(req, res, next) {
   }
   if (!url.pathname.startsWith('/monitor/api/')) return next()
   const path = url.pathname.slice('/monitor'.length)
+  if (path === '/api/login' && req.method === 'POST') {
+    expired = false
+    return json(res, fixtureSession())
+  }
   if (expired) return json(res, { error: 'Unauthenticated' }, 401)
-  if (path === '/api/me') return json(res, {
-    user: { username: 'fixture-user', displayName: scenario === 'two-cameras' ? 'Test SOC' : 'Test Operator',
-      role: scenario === 'two-cameras' ? 'SOC-Responder' : 'CCTV-Operator' },
-    menu: [{ id: 'live', group: 'navObservation' }, { id: 'settings', group: 'navPreferences' }],
-  })
+  if (path === '/api/me') return json(res, fixtureSession())
   if (path === '/api/cameras') return json(res, { cameras: assigned() })
   if (path === '/api/link') return json(res, {
     status: 'online', lastFrameAt: Date.now(),
     cameras: assigned().map((camera, i) => ({
-      cam: camera.id, hasStream: (i < 2 || scenario === 'all-streams') && !offline,
+      cam: camera.id, hasStream: (i < 2 || ['all-streams', 'soc-all-streams'].includes(scenario)) && !offline,
       status: scenario === 'idle' || i > 1 || offline ? 'lost' : 'online',
       cameraConnected: scenario !== 'idle' && i < 2 && !offline,
       captureFps: i < 2 && !offline ? 12 : 0,
@@ -102,7 +117,7 @@ function handler(req, res, next) {
     const id = decodeURIComponent(match[1])
     if (!assigned().some(camera => camera.id === id)) return json(res, { error: 'Forbidden' }, 403)
     opened.push(id)
-    if (scenario === 'error' && id === 'entry-z') return json(res, { error: 'Fixture failure' }, 503)
+    if (['error', 'soc-error'].includes(scenario) && id === 'entry-z') return json(res, { error: 'Fixture failure' }, 503)
     const key = ++counter
     active.set(key, { id, response: res })
     res.writeHead(200, {

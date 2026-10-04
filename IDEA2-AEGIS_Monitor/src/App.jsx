@@ -82,6 +82,9 @@ export default function App() {
     }
   }, [])
   const [heroCam, setHeroCam] = useState(null)
+  // Retain Live only after this exact authenticated Operator session has
+  // entered it. A replacement session must not inherit an old viewer.
+  const [liveOwner, setLiveOwner] = useState(null)
   const [arcCam, setArcCam] = useState('all')
   const [arcResult, setArcResult] = useState('all')
   const [detCam, setDetCam] = useState('all')
@@ -93,6 +96,11 @@ export default function App() {
   // มีสิทธิ์เห็นวิวไหน ตัดสินจากเมนูของเซิร์ฟเวอร์เท่านั้น — วิวนอกเมนูไม่ถูก
   // render ลง DOM เลย (ไม่ใช่ซ่อนด้วย CSS) ดู server/rbac/permissions.js
   const has = (id) => menu.some((m) => m.id === id)
+  const operatorLive = session?.role === 'CCTV-Operator' && has('live')
+
+  useEffect(() => {
+    if (operatorLive && view === 'live') setLiveOwner(session)
+  }, [operatorLive, session, view])
 
   // ⚠️ Phase 2: ข้อมูลสด (link/detections/alerts) มาจาก API ของเซิร์ฟเวอร์ —
   // ตัวจำลองฝั่ง client ถูกถอนทิ้ง; alerts ถูก fetch เฉพาะ role ที่มีวิวนั้น
@@ -207,6 +215,14 @@ export default function App() {
   }
 
   const visibleCams = cameras ?? []
+  const keepOperatorLive = operatorLive && (view === 'live' || liveOwner === session)
+  const liveView = (
+    <Live
+      now={now} link={link} detections={detections} sysEvents={sysEvents}
+      cameras={cameras} heroCam={heroCam} setHeroCam={setHeroCam}
+      role={session.role}
+    />
+  )
 
   return (
     <MotionConfig reducedMotion="user">
@@ -229,15 +245,15 @@ export default function App() {
         <div className="body">
           <Sidebar sections={sections} view={view} setView={setView} unacked={unacked} viewCount={viewOrder.length} canLinkTest={canLinkTest} />
           <main id="main" className="main glass">
-            <div className="viewfade" key={view}>
+            {keepOperatorLive && (
+              <div className="viewfade" hidden={view !== 'live'} inert={view !== 'live'}
+                aria-hidden={view !== 'live'} style={view === 'live' ? undefined : { display: 'none' }}>
+                {liveView}
+              </div>
+            )}
+            {(!keepOperatorLive || view !== 'live') && <div className="viewfade" key={view}>
               {/* render เฉพาะวิวที่อยู่ในเมนูของเซิร์ฟเวอร์ — นอกเมนู = ไม่มีใน DOM */}
-              {view === 'live' && has('live') && (
-                <Live
-                  now={now} link={link} detections={detections} sysEvents={sysEvents}
-                  cameras={cameras}
-                  heroCam={heroCam} setHeroCam={setHeroCam}
-                />
-              )}
+              {view === 'live' && has('live') && !keepOperatorLive && liveView}
               {view === 'archive' && has('archive') && (
                 <Archive
                   now={now}
@@ -270,7 +286,7 @@ export default function App() {
                   onSignOut={signOut}
                 />
               )}
-            </div>
+            </div>}
           </main>
         </div>
         <Footer link={link} />
