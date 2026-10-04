@@ -23,6 +23,12 @@ import { SelectionAction, SelectionActionBar } from '../components/SelectionActi
 import { readFolderHistory, writeFolderHistory } from '../lib/folderHistory.js'
 import { WorkspaceMarqueeScope, WorkspaceMarqueeSource } from '../components/WorkspaceMarquee.jsx'
 import { PreviewModalShell } from '../components/preview/PreviewModalShell.jsx'
+// multi-file streaming ZIP: the transfer panel lives under components/vault/ and is reused as-is (spec §9)
+import { VaultTransferPanel } from '../components/vault/VaultTransferPanel.jsx'
+import { createRateEstimator } from '../lib/transferRate.js'
+import { BULK_ZIP_ENABLED, planBulkDownload } from '../lib/bulkDownloadPlan.js'
+import { createFilesEntrySource, runBulkZip } from '../lib/bulkZipDownload.js'
+import { supportsStreamingFileSink } from '../lib/vaultChunkedDownload.js'
 
 const EXT_ICONS = {
   xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
@@ -746,6 +752,7 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
 // ทุกการกระทำ (สร้างโฟลเดอร์/ลบ) เป็น request จริง + refetch; ไม่มี alert()/prompt()
 export function Files({
   t, lang, go, userId = null, navigationParams = {}, placeholderMode = false,
+  bulkZipEnabled = BULK_ZIP_ENABLED,
 }) {
   const reduced = useReducedMotion()
   const now = useNow(30_000)
@@ -796,6 +803,12 @@ export function Files({
   const [askDelete, setAskDelete] = useState(null) // null | { ids: string[], label: string }
   const [mutating, setMutating] = useState(false)
   const [mutateError, setMutateError] = useState(false)
+  // ZIP หลายไฟล์: busy ของการโอน (SC-2 — Files ไม่มีไดอะล็อกยืนยัน), แถบความคืบหน้า และข้อความแจ้ง
+  const downloadBusyRef = useRef(false)
+  const downloadAbortRef = useRef(null)
+  const downloadRateRef = useRef(null)
+  const [downloadTransfer, setDownloadTransfer] = useState(null)
+  const [bulkNotice, setBulkNotice] = useState([])
   const [preview, setPreview] = useState(null)              // null | file (ไฟล์ปกติที่ preview ได้)
   const [renameTarget, setRenameTarget] = useState(null)   // null | file
   const [renameValue, setRenameValue] = useState('')
@@ -1010,6 +1023,48 @@ export function Files({
     a.remove()
   }
 
+  /** Download ของแถบการเลือก — 1–3 ไฟล์ = anchor ทีละไฟล์เหมือนเดิม, 4+ = ZIP เดียวผ่านตัวเลือกไฟล์เดียว
+   *  ⚠️ ไม่มี await ใดก่อน runBulkZip: ตัวเลือกไฟล์ต้องเปิดภายใน user activation ของการกดนี้ */
+  const startBulkDownload = () => {
+    if (downloadBusyRef.current) { setBulkNotice([{ key: 'filesDownloadBusy' }]); return }
+    const plan = planBulkDownload({
+      source: 'files', items: [...selectedIds], resolve: (id) => files.find((f) => f.id === id) ?? null,
+      fsa: supportsStreamingFileSink(), enabled: bulkZipEnabled,
+    })
+    const notices = [
+      ...(plan.skippedFolders ? [{ key: 'zipFoldersSkipped', vars: { n: plan.skippedFolders } }] : []),
+      ...(plan.unavailable ? [{ key: 'zipUnavailable', vars: { n: plan.unavailable } }] : []),
+      ...(plan.fallbackNotice === 'no-fsa-large' ? [{ key: 'filesZipLargeFallback' }] : []),
+    ]
+    if (plan.mode === 'refused') { setBulkNotice([{ key: 'zipTooManyFiles' }]); return }
+    setBulkNotice(notices)
+    if (plan.mode === 'per-file') { for (const f of plan.perFile) downloadFile(f); return }
+    if (plan.mode !== 'zip') return
+    const ctrl = new AbortController()
+    downloadAbortRef.current = ctrl
+    downloadRateRef.current = createRateEstimator()
+    const run = runBulkZip({
+      plan, source: createFilesEntrySource(), busyRef: downloadBusyRef, signal: ctrl.signal,
+      onProgress: (p) => {
+        if (p.stage === 'done') { setDownloadTransfer(null); return }
+        const rate = downloadRateRef.current?.sample(p.transferredBytes, performance.now(), { totalBytes: p.totalBytes }) ?? null
+        setDownloadTransfer({ ...p, rate })
+      },
+    })
+    void run.then((res) => {
+      if (res.status === 'failed') {
+        setDownloadTransfer((prev) => ({
+          ...(prev ?? { kind: 'download', transferredBytes: 0, totalBytes: 0, percent: 0 }),
+          stage: 'failed', reason: res.reason, failedName: res.failedEntry?.name ?? null, rate: null,
+        }))
+      } else if (res.status === 'busy') {
+        setBulkNotice([{ key: 'filesDownloadBusy' }])
+      } else {
+        setDownloadTransfer(null)
+      }
+    }).finally(() => { if (downloadAbortRef.current === ctrl) downloadAbortRef.current = null })
+  }
+
   const onMenuAction = (action, file) => {
     if (action === 'rename') {
       setRenameTarget(file)
@@ -1057,6 +1112,15 @@ export function Files({
     <div>
       {/* breadcrumbs — บรรพบุรุษจริงจากเซิร์ฟเวอร์ ไม่ใช่เส้นทางที่จอสะสมเอง
           ⚠️ เดิมเป็นรายการสตริงที่ไม่เคยยาวขึ้น จึงเป็นการตกแต่งที่ไม่ได้บอกตำแหน่งจริง */}
+      <p role="status" aria-live="polite" data-testid="files-bulk-notice" className={bulkNotice.length ? 'text-[12.5px] text-ink-3 mb-3' : 'sr-only'}>
+        {bulkNotice.map((n) => t(n.key, n.vars)).join(' ')}
+      </p>
+      <VaultTransferPanel
+        t={t}
+        transfer={downloadTransfer}
+        onCancel={() => downloadAbortRef.current?.abort()}
+        onDismiss={() => setDownloadTransfer(null)}
+      />
       <nav aria-label={t('breadcrumb')} className="flex items-center gap-1.5 text-[13px] text-ink-3 font-semibold mb-4 select-none flex-wrap">
         <button
           type="button"
@@ -1202,12 +1266,7 @@ export function Files({
           {/* ⚠️ เดิมปุ่มสองตัวนี้ถูกวาดโดยไม่มี onClick เลย — ปุ่มที่กดแล้วไม่เกิดอะไร
               คือปุ่มที่โกหกผู้ใช้ ตอนนี้ทั้งคู่ผูกกับคำสั่งจริง */}
           <SelectionAction
-            onClick={() => {
-              for (const id of selectedIds) {
-                const picked = files.find((f) => f.id === id)
-                if (picked && picked.kind !== 'folder') downloadFile(picked)
-              }
-            }}
+            onClick={startBulkDownload}
           >
             <Download size={14} strokeWidth={1.5} />
             {t('download')}
