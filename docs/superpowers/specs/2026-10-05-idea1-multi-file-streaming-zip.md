@@ -1,6 +1,6 @@
 # IDEA1 — Multi-file Download as One Streaming ZIP (architecture spec)
 
-**Status:** REVISED after Codex review (revision 2). Human design decisions D-1 to D-4 are applied (§27). Awaiting Codex re-review, then Human approval of the written spec. Spec only: `IMPLEMENTATION_AUTHORIZED=NO`, `PRODUCTION_MUTATION_AUTHORIZED=NO`. No runtime source, test, server, dependency, or deployment change accompanies this document. **Area/owner:** `idea1` / `kla`. **Classification:** ARCHITECTURAL. **Base:** `origin/main` `912b18005bb2fc80bb4e8d1fe8aa88803ac27314` (PR #334 merged; PR #323 D-1 and PR #319 Trash preview merged).
+**Status:** REVISED after Codex re-review (revision 3). Human design decisions D-1 to D-4 are applied (§27). Awaiting final Codex re-review, then Human approval of the written spec. Spec only: `IMPLEMENTATION_AUTHORIZED=NO`, `PRODUCTION_MUTATION_AUTHORIZED=NO`. No runtime source, test, server, dependency, or deployment change accompanies this document. **Area/owner:** `idea1` / `kla`. **Classification:** ARCHITECTURAL. **Base:** `origin/main` `912b18005bb2fc80bb4e8d1fe8aa88803ac27314` (PR #334 merged; PR #323 D-1 and PR #319 Trash preview merged).
 
 ## 1. Problem and goal
 
@@ -142,7 +142,8 @@ For entry *i* with payload size `sᵢ` and local-header offset `oᵢ`:
 - `offZ64ᵢ = oᵢ ≥ 0xFFFFFFFF`.
 - **Entry *i* is a ZIP64 entry iff `sizeZ64ᵢ OR offZ64ᵢ`.** A ZIP64 entry always has version-needed 45 (local and central) and a central ZIP64 extra.
 - **Offset-only case** (`offZ64ᵢ` and not `sizeZ64ᵢ`): central offset field = `0xFFFFFFFF`, central ZIP64 extra = the 64-bit offset only (4 + 8 B), size fields hold real 32-bit values, data descriptor uses 4-byte sizes, version-needed 45.
-- **ZIP64 end records** (EOCD record + locator) are written **iff** `N ≥ 0xFFFF` (unreachable under the 1000 cap, implemented anyway) **or** `cdSize ≥ 0xFFFFFFFF` **or** `cdStart ≥ 0xFFFFFFFF`. They are not written merely because some entry is ZIP64. Whether every required reader accepts that combination is part of the reader gate (§24).
+- **ZIP64 end records** (EOCD record + locator) are written **iff** `N ≥ 0xFFFF` (unreachable under the 1000 cap, implemented anyway) **or** `cdSize ≥ 0xFFFFFFFF` **or** `cdStart ≥ 0xFFFFFFFF`. This is the only trigger.
+- **Consequence:** any ZIP64 entry forces the ZIP64 end records. A size-ZIP64 entry places at least `0xFFFFFFFF` payload bytes before the central directory. An offset-only entry starts at or beyond `0xFFFFFFFF`. Either way `cdStart ≥ 0xFFFFFFFF`. A valid archive that contains a ZIP64 entry but no ZIP64 end records therefore cannot exist, and no test may require one. Whether every required reader accepts these layouts is part of the reader gate (§24).
 
 Zero-byte entries are valid: local header, no payload, descriptor with CRC `0x00000000` and sizes 0.
 
@@ -181,7 +182,7 @@ AEGIS does **not** claim that any reader accepts this layout until §24 has been
 
 | Path | Change | Note |
 |---|---|---|
-| `src/lib/zipStreamWriter.js` | NEW | Pure writer over an injected archive sink: `begin()`, `addEntry({name, size}) → entrySink`, `finish()`. Tracks offsets, ZIP64 decisions, CRC, byte counts and central-directory records. Has no knowledge of Files, the Vault or the DOM, and never calls the sink's `close`/`abort` itself; the orchestrator owns finalisation. |
+| `src/lib/zipStreamWriter.js` | NEW | Pure writer over an injected archive sink: `begin()`, `addEntry({name, size}) → entrySink`, `finish()`. Tracks offsets, ZIP64 decisions, CRC, byte counts and central-directory records. Has no knowledge of Files, the Vault or the DOM, and never calls the sink's `close`/`abort` itself; the orchestrator owns finalisation. Option `startOffset` (default 0) exists only as a unit-test seam (§23); production callers never pass it. |
 | `src/lib/zipEntryNames.js` | NEW | Sanitisation and duplicate numbering (§5). |
 | `src/lib/bulkDownloadPlan.js` | NEW | Synchronous, pure: filter, threshold (`ZIP_THRESHOLD = 4`), `MAX_ZIP_ENTRIES = 1000`, V1 refusal (§12), totals, exact archive length (§7.3), FSA/buffered/per-file decision, feature switch `BULK_ZIP_ENABLED` (§25). |
 | `src/lib/bulkZipDownload.js` | **NEW (deviation)** | One orchestrator for the phase machine (picker → pre-flight → writable → entries → finish → close, or abort), progress, cancel, lock, with two **source adapters**: `filesEntrySource` and `vaultV2EntrySource`. This keeps the security-critical ordering in one tested place instead of copying it into two screens. |
@@ -200,18 +201,19 @@ AEGIS does **not** claim that any reader accepts this layout until §24 has been
 
 The adapter `filesEntrySource.open(entry, archiveSignal)` creates a **per-entry `AbortController`** (`fetchCtrl`) linked to the archive signal, then works as follows.
 
-**Single cleanup routine.** `cleanup(reason)` is idempotent and is the **only** exit for every Files-entry failure:
+**Single cleanup routine.** `cleanup(reason)` is idempotent and is the **only** exit for every Files-entry failure. It runs **synchronously up to step 4** and never awaits `reader.cancel()`:
 
-1. Clear the idle timer.
-2. If a reader exists: `reader.cancel(reason)` (rejection swallowed).
-3. `fetchCtrl.abort(reason)` (no-op if the fetch already settled).
-4. Return the failure to the orchestrator. The orchestrator stops the archive (§20) and **does not start the next entry**.
+1. If **this entry's** cleanup has already run, return; this is the only early return and makes the routine idempotent. Otherwise mark the entry failed and mark the archive failed. Marking the archive is a no-op if it is already failed, for example when Cancel or lock reached the orchestrator first, and **never** skips steps 2–4. From this point the orchestrator cannot start another entry, call `close()`, or report success, whatever happens in steps 4–5.
+2. Clear the source-idle timer.
+3. `fetchCtrl.abort(reason)` **immediately**. This is a no-op if the fetch already settled. The fetch abort never waits for, or depends on, the reader.
+4. If a reader exists: call `reader.cancel(reason)` as **best-effort** cleanup, **without awaiting it**. A rejection is swallowed with `.catch(() => {})`. A never-settling `cancel()` has no effect on the outcome.
+5. Return the failure to the orchestrator, which runs the pre-close abort rule (§20). The orchestrator never awaits the `reader.cancel()` promise.
 
 `cleanup` runs on every one of these: explicit Cancel, Vault lock (not applicable to Normal Files, but the shared orchestrator path is the same), idle timeout, network error, non-2xx, `body === null`, invalid or mismatched `Content-Length`, early EOF, overlong stream, archive write failure, hasher failure, and any other archive failure raised while this entry is open.
 
 **Steps:**
 
-1. Start the idle timer (below), then `apiFetchStream('/api/files/:id/download', { signal: fetchCtrl.signal })`. Same route, cookie, owner check and audit as today.
+1. **Arm the source-idle timer (60 s)**, then await `apiFetchStream('/api/files/:id/download', { signal: fetchCtrl.signal })`. Same route, cookie, owner check and audit as today. When the response (headers) arrives, **clear** the timer. If it fires first, `cleanup('timeout')`, which aborts the fetch.
 2. Network error → `network`; 401 → `unauthorized` (existing session handling); 403 → `forbidden`; any other non-2xx → `server`. Each calls `cleanup`.
 3. `response.body === null` → `stream-missing`, `cleanup`.
 4. **Content-Length policy (one rule, no exceptions):** the header is **required**.
@@ -221,13 +223,25 @@ The adapter `filesEntrySource.open(entry, archiveSignal)` creates a **per-entry 
    - All three are checked **before** `writer.addEntry`, so the failing entry's local header is never written. Each calls `cleanup`.
    - Rationale: the route always sets it (§2), and the repository gateway/server apply no compression. Its absence means an unexpected intermediary, so the entry fails closed.
 5. `writer.addEntry({ name, size: file.size })` writes the local header. Acquire `reader = body.getReader()`.
-6. Loop `reader.read()`. For each `value`:
-   - If `received + value.length > file.size` → `overlong`, `cleanup`, before writing any of that `value`.
-   - Otherwise CRC update, then `await entrySink.write(value)`, then `received += value.length`, then reset the idle timer if `value.length > 0`, then drop the reference.
-   - Check the archive signal after every write.
-7. On `done`: `received === file.size` is required, otherwise `early-eof`, `cleanup`. On success, clear the timer and release the reader; the writer emits the data descriptor.
+6. **Stream loop.** Each iteration:
+   1. **Arm** the source-idle timer if it is not already armed (see the zero-length rule below), then `await reader.read()`.
+   2. `done === true` → clear the timer, then go to step 7.
+   3. `value.length === 0` (not done) → this is **not** payload progress. Leave the timer armed with its **existing deadline**, neither reset nor extended, and loop back to 6.1. A source that keeps returning empty reads therefore still times out 60 s after its last positive payload.
+   4. `value.length > 0` → **immediately**, before any archive work:
+      - record payload progress: `received += value.length`;
+      - **clear** the source-idle timer.
+   5. If `received > file.size` → `overlong`, `cleanup`. None of that `value` is written.
+   6. CRC update, then `await entrySink.write(value)`, then drop the reference. **No source-idle timer is running during this write**, so a slow disk or slow sink never spends the network idle budget. A write that fails or stalls is handled by the archive failure rules (§19, §20) and by Cancel.
+   7. Check the archive signal, then loop back to 6.1, which arms a **fresh** 60 s window for the next read.
+7. On `done`: `received === file.size` is required, otherwise `early-eof`, `cleanup`. On success, release the reader; the writer emits the data descriptor.
 
-**Idle-timeout policy:** **60 seconds without received payload progress.** The timer starts when the fetch is issued, so it also covers waiting for response headers. It is reset only when `reader.read()` returns a chunk with length > 0. On expiry it calls `cleanup('timeout')`, which aborts the fetch **and** cancels the reader, and the entry fails as `timeout`. There is no total-duration timeout, so large files on slow links are not killed while bytes are flowing.
+**Source-idle timeout policy:** **60 seconds without incoming payload progress from the source.** It measures source/fetch idleness only, never destination write time.
+
+- The timer runs only while AEGIS is waiting on the network: for the response headers (step 1) and for each `reader.read()` (step 6.1).
+- It is cleared as soon as a positive-length chunk arrives (step 6.4), **before** the sink write, and re-armed fresh only after that write completes.
+- Zero-length non-done reads keep the existing deadline (step 6.3).
+- On expiry, `cleanup('timeout')` aborts the fetch immediately and best-effort cancels the reader. The entry and archive fail as `timeout`, and no next entry starts.
+- There is **no total-transfer-duration timeout**, so large files on slow links are not killed while payload is arriving.
 
 The browser chooses the read size. Backpressure comes from awaiting each `writable.write`.
 
@@ -383,17 +397,32 @@ Each test is written RED first. RED evidence is recorded against base `912b1800`
 - Byte-exact round-trip of entries, including a 0-byte entry (CRC 0, sizes 0, 16-byte descriptor).
 - Flags `0x0808`, method 0, signed data descriptor present, local CRC/sizes zero, version-needed 20 for ordinary entries.
 - Thai, CJK and emoji names round-trip as UTF-8 with bit 11 set.
-- **Size-ZIP64:** an entry declared at `0xFFFFFFFF` (synthetic generator, never allocated) gets local size fields `0xFFFFFFFF` + local ZIP64 extra, a 24-byte descriptor, central extra with uncompressed and compressed sizes, and version-needed 45 in local and central. An entry declared at `0xFFFFFFFE` does not.
-- **Offset-only ZIP64:** with a simulated offset base so that an entry's local-header offset is `≥ 0xFFFFFFFF` while its size is small:
-  - local header has no ZIP64 extra and has version-needed 45;
-  - descriptor is 16 bytes;
-  - central size fields hold real 32-bit values and the central offset field is `0xFFFFFFFF`;
-  - central ZIP64 extra contains **only** the 64-bit offset, equal to the true offset;
-  - central version-needed is 45.
+**Test seams (unit tests only, never used by production callers):**
 
-  The same entry at offset `0xFFFFFFFE` is not ZIP64.
-- ZIP64 EOCD record + locator present exactly when `N ≥ 0xFFFF`, `cdSize ≥ 0xFFFFFFFF` or `cdStart ≥ 0xFFFFFFFF` (simulated), absent otherwise, including when a size-ZIP64 entry exists but none of those holds. Classic EOCD sentinels are set only for overflowed fields.
-- Output length equals §7.3's formula for: ordinary entries, a 0-byte entry, a size-ZIP64 entry, an offset-only entry, and the z64End case.
+- A **counting sink** records the byte count and only the bytes the test asks to keep. Typically that means the regions from each local header up to the start of its payload, and from the central directory onwards. Payload bytes are counted and discarded.
+- A **synthetic payload source** yields one reused zero-filled buffer of ≤ 1 MiB until the declared size is reached.
+- A writer option **`startOffset`** (default 0) sets the logical position of the first byte. A test can then place a small entry's local header at or beyond `0xFFFFFFFF` without writing 4 GiB.
+
+Together these validate the encoding rules without allocating or storing more than about 1 MiB. Real-size layouts are proven by A5/A6 (§24).
+
+- **Case A, size-ZIP64:** an entry whose declared and streamed size is exactly `0xFFFFFFFF` (counting sink + synthetic source; real CRC over the streamed bytes):
+  - its local header has both size fields `0xFFFFFFFF`, a local ZIP64 extra, and version-needed 45;
+  - its data descriptor is 24 bytes with 8-byte sizes;
+  - its central header has size fields `0xFFFFFFFF`, a central ZIP64 extra with uncompressed and compressed size, and version-needed 45;
+  - because `cdStart ≥ 0xFFFFFFFF` follows necessarily (§7.2), the ZIP64 EOCD record + locator **are present** and the classic EOCD offset field is `0xFFFFFFFF`.
+
+  The same test with size `0xFFFFFFFE` yields a non-ZIP64 entry (classic fields, 16-byte descriptor, version-needed 20). Its ZIP64 end records are present or absent strictly according to the §7.2 trigger evaluated on the resulting `cdStart`/`cdSize`, which the test computes and asserts.
+- **Case B, offset-only ZIP64:** a **small** entry (for example 5 bytes) written with `startOffset` chosen so its local-header offset is `≥ 0xFFFFFFFF`:
+  - its compressed and uncompressed sizes are real classic 32-bit values;
+  - its local header has no ZIP64 extra and has version-needed 45;
+  - its data descriptor is 16 bytes with 4-byte sizes;
+  - its central offset field is `0xFFFFFFFF`, and its central ZIP64 extra contains **only** the 64-bit local-header offset, equal to the true offset;
+  - its central version-needed is 45;
+  - the archive-level ZIP64 EOCD + locator are present (forced by `cdStart`, §7.2), which is valid and asserted.
+
+  The same small entry at `startOffset = 0xFFFFFFFE − (bytes before it)` (local header at offset `0xFFFFFFFE`) is not ZIP64: classic offset, no central extra, version-needed 20.
+- **Archive-level trigger:** ZIP64 EOCD record + locator are present iff `N ≥ 0xFFFF`, `cdSize ≥ 0xFFFFFFFF` or `cdStart ≥ 0xFFFFFFFF`, each checked at its boundary (`0xFFFFFFFE` vs `0xFFFFFFFF`) with `startOffset`. Classic EOCD sentinels are set only for the fields that overflowed. **No test requires a ZIP64 entry without ZIP64 end records**, because that layout is impossible (§7.2).
+- Output length (logical, from the counting sink) equals §7.3's formula for: ordinary entries, a 0-byte entry, Case A, Case B, and a `cdStart`-triggered case.
 - `write` beyond the declared size throws; `finish()` with an incomplete entry throws; the writer never calls the sink's `close`/`abort`.
 
 **`tests/zipEntryNames.test.js`:**
@@ -444,9 +473,23 @@ Each test is written RED first. RED evidence is recorded against base `912b1800`
 **`tests/bulkZipFiles.test.js`** (orchestrator + `filesEntrySource` with a stubbed `fetch` `ReadableStream` and fake timers):
 
 - Streamed with no `arrayBuffer` call.
-- Each of the following ends in `fetchCtrl.abort` called, `reader.cancel` called when a reader exists, one archive abort attempt, no `close`, and the next entry's fetch **never issued**:
+- **SOURCE-IDLE-TIMEOUT:**
+  - (a) No response headers for 60 s.
+  - (b) Headers arrive, then `reader.read()` produces no positive payload for 60 s.
+  - (c) The reader returns only zero-length non-done reads for 60 s after its last positive chunk; these must not extend the deadline.
+
+  Each case requires: `fetchCtrl.signal.aborted === true`, `reader.cancel` invoked when a reader exists, one archive abort attempt, no `close`, a `timeout` failure, and the next entry's fetch **never issued**. A control case, 59 s → 1 byte → 59 s, does **not** time out.
+- **SLOW-SINK-TIMEOUT:**
+  - The source delivers a positive chunk 30 s into its idle window.
+  - The archive sink's `write` for that chunk is held for 90 s.
+  - The source-idle timeout **does not fire** during the held write.
+  - After the write resolves, the next `reader.read()` gets a **fresh** 60 s window: a next chunk at +59 s succeeds, and in a variant no chunk within 60 s triggers `timeout`.
+- **STALLED-READER-CANCEL (cleanup order):**
+  - `reader.cancel()` returns a never-settling promise (and, in a variant, a delayed rejection).
+  - On any failure (for example `overlong`), `fetchCtrl.signal.aborted` is `true` **synchronously** within `cleanup`, before `reader.cancel` is even called, verified by call-order spies.
+  - The archive is marked failed, one abort attempt is made, `close` is never called, the next entry's fetch is never issued, and no success state is reported, even though `cancel()` never settles.
+- Each of the following ends in `fetchCtrl.abort` called (before `reader.cancel`), `reader.cancel` called when a reader exists, one archive abort attempt, no `close`, and the next entry's fetch **never issued**:
   - Cancel;
-  - idle timeout: 60 s with no payload progress, both before headers and mid-body; and 59 s → 1 byte → 59 s does **not** time out;
   - network error;
   - non-2xx;
   - 401;
@@ -480,7 +523,7 @@ Run against a non-Production instance only. Every cell must record its result; a
 | A3 | 0-byte (Files and Vault), Thai/CJK/emoji, duplicate and reserved names | ✓ | ✓ | ✓ | ✓ |
 | A4 | Folder in the selection → skipped notice | ✓ | ✓ | ✓ | ✓ |
 | A5 | Vault: single entry ≥ 4.1 GiB (size-ZIP64) plus 3 small | ✓ | ✓ | refused (too large) | refused |
-| A6 | Files: total > 4.1 GiB with small trailing entries (offset-only ZIP64 + ZIP64 end records) | ✓ | ✓ | per-file fallback | per-file fallback |
+| A6 | Files, **offset-only ZIP64 fixture** (defined below): large preceding entries, then a small final entry whose local header starts at ≥ `0xFFFFFFFF` | ✓ | ✓ | per-file fallback | per-file fallback |
 | A7 | Cancel mid-entry 2 → no success reported; record destination state | ✓ | ✓ | ✓ | ✓ |
 | A8 | Lock Vault mid-archive → abort; record destination state | ✓ | ✓ | ✓ | ✓ |
 | A9 | Disk full (small VHD/USB target) → `localDiskFull`, no success; record destination state | ✓ | ✓ | — | — |
@@ -488,13 +531,28 @@ Run against a non-Production instance only. Every cell must record its result; a
 | A11 | Tab memory: peak growth during a 1 GiB and a 5 GiB entry differs by < 64 MiB (not proportional to size), recorded with the blob's chunk size | ✓ | ✓ | — | — |
 | A12 | V1 in a 4+ Vault selection → refused before the confirmation | ✓ | ✓ | ✓ | ✓ |
 
+**A6 offset-only ZIP64 fixture.** A real archive produced by the app, with:
+
+1. Preceding Normal Files entries, each individually `< 0xFFFFFFFF` bytes so none is size-ZIP64, whose total advances the writer position **beyond `0xFFFFFFFF`**. For example, four files of about 1.1 GiB each, so the fourth entry ends past 4 GiB.
+2. **Then** a small final file (for example 1 KiB) whose **local header begins at an offset ≥ `0xFFFFFFFF`**.
+
+A6 passes only if inspection of **that specific small entry** proves all of the following. Inspect it with Python `zipfile` (`ZipInfo.header_offset`, `ZipInfo.extra`) plus a raw byte dump of its central record:
+
+- its local-header offset is `≥ 0xFFFFFFFF`;
+- its compressed and uncompressed sizes are `< 0xFFFFFFFF`, and its central size fields hold those real values;
+- its central relative-offset field is `0xFFFFFFFF`, and its central ZIP64 extra (`0x0001`) contains **only** the 64-bit offset (data size 8);
+- its version-needed is 45;
+- it extracts byte-exact (SHA-256) in every required reader.
+
+Total archive size above 4.1 GiB on its own is **not** accepted as proof of offset-only ZIP64.
+
 ### Reader compatibility gate (BLOCKING for release)
 
 Test archives:
 
 - (R1) the A2 archive including a 0-byte entry;
 - (R2) the A5 size-ZIP64 archive;
-- (R3) the A6 offset-only ZIP64 archive with ZIP64 end records.
+- (R3) the A6 offset-only ZIP64 fixture, after its small final entry passes the inspection above.
 
 | Reader | Status | Pass criterion |
 |---|---|---|
@@ -538,3 +596,8 @@ No open Human decisions remain in this spec.
   5. exact archive-length formula and explicit ZIP64 end-record trigger;
   6. zero-byte Vault V2 test;
   7. blocking reader gate (Windows Explorer, macOS Archive Utility, Python `zipfile`; 7-Zip optional).
+- **Revision 3** (final Codex blocker correction; no new Human decision):
+  1. Removed the impossible test that expected a size-ZIP64 entry without ZIP64 end records. §7.2 now states that any ZIP64 entry forces `cdStart ≥ 0xFFFFFFFF` and therefore the ZIP64 end records. The size-ZIP64 (Case A) and offset-only (Case B) tests are separate, with `startOffset`/counting-sink test seams (§23).
+  2. A6 now requires a real offset-only fixture: large preceding entries, then a small final entry whose local header starts at ≥ `0xFFFFFFFF`. Acceptance inspects that entry's central record (§24).
+  3. The 60 s timer now measures source idleness only. It is armed while awaiting headers or `reader.read()`, cleared on positive payload **before** the sink write, and re-armed fresh after the write. Zero-length reads keep the existing deadline (§10). Added SLOW-SINK-TIMEOUT and SOURCE-IDLE-TIMEOUT tests.
+  4. Cleanup order: mark failed, clear timer, `fetchCtrl.abort()` immediately, then best-effort un-awaited `reader.cancel()`. Added the STALLED-READER-CANCEL test (§10, §23).
