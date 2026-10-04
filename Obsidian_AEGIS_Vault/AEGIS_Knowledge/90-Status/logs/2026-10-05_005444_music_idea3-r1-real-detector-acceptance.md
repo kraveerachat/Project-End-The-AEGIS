@@ -58,10 +58,16 @@ Future prerequisite chain (a successor governed Core-deployment task/stage decis
 
 Stage id (`R1A` is only a proposal); whether governance classifies the stage as mutating because the real event makes the Production Core durably create an OPEN incident, `INCIDENT_BOUND` and `ALERT_ACCEPTED`; one-attempt boundary; failure/no-retry behaviour; rollback policy (a real incident must NOT be deleted or undone to restore PRE state); predecessor F1 closeout receipt gate. Deploying a new Core release containing this change is its own successor governed step.
 
+## Main reconciliation
+
+- Original implementation base: `0e7797bc3860b7ad8d85b8a57858e05e2123b220`.
+- Final reconciled main: `c010995afddb7e52ce06cd20db3cbdd67bac60fc`, by a normal merge of `origin/main` (owner-authorized). No rebase, no squash, no force push; the local fix commit `ccaaabd3` remains in ancestry.
+- The new main changes are IDEA1/IDEA2 only and have no overlap with the PR #342 IDEA3 files. No LIVE claim changed.
+
 ## Verification evidence
 
-- `python -m pytest tests/test_r1_acceptance.py tests/test_core_alert_ingress.py tests/test_f1_alert_sink.py tests/test_f1_detector_journal_source_repair.py tests/test_recovery_evidence.py tests/test_core_recovery.py tests/test_core_restore_policy.py -q` — pass: 529 passed (final head).
-- `python -m pytest tests/test_pr11_phase4_f1r_stage.py tests/test_pr11_phase4_f1_governed_stage.py -q` — 298 passed, 2 failed; the digest-pin test `test_the_repo_detector_digest_gate_ties_the_pin_to_the_reviewed_source` passes. The 2 failures (`test_the_shell_detector_gate_also_detects_a_standalone_process_while_the_unit_is_not_found`, `test_the_detector_absent_gate_refuses_a_present_or_loaded_unit_via_stubbed_systemctl`) fail identically on pristine detached `origin/main` on this host (re-run at 24153c29): PRE_EXISTING_ENVIRONMENT_DEPENDENT (F1 LIVE installed the detector unit). Historical tests not modified.
+- `python -m pytest tests/test_r1_acceptance.py tests/test_core_alert_ingress.py tests/test_f1_alert_sink.py tests/test_f1_detector_journal_source_repair.py tests/test_recovery_evidence.py tests/test_core_recovery.py tests/test_core_restore_policy.py -q` — pass: 529 passed (post-merge final head).
+- `python -m pytest tests/test_pr11_phase4_f1r_stage.py tests/test_pr11_phase4_f1_governed_stage.py -q` — 298 passed, 2 failed; the digest-pin test `test_the_repo_detector_digest_gate_ties_the_pin_to_the_reviewed_source` passes. The 2 failures (`test_the_shell_detector_gate_also_detects_a_standalone_process_while_the_unit_is_not_found`, `test_the_detector_absent_gate_refuses_a_present_or_loaded_unit_via_stubbed_systemctl`) fail identically on pristine detached `origin/main` on this host (re-run on current origin/main c010995a): PRE_EXISTING_ENVIRONMENT_DEPENDENT (F1 LIVE installed the detector unit). Historical tests not modified.
 - `ruff check` on changed Python/test files — pass.
 - `git diff origin/main -- IDEA3-AEGIS_Lockdown/aegis_soc/production_detector.py` — pass: empty.
 - `node scripts/validate-vault.mjs` — pass (two pre-existing owner-data Canvas warnings).
