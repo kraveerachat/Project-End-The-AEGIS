@@ -11,8 +11,12 @@ edit_policy: append-by-new-file
 # Task Receipt — IDEA1 Private Vault Save-picker-first download and truthful progress
 
 Final implementation/evidence checkpoint: `c973e825` on base `origin/main`
-`e8efe3bb09d12ab8383bacdb77a9d2b7ccb139d8`. Separate from D-1 Phase J / PR #323
-(not touched). No Production connection, mutation, or deployment.
+`e8efe3bb09d12ab8383bacdb77a9d2b7ccb139d8`. Post-#319 resync (2026-10-05):
+current `origin/main` `c010995afddb7e52ce06cd20db3cbdd67bac60fc` (includes
+PR #323 D-1 Phase J CLOSED/ACCEPTED and PR #319 Trash preview) merged normally
+at `4ef2632c` — no conflicts, no rebase/force-push. Separate from D-1 Phase J
+and Trash preview (neither touched); multi-file ZIP is out of scope. No
+Production connection, mutation, or deployment.
 
 ## What changed
 
@@ -57,10 +61,11 @@ Final implementation/evidence checkpoint: `c973e825` on base `origin/main`
 - `node --test --test-concurrency=1 tests/vaultChunkedDownloadClient.test.js tests/vaultDownloadMime.test.js` — pass 29/29
 - `node --test --test-concurrency=1 <every tests/(vault|preview|i18n|workspace|transfer)*.test.js>` — head 1,410 tests / 1,189 pass / 90 fail / 131 skipped; base `e8efe3bb` same file set 1,392 / 1,171 / 90 / 131. Failing-name diff: 0 head-only, 0 base-only → `NEW_FAILURES=0` (literal FAIL by count; the 90 are pre-existing: legacy-screen suites whose DOM no longer mounts, i18n `vaultKeyConfirmLabel` parity, `PIO-2` CRLF source slice, `vaultDerivativeRead` file-level)
 - `npx vite build` — pass; tracked `dist/` restored, not committed
+- Post-#319 re-verification on merge `4ef2632c` (Windows, Node 24.14.0): `strings.js` auto-merged; the four Trash keys (`trashDeletedAt`, `trashPurgeAt`, `trashPreviewUnsupported`, `trashPreviewUnavailable`) and `vaultTreeDownloadBusy` each present in EN/TH/ZH (task diff vs main: +3 lines); #319 Trash source/test files identical to main. `vaultDownloadPickerFirst` 14/14, `vaultTreeDownloadProgress` 4/4 (without `--test-force-exit`), `vaultChunkedDownloadClient` 26/26, `vaultDownloadMime` 3/3. Same `(vault|preview|i18n|workspace|transfer)*` regression set (`--test-concurrency=1`, TAP): head 1,410 / 1,189 pass / 90 fail / 131 skipped; current main `c010995a` (detached worktree, same file set minus the two new files) 1,392 / 1,171 / 90 / 131. Failing-name diff: 0 head-only, 0 main-only → `NEW_FAILURES=0` (literal FAIL by count). `npm run build` PASS (2,766 modules; `dist/` restored); governance 61/61; `validate-vault.mjs` PASS (2 pre-existing Canvas warnings); `git diff --check origin/main...HEAD` PASS; added-line secret scan 0 hits; collaboration policy validated locally before Ready.
 
 ## Canonical notes updated
 
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — new `IDEA1-VAULT-LARGE-DOWNLOAD-UX-1` task block (root causes, new order, not-measured items)
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — `IDEA1-VAULT-LARGE-DOWNLOAD-UX-1` task block (root causes, new order, not-measured items, post-#319 re-verification) moved to Current; Trash #319 block marked Closed/merged. D-1 CLOSED/ACCEPTED record preserved.
 
 ## Shared surfaces touched
 
@@ -72,8 +77,9 @@ Final implementation/evidence checkpoint: `c973e825` on base `origin/main`
 
 ## Known limitations
 
-- No real-browser measurement: click-to-picker latency, WebCrypto queue contention, and Chromium's `.crswap` finalisation/Safe Browsing time on `close()` are NOT MEASURED; evidence is jsdom/Node only. The `onTiming` marks exist for a later real-Chrome probe.
+- Real-browser acceptance is NOT claimed (no Human real-browser test of Save-picker latency). No real-browser measurement: click-to-picker latency, WebCrypto queue contention, and Chromium's `.crswap` finalisation/Safe Browsing time on `close()` are NOT MEASURED; evidence is jsdom/Node only. The `onTiming` marks exist for a later real-Chrome probe.
 - Chromium may leave the empty placeholder file the picker creates when metadata authentication or the transfer then fails; it is never written or closed as complete. It is not deleted automatically, because `remove()` could delete a file the user chose to overwrite.
 - Bulk download of several V2 files still opens one picker per file in sequence; pickers after the first have no user activation and are reported as failures (unchanged from before).
 - The rollback (read-only) list gets the picker-first order but no progress panel.
 - Download stays strictly sequential; a bounded-concurrency pipeline needs separate throughput measurement and design.
+- This single receipt was updated in place after the main resync as the same unmerged task's receipt (AGENTS.md §9).

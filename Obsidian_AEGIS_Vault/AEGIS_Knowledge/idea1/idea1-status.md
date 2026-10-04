@@ -15,19 +15,33 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-TRASH-PREVIEW-PANE (post-D-1 reactivation)
+## Current Task — IDEA1-VAULT-LARGE-DOWNLOAD-UX-1 — Private Vault Save-picker-first download + truthful progress
+
+| Field | Current value |
+|---|---|
+| Task | Fix "Download appears to do nothing" for large Private Vault V2 files; separate from D-1 Phase J (PR #323, merged, CLOSED/ACCEPTED) and Trash preview (PR #319, merged) — neither touched. Multi-file ZIP is **out of scope** (separate later task). |
+| Branch | `fix/idea1-vault-download-picker-first` from `origin/main` `e8efe3bb09d12ab8383bacdb77a9d2b7ccb139d8`; current `origin/main` `c010995afddb7e52ce06cd20db3cbdd67bac60fc` (includes PR #323 and PR #319) merged normally at `4ef2632c` — no conflicts; `strings.js` auto-merged with both the four Trash keys and `vaultTreeDownloadBusy` present in EN/TH/ZH |
+| PR | #334 — Ready for Human review/merge after post-#319 re-verification (agent does not merge) |
+| Owner | kla |
+| State | **REPOSITORY IMPLEMENTED / RE-VERIFIED ON CURRENT MAIN `c010995a` / AWAITING HUMAN REVIEW AND MERGE.** Post-#319 re-verification: picker-first 14/14, tree progress 4/4, chunked download 26/26, download MIME 3/3; `(vault\|preview\|i18n\|workspace\|transfer)*` regression set head 1,410 / 1,189 pass / 90 fail / 131 skip vs current main `c010995a` 1,392 / 1,171 / 90 / 131 with identical failing names (0 new); build PASS; governance 61/61; vault validation PASS. Real-browser acceptance and Production acceptance **not claimed**; no Production connection, mutation, or deployment. |
+| Proven root causes (source + RED tests) | (1) TREE_V1 `treeDownloadEntry` awaited DEK unwrap + metadata AES-GCM decrypt **before** `showSaveFilePicker` — size-independent, but it moved the picker out of the click's synchronous turn, queued it behind any concurrent WebCrypto work, and spent transient user activation (a refused picker was reported only as a generic failure, or silently in the rollback list); (2) no progress surface after the destination was chosen — `downloadVaultV2` was called without `onProgress`, so a 1.1 GB stream looked like nothing happening; (3) a second Download click while one was active was silently dropped by the `downloadBusy` guard. Legacy `Vault.jsx` was already picker-first with progress. |
+| New order | click → `showSaveFilePicker` (first await, synchronous in the click turn) → DEK unwrap + metadata AEAD authentication → `createWritable()` → sequential chunk fetch/decrypt/write with real `onProgress` → `close()` only after full authenticated success; any failure → `abort()`, never `close()`. Shared by tree, rollback list, preview modal, bulk bar and legacy screen via `prepareVaultV2Download`. |
+| Not measured | Real-browser click-to-picker latency and WebCrypto queue contention (jsdom/Node evidence only); Chromium `.crswap` finalisation timing on `close()`. |
+| Next gate | Human review and merge of PR #334. Real-browser Save-picker latency acceptance (e.g. via the `onTiming` marks) is a later deployment gate. Bounded download concurrency is **not** implemented and needs separate measurement + design. |
+
+## Closed Task — IDEA1-TRASH-PREVIEW-PANE (post-D-1 reactivation)
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1 Trash right-side preview/details pane and one Human-approved read-only Trash preview GET route |
 | Branch | `feat/idea1-trash-preview-pane` from `origin/main` `27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf`; post-D-1 `origin/main` `6e9449551d5cd28b7f6a42a869e2e071b5e9f479` (PR #323 merge) merged normally at `b2ca74ae` — no source conflicts; one status-note conflict reconciled |
 | Owner | kla |
-| PR | #319 — Ready for Human review/merge after post-D-1 verification (agent does not merge) |
-| State | **SOURCE IMPLEMENTED / LOCAL VERIFIED ON POST-D-1 MAIN / AWAITING HUMAN REVIEW AND MERGE**. No browser acceptance, Production deployment, or Production acceptance claimed. |
+| PR | #319 — **merged** by the Human at `c010995afddb7e52ce06cd20db3cbdd67bac60fc` (final resync over `24153c29` at `42d58a36`) |
+| State | **MERGED** (repository). No browser acceptance, Production deployment, or Production acceptance claimed. |
 | Production mutation allowed | **NO** — any later deployment is a separate Human authorization. |
 | Scope | IDEA1 Trash UI, shared Normal Files preview renderer extraction, and one read-only `GET /api/trash/:id/preview`. No D-1 preview-index, deployment, Restore/delete semantics, right-click, or Production change; D-1 source and deployment files are identical to `origin/main`. |
 | Acceptance | Left-click selection and right pane; narrow-screen modal; image/video/audio/text through the existing preview policy; unsupported fallback; owner + unlock + current-Trash gates; no selecting/previewing mutation; Human UI review. |
-| Next | Kla reviews PR #319 UI/security behavior and merges; Human browser acceptance and any deployment are separate later gates. |
+| Next | Closed in the repository. Human browser acceptance and any deployment remain separate later gates. Historical gate text: Kla reviews PR #319 UI/security behavior and merges. |
 
 ### Session Register — IDEA1-TRASH-PREVIEW-PANE
 
@@ -154,19 +168,6 @@ I.3 real Chrome 154 (headless, built `dist`, local `/drive` proxy, disposable Po
 | D1D-S1 | E.1–E.4, F.1–F.5 with focused RED/GREEN per task; independent review (1 finding — lost-response detection on thrown transport errors; not reachable through `apiFetch`, hardened anyway with PIW-17) | Implemented and locally verified; Human review required | E.3 end-to-end screen negative control (5 images + 2 videos, browse, rename, move, trash, restore, lock, unlock): READ on/off with WRITE=false → 0 preview-index mutations, 0 generation; WRITE=true positive control catches the writer; F.4 lock matrix 7 reasons × 6 in-flight stages (mutation-checked); PR-C PostgreSQL contract suites 0 skips; full-suite name diff in the receipt | branch head on PR #303 | HG-D review | PR-E after HG-D |
 
 Known PR-D limitations: with WRITE=true the original-path video tile poster is drawn at the vp1 edge (512 px instead of 640) so backfill can reuse it; the client attach cap (64) mirrors the server default and is not read from the server; an index whose root/shard cannot be verified is not repaired by the writer (fails soft until a future task); counters are page-memory only and not emitted anywhere; no browser (Chrome) evidence — jsdom/Node only.
-
-## Current Task — IDEA1-VAULT-LARGE-DOWNLOAD-UX-1 — Private Vault Save-picker-first download + truthful progress
-
-| Field | Current value |
-|---|---|
-| Task | Fix "Download appears to do nothing" for large Private Vault V2 files; separate from D-1 Phase J / PR #323 (not touched) |
-| Branch | `fix/idea1-vault-download-picker-first` from `origin/main` `e8efe3bb09d12ab8383bacdb77a9d2b7ccb139d8` |
-| Owner | kla |
-| State | **Implemented and locally verified; awaiting Human review.** No Production connection, mutation, or deployment. |
-| Proven root causes (source + RED tests) | (1) TREE_V1 `treeDownloadEntry` awaited DEK unwrap + metadata AES-GCM decrypt **before** `showSaveFilePicker` — size-independent, but it moved the picker out of the click's synchronous turn, queued it behind any concurrent WebCrypto work, and spent transient user activation (a refused picker was reported only as a generic failure, or silently in the rollback list); (2) no progress surface after the destination was chosen — `downloadVaultV2` was called without `onProgress`, so a 1.1 GB stream looked like nothing happening; (3) a second Download click while one was active was silently dropped by the `downloadBusy` guard. Legacy `Vault.jsx` was already picker-first with progress. |
-| New order | click → `showSaveFilePicker` (first await, synchronous in the click turn) → DEK unwrap + metadata AEAD authentication → `createWritable()` → sequential chunk fetch/decrypt/write with real `onProgress` → `close()` only after full authenticated success; any failure → `abort()`, never `close()`. Shared by tree, rollback list, preview modal, bulk bar and legacy screen via `prepareVaultV2Download`. |
-| Not measured | Real-browser click-to-picker latency and WebCrypto queue contention (jsdom/Node evidence only); Chromium `.crswap` finalisation timing on `close()`. |
-| Next gate | Human review of the PR; optional real-Chrome timing via the `onTiming` marks. Bounded download concurrency is **not** implemented and needs separate measurement + design. |
 
 ## Closed Task — IDEA1-TRANSFER-FINAL-REPORT-MEASUREMENT — P1 Direct LAN Final Report Measurement & Remote R1 Closeout
 
