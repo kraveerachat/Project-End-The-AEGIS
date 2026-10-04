@@ -230,8 +230,12 @@ def _template_is_the_repo_unit(monkeypatch):
 # ═══ exact unit install ══════════════════════════════════════════════════════════════════════════════════════════════════════
 
 
+ATTEMPT1_UNIT_SHA256 = "748a4c5bd3d6c30a23324819609ad89bcb4e8c4710cb775ab2c0d789a211772a"  # consumed live attempt 1 (ProcSubset=pid); never reinstall
+
+
 def test_the_pinned_unit_sha_is_the_reviewed_rendered_candidate():
-    assert PIN == "748a4c5bd3d6c30a23324819609ad89bcb4e8c4710cb775ab2c0d789a211772a"
+    # attempt-1 successor repair: ProcSubset=pid removed (journalctl -f needs /proc/sys), so the digest changed and is derived from the exact bytes.
+    assert PIN == "da40399ef57b1e29cf30dc63792f67ded15333faacd8a3e04feb1c8e60d419b9" != ATTEMPT1_UNIT_SHA256
     assert F1.render_unit(UNIT_BYTES) == UNIT_BYTES
 
 
@@ -1022,3 +1026,45 @@ def test_normal_rollback_with_no_own_start_and_a_non_running_detector_removes_on
     assert not [c for c in rb.calls if c[0] in ("stop", "start")]  # never stops what it did not start
     assert world.events.count("systemctl:daemon-reload") == reloads_before + 1  # exactly one rollback reload
     assert json.loads(journal_text(work))["phase"] == "rolled_back"
+
+
+# ═══ attempt-1 successor review: the verify path still requires a genuinely running detector ═══════════════════════════════════
+
+
+def test_attempt_1_failure_shape_is_still_refused_by_the_stage_and_rolled_back(tmp_path):
+    """Replay of the live failure: the detector starts, its journalctl dies, systemd logs "Deactivated successfully" (Result=success, inactive)."""
+    world, host, backend, work = build(tmp_path, die_on_settle=True)
+    assert refusal(run_apply, host, backend, work) == "DETECTOR_NOT_RUNNING"
+    assert backend.starts == 1 and world.active is False and json.loads(journal_text(work))["core_env_preserved"] is False
+    assert tool.rollback(work, host, FakeBackend(world, host)) == {"F1_ROLLBACK": "PASS"} and tool.UNIT_PATH not in host.files
+
+
+GOOD_RUNNING = {"LoadState": "loaded", "ActiveState": "active", "SubState": "running", "MainPID": "777", "Result": "success", "NRestarts": "0",
+                "UnitFileState": "disabled", "Restart": "no", "FragmentPath": tool.UNIT_PATH}
+
+
+class StateBackend(FakeBackend):
+    def __init__(self, world, host, state):
+        super().__init__(world, host)
+        self.state = state
+
+    def _run(self, args):
+        if args[0] == "show" and args[1] == tool.DETECTOR_UNIT:
+            return tool.CommandResult(0, "".join(f"{k}={v}\n" for k, v in self.state.items() if f"-p{k}" in args))
+        return super()._run(args)
+
+
+def test_the_expected_running_state_is_accepted_and_every_required_property_is_pinned(tmp_path):
+    world, host, _, _ = build(tmp_path)
+    assert tool.verify_loaded(StateBackend(world, host, dict(GOOD_RUNNING)), expect_active=True)["ActiveState"] == "active"
+
+
+@pytest.mark.parametrize("key,bad,reason", [
+    ("ActiveState", "inactive", "DETECTOR_NOT_RUNNING"), ("ActiveState", "failed", "DETECTOR_NOT_RUNNING"), ("ActiveState", "activating", "DETECTOR_NOT_RUNNING"),
+    ("SubState", "dead", "DETECTOR_NOT_RUNNING"), ("SubState", "exited", "DETECTOR_NOT_RUNNING"), ("MainPID", "0", "DETECTOR_NO_MAIN_PID"),
+    ("Result", "exit-code", "DETECTOR_UNHEALTHY"), ("NRestarts", "1", "DETECTOR_UNHEALTHY"), ("UnitFileState", "enabled", "DETECTOR_UNIT_FILE_STATE_UNEXPECTED"),
+    ("Restart", "on-failure", "DETECTOR_RESTART_POLICY_CHANGED"), ("LoadState", "not-found", "DETECTOR_UNIT_NOT_LOADED"),
+])
+def test_each_required_running_property_is_enforced_and_nothing_was_weakened(tmp_path, key, bad, reason):
+    world, host, _, _ = build(tmp_path)
+    assert refusal(tool.verify_loaded, StateBackend(world, host, {**GOOD_RUNNING, key: bad}), True) == reason

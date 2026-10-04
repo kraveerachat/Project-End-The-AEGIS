@@ -35,6 +35,7 @@ SEND_BURST = 3
 SEND_PER_MIN = 6.0  # below the Core ingress limit (burst 5, 10/min)
 MAX_CONSECUTIVE_TRANSPORT_FAILURES = 3
 EXIT_TRANSPORT_UNAVAILABLE = 2
+EXIT_JOURNAL_SOURCE_UNAVAILABLE = 3  # the journalctl follower ended or could not start: the detector is blind, so it must FAIL, never exit 0
 LINE_MAX_CHARS = 2048
 
 # A constant argv: no shell, nothing derived from log content, no user input.
@@ -159,20 +160,37 @@ class ProductionDetector:
 
 
 def run(lines: Iterable[str], detector: ProductionDetector) -> int:
+    """Consume journal lines. The follower is endless by design, so the iterable ending at all means the journal source was lost: that is a
+    failure (``EXIT_JOURNAL_SOURCE_UNAVAILABLE``), never a clean exit 0. A stopped sink keeps its own code (``EXIT_TRANSPORT_UNAVAILABLE``)."""
     for line in lines:
         detector.process(line)
         if detector.stopped:
             return EXIT_TRANSPORT_UNAVAILABLE
-    return 0
+    return EXIT_JOURNAL_SOURCE_UNAVAILABLE
+
+
+def _journal_exit_status(process: subprocess.Popen) -> str:
+    """The follower's exit status as a fixed non-secret integer (or ``unknown``): it is never reaped twice and never raises."""
+    try:
+        return str(process.wait(timeout=5))
+    except Exception:  # noqa: BLE001 - observability only; the failure exit code does not depend on it
+        return "unknown"
 
 
 def main() -> int:
     detector = ProductionDetector()
     _log("started", sink="AF_UNIX", socket=alert_sink.ALERT_SOCKET_PATH)
-    process = subprocess.Popen(list(JOURNAL_ARGV), stdout=subprocess.PIPE, text=True, errors="replace")
+    try:
+        process = subprocess.Popen(list(JOURNAL_ARGV), stdout=subprocess.PIPE, text=True, errors="replace")
+    except OSError:  # journalctl missing / not executable: one bounded explicit failure, no traceback, no retry
+        _log("stopping", reason="JOURNAL_SOURCE_UNAVAILABLE", journal_exit="not_started")
+        return EXIT_JOURNAL_SOURCE_UNAVAILABLE
     try:
         assert process.stdout is not None
-        return run(process.stdout, detector)
+        status = run(process.stdout, detector)
+        if status == EXIT_JOURNAL_SOURCE_UNAVAILABLE:
+            _log("stopping", reason="JOURNAL_SOURCE_UNAVAILABLE", journal_exit=_journal_exit_status(process))
+        return status
     finally:
         process.terminate()
         try:
