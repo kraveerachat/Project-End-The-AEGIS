@@ -1,0 +1,4 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage F1i allowed new listeners.
+#
+# ZERO active entries by contract: F1i copies one release directory and opens no listener on the Core host.
+#

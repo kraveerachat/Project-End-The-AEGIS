@@ -4,9 +4,9 @@
 # repository, replaces the PIN_ values (the merged main SHA, the operator identity, the exact OLD and NEW release ids, the NEW release source SHA and the
 # NEW production_detector.py digest), records the frozen file's SHA-256, and only then authorizes a run. Nothing in this repository executes it.
 # Usage (the FROZEN operator user/uid, NOT root):  bash run-f1r-owner.sh <AUTH_DIR>     AUTH_DIR holds authorization-F1r.txt and k3-F1r.txt (same-day, stage=F1r)
-# Stage order: L7 -> L7u -> L8p -> L6c (fresh install-only run for the repaired release) -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9. The L6c step is a NEW
-# install-only maintenance run of the already-reviewed L6c mechanism (new release id, new same-day authorization), never a replay of a consumed authorization.
-# F1r requires the L8p closeout result (canonical receipt of the pinned commit), consumes ONE attempt (F1R-ATTEMPT-CONSUMED) and has NO automatic second attempt.
+# Stage order: L7 -> L7u -> L8p -> F1i (post-L7 repaired-release install) -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9. F1r requires the governed F1i install to be CLOSED
+# (from the pinned commit: exactly one status-log receipt with F1I_LIVE_EXECUTED=YES + F1I_RELEASE_INSTALLED=YES + F1I_RELEASE_ID=<this NEW_RELEASE_ID>) and the L8p
+# closeout result (canonical receipt of the pinned commit), consumes ONE attempt (F1R-ATTEMPT-CONSUMED) and has NO automatic second attempt.
 # F1r owns ONLY the atomic switch of /opt/aegis-idea3/current from the exact OLD release to the exact, ALREADY-INSTALLED NEW release. It installs no release, and
 # it NEVER restarts, starts, stops or reloads the Core or any service: the running Core keeps its MainPID and NRestarts (both must be unchanged), and changing
 # `current` does NOT move the running Core to the new release. It never starts or installs the detector, edits core.env, injects an alert, runs Recovery,
@@ -93,7 +93,7 @@ gate_out=$(TZ=Asia/Bangkok bash "$P4/p4-stage-gate.sh" --stage F1r --mode live -
 for l in AUTHORIZATION_RECORD=VALID K3_CONFIRMATION=VALID ROLLBACK_HANDLER=REGISTERED; do printf '%s\n' "$gate_out" | grep -qx "$l" || gate "stage gate did not report $l"; done
 
 # 2. predecessor: the L8p closeout result from the pinned commit; F1r itself must not already be recorded
-f1r_receipt_gate "$REPO" || gate "predecessor receipt gate failed (see reason above)"
+f1r_receipt_gate "$REPO" "$NEW_RELEASE_ID" || gate "predecessor receipt gate failed (see reason above)"
 # the frozen detector digest must be exactly the REVIEWED, merged source bytes (not merely a text that looks repaired)
 f1r_detector_source_gate "$REPO" "$NEW_PRODUCTION_DETECTOR_SHA256" || gate "the frozen detector digest is not the reviewed source at the pinned main (see reason above)"
 

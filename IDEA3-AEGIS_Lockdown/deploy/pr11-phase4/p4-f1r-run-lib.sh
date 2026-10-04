@@ -4,7 +4,7 @@
 # Every function returns 0 on PASS; on FAIL it prints one `reason` line to stderr and returns 1. Commands are resolved from PATH so tests can stub them;
 # SUDO defaults to `sudo` (tests set SUDO=""). Read-only: only git reads, file reads, `systemctl show` and the read-only `check` of p4-f1r-switch.py.
 # F1r owns its OWN one-attempt marker (F1R-ATTEMPT-CONSUMED), receipt gate and authorization records (stage=F1r, no extra field); it reuses the L8p/L7u gates
-# (receipt-field lookup, Core running baseline, IDEA2 §10, disk headroom, evidence secret scan). It never installs a release (L6c), never restarts the Core,
+# (receipt-field lookup, Core running baseline, IDEA2 §10, disk headroom, evidence secret scan). It never installs a release (that is F1i), never restarts the Core,
 # never starts the detector (F1) and never claims Recovery R1-R8, LVR, L8 or L9.
 
 : "${SUDO=sudo}"
@@ -36,16 +36,24 @@ f1r_consume_attempt() {
   f1r_reason "F1R_ATTEMPT_ALREADY_CONSUMED (one live attempt per authorization; obtain a fresh same-day authorization)"
 }
 
-# f1r_receipt_gate REPO — F1r is allowed only AFTER L8p is closed (the canonical L8p closeout receipt of the PINNED commit carries BOTH whole-line fields) and only
-# while F1r itself is not already recorded as executed (ONE receipt carrying BOTH F1R_LIVE_EXECUTED=YES and F1R_CURRENT_SWITCHED=YES). It has NO dependency on
-# the F1 attempt: a recorded F1 result neither blocks nor satisfies it. Read from the pinned commit, never the working tree.
+# f1r_receipt_gate REPO NEW_RELEASE_ID — F1r is allowed only AFTER L8p is closed AND the governed F1i install of THIS release is closed, and only while F1r itself is not already
+# recorded as executed, proven by receipts read from the PINNED commit, never the working tree. L8p: the canonical closeout receipt carries BOTH whole-line fields. F1i: exactly
+# ONE status-log receipt carries BOTH whole-line fields F1I_LIVE_EXECUTED=YES and F1I_RELEASE_INSTALLED=YES (split fields, duplicates and a missing receipt refuse) AND names the
+# release it installed with the whole-line field F1I_RELEASE_ID=<NEW_RELEASE_ID> (a different or missing release id refuses). F1r: ONE receipt carrying BOTH F1R_LIVE_EXECUTED=YES and
+# F1R_CURRENT_SWITCHED=YES makes it one-shot. A repository-only or rolled-back record that says NO never satisfies any of these. The runtime release pins stay as defense in depth.
 f1r_receipt_gate() {
-  local repo=${1:-} both
+  local repo=${1:-} rid=${2:-} both f1i bound
   [ -n "$repo" ] || { f1r_reason "F1R_REPO_REQUIRED"; return 1; }
+  [[ "$rid" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { f1r_reason "F1R_RELEASE_ID_REQUIRED"; return 1; }
   both=$(comm -12 <(l8p_result_field_files "$repo" L8P_LIVE_EXECUTED YES) <(l8p_result_field_files "$repo" L8P_PROVISIONING PASS))
   [ -n "$both" ] || { f1r_reason "F1R_L8P_NOT_CLOSED (no receipt carries both L8P_LIVE_EXECUTED=YES and L8P_PROVISIONING=PASS)"; return 1; }
   [ "$(printf '%s\n' "$both" | wc -l)" = 1 ] || { f1r_reason "F1R_L8P_RESULT_NOT_UNIQUE"; return 1; }
   [ "${both#HEAD:}" = "$F1_L8P_CLOSEOUT_RECEIPT_REL" ] || { f1r_reason "F1R_L8P_RESULT_NOT_IN_CANONICAL_CLOSEOUT_RECEIPT"; return 1; }
+  f1i=$(comm -12 <(l8p_result_field_files "$repo" F1I_LIVE_EXECUTED YES) <(l8p_result_field_files "$repo" F1I_RELEASE_INSTALLED YES))
+  [ -n "$f1i" ] || { f1r_reason "F1R_F1I_NOT_CLOSED (no receipt carries both F1I_LIVE_EXECUTED=YES and F1I_RELEASE_INSTALLED=YES; F1r follows the governed F1i install)"; return 1; }
+  [ "$(printf '%s\n' "$f1i" | wc -l)" = 1 ] || { f1r_reason "F1R_F1I_RESULT_NOT_UNIQUE"; return 1; }
+  bound=$(l8p_result_field_files "$repo" F1I_RELEASE_ID "${rid//./\\.}")
+  [ "$bound" = "$f1i" ] || { f1r_reason "F1R_F1I_RELEASE_ID_MISMATCH (the F1i receipt must name F1I_RELEASE_ID=$rid)"; return 1; }
   [ -z "$(comm -12 <(l8p_result_field_files "$repo" F1R_LIVE_EXECUTED YES) <(l8p_result_field_files "$repo" F1R_CURRENT_SWITCHED YES))" ] \
     || { f1r_reason "F1R_ALREADY_EXECUTED (an F1r result is recorded; a new live attempt needs a new owner decision)"; return 1; }
 }
