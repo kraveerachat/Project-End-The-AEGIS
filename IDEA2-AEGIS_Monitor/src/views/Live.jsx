@@ -13,7 +13,7 @@ import { selectedCamera, cameraDetections, cameraHeartbeat } from '../lib/liveCa
 // ⚠️ `cameras` มาจาก GET /api/cameras — กรองผ่าน camera_assignment "ฝั่งเซิร์ฟเวอร์"
 // SOC-Responder ได้ทุกกล้อง; CCTV-Operator ได้เฉพาะกล้องที่มอบหมาย
 // วิวนี้ไม่กรองสิทธิ์เอง (และต้องไม่ทำ) — แค่ render ขอบเขตที่ได้รับ
-export default function Live({ now, link, detections, cameras, heroCam, setHeroCam }) {
+export default function Live({ now, link, detections, cameras, heroCam, setHeroCam, role }) {
   const heroRef = useRef(null)
   const [feedStatus, setFeedStatus] = useState(null)
 
@@ -182,13 +182,15 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
               </div>
             )}
           </motion.div>
-          <CameraSelector cameras={cameras} selectedId={cam.id} link={link} sourceRef={heroRef}
-            streamState={feedStatus?.cameraId === cam.id ? feedStatus.state : null}
-            onSelect={(id) => {
-              if (id === cam.id) return
-              setFeedStatus(null)
-              setHeroCam(id)
-            }} />
+          {!(role === 'CCTV-Operator' && cameras.length === 1) && (
+            <CameraSelector cameras={cameras} selectedId={cam.id} link={link} sourceRef={heroRef}
+              streamState={feedStatus?.cameraId === cam.id ? feedStatus.state : null}
+              onSelect={(id) => {
+                if (id === cam.id) return
+                setFeedStatus(null)
+                setHeroCam(id)
+              }} />
+          )}
         </div>
         {/* ⚠️ เดิม canvasR เป็น motion.div ที่ fade+slide เข้ามาช้ากว่าฝั่งซ้าย
             150ms (delay: 0.15) โดยเจตนา — นี่คือ staggered page-load choreography
