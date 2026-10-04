@@ -13,6 +13,7 @@ from the environment only.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, fields
 from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
@@ -123,6 +124,8 @@ class EngineConfig:
     # keeps the trained YOLO model, but requires SFace identity verification;
     # a one-class object detector is never sufficient to authorize a person.
     recognizer_backend: str = "placeholder"  # placeholder | yolo-sface-admin
+    gpu_required: bool = False
+    inference_device: str = "cpu"  # cpu | cuda:<zero-based device index>
     admin_model_path: Optional[str] = None
     admin_class_name: str = "Admin-Face-Scan"
     admin_display_name: str = "Admin"
@@ -244,6 +247,10 @@ class EngineConfig:
             recognizer_backend=_env_str(
                 "AEGIS_RECOGNIZER_BACKEND", cls.recognizer_backend
             ).strip().lower(),
+            gpu_required=_env_bool("AEGIS_GPU_REQUIRED", cls.gpu_required),
+            inference_device=_env_str(
+                "AEGIS_INFERENCE_DEVICE", cls.inference_device
+            ).strip().lower(),
             admin_model_path=_env_opt("AEGIS_ADMIN_MODEL_PATH"),
             admin_class_name=_env_str(
                 "AEGIS_ADMIN_CLASS_NAME", cls.admin_class_name
@@ -357,6 +364,18 @@ class EngineConfig:
                 "AEGIS_RECOGNIZER_BACKEND must be placeholder or "
                 "yolo-sface-admin; yolo-admin alone cannot prove identity"
             )
+        if self.inference_device != "cpu" and not re.fullmatch(
+            r"cuda:(?:0|[1-9][0-9]*)", self.inference_device
+        ):
+            raise ValueError("AEGIS_INFERENCE_DEVICE must be cpu or cuda:<index>")
+        if self.gpu_required:
+            if not self.inference_device.startswith("cuda:"):
+                raise ValueError("AEGIS_INFERENCE_DEVICE must be CUDA when GPU is required")
+            if self.recognizer_backend != "yolo-sface-admin":
+                raise ValueError(
+                    "AEGIS_RECOGNIZER_BACKEND must be yolo-sface-admin "
+                    "when GPU is required"
+                )
         if self.recognizer_backend == "yolo-sface-admin":
             if not self.admin_model_path:
                 raise ValueError(

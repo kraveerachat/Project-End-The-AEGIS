@@ -233,7 +233,8 @@ class LocalEventAPI:
             )
             return {
                 "status": (
-                    "ok" if connected
+                    "degraded" if snap["accelerator_failure"]
+                    else "ok" if connected
                     else "idle" if cfg.capture_on_demand and not demanded
                     else "degraded"
                 ),
@@ -241,6 +242,14 @@ class LocalEventAPI:
                 "camera_demanded": demanded,
                 "stream_viewers": self._stream.viewers if self._stream else 0,
                 "recognizer_backend": cfg.recognizer_backend,
+                "gpu_required": snap["gpu_required"],
+                "requested_inference_device": snap["requested_inference_device"],
+                "yolo_actual_device": snap["yolo_actual_device"],
+                "successful_gpu_inference_samples": snap["successful_gpu_inference_samples"],
+                "accelerator_active": snap["accelerator_active"],
+                "accelerator_failure": snap["accelerator_failure"],
+                "yunet_backend": snap["yunet_backend"],
+                "sface_backend": snap["sface_backend"],
                 "uptime_s": snap["uptime_s"],
                 "capture_fps": snap["capture_fps"],
                 "detect_fps": snap["detect_fps"],
