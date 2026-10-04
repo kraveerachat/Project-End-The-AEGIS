@@ -18,6 +18,19 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 L8p attempt 2 reconciliation contract — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-attempt2-reconciliation-contract`. `OWNER_DECISION = ATTEMPT2_SPECIFIC_READ_ONLY_HOST_RECONCILIATION_APPROVED`, `PHYSICAL_RECOVERY_REQUIRED_BEFORE_RECONCILIATION = NO`, `DEVICE_RETRY_ALLOWED = NO`. This change adds a one-off, host-only tool and its hermetic tests; it performs **no** cleanup on the real attempt-2 evidence, creates no acceptance receipt, and touches no device, serial port, service or Production state.
+> `LIVE_RECONCILIATION_EXECUTED = NO`. Attempt 2's formal result is still `L8P_PROVISIONING = NOT_PROVEN` until the merged tool is actually run successfully by the owner.
+
+- **Tool:** `deploy/pr11-phase4/reconciliation/reconcile-l8p-attempt2.py` — hard-bound to run id `l8p-20261004-041840`, the attempt-2 evidence and freeze directory names, the frozen runner SHA-256 and the firmware digest; arguments `--evidence-root`, `--freeze-dir`, `--input-dir` only; standard library only, no device capability.
+- **Gates before any deletion:** authority (runner digest, consumed marker, Authorization/K3 identical to the evidence copies), the one canonical 12-field JSON bundle, the historical `owner-run.log` shape (the original full-success line must be absent), PRE/POST/RB `SHA256SUMS`, the first-write marker, and exactly the two known secret-hit files by class.
+- **Cleanup and proofs:** removes exactly `l8p-work/nvs.csv` and `l8p-work/nvs.bin`; proves every other file and directory unchanged (in-memory manifest), zero hits in the unchanged full-tree scan, captures and JSON re-verified, markers still present. Any failed gate prints `L8P_ATTEMPT2_RECONCILIATION=FAIL` and no authoritative field.
+- **Result semantics:** on success it prints narrowly defined reconciliation results including `L8P_LIVE_EXECUTED=YES` / `L8P_PROVISIONING=PASS`, which are NEW owner-approved results, not claims about the historical runner (`ORIGINAL_RUNNER_FULL_SUCCESS_LINE = NO`). A separate closeout receipt is created only after a successful run.
+- **Receipt:** `90-Status/logs/$(basename $R)`.
+
+---
+
 ## IDEA3 L8p attempt 2 forensic closeout + secret-staging lifecycle fix — repository only — 2026-10-04
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-secret-staging-lifecycle`, based on `b440b102`. This fix touched no Production service, NTP, serial device or ESP32 and created no Authorization/K3. Attempt 2's records, marker, frozen runner and evidence were not modified.
