@@ -1,0 +1,14 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage F1u allowed PRE->POST host state drift.
+#
+# F1u moves ONE pointer and restarts the Core once. Key approval is by key only; the exact VALUES are proven separately by p4-f1u-upgrade.py (journal + verify: current OLD -> NEW, the Core's
+# working directory, a new MainPID, the detector unchanged) and by the runner gates (f1u_current_transition_gate, f1u_catalog_transition_gate against the PRE/POST host.tsv).
+# The release catalog is NOT listed: it is approved only by the RELATIONAL ALLOW_L6C_RELEASE_FILE rule (`stage F1u` + the one new release id): every PRE release stays byte-identical.
+# NRestarts is NOT listed (a manual restart is not an automatic restart: it must stay 0). The detector unit IS captured (svc.* + unit file): ONLY its process identity (MainPID, ExecMainStartTimestamp) may change,
+# because systemd cycles it as the Requires= consequence of the one Core restart (OPTION A). Its unit bytes, UnitFileState, Restart and every other field must stay identical; the tool proves the rest exactly.
+# Deliberately NOT listed: core.env/credential metadata, any unit file or drop-in, tmpfiles, the Recovery/alert group, directory or socket records (they must be IDENTICAL after the restart),
+# any listener, sysctl, firewall, network, time, MQTT, IDEA1/IDEA2 key.
+host.symlink./opt/aegis-idea3/current.target
+svc.aegis-idea3-core.service.MainPID
+svc.aegis-idea3-core.service.ExecMainStartTimestamp
+svc.aegis-idea3-detector.service.MainPID
+svc.aegis-idea3-detector.service.ExecMainStartTimestamp

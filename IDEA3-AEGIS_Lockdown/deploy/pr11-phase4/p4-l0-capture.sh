@@ -50,7 +50,7 @@ OPTIONAL_TOOLS="chronyc twingate hostnamectl"
 SERVICE_UNITS="NetworkManager.service systemd-networkd.service systemd-resolved.service systemd-timesyncd.service
 chronyd.service nftables.service mosquitto.service aegis-idea3-mosquitto.service dnsmasq.service hostapd.service wpa_supplicant.service
 twingate.service aegis-idea3-core.service aegis-idea3.service aegis-idea3-nftables-load.service aegis-idea3-dnsmasq.service
-aegis-idea3-containment.socket aegis-idea3-containment.service"
+aegis-idea3-containment.socket aegis-idea3-containment.service aegis-idea3-detector.service"
 UNIT_PROPS="LoadState ActiveState SubState UnitFileState MainPID NRestarts Result ExecMainStartTimestamp"
 IDEA2_ENGINE_UNIT=aegis-detection-engine.service
 IDEA2_TUNNEL_UNIT=aegis-detection-tunnel.service
@@ -834,7 +834,8 @@ if [ -f "$(p4_fs /etc/tmpfiles.d/aegis-idea3-alert.conf)" ]; then
   rec_file "$HOST" host.unit_file "$(p4_fs /etc/tmpfiles.d/aegis-idea3-alert.conf)"
 fi
 # L6b (OD-L6B-01) installs the separate broker unit; it is captured exactly like the Core unit (never a wildcard).
-for unit_file in aegis-idea3-core.service aegis-idea3-mosquitto.service; do
+# F1u: the F1 detector unit is captured the same way (its bytes/mode must never drift; only its process identity may change through the Core restart).
+for unit_file in aegis-idea3-core.service aegis-idea3-mosquitto.service aegis-idea3-detector.service; do
   if [ -f "$(p4_fs "/etc/systemd/system/$unit_file")" ]; then
     rec_file "$HOST" host.unit_file "$(p4_fs "/etc/systemd/system/$unit_file")"
   fi
