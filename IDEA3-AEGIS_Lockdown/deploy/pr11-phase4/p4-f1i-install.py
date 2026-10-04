@@ -61,6 +61,12 @@ MATERIAL_FILE = "/etc/aegis-idea3/core.env"
 JOURNAL_NAME = "f1i-journal.json"
 INSTALL_TIMEOUT_SEC = 300.0
 REASON_RE = re.compile(r"reason=(\S+)")
+SAFE_REASON_RE = re.compile(r"[A-Za-z0-9_:.-]{1,80}")  # only a short fixed-looking token is ever persisted from the installer's output
+#: Journal phases and what they MEAN for rollback (ownership is a strict state boundary; a valid-looking release is never proof of ownership):
+#:   preflight / installing / installer_failed -> NEVER deletion authority (installing = INSTALL OUTCOME UNKNOWN; installer_failed = the installer reported failure)
+#:   installed / applied                       -> owned ONLY together with a journaled release_tree_digest (written in the SAME durable write as phase=installed)
+UNOWNED_PHASES = ("installing", "installer_failed")
+OWNED_PHASES = ("installed", "applied")
 TEMP_PREFIX = ".install-tmp-"
 
 
@@ -395,7 +401,11 @@ def apply(current_id: str, rid: str, source_dir: str, source_sha: str, detector_
         result = backend.run_installer(rid, source_dir, target, str(work / "install-evidence.tsv"))
         if result.rc != 0:
             match = REASON_RE.search(result.out or "")
-            refuse(f"INSTALL_FAILED:{match.group(1) if match else 'UNKNOWN'}")
+            reason = match.group(1) if match and SAFE_REASON_RE.fullmatch(match.group(1)) else "UNKNOWN"
+            # persist the installer's verdict BEFORE raising: a failure (even RELEASE_ALREADY_INSTALLED) is evidence, never ownership; no arbitrary output is recorded
+            journal.update(phase="installer_failed", installer_rc=int(result.rc), installer_reason=reason)
+            write_journal(work, journal)
+            refuse(f"INSTALL_FAILED:{reason}")
         check_installed_release(host, rid, source_sha, detector_sha)
         journal.update(phase="installed", release_tree_digest=host.tree_digest(target))
         write_journal(work, journal)
@@ -467,14 +477,29 @@ def rollback(work: Path, host, backend) -> dict[str, str]:
         return {"F1I_ROLLBACK": "NOTHING_OWNED"}  # no mutation was journalled
     if journal.get("phase") == "rolled_back":
         return {"F1I_ROLLBACK": "ALREADY_ROLLED_BACK"}
+    phase = journal.get("phase")
+    if phase not in UNOWNED_PHASES and phase not in OWNED_PHASES:
+        refuse("JOURNAL_PHASE_UNKNOWN")  # fail closed on any state this tool did not write
     rid, current_id = journal["release_id"], journal["current_release_id"]
     target = release_path(rid)
     if not host.is_symlink(CURRENT) or host.readlink(CURRENT) != journal["current_target"]:
         refuse("CURRENT_CHANGED_AFTER_INSTALL")  # another actor repointed `current`: nothing is removed
     if host.temp_residue(RELEASES_DIR, rid):
         refuse("INSTALL_TEMP_RESIDUE")
+    if phase in UNOWNED_PHASES:
+        # No durable proof that THIS attempt installed anything. A release at the target path may be foreign (another root actor won the race and the installer then refused),
+        # however valid it looks: it is NEVER deleted. Leaving possible residue and escalating is deliberately preferred over deleting a release this attempt did not install.
+        if host.lexists(target):
+            refuse("INSTALL_OUTCOME_UNKNOWN" if phase == "installing" else "FOREIGN_OR_UNPROVEN_TARGET")
+        journal["phase"] = "rolled_back"
+        write_journal(work, journal)
+        _postconditions(host, backend, journal)
+        return {"F1I_ROLLBACK": "NOTHING_OWNED"}
+    expected_digest = journal.get("release_tree_digest")
+    if not isinstance(expected_digest, str) or not expected_digest:
+        refuse("JOURNAL_OWNERSHIP_UNPROVEN")  # installed/applied establish ownership only together with the journaled tree digest
     if not host.lexists(target):
-        journal["phase"] = "rolled_back"  # the installer never completed: this attempt owns nothing
+        journal["phase"] = "rolled_back"  # the release this attempt installed is already gone: nothing left to remove
         write_journal(work, journal)
         _postconditions(host, backend, journal)
         return {"F1I_ROLLBACK": "NOTHING_OWNED"}
@@ -484,8 +509,7 @@ def rollback(work: Path, host, backend) -> dict[str, str]:
         check_installed_release(host, rid, journal["source_sha"], journal["detector_sha"])
     except Refusal as exc:
         refuse(f"RELEASE_DRIFTED_REFUSING_ROLLBACK:{exc}")
-    expected_digest = journal.get("release_tree_digest")
-    if expected_digest is not None and host.tree_digest(target) != expected_digest:
+    if host.tree_digest(target) != expected_digest:
         refuse("RELEASE_DRIFTED_REFUSING_ROLLBACK:TREE_DIGEST_MISMATCH")
     try:
         host.remove_release_tree(target)

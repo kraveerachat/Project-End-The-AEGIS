@@ -54,6 +54,9 @@ f1r_receipt_gate() {
   [ "$(printf '%s\n' "$f1i" | wc -l)" = 1 ] || { f1r_reason "F1R_F1I_RESULT_NOT_UNIQUE"; return 1; }
   bound=$(l8p_result_field_files "$repo" F1I_RELEASE_ID "${rid//./\\.}")
   [ "$bound" = "$f1i" ] || { f1r_reason "F1R_F1I_RELEASE_ID_MISMATCH (the F1i receipt must name F1I_RELEASE_ID=$rid)"; return 1; }
+  # the matching receipt must carry EXACTLY ONE whole-line F1I_RELEASE_ID field: a receipt that also names a different (or the same, twice) release id is ambiguous and refuses
+  [ "$(git -C "$repo" show "$f1i" 2>/dev/null | grep -cE '^[[:space:]]*([-*][[:space:]]+)?`?F1I_RELEASE_ID[[:space:]]*=[[:space:]]*[^[:space:]`]+`?[[:space:]]*$')" = 1 ] \
+    || { f1r_reason "F1R_F1I_RELEASE_ID_NOT_UNIQUE (the F1i receipt must carry exactly one F1I_RELEASE_ID line)"; return 1; }
   [ -z "$(comm -12 <(l8p_result_field_files "$repo" F1R_LIVE_EXECUTED YES) <(l8p_result_field_files "$repo" F1R_CURRENT_SWITCHED YES))" ] \
     || { f1r_reason "F1R_ALREADY_EXECUTED (an F1r result is recorded; a new live attempt needs a new owner decision)"; return 1; }
 }

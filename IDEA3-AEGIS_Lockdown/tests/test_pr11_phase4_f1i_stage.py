@@ -238,10 +238,11 @@ class FakeHost(tool.F1iHost):
 
 
 class FakeBackend(tool.F1iBackend):
-    def __init__(self, world: World, host: FakeHost, *, installer_rc=0, side_effect=None, install_det=None):
+    def __init__(self, world: World, host: FakeHost, *, installer_rc=0, side_effect=None, install_det=None, installer_reason="SOURCE_GUARD_FAILED", foreign_target=False):
         super().__init__()
         self.world, self.host = world, host
         self.installer_rc, self.side_effect, self.install_det = installer_rc, side_effect, install_det
+        self.installer_reason, self.foreign_target = installer_reason, foreign_target
         self.argvs: list[list[str]] = []
 
     def _run(self, args):
@@ -253,7 +254,9 @@ class FakeBackend(tool.F1iBackend):
         self.argvs.append(list(argv))
         self.world.events.append("installer")
         if self.installer_rc != 0:
-            return tool.CommandResult(self.installer_rc, "L7_RELEASE_INSTALL=FAIL reason=SOURCE_GUARD_FAILED\n")
+            if self.foreign_target:  # another root actor installed a fully valid release during the race window; the installer then refuses
+                self.host._materialize_target()
+            return tool.CommandResult(self.installer_rc, f"L7_RELEASE_INSTALL=FAIL reason={self.installer_reason}\n")
         self.host._materialize_target(self.install_det)
         if self.side_effect:
             self.side_effect(self.host, self.world)
@@ -262,7 +265,7 @@ class FakeBackend(tool.F1iBackend):
 
 def build(tmp_path, **kw):
     wk = {k: kw.pop(k) for k in ("core_pid", "core_restarts", "core_load", "detector_load", "detector_active", "detector_pid") if k in kw}
-    bk = {k: kw.pop(k) for k in ("installer_rc", "side_effect", "install_det") if k in kw}
+    bk = {k: kw.pop(k) for k in ("installer_rc", "side_effect", "install_det", "installer_reason", "foreign_target") if k in kw}
     world = World(**wk)
     host = FakeHost(world, **kw)
     work = tmp_path / "work"
@@ -548,13 +551,15 @@ def test_the_core_snapshot_is_re_proved_immediately_before_the_installer_call(tm
 def test_an_installer_failure_is_a_fixed_refusal_and_never_retried(tmp_path):
     world, host, backend, work = build(tmp_path, installer_rc=1)
     assert refusal(run_apply, host, backend, work) == "INSTALL_FAILED:SOURCE_GUARD_FAILED"
-    assert len(backend.argvs) == 1 and journal(work)["phase"] == "installing"
+    assert len(backend.argvs) == 1
+    j = journal(work)
+    assert j["phase"] == "installer_failed" and j["installer_rc"] == 1 and j["installer_reason"] == "SOURCE_GUARD_FAILED" and "release_tree_digest" not in j  # persisted BEFORE raising
 
 
 def test_an_installed_release_whose_detector_differs_from_the_pin_is_refused_after_the_install(tmp_path):
     world, host, backend, work = build(tmp_path, install_det=DET_BYTES + b"# swapped\n")
     assert refusal(run_apply, host, backend, work) == "DETECTOR_SHA256_MISMATCH"
-    assert journal(work)["phase"] == "installing" and TARGET in host.dirs  # ours; rollback will own it
+    assert journal(work)["phase"] == "installing" and "release_tree_digest" not in journal(work) and TARGET in host.dirs  # NOT owned for deletion: no digest was journaled
 
 
 def test_apply_issues_only_read_only_systemctl_show_and_one_installer_call(tmp_path):
@@ -832,7 +837,8 @@ def test_rollback_refuses_install_temp_residue_as_an_owner_decision(tmp_path):
     assert refusal(tool.rollback, work, host, FakeBackend(world, host)) == "INSTALL_TEMP_RESIDUE" and host.ops == []
 
 
-def test_rollback_after_a_crash_between_the_installer_and_the_journal_still_owns_only_the_exactly_pinned_release(tmp_path):
+def test_rollback_after_a_crash_between_the_installer_and_the_journal_never_deletes_an_unproven_target(tmp_path):
+    """phase=installing means INSTALL OUTCOME UNKNOWN: a valid-looking target is NOT proof of ownership, so it is left untouched and escalated."""
     world, host, backend, work = build(tmp_path)
     real = tool.write_journal
 
@@ -848,7 +854,8 @@ def test_rollback_after_a_crash_between_the_installer_and_the_journal_still_owns
     finally:
         tool.write_journal = real
     assert journal(work)["phase"] == "installing" and TARGET in host.dirs
-    assert tool.rollback(work, host, FakeBackend(world, host))["F1I_ROLLBACK"] == "PASS" and TARGET not in host.dirs
+    assert refusal(tool.rollback, work, host, FakeBackend(world, host)) == "INSTALL_OUTCOME_UNKNOWN"
+    assert host.ops == [] and TARGET in host.dirs and journal(work)["phase"] == "installing"  # nothing removed, nothing rewritten
 
 
 def test_rollback_postconditions_core_detector_and_material_are_escalated_after_the_removal(tmp_path):
@@ -1343,6 +1350,23 @@ def test_f1r_refuses_a_successful_f1i_receipt_for_a_different_release_id(tmp_pat
     assert "F1R_F1I_RELEASE_ID_MISMATCH" in f1r_gate(no_id).stderr  # the receipt must name the release
 
 
+def test_f1r_refuses_a_receipt_with_more_than_one_f1i_release_id_line_even_if_one_is_the_expected_id(tmp_path):
+    both = f"{F1I_OK}F1I_RELEASE_ID={'3' * 40}\n"
+    r = f1r_gate(f1r_repo(tmp_path, {f"{LOGS}/2026-10-05_000000_music_f1i.md": both}))
+    assert r.returncode == 1 and "F1R_F1I_RELEASE_ID_NOT_UNIQUE" in r.stderr
+    same_twice = f1r_gate(f1r_repo(tmp_path / "s", {f"{LOGS}/2026-10-05_000000_music_f1i.md": f"{F1I_OK}F1I_RELEASE_ID={RID}\n"}))
+    assert "F1R_F1I_RELEASE_ID_NOT_UNIQUE" in same_twice.stderr  # exactly ONE line, not "at least one"
+    only_wrong_twice = f1r_gate(f1r_repo(tmp_path / "w", {f"{LOGS}/2026-10-05_000000_music_f1i.md": f"F1I_LIVE_EXECUTED=YES\nF1I_RELEASE_INSTALLED=YES\nF1I_RELEASE_ID={'3' * 40}\nF1I_RELEASE_ID={'4' * 40}\n"}))
+    assert "F1R_F1I_RELEASE_ID_MISMATCH" in only_wrong_twice.stderr
+
+
+def test_the_release_id_cardinality_does_not_weaken_whole_line_matching_or_success_receipt_uniqueness(tmp_path):
+    prose = f"{F1I_OK}Notes: F1I_RELEASE_ID={'3' * 40} was discussed in prose, not a result line.\n"
+    assert f1r_gate(f1r_repo(tmp_path, {f"{LOGS}/2026-10-05_000000_music_f1i.md": prose})).returncode == 0  # a non-whole-line mention is not a result field
+    dup = f1r_repo(tmp_path / "d", {f"{LOGS}/2026-10-05_000000_music_a.md": F1I_OK, f"{LOGS}/2026-10-05_010000_music_b.md": F1I_OK})
+    assert "F1R_F1I_RESULT_NOT_UNIQUE" in f1r_gate(dup).stderr
+
+
 def test_f1r_passes_with_exactly_one_matching_f1i_receipt(tmp_path):
     r = f1r_gate(f1r_repo(tmp_path, {f"{LOGS}/2026-10-05_000000_music_f1i.md": F1I_OK}))
     assert r.returncode == 0, r.stderr
@@ -1369,6 +1393,177 @@ def test_f1r_no_longer_names_l6c_as_its_repaired_release_predecessor():
         assert "L6c (repair" not in text and "L6c (fresh install-only" not in text and "L6c repair" not in text, path
         assert "F1i" in text or path.name.endswith(".sh") or path.name == "p4-f1r-switch.py", path
     assert "F1i" in F1R_RUNNER.read_text() and "F1i" in (DEPLOY / "p4-f1r-switch.py").read_text()
+
+
+# ═══ review fix: rollback ownership is a strict journal-state boundary (a valid release is NOT proof of ownership) ═════════════════
+
+
+def set_journal(work, **changes):
+    data = json.loads((work / tool.JOURNAL_NAME).read_text())
+    for key, value in changes.items():
+        if value is None:
+            data.pop(key, None)
+        else:
+            data[key] = value
+    (work / tool.JOURNAL_NAME).write_text(json.dumps(data, sort_keys=True))
+
+
+def test_A_a_foreign_valid_target_that_made_the_installer_fail_is_never_deleted(tmp_path):
+    """The exact review scenario: the journal reached `installing`; another root actor created a fully valid target; the installer refused with RELEASE_ALREADY_INSTALLED."""
+    world, host, backend, work = build(tmp_path, installer_rc=1, installer_reason="RELEASE_ALREADY_INSTALLED", foreign_target=True)
+    assert refusal(run_apply, host, backend, work) == "INSTALL_FAILED:RELEASE_ALREADY_INSTALLED"
+    j = journal(work)
+    assert j["phase"] == "installer_failed" and j["installer_rc"] == 1 and j["installer_reason"] == "RELEASE_ALREADY_INSTALLED" and "release_tree_digest" not in j
+    assert TARGET in host.dirs  # the foreign release is fully valid and passes every guard...
+    check = tool.check_installed_release
+    check(host, RID, SRC_SHA, DET_SHA)  # ...which is exactly why validity must NOT be treated as ownership
+    assert refusal(tool.rollback, work, host, FakeBackend(world, host)) == "FOREIGN_OR_UNPROVEN_TARGET"
+    assert host.ops == [] and TARGET in host.dirs and f"{TARGET}/aegis_soc/production_detector.py" in host.files  # remove_release_tree was never called
+    assert journal(work)["phase"] == "installer_failed"  # nothing was rewritten either
+
+
+def test_the_installer_failure_reason_is_never_deletion_authority_whatever_it_says(tmp_path):
+    for reason in ("RELEASE_ALREADY_INSTALLED", "SOURCE_GUARD_FAILED", "TIMEOUT", "UNKNOWN"):
+        world, host, backend, work = build(tmp_path / reason, installer_rc=1, installer_reason=reason, foreign_target=True)
+        refusal(run_apply, host, backend, work)
+        assert refusal(tool.rollback, work, host, FakeBackend(world, host)) == "FOREIGN_OR_UNPROVEN_TARGET"
+        assert host.ops == [] and TARGET in host.dirs
+
+
+def test_the_persisted_installer_result_holds_only_a_fixed_parsed_reason_never_arbitrary_output(tmp_path):
+    world, host, backend, work = build(tmp_path, installer_rc=1, installer_reason="weird reason with $(secret) and spaces")
+    refusal(run_apply, host, backend, work)
+    j = journal(work)
+    assert j["installer_reason"] in ("weird", "UNKNOWN") and not re.search(r"[^A-Za-z0-9_:.-]", j["installer_reason"]) and "secret" not in json.dumps(j)
+    world, host, backend, work = build(tmp_path / "long", installer_rc=7, installer_reason="X" * 500)
+    refusal(run_apply, host, backend, work)
+    assert journal(work)["installer_reason"] == "UNKNOWN" and journal(work)["installer_rc"] == 7
+
+
+def test_B_installer_failed_with_the_target_absent_owns_nothing_and_removes_nothing(tmp_path):
+    world, host, backend, work = build(tmp_path, installer_rc=1)
+    refusal(run_apply, host, backend, work)
+    assert journal(work)["phase"] == "installer_failed" and TARGET not in host.dirs
+    assert tool.rollback(work, host, FakeBackend(world, host)) == {"F1I_ROLLBACK": "NOTHING_OWNED"}
+    assert host.ops == [] and journal(work)["phase"] == "rolled_back"
+
+
+def test_C_an_unknown_install_outcome_with_the_target_present_fails_closed_and_removes_nothing(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    run_apply(host, backend, work)
+    set_journal(work, phase="installing", release_tree_digest=None, material_content_preserved=False)  # an interrupted attempt: outcome unknown, no durable success
+    assert TARGET in host.dirs
+    assert refusal(tool.rollback, work, host, FakeBackend(world, host)) == "INSTALL_OUTCOME_UNKNOWN"
+    assert host.ops == [] and TARGET in host.dirs and journal(work)["phase"] == "installing"
+
+
+def test_C2_an_unknown_install_outcome_with_the_target_absent_owns_nothing(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    real = tool.write_journal
+    tool.write_journal = lambda path, data: (_ for _ in ()).throw(OSError("crash")) if data["phase"] == "installing" else real(path, data)
+    try:
+        with pytest.raises(tool.Refusal):
+            run_apply(host, backend, work)
+    finally:
+        tool.write_journal = real
+    set_journal(work, phase="installing")
+    assert tool.rollback(work, host, FakeBackend(world, host)) == {"F1I_ROLLBACK": "NOTHING_OWNED"} and host.ops == []
+
+
+@pytest.mark.parametrize("phase", ["installed", "applied"])
+def test_D_an_installed_or_applied_journal_without_a_tree_digest_proves_no_ownership(tmp_path, phase):
+    world, host, backend, work = build(tmp_path)
+    run_apply(host, backend, work)
+    set_journal(work, phase=phase, release_tree_digest=None)
+    assert refusal(tool.rollback, work, host, FakeBackend(world, host)) == "JOURNAL_OWNERSHIP_UNPROVEN"
+    assert host.ops == [] and TARGET in host.dirs
+    set_journal(work, release_tree_digest="")  # an empty digest is no digest
+    assert refusal(tool.rollback, work, host, FakeBackend(world, host)) == "JOURNAL_OWNERSHIP_UNPROVEN" and host.ops == []
+
+
+def test_an_unknown_journal_phase_fails_closed(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    run_apply(host, backend, work)
+    set_journal(work, phase="something-else")
+    assert refusal(tool.rollback, work, host, FakeBackend(world, host)) == "JOURNAL_PHASE_UNKNOWN" and host.ops == [] and TARGET in host.dirs
+
+
+def test_E_phase_installed_with_the_exact_digest_still_rolls_back_normally(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    real = tool.write_journal
+    tool.write_journal = lambda path, data: (_ for _ in ()).throw(OSError("crash")) if data["phase"] == "applied" else real(path, data)
+    try:
+        with pytest.raises(tool.Refusal):
+            run_apply(host, backend, work)  # the digest was journaled with phase=installed; the final `applied` write crashed
+    finally:
+        tool.write_journal = real
+    j = journal(work)
+    assert j["phase"] == "installed" and j["release_tree_digest"]
+    assert tool.rollback(work, host, FakeBackend(world, host))["F1I_ROLLBACK"] == "PASS"
+    assert host.ops == [("remove_tree", TARGET)] and TARGET not in host.dirs
+
+
+def test_F_phase_applied_with_the_exact_digest_still_rolls_back_normally(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    run_apply(host, backend, work)
+    assert journal(work)["phase"] == "applied" and journal(work)["release_tree_digest"]
+    assert tool.rollback(work, host, FakeBackend(world, host))["F1I_ROLLBACK"] == "PASS" and host.ops == [("remove_tree", TARGET)]
+
+
+@pytest.mark.parametrize("phase", ["installed", "applied"])
+def test_G_a_drifted_owned_release_is_still_refused_in_both_owned_phases(tmp_path, phase):
+    world, host, backend, work = build(tmp_path)
+    run_apply(host, backend, work)
+    set_journal(work, phase=phase)
+    host.files[f"{TARGET}/aegis_soc/extra.py"] = b"foreign"
+    assert refusal(tool.rollback, work, host, FakeBackend(world, host)) == "RELEASE_DRIFTED_REFUSING_ROLLBACK:TREE_DIGEST_MISMATCH"
+    assert host.ops == [] and TARGET in host.dirs
+
+
+def test_a_foreign_target_that_matches_only_the_pins_but_has_a_different_tree_digest_is_refused_even_when_owned_phase(tmp_path):
+    """Defense in depth: even in phase=installed, a release that is valid by the pins but is not byte-identical to what this attempt installed is refused."""
+    world, host, backend, work = build(tmp_path)
+    run_apply(host, backend, work)
+    host.files[f"{TARGET}/RELEASE-MANIFEST.json"] = manifest() + b" "  # same facts, different bytes
+    assert refusal(tool.rollback, work, host, FakeBackend(world, host)) == "RELEASE_DRIFTED_REFUSING_ROLLBACK:TREE_DIGEST_MISMATCH" and host.ops == []
+
+
+# ═══ review hardening: the post-install checks inside APPLY are pinned individually ═════════════════════════════════════════════
+
+
+def test_apply_refuses_when_current_changes_during_the_install_step(tmp_path):
+    def repoint(host, world):
+        host.links[CURRENT] = f"{RELEASES}/intruder"
+
+    world, host, backend, work = build(tmp_path, side_effect=repoint)
+    assert refusal(run_apply, host, backend, work) == "CURRENT_NOT_EXPECTED_TARGET"
+    assert journal(work)["phase"] == "installed" and journal(work)["release_tree_digest"]  # the install itself was proven; the post-install proof failed
+    assert refusal(tool.rollback, work, host, FakeBackend(world, host)) == "CURRENT_CHANGED_AFTER_INSTALL" and host.ops == []  # and rollback still refuses before deleting
+
+
+def test_apply_refuses_when_the_detector_appears_during_the_install_step(tmp_path):
+    def start_detector(host, world):
+        world.detector.update(LoadState="loaded", ActiveState="active", MainPID="55")
+
+    world, host, backend, work = build(tmp_path, side_effect=start_detector)
+    assert refusal(run_apply, host, backend, work) == "DETECTOR_UNIT_OR_PROCESS_PRESENT"
+    world.detector.update(LoadState="not-found", ActiveState="inactive", MainPID="0")
+    world2, host2, backend2, work2 = build(tmp_path / "proc", side_effect=lambda h, w: h.detector_procs.append(4321))
+    assert refusal(run_apply, host2, backend2, work2) == "DETECTOR_STANDALONE_PROCESS_PRESENT"
+
+
+@pytest.mark.parametrize("path", [CORE_ENV, f"{CREDS}/k_c2d"])
+def test_apply_refuses_when_the_material_metadata_changes_during_the_install_step(tmp_path, path):
+    world, host, backend, work = build(tmp_path, side_effect=lambda h, w: h.chmod(path, 0o644))
+    assert refusal(run_apply, host, backend, work) == "MATERIAL_METADATA_DRIFT"
+    assert journal(work)["phase"] == "installed" and journal(work)["material_content_preserved"] is False
+
+
+def test_apply_refuses_when_the_core_restarts_during_the_install_step(tmp_path):
+    world, host, backend, work = build(tmp_path, side_effect=lambda h, w: w.core.update(MainPID="9999"))
+    assert refusal(run_apply, host, backend, work) == "CORE_RESTARTED_OR_REPLACED"
+    world, host, backend, work = build(tmp_path / "n", side_effect=lambda h, w: w.core.update(NRestarts="1"))
+    assert refusal(run_apply, host, backend, work) == "CORE_RESTARTED_OR_REPLACED"
 
 
 def test_the_critical_gate_surface_exists_in_the_f1i_tool():
