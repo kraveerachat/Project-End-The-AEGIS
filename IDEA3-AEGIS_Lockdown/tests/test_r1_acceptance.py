@@ -67,8 +67,8 @@ def add_incident(path, *, ip=IP, state="OPEN", at=T0 + 10, bound=True, accepted=
     return iid
 
 
-def journal_line(ip=IP, *, pid=PID, at=T0 + 9, result="SENT_BOUND", rule="ssh_bruteforce", unit_name=r1.DETECTOR_UNIT, message=None):
-    return {"message": message or f"[F1-DETECTOR] alert result={result} detail=- ip={ip} rule={rule}", "pid": pid, "unit": unit_name, "at": at}
+def journal_line(ip=IP, *, pid=PID, at=T0 + 9, result="SENT_BOUND", unit_name=r1.DETECTOR_UNIT, message=None):
+    return {"message": message or f"[F1-DETECTOR] alert result={result} detail=- ip={ip}", "pid": pid, "unit": unit_name, "at": at}
 
 
 @pytest.fixture
@@ -255,10 +255,6 @@ def test_duplicate_detector_lines_are_ambiguous(world):
     assert reason(run(ok_world(world), journal=[journal_line(), journal_line(at=T0 + 9.5)])) == "DETECTOR_ALERT_LINE_MISSING_OR_AMBIGUOUS"
 
 
-def test_unknown_rule(world):
-    assert reason(run(ok_world(world), journal=[journal_line(rule="manual")])) == "DETECTOR_RULE_UNKNOWN"
-
-
 def test_non_bound_detector_result(world):
     assert reason(run(ok_world(world), journal=[journal_line(result="SENT_EXISTING")])) == "DETECTOR_RESULT_NOT_BOUND"
 
@@ -416,10 +412,10 @@ def test_committed_package_has_no_live_owner_runner():
 # --------------------------------------------------------------------------- producer-side provenance (detector log)
 
 
-def test_detector_alert_line_carries_the_rule(capsys):
+def test_real_detector_alert_line_matches_the_verifier_grammar(capsys):
     detector = ProductionDetector(lambda ip: AlertResult(True, "SENT_BOUND"), clock=lambda: 0.0)
     for _ in range(5):
         detector.process(f"Failed password for root from {IP} port 22 ssh2")
     out = capsys.readouterr().out
-    assert f"[F1-DETECTOR] alert result=SENT_BOUND detail=- ip={IP} rule=ssh_bruteforce" in out
+    assert f"[F1-DETECTOR] alert result=SENT_BOUND detail=- ip={IP}" in out
     assert r1._ALERT_LINE.match(out.strip().splitlines()[-1])

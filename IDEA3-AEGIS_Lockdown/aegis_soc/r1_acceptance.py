@@ -7,8 +7,8 @@ read-only ``systemctl show`` / ``journalctl`` argvs below. It holds no secret an
 
 Provenance model (no new secret, no new trust boundary):
 
-* the production detector prints ``[F1-DETECTOR] alert result=SENT_BOUND ... ip=<IPv4> rule=<rule>`` to ITS OWN journal; journald stamps
-  that line with the trusted ``_SYSTEMD_UNIT`` / ``_PID`` fields;
+* the production detector prints ``[F1-DETECTOR] alert result=SENT_BOUND detail=- ip=<IPv4>`` to ITS OWN journal; journald stamps
+  that line (printed only from ``ProductionDetector.report``, i.e. after a rule matched) with the trusted ``_SYSTEMD_UNIT`` / ``_PID`` fields;
 * the Core ingress durably records ``ALERT_ACCEPTED uid=<peer uid> pid=<peer pid> attacker_ip=<IPv4> action=CREATED`` where uid/pid come
   from the kernel (SO_PEERCRED), next to the existing ``INCIDENT_BOUND ... source=detector_alert action=CREATED`` row;
 * an acceptance needs all of them to agree on one address and on the detector's baseline MainPID. A direct write to ``alert.sock`` by any
@@ -33,7 +33,6 @@ from urllib.parse import quote
 
 from . import recovery_evidence as ev
 from .ip_containment import ContainmentRejected, validate_block_target
-from .production_detector import RULES
 
 SCHEMA_BASELINE = "aegis.idea3.r1-baseline/1"
 SCHEMA_FINAL = "aegis.idea3.r1-final/1"
@@ -48,7 +47,7 @@ SKEW_SEC = 2.0
 MAX_JOURNAL_LINES = 10000
 
 _SERVICE_KEYS = set(SHOW_PROPERTIES)
-_ALERT_LINE = re.compile(r"^\[F1-DETECTOR\] alert result=(\S+) detail=(\S+) ip=(\S+) rule=(\S+)$")
+_ALERT_LINE = re.compile(r"^\[F1-DETECTOR\] alert result=(\S+) detail=(\S+) ip=(\S+)$")
 _ACCEPTED = re.compile(r"^uid=(\d+) pid=(\d+) attacker_ip=(\S+) action=(\S+)$")
 _BOUND = re.compile(r"^attacker_ip=(\S+) source=(\S+) action=(\S+)$")
 _SYNTHETIC = re.compile(r"synthetic|fixture|simulat|replay|inject|\btest\b", re.IGNORECASE)
@@ -338,13 +337,11 @@ def _verify(baseline: Any, final: Any, audit_snapshot: str) -> dict[str, Any]:
             matches.append((event, line.groups()))
     if len(matches) != 1:
         raise AcceptanceError("DETECTOR_ALERT_LINE_MISSING_OR_AMBIGUOUS")
-    event, (result, _detail, j_ip, rule) = matches[0]
+    event, (result, _detail, j_ip) = matches[0]
     if result != "SENT_BOUND":
         raise AcceptanceError("DETECTOR_RESULT_NOT_BOUND")
     if j_ip != ip:
         raise AcceptanceError("DETECTOR_IP_MISMATCH")
-    if rule not in RULES:
-        raise AcceptanceError("DETECTOR_RULE_UNKNOWN")
     accepted_at = _epoch(next(r["timestamp"] for r in mine if r["event_type"] == "ALERT_ACCEPTED"))
     if event["at"] > accepted_at + SKEW_SEC or event["at"] < started - SKEW_SEC:
         raise AcceptanceError("DETECTOR_EVENT_STALE")
@@ -352,7 +349,7 @@ def _verify(baseline: Any, final: Any, audit_snapshot: str) -> dict[str, Any]:
     live = baseline["mode"] == "live"
     document = {
         "schema": SCHEMA_RESULT, "result": "PASS" if live else "SIMULATED_PASS", "reason": "OK" if live else "SIMULATE_MODE_NEVER_CLAIMS",
-        "mode": baseline["mode"], "incident_id": incident["id"], "attacker_ip": ip, "rule": rule, "release_id": baseline["release_id"],
+        "mode": baseline["mode"], "incident_id": incident["id"], "attacker_ip": ip, "release_id": baseline["release_id"],
         "checks": {
             "REAL_EVENT_OBSERVED": "YES", "DETECTOR_RULE_MATCHED": "YES", "ALERT_DELIVERED_TO_CORE": "YES",
             "ALERT_SOURCE_UID_VALIDATED": "YES", "OPEN_INCIDENT_CREATED": "YES", "INCIDENT_ATTACKER_IPV4_VALID": "YES",

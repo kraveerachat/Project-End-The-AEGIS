@@ -35,7 +35,7 @@ ESP32_TOUCHED=NO
 
 ## What changed
 
-- `aegis_soc/production_detector.py`: the alert journal line gains `rule=<ssh_bruteforce|port_scan|syn_flood>`. Alert payload (v1) and behaviour are unchanged.
+- `production_detector.py` is deliberately UNCHANGED: editing it breaks the pinned F1 detector digest (`a91bcfc2…`), so the rule is inferred from the detector's report path, not a new `rule=` field.
 - `aegis_soc/recovery_core.py`: `AlertIngress` durably writes `ALERT_ACCEPTED uid pid attacker_ip action` (SO_PEERCRED values) per alert that reached binding. Best-effort; never changes the response.
 - `aegis_soc/r1_acceptance.py` (new): read-only baseline/final capture and fail-closed verifier; reuses `recovery_evidence` (`_open_ro`, `_AuditStore`, `_r1`) unmodified.
 - Tests: `tests/test_r1_acceptance.py` (59), two cases in `tests/test_core_alert_ingress.py`.
@@ -44,7 +44,7 @@ ESP32_TOUCHED=NO
 
 - **Provenance:** before this change nothing durable separated a real detector rule match from a direct write by the detector uid. The kernel-attested peer pid (Core) must now equal the detector baseline MainPID and the journald `_PID` of the detector's own alert line. Residual: in-process code in the detector is the existing trust boundary.
 - **Stage:** NEW_STAGE_REQUIRED=YES for the owner runner only. `P4_STAGES` has no registered stage for it, `p4_stage_mutates` has no non-mutating class except L0, and consumed F1 authorization must not be reused. `PROPOSED_STAGE_ID=R1A` (after F1, before Recovery R2+). REQUIRED_GOVERNANCE_CHANGES: register the stage in `p4-lib.sh`, define its authorization/K3 keys and mutation class (observation-only), add runner + gates, require this PR's merge and the F1 attempt #2 closeout receipt. Not done without an owner decision.
-- **Live prerequisite:** Production Core runs release `c2238375` and was not restarted; it lacks `ALERT_ACCEPTED` and the detector lacks `rule=`. The change must be deployed and both units restarted under governed stages before a live observation can pass.
+- **Live prerequisite:** Production Core runs release `c2238375` and was not restarted; it lacks `ALERT_ACCEPTED`. The Core change must be deployed and the Core restarted under governed stages before a live observation can pass.
 - **Live DB reads:** the verifier needs a consistent copy; `consistent_snapshot` uses the SQLite online backup from a `mode=ro` source (the live Core uses WAL).
 
 ## Verification evidence
