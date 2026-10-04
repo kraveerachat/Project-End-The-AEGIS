@@ -40,16 +40,22 @@ f1_consume_attempt() {
   f1_reason "F1_ATTEMPT_ALREADY_CONSUMED (one live attempt per authorization; obtain a fresh same-day authorization)"
 }
 
-# f1_receipt_gate REPO — F1 is allowed only AFTER L8p is closed and only while F1 itself is not yet recorded, proven by receipts read from the PINNED commit,
-# never the working tree. L8p: exactly ONE receipt carries BOTH whole-line fields L8P_LIVE_EXECUTED=YES and L8P_PROVISIONING=PASS, and it is the canonical
-# L8p closeout receipt. F1: refuses when one receipt already carries BOTH F1_PRODUCTION_DEPLOYED=YES and F1_DETECTOR_STARTED=YES (one-shot).
+# f1_receipt_gate REPO — F1 is allowed only AFTER L8p is closed AND the governed F1r current-release activation is closed, and only while F1 itself is not yet
+# recorded, proven by receipts read from the PINNED commit, never the working tree. L8p: exactly ONE receipt carries BOTH whole-line fields L8P_LIVE_EXECUTED=YES
+# and L8P_PROVISIONING=PASS, and it is the canonical L8p closeout receipt. F1r: exactly ONE status-log receipt carries BOTH whole-line fields F1R_LIVE_EXECUTED=YES
+# and F1R_CURRENT_SWITCHED=YES (the two fields in two receipts never combine; duplicates refuse; a repository-only or rolled-back record that says NO never
+# satisfies it). The runtime-release pins (f1_runtime_release_gate) stay as defense in depth: they prove WHAT is installed, this proves it went through F1r.
+# F1: refuses when one receipt already carries BOTH F1_PRODUCTION_DEPLOYED=YES and F1_DETECTOR_STARTED=YES (one-shot).
 f1_receipt_gate() {
-  local repo=${1:-} both
+  local repo=${1:-} both f1r
   [ -n "$repo" ] || { f1_reason "F1_REPO_REQUIRED"; return 1; }
   both=$(comm -12 <(l8p_result_field_files "$repo" L8P_LIVE_EXECUTED YES) <(l8p_result_field_files "$repo" L8P_PROVISIONING PASS))
   [ -n "$both" ] || { f1_reason "F1_L8P_NOT_CLOSED (no receipt carries both L8P_LIVE_EXECUTED=YES and L8P_PROVISIONING=PASS)"; return 1; }
   [ "$(printf '%s\n' "$both" | wc -l)" = 1 ] || { f1_reason "F1_L8P_RESULT_NOT_UNIQUE"; return 1; }
   [ "${both#HEAD:}" = "$F1_L8P_CLOSEOUT_RECEIPT_REL" ] || { f1_reason "F1_L8P_RESULT_NOT_IN_CANONICAL_CLOSEOUT_RECEIPT"; return 1; }
+  f1r=$(comm -12 <(l8p_result_field_files "$repo" F1R_LIVE_EXECUTED YES) <(l8p_result_field_files "$repo" F1R_CURRENT_SWITCHED YES))
+  [ -n "$f1r" ] || { f1_reason "F1_F1R_NOT_CLOSED (no receipt carries both F1R_LIVE_EXECUTED=YES and F1R_CURRENT_SWITCHED=YES; F1 follows the governed F1r activation)"; return 1; }
+  [ "$(printf '%s\n' "$f1r" | wc -l)" = 1 ] || { f1_reason "F1_F1R_RESULT_NOT_UNIQUE"; return 1; }
   [ -z "$(comm -12 <(l8p_result_field_files "$repo" F1_PRODUCTION_DEPLOYED YES) <(l8p_result_field_files "$repo" F1_DETECTOR_STARTED YES))" ] \
     || { f1_reason "F1_ALREADY_DEPLOYED (an F1 result is recorded; a new live attempt needs a new owner decision)"; return 1; }
 }
@@ -130,4 +136,18 @@ f1_unit_state_gate() {
 # f1_rollback_output_gate OUTPUT — rollback printed exactly one of its fixed success lines.
 f1_rollback_output_gate() {
   grep -qxE 'F1_ROLLBACK=(PASS|NOTHING_OWNED|ALREADY_ROLLED_BACK)' <<< "${1:-}" || { f1_reason "F1_ROLLBACK_OUTPUT_UNEXPECTED"; return 1; }
+}
+
+# f1_runtime_release_gate PY F1R_TOOL RELEASE_ID SOURCE_SHA DETECTOR_SHA256 — runtime pin (attempt-1 successor): F1 may not reach its one-shot boundary while
+# Production still resolves the OLD detector. Read-only, via the reviewed p4-f1r-switch.py `check-runtime`: /opt/aegis-idea3/current resolves to EXACTLY the
+# frozen release, the release passes the existing release guard at --expect-owner root, its manifest id/source SHA/clean tree match, its production_detector.py
+# digest equals the frozen digest (so the repaired bytes are exactly the reviewed runtime) and the detector unit/process is still absent. The unit digest pin
+# (UNIT_SHA256) is a SEPARATE pin and is not weakened by this gate.
+f1_runtime_release_gate() {
+  local py=${1:-} tool=${2:-} rid=${3:-} src=${4:-} det=${5:-} out reason
+  # ROOT READ authority through $SUDO (/opt/aegis-idea3 may be root-only; /proc must show every process): the tool stays strictly read-only (`check-runtime`).
+  if ! out=$($SUDO env PYTHONDONTWRITEBYTECODE=1 "$py" "$tool" check-runtime --release-id "$rid" --source-sha "$src" --detector-sha256 "$det" 2>&1); then
+    reason=$(printf '%s\n' "$out" | sed -n 's/.*reason=\([^ ]*\).*/\1/p' | tail -n 1)
+    f1_reason "F1_RUNTIME_RELEASE_GATE_FAILED:${reason:-ROOT_READ_UNAVAILABLE}"; return 1
+  fi
 }

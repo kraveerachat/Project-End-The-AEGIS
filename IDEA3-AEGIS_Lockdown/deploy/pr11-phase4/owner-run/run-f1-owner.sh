@@ -4,7 +4,7 @@
 # repository, replaces the PIN_ values (the merged main SHA, the operator identity, the frozen alert source uid and the reviewed unit SHA-256), records
 # the frozen file's SHA-256, and only then authorizes a run. Nothing in this repository executes it.
 # Usage (the FROZEN operator user/uid, NOT root):  bash run-f1-owner.sh <AUTH_DIR>     AUTH_DIR holds authorization-F1.txt and k3-F1.txt (same-day, stage=F1)
-# Stage order: L7 -> L7u -> L8p -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9. F1 requires the L8p closeout result (L8P_LIVE_EXECUTED=YES + L8P_PROVISIONING=PASS in the
+# Stage order: L7 -> L7u -> L8p -> L6c (repaired-release install) -> F1r (current-release activation) -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9. F1 requires the governed F1r activation to be CLOSED (exactly one status-log receipt with F1R_LIVE_EXECUTED=YES + F1R_CURRENT_SWITCHED=YES) and the L8p closeout result (L8P_LIVE_EXECUTED=YES + L8P_PROVISIONING=PASS in the
 # canonical closeout receipt of the pinned commit), consumes ONE attempt (F1-ATTEMPT-CONSUMED) and has NO automatic second attempt.
 # F1 installs the exact pinned detector unit (root:root 0644, atomic, never overwriting), daemon-reloads, starts the detector EXACTLY once through the reviewed
 # p4-f1-alert-source.py ordered gate, verifies the detector runtime, and on failure rolls back ONLY what this attempt journalled. It NEVER restarts the Core,
@@ -20,7 +20,13 @@ OPERATOR_USER=PIN_OPERATOR_USER
 OPERATOR_UID=PIN_OPERATOR_UID
 ALERT_SOURCE_UID=PIN_ALERT_SOURCE_UID
 UNIT_SHA256=PIN_UNIT_SHA256
-for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID ALERT_SOURCE_UID UNIT_SHA256; do
+# Runtime release pins (attempt-1 successor): the INSTALLED release the detector will run from. F1 refuses to reach its one-shot boundary unless
+# /opt/aegis-idea3/current already resolves to exactly this release and its production_detector.py bytes equal this digest. UNIT_SHA256 above is the
+# SEPARATE digest of the detector unit file and is never merged with these.
+EXPECTED_RUNTIME_RELEASE_ID=PIN_RUNTIME_RELEASE_ID
+EXPECTED_RUNTIME_RELEASE_SOURCE_SHA=PIN_RUNTIME_RELEASE_SOURCE_SHA
+EXPECTED_PRODUCTION_DETECTOR_SHA256=PIN_PRODUCTION_DETECTOR_SHA256
+for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID ALERT_SOURCE_UID UNIT_SHA256 EXPECTED_RUNTIME_RELEASE_ID EXPECTED_RUNTIME_RELEASE_SOURCE_SHA EXPECTED_PRODUCTION_DETECTOR_SHA256; do
   case "${!pin}" in PIN_*) echo "STOP: runner is not pinned ($pin). Run the owner freeze workflow first."; exit 2 ;; esac
 done
 [[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ ]] || { echo "STOP: EXPECTED_MAIN is not a 40-hex SHA."; exit 2; }
@@ -28,6 +34,10 @@ done
 [[ "$OPERATOR_UID" =~ ^[1-9][0-9]*$ ]] || { echo "STOP: OPERATOR_UID is not a valid non-root uid."; exit 2; }
 [[ "$ALERT_SOURCE_UID" =~ ^[1-9][0-9]{0,9}$ ]] || { echo "STOP: ALERT_SOURCE_UID is not a valid non-root uid."; exit 2; }
 [[ "$UNIT_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "STOP: UNIT_SHA256 is not a 64-hex SHA-256."; exit 2; }
+[[ "$EXPECTED_RUNTIME_RELEASE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] && [[ "$EXPECTED_RUNTIME_RELEASE_ID" != *..* ]] || { echo "STOP: EXPECTED_RUNTIME_RELEASE_ID is not a valid release id."; exit 2; }
+[[ "$EXPECTED_RUNTIME_RELEASE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "STOP: EXPECTED_RUNTIME_RELEASE_SOURCE_SHA is not a 40-hex SHA."; exit 2; }
+[[ "$EXPECTED_PRODUCTION_DETECTOR_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "STOP: EXPECTED_PRODUCTION_DETECTOR_SHA256 is not a 64-hex SHA-256."; exit 2; }
+[ "$UNIT_SHA256" != "$EXPECTED_PRODUCTION_DETECTOR_SHA256" ] || { echo "STOP: UNIT_SHA256 and EXPECTED_PRODUCTION_DETECTOR_SHA256 are different pins and must not be equal."; exit 2; }
 [ "$(id -u)" != 0 ] || { echo "Run as your normal user, not root."; exit 2; }
 AUTH_DIR=${1:-}
 [ -n "$AUTH_DIR" ] && [ -d "$AUTH_DIR" ] || { echo "usage: bash $0 <AUTH_DIR with authorization-F1.txt and k3-F1.txt>"; exit 2; }
@@ -40,6 +50,7 @@ P4=$APP/deploy/pr11-phase4
 STG=$P4/stages/F1
 LIB=$P4/p4-f1-run-lib.sh
 F1_TOOL=$P4/p4-f1-alert-source.py
+F1R_TOOL=$P4/p4-f1r-switch.py   # reviewed read-only `check-runtime` (release guard + exact runtime facts)
 AP_IF=wlp0s20f3
 AP_ADDR=10.77.30.1
 TODAY=$(TZ=Asia/Bangkok date +%F)
@@ -101,6 +112,9 @@ f1_alert_surface_gate aegis-idea3 || gate "alert directory/socket contract faile
 f1_probe_config_gate || gate "R2/R6/R7 probe configuration missing (see reason above)"
 f1_unit_pin_gate "$PY" "$F1_TOOL" "$UNIT_SHA256" || gate "the reviewed unit does not match its frozen digest (see reason above)"
 f1_detector_absent_gate || gate "the detector unit/process is not absent (see reason above)"
+[ -f "$F1R_TOOL" ] || gate "p4-f1r-switch.py missing (needed for the runtime release gate)"
+f1_runtime_release_gate "$PY" "$F1R_TOOL" "$EXPECTED_RUNTIME_RELEASE_ID" "$EXPECTED_RUNTIME_RELEASE_SOURCE_SHA" "$EXPECTED_PRODUCTION_DETECTOR_SHA256" \
+  || gate "Production does not resolve the expected repaired runtime release (see reason above); F1 must not consume its attempt against the old detector"
 [ "$GATE_FAILED" = 0 ] || die "one or more pre-gates failed; NOTHING was created or changed on the host"
 
 # ---- evidence directory and PRE capture (read-only host effect), then the ONE attempt is consumed ----------------------------------------------------
@@ -112,6 +126,7 @@ mkdir -m 700 "$EVID"; exec > >(tee -a "$EVID/owner-run.log") 2>&1
 JOURNAL_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S UTC'); printf '%s\n' "$JOURNAL_SINCE" > "$EVID/journal_since.txt"
 cp "$AUTH_DIR/authorization-F1.txt" "$AUTH_DIR/k3-F1.txt" "$EVID/"
 { echo "MAIN=$EXPECTED_MAIN"; echo "UNIT_SHA256=$UNIT_SHA256"; echo "ALERT_SOURCE_UID=$ALERT_SOURCE_UID"
+  echo "RUNTIME_RELEASE_ID=$EXPECTED_RUNTIME_RELEASE_ID"; echo "RUNTIME_RELEASE_SOURCE_SHA=$EXPECTED_RUNTIME_RELEASE_SOURCE_SHA"; echo "PRODUCTION_DETECTOR_SHA256=$EXPECTED_PRODUCTION_DETECTOR_SHA256"
   echo "RUNNER_SHA256=$(sha256sum "$0" | cut -d' ' -f1)"; } > "$EVID/frozen-inputs.txt"
 echo "EVIDENCE_ROOT=$EVID MAIN=$EXPECTED_MAIN"
 
@@ -155,6 +170,9 @@ own_pre "$PRE"
 ( cd "$PRE" && sha256sum -c --quiet --strict SHA256SUMS ) || die "PRE checksum verification failed; nothing changed and nothing consumed"
 # The PRE capture ran just now: re-prove the detector is still absent BEFORE the one attempt is consumed.
 f1_detector_absent_gate || die "the detector unit/process is not absent after the PRE capture (see reason above); the attempt was NOT consumed"
+# Re-prove the runtime release AFTER the PRE capture and immediately before the one-shot boundary: `current` must still resolve the repaired detector.
+f1_runtime_release_gate "$PY" "$F1R_TOOL" "$EXPECTED_RUNTIME_RELEASE_ID" "$EXPECTED_RUNTIME_RELEASE_SOURCE_SHA" "$EXPECTED_PRODUCTION_DETECTOR_SHA256" \
+  || die "Production no longer resolves the expected repaired runtime release (see reason above); the attempt was NOT consumed"
 
 sudo install -d -m 700 -o root -g root "$WORK" || die "could not create the private root work directory"
 # one attempt: from this point a second invocation for this AUTH_DIR is refused, even after a failure

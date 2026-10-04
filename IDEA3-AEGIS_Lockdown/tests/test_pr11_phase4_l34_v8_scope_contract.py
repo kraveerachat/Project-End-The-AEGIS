@@ -56,8 +56,10 @@ V7_AND_SHARED_PINS = {
     # AMENDED (PR #305, owner-approved re-pin): only l34_dnsmasq_unit_gate + new l34_render_dnsmasq_unit changed (rendered-template authority). Pre-amendment pin b6e1d0d956c08fb87dea4733c569ae718ebf9a0321d4a8084f7c190a80bd3370.
     "p4-l34-reactivation-lib.sh": "08dd7de16cbc57a43b79f35f11e7b1dff011b29dffca5ddeef478f3524621a37",
     # re-pinned by the governed F1 detector install/start stage task (2026-10-04): stage F1 registered (p4-lib.sh) + its no-extra-field authorization rule (p4-stage-gate.sh).
-    "p4-stage-gate.sh": "73770b481c6651cac6c2b0a0fba48bcbb340b37d61e4715c9c3b8e368c55b7cd",
-    "p4-lib.sh": "c2f4d8406ecc5688b58d957081f4a72379c1b6d70c1d56a7c47c448ba98b1125",
+    # re-pinned by the F1r current-release activation stage task (2026-10-04): p4-lib.sh registers stage F1r (after L8p, before F1; no repository gap) and
+    # p4-stage-gate.sh binds F1r to the same no-extra-field authorization rule as L7u/L8p/F1. No other stage, gate or record rule changed.
+    "p4-stage-gate.sh": "c94068b814ad07609b9f7e62e17a14044cfa6d9f110789dd14b2eadbfb74bd31",
+    "p4-lib.sh": "2a68d96cf49ec8f28ea3b1b817fffeb97ee4bff9f8868482bf75ced226d1887c",
     "p4-compare.sh": "6caa482def07b50e462828f10ba117fb66779e9dde67e1fea8fad5b9b9f71c08",
     "p4-l0-capture.sh": "370c0db47ea0ceed878ec8ca5565593d67fe158529b73d4f8d548c132542e4d4",
 }

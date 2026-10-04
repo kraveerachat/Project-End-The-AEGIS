@@ -22,8 +22,11 @@ readonly P4_FS_ROOT="${AEGIS_P4_FS_ROOT:-${P4_FS_ROOT:-}}"
 readonly P4_WINDOW_TZ=Asia/Bangkok
 
 # ── stages (execution document §9, §12) ──────────────────────────────────────
-# Operational order: L7 -> L7u -> L8p -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9 (F1 = governed F1 detector unit install + one start).
-readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1 L8 L9"
+# Operational order: L7 -> L7u -> L8p -> L6c (fresh install-only run for the repaired release) -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9.
+# F1r = governed atomic switch of /opt/aegis-idea3/current to an ALREADY-INSTALLED repaired release (no Core restart); F1 = governed F1 detector unit
+# install + one start. The L6c step in that order is a fresh install-only maintenance use of the already-reviewed L6c mechanism (new release id, new
+# same-day authorization), never a replay of an old consumed authorization; L6c keeps its original position in this list.
+readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1r F1 L8 L9"
 
 p4_stage_known() { [[ " $P4_STAGES " == *" $1 "* ]] && [ -n "$1" ]; }
 
@@ -54,6 +57,9 @@ p4_stage_gaps() {
     # F1 (governed F1 detector unit install + ONE start) needs no repository gap of its own: it reuses the merged F1 alert-source tooling and the
     # L7u-provisioned Core alert surface. It never claims real detector acceptance, Recovery R1-R8, LVR, L8 or L9.
     F1) echo none ;;
+    # F1r (current-release activation) owns ONLY the atomic switch of /opt/aegis-idea3/current between two already-installed immutable releases: no
+    # repository gap applies. It never installs a release (L6c), restarts the Core, starts the detector (F1) or claims Recovery, LVR, L8 or L9.
+    F1r) echo none ;;
     L8) echo G-04,G-11,G-16 ;;
     L9) echo none ;;
   esac
