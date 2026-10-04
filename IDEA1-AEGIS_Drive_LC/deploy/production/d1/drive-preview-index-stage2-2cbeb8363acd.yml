@@ -1,0 +1,14 @@
+# IDEA1 D-1 Phase J Stage 2 - writer-capable build, writer OFF (runbook V6 S2_OVERLAY).
+# Exact-source image of origin/main 2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b (PR #310 / PR-E merge).
+# Append after the authenticated live Stage 1 chain. Do not edit active files.
+# Stage 1 flags are restated so this overlay alone pins WRITE=false.
+# VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER is deliberately absent (allowed only while WRITE=false).
+services:
+  drive:
+    image: aegis-prod-drive:preview-d1-s2-2cbeb8363acd
+    environment:
+      VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE: "true"
+      VAULT_PREVIEW_INDEX_READ_ENABLED: "true"
+      VAULT_PREVIEW_INDEX_WRITE_ENABLED: "false"
+      VAULT_MEDIA_PREVIEW_ENABLED: "true"
+      VAULT_DESTRUCTIVE_PURGE_ENABLED: "false"
