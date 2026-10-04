@@ -55,8 +55,9 @@ V7_AND_SHARED_PINS = {
     "owner-run/run-l34-v7-radio-disabled-broker-churn-owner.sh": "c0b072c226b8e89b2b4cac5aed4062ecf717aa7251e816b7362d0b453163ec71",
     # AMENDED (PR #305, owner-approved re-pin): only l34_dnsmasq_unit_gate + new l34_render_dnsmasq_unit changed (rendered-template authority). Pre-amendment pin b6e1d0d956c08fb87dea4733c569ae718ebf9a0321d4a8084f7c190a80bd3370.
     "p4-l34-reactivation-lib.sh": "08dd7de16cbc57a43b79f35f11e7b1dff011b29dffca5ddeef478f3524621a37",
-    "p4-stage-gate.sh": "11cc4251bd081eb172bcdb0155d48d6984ec4cfee1c08fc09c03fc639afa50b4",
-    "p4-lib.sh": "9cf03684a79f2706a22776d90ae3a243afbcdeb2275c0b244388971cf5af9a36",
+    # re-pinned by the governed F1 detector install/start stage task (2026-10-04): stage F1 registered (p4-lib.sh) + its no-extra-field authorization rule (p4-stage-gate.sh).
+    "p4-stage-gate.sh": "73770b481c6651cac6c2b0a0fba48bcbb340b37d61e4715c9c3b8e368c55b7cd",
+    "p4-lib.sh": "c2f4d8406ecc5688b58d957081f4a72379c1b6d70c1d56a7c47c448ba98b1125",
     "p4-compare.sh": "6caa482def07b50e462828f10ba117fb66779e9dde67e1fea8fad5b9b9f71c08",
     "p4-l0-capture.sh": "370c0db47ea0ceed878ec8ca5565593d67fe158529b73d4f8d548c132542e4d4",
 }
