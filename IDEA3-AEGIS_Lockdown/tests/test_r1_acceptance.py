@@ -615,12 +615,17 @@ def test_baseline_document_holds_no_secret_material(world):
     assert "core.env" not in text and "password" not in text.lower()
 
 
-def test_committed_package_has_no_live_owner_runner():
-    """No new stage is registered and no runner can authorise a live attempt until the owner decides the stage (see receipt)."""
+def test_r1i_is_registered_but_r1a_remains_unregistered():
+    """Owner-approved R1I is first-class; R1A remains a later, separate unregistered stage."""
     root = os.path.join(os.path.dirname(__file__), "..", "deploy", "pr11-phase4")
     lib = Path(root, "p4-lib.sh").read_text(encoding="utf-8")
-    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u L8 L9"' in lib
-    assert not [n for n in os.listdir(os.path.join(root, "owner-run")) if "r1" in n.lower()]
+    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I L8 L9"' in lib
+    assert "R1A" not in next(line for line in lib.splitlines() if line.startswith("readonly P4_STAGES="))
+    assert "REGISTERED" == subprocess.run(
+        ["bash", "-c", f'. "{Path(root, "p4-lib.sh")}"; p4_stage_handler_status R1I'],
+        text=True, capture_output=True, check=False,
+    ).stdout.strip()
+    assert "PIN_MAIN_SHA" in Path(root, "owner-run/run-r1i-owner.sh").read_text(encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- producer-side provenance (detector log)

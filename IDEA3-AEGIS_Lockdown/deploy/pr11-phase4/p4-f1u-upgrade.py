@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """F1u governed post-F1 Core upgrade: install ONE new immutable release, switch ``current`` OLD -> NEW, restart the Core EXACTLY ONCE, verify (repository tooling; authorizes nothing live).
 
-Stage order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> [R1A: owner-approved model, NOT registered here] -> Recovery R2-R8 -> LVR -> L8 -> L9.
+Stage order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> [R1A: owner-approved model, NOT registered here] -> Recovery R2-R8 -> LVR -> L8 -> L9.
 
 Why F1u exists: PR #342 (the Core ``ALERT_ACCEPTED`` implementation) is NEW Core runtime code. The running Core is an older process; the F1 detector was started by F1 and is a separate unit.
 F1u owns ONLY: (1) install one new immutable release through the reviewed installer, (2) atomic ``current`` switch from the exact frozen OLD target to the exact frozen NEW target, (3) ONE

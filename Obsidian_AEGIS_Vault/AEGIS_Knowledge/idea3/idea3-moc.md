@@ -10,6 +10,11 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3 — AEGIS Lockdown
 
+Current repository checkpoint: owner-approved `R1I` is registered after `F1u`
+as the logging-only input instrumentation stage. It is implemented in source
+but has not executed live or deployed to Production; `R1A` remains separate
+and unregistered.
+
 ## Start here
 
 Read [[idea3/idea3-status]] for the owner-maintained Lockdown state. Its
