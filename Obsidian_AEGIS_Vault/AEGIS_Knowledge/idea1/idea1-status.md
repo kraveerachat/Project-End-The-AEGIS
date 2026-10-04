@@ -107,6 +107,19 @@ I.3 real Chrome 154 (headless, built `dist`, local `/drive` proxy, disposable Po
 
 Known PR-D limitations: with WRITE=true the original-path video tile poster is drawn at the vp1 edge (512 px instead of 640) so backfill can reuse it; the client attach cap (64) mirrors the server default and is not read from the server; an index whose root/shard cannot be verified is not repaired by the writer (fails soft until a future task); counters are page-memory only and not emitted anywhere; no browser (Chrome) evidence — jsdom/Node only.
 
+## Current Task — IDEA1-VAULT-LARGE-DOWNLOAD-UX-1 — Private Vault Save-picker-first download + truthful progress
+
+| Field | Current value |
+|---|---|
+| Task | Fix "Download appears to do nothing" for large Private Vault V2 files; separate from D-1 Phase J / PR #323 (not touched) |
+| Branch | `fix/idea1-vault-download-picker-first` from `origin/main` `e8efe3bb09d12ab8383bacdb77a9d2b7ccb139d8` |
+| Owner | kla |
+| State | **Implemented and locally verified; awaiting Human review.** No Production connection, mutation, or deployment. |
+| Proven root causes (source + RED tests) | (1) TREE_V1 `treeDownloadEntry` awaited DEK unwrap + metadata AES-GCM decrypt **before** `showSaveFilePicker` — size-independent, but it moved the picker out of the click's synchronous turn, queued it behind any concurrent WebCrypto work, and spent transient user activation (a refused picker was reported only as a generic failure, or silently in the rollback list); (2) no progress surface after the destination was chosen — `downloadVaultV2` was called without `onProgress`, so a 1.1 GB stream looked like nothing happening; (3) a second Download click while one was active was silently dropped by the `downloadBusy` guard. Legacy `Vault.jsx` was already picker-first with progress. |
+| New order | click → `showSaveFilePicker` (first await, synchronous in the click turn) → DEK unwrap + metadata AEAD authentication → `createWritable()` → sequential chunk fetch/decrypt/write with real `onProgress` → `close()` only after full authenticated success; any failure → `abort()`, never `close()`. Shared by tree, rollback list, preview modal, bulk bar and legacy screen via `prepareVaultV2Download`. |
+| Not measured | Real-browser click-to-picker latency and WebCrypto queue contention (jsdom/Node evidence only); Chromium `.crswap` finalisation timing on `close()`. |
+| Next gate | Human review of the PR; optional real-Chrome timing via the `onTiming` marks. Bounded download concurrency is **not** implemented and needs separate measurement + design. |
+
 ## Closed Task — IDEA1-TRANSFER-FINAL-REPORT-MEASUREMENT — P1 Direct LAN Final Report Measurement & Remote R1 Closeout
 
 | Field | Current value |
