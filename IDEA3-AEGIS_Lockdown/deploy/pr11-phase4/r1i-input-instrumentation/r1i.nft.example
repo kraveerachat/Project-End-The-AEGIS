@@ -1,0 +1,10 @@
+table inet aegis_idea3_r1i {
+    chain input {
+        type filter hook input priority -10; policy accept;
+        ct state new tcp flags & (syn | ack) == syn limit rate 50/second burst 60 packets log prefix "AEGIS_NEWCONN " level info
+    }
+    chain forward {
+        type filter hook forward priority -10; policy accept;
+        ct state new tcp flags & (syn | ack) == syn limit rate 50/second burst 60 packets log prefix "AEGIS_NEWCONN " level info
+    }
+}
