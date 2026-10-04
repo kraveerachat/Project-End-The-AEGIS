@@ -15,6 +15,28 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — Multi-node camera provisioning (2026-10-05)
+
+Branch: feat/idea2-multi-node-camera-provisioning; owner: Pub; starting main: 912b18005bb2fc80bb4e8d1fe8aa88803ac27314.
+
+Current state: IN PROGRESS — REPOSITORY / LOCAL PREPARATION ONLY. Production mutation allowed: NO.
+
+Authority model:
+- Machine A: operator + CAM-01 and operator2 + CAM-02 resolve to Physical Camera A.
+- Machine B: the same aliases resolve to Physical Camera B.
+- Machine C: the same aliases resolve to Physical Camera C.
+
+Each machine requires its own unique Node identity, server-generated physical-camera identity, protected Agent identity, SSH identity, reverse-forward allocation, and local camera-device selection. Logical aliases CAM-01 and CAM-02 are intentionally reusable per Node.
+
+Machine A may prepare repository scripts, templates, preflight checks, runbooks, and acceptance collectors only. Machine B/C private identity, SSH private key, camera device, and protected Agent identity must be generated or discovered on the target machine itself. No Twingate change, PR2 mutation, or Production registration is authorized during preparation.
+
+| ID | Scope | State | Next |
+|---|---|---|---|
+| MN-P0 | isolated task/worktree + authority model | PASS | checkpoint session note |
+| MN-P1 | target-machine read-only preflight | PENDING | prepare OS/hardware/Python/FFmpeg/camera/network discovery |
+| MN-P2 | target-machine provisioning runbook | PENDING | Engine/Agent/identity/tunnel plan |
+| MN-P3 | multi-node live acceptance | PENDING | target hardware required |
+
 ## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
 
 Branch `fix/idea2-operator-live-navigation-persistence` is a source-only PR1.5
