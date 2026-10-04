@@ -10,7 +10,9 @@
 //    ของแผนเดิมไม่มีวันถูกใช้นับไบต์
 import { createZipStreamWriter } from './zipStreamWriter.js'
 import { zipLayout } from './bulkDownloadPlan.js'
-import { createBufferedSink, MAX_BUFFERED_PLAINTEXT_BYTES } from './vaultChunkedDownload.js'
+import {
+  authenticateVaultV2Entry, createBufferedSink, downloadVaultV2, MAX_BUFFERED_PLAINTEXT_BYTES,
+} from './vaultChunkedDownload.js'
 import { apiFetchStream } from './api.js'
 
 const ZIP_PICKER_TYPES = [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }]
@@ -328,6 +330,71 @@ export function createFilesEntrySource({ fetchStream = apiFetchStream, idleMs = 
             }
             if (reason) return failure()
           }
+        },
+      }
+    },
+  }
+}
+
+/* ── Private Vault V2 source (spec §11) ─────────────────────────────── */
+
+const isSafeSize = (x) => Number.isSafeInteger(x) && x >= 0
+
+/**
+ * แหล่งข้อมูลของ Vault V2 แบบสองจังหวะ พร้อม pre-flight (SC-1, SC-4):
+ *   preflight() — พิสูจน์ซองทุกใบ "ก่อน" createWritable จาก record ในหน่วยความจำ (ไม่มี network)
+ *                 แล้วคืน effective plan ใบใหม่ที่ขนาดทุกรายการคือ plainSize ที่พิสูจน์แล้ว
+ *   open()      — ไม่มี network; คืนขนาดที่พิสูจน์แล้ว
+ *   pump()      — downloadVaultV2 กับ blob "ตัวเดียวกัน" ที่ pre-flight พิสูจน์ — ทุก chunk ผ่าน AEAD
+ *                 ก่อนถึง entry sink เสมอ
+ * ⚠️ ไม่มี DEK หรือ CryptoKey ใดถูกเก็บข้ามรายการ — downloadVaultV2 แกะ DEK ใหม่เองต่อรายการ
+ */
+export function createVaultV2EntrySource({
+  kek, authenticate = authenticateVaultV2Entry, download = downloadVaultV2, isPurged = () => false,
+}) {
+  return {
+    async preflight(plan, signal) {
+      const effective = []
+      for (let i = 0; i < plan.entries.length; i += 1) {
+        if (signal?.aborted || isPurged()) return { ok: false, reason: 'cancelled', index: i }
+        const entry = plan.entries[i]
+        const auth = await authenticate({ kek, blob: entry.blob })
+        if (!auth?.ok) return { ok: false, reason: 'wrong-key', index: i }
+        // ⚠️ ไม่แปลงชนิด: "123", 1.5, -1, NaN หรือค่าที่หายไป คือซองที่เชื่อไม่ได้ ไม่ใช่ค่าที่ต้องซ่อม
+        if (!isSafeSize(auth.plainSize)) return { ok: false, reason: 'integrity', index: i }
+        if (entry.manifestPlainSize !== undefined
+          && (!isSafeSize(entry.manifestPlainSize) || entry.manifestPlainSize !== auth.plainSize)) {
+          return { ok: false, reason: 'integrity', index: i }
+        }
+        effective.push(Object.freeze({
+          nodeId: entry.nodeId, name: entry.name, blobRef: entry.blobRef,
+          blob: entry.blob, // วัตถุเดียวกับที่เพิ่งพิสูจน์ — ไม่ดึงใหม่จากเซิร์ฟเวอร์
+          size: auth.plainSize,
+        }))
+      }
+      if (signal?.aborted || isPurged()) return { ok: false, reason: 'cancelled', index: plan.entries.length - 1 }
+      // แผนเดิมไม่ถูกแตะ; layout ชั่วคราวของแผนเดิมไม่ถูกส่งต่อ — orchestrator คำนวณใหม่จากขนาดที่พิสูจน์แล้ว
+      const { layout: _provisionalLayout, ...rest } = plan
+      return {
+        ok: true,
+        effectivePlan: Object.freeze({
+          ...rest, entries: Object.freeze(effective), totalBytes: effective.reduce((s, e) => s + e.size, 0),
+        }),
+      }
+    },
+    async open(entry) {
+      let finished = false
+      return {
+        ok: true,
+        size: entry.size,
+        dispose() { finished = true },
+        async pump(entrySink, signal) {
+          if (finished) return { ok: false, reason: 'cancelled' }
+          const res = await download({ kek, blob: entry.blob, sink: entrySink, signal })
+          finished = true
+          if (!res?.ok) return { ok: false, reason: res?.reason ?? 'failed' }
+          if (res.bytesWritten !== entry.size) return { ok: false, reason: 'size-mismatch' }
+          return { ok: true }
         },
       }
     },
