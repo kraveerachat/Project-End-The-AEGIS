@@ -32,13 +32,17 @@ edit_policy: append-by-new-file
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/README.md` — section 12
 - `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_f1_governed_stage.py` — NEW hermetic tests
 - `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_harness.py`, `test_pr11_phase4_l7u_stage_governance.py`, `test_pr11_phase4_l8p_provisioning.py`, `test_pr11_phase4_dnsmasq_unit_repair_reboot_and_scope.py` — stage list includes `F1`
-- `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_dnsmasq_unit_repair_reboot_and_scope.py`, `test_pr11_phase4_l34_v8_scope_contract.py` — re-pinned `p4-lib.sh` / `p4-stage-gate.sh` digests
+- `IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_l34_v8_scope_contract.py` (and the dnsmasq scope test above) — re-pinned `p4-lib.sh` / `p4-stage-gate.sh` digests
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` — new F1 stage section
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-04_134839_music_idea3-f1-governed-detector-install-stage.md` — this receipt (new)
 
 ## Verification evidence
 
-- FOCUSED_RESULTS_PLACEHOLDER
+- `pytest tests/test_pr11_phase4_f1_governed_stage.py` (core venv) — pass: 89 passed (hermetic; fake host + fake systemd through the real allow-list and start counter). The first run caught a real bug (pin regex `$` accepted a trailing newline); fixed with `fullmatch` and re-run.
+- `pytest` F1 sink + F1 alert-source package + core recovery + core recovery security + phase4 harness + g15 host artifacts + L7u (delta privilege, recovery runtime contract, release builder, stage governance, upgrade engine) + L8p (owner runner, provisioning, attempt-2 reconciliation) + dnsmasq reboot/scope + L3/L4 V8 scope contract — pass: 1486 passed in 344.00s. The full suite was NOT run (no shared-runtime semantic change).
+- `bash -n` on `p4-lib.sh`, `p4-stage-gate.sh`, `p4-f1-run-lib.sh`, `run-f1-owner.sh`, `stages/F1/{apply,verify,rollback}.sh`; `python3 -m py_compile` on `p4-f1-deploy.py` and the new test — pass.
+- `git diff --check origin/main...HEAD` — pass. Main sync: `origin/main` stayed `e8efe3bb09d12ab8383bacdb77a9d2b7ccb139d8` (no merge needed).
+- `node scripts/validate-vault.mjs` and the collaboration-policy check — see the PR body for the final results.
 
 ## Canonical notes updated
 
