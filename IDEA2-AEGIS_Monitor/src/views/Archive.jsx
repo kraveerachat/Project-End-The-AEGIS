@@ -153,14 +153,10 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                 </div>
                 {open && (
                   <div className="clipdetail">
-                    {/* ⚠️ Phase 1: /api/clips/:id/video เสิร์ฟจากโฟลเดอร์ clips ของ
-                        Detection Engine ที่ mount แทน NAS จริงไปก่อน (ดู
-                        docker-compose.yml + server/routes/api.js) — เปลี่ยนแค่
-                        mount source ตอนมี NAS จริง ไม่ต้องแก้ตรงนี้เลย
-                        เบราว์เซอร์แนบ session cookie ให้เองเพราะ same-origin —
-                        ⚠️ ต้องต่อ prefix ด้วย import.meta.env.BASE_URL เสมอ
-                        (เหมือน LiveFeed.jsx) — เขียน '/api/...' เฉย ๆ จะหลุด
-                        prefix '/monitor/' แล้วโดน nginx gateway ส่งไปคนละแอป */}
+                    {/* Finalized clips are read by Monitor through its read-only
+                        NAS mount. The browser never receives a filesystem path;
+                        same-origin /api/clips/:id/video enforces session + camera
+                        scope and preserves the /monitor/ gateway prefix. */}
                     <video
                       key={cl.id}
                       className="clipvideo"
