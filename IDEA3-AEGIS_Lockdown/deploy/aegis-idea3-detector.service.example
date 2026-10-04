@@ -47,7 +47,8 @@ ProtectControlGroups=true
 ProtectClock=true
 ProtectHostname=true
 ProtectProc=invisible
-ProcSubset=pid
+# NO ProcSubset=pid here (F1 live attempt 1, 2026-10-04): the detector's own `journalctl -f` reads /proc/sys/kernel/random/boot_id, which subset=pid hides,
+# so it exited with "Failed to get boot ID: No such file or directory" and the unit ended. ProtectProc=invisible (other users' processes hidden) stays.
 RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=true
 RestrictRealtime=true
