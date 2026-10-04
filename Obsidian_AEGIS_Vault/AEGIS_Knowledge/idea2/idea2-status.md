@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-04
+updated: 2026-10-05
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,38 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
+
+Branch `fix/idea2-operator-live-navigation-persistence` is a source-only PR1.5
+follow-up based on main `7dbcae4f0b8fd8aef26e7da52614c9a3fed42880`.
+The current Live landing remains unchanged: arriving there after login is an
+intentional Live activation. Authentication alone does not create a separate
+hidden viewer; an authenticated session on Archive without an activated or
+permitted Live view has no stream.
+
+**Operator Live navigation persistence:** after an authorized CCTV-Operator
+enters Live, the same mounted Live subtree and same-origin Monitor MJPEG viewer
+remain active through internal Archive, Diagnostics, and Settings navigation.
+The inactive subtree is hidden, inert, absent from accessibility navigation,
+and occupies no layout space. Returning to Live does not reopen the stream.
+Logout, session loss, browser close, and normal camera switching retain their
+existing teardown; SOC still releases Live viewers when navigating away.
+`LiveFeed` image-source cleanup and server-side stream/authorization/producer
+authority are unchanged.
+
+**Single-camera Operator Live UI:** a CCTV-Operator with exactly one
+server-authorized camera sees the existing hero video without the redundant
+lower CameraSelector or reserved gap. The Access control and Event stream
+panels remain. Multi-camera Operators and SOC retain the selector and camera
+switching. This is role and server-camera-count based, never username based.
+
+Local real-App/generated-frame browser regression went RED on navigation
+teardown and the redundant selector, then passed all 30 Playwright tests,
+including nine new cases. The neutral Monitor suite passed 184 with zero
+failures and 58 conditional skips; Vite production build passed. These are
+source/local tests, **not** a Production deployment or Machine A real-camera
+acceptance. PR2 Archive/recording and PR3 GPU runtime remain separate.
 
 ## Current task — GPU-required inference source policy (2026-10-04)
 
