@@ -15,18 +15,43 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-UNIFIED-PREVIEW-D1-J — D-1 Phase J Production Stages 2–4
+## Current Task — IDEA1-TRASH-PREVIEW-PANE (post-D-1 reactivation)
+
+| Field | Current value |
+|---|---|
+| Task | IDEA1 Trash right-side preview/details pane and one Human-approved read-only Trash preview GET route |
+| Branch | `feat/idea1-trash-preview-pane` from `origin/main` `27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf`; post-D-1 `origin/main` `6e9449551d5cd28b7f6a42a869e2e071b5e9f479` (PR #323 merge) merged normally at `b2ca74ae` — no source conflicts; one status-note conflict reconciled |
+| Owner | kla |
+| PR | #319 — Ready for Human review/merge after post-D-1 verification (agent does not merge) |
+| State | **SOURCE IMPLEMENTED / LOCAL VERIFIED ON POST-D-1 MAIN / AWAITING HUMAN REVIEW AND MERGE**. No browser acceptance, Production deployment, or Production acceptance claimed. |
+| Production mutation allowed | **NO** — any later deployment is a separate Human authorization. |
+| Scope | IDEA1 Trash UI, shared Normal Files preview renderer extraction, and one read-only `GET /api/trash/:id/preview`. No D-1 preview-index, deployment, Restore/delete semantics, right-click, or Production change; D-1 source and deployment files are identical to `origin/main`. |
+| Acceptance | Left-click selection and right pane; narrow-screen modal; image/video/audio/text through the existing preview policy; unsupported fallback; owner + unlock + current-Trash gates; no selecting/previewing mutation; Human UI review. |
+| Next | Kla reviews PR #319 UI/security behavior and merges; Human browser acceptance and any deployment are separate later gates. |
+
+### Session Register — IDEA1-TRASH-PREVIEW-PANE
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| TP-S1 | Isolated implementation, route and UI regressions, Draft PR, documentation closeout | PASS (local) | Focused matrix 112 total / 110 pass / 0 fail / 2 PostgreSQL-only skip; build PASS with pre-existing chunk-size warning; governance 61/61 and vault validation PASS; PR #319 policy CI SUCCESS after two PR-body-format failures were corrected; related Files UI 33/33; `i18nCopyAudit` 6/7 with pre-existing `vaultKeyConfirmLabel` missing in TH/ZH on base | `7fe26a271f087c41ea71c84508490ca75ae274df` | Source and local tests verified; Draft PR #319 | PostgreSQL-specific legacy Vault-row test, human browser/visual acceptance, Production deployment (not authorized) | Human UI review |
+| TP-S2 | Post-D-1 reactivation: normal merge of `origin/main` `6e944955`, re-verification, receipt/status/PR body refresh, Ready for review | PASS (local) | Feature diff vs main limited to the 8 Trash/shared-preview code/test paths + receipt + this note; D-1 files untouched; focused matrix 112 / 110 pass / 0 fail / 2 PostgreSQL-only skip; build PASS (pre-existing chunk-size warning, tracked `dist` restored); governance 61/61; vault validation PASS (2 pre-existing canvas warnings); `git diff --check` PASS; added-line secret scan 0 credentials | merge `b2ca74ae` + docs checkpoint | Verified on post-D-1 main; PR #319 Ready | Same PostgreSQL-only skips, Human browser acceptance, deployment (not authorized) | Human review/merge |
+
+The Trash GET route shares the existing Files MIME allowlist, signature validation, bounded Range streaming, inert headers, and Vault refusal. It first requires authentication, an unlocked Trash session, and the owner-scoped currently-trashed lookup. It never restores, deletes, moves, generates a derivative, or changes the purge timer. Normal live-file preview behavior remains unchanged. Selection is cleared on lock, expired authorization, failed listing, item removal, and explicit close.
+
+Known local limits: no `TEST_DATABASE_URL` was configured, so the two PostgreSQL-only route checks were skipped; no browser visual acceptance or Production runtime check was performed. The repository's existing `i18nCopyAudit` parity failure is unrelated to this task: `vaultKeyConfirmLabel` exists only in English at the base SHA. The four new Trash labels are present in EN/TH/ZH. The code checkpoint was created before this documentation checkpoint; the final task receipt records exact paths and verification.
+
+## Closed Task — IDEA1-UNIFIED-PREVIEW-D1-J — D-1 Phase J Production Stages 2–4
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1-UNIFIED-PREVIEW-D1 Phase J: Stage 2 (zero-write deploy), Stage 3 (writer enablement, exact 8 GiB budget), Stage 4 (live acceptance) |
 | Branch | `feat/idea1-d1-phase-j-deploy`, based on PR #310 merge `2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b`; `origin/main` `0e7797bc` merged normally (no conflicts) at closeout |
 | Owner | kla |
-| PR | #323 — closeout complete, one final receipt; Ready for Human merge (agent does not merge) |
+| PR | #323 — **merged** at `6e9449551d5cd28b7f6a42a869e2e071b5e9f479`; one final receipt |
 | State | **D-1 Phase J CLOSED/ACCEPTED.** Executed in Production by the Human Owner 2026-10-04 → 2026-10-05 (UTC+7). Stage 2 `DEPLOYED/ACCEPTED`, HG-S2 PASS (`STAGE2_RESULT=DEPLOYED_ZERO_WRITE`, writer false, budget absent; evidence `phase-j-stage2-run-20261004T042047.txt` SHA-256 `6533613c58a855430ed3e2847729a8d855052fe24bdc649ce57a995c119cd78c`). Stage 3 `DEPLOYED/ACCEPTED`, HG-S3 PASS (`STAGE3_RESULT=DEPLOYED_WRITER_ENABLED`, same image `aegis-prod-drive:preview-d1-s2-2cbeb8363acd`, writer true, budget exactly 8589934592 B per owner, purge false; evidence `phase-j-stage3-run-20261004T052958.txt` SHA-256 `6a575f45fad8ba3035652ad9aaf07a8ad88ff0fb3a2c427684510bc35221b8f9`). Stage 4 `ACCEPTED`, HG-S4 PASS (Human APPROVED; `STAGE4_POST_RESULT=MACHINE_EVIDENCE_PASS`; validator `RECORD=COMPLETE_HG_S4_READY`; final record `stage4-acceptance-record-final.json` SHA-256 `5be829af64549c4fd925426d50894c52f7746c4d713660b5b3744612d9838341`). Final facts: originals preserved (`ORIGINALS_PRESERVATION_VERIFIED=PASS`), `NON_V1_MAIN_REVISIONS=0`, `INDEX_STATE_WITHOUT_BLOB=0`, `MAX_OWNER_RETAINED_BYTES=323936`, `AUDIT_PRIVACY_VIOLATIONS=0`, `S4_EXIT_CAPACITY=PASS`, final eligible owner set `1,2,3` (new owner 3 = expected). No destructive purge. **Writer remains ENABLED** in Production. |
 | Production mutation allowed | **NO further Phase J action pending.** Any rollback, budget change, or 4th eligible writer owner requires a new Human authorization (4th owner → new capacity review). |
 | Plan / package | `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-10-04-idea1-d1-phase-j-deploy-package.md` §9 (evidence table); evidence and the sealed Stage 4 bundle stay outside Git |
-| Next gate | Human merge of PR #323. |
+| Next gate | Closed — PR #323 merged at `6e944955`. Historical gate text: Human merge of PR #323. |
 
 ### Session Register — D1-J
 
