@@ -77,7 +77,7 @@ def world(tmp_path):
     db_path = str(tmp_path / "audit.db")
     make_db(db_path)
     services = {"core": unit("1111"), "detector": unit(PID)}
-    baseline = r1.capture_baseline(audit_snapshot=db_path, release_id="rel-1", detector_sha256="a" * 64, detector_uid=UID,
+    baseline = r1.capture_baseline(audit_db=db_path, release_id="rel-1", detector_sha256="a" * 64, detector_uid=UID,
                                    now=T0, services=services)
     return type("World", (), {"db": db_path, "baseline": baseline, "services": services})
 
@@ -129,7 +129,7 @@ def test_one_real_event_passes_with_a_narrow_result_and_never_promotes(world):
 
 @pytest.mark.parametrize("events", [
     [net_event(T0 + 8 + i * 0.01, str(1000 + i)) for i in range(20)],  # SYN-flood shape
-    [net_event(T0 + 5 + i * 0.5, str(1000 + i)) for i in range(10)],  # port-scan shape
+    [net_event(T0 + 4 + i * 0.5, str(1000 + i)) for i in range(10)],  # port-scan shape
 ])
 def test_kernel_source_rules_are_reconstructed(world, events):
     result = run(ok_world(world), source=events)
@@ -171,15 +171,42 @@ def test_trusted_events_for_a_different_address_do_not_qualify(world):
     assert reason(run(ok_world(world), source=ssh_burst(ip="203.0.113.99"))) == "NO_TRUSTED_SOURCE_EVENT"
 
 
-def test_trusted_events_that_follow_the_alert_do_not_qualify(world):
-    late = [ssh_event(T0 + 30 + i) for i in range(5)]
-    assert reason(run(ok_world(world), source=late)) == "SOURCE_EVENT_NOT_BEFORE_ALERT"
+@pytest.mark.parametrize("delay", [0.1, 1.5, 30.0])
+def test_final_trusted_threshold_event_after_the_alert_is_refused(world, delay):
+    """Causality: the detector alert is at T0+9; a rule completed AFTER it can never explain it (no skew admits it)."""
+    events = [*[ssh_event(T0 + 4 + i) for i in range(4)], ssh_event(T0 + 9 + delay)]
+    assert reason(run(ok_world(world), source=events)) == "NO_TRUSTED_SOURCE_EVENT"
 
 
 def test_trusted_events_long_before_the_alert_do_not_qualify(world):
     early = [ssh_event(T0 + 1 + i * 0.1) for i in range(5)]
     assert reason(run(ok_world(world), journal=[journal_line(at=T0 + 40)], source=early)) in (
         "SOURCE_EVENT_NOT_BEFORE_ALERT", "DETECTOR_EVENT_STALE")
+
+
+def test_ssh_events_wider_than_the_exact_window_are_refused(world):
+    # 5 trusted events spanning 30.5 s > TIME_WINDOW (30 s) but inside the old TIME_WINDOW + SKEW_SEC.
+    span = r1.TIME_WINDOW + 0.5
+    events = [ssh_event(T0 + 8.5 - span + i * span / 4) for i in range(5)]
+    assert reason(run(ok_world(world), source=events)) == "NO_TRUSTED_SOURCE_EVENT"
+
+
+def test_port_scan_wider_than_the_exact_window_is_refused(world):
+    span = r1.SCAN_TIME_WINDOW + 0.5
+    events = [net_event(T0 + 8.5 - span + i * span / 9, str(1000 + i)) for i in range(10)]
+    assert reason(run(ok_world(world), source=events)) == "NO_TRUSTED_SOURCE_EVENT"
+
+
+def test_syn_flood_wider_than_the_exact_window_is_refused(world):
+    span = r1.SYN_FLOOD_WINDOW + 0.5
+    events = [net_event(T0 + 8.5 - span + i * span / 19, "22") for i in range(20)]
+    assert reason(run(ok_world(world), source=events)) == "NO_TRUSTED_SOURCE_EVENT"
+
+
+def test_exact_window_boundaries_still_pass(world):
+    span = r1.TIME_WINDOW
+    events = [ssh_event(T0 + 8.5 - span + i * span / 4) for i in range(5)]
+    assert run(ok_world(world), source=events)["result"] == "PASS"
 
 
 def test_malformed_source_events(world):
@@ -216,7 +243,7 @@ def test_preexisting_open_incident_is_refused_at_baseline(tmp_path):
     conn.commit()
     conn.close()
     with pytest.raises(r1.AcceptanceError) as error:
-        r1.capture_baseline(audit_snapshot=path, release_id="r", detector_sha256="b" * 64, detector_uid=UID, now=T0,
+        r1.capture_baseline(audit_db=path, release_id="r", detector_sha256="b" * 64, detector_uid=UID, now=T0,
                             services={"core": unit("1"), "detector": unit(PID)})
     assert error.value.code == "PREEXISTING_OPEN_INCIDENT"
 
@@ -359,11 +386,19 @@ def test_service_not_running_at_end(world):
 # --------------------------------------------------------------------------- FAIL CLOSED: store / malformed inputs
 
 
-def test_inconsistent_wal_state_is_refused(world):
-    add_incident(world.db)
-    with open(world.db + "-wal", "wb") as handle:
-        handle.write(b"x" * 64)
-    assert reason(run(world)) == "STORE_WAL_PENDING"
+def test_non_database_source_is_refused(world, tmp_path):
+    garbage = tmp_path / "garbage.db"
+    garbage.write_bytes(b"not a database" * 100)
+    assert r1.verify(world.baseline, final(world), str(garbage))["reason"] == "STORE_UNREADABLE"
+
+
+def test_store_missing_required_columns_is_refused(world, tmp_path):
+    odd = tmp_path / "odd.db"
+    conn = sqlite3.connect(odd)
+    conn.execute("CREATE TABLE audit_logs (id INTEGER)")
+    conn.commit()
+    conn.close()
+    assert r1.verify(world.baseline, final(world), str(odd))["reason"] in ("STORE_MALFORMED", "STORE_UNREADABLE")
 
 
 def test_missing_store(world, tmp_path):
@@ -389,28 +424,63 @@ def test_secret_shaped_output_refused():
         r1.render({"x": "read core.env"})
 
 
-def test_snapshot_never_overwrites_and_refuses_bad_input(tmp_path):
-    src, dst = str(tmp_path / "s.db"), str(tmp_path / "d.db")
-    make_db(src)
-    r1.consistent_snapshot(src, dst)
-    assert r1._audit_marks(dst)["incident_max_id"] == 1
-    with pytest.raises(r1.AcceptanceError):
-        r1.consistent_snapshot(src, dst)
-    with pytest.raises(r1.AcceptanceError):
-        r1.consistent_snapshot(str(tmp_path / "missing.db"), str(tmp_path / "x.db"))
+SECRET_ROW = "scrypt$16384$deadbeefcafe password=hunter2 RESTORE_REQUESTED credential"
 
 
-def test_snapshot_of_wal_store_is_consistent_and_source_unchanged(tmp_path):
-    src = str(tmp_path / "w.db")
-    make_db(src)
+def files_under(root):
+    return sorted(str(p.relative_to(root)) for p in Path(root).rglob("*") if p.is_file())
+
+
+def digest(path):
+    import hashlib
+
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest() if Path(path).exists() else None
+
+
+def test_audit_view_is_in_memory_wal_consistent_and_leaves_no_copy(tmp_path):
+    src = tmp_path / "w.db"
+    make_db(str(src))
     live = sqlite3.connect(src)
     live.execute("PRAGMA journal_mode=WAL")
+    live.execute("PRAGMA wal_autocheckpoint=0")
     live.execute("INSERT INTO incidents (opened_at, state, attacker_ip) VALUES (?, 'OPEN', ?)", (stamp(T0), IP))
-    live.commit()
-    dst = str(tmp_path / "copy.db")
-    r1.consistent_snapshot(src, dst)
+    live.commit()  # committed only in the -wal file
+    assert os.path.getsize(f"{src}-wal") > 0
+    before = (digest(src), digest(f"{src}-wal"), files_under(tmp_path))
+    view = r1.open_audit_view(src)
+    try:
+        assert view.execute("SELECT MAX(id) FROM incidents").fetchone()[0] == 2  # the WAL-only row is visible
+        assert view.execute("PRAGMA database_list").fetchone()["file"] == ""  # purely in memory
+        with pytest.raises(sqlite3.Error):
+            view.execute("INSERT INTO incidents (opened_at, state) VALUES ('x', 'OPEN')")
+    finally:
+        view.close()
+    assert r1._audit_marks(src)["incident_max_id"] == 2
+    after = (digest(src), digest(f"{src}-wal"), files_under(tmp_path))
     live.close()
-    assert r1._audit_marks(dst)["incident_max_id"] == 2 and not os.path.exists(dst + "-wal")
+    assert before == after  # source bytes and the directory listing are unchanged: nothing was written, no copy remains
+
+
+def test_unrelated_secret_shaped_audit_row_never_reaches_output_or_disk(world, tmp_path):
+    conn = sqlite3.connect(world.db)
+    conn.execute("INSERT INTO audit_logs (timestamp, level, event_type, details, incident_id) VALUES (?, 'INFO', 'RESTORE_REQUESTED', ?, 1)",
+                 (stamp(T0 + 1), SECRET_ROW))
+    conn.execute("INSERT INTO audit_logs (timestamp, level, event_type, details) VALUES (?, 'INFO', 'OTHER', ?)", (stamp(T0 + 2), SECRET_ROW))
+    conn.commit()
+    conn.close()
+    add_incident(world.db)
+    first = r1.verify(world.baseline, final(world), world.db)
+    second = r1.verify(world.baseline, final(world), world.db)
+    assert first["result"] == "PASS" and r1.render(first) == r1.render(second)  # deterministic
+    out = r1.render(first) + r1.claim_lines(first)
+    assert "hunter2" not in out and "scrypt" not in out and "RESTORE_REQUESTED" not in out
+    others = [str(p) for p in Path(tmp_path).rglob("*") if p.is_file() and str(p) != world.db]
+    assert not [p for p in others if b"hunter2" in Path(p).read_bytes()]
+
+
+def test_baseline_derives_only_safe_marks(world):
+    assert set(world.baseline) == {"schema", "started_at", "release_id", "detector_sha256", "detector_uid", "audit_max_id",
+                                   "incident_max_id", "open_incidents", "core", "detector"}
 
 
 # --------------------------------------------------------------------------- journal / systemctl parsing, governance
@@ -494,13 +564,36 @@ def test_no_input_or_flag_can_promote_a_live_claim(world):
         assert "PROVEN" not in r1.claim_lines(result).replace("NOT_PROVEN", "").replace("_PROVEN=NO", "")
 
 
-def test_cli_exposes_no_mode_flag_and_cannot_self_promote(capsys):
-    with pytest.raises(SystemExit):
-        r1.main(["baseline", "--mode", "live", "--audit-db", "x", "--snapshot", "y", "--release-id", "r",
-                 "--detector-sha256", "a" * 64, "--detector-uid", "1", "--out", "o"])
+def test_cli_exposes_no_mode_or_snapshot_flag_and_cannot_self_promote(capsys):
+    for flag in (["--mode", "live"], ["--snapshot", "/tmp/x"]):
+        with pytest.raises(SystemExit):
+            r1.main(["baseline", *flag, "--audit-db", "x", "--release-id", "r", "--detector-sha256", "a" * 64, "--detector-uid", "1",
+                     "--out", "o"])
     capsys.readouterr()
-    assert r1.main(["final", "--baseline", "/nonexistent", "--audit-db", "x", "--snapshot", "y", "--out", "o"]) == 4
+    assert r1.main(["final", "--baseline", "/nonexistent", "--audit-db", "x", "--out", "o"]) == 4
     assert "PROVEN" not in capsys.readouterr().out.replace("NOT_PROVEN", "")
+
+
+def test_cli_end_to_end_writes_only_sanitized_files(world, tmp_path, monkeypatch, capsys):
+    out_dir = tmp_path / "evidence"
+    out_dir.mkdir()
+    monkeypatch.setattr(r1, "service_snapshot", lambda name, run=None: unit("1111" if name == r1.CORE_UNIT else PID))
+    monkeypatch.setattr(r1.time, "time", lambda: T0)
+    conn = sqlite3.connect(world.db)
+    conn.execute("INSERT INTO audit_logs (timestamp, level, event_type, details) VALUES (?, 'INFO', 'OTHER', ?)", (stamp(T0 - 1), SECRET_ROW))
+    conn.commit()
+    conn.close()
+    args = ["baseline", "--audit-db", world.db, "--release-id", "rel-1", "--detector-sha256", "a" * 64, "--detector-uid", str(UID)]
+    assert r1.main([*args, "--out", str(out_dir / "baseline.json")]) == 0
+    assert r1.main([*args, "--out", str(out_dir / "baseline.json")]) == 4  # never overwrites
+    add_incident(world.db)
+    monkeypatch.setattr(r1.time, "time", lambda: T0 + 60)
+    monkeypatch.setattr(r1, "read_journal", lambda since: {"detector": [journal_line()], "source": ssh_burst()})
+    assert r1.main(["final", "--baseline", str(out_dir / "baseline.json"), "--audit-db", world.db, "--out", str(out_dir / "result.json")]) == 0
+    printed = capsys.readouterr().out
+    assert "R1_EVIDENCE_VERIFIED=YES" in printed and "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN" in printed
+    assert files_under(out_dir) == ["baseline.json", "result.json"]
+    assert not [p for p in out_dir.iterdir() if b"hunter2" in p.read_bytes() or b"scrypt" in p.read_bytes()]
 
 
 def test_baseline_requires_running_services_and_valid_identity(tmp_path):
@@ -508,11 +601,11 @@ def test_baseline_requires_running_services_and_valid_identity(tmp_path):
     make_db(path)
     stopped = {"core": unit("1"), "detector": {**unit(PID), "ActiveState": "inactive"}}
     with pytest.raises(r1.AcceptanceError) as error:
-        r1.capture_baseline(audit_snapshot=path, release_id="r", detector_sha256="c" * 64, detector_uid=UID, now=T0, services=stopped)
+        r1.capture_baseline(audit_db=path, release_id="r", detector_sha256="c" * 64, detector_uid=UID, now=T0, services=stopped)
     assert error.value.code == "BASELINE_DETECTOR_NOT_RUNNING"
     good = {"core": unit("1"), "detector": unit(PID)}
     for kwargs in ({"detector_sha256": "zz"}, {"detector_uid": 0}, {"release_id": "bad id!"}):
-        args = {"audit_snapshot": path, "release_id": "r", "detector_sha256": "c" * 64, "detector_uid": UID, "now": T0, "services": good, **kwargs}
+        args = {"audit_db": path, "release_id": "r", "detector_sha256": "c" * 64, "detector_uid": UID, "now": T0, "services": good, **kwargs}
         with pytest.raises(r1.AcceptanceError):
             r1.capture_baseline(**args)
 

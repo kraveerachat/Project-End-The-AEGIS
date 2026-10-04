@@ -2,7 +2,8 @@
 
 Nothing here is deployed, run against Production, or authorised. It OBSERVES an external event and never creates one: it opens no
 socket, never writes to ``alert.sock``, never starts/stops/restarts a unit, never writes to the Core store (the audit database is
-read through a ``mode=ro`` connection and ``sqlite3`` online backup into a caller-chosen snapshot file), and runs only the fixed
+read through a ``mode=ro`` connection and copied by the SQLite online backup into an IN-MEMORY database; no raw audit copy is ever written to
+disk, and only sanitized derived evidence is emitted), and runs only the fixed
 read-only ``systemctl show`` / ``journalctl`` argvs below. It holds no secret and reads no ``core.env``.
 
 Provenance model (no new secret, no detector change, no new trust boundary):
@@ -28,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sqlite3
 import subprocess
@@ -120,47 +122,57 @@ def service_snapshot(unit: str, run=subprocess.run) -> dict[str, str]:
     return values
 
 
-def consistent_snapshot(source_db: str, destination: str) -> None:
-    """Copy the (possibly WAL-mode, live) audit store with the SQLite online backup API from a ``mode=ro`` source. Never writes the
-    source; refuses to overwrite an existing destination. The copy is then self-contained for the immutable verifier open."""
-    dest = Path(destination)
-    if dest.exists():
-        raise AcceptanceError("SNAPSHOT_EXISTS")
+_REQUIRED = {"audit_logs": ev._AUDIT_COLUMNS, "incidents": ev._INCIDENT_COLUMNS}
+
+
+def open_audit_view(source_db: Any) -> sqlite3.Connection:
+    """One internally consistent, WAL-aware, point-in-time view of the Core audit store, held ONLY IN MEMORY.
+
+    The source is opened ``mode=ro`` (never written) and copied with the SQLite online backup API into ``:memory:``. No raw copy of the
+    Production audit history is ever created on disk: callers derive sanitized evidence from the view and close it. Any problem
+    (missing file, not a database, missing columns, backup failure) refuses; nothing is guessed."""
+    if not isinstance(source_db, (str, os.PathLike)) or not str(source_db) or not Path(source_db).is_file():
+        raise AcceptanceError("STORE_MISSING")
     src = None
-    out = None
+    view = None
     try:
         src = sqlite3.connect(f"file:{quote(str(Path(source_db).resolve()))}?mode=ro", uri=True)
-        out = sqlite3.connect(str(dest))
-        src.backup(out)
-        out.execute("PRAGMA journal_mode = DELETE")
-        out.commit()
+        view = sqlite3.connect(":memory:")
+        src.backup(view)
+        view.row_factory = sqlite3.Row
+        view.execute("PRAGMA query_only = ON")
+        for table, columns in _REQUIRED.items():
+            if not columns <= {row["name"] for row in view.execute(f"PRAGMA table_info({table})")}:
+                raise AcceptanceError("STORE_MALFORMED")
+        return view
+    except AcceptanceError:
+        if view is not None:
+            view.close()
+        raise
     except sqlite3.Error:
-        raise AcceptanceError("SNAPSHOT_FAILED") from None
+        if view is not None:
+            view.close()
+        raise AcceptanceError("STORE_UNREADABLE") from None
     finally:
-        for handle in (out, src):
-            if handle is not None:
-                handle.close()
+        if src is not None:
+            src.close()
 
 
-def _audit_marks(audit_db: str) -> dict[str, Any]:
-    conn = None
+def _audit_marks(audit_db: Any) -> dict[str, Any]:
+    view = open_audit_view(audit_db)
     try:
-        conn = ev._open_ro(audit_db, {"audit_logs": {"id"}, "incidents": {"id", "state"}})
-        audit_max = conn.execute("SELECT COALESCE(MAX(id), 0) FROM audit_logs").fetchone()[0]
-        incident_max = conn.execute("SELECT COALESCE(MAX(id), 0) FROM incidents").fetchone()[0]
-        open_count = conn.execute("SELECT COUNT(*) FROM incidents WHERE state != 'CLOSED'").fetchone()[0]
-    except ev.StoreProblem as problem:
-        raise AcceptanceError(f"STORE_{problem.kind}") from None
+        audit_max = view.execute("SELECT COALESCE(MAX(id), 0) FROM audit_logs").fetchone()[0]
+        incident_max = view.execute("SELECT COALESCE(MAX(id), 0) FROM incidents").fetchone()[0]
+        open_count = view.execute("SELECT COUNT(*) FROM incidents WHERE state != 'CLOSED'").fetchone()[0]
     except sqlite3.Error:
         raise AcceptanceError("STORE_MALFORMED") from None
     finally:
-        if conn is not None:
-            conn.close()
+        view.close()
     return {"audit_max_id": int(audit_max), "incident_max_id": int(incident_max), "open_incidents": int(open_count)}
 
 
 def capture_baseline(
-    *, audit_snapshot: str, release_id: str, detector_sha256: str, detector_uid: int, now: float,
+    *, audit_db: str, release_id: str, detector_sha256: str, detector_uid: int, now: float,
     services: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
     """The PRE record. It carries no mode or claim: it is only the boundary the verifier compares against."""
@@ -168,7 +180,7 @@ def capture_baseline(
         raise AcceptanceError("IDENTITY_MALFORMED")
     if type(detector_uid) is not int or detector_uid <= 0:
         raise AcceptanceError("DETECTOR_UID_INVALID")
-    marks = _audit_marks(audit_snapshot)
+    marks = _audit_marks(audit_db)
     if marks["open_incidents"] != 0:
         raise AcceptanceError("PREEXISTING_OPEN_INCIDENT")  # a new alert would be EXISTING, not a created incident
     for unit, key in ((CORE_UNIT, "core"), (DETECTOR_UNIT, "detector")):
@@ -255,22 +267,23 @@ def source_is_trusted(event: dict[str, Any]) -> bool:
     return event["kind"] == "net" and event["transport"] == "kernel" and not event["unit"]
 
 
-def reconstruct_rules(events: list[dict[str, Any]], ip: str) -> dict[str, float]:
-    """``{rule: completion_time}`` for every detector rule the TRUSTED events for ``ip`` satisfy, using the detector's own thresholds
-    (windows widened by the timing skew, because the detector uses its receive time and journald its own stamp)."""
-    mine = sorted((e for e in events if e["ip"] == ip and source_is_trusted(e)), key=lambda e: e["at"])
+def reconstruct_rules(events: list[dict[str, Any]], ip: str, alert_at: float) -> dict[str, float]:
+    """``{rule: first completion time}`` for every detector rule the TRUSTED events for ``ip`` satisfy using the detector's EXACT
+    thresholds and windows. Only events at or before the detector's own alert line count (no skew widens a window or admits a
+    source event that follows the alert), so a rule completed after the alert can never explain it."""
+    mine = sorted((e for e in events if e["ip"] == ip and source_is_trusted(e) and e["at"] <= alert_at), key=lambda e: e["at"])
     found: dict[str, float] = {}
     ssh = [e["at"] for e in mine if e["kind"] == "ssh"]
     for i, at in enumerate(ssh):
-        if sum(1 for t in ssh[: i + 1] if at - t <= TIME_WINDOW + SKEW_SEC) >= FAIL_THRESHOLD:
+        if sum(1 for t in ssh[: i + 1] if at - t <= TIME_WINDOW) >= FAIL_THRESHOLD:
             found[RULE_SSH] = at
             break
     net = [e for e in mine if e["kind"] == "net"]
     for i, event in enumerate(net):
-        scan = [e for e in net[: i + 1] if event["at"] - e["at"] <= SCAN_TIME_WINDOW + SKEW_SEC]
+        scan = [e for e in net[: i + 1] if event["at"] - e["at"] <= SCAN_TIME_WINDOW]
         if len({e["dpt"] for e in scan if e["dpt"]}) >= SCAN_PORT_THRESHOLD:
             found.setdefault(RULE_SCAN, event["at"])
-        syn = [e for e in net[: i + 1] if event["at"] - e["at"] <= SYN_FLOOD_WINDOW + SKEW_SEC]
+        syn = [e for e in net[: i + 1] if event["at"] - e["at"] <= SYN_FLOOD_WINDOW]
         if len(syn) >= SYN_FLOOD_THRESHOLD and not ip.startswith("127."):
             found.setdefault(RULE_SYN, event["at"])
     return found
@@ -304,19 +317,17 @@ def _check_services(baseline: dict[str, Any], final: dict[str, Any]) -> None:
                 raise AcceptanceError(f"{key.upper()}_STATE_CHANGED")
 
 
-def verify(baseline: Any, final: Any, audit_snapshot: str) -> dict[str, Any]:
+def verify(baseline: Any, final: Any, audit_db: str) -> dict[str, Any]:
     """Fail-closed verification of ONE new incident against the baseline. Returns a result document; never raises for evidence faults."""
     try:
-        return _verify(baseline, final, audit_snapshot)
+        return _verify(baseline, final, audit_db)
     except AcceptanceError as error:
         return _fail(error.code)
-    except ev.StoreProblem as problem:
-        return _fail(f"STORE_{problem.kind}")
     except (KeyError, TypeError, ValueError, sqlite3.Error):
         return _fail("EVIDENCE_MALFORMED")
 
 
-def _verify(baseline: Any, final: Any, audit_snapshot: str) -> dict[str, Any]:
+def _verify(baseline: Any, final: Any, audit_db: str) -> dict[str, Any]:
     if not isinstance(baseline, dict) or baseline.get("schema") != SCHEMA_BASELINE:
         raise AcceptanceError("BASELINE_MALFORMED")
     if not isinstance(final, dict) or final.get("schema") != SCHEMA_FINAL or not isinstance(final.get("journal"), list):
@@ -327,14 +338,18 @@ def _verify(baseline: Any, final: Any, audit_snapshot: str) -> dict[str, Any]:
     _check_services(baseline, final)
     pid, uid = baseline["detector"]["MainPID"], baseline["detector_uid"]
 
-    conn = ev._open_ro(audit_snapshot, {"audit_logs": ev._AUDIT_COLUMNS, "incidents": ev._INCIDENT_COLUMNS})
+    view = open_audit_view(audit_db)
     try:
-        incidents = conn.execute("SELECT id, opened_at, closed_at, state, attacker_ip FROM incidents ORDER BY id").fetchall()
-        audit = conn.execute(
+        incidents = view.execute("SELECT id, opened_at, closed_at, state, attacker_ip FROM incidents ORDER BY id").fetchall()
+        audit = view.execute(
             "SELECT id, timestamp, event_type, details, incident_id FROM audit_logs WHERE id > ? ORDER BY id", (baseline["audit_max_id"],)
         ).fetchall()
+        return _verify_view(baseline, final, view, incidents, audit, started, ended, pid, uid)
     finally:
-        conn.close()
+        view.close()
+
+
+def _verify_view(baseline, final, view, incidents, audit, started, ended, pid, uid) -> dict[str, Any]:
     if any(row["id"] <= baseline["incident_max_id"] and row["state"] != "CLOSED" for row in incidents):
         raise AcceptanceError("PREEXISTING_INCIDENT_OPEN")
     fresh = [row for row in incidents if row["id"] > baseline["incident_max_id"]]
@@ -375,11 +390,7 @@ def _verify(baseline: Any, final: Any, audit_snapshot: str) -> dict[str, Any]:
     if any(r["event_type"] in ("ALERT_ACCEPTED", "INCIDENT_BOUND") and r["incident_id"] != incident["id"] for r in audit):
         raise AcceptanceError("UNRELATED_ALERT_ROWS")
 
-    store = ev._AuditStore(ev._open_ro(audit_snapshot, {"audit_logs": ev._AUDIT_COLUMNS, "incidents": ev._INCIDENT_COLUMNS}))
-    try:
-        gate, _ = ev._r1(store, incident["id"])
-    finally:
-        store.close()
+    gate, _ = ev._r1(ev._AuditStore(view), incident["id"])
     if gate["verdict"] != ev.VERIFIED or gate["evidence"].get("detector_alert") != ev.VERIFIED:
         raise AcceptanceError("R1_GATE_NOT_VERIFIED")
 
@@ -417,11 +428,11 @@ def _verify(baseline: Any, final: Any, audit_snapshot: str) -> dict[str, Any]:
     window = [e for e in source if e["ip"] == ip and horizon <= e["at"] <= ended + SKEW_SEC]
     if any(not source_is_trusted(e) for e in window):
         raise AcceptanceError("UNTRUSTED_SOURCE_LINES_PRESENT")
-    rules = reconstruct_rules(window, ip)
+    rules = reconstruct_rules(window, ip, event["at"])
     if not rules:
         raise AcceptanceError("NO_TRUSTED_SOURCE_EVENT")
-    if not any(started - SKEW_SEC <= done <= event["at"] + SKEW_SEC and event["at"] - done <= SOURCE_TO_ALERT_MAX_SEC
-               for done in rules.values()):
+    # Causality is strict: completion <= the detector's alert line, and the alert follows within SOURCE_TO_ALERT_MAX_SEC.
+    if not any(0 <= event["at"] - done <= SOURCE_TO_ALERT_MAX_SEC and done >= started - SKEW_SEC for done in rules.values()):
         raise AcceptanceError("SOURCE_EVENT_NOT_BEFORE_ALERT")
 
     return {
@@ -451,12 +462,17 @@ def claim_lines(document: dict[str, Any]) -> str:
 # --------------------------------------------------------------------------- CLI (read-only subcommands only)
 
 
+def _write_new(path: str, text: str) -> None:
+    """Sanitized evidence only, never overwriting an existing file."""
+    with open(path, "x", encoding="utf-8") as handle:
+        handle.write(text)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="r1_acceptance", description="Read-only R1 real-detector acceptance observer/verifier.")
     sub = parser.add_subparsers(dest="command", required=True)
     base = sub.add_parser("baseline")
     base.add_argument("--audit-db", required=True)
-    base.add_argument("--snapshot", required=True, help="destination for the consistent audit copy (must not exist)")
     base.add_argument("--release-id", required=True)
     base.add_argument("--detector-sha256", required=True)
     base.add_argument("--detector-uid", type=int, required=True)
@@ -464,25 +480,22 @@ def main(argv: list[str] | None = None) -> int:
     fin = sub.add_parser("final")
     fin.add_argument("--baseline", required=True)
     fin.add_argument("--audit-db", required=True)
-    fin.add_argument("--snapshot", required=True)
     fin.add_argument("--out", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "baseline":
-            consistent_snapshot(args.audit_db, args.snapshot)
             services = {"core": service_snapshot(CORE_UNIT), "detector": service_snapshot(DETECTOR_UNIT)}
             document = capture_baseline(
-                audit_snapshot=args.snapshot, release_id=args.release_id, detector_sha256=args.detector_sha256,
+                audit_db=args.audit_db, release_id=args.release_id, detector_sha256=args.detector_sha256,
                 detector_uid=args.detector_uid, now=time.time(), services=services,
             )
-            Path(args.out).write_text(render(document), encoding="utf-8")
+            _write_new(args.out, render(document))
             return 0
         baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
-        consistent_snapshot(args.audit_db, args.snapshot)
         services = {"core": service_snapshot(CORE_UNIT), "detector": service_snapshot(DETECTOR_UNIT)}
         final = capture_final(now=time.time(), services=services, journal=read_journal(baseline["started_at"]))
-        result = verify(baseline, final, args.snapshot)
-        Path(args.out).write_text(render(result), encoding="utf-8")
+        result = verify(baseline, final, args.audit_db)
+        _write_new(args.out, render(result))
         sys.stdout.write(claim_lines(result))
         return 0 if result["result"] == "PASS" else 2
     except (AcceptanceError, OSError, ValueError, KeyError) as error:
