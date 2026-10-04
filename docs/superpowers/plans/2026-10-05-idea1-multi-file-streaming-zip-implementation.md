@@ -1,6 +1,6 @@
 # IDEA1 — Multi-file Streaming ZIP: Implementation Plan
 
-**Status:** PROPOSED, revision 2. This revision applies the Codex plan review (blockers I-1 to I-5 and minor items M-1 to M-8). Plan only. A focused Codex re-review is pending, and Human plan approval is required before any implementation starts.
+**Status:** PROPOSED, revision 3. Revision 2 applied the Codex plan review (blockers I-1 to I-5, minor items M-1 to M-8). Revision 3 applies the focused Codex review (Fix A to Fix F: the authenticated `plainSize` is not coerced, strict pre-flight size validation, an explicit effective Vault plan, effective size used everywhere downstream, `dispose` after a post-`open` failure, and the Windows baseline shell named). Plan only. A final Codex re-review is pending, and Human plan approval is required before any implementation starts.
 
 - `IMPLEMENTATION_AUTHORIZED=NO`
 - `PRODUCTION_MUTATION_AUTHORIZED=NO`
@@ -146,22 +146,34 @@ These recommendations follow Codex's review. They are **not** implementation aut
 ### SC-1: Two-phase entry source (I-3)
 
 ```
-source.preflight?(plan, signal)            // Vault only; no-op/absent for Files
-  -> { ok:true, sizes:number[] } | { ok:false, reason, index }
+source.preflight?(plan, signal)            // Vault only; absent for Files (see SC-4)
+  -> { ok:true, effectivePlan } | { ok:false, reason, index }
 
-source.open(entry, signal)
+source.open(entry /* an EFFECTIVE entry, SC-4 */, signal)
   -> { ok:false, reason }
    | { ok:true, size, pump(entrySink, signal) -> { ok:true } | { ok:false, reason },
-       dispose(reason) }                    // idempotent; releases fetch/reader if pump never runs
+       dispose(reason) }                    // idempotent; aborts fetch / releases reader
 ```
 
-The orchestrator's order for each entry is fixed:
+The orchestrator's order for each entry is fixed. `entry` is always an entry of the **effective plan** (SC-4), and `entry.size` is always the **effective, authoritative** size. No comparison is ever made against a stale provisional size.
 
 1. `opened = await source.open(entry, signal)`. A failure means the archive fails, no local header is written, and the next entry is never opened.
-2. Check `opened.size === entry.size`, the planned size (or authenticated size for the Vault). A mismatch leads to `opened.dispose('size-mismatch')` and an archive failure, still with no local header.
-3. `entrySink = writer.addEntry({ name, size })`. **This is the first byte of this entry's local header.**
+2. Check `opened.size === entry.size`, the effective size. A mismatch leads to `opened.dispose('size-mismatch')` and an archive failure, still with no local header.
+3. `entrySink = writer.addEntry({ name: entry.name, size: entry.size })`. **This is the first byte of this entry's local header.**
 4. `res = await opened.pump(entrySink, signal)`.
 5. `await entrySink.close()`.
+
+**Ownership of an opened handle (Fix E).** Once `source.open()` returns `{ ok:true }`, the orchestrator owns the handle until that entry completes, meaning `entrySink.close()` has resolved. Any failure in between causes the orchestrator to call **`opened.dispose(reason)` exactly once**, before the archive abort path runs:
+
+| Failure after a successful `open()` | `dispose` reason | Then |
+|---|---|---|
+| `opened.size !== entry.size` | `'size-mismatch'` | No `addEntry`, archive abort, no next entry, no close |
+| `writer.addEntry()` throws | the mapped archive reason: `'localDiskFull'` for `QuotaExceededError`, otherwise `'write'` | **No `pump`**, archive abort, no next entry, no close, no success |
+| Cancel, lock or `isPurged()` observed between `open` and `pump` | `'cancelled'` | No `addEntry` or `pump`, archive abort |
+| `pump` returns `{ ok:false }` or throws | `res.reason` (or `'write'` / `'failed'`) | Archive abort. The source has usually cleaned itself up already; `dispose` is idempotent. |
+| `entrySink.close()` throws (descriptor write, count mismatch) | the mapped archive reason | Archive abort |
+
+For Files, `dispose` runs the same synchronous cleanup as every other Files failure: it aborts the fetch immediately, cancels the reader without awaiting if one was acquired, and never acquires a reader if `pump` never started. For the Vault, `dispose` is a no-network no-op that marks the entry finished.
    - `close()` is idempotent: the first call verifies `count === size`, writes the data descriptor once, and records the central entry.
    - It never closes the archive.
    - `downloadVaultV2` already calls `sink.close()` itself after its own abort check. The orchestrator's call is then a no-op.
@@ -194,21 +206,55 @@ There is **no await before the picker**. Because the dialog hold is not the tran
 - `planBulkDownload` builds **new plain objects**. It never freezes or mutates manifest nodes, the `blobIndex` `Map`, blob records, `files` listing rows, or any React state object.
 - Each plan entry copies only the scalar fields the ZIP needs:
   - **Files:** `{ id, name /* assigned */, size }`.
-  - **Vault:** `{ nodeId, name /* assigned, from manifest */, size, blobRef: { formatVersion, id }, blob: { id, formatVersion, size, chunkSize, chunkCount, contentIdB64, wrappedDekB64, wrapIvB64, metaIvB64, metaB64 } }`.
+  - **Vault:** `{ nodeId, name /* assigned, from manifest */, size /* PROVISIONAL */, manifestPlainSize /* raw copy of node.plainSize, no coercion; may be undefined */, blobRef: { formatVersion, id }, blob: { id, formatVersion, size, chunkSize, chunkCount, contentIdB64, wrappedDekB64, wrapIvB64, metaIvB64, metaB64 } }`.
+    - The Vault `size` in the original plan is **provisional**: `manifestPlainSize` if it is a safe non-negative integer, otherwise `estimatedPlainSize(blob)`.
+    - It is used **only** for pre-picker decisions (the provisional no-FSA buffered/refuse decision) and the confirmation dialog's displayed total. After pre-flight it is never used for byte counts (SC-4).
 - The copies (and the plan, its `entries` array and each nested copy) are `Object.freeze`d.
-- The **same frozen copy** is used for pre-flight, streaming and display:
+- The **same frozen `blob` copy** is used for pre-flight, streaming and display:
   - pre-flight authenticates `entry.blob`;
-  - `downloadVaultV2` receives the same `entry.blob` (spec §11, "same in-memory `blob` object used in pre-flight");
+  - the effective entry (SC-4) carries the **same `blob` object reference**, and `downloadVaultV2` receives it (spec §11, "same in-memory `blob` object used in pre-flight");
   - progress names and archive names come from `entry.name`.
+
+### SC-4: Effective plan (Fix C, Fix D)
+
+- **Original frozen plan.** Built synchronously from screen or listing data by `planBulkDownload`. It is **never mutated**. It drives the threshold, the refusals, the dialog and the provisional transport decision.
+- **Vault pre-flight** (`vaultV2EntrySource.preflight`, Task 8):
+  - authenticates every envelope;
+  - validates each authenticated `plainSize` strictly (`Number.isSafeInteger(x) && x >= 0`, no coercion);
+  - compares any `manifestPlainSize` (which must itself be a safe non-negative integer and equal);
+  - retains **no DEK or `CryptoKey`**;
+  - returns a **new frozen effective plan**, in which each effective entry is a new frozen object `{ ...identity fields, name, blob /* same reference */, size: authenticatedPlainSize }`.
+- **Normal Files:** `effectivePlan` is the original frozen plan. Listing sizes are confirmed per entry by `open()` against `Content-Length` before any header is written.
+- **After pre-flight the orchestrator runs, in order:**
+  1. `layout = zipLayout(effectivePlan.entries)`.
+  2. Assert `effectivePlan.entries.length === plan.entries.length` (≤ `MAX_ZIP_ENTRIES`).
+  3. On the buffered path, re-check `layout.total ≤ 64 MiB`, otherwise `too-large`.
+  4. **Only then** `createWritable()` (FSA) or create the buffered sink.
+  5. Entries stream.
+- **The effective plan is the single authority** after pre-flight for:
+  1. `zipLayout` and the exact archive length;
+  2. local-header size decisions;
+  3. the ZIP64 size decision;
+  4. the `opened.size === entry.size` check;
+  5. the payload total;
+  6. the progress denominator (`totalBytes`);
+  7. the no-FSA 64 MiB archive-policy check;
+  8. the entry metadata passed to `writer.addEntry`.
+- The original plan remains available only for UI and selection identity, such as the dialog snapshot and the failed-entry name lookup by index. It is never used for authoritative byte counts after Vault authentication.
 
 ---
 
-## Task 0: Baseline by failing test names (no commit) (M-7)
+## Task 0: Baseline by failing test names (no commit) (M-7, Fix F)
 
+**[RUN ON: WINDOWS — GIT BASH]**
+
+The baseline, and its head re-runs in Tasks 13b and 14b, run in **Git Bash from Git for Windows**. They are **not** run in PowerShell and **not** in WSL. The commands use Bash syntax and the coreutils that ship with Git for Windows (`timeout`, `comm`, `sort`, `sed`, `grep`).
+
+- [ ] Record the environment separately from the results, into `env.txt`: `node --version`, `npm --version`, `git --version`, `uname -a`, `echo $SHELL`, and the base commit SHA.
 - [ ] On the implementation branch, before any change, run every affected suite **per file**, recording names rather than counts. The `run-named.sh` script lives in the scratchpad and is not committed:
 
 ```bash
-# run-named.sh <outfile-prefix>
+# [Git Bash] run-named.sh <outfile-prefix>
 for f in tests/vault*.test.js tests/preview*.test.js tests/i18n*.test.js tests/workspace*.test.js \
          tests/transfer*.test.js tests/files*.test.js tests/trash*.test.js tests/protectedTrash*.test.js; do
   start=$(date +%s)
@@ -226,7 +272,7 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
   - long-lived test processes (`exit=124` from `timeout`);
   - OOM-prone suites (`exit=134`, or heap errors in the TAP output);
   - force-exit artifacts (a process killed after its tests passed).
-- [ ] The same script with prefix `head` runs in Task 13. **Acceptance: `HEAD_ONLY_FAILURES = comm -13 base.failing.txt head.failing.txt` is empty (0 lines).** Aggregate counts are informational only.
+- [ ] The same script with prefix `head` runs in Tasks 13b and 14b, also in Git Bash. **Acceptance: `BASE_FAILING_TEST_NAMES` = `base.failing.txt`, `HEAD_FAILING_TEST_NAMES` = `head.failing.txt`, and `HEAD_ONLY_FAILURES = comm -13 base.failing.txt head.failing.txt | wc -l` must be `0`.** The aggregate failure count is never used alone; it is informational only.
 
 ---
 
@@ -298,12 +344,15 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
     - **A Vault file node whose `blobRef` is missing, or whose blob is absent from `blobIndex`, also counts as `unavailable`.**
     - Both are filtered **before** the threshold, so 4 nodes with one missing blob → per-file with `unavailable:1`.
   - **D-1:** 4+ Vault entries including V1 → `refused/'v1-in-zip'`; 3 including V1 → per-file.
-  - **No-FSA:** `zipLayout().total ≤ 64 MiB` → `buffered`. Above that: Files → per-file with `fallbackNotice:'no-fsa-large'`, Vault → `refused/'too-large'`. The boundary is `64 MiB` vs `64 MiB + 1`.
+  - **No-FSA (provisional, plan-time decision; the Vault re-checks against the effective plan in SC-4):** `zipLayout(original entries).total ≤ 64 MiB` → `buffered`. Above that: Files → per-file with `fallbackNotice:'no-fsa-large'`, Vault → `refused/'too-large'`. The boundary is `64 MiB` vs `64 MiB + 1`.
   - **FSA:** `transport:'fsa'`.
   - **Feature flag:** `enabled:false` → per-file for every `n`. `BULK_ZIP_ENABLED === false` (PR-1 recommendation).
   - **Archive name:** `suggestedName` is `AEGIS-Files-YYYYMMDD-HHmmss.zip` or `AEGIS-Vault-export-YYYYMMDD-HHmmss.zip`, in local time from an injected `now`.
   - **Constants:** `ZIP_THRESHOLD === 4`, `MAX_ZIP_ENTRIES === 1000`.
-  - **Vault sizes:** `node.plainSize ?? estimatedPlainSize(blob)`.
+  - **Vault provisional sizes (SC-3):**
+    - the **original-plan** (provisional) `entry.size` is `node.plainSize` when it is a safe non-negative integer, otherwise `estimatedPlainSize(blob)`. After pre-flight it is superseded by the effective entry's authenticated size (SC-4);
+    - `entry.manifestPlainSize` is the **raw** `node.plainSize` copied without coercion: `123` stays `123`, `"123"` stays `"123"`, and a missing value stays `undefined`;
+    - the plan never validates or rejects on `manifestPlainSize`; that is pre-flight's job (Task 8).
   - **Immutable copies (I-4, SC-3):**
     - `Object.isFrozen(plan)`, `plan.entries`, and every entry and nested `blob` copy are frozen;
     - **the original nodes, blob records and Files rows passed in are still `Object.isExtensible` and unfrozen afterwards**;
@@ -415,6 +464,11 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
 - **Test first:** create `tests/vaultAuthenticateEntry.test.js` (real WebCrypto, `lazyV2` pattern).
 - **RED tests,** at the correct boundary:
   - `authenticateVaultV2Entry({ kek, blob })` returns `{ ok:true, plainSize }` with no `dek` field.
+  - **The authenticated value is preserved exactly (Fix A).** The test builds envelopes whose encrypted metadata carries each of these:
+    - `meta.plainSize = 123` → `plainSize === 123` (`typeof` is `'number'`);
+    - `meta.plainSize = "123"` → `plainSize === "123"` (`typeof` is `'string'`, not coerced);
+    - `meta.plainSize` absent → `result.plainSize === undefined` (no default, no `0`).
+  - The helper authenticates and exposes the field. It does **not** validate the field's semantic type; that is Task 8 pre-flight.
   - The wrong KEK or a tampered `metaB64` → `{ ok:false, reason:'wrong-key' }`. These are **exactly the spec §9 results; this helper has no `integrity` reason.**
   - No network: `t.mock.method(globalThis, 'fetch')` records zero calls.
   - Key import count: `t.mock.method(globalThis.crypto.subtle, 'importKey')`, installed after the KEK is imported, records exactly **1** `'raw'` AES-GCM import per call (M-3; no ESM import spying).
@@ -422,10 +476,10 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
 - **RED command:** `T tests/vaultAuthenticateEntry.test.js`
 - **Expected RED:** `authenticateVaultV2Entry is not a function`.
 - **Minimal implementation:** an internal `unwrapAndAuthenticate(kek, blob) → { dek, meta }`.
-  - `authenticateVaultV2Entry` calls it, drops `dek`, and returns `Number(meta.plainSize ?? 0)`.
+  - `authenticateVaultV2Entry` calls it, drops `dek`, and returns `{ ok:true, plainSize: meta.plainSize }`: the authenticated field exactly as decrypted. **No `Number(...)`, no defaulting, no `parseInt`, no coercion.**
   - `prepareVaultV2Download` calls it, keeping its order and reasons.
-  - `downloadVaultV2` is unchanged.
-  - The `meta.plainSize` safe-integer check and the manifest comparison belong to the Vault source pre-flight (Task 8), not this helper.
+  - `downloadVaultV2` is unchanged, including its own existing internal arithmetic.
+  - The strict semantic validation (`Number.isSafeInteger(x) && x >= 0`) and the manifest comparison belong to the Vault source pre-flight (Task 8), not this helper.
 - **GREEN command:** same.
 - **Regression (mandatory, #334):** `T tests/vaultDownloadPickerFirst.test.js tests/vaultTreeDownloadProgress.test.js tests/vaultLegacyV2DownloadBusy.test.js tests/vaultTreeBulkDownloadCancel.test.js`, all green.
 - **Commit 5:** `refactor(idea1): extract Vault V2 envelope authentication for bulk pre-flight`
@@ -444,10 +498,26 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
     - otherwise `busyRef.current` becomes `true` synchronously before the picker call (asserted inside the picker spy) and `false` after settle, whether the run succeeds, fails or is cancelled;
     - single-flight: a second `runBulkZip` while the first is pending → `busy`, with exactly one picker in total.
   - **Ordering:** `picker → hasher → preflight* → createWritable → [open → addEntry → pump → close]* → finish → close`.
-  - **SC-1 order:**
+  - **SC-1 order and handle ownership (Fix E):**
     - `open` failure → no `addEntry` for that entry (zero local-header bytes) and no next `open`;
-    - `opened.size !== entry.size` → `dispose('size-mismatch')`, no `addEntry`, failure;
-    - Cancel between `open` and `pump` → `dispose` called, abort, no close.
+    - `opened.size !== entry.size` → `dispose('size-mismatch')` exactly once, no `addEntry`, failure;
+    - **`writer.addEntry` throws after a successful `open`** (via a `createWriter` wrapper whose `addEntry` throws; variant: the archive sink rejects the header write with `QuotaExceededError`):
+      - `dispose` is called **exactly once**, with `'write'` (variant `'localDiskFull'`);
+      - `pump` is never called;
+      - one archive abort, no next `open`, no close, no success;
+    - Cancel, or `isPurged()` true, between `open` and `pump` → `dispose('cancelled')` exactly once, no `addEntry` or `pump`, abort, no close;
+    - `pump` returns `{ ok:false }` → `dispose` called once (idempotent at the source), abort, no close;
+    - a successful entry → `dispose` is **not** called.
+  - **Effective plan (SC-4, Fix C/D),** using a fake source with `preflight` that returns an effective plan whose sizes differ from the provisional ones. The provisional size is a **sentinel** (`7`), and the authenticated size is `5`:
+    - the injected `computeLayout` spy (default `zipLayout`) is called with the **effective** entries, never with the provisional ones;
+    - `writer.addEntry` receives `size: 5`; the sentinel `7` never appears in any `addEntry` call;
+    - `opened.size` is compared with `5`; an `open` returning `7` fails with `size-mismatch`;
+    - `onProgress` `totalBytes` equals the sum of the effective sizes;
+    - on the buffered path, the 64 MiB check uses `computeLayout(effective).total` (variant: provisional ≤ 64 MiB but effective > 64 MiB → `too-large`, with no sink writes);
+    - the physical total written equals `zipLayout(effective).total`;
+    - `effectivePlan.entries.length === plan.entries.length` is asserted before `createWritable`;
+    - the original plan object is unchanged (`Object.isFrozen`, same sizes).
+  - Without `preflight` (Files shape), the effective plan **is** the original plan (`===`).
   - **Picker and destination failures:** `AbortError` → `cancelled` with zero `open` calls and no `createWritable`; another error → `picker`; a `createWritable` throw → `destination`.
   - **State machine** `picking → preparing → opening → archiving → finishing → finalizing → done|failed|cancelled`:
     - any failure before close leads to exactly one `abort()` and never `close()`;
@@ -460,18 +530,20 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
   - **Final-write race (#334 lineage):** a signal abort after the last descriptor but before `close` leads to an abort, never a close.
   - **Progress:**
     - stage `preparing`, then `archiving {index,count,name}`, then `finalizing`;
-    - `totalBytes` is the payload sum;
+    - `totalBytes` is the payload sum of the **effective** plan (SC-4);
     - `percent = floor(t/T·1000)/10`, never decreasing, at most 99.9 until `close` resolves, then 100;
     - a total of 0 shows 0 and then 100;
     - nothing fires before the picker returns;
     - Cancel is unavailable from `finalizing` on, and a Cancel there is a no-op.
-  - **Production offset (C-1, behavioural):** the `createWriter` spy's options object has **no `startOffset` key**, the first archive bytes written are `PK\x03\x04` at physical offset 0, and the physical total written equals `zipLayout(plan entries).total`.
+  - **Production offset (C-1, behavioural):** the `createWriter` spy's options object has **no `startOffset` key**, the first archive bytes written are `PK\x03\x04` at physical offset 0, and the physical total written equals `zipLayout(effective plan entries).total`.
   - **Entry failure:** the result carries `{ failedEntry:{ index, name }, reason }`.
 - **RED command:** `T tests/bulkZipOrchestrator.test.js`
 - **Expected RED:** `ERR_MODULE_NOT_FOUND`.
-- **Minimal implementation:** `runBulkZip({ plan, source, scope, busyRef, signal, isPurged, onProgress, createWriter = createZipStreamWriter, createHasher, createRateEstimator, sinks })`.
+- **Minimal implementation:** `runBulkZip({ plan, source, scope, busyRef, signal, isPurged, onProgress, createWriter = createZipStreamWriter, computeLayout = zipLayout, createHasher, createRateEstimator, sinks })`.
   - Synchronous prologue: busy check, `isPurged`, signal, claim busy, then `showSaveFilePicker` as the first await.
-  - Guarded archive sink, an `abortOnce` flag, and the SC-1 per-entry order.
+  - After the hasher: `effectivePlan = source.preflight ? (await source.preflight(plan, signal)).effectivePlan : plan`, then the SC-4 sequence (layout, count assert, buffered cap), then `createWritable` or the buffered sink.
+  - Every later step reads only `effectivePlan`.
+  - Guarded archive sink, an `abortOnce` flag, the SC-1 per-entry order, and SC-1 handle ownership (`dispose` exactly once on any failure after a successful `open`).
   - `startOffset` is never passed.
 - **GREEN command:** same.
 - **Regression:** `T tests/zipStreamWriter.test.js tests/bulkDownloadPlan.test.js`.
@@ -524,8 +596,18 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
   - **Explicit Cancel mid-entry:** `cancelled`.
   - **Idempotent cleanup:** a second trigger does not abort again.
   - **`dispose()` before `pump()`:** the fetch is aborted, and a body reader is never acquired.
+- **7d RED, ADDENTRY-FAIL-DISPOSE (Fix E),** with the real Files source and the real orchestrator:
+  - entry 1's `open()` succeeds: headers arrive with a valid `Content-Length`, and the body stream is **live** (its reader would block);
+  - an injected `createWriter` wrapper makes `writer.addEntry` throw (variant: the archive sink rejects the local-header write with `QuotaExceededError`);
+  - **assertions:**
+    - the source's `dispose` is called **exactly once** (counting wrapper);
+    - the entry's `fetchCtrl.signal.aborted === true` synchronously after `dispose`;
+    - `body.getReader` is **never** called, because `pump` never started;
+    - entry 2's `fetchStream` is never called;
+    - one archive `abort()`, no `close()`, no success, and the reason is `write` (variant `localDiskFull`).
+  - Also covered: Cancel, or a size mismatch reported by the orchestrator, between `open` and `pump` produces the same exactly-once `dispose` and the same fetch abort, with no reader acquired.
 - **RED command:** `T tests/bulkZipFiles.test.js`
-- **Expected RED:** 7a `createFilesEntrySource is not a function`; 7b the timer is absent or fires during the held write; 7c order assertions fail, or a hang (each test has a 5 s timeout).
+- **Expected RED:** 7a `createFilesEntrySource is not a function`; 7b the timer is absent or fires during the held write; 7c order assertions fail, or a hang (each test has a 5 s timeout); 7d `dispose` is missing on the `addEntry` failure path, so the fetch stays live.
 - **Minimal implementation:** spec §10 steps, split exactly along `open`/`pump` per SC-1. The timer is armed only around `await fetchStream` and `await reader.read()`. On a positive read: `received += len`, clear the timer, overlong check, then `await entrySink.write(value)`.
 - **GREEN command:** same.
 - **Regression:** `T tests/bulkZipOrchestrator.test.js tests/apiFetchStream.test.js`.
@@ -535,25 +617,50 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
 
 - **Files:** modify `src/lib/bulkZipDownload.js` (add `createVaultV2EntrySource({ kek, authenticate = authenticateVaultV2Entry, download = downloadVaultV2, isPurged })`).
 - **Test first:** create `tests/bulkZipVault.test.js`. This is the module level: real crypto, `lazyV2` with an injected `fetchBytes` passed through `download`. The screen-level D-3 tests are in Task 11.
-- **`preflight(plan, signal)`:**
-  - for each `entry.blob` copy (SC-3): `authenticate({ kek, blob: entry.blob })`;
-  - **`plainSize` must be a safe non-negative integer, otherwise `integrity`; if the plan carries a manifest `plainSize`, it must be equal, otherwise `integrity` (M-2: these checks live here);**
-  - signal and `isPurged()` are checked between entries;
-  - returns the sizes. The orchestrator recomputes `zipLayout` and re-checks the buffered cap.
-- **`open(entry)`:** no network; returns `{ ok:true, size: authenticatedSize, pump, dispose }` to keep the SC-1 shape.
-- **`pump(entrySink, signal)`:** `download({ kek, blob: entry.blob /* the same frozen copy */, sink: entrySink, signal, onProgress })`; a non-ok result maps to `res.reason`; it also requires `res.bytesWritten === size`.
+- **`preflight(plan, signal)` produces the effective plan (SC-4; Fix B and Fix C).** For each original entry, in order:
+  1. `auth = await authenticate({ kek, blob: entry.blob })`. A failure → `wrong-key` at `index`.
+  2. **Strict authenticated size:** require `Number.isSafeInteger(auth.plainSize) && auth.plainSize >= 0`, with **no coercion**; otherwise `integrity` at `index`.
+  3. **Manifest comparison:** if `entry.manifestPlainSize !== undefined`, it must itself satisfy `Number.isSafeInteger(x) && x >= 0` **and** `=== auth.plainSize`; otherwise `integrity`.
+  4. Check the signal and `isPurged()` between entries.
+  5. The DEK is never returned or kept (`authenticate` returns none).
+  - Result: `{ ok:true, effectivePlan }`. This is a **new** frozen plan whose entries are new frozen objects `{ nodeId, name, blobRef, blob /* same reference as the original entry.blob */, size: auth.plainSize }`. The original plan is not mutated.
+  - The orchestrator then runs the SC-4 sequence (layout from the effective plan, count assert, buffered-cap re-check) before `createWritable`.
+- **`open(entry)`:** `entry` is an **effective** entry. No network. Returns `{ ok:true, size: entry.size /* already authenticated */, pump, dispose }`, keeping the SC-1 shape. `dispose` is a no-op that marks the entry finished.
+- **`pump(entrySink, signal)`:** `download({ kek, blob: entry.blob /* the same frozen copy */, sink: entrySink, signal, onProgress })`. A non-ok result maps to `res.reason`, and success also requires `res.bytesWritten === entry.size` (the effective size).
 - **RED tests:**
-  - **Pre-flight:**
+  - **Pre-flight ordering:**
     - every envelope is authenticated before `createWritable`;
     - a bad envelope on entry 3 means no `createWritable` and zero chunk fetches;
-    - manifest `plainSize` ≠ `meta.plainSize` → `integrity`, no writable;
-    - an unsafe `meta.plainSize` → `integrity`;
     - pre-flight makes no network fetch.
+  - **Strict authenticated size (Fix B).** An injected `authenticate` returns each of these as `plainSize`, and every one must give `integrity` before `createWritable`, with zero chunk fetches:
+
+    | Authenticated `plainSize` | Why it is rejected |
+    |---|---|
+    | `undefined` (missing) | not an integer |
+    | `null` | not an integer |
+    | `"123"` | a string; no coercion |
+    | `"-1"` | a string; no coercion |
+    | `1.5` | not an integer |
+    | `NaN` | not an integer |
+    | `Infinity` | not a safe integer |
+    | `-1` | negative |
+    | `Number.MAX_SAFE_INTEGER + 1` (`9007199254740992`) | not a safe integer |
+
+    One real-crypto variant encrypts metadata with `plainSize: "123"` and runs it through the real `authenticateVaultV2Entry` (Task 5), proving the end-to-end path rejects it.
+  - **Effective size (Fix D):**
+    1. Provisional `manifestPlainSize` absent and authenticated size valid → the effective `entry.size` is the authenticated value, even though the provisional `size` came from `estimatedPlainSize` and is deliberately set to a different sentinel in the test.
+    2. Provisional `manifestPlainSize` present and equal → success.
+    3. Provisional `manifestPlainSize` present and different → `integrity` before `createWritable`.
+    4. Authenticated field is a numeric string → `integrity`.
+    5. Authenticated field missing → `integrity`.
+    6. With spies, the effective size (not the provisional sentinel) is what reaches `zipLayout`, `writer.addEntry`, the progress `totalBytes` and the no-FSA cap check (buffered variant).
+    - Also checked: `manifestPlainSize` present but invalid (`"5"`, `-1`) → `integrity`.
+    - Also checked: the original plan is still frozen and unchanged, and each effective entry `!==` its original entry.
   - **Keys not retained (M-3):**
     - `t.mock.method(globalThis.crypto.subtle, 'importKey')`, installed after the KEK import, counts exactly **`2 × entries`** `'raw'` AES-GCM imports (pre-flight plus stream);
     - injected counting wrappers record `authenticate` × N and `download` × N;
     - pre-flight results contain no `CryptoKey`.
-  - **Same object:** the `blob` argument seen by `authenticate` and by `download` for entry *i* is the same object (`===`), the plan copy.
+  - **Same object:** the `blob` argument seen by `authenticate` (original entry) and by `download` (effective entry) for entry *i* is the same object (`===`), the frozen plan copy.
   - **AEAD before the sink:** a tampered chunk in entry 2 leads to one abort, no close, failed name = entry 2, and entry 3 is never fetched. Strict fetch/write alternation.
   - **Zero-byte V2 entry:**
     - one tag-only chunk is fetched and AEAD-verified;
@@ -584,7 +691,7 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
   - **Files, `total ≤ 64 MiB`:** `createBufferedSink({ limitBytes: 64 MiB })`; the result is a `Blob` of type `application/zip` with the plan's name; one anchor click; `revokeObjectURL` after 10 s (fake timers); the ZIP parses.
   - **Files above 64 MiB:** the orchestrator is not invoked, and the plan is per-file with `fallbackNotice` and no buffering.
   - **Vault, `≤ 64 MiB`:** buffered, and the object URL goes to `registerObjectUrl`.
-  - **Vault re-check:** within the cap by plan but above it once authenticated → `too-large` after pre-flight, with zero chunk fetches.
+  - **Vault re-check (SC-4):** within the cap by the provisional plan but above it once authenticated, so `zipLayout(effectivePlan).total > 64 MiB` → `too-large` after pre-flight, with no buffered-sink writes and zero chunk fetches. The cap check reads only the effective plan's layout. If the provisional layout is already above the cap, the Vault is refused at plan time (spec §14), so pre-flight never runs.
   - **Vault above 64 MiB at plan time:** refused, nothing fetched.
   - **Backstop:** a `BUFFER_LIMIT` overrun leads to a failed archive and discarded parts.
   - **No picker** on this path.
@@ -725,7 +832,7 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
 - **RED command:** `T tests/bulkZipSourceGuard.test.js`
 - **Expected RED:** `ERR_MODULE_NOT_FOUND` for `tests/helpers/sourceScan.mjs`.
 - **GREEN command:** same, plus `T tests/vaultTreeSourceScan.test.js`.
-- **13b regression sweep (M-7),** run with `run-named.sh head`:
+- **13b regression sweep (M-7). [RUN ON: WINDOWS — GIT BASH]** Run with `run-named.sh head` and compare `BASE_FAILING_TEST_NAMES` with `HEAD_FAILING_TEST_NAMES`:
   - **#334** picker-first, final-write abort race, batch cancel, legacy V2 busy guard: `vaultDownloadPickerFirst`, `vaultTreeDownloadProgress`, `vaultTreeBulkDownloadCancel`, `vaultLegacyV2DownloadBusy`.
   - **Trash #319:** `trashPreviewRoute`, `trashPreviewUi`, `trashDestructiveReauthUi`, `protectedTrash*`.
   - **D-1 preview index:** `previewIndex*`.
@@ -754,7 +861,7 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
 - **Expected RED:** scripts missing.
 - **GREEN command:** same.
 - **14b closeout verification** (moved here from the unit tests):
-  1. `npm test`, plus `run-named.sh head` again. `HEAD_ONLY_FAILURES` must be 0, with anomalies listed separately.
+  1. **[RUN ON: WINDOWS — GIT BASH]** `npm test`, plus `run-named.sh head` again. `HEAD_ONLY_FAILURES` (by test name, not count) must be 0, with anomalies and `env.txt` recorded separately.
   2. `npx vite build`, then from the repository root `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge`.
   3. `git diff --check`; `git diff --name-status origin/main...HEAD`. No path under `server/`, `gateway/`, `Vault.jsx`, `VaultTreeRollback`, `vaultPreviewIndex*` or `vaultDerivative*`.
   4. `git diff origin/main...HEAD -- IDEA1-AEGIS_Drive_LC/package.json IDEA1-AEGIS_Drive_LC/package-lock.json` is empty (no dependency change).
@@ -791,7 +898,7 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
 
 ---
 
-## Codex review traceability (revision 2)
+## Codex review traceability (revisions 2 and 3)
 
 | Finding | Where it is fixed |
 |---|---|
@@ -806,8 +913,14 @@ sort -u -o "$1.failing.txt" "$1.failing.txt"
 | M-4 panel stages | Task 10b |
 | M-5 missing Vault blob unavailable | Task 2c; Task 11 |
 | M-6 CRC only in the writer | SC-1; Task 7 (no hasher parameter; `hashedBytes` checked) |
-| M-7 named baseline | Task 0; Task 13b; Task 14b |
+| M-7 named baseline | Task 0 (Git Bash, `env.txt`, names not counts); Task 13b; Task 14b |
 | M-8 plan PR integration review | Kept `integration-review: yes` on the plan PR |
+| **Rev 3, Fix A:** no coercion of the authenticated `plainSize` | Task 5: returns `meta.plainSize` exactly; tests `123`, `"123"`, missing → `undefined`; no `integrity` reason |
+| **Rev 3, Fix B:** strict authenticated size | Task 8 pre-flight: `Number.isSafeInteger(x) && x >= 0`; rejection table (`undefined`, `null`, `"123"`, `"-1"`, `1.5`, `NaN`, `Infinity`, `-1`, `> MAX_SAFE_INTEGER`); `manifestPlainSize` must also be valid and equal |
+| **Rev 3, Fix C:** effective plan | SC-4; SC-3 (provisional `size`, raw `manifestPlainSize`); Task 2c (raw copy, no coercion); Task 6 (orchestrator uses only `effectivePlan` after pre-flight) |
+| **Rev 3, Fix D:** effective size downstream | SC-1 (`entry` is effective); Task 6 (sentinel test: layout, `addEntry`, `opened.size`, `totalBytes`, buffered cap, physical total); Task 8 (tests 1–6); Task 9 (cap from `zipLayout(effectivePlan)`) |
+| **Rev 3, Fix E:** `dispose` after post-`open` failure | SC-1 ownership table; Task 6 (exactly-once `dispose` on `addEntry` throw, mismatch, cancel/lock, pump failure; none on success); Task 7d ADDENTRY-FAIL-DISPOSE (fetch aborted, reader never acquired, no next entry, abort, no close) |
+| **Rev 3, Fix F:** Windows baseline shell | Task 0, Task 13b, Task 14b labelled **[RUN ON: WINDOWS — GIT BASH]** (Git for Windows; not PowerShell, not WSL); environment recorded in `env.txt`; `HEAD_ONLY_FAILURES` by name = 0 |
 | Source-guard cleanup | Task 13 (dropped and kept lists); Task 14b (moved checks) |
 
 ## Overlap and risk summary
