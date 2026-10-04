@@ -32,7 +32,7 @@ const STUBBED = new Set([
   '/src/lib/vaultCrypto.js',
 ])
 
-export async function startVaultScreenEnv({ previewIndexTilesStub = false, derivativeGenerateStub = false } = {}) {
+export async function startVaultScreenEnv({ previewIndexTilesStub = false, derivativeGenerateStub = false, legacyGridStub = false } = {}) {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost/drive/vault',
     pretendToBeVisual: true,
@@ -89,6 +89,10 @@ export async function startVaultScreenEnv({ previewIndexTilesStub = false, deriv
         // D-1 PR-D: jsdom has no image/video decoder — the screen's derivative generation is driven by the test
         if (derivativeGenerateStub && source === '../lib/vaultDerivativeGenerate.js') {
           return normalizePath(path.join(rootDir, 'tests/fixtures/derivativeGenerateScreenStub.js'))
+        }
+        // PR #334: the legacy FLAT grid is unreachable once unlocked in production; opt-in reach for its V2 download
+        if (legacyGridStub && source === '../lib/vaultConvergence.js') {
+          return normalizePath(path.join(rootDir, 'tests/fixtures/legacyGridConvergenceStub.js'))
         }
         return STUBBED.has(source) ? backendStub : null
       },
