@@ -15,7 +15,22 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-VAULT-LARGE-DOWNLOAD-UX-1 — Private Vault Save-picker-first download + truthful progress
+## Current Task — IDEA1-MULTI-FILE-ZIP-SPEC — Multi-file download as one streaming ZIP (architecture spec)
+
+| Field | Current value |
+|---|---|
+| Task | Architectural spec only: 1–3 selected files keep today's per-file download; 4+ files save as one client-side streaming STORE ZIP through one Save picker (Normal Files and Private Vault V2). No server-side ZIP endpoint. |
+| Spec | `docs/superpowers/specs/2026-10-05-idea1-multi-file-streaming-zip.md` (revision 3), blob `1482ec41ebd383e8a672ab7f950fae0d7c975bba` |
+| Branch / PR | `docs/idea1-multi-file-streaming-zip-spec` / PR #346; `origin/main` `3cfa72a0557ed13e5e432c1314d7eca5a5918423` (PR #347, IDEA3-only) merged normally — no conflicts; spec byte-identical to the approved head |
+| Owner | kla |
+| State | `MULTI_FILE_ZIP_SPEC=APPROVED`, `SPEC_TASK=CLOSED`, `IMPLEMENTATION=NOT_STARTED`, `PRODUCTION_DEPLOYED=NO`. Human spec approval **APPROVED** at exact spec head `ae04ec191ca31efb1fe2f0dee2a7928cfa8a16e6`; final Codex review `SPEC_BLOCKER=NO`. The approval binds the exact spec bytes at that head; the non-blocking Codex `startOffset` wording suggestion was deliberately **not** applied. |
+| Human decisions | D-1 V1 Vault entries out of ZIP v1 (4+ selection with any V1 refused before confirmation/picker); D-2 `MAX_ZIP_ENTRIES = 1000`; D-3 explicit Vault plaintext-export confirmation (Vault ZIP only); D-4 no seek-back fallback — reader compatibility is a blocking acceptance gate. All resolved. |
+| Not yet done | No ZIP code exists in the repository. Reader compatibility (Windows Explorer, macOS Archive Utility, Python `zipfile`; 7-Zip optional) **NOT YET EXECUTED** — no compatibility claim. No real-browser acceptance, no Production deployment or mutation. |
+| Next gate | Implementation requires a **separate** implementation-plan task and Human authorisation; it then follows strict TDD (§23) and the blocking reader gate (§24). |
+
+## Closed Task — IDEA1-VAULT-LARGE-DOWNLOAD-UX-1 — Private Vault Save-picker-first download + truthful progress
+
+> PR #334 merged at `912b18005bb2fc80bb4e8d1fe8aa88803ac27314` (2026-10-05). The table below is the pre-merge record; real-browser latency acceptance and Production remain separate gates.
 
 | Field | Current value |
 |---|---|
