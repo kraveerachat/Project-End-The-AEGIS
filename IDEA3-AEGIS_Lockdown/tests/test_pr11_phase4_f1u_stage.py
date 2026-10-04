@@ -1643,10 +1643,12 @@ def test_f1u_is_registered_exactly_once_after_f1_and_r1a_is_not_registered():
     order = stages()
     assert order.index("L7") < order.index("L7u") < order.index("L8p") < order.index("F1i") < order.index("F1r") < order.index("F1") < order.index("F1u") < order.index("L8") < order.index("L9")
     assert order.count("F1u") == 1 and order.index("F1u") == order.index("F1") + 1
-    assert not [s for s in order if s.upper().startswith("R1")] and "R1A" not in order and "R1a" not in order
+    assert order.count("R1I") == 1
+    assert order.index("F1u") < order.index("R1I") < order.index("L8")
+    assert "R1A" not in order and "R1a" not in order
     assert not (DEPLOY / "stages" / "R1A").exists() and not (DEPLOY / "stages" / "R1a").exists()
     assert not list(DEPLOY.rglob("*r1a*")) and not list(DEPLOY.rglob("*R1A*"))
-    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u L8 L9"' in P4_LIB.read_text()
+    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I L8 L9"' in P4_LIB.read_text()
 
 
 def sh(script: str, env: dict | None = None, cwd: Path | None = None):
