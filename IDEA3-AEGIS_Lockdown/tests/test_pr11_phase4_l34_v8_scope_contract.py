@@ -56,13 +56,15 @@ V7_AND_SHARED_PINS = {
     # AMENDED (PR #305, owner-approved re-pin): only l34_dnsmasq_unit_gate + new l34_render_dnsmasq_unit changed (rendered-template authority). Pre-amendment pin b6e1d0d956c08fb87dea4733c569ae718ebf9a0321d4a8084f7c190a80bd3370.
     "p4-l34-reactivation-lib.sh": "08dd7de16cbc57a43b79f35f11e7b1dff011b29dffca5ddeef478f3524621a37",
     # re-pinned by the governed F1 detector install/start stage task (2026-10-04): stage F1 registered (p4-lib.sh) + its no-extra-field authorization rule (p4-stage-gate.sh).
+    # re-pinned by the F1u post-F1 Core upgrade stage task (2026-10-05): p4-lib.sh registers stage F1u (after F1, before L8; no repository gap), p4-stage-gate.sh binds F1u to the no-extra-field rule,
+    # p4-compare.sh accepts the label `stage F1u` for the relational one-release catalog allowance, p4-l0-capture.sh additionally records the detector unit (state + unit file) and the running Core/detector release identity (cwd).
     # re-pinned by the F1i post-L7 repaired-release install stage task (2026-10-04): p4-lib.sh registers stage F1i (after L8p, before F1r; no repository gap), p4-stage-gate.sh binds F1i
     # to the same no-extra-field authorization rule, and p4-compare.sh adds the label `stage F1i` to the existing RELATIONAL one-release catalog allowance (behavior unchanged:
     # every release already present must stay byte-identical, exactly one named id may be added). No other stage, gate or record rule changed.
-    "p4-stage-gate.sh": "1f6b01446b549a037447835ce0a0cb942f8faefeeeff65ff177f7f5040b09bea",
-    "p4-lib.sh": "a4f91db7993bc44d62db7044bc133072fabcbc798a9318867482381774395016",
-    "p4-compare.sh": "ab53244fc7683be0daa6ab21730d1c475294e120a5ff248b2d54d1bc5aa6770a",
-    "p4-l0-capture.sh": "370c0db47ea0ceed878ec8ca5565593d67fe158529b73d4f8d548c132542e4d4",
+    "p4-stage-gate.sh": "4ae68cfdd398d03d6a448e1ac7cd15af256c8aaf40e2b1accf1b3dc914c42499",
+    "p4-lib.sh": "3e34d93eeeca5d0e78cf99905ea913e45bfd2209cac36e0e3eaff20b7989b9bf",
+    "p4-compare.sh": "c71350cac6447a72fafc934691c1870fe159758a82a4daf20e5d070d14a5e464",
+    "p4-l0-capture.sh": "e5d82dc5959dbcd1aa13ca0d58aa15ed5375a77e918be9a1ec2a8a2ac740a61b",
 }
 V7_RECEIPT_PINS = {
     "2026-10-01_061747_music_idea3-l34-v7-radio-disabled-broker-churn.md": "8afd6eb96aead14598cd57299090ef01988d89643ed93ea2598467fe70873a06",

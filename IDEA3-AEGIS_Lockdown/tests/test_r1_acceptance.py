@@ -619,7 +619,7 @@ def test_committed_package_has_no_live_owner_runner():
     """No new stage is registered and no runner can authorise a live attempt until the owner decides the stage (see receipt)."""
     root = os.path.join(os.path.dirname(__file__), "..", "deploy", "pr11-phase4")
     lib = Path(root, "p4-lib.sh").read_text(encoding="utf-8")
-    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 L8 L9"' in lib
+    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u L8 L9"' in lib
     assert not [n for n in os.listdir(os.path.join(root, "owner-run")) if "r1" in n.lower()]
 
 
