@@ -16,9 +16,7 @@ import { UploadDrawer } from '../components/UploadDrawer.jsx'
 import { AEGIS_ITEMS_TYPE, canDropOn, dragPayloadFor, isExternalFileDrag, readDragPayload, writeDragPayload } from '../lib/fileDragDrop.js'
 import { DEFAULT_SORT, SORT_LABEL_KEYS, SORT_MODES, filterItems, filesPreviewCapability, previewPathFor, sectionItems } from '../lib/filesView.js'
 import { previewModeOf } from '../lib/preview/registry.js'
-import { AudioPreview } from '../components/preview/providers/AudioPreview.jsx'
-import { TextFamilyPreview } from '../components/preview/providers/TextFamilyPreview.jsx'
-import { readTextHead, TEXT_PREVIEW_MAX_BYTES } from '../lib/preview/textHead.js'
+import { FilePreviewMedia } from '../components/preview/FilePreviewMedia.jsx'
 import { MediaProvider, MediaThumb, useOwnedMediaRuntime } from '../components/MediaThumb.jsx'
 import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../components/FileCardPresentation.jsx'
 import { SelectionAction, SelectionActionBar } from '../components/SelectionActionBar.jsx'
@@ -724,8 +722,6 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
   // gets the stable fallback instead of an empty frame (spec §19)
   const status = kind ? phase : 'unsupported'
   const reason = cap?.state === 'unsupported-codec' ? t('previewAudioCodecUnsupported') : null
-  // text family: one bounded Range request (≤ 1 MiB) to the owner-only route; the server verified the bytes are text
-  const loadText = useCallback((signal) => readTextHead({ kind: 'files', url: src }, { maxBytes: TEXT_PREVIEW_MAX_BYTES, signal }), [src])
   return (
     <PreviewModalShell
       t={t}
@@ -739,32 +735,8 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
       onDownload={() => file && onDownload?.(file)}
       bodyProps={{ 'data-file-preview-kind': kind ?? '', 'data-file-preview-phase': phase }}
     >
-        {kind === 'video' ? (
-          <video
-            controls
-            preload="metadata"
-            playsInline
-            src={src}
-            onLoadedMetadata={() => setPhase('ready')}
-            onError={() => setPhase('failed')}
-            className="max-w-full"
-            style={{ maxHeight: '68vh', opacity: phase === 'ready' ? 1 : 0 }}
-          />
-        ) : kind === 'audio' ? (
-          <AudioPreview t={t} src={src} fileName={file?.name ?? ''} onPhase={setPhase} />
-        ) : kind === 'text' ? (
-          <TextFamilyPreview t={t} provider={cap?.provider ?? null} load={loadText} maxBytes={TEXT_PREVIEW_MAX_BYTES} onPhase={setPhase} />
-        ) : kind === 'image' ? (
-          <img
-            src={src}
-            alt={file?.name ?? ''}
-            decoding="async"
-            onLoad={() => setPhase('ready')}
-            onError={() => setPhase('failed')}
-            className="max-w-full object-contain"
-            style={{ maxHeight: '68vh', opacity: phase === 'ready' ? 1 : 0 }}
-          />
-        ) : null}
+        <FilePreviewMedia t={t} kind={kind} capability={cap} src={src} phase={phase}
+          fileName={file?.name ?? ''} onPhase={setPhase} />
     </PreviewModalShell>
   )
 }

@@ -1,0 +1,13 @@
+# LOCAL FIXTURE ONLY - stands in for the unknown live base Compose chain so that
+# verify-phase-j-package.sh can render Stage 1 -> 2 -> 3 with `docker compose config`.
+# It is not a Production file and holds no Production paths, values, or secrets.
+services:
+  drive:
+    image: aegis-prod-drive:p1-8634360f74ed
+    environment:
+      VAULT_TREE_SCHEMA_AVAILABLE: "true"
+      VAULT_TREE_PROTOCOL_ENABLED: "true"
+      VAULT_MEDIA_PREVIEW_ENABLED: "true"
+      VAULT_DESTRUCTIVE_PURGE_ENABLED: "false"
+  postgres:
+    image: postgres:16-alpine

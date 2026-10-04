@@ -106,7 +106,7 @@ async function mountTrash({ lang = 'en', user = { username: 'admin', role: 'admi
     searchForm: () => host.querySelector('form[role="search"]'),
     purgePasswordInput: () => doc.querySelector('#trash-purge-password'),
     emptyPasswordInput: () => doc.querySelector('#trash-empty-password'),
-    itemsRendered: () => [...host.querySelectorAll('p.truncate')].map((el) => el.textContent.trim()),
+    itemsRendered: () => [...host.querySelectorAll('[data-trash-name]')].map((el) => el.textContent.trim()),
     async setSort(value) {
       const select = host.querySelector('select')
       await act(async () => {
