@@ -614,9 +614,14 @@ def test_a_concurrently_started_detector_is_refused_before_our_start_and_never_a
     assert backend.starts == 0 and not [e for e in world.events if e.startswith("systemctl:start")]  # we issued no start
     journal = json.loads(journal_text(work))
     assert journal["start_issued"] is False and journal["phase"] != "complete"  # the stage does not claim it performed the start
+    unit_before, events_before = host.files[tool.UNIT_PATH], len(world.events)
     rb = FakeBackend(world, host)
-    assert refusal(tool.rollback, work, host, rb) == "ROLLBACK_UNIT_STILL_LOADED"  # never stops a process it did not start; fails closed for the owner
-    assert not [c for c in rb.calls if c[0] == "stop"] and world.active
+    assert refusal(tool.rollback, work, host, rb) == "ROLLBACK_EXTERNAL_DETECTOR_ACTIVE"
+    after = [e for e in world.events[events_before:]]
+    assert after == ["systemctl:show aegis-idea3-detector.service"]  # one read-only state query; NO stop, NO unlink, NO daemon-reload
+    assert world.active and host.files[tool.UNIT_PATH] == unit_before and tool.UNIT_PATH in host.meta  # the external process runs; our exact unit stays
+    assert not [c for c in rb.calls if c[0] in ("stop", "start", "daemon-reload")]
+    assert json.loads(journal_text(work))["phase"] != "rolled_back"  # nothing was recorded as rolled back
 
 
 def test_a_race_between_the_post_reload_check_and_the_start_is_caught_by_the_backend_hook(tmp_path):
@@ -977,3 +982,43 @@ def test_the_runner_pins_exactly_the_five_owner_frozen_values():
         assert f"={pin}\n" in text
     assert not re.search(r"=[0-9a-f]{40}\n|=[0-9a-f]{64}\n", text)  # no real value is committed
     assert "authorization-F1.txt" in text and "k3-F1.txt" in text and "--stage F1" in text
+
+
+@pytest.mark.parametrize("active_state,pid", [("active", "777"), ("activating", "778"), ("deactivating", "779"), ("inactive", "780"), ("failed", "781")])
+def test_rollback_without_our_start_refuses_unless_inactive_or_failed_with_no_pid(tmp_path, active_state, pid):
+    world, host, backend, work = build(tmp_path, with_socket=False)  # start_detector refuses before any start: start_issued=false
+    assert refusal(run_apply, host, backend, work) == "ALERT_SOCKET_MISSING"
+    assert json.loads(journal_text(work))["start_issued"] is False
+
+    class Odd(FakeBackend):
+        def _run(self, args):
+            if args[0] == "show" and args[1] == tool.DETECTOR_UNIT:
+                return tool.CommandResult(0, f"ActiveState={active_state}\nMainPID={pid}\n")
+            return super()._run(args)
+
+    rb = Odd(world, host)
+    files_before = dict(host.files)
+    assert refusal(tool.rollback, work, host, rb) == "ROLLBACK_EXTERNAL_DETECTOR_ACTIVE"  # a PID (or a non-final state) is another actor's process
+    assert rb.calls == [("show", tool.DETECTOR_UNIT, "-pActiveState", "-pMainPID")]  # one read-only query, nothing else
+    assert host.files == files_before and json.loads(journal_text(work))["phase"] != "rolled_back"
+
+
+@pytest.mark.parametrize("active_state", ["inactive", "failed"])
+def test_normal_rollback_with_no_own_start_and_a_non_running_detector_removes_only_the_owned_unit(tmp_path, active_state):
+    world, host, backend, work = build(tmp_path, with_socket=False)
+    assert refusal(run_apply, host, backend, work) == "ALERT_SOCKET_MISSING"
+    assert json.loads(journal_text(work))["start_issued"] is False and world.loaded
+    reloads_before = world.events.count("systemctl:daemon-reload")
+
+    class State(FakeBackend):
+        def _run(self, args):
+            if args[0] == "show" and args[1] == tool.DETECTOR_UNIT and "-pMainPID" in args and "-pLoadState" not in args:
+                return tool.CommandResult(0, f"ActiveState={active_state}\nMainPID=0\n")
+            return super()._run(args)
+
+    rb = State(world, host)
+    assert tool.rollback(work, host, rb) == {"F1_ROLLBACK": "PASS"}
+    assert tool.UNIT_PATH not in host.files and not world.loaded
+    assert not [c for c in rb.calls if c[0] in ("stop", "start")]  # never stops what it did not start
+    assert world.events.count("systemctl:daemon-reload") == reloads_before + 1  # exactly one rollback reload
+    assert json.loads(journal_text(work))["phase"] == "rolled_back"

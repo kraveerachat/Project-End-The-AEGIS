@@ -368,10 +368,15 @@ def verify(uid: int, core_uid: int, work: Path, host: F1Host, backend: F1Backend
 # ── rollback ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
+ROLLBACK_SAFE_ACTIVE_STATES = ("inactive", "failed")
+
+
 def rollback(work: Path, host: F1Host, backend: F1Backend) -> dict[str, str]:
     """Undo ONLY what this attempt journalled. Never the Core, core.env, users, groups or a pre-existing unit. Unknown state => refusal.
 
-    stop (only if this attempt issued the start) -> prove the installed unit is still ours -> remove it -> daemon-reload -> prove not-found.
+    If this attempt did NOT issue the start, the detector must be non-running (inactive|failed, MainPID=0) before ANYTHING is mutated, else it refuses
+    with ROLLBACK_EXTERNAL_DETECTOR_ACTIVE and changes nothing. Otherwise: stop (only if this attempt issued the start) -> prove the installed unit is
+    still ours -> remove it -> daemon-reload -> prove not-found.
     """
     journal = read_journal(work)
     if journal is None or journal.get("phase") in (None, "preflight"):
@@ -379,6 +384,13 @@ def rollback(work: Path, host: F1Host, backend: F1Backend) -> dict[str, str]:
     if journal.get("phase") == "rolled_back":
         return {"F1_ROLLBACK": "ALREADY_ROLLED_BACK"}
     owned_file = journal.get("phase") in ("installing", "installed", "starting", "complete")
+    if not journal.get("start_issued"):
+        # This attempt did NOT start the detector, so any running detector belongs to another actor. Read-only check FIRST: with an active or
+        # PID-bearing detector the stage refuses before it stops, unlinks or reloads anything (an owner-decision state). Safe state contract:
+        # ActiveState inactive|failed AND MainPID=0.
+        state = props(backend, DETECTOR_UNIT, ("ActiveState", "MainPID"))
+        if state.get("ActiveState") not in ROLLBACK_SAFE_ACTIVE_STATES or state.get("MainPID", "0") != "0":
+            refuse("ROLLBACK_EXTERNAL_DETECTOR_ACTIVE")
     if journal.get("start_issued"):
         if backend.systemctl("stop", DETECTOR_UNIT).rc != 0:
             refuse("DETECTOR_STOP_FAILED")
