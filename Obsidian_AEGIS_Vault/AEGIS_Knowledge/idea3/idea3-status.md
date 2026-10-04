@@ -28,8 +28,6 @@ edit_policy: owner-writable
 
 ---
 
----
-
 ## IDEA3 F1r LIVE closeout — current switched to the repaired release (pointer only) — 2026-10-04
 
 > [!important] **F1r was executed LIVE once (2026-10-04 22:27 +07) and PASSED.** `/opt/aegis-idea3/current` now resolves to `/opt/aegis-idea3/releases/c2238375de14678f2a67c039282d9aeff6d553e5` (it was `…/55c7d18135142293267e8d1ea943d3639358d634`). **This proves POINTER ACTIVATION only:** no release was installed or deleted, the Core was NOT restarted (same MainPID 896, NRestarts 0) and is NOT claimed to run the NEW release, the detector was NOT started, no F1 attempt 2, no Recovery, no ESP32 action.
