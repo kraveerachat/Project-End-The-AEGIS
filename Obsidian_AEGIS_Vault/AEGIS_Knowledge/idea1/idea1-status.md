@@ -15,7 +15,25 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-MULTI-FILE-ZIP-SPEC — Multi-file download as one streaming ZIP (architecture spec)
+## Current Task — IDEA1-MULTI-FILE-ZIP-PLAN — Multi-file streaming ZIP implementation plan
+
+| Field | Current value |
+|---|---|
+| Task | Implementation **plan** only (documentation) for the approved multi-file streaming ZIP spec: 15 tasks T0–T14 (T0 baseline, no commit), 14 intended commits, inline execution, strict TDD. |
+| Plan | `docs/superpowers/plans/2026-10-05-idea1-multi-file-streaming-zip-implementation.md` (revision 3), blob `c18c33ed35efb2f73307ac13ce045be499f3fc5a` |
+| Spec | `docs/superpowers/specs/2026-10-05-idea1-multi-file-streaming-zip.md`, blob `1482ec41ebd383e8a672ab7f950fae0d7c975bba` — approved and merged by PR #346 (`09d519c4`); unchanged by the plan |
+| Branch / PR | `docs/idea1-multi-file-streaming-zip-plan` / PR #350; `origin/main` `7558bea8` (no movement at closeout); plan byte-identical to the approved head |
+| Owner | kla |
+| State | `MULTI_FILE_ZIP_SPEC=APPROVED_AND_MERGED`, `MULTI_FILE_ZIP_PLAN=APPROVED`, `PLAN_TASK=CLOSED`, `IMPLEMENTATION=NOT_STARTED`, `PRODUCTION_DEPLOYED=NO`. Human plan approval **APPROVED** at exact plan head `7b2ad74dd7fa89c07174321eba95c12962927ae4`; final Codex review `PLAN_BLOCKER=NO`, `NEW_HUMAN_DECISIONS_REQUIRED=NO`. The plan heading still says "Human approval pending"; the approved bytes were deliberately not edited — approval is recorded here, in the receipt and in the PR #350 body. |
+| Human decisions | PR-1 APPROVED — `BULK_ZIP_ENABLED=false` on implementation landing; PR-2 APPROVED — tooling at `IDEA1-AEGIS_Drive_LC/scripts/zip-acceptance/`; PR-3 APPROVED — bounded synthetic/full-length streaming, non-zero pattern, real CRC, ≤ 1 MiB reused buffer, 30 s timeout; PR-4 APPROVED — 15 tasks incl. baseline / 14 intended commits / inline execution. |
+| Implementation handoff | Codex MINOR notes (non-blocking): kickoff in an isolated worktree; progress ledger required; fresh whole-branch review required; Task 6 must check `preflight.ok` before reading `effectivePlan`. |
+| Not yet done | No ZIP code exists in the repository. Reader acceptance (R1–R3, A1–A12) and memory acceptance (A11) **NOT RUN**. No real-browser acceptance, no Production deployment or mutation. |
+| Next gate | A **separate** implementation task executing T0–T14 inline from the approved plan, after PR #350 merges. |
+| Receipt | `90-Status/logs/2026-10-05_055903_kla_idea1-multi-file-zip-plan-closeout.md` |
+
+## Closed Task — IDEA1-MULTI-FILE-ZIP-SPEC — Multi-file download as one streaming ZIP (architecture spec)
+
+> PR #346 merged at `09d519c46f1fb72a5ec1fefa2801b859b9ab98ec` (2026-10-05). The table below is the pre-merge record.
 
 | Field | Current value |
 |---|---|
