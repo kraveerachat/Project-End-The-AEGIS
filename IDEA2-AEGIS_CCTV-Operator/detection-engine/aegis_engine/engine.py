@@ -68,6 +68,12 @@ class DetectionEngine:
 
         self._stop = threading.Event()
         self._metrics = MetricsRegistry()
+        self._metrics.on_inference_status({
+            "gpu_required": self._cfg.gpu_required,
+            "requested_inference_device": self._cfg.inference_device,
+        })
+        if recognizer is not None and hasattr(recognizer, "inference_status"):
+            self._metrics.on_inference_status(recognizer.inference_status())
         self._hub = EventHub()
         context = EngineContext(
             config=self._cfg,
@@ -253,6 +259,8 @@ class DetectionEngine:
             pass
         finally:
             self.stop()
+        if self._metrics.snapshot()["accelerator_failure"]:
+            raise RuntimeError("GPU-required inference failed; Engine stopped")
 
     def _install_signal_handlers(self) -> None:
         def _handler(signum, _frame):

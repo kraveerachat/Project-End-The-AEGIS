@@ -68,6 +68,9 @@ class YoloSFaceAdminRecognizer:
         templates=None,
         template_recognizer_sha256: str | None = None,
         clock=time.monotonic,
+        inference_device: str = "cpu",
+        gpu_required: bool = False,
+        torch_runtime=None,
     ) -> None:
         self._admin_display_name = admin_display_name
         self._admin_min_confidence = admin_min_confidence
@@ -75,9 +78,26 @@ class YoloSFaceAdminRecognizer:
         self._detector_max_side = face_detector_max_side
         self._yolo_gate_ttl_s = yolo_gate_ttl_s
         self._clock = clock
+        self._inference_device = inference_device
+        self._gpu_required = gpu_required
+        self._successful_gpu_inference_samples = 0
+        self._accelerator_failed = False
         self._recent_yolo_boxes: List[
             tuple[tuple[int, int, int, int], float]
         ] = []
+
+        if gpu_required:
+            if not inference_device.startswith("cuda:") or not inference_device[5:].isdigit():
+                raise RuntimeError("GPU-required YOLO needs an explicit CUDA device")
+            if torch_runtime is None:
+                try:
+                    import torch as torch_runtime  # type: ignore
+                except ImportError as exc:
+                    raise RuntimeError("GPU-required YOLO needs PyTorch CUDA runtime") from exc
+            if not torch_runtime.cuda.is_available():
+                raise RuntimeError("GPU-required YOLO: CUDA is unavailable")
+            if int(inference_device[5:]) >= torch_runtime.cuda.device_count():
+                raise RuntimeError(f"GPU-required YOLO: {inference_device} is unavailable")
 
         if model is None:
             if not os.path.isfile(model_path):
@@ -92,6 +112,13 @@ class YoloSFaceAdminRecognizer:
                 ) from exc
             model = YOLO(model_path)
         self._model = model
+        if gpu_required:
+            self._model.to(inference_device)
+            actual = str(getattr(self._model, "device", "unknown"))
+            if actual != inference_device:
+                raise RuntimeError(
+                    f"GPU-required YOLO actual device is {actual}, not {inference_device}"
+                )
 
         names = getattr(self._model, "names", {})
         items = names.items() if isinstance(names, dict) else enumerate(names)
@@ -177,7 +204,13 @@ class YoloSFaceAdminRecognizer:
         return embeddings, model_hash
 
     def recognize(self, image_bgr) -> List[DetectedEntity]:
-        faces = self._detect_faces(image_bgr)
+        try:
+            faces = self._detect_faces(image_bgr)
+        except Exception:
+            # YuNet cannot grant identity; it is not a YOLO/CUDA failure.
+            self._recent_yolo_boxes.clear()
+            log.exception("YuNet detection failed; no identity is authorized")
+            return []
         if not faces:
             return []
 
@@ -185,9 +218,13 @@ class YoloSFaceAdminRecognizer:
             yolo_boxes = self._yolo_candidates(image_bgr)
         except Exception:
             # Failure of the first gate cannot authorize any detected face.
+            self._recent_yolo_boxes.clear()
+            if self._gpu_required:
+                self._accelerator_failed = True
+                log.exception("GPU-required YOLO inference failed; stopping Engine")
+                raise
             log.exception("YOLO inference failed; detected faces remain Unknown")
             yolo_boxes = []
-            self._recent_yolo_boxes.clear()
 
         now = self._clock()
         self._recent_yolo_boxes = [
@@ -263,13 +300,41 @@ class YoloSFaceAdminRecognizer:
             image_bgr,
             conf=self._admin_min_confidence / 100.0,
             verbose=False,
+            device=self._inference_device,
         )[0]
+        actual = str(getattr(self._model, "device", "unknown"))
+        if self._gpu_required and actual != self._inference_device:
+            raise RuntimeError(
+                f"GPU-required YOLO actual device is {actual}, not {self._inference_device}"
+            )
         boxes = getattr(prediction, "boxes", None)
         if boxes is None:
+            if self._gpu_required:
+                self._successful_gpu_inference_samples += 1
             return []
-        return self._candidate_boxes(
+        candidates = self._candidate_boxes(
             _numpy(boxes.xyxy), _numpy(boxes.conf), _numpy(boxes.cls)
         )
+        if self._gpu_required:
+            self._successful_gpu_inference_samples += 1
+        return candidates
+
+    def inference_status(self) -> dict:
+        actual = str(getattr(self._model, "device", "unknown"))
+        return {
+            "gpu_required": self._gpu_required,
+            "requested_inference_device": self._inference_device,
+            "yolo_actual_device": actual,
+            "successful_gpu_inference_samples": self._successful_gpu_inference_samples,
+            "accelerator_active": (
+                self._successful_gpu_inference_samples > 0
+                and not self._accelerator_failed
+                and actual == self._inference_device
+                and actual.startswith("cuda:")
+            ),
+            "yunet_backend": "opencv-cpu",
+            "sface_backend": "opencv-cpu",
+        }
 
     def _candidate_boxes(
         self,
@@ -316,5 +381,7 @@ def build_configured_recognizer(config: EngineConfig):
             face_detector_score_threshold=config.face_detector_score_threshold,
             face_detector_max_side=config.face_detector_max_side,
             yolo_gate_ttl_s=config.yolo_gate_ttl_s,
+            inference_device=config.inference_device,
+            gpu_required=config.gpu_required,
         )
     raise ValueError(f"Unsupported recognizer backend: {config.recognizer_backend}")
