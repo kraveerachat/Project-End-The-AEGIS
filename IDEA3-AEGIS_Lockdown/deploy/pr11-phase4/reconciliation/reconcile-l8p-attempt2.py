@@ -7,8 +7,9 @@ verification all PASS, failure boundary NONE, verify PASS, PRE->POST and PRE->RB
 secret scan, because the canonical flow's own TEMPORARY secret-bearing work artifacts ``l8p-work/nvs.csv`` and ``l8p-work/nvs.bin`` sit inside the evidence tree
 the scan covers with no exclusions. The merged L8p design (spec section 8) defines them as temporary work artifacts, NOT formal evidence.
 
-Owner decision (recorded in the L8p spec, section 9): a reviewed, attempt-2-specific, read-only / host-only reconciliation is approved. It does NOT authorize another
-device attempt, requires NO physical recovery first, and the historical runner log, Authorization, K3 and consumed marker are never modified.
+Owner decision (recorded in the L8p spec, section 9): a reviewed, attempt-2-specific, host-only BOUNDED reconciliation is approved. It performs NO device action and NO
+Production or service mutation, but it DOES mutate the host-side evidence tree in one bounded way: it deletes exactly the two temporary secret-bearing work artifacts
+(l8p-work/nvs.csv and l8p-work/nvs.bin), nothing else. It does NOT authorize another device attempt, requires NO physical recovery first, and the historical runner log, Authorization, K3 and consumed marker are never modified.
 
 What it does, in order, and stops at the first failed gate (``L8P_ATTEMPT2_RECONCILIATION=FAIL``, no authoritative result fields, no retry):
 

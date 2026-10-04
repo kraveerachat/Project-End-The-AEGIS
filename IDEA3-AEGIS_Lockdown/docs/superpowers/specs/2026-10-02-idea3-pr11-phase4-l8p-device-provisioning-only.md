@@ -109,10 +109,16 @@ emitted only by the runner's full success path), so reconciling it, and whether 
 Section 8 left the reconciliation of the consumed attempt 2 to an owner decision. The owner has now decided:
 
 ```text
-OWNER_DECISION=ATTEMPT2_SPECIFIC_READ_ONLY_HOST_RECONCILIATION_APPROVED
+OWNER_DECISION=ATTEMPT2_SPECIFIC_HOST_ONLY_BOUNDED_RECONCILIATION_APPROVED
 PHYSICAL_RECOVERY_REQUIRED_BEFORE_RECONCILIATION=NO
 DEVICE_RETRY_ALLOWED=NO
+DEVICE_MUTATION=NO
+ESP32_ACTION=NO
+PRODUCTION_SERVICE_MUTATION=NO
+HOST_SIDE_EVIDENCE_TREE_MUTATION=BOUNDED (deletion of exactly l8p-work/nvs.csv and l8p-work/nvs.bin, the two approved temporary secret-bearing work artifacts, and nothing else)
 ```
+
+Terminology note: the decision was first worded "read-only / host-only". That was inaccurate, because the approved procedure intentionally deletes those two files. It is a **host-only bounded reconciliation**: no device mutation, no ESP32 action, no Production or service mutation, but a bounded host-side evidence-tree mutation. Only the wording changed; the decision's scope and semantics are unchanged.
 
 The decision applies ONLY to historical attempt 2 (run id `l8p-20261004-041840`) and does not authorize another device attempt, a new Authorization/K3, or any device action. It is implemented as a one-off tool, `deploy/pr11-phase4/reconciliation/reconcile-l8p-attempt2.py`
 (standard library only; no device, serial, esptool, MQTT, network, subprocess, sudo, service or NetworkManager code), hard-bound to that run id, the evidence and freeze directory names, the frozen runner SHA-256 and the pinned firmware digest. It takes only `--evidence-root`, `--freeze-dir` and `--input-dir`.

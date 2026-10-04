@@ -20,7 +20,7 @@ edit_policy: owner-writable
 
 ## IDEA3 L8p attempt 2 reconciliation contract — repository only — 2026-10-04
 
-> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-attempt2-reconciliation-contract`. `OWNER_DECISION = ATTEMPT2_SPECIFIC_READ_ONLY_HOST_RECONCILIATION_APPROVED`, `PHYSICAL_RECOVERY_REQUIRED_BEFORE_RECONCILIATION = NO`, `DEVICE_RETRY_ALLOWED = NO`. This change adds a one-off, host-only tool and its hermetic tests; it performs **no** cleanup on the real attempt-2 evidence, creates no acceptance receipt, and touches no device, serial port, service or Production state.
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-attempt2-reconciliation-contract`. `OWNER_DECISION = ATTEMPT2_SPECIFIC_HOST_ONLY_BOUNDED_RECONCILIATION_APPROVED`, `PHYSICAL_RECOVERY_REQUIRED_BEFORE_RECONCILIATION = NO`, `DEVICE_RETRY_ALLOWED = NO`. This change adds a one-off, host-only BOUNDED reconciliation tool (no device or service mutation; its only mutation is a bounded host-side deletion of exactly `l8p-work/nvs.csv` and `l8p-work/nvs.bin`) and its hermetic tests; it performs **no** cleanup on the real attempt-2 evidence, creates no acceptance receipt, and touches no device, serial port, service or Production state.
 > `LIVE_RECONCILIATION_EXECUTED = NO`. Attempt 2's formal result is still `L8P_PROVISIONING = NOT_PROVEN` until the merged tool is actually run successfully by the owner.
 
 - **Tool:** `deploy/pr11-phase4/reconciliation/reconcile-l8p-attempt2.py` — hard-bound to run id `l8p-20261004-041840`, the attempt-2 evidence and freeze directory names, the frozen runner SHA-256 and the firmware digest; arguments `--evidence-root`, `--freeze-dir`, `--input-dir` only; standard library only, no device capability.

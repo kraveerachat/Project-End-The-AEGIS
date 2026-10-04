@@ -14,9 +14,13 @@ edit_policy: append-by-new-file
 
 ```text
 BASE_SHA=d3337baa480031ce59c3c527bb70db579dd4ea0d
-OWNER_DECISION=ATTEMPT2_SPECIFIC_READ_ONLY_HOST_RECONCILIATION_APPROVED
+OWNER_DECISION=ATTEMPT2_SPECIFIC_HOST_ONLY_BOUNDED_RECONCILIATION_APPROVED
 PHYSICAL_RECOVERY_REQUIRED_BEFORE_RECONCILIATION=NO
 DEVICE_RETRY_ALLOWED=NO
+DEVICE_MUTATION=NO
+ESP32_ACTION=NO
+PRODUCTION_SERVICE_MUTATION=NO
+HOST_SIDE_EVIDENCE_TREE_MUTATION=BOUNDED (deletion of exactly l8p-work/nvs.csv and l8p-work/nvs.bin only)
 ATTEMPT2_SPECIFIC_TOOL=IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/reconciliation/reconcile-l8p-attempt2.py
 DEVICE_CAPABILITY_PRESENT=NO
 LIVE_RECONCILIATION_EXECUTED=NO
@@ -28,7 +32,7 @@ PRODUCTION_MUTATION_PERFORMED=NO
 ESP32_TOUCHED=NO
 ```
 
-This receipt records the repository implementation only. Attempt 2's formal result stays NOT_PROVEN until the owner runs the merged tool successfully; the final closeout receipt is a separate, later, immutable record and must state `ORIGINAL_RUNNER_FULL_SUCCESS_LINE=NO` and `RECONCILIATION_RESULT=PASS`. No whole-line L8p result field is written here.
+Terminology: the approved procedure is a host-only bounded reconciliation, not a "read-only" one: it intentionally deletes the two temporary secret-bearing work artifacts. (The decision was first worded "read-only / host-only"; only the wording was corrected.) This receipt records the repository implementation only. Attempt 2's formal result stays NOT_PROVEN until the owner runs the merged tool successfully; the final closeout receipt is a separate, later, immutable record and must state `ORIGINAL_RUNNER_FULL_SUCCESS_LINE=NO` and `RECONCILIATION_RESULT=PASS`. No whole-line L8p result field is written here.
 
 ## What changed
 
