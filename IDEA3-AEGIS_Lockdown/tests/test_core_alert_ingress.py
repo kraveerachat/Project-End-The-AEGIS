@@ -105,6 +105,21 @@ def test_a_valid_alert_binds_the_incident_and_writes_incident_bound(env):
     assert len(rows) == 1 and f"attacker_ip={IP}" in rows[0]["details"]
 
 
+def test_an_accepted_alert_durably_records_the_kernel_attested_peer(env):
+    """R1 provenance: ALERT_ACCEPTED carries the SO_PEERCRED uid/pid, the address and the action, bound to the incident."""
+    handle(env, {"v": 1, "attacker_ip": IP})
+    incident = db.get_open_incident()
+    rows = db.fetch_incident_events(incident["id"], ("ALERT_ACCEPTED",), 5)
+    assert [r["details"] for r in rows] == [f"uid={os.geteuid()} pid=4242 attacker_ip={IP} action=CREATED"]
+    handle(env, {"v": 1, "attacker_ip": IP})
+    assert db.fetch_incident_events(incident["id"], ("ALERT_ACCEPTED",), 5)[0]["details"].endswith("action=EXISTING")
+
+
+def test_a_refused_alert_writes_no_accepted_row(env):
+    handle(env, {"v": 1, "attacker_ip": "127.0.0.1"})
+    assert "ALERT_ACCEPTED" not in {row[3] for row in db.fetch_all_logs()}
+
+
 def test_a_valid_alert_never_contains_cuts_restores_or_publishes(env):
     handle(env, {"v": 1, "attacker_ip": IP})
     assert env.containment.calls == []
