@@ -525,6 +525,8 @@ export function VaultTreeScreen({
         })
         downloadAbortRef.current = null
         if (!failed) setDownloadTransfer(null)
+        // Cancel (หรือล็อก) = หยุดทั้งชุด ไม่ใช่ข้ามไปไฟล์ถัดไป
+        if (ctrl.signal.aborted) return
       }
     } finally {
       downloadBusyRef.current = false

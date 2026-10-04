@@ -341,6 +341,9 @@ export function Vault({
   const resumable = useRef(null)
   /* ตัวยกเลิกของงานที่กำลังวิ่งอยู่ — ถูกดึงทันทีที่ผู้ใช้กดล็อกหรือหมดเวลา idle */
   const transferAbort = useRef(null)
+  /* ดาวน์โหลด V2 ทำได้ทีละไฟล์ — ตั้งแบบ sync ในการกด (state ของ React ยังไม่ทันเปลี่ยน)
+     กันตัวเลือกไฟล์ซ้อนและกันไม่ให้การกดครั้งที่สองแทนที่ตัวยกเลิกของงานที่วิ่งอยู่ */
+  const downloadBusyRef = useRef(false)
   /* unlocked state ของการปลดล็อกครั้งนี้ (null = ล็อกอยู่) — สร้างตอนปลดล็อก, purge ในทุกทางออก (Task 5.4) */
   const unlockedState = useRef(null)
   const beginUnlockedState = useCallback((key) => {
@@ -872,12 +875,19 @@ export function Vault({
 
   /** ปุ่ม Download ของการ์ด — เลือกเส้นทางจาก formatVersion เท่านั้น */
   const download = async (entry) => {
-    if (!kek || !unlocked || addBusy) return // ล็อกอยู่ = ไม่มีคำสั่งนี้ให้กด
+    if (!kek || !unlocked || addBusy || downloadBusyRef.current) return // ล็อกอยู่/กำลังโอน = ไม่มีคำสั่งนี้ให้กด
     setActionError(false)
     if (entry.blob?.formatVersion === 2) {
       // ⚠️ ห้าม await อะไรก่อนถึงบรรทัดนี้ — downloadV2 ต้องเปิดตัวเลือกไฟล์ให้ทัน
-      //    ภายใน user gesture เดียวกับการกดปุ่ม
-      return downloadV2(entry)
+      //    ภายใน user gesture เดียวกับการกดปุ่ม (ทั้งสองบรรทัดด้านล่างเป็น sync)
+      downloadBusyRef.current = true
+      setAddBusy(true) // สถานะ busy เดิมของจอ: ปุ่มของไทล์ถูกปิดระหว่างโอน เหมือน V1
+      try {
+        return await downloadV2(entry)
+      } finally {
+        downloadBusyRef.current = false
+        setAddBusy(false)
+      }
     }
     setAddBusy(true)
     await downloadV1(entry)

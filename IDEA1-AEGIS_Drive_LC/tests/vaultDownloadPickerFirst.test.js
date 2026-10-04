@@ -290,6 +290,27 @@ test('PF-9 lock while the picker is open opens no destination; lock mid-transfer
   assert.ok(!events2.includes('fetch:2'), 'no further chunk requested after the lock')
 })
 
+test('PF-13 cancel/lock after the final chunk write but before close aborts the destination (no close, no success)', async () => {
+  const kek = await kekOf()
+  const plainSize = 3 * 4 * KiB + 17
+  const src = await lazyV2(kek, plainSize)
+  const ctrl = new AbortController()
+  const events = []
+  // the abort lands after the last write resolved — the only remaining step is close()
+  const { scope, writable } = fakeScope(events, { onWrite: () => { if (writable.total === plainSize) ctrl.abort() } })
+  const prepared = await prepareVaultV2Download({ kek, blob: src.blob, suggestedName: 'f', plainSize, scope, signal: ctrl.signal })
+  assert.equal(prepared.ok, true)
+  const { fetchBytes } = serveLazy(src, events)
+  const res = await downloadVaultV2({ dek: prepared.dek, blob: src.blob, sink: prepared.sink, fetchBytes, signal: ctrl.signal })
+  assert.equal(ctrl.signal.aborted, true)
+  assert.equal(writable.total, plainSize, 'every chunk was written before the abort')
+  assert.deepEqual([res.ok, res.reason], [false, 'cancelled'], 'an aborted transfer never reports success')
+  assert.equal(writable.closed, false, 'close() never called after the abort')
+  assert.equal(writable.aborted, true, 'destination aborted')
+  assert.equal(events.at(-1), 'abort', 'the last destination event is abort, not close')
+  assert.ok(!events.includes('close'))
+})
+
 test('PF-9b no key (vault locked before the click) refuses before the picker', async () => {
   const events = []
   const { scope } = fakeScope(events)

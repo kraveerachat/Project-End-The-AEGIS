@@ -238,6 +238,8 @@ export async function downloadVaultV2({
 
     if (bytesWritten !== Number(meta.plainSize ?? 0)) return fail('size-mismatch')
 
+    // ⚠️ ยกเลิก/ล็อกหลังเขียนก้อนสุดท้ายแต่ก่อน close() = ต้อง abort ไม่ใช่ประกาศว่าสำเร็จ
+    if (aborted()) return fail('cancelled')
     const result = await sink.close()
     mark(VAULT_DOWNLOAD_TIMING.COMPLETE)
     return { ok: true, chunksRead, bytesWritten, meta, result }
