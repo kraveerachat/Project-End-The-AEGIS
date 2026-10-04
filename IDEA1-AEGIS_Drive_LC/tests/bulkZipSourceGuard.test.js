@@ -3,11 +3,14 @@
 // Structural guards for the streaming ZIP modules (spec §15, §21):
 //   buffering — no whole-body read (arrayBuffer / apiFetchBytes) anywhere in the ZIP modules, and the
 //               only `new Blob(` lives in the explicitly allow-listed buffered-fallback finaliser.
+//   storage   — no browser storage (local/session storage, IndexedDB, Cache API) and no console output in
+//               any ZIP module: plaintext names/sizes and Vault material must never persist or be logged.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { finalizeBufferedZip } from '../src/lib/bulkZipDownload.js'
+import { scanForbidden } from './helpers/sourceScan.mjs'
 
 const read = (rel) => readFileSync(new URL(`../src/lib/${rel}`, import.meta.url), 'utf8')
 const ZIP_MODULES = ['zipStreamWriter.js', 'bulkZipDownload.js', 'bulkDownloadPlan.js']
@@ -45,5 +48,23 @@ test('GUARD-BUF-3 every new Blob( lies inside finalizeBufferedZip', () => {
     if (m !== 'bulkZipDownload.js') { assert.deepEqual(hits, [], m); continue }
     const [s, e] = functionSpan(src, 'finalizeBufferedZip')
     for (const h of hits) assert.ok(h > s && h < e, `new Blob( at ${h} is outside finalizeBufferedZip`)
+  }
+})
+
+/* ── 13a storage and console ─────────────────────────────────────── */
+
+test('GUARD-STORE-1 scanner self-check: every forbidden primitive is flagged', () => {
+  for (const sample of [
+    'localStorage.getItem("k")', 'window.sessionStorage.setItem(a, b)', 'indexedDB.open("db")',
+    'await caches.open("c")', 'console.log(name)', 'console.warn(x)',
+  ]) {
+    assert.ok(scanForbidden(sample).length > 0, sample)
+  }
+  assert.deepEqual(scanForbidden('const storage = createBufferedSink(); log(stats)'), [])
+})
+
+test('GUARD-STORE-2 the ZIP modules use no browser storage and no console', () => {
+  for (const m of ['zipEntryNames.js', ...ZIP_MODULES]) {
+    assert.deepEqual(scanForbidden(read(m)), [], m)
   }
 })
