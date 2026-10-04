@@ -22,7 +22,7 @@ import { ExternalFileDropSurface } from '../components/ExternalFileDropSurface.j
 import { VaultRecoveryPanel, vaultTreeFolderOptions } from '../components/vault/VaultRecoveryPanel.jsx'
 import {
   NewFolderDialog, RenameDialog, MoveDialog, DetailsDialog,
-  TrashConfirmDialog, RestoreDialog, ConflictDialog,
+  TrashConfirmDialog, RestoreDialog, ConflictDialog, PlaintextExportDialog,
 } from '../components/vault/VaultDialogs.jsx'
 import { useVaultTree, planRun, planDrop } from '../lib/useVaultTree.js'
 import { createTreeSession } from '../lib/vaultTreeSync.js'
@@ -70,7 +70,10 @@ import { unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
 import { reconcileVaultAfterUpload } from '../lib/vaultPostUploadReconcile.js'
 import {
   downloadVaultV2, createBufferedSink, MAX_BUFFERED_PLAINTEXT_BYTES, prepareVaultV2Download, VAULT_DOWNLOAD_TIMING,
+  supportsStreamingFileSink,
 } from '../lib/vaultChunkedDownload.js'
+import { BULK_ZIP_ENABLED, planBulkDownload } from '../lib/bulkDownloadPlan.js'
+import { createVaultV2EntrySource, runBulkZip } from '../lib/bulkZipDownload.js'
 const MAX_PREVIEW_CEILING_BYTES = MAX_BUFFERED_PLAINTEXT_BYTES
 
 /** blob id ทึบ: '2:id' — key เดียวกับ GET /api/vault inventory ที่จอใช้แมตช์บล็อบจริงของโหนด */
@@ -263,6 +266,7 @@ function leadingBytes(bytes, limit) {
 export function VaultTreeScreen({
   t, lang = 'en', kek, treeState = null, unlockedState = null, onLock, recoveryScope = null,
   sessionFactory = createTreeSession, defaultApi = treeApi, mediaPreviewEnabled = false,
+  bulkZipEnabled = BULK_ZIP_ENABLED,
 }) {
   const session = useMemo(
     () => (kek ? sessionFactory({ kek, api: defaultApi, unlockedState }) : null),
@@ -337,6 +341,7 @@ export function VaultTreeScreen({
     return undefined
   }, [unlockedState])
   purgeRef.current = () => {
+    zipDialogHoldRef.current = false
     setDialog(null)
     setNotice(null)
     setDownloadTransfer(null)
@@ -379,6 +384,8 @@ export function VaultTreeScreen({
 
   /* ── handlers ─────────────────────────────────────────────────────────────── */
   const announce = (key, vars = null) => setNotice({ key, vars })
+  /** หลายข้อความพร้อมกัน (เช่น ข้ามโฟลเดอร์ + รายการที่หายไป) — ประกาศรวมในแถบเดียว */
+  const announceAll = (items) => { if (items.length) setNotice({ list: items }) }
   const run = useCallback(async (intent, { successKey = null } = {}) => {
     const res = await tree.run(intent)
     if (res?.conflict) return res
@@ -489,16 +496,39 @@ export function VaultTreeScreen({
   const [downloadTransfer, setDownloadTransfer] = useState(null)
   const downloadAbortRef = useRef(null)
   const downloadRateRef = useRef(null)
+  // SC-2: ไดอะล็อกยืนยัน ZIP เปิดอยู่ = "ถือ" การดาวน์โหลดไว้ (กันไดอะล็อกซ้อน/ดาวน์โหลดจากเมนูไทล์)
+  //    แยกจาก downloadBusyRef ของการโอนจริง — การถือนี้ไม่มีวันขวาง Confirm
+  const zipDialogHoldRef = useRef(false)
   const startBulkDownload = async (nodes) => {
     const clickTs = globalThis.performance?.now?.() ?? Date.now()
     if (!kek) return
     // ⚠️ กดซ้ำระหว่างที่ยังโอนอยู่ต้องได้คำตอบ ไม่ใช่เงียบ (เดิมเงียบ = "กดแล้วไม่เกิดอะไร")
-    if (downloadBusyRef.current) { announce('vaultTreeDownloadBusy'); return }
+    if (downloadBusyRef.current || zipDialogHoldRef.current) { announce('vaultTreeDownloadBusy'); return }
+    // แผนซิงโครนัสล้วน — ทุกการปฏิเสธเกิดก่อนไดอะล็อก/ตัวเลือกไฟล์ (spec §4, §6, §12)
+    const plan = planBulkDownload({
+      source: 'vault', items: nodes, resolve: (n) => blobIndex.get(refKey(n.blobRef)) ?? null,
+      fsa: supportsStreamingFileSink(), enabled: bulkZipEnabled,
+    })
+    const notices = [
+      ...(plan.skippedFolders ? [{ key: 'zipFoldersSkipped', vars: { n: plan.skippedFolders } }] : []),
+      ...(plan.unavailable ? [{ key: 'zipUnavailable', vars: { n: plan.unavailable } }] : []),
+    ]
+    if (plan.mode === 'refused') {
+      announce(plan.reason === 'v1-in-zip' ? 'zipV1NotSupported' : plan.reason === 'too-many' ? 'zipTooManyFiles' : 'vaultXferUnsupported')
+      return
+    }
+    announceAll(notices)
+    if (plan.mode === 'none') return
+    if (plan.mode === 'zip') {
+      // D-3: ZIP ของ Vault ไม่เข้ารหัส — ยืนยันก่อน แผนถูกเก็บเป็น snapshot ที่ freeze แล้ว
+      zipDialogHoldRef.current = true
+      setDialog({ kind: 'zipExport', plan })
+      return
+    }
     downloadBusyRef.current = true
     setDownloadBusy(true)
     try {
-      const files = nodes.filter((n) => n.kind === 'file')
-      for (const n of files) {
+      for (const n of plan.perFile) {
         if (unlockedState?.isPurged?.()) return // ล็อก = หยุดทันที
         const blob = blobIndex.get(refKey(n.blobRef))
         const ctrl = new AbortController()
@@ -532,6 +562,51 @@ export function VaultTreeScreen({
       downloadBusyRef.current = false
       setDownloadBusy(false)
     }
+  }
+
+  /* SC-2 Confirm: ตรวจแบบซิงโครนัสเท่านั้น → ปล่อยการถือ → runBulkZip ซึ่ง await แรกคือ showSaveFilePicker
+     ⚠️ ห้ามมี await / setState round-trip ใดก่อน runBulkZip — ตัวเลือกไฟล์ต้องอยู่ใน user activation ของการกด */
+  const confirmZipExport = (plan) => {
+    zipDialogHoldRef.current = false
+    // Confirm ที่ค้างมาหลังล็อก (หรือแผนหาย / กำลังโอนอยู่) = ไม่ทำอะไร
+    if (unlockedState?.isPurged?.() || !plan || !kek || downloadBusyRef.current) return
+    const ctrl = new AbortController()
+    unlockedState?.registerAbort?.(ctrl)
+    downloadAbortRef.current = ctrl
+    downloadRateRef.current = createRateEstimator()
+    const run = runBulkZip({
+      plan,
+      source: createVaultV2EntrySource({ kek, isPurged: () => Boolean(unlockedState?.isPurged?.()) }),
+      busyRef: downloadBusyRef,
+      signal: ctrl.signal,
+      isPurged: () => Boolean(unlockedState?.isPurged?.()),
+      registerObjectUrl: (url) => unlockedState?.registerObjectUrl?.(url),
+      onProgress: (p) => {
+        if (p.stage === 'done') { setDownloadTransfer(null); return }
+        const rate = downloadRateRef.current?.sample(p.transferredBytes, performance.now(), { totalBytes: p.totalBytes }) ?? null
+        setDownloadTransfer({ ...p, rate })
+      },
+    })
+    setDownloadBusy(true)
+    void run.then((res) => {
+      if (res.status === 'busy') announce('vaultTreeDownloadBusy')
+      if (res.status === 'failed') {
+        announce('vaultTreeDownloadFailed')
+        setDownloadTransfer((prev) => ({
+          ...(prev ?? { kind: 'download', transferredBytes: 0, totalBytes: 0, percent: 0 }),
+          stage: 'failed', reason: res.reason, failedName: res.failedEntry?.name ?? null, rate: null,
+        }))
+      } else if (res.status !== 'busy') {
+        setDownloadTransfer(null)
+      }
+    }).finally(() => {
+      if (downloadAbortRef.current === ctrl) downloadAbortRef.current = null
+      setDownloadBusy(false)
+    })
+  }
+  const closeZipExport = () => {
+    zipDialogHoldRef.current = false
+    setDialog(null)
   }
 
   /* Preview (Task 6.3 minimal): decrypt to a bounded object URL; the Phase 7 work extends video to the
@@ -1082,6 +1157,7 @@ export function VaultTreeScreen({
     }
     if (a?.kind === 'reconciled') return t('vaultTreeReconcile')
     if (a?.kind === 'failed') return t(a.code === 'MANIFEST_NEWER_THAN_WRITER' ? 'vaultTreeManifestNewer' : 'vaultTreeLoadError')
+    if (notice?.list) return notice.list.map((n) => t(n.key, n.vars ?? undefined)).join(' ')
     return notice ? t(notice.key, notice.vars ?? undefined) : null
   })()
 
@@ -1539,6 +1615,12 @@ export function VaultTreeScreen({
         <TrashConfirmDialog
           t={t} open onClose={() => setDialog(null)} count={dialog.count}
           onConfirm={() => void onDialogSubmit.trash()} unlockedState={unlockedState}
+        />
+      )}
+      {dialog?.kind === 'zipExport' && (
+        <PlaintextExportDialog
+          t={t} open onClose={closeZipExport} count={dialog.plan.entries.length} totalBytes={dialog.plan.totalBytes}
+          onConfirm={() => confirmZipExport(dialog.plan)} unlockedState={unlockedState}
         />
       )}
       {dialog?.kind === 'restore' && (
