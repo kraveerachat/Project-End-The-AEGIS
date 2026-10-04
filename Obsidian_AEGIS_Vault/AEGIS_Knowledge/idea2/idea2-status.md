@@ -19,8 +19,8 @@ edit_policy: owner-writable
 
 Task: PR2 Recording / Archive. Branch:
 `feat/idea2-pr2-recording-archive-5min-download`; owner: Pub; starting main:
-`9cebd2a061f8d47bc97349762aa87f169c706710`. Current state: IN PROGRESS —
-REPOSITORY ONLY. Production mutation allowed: NO.
+`9cebd2a061f8d47bc97349762aa87f169c706710`. Current state: IN PROGRESS — SOURCE + HOME/LOCAL VALIDATION COMPLETE;
+PRODUCTION / REAL NAS ACCEPTANCE PENDING. Production mutation allowed: NO.
 
 Goal: while the authenticated Operator camera session remains active, record
 continuously and finalize one truthful clip every 300 seconds. Navigation among
@@ -54,9 +54,9 @@ Acceptance boundary for this repository session:
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PR2-S1 | 300s recording + truthful partial + browser-playable NAS Archive + playback/download source contract | IN PROGRESS | source checkpoint implements 300s rotation defaults, 137s partial-duration regression, H.264/libx264 pre-NAS gate, verified-NAS-only listing, real Archive video/duration, shared playback/download RBAC path; collaboration guardrails PASS | `028bf8350ef33b3af9161951427008f86d1b328b` | SOURCE IMPLEMENTED / AUTOMATED SUITES NOT YET RUN | neutral Monitor/Engine tests, build, Machine A >5m/logout/NAS/browser acceptance | run repository verification; keep PR #344 Draft |
+| PR2-S1 | 300s recording + truthful partial + browser-playable NAS Archive + playback/download source contract | LOCAL/HOME ACCEPTANCE COMPLETE; PRODUCTION/NAS PENDING | Monitor full suite 245 tests: 187 pass / 58 conditional skip / 0 fail; Vite build PASS; Engine full suite 292 tests / 7 conditional skip / 0 fail; focused recording 7/7 PASS; focused NAS fail-closed 4/4 PASS; real local FFmpeg mp4v -> libx264 H.264/yuv420p PASS; collaboration guardrails PASS | `3ee733874a10b1248f2e8e3684574c5508b04f77` | SOURCE VALIDATION PASS / LOCAL RECORDING CONTRACT PASS / LOCAL FAIL-CLOSED PASS / LOCAL H264 PIPELINE PASS | Production deploy, DB default 600 -> 300, real >5m camera/browser flow, Archive live playback/download/RBAC, real NAS transfer/hash | keep PR #344 Draft; no Production mutation; defer Production/NAS acceptance |
 
-### PR2-S1 checkpoint — source implemented, verification pending
+### PR2-S1 checkpoint — source validated and HOME/LOCAL acceptance complete; Production/NAS pending
 
 Work performed at implementation checkpoint
 `028bf8350ef33b3af9161951427008f86d1b328b`:
@@ -78,11 +78,34 @@ Work performed at implementation checkpoint
 - `GET /api/clips/:id/video` and `GET /api/clips/:id/download` share one
   server-side session, camera-scope, verified-NAS and basename/mount resolver.
 
-Evidence so far: PR #344 is Draft, mergeable at this checkpoint, and the GitHub
-collaboration guardrails completed successfully. Neutral Monitor tests, Engine
-tests and Vite build have **not** been executed in this environment, so this
-session is not PASS/CLOSED. No Production, Machine A, camera, NAS or database
-mutation was performed.
+Validation evidence at source head
+`3ee733874a10b1248f2e8e3684574c5508b04f77`:
+
+- Monitor `npm test`: 245 total, 187 pass, 58 conditional skip, 0 fail;
+- Monitor Vite production build: PASS;
+- Detection Engine full suite: 292 tests, 7 conditional skips, 0 fail;
+- focused viewer/recording contract: 7/7 PASS, including default 300-second
+  rollover, immediate next-segment eligibility, and measured partial finalize
+  when final viewer demand clears;
+- focused NAS truth/fail-closed contract: 4/4 PASS, including retention on
+  browser-transcode failure, retention on integrity mismatch, no success claim
+  while NAS is disabled, and verified-transfer-only success;
+- Machine A local FFmpeg smoke: real mp4v source transcoded successfully through
+  `libx264` to H.264, 640x360, `yuv420p`;
+- source worktree remained clean at the same head after validation.
+
+Read-only runtime discovery did not constitute Production acceptance. The
+installed Machine A NAS integration remains disabled, with no active NAS host
+or user configured. The Production Monitor clips host path currently resolves
+to local server storage rather than a verified real NAS mount. Therefore real
+NAS transfer/hash, Production DB default reconciliation, Production deployment,
+real >5-minute camera/browser acceptance, Archive playback/download and live
+RBAC remain PENDING.
+
+PR #344 remains Draft. No Production container, Production database, Twingate,
+IDEA1, IDEA3, SSH server configuration, camera runtime, NAS, or filesystem
+permission was mutated by this HOME/LOCAL validation checkpoint. This is not
+the final task receipt and PR2 is not CLOSED.
 
 ## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
 
