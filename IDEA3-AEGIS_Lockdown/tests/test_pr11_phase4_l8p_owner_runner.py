@@ -681,12 +681,17 @@ def test_a_pre_checksum_failure_refuses_before_the_attempt_is_consumed(tmp_path:
     assert res.returncode == 1 and not sim.marker() and sim.calls() == ["capture:pre"]
 
 
-def test_the_receipt_gate_passes_on_the_current_repository_state(tmp_path: Path) -> None:
-    """Repository-only gate (it reads the pinned commit's status-log receipts, never the host): the final L7 and FINAL L7u acceptances are merged and PROVEN, and no
-    actual L8p LIVE result receipt exists — the prose in the repository-only owner-runner receipt that merely mentions the future success claim is not a result."""
+def test_the_receipt_gate_blocks_any_further_attempt_because_l8p_is_closed_by_exactly_one_result_receipt(tmp_path: Path) -> None:
+    """L8p is CLOSED: the attempt-2 reconciliation closeout receipt carries BOTH authoritative result fields as whole lines, so the one-shot receipt gate now blocks a new live attempt.
+    That non-zero result is the intended, deliberate lockout - not a defect. The failure must come from the lockout alone: the earlier gates (the L2..L7/L7u acceptance chain) still pass, so the
+    ONLY reason printed is L8P_ALREADY_PROVISIONED, and exactly ONE receipt (the closeout) carries both fields. The repository-only owner-runner receipt's prose stays a non-result (next test)."""
     res = subprocess.run(["bash", "-c", f". '{LIB}'; l8p_receipt_gate '{ROOT.parent}'"], capture_output=True, text=True, check=False)
-    assert res.returncode == 0, res.stdout + res.stderr
-    assert "L8P_ALREADY_PROVISIONED" not in res.stderr
+    assert res.returncode == 1 and res.stderr.strip().startswith("L8P_ALREADY_PROVISIONED"), res.stdout + res.stderr
+    assert "L8P_L7_ACCEPTANCE_RECEIPT_MISSING" not in res.stderr and "L8P_L7U_ACCEPTANCE_RECEIPT_MISSING" not in res.stderr
+    fields = subprocess.run(["bash", "-c", f". '{LIB}'; for f in 'L8P_LIVE_EXECUTED YES' 'L8P_PROVISIONING PASS'; do set -- $f; l8p_result_field_files '{ROOT.parent}' \"$1\" \"$2\" | sed 's/^HEAD://' | paste -sd,; done"],
+                            capture_output=True, text=True, check=False).stdout.split("\n")[:2]
+    assert fields[0] == fields[1] and fields[0].count(",") == 0, fields
+    assert fields[0].startswith(LOGS) and fields[0].endswith("_music_idea3-l8p-attempt2-reconciliation-closeout.md"), fields
 
 
 def test_the_repository_only_owner_runner_receipt_prose_is_not_an_l8p_result() -> None:

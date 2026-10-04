@@ -18,6 +18,17 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 L8p attempt 2 reconciliation closeout — L8p CLOSED — 2026-10-04
+
+> [!important] **L8p attempt 2 reconciliation = PASS. L8p provisioning = PROVEN. L8p is now CLOSED.** Original runner full-success line = **NO** (the historical runner never printed it and its own formal result stayed NOT_PROVEN); reconciliation result = **PASS**. Recovery R1-R8, LVR and full L8 acceptance are **NOT yet proven**.
+
+- **What happened:** the owner ran the merged one-off tool `reconcile-l8p-attempt2.py` exactly once on main `9e5ce3d7` (exit code 0). It re-proved the preserved attempt-2 evidence (consumed marker, canonical 12-field JSON, historical runner log shape, capture checksums, first-write marker), proved the only secret-value hits were the two temporary work artifacts, removed exactly `l8p-work/nvs.csv` and `l8p-work/nvs.bin`, and proved the strict full-tree secret scan has 0 hits and everything else unchanged.
+- **What did not happen:** no second hardware attempt, no device action during the reconciliation, no ESP32/serial/flash/reset, no CUT/RESTORE, no Production service mutation. Only the two temporary host-side work artifacts were removed (bounded host-side evidence-tree mutation).
+- **Result semantics:** the reconciled results `L8P_LIVE_EXECUTED=YES` and `L8P_PROVISIONING=PASS` are recorded in the closeout receipt; they do not claim that the historical runner printed them. The L8p one-shot receipt gate now blocks any further L8p live attempt (`L8P_ALREADY_PROVISIONED`).
+- **Receipt:** `90-Status/logs/2026-10-04_075127_music_idea3-l8p-attempt2-reconciliation-closeout.md`. Historical receipts were not rewritten.
+
+---
+
 ## IDEA3 L8p attempt 2 reconciliation contract — repository only — 2026-10-04
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-attempt2-reconciliation-contract`. `OWNER_DECISION = ATTEMPT2_SPECIFIC_HOST_ONLY_BOUNDED_RECONCILIATION_APPROVED`, `PHYSICAL_RECOVERY_REQUIRED_BEFORE_RECONCILIATION = NO`, `DEVICE_RETRY_ALLOWED = NO`. This change adds a one-off, host-only BOUNDED reconciliation tool (no device or service mutation; its only mutation is a bounded host-side deletion of exactly `l8p-work/nvs.csv` and `l8p-work/nvs.bin`) and its hermetic tests; it performs **no** cleanup on the real attempt-2 evidence, creates no acceptance receipt, and touches no device, serial port, service or Production state.
