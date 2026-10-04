@@ -29,6 +29,13 @@ SCAN_TIME_WINDOW = 10
 SYN_FLOOD_THRESHOLD = 20
 SYN_FLOOD_WINDOW = 2
 
+# Stable rule identifiers carried in the detector's own journal line (``rule=``). The R1 acceptance verifier correlates that line, by
+# journald's trusted ``_PID``, with the Core's durable ``ALERT_ACCEPTED`` row. They are not part of the alert payload (still v1).
+RULE_SSH_BRUTEFORCE = "ssh_bruteforce"
+RULE_PORT_SCAN = "port_scan"
+RULE_SYN_FLOOD = "syn_flood"
+RULES = (RULE_SSH_BRUTEFORCE, RULE_PORT_SCAN, RULE_SYN_FLOOD)
+
 REPORT_COOLDOWN_SEC = 300.0  # an address is reported once per cooldown, whatever the send outcome (no retry storm)
 MAX_TRACKED_ADDRESSES = 4096
 SEND_BURST = 3
@@ -84,7 +91,7 @@ class ProductionDetector:
         return True
 
     # -- the single outbound path -----------------------------------------------------------------------------------------
-    def report(self, ip: str) -> alert_sink.AlertResult | None:
+    def report(self, ip: str, rule: str = "unspecified") -> alert_sink.AlertResult | None:
         if self.stopped:
             return None
         now = self._clock()
@@ -101,7 +108,7 @@ class ProductionDetector:
             return None
         self._reported[ip] = now  # marked before the send: a failed send is not retried for this cooldown
         result = self._send(ip)
-        _log("alert", result=result.code, detail=result.detail or "-", ip=ip)
+        _log("alert", result=result.code, detail=result.detail or "-", ip=ip, rule=rule)
         if result.code in alert_sink.TRANSPORT_FAILURES:
             self.consecutive_transport_failures += 1
             if self.consecutive_transport_failures >= MAX_CONSECUTIVE_TRANSPORT_FAILURES:
@@ -122,7 +129,7 @@ class ProductionDetector:
         while queue and now - queue[0] > TIME_WINDOW:
             queue.popleft()
         if len(queue) >= FAIL_THRESHOLD:
-            self.report(ip)
+            self.report(ip, RULE_SSH_BRUTEFORCE)
 
     def process_portscan(self, line: str) -> None:
         if "AEGIS_NEWCONN" not in line:
@@ -136,7 +143,7 @@ class ProductionDetector:
         while queue and now - queue[0][0] > SCAN_TIME_WINDOW:
             queue.popleft()
         if len({port for _, port in queue}) >= SCAN_PORT_THRESHOLD:
-            self.report(ip)
+            self.report(ip, RULE_PORT_SCAN)
 
     def process_synflood(self, line: str) -> None:
         if "AEGIS_NEWCONN" not in line:
@@ -150,7 +157,7 @@ class ProductionDetector:
         while queue and now - queue[0] > SYN_FLOOD_WINDOW:
             queue.popleft()
         if len(queue) >= SYN_FLOOD_THRESHOLD:
-            self.report(ip)
+            self.report(ip, RULE_SYN_FLOOD)
 
     def process(self, line: str) -> None:
         line = line[:LINE_MAX_CHARS]

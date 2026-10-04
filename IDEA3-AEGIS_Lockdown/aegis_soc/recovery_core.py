@@ -771,6 +771,23 @@ class AlertIngress:
         except Exception:
             pass
 
+    @staticmethod
+    def _audit_accepted(peer: lr.Peer, address: str, result: dict[str, Any]) -> None:
+        """R1 provenance: durably record the kernel-attested sender (SO_PEERCRED uid/pid) of every alert that reached the binding step.
+
+        The row carries no payload beyond the validated address and is best-effort: a failed write never changes the alert outcome (the
+        acceptance verifier then fails closed on the missing row). It authorises nothing and is never read by the Core itself."""
+        action = result.get("action")
+        if action not in ("CREATED", "IP_SET", "EXISTING", "IGNORED_DIFFERENT_IP"):
+            return
+        try:
+            db.log_event(
+                "ALERT_ACCEPTED", f"uid={peer.uid} pid={peer.pid} attacker_ip={address} action={action}", db.INFO,
+                result.get("incident_id"),
+            )
+        except Exception:
+            pass
+
     def handle(self, body: Any, peer: lr.Peer, *, allowed_uid: int) -> dict[str, Any]:
         if peer.uid != allowed_uid:
             self._audit_limited("ALERT_PEER_REFUSED", f"uid={peer.uid} pid={peer.pid}")
@@ -791,6 +808,7 @@ class AlertIngress:
         except Exception:
             return rp.response(False, "ALERT_FAILED", "the alert could not be recorded; nothing was done")
         action = result.get("action")
+        self._audit_accepted(peer, address, result)
         if action == "SKIPPED":
             return rp.response(False, "NOT_PRODUCTION", "alerts are accepted on a production Core only")
         if action == "REFUSED":
