@@ -487,6 +487,138 @@ def test_a_second_run_on_the_already_reconciled_tree_fails_closed(fx: Fx) -> Non
     assert "L8P_PROVISIONING=PASS" not in lines and fx.snapshot() == after_first
 
 
+# ── the consumed marker: real location and real shape (review finding 1) ─────────────────────────────────────────────────────────────────
+
+def test_the_real_shape_consumed_marker_is_the_regular_0600_auth_file_with_consumed_at(fx: Fx) -> None:
+    marker = fx.freeze / "auth" / "L8p-ATTEMPT-CONSUMED"
+    assert marker.is_file() and not marker.is_symlink() and oct(marker.stat().st_mode & 0o777) == "0o600" and len(marker.read_bytes()) == 33
+    assert re.fullmatch(rb"consumed_at=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\n", marker.read_bytes())
+    rc, lines = fx.run()
+    assert rc == 0 and "ATTEMPT2_CONSUMED_MARKER_PRESENT=YES" in lines and "ATTEMPT2_CONSUMPTION_PROOF=CONSUMED_MARKER" in lines
+
+
+@pytest.mark.parametrize("content,mode,needle", [
+    ("consumed_at=not-a-timestamp\n", 0o600, "shape"), ("hello\n", 0o600, "shape"), ("consumed_at=2026-10-03T21:18:52Z", 0o600, "shape"),
+    ("consumed_at=2026-10-03T21:18:52Z\n", 0o644, "mode is not 0600"), ("", 0o600, "shape")])
+def test_a_consumed_marker_in_the_wrong_shape_or_mode_is_refused_and_never_repaired(fx: Fx, content: str, mode: int, needle: str) -> None:
+    marker = fx.freeze / "auth" / "L8p-ATTEMPT-CONSUMED"
+    marker.write_text(content); marker.chmod(mode)
+    before = fx.snapshot()
+    rc, lines = fx.run()
+    assert_refused_untouched(fx, lines, rc, needle, before)
+    assert marker.read_text() == content, "the marker is never rewritten"
+
+
+def test_a_symlinked_consumed_marker_is_refused_and_there_is_no_fallback_for_its_absence(fx: Fx, tmp_path: Path) -> None:
+    marker = fx.freeze / "auth" / "L8p-ATTEMPT-CONSUMED"
+    real = tmp_path / "elsewhere-marker"
+    real.write_text(marker.read_text()); real.chmod(0o600)
+    marker.unlink(); marker.symlink_to(real)
+    assert "missing or not a regular file" in fail_reason(fx.run()[1])
+    marker.unlink()
+    before = fx.snapshot()
+    rc, lines = fx.run()
+    assert_refused_untouched(fx, lines, rc, "missing or not a regular file", before)
+    assert not marker.exists(), "the tool never creates the marker, even though the historical execution evidence is complete"
+    assert "ATTEMPT2_CONSUMPTION_PROOF=HISTORICAL_EXECUTION_EVIDENCE" not in lines and "L8P_PROVISIONING=PASS" not in lines
+
+
+# ── cleanup errors fail closed and are reported as mutations, not refusals (review finding 3) ────────────────────────────────────────────────
+
+NO_AUTHORITATIVE = ("L8P_ATTEMPT2_RECONCILIATION=PASS", "L8P_LIVE_EXECUTED=YES", "L8P_PROVISIONING=PASS", "L8P_RECONCILIATION_SECRET_WORK_REMOVED=YES", "L8P_RECONCILIATION_SECRET_SCAN=PASS",
+                    "L8P_RECONCILIATION_EVIDENCE_PRESERVED=YES", "ORIGINAL_RUNNER_FULL_SUCCESS_LINE=NO")
+
+
+def inject_unlink_failure(monkeypatch, fail_on: str):
+    real = os.unlink
+
+    def flaky(path, *a, **k):
+        if Path(path).name == fail_on:
+            raise PermissionError(13, "Permission denied (injected)", str(path))
+        return real(path, *a, **k)
+    monkeypatch.setattr(T.os, "unlink", flaky)
+
+
+@pytest.mark.parametrize("fail_on,removed_state,remaining", [("nvs.bin", "PARTIAL_REMOVED=nvs.csv", {"nvs.bin"}), ("nvs.csv", "NONE_REMOVED", {"nvs.csv", "nvs.bin"})])
+def test_an_injected_deletion_error_fails_closed_without_any_authoritative_field(fx: Fx, monkeypatch, fail_on: str, removed_state: str, remaining: set) -> None:
+    inject_unlink_failure(monkeypatch, fail_on)
+    rc, lines = fx.run()
+    text = "\n".join(lines)
+    assert rc == 1, lines
+    assert any(l.startswith("L8P_ATTEMPT2_RECONCILIATION=FAIL phase=CLEANUP reason=removal of " + fail_on + " failed (PermissionError)") for l in lines), lines
+    assert f"L8P_RECONCILIATION_MUTATION_STATE={removed_state}" in lines
+    assert not any(a in lines for a in NO_AUTHORITATIVE), lines
+    assert not any(v in text for v in SECRETS.values()), "no secret value in the failure output"
+    work = fx.evid / "l8p-work"
+    assert {n for n in ("nvs.csv", "nvs.bin") if (work / n).exists()} == remaining
+    assert (work / "first-write.marker").is_file() and (fx.evid / "l8p-evidence" / f"l8p-{RUN_ID}.json").is_file() and (fx.freeze / "auth" / "L8p-ATTEMPT-CONSUMED").is_file()
+    expected_mutation = "PARTIAL_OR_COMPLETE" if removed_state.startswith("PARTIAL") else "NO"
+    assert f"L8P_RECONCILIATION_MUTATION_PERFORMED={expected_mutation}" in lines
+
+
+def test_a_deletion_failure_is_not_reported_as_a_pre_cleanup_refusal(fx: Fx, monkeypatch) -> None:
+    inject_unlink_failure(monkeypatch, "nvs.bin")
+    _rc, lines = fx.run()
+    assert "L8P_RECONCILIATION_PRE_CLEANUP_GATES=PASS" in lines, "the pre-cleanup gates had passed"
+    assert not any("phase=PRE_CLEANUP" in l for l in lines)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory write permission")
+def test_an_unwritable_work_dir_is_refused_before_the_first_removal(fx: Fx) -> None:
+    work = fx.evid / "l8p-work"
+    work.chmod(0o500)
+    try:
+        rc, lines = fx.run()
+    finally:
+        work.chmod(0o700)
+    assert rc == 1 and any("not writable; nothing was removed" in l for l in lines), lines
+    assert "L8P_RECONCILIATION_MUTATION_STATE=NONE_REMOVED" in lines and "L8P_RECONCILIATION_MUTATION_PERFORMED=NO" in lines
+    assert (work / "nvs.csv").exists() and (work / "nvs.bin").exists() and not any(a in lines for a in NO_AUTHORITATIVE)
+
+
+def test_a_filesystem_error_after_cleanup_is_a_controlled_post_cleanup_failure(fx: Fx, monkeypatch) -> None:
+    real_scan = T.scan_tree
+    calls = {"n": 0}
+
+    def scan_then_fail(evid, needles):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise PermissionError(13, "Permission denied (injected)", "x")
+        return real_scan(evid, needles)
+    monkeypatch.setattr(T, "scan_tree", scan_then_fail)
+    rc, lines = fx.run()
+    assert rc == 1 and any(l.startswith("L8P_ATTEMPT2_RECONCILIATION=FAIL phase=POST_CLEANUP reason=filesystem error (PermissionError)") for l in lines), lines
+    assert "L8P_RECONCILIATION_MUTATION_PERFORMED=PARTIAL_OR_COMPLETE" in lines and not any(a in lines for a in NO_AUTHORITATIVE)
+    assert not (fx.evid / "l8p-work" / "nvs.csv").exists(), "the failure report is honest: the files were already removed"
+
+
+def test_an_unexpected_filesystem_error_before_cleanup_is_a_controlled_pre_cleanup_refusal(fx: Fx, monkeypatch) -> None:
+    def boom(*a, **k):
+        raise PermissionError(13, "Permission denied (injected)", "x")
+    monkeypatch.setattr(T, "verify_capture_bundles", boom)
+    before = fx.snapshot()
+    rc, lines = fx.run()
+    assert rc == 1 and any(l.startswith("L8P_ATTEMPT2_RECONCILIATION=FAIL phase=PRE_CLEANUP reason=filesystem error (PermissionError)") for l in lines)
+    assert fx.snapshot() == before and not any(a in lines for a in NO_AUTHORITATIVE)
+
+
+def test_no_failure_path_ever_prints_an_authoritative_field(fx: Fx, monkeypatch) -> None:
+    inject_unlink_failure(monkeypatch, "nvs.csv")
+    _rc, lines = fx.run()
+    assert not any(l.startswith(("L8P_LIVE_EXECUTED=", "L8P_PROVISIONING=", "L8P_ATTEMPT2_RECONCILIATION=PASS", "ORIGINAL_RUNNER_FULL_SUCCESS_LINE=")) for l in lines)
+
+
+# ── the canonical note must carry real receipt paths, never shell placeholders (review finding 2) ──────────────────────────────────────────
+
+def test_the_canonical_idea3_note_has_no_shell_placeholders_and_links_the_real_receipts() -> None:
+    note = (ROOT.parent / "Obsidian_AEGIS_Vault" / "AEGIS_Knowledge" / "idea3" / "idea3-status.md").read_text()
+    logs = ROOT.parent / "Obsidian_AEGIS_Vault" / "AEGIS_Knowledge" / "90-Status" / "logs"
+    assert "$(basename" not in note and not re.search(r"90-Status/logs/\$", note), "an unexpanded shell placeholder leaked into the canonical note"
+    for receipt in ("2026-10-04_064914_music_idea3-l8p-attempt2-reconciliation-contract.md", "2026-10-04_043853_music_idea3-l8p-attempt2-forensic-and-secret-staging-lifecycle.md"):
+        assert f"90-Status/logs/{receipt}" in note, receipt
+        assert (logs / receipt).is_file(), receipt
+
+
 # ── command line ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def run_cli(*args: str):
@@ -526,7 +658,7 @@ def test_the_tool_has_no_device_serial_mqtt_service_or_network_capability() -> N
                    "/dev/", "os.system", "popen", "shutil", "rmtree", "os.remove(", "os.rmdir"):
         assert banned not in code, banned
     assert not re.search(r"\bCUT\b|\bRESTORE\b", code), "no CUT / RESTORE behaviour"
-    assert code.count("os.unlink(") == 1 and "for name in CLEANUP_ARTIFACTS:\n        os.unlink(work / name)" in code, "exactly one deletion site, over the two fixed names"
+    assert code.count("os.unlink(") == 1 and "for name in CLEANUP_ARTIFACTS:\n        try:\n            os.unlink(work / name)" in code, "exactly one deletion site, over the two fixed names"
     assert 'CLEANUP_ARTIFACTS = ("nvs.csv", "nvs.bin")' in code
 
 

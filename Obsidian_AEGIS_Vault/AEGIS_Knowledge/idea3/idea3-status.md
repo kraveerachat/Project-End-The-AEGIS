@@ -24,10 +24,10 @@ edit_policy: owner-writable
 > `LIVE_RECONCILIATION_EXECUTED = NO`. Attempt 2's formal result is still `L8P_PROVISIONING = NOT_PROVEN` until the merged tool is actually run successfully by the owner.
 
 - **Tool:** `deploy/pr11-phase4/reconciliation/reconcile-l8p-attempt2.py` — hard-bound to run id `l8p-20261004-041840`, the attempt-2 evidence and freeze directory names, the frozen runner SHA-256 and the firmware digest; arguments `--evidence-root`, `--freeze-dir`, `--input-dir` only; standard library only, no device capability.
-- **Gates before any deletion:** authority (runner digest, consumed marker, Authorization/K3 identical to the evidence copies), the one canonical 12-field JSON bundle, the historical `owner-run.log` shape (the original full-success line must be absent), PRE/POST/RB `SHA256SUMS`, the first-write marker, and exactly the two known secret-hit files by class.
-- **Cleanup and proofs:** removes exactly `l8p-work/nvs.csv` and `l8p-work/nvs.bin`; proves every other file and directory unchanged (in-memory manifest), zero hits in the unchanged full-tree scan, captures and JSON re-verified, markers still present. Any failed gate prints `L8P_ATTEMPT2_RECONCILIATION=FAIL` and no authoritative field.
+- **Gates before any deletion:** authority (runner digest, the consumed marker in its real location and shape — `auth/L8p-ATTEMPT-CONSUMED`, a regular 0600 file holding `consumed_at=<UTC>`, verified present on the real attempt-2 history by a read-only check and never created, repaired or replaced by the tool — and Authorization/K3 identical to the evidence copies), the one canonical 12-field JSON bundle, the historical `owner-run.log` shape (the original full-success line must be absent), PRE/POST/RB `SHA256SUMS`, the first-write marker, and exactly the two known secret-hit files by class.
+- **Cleanup and proofs:** removes exactly `l8p-work/nvs.csv` and `l8p-work/nvs.bin` (any deletion error fails closed: a `CLEANUP`-phase failure that reports the exact mutation state, never an authoritative field); proves every other file and directory unchanged (in-memory manifest), zero hits in the unchanged full-tree scan, captures and JSON re-verified, markers still present. Any failed gate prints `L8P_ATTEMPT2_RECONCILIATION=FAIL` and no authoritative field.
 - **Result semantics:** on success it prints narrowly defined reconciliation results including `L8P_LIVE_EXECUTED=YES` / `L8P_PROVISIONING=PASS`, which are NEW owner-approved results, not claims about the historical runner (`ORIGINAL_RUNNER_FULL_SUCCESS_LINE = NO`). A separate closeout receipt is created only after a successful run.
-- **Receipt:** `90-Status/logs/$(basename $R)`.
+- **Receipt:** `90-Status/logs/2026-10-04_064914_music_idea3-l8p-attempt2-reconciliation-contract.md`.
 
 ---
 
@@ -39,7 +39,7 @@ edit_policy: owner-writable
 - **Root cause:** `l8p-work/nvs.csv` (all four secrets, plaintext) and `l8p-work/nvs.bin` (Wi-Fi/MQTT values) are the canonical flow's temporary staging files, and they sit inside the EVID tree the full scan covers. No secret value was found anywhere else (owner forensic: 209 files, 2 hits).
 - **Fix:** new host-only `stages/L8p/cleanup.sh` removes exactly those two files after apply+verify (before the POST capture and the scan); the post-first-write `rollback.sh` branch does the same (zero device action, hold-and-evidence unchanged). `l8p_secret_scan` is unchanged and has no exclusions.
 - **Reconciliation of attempt 2:** `OWNER_DECISION_REQUIRED` — no existing repository contract defines a post-hoc closeout of a consumed post-write attempt, and none states physical recovery as a hard gate before later stages.
-- **Receipt:** `90-Status/logs/$(basename $R)`.
+- **Receipt:** `90-Status/logs/2026-10-04_043853_music_idea3-l8p-attempt2-forensic-and-secret-staging-lifecycle.md`.
 
 ---
 

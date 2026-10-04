@@ -102,6 +102,19 @@ def canonical_dir(raw: str, label: str) -> Path:
 
 # ───────────────────────────── gate A: authority ─────────────────────────────
 
+CONSUMED_MARKER = "L8p-ATTEMPT-CONSUMED"
+CONSUMED_MARKER_SHAPE = re.compile(r"consumed_at=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\n")   # the shape l8p_consume_attempt writes
+
+
+def gate_consumed_marker(freeze: Path) -> None:
+    """The consumed marker, in its real location and real shape: <freeze>/auth/L8p-ATTEMPT-CONSUMED, a regular non-symlink 0600 file holding
+    exactly `consumed_at=<UTC timestamp>`. It is REQUIRED (never created, repaired or replaced by this tool); there is no fallback for its absence."""
+    marker = freeze / "auth" / CONSUMED_MARKER
+    require(marker.is_file() and not marker.is_symlink(), f"auth/{CONSUMED_MARKER} missing or not a regular file")
+    require(stat.S_IMODE(marker.lstat().st_mode) == 0o600, f"auth/{CONSUMED_MARKER} mode is not 0600")
+    require(CONSUMED_MARKER_SHAPE.fullmatch(marker.read_text(encoding="utf-8", errors="replace")) is not None, f"auth/{CONSUMED_MARKER} is not in the l8p_consume_attempt shape")
+
+
 def gate_authority(binding: Binding, freeze: Path, evid: Path) -> None:
     require(freeze.name == binding.freeze_dir_name, "freeze dir is not the attempt-2 freeze directory")
     runner = freeze / binding.runner_name
@@ -109,7 +122,8 @@ def gate_authority(binding: Binding, freeze: Path, evid: Path) -> None:
     require(sha256_file(runner) == binding.runner_sha256, "frozen runner SHA-256 mismatch")
     auth = freeze / "auth"
     require(auth.is_dir() and not auth.is_symlink(), "auth dir missing")
-    for name in ("L8p-ATTEMPT-CONSUMED", "authorization-L8p.txt", "k3-L8p.txt"):
+    gate_consumed_marker(freeze)
+    for name in ("authorization-L8p.txt", "k3-L8p.txt"):
         require((auth / name).is_file() and not (auth / name).is_symlink(), f"auth/{name} missing")
     for name in ("authorization-L8p.txt", "k3-L8p.txt"):
         copy = evid / name
@@ -199,7 +213,7 @@ def verify_capture_bundles(evid: Path) -> None:
 def gate_markers(evid: Path, freeze: Path) -> None:
     marker = evid / "l8p-work" / "first-write.marker"
     regular_private_file(marker, "first-write marker")
-    require((freeze / "auth" / "L8p-ATTEMPT-CONSUMED").is_file(), "consumed marker missing")
+    gate_consumed_marker(freeze)
 
 
 def read_needles(input_dir: Path) -> list[tuple[str, bytes]]:
@@ -250,27 +264,47 @@ def manifest(evid: Path) -> dict[str, tuple]:
 
 # ───────────────────────────── phase 5: host-only cleanup ─────────────────────────────
 
+class CleanupFailure(Refusal):
+    """A failure while REMOVING (or right before removing) the two staging files. ``removed`` lists what was already unlinked: the mutation state is never hidden."""
+
+    def __init__(self, reason: str, removed: list) -> None:
+        super().__init__(reason)
+        self.removed = list(removed)
+
+
 def cleanup_exact_two(evid: Path) -> None:
     work = evid / "l8p-work"
     require(work.is_dir() and not work.is_symlink() and os.path.realpath(work) == str(work), "l8p-work must be a real canonical directory directly under the evidence root")
     for name in CLEANUP_ARTIFACTS:
         path = work / name
         require(path.is_file() and not path.is_symlink(), f"{name} is not a regular non-symlink file")
+    # Minimise ambiguous partial cleanup: refuse BEFORE the first removal if the directory is not writable.
+    if not os.access(work, os.W_OK | os.X_OK):
+        raise CleanupFailure("l8p-work is not writable; nothing was removed", [])
+    removed: list[str] = []
     for name in CLEANUP_ARTIFACTS:
-        os.unlink(work / name)                           # exact fixed names only; no wildcard, no recursion, no caller-supplied filename
+        try:
+            os.unlink(work / name)                       # exact fixed names only; no wildcard, no recursion, no caller-supplied filename
+        except OSError as exc:
+            raise CleanupFailure(f"removal of {name} failed ({type(exc).__name__})", removed) from None
+        removed.append(name)
     for name in CLEANUP_ARTIFACTS:
-        require(not os.path.lexists(work / name), f"{name} is still present after removal")
+        if os.path.lexists(work / name):
+            raise CleanupFailure(f"{name} is still present after removal", removed)
 
 
 # ───────────────────────────── orchestration ─────────────────────────────
 
 def reconcile(evidence_root: str, freeze_dir: str, input_dir: str, binding: Binding = BINDING, out=print) -> int:
+    phase = "PRE_CLEANUP"                                # nothing has been changed while the phase is PRE_CLEANUP
     try:
         evid = canonical_dir(evidence_root, "evidence root")
         freeze = canonical_dir(freeze_dir, "freeze dir")
         inputs = canonical_dir(input_dir, "input dir")
         require(evid.name == binding.evidence_dir_name, "evidence root is not the attempt-2 evidence directory")
         gate_authority(binding, freeze, evid)
+        out("ATTEMPT2_CONSUMED_MARKER_PRESENT=YES")
+        out("ATTEMPT2_CONSUMPTION_PROOF=CONSUMED_MARKER")
         assert_no_symlinks(evid)
         verify_json_bundle(binding, evid)
         gate_owner_run_log(binding, evid)
@@ -288,7 +322,9 @@ def reconcile(evidence_root: str, freeze_dir: str, input_dir: str, binding: Bind
         out(f"L8P_RECONCILIATION_PRESERVATION_MANIFEST_ENTRIES={len(before)}")
         out("L8P_RECONCILIATION_PRE_CLEANUP_GATES=PASS")
 
+        phase = "CLEANUP"                                # from here a failure may have changed the tree and is reported as such
         cleanup_exact_two(evid)
+        phase = "POST_CLEANUP"
         out("NVS_CSV_PRESENT=NO")
         out("NVS_BIN_PRESENT=NO")
         marker_present = (evid / "l8p-work" / "first-write.marker").is_file()
@@ -305,8 +341,15 @@ def reconcile(evidence_root: str, freeze_dir: str, input_dir: str, binding: Bind
         verify_capture_bundles(evid)
         verify_json_bundle(binding, evid)
         gate_markers(evid, freeze)
-    except Refusal as exc:
-        out(f"L8P_ATTEMPT2_RECONCILIATION=FAIL reason={exc}")
+    except (Refusal, OSError) as exc:
+        # NO authoritative result field is ever printed on a failure. The phase says whether the tree may have been changed.
+        if isinstance(exc, OSError):                     # an unexpected filesystem error: a controlled, non-secret failure, never a traceback
+            exc = Refusal(f"filesystem error ({type(exc).__name__})")
+        if isinstance(exc, CleanupFailure):
+            out(f"L8P_RECONCILIATION_MUTATION_STATE={'PARTIAL_REMOVED=' + ','.join(exc.removed) if exc.removed else 'NONE_REMOVED'}")
+        if phase != "PRE_CLEANUP":
+            out("L8P_RECONCILIATION_MUTATION_PERFORMED=" + ("PARTIAL_OR_COMPLETE" if phase == "POST_CLEANUP" or getattr(exc, "removed", None) else "NO"))
+        out(f"L8P_ATTEMPT2_RECONCILIATION=FAIL phase={phase} reason={exc}")
         return 1
     out("L8P_ATTEMPT2_RECONCILIATION=PASS")
     out("L8P_RECONCILIATION_DEVICE_ACTION=NONE")
