@@ -40,16 +40,20 @@ export async function load(url, context, nextLoad) {
   if (!url.endsWith('/server/routes/api.js')) return loaded
 
   const original = loaded.source.toString()
-  assert.match(original, /const STREAM_IDLE_MS = 6_000/)
+  const idleDeclaration = original.match(/const STREAM_IDLE_MS = (6_000|20_000)/)
+  assert.ok(idleDeclaration)
   assert.match(original, /const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS/)
+  const injectedIdleMs = streamIdleMs === 'scaled'
+    ? Number(idleDeclaration[1].replaceAll('_', '')) / 200
+    : streamIdleMs
   const source = original
-    .replace('const STREAM_IDLE_MS = 6_000', `const STREAM_IDLE_MS = ${streamIdleMs}`)
+    .replace(idleDeclaration[0], `const STREAM_IDLE_MS = ${injectedIdleMs}`)
     .replace('const STREAM_FIRST_BYTE_MS = 50_000', `const STREAM_FIRST_BYTE_MS = ${streamFirstByteMs}`)
     .replace(
       'const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS',
       `const STREAM_REVALIDATE_MS = ${streamRevalidateMs}`,
     )
-  assert.doesNotMatch(source, /const STREAM_IDLE_MS = 6_000/)
+  assert.doesNotMatch(source, /const STREAM_IDLE_MS = (6_000|20_000)/)
   assert.doesNotMatch(source, /const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS/)
   return { ...loaded, source }
 }

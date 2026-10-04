@@ -180,6 +180,22 @@ test('no first stream byte closes at the bounded startup deadline', () => {
   assert.match(stderr, /no first stream data for 120ms/)
 })
 
+test('an established stream survives a frame gap beyond the former six-second budget', () => {
+  const { stdout } = runRouteFixture('steady-gap')
+  const bytes = Number(stdout.match(/BYTES_RECEIVED=(\d+)/)?.[1])
+  const frameBytes = Number(stdout.match(/FRAME_BYTES=(\d+)/)?.[1])
+  assert.ok(Number.isSafeInteger(frameBytes) && frameBytes > 0)
+  assert.ok(bytes >= frameBytes * 2, 'both frames must reach the browser before the steady watchdog closes')
+  assert.match(stdout, /READ_CALLS=3/)
+})
+
+test('an established stream still closes after the new bounded steady-state gap', () => {
+  const { stdout, stderr } = runRouteFixture('steady-gap')
+  assert.match(stdout, /READ_CALLS=3/, 'the second frame must arrive before the later stall')
+  assert.match(stdout, /CANCEL_CALLS=1/)
+  assert.match(stderr, /no data for 100ms/)
+})
+
 test('idle watchdog contains asynchronous reader cancellation rejection without terminating Monitor', () => {
   const { stdout, stderr } = runRouteFixture('idle')
   assert.match(stdout, /READ_CALLS=2/)
