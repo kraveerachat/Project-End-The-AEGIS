@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-04
+updated: 2026-10-05
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -15,12 +15,62 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
+
+Branch `fix/idea2-operator-live-navigation-persistence` is a source-only PR1.5
+follow-up based on main `7dbcae4f0b8fd8aef26e7da52614c9a3fed42880`.
+The current Live landing remains unchanged: arriving there after login is an
+intentional Live activation. Authentication alone does not create a separate
+hidden viewer; an authenticated session on Archive without an activated or
+permitted Live view has no stream.
+
+**Operator Live navigation persistence:** after an authorized CCTV-Operator
+enters Live, the same mounted Live subtree and same-origin Monitor MJPEG viewer
+remain active through internal Archive, Diagnostics, and Settings navigation.
+The inactive subtree is hidden, inert, absent from accessibility navigation,
+and occupies no layout space. Returning to Live does not reopen the stream.
+Logout, session loss, browser close, and normal camera switching retain their
+existing teardown; SOC still releases Live viewers when navigating away.
+`LiveFeed` image-source cleanup and server-side stream/authorization/producer
+authority are unchanged.
+
+**Single-camera Operator Live UI:** a CCTV-Operator with exactly one
+server-authorized camera sees the existing hero video without the redundant
+lower CameraSelector or reserved gap. The Access control and Event stream
+panels remain. Multi-camera Operators and SOC retain the selector and camera
+switching. This is role and server-camera-count based, never username based.
+
+Local real-App/generated-frame browser regression went RED on navigation
+teardown and the redundant selector, then passed all 30 Playwright tests,
+including nine new cases. The neutral Monitor suite passed 184 with zero
+failures and 58 conditional skips; Vite production build passed. These are
+source/local tests, **not** a Production deployment or Machine A real-camera
+acceptance. PR2 Archive/recording and PR3 GPU runtime remain separate.
+
+## Current task — GPU-required inference source policy (2026-10-04)
+
+Branch `feat/idea2-gpu-required-inference` adds an Engine-only, source-tested
+accelerator policy. Development defaults remain `AEGIS_GPU_REQUIRED=false` and
+`AEGIS_INFERENCE_DEVICE=cpu`; a future Production configuration must explicitly
+select `true` and `cuda:0`. Required mode rejects unavailable/invalid CUDA or
+a YOLO model that does not report the selected CUDA device before workers and
+camera start. Each YOLO prediction receives the selected device; a later YOLO
+failure stops the Engine instead of falling back to CPU. YuNet/SFace identity
+failures remain fail-secure. Health/metrics distinguish configured device,
+reported YOLO device, successful GPU samples and the CPU OpenCV backend.
+
+This policy does **not** add a `capture_on_demand` requirement or change the
+existing camera-demand lifecycle. Real CUDA/PyTorch installation, Machine A
+hardware GPU proof, Production rollout and Live acceptance are **NOT VERIFIED**
+by repository tests. PR2 recording/archive remains separate and unstarted;
+no model assets, thresholds, templates, UI, Agent or deployed runtime changed.
+
 ## Current task — sustained Live steady-state watchdog follow-up (2026-10-04)
 
 Task: PR1 follow-up for the post-first-byte Live stream timeout. Branch:
 `fix/idea2-monitor-steady-idle-watchdog`; owner: Pub; starting main:
 `9e5ce3d79e1455ba0707117ad9a5a7ccbbcf889f`. Current state:
-SOURCE IMPLEMENTED / LOCAL VERIFIED / PRODUCTION ACCEPTANCE PENDING.
+PR1 CLOSED / MACHINE A REAL-CAMERA ACCEPTED (operator and operator2).
 Production mutation allowed: NO.
 
 Owner-provided Production evidence after PR #328 showed that the first-byte
@@ -31,7 +81,7 @@ while Operator stayed on Live. The owner then rolled the Monitor image back to
 with the Engine's default 15-second post-first-frame idle allowance, not a
 failure of the 50-second cold-start boundary. The earlier PR #328 section below
 remains the historical source-checkpoint result, not evidence that sustained
-real-camera acceptance passed.
+real-camera acceptance had passed at that earlier checkpoint.
 
 The follow-up retains 50 seconds until the first nonempty upstream body data,
 then allows a bounded 20-second steady gap (Engine default 15 seconds plus
@@ -43,13 +93,17 @@ HUB or deployed runtime was changed by this repository task.
 
 | Session | Scope | State | Evidence | Remaining |
 |---|---|---|---|---|
-| S1 | RED→GREEN Monitor timeout reconciliation | PASS | A scaled 70 ms inter-frame gap failed under the old 30 ms-equivalent timer, then survived the new 100 ms-equivalent timer; the later stall still closed. Focused route tests 49 pass / 1 conditional skip; broader focused 70 pass / 1 skip; full Monitor 184 pass / 58 conditional skips; Playwright 21/21; Vite build PASS. | Draft PR review, separate Production rollout and sustained real-camera acceptance. |
+| S1 | RED→GREEN Monitor timeout reconciliation | PASS | A scaled 70 ms inter-frame gap failed under the old 30 ms-equivalent timer, then survived the new 100 ms-equivalent timer; the later stall still closed. Focused route tests 49 pass / 1 conditional skip; broader focused 70 pass / 1 skip; full Monitor 184 pass / 58 conditional skips; Playwright 21/21; Vite build PASS. | Historical source checkpoint; later Machine A real-camera acceptance is recorded below. |
 
-PR2 recording/archive and PR3 GPU-required inference remain unstarted and
-must not proceed from source tests alone. Real acceptance must later observe
-`connected=true`, `demanded=true`, `viewers>=1` and the physical camera LED
-continuously ON while Operator remains on Live, followed by release only after
-the final viewer/logout.
+Owner-provided Machine A real-camera acceptance closed PR1 for both account
+aliases: `operator → CAM-01` and `operator2 → CAM-02`. Each independently
+passed `PRE_LIVE_IDLE`, `LIVE_ACQUISITION`, `SUSTAINED_LIVE_120S`,
+`FINAL_VIEWER_RELEASE`, `POST_LOGOUT_IDLE`, `PHYSICAL_LED_SUSTAIN`, and
+`PHYSICAL_LED_RELEASE`. The physical camera LED stayed on through sustained
+Live and turned off after final viewer/logout. This is owner-reported hardware
+evidence, not a new test performed by this documentation-only PR #338 follow-up.
+PR2 recording/archive remains separate and unstarted; PR3 GPU-required
+inference is source-only and is not a claim of real GPU or Production acceptance.
 
 ## Current task — sustained Live first-byte watchdog (2026-10-04)
 
@@ -69,13 +123,11 @@ RED route tests reproduced the premature close before the first byte; GREEN
 focused lifecycle tests passed 12/12. The broader focused Monitor set passed
 68 with one conditional PostgreSQL skip, the full neutral Monitor suite passed
 182 with 58 conditional skips, Playwright passed 21/21, and the Vite build
-passed locally. These are
-source/test results only. No post-merge Production or Machine A hardware
-acceptance is claimed. The separate owner gate must observe connected=true,
-demanded=true, viewers>=1 and the physical LED continuously ON while Operator
-Live remains open, with release only after the final viewer/logout. PR2
-recording/archive and PR3 GPU-required inference remain separate, unstarted
-tasks that depend on PR1 merge/reconciliation.
+passed locally. These were source/test results only at that historical
+checkpoint. Later owner-provided Machine A real-camera acceptance for both
+operator aliases is recorded in the PR1 follow-up section above. PR2
+recording/archive remains separate and unstarted; PR3 GPU-required inference
+has source work in Draft PR #338 but no real GPU or Production acceptance.
 
 ## Current task — Browser Association CSP narrow source fix (2026-10-04)
 

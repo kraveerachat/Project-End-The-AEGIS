@@ -1,0 +1,9 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage F1r allowed PRE->POST host state drift.
+#
+# F1r replaces ONE symlink: /opt/aegis-idea3/current, between two already-installed immutable releases. The L0 capture records it as exactly this key
+# (value = the readlink target). Key approval is by key only; the exact old->new VALUES are proven separately by p4-f1r-switch.py (journal + verify) and
+# by the runner's f1r_current_transition_gate against the PRE/POST capture records, so any other target, a removed link or no transition at all fails.
+# Deliberately NOT listed: the Core MainPID/ExecMainStartTimestamp/NRestarts (F1r never restarts the Core), the release catalog (F1r installs nothing),
+# core.env, any unit file, the detector unit, any listener, sysctl, firewall, network, time, MQTT, IDEA2 key.
+# The PRE->RB comparison uses NO allow file at all (zero drift).
+host.symlink./opt/aegis-idea3/current.target

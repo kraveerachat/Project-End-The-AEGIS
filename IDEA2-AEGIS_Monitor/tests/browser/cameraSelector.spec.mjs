@@ -75,8 +75,8 @@ test('empty assignment is safe and creates no viewer', async ({ page, request })
   expect((await stats(request)).opened).toEqual([])
 })
 
-test('leaving Live cancels both main and thumbnail retries', async ({ page, request }) => {
-  await request.post('/__fixture/reset?scenario=error')
+test('SOC leaving Live cancels both main and thumbnail retries', async ({ page, request }) => {
+  await request.post('/__fixture/reset?scenario=soc-error')
   await page.goto('/monitor/', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Stream interrupted — reconnecting…')).toBeVisible()
   await card(page, second).click()
@@ -190,7 +190,7 @@ for (const width of [360, 768, 1024, 1440]) {
 }
 
 test('paging bounds demand to three cameras and releases every old-page viewer', async ({ page, request }) => {
-  await request.post('/__fixture/reset?scenario=all-streams')
+  await request.post('/__fixture/reset?scenario=soc-all-streams')
   await page.goto('/monitor/', { waitUntil: 'domcontentloaded' })
   await expect.poll(() => activeIds(request)).toEqual(['CAM-02', 'entry-z', 'offline-7'])
   await expect(page.locator('.camera-preview img')).toHaveCount(2)

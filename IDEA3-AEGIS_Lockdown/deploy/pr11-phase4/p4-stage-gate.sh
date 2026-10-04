@@ -124,8 +124,9 @@ elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[authorizer]}" != music ] \
   fail AUTHORIZATION_MALFORMED
 elif [ "${R[stage]}" != "$STAGE" ]; then
   fail AUTHORIZATION_STAGE_MISMATCH
-elif { [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ] || [ "$STAGE" = F1 ]; } && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ]; }; then
+elif { [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ] || [ "$STAGE" = F1 ] || [ "$STAGE" = F1r ] || [ "$STAGE" = F1i ]; } && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ]; }; then
   # L8p likewise never carries the L8-only recovery_authorization nor the L7/L2 notices (it has its own physical_recovery_attestation).
+  # F1r (current-release activation) and F1i (post-L7 repaired-release install) are bound by the same rule as F1: no extra field at all.
   # F1 carries NO extra field at all: not the L7/L2 notices, not recovery_authorization, not physical_recovery_attestation (L8p alone).
   # recovery_authorization is an L8-specific gate; L7u never carries it (nor the L7/L2 notices). Checked after the stage match so that an
   # authorization minted for another stage is reported as a stage mismatch first.

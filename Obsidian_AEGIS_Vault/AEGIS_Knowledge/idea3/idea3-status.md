@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-03
+updated: 2026-10-04
 owner: music
 edit_policy: owner-writable
 ---
@@ -16,9 +16,98 @@ edit_policy: owner-writable
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
+## IDEA3 F1 attempt #2 LIVE closeout — detector runtime PASS — 2026-10-04
+
+> [!important] **F1 attempt #2 was consumed exactly once and LIVE result = PASS.** `F1_PRODUCTION_DEPLOYED=YES`, `F1_DETECTOR_STARTED=YES`, and `F1_START_COUNT=ONE`. Evidence root: `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-04-f1-20261004-233030`. Exact main: `7dbcae4f0b8fd8aef26e7da52614c9a3fed42880`. The detector remained running at closeout evidence; its unit was disabled and `Restart=no`. Core was preserved and not restarted. This closeout performed no live mutation.
+
+- **Frozen pins:** runner SHA-256 `2d5cd074540b6a1c06c525acc60111160b3a8502863369c5b8c42d6147f4cdb8`; unit SHA-256 `da40399ef57b1e29cf30dc63792f67ded15333faacd8a3e04feb1c8e60d419b9`; runtime release `c2238375de14678f2a67c039282d9aeff6d553e5`; production detector SHA-256 `a91bcfc228c6e0892d019923b51b33d3545c685e2b5fed229f1ad8f980db9332`.
+- **Preservation and comparison:** PRE/POST comparator `PASS` with zero new or worsened drift; exactly three INFO disk deltas only; secret scan `0`; rollback `NO`; Core preserved; authorization consumed and no retry permitted.
+- **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `CORE_RESTARTED=NO`, `RETRY_PERMITTED=NO`, and `ESP32_TOUCHED=NO`. No real detector acceptance or Recovery result is claimed.
+- **Evidence access limitation:** protected `f1-work` was unreadable to the closeout agent, so independent access to that protected work is not claimed. The material closeout claims were independently proven from the readable journal, owner log, PRE/POST capture bundles, marker, authorization copies and checksums.
+- **Receipt:** `90-Status/logs/2026-10-04_233030_music_idea3-f1-attempt2-live-closeout.md`.
+
+---
+
+## IDEA3 F1r LIVE closeout — current switched to the repaired release (pointer only) — 2026-10-04
+
+> [!important] **F1r was executed LIVE once (2026-10-04 22:27 +07) and PASSED.** `/opt/aegis-idea3/current` now resolves to `/opt/aegis-idea3/releases/c2238375de14678f2a67c039282d9aeff6d553e5` (it was `…/55c7d18135142293267e8d1ea943d3639358d634`). **This proves POINTER ACTIVATION only:** no release was installed or deleted, the Core was NOT restarted (same MainPID 896, NRestarts 0) and is NOT claimed to run the NEW release, the detector was NOT started, no F1 attempt 2, no Recovery, no ESP32 action.
+
+- **Evidence (outside the repo, directly verified for this closeout):** `…/idea3-p4-evidence/2026-10-04-f1r-20261004-222707` — one consumed attempt marker (`consumed_at=2026-10-04T15:27:12Z`), fresh same-day F1r Authorization + K3, apply and verify PASS, PRE/POST capture hashes PASS, comparator PASS (`FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `PRESERVATION_S10=PASS`), exactly one approved change (the `current` target key, re-derived from raw PRE/POST captures), release catalog unchanged, no rollback, secret scan zero hits.
+- **Detector:** absent (no unit, no process). **K3 caveat:** V2 owner self-attestation, not an independent IDEA1 confirmation.
+- **State:** the F1r authorization is consumed, no retry; the frozen runner is not re-run. F1 attempt 2 now has its F1r predecessor receipt once this closeout is merged, but it needs its own owner decision, fresh same-day records and a frozen runner pinned to the then-current main. The Core still needs a separately authorized restart to run from the NEW release. Real detector acceptance, Recovery R1-R8, LVR, L8 and L9 remain unproven.
+- **Receipt:** `90-Status/logs/2026-10-04_222950_music_idea3-f1r-live-closeout.md`.
+
+---
+
+## IDEA3 F1i LIVE closeout — repaired immutable release installed (install only) — 2026-10-04
+
+> [!important] **F1i was executed LIVE once (2026-10-04 21:45 +07) and PASSED.** The immutable release `c2238375de14678f2a67c039282d9aeff6d553e5` (source SHA exact, `production_detector.py` SHA-256 `a91bcfc2…db9332`) is now installed at `/opt/aegis-idea3/releases/c2238375de14678f2a67c039282d9aeff6d553e5`, root-owned, release guard PASS, tree digest `e1915797…31fc2`. **This proves INSTALLATION only.** `/opt/aegis-idea3/current` still resolves to `55c7d181…`; the Core was not restarted (MainPID 896, NRestarts 0 unchanged); credentials and `core.env` metadata are unchanged; the detector is still absent; no Recovery, no ESP32. F1r (the switch), F1 attempt 2, real detector acceptance, Recovery R1-R8, LVR, L8 and L9 are NOT executed and NOT proven.
+
+- **Evidence (outside the repo, directly verified for this closeout):** `…/idea3-p4-evidence/2026-10-04-f1i-20261004-214506` — one consumed attempt marker (`consumed_at=2026-10-04T14:45:15Z`), fresh same-day F1i Authorization + K3, apply and verify PASS, PRE/POST capture hashes PASS, comparator PASS (`FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `PRESERVATION_S10=PASS`), exactly one release-catalog addition re-derived independently from the raw captures, no rollback, secret scan zero hits.
+- **Comparator note (non-blocking):** the approved finding is labelled `L6C_RELEASE_INSTALLED`, the shared reason-code constant of the existing relational one-release rule (accepts stage tokens L6c, L7u, F1i; emitted identically by earlier L6c and L7u live comparisons); the `stage F1i` allowance was enforced, not a stage mismatch.
+- **State:** F1i authorization is consumed, no retry; the frozen runner is not re-run. The successor F1r requires, from the merged pinned commit, the F1i closeout receipt (the one carrying the authoritative F1i result fields) — it still needs its own owner decision, fresh same-day records and a frozen runner pinned to the then-current main. K3 caveat: V2 owner self-attestation, not an independent IDEA1-owner confirmation.
+- **Receipt:** `90-Status/logs/2026-10-04_214807_music_idea3-f1i-live-closeout.md`.
+
+---
+
+## IDEA3 F1i post-L7 repaired-release install stage (OD-F1I-01) — repository only — 2026-10-04
+
+> [!note] Executed once on 2026-10-04 (live PASS, install only) — see the F1i LIVE closeout section above; this section describes the repository implementation.
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1i-repaired-release-install-stage`, based on main `c2238375` (PR #335). `F1I_STAGE_ID = F1i`, order `L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9`. **Nothing was executed:** no F1i run, no L6c run, no release installed, `/opt/aegis-idea3/current` unchanged, Core not restarted, detector not started, no F1i/F1r/F1 Authorization or K3 created, no runner frozen, Production not mutated, no Recovery, no ESP32. `F1I_LIVE_EXECUTED = NO`, `F1I_RELEASE_INSTALLED = NO`.
+
+> [!warning] **Historical L6c maintenance reuse (2026-10-04) = LIVE EXECUTED, RESULT = FAIL, ROLLBACK = PASS.** `L6C_MAINTENANCE_ATTEMPT_LIVE_EXECUTED = YES`, `L6C_MAINTENANCE_ATTEMPT_RESULT = FAIL`, `L6C_MAINTENANCE_ATTEMPT_FAIL_REASON = L7_MATERIAL_PRESENT:/etc/aegis-idea3/credentials`, `L6C_MAINTENANCE_ATTEMPT_ROLLBACK = PASS`, `L6C_MAINTENANCE_ATTEMPT_PRE_RB_COMPARE = PASS`, `L6C_MAINTENANCE_ATTEMPT_AUTH_CONSUMED = YES`, `L6C_MAINTENANCE_ATTEMPT_RETRY = FORBIDDEN`, `RELEASE_INSTALLED = NO` (also `L6C_MATERIAL_RESIDUE = NO`, `PRESERVATION_S10 = PASS`, `L6C_LIVE_ACCEPTANCE = NOT_PROVEN`; evidence `…/2026-10-04-l6c-20261004-185831`, read-only verified). The installer itself succeeded; the stage's own verifier failed closed, by design.
+
+- **Why F1i exists:** the L6c verifier is intentionally PRE-L7 (credentials and `core.env` absent, Core unit `not-found`) and is false by design on the current post-L7 host. **L6c is not changed and stays historically correct for a pre-L7 install**; it is never reused post-L7.
+- **What F1i owns:** only the creation of `/opt/aegis-idea3/releases/<frozen release id>` through the reviewed installer, called exactly once. It never creates `/opt/aegis-idea3` or `releases`, never touches `current`, credentials, `core.env`, units, the Core, the detector, broker, Recovery or the ESP32.
+- **Post-L7 preservation (verify):** credentials, `core.env` and a loaded/running Core unit are PRESERVED, never required absent: metadata unchanged (content compared in memory inside apply only; no content or digest persisted), `current` identical, Core same MainPID/NRestarts, new release guarded root-owned with exact id/source SHA/clean tree/detector digest and unchanged tree digest, detector absent (unit and standalone process).
+- **Comparator:** captured key `host.aegis_idea3.release_catalog`; zero allow-keys; the existing relational one-release rule gets the label `stage F1i`; the runner also proves the added entry carries the journaled tree digest; current/listener/material/Core drift fail.
+- **Rollback:** ownership is a strict journal-state boundary — `installing` (outcome unknown) and `installer_failed` are NEVER deletion authority (a valid-looking or even `RELEASE_ALREADY_INSTALLED` foreign target is left untouched and escalated); only `installed`/`applied` WITH a journaled tree digest own the release, and then it proves current, real directory, guard, id, source SHA, detector digest and tree digest before removing exactly that directory; never a parent, an old release, `current`, credentials, `core.env` or units; unknown state fails closed. (Independent review of PR #336 found, and this revision fixed, a bug where a foreign valid release could be deleted.)
+- **Chain:** F1r now requires, from the pinned commit, exactly ONE receipt with `F1I_LIVE_EXECUTED=YES`, `F1I_RELEASE_INSTALLED=YES` and `F1I_RELEASE_ID=<its NEW_RELEASE_ID>`; F1 still requires F1r; the runtime release pins stay as defense in depth.
+- **Not authorized / not run:** F1i live, F1r live, F1 attempt 2. The failed L6c maintenance authorization is consumed and never reused.
+- **Limitation:** repository tests prove repository behavior only; verify detects secret-material drift through metadata (including ctime) and apply additionally compares content in memory; the release catalog digest is the existing tree-state digest.
+- **Design:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-04-idea3-pr11-phase4-f1i-post-l7-release-install.md`. **Receipt:** `90-Status/logs/2026-10-04_192634_music_idea3-f1i-repaired-release-install-stage.md`.
+
+---
+
+## IDEA3 F1r current-release activation stage (OD-F1R-01) — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1r-current-release-activation-stage`, based on main `2107f197` (PR #333). `F1R_STAGE_ID = F1r`, `F1R_ORDER = AFTER_REPAIRED_RELEASE_INSTALL_BEFORE_F1_ATTEMPT_2`, `F1R_CORE_RESTART_POLICY = NO_RESTART`. **Nothing was executed:** no L6c run, no release installed, `/opt/aegis-idea3/current` unchanged, Core not restarted, detector not started, no F1r/F1/L6c Authorization or K3 created, no runner frozen, Production not mutated, no Recovery, no ESP32.
+
+> [!note] State kept distinct: **F1 attempt 1** = historical live FAIL + rollback PASS (authorization consumed, never reused). **PR #333 repair** = merged repository fix (corrected unit digest `da40399e…419b9`, detector exit code 3). **F1r** = repository implementation only (this entry). **L6c repaired-release install** = NOT YET AUTHORIZED. **F1r live** = NOT YET AUTHORIZED. **F1 attempt 2** = NOT AUTHORIZED.
+
+- **Why F1r exists:** the detector unit runs the INSTALLED release's `production_detector.py`; production still resolves release `55c7d181…` (detector digest `b2ab3434…`, no `EXIT_JOURNAL_SOURCE_UNAVAILABLE`). The repaired release (`2107f197…`, detector digest `a91bcfc2…`) differs from it in exactly `production_detector.py` and the manifest. The repository had an install step (L6c, install-only, never touches `current`) but no governed step that only switches `current`; L7u switches it together with a Core restart and is closed.
+- **Operational order (superseded 2026-10-04 by the F1i section above):** the first F1r decision named an L6c maintenance reuse as the repaired-release install; that reuse failed closed (L6c is a pre-L7 stage) and the order is now `L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9`, with F1r requiring the F1i closeout receipt.
+- **What F1r owns:** only the atomic switch of `/opt/aegis-idea3/current` between two already-installed immutable releases (journal OLD → re-read → temp symlink + `os.replace` → exact `readlink`/`realpath` check). It installs nothing; its privileged backend can only `systemctl show`, so the Core's MainPID, NRestarts and cwd cannot change through F1r. **Changing `current` does not move the running Core to the new release.**
+- **Rollback:** owns only a journalled switch; refuses (no mutation) if `current` is not exactly where this attempt left it; restores the exact OLD target atomically; proves Core PID/NRestarts unchanged and the detector absent; never deletes a release.
+- **Comparator:** capture key `host.symlink./opt/aegis-idea3/current.target`; `stages/F1r/allow-keys.txt` approves only that key, the runner proves the exact OLD→NEW values from the PRE/POST records, zero listener additions, zero allowances for PRE→RB.
+- **Future F1 attempt 2:** the F1 runner template gained runtime pins (`EXPECTED_RUNTIME_RELEASE_ID`, `EXPECTED_RUNTIME_RELEASE_SOURCE_SHA`, `EXPECTED_PRODUCTION_DETECTOR_SHA256`) and a read-only gate before PRE capture and again before the one-shot consume, so F1 cannot consume its attempt while Production resolves the old detector. `UNIT_SHA256` remains a separate pin; no existing F1 gate was weakened.
+- **Independent review fixes (same PR):** (1) the read-only `check`/`check-runtime` gates now run through `$SUDO` (root read authority; `/opt/aegis-idea3` is `755 root:root` on this host today but is not assumed readable, and `sudo -v` alone does not elevate), a denied read is a fixed refusal and a failed elevation stops the run before the attempt is consumed; (2) detector absence now covers a standalone `aegis_soc.production_detector` process as well as the systemd unit (preflight, apply, verify, `check-runtime`, rollback postcondition) and is re-proved after PRE and right before `F1R-ATTEMPT-CONSUMED`; (3) the future F1 receipt gate requires exactly one receipt with both `F1R_LIVE_EXECUTED=YES` and `F1R_CURRENT_SWITCHED=YES`, in addition to the runtime pins.
+- **Limitation:** repository tests prove repository behavior only; `/proc/<CorePID>/cwd` is root-only here (recorded `UNREADABLE` when unreadable); the zero-tolerance compare would roll back on any unforeseen captured record that changes with `current`.
+- **Receipt:** `90-Status/logs/2026-10-04_163650_music_idea3-f1r-current-release-activation-stage.md`.
+
+---
+
+## IDEA3 F1 live attempt 1 FAILED (rolled back) — successor repair, repository only — 2026-10-04
+
+> [!warning] **F1 attempt 1 = LIVE EXECUTED, RESULT = FAIL, ROLLBACK = PASS.** Its authorization is **consumed** (`F1-ATTEMPT-CONSUMED`) and is never reused, reset or retried. `F1_ATTEMPT_1_LIVE_EXECUTED = YES`, `F1_ATTEMPT_1_RESULT = FAIL`, `F1_ATTEMPT_1_ROLLBACK = PASS`, `F1_ATTEMPT_1_PRE_RB_COMPARE = PASS`, `F1_PRODUCTION_DEPLOYED = NO`, `F1_DETECTOR_STARTED = NO` (the stage's success claim is not made: the one start it issued ended immediately and the unit was removed). `F1_REAL_DETECTOR_ACCEPTANCE = NOT_PROVEN`, `RECOVERY_R1_R8_PROVEN = NO`, `R1_VERIFIED = NOT_CLAIMED`.
+
+> [!important] Repository-only successor (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-f1-detector-journalctl-proc-and-fail-closed`, based on main `3bfdcd72` (PR #332). **No new live attempt was performed or authorized; no Authorization/K3 was created; no future runner was frozen; Production was not mutated.** The failed attempt-1 evidence directory and authorization were only read.
+
+- **Attempt 1 (owner-run, main `3bfdcd72`, evidence `…/2026-10-04-f1-20261004-153333`; figures from the owner's report and the readable `owner-run.log`, the root-owned attempt journal was not read by this agent):** `F1_APPLY=FAIL reason=DETECTOR_NOT_RUNNING`; one start was issued; the detector logged `ALERT_SOCKET=PASS` and `[F1-DETECTOR] started`; its `journalctl` then printed `Failed to get boot ID: No such file or directory`; systemd logged `aegis-idea3-detector.service: Deactivated successfully`. The stage failed closed, rolled back (`F1_ROLLBACK=PASS`), and `PRE_RB_COMPARE=PASS` (`FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `PRESERVATION_S10=PASS`). Post-rollback: `LoadState=not-found`, `ActiveState=inactive`, `SubState=dead`, `MainPID=0`, unit file and process absent. The attempt journal recorded `core_env_preserved=false`, `daemon_reload=true`, `phase=rolled_back`, `start_issued=true`, `unit_sha256=748a4c5b…211772a`.
+- **Root cause (confirmed from source and reproduced locally without touching the host):** (A) the detector's `journalctl -f` needs `/proc/sys/kernel/random/boot_id` (`libsystemd-shared` reads it), and `ProcSubset=pid` hides `/proc/sys`. In a throwaway unprivileged user+mount namespace, `journalctl -f -n 0 -o cat` under `proc subset=pid` exits 1 with exactly `Failed to get boot ID: No such file or directory`, while the same command with a full `/proc` keeps following. (B) `production_detector.run()` returned `0` when the journal iterator ended and `main()` never inspected the follower's exit status, so journal loss became a clean exit 0 (“Deactivated successfully”).
+- **Repair (this task):** the detector unit drops `ProcSubset=pid` (new rendered SHA-256 `da40399ef57b1e29cf30dc63792f67ded15333faacd8a3e04feb1c8e60d419b9`; every other active line is unchanged and pinned by test, including `ProtectProc=invisible`, `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `ProtectKernel*`, `ProtectControlGroups`, `ProtectClock`, `ProtectHostname`, `RestrictAddressFamilies=AF_UNIX`, `RestrictNamespaces`, empty capability sets, `Restart=no`); the unit verifier now refuses any `ProcSubset=` line (`UNIT_PROC_SUBSET_BREAKS_JOURNAL_READER`); `production_detector` returns the new `EXIT_JOURNAL_SOURCE_UNAVAILABLE = 3` (never 0) when the follower ends, exits nonzero, or cannot start, logging only `[F1-DETECTOR] stopping reason=JOURNAL_SOURCE_UNAVAILABLE journal_exit=<n>`; `EXIT_TRANSPORT_UNAVAILABLE = 2` and all detection/rate-limit/cooldown/socket behavior are unchanged. Other services that use `ProcSubset=pid` (Core, containment) are untouched.
+- **Verify path unchanged and pinned:** a future F1 stage still requires `ActiveState=active`, `SubState=running`, `MainPID>0`, `Result=success`, `NRestarts=0`, `UnitFileState=disabled`, `Restart=no` (each deviation has a test) and refused attempt 1's exact failure shape.
+- **Deployment caveat (not solved here):** the detector unit runs `/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.production_detector`, i.e. the INSTALLED release's copy. The unit fix is deliverable by a future F1 attempt, but the fail-closed exit-code change reaches Production only through a new immutable release install, which F1 does not perform; that is a separate owner decision. A future attempt run with the old release still gains the unit fix (the journal reader works) but not exit code 3.
+- **Still true:** the old frozen runner/authorization are pinned to the failed unit digest and must not be reused. A future attempt-2 needs a new owner decision, a fresh AUTH_DIR with fresh same-day `authorization-F1.txt` + `k3-F1.txt`, a new frozen runner pinned to the then-current merged main and the new unit digest, and is **NOT authorized**.
+- **Limitation:** repository tests prove repository behavior only; no live systemd PASS is claimed. Whether any other sandbox directive would also stop the real `journalctl` under systemd is not proven until a governed attempt-2.
+- **Receipt:** `90-Status/logs/2026-10-04_154730_music_idea3-f1-attempt1-failure-repair.md` (this successor task's own receipt; the PR #332 receipt is immutable and unchanged).
+
 ---
 
 ## IDEA3 F1 governed detector unit install/start stage — repository only — 2026-10-04
+
+> [!note] Superseded in part (state only) 2026-10-04: this stage was merged as PR #332 and executed once live (attempt 1 FAILED and rolled back) — see the section above. The pinned unit digest `748a4c5b…211772a` below is the failed attempt's; the corrected unit is `da40399e…419b9`.
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1-governed-detector-install-stage` (Draft PR, unmerged). `OWNER_DECISION = STAGE_F1_REGISTERED_AFTER_L8P_BEFORE_L8` (use `F1`, not `F1b`; same-day Authorization + K3, `stage=F1`, no extra field). Nothing was executed live: `F1_PRODUCTION_DEPLOYED = NO`, `F1_DETECTOR_STARTED = NO`, the detector unit is still not installed, the Core was not restarted, no alert was injected, no R1 incident exists, Recovery R1-R8 was not run, no ESP32/serial.
 

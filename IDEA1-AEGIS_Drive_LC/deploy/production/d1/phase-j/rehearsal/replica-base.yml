@@ -1,0 +1,61 @@
+# D-1 Phase J B/D/E replica — DISPOSABLE, LOCAL ONLY. Stands in for the Production base chain.
+# No Production credential, path, port, network, volume, or image registry. Secrets come from a generated,
+# uncommitted env file (rehearse-bde.sh). PostgreSQL logs every statement for the destructive-SQL audit.
+# Live Production flag values (preflight 2026-10-03) are restated so the V6 healthz/flag assertions apply.
+services:
+  postgres:
+    image: postgres:15-alpine
+    command: ["postgres", "-c", "log_statement=all", "-c", "log_line_prefix=%m [%p] %u@%d "]
+    environment:
+      POSTGRES_USER: ${D1REP_PG_SUPERUSER}
+      POSTGRES_PASSWORD: ${D1REP_PG_SUPERUSER_PASSWORD}
+      POSTGRES_DB: aegis_drive
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${D1REP_PG_SUPERUSER} -d aegis_drive"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    networks: [replica]
+  drive:
+    image: aegis-prod-drive:p1-8634360f74ed
+    environment:
+      NODE_ENV: production
+      PORT: 8001
+      SESSION_SECRET: ${D1REP_SESSION_SECRET}
+      COOKIE_SECURE: "false"
+      TRUSTED_PROXY_CIDRS: 172.19.255.2/32   # required in production mode; no proxy fronts the replica
+      DATABASE_URL: postgresql://drive_app:${D1REP_APP_PASSWORD}@postgres:5432/aegis_drive
+      STORAGE_ROOT: /datalake
+      MEDIA_ENABLED: "true"
+      MEDIA_CACHE_DIR: /var/cache/aegis-media
+      VAULT_CHUNK_PLAINTEXT_BYTES: "16777216"
+      VAULT_UPLOAD_CONCURRENCY: "2"
+      VAULT_TREE_SCHEMA_AVAILABLE: "true"
+      VAULT_TREE_PROTOCOL_ENABLED: "true"
+      VAULT_TREE_GENESIS_MIGRATION_ENABLED: "true"
+      VAULT_TREE_UI_ENABLED: "true"
+      VAULT_MEDIA_PREVIEW_ENABLED: "true"
+      VAULT_DESTRUCTIVE_PURGE_ENABLED: "false"
+    volumes:
+      - ${D1REP_DATALAKE}:/datalake
+      - media:/var/cache/aegis-media
+    ports:
+      - "127.0.0.1:58811:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8001/healthz || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks: [replica]
+networks:
+  replica: {}
+volumes:
+  pgdata: {}
+  media: {}

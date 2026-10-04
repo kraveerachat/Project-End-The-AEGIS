@@ -22,8 +22,12 @@ readonly P4_FS_ROOT="${AEGIS_P4_FS_ROOT:-${P4_FS_ROOT:-}}"
 readonly P4_WINDOW_TZ=Asia/Bangkok
 
 # ── stages (execution document §9, §12) ──────────────────────────────────────
-# Operational order: L7 -> L7u -> L8p -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9 (F1 = governed F1 detector unit install + one start).
-readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1 L8 L9"
+# Operational order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9.
+# F1i = governed POST-L7 install of ONE already-built repaired immutable release (creates /opt/aegis-idea3/releases/<id> only); F1r = governed atomic switch of
+# /opt/aegis-idea3/current to that ALREADY-INSTALLED release (no Core restart); F1 = governed F1 detector unit install + one start. L6c keeps its original position and its
+# historical PRE-L7 meaning: its verifier requires the L7 material absent and the Core unit not-found, which is false by design on the post-L7 host (a maintenance reuse
+# of L6c failed closed for exactly that reason), so L6c is never reused post-L7 and is not changed.
+readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 L8 L9"
 
 p4_stage_known() { [[ " $P4_STAGES " == *" $1 "* ]] && [ -n "$1" ]; }
 
@@ -54,6 +58,12 @@ p4_stage_gaps() {
     # F1 (governed F1 detector unit install + ONE start) needs no repository gap of its own: it reuses the merged F1 alert-source tooling and the
     # L7u-provisioned Core alert surface. It never claims real detector acceptance, Recovery R1-R8, LVR, L8 or L9.
     F1) echo none ;;
+    # F1r (current-release activation) owns ONLY the atomic switch of /opt/aegis-idea3/current between two already-installed immutable releases: no
+    # repository gap applies. It never installs a release (that is F1i), restarts the Core, starts the detector (F1) or claims Recovery, LVR, L8 or L9.
+    F1r) echo none ;;
+    # F1i (post-L7 repaired-release install) owns ONLY the creation of one immutable release directory through the reviewed installer: no repository gap applies. It never
+    # touches `current`, restarts the Core, starts the detector or claims Recovery, LVR, L8 or L9.
+    F1i) echo none ;;
     L8) echo G-04,G-11,G-16 ;;
     L9) echo none ;;
   esac

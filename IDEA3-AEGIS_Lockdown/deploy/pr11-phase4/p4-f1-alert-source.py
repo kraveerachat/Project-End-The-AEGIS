@@ -200,6 +200,8 @@ def verify_unit(data: bytes) -> None:
         refuse("UNIT_WRITABLE_PATHS_NOT_ALLOWED")  # connecting to a socket needs no write mount; the unit stays read-only
     if any(line.startswith("WantedBy=") and line != "WantedBy=multi-user.target" for line in lines):
         refuse("UNIT_INSTALL_UNEXPECTED")
+    if any(line.startswith("ProcSubset=") for line in lines):
+        refuse("UNIT_PROC_SUBSET_BREAKS_JOURNAL_READER")  # subset=pid hides /proc/sys/kernel/random/boot_id; the detector's journalctl -f exits (live attempt 1)
 
 
 # ── core.env ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────

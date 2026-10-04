@@ -1,0 +1,94 @@
+# IDEA1 D-1 Phase J deploy authority (runbook V6). Data only; no secrets; never sourced by Production services.
+# Every value is bound; a value of the form <TOKEN> would mean unresolved (the verifier requires none).
+# Overlay SHA-256 values are over Git blob (LF) bytes: git show <ref>:<path> | sha256sum
+
+PR_E_MERGE_SHA=2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b
+PR_E_PR=310
+V6_RUNBOOK=d1-stage234-final-runbook-v6.md
+V6_SHA256=7911e780f35ead33ed50a52e3786fb7e2653a69ab75fc462749416a9d059b62e
+
+EXPECTED_STAGE1_IMAGE=aegis-prod-drive:preview-d1-s1-9f5a01148ce0
+EXPECTED_STAGE1_REVISION=9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f
+
+S2_SHA=2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b
+S2_IMAGE=aegis-prod-drive:preview-d1-s2-2cbeb8363acd
+IMAGE_REVISION_LABEL=2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b
+IMAGE_SOURCE_LABEL=https://github.com/kraveerachat/Project-End-The-AEGIS
+IMAGE_USER=node
+IMAGE_ARCHIVE=/tmp/aegis-prod-drive-preview-d1-s2-2cbeb8363acd.tar
+
+RT=/opt/aegis/runtime/preview-d1
+S2_OVERLAY_REPO=IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-preview-index-stage2-2cbeb8363acd.yml
+S2_OVERLAY=/opt/aegis/runtime/preview-d1/drive-preview-index-stage2-2cbeb8363acd.yml
+S2_OVERLAY_SHA256=75f992bdb29994238f1d1e1985e4d40113baf346c99e7ba453da2273620b601e
+S3_OVERLAY_REPO=IDEA1-AEGIS_Drive_LC/deploy/production/d1/drive-preview-index-stage3-2cbeb8363acd.yml
+S3_OVERLAY=/opt/aegis/runtime/preview-d1/drive-preview-index-stage3-2cbeb8363acd.yml
+S3_OVERLAY_SHA256=c7a4538f671e6632ae4f74e792e01f75fe343b8d34ac9fc69b1a9312b0e0eb60
+
+APPROVED_BUDGET=8589934592
+WRITER_KINDS=thumb,poster
+STAGE2_WRITE=false
+STAGE3_WRITE=true
+
+# Stage 2 image artifact (build workstation, Docker Desktop 28.3.2 containerd image store, 2026-10-04).
+# S2_IMAGE_ID is the local `docker image inspect .Id` (same convention as Stage 1 CANDIDATE_IMAGE_ID);
+# with the containerd store it is the OCI index digest. A classic-store daemon reports the config digest
+# after `docker load`, so either value identifies this exact image.
+S2_IMAGE_ID=sha256:3a924636d1b09effcc7eee7f2115f14a735abb6e606eb334bf7dd4f55b9e36ff
+S2_IMAGE_CONFIG_DIGEST=sha256:5e1a0096cc487a32028e1643e16bc228b33ae51358b38844d336953299648819
+S2_OCI_REVISION=2cbeb8363acd8ec611eb984e4c4c0c155c2fb24b
+S2_IMAGE_ARCHIVE_SHA256=8ef9aa88fce4e9fe5fd37eb21fb58367077827a601cf29c69d65cabb0de0e922
+S2_IMAGE_ARCHIVE_BYTES=146528768
+
+# Live Production facts, read-only preflight 2026-10-03T18:56:30Z (evidence file kept outside Git:
+# phase-j-prod-readonly-preflight-20261004T015504.txt, sha256 below). Nothing here was mutated.
+LIVE_PREFLIGHT_EVIDENCE=phase-j-prod-readonly-preflight-20261004T015504.txt
+LIVE_PREFLIGHT_EVIDENCE_SHA256=ee5f993d72b8d9b4581fce6cec4f1617f307ec873181df07023a8c7c38d1fa08
+LIVE_PREFLIGHT_CAPTURED_UTC=2026-10-03T18:56:30Z
+# Ordered drive-container chain (com.docker.compose.project.config_files), exactly as captured.
+# The two files below are byte-identical to what V6 S2.2.1 writes as pre-stage2-live-chain.txt / .sha256.
+LIVE_STAGE1_CHAIN=IDEA1-AEGIS_Drive_LC/deploy/production/d1/phase-j/live-stage1-chain.txt
+LIVE_STAGE1_CHAIN_SHA256_MANIFEST=IDEA1-AEGIS_Drive_LC/deploy/production/d1/phase-j/live-stage1-chain.sha256
+LIVE_STAGE1_CHAIN_COUNT=31
+LIVE_STAGE1_CHAIN_ORDER_SHA256=197a22837026e1d9ea94220ef282d5a5a262b6d4738227dc13009a29765a703b
+LIVE_STAGE1_CHAIN_MANIFEST_SHA256=d3a8cd04aae6d095ec98a4bf8fb9e44acc33b4519f062c3ee69cedb4b44a52bc
+LIVE_STAGE1_OVERLAY_PATHS=/opt/aegis/runtime/preview-d1/drive-image-9f5a01148ce0.yml,/opt/aegis/runtime/preview-d1/drive-preview-index-stage1-9f5a01148ce0.yml
+LIVE_STAGE1_OVERLAY_SHA256=49b0ad5fbe0f49a9cfe168ec28c12aeb3f6fe1ead6dd870105423f4b37b96f78,7c5f0df78c3f5cf46bb2edd83bb8b015ed63d9645ed8de22c69eb1d8d6216a59
+LIVE_POSTGRES_USER=aegis
+LIVE_CURRENT_IMAGE=aegis-prod-drive:preview-d1-s1-9f5a01148ce0
+LIVE_CURRENT_IMAGE_ID=sha256:8d5356fc4c7a02a7b1f9e067097b89dc11913743d299a99d0726997b796b88e0
+LIVE_CURRENT_OCI_REVISION=9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f
+LIVE_PREVIEW_D1_DIR_EXISTS=YES
+LIVE_SCHEMA_ENABLED=YES
+LIVE_READ_ENABLED=YES
+LIVE_WRITE_ENABLED=NO
+LIVE_BUDGET_ENV=UNSET
+LIVE_TOTAL_USERS=3
+LIVE_TREE_V1_OWNERS=2
+LIVE_MIGRATING_TREE_V1_OWNERS=0
+LIVE_ELIGIBLE_OWNER_UNION=2
+LIVE_CAPACITY_REVIEW_REQUIRED=NO
+LIVE_TOTAL_V2_BLOBS=62
+LIVE_TOTAL_V2_CIPHERTEXT_BYTES=3916387459
+LIVE_INDEX_HEAD_ROWS=0
+LIVE_INDEX_GENERATION_ROWS=0
+LIVE_INDEX_BLOB_REF_ROWS=0
+LIVE_INDEX_STAGED_BYTES=0
+LIVE_INDEX_MANAGED_BYTES=0
+LIVE_INDEX_RETAINED_BYTES_TOTAL=0
+LIVE_INDEX_STATE_WITHOUT_BLOB=0
+LIVE_STORAGE_MOUNT=/var/lib/docker/volumes/aegis_drive_storage/_data
+LIVE_FS_TOTAL_BYTES=94793244672
+LIVE_FS_AVAILABLE_BYTES=31212642304
+STAGE2_ZERO_WRITE_BASELINE_READY=YES
+LIVE_BINDINGS_READY=YES
+
+# V6 §1 precondition: non-Production replica rollback rehearsal (phase-j/rehearsal/rehearse-bde.sh, run 6).
+# Evidence bundle kept outside Git: replica-bde-run6-20261004.tar (sha256 below).
+REPLICA_ROLLBACK_REHEARSAL=COMPLETE
+REPLICA_ROLLBACK_REHEARSAL_REF=replica-bde-run6-20261004.tar
+REPLICA_ROLLBACK_REHEARSAL_SHA256=c70c8c414504d92718e9727ea9f06d1be4b1b96869a90fe96d72755991073478
+REPLICA_CASE_B=PASS
+REPLICA_CASE_D=PASS
+REPLICA_CASE_E=PASS
+REPLICA_CASE_C_FAIL_CLOSED_WITH_D1_ROWS=PASS

@@ -715,9 +715,9 @@ async function readFileHead(abs, max) {
   }
 }
 
-apiRouter.get('/files/:id/preview', requireAuth, async (req, res, next) => {
-  try {
-    const file = await store.findFile(req.params.id)
+// One byte-serving policy for live Files and read-only Protected Trash previews.
+// Callers choose the eligible metadata row before this function touches storage.
+async function serveFilePreview(req, res, file) {
     if (!file) return res.status(404).json({ error: 'Not found' })
     // ⚠️ ด่านความเป็นเจ้าของต้องมาก่อน Range/MIME/ขนาดไฟล์ทุกอย่าง — 416 หรือ 415 ให้คนอื่น
     //    ก็คือการยืนยันว่าไฟล์นี้มีอยู่และเป็นชนิดอะไร (เหมือน Download: 404 เท่านั้น)
@@ -780,6 +780,11 @@ apiRouter.get('/files/:id/preview', requireAuth, async (req, res, next) => {
     if (!stream) return res.status(404).json({ error: 'Not found' })
     stream.on('error', () => res.destroy())
     stream.pipe(res)
+}
+
+apiRouter.get('/files/:id/preview', requireAuth, async (req, res, next) => {
+  try {
+    await serveFilePreview(req, res, await store.findFile(req.params.id))
   } catch (err) {
     next(err)
   }
@@ -896,6 +901,18 @@ apiRouter.get('/trash', requireAuth, async (req, res, next) => {
     const items = await store.listTrash(req.user.id)
     res.json({ items: items.map(trashPublicItem) })
   } catch (error) { next(error) }
+})
+
+// Read-only Trash preview: step-up and owner-scoped, non-Vault trashed lookup
+// precede MIME, Range, and storage checks. Never restores or enqueues derivatives.
+apiRouter.get('/trash/:id/preview', requireAuth, async (req, res, next) => {
+  try {
+    if (!trashAuthorization(req).unlocked) return res.status(423).json({ error: 'Trash locked' })
+    const file = await store.findTrashedFile(req.params.id, req.user.id)
+    await serveFilePreview(req, res, file)
+  } catch (err) {
+    next(err)
+  }
 })
 
 apiRouter.post('/trash/:id/restore', requireAuth, async (req, res, next) => {
