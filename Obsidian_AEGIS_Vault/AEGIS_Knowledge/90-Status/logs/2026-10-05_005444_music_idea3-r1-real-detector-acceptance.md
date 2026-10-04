@@ -36,7 +36,7 @@ ESP32_TOUCHED=NO
 ## What changed
 
 - `aegis_soc/recovery_core.py`: `AlertIngress` durably writes `ALERT_ACCEPTED uid pid attacker_ip action` (SO_PEERCRED values) per alert that reached binding. Best-effort; never changes the response. Only the Core needs this deployed (a NEW release; see below).
-- `aegis_soc/r1_acceptance.py` (new): read-only baseline/final capture and fail-closed evidence verifier; reuses `recovery_evidence` (`_open_ro`, `_AuditStore`, `_r1`) unmodified. It cannot emit a positive acceptance claim.
+- `aegis_soc/r1_acceptance.py` (new): read-only baseline/final capture and fail-closed evidence verifier; reuses `recovery_evidence` (`_AuditStore`, `_r1`) unmodified while using its own in-memory WAL-aware audit view. It cannot emit a positive acceptance claim.
 - `production_detector.py` is unchanged (byte-identical to main); the deployed digest pin stays valid.
 - Tests: `tests/test_r1_acceptance.py`, two cases in `tests/test_core_alert_ingress.py`.
 
