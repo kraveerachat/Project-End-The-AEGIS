@@ -1,10 +1,13 @@
 # IDEA1 D-1 Phase J — Stage 2 / Stage 3 deploy package (binds runbook V6)
 
-> **Package status:** `PHASE_J_DEPLOY_PACKAGE=PREPARED`. **Nothing here has been executed.**
-> `PRODUCTION_MUTATION=NO`, `WRITER_ENABLED=NO`. Every command is for the **Human Owner** only, after the
-> gates in runbook V6 §1 (HG-H signed off, replica rollback rehearsal B/D/E, `PRE_DEPLOY_BACKUP=PASS`) and
-> per-stage authorization (HG-S2, HG-S3). An agent never builds-and-ships, loads an image, installs an
-> overlay, runs `docker compose up`, restarts Drive, or changes Production environment.
+> **Package status:** `PHASE_J=CLOSED/ACCEPTED`. The Human Owner executed Stage 2, Stage 3 and Stage 4 in
+> Production (2026-10-04 → 2026-10-05, UTC+7): Stage 2 `DEPLOYED/ACCEPTED` (HG-S2 PASS), Stage 3
+> `DEPLOYED/ACCEPTED` (HG-S3 PASS; writer enabled with exactly 8589934592 B per owner), Stage 4 `ACCEPTED`
+> (HG-S4 PASS). Bound evidence: **§9 Production closeout**. Sections 1–8 are the **historical preparation
+> record**, written before execution; their "not executed" / `PRODUCTION_MUTATION=NO` statements describe the
+> state at package time. Every Production command was run by the **Human Owner**; no agent built-and-shipped,
+> loaded an image, installed an overlay, ran `docker compose up`, restarted Drive, or changed Production
+> environment.
 
 Plan: `docs/superpowers/plans/2026-10-02-idea1-d1-separate-encrypted-preview-index-implementation.md`, Phase J, Stages 2–3.
 Precedent: `IDEA1-AEGIS_Drive_LC/docs/superpowers/plans/2026-10-02-idea1-d1-stage1-production-runbook.md` (Stage 1 build/transfer/install).
@@ -321,3 +324,73 @@ Cleanup is part of the run (only project `aegis-d1rep`; `REMAINING_REPLICA_RESOU
   missing replica `TRUSTED_PROXY_CIDRS`; probe file absent for the third account; Docker Desktop bind-path form;
   audit regex false positive on a read-only query plus an abort trap that overwrote the statement log).
   None touched Production; each replica was removed.
+
+## 9. Production closeout (Human-executed; evidence kept outside Git, bound by SHA-256)
+
+```text
+PHASE_J=CLOSED/ACCEPTED
+PRODUCTION_MUTATION_PERFORMED_BY=HUMAN_OWNER        # no agent executed any Production step
+STAGE2=DEPLOYED/ACCEPTED   HG_S2=PASS
+STAGE3=DEPLOYED/ACCEPTED   HG_S3=PASS
+STAGE4=ACCEPTED            HG_S4=PASS (Human Owner APPROVED)
+IMAGE=aegis-prod-drive:preview-d1-s2-2cbeb8363acd   # Stage 2 and Stage 3 run the same image
+WRITER_ENABLED=YES                                  # remains enabled after Stage 4
+VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER=8589934592   # exact 8 GiB
+VAULT_DESTRUCTIVE_PURGE_ENABLED=false               # no destructive purge
+FINAL_ELIGIBLE_OWNER_SET=1,2,3                      # new owner 3 = expected Stage 4 newly created user
+```
+
+### Stage 2 — zero-write deploy (V6 §S2)
+
+| Fact | Value |
+|---|---|
+| Evidence | `phase-j-stage2-run-20261004T042047.txt`, SHA-256 `6533613c58a855430ed3e2847729a8d855052fe24bdc649ce57a995c119cd78c` |
+| Result | `STAGE2_RESULT=DEPLOYED_ZERO_WRITE`, image `aegis-prod-drive:preview-d1-s2-2cbeb8363acd`, `write=false`, budget absent (`STAGE2_BUDGET_UNSET_VERIFIED=YES`) |
+| Pre/post | `PRE_DEPLOY_BACKUP=PASS`; pre image = Stage 1 accepted image; post healthy, restarts 0, OOM false |
+| Gate | HG-S2 PASS (browser 200/404 checks) |
+
+Three earlier Stage 2 run files of the same day (`…T034016`, `…T040816`, `…T041502`) exist next to the accepted
+run and are not the acceptance evidence.
+
+### Stage 3 — writer enablement (V6 §S3)
+
+| Fact | Value |
+|---|---|
+| Evidence | `phase-j-stage3-run-20261004T052958.txt`, SHA-256 `6a575f45fad8ba3035652ad9aaf07a8ad88ff0fb3a2c427684510bc35221b8f9` |
+| Result | `STAGE3_RESULT=DEPLOYED_WRITER_ENABLED`, same image as Stage 2, `write=true`, `budget=8589934592`, `purge=false` |
+| Entry | `PRE_S3_RECHECK=PASS` (Stage 2 image, healthy, write false, budget absent, D-1 rows 0); Human `CAPACITY-ACCEPTED`; `BUDGET_BINDING_VERIFIED` exact 8589934592 B |
+| Gate | HG-S3 PASS; Stage 3 CLOSED/ACCEPTED |
+
+One earlier Stage 3 run file (`…T052719`) is not the acceptance evidence.
+
+### Stage 4 — live acceptance (runbook V7_R4, SHA-256 `a77bf708151ba7bca298181e08e6651c0bad9d4cad60976b61f3b155fe9b567d`)
+
+| Phase | Evidence file | SHA-256 | Result |
+|---|---|---|---|
+| Entry | `phase-j-stage4-entry-20261004T234356.txt` | `a642d7243ffd33c02b1bd507484266c7adad89a85ca05d35ada33ac9511d1a90` | `VALID_BOUND_PRE_START` |
+| Start | `phase-j-stage4-start-20261004T234557.txt` | `e2cc6cf245a2d44052f417ca2105ef7e61c280a80db5c54c731c30037d5ad49b` | `STARTED_PRE_VAULT` (62 originals fingerprinted) |
+| Third vault | `phase-j-stage4-thirdvault-20261004T234828.txt` | `de25e5b3e1a9527f014c4d3516407c5f54b3571e4772c742030ecf8bed92e0a4` | `VALID_POST_VAULT` (recorded before first upload) |
+| Post | `phase-j-stage4-post-20261005T000022.txt` | `286582980607b39f4e9d479441432932d7b55a09c484baa6f6f1aef399b43d96` | `STAGE4_POST_RESULT=MACHINE_EVIDENCE_PASS` |
+| Acceptance record | `stage4-acceptance-record-final.json` | `5be829af64549c4fd925426d50894c52f7746c4d713660b5b3744612d9838341` | validator `RECORD=COMPLETE_HG_S4_READY` |
+
+Final machine facts (Post): `ORIGINALS_PRESERVATION_VERIFIED=PASS`, `NON_V1_MAIN_REVISIONS=0`,
+`INDEX_STATE_WITHOUT_BLOB=0`, `ORPHAN_COUNT_FINAL=0`, `MAX_OWNER_RETAINED_BYTES=323936`,
+`AUDIT_PRIVACY_VIOLATIONS=0`, `S4_EXIT_CAPACITY=PASS`; final D-1 counts heads 1, generations 7, blob_refs 29,
+staged 0, managed 21. Capacity: Human `CAPACITY-ACCEPTED-S4-3-OWNERS` for at most 3 eligible owners
+(worst case 3 × 8589934592 = 25769803776 B against 31231864832 B available at entry; 31205990400 B at exit);
+a 4th eligible owner requires a new capacity review.
+
+Browser matrix (Human): mandatory items 1–8 and 10 PASS for ADMIN, EXISTING_USER and NEWLY_CREATED_USER on
+both LAN and REMOTE (54/54 cells); item 9 PASS (`NON_V1_MAIN_REVISIONS=0`);
+item 12 audit privacy 0 violations. Item 11 `NOT_AUTHORIZED`; item 13 (Case E rollback + re-enable)
+`NOT_AUTHORIZED` — writer remains enabled; item 14 `NOT_EXECUTED` by policy (budget-exhaustion proof stays local:
+PR-E H.1 PI-BUDGET HTTP 507, PR-E I.3).
+
+### Closeout limits (no claim beyond evidence)
+
+- No live rollback was executed in Production (Cases C/D/E remain replica-rehearsed only, §8).
+- No Production budget-exhaustion (HTTP 507) test; no claim of D-1 throughput or bulk backfill behaviour.
+- Evidence files are operator-written cross-evidence, not cryptographic seals; they stay outside Git with the
+  sealed Stage 4 bundle (unaltered).
+- `phase-j-authority.txt` keeps the **pre-Stage-2** read-only preflight facts (e.g. `LIVE_WRITE_ENABLED=NO`)
+  as historical bindings; they are not the current Production state.
