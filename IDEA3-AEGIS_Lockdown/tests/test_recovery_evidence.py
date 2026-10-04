@@ -49,6 +49,7 @@ class World:
         self.published: str | None = f"msg_id={MSG} seq=1"
         self.command: dict | None = {"state": "ACK_CONSUMED", "published_at": 1.0, "ack_result": "ACCEPTED", "status_correlated": 1}
         self.close_row = True
+        self.close_before_restore = False
         self.extra_open = False
         self.obs: dict | None = {}  # sections to override or drop (None value drops)
         self.obs_incident = 1
@@ -85,13 +86,15 @@ class World:
             event("INCIDENT_BOUND", self.bound)
         if self.r3 is not None and not self.r3_after_restore:
             event("RECOVERY_R3_RESULT", self.r3)
+        if self.close_row and self.close_before_restore:
+            event("RECOVERY_R8_CLOSE", "summary=done")
         for _ in range(self.restore_rows if self.restore else 0):
             event("RESTORE_REQUESTED", f"credential={D4_SECRET} hash={D4_HASH} reason=owner")
         if self.r3 is not None and self.r3_after_restore:
             event("RECOVERY_R3_RESULT", self.r3)
         if self.published is not None:
             event("RESTORE_PUBLISHED", self.published)
-        if self.close_row:
+        if self.close_row and not self.close_before_restore:
             event("RECOVERY_R8_CLOSE", "summary=done")
         conn.commit()
         conn.close()
@@ -809,3 +812,150 @@ def test_verified_agrees_with_the_core_gate_functions(world, monkeypatch, mutate
             assert status == rp.VERIFIED, name
     if r1["status"] == rp.VERIFIED and theirs[R3] == rp.VERIFIED and theirs[R4] == rp.VERIFIED and theirs[R5] == rp.VERIFIED:
         assert verdicts(ours)[R5] == ev.VERIFIED
+
+
+# --------------------------------------------------------------------------- hot journal / WAL sidecars (review B1)
+
+
+def _hot_journal_snapshot(source: Path, target_dir: Path) -> Path:
+    """A crash-style snapshot: the DB file with UNCOMMITTED pages spilled into it, plus the real non-empty hot journal.
+
+    The committed state has an incident without an attacker_ip; the never-committed transaction sets a valid one.
+    """
+    work = target_dir / "live"
+    work.mkdir()
+    db_path = work / "audit.sqlite3"
+    shutil.copyfile(source, db_path)
+    conn = sqlite3.connect(db_path, isolation_level=None)
+    conn.execute("PRAGMA journal_mode = DELETE")
+    conn.execute("PRAGMA cache_size = 1")
+    conn.execute("BEGIN")
+    conn.execute("UPDATE incidents SET attacker_ip = ? WHERE id = 1", (IP,))
+    conn.executemany("INSERT INTO audit_logs (event_type, details) VALUES ('PAD', ?)", [("x" * 900,)] * 3000)
+    journal = Path(f"{db_path}-journal")
+    assert journal.exists() and journal.stat().st_size > 0
+    snap = target_dir / "snap"
+    snap.mkdir()
+    shutil.copyfile(db_path, snap / "audit.sqlite3")
+    shutil.copyfile(journal, snap / "audit.sqlite3-journal")
+    conn.execute("ROLLBACK")
+    conn.close()
+    return snap / "audit.sqlite3"
+
+
+def test_hot_audit_journal_is_refused_and_uncommitted_state_never_verifies(world):
+    world.ip = None  # committed truth: R1 has no attacker_ip
+    world.state = "OPEN"
+    world.close_row = False
+    paths = world.build()
+    snapshot = _hot_journal_snapshot(paths["audit_db"], world.dir)
+    # the reproduction is real: without the journal SQLite would hand back the uncommitted address as if committed
+    raw = sqlite3.connect(f"file:{snapshot}?mode=ro&immutable=1", uri=True)
+    assert raw.execute("SELECT attacker_ip FROM incidents WHERE id = 1").fetchone()[0] == IP
+    raw.close()
+    before = sorted(os.listdir(snapshot.parent))
+    document = ev.evaluate(snapshot, protocol_db=paths["protocol_db"], observations=paths["observations"], now=NOW)
+    assert (gate(document, R1)["verdict"], gate(document, R1)["reason"]) == (ev.NOT_PROVEN, "AUDIT_STORE_JOURNAL_PENDING")
+    assert document["incident"] is None and document["overall"] == ev.BLOCKED
+    assert all(verdicts(document)[name] != ev.VERIFIED for name in rp.GATES)
+    assert sorted(os.listdir(snapshot.parent)) == before  # nothing replayed, rolled back or created
+
+
+def test_hot_protocol_journal_is_refused_and_never_verifies_r5(world):
+    paths = world.build()
+    Path(f"{paths['protocol_db']}-journal").write_bytes(b"\x00hot journal bytes" * 8)
+    document = ev.evaluate(paths["audit_db"], protocol_db=paths["protocol_db"], observations=paths["observations"], incident_id=1, now=NOW)
+    assert (gate(document, R5)["verdict"], gate(document, R5)["reason"]) == (ev.NOT_PROVEN, "PROTOCOL_STORE_JOURNAL_PENDING")
+    assert gate(document, R5)["verdict"] != ev.VERIFIED and document["overall"] != ev.VERIFIED
+    assert [verdicts(document)[name] for name in (R6, R7, R8)] == [ev.BLOCKED] * 3
+
+
+def test_zero_byte_journal_and_wal_sidecars_are_allowed(world):
+    paths = world.build()
+    for store in (paths["audit_db"], paths["protocol_db"]):
+        Path(f"{store}-journal").write_bytes(b"")
+        Path(f"{store}-wal").write_bytes(b"")
+    document = ev.evaluate(paths["audit_db"], protocol_db=paths["protocol_db"], observations=paths["observations"], incident_id=1, now=NOW)
+    assert document["overall"] == ev.VERIFIED
+
+
+def test_non_empty_wal_on_the_audit_store_is_refused_distinctly_from_a_journal(world):
+    paths = world.build()
+    Path(f"{paths['audit_db']}-wal").write_bytes(b"wal")
+    document = ev.evaluate(paths["audit_db"], protocol_db=paths["protocol_db"], observations=paths["observations"], incident_id=1, now=NOW)
+    assert gate(document, R1)["reason"] == "AUDIT_STORE_WAL_PENDING"
+    assert gate(document, R1)["verdict"] == ev.NOT_PROVEN
+    Path(f"{paths['audit_db']}-wal").unlink()
+    Path(f"{paths['audit_db']}-journal").write_bytes(b"j")
+    assert gate(ev.evaluate(paths["audit_db"], incident_id=1, now=NOW), R1)["reason"] == "AUDIT_STORE_JOURNAL_PENDING"
+    Path(f"{paths['audit_db']}-journal").unlink()
+    paths["audit_db"].write_bytes(b"garbage" * 100)
+    assert gate(ev.evaluate(paths["audit_db"], incident_id=1, now=NOW), R1)["reason"] == "AUDIT_STORE_MALFORMED"
+
+
+def test_open_ro_closes_the_connection_when_schema_validation_fails(world, monkeypatch):
+    paths = world.build()
+    opened = []
+    real = sqlite3.connect
+
+    def spy(*args, **kwargs):
+        conn = real(*args, **kwargs)
+        opened.append(conn)
+        return conn
+
+    monkeypatch.setattr(ev.sqlite3, "connect", spy)
+    with pytest.raises(ev.StoreProblem):
+        ev._open_ro(paths["audit_db"], {"nonexistent_table": {"x"}})
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError):  # "Cannot operate on a closed database."
+        opened[0].execute("SELECT 1")
+
+
+# --------------------------------------------------------------------------- pinned properties
+
+
+def _traced_statements(monkeypatch) -> list[str]:
+    statements: list[str] = []
+    real = sqlite3.connect
+
+    def traced(*args, **kwargs):
+        conn = real(*args, **kwargs)
+        conn.set_trace_callback(statements.append)
+        return conn
+
+    monkeypatch.setattr(ev.sqlite3, "connect", traced)
+    return statements
+
+
+def test_r4_select_never_reads_the_details_column(world, monkeypatch):
+    paths = world.build()
+    statements = _traced_statements(monkeypatch)  # installed after the fixture so only the checker's SQL is captured
+    document = ev.evaluate(paths["audit_db"], protocol_db=paths["protocol_db"], observations=paths["observations"], incident_id=1, now=NOW)
+    assert gate(document, R4)["verdict"] == ev.VERIFIED
+    restore_selects = [text for text in statements if "RESTORE_REQUESTED" in text]
+    assert restore_selects, "the R4 query must have run"
+    for text in restore_selects:
+        assert re.fullmatch(r"\s*SELECT id, timestamp FROM audit_logs WHERE event_type = 'RESTORE_REQUESTED' AND incident_id = \d+ ORDER BY id\s*", text), text
+        assert "details" not in text
+    # and no statement anywhere asks for details of a RESTORE_REQUESTED row via a wildcard
+    assert not any("SELECT *" in text and "audit_logs" in text for text in statements)
+
+
+def test_r8_close_row_before_the_restore_request_is_blocked(world):
+    world.close_before_restore = True
+    document = run(world)
+    assert (gate(document, R8)["verdict"], gate(document, R8)["reason"]) == (ev.BLOCKED, "CLOSE_PRECEDES_RESTORE")
+    assert [verdicts(document)[name] for name in (R1, R2, R3, R4, R5, R6, R7)] == [ev.VERIFIED] * 7
+    assert document["overall"] == ev.BLOCKED
+
+
+def test_query_only_is_on_for_every_opened_store(world, monkeypatch):
+    statements = _traced_statements(monkeypatch)
+    paths = world.build()
+    for store, required in ((paths["audit_db"], {"audit_logs": ev._AUDIT_COLUMNS}), (paths["protocol_db"], {"protocol_commands": ev._PROTOCOL_COLUMNS})):
+        conn = ev._open_ro(store, required)
+        try:
+            assert conn.execute("PRAGMA query_only").fetchone()[0] == 1
+        finally:
+            conn.close()
+    assert sum(1 for text in statements if text.strip().upper() == "PRAGMA QUERY_ONLY = ON") == 2

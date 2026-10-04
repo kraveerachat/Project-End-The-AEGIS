@@ -21,7 +21,7 @@ It is the checker a later, separately reviewed owner runner may call; this task 
 
 The checker never probes. A probe result is only evidence if an observation says so, is bound to the same incident id,
 and is neither stale nor from the future. `immutable=1` never creates `-wal`/`-shm`/`-journal` files and works in a
-read-only directory; a store with a pending (non-empty) `-wal` is refused as `NOT_PROVEN` rather than read incompletely.
+read-only directory; `immutable=1` ignores a hot rollback journal and an un-checkpointed WAL, so any non-empty `-wal` or `-journal` sidecar makes the store refused as `NOT_PROVEN` (`*_STORE_WAL_PENDING` / `*_STORE_JOURNAL_PENDING`) before SQLite is opened; the store must be quiesced or copied consistently. Zero-byte sidecars are allowed.
 
 ## Verdict rules
 
@@ -64,5 +64,5 @@ gates are. `claims` always states `physical_evidence=NOT_PROVEN`, `production=NO
 ## Out of scope / known limits
 
 No live Core read, no real probe, no stage registration, no owner runner, no edits to `p4-*.sh`, F1/F1i/F1r or Phase-4
-docs (merge-separable from PR #336). A live WAL store must be quiesced or copied before analysis. R2/R6/R7/device evidence
+docs (merge-separable from PR #336). A store with a non-empty WAL or rollback journal must be quiesced or copied consistently before analysis. R2/R6/R7/device evidence
 is only as trustworthy as whoever produced the observation snapshot; binding that producer is the later runner's job.

@@ -23,7 +23,7 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `~/.venvs/aegis-idea3-core/bin/python -m pytest tests/test_recovery_evidence.py -q` (from `IDEA3-AEGIS_Lockdown/`) — pass: 123 passed.
+- `~/.venvs/aegis-idea3-core/bin/python -m pytest tests/test_recovery_evidence.py -q` (from `IDEA3-AEGIS_Lockdown/`) — pass: 131 passed (after review fix B1: hot-journal refusal + pinned properties).
 
 ## Canonical notes updated
 
@@ -40,5 +40,5 @@ edit_policy: append-by-new-file
 ## Known limitations
 
 - Never run against a live Core, Production store or real probes; R2/R6/R7/device evidence depends on a producer of the observation snapshot that does not exist yet.
-- A store with a pending WAL is refused (NOT_PROVEN); live stores must be quiesced or copied.
+- A store with any non-empty WAL or rollback-journal sidecar is refused (NOT_PROVEN); it must be quiesced or copied consistently.
 - No physical evidence is claimed; a VERIFIED result is stored-state evidence only.

@@ -4,8 +4,8 @@ Inspects a stored snapshot and emits deterministic, machine-readable, secret-saf
 explicit ``VERIFIED`` / ``BLOCKED`` / ``NOT_PROVEN`` verdict per gate:
 
 * the Core audit database and the Protocol-v1 command store are opened ``mode=ro&immutable=1`` with ``PRAGMA query_only``
-  (a missing file is never created, no sidecar file is ever created, nothing is ever written; a store with a pending WAL
-  is refused as NOT_PROVEN rather than read incompletely);
+  (a missing file is never created, no sidecar file is ever created, nothing is ever written; a store with ANY non-empty WAL
+  or rollback-journal sidecar is refused as NOT_PROVEN rather than read inconsistently);
 * R2/R6/R7 probe results, the live containment read-back and the device status are NOT probed here: they are read from an
   optional, strictly allow-listed observation snapshot with its own timestamps and incident binding, and anything absent,
   stale, unbound or malformed is ``NOT_PROVEN``/``BLOCKED`` rather than assumed;
@@ -91,11 +91,18 @@ def _open_ro(path: Any, required: dict[str, set[str]]) -> sqlite3.Connection:
     if not target.is_file():
         raise StoreProblem("MISSING")
     # ``immutable=1`` makes SQLite skip locking and never create -wal/-shm/-journal sidecars (a plain mode=ro open of a
-    # WAL store would), which also lets it read from a read-only directory. That is only sound when nothing is pending in a
-    # WAL, so a store with an un-checkpointed WAL is refused: analyse a quiesced store or a consistent snapshot copy.
-    wal = Path(f"{target}-wal")
-    if wal.exists() and wal.stat().st_size > 0:
-        raise StoreProblem("WAL_PENDING")
+    # WAL store would), which also lets it read from a read-only directory. That is only sound when nothing is pending:
+    # an immutable open IGNORES a hot rollback journal and an un-checkpointed WAL, and would read uncommitted or
+    # inconsistent pages as evidence. Any NON-EMPTY sidecar is therefore refused BEFORE SQLite is opened; analyse a
+    # quiesced store or a consistently copied snapshot. Zero-byte sidecars hold nothing and are allowed.
+    for suffix, kind in (("-wal", "WAL_PENDING"), ("-journal", "JOURNAL_PENDING")):
+        sidecar = Path(f"{target}{suffix}")
+        try:
+            if sidecar.exists() and sidecar.stat().st_size > 0:
+                raise StoreProblem(kind)
+        except OSError:
+            raise StoreProblem("MALFORMED") from None
+    conn = None
     try:
         conn = sqlite3.connect(f"file:{quote(str(target.resolve()))}?mode=ro&immutable=1", uri=True)
         conn.row_factory = sqlite3.Row
@@ -103,10 +110,14 @@ def _open_ro(path: Any, required: dict[str, set[str]]) -> sqlite3.Connection:
         for table, columns in required.items():
             found = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
             if not columns <= found:
-                conn.close()
                 raise StoreProblem("MALFORMED")
         return conn
+    except StoreProblem:
+        conn.close()
+        raise
     except sqlite3.Error:
+        if conn is not None:
+            conn.close()
         raise StoreProblem("MALFORMED") from None
 
 
