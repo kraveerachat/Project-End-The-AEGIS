@@ -4,7 +4,7 @@ date: 2026-10-03T22:40:25+07:00
 owner: kla
 area: idea1
 branch: feat/idea1-trash-preview-pane
-status: partial
+status: complete
 edit_policy: append-by-new-file
 ---
 
@@ -12,7 +12,8 @@ edit_policy: append-by-new-file
 
 ## What changed
 
-- Base `origin/main` `27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf`; implementation/evidence checkpoint `7fe26a271f087c41ea71c84508490ca75ae274df`; Draft PR #319.
+- Base `origin/main` `27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf`; implementation/evidence checkpoint `7fe26a271f087c41ea71c84508490ca75ae274df`; PR #319.
+- Post-D-1 reactivation (2026-10-05): `origin/main` `6e9449551d5cd28b7f6a42a869e2e071b5e9f479` (PR #323, D-1 Phase J CLOSED/ACCEPTED) merged normally at `b2ca74ae`, no rebase or force-push. No source conflicts; the single `idea1-status.md` conflict was reconciled by keeping main's D-1 truth and this task's truth and dropping a stale superseded Current Task heading. The feature diff against main remains the eight paths below plus this receipt and the IDEA1 status note; D-1 source and deployment files are identical to main.
 - Human approved exactly one read-only Trash preview GET route. It requires authenticated session, unlocked Trash, owner-scoped currently-trashed non-Vault lookup, then reuses the live Files preview-serving policy. MIME allowlist, signature validation, bounded Range streaming, response hardening, and normal live-file preview behavior remain the same.
 - Left-click selects a Trash item and opens a right-side desktop preview/details pane. Another selection replaces it; close, lock, authorization expiry, failed listing, or removal clears it. Narrow viewports use the existing accessible modal. Supported image/video/audio/text types use the shared Files renderer; unsupported types show an icon and metadata fallback.
 - Restore, permanent-delete, and right-click behavior were not changed. Selecting or previewing does not restore, delete, move, create derivatives, modify bytes/metadata, or alter the purge timer. No D-1 preview-index or Production path was touched.
@@ -39,10 +40,11 @@ edit_policy: append-by-new-file
 - `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs tests/coreEntryGovernanceR4.test.mjs` — PASS, 61/61.
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — PASS, with two pre-existing Canvas owner-review warnings.
 - `git diff --cached --check` — PASS before the implementation checkpoint. Changed-content secret scan — 0 hits.
+- Post-D-1 re-verification on merge `b2ca74ae` (Windows Node 24.14.0): same focused matrix — PASS, 112 total / 110 pass / 0 fail / 2 PostgreSQL-only skip; `npm run build` — PASS with the existing >500 kB chunk warning, tracked `dist/index.html` restored; governance — PASS, 61/61; `validate-vault.mjs` — PASS with the two pre-existing Canvas warnings; `git diff --check origin/main...HEAD` — PASS; added-line secret scan — 0 credentials (hits were test-only fixtures and identifier names); collaboration policy validated locally against the updated PR body before Ready.
 
 ## Canonical notes updated
 
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — parallel Trash task state, branch/PR, exact checkpoint, local evidence, limitations, and Human review gate. Existing D-1 task history was preserved.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — Trash task state, branch/PR, exact checkpoints, post-D-1 re-verification (TP-S2), limitations, and Human review gate. Main's D-1 Phase J CLOSED/ACCEPTED record was preserved and its heading moved to Closed after the PR #323 merge.
 
 ## Shared surfaces touched
 
@@ -50,11 +52,11 @@ edit_policy: append-by-new-file
 
 ## Integration requests
 
-- Kla functional-owner security/UI review and Human browser acceptance on Draft PR #319. Human decides Ready/merge. A later controlled deployment is separately authorized; no Production mutation occurred here. Rollback is PR revert; no migration or configuration change is needed.
+- Kla functional-owner security/UI review and merge of PR #319 (marked Ready after post-D-1 verification). Human browser acceptance remains a separate gate. A later controlled deployment is separately authorized; no Production mutation occurred here. Rollback is PR revert; no migration or configuration change is needed.
 
 ## Known limitations
 
 - `TEST_DATABASE_URL` was absent in this worktree. The existing live-Vault and new Trash-Vault direct-row PostgreSQL tests skipped; the owner/non-enumeration and non-Vault policy paths passed in Memory.
 - No actual browser visual acceptance, Production deployment, Production writer enablement, or PR merge was performed. Source/local test evidence is not Production evidence.
 - `npm ci --ignore-scripts` reported 8 existing dependency advisories (5 moderate, 3 high); dependency versions were not changed.
-- This task ends as partial pending Human UI review; the single receipt records local source completion without claiming external acceptance.
+- Repository work is complete; Human UI review, browser acceptance, deployment, and Production acceptance are not claimed. This single receipt was updated in place as the same unmerged task's receipt (AGENTS.md §9).

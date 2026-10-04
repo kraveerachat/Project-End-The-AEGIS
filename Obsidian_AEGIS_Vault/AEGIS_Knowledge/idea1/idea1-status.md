@@ -15,25 +15,26 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-TRASH-PREVIEW-PANE (parallel to D-1 PR-E)
+## Current Task — IDEA1-TRASH-PREVIEW-PANE (post-D-1 reactivation)
 
 | Field | Current value |
 |---|---|
 | Task | IDEA1 Trash right-side preview/details pane and one Human-approved read-only Trash preview GET route |
-| Branch | `feat/idea1-trash-preview-pane` from `origin/main` `27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf` |
+| Branch | `feat/idea1-trash-preview-pane` from `origin/main` `27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf`; post-D-1 `origin/main` `6e9449551d5cd28b7f6a42a869e2e071b5e9f479` (PR #323 merge) merged normally at `b2ca74ae` — no source conflicts; one status-note conflict reconciled |
 | Owner | kla |
-| PR | #319 (Draft; no merge) |
-| State | **SOURCE IMPLEMENTED / LOCAL VERIFIED / HUMAN UI REVIEW PENDING**. No Production deployment or browser acceptance claimed. |
-| Production mutation allowed | **NO** |
-| Scope | IDEA1 Trash UI, shared Normal Files preview renderer extraction, and one read-only `GET /api/trash/:id/preview`. No D-1 preview-index, deployment, Restore/delete semantics, right-click, or Production change. |
+| PR | #319 — Ready for Human review/merge after post-D-1 verification (agent does not merge) |
+| State | **SOURCE IMPLEMENTED / LOCAL VERIFIED ON POST-D-1 MAIN / AWAITING HUMAN REVIEW AND MERGE**. No browser acceptance, Production deployment, or Production acceptance claimed. |
+| Production mutation allowed | **NO** — any later deployment is a separate Human authorization. |
+| Scope | IDEA1 Trash UI, shared Normal Files preview renderer extraction, and one read-only `GET /api/trash/:id/preview`. No D-1 preview-index, deployment, Restore/delete semantics, right-click, or Production change; D-1 source and deployment files are identical to `origin/main`. |
 | Acceptance | Left-click selection and right pane; narrow-screen modal; image/video/audio/text through the existing preview policy; unsupported fallback; owner + unlock + current-Trash gates; no selecting/previewing mutation; Human UI review. |
-| Next | Kla reviews PR #319 UI/security behavior and decides Ready/merge. PR #310 remains independently owned and untouched by this branch. |
+| Next | Kla reviews PR #319 UI/security behavior and merges; Human browser acceptance and any deployment are separate later gates. |
 
 ### Session Register — IDEA1-TRASH-PREVIEW-PANE
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | TP-S1 | Isolated implementation, route and UI regressions, Draft PR, documentation closeout | PASS (local) | Focused matrix 112 total / 110 pass / 0 fail / 2 PostgreSQL-only skip; build PASS with pre-existing chunk-size warning; governance 61/61 and vault validation PASS; PR #319 policy CI SUCCESS after two PR-body-format failures were corrected; related Files UI 33/33; `i18nCopyAudit` 6/7 with pre-existing `vaultKeyConfirmLabel` missing in TH/ZH on base | `7fe26a271f087c41ea71c84508490ca75ae274df` | Source and local tests verified; Draft PR #319 | PostgreSQL-specific legacy Vault-row test, human browser/visual acceptance, Production deployment (not authorized) | Human UI review |
+| TP-S2 | Post-D-1 reactivation: normal merge of `origin/main` `6e944955`, re-verification, receipt/status/PR body refresh, Ready for review | PASS (local) | Feature diff vs main limited to the 8 Trash/shared-preview code/test paths + receipt + this note; D-1 files untouched; focused matrix 112 / 110 pass / 0 fail / 2 PostgreSQL-only skip; build PASS (pre-existing chunk-size warning, tracked `dist` restored); governance 61/61; vault validation PASS (2 pre-existing canvas warnings); `git diff --check` PASS; added-line secret scan 0 credentials | merge `b2ca74ae` + docs checkpoint | Verified on post-D-1 main; PR #319 Ready | Same PostgreSQL-only skips, Human browser acceptance, deployment (not authorized) | Human review/merge |
 
 The Trash GET route shares the existing Files MIME allowlist, signature validation, bounded Range streaming, inert headers, and Vault refusal. It first requires authentication, an unlocked Trash session, and the owner-scoped currently-trashed lookup. It never restores, deletes, moves, generates a derivative, or changes the purge timer. Normal live-file preview behavior remains unchanged. Selection is cleared on lock, expired authorization, failed listing, item removal, and explicit close.
 
