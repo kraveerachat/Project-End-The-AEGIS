@@ -159,14 +159,18 @@ rollback_flow() { trap - ERR INT TERM; [ "$ROLLED_BACK" = 0 ] || return 0; ROLLE
   out=$(handler rollback.sh 2>&1) || { printf '%s\n' "$out"; echo "F1U_ROLLBACK=FAIL (owner decision) — ESCALATE; do NOT retry; do NOT command the detector; inspect $EVID"; exit 3; }
   printf '%s\n' "$out"
   f1u_rollback_output_gate "$out" || { echo "F1U_ROLLBACK_SEMANTICS=FAIL — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
+  rb_class=EXACT_PROCESS
+  if grep -qx 'F1U_ROLLBACK=PASS' <<< "$out"; then rb_class=$(f1u_rollback_class "$out") || { echo "F1U_ROLLBACK_CLASS=FAIL — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }; fi
+  echo "F1U_ROLLBACK_CLASS=$rb_class (EXACT_PROCESS is the only exact PRE restoration; SAFE_EQUIVALENT is a machine-proven Core-equivalent release, not the PRE process image)"
   { ! sudo test -e "$NEW_RELEASE_PATH" && [ "$(sudo readlink /opt/aegis-idea3/current)" = "$OLD_RELEASE_PATH" ]; } \
     || { echo "F1U_ROLLBACK_STATE=FAIL (the NEW release is still present or current is not the OLD target) — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
   l7u_core_running_gate "$CORE_UNIT" || { echo "F1U_ROLLBACK_CORE=FAIL (the Core is not active/running) — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
   f1u_detector_running_gate || { echo "F1U_ROLLBACK_DETECTOR=FAIL (the detector is not healthy after the rollback; it is NOT repaired automatically) — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
   capture RB "$EVID/rb-root" || { echo "RB capture FAILED — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
   own_pre "$EVID/rb-root"
+  f1u_runtime_transition_gate "$PRE" "$EVID/rb-root" "$rb_class" "$OLD_RELEASE_PATH" || { echo "F1U_RB_RUNTIME_TRANSITION=FAIL — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
   compare "$PRE" "$EVID/rb-root" "$EVID/compare-pre-rb.txt" "$STG/allow-keys-rollback.txt" && s10_unchanged || { echo "PRE_RB_COMPARE=FAIL — ESCALATE; do NOT retry"; exit 3; }
-  echo "PRE_RB_COMPARE=PASS (zero drift except the Core's restart-volatile identity). F1U_PRODUCTION_DEPLOYED=NO (rolled back). NOT retrying. Authorization is consumed."; exit 1; }
+  echo "PRE_RB_COMPARE=PASS (class $rb_class; only the Core/detector process identity and, for SAFE_EQUIVALENT, the proven running-release transition differ). F1U_PRODUCTION_DEPLOYED=NO (rolled back). NOT retrying. Authorization is consumed."; exit 1; }
 fail_after_attempt() { [ "$ATTEMPTED" = 1 ] && rollback_flow "$1" || { echo "STOP before the attempt was consumed: $1"; exit 1; }; }
 trap 'fail_after_attempt "unexpected error at line $LINENO"' ERR
 trap 'fail_after_attempt "interrupted"' INT TERM
@@ -199,6 +203,7 @@ sudo cat "$WORK/f1u-journal.json" > "$EVID/f1u-journal.json" 2>/dev/null || true
 TREE_DIGEST=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1]))["release_tree_digest"])' "$EVID/f1u-journal.json" 2>/dev/null) || rollback_flow "the journaled release tree digest is unreadable"
 echo "== POST capture"; capture POST "$EVID/post-root" || rollback_flow "POST capture failed"
 own_pre "$EVID/post-root"
+f1u_core_runtime_gate "$PRE" "$EVID/post-root" "$NEW_RELEASE_PATH" || rollback_flow "the captured running Core/detector release is not the NEW release (the pointer alone proves nothing)"
 f1u_current_transition_gate "$PRE" "$EVID/post-root" "$OLD_RELEASE_PATH" "$NEW_RELEASE_PATH" || rollback_flow "the captured current-target transition is not exactly OLD -> NEW"
 f1u_catalog_transition_gate "$PRE" "$EVID/post-root" "$NEW_RELEASE_ID" "$TREE_DIGEST" || rollback_flow "the captured release catalog is not exactly PRE plus the one journaled release"
 echo "== PRE -> POST compare (approved drift: the exact current key, the Core MainPID/start timestamp, the one-release catalog addition; every other captured record — core.env, credentials, units, sockets, listeners — must be unchanged)"

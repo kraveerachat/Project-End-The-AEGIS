@@ -824,6 +824,31 @@ else
     p4_rec "$HOST" "host.aegis_idea3.recovery.core.$key" UNAVAILABLE
   done
 fi
+# F1u: the RUNNING process's release identity (the cwd systemd resolved from WorkingDirectory when it started), so a Core or detector runtime change can never be invisible to the comparator and
+# `current` is never mistaken for the running release. Non-secret. A live unreadable cwd is a genuine gap (PARTIAL); a bare TEST fixture root has no /proc.
+runtime_cwd_record() { # KEY UNIT
+  local key=$1 unit=$2 pid cwd
+  if run_ro 0 - systemctl show -p MainPID "$unit"; then
+    pid=$(printf '%s\n' "$P4_OUT" | sed -n 's/^MainPID=//p' | head -n 1)
+  else
+    p4_rec "$HOST" "$key" UNAVAILABLE
+    return 0
+  fi
+  if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+    if [ -n "$P4_FS_ROOT" ]; then
+      p4_rec "$HOST" "$key" none
+    elif cwd=$(p4_ro readlink -- "/proc/$pid/cwd" 2>/dev/null) && [ -n "$cwd" ]; then
+      p4_rec "$HOST" "$key" "$cwd"
+    else
+      p4_rec "$HOST" "$key" UNREADABLE
+      partial=1
+    fi
+  else
+    p4_rec "$HOST" "$key" none
+  fi
+}
+runtime_cwd_record host.aegis_idea3.recovery.core.runtime_cwd aegis-idea3-core.service
+runtime_cwd_record host.aegis_idea3.alert.detector.runtime_cwd aegis-idea3-detector.service
 while IFS= read -r f; do
   [ -n "$f" ] && rec_file "$HOST" host.unit_file "$f"
 done < <(tree_files /etc/systemd/system/aegis-idea3-core.service.d)

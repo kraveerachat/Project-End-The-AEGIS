@@ -18,6 +18,14 @@ SAME reviewed unit bytes, the SAME pinned production_detector.py bytes, disabled
 is NOT lifecycle evidence (``Restart=no``): it is only a no-restart-loop sanity value. Anything else (detector absent, wrong bytes, a second process, an unexplained identity) FAILS CLOSED and is never
 repaired by F1u. Before the restart (and in a rollback that never reached it) the detector D1 must be exactly untouched.
 
+RUNNING-CORE RUNTIME (review round 2). ``current`` is NOT the running Core: before F1u the Core process runs an older release than ``current`` points to. The PRE running-Core release (its cwd) is
+therefore recorded explicitly (journal and L0 capture), never inferred from ``current``. A rollback restart lands the Core on the OLD ``current`` release, which is NOT the PRE running release, so the
+rollback class is stated honestly: ``EXACT_PROCESS`` (the Core was never restarted), ``EXACT_RELEASE`` (restarted onto the very same release) or ``SAFE_EQUIVALENT`` (a different release that is
+MACHINE-PROVEN Core-equivalent: both pass the release guard; python version, requirements digest and file set identical; every payload digest identical except the manifest identity and
+``aegis_soc/production_detector.py``; and no other module references the detector). Preflight REFUSES (nothing mutated) when no such proof exists. Never "exact PRE restoration" unless it is.
+Before ANY rollback Core restart the detector authority (loaded unit path, no drop-in, unit digest, disabled, ``Restart=no``, one process, pinned source bytes when active) is re-proved: a foreign
+detector must never be cycled by the rollback's own restart.
+
 Ownership: a journal in the attempt's private work directory records every owned step BEFORE it happens (installing, switching, restarting). Rollback acts only on that journal: before the restart it
 restores ``current`` and removes ONLY the release this attempt installed (D1 untouched); after the restart was issued it restores ``current`` NEW -> OLD, restarts the Core at most once more (the
 same plain argv, so the detector cycles AGAIN as the dependency consequence: D1 -> D2 -> D3 is acceptable only because every cycle is explained by an owned Core restart), proves the OLD runtime, and
@@ -88,6 +96,12 @@ DETECTOR_PROPS = ("LoadState", "ActiveState", "SubState", "UnitFileState", "Rest
                   "ActiveEnterTimestamp", "InvocationID", "FragmentPath", "DropInPaths")
 CORE_HEALTHY = {"LoadState": "loaded", "ActiveState": "active", "SubState": "running", "UnitFileState": "enabled", "Result": "success"}
 SHA256_RE = re.compile(r"[0-9a-f]{64}", re.ASCII)
+SUMS_LINE_RE = re.compile(r"([0-9a-f]{64})  (\S.*)", re.ASCII)
+#: The ONLY payload entries that may differ between the PRE running-Core release and the rollback target for the rollback to be SAFE_EQUIVALENT for the Core.
+EQUIVALENCE_ALLOWED_DIFF = ("RELEASE-MANIFEST.json", DETECTOR_REL)
+MANIFEST_IDENTITY_FIELDS = ("release_id", "source_git_sha")
+MANIFEST_NAME = "RELEASE-MANIFEST.json"
+SUMS_NAME = "RELEASE-SHA256SUMS"
 ENV_UID_RE = re.compile(rf"^{ALERT_UID_KEY}=([1-9][0-9]{{0,9}})$", re.MULTILINE)
 
 # Journal phases and what they MEAN for rollback (ownership is a strict state boundary):
@@ -409,6 +423,71 @@ def check_old_release(host, pins: Pins) -> None:
         refuse("OLD_RELEASE_DETECTOR_SHA256_MISMATCH")  # the running detector's release carries exactly the reviewed bytes; the NEW one must be byte-identical (pinned above)
 
 
+def _release_sums(host, path: str) -> dict[str, str]:
+    sums: dict[str, str] = {}
+    for line in host.read_bytes(f"{path}/{SUMS_NAME}").decode("utf-8", "replace").splitlines():
+        match = SUMS_LINE_RE.fullmatch(line)
+        if match is None or match.group(2) in sums:
+            refuse("CORE_RUNTIME_NOT_EQUIVALENT:SUMS_MALFORMED")
+        sums[match.group(2)] = match.group(1)
+    return sums
+
+
+def core_runtime_equivalence(host, pre_path: str, target_path: str) -> list[str]:
+    """MACHINE proof that ``target_path`` is a Core-equivalent rollback target for the PRE running-Core release ``pre_path``. Both pass the existing release guard (root-owned; RELEASE-SHA256SUMS matches
+    every file), so the sums are trustworthy. Then: same schema/python version/requirements digest/file count; identical file set; every payload digest identical (venv, interpreter, every ``aegis_soc``
+    module, requirements) EXCEPT the manifest and the detector entrypoint; the manifest differs only in its identity fields; and no other module references the detector. Returns the differing entries."""
+    for path in (pre_path, target_path):
+        if os.path.dirname(path) != RELEASES_DIR or not F1R.RELEASE_ID_RE.fullmatch(os.path.basename(path)):
+            refuse("CORE_RUNTIME_NOT_EQUIVALENT:RELEASE_PATH_INVALID")
+        try:
+            host.release_guard(path, path)
+        except Refusal as exc:
+            refuse(f"CORE_RUNTIME_NOT_EQUIVALENT:RELEASE_INVALID:{exc}")
+    try:
+        pre_manifest = json.loads(host.read_bytes(f"{pre_path}/{MANIFEST_NAME}"))
+        target_manifest = json.loads(host.read_bytes(f"{target_path}/{MANIFEST_NAME}"))
+    except (OSError, ValueError):
+        refuse("CORE_RUNTIME_NOT_EQUIVALENT:MANIFEST_UNREADABLE")
+    if not isinstance(pre_manifest, dict) or not isinstance(target_manifest, dict):
+        refuse("CORE_RUNTIME_NOT_EQUIVALENT:MANIFEST_UNREADABLE")
+    for field in sorted(set(pre_manifest) | set(target_manifest)):
+        if field not in MANIFEST_IDENTITY_FIELDS and pre_manifest.get(field) != target_manifest.get(field):
+            refuse(f"CORE_RUNTIME_NOT_EQUIVALENT:MANIFEST_{field}")
+    pre_sums, target_sums = _release_sums(host, pre_path), _release_sums(host, target_path)
+    if set(pre_sums) != set(target_sums):
+        refuse("CORE_RUNTIME_NOT_EQUIVALENT:FILE_SET")
+    differing = sorted(rel for rel in pre_sums if pre_sums[rel] != target_sums[rel])
+    for rel in differing:
+        if rel not in EQUIVALENCE_ALLOWED_DIFF:
+            refuse(f"CORE_RUNTIME_NOT_EQUIVALENT:FILE_DIFFERS:{rel}")
+    for rel in sorted(target_sums):
+        if rel.startswith("aegis_soc/") and rel.endswith(".py") and rel != DETECTOR_REL and b"production_detector" in host.read_bytes(f"{target_path}/{rel}"):
+            refuse("CORE_RUNTIME_NOT_EQUIVALENT:DETECTOR_MODULE_REFERENCED")  # the one differing module must be unreachable from any other module
+    return differing
+
+
+def detector_rollback_authority(state: dict, pins: Pins) -> None:
+    """Re-prove the detector's unit/source authority BEFORE a rollback Core restart (that restart would cycle the detector through ``Requires=``): the loaded unit is the reviewed one (path, no drop-in,
+    digest, disabled, ``Restart=no``); when active it is exactly one process running the pinned source bytes; when it is not active no process may exist. A foreign state refuses; an inactive detector
+    is permitted (the rollback restart never starts it: the post-check then escalates)."""
+    if state["LoadState"] != "loaded":
+        refuse("DETECTOR_AUTHORITY_FOREIGN:UNIT_NOT_LOADED")
+    if state["FragmentPath"] != DETECTOR_UNIT_PATH or state["DropInPaths"].strip():
+        refuse("DETECTOR_AUTHORITY_FOREIGN:UNIT_PATH_OR_DROPIN")
+    if state["unit_sha256"] != pins.unit_sha:
+        refuse("DETECTOR_AUTHORITY_FOREIGN:UNIT_SHA256")
+    if state["UnitFileState"] != "disabled" or state["Restart"] != "no":
+        refuse("DETECTOR_AUTHORITY_FOREIGN:UNIT_CONTRACT")
+    if state["ActiveState"] == "active":
+        try:
+            detector_invariants(state, pins)
+        except Refusal as exc:
+            refuse(f"DETECTOR_AUTHORITY_FOREIGN:{exc}")
+    elif state["processes"]:
+        refuse("DETECTOR_AUTHORITY_FOREIGN:PROCESS_WITHOUT_ACTIVE_UNIT")
+
+
 def alert_uid_contract(host, core_pid: int) -> None:
     """core.env carries exactly one AEGIS_ALERT_SOURCE_UID, it is the dedicated detector account's uid (never root or the Core account), and the RUNNING Core carries the same value."""
     match = ENV_UID_RE.findall(host.read_bytes(CORE_ENV).decode("utf-8", "replace"))
@@ -502,10 +581,19 @@ def preflight(host, backend, pins: Pins) -> dict:
         refuse("SWITCH_TEMP_EXISTS")
     check_source_release(host, pins)
     core = check_core_pre(host, backend, pins)
+    pre_release = core["cwd"]  # the RUNNING Core's release: recorded explicitly, never inferred from `current`
+    rollback_class, differing = "EXACT_RELEASE", []
+    if pre_release != release_path(pins.old_id):
+        try:
+            differing = core_runtime_equivalence(host, pre_release, release_path(pins.old_id))
+        except Refusal as exc:
+            refuse(f"ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT:{exc}")  # no proven Core-equivalent rollback target: nothing is mutated
+        rollback_class = "SAFE_EQUIVALENT"
     detector = detector_state(host, backend)
     check_detector_pre(detector, pins)
     check_surfaces(host, int(core["MainPID"]))
-    return {"old_target": old_target, "new_target": release_path(pins.new_id), "core": core, "detector": detector, "material": F1I.material_metadata(host)}
+    return {"old_target": old_target, "new_target": release_path(pins.new_id), "core": core, "detector": detector, "material": F1I.material_metadata(host),
+            "core_pre_release": pre_release, "rollback_class": rollback_class, "equivalence_differing": differing}
 
 
 # ── apply ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -685,6 +773,13 @@ def rollback(work: Path, host, backend) -> dict[str, str]:
             if journal.get("rollback_restart_invoked"):
                 refuse("ROLLBACK_RESTART_ALREADY_INVOKED")  # no retry
             detector_prior = detector_state(host, backend)
+            # BEFORE the restart (which would cycle the detector through Requires=): the detector authority must be the reviewed one, and the rollback target must STILL be proven Core-equivalent
+            detector_rollback_authority(detector_prior, pins)
+            if journal["rollback_class"] == "SAFE_EQUIVALENT":
+                try:
+                    core_runtime_equivalence(host, journal["core_pre_release"], old_path)
+                except Refusal as exc:
+                    refuse(f"ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT:{exc}")
             journal["rollback_restart_invoked"] = True
             write_journal(work, journal)  # BEFORE the restart
             if backend.systemctl(*RESTART_ARGS).rc != 0:
@@ -746,7 +841,20 @@ def rollback(work: Path, host, backend) -> dict[str, str]:
         refuse(f"DETECTOR_DRIFT_DURING_ROLLBACK:{exc}")
     if F1I.material_metadata(host) != journal["material"]:
         refuse("MATERIAL_METADATA_DRIFT")
-    return {"F1U_ROLLBACK": "PASS", "CURRENT_TARGET": old_target, "NEW_RELEASE_ABSENT": "YES" if not host.lexists(new_path) else "NO", "CORE_RESTARTED_FOR_ROLLBACK": "YES" if restarted else "NO",
+    # the honest class of what was restored (never "exact PRE restoration" unless the Core process itself was never replaced)
+    if unchanged and final["MainPID"] == pre["MainPID"]:
+        rollback_class = "EXACT_PROCESS"
+    elif final["cwd"] == journal["core_pre_release"]:
+        rollback_class = "EXACT_RELEASE"
+    else:
+        try:
+            core_runtime_equivalence(host, journal["core_pre_release"], final["cwd"] or "")
+        except Refusal as exc:
+            refuse(f"ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT:{exc}")
+        rollback_class = "SAFE_EQUIVALENT"
+    return {"F1U_ROLLBACK": "PASS", "F1U_ROLLBACK_CLASS": rollback_class, "F1U_ROLLBACK_EXACT_PRE_RESTORATION": "YES" if rollback_class == "EXACT_PROCESS" else "NO",
+            "CORE_RUNTIME_EQUIVALENCE": "PROVEN" if rollback_class == "SAFE_EQUIVALENT" else "NOT_APPLICABLE", "CORE_PRE_RELEASE": journal["core_pre_release"], "CORE_FINAL_RELEASE": final["cwd"],
+            "CURRENT_TARGET": old_target, "NEW_RELEASE_ABSENT": "YES" if not host.lexists(new_path) else "NO", "CORE_RESTARTED_FOR_ROLLBACK": "YES" if restarted else "NO",
             "DETECTOR_HEALTHY_AND_UNCHANGED_IN_CODE_AND_UNIT": "YES", "DETECTOR_CYCLED_AGAIN_BY_ROLLBACK_RESTART": "YES" if restarted else "NO"}
 
 

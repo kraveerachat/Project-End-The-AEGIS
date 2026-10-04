@@ -350,7 +350,7 @@ SHARED_PINS = {
     "p4-lib.sh": "3e34d93eeeca5d0e78cf99905ea913e45bfd2209cac36e0e3eaff20b7989b9bf",
     # re-pinned by the SAFE_STOPPED governed-successor task (2026-10-03): ONE additive, task-specific catalog DNSMASQ_SAFE_STOPPED_POST; no existing catalog changed
     "p4-compare.sh": "c71350cac6447a72fafc934691c1870fe159758a82a4daf20e5d070d14a5e464",
-    "p4-l0-capture.sh": "f7ca660871b65e98bc1d878cd989ddf9957a5c83f5d77955ef78039c03170682",
+    "p4-l0-capture.sh": "e5d82dc5959dbcd1aa13ca0d58aa15ed5375a77e918be9a1ec2a8a2ac740a61b",
     "p4-ap-network.py": "45d2a87a0d7c2c563154466f63cc9994f02dc841ccb0c89832d6001b005f71ef",
     "stages/L4/apply.sh": "c31a7471a0d81514c716d6db670197ea45a6940fbbae84a7f5801485720ed58e",
     "../network/aegis-idea3-dnsmasq.service.example": "bd727bbeb63edce4c2e4082fa7753b55cf4b941c3f0bbd1b291a477a8a0766b6",

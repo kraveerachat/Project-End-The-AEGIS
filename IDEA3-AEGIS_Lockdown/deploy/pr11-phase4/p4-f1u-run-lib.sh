@@ -172,7 +172,48 @@ f1u_catalog_transition_gate() {
   f1i_catalog_transition_gate "$@" 2> >(sed 's/^F1I_/F1U_/' >&2)
 }
 
-# f1u_rollback_output_gate OUTPUT — rollback printed exactly one of its fixed success lines.
+F1U_CORE_CWD_KEY="host.aegis_idea3.recovery.core.runtime_cwd"
+F1U_DETECTOR_CWD_KEY="host.aegis_idea3.alert.detector.runtime_cwd"
+_f1u_record() { awk -F'\t' -v k="$2" '$1 == k { print $2 }' "$1/host.tsv" 2>/dev/null; }
+_f1u_real_path() { [[ "${1:-}" =~ ^/opt/aegis-idea3/releases/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; }
+
+# f1u_core_runtime_gate PRE_DIR POST_DIR NEW_PATH — the CAPTURED running-process identity: the PRE Core and PRE detector run from a real release that is NOT the NEW one, and after apply BOTH run from exactly
+# NEW_PATH. `current` is never read here: the pointer proves nothing about the running release.
+f1u_core_runtime_gate() {
+  local pre=${1:-} post=${2:-} new=${3:-} a b c d
+  a=$(_f1u_record "$pre" "$F1U_CORE_CWD_KEY"); b=$(_f1u_record "$post" "$F1U_CORE_CWD_KEY")
+  c=$(_f1u_record "$pre" "$F1U_DETECTOR_CWD_KEY"); d=$(_f1u_record "$post" "$F1U_DETECTOR_CWD_KEY")
+  { _f1u_real_path "$a" && _f1u_real_path "$c" && [ "$a" != "$new" ] && [ "$c" != "$new" ] && [ "$b" = "$new" ] && [ "$d" = "$new" ]; } \
+    || { f1u_reason "F1U_RUNTIME_RELEASE_NOT_PROVEN (core pre='${a:-MISSING}' post='${b:-MISSING}', detector pre='${c:-MISSING}' post='${d:-MISSING}')"; return 1; }
+}
+
+# f1u_rollback_class OUTPUT — prints the rollback class a PASS output declared (EXACT_PROCESS | EXACT_RELEASE | SAFE_EQUIVALENT), consistent with its exactness claim; a PASS without one refuses.
+f1u_rollback_class() {
+  local out=${1:-} cls
+  cls=$(sed -n 's/^F1U_ROLLBACK_CLASS=//p' <<< "$out" | head -n 1)
+  case "$cls" in
+    EXACT_PROCESS) grep -qx 'F1U_ROLLBACK_EXACT_PRE_RESTORATION=YES' <<< "$out" && grep -qx 'CORE_RUNTIME_EQUIVALENCE=NOT_APPLICABLE' <<< "$out" || { f1u_reason "F1U_ROLLBACK_CLASS_INCONSISTENT"; return 1; } ;;
+    EXACT_RELEASE) grep -qx 'F1U_ROLLBACK_EXACT_PRE_RESTORATION=NO' <<< "$out" && grep -qx 'CORE_RUNTIME_EQUIVALENCE=NOT_APPLICABLE' <<< "$out" || { f1u_reason "F1U_ROLLBACK_CLASS_INCONSISTENT"; return 1; } ;;
+    SAFE_EQUIVALENT) grep -qx 'F1U_ROLLBACK_EXACT_PRE_RESTORATION=NO' <<< "$out" && grep -qx 'CORE_RUNTIME_EQUIVALENCE=PROVEN' <<< "$out" || { f1u_reason "F1U_ROLLBACK_CLASS_INCONSISTENT"; return 1; } ;;
+    *) f1u_reason "F1U_ROLLBACK_CLASS_MISSING"; return 1 ;;
+  esac
+  printf '%s\n' "$cls"
+}
+
+# f1u_runtime_transition_gate PRE_DIR RB_DIR CLASS OLD_PATH — after a rollback the CAPTURED Core release identity is exactly what the declared class says: EXACT_PROCESS / EXACT_RELEASE => identical to PRE;
+# SAFE_EQUIVALENT => PRE was a real release, RB is exactly OLD_PATH and they are different (an honest, never invisible, transition). Anything else fails.
+f1u_runtime_transition_gate() {
+  local pre=${1:-} rb=${2:-} cls=${3:-} old=${4:-} a b
+  a=$(_f1u_record "$pre" "$F1U_CORE_CWD_KEY"); b=$(_f1u_record "$rb" "$F1U_CORE_CWD_KEY")
+  _f1u_real_path "$a" && _f1u_real_path "$b" || { f1u_reason "F1U_RUNTIME_TRANSITION_NOT_PROVEN (pre='${a:-MISSING}' rb='${b:-MISSING}')"; return 1; }
+  case "$cls" in
+    EXACT_PROCESS | EXACT_RELEASE) [ "$a" = "$b" ] || { f1u_reason "F1U_RUNTIME_TRANSITION_NOT_EXACT ($cls but pre='$a' rb='$b')"; return 1; } ;;
+    SAFE_EQUIVALENT) { [ "$a" != "$b" ] && [ "$b" = "$old" ]; } || { f1u_reason "F1U_RUNTIME_TRANSITION_NOT_EXACT (SAFE_EQUIVALENT but pre='$a' rb='$b')"; return 1; } ;;
+    *) f1u_reason "F1U_RUNTIME_TRANSITION_CLASS_INVALID"; return 1 ;;
+  esac
+}
+
+# f1u_rollback_output_gate OUTPUT — rollback printed exactly one of its fixed success lines (a PASS additionally declares its class: see f1u_rollback_class).
 f1u_rollback_output_gate() {
   grep -qxE 'F1U_ROLLBACK=(PASS|NOTHING_OWNED|ALREADY_ROLLED_BACK)' <<< "${1:-}" || { f1u_reason "F1U_ROLLBACK_OUTPUT_UNEXPECTED"; return 1; }
 }

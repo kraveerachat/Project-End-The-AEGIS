@@ -251,6 +251,8 @@ class FakeHost(tool.F1uHost):
         self.ops: list[tuple[str, ...]] = []
         self.snapshots: list[bool] = []
         self.release(OLD_PATH, OLD, OLD)
+        self.release(RUNNING_PATH, RUNNING, RUNNING, det=b"# the OLDER detector that ships with the running-Core release\n")
+        self.guard[RUNNING_PATH] = (RUNNING, RUNNING)
         self.release(SOURCE_DIR, NEW, NEW_SRC)
         self.guard[OLD_PATH], self.guard[SOURCE_DIR] = (OLD, OLD), (NEW, NEW_SRC)
         for i, path in enumerate(sorted(p for p in self.files if p.startswith("/etc/aegis-idea3"))):
@@ -268,6 +270,9 @@ class FakeHost(tool.F1uHost):
         self.files[f"{root}/RELEASE-MANIFEST.json"] = manifest(rid, source, dirty)
         self.files[f"{root}/aegis_soc/production_detector.py"] = det
         self.files[f"{root}/aegis_soc/recovery_core.py"] = core
+        self.files[f"{root}/aegis_soc/supervisor.py"] = b"# supervisor (Core entrypoint) fixture\n"
+        self.files[f"{root}/requirements.txt"] = b"pinned==1\n"
+        self.files[f"{root}/venv/bin/python"] = b"#!interpreter fixture\n"
 
     def copy_release(self, src, dst):
         self.dirs.add(dst)
@@ -295,6 +300,10 @@ class FakeHost(tool.F1uHost):
         return path in self.dirs
 
     def read_bytes(self, path):
+        if path.endswith("/RELEASE-SHA256SUMS") and path not in self.files:  # derived from the CURRENT files, like the (guard-verified) real sums
+            root = path.rsplit("/", 1)[0]
+            rows = sorted((p[len(root) + 1:], hashlib.sha256(b).hexdigest()) for p, b in self.files.items() if p.startswith(root + "/"))
+            return "".join(f"{digest}  {rel}\n" for rel, digest in rows).encode()
         return self.files[path]
 
     def sha256_file(self, path):
@@ -1038,7 +1047,8 @@ def test_rollback_after_a_post_restart_failure_cycles_the_detector_again_d1_d2_d
     host.release(foreign, "7" * 40, "7" * 40)
     rb_backend = FakeBackend(world, host)
     out = rollback(host, world, work, rb_backend)
-    assert out == {"F1U_ROLLBACK": "PASS", "CURRENT_TARGET": OLD_PATH, "NEW_RELEASE_ABSENT": "YES", "CORE_RESTARTED_FOR_ROLLBACK": "YES",
+    assert out == {"F1U_ROLLBACK": "PASS", "F1U_ROLLBACK_CLASS": "SAFE_EQUIVALENT", "F1U_ROLLBACK_EXACT_PRE_RESTORATION": "NO", "CORE_RUNTIME_EQUIVALENCE": "PROVEN",
+                   "CORE_PRE_RELEASE": RUNNING_PATH, "CORE_FINAL_RELEASE": OLD_PATH, "CURRENT_TARGET": OLD_PATH, "NEW_RELEASE_ABSENT": "YES", "CORE_RESTARTED_FOR_ROLLBACK": "YES",
                    "DETECTOR_HEALTHY_AND_UNCHANGED_IN_CODE_AND_UNIT": "YES", "DETECTOR_CYCLED_AGAIN_BY_ROLLBACK_RESTART": "YES"}
     assert host.links[CURRENT] == OLD_PATH and world.core_cwd == OLD_PATH  # the Core is back on the OLD current release
     assert NEW_PATH not in host.dirs and OLD_PATH in host.dirs and f"{foreign}/RELEASE-MANIFEST.json" in host.files  # a foreign release is never touched
@@ -1213,14 +1223,60 @@ def test_an_unknown_journal_phase_fails_closed(tmp_path):
     assert refusal(rollback, host, world, work) == "JOURNAL_PHASE_UNKNOWN" and host.ops == ops
 
 
-def test_a_detector_that_is_wrong_after_the_rollback_restored_everything_is_escalated_not_repaired(tmp_path):
+def after_failed_apply(tmp_path):
+    """A failed apply AFTER the Core restart: the Core and the detector run from the NEW release (D2) and the rollback has not started."""
     host, backend, world, work = build(tmp_path)
-    after_restart(world, host, lambda h, w: h.files.__setitem__(UNIT_PATH, UNIT_BYTES + b"# edited\n"))
-    assert refusal(run_apply, host, backend, work) == "DETECTOR_UNIT_SHA256_MISMATCH"
+    world.drop_once.add(ALERT)
+    assert refusal(run_apply, host, backend, work) == "ALERT_SOCKET_MISSING"
+    assert world.restart_modes == ["plain"] and world.core_cwd == NEW_PATH
+    return host, world, work
+
+
+def foreign_detector_cases():
+    unit = lambda h, w: h.files.__setitem__(UNIT_PATH, UNIT_BYTES + b"# tampered\n")
+    return [
+        ("tampered detector unit", unit, "DETECTOR_AUTHORITY_FOREIGN:UNIT_SHA256"),
+        ("a new detector drop-in", lambda h, w: w.det.update(DropInPaths="/etc/systemd/system/aegis-idea3-detector.service.d/x.conf"), "DETECTOR_AUTHORITY_FOREIGN:UNIT_PATH_OR_DROPIN"),
+        ("the unit moved to another fragment path", lambda h, w: w.det.update(FragmentPath="/usr/lib/systemd/system/aegis-idea3-detector.service"), "DETECTOR_AUTHORITY_FOREIGN:UNIT_PATH_OR_DROPIN"),
+        ("wrong Restart=", lambda h, w: w.det.update(Restart="on-failure"), "DETECTOR_AUTHORITY_FOREIGN:UNIT_CONTRACT"),
+        ("detector enabled", lambda h, w: w.det.update(UnitFileState="enabled"), "DETECTOR_AUTHORITY_FOREIGN:UNIT_CONTRACT"),
+        ("detector unit no longer loaded", lambda h, w: w.det.update(LoadState="not-found"), "DETECTOR_AUTHORITY_FOREIGN:UNIT_NOT_LOADED"),
+        ("a duplicate standalone detector", lambda h, w: w.extra_detector_procs.append(4321), "DETECTOR_AUTHORITY_FOREIGN:DETECTOR_PROCESS_SET_UNEXPECTED"),
+        ("the active detector runs a wrong source digest", lambda h, w: h.files.__setitem__(f"{NEW_PATH}/aegis_soc/production_detector.py", DET_BYTES + b"# x"),
+         "DETECTOR_AUTHORITY_FOREIGN:DETECTOR_SOURCE_SHA256_MISMATCH"),
+        ("a detector process without an active unit", lambda h, w: (w.det.update(ActiveState="inactive", SubState="dead", MainPID="0"), w.extra_detector_procs.append(4321)),
+         "DETECTOR_AUTHORITY_FOREIGN:PROCESS_WITHOUT_ACTIVE_UNIT"),
+    ]
+
+
+@pytest.mark.parametrize("label,mutate,code", foreign_detector_cases(), ids=[c[0] for c in foreign_detector_cases()])
+def test_a_foreign_detector_authority_blocks_the_rollback_core_restart_before_it_can_cycle_it(tmp_path, label, mutate, code):
+    host, world, work = after_failed_apply(tmp_path)
+    mutate(host, world)
     rb = FakeBackend(world, host)
-    assert refusal(rollback, host, world, work, rb) == "DETECTOR_DRIFT_DURING_ROLLBACK:DETECTOR_UNIT_SHA256_MISMATCH"
-    assert host.links[CURRENT] == OLD_PATH and NEW_PATH not in host.dirs and world.core_cwd == OLD_PATH  # restored first, then escalated
-    assert not [c for c in rb.calls if c[0] != "show" and c != tool.RESTART_ARGS] and not [c for c in rb.calls if tool.DETECTOR_UNIT in c and c[0] != "show"]
+    assert refusal(rollback, host, world, work, rb) == code, label
+    assert rb.restarts == 0 and world.restart_modes == ["plain"]  # ZERO rollback Core restarts: the changed detector unit/source is never triggered
+    assert not [c for c in rb.calls if c[0] != "show"] and not [c for c in rb.calls if tool.DETECTOR_UNIT in c and c[0] != "show"]
+    assert NEW_PATH in host.dirs and world.core_cwd == NEW_PATH  # the release the Core still runs from is never removed
+    assert host.links[CURRENT] == OLD_PATH and journal(work)["phase"] == "restarted" and journal(work)["rollback_restart_invoked"] is False  # escalated; nothing was cycled or marked
+
+
+def test_an_inactive_detector_is_permitted_for_the_rollback_restart_which_never_starts_it_and_the_post_check_escalates(tmp_path):
+    host, world, work = after_failed_apply(tmp_path)
+    world.det.update(ActiveState="inactive", SubState="dead", MainPID="0", Result="success")  # the failed APPLY restart did not bring it back
+    rb = FakeBackend(world, host)
+    # documented behavior: the Core is restored (one restart, no detector command); systemd's try-restart does not start an inactive unit; the detector is then reported, never started by F1u
+    assert refusal(rollback, host, world, work, rb) == "DETECTOR_DRIFT_DURING_ROLLBACK:DETECTOR_NOT_RUNNING"
+    assert rb.restarts == 1 and world.core_cwd == OLD_PATH and host.links[CURRENT] == OLD_PATH and NEW_PATH not in host.dirs
+    assert world.det["ActiveState"] == "inactive" and not [c for c in rb.calls if tool.DETECTOR_UNIT in c and c[0] != "show"]
+
+
+def test_the_rollback_equivalence_is_re_proved_before_the_rollback_restart(tmp_path):
+    host, world, work = after_failed_apply(tmp_path)
+    host.files[f"{OLD_PATH}/aegis_soc/supervisor.py"] = b"# the rollback target changed since preflight\n"
+    rb = FakeBackend(world, host)
+    assert refusal(rollback, host, world, work, rb).startswith("ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT:CORE_RUNTIME_NOT_EQUIVALENT:FILE_DIFFERS:aegis_soc/supervisor.py")
+    assert rb.restarts == 0 and NEW_PATH in host.dirs
 
 
 def test_a_rollback_whose_detector_does_not_cycle_or_runs_the_wrong_release_is_escalated(tmp_path):
@@ -1254,6 +1310,109 @@ def test_the_rolled_back_core_runs_the_old_current_release_not_necessarily_the_p
     refusal(run_apply, host, backend, work)
     rollback(host, world, work)
     assert world.core_cwd == OLD_PATH  # documented limitation: the old PROCESS image cannot be recreated; the OLD current release is what a restart yields
+
+
+# ═══ running-Core runtime identity + SAFE_EQUIVALENT rollback proof (review round 2) ═══════════════════════════════════════════
+
+
+def test_the_pre_running_core_release_is_recorded_explicitly_and_never_inferred_from_current(tmp_path):
+    host, backend, _world, work = build(tmp_path)
+    run_apply(host, backend, work)
+    j = journal(work)
+    assert j["core_pre_release"] == RUNNING_PATH != OLD_PATH and j["core"]["cwd"] == RUNNING_PATH and j["old_target"] == OLD_PATH  # three DIFFERENT facts: running, current, detector
+    assert j["detector"]["cwd"] == OLD_PATH and j["rollback_class"] == "SAFE_EQUIVALENT"
+    assert j["equivalence_differing"] == ["RELEASE-MANIFEST.json", tool.DETECTOR_REL]  # exactly the two entries allowed to differ
+
+
+def test_a_pre_runtime_that_is_the_old_current_release_needs_no_equivalence_proof(tmp_path):
+    host, backend, world, work = build(tmp_path)
+    world.core_cwd = OLD_PATH
+    run_apply(host, backend, work)
+    assert journal(work)["rollback_class"] == "EXACT_RELEASE" and journal(work)["equivalence_differing"] == []
+
+
+def break_pre(h, rel, data=b"# changed in the PRE running release only\n"):
+    h.files[f"{RUNNING_PATH}/{rel}"] = data
+
+
+EQUIV_CASES = [
+    ("a Core entrypoint file differs", lambda h, w: break_pre(h, "aegis_soc/supervisor.py"), "FILE_DIFFERS:aegis_soc/supervisor.py"),
+    ("another aegis_soc module differs", lambda h, w: break_pre(h, "aegis_soc/recovery_core.py"), "FILE_DIFFERS:aegis_soc/recovery_core.py"),
+    ("requirements differ", lambda h, w: break_pre(h, "requirements.txt"), "FILE_DIFFERS:requirements.txt"),
+    ("a venv file differs", lambda h, w: break_pre(h, "venv/bin/python"), "FILE_DIFFERS:venv/bin/python"),
+    ("an extra file exists in the PRE release", lambda h, w: break_pre(h, "aegis_soc/extra.py"), "FILE_SET"),
+    ("a file is missing from the PRE release", lambda h, w: h.files.pop(f"{RUNNING_PATH}/requirements.txt"), "FILE_SET"),
+    ("python version differs", lambda h, w: h.files.__setitem__(f"{RUNNING_PATH}/RELEASE-MANIFEST.json", json.dumps({"release_id": RUNNING, "source_git_sha": RUNNING, "source_tree_dirty": False,
+                                                                                                                    "schema_version": 1, "python_version": "3.13"}).encode()), "MANIFEST_"),
+    ("the PRE release fails the release guard", lambda h, w: h.guard.__setitem__(RUNNING_PATH, "OWNER_INVALID"), "RELEASE_INVALID:RELEASE_GUARD:OWNER_INVALID"),
+    ("the PRE release does not exist", lambda h, w: (h.guard.pop(RUNNING_PATH), h.dirs.discard(RUNNING_PATH)), "RELEASE_INVALID:RELEASE_GUARD:RELEASE_MISSING"),
+    ("the Core imports the differing detector module (in both releases)", lambda h, w: [h.files.__setitem__(f"{r}/aegis_soc/supervisor.py", b"import production_detector\n") for r in (RUNNING_PATH, OLD_PATH)],
+     "DETECTOR_MODULE_REFERENCED"),
+    ("the PRE Core runs outside the releases directory", lambda h, w: setattr(w, "core_cwd", "/srv/elsewhere"), None),
+]
+
+
+@pytest.mark.parametrize("label,mutate,reason", EQUIV_CASES, ids=[c[0] for c in EQUIV_CASES])
+def test_no_machine_proof_of_core_equivalence_means_preflight_refuses_before_any_mutation(tmp_path, label, mutate, reason):
+    host, backend, world, work = build(tmp_path)
+    mutate(host, world)
+    code = refusal(run_apply, host, backend, work)
+    if reason is None:
+        assert code == "CORE_PRESTATE_RELEASE_UNEXPECTED"
+    else:
+        assert code.startswith("ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT:CORE_RUNTIME_NOT_EQUIVALENT:") and reason in code, (label, code)
+    assert_untouched(host, world, work)
+
+
+def test_the_equivalence_proof_tolerates_exactly_the_manifest_identity_and_the_detector_entrypoint():
+    host = FakeHost(World())
+    assert tool.core_runtime_equivalence(host, RUNNING_PATH, OLD_PATH) == ["RELEASE-MANIFEST.json", tool.DETECTOR_REL]
+    host.files[f"{RUNNING_PATH}/RELEASE-MANIFEST.json"] = json.dumps({"release_id": RUNNING, "source_git_sha": RUNNING, "source_tree_dirty": False, "schema_version": 1}).encode()
+    assert tool.core_runtime_equivalence(host, RUNNING_PATH, OLD_PATH)  # identity fields differ, nothing else does
+
+
+def test_the_rollback_class_is_declared_honestly_per_scenario(tmp_path):
+    # Core never restarted (pre-restart failure): the very same process
+    host, backend, world, work = build(tmp_path / "a")
+    world.restart_fails = True
+    refusal(run_apply, host, backend, work)
+    world.restart_fails = False
+    out = rollback(host, world, work)
+    assert out["F1U_ROLLBACK_CLASS"] == "EXACT_PROCESS" and out["F1U_ROLLBACK_EXACT_PRE_RESTORATION"] == "YES" and out["CORE_RUNTIME_EQUIVALENCE"] == "NOT_APPLICABLE"
+    assert out["CORE_PRE_RELEASE"] == RUNNING_PATH == out["CORE_FINAL_RELEASE"]
+    # restarted onto the very same release the PRE Core ran: exact release, new process
+    host, backend, world, work = build(tmp_path / "b")
+    world.core_cwd = OLD_PATH
+    world.drop_once.add(ALERT)
+    refusal(run_apply, host, backend, work)
+    out = rollback(host, world, work)
+    assert out["F1U_ROLLBACK_CLASS"] == "EXACT_RELEASE" and out["F1U_ROLLBACK_EXACT_PRE_RESTORATION"] == "NO" and out["CORE_RUNTIME_EQUIVALENCE"] == "NOT_APPLICABLE"
+    # restarted onto a different but machine-proven equivalent release: safe-equivalent, NEVER reported as exact
+    host, backend, world, work = build(tmp_path / "c")
+    world.drop_once.add(ALERT)
+    refusal(run_apply, host, backend, work)
+    out = rollback(host, world, work)
+    assert out["F1U_ROLLBACK_CLASS"] == "SAFE_EQUIVALENT" and out["F1U_ROLLBACK_EXACT_PRE_RESTORATION"] == "NO" and out["CORE_RUNTIME_EQUIVALENCE"] == "PROVEN"
+    assert out["CORE_PRE_RELEASE"] == RUNNING_PATH and out["CORE_FINAL_RELEASE"] == OLD_PATH and RUNNING_PATH != OLD_PATH
+
+
+def test_a_rollback_never_reports_exact_pre_restoration_unless_the_core_process_was_never_replaced(tmp_path):
+    for sub_dir, setup in (("a", lambda w: w.drop_once.add(ALERT)), ("b", lambda w: setattr(w, "restart_leaves_down", True))):
+        host, backend, world, work = build(tmp_path / sub_dir)
+        setup(world)
+        refusal(run_apply, host, backend, work)
+        try:
+            out = rollback(host, world, work)
+        except tool.Refusal:
+            continue  # escalated: nothing is reported as restored
+        assert out["F1U_ROLLBACK_EXACT_PRE_RESTORATION"] == "NO"
+
+
+def test_the_class_tokens_are_exactly_the_three_declared_ones():
+    text = TOOL_PATH.read_text()
+    for token in ("EXACT_PROCESS", "EXACT_RELEASE", "SAFE_EQUIVALENT"):
+        assert token in text
+    assert "ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT" in text and "EXACT_PRE_RESTORATION" in text
 
 
 # ═══ the CLI ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1442,10 +1601,10 @@ def test_the_allow_files_are_exactly_the_proven_owned_transitions_and_nothing_wi
 
     assert active("allow-listeners.txt") == []
     identity = ["svc.aegis-idea3-core.service.MainPID", "svc.aegis-idea3-core.service.ExecMainStartTimestamp", "svc.aegis-idea3-detector.service.MainPID",
-                "svc.aegis-idea3-detector.service.ExecMainStartTimestamp"]
+                "svc.aegis-idea3-detector.service.ExecMainStartTimestamp", "host.aegis_idea3.recovery.core.runtime_cwd", "host.aegis_idea3.alert.detector.runtime_cwd"]
     assert active("allow-keys.txt") == [CURRENT_KEY, *identity]
     assert active("allow-keys-rollback.txt") == identity
-    for forbidden in ("NRestarts", "UnitFileState", "unit_file", "Restart", "ActiveState", "SubState", "Result", "core.env", "credentials", "release_catalog", "alert", "recovery", "listener", "*"):
+    for forbidden in ("NRestarts", "UnitFileState", "unit_file", "Restart", "ActiveState", "SubState", "Result", "core.env", "credentials", "release_catalog", "alert.socket", "alert.runtime_dir", "alert.group", "recovery.socket", "recovery.runtime_dir", "recovery.group", "supplementary_groups", "dropin_paths", "process_groups", "listener", "*"):
         assert not any(forbidden in l for l in active("allow-keys.txt")), forbidden
 
 
@@ -1500,10 +1659,11 @@ def _cmp(pre: Path, post: Path, *, keys: Path | None = None, release_id: str | N
 
 
 DET = "svc.aegis-idea3-detector.service"
+CORE_CWD, DET_CWD = "host.aegis_idea3.recovery.core.runtime_cwd", "host.aegis_idea3.alert.detector.runtime_cwd"
 DETECTOR_PRE = {f"{DET}.LoadState": "loaded", f"{DET}.ActiveState": "active", f"{DET}.SubState": "running", f"{DET}.UnitFileState": "disabled", f"{DET}.NRestarts": "0", f"{DET}.Result": "success",
                 f"{DET}.MainPID": "5151", f"{DET}.ExecMainStartTimestamp": "D0",
-                "host.unit_file./etc/systemd/system/aegis-idea3-detector.service.sha256": "c" * 64}
-DETECTOR_POST_IDENTITY = {f"{DET}.MainPID": "7001", f"{DET}.ExecMainStartTimestamp": "D1"}  # the ONLY detector fields that legitimately change (the Requires= dependency cycle)
+                "host.unit_file./etc/systemd/system/aegis-idea3-detector.service.sha256": "c" * 64, CORE_CWD: RUNNING_PATH, DET_CWD: OLD_PATH}
+DETECTOR_POST_IDENTITY = {f"{DET}.MainPID": "7001", f"{DET}.ExecMainStartTimestamp": "D1", CORE_CWD: NEW_PATH, DET_CWD: NEW_PATH}  # the ONLY detector fields that legitimately change (the Requires= dependency cycle)
 PRE_SURFACES = {**DETECTOR_PRE, "host.aegis_idea3.alert.socket": "type=socket mode=620 uid=990 gid=981", "host.aegis_idea3.recovery.socket": "type=socket mode=660 uid=990 gid=980",
                 "host.aegis_idea3.alert.group.aegis-idea3-alert": "present gid=981 members=", "host.aegis_idea3.file./etc/aegis-idea3/core.env.meta": "mode=600 uid=0 gid=0 size=40 mtime=5"}
 
@@ -1577,7 +1737,7 @@ def test_a_new_listener_is_refused_by_the_empty_listener_allow_list(tmp_path, re
 def test_the_rollback_comparison_approves_only_the_core_restart_identity(tmp_path, real_capture):
     pre = _bundle_with(real_capture.evid, tmp_path / "pre", **{CATALOG_KEY: f"{CAT_A},{CAT_B}", CURRENT_KEY: OLD_PATH, CORE_PID: "100", CORE_TS: "T0", **PRE_SURFACES})
     rb_ok = _bundle_with(real_capture.evid, tmp_path / "rb", **{CATALOG_KEY: f"{CAT_A},{CAT_B}", CURRENT_KEY: OLD_PATH, CORE_PID: "300", CORE_TS: "T2", **PRE_SURFACES,
-                                                                f"{DET}.MainPID": "7002", f"{DET}.ExecMainStartTimestamp": "D2"})
+                                                                f"{DET}.MainPID": "7002", f"{DET}.ExecMainStartTimestamp": "D2", CORE_CWD: OLD_PATH, DET_CWD: OLD_PATH})
     keys = STAGE / "allow-keys-rollback.txt"
     ok = _cmp(pre, rb_ok, keys=keys, release_id=None)
     assert ok.returncode == 0 and "COMPARE_RESULT=PASS" in ok.stdout, ok.stdout
@@ -1585,7 +1745,7 @@ def test_the_rollback_comparison_approves_only_the_core_restart_identity(tmp_pat
                          ("core NRestarts", {CORE_PID.replace("MainPID", "NRestarts"): "1"}), ("detector unit bytes", {"host.unit_file./etc/systemd/system/aegis-idea3-detector.service.sha256": "e" * 64}),
                          ("detector enabled", {f"{DET}.UnitFileState": "enabled"}), ("detector down", {f"{DET}.ActiveState": "inactive"})):
         rb = _bundle_with(real_capture.evid, tmp_path / f"rb-{label.replace(' ', '-')}", **{CATALOG_KEY: f"{CAT_A},{CAT_B}", CURRENT_KEY: OLD_PATH, CORE_PID: "300", CORE_TS: "T2", **PRE_SURFACES,
-                                                                                              f"{DET}.MainPID": "7002", f"{DET}.ExecMainStartTimestamp": "D2", **extra})
+                                                                                              f"{DET}.MainPID": "7002", f"{DET}.ExecMainStartTimestamp": "D2", CORE_CWD: OLD_PATH, DET_CWD: OLD_PATH, **extra})
         bad = _cmp(pre, rb, keys=keys, release_id=None)
         assert bad.returncode == 1, label
 
@@ -1620,6 +1780,86 @@ def test_the_runner_gates_prove_the_exact_values_from_the_capture_records(tmp_pa
     removed = _bundle_with(real_capture.evid, tmp_path / "removed", **{CATALOG_KEY: f"{CAT_A},{CAT_NEW}"})
     assert catalog(pre, removed).returncode == 1
     assert catalog(pre, pre).returncode == 1  # no addition at all
+
+
+def test_the_l0_capture_records_the_running_core_and_detector_release_identity(real_capture):
+    rows = dict(line.split("\t", 1) for line in (real_capture.evid / "host.tsv").read_text().splitlines())
+    assert CORE_CWD in rows and DET_CWD in rows  # present in every capture (fixture root: no /proc, recorded as none)
+    capture = (DEPLOY / "p4-l0-capture.sh").read_text()
+    assert 'runtime_cwd_record host.aegis_idea3.recovery.core.runtime_cwd aegis-idea3-core.service' in capture
+    assert 'runtime_cwd_record host.aegis_idea3.alert.detector.runtime_cwd aegis-idea3-detector.service' in capture
+    assert 'p4_ro readlink -- "/proc/$pid/cwd"' in capture  # through the read-only command guard, never a shell-out
+
+
+def test_a_pre_to_rb_runtime_change_is_visible_to_the_comparator_and_never_reported_as_exact(tmp_path, real_capture):
+    pre = _bundle_with(real_capture.evid, tmp_path / "pre", **{CORE_CWD: RUNNING_PATH, DET_CWD: OLD_PATH, CORE_PID: "100", CORE_TS: "T0"})
+    rb = _bundle_with(real_capture.evid, tmp_path / "rb", **{CORE_CWD: OLD_PATH, DET_CWD: OLD_PATH, CORE_PID: "300", CORE_TS: "T2"})
+    empty = tmp_path / "empty.txt"
+    empty.write_text("")
+    hidden = _cmp(pre, rb, keys=empty, release_id=None)  # without the reviewed rollback allowance the runtime change is DRIFT (it is no longer an evidence blind spot)
+    assert hidden.returncode == 1 and CORE_CWD in hidden.stdout
+    approved = _cmp(pre, rb, keys=STAGE / "allow-keys-rollback.txt", release_id=None)
+    assert approved.returncode == 0  # approved by KEY only; the exact values are proven by the runner gate below
+    assert lib(f'f1u_runtime_transition_gate "{pre}" "{rb}" SAFE_EQUIVALENT "{OLD_PATH}"').returncode == 0
+    for cls in ("EXACT_PROCESS", "EXACT_RELEASE"):
+        r = lib(f'f1u_runtime_transition_gate "{pre}" "{rb}" {cls} "{OLD_PATH}"')
+        assert r.returncode == 1 and "F1U_RUNTIME_TRANSITION_NOT_EXACT" in r.stderr  # an exact class cannot hide a changed runtime
+
+
+def test_the_runtime_transition_gate_demands_real_values_and_the_exact_old_target(tmp_path, real_capture):
+    pre = _bundle_with(real_capture.evid, tmp_path / "pre", **{CORE_CWD: RUNNING_PATH})
+    same = _bundle_with(real_capture.evid, tmp_path / "same", **{CORE_CWD: RUNNING_PATH})
+    wrong = _bundle_with(real_capture.evid, tmp_path / "wrong", **{CORE_CWD: NEW_PATH})
+    other = _bundle_with(real_capture.evid, tmp_path / "other", **{CORE_CWD: f"{RELEASES}/{'9' * 40}"})
+    for bad in ("none", "UNREADABLE", "UNAVAILABLE", ""):
+        b = _bundle_with(real_capture.evid, tmp_path / f"bad{bad or 'empty'}", **{CORE_CWD: bad})
+        assert lib(f'f1u_runtime_transition_gate "{pre}" "{b}" EXACT_PROCESS "{OLD_PATH}"').returncode == 1
+        assert lib(f'f1u_runtime_transition_gate "{b}" "{same}" EXACT_PROCESS "{OLD_PATH}"').returncode == 1
+    assert lib(f'f1u_runtime_transition_gate "{pre}" "{same}" EXACT_PROCESS "{OLD_PATH}"').returncode == 0
+    assert lib(f'f1u_runtime_transition_gate "{pre}" "{same}" SAFE_EQUIVALENT "{OLD_PATH}"').returncode == 1  # SAFE_EQUIVALENT requires an actual, proven change to OLD
+    assert lib(f'f1u_runtime_transition_gate "{pre}" "{wrong}" SAFE_EQUIVALENT "{OLD_PATH}"').returncode == 1  # still on NEW
+    assert lib(f'f1u_runtime_transition_gate "{pre}" "{other}" SAFE_EQUIVALENT "{OLD_PATH}"').returncode == 1  # some other release
+    assert "CLASS_INVALID" in lib(f'f1u_runtime_transition_gate "{pre}" "{same}" WHATEVER "{OLD_PATH}"').stderr
+
+
+def test_the_forward_runtime_gate_proves_both_processes_run_from_the_new_release_not_the_pointer(tmp_path, real_capture):
+    pre = _bundle_with(real_capture.evid, tmp_path / "pre", **{CORE_CWD: RUNNING_PATH, DET_CWD: OLD_PATH, CURRENT_KEY: OLD_PATH})
+    good = _bundle_with(real_capture.evid, tmp_path / "good", **{CORE_CWD: NEW_PATH, DET_CWD: NEW_PATH, CURRENT_KEY: NEW_PATH})
+    pointer_only = _bundle_with(real_capture.evid, tmp_path / "pointer", **{CORE_CWD: RUNNING_PATH, DET_CWD: OLD_PATH, CURRENT_KEY: NEW_PATH})
+    core_only = _bundle_with(real_capture.evid, tmp_path / "coreonly", **{CORE_CWD: NEW_PATH, DET_CWD: OLD_PATH, CURRENT_KEY: NEW_PATH})
+    det_only = _bundle_with(real_capture.evid, tmp_path / "detonly", **{CORE_CWD: RUNNING_PATH, DET_CWD: NEW_PATH, CURRENT_KEY: NEW_PATH})
+    unreadable = _bundle_with(real_capture.evid, tmp_path / "unread", **{CORE_CWD: "UNREADABLE", DET_CWD: NEW_PATH})
+    assert lib(f'f1u_core_runtime_gate "{pre}" "{good}" "{NEW_PATH}"').returncode == 0
+    for bad in (pointer_only, core_only, det_only, unreadable, pre):
+        r = lib(f'f1u_core_runtime_gate "{pre}" "{bad}" "{NEW_PATH}"')
+        assert r.returncode == 1 and "F1U_RUNTIME_RELEASE_NOT_PROVEN" in r.stderr
+    assert lib(f'f1u_core_runtime_gate "{good}" "{good}" "{NEW_PATH}"').returncode == 1  # the PRE side must itself be a real, non-NEW release
+
+
+def test_the_rollback_class_gate_accepts_only_consistent_declarations():
+    good = {
+        "EXACT_PROCESS": "F1U_ROLLBACK=PASS\nF1U_ROLLBACK_CLASS=EXACT_PROCESS\nF1U_ROLLBACK_EXACT_PRE_RESTORATION=YES\nCORE_RUNTIME_EQUIVALENCE=NOT_APPLICABLE",
+        "EXACT_RELEASE": "F1U_ROLLBACK=PASS\nF1U_ROLLBACK_CLASS=EXACT_RELEASE\nF1U_ROLLBACK_EXACT_PRE_RESTORATION=NO\nCORE_RUNTIME_EQUIVALENCE=NOT_APPLICABLE",
+        "SAFE_EQUIVALENT": "F1U_ROLLBACK=PASS\nF1U_ROLLBACK_CLASS=SAFE_EQUIVALENT\nF1U_ROLLBACK_EXACT_PRE_RESTORATION=NO\nCORE_RUNTIME_EQUIVALENCE=PROVEN",
+    }
+    for cls, out in good.items():
+        r = lib('f1u_rollback_class "$OUT"', OUT=out)
+        assert r.returncode == 0 and r.stdout.strip() == cls
+    for label, out in (("safe-equivalent claiming exactness", good["SAFE_EQUIVALENT"].replace("RESTORATION=NO", "RESTORATION=YES")),
+                       ("safe-equivalent without proof", good["SAFE_EQUIVALENT"].replace("PROVEN", "NOT_APPLICABLE")),
+                       ("exact process without exactness", good["EXACT_PROCESS"].replace("RESTORATION=YES", "RESTORATION=NO")),
+                       ("exact release claiming exactness", good["EXACT_RELEASE"].replace("RESTORATION=NO", "RESTORATION=YES")),
+                       ("unknown class", good["EXACT_PROCESS"].replace("EXACT_PROCESS", "FUZZY")), ("no class", "F1U_ROLLBACK=PASS")):
+        r = lib('f1u_rollback_class "$OUT"', OUT=out)
+        assert r.returncode == 1 and "F1U_ROLLBACK_CLASS_" in r.stderr, label
+
+
+def test_the_runner_proves_the_running_release_and_the_rollback_class_in_order():
+    text = active_shell(F1U_RUNNER)
+    assert text.index("capture POST") < text.index("f1u_core_runtime_gate") < text.index("f1u_current_transition_gate")
+    rb = text[text.index("rollback_flow()"):text.index("fail_after_attempt()")]
+    assert rb.index("f1u_rollback_class") < rb.index("capture RB") < rb.index("f1u_runtime_transition_gate") < rb.index('compare "$PRE" "$EVID/rb-root"')
+    assert "EXACT_PROCESS is the only exact PRE restoration" in rb
 
 
 # ═══ shell library gates ═════════════════════════════════════════════════════════════════════════════════════════════════════
