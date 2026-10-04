@@ -15,6 +15,24 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — GPU-required inference source policy (2026-10-04)
+
+Branch `feat/idea2-gpu-required-inference` adds an Engine-only, source-tested
+accelerator policy. Development defaults remain `AEGIS_GPU_REQUIRED=false` and
+`AEGIS_INFERENCE_DEVICE=cpu`; a future Production configuration must explicitly
+select `true` and `cuda:0`. Required mode rejects unavailable/invalid CUDA or
+a YOLO model that does not report the selected CUDA device before workers and
+camera start. Each YOLO prediction receives the selected device; a later YOLO
+failure stops the Engine instead of falling back to CPU. YuNet/SFace identity
+failures remain fail-secure. Health/metrics distinguish configured device,
+reported YOLO device, successful GPU samples and the CPU OpenCV backend.
+
+This policy does **not** add a `capture_on_demand` requirement or change the
+existing camera-demand lifecycle. Real CUDA/PyTorch installation, Machine A
+hardware GPU proof, Production rollout and Live acceptance are **NOT VERIFIED**
+by repository tests. PR2 recording/archive remains separate and unstarted;
+no model assets, thresholds, templates, UI, Agent or deployed runtime changed.
+
 ## Current task — sustained Live steady-state watchdog follow-up (2026-10-04)
 
 Task: PR1 follow-up for the post-first-byte Live stream timeout. Branch:
@@ -45,8 +63,8 @@ HUB or deployed runtime was changed by this repository task.
 |---|---|---|---|---|
 | S1 | RED→GREEN Monitor timeout reconciliation | PASS | A scaled 70 ms inter-frame gap failed under the old 30 ms-equivalent timer, then survived the new 100 ms-equivalent timer; the later stall still closed. Focused route tests 49 pass / 1 conditional skip; broader focused 70 pass / 1 skip; full Monitor 184 pass / 58 conditional skips; Playwright 21/21; Vite build PASS. | Draft PR review, separate Production rollout and sustained real-camera acceptance. |
 
-PR2 recording/archive and PR3 GPU-required inference remain unstarted and
-must not proceed from source tests alone. Real acceptance must later observe
+PR2 recording/archive remains unstarted; PR3 GPU-required inference is a
+separate source-only task and must not be treated as deployed. Real PR1 acceptance must later observe
 `connected=true`, `demanded=true`, `viewers>=1` and the physical camera LED
 continuously ON while Operator remains on Live, followed by release only after
 the final viewer/logout.
