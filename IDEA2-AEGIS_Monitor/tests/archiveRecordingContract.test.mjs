@@ -11,10 +11,13 @@ test('PR2 pins the full recording interval to 300 seconds and preserves measured
   const config = source('../IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/config.py')
   const store = source('server/db/store.js')
   const schema = source('server/db/schema.sql')
+  const nasSync = source('../IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/nas_sync.py')
 
   assert.match(config, /segment_seconds:\s*int\s*=\s*300\b/)
   assert.match(store, /Math\.round\(Number\(input\.durationSec\)\)\)\s*:\s*300/)
   assert.match(schema, /duration_sec\s+INTEGER\s+NOT NULL\s+DEFAULT 300/)
+  assert.match(nasSync, /"-c:v", "libx264"/)
+  assert.match(nasSync, /"-movflags", "\+faststart"/)
 })
 
 test('Archive displays measured duration, real video, and a same-origin download action', () => {
@@ -30,6 +33,7 @@ test('Archive displays measured duration, real video, and a same-origin download
 
 test('playback and download share auth, camera scope and verified-NAS storage resolution', () => {
   const api = source('server/routes/api.js')
+  const store = source('server/db/store.js')
 
   assert.match(api, /async function resolveStoredClipFile\(user, clipId\)/)
   assert.match(api, /canSeeCamera\(user, clip\.cam\)/)
@@ -38,4 +42,5 @@ test('playback and download share auth, camera scope and verified-NAS storage re
   assert.match(api, /apiRouter\.get\('\/clips\/:id\/video', requireAuth/)
   assert.match(api, /apiRouter\.get\('\/clips\/:id\/download', requireAuth/)
   assert.match(api, /res\.download\(resolved\.absPath, resolved\.filename\)/)
+  assert.match(store, /AND c\.stored_on_nas = TRUE/)
 })
