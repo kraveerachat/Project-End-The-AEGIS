@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # AEGIS IDEA3 PR11 Phase 4 — Stage F1r (governed current-release activation, NO Core restart) apply handler.
 #
-# Stage order: L7 -> L7u -> L8p -> L6c (fresh install-only run for the repaired release) -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9.
+# Stage order: L7 -> L7u -> L8p -> F1i (repaired-release install) -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9.
 # F1r owns ONLY the atomic switch of /opt/aegis-idea3/current from the exact frozen OLD release to the exact frozen, ALREADY-INSTALLED NEW release
 # (p4-f1r-switch.py: journal OLD, re-read current, temp symlink + atomic rename, exact verification). It installs no release, restarts/reloads/starts/stops
 # nothing (the running Core keeps its PID, restart count and cwd), never touches core.env, the detector, Recovery, IDEA1/IDEA2 or the ESP32.

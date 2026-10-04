@@ -678,7 +678,7 @@ def stages() -> list[str]:
 
 def test_f1r_is_registered_after_l8p_and_before_f1():
     order = stages()
-    assert order.index("L7u") < order.index("L8p") < order.index("F1r") < order.index("F1") < order.index("L8") < order.index("L9")
+    assert order.index("L7u") < order.index("L8p") < order.index("F1i") < order.index("F1r") < order.index("F1") < order.index("L8") < order.index("L9")
     assert order.count("F1r") == 1 and "F1R" not in order and "F1r2" not in order
 
 
@@ -893,18 +893,25 @@ def git_repo(tmp_path: Path, receipts: dict[str, str]) -> Path:
 L8P_OK = "L8P_LIVE_EXECUTED=YES\nL8P_PROVISIONING=PASS\n"
 
 
-def test_the_receipt_gate_requires_l8p_closed_and_makes_f1r_one_shot(tmp_path):
-    assert lib(f'f1r_receipt_gate "{git_repo(tmp_path / "a", {L8P_RECEIPT: L8P_OK})}"').returncode == 0
-    assert "F1R_L8P_NOT_CLOSED" in lib(f'f1r_receipt_gate "{git_repo(tmp_path / "b", {f"{LOGS}/x.md": "# none\n"})}"').stderr
-    other = git_repo(tmp_path / "c", {f"{LOGS}/2026-10-04_000000_music_other.md": L8P_OK})
-    assert "F1R_L8P_RESULT_NOT_IN_CANONICAL_CLOSEOUT_RECEIPT" in lib(f'f1r_receipt_gate "{other}"').stderr
-    done = git_repo(tmp_path / "d", {L8P_RECEIPT: L8P_OK, f"{LOGS}/2026-10-06_000000_music_f1r.md": "F1R_LIVE_EXECUTED=YES\nF1R_CURRENT_SWITCHED=YES\n"})
-    assert "F1R_ALREADY_EXECUTED" in lib(f'f1r_receipt_gate "{done}"').stderr
-    partial = git_repo(tmp_path / "e", {L8P_RECEIPT: L8P_OK, f"{LOGS}/2026-10-06_000000_music_f1r.md": "F1R_LIVE_EXECUTED=YES\nF1R_CURRENT_SWITCHED=NO\n"})
-    assert lib(f'f1r_receipt_gate "{partial}"').returncode == 0  # a failed/rolled-back attempt is not an executed switch
-    # F1r has NO dependency on the F1 attempt: a recorded F1 result neither blocks nor satisfies it
-    f1 = git_repo(tmp_path / "f", {L8P_RECEIPT: L8P_OK, f"{LOGS}/2026-10-06_000000_music_f1.md": "F1_PRODUCTION_DEPLOYED=YES\nF1_DETECTOR_STARTED=YES\n"})
-    assert lib(f'f1r_receipt_gate "{f1}"').returncode == 0
+def test_the_receipt_gate_requires_l8p_closed_the_f1i_install_and_makes_f1r_one_shot(tmp_path):
+    rid = NEW
+    f1i_ok = f"F1I_LIVE_EXECUTED=YES\nF1I_RELEASE_INSTALLED=YES\nF1I_RELEASE_ID={rid}\n"
+    f1i = f"{LOGS}/2026-10-05_000000_music_idea3-f1i-live-closeout.md"
+
+    def gate_for(repo):
+        return lib(f'f1r_receipt_gate "{repo}" "{rid}"')
+
+    assert gate_for(git_repo(tmp_path / "a", {L8P_RECEIPT: L8P_OK, f1i: f1i_ok})).returncode == 0
+    assert "F1R_L8P_NOT_CLOSED" in gate_for(git_repo(tmp_path / "b", {f"{LOGS}/x.md": "# none\n"})).stderr
+    other = git_repo(tmp_path / "c", {f"{LOGS}/2026-10-04_000000_music_other.md": L8P_OK, f1i: f1i_ok})
+    assert "F1R_L8P_RESULT_NOT_IN_CANONICAL_CLOSEOUT_RECEIPT" in gate_for(other).stderr
+    done = git_repo(tmp_path / "d", {L8P_RECEIPT: L8P_OK, f1i: f1i_ok, f"{LOGS}/2026-10-06_000000_music_f1r.md": "F1R_LIVE_EXECUTED=YES\nF1R_CURRENT_SWITCHED=YES\n"})
+    assert "F1R_ALREADY_EXECUTED" in gate_for(done).stderr
+    partial = git_repo(tmp_path / "e", {L8P_RECEIPT: L8P_OK, f1i: f1i_ok, f"{LOGS}/2026-10-06_000000_music_f1r.md": "F1R_LIVE_EXECUTED=YES\nF1R_CURRENT_SWITCHED=NO\n"})
+    assert gate_for(partial).returncode == 0  # a failed/rolled-back attempt is not an executed switch
+    # a recorded F1 result neither blocks nor satisfies F1r
+    f1 = git_repo(tmp_path / "f", {L8P_RECEIPT: L8P_OK, f1i: f1i_ok, f"{LOGS}/2026-10-06_000000_music_f1.md": "F1_PRODUCTION_DEPLOYED=YES\nF1_DETECTOR_STARTED=YES\n"})
+    assert gate_for(f1).returncode == 0
 
 
 def test_the_repo_detector_digest_gate_ties_the_pin_to_the_reviewed_source(tmp_path):
