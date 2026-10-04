@@ -37,7 +37,7 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `git fetch origin` — `origin/main` `7558bea8fcad4356481f221f29b8f03896c57f67`, equal to the branch merge base; main did not move, no merge needed.
+- `git fetch origin` and `git merge-base 7b2ad74d origin/main` — pass: `origin/main` `7558bea8fcad4356481f221f29b8f03896c57f67` equals the branch merge base; main did not move, no merge needed.
 - `git rev-parse 7b2ad74d:<plan>`, `git rev-parse HEAD:<plan>` and `git hash-object <plan>` — pass: all `c18c33ed35efb2f73307ac13ce045be499f3fc5a` (`APPROVED_PLAN_BYTE_IDENTICAL=YES`).
 - `node scripts/validate-collaboration-policy.mjs --event <local PR event> --changed-files <git diff --name-only origin/main...HEAD>` — pass.
 - `node --test tests/collaborationPolicy.test.mjs tests/vaultStructure.test.mjs tests/vaultMultiWriter.test.mjs tests/coreEntryGovernanceR4.test.mjs` — pass.
