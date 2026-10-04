@@ -36,7 +36,7 @@ STAGE = DEPLOY / "stages" / "L8p"
 MODULE_PATH = DEPLOY / "p4-l8p-device.py"
 CANON_PATH = DEPLOY / "p4-l8-device.py"
 P4_LIB = DEPLOY / "p4-lib.sh"
-HANDLER_FILES = {"apply.sh", "verify.sh", "rollback.sh", "allow-keys.txt", "allow-listeners.txt"}
+HANDLER_FILES = {"apply.sh", "verify.sh", "rollback.sh", "cleanup.sh", "allow-keys.txt", "allow-listeners.txt"}
 
 SECRETS = (H.FIXTURE_C2D, H.FIXTURE_D2C, H.FIXTURE_WIFI_PSK, H.FIXTURE_MQTT_PASS)
 ACCEPTANCE_CLAIM = re.compile(r"(RECOVERY|LVR|L8|L9|D4)[A-Z0-9_]*(ACCEPTANCE|PROVEN|SUCCESS|LIVE_VERIFIED|PASS)=(YES|PASS|PROVEN)")
@@ -81,13 +81,23 @@ def attestation_text(support, drop=(), **over) -> str:
     return "AEGIS_P4_L8P_PHYSICAL_RECOVERY_ATTESTATION_V1\n" + "".join(f"{k}={v}\n" for k, v in fields.items())
 
 
-def make_pre_evidence(base: Path, *, complete: bool = True, tamper: bool = False) -> Path:
+LIVE_CAPTURE_LOG = (
+    "2026-10-03T20:07:36Z L0 capture start label=pre evidence={pre} (read-only)\n"
+    "2026-10-03T20:07:36Z IDEA2 process_active=YES tunnel_healthy=NO_FAILURE_OBSERVED runtime_healthy=NOT_PROVEN (separate verdicts)\n"
+    "2026-10-03T20:07:37Z L0_CAPTURE=COMPLETE evidence={pre}\n")
+
+
+def make_pre_evidence(base: Path, *, complete: bool = True, tamper: bool = False, log: str | None = None) -> Path:
+    """PRE evidence bundle. By default the capture log has the REAL p4-l0-capture.sh / p4_log shape (timestamped, with an evidence= suffix, preceded by other
+    log lines) - the live 2026-10-04 attempt showed that the canonical log is NOT the bare line `L0_CAPTURE=COMPLETE`. ``log`` overrides it verbatim."""
     pre = base / "pre-root"
     pre.mkdir(parents=True, exist_ok=True)
-    (pre / "capture.log").write_text("L0_CAPTURE=COMPLETE\n" if complete else "L0_CAPTURE=INCOMPLETE\n")
+    if log is None:
+        log = LIVE_CAPTURE_LOG.format(pre=pre) if complete else LIVE_CAPTURE_LOG.format(pre=pre).replace("L0_CAPTURE=COMPLETE", "L0_CAPTURE=INCOMPLETE")
+    (pre / "capture.log").write_text(log)
     (pre / "SHA256SUMS").write_text(f"{hashlib.sha256((pre / 'capture.log').read_bytes()).hexdigest()}  capture.log\n")
     if tamper:
-        (pre / "capture.log").write_text("L0_CAPTURE=COMPLETE\nextra\n")
+        (pre / "capture.log").write_text(log + "extra\n")
     return pre
 
 
@@ -176,7 +186,7 @@ def hw_args(env):
             "--secrets-header", env["AEGIS_L8P_SECRETS_HEADER"], "--firmware-image", env["AEGIS_L8P_FIRMWARE_IMAGE"],
             "--build-command", env["AEGIS_L8P_FIRMWARE_BUILD_CMD"], "--nvs-generator", env["AEGIS_L8P_NVS_PARTITION_GEN"],
             "--wifi-ssid", env["AEGIS_L8P_WIFI_SSID"], "--ntp", env["AEGIS_L8P_NTP"], "--run-id", env["AEGIS_L8P_RUN_ID"],
-            "--esptool", HW.FAKE_ESPTOOL, "--live-authorized", "YES"]
+            "--esptool", HW.FAKE_ESPTOOL, "--esptool-python", sys.executable, "--live-authorized", "YES"]
     return mod.build_parser().parse_args(argv)
 
 
@@ -229,7 +239,7 @@ def hard_resets(ex):
 def test_stage_id_is_registered_between_l7u_and_l8_and_l7u_is_intact() -> None:
     line = next(l for l in P4_LIB.read_text().splitlines() if l.strip().startswith("readonly P4_STAGES="))
     stages = line.split('"')[1].split()
-    assert stages[stages.index("L6c"):stages.index("L9") + 1] == ["L6c", "L7", "L7u", "L8p", "L8", "L9"]
+    assert stages[stages.index("L6c"):stages.index("L9") + 1] == ["L6c", "L7", "L7u", "L8p", "F1i", "F1r", "F1", "L8", "L9"]
 
 
 def test_stage_handler_directory_is_exactly_the_reviewed_files_and_registered() -> None:
@@ -580,6 +590,64 @@ def test_pre_evidence_must_exist_complete_and_unmodified(tmp_path: Path) -> None
         assert run("apply.sh", e2).returncode != 0
 
 
+# ── PRE capture completeness: the REAL p4_log line format (live attempt 1 failure) ─────────────────────────────────────────────────────────
+
+CANONICAL_LINE = "2026-10-03T20:07:37Z L0_CAPTURE=COMPLETE evidence=/home/owner/evidence/pre-root"
+
+
+def test_the_old_whole_line_check_rejected_the_canonical_log_line_which_is_the_live_failure() -> None:
+    """Documents the root cause: `grep -qx 'L0_CAPTURE=COMPLETE'` can never match the timestamped canonical line."""
+    assert subprocess.run(["grep", "-qx", "L0_CAPTURE=COMPLETE"], input=CANONICAL_LINE + "\n", text=True, check=False).returncode == 1
+
+
+@pytest.mark.parametrize("name,log", [
+    ("canonical-p4_log-line", CANONICAL_LINE + "\n"),
+    ("live-multiline-log", LIVE_CAPTURE_LOG.format(pre="/home/owner/evidence/pre-root")),
+    ("bare-line", "L0_CAPTURE=COMPLETE\n"),
+    ("bare-line-among-others", "something first\nL0_CAPTURE=COMPLETE\nsomething after\n"),
+    ("tab-delimited", "2026-10-03T20:07:37Z\tL0_CAPTURE=COMPLETE\tevidence=/x\n"),
+], ids=lambda v: v if isinstance(v, str) and "\n" not in v and len(v) < 30 else "")
+def test_a_correctly_checksummed_pre_bundle_with_a_canonical_complete_field_is_accepted(tmp_path: Path, name: str, log: str) -> None:
+    env = stage_env(tmp_path)
+    make_pre_evidence(tmp_path, log=log)
+    res = run("apply.sh", env)
+    assert res.returncode == 0, out(res)
+    assert "L8P_APPLY=COMPLETE" in res.stdout
+
+
+@pytest.mark.parametrize("name,log", [
+    ("incomplete", "2026-10-03T20:07:37Z L0_CAPTURE=INCOMPLETE evidence=/x\n"),
+    ("bare-incomplete", "L0_CAPTURE=INCOMPLETE\n"),
+    ("not-prefixed", "2026-10-03T20:07:37Z NOT_L0_CAPTURE=COMPLETE evidence=/x\n"),
+    ("bare-not-prefixed", "NOT_L0_CAPTURE=COMPLETE\n"),
+    ("completed-suffix", "2026-10-03T20:07:37Z L0_CAPTURE=COMPLETED evidence=/x\n"),
+    ("glued-prefix", "2026-10-03T20:07:37Z XL0_CAPTURE=COMPLETE evidence=/x\n"),
+    ("embedded-in-a-value", "2026-10-03T20:07:37Z note=L0_CAPTURE=COMPLETE\n"),
+    ("absent", "2026-10-03T20:07:36Z L0 capture start label=pre\n"),
+    ("empty", ""),
+])
+def test_a_pre_bundle_without_a_distinct_complete_field_is_refused_before_any_write(tmp_path: Path, name: str, log: str) -> None:
+    env = stage_env(tmp_path)
+    make_pre_evidence(tmp_path, log=log)
+    res = run("apply.sh", env)
+    assert res.returncode != 0 and "PRE evidence capture is not complete" in out(res).replace("COMPLETE", "complete"), out(res)
+    assert not Path(env["AEGIS_L8P_WORK_DIR"]).exists(), "refused before the work directory, the first-write marker or any device action existed"
+    assert not (Path(env["AEGIS_L8P_WORK_DIR"]) / "first-write.marker").exists()
+    assert device_files(env) == []
+
+
+def test_the_checksum_requirement_is_not_weakened_by_the_canonical_format(tmp_path: Path) -> None:
+    env = stage_env(tmp_path)
+    pre = make_pre_evidence(tmp_path, log=CANONICAL_LINE + "\n")
+    assert run("apply.sh", stage_env(tmp_path / "ok")).returncode == 0  # control: a fresh valid bundle passes
+    (pre / "capture.log").write_text(CANONICAL_LINE + "\ntampered after checksum\n")
+    res = run("apply.sh", env)
+    assert res.returncode != 0 and "checksum" in out(res).lower() and device_files(env) == []
+    (pre / "SHA256SUMS").unlink()
+    res = run("apply.sh", env)
+    assert res.returncode != 0 and "checksum" in out(res).lower()
+
+
 # ═════════════════════════════════════════ 5. canonical hardware flow: readbacks, one reset, boot verifier, failure policy ═════
 
 
@@ -754,3 +822,192 @@ def test_the_canonical_extension_is_small_and_leaves_the_flow_unchanged() -> Non
 def test_this_file_never_reaches_real_hardware() -> None:
     text = Path(__file__).read_text()
     assert not re.search(r"^\s*(import|from)\s+(serial|esptool|platformio)\b", text, re.MULTILINE)
+
+
+# ── against the REAL scripts, not stubs ────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_bundle_produced_by_the_real_capture_script_passes_the_l8p_pre_evidence_gate(tmp_path: Path) -> None:
+    """Live attempt 1: the real p4-l0-capture.sh bundle was rejected by apply.sh. Run the REAL capture (hermetic fixtures) and feed its evidence dir to the gate."""
+    cap = harness.capture(tmp_path, "pre")
+    assert cap.result.returncode == 0, cap.result.stdout + cap.result.stderr
+    log = (cap.evid / "capture.log").read_text()
+    assert any(l.split()[1:2] == ["L0_CAPTURE=COMPLETE"] for l in log.splitlines()), log   # '<TIMESTAMP> L0_CAPTURE=COMPLETE evidence=<path>'
+    assert "L0_CAPTURE=COMPLETE" not in log.splitlines(), "the real log never contains the bare line"
+    env = stage_env(tmp_path / "stage", AEGIS_L8P_PRE_EVIDENCE_DIR=str(cap.evid))
+    res = run("apply.sh", env)
+    assert res.returncode == 0 and "L8P_APPLY=COMPLETE" in res.stdout, out(res)
+
+
+def test_the_real_comparator_stops_at_its_usage_gate_on_a_third_argument_and_runs_with_two(tmp_path: Path) -> None:
+    a = harness.capture(tmp_path, "before")
+    b = harness.capture(tmp_path, "after")
+    comparator = DEPLOY / "p4-compare.sh"
+    base = {"PATH": str(a.bindir), "HOME": str(tmp_path), "LC_ALL": "C", "DISK_THRESHOLD_PCT": "90"}
+    three = subprocess.run(["bash", str(comparator), str(a.evid), str(b.evid), str(tmp_path / "report.txt")], text=True, capture_output=True, env=base, check=False)
+    assert three.returncode == 2 and "usage: p4-compare.sh <BEFORE_DIR> <AFTER_DIR>" in three.stdout + three.stderr, "a third positional argument is refused"
+    two = subprocess.run(["bash", str(comparator), str(a.evid), str(b.evid)], text=True, capture_output=True, env=base, check=False)
+    assert two.returncode in (0, 1) and "P4_COMPARE_SCHEMA=1" in two.stdout and "COMPARE_RESULT=" in two.stdout
+
+
+# ═════════════ secret-staging lifecycle (live attempt 2): nvs.csv / nvs.bin are TEMPORARY secret-bearing work artifacts, not evidence ═════════════
+# Live attempt 2 provisioned the device (flash, readbacks, boot PASS) and failed only at the final full-EVID secret scan, because the canonical flow's own work artifacts hold the plaintext
+# secrets. cleanup.sh (success path) and the post-first-write branch of rollback.sh remove EXACTLY those two files, host side only; the scan keeps no exclusions.
+
+LIB_PATH = DEPLOY / "p4-l8p-run-lib.sh"
+HISTORICAL = ("2026-10-04-l8p-successor2", "2026-10-04-l8p-20261004-041840", "2026-10-04-l8p-19pin", "2026-10-04-l8p-20261004-030730")
+
+
+def secret_hit_files(*roots: Path) -> dict[str, int]:
+    """Files under the given roots holding any owner secret value (counts of classes only; never the values)."""
+    values = [v.encode() if isinstance(v, str) else v for v in SECRETS]
+    return {f"{root.name}/{f.relative_to(root)}": sum(v in f.read_bytes() for v in values) for root in roots for f in sorted(root.rglob("*"))
+            if f.is_file() and any(v in f.read_bytes() for v in values)}
+
+
+def provisioned(tmp_path: Path):
+    env = stage_env(tmp_path)
+    assert run("apply.sh", env).returncode == 0
+    return env, Path(env["AEGIS_L8P_WORK_DIR"]), Path(env["AEGIS_L8P_EVIDENCE_DIR"])
+
+
+def test_a_real_provisioning_leaves_secret_bearing_work_artifacts_that_the_unchanged_scan_would_flag(tmp_path: Path) -> None:
+    env, work, evid = provisioned(tmp_path)
+    assert (work / "nvs.csv").is_file() and (work / "nvs.bin").is_file() and (work / "first-write.marker").is_file()
+    hits = secret_hit_files(work, evid)
+    assert "work/nvs.csv" in hits and set(hits) <= {"work/nvs.csv", "work/nvs.bin"}, hits   # only the staging artifacts; the canonical evidence and the marker hold no secret value
+    assert oct((work / "nvs.csv").stat().st_mode & 0o777) == "0o600" and oct((work / "nvs.bin").stat().st_mode & 0o777) == "0o600"
+
+
+def test_cleanup_removes_exactly_the_two_artifacts_and_keeps_the_marker_and_the_json_evidence(tmp_path: Path) -> None:
+    env, work, evid = provisioned(tmp_path)
+    (work / "other.txt").write_text("kept\n")
+    (work / "nvs.csv.keep").write_text("kept\n")
+    before_flash = {p.name: p.read_bytes() for p in (work / "fixture-flash").iterdir()}
+    json_before = {p.name: p.read_bytes() for p in evid.glob("*.json")}
+    res = run("cleanup.sh", env)
+    assert res.returncode == 0, out(res)
+    for line in ("NVS_CSV_PRESENT=NO", "NVS_BIN_PRESENT=NO", "FIRST_WRITE_MARKER_PRESENT=YES", "L8P_DEVICE_ACTION_TAKEN=NONE", "L8P_SECRET_WORK_CLEANUP=PASS"):
+        assert line in res.stdout.splitlines(), out(res)
+    assert not (work / "nvs.csv").exists() and not (work / "nvs.bin").exists()
+    assert (work / "first-write.marker").is_file() and (work / "other.txt").is_file() and (work / "nvs.csv.keep").is_file()
+    assert {p.name: p.read_bytes() for p in evid.glob("*.json")} == json_before and len(json_before) == 1
+    assert {p.name: p.read_bytes() for p in (work / "fixture-flash").iterdir()} == before_flash, "the (simulated) device flash is untouched"
+    assert secret_hit_files(work, evid) == {}, "the work and evidence trees hold no secret value after the cleanup"
+    assert not any(v in out(res) for v in SECRETS)
+
+
+def test_cleanup_is_idempotent_and_safe_when_nothing_is_there(tmp_path: Path) -> None:
+    env, work, _ = provisioned(tmp_path)
+    assert run("cleanup.sh", env).returncode == 0
+    again = run("cleanup.sh", env)
+    assert again.returncode == 0 and "L8P_SECRET_WORK_CLEANUP=PASS" in again.stdout
+    empty = tmp_path / "emptywork"
+    empty.mkdir()
+    only = run("cleanup.sh", {**env, "AEGIS_L8P_WORK_DIR": str(empty)})
+    assert only.returncode == 0 and "FIRST_WRITE_MARKER_PRESENT=NO" in only.stdout
+
+
+@pytest.mark.parametrize("name", ["relative", "dotdot", "dot", "double-slash", "empty", "missing-dir"])
+def test_cleanup_refuses_an_unsafe_work_dir_and_removes_nothing(tmp_path: Path, name: str) -> None:
+    env, work, _ = provisioned(tmp_path)
+    bad = {"relative": "work", "dotdot": f"{work}/../work", "dot": f"{work}/./", "double-slash": str(work).replace("/work", "//work"), "empty": "", "missing-dir": str(tmp_path / "nope")}[name]
+    res = run("cleanup.sh", {**env, "AEGIS_L8P_WORK_DIR": bad})
+    assert res.returncode != 0 and "L8P_SECRET_WORK_CLEANUP=FAIL" in out(res), out(res)
+    assert (work / "nvs.csv").is_file() and (work / "nvs.bin").is_file() and (work / "first-write.marker").is_file()
+
+
+def test_cleanup_refuses_a_symlinked_work_dir_and_a_symlinked_parent_and_never_follows_them(tmp_path: Path) -> None:
+    env, work, _ = provisioned(tmp_path)
+    link = tmp_path / "worklink"
+    link.symlink_to(work)
+    res = run("cleanup.sh", {**env, "AEGIS_L8P_WORK_DIR": str(link)})
+    assert res.returncode != 0 and "L8P_SECRET_WORK_CLEANUP=FAIL" in out(res)
+    parent_link = tmp_path / "parentlink"
+    parent_link.symlink_to(work.parent)
+    res = run("cleanup.sh", {**env, "AEGIS_L8P_WORK_DIR": f"{parent_link}/work"})
+    assert res.returncode != 0 and "L8P_SECRET_WORK_CLEANUP=FAIL" in out(res)
+    assert (work / "nvs.csv").is_file() and (work / "nvs.bin").is_file()
+
+
+@pytest.mark.parametrize("script", ["cleanup.sh", "rollback.sh"])
+def test_a_symlinked_or_non_regular_artifact_is_refused_and_the_outside_target_is_never_touched(tmp_path: Path, script: str) -> None:
+    env, work, _ = provisioned(tmp_path)
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_text("must survive\n")
+    (work / "nvs.csv").unlink()
+    (work / "nvs.csv").symlink_to(outside)
+    res = run(script, env)
+    assert res.returncode != 0 and "FAIL" in out(res), out(res)
+    assert outside.read_text() == "must survive\n" and (work / "nvs.bin").is_file(), "refused before removing anything"
+    (work / "nvs.csv").unlink()
+    (work / "nvs.csv").mkdir()
+    res = run(script, env)
+    assert res.returncode != 0 and (work / "nvs.csv").is_dir() and (work / "nvs.bin").is_file()
+
+
+def test_post_first_write_rollback_does_zero_device_action_but_removes_the_secret_staging_files(tmp_path: Path) -> None:
+    env, work, evid = provisioned(tmp_path)
+    flash = work / "fixture-flash"
+    before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in flash.iterdir()}
+    json_before = {p.name: p.read_bytes() for p in evid.glob("*.json")}
+    bindir = tmp_path / "trapbin"
+    bindir.mkdir()
+    log = tmp_path / "tool-calls.log"
+    for tool in ("esptool", "esptool.py", "pio", "python3", "python", "mosquitto_pub", "systemctl", "sudo"):
+        (bindir / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> "{log}"\nexit 97\n')
+        (bindir / tool).chmod(0o755)
+    env2 = {**env, "PATH": f"{bindir}:{env['PATH']}"}
+    res = run("rollback.sh", env2)
+    assert res.returncode == 0, out(res)
+    for line in ("NVS_CSV_PRESENT=NO", "NVS_BIN_PRESENT=NO", "FIRST_WRITE_MARKER_PRESENT=YES", "L8P_FIRST_HARDWARE_WRITE=STARTED", "L8P_DEVICE_ACTION_TAKEN=NONE",
+                 "L8P_ROLLBACK=FAIL_SECURE_HOLD_AND_EVIDENCE", "L8P_EVIDENCE_PRESERVED=YES"):
+        assert line in res.stdout.splitlines(), out(res)
+    assert not log.exists(), "no tool of any kind was started"
+    assert {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in flash.iterdir()} == before
+    assert not (work / "nvs.csv").exists() and not (work / "nvs.bin").exists() and (work / "first-write.marker").is_file()
+    assert {p.name: p.read_bytes() for p in evid.glob("*.json")} == json_before, "the canonical JSON evidence survives byte for byte"
+    again = run("rollback.sh", env2)
+    assert again.returncode == 0 and "L8P_ROLLBACK=FAIL_SECURE_HOLD_AND_EVIDENCE" in again.stdout, "idempotent"
+
+
+def test_pre_first_write_rollback_keeps_its_existing_cleanup_semantics(tmp_path: Path) -> None:
+    env = stage_env(tmp_path)
+    work = Path(env["AEGIS_L8P_WORK_DIR"])
+    work.mkdir(parents=True)
+    (work / "nvs.csv").write_text("x\n")
+    (work / "nvs.bin").write_bytes(b"x")
+    res = run("rollback.sh", env)
+    assert res.returncode == 0 and "L8P_FIRST_HARDWARE_WRITE=NOT_STARTED" in res.stdout and "L8P_ROLLBACK=COMPLETE" in res.stdout and "L8P_DEVICE_ACTION_TAKEN=NONE" in res.stdout
+    assert not (work / "nvs.csv").exists() and not (work / "nvs.bin").exists() and not (work / "first-write.marker").exists()
+
+
+def test_the_cleanup_handler_and_the_rollback_branch_start_nothing_but_coreutils() -> None:
+    for name in ("cleanup.sh", "rollback.sh"):
+        code = "\n".join(l for l in (STAGE / name).read_text().splitlines() if not l.lstrip().startswith("#"))
+        assert not re.search(r"esptool|pio\b|python|mosquitto|systemctl|sudo|curl|nc |ssh|/dev/tty|write_flash|read_flash|erase_flash|RESTORE|\bCUT\b", code), name
+    rollback = "\n".join(l for l in (STAGE / "rollback.sh").read_text().splitlines() if not l.lstrip().startswith("#"))
+    post_write = rollback[rollback.index('if [ -f "$MARKER" ]; then'):rollback.index("exit 0")]
+    assert "rm -rf" not in post_write and "find " not in post_write and post_write.count("for artifact in nvs.csv nvs.bin") == 2, "the post-first-write branch removes only the two named files"
+    cleanup = (STAGE / "cleanup.sh").read_text()
+    assert "rm -rf" not in cleanup and "find " not in cleanup and "-r " not in cleanup
+    assert re.findall(r'rm -f -- "\$\{WORK_DIR:\?\}/\$artifact"', cleanup) and cleanup.count("for artifact in nvs.csv nvs.bin") == 3
+
+
+def test_the_full_evid_secret_scan_still_has_no_exclusions() -> None:
+    text = LIB_PATH.read_text()
+    scan = text[text.index("l8p_secret_scan() {"):]
+    scan = scan[:scan.index("\n}\n")]
+    assert 'for f in ev.rglob("*")' in scan and "ev = pathlib.Path(sys.argv[1])" in scan.replace(", inp", "") or "ev, inp = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])" in scan
+    for banned in ("l8p-work", "work", "exclude", "skip", "ignore", "whitelist", "allowlist", "startswith", "endswith", "relative_to", "parent"):
+        assert banned not in scan.replace("scanned", ""), banned
+    assert scan.count("continue") == 1, "the only skip is for non-files and files of 50 MB or more (unchanged)"
+
+
+def test_the_historical_attempt_directories_are_never_referenced_by_the_tests() -> None:
+    for path in (Path(__file__), Path(__file__).parent / "test_pr11_phase4_l8p_owner_runner.py"):
+        code = "\n".join(l for l in path.read_text().splitlines() if "HISTORICAL" not in l and not l.lstrip().startswith("#"))
+        for hist in HISTORICAL:
+            if path.name == Path(__file__).name:
+                code = code.replace(f'"{hist}"', "")
+            assert hist not in code, (path.name, hist)

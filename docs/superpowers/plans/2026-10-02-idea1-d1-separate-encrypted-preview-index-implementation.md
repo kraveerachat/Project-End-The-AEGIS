@@ -2,9 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:executing-plans` to implement this plan task by task, in order. Steps use checkbox (`- [ ]`) syntax. Do **not** start any task until the Human Owner has merged this plan **and** separately authorized implementation. Every ⛔ marker is a hard stop that only a written Human decision can lift.
 
-**Plan status:** PLANNED — `IMPLEMENTATION_STARTED=NO`, `IMPLEMENTATION_AUTHORIZED=NO`, `PRODUCTION_MUTATION_AUTHORIZED=NO`.
+**Plan status:** IN PROGRESS — PR-A through PR-D are merged; PR-E G.1–G.3, H.1–H.3 and I.1–I.3 are complete (2026-10-03); HG-H review, the one PR-E receipt, Ready and Human merge remain. `PRODUCTION_MUTATION_AUTHORIZED=NO`; Production writer enablement is blocked pending later gates.
 
 **Revision 2 (2026-10-02, PR #280 review `APPROVE_WITH_REQUIRED_CHANGES`):** (1) server-enforced per-owner preview-index retained-storage budget (A.1, A.3, new C.7, new E.4, F.2, G.1–G.3, H.1, Stage 3); (2) Stage 1 requires PR-A **and** PR-B merged — no Production deployment between them; (3) client-declared superseded refs are advisory only and never deletion authority. Existing P3–P5 plans are stale for D-1. Task count 44 → 46.
+
+**Revision 3 (2026-10-03, Human decision `D1_G2_PLAN_REVISION_OPTION_B_APPROVED`, PR #310 reviewed head `ab54092aacab1bde0122cd7a770176c813c0a086`):** G.2 required authority is PostgreSQL 1k/5k/10k × variants 2/3 (server/storage), Chrome 1k/5k/10k × 2/3 (browser), and exact Memory 1k × 2/3 (local parity/correctness): 14 required cells. Memory 5k/2, 5k/3, 10k/2, 10k/3 are `NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION`, with their earlier `NOT_MEASURED` history preserved. The G.1 harness remains capable of the original full matrix; this changes G.2 gate applicability only. Evidence limitations in G.2 are accepted for this gate, not erased. No PREVIEW_INDEX_LIMIT, retained-byte budget, G.3/H/I, Production deployment, writer enablement, or merge is approved.
+
+**HG-G decision (2026-10-03, Human `HG_G_APPROVED`, PR #310 reviewed head `89da7f84d7279871f6e10df5df3e6b78594e5ef8`):** Authorizes G.3 only, with the exact KEEP values and 8 GiB/owner retained budget recorded below. This supersedes Revision 3's *then-current* pending-approval state, not its G.2 evidence or exclusions. H/I, Production deployment, writer enablement and PR merge remain unauthorized.
 
 **Goal:** Ship client-generated, client-encrypted thumb/poster derivatives for the Private Vault, referenced from a **separate owner-scoped, sharded, encrypted preview index** that is invisible to the main manifest, so tiles can render from small verified derivatives while the main manifest stays schema v1 with **zero** added bytes.
 
@@ -36,12 +40,12 @@ ORIGINALS=AUTHORITATIVE                       missing/corrupt/stale/unknown inde
 DERIVATIVE_FAILURE_FAILS_ORIGINAL=NEVER
 WRITER_CAPABILITY=VAULT_PREVIEW_INDEX_WRITE   env VAULT_PREVIEW_INDEX_WRITE_ENABLED, default false, server-served and server-enforced
 IDX_SIZE_BEFORE_WRITER_ENABLE=MANDATORY       real 1k/5k/10k, Node + Chrome + PostgreSQL
-SHARD_LIMITS=PROVISIONAL                      64 prefixes / 192 KiB decoded / 128 live / 256 KiB padded are planning targets only
+SHARD_LIMITS=HG_G_APPROVED_KEEP               64 initial prefixes / 192 KiB decoded / 128 live; 256 KiB padding bucket remains provisional
 INITIAL_DESTRUCTIVE_GC=FORBIDDEN              no DELETE, purge or physical removal of any index/derivative blob in D-1
 VAULT_DESTRUCTIVE_PURGE_ENABLED=false         unchanged
 PREVIEW_INDEX_STORAGE_BUDGET=SERVER_ENFORCED  per owner; counts committed INDEX_STAGED + INDEX_MANAGED ciphertext (root, shard, derivative)
 BUDGET_SCOPE=PER_OWNER                        ordinary user files never count and are never blocked by it
-BUDGET_VALUE=PROVISIONAL / TO_BE_MEASURED     final value approved only at HG-G, before Stage 3
+BUDGET_VALUE=8589934592_B_PER_OWNER          HG-G approved 2026-10-03; runtime env still required; writer stays OFF
 BUDGET_EXCEEDED=FAIL_CLOSED_FOR_PREVIEW_ONLY  reject new preview-index persistence; never touch main manifest, original upload, download, or existing index objects
 SUPERSEDED_REF=ADVISORY_ONLY                  client-declared supersededBlobIds are bookkeeping/measurement rows
 SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO       no current or future D-1 code may delete or purge a blob because it was declared superseded
@@ -678,7 +682,7 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 - **Depends on:** PR-D merged (real writer path exists).
 - **Files:** Extend `scripts/measure/vault-preview-index-size.mjs` (modes `codec`, `e2e`, `--server memory|pg`, `--browser <Chrome path>`).
-- **Matrix:** total nodes 1k/5k/10k (994/4,994/9,994 files + 6 folders/root) × variants `2` (thumb+poster) and `3` (stress shape) × ≥ 20 runs. Local disposable server only (memory store and PG via `pg-integration-env.sh`); exclusive-create outputs; never a Production endpoint or credential.
+- **Harness capability:** total nodes 1k/5k/10k (994/4,994/9,994 files + 6 folders/root) × variants `2` (thumb+poster) and `3` (stress shape) × ≥ 20 runs. Local disposable server only (memory store and PG via `pg-integration-env.sh`); exclusive-create outputs; never a Production endpoint or credential. Revision 3 narrows the **G.2 required cells**, not this harness capability.
 - **Metrics (every cell filled, units explicit):**
 
 | Group | Metric |
@@ -698,8 +702,9 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 ### Task G.2 — Run the matrix and STOP
 
-- [ ] Run: `node scripts/measure/vault-preview-index-size.mjs --mode e2e --nodes 1000,5000,10000 --variants 2,3 --runs 20 --server memory --out "$SCRATCH/idx-size-memory.json"`; same with `--server pg` (after `pg-integration-env.sh up`, `P2B`-style explicit local confirmation env); same with `--browser "<Chrome path>"`.
-- [ ] Fill the evidence table in the PR body and canonical status with measured numbers only; every threshold below is a **non-binding proposal**:
+- [ ] Required authority after written Human decision `D1_G2_PLAN_REVISION_OPTION_B_APPROVED`: PostgreSQL 1k/5k/10k × variants 2/3 is the high-scale server/storage authority; Chrome 1k/5k/10k × variants 2/3 is the high-scale browser authority; the exact, unmodified Memory backend 1k × variants 2/3 is the local parity/correctness authority. Each required cell uses ≥20 runs where specified in G.1. PostgreSQL runs require `pg-integration-env.sh up` and explicit local confirmation; every run uses exclusive-create scratch output, never a Production endpoint or credential.
+- [ ] Memory 5k/2, 5k/3, 10k/2 and 10k/3 are **not required gate cells**. Record each exactly as `NOT_APPLICABLE_BY_HUMAN_APPROVED_PLAN_REVISION`, cite this Human approval, retain the earlier `NOT_MEASURED` history, and never represent an excluded cell as measured. Do not replace the exact Memory backend with an optimized test backend.
+- [ ] Fill the PR and canonical evidence tables with measured numbers only. Every one of the 14 required environment cells must have applicable values, explicit units, run counts/method, and 0 B main-manifest delta. Preserve raw hashes and provenance; disclose every failed/missing required value. Every threshold below is a **non-binding proposal**:
 
 | Proposed criterion (NOT APPROVED) | Rationale |
 |---|---|
@@ -710,14 +715,19 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 | `maxPreviewIndexRetainedBytesPerOwner` = a Human-chosen value derived from the retained-budget inputs (e.g. full 10k build + backfill + stated churn headroom) — **value deliberately not proposed here** | REQUIRED CHANGE 1: server-enforced bound without GC; HG-G must approve an explicit number |
 | End-to-end mutation p95 within a Human-chosen budget | spec §19 / G-THR lesson |
 
-- [ ] **⛔ STOP.** Report exactly: `IDX_SIZE_EVIDENCE=READY`, `LIMITS=AWAITING_HUMAN_APPROVAL`, `WRITER_ENABLE=BLOCKED_PENDING_HUMAN`. Do not change any limit, flag, overlay, or Production setting. If any cell cannot be measured, report it as `NOT_MEASURED` with the reason; the gate cannot pass with an unmeasured required cell.
+- [ ] Disclose accepted G.2 limitations: timing raw files retain aggregate p50/p95, not all samples; raw JSON lacks embedded Git SHA and deterministic seed (preserve hashes and exact provenance; future tooling should record both); server latencies are **LOCAL LOOPBACK**, not LAN (live LAN timing belongs to later Production Stage acceptance); Memory raw JSON's PostgreSQL-lock phrase is a hard-coded label error and must not be rewritten; Memory inventory `attempts=2` remains visible; each cold view uses a fresh reader while server/database caches remain warm across repeated runs; Chrome display rounding is cosmetic. Record that Claude #2 verified measurement paths against the reviewed head and the Chrome measurement code was byte-identical to its first committed version. These limitations do not authorize invented measurements or changed raw files.
+- [ ] **⛔ STOP.** Only after all 14 required cells validate, report exactly: `IDX_SIZE_EVIDENCE=READY`, `LIMITS=AWAITING_HUMAN_APPROVAL`, `WRITER_ENABLE=BLOCKED_PENDING_HUMAN`. Otherwise report `IDX_SIZE_EVIDENCE=NOT_READY` and each missing required cell. Do not change any limit, retained-byte budget, flag, overlay, or Production setting; no G.3/H/I or writer enablement. HG-G still requires a separate Human decision on limits and the explicit retained-byte budget.
 
 ### Task G.3 — Codify approved limits (only after written Human approval)
 
 - **Depends on:** **HG-G** written approval naming each approved value.
 - **Files:** `src/lib/vaultPreviewIndexConstants.js`, `server/config/vaultTreeLimits.js`, `tests/previewIndexConstants.test.js`, `tests/vaultTreeConfig.test.js`.
-- [ ] **RED:** tests assert the approved values and move them from `PROVISIONAL_KEYS` to `APPROVED_KEYS` with the approval date/source; the approved `maxPreviewIndexRetainedBytesPerOwner` is recorded and the Stage 3 overlay checklist (Phase J) requires `VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER` set to exactly that value (boot still throws when `WRITE=true` and the budget is unset). **GREEN:** set values. If the Human rejects any value (including the budget), `D1_WRITER_ENABLE=BLOCKED`; return to design with the evidence (no silent relaxation).
-- [ ] **Commit:** `feat(idea1): adopt Human-approved preview-index limits`.
+- [x] **RED/GREEN:** focused tests first failed on missing approval records, then passed after approved values moved from `PROVISIONAL_KEYS` to `APPROVED_KEYS` with approval date/source. The approved `maxPreviewIndexRetainedBytesPerOwner` is recorded without creating a runtime default; the Stage 3 checklist requires the exact approved env value and boot still throws when `WRITE=true` lacks a budget.
+- **HG-G written decision (2026-10-03):** `HG_G_APPROVED`, PR #310 reviewed head `89da7f84d7279871f6e10df5df3e6b78594e5ef8`. Approved KEEP client values: `initialPrefixBits=6`, `maxPrefixBits=7`, `maxShards=128`, `maxShardDecodedBytes=196608`, `maxRootDecodedBytes=16379`, `maxEntriesPerCas=16`, `ciphertextLruBytes=33554432`. Approved KEEP server values: `maxPreviewIndexAttachPerCas=64`, `maxPreviewIndexEnvelopeBatch=32`. Per-owner retained budget: **8,589,934,592 B (8 GiB)**. These values are approval decisions based on G.2 plus Human-supplied Production capacity evidence, not a new measurement.
+- **KEEP_UNMEASURED, unchanged and not measured:** `casMaxAttempts=5`, `writeQueueMax=64`, `backfillMaxPerSession=50`, `derivativeLaneConcurrency=6`, `maxLiveDecodedShards=16`, `generationBudgetMs=10000`, `maxPreviewIndexSupersededPerCas=64`. Padding buckets and `backfillConcurrency` have no explicit HG-G approval disposition and remain provisional; `maxJsonDepth` remains structural. Variant 3 is a deferred future stress profile and does not drive current D-1 limits. G.2 server latency was local loopback, not LAN SLA; live latency thresholds defer to Stage 4.
+- **Capacity guard:** Human-supplied Production snapshot: available 31,215,161,344 B; datalake `du` 30,458,823,520 B; users 3, TREE_V1 owners 2; V2 ciphertext 3,916,387,459 B; index staged/managed 0 B each; D-1 head/generation/blob-ref rows 0 each. At 2 writer-eligible owners, maximum approved preview-index exposure is 17,179,869,184 B. **Before allowing more than 2 TREE_V1 writer-eligible owners, repeat Production filesystem-capacity review.** This is a planning guard, not a claim that Production was touched in G.3.
+- **No overlay in PR-E (Human scope decision, 2026-10-03):** G.3 codifies the approved budget (`HG_G_RETAINED_BUDGET_APPROVAL`, test `PI-BUDGET-3`) and the Stage 3 checklist below requires the exact value. An earlier budget-prep overlay under `deploy/production/d1/` was removed from PR-E; every Production overlay, including the Stage 3 one, belongs to its Phase J deploy branch/PR.
+- [x] **Commit:** `feat(idea1): adopt Human-approved preview-index limits` (`7c51dced`).
 
 ---
 
@@ -748,22 +758,22 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 | `SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO` | D.3 scan + C.1 test re-run: declared superseded blobs stay present and counted |
 | old valid-head replay | test **documents** the accepted limitation: a server replaying an older valid head is accepted after a fresh unlock; within one page session an older generation is rejected; no durable anti-rollback claim |
 
-- [ ] **Negative controls:** for CONTENT_ID, owner check, source binding, and CAS expectation: temporarily break the invariant in a local uncommitted edit, observe the named test fail, restore, observe pass, prove clean tree (`git status --short` empty). Record in PR body. Never against Production.
-- [ ] **Commit:** `test(idea1): consolidate preview-index security gates`.
+- [x] **Negative controls:** (done 2026-10-03: CONTENT_ID, owner check, source binding, CAS expectation, plus write gate and budget — each break → named gate FAIL → restore → PASS → clean source tree) for CONTENT_ID, owner check, source binding, and CAS expectation: temporarily break the invariant in a local uncommitted edit, observe the named test fail, restore, observe pass, prove clean tree (`git status --short` empty). Record in PR body. Never against Production.
+- [x] **Commit:** `test(idea1): consolidate preview-index security gates` (`7db1e36c`; files: `tests/helpers/previewIndexSecurityGateSpec.mjs` shared memory/PostgreSQL server spec, `tests/previewIndexSecurityGates.test.js`, `tests/previewIndexSecurityGatesPostgres.test.js`).
 
 ### Task H.2 — Account neutrality (ADMIN / EXISTING_USER / NEWLY_CREATED_USER)
 
 - **Depends on:** H.1.
 - **Files:** Extend `tests/previewAccountNeutrality.test.js` (uses `tests/helpers/accountClasses.mjs`).
-- [ ] **RED:** identical index create/read/write behavior for all three classes; Admin has no override on another owner's index; identical bytes uploaded by two classes yield distinct blob ids and contentIds (no dedup); memory and `PGRUN`.
-- [ ] **Commit:** `test(idea1): prove preview-index isolation across account classes`.
+- [x] **RED:** (done; `tests/previewAccountNeutrality.test.js` boots its own app and cannot share the preview-index harness, so it gains the AN-4 D-1 source scan while the behaviour runs in `tests/previewIndexAccountNeutrality.test.js` + `tests/previewIndexAccountNeutralityPostgres.test.js` via `tests/helpers/previewIndexNeutralitySpec.mjs`) identical index create/read/write behavior for all three classes; Admin has no override on another owner's index; identical bytes uploaded by two classes yield distinct blob ids and contentIds (no dedup); memory and `PGRUN`.
+- [x] **Commit:** `test(idea1): prove preview-index isolation across account classes` (`21a992f4`).
 
 ### Task H.3 — Audit volume measurement
 
 - **Depends on:** G.1.
 - **Files:** Create `scripts/measure/vault-preview-index-audit-volume.mjs`.
-- [ ] Simulated unlock + 60-tile cold view + one backfill batch against a local server → audit rows by action (`VAULT_V2_READ`, `VAULT_V2_COMMIT`, `VAULT_PREVIEW_INDEX_CAS`); compare with the no-index baseline; audit rows contain no secret/plaintext fields. Measurement only; **no** deduplication or semantic change. Record in PR body for the Human audit budget decision.
-- [ ] **Commit:** `test(idea1): measure preview-index audit volume`.
+- [x] Simulated unlock + 60-tile cold view + one backfill batch against a local server → audit rows by action (`VAULT_V2_READ`, `VAULT_V2_COMMIT`, `VAULT_PREVIEW_INDEX_CAS`); compare with the no-index baseline; audit rows contain no secret/plaintext fields. Measurement only; **no** deduplication or semantic change. Record in PR body for the Human audit budget decision.
+- [x] **Commit:** `test(idea1): measure preview-index audit volume` (`60539bc7`; probe guards `tests/previewIndexAuditVolumeProbe.test.js`; evidence recorded in PR #310).
 
 ---
 
@@ -773,8 +783,8 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 - **Depends on:** PR-D merged.
 - **Files:** Create `tests/previewIndexOldClientCompat.test.js`. Requires `D1_BASELINE_ROOT` = a linked worktree of the exact pre-D-1 baseline SHA (A.0 base) with `node_modules` junctioned (remove the junction after the run). Without it the test skips with an explicit reason; the evidence run must report 0 skips.
-- [ ] **RED/GREEN:** new server (memory + PG) with an index created by the new writer; old client modules imported from `D1_BASELINE_ROOT` perform: unlock, load head/browse, rename, move, upload (tree family), download (byte-exact), trash, restore, recovery listing; assertions: all succeed; recovery lists **no** index/derivative blob; main revisions remain schema 1; old-client writes that replace a file make the new reader reject the stale entry (source binding).
-- [ ] **Commit:** `test(idea1): prove baseline clients keep working after index creation`.
+- [x] **RED/GREEN:** (done: `tests/helpers/previewIndexOldClientSpec.mjs`, `tests/previewIndexOldClientCompat.test.js`, `tests/previewIndexOldClientCompatPostgres.test.js`; `D1_BASELINE_ROOT` = `2dc596d1`; the baseline client has no replace intent, so stale-entry rejection is proven via trash/restore here and via SG-SRC-1 for a replaced blobRef) new server (memory + PG) with an index created by the new writer; old client modules imported from `D1_BASELINE_ROOT` perform: unlock, load head/browse, rename, move, upload (tree family), download (byte-exact), trash, restore, recovery listing; assertions: all succeed; recovery lists **no** index/derivative blob; main revisions remain schema 1; old-client writes that replace a file make the new reader reject the stale entry (source binding).
+- [x] **Commit:** `test(idea1): prove baseline clients keep working after index creation` (`52de775d`).
 
 ### Task I.2 — Rollback matrix
 
@@ -792,14 +802,14 @@ All write routes are gated by `VAULT_PREVIEW_INDEX_WRITE_ENABLED` (default false
 
 Baseline servers have no preview-index upload family or CAS route, so no index object can be created while rolled back; the storage budget is therefore not needed there.
 
-- [ ] **Never** a down-migration; no table, row, or blob is deleted in any case.
-- [ ] **Commit:** `test(idea1): prove preview-index rollback without down-migration`.
+- [x] **Never** a down-migration; no table, row, or blob is deleted in any case. (Done in `tests/previewIndexRollback.test.js`: one PostgreSQL database and storage root served side by side by current, Stage 1 `9f5a0114` via `D1_STAGE1_ROOT` and baseline/P1 `2dc596d1` code; every SQL statement captured.)
+- [x] **Commit:** `test(idea1): prove preview-index rollback without down-migration` (`48afe548`).
 
 ### Task I.3 — Chrome browser evidence
 
 - **Depends on:** I.2.
 - **Files:** none committed beyond an optional harness page under `scripts/measure/` if needed; screenshots/logs in `$SCRATCH` only.
-- [ ] Local stack (built `dist`, disposable PG): writer ON locally only; record derivative-first tile render, cold/warm request counts, fallback on injected corruption, lock mid-backfill, pagehide, memory peak vs the existing 256 MiB ceiling, Object URL count ≤ 256, no extra original GET during backfill (DevTools network log). Restore `dist`.
+- [x] (done with `scripts/measure/vault-preview-index-browser-i3.mjs`, `f69f7aa6`: real Chrome, built dist behind a local /drive proxy, approved budget) Local stack (built `dist`, disposable PG): writer ON locally only; record derivative-first tile render, cold/warm request counts, fallback on injected corruption, lock mid-backfill, pagehide, memory peak vs the existing 256 MiB ceiling, Object URL count ≤ 256, no extra original GET during backfill (DevTools network log). Restore `dist`.
 - **PR-E closeout:** evidence tables, receipt, Draft → independent review (**HG-H**). `IDX_SIZE` result and `LIMITS` decision recorded as Human-pending if G.3 has not happened.
 
 ---
@@ -824,6 +834,7 @@ Every stage below runs from its own `deploy/idea1-preview-d1-stage<N>` branch an
 ### Stage 3 — Enable writer (Human authorization required)
 
 - **Preconditions:** `IDX_SIZE_GATE=PASS` with approved limits **and an explicitly approved retained-storage budget** (HG-G, codified by G.3), `SECURITY_GATES=PASS` (HG-H), Stage 2 accepted, rollback Cases B/D/E rehearsed on a non-Production replica. The Stage 3 overlay sets `VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER` to the approved value together with `WRITE=true` (boot refuses WRITE without it).
+- **Approved budget checklist:** the Stage 3 deployment overlay must set `VAULT_PREVIEW_INDEX_MAX_RETAINED_BYTES_PER_OWNER: "8589934592"` (8 GiB/owner, HG-G 2026-10-03) together with `WRITE=true`; that overlay is created only in the Stage 3 deploy branch/PR after its Human gates. Before >2 TREE_V1 writer-eligible owners, repeat Production filesystem-capacity review. Variant 3 remains future stress only; local loopback timing is not a LAN SLA and Stage 4 owns live latency acceptance.
 - **Action:** **HG-S3** — the Human Owner alone sets `VAULT_PREVIEW_INDEX_WRITE_ENABLED=true` via a new overlay and restarts Drive.
 
 ### Stage 4 — Human functional acceptance
@@ -886,7 +897,7 @@ Writer enablement (HG-S3) is impossible before HG-G **and** HG-H: Stage 3 precon
 ## 7. Risks surfaced by source inspection (for Human awareness)
 
 1. **Inventory growth.** `GET /api/vault` returns every envelope on unlock; retained index/derivative blobs would grow it without bound. Mitigated by server-side `INDEX_*` exclusion (A.4) and the envelope batch route. After a rollback to a baseline server (Case B) the exclusion disappears and the payload grows by the retained index size — measured in G.1, documented in I.2.
-2. **Retained copy-on-write storage.** Every index write rewrites a whole shard and the root; with destructive GC forbidden, superseded shard bytes (and lost-CAS staged blobs) accumulate. Measurement alone does not bound this, so D-1 adds a **server-enforced per-owner retained-storage budget** (C.7) counting every committed `INDEX_STAGED` + `INDEX_MANAGED` byte; at the budget, new preview persistence is rejected fail-closed and tiles fall back to originals (E.4). Batching (`maxEntriesPerCas`) slows growth. The budget value is PROVISIONAL until HG-G; reaching it is expected to become common for heavy users until a future, separately gated GC exists. Client-declared superseded refs are advisory only (`SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO`) and do not reduce the counted bytes.
+2. **Retained copy-on-write storage.** Every index write rewrites a whole shard and the root; with destructive GC forbidden, superseded shard bytes (and lost-CAS staged blobs) accumulate. Measurement alone does not bound this, so D-1 adds a **server-enforced per-owner retained-storage budget** (C.7) counting every committed `INDEX_STAGED` + `INDEX_MANAGED` byte; at the budget, new preview persistence is rejected fail-closed and tiles fall back to originals (E.4). Batching (`maxEntriesPerCas`) slows growth. HG-G approved 8,589,934,592 B/owner for the current 2 TREE_V1 owner capacity boundary; review filesystem capacity again before >2 writer-eligible owners. Client-declared superseded refs are advisory only (`SUPERSEDED_REF_IS_DELETION_AUTHORITY=NO`) and do not reduce the counted bytes.
 3. **Budget check cost.** The commit-time budget check sums retained bytes under the owner lock; its PG cost at 10k-scale retained blobs is measured in G.1. If too slow, a maintained per-owner counter is a later design change requiring its own review (not assumed here).
 4. **Lifecycle CHECK widening** is the only non-`CREATE` DDL; it widens a constraint and rewrites no row. Baseline servers tolerate the new values (they filter by `UNREFERENCED` and attach only from `UNREFERENCED`), proven in I.2.
 5. **Audit volume.** Each derivative/shard read adds a `VAULT_V2_READ` row (chunk 0). Measured in H.3; no semantic change.

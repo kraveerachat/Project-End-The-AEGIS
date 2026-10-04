@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-03
+updated: 2026-10-04
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,192 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## Current task — GPU-required inference source policy (2026-10-04)
+
+Branch `feat/idea2-gpu-required-inference` adds an Engine-only, source-tested
+accelerator policy. Development defaults remain `AEGIS_GPU_REQUIRED=false` and
+`AEGIS_INFERENCE_DEVICE=cpu`; a future Production configuration must explicitly
+select `true` and `cuda:0`. Required mode rejects unavailable/invalid CUDA or
+a YOLO model that does not report the selected CUDA device before workers and
+camera start. Each YOLO prediction receives the selected device; a later YOLO
+failure stops the Engine instead of falling back to CPU. YuNet/SFace identity
+failures remain fail-secure. Health/metrics distinguish configured device,
+reported YOLO device, successful GPU samples and the CPU OpenCV backend.
+
+This policy does **not** add a `capture_on_demand` requirement or change the
+existing camera-demand lifecycle. Real CUDA/PyTorch installation, Machine A
+hardware GPU proof, Production rollout and Live acceptance are **NOT VERIFIED**
+by repository tests. PR2 recording/archive remains separate and unstarted;
+no model assets, thresholds, templates, UI, Agent or deployed runtime changed.
+
+## Current task — sustained Live steady-state watchdog follow-up (2026-10-04)
+
+Task: PR1 follow-up for the post-first-byte Live stream timeout. Branch:
+`fix/idea2-monitor-steady-idle-watchdog`; owner: Pub; starting main:
+`9e5ce3d79e1455ba0707117ad9a5a7ccbbcf889f`. Current state:
+PR1 CLOSED / MACHINE A REAL-CAMERA ACCEPTED (operator and operator2).
+Production mutation allowed: NO.
+
+Owner-provided Production evidence after PR #328 showed that the first-byte
+watchdog no longer fired: demand appeared, the camera connected, and one viewer
+remained active, but the Monitor logged two six-second steady-state timeouts
+while Operator stayed on Live. The owner then rolled the Monitor image back to
+`aegis-prod-monitor:idea2-ba-csp-6ddcf184a5a9`. This is a confirmed mismatch
+with the Engine's default 15-second post-first-frame idle allowance, not a
+failure of the 50-second cold-start boundary. The earlier PR #328 section below
+remains the historical source-checkpoint result, not evidence that sustained
+real-camera acceptance had passed at that earlier checkpoint.
+
+The follow-up retains 50 seconds until the first nonempty upstream body data,
+then allows a bounded 20-second steady gap (Engine default 15 seconds plus
+five seconds for proxy/transport delivery). Headers alone never switch phases.
+Authorization before demand/fetch, Browser Association, producer generation,
+session/assignment revalidation, browser-close abort and one release per demand
+remain on their existing paths. No Engine, Agent, UI, Archive, GPU, database,
+HUB or deployed runtime was changed by this repository task.
+
+| Session | Scope | State | Evidence | Remaining |
+|---|---|---|---|---|
+| S1 | RED→GREEN Monitor timeout reconciliation | PASS | A scaled 70 ms inter-frame gap failed under the old 30 ms-equivalent timer, then survived the new 100 ms-equivalent timer; the later stall still closed. Focused route tests 49 pass / 1 conditional skip; broader focused 70 pass / 1 skip; full Monitor 184 pass / 58 conditional skips; Playwright 21/21; Vite build PASS. | Historical source checkpoint; later Machine A real-camera acceptance is recorded below. |
+
+Owner-provided Machine A real-camera acceptance closed PR1 for both account
+aliases: `operator → CAM-01` and `operator2 → CAM-02`. Each independently
+passed `PRE_LIVE_IDLE`, `LIVE_ACQUISITION`, `SUSTAINED_LIVE_120S`,
+`FINAL_VIEWER_RELEASE`, `POST_LOGOUT_IDLE`, `PHYSICAL_LED_SUSTAIN`, and
+`PHYSICAL_LED_RELEASE`. The physical camera LED stayed on through sustained
+Live and turned off after final viewer/logout. This is owner-reported hardware
+evidence, not a new test performed by this documentation-only PR #338 follow-up.
+PR2 recording/archive remains separate and unstarted; PR3 GPU-required
+inference is source-only and is not a claim of real GPU or Production acceptance.
+
+## Current task — sustained Live first-byte watchdog (2026-10-04)
+
+Branch `fix/idea2-monitor-first-byte-watchdog` is a repository-only PR1 fix for
+the owner-reported Production symptom in which Monitor closed a cold Operator
+stream after six seconds without a first frame. The Monitor proxy now gives
+the first nonempty upstream body data a 50-second deadline, covering the
+Engine's default 45-second cold-first-frame window plus five seconds for the
+proxy/transport boundary. After the first data arrives, the existing six-second
+steady-state idle watchdog remains in force. The watchdog also bounds a fetch
+that never returns stream data. Authorization, physical producer demand,
+session/assignment revalidation, browser-close cleanup, and release remain on
+their existing paths; Engine, recording, Archive, GPU, UI, and Production
+runtime are unchanged.
+
+RED route tests reproduced the premature close before the first byte; GREEN
+focused lifecycle tests passed 12/12. The broader focused Monitor set passed
+68 with one conditional PostgreSQL skip, the full neutral Monitor suite passed
+182 with 58 conditional skips, Playwright passed 21/21, and the Vite build
+passed locally. These were source/test results only at that historical
+checkpoint. Later owner-provided Machine A real-camera acceptance for both
+operator aliases is recorded in the PR1 follow-up section above. PR2
+recording/archive remains separate and unstarted; PR3 GPU-required inference
+has source work in Draft PR #338 but no real GPU or Production acceptance.
+
+## Current task — Browser Association CSP narrow source fix (2026-10-04)
+
+Branch `fix/idea2-browser-association-csp` is a repository-only fix for the
+confirmed Production browser denial of the Operator's local Agent association
+request. Monitor's own CSP and the browser-facing HUB `/monitor/` CSP now grant
+only `http://127.0.0.1:8078` in `connect-src`. The HUB `/monitor/` location
+retains the existing upstream security headers and CSP intersection while
+repeating the six HUB headers so nginx location-level `add_header` does not
+drop them. No other effective CSP directive is intentionally widened.
+HUB root, Drive, IDEA3, and `/monitor/internal/*` are unchanged. Existing
+browser-flow tests still prove credentials are omitted, SOC does not associate,
+and association does not request a camera stream.
+
+Local evidence: the new/existing focused CSP and association tests passed
+24/24; applicable HUB config tests passed 41/41; full neutral Monitor tests
+passed 179 with 58 conditional skips and zero failures; HUB and Monitor Vite
+builds passed. The broader HUB browser suite was attempted but did not finish
+within the bounded local run; it is not claimed green. Production nginx syntax
+or browser acceptance has not been tested here. This branch does **not** deploy
+the CSP change or prove Machine A live association/camera recovery. Kla must
+review the cross-scope HUB policy before any Production rollout.
+
+## Current task — M2-E3 persistent idle pipe accept (2026-10-04)
+
+Branch: `fix/idea2-agent-persistent-idle-pipe-accept`, based on main
+`ed351310ed2e0161c2e0fadb68c0f858cdc315bb`. The Agent now keeps its
+overlapped `ConnectNamedPipe` pending while idle instead of cancelling and
+republishing the first pipe instance at the five-second read timeout. Intentional
+shutdown cancels and drains the idle accept, clears the active handle, and
+closes it once; Win32 995 is normal only in that idle-shutdown context. Once a
+client connects, the existing bounded request read, response write, and
+post-response close remain unchanged. Engine local acquisition and Agent
+response budgets, ACL/SID authorization, wire protocol, and camera-demand
+boundaries are unchanged.
+
+RED reproduced the premature idle close and service-loop republish. GREEN:
+native Windows connector reached the original pipe after 12.2 seconds idle;
+two requests crossed the former five-second boundary; native idle shutdown
+completed; the existing 50/100 no-prepoll stress cases passed. Focused Agent
+pipe tests 41/41 and full Engine/Agent tests 273/273 passed locally. Governance
+and Vault validation passed; independent review found Critical 0, Important 0.
+
+This is repository source/test evidence only. Installed Machine A heartbeat
+recovery has **not** been verified. No Machine A runtime, Identity Agent service,
+Production, private key, camera, or tunnel was modified. The earlier PR #318
+receipt remains immutable and historical. `M2_E3=NOT_CLOSED_PENDING_POST_MERGE_MACHINE_A_ACCEPTANCE`.
+
+## Current task — M2-E3 final Windows pipe response lifecycle hardening (2026-10-03)
+
+Branch: `fix/idea2-agent-pipe-peer-disconnect-final`; base:
+`27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf`; source checkpoint:
+`7f00f78a776c01e47551a7b0cb2398702a1daa5d`, followed by the bounded
+pre-write acquisition amendment on the same PR #318 branch.
+
+State: SOURCE FIXED / LOCAL WINDOWS PIPE TESTS VERIFIED / MACHINE A LIVE
+RECOVERY NOT VERIFIED. After merged PR #317 and PR #316 were installed on
+Machine A, the owner observed seven new Engine `AGENT_UNAVAILABLE` warnings in
+40 seconds despite repeated automatic HUB heartbeat HTTP 200 responses and
+successful challenge/verify requests. Engine remained idle with camera
+connected=false, demanded=false, viewers=0. That is owner-provided live
+evidence of the pre-fix problem, not post-fix acceptance.
+
+RED tests exposed Win32 233 on the post-complete-response close path, a
+completed Engine response masked by a client `CloseHandle` failure, failed
+wait/cancel paths that did not drain pending OVERLAPPED I/O, unsafe publish
+diagnostic absence, and a zero-byte close completion during the cancel race.
+GREEN now classifies only 109/232/233 as normal peer close after the complete
+Agent response write. Connect, request read, and response write still fail on
+233; incomplete/invalid write counts, ordinary timeout, and trailing data
+remain failures. The Engine retains its separate <=5-second local pipe and
+<=30-second Agent response budgets. Close/publish diagnostics record only
+phase, exception class, and numeric Win32 code, never payload or exception
+message. ACL/SID, DPAPI, signing/session protocol, HTTPS, camera demand, and
+service failure backoff were not weakened.
+
+Local Windows verification: focused pipe/client 52/52, explicit Identity
+Agent modules 114/114, Windows lifecycle 49/49, full Engine/Agent 261/261,
+all five native pywin32 tests executed with zero skips at the original PR
+checkpoint. The immutable receipt for that checkpoint records its historical
+limitation and remains unchanged.
+
+The later PR #318 amendment closes the local no-instance gap without retrying
+an Agent transaction: only Win32 2/231 during `WaitNamedPipe`/`CreateFile`
+before handle acquisition may retry within the original at-most-five-second
+local deadline. Win32 121 and deadline exhaustion terminate as timeout;
+unrelated errors fail immediately. Once a handle is acquired, write/read
+failure cannot replay the request. The separately bounded Agent response
+wait remains unchanged. RED reproduced early failure on transient missing/busy
+instances and a deadline-expired wait that still attempted `CreateFile`.
+GREEN: focused pipe/client 60/60 and full Engine/Agent 269/269 on local
+Windows; the native 50/100 sequential transactions now call the real Engine
+connector back-to-back with no external pipe pre-poll, each reaching the
+Agent transport once. Service success has no backoff, injected unrelated
+failure retains backoff, and camera-demand side effects remain zero.
+Governance 61/61, Vault validation PASS with two pre-existing Canvas warnings,
+ten PowerShell parses, diff check, and changed-content secret scan passed.
+Independent read-only review: Critical 0, Important 0.
+
+This supersedes the receipt's former unsynchronized-acquisition limitation
+as a local source/test fact only. Installed Machine A heartbeat recovery is
+still not verified and remains owner-gated after human review/merge. No
+Machine A runtime, camera, private key, tunnel, Production, or Production DB
+was modified; M2-E3 is not closed.
 
 ## Current task — M2-E3 successful Agent pipe-close lifecycle (2026-10-03)
 

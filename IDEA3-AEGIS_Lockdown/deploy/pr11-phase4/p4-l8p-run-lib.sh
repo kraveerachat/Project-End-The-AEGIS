@@ -11,6 +11,8 @@
 _L8P_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=p4-l7u-run-lib.sh
 . "$_L8P_LIB_DIR/p4-l7u-run-lib.sh"
+# shellcheck source=p4-ntp-reactivation-lib.sh
+. "$_L8P_LIB_DIR/p4-ntp-reactivation-lib.sh"
 
 l8p_reason() { printf '%s\n' "$1" >&2; return 1; }
 
@@ -85,6 +87,23 @@ l8p_file_gate() {
   [ "$mode" != exec ] || [ -x "$file" ] || { l8p_reason "L8P_FILE_NOT_EXECUTABLE:$label"; return 1; }
 }
 
+# l8p_esptool_python_gate PYTHON SCRIPT — the FROZEN esptool interpreter can load the EXACT pinned esptool.py, proven BEFORE the attempt is consumed. The esptool subprocess runs under
+# this interpreter ONLY (never AEGIS_PYTHON_BIN, which orchestrates the L8p flow and does not carry esptool's dependencies). It runs the pinned script with `--help`, exactly the way the
+# real launcher does, so every import the tool needs (pyserial, intelhex, ...) is exercised; `--help` opens no serial port and issues no flash_id/read_flash/write_flash. No PATH lookup,
+# no fallback interpreter, no package installation. Prints one `reason` line to stderr on failure.
+l8p_esptool_python_gate() {
+  local py=${1:-} script=${2:-} out tail_line
+  [[ "$py" == /* ]] || { l8p_reason "L8P_ESPTOOL_PYTHON_NOT_ABSOLUTE"; return 1; }
+  [ -f "$py" ] && [ -x "$py" ] || { l8p_reason "L8P_ESPTOOL_PYTHON_NOT_EXECUTABLE"; return 1; }
+  [[ "$(basename -- "$py")" == python* ]] || { l8p_reason "L8P_ESPTOOL_PYTHON_NOT_A_PYTHON_INTERPRETER"; return 1; }
+  [[ "$script" == /* ]] && [ -f "$script" ] && [ ! -L "$script" ] || { l8p_reason "L8P_ESPTOOL_SCRIPT_MISSING"; return 1; }
+  if ! out=$(cd / && env -i PATH=/usr/bin:/bin LC_ALL=C PYTHONDONTWRITEBYTECODE=1 timeout 60 "$py" "$script" --help 2>&1 </dev/null); then
+    tail_line=$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -n 1 | tr -cd '[:print:]' | cut -c1-160)
+    l8p_reason "L8P_ESPTOOL_PYTHON_CANNOT_LOAD_PINNED_ESPTOOL:${tail_line:-no-output}"; return 1
+  fi
+  grep -qE 'esptool\.py v4\.11\.[0-9]+' <<< "$out" || { l8p_reason "L8P_ESPTOOL_PYTHON_UNEXPECTED_ESPTOOL_BUILD"; return 1; }
+}
+
 # l8p_service_gate UNIT... — each unit is active/running NOW. Read-only; never repairs anything.
 l8p_service_gate() {
   local u
@@ -92,6 +111,15 @@ l8p_service_gate() {
     [ "$(systemctl show -p ActiveState --value "$u" 2>/dev/null)" = active ] && [ "$(systemctl show -p SubState --value "$u" 2>/dev/null)" = running ] \
       || { l8p_reason "L8P_SERVICE_NOT_ACTIVE:$u"; return 1; }
   done
+}
+
+# l8p_ntp_runtime_gate — the approved PRE-L8p NTP runtime is TRUE NOW (the firmware's only time source is the AP NTP server 10.77.30.1:123): chronyd active/running,
+# systemd-timesyncd inactive, exactly udp 10.77.30.1:123 and no wildcard :123, TrustedClock SYNCED within the L5 bound, the approved chrony config unchanged and both
+# UnitFileStates as approved. A historical NTP PASS receipt is NEVER a substitute: the 2026-10-03 attempt lost chronyd to its own POST capture. Read-only (systemctl show,
+# ss, the kernel clock probe, `$SUDO` reads of the root-owned config); it never starts, stops or repairs a time daemon. The runner calls it in the pre-gates AND again after the PRE capture, immediately before the attempt is consumed.
+l8p_ntp_runtime_gate() {
+  NTPREACT_SUDO="$SUDO" ntpreact_runtime_ready_gate \
+    || { l8p_reason "L8P_NTP_RUNTIME_NOT_READY (L8p never repairs it; a governed NTP runtime reactivation must be PROVEN after its own evidence capture first)"; return 1; }
 }
 
 # l8p_rollback_output_gate FIRST_WRITE_STARTED(0|1) OUTPUT — the canonical L8p rollback handler's own report must carry its fail-secure semantics.

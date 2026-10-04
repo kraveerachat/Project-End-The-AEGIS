@@ -59,7 +59,8 @@ esac
 '''
 CAPTURE = ('#!/usr/bin/env bash\necho "capture:$CAPTURE_LABEL" >> "$SIM_DIR/calls.log"\n'
            'if [ -e "$(cat "$SIM_DIR/marker-path")" ]; then echo "marker@capture-$CAPTURE_LABEL:yes" >> "$SIM_DIR/calls.log"; else echo "marker@capture-$CAPTURE_LABEL:no" >> "$SIM_DIR/calls.log"; fi\n'
-           '[ ! -e "$SIM_DIR/fail-capture-$CAPTURE_LABEL" ] || exit 1\nmkdir -p "$EVID_DIR"\necho "L0_CAPTURE=COMPLETE" > "$EVID_DIR/capture.log"\n(cd "$EVID_DIR" && sha256sum capture.log > SHA256SUMS)\n')
+           '[ ! -e "$SIM_DIR/fail-capture-$CAPTURE_LABEL" ] || exit 1\n'
+           '[ ! -e "$SIM_DIR/ntp-lost-by-capture-$CAPTURE_LABEL" ] || echo inactive > "$SIM_DIR/props/chronyd.service.ActiveState"\nmkdir -p "$EVID_DIR"\necho "L0_CAPTURE=COMPLETE" > "$EVID_DIR/capture.log"\n(cd "$EVID_DIR" && sha256sum capture.log > SHA256SUMS)\n')
 COMPARE = r'''#!/usr/bin/env bash
 echo "compare:$(basename "$1")>$(basename "$2")" >> "$SIM_DIR/calls.log"
 env | grep -E "^ALLOW_" >> "$SIM_DIR/calls.log"
@@ -75,8 +76,17 @@ fi
 printf '%s\n' "$lines"
 '''
 STAGE_GATE = "#!/usr/bin/env bash\necho \"stage-gate:$*\" >> \"$SIM_DIR/calls.log\"\n[ ! -e \"$SIM_DIR/fail-stage-gate\" ] || { echo STAGE_GATE=FAIL; exit 1; }\nprintf 'AUTHORIZATION_RECORD=VALID\\nK3_CONFIRMATION=VALID\\n'\n"
-SYSTEMCTL = ('#!/usr/bin/env bash\nshift\nkey=""; while [ $# -gt 0 ]; do case "$1" in -p) key=$2; shift 2 ;; *) shift ;; esac; done\n'
-             'case "$key" in MainPID) cat "$SIM_DIR/pid" ;; NRestarts) echo 0 ;; *) echo active ;; esac\n')
+SYSTEMCTL = r'''#!/usr/bin/env bash
+shift
+keys=(); value=0; unit=""
+while [ $# -gt 0 ]; do case "$1" in -p) keys+=("$2"); shift 2 ;; --value) value=1; shift ;; *) unit=$1; shift ;; esac; done
+default() { case "$1" in LoadState) echo loaded ;; ActiveState) echo active ;; SubState) echo running ;; UnitFileState) echo enabled ;; Result) echo success ;; NRestarts) echo 0 ;; MainPID) cat "$SIM_DIR/pid" ;; esac; }
+for k in "${keys[@]}"; do
+  v=$(cat "$SIM_DIR/props/$unit.$k" 2>/dev/null || default "$k")
+  if [ "$value" = 1 ]; then printf '%s\n' "$v"; else printf '%s=%s\n' "$k" "$v"; fi
+done
+'''
+
 
 
 class Sim:
@@ -100,6 +110,7 @@ class Sim:
     def build(self) -> None:
         self.p4.mkdir(parents=True)
         shutil.copy(DEPLOY / "p4-ntp-reactivation-lib.sh", self.p4 / "p4-ntp-reactivation-lib.sh")
+        self.build_ntp_sandbox()
         (self.p4 / "p4-stage-gate.sh").write_text(STAGE_GATE)
         (self.p4 / "p4-l0-capture.sh").write_text(CAPTURE)
         (self.p4 / "p4-compare.sh").write_text(COMPARE)
@@ -123,8 +134,8 @@ class Sim:
 
         (self.bin / "sudo").write_text('#!/usr/bin/env bash\n[ "$1" = -v ] && exit 0\nexec "$@"\n')
         (self.bin / "systemctl").write_text(SYSTEMCTL)
-        for name in ("ip", "ss"):
-            (self.bin / name).write_text("#!/usr/bin/env bash\nexit 0\n")
+        (self.bin / "ip").write_text("#!/usr/bin/env bash\nexit 0\n")
+        (self.bin / "ss").write_text('#!/usr/bin/env bash\n[ "$*" = "-H -ltnu" ] || exit 1\ncat "$SIM_DIR/ss-lines"\n')
         for f in self.bin.iterdir():
             f.chmod(0o755)
         (self.dir / "pid").write_text("100\n")
@@ -151,6 +162,37 @@ class Sim:
             self.runner.write_text(text.replace(f"EXPECTED_MAIN={self.head}", f"EXPECTED_MAIN={self.runner_head}"))
             self.git("update-index", "--assume-unchanged", "frozen-runner.sh")
         (self.dir / "marker-path").write_text(str(self.auth / MARKER))
+
+    def build_ntp_sandbox(self) -> None:
+        """The REAL ntpreact_runtime_ready_gate (final verification) runs against a sandbox host: config path/hash/mode constants of the COPIED lib point at a sandbox file,
+        `ss` and the clock probe are stand-ins, unit states come from the systemctl stub's props. Healthy post-apply NTP runtime by default."""
+        conf = self.dir / "chrony.conf"
+        conf.write_text("# approved L5 runtime configuration (sandbox)\nserver 2.arch.pool.ntp.org iburst\nbindaddress 10.77.30.1\nallow 10.77.30.0/28\nrtcsync\n")
+        conf.chmod(0o640)
+        import hashlib
+        lib = self.p4 / "p4-ntp-reactivation-lib.sh"
+        text = lib.read_text()
+        for pattern, repl in ((r'^NTPREACT_CHRONY_CONF="[^"]*"$', f'NTPREACT_CHRONY_CONF="{conf}"'),
+                              (r'^NTPREACT_CHRONY_CONF_SHA256="[0-9a-f]{64}"$', f'NTPREACT_CHRONY_CONF_SHA256="{hashlib.sha256(conf.read_bytes()).hexdigest()}"'),
+                              (r'^NTPREACT_CHRONY_CONF_MODE_OWNER="[^"]*"', f'NTPREACT_CHRONY_CONF_MODE_OWNER="640:{os.getuid()}:{os.getgid()}"')):
+            text, n = re.subn(pattern, lambda _m, r=repl: r, text, count=1, flags=re.MULTILINE)
+            assert n == 1, pattern
+        lib.write_text(text)
+        (self.p4 / "p4-l5-clock.py").write_text(
+            "import os, sys\nsim = os.environ['SIM_DIR']\n"
+            "if os.path.exists(os.path.join(sim, 'clock-unsynced')):\n    print('state=UNSYNCED reason=KERNEL_UNSYNCED maxerror_us=16000000 sim=1'); sys.exit(1)\n"
+            "print('state=SYNCED reason=OK maxerror_us=1000 sim=1')\n")
+        (self.dir / "props").mkdir()
+        for unit, state in (("chronyd.service", ("active", "running", "disabled")), ("systemd-timesyncd.service", ("inactive", "dead", "enabled"))):
+            for key, value in zip(("ActiveState", "SubState", "UnitFileState"), state):
+                self.prop(unit, key, value)
+        self.ss_lines("udp UNCONN 0 0 10.77.30.1:123 0.0.0.0:*", "udp UNCONN 0 0 127.0.0.1:323 0.0.0.0:*")
+
+    def prop(self, unit: str, key: str, value: str) -> None:
+        (self.dir / "props" / f"{unit}.{key}").write_text(value + "\n")
+
+    def ss_lines(self, *lines: str) -> None:
+        (self.dir / "ss-lines").write_text("".join(f"{line}\n" for line in lines))
 
     def write_auth(self, auth_date: str, k3_date: str, *, stage: str = "L5", k3_stage: str = "L5", reference: str = "sim/ref", scope: str | None = None) -> None:
         (self.auth / "authorization-L5.txt").write_text(f"AEGIS_P4_AUTHORIZATION_V1\nstage={stage}\ndate={auth_date}\nauthorizer=music\nscope={scope or self.scope}\nreference={reference}\n")
@@ -439,3 +481,66 @@ def test_the_runner_only_ever_invokes_the_three_package_handlers(tmp_path: Path)
     sim = Sim(tmp_path); sim.inject("fail-verify"); sim.run()
     assert set(sim.handler_calls()) <= {"apply", "verify", "rollback"}
     assert not [c for c in sim.calls() if not c.startswith("ALLOW_") and re.search(r"esptool|serial|mosquitto|publish|CUT|RESTORE|l8p", c, re.I)]
+
+
+# ── FINAL read-only verification AFTER the POST capture (root cause of the consumed 2026-10-03 attempt) ─────────────────────────────────────────────
+# That attempt passed VERIFY, then its own POST capture stopped chronyd (timedatectl show-timesync activated systemd-timesyncd, which conflicts with chronyd), yet the runner
+# printed PASS from the stale VERIFY output. The stub VERIFY handler below always passes, so these tests prove the verdict now depends on the runtime as it is AFTER capture.
+
+def test_the_final_verification_runs_after_post_capture_and_compare_and_gates_the_pass_verdict(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    res = sim.run()
+    out = res.stdout
+    assert res.returncode == 0, out
+    marks = ["CAPTURE_POST=COMPLETE", "== PRE -> POST compare", "== FINAL read-only NTP runtime verification", "FINAL_NTP_RUNTIME_VERIFICATION=PASS_AFTER_POST_CAPTURE",
+             "NTP_RUNTIME_READY_FOR_L8P=YES"]
+    positions = [out.index(m) for m in marks]
+    assert positions == sorted(positions), positions
+    assert out.count("FINAL_NTP_RUNTIME_VERIFICATION=PASS_AFTER_POST_CAPTURE") == 2, "once as the live line, once inside the terminal verdict block"
+    assert "FINAL_NTP_RUNTIME_VERIFICATION=PASS_AFTER_POST_CAPTURE" in sim.verdict()
+    assert list(sim.evid_base.rglob("final-ntp-runtime-verification.txt"))
+
+
+def test_ntp_lost_by_the_post_capture_is_never_reported_as_ready(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    sim.inject("ntp-lost-by-capture-post")
+    res = sim.run()
+    out = res.stdout
+    assert res.returncode == 1
+    assert "FINAL_NTP_RUNTIME_VERIFICATION=FAIL" in out and "NTPREACT_UNIT_STATE_MISMATCH:chronyd.service.ActiveState=inactive" in out
+    assert "NTP_RUNTIME_READY_FOR_L8P=YES" not in out and "PRE_L8P_NTP_RUNTIME_REACTIVATION=PASS" not in out and "NTP_REACTIVATION_RESULT=PASS" not in out
+    assert "NTP_RUNTIME_READY_FOR_L8P=NO" in out and sim.verdict().strip() == "NTP_REACTIVATION_RESULT=ROLLED_BACK"
+    assert "rollback" in sim.handler_calls() and sim.calls().count("marker@apply:yes") == 1, "rolled back; the mutating apply ran once (the other apply call is the read-only preflight)"
+    assert sim.marker(), "the one-shot marker stays consumed"
+
+
+@pytest.mark.parametrize("name,breaker,reason", [
+    ("timesyncd-reactivated", lambda s: (s.prop("systemd-timesyncd.service", "ActiveState", "active"), s.prop("systemd-timesyncd.service", "SubState", "running")),
+     "NTPREACT_UNIT_STATE_MISMATCH:systemd-timesyncd.service.ActiveState=active"),
+    ("listener-gone", lambda s: s.ss_lines("udp UNCONN 0 0 127.0.0.1:323 0.0.0.0:*"), "AP_NTP_LISTENER_MISSING_OR_DUPLICATED:0"),
+    ("wildcard-listener", lambda s: s.ss_lines("udp UNCONN 0 0 0.0.0.0:123 0.0.0.0:*"), "WILDCARD_NTP_LISTENER_FORBIDDEN"),
+    ("clock-lost", lambda s: s.inject("clock-unsynced"), "NTPREACT_TRUSTEDCLOCK_NOT_OK"),
+    ("conf-changed", lambda s: (s.dir / "chrony.conf").write_text("server other.example iburst\n"), "NTPREACT_CHRONY_CONF_NOT_APPROVED_L5_CONTENT"),
+    ("chronyd-unitfile-enabled", lambda s: s.prop("chronyd.service", "UnitFileState", "enabled"), "NTPREACT_UNIT_STATE_MISMATCH:chronyd.service.UnitFileState=enabled"),
+], ids=lambda v: v if isinstance(v, str) and " " not in v and ":" not in v else "")
+def test_every_final_runtime_check_failing_after_a_passing_verify_rolls_back(tmp_path: Path, name: str, breaker, reason: str) -> None:
+    sim = Sim(tmp_path)
+    breaker(sim)
+    res = sim.run()
+    out = res.stdout
+    assert "NTPREACT_VERIFY=PASS" in out, "the stale VERIFY output passed; only the final check can catch this"
+    assert res.returncode == 1 and reason in out and "FINAL_NTP_RUNTIME_VERIFICATION=FAIL" in out
+    assert "NTP_RUNTIME_READY_FOR_L8P=YES" not in out and "rollback" in sim.handler_calls()
+
+
+def test_the_final_verification_is_read_only_and_sits_between_the_compare_and_the_verdict() -> None:
+    code = "\n".join(l for l in RUNNER.read_text().splitlines() if not l.lstrip().startswith("#"))
+    final = code.index("ntpreact_runtime_ready_gate")
+    assert code.index('capture POST') < code.index('compare "$EVID/pre-root" "$EVID/post-root"') < code.index("identity_unchanged || rollback_flow") < final < code.rindex("trap - ERR INT TERM")
+    assert code.rindex("trap - ERR INT TERM") < code.index("NTP_RUNTIME_READY_FOR_L8P=YES")
+    assert code.count("NTP_RUNTIME_READY_FOR_L8P=YES") == 1 and code.count("ntpreact_runtime_ready_gate") == 1
+    assert "FINAL_NTP_RUNTIME_VERIFICATION" in code
+    lib = (DEPLOY / "p4-ntp-reactivation-lib.sh").read_text()
+    body = lib[lib.index("ntpreact_runtime_ready_gate()"):]
+    body = "\n".join(l for l in body[:body.index("\n}\n")].splitlines() if not l.lstrip().startswith("#"))
+    assert not re.search(r"\b(start|stop|restart|enable|disable|set-ntp|show-timesync|timedatectl|chronyc)\b", body)

@@ -15,6 +15,43 @@ class EngineConfigTests(unittest.TestCase):
         self.assertIsNone(config.nas_user)
         self.assertIsNone(config.monitor_api_base)
         self.assertIsNone(config.detection_engine_api_key)
+        self.assertFalse(config.gpu_required)
+        self.assertEqual(config.inference_device, "cpu")
+
+    def test_gpu_required_rejects_cpu_and_placeholder_before_startup(self):
+        with self.assertRaisesRegex(ValueError, "AEGIS_INFERENCE_DEVICE"):
+            EngineConfig(gpu_required=True, inference_device="cpu").validate()
+        with self.assertRaisesRegex(ValueError, "AEGIS_RECOGNIZER_BACKEND"):
+            EngineConfig(gpu_required=True, inference_device="cuda:0").validate()
+
+    def test_gpu_policy_is_independent_of_capture_on_demand(self):
+        config = EngineConfig(
+            gpu_required=True,
+            inference_device="cuda:0",
+            recognizer_backend="yolo-sface-admin",
+            admin_model_path="admin.pt",
+            face_detector_model_path="yunet.onnx",
+            face_recognizer_model_path="sface.onnx",
+            admin_embeddings_path="admin.npz",
+            capture_on_demand=False,
+        ).validate()
+        self.assertFalse(config.capture_on_demand)
+
+    def test_accelerator_device_rejects_ambiguous_or_invalid_values(self):
+        for value in ("cuda", "cuda:-1", "cuda:01", "mps", "auto", "cuda:0,1"):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                ValueError, "AEGIS_INFERENCE_DEVICE"
+            ):
+                EngineConfig(inference_device=value).validate()
+
+    def test_gpu_policy_loads_from_environment(self):
+        with patch.dict(os.environ, {
+            "AEGIS_GPU_REQUIRED": "true",
+            "AEGIS_INFERENCE_DEVICE": "cuda:0",
+        }, clear=True):
+            config = EngineConfig.from_env()
+        self.assertTrue(config.gpu_required)
+        self.assertEqual(config.inference_device, "cuda:0")
 
     def test_enabled_nas_requires_host_and_user(self):
         with self.assertRaisesRegex(

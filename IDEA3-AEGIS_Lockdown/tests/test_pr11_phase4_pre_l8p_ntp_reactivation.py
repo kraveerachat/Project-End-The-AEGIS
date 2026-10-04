@@ -585,11 +585,13 @@ def test_runner_never_invokes_other_stage_handlers_or_governed_runners() -> None
     assert not re.search(r"stages/L[0-9]|owner-run/run-|reactivation/l34|dnsmasq-unit-boot-order-repair", text)
 
 
-def test_allow_catalog_is_no_wider_than_historical_l5_and_protects_unitfilestate_and_config() -> None:
+def test_allow_catalog_is_no_wider_than_historical_l5_plus_one_sentinel_key_and_protects_unitfilestate_and_config() -> None:
     def keys(p: Path) -> set[str]:
         return {l.strip() for l in p.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")}
     mine, l5 = keys(HND_SRC / "allow-keys.txt"), keys(L5_DIR / "allow-keys.txt")
-    assert mine <= l5 and mine, mine - l5
+    # The ONE approved widening (post-live forensic fix 2026-10-03): the capture records the sentinel for the inactive timesyncd's fallback set, which the PRE (timesyncd active)
+    # capture holds as real data. stages/L5 stays unmodified by contract (test below).
+    assert mine - l5 == {"time.timesyncd.FallbackNTPServers"} and mine, mine - l5
     assert not [k for k in mine if k.endswith(".UnitFileState") or "/etc/chrony.conf" in k]
     assert keys(HND_SRC / "allow-listeners.txt") == keys(L5_DIR / "allow-listeners.txt")
 

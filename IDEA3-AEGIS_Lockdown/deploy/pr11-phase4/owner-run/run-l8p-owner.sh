@@ -27,6 +27,7 @@ PARTITION_TABLE=PIN_PARTITION_TABLE
 SECRETS_HEADER=PIN_SECRETS_HEADER
 NVS_GENERATOR=PIN_NVS_GENERATOR
 FLASH_TOOL_SCRIPT=PIN_FLASH_TOOL_SCRIPT
+ESPTOOL_PYTHON=PIN_ESPTOOL_PYTHON
 MQTT_CA_FILE=PIN_MQTT_CA_FILE
 BROKER_CREDENTIAL_FILE=PIN_BROKER_CREDENTIAL_FILE
 BROKER_ADDRESS=PIN_BROKER_ADDRESS
@@ -34,7 +35,7 @@ BROKER_TLS_NAME=PIN_BROKER_TLS_NAME
 WIFI_SSID=PIN_WIFI_SSID
 NTP_SERVER=PIN_NTP_SERVER
 FIRMWARE_BUILD_CMD=PIN_FIRMWARE_BUILD_CMD
-for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID FIRMWARE_SHA256 PARTITION_TABLE_SHA256 INPUT_DIR FIRMWARE_IMAGE PARTITION_TABLE SECRETS_HEADER NVS_GENERATOR FLASH_TOOL_SCRIPT \
+for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID FIRMWARE_SHA256 PARTITION_TABLE_SHA256 INPUT_DIR FIRMWARE_IMAGE PARTITION_TABLE SECRETS_HEADER NVS_GENERATOR FLASH_TOOL_SCRIPT ESPTOOL_PYTHON \
            MQTT_CA_FILE BROKER_CREDENTIAL_FILE BROKER_ADDRESS BROKER_TLS_NAME WIFI_SSID NTP_SERVER FIRMWARE_BUILD_CMD; do
   case "${!pin}" in PIN_*) echo "STOP: runner is not pinned ($pin). Run the owner freeze workflow first."; exit 2 ;; esac
 done
@@ -98,7 +99,7 @@ l8p_attempt_unconsumed "$AUTH_DIR" || gate "this authorization already consumed 
 [ -z "$(git -C "$REPO" status --porcelain)" ] || gate "worktree is not clean"
 git -C "$REPO" fetch -q origin 2>/dev/null && [ "$(git -C "$REPO" rev-parse origin/main)" = "$EXPECTED_MAIN" ] \
   || gate "origin/main is not $EXPECTED_MAIN (or fetch failed); not silently re-pinning"
-for f in apply.sh verify.sh rollback.sh allow-keys.txt allow-listeners.txt; do [ -f "$STG/$f" ] || gate "handler file $f missing"; done
+for f in apply.sh verify.sh rollback.sh cleanup.sh allow-keys.txt allow-listeners.txt; do [ -f "$STG/$f" ] || gate "handler file $f missing"; done
 [ -f "$P4/p4-l8p-device.py" ] || gate "p4-l8p-device.py missing"
 gate_out=$(TZ=Asia/Bangkok bash "$P4/p4-stage-gate.sh" --stage L8p --mode live --authorization "$AUTH_DIR/authorization-L8p.txt" --k3 "$AUTH_DIR/k3-L8p.txt" 2>&1) || gate "stage gate failed"
 for l in AUTHORIZATION_RECORD=VALID K3_CONFIRMATION=VALID ROLLBACK_HANDLER=REGISTERED; do printf '%s\n' "$gate_out" | grep -qx "$l" || gate "stage gate did not report $l"; done
@@ -111,6 +112,7 @@ l7u_core_running_gate "$CORE_UNIT" || gate "the Core is not in the running basel
 l8p_service_gate twingate.service mosquitto.service "$BROKER_UNIT" || gate "a preserved service is not active/running (see reason above)"
 l7_idea2_s10_gate "$ENGINE" "$TUNNEL" || gate "IDEA2 §10 fresh preservation precondition failed (see reason above)"
 l7_disk_gate 80 / /var /opt /run || gate "disk headroom below 20% free (see reason above)"
+l8p_ntp_runtime_gate || gate "the PRE-L8p NTP runtime is not true now (see reason above)"
 for k in net.ipv4.ip_forward net.ipv4.conf.all.forwarding net.ipv6.conf.all.forwarding; do [ "$(sysctl -n $k)" = 0 ] || gate "$k is not 0"; done
 
 # 4. owner inputs and reviewed artifacts (existence, ownership and the frozen digests only; the handler validates every content)
@@ -120,6 +122,7 @@ l8p_artifact_gate "$PARTITION_TABLE" "$PARTITION_TABLE_SHA256" partition-table |
 l8p_file_gate "$SECRETS_HEADER" secrets-header || gate "MQTT CA trust-anchor header missing (see reason above)"
 l8p_file_gate "$NVS_GENERATOR" nvs-generator exec || gate "NVS generator missing or not executable (see reason above)"
 l8p_file_gate "$FLASH_TOOL_SCRIPT" flash-tool || gate "pinned flash tool script missing (see reason above)"
+l8p_esptool_python_gate "$ESPTOOL_PYTHON" "$FLASH_TOOL_SCRIPT" || gate "the pinned esptool Python cannot load the pinned esptool (see reason above)"
 l8p_file_gate "$MQTT_CA_FILE" mqtt-ca || gate "MQTT CA file missing (see reason above)"
 l8p_file_gate "$BROKER_CREDENTIAL_FILE" broker-credential || gate "broker credential file missing (see reason above)"
 [ "$GATE_FAILED" = 0 ] || die "one or more pre-gates failed; NOTHING was created or changed on the host and the device was not touched"
@@ -139,10 +142,10 @@ echo "EVIDENCE_ROOT=$EVID MAIN=$EXPECTED_MAIN"
 ATTEMPTED=0; ROLLED_BACK=0
 capture() { sudo env EVID_DIR="$2" CAPTURE_LABEL="${1,,}" JOURNAL_SINCE="$JOURNAL_SINCE" bash "$P4/p4-l0-capture.sh" || return 1
   sudo grep -q 'L0_CAPTURE=COMPLETE' "$2/capture.log" || return 1; sudo bash -c "cd '$2' && sha256sum -c --quiet --strict SHA256SUMS" || return 1; echo "CAPTURE_$1=COMPLETE SHA256=PASS"; }
-compare() {  # compare BEFORE AFTER OUTFILE: the L8p allow files are EMPTY, so any Core-host drift fails the comparison
+compare() {  # compare BEFORE AFTER OUTFILE: the L8p allow files are EMPTY, so any Core-host drift fails the comparison. p4-compare.sh takes EXACTLY two positional arguments; OUTFILE is only our redirection target.
   local rc=0
   sudo env DISK_THRESHOLD_PCT=90 AEGIS_AP_INTERFACE="$AP_IF" AEGIS_AP_ADDRESS="$AP_ADDR" ALLOW_KEYS_FILE="$STG/allow-keys.txt" ALLOW_LISTENERS_FILE="$STG/allow-listeners.txt" \
-    bash "$P4/p4-compare.sh" "$1" "$2" "$3" > "$3" 2>&1 || rc=$?
+    bash "$P4/p4-compare.sh" "$1" "$2" > "$3" 2>&1 || rc=$?
   grep -E '^(FINDING|FINDINGS_|PRESERVATION_S10|COMPARE_RESULT)' "$3" || true; [ "$rc" = 0 ] || return 1
   for l in FINDINGS_NEW_OR_WORSENED_DRIFT=0 FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0 FINDINGS_INCOMPARABLE=0 PRESERVATION_S10=PASS COMPARE_RESULT=PASS; do
     grep -qx "$l" "$3" || { echo "COMPARE_REQUIREMENT_FAILED: $l"; return 1; }; done; }
@@ -150,7 +153,7 @@ compare() {  # compare BEFORE AFTER OUTFILE: the L8p allow files are EMPTY, so a
 # after every gate above and the PRE capture and the consumed attempt: AEGIS_L8P_BACKEND=hardware + AEGIS_L8P_LIVE_AUTHORIZED=YES exist nowhere else.
 handler() {
   env AEGIS_L8P_INPUT_DIR="$INPUT_DIR" AEGIS_L8P_WORK_DIR="$WORK" AEGIS_L8P_EVIDENCE_DIR="$OUTEV" AEGIS_L8P_PRE_EVIDENCE_DIR="$PRE" \
-    AEGIS_L8P_BACKEND=hardware AEGIS_L8P_LIVE_AUTHORIZED=YES AEGIS_L8P_ESPTOOL="$FLASH_TOOL_SCRIPT" \
+    AEGIS_L8P_BACKEND=hardware AEGIS_L8P_LIVE_AUTHORIZED=YES AEGIS_L8P_ESPTOOL="$FLASH_TOOL_SCRIPT" AEGIS_L8P_ESPTOOL_PYTHON="$ESPTOOL_PYTHON" \
     AEGIS_L8P_BROKER_ADDRESS="$BROKER_ADDRESS" AEGIS_L8P_BROKER_TLS_NAME="$BROKER_TLS_NAME" AEGIS_L8P_MQTT_CA_FILE="$MQTT_CA_FILE" \
     AEGIS_L8P_BROKER_CREDENTIAL_FILE="$BROKER_CREDENTIAL_FILE" AEGIS_L8P_PARTITION_TABLE="$PARTITION_TABLE" AEGIS_L8P_SECRETS_HEADER="$SECRETS_HEADER" \
     AEGIS_L8P_FIRMWARE_IMAGE="$FIRMWARE_IMAGE" AEGIS_L8P_FIRMWARE_BUILD_CMD="$FIRMWARE_BUILD_CMD" AEGIS_L8P_NVS_PARTITION_GEN="$NVS_GENERATOR" \
@@ -177,6 +180,8 @@ echo "== PRE capture (read-only; BEFORE the attempt is consumed and before any d
 capture PRE "$PRE" || die "PRE capture failed; nothing changed and nothing consumed"
 own_pre "$PRE"
 ( cd "$PRE" && sha256sum -c --quiet --strict SHA256SUMS ) || die "PRE checksum verification failed; nothing changed and nothing consumed"
+# The PRE capture ran just now: prove the NTP runtime is STILL true after it and BEFORE the one attempt is consumed (no serial access, reset, write or marker has happened).
+l8p_ntp_runtime_gate || die "the PRE-L8p NTP runtime is not true after the PRE capture (see reason above); the attempt was NOT consumed and the device was NOT touched"
 
 # one attempt: from this point a second invocation for this AUTH_DIR is refused, even after a failure
 l8p_consume_attempt "$AUTH_DIR" || die "could not consume the one-attempt marker"
@@ -188,6 +193,11 @@ apply_rc=0; apply_out=$(handler apply.sh 2>&1) || apply_rc=$?; printf '%s\n' "$a
 echo "== L8p VERIFY (read-only evidence check)"
 ver_rc=0; ver_out=$(handler verify.sh 2>&1) || ver_rc=$?; printf '%s\n' "$ver_out"
 { [ "$ver_rc" = 0 ] && printf '%s\n' "$ver_out" | grep -qx 'L8P_VERIFY=PASS'; } || rollback_flow "L8P_VERIFY failed"
+# Temporary secret-bearing WORK artifacts (nvs.csv, nvs.bin) are not evidence: remove exactly those two (host only, no device) BEFORE the full-EVID secret scan below, which keeps NO exclusions.
+echo "== L8p SECRET-WORK CLEANUP (host only: exactly nvs.csv + nvs.bin; never the device, the first-write marker or the JSON evidence)"
+cl_rc=0; cl_out=$(handler cleanup.sh 2>&1) || cl_rc=$?; printf '%s\n' "$cl_out"
+cl_ok=1; for l in L8P_SECRET_WORK_CLEANUP=PASS NVS_CSV_PRESENT=NO NVS_BIN_PRESENT=NO FIRST_WRITE_MARKER_PRESENT=YES L8P_DEVICE_ACTION_TAKEN=NONE; do printf '%s\n' "$cl_out" | grep -qx "$l" || cl_ok=0; done
+{ [ "$cl_rc" = 0 ] && [ "$cl_ok" = 1 ]; } || rollback_flow "L8P_SECRET_WORK_CLEANUP failed"
 echo "== POST capture"; capture POST "$EVID/post-root" || rollback_flow "POST capture failed"
 own_pre "$EVID/post-root"
 echo "== PRE -> POST compare (Core host zero drift: the L8p allow files are empty)"; compare "$PRE" "$EVID/post-root" "$EVID/compare-pre-post.txt" || rollback_flow "PRE->POST compare failed"

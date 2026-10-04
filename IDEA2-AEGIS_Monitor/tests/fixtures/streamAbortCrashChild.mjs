@@ -4,13 +4,14 @@ import { once } from 'node:events'
 import { register } from 'node:module'
 
 const scenario = process.argv[2] ?? 'idle'
-const allowedScenarios = new Set(['normal', 'idle', 'response-close-race', 'revalidation-race'])
+const allowedScenarios = new Set(['normal', 'idle', 'response-close-race', 'revalidation-race', 'delayed-first-byte', 'no-first-byte', 'steady-gap'])
 assert.equal(allowedScenarios.has(scenario), true, `unknown scenario: ${scenario}`)
-const streamIdleMs = scenario === 'normal' ? 1_000 : 25
+const streamIdleMs = scenario === 'normal' ? 1_000 : scenario === 'steady-gap' ? 'scaled' : 25
+const streamFirstByteMs = 120
 const streamRevalidateMs = scenario === 'revalidation-race' ? 25 : 10_000
 
 register(new URL('./streamAbortCrashLoader.mjs', import.meta.url), {
-  data: { streamIdleMs, streamRevalidateMs },
+  data: { streamIdleMs, streamFirstByteMs, streamRevalidateMs },
 })
 
 let cancelCalls = 0
@@ -18,6 +19,8 @@ let readCalls = 0
 let sessionReloadCalls = 0
 let clientCloseRequested = false
 let rejectPendingRead
+let rejectDelayedRead
+const frame = new TextEncoder().encode('--frame\r\nContent-Type: image/jpeg\r\n\r\nframe\r\n')
 const pendingRead = new Promise((resolve, reject) => {
   rejectPendingRead = reject
 })
@@ -26,9 +29,25 @@ const reader = {
   read() {
     readCalls += 1
     if (readCalls === 1) {
+      if (scenario === 'no-first-byte') return pendingRead
+      if (scenario === 'delayed-first-byte') {
+        return new Promise((resolve, reject) => {
+          rejectDelayedRead = reject
+          setTimeout(() => resolve({
+            value: frame,
+            done: false,
+          }), 70)
+        })
+      }
       return Promise.resolve({
-        value: new TextEncoder().encode('--frame\r\nContent-Type: image/jpeg\r\n\r\nframe\r\n'),
+        value: frame,
         done: false,
+      })
+    }
+    if (readCalls === 2 && scenario === 'steady-gap') {
+      return new Promise((resolve, reject) => {
+        rejectDelayedRead = reject
+        setTimeout(() => resolve({ value: frame, done: false }), 70)
       })
     }
     if (scenario === 'normal') return Promise.resolve({ value: undefined, done: true })
@@ -37,7 +56,11 @@ const reader = {
   cancel() {
     cancelCalls += 1
     const error = new DOMException('This operation was aborted', 'AbortError')
-    if (scenario !== 'normal') rejectPendingRead(error)
+    rejectDelayedRead?.(error)
+    if (scenario !== 'normal' && (scenario === 'no-first-byte' ||
+      (readCalls > 1 && !(scenario === 'steady-gap' && readCalls === 2)))) {
+      rejectPendingRead(error)
+    }
     return Promise.reject(error)
   },
 }
@@ -118,4 +141,5 @@ console.log(`READ_CALLS=${readCalls}`)
 console.log(`SESSION_RELOAD_CALLS=${sessionReloadCalls}`)
 console.log(`CLIENT_CLOSE_REQUESTED=${clientCloseRequested ? 'YES' : 'NO'}`)
 console.log(`BYTES_RECEIVED=${bytesReceived}`)
+console.log(`FRAME_BYTES=${frame.byteLength}`)
 console.log('MONITOR_SURVIVED=YES')

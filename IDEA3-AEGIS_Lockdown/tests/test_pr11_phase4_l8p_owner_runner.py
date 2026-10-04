@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -22,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = ROOT / "deploy" / "pr11-phase4"
 RUNNER = DEPLOY / "owner-run" / "run-l8p-owner.sh"
 LIB = DEPLOY / "p4-l8p-run-lib.sh"
-REAL_LIBS = ("p4-l6b-run-lib.sh", "p4-l7-run-lib.sh", "p4-l7u-run-lib.sh", "p4-l8p-run-lib.sh", "p4-lib.sh", "p4-stage-gate.sh")
+REAL_LIBS = ("p4-l6b-run-lib.sh", "p4-l7-run-lib.sh", "p4-l7u-run-lib.sh", "p4-l8p-run-lib.sh", "p4-lib.sh", "p4-stage-gate.sh", "p4-ntp-reactivation-lib.sh")
 LOGS = "Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs"
 REAL_USER = subprocess.run(["id", "-un"], text=True, capture_output=True, check=True).stdout.strip()
 REAL_UID = subprocess.run(["id", "-u"], text=True, capture_output=True, check=True).stdout.strip()
@@ -35,11 +36,26 @@ name=$(basename "$0" .sh)
 echo "$name" >> "$SIM_DIR/calls.log"
 echo "env:$name:backend=${AEGIS_L8P_BACKEND-<unset>} live=${AEGIS_L8P_LIVE_AUTHORIZED-<unset>} pre_ok=$([ -f "$AEGIS_L8P_PRE_EVIDENCE_DIR/capture.log" ] && echo yes || echo no)" >> "$SIM_DIR/calls.log"
 echo "marker@$name:$([ -e "$(cat "$SIM_DIR/marker-path")" ] && echo yes || echo no)" >> "$SIM_DIR/calls.log"
+echo "py:$name:control=${AEGIS_PYTHON_BIN-<unset>} esptool=${AEGIS_L8P_ESPTOOL_PYTHON-<unset>}" >> "$SIM_DIR/calls.log"
 mkdir -p "$AEGIS_L8P_WORK_DIR" "$AEGIS_L8P_EVIDENCE_DIR"
 case "$name" in
   apply)
     [ ! -e "$SIM_DIR/fail-before-write" ] || { echo "L8P_APPLY=FAIL reason=SIM_BEFORE_WRITE" >&2; exit 1; }
     echo started > "$AEGIS_L8P_WORK_DIR/first-write.marker"
+    # What the REAL canonical flow leaves in WORK_DIR: nvs.csv holds ALL FOUR provisioned secrets in plaintext, nvs.bin holds the encoded Wi-Fi/MQTT values (never printed here).
+    {
+      printf 'key,type,encoding,value\naegis-p1,namespace,,\n'
+      printf 'wifi_psk,data,string,%s\nmqtt_pass,data,string,%s\n' "$(cat "$AEGIS_L8P_INPUT_DIR/wifi.psk")" "$(cat "$AEGIS_L8P_INPUT_DIR/mqtt.pass")"
+      printf 'k_c2d,data,hex2bin,%s\nk_d2c,data,hex2bin,%s\n' "$(cat "$AEGIS_L8P_INPUT_DIR/k_c2d")" "$(cat "$AEGIS_L8P_INPUT_DIR/k_d2c")"
+    } > "$AEGIS_L8P_WORK_DIR/nvs.csv"
+    { head -c 128 /dev/zero; cat "$AEGIS_L8P_INPUT_DIR/wifi.psk"; head -c 64 /dev/zero; cat "$AEGIS_L8P_INPUT_DIR/mqtt.pass"; head -c 20000 /dev/zero; } > "$AEGIS_L8P_WORK_DIR/nvs.bin"
+    chmod 0600 "$AEGIS_L8P_WORK_DIR/nvs.csv" "$AEGIS_L8P_WORK_DIR/nvs.bin"
+    printf '{"schema_version":"1","run_id":"%s","flash_result":"PASS","nvs_readback_match":"PASS","firmware_readback_match":"PASS","boot_verification_result":"PASS","failure_boundary":"NONE"}\n' "$AEGIS_L8P_RUN_ID" > "$AEGIS_L8P_EVIDENCE_DIR/l8p-$AEGIS_L8P_RUN_ID.json"
+    chmod 0600 "$AEGIS_L8P_EVIDENCE_DIR/l8p-$AEGIS_L8P_RUN_ID.json"
+    if [ -e "$SIM_DIR/leak-secret-extra" ]; then   # a REAL leak of one owner secret value into a chosen path under the EVID tree
+      leak_where=$(sed -n 1p "$SIM_DIR/leak-where"); leak_val=$(sed -n 2p "$SIM_DIR/leak-where"); leak_evid=$(dirname "$AEGIS_L8P_WORK_DIR")
+      mkdir -p "$(dirname "$leak_evid/$leak_where")"; printf '%s\n' "$leak_val" >> "$leak_evid/$leak_where"
+    fi
     [ ! -e "$SIM_DIR/leak-secret" ] || cat "$(dirname "$AEGIS_L8P_INPUT_DIR")/leak-source" > "$AEGIS_L8P_EVIDENCE_DIR/leak.txt"
     [ ! -e "$SIM_DIR/fail-apply" ] || { echo "L8P_APPLY=FAIL reason=SIM" >&2; exit 1; }
     echo "L8P_APPLY=COMPLETE" ;;
@@ -53,9 +69,15 @@ case "$name" in
 esac
 '''
 CAPTURE_STUB = ('#!/usr/bin/env bash\necho "capture:$CAPTURE_LABEL" >> "$SIM_DIR/calls.log"\n[ ! -e "$SIM_DIR/fail-capture-$CAPTURE_LABEL" ] || exit 1\n'
-                'mkdir -p "$EVID_DIR"\necho "L0_CAPTURE=COMPLETE" > "$EVID_DIR/capture.log"\n'
+                'mkdir -p "$EVID_DIR"\n'
+                'T=$(date -u +%FT%TZ)\nprintf \'%s L0 capture start label=%s evidence=%s (read-only)\\n%s L0_CAPTURE=COMPLETE evidence=%s\\n\' "$T" "$CAPTURE_LABEL" "$EVID_DIR" "$T" "$EVID_DIR" > "$EVID_DIR/capture.log"\n'
+                '[ ! -e "$SIM_DIR/ntp-lost-by-pre-capture" ] || [ "$CAPTURE_LABEL" != pre ] || echo inactive > "$SIM_DIR/props/chronyd.service.ActiveState"\n'
                 '(cd "$EVID_DIR" && sha256sum capture.log > SHA256SUMS)\n[ ! -e "$SIM_DIR/bad-sums-$CAPTURE_LABEL" ] || echo "0  capture.log" > "$EVID_DIR/SHA256SUMS"\n')
-COMPARE_STUB = ('#!/usr/bin/env bash\necho "compare:$1:$2:$(env | grep -E \'^ALLOW_\' | sort | tr \'\\n\' \' \')" >> "$SIM_DIR/calls.log"\n'
+COMPARE_STUB = ('#!/usr/bin/env bash\n'
+                'echo "argc:$#" >> "$SIM_DIR/calls.log"\n'
+                '# the REAL p4-compare.sh contract: exactly <BEFORE_DIR> <AFTER_DIR>; anything else stops at its usage gate (exit 2)\n'
+                '[ "$#" = 2 ] || { echo "STOP: usage: p4-compare.sh <BEFORE_DIR> <AFTER_DIR>"; exit 2; }\n'
+                'echo "compare:$1:$2:$(env | grep -E \'^ALLOW_\' | sort | tr \'\\n\' \' \')" >> "$SIM_DIR/calls.log"\n'
                 'label=$(basename "$2" | sed s/-root//)\n[ ! -e "$SIM_DIR/fail-compare-$label" ] || { echo COMPARE_RESULT=FAIL; exit 1; }\n'
                 "printf 'FINDINGS_NEW_OR_WORSENED_DRIFT=0\\nFINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0\\nFINDINGS_INCOMPARABLE=0\\nPRESERVATION_S10=PASS\\nCOMPARE_RESULT=PASS\\n'\n")
 SYSTEMCTL_STUB = r'''#!/usr/bin/env bash
@@ -73,8 +95,10 @@ done
 class Sim:
     def __init__(self, tmp: Path, *, l7u: bool = True, l8p_done: bool = False, auth_over: dict | None = None, k3: str | None = "v2",
                  authorization: str | None = None, operator_user: str | None = None, operator_uid: str | None = None,
-                 l8p_receipts: dict[str, str] | None = None) -> None:
+                 l8p_receipts: dict[str, str] | None = None, esptool_python: str | None = None, real_rollback: bool = False) -> None:
         self.l8p_receipts = l8p_receipts or {}
+        self.real_rollback = real_rollback
+        self.esptool_python = esptool_python if esptool_python is not None else sys.executable
         self.dir = tmp / "sim"
         self.repo = self.dir / "repo"
         self.p4 = self.repo / "IDEA3-AEGIS_Lockdown" / "deploy" / "pr11-phase4"
@@ -113,11 +137,16 @@ class Sim:
             (stg / name).write_text(HANDLER_STUB)
         for name in ("allow-keys.txt", "allow-listeners.txt"):
             (stg / name).write_text("# empty by contract\n")
+        real_stage = DEPLOY / "stages" / "L8p"
+        shutil.copy(real_stage / "cleanup.sh", stg / "cleanup.sh")   # the REAL host-only secret-work cleanup handler
+        if self.real_rollback:
+            shutil.copy(real_stage / "rollback.sh", stg / "rollback.sh")  # the REAL rollback handler (lifecycle tests)
         (self.p4 / "p4-l8p-device.py").write_text("# stand-in\n")
         (self.p4 / "p4-l0-capture.sh").write_text(CAPTURE_STUB)
         (self.p4 / "p4-compare.sh").write_text(COMPARE_STUB)
         for name in REAL_LIBS:
             shutil.copy(DEPLOY / name, self.p4 / name)
+        self.build_ntp_sandbox()
         self._git("init", "-q")
         self._git("checkout", "-q", "-B", "main")
         self._git("add", "-A")
@@ -135,13 +164,20 @@ class Sim:
         self.firmware, self.table = self.dir / "firmware.bin", self.dir / "partitions.csv"
         self.firmware.write_bytes(FIRMWARE)
         self.table.write_bytes(TABLE)
-        for name in ("secrets.h", "tool.py", "ca.pem", "broker.cred"):
+        for name in ("secrets.h", "ca.pem", "broker.cred"):
             (self.dir / name).write_text("x\n")
+        # the pinned esptool stand-in: `--help` exercises the same import path the real launcher uses (the gate runs it under the frozen esptool Python)
+        (self.dir / "tool.py").write_text(
+            "import os, sys\n"
+            f"if os.path.exists({str(self.dir / 'esptool-dep-missing')!r}):\n    import intelhex_dependency_is_not_installed\n"
+            f"print(open({str(self.dir / 'esptool-banner')!r}).read().strip())\nprint('usage: esptool [-h] ...')\n")
+        (self.dir / "esptool-banner").write_text("esptool.py v4.11.0 - ESP8266 & ESP32 ROM Bootloader Utility\n")
         (self.dir / "nvs-gen").write_text("#!/bin/sh\n")
         (self.dir / "nvs-gen").chmod(0o755)
 
         (self.bin / "sudo").write_text('#!/usr/bin/env bash\n[ "$1" = -v ] && exit 0\nexec "$@"\n')
         (self.bin / "systemctl").write_text(SYSTEMCTL_STUB)
+        (self.bin / "ss").write_text('#!/usr/bin/env bash\n[ "$*" = "-H -ltnu" ] || exit 1\ncat "$SIM_DIR/ss-lines"\n')
         (self.bin / "sysctl").write_text("#!/usr/bin/env bash\necho 0\n")
         (self.bin / "id").write_text('#!/usr/bin/env bash\nif [ "$1" = -u ] && [ -n "${2:-}" ] && [ -e "$SIM_DIR/resolved-uid" ]; then cat "$SIM_DIR/resolved-uid"; exit 0; fi\nexec /usr/bin/id "$@"\n')
         (self.bin / "df").write_text("#!/usr/bin/env bash\necho 'Filesystem 1K-blocks Used Available Use% Mounted'\necho '/dev/x 100 10 90 10% /'\n")
@@ -171,6 +207,7 @@ class Sim:
             "BROKER_ADDRESS=PIN_BROKER_ADDRESS": "BROKER_ADDRESS=10.77.30.1", "BROKER_TLS_NAME=PIN_BROKER_TLS_NAME": "BROKER_TLS_NAME=mqtt.aegis.home.arpa",
             "WIFI_SSID=PIN_WIFI_SSID": "WIFI_SSID=SIM-AP", "NTP_SERVER=PIN_NTP_SERVER": "NTP_SERVER=203.0.113.9",
             "FIRMWARE_BUILD_CMD=PIN_FIRMWARE_BUILD_CMD": "FIRMWARE_BUILD_CMD='pio run -e esp32dev'",
+            "ESPTOOL_PYTHON=PIN_ESPTOOL_PYTHON": f"ESPTOOL_PYTHON={self.esptool_python}",
         }
         for a, b in pins.items():
             assert a in text, a
@@ -181,6 +218,33 @@ class Sim:
         self.runner = self.dir / "run-l8p-owner.sh"
         self.runner.write_text(text)
         (self.dir / "marker-path").write_text(str(self.auth / "L8p-ATTEMPT-CONSUMED"))
+
+    def build_ntp_sandbox(self) -> None:
+        """The REAL ntpreact_runtime_ready_gate runs against a sandbox host: the config path/hash/mode constants of the COPIED lib point at a sandbox file, `ss` and the
+        clock probe are stand-ins, and the unit states come from the systemctl stub's props directory (healthy PRE-L8p NTP runtime by default)."""
+        conf = self.dir / "chrony.conf"
+        conf.write_text("# approved L5 runtime configuration (sandbox)\nserver 2.arch.pool.ntp.org iburst\nbindaddress 10.77.30.1\nallow 10.77.30.0/28\nrtcsync\n")
+        conf.chmod(0o640)
+        lib = self.p4 / "p4-ntp-reactivation-lib.sh"
+        text = lib.read_text()
+        for pattern, repl in ((r'^NTPREACT_CHRONY_CONF="[^"]*"$', f'NTPREACT_CHRONY_CONF="{conf}"'),
+                              (r'^NTPREACT_CHRONY_CONF_SHA256="[0-9a-f]{64}"$', f'NTPREACT_CHRONY_CONF_SHA256="{self.sha(conf)}"'),
+                              (r'^NTPREACT_CHRONY_CONF_MODE_OWNER="[^"]*"', f'NTPREACT_CHRONY_CONF_MODE_OWNER="640:{os.getuid()}:{os.getgid()}"')):
+            text, n = re.subn(pattern, lambda _m, r=repl: r, text, count=1, flags=re.MULTILINE)
+            assert n == 1, pattern
+        lib.write_text(text)
+        (self.p4 / "p4-l5-clock.py").write_text(
+            "import os, sys\nsim = os.environ['SIM_DIR']\n"
+            "if os.path.exists(os.path.join(sim, 'clock-unsynced')):\n    print('state=UNSYNCED reason=KERNEL_UNSYNCED maxerror_us=16000000 sim=1'); sys.exit(1)\n"
+            "print('state=SYNCED reason=OK maxerror_us=' + open(os.path.join(sim, 'clock-maxerror')).read().strip() + ' sim=1')\n")
+        (self.dir / "clock-maxerror").write_text("1000\n")
+        for unit, state in (("chronyd.service", ("active", "running", "disabled")), ("systemd-timesyncd.service", ("inactive", "dead", "enabled"))):
+            for key, value in zip(("ActiveState", "SubState", "UnitFileState"), state):
+                self.prop(unit, key, value + "\n")
+        self.ss_lines("udp UNCONN 0 0 10.77.30.1:123 0.0.0.0:*", "udp UNCONN 0 0 127.0.0.1:323 0.0.0.0:*")
+
+    def ss_lines(self, *lines: str) -> None:
+        (self.dir / "ss-lines").write_text("".join(f"{line}\n" for line in lines))
 
     @staticmethod
     def sha(path: Path) -> str:
@@ -229,7 +293,7 @@ def test_repository_runner_refuses_while_unpinned(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("pin", ["OPERATOR_USER", "OPERATOR_UID", "FIRMWARE_SHA256", "PARTITION_TABLE_SHA256", "INPUT_DIR", "FIRMWARE_IMAGE", "PARTITION_TABLE", "SECRETS_HEADER", "NVS_GENERATOR",
-                                 "FLASH_TOOL_SCRIPT", "MQTT_CA_FILE", "BROKER_CREDENTIAL_FILE", "BROKER_ADDRESS", "BROKER_TLS_NAME", "WIFI_SSID", "NTP_SERVER",
+                                 "FLASH_TOOL_SCRIPT", "ESPTOOL_PYTHON", "MQTT_CA_FILE", "BROKER_CREDENTIAL_FILE", "BROKER_ADDRESS", "BROKER_TLS_NAME", "WIFI_SSID", "NTP_SERVER",
                                  "FIRMWARE_BUILD_CMD"])
 def test_runner_refuses_each_unpinned_value_even_with_main_pinned(tmp_path: Path, pin: str) -> None:
     sim = Sim(tmp_path)
@@ -253,7 +317,7 @@ def test_runner_refuses_malformed_pins(tmp_path: Path, pin: str, bad: str) -> No
 def test_the_committed_template_is_not_pinned_to_the_current_main() -> None:
     text = RUNNER.read_text()
     assert not re.search(r"^EXPECTED_MAIN=[0-9a-f]{40}", text, re.MULTILINE)
-    assert len(re.findall(r"=PIN_[A-Z_0-9]+$", text, re.MULTILINE)) == 18
+    assert len(re.findall(r"=PIN_[A-Z_0-9]+$", text, re.MULTILINE)) == 19
     assert "OPERATOR_USER=PIN_OPERATOR_USER" in text and "OPERATOR_UID=PIN_OPERATOR_UID" in text
 
 
@@ -617,12 +681,17 @@ def test_a_pre_checksum_failure_refuses_before_the_attempt_is_consumed(tmp_path:
     assert res.returncode == 1 and not sim.marker() and sim.calls() == ["capture:pre"]
 
 
-def test_the_receipt_gate_passes_on_the_current_repository_state(tmp_path: Path) -> None:
-    """Repository-only gate (it reads the pinned commit's status-log receipts, never the host): the final L7 and FINAL L7u acceptances are merged and PROVEN, and no
-    actual L8p LIVE result receipt exists — the prose in the repository-only owner-runner receipt that merely mentions the future success claim is not a result."""
+def test_the_receipt_gate_blocks_any_further_attempt_because_l8p_is_closed_by_exactly_one_result_receipt(tmp_path: Path) -> None:
+    """L8p is CLOSED: the attempt-2 reconciliation closeout receipt carries BOTH authoritative result fields as whole lines, so the one-shot receipt gate now blocks a new live attempt.
+    That non-zero result is the intended, deliberate lockout - not a defect. The failure must come from the lockout alone: the earlier gates (the L2..L7/L7u acceptance chain) still pass, so the
+    ONLY reason printed is L8P_ALREADY_PROVISIONED, and exactly ONE receipt (the closeout) carries both fields. The repository-only owner-runner receipt's prose stays a non-result (next test)."""
     res = subprocess.run(["bash", "-c", f". '{LIB}'; l8p_receipt_gate '{ROOT.parent}'"], capture_output=True, text=True, check=False)
-    assert res.returncode == 0, res.stdout + res.stderr
-    assert "L8P_ALREADY_PROVISIONED" not in res.stderr
+    assert res.returncode == 1 and res.stderr.strip().startswith("L8P_ALREADY_PROVISIONED"), res.stdout + res.stderr
+    assert "L8P_L7_ACCEPTANCE_RECEIPT_MISSING" not in res.stderr and "L8P_L7U_ACCEPTANCE_RECEIPT_MISSING" not in res.stderr
+    fields = subprocess.run(["bash", "-c", f". '{LIB}'; for f in 'L8P_LIVE_EXECUTED YES' 'L8P_PROVISIONING PASS'; do set -- $f; l8p_result_field_files '{ROOT.parent}' \"$1\" \"$2\" | sed 's/^HEAD://' | paste -sd,; done"],
+                            capture_output=True, text=True, check=False).stdout.split("\n")[:2]
+    assert fields[0] == fields[1] and fields[0].count(",") == 0, fields
+    assert fields[0].startswith(LOGS) and fields[0].endswith("_music_idea3-l8p-attempt2-reconciliation-closeout.md"), fields
 
 
 def test_the_repository_only_owner_runner_receipt_prose_is_not_an_l8p_result() -> None:
@@ -738,6 +807,9 @@ def test_secret_scan_reports_only_counts_and_fails_on_any_secret_value(tmp_path:
 def test_the_runner_never_invokes_the_flash_tool_or_any_device_operation_itself() -> None:
     for path in (RUNNER, LIB):
         code = code_only(path)
+        # The ONE sanctioned exception is the read-only pre-consume interpreter gate (`l8p_esptool_python_gate`, pinned to `--help` by the test below) and its call.
+        code = re.sub(r"l8p_esptool_python_gate\(\) \{.*?\n\}\n", "", code, flags=re.DOTALL)
+        code = "\n".join(l for l in code.splitlines() if "l8p_esptool_python_gate" not in l)
         assert not re.search(r"esptool|platformio|\bpio\b|write_flash|read_flash|erase|efuse|write_mem|/dev/tty|picocom|minicom|screen ", code.replace("AEGIS_L8P_ESPTOOL", "")), path.name
     assert "p4-l8-device.py" not in code_only(RUNNER) and "HardwareDevice" not in code_only(RUNNER)
     assert len([l for l in code_only(RUNNER).splitlines() if "p4-l8p-device.py" in l]) == 1, "only the existence gate; the handlers reach it"
@@ -777,3 +849,364 @@ def test_the_runner_reuses_the_canonical_handlers_and_stage_gate_without_duplica
     assert '"$STG/$1"' in code and "p4-stage-gate.sh" in code and "p4-l0-capture.sh" in code and "p4-compare.sh" in code
     assert "stages/L8p" in code or 'STG=$P4/stages/L8p' in code
     assert not re.search(r"sha256sum -c.*first-write|first-write\.marker\" *>", code)
+
+
+# ═══════════════ 11. the PRE-L8p NTP runtime must be TRUE NOW, before the attempt is consumed and before any device access ═══════════════
+# Root cause behind these gates: the consumed 2026-10-03 NTP reactivation passed VERIFY and then lost chronyd to its own POST capture. L8p's PRE capture comes before
+# the attempt marker, so the runner proves the NTP runtime in the pre-gates AND again after the PRE capture, immediately before consuming the attempt.
+
+NTP_BREAKERS = [
+    ("chronyd-inactive", lambda s: s.prop("chronyd.service", "ActiveState", "inactive\n"), "NTPREACT_UNIT_STATE_MISMATCH:chronyd.service.ActiveState=inactive"),
+    ("timesyncd-active", lambda s: (s.prop("systemd-timesyncd.service", "ActiveState", "active\n"), s.prop("systemd-timesyncd.service", "SubState", "running\n")),
+     "NTPREACT_UNIT_STATE_MISMATCH:systemd-timesyncd.service.ActiveState=active"),
+    ("chronyd-unitfile-enabled", lambda s: s.prop("chronyd.service", "UnitFileState", "enabled\n"), "NTPREACT_UNIT_STATE_MISMATCH:chronyd.service.UnitFileState=enabled"),
+    ("timesyncd-unitfile-disabled", lambda s: s.prop("systemd-timesyncd.service", "UnitFileState", "disabled\n"),
+     "NTPREACT_UNIT_STATE_MISMATCH:systemd-timesyncd.service.UnitFileState=disabled"),
+    ("no-listener", lambda s: s.ss_lines("udp UNCONN 0 0 127.0.0.1:323 0.0.0.0:*"), "AP_NTP_LISTENER_MISSING_OR_DUPLICATED:0"),
+    ("wildcard-listener", lambda s: s.ss_lines("udp UNCONN 0 0 0.0.0.0:123 0.0.0.0:*"), "WILDCARD_NTP_LISTENER_FORBIDDEN"),
+    ("foreign-address-listener", lambda s: s.ss_lines("udp UNCONN 0 0 192.0.2.1:123 0.0.0.0:*"), "NON_AP_NTP_LISTENER_FORBIDDEN:192.0.2.1"),
+    ("extra-wildcard-listener", lambda s: s.ss_lines("udp UNCONN 0 0 10.77.30.1:123 0.0.0.0:*", "udp UNCONN 0 0 [::]:123 [::]:*"), "WILDCARD_NTP_LISTENER_FORBIDDEN"),
+    ("clock-unsynced", lambda s: s.inject("clock-unsynced"), "NTPREACT_TRUSTEDCLOCK_NOT_OK"),
+    ("clock-maxerror-over-bound", lambda s: (s.dir / "clock-maxerror").write_text("1000001\n"), "NTPREACT_MAXERROR_EXCEEDED:1000001"),
+    ("chrony-conf-changed", lambda s: (s.dir / "chrony.conf").write_text("server evil.example iburst\n"), "NTPREACT_CHRONY_CONF_NOT_APPROVED_L5_CONTENT"),
+]
+
+
+def _assert_nothing_consumed_or_touched(sim: Sim, res: subprocess.CompletedProcess[str]) -> None:
+    assert res.returncode != 0 and "L8P_PROVISIONING=PASS" not in res.stdout + res.stderr
+    assert not sim.marker(), "no attempt may be consumed"
+    calls = sim.calls()
+    for forbidden in ("apply", "verify", "rollback"):
+        assert forbidden not in calls, f"{forbidden} handler (the only device path) must not run"
+    assert not any(c.startswith("env:") for c in calls), "no handler (hence no serial access, reset or first write) may start"
+    assert not list(sim.evid_base.glob("**/first-write.marker")), "no first write"
+
+
+@pytest.mark.parametrize("name,breaker,reason", NTP_BREAKERS, ids=[b[0] for b in NTP_BREAKERS])
+def test_an_absent_ntp_runtime_refuses_in_the_pre_gates_before_anything_is_created(tmp_path: Path, name: str, breaker, reason: str) -> None:
+    sim = Sim(tmp_path)
+    breaker(sim)
+    res = sim.run()
+    out = res.stdout + res.stderr
+    _assert_nothing_consumed_or_touched(sim, res)
+    assert reason in out and "L8P_NTP_RUNTIME_NOT_READY" in out and "the PRE-L8p NTP runtime is not true now" in out
+    assert "capture:pre" not in sim.calls(), "the pre-gate must fail before the PRE capture and before the evidence directory exists"
+    assert not any(sim.evid_base.iterdir()), "no evidence directory is created when a pre-gate fails"
+
+
+def test_a_healthy_ntp_runtime_lets_the_runner_pass_the_gate_and_reach_the_device_handlers(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert sim.calls().count("apply") == 1
+
+
+def test_ntp_lost_by_the_pre_capture_itself_refuses_before_the_attempt_is_consumed(tmp_path: Path) -> None:
+    """The exact consumed-attempt failure mode: the NTP runtime is true in the pre-gates, then the evidence capture stops chronyd."""
+    sim = Sim(tmp_path)
+    sim.inject("ntp-lost-by-pre-capture")
+    res = sim.run()
+    out = res.stdout + res.stderr
+    assert res.returncode == 1 and "the PRE-L8p NTP runtime is not true after the PRE capture" in out
+    assert "NTPREACT_UNIT_STATE_MISMATCH:chronyd.service.ActiveState=inactive" in out
+    assert "the attempt was NOT consumed and the device was NOT touched" in out
+    assert "capture:pre" in sim.calls(), "the first (pre-gate) check passed and the PRE capture ran"
+    _assert_nothing_consumed_or_touched(sim, res)
+
+
+def test_the_ntp_gate_runs_in_the_pre_gates_and_again_after_the_pre_capture_and_before_the_marker() -> None:
+    code = code_only(RUNNER)
+    assert code.count("l8p_ntp_runtime_gate") == 2
+    first, second = (m.start() for m in re.finditer(r"l8p_ntp_runtime_gate", code))
+    pre_capture, consume = code.index("capture PRE"), code.index("l8p_consume_attempt")
+    assert code.index("l7_disk_gate") < first < pre_capture < second < consume
+    assert code.index("l8p_receipt_gate") < first, "the receipt gate is not weakened or reordered"
+    assert code.index("handler apply.sh") > consume > second, "the only device path (apply.sh) is reached only after the second gate and the consumed attempt"
+    # the gate itself is the shared read-only predicate: it can never start, stop or repair a time daemon
+    lib = code_only(LIB)
+    assert "ntpreact_runtime_ready_gate" in lib
+    assert not re.search(r"systemctl\s+(start|stop|restart|enable|disable|mask|reload)", lib)
+    ntp = code_only(DEPLOY / "p4-ntp-reactivation-lib.sh")
+    gate_body = ntp[ntp.index("ntpreact_runtime_ready_gate()"):]
+    gate_body = gate_body[:gate_body.index("\n}\n")]
+    for needle in ("start", "stop", "restart", "enable", "disable", "timedatectl", "show-timesync", "chronyc"):
+        assert not re.search(rf"\b{needle}\b", gate_body), needle
+
+
+def test_the_ntp_gate_does_not_weaken_the_disk_gate_the_receipt_gate_or_one_shot_semantics(tmp_path: Path) -> None:
+    refuses(Sim(tmp_path / "a", l8p_done=True), "L8P_ALREADY_PROVISIONED")
+    sim = Sim(tmp_path / "b")
+    sim.prop("chronyd.service", "ActiveState", "inactive\n")
+    sim.inject("clock-unsynced")
+    res = sim.run()
+    assert "the PRE-L8p NTP runtime is not true now" in res.stdout + res.stderr and not sim.marker()
+    code = code_only(RUNNER)
+    assert "l7_disk_gate 80 / /var /opt /run" in code and "l8p_attempt_unconsumed" in code and "l7_idea2_s10_gate" in code
+
+
+# ═══════════ 12. the esptool interpreter is its own frozen pin and is proven loadable BEFORE the attempt is consumed ═══════════
+# Root cause: the orchestration Python (PY / AEGIS_PYTHON_BIN) was also the implicit esptool launcher, and it cannot import the pinned esptool's dependencies, so a live run would have failed
+# after the one-shot attempt was consumed. ESPTOOL_PYTHON is a separate frozen pin; l8p_esptool_python_gate runs the PINNED script with `--help` (no serial, no flash command) in the pre-gates.
+
+
+def test_the_committed_template_carries_the_esptool_python_pin_unresolved_and_hardcodes_no_interpreter() -> None:
+    text = RUNNER.read_text()
+    assert re.search(r"^ESPTOOL_PYTHON=PIN_ESPTOOL_PYTHON$", text, re.MULTILINE)
+    assert "ESPTOOL_PYTHON" in re.search(r"^for pin in .*?; do", text, re.MULTILINE | re.DOTALL).group(0), "it is part of the frozen-pin refusal loop"
+    assert not re.search(r"^ESPTOOL_PYTHON=/", text, re.MULTILINE), "no local interpreter path is committed"
+    assert "aegis-esptool" not in text
+    res = subprocess.run(["bash", str(RUNNER), "/nonexistent"], text=True, capture_output=True, check=False)
+    assert res.returncode == 2 and "runner is not pinned" in res.stdout
+
+
+def test_freeze_substitution_supports_the_new_pin_and_changes_only_pin_lines(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    frozen = sim.runner.read_text().splitlines()
+    template = RUNNER.read_text().splitlines()
+    assert not [l for l in frozen if re.match(r"^[A-Z_0-9]+=PIN_", l)], "no unresolved pin value remains"
+    assert f"ESPTOOL_PYTHON={sys.executable}" in frozen
+    changed = {t.split("=")[0] for t, f in zip(template, frozen) if t != f and re.match(r"^[A-Z_0-9]+=PIN_", t)}
+    assert "ESPTOOL_PYTHON" in changed
+
+
+def test_a_healthy_esptool_python_passes_the_gate_and_the_run_completes(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+
+
+ESPTOOL_BREAKERS = [
+    ("nonexistent-interpreter", lambda s: setattr(s, "esptool_python", "/nonexistent/venv-esptool/bin/python"), "L8P_ESPTOOL_PYTHON_NOT_EXECUTABLE"),
+    ("relative-interpreter", lambda s: setattr(s, "esptool_python", "python3"), "L8P_ESPTOOL_PYTHON_NOT_ABSOLUTE"),
+    ("not-a-python-name", lambda s: setattr(s, "esptool_python", shutil.which("true")), "L8P_ESPTOOL_PYTHON_NOT_A_PYTHON_INTERPRETER"),
+    ("missing-esptool-dependency", lambda s: s.inject("esptool-dep-missing"), "L8P_ESPTOOL_PYTHON_CANNOT_LOAD_PINNED_ESPTOOL:ModuleNotFoundError: No module named 'intelhex_dependency_is_not_installed'"),
+    ("unexpected-esptool-build", lambda s: (s.dir / "esptool-banner").write_text("esptool v5.4.0\n"), "L8P_ESPTOOL_PYTHON_UNEXPECTED_ESPTOOL_BUILD"),
+]
+
+
+@pytest.mark.parametrize("name,breaker,reason", ESPTOOL_BREAKERS, ids=[b[0] for b in ESPTOOL_BREAKERS])
+def test_an_unusable_esptool_python_fails_in_the_pre_gates_with_no_attempt_and_no_device_access(tmp_path: Path, name: str, breaker, reason: str) -> None:
+    sim = Sim(tmp_path)
+    breaker(sim)
+    # the interpreter pin is substituted into the frozen runner at build time: rebuild it for the value-changing cases
+    sim.runner.write_text(re.sub(r"^ESPTOOL_PYTHON=.*$", lambda _m: f"ESPTOOL_PYTHON={sim.esptool_python}", sim.runner.read_text(), count=1, flags=re.MULTILINE))
+    res = sim.run()
+    out = res.stdout + res.stderr
+    assert res.returncode == 1, out
+    assert reason in out and "the pinned esptool Python cannot load the pinned esptool" in out
+    assert not sim.marker(), "ATTEMPT_CONSUMED=NO"
+    assert sim.calls() == [], "no capture, no handler (hence no serial/reset/write): ESP32_TOUCHED=NO"
+    assert not list(sim.evid_base.iterdir()), "no evidence directory is created by a failed pre-gate"
+
+
+def test_a_broken_interpreter_that_exits_nonzero_fails_the_gate_before_the_attempt(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    broken = sim.dir / "python-broken"
+    broken.write_text("#!/usr/bin/env bash\necho \"ImportError: cannot import name 'serial'\" >&2\nexit 1\n")
+    broken.chmod(0o755)
+    sim.esptool_python = str(broken)
+    sim.runner.write_text(re.sub(r"^ESPTOOL_PYTHON=.*$", lambda _m: f"ESPTOOL_PYTHON={broken}", sim.runner.read_text(), count=1, flags=re.MULTILINE))
+    res = sim.run()
+    assert res.returncode == 1 and "CANNOT_LOAD_PINNED_ESPTOOL:ImportError: cannot import name 'serial'" in res.stdout + res.stderr
+    assert not sim.marker() and sim.calls() == []
+
+
+def test_a_non_executable_interpreter_file_fails_the_gate_before_the_attempt(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    noexec = sim.dir / "python-noexec"
+    noexec.write_text("#!/bin/sh\n")
+    noexec.chmod(0o644)
+    sim.runner.write_text(re.sub(r"^ESPTOOL_PYTHON=.*$", lambda _m: f"ESPTOOL_PYTHON={noexec}", sim.runner.read_text(), count=1, flags=re.MULTILINE))
+    res = sim.run()
+    assert res.returncode == 1 and "L8P_ESPTOOL_PYTHON_NOT_EXECUTABLE" in res.stdout + res.stderr
+    assert not sim.marker() and sim.calls() == []
+
+
+def test_the_orchestration_python_and_the_esptool_python_stay_separate_in_the_handler_environment(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    assert sim.run().returncode == 0
+    seen = [c for c in sim.calls() if c.startswith("py:")]
+    assert seen, "the handler stubs recorded their environment"
+    for line in seen:
+        control = line.split("control=")[1].split(" esptool=")[0]
+        tool = line.split(" esptool=")[1]
+        assert control == "python3", line               # AEGIS_PYTHON_BIN is the orchestration interpreter (PY), unchanged
+        assert tool == sys.executable, line             # the esptool interpreter is the frozen, distinct pin
+        assert control != tool
+
+
+def test_the_runner_threads_the_separate_variable_and_never_repurposes_the_orchestration_interpreter() -> None:
+    code = code_only(RUNNER)
+    assert 'AEGIS_PYTHON_BIN="$PY"' in code and 'AEGIS_L8P_ESPTOOL_PYTHON="$ESPTOOL_PYTHON"' in code
+    assert re.search(r"^PY=/home/kittipat/\.venvs/aegis-idea3-core/bin/python$", code, re.MULTILINE), "the orchestration interpreter is untouched"
+    assert not re.search(r"^PY=.*ESPTOOL", code, re.MULTILINE)
+    uses = [l.strip() for l in code.splitlines() if "$ESPTOOL_PYTHON" in l]
+    assert len(uses) == 2 and any("l8p_esptool_python_gate" in l for l in uses) and any("AEGIS_L8P_ESPTOOL_PYTHON=" in l for l in uses), uses
+
+
+def test_the_esptool_gate_runs_in_the_pre_gates_before_the_pre_capture_and_the_attempt_marker() -> None:
+    code = code_only(RUNNER)
+    gate = code.index("l8p_esptool_python_gate")
+    assert code.index("l8p_receipt_gate") < gate < code.index("capture PRE") < code.index("l8p_consume_attempt")
+    assert code.index("l8p_file_gate \"$FLASH_TOOL_SCRIPT\"") < gate, "the script existence gate precedes it"
+    assert code.count("l8p_esptool_python_gate") == 1
+
+
+def test_the_esptool_gate_only_runs_help_and_opens_no_device_or_package_manager() -> None:
+    lib = code_only(LIB)
+    body = lib[lib.index("l8p_esptool_python_gate()"):]
+    body = body[:body.index("\n}\n")]
+    assert '"$py" "$script" --help' in body
+    assert "</dev/null" in body, "stdin is closed so the tool can never prompt or read a device"
+    body = body.replace("</dev/null", "")
+    for banned in ("flash_id", "read_flash", "write_flash", "erase", "write_mem", "reset", "/dev/", "pip", "pacman", "sudo", "curl", "wget", "python3 ", "command -v", "which "):
+        assert banned not in body, banned
+    assert "env -i" in body and "PATH=/usr/bin:/bin" in body, "a scrubbed environment: no inherited PYTHONPATH/venv state"
+    assert "timeout 60" in body
+
+
+# ═════════════ 13. live attempt 1 regression: the comparator takes EXACTLY two positional arguments ═════════════
+# The merged runner called `p4-compare.sh "$1" "$2" "$3" > "$3"`; the real comparator stops at its usage gate on a third argument, so the PRE->POST / PRE->RB comparison could never run
+# (live attempt 1: COMPARE_RESULT=FAIL after a pre-first-write rollback). The stub above now behaves like the real comparator and exits 2 unless $# == 2.
+
+
+def test_the_comparator_is_invoked_with_exactly_two_positional_arguments(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    argcs = [c for c in sim.calls() if c.startswith("argc:")]
+    assert argcs and set(argcs) == {"argc:2"}, argcs
+    compares = [c for c in sim.calls() if c.startswith("compare:")]
+    assert len(compares) == 1
+    before, after = compares[0].split(":")[1:3]
+    assert before.endswith("/pre-root") and after.endswith("/post-root"), compares
+
+
+def test_the_comparator_report_is_captured_at_the_runner_supplied_path_not_passed_as_an_argument(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    assert sim.run().returncode == 0
+    evid = next(sim.evid_base.iterdir())
+    report = evid / "compare-pre-post.txt"
+    assert report.is_file(), "the runner redirects the comparator output to its own report path"
+    text = report.read_text()
+    assert "COMPARE_RESULT=PASS" in text and "FINDINGS_NEW_OR_WORSENED_DRIFT=0" in text and "usage" not in text.lower()
+    code = code_only(RUNNER)
+    line = next(l for l in code.splitlines() if 'bash "$P4/p4-compare.sh"' in l)
+    assert re.search(r'p4-compare\.sh" "\$1" "\$2" > "\$3" 2>&1', line), line
+
+
+def test_a_pre_first_write_rollback_runs_the_formal_pre_to_rb_comparator_successfully(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    sim.inject("fail-before-write")      # apply fails BEFORE the first device write: stage-local rollback, then the mandatory PRE->RB compare
+    res = sim.run()
+    out = res.stdout + res.stderr
+    assert res.returncode == 1 and "PRE_RB_COMPARE=PASS" in out and "PRE_RB_COMPARE=FAIL" not in out, out
+    assert "L8P_PROVISIONING=NOT_PROVEN" in out and "NOT retrying" in out
+    argcs = [c for c in sim.calls() if c.startswith("argc:")]
+    assert argcs and set(argcs) == {"argc:2"}, argcs
+    rb = [c for c in sim.calls() if c.startswith("compare:") and "rb-root" in c]
+    assert len(rb) == 1 and rb[0].split(":")[1].endswith("/pre-root"), rb
+    evid = next(sim.evid_base.iterdir())
+    assert "COMPARE_RESULT=PASS" in (evid / "compare-pre-rb.txt").read_text()
+    assert not list(sim.evid_base.glob("**/first-write.marker")), "no first write happened"
+    assert sim.calls().count("apply") == 1 and "verify" not in sim.calls()
+
+
+def test_the_consumed_attempt_stays_consumed_after_a_pre_first_write_failure(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    sim.inject("fail-before-write")
+    assert sim.run().returncode == 1 and sim.marker()
+    again = sim.run()
+    assert again.returncode != 0 and "L8P_ATTEMPT_ALREADY_CONSUMED" in again.stdout + again.stderr
+    assert sim.calls().count("apply") == 1, "no second attempt"
+
+
+def test_the_capture_stub_now_emits_the_real_p4_log_line_so_the_runner_gate_is_exercised_on_it(tmp_path: Path) -> None:
+    sim = Sim(tmp_path)
+    assert sim.run().returncode == 0
+    evid = next(sim.evid_base.iterdir())
+    log = (evid / "pre-root" / "capture.log").read_text()
+    assert re.search(r"^\d{4}-\d\d-\d\dT[\d:]+Z L0_CAPTURE=COMPLETE evidence=\S+$", log, re.MULTILINE), log
+    assert "L0_CAPTURE=COMPLETE" not in log.splitlines()  # never the bare line
+
+
+# ═════════════ 14. live attempt 2 regression: secret-bearing WORK artifacts must not survive into the tree the final secret scan covers ═════════════
+# Live attempt 2 provisioned the device successfully (flash/readback/boot PASS, verify PASS) and then failed ONLY at l8p_secret_scan: the canonical flow's own work artifacts nvs.csv (all four
+# secrets, plaintext) and nvs.bin (Wi-Fi/MQTT values) live under $EVID/l8p-work, inside the EVID tree the scan covers with no exclusions. They are TEMPORARY secret-bearing staging files, not evidence.
+
+SECRET_VALUES = [SECRET["wifi.psk"], SECRET["mqtt.pass"], SECRET["k_c2d"], SECRET["k_d2c"]]
+
+
+def _evid(sim: Sim) -> Path:
+    return next(sim.evid_base.iterdir())
+
+
+def _hits(root: Path) -> dict[str, list[str]]:
+    """Per file under root: which secret CLASSES (never values) it contains."""
+    names = ["wifi.psk", "mqtt.pass", "k_c2d", "k_d2c"]
+    found: dict[str, list[str]] = {}
+    for f in sorted(root.rglob("*")):
+        if f.is_file():
+            data = f.read_bytes()
+            classes = [n for n, v in zip(names, SECRET_VALUES) if v.encode() in data]
+            if classes:
+                found[str(f.relative_to(root))] = classes
+    return found
+
+
+def test_root_cause_the_only_secret_hits_in_a_provisioned_tree_are_the_two_work_artifacts(tmp_path: Path) -> None:
+    """Independent of any fix: build the tree a real provisioning leaves behind and scan it with the UNCHANGED merged scanner."""
+    sim = Sim(tmp_path)
+    work, outev = tmp_path / "evid" / "l8p-work", tmp_path / "evid" / "l8p-evidence"
+    work.mkdir(parents=True), outev.mkdir(parents=True)
+    env = dict(os.environ, SIM_DIR=str(sim.dir), AEGIS_L8P_INPUT_DIR=str(sim.inputs), AEGIS_L8P_WORK_DIR=str(work), AEGIS_L8P_EVIDENCE_DIR=str(outev), AEGIS_L8P_RUN_ID="l8p-x",
+               AEGIS_L8P_PRE_EVIDENCE_DIR=str(tmp_path / "pre"), AEGIS_L8P_BACKEND="hardware", AEGIS_L8P_LIVE_AUTHORIZED="YES")
+    (tmp_path / "pre").mkdir()
+    assert subprocess.run(["bash", str(sim.p4 / "stages" / "L8p" / "apply.sh")], env=env, capture_output=True, text=True, check=False).returncode == 0
+    (tmp_path / "evid" / "owner-run.log").write_text("clean log\n")
+    hits = _hits(tmp_path / "evid")
+    assert hits == {"l8p-work/nvs.bin": ["wifi.psk", "mqtt.pass"], "l8p-work/nvs.csv": ["wifi.psk", "mqtt.pass", "k_c2d", "k_d2c"]}, hits
+    scan = subprocess.run(["bash", "-c", f"source '{sim.p4}/p4-l8p-run-lib.sh'; SUDO= l8p_secret_scan '{tmp_path / 'evid'}' '{sim.inputs}' python3"], capture_output=True, text=True, check=False)
+    assert scan.returncode == 1 and "L8P_SECRET_VALUE_SCAN_HITS=2" in scan.stdout
+    assert not any(v in scan.stdout + scan.stderr for v in SECRET_VALUES), "no secret value is ever printed"
+
+
+def test_a_successful_run_leaves_no_secret_bearing_artifact_and_passes_the_unchanged_full_evid_secret_scan(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, real_rollback=True)
+    res = sim.run()
+    out = res.stdout + res.stderr
+    assert res.returncode == 0, out
+    assert "L8P_SECRET_VALUE_SCAN_HITS=0" in out and "SECRET_OUTPUT_SCAN failed" not in out
+    evid = _evid(sim)
+    work = evid / "l8p-work"
+    assert not (work / "nvs.csv").exists() and not (work / "nvs.bin").exists()
+    assert (work / "first-write.marker").is_file(), "the first-write marker survives"
+    assert len(list((evid / "l8p-evidence").glob("l8p-*.json"))) == 1, "the canonical JSON evidence survives"
+    assert _hits(evid) == {}, "no secret value anywhere in the whole EVID tree"
+    assert not any(v in out for v in SECRET_VALUES)
+    assert "L8P_SECRET_WORK_CLEANUP=PASS" in out and "NVS_CSV_PRESENT=NO" in out and "NVS_BIN_PRESENT=NO" in out and "FIRST_WRITE_MARKER_PRESENT=YES" in out
+    assert "L8P_PROVISIONING=PASS" in out
+
+
+def test_the_cleanup_runs_only_after_apply_and_verify_succeeded_and_before_the_post_capture(tmp_path: Path) -> None:
+    sim = Sim(tmp_path, real_rollback=True)
+    res = sim.run()
+    assert res.returncode == 0, res.stdout + res.stderr
+    marks = ["== L8p APPLY", "L8P_APPLY=COMPLETE", "== L8p VERIFY", "L8P_VERIFY=PASS", "== L8p SECRET-WORK CLEANUP", "L8P_SECRET_WORK_CLEANUP=PASS", "== POST capture", "L8P_SECRET_VALUE_SCAN_HITS=0"]
+    positions = [res.stdout.index(m) for m in marks]
+    assert positions == sorted(positions), dict(zip(marks, positions))
+    code = code_only(RUNNER)
+    assert code.index("handler apply.sh") < code.index("handler verify.sh") < code.index("handler cleanup.sh") < code.index("capture POST") < code.index("l8p_secret_scan")
+
+
+@pytest.mark.parametrize("where", ["owner-run.log", "l8p-evidence/leak.txt", "pre-root/leak.txt", "post-root/leak.txt", "unrelated.txt", "l8p-work/other.txt"])
+@pytest.mark.parametrize("secret", ["wifi.psk", "mqtt.pass", "k_c2d", "k_d2c"])
+def test_a_real_secret_value_anywhere_outside_the_two_cleaned_artifacts_still_fails_the_scan(tmp_path: Path, where: str, secret: str) -> None:
+    sim = Sim(tmp_path, real_rollback=True)
+    sim.inject("leak-secret-extra")
+    (sim.dir / "leak-where").write_text(f"{where}\n{SECRET[secret]}\n")
+    res = sim.run()
+    out = res.stdout + res.stderr
+    assert res.returncode == 1 and "SECRET_OUTPUT_SCAN failed" in out and "L8P_PROVISIONING=PASS" not in out, out
+    assert not any(v in out for v in SECRET_VALUES), "no raw secret value is ever printed"
+    assert "L8P_ROLLBACK_SEMANTICS=FAIL" not in out and sim.marker()

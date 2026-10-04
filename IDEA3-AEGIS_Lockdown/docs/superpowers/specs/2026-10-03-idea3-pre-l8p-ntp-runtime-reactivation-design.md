@@ -64,3 +64,7 @@ Runtime readiness is perishable: the next reboot returns the host to timesyncd. 
 
 `tests/test_pr11_phase4_pre_l8p_ntp_reactivation.py` (lib + handlers on a stateful stubbed host, static scope scans) and
 `tests/test_pr11_phase4_pre_l8p_ntp_reactivation_owner_run_flow.py` (real runner, stubbed host commands and capture/compare). Simulated-host proof only.
+
+## 7. Post-live forensic addendum (2026-10-03)
+
+The one live attempt was consumed: APPLY and the pre-POST VERIFY passed, then the POST `p4-l0-capture.sh` ran `timedatectl show-timesync`, which activated `systemd-timesyncd` and (through `Conflicts=`) stopped `chronyd`, so readiness after all evidence capture was invalidated and never proven. The recorded evidence is history and is not rewritten; the attempt is never reusable. The successor changes: the capture queries timesyncd only while it is already running (stable sentinel otherwise); the runner's PASS now requires a FINAL read-only runtime verification after the POST capture and compare (`ntpreact_runtime_ready_gate`: chronyd active/running + disabled, timesyncd inactive/dead + enabled, exactly `udp 10.77.30.1:123` and no wildcard, TrustedClock SYNCED within the bound, approved config, no alternate config path); and the L8p owner runner requires the same gate before the PRE capture and again before consuming its attempt. `NTP_RUNTIME_READY_FOR_L8P` is perishable and is never inferred from a historical receipt.

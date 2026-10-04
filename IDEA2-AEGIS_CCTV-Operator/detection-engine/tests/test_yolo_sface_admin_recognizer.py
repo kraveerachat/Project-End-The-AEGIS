@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -21,11 +22,22 @@ class FakePrediction:
 class FakeModel:
     names = {0: "Admin-Face-Scan", 1: "Other"}
 
-    def __init__(self, boxes=None, error=None):
+    def __init__(self, boxes=None, error=None, stay_on_cpu=False):
         self._boxes = boxes or FakeBoxes([], [], [])
         self._error = error
+        self.device = "cpu"
+        self.stay_on_cpu = stay_on_cpu
+        self.move_calls = []
+        self.predict_calls = []
+
+    def to(self, device):
+        self.move_calls.append(device)
+        if not self.stay_on_cpu:
+            self.device = device
+        return self
 
     def predict(self, _image, **_kwargs):
+        self.predict_calls.append(_kwargs)
         if self._error:
             raise self._error
         return [FakePrediction(self._boxes)]
@@ -66,15 +78,16 @@ def face(x=20, y=20, width=100, height=100, score=0.95):
 
 
 class YoloSFaceAdminRecognizerTests(unittest.TestCase):
-    def _recognizer(self, model, embedding=(1.0, 0.0), faces=None, **kwargs):
+    def _recognizer(self, model, embedding=(1.0, 0.0), faces=None,
+                    sface_error=None, **kwargs):
         return YoloSFaceAdminRecognizer(
             model_path="unused-in-test.pt",
             face_detector_model_path="",
             face_recognizer_model_path="",
             admin_embeddings_path="",
             model=model,
-            face_detector=FakeFaceDetector(faces or [face()]),
-            face_recognizer=FakeFaceRecognizer(embedding),
+            face_detector=FakeFaceDetector(faces if faces is not None else [face()]),
+            face_recognizer=FakeFaceRecognizer(embedding, error=sface_error),
             templates=np.asarray([[1.0, 0.0], [0.99, 0.01], [0.98, 0.02]]),
             face_match_cosine_threshold=0.50,
             **kwargs,
@@ -127,6 +140,111 @@ class YoloSFaceAdminRecognizerTests(unittest.TestCase):
         ).recognize(np.zeros((400, 400, 3), dtype=np.uint8))
 
         self.assertIs(entities[0].status, DetectionStatus.UNKNOWN)
+
+    def test_cpu_development_predicts_explicitly_on_cpu(self):
+        model = FakeModel()
+        recognizer = self._recognizer(model)
+        recognizer.recognize(np.zeros((400, 400, 3), dtype=np.uint8))
+        self.assertEqual(model.predict_calls[0]["device"], "cpu")
+        self.assertEqual(recognizer.inference_status()["successful_gpu_inference_samples"], 0)
+
+    def test_required_cuda_unavailable_refuses_before_model_move(self):
+        model = FakeModel()
+        torch_runtime = SimpleNamespace(cuda=SimpleNamespace(
+            is_available=lambda: False, device_count=lambda: 0,
+        ))
+        with self.assertRaisesRegex(RuntimeError, "CUDA"):
+            self._recognizer(model, gpu_required=True,
+                             inference_device="cuda:0", torch_runtime=torch_runtime)
+        self.assertEqual(model.move_calls, [])
+
+    def test_required_cuda_index_must_exist(self):
+        torch_runtime = SimpleNamespace(cuda=SimpleNamespace(
+            is_available=lambda: True, device_count=lambda: 1,
+        ))
+        with self.assertRaisesRegex(RuntimeError, "cuda:1"):
+            self._recognizer(FakeModel(), gpu_required=True,
+                             inference_device="cuda:1", torch_runtime=torch_runtime)
+
+    def test_required_model_move_and_prediction_use_verified_cuda(self):
+        model = FakeModel()
+        torch_runtime = SimpleNamespace(cuda=SimpleNamespace(
+            is_available=lambda: True, device_count=lambda: 1,
+        ))
+        recognizer = self._recognizer(model, gpu_required=True,
+                                      inference_device="cuda:0",
+                                      torch_runtime=torch_runtime)
+        self.assertEqual(model.move_calls, ["cuda:0"])
+        before = recognizer.inference_status()
+        self.assertEqual(before["yolo_actual_device"], "cuda:0")
+        self.assertFalse(before["accelerator_active"])
+        self.assertEqual(before["successful_gpu_inference_samples"], 0)
+        recognizer.recognize(np.zeros((400, 400, 3), dtype=np.uint8))
+        self.assertEqual(model.predict_calls[0]["device"], "cuda:0")
+        after = recognizer.inference_status()
+        self.assertEqual(after["successful_gpu_inference_samples"], 1)
+        self.assertTrue(after["accelerator_active"])
+        self.assertEqual(after["yunet_backend"], "opencv-cpu")
+        self.assertEqual(after["sface_backend"], "opencv-cpu")
+
+    def test_required_model_that_remains_on_cpu_fails_startup(self):
+        torch_runtime = SimpleNamespace(cuda=SimpleNamespace(
+            is_available=lambda: True, device_count=lambda: 1,
+        ))
+        with self.assertRaisesRegex(RuntimeError, "actual.*CPU|actual.*cpu"):
+            self._recognizer(FakeModel(stay_on_cpu=True), gpu_required=True,
+                             inference_device="cuda:0", torch_runtime=torch_runtime)
+
+    def test_required_cuda_runtime_failure_is_not_swallowed_or_counted(self):
+        torch_runtime = SimpleNamespace(cuda=SimpleNamespace(
+            is_available=lambda: True, device_count=lambda: 1,
+        ))
+        recognizer = self._recognizer(FakeModel(error=RuntimeError("cuda lost")),
+                                      gpu_required=True, inference_device="cuda:0",
+                                      torch_runtime=torch_runtime)
+        with self.assertRaisesRegex(RuntimeError, "cuda lost"):
+            recognizer.recognize(np.zeros((400, 400, 3), dtype=np.uint8))
+        self.assertEqual(recognizer.inference_status()["successful_gpu_inference_samples"], 0)
+
+    def test_malformed_cuda_prediction_is_not_counted_as_success(self):
+        torch_runtime = SimpleNamespace(cuda=SimpleNamespace(
+            is_available=lambda: True, device_count=lambda: 1,
+        ))
+        model = FakeModel()
+        recognizer = self._recognizer(model, gpu_required=True,
+                                      inference_device="cuda:0", torch_runtime=torch_runtime)
+        model.predict = lambda *_args, **_kwargs: [SimpleNamespace(boxes=SimpleNamespace(
+            xyxy=object(), conf=object(), cls=object(),
+        ))]
+        with self.assertRaises(Exception):
+            recognizer.recognize(np.zeros((400, 400, 3), dtype=np.uint8))
+        self.assertEqual(recognizer.inference_status()["successful_gpu_inference_samples"], 0)
+
+    def test_sface_failure_stays_unknown_in_required_cuda_mode(self):
+        torch_runtime = SimpleNamespace(cuda=SimpleNamespace(
+            is_available=lambda: True, device_count=lambda: 1,
+        ))
+        model = FakeModel(FakeBoxes([[15, 15, 125, 125]], [0.75], [0]))
+        recognizer = self._recognizer(model, gpu_required=True,
+                                      inference_device="cuda:0", torch_runtime=torch_runtime,
+                                      sface_error=RuntimeError("SFace failure"))
+        result = recognizer.recognize(np.zeros((400, 400, 3), dtype=np.uint8))
+        self.assertIs(result[0].status, DetectionStatus.UNKNOWN)
+        self.assertEqual(recognizer.inference_status()["successful_gpu_inference_samples"], 1)
+
+    def test_yunet_failure_is_fail_secure_without_gpu_stop(self):
+        torch_runtime = SimpleNamespace(cuda=SimpleNamespace(
+            is_available=lambda: True, device_count=lambda: 1,
+        ))
+        recognizer = self._recognizer(FakeModel(), gpu_required=True,
+                                      inference_device="cuda:0", torch_runtime=torch_runtime)
+
+        def fail(_image):
+            raise RuntimeError("YuNet failed")
+
+        recognizer._face_detector.detect = fail
+        self.assertEqual(recognizer.recognize(np.zeros((8, 8, 3), dtype=np.uint8)), [])
+        self.assertFalse(recognizer.inference_status()["accelerator_active"])
 
     def test_missing_configured_yolo_class_fails_startup(self):
         model = FakeModel()
