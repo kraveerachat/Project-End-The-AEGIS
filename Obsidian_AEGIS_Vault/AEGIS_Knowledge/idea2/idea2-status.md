@@ -33,7 +33,9 @@ Machine A may prepare repository scripts, templates, preflight checks, runbooks,
 | ID | Scope | State | Next |
 |---|---|---|---|
 | MN-P0 | isolated task/worktree + authority model | PASS | checkpoint session note |
-| MN-P1 | target-machine read-only preflight | PENDING | prepare OS/hardware/Python/FFmpeg/camera/network discovery |
+| MN-P1 | target-machine read-only preflight | PASS — SOURCE + MACHINE A SMOKE | run unchanged preflight on Machine B/C before any provisioning |
+MN-P1 evidence: Windows PowerShell read-only target preflight added with 4/4 static regression tests PASS. Machine A real smoke PASS confirmed Windows/hardware, Python 3.12/3.14 x64, FFmpeg/libx264, camera metadata, OpenSSH, local port ownership, and existing AEGIS runtime ownership. The smoke reported SERVERCONTACT=NO, PRODUCTIONMUTATION=NO, TWINGATEMUTATION=NO, CAMERAOPEN=NO, CONFIGWRITE=NO, and PRIVATEKEYREAD=NO. This does not claim Machine B/C hardware acceptance; the same preflight must still run on each target machine before provisioning.
+
 | MN-P2 | target-machine provisioning runbook | PENDING | Engine/Agent/identity/tunnel plan |
 | MN-P3 | multi-node live acceptance | PENDING | target hardware required |
 
