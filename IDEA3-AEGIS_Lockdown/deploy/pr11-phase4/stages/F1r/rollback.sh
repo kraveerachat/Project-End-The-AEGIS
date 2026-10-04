@@ -4,7 +4,7 @@
 # Acts only on the attempt's own journal: if no switch happened it owns nothing; if the switch happened it first proves `current` still points exactly
 # where this attempt left it (anything else fails closed BEFORE any mutation), atomically restores the exact OLD target, then proves the Core PID/restart
 # count are unchanged and the detector is absent. It never deletes or alters either release, never restarts the Core, never starts/stops the detector and
-# never touches L6c artifacts, IDEA1/IDEA2, Recovery or the ESP32.
+# never touches F1i artifacts, IDEA1/IDEA2, Recovery or the ESP32.
 set -euo pipefail
 
 fail() {

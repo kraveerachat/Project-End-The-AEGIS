@@ -86,6 +86,16 @@ class MetricsRegistry:
         self._faces_seen = 0
         self._unknowns_seen = 0
         self._alerts_sent = 0
+        self._inference_status: Dict[str, object] = {
+            "gpu_required": False,
+            "requested_inference_device": "cpu",
+            "yolo_actual_device": "none",
+            "successful_gpu_inference_samples": 0,
+            "accelerator_active": False,
+            "accelerator_failure": False,
+            "yunet_backend": "not-active",
+            "sface_backend": "not-active",
+        }
 
         # last-known status blocks
         self._camera_connected = False
@@ -133,6 +143,20 @@ class MetricsRegistry:
             if result_dict.get("has_unknown"):
                 self._unknowns_seen += 1
             self._last_detection = result_dict
+
+    def on_inference_status(self, status: dict) -> None:
+        """Publish recognizer-owned device evidence without inferring GPU activity."""
+        allowed = set(self._inference_status) - {"accelerator_failure"}
+        with self._lock:
+            for key in allowed & status.keys():
+                self._inference_status[key] = status[key]
+            if self._inference_status["accelerator_failure"]:
+                self._inference_status["accelerator_active"] = False
+
+    def on_accelerator_failure(self) -> None:
+        with self._lock:
+            self._inference_status["accelerator_failure"] = True
+            self._inference_status["accelerator_active"] = False
 
     # -- alerts ------------------------------------------------------------
     def on_alert_sent(self) -> None:
@@ -193,4 +217,5 @@ class MetricsRegistry:
                 "recorder": dict(self._recorder),
                 "nas": dict(self._nas),
                 "last_detection": self._last_detection,
+                **self._inference_status,
             }

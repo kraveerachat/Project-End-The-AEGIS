@@ -763,7 +763,7 @@ def stages() -> list[str]:
 def test_f1_is_registered_after_l8p_and_before_l8():
     order = stages()
     # F1r (current-release activation) sits between L8p and F1; F1 itself stays after L8p and before L8.
-    assert order.index("L7") < order.index("L7u") < order.index("L8p") < order.index("F1r") < order.index("F1") < order.index("L8") < order.index("L9")
+    assert order.index("L7") < order.index("L7u") < order.index("L8p") < order.index("F1i") < order.index("F1r") < order.index("F1") < order.index("L8") < order.index("L9")
     assert order.count("F1") == 1 and "F1b" not in order
 
 

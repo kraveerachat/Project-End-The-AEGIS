@@ -2,10 +2,10 @@
 """F1r governed current-release activation: the atomic switch of /opt/aegis-idea3/current, with NO Core restart.
 
 Repository tooling; merging it authorizes nothing live. The live path runs only through the frozen owner runner (run-f1r-owner.sh) and the stages/F1r
-handlers. Stage order: L7 -> L7u -> L8p -> L6c (fresh install-only run for the repaired release) -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9.
+handlers. Stage order: L7 -> L7u -> L8p -> F1i (post-L7 repaired-release install) -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9.
 
 F1r owns exactly ONE mutation: replace the ``current`` symlink, from the exact frozen OLD release target to the exact frozen NEW release target. The NEW
-release must ALREADY be installed (by L6c): this tool never builds, copies, installs, chmods, chowns or deletes anything under /opt/aegis-idea3/releases.
+release must ALREADY be installed (by F1i): this tool never builds, copies, installs, chmods, chowns or deletes anything under /opt/aegis-idea3/releases.
 Atomicity: a temporary symlink is created next to ``current`` and renamed over it (``os.replace``), so ``current`` is never absent and never half-written.
 It never restarts, starts, stops or reloads any service (the privileged backend can only ``systemctl show`` the Core and detector units), so the running
 Core keeps its PID, restart count and working directory; changing ``current`` does NOT move the running Core to the new release. The detector is never
