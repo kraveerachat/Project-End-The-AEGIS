@@ -16,6 +16,16 @@ edit_policy: owner-writable
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
+## IDEA3 F1 attempt #2 LIVE closeout — detector runtime PASS — 2026-10-04
+
+> [!important] **F1 attempt #2 was consumed exactly once and LIVE result = PASS.** `F1_PRODUCTION_DEPLOYED=YES`, `F1_DETECTOR_STARTED=YES`, and `F1_START_COUNT=ONE`. Evidence root: `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-04-f1-20261004-233030`. Exact main: `7dbcae4f0b8fd8aef26e7da52614c9a3fed42880`. The detector remained running at closeout evidence; its unit was disabled and `Restart=no`. Core was preserved and not restarted. This closeout performed no live mutation.
+
+- **Frozen pins:** runner SHA-256 `2d5cd074540b6a1c06c525acc60111160b3a8502863369c5b8c42d6147f4cdb8`; unit SHA-256 `da40399ef57b1e29cf30dc63792f67ded15333faacd8a3e04feb1c8e60d419b9`; runtime release `c2238375de14678f2a67c039282d9aeff6d553e5`; production detector SHA-256 `a91bcfc228c6e0892d019923b51b33d3545c685e2b5fed229f1ad8f980db9332`.
+- **Preservation and comparison:** PRE/POST comparator `PASS` with zero new or worsened drift; exactly three INFO disk deltas only; secret scan `0`; rollback `NO`; Core preserved; authorization consumed and no retry permitted.
+- **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `CORE_RESTARTED=NO`, `RETRY_PERMITTED=NO`, and `ESP32_TOUCHED=NO`. No real detector acceptance or Recovery result is claimed.
+- **Evidence access limitation:** protected `f1-work` was unreadable to the closeout agent, so independent access to that protected work is not claimed. The material closeout claims were independently proven from the readable journal, owner log, PRE/POST capture bundles, marker, authorization copies and checksums.
+- **Receipt:** `90-Status/logs/2026-10-04_233030_music_idea3-f1-attempt2-live-closeout.md`.
+
 ---
 
 ## IDEA3 F1r LIVE closeout — current switched to the repaired release (pointer only) — 2026-10-04
