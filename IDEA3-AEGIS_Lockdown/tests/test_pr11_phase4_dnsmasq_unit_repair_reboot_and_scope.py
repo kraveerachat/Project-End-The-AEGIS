@@ -343,8 +343,10 @@ SHARED_PINS = {
     "p4-l34-v8-lib.sh": "4398216c5e83caa4f276d8a0bf66370a8db59c4e1d7a6a7d769733933b695ee0",
     # re-pinned by the governed F1 detector install/start stage task (2026-10-04): p4-lib.sh registers stage F1 (after L8p, before L8) with no repository gap;
     # p4-stage-gate.sh gives F1 the same no-extra-field authorization rule as L7u/L8p. No other stage, gate or record rule changed.
-    "p4-stage-gate.sh": "73770b481c6651cac6c2b0a0fba48bcbb340b37d61e4715c9c3b8e368c55b7cd",
-    "p4-lib.sh": "c2f4d8406ecc5688b58d957081f4a72379c1b6d70c1d56a7c47c448ba98b1125",
+    # re-pinned by the F1r current-release activation stage task (2026-10-04): p4-lib.sh registers stage F1r (after L8p, before F1; no repository gap) and
+    # p4-stage-gate.sh binds F1r to the same no-extra-field authorization rule as L7u/L8p/F1. No other stage, gate or record rule changed.
+    "p4-stage-gate.sh": "c94068b814ad07609b9f7e62e17a14044cfa6d9f110789dd14b2eadbfb74bd31",
+    "p4-lib.sh": "2a68d96cf49ec8f28ea3b1b817fffeb97ee4bff9f8868482bf75ced226d1887c",
     # re-pinned by the SAFE_STOPPED governed-successor task (2026-10-03): ONE additive, task-specific catalog DNSMASQ_SAFE_STOPPED_POST; no existing catalog changed
     "p4-compare.sh": "6caa482def07b50e462828f10ba117fb66779e9dde67e1fea8fad5b9b9f71c08",
     "p4-l0-capture.sh": "370c0db47ea0ceed878ec8ca5565593d67fe158529b73d4f8d548c132542e4d4",
@@ -388,7 +390,7 @@ def test_the_new_package_has_exactly_the_frozen_file_set() -> None:
 
 
 def test_no_new_l_number_stage_was_invented() -> None:
-    assert (DEPLOY / "p4-lib.sh").read_text().count('readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1 L8 L9"') == 1
+    assert (DEPLOY / "p4-lib.sh").read_text().count('readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1r F1 L8 L9"') == 1
     assert not (DEPLOY / "stages" / "L10").exists() and not (DEPLOY / "stages" / "L4b").exists()
 
 

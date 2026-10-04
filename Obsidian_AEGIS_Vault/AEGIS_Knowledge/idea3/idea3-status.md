@@ -18,6 +18,23 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 F1r current-release activation stage (OD-F1R-01) — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1r-current-release-activation-stage`, based on main `2107f197` (PR #333). `F1R_STAGE_ID = F1r`, `F1R_ORDER = AFTER_REPAIRED_RELEASE_INSTALL_BEFORE_F1_ATTEMPT_2`, `F1R_CORE_RESTART_POLICY = NO_RESTART`. **Nothing was executed:** no L6c run, no release installed, `/opt/aegis-idea3/current` unchanged, Core not restarted, detector not started, no F1r/F1/L6c Authorization or K3 created, no runner frozen, Production not mutated, no Recovery, no ESP32.
+
+> [!note] State kept distinct: **F1 attempt 1** = historical live FAIL + rollback PASS (authorization consumed, never reused). **PR #333 repair** = merged repository fix (corrected unit digest `da40399e…419b9`, detector exit code 3). **F1r** = repository implementation only (this entry). **L6c repaired-release install** = NOT YET AUTHORIZED. **F1r live** = NOT YET AUTHORIZED. **F1 attempt 2** = NOT AUTHORIZED.
+
+- **Why F1r exists:** the detector unit runs the INSTALLED release's `production_detector.py`; production still resolves release `55c7d181…` (detector digest `b2ab3434…`, no `EXIT_JOURNAL_SOURCE_UNAVAILABLE`). The repaired release (`2107f197…`, detector digest `a91bcfc2…`) differs from it in exactly `production_detector.py` and the manifest. The repository had an install step (L6c, install-only, never touches `current`) but no governed step that only switches `current`; L7u switches it together with a Core restart and is closed.
+- **Operational order (owner decision):** `L7 -> L7u -> L8p -> L6c (repair release install) -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9`; the L6c step is a fresh install-only maintenance use of the reviewed mechanism (new release id, fresh same-day authorization), not a replay of a consumed authorization.
+- **What F1r owns:** only the atomic switch of `/opt/aegis-idea3/current` between two already-installed immutable releases (journal OLD → re-read → temp symlink + `os.replace` → exact `readlink`/`realpath` check). It installs nothing; its privileged backend can only `systemctl show`, so the Core's MainPID, NRestarts and cwd cannot change through F1r. **Changing `current` does not move the running Core to the new release.**
+- **Rollback:** owns only a journalled switch; refuses (no mutation) if `current` is not exactly where this attempt left it; restores the exact OLD target atomically; proves Core PID/NRestarts unchanged and the detector absent; never deletes a release.
+- **Comparator:** capture key `host.symlink./opt/aegis-idea3/current.target`; `stages/F1r/allow-keys.txt` approves only that key, the runner proves the exact OLD→NEW values from the PRE/POST records, zero listener additions, zero allowances for PRE→RB.
+- **Future F1 attempt 2:** the F1 runner template gained runtime pins (`EXPECTED_RUNTIME_RELEASE_ID`, `EXPECTED_RUNTIME_RELEASE_SOURCE_SHA`, `EXPECTED_PRODUCTION_DETECTOR_SHA256`) and a read-only gate before PRE capture and again before the one-shot consume, so F1 cannot consume its attempt while Production resolves the old detector. `UNIT_SHA256` remains a separate pin; no existing F1 gate was weakened.
+- **Limitation:** repository tests prove repository behavior only; `/proc/<CorePID>/cwd` is root-only here (recorded `UNREADABLE` when unreadable); the zero-tolerance compare would roll back on any unforeseen captured record that changes with `current`.
+- **Receipt:** `90-Status/logs/2026-10-04_163650_music_idea3-f1r-current-release-activation-stage.md`.
+
+---
+
 ## IDEA3 F1 live attempt 1 FAILED (rolled back) — successor repair, repository only — 2026-10-04
 
 > [!warning] **F1 attempt 1 = LIVE EXECUTED, RESULT = FAIL, ROLLBACK = PASS.** Its authorization is **consumed** (`F1-ATTEMPT-CONSUMED`) and is never reused, reset or retried. `F1_ATTEMPT_1_LIVE_EXECUTED = YES`, `F1_ATTEMPT_1_RESULT = FAIL`, `F1_ATTEMPT_1_ROLLBACK = PASS`, `F1_ATTEMPT_1_PRE_RB_COMPARE = PASS`, `F1_PRODUCTION_DEPLOYED = NO`, `F1_DETECTOR_STARTED = NO` (the stage's success claim is not made: the one start it issued ended immediately and the unit was removed). `F1_REAL_DETECTOR_ACCEPTANCE = NOT_PROVEN`, `RECOVERY_R1_R8_PROVEN = NO`, `R1_VERIFIED = NOT_CLAIMED`.

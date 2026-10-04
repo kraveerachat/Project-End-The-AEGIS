@@ -762,7 +762,8 @@ def stages() -> list[str]:
 
 def test_f1_is_registered_after_l8p_and_before_l8():
     order = stages()
-    assert order.index("L7") < order.index("L7u") < order.index("L8p") < order.index("F1") < order.index("L8") < order.index("L9")
+    # F1r (current-release activation) sits between L8p and F1; F1 itself stays after L8p and before L8.
+    assert order.index("L7") < order.index("L7u") < order.index("L8p") < order.index("F1r") < order.index("F1") < order.index("L8") < order.index("L9")
     assert order.count("F1") == 1 and "F1b" not in order
 
 
@@ -980,7 +981,7 @@ def test_the_runner_orders_gates_then_pre_capture_then_marker_then_apply_verify_
     assert "rollback_flow" in text and text.count("handler rollback.sh") == 1
 
 
-def test_the_runner_pins_exactly_the_five_owner_frozen_values():
+def test_the_runner_still_pins_the_original_five_owner_frozen_values():  # three runtime-release pins were added later: see the F1r stage tests
     text = RUNNER.read_text()
     for pin in ("PIN_MAIN_SHA", "PIN_OPERATOR_USER", "PIN_OPERATOR_UID", "PIN_ALERT_SOURCE_UID", "PIN_UNIT_SHA256"):
         assert f"={pin}\n" in text

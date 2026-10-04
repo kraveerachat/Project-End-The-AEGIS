@@ -131,3 +131,16 @@ f1_unit_state_gate() {
 f1_rollback_output_gate() {
   grep -qxE 'F1_ROLLBACK=(PASS|NOTHING_OWNED|ALREADY_ROLLED_BACK)' <<< "${1:-}" || { f1_reason "F1_ROLLBACK_OUTPUT_UNEXPECTED"; return 1; }
 }
+
+# f1_runtime_release_gate PY F1R_TOOL RELEASE_ID SOURCE_SHA DETECTOR_SHA256 — runtime pin (attempt-1 successor): F1 may not reach its one-shot boundary while
+# Production still resolves the OLD detector. Read-only, via the reviewed p4-f1r-switch.py `check-runtime`: /opt/aegis-idea3/current resolves to EXACTLY the
+# frozen release, the release passes the existing release guard at --expect-owner root, its manifest id/source SHA/clean tree match, its production_detector.py
+# digest equals the frozen digest (so the repaired bytes are exactly the reviewed runtime) and the detector unit/process is still absent. The unit digest pin
+# (UNIT_SHA256) is a SEPARATE pin and is not weakened by this gate.
+f1_runtime_release_gate() {
+  local py=${1:-} tool=${2:-} rid=${3:-} src=${4:-} det=${5:-} out reason
+  if ! out=$("$py" "$tool" check-runtime --release-id "$rid" --source-sha "$src" --detector-sha256 "$det" 2>&1); then
+    reason=$(printf '%s\n' "$out" | sed -n 's/.*reason=\([^ ]*\).*/\1/p' | tail -n 1)
+    f1_reason "F1_RUNTIME_RELEASE_GATE_FAILED:${reason:-UNKNOWN}"; return 1
+  fi
+}
