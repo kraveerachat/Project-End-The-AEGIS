@@ -11,6 +11,7 @@
 import { createZipStreamWriter } from './zipStreamWriter.js'
 import { zipLayout } from './bulkDownloadPlan.js'
 import { createBufferedSink, MAX_BUFFERED_PLAINTEXT_BYTES } from './vaultChunkedDownload.js'
+import { apiFetchStream } from './api.js'
 
 const ZIP_PICKER_TYPES = [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }]
 
@@ -215,5 +216,120 @@ export async function runBulkZip({
     }
     emit('done', { done: true })
     return buffered ? { status: 'done', parts } : { status: 'done' }
+  }
+}
+
+/* ── Normal Files source (spec §10) ─────────────────────────────────── */
+
+const SOURCE_IDLE_MS = 60_000
+const httpReason = (kind) => (kind === 'network' || kind === 'unauthorized' || kind === 'forbidden' ? kind : 'server')
+
+/**
+ * แหล่งข้อมูลของไฟล์ปกติ แบบสองจังหวะ (SC-1):
+ *   open()  — ขอไฟล์, ตรวจผล HTTP, body ต้องมี, Content-Length ต้องมีและเท่ากับขนาดในรายการ
+ *             ⚠️ ไม่เขียนอะไรลง ZIP เลย — รายการที่ล้มตรงนี้จึงไม่มี local header แม้แต่ไบต์เดียว
+ *   pump()  — อ่านทีละก้อนจาก reader แล้วเขียนลง entry sink (CRC อยู่ในตัวเขียนเท่านั้น, M-6)
+ *
+ * ตัวจับเวลา "ต้นทางเงียบ" 60 วินาที วัดเฉพาะช่วงที่รอเครือข่าย (รอ header และรอ read()) — ถูกล้างทันที
+ * ที่ได้ไบต์จริงก่อนเขียนลงปลายทาง ดิสก์ที่ช้าจึงไม่กินงบเวลาของเครือข่าย ไม่มีเพดานเวลารวมของการโอน
+ */
+export function createFilesEntrySource({ fetchStream = apiFetchStream, idleMs = SOURCE_IDLE_MS } = {}) {
+  return {
+    async open(entry, archiveSignal) {
+      const fetchCtrl = new AbortController()
+      let reader = null
+      let timer = null
+      let reason = null
+      let wake = null
+      const stopped = new Promise((r) => { wake = r })
+
+      // ⚠️ ทางออกเดียวของทุกความล้มเหลว — ซิงโครนัสทั้งหมด และไม่เคย await reader.cancel()
+      //    (cancel ที่ค้างไม่มีวันจบต้องไม่ทำให้ archive ค้างตาม)
+      const cleanup = (why) => {
+        if (reason) return
+        reason = why
+        if (timer !== null) { clearTimeout(timer); timer = null }
+        archiveSignal?.removeEventListener?.('abort', onArchiveAbort)
+        fetchCtrl.abort(why)
+        if (reader) {
+          try { reader.cancel(why)?.catch?.(() => {}) } catch { /* ทำความสะอาดแบบพยายามที่สุด */ }
+        }
+        wake()
+      }
+      const onArchiveAbort = () => cleanup('cancelled')
+      const arm = () => {
+        if (timer === null) timer = setTimeout(() => { timer = null; cleanup('timeout') }, idleMs)
+      }
+      const disarm = () => {
+        if (timer !== null) { clearTimeout(timer); timer = null }
+      }
+      const failure = () => ({ ok: false, reason })
+
+      if (archiveSignal?.aborted) { cleanup('cancelled'); return failure() }
+      archiveSignal?.addEventListener?.('abort', onArchiveAbort, { once: true })
+
+      arm()
+      let res
+      try {
+        res = await Promise.race([
+          fetchStream(`/api/files/${encodeURIComponent(entry.id)}/download`, { signal: fetchCtrl.signal }),
+          stopped,
+        ])
+      } catch {
+        res = { ok: false, errorKind: 'network' }
+      }
+      disarm()
+      if (reason) return failure()
+      if (!res?.ok) { cleanup(httpReason(res?.errorKind)); return failure() }
+      if (res.body == null) { cleanup('stream-missing'); return failure() }
+
+      // Content-Length: บังคับ ไม่มีข้อยกเว้น (spec §10 step 4)
+      const raw = res.headers?.get?.('Content-Length')
+      const text = raw == null ? null : String(raw).trim()
+      const declared = text !== null && /^[0-9]+$/.test(text) ? Number(text) : NaN
+      if (!Number.isSafeInteger(declared)) { cleanup('invalid-length'); return failure() }
+      if (declared !== entry.size) { cleanup('size-mismatch'); return failure() }
+
+      const body = res.body
+      return {
+        ok: true,
+        size: declared,
+        dispose: (why) => cleanup(why),
+        async pump(entrySink) {
+          if (reason) return failure()
+          reader = body.getReader()
+          let received = 0
+          for (;;) {
+            arm() // ศูนย์ไบต์ไม่ใช่ความคืบหน้า: ถ้าตั้งไว้แล้ว เส้นตายเดิมยังคงอยู่
+            let r
+            try {
+              r = await Promise.race([reader.read(), stopped])
+            } catch {
+              cleanup('network')
+            }
+            if (reason) return failure()
+            if (r.done) {
+              disarm()
+              if (received !== declared) { cleanup('early-eof'); return failure() }
+              try { reader.releaseLock?.() } catch { /* stream จบแล้ว */ }
+              archiveSignal?.removeEventListener?.('abort', onArchiveAbort)
+              return { ok: true }
+            }
+            const value = r.value
+            if (!value || value.length === 0) continue
+            received += value.length
+            disarm() // ได้ไบต์จริงแล้ว — หยุดนับก่อนเขียนลงปลายทาง
+            if (received > declared) { cleanup('overlong'); return failure() }
+            try {
+              await entrySink.write(value)
+            } catch (err) {
+              cleanup(isQuota(err) ? 'localDiskFull' : 'write')
+              return failure()
+            }
+            if (reason) return failure()
+          }
+        },
+      }
+    },
   }
 }
