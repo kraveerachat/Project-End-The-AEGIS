@@ -15,6 +15,42 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — sustained Live steady-state watchdog follow-up (2026-10-04)
+
+Task: PR1 follow-up for the post-first-byte Live stream timeout. Branch:
+`fix/idea2-monitor-steady-idle-watchdog`; owner: Pub; starting main:
+`9e5ce3d79e1455ba0707117ad9a5a7ccbbcf889f`. Current state:
+SOURCE IMPLEMENTED / LOCAL VERIFIED / PRODUCTION ACCEPTANCE PENDING.
+Production mutation allowed: NO.
+
+Owner-provided Production evidence after PR #328 showed that the first-byte
+watchdog no longer fired: demand appeared, the camera connected, and one viewer
+remained active, but the Monitor logged two six-second steady-state timeouts
+while Operator stayed on Live. The owner then rolled the Monitor image back to
+`aegis-prod-monitor:idea2-ba-csp-6ddcf184a5a9`. This is a confirmed mismatch
+with the Engine's default 15-second post-first-frame idle allowance, not a
+failure of the 50-second cold-start boundary. The earlier PR #328 section below
+remains the historical source-checkpoint result, not evidence that sustained
+real-camera acceptance passed.
+
+The follow-up retains 50 seconds until the first nonempty upstream body data,
+then allows a bounded 20-second steady gap (Engine default 15 seconds plus
+five seconds for proxy/transport delivery). Headers alone never switch phases.
+Authorization before demand/fetch, Browser Association, producer generation,
+session/assignment revalidation, browser-close abort and one release per demand
+remain on their existing paths. No Engine, Agent, UI, Archive, GPU, database,
+HUB or deployed runtime was changed by this repository task.
+
+| Session | Scope | State | Evidence | Remaining |
+|---|---|---|---|---|
+| S1 | RED→GREEN Monitor timeout reconciliation | PASS | A scaled 70 ms inter-frame gap failed under the old 30 ms-equivalent timer, then survived the new 100 ms-equivalent timer; the later stall still closed. Focused route tests 49 pass / 1 conditional skip; broader focused 70 pass / 1 skip; full Monitor 184 pass / 58 conditional skips; Playwright 21/21; Vite build PASS. | Draft PR review, separate Production rollout and sustained real-camera acceptance. |
+
+PR2 recording/archive and PR3 GPU-required inference remain unstarted and
+must not proceed from source tests alone. Real acceptance must later observe
+`connected=true`, `demanded=true`, `viewers>=1` and the physical camera LED
+continuously ON while Operator remains on Live, followed by release only after
+the final viewer/logout.
+
 ## Current task — sustained Live first-byte watchdog (2026-10-04)
 
 Branch `fix/idea2-monitor-first-byte-watchdog` is a repository-only PR1 fix for

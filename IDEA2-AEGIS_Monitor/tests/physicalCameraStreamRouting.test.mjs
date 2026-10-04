@@ -265,7 +265,7 @@ async function loadInjectedRouter() {
       const result = await next(url, context);
       if (!url.includes('/server/routes/api.js?producer-http')) return result;
       return { ...result, source: result.source.toString()
-        .replace('const STREAM_IDLE_MS = 6_000', 'const STREAM_IDLE_MS = 80')
+        .replace(/const STREAM_IDLE_MS = (6_000|20_000)/, 'const STREAM_IDLE_MS = 80')
         .replace('const STREAM_FIRST_BYTE_MS = 50_000', 'const STREAM_FIRST_BYTE_MS = 120')
         .replace('const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS', 'const STREAM_REVALIDATE_MS = 15') };
     }`

@@ -60,8 +60,9 @@ const INVALID_CREDENTIALS = 'Invalid credentials'
 const STREAM_STALE_MS = 45_000
 
 // ไม่มีไบต์จาก engine นานเกินนี้ = ถือว่าสตรีมตาย ปิดทิ้งเพื่อให้เบราว์เซอร์รู้ตัว
-// ต้องมากกว่าคาบเฟรมปกติพอสมควร (12fps → ~83ms) แต่สั้นพอที่ผู้ใช้ไม่รู้สึกว่าค้าง
-const STREAM_IDLE_MS = 6_000
+// ต้องมากกว่าคาบเฟรมปกติ (12fps → ~83ms) และไม่ตัดก่อน Engine idle budget 15s
+// Engine permits 15s between frames; leave 5s for proxy/transport delivery.
+const STREAM_IDLE_MS = 20_000
 // Engine may wait 45s for its first frame after a cold camera/model start.
 // Allow that full window plus bounded proxy/transport time before any bytes.
 const STREAM_FIRST_BYTE_MS = 50_000
@@ -656,7 +657,8 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     //    ไม่ได้ event 'error' → ภาพค้างนิ่งโดยไม่มีใครบอกผู้ใช้ว่ามันตายแล้ว
     //    (วัดจริงแล้ว: ฆ่า engine กลางสตรีม แล้ว client ค้างเกิน 30 วิโดยไม่มีสัญญาณ)
     //    รอ cold-start first byte ตาม Engine 45s contract ก่อน แล้วหลังจากมีข้อมูล
-    //    ครั้งแรกจึงตัดเมื่อไม่มีไบต์เข้ามาเกิน STREAM_IDLE_MS และปิด response ให้
+    //    ครั้งแรกจึงตัดเมื่อไม่มีไบต์เข้ามาเกิน STREAM_IDLE_MS (Engine 15s + 5s)
+    //    และปิด response ให้
     //    เบราว์เซอร์ยิง 'error' → LiveFeed เข้าโหมด reconnecting ตามที่ออกแบบไว้
     // ⚠️ เซสชันถูกตรวจ "ตอนเปิด" เท่านั้น แต่สตรีมหนึ่งเส้นอยู่ได้เป็นชั่วโมง —
     //    ถ้าไม่ตรวจซ้ำ ผู้ใช้ที่กด logout (หรือถูก SOC ถอนสิทธิ์กล้อง) จะยังได้ภาพสด
