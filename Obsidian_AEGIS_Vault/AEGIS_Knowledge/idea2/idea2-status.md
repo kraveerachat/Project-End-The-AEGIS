@@ -38,7 +38,7 @@ no model assets, thresholds, templates, UI, Agent or deployed runtime changed.
 Task: PR1 follow-up for the post-first-byte Live stream timeout. Branch:
 `fix/idea2-monitor-steady-idle-watchdog`; owner: Pub; starting main:
 `9e5ce3d79e1455ba0707117ad9a5a7ccbbcf889f`. Current state:
-SOURCE IMPLEMENTED / LOCAL VERIFIED / PRODUCTION ACCEPTANCE PENDING.
+PR1 CLOSED / MACHINE A REAL-CAMERA ACCEPTED (operator and operator2).
 Production mutation allowed: NO.
 
 Owner-provided Production evidence after PR #328 showed that the first-byte
@@ -49,7 +49,7 @@ while Operator stayed on Live. The owner then rolled the Monitor image back to
 with the Engine's default 15-second post-first-frame idle allowance, not a
 failure of the 50-second cold-start boundary. The earlier PR #328 section below
 remains the historical source-checkpoint result, not evidence that sustained
-real-camera acceptance passed.
+real-camera acceptance had passed at that earlier checkpoint.
 
 The follow-up retains 50 seconds until the first nonempty upstream body data,
 then allows a bounded 20-second steady gap (Engine default 15 seconds plus
@@ -61,13 +61,17 @@ HUB or deployed runtime was changed by this repository task.
 
 | Session | Scope | State | Evidence | Remaining |
 |---|---|---|---|---|
-| S1 | RED→GREEN Monitor timeout reconciliation | PASS | A scaled 70 ms inter-frame gap failed under the old 30 ms-equivalent timer, then survived the new 100 ms-equivalent timer; the later stall still closed. Focused route tests 49 pass / 1 conditional skip; broader focused 70 pass / 1 skip; full Monitor 184 pass / 58 conditional skips; Playwright 21/21; Vite build PASS. | Draft PR review, separate Production rollout and sustained real-camera acceptance. |
+| S1 | RED→GREEN Monitor timeout reconciliation | PASS | A scaled 70 ms inter-frame gap failed under the old 30 ms-equivalent timer, then survived the new 100 ms-equivalent timer; the later stall still closed. Focused route tests 49 pass / 1 conditional skip; broader focused 70 pass / 1 skip; full Monitor 184 pass / 58 conditional skips; Playwright 21/21; Vite build PASS. | Historical source checkpoint; later Machine A real-camera acceptance is recorded below. |
 
-PR2 recording/archive remains unstarted; PR3 GPU-required inference is a
-separate source-only task and must not be treated as deployed. Real PR1 acceptance must later observe
-`connected=true`, `demanded=true`, `viewers>=1` and the physical camera LED
-continuously ON while Operator remains on Live, followed by release only after
-the final viewer/logout.
+Owner-provided Machine A real-camera acceptance closed PR1 for both account
+aliases: `operator → CAM-01` and `operator2 → CAM-02`. Each independently
+passed `PRE_LIVE_IDLE`, `LIVE_ACQUISITION`, `SUSTAINED_LIVE_120S`,
+`FINAL_VIEWER_RELEASE`, `POST_LOGOUT_IDLE`, `PHYSICAL_LED_SUSTAIN`, and
+`PHYSICAL_LED_RELEASE`. The physical camera LED stayed on through sustained
+Live and turned off after final viewer/logout. This is owner-reported hardware
+evidence, not a new test performed by this documentation-only PR #338 follow-up.
+PR2 recording/archive remains separate and unstarted; PR3 GPU-required
+inference is source-only and is not a claim of real GPU or Production acceptance.
 
 ## Current task — sustained Live first-byte watchdog (2026-10-04)
 
@@ -87,13 +91,11 @@ RED route tests reproduced the premature close before the first byte; GREEN
 focused lifecycle tests passed 12/12. The broader focused Monitor set passed
 68 with one conditional PostgreSQL skip, the full neutral Monitor suite passed
 182 with 58 conditional skips, Playwright passed 21/21, and the Vite build
-passed locally. These are
-source/test results only. No post-merge Production or Machine A hardware
-acceptance is claimed. The separate owner gate must observe connected=true,
-demanded=true, viewers>=1 and the physical LED continuously ON while Operator
-Live remains open, with release only after the final viewer/logout. PR2
-recording/archive and PR3 GPU-required inference remain separate, unstarted
-tasks that depend on PR1 merge/reconciliation.
+passed locally. These were source/test results only at that historical
+checkpoint. Later owner-provided Machine A real-camera acceptance for both
+operator aliases is recorded in the PR1 follow-up section above. PR2
+recording/archive remains separate and unstarted; PR3 GPU-required inference
+has source work in Draft PR #338 but no real GPU or Production acceptance.
 
 ## Current task — Browser Association CSP narrow source fix (2026-10-04)
 
