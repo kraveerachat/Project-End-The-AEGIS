@@ -1,23 +1,36 @@
 import { useMemo, useState } from 'react'
-import { Play, RefreshCw, SearchX, ServerOff } from 'lucide-react'
+import { Download, Play, RefreshCw, SearchX, ServerOff } from 'lucide-react'
 import { fmtHM, fmtTime } from '../data.js'
 import { EmptyState, FeedChrome } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
 import { getViewState, VIEW_STATE } from '../lib/viewState.js'
 
-const SEG_TOTAL_SEC = 600
+function clipDurationSeconds(clip) {
+  const value = Number(clip?.durationSec)
+  return Number.isFinite(value) && value >= 0 ? value : 0
+}
 
-// Convert a clip's segment bar into reviewable time markers.
-// ⚠️ Phase 3: real clips carry no segment-level heat (`segs` is empty) — the
-// Detection Engine doesn't emit it. Guard so an empty/absent segs renders a
-// plain bar with no flagged windows instead of crashing.
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const secs = total % 60
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+    : `${minutes}:${String(secs).padStart(2, '0')}`
+}
+
+// Convert a clip's optional segment bar into reviewable time markers using the
+// measured clip duration. Final logout/session clips can be shorter than 5 min.
 function segMarkers(clip) {
   const out = []
+  const totalSec = clipDurationSeconds(clip)
+  if (totalSec <= 0) return out
   let cum = 0
   for (const s of clip.segs ?? []) {
     if (s.k === 'warn') {
-      const a = clip.start + (cum / 100) * SEG_TOTAL_SEC * 1000
-      const b = clip.start + ((cum + s.w) / 100) * SEG_TOTAL_SEC * 1000
+      const a = clip.start + (cum / 100) * totalSec * 1000
+      const b = clip.start + ((cum + s.w) / 100) * totalSec * 1000
       out.push({ from: a, to: b })
     }
     cum += s.w
@@ -67,7 +80,7 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
       <div className="pagehead">
         <div>
           <h1 className="h1">Archival footage</h1>
-          <p className="sub">Continuous recording segmented into ~10-minute clips, archived to the NAS over LAN.</p>
+          <p className="sub">Continuous recording rolls into 5-minute clips. Logout/session end preserves the final partial clip at its actual duration; verified clips are archived to the NAS.</p>
         </div>
       </div>
       <div className="filterbar">
@@ -95,6 +108,9 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
           {clips.map((cl, i) => {
             const open = openClip === cl.id
             const markers = segMarkers(cl)
+            const durationSec = clipDurationSeconds(cl)
+            const videoUrl = `${import.meta.env.BASE_URL}api/clips/${cl.id}/video`
+            const downloadUrl = `${import.meta.env.BASE_URL}api/clips/${cl.id}/download`
             return (
               <article key={cl.id} className="clip rise" style={{ '--i': Math.min(i, 8) }}>
                 <button
@@ -107,8 +123,8 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                   <FeedChrome />
                   <span className="clipid mono">{cl.cam}</span>
                   {cl.live
-                    ? <span className="clipdur mono reclive"><span className="rec" />{cl.durLabel}</span>
-                    : <span className="clipdur mono">{cl.durLabel}</span>}
+                    ? <span className="clipdur mono reclive"><span className="rec" />{formatDuration(durationSec)}</span>
+                    : <span className="clipdur mono">{formatDuration(durationSec)}</span>}
                   <span className="play" aria-hidden="true"><Play /></span>
                   <span className="segbar" aria-hidden="true">
                     {(cl.segs ?? []).map((sg, j) => <span key={j} className={`seg ${sg.k}`} style={{ width: sg.w + '%' }} />)}
@@ -117,9 +133,12 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                 <div className="clipbody">
                   <div className="cliprow">
                     <div>
-                      <div className="clipstart mono">{fmtHM(cl.start)}{cl.live && ' · recording'}</div>
+                      <div className="clipstart mono">{fmtHM(cl.start)} – {fmtHM(cl.start + durationSec * 1000)} · {formatDuration(durationSec)}</div>
                       <div className="clipcam">{cl.camName ?? cl.cam}</div>
                     </div>
+                    <a className="ackbtn" href={downloadUrl} download aria-label={`Download ${cl.cam} clip from ${fmtHM(cl.start)}`}>
+                      <Download aria-hidden="true" size={13} style={{ marginRight: 6 }} />Download
+                    </a>
                   </div>
                   <div className="tags">
                     {cl.kind === 'auth' ? (
@@ -145,7 +164,7 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                     <video
                       key={cl.id}
                       className="clipvideo"
-                      src={`${import.meta.env.BASE_URL}api/clips/${cl.id}/video`}
+                      src={videoUrl}
                       controls
                       preload="metadata"
                       style={{ width: '100%', borderRadius: 8, marginBottom: 10, background: '#000' }}
