@@ -9,7 +9,7 @@
 # F1 installs the exact pinned detector unit (root:root 0644, atomic, never overwriting), daemon-reloads, starts the detector EXACTLY once through the reviewed
 # p4-f1-alert-source.py ordered gate, verifies the detector runtime, and on failure rolls back ONLY what this attempt journalled. It NEVER restarts the Core,
 # edits core.env, users or groups, enables the unit, injects an alert, fabricates R1, runs Recovery, sends CUT/RESTORE, or touches the ESP32 or a serial port.
-# A successful run may claim only F1_PRODUCTION_DEPLOYED=YES and F1_DETECTOR_STARTED=YES. It never claims F1_REAL_DETECTOR_ACCEPTANCE, Recovery R1-R8 or R1_VERIFIED:
+# A successful run may claim only F1_PRODUCTION_DEPLOYED=YES and F1_DETECTOR_STARTED=YES. It never claims F1_REAL_DETECTOR_ACCEPTANCE, Recovery R1-R8 or R1_VERIFIED, and it never claims that no real alert occurred (the detector follows NEW journal lines once started):
 # those need a later, separately governed REAL validated detector alert reaching the Core.
 set -Eeuo pipefail
 umask 077
@@ -176,6 +176,7 @@ l7u_secret_scan "$EVID" "$PY" || rollback_flow "SECRET_OUTPUT_SCAN failed"
 s10_unchanged || rollback_flow "S10/legacy mosquitto/Twingate/L6b broker/Core preservation failed (the Core PID/restart count must be unchanged)"
 trap - ERR INT TERM
 echo "F1_LIVE_EXECUTED=YES F1_PRODUCTION_DEPLOYED=YES F1_DETECTOR_STARTED=YES F1_APPLY=PASS F1_VERIFY=PASS F1_POST_CAPTURE=COMPLETE F1_PRE_POST_COMPARE=PASS"
-echo "F1_START_COUNT=ONE F1_UNIT_ENABLED=NO CORE_RESTARTED=NO ALERT_INJECTED=NO RECOVERY_LIVE_EXECUTED=NO"
-echo "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN RECOVERY_R1_R8_PROVEN=NO R1_VERIFIED=NO (a REAL validated detector alert reaching the Core is a separate governed step)"
+echo "F1_START_COUNT=ONE F1_UNIT_ENABLED=NO CORE_RESTARTED=NO F1_STAGE_ALERT_INJECTED=NO"
+echo "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN RECOVERY_R1_R8_PROVEN=NO R1_VERIFIED=NOT_CLAIMED"
+echo "F1_CLAIM_BOUNDARY: the detector follows NEW journal lines once started, so a naturally occurring REAL validated alert during the window is an external production event. F1 neither injects, fabricates, accepts nor rolls back such an alert or incident; it is NOT accepted or proven by this stage merely because the detector was running (a separate governed step does that)."
 echo "Evidence: $EVID"

@@ -78,6 +78,7 @@ class F1Backend:
     def __init__(self) -> None:
         self.starts = 0
         self.calls: list[tuple[str, ...]] = []
+        self.pre_start = None  # optional callable run immediately BEFORE the single start; it may refuse (and then no start is issued or counted)
 
     @staticmethod
     def allowed(args: tuple[str, ...]) -> bool:
@@ -93,6 +94,8 @@ class F1Backend:
         if args[0] == "start":
             if self.starts >= 1:
                 refuse("DETECTOR_START_ALREADY_ISSUED")  # exactly one start, ever, per process; nothing retries
+            if self.pre_start is not None:
+                self.pre_start()  # the last gate before the start: a refusal here means this attempt did NOT start anything
             self.starts += 1
         self.calls.append(args)
         return self._run(args)
@@ -169,10 +172,6 @@ def core_snapshot(backend: F1Backend) -> dict[str, str]:
     return {k: snap[k] for k in ("MainPID", "NRestarts")}
 
 
-def core_env_digest(host: F1Host) -> str:
-    return sha256(host.read_bytes(F1.CORE_ENV))
-
-
 def write_journal(work: Path, data: dict) -> None:
     """Atomic, fsynced. Written BEFORE each mutation so rollback never has to guess what was done."""
     tmp = work / (JOURNAL_NAME + ".tmp")
@@ -224,7 +223,7 @@ def preflight(uid: int, core_uid: int, pin: str, host: F1Host, backend: F1Backen
     if state.get("ActiveState") not in ("inactive", None) or state.get("MainPID", "0") not in ("0", ""):
         refuse("DETECTOR_PROCESS_RUNNING")
     core = core_snapshot(backend)
-    return {"unit_sha256": sha256(blob), "core_main_pid": core["MainPID"], "core_n_restarts": core["NRestarts"], "core_env_sha256": core_env_digest(host)}
+    return {"unit_sha256": sha256(blob), "core_main_pid": core["MainPID"], "core_n_restarts": core["NRestarts"]}
 
 
 # ── apply ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -265,12 +264,27 @@ def verify_installed_file(host: F1Host, journal: dict) -> None:
         refuse("INSTALLED_UNIT_BYTES_CHANGED")
 
 
+#: The exact state of this reviewed unit when installed, loaded and NEVER started by anyone: not merely "not enabled". Anything else (enabled,
+#: enabled-runtime, linked, linked-runtime, masked, masked-runtime, static, empty) contradicts the stage's own claim F1_UNIT_ENABLED=NO.
+EXPECTED_UNIT_FILE_STATE = "disabled"
+PRE_START_STATE = {"LoadState": "loaded", "ActiveState": "inactive", "SubState": "dead", "MainPID": "0", "NRestarts": "0", "Result": "success",
+                   "UnitFileState": EXPECTED_UNIT_FILE_STATE, "Restart": "no", "FragmentPath": UNIT_PATH}
+
+
+def verify_pre_start_state(backend: F1Backend) -> None:
+    """Immediately before this attempt's own start the unit must still be exactly installed-but-never-started. A detector that appeared active
+    meanwhile is never adopted: refuse before issuing the start (this attempt then did not start anything)."""
+    state = props(backend, DETECTOR_UNIT, DETECTOR_PROPS)
+    if any(state.get(key) != want for key, want in PRE_START_STATE.items()):
+        refuse("DETECTOR_NOT_IN_EXPECTED_PRE_START_STATE")
+
+
 def verify_loaded(backend: F1Backend, expect_active: bool) -> dict[str, str]:
     state = props(backend, DETECTOR_UNIT, DETECTOR_PROPS)
     if state.get("LoadState") != "loaded" or state.get("FragmentPath") != UNIT_PATH:
         refuse("DETECTOR_UNIT_NOT_LOADED")
-    if state.get("UnitFileState") == "enabled":
-        refuse("DETECTOR_UNIT_ENABLED")  # this stage never enables the unit
+    if state.get("UnitFileState") != EXPECTED_UNIT_FILE_STATE:
+        refuse("DETECTOR_UNIT_FILE_STATE_UNEXPECTED")  # exactly `disabled`: this stage never enables, links or masks the unit
     if state.get("Restart") != "no":
         refuse("DETECTOR_RESTART_POLICY_CHANGED")
     if expect_active:
@@ -283,12 +297,10 @@ def verify_loaded(backend: F1Backend, expect_active: bool) -> dict[str, str]:
     return state
 
 
-def verify_core_unchanged(host: F1Host, backend: F1Backend, journal: dict) -> None:
+def verify_core_unchanged(backend: F1Backend, journal: dict) -> None:
     core = core_snapshot(backend)
     if core["MainPID"] != journal["core_main_pid"] or core["NRestarts"] != journal["core_n_restarts"]:
         refuse("CORE_RESTARTED_OR_REPLACED")
-    if core_env_digest(host) != journal["core_env_sha256"]:
-        refuse("CORE_ENV_CHANGED")
 
 
 def apply(uid: int, core_uid: int, pin: str, work: Path, host: F1Host, backend: F1Backend) -> dict[str, str]:
@@ -299,7 +311,10 @@ def apply(uid: int, core_uid: int, pin: str, work: Path, host: F1Host, backend: 
     if read_journal(work) is not None:
         refuse("ATTEMPT_JOURNAL_ALREADY_EXISTS")  # one attempt per work directory
     facts = preflight(uid, core_uid, pin, host, backend)
-    journal = {"stage": "F1", "phase": "preflight", **facts, "daemon_reload": False, "start_issued": False}
+    # core.env is secret-metadata-only: its bytes are held in THIS process's memory only, compared after the start and discarded. Neither the bytes
+    # nor any digest of them is ever journalled, printed or copied to evidence; only the fixed boolean result below is persisted.
+    env_before = host.read_bytes(F1.CORE_ENV)
+    journal = {"stage": "F1", "phase": "preflight", **facts, "daemon_reload": False, "start_issued": False, "core_env_preserved": False}
     write_journal(work, journal)
     blob = pinned_unit(F1.UNIT_TEMPLATE.read_bytes(), pin)
     install_unit(blob, work, journal, host)
@@ -307,7 +322,8 @@ def apply(uid: int, core_uid: int, pin: str, work: Path, host: F1Host, backend: 
     write_journal(work, journal)
     if backend.systemctl("daemon-reload").rc != 0:
         refuse("DAEMON_RELOAD_FAILED")
-    verify_loaded(backend, expect_active=False)
+    verify_pre_start_state(backend)  # exact installed-but-never-started state; also re-run by the backend immediately before the start itself
+    backend.pre_start = lambda: verify_pre_start_state(backend)
     journal.update(phase="starting", start_issued=True)  # journalled BEFORE the start so a failed/unknown start is still rolled back
     write_journal(work, journal)
     try:
@@ -319,9 +335,13 @@ def apply(uid: int, core_uid: int, pin: str, work: Path, host: F1Host, backend: 
         raise
     host.sleep(SETTLE_SEC)  # observation window only; never a second start
     verify_after_start(host, backend, journal, uid, core_uid)
-    journal["phase"] = "complete"
+    if host.read_bytes(F1.CORE_ENV) != env_before:
+        refuse("CORE_ENV_CHANGED")  # exact byte equality, in memory only
+    del env_before
+    journal.update(phase="complete", core_env_preserved=True)
     write_journal(work, journal)
-    return {"F1_APPLY": "COMPLETE", "F1_UNIT_INSTALLED": "YES", "F1_UNIT_SHA256": journal["unit_sha256"], "F1_START_COUNT": "1", "F1_UNIT_ENABLED": "NO"}
+    return {"F1_APPLY": "COMPLETE", "F1_UNIT_INSTALLED": "YES", "F1_UNIT_SHA256": journal["unit_sha256"], "F1_START_COUNT": "1", "F1_UNIT_ENABLED": "NO",
+            "CORE_ENV_PRESERVED": "YES"}
 
 
 def verify_after_start(host: F1Host, backend: F1Backend, journal: dict, uid: int, core_uid: int) -> None:
@@ -331,17 +351,18 @@ def verify_after_start(host: F1Host, backend: F1Backend, journal: dict, uid: int
     if gid is None or gid <= 0:
         refuse("ALERT_GROUP_MISSING")
     F1.verify_socket(host, core_uid, uid, gid)  # the alert transport is still exactly as contracted
-    verify_core_unchanged(host, backend, journal)
+    verify_core_unchanged(backend, journal)
 
 
 def verify(uid: int, core_uid: int, work: Path, host: F1Host, backend: F1Backend) -> dict[str, str]:
     """Read-only post-change check, repeatable. Issues no start, stop, reload or write."""
     journal = read_journal(work)
-    if journal is None or journal.get("phase") != "complete":
+    if journal is None or journal.get("phase") != "complete" or journal.get("core_env_preserved") is not True:
         refuse("ATTEMPT_NOT_COMPLETE")
     verify_after_start(host, backend, journal, uid, core_uid)
+    F1.verify_env(host.read_bytes(F1.CORE_ENV), uid, core_uid=core_uid)  # the existing non-secret predicate (uid line only; values never echoed); no pre-change digest exists
     return {"F1_VERIFY": "PASS", "F1_PRODUCTION_DEPLOYED": "YES", "F1_DETECTOR_STARTED": "YES", "F1_REAL_DETECTOR_ACCEPTANCE": "NOT_PROVEN",
-            "RECOVERY_R1_R8_PROVEN": "NO"}
+            "RECOVERY_R1_R8_PROVEN": "NO", "R1_VERIFIED": "NOT_CLAIMED"}
 
 
 # ── rollback ────────────────────────────────────────────────────────────────────────────────────────────────────────────────

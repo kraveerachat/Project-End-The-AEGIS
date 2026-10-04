@@ -94,6 +94,8 @@ class World:
         self.core = {"ActiveState": "active", "SubState": "running", "MainPID": core_pid, "NRestarts": core_restarts}
         self.next_ino = 100
         self.events: list[str] = []
+        self.race_after_reload = False  # another actor starts the detector between our daemon-reload and our own start
+        self.enable_on_start = None  # another actor changes UnitFileState after our start
 
 
 class FakeHost(tool.F1Host):
@@ -178,11 +180,15 @@ class FakeBackend(tool.F1Backend):
         w.events.append("systemctl:" + " ".join(a for a in args if not a.startswith("-p")))
         if args[0] == "daemon-reload":
             if w.reload_rc == 0:
-                w.loaded = tool.UNIT_PATH in self.host.files
+                w.loaded = tool.UNIT_PATH in self.host.files or w.active  # a running unit stays loaded (stale) when its file is removed
+                if w.race_after_reload and w.loaded:
+                    w.active = True
             return tool.CommandResult(w.reload_rc, "")
         if args[0] == "start":
             if w.start_rc == 0:
                 w.active = True
+                if w.enable_on_start:
+                    w.unit_file_state = w.enable_on_start
             return tool.CommandResult(w.start_rc, "")
         if args[0] == "stop":
             if w.stop_rc == 0:
@@ -201,7 +207,10 @@ class FakeBackend(tool.F1Backend):
 
 def build(tmp_path, **kw):
     world_kw = {k: kw.pop(k) for k in ("start_rc", "reload_rc", "stop_rc", "die_on_settle", "unit_file_state", "core_pid", "core_restarts") if k in kw}
+    flags = {k: kw.pop(k) for k in ("race_after_reload", "enable_on_start") if k in kw}
     world = World(**world_kw)
+    for k, v in flags.items():
+        setattr(world, k, v)
     host = FakeHost(world, **kw)
     backend = FakeBackend(world, host)
     work = tmp_path / "work"
@@ -234,7 +243,8 @@ def test_the_exact_install_path_and_modes_are_fixed_constants():
 def test_apply_installs_exactly_the_pinned_bytes_root_owned_0644_via_a_no_overwrite_link(tmp_path):
     world, host, backend, work = build(tmp_path)
     result = run_apply(host, backend, work)
-    assert result == {"F1_APPLY": "COMPLETE", "F1_UNIT_INSTALLED": "YES", "F1_UNIT_SHA256": PIN, "F1_START_COUNT": "1", "F1_UNIT_ENABLED": "NO"}
+    assert result == {"F1_APPLY": "COMPLETE", "F1_UNIT_INSTALLED": "YES", "F1_UNIT_SHA256": PIN, "F1_START_COUNT": "1", "F1_UNIT_ENABLED": "NO",
+                      "CORE_ENV_PRESERVED": "YES"}
     assert host.files[tool.UNIT_PATH] == UNIT_BYTES
     info = host.meta[tool.UNIT_PATH]
     assert (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (0, 0, 0o644)
@@ -367,10 +377,33 @@ def test_the_backend_allow_list_refuses_every_other_verb(verb):
     assert refusal(tool.F1Backend().systemctl, *verb) == "SYSTEMCTL_VERB_NOT_ALLOWED"
 
 
-def test_the_stage_never_enables_the_unit_and_an_enabled_unit_is_refused(tmp_path):
-    world, host, backend, work = build(tmp_path, unit_file_state="enabled")
-    assert refusal(run_apply, host, backend, work) == "DETECTOR_UNIT_ENABLED"
-    assert backend.starts == 0  # refused at the post-reload load check, before any start
+@pytest.mark.parametrize("state", ["enabled", "enabled-runtime", "linked", "linked-runtime", "masked", "masked-runtime", "static", "indirect", ""])
+def test_unit_file_state_must_be_exactly_disabled_before_the_start(tmp_path, state):
+    world, host, backend, work = build(tmp_path, unit_file_state=state)
+    assert refusal(run_apply, host, backend, work) == "DETECTOR_NOT_IN_EXPECTED_PRE_START_STATE"
+    assert backend.starts == 0 and json.loads((work / tool.JOURNAL_NAME).read_text())["start_issued"] is False  # refused before any start
+
+
+@pytest.mark.parametrize("state", ["enabled", "enabled-runtime", "linked", "linked-runtime", "masked", "masked-runtime"])
+def test_unit_file_state_changed_after_our_start_is_refused_exactly(tmp_path, state):
+    world, host, backend, work = build(tmp_path, enable_on_start=state)
+    assert refusal(run_apply, host, backend, work) == "DETECTOR_UNIT_FILE_STATE_UNEXPECTED"
+    assert backend.starts == 1
+    world.enable_on_start = None
+    world.unit_file_state = "disabled"
+    assert tool.rollback(work, host, FakeBackend(world, host)) == {"F1_ROLLBACK": "PASS"}  # our own start is stopped and our own unit removed
+
+
+def test_the_exact_expected_unit_file_state_and_pre_start_state_are_pinned():
+    assert tool.EXPECTED_UNIT_FILE_STATE == "disabled"
+    assert tool.PRE_START_STATE == {"LoadState": "loaded", "ActiveState": "inactive", "SubState": "dead", "MainPID": "0", "NRestarts": "0", "Result": "success",
+                                    "UnitFileState": "disabled", "Restart": "no", "FragmentPath": "/etc/systemd/system/aegis-idea3-detector.service"}
+
+
+def test_the_stage_never_enables_the_unit(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    run_apply(host, backend, work)
+    assert not [c for c in backend.calls if c[0] in ("enable", "disable", "mask", "link", "preset")]
     for path in (TOOL_PATH, STAGE / "apply.sh", STAGE / "verify.sh", STAGE / "rollback.sh", RUNNER, LIB):
         text = code_only(path) if path.suffix == ".py" else active_shell(path)
         assert not re.search(r"systemctl\s+(--now\s+)?(enable|disable|mask|link|preset)\b|enable\s+--now|\bis-enabled\b.*\bset\b", text), path
@@ -511,18 +544,98 @@ def test_verify_is_read_only_and_requires_a_completed_attempt(tmp_path):
     mark = len(world.events)
     out = tool.verify(DETECTOR_UID, CORE_UID, work, host, FakeBackend(world, host))
     assert out["F1_VERIFY"] == "PASS" and out["F1_PRODUCTION_DEPLOYED"] == "YES" and out["F1_DETECTOR_STARTED"] == "YES"
-    assert out["F1_REAL_DETECTOR_ACCEPTANCE"] == "NOT_PROVEN" and out["RECOVERY_R1_R8_PROVEN"] == "NO"
+    assert out["F1_REAL_DETECTOR_ACCEPTANCE"] == "NOT_PROVEN" and out["RECOVERY_R1_R8_PROVEN"] == "NO" and out["R1_VERIFIED"] == "NOT_CLAIMED"
     assert not [e for e in world.events[mark:] if not e.startswith("systemctl:show")]  # no start/stop/reload/write
 
 
-def test_core_pid_restart_count_and_core_env_must_be_unchanged(tmp_path):
+def test_core_pid_and_restart_count_must_be_unchanged_and_verify_reruns_the_non_secret_env_predicate(tmp_path):
     world, host, backend, work = build(tmp_path)
     run_apply(host, backend, work)
     world.core["NRestarts"] = "1"
     assert refusal(tool.verify, DETECTOR_UID, CORE_UID, work, host, FakeBackend(world, host)) == "CORE_RESTARTED_OR_REPLACED"
     world.core["NRestarts"] = "0"
-    host.files[F1.CORE_ENV] += b"AEGIS_SOMETHING=1\n"
-    assert refusal(tool.verify, DETECTOR_UID, CORE_UID, work, host, FakeBackend(world, host)) == "CORE_ENV_CHANGED"
+    host.files[F1.CORE_ENV] = f"AEGIS_PROFILE=production\n{KEY}=954\n".encode()  # verify has no pre-change digest: only the existing uid predicate
+    assert refusal(tool.verify, DETECTOR_UID, CORE_UID, work, host, FakeBackend(world, host)) == "ALERT_SOURCE_UID_MISMATCH"
+
+
+def journal_text(work) -> str:
+    return (work / tool.JOURNAL_NAME).read_text()
+
+
+def test_core_env_digest_and_bytes_are_never_persisted(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    env = host.files[F1.CORE_ENV]
+    run_apply(host, backend, work)
+    text = journal_text(work)
+    data = json.loads(text)
+    assert "core_env_sha256" not in data and not [k for k in data if "env" in k and k != "core_env_preserved"]
+    assert data["core_env_preserved"] is True
+    assert hashlib.sha256(env).hexdigest() not in text and env.decode().strip().splitlines()[-1] not in text and "AEGIS_PROFILE" not in text
+    assert sorted(data) == ["core_env_preserved", "core_main_pid", "core_n_restarts", "daemon_reload", "phase", "stage", "start_issued", "unit_dev", "unit_ino", "unit_sha256"]
+    assert sorted(p.name for p in work.iterdir()) == [tool.JOURNAL_NAME]  # the work directory (copied to evidence) holds only the journal
+    assert "core_env_digest" not in code_only(TOOL_PATH) and "core_env_sha256" not in code_only(TOOL_PATH)
+
+
+def test_the_core_env_comparison_is_in_memory_only_and_output_is_a_fixed_boolean(tmp_path, capsys):
+    code = code_only(TOOL_PATH)
+    assert "env_before = host.read_bytes(F1.CORE_ENV)" in code and "del env_before" in code
+    assert not re.search(r"hashlib|sha256\([^)]*CORE_ENV|sha256\(env", code.split("def apply(")[1].split("def verify_after_start")[0])
+    world, host, backend, work = build(tmp_path)
+    out = run_apply(host, backend, work)
+    assert out["CORE_ENV_PRESERVED"] == "YES"
+    shown = json.dumps(out) + journal_text(work)
+    assert "AEGIS_" not in shown and str(DETECTOR_UID) not in json.dumps(out)
+
+
+def test_a_core_env_changed_during_apply_is_refused_and_rolled_back(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    original = host.sleep
+
+    def sleep_then_env_changes(seconds):
+        original(seconds)
+        host.files[F1.CORE_ENV] = host.files[F1.CORE_ENV] + b"AEGIS_SOMETHING=1\n"
+
+    host.sleep = sleep_then_env_changes
+    assert refusal(run_apply, host, backend, work) == "CORE_ENV_CHANGED"
+    assert json.loads(journal_text(work))["core_env_preserved"] is False
+    assert tool.rollback(work, host, FakeBackend(world, host)) == {"F1_ROLLBACK": "PASS"}
+
+
+def test_an_unchanged_core_env_passes_and_is_recorded_only_as_a_boolean(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    before = host.files[F1.CORE_ENV]
+    assert run_apply(host, backend, work)["CORE_ENV_PRESERVED"] == "YES"
+    assert host.files[F1.CORE_ENV] == before and json.loads(journal_text(work))["core_env_preserved"] is True
+
+
+def test_a_concurrently_started_detector_is_refused_before_our_start_and_never_adopted(tmp_path):
+    world, host, backend, work = build(tmp_path, race_after_reload=True)  # preflight sees absent; install + reload; then another actor starts it
+    assert refusal(run_apply, host, backend, work) == "DETECTOR_NOT_IN_EXPECTED_PRE_START_STATE"
+    assert backend.starts == 0 and not [e for e in world.events if e.startswith("systemctl:start")]  # we issued no start
+    journal = json.loads(journal_text(work))
+    assert journal["start_issued"] is False and journal["phase"] != "complete"  # the stage does not claim it performed the start
+    rb = FakeBackend(world, host)
+    assert refusal(tool.rollback, work, host, rb) == "ROLLBACK_UNIT_STILL_LOADED"  # never stops a process it did not start; fails closed for the owner
+    assert not [c for c in rb.calls if c[0] == "stop"] and world.active
+
+
+def test_a_race_between_the_post_reload_check_and_the_start_is_caught_by_the_backend_hook(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    real_check = tool.verify_pre_start_state
+    calls = []
+
+    def flip_after_first(b):
+        calls.append(1)
+        real_check(b)
+        if len(calls) == 1:
+            world.active = True  # becomes active right after the first (post-reload) check passed
+
+    tool.verify_pre_start_state = flip_after_first
+    try:
+        assert refusal(run_apply, host, backend, work) == "DETECTOR_NOT_IN_EXPECTED_PRE_START_STATE"
+    finally:
+        tool.verify_pre_start_state = real_check
+    assert len(calls) == 2 and backend.starts == 0
 
 
 def test_a_core_that_is_not_running_is_refused_before_any_mutation(tmp_path):
@@ -593,12 +706,18 @@ def test_the_only_place_the_live_flag_is_set_is_the_post_gate_handler_function()
     assert "AEGIS_F1_LIVE_AUTHORIZED" not in active_shell(LIB)
 
 
-def test_the_claim_boundary_is_explicit_in_the_runner_and_tool_output():
+def test_the_claim_boundary_is_explicit_and_makes_no_unprovable_recovery_or_alert_claim():
     text = RUNNER.read_text()
+    shell = active_shell(RUNNER)
     assert "F1_PRODUCTION_DEPLOYED=YES F1_DETECTOR_STARTED=YES" in text
-    for claim in ("F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "RECOVERY_R1_R8_PROVEN=NO", "R1_VERIFIED=NO"):
-        assert claim in text
-    assert not re.search(r"F1_REAL_DETECTOR_ACCEPTANCE=(PASS|YES)|RECOVERY_R1_R8_PROVEN=YES|R1_VERIFIED=YES", text + TOOL_PATH.read_text())
+    for claim in ("F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "RECOVERY_R1_R8_PROVEN=NO", "R1_VERIFIED=NOT_CLAIMED", "F1_STAGE_ALERT_INJECTED=NO", "F1_CLAIM_BOUNDARY"):
+        assert claim in shell, claim
+    assert "RECOVERY_LIVE_EXECUTED" not in text and "RECOVERY_LIVE_EXECUTED" not in TOOL_PATH.read_text()  # unprovable: a real alert may occur in the window
+    assert not re.search(r"\bALERT_INJECTED=NO\b", shell.replace("F1_STAGE_ALERT_INJECTED=NO", ""))
+    assert "naturally occurring REAL validated alert" in shell and "external production event" in shell
+    assert not re.search(r"F1_REAL_DETECTOR_ACCEPTANCE=(PASS|YES)|RECOVERY_R1_R8_PROVEN=YES|R1_VERIFIED=(YES|NO\b)", text + TOOL_PATH.read_text())
+    readme = (DEPLOY / "README.md").read_text()
+    assert "does NOT claim `RECOVERY_LIVE_EXECUTED=NO`" in readme
 
 
 def test_the_cli_refuses_without_the_live_flag_and_without_root(tmp_path, monkeypatch, capsys):
