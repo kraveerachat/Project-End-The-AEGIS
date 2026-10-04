@@ -5,17 +5,23 @@ socket, never writes to ``alert.sock``, never starts/stops/restarts a unit, neve
 read through a ``mode=ro`` connection and ``sqlite3`` online backup into a caller-chosen snapshot file), and runs only the fixed
 read-only ``systemctl show`` / ``journalctl`` argvs below. It holds no secret and reads no ``core.env``.
 
-Provenance model (no new secret, no new trust boundary):
+Provenance model (no new secret, no detector change, no new trust boundary):
 
-* the production detector prints ``[F1-DETECTOR] alert result=SENT_BOUND detail=- ip=<IPv4>`` to ITS OWN journal; journald stamps
-  that line (printed only from ``ProductionDetector.report``, i.e. after a rule matched) with the trusted ``_SYSTEMD_UNIT`` / ``_PID`` fields;
-* the Core ingress durably records ``ALERT_ACCEPTED uid=<peer uid> pid=<peer pid> attacker_ip=<IPv4> action=CREATED`` where uid/pid come
-  from the kernel (SO_PEERCRED), next to the existing ``INCIDENT_BOUND ... source=detector_alert action=CREATED`` row;
-* an acceptance needs all of them to agree on one address and on the detector's baseline MainPID. A direct write to ``alert.sock`` by any
-  other process has a different peer pid and no journal line, so it cannot satisfy this. RESIDUAL (documented, not hidden): code running
-  INSIDE the detector process (same pid) is indistinguishable from the detector; that is the existing trust boundary.
+* DELIVERY: the Core ingress durably records ``ALERT_ACCEPTED uid=<peer uid> pid=<peer pid> attacker_ip=<IPv4> action=CREATED``
+  (kernel SO_PEERCRED values) next to the existing ``INCIDENT_BOUND ... source=detector_alert action=CREATED`` row. The peer pid must be
+  the detector's baseline MainPID and equal the journald ``_PID`` of the detector's own ``alert result=SENT_BOUND`` line. A direct write
+  to ``alert.sock`` by any other process fails this.
+* SOURCE EVENT: the deployed detector matches message TEXT from ``journalctl -f -o cat``, so a forged journal line could make the real
+  detector send a real alert. The verifier therefore reconstructs the detector's own rule (thresholds and regexes are imported from
+  ``production_detector``, which is unchanged) from journal entries whose journald-TRUSTED metadata (``_SYSTEMD_UNIT`` + ``_EXE`` +
+  ``_TRANSPORT`` for sshd; ``_TRANSPORT=kernel`` for ``AEGIS_NEWCONN``) shows a real source, and it fails closed if ANY rule-matching
+  line for the same address came from another source. Underscore fields are stamped by journald from kernel credentials, so an
+  unprivileged local writer cannot set them. RESIDUAL (documented, not hidden): root, or code inside the detector or sshd, can still
+  forge; that is outside this verifier's threat model.
 
-A PASS here is evidence for the governed live attempt only. It never claims Recovery R2-R8, LVR, L8 or L9.
+This module only VERIFIES EVIDENCE. It can never promote a claim: every result carries ``F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`` and
+``R1_VERIFIED=NOT_CLAIMED``. Promotion needs a separately reviewed, owner-registered stage (exact-main pin, fresh Authorization/K3,
+one-attempt marker, owner runner) that does not exist in this repository. It never claims Recovery R2-R8, LVR, L8 or L9.
 """
 
 from __future__ import annotations
@@ -33,6 +39,18 @@ from urllib.parse import quote
 
 from . import recovery_evidence as ev
 from .ip_containment import ContainmentRejected, validate_block_target
+from .production_detector import (
+    _DPT_RE,
+    _SRC_RE,
+    _SSH_RE,
+    FAIL_THRESHOLD,
+    LINE_MAX_CHARS,
+    SCAN_PORT_THRESHOLD,
+    SCAN_TIME_WINDOW,
+    SYN_FLOOD_THRESHOLD,
+    SYN_FLOOD_WINDOW,
+    TIME_WINDOW,
+)
 
 SCHEMA_BASELINE = "aegis.idea3.r1-baseline/1"
 SCHEMA_FINAL = "aegis.idea3.r1-final/1"
@@ -44,22 +62,30 @@ SHOW_PROPERTIES = ("LoadState", "ActiveState", "SubState", "MainPID", "NRestarts
 # Fixed read-only argv builders; nothing is derived from event content.
 SYSTEMCTL_SHOW = ("systemctl", "show", "--no-pager")
 SKEW_SEC = 2.0
-MAX_JOURNAL_LINES = 10000
+MAX_JOURNAL_LINES = 200000
+MAX_SOURCE_EVENTS = 20000
+SOURCE_TO_ALERT_MAX_SEC = 10.0  # the completing source event must immediately precede the detector's alert line
+JOURNAL_FIELDS = "MESSAGE,_PID,_SYSTEMD_UNIT,_TRANSPORT,_EXE,_UID"
+SSH_UNITS = frozenset({"ssh.service", "sshd.service"})
+SSH_EXE_DIRS = frozenset({"/usr/bin", "/usr/sbin", "/usr/lib/ssh", "/usr/lib/openssh"})
+SSH_EXE_NAMES = frozenset({"sshd", "sshd-session", "sshd-auth"})
+SSH_TRANSPORTS = frozenset({"syslog", "journal"})
+RULE_SSH, RULE_SCAN, RULE_SYN = "ssh_bruteforce", "port_scan", "syn_flood"
 
 _SERVICE_KEYS = set(SHOW_PROPERTIES)
 _ALERT_LINE = re.compile(r"^\[F1-DETECTOR\] alert result=(\S+) detail=(\S+) ip=(\S+)$")
 _ACCEPTED = re.compile(r"^uid=(\d+) pid=(\d+) attacker_ip=(\S+) action=(\S+)$")
 _BOUND = re.compile(r"^attacker_ip=(\S+) source=(\S+) action=(\S+)$")
-_SYNTHETIC = re.compile(r"synthetic|fixture|simulat|replay|inject|\btest\b", re.IGNORECASE)
 _SECRET = re.compile(
     r"scrypt\$|\$scrypt|PRIVATE KEY|BEGIN [A-Z ]*KEY|password\s*[=:]|secret\s*[=:]|token\s*[=:]|MQTT_PASS|core\.env", re.IGNORECASE
 )
 _TS = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 
-#: Claim lines printed for EVERY outcome; only the first two flip, and only on a fully verified live observation.
-NEGATIVE_CLAIMS = (
-    "RECOVERY_R1_R8_PROVEN=NO", "RECOVERY_R2_R8_EXECUTED=NO", "LVR_PROVEN=NO", "L8_ACCEPTANCE=NO", "L9_PROVEN=NO",
-)
+#: Printed for EVERY outcome. This module has no path to a positive acceptance claim (see the module docstring).
+CLAIMS = {
+    "F1_REAL_DETECTOR_ACCEPTANCE": "NOT_PROVEN", "R1_VERIFIED": "NOT_CLAIMED", "RECOVERY_R1_R8_PROVEN": "NO",
+    "RECOVERY_R2_R8_EXECUTED": "NO", "LVR_PROVEN": "NO", "L8_ACCEPTANCE": "NO", "L9_PROVEN": "NO",
+}
 
 
 class AcceptanceError(RuntimeError):
@@ -134,12 +160,10 @@ def _audit_marks(audit_db: str) -> dict[str, Any]:
 
 
 def capture_baseline(
-    *, audit_snapshot: str, release_id: str, detector_sha256: str, detector_uid: int, mode: str, now: float,
+    *, audit_snapshot: str, release_id: str, detector_sha256: str, detector_uid: int, now: float,
     services: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
-    """The PRE record. ``mode`` is ``live`` (a governed owner-run window) or ``simulate`` (can never claim)."""
-    if mode not in ("live", "simulate"):
-        raise AcceptanceError("MODE_INVALID")
+    """The PRE record. It carries no mode or claim: it is only the boundary the verifier compares against."""
     if not re.fullmatch(r"[0-9a-f]{64}", detector_sha256) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", release_id):
         raise AcceptanceError("IDENTITY_MALFORMED")
     if type(detector_uid) is not int or detector_uid <= 0:
@@ -150,7 +174,7 @@ def capture_baseline(
     for unit, key in ((CORE_UNIT, "core"), (DETECTOR_UNIT, "detector")):
         _require_running(services.get(key), "BASELINE_" + key.upper())
     return {
-        "schema": SCHEMA_BASELINE, "mode": mode, "started_at": float(now), "release_id": release_id,
+        "schema": SCHEMA_BASELINE, "started_at": float(now), "release_id": release_id,
         "detector_sha256": detector_sha256, "detector_uid": detector_uid, **marks,
         "core": {k: services["core"][k] for k in SHOW_PROPERTIES},
         "detector": {k: services["detector"][k] for k in SHOW_PROPERTIES},
@@ -166,45 +190,90 @@ def _require_running(snap: Any, label: str) -> None:
         raise AcceptanceError(f"{label}_NOT_RUNNING")
 
 
-def read_detector_journal(since_epoch: float, run=subprocess.run) -> list[dict[str, str]]:
-    """The detector unit's own journal (fixed argv, read-only), reduced to the trusted fields."""
-    argv = ["journalctl", "-u", DETECTOR_UNIT, "-o", "json", "--no-pager", "--output-fields=MESSAGE,_PID,_SYSTEMD_UNIT",
-            f"--since=@{int(since_epoch) - 1}"]
+def read_journal(since_epoch: float, run=subprocess.run) -> dict[str, list[dict[str, Any]]]:
+    """One fixed read-only ``journalctl`` argv over the whole journal, immediately reduced (raw messages are never persisted)."""
+    argv = ["journalctl", "-o", "json", "--no-pager", f"--output-fields={JOURNAL_FIELDS}", f"--since=@{int(since_epoch) - 1}"]
     try:
-        done = run(argv, capture_output=True, text=True, timeout=30, check=False)
+        done = run(argv, capture_output=True, text=True, timeout=120, check=False)
     except (OSError, subprocess.SubprocessError):
         raise AcceptanceError("JOURNAL_UNAVAILABLE") from None
     if done.returncode != 0:
         raise AcceptanceError("JOURNAL_FAILED")
-    return parse_journal(done.stdout.splitlines())
+    return reduce_journal(done.stdout.splitlines())
 
 
-def parse_journal(lines: list[str]) -> list[dict[str, str]]:
+def reduce_journal(lines: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """Keep ONLY (a) the detector unit's own lines and (b) the rule-relevant facts (address, port, trusted metadata) of lines the
+    detector rules would match. Every other journal line (any other unit's text) is dropped unread, so no unrelated or secret-bearing
+    message can reach the evidence."""
     if len(lines) > MAX_JOURNAL_LINES:
         raise AcceptanceError("JOURNAL_TOO_LARGE")
-    events = []
+    detector: list[dict[str, Any]] = []
+    source: list[dict[str, Any]] = []
     for line in lines:
         if not line.strip():
             continue
         try:
             row = json.loads(line)
-            event = {
-                "message": row["MESSAGE"], "pid": str(row["_PID"]), "unit": row["_SYSTEMD_UNIT"],
-                "at": float(row["__REALTIME_TIMESTAMP"]) / 1_000_000.0,
-            }
+            at = float(row["__REALTIME_TIMESTAMP"]) / 1_000_000.0
         except (ValueError, KeyError, TypeError):
             raise AcceptanceError("JOURNAL_MALFORMED") from None
-        if not all(isinstance(event[k], str) for k in ("message", "pid", "unit")):
-            raise AcceptanceError("JOURNAL_MALFORMED")
-        events.append(event)
-    return events
+        message = row.get("MESSAGE")
+        if not isinstance(message, str):
+            continue
+        meta = {key: "" if row.get(field) is None else str(row.get(field)) for key, field in
+                (("pid", "_PID"), ("unit", "_SYSTEMD_UNIT"), ("transport", "_TRANSPORT"), ("exe", "_EXE"))}
+        if meta["unit"] == DETECTOR_UNIT:
+            detector.append({"message": message[:LINE_MAX_CHARS], **meta, "at": at})
+            continue
+        text = message[:LINE_MAX_CHARS]
+        ssh = _SSH_RE.search(text)
+        if ssh:
+            source.append({"kind": "ssh", "ip": ssh.group(1), "dpt": "", **meta, "at": at})
+        if "AEGIS_NEWCONN" in text:
+            src, dpt = _SRC_RE.search(text), _DPT_RE.search(text)
+            if src:
+                source.append({"kind": "net", "ip": src.group(1), "dpt": dpt.group(1) if dpt else "", **meta, "at": at})
+        if len(source) > MAX_SOURCE_EVENTS:
+            raise AcceptanceError("SOURCE_EVENTS_TOO_MANY")
+    return {"detector": detector, "source": source}
 
 
-def capture_final(*, now: float, services: dict[str, dict[str, str]], journal: list[dict[str, str]]) -> dict[str, Any]:
+def capture_final(*, now: float, services: dict[str, dict[str, str]], journal: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
     return {
         "schema": SCHEMA_FINAL, "ended_at": float(now), "core": services["core"], "detector": services["detector"],
-        "journal": journal,
+        "journal": journal["detector"], "source_events": journal["source"],
     }
+
+
+def source_is_trusted(event: dict[str, Any]) -> bool:
+    """Journald-trusted metadata only (underscore fields are stamped from kernel credentials, never from the message)."""
+    if event["kind"] == "ssh":
+        directory, _, name = str(event["exe"]).rpartition("/")
+        return (event["unit"] in SSH_UNITS and event["transport"] in SSH_TRANSPORTS and directory in SSH_EXE_DIRS
+                and name in SSH_EXE_NAMES)
+    return event["kind"] == "net" and event["transport"] == "kernel" and not event["unit"]
+
+
+def reconstruct_rules(events: list[dict[str, Any]], ip: str) -> dict[str, float]:
+    """``{rule: completion_time}`` for every detector rule the TRUSTED events for ``ip`` satisfy, using the detector's own thresholds
+    (windows widened by the timing skew, because the detector uses its receive time and journald its own stamp)."""
+    mine = sorted((e for e in events if e["ip"] == ip and source_is_trusted(e)), key=lambda e: e["at"])
+    found: dict[str, float] = {}
+    ssh = [e["at"] for e in mine if e["kind"] == "ssh"]
+    for i, at in enumerate(ssh):
+        if sum(1 for t in ssh[: i + 1] if at - t <= TIME_WINDOW + SKEW_SEC) >= FAIL_THRESHOLD:
+            found[RULE_SSH] = at
+            break
+    net = [e for e in mine if e["kind"] == "net"]
+    for i, event in enumerate(net):
+        scan = [e for e in net[: i + 1] if event["at"] - e["at"] <= SCAN_TIME_WINDOW + SKEW_SEC]
+        if len({e["dpt"] for e in scan if e["dpt"]}) >= SCAN_PORT_THRESHOLD:
+            found.setdefault(RULE_SCAN, event["at"])
+        syn = [e for e in net[: i + 1] if event["at"] - e["at"] <= SYN_FLOOD_WINDOW + SKEW_SEC]
+        if len(syn) >= SYN_FLOOD_THRESHOLD and not ip.startswith("127."):
+            found.setdefault(RULE_SYN, event["at"])
+    return found
 
 
 # --------------------------------------------------------------------------- verifier
@@ -217,13 +286,7 @@ def _epoch(text: Any) -> float:
 
 
 def _fail(code: str) -> dict[str, Any]:
-    return {"schema": SCHEMA_RESULT, "result": "FAIL", "reason": code, "claims": _claims(False)}
-
-
-def _claims(proven: bool) -> dict[str, str]:
-    claims = {"F1_REAL_DETECTOR_ACCEPTANCE": "PROVEN" if proven else "NOT_PROVEN", "R1_VERIFIED": "VERIFIED" if proven else "NOT_CLAIMED"}
-    claims.update(line.split("=", 1) for line in NEGATIVE_CLAIMS)
-    return claims
+    return {"schema": SCHEMA_RESULT, "result": "FAIL", "reason": code, "claims": dict(CLAIMS)}
 
 
 def _check_services(baseline: dict[str, Any], final: dict[str, Any]) -> None:
@@ -254,7 +317,7 @@ def verify(baseline: Any, final: Any, audit_snapshot: str) -> dict[str, Any]:
 
 
 def _verify(baseline: Any, final: Any, audit_snapshot: str) -> dict[str, Any]:
-    if not isinstance(baseline, dict) or baseline.get("schema") != SCHEMA_BASELINE or baseline.get("mode") not in ("live", "simulate"):
+    if not isinstance(baseline, dict) or baseline.get("schema") != SCHEMA_BASELINE:
         raise AcceptanceError("BASELINE_MALFORMED")
     if not isinstance(final, dict) or final.get("schema") != SCHEMA_FINAL or not isinstance(final.get("journal"), list):
         raise AcceptanceError("FINAL_MALFORMED")
@@ -324,12 +387,8 @@ def _verify(baseline: Any, final: Any, audit_snapshot: str) -> dict[str, Any]:
     for event in final["journal"]:
         if not isinstance(event, dict) or not all(k in event for k in ("message", "pid", "unit", "at")):
             raise AcceptanceError("JOURNAL_MALFORMED")
-        if event["unit"] != DETECTOR_UNIT:
+        if event["unit"] != DETECTOR_UNIT or not (started - SKEW_SEC <= event["at"] <= ended + SKEW_SEC):
             continue
-        if not (started - SKEW_SEC <= event["at"] <= ended + SKEW_SEC):
-            continue
-        if _SYNTHETIC.search(event["message"]):
-            raise AcceptanceError("SYNTHETIC_MARKER")
         line = _ALERT_LINE.match(event["message"])
         if line:
             if event["pid"] != pid:
@@ -346,18 +405,35 @@ def _verify(baseline: Any, final: Any, audit_snapshot: str) -> dict[str, Any]:
     if event["at"] > accepted_at + SKEW_SEC or event["at"] < started - SKEW_SEC:
         raise AcceptanceError("DETECTOR_EVENT_STALE")
 
-    live = baseline["mode"] == "live"
-    document = {
-        "schema": SCHEMA_RESULT, "result": "PASS" if live else "SIMULATED_PASS", "reason": "OK" if live else "SIMULATE_MODE_NEVER_CLAIMS",
-        "mode": baseline["mode"], "incident_id": incident["id"], "attacker_ip": ip, "release_id": baseline["release_id"],
+    # The detector acts on message TEXT, so prove the TRIGGER was a real source event, not text any local writer could emit.
+    source = final.get("source_events")
+    needed = ("kind", "ip", "dpt", "pid", "unit", "transport", "exe", "at")
+    if not isinstance(source, list) or len(source) > MAX_SOURCE_EVENTS or not all(
+        isinstance(e, dict) and all(k in e for k in needed) and e["kind"] in ("ssh", "net")
+        and isinstance(e["at"], (int, float)) and not isinstance(e["at"], bool) for e in source
+    ):
+        raise AcceptanceError("SOURCE_EVENTS_MALFORMED")
+    horizon = started - SOURCE_TO_ALERT_MAX_SEC - TIME_WINDOW
+    window = [e for e in source if e["ip"] == ip and horizon <= e["at"] <= ended + SKEW_SEC]
+    if any(not source_is_trusted(e) for e in window):
+        raise AcceptanceError("UNTRUSTED_SOURCE_LINES_PRESENT")
+    rules = reconstruct_rules(window, ip)
+    if not rules:
+        raise AcceptanceError("NO_TRUSTED_SOURCE_EVENT")
+    if not any(started - SKEW_SEC <= done <= event["at"] + SKEW_SEC and event["at"] - done <= SOURCE_TO_ALERT_MAX_SEC
+               for done in rules.values()):
+        raise AcceptanceError("SOURCE_EVENT_NOT_BEFORE_ALERT")
+
+    return {
+        "schema": SCHEMA_RESULT, "result": "PASS", "reason": "OK", "incident_id": incident["id"], "attacker_ip": ip,
+        "reconstructed_rules": sorted(rules), "release_id": baseline["release_id"],
         "checks": {
-            "REAL_EVENT_OBSERVED": "YES", "DETECTOR_RULE_MATCHED": "YES", "ALERT_DELIVERED_TO_CORE": "YES",
-            "ALERT_SOURCE_UID_VALIDATED": "YES", "OPEN_INCIDENT_CREATED": "YES", "INCIDENT_ATTACKER_IPV4_VALID": "YES",
-            "INCIDENT_BOUND_AUDIT_PRESENT": "YES",
+            "R1_EVIDENCE_VERIFIED": "YES", "REAL_DETECTOR_CHAIN_VERIFIED": "YES", "TRUSTED_SOURCE_EVENT_RECONSTRUCTED": "YES",
+            "ALERT_DELIVERED_TO_CORE": "YES", "ALERT_SOURCE_UID_VALIDATED": "YES", "ALERT_SOURCE_PID_IS_DETECTOR": "YES",
+            "OPEN_INCIDENT_CREATED": "YES", "INCIDENT_ATTACKER_IPV4_VALID": "YES", "INCIDENT_BOUND_AUDIT_PRESENT": "YES",
         },
-        "claims": _claims(live),
+        "claims": dict(CLAIMS),
     }
-    return document
 
 
 def render(document: dict[str, Any]) -> str:
@@ -368,7 +444,8 @@ def render(document: dict[str, Any]) -> str:
 
 
 def claim_lines(document: dict[str, Any]) -> str:
-    return "".join(f"{k}={v}\n" for k, v in document["claims"].items())
+    checks = document.get("checks", {})
+    return "".join(f"{k}={v}\n" for k, v in (*checks.items(), *document["claims"].items()))
 
 
 # --------------------------------------------------------------------------- CLI (read-only subcommands only)
@@ -383,7 +460,6 @@ def main(argv: list[str] | None = None) -> int:
     base.add_argument("--release-id", required=True)
     base.add_argument("--detector-sha256", required=True)
     base.add_argument("--detector-uid", type=int, required=True)
-    base.add_argument("--mode", choices=("live", "simulate"), default="simulate")
     base.add_argument("--out", required=True)
     fin = sub.add_parser("final")
     fin.add_argument("--baseline", required=True)
@@ -397,14 +473,14 @@ def main(argv: list[str] | None = None) -> int:
             services = {"core": service_snapshot(CORE_UNIT), "detector": service_snapshot(DETECTOR_UNIT)}
             document = capture_baseline(
                 audit_snapshot=args.snapshot, release_id=args.release_id, detector_sha256=args.detector_sha256,
-                detector_uid=args.detector_uid, mode=args.mode, now=time.time(), services=services,
+                detector_uid=args.detector_uid, now=time.time(), services=services,
             )
             Path(args.out).write_text(render(document), encoding="utf-8")
             return 0
         baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
         consistent_snapshot(args.audit_db, args.snapshot)
         services = {"core": service_snapshot(CORE_UNIT), "detector": service_snapshot(DETECTOR_UNIT)}
-        final = capture_final(now=time.time(), services=services, journal=read_detector_journal(baseline["started_at"]))
+        final = capture_final(now=time.time(), services=services, journal=read_journal(baseline["started_at"]))
         result = verify(baseline, final, args.snapshot)
         Path(args.out).write_text(render(result), encoding="utf-8")
         sys.stdout.write(claim_lines(result))

@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import time
@@ -76,13 +77,28 @@ def world(tmp_path):
     db_path = str(tmp_path / "audit.db")
     make_db(db_path)
     services = {"core": unit("1111"), "detector": unit(PID)}
-    baseline = r1.capture_baseline(audit_snapshot=db_path, release_id="rel-1", detector_sha256="a" * 64, detector_uid=UID, mode="live",
+    baseline = r1.capture_baseline(audit_snapshot=db_path, release_id="rel-1", detector_sha256="a" * 64, detector_uid=UID,
                                    now=T0, services=services)
     return type("World", (), {"db": db_path, "baseline": baseline, "services": services})
 
 
-def final(world, *, journal=None, services=None, ended=T0 + 60):
-    return r1.capture_final(now=ended, services=services or copy.deepcopy(world.services), journal=[journal_line()] if journal is None else journal)
+def ssh_event(at, *, ip=IP, unit_name="sshd.service", exe="/usr/bin/sshd", transport="syslog"):
+    return {"kind": "ssh", "ip": ip, "dpt": "", "pid": "700", "unit": unit_name, "transport": transport, "exe": exe, "at": at}
+
+
+def net_event(at, port="22", *, ip=IP, transport="kernel", unit_name=""):
+    return {"kind": "net", "ip": ip, "dpt": port, "pid": "", "unit": unit_name, "transport": transport, "exe": "", "at": at}
+
+
+def ssh_burst(**kwargs):
+    return [ssh_event(T0 + 4 + i, **kwargs) for i in range(5)]
+
+
+def final(world, *, journal=None, services=None, ended=T0 + 60, source=None):
+    return r1.capture_final(
+        now=ended, services=services or copy.deepcopy(world.services),
+        journal={"detector": [journal_line()] if journal is None else journal, "source": ssh_burst() if source is None else source},
+    )
 
 
 def run(world, **kwargs):
@@ -97,22 +113,80 @@ def ok_world(world):
 # --------------------------------------------------------------------------- PASS
 
 
-def test_one_real_event_passes_and_claims_exactly_r1(world):
+def test_one_real_event_passes_with_a_narrow_result_and_never_promotes(world):
     result = run(ok_world(world))
     assert result["result"] == "PASS" and result["incident_id"] == 2 and result["attacker_ip"] == IP
-    assert set(result["checks"].values()) == {"YES"} and len(result["checks"]) == 7
-    claims = result["claims"]
-    assert claims["F1_REAL_DETECTOR_ACCEPTANCE"] == "PROVEN" and claims["R1_VERIFIED"] == "VERIFIED"
-    for name in ("RECOVERY_R1_R8_PROVEN", "RECOVERY_R2_R8_EXECUTED", "LVR_PROVEN", "L8_ACCEPTANCE", "L9_PROVEN"):
-        assert claims[name] == "NO"
-    assert "RECOVERY_R1_R8_PROVEN=NO" in r1.claim_lines(result)
+    assert result["reconstructed_rules"] == ["ssh_bruteforce"]
+    assert result["checks"]["R1_EVIDENCE_VERIFIED"] == "YES" and result["checks"]["REAL_DETECTOR_CHAIN_VERIFIED"] == "YES"
+    assert set(result["checks"].values()) == {"YES"}
+    assert result["claims"] == r1.CLAIMS
+    lines = r1.claim_lines(result)
+    for line in ("F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "R1_VERIFIED=NOT_CLAIMED", "RECOVERY_R1_R8_PROVEN=NO",
+                 "RECOVERY_R2_R8_EXECUTED=NO", "LVR_PROVEN=NO", "L8_ACCEPTANCE=NO", "L9_PROVEN=NO"):
+        assert line in lines
+    assert "=PROVEN" not in lines and "=VERIFIED" not in lines.replace("R1_EVIDENCE_VERIFIED=YES", "")
 
 
-def test_simulate_mode_never_claims(world):
-    world.baseline["mode"] = "simulate"
-    result = run(ok_world(world))
-    assert result["result"] == "SIMULATED_PASS" and result["claims"]["F1_REAL_DETECTOR_ACCEPTANCE"] == "NOT_PROVEN"
-    assert result["claims"]["R1_VERIFIED"] == "NOT_CLAIMED"
+@pytest.mark.parametrize("events", [
+    [net_event(T0 + 8 + i * 0.01, str(1000 + i)) for i in range(20)],  # SYN-flood shape
+    [net_event(T0 + 5 + i * 0.5, str(1000 + i)) for i in range(10)],  # port-scan shape
+])
+def test_kernel_source_rules_are_reconstructed(world, events):
+    result = run(ok_world(world), source=events)
+    assert result["result"] == "PASS" and result["reconstructed_rules"]
+
+
+# --------------------------------------------------------------------------- FAIL CLOSED: source events (real vs fabricated journal text)
+
+
+def test_no_source_events_means_a_fabricated_or_missing_trigger(world):
+    assert reason(run(ok_world(world), source=[])) == "NO_TRUSTED_SOURCE_EVENT"
+
+
+def test_below_threshold_is_not_a_rule_match(world):
+    assert reason(run(ok_world(world), source=ssh_burst()[:4])) == "NO_TRUSTED_SOURCE_EVENT"
+
+
+@pytest.mark.parametrize("bad", [
+    {"unit_name": "user@1000.service"}, {"unit_name": ""}, {"exe": "/home/attacker/sshd"}, {"exe": "/usr/bin/logger"},
+    {"transport": "stdout"}, {"transport": "kernel"},
+])
+def test_forged_ssh_text_from_another_source_is_refused(world, bad):
+    forged = ssh_burst(**bad)
+    assert reason(run(ok_world(world), source=forged)) == "UNTRUSTED_SOURCE_LINES_PRESENT"
+
+
+@pytest.mark.parametrize("bad", [{"transport": "syslog"}, {"transport": "journal"}, {"unit_name": "evil.service"}])
+def test_forged_kernel_text_from_a_unit_or_syslog_is_refused(world, bad):
+    forged = [net_event(T0 + 8 + i * 0.01, str(i), **bad) for i in range(20)]
+    assert reason(run(ok_world(world), source=forged)) == "UNTRUSTED_SOURCE_LINES_PRESENT"
+
+
+def test_a_forged_line_mixed_into_a_real_burst_is_refused(world):
+    mixed = [*ssh_burst(), ssh_event(T0 + 6, unit_name="user@1000.service", exe="/usr/bin/bash")]
+    assert reason(run(ok_world(world), source=mixed)) == "UNTRUSTED_SOURCE_LINES_PRESENT"
+
+
+def test_trusted_events_for_a_different_address_do_not_qualify(world):
+    assert reason(run(ok_world(world), source=ssh_burst(ip="203.0.113.99"))) == "NO_TRUSTED_SOURCE_EVENT"
+
+
+def test_trusted_events_that_follow_the_alert_do_not_qualify(world):
+    late = [ssh_event(T0 + 30 + i) for i in range(5)]
+    assert reason(run(ok_world(world), source=late)) == "SOURCE_EVENT_NOT_BEFORE_ALERT"
+
+
+def test_trusted_events_long_before_the_alert_do_not_qualify(world):
+    early = [ssh_event(T0 + 1 + i * 0.1) for i in range(5)]
+    assert reason(run(ok_world(world), journal=[journal_line(at=T0 + 40)], source=early)) in (
+        "SOURCE_EVENT_NOT_BEFORE_ALERT", "DETECTOR_EVENT_STALE")
+
+
+def test_malformed_source_events(world):
+    assert reason(run(ok_world(world), source=[{"kind": "ssh"}])) == "SOURCE_EVENTS_MALFORMED"
+    final_doc = final(world)
+    final_doc["source_events"] = "x"
+    assert r1.verify(world.baseline, final_doc, world.db)["reason"] == "SOURCE_EVENTS_MALFORMED"
 
 
 # --------------------------------------------------------------------------- FAIL CLOSED: incident evidence
@@ -142,7 +216,7 @@ def test_preexisting_open_incident_is_refused_at_baseline(tmp_path):
     conn.commit()
     conn.close()
     with pytest.raises(r1.AcceptanceError) as error:
-        r1.capture_baseline(audit_snapshot=path, release_id="r", detector_sha256="b" * 64, detector_uid=UID, mode="live", now=T0,
+        r1.capture_baseline(audit_snapshot=path, release_id="r", detector_sha256="b" * 64, detector_uid=UID, now=T0,
                             services={"core": unit("1"), "detector": unit(PID)})
     assert error.value.code == "PREEXISTING_OPEN_INCIDENT"
 
@@ -259,12 +333,6 @@ def test_non_bound_detector_result(world):
     assert reason(run(ok_world(world), journal=[journal_line(result="SENT_EXISTING")])) == "DETECTOR_RESULT_NOT_BOUND"
 
 
-@pytest.mark.parametrize("marker", ["synthetic", "FIXTURE", "simulated", "replayed", "injected", "test"])
-def test_synthetic_marker_in_detector_journal(world, marker):
-    extra = journal_line(message=f"[F1-DETECTOR] note {marker}", at=T0 + 8)
-    assert reason(run(ok_world(world), journal=[extra, journal_line()])) == "SYNTHETIC_MARKER"
-
-
 # --------------------------------------------------------------------------- FAIL CLOSED: service continuity
 
 
@@ -348,13 +416,44 @@ def test_snapshot_of_wal_store_is_consistent_and_source_unchanged(tmp_path):
 # --------------------------------------------------------------------------- journal / systemctl parsing, governance
 
 
-def test_journal_parse_and_malformed():
-    line = json.dumps({"MESSAGE": "m", "_PID": "5", "_SYSTEMD_UNIT": r1.DETECTOR_UNIT, "__REALTIME_TIMESTAMP": "1800000000000000"})
-    assert r1.parse_journal([line, ""])[0]["at"] == 1_800_000_000.0
+def jrow(message, **fields):
+    row = {"MESSAGE": message, "_PID": "5", "__REALTIME_TIMESTAMP": "1800000000000000", **fields}
+    return json.dumps(row)
+
+
+def test_journal_reduction_keeps_only_detector_lines_and_rule_facts():
+    secret_line = jrow("db password=hunter2 for admin", _SYSTEMD_UNIT="app.service")
+    ssh = jrow(f"Failed password for root from {IP} port 22 ssh2", _SYSTEMD_UNIT="sshd.service", _TRANSPORT="syslog", _EXE="/usr/bin/sshd")
+    kern = jrow(f"AEGIS_NEWCONN IN=eth0 SRC={IP} DST=10.0.0.1 PROTO=TCP DPT=443", _TRANSPORT="kernel")
+    own = jrow("[F1-DETECTOR] started", _SYSTEMD_UNIT=r1.DETECTOR_UNIT)
+    out = r1.reduce_journal([secret_line, ssh, kern, own, ""])
+    assert [e["kind"] for e in out["source"]] == ["ssh", "net"] and out["source"][1]["dpt"] == "443"
+    assert len(out["detector"]) == 1
+    assert "hunter2" not in json.dumps(out) and "password" not in json.dumps(out["source"]).lower()
+    assert all(r1.source_is_trusted(e) for e in out["source"])
+
+
+def test_journal_reduction_malformed_and_limits(monkeypatch):
     with pytest.raises(r1.AcceptanceError):
-        r1.parse_journal(["{not json"])
+        r1.reduce_journal(["{not json"])
     with pytest.raises(r1.AcceptanceError):
-        r1.parse_journal([json.dumps({"MESSAGE": "m"})])
+        r1.reduce_journal([json.dumps({"MESSAGE": "m"})])
+    monkeypatch.setattr(r1, "MAX_SOURCE_EVENTS", 2)
+    line = jrow(f"AEGIS_NEWCONN SRC={IP} DPT=1", _TRANSPORT="kernel")
+    with pytest.raises(r1.AcceptanceError):
+        r1.reduce_journal([line] * 3)
+
+
+def test_journal_read_is_one_fixed_read_only_argv():
+    seen = []
+
+    def fake(argv, **kwargs):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    r1.read_journal(T0, run=fake)
+    assert seen[0][0] == "journalctl" and len(seen) == 1
+    assert not {"--rotate", "--vacuum-size", "--flush", "--sync", "--setup-keys"} & set(seen[0])
 
 
 def test_systemctl_snapshot_is_read_only_fixed_argv_and_allow_listed():
@@ -375,11 +474,33 @@ def test_systemctl_snapshot_is_read_only_fixed_argv_and_allow_listed():
 
 def test_module_cannot_mutate_production():
     source = Path(r1.__file__).read_text(encoding="utf-8")
-    for forbidden in ("AF_UNIX", "import socket", "sendall", "systemctl restart", "systemctl start", "systemctl stop", "nft ", "paho", "serial", "sudo", "INSERT INTO", "UPDATE "):
+    for forbidden in ("AF_UNIX", "import socket", "sendall", "systemctl restart", "systemctl start", "systemctl stop", "nft ", "paho",
+                      "serial", "sudo", "INSERT INTO", "UPDATE "):
         assert forbidden not in source, forbidden
-    assert "RECOVERY_R1_R8_PROVEN=NO" in source and "R2_R8_EXECUTED=NO" in source
+
+
+def test_no_input_or_flag_can_promote_a_live_claim(world):
+    """Blocker 2: there is no mode/flag/baseline field that turns a PASS into F1_REAL_DETECTOR_ACCEPTANCE=PROVEN."""
+    source = Path(r1.__file__).read_text(encoding="utf-8")
+    assert '"PROVEN"' not in source and "--mode" not in source and "live" not in re.findall(r"baseline.get\([^)]*\)", source)
+    assert r1.CLAIMS["F1_REAL_DETECTOR_ACCEPTANCE"] == "NOT_PROVEN" and r1.CLAIMS["R1_VERIFIED"] == "NOT_CLAIMED"
     for claim in ("RECOVERY_R1_R8_PROVEN", "RECOVERY_R2_R8_EXECUTED", "LVR_PROVEN", "L8_ACCEPTANCE", "L9_PROVEN"):
-        assert r1._claims(True)[claim] == "NO"
+        assert r1.CLAIMS[claim] == "NO"
+    ok_world(world)
+    for extra in ({"mode": "live"}, {"live": True}, {"claim": "PROVEN"}, {"authorized": True}):
+        baseline = {**copy.deepcopy(world.baseline), **extra}
+        result = r1.verify(baseline, final(world), world.db)
+        assert result["claims"]["F1_REAL_DETECTOR_ACCEPTANCE"] == "NOT_PROVEN" and result["claims"]["R1_VERIFIED"] == "NOT_CLAIMED"
+        assert "PROVEN" not in r1.claim_lines(result).replace("NOT_PROVEN", "").replace("_PROVEN=NO", "")
+
+
+def test_cli_exposes_no_mode_flag_and_cannot_self_promote(capsys):
+    with pytest.raises(SystemExit):
+        r1.main(["baseline", "--mode", "live", "--audit-db", "x", "--snapshot", "y", "--release-id", "r",
+                 "--detector-sha256", "a" * 64, "--detector-uid", "1", "--out", "o"])
+    capsys.readouterr()
+    assert r1.main(["final", "--baseline", "/nonexistent", "--audit-db", "x", "--snapshot", "y", "--out", "o"]) == 4
+    assert "PROVEN" not in capsys.readouterr().out.replace("NOT_PROVEN", "")
 
 
 def test_baseline_requires_running_services_and_valid_identity(tmp_path):
@@ -387,11 +508,11 @@ def test_baseline_requires_running_services_and_valid_identity(tmp_path):
     make_db(path)
     stopped = {"core": unit("1"), "detector": {**unit(PID), "ActiveState": "inactive"}}
     with pytest.raises(r1.AcceptanceError) as error:
-        r1.capture_baseline(audit_snapshot=path, release_id="r", detector_sha256="c" * 64, detector_uid=UID, mode="live", now=T0, services=stopped)
+        r1.capture_baseline(audit_snapshot=path, release_id="r", detector_sha256="c" * 64, detector_uid=UID, now=T0, services=stopped)
     assert error.value.code == "BASELINE_DETECTOR_NOT_RUNNING"
     good = {"core": unit("1"), "detector": unit(PID)}
-    for kwargs in ({"detector_sha256": "zz"}, {"detector_uid": 0}, {"mode": "prod"}, {"release_id": "bad id!"}):
-        args = {"audit_snapshot": path, "release_id": "r", "detector_sha256": "c" * 64, "detector_uid": UID, "mode": "live", "now": T0, "services": good, **kwargs}
+    for kwargs in ({"detector_sha256": "zz"}, {"detector_uid": 0}, {"release_id": "bad id!"}):
+        args = {"audit_snapshot": path, "release_id": "r", "detector_sha256": "c" * 64, "detector_uid": UID, "now": T0, "services": good, **kwargs}
         with pytest.raises(r1.AcceptanceError):
             r1.capture_baseline(**args)
 
