@@ -2,9 +2,9 @@
 SegmentRecorder — continuous, interval-based disk recording.
 
 Records the feed **continuously** and rolls to a new file on a fixed wall-clock
-interval (default ~600 s / 10 minutes). This is deliberately *interval-based,
-not detection-triggered*: the archive is a complete, gap-free record, and the
-Operator "Archival footage" grid expects evenly-sized ~10-minute clips.
+interval (default 300 s / 5 minutes). This is deliberately *interval-based,
+not detection-triggered*: full clips roll every five minutes, while the final
+clip is allowed to be shorter when viewer demand/session ownership ends.
 
 Each finalized segment is handed to ``on_segment`` (wired to the NAS worker's
 queue by the engine) as a :class:`SegmentInfo`. The recorder never deletes
