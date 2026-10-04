@@ -54,7 +54,35 @@ Acceptance boundary for this repository session:
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PR2-S1 | 300s recording + truthful partial + Archive playback/download source contract | IN PROGRESS | current source reconciled against main; mutation starts on this branch only | — | pending | implementation, tests, docs, real-machine acceptance | implement TDD-scoped source changes |
+| PR2-S1 | 300s recording + truthful partial + browser-playable NAS Archive + playback/download source contract | IN PROGRESS | source checkpoint implements 300s rotation defaults, 137s partial-duration regression, H.264/libx264 pre-NAS gate, verified-NAS-only listing, real Archive video/duration, shared playback/download RBAC path; collaboration guardrails PASS | `028bf8350ef33b3af9161951427008f86d1b328b` | SOURCE IMPLEMENTED / AUTOMATED SUITES NOT YET RUN | neutral Monitor/Engine tests, build, Machine A >5m/logout/NAS/browser acceptance | run repository verification; keep PR #344 Draft |
+
+### PR2-S1 checkpoint — source implemented, verification pending
+
+Work performed at implementation checkpoint
+`028bf8350ef33b3af9161951427008f86d1b328b`:
+
+- full recording interval changed from 600 to 300 seconds; demand/session release
+  still finalizes the open file and now has a regression asserting a measured
+  ~137-second partial duration;
+- the next captured frame can open the next segment immediately after a
+  five-minute rollover;
+- default NAS destination was reconciled to
+  `/opt/aegis/data/monitor-clips`, matching the deployment-owned Monitor clips
+  host mount while NAS remains opt-in;
+- default mp4v output must be converted with FFmpeg/libx264 to H.264,
+  `yuv420p`, `+faststart` before hashing/transfer. Conversion failure retains
+  the local source and publishes no Archive row;
+- Archive listing now requires `stored_on_nas = TRUE`;
+- Archival footage renders actual duration/end time, the real same-origin
+  `<video controls>`, and Download;
+- `GET /api/clips/:id/video` and `GET /api/clips/:id/download` share one
+  server-side session, camera-scope, verified-NAS and basename/mount resolver.
+
+Evidence so far: PR #344 is Draft, mergeable at this checkpoint, and the GitHub
+collaboration guardrails completed successfully. Neutral Monitor tests, Engine
+tests and Vite build have **not** been executed in this environment, so this
+session is not PASS/CLOSED. No Production, Machine A, camera, NAS or database
+mutation was performed.
 
 ## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
 
