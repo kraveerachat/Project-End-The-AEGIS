@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 
 let streamIdleMs
+let streamFirstByteMs
 let streamRevalidateMs
 
 export function initialize(data) {
   streamIdleMs = data.streamIdleMs
+  streamFirstByteMs = data.streamFirstByteMs
   streamRevalidateMs = data.streamRevalidateMs
 }
 
@@ -42,6 +44,7 @@ export async function load(url, context, nextLoad) {
   assert.match(original, /const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS/)
   const source = original
     .replace('const STREAM_IDLE_MS = 6_000', `const STREAM_IDLE_MS = ${streamIdleMs}`)
+    .replace('const STREAM_FIRST_BYTE_MS = 50_000', `const STREAM_FIRST_BYTE_MS = ${streamFirstByteMs}`)
     .replace(
       'const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS',
       `const STREAM_REVALIDATE_MS = ${streamRevalidateMs}`,

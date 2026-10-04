@@ -15,6 +15,32 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — sustained Live first-byte watchdog (2026-10-04)
+
+Branch `fix/idea2-monitor-first-byte-watchdog` is a repository-only PR1 fix for
+the owner-reported Production symptom in which Monitor closed a cold Operator
+stream after six seconds without a first frame. The Monitor proxy now gives
+the first nonempty upstream body data a 50-second deadline, covering the
+Engine's default 45-second cold-first-frame window plus five seconds for the
+proxy/transport boundary. After the first data arrives, the existing six-second
+steady-state idle watchdog remains in force. The watchdog also bounds a fetch
+that never returns stream data. Authorization, physical producer demand,
+session/assignment revalidation, browser-close cleanup, and release remain on
+their existing paths; Engine, recording, Archive, GPU, UI, and Production
+runtime are unchanged.
+
+RED route tests reproduced the premature close before the first byte; GREEN
+focused lifecycle tests passed 12/12. The broader focused Monitor set passed
+68 with one conditional PostgreSQL skip, the full neutral Monitor suite passed
+182 with 58 conditional skips, Playwright passed 21/21, and the Vite build
+passed locally. These are
+source/test results only. No post-merge Production or Machine A hardware
+acceptance is claimed. The separate owner gate must observe connected=true,
+demanded=true, viewers>=1 and the physical LED continuously ON while Operator
+Live remains open, with release only after the final viewer/logout. PR2
+recording/archive and PR3 GPU-required inference remain separate, unstarted
+tasks that depend on PR1 merge/reconciliation.
+
 ## Current task — Browser Association CSP narrow source fix (2026-10-04)
 
 Branch `fix/idea2-browser-association-csp` is a repository-only fix for the

@@ -168,6 +168,18 @@ test('normal stream data flows and upstream cleanup remains single-owner', () =>
   assert.match(stdout, /READ_CALLS=2/)
 })
 
+test('cold first stream byte survives the steady-state idle deadline', () => {
+  const { stdout } = runRouteFixture('delayed-first-byte')
+  assert.match(stdout, /BYTES_RECEIVED=[1-9]\d*/)
+  assert.match(stdout, /READ_CALLS=2/)
+})
+
+test('no first stream byte closes at the bounded startup deadline', () => {
+  const { stdout, stderr } = runRouteFixture('no-first-byte')
+  assert.match(stdout, /BYTES_RECEIVED=0/)
+  assert.match(stderr, /no first stream data for 120ms/)
+})
+
 test('idle watchdog contains asynchronous reader cancellation rejection without terminating Monitor', () => {
   const { stdout, stderr } = runRouteFixture('idle')
   assert.match(stdout, /READ_CALLS=2/)

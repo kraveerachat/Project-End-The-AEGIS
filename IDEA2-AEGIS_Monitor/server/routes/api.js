@@ -62,6 +62,9 @@ const STREAM_STALE_MS = 45_000
 // ไม่มีไบต์จาก engine นานเกินนี้ = ถือว่าสตรีมตาย ปิดทิ้งเพื่อให้เบราว์เซอร์รู้ตัว
 // ต้องมากกว่าคาบเฟรมปกติพอสมควร (12fps → ~83ms) แต่สั้นพอที่ผู้ใช้ไม่รู้สึกว่าค้าง
 const STREAM_IDLE_MS = 6_000
+// Engine may wait 45s for its first frame after a cold camera/model start.
+// Allow that full window plus bounded proxy/transport time before any bytes.
+const STREAM_FIRST_BYTE_MS = 50_000
 
 // ตรวจซ้ำว่าเซสชันยังอยู่ และยังมีสิทธิ์เห็นกล้องนี้อยู่ไหม ระหว่างที่สตรีมเปิดค้าง
 const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS
@@ -500,6 +503,7 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
   let demandHandle = null
   let lifecycle = null
   let idleTimer = null
+  let hasReceivedStreamData = false
   let revalidateTimer = null
   let revalidation = Promise.resolve()
   const abort = () => lifecycle?.abort()
@@ -603,14 +607,16 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     }
     scheduleRevalidation()
 
-    const armIdle = () => {
+    const armWatchdog = () => {
       clearTimeout(idleTimer)
+      const timeoutMs = hasReceivedStreamData ? STREAM_IDLE_MS : STREAM_FIRST_BYTE_MS
       idleTimer = setTimeout(() => {
-        console.warn(`[aegis-monitor] stream ${cameraId}: no data for ${STREAM_IDLE_MS}ms — closing`)
+        const phase = hasReceivedStreamData ? 'no data' : 'no first stream data'
+        console.warn(`[aegis-monitor] stream ${cameraId}: ${phase} for ${timeoutMs}ms — closing`)
         abort()
-      }, STREAM_IDLE_MS)
+      }, timeoutMs)
     }
-    armIdle()
+    armWatchdog()
 
     let upstream
     try {
@@ -649,7 +655,8 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     //    ตัวถัดไปจะค้างตลอดกาล ผลคือ <img> ฝั่งเบราว์เซอร์ไม่ได้ทั้ง frame ใหม่และ
     //    ไม่ได้ event 'error' → ภาพค้างนิ่งโดยไม่มีใครบอกผู้ใช้ว่ามันตายแล้ว
     //    (วัดจริงแล้ว: ฆ่า engine กลางสตรีม แล้ว client ค้างเกิน 30 วิโดยไม่มีสัญญาณ)
-    //    จึงตัดเองเมื่อไม่มีไบต์เข้ามาเกิน STREAM_IDLE_MS แล้วปิด response ให้
+    //    รอ cold-start first byte ตาม Engine 45s contract ก่อน แล้วหลังจากมีข้อมูล
+    //    ครั้งแรกจึงตัดเมื่อไม่มีไบต์เข้ามาเกิน STREAM_IDLE_MS และปิด response ให้
     //    เบราว์เซอร์ยิง 'error' → LiveFeed เข้าโหมด reconnecting ตามที่ออกแบบไว้
     // ⚠️ เซสชันถูกตรวจ "ตอนเปิด" เท่านั้น แต่สตรีมหนึ่งเส้นอยู่ได้เป็นชั่วโมง —
     //    ถ้าไม่ตรวจซ้ำ ผู้ใช้ที่กด logout (หรือถูก SOC ถอนสิทธิ์กล้อง) จะยังได้ภาพสด
@@ -657,11 +664,13 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     //    จึง reload เซสชันจาก store เป็นระยะ และตรวจ camera_assignment ซ้ำด้วย
     //    (SOC ย้ายกล้องออกจาก operator ระหว่างที่เขาดูอยู่ = ต้องถูกตัดภายในรอบถัดไป)
     try {
-      armIdle()
       for (;;) {
         const { value, done } = await reader.read()
         if (done || lifecycle.closed) break
-        armIdle() // ได้ข้อมูลแล้ว — เริ่มจับเวลาใหม่
+        if (value?.byteLength > 0) {
+          hasReceivedStreamData = true
+          armWatchdog() // เริ่ม steady-state timer หลังข้อมูลจริงเท่านั้น
+        }
         // เขียนไม่ทัน (client ช้า) → รอ backpressure แทนที่จะกองใน memory
         if (!res.write(Buffer.from(value))) {
           await waitForDrainOrClose(res, lifecycle)

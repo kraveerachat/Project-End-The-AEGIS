@@ -4,13 +4,14 @@ import { once } from 'node:events'
 import { register } from 'node:module'
 
 const scenario = process.argv[2] ?? 'idle'
-const allowedScenarios = new Set(['normal', 'idle', 'response-close-race', 'revalidation-race'])
+const allowedScenarios = new Set(['normal', 'idle', 'response-close-race', 'revalidation-race', 'delayed-first-byte', 'no-first-byte'])
 assert.equal(allowedScenarios.has(scenario), true, `unknown scenario: ${scenario}`)
 const streamIdleMs = scenario === 'normal' ? 1_000 : 25
+const streamFirstByteMs = 120
 const streamRevalidateMs = scenario === 'revalidation-race' ? 25 : 10_000
 
 register(new URL('./streamAbortCrashLoader.mjs', import.meta.url), {
-  data: { streamIdleMs, streamRevalidateMs },
+  data: { streamIdleMs, streamFirstByteMs, streamRevalidateMs },
 })
 
 let cancelCalls = 0
@@ -18,6 +19,7 @@ let readCalls = 0
 let sessionReloadCalls = 0
 let clientCloseRequested = false
 let rejectPendingRead
+let rejectDelayedRead
 const pendingRead = new Promise((resolve, reject) => {
   rejectPendingRead = reject
 })
@@ -26,6 +28,16 @@ const reader = {
   read() {
     readCalls += 1
     if (readCalls === 1) {
+      if (scenario === 'no-first-byte') return pendingRead
+      if (scenario === 'delayed-first-byte') {
+        return new Promise((resolve, reject) => {
+          rejectDelayedRead = reject
+          setTimeout(() => resolve({
+            value: new TextEncoder().encode('--frame\r\nContent-Type: image/jpeg\r\n\r\nframe\r\n'),
+            done: false,
+          }), 70)
+        })
+      }
       return Promise.resolve({
         value: new TextEncoder().encode('--frame\r\nContent-Type: image/jpeg\r\n\r\nframe\r\n'),
         done: false,
@@ -37,7 +49,10 @@ const reader = {
   cancel() {
     cancelCalls += 1
     const error = new DOMException('This operation was aborted', 'AbortError')
-    if (scenario !== 'normal') rejectPendingRead(error)
+    rejectDelayedRead?.(error)
+    if (scenario !== 'normal' && (readCalls > 1 || scenario === 'no-first-byte')) {
+      rejectPendingRead(error)
+    }
     return Promise.reject(error)
   },
 }
