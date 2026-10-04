@@ -1,0 +1,7 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage F1 allowed host state drift.
+#
+# F1 installs and starts the F1 detector unit only. The shared L0 capture does not record that unit file or its runtime state, and F1 may change NO
+# other captured Core-host record (the Core MainPID/NRestarts, core.env, the release, the alert and Recovery surfaces, IDEA2, network, time, firewall),
+# so this file carries ZERO active keys by contract: any other drift between PRE and POST/RB fails the compare. The unit itself is proven by the
+# F1 stage's own exact checks (p4-f1-deploy.py: SHA-256, owner/mode, inode, LoadState/ActiveState/SubState/MainPID, Core unchanged), never by this list.
+#

@@ -52,6 +52,7 @@ case "$BACKEND" in
     [ "${AEGIS_L8P_LIVE_AUTHORIZED:-NO}" = YES ] ||
       fail "HARDWARE_BACKEND_LIVE_L8P_NOT_AUTHORIZED (AEGIS_L8P_LIVE_AUTHORIZED=YES required)"
     require_env AEGIS_L8P_ESPTOOL
+    require_env AEGIS_L8P_ESPTOOL_PYTHON
     require_env AEGIS_L8P_BROKER_ADDRESS
     require_env AEGIS_L8P_BROKER_TLS_NAME
     require_env AEGIS_L8P_MQTT_CA_FILE
@@ -93,7 +94,9 @@ done
 
 # PRE evidence must already exist, be complete and be unmodified BEFORE the first device write.
 [ -d "$PRE_DIR" ] && [ ! -L "$PRE_DIR" ] || fail "PRE evidence directory missing"
-[ -f "$PRE_DIR/capture.log" ] && grep -qx 'L0_CAPTURE=COMPLETE' "$PRE_DIR/capture.log" || fail "PRE evidence capture is not COMPLETE"
+# The canonical p4-l0-capture.sh log line is p4_log output: `<TIMESTAMP> L0_CAPTURE=COMPLETE evidence=<path>`, not the bare `L0_CAPTURE=COMPLETE`. Accept a line carrying it as a distinct
+# whitespace-delimited field (bare line included); refuse L0_CAPTURE=INCOMPLETE, NOT_L0_CAPTURE=COMPLETE, L0_CAPTURE=COMPLETED and any embedded substring. The SHA256SUMS check below stays mandatory.
+[ -f "$PRE_DIR/capture.log" ] && grep -qE '(^|[[:space:]])L0_CAPTURE=COMPLETE([[:space:]]|$)' "$PRE_DIR/capture.log" || fail "PRE evidence capture is not COMPLETE"
 [ -f "$PRE_DIR/SHA256SUMS" ] && (cd "$PRE_DIR" && sha256sum -c --quiet --strict SHA256SUMS >/dev/null 2>&1) || fail "PRE evidence checksum verification failed"
 
 mkdir -p "$WORK_DIR" "$EVIDENCE_DIR"
@@ -110,6 +113,7 @@ out=$("$PYTHON_BIN" "$P4_HERE/p4-l8p-device.py" provision \
   --backend "$BACKEND" \
   --fixture-device "${AEGIS_L8P_FIXTURE_DEVICE:-}" \
   --esptool "${AEGIS_L8P_ESPTOOL:-}" \
+  --esptool-python "${AEGIS_L8P_ESPTOOL_PYTHON:-}" \
   --live-authorized "${AEGIS_L8P_LIVE_AUTHORIZED:-NO}" \
   --broker-address "${AEGIS_L8P_BROKER_ADDRESS:-}" \
   --broker-tls-name "${AEGIS_L8P_BROKER_TLS_NAME:-}" \

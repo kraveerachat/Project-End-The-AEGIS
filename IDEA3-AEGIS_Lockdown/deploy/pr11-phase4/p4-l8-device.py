@@ -581,6 +581,24 @@ def resolve_pinned_esptool(script: str | None) -> Path:
     return path
 
 
+def resolve_esptool_python(interpreter: str | None) -> Path:
+    """Accept only an explicit absolute path to an executable Python interpreter for the esptool subprocess.
+
+    The esptool launcher interpreter is a FROZEN input of its own (L8p ``ESPTOOL_PYTHON``): it is deliberately NOT the orchestration interpreter
+    (``AEGIS_PYTHON_BIN`` / ``sys.executable``), because the pinned esptool needs dependencies (pyserial, intelhex, ...) the orchestration environment does
+    not carry. No PATH lookup and no implicit fallback. A venv interpreter is normally a symlink and must keep its path (pyvenv.cfg discovery), so the
+    path is not resolved; it must name a regular executable file once followed.
+    """
+    if not interpreter:
+        raise L8Error("hardware backend requires the pinned esptool Python interpreter")
+    path = Path(interpreter)
+    if not path.is_absolute() or not path.name.startswith("python"):
+        raise L8Error("esptool Python must be an absolute path to a python interpreter")
+    if not path.is_file() or not os.access(path, os.X_OK):
+        raise L8Error(f"pinned esptool Python is not an executable file: {path}")
+    return path
+
+
 def _is_scratch_path(path: str, scratch_dir: Path) -> bool:
     candidate = Path(path)
     return (
@@ -656,6 +674,10 @@ class SubprocessExecutor:
 
     def __init__(self, launcher: Sequence[str]) -> None:
         self._launcher = [str(a) for a in launcher]
+
+    @property
+    def launcher(self) -> list[str]:
+        return list(self._launcher)
 
     def run(self, argv: Sequence[str], timeout: float | None = None) -> ExecResult:
         argv = [str(a) for a in argv]
@@ -931,10 +953,15 @@ def load_backend(
     live_authorized: bool = False,
     executor: CommandExecutor | None = None,
     esptool_script: str | None = None,
+    esptool_python: str | None = None,
     work_dir: Path | None = None,
     boot_verifier: Callable[[], str] | None = None,
 ):
-    """Select a device backend. Hardware needs BOTH selection and live authorization."""
+    """Select a device backend. Hardware needs BOTH selection and live authorization.
+
+    ``esptool_python`` is the explicit interpreter of the esptool subprocess. When given, the SubprocessExecutor and the HardwareDevice are built from
+    that ONE interpreter and the pinned script, and a mismatch between them is refused. When omitted the legacy L8 behaviour (``sys.executable``) is kept;
+    a stage that must not rely on it (L8p) enforces the explicit interpreter before it calls this."""
     if name == "fixture":
         if descriptor_path is None:
             raise L8Error("fixture backend requires a fixture device descriptor")
@@ -946,20 +973,27 @@ def load_backend(
         if binding is None or work_dir is None:
             raise L8Error("hardware backend requires the OV-12 binding and a work directory")
         launcher_script = str(esptool_script or "")
+        launcher_python = str(resolve_esptool_python(esptool_python)) if esptool_python else None
         if executor is None:
             script = resolve_pinned_esptool(esptool_script)
             launcher_script = str(script)
-            executor = SubprocessExecutor([sys.executable, launcher_script])
+            executor = SubprocessExecutor([launcher_python or sys.executable, launcher_script])
         elif not launcher_script:
             raise L8Error("hardware backend requires the pinned esptool script path")
-        return HardwareDevice(
+        device = HardwareDevice(
             serial_port=binding["serial_port"],
             work_dir=Path(work_dir),
             executor=executor,
             esptool_script=launcher_script,
             live_authorized=True,
+            python=launcher_python,
             boot_verifier=boot_verifier,
         )
+        # The validating executor and the argv builder must never disagree about the interpreter.
+        executor_launcher = getattr(executor, "launcher", None)
+        if executor_launcher is not None and list(executor_launcher) != list(device.launcher):
+            raise L8Error("executor launcher does not match the hardware device launcher")
+        return device
     raise L8Error(f"unknown device backend {name!r}")
 
 
@@ -1117,6 +1151,9 @@ class StageProfile(NamedTuple):
     recovery_gate: Callable[[argparse.Namespace, Path, dict[str, str]], None] = _d4_recovery_gate
     pre_device_gate: Callable[[argparse.Namespace, Path, dict[str, str]], None] | None = None
     nvs_gate: Callable[[Path, object], None] | None = None
+    # A stage that must never let the hardware tool subprocess inherit the orchestration interpreter (L8p) requires the explicit, frozen
+    # ``--esptool-python`` in hardware mode: no sys.executable / python3 fallback. L8 keeps its legacy behaviour (False).
+    require_explicit_tool_python: bool = False
 
 
 L8_PROFILE = StageProfile()
@@ -1194,6 +1231,8 @@ def provision(
 
     # 3c. Backend selection. Building the hardware backend performs no I/O;
     #     observing identity below is the first device access.
+    if stage_profile.require_explicit_tool_python and args.backend == "hardware" and not getattr(args, "esptool_python", None):
+        raise L8Error(f"{stage_profile.name} hardware backend requires the frozen hardware-tool Python interpreter (--esptool-python)")
     device = load_backend(
         args.backend,
         args.fixture_device,
@@ -1202,6 +1241,7 @@ def provision(
         live_authorized=live_authorized,
         executor=executor,
         esptool_script=getattr(args, "esptool", None),
+        esptool_python=getattr(args, "esptool_python", None),
         work_dir=work_dir,
         boot_verifier=boot_obj,
     )
@@ -1412,6 +1452,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Hardware only. The serial port is deliberately NOT an argument: it comes
     # exclusively from the validated device.identity binding.
     run.add_argument("--esptool", default=None)
+    run.add_argument("--esptool-python", default=None)
     run.add_argument("--live-authorized", default="NO")
     # Boot verification inputs (hardware only): the signed BOOT STATUS verifier.
     run.add_argument("--broker-address", default=None)

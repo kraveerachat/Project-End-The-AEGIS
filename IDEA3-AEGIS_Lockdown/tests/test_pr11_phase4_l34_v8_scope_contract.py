@@ -55,9 +55,13 @@ V7_AND_SHARED_PINS = {
     "owner-run/run-l34-v7-radio-disabled-broker-churn-owner.sh": "c0b072c226b8e89b2b4cac5aed4062ecf717aa7251e816b7362d0b453163ec71",
     # AMENDED (PR #305, owner-approved re-pin): only l34_dnsmasq_unit_gate + new l34_render_dnsmasq_unit changed (rendered-template authority). Pre-amendment pin b6e1d0d956c08fb87dea4733c569ae718ebf9a0321d4a8084f7c190a80bd3370.
     "p4-l34-reactivation-lib.sh": "08dd7de16cbc57a43b79f35f11e7b1dff011b29dffca5ddeef478f3524621a37",
-    "p4-stage-gate.sh": "11cc4251bd081eb172bcdb0155d48d6984ec4cfee1c08fc09c03fc639afa50b4",
-    "p4-lib.sh": "9cf03684a79f2706a22776d90ae3a243afbcdeb2275c0b244388971cf5af9a36",
-    "p4-compare.sh": "6caa482def07b50e462828f10ba117fb66779e9dde67e1fea8fad5b9b9f71c08",
+    # re-pinned by the governed F1 detector install/start stage task (2026-10-04): stage F1 registered (p4-lib.sh) + its no-extra-field authorization rule (p4-stage-gate.sh).
+    # re-pinned by the F1i post-L7 repaired-release install stage task (2026-10-04): p4-lib.sh registers stage F1i (after L8p, before F1r; no repository gap), p4-stage-gate.sh binds F1i
+    # to the same no-extra-field authorization rule, and p4-compare.sh adds the label `stage F1i` to the existing RELATIONAL one-release catalog allowance (behavior unchanged:
+    # every release already present must stay byte-identical, exactly one named id may be added). No other stage, gate or record rule changed.
+    "p4-stage-gate.sh": "1f6b01446b549a037447835ce0a0cb942f8faefeeeff65ff177f7f5040b09bea",
+    "p4-lib.sh": "a4f91db7993bc44d62db7044bc133072fabcbc798a9318867482381774395016",
+    "p4-compare.sh": "ab53244fc7683be0daa6ab21730d1c475294e120a5ff248b2d54d1bc5aa6770a",
     "p4-l0-capture.sh": "370c0db47ea0ceed878ec8ca5565593d67fe158529b73d4f8d548c132542e4d4",
 }
 V7_RECEIPT_PINS = {

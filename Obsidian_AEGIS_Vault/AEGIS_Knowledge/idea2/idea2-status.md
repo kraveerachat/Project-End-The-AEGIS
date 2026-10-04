@@ -15,6 +15,110 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — GPU-required inference source policy (2026-10-04)
+
+Branch `feat/idea2-gpu-required-inference` adds an Engine-only, source-tested
+accelerator policy. Development defaults remain `AEGIS_GPU_REQUIRED=false` and
+`AEGIS_INFERENCE_DEVICE=cpu`; a future Production configuration must explicitly
+select `true` and `cuda:0`. Required mode rejects unavailable/invalid CUDA or
+a YOLO model that does not report the selected CUDA device before workers and
+camera start. Each YOLO prediction receives the selected device; a later YOLO
+failure stops the Engine instead of falling back to CPU. YuNet/SFace identity
+failures remain fail-secure. Health/metrics distinguish configured device,
+reported YOLO device, successful GPU samples and the CPU OpenCV backend.
+
+This policy does **not** add a `capture_on_demand` requirement or change the
+existing camera-demand lifecycle. Real CUDA/PyTorch installation, Machine A
+hardware GPU proof, Production rollout and Live acceptance are **NOT VERIFIED**
+by repository tests. PR2 recording/archive remains separate and unstarted;
+no model assets, thresholds, templates, UI, Agent or deployed runtime changed.
+
+## Current task — sustained Live steady-state watchdog follow-up (2026-10-04)
+
+Task: PR1 follow-up for the post-first-byte Live stream timeout. Branch:
+`fix/idea2-monitor-steady-idle-watchdog`; owner: Pub; starting main:
+`9e5ce3d79e1455ba0707117ad9a5a7ccbbcf889f`. Current state:
+PR1 CLOSED / MACHINE A REAL-CAMERA ACCEPTED (operator and operator2).
+Production mutation allowed: NO.
+
+Owner-provided Production evidence after PR #328 showed that the first-byte
+watchdog no longer fired: demand appeared, the camera connected, and one viewer
+remained active, but the Monitor logged two six-second steady-state timeouts
+while Operator stayed on Live. The owner then rolled the Monitor image back to
+`aegis-prod-monitor:idea2-ba-csp-6ddcf184a5a9`. This is a confirmed mismatch
+with the Engine's default 15-second post-first-frame idle allowance, not a
+failure of the 50-second cold-start boundary. The earlier PR #328 section below
+remains the historical source-checkpoint result, not evidence that sustained
+real-camera acceptance had passed at that earlier checkpoint.
+
+The follow-up retains 50 seconds until the first nonempty upstream body data,
+then allows a bounded 20-second steady gap (Engine default 15 seconds plus
+five seconds for proxy/transport delivery). Headers alone never switch phases.
+Authorization before demand/fetch, Browser Association, producer generation,
+session/assignment revalidation, browser-close abort and one release per demand
+remain on their existing paths. No Engine, Agent, UI, Archive, GPU, database,
+HUB or deployed runtime was changed by this repository task.
+
+| Session | Scope | State | Evidence | Remaining |
+|---|---|---|---|---|
+| S1 | RED→GREEN Monitor timeout reconciliation | PASS | A scaled 70 ms inter-frame gap failed under the old 30 ms-equivalent timer, then survived the new 100 ms-equivalent timer; the later stall still closed. Focused route tests 49 pass / 1 conditional skip; broader focused 70 pass / 1 skip; full Monitor 184 pass / 58 conditional skips; Playwright 21/21; Vite build PASS. | Historical source checkpoint; later Machine A real-camera acceptance is recorded below. |
+
+Owner-provided Machine A real-camera acceptance closed PR1 for both account
+aliases: `operator → CAM-01` and `operator2 → CAM-02`. Each independently
+passed `PRE_LIVE_IDLE`, `LIVE_ACQUISITION`, `SUSTAINED_LIVE_120S`,
+`FINAL_VIEWER_RELEASE`, `POST_LOGOUT_IDLE`, `PHYSICAL_LED_SUSTAIN`, and
+`PHYSICAL_LED_RELEASE`. The physical camera LED stayed on through sustained
+Live and turned off after final viewer/logout. This is owner-reported hardware
+evidence, not a new test performed by this documentation-only PR #338 follow-up.
+PR2 recording/archive remains separate and unstarted; PR3 GPU-required
+inference is source-only and is not a claim of real GPU or Production acceptance.
+
+## Current task — sustained Live first-byte watchdog (2026-10-04)
+
+Branch `fix/idea2-monitor-first-byte-watchdog` is a repository-only PR1 fix for
+the owner-reported Production symptom in which Monitor closed a cold Operator
+stream after six seconds without a first frame. The Monitor proxy now gives
+the first nonempty upstream body data a 50-second deadline, covering the
+Engine's default 45-second cold-first-frame window plus five seconds for the
+proxy/transport boundary. After the first data arrives, the existing six-second
+steady-state idle watchdog remains in force. The watchdog also bounds a fetch
+that never returns stream data. Authorization, physical producer demand,
+session/assignment revalidation, browser-close cleanup, and release remain on
+their existing paths; Engine, recording, Archive, GPU, UI, and Production
+runtime are unchanged.
+
+RED route tests reproduced the premature close before the first byte; GREEN
+focused lifecycle tests passed 12/12. The broader focused Monitor set passed
+68 with one conditional PostgreSQL skip, the full neutral Monitor suite passed
+182 with 58 conditional skips, Playwright passed 21/21, and the Vite build
+passed locally. These were source/test results only at that historical
+checkpoint. Later owner-provided Machine A real-camera acceptance for both
+operator aliases is recorded in the PR1 follow-up section above. PR2
+recording/archive remains separate and unstarted; PR3 GPU-required inference
+has source work in Draft PR #338 but no real GPU or Production acceptance.
+
+## Current task — Browser Association CSP narrow source fix (2026-10-04)
+
+Branch `fix/idea2-browser-association-csp` is a repository-only fix for the
+confirmed Production browser denial of the Operator's local Agent association
+request. Monitor's own CSP and the browser-facing HUB `/monitor/` CSP now grant
+only `http://127.0.0.1:8078` in `connect-src`. The HUB `/monitor/` location
+retains the existing upstream security headers and CSP intersection while
+repeating the six HUB headers so nginx location-level `add_header` does not
+drop them. No other effective CSP directive is intentionally widened.
+HUB root, Drive, IDEA3, and `/monitor/internal/*` are unchanged. Existing
+browser-flow tests still prove credentials are omitted, SOC does not associate,
+and association does not request a camera stream.
+
+Local evidence: the new/existing focused CSP and association tests passed
+24/24; applicable HUB config tests passed 41/41; full neutral Monitor tests
+passed 179 with 58 conditional skips and zero failures; HUB and Monitor Vite
+builds passed. The broader HUB browser suite was attempted but did not finish
+within the bounded local run; it is not claimed green. Production nginx syntax
+or browser acceptance has not been tested here. This branch does **not** deploy
+the CSP change or prove Machine A live association/camera recovery. Kla must
+review the cross-scope HUB policy before any Production rollout.
+
 ## Current task — M2-E3 persistent idle pipe accept (2026-10-04)
 
 Branch: `fix/idea2-agent-persistent-idle-pipe-accept`, based on main

@@ -203,7 +203,7 @@ def build_profile():
         validate_nvs_csv(csv_path, provisioner, str(state["namespace"]), int(state["schema"]))
 
     return L8.StageProfile(name=STAGE_ID, evidence_prefix="l8p", recovery_gate=recovery_gate, pre_device_gate=pre_device_gate,
-                           nvs_gate=nvs_gate)
+                           nvs_gate=nvs_gate, require_explicit_tool_python=True)
 
 
 def provision(args: argparse.Namespace, **injection) -> int:

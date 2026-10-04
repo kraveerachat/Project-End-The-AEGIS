@@ -10,10 +10,9 @@ export function securityHeaders(req, res, next) {
       "style-src 'self'",
       "img-src 'self' data",
       "font-src 'self'",
-      // connect-src 'self' ครอบทั้ง fetch และ WebSocket (ws จาก origin เดียวกัน)
-      // เมื่อ integration กับ Detection Engine ใช้ reverse proxy เข้า origin เดียว
-      // — อย่าเปิด host อื่นตรง ๆ ใน CSP
-      "connect-src 'self'",
+      // Same-origin API/stream traffic plus the exact loopback Identity Agent
+      // origin needed for Operator browser association. No other host/port.
+      "connect-src 'self' http://127.0.0.1:8078",
       "frame-ancestors 'none'",
       "base-uri 'none'",
       "form-action 'self'",

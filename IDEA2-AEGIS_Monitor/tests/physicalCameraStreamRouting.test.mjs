@@ -265,7 +265,8 @@ async function loadInjectedRouter() {
       const result = await next(url, context);
       if (!url.includes('/server/routes/api.js?producer-http')) return result;
       return { ...result, source: result.source.toString()
-        .replace('const STREAM_IDLE_MS = 6_000', 'const STREAM_IDLE_MS = 80')
+        .replace(/const STREAM_IDLE_MS = (6_000|20_000)/, 'const STREAM_IDLE_MS = 80')
+        .replace('const STREAM_FIRST_BYTE_MS = 50_000', 'const STREAM_FIRST_BYTE_MS = 120')
         .replace('const STREAM_REVALIDATE_MS = PRODUCER_REVALIDATE_MS', 'const STREAM_REVALIDATE_MS = 15') };
     }`
   register(`data:text/javascript,${encodeURIComponent(loader)}`)
@@ -362,6 +363,9 @@ async function streamHarness(t, scenario = 'normal', service = null) {
         if (readerClosed) return Promise.resolve({ done: true })
         reads += 1
         if (scenario === 'reader-read-throw') throw new Error('reader failed')
+        if (reads === 1 && scenario === 'first-byte-timeout') {
+          return new Promise(resolve => { pendingResolve = resolve })
+        }
         if (reads === 1) return Promise.resolve({ done: false, value: Buffer.from('frame') })
         if (scenario === 'normal') return Promise.resolve({ done: true })
         return new Promise(resolve => {
@@ -504,7 +508,7 @@ test('transactional acquire denial returns redacted authority error without fetc
 })
 
 for (const scenario of ['normal', 'socket-close', 'non-2xx', 'missing-body', 'fetch-throw', 'route-error',
-  'idle', 'logout', 'session-revoked', 'assignment-revoked', 'renewal-failure', 'absolute-expiry', 'release-failure',
+  'idle', 'first-byte-timeout', 'logout', 'session-revoked', 'assignment-revoked', 'renewal-failure', 'absolute-expiry', 'release-failure',
   'reader-read-throw']) {
   test(`close_and_every_upstream_failure_release_demand: ${scenario}`, async t => {
     const { state, open, settle, logout } = await streamHarness(t, scenario)

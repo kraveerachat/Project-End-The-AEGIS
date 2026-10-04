@@ -52,8 +52,8 @@ The hardware backend is unreachable without `AEGIS_L8P_LIVE_AUTHORIZED=YES`, and
 
 ## 4. Owner runner (repository template; inert)
 
-`deploy/pr11-phase4/owner-run/run-l8p-owner.sh` with its gate library `p4-l8p-run-lib.sh` follow the L7u owner-run pattern. The committed copy is an **inert template**: eighteen `PIN_`
-values (the merged main SHA, the frozen operator user and uid, the reviewed firmware and partition-table SHA-256, the owner input directory, the reviewed artifacts, the pinned flash tool, the MQTT CA and broker
+`deploy/pr11-phase4/owner-run/run-l8p-owner.sh` with its gate library `p4-l8p-run-lib.sh` follow the L7u owner-run pattern. The committed copy is an **inert template**: nineteen `PIN_`
+values (the merged main SHA, the frozen operator user and uid, the reviewed firmware and partition-table SHA-256, the owner input directory, the reviewed artifacts, the pinned flash tool and its own frozen Python interpreter (`ESPTOOL_PYTHON`), the MQTT CA and broker
 credential files, the broker address and TLS name, the Wi-Fi SSID, the NTP server, the compile-only build command) make it refuse until the owner freeze workflow copies it outside the
 repository and pins them after the FINAL source set is merged. It holds no device logic: every device operation is the canonical L8p handler set.
 
@@ -77,3 +77,59 @@ A successful run may claim only `L8P_LIVE_EXECUTED=YES` and `L8P_PROVISIONING=PA
 Nothing here is live. Still needed: freezing the runner (after the final source set is merged), the exact reviewed firmware image, partition table and pins, the real MQTT CA header, the NVS
 generator, OV-12, the written physical recovery procedure, a same-day authorization and K3, and Kla integration review of the shared edits (`p4-lib.sh`, `p4-stage-gate.sh`,
 `tests/test_pr11_phase4_harness.py`, the L7u governance order assertion, and the small profile extension in `p4-l8-device.py`). Recovery R1-R8, LVR and L8 remain unproven.
+
+## 6. Addendum (2026-10-04): the esptool interpreter is a separate frozen pin
+
+The L8p final preflight found that the orchestration interpreter (`PY` / `AEGIS_PYTHON_BIN`, used to run `p4-l8p-device.py`) was also the implicit esptool launcher (`[sys.executable, esptool.py, ...]`).
+That interpreter cannot import the pinned esptool's dependencies, so a live run would have failed after the one-shot attempt was consumed. The runner now has a nineteenth pin, `ESPTOOL_PYTHON`
+(an absolute interpreter path, never committed), passed to the handler as `AEGIS_L8P_ESPTOOL_PYTHON` and to `p4-l8p-device.py` as `--esptool-python`; `AEGIS_PYTHON_BIN` is untouched. The canonical flow
+builds the `SubprocessExecutor` and the `HardwareDevice` from that one interpreter and refuses a mismatch; the L8p stage profile makes the explicit interpreter mandatory in hardware mode (no `sys.executable`
+or `python3` fallback), while L8 keeps its legacy behaviour. A read-only pre-gate (`l8p_esptool_python_gate`) runs in the runner's pre-gates, before the PRE capture and the attempt marker: it executes the
+pinned `esptool.py --help` under the frozen interpreter in a scrubbed environment (no serial open, no flash command, no installation), so a missing dependency fails the run with no attempt consumed and the device untouched.
+
+## 7. Addendum (2026-10-04): live attempt 1 findings (two repository defects, both pre-first-write)
+
+The first owner-run attempt consumed its one-shot authorization and stopped before any device action: `apply.sh` refused the PRE evidence, then the rollback's PRE->RB comparison failed on usage. (1) The PRE completeness check
+required the whole `capture.log` line to equal `L0_CAPTURE=COMPLETE`, but the canonical `p4-l0-capture.sh` log is `p4_log` output (`<TIMESTAMP> L0_CAPTURE=COMPLETE evidence=<path>`); the check now accepts the field as a distinct
+whitespace-delimited token (and refuses `INCOMPLETE`, `NOT_L0_CAPTURE=COMPLETE`, `COMPLETED` and embedded substrings) and the mandatory `SHA256SUMS` verification is unchanged. (2) The owner runner passed the report path to
+`p4-compare.sh` as a third positional argument; the comparator takes exactly `<BEFORE_DIR> <AFTER_DIR>`, so the report path is now only the runner's redirection target. The first attempt's records and evidence stay immutable; a successor
+attempt needs a new freeze, a fresh same-day Authorization/K3 and explicit owner authorization.
+
+## 8. Addendum (2026-10-04): live attempt 2 and the secret-staging lifecycle
+
+Attempt 2 reached the device: first write started, flash, NVS and firmware readbacks equal, signed BOOT verification `PASS_BOOT_LOCKDOWN`, `failure_boundary = NONE`, verify PASS, PRE->POST and PRE->RB compares PASS, S10 PASS. It then failed only at the runner's final
+`l8p_secret_scan`, and the post-write rollback correctly held fail-secure with zero device action. Root cause: the canonical flow's own work artifacts `l8p-work/nvs.csv` (all four provisioned secrets, plaintext) and `l8p-work/nvs.bin` (the encoded Wi-Fi/MQTT values)
+live inside the EVID tree that the scan covers with no exclusions. They are TEMPORARY secret-bearing staging files, not evidence. The scan is unchanged and still covers the entire tree; the lifecycle changes instead: a new host-only handler `stages/L8p/cleanup.sh` removes EXACTLY
+`nvs.csv` and `nvs.bin` (exact WORK_DIR, never a symlink or non-regular file, never the first-write marker or the JSON evidence, coreutils only) after apply and verify have passed and before the POST capture and the scan, and the post-first-write branch of `rollback.sh` applies the same
+removal (still zero device action, still `FAIL_SECURE_HOLD_AND_EVIDENCE`; the pre-first-write branch already removed these files). Attempt 2 stays consumed and its formal result stays `NOT_PROVEN`: no repository contract defines a post-hoc closeout of a consumed post-write attempt (the success claim is
+emitted only by the runner's full success path), so reconciling it, and whether physical recovery is required first, is an owner decision.
+
+## 9. Addendum (2026-10-04): owner-approved, attempt-2-specific, host-only reconciliation contract
+
+Section 8 left the reconciliation of the consumed attempt 2 to an owner decision. The owner has now decided:
+
+```text
+OWNER_DECISION=ATTEMPT2_SPECIFIC_HOST_ONLY_BOUNDED_RECONCILIATION_APPROVED
+PHYSICAL_RECOVERY_REQUIRED_BEFORE_RECONCILIATION=NO
+DEVICE_RETRY_ALLOWED=NO
+DEVICE_MUTATION=NO
+ESP32_ACTION=NO
+PRODUCTION_SERVICE_MUTATION=NO
+HOST_SIDE_EVIDENCE_TREE_MUTATION=BOUNDED (deletion of exactly l8p-work/nvs.csv and l8p-work/nvs.bin, the two approved temporary secret-bearing work artifacts, and nothing else)
+```
+
+Terminology note: the decision was first worded "read-only / host-only". That was inaccurate, because the approved procedure intentionally deletes those two files. It is a **host-only bounded reconciliation**: no device mutation, no ESP32 action, no Production or service mutation, but a bounded host-side evidence-tree mutation. Only the wording changed; the decision's scope and semantics are unchanged.
+
+The decision applies ONLY to historical attempt 2 (run id `l8p-20261004-041840`) and does not authorize another device attempt, a new Authorization/K3, or any device action. It is implemented as a one-off tool, `deploy/pr11-phase4/reconciliation/reconcile-l8p-attempt2.py`
+(standard library only; no device, serial, esptool, MQTT, network, subprocess, sudo, service or NetworkManager code), hard-bound to that run id, the evidence and freeze directory names, the frozen runner SHA-256 and the pinned firmware digest. It takes only `--evidence-root`, `--freeze-dir` and `--input-dir`.
+
+It refuses at the first failed gate with `L8P_ATTEMPT2_RECONCILIATION=FAIL phase=<PRE_CLEANUP|CLEANUP|POST_CLEANUP> reason=...` and no authoritative result field; a failure in the CLEANUP or POST_CLEANUP phase is explicitly reported as a possible mutation with the exact state (`L8P_RECONCILIATION_MUTATION_STATE`, `L8P_RECONCILIATION_MUTATION_PERFORMED`), never as a pre-cleanup refusal, and an unwritable `l8p-work` is refused before the first removal to avoid partial cleanup. The consumed marker is required in its real location and shape (`<freeze>/auth/L8p-ATTEMPT-CONSUMED`, a regular 0600 file holding `consumed_at=<UTC timestamp>`); a read-only check confirmed it present on the real attempt-2 history, the tool never creates or repairs it, and there is no fallback for its absence. Before deleting anything it requires: the frozen runner digest, the consumed marker, and the Authorization/K3 identical to the evidence copies; the one canonical 12-field
+`l8p-<run_id>.json` (mode 0600, run id, firmware digest and flash / NVS readback / firmware readback / boot / failure-boundary values); the historical `owner-run.log` shape (every required fact present, the original runner's full-success line ABSENT, the original 2-hit scan and the
+`NOT_PROVEN` statement present); the PRE, POST and RB capture `SHA256SUMS`; the first-write marker; and the secret-value classification of the ENTIRE evidence tree with the same >= 8-byte semantics as `l8p_secret_scan` showing EXACTLY the two known staging files
+(`l8p-work/nvs.csv`: wifi.psk, mqtt.pass, k_c2d, k_d2c; `l8p-work/nvs.bin`: wifi.psk, mqtt.pass) and nothing else, printing only path, size and class names. It then takes an in-memory manifest (path, mode, size, SHA-256) of every other file and directory, removes EXACTLY those two
+files (canonical evidence root, `<EVID>/l8p-work` a real canonical directory, regular non-symlink files, two fixed names, no wildcard or recursion), and proves that nothing else changed, that the strict full-tree scan has ZERO hits, that the capture checksums and the JSON still verify, and that the
+first-write and consumed markers remain. Only then does it print `L8P_ATTEMPT2_RECONCILIATION=PASS` with `L8P_RECONCILIATION_DEVICE_ACTION=NONE`, `L8P_RECONCILIATION_SECRET_WORK_REMOVED=YES`, `L8P_RECONCILIATION_SECRET_SCAN=PASS`, `L8P_RECONCILIATION_EVIDENCE_PRESERVED=YES`,
+`ORIGINAL_RUNNER_FULL_SUCCESS_LINE=NO` and the reconciled facts `L8P_LIVE_EXECUTED=YES` / `L8P_PROVISIONING=PASS`.
+
+Those last two fields are NEW owner-approved reconciliation results; they do not claim that the historical frozen runner printed them. A later, separate, immutable closeout receipt, created only AFTER the merged tool has executed successfully, must state `ORIGINAL_RUNNER_FULL_SUCCESS_LINE=NO` and
+`RECONCILIATION_RESULT=PASS`. Until then attempt 2's formal result remains `NOT_PROVEN`. Repository implementation is not live reconciliation: the repository change performs no cleanup on the real evidence tree, creates no acceptance receipt and touches no device.

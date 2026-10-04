@@ -132,11 +132,15 @@ class FaceDetectorProcessor(threading.Thread):
         self._metrics = metrics
         self._queue = detect_queue
         self._on_result = on_result
+        if config.gpu_required and recognizer is None:
+            raise RuntimeError("GPU-required inference needs a configured YOLO recognizer")
         # >>> AI INJECTION POINT: swap PlaceholderRecognizer for the real model.
         self._recognizer: FaceRecognizer = recognizer or PlaceholderRecognizer(
             min_confidence=config.detect_min_confidence
         )
         self._stop_event = stop_event or threading.Event()
+        if hasattr(self._recognizer, "inference_status"):
+            self._metrics.on_inference_status(self._recognizer.inference_status())
         self._frame_counter = 0
         if isinstance(self._recognizer, PlaceholderRecognizer):
             log.warning(
@@ -172,10 +176,17 @@ class FaceDetectorProcessor(threading.Thread):
         try:
             # ================= AI INFERENCE HAPPENS HERE =================
             entities = self._recognizer.recognize(frame.image)
+            if hasattr(self._recognizer, "inference_status"):
+                self._metrics.on_inference_status(self._recognizer.inference_status())
             # ============================================================
         except Exception:
-            # A model blow-up must never kill the pipeline. Log, emit an empty
-            # result so downstream FPS/latency still tick, and move on.
+            if self._cfg.gpu_required:
+                # A failed required accelerator must stop capture and workers.
+                self._metrics.on_accelerator_failure()
+                self._stop_event.set()
+                log.exception("GPU-required recognizer failed; stopping Engine")
+                return
+            # Optional CPU mode preserves the existing Unknown/no-result path.
             log.exception("recognizer.recognize() raised; skipping frame %d", frame.seq)
             entities = []
 
