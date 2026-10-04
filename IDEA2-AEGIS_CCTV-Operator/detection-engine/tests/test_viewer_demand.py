@@ -221,7 +221,7 @@ class ViewerDemandTests(unittest.TestCase):
             recorder._writer = writer
             recorder._writer_size = (640, 480)
             recorder._current_path = path
-            recorder._segment_started_monotonic = time.monotonic()
+            recorder._segment_started_monotonic = time.monotonic() - 137.0
             recorder._segment_started_wall = "2026-08-15T00:00:00+00:00"
             recorder._segment_frames = 1
             recorder.start()
@@ -232,6 +232,51 @@ class ViewerDemandTests(unittest.TestCase):
             recorder.join(1.0)
 
         self.assertEqual(len(finalized), 1)
+        self.assertAlmostEqual(finalized[0].duration_s, 137.0, delta=1.5)
+
+    def test_default_recording_contract_rotates_at_five_minutes_and_next_frame_can_start_new_clip(self):
+        self.assertEqual(EngineConfig().segment_seconds, 300)
+
+        metrics = MetricsRegistry()
+        finalized = []
+
+        class FakeWriter:
+            def __init__(self):
+                self.released = False
+
+            def release(self):
+                self.released = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "five-minute.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"video")
+
+            writer = FakeWriter()
+            recorder = SegmentRecorder(
+                EngineConfig(segment_dir=tmp),
+                metrics,
+                queue.Queue(),
+                on_segment=finalized.append,
+            )
+            recorder._writer = writer
+            recorder._writer_size = (640, 480)
+            recorder._current_path = path
+            recorder._segment_started_monotonic = time.monotonic() - 300.5
+            recorder._segment_started_wall = "2026-10-05T00:00:00+00:00"
+            recorder._segment_frames = 100
+
+            recorder._maybe_rotate()
+
+            self.assertTrue(writer.released)
+            self.assertIsNone(recorder._writer)
+            self.assertEqual(len(finalized), 1)
+            self.assertGreaterEqual(finalized[0].duration_s, 300.0)
+
+            opened = []
+            recorder._open_writer = lambda w, h: opened.append((w, h))
+            recorder._ensure_writer(Frame(seq=101, image=np.zeros((480, 640, 3), dtype=np.uint8)))
+            self.assertEqual(opened, [(640, 480)])
 
     def test_camera_opens_only_while_viewer_demand_exists(self):
         demand = threading.Event()
