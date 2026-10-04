@@ -101,8 +101,11 @@ class World:
 
 
 class FakeHost(tool.F1rHost):
-    def __init__(self, world: World, *, current_target=OLD_PATH, new_manifest=None, det_bytes=DET_BYTES, guard=None, core_cwd=OLD_PATH, det_symlink=False):
+    def __init__(self, world: World, *, current_target=OLD_PATH, new_manifest=None, det_bytes=DET_BYTES, guard=None, core_cwd=OLD_PATH, det_symlink=False,
+                 detector_procs=(), deny_reads=False):
         self.world = world
+        self.detector_procs = list(detector_procs)  # standalone `python -m aegis_soc.production_detector` processes (the systemd unit stays not-found)
+        self.deny_reads = deny_reads
         self.links = {CURRENT: current_target}
         self.files = {f"{OLD_PATH}/RELEASE-MANIFEST.json": manifest(OLD, OLD), f"{NEW_PATH}/RELEASE-MANIFEST.json": new_manifest or manifest(),
                       f"{NEW_PATH}/aegis_soc/production_detector.py": det_bytes}
@@ -117,7 +120,12 @@ class FakeHost(tool.F1rHost):
         self.snapshots.append(CURRENT in self.links)
 
     def is_symlink(self, path):
+        if self.deny_reads:
+            raise tool.Refusal("HOST_READ_DENIED")
         return path in self.links or path in self.symlink_files
+
+    def detector_processes(self):
+        return list(self.detector_procs)
 
     def readlink(self, path):
         return self.links[path]
@@ -1093,6 +1101,206 @@ def test_the_f1_lib_runtime_gate_delegates_to_the_reviewed_tool(tmp_path):
     assert args[:2] == ["TOOL", "check-runtime"] and "--release-id" in args and "--source-sha" in args and "--detector-sha256" in args
     bad = sh(f'. "{F1_LIB}"; f1_runtime_release_gate "{stub(tmp_path, 1, "F1R_CHECK_RUNTIME=FAIL reason=CURRENT_NOT_EXPECTED_RUNTIME_RELEASE")}" TOOL "{NEW}" "{NEW_SRC}" "{DET_SHA}"')
     assert bad.returncode == 1 and "F1_RUNTIME_RELEASE_GATE_FAILED:CURRENT_NOT_EXPECTED_RUNTIME_RELEASE" in bad.stderr
+
+
+# ═══ review fix 1: root-only /opt reads run through SUDO, never as the plain operator user ═══════════════════════════════════════
+
+
+def fake_sudo(tmp_path: Path) -> tuple[Path, Path]:
+    """A recording stand-in for `sudo`: logs its whole argv, then runs it (the stub tool plays the privileged read-only process)."""
+    log = tmp_path / "sudo.log"
+    script = tmp_path / "fake-sudo"
+    script.write_text(f'#!/bin/bash\nprintf "%s\\n" "$*" >> "{log}"\nexec "$@"\n')
+    script.chmod(0o755)
+    return script, log
+
+
+def test_the_f1r_preflight_gate_runs_the_reviewed_tool_through_sudo_read_only(tmp_path):
+    sudo, log = fake_sudo(tmp_path)
+    ok = lib(f'f1r_preflight_gate "{stub(tmp_path, 0, "F1R_CHECK=PASS")}" TOOL "{OLD}" "{NEW}" "{NEW_SRC}" "{DET_SHA}"', SUDO=str(sudo))
+    assert ok.returncode == 0, ok.stderr
+    lines = log.read_text().splitlines()
+    assert len(lines) == 1 and lines[0].startswith("env PYTHONDONTWRITEBYTECODE=1 ") and " TOOL check " in lines[0] + " "  # elevated, bytecode-free, `check` only
+    assert not any(word in lines[0].split() for word in ("apply", "verify", "rollback"))  # the pre-consume gate can only ever run the read-only subcommand
+
+
+def test_the_future_f1_runtime_gate_runs_the_reviewed_tool_through_sudo_read_only(tmp_path):
+    sudo, log = fake_sudo(tmp_path)
+    ok = sh(f'. "{F1_LIB}"; f1_runtime_release_gate "{stub(tmp_path, 0, "F1R_CHECK_RUNTIME=PASS")}" TOOL "{NEW}" "{NEW_SRC}" "{DET_SHA}"', env={"SUDO": str(sudo)})
+    assert ok.returncode == 0, ok.stderr
+    lines = log.read_text().splitlines()
+    assert len(lines) == 1 and lines[0].startswith("env PYTHONDONTWRITEBYTECODE=1 ") and " TOOL check-runtime " in lines[0] + " "
+    assert not any(word in lines[0].split() for word in ("apply", "verify", "rollback"))
+
+
+def test_both_libraries_default_to_sudo_and_never_invoke_the_check_tools_as_a_plain_user_process():
+    for path in (F1R_LIB, F1_LIB):
+        text = active_shell(path)
+        assert re.search(r'^: "\$\{SUDO=sudo\}"$', text, re.M), path
+    f1r = active_shell(F1R_LIB)
+    f1 = active_shell(F1_LIB)
+    assert re.search(r'\$SUDO env PYTHONDONTWRITEBYTECODE=1 "\$py" "\$tool" check ', f1r)
+    assert re.search(r'\$SUDO env PYTHONDONTWRITEBYTECODE=1 "\$py" "\$tool" check-runtime ', f1)
+    assert not re.search(r'(?<!\$SUDO env PYTHONDONTWRITEBYTECODE=1 )"\$py" "\$tool" (check|check-runtime) ', f1r + "\n" + f1)
+
+
+def test_the_f1r_runner_reads_current_through_sudo_not_as_the_plain_operator():
+    text = active_shell(F1R_RUNNER)
+    assert not re.search(r"\$\(readlink /opt/aegis-idea3/current\)", text)
+    assert text.count("sudo readlink /opt/aegis-idea3/current") == 2  # the post-switch independent check and the rollback-state check
+
+
+def test_a_failed_root_read_fails_the_gate_before_any_consume(tmp_path):
+    bad = lib(f'f1r_preflight_gate "{stub(tmp_path, 0, "F1R_CHECK=PASS")}" TOOL "{OLD}" "{NEW}" "{NEW_SRC}" "{DET_SHA}"', SUDO="false")  # elevation refused
+    assert bad.returncode == 1 and "F1R_PREFLIGHT_FAILED:ROOT_READ_UNAVAILABLE" in bad.stderr
+    assert not (tmp_path / "args.txt").exists()  # the tool never ran as an unprivileged substitute
+    bad = sh(f'. "{F1_LIB}"; f1_runtime_release_gate "{stub(tmp_path, 0, "F1R_CHECK_RUNTIME=PASS")}" TOOL "{NEW}" "{NEW_SRC}" "{DET_SHA}"', env={"SUDO": "false"})
+    assert bad.returncode == 1 and "F1_RUNTIME_RELEASE_GATE_FAILED:ROOT_READ_UNAVAILABLE" in bad.stderr
+    runner = active_shell(F1R_RUNNER)
+    pre = re.findall(r"f1r_preflight_gate[^\n]*\\\n\s*\|\| (gate|die) ", runner)
+    assert pre == ["gate", "die"]  # both calls abort the run; the second one is before the one-shot boundary
+    assert runner.index("f1r_preflight_gate", runner.index("capture PRE")) < runner.index("f1r_consume_attempt")
+
+
+def test_a_denied_read_is_a_fixed_refusal_not_an_empty_answer(tmp_path):
+    """A root:root 0700 parent is NOT assumed readable by the operator: an unprivileged lstat that is denied must refuse, never read as 'absent'."""
+    if os.geteuid() == 0:
+        pytest.skip("directory permissions do not bind root")
+    locked = tmp_path / "opt-aegis-idea3"
+    (locked / "releases").mkdir(parents=True)
+    os.chmod(locked, 0)
+    try:
+        host = tool.F1rHost()
+        inside = str(locked / "current")
+        for call in (host.lexists, host.is_symlink, host.is_regular, host.readlink, host.read_bytes, host.sha256_file):
+            with pytest.raises(tool.Refusal) as exc:
+                call(inside)
+            assert str(exc.value) == "HOST_READ_DENIED", call
+        with pytest.raises(tool.Refusal) as exc:
+            host.release_guard(inside, inside)
+        assert str(exc.value) == "HOST_READ_DENIED"
+    finally:
+        os.chmod(locked, 0o700)
+
+
+def test_a_missing_path_is_still_just_absent_not_a_denial(tmp_path):
+    host = tool.F1rHost()
+    assert host.lexists(str(tmp_path / "nope")) is False and host.is_symlink(str(tmp_path / "nope")) is False and host.is_regular(str(tmp_path / "nope")) is False
+
+
+def test_the_tool_refuses_when_the_host_cannot_be_read(tmp_path):
+    world, host, backend, work = build(tmp_path, deny_reads=True)
+    assert refusal(tool.preflight, host, backend, OLD, NEW, NEW_SRC, DET_SHA) == "HOST_READ_DENIED"
+    assert refusal(check_runtime, host, backend) == "HOST_READ_DENIED"
+    assert host.ops == []  # strictly read-only
+
+
+# ═══ review fix 2: a standalone production_detector process is detector presence even when the unit is not-found ═══════════════
+
+
+STANDALONE = {"detector_procs": [4321]}  # LoadState=not-found, ActiveState=inactive, MainPID=0 (the defaults) BUT a bare `python -m aegis_soc.production_detector` runs
+
+
+def test_the_unit_surface_alone_is_not_enough_a_standalone_process_refuses_preflight_and_check(tmp_path):
+    world, host, backend, work = build(tmp_path, **STANDALONE)
+    assert world.detector == {"LoadState": "not-found", "ActiveState": "inactive", "MainPID": "0"}
+    assert refusal(tool.preflight, host, backend, OLD, NEW, NEW_SRC, DET_SHA) == "DETECTOR_STANDALONE_PROCESS_PRESENT"
+    assert host.ops == []
+
+
+def test_a_standalone_process_refuses_apply_before_any_mutation(tmp_path):
+    world, host, backend, work = build(tmp_path, **STANDALONE)
+    assert refusal(run_apply, host, backend, work) == "DETECTOR_STANDALONE_PROCESS_PRESENT"
+    assert_untouched(host, world, work)
+
+
+def test_a_standalone_process_that_appears_after_the_switch_fails_verify(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    run_apply(host, backend, work)
+    host.detector_procs = [4321]
+    assert refusal(run_verify, host, backend, work) == "DETECTOR_STANDALONE_PROCESS_PRESENT"
+
+
+def test_a_standalone_process_refuses_the_future_f1_runtime_check(tmp_path):
+    world, host, backend, work = runtime_world(tmp_path, **STANDALONE)
+    assert refusal(check_runtime, host, backend) == "DETECTOR_STANDALONE_PROCESS_PRESENT"
+
+
+def test_a_standalone_process_is_caught_by_the_rollback_postcondition_after_the_restore(tmp_path):
+    world, host, backend, work = build(tmp_path)
+    run_apply(host, backend, work)
+    host.detector_procs = [4321]
+    assert refusal(tool.rollback, work, host, FakeBackend(world)) == "DETECTOR_STANDALONE_PROCESS_PRESENT"
+    assert host.links == {CURRENT: OLD_PATH} and journal(work)["phase"] == "rolled_back"  # restored first, then escalated; the process is never stopped
+
+
+def test_detection_only_nothing_is_ever_stopped_or_signalled():
+    code = code_only(TOOL_PATH)
+    for forbidden in ("os.kill", "signal.", "killpg", "pkill", "terminate", "os.system"):
+        assert forbidden not in code, forbidden
+    assert code.count("subprocess.run(") == 1  # still ONLY the allow-listed `systemctl show`; no process execution was added
+
+
+def make_proc(tmp_path: Path, entries: dict[str, bytes | None]) -> Path:
+    root = tmp_path / "proc"
+    root.mkdir()
+    for name, cmdline in entries.items():
+        entry = root / name
+        entry.mkdir()
+        if cmdline is not None:
+            (entry / "cmdline").write_bytes(cmdline)
+    return root
+
+
+def test_the_real_host_finds_standalone_detector_processes_by_exact_argv_tokens(tmp_path):
+    root = make_proc(tmp_path, {
+        "100": b"/usr/bin/python3\0-m\0aegis_soc.production_detector\0",
+        "101": b"/opt/aegis-idea3/current/venv/bin/python\0-m\0aegis_soc.supervisor\0--profile\0production\0",
+        "102": b"python\0/opt/aegis-idea3/current/aegis_soc/production_detector.py\0",
+        "103": b"",  # kernel thread
+        "104": b"python\0-m\0aegis_soc.production_detector_extra\0",  # near miss: not the detector
+        "105": b"grep\0production_detector\0",  # a search for it, not the detector
+        "106": None,  # vanished between listing and reading
+        "sys": None, "self": None,  # non-numeric entries
+    })
+    assert tool.F1rHost().detector_processes(str(root)) == [100, 102]
+
+
+def test_the_real_host_ignores_its_own_process_and_reports_none_on_a_clean_proc(tmp_path):
+    root = make_proc(tmp_path, {str(os.getpid()): b"python\0-m\0aegis_soc.production_detector\0", "7": b"sleep\0100\0"})
+    assert tool.F1rHost().detector_processes(str(root)) == []
+
+
+def test_an_unreadable_proc_entry_is_a_refusal_not_a_silent_absence(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("file permissions do not bind root")
+    root = make_proc(tmp_path, {"200": b"python\0-m\0aegis_soc.production_detector\0"})
+    os.chmod(root / "200" / "cmdline", 0)
+    with pytest.raises(tool.Refusal) as exc:
+        tool.F1rHost().detector_processes(str(root))
+    assert str(exc.value) == "PROC_READ_DENIED"
+
+
+def test_the_f1r_runner_re_proves_complete_detector_absence_after_pre_and_right_before_the_consume():
+    text = active_shell(F1R_RUNNER)
+    pre = text.index("capture PRE")
+    consume = text.index("f1r_consume_attempt")
+    window = text[pre:consume]
+    assert "f1r_preflight_gate" in window  # the tool's detector_absent() now covers the unit surface AND standalone processes
+    assert "f1_detector_absent_gate" in window and "die" in window[window.index("f1_detector_absent_gate"):]  # the independent shell check also re-runs, and aborts
+
+
+def test_the_shell_detector_gate_also_detects_a_standalone_process_while_the_unit_is_not_found(tmp_path):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "systemctl").write_text('#!/bin/bash\nprintf "%s\\n" "LoadState=not-found" "ActiveState=inactive" "MainPID=0"\n')
+    (bindir / "pgrep").write_text("#!/bin/bash\nexit ${F1_PGREP:-1}\n")
+    for stub_file in bindir.iterdir():
+        stub_file.chmod(0o755)
+    path = f"{bindir}:{os.environ['PATH']}"
+    assert sh(f'. "{F1_LIB}"; f1_detector_absent_gate', env={"PATH": path}).returncode == 0
+    r = sh(f'. "{F1_LIB}"; f1_detector_absent_gate', env={"PATH": path, "F1_PGREP": "0"})
+    assert r.returncode == 1 and "F1_DETECTOR_PROCESS_RUNNING" in r.stderr
 
 
 # ═══ negative controls are exercised separately (mutation of the critical gates); documents the gate surface ═══════════════════

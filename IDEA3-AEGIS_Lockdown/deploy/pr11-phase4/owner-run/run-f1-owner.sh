@@ -4,7 +4,7 @@
 # repository, replaces the PIN_ values (the merged main SHA, the operator identity, the frozen alert source uid and the reviewed unit SHA-256), records
 # the frozen file's SHA-256, and only then authorizes a run. Nothing in this repository executes it.
 # Usage (the FROZEN operator user/uid, NOT root):  bash run-f1-owner.sh <AUTH_DIR>     AUTH_DIR holds authorization-F1.txt and k3-F1.txt (same-day, stage=F1)
-# Stage order: L7 -> L7u -> L8p -> L6c (repaired-release install) -> F1r (current-release activation) -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9. F1 requires the L8p closeout result (L8P_LIVE_EXECUTED=YES + L8P_PROVISIONING=PASS in the
+# Stage order: L7 -> L7u -> L8p -> L6c (repaired-release install) -> F1r (current-release activation) -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9. F1 requires the governed F1r activation to be CLOSED (exactly one status-log receipt with F1R_LIVE_EXECUTED=YES + F1R_CURRENT_SWITCHED=YES) and the L8p closeout result (L8P_LIVE_EXECUTED=YES + L8P_PROVISIONING=PASS in the
 # canonical closeout receipt of the pinned commit), consumes ONE attempt (F1-ATTEMPT-CONSUMED) and has NO automatic second attempt.
 # F1 installs the exact pinned detector unit (root:root 0644, atomic, never overwriting), daemon-reloads, starts the detector EXACTLY once through the reviewed
 # p4-f1-alert-source.py ordered gate, verifies the detector runtime, and on failure rolls back ONLY what this attempt journalled. It NEVER restarts the Core,

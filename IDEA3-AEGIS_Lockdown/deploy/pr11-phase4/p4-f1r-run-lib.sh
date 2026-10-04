@@ -63,12 +63,14 @@ f1r_detector_source_gate() {
 
 # f1r_preflight_gate PY TOOL OLD_ID NEW_ID NEW_SOURCE_SHA NEW_DETECTOR_SHA256 — the reviewed tool's READ-ONLY `check`: `current` is exactly the OLD target, the
 # OLD and NEW releases pass the existing release guard at --expect-owner root, the NEW release id/source SHA/clean tree/detector digest are exact, the detector
-# is absent and the Core is running. Needs neither root nor the live flag.
+# is absent on BOTH surfaces (systemd unit and standalone process) and the Core is running. It needs ROOT READ authority (/opt/aegis-idea3 may be root-only and
+# /proc must show every process), so it runs through $SUDO; it needs neither the live flag nor any write. If the privileged read cannot be performed the gate
+# fails (ROOT_READ_UNAVAILABLE) — the owner runner then stops BEFORE the attempt is consumed. `sudo -v` alone only authenticates; it does not elevate this call.
 f1r_preflight_gate() {
   local py=${1:-} tool=${2:-} old=${3:-} new=${4:-} src=${5:-} det=${6:-} out reason
-  if ! out=$("$py" "$tool" check --old-release-id "$old" --new-release-id "$new" --new-source-sha "$src" --new-detector-sha256 "$det" 2>&1); then
+  if ! out=$($SUDO env PYTHONDONTWRITEBYTECODE=1 "$py" "$tool" check --old-release-id "$old" --new-release-id "$new" --new-source-sha "$src" --new-detector-sha256 "$det" 2>&1); then
     reason=$(printf '%s\n' "$out" | sed -n 's/.*reason=\([^ ]*\).*/\1/p' | tail -n 1)
-    f1r_reason "F1R_PREFLIGHT_FAILED:${reason:-UNKNOWN}"; return 1
+    f1r_reason "F1R_PREFLIGHT_FAILED:${reason:-ROOT_READ_UNAVAILABLE}"; return 1
   fi
 }
 

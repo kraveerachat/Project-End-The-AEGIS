@@ -877,14 +877,16 @@ def git_repo(tmp_path: Path, receipts: dict[str, str]) -> Path:
 
 L8P_OK = "# closeout\nL8P_LIVE_EXECUTED=YES\nL8P_PROVISIONING=PASS\n"
 LOGS = "Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs"
+F1R_OK = "# f1r closeout\nF1R_LIVE_EXECUTED=YES\nF1R_CURRENT_SWITCHED=YES\n"
+F1R_RECEIPT = f"{LOGS}/2026-10-06_000000_music_idea3-f1r-live-closeout.md"
 
 
 def gate_result(repo: Path):
     return source_lib(f'f1_receipt_gate "{repo}"')
 
 
-def test_the_receipt_gate_passes_only_with_the_canonical_l8p_closeout_and_no_recorded_f1(tmp_path):
-    repo = git_repo(tmp_path, {L8P_RECEIPT: L8P_OK})
+def test_the_receipt_gate_passes_only_with_the_canonical_l8p_closeout_the_f1r_closeout_and_no_recorded_f1(tmp_path):
+    repo = git_repo(tmp_path, {L8P_RECEIPT: L8P_OK, F1R_RECEIPT: F1R_OK})
     result = gate_result(repo)
     assert result.returncode == 0, result.stderr
 
@@ -907,9 +909,9 @@ def test_the_receipt_gate_requires_the_result_in_the_canonical_receipt_and_uniqu
 
 
 def test_the_receipt_gate_is_one_shot_for_f1_itself(tmp_path):
-    repo = git_repo(tmp_path, {L8P_RECEIPT: L8P_OK, f"{LOGS}/2026-10-05_000000_music_f1.md": "F1_PRODUCTION_DEPLOYED=YES\nF1_DETECTOR_STARTED=YES\n"})
+    repo = git_repo(tmp_path, {L8P_RECEIPT: L8P_OK, F1R_RECEIPT: F1R_OK, f"{LOGS}/2026-10-07_000000_music_f1.md": "F1_PRODUCTION_DEPLOYED=YES\nF1_DETECTOR_STARTED=YES\n"})
     assert "F1_ALREADY_DEPLOYED" in gate_result(repo).stderr
-    one_field = git_repo(tmp_path / "y", {L8P_RECEIPT: L8P_OK, f"{LOGS}/2026-10-05_000000_music_f1.md": "F1_PRODUCTION_DEPLOYED=YES\n"})
+    one_field = git_repo(tmp_path / "y", {L8P_RECEIPT: L8P_OK, F1R_RECEIPT: F1R_OK, f"{LOGS}/2026-10-07_000000_music_f1.md": "F1_PRODUCTION_DEPLOYED=YES\n"})
     assert gate_result(one_field).returncode == 0  # a partial/blocked record is not a deployment
 
 
@@ -1069,3 +1071,55 @@ def test_the_expected_running_state_is_accepted_and_every_required_property_is_p
 def test_each_required_running_property_is_enforced_and_nothing_was_weakened(tmp_path, key, bad, reason):
     world, host, _, _ = build(tmp_path)
     assert refusal(tool.verify_loaded, StateBackend(world, host, {**GOOD_RUNNING, key: bad}), True) == reason
+
+
+# ═══ review hardening: F1 must prove the governed F1r predecessor, not just the runtime pins ═══════════════════════════════════
+
+
+def f1r_repo(tmp_path, f1r: dict[str, str]):
+    return git_repo(tmp_path, {L8P_RECEIPT: L8P_OK, **f1r})
+
+
+def test_no_f1r_success_receipt_means_the_future_f1_refuses(tmp_path):
+    result = gate_result(f1r_repo(tmp_path, {}))
+    assert result.returncode == 1 and "F1_F1R_NOT_CLOSED" in result.stderr
+
+
+def test_only_f1r_live_executed_refuses(tmp_path):
+    assert "F1_F1R_NOT_CLOSED" in gate_result(f1r_repo(tmp_path, {F1R_RECEIPT: "F1R_LIVE_EXECUTED=YES\n"})).stderr
+
+
+def test_only_f1r_current_switched_refuses(tmp_path):
+    assert "F1_F1R_NOT_CLOSED" in gate_result(f1r_repo(tmp_path, {F1R_RECEIPT: "F1R_CURRENT_SWITCHED=YES\n"})).stderr
+
+
+def test_f1r_fields_split_across_two_receipts_never_combine(tmp_path):
+    repo = f1r_repo(tmp_path, {F1R_RECEIPT: "F1R_LIVE_EXECUTED=YES\n", f"{LOGS}/2026-10-06_010000_music_other.md": "F1R_CURRENT_SWITCHED=YES\n"})
+    assert "F1_F1R_NOT_CLOSED" in gate_result(repo).stderr
+
+
+def test_exactly_one_receipt_with_both_f1r_fields_passes(tmp_path):
+    result = gate_result(f1r_repo(tmp_path, {F1R_RECEIPT: F1R_OK}))
+    assert result.returncode == 0, result.stderr
+
+
+def test_duplicate_successful_f1r_receipts_refuse(tmp_path):
+    repo = f1r_repo(tmp_path, {F1R_RECEIPT: F1R_OK, f"{LOGS}/2026-10-06_020000_music_idea3-f1r-second.md": F1R_OK})
+    assert "F1_F1R_RESULT_NOT_UNIQUE" in gate_result(repo).stderr
+
+
+def test_a_repository_only_f1r_receipt_that_records_no_never_satisfies_the_gate(tmp_path):
+    repo = f1r_repo(tmp_path, {F1R_RECEIPT: "F1R_LIVE_EXECUTED = NO\nF1R_CURRENT_SWITCHED = NO\n"})
+    assert "F1_F1R_NOT_CLOSED" in gate_result(repo).stderr
+    pr_receipt = next((REPO_ROOT / LOGS).glob("*_music_idea3-f1r-current-release-activation-stage.md"), None)
+    if pr_receipt is not None:  # the repository-only PR receipt itself must never carry the authoritative YES pair
+        lines = [line.strip().strip("`").replace(" ", "") for line in pr_receipt.read_text().splitlines()]
+        assert "F1R_LIVE_EXECUTED=YES" not in lines and "F1R_CURRENT_SWITCHED=YES" not in lines
+
+
+def test_the_f1r_predecessor_is_checked_after_l8p_and_the_runtime_gates_stay_as_defense_in_depth():
+    text = LIB.read_text()
+    body = text[text.index("f1_receipt_gate() {"):text.index("# f1_unit_pin_gate")]
+    assert body.index("F1_L8P_NOT_CLOSED") < body.index("F1_F1R_NOT_CLOSED") < body.index("F1_ALREADY_DEPLOYED")
+    runner = active_shell(RUNNER)
+    assert "f1_receipt_gate" in runner and "f1_runtime_release_gate" in runner  # both remain

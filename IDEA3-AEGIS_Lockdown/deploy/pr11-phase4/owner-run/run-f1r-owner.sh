@@ -150,7 +150,7 @@ rollback_flow() { trap - ERR INT TERM; [ "$ROLLED_BACK" = 0 ] || return 0; ROLLE
   out=$(handler rollback.sh 2>&1) || { printf '%s\n' "$out"; echo "F1R_ROLLBACK=FAIL (owner decision) — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
   printf '%s\n' "$out"
   f1r_rollback_output_gate "$out" || { echo "F1R_ROLLBACK_SEMANTICS=FAIL — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
-  [ "$(readlink /opt/aegis-idea3/current)" = "$OLD_RELEASE_PATH" ] || { echo "F1R_ROLLBACK_STATE=FAIL (current is not the OLD target) — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
+  [ "$(sudo readlink /opt/aegis-idea3/current)" = "$OLD_RELEASE_PATH" ] || { echo "F1R_ROLLBACK_STATE=FAIL (current is not the OLD target) — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
   f1r_core_snapshot_gate "$CORE_PRE" || { echo "F1R_ROLLBACK_CORE=FAIL — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
   capture RB "$EVID/rb-root" || { echo "RB capture FAILED — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
   own_pre "$EVID/rb-root"
@@ -164,9 +164,11 @@ echo "== PRE capture (read-only; BEFORE the attempt is consumed and before any m
 capture PRE "$PRE" || die "PRE capture failed; nothing changed and nothing consumed"
 own_pre "$PRE"
 ( cd "$PRE" && sha256sum -c --quiet --strict SHA256SUMS ) || die "PRE checksum verification failed; nothing changed and nothing consumed"
-# The PRE capture ran just now: re-prove the exact OLD target, the releases, the detector absence and the Core snapshot BEFORE the one-shot boundary.
+# The PRE capture ran just now: re-prove the exact OLD target, the releases, COMPLETE detector absence (the tool covers the unit surface AND any standalone
+# aegis_soc.production_detector process; the shell gate re-checks independently) and the Core snapshot BEFORE the one-shot boundary.
 f1r_preflight_gate "$PY" "$F1R_TOOL" "$OLD_RELEASE_ID" "$NEW_RELEASE_ID" "$NEW_RELEASE_SOURCE_SHA" "$NEW_PRODUCTION_DETECTOR_SHA256" \
   || die "F1r preflight no longer holds after the PRE capture (see reason above); the attempt was NOT consumed"
+f1_detector_absent_gate || die "the detector unit/process is not absent after the PRE capture (see reason above); the attempt was NOT consumed"
 f1r_core_snapshot_gate "$CORE_PRE" || die "the Core drifted during the PRE capture (see reason above); the attempt was NOT consumed"
 
 sudo install -d -m 700 -o root -g root "$WORK" || die "could not create the private root work directory"
@@ -180,7 +182,7 @@ apply_rc=0; apply_out=$(handler apply.sh 2>&1) || apply_rc=$?; printf '%s\n' "$a
 echo "== F1r VERIFY (read-only evidence check)"
 ver_rc=0; ver_out=$(handler verify.sh 2>&1) || ver_rc=$?; printf '%s\n' "$ver_out"
 { [ "$ver_rc" = 0 ] && printf '%s\n' "$ver_out" | grep -qx 'F1R_VERIFY=PASS'; } || rollback_flow "F1R_VERIFY failed"
-[ "$(readlink /opt/aegis-idea3/current)" = "$NEW_RELEASE_PATH" ] || rollback_flow "independent current-target check failed"
+[ "$(sudo readlink /opt/aegis-idea3/current)" = "$NEW_RELEASE_PATH" ] || rollback_flow "independent current-target check failed"
 f1r_core_snapshot_gate "$CORE_PRE" || rollback_flow "the Core is not the same running process (PID/NRestarts drift)"
 sudo cat "$WORK/f1r-journal.json" > "$EVID/f1r-journal.json" 2>/dev/null || true   # non-secret: release ids, targets, PIDs, restart counts
 echo "== POST capture"; capture POST "$EVID/post-root" || rollback_flow "POST capture failed"

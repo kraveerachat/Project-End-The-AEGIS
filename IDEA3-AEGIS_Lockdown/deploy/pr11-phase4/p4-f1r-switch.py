@@ -43,6 +43,7 @@ DETECTOR_UNIT_PATHS = (
     f"/etc/systemd/system/{DETECTOR_UNIT}.d", f"/run/systemd/system/{DETECTOR_UNIT}.d", f"/usr/lib/systemd/system/{DETECTOR_UNIT}.d",
 )
 DETECTOR_REL = "aegis_soc/production_detector.py"
+DETECTOR_MODULE = "aegis_soc.production_detector"  # the argv token of `python -m aegis_soc.production_detector` (the unit's ExecStart and any hand-run copy)
 MANIFEST_REL = "RELEASE-MANIFEST.json"
 JOURNAL_NAME = "f1r-journal.json"
 SHOW_TIMEOUT_SEC = 10.0
@@ -104,31 +105,76 @@ def _load_guard():
 
 
 class F1rHost:
-    """Host reads/writes for the switch only. Fixtures substitute this class with an in-memory fake."""
+    """Host reads/writes for the switch only. Fixtures substitute this class with an in-memory fake.
+
+    Reads of /opt/aegis-idea3 may need ROOT (the parent can be root-only): the read-only ``check`` / ``check-runtime`` are therefore run through ``sudo`` by
+    the owner libraries, and a read that is DENIED here is a fixed refusal (``HOST_READ_DENIED``), never an empty "absent" answer."""
+
+    def _lstat(self, path: str):
+        try:
+            return os.lstat(path)
+        except (FileNotFoundError, NotADirectoryError):
+            return None  # genuinely absent
+        except PermissionError:
+            refuse("HOST_READ_DENIED")  # cannot be proven either way: fail closed
 
     def is_symlink(self, path: str) -> bool:
-        return os.path.islink(path)
+        info = self._lstat(path)
+        return info is not None and stat.S_ISLNK(info.st_mode)
 
     def readlink(self, path: str) -> str:
-        return os.readlink(path)
+        try:
+            return os.readlink(path)
+        except PermissionError:
+            refuse("HOST_READ_DENIED")
+            raise  # unreachable
 
     def lexists(self, path: str) -> bool:
-        return os.path.lexists(path)
+        return self._lstat(path) is not None
 
     def is_regular(self, path: str) -> bool:
+        info = self._lstat(path)
+        return info is not None and stat.S_ISREG(info.st_mode)
+
+    def detector_processes(self, proc_root: str = "/proc") -> list[int]:
+        """Read-only detection of any standalone ``python -m aegis_soc.production_detector`` (or ``.../production_detector.py``) process, by EXACT argv tokens:
+        a unit that is ``not-found`` does not prove no detector runs. Never signals, stops or kills anything. Run with root read authority so no process is
+        hidden; an unreadable /proc entry is a refusal, not an absence."""
+        found: list[int] = []
+        me = os.getpid()
         try:
-            return stat.S_ISREG(os.lstat(path).st_mode)
-        except OSError:
-            return False
+            names = os.listdir(proc_root)
+        except PermissionError:
+            refuse("PROC_READ_DENIED")
+        for name in names:
+            if not name.isdigit() or int(name) == me:
+                continue
+            try:
+                data = Path(proc_root, name, "cmdline").read_bytes()
+            except PermissionError:
+                refuse("PROC_READ_DENIED")
+            except OSError:
+                continue  # the process exited between the listing and the read
+            args = [a.decode("utf-8", "replace") for a in data.split(b"\0") if a]
+            if any(a == DETECTOR_MODULE or os.path.basename(a) == "production_detector.py" for a in args):
+                found.append(int(name))
+        return sorted(found)
 
     def read_bytes(self, path: str) -> bytes:
-        return Path(path).read_bytes()
+        try:
+            return Path(path).read_bytes()
+        except PermissionError:
+            refuse("HOST_READ_DENIED")
+            raise  # unreachable
 
     def sha256_file(self, path: str) -> str:
         digest = hashlib.sha256()
-        with open(path, "rb") as handle:
-            for chunk in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(chunk)
+        try:
+            with open(path, "rb") as handle:
+                for chunk in iter(lambda: handle.read(1 << 20), b""):
+                    digest.update(chunk)
+        except PermissionError:
+            refuse("HOST_READ_DENIED")
         return digest.hexdigest()
 
     def realpath(self, path: str) -> str:
@@ -158,6 +204,7 @@ class F1rHost:
 
     def release_guard(self, logical: str, host_path: str) -> tuple[str, str]:
         """The existing, reviewed release guard, in-process, always at --expect-owner root. Returns (release_id, source_git_sha)."""
+        self._lstat(host_path)  # a denied read must surface as HOST_READ_DENIED, not as the guard's "missing release"
         guard = _load_guard()
         try:
             return guard.check(logical, Path(host_path), "root")
@@ -247,12 +294,17 @@ def props(backend: F1rBackend, unit: str, names: tuple[str, ...]) -> dict[str, s
 
 
 def detector_absent(host: F1rHost, backend: F1rBackend) -> None:
+    """The detector is absent on BOTH surfaces: (A) the systemd surface (no unit file anywhere, LoadState not-found, inactive, MainPID 0) and (B) no standalone
+    ``aegis_soc.production_detector`` process exists (a bare process leaves the unit not-found). Used by preflight/check, apply, verify, check-runtime and the
+    rollback postcondition. Detection only: nothing is ever stopped or signalled."""
     for path in DETECTOR_UNIT_PATHS:
         if host.lexists(path):
             refuse("DETECTOR_UNIT_OR_PROCESS_PRESENT")
     state = props(backend, DETECTOR_UNIT, DETECTOR_PROPS)
     if state.get("LoadState") != "not-found" or state.get("ActiveState") != "inactive" or state.get("MainPID") != "0":
         refuse("DETECTOR_UNIT_OR_PROCESS_PRESENT")
+    if host.detector_processes():
+        refuse("DETECTOR_STANDALONE_PROCESS_PRESENT")
 
 
 def core_snapshot(host: F1rHost, backend: F1rBackend) -> dict[str, str]:
