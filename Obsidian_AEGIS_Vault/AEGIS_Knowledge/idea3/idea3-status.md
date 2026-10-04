@@ -18,7 +18,20 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 F1i LIVE closeout — repaired immutable release installed (install only) — 2026-10-04
+
+> [!important] **F1i was executed LIVE once (2026-10-04 21:45 +07) and PASSED.** The immutable release `c2238375de14678f2a67c039282d9aeff6d553e5` (source SHA exact, `production_detector.py` SHA-256 `a91bcfc2…db9332`) is now installed at `/opt/aegis-idea3/releases/c2238375de14678f2a67c039282d9aeff6d553e5`, root-owned, release guard PASS, tree digest `e1915797…31fc2`. **This proves INSTALLATION only.** `/opt/aegis-idea3/current` still resolves to `55c7d181…`; the Core was not restarted (MainPID 896, NRestarts 0 unchanged); credentials and `core.env` metadata are unchanged; the detector is still absent; no Recovery, no ESP32. F1r (the switch), F1 attempt 2, real detector acceptance, Recovery R1-R8, LVR, L8 and L9 are NOT executed and NOT proven.
+
+- **Evidence (outside the repo, directly verified for this closeout):** `…/idea3-p4-evidence/2026-10-04-f1i-20261004-214506` — one consumed attempt marker (`consumed_at=2026-10-04T14:45:15Z`), fresh same-day F1i Authorization + K3, apply and verify PASS, PRE/POST capture hashes PASS, comparator PASS (`FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `PRESERVATION_S10=PASS`), exactly one release-catalog addition re-derived independently from the raw captures, no rollback, secret scan zero hits.
+- **Comparator note (non-blocking):** the approved finding is labelled `L6C_RELEASE_INSTALLED`, the shared reason-code constant of the existing relational one-release rule (accepts stage tokens L6c, L7u, F1i; emitted identically by earlier L6c and L7u live comparisons); the `stage F1i` allowance was enforced, not a stage mismatch.
+- **State:** F1i authorization is consumed, no retry; the frozen runner is not re-run. The successor F1r requires, from the merged pinned commit, the F1i closeout receipt (the one carrying the authoritative F1i result fields) — it still needs its own owner decision, fresh same-day records and a frozen runner pinned to the then-current main. K3 caveat: V2 owner self-attestation, not an independent IDEA1-owner confirmation.
+- **Receipt:** `90-Status/logs/2026-10-04_214807_music_idea3-f1i-live-closeout.md`.
+
+---
+
 ## IDEA3 F1i post-L7 repaired-release install stage (OD-F1I-01) — repository only — 2026-10-04
+
+> [!note] Executed once on 2026-10-04 (live PASS, install only) — see the F1i LIVE closeout section above; this section describes the repository implementation.
 
 > [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1i-repaired-release-install-stage`, based on main `c2238375` (PR #335). `F1I_STAGE_ID = F1i`, order `L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9`. **Nothing was executed:** no F1i run, no L6c run, no release installed, `/opt/aegis-idea3/current` unchanged, Core not restarted, detector not started, no F1i/F1r/F1 Authorization or K3 created, no runner frozen, Production not mutated, no Recovery, no ESP32. `F1I_LIVE_EXECUTED = NO`, `F1I_RELEASE_INSTALLED = NO`.
 
