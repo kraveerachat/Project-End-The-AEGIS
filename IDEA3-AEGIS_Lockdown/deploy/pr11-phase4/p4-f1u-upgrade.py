@@ -26,6 +26,12 @@ MACHINE-PROVEN Core-equivalent: both pass the release guard; python version, req
 Before ANY rollback Core restart the detector authority (loaded unit path, no drop-in, unit digest, disabled, ``Restart=no``, one process, pinned source bytes when active) is re-proved: a foreign
 detector must never be cycled by the rollback's own restart.
 
+EXECUTION BOUNDARY (review round 3). A release that is about to become executable authority is re-proved IMMEDIATELY before the restart that executes it. Forward: current is still exactly NEW, the NEW
+release passes the guard with the pinned id/source/detector/Core digests and its tree digest equals the one journaled at install. Rollback (every class, not only SAFE_EQUIVALENT): current is exactly
+OLD, the OLD release passes the full authority checks (guard, id, pinned detector digest) and its tree digest, and the PRE running-Core release tree, equal the baselines journaled at PREFLIGHT; only then
+is the equivalence proof re-run, so it compares the exact PRE-proven immutable trees and never two drifted ones. The equivalence proof alone cannot authorize executing the OLD detector (it permits that
+file to differ), hence the tree baselines. ``EXACT_RELEASE`` means the same release CONTENT as PRE, never mere path equality.
+
 Ownership: a journal in the attempt's private work directory records every owned step BEFORE it happens (installing, switching, restarting). Rollback acts only on that journal: before the restart it
 restores ``current`` and removes ONLY the release this attempt installed (D1 untouched); after the restart was issued it restores ``current`` NEW -> OLD, restarts the Core at most once more (the
 same plain argv, so the detector cycles AGAIN as the dependency consequence: D1 -> D2 -> D3 is acceptable only because every cycle is explained by an owned Core restart), proves the OLD runtime, and
@@ -589,11 +595,14 @@ def preflight(host, backend, pins: Pins) -> dict:
         except Refusal as exc:
             refuse(f"ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT:{exc}")  # no proven Core-equivalent rollback target: nothing is mutated
         rollback_class = "SAFE_EQUIVALENT"
+    # immutable tree-state baselines (the reviewed catalog digest) of the two releases a rollback may later execute from; re-compared immediately before any rollback restart
+    old_tree, pre_tree = host.tree_digest(release_path(pins.old_id)), host.tree_digest(pre_release)
     detector = detector_state(host, backend)
     check_detector_pre(detector, pins)
     check_surfaces(host, int(core["MainPID"]))
     return {"old_target": old_target, "new_target": release_path(pins.new_id), "core": core, "detector": detector, "material": F1I.material_metadata(host),
-            "core_pre_release": pre_release, "rollback_class": rollback_class, "equivalence_differing": differing}
+            "core_pre_release": pre_release, "rollback_class": rollback_class, "equivalence_differing": differing,
+            "old_release_tree_digest": old_tree, "core_pre_release_tree_digest": pre_tree}
 
 
 # ── apply ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -608,6 +617,43 @@ def _atomic_point(host, target: str) -> None:
 
 def _current_is(host, target: str) -> bool:
     return host.is_symlink(CURRENT) and host.readlink(CURRENT) == target and host.realpath(CURRENT) == target
+
+
+def reprove_new_release(host, pins: Pins, journal: dict) -> None:
+    """Immediately before the ONE forward Core restart: the release about to execute is still exactly what was installed and switched to."""
+    if not _current_is(host, journal["new_target"]):
+        refuse("NEW_RELEASE_NOT_CURRENT_BEFORE_RESTART")
+    try:
+        check_installed_release(host, pins)  # guard, id, source SHA, clean tree, detector digest, Core digest + ALERT_ACCEPTED
+    except Refusal as exc:
+        refuse(f"NEW_RELEASE_CHANGED_BEFORE_RESTART:{exc}")
+    if host.tree_digest(journal["new_target"]) != journal["release_tree_digest"]:
+        refuse("NEW_RELEASE_CHANGED_BEFORE_RESTART:TREE_DIGEST")
+
+
+def reference_trees_unchanged(host, journal: dict, old_path: str) -> None:
+    """The OLD release and the PRE running-Core release are still the exact immutable trees recorded at preflight."""
+    if host.tree_digest(old_path) != journal["old_release_tree_digest"]:
+        refuse("ROLLBACK_OLD_RELEASE_TREE_CHANGED")
+    if host.tree_digest(journal["core_pre_release"]) != journal["core_pre_release_tree_digest"]:
+        refuse("ROLLBACK_PRE_RELEASE_TREE_CHANGED")
+
+
+def reprove_rollback_target(host, pins: Pins, journal: dict, old_target: str) -> None:
+    """Immediately before ANY rollback Core restart (all classes): current is exactly OLD, the OLD release passes the full authority checks (guard, id, pinned detector digest), the OLD and PRE
+    trees equal the preflight baselines, and only THEN (SAFE_EQUIVALENT) is the equivalence of those proven trees re-run."""
+    if not _current_is(host, old_target):
+        refuse("ROLLBACK_CURRENT_NOT_OLD_BEFORE_RESTART")
+    try:
+        check_old_release(host, pins)
+    except Refusal as exc:
+        refuse(f"ROLLBACK_OLD_RELEASE_AUTHORITY_FAILED:{exc}")
+    reference_trees_unchanged(host, journal, old_target)
+    if journal["rollback_class"] == "SAFE_EQUIVALENT":
+        try:
+            core_runtime_equivalence(host, journal["core_pre_release"], old_target)
+        except Refusal as exc:
+            refuse(f"ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT:{exc}")
 
 
 def verify_runtime(host, backend, journal: dict, pins: Pins, *, expect_core_pid: str | None, expect_detector: dict | None) -> tuple[dict, dict]:
@@ -670,6 +716,7 @@ def apply(pins: Pins, work: Path, host, backend) -> dict[str, str]:
         if not _current_is(host, target):
             refuse("CURRENT_NOT_NEW_TARGET_AFTER_SWITCH")
         reprove_prestate(host, backend, journal)  # the Core and the detector are still untouched immediately before the restart
+        reprove_new_release(host, pins, journal)  # and the release that is about to execute is still exactly the installed one: nothing altered can ever run
         journal.update(phase="restarting", restart_invocations=1)
         write_journal(work, journal)  # BEFORE the restart: from here the Core may be on NEW
         if backend.systemctl(*RESTART_ARGS).rc != 0:
@@ -775,11 +822,7 @@ def rollback(work: Path, host, backend) -> dict[str, str]:
             detector_prior = detector_state(host, backend)
             # BEFORE the restart (which would cycle the detector through Requires=): the detector authority must be the reviewed one, and the rollback target must STILL be proven Core-equivalent
             detector_rollback_authority(detector_prior, pins)
-            if journal["rollback_class"] == "SAFE_EQUIVALENT":
-                try:
-                    core_runtime_equivalence(host, journal["core_pre_release"], old_path)
-                except Refusal as exc:
-                    refuse(f"ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT:{exc}")
+            reprove_rollback_target(host, pins, journal, old_target)  # the OLD release (incl. its detector) that is about to execute, for EVERY rollback class
             journal["rollback_restart_invoked"] = True
             write_journal(work, journal)  # BEFORE the restart
             if backend.systemctl(*RESTART_ARGS).rc != 0:
@@ -845,9 +888,14 @@ def rollback(work: Path, host, backend) -> dict[str, str]:
     if unchanged and final["MainPID"] == pre["MainPID"]:
         rollback_class = "EXACT_PROCESS"
     elif final["cwd"] == journal["core_pre_release"]:
+        # path equality is not content identity: the PRE release tree (== the final release: same path) must still be exactly the journaled PRE tree
+        reference_trees_unchanged(host, journal, old_path)
         rollback_class = "EXACT_RELEASE"
     else:
+        reference_trees_unchanged(host, journal, old_path)  # the equivalence below only ever compares the exact PRE-proven trees
         try:
+            if final["cwd"] != old_path:
+                refuse("ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT:FINAL_RELEASE_NOT_OLD")
             core_runtime_equivalence(host, journal["core_pre_release"], final["cwd"] or "")
         except Refusal as exc:
             refuse(f"ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT:{exc}")

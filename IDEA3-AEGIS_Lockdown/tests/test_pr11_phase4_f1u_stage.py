@@ -1274,6 +1274,9 @@ def test_an_inactive_detector_is_permitted_for_the_rollback_restart_which_never_
 def test_the_rollback_equivalence_is_re_proved_before_the_rollback_restart(tmp_path):
     host, world, work = after_failed_apply(tmp_path)
     host.files[f"{OLD_PATH}/aegis_soc/supervisor.py"] = b"# the rollback target changed since preflight\n"
+    j = journal(work)  # defense in depth: even with baselines that (wrongly) match the drifted tree, the equivalence itself still refuses
+    j["old_release_tree_digest"] = host.tree_digest(OLD_PATH)
+    (work / tool.JOURNAL_NAME).write_text(json.dumps(j))
     rb = FakeBackend(world, host)
     assert refusal(rollback, host, world, work, rb).startswith("ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT:CORE_RUNTIME_NOT_EQUIVALENT:FILE_DIFFERS:aegis_soc/supervisor.py")
     assert rb.restarts == 0 and NEW_PATH in host.dirs
@@ -1287,10 +1290,10 @@ def test_a_rollback_whose_detector_does_not_cycle_or_runs_the_wrong_release_is_e
     # the stale D2 still points into the (now removed) NEW release: either its missing source or its unchanged identity escalates; it is never accepted
     assert refusal(rollback, host, world, work, FakeBackend(world, host)) in ("DETECTOR_DRIFT_DURING_ROLLBACK:DETECTOR_SOURCE_SHA256_MISMATCH", "DETECTOR_DRIFT_DURING_ROLLBACK:DETECTOR_NOT_CYCLED_BY_CORE_RESTART")
     host2, backend2, world2, work2 = build(tmp_path / "wrongrt")
+    host2.files[f"{RUNNING_PATH}/aegis_soc/production_detector.py"] = DET_BYTES  # part of the PRE baseline (set before the attempt)
     world2.drop_once.add(ALERT)
     refusal(run_apply, host2, backend2, work2)
     original = world2.restart_core
-    host2.files[f"{RUNNING_PATH}/aegis_soc/production_detector.py"] = DET_BYTES
     world2.restart_core = lambda mode="replace": (original(mode), setattr(world2, "det_cwd", RUNNING_PATH))[0]  # the new detector runs from a release that is NOT the restored OLD one
     assert refusal(rollback, host2, world2, work2, FakeBackend(world2, host2)) == "DETECTOR_DRIFT_DURING_ROLLBACK:DETECTOR_NOT_ON_EXPECTED_RUNTIME"
 
@@ -1413,6 +1416,142 @@ def test_the_class_tokens_are_exactly_the_three_declared_ones():
     for token in ("EXACT_PROCESS", "EXACT_RELEASE", "SAFE_EQUIVALENT"):
         assert token in text
     assert "ROLLBACK_TARGET_NOT_SAFE_EQUIVALENT" in text and "EXACT_PRE_RESTORATION" in text
+
+
+# ═══ execution boundary: the release about to execute is re-proved immediately before the restart (review round 3) ═══════════════
+
+
+def mutate_on_reprove_call(monkeypatch, number: int, mutate) -> None:
+    """Run ``mutate`` right before the Nth ``reprove_prestate`` call of apply (3 = after the switch, immediately before the forward restart check)."""
+    original, calls = tool.reprove_prestate, {"n": 0}
+
+    def hooked(h, b, j):
+        calls["n"] += 1
+        if calls["n"] == number:
+            mutate()
+        return original(h, b, j)
+
+    monkeypatch.setattr(tool, "reprove_prestate", hooked)
+
+
+NEW_CHANGES = [
+    ("production_detector.py changed", lambda h, w: h.files.__setitem__(f"{NEW_PATH}/aegis_soc/production_detector.py", DET_BYTES + b"# changed"), "NEW_RELEASE_CHANGED_BEFORE_RESTART:DETECTOR_SHA256_MISMATCH"),
+    ("recovery_core.py changed", lambda h, w: h.files.__setitem__(f"{NEW_PATH}/aegis_soc/recovery_core.py", CORE_BYTES + b"# changed"), "NEW_RELEASE_CHANGED_BEFORE_RESTART:RECOVERY_CORE_SHA256_MISMATCH"),
+    ("recovery_core.py loses ALERT_ACCEPTED (pin forged to match)", None, None),
+    ("another payload file changed", lambda h, w: h.files.__setitem__(f"{NEW_PATH}/aegis_soc/supervisor.py", b"# swapped Core entrypoint\n"), "NEW_RELEASE_CHANGED_BEFORE_RESTART:TREE_DIGEST"),
+    ("an extra payload file appears", lambda h, w: h.files.__setitem__(f"{NEW_PATH}/venv/bin/evil", b"x"), "NEW_RELEASE_CHANGED_BEFORE_RESTART:TREE_DIGEST"),
+    ("the release no longer passes the guard", lambda h, w: h.guard.__setitem__(NEW_PATH, "OWNER_INVALID"), "NEW_RELEASE_CHANGED_BEFORE_RESTART:RELEASE_GUARD:OWNER_INVALID"),
+    ("the release id changed", lambda h, w: h.guard.__setitem__(NEW_PATH, ("other", NEW_SRC)), "NEW_RELEASE_CHANGED_BEFORE_RESTART:RELEASE_ID_MISMATCH"),
+    ("current moved away from NEW", lambda h, w: h.links.__setitem__(CURRENT, OLD_PATH), "NEW_RELEASE_NOT_CURRENT_BEFORE_RESTART"),
+    ("current points at a foreign release", lambda h, w: h.links.__setitem__(CURRENT, f"{RELEASES}/foreign"), "NEW_RELEASE_NOT_CURRENT_BEFORE_RESTART"),
+]
+
+
+@pytest.mark.parametrize("label,mutate,code", [c for c in NEW_CHANGES if c[1]], ids=[c[0] for c in NEW_CHANGES if c[1]])
+def test_a_new_release_altered_after_the_switch_never_executes_zero_core_restarts(tmp_path, monkeypatch, label, mutate, code):
+    host, backend, world, work = build(tmp_path)
+    mutate_on_reprove_call(monkeypatch, 3, lambda: mutate(host, world))
+    assert refusal(run_apply, host, backend, work) == code, label
+    assert backend.restarts == 0 and world.restart_modes == [] and "restart" not in world.events  # CORE_RESTART_INVOCATIONS=0: no altered NEW release can execute
+    assert journal(work)["phase"] == "switched" and journal(work)["restart_invocations"] == 0 and world.core["MainPID"] == "4242" and world.det["MainPID"] == "5151"
+
+
+def test_the_forward_reproof_runs_after_the_prestate_proof_and_before_the_restart_is_journaled(tmp_path):
+    host, backend, world, work = build(tmp_path)
+    seen = {}
+    world.hooks["restart"] = lambda: seen.__setitem__("phase", journal(work)["phase"])
+    run_apply(host, backend, work)
+    assert seen["phase"] == "restarting"
+    code = TOOL_PATH.read_text()
+    assert code.index("reprove_new_release(host, pins, journal)") < code.index('journal.update(phase="restarting", restart_invocations=1)')
+
+
+def old_release_changes():
+    def detector(h, w):  # a foreign but INTERNALLY CONSISTENT release: the fake sums are derived from the files, the guard still passes
+        h.files[f"{OLD_PATH}/aegis_soc/production_detector.py"] = b"# foreign detector that will be STARTED by the rollback restart\n"
+    return [
+        ("OLD detector changed (valid-looking release)", detector, "ROLLBACK_OLD_RELEASE_AUTHORITY_FAILED:OLD_RELEASE_DETECTOR_SHA256_MISMATCH"),
+        ("OLD supervisor changed", lambda h, w: h.files.__setitem__(f"{OLD_PATH}/aegis_soc/supervisor.py", b"# swapped\n"), "ROLLBACK_OLD_RELEASE_TREE_CHANGED"),
+        ("OLD recovery_core changed", lambda h, w: h.files.__setitem__(f"{OLD_PATH}/aegis_soc/recovery_core.py", CORE_BYTES + b"# x"), "ROLLBACK_OLD_RELEASE_TREE_CHANGED"),
+        ("OLD venv payload changed", lambda h, w: h.files.__setitem__(f"{OLD_PATH}/venv/bin/python", b"#!evil\n"), "ROLLBACK_OLD_RELEASE_TREE_CHANGED"),
+        ("OLD release gained a file", lambda h, w: h.files.__setitem__(f"{OLD_PATH}/aegis_soc/extra.py", b"x"), "ROLLBACK_OLD_RELEASE_TREE_CHANGED"),
+        ("OLD release fails the guard (foreign owner)", lambda h, w: h.guard.__setitem__(OLD_PATH, "OWNER_INVALID"), "ROLLBACK_OLD_RELEASE_AUTHORITY_FAILED:CURRENT_RELEASE_INVALID:RELEASE_GUARD:OWNER_INVALID"),
+        ("OLD release is malformed (no manifest/guard record)", lambda h, w: h.guard.pop(OLD_PATH), "ROLLBACK_OLD_RELEASE_AUTHORITY_FAILED:CURRENT_RELEASE_INVALID:RELEASE_GUARD:RELEASE_MISSING"),
+        ("OLD release reports a different id", lambda h, w: h.guard.__setitem__(OLD_PATH, ("someone-else", OLD)), "ROLLBACK_OLD_RELEASE_AUTHORITY_FAILED:CURRENT_RELEASE_INVALID:RELEASE_ID_MISMATCH"),
+        ("PRE running-Core release tree changed", lambda h, w: h.files.__setitem__(f"{RUNNING_PATH}/aegis_soc/supervisor.py", b"# drifted\n"), "ROLLBACK_PRE_RELEASE_TREE_CHANGED"),
+        ("PRE running-Core release gained a file", lambda h, w: h.files.__setitem__(f"{RUNNING_PATH}/aegis_soc/extra.py", b"x"), "ROLLBACK_PRE_RELEASE_TREE_CHANGED"),
+    ]
+
+
+@pytest.mark.parametrize("label,mutate,code", old_release_changes(), ids=[c[0] for c in old_release_changes()])
+def test_a_changed_or_foreign_rollback_release_never_executes_zero_rollback_core_restarts(tmp_path, label, mutate, code):
+    host, world, work = after_failed_apply(tmp_path)
+    mutate(host, world)
+    rb = FakeBackend(world, host)
+    assert refusal(rollback, host, world, work, rb) == code, label
+    assert rb.restarts == 0 and world.restart_modes == ["plain"]  # ROLLBACK_CORE_RESTART_INVOCATIONS=0: the changed OLD release (and its detector) is never started
+    assert not [c for c in rb.calls if c[0] != "show"] and NEW_PATH in host.dirs and journal(work)["rollback_restart_invoked"] is False
+
+
+@pytest.mark.parametrize("label,mutate,code", old_release_changes()[1:8], ids=[c[0] for c in old_release_changes()[1:8]])
+def test_exact_release_mode_also_re_proves_the_release_before_the_rollback_restart(tmp_path, label, mutate, code):
+    host, backend, world, work = build(tmp_path)
+    world.core_cwd = OLD_PATH  # PRE running release == OLD current: EXACT_RELEASE (no equivalence proof is ever run)
+    world.drop_once.add(ALERT)
+    refusal(run_apply, host, backend, work)
+    assert journal(work)["rollback_class"] == "EXACT_RELEASE"
+    mutate(host, world)
+    rb = FakeBackend(world, host)
+    assert refusal(rollback, host, world, work, rb) == code, label
+    assert rb.restarts == 0 and NEW_PATH in host.dirs
+
+
+def test_current_not_exactly_old_blocks_the_rollback_restart(tmp_path):
+    host, _world, work = after_failed_apply(tmp_path)
+    j = journal(work)
+    host.links[CURRENT] = f"{RELEASES}/foreign"
+    assert refusal(tool.reprove_rollback_target, host, PINS, j, OLD_PATH) == "ROLLBACK_CURRENT_NOT_OLD_BEFORE_RESTART"
+    host.links[CURRENT] = OLD_PATH
+    tool.reprove_rollback_target(host, PINS, j, OLD_PATH)  # the untouched world passes
+
+
+def test_exact_release_means_the_same_release_content_not_just_the_same_path(tmp_path):
+    host, backend, world, work = build(tmp_path)
+    world.core_cwd = OLD_PATH
+    world.drop_once.add(ALERT)
+    refusal(run_apply, host, backend, work)
+    rb = FakeBackend(world, host)
+    after_restart(world, host, lambda h, w: h.files.__setitem__(f"{OLD_PATH}/aegis_soc/extra.py", b"changed after the rollback restart"))  # the release drifts AFTER it was proven
+    code = refusal(rollback, host, world, work, rb)
+    assert code == "ROLLBACK_OLD_RELEASE_TREE_CHANGED"  # never reported as EXACT_RELEASE
+    assert rb.restarts == 1  # the proof before the restart held; the post-restart class refuses instead of declaring a false class
+
+
+def test_safe_equivalent_never_compares_drifted_reference_trees(tmp_path):
+    host, world, work = after_failed_apply(tmp_path)
+    after_restart(world, host, lambda h, w: h.files.__setitem__(f"{RUNNING_PATH}/aegis_soc/extra.py", b"drift after the restart"))
+    rb = FakeBackend(world, host)
+    assert refusal(rollback, host, world, work, rb) == "ROLLBACK_PRE_RELEASE_TREE_CHANGED"
+
+
+def test_the_preflight_journals_both_release_tree_baselines_with_the_reviewed_digest(tmp_path):
+    host, backend, _world, work = build(tmp_path)
+    run_apply(host, backend, work)
+    j = journal(work)
+    assert j["old_release_tree_digest"] == hashlib.sha256(b"x").hexdigest() * 0 or len(j["old_release_tree_digest"]) == 64
+    assert j["core_pre_release_tree_digest"] != j["old_release_tree_digest"]  # different releases: different baselines
+    host2, backend2, world2, work2 = build(tmp_path / "same")
+    world2.core_cwd = OLD_PATH
+    run_apply(host2, backend2, work2)
+    j2 = journal(work2)
+    assert j2["old_release_tree_digest"] == j2["core_pre_release_tree_digest"]  # identical paths: identical digests
+    code = TOOL_PATH.read_text()
+    assert "host.tree_digest(release_path(pins.old_id)), host.tree_digest(pre_release)" in code
+
+
+def test_the_reviewed_catalog_digest_helper_is_the_one_used_for_the_baselines():
+    code = code_only(TOOL_PATH)
+    assert "def tree_digest" not in code and "hashlib" not in code  # no second, weaker digest is invented: F1iHost.tree_digest (the L6c catalog digest) is reused
 
 
 # ═══ the CLI ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
