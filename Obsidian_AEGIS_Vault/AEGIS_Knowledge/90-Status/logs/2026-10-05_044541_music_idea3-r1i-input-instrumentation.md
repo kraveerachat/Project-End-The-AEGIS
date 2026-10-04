@@ -65,3 +65,12 @@ edit_policy: append-by-new-file
 
 - `R1I_LIVE_EXECUTED=NO` and `R1I_PRODUCTION_DEPLOYED=NO`; no live nft mutation, traffic generation, alert, incident, Core/detector restart, Recovery, or ESP32 action occurred.
 - The repository proves the intended kernel-origin logging design, not a live kernel producer, and has not observed trusted kernel acceptance. `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, and `RECOVERY_R1_R8_PROVEN=NO`.
+- **Claim boundary (durable):**
+  - `R1I_REPOSITORY_IMPLEMENTED=YES`
+  - `R1I_LIVE_EXECUTED=NO`
+  - `R1I_PRODUCTION_DEPLOYED=NO`
+  - `PRODUCTION_NFT_NORMALIZATION=NOT_PROVEN`
+  - `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`
+  - `R1_VERIFIED=NOT_CLAIMED`
+  - `RECOVERY_R1_R8_PROVEN=NO`
+- Production nft normalization of the installed state remains a LIVE-preflight proof. It has NOT been proven by repository tests or by the private-namespace (`unshare -rn`, local nft 1.1.7) runs, which are local evidence only. Trusted kernel acceptance has not been observed.
