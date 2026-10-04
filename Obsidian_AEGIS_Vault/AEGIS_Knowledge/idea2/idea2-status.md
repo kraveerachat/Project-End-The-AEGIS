@@ -15,6 +15,47 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Current task — PR2 Recording / Archive 5-minute clips + NAS playback/download (2026-10-05)
+
+Task: PR2 Recording / Archive. Branch:
+`feat/idea2-pr2-recording-archive-5min-download`; owner: Pub; starting main:
+`9cebd2a061f8d47bc97349762aa87f169c706710`. Current state: IN PROGRESS —
+REPOSITORY ONLY. Production mutation allowed: NO.
+
+Goal: while the authenticated Operator camera session remains active, record
+continuously and finalize one truthful clip every 300 seconds. Navigation among
+Live, Archive, Diagnostics, Settings and back to Live must not split the active
+recording. When the final viewer/session ends (including logout), finalize the
+current partial clip at its measured duration instead of padding/dropping it.
+A finalized clip becomes visible in Archival footage only after the existing NAS
+transfer/integrity-verification path succeeds. Archival footage must show the
+actual video, actual duration, support playback/seek, and add an authenticated,
+camera-scoped download path without exposing the NAS filesystem path.
+
+Scope: SegmentRecorder 300-second contract and partial-finalize regression
+coverage; clip metadata truthfulness; Archive playback/duration UI; RBAC-protected
+clip download; schema/config wording/default reconciliation. Out of scope:
+PR1/PR1.5 Live lifecycle semantics, GPU/model work, camera identity redesign,
+NAS Production mount mutation, retention policy, and unrelated UI redesign.
+
+Acceptance boundary for this repository session:
+- default segment target = 300 seconds and rotation remains continuous;
+- clearing viewer demand finalizes one non-empty partial segment with measured
+  duration;
+- Archive renders real finalized clip video and measured duration;
+- download uses the same auth/camera scope/storage verification boundary as
+  playback;
+- NAS success remains transfer -> integrity verify -> clip metadata publication;
+- source/unit/build validation must pass before this session can be called PASS;
+- Machine A >5-minute real-camera, logout partial, NAS, playback/download and
+  Production deployment acceptance remain separate owner-run evidence.
+
+### PR2 Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PR2-S1 | 300s recording + truthful partial + Archive playback/download source contract | IN PROGRESS | current source reconciled against main; mutation starts on this branch only | — | pending | implementation, tests, docs, real-machine acceptance | implement TDD-scoped source changes |
+
 ## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
 
 Branch `fix/idea2-operator-live-navigation-persistence` is a source-only PR1.5
