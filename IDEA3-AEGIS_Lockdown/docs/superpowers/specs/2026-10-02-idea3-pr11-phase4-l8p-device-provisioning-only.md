@@ -103,3 +103,33 @@ live inside the EVID tree that the scan covers with no exclusions. They are TEMP
 `nvs.csv` and `nvs.bin` (exact WORK_DIR, never a symlink or non-regular file, never the first-write marker or the JSON evidence, coreutils only) after apply and verify have passed and before the POST capture and the scan, and the post-first-write branch of `rollback.sh` applies the same
 removal (still zero device action, still `FAIL_SECURE_HOLD_AND_EVIDENCE`; the pre-first-write branch already removed these files). Attempt 2 stays consumed and its formal result stays `NOT_PROVEN`: no repository contract defines a post-hoc closeout of a consumed post-write attempt (the success claim is
 emitted only by the runner's full success path), so reconciling it, and whether physical recovery is required first, is an owner decision.
+
+## 9. Addendum (2026-10-04): owner-approved, attempt-2-specific, host-only reconciliation contract
+
+Section 8 left the reconciliation of the consumed attempt 2 to an owner decision. The owner has now decided:
+
+```text
+OWNER_DECISION=ATTEMPT2_SPECIFIC_HOST_ONLY_BOUNDED_RECONCILIATION_APPROVED
+PHYSICAL_RECOVERY_REQUIRED_BEFORE_RECONCILIATION=NO
+DEVICE_RETRY_ALLOWED=NO
+DEVICE_MUTATION=NO
+ESP32_ACTION=NO
+PRODUCTION_SERVICE_MUTATION=NO
+HOST_SIDE_EVIDENCE_TREE_MUTATION=BOUNDED (deletion of exactly l8p-work/nvs.csv and l8p-work/nvs.bin, the two approved temporary secret-bearing work artifacts, and nothing else)
+```
+
+Terminology note: the decision was first worded "read-only / host-only". That was inaccurate, because the approved procedure intentionally deletes those two files. It is a **host-only bounded reconciliation**: no device mutation, no ESP32 action, no Production or service mutation, but a bounded host-side evidence-tree mutation. Only the wording changed; the decision's scope and semantics are unchanged.
+
+The decision applies ONLY to historical attempt 2 (run id `l8p-20261004-041840`) and does not authorize another device attempt, a new Authorization/K3, or any device action. It is implemented as a one-off tool, `deploy/pr11-phase4/reconciliation/reconcile-l8p-attempt2.py`
+(standard library only; no device, serial, esptool, MQTT, network, subprocess, sudo, service or NetworkManager code), hard-bound to that run id, the evidence and freeze directory names, the frozen runner SHA-256 and the pinned firmware digest. It takes only `--evidence-root`, `--freeze-dir` and `--input-dir`.
+
+It refuses at the first failed gate with `L8P_ATTEMPT2_RECONCILIATION=FAIL phase=<PRE_CLEANUP|CLEANUP|POST_CLEANUP> reason=...` and no authoritative result field; a failure in the CLEANUP or POST_CLEANUP phase is explicitly reported as a possible mutation with the exact state (`L8P_RECONCILIATION_MUTATION_STATE`, `L8P_RECONCILIATION_MUTATION_PERFORMED`), never as a pre-cleanup refusal, and an unwritable `l8p-work` is refused before the first removal to avoid partial cleanup. The consumed marker is required in its real location and shape (`<freeze>/auth/L8p-ATTEMPT-CONSUMED`, a regular 0600 file holding `consumed_at=<UTC timestamp>`); a read-only check confirmed it present on the real attempt-2 history, the tool never creates or repairs it, and there is no fallback for its absence. Before deleting anything it requires: the frozen runner digest, the consumed marker, and the Authorization/K3 identical to the evidence copies; the one canonical 12-field
+`l8p-<run_id>.json` (mode 0600, run id, firmware digest and flash / NVS readback / firmware readback / boot / failure-boundary values); the historical `owner-run.log` shape (every required fact present, the original runner's full-success line ABSENT, the original 2-hit scan and the
+`NOT_PROVEN` statement present); the PRE, POST and RB capture `SHA256SUMS`; the first-write marker; and the secret-value classification of the ENTIRE evidence tree with the same >= 8-byte semantics as `l8p_secret_scan` showing EXACTLY the two known staging files
+(`l8p-work/nvs.csv`: wifi.psk, mqtt.pass, k_c2d, k_d2c; `l8p-work/nvs.bin`: wifi.psk, mqtt.pass) and nothing else, printing only path, size and class names. It then takes an in-memory manifest (path, mode, size, SHA-256) of every other file and directory, removes EXACTLY those two
+files (canonical evidence root, `<EVID>/l8p-work` a real canonical directory, regular non-symlink files, two fixed names, no wildcard or recursion), and proves that nothing else changed, that the strict full-tree scan has ZERO hits, that the capture checksums and the JSON still verify, and that the
+first-write and consumed markers remain. Only then does it print `L8P_ATTEMPT2_RECONCILIATION=PASS` with `L8P_RECONCILIATION_DEVICE_ACTION=NONE`, `L8P_RECONCILIATION_SECRET_WORK_REMOVED=YES`, `L8P_RECONCILIATION_SECRET_SCAN=PASS`, `L8P_RECONCILIATION_EVIDENCE_PRESERVED=YES`,
+`ORIGINAL_RUNNER_FULL_SUCCESS_LINE=NO` and the reconciled facts `L8P_LIVE_EXECUTED=YES` / `L8P_PROVISIONING=PASS`.
+
+Those last two fields are NEW owner-approved reconciliation results; they do not claim that the historical frozen runner printed them. A later, separate, immutable closeout receipt, created only AFTER the merged tool has executed successfully, must state `ORIGINAL_RUNNER_FULL_SUCCESS_LINE=NO` and
+`RECONCILIATION_RESULT=PASS`. Until then attempt 2's formal result remains `NOT_PROVEN`. Repository implementation is not live reconciliation: the repository change performs no cleanup on the real evidence tree, creates no acceptance receipt and touches no device.
