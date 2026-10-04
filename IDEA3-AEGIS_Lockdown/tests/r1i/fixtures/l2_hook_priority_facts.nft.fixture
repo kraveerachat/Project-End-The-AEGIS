@@ -1,0 +1,16 @@
+# FIXTURE authority only: a sanitized, hand-reduced copy of the hook/table facts of the L2
+# `inet aegis_idea3` table as recorded in the 2026-10-05 read-only preflight. It is NOT current
+# LIVE evidence and does not prove anything about Production.
+table inet aegis_idea3 {
+	set blocked_ipv4 {
+		type ipv4_addr
+	}
+	chain input {
+		type filter hook input priority filter; policy accept;
+		ip saddr @blocked_ipv4 drop
+	}
+	chain forward {
+		type filter hook forward priority filter; policy accept;
+		ip saddr @blocked_ipv4 drop
+	}
+}
