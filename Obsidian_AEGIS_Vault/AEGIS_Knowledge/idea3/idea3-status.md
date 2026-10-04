@@ -18,6 +18,20 @@ edit_policy: owner-writable
 
 ---
 
+## IDEA3 F1 governed detector unit install/start stage — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1-governed-detector-install-stage` (Draft PR, unmerged). `OWNER_DECISION = STAGE_F1_REGISTERED_AFTER_L8P_BEFORE_L8` (use `F1`, not `F1b`; same-day Authorization + K3, `stage=F1`, no extra field). Nothing was executed live: `F1_PRODUCTION_DEPLOYED = NO`, `F1_DETECTOR_STARTED = NO`, the detector unit is still not installed, the Core was not restarted, no alert was injected, no R1 incident exists, Recovery R1-R8 was not run, no ESP32/serial.
+
+- **Read-only live preflight (owner root check, 2026-10-04, main `e8efe3bb`):** `AEGIS_ALERT_SOURCE_UID=948`, `AEGIS_RECOVERY_OPERATOR_UID=1000`, Recovery socket path/gid `947`, R2/R6/R7 probe settings present, alert directory `aegis-idea3:aegis-idea3-alert 2750`, `alert.sock` `0620`, detector account uid 948, the RUNNING Core carries uid 948. The detector unit was `not-found`; the observer `--once` reported `incident: none` (R1 FAILED = no incident, expected).
+- **What the stage adds:** `P4_STAGES` gains `F1` (`L8p F1 L8`); `p4-f1-deploy.py` installs the exact pinned unit (rendered SHA-256 `748a4c5b…211772a`, `root:root 0644`, no-overwrite), `daemon-reload`, then calls the reviewed `p4-f1-alert-source.py` `start_detector` once, verifies, and rolls back only a journalled install; `stages/F1/*`, `p4-f1-run-lib.sh` (marker `F1-ATTEMPT-CONSUMED`, receipt gate requiring the canonical L8p closeout result) and the inert `owner-run/run-f1-owner.sh`.
+- **Boundaries preserved:** no Core restart, no `core.env`/user/group change, no enable, no alert injection, no CUT/RESTORE, no ESP32/serial, no retry; a pre-existing unit is never replaced or removed.
+- **Claims boundary:** a future successful F1 run proves only `F1_PRODUCTION_DEPLOYED` and `F1_DETECTOR_STARTED`; `F1_REAL_DETECTOR_ACCEPTANCE`, `RECOVERY_R1_R8_PROVEN` and `R1_VERIFIED` need a later REAL validated detector alert reaching the Core.
+- **Limitation:** the shared L0 capture does not observe the detector unit, so the compare covers other Core-host records only; the stage proves the unit by its own exact checks.
+- **Next:** human review/merge, then the owner freeze workflow (frozen runner, fresh `authorization-F1.txt` + `k3-F1.txt`, pinned main, pinned unit digest) before any live F1 run.
+- **Receipt:** `90-Status/logs/2026-10-04_134839_music_idea3-f1-governed-detector-install-stage.md`.
+
+---
+
 ## IDEA3 L8p attempt 2 reconciliation closeout — L8p CLOSED — 2026-10-04
 
 > [!important] **L8p attempt 2 reconciliation = PASS. L8p provisioning = PROVEN. L8p is now CLOSED.** Original runner full-success line = **NO** (the historical runner never printed it and its own formal result stayed NOT_PROVEN); reconciliation result = **PASS**. Recovery R1-R8, LVR and full L8 acceptance are **NOT yet proven**.
