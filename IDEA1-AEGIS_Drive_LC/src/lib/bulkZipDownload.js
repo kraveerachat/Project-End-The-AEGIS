@@ -18,7 +18,26 @@ import { apiFetchStream } from './api.js'
 const ZIP_PICKER_TYPES = [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }]
 
 const isQuota = (err) => err?.name === 'QuotaExceededError'
-const writeReason = (err) => (isQuota(err) ? 'localDiskFull' : 'write')
+// BUFFER_LIMIT = ตัวกันหลังสุดของทางบัฟเฟอร์ (spec §14): archive เกินเพดานนโยบาย ไม่ใช่ดิสก์เสีย
+const writeReason = (err) => (isQuota(err) ? 'localDiskFull' : err?.code === 'BUFFER_LIMIT' ? 'too-large' : 'write')
+
+/**
+ * ทางสำรองของเบราว์เซอร์ที่ไม่มี File System Access: ประกอบ archive ที่บัฟเฟอร์ไว้ (≤ 64 MiB) เป็น Blob
+ * แล้วให้เบราว์เซอร์ดาวน์โหลดผ่าน anchor
+ * ⚠️ ที่เดียวในโมดูล ZIP ที่อนุญาตให้สร้าง Blob ทั้งก้อน (spec §15 allow-list) — ขนาดถูกจำกัดก่อนถึงตรงนี้แล้ว
+ * ⚠️ Vault: URL ถูกลงทะเบียนกับ unlockedState เพื่อให้การล็อกเพิกถอนมันทันที
+ */
+export function finalizeBufferedZip(parts, name, { registerObjectUrl } = {}) {
+  const url = URL.createObjectURL(new Blob(parts, { type: 'application/zip' }))
+  registerObjectUrl?.(url)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
 
 /**
  * ดาวน์โหลดหลายไฟล์เป็น ZIP เดียว
@@ -32,7 +51,8 @@ const writeReason = (err) => (isQuota(err) ? 'localDiskFull' : 'write')
 export async function runBulkZip({
   plan, source, scope = globalThis, busyRef, signal, isPurged = () => false, onProgress,
   createWriter = createZipStreamWriter, computeLayout = zipLayout, createHasher,
-  createBufferedSink: makeBufferedSink = createBufferedSink, createRateEstimator, clock = () => globalThis.performance?.now?.() ?? Date.now(),
+  createBufferedSink: makeBufferedSink = createBufferedSink, registerObjectUrl, createRateEstimator,
+  clock = () => globalThis.performance?.now?.() ?? Date.now(),
 }) {
   if (busyRef?.current) return { status: 'busy' }
   if (signal?.aborted || isPurged()) return { status: 'cancelled' }
@@ -216,8 +236,16 @@ export async function runBulkZip({
       await abortOnce()
       return { status: 'failed', reason: isQuota(err) ? 'localDiskFull' : 'finalizeFailed' }
     }
+    if (buffered) {
+      // ทางบัฟเฟอร์: สำเร็จเชิงตรรกะ = สร้าง Blob และสั่งดาวน์โหลดแล้ว (การบันทึกจริงเป็นของเบราว์เซอร์)
+      try {
+        finalizeBufferedZip(parts, plan.suggestedName, { registerObjectUrl })
+      } catch {
+        return { status: 'failed', reason: 'finalizeFailed' }
+      }
+    }
     emit('done', { done: true })
-    return buffered ? { status: 'done', parts } : { status: 'done' }
+    return { status: 'done' }
   }
 }
 
