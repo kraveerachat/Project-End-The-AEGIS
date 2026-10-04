@@ -1,0 +1,4 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage F1u allowed new listeners.
+#
+# ZERO active entries by contract: the restarted Core re-binds only the AF_UNIX sockets it already had; F1u opens no TCP/UDP listener on the Core host.
+#

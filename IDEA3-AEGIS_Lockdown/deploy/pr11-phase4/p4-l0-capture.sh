@@ -50,7 +50,7 @@ OPTIONAL_TOOLS="chronyc twingate hostnamectl"
 SERVICE_UNITS="NetworkManager.service systemd-networkd.service systemd-resolved.service systemd-timesyncd.service
 chronyd.service nftables.service mosquitto.service aegis-idea3-mosquitto.service dnsmasq.service hostapd.service wpa_supplicant.service
 twingate.service aegis-idea3-core.service aegis-idea3.service aegis-idea3-nftables-load.service aegis-idea3-dnsmasq.service
-aegis-idea3-containment.socket aegis-idea3-containment.service"
+aegis-idea3-containment.socket aegis-idea3-containment.service aegis-idea3-detector.service"
 UNIT_PROPS="LoadState ActiveState SubState UnitFileState MainPID NRestarts Result ExecMainStartTimestamp"
 IDEA2_ENGINE_UNIT=aegis-detection-engine.service
 IDEA2_TUNNEL_UNIT=aegis-detection-tunnel.service
@@ -824,6 +824,31 @@ else
     p4_rec "$HOST" "host.aegis_idea3.recovery.core.$key" UNAVAILABLE
   done
 fi
+# F1u: the RUNNING process's release identity (the cwd systemd resolved from WorkingDirectory when it started), so a Core or detector runtime change can never be invisible to the comparator and
+# `current` is never mistaken for the running release. Non-secret. A live unreadable cwd is a genuine gap (PARTIAL); a bare TEST fixture root has no /proc.
+runtime_cwd_record() { # KEY UNIT
+  local key=$1 unit=$2 pid cwd
+  if run_ro 0 - systemctl show -p MainPID "$unit"; then
+    pid=$(printf '%s\n' "$P4_OUT" | sed -n 's/^MainPID=//p' | head -n 1)
+  else
+    p4_rec "$HOST" "$key" UNAVAILABLE
+    return 0
+  fi
+  if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+    if [ -n "$P4_FS_ROOT" ]; then
+      p4_rec "$HOST" "$key" none
+    elif cwd=$(p4_ro readlink -- "/proc/$pid/cwd" 2>/dev/null) && [ -n "$cwd" ]; then
+      p4_rec "$HOST" "$key" "$cwd"
+    else
+      p4_rec "$HOST" "$key" UNREADABLE
+      partial=1
+    fi
+  else
+    p4_rec "$HOST" "$key" none
+  fi
+}
+runtime_cwd_record host.aegis_idea3.recovery.core.runtime_cwd aegis-idea3-core.service
+runtime_cwd_record host.aegis_idea3.alert.detector.runtime_cwd aegis-idea3-detector.service
 while IFS= read -r f; do
   [ -n "$f" ] && rec_file "$HOST" host.unit_file "$f"
 done < <(tree_files /etc/systemd/system/aegis-idea3-core.service.d)
@@ -834,7 +859,8 @@ if [ -f "$(p4_fs /etc/tmpfiles.d/aegis-idea3-alert.conf)" ]; then
   rec_file "$HOST" host.unit_file "$(p4_fs /etc/tmpfiles.d/aegis-idea3-alert.conf)"
 fi
 # L6b (OD-L6B-01) installs the separate broker unit; it is captured exactly like the Core unit (never a wildcard).
-for unit_file in aegis-idea3-core.service aegis-idea3-mosquitto.service; do
+# F1u: the F1 detector unit is captured the same way (its bytes/mode must never drift; only its process identity may change through the Core restart).
+for unit_file in aegis-idea3-core.service aegis-idea3-mosquitto.service aegis-idea3-detector.service; do
   if [ -f "$(p4_fs "/etc/systemd/system/$unit_file")" ]; then
     rec_file "$HOST" host.unit_file "$(p4_fs "/etc/systemd/system/$unit_file")"
   fi

@@ -239,7 +239,7 @@ def hard_resets(ex):
 def test_stage_id_is_registered_between_l7u_and_l8_and_l7u_is_intact() -> None:
     line = next(l for l in P4_LIB.read_text().splitlines() if l.strip().startswith("readonly P4_STAGES="))
     stages = line.split('"')[1].split()
-    assert stages[stages.index("L6c"):stages.index("L9") + 1] == ["L6c", "L7", "L7u", "L8p", "F1i", "F1r", "F1", "L8", "L9"]
+    assert stages[stages.index("L6c"):stages.index("L9") + 1] == ["L6c", "L7", "L7u", "L8p", "F1i", "F1r", "F1", "F1u", "L8", "L9"]
 
 
 def test_stage_handler_directory_is_exactly_the_reviewed_files_and_registered() -> None:
