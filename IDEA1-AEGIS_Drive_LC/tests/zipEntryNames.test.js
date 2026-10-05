@@ -143,3 +143,57 @@ test('ZD-7 output is sanitised, deterministic and in plan order', () => {
   assert.deepEqual(assignZipEntryNames([...input]), a)
   assert.deepEqual(a, ['b.txt', '.._b.txt', 'B (2).TXT', '_CON', '_con (2)', 'file'])
 })
+
+/* ── DM-2: Windows-safe after the UTF-8 budget is applied ─────────── */
+
+const endsWindowsUnsafe = (s) => /[. ]$/.test(s)
+
+test('ZN-DM2-1 a 255-byte truncation that ends in "." or " " is stripped after truncation', () => {
+  const dot = sanitizeZipEntryName(`${'a'.repeat(254)}.${'y'.repeat(40)}`) // 41-byte ext is not preserved
+  assert.equal(dot, 'a'.repeat(254))
+  const space = sanitizeZipEntryName(`${'a'.repeat(254)} ${'b'.repeat(50)}`)
+  assert.equal(space, 'a'.repeat(254))
+  const mixed = sanitizeZipEntryName(`${'a'.repeat(252)}. .${'c'.repeat(60)}`)
+  assert.equal(mixed, 'a'.repeat(252))
+  for (const s of [dot, space, mixed]) {
+    assert.ok(!endsWindowsUnsafe(s))
+    assert.ok(utf8Bytes(s) <= 255)
+  }
+})
+
+test('ZN-DM2-2 multibyte boundary: a Thai stem cut before a space is stripped and stays whole code points', () => {
+  const out = sanitizeZipEntryName(`${'ก'.repeat(84)} ${'ข'.repeat(10)}`) // 252 B + space, next char does not fit
+  assert.equal(out, 'ก'.repeat(84))
+  assert.ok(!endsWindowsUnsafe(out))
+  assert.ok(noSplitCodePoint(out))
+})
+
+test('ZN-DM2-3 extension-preserving truncation keeps the extension and never ends in space/dot', () => {
+  const out = sanitizeZipEntryName(`${'a'.repeat(250)}. ${'b'.repeat(10)}.pdf`)
+  assert.ok(out.endsWith('.pdf'))
+  assert.ok(utf8Bytes(out) <= 255)
+  assert.ok(!endsWindowsUnsafe(out))
+})
+
+test('ZN-DM2-4 different sources that canonicalise to one Windows-visible name are de-duplicated on the final name', () => {
+  const a = `${'a'.repeat(254)}.${'y'.repeat(40)}`
+  const b = `${'a'.repeat(254)} ${'b'.repeat(50)}`
+  const c = 'a'.repeat(254)
+  const out = assignZipEntryNames([a, b, c])
+  assert.equal(out[0], 'a'.repeat(254))
+  assert.equal(new Set(out.map((n) => n.toLowerCase())).size, 3, 'unique after canonicalisation')
+  for (const n of out) {
+    assert.ok(!endsWindowsUnsafe(n), JSON.stringify(n.slice(-8)))
+    assert.ok(utf8Bytes(n) <= 255)
+    assert.ok(noSplitCodePoint(n))
+  }
+  assert.ok(out[1].endsWith(' (2)'))
+  assert.ok(out[2].endsWith(' (3)'))
+})
+
+test('ZN-DM2-5 a suffixed duplicate whose head truncation ends in "." or " " still ends Windows-safe', () => {
+  const name = `${'a'.repeat(249)} .bin`
+  const out = assignZipEntryNames([name, name])
+  for (const n of out) { assert.ok(!endsWindowsUnsafe(n)); assert.ok(utf8Bytes(n) <= 255) }
+  assert.equal(new Set(out.map((n) => n.toLowerCase())).size, 2)
+})

@@ -41,7 +41,16 @@ function fitName(stem, ext) {
   return truncateUtf8(stem + ext, MAX_NAME_BYTES)
 }
 
-/** spec §5 steps 1–7 ตามลำดับ */
+/**
+ * ⚠️ ทำ "หลัง" ตัดตามงบไบต์เสมอ: การตัดอาจเผยจุด/ช่องว่างท้ายชื่อขึ้นมาใหม่ และ Windows ตัดสองตัวนี้ทิ้งตอนแตกไฟล์
+ *    — ชื่อสองชื่อที่ต่างกันก่อนตัดจะกลายเป็นชื่อเดียวกันบนดิสก์ (ทับกันเงียบ ๆ) ถ้าไม่ทำให้เป็นรูปสุดท้ายก่อนกันชื่อซ้ำ
+ */
+function windowsCanonical(name) {
+  const out = name.replace(/[. ]+$/, '')
+  return out === '' ? 'file' : out
+}
+
+/** spec §5 steps 1–7 ตามลำดับ แล้วจึงทำให้เป็นชื่อที่ Windows เห็นจริง */
 export function sanitizeZipEntryName(input) {
   let name = String(input).normalize('NFC')
   name = name.replace(FORBIDDEN, '_')
@@ -54,7 +63,7 @@ export function sanitizeZipEntryName(input) {
   if (RESERVED.test(base)) name = `_${name}`
   if (name === '') name = 'file'
   const { stem, ext } = splitExt(name)
-  return fitName(stem, ext)
+  return windowsCanonical(fitName(stem, ext))
 }
 
 /**
@@ -73,7 +82,7 @@ export function assignZipEntryNames(names) {
         const suffix = ` (${k})`
         const keepExt = ext && utf8Bytes(ext) <= MAX_EXT_BYTES ? ext : ''
         const head = keepExt ? stem : stem + ext
-        candidate = truncateUtf8(head, MAX_NAME_BYTES - utf8Bytes(suffix + keepExt)) + suffix + keepExt
+        candidate = windowsCanonical(truncateUtf8(head, MAX_NAME_BYTES - utf8Bytes(suffix + keepExt)) + suffix + keepExt)
         if (!taken.has(candidate.toLowerCase())) break
       }
     }
