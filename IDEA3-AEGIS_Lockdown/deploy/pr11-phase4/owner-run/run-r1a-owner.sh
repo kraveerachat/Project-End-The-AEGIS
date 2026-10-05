@@ -21,13 +21,12 @@ DETECTOR_UNIT_SHA256=PIN_DETECTOR_UNIT_SHA256
 RECOVERY_CORE_SHA256=PIN_RECOVERY_CORE_SHA256
 VERIFIER_SNAPSHOT_DIR=PIN_VERIFIER_SNAPSHOT_DIR
 VERIFIER_MANIFEST_SHA256=PIN_VERIFIER_MANIFEST_SHA256
-GLOBAL_MARKER_DIR=PIN_GLOBAL_MARKER_DIR
 R1I_TOOL_SHA256=PIN_R1I_TOOL_SHA256
 AUDIT_DB=PIN_AUDIT_DB_PATH
 DETECTOR_UID=PIN_DETECTOR_UID
 EXPECTED_SOURCE_IP=PIN_EXPECTED_SOURCE_IP
 OBSERVE_SECONDS=PIN_OBSERVE_SECONDS
-for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID RELEASE_ID PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 VERIFIER_SNAPSHOT_DIR VERIFIER_MANIFEST_SHA256 GLOBAL_MARKER_DIR R1I_TOOL_SHA256 AUDIT_DB DETECTOR_UID EXPECTED_SOURCE_IP OBSERVE_SECONDS; do
+for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID RELEASE_ID PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 VERIFIER_SNAPSHOT_DIR VERIFIER_MANIFEST_SHA256 R1I_TOOL_SHA256 AUDIT_DB DETECTOR_UID EXPECTED_SOURCE_IP OBSERVE_SECONDS; do
   case "${!pin}" in PIN_*) echo "STOP: runner is not pinned ($pin). Run the owner freeze workflow first."; exit 2 ;; esac
 done
 [[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ ]] || { echo "STOP: EXPECTED_MAIN is not a 40-hex SHA."; exit 2; }
@@ -41,12 +40,12 @@ done
 _octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
 [[ "$EXPECTED_SOURCE_IP" =~ ^$_octet\.$_octet\.$_octet\.$_octet$ ]] && [[ "${EXPECTED_SOURCE_IP%%.*}" != 0 && "${EXPECTED_SOURCE_IP%%.*}" != 127 && "${EXPECTED_SOURCE_IP%%.*}" -lt 224 && "$EXPECTED_SOURCE_IP" != 169.254.* ]] \
   || { echo "STOP: EXPECTED_SOURCE_IP is not a valid external-capable IPv4 address."; exit 2; }
-[[ "$VERIFIER_SNAPSHOT_DIR" == /* ]] && [[ "$VERIFIER_SNAPSHOT_DIR" != *..* ]] && [[ "$GLOBAL_MARKER_DIR" == /* ]] && [[ "$GLOBAL_MARKER_DIR" != *..* ]] || { echo "STOP: VERIFIER_SNAPSHOT_DIR and GLOBAL_MARKER_DIR must be absolute paths."; exit 2; }
+[[ "$VERIFIER_SNAPSHOT_DIR" == /* ]] && [[ "$VERIFIER_SNAPSHOT_DIR" != *..* ]] || { echo "STOP: VERIFIER_SNAPSHOT_DIR must be an absolute path."; exit 2; }
 [[ "$OBSERVE_SECONDS" =~ ^[1-9][0-9]{0,5}$ ]] || { echo "STOP: OBSERVE_SECONDS is not a bounded positive integer."; exit 2; }
 [[ "$AUDIT_DB" == /* ]] && [[ "$AUDIT_DB" != *..* ]] || { echo "STOP: AUDIT_DB must be an absolute path."; exit 2; }
 [ "$(id -u)" != 0 ] || { echo "Run as your normal user, not root."; exit 2; }
 # No environment may redirect a live run: fixture roots, handler overrides and R1A/R1I switches must all be unset.
-for var in AEGIS_P4_FS_ROOT P4_FS_ROOT AEGIS_P4_HANDLER_DIR AEGIS_R1A_STEP AEGIS_R1A_WORK_DIR AEGIS_R1A_LIVE_AUTHORIZED AEGIS_R1A_APP_DIR AEGIS_R1A_AUDIT_DB AEGIS_R1A_EXPECTED_SOURCE_IP AEGIS_R1A_WINDOW_START AEGIS_R1A_WINDOW_END AEGIS_R1A_VERIFIER_MANIFEST_SHA256 R1A_WINDOW_START R1A_WINDOW_END AEGIS_R1I_LIVE_AUTHORIZED; do
+for var in AEGIS_P4_FS_ROOT P4_FS_ROOT AEGIS_P4_HANDLER_DIR AEGIS_R1A_STEP AEGIS_R1A_WORK_DIR AEGIS_R1A_LIVE_AUTHORIZED AEGIS_R1A_APP_DIR AEGIS_R1A_AUDIT_DB AEGIS_R1A_EXPECTED_SOURCE_IP AEGIS_R1A_WINDOW_START AEGIS_R1A_WINDOW_END AEGIS_R1A_VERIFIER_MANIFEST_SHA256 R1A_WINDOW_START R1A_WINDOW_END R1A_CANONICAL_DIR R1A_TEST_ONLY_CANONICAL_DIR R1A_TEST_ONLY_CANONICAL_DIR_ENABLED GLOBAL_MARKER_DIR AEGIS_R1I_LIVE_AUTHORIZED; do
   [ -z "${!var:-}" ] || { echo "STOP: environment override $var is set; refusing a live run."; exit 2; }
 done
 AUTH_DIR=${1:-}
@@ -129,7 +128,7 @@ pregates() {
   for f in AUTHORIZATION_RECORD=VALID K3_CONFIRMATION=VALID ROLLBACK_HANDLER=REGISTERED; do printf '%s\n' "$gate_out" | grep -qx "$f" || gate "stage gate did not report $f"; done
   # 6. predecessors (pinned-commit receipt CONTENT) + 19. no R1A success already recorded + 20. attempt marker absent
   r1a_receipt_gate "$REPO" "$RELEASE_ID" || gate "predecessor receipt gate failed (see reason above)"
-  r1a_attempt_unconsumed "$AUTH_DIR" "$GLOBAL_MARKER_DIR" || gate "R1A is ONE attempt TOTAL and one is already consumed (stage-global or authorization marker), or the marker directory is invalid"
+  r1a_attempt_unconsumed "$AUTH_DIR" || gate "R1A is ONE attempt TOTAL and one is already consumed (canonical stage-global or authorization marker), or the canonical marker directory is invalid"
   # 7-8. disk/headroom, operator identity (already enforced), preserved services
   l7_disk_gate 80 / /var /opt /run || gate "disk headroom below 20% free (see reason above)"
   l8p_service_gate twingate.service mosquitto.service "$BROKER_UNIT" || gate "a preserved service is not active/running (see reason above)"
@@ -178,7 +177,7 @@ r1a_hook_baseline() {
 }
 r1a_hook_regate() {
   # re-prove the whole live authority just before the one-shot boundary, and that no marker (global or local) appeared meanwhile
-  authority_gates && r1a_attempt_unconsumed "$AUTH_DIR" "$GLOBAL_MARKER_DIR"
+  authority_gates && r1a_attempt_unconsumed "$AUTH_DIR"
 }
 r1a_hook_observe() {
   # OBSERVE ONLY: a bounded wait. The genuine external event is produced by the owner, outside this runner. No loop retries anything.
@@ -207,7 +206,7 @@ r1a_hook_preserve_evidence() {
   echo "R1A_EVIDENCE_ROOT=$EVID (retained; the R1A attempt marker is retained and never removed)"
 }
 
-if r1a_run_attempt "$AUTH_DIR" "$GLOBAL_MARKER_DIR" "$OBSERVE_SECONDS"; then
+if r1a_run_attempt "$AUTH_DIR" "$OBSERVE_SECONDS"; then
   echo "R1A_LIVE_EXECUTED=YES R1A_VERIFIER_RESULT=PASS R1_EVIDENCE_VERIFIED=YES REAL_DETECTOR_CHAIN_VERIFIED=YES (automatic result only)"
   echo "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED RECOVERY_R1_R8_PROVEN=NO"
   echo "R1A_CLAIM_BOUNDARY: this is an automatic verifier result. F1_REAL_DETECTOR_ACCEPTANCE / R1_VERIFIED are promoted ONLY by a separately reviewed LIVE closeout after independent inspection of the evidence."

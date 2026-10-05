@@ -17,14 +17,25 @@ R1A_R1I_TABLE="inet aegis_idea3_r1i"
 
 r1a_reason() { printf '%s\n' "$1" >&2; return 1; }
 
-# ---- one-attempt authority: STAGE-GLOBAL marker + authorization-local marker -------------------------------------------------------------------------
-# R1A is ONE live attempt TOTAL. The authority is a stable GLOBAL marker in a pinned directory that does not depend on which AUTH_DIR (or which Authorization/K3) is used: a consumed attempt
-# blocks the same AUTH_DIR, a copied AUTH_DIR, a NEW AUTH_DIR and any fresh same-day or later Authorization/K3. The authorization-local marker is kept as additional evidence. No code path
-# removes, resets or rewrites either marker; there is NO automatic reset.
+# ---- one-attempt authority: ONE canonical stage-global marker + authorization-local marker ------------------------------------------------------------
+# R1A is ONE live attempt TOTAL. The authority is a SINGLE canonical stage-global marker whose location is fixed by THIS stage contract (R1A_CANONICAL_DIR below), not pinned per runner and not chosen by
+# an operator, an AUTH_DIR, a frozen runner or a successor main. It therefore survives the same runner, a replacement or copied AUTH_DIR, fresh same-day or later Authorization/K3, a successor frozen
+# runner and a successor main reconciliation. The directory is root-owned 0700 (a governance record, not a Core, release or evidence path): the ONLY mutation R1A governance owns there is the one
+# exclusive creation of the consumption record (and, once, of the window record). It is made immutable best-effort (chattr +i). No repository code removes, resets, rewrites or relocates it.
+# The assignment below OVERRIDES any environment value and is readonly, so a runner or caller cannot re-point it; the frozen runner additionally refuses every override variable at start.
+if ! readonly -p 2>/dev/null | grep -q 'R1A_CANONICAL_DIR='; then
+  R1A_CANONICAL_DIR=/var/lib/aegis-idea3-governance
+  readonly R1A_CANONICAL_DIR
+fi
 R1A_GLOBAL_MARKER_NAME="R1A-GLOBAL-ATTEMPT-CONSUMED"
 R1A_WINDOW_RECORD_NAME="R1A-ATTEMPT-WINDOW"
 R1A_WINDOW_START=""
 R1A_WINDOW_END=""
+
+# r1a_canonical_dir — the canonical directory. TEST-ONLY seam (same precedent as AEGIS_P4_HANDLER_DIR): honoured only when BOTH test variables are set; the frozen runner refuses to start if either is set.
+r1a_canonical_dir() {
+  if [ "${R1A_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" = YES ] && [ -n "${R1A_TEST_ONLY_CANONICAL_DIR:-}" ]; then printf '%s' "$R1A_TEST_ONLY_CANONICAL_DIR"; else printf '%s' "$R1A_CANONICAL_DIR"; fi
+}
 
 # r1a_ipv4_valid IP — a real, EXTERNAL-capable IPv4 address: four canonical decimal octets 0-255 (no leading zeros), not unspecified, loopback, link-local, multicast/reserved or broadcast.
 r1a_ipv4_valid() {
@@ -34,31 +45,45 @@ r1a_ipv4_valid() {
   [ "$first" != 0 ] && [ "$first" != 127 ] && [ "$first" -lt 224 ] || return 1
   [[ "$ip" != 169.254.* ]]
 }
-# r1a_global_dir_valid DIR — a real directory (never a symlink) owned by the current operator and not group/world writable.
-r1a_global_dir_valid() {
-  local dir=${1:-}
-  [ -n "$dir" ] && [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] && [ -z "$(find "$dir" -maxdepth 0 -perm /022 2>/dev/null)" ] || { r1a_reason "R1A_GLOBAL_MARKER_DIR_INVALID"; return 1; }
+# r1a_canonical_dir_valid — when the canonical directory exists it must be a real directory (never a symlink), owned by root (the current user when no sudo is in use, i.e. in tests) and not group/world
+# writable. A directory that does not exist yet is valid: it is created, once, by the consumption step. Its PARENT must be a real directory.
+r1a_canonical_dir_valid() {
+  local dir owner want
+  dir=$(r1a_canonical_dir)
+  [[ "$dir" == /* ]] && [[ "$dir" != *..* ]] || { r1a_reason "R1A_CANONICAL_DIR_INVALID"; return 1; }
+  [ -d "$(dirname "$dir")" ] && [ ! -L "$(dirname "$dir")" ] || { r1a_reason "R1A_CANONICAL_DIR_PARENT_INVALID"; return 1; }
+  if $SUDO test -e "$dir" || $SUDO test -L "$dir"; then
+    $SUDO test -d "$dir" && ! $SUDO test -L "$dir" || { r1a_reason "R1A_CANONICAL_DIR_INVALID"; return 1; }
+    owner=$($SUDO stat -c %u "$dir" 2>/dev/null); want=0; [ -n "$SUDO" ] || want=$(id -u)
+    [ "$owner" = "$want" ] && [ -z "$($SUDO find "$dir" -maxdepth 0 -perm /022 2>/dev/null)" ] || { r1a_reason "R1A_CANONICAL_DIR_NOT_PRIVATE_ROOT_OWNED"; return 1; }
+  fi
 }
-# r1a_attempt_unconsumed AUTH_DIR GLOBAL_DIR — read-only pre-gate: NEITHER the stage-global marker NOR the authorization-local marker exists.
+# r1a_attempt_unconsumed AUTH_DIR — read-only pre-gate: NEITHER the canonical stage-global marker NOR the authorization-local marker exists.
 r1a_attempt_unconsumed() {
-  local dir=${1:-} global=${2:-}
+  local dir=${1:-} canon marker
   [ -d "$dir" ] && [ ! -L "$dir" ] || { r1a_reason "R1A_ATTEMPT_AUTH_DIR_INVALID"; return 1; }
-  r1a_global_dir_valid "$global" || return 1
-  [ ! -e "$global/$R1A_GLOBAL_MARKER_NAME" ] && [ ! -L "$global/$R1A_GLOBAL_MARKER_NAME" ] || { r1a_reason "R1A_ATTEMPT_ALREADY_CONSUMED (R1A is ONE live attempt TOTAL; a replacement AUTH_DIR or fresh Authorization/K3 cannot enable another; there is NO retry)"; return 1; }
+  r1a_canonical_dir_valid || return 1
+  canon=$(r1a_canonical_dir); marker="$canon/$R1A_GLOBAL_MARKER_NAME"
+  if $SUDO test -e "$marker" || $SUDO test -L "$marker"; then
+    r1a_reason "R1A_ATTEMPT_ALREADY_CONSUMED (R1A is ONE live attempt TOTAL; a replacement AUTH_DIR, fresh Authorization/K3, a successor runner or a successor main cannot enable another; there is NO retry)"; return 1
+  fi
   [ ! -e "$dir/R1A-ATTEMPT-CONSUMED" ] || { r1a_reason "R1A_ATTEMPT_ALREADY_CONSUMED (this authorization already consumed its attempt; there is NO retry)"; return 1; }
 }
-# r1a_consume_attempt AUTH_DIR GLOBAL_DIR — exclusive create (noclobber), GLOBAL first. Sets R1A_WINDOW_START to the marker's own creation time (the earliest instant the observation window can open).
+# r1a_consume_attempt AUTH_DIR — fixed ordering: (1) the marker is proven absent; (2) the canonical stage-global marker is created EXCLUSIVELY (noclobber) — from this instant the attempt is irreversibly
+# consumed; (3) ONLY THEN is R1A_WINDOW_START sampled; (4) the authorization-local marker is written. If step 4 fails the attempt STAYS consumed: nothing is deleted, rewritten or retried.
 r1a_consume_attempt() {
-  local dir=${1:-} global=${2:-} epoch
-  r1a_attempt_unconsumed "$dir" "$global" || return 1
-  epoch=$(date +%s.%N)
-  if ! ( set -o noclobber; printf 'consumed_at=%s\nconsumed_epoch=%s\n' "$(date -u +%FT%TZ)" "$epoch" > "$global/$R1A_GLOBAL_MARKER_NAME" ) 2>/dev/null; then
-    r1a_reason "R1A_ATTEMPT_ALREADY_CONSUMED (stage-global marker exists)"; return 1
+  local dir=${1:-} canon marker
+  r1a_attempt_unconsumed "$dir" || return 1
+  canon=$(r1a_canonical_dir); marker="$canon/$R1A_GLOBAL_MARKER_NAME"
+  $SUDO test -d "$canon" || $SUDO mkdir -m 0700 "$canon" 2>/dev/null || { r1a_reason "R1A_CANONICAL_DIR_NOT_CREATABLE (nothing was consumed)"; return 1; }
+  if ! $SUDO bash -c 'set -o noclobber; printf "consumed_at=%s\n" "$(date -u +%FT%TZ)" > "$1"' _ "$marker" 2>/dev/null; then
+    r1a_reason "R1A_ATTEMPT_ALREADY_CONSUMED (the canonical stage-global marker exists or could not be created exclusively)"; return 1
   fi
-  if ! ( set -o noclobber; printf 'consumed_at=%s\nconsumed_epoch=%s\n' "$(date -u +%FT%TZ)" "$epoch" > "$dir/R1A-ATTEMPT-CONSUMED" ) 2>/dev/null; then
-    r1a_reason "R1A_LOCAL_MARKER_EXISTS_BUT_GLOBAL_MARKER_WAS_CREATED (the attempt is consumed)"; return 1
+  $SUDO chattr +i "$marker" 2>/dev/null || true      # best-effort immutability of the consumption record
+  R1A_WINDOW_START=$(date +%s.%N); export R1A_WINDOW_START   # sampled strictly AFTER the stage-global marker exists
+  if ! ( set -o noclobber; printf 'consumed_at=%s\nconsumed_epoch=%s\n' "$(date -u +%FT%TZ)" "$R1A_WINDOW_START" > "$dir/R1A-ATTEMPT-CONSUMED" ) 2>/dev/null; then
+    r1a_reason "R1A_LOCAL_MARKER_NOT_WRITTEN (the attempt IS consumed: the canonical stage-global marker exists; no retry is permitted)"; return 1
   fi
-  R1A_WINDOW_START=$epoch; export R1A_WINDOW_START
 }
 
 # ---- predecessor receipt gates (pinned-commit content, never PR numbers) ------------------------------------------------------------------------------
@@ -149,28 +174,29 @@ r1a_interpreter_gate() {
 }
 
 # ---- attempt state machine -----------------------------------------------------------------------------------------------------------------------------
-# r1a_run_attempt AUTH_DIR GLOBAL_MARKER_DIR OBSERVE_SECONDS — drives the fixed ordering with HOOK FUNCTIONS supplied by the runner (stubbed in tests). It owns the marker and NOTHING else:
+# r1a_run_attempt AUTH_DIR OBSERVE_SECONDS — drives the fixed ordering with HOOK FUNCTIONS supplied by the runner (stubbed in tests). It owns the marker and NOTHING else:
 #   hooks: r1a_hook_pregates  r1a_hook_baseline  r1a_hook_regate  r1a_hook_observe SECONDS  r1a_hook_final  r1a_hook_verify  r1a_hook_preserve_evidence REASON
 # Ordering (fixed): pre-gates -> baseline -> re-gate -> CONSUME MARKER -> open window -> observe -> final -> verify ONCE.
 # Any failure BEFORE the marker leaves the attempt unconsumed (nothing was observed). ANY failure AFTER the marker is R1A_RESULT=FAIL, attempt consumed, rerun not allowed: the evidence is
 # preserved, nothing is retried, repaired, rolled back or deleted. There is no loop around any hook.
 r1a_run_attempt() {
-  local dir=${1:-} global=${2:-} seconds=${3:-} stage
+  local dir=${1:-} seconds=${2:-} stage canon
   [[ "$seconds" =~ ^[1-9][0-9]{0,5}$ ]] || { r1a_reason "R1A_OBSERVE_SECONDS_INVALID"; return 1; }
-  r1a_attempt_unconsumed "$dir" "$global" || return 1   # a consumed attempt (global OR local) is refused before ANY hook runs
+  r1a_attempt_unconsumed "$dir" || return 1   # a consumed attempt (canonical stage-global OR local) is refused before ANY hook runs
   for stage in pregates baseline regate; do
     if ! "r1a_hook_$stage"; then
       echo "R1A_PRE_ATTEMPT_FAILURE=$stage R1A_ATTEMPT_CONSUMED=NO (nothing was observed; no marker was created)"
       return 1
     fi
   done
-  r1a_consume_attempt "$dir" "$global" || { echo "R1A_PRE_ATTEMPT_FAILURE=marker R1A_ATTEMPT_CONSUMED=UNKNOWN_SEE_REASON"; return 1; }
+  r1a_consume_attempt "$dir" || { echo "R1A_PRE_ATTEMPT_FAILURE=marker R1A_ATTEMPT_CONSUMED=UNKNOWN_SEE_REASON"; return 1; }
   echo "R1A_ATTEMPT_CONSUMED=YES"
   echo "R1A_EVENT_WINDOW_OPEN=YES R1A_WINDOW_START_EPOCH=$R1A_WINDOW_START"
   echo "WAITING_FOR_GENUINE_EXTERNAL_EVENT=YES (this runner generates NO event; the owner performs the authorized genuine external event separately)"
   if ! r1a_hook_observe "$seconds"; then r1a_attempt_failed observe; return 1; fi
   R1A_WINDOW_END=$(date +%s.%N); export R1A_WINDOW_END   # the exact END of the marker-bounded window: recorded the instant the bounded wait completes, BEFORE any final capture
-  ( set -o noclobber; printf 'window_start=%s\nwindow_end=%s\nobserve_seconds=%s\n' "$R1A_WINDOW_START" "$R1A_WINDOW_END" "$seconds" > "$global/$R1A_WINDOW_RECORD_NAME" ) 2>/dev/null || true
+  canon=$(r1a_canonical_dir)
+  $SUDO bash -c 'set -o noclobber; printf "window_start=%s\nwindow_end=%s\nobserve_seconds=%s\n" "$2" "$3" "$4" > "$1"' _ "$canon/$R1A_WINDOW_RECORD_NAME" "$R1A_WINDOW_START" "$R1A_WINDOW_END" "$seconds" 2>/dev/null || true
   echo "R1A_EVENT_WINDOW_OPEN=NO R1A_WINDOW_END_EPOCH=$R1A_WINDOW_END"
   if ! r1a_hook_final; then r1a_attempt_failed final; return 1; fi
   if ! r1a_hook_verify; then r1a_attempt_failed verify; return 1; fi

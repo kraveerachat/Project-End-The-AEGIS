@@ -79,7 +79,7 @@ def test_committed_runner_refuses_while_unpinned_and_touches_nothing(tmp_path: P
     assert result.returncode == 2 and "runner is not pinned" in result.stdout
     assert list(tmp_path.iterdir()) == []
     for pin in ("EXPECTED_MAIN", "OPERATOR_USER", "OPERATOR_UID", "RELEASE_ID", "PRODUCTION_DETECTOR_SHA256", "DETECTOR_UNIT_SHA256", "RECOVERY_CORE_SHA256",
-                "VERIFIER_SNAPSHOT_DIR", "VERIFIER_MANIFEST_SHA256", "GLOBAL_MARKER_DIR", "R1I_TOOL_SHA256", "AUDIT_DB", "DETECTOR_UID", "EXPECTED_SOURCE_IP", "OBSERVE_SECONDS"):
+                "VERIFIER_SNAPSHOT_DIR", "VERIFIER_MANIFEST_SHA256", "R1I_TOOL_SHA256", "AUDIT_DB", "DETECTOR_UID", "EXPECTED_SOURCE_IP", "OBSERVE_SECONDS"):
         assert f"{pin}=PIN_" in RUNNER.read_text()
 
 
@@ -87,7 +87,7 @@ def pinned_copy(tmp_path: Path, **override: str) -> Path:
     pins = {
         "EXPECTED_MAIN": "a" * 40, "OPERATOR_USER": "owner", "OPERATOR_UID": "1000", "RELEASE_ID": RELEASE, "PRODUCTION_DETECTOR_SHA256": "b" * 64,
         "DETECTOR_UNIT_SHA256": "c" * 64, "RECOVERY_CORE_SHA256": "d" * 64, "VERIFIER_MANIFEST_SHA256": "e" * 64, "VERIFIER_SNAPSHOT_DIR": "/opt/x/verifier",
-        "GLOBAL_MARKER_DIR": "/var/x/marker", "R1I_TOOL_SHA256": "f" * 64,
+        "R1I_TOOL_SHA256": "f" * 64,
         "AUDIT_DB": "/var/lib/x/audit.db", "DETECTOR_UID": "948", "EXPECTED_SOURCE_IP": "203.0.113.9", "OBSERVE_SECONDS": "600", **override,
     }
     text = RUNNER.read_text()
@@ -102,7 +102,7 @@ def pinned_copy(tmp_path: Path, **override: str) -> Path:
 
 def test_pinned_runner_refuses_malformed_pins_root_overrides_and_missing_auth(tmp_path: Path) -> None:
     bad = [("EXPECTED_MAIN", "abc"), ("VERIFIER_MANIFEST_SHA256", "zz"), ("OBSERVE_SECONDS", "0"), ("AUDIT_DB", "relative/db"), ("OPERATOR_UID", "0"),
-           ("VERIFIER_SNAPSHOT_DIR", "relative/dir"), ("GLOBAL_MARKER_DIR", "relative/dir")]
+           ("VERIFIER_SNAPSHOT_DIR", "relative/dir")]
     for key, value in bad:
         assert bash(f'bash "{pinned_copy(tmp_path, **{key: value})}" "{tmp_path}"').returncode == 2, key
     frozen = pinned_copy(tmp_path)
@@ -247,6 +247,11 @@ def test_f1u_closeout_must_carry_the_pinned_release(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- one-attempt state machine
 
 
+def seam(tmp_path: Path, name: str = "canon") -> str:
+    """Shell prefix that points the TEST-ONLY canonical-marker seam at a temporary directory (the real path is root-owned under /var/lib and never touched by tests)."""
+    return f'export R1A_TEST_ONLY_CANONICAL_DIR_ENABLED=YES R1A_TEST_ONLY_CANONICAL_DIR="{tmp_path / name}"\n'
+
+
 HOOKS = """
 LOGF="$1"
 mark() { echo "$1" >> "$LOGF"; }
@@ -260,13 +265,11 @@ r1a_hook_preserve_evidence() { mark "preserve:$1"; }
 """
 
 
-def attempt(tmp_path: Path, fail_at: str = "", seconds: str = "30", auth_name: str = "auth", global_name: str = "global") -> tuple[subprocess.CompletedProcess[str], list[str]]:
+def attempt(tmp_path: Path, fail_at: str = "", seconds: str = "30", auth_name: str = "auth", canon_name: str = "canon") -> tuple[subprocess.CompletedProcess[str], list[str]]:
     auth = tmp_path / auth_name
     auth.mkdir(exist_ok=True)
-    glob = tmp_path / global_name
-    glob.mkdir(mode=0o700, exist_ok=True)
     log = tmp_path / "hooks.log"
-    script = f'AUTH="{auth}"\nGLOBAL="{glob}"\n. "{LIB}"\nSUDO=""\n{HOOKS}\nr1a_run_attempt "$AUTH" "$GLOBAL" {seconds}\n'
+    script = f'AUTH="{auth}"\n{seam(tmp_path, canon_name)}. "{LIB}"\nSUDO=""\n{HOOKS}\nr1a_run_attempt "$AUTH" {seconds}\n'
     result = subprocess.run(["bash", "-c", script, "x", str(log)], env={**os.environ, "FAIL_AT": fail_at}, text=True, capture_output=True)
     return result, (log.read_text().split() if log.exists() else [])
 
@@ -308,12 +311,11 @@ def test_a_second_attempt_on_a_consumed_marker_is_refused_before_any_hook(tmp_pa
 
 def test_marker_creation_is_exclusive_and_never_removed_by_any_code(tmp_path: Path) -> None:
     (tmp_path / "auth").mkdir()
-    (tmp_path / "global").mkdir(mode=0o700)
     marker = tmp_path / "auth/R1A-ATTEMPT-CONSUMED"
     marker.write_text("owner-kept\n")
-    result = bash(f'. "{LIB}"; r1a_consume_attempt "{tmp_path / "auth"}" "{tmp_path / "global"}"')
+    result = bash(f'{seam(tmp_path)}. "{LIB}"; SUDO=""; r1a_consume_attempt "{tmp_path / "auth"}"')
     assert result.returncode == 1 and marker.read_text() == "owner-kept\n"
-    assert not (tmp_path / "global/R1A-GLOBAL-ATTEMPT-CONSUMED").exists()
+    assert not (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").exists()  # a refused attempt creates nothing
     for path in R1A_FILES:
         assert not re.search(r"\brm\b|unlink|truncate", "\n".join(code_lines(path))), path
 
@@ -534,20 +536,19 @@ def test_a_malformed_or_non_external_expected_ip_never_passes_verification(tmp_p
 def test_an_ip_mismatch_after_the_marker_consumes_the_attempt_and_cannot_retry(tmp_path: Path) -> None:
     import json
 
-    auth, glob, work = tmp_path / "auth", tmp_path / "global", tmp_path / "work"
+    auth, work = tmp_path / "auth", tmp_path / "work"
     auth.mkdir()
-    glob.mkdir(mode=0o700)
     work.mkdir()
     (work / "r1-result.json").write_text(json.dumps(result_doc(attacker_ip="198.51.100.7")))
     (work / "R1A-FINAL-RAN").write_text("x")
-    script = f'''AUTH="{auth}"; GLOBAL="{glob}"; . "{LIB}"; SUDO=""
+    script = f'''AUTH="{auth}"; {seam(tmp_path)}. "{LIB}"; SUDO=""
 r1a_hook_pregates() {{ true; }}; r1a_hook_baseline() {{ true; }}; r1a_hook_regate() {{ true; }}; r1a_hook_observe() {{ true; }}; r1a_hook_final() {{ true; }}
 r1a_hook_verify() {{ AEGIS_R1A_WORK_DIR="{work}" AEGIS_PYTHON_BIN="{sys.executable}" AEGIS_R1A_EXPECTED_SOURCE_IP=203.0.113.9 AEGIS_R1A_WINDOW_START="$R1A_WINDOW_START" AEGIS_R1A_WINDOW_END="$R1A_WINDOW_END" bash "{STG / "verify.sh"}" >/dev/null; }}
 r1a_hook_preserve_evidence() {{ true; }}
-r1a_run_attempt "$AUTH" "$GLOBAL" 30; echo "rc=$?"; r1a_run_attempt "$AUTH" "$GLOBAL" 30; echo "rerun_rc=$?"'''
+r1a_run_attempt "$AUTH" 30; echo "rc=$?"; r1a_run_attempt "$AUTH" 30; echo "rerun_rc=$?"'''
     result = bash(script)
     assert "R1A_RESULT=FAIL" in result.stdout and "R1A_ATTEMPT_CONSUMED=YES" in result.stdout and "rc=1" in result.stdout and "rerun_rc=1" in result.stdout
-    assert "R1A_ATTEMPT_ALREADY_CONSUMED" in result.stderr and (glob / "R1A-GLOBAL-ATTEMPT-CONSUMED").is_file()
+    assert "R1A_ATTEMPT_ALREADY_CONSUMED" in result.stderr and (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").is_file()
 
 
 # --- IMPORTANT 2: the acceptance window is bound to the marker ------------------------------------------------------------------------------------
@@ -584,20 +585,18 @@ def test_one_early_source_completion_among_several_fails_and_missing_or_malforme
 
 def test_the_window_starts_at_the_marker_and_ends_when_the_wait_completes_before_final(tmp_path: Path) -> None:
     (tmp_path / "auth").mkdir()
-    (tmp_path / "global").mkdir(mode=0o700)
-    script = f'''AUTH="{tmp_path / "auth"}"; GLOBAL="{tmp_path / "global"}"; . "{LIB}"; SUDO=""
+    script = f'''AUTH="{tmp_path / "auth"}"; {seam(tmp_path)}. "{LIB}"; SUDO=""
 r1a_hook_pregates() {{ true; }}; r1a_hook_baseline() {{ true; }}; r1a_hook_regate() {{ true; }}
 r1a_hook_observe() {{ echo "OBS start=$R1A_WINDOW_START end=${{R1A_WINDOW_END:-unset}}"; sleep 0.2; }}
 r1a_hook_final() {{ echo "FINAL start=$R1A_WINDOW_START end=$R1A_WINDOW_END"; }}
 r1a_hook_verify() {{ true; }}; r1a_hook_preserve_evidence() {{ true; }}
-r1a_run_attempt "$AUTH" "$GLOBAL" 30'''
+r1a_run_attempt "$AUTH" 30'''
     out = bash(script).stdout
     obs = dict(kv.split("=") for kv in re.search(r"OBS (.*)", out).group(1).split())
     fin = dict(kv.split("=") for kv in re.search(r"FINAL (.*)", out).group(1).split())
     assert obs["end"] == "unset" and obs["start"] == fin["start"] and float(fin["end"]) >= float(fin["start"]) + 0.2
-    marker = (tmp_path / "global/R1A-GLOBAL-ATTEMPT-CONSUMED").read_text()
-    assert f"consumed_epoch={fin['start']}" in marker and f"consumed_epoch={fin['start']}" in (tmp_path / "auth/R1A-ATTEMPT-CONSUMED").read_text()
-    record = (tmp_path / "global/R1A-ATTEMPT-WINDOW").read_text()
+    assert f"consumed_epoch={fin['start']}" in (tmp_path / "auth/R1A-ATTEMPT-CONSUMED").read_text()
+    record = (tmp_path / "canon/R1A-ATTEMPT-WINDOW").read_text()
     assert f"window_start={fin['start']}" in record and f"window_end={fin['end']}" in record
 
 
@@ -730,7 +729,7 @@ def test_the_interpreter_must_be_root_owned_and_not_writable() -> None:
 
 def test_a_consumed_attempt_blocks_the_same_a_copied_a_new_auth_dir_and_fresh_authorization(tmp_path: Path) -> None:
     first, calls = attempt(tmp_path, fail_at="observe")  # attempt A: consumed (e.g. no event / timeout)
-    assert first.returncode == 1 and (tmp_path / "global/R1A-GLOBAL-ATTEMPT-CONSUMED").is_file()
+    assert first.returncode == 1 and (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").is_file()
     (tmp_path / "hooks.log").unlink()
     again_a, calls_a = attempt(tmp_path)  # same AUTH_DIR
     assert again_a.returncode == 1 and "R1A_ATTEMPT_ALREADY_CONSUMED" in again_a.stderr and calls_a == []
@@ -751,21 +750,117 @@ def test_the_global_marker_is_never_removed_or_reset_by_any_code_path() -> None:
     for path in R1A_FILES:
         body = "\n".join(code_lines(path))
         assert not re.search(r"\b(rm|unlink|truncate|mv|shred)\b", body), path
+        assert "chattr -i" not in body
     lib = "\n".join(code_lines(LIB))
     assert lib.count("set -o noclobber") >= 3  # global marker, authorization-local marker and window record are exclusive creates
-    assert "> \"$global/$R1A_GLOBAL_MARKER_NAME\"" in lib and ">> " not in lib
+    assert ">> " not in lib and "chattr +i" in lib
 
 
-def test_the_global_marker_directory_must_be_a_private_operator_owned_real_directory(tmp_path: Path) -> None:
+def test_the_canonical_marker_location_is_fixed_by_the_stage_contract_not_by_any_runner() -> None:
+    lib = LIB.read_text()
+    assert len(re.findall(r"^\s*R1A_CANONICAL_DIR=", lib, re.M)) == 1 and "readonly R1A_CANONICAL_DIR" in lib
+    runner = "\n".join(code_lines(RUNNER))
+    assert "PIN_GLOBAL" not in RUNNER.read_text() and not re.search(r"^\s*(R1A_CANONICAL_DIR|GLOBAL_MARKER_DIR)=", runner, re.M)
+    for var in ("R1A_CANONICAL_DIR", "R1A_TEST_ONLY_CANONICAL_DIR", "R1A_TEST_ONLY_CANONICAL_DIR_ENABLED", "GLOBAL_MARKER_DIR"):
+        assert var in runner  # the frozen runner refuses every override of the canonical location
+
+
+def test_the_canonical_directory_must_be_a_private_real_directory(tmp_path: Path) -> None:
     (tmp_path / "auth").mkdir()
     open_dir = tmp_path / "open"
-    open_dir.mkdir(mode=0o777)
+    open_dir.mkdir()
     open_dir.chmod(0o777)
     link = tmp_path / "link"
     link.symlink_to(tmp_path)
-    for bad in (open_dir, link, tmp_path / "missing"):
-        result = bash(f'. "{LIB}"; r1a_attempt_unconsumed "{tmp_path / "auth"}" "{bad}"')
-        assert result.returncode == 1 and "R1A_GLOBAL_MARKER_DIR_INVALID" in result.stderr, bad
+    for bad in (open_dir, link):
+        result = bash(f'export R1A_TEST_ONLY_CANONICAL_DIR_ENABLED=YES R1A_TEST_ONLY_CANONICAL_DIR="{bad}"\n. "{LIB}"; SUDO=""; r1a_attempt_unconsumed "{tmp_path / "auth"}"')
+        assert result.returncode == 1 and "R1A_CANONICAL_DIR_" in result.stderr, bad
+    orphan = bash(f'export R1A_TEST_ONLY_CANONICAL_DIR_ENABLED=YES R1A_TEST_ONLY_CANONICAL_DIR="{tmp_path / "no/such/parent/canon"}"\n. "{LIB}"; SUDO=""; r1a_attempt_unconsumed "{tmp_path / "auth"}"')
+    assert orphan.returncode == 1 and "R1A_CANONICAL_DIR_PARENT_INVALID" in orphan.stderr
+
+
+def test_the_canonical_location_cannot_be_substituted_by_env_config_or_a_successor_runner(tmp_path: Path) -> None:
+    """The bypass: marker consumed under location A, a (successor) runner/config tries location B."""
+    consumed, _ = attempt(tmp_path, fail_at="observe", canon_name="canon_a")  # attempt A consumes the canonical marker (test seam = A)
+    assert consumed.returncode == 1 and (tmp_path / "canon_a/R1A-GLOBAL-ATTEMPT-CONSUMED").is_file()
+    (tmp_path / "auth_b").mkdir()
+    for attack in (
+        'GLOBAL_MARKER_DIR="{b}"',  # a successor runner pins another "global" directory
+        'R1A_CANONICAL_DIR="{b}"',  # a caller tries to re-point the canonical constant (it is overridden and readonly)
+        'GLOBAL_MARKER_DIR="{b}"; R1A_CANONICAL_DIR="{b}"; export GLOBAL_MARKER_DIR R1A_CANONICAL_DIR',
+    ):
+        script = (f'export R1A_TEST_ONLY_CANONICAL_DIR_ENABLED=YES R1A_TEST_ONLY_CANONICAL_DIR="{tmp_path / "canon_a"}"\n'
+                  + attack.format(b=tmp_path / "canon_b") + f'\n. "{LIB}"\nSUDO=""\nr1a_attempt_unconsumed "{tmp_path / "auth_b"}"; echo "rc=$?"; echo "dir=$(r1a_canonical_dir)"\n')
+        result = bash(script)
+        assert "rc=1" in result.stdout and "R1A_ATTEMPT_ALREADY_CONSUMED" in result.stderr, attack
+        assert f"dir={tmp_path / 'canon_a'}" in result.stdout, attack  # B was never adopted
+    assert not (tmp_path / "canon_b").exists()
+    # without the test seam the canonical location is the fixed stage-contract path, whatever the environment says
+    assert bash(f'export R1A_CANONICAL_DIR=/tmp/evil GLOBAL_MARKER_DIR=/tmp/evil2\n. "{LIB}"; r1a_canonical_dir').stdout == "/var/lib/aegis-idea3-governance"
+    assert bash(f'export R1A_TEST_ONLY_CANONICAL_DIR=/tmp/evil\n. "{LIB}"; r1a_canonical_dir').stdout == "/var/lib/aegis-idea3-governance"  # seam without its enabling flag is ignored
+
+
+def test_the_frozen_runner_refuses_to_start_when_any_canonical_location_override_is_set(tmp_path: Path) -> None:
+    frozen = pinned_copy(tmp_path)
+    for var in ("R1A_CANONICAL_DIR", "R1A_TEST_ONLY_CANONICAL_DIR", "R1A_TEST_ONLY_CANONICAL_DIR_ENABLED", "GLOBAL_MARKER_DIR"):
+        result = bash(f'bash "{frozen}" "{tmp_path}"', env={var: "x"})
+        assert result.returncode == 2 and "environment override" in result.stdout, var
+
+
+# --- IMPORTANT 1 (round 2): the window starts only AFTER the canonical marker exists ----------------------------------------------------------------
+
+
+def test_marker_creation_precedes_window_start_sampling_which_precedes_window_open(tmp_path: Path) -> None:
+    """Machine-proved from recorded OPERATIONS and TIMES, not printed text: a recording sudo wrapper and a recording date shim log every call in sequence."""
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    oplog = tmp_path / "ops.log"
+    real_date = shutil.which("date")
+    (shim / "date").write_text(f'#!/bin/sh\nprintf "DATE %s\\n" "$*" >> "{oplog}"\nexec {real_date} "$@"\n')
+    (shim / "sudo").write_text(f'#!/bin/sh\ncase "$*" in *R1A-GLOBAL-ATTEMPT-CONSUMED*noclobber*|*noclobber*R1A-GLOBAL-ATTEMPT-CONSUMED*) printf "MARKER_CREATE\\n" >> "{oplog}";; esac\nexec "$@"\n')
+    for name in ("date", "sudo"):
+        (shim / name).chmod(0o755)
+    (tmp_path / "auth").mkdir()
+    script = f'''AUTH="{tmp_path / "auth"}"; {seam(tmp_path)}. "{LIB}"; SUDO="{shim / "sudo"}"
+r1a_hook_pregates() {{ true; }}; r1a_hook_baseline() {{ true; }}; r1a_hook_regate() {{ true; }}
+r1a_hook_observe() {{ printf "OBSERVE_ENTER\\n" >> "{oplog}"; /bin/date +%s.%N > "{tmp_path / "observe.time"}"; }}
+r1a_hook_final() {{ true; }}; r1a_hook_verify() {{ true; }}; r1a_hook_preserve_evidence() {{ true; }}
+r1a_run_attempt "$AUTH" 30'''
+    result = subprocess.run(["bash", "-c", script], env={**os.environ, "PATH": f"{shim}:{os.environ['PATH']}"}, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    ops = oplog.read_text().split("\n")
+    marker_at = ops.index("MARKER_CREATE")
+    epoch_samples = [i for i, line in enumerate(ops) if line == "DATE +%s.%N"]
+    observe_at = ops.index("OBSERVE_ENTER")
+    assert epoch_samples, "the window start must be sampled"
+    assert marker_at < epoch_samples[0] < observe_at, ops  # marker creation < window_start sampling < observation (window open)
+    assert not any(i < marker_at for i in epoch_samples), "no epoch may be sampled before the stage-global marker exists"
+    # recorded TIMES agree: the marker file's mtime (stat) is not after the recorded window start, which is not after the observation hook's own clock reading
+    marker = tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED"
+    start = float(re.search(r"consumed_epoch=(\S+)", (tmp_path / "auth/R1A-ATTEMPT-CONSUMED").read_text()).group(1))
+    mtime = float(subprocess.run(["stat", "-c", "%.9Y", str(marker)], capture_output=True, text=True).stdout)
+    assert mtime <= start <= float((tmp_path / "observe.time").read_text())
+
+
+def test_a_failed_local_marker_after_the_global_marker_leaves_the_attempt_consumed_without_retry(tmp_path: Path) -> None:
+    auth = tmp_path / "auth"
+    auth.mkdir()
+    script = f'''AUTH="{auth}"; {seam(tmp_path)}. "{LIB}"; SUDO=""
+r1a_hook_pregates() {{ true; }}; r1a_hook_baseline() {{ chmod 555 "$AUTH"; }}; r1a_hook_regate() {{ true; }}
+r1a_hook_observe() {{ echo OBSERVE_RAN; }}; r1a_hook_final() {{ true; }}; r1a_hook_verify() {{ true; }}; r1a_hook_preserve_evidence() {{ true; }}
+r1a_run_attempt "$AUTH" 30; echo "rc=$?"; chmod 755 "$AUTH"; r1a_run_attempt "$AUTH" 30; echo "rerun_rc=$?"'''
+    result = bash(script)
+    assert "rc=1" in result.stdout and "R1A_LOCAL_MARKER_NOT_WRITTEN" in result.stderr and "OBSERVE_RAN" not in result.stdout  # no window opened
+    assert "R1A_EVENT_WINDOW_OPEN=YES" not in result.stdout
+    assert (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").is_file()  # still consumed; never deleted or rewritten
+    assert "rerun_rc=1" in result.stdout and "R1A_ATTEMPT_ALREADY_CONSUMED" in result.stderr  # no retry even though the local marker is absent
+
+
+def test_consumption_order_in_the_library_is_marker_then_start_then_local_record() -> None:
+    body = LIB.read_text()
+    fn = body[body.index("r1a_consume_attempt() {"):body.index("# ---- predecessor receipt gates")]
+    assert fn.index("set -o noclobber; printf \"consumed_at") < fn.index("R1A_WINDOW_START=$(date +%s.%N)") < fn.index("$dir/R1A-ATTEMPT-CONSUMED")
+    assert "date +%s.%N" not in body[:body.index("r1a_consume_attempt() {")].replace("# ", "")  # no earlier sampling anywhere in the library
 
 
 # --------------------------------------------------------------------------- evidence (existing fail-closed verifier is the authority)
