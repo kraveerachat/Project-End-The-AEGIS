@@ -20,6 +20,7 @@ from pathlib import Path
 
 from . import config
 from . import database as db
+from . import historical_disposition as hd
 from . import local_restore as lr
 from . import recovery_core as rc
 from . import recovery_protocol as rp
@@ -232,6 +233,7 @@ class AegisSupervisor:
         self.recovery = rc.CoreRecoveryService(self)
         self.recovery_server = None
         self.alert_server = None
+        self.historical_server = None
         self._command_lock = threading.RLock()
         self._fresh_lockdown: tuple[str, int] | None = None  # process-local; never restored from the database
         self._containment_count_lock = threading.Lock()
@@ -724,6 +726,36 @@ class AegisSupervisor:
         if server is not None:
             server.close()
 
+    def start_historical_disposition(self) -> None:
+        """R1D: the dedicated, root-only, one-shot historical-incident disposition channel. INERT by default (exact flag, production,
+        configured detector authority) and never started once a disposition exists. Optional: it never blocks or fails the Core."""
+        if self.historical_server is not None:
+            return
+        if not hd.enabled(self.settings.profile, enabled_flag=config.R1D_DISPOSITION_ENABLED) or not lr.local_restore_supported():
+            return
+        if config.ALERT_SOURCE_UID is None:
+            self.log_event("ERROR", "historical_disposition_failed", error="DETECTOR_AUTHORITY_UNCONFIGURED")
+            return
+        if hd.disposition_exists() or hd.attempt_exists() or hd.marker_present():
+            self.log_event("INFO", "historical_disposition_closed", reason="ALREADY_DISPOSED_OR_ATTEMPTED")
+            return
+        server = hd.HistoricalDispositionServer(
+            self.settings.runtime_dir / hd.CHANNEL_NAME,
+            hd.HistoricalDispositionService(profile=self.settings.profile, detector_uid=config.ALERT_SOURCE_UID),
+            allowed_uid=0,
+        )
+        try:
+            server.start()
+        except (hd.DispositionChannelError, OSError) as error:
+            self.log_event("ERROR", "historical_disposition_failed", error=type(error).__name__)
+            return
+        self.historical_server = server
+
+    def stop_historical_disposition(self) -> None:
+        server, self.historical_server = self.historical_server, None
+        if server is not None:
+            server.close()
+
     def on_production_alert(self, ip: str) -> dict:
         """R1 only: record the validated attacker candidate as the bound incident. Never acts on the host."""
         result = self.recovery.bind_incident(ip)
@@ -870,6 +902,7 @@ class AegisSupervisor:
             self.start_local_restore()
             self.start_recovery()
             self.start_alert_ingress()
+            self.start_historical_disposition()
             if self.dispatch_worker is not None:
                 self.dispatch_worker.start()
             if not self.settings.dry_run:
@@ -901,6 +934,7 @@ class AegisSupervisor:
             return 1
         finally:
             self.stop_requested = True
+            self.stop_historical_disposition()
             self.stop_alert_ingress()
             self.stop_recovery()
             self.stop_local_restore()
