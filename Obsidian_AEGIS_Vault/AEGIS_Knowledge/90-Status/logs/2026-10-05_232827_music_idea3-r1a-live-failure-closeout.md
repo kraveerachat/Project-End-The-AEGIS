@@ -39,7 +39,7 @@ PRODUCTION_MUTATION_PERFORMED_BY_CLOSEOUT=NO
 ESP32_TOUCHED_BY_R1A=NO
 ```
 
-## What happened
+## What changed
 
 - The owner-authorized R1A LIVE attempt executed once under the frozen successor runner at authoritative main `b05dd9efa703198a880df4dd3913c7649b496460`. The canonical stage-global marker was created and the 180-second observation window opened only after the PRE capture and immutable R1 baseline completed.
 - One genuine external TCP port-scan event was produced from the separately pinned external source after the marker-bounded window opened. The R1A handler itself generated no event.
@@ -75,6 +75,12 @@ R1A_RERUN_ALLOWED=NO
 - Recovery R2–R8 remains blocked. Any future path forward requires a separately reviewed owner decision: either a narrowly defined post-attempt adjudication contract that can consume preserved evidence without rerunning R1A, or a new successor governed stage ID. R1A itself must never be replayed.
 - R1I remains installed during this closeout. No removal/rollback is authorized by this receipt.
 
+## Verification evidence
+
+- `git diff --name-status b05dd9efa703198a880df4dd3913c7649b496460 e417f464b8ef62b778f419131a1aa482a5a80c09` — **PASS** by GitHub compare: the closeout branch was 3 commits ahead / 0 behind and changed exactly the receipt, IDEA3 status, and IDEA3 MOC.
+- `node scripts/validate-collaboration-policy.mjs --event "$GITHUB_EVENT_PATH" --changed-files "$RUNNER_TEMP/aegis-changed-files.txt"` — **FAIL** on the initial PR #356 head `e417f464…`: the new receipt lacked the required `What changed`, `Verification evidence`, and `Canonical notes updated` sections. This follow-up commit adds those required sections; the CI rerun is expected to re-evaluate the repaired receipt.
+- No repository-local Production command, live runner, service mutation, incident mutation, R1I mutation, or ESP32 action was executed for this documentation repair.
+
 ## Evidence boundary
 
 - Complete raw Production evidence, authorization/K3 records, frozen runner, canonical marker/window, process identifiers, local paths, and the private source address remain in the owner's local archive and are not committed.
@@ -86,6 +92,11 @@ R1A_RERUN_ALLOWED=NO
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-05_232827_music_idea3-r1a-live-failure-closeout.md` — this immutable redacted R1A LIVE failure closeout.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` — records R1A as executed once, consumed, failed at preservation final, with real-chain evidence PASS but no claim promotion.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-moc.md` — updates the current checkpoint and keeps Recovery R2–R8 blocked.
+
+## Canonical notes updated
+
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` — records the immutable consumed R1A FAIL result while preserving the separate PASS detector-chain evidence boundary.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-moc.md` — advances the current checkpoint to the consumed R1A failure and keeps Recovery R2–R8 blocked.
 
 ## Shared surfaces touched
 
