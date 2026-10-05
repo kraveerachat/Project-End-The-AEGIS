@@ -74,6 +74,7 @@ import {
 } from '../lib/vaultChunkedDownload.js'
 import { BULK_ZIP_ENABLED, planBulkDownload } from '../lib/bulkDownloadPlan.js'
 import { createVaultV2EntrySource, runBulkZip } from '../lib/bulkZipDownload.js'
+import { supportsWorkerStreamDownload } from '../lib/downloadStreamSession.js'
 const MAX_PREVIEW_CEILING_BYTES = MAX_BUFFERED_PLAINTEXT_BYTES
 
 /** blob id ทึบ: '2:id' — key เดียวกับ GET /api/vault inventory ที่จอใช้แมตช์บล็อบจริงของโหนด */
@@ -507,7 +508,7 @@ export function VaultTreeScreen({
     // แผนซิงโครนัสล้วน — ทุกการปฏิเสธเกิดก่อนไดอะล็อก/ตัวเลือกไฟล์ (spec §4, §6, §12)
     const plan = planBulkDownload({
       source: 'vault', items: nodes, resolve: (n) => blobIndex.get(refKey(n.blobRef)) ?? null,
-      fsa: supportsStreamingFileSink(), enabled: bulkZipEnabled,
+      fsa: supportsStreamingFileSink(), workerStream: supportsWorkerStreamDownload(), enabled: bulkZipEnabled,
     })
     const notices = [
       ...(plan.skippedFolders ? [{ key: 'zipFoldersSkipped', vars: { n: plan.skippedFolders } }] : []),

@@ -18,6 +18,9 @@ import { createServer, normalizePath } from 'vite'
 import reactPlugin from '@vitejs/plugin-react'
 
 import { makeT } from '../src/lib/strings.js'
+import {
+  createDownloadStreamWorkerState, handleDownloadStreamFetch, handleDownloadStreamMessage,
+} from '../src/lib/downloadStreamWorkerState.js'
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const mockHooksPath = normalizePath(path.join(rootDir, 'tests/fixtures/mockHooks.js'))
@@ -44,7 +47,7 @@ const fileRow = (i, size = 3 + i) => ({
 const folderRow = (i) => ({ id: `d${i}`, name: `dir${i}`, kind: 'folder', type: 'Folder', ext: '', size: 0, modified: NOW, created: NOW, uploader: 'user', vault: false, verified: true })
 const bytesOf = (n, seed) => { const b = new Uint8Array(n); for (let i = 0; i < n; i += 1) b[i] = (i + seed) & 0xff; return b }
 
-async function mountFiles(rows, { fsa = true, holdBody = null, props = {} } = {}) {
+async function mountFiles(rows, { fsa = true, holdBody = null, props = {}, extraGlobals = () => ({}) } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' })
   const w = dom.window
   w.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} })
@@ -73,6 +76,7 @@ async function mountFiles(rows, { fsa = true, holdBody = null, props = {} } = {}
     fetch: fetchStub,
     __AEGIS_API_FIXTURES__: { '/api/files': { loading: false, error: null, data: { files: rows, ancestors: [] } } },
   }
+  Object.assign(globals, extraGlobals(w))
   if (fsa) {
     globals.showSaveFilePicker = (opts) => {
       log.pickers.push(opts)
@@ -292,5 +296,94 @@ test('FILES-UNMOUNT-ABORT leaving the Files screen aborts an active ZIP: no late
     assert.ok(!m.log.downloads.includes('f2'), 'no later entry fetched')
     assert.ok(!m.log.downloads.includes('f3'))
     assert.deepEqual(errors.filter((e) => /unmounted|act\(/i.test(e)), [], 'no React update-after-unmount warning')
+  } finally { await m.unmount() }
+})
+
+/* ── no FSA, but the existing /drive/ Service Worker can stream (Brave on Windows) ── */
+
+/**
+ * The browser side of the worker-stream path, simulated over the REAL worker protocol: a service-worker
+ * container whose controller hands messages to the real worker state, and a MutationObserver standing in
+ * for the browser's navigation of the hidden iframe (it answers with the worker's real Response body).
+ */
+function workerStreamBrowser({ registerFails = false } = {}) {
+  const state = createDownloadStreamWorkerState()
+  const sw = { bodies: [], frames: [], registrations: 0 }
+  const controller = { postMessage: (msg, ports = []) => handleDownloadStreamMessage(state, msg, ports, (p) => ports[0]?.postMessage(p)) }
+  sw.globals = (w) => {
+    new w.MutationObserver((records) => {
+      for (const r of records) {
+        for (const n of r.addedNodes) {
+          if (n.tagName !== 'IFRAME') continue
+          sw.frames.push({ src: n.getAttribute('src'), hidden: n.hidden })
+          const res = handleDownloadStreamFetch(state, new Request(new URL(n.getAttribute('src'), 'http://localhost/').href), { origin: 'http://localhost', scopePath: '/' })
+          sw.bodies.push(res.arrayBuffer().then((b) => new Uint8Array(b), (e) => e))
+        }
+      }
+    }).observe(w.document.body, { childList: true, subtree: true })
+    return {
+      isSecureContext: true,
+      navigator: {
+        userAgent: 'test',
+        serviceWorker: {
+          controller,
+          async register() { sw.registrations += 1; if (registerFails) throw new Error('blocked by shields'); return { active: controller } },
+          addEventListener() {}, removeEventListener() {},
+        },
+      },
+    }
+  }
+  sw.state = state
+  return sw
+}
+
+function zipEntryCount(bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const eocd = bytes.length - 22
+  assert.equal(dv.getUint32(eocd, true), 0x06054b50, 'EOCD signature')
+  assert.equal(dv.getUint32(0, true), 0x04034b50, 'first local header')
+  return dv.getUint16(eocd + 10, true)
+}
+
+test('FZ-WS-1 no FSA + worker-stream: 4 files > 64 MiB → ONE ZIP through the worker, no picker, no Blob, no per-file anchors', async () => {
+  const sw = workerStreamBrowser()
+  const big = [fileRow(0, 20 * MiB), fileRow(1, 20 * MiB), fileRow(2, 15 * MiB), fileRow(3, 15 * MiB)]
+  const m = await mountFiles(big, { fsa: false, props: { bulkZipEnabled: true }, extraGlobals: sw.globals })
+  try {
+    await m.select(['f0', 'f1', 'f2', 'f3'])
+    await m.click(m.bulkButton())
+    for (let i = 0; i < 400 && sw.bodies.length === 0; i += 1) await m.settle(1)
+    assert.equal(sw.frames.length, 1, 'one hidden navigation')
+    assert.equal(sw.frames[0].hidden, true)
+    assert.match(sw.frames[0].src, /^\/__aegis-download\/[0-9a-f]{32}$/)
+    const body = await sw.bodies[0]
+    assert.ok(body instanceof Uint8Array, String(body))
+    assert.ok(body.length > 64 * MiB)
+    assert.equal(zipEntryCount(body), 4)
+    assert.equal(m.log.pickers.length, 0)
+    assert.equal(m.log.objectUrls.length, 0, 'no whole-archive Blob')
+    assert.equal(m.log.anchors.length, 0, 'not one-by-one')
+    assert.deepEqual(m.log.downloads, ['f0', 'f1', 'f2', 'f3'])
+    assert.ok(!m.notice().includes(t('filesZipLargeFallback')))
+    await m.settle(4)
+    assert.equal(m.panel(), null, 'the transfer panel clears after done')
+    assert.equal(sw.state.sessionCount(), 0)
+  } finally { await m.unmount() }
+})
+
+test('FZ-WS-2 worker unavailable at run time and > 64 MiB → per-file anchors plus the existing notice, nothing fetched', async () => {
+  const sw = workerStreamBrowser({ registerFails: true })
+  const big = [fileRow(0, 40 * MiB), fileRow(1, 30 * MiB), fileRow(2), fileRow(3)]
+  const m = await mountFiles(big, { fsa: false, props: { bulkZipEnabled: true }, extraGlobals: sw.globals })
+  try {
+    await m.select(['f0', 'f1', 'f2', 'f3'])
+    await m.click(m.bulkButton())
+    await m.settle(10)
+    assert.equal(sw.registrations, 1)
+    assert.equal(m.log.anchors.length, 4)
+    assert.deepEqual(m.log.anchors.map((a) => a.download), ['file0.bin', 'file1.bin', 'file2.bin', 'file3.bin'])
+    assert.equal(m.log.downloads.length, 0, 'nothing fetched into the archive')
+    assert.ok(m.notice().includes(t('filesZipLargeFallback')))
+    assert.equal(m.panel()?.getAttribute('data-vault-transfer-stage') ?? null, null, 'not reported as failed')
   } finally { await m.unmount() }
 })

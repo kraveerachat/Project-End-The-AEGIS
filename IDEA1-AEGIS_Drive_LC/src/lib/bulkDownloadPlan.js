@@ -69,11 +69,14 @@ function copyBlob(b) {
 
 /**
  * @param {{ source: 'files'|'vault', items: any[], resolve: (item: any) => object|null,
- *           fsa: boolean, enabled?: boolean, now?: Date|number }} options
+ *           fsa: boolean, workerStream?: boolean, enabled?: boolean, now?: Date|number }} options
+ *   fsa          — มี File System Access (showSaveFilePicker) → transport 'fsa' เสมอ (เส้นทางเดิม ไม่เปลี่ยน)
+ *   workerStream — ไม่มี FSA แต่สตรีมผ่าน Service Worker ตัวเดิมของ /drive/ ได้ → 'worker-stream'
+ *                  (ZIP เดียวโดยไม่บัฟเฟอร์ทั้งก้อน ไม่ว่า archive จะใหญ่กว่า 64 MiB หรือไม่)
  *   Files: items = id ที่เลือก, resolve(id) → แถวในรายการปัจจุบัน หรือ null
  *   Vault: items = โหนดที่เลือก, resolve(node) → แถว blob ใน blobIndex หรือ null
  */
-export function planBulkDownload({ source, items, resolve, fsa, enabled = BULK_ZIP_ENABLED, now }) {
+export function planBulkDownload({ source, items, resolve, fsa, workerStream = false, enabled = BULK_ZIP_ENABLED, now }) {
   let skippedFolders = 0
   let unavailable = 0
   const picked = []
@@ -120,7 +123,10 @@ export function planBulkDownload({ source, items, resolve, fsa, enabled = BULK_Z
   }))
   const layout = zipLayout(entries)
   let transport = 'fsa'
-  if (!fsa) {
+  if (!fsa && workerStream) {
+    // ⚠️ ตรวจจากความสามารถ ไม่ใช่ user agent — เพดาน 64 MiB ด้านล่างไม่เกี่ยวกับเส้นทางนี้เพราะไม่มีการบัฟเฟอร์
+    transport = 'worker-stream'
+  } else if (!fsa) {
     // ⚠️ 64 MiB คือเพดานนโยบายของขนาด archive ที่บัฟเฟอร์ ไม่ใช่การรับประกันหน่วยความจำของโปรเซส (spec §14, §15)
     if (layout.total > MAX_BUFFERED_PLAINTEXT_BYTES) {
       if (source === 'files') return perFile({ fallbackNotice: 'no-fsa-large' })

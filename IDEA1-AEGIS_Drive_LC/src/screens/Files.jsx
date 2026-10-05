@@ -29,6 +29,7 @@ import { createRateEstimator } from '../lib/transferRate.js'
 import { BULK_ZIP_ENABLED, planBulkDownload } from '../lib/bulkDownloadPlan.js'
 import { createFilesEntrySource, runBulkZip } from '../lib/bulkZipDownload.js'
 import { supportsStreamingFileSink } from '../lib/vaultChunkedDownload.js'
+import { supportsWorkerStreamDownload } from '../lib/downloadStreamSession.js'
 
 const EXT_ICONS = {
   xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
@@ -1040,7 +1041,7 @@ export function Files({
     if (downloadBusyRef.current) { setBulkNotice([{ key: 'filesDownloadBusy' }]); return }
     const plan = planBulkDownload({
       source: 'files', items: [...selectedIds], resolve: (id) => files.find((f) => f.id === id) ?? null,
-      fsa: supportsStreamingFileSink(), enabled: bulkZipEnabled,
+      fsa: supportsStreamingFileSink(), workerStream: supportsWorkerStreamDownload(), enabled: bulkZipEnabled,
     })
     const notices = [
       ...(plan.skippedFolders ? [{ key: 'zipFoldersSkipped', vars: { n: plan.skippedFolders } }] : []),
@@ -1065,7 +1066,13 @@ export function Files({
     })
     void run.then((res) => {
       if (!mountedRef.current) return
-      if (res.status === 'failed') {
+      if (res.status === 'failed' && res.reason === 'stream-unavailable') {
+        // worker-stream เปิดไม่ได้ตอนรันจริง (เช่น เบราว์เซอร์ปิด Service Worker) ก่อนที่ไบต์ใดจะถูกเขียน —
+        // ถอยไปดาวน์โหลดทีละไฟล์พร้อมคำอธิบายเดิม แทนที่จะรายงานว่าล้มเหลว
+        setDownloadTransfer(null)
+        setBulkNotice((prev) => [...prev, { key: 'filesZipLargeFallback' }])
+        for (const e of plan.entries) downloadFile(files.find((f) => f.id === e.id) ?? e)
+      } else if (res.status === 'failed') {
         setDownloadTransfer((prev) => ({
           ...(prev ?? { kind: 'download', transferredBytes: 0, totalBytes: 0, percent: 0 }),
           stage: 'failed', reason: res.reason, failedName: res.failedEntry?.name ?? null, rate: null,

@@ -14,6 +14,7 @@ import {
   authenticateVaultV2Entry, createBufferedSink, downloadVaultV2, MAX_BUFFERED_PLAINTEXT_BYTES,
 } from './vaultChunkedDownload.js'
 import { apiFetchStream } from './api.js'
+import { openWorkerStreamSink } from './downloadStreamSession.js'
 
 const ZIP_PICKER_TYPES = [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }]
 
@@ -52,6 +53,7 @@ export async function runBulkZip({
   plan, source, scope = globalThis, busyRef, signal, isPurged = () => false, onProgress,
   createWriter = createZipStreamWriter, computeLayout = zipLayout, createHasher,
   createBufferedSink: makeBufferedSink = createBufferedSink, registerObjectUrl, createRateEstimator,
+  createStreamDestination = openWorkerStreamSink,
   clock = () => globalThis.performance?.now?.() ?? Date.now(),
 }) {
   if (busyRef?.current) return { status: 'busy' }
@@ -64,9 +66,12 @@ export async function runBulkZip({
   }
 
   async function archive() {
-    const buffered = plan.transport === 'buffered'
+    // transport: 'fsa' (ค่าเริ่มต้น — เส้นทางเดิมไม่เปลี่ยน) | 'worker-stream' | 'buffered'
+    const workerStream = plan.transport === 'worker-stream'
+    let buffered = plan.transport === 'buffered'
+    const fsa = !buffered && !workerStream
     let handle = null
-    if (!buffered) {
+    if (fsa) {
       try {
         handle = await scope.showSaveFilePicker({ suggestedName: plan.suggestedName, types: ZIP_PICKER_TYPES })
       } catch (err) {
@@ -150,9 +155,30 @@ export async function runBulkZip({
     if (cancelledNow()) return failed('cancelled')
 
     /* ── เปิดปลายทาง — หลังพิสูจน์ทุกอย่างแล้วเท่านั้น ── */
+    if (workerStream) {
+      // ไม่มีตัวเลือกไฟล์ ไม่มี Blob ทั้งก้อน: ไบต์ไหลผ่าน Service Worker ตัวเดิมไปที่ตัวจัดการดาวน์โหลดของเบราว์เซอร์
+      let opened
+      try {
+        opened = await createStreamDestination({
+          filename: plan.suggestedName, totalBytes: layout.total, source: plan.source, signal,
+        })
+      } catch {
+        opened = null
+      }
+      if (opened?.ok) {
+        target = opened.sink
+      } else if (cancelledNow() || opened?.reason === 'cancelled') {
+        return { status: 'cancelled' }
+      } else if (layout.total <= MAX_BUFFERED_PLAINTEXT_BYTES) {
+        // ยังไม่มีไบต์ใดถูกเขียน — archive เล็กพอสำหรับทางบัฟเฟอร์เดิมภายใต้เพดาน 64 MiB เดิม
+        buffered = true
+      } else {
+        return { status: 'failed', reason: 'stream-unavailable' }
+      }
+    }
     if (buffered) {
       target = makeBufferedSink({ limitBytes: MAX_BUFFERED_PLAINTEXT_BYTES })
-    } else {
+    } else if (fsa) {
       try {
         target = await handle.createWritable()
       } catch {

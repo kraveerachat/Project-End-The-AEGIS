@@ -15,18 +15,34 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-MULTI-FILE-ZIP-ACCEPT-WIN — Windows-only acceptance and enablement of multi-file ZIP
+## Current Task — IDEA1-ZIP-NO-FSA-STREAM — Cross-browser large ZIP over the existing Service Worker
+
+| Field | Current value |
+|---|---|
+| Task | Bounded compatibility extension: browsers without File System Access (Brave on Windows: `isSecureContext === true`, `typeof showSaveFilePicker !== 'function'`) download 4+ Files / Vault V2 items as ONE streaming ZIP, including archives above 64 MiB. |
+| Root cause | Brave entered the existing no-FSA path: ZIP > 64 MiB → Files per-file fallback (`filesZipLargeFallback`), Vault refusal. The ZIP core was correct. |
+| Branch / PR | `feat/idea1-cross-browser-streaming-zip` from `origin/main` `b412918f`; one PR, not merged by the agent |
+| Owner | kla |
+| Design | Capability-detected transport `fsa` (unchanged) → `worker-stream` → `buffered` (unchanged). `worker-stream` reuses the existing `/drive/` worker (`vault-preview-sw.js`, no second registration): ephemeral CSPRNG token + MessagePort, hidden same-origin iframe navigates to `<scope>__aegis-download/<token>`, worker answers with a ReadableStream (`application/zip`, attachment, `no-store`, `nosniff`, exact `Content-Length`). Credit backpressure bounds the worker queue to highWater (4 MiB) + window (2 MiB). Close only at the declared length; abort / cancel / Vault lock / browser cancel / worker restart (keepalive) / protocol violation error the stream. No Cache API, IndexedDB or storage. Logic in `src/lib/downloadStreamWorkerState.js` + `src/lib/downloadStreamSession.js`; the worker file only wires events. |
+| Unchanged | `MAX_BUFFERED_PLAINTEXT_BYTES = 64 MiB`, `BULK_ZIP_ENABLED = true`, `ZIP_THRESHOLD = 4`, `zipStreamWriter`/ZIP64, Files/Vault sources, V1 refusal, Vault plaintext warning first, FSA path. Run-time worker failure: ≤ 64 MiB → existing buffered path; Files > 64 MiB → existing per-file path with the existing notice; Vault > 64 MiB → failed (`stream-unavailable`). |
+| State | `IMPLEMENTED / LOCALLY VERIFIED`; `PRODUCTION_DEPLOYED=NO` (Production still runs release `3895ac0e`, untouched). |
+| Evidence | Agent-driven real-browser acceptance on local non-Production (PG-backed server + `vite preview` of the production build): Brave 1.96.61 / Chromium 154 — 4 files 100 MiB → ONE ZIP (104,859,220 B) via the worker, progress visible, Python `zipfile` all CRC/SHA-256 OK, Windows Explorer shell lists 4 entries, extracted file SHA-256 correct; Brave cancel → browser download `canceled`, nothing saved, not reported as success. Chrome 154 reached `showSaveFilePicker` (FSA path, no worker download); native Save dialog not completed by the agent. |
+| NOT VERIFIED | Vault worker-stream in a real browser (covered by jsdom UI + real-crypto orchestrator tests only); Edge and Opera (share the FSA capability path; not run); human visual acceptance of all browsers. |
+| Next gate | Owner retest (Brave large ZIP + cancel; Chrome FSA 4+; optionally Vault Brave), review, merge; Production deploy is a separate task. |
+| Receipt | `90-Status/logs/2026-10-05_234226_kla_idea1-cross-browser-streaming-zip.md` |
+
+## Closed Task — IDEA1-MULTI-FILE-ZIP-ACCEPT-WIN — Windows-only acceptance and enablement of multi-file ZIP
 
 | Field | Current value |
 |---|---|
 | Task | Non-Production acceptance of PR #351 (head `40cb8636`) under the Human-approved **Windows-only** scope, and the stacked enablement change (`BULK_ZIP_ENABLED` false → true). |
 | Branch / PR | `chore/idea1-multi-file-zip-windows-acceptance` / PR #354, retargeted to `main` after PR #351 merged (`edad9371`); synced with `main` by a normal merge |
 | Owner | kla |
-| State | `WINDOWS_ONLY_ACCEPTANCE=PASS`; `BULK_ZIP_ENABLED=true` in PR #354 only (`main` keeps `false` until #354 merges); `PRODUCTION_DEPLOYED=NO`. |
+| State | `WINDOWS_ONLY_ACCEPTANCE=PASS`; PR #354 merged 2026-10-05, so `BULK_ZIP_ENABLED=true` on `main`; Production runs release `3895ac0e` (the #354 merge commit), deployed and healthy per the Owner on 2026-10-05. |
 | Evidence | Chrome Windows (FSA) A1–A12 **PASS**; A11 clean pair growth 310 vs 284 MiB, difference **26 MiB** < 64 MiB (first pair failed at 91 MiB, recorded); Python `zipfile` R1–R3 **PASS** (R3 offset-only ZIP64 at 4724464240); Windows Explorer R1–R3 **PASS**. Manifest: `IDEA1-AEGIS_Drive_LC/scripts/zip-acceptance/ACCEPTANCE-2026-10-05-windows.json`. |
 | Deferred — NOT VERIFIED | Firefox (no FSA); macOS Chrome and Safari; **macOS Archive Utility** (required reader in spec §24) — no macOS host. No macOS compatibility claim. |
 | DM-5 | PENDING / DEFERRED — non-blocking under the Human-approved Windows-only scope. |
-| Next gate | Human review/merge of PR #354; Production deploys later as one Drive release in a separate task. |
+| Next gate | Closed — PR #354 merged. |
 | Receipt | `90-Status/logs/2026-10-05_174005_kla_idea1-multi-file-zip-windows-acceptance.md` |
 
 ## Previous Task — IDEA1-MULTI-FILE-ZIP-IMPL — Multi-file streaming ZIP implementation (T0–T14)
