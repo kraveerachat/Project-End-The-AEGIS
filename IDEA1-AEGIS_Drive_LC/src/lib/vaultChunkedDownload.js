@@ -96,6 +96,31 @@ export const VAULT_DOWNLOAD_TIMING = Object.freeze({
 
 const timingNow = () => globalThis.performance?.now?.() ?? Date.now()
 
+/** แกะ DEK + ถอด metadata ด้วย AAD ของมัน — ครึ่ง "พิสูจน์ซอง" ร่วมของการดาวน์โหลดเดี่ยวและ ZIP หลายไฟล์ */
+async function unwrapAndAuthenticate(kek, blob) {
+  const dek = await unwrapVaultV2Dek(kek, blob)
+  const meta = await decryptVaultV2MetaWithDek(dek, blob)
+  return { dek, meta }
+}
+
+/**
+ * พิสูจน์ซองของรายการ V2 หนึ่งรายการโดยไม่เปิดปลายทาง — ใช้ใน pre-flight ของ ZIP หลายไฟล์ (spec §11)
+ * อ่านจาก record ในหน่วยความจำเท่านั้น (ไม่มี network)
+ *
+ * ⚠️ ไม่คืน DEK: pre-flight ต้องไม่สะสมกุญแจของทุกรายการไว้ในหน่วยความจำ
+ * ⚠️ คืน meta.plainSize "ตามที่ถอดได้ทุกประการ" — ไม่แปลงชนิด ไม่ตั้งค่าเริ่มต้น การตรวจว่าเป็น
+ *    จำนวนเต็มที่ปลอดภัยเป็นหน้าที่ของ pre-flight (ค่าเพี้ยนต้องถูกปฏิเสธ ไม่ใช่ถูก "ซ่อม" ที่นี่)
+ * @returns {Promise<{ ok: true, plainSize: unknown } | { ok: false, reason: 'wrong-key' }>}
+ */
+export async function authenticateVaultV2Entry({ kek, blob }) {
+  try {
+    const { meta } = await unwrapAndAuthenticate(kek, blob)
+    return { ok: true, plainSize: meta?.plainSize }
+  } catch {
+    return { ok: false, reason: 'wrong-key' }
+  }
+}
+
 /**
  * เตรียมปลายทางของการดาวน์โหลด V2 ตามลำดับที่ปลอดภัยและไม่ทำให้ผู้ใช้รอ:
  *
@@ -136,8 +161,7 @@ export async function prepareVaultV2Download({
 
   let dek
   try {
-    dek = await unwrapVaultV2Dek(kek, blob)
-    await decryptVaultV2MetaWithDek(dek, blob)
+    ;({ dek } = await unwrapAndAuthenticate(kek, blob))
   } catch {
     // ⚠️ ยังไม่ได้เปิดปลายทางเพื่อเขียน — ไม่มีไบต์ใดของไฟล์นี้ถูกเขียนลงดิสก์
     return { ok: false, reason: 'wrong-key' }
