@@ -3,7 +3,7 @@
 # REPOSITORY TEMPLATE: every value marked PIN_ is unpinned, so this file REFUSES TO RUN as committed. The owner freeze workflow copies it OUTSIDE the repository, replaces the PIN_ values, records
 # the frozen file's SHA-256 and only then authorizes a run. Nothing in this repository executes it, creates an authorization or K3 record, freezes a pin, or generates the event.
 # Usage (the FROZEN operator user/uid, NOT root):  bash run-r1b-owner.sh <AUTH_DIR>     AUTH_DIR holds authorization-R1B.txt and k3-R1B.txt (FRESH same-day, stage=R1B, no extra field)
-# Stage order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1B -> Recovery R2-R8 -> LVR -> L8 -> L9. Recovery R2-R8 stays BLOCKED until R1B/R1 succeeds.
+# Stage order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A (historical consumed FAIL) -> R1B -> Recovery R2-R8 -> LVR -> L8 -> L9. Recovery R2-R8 stays BLOCKED until R1B/R1 succeeds.
 # OWNER-APPROVED MODEL (fixed): R1B is a MUTATING governed stage (a genuine external event may durably create ALERT_ACCEPTED, INCIDENT_BOUND and an OPEN incident); ONE attempt; NO retry; the event must be
 # GENUINE and EXTERNAL. This runner OBSERVES ONLY: it generates no traffic, alert, journal line, Core write or database write. It keeps the R1I table installed. Genuine evidence is never deleted, closed,
 # edited or rolled back; a failed attempt stops with the evidence preserved and the marker kept (R1B_RESULT=FAIL, R1B_RERUN_ALLOWED=NO).
@@ -136,7 +136,7 @@ authority_gates() {
   local rc=0
   control_gate || rc=1
   control_git_gate || rc=1
-  r1b_verifier_gate "$VERIFIER_SNAPSHOT_DIR" "$VERIFIER_MANIFEST_SHA256" "$REPO" "$PRODUCTION_DETECTOR_SHA256" "$CTRL/r1a-acceptance/r1b_verifier_snapshot.py" "$EXPECTED_MAIN" || rc=1
+  r1b_verifier_gate "$VERIFIER_SNAPSHOT_DIR" "$VERIFIER_MANIFEST_SHA256" "$REPO" "$PRODUCTION_DETECTOR_SHA256" "$CTRL/r1b-acceptance/r1b_verifier_snapshot.py" "$EXPECTED_MAIN" || rc=1
   r1b_interpreter_gate "$PY" || rc=1
   r1b_r1i_present_gate "$CTRL/r1i-input-instrumentation/r1i_input_instrumentation.py" || rc=1
   l7u_core_running_gate "$CORE_UNIT" || rc=1
