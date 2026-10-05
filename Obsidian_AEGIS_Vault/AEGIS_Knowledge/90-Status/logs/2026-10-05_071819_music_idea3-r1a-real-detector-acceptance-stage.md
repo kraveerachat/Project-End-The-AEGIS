@@ -43,6 +43,8 @@ edit_policy: append-by-new-file
 - `node scripts/validate-vault.mjs --vault Obsidian_AEGIS_Vault/AEGIS_Knowledge` — pass with the two known pre-existing canvas owner-data warnings.
 - `git diff --check` — pass.
 - Collaboration policy and changed-content secret scan — see PR checks; both were run locally before the push and passed.
+- Main reconciliation (owner-approved; normal merge, no rebase, no force push): `RECONCILED_MAIN=edad9371ec9fb012d1dafc7e6d2626c42ea336f2`, `MAIN_MOVEMENT_SOURCE=PR_351_IDEA1_ONLY`, `IDEA3_PATH_OVERLAP=NONE`. `git diff --name-only 5f8810d9..origin/main` had zero IDEA3-AEGIS_Lockdown paths, the merge changed no R1A or IDEA3 file, and the round-3 repair commit is still present.
+- Post-reconciliation tests on the merged branch (`POST_RECONCILIATION_TESTS=PASS`): `/usr/bin/python3 -m pytest -q tests/r1a tests/test_r1_acceptance.py tests/r1i` — pass: 260 passed; `/usr/bin/python3 -m pytest -q tests/test_pr11_phase4_harness.py tests/test_pr11_phase4_f1u_stage.py tests/test_pr11_phase4_dnsmasq_unit_repair_reboot_and_scope.py` — pass: 694 passed.
 - No Production command was run during this task.
 
 ## Source files changed
