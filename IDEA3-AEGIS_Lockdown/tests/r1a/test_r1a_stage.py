@@ -79,14 +79,29 @@ def test_committed_runner_refuses_while_unpinned_and_touches_nothing(tmp_path: P
     assert result.returncode == 2 and "runner is not pinned" in result.stdout
     assert list(tmp_path.iterdir()) == []
     for pin in ("EXPECTED_MAIN", "OPERATOR_USER", "OPERATOR_UID", "RELEASE_ID", "PRODUCTION_DETECTOR_SHA256", "DETECTOR_UNIT_SHA256", "RECOVERY_CORE_SHA256",
-                "VERIFIER_SNAPSHOT_DIR", "VERIFIER_MANIFEST_SHA256", "R1I_TOOL_SHA256", "AUDIT_DB", "DETECTOR_UID", "EXPECTED_SOURCE_IP", "OBSERVE_SECONDS"):
+                "CONTROL_SNAPSHOT_DIR", "CONTROL_MANIFEST_SHA256", "VERIFIER_SNAPSHOT_DIR", "VERIFIER_MANIFEST_SHA256", "R1I_TOOL_SHA256", "AUDIT_DB", "DETECTOR_UID", "EXPECTED_SOURCE_IP", "OBSERVE_SECONDS"):
         assert f"{pin}=PIN_" in RUNNER.read_text()
+
+
+SNAPSHOT_TOOL_PATH = P4 / "r1a-acceptance/r1a_verifier_snapshot.py"
+
+
+def make_control_snapshot(tmp_path: Path, src: Path | None = None) -> tuple[Path, str]:
+    """A real read-only CONTROL snapshot (manifested copy of deploy/pr11-phase4) built by the pinned tool, plus its manifest digest."""
+    from importlib.util import module_from_spec, spec_from_file_location
+
+    spec = spec_from_file_location("r1a_snapshot_tool_ctl", SNAPSHOT_TOOL_PATH)
+    tool = module_from_spec(spec)
+    sys.modules["r1a_snapshot_tool_ctl"] = tool
+    spec.loader.exec_module(tool)
+    dest = tmp_path / "control-snapshot"
+    return dest, tool.control_snapshot(src or P4, dest)
 
 
 def pinned_copy(tmp_path: Path, **override: str) -> Path:
     pins = {
         "EXPECTED_MAIN": "a" * 40, "OPERATOR_USER": "owner", "OPERATOR_UID": "1000", "RELEASE_ID": RELEASE, "PRODUCTION_DETECTOR_SHA256": "b" * 64,
-        "DETECTOR_UNIT_SHA256": "c" * 64, "RECOVERY_CORE_SHA256": "d" * 64, "VERIFIER_MANIFEST_SHA256": "e" * 64, "VERIFIER_SNAPSHOT_DIR": "/opt/x/verifier",
+        "DETECTOR_UNIT_SHA256": "c" * 64, "RECOVERY_CORE_SHA256": "d" * 64, "VERIFIER_MANIFEST_SHA256": "e" * 64, "VERIFIER_SNAPSHOT_DIR": "/opt/x/verifier", "CONTROL_MANIFEST_SHA256": "9" * 64, "CONTROL_SNAPSHOT_DIR": "/opt/x/control",
         "R1I_TOOL_SHA256": "f" * 64,
         "AUDIT_DB": "/var/lib/x/audit.db", "DETECTOR_UID": "948", "EXPECTED_SOURCE_IP": "203.0.113.9", "OBSERVE_SECONDS": "600", **override,
     }
@@ -102,7 +117,7 @@ def pinned_copy(tmp_path: Path, **override: str) -> Path:
 
 def test_pinned_runner_refuses_malformed_pins_root_overrides_and_missing_auth(tmp_path: Path) -> None:
     bad = [("EXPECTED_MAIN", "abc"), ("VERIFIER_MANIFEST_SHA256", "zz"), ("OBSERVE_SECONDS", "0"), ("AUDIT_DB", "relative/db"), ("OPERATOR_UID", "0"),
-           ("VERIFIER_SNAPSHOT_DIR", "relative/dir")]
+           ("VERIFIER_SNAPSHOT_DIR", "relative/dir"), ("CONTROL_SNAPSHOT_DIR", "relative/dir"), ("CONTROL_MANIFEST_SHA256", "zz")]
     for key, value in bad:
         assert bash(f'bash "{pinned_copy(tmp_path, **{key: value})}" "{tmp_path}"').returncode == 2, key
     frozen = pinned_copy(tmp_path)
@@ -128,10 +143,19 @@ def test_the_library_ipv4_validator_is_strict(ip: str, ok: bool) -> None:
 
 
 def test_wrong_operator_is_refused_before_sudo_or_any_file_is_created(tmp_path: Path) -> None:
-    frozen = pinned_copy(tmp_path, OPERATOR_USER="someone-else", OPERATOR_UID="4242")
+    dest, sha = make_control_snapshot(tmp_path)
+    frozen = pinned_copy(tmp_path, OPERATOR_USER="someone-else", OPERATOR_UID="4242", CONTROL_SNAPSHOT_DIR=str(dest), CONTROL_MANIFEST_SHA256=sha)
     result = bash(f'bash "{frozen}" "{tmp_path}"')
     assert result.returncode == 1 and "operator identity" in (result.stdout + result.stderr)
     assert not (tmp_path / "evidence").exists() and not any(tmp_path.glob("*/R1A-ATTEMPT-CONSUMED"))
+
+
+def test_a_drifted_control_snapshot_is_refused_before_anything_is_sourced(tmp_path: Path) -> None:
+    dest, sha = make_control_snapshot(tmp_path)
+    frozen = pinned_copy(tmp_path, CONTROL_SNAPSHOT_DIR=str(dest), CONTROL_MANIFEST_SHA256="a" * 64)
+    result = bash(f'bash "{frozen}" "{tmp_path}"')
+    assert result.returncode == 1 and "CONTROL_MANIFEST_DRIFT" in result.stderr and "not the frozen immutable authority" in result.stderr
+    assert "R1A_SYNTHETIC_EVENT_GENERATED" not in result.stdout  # nothing past the gate ran (nothing was sourced)
 
 
 def test_runner_never_creates_the_marker_itself_and_drives_the_library_state_machine() -> None:
@@ -155,7 +179,7 @@ def test_all_preattempt_gates_precede_the_baseline_and_nothing_pre_attempt_consu
     for needle in ("rev-parse HEAD", "authorization-R1A.txt", "p4-stage-gate.sh", "r1a_receipt_gate", "r1a_attempt_unconsumed", "l7_disk_gate", "authority_gates", "r1a_journal_access_gate"):
         assert needle in pre, needle
     authority = text[text.index("authority_gates() {"):text.index("# ===== PRE-AUTH")]
-    for needle in ("r1a_worktree_gate", "r1a_verifier_gate", "r1a_interpreter_gate", "r1a_r1i_present_gate", "l7u_core_running_gate", "f1u_detector_running_gate", "production_detector.py",
+    for needle in ("control_gate", "control_git_gate", "r1a_verifier_gate", "r1a_interpreter_gate", "r1a_r1i_present_gate", "l7u_core_running_gate", "f1u_detector_running_gate", "production_detector.py",
                    "DETECTOR_UNIT_SHA256", "RECOVERY_CORE_SHA256", "r1a_current_release_gate", "runtime_unchanged"):
         assert needle in authority, needle
     assert "R1A-ATTEMPT-CONSUMED" not in pre and "r1a_consume_attempt" not in pre
@@ -700,22 +724,6 @@ def test_a_snapshot_that_differs_from_the_pinned_main_source_is_refused_even_if_
     assert result.returncode == 1 and "NOT_THE_PINNED_MAIN_SOURCE" in result.stderr
 
 
-def test_the_worktree_gate_refuses_a_dirty_tree_or_an_altered_handler(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    handlers = repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/R1A"
-    handlers.mkdir(parents=True)
-    for name in ("apply.sh", "verify.sh", "rollback.sh"):
-        shutil.copy(STG / name, handlers / name)
-    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
-    for cmd in (["config", "user.email", "t@e.invalid"], ["config", "user.name", "t"], ["add", "-A"], ["commit", "-q", "-m", "x"]):
-        subprocess.run(["git", "-C", str(repo), *cmd], check=True, capture_output=True)
-    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-    assert bash(f'. "{LIB}"; r1a_worktree_gate "{repo}" {head}').returncode == 0
-    assert bash(f'. "{LIB}"; r1a_worktree_gate "{repo}" {"1" * 40}').returncode == 1
-    (handlers / "apply.sh").write_text("#!/bin/sh\n# altered\n")
-    assert bash(f'. "{LIB}"; r1a_worktree_gate "{repo}" {head}').returncode == 1
-
-
 def test_the_interpreter_must_be_root_owned_and_not_writable() -> None:
     assert bash(f'. "{LIB}"; r1a_interpreter_gate /nonexistent/python').returncode == 1
     sys_python = shutil.which("python3")
@@ -851,6 +859,7 @@ r1a_hook_observe() {{ echo OBSERVE_RAN; }}; r1a_hook_final() {{ true; }}; r1a_ho
 r1a_run_attempt "$AUTH" 30; echo "rc=$?"; chmod 755 "$AUTH"; r1a_run_attempt "$AUTH" 30; echo "rerun_rc=$?"'''
     result = bash(script)
     assert "rc=1" in result.stdout and "R1A_LOCAL_MARKER_NOT_WRITTEN" in result.stderr and "OBSERVE_RAN" not in result.stdout  # no window opened
+    assert "R1A_ATTEMPT_CONSUMED=YES" in result.stdout and "R1A_RERUN_ALLOWED=NO" in result.stdout and "UNKNOWN" not in result.stdout + result.stderr  # truthful consumed output
     assert "R1A_EVENT_WINDOW_OPEN=YES" not in result.stdout
     assert (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").is_file()  # still consumed; never deleted or rewritten
     assert "rerun_rc=1" in result.stdout and "R1A_ATTEMPT_ALREADY_CONSUMED" in result.stderr  # no retry even though the local marker is absent
@@ -861,6 +870,241 @@ def test_consumption_order_in_the_library_is_marker_then_start_then_local_record
     fn = body[body.index("r1a_consume_attempt() {"):body.index("# ---- predecessor receipt gates")]
     assert fn.index("set -o noclobber; printf \"consumed_at") < fn.index("R1A_WINDOW_START=$(date +%s.%N)") < fn.index("$dir/R1A-ATTEMPT-CONSUMED")
     assert "date +%s.%N" not in body[:body.index("r1a_consume_attempt() {")].replace("# ", "")  # no earlier sampling anywhere in the library
+
+
+# --- round 3: audit-row semantics (documented granularity, NO post-deadline grace) ----------------------------------------------------------------
+
+
+def times(opened: float, accepted: float, alert: float = 1000.9, source: float = 1000.7) -> dict:
+    return {"incident_opened_at": opened, "alert_accepted_at": accepted, "detector_alert_at": alert, "source_completed_at": [source]}
+
+
+def test_audit_rows_use_whole_second_granularity_with_a_floor_at_the_marker_second_and_the_deadline_as_exact_ceiling(tmp_path: Path) -> None:
+    w = {"start": "1000.5", "end": "1600.5"}
+    assert verify(tmp_path, result_doc(evidence_times=times(1000.0, 1000.0)), **w).returncode == 0  # stored second == floor(start): the strictest the 1 s granularity can prove
+    pre = verify(tmp_path, result_doc(evidence_times=times(999.0, 999.0)), **w)
+    assert pre.returncode == 1 and "AUDIT_ROW_BEFORE_THE_MARKER" in pre.stderr  # one stored second earlier is provably before the marker
+    assert verify(tmp_path, result_doc(evidence_times=times(1600.0, 1600.0, alert=1600.4, source=1600.3)), **w).returncode == 0
+    post = verify(tmp_path, result_doc(evidence_times=times(1601.0, 1601.0, alert=1600.4, source=1600.3)), **w)  # the former undocumented +2 s grace would have accepted this
+    assert post.returncode == 1 and "AUDIT_ROW_AFTER_THE_OBSERVATION_DEADLINE" in post.stderr
+    assert verify(tmp_path, result_doc(evidence_times=times(1602.0, 1602.0, alert=1600.4, source=1600.3)), **w).returncode == 1
+    mixed = verify(tmp_path, result_doc(evidence_times=times(1000.0, 1601.0)), **w)  # either audit row alone out of range fails
+    assert mixed.returncode == 1
+
+
+def test_the_documented_contract_matches_the_code_no_grace_constant_remains() -> None:
+    text = (STG / "verify.sh").read_text()
+    assert "+ 2.0" not in text and "2.0" not in "\n".join(code_lines(STG / "verify.sh")).replace("1_000_000", "")
+    assert "WHOLE-SECOND" in text and "NO post-deadline grace" in text
+
+
+# --- round 3 IMPORTANT 2: the window record is mandatory ------------------------------------------------------------------------------------------
+
+
+def run_with_hooks(tmp_path: Path, observe_body: str) -> subprocess.CompletedProcess[str]:
+    (tmp_path / "auth").mkdir(exist_ok=True)
+    script = f'''AUTH="{tmp_path / "auth"}"; CANON="{tmp_path / "canon"}"; LOG="{tmp_path / "calls.log"}"; {seam(tmp_path)}. "{LIB}"; SUDO=""
+r1a_hook_pregates() {{ true; }}; r1a_hook_baseline() {{ true; }}; r1a_hook_regate() {{ true; }}
+r1a_hook_observe() {{ {observe_body}; }}
+r1a_hook_final() {{ echo FINAL_CALLED >> "$LOG"; }}; r1a_hook_verify() {{ echo VERIFY_CALLED >> "$LOG"; }}; r1a_hook_preserve_evidence() {{ echo "PRESERVE:$1" >> "$LOG"; }}
+r1a_run_attempt "$AUTH" 30; echo "rc=$?"
+chmod 755 "$CANON" 2>/dev/null; r1a_run_attempt "$AUTH" 30; echo "rerun_rc=$?"'''
+    return bash(script)
+
+
+def test_a_successful_run_records_the_canonical_window_exclusively(tmp_path: Path) -> None:
+    result = run_with_hooks(tmp_path, "true")
+    assert "rc=0" in result.stdout and "R1A_RESULT=PASS" in result.stdout
+    record = (tmp_path / "canon/R1A-ATTEMPT-WINDOW").read_text()
+    assert record.startswith("window_start=") and "window_end=" in record and "observe_seconds=30" in record
+    assert (tmp_path / "calls.log").read_text().split() == ["FINAL_CALLED", "VERIFY_CALLED"]
+
+
+def test_a_window_record_write_failure_after_the_marker_is_a_consumed_fail_without_final_or_retry(tmp_path: Path) -> None:
+    result = run_with_hooks(tmp_path, 'chmod 555 "$CANON"')  # the canonical directory becomes unwritable during the window
+    assert "rc=1" in result.stdout and "R1A_RESULT=FAIL" in result.stdout and "R1A_FAILED_STAGE=windowrecord" in result.stdout
+    assert "R1A_ATTEMPT_CONSUMED=YES" in result.stdout and "R1A_RERUN_ALLOWED=NO" in result.stdout and "R1A_RESULT=PASS" not in result.stdout
+    calls = (tmp_path / "calls.log").read_text().split()
+    assert "FINAL_CALLED" not in calls and "VERIFY_CALLED" not in calls and calls == ["PRESERVE:windowrecord"]  # the verifier never ran; evidence preserved
+    assert (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").is_file() and not (tmp_path / "canon/R1A-ATTEMPT-WINDOW").exists()
+    assert "rerun_rc=1" in result.stdout and "R1A_ATTEMPT_ALREADY_CONSUMED" in result.stderr  # no retry; the global marker is still present
+    assert calls.count("FINAL_CALLED") == 0
+
+
+def test_an_existing_window_record_is_never_overwritten_and_fails_closed(tmp_path: Path) -> None:
+    result = run_with_hooks(tmp_path, 'printf "foreign\\n" > "$CANON/R1A-ATTEMPT-WINDOW"')  # something created the record during the window
+    assert "rc=1" in result.stdout and "R1A_FAILED_STAGE=windowrecord" in result.stdout and "R1A_RERUN_ALLOWED=NO" in result.stdout
+    assert (tmp_path / "canon/R1A-ATTEMPT-WINDOW").read_text() == "foreign\n"  # never overwritten
+    assert "FINAL_CALLED" not in (tmp_path / "calls.log").read_text()
+
+
+def test_a_window_record_without_a_consumption_marker_is_an_inconsistent_canonical_state(tmp_path: Path) -> None:
+    (tmp_path / "canon").mkdir(mode=0o700)
+    (tmp_path / "canon/R1A-ATTEMPT-WINDOW").write_text("window_start=1\n")
+    (tmp_path / "auth").mkdir()
+    result = bash(f'{seam(tmp_path)}. "{LIB}"; SUDO=""; r1a_attempt_unconsumed "{tmp_path / "auth"}"')
+    assert result.returncode == 1 and "R1A_CANONICAL_STATE_INCONSISTENT" in result.stderr
+
+
+# --- round 3 IMPORTANT 1: the shell control plane is an immutable manifested snapshot --------------------------------------------------------------
+
+
+def runner_function(name: str) -> str:
+    text = RUNNER.read_text()
+    start = text.index(f"{name}() {{")
+    return text[start:text.index("\n}\n", start) + 3]
+
+
+def control_world(tmp_path: Path) -> tuple[Path, Path, str, str]:
+    repo = tmp_path / "repo"
+    src = repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4"
+    shutil.copytree(P4, src, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    for cmd in (["config", "user.email", "t@e.invalid"], ["config", "user.name", "t"], ["add", "-A"], ["commit", "-q", "-m", "x"]):
+        subprocess.run(["git", "-C", str(repo), *cmd], check=True, capture_output=True)
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    dest, sha = make_control_snapshot(tmp_path, src)
+    return repo, dest, sha, head
+
+
+def gates(repo: Path, dest: Path, sha: str, head: str) -> subprocess.CompletedProcess[str]:
+    script = (f'CTRL="{dest}"; CONTROL_MANIFEST_SHA256={sha}; REPO="{repo}"; EXPECTED_MAIN={head}; GIT_P4_REL=IDEA3-AEGIS_Lockdown/deploy/pr11-phase4\n'
+              f'{runner_function("control_gate")}\n{runner_function("control_git_gate")}\ncontrol_gate; echo "control=$?"; control_git_gate; echo "git=$?"\n')
+    return bash(script)
+
+
+def unlock(dest: Path) -> None:
+    for path in [dest, *dest.rglob("*")]:
+        if not path.is_symlink():
+            path.chmod(path.stat().st_mode | 0o200)
+
+
+def relock(dest: Path) -> None:
+    for path in [dest, *dest.rglob("*")]:
+        if not path.is_symlink():
+            path.chmod(path.stat().st_mode & ~0o222)
+
+
+def test_an_intact_control_snapshot_passes_both_runner_gates(tmp_path: Path) -> None:
+    repo, dest, sha, head = control_world(tmp_path)
+    out = gates(repo, dest, sha, head)
+    assert "control=0" in out.stdout and "git=0" in out.stdout, out.stderr
+
+
+@pytest.mark.parametrize("victim", ["p4-r1a-run-lib.sh", "p4-l6b-run-lib.sh", "p4-l8p-run-lib.sh", "stages/R1A/apply.sh", "stages/R1A/verify.sh", "stages/R1A/rollback.sh",
+                                     "p4-stage-gate.sh", "p4-l0-capture.sh", "p4-compare.sh", "p4-lib.sh", "r1i-input-instrumentation/r1i_input_instrumentation.py"])
+def test_a_tampered_control_plane_file_is_refused_before_any_source_or_root_execution(tmp_path: Path, victim: str) -> None:
+    repo, dest, sha, head = control_world(tmp_path)
+    unlock(dest)
+    target = dest / victim
+    target.write_text(target.read_text() + "\n# tampered\n")
+    relock(dest)  # read-only again: ONLY the digest check can catch this
+    out = gates(repo, dest, sha, head)
+    assert "control=1" in out.stdout and "CONTROL_FILE_DRIFT" in out.stderr, victim
+
+
+@pytest.mark.parametrize("victim", ["p4-r1a-run-lib.sh", "p4-l7-run-lib.sh", "stages/R1A/apply.sh", "p4-compare.sh"])
+def test_a_self_consistent_tampered_snapshot_is_not_the_pinned_main_source(tmp_path: Path, victim: str) -> None:
+    """The attacker also rebuilds the manifest AND re-pins its digest: still refused, because the bytes are not the pinned-main git objects."""
+    repo, _, _, head = control_world(tmp_path)
+    tampered_src = tmp_path / "tampered-src"
+    shutil.copytree(repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4", tampered_src)
+    (tampered_src / victim).write_text((tampered_src / victim).read_text() + "\n# not the reviewed source\n")
+    dest = tmp_path / "tampered-snapshot"
+    tool_sha = load_snapshot_tool().control_snapshot(tampered_src, dest)
+    out = gates(repo, dest, tool_sha, head)
+    assert "control=0" in out.stdout and "git=1" in out.stdout and "NOT_THE_PINNED_MAIN_SOURCE" in out.stderr, victim
+
+
+@pytest.mark.parametrize("drift", ["extra", "symlink", "writable_file", "writable_dir", "missing", "manifest"])
+def test_extra_symlink_writable_missing_or_manifest_drift_in_the_control_snapshot_is_refused(tmp_path: Path, drift: str) -> None:
+    repo, dest, sha, head = control_world(tmp_path)
+    unlock(dest)
+    if drift == "extra":
+        (dest / "stages/R1A/extra.sh").write_text("#!/bin/sh\n")
+    elif drift == "symlink":
+        (dest / "stages/R1A/link.sh").symlink_to("apply.sh")
+    elif drift == "missing":
+        (dest / "p4-ntp-reactivation-lib.sh").unlink()
+    elif drift == "manifest":
+        (dest / "R1A-CONTROL-SHA256SUMS").write_text("0" * 64 + "  p4-lib.sh\n")
+    if drift not in ("writable_file", "writable_dir"):
+        relock(dest)
+    elif drift == "writable_file":
+        relock(dest)
+        (dest / "p4-lib.sh").chmod(0o666)
+    else:
+        relock(dest)
+        (dest / "stages").chmod(0o777)
+    out = gates(repo, dest, sha, head)
+    assert "control=1" in out.stdout, drift
+
+
+def test_the_python_control_check_agrees_with_the_runner_gate(tmp_path: Path) -> None:
+    tool = load_snapshot_tool()
+    _, dest, sha, _ = control_world(tmp_path)
+    tool.control_check(dest, sha)
+    unlock(dest)
+    (dest / "p4-lib.sh").write_text("# drift\n")
+    relock(dest)
+    with pytest.raises(tool.SnapshotError):
+        tool.control_check(dest, sha)
+
+
+def test_root_never_executes_tampered_control_plane_bytes(tmp_path: Path) -> None:
+    """The runner's capture/compare/handler wrappers re-prove the control snapshot FIRST; with a tampered snapshot the (stub) sudo is never invoked."""
+    repo, dest, sha, head = control_world(tmp_path)
+    log = tmp_path / "sudo.log"
+    prelude = (f'CTRL="{dest}"; STG="$CTRL/stages/R1A"; CONTROL_MANIFEST_SHA256={sha}; EVID_DIR_UNUSED=1; JOURNAL_SINCE=x; AP_IF=if0; AP_ADDR=10.0.0.1; WORK="{tmp_path}/w"; '
+               f'AUDIT_DB=/x; RELEASE_ID=r; PRODUCTION_DETECTOR_SHA256={"a" * 64}; DETECTOR_UID=1000; PY=/usr/bin/python3; EXPECTED_SOURCE_IP=203.0.113.9; VERIFIER_SNAPSHOT_DIR=/v; '
+               f'VERIFIER_MANIFEST_SHA256={"b" * 64}; R1A_WINDOW_START=1; R1A_WINDOW_END=2\nsudo() {{ echo "SUDO $*" >> "{log}"; return 0; }}\n')
+    text = RUNNER.read_text()
+    funcs = (runner_function("control_gate") + "\n" + text[text.index("capture() {"):text.index("# The handlers run as ROOT")] + "\n"
+             + text[text.index("handler() {"):text.index("runtime_unchanged() {")])
+    call = f'{funcs}\ncapture PRE "{tmp_path}/pre"; echo "capture=$?"; compare a b "{tmp_path}/o"; echo "compare=$?"; handler BASELINE; echo "handler=$?"\n'
+    intact = bash(prelude + call)
+    assert log.exists() and "SUDO" in log.read_text(), intact.stderr  # the wrappers do reach sudo when the snapshot is intact
+    log.unlink()
+    unlock(dest)
+    (dest / "stages/R1A/apply.sh").write_text("#!/bin/sh\necho tampered\n")
+    relock(dest)
+    tampered = bash(prelude + call)
+    assert "capture=1" in tampered.stdout and "compare=1" in tampered.stdout and "handler=1" in tampered.stdout, tampered.stderr
+    assert not log.exists()  # sudo was NEVER called: root executed nothing from the tampered control plane
+
+
+def test_the_runner_sources_and_root_executes_only_from_the_control_snapshot() -> None:
+    code = "\n".join(code_lines(RUNNER))
+    assert "$P4" not in code and "$APP" not in code
+    # the only REPO uses are git object reads (receipts, byte-equality, head/fetch checks) — never a path that is sourced or executed
+    for line in code.splitlines():
+        if "$REPO" in line:
+            assert "git -C" in line or line.startswith("REPO=") or "r1a_receipt_gate" in line or "r1a_verifier_gate" in line or "case " in line, line
+    for line in code.splitlines():  # every `source` statement and every `bash "<script>"` execution targets the control snapshot
+        for match in re.finditer(r'^\s*(?:source|\.)\s+("[^"]+")|\bbash\s+("\$[^"]+")', line):
+            target = match.group(1) or match.group(2)
+            assert target.startswith(('"$CTRL', '"$STG', '"$LIB')) or target == '"$0"', line
+    for name in ("capture", "compare", "handler"):
+        body = RUNNER.read_text()
+        start = body.index(f"{name}() {{")
+        assert "control_gate" in body[start:start + 400], name  # first thing each root-executing wrapper does
+    gate_pos = RUNNER.read_text().index("control_gate || die")
+    assert gate_pos < RUNNER.read_text().index('source "$LIB"')
+    assert 'CTRL=$CONTROL_SNAPSHOT_DIR' in RUNNER.read_text() and 'LIB=$CTRL/p4-r1a-run-lib.sh' in RUNNER.read_text()
+
+
+def test_the_snapshot_tool_builds_a_complete_read_only_control_tree(tmp_path: Path) -> None:
+    tool = load_snapshot_tool()
+    dest, sha = make_control_snapshot(tmp_path)
+    files = {str(p.relative_to(dest)) for p in dest.rglob("*") if p.is_file()} - {"R1A-CONTROL-SHA256SUMS"}
+    tracked = {str(p.relative_to(P4)) for p in P4.rglob("*") if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"}
+    assert files == tracked  # a deliberate SUPERSET of what R1A uses: nothing sourced or executed can be missing
+    for needed in ("p4-r1a-run-lib.sh", "p4-f1u-run-lib.sh", "p4-l6b-run-lib.sh", "p4-ntp-reactivation-lib.sh", "p4-stage-gate.sh", "p4-l0-capture.sh", "p4-compare.sh", "p4-lib.sh",
+                   "stages/R1A/apply.sh", "stages/R1A/verify.sh", "stages/R1A/rollback.sh", "r1a-acceptance/r1a_verifier_snapshot.py", "r1i-input-instrumentation/r1i_input_instrumentation.py"):
+        assert needed in files, needed
+    assert all(not (p.stat().st_mode & 0o222) for p in [dest, *dest.rglob("*")])
+    with pytest.raises(tool.SnapshotError):
+        tool.control_snapshot(P4, dest)  # never overwrites
 
 
 # --------------------------------------------------------------------------- evidence (existing fail-closed verifier is the authority)

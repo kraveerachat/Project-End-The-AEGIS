@@ -67,6 +67,9 @@ r1a_attempt_unconsumed() {
   if $SUDO test -e "$marker" || $SUDO test -L "$marker"; then
     r1a_reason "R1A_ATTEMPT_ALREADY_CONSUMED (R1A is ONE live attempt TOTAL; a replacement AUTH_DIR, fresh Authorization/K3, a successor runner or a successor main cannot enable another; there is NO retry)"; return 1
   fi
+  if $SUDO test -e "$canon/$R1A_WINDOW_RECORD_NAME" || $SUDO test -L "$canon/$R1A_WINDOW_RECORD_NAME"; then
+    r1a_reason "R1A_CANONICAL_STATE_INCONSISTENT (a window record exists without a consumption marker: fail closed; do not retry)"; return 1
+  fi
   [ ! -e "$dir/R1A-ATTEMPT-CONSUMED" ] || { r1a_reason "R1A_ATTEMPT_ALREADY_CONSUMED (this authorization already consumed its attempt; there is NO retry)"; return 1; }
 }
 # r1a_consume_attempt AUTH_DIR — fixed ordering: (1) the marker is proven absent; (2) the canonical stage-global marker is created EXCLUSIVELY (noclobber) — from this instant the attempt is irreversibly
@@ -155,17 +158,6 @@ r1a_verifier_gate() {
   [ "$(sha256sum "$snap/aegis_soc/production_detector.py" 2>/dev/null | cut -d' ' -f1)" = "$det" ] || { r1a_reason "R1A_VERIFIER_DETECTOR_NOT_THE_DEPLOYED_DIGEST"; return 1; }
   [ -f "$snap/aegis_soc/recovery_evidence.py" ] && [ -f "$snap/aegis_soc/ip_containment.py" ] && [ -f "$snap/aegis_soc/r1_acceptance.py" ] || { r1a_reason "R1A_VERIFIER_CLOSURE_INCOMPLETE"; return 1; }
 }
-# r1a_worktree_gate REPO MAIN — root executes the stage handlers from the pinned worktree: HEAD is exactly the pinned main, the tree is clean, and every R1A handler file is byte-identical to its pinned-main git object. Read-only.
-r1a_worktree_gate() {
-  local repo=${1:-} main=${2:-} f got want
-  [ "$(git -C "$repo" rev-parse HEAD 2>/dev/null)" = "$main" ] || { r1a_reason "R1A_WORKTREE_HEAD_NOT_PINNED_MAIN"; return 1; }
-  [ -z "$(git -C "$repo" status --porcelain 2>/dev/null)" ] || { r1a_reason "R1A_WORKTREE_NOT_CLEAN"; return 1; }
-  for f in apply.sh verify.sh rollback.sh; do
-    got=$(sha256sum "$repo/IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/R1A/$f" 2>/dev/null | cut -d' ' -f1)
-    want=$(git -C "$repo" show "HEAD:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/R1A/$f" 2>/dev/null | sha256sum | cut -d' ' -f1)
-    [ -n "$got" ] && [ "$got" = "$want" ] || { r1a_reason "R1A_HANDLER_NOT_THE_PINNED_MAIN_SOURCE:$f"; return 1; }
-  done
-}
 # r1a_interpreter_gate PY — root runs this interpreter: it must resolve to a root-owned file that is not group/world writable.
 r1a_interpreter_gate() {
   local resolved
@@ -189,14 +181,29 @@ r1a_run_attempt() {
       return 1
     fi
   done
-  r1a_consume_attempt "$dir" || { echo "R1A_PRE_ATTEMPT_FAILURE=marker R1A_ATTEMPT_CONSUMED=UNKNOWN_SEE_REASON"; return 1; }
+  if ! r1a_consume_attempt "$dir"; then
+    canon=$(r1a_canonical_dir)
+    if $SUDO test -e "$canon/$R1A_GLOBAL_MARKER_NAME" || $SUDO test -L "$canon/$R1A_GLOBAL_MARKER_NAME"; then
+      # the canonical stage-global marker exists, so the attempt IS consumed (whether or not this call created it): no window opens, nothing is observed, there is no retry
+      echo "R1A_RESULT=FAIL R1A_FAILED_STAGE=marker R1A_ATTEMPT_CONSUMED=YES R1A_RERUN_ALLOWED=NO (no window opened; no event was observed)"
+      r1a_hook_preserve_evidence marker || true
+      echo "R1A_EVIDENCE_PRESERVED=YES (the canonical marker is retained; R1I stays installed)"
+    else
+      echo "R1A_PRE_ATTEMPT_FAILURE=marker R1A_ATTEMPT_CONSUMED=NO (the canonical stage-global marker was not created; nothing was observed)"
+    fi
+    return 1
+  fi
   echo "R1A_ATTEMPT_CONSUMED=YES"
   echo "R1A_EVENT_WINDOW_OPEN=YES R1A_WINDOW_START_EPOCH=$R1A_WINDOW_START"
   echo "WAITING_FOR_GENUINE_EXTERNAL_EVENT=YES (this runner generates NO event; the owner performs the authorized genuine external event separately)"
   if ! r1a_hook_observe "$seconds"; then r1a_attempt_failed observe; return 1; fi
   R1A_WINDOW_END=$(date +%s.%N); export R1A_WINDOW_END   # the exact END of the marker-bounded window: recorded the instant the bounded wait completes, BEFORE any final capture
   canon=$(r1a_canonical_dir)
-  $SUDO bash -c 'set -o noclobber; printf "window_start=%s\nwindow_end=%s\nobserve_seconds=%s\n" "$2" "$3" "$4" > "$1"' _ "$canon/$R1A_WINDOW_RECORD_NAME" "$R1A_WINDOW_START" "$R1A_WINDOW_END" "$seconds" 2>/dev/null || true
+  # MANDATORY and exclusive: the canonical marker-bounded window record is the durable evidence of the window. If it cannot be created (permission, I/O, an existing record) the attempt FAILS closed
+  # (consumed, no rerun, evidence preserved) and NO final capture or verifier run happens.
+  if ! $SUDO bash -c 'set -o noclobber; printf "window_start=%s\nwindow_end=%s\nobserve_seconds=%s\n" "$2" "$3" "$4" > "$1"' _ "$canon/$R1A_WINDOW_RECORD_NAME" "$R1A_WINDOW_START" "$R1A_WINDOW_END" "$seconds" 2>/dev/null; then
+    r1a_attempt_failed windowrecord; return 1
+  fi
   echo "R1A_EVENT_WINDOW_OPEN=NO R1A_WINDOW_END_EPOCH=$R1A_WINDOW_END"
   if ! r1a_hook_final; then r1a_attempt_failed final; return 1; fi
   if ! r1a_hook_verify; then r1a_attempt_failed verify; return 1; fi

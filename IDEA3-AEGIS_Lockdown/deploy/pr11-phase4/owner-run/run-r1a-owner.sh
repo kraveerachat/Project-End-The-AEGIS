@@ -19,6 +19,8 @@ RELEASE_ID=PIN_RELEASE_ID
 PRODUCTION_DETECTOR_SHA256=PIN_PRODUCTION_DETECTOR_SHA256
 DETECTOR_UNIT_SHA256=PIN_DETECTOR_UNIT_SHA256
 RECOVERY_CORE_SHA256=PIN_RECOVERY_CORE_SHA256
+CONTROL_SNAPSHOT_DIR=PIN_CONTROL_SNAPSHOT_DIR
+CONTROL_MANIFEST_SHA256=PIN_CONTROL_MANIFEST_SHA256
 VERIFIER_SNAPSHOT_DIR=PIN_VERIFIER_SNAPSHOT_DIR
 VERIFIER_MANIFEST_SHA256=PIN_VERIFIER_MANIFEST_SHA256
 R1I_TOOL_SHA256=PIN_R1I_TOOL_SHA256
@@ -26,21 +28,21 @@ AUDIT_DB=PIN_AUDIT_DB_PATH
 DETECTOR_UID=PIN_DETECTOR_UID
 EXPECTED_SOURCE_IP=PIN_EXPECTED_SOURCE_IP
 OBSERVE_SECONDS=PIN_OBSERVE_SECONDS
-for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID RELEASE_ID PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 VERIFIER_SNAPSHOT_DIR VERIFIER_MANIFEST_SHA256 R1I_TOOL_SHA256 AUDIT_DB DETECTOR_UID EXPECTED_SOURCE_IP OBSERVE_SECONDS; do
+for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID RELEASE_ID PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 CONTROL_SNAPSHOT_DIR CONTROL_MANIFEST_SHA256 VERIFIER_SNAPSHOT_DIR VERIFIER_MANIFEST_SHA256 R1I_TOOL_SHA256 AUDIT_DB DETECTOR_UID EXPECTED_SOURCE_IP OBSERVE_SECONDS; do
   case "${!pin}" in PIN_*) echo "STOP: runner is not pinned ($pin). Run the owner freeze workflow first."; exit 2 ;; esac
 done
 [[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ ]] || { echo "STOP: EXPECTED_MAIN is not a 40-hex SHA."; exit 2; }
 [[ "$OPERATOR_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "STOP: OPERATOR_USER is not a valid account identifier."; exit 2; }
 [[ "$OPERATOR_UID" =~ ^[1-9][0-9]*$ ]] || { echo "STOP: OPERATOR_UID is not a valid non-root uid."; exit 2; }
 [[ "$RELEASE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] && [[ "$RELEASE_ID" != *..* ]] || { echo "STOP: RELEASE_ID is not a valid release id."; exit 2; }
-for pin in PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 VERIFIER_MANIFEST_SHA256 R1I_TOOL_SHA256; do
+for pin in PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 CONTROL_MANIFEST_SHA256 VERIFIER_MANIFEST_SHA256 R1I_TOOL_SHA256; do
   [[ "${!pin}" =~ ^[0-9a-f]{64}$ ]] || { echo "STOP: $pin is not a 64-hex SHA-256."; exit 2; }
 done
 [[ "$DETECTOR_UID" =~ ^[1-9][0-9]*$ ]] || { echo "STOP: DETECTOR_UID is not a valid non-root uid."; exit 2; }
 _octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
 [[ "$EXPECTED_SOURCE_IP" =~ ^$_octet\.$_octet\.$_octet\.$_octet$ ]] && [[ "${EXPECTED_SOURCE_IP%%.*}" != 0 && "${EXPECTED_SOURCE_IP%%.*}" != 127 && "${EXPECTED_SOURCE_IP%%.*}" -lt 224 && "$EXPECTED_SOURCE_IP" != 169.254.* ]] \
   || { echo "STOP: EXPECTED_SOURCE_IP is not a valid external-capable IPv4 address."; exit 2; }
-[[ "$VERIFIER_SNAPSHOT_DIR" == /* ]] && [[ "$VERIFIER_SNAPSHOT_DIR" != *..* ]] || { echo "STOP: VERIFIER_SNAPSHOT_DIR must be an absolute path."; exit 2; }
+[[ "$VERIFIER_SNAPSHOT_DIR" == /* ]] && [[ "$VERIFIER_SNAPSHOT_DIR" != *..* ]] && [[ "$CONTROL_SNAPSHOT_DIR" == /* ]] && [[ "$CONTROL_SNAPSHOT_DIR" != *..* ]] || { echo "STOP: VERIFIER_SNAPSHOT_DIR and CONTROL_SNAPSHOT_DIR must be absolute paths."; exit 2; }
 [[ "$OBSERVE_SECONDS" =~ ^[1-9][0-9]{0,5}$ ]] || { echo "STOP: OBSERVE_SECONDS is not a bounded positive integer."; exit 2; }
 [[ "$AUDIT_DB" == /* ]] && [[ "$AUDIT_DB" != *..* ]] || { echo "STOP: AUDIT_DB must be an absolute path."; exit 2; }
 [ "$(id -u)" != 0 ] || { echo "Run as your normal user, not root."; exit 2; }
@@ -52,14 +54,15 @@ AUTH_DIR=${1:-}
 [ -n "$AUTH_DIR" ] && [ -d "$AUTH_DIR" ] && [ ! -L "$AUTH_DIR" ] || { echo "usage: bash $0 <AUTH_DIR with authorization-R1A.txt and k3-R1A.txt>"; exit 2; }
 
 # ---- frozen inputs -------------------------------------------------------------------------------------------------------------------------------
-REPO=/home/PIN_OPERATOR_HOME/PIN_PINNED_WORKTREE_NOT_A_REAL_PATH   # replaced by the freeze workflow: a clean worktree at EXPECTED_MAIN
+REPO=/home/PIN_OPERATOR_HOME/PIN_PINNED_WORKTREE_NOT_A_REAL_PATH   # replaced by the freeze workflow: a worktree at EXPECTED_MAIN used ONLY to read pinned git objects (receipts, byte-equality); NO shell or Python is sourced or executed from it
 case "$REPO" in */PIN_*) echo "STOP: runner is not pinned (REPO). Run the owner freeze workflow first."; exit 2 ;; esac
 PY=PIN_PYTHON_BIN
 case "$PY" in PIN_*) echo "STOP: runner is not pinned (PY). Run the owner freeze workflow first."; exit 2 ;; esac
-APP=$REPO/IDEA3-AEGIS_Lockdown
-P4=$APP/deploy/pr11-phase4
-STG=$P4/stages/R1A
-LIB=$P4/p4-r1a-run-lib.sh
+# The LIVE control plane is the frozen IMMUTABLE control snapshot (the manifested copy of deploy/pr11-phase4 at EXPECTED_MAIN): every sourced library and every script root executes comes from CTRL.
+CTRL=$CONTROL_SNAPSHOT_DIR
+STG=$CTRL/stages/R1A
+LIB=$CTRL/p4-r1a-run-lib.sh
+GIT_P4_REL=IDEA3-AEGIS_Lockdown/deploy/pr11-phase4
 RELEASE_PATH=/opt/aegis-idea3/releases/$RELEASE_ID
 CURRENT_LINK=/opt/aegis-idea3/current
 CORE_UNIT=aegis-idea3-core.service
@@ -75,7 +78,27 @@ WORK=$EVID/r1a-work; PRE=$EVID/pre-root; POST=$EVID/post-root
 die() { echo "STOP: $*" >&2; exit 1; }
 GATE_FAILED=0; gate() { echo "GATE_FAIL: $*" >&2; GATE_FAILED=1; }
 show() { systemctl show -p "$2" --value "$1"; }
-[ -f "$LIB" ] || die "gate library missing: $LIB (is $REPO at the pinned main?)"
+# control_gate — the frozen runner re-proves the control snapshot ITSELF (inline, never via sourced code): manifest digest, every file's digest, exact file set, no symlink, nothing writable. Run BEFORE the first
+# source and again immediately before EVERY root execution (capture, compare, stage handlers, stage gate).
+control_gate() {
+  local m="$CTRL/R1A-CONTROL-SHA256SUMS"
+  [ -d "$CTRL" ] && [ ! -L "$CTRL" ] && [ -f "$m" ] && [ ! -L "$m" ] || { echo "GATE_FAIL: CONTROL_SNAPSHOT_INVALID" >&2; return 1; }
+  [ "$(sha256sum "$m" | cut -d' ' -f1)" = "$CONTROL_MANIFEST_SHA256" ] || { echo "GATE_FAIL: CONTROL_MANIFEST_DRIFT" >&2; return 1; }
+  ( cd "$CTRL" && sha256sum -c --quiet --strict R1A-CONTROL-SHA256SUMS ) >/dev/null 2>&1 || { echo "GATE_FAIL: CONTROL_FILE_DRIFT" >&2; return 1; }
+  [ -z "$(find "$CTRL" -type l -print -quit)" ] || { echo "GATE_FAIL: CONTROL_SYMLINK_PRESENT" >&2; return 1; }
+  [ -z "$(find "$CTRL" -perm /222 -print -quit)" ] || { echo "GATE_FAIL: CONTROL_SOURCE_WRITABLE" >&2; return 1; }
+  [ "$(find "$CTRL" -type f ! -name R1A-CONTROL-SHA256SUMS -printf '%P\n' | LC_ALL=C sort)" = "$(cut -c67- "$m" | LC_ALL=C sort)" ] || { echo "GATE_FAIL: CONTROL_FILE_SET_DRIFT" >&2; return 1; }
+}
+# control_git_gate — every control snapshot file is byte-identical to its pinned-main git object (the snapshot is exactly the reviewed source).
+control_git_gate() {
+  local sha rel got
+  [ "$(git -C "$REPO" rev-parse HEAD 2>/dev/null)" = "$EXPECTED_MAIN" ] || { echo "GATE_FAIL: CONTROL_REPO_HEAD_NOT_PINNED_MAIN" >&2; return 1; }
+  while read -r sha rel; do
+    got=$(git -C "$REPO" show "HEAD:$GIT_P4_REL/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1)
+    [ "$got" = "$sha" ] || { echo "GATE_FAIL: CONTROL_FILE_NOT_THE_PINNED_MAIN_SOURCE:$rel" >&2; return 1; }
+  done < "$CTRL/R1A-CONTROL-SHA256SUMS"
+}
+control_gate || die "the control snapshot is not the frozen immutable authority; nothing was sourced, created or touched"
 # shellcheck disable=SC1090
 source "$LIB"
 RUNNER_SHA256=$(sha256sum "$0" | cut -d' ' -f1)
@@ -89,10 +112,11 @@ snap() { printf '%s/%s\n' "$(show "$1" MainPID)" "$(show "$1" NRestarts)"; }
 # authority_gates — the complete live authority. Read-only; returns non-zero (reasons on stderr) if ANY link is not intact. Run in the pre-gates, again in the regate before the marker, and again IMMEDIATELY before FINAL.
 authority_gates() {
   local rc=0
-  r1a_worktree_gate "$REPO" "$EXPECTED_MAIN" || rc=1
-  r1a_verifier_gate "$VERIFIER_SNAPSHOT_DIR" "$VERIFIER_MANIFEST_SHA256" "$REPO" "$PRODUCTION_DETECTOR_SHA256" "$P4/r1a-acceptance/r1a_verifier_snapshot.py" || rc=1
+  control_gate || rc=1
+  control_git_gate || rc=1
+  r1a_verifier_gate "$VERIFIER_SNAPSHOT_DIR" "$VERIFIER_MANIFEST_SHA256" "$REPO" "$PRODUCTION_DETECTOR_SHA256" "$CTRL/r1a-acceptance/r1a_verifier_snapshot.py" || rc=1
   r1a_interpreter_gate "$PY" || rc=1
-  r1a_r1i_present_gate "$P4/r1i-input-instrumentation/r1i_input_instrumentation.py" || rc=1
+  r1a_r1i_present_gate "$CTRL/r1i-input-instrumentation/r1i_input_instrumentation.py" || rc=1
   l7u_core_running_gate "$CORE_UNIT" || rc=1
   f1u_detector_running_gate || rc=1
   r1a_digest_gate "$RELEASE_PATH/aegis_soc/production_detector.py" "$PRODUCTION_DETECTOR_SHA256" DETECTOR_SOURCE || rc=1
@@ -110,7 +134,7 @@ pregates() {
   [ "$(git -C "$REPO" rev-parse HEAD)" = "$EXPECTED_MAIN" ] || gate "worktree HEAD is not $EXPECTED_MAIN"
   [ -z "$(git -C "$REPO" status --porcelain)" ] || gate "worktree is not clean"
   git -C "$REPO" fetch -q origin 2>/dev/null && [ "$(git -C "$REPO" rev-parse origin/main)" = "$EXPECTED_MAIN" ] || gate "origin/main is not $EXPECTED_MAIN (or fetch failed); not silently re-pinning"
-  r1a_digest_gate "$P4/r1i-input-instrumentation/r1i_input_instrumentation.py" "$R1I_TOOL_SHA256" R1I_TOOL || gate "the R1I validator is not the frozen source"
+  r1a_digest_gate "$CTRL/r1i-input-instrumentation/r1i_input_instrumentation.py" "$R1I_TOOL_SHA256" R1I_TOOL || gate "the R1I validator is not the frozen source"
   # 3. runner integrity: the owner records the frozen runner SHA-256 in the authorization scope (checked below)
   # 4-5. FRESH same-day stage=R1A records (never an R1I/F1u/F1 record), exact key sets, bound to this main and this runner
   for f in authorization-R1A.txt k3-R1A.txt; do
@@ -124,7 +148,8 @@ pregates() {
   grep -qF "$RUNNER_SHA256" "$AUTH_DIR/authorization-R1A.txt" 2>/dev/null || gate "authorization-R1A.txt does not name this exact runner SHA-256"
   grep -qF "$EXPECTED_SOURCE_IP" "$AUTH_DIR/authorization-R1A.txt" 2>/dev/null || gate "authorization-R1A.txt does not name the expected external source IP"
   for f in apply.sh verify.sh rollback.sh allow-keys.txt allow-listeners.txt; do [ -f "$STG/$f" ] || gate "handler file $f missing"; done
-  gate_out=$(TZ=Asia/Bangkok bash "$P4/p4-stage-gate.sh" --stage R1A --mode live --authorization "$AUTH_DIR/authorization-R1A.txt" --k3 "$AUTH_DIR/k3-R1A.txt" 2>&1) || gate "stage gate failed"
+  control_gate || gate "control snapshot drift before the stage gate"
+  gate_out=$(TZ=Asia/Bangkok bash "$CTRL/p4-stage-gate.sh" --stage R1A --mode live --authorization "$AUTH_DIR/authorization-R1A.txt" --k3 "$AUTH_DIR/k3-R1A.txt" 2>&1) || gate "stage gate failed"
   for f in AUTHORIZATION_RECORD=VALID K3_CONFIRMATION=VALID ROLLBACK_HANDLER=REGISTERED; do printf '%s\n' "$gate_out" | grep -qx "$f" || gate "stage gate did not report $f"; done
   # 6. predecessors (pinned-commit receipt CONTENT) + 19. no R1A success already recorded + 20. attempt marker absent
   r1a_receipt_gate "$REPO" "$RELEASE_ID" || gate "predecessor receipt gate failed (see reason above)"
@@ -143,17 +168,19 @@ pregates() {
 # 15-17 (no pre-existing open incident, baseline audit state, baseline runtime state) are enforced by the read-only r1_acceptance BASELINE capture, which refuses PREEXISTING_OPEN_INCIDENT.
 
 ATTEMPT_STARTED=0
-capture() { sudo env EVID_DIR="$2" CAPTURE_LABEL="${1,,}" JOURNAL_SINCE="$JOURNAL_SINCE" bash "$P4/p4-l0-capture.sh" || return 1
+capture() { control_gate || return 1; sudo env EVID_DIR="$2" CAPTURE_LABEL="${1,,}" JOURNAL_SINCE="$JOURNAL_SINCE" bash "$CTRL/p4-l0-capture.sh" || return 1
   sudo grep -q 'L0_CAPTURE=COMPLETE' "$2/capture.log" || return 1; sudo bash -c "cd '$2' && sha256sum -c --quiet --strict SHA256SUMS" || return 1; echo "CAPTURE_$1=COMPLETE SHA256=PASS"; }
 compare() {  # compare BEFORE AFTER OUTFILE — NO allowed drift for R1A: every captured generic key must be identical.
   local rc=0
+  control_gate || return 1
   sudo env DISK_THRESHOLD_PCT=90 AEGIS_AP_INTERFACE="$AP_IF" AEGIS_AP_ADDRESS="$AP_ADDR" ALLOW_KEYS_FILE="$STG/allow-keys.txt" ALLOW_LISTENERS_FILE="$STG/allow-listeners.txt" \
-    bash "$P4/p4-compare.sh" "$1" "$2" > "$3" 2>&1 || rc=$?
+    bash "$CTRL/p4-compare.sh" "$1" "$2" > "$3" 2>&1 || rc=$?
   grep -E '^(FINDING|FINDINGS_|PRESERVATION_S10|COMPARE_RESULT)' "$3" || true; [ "$rc" = 0 ] || return 1
   for l in FINDINGS_NEW_OR_WORSENED_DRIFT=0 FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0 FINDINGS_INCOMPARABLE=0 FINDINGS_APPROVED_CHANGE=0 PRESERVATION_S10=PASS COMPARE_RESULT=PASS; do
     grep -qx "$l" "$3" || { echo "COMPARE_REQUIREMENT_FAILED: $l"; return 1; }; done; }
 # The handlers run as ROOT and are READ-ONLY observers. The live flag exists nowhere else, and only after every gate, the baseline and the consumed attempt.
 handler() {
+  control_gate || return 1   # root never executes a handler whose control snapshot drifted
   sudo env -u AEGIS_P4_FS_ROOT -u P4_FS_ROOT AEGIS_R1A_LIVE_AUTHORIZED=YES AEGIS_R1A_WORK_DIR="$WORK" AEGIS_R1A_STEP="$1" AEGIS_R1A_APP_DIR="$VERIFIER_SNAPSHOT_DIR" AEGIS_R1A_VERIFIER_MANIFEST_SHA256="$VERIFIER_MANIFEST_SHA256" AEGIS_R1A_AUDIT_DB="$AUDIT_DB" \
     AEGIS_R1A_EXPECTED_SOURCE_IP="$EXPECTED_SOURCE_IP" AEGIS_R1A_WINDOW_START="${R1A_WINDOW_START:-}" AEGIS_R1A_WINDOW_END="${R1A_WINDOW_END:-}" \
     AEGIS_R1A_RELEASE_ID="$RELEASE_ID" AEGIS_R1A_DETECTOR_SHA256="$PRODUCTION_DETECTOR_SHA256" AEGIS_R1A_DETECTOR_UID="$DETECTOR_UID" AEGIS_PYTHON_BIN="$PY" PYTHONDONTWRITEBYTECODE=1 \
@@ -193,7 +220,7 @@ r1a_hook_final() {
   handler FINAL || return 1
   compare "$PRE" "$POST" "$EVID/compare-pre-post.txt" || return 1
   runtime_unchanged || { echo "R1A_SERVICE_LIFECYCLE_DRIFT=YES"; return 1; }
-  r1a_r1i_present_gate "$P4/r1i-input-instrumentation/r1i_input_instrumentation.py" || return 1
+  r1a_r1i_present_gate "$CTRL/r1i-input-instrumentation/r1i_input_instrumentation.py" || return 1
 }
 r1a_hook_verify() {
   local out

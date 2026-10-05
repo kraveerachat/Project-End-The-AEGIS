@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # R1A verify: READ-ONLY inspection of the stored verifier result. It adds two BINDINGS on top of the existing fail-closed r1_acceptance verifier (whose acceptance predicates are untouched):
 #   1. SOURCE IP: the accepted incident's attacker_ip must EQUAL the pinned expected external source IP (an unrelated genuine IP cannot satisfy R1A);
-#   2. MARKER-BOUNDED WINDOW: the completing trusted source event, the detector's alert, ALERT_ACCEPTED and the new incident must ALL fall inside [window_start, window_end], where window_start is the
-#      instant the R1A-ATTEMPT-CONSUMED marker was created and window_end is the instant the bounded wait completed. An event before the marker or after the deadline fails.
+#   2. MARKER-BOUNDED WINDOW, with the evidence's real granularity stated explicitly:
+#      - the completing trusted source event(s) and the detector's own alert carry sub-second journald times and must lie EXACTLY inside [window_start, window_end] (window_start = the instant AFTER the
+#        canonical marker exists; window_end = the instant the bounded wait completed);
+#      - the Core audit rows (the new incident and ALERT_ACCEPTED) carry WHOLE-SECOND times, so no exact sub-second predicate can be proved for them and none is claimed. They are bound causally: the
+#        r1_acceptance verifier already requires exactly ONE detector alert line, ONE ALERT_ACCEPTED row and ONE new incident for the same address and the detector's PID, with the row preceding the detector's
+#        own alert line, so a row that belongs to an in-window alert cannot predate the in-window source event. The whole-second stored time is therefore required to satisfy
+#        floor(window_start) <= stored <= window_end (a stored second can never exceed the real time of the in-window alert that follows the row, so the upper bound is exact and there is NO post-deadline grace).
 # It never promotes a project claim; promotion needs a separately reviewed LIVE closeout.
 set -uo pipefail
 fail() { printf 'R1A_VERIFY=FAIL reason=%s\n' "$1" >&2; exit 1; }
@@ -63,10 +68,10 @@ if any(v < w0 for v in sources) or alert < w0:
     bad("EVENT_BEFORE_THE_MARKER")
 if any(v > w1 for v in sources) or alert > w1:
     bad("EVENT_AFTER_THE_OBSERVATION_DEADLINE")
-# audit rows carry whole-second times: floor at the marker's second, and allow the Core's delivery latency (the verifier's own 2 s skew) after the deadline
+# audit rows carry whole-second times (granularity: 1 s): lower bound at the marker's second, upper bound exactly the deadline (no delivery grace)
 if opened < math.floor(w0) or accepted < math.floor(w0):
     bad("AUDIT_ROW_BEFORE_THE_MARKER")
-if opened > w1 + 2.0 or accepted > w1 + 2.0:
+if opened > w1 or accepted > w1:
     bad("AUDIT_ROW_AFTER_THE_OBSERVATION_DEADLINE")
 PYEOF
 ) || fail "${reason:-RESULT_NOT_PASS_OR_CLAIMS_ALTERED}"
