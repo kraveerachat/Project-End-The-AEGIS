@@ -626,3 +626,40 @@ test('STOP-GATE-1 generic gate: value wins → waiter detached; stop wins → ST
   assert.equal(g.activeWaiters, 0)
   await assert.rejects(createStopGate().wait(Promise.reject(new Error('boom'))), /boom/)
 })
+
+test('FILES-CHUNK-NOT-RETAINED settled chunks become collectable while the entry is still streaming (forced GC)', async (t) => {
+  const v8 = await import('node:v8')
+  const vm = await import('node:vm')
+  v8.setFlagsFromString('--expose-gc')
+  const gc = vm.runInNewContext('gc')
+  const registry = new FinalizationRegistry(() => { collected += 1 })
+  let collected = 0
+  const CHUNKS = 40
+  let served = 0
+  let releaseLast
+  const holdLast = new Promise((r) => { releaseLast = r })
+  const fetchStream = async () => ({
+    ok: true, status: 200, errorKind: null, headers: new Headers({ 'Content-Length': String(CHUNKS * 4096) }),
+    body: new ReadableStream({
+      async pull(c) {
+        if (served === CHUNKS - 1) await holdLast // keep the entry open after 39 settled reads
+        if (served >= CHUNKS) { c.close(); return }
+        served += 1
+        const chunk = new Uint8Array(4096)
+        registry.register(chunk, served)
+        c.enqueue(chunk)
+      },
+    }, { highWaterMark: 0 }),
+  })
+  const zh = zipHarness()
+  const source = createFilesEntrySource({ fetchStream })
+  const run = runBulkZip({ plan: filesPlan([CHUNKS * 4096]), source, scope: zh.scope, busyRef: { current: false }, isPurged: () => false, createHasher: zh.createHasher })
+  while (served < CHUNKS - 1) await flush(2)
+  await flush(5)
+  for (let i = 0; i < 6; i += 1) { gc(); await new Promise((r) => setTimeout(r, 10)) }
+  const collectedMidEntry = collected
+  releaseLast()
+  assert.equal((await run).status, 'done')
+  // the harness sink keeps written bytes as copies, so the source's own chunk objects must be collectable
+  assert.ok(collectedMidEntry >= CHUNKS - 5, `only ${collectedMidEntry} of ${CHUNKS - 1} settled chunks were collectable mid-entry`)
+})
