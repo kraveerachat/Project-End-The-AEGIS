@@ -48,8 +48,11 @@ cd "$WORK" || fail WORK_DIR_REQUIRED   # a neutral cwd: nothing in the working d
 if [ "$STEP" = BASELINE ]; then
   RELEASE_ID="${AEGIS_R1B_RELEASE_ID:-}"; DET_SHA="${AEGIS_R1B_DETECTOR_SHA256:-}"; DET_UID="${AEGIS_R1B_DETECTOR_UID:-}"
   [[ "$RELEASE_ID" =~ ^[A-Za-z0-9._-]{1,128}$ ]] && [[ "$DET_SHA" =~ ^[0-9a-f]{64}$ ]] && [[ "$DET_UID" =~ ^[1-9][0-9]*$ ]] || fail BASELINE_INPUTS_INVALID
+  EXPECTED_SOURCE_IP="${AEGIS_R1B_EXPECTED_SOURCE_IP:-}"
+  [ -n "$EXPECTED_SOURCE_IP" ] || fail EXPECTED_SOURCE_IP_REQUIRED
   R1B_PY baseline --audit-db "$AUDIT_DB" --release-id "$RELEASE_ID" \
-    --detector-sha256 "$DET_SHA" --detector-uid "$DET_UID" --out "$WORK/r1-baseline.json" || fail BASELINE_CAPTURE_REFUSED
+    --detector-sha256 "$DET_SHA" --detector-uid "$DET_UID" --expected-source-ip "$EXPECTED_SOURCE_IP" \
+    --out "$WORK/r1-baseline.json" || fail BASELINE_CAPTURE_REFUSED
   printf 'R1B_APPLY=COMPLETE\nR1B_STEP=BASELINE\nR1B_PRESERVED_R1A_INCIDENT_BASELINED=YES\nR1B_EVENT_GENERATED_BY_HANDLER=NO\n'
 elif [ "$STEP" = PRECONSUME ]; then
   [ -f "$WORK/r1-baseline.json" ] || fail BASELINE_MISSING
