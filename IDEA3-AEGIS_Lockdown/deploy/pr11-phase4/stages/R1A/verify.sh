@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# R1A verify: READ-ONLY inspection of the stored verifier result. It adds two BINDINGS on top of the existing fail-closed r1_acceptance verifier (whose acceptance predicates are untouched):
+# R1A verify: READ-ONLY inspection of the stored verifier result. It adds two BINDINGS on top of the existing fail-closed r1_acceptance verifier (which remains the evidence authority and carries its own causality predicate, described below):
 #   1. SOURCE IP: the accepted incident's attacker_ip must EQUAL the pinned expected external source IP (an unrelated genuine IP cannot satisfy R1A);
 #   2. MARKER-BOUNDED WINDOW, with the evidence's real granularity stated explicitly:
 #      - the completing trusted source event(s) and the detector's own alert carry sub-second journald times and must lie EXACTLY inside [window_start, window_end] (window_start = the instant AFTER the
 #        canonical marker exists; window_end = the instant the bounded wait completed);
 #      - the Core audit rows (the new incident, INCIDENT_BOUND and ALERT_ACCEPTED) carry WHOLE-SECOND times (the real time rounded DOWN), so no exact sub-second predicate can be proved for them and none is
-#        claimed. What the CODE proves: (1) the r1_acceptance verifier requires exactly ONE detector alert line, ONE ALERT_ACCEPTED row and ONE new incident for the same address and the detector's PID, and
-#        (since the Core writes its rows before it replies and the detector logs its alert only after the reply) that every stored audit time is NOT LATER than the detector's own alert line time
-#        (AUDIT_ROW_AFTER_DETECTOR_ALERT otherwise, no tolerance); (2) this script then requires floor(window_start) <= stored <= window_end for the rows (the floor reflects the 1 s granularity; the ceiling
-#        is exact because a stored second never exceeds the real time of the in-window alert that follows the row). There is NO post-deadline grace.
+#        claimed. DIVISION OF RESPONSIBILITY:
+#        * r1_acceptance (the evidence authority) enforces the causal ordering for ALL THREE rows: the incident opened_at, INCIDENT_BOUND and ALERT_ACCEPTED stored seconds must not be later than the detector's
+#          own alert line time (AUDIT_ROW_AFTER_DETECTOR_ALERT, no tolerance), because the Core writes its rows before it replies and the detector logs its alert line only after the reply. It also requires exactly ONE
+#          detector alert line, ONE ALERT_ACCEPTED row and ONE new incident for the same address and the detector's PID.
+#        * this script only sees the result's evidence_times (incident_opened_at, alert_accepted_at, detector_alert_at, source_completed_at). As defense in depth it re-checks that the incident and ALERT_ACCEPTED
+#          seconds are not later than the detector alert, and that floor(window_start) <= stored <= window_end for those two rows (the floor reflects the 1 s granularity; the ceiling is exact because a stored
+#          second never exceeds the real time of the in-window alert that follows the row). There is NO post-deadline grace.
+#        * INCIDENT_BOUND's timestamp is NOT in evidence_times, so this script does NOT independently window-check INCIDENT_BOUND; its ordering rests on r1_acceptance.
 # It never promotes a project claim; promotion needs a separately reviewed LIVE closeout.
 set -uo pipefail
 fail() { printf 'R1A_VERIFY=FAIL reason=%s\n' "$1" >&2; exit 1; }
