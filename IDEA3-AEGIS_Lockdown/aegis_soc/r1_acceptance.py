@@ -415,6 +415,11 @@ def _verify_view(baseline, final, view, incidents, audit, started, ended, pid, u
     accepted_at = _epoch(next(r["timestamp"] for r in mine if r["event_type"] == "ALERT_ACCEPTED"))
     if event["at"] > accepted_at + SKEW_SEC or event["at"] < started - SKEW_SEC:
         raise AcceptanceError("DETECTOR_EVENT_STALE")
+    # CAUSAL ORDER of the real path: the Core writes INCIDENT_BOUND / ALERT_ACCEPTED while handling the alert and only THEN replies; the detector logs ``alert result=SENT_BOUND`` after that reply. So every
+    # stored audit time (a whole-second value, i.e. the real time rounded DOWN) must not be later than the detector's own alert line time. A row stored AFTER the alert line cannot belong to this chain.
+    bound_at = _epoch(next(r["timestamp"] for r in mine if r["event_type"] == "INCIDENT_BOUND"))
+    if max(accepted_at, bound_at, opened) > event["at"]:
+        raise AcceptanceError("AUDIT_ROW_AFTER_DETECTOR_ALERT")
 
     # The detector acts on message TEXT, so prove the TRIGGER was a real source event, not text any local writer could emit.
     source = final.get("source_events")
@@ -432,12 +437,17 @@ def _verify_view(baseline, final, view, incidents, audit, started, ended, pid, u
     if not rules:
         raise AcceptanceError("NO_TRUSTED_SOURCE_EVENT")
     # Causality is strict: completion <= the detector's alert line, and the alert follows within SOURCE_TO_ALERT_MAX_SEC.
-    if not any(0 <= event["at"] - done <= SOURCE_TO_ALERT_MAX_SEC and done >= started - SKEW_SEC for done in rules.values()):
+    qualifying = sorted(done for done in rules.values() if 0 <= event["at"] - done <= SOURCE_TO_ALERT_MAX_SEC and done >= started - SKEW_SEC)
+    if not qualifying:
         raise AcceptanceError("SOURCE_EVENT_NOT_BEFORE_ALERT")
 
     return {
         "schema": SCHEMA_RESULT, "result": "PASS", "reason": "OK", "incident_id": incident["id"], "attacker_ip": ip,
         "reconstructed_rules": sorted(rules), "release_id": baseline["release_id"],
+        # Sanitized epoch times of the chain links, so a LIVE stage can bind them to its own marker-bounded observation window. Informational only: no acceptance predicate reads them.
+        "evidence_times": {
+            "incident_opened_at": opened, "alert_accepted_at": accepted_at, "detector_alert_at": event["at"], "source_completed_at": qualifying,
+        },
         "checks": {
             "R1_EVIDENCE_VERIFIED": "YES", "REAL_DETECTOR_CHAIN_VERIFIED": "YES", "TRUSTED_SOURCE_EVENT_RECONSTRUCTED": "YES",
             "ALERT_DELIVERED_TO_CORE": "YES", "ALERT_SOURCE_UID_VALIDATED": "YES", "ALERT_SOURCE_PID_IS_DETECTOR": "YES",
