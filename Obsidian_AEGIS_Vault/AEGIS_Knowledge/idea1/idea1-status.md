@@ -15,7 +15,23 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-MULTI-FILE-ZIP-IMPL — Multi-file streaming ZIP implementation (T0–T14)
+## Current Task — IDEA1-MULTI-FILE-ZIP-ACCEPT-WIN — Windows-only acceptance and enablement of multi-file ZIP
+
+| Field | Current value |
+|---|---|
+| Task | Non-Production acceptance of PR #351 (head `40cb8636`) under the Human-approved **Windows-only** scope, and the stacked enablement change (`BULK_ZIP_ENABLED` false → true). |
+| Branch / PR | `accept/idea1-multi-file-zip-windows-only` / Draft stacked PR on `feat/idea1-multi-file-streaming-zip`; must not merge before PR #351 |
+| Owner | kla |
+| State | `WINDOWS_ONLY_ACCEPTANCE=PASS`; `BULK_ZIP_ENABLED=true` in this stacked PR only (PR #351 keeps `false`); `PRODUCTION_DEPLOYED=NO`. |
+| Evidence | Chrome Windows (FSA) A1–A12 **PASS**; A11 clean pair growth 310 vs 284 MiB, difference **26 MiB** < 64 MiB (first pair failed at 91 MiB, recorded); Python `zipfile` R1–R3 **PASS** (R3 offset-only ZIP64 at 4724464240); Windows Explorer R1–R3 **PASS**. Manifest: `IDEA1-AEGIS_Drive_LC/scripts/zip-acceptance/ACCEPTANCE-2026-10-05-windows.json`. |
+| Deferred — NOT VERIFIED | Firefox (no FSA); macOS Chrome and Safari; **macOS Archive Utility** (required reader in spec §24) — no macOS host. No macOS compatibility claim. |
+| DM-5 | PENDING / DEFERRED — non-blocking under the Human-approved Windows-only scope. |
+| Next gate | Human review/merge of PR #351, then this stacked PR; Production deploys later as one Drive release in a separate task. |
+| Receipt | `90-Status/logs/2026-10-05_174005_kla_idea1-multi-file-zip-windows-acceptance.md` |
+
+## Previous Task — IDEA1-MULTI-FILE-ZIP-IMPL — Multi-file streaming ZIP implementation (T0–T14)
+
+> PR #351 Ready for review at `40cb8636` (not merged). The table below is the implementation record.
 
 | Field | Current value |
 |---|---|
