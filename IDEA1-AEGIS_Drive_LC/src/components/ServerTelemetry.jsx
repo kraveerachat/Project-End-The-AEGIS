@@ -1,5 +1,5 @@
 import {
-  Activity, Cpu, Gauge, HardDrive, MemoryStick, Network, Thermometer,
+  Activity, Cpu, HardDrive, MemoryStick, Network, Thermometer,
 } from 'lucide-react'
 import { Card, CardTitle, Chip } from './ui.jsx'
 import { fmtBytes, fmtCountdown } from '../lib/format.js'
@@ -123,22 +123,15 @@ function metricState(id, metric, loading = false) {
   return 'available'
 }
 
-function MiniGauge({ value, label }) {
+function MetricProgress({ value, label, state }) {
   if (!number(value)) return null
   const normalized = Math.min(100, Math.max(0, value))
   return (
-    <div className="flex items-center gap-2.5" aria-label={`${label} ${Math.round(normalized)}%`}>
-      <span className="relative size-9 rounded-full grid place-items-center bg-sunken" aria-hidden>
-        <span
-          className="absolute inset-0 rounded-full"
-          style={{ background: `conic-gradient(var(--accent) ${normalized}%, var(--line) 0)` }}
-        />
-        <span className="absolute inset-[4px] rounded-full bg-card" />
-        <Gauge size={13} strokeWidth={1.6} className="relative text-ink-3" />
-      </span>
-      <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {Math.round(normalized)}%
-      </strong>
+    <div className="dashboard-telemetry-progress" data-state={state}>
+      <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(normalized)}%</strong>
+      <div role="progressbar" aria-label={label} aria-valuenow={normalized} aria-valuemin={0} aria-valuemax={100}>
+        <span style={{ width: `${normalized}%` }} />
+      </div>
     </div>
   )
 }
@@ -155,11 +148,11 @@ function Labelled({ t, label, value }) {
   return <span>{`${label} ${value ?? t('telemetryValueUnavailable')}`}</span>
 }
 
-function MetricRows({ t, id, metric }) {
+function MetricRows({ t, id, metric, state }) {
   if (id === 'cpu') {
     return (
       <>
-        <MiniGauge value={metric.percent} label={t('telemetryUsage')} />
+        <MetricProgress value={metric.percent} label={t('telemetryUsage')} state={state} />
         <span>{number(metric.windowSeconds) ? `${metric.windowSeconds}s` : t('telemetryValueUnavailable')}</span>
       </>
     )
@@ -168,7 +161,7 @@ function MetricRows({ t, id, metric }) {
   if (id === 'memory') {
     return (
       <>
-        <MiniGauge value={metric.percent} label={t('telemetryUsage')} />
+        <MetricProgress value={metric.percent} label={t('telemetryUsage')} state={state} />
         <UsedOfTotal t={t} used={metric.usedBytes} total={metric.totalBytes} />
       </>
     )
@@ -177,7 +170,7 @@ function MetricRows({ t, id, metric }) {
   if (id === 'disk') {
     return (
       <>
-        <MiniGauge value={metric.percent} label={t('telemetryUsage')} />
+        <MetricProgress value={metric.percent} label={t('telemetryUsage')} state={state} />
         <UsedOfTotal t={t} used={metric.usedBytes} total={metric.totalBytes} />
         {/* SMART/RAID need raw device access this container does not have, so
             physical drive health stays explicitly unknown rather than green. */}
@@ -241,7 +234,7 @@ function TelemetryTile({ t, definition, value, loading }) {
 
   return (
     <article
-      className={`min-w-0 rounded-[var(--r-tile)] border border-line bg-card p-4 ${state === 'unavailable' ? 'hatch hatch-ink3' : ''}`}
+      className="dashboard-telemetry-tile min-w-0 rounded-[var(--r-tile)] p-4"
       aria-label={`${t(definition.labelKey)} · ${t(meta.labelKey)}`}
       aria-busy={state === 'loading' ? 'true' : undefined}
     >
@@ -253,15 +246,16 @@ function TelemetryTile({ t, definition, value, loading }) {
         <Chip tone={meta.tone} className="ml-auto">{t(meta.labelKey)}</Chip>
       </div>
       {isEmpty ? (
-        <p className="mt-4 text-[12.5px] text-ink-2 leading-relaxed max-w-[32ch]">
-          {emptyKey ? t(emptyKey) : ' '}
-        </p>
+        <div className="dashboard-telemetry-empty">
+          {['cpu', 'memory', 'disk'].includes(definition.id) && <span className="dashboard-telemetry-empty-track" aria-hidden />}
+          <p className="mt-4 text-[12.5px] text-ink-2 leading-relaxed max-w-[32ch]">{emptyKey ? t(emptyKey) : ' '}</p>
+        </div>
       ) : (
         <div
           className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-ink-2 font-mono"
           style={{ fontVariantNumeric: 'tabular-nums' }}
         >
-          <MetricRows t={t} id={definition.id} metric={metric} />
+          <MetricRows t={t} id={definition.id} metric={metric} state={state} />
         </div>
       )}
     </article>
@@ -281,9 +275,9 @@ function TelemetryTile({ t, definition, value, loading }) {
 export function ServerTelemetry({ t, data, loading = false }) {
   const metrics = data?.metrics ?? null
   return (
-    <Card className="p-5">
+    <Card className="dashboard-telemetry-card p-5">
       <CardTitle sub={t('serverTelemetrySub')}>{t('serverTelemetry')}</CardTitle>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="dashboard-telemetry-grid">
         {METRICS.map((definition) => (
           <TelemetryTile
             key={definition.id}

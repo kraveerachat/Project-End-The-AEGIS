@@ -8,6 +8,7 @@ import { buildLocationForIntent, normalizeNavigationIntent, readLocationIntent, 
 import { armAuthenticatedBackBoundary, authenticatedNavigationState, handleAuthenticatedBack, releaseAuthenticatedBackBoundary } from './lib/authBackBoundary.js'
 import { Dot, HatchDefs, SkeletonLoader } from './components/ui.jsx'
 import { Sidebar } from './components/Sidebar.jsx'
+import { PositionedNavigation } from './components/PositionedNavigation.jsx'
 import { useScrollReveal } from './lib/useScrollReveal.js'
 import { TopBar } from './components/TopBar.jsx'
 import { GlobalSearch } from './components/GlobalSearch.jsx'
@@ -90,6 +91,7 @@ export default function App() {
   ))
   const [density, setDensity] = useState('comfortable')
   const [interfaceStyle, setInterfaceStyle] = useState('classic')
+  const [navigationPosition, setNavigationPosition] = useState('left')
   const [preferenceSaving, setPreferenceSaving] = useState(false)
   const [preferenceError, setPreferenceError] = useState(false)
   const [settingsTab, setSettingsTab] = useState('appearance')
@@ -151,6 +153,7 @@ export default function App() {
         language: preferences?.language ?? 'th',
         density: preferences?.density ?? 'comfortable',
         interfaceStyle: preferences?.interfaceStyle ?? 'classic',
+        navigationPosition: preferences?.navigationPosition ?? 'left',
       },
     })
     // บันทึกไม่ผ่าน = ธีมที่ตาเห็นยังถูกต้องสำหรับเบราว์เซอร์นี้ (shell hint เขียนไปแล้ว)
@@ -183,6 +186,7 @@ export default function App() {
     setSession({ ...user, menu })
     setLang(user.preferences?.language ?? 'th')
     setDensity(user.preferences?.density ?? 'comfortable')
+    setNavigationPosition(user.preferences?.navigationPosition ?? 'left')
     adoptTheme(decision.theme)
     // หลังจุดนี้: users.ui_theme = shell hint = ธีมที่ render จริง (ไม่เหลือค่าที่ขัดกัน)
     if (decision.persistToAccount) persistThemeToAccount(decision.theme, user.preferences)
@@ -409,13 +413,14 @@ export default function App() {
   }
 
   const updatePreference = async (key, value) => {
-    const previous = { theme, language: lang, density, interfaceStyle }
+    const previous = { theme, language: lang, density, interfaceStyle, navigationPosition }
     // ธีมเดินผ่าน adoptTheme() เสมอ (เขียน DOM + shell hint ทันที) — จอ Settings/TopBar
     // จึงใช้เส้นทางเดียวกับด่านล็อกอิน ไม่มีเส้นทางที่สองที่เขียนธีมด้วยกฎของตัวเอง
     const setValue = {
       theme: adoptTheme,
       language: setLang,
       density: setDensity,
+      navigationPosition: setNavigationPosition,
     }[key]
     setValue(value)
     setPreferenceSaving(true)
@@ -437,7 +442,7 @@ export default function App() {
     if (value === interfaceStyle) return true
     setPreferenceSaving(true)
     setPreferenceError(false)
-    const next = { theme, language: lang, density, interfaceStyle: value }
+    const next = { theme, language: lang, density, interfaceStyle: value, navigationPosition }
     const result = await apiFetch('/api/preferences', { method: 'PATCH', body: next })
     if (!result.ok) {
       setPreferenceSaving(false)
@@ -503,6 +508,7 @@ export default function App() {
         t={t} lang={lang} setLang={(value) => updatePreference('language', value)}
         theme={theme} setTheme={(value) => updatePreference('theme', value)}
         density={density} setDensity={(value) => updatePreference('density', value)}
+        navigationPosition={navigationPosition} setNavigationPosition={(value) => updatePreference('navigationPosition', value)}
         interfaceStyle={interfaceStyle}
         onInterfaceStyleChange={switchInterfaceStyle}
         role={effectiveRole} user={session}
@@ -519,7 +525,7 @@ export default function App() {
   }[activeScreen]
 
   return (
-    <div className="authenticated-shell h-full flex bg-canvas" data-interface-style={interfaceStyle} data-screen={activeScreen}>
+    <div className="authenticated-shell h-full flex bg-canvas" data-interface-style={interfaceStyle} data-screen={activeScreen} data-navigation-position={navigationPosition}>
       <HatchDefs />
       <Sidebar
         t={t}
@@ -534,6 +540,7 @@ export default function App() {
         mobileOpen={mobileNav}
         closeMobile={() => setMobileNav(false)}
         neoDashboard={neoDashboard}
+        position={navigationPosition}
       />
       <div className="flex-1 flex flex-col min-w-0 h-full">
         <TopBar
@@ -551,6 +558,7 @@ export default function App() {
           neoDashboard={neoDashboard}
           collapsed={collapsed}
           setCollapsed={setCollapsed}
+          navigationPosition={navigationPosition}
           search={neoDashboard ? (
             <GlobalSearch
               t={t}
@@ -563,6 +571,7 @@ export default function App() {
             />
           ) : null}
         />
+        {navigationPosition === 'top' && <PositionedNavigation t={t} nav={nav} screen={activeScreen} go={go} position="top" />}
         <main
           ref={mainRef}
           onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 4)}
@@ -627,6 +636,7 @@ export default function App() {
             )}
           </PageSurface>
         </main>
+        {navigationPosition === 'bottom' && <PositionedNavigation t={t} nav={nav} screen={activeScreen} go={go} position="bottom" />}
       </div>
     </div>
   )

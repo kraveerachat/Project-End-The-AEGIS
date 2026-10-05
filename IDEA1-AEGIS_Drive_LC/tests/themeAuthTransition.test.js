@@ -152,7 +152,15 @@ async function loadApp({ shell = null, prefersDark = false } = {}) {
       assert.ok(element, 'element to click must exist')
       await act(async () => { element.click(); await settle() })
     },
-    button: (label) => document.querySelector(`button[aria-label="${label}"]`),
+    button: (label) => {
+      const localizedThemeLabel = label.toLowerCase() === 'switch to dark mode'
+        ? t('switchTheme', { theme: t('themeDark') })
+        : label.toLowerCase() === 'switch to light mode'
+          ? t('switchTheme', { theme: t('themeLight') })
+          : label
+      return [...document.querySelectorAll('button[aria-label]')]
+        .find((button) => button.getAttribute('aria-label').toLowerCase() === localizedThemeLabel.toLowerCase())
+    },
     byText: (text) => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === text),
     async signIn() {
       // The stub backend accepts anything — these only have to be non-empty so the
@@ -229,6 +237,35 @@ test('a Neo account mounts the authenticated shell directly without a Classic fr
     assert.equal(app.onLoginScreen, true)
     assert.equal(app.interfaceStyle, undefined)
     assert.equal(app.authenticatedShell, null)
+  } finally {
+    await app.cleanup()
+  }
+})
+
+test('a saved top navigation position renders the authorized routes in a top navigation surface', async () => {
+  resetBackend({ account: { interfaceStyle: 'neo', navigationPosition: 'top' } })
+  const app = await loadApp()
+  try {
+    await app.signIn()
+    assert.equal(app.authenticatedShell?.dataset.navigationPosition, 'top')
+    const navigation = app.authenticatedShell?.querySelector('nav[data-position="top"]')
+    assert.ok(navigation)
+    assert.ok(navigation.querySelector('[aria-current="page"]'))
+    assert.equal(navigation.textContent.includes(t('navFiles')), true)
+  } finally {
+    await app.cleanup()
+  }
+})
+
+test('a saved bottom navigation position renders an application dock', async () => {
+  resetBackend({ account: { interfaceStyle: 'neo', navigationPosition: 'bottom' } })
+  const app = await loadApp()
+  try {
+    await app.signIn()
+    assert.equal(app.authenticatedShell?.dataset.navigationPosition, 'bottom')
+    const navigation = app.authenticatedShell?.querySelector('nav[data-position="bottom"]')
+    assert.ok(navigation)
+    assert.ok(navigation.querySelector('[aria-current="page"]'))
   } finally {
     await app.cleanup()
   }

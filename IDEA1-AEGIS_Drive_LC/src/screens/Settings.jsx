@@ -403,7 +403,29 @@ function InterfaceStylePreview({ value, label, description, active, onSelect, di
   )
 }
 
-export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, interfaceStyle = 'classic', onInterfaceStyleChange, role, user, go, onProfileSaved, initialTab = 'appearance', preferenceSaving = false, preferenceError = false, placeholderMode = false }) {
+function NavigationPositionPreview({ value, label, active, onSelect, disabled }) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      value={value}
+      onClick={onSelect}
+      disabled={disabled}
+      className={`navigation-position-preview ${active ? 'is-active' : ''}`}
+    >
+      <span className={`navigation-position-preview__canvas is-${value}`} aria-hidden>
+        <span className="navigation-position-preview__chrome" />
+        <span className="navigation-position-preview__nav" />
+        <span className="navigation-position-preview__content"><i /><i /><i /></span>
+        {active && <span className="navigation-position-preview__check"><Check size={10} strokeWidth={2.6} /></span>}
+      </span>
+      <span>{label}</span>
+    </button>
+  )
+}
+
+export function Settings({ t, lang, setLang, theme, setTheme, density, setDensity, interfaceStyle = 'classic', onInterfaceStyleChange, navigationPosition = 'left', setNavigationPosition, role, user, go, onProfileSaved, initialTab = 'appearance', preferenceSaving = false, preferenceError = false, placeholderMode = false }) {
   const now = useNow(30_000)
   const [tab, setTab] = useState(initialTab)
   const [pendingInterfaceStyle, setPendingInterfaceStyle] = useState(null)
@@ -590,17 +612,19 @@ export function Settings({ t, lang, setLang, theme, setTheme, density, setDensit
                 <p className="interface-style-warning mt-2 text-[11.5px] text-warn leading-relaxed">{t('interfaceStyleWarning')}</p>
               </div>
             </Row>
-            <Row label={t('density')}>
-              <Segmented
-                ariaLabel={t('density')}
-                options={[
-                  { value: 'comfortable', label: t('densityComfortable') },
-                  { value: 'compact', label: t('densityCompact') },
-                ]}
-                value={density}
-                onChange={setDensity}
-                disabled={preferenceSaving}
-              />
+            <Row label={t('navigationPosition')} note={t('navigationPositionDescription')}>
+              <div role="radiogroup" aria-label={t('navigationPosition')} className="navigation-position-grid">
+                {['left', 'top', 'bottom'].map((position) => (
+                  <NavigationPositionPreview
+                    key={position}
+                    value={position}
+                    label={t(`navigationPosition${position[0].toUpperCase()}${position.slice(1)}`)}
+                    active={navigationPosition === position}
+                    disabled={preferenceSaving}
+                    onSelect={() => setNavigationPosition?.(position)}
+                  />
+                ))}
+              </div>
             </Row>
           </Card>
         )}

@@ -8,7 +8,7 @@ import { Progress } from './ui.jsx'
 import { useCountUp } from '../lib/hooks.js'
 import { fmtBytes } from '../lib/format.js'
 
-const ICONS = { gauge: Gauge, folder: Folder, vault: VaultIcon, upload: Upload, link: Link2, history: History, trash: Trash2, harddrive: HardDrive, scroll: ScrollText, usercog: UserCog, settings: SettingsIcon }
+export const ICONS = { gauge: Gauge, folder: Folder, vault: VaultIcon, upload: Upload, link: Link2, history: History, trash: Trash2, harddrive: HardDrive, scroll: ScrollText, usercog: UserCog, settings: SettingsIcon }
 
 /* Height+fade collapse used when the preview role gains/loses the admin
    group. While closed the children are UNMOUNTED — no DOM trace. The exit
@@ -59,7 +59,7 @@ function NavItem({ icon, label, active, collapsed, onClick, delay = 0 }) {
   )
 }
 
-export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, metrics, metricsUnavailable = false, resolvedTheme, mobileOpen, closeMobile, neoDashboard = false }) {
+export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, metrics, metricsUnavailable = false, resolvedTheme, mobileOpen, closeMobile, neoDashboard = false, position = 'left' }) {
   const mobilePanelRef = useRef(null)
   const closeMobileRef = useRef(closeMobile)
   closeMobileRef.current = closeMobile
@@ -218,7 +218,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
     <>
       {/* desktop */}
       <aside
-        className="app-sidebar-frame hidden lg:block shrink-0 h-full transition-[width] duration-[var(--dur-slow)]"
+        className={`app-sidebar-frame shrink-0 h-full transition-[width] duration-[var(--dur-slow)] ${position === 'left' ? 'hidden lg:block' : 'hidden'}`}
         style={{ width: collapsed ? 72 : 260, transitionTimingFunction: 'var(--ease)' }}
       >
         {body}

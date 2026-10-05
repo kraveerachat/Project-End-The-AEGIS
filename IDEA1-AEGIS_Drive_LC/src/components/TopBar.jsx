@@ -32,7 +32,7 @@ function Dropdown({ open, onClose, children, label, align = 'right', width = 280
   )
 }
 
-export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSettings, onSignOut, openMobileNav, resolvedTheme = 'light', onThemeChange, neoDashboard = false, collapsed = false, setCollapsed, search = null }) {
+export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSettings, onSignOut, openMobileNav, resolvedTheme = 'light', onThemeChange, neoDashboard = false, collapsed = false, setCollapsed, navigationPosition = 'left', search = null }) {
   const [avatarOpen, setAvatarOpen] = useState(false)
 
   // Live Tactical Clock (matching CCTV-Operator topbar clock)
@@ -52,6 +52,7 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
   const metadataUp = health.data?.layers?.metadata?.ok === true
     && health.data?.layers?.metadata?.checked === true
   const dbMode = health.data?.db
+  const showIdentity = neoDashboard || navigationPosition !== 'left'
 
   return (
     <header
@@ -60,7 +61,7 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
       style={{ boxShadow: scrolled ? 'var(--elev-1)' : 'none' }}
     >
       {/* LEFT ZONE: Mobile Toggle Button / Left Spacer */}
-      <div className={`flex items-center min-w-[40px] ${neoDashboard ? 'neo-topbar-identity' : ''}`}>
+      <div className={`flex items-center min-w-[40px] ${showIdentity ? 'neo-topbar-identity' : ''}`}>
         <button
           type="button"
           aria-label={t('expandSidebar')}
@@ -69,18 +70,18 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
         >
           <Menu size={18} strokeWidth={1.5} />
         </button>
-        {neoDashboard && (
+        {showIdentity && (
           <>
             <button
               type="button"
               aria-label={collapsed ? t('expandSidebar') : t('collapseSidebar')}
               aria-expanded={!collapsed}
               onClick={() => setCollapsed?.(!collapsed)}
-              className="neo-sidebar-toggle hidden lg:flex size-10 items-center justify-center rounded-[10px] text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer"
+              className={`neo-sidebar-toggle ${navigationPosition === 'left' ? 'hidden lg:flex' : 'hidden'} size-10 items-center justify-center rounded-[10px] text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer`}
             >
               <Menu size={19} strokeWidth={1.6} />
             </button>
-            <span className="neo-topbar-identity-divider" aria-hidden />
+            {navigationPosition === 'left' && <span className="neo-topbar-identity-divider" aria-hidden />}
             <AegisLockup markSize={35} theme={resolvedTheme} title="AEGIS Drive_LC" sub={t('productLockupSub')} />
           </>
         )}
