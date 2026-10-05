@@ -12,6 +12,11 @@ makes the frozen runner MECHANICALLY DERIVED from the reviewed template:
   ``$``, backtick, space or ``;``), and a value replaces ONLY the captured pin site of its own line. There is no generic search/replace interface; code cannot be injected through a pin value.
 * The output is created exclusively (an existing destination is refused), never modifies the template, is mode 0555, and with ``--root-owned`` (root only) is chowned root:root and proven to sit under a trusted,
   root-owned, non-group/world-writable ancestor chain.
+* PRODUCTION TRUST ROOT IS LITERALLY ``/``. There is no ``--trust-root`` option. Root-owned freeze and every ``verify`` prove the destination's parent and EVERY ancestor up to ``/`` are real directories owned by
+  uid 0 and not group/world writable. A narrower trust root exists ONLY as an explicit TEST seam (``R1A_TEST_ONLY_RUNNER_TRUST_ENABLED=YES`` plus ``R1A_TEST_ONLY_RUNNER_TRUST_ROOT``), and it is honoured ONLY
+  inside a user namespace: a real production root (the initial user namespace) refuses it, and a half-set seam is refused everywhere.
+* For ``--root-owned`` the path is proven BEFORE root creates anything: the destination must not exist (and not be a symlink), its parent must already exist and be canonical, and the parent and every ancestor
+  must be trusted. Only then is the file created (exclusively, relative to the verified parent directory, never following a symlink); afterwards the full ``verify`` runs again. Nothing is ever cleaned up or removed.
 * ``verify`` re-proves, at any later time, that the file equals the template with only the approved pin sites changed, that its EXPECTED_MAIN pin is the reviewed main, and (production default) that it is root
   owned and not writable. It prints the four owner-facing results and the runner SHA-256 that the Authorization must name (that Authorization binding is unchanged and still required).
 """
@@ -90,6 +95,33 @@ PIN_SPECS: dict[str, tuple[re.Pattern[str], str, str]] = {
     "PY": (re.compile(r"^PY=(.*)$", re.M), "PIN_PYTHON_BIN", "path"),
     "EVIDENCE_ROOT": (re.compile(r"^EVID=(/[^\n$]*?)/\$TODAY-r1a-\$STAMP$", re.M), "/PIN_EVIDENCE_ROOT", "path"),
 }
+
+
+TEST_SEAM_ENABLED = "R1A_TEST_ONLY_RUNNER_TRUST_ENABLED"
+TEST_SEAM_ROOT = "R1A_TEST_ONLY_RUNNER_TRUST_ROOT"
+
+
+def _initial_user_namespace() -> bool:
+    """True in the real (initial) user namespace, i.e. on the production host. Inside a user namespace the uid map is not the identity map."""
+    try:
+        parts = Path("/proc/self/uid_map").read_text().split()
+    except OSError:
+        return True  # unknown: treat as the real namespace (the seam stays refused)
+    return parts[:3] == ["0", "0", "4294967295"]
+
+
+def trust_root() -> str:
+    """The designated trusted parent: the literal ``/`` in production. The ONLY alternative is the explicit test seam, refused outside a user namespace and refused when only half-set."""
+    enabled, root = os.environ.get(TEST_SEAM_ENABLED), os.environ.get(TEST_SEAM_ROOT)
+    if enabled is None and root is None:
+        return snapshot_tool.PRODUCTION_TRUST_ROOT
+    if enabled != "YES" or not root:
+        raise FreezeError("TEST_TRUST_SEAM_INCOMPLETE")
+    if _initial_user_namespace():
+        raise FreezeError("TEST_TRUST_SEAM_REFUSED_IN_THE_REAL_ROOT_NAMESPACE")
+    if not root.startswith("/") or ".." in root.split("/") or Path(os.path.realpath(root)) != Path(os.path.abspath(root)):
+        raise FreezeError("TEST_TRUST_SEAM_ROOT_INVALID")
+    return root
 
 
 def _git_env() -> dict[str, str]:
@@ -190,7 +222,7 @@ def sha256_of(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def verify(repo: Path, main: str, runner: Path, *, owner_uid: int | None = snapshot_tool.PRODUCTION_OWNER_UID, trust_root: str = snapshot_tool.PRODUCTION_TRUST_ROOT) -> dict[str, str]:
+def verify(repo: Path, main: str, runner: Path, *, owner_uid: int | None = snapshot_tool.PRODUCTION_OWNER_UID) -> dict[str, str]:
     """The four owner-facing results plus the runner SHA-256. ``owner_uid=None`` skips ONLY the ownership/non-writable proof (hermetic tests of the byte logic); the CLI never does."""
     runner = Path(runner)
     template = read_template(repo, main)
@@ -202,7 +234,7 @@ def verify(repo: Path, main: str, runner: Path, *, owner_uid: int | None = snaps
     results["RUNNER_ONLY_APPROVED_PINS_CHANGED"] = "PASS"
     if owner_uid is not None:
         try:
-            snapshot_tool.check_trusted_path(runner.parent, owner_uid, trust_root)
+            snapshot_tool.check_trusted_path(runner.parent, owner_uid, trust_root())
         except snapshot_tool.SnapshotError as exc:
             raise FreezeError(f"RUNNER_NOT_ROOT_OWNED:{exc}") from None
         st = runner.lstat()
@@ -218,24 +250,56 @@ def verify(repo: Path, main: str, runner: Path, *, owner_uid: int | None = snaps
     return results
 
 
-def freeze(repo: Path, main: str, pins: dict[str, str], out: Path, *, root_owned: bool = False, trust_root: str = snapshot_tool.PRODUCTION_TRUST_ROOT) -> dict[str, str]:
-    """Create a NEW frozen runner (never overwrites, never touches the template), then prove it exactly as ``verify`` does."""
+def _prewrite_path_proof(out: Path) -> int:
+    """For a ROOT-OWNED freeze: prove the destination path BEFORE anything is created. Returns an open directory fd of the verified parent (the file is then created relative to it)."""
+    out = Path(os.path.abspath(out))
+    if os.path.lexists(out):  # exists, is a symlink (even dangling) or anything else: never created over, never followed
+        raise FreezeError("DESTINATION_EXISTS")
+    parent = out.parent
+    if not parent.is_dir() or parent.is_symlink():
+        raise FreezeError("RUNNER_PARENT_MISSING_OR_SYMLINK")  # an untrusted parent is never auto-created or followed
+    try:
+        snapshot_tool.check_trusted_path(parent, snapshot_tool.PRODUCTION_OWNER_UID, trust_root())  # canonical; parent and EVERY ancestor to the trust root: real dir, uid 0, not group/world writable
+    except snapshot_tool.SnapshotError as exc:
+        raise FreezeError(f"RUNNER_PARENT_NOT_TRUSTED:{exc}") from None
+    fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    st, now = os.fstat(fd), parent.lstat()
+    if (st.st_dev, st.st_ino) != (now.st_dev, now.st_ino) or st.st_uid != snapshot_tool.PRODUCTION_OWNER_UID or st.st_mode & 0o022:
+        os.close(fd)
+        raise FreezeError("RUNNER_PARENT_CHANGED_DURING_PROOF")
+    return fd
+
+
+def freeze(repo: Path, main: str, pins: dict[str, str], out: Path, *, root_owned: bool = False) -> dict[str, str]:
+    """Create a NEW frozen runner (never overwrites, never touches the template), then prove it exactly as ``verify`` does. ``--root-owned`` proves the path BEFORE creating."""
     template = read_template(repo, main)
     if pins.get("EXPECTED_MAIN") != main:
         raise FreezeError("EXPECTED_MAIN_PIN_IS_NOT_THE_REVIEWED_MAIN")
     frozen = render(template, pins)
     out = Path(out)
-    if root_owned and os.geteuid() != 0:
-        raise FreezeError("ROOT_REQUIRED_FOR_ROOT_OWNED_RUNNER")
+    if root_owned:
+        if os.geteuid() != 0:
+            raise FreezeError("ROOT_REQUIRED_FOR_ROOT_OWNED_RUNNER")
+        parent_fd = _prewrite_path_proof(out)  # raises BEFORE any file exists
+        try:
+            fd = os.open(out.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o555, dir_fd=parent_fd)  # exclusive, relative to the verified parent, never through a symlink
+        except FileExistsError:
+            raise FreezeError("DESTINATION_EXISTS") from None
+        finally:
+            os.close(parent_fd)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(frozen)
+            handle.flush()
+            os.fchmod(handle.fileno(), 0o555)
+            os.fchown(handle.fileno(), 0, 0)
+        return verify(repo, main, out, owner_uid=0)  # the full proof again, after creation
     try:
         with open(out, "x", encoding="utf-8") as handle:  # exclusive: an existing destination is refused
             handle.write(frozen)
     except FileExistsError:
         raise FreezeError("DESTINATION_EXISTS") from None
     out.chmod(0o555)
-    if root_owned:
-        os.chown(out, 0, 0, follow_symlinks=False)
-    return verify(repo, main, out, owner_uid=0 if root_owned else None, trust_root=trust_root)
+    return verify(repo, main, out, owner_uid=None)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -251,17 +315,15 @@ def main(argv: list[str] | None = None) -> int:
     vf.add_argument("--repo", type=Path, required=True)
     vf.add_argument("--main", required=True)
     vf.add_argument("--runner", type=Path, required=True)
-    for p in (fr, vf):
-        p.add_argument("--trust-root", default=snapshot_tool.PRODUCTION_TRUST_ROOT, help="the designated trusted parent (default /)")
     args = parser.parse_args(argv)
     try:
         if args.command == "freeze":
             pins = load_pins(args.pins.read_text(encoding="utf-8"))
-            results = freeze(args.repo, args.main, pins, args.out, root_owned=args.root_owned, trust_root=args.trust_root)
+            results = freeze(args.repo, args.main, pins, args.out, root_owned=args.root_owned)
             if not args.root_owned:
                 print("NOTE: not root-owned; RUNNER_ROOT_OWNED and RUNNER_NONWRITABLE are NOT proven (rerun with --root-owned as root before any Authorization)")
         else:
-            results = verify(args.repo, args.main, args.runner, trust_root=args.trust_root)
+            results = verify(args.repo, args.main, args.runner)
     except (FreezeError, OSError, UnicodeDecodeError) as exc:
         print(f"R1A_RUNNER_FREEZE=FAIL reason={exc}", file=sys.stderr)
         return 1

@@ -134,9 +134,9 @@ def test_no_pin_value_can_carry_newline_shell_code_or_a_placeholder(tmp_path: Pa
 
 def test_the_tool_exposes_no_generic_search_and_replace_interface() -> None:
     text = TOOL_PATH.read_text()
-    assert "--replace" not in text and "--sed" not in text and "sed " not in text and "str.replace" not in text.replace("template.replace", "")
+    assert "--replace" not in text and "--sed" not in text and not re.search(r"\bsed\b", text) and "str.replace" not in text.replace("template.replace", "")
     parser_flags = set(re.findall(r'add_argument\("(--[a-z-]+)"', text))
-    assert parser_flags == {"--repo", "--main", "--pins", "--out", "--root-owned", "--runner", "--trust-root"}
+    assert parser_flags == {"--repo", "--main", "--pins", "--out", "--root-owned", "--runner"}  # no --trust-root: the production trust root is the literal `/`
 
 
 # --- 7-14: ANY non-pin byte change is detected -----------------------------------------------------------------------------------------------------
@@ -282,13 +282,18 @@ def pins_file(tmp_path: Path, main: str) -> Path:
     return path
 
 
+def tuserns(command: str, trust: Path) -> subprocess.CompletedProcess[str]:
+    """Run inside a user namespace WITH the explicit TEST-ONLY trust seam (production has no such option and refuses the seam in the real root namespace)."""
+    return base.userns_bash(f'export R1A_TEST_ONLY_RUNNER_TRUST_ENABLED=YES R1A_TEST_ONLY_RUNNER_TRUST_ROOT="{trust}"\n{command}')
+
+
 def test_without_root_a_root_owned_freeze_is_refused_and_a_plain_freeze_does_not_claim_protection(tmp_path: Path) -> None:
     repo, main = make_repo(tmp_path)
-    refused = cli("freeze", "--repo", str(repo), "--main", main, "--pins", str(pins_file(tmp_path, main)), "--out", str(tmp_path / "a.sh"), "--root-owned", "--trust-root", str(tmp_path))
+    refused = cli("freeze", "--repo", str(repo), "--main", main, "--pins", str(pins_file(tmp_path, main)), "--out", str(tmp_path / "a.sh"), "--root-owned")
     assert refused.returncode == 1 and "ROOT_REQUIRED_FOR_ROOT_OWNED_RUNNER" in refused.stderr and not (tmp_path / "a.sh").exists()
     plain = cli("freeze", "--repo", str(repo), "--main", main, "--pins", str(pins_file(tmp_path, main)), "--out", str(tmp_path / "b.sh"))
     assert plain.returncode == 0 and not re.search(r"^RUNNER_(ROOT_OWNED|NONWRITABLE)=", plain.stdout, re.M) and "NOT proven" in plain.stdout
-    strict = cli("verify", "--repo", str(repo), "--main", main, "--runner", str(tmp_path / "b.sh"), "--trust-root", str(tmp_path))
+    strict = cli("verify", "--repo", str(repo), "--main", main, "--runner", str(tmp_path / "b.sh"))
     assert strict.returncode == 1 and "RUNNER_NOT_ROOT_OWNED" in strict.stderr  # the CLI verify has no way to skip the production proof
 
 
@@ -296,13 +301,13 @@ def test_without_root_a_root_owned_freeze_is_refused_and_a_plain_freeze_does_not
 def test_the_root_owned_freeze_and_verify_print_the_four_owner_results_and_the_sha(tmp_path: Path) -> None:
     repo, main = make_repo(tmp_path)
     out = tmp_path / "frozen.sh"
-    frozen = base.userns_bash(f'python3 "{TOOL_PATH}" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned --trust-root "{tmp_path}"')
+    frozen = tuserns(f'python3 "{TOOL_PATH}" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned', trust=tmp_path)
     assert frozen.returncode == 0, frozen.stderr
     for line in ("RUNNER_TEMPLATE_AUTHORITY=PASS", "RUNNER_ONLY_APPROVED_PINS_CHANGED=PASS", "RUNNER_ROOT_OWNED=PASS", "RUNNER_NONWRITABLE=PASS"):
         assert line in frozen.stdout, frozen.stdout
     sha = re.search(r"RUNNER_SHA256=([0-9a-f]{64})", frozen.stdout).group(1)
     assert sha == hashlib.sha256(out.read_bytes()).hexdigest()
-    again = base.userns_bash(f'python3 "{TOOL_PATH}" verify --repo "{repo}" --main {main} --runner "{out}" --trust-root "{tmp_path}"')
+    again = tuserns(f'python3 "{TOOL_PATH}" verify --repo "{repo}" --main {main} --runner "{out}"', trust=tmp_path)
     assert again.returncode == 0 and f"RUNNER_SHA256={sha}" in again.stdout
     assert out.stat().st_mode & 0o222 == 0
 
@@ -315,7 +320,7 @@ def test_a_writable_or_untrusted_runner_location_fails_the_production_verify(tmp
     inner = trusted / "inner"
     inner.mkdir(parents=True)
     out = inner / "frozen.sh"
-    ok = base.userns_bash(f'python3 "{TOOL_PATH}" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned --trust-root "{trusted}"')
+    ok = tuserns(f'python3 "{TOOL_PATH}" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned', trust=trusted)
     assert ok.returncode == 0, ok.stderr
     target = out
     if breach == "writable_file":
@@ -329,11 +334,11 @@ def test_a_writable_or_untrusted_runner_location_fails_the_production_verify(tmp
         shutil.move(str(inner), str(real))
         inner.symlink_to(real)
         target = inner / "frozen.sh"
-    verify_cmd = f'python3 "{TOOL_PATH}" verify --repo "{repo}" --main {main} --runner "{target}" --trust-root "{trusted}"'
+    verify_cmd = f'python3 "{TOOL_PATH}" verify --repo "{repo}" --main {main} --runner "{target}"'
     if breach == "wrong_owner":
-        result = subprocess.run([sys.executable, str(TOOL_PATH), "verify", "--repo", str(repo), "--main", main, "--runner", str(target), "--trust-root", str(trusted)], text=True, capture_output=True)
+        result = subprocess.run([sys.executable, str(TOOL_PATH), "verify", "--repo", str(repo), "--main", main, "--runner", str(target)], text=True, capture_output=True)
     else:
-        result = base.userns_bash(verify_cmd)
+        result = tuserns(verify_cmd, trusted)
     assert result.returncode == 1 and ("RUNNER_" in result.stderr), (breach, result.stderr, result.stdout)
 
 
@@ -349,5 +354,164 @@ def test_the_authorization_runner_sha_binding_and_the_boot_order_are_still_in_th
 
 def test_the_freeze_tool_only_ever_writes_the_new_destination() -> None:
     code = "\n".join(line for line in TOOL_PATH.read_text().splitlines() if not line.lstrip().startswith("#"))
-    assert code.count("open(out") == 1 and 'open(out, "x"' in code
-    assert not re.search(r"\b(unlink|rmtree|os\.remove|shutil\.move|os\.rename)\b", code) and code.count("os.chown") == 1 and "follow_symlinks=False" in code
+    assert code.count('open(out, "x"') == 1 and "os.O_EXCL" in code and "os.O_NOFOLLOW" in code and "dir_fd=parent_fd" in code
+    assert not re.search(r"\b(unlink|rmtree|os\.remove|shutil\.move|os\.rename|os\.makedirs|mkdir)\b", code)  # never cleans up, never auto-creates a parent
+    assert code.count("os.fchown") == 1 and "os.chown" not in code
+
+
+# --- round 2 M6-A: a ROOT-OWNED freeze proves the destination path BEFORE it creates anything ----------------------------------------------------------
+
+
+def root_freeze(repo: Path, main: str, tmp_path: Path, out: Path, trust: Path | None) -> subprocess.CompletedProcess[str]:
+    cmd = f'python3 "{TOOL_PATH}" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned'
+    return tuserns(cmd, trust) if trust is not None else base.userns_bash(cmd)
+
+
+def files_under(root: Path) -> list[str]:
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file() or p.is_symlink())
+
+
+@needs_userns
+def test_a_symlinked_parent_is_refused_before_any_file_is_created_at_the_symlink_target(tmp_path: Path) -> None:
+    repo, main = make_repo(tmp_path)
+    trusted = tmp_path / "trusted"
+    real_inner = trusted / "real"
+    real_inner.mkdir(parents=True)
+    (trusted / "link").symlink_to(real_inner)
+    result = root_freeze(repo, main, tmp_path, trusted / "link" / "frozen.sh", trusted)
+    assert result.returncode == 1 and "RUNNER_PARENT_MISSING_OR_SYMLINK" in result.stderr, result.stderr
+    assert files_under(real_inner) == [] and not (real_inner / "frozen.sh").exists()  # nothing was created at the symlink target
+    # a symlink further up the chain: the parent itself is a real directory but the PATH traverses a symlink
+    (real_inner / "inner").mkdir()
+    (trusted / "mid").symlink_to(real_inner)
+    deep = root_freeze(repo, main, tmp_path, trusted / "mid" / "inner" / "frozen.sh", trusted)
+    assert deep.returncode == 1 and "RUNNER_PARENT_NOT_TRUSTED" in deep.stderr and "NOT_CANONICAL" in deep.stderr, deep.stderr
+    assert files_under(real_inner) == []
+
+
+@needs_userns
+def test_a_parent_owned_by_another_uid_is_refused_before_create(tmp_path: Path) -> None:
+    repo, main = make_repo(tmp_path)
+    target = Path("/usr/share/r1a-freeze-must-never-exist.sh")  # owned by the REAL root: inside the user namespace it appears as another (nobody) uid
+    result = root_freeze(repo, main, tmp_path, target, Path("/usr/share"))
+    assert result.returncode == 1 and "RUNNER_PARENT_NOT_TRUSTED" in result.stderr and "NOT_TRUSTED_OWNER" in result.stderr, result.stderr
+    assert not target.exists()
+
+
+@needs_userns
+@pytest.mark.parametrize("mode", [0o775, 0o777])
+def test_a_group_or_world_writable_parent_is_refused_before_create(tmp_path: Path, mode: int) -> None:
+    repo, main = make_repo(tmp_path)
+    trusted = tmp_path / "trusted"
+    inner = trusted / "inner"
+    inner.mkdir(parents=True)
+    inner.chmod(mode)
+    result = root_freeze(repo, main, tmp_path, inner / "frozen.sh", trusted)
+    assert result.returncode == 1 and "RUNNER_PARENT_NOT_TRUSTED" in result.stderr and "WRITABLE" in result.stderr, result.stderr
+    assert files_under(trusted) == []
+
+
+@needs_userns
+def test_a_missing_parent_is_never_auto_created_and_an_existing_destination_is_never_touched(tmp_path: Path) -> None:
+    repo, main = make_repo(tmp_path)
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    missing = root_freeze(repo, main, tmp_path, trusted / "new-dir" / "frozen.sh", trusted)
+    assert missing.returncode == 1 and "RUNNER_PARENT_MISSING_OR_SYMLINK" in missing.stderr and not (trusted / "new-dir").exists()
+    existing = trusted / "frozen.sh"
+    existing.write_text("owner-kept\n")
+    before = existing.stat()
+    kept = root_freeze(repo, main, tmp_path, existing, trusted)
+    assert kept.returncode == 1 and "DESTINATION_EXISTS" in kept.stderr
+    assert existing.read_text() == "owner-kept\n" and existing.stat().st_mtime_ns == before.st_mtime_ns and existing.stat().st_mode == before.st_mode
+    dangling = trusted / "dangling.sh"
+    dangling.symlink_to(trusted / "target-must-not-appear.sh")
+    refused = root_freeze(repo, main, tmp_path, dangling, trusted)
+    assert refused.returncode == 1 and "DESTINATION_EXISTS" in refused.stderr and not (trusted / "target-must-not-appear.sh").exists()
+
+
+@needs_userns
+def test_the_canonical_root_owned_parent_succeeds_and_the_full_verify_runs_after_creation(tmp_path: Path) -> None:
+    repo, main = make_repo(tmp_path)
+    trusted = tmp_path / "trusted"
+    (trusted / "authority").mkdir(parents=True)
+    out = trusted / "authority" / "frozen.sh"
+    result = root_freeze(repo, main, tmp_path, out, trusted)
+    assert result.returncode == 0, result.stderr
+    for line in ("RUNNER_TEMPLATE_AUTHORITY=PASS", "RUNNER_ONLY_APPROVED_PINS_CHANGED=PASS", "RUNNER_ROOT_OWNED=PASS", "RUNNER_NONWRITABLE=PASS"):
+        assert line in result.stdout
+    assert out.stat().st_mode & 0o777 == 0o555
+    code = "\n".join(line for line in TOOL_PATH.read_text().splitlines() if not line.lstrip().startswith("#"))
+    assert code.index("_prewrite_path_proof(out)") < code.index("os.O_EXCL") < code.index("return verify(repo, main, out, owner_uid=0)")  # prove -> create -> verify
+
+
+# --- round 2 M6-B: the production trust root is the literal `/`; a narrower one exists only as a guarded TEST seam ------------------------------------
+
+
+def test_the_production_cli_has_no_trust_root_option(tmp_path: Path) -> None:
+    repo, main = make_repo(tmp_path)
+    full = {"freeze": ["--pins", str(pins_file(tmp_path, main)), "--out", str(tmp_path / "x.sh")], "verify": ["--runner", str(tmp_path / "x.sh")]}
+    for command, extra in full.items():
+        result = cli(command, "--repo", str(repo), "--main", main, *extra, "--trust-root", str(tmp_path))
+        assert result.returncode == 2 and "unrecognized arguments: --trust-root" in result.stderr
+        assert not (tmp_path / "x.sh").exists()
+
+
+def test_the_default_trust_root_is_the_literal_slash_and_the_owner_commands_never_name_one(monkeypatch) -> None:
+    for var in (tool.TEST_SEAM_ENABLED, tool.TEST_SEAM_ROOT):
+        monkeypatch.delenv(var, raising=False)
+    assert tool.trust_root() == "/"
+    readme = (base.P4 / "README.md").read_text()
+    section = readme[readme.index("## 17. Stage R1A — pre-live hardening"):]
+    commands = re.findall(r"`((?:sudo )?python3 r1a_runner_freeze\.py[^`]*)`", section)  # the documented owner COMMANDS (code spans), not the prose around them
+    assert len(commands) == 2 and all("--trust-root" not in command for command in commands)
+    assert "no `--trust-root`" in section or "no --trust-root" in section  # the docs state it explicitly
+
+
+def test_a_test_trust_root_without_the_enable_flag_or_half_set_is_refused(tmp_path: Path, monkeypatch) -> None:
+    repo, main, out = frozen_world(tmp_path)
+    monkeypatch.setenv(tool.TEST_SEAM_ROOT, str(tmp_path))
+    monkeypatch.delenv(tool.TEST_SEAM_ENABLED, raising=False)
+    with pytest.raises(tool.FreezeError, match="TEST_TRUST_SEAM_INCOMPLETE"):
+        tool.trust_root()
+    monkeypatch.setenv(tool.TEST_SEAM_ENABLED, "yes")  # not exactly YES
+    with pytest.raises(tool.FreezeError, match="TEST_TRUST_SEAM_INCOMPLETE"):
+        tool.trust_root()
+    monkeypatch.setenv(tool.TEST_SEAM_ENABLED, "YES")
+    monkeypatch.delenv(tool.TEST_SEAM_ROOT)
+    with pytest.raises(tool.FreezeError, match="TEST_TRUST_SEAM_INCOMPLETE"):
+        tool.trust_root()
+    env = {**os.environ, tool.TEST_SEAM_ROOT: str(tmp_path)}
+    env.pop(tool.TEST_SEAM_ENABLED, None)
+    cli_run = subprocess.run([sys.executable, str(TOOL_PATH), "verify", "--repo", str(repo), "--main", main, "--runner", str(out)], env=env, text=True, capture_output=True)
+    assert cli_run.returncode == 1 and "TEST_TRUST_SEAM_INCOMPLETE" in cli_run.stderr  # the live CLI never silently accepts a narrowed root
+
+
+def test_the_test_seam_is_refused_in_the_real_root_namespace(tmp_path: Path) -> None:
+    repo, main, out = frozen_world(tmp_path)
+    env = {**os.environ, tool.TEST_SEAM_ENABLED: "YES", tool.TEST_SEAM_ROOT: str(tmp_path)}
+    result = subprocess.run([sys.executable, str(TOOL_PATH), "verify", "--repo", str(repo), "--main", main, "--runner", str(out)], env=env, text=True, capture_output=True)
+    assert result.returncode == 1 and "TEST_TRUST_SEAM_REFUSED_IN_THE_REAL_ROOT_NAMESPACE" in result.stderr  # a real (initial-namespace) caller cannot narrow the trust root
+    assert tool._initial_user_namespace() is True
+
+
+@needs_userns
+def test_the_seam_works_only_inside_a_user_namespace_and_must_name_a_canonical_directory(tmp_path: Path) -> None:
+    repo, main, out = frozen_world(tmp_path)
+    inside = tuserns(f'python3 -c "import sys; sys.path.insert(0, \'{TOOL_PATH.parent}\'); import r1a_runner_freeze as t; print(t.trust_root(), t._initial_user_namespace())"', tmp_path)
+    assert inside.returncode == 0 and inside.stdout.split() == [str(tmp_path), "False"], inside.stderr
+    bad = tuserns(f'python3 -c "import sys; sys.path.insert(0, \'{TOOL_PATH.parent}\'); import r1a_runner_freeze as t; print(t.trust_root())"', Path("relative/dir"))
+    assert bad.returncode != 0 and "TEST_TRUST_SEAM_ROOT_INVALID" in bad.stderr
+
+
+@needs_userns
+def test_a_live_root_owned_freeze_pins_the_trust_root_to_slash_and_creates_nothing_when_ancestors_are_untrusted(tmp_path: Path) -> None:
+    repo, main = make_repo(tmp_path)
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    out = trusted / "frozen.sh"
+    result = root_freeze(repo, main, tmp_path, out, None)  # NO seam: the chain to `/` is checked, and `/tmp`, `/` are not uid 0 inside the namespace
+    assert result.returncode == 1 and "RUNNER_PARENT_NOT_TRUSTED" in result.stderr, result.stderr
+    assert not out.exists() and files_under(trusted) == []
+    verify = base.userns_bash(f'python3 "{TOOL_PATH}" verify --repo "{repo}" --main {main} --runner "{out}"')
+    assert verify.returncode == 1  # and verify has no way to stop earlier than `/` either
