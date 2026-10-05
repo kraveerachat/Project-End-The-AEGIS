@@ -15,7 +15,21 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-MULTI-FILE-ZIP-PLAN — Multi-file streaming ZIP implementation plan
+## Current Task — IDEA1-MULTI-FILE-ZIP-IMPL — Multi-file streaming ZIP implementation (T0–T14)
+
+| Field | Current value |
+|---|---|
+| Task | Implementation of the approved spec by the approved plan, T0–T14 with strict TDD: 1–3 files per-file as today; 4–1000 files one client-side streaming STORE ZIP through one Save picker (Normal Files and Private Vault V2, Vault behind the plaintext-export confirmation); ZIP64; fail-closed finalization. |
+| Branch / PR | `feat/idea1-multi-file-streaming-zip` / Draft PR #351; base `origin/main` `c111a29b` (later `5f8810d9`, IDEA3-only, merged normally) |
+| Owner | kla |
+| State | **IMPLEMENTED / LOCALLY VERIFIED.** `BULK_ZIP_ENABLED=false` as landed (PR-1). `PRODUCTION_DEPLOYED=NO`. **Reader acceptance NOT YET CLAIMED** (R1–R3, A1–A12 NOT RUN). **Memory acceptance NOT YET CLAIMED** (A11 NOT RUN). |
+| Evidence | Full suite base 2941/2607 pass/101 fail/233 skip vs head 3106/2772/101/233; `HEAD_ONLY_FAILURES=0` by test name (full and per-file sweeps, Git Bash); 165/165 new tests; build pass; no dependency, server, gateway or `Vault.jsx` change. Fresh whole-branch review: Critical 0, Important 0, Minor 5 deferred (DM-1…DM-5 in the receipt). |
+| Next gate | Separate acceptance task: flip `BULK_ZIP_ENABLED` on a candidate build; run the reader gate (Windows Explorer, macOS Archive Utility, Python `zipfile`), the A1–A12 matrix and memory acceptance on a non-Production instance with `IDEA1-AEGIS_Drive_LC/scripts/zip-acceptance/`. Production deploys later as one Drive release with #319 and #334. |
+| Receipt | `90-Status/logs/2026-10-05_090811_kla_idea1-multi-file-streaming-zip.md` |
+
+## Closed Task — IDEA1-MULTI-FILE-ZIP-PLAN — Multi-file streaming ZIP implementation plan
+
+> PR #350 merged at `c111a29b9a2f386cbccccfdf57c84b6a9b4f23d5` (2026-10-05). The table below is the pre-merge record.
 
 | Field | Current value |
 |---|---|

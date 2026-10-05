@@ -77,6 +77,12 @@ export async function apiFetchBytes(path, options = {}) {
   return res ?? { ok: true, status: 200, bytes: new Uint8Array([1, 2, 3, 4]), errorKind: null }
 }
 
+/* Normal Files ZIP transport — inert in the Vault suites (they never stream Normal Files) */
+export async function apiFetchStream(path) {
+  backend()?.requests.push({ path, method: 'GET_STREAM' })
+  return { ok: false, status: 0, headers: null, body: null, errorKind: 'network' }
+}
+
 export const apiUrl = (path) => path
 export const PASSWORD_RESET_REQUIRED = 'PASSWORD_RESET_REQUIRED'
 export function registerUnauthorizedHandler() {}
@@ -349,6 +355,16 @@ export async function prepareVaultV2Download({ kek, blob, suggestedName, plainSi
   } catch {
     return { ok: false, reason: 'destination' }
   }
+}
+
+/* multi-file streaming ZIP pre-flight: same contract as the real helper — authenticates and returns the
+   decrypted plainSize exactly, no DEK; ctl.metaAuthFails = wrong-key; ctl.downloadEvents records 'auth' */
+export async function authenticateVaultV2Entry({ kek, blob }) {
+  const ctl = backend()
+  ctl?.downloadEvents?.push('auth')
+  if (!kek || ctl?.metaAuthFails) return { ok: false, reason: 'wrong-key' }
+  const meta = decodeMeta(blob?.metaB64)
+  return { ok: true, plainSize: meta.plainSize ?? meta.size }
 }
 
 export function estimatedPlainSize(blob) {

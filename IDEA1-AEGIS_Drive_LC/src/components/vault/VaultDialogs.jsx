@@ -200,6 +200,29 @@ export function TrashConfirmDialog({ t, open, onClose, onConfirm, count, unlocke
   )
 }
 
+/* D-3: ZIP ของ Vault คือ plaintext — ต้องยืนยันชัดแจ้งก่อน และ Confirm ต้องเรียก onConfirm "ภายใน" การกด
+   ทันที (ตัวเลือกไฟล์ต้องเปิดใน user activation ของการกดนี้ — ห้ามมี await/state round-trip คั่น) */
+export function PlaintextExportDialog({ t, open, onClose, onConfirm, count, totalBytes, unlockedState }) {
+  usePurgeAwareDialog(unlockedState, onClose)
+  return (
+    <Modal open={open} onClose={onClose} labelledBy="vault-dialog-title" width={440}>
+      <ModalClose onClose={onClose} label={t('close')} />
+      <h2 id="vault-dialog-title" className="text-[16px] font-semibold mb-4">{t('vaultZipExportTitle')}</h2>
+      <div data-testid="vault-zip-export">
+        <p className="text-[13px] text-ink-2">
+          {t('vaultZipExportBody', { count, size: fmtBytes(totalBytes) })}
+        </p>
+      </div>
+      <div className="flex justify-end gap-2 mt-5">
+        <Btn variant="ghost" onClick={onClose}>{t('cancel')}</Btn>
+        <Btn variant="dangerSoft" data-testid="vault-zip-export-confirm" onClick={() => { onConfirm(); onClose() }}>
+          {t('vaultZipExportConfirm')}
+        </Btn>
+      </div>
+    </Modal>
+  )
+}
+
 export function RestoreDialog({ t, open, onClose, onRestore, folders, originalParentAvailable, collisionForced = false, forcedReason = null, unlockedState }) {
   const forced = !originalParentAvailable || collisionForced
   const [dest, setDest] = useState(folders?.[0]?.nodeId ?? null)
