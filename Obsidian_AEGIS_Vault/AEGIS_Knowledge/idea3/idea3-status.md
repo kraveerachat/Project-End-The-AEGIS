@@ -11,6 +11,16 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 R1A LIVE — CLOSED_FAIL; genuine detector-chain evidence PASS — 2026-10-05
+
+> [!danger] **R1A executed once and is permanently consumed.** `R1A_LIVE_EXECUTED=YES`, `R1A_ATTEMPT_CONSUMED=YES`, `R1A_RERUN_ALLOWED=NO`, `R1A_RESULT=FAIL`, `R1A_FAILED_STAGE=final`. The owner-run attempt opened one 180-second marker-bounded window and observed one genuine external event. The internal read-only R1 acceptance verifier returned PASS and post-failure forensic binding also passed (`REAL_DETECTOR_CHAIN_EVIDENCE=PASS`, `FORENSIC_CHAIN_BINDING=PASS`), but the governed stage failed before `r1a_hook_verify` because the generic PRE→POST preservation comparator failed. Do not rerun R1A and do not delete/reset the canonical marker, window record, incident or genuine evidence.
+
+- **Real chain evidence:** trusted external `port_scan` source event reconstructed; detector alert delivered to Core; detector UID/PID validated; one OPEN incident with `ALERT_ACCEPTED` and `INCIDENT_BOUND`; expected source binding PASS; source completion and detector alert inside the canonical marker window PASS; audit causal/window checks PASS. This is preserved evidence, not an automatic project-claim promotion.
+- **Stage failure:** `PRESERVATION_S10=FAIL`, `COMPARE_RESULT=FAIL`, with one `NEW_OR_WORSENED_DRIFT` (`127.0.0.1:6463` listener added by the owner's Discord renderer during the observation window) and one `INCOMPARABLE` key (`time.trustedclock.state=UNAVAILABLE` in both captures). Read-only forensic reproduction showed the frozen control-snapshot clock helper could not import `aegis_soc`; a separate read-only probe with the verifier snapshot available returned `state=SYNCED reason=OK`. No post-hoc allowlist or retry is applied.
+- **Claims boundary:** `R1A_STAGE_VERIFY=NOT_REACHED`, `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. Recovery R2–R8 remains blocked. Any continuation needs a separately reviewed post-attempt adjudication contract or a new successor governed stage ID; R1A itself cannot be replayed.
+- **R1I / hardware:** R1I remains installed during closeout; this section authorizes no rollback/removal. ESP32 remained disconnected and untouched by R1A.
+- **Receipt:** `90-Status/logs/2026-10-05_232827_music_idea3-r1a-live-failure-closeout.md`. Raw Production evidence and machine-local identifiers remain owner-local and are not committed.
+
 ## IDEA3 R1A pre-live hardening (M2 durability, M6 frozen-runner authority) — repository implementation — 2026-10-05
 
 > [!note] **Bootstrap authority repair (repository only).** Privileged freezes run from a root-owned exact-main authority created by a system-only Phase A and invoked with isolated system Python; the tools also fail closed on an untrusted tool or source tree before any read; pins are full-string validated and the canonical directory's parent is always made durable before the marker. Nothing was run live.
