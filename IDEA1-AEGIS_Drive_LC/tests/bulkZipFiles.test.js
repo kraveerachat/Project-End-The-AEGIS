@@ -499,3 +499,130 @@ test('FILES-12 a size mismatch reported by the orchestrator also disposes once w
   assert.equal(transport.calls[0].signal.aborted, true)
   assert.equal(scripts.f0.bodyObj.getReaderCalls, 0)
 })
+
+/* ── Files stream memory retention (spec §15 / A11, acceptance blocker) ──
+   A stop wait that stays subscribed to a long-lived promise keeps every settled read (and its chunk)
+   reachable until the entry ends — memory then grows with bytes streamed. Each read's stop subscription
+   must be detached as soon as that read settles. */
+
+function manyChunkTransport(chunks, chunkSize) {
+  const total = chunks * chunkSize
+  let served = 0
+  const fetchStream = async () => ({
+    ok: true, status: 200, errorKind: null, headers: new Headers({ 'Content-Length': String(total) }),
+    body: new ReadableStream({
+      pull(c) {
+        if (served >= chunks) { c.close(); return }
+        served += 1
+        c.enqueue(new Uint8Array(chunkSize).fill(served & 0xff))
+      },
+    }, { highWaterMark: 0 }),
+  })
+  return { fetchStream, total, servedCount: () => served }
+}
+
+test('FILES-STOP-NO-RACE-RETENTION no settled read stays subscribed to a still-pending stop promise', async (t) => {
+  const pending = new WeakSet()
+  const watched = new WeakSet()
+  const track = (p) => {
+    if (!(p instanceof Promise) || watched.has(p)) return
+    watched.add(p)
+    pending.add(p)
+    p.then(() => pending.delete(p), () => pending.delete(p))
+  }
+  const raceCalls = []
+  const realRace = Promise.race.bind(Promise)
+  t.mock.method(Promise, 'race', (iterable) => {
+    const arr = [...iterable]
+    arr.forEach(track)
+    raceCalls.push(arr)
+    return realRace(arr)
+  })
+  const CHUNKS = 64
+  const tr = manyChunkTransport(CHUNKS, 1024)
+  const zh = zipHarness()
+  const res = await runFiles({ plan: filesPlan([tr.total]), transport: tr, zh })
+  assert.equal(res.status, 'done')
+  t.mock.restoreAll()
+  const retained = raceCalls.filter((arr) => arr.some((p) => p instanceof Promise && pending.has(p)))
+  assert.equal(retained.length, 0, `${retained.length} race subscription(s) still attached to a pending promise after success (one per read = O(bytes) retention)`)
+})
+
+/** A stop gate instrumented to count live per-wait subscriptions (wraps the module's real gate). */
+async function instrumentedGateFactory() {
+  const { createStopGate } = await import('../src/lib/bulkZipDownload.js')
+  const stats = { maxActive: 0, gates: [] }
+  const factory = () => {
+    const g = createStopGate()
+    stats.gates.push(g)
+    return {
+      stop: () => g.stop(),
+      get stopped() { return g.stopped },
+      get activeWaiters() { return g.activeWaiters },
+      wait(p) {
+        const w = g.wait(p)
+        stats.maxActive = Math.max(stats.maxActive, g.activeWaiters)
+        return w
+      },
+    }
+  }
+  return { factory, stats }
+}
+
+test('FILES-READ-WAITER-NO-RETENTION many successful chunks: at most one live stop waiter, zero after success', async () => {
+  const { factory, stats } = await instrumentedGateFactory()
+  const tr = manyChunkTransport(200, 512)
+  const zh = zipHarness()
+  const source = createFilesEntrySource({ fetchStream: tr.fetchStream, stopGate: factory })
+  const res = await runBulkZip({ plan: filesPlan([tr.total]), source, scope: zh.scope, busyRef: { current: false }, isPurged: () => false, createHasher: zh.createHasher })
+  assert.equal(res.status, 'done')
+  assert.equal(stats.gates.length, 1)
+  assert.ok(stats.maxActive <= 1, `max active waiters ${stats.maxActive}`)
+  assert.equal(stats.gates[0].activeWaiters, 0, 'no waiter left after success')
+  assert.equal(tr.servedCount(), 200)
+})
+
+test('FILES-READ-WAITER-CANCEL stop wins a pending read: the wait settles once, its waiter is removed, fetch aborted, nothing later', async () => {
+  const { factory, stats } = await instrumentedGateFactory()
+  const log = []
+  const reader = scriptedReader({ log, cancelBehaviour: 'never' })
+  const transport = makeTransport({ f0: { length: '9', body: 'scripted', reader }, f1: { length: '1', bytes: bytesOf(1) } }, { log })
+  const zh = zipHarness()
+  const ctrl = new AbortController()
+  const source = createFilesEntrySource({ fetchStream: transport.fetchStream, stopGate: factory })
+  const p = runBulkZip({ plan: filesPlan([9, 1]), source, scope: zh.scope, busyRef: { current: false }, signal: ctrl.signal, isPurged: () => false, createHasher: zh.createHasher })
+  await flush()
+  reader.chunk(bytesOf(3))
+  await flush()
+  assert.equal(stats.gates[0].activeWaiters, 1, 'the pending read is the only subscribed waiter')
+  ctrl.abort()
+  const res = await p
+  assert.deepEqual(res, { status: 'cancelled' })
+  assert.equal(stats.gates[0].activeWaiters, 0, 'the winning stop removed the waiter')
+  assert.equal(transport.calls[0].signal.aborted, true)
+  assert.ok(log.indexOf('fetchCtrl.abort:f0') < log.indexOf('reader.cancel'))
+  assert.ok(!log.includes('fetch:f1'), 'no later entry')
+  reader.chunk(bytesOf(3)) // a late read result after stop must not throw or write
+  await flush()
+  assert.deepEqual(zh.events, ['abort'])
+})
+
+test('STOP-GATE-1 generic gate: value wins → waiter detached; stop wins → STOPPED once; late rejection is swallowed', async () => {
+  const { createStopGate, STOPPED } = await import('../src/lib/bulkZipDownload.js')
+  const g = createStopGate()
+  assert.equal(await g.wait(Promise.resolve(7)), 7)
+  assert.equal(g.activeWaiters, 0)
+  let rejectLate
+  const late = new Promise((_, rej) => { rejectLate = rej })
+  const w = g.wait(late)
+  assert.equal(g.activeWaiters, 1)
+  g.stop()
+  g.stop()
+  assert.equal(await w, STOPPED)
+  assert.equal(g.activeWaiters, 0)
+  rejectLate(new Error('late'))
+  await flush()
+  assert.equal(await g.wait(Promise.resolve(1)), STOPPED, 'after stop, waits resolve STOPPED immediately')
+  assert.equal(g.activeWaiters, 0)
+  await assert.rejects(createStopGate().wait(Promise.reject(new Error('boom'))), /boom/)
+})

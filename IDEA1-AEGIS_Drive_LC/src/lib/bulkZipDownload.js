@@ -252,6 +252,48 @@ export async function runBulkZip({
 /* ── Normal Files source (spec §10) ─────────────────────────────────── */
 
 const SOURCE_IDLE_MS = 60_000
+
+/** ค่าที่ wait() คืนเมื่อ "หยุด" ชนะ — แยกจากผลของ promise ใด ๆ ได้แน่นอน */
+export const STOPPED = Symbol('stopped')
+
+/**
+ * ประตูหยุดที่ไม่ค้างการสมัครรับ: แต่ละ wait() สมัครรับการหยุด "เฉพาะช่วงที่ promise ของมันยังค้าง"
+ * แล้วถอดตัวเองทันทีที่จบ ไม่ว่าฝั่งไหนชนะ
+ *
+ * ⚠️ ห้ามใช้ Promise.race([x, stopped]) กับ promise ที่อายุยาวกว่า x: race แต่ละครั้งทิ้ง reaction ไว้บน
+ *    `stopped` จนกว่ามันจะ settle — ถ้าการอ่านทุกก้อนทำแบบนั้น ทุก chunk ที่อ่านสำเร็จจะถูกอ้างถึงค้างไว้
+ *    จนจบรายการ หน่วยความจำจึงโตตามขนาดไฟล์ (เคยวัดได้ ~1.25 GiB บนไฟล์ 1.1 GiB; spec §15 / A11)
+ */
+export function createStopGate() {
+  const waiters = new Set()
+  let stopped = false
+  return {
+    get stopped() { return stopped },
+    get activeWaiters() { return waiters.size },
+    stop() {
+      if (stopped) return
+      stopped = true
+      const pending = [...waiters]
+      waiters.clear()
+      for (const w of pending) w()
+    },
+    /** ผลของ promise หรือ STOPPED ถ้าหยุดก่อน; promise ที่ reject หลังหยุดแล้วถูกกลืน (ไม่มี unhandled rejection) */
+    wait(promise) {
+      if (stopped) {
+        Promise.resolve(promise).catch(() => {})
+        return Promise.resolve(STOPPED)
+      }
+      return new Promise((resolve, reject) => {
+        const onStop = () => resolve(STOPPED)
+        waiters.add(onStop)
+        Promise.resolve(promise).then(
+          (value) => { waiters.delete(onStop); resolve(value) },
+          (err) => { waiters.delete(onStop); reject(err) },
+        )
+      })
+    },
+  }
+}
 const httpReason = (kind) => (kind === 'network' || kind === 'unauthorized' || kind === 'forbidden' ? kind : 'server')
 
 /**
@@ -263,15 +305,14 @@ const httpReason = (kind) => (kind === 'network' || kind === 'unauthorized' || k
  * ตัวจับเวลา "ต้นทางเงียบ" 60 วินาที วัดเฉพาะช่วงที่รอเครือข่าย (รอ header และรอ read()) — ถูกล้างทันที
  * ที่ได้ไบต์จริงก่อนเขียนลงปลายทาง ดิสก์ที่ช้าจึงไม่กินงบเวลาของเครือข่าย ไม่มีเพดานเวลารวมของการโอน
  */
-export function createFilesEntrySource({ fetchStream = apiFetchStream, idleMs = SOURCE_IDLE_MS } = {}) {
+export function createFilesEntrySource({ fetchStream = apiFetchStream, idleMs = SOURCE_IDLE_MS, stopGate = createStopGate } = {}) {
   return {
     async open(entry, archiveSignal) {
       const fetchCtrl = new AbortController()
       let reader = null
       let timer = null
       let reason = null
-      let wake = null
-      const stopped = new Promise((r) => { wake = r })
+      const gate = stopGate()
 
       // ⚠️ ทางออกเดียวของทุกความล้มเหลว — ซิงโครนัสทั้งหมด และไม่เคย await reader.cancel()
       //    (cancel ที่ค้างไม่มีวันจบต้องไม่ทำให้ archive ค้างตาม)
@@ -284,7 +325,7 @@ export function createFilesEntrySource({ fetchStream = apiFetchStream, idleMs = 
         if (reader) {
           try { reader.cancel(why)?.catch?.(() => {}) } catch { /* ทำความสะอาดแบบพยายามที่สุด */ }
         }
-        wake()
+        gate.stop()
       }
       const onArchiveAbort = () => cleanup('cancelled')
       const arm = () => {
@@ -301,10 +342,7 @@ export function createFilesEntrySource({ fetchStream = apiFetchStream, idleMs = 
       arm()
       let res
       try {
-        res = await Promise.race([
-          fetchStream(`/api/files/${encodeURIComponent(entry.id)}/download`, { signal: fetchCtrl.signal }),
-          stopped,
-        ])
+        res = await gate.wait(fetchStream(`/api/files/${encodeURIComponent(entry.id)}/download`, { signal: fetchCtrl.signal }))
       } catch {
         res = { ok: false, errorKind: 'network' }
       }
@@ -333,7 +371,7 @@ export function createFilesEntrySource({ fetchStream = apiFetchStream, idleMs = 
             arm() // ศูนย์ไบต์ไม่ใช่ความคืบหน้า: ถ้าตั้งไว้แล้ว เส้นตายเดิมยังคงอยู่
             let r
             try {
-              r = await Promise.race([reader.read(), stopped])
+              r = await gate.wait(reader.read())
             } catch {
               cleanup('network')
             }
