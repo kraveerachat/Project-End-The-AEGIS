@@ -19,8 +19,10 @@ edit_policy: owner-writable
 
 Task: PR2 Recording / Archive. Branch:
 `feat/idea2-pr2-recording-archive-5min-download`; owner: Pub; starting main:
-`9cebd2a061f8d47bc97349762aa87f169c706710`. Current state: IN PROGRESS ? SOURCE + MACHINE A RECORDING ACCEPTANCE COMPLETE;
-ARCHIVE / PRODUCTION / REAL NAS ACCEPTANCE PENDING. Production mutation allowed: NO.
+`9cebd2a061f8d47bc97349762aa87f169c706710`. Current state: IN PROGRESS —
+SOURCE + MACHINE A ONSITE RECORDING AND CLIP-STORAGE INGEST ACCEPTANCE COMPLETE;
+PRODUCTION ARCHIVE/DEPLOYMENT AND REMOTE NAS ACCEPTANCE PENDING. Production
+mutation allowed by this checkpoint: NO.
 
 Goal: while the authenticated Operator camera session remains active, record
 continuously and finalize one truthful clip every 300 seconds. Navigation among
@@ -47,16 +49,18 @@ Acceptance boundary for this repository session:
   playback;
 - NAS success remains transfer -> integrity verify -> clip metadata publication;
 - source/unit/build validation must pass before this session can be called PASS;
-- Machine A >5-minute real-camera recording, navigation continuity, logout
-  partial and truthful media-duration acceptance are owner-run PASS. Real NAS,
-  Archive playback/download live RBAC and Production deployment acceptance
-  remain separate owner-run evidence.
+- Machine A onsite real-camera 300-second rollover, continuous viewer demand,
+  verified clip-storage ingest and logout partial are owner-reported PASS.
+  This is not proof of a separate remote NAS appliance or Production Archive
+  playback/download. Production deployment, migration 006, live Archive/RBAC
+  acceptance and retention/capacity decisions remain separate gates.
 
 ### PR2 Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | PR2-S1 | 300s recording + truthful partial + portable CFR normalization + browser-playable NAS Archive + playback/download source contract | SOURCE + MACHINE A RECORDING ACCEPTANCE COMPLETE; PRODUCTION/NAS/ARCHIVE PENDING | Focused recording 9/9 PASS; Engine full suite 294/294 PASS in disposable Python 3.12; Machine A 300s rotation PASS, navigation continuity PASS, truthful full/partial media duration PASS, real-camera local H.264/yuv420p +faststart PASS | portable FPS checkpoint | SOURCE VALIDATION PASS / MACHINE A RECORDING PASS / LOCAL H264 PIPELINE PASS | Archive live playback/seek/download/RBAC, real NAS transfer/hash, Production DB default 600 -> 300, Production deploy | keep PR #344 Draft; continue Archive/NAS/Production acceptance |
+| PR2-S2 | Onsite full rollover, logout partial, verified clip-storage ingest, inline Archive card source | MACHINE A ONSITE PASS; PRODUCTION ARCHIVE/DEPLOYMENT PENDING | Owner-reported continuous connected/demanded viewer through 300s; verified 300s and 83s clips; checksum and DB publication after transfer PASS; inline-card source/browser tests PASS | `7259d62a89dd16ff9e1494462e6b8f1b9bdbb786` plus this status checkpoint | FULL_ROLLOVER_RUNTIME_GATE=PASS; VIEWER_CONTINUOUS_5MIN=PASS; CLIP_STORAGE_INGEST_VERIFIED=YES; REAL_REMOTE_NAS_VERIFIED=NO | migration 006; Production PR2 deployment; live Archive playback/seek/download and RBAC; capacity/retention; final receipt | keep PR #344 Draft; pre-deploy review only |
 
 ### PR2-S1 checkpoint — source validated and HOME/LOCAL acceptance complete; Production/NAS pending
 
@@ -226,6 +230,49 @@ remote SHA-256 verification, Archive publication or Production NAS mounting.
 REAL_NAS_VERIFIED=NO remains mandatory. Production, Twingate, Identity
 Agent, IDEA1 and IDEA3 were unchanged. PR #344 remains Draft and PR2 is not
 CLOSED.
+
+### PR2-S2 onsite acceptance / pre-deploy checkpoint — 2026-10-05
+
+The human owner reports Machine A onsite acceptance complete for the PR2
+recording path. An authenticated real-camera viewer remained
+`CONNECTED=True`, `DEMAND=True`, `VIEWERS=1` continuously across the five-minute
+boundary. The first rollover entered clip-storage transfer pending at about
+299 seconds; verified sync completed while the same viewer stayed active.
+`FULL_ROLLOVER_RUNTIME_GATE=PASS` and `VIEWER_CONTINUOUS_5MIN=PASS` are
+owner-provided live evidence, not repository-test claims.
+
+The final acceptance produced exactly one full 300-second clip (DB clip ID 4,
+`stored_on_nas=true`,
+`/opt/aegis/data/monitor-clips/CAM-01_20261005_212311.mp4`) and one
+83-second logout partial (DB clip ID 5, `stored_on_nas=true`,
+`/opt/aegis/data/monitor-clips/CAM-01_20261005_212811.mp4`). Machine A -> SCP
+-> Beelink clip storage, checksum verification and DB publication only after
+verified transfer all passed. Both files exist on the server and are readable
+but not writable by Monitor. The Monitor mount is
+`/opt/aegis/data/monitor-clips -> /nas/clips` with `RW=false`; Monitor stayed
+running with `RestartCount=0`. This proves `CLIP_STORAGE_INGEST_VERIFIED=YES`,
+not a separate remote physical NAS appliance:
+`REAL_REMOTE_NAS_VERIFIED=NO`.
+
+After logout the Engine was idle (`viewer=0`, `demand=false`, NAS pending=0,
+synced_total=5, failed_total=0). The old local segment baseline was not
+backfilled. `RETURN_TO_MACHINE_A_FOR_PR2=NOT_REQUIRED` for this already
+completed onsite recording gate.
+
+Archive UI source commit `7259d62a89dd16ff9e1494462e6b8f1b9bdbb786`
+embeds a native video player in each card and removes the second expanded
+player. Previously reported verification: targeted Archive 3/3 PASS, Monitor
+188 pass / 59 conditional skip / 0 fail, browser 31/31 PASS, Vite build PASS,
+`git diff --check` PASS. Browser tests use fixtures; they do not prove live
+Production Archive playback.
+
+Still pending: Production PR2 Monitor deployment; application of migration 006
+to change the existing DB duration default from 600 to 300; live Production
+Archive playback/seek and Download; RBAC/session/camera-scope negative
+acceptance; storage capacity and retention decision; final immutable receipt;
+and Ready/merge decisions. `PR2_RECORDING_ARCHIVE=CLOSED` and
+`PRODUCTION_PR2_DEPLOYED=YES` are not claimed. PR #344 remains Draft. This
+documentation checkpoint performs no Production or Machine A mutation.
 
 ## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
 
