@@ -474,7 +474,7 @@ def _verify_view(baseline, final, view, incidents, audit, started, ended, pid, u
         raise AcceptanceError("DETECTOR_ALERT_LINE_MISSING_OR_AMBIGUOUS")
     journal_event, (result, _detail, j_ip) = matches[0]
     if result != expected_detector_result:
-        raise AcceptanceError("DETECTOR_RESULT_NOT_EXPECTED")
+        raise AcceptanceError("DETECTOR_RESULT_NOT_EXISTING" if successor_existing else "DETECTOR_RESULT_NOT_BOUND")
     if j_ip != ip:
         raise AcceptanceError("DETECTOR_IP_MISMATCH")
 
