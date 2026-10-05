@@ -4,7 +4,7 @@ import http from 'node:http'
 import { once } from 'node:events'
 import test from 'node:test'
 import { register } from 'node:module'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHmac } from 'node:crypto'
 import pg from 'pg'
 import { createProducerLifecycle } from '../server/db/producerLifecycle.js'
 
@@ -286,7 +286,7 @@ async function streamHarness(t, scenario = 'normal', service = null) {
   const express = (await import('express')).default
   const state = { acquired: [], released: [], fetched: [], renewed: [], cancelled: 0, aborted: 0,
     authorization: [], live: true, assignment: true, active: new Set(), retired: false, maxRenewing: 0,
-    events: [], reloads: 0, drainEvents: 0, closesBeforeRelease: 0 }
+    events: [], controls: [], reloads: 0, drainEvents: 0, closesBeforeRelease: 0 }
   let renewing = 0
   const generation = '9007199254740993'
   const binding = Buffer.alloc(32, 7).toString('base64url')
@@ -310,7 +310,9 @@ async function streamHarness(t, scenario = 'normal', service = null) {
     acquire: async ({ access, sessionBinding }) => {
       assert.equal(sessionBinding, binding)
       const handle = service ? await service.acquire({ access, sessionBinding })
-        : { ...access, producerGeneration: generation, demandOwnerId: `demand-${state.acquired.length}` }
+        : { ...access, producerGeneration: generation, demandOwnerId: randomBytes(32).toString('base64url'),
+          sessionBindingHash: `v1:${'a'.repeat(64)}`, leaseExpiresAtMs: Date.now() + 30000,
+          dbNowMs: Date.now(), dbObservationStartMs: Date.now(), dbObservationEndMs: Date.now() }
       state.acquired.push(handle)
       state.active.add(handle)
       if (scenario === 'acquire-denied') {
@@ -333,22 +335,40 @@ async function streamHarness(t, scenario = 'normal', service = null) {
         if (scenario === 'renewal-failure' || scenario === 'backpressure-renewal')
           throw new CameraAccessError(403, 'PRODUCER_AUTHORITY_DENIED')
         if (scenario === 'slow-renewal') await new Promise(resolve => setTimeout(resolve, 40))
-        return service ? await service.renew({ handle, access, sessionBinding }) : handle
+        if (service) return await service.renew({ handle, access, sessionBinding })
+        Object.assign(handle, { leaseExpiresAtMs: Date.now() + 30000,
+          dbNowMs: Date.now(), dbObservationStartMs: Date.now(), dbObservationEndMs: Date.now() })
+        return handle
       } finally { renewing -= 1; state.events.push('renew-end') }
     },
     release: async handle => {
-      if (service) await service.release(handle)
+      const outcome = service ? await service.release(handle) : null
       state.events.push('release')
       state.released.push(handle)
       if (scenario === 'release-failure') throw new Error('fixture cleanup unavailable')
       state.active.delete(handle)
       state.retired = state.active.size === 0
+      return outcome ?? { released: true, epochRetired: state.retired }
     },
   }
   const previousFetch = globalThis.fetch
   const previousKey = process.env.DETECTION_ENGINE_API_KEY
   process.env.DETECTION_ENGINE_API_KEY = 'server-only-engine-key'
   globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/producer/boot')) {
+      const claims = { engineBootId: Buffer.alloc(32, 4).toString('base64url'),
+        nodeId: 'machine-a-node', nonce: options.headers['X-Aegis-Clock-Nonce'], engineNowMs: Date.now() }
+      const raw = Buffer.from(JSON.stringify(claims, Object.keys(claims).sort()))
+      const key = createHmac('sha256', 'server-only-engine-key').update('AEGIS-demand-grant-v1-key').digest()
+      const mac = createHmac('sha256', key).update('aegis-producer-clock-v1\n').update(raw).digest('base64url')
+      return { ok: true, text: async () => `${raw.toString('base64url')}.${mac}` }
+    }
+    if (String(url).endsWith('/producer/control')) {
+      const token = options.headers['X-Aegis-Demand-Grant']
+      state.controls.push(JSON.parse(Buffer.from(token.split('.')[0], 'base64url')))
+      state.events.push(state.controls.at(-1).action)
+      return { ok: true }
+    }
     state.fetched.push({ url, options, acquired: state.acquired.length, authorized: state.authorization.length })
     options.signal.addEventListener('abort', () => { state.aborted += 1 }, { once: true })
     if (scenario === 'fetch-throw') throw new Error('network down')
@@ -474,6 +494,17 @@ test('strict_stream_sends_server_generation_and_key; client_generation_claim_can
   assert.equal(state.fetched[0].options.headers['X-Aegis-Logical-Camera-Id'], 'CAM-01')
   assert.equal(state.fetched[0].options.headers['X-Aegis-Logical-Camera-Id'], state.acquired[0].logicalCameraId)
   assert.equal(state.fetched[0].options.headers['X-Detection-Engine-Key'], 'server-only-engine-key')
+  const token = state.fetched[0].options.headers['X-Aegis-Demand-Grant']
+  assert.equal(typeof token, 'string', 'a bare key and generation are not demand authority')
+  const claims = JSON.parse(Buffer.from(token.split('.')[0], 'base64url'))
+  assert.equal(claims.demandOwnerId, state.acquired[0].demandOwnerId)
+  assert.equal(claims.logicalCameraId, 'CAM-01')
+  assert.equal(claims.userId, '2')
+  assert.equal(claims.physicalCameraId, 41)
+  assert.equal(claims.producerGeneration, generation)
+  assert.ok(claims.expiresAtMs < state.acquired[0].leaseExpiresAtMs)
+  assert.deepEqual(state.controls.map(c => c.action), ['revoke', 'retire'])
+  assert.ok(state.events.indexOf('release') < state.events.indexOf('revoke'))
   assert.equal(response.headers['x-aegis-producer-generation'], undefined)
   assert.equal(response.headers['x-aegis-logical-camera-id'], undefined)
   assert.equal(response.headers['x-detection-engine-key'], undefined)
@@ -558,8 +589,10 @@ test('revalidation awaits renewal instead of overlapping callbacks', async t => 
   assert.ok(state.renewed.length >= 1)
   assert.equal(state.maxRenewing, 1)
   assert.deepEqual(state.released, state.acquired)
-  assert.equal(state.events.at(-1), 'release')
-  assert.equal(state.events.at(-2), 'renew-end')
+  assert.deepEqual(state.events.slice(-3), ['release', 'revoke', 'retire'])
+  const releasedAt = state.events.indexOf('release')
+  assert.ok(state.events.lastIndexOf('renew-end') < releasedAt)
+  assert.ok(state.events.lastIndexOf('refresh') < releasedAt)
 })
 
 test('socket close during session reload releases once without a late renewal', async t => {

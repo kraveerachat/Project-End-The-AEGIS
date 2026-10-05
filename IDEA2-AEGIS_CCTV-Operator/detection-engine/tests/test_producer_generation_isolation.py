@@ -78,7 +78,7 @@ class ProducerGenerationIsolationTests(unittest.TestCase):
         self.assertEqual(hub.viewers, 1)
         self.assertTrue(hub._capture_demand_event.is_set())
 
-    def test_final_release_retires_generation_but_not_earlier_alias_release(self):
+    def test_only_explicit_monitor_retirement_retires_idle_generation(self):
         hub = self.hub()
         first = hub.add_viewer(producer_generation=51)
         second = hub.add_viewer(producer_generation=51)
@@ -87,7 +87,13 @@ class ProducerGenerationIsolationTests(unittest.TestCase):
         hub.remove_viewer(*second)
         hub.remove_viewer(*third)
         hub.remove_viewer(*third)  # cleanup remains idempotent
-
+        self.assertFalse(hub._producer_generation_retired)
+        from test_producer_demand_coordination import _grant
+        from aegis_engine.demand_grant import verify_grant
+        import time
+        claims = verify_grant(_grant(owner="final", action="retire", boot_id=hub.producer_boot_id),
+            secret="test-key", boot_id=hub.producer_boot_id, node_id="edge-node-01", now_ms=int(time.time() * 1000))
+        hub.control_demand(claims)
         with self.assertRaises(StaleProducerGenerationError):
             hub.add_viewer(producer_generation=51)
         with self.assertRaises(StaleProducerGenerationError):

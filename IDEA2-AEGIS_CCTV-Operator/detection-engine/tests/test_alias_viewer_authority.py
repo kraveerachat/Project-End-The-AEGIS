@@ -64,7 +64,8 @@ class AliasViewerAuthorityTests(unittest.TestCase):
             hub = self.hub()
             response = await self.endpoint(hub)(self.request(
                 (b"x-aegis-producer-generation", b"51"),
-                (b"x-aegis-logical-camera-id", alias)))
+                (b"x-aegis-logical-camera-id", alias),
+                contract.ProducerGenerationContractTests.grant_header(hub, 51, alias.decode())))
             pending = asyncio.create_task(anext(response.body_iterator))
             try:
                 for _ in range(100):
@@ -94,8 +95,12 @@ class AliasViewerAuthorityTests(unittest.TestCase):
         self.assertTrue(hub.viewer_is_active(*second))
         self.assertTrue(hub._capture_demand_event.is_set())
         hub.remove_viewer(*second)
-        with self.assertRaises(StaleProducerGenerationError):
-            hub.add_viewer(producer_generation=51, logical_camera_id="CAM-01")
+        self.assertFalse(hub._capture_demand_event.is_set())
+        self.assertFalse(hub._producer_generation_retired)
+        bare = asyncio.run(self.endpoint(hub)(self.request(
+            (b"x-aegis-producer-generation", b"51"),
+            (b"x-aegis-logical-camera-id", b"CAM-01"))))
+        self.assertEqual(bare.status_code, 403)
         current = hub.add_viewer(producer_generation=52, logical_camera_id="CAM-02")
         with self.assertRaises(StaleProducerGenerationError):
             hub.add_viewer(producer_generation=50, logical_camera_id="CAM-01")

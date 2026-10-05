@@ -37,6 +37,7 @@ import {
   RENEW_BEFORE_MS,
 } from '../db/producerLifecycle.js'
 import { approvedStreamUrlForPhysicalCamera } from '../auth/physicalStreamSource.js'
+import { readEngineBoot, mintDemandGrant, sendDemandControl } from '../auth/producerDemandGrant.js'
 import { BrowserAssociationChallengeStore } from '../nodeIdentity/browserAssociationChallenges.js'
 import {
   canonicalBrowserAssociationPayload,
@@ -502,6 +503,10 @@ apiRouter.get('/cameras', requireAuth, async (req, res, next) => {
 apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
   const cameraId = req.params.id
   let demandHandle = null
+  let engineBoot = null
+  let engineUrl = null
+  let demandGrant = null
+  const engineSecret = process.env.DETECTION_ENGINE_API_KEY ?? ''
   let lifecycle = null
   let idleTimer = null
   let hasReceivedStreamData = false
@@ -564,6 +569,13 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
 
     if (strictOperator) {
       demandHandle = await producerLifecycle.acquire({ access, sessionBinding: currentNodeSessionBinding(req) })
+      engineUrl = src.url
+      if (!lifecycle.closed) {
+        engineBoot = await readEngineBoot({ url: engineUrl, nodeId: demandHandle.nodeId,
+          secret: engineSecret, signal: ctrl.signal })
+        demandGrant = mintDemandGrant({ handle: demandHandle, bootId: engineBoot.bootId,
+          secret: engineSecret, clockUncertaintyMs: engineBoot.uncertaintyMs, action: 'attach' })
+      }
     }
     if (lifecycle.closed) return
 
@@ -585,8 +597,16 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
             throw new Error('access revoked')
           }
           if (lifecycle.closed) return
-          await producerLifecycle.renew({ handle: demandHandle, access: liveAccess,
+          demandHandle = await producerLifecycle.renew({ handle: demandHandle, access: liveAccess,
             sessionBinding: currentNodeSessionBinding(req) })
+          if (lifecycle.closed) return
+          const currentBoot = await readEngineBoot({ url: engineUrl, nodeId: demandHandle.nodeId,
+            secret: engineSecret, signal: ctrl.signal })
+          // Restart requires a new stream and fresh acquire, not resurrecting an old viewer.
+          if (currentBoot.bootId !== engineBoot.bootId) throw new Error('engine restarted')
+          engineBoot = currentBoot
+          await sendDemandControl({ url: engineUrl, handle: demandHandle, boot: engineBoot,
+            secret: engineSecret, action: 'refresh', signal: ctrl.signal })
         } else {
           const actor = REQUIRE_LOCAL_NODE_ASSOCIATION ? await resolveLiveCameraActor(req) : null
           const liveUser = actor ? { ...user, id: actor.userId, username: actor.username, role: actor.role } : user
@@ -629,6 +649,7 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
           ...(strictOperator ? {
             'X-Aegis-Producer-Generation': demandHandle.producerGeneration,
             'X-Aegis-Logical-Camera-Id': demandHandle.logicalCameraId,
+            'X-Aegis-Demand-Grant': demandGrant,
           } : {}),
         },
       })
@@ -700,7 +721,23 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     // demand after cleanup. The DB lease bounds a failed cleanup attempt.
     await revalidation
     if (demandHandle) {
-      try { await producerLifecycle.release(demandHandle) }
+      try {
+        const outcome = await producerLifecycle.release(demandHandle)
+        if (engineBoot) {
+          for (const action of outcome.epochRetired ? ['revoke', 'retire'] : ['revoke']) {
+            // Cleanup has its own bounded budget; the stream signal is already aborted.
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+              try {
+                await sendDemandControl({ url: engineUrl, handle: demandHandle, boot: engineBoot,
+                  secret: engineSecret, action })
+                break
+              } catch {
+                if (attempt === 1) console.warn('[aegis-monitor] demand control unacknowledged; bounded lease expiry applies')
+              }
+            }
+          }
+        }
+      }
       catch { console.warn('[aegis-monitor] producer demand cleanup failed; lease will expire') }
     }
     if (lifecycle && !res.writableEnded && !res.destroyed) res.end()
