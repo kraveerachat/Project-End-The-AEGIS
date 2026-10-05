@@ -79,6 +79,7 @@ R1A_RERUN_ALLOWED=NO
 
 - `git diff --name-status b05dd9efa703198a880df4dd3913c7649b496460 e417f464b8ef62b778f419131a1aa482a5a80c09` — **PASS** by GitHub compare: the closeout branch was 3 commits ahead / 0 behind and changed exactly the receipt, IDEA3 status, and IDEA3 MOC.
 - `node scripts/validate-collaboration-policy.mjs --event "$GITHUB_EVENT_PATH" --changed-files "$RUNNER_TEMP/aegis-changed-files.txt"` — **FAIL** on the initial PR #356 head `e417f464…`: the new receipt lacked the required `What changed`, `Verification evidence`, and `Canonical notes updated` sections. This follow-up commit adds those required sections; the CI rerun is expected to re-evaluate the repaired receipt.
+- `node scripts/validate-collaboration-policy.mjs --event "$GITHUB_EVENT_PATH" --changed-files "$RUNNER_TEMP/aegis-changed-files.txt"` plus `node scripts/validate-vault.mjs` — **PASS** on repaired head `7aed730b…` in Collaboration guardrails run #1818; both policy validation and Obsidian ownership/link validation completed successfully. This final receipt amendment records that already-completed validation result.
 - No repository-local Production command, live runner, service mutation, incident mutation, R1I mutation, or ESP32 action was executed for this documentation repair.
 
 ## Evidence boundary
