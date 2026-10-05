@@ -256,7 +256,7 @@ r1b_verifier_gate() {
     [ "$got" = "$sha" ] || { r1b_reason "R1B_VERIFIER_FILE_NOT_THE_PINNED_MAIN_SOURCE:$rel"; return 1; }
   done < "$snap/R1B-VERIFIER-SHA256SUMS"
   [ "$(sha256sum "$snap/aegis_soc/production_detector.py" 2>/dev/null | cut -d' ' -f1)" = "$det" ] || { r1b_reason "R1B_VERIFIER_DETECTOR_NOT_THE_DEPLOYED_DIGEST"; return 1; }
-  [ -f "$snap/aegis_soc/recovery_evidence.py" ] && [ -f "$snap/aegis_soc/ip_containment.py" ] && [ -f "$snap/aegis_soc/r1_acceptance.py" ] || { r1b_reason "R1B_VERIFIER_CLOSURE_INCOMPLETE"; return 1; }
+  [ -f "$snap/aegis_soc/recovery_evidence.py" ] && [ -f "$snap/aegis_soc/ip_containment.py" ] && [ -f "$snap/aegis_soc/r1_acceptance.py" ] && [ -f "$snap/aegis_soc/r1b_acceptance.py" ] || { r1b_reason "R1B_VERIFIER_CLOSURE_INCOMPLETE"; return 1; }
 }
 # r1b_interpreter_gate PY — root runs this interpreter: it must resolve to a root-owned file that is not group/world writable.
 r1b_interpreter_gate() {
