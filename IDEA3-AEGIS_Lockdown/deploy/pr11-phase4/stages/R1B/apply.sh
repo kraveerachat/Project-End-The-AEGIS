@@ -20,7 +20,7 @@ MANIFEST_SHA="${AEGIS_R1B_VERIFIER_MANIFEST_SHA256:-}"
 [ "${AEGIS_R1B_LIVE_AUTHORIZED:-NO}" = YES ] || fail LIVE_AUTHORIZATION_REQUIRED
 [ "$(id -u)" = 0 ] || fail ROOT_REQUIRED
 [ -n "$WORK" ] && [ -d "$WORK" ] && [ ! -L "$WORK" ] || fail WORK_DIR_REQUIRED
-[ -n "$APP" ] && [ -d "$APP" ] && [ ! -L "$APP" ] && [ -f "$APP/aegis_soc/r1_acceptance.py" ] || fail APP_DIR_INVALID
+[ -n "$APP" ] && [ -d "$APP" ] && [ ! -L "$APP" ] && [ -f "$APP/aegis_soc/r1b_acceptance.py" ] && [ -f "$APP/aegis_soc/r1_acceptance.py" ] || fail APP_DIR_INVALID
 [[ "$MANIFEST_SHA" =~ ^[0-9a-f]{64}$ ]] || fail VERIFIER_MANIFEST_PIN_INVALID
 [[ "$APP" == /* ]] && [ "$(readlink -f "$APP")" = "$APP" ] || fail VERIFIER_PATH_NOT_CANONICAL
 [ -z "$(find "$APP" ! -uid "$SNAPSHOT_OWNER_UID" -print -quit)" ] || fail VERIFIER_SNAPSHOT_NOT_TRUSTED_OWNER
@@ -41,7 +41,7 @@ MANIFEST="$APP/R1B-VERIFIER-SHA256SUMS"
 AUDIT_DB="${AEGIS_R1B_AUDIT_DB:-}"
 [ -n "$AUDIT_DB" ] && [ -f "$AUDIT_DB" ] || fail AUDIT_DB_REQUIRED
 # the verifier runs with a CLEAN environment, a fixed PATH (systemctl/journalctl by name) and ONLY the immutable snapshot on the import path
-R1B_PY() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C PYTHONPATH="$APP" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.r1_acceptance "$@"; }
+R1B_PY() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C PYTHONPATH="$APP" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.r1b_acceptance "$@"; }
 case "$STEP" in BASELINE | PRECONSUME | FINAL) ;; *) fail STEP_INVALID ;; esac
 ( set -o noclobber; printf 'step=%s\nat=%s\n' "$STEP" "$(date -u +%FT%TZ)" > "$WORK/R1B-$STEP-RAN" ) 2>/dev/null || fail "STEP_ALREADY_RAN_$STEP"
 cd "$WORK" || fail WORK_DIR_REQUIRED   # a neutral cwd: nothing in the working directory can shadow a module
