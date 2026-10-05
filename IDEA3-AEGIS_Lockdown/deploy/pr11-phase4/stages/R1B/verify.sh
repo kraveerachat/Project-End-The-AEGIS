@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # R1B verify: READ-ONLY inspection of the stored verifier result. It adds two BINDINGS on top of the existing fail-closed r1_acceptance verifier (which remains the evidence authority and carries its own causality predicate, described below):
 #   1. SOURCE IP: the accepted incident's attacker_ip must EQUAL the pinned expected external source IP (an unrelated genuine IP cannot satisfy R1B);
-#   2. MARKER-BOUNDED WINDOW, with the evidence's real granularity stated explicitly:
+#   2. MARKER-BOUNDED WINDOW plus WALL/MONOTONIC continuity: the wall-clock elapsed duration must agree with the monotonic elapsed duration within 500 ms, so a material wall-clock step inside the window fails closed.
 #      - the completing trusted source event(s) and the detector's own alert carry sub-second journald times and must lie EXACTLY inside [window_start, window_end] (window_start = the instant AFTER the
 #        canonical marker exists; window_end = the instant the bounded wait completed);
 #      - the Core audit rows (the new incident, INCIDENT_BOUND and ALERT_ACCEPTED) carry WHOLE-SECOND times (the real time rounded DOWN), so no exact sub-second predicate can be proved for them and none is
@@ -18,10 +18,10 @@ set -uo pipefail
 fail() { printf 'R1B_VERIFY=FAIL reason=%s\n' "$1" >&2; exit 1; }
 WORK="${AEGIS_R1B_WORK_DIR:-}"; PY="${AEGIS_PYTHON_BIN:-python3}"
 [ -n "$WORK" ] && [ -f "$WORK/r1-result.json" ] && [ -f "$WORK/R1B-FINAL-RAN" ] || fail RESULT_MISSING
-reason=$(env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C "$PY" -B -s - "$WORK/r1-result.json" "${AEGIS_R1B_EXPECTED_SOURCE_IP:-}" "${AEGIS_R1B_WINDOW_START:-}" "${AEGIS_R1B_WINDOW_END:-}" <<'PYEOF'
+reason=$(env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C "$PY" -B -s - "$WORK/r1-result.json" "${AEGIS_R1B_EXPECTED_SOURCE_IP:-}" "${AEGIS_R1B_WINDOW_START:-}" "${AEGIS_R1B_WINDOW_END:-}" "${AEGIS_R1B_WINDOW_START_MONOTONIC:-}" "${AEGIS_R1B_WINDOW_END_MONOTONIC:-}" <<'PYEOF'
 import ipaddress, json, math, sys
 
-path, expected, start, end = sys.argv[1:5]
+path, expected, start, end, mono_start, mono_end = sys.argv[1:7]
 
 
 def bad(code):
@@ -63,6 +63,14 @@ except ValueError:
     bad("WINDOW_MISSING")
 if not (math.isfinite(w0) and math.isfinite(w1)) or w0 <= 0 or w1 <= w0 or w1 - w0 > 1_000_000:
     bad("WINDOW_INVALID")
+try:
+    m0, m1 = float(mono_start), float(mono_end)
+except ValueError:
+    bad("MONOTONIC_WINDOW_MISSING")
+if not (math.isfinite(m0) and math.isfinite(m1)) or m0 <= 0 or m1 <= m0:
+    bad("MONOTONIC_WINDOW_INVALID")
+if abs((w1 - w0) - (m1 - m0)) > 0.500:
+    bad("CLOCK_CONTINUITY_MISMATCH")
 t = d.get("evidence_times")
 if not isinstance(t, dict) or not isinstance(t.get("source_completed_at"), list) or not t["source_completed_at"]:
     bad("EVIDENCE_TIMES_MISSING")
@@ -83,5 +91,5 @@ if opened > w1 or accepted > w1:
     bad("AUDIT_ROW_AFTER_THE_OBSERVATION_DEADLINE")
 PYEOF
 ) || fail "${reason:-RESULT_NOT_PASS_OR_CLAIMS_ALTERED}"
-printf 'R1B_VERIFY=PASS\nR1B_SOURCE_IP_BOUND=YES\nR1B_MARKER_BOUNDED_WINDOW=YES\nR1_EVIDENCE_VERIFIED=YES\nREAL_DETECTOR_CHAIN_VERIFIED=YES\n'
+printf 'R1B_VERIFY=PASS\nR1B_SOURCE_IP_BOUND=YES\nR1B_MARKER_BOUNDED_WINDOW=YES\nR1B_CLOCK_CONTINUITY=PASS\nR1_EVIDENCE_VERIFIED=YES\nREAL_DETECTOR_CHAIN_VERIFIED=YES\n'
 printf 'F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN\nR1_VERIFIED=NOT_CLAIMED\nRECOVERY_R1_R8_PROVEN=NO\nR1B_PROMOTION=NOT_AUTOMATIC\n'
