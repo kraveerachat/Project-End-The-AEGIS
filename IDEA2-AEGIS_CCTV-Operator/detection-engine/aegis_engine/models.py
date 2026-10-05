@@ -144,6 +144,7 @@ class SegmentInfo:
     ended_wall: str
     duration_s: float
     size_bytes: int
+    producer_generation: int | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -153,4 +154,5 @@ class SegmentInfo:
             "ended_wall": self.ended_wall,
             "duration_s": round(self.duration_s, 1),
             "size_bytes": self.size_bytes,
+            "producer_generation": self.producer_generation,
         }

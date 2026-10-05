@@ -11,7 +11,7 @@ For every finalized segment the recorder emits, this worker:
 4. **Verifies** the copy landed intact — by re-hashing on the NAS over SSH
    (``checksum``) or comparing byte size (``size``). Unverified success is
    forbidden; a successful transfer exit code alone is never sufficient.
-5. Deletes the local file **only if** verification passed.
+5. Deletes the local file **only if** verification and clip publication passed.
 
 Transfers are retried with exponential backoff. A segment that never verifies
 is **kept on local disk** and logged loudly — we would rather run the edge disk
@@ -177,15 +177,25 @@ class NASSyncWorker(threading.Thread):
         # Persist the clip row NOW — this line is reached only *after* the
         # sha256/size verification above passed, so stored_on_nas=True is never
         # optimistic. file_path is the verified location on the NAS. Fail-soft:
-        # a DB write failure must not stop us from freeing local disk below.
+        # a rejected/unavailable publication keeps the local source available
+        # for reconciliation, even though the verified NAS copy is intact.
+        published = False
         if self._monitor is not None:
-            self._monitor.post_clip(
-                camera_id=info.camera_id,
-                started_at=info.started_wall,
-                duration_sec=info.duration_s,
-                file_path=remote_path,
-                stored_on_nas=True,
-            )
+            try:
+                published = self._monitor.post_clip(
+                    camera_id=info.camera_id,
+                    started_at=info.started_wall,
+                    duration_sec=info.duration_s,
+                    file_path=remote_path,
+                    stored_on_nas=True,
+                    producer_generation=info.producer_generation,
+                    ended_at=info.ended_wall if info.producer_generation is not None else None,
+                ) is True
+            except Exception:
+                log.warning("clip publication unavailable; keeping local source")
+        if not published:
+            log.warning("verified NAS copy has no acknowledged clip row; keeping local source")
+            return
 
         if not self._cfg.nas_delete_after_sync:
             return

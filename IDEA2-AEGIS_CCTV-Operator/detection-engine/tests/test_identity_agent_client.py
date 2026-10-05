@@ -457,6 +457,51 @@ class IdentityAgentClientTests(unittest.TestCase):
         self.assertEqual("", monitor._key)
         self.assertEqual("", monitor._base)
 
+    def test_strict_clip_retains_exact_bigint_and_end_time_in_agent_request(self):
+        connector = RecordingConnector(response=encode_response(ok=True, status=201))
+        monitor = MonitorClient(
+            identity_agent_client=IdentityAgentClient(connector=connector),
+            ingest_mode="identity_agent",
+        )
+
+        acknowledged = monitor.post_clip(
+            "CAM-02", "2026-09-19T00:00:00Z", 10.5, "segments/clip.mp4", True,
+            producer_generation=9007199254740993,
+            ended_at="2026-09-19T00:00:10.500Z",
+        )
+
+        self.assertTrue(acknowledged)
+        self.assertEqual(1, len(connector.calls))
+        request = decode_request(connector.calls[0][1])
+        self.assertEqual("clip", request.operation)
+        self.assertEqual({
+            "cameraId": "CAM-02",
+            "startedAt": "2026-09-19T00:00:00Z",
+            "durationSec": 10.5,
+            "filePath": "segments/clip.mp4",
+            "storedOnNas": True,
+            "producerGeneration": "9007199254740993",
+            "endedAt": "2026-09-19T00:00:10.500Z",
+        }, request.payload)
+
+    def test_clip_returns_false_without_acknowledged_two_hundred_response(self):
+        for response in (
+            encode_response(ok=False, status=409, error="MONITOR_REJECTED"),
+            encode_response(ok=True, status=None),
+            encode_response(ok=True, status=300),
+        ):
+            with self.subTest(response=response):
+                monitor = MonitorClient(
+                    identity_agent_client=IdentityAgentClient(
+                        connector=RecordingConnector(response=response)
+                    ),
+                    ingest_mode="identity_agent",
+                )
+                self.assertFalse(monitor.post_clip(
+                    "CAM-02", "2026-09-19T00:00:00Z", 10, "clip.mp4", True,
+                    producer_generation=7, ended_at="2026-09-19T00:00:10Z",
+                ))
+
     def test_strict_physical_heartbeat_is_identical_for_both_account_aliases(self):
         connector = RecordingConnector()
         monitor = MonitorClient(

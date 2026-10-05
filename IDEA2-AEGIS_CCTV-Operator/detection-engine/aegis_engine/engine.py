@@ -111,6 +111,7 @@ class DetectionEngine:
         from .local_api import LocalEventAPI
         from .monitor_client import MonitorClient
         from .nas_sync import NASSyncWorker
+        from .recording_authority import RecordingAuthority
         from .segment_recorder import SegmentRecorder
         from .stream_hub import StreamHub
         from .video_catcher import OverflowPolicy, Sink, VideoCatcher
@@ -122,6 +123,7 @@ class DetectionEngine:
         detect_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=cfg.detect_queue_size)
         stream_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=1)
         capture_demand = threading.Event() if cfg.capture_on_demand else None
+        recording_authority = RecordingAuthority() if cfg.capture_on_demand else None
 
         # Monitor owns persistence. The edge runtime never receives a DB credential.
         identity_agent = (
@@ -148,6 +150,7 @@ class DetectionEngine:
                 stream_queue,
                 stop_event=stop_event,
                 capture_demand_event=capture_demand,
+                recording_authority=recording_authority,
             )
             if cfg.stream_enabled else None
         )
@@ -181,6 +184,7 @@ class DetectionEngine:
             on_segment=nas.submit,
             stop_event=stop_event,
             capture_demand_event=capture_demand,
+            recording_authority=recording_authority,
         )
         detector = FaceDetectorProcessor(
             cfg,

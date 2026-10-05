@@ -57,3 +57,31 @@ test('Archive plays each scoped clip in its fixed card media region, without an 
   await page.getByRole('button', { name: 'Reset filters' }).click()
   await expect(cards).toHaveCount(2)
 })
+
+test('attributed clip shows neutral detection result and never enters Authorized or Unknown filters', async ({ page, request }, info) => {
+  await request.post('/__fixture/reset?scenario=two-cameras')
+  await page.route('**/monitor/api/clips', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ clips: [
+      { id: 'attributed', cam: 'entry-z', camName: 'Main entrance', start: firstStart,
+        durationSec: 83, kind: 'unavailable', live: false, segs: [] },
+    ] }),
+  }))
+  await page.goto('/monitor/', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('navigation', { name: 'Console sections' })
+    .getByRole('button', { name: 'Archival footage', exact: true }).click()
+  const cards = page.locator('.clipgrid article.clip')
+  await expect(cards).toHaveCount(1)
+  await expect(cards.first()).toContainText('Detection result unavailable')
+  await expect(cards.first()).not.toContainText('Authorized only')
+  await expect(cards.first()).not.toContainText('Unknown')
+  await expect(cards.first().locator('video')).toHaveAttribute('src', '/monitor/api/clips/attributed/video')
+  await expect(cards.first().getByRole('link', { name: /Download/ }))
+    .toHaveAttribute('href', '/monitor/api/clips/attributed/download')
+  await page.screenshot({ path: info.outputPath('archive-neutral-result.png'), fullPage: true })
+  await page.getByLabel('Result').selectOption('auth')
+  await expect(cards).toHaveCount(0)
+  await page.getByLabel('Result').selectOption('unknown')
+  await expect(cards).toHaveCount(0)
+  await page.getByLabel('Result').selectOption('all')
+  await expect(cards).toHaveCount(1)
+})

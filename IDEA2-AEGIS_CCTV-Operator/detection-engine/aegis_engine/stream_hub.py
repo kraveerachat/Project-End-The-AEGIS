@@ -45,6 +45,7 @@ from .config import EngineConfig
 from .logging_setup import get_logger
 from .models import DetectionResult, DetectionStatus, Frame
 from .demand_grant import DemandGrantError
+from .recording_authority import RecordingAuthority
 
 log = get_logger("StreamHub")
 
@@ -63,12 +64,14 @@ class StreamHub(threading.Thread):
         stop_event: Optional[threading.Event] = None,
         capture_demand_event: Optional[threading.Event] = None,
         *, wall_clock=time.time, monotonic_clock=time.monotonic,
+        recording_authority: Optional[RecordingAuthority] = None,
     ) -> None:
         super().__init__(name="StreamHub", daemon=True)
         self._cfg = config
         self._queue = frame_queue
         self._stop_event = stop_event or threading.Event()
         self._capture_demand_event = capture_demand_event
+        self._recording_authority = recording_authority
         self.producer_boot_id = secrets.token_urlsafe(32)
         self._wall_clock = wall_clock
         self._monotonic_clock = monotonic_clock
@@ -277,6 +280,8 @@ class StreamHub(threading.Thread):
                     self._prepare_producer_generation_locked(generation)
                 if generation == self._current_producer_generation:
                     self._producer_generation_retired = True
+                    if self._recording_authority is not None:
+                        self._recording_authority.retire(generation)
                     for viewer in list(self._viewer_leases):
                         self.remove_viewer(viewer, self._viewer_leases[viewer])
                 return
@@ -341,6 +346,8 @@ class StreamHub(threading.Thread):
         ):
             raise StaleProducerGenerationError("stale producer generation")
         if current is None or producer_generation > current:
+            if current is not None and self._recording_authority is not None:
+                self._recording_authority.retire(current)
             self._current_producer_generation = producer_generation
             self._producer_generation_retired = False
             # Lower-generation envelopes are now permanently invalid, even if
@@ -379,12 +386,17 @@ class StreamHub(threading.Thread):
             raise ValueError("invalid logical camera id")
         with self._cond:
             self._prepare_producer_generation_locked(producer_generation)
+            first_alias_viewer = logical_camera_id is not None and logical_camera_id not in self._viewer_aliases.values()
             owner_id = secrets.token_hex(16)
             lease = (owner_id, self._viewer_lease_generation)
             self._viewer_leases[owner_id] = self._viewer_lease_generation
             self._viewer_aliases[owner_id] = logical_camera_id
             self._viewers = len(self._viewer_leases)
             n = self._viewers
+            if first_alias_viewer and self._recording_authority is not None:
+                self._recording_authority.activate(
+                    producer_generation, logical_camera_id, self._monotonic_clock()
+                )
             if n == 1:
                 # Never replay a previous session's final frame to a newly
                 # authorized viewer while the camera is waking up.
@@ -401,8 +413,11 @@ class StreamHub(threading.Thread):
             if self._viewer_leases.get(owner_id) != lease_generation:
                 return
             del self._viewer_leases[owner_id]
-            del self._viewer_aliases[owner_id]
+            alias = self._viewer_aliases.pop(owner_id)
             self._viewer_demands.pop(owner_id, None)
+            if (alias is not None and alias not in self._viewer_aliases.values()
+                    and self._recording_authority is not None):
+                self._recording_authority.deactivate(self._current_producer_generation, alias)
             self._viewers = len(self._viewer_leases)
             n = self._viewers
             if n == 0:

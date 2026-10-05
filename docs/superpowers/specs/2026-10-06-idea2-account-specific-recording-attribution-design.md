@@ -55,12 +55,115 @@ changes from StreamHub and frame consumption use one documented lock/order or
 serialized command boundary, so viewer release cannot race a queued frame into
 a finalized alias context. Each context keeps its own start time, frame count,
 300-second rotation clock and measured partial duration. Camera capture
-continues until the final physical viewer releases. Generation replacement
-invalidates old leases and finalizes/retires their recording contexts before
-new-generation frames are attributed. Once the final viewer retires a
-generation, a stale request with that same generation cannot restart a
-recording. Existing legacy/always-on behavior remains explicitly bounded and
-must never override an authenticated alias.
+continues until the final attached physical viewer releases. Generation
+replacement invalidates old leases and finalizes their recording contexts
+before new-generation frames are attributed. Zero Engine viewers stops capture
+and closes alias recordings, but is **not** proof that Monitor's producer epoch
+has retired: another authorized demand may already exist in the same epoch.
+Existing legacy/always-on behavior remains explicitly bounded and must never
+override an authenticated alias.
+
+## Revised distributed demand/retirement authority (design-review gate)
+
+The current Engine implementation sets `_producer_generation_retired` when its
+last local viewer leaves. That is an incorrect distributed retirement signal:
+Monitor can acquire demand B on the same live epoch while viewer A is still
+attached, then A can close before B's Engine request or before its deferred
+body iterator attaches. Engine's local count cannot observe B's database row.
+The failure appears as 409/502 for a valid late request or an empty 200 after
+successful preflight. Task 2 recording work is paused until this is corrected.
+
+Monitor remains the sole demand/epoch authority. After the existing locked
+authorization/acquire transaction commits, Monitor issues a short-lived,
+per-demand Engine grant bound to the exact canonical BIGINT generation,
+logical alias, opaque demand-owner ID, registered Node and physical camera,
+and the Engine's current 128-bit-or-stronger random boot nonce,
+and the database demand lease expiry. The proposed v1 wire form is
+`base64url(canonical-json).base64url(mac)`: JSON keys are sorted with compact
+separators, generation is a decimal string, and the MAC is HMAC-SHA256 over
+`aegis-producer-demand-v1\n` plus those exact JSON bytes. Its key is
+HMAC-SHA256 of the existing server-only Monitor↔Engine API key over
+`AEGIS-demand-grant-v1-key` (domain separation). Verification uses constant-time
+MAC comparison and strict canonical parsing. The grant is never accepted from
+or returned to the browser. The test-only grant mint in the RED fixture uses
+this exact format; Production minting is not implemented at this gate.
+Its absolute expiry is no later than the database demand expiry (currently
+30 seconds); clocks/skew must be checked fail-closed, with no expiry grace that
+extends authority. The envelope has a unique one-use grant ID. Its payload
+must not contain a raw session binding, user credential, key, or physical
+device selection. Engine verifies the key, signature, strict field syntax,
+expiry and highest observed generation before any viewer/capture side effect.
+The authenticated alias is access/recording context only, not source selection.
+
+Engine preflight atomically reserves this grant against the generation under
+the StreamHub condition. The reservation is one-use and expires no later than
+the grant/demand lease; the later streaming-body attachment consumes that same
+reservation atomically, instead of performing a second uncoordinated
+generation preparation. This closes both races: B arriving after A closes,
+and A closing between B preflight and deferred attachment. Replaying a used,
+expired, malformed, mismatched or untrusted grant fails closed. A grant for a
+lower generation can never override a higher generation already observed.
+The process-local highest-observed generation is monotonic; an explicit
+Monitor retirement of generation G permanently tombstones G in that process.
+The boot nonce changes on every Engine process start. Monitor obtains it only
+over an Engine-key-authenticated server-to-server endpoint before minting a
+grant; Engine rejects any grant bound to a prior boot. This makes process-local
+one-use IDs, demand revocation tombstones, generation retirement tombstones and
+highest-observed generation safe across restart: no old token can be replayed
+into the new process. After restart, Monitor may issue a **new** boot-bound
+grant only after rechecking the still-live DB demand/epoch under the existing
+authority model; an already-retired G cannot receive one. A bare generation
+header is never authority. The Engine compares the signed Node ID with
+its configured Node ID; Monitor binds physical-camera ID to the registered
+producer in its locked DB transaction after resolving the reviewed physical
+stream route target. Engine
+has no independent trusted physical-camera ID today: it verifies the signed
+physical ID's canonical form and integrity, but Monitor supplies the
+physical-world binding. A wrong physical registration must fail at Monitor,
+not be claimed as an Engine-side check. Neither claim selects a camera device.
+
+Monitor's 10-second serialized revalidation renews the database demand first,
+then refreshes the corresponding Engine grant/lease through an authenticated
+server-only control operation. Failed renewal or failed grant refresh closes
+that stream; an Engine lease cannot outlive its last authenticated expiry.
+After Monitor commits a demand release, it revokes that demand's Engine grant.
+Engine holds a revoke tombstone for `(generation, demandOwnerId)` until no
+previously minted grant/refresh for that demand can remain valid (at most the
+30-second demand lease plus the 1-second sweep bound after receipt). It
+atomically invalidates that demand's unused reservations,
+attached viewer and pending refresh under the same StreamHub lock. A refresh
+that arrives after revocation cannot revive the demand, regardless of its
+signature or timestamp. Revoking A must not invalidate B on the same G;
+revoking B between its preflight and deferred attach must prevent that attach.
+Only when the same database transaction proves the epoch has no valid demands
+and retires it may Monitor issue a generation-retire command. A late or
+out-of-order retire for G cannot retire a later G+1. If a control delivery is
+lost, an already-issued unused grant may still admit a viewer until its signed
+expiry, and an attached viewer may remain until its last authenticated lease
+expires. This is a **bounded post-release residual window**, not immediate
+revocation or proof that Engine knows current DB state. Autonomous Engine
+expiry sweeping must clear viewers/capture within the existing 30-second lease
+plus a bounded 1-second sweep interval even if the MJPEG iterator is stalled.
+Used grant IDs likewise expire only after their signed expiry; they cannot be
+discarded sooner and are never reusable while their token remains valid.
+Reserve/replay/revoke state has an explicit 4096-entry process cap; at cap,
+Engine fails new grants closed without touching existing viewers/capture.
+This prevents long-running memory growth while retaining the current highest
+generation plus a retired flag in constant space. Retirement control should
+be retried/acknowledged within the Monitor cleanup
+budget, but missing acknowledgement never extends Engine authority. No
+equal-generation reopening is possible forever. Engine zero-viewer state
+immediately stops physical capture and finalizes that alias's partial clip,
+but does not permanently retire G by inference from its local count.
+
+The existing Engine-key boundary is necessary but not sufficient: a bare
+Engine key plus generation/alias is not a valid demand grant. All demand,
+renewal and retirement signals originate in Monitor after server-side
+authorization/transactional lifecycle decisions. Do not expose these headers
+through CORS/browser APIs, use heartbeat as authority, or add Engine database
+credentials. The 30-second lease is the current bound, not an invitation to
+extend it; if clocks cannot be proven adequately synchronized, fail closed
+and return to design review before runtime implementation.
 
 ## Monitor → Engine trust boundary
 
@@ -178,8 +281,17 @@ prove live Machine A recording or Production Archive acceptance.
 ## Integration and rollback
 
 The PR-owned change is expected in IDEA2 Engine/Monitor source, tests, this
-design/plan and the mutable IDEA2 status. No shared deployment, Engine Agent,
-HUB, Drive, IDEA1/IDEA3, Production DB or Machine A runtime changes are in
+design/plan and the mutable IDEA2 status. The current detection pipeline uses
+a static camera ID and does not persist producer generation on detections;
+therefore new attributed Archive clips have a neutral detection-result-unavailable
+state, not a false Authorized-only or Unknown claim. The approved Archive UI
+change affects only that label/filter behavior; playback and RBAC are unchanged.
+A narrow IDEA2 Identity Agent pipe
+protocol extension carries the authenticated clip alias/generation, and its
+clip HTTP transport rejects redirects so an unrelated 200 response cannot
+acknowledge publication. These source changes do not change Agent keys,
+signing authority, service lifecycle, installation or installed runtime.
+No shared deployment, HUB, Drive, IDEA1/IDEA3, Production DB or Machine A runtime changes are in
 scope. If a shared/deployment path becomes necessary, stop for integration
 review before editing it. Keep PR #348 stacked on Draft PR #344; only PR #348
 may be pushed. Do not create a final immutable receipt, mark Ready, merge,

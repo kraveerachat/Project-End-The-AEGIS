@@ -102,6 +102,7 @@ class MetricsRegistry:
         self._camera_reconnects = 0
         self._last_detection: Optional[dict] = None
         self._recorder: Dict[str, object] = {"active_segment": None, "segments_written": 0}
+        self._active_segments: dict[str, None] = {}
         self._nas: Dict[str, object] = {
             "last_sync_wall": None,
             "last_status": "idle",  # idle | disabled | ok | failed
@@ -166,11 +167,17 @@ class MetricsRegistry:
     # -- recorder ----------------------------------------------------------
     def on_segment_started(self, path: str) -> None:
         with self._lock:
+            self._active_segments[path] = None
             self._recorder["active_segment"] = path
 
-    def on_segment_finalized(self) -> None:
+    def on_segment_finalized(self, path: Optional[str] = None) -> None:
         with self._lock:
-            self._recorder["active_segment"] = None
+            if path is None:
+                if self._active_segments:
+                    self._active_segments.popitem()
+            else:
+                self._active_segments.pop(path, None)
+            self._recorder["active_segment"] = next(reversed(self._active_segments), None)
             self._recorder["segments_written"] = int(self._recorder["segments_written"]) + 1
 
     # -- NAS ---------------------------------------------------------------

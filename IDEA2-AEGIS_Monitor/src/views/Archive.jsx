@@ -37,7 +37,7 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
     let list = allClips.filter((c) => visibleIds.has(c.cam))
     if (arcCam !== 'all' && visibleIds.has(arcCam)) list = list.filter((c) => c.cam === arcCam)
     if (arcResult !== 'all') {
-      list = list.filter((c) => (arcResult === 'auth' ? c.kind === 'auth' : c.kind === 'unknown'))
+      list = list.filter((c) => c.kind === arcResult)
     }
     return list
   }, [allClips, arcCam, arcResult, visibleIds])
@@ -118,7 +118,9 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                     </a>
                   </div>
                   <div className="tags">
-                    {cl.kind === 'auth' ? (
+                    {cl.kind === 'unavailable' ? (
+                      <span className="tag">Detection result unavailable</span>
+                    ) : cl.kind === 'auth' ? (
                       <span className="tag auth">Authorized only</span>
                     ) : (
                       <>

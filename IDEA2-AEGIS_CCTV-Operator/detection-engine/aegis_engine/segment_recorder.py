@@ -1,10 +1,12 @@
 """
-SegmentRecorder — continuous, interval-based disk recording.
+SegmentRecorder — interval-based disk recording from one raw frame queue.
 
-Records the feed **continuously** and rolls to a new file on a fixed wall-clock
-interval (default 300 s / 5 minutes). This is deliberately *interval-based,
-not detection-triggered*: full clips roll every five minutes, while the final
-clip is allowed to be shorter when viewer demand/session ownership ends.
+Strict capture-on-demand recording fans each authorized raw frame out to
+independent ``(producer generation, logical alias)`` writers. Each writer has
+its own 300-second rollover and a measured final partial when that alias's
+last viewer leaves. The always-on compatibility path retains one configured
+camera writer; it never supplies strict account attribution. Neither path is
+detection-triggered.
 
 Each finalized segment is handed to ``on_segment`` (wired to the NAS worker's
 queue by the engine) as a :class:`SegmentInfo`. The recorder never deletes
@@ -23,9 +25,12 @@ from __future__ import annotations
 
 import os
 import queue
+import re
+import secrets
 import threading
 import time
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Callable, Optional
 
 try:
@@ -37,10 +42,23 @@ from .config import EngineConfig
 from .logging_setup import get_logger
 from .metrics import MetricsRegistry
 from .models import Frame, SegmentInfo, utc_now_iso
+from .recording_authority import RecordingAuthority
 
 log = get_logger("SegmentRecorder")
 
 SegmentCallback = Callable[[SegmentInfo], None]
+
+
+@dataclass
+class _StrictSegment:
+    writer: object
+    size: tuple[int, int]
+    path: str
+    started_monotonic: float
+    capture_started_monotonic: float
+    started_wall: str
+    authority_started_monotonic: float
+    frames: int = 0
 
 
 class SegmentRecorder(threading.Thread):
@@ -52,6 +70,8 @@ class SegmentRecorder(threading.Thread):
         on_segment: SegmentCallback,
         stop_event: Optional[threading.Event] = None,
         capture_demand_event: Optional[threading.Event] = None,
+        recording_authority: Optional[RecordingAuthority] = None,
+        *, monotonic_clock=time.monotonic,
     ) -> None:
         super().__init__(name="SegmentRecorder", daemon=True)
         self._cfg = config
@@ -60,6 +80,9 @@ class SegmentRecorder(threading.Thread):
         self._on_segment = on_segment
         self._stop_event = stop_event or threading.Event()
         self._capture_demand_event = capture_demand_event
+        self._recording_authority = recording_authority
+        self._monotonic_clock = monotonic_clock
+        self._strict_contexts: dict[tuple[int, str], _StrictSegment] = {}
 
         self._writer: "Optional[cv2.VideoWriter]" = None
         self._writer_size: Optional[tuple] = None  # (w, h) the writer was opened at
@@ -85,6 +108,10 @@ class SegmentRecorder(threading.Thread):
                 try:
                     frame = self._queue.get(timeout=0.5)
                 except queue.Empty:
+                    if self._strict_mode:
+                        self._reconcile_strict_contexts()
+                        self._rotate_strict_contexts()
+                        continue
                     # Viewer-demand capture must close the active container when
                     # the last authorized stream ends. A later login starts a
                     # new segment instead of appending across a private gap.
@@ -97,15 +124,172 @@ class SegmentRecorder(threading.Thread):
                     self._maybe_rotate()
                     continue
 
-                self._ensure_writer(frame)
-                self._write(frame)
-                self._maybe_rotate()
+                self._process_frame(frame)
         except Exception:  # pragma: no cover - defensive
             log.exception("unhandled error in recorder loop")
         finally:
             # Flush whatever is open so the last segment isn't lost on shutdown.
+            ended_monotonic = self._monotonic_clock()
+            ended_wall = utc_now_iso()
+            for key in tuple(self._strict_contexts):
+                self._finalize_strict_segment(key, ended_monotonic, ended_wall)
             self._finalize_segment()
             log.info("recorder stopped")
+
+    @property
+    def _strict_mode(self) -> bool:
+        return self._cfg.capture_on_demand and self._recording_authority is not None
+
+    def _process_frame(self, frame: Frame) -> None:
+        if not self._strict_mode:
+            self._ensure_writer(frame)
+            self._write(frame)
+            self._maybe_rotate()
+            return
+        active = self._reconcile_strict_contexts(frame.captured_at)
+        eligible = (self._recording_authority.intervals_for_frame(frame.captured_at)
+                    if hasattr(self._recording_authority, "intervals_for_frame") else active)
+        for key, started_monotonic in eligible.items():
+            generation, alias = key
+            if (not isinstance(generation, int) or isinstance(generation, bool)
+                    or generation <= 0 or not isinstance(alias, str)
+                    or len(alias) > 64 or re.fullmatch(r"CAM-[0-9]+", alias) is None
+                    or frame.captured_at <= started_monotonic):
+                continue
+            self._rotate_strict_contexts(key, frame.captured_at, frame.captured_wall)
+            if key not in self._strict_contexts:
+                self._open_strict_writer(key, frame)
+            segment = self._strict_contexts.get(key)
+            if segment is not None:
+                self._write_strict_frame(segment, frame)
+        if hasattr(self._recording_authority, "discard_closed"):
+            self._recording_authority.discard_closed(frame.captured_at)
+
+    def _reconcile_strict_contexts(self, frame_captured_at=None):
+        active = self._recording_authority.snapshot()
+        ended_monotonic = self._monotonic_clock()
+        ended_wall = utc_now_iso()
+        for key in tuple(self._strict_contexts):
+            started = self._strict_contexts[key].authority_started_monotonic
+            still_active = active.get(key) == started
+            stopped = self._recording_authority.closed_boundary(key[0], key[1], started)
+            queued_before_stop = (frame_captured_at is not None and stopped is not None
+                                  and frame_captured_at < stopped[0])
+            if not still_active and not queued_before_stop:
+                self._finalize_strict_segment(key, ended_monotonic, ended_wall)
+        if frame_captured_at is None and hasattr(self._recording_authority, "discard_closed"):
+            self._recording_authority.discard_closed()
+        return active
+
+    def _rotate_strict_contexts(self, key=None, ended_monotonic=None, ended_wall=None) -> None:
+        if ended_monotonic is None:
+            ended_monotonic = self._monotonic_clock()
+        if ended_wall is None:
+            ended_wall = utc_now_iso()
+        keys = (key,) if key is not None else tuple(self._strict_contexts)
+        for candidate in keys:
+            segment = self._strict_contexts.get(candidate)
+            if segment and ended_monotonic - segment.started_monotonic >= self._cfg.segment_seconds:
+                self._finalize_strict_segment(candidate, ended_monotonic, ended_wall)
+
+    def _open_strict_writer(self, key: tuple[int, str], frame: Frame) -> None:
+        generation, alias = key
+        frame_intervals = getattr(self._recording_authority, "intervals_for_frame", None)
+        started_monotonic = (frame_intervals(frame.captured_at).get(key) if frame_intervals
+                             else self._recording_authority.snapshot().get(key))
+        if started_monotonic is None or frame.captured_at <= started_monotonic:
+            return
+        observe_frame = getattr(self._recording_authority, "observe_for_frame", None)
+        observed = (observe_frame(generation, alias, started_monotonic, frame.captured_at)
+                    if observe_frame else self._recording_authority.observe(generation, alias, started_monotonic))
+        if not observed:
+            return
+        h, w = frame.image.shape[:2]
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        filename = f"{alias}_{generation}_{timestamp}_{secrets.token_hex(16)}.{self._cfg.segment_extension}"
+        path = os.path.join(self._cfg.segment_dir, filename)
+        try:
+            fourcc = cv2.VideoWriter_fourcc(*self._cfg.segment_fourcc)
+            writer = cv2.VideoWriter(path, fourcc, float(self._cfg.target_fps), (w, h))
+        except Exception:
+            self._recording_authority.unobserve(generation, alias, started_monotonic)
+            raise
+        if not writer.isOpened():
+            self._recording_authority.unobserve(generation, alias, started_monotonic)
+            log.error("failed to open attributed VideoWriter at %s", path)
+            return
+        self._strict_contexts[key] = _StrictSegment(
+            writer=writer,
+            size=(w, h),
+            path=path,
+            started_monotonic=float(frame.captured_at),
+            capture_started_monotonic=float(frame.captured_at),
+            started_wall=frame.captured_wall,
+            authority_started_monotonic=started_monotonic,
+        )
+        self._metrics.on_segment_started(path)
+
+    def _write_strict_frame(self, segment: _StrictSegment, frame: Frame) -> None:
+        image = frame.image
+        if (image.shape[1], image.shape[0]) != segment.size:
+            image = cv2.resize(image, segment.size)
+        elapsed = max(0.0, float(frame.captured_at) - segment.capture_started_monotonic)
+        target_total = max(1, int(elapsed * float(self._cfg.target_fps)) + 1)
+        try:
+            for _ in range(max(0, target_total - segment.frames)):
+                segment.writer.write(image)
+                segment.frames += 1
+                self._metrics.on_frame_recorded()
+        except Exception:
+            log.exception("failed writing attributed frame to %s", segment.path)
+
+    def _finalize_strict_segment(
+        self, key: tuple[int, str], ended_monotonic=None, ended_wall=None
+    ) -> None:
+        # Capture the authority/rotation end before codec release, filesystem
+        # inspection or publication can block. Sibling aliases share the same
+        # boundary when one transition closes several contexts.
+        if ended_monotonic is None:
+            ended_monotonic = self._monotonic_clock()
+        if ended_wall is None:
+            ended_wall = utc_now_iso()
+        segment = self._strict_contexts.pop(key, None)
+        if segment is None:
+            return
+        stopped = self._recording_authority.closed_boundary(
+            key[0], key[1], segment.authority_started_monotonic)
+        if stopped is not None and stopped[0] <= ended_monotonic:
+            ended_monotonic, ended_wall = stopped
+        self._recording_authority.unobserve(key[0], key[1], segment.authority_started_monotonic)
+        try:
+            segment.writer.release()
+        except Exception:
+            log.exception("error releasing attributed writer for %s", segment.path)
+        self._metrics.on_segment_finalized(segment.path)
+        if not os.path.exists(segment.path):
+            log.warning("finalized attributed segment missing on disk: %s", segment.path)
+            return
+        size_bytes = os.path.getsize(segment.path)
+        if not size_bytes:
+            log.warning("finalized attributed segment is empty: %s", segment.path)
+            try:
+                os.remove(segment.path)
+            except OSError:
+                pass
+            return
+        info = SegmentInfo(
+            path=os.path.abspath(segment.path),
+            camera_id=key[1],
+            started_wall=segment.started_wall,
+            ended_wall=ended_wall,
+            duration_s=max(0.0, ended_monotonic - segment.started_monotonic),
+            size_bytes=size_bytes,
+            producer_generation=key[0],
+        )
+        try:
+            self._on_segment(info)
+        except Exception:  # pragma: no cover - defensive
+            log.exception("on_segment callback raised for %s", segment.path)
 
     # -- writer management -------------------------------------------------
     def _ensure_writer(self, frame: Frame) -> None:

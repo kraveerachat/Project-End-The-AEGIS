@@ -9,12 +9,13 @@ const source = (relativePath) => readFileSync(path.join(ROOT, relativePath), 'ut
 
 test('PR2 pins the full recording interval to 300 seconds and preserves measured partial duration', () => {
   const config = source('../IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/config.py')
-  const store = source('server/db/store.js')
+  const attribution = source('server/db/clipAttribution.js')
   const schema = source('server/db/schema.sql')
   const nasSync = source('../IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/nas_sync.py')
 
   assert.match(config, /segment_seconds:\s*int\s*=\s*300\b/)
-  assert.match(store, /Math\.round\(Number\(input\.durationSec\)\)\)\s*:\s*300/)
+  assert.match(attribution, /durationSec > 300 \+ toleranceMs \/ 1000/)
+  assert.match(attribution, /Math\.max\(1, Math\.round\(durationSec\)\)/)
   assert.match(schema, /duration_sec\s+INTEGER\s+NOT NULL\s+DEFAULT 300/)
   assert.match(nasSync, /"-c:v", "libx264"/)
   assert.match(nasSync, /"-movflags", "\+faststart"/)

@@ -14,6 +14,7 @@
 import bcrypt from 'bcryptjs'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { usingPostgres, query, withTransaction } from './connection.js'
+import { validateClipAttribution } from './clipAttribution.js'
 
 // ⚠️ Phase 3: ตัวจำลอง detection/alert/clip แบบ in-memory (generator + seed arrays)
 //    ถูก "ถอดออกทั้งหมด" แล้ว — ข้อมูลจริงมาจาก Detection Engine (Laptop, VLAN 20)
@@ -418,30 +419,22 @@ export async function insertDetection(input, ingestAuth = { kind: 'legacy_unveri
  *  (ผู้เรียกเดียวคือ nas_sync._finish_ok ซึ่งอยู่หลังด่าน verify) */
 export async function insertClip(input, ingestAuth = { kind: 'legacy_unverified' }) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
-  const cameraId = String(input?.cameraId ?? '').trim()
-  if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
-  if (!(await cameraExists(cameraId))) return { error: `unknown camera ${cameraId}`, status: 400 }
-
-  const filePath = String(input?.filePath ?? '').trim()
-  if (!filePath) return { error: 'file_path required', status: 400 }
-  const started = input?.startedAt ? new Date(input.startedAt) : null
-  if (!started || Number.isNaN(started.getTime())) return { error: 'invalid started_at', status: 400 }
-  const durationSec = Number.isFinite(Number(input?.durationSec)) ? Math.max(0, Math.round(Number(input.durationSec))) : 300
-  const storedOnNas = Boolean(input?.storedOnNas)
-  const physicalCameraId = ingestAuth?.kind === 'ed25519'
-    ? Number(ingestAuth.verifiedNode?.physicalCameraId)
-    : null
-  if (ingestAuth?.kind === 'ed25519' && (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1)) {
-    return { error: 'invalid physical provenance', status: 401 }
+  if (ingestAuth?.kind !== 'ed25519') return { error: 'CLIP_ATTRIBUTION_DENIED', status: 403 }
+  try {
+    return await withTransaction(async client => {
+      const bound = await validateClipAttribution(client, input, ingestAuth.verifiedNode)
+      const { rows } = await client.query(`INSERT INTO clips (
+        camera_id, physical_camera_id, producer_generation, started_at, duration_sec, file_path, stored_on_nas)
+        VALUES ($1, $2, $3, $4, $5, $6, TRUE) RETURNING id`,
+      [bound.cameraId, bound.physicalCameraId, bound.producerGeneration, bound.startedAt, bound.durationSec, bound.filePath])
+      return { id: String(rows[0].id) }
+    })
+  } catch (error) {
+    // Database errors may contain paths or authentication context. Never return
+    // those details through internal HTTP errors.
+    return { error: error.status === 403 ? 'CLIP_ATTRIBUTION_DENIED' : 'CLIP_ATTRIBUTION_UNAVAILABLE',
+      status: error.status === 403 ? 403 : 503 }
   }
-
-  const { rows } = await query(
-    `INSERT INTO clips (
-       camera_id, physical_camera_id, started_at, duration_sec, file_path, stored_on_nas)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [cameraId, physicalCameraId, started.toISOString(), durationSec, filePath.slice(0, 1024), storedOnNas],
-  )
-  return { id: String(rows[0].id) }
 }
 
 /** เขียน alert หนึ่งรายการ — เรียกโดย alert_manager "หลัง" พยายามส่ง Telegram
@@ -691,16 +684,16 @@ export async function listClips(visibleIds) {
   const ids = [...visibleIds]
   if (ids.length === 0) return []
   const { rows } = await query(
-    `SELECT c.id, c.camera_id,
+    `SELECT c.id, c.camera_id, c.producer_generation,
             EXTRACT(EPOCH FROM c.started_at) * 1000 AS start_ms,
             c.duration_sec, c.stored_on_nas,
-            EXISTS (
+            CASE WHEN c.producer_generation IS NOT NULL THEN NULL ELSE EXISTS (
               SELECT 1 FROM detections d
                WHERE d.camera_id = c.camera_id
                  AND d.result = 'Unknown'
                  AND d.at >= c.started_at
                  AND d.at < c.started_at + make_interval(secs => c.duration_sec)
-            ) AS has_unknown
+            ) END AS has_unknown
        FROM clips c
       WHERE c.camera_id = ANY($1)
         AND c.stored_on_nas = TRUE
@@ -711,7 +704,10 @@ export async function listClips(visibleIds) {
   return rows.map((r) => ({
     id: String(r.id),
     cam: r.camera_id,
-    kind: r.has_unknown ? 'unknown' : 'auth',
+    // Current detection rows lack authenticated alias/generation context, so
+    // a new attributed clip cannot truthfully claim Authorized or Unknown.
+    // Preserve the pre-existing legacy classification for historical clips.
+    kind: r.producer_generation != null ? 'unavailable' : r.has_unknown ? 'unknown' : 'auth',
     live: false,
     start: Math.round(Number(r.start_ms)),
     durationSec: r.duration_sec,

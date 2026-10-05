@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-05
+updated: 2026-10-06
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,12 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## PR #348 source checkpoint — alias-scoped recording attribution (2026-10-06)
+
+Draft PR #348 remains stacked on unchanged Draft PR #344. Source implementation and local verification cover one physical producer generation serving concurrent CAM-01/CAM-02 demands, independently finalized 300-second/partial alias recordings, verified-transfer-before-publication, and PostgreSQL historical clip association. Queued frames captured before final viewer release are drained against the recorded authority interval, including rotation backlog; re-entry cannot append across an idle gap. Detection rows do not yet carry authenticated viewer alias/generation, so new attributed Archive clips show a neutral “Detection result unavailable” result and are excluded from Authorized/Unknown filters. Legacy clip classification, playback, download and server-side RBAC are unchanged. The Monitor-issued demand grant and exact generation remain server-authoritative; static `AEGIS_CAMERA_ID` cannot override attributed recording. An Identity Agent pipe-protocol extension carries authenticated alias/generation metadata, and clip HTTP publication now rejects redirects instead of treating a redirected login response as acknowledgement. No Agent key or installed service was changed.
+
+The relational evidence is bounded: `HISTORICAL_DEMAND_ASSOCIATION=PROVEN`; `PHYSICAL_PROVENANCE=PROVEN`; `PER_FRAME_HISTORICAL_AUTHORIZATION=NOT_CLAIMED`. Released historical demand may support delayed publication of a pre-release clip after later assignment revocation; it does not authorize new capture. Final local source verification: Engine 362/362, neutral Monitor 197 pass / 107 conditional skip / 0 fail (with the verified Python 3.12 path for its cross-language test), browser 32/32, disposable PostgreSQL clip/ingest 54/54, root governance 74/74, and Vault validation passed with two pre-existing owner-canvas warnings. Independent source re-review found no remaining Critical/Important issue. These are source and fixture results, not Machine A dual-alias or Production acceptance. PR #348 remains Draft; Machine A operator2→CAM-02 live acceptance, Production deployment, and final receipt remain pending. No Production or installed Machine A/B/C runtime mutation was performed by this source checkpoint.
 
 ## Current task — Multi-node camera provisioning (2026-10-05)
 
