@@ -32,11 +32,8 @@ if ! readonly -p 2>/dev/null | grep -q 'R1A_CANONICAL_DIR='; then
   R1A_CANONICAL_DIR=/var/lib/aegis-idea3-governance
   readonly R1A_CANONICAL_DIR
 fi
-# Production snapshot ownership invariant (see r1a_verifier_snapshot.py): uid 0 owns the snapshot and every ancestor up to the trusted parent `/`. The python checker's owner uid is fixed to 0; the ONLY
-# test seam is the trusted parent (honoured only when BOTH test variables are set; the frozen runner refuses to start if either is set).
-r1a_snapshot_trust_root() {
-  if [ "${R1A_TEST_ONLY_SNAPSHOT_TRUST_ENABLED:-}" = YES ] && [ -n "${R1A_TEST_ONLY_SNAPSHOT_TRUST_ROOT:-}" ]; then printf '%s' "$R1A_TEST_ONLY_SNAPSHOT_TRUST_ROOT"; else printf '/'; fi
-}
+# Production snapshot ownership invariant (see r1a_verifier_snapshot.py): uid 0 owns the snapshot and every ancestor up to the trusted parent `/`. The python checker has NO trust-root option; its only test
+# seam is the pair of R1A_TEST_ONLY_SNAPSHOT_TRUST_* variables, which it honours ONLY inside a user namespace (the frozen runner refuses to start if either is set). This library passes nothing.
 R1A_GLOBAL_MARKER_NAME="R1A-GLOBAL-ATTEMPT-CONSUMED"
 R1A_WINDOW_RECORD_NAME="R1A-ATTEMPT-WINDOW"
 R1A_WINDOW_START=""
@@ -201,7 +198,7 @@ r1a_verifier_gate() {
   local snap=${1:-} want=${2:-} repo=${3:-} det=${4:-} tool=${5:-} main=${6:-} sha rel got
   [ -f "$tool" ] && [[ "$want" =~ ^[0-9a-f]{64}$ ]] && [[ "$det" =~ ^[0-9a-f]{64}$ ]] || { r1a_reason "R1A_VERIFIER_GATE_INPUT_INVALID"; return 1; }
   r1a_commit_gate "$repo" "$main" || return 1
-  python3 "$tool" check "$snap" "$want" --trust-root "$(r1a_snapshot_trust_root)" >/dev/null 2>&1 || { r1a_reason "R1A_VERIFIER_SNAPSHOT_DRIFT_OR_NOT_ROOT_OWNED"; return 1; }
+  python3 "$tool" check "$snap" "$want" >/dev/null 2>&1 || { r1a_reason "R1A_VERIFIER_SNAPSHOT_DRIFT_OR_NOT_ROOT_OWNED"; return 1; }
   while read -r sha rel; do
     [ "$rel" != "" ] || continue
     got=$(git -C "$repo" show "$main:IDEA3-AEGIS_Lockdown/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1)

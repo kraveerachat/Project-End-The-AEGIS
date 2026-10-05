@@ -119,7 +119,7 @@ def trust_root() -> str:
         raise FreezeError("TEST_TRUST_SEAM_INCOMPLETE")
     if _initial_user_namespace():
         raise FreezeError("TEST_TRUST_SEAM_REFUSED_IN_THE_REAL_ROOT_NAMESPACE")
-    if not root.startswith("/") or ".." in root.split("/") or Path(os.path.realpath(root)) != Path(os.path.abspath(root)):
+    if not root.startswith("/") or ".." in root.split("/") or not Path(root).is_dir() or Path(os.path.realpath(root)) != Path(os.path.abspath(root)):
         raise FreezeError("TEST_TRUST_SEAM_ROOT_INVALID")
     return root
 

@@ -1332,9 +1332,9 @@ def test_the_committed_templates_pin_uid_zero_and_the_filesystem_root_literally(
     apply = (STG / "apply.sh").read_text()
     assert re.search(r"^SNAPSHOT_OWNER_UID=0$", apply, re.M) and re.search(r"^SNAPSHOT_TRUST_ROOT=/$", apply, re.M)
     lib = LIB.read_text()
-    assert "printf '/'" in lib and "R1A_TEST_ONLY_SNAPSHOT_TRUST_ENABLED" in lib
+    assert "--trust-root" not in "\n".join(code_lines(LIB)) and "r1a_snapshot_trust_root" not in lib  # the library passes nothing: the tool pins `/` itself
     tool = SNAPSHOT_TOOL.read_text()
-    assert "PRODUCTION_OWNER_UID = 0" in tool and 'PRODUCTION_TRUST_ROOT = "/"' in tool
+    assert "PRODUCTION_OWNER_UID = 0" in tool and 'PRODUCTION_TRUST_ROOT = "/"' in tool and "R1A_TEST_ONLY_SNAPSHOT_TRUST_ENABLED" in tool
     for var in ("R1A_TEST_ONLY_SNAPSHOT_TRUST_ENABLED", "R1A_TEST_ONLY_SNAPSHOT_TRUST_ROOT"):
         assert var in "\n".join(code_lines(RUNNER))  # the frozen runner refuses to start with a test seam set
 
@@ -1361,7 +1361,7 @@ def test_a_non_root_owned_verifier_snapshot_fails_python_lib_and_apply(tmp_path:
     cdest, csha = make_control_snapshot(tmp_path)
     with pytest.raises(tool.SnapshotError, match="NOT_TRUSTED_OWNER"):
         tool.control_check(cdest, csha)  # the control check has the same production default
-    cli = subprocess.run(["python3", str(SNAPSHOT_TOOL), "check", str(dest), sha, "--trust-root", str(tmp_path)], capture_output=True, text=True)
+    cli = subprocess.run(["python3", str(SNAPSHOT_TOOL), "check", str(dest), sha], capture_output=True, text=True)
     assert cli.returncode == 1 and "NOT_TRUSTED_OWNER" in cli.stderr  # the CLI default owner is root
     assert bash(f'{trust_seam(tmp_path)}. "{LIB}"; r1a_verifier_gate "{dest}" {sha} "{ROOT.parent}" {"0" * 64} "{SNAPSHOT_TOOL}" {"1" * 40}').returncode == 1
 
@@ -1372,10 +1372,10 @@ def test_the_correct_root_owned_production_shape_passes_every_gate(tmp_path: Pat
     repo, dest, sha, head = control_world(tmp_path)
     out = userns_bash(runner_gate_script(dest, sha, "0", str(tmp_path)))
     assert "control=0" in out.stdout, out.stderr
-    tool_run = userns_bash(f'python3 "{SNAPSHOT_TOOL}" control-check "{dest}" {sha} --trust-root "{tmp_path}"')
+    tool_run = userns_bash(f'{trust_seam(tmp_path)}python3 "{SNAPSHOT_TOOL}" control-check "{dest}" {sha}')
     assert tool_run.returncode == 0 and "R1A_CONTROL_SNAPSHOT=PASS" in tool_run.stdout, tool_run.stderr
     vdest, vsha = make_snapshot(tmp_path)
-    assert userns_bash(f'python3 "{SNAPSHOT_TOOL}" check "{vdest}" {vsha} --trust-root "{tmp_path}"').returncode == 0
+    assert userns_bash(f'{trust_seam(tmp_path)}python3 "{SNAPSHOT_TOOL}" check "{vdest}" {vsha}').returncode == 0
     app, msha = write_baseline_app(tmp_path)
     env = apply_env(tmp_path, app, msha)
     ok = run_apply(env)  # apply.sh (substituted trust root, literal owner uid 0) reaches the interpreter
@@ -1406,7 +1406,7 @@ def test_a_writable_or_substituted_ancestor_fails_every_gate(tmp_path: Path, bre
         target = middle / "control-snapshot"
     gate_out = userns_bash(runner_gate_script(target, sha, "0", str(outer)))
     assert "control=1" in gate_out.stdout, (breach, gate_out.stderr)
-    tool_out = userns_bash(f'python3 "{SNAPSHOT_TOOL}" control-check "{target}" {sha} --trust-root "{outer}"')
+    tool_out = userns_bash(f'{trust_seam(outer)}python3 "{SNAPSHOT_TOOL}" control-check "{target}" {sha}')
     assert tool_out.returncode == 1 and ("ANCESTOR" in tool_out.stderr or "NOT_CANONICAL" in tool_out.stderr), (breach, tool_out.stderr)
 
 
@@ -1429,15 +1429,15 @@ def test_apply_refuses_a_non_root_or_untrusted_verifier_snapshot_before_the_inte
 def test_the_freeze_tooling_installs_root_owned_snapshots_and_refuses_without_root(tmp_path: Path) -> None:
     src = tmp_path / "ctrl-src"
     shutil.copytree(P4, src, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    plain = subprocess.run(["python3", str(SNAPSHOT_TOOL), "control-snapshot", str(src), str(tmp_path / "plain"), "--root-owned", "--trust-root", str(tmp_path)], capture_output=True, text=True)
+    plain = subprocess.run(["python3", str(SNAPSHOT_TOOL), "control-snapshot", str(src), str(tmp_path / "plain"), "--root-owned"], capture_output=True, text=True)
     assert plain.returncode == 1 and "ROOT_REQUIRED_FOR_ROOT_OWNED_SNAPSHOT" in plain.stderr  # a non-root freeze cannot claim a root-owned snapshot
-    installed = userns_bash(f'python3 "{SNAPSHOT_TOOL}" control-snapshot "{src}" "{tmp_path / "installed"}" --root-owned --trust-root "{tmp_path}"')
+    installed = userns_bash(f'{trust_seam(tmp_path)}python3 "{SNAPSHOT_TOOL}" control-snapshot "{src}" "{tmp_path / "installed"}" --root-owned')
     assert installed.returncode == 0 and "R1A_CONTROL_MANIFEST_SHA256=" in installed.stdout, installed.stderr
     sha = re.search(r"=([0-9a-f]{64})", installed.stdout).group(1)
-    assert userns_bash(f'python3 "{SNAPSHOT_TOOL}" control-check "{tmp_path / "installed"}" {sha} --trust-root "{tmp_path}"').returncode == 0
-    vinstalled = userns_bash(f'python3 "{SNAPSHOT_TOOL}" snapshot "{ROOT}" "{tmp_path / "vinstalled"}" --root-owned --trust-root "{tmp_path}"')
+    assert userns_bash(f'{trust_seam(tmp_path)}python3 "{SNAPSHOT_TOOL}" control-check "{tmp_path / "installed"}" {sha}').returncode == 0
+    vinstalled = userns_bash(f'{trust_seam(tmp_path)}python3 "{SNAPSHOT_TOOL}" snapshot "{ROOT}" "{tmp_path / "vinstalled"}" --root-owned')
     assert vinstalled.returncode == 0 and "R1A_VERIFIER_MANIFEST_SHA256=" in vinstalled.stdout, vinstalled.stderr
-    refused = userns_bash(f'chmod 777 "{tmp_path}"; python3 "{SNAPSHOT_TOOL}" control-snapshot "{src}" "{tmp_path / "bad"}" --root-owned --trust-root "{tmp_path}"')
+    refused = userns_bash(f'chmod 777 "{tmp_path}"\n{trust_seam(tmp_path)}python3 "{SNAPSHOT_TOOL}" control-snapshot "{src}" "{tmp_path / "bad"}" --root-owned')
     assert refused.returncode == 1 and "ANCESTOR_WRITABLE" in refused.stderr  # the freeze refuses an untrusted parent instead of producing an unprotected snapshot
 
 
