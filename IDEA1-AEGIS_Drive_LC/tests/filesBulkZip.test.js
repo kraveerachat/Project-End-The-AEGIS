@@ -105,6 +105,7 @@ async function mountFiles(rows, { fsa = true, holdBody = null, props = {} } = {}
   }, true)
   const { createRoot } = await import('react-dom/client')
   const root = createRoot(w.document.getElementById('root'))
+  let rootUnmounted = false
   await act(async () => root.render(React.createElement(Files, { t, lang: 'en', go() {}, ...props })))
   const settle = async (n = 6) => { for (let i = 0; i < n; i += 1) await act(async () => { await new Promise((r) => setTimeout(r, 0)) }) }
   await settle()
@@ -116,8 +117,15 @@ async function mountFiles(rows, { fsa = true, holdBody = null, props = {} } = {}
     w, log, q, click, select, settle, bulkButton,
     notice: () => q('[data-testid="files-bulk-notice"]')?.textContent ?? '',
     panel: () => q('[data-vault-transfer="download"]'),
-    async unmount() {
+    /** unmount the screen only (globals stay installed so in-flight work can still be observed) */
+    async unmountRoot() {
+      if (rootUnmounted) return
+      rootUnmounted = true
       await act(async () => root.unmount())
+    },
+    async unmount() {
+      if (!rootUnmounted) await act(async () => root.unmount())
+      rootUnmounted = true
       URL.createObjectURL = restoreUrl.c
       URL.revokeObjectURL = restoreUrl.r
       for (const [key, d] of previous) { if (d === undefined) delete globalThis[key]; else Object.defineProperty(globalThis, key, d) }
@@ -259,5 +267,28 @@ test('FZ-8 the tile menu Download stays per-file even with 4+ selected', async (
     await m.click(item)
     assert.deepEqual(m.log.anchors.map((a) => a.download), ['file1.bin'])
     assert.equal(m.log.pickers.length, 0)
+  } finally { await m.unmount() }
+})
+
+test('FILES-UNMOUNT-ABORT leaving the Files screen aborts an active ZIP: no later fetch, no close, no success, no late state update', async (t) => {
+  const errors = []
+  t.mock.method(console, 'error', (...a) => { errors.push(a.map(String).join(' ')) })
+  let release
+  const holdBody = { id: 'f1', promise: new Promise((r) => { release = r }) }
+  const m = await mountFiles(rows6(), { props: { bulkZipEnabled: true }, holdBody })
+  try {
+    await m.select(['f0', 'f1', 'f2', 'f3'])
+    await m.click(m.bulkButton())
+    await m.settle(6)
+    assert.equal(m.log.pickers.length, 1, 'picker + createWritable succeeded')
+    assert.equal(m.panel()?.getAttribute('data-vault-transfer-stage'), 'archiving', 'held mid-entry 2')
+    await m.unmountRoot()
+    release()
+    await m.settle(12)
+    assert.equal(m.log.writables[0].aborted, true, 'the destination was aborted')
+    assert.equal(m.log.writables[0].closed, false, 'never closed as success')
+    assert.ok(!m.log.downloads.includes('f2'), 'no later entry fetched')
+    assert.ok(!m.log.downloads.includes('f3'))
+    assert.deepEqual(errors.filter((e) => /unmounted|act\(/i.test(e)), [], 'no React update-after-unmount warning')
   } finally { await m.unmount() }
 })

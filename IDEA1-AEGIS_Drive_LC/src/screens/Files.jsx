@@ -809,6 +809,17 @@ export function Files({
   const downloadRateRef = useRef(null)
   const [downloadTransfer, setDownloadTransfer] = useState(null)
   const [bulkNotice, setBulkNotice] = useState([])
+  // ⚠️ ออกจากจอ Files ระหว่างสร้าง ZIP = ยกเลิก archive (แผงความคืบหน้าและปุ่ม Cancel หายไปพร้อมจอ —
+  //    ห้ามปล่อยให้เขียนลงไฟล์ของผู้ใช้ต่อแบบมองไม่เห็น) ใช้เส้นทางยกเลิกแบบ fail-closed เดิมของ runBulkZip
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      downloadAbortRef.current?.abort()
+      downloadAbortRef.current = null
+    }
+  }, [])
   const [preview, setPreview] = useState(null)              // null | file (ไฟล์ปกติที่ preview ได้)
   const [renameTarget, setRenameTarget] = useState(null)   // null | file
   const [renameValue, setRenameValue] = useState('')
@@ -1046,12 +1057,14 @@ export function Files({
     const run = runBulkZip({
       plan, source: createFilesEntrySource(), busyRef: downloadBusyRef, signal: ctrl.signal,
       onProgress: (p) => {
+        if (!mountedRef.current) return
         if (p.stage === 'done') { setDownloadTransfer(null); return }
         const rate = downloadRateRef.current?.sample(p.transferredBytes, performance.now(), { totalBytes: p.totalBytes }) ?? null
         setDownloadTransfer({ ...p, rate })
       },
     })
     void run.then((res) => {
+      if (!mountedRef.current) return
       if (res.status === 'failed') {
         setDownloadTransfer((prev) => ({
           ...(prev ?? { kind: 'download', transferredBytes: 0, totalBytes: 0, percent: 0 }),
