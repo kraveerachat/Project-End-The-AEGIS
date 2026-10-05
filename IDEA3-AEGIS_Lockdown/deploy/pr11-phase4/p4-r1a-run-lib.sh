@@ -68,6 +68,16 @@ r1a_canonical_dir_valid() {
     [ "$owner" = "$want" ] && [ -z "$($SUDO find "$dir" -maxdepth 0 -perm /022 2>/dev/null)" ] || { r1a_reason "R1A_CANONICAL_DIR_NOT_PRIVATE_ROOT_OWNED"; return 1; }
   fi
 }
+# r1a_fsync PATH — an explicit, fail-closed durability barrier for ONE path (a file or a directory): `sync PATH` is coreutils' fsync(2)-on-that-path (never a sleep, never best-effort). A failed sync is a
+# FAILURE. Tests intercept `sync` through PATH; nothing here deletes, resets or rewrites anything.
+r1a_fsync() {
+  local path=${1:-}
+  [ -n "$path" ] && $SUDO sync -- "$path" 2>/dev/null || { r1a_reason "R1A_DURABILITY_BARRIER_FAILED:$(basename "$path")"; return 1; }
+}
+# r1a_durable FILE DIR — the file's data and metadata are forced durable FIRST, then the containing directory entry. Both must succeed.
+r1a_durable() {
+  r1a_fsync "${1:-}" && r1a_fsync "${2:-}"
+}
 # r1a_attempt_unconsumed AUTH_DIR — read-only pre-gate: NEITHER the canonical stage-global marker NOR the authorization-local marker exists.
 r1a_attempt_unconsumed() {
   local dir=${1:-} canon marker
@@ -88,12 +98,19 @@ r1a_consume_attempt() {
   local dir=${1:-} canon marker
   r1a_attempt_unconsumed "$dir" || return 1
   canon=$(r1a_canonical_dir); marker="$canon/$R1A_GLOBAL_MARKER_NAME"
-  $SUDO test -d "$canon" || $SUDO mkdir -m 0700 "$canon" 2>/dev/null || { r1a_reason "R1A_CANONICAL_DIR_NOT_CREATABLE (nothing was consumed)"; return 1; }
+  if ! $SUDO test -d "$canon"; then
+    $SUDO mkdir -m 0700 "$canon" 2>/dev/null || { r1a_reason "R1A_CANONICAL_DIR_NOT_CREATABLE (nothing was consumed)"; return 1; }
+    r1a_fsync "$(dirname "$canon")" || { r1a_reason "R1A_CANONICAL_DIR_ENTRY_NOT_DURABLE (nothing was consumed: no marker exists yet)"; return 1; }
+  fi
+  # Logical order (fixed): (1) marker proven absent (above); (2) EXCLUSIVE create (noclobber); (3) the marker FILE is forced durable; (4) its containing canonical DIRECTORY is forced durable;
+  # (5) ONLY AFTER both barriers succeed: best-effort chattr +i, then the window START is sampled, then the local marker is written, then observation may begin.
   if ! $SUDO bash -c 'set -o noclobber; printf "consumed_at=%s\n" "$(date -u +%FT%TZ)" > "$1"' _ "$marker" 2>/dev/null; then
     r1a_reason "R1A_ATTEMPT_ALREADY_CONSUMED (the canonical stage-global marker exists or could not be created exclusively)"; return 1
   fi
-  $SUDO chattr +i "$marker" 2>/dev/null || true      # best-effort immutability of the consumption record
-  R1A_WINDOW_START=$(date +%s.%N); export R1A_WINDOW_START   # sampled strictly AFTER the stage-global marker exists
+  # The marker now EXISTS: from here the attempt is consumed whatever happens. A failed durability barrier is a consumed FAIL (no window, no observation, no retry); the marker is never removed or rewritten.
+  r1a_durable "$marker" "$canon" || { r1a_reason "R1A_MARKER_NOT_DURABLE (the attempt IS consumed: the canonical marker exists; no retry is permitted)"; return 1; }
+  $SUDO chattr +i "$marker" 2>/dev/null || true      # best-effort immutability of the consumption record (after durability)
+  R1A_WINDOW_START=$(date +%s.%N); export R1A_WINDOW_START   # sampled strictly AFTER the stage-global marker exists AND is durable
   if ! ( set -o noclobber; printf 'consumed_at=%s\nconsumed_epoch=%s\n' "$(date -u +%FT%TZ)" "$R1A_WINDOW_START" > "$dir/R1A-ATTEMPT-CONSUMED" ) 2>/dev/null; then
     r1a_reason "R1A_LOCAL_MARKER_NOT_WRITTEN (the attempt IS consumed: the canonical stage-global marker exists; no retry is permitted)"; return 1
   fi
@@ -237,6 +254,10 @@ r1a_run_attempt() {
   # MANDATORY and exclusive: the canonical marker-bounded window record is the durable evidence of the window. If it cannot be created (permission, I/O, an existing record) the attempt FAILS closed
   # (consumed, no rerun, evidence preserved) and NO final capture or verifier run happens.
   if ! $SUDO bash -c 'set -o noclobber; printf "window_start=%s\nwindow_end=%s\nobserve_seconds=%s\n" "$2" "$3" "$4" > "$1"' _ "$canon/$R1A_WINDOW_RECORD_NAME" "$R1A_WINDOW_START" "$R1A_WINDOW_END" "$seconds" 2>/dev/null; then
+    r1a_attempt_failed windowrecord; return 1
+  fi
+  # the record exists: force its FILE durable, then the canonical DIRECTORY; only then may FINAL (and later VERIFY) run. A failed barrier is a consumed FAIL with evidence preserved.
+  if ! r1a_durable "$canon/$R1A_WINDOW_RECORD_NAME" "$canon"; then
     r1a_attempt_failed windowrecord; return 1
   fi
   echo "R1A_EVENT_WINDOW_OPEN=NO R1A_WINDOW_END_EPOCH=$R1A_WINDOW_END"
