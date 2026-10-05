@@ -13,6 +13,7 @@ edit_policy: append-by-new-file
 ## What changed
 
 - Registered the owner-approved `R1A` Phase-4 stage after `R1I` and before `L8`, and added its first-class stage surface, an evidence-preserving rollback, a one-attempt state machine, predecessor receipt gates and an inert owner-run template. Repository implementation only: nothing was executed live and nothing touched Production.
+- Independent-review repair (four IMPORTANT findings): the pinned expected source IP is now ENFORCED (the accepted incident's attacker IP must equal it); the acceptance window is bound to the consumed marker (START at marker creation, END when the bounded wait completes; the unchanged verifier adds informational `evidence_times` and `verify.sh` requires the completing source event, detector alert, `ALERT_ACCEPTED` and incident inside the window); the verifier root executes is an immutable manifested snapshot of the full `r1_acceptance` import closure, re-proved (with the deployed detector/unit/recovery digests, `current`, R1I and Core/detector identity) before the marker and immediately before FINAL; and ONE attempt TOTAL is enforced by a stage-global marker that a replacement AUTH_DIR or fresh Authorization/K3 cannot bypass.
 - The stage observes only. It generates no traffic, alert, journal line, Core socket write or database write. The existing fail-closed `r1_acceptance` verifier is the authority and is unchanged.
 
 ## Owner-approved governance and boundary
@@ -34,7 +35,7 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `/usr/bin/python3 -m pytest -q tests/r1a tests/test_r1_acceptance.py tests/r1i` — pass: 166 passed in 4.55s.
+- `/usr/bin/python3 -m pytest -q tests/r1a tests/test_r1_acceptance.py tests/r1i` — pass: 222 passed in 7.27s. Includes regression tests for all four review findings and mutation checks that each guard is caught.
 - `/usr/bin/python3 -m pytest -q tests/test_pr11_phase4_harness.py tests/test_pr11_phase4_f1u_stage.py tests/test_pr11_phase4_dnsmasq_unit_repair_reboot_and_scope.py` — pass: 694 passed (full files; the shared-registration, stage-list and shared-digest-pin tests are included).
 - `bash -n` on every new shell file (three stage handlers, the run library and the owner-run template) — pass.
 - Forbidden-action scan of the executable lines of every R1A file (systemctl start/stop/restart, nft add/delete/flush, sqlite INSERT/UPDATE/DELETE, logger, nmap, nc, curl, ssh, socat, scapy, Core alert socket, rm, R1I removal, blocked_ipv4) — pass: none present; only read-only `systemctl show`, `journalctl -o json --no-pager` and `nft list` forms exist.
@@ -47,7 +48,9 @@ edit_policy: append-by-new-file
 
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-lib.sh` — additive R1A registration (stage list, operational-order comment, `R1A) echo none`).
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/R1A/` — canonical handlers (apply, verify, rollback) and allow files.
-- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-r1a-run-lib.sh` — marker, predecessor gates, host gates and the attempt state machine.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-r1a-run-lib.sh` — stage-global and local markers, window recording, predecessor gates, host and verifier-authority gates and the attempt state machine.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/r1a-acceptance/r1a_verifier_snapshot.py` — import-closure, manifest and immutable-snapshot tooling for the verifier authority.
+- `IDEA3-AEGIS_Lockdown/aegis_soc/r1_acceptance.py` — adds informational sanitized `evidence_times` to the PASS result only; no acceptance predicate changed and no claim is promoted.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-r1a-owner.sh` — inert pinned owner-run template.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/README.md` — stage order and the R1A contract (section 16).
 - `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-05-idea3-r1a-real-detector-acceptance-stage-design.md` — design.

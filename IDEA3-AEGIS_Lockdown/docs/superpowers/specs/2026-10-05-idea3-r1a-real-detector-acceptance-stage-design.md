@@ -20,6 +20,13 @@ Status: repository implementation only. `R1A_REPOSITORY_IMPLEMENTED=YES`, `R1A_L
 - `deploy/pr11-phase4/p4-r1a-run-lib.sh` — one-attempt marker, predecessor receipt gates, host gates and `r1a_run_attempt`, the fixed state machine driven by runner-supplied hooks.
 - `deploy/pr11-phase4/owner-run/run-r1a-owner.sh` — inert template; refuses while any `PIN_` value remains.
 
+## Review-repair bindings
+
+- **Source IP.** `EXPECTED_SOURCE_IP` is pinned (canonical, external-capable IPv4) and the accepted incident's `attacker_ip` must equal it (`verify.sh`, before `R1A_VERIFY=PASS`).
+- **Marker-bounded window.** Window START is the instant the stage-global marker is created; END is recorded when the bounded wait completes, before the final capture. The unchanged verifier adds informational `evidence_times`; `verify.sh` requires the completing source event(s), the detector alert, `ALERT_ACCEPTED` and the incident inside the window. The baseline stays before the marker, as approved.
+- **Immutable verifier authority.** The verifier root executes is a read-only snapshot of the full local import closure of `r1_acceptance` (built by `r1a_verifier_snapshot.py`, pinned by manifest digest, byte-identical to the pinned-main source, with the deployed detector digest). It is re-proved before BASELINE, before the marker and immediately before FINAL; handlers are re-proved against the pinned-main git objects. Residual: the root-owned interpreter and its stdlib/site packages are host authority (gated as root-owned and not writable), not snapshotted.
+- **One attempt TOTAL.** A stage-global marker in a pinned directory (plus the authorization-local marker and the window record) is created with exclusive semantics, and nothing removes or resets it.
+
 ## Attempt ordering
 
 Pre-auth gates (exact main, source integrity, runner integrity, fresh Authorization and K3, predecessor receipts, disk, operator, R1I present in the exact owned shape, Core and detector healthy, detector source/unit authority, current release, trusted journal access, no R1A success recorded, marker absent) → immutable R1 baseline (refuses a pre-existing open incident) → re-gate → exclusive marker → observation window opens → bounded observation (no event generated) → final capture and the ONE verifier run → generic POST compare (no approved drift) → result.
