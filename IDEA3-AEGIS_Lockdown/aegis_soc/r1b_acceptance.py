@@ -27,6 +27,28 @@ def _write_new(path: str, document: dict) -> None:
         handle.write(json.dumps(document, sort_keys=True, indent=2, ensure_ascii=True) + "\n")
 
 
+def _bind_preserved_incident(document: dict, audit_db: str, expected_source_ip: str) -> dict:
+    preserved = document.get("preserved_open_incidents")
+    if not isinstance(preserved, list) or len(preserved) != 1 or not isinstance(preserved[0], dict):
+        raise r1.AcceptanceError("PRESERVED_INCIDENT_BASELINE_MALFORMED")
+    try:
+        expected = str(r1.validate_block_target(expected_source_ip, ()))
+    except r1.ContainmentRejected:
+        raise r1.AcceptanceError("EXPECTED_SOURCE_IP_INVALID") from None
+    if preserved[0].get("attacker_ip") != expected:
+        raise r1.AcceptanceError("PRESERVED_INCIDENT_SOURCE_IP_MISMATCH")
+    view = r1.open_audit_view(audit_db)
+    try:
+        gate, _ = r1.ev._r1(r1.ev._AuditStore(view), int(preserved[0]["id"]))
+    finally:
+        view.close()
+    if gate.get("verdict") != r1.ev.VERIFIED or gate.get("evidence", {}).get("detector_alert") != r1.ev.VERIFIED:
+        raise r1.AcceptanceError("PRESERVED_INCIDENT_R1_NOT_VERIFIED")
+    document["r1b_expected_source_ip"] = expected
+    document["r1b_preserved_r1_gate"] = "VERIFIED"
+    return document
+
+
 def preconsume(*, baseline_path: str, audit_db: str) -> dict:
     try:
         baseline = json.loads(Path(baseline_path).read_text(encoding="utf-8"))
@@ -37,6 +59,8 @@ def preconsume(*, baseline_path: str, audit_db: str) -> dict:
     preserved = baseline.get("preserved_open_incidents")
     if not isinstance(preserved, list) or len(preserved) != 1 or not isinstance(preserved[0], dict):
         raise r1.AcceptanceError("PRESERVED_INCIDENT_BASELINE_MALFORMED")
+    if baseline.get("r1b_preserved_r1_gate") != "VERIFIED" or baseline.get("r1b_expected_source_ip") != preserved[0].get("attacker_ip"):
+        raise r1.AcceptanceError("R1B_BASELINE_BINDING_MALFORMED")
     marks, preserved_now = r1._audit_baseline_state(audit_db)
     expected = {k: baseline.get(k) for k in ("audit_max_id", "incident_max_id", "open_incidents")}
     if marks != expected:
@@ -64,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--release-id", required=True)
     b.add_argument("--detector-sha256", required=True)
     b.add_argument("--detector-uid", type=int, required=True)
+    b.add_argument("--expected-source-ip", required=True)
     b.add_argument("--out", required=True)
 
     p = sub.add_parser("preconsume")
@@ -89,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
                 services=services,
                 allowed_open_incidents=1,
             )
+            document = _bind_preserved_incident(document, args.audit_db, args.expected_source_ip)
             r1._write_new(args.out, r1.render(document))
             return 0
         if args.command == "preconsume":
