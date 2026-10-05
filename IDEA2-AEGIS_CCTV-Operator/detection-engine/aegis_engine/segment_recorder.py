@@ -2,9 +2,9 @@
 SegmentRecorder — continuous, interval-based disk recording.
 
 Records the feed **continuously** and rolls to a new file on a fixed wall-clock
-interval (default ~600 s / 10 minutes). This is deliberately *interval-based,
-not detection-triggered*: the archive is a complete, gap-free record, and the
-Operator "Archival footage" grid expects evenly-sized ~10-minute clips.
+interval (default 300 s / 5 minutes). This is deliberately *interval-based,
+not detection-triggered*: full clips roll every five minutes, while the final
+clip is allowed to be shorter when viewer demand/session ownership ends.
 
 Each finalized segment is handed to ``on_segment`` (wired to the NAS worker's
 queue by the engine) as a :class:`SegmentInfo`. The recorder never deletes
@@ -65,6 +65,7 @@ class SegmentRecorder(threading.Thread):
         self._writer_size: Optional[tuple] = None  # (w, h) the writer was opened at
         self._current_path: Optional[str] = None
         self._segment_started_monotonic = 0.0
+        self._segment_capture_started_monotonic = 0.0
         self._segment_started_wall = ""
         self._segment_frames = 0
 
@@ -114,6 +115,9 @@ class SegmentRecorder(threading.Thread):
         if self._writer is not None:
             # Resolution changed mid-stream (e.g. after reconnect) — roll over.
             self._finalize_segment()
+        # The camera may ignore CAP_PROP_FPS. Preserve its real monotonic
+        # capture timeline and normalize only the recorded CFR representation.
+        self._segment_capture_started_monotonic = float(frame.captured_at)
         self._open_writer(w, h)
 
     def _open_writer(self, w: int, h: int) -> None:
@@ -137,6 +141,10 @@ class SegmentRecorder(threading.Thread):
         self._writer_size = (w, h)
         self._current_path = path
         self._segment_started_monotonic = time.monotonic()
+        if self._segment_capture_started_monotonic <= 0.0:
+            self._segment_capture_started_monotonic = (
+                self._segment_started_monotonic
+            )
         self._segment_started_wall = utc_now_iso()
         self._segment_frames = 0
         self._metrics.on_segment_started(path)
@@ -145,15 +153,44 @@ class SegmentRecorder(threading.Thread):
     def _write(self, frame: Frame) -> None:
         if self._writer is None:
             return
+
         img = frame.image
         if (img.shape[1], img.shape[0]) != self._writer_size:
             img = cv2.resize(img, self._writer_size)
+
+        # OpenCV VideoWriter uses a fixed media FPS and does not preserve the
+        # timestamps of incoming frames. Physical cameras may ignore the
+        # requested CAP_PROP_FPS, so writing every captured frame can make the
+        # resulting media duration longer or shorter than real elapsed time.
+        #
+        # Map the real monotonic capture timeline onto configured target_fps.
+        # A source faster than target_fps drops surplus captured frames; a
+        # slower source duplicates the latest available frame to preserve
+        # elapsed media time.
+        capture_elapsed = max(
+            0.0,
+            float(frame.captured_at)
+            - self._segment_capture_started_monotonic,
+        )
+        target_total_frames = max(
+            1,
+            int(capture_elapsed * float(self._cfg.target_fps)) + 1,
+        )
+        writes_needed = target_total_frames - self._segment_frames
+
+        if writes_needed <= 0:
+            return
+
         try:
-            self._writer.write(img)
-            self._segment_frames += 1
-            self._metrics.on_frame_recorded()
+            for _ in range(writes_needed):
+                self._writer.write(img)
+                self._segment_frames += 1
+                self._metrics.on_frame_recorded()
         except Exception:
-            log.exception("failed writing frame to %s", self._current_path)
+            log.exception(
+                "failed writing frame to %s",
+                self._current_path,
+            )
 
     def _maybe_rotate(self) -> None:
         if self._writer is None:
@@ -177,6 +214,7 @@ class SegmentRecorder(threading.Thread):
         self._writer = None
         self._writer_size = None
         self._current_path = None
+        self._segment_capture_started_monotonic = 0.0
         self._metrics.on_segment_finalized()
 
         if not path or not os.path.exists(path):
