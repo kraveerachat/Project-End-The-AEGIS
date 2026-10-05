@@ -134,9 +134,9 @@ def test_kernel_payload_matches_the_merged_detector_parser() -> None:
 
 def test_registered_stage_order_and_handler_surface_place_r1a_after_r1i() -> None:
     registry = P4_LIB.read_text()
-    expected = 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1B L8 L9"'
+    expected = 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1B L8 L9"'
     assert expected in registry
-    assert registry.count(" R1I R1A R1B L8 ") == 1  # R1A and its successor R1B are separate, later stages (owner-approved registration; its own tests live in tests/r1a)
+    assert registry.count(" R1I R1A R1Du R1D R1B L8 ") == 1  # R1A, the historical-disposition stages R1Du/R1D and the successor R1B are separate, later stages (owner-approved registration; its own tests live in tests/r1a)
     result = subprocess.run(
         ["bash", "-c", f'. "{P4_LIB}"; p4_stage_known R1I; p4_stage_mutates R1I; p4_stage_handler_status R1I'],
         text=True, capture_output=True, check=False,

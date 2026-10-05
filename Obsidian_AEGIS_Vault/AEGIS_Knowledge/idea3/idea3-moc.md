@@ -3,7 +3,7 @@ title: IDEA3 AEGIS Lockdown MOC
 tags: [aegis, idea3, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-10-05
+updated: 2026-10-06
 owner: music
 edit_policy: owner-writable
 ---
@@ -22,6 +22,11 @@ Recovery R2–R8 remains blocked. The runtime-only R1I table remains installed
 pending a separately reviewed post-failure governance decision under a new
 stage ID; no adjudication may alter `R1A_RESULT=FAIL`, bypass an R1A receipt
 gate, or create `R1A_LIVE=CLOSED_PASS`. Do not rerun R1A. See [[idea3/idea3-status]].
+
+A governed pre-live blocker for the successor R1B (the preserved historical R1A incident is still `OPEN`) is resolved in the
+repository only by the owner-approved `R1Du` (Core upgrade) and `R1D` (one Core-mediated, atomic historical-incident
+disposition) stages; neither has run, R1B is unchanged and not consumed, and Recovery R2–R8 stays blocked. See
+[[idea3/idea3-status]].
 
 ## Start here
 
