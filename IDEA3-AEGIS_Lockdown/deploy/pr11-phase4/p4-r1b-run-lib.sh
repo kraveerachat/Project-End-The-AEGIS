@@ -39,6 +39,10 @@ R1B_GLOBAL_MARKER_NAME="R1B-GLOBAL-ATTEMPT-CONSUMED"
 R1B_WINDOW_RECORD_NAME="R1B-ATTEMPT-WINDOW"
 R1B_WINDOW_START=""
 R1B_WINDOW_END=""
+R1B_WINDOW_START_MONOTONIC=""
+R1B_WINDOW_END_MONOTONIC=""
+R1B_CLOCK_CONTINUITY_TOLERANCE_SEC="0.500"
+R1B_TIME_PYTHON="${PY:-python3}"   # the frozen runner defines PY as a pinned root-owned interpreter before sourcing this library
 
 # r1b_canonical_dir — the canonical directory. TEST-ONLY seam (same precedent as AEGIS_P4_HANDLER_DIR): honoured only when BOTH test variables are set; the frozen runner refuses to start if either is set.
 r1b_canonical_dir() {
@@ -76,6 +80,30 @@ r1b_fsync() {
 r1b_durable() {
   r1b_fsync "${1:-}" && r1b_fsync "${2:-}"
 }
+
+# r1b_time_pair — one process samples wall + monotonic time back-to-back. R1B records both so a wall-clock step inside the observation window cannot silently validate timestamp binding.
+r1b_time_pair() {
+  env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C PYTHONDONTWRITEBYTECODE=1 "$R1B_TIME_PYTHON" -I -B -c 'import time; w=time.time(); m=time.monotonic(); print(f"{w:.9f} {m:.9f}")'
+}
+r1b_pair_valid() {
+  [[ "${1:-}" =~ ^[0-9]+([.][0-9]+)?$ ]] && [[ "${2:-}" =~ ^[0-9]+([.][0-9]+)?$ ]]
+}
+# Wall elapsed time must track monotonic elapsed time within the fixed 500 ms bound. NTP slew is tolerated; a material wall-clock step is not.
+r1b_clock_continuity_gate() {
+  local w0=${1:-} m0=${2:-} w1=${3:-} m1=${4:-}
+  r1b_pair_valid "$w0" "$m0" && r1b_pair_valid "$w1" "$m1" || { r1b_reason "R1B_CLOCK_PAIR_MALFORMED"; return 1; }
+  env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C "$R1B_TIME_PYTHON" -I -B - "$w0" "$m0" "$w1" "$m1" "$R1B_CLOCK_CONTINUITY_TOLERANCE_SEC" <<'PYEOF'
+import math, sys
+w0, m0, w1, m1, tol = map(float, sys.argv[1:])
+wall = w1 - w0
+mono = m1 - m0
+err = abs(wall - mono)
+if not all(map(math.isfinite, (w0, m0, w1, m1, tol))) or wall <= 0 or mono <= 0 or tol <= 0 or err > tol:
+    print(f"R1B_CLOCK_CONTINUITY=FAIL wall_elapsed={wall:.9f} monotonic_elapsed={mono:.9f} delta_error={err:.9f}", file=sys.stderr)
+    raise SystemExit(1)
+print(f"R1B_CLOCK_CONTINUITY=PASS wall_elapsed={wall:.9f} monotonic_elapsed={mono:.9f} delta_error={err:.9f}")
+PYEOF
+}
 # r1b_attempt_unconsumed AUTH_DIR — read-only pre-gate: NEITHER the canonical stage-global marker NOR the authorization-local marker exists.
 r1b_attempt_unconsumed() {
   local dir=${1:-} canon marker
@@ -110,8 +138,12 @@ r1b_consume_attempt() {
   # The marker now EXISTS: from here the attempt is consumed whatever happens. A failed durability barrier is a consumed FAIL (no window, no observation, no retry); the marker is never removed or rewritten.
   r1b_durable "$marker" "$canon" || { r1b_reason "R1B_MARKER_NOT_DURABLE (the attempt IS consumed: the canonical marker exists; no retry is permitted)"; return 1; }
   $SUDO chattr +i "$marker" 2>/dev/null || true      # best-effort immutability of the consumption record (after durability)
-  R1B_WINDOW_START=$(date +%s.%N); export R1B_WINDOW_START   # sampled strictly AFTER the stage-global marker exists AND is durable
-  if ! ( set -o noclobber; printf 'consumed_at=%s\nconsumed_epoch=%s\n' "$(date -u +%FT%TZ)" "$R1B_WINDOW_START" > "$dir/R1B-ATTEMPT-CONSUMED" ) 2>/dev/null; then
+  local pair
+  pair=$(r1b_time_pair) || { r1b_reason "R1B_WINDOW_START_CLOCK_SAMPLE_FAILED (attempt IS consumed; no retry)"; return 1; }
+  read -r R1B_WINDOW_START R1B_WINDOW_START_MONOTONIC <<< "$pair"
+  r1b_pair_valid "$R1B_WINDOW_START" "$R1B_WINDOW_START_MONOTONIC" || { r1b_reason "R1B_WINDOW_START_CLOCK_SAMPLE_MALFORMED (attempt IS consumed; no retry)"; return 1; }
+  export R1B_WINDOW_START R1B_WINDOW_START_MONOTONIC
+  if ! ( set -o noclobber; printf 'consumed_at=%s\nconsumed_epoch=%s\nconsumed_monotonic=%s\n' "$(date -u +%FT%TZ)" "$R1B_WINDOW_START" "$R1B_WINDOW_START_MONOTONIC" > "$dir/R1B-ATTEMPT-CONSUMED" ) 2>/dev/null; then
     r1b_reason "R1B_LOCAL_MARKER_NOT_WRITTEN (the attempt IS consumed: the canonical stage-global marker exists; no retry is permitted)"; return 1
   fi
 }
@@ -262,21 +294,27 @@ r1b_run_attempt() {
     return 1
   fi
   echo "R1B_ATTEMPT_CONSUMED=YES"
-  echo "R1B_EVENT_WINDOW_OPEN=YES R1B_WINDOW_START_EPOCH=$R1B_WINDOW_START"
+  echo "R1B_EVENT_WINDOW_OPEN=YES R1B_WINDOW_START_EPOCH=$R1B_WINDOW_START R1B_WINDOW_START_MONOTONIC=$R1B_WINDOW_START_MONOTONIC"
   echo "WAITING_FOR_GENUINE_EXTERNAL_EVENT=YES (this runner generates NO event; the owner performs the authorized genuine external event separately)"
   if ! r1b_hook_observe "$seconds"; then r1b_attempt_failed observe; return 1; fi
-  R1B_WINDOW_END=$(date +%s.%N); export R1B_WINDOW_END   # the exact END of the marker-bounded window: recorded the instant the bounded wait completes, BEFORE any final capture
+  local end_pair
+  end_pair=$(r1b_time_pair) || { r1b_attempt_failed clocksample; return 1; }
+  read -r R1B_WINDOW_END R1B_WINDOW_END_MONOTONIC <<< "$end_pair"
+  r1b_pair_valid "$R1B_WINDOW_END" "$R1B_WINDOW_END_MONOTONIC" || { r1b_attempt_failed clocksample; return 1; }
+  export R1B_WINDOW_END R1B_WINDOW_END_MONOTONIC
   canon=$(r1b_canonical_dir)
-  # MANDATORY and exclusive: the canonical marker-bounded window record is the durable evidence of the window. If it cannot be created (permission, I/O, an existing record) the attempt FAILS closed
-  # (consumed, no rerun, evidence preserved) and NO final capture or verifier run happens.
-  if ! $SUDO bash -c 'set -o noclobber; printf "window_start=%s\nwindow_end=%s\nobserve_seconds=%s\n" "$2" "$3" "$4" > "$1"' _ "$canon/$R1B_WINDOW_RECORD_NAME" "$R1B_WINDOW_START" "$R1B_WINDOW_END" "$seconds" 2>/dev/null; then
+  # MANDATORY and exclusive: the canonical marker-bounded window record is the durable evidence of the window. It carries both wall and monotonic boundaries.
+  if ! $SUDO bash -c 'set -o noclobber; printf "window_start=%s\nwindow_end=%s\nmonotonic_start=%s\nmonotonic_end=%s\nobserve_seconds=%s\n" "$2" "$3" "$4" "$5" "$6" > "$1"' _ "$canon/$R1B_WINDOW_RECORD_NAME" "$R1B_WINDOW_START" "$R1B_WINDOW_END" "$R1B_WINDOW_START_MONOTONIC" "$R1B_WINDOW_END_MONOTONIC" "$seconds" 2>/dev/null; then
     r1b_attempt_failed windowrecord; return 1
   fi
-  # the record exists: force its FILE durable, then the canonical DIRECTORY; only then may FINAL (and later VERIFY) run. A failed barrier is a consumed FAIL with evidence preserved.
+  # the record exists: force its FILE durable, then the canonical DIRECTORY; only then test clock continuity and permit FINAL.
   if ! r1b_durable "$canon/$R1B_WINDOW_RECORD_NAME" "$canon"; then
     r1b_attempt_failed windowrecord; return 1
   fi
-  echo "R1B_EVENT_WINDOW_OPEN=NO R1B_WINDOW_END_EPOCH=$R1B_WINDOW_END"
+  if ! r1b_clock_continuity_gate "$R1B_WINDOW_START" "$R1B_WINDOW_START_MONOTONIC" "$R1B_WINDOW_END" "$R1B_WINDOW_END_MONOTONIC"; then
+    r1b_attempt_failed clockcontinuity; return 1
+  fi
+  echo "R1B_EVENT_WINDOW_OPEN=NO R1B_WINDOW_END_EPOCH=$R1B_WINDOW_END R1B_WINDOW_END_MONOTONIC=$R1B_WINDOW_END_MONOTONIC"
   if ! r1b_hook_final; then r1b_attempt_failed final; return 1; fi
   if ! r1b_hook_verify; then r1b_attempt_failed verify; return 1; fi
   echo "R1B_RESULT=PASS"
