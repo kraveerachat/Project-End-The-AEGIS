@@ -11,15 +11,17 @@ edit_policy: owner-writable
 # 🔒 IDEA3 — AEGIS Lockdown
 
 Current checkpoint: `R1A` executed live exactly once and is permanently consumed.
-The genuine external detector chain was observed and independently bound to the
-authorized marker window (`REAL_DETECTOR_CHAIN_EVIDENCE=PASS`,
-`FORENSIC_CHAIN_BINDING=PASS`), but the governed stage closed FAIL at the
+The genuine external detector chain was observed, and an owner-run read-only
+post-attempt forensic readout (not a governed stage output and not reproducible
+from committed public evidence alone) bound it to the authorized marker window
+(`REAL_DETECTOR_CHAIN_EVIDENCE=PASS`, `FORENSIC_CHAIN_BINDING=PASS`), but the governed stage closed FAIL at the
 PRE→POST preservation comparator before its final verify hook
 (`R1A_RESULT=FAIL`, `R1A_RERUN_ALLOWED=NO`). No acceptance claim is promoted:
 `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, and
 Recovery R2–R8 remains blocked. The runtime-only R1I table remains installed
-pending a separately reviewed post-failure governance decision; do not rerun
-R1A. See [[idea3/idea3-status]].
+pending a separately reviewed post-failure governance decision under a new
+stage ID; no adjudication may alter `R1A_RESULT=FAIL`, bypass an R1A receipt
+gate, or create `R1A_LIVE=CLOSED_PASS`. Do not rerun R1A. See [[idea3/idea3-status]].
 
 ## Start here
 
