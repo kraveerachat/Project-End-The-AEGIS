@@ -99,6 +99,7 @@ control_git_gate() {
   done < "$CTRL/R1A-CONTROL-SHA256SUMS"
 }
 control_gate || die "the control snapshot is not the frozen immutable authority; nothing was sourced, created or touched"
+control_git_gate || die "the control snapshot is not byte-identical to the pinned-main source; nothing was sourced, created or touched"
 # shellcheck disable=SC1090
 source "$LIB"
 RUNNER_SHA256=$(sha256sum "$0" | cut -d' ' -f1)

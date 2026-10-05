@@ -98,7 +98,7 @@ def make_control_snapshot(tmp_path: Path, src: Path | None = None) -> tuple[Path
     return dest, tool.control_snapshot(src or P4, dest)
 
 
-def pinned_copy(tmp_path: Path, **override: str) -> Path:
+def pinned_copy(tmp_path: Path, repo: Path | None = None, **override: str) -> Path:
     pins = {
         "EXPECTED_MAIN": "a" * 40, "OPERATOR_USER": "owner", "OPERATOR_UID": "1000", "RELEASE_ID": RELEASE, "PRODUCTION_DETECTOR_SHA256": "b" * 64,
         "DETECTOR_UNIT_SHA256": "c" * 64, "RECOVERY_CORE_SHA256": "d" * 64, "VERIFIER_MANIFEST_SHA256": "e" * 64, "VERIFIER_SNAPSHOT_DIR": "/opt/x/verifier", "CONTROL_MANIFEST_SHA256": "9" * 64, "CONTROL_SNAPSHOT_DIR": "/opt/x/control",
@@ -108,7 +108,7 @@ def pinned_copy(tmp_path: Path, **override: str) -> Path:
     text = RUNNER.read_text()
     for key, value in pins.items():
         text = re.sub(rf"^{key}=PIN_\w+$", f"{key}={value}", text, flags=re.M)
-    text = text.replace("PIN_PYTHON_BIN", "/usr/bin/python3").replace("/home/PIN_OPERATOR_HOME/PIN_PINNED_WORKTREE_NOT_A_REAL_PATH", str(ROOT.parent))
+    text = text.replace("PIN_PYTHON_BIN", "/usr/bin/python3").replace("/home/PIN_OPERATOR_HOME/PIN_PINNED_WORKTREE_NOT_A_REAL_PATH", str(repo or ROOT.parent))
     text = text.replace("/PIN_EVIDENCE_ROOT/", f"{tmp_path}/evidence/")
     path = tmp_path / "frozen.sh"
     path.write_text(text)
@@ -143,10 +143,10 @@ def test_the_library_ipv4_validator_is_strict(ip: str, ok: bool) -> None:
 
 
 def test_wrong_operator_is_refused_before_sudo_or_any_file_is_created(tmp_path: Path) -> None:
-    dest, sha = make_control_snapshot(tmp_path)
-    frozen = pinned_copy(tmp_path, OPERATOR_USER="someone-else", OPERATOR_UID="4242", CONTROL_SNAPSHOT_DIR=str(dest), CONTROL_MANIFEST_SHA256=sha)
+    repo, dest, sha, head = control_world(tmp_path)
+    frozen = pinned_copy(tmp_path, repo, OPERATOR_USER="someone-else", OPERATOR_UID="4242", CONTROL_SNAPSHOT_DIR=str(dest), CONTROL_MANIFEST_SHA256=sha, EXPECTED_MAIN=head)
     result = bash(f'bash "{frozen}" "{tmp_path}"')
-    assert result.returncode == 1 and "operator identity" in (result.stdout + result.stderr)
+    assert result.returncode == 1 and "operator identity" in (result.stdout + result.stderr)  # both control gates passed, the library was sourced, the identity gate refused
     assert not (tmp_path / "evidence").exists() and not any(tmp_path.glob("*/R1A-ATTEMPT-CONSUMED"))
 
 
@@ -1105,6 +1105,63 @@ def test_the_snapshot_tool_builds_a_complete_read_only_control_tree(tmp_path: Pa
     assert all(not (p.stat().st_mode & 0o222) for p in [dest, *dest.rglob("*")])
     with pytest.raises(tool.SnapshotError):
         tool.control_snapshot(P4, dest)  # never overwrites
+
+
+# --- round 4: BOTH control gates are proven inline BEFORE the first source -----------------------------------------------------------------------
+
+
+def test_control_gate_then_control_git_gate_then_first_source_is_the_boot_order() -> None:
+    text = RUNNER.read_text()
+    gate = text.index("control_gate || die")
+    git_gate = text.index("control_git_gate || die")
+    first_source = text.index('source "$LIB"')
+    assert text.index("control_gate() {") < gate < git_gate < first_source and text.index("control_git_gate() {") < gate
+    assert text.count('source "$LIB"') == 1
+    boot = text[:first_source]
+    assert not re.search(r'^\s*(source|\.)\s+"', "\n".join(code_lines_of(boot)), re.M)  # nothing is sourced before both gates
+
+
+def code_lines_of(text: str) -> list[str]:
+    return [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+def test_a_self_consistent_tampered_control_snapshot_is_never_sourced(tmp_path: Path) -> None:
+    """The attacker edits p4-r1a-run-lib.sh, rebuilds a VALID manifest and pins its digest in the frozen runner: control_gate passes, control_git_gate must refuse BEFORE the library is sourced."""
+    repo, _, _, head = control_world(tmp_path)
+    tampered_src = tmp_path / "tampered-src"
+    shutil.copytree(repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4", tampered_src)
+    sentinel = tmp_path / "SENTINEL_SOURCED"
+    lib = tampered_src / "p4-r1a-run-lib.sh"
+    lib.write_text(f'echo tampered-library-was-sourced > "{sentinel}"\n' + lib.read_text())
+    dest = tmp_path / "tampered-snapshot"
+    tampered_sha = load_snapshot_tool().control_snapshot(tampered_src, dest)
+    # the self-consistent snapshot passes control_gate on its own...
+    assert "control=0" in gates(repo, dest, tampered_sha, head).stdout
+    # ...but the real frozen-runner boot path refuses it before any source
+    frozen = pinned_copy(tmp_path, repo, CONTROL_SNAPSHOT_DIR=str(dest), CONTROL_MANIFEST_SHA256=tampered_sha, EXPECTED_MAIN=head)
+    result = bash(f'bash "{frozen}" "{tmp_path}"')
+    assert result.returncode == 1 and "CONTROL_FILE_NOT_THE_PINNED_MAIN_SOURCE:p4-r1a-run-lib.sh" in result.stderr and "byte-identical to the pinned-main source" in result.stderr
+    assert not sentinel.exists(), "the tampered library was SOURCED before the pinned-main check"
+    assert "operator identity" not in result.stdout + result.stderr and not (tmp_path / "evidence").exists()
+
+
+def test_the_intact_snapshot_reaches_the_library_and_the_sentinel_proves_the_probe_works(tmp_path: Path) -> None:
+    """Control experiment: a sentinel in a library that IS the pinned-main bytes (committed in the repo too) is sourced, so the absence above is meaningful."""
+    repo = tmp_path / "repo"
+    src = repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4"
+    shutil.copytree(P4, src, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    sentinel = tmp_path / "SENTINEL_SOURCED"
+    lib = src / "p4-r1a-run-lib.sh"
+    lib.write_text(f'echo sourced > "{sentinel}"\n' + lib.read_text())  # the sentinel is part of the PINNED source here
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    for cmd in (["config", "user.email", "t@e.invalid"], ["config", "user.name", "t"], ["add", "-A"], ["commit", "-q", "-m", "x"]):
+        subprocess.run(["git", "-C", str(repo), *cmd], check=True, capture_output=True)
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    dest = tmp_path / "snap"
+    sha = load_snapshot_tool().control_snapshot(src, dest)
+    frozen = pinned_copy(tmp_path, repo, OPERATOR_USER="someone-else", OPERATOR_UID="4242", CONTROL_SNAPSHOT_DIR=str(dest), CONTROL_MANIFEST_SHA256=sha, EXPECTED_MAIN=head)
+    result = bash(f'bash "{frozen}" "{tmp_path}"')
+    assert sentinel.exists() and "operator identity" in result.stdout + result.stderr
 
 
 # --------------------------------------------------------------------------- evidence (existing fail-closed verifier is the authority)
