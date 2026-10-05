@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
-import { Download, Play, RefreshCw, SearchX, ServerOff } from 'lucide-react'
-import { fmtHM, fmtTime } from '../data.js'
-import { EmptyState, FeedChrome } from '../components/ui.jsx'
+import { useMemo } from 'react'
+import { Download, RefreshCw, SearchX, ServerOff } from 'lucide-react'
+import { fmtHM } from '../data.js'
+import { EmptyState } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
 import { getViewState, VIEW_STATE } from '../lib/viewState.js'
 
@@ -20,24 +20,6 @@ function formatDuration(seconds) {
     : `${minutes}:${String(secs).padStart(2, '0')}`
 }
 
-// Convert a clip's optional segment bar into reviewable time markers using the
-// measured clip duration. Final logout/session clips can be shorter than 5 min.
-function segMarkers(clip) {
-  const out = []
-  const totalSec = clipDurationSeconds(clip)
-  if (totalSec <= 0) return out
-  let cum = 0
-  for (const s of clip.segs ?? []) {
-    if (s.k === 'warn') {
-      const a = clip.start + (cum / 100) * totalSec * 1000
-      const b = clip.start + ((cum + s.w) / 100) * totalSec * 1000
-      out.push({ from: a, to: b })
-    }
-    cum += s.w
-  }
-  return out
-}
-
 // ⚠️ `cameras` มาจาก GET /api/cameras — ขอบเขตถูกกรองผ่าน camera_assignment
 // "ฝั่งเซิร์ฟเวอร์" แล้ว ตัวกรองกล้องใน UI เป็นความสะดวก ไม่ใช่ control:
 // รายการคลิปถูกจำกัดตามขอบเขตนี้เสมอ ไม่ว่า client จะเลือกอะไร
@@ -45,7 +27,6 @@ function segMarkers(clip) {
 // ⚠️ Phase 2: คลิปมาจาก GET /api/clips เท่านั้น (server ผูก camName ให้แล้ว) —
 // ไม่มีการ generate mock ฝั่ง client อีกต่อไป
 export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, setArcResult }) {
-  const [openClip, setOpenClip] = useState(null)
   const clipsApi = useApi('/api/clips', { refreshMs: 30_000 })
   const visibleIds = useMemo(() => new Set(cameras.map((c) => c.id)), [cameras])
 
@@ -106,30 +87,26 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
       ) : (
         <div className="clipgrid">
           {clips.map((cl, i) => {
-            const open = openClip === cl.id
-            const markers = segMarkers(cl)
             const durationSec = clipDurationSeconds(cl)
             const videoUrl = `${import.meta.env.BASE_URL}api/clips/${cl.id}/video`
             const downloadUrl = `${import.meta.env.BASE_URL}api/clips/${cl.id}/download`
             return (
               <article key={cl.id} className="clip rise" style={{ '--i': Math.min(i, 8) }}>
-                <button
-                  type="button"
-                  className="clipthumb"
-                  aria-expanded={open}
-                  aria-label={`${cl.cam} clip from ${fmtHM(cl.start)} — ${open ? 'hide' : 'show'} segment review`}
-                  onClick={() => setOpenClip(open ? null : cl.id)}
-                >
-                  <FeedChrome />
+                <div className="clipthumb">
+                  {/* Same-origin video route enforces session, camera scope and
+                      verified-NAS storage without exposing a filesystem path. */}
+                  <video
+                    className="clipvideo"
+                    src={videoUrl}
+                    aria-label={`${cl.cam} recording from ${fmtHM(cl.start)}`}
+                    controls
+                    preload="metadata"
+                  />
                   <span className="clipid mono">{cl.cam}</span>
                   {cl.live
                     ? <span className="clipdur mono reclive"><span className="rec" />{formatDuration(durationSec)}</span>
                     : <span className="clipdur mono">{formatDuration(durationSec)}</span>}
-                  <span className="play" aria-hidden="true"><Play /></span>
-                  <span className="segbar" aria-hidden="true">
-                    {(cl.segs ?? []).map((sg, j) => <span key={j} className={`seg ${sg.k}`} style={{ width: sg.w + '%' }} />)}
-                  </span>
-                </button>
+                </div>
                 <div className="clipbody">
                   <div className="cliprow">
                     <div>
@@ -151,33 +128,6 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                     )}
                   </div>
                 </div>
-                {open && (
-                  <div className="clipdetail">
-                    {/* Finalized clips are read by Monitor through its read-only
-                        NAS mount. The browser never receives a filesystem path;
-                        same-origin /api/clips/:id/video enforces session + camera
-                        scope and preserves the /monitor/ gateway prefix. */}
-                    <video
-                      key={cl.id}
-                      className="clipvideo"
-                      src={videoUrl}
-                      controls
-                      preload="metadata"
-                      style={{ width: '100%', borderRadius: 8, marginBottom: 10, background: '#000' }}
-                    />
-                    {markers.length === 0 ? (
-                      <div className="mkrow"><span className="mkdot" />No flagged windows — authorized activity only.</div>
-                    ) : (
-                      markers.map((m, j) => (
-                        <div key={j} className="mkrow warn">
-                          <span className="mkdot" />
-                          <span className="mono">{fmtTime(m.from)} – {fmtTime(m.to)}</span>
-                          <span>Unknown present · flagged</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
               </article>
             )
           })}

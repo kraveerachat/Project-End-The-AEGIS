@@ -651,7 +651,7 @@ kbd {
 
 .clipgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .clip {
-  border-radius: 14px; overflow: hidden; cursor: pointer;
+  border-radius: 14px; overflow: hidden;
   transition: transform .16s var(--ease), box-shadow .16s var(--ease);
   border: 1px solid var(--bord);
   text-align: left; padding: 0; background: var(--glass);
@@ -659,29 +659,12 @@ kbd {
   display: block; width: 100%;
 }
 .clip:hover, .clip:focus-visible { transform: translateY(-3px); box-shadow: 0 10px 34px rgba(0, 0, 0, .4), 0 0 20px rgba(0, 229, 255, .12); }
-.clipthumb { position: relative; aspect-ratio: 16/9; background: repeating-linear-gradient(45deg, #0a1522 0 2px, #070f19 2px 11px); }
-.clipid { position: absolute; top: 9px; left: 9px; font-size: 10.5px; padding: 3px 8px; background: rgba(5, 11, 20, .72); border: 1px solid var(--bord); border-radius: 6px; }
-.clipdur { position: absolute; top: 9px; right: 9px; font-size: 10px; color: var(--slate); background: rgba(5, 11, 20, .72); border: 1px solid var(--bord); padding: 3px 7px; border-radius: 6px; }
+.clipthumb { position: relative; aspect-ratio: 16/9; background: #000; overflow: hidden; }
+.clipvideo { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.clipid { position: absolute; top: 9px; left: 9px; font-size: 10.5px; color: #fff; padding: 3px 8px; background: rgba(5, 11, 20, .72); border: 1px solid var(--bord); border-radius: 6px; pointer-events: none; }
+.clipdur { position: absolute; top: 9px; right: 9px; font-size: 10px; color: #fff; background: rgba(5, 11, 20, .72); border: 1px solid var(--bord); padding: 3px 7px; border-radius: 6px; pointer-events: none; }
 .clipdur.reclive { color: var(--red); border-color: rgba(255, 51, 102, .4); display: flex; align-items: center; gap: 5px; }
 .clipdur.reclive .rec { width: 6px; height: 6px; }
-.play {
-  position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%);
-  width: 42px; height: 42px; border-radius: 50%;
-  background: rgba(5, 11, 20, .6); border: 1px solid var(--bord2);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--teal); box-shadow: 0 0 18px rgba(0, 229, 255, .2);
-}
-.play svg { width: 16px; height: 16px; margin-left: 2px; }
-.segbar {
-  position: absolute; left: 10px; right: 10px; bottom: 10px; height: 6px;
-  border-radius: 4px; overflow: hidden; display: flex;
-  border: 1px solid rgba(255, 255, 255, .12);
-  background: rgba(255, 255, 255, .05);
-}
-.seg { height: 100%; }
-.seg.ok { background: linear-gradient(90deg, rgba(0, 229, 255, .7), rgba(0, 229, 255, .5)); }
-.seg.warn { background: var(--amber); box-shadow: 0 0 8px rgba(255, 157, 0, .6); }
-.seg.rec { background: linear-gradient(90deg, rgba(255, 51, 102, .65), rgba(255, 51, 102, .5)); animation: segrec 1.6s ease-in-out infinite; }
 .clipbody { padding: 12px 13px; }
 .cliprow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .clipstart { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -691,8 +674,8 @@ kbd {
 .tag.auth { background: rgba(0, 229, 255, .14); color: var(--teal); border: 1px solid rgba(0, 229, 255, .25); }
 .tag.unk { background: rgba(255, 157, 0, .14); color: var(--amber); border: 1px solid rgba(255, 157, 0, .3); }
 
-.clipthumb { display: block; width: 100%; border: 0; padding: 0; cursor: pointer; }
-.clipthumb:focus-visible { outline: 2px solid var(--teal); outline-offset: -2px; }
+.clipthumb { display: block; width: 100%; }
+.clipvideo:focus-visible { outline: 2px solid var(--teal); outline-offset: -2px; }
 .clipdetail {
   border-top: 1px solid rgba(255, 255, 255, .06);
   padding: 10px 13px 12px;
@@ -958,7 +941,7 @@ table.dt { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 6
   }
   .scanline, .png .ring { display: none; }
   .orb.a, .orb.b, .orb.c { animation: none; }
-  .rec, .bbox.unk, .acglow, .seg.rec { animation: none; }
+  .rec, .bbox.unk, .acglow { animation: none; }
   .lost-r::after { content: '···'; animation: none; }
 }
 
