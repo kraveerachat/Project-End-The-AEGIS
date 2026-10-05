@@ -37,11 +37,11 @@ def preconsume(*, baseline_path: str, audit_db: str) -> dict:
     preserved = baseline.get("preserved_open_incidents")
     if not isinstance(preserved, list) or len(preserved) != 1 or not isinstance(preserved[0], dict):
         raise r1.AcceptanceError("PRESERVED_INCIDENT_BASELINE_MALFORMED")
-    marks = r1._audit_marks(audit_db)
+    marks, preserved_now = r1._audit_baseline_state(audit_db)
     expected = {k: baseline.get(k) for k in ("audit_max_id", "incident_max_id", "open_incidents")}
     if marks != expected:
         raise r1.AcceptanceError("PRECONSUME_AUDIT_DRIFT")
-    if r1._preserved_open_incidents(audit_db) != preserved:
+    if preserved_now != preserved:
         raise r1.AcceptanceError("PRESERVED_INCIDENT_CHANGED")
     return {
         "schema": "aegis.idea3.r1b-preconsume/1",
