@@ -96,7 +96,7 @@ PIN_SPECS: dict[str, tuple[re.Pattern[str], str, str]] = {
     "OBSERVE_SECONDS": (re.compile(r"^OBSERVE_SECONDS=(.*)$", re.M), "PIN_OBSERVE_SECONDS", "seconds"),
     "REPO": (re.compile(r"^REPO=(\S+)   # ", re.M), "/home/PIN_OPERATOR_HOME/PIN_PINNED_WORKTREE_NOT_A_REAL_PATH", "path"),
     "PY": (re.compile(r"^PY=(.*)$", re.M), "PIN_PYTHON_BIN", "path"),
-    "EVIDENCE_ROOT": (re.compile(r"^EVID=(/[^\n$]*?)/\$TODAY-r1a-\$STAMP$", re.M), "/PIN_EVIDENCE_ROOT", "path"),
+    "EVIDENCE_ROOT": (re.compile(r"^EVID=(/[^\n$]*?)/\$TODAY-r1b-\$STAMP$", re.M), "/PIN_EVIDENCE_ROOT", "path"),
 }
 
 
