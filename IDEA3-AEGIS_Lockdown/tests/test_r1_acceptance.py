@@ -53,16 +53,16 @@ def make_db(path, *, old=True):
     conn.close()
 
 
-def add_incident(path, *, ip=IP, state="OPEN", at=T0 + 10, bound=True, accepted=True, a_pid=PID, a_uid=UID, a_ip=None, action="CREATED"):
+def add_incident(path, *, ip=IP, state="OPEN", at=T0 + 8, bound=True, accepted=True, a_pid=PID, a_uid=UID, a_ip=None, action="CREATED", accepted_at=None, bound_at=None):
     conn = sqlite3.connect(path)
     cur = conn.execute("INSERT INTO incidents (opened_at, state, attacker_ip) VALUES (?, ?, ?)", (stamp(at), state, ip))
     iid = cur.lastrowid
     if accepted:
         conn.execute("INSERT INTO audit_logs (timestamp, level, event_type, details, incident_id) VALUES (?, 'INFO', 'ALERT_ACCEPTED', ?, ?)",
-                     (stamp(at), f"uid={a_uid} pid={a_pid} attacker_ip={a_ip or ip} action={action}", iid))
+                     (stamp(at if accepted_at is None else accepted_at), f"uid={a_uid} pid={a_pid} attacker_ip={a_ip or ip} action={action}", iid))
     if bound:
         conn.execute("INSERT INTO audit_logs (timestamp, level, event_type, details, incident_id) VALUES (?, 'WARN', 'INCIDENT_BOUND', ?, ?)",
-                     (stamp(at), f"attacker_ip={ip} source=detector_alert action=CREATED", iid))
+                     (stamp(at if bound_at is None else bound_at), f"attacker_ip={ip} source=detector_alert action=CREATED", iid))
     conn.commit()
     conn.close()
     return iid
@@ -344,6 +344,35 @@ def test_stale_detector_event(world):
     assert reason(run(ok_world(world), journal=[journal_line(at=T0 - 500)])) == "DETECTOR_ALERT_LINE_MISSING_OR_AMBIGUOUS"
 
 
+# --- causal order: the Core writes its rows BEFORE it replies; the detector logs SENT_BOUND AFTER the reply ------------------------------------
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"at": T0 + 10},  # incident, INCIDENT_BOUND and ALERT_ACCEPTED all stored AFTER the detector's alert line (T0 + 9)
+    {"at": T0 + 8, "accepted_at": T0 + 10},  # only ALERT_ACCEPTED later than the alert line
+    {"at": T0 + 8, "bound_at": T0 + 10},  # only INCIDENT_BOUND later than the alert line
+    {"at": T0 + 10, "accepted_at": T0 + 8, "bound_at": T0 + 8},  # only the incident's own opened_at later
+])
+def test_an_audit_row_stored_after_the_detector_alert_line_is_not_this_chain(world, kwargs):
+    add_incident(world.db, **kwargs)
+    result = run(world)
+    assert result["result"] == "FAIL" and result["reason"] == "AUDIT_ROW_AFTER_DETECTOR_ALERT"
+    assert result["claims"] == r1.CLAIMS
+
+
+@pytest.mark.parametrize("alert_at", [T0 + 9.6, T0 + 9.0])
+def test_whole_second_audit_rows_at_or_before_the_alert_time_still_pass(world, alert_at):
+    # a row whose real time is 1800000009.2 is stored as the whole second 1800000009: stored <= alert (the detector line follows the reply), including the exact-second boundary
+    add_incident(world.db, at=T0 + 9)
+    assert r1.verify(world.baseline, final(world, journal=[journal_line(at=alert_at)]), world.db)["result"] == "PASS"
+
+
+def test_no_post_deadline_grace_exists_in_the_causal_predicate():
+    text = open(r1.__file__, encoding="utf-8").read()
+    start = text.index("AUDIT_ROW_AFTER_DETECTOR_ALERT")
+    assert "SKEW_SEC" not in text[start - 160:start + 60]  # the new ordering predicate carries no tolerance
+
+
 def test_detector_event_after_core_acceptance_is_not_causal(world):
     assert reason(run(ok_world(world), journal=[journal_line(at=T0 + 40)])) == "DETECTOR_EVENT_STALE"
 
@@ -615,12 +644,21 @@ def test_baseline_document_holds_no_secret_material(world):
     assert "core.env" not in text and "password" not in text.lower()
 
 
-def test_committed_package_has_no_live_owner_runner():
-    """No new stage is registered and no runner can authorise a live attempt until the owner decides the stage (see receipt)."""
+def test_r1i_and_r1a_are_registered_in_order_and_neither_promotes_the_claim():
+    """Owner-approved R1I and R1A are first-class stages (R1I -> R1A -> Recovery); registration promotes nothing."""
     root = os.path.join(os.path.dirname(__file__), "..", "deploy", "pr11-phase4")
     lib = Path(root, "p4-lib.sh").read_text(encoding="utf-8")
-    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u L8 L9"' in lib
-    assert not [n for n in os.listdir(os.path.join(root, "owner-run")) if "r1" in n.lower()]
+    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A L8 L9"' in lib
+    assert "REGISTERED" == subprocess.run(
+        ["bash", "-c", f'. "{Path(root, "p4-lib.sh")}"; p4_stage_handler_status R1A'],
+        text=True, capture_output=True, check=False,
+    ).stdout.strip()
+    assert r1.CLAIMS["F1_REAL_DETECTOR_ACCEPTANCE"] == "NOT_PROVEN" and r1.CLAIMS["R1_VERIFIED"] == "NOT_CLAIMED"  # registration promotes nothing
+    assert "REGISTERED" == subprocess.run(
+        ["bash", "-c", f'. "{Path(root, "p4-lib.sh")}"; p4_stage_handler_status R1I'],
+        text=True, capture_output=True, check=False,
+    ).stdout.strip()
+    assert "PIN_MAIN_SHA" in Path(root, "owner-run/run-r1i-owner.sh").read_text(encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- producer-side provenance (detector log)

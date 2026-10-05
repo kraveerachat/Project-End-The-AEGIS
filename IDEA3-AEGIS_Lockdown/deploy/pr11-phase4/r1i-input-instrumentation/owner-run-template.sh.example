@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# INERT OWNER-RUN TEMPLATE — not executable as a live stage.
+# Final stage id, authorization path, exact-main pin, and owner review are
+# intentionally unresolved. Do not rename this to a runnable owner script.
+set -euo pipefail
+
+readonly PROVISIONAL_STAGE_ID=R1I
+readonly FINAL_STAGE_ID_OWNER_APPROVAL_REQUIRED=YES
+readonly NO_PRODUCTION_MUTATION=YES
+
+cat >&2 <<'EOF'
+R1I is repository preparation only.
+Supply a separately approved final stage id and fresh owner authorization
+before creating an owner runner. This template performs no preflight, no
+marker consumption, no nft command, no service action, and no event.
+EOF
+exit 1

@@ -4,7 +4,7 @@
 # SHA, the operator identity, the exact OLD and NEW release ids, the NEW release source SHA, the reviewed production_detector.py digest, the reviewed detector unit digest and the reviewed recovery_core.py
 # digest), records the frozen file's SHA-256, and only then authorizes a run. Nothing in this repository executes it, creates an authorization or K3 record, or freezes a pin.
 # Usage (the FROZEN operator user/uid, NOT root):  bash run-f1u-owner.sh <AUTH_DIR>     AUTH_DIR holds authorization-F1u.txt and k3-F1u.txt (FRESH same-day, stage=F1u; never an F1/F1i/F1r/L8p record)
-# Stage order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> [R1A: owner-approved model, NOT registered here] -> Recovery R2-R8 -> LVR -> L8 -> L9. F1u is a NEW governed successor stage, never a retry
+# Stage order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> [R1A: owner-approved model, NOT registered here] -> Recovery R2-R8 -> LVR -> L8 -> L9. F1u is a NEW governed successor stage, never a retry
 # or replay of L8p, the F1i/F1r live attempts or F1 attempt #2 (all consumed forever). It requires, from the pinned commit: the successful F1 attempt #2 closeout and the PR #342 foundation receipt.
 # F1u owns ONLY: install ONE new immutable release (reviewed installer, once); atomically switch /opt/aegis-idea3/current from the exact OLD target to the exact NEW target; restart
 # aegis-idea3-core.service EXACTLY ONCE as the normal governed `systemctl restart` (NO job-mode override); prove the restarted Core runs from the NEW release. The detector has Requires= on the Core, so SYSTEMD

@@ -1,0 +1,5 @@
+# R1I adds and later removes one dedicated nft table and the ruleset/table
+# hashes captured by the shared Phase-4 harness.
+fw.nft.tables
+fw.nft.table.inet.aegis_idea3_r1i.sha256
+fw.nft.ruleset.sha256
