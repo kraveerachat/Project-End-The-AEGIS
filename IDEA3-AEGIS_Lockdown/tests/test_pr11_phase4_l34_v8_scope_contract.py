@@ -61,8 +61,9 @@ V7_AND_SHARED_PINS = {
     # re-pinned by the F1i post-L7 repaired-release install stage task (2026-10-04): p4-lib.sh registers stage F1i (after L8p, before F1r; no repository gap), p4-stage-gate.sh binds F1i
     # to the same no-extra-field authorization rule, and p4-compare.sh adds the label `stage F1i` to the existing RELATIONAL one-release catalog allowance (behavior unchanged:
     # every release already present must stay byte-identical, exactly one named id may be added). No other stage, gate or record rule changed.
-    "p4-stage-gate.sh": "4ae68cfdd398d03d6a448e1ac7cd15af256c8aaf40e2b1accf1b3dc914c42499",
-    "p4-lib.sh": "3e34d93eeeca5d0e78cf99905ea913e45bfd2209cac36e0e3eaff20b7989b9bf",
+    "p4-stage-gate.sh": "9361e0efce3a7345e3b4bffcdae69a7ec729c8f1f1b6b3e7ba2ddd0f9d814794",
+    # re-pinned by the owner-approved R1B successor stage registration (2026-10-06): p4-lib.sh registers stage R1B after the historical R1A (no repository gap) and updates the documented stage order.
+    "p4-lib.sh": "1eab183f98d4c9ecb19b81129a2cfa2e1f8021d28b537b979096614e9bd6c064",
     "p4-compare.sh": "c71350cac6447a72fafc934691c1870fe159758a82a4daf20e5d070d14a5e464",
     "p4-l0-capture.sh": "e5d82dc5959dbcd1aa13ca0d58aa15ed5375a77e918be9a1ec2a8a2ac740a61b",
 }

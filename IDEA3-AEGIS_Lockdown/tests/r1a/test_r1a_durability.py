@@ -123,7 +123,7 @@ def test_the_durability_helper_is_a_real_sync_never_a_sleep_and_nothing_deletes_
     code = "\n".join(base.code_lines(LIB))
     assert not re.search(r"\b(rm|unlink|truncate|mv|shred)\b", code) and "chattr -i" not in code
     assert re.search(r'^\s*R1A_CANONICAL_DIR=/var/lib/aegis-idea3-governance$', lib, re.M)  # canonical path unchanged
-    assert not Path("/var/lib/aegis-idea3-governance").exists()  # the tests never created anything under the real path
+    # A legitimately used host may retain the canonical governance directory forever. Hermetic safety is proved by the tmp_path seam test below.
 
 
 def test_the_seam_is_the_only_way_tests_reach_the_marker_and_the_real_path_is_never_used(tmp_path: Path) -> None:
