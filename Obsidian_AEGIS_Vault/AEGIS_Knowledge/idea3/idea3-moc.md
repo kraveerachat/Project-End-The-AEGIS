@@ -10,10 +10,12 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3 — AEGIS Lockdown
 
-Current repository checkpoint: owner-approved `R1I` is registered after `F1u`
-as the logging-only input instrumentation stage. It is implemented in source
-but has not executed live or deployed to Production; `R1A` remains separate
-and unregistered.
+Current checkpoint: `R1I` (the logging-only input instrumentation stage after
+`F1u`) executed live once and passed (`R1I_LIVE=CLOSED_PASS`, attempt consumed,
+rerun not allowed). The runtime-only `inet aegis_idea3_r1i` table stays
+installed for the separately governed `R1A`, which remains unregistered and
+unexecuted. Real detector acceptance, R1 and Recovery remain unproven; see
+[[idea3/idea3-status]].
 
 ## Start here
 
