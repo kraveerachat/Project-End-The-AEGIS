@@ -128,8 +128,8 @@ r1b_commit_gate() {
 r1b_field_files() {
   git -C "$1" grep -lE "^[[:space:]]*([-*][[:space:]]+)?\`?$3[[:space:]]*=[[:space:]]*$4\`?[[:space:]]*\$" "$2" -- "$R1B_LOGS_REL" 2>/dev/null | sort
 }
-# _r1a_only_receipt REPO MAIN CANONICAL_REL LABEL FIELD=VALUE... — exactly ONE receipt of the pinned commit carries ALL the whole-line fields, and it is the canonical receipt path.
-_r1a_only_receipt() {
+# _r1b_only_receipt REPO MAIN CANONICAL_REL LABEL FIELD=VALUE... — exactly ONE receipt of the pinned commit carries ALL the whole-line fields, and it is the canonical receipt path.
+_r1b_only_receipt() {
   local repo=$1 main=$2 canonical=$3 label=$4 pair files="" part
   shift 4
   for pair in "$@"; do
@@ -146,16 +146,16 @@ r1b_receipt_gate() {
   local repo=${1:-} release=${2:-} main=${3:-} claim files
   [ -n "$repo" ] && [[ "$release" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { r1b_reason "R1B_RECEIPT_GATE_INPUT_INVALID"; return 1; }
   r1b_commit_gate "$repo" "$main" || return 1
-  _r1a_only_receipt "$repo" "$main" "$F1U_F1_CLOSEOUT_RECEIPT_REL" F1_CLOSEOUT F1_LIVE_RESULT=PASS F1_PRODUCTION_DEPLOYED=YES F1_DETECTOR_STARTED=YES \
+  _r1b_only_receipt "$repo" "$main" "$F1U_F1_CLOSEOUT_RECEIPT_REL" F1_CLOSEOUT F1_LIVE_RESULT=PASS F1_PRODUCTION_DEPLOYED=YES F1_DETECTOR_STARTED=YES \
     || { r1b_reason "R1B_F1_CLOSEOUT_MISSING_OR_AMBIGUOUS"; return 1; }
-  _r1a_only_receipt "$repo" "$main" "$F1U_R1_FOUNDATION_RECEIPT_REL" R1_FOUNDATION R1_EVIDENCE_VERIFIER_IMPLEMENTED=YES F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
+  _r1b_only_receipt "$repo" "$main" "$F1U_R1_FOUNDATION_RECEIPT_REL" R1_FOUNDATION R1_EVIDENCE_VERIFIER_IMPLEMENTED=YES F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
     || { r1b_reason "R1B_R1_FOUNDATION_MISSING_OR_AMBIGUOUS"; return 1; }
   # F1u closeout: ONE canonical receipt, naming the pinned current release as installed and activated, deployment-only boundary.
   git -C "$repo" cat-file -e "$main:$R1B_F1U_CLOSEOUT_RECEIPT_REL" 2>/dev/null || { r1b_reason "R1B_F1U_CLOSEOUT_MISSING"; return 1; }
   git -C "$repo" grep -qF "$release" "$main" -- "$R1B_F1U_CLOSEOUT_RECEIPT_REL" && git -C "$repo" grep -q "installed and activated" "$main" -- "$R1B_F1U_CLOSEOUT_RECEIPT_REL" \
     && git -C "$repo" grep -q "F1u proves deployment only" "$main" -- "$R1B_F1U_CLOSEOUT_RECEIPT_REL" || { r1b_reason "R1B_F1U_CLOSEOUT_DOES_NOT_CARRY_THE_PINNED_RELEASE"; return 1; }
   # R1I LIVE closeout: ONE canonical receipt carrying the full success state, and still the unproven claim boundary.
-  _r1a_only_receipt "$repo" "$main" "$R1B_R1I_CLOSEOUT_RECEIPT_REL" R1I_CLOSEOUT R1I_LIVE=CLOSED_PASS R1I_LIVE_EXECUTED=YES R1I_PRODUCTION_DEPLOYED=YES R1I_ATTEMPT_CONSUMED=YES \
+  _r1b_only_receipt "$repo" "$main" "$R1B_R1I_CLOSEOUT_RECEIPT_REL" R1I_CLOSEOUT R1I_LIVE=CLOSED_PASS R1I_LIVE_EXECUTED=YES R1I_PRODUCTION_DEPLOYED=YES R1I_ATTEMPT_CONSUMED=YES \
     R1I_RERUN_ALLOWED=NO PRODUCTION_NFT_NORMALIZATION=PASS_OBSERVED_LIVE F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
     || { r1b_reason "R1B_R1I_CLOSEOUT_MISSING_OR_AMBIGUOUS"; return 1; }
   # The predecessor R1A attempt is immutable FAIL/consumed/no-retry. R1B is a NEW successor stage, never a replay.

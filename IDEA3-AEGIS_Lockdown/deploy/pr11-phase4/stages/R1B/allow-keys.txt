@@ -1,5 +1,5 @@
-# AEGIS IDEA3 PR11 Phase 4 — Stage R1A allowed PRE->POST host state drift.
+# AEGIS IDEA3 PR11 Phase 4 — Stage R1B allowed PRE->POST host state drift.
 #
-# R1A approves NO generic host-state drift. Its only durable effects are GENUINE evidence (ALERT_ACCEPTED, INCIDENT_BOUND, one OPEN incident, detector journal lines) that the
+# R1B approves NO generic host-state drift. Its only durable effects are GENUINE evidence (ALERT_ACCEPTED, INCIDENT_BOUND, one OPEN incident, detector journal lines) that the
 # dedicated r1_acceptance verifier checks against the Core audit store; they are not generic captured host keys and are never "approved drift". Core and detector lifecycle,
 # the current release, the L2 table (incl. blocked_ipv4), the R1I table, listeners, sysctl, network, time, MQTT and IDEA1/IDEA2 keys must all stay IDENTICAL: any unrelated drift fails closed.

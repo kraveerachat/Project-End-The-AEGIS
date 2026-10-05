@@ -11,6 +11,12 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 R1B successor governed stage — repository implementation, NOT executed — 2026-10-06
+
+> [!important] **Repository only.** `R1B_IS_SUCCESSOR_GOVERNED_STAGE=YES`, `R1B_IS_R1A_RETRY=NO`, `R1B_REPOSITORY_IMPLEMENTED=YES`, `R1B_LIVE_EXECUTED=NO`, `R1B_ATTEMPT_CONSUMED=NO`. R1A stays `R1A_RESULT=FAIL_IMMUTABLE` (`R1A_ATTEMPT_CONSUMED=YES`, `R1A_RERUN_ALLOWED=NO`). R1B is ONE attempt (`R1B_NO_RETRY=YES`) with its own canonical marker, a genuine external event only (`R1B_SYNTHETIC_EVENT_ALLOWED=NO`), two pre-consume captures with TrustedClock `SYNCED` and no-drift comparison before the marker, and TrustedClock imported from the immutable verifier snapshot. `R1I_MUST_REMAIN_INSTALLED=YES`; `RECOVERY_R2_R8_BLOCKED_UNTIL_R1B_PASS=YES`; `RECOVERY_R2_R8_EXECUTED=NO`.
+
+- **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`; a future R1B verifier PASS stays `R1B_PROMOTION=NOT_AUTOMATIC`.
+
 ## IDEA3 R1A LIVE — CLOSED_FAIL; genuine detector-chain evidence PASS — 2026-10-05
 
 > [!danger] **R1A executed once and is permanently consumed.** `R1A_LIVE_EXECUTED=YES`, `R1A_ATTEMPT_CONSUMED=YES`, `R1A_RERUN_ALLOWED=NO`, `R1A_RESULT=FAIL`, `R1A_FAILED_STAGE=final`. The owner-run attempt opened one 180-second marker-bounded window and observed one genuine external event. The internal read-only R1 acceptance verifier returned PASS and post-failure forensic binding also passed (`REAL_DETECTOR_CHAIN_EVIDENCE=PASS`, `FORENSIC_CHAIN_BINDING=PASS`), but the governed stage failed before `r1a_hook_verify` because the generic PRE→POST preservation comparator failed. Do not rerun R1A and do not delete/reset the canonical marker, window record, incident or genuine evidence.

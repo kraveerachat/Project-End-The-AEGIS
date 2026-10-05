@@ -1,1 +1,1 @@
-# R1A creates no socket or network listener.
+# R1B creates no socket or network listener.
