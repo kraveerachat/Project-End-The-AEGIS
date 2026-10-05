@@ -158,37 +158,36 @@ def open_audit_view(source_db: Any) -> sqlite3.Connection:
             src.close()
 
 
-def _audit_marks(audit_db: Any) -> dict[str, Any]:
+def _audit_baseline_state(audit_db: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """One internally consistent read-only snapshot of audit maxima + non-closed incidents."""
     view = open_audit_view(audit_db)
     try:
         audit_max = view.execute("SELECT COALESCE(MAX(id), 0) FROM audit_logs").fetchone()[0]
         incident_max = view.execute("SELECT COALESCE(MAX(id), 0) FROM incidents").fetchone()[0]
-        open_count = view.execute("SELECT COUNT(*) FROM incidents WHERE state != 'CLOSED'").fetchone()[0]
-    except sqlite3.Error:
-        raise AcceptanceError("STORE_MALFORMED") from None
-    finally:
-        view.close()
-    return {"audit_max_id": int(audit_max), "incident_max_id": int(incident_max), "open_incidents": int(open_count)}
-
-
-def _preserved_open_incidents(audit_db: Any) -> list[dict[str, Any]]:
-    """Sanitized snapshot of pre-existing non-closed incidents for a successor stage.
-
-    R1A historically required zero. R1B may explicitly allow exactly one preserved
-    R1A incident and must prove it is byte-for-byte unchanged in the relevant
-    database fields at FINAL. This is read-only and never closes or edits it.
-    """
-    view = open_audit_view(audit_db)
-    try:
         rows = view.execute(
             "SELECT id, opened_at, closed_at, state, attacker_ip FROM incidents "
             "WHERE state != 'CLOSED' ORDER BY id"
         ).fetchall()
-        return [dict(row) for row in rows]
+        preserved = [dict(row) for row in rows]
+        marks = {
+            "audit_max_id": int(audit_max),
+            "incident_max_id": int(incident_max),
+            "open_incidents": len(preserved),
+        }
+        return marks, preserved
     except sqlite3.Error:
         raise AcceptanceError("STORE_MALFORMED") from None
     finally:
         view.close()
+
+
+def _audit_marks(audit_db: Any) -> dict[str, Any]:
+    return _audit_baseline_state(audit_db)[0]
+
+
+def _preserved_open_incidents(audit_db: Any) -> list[dict[str, Any]]:
+    """Sanitized snapshot of pre-existing non-closed incidents for a successor stage."""
+    return _audit_baseline_state(audit_db)[1]
 
 
 def capture_baseline(
@@ -202,12 +201,12 @@ def capture_baseline(
         raise AcceptanceError("DETECTOR_UID_INVALID")
     if type(allowed_open_incidents) is not int or allowed_open_incidents not in (0, 1):
         raise AcceptanceError("ALLOWED_OPEN_INCIDENTS_INVALID")
-    marks = _audit_marks(audit_db)
+    marks, current_open = _audit_baseline_state(audit_db)
     preserved: list[dict[str, Any]] = []
     if marks["open_incidents"] != allowed_open_incidents:
         raise AcceptanceError("PREEXISTING_OPEN_INCIDENT")
     if allowed_open_incidents:
-        preserved = _preserved_open_incidents(audit_db)
+        preserved = current_open
         if len(preserved) != 1 or preserved[0].get("state") != "OPEN":
             raise AcceptanceError("PREEXISTING_OPEN_INCIDENT")
     for unit, key in ((CORE_UNIT, "core"), (DETECTOR_UNIT, "detector")):
