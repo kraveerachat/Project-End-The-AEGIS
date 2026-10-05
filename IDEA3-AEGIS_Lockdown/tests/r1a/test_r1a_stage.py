@@ -50,8 +50,8 @@ def stages() -> list[str]:
 def test_r1a_is_registered_exactly_once_between_r1i_and_l8() -> None:
     order = stages()
     assert order.count("R1A") == 1
-    assert order.index("F1u") < order.index("R1I") < order.index("R1A") < order.index("L8") < order.index("L9")
-    assert order[order.index("R1I") + 1] == "R1A"
+    assert order.index("F1u") < order.index("R1I") < order.index("R1A") < order.index("R1B") < order.index("L8") < order.index("L9")
+    assert order[order.index("R1I") + 1] == "R1A" and order[order.index("R1A") + 1] == "R1B"
 
 
 def test_r1a_is_a_mutating_stage_with_no_gap_and_no_authorization_extra() -> None:
