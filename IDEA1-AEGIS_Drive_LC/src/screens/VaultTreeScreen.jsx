@@ -16,6 +16,8 @@ import { VaultBreadcrumbs } from '../components/vault/VaultBreadcrumbs.jsx'
 import { VaultFolderTile } from '../components/vault/VaultFolderTile.jsx'
 import { VaultFileTile } from '../components/vault/VaultFileTile.jsx'
 import { VaultUploadDrawer } from '../components/VaultUploadDrawer.jsx'
+import { VaultTransferPanel } from '../components/vault/VaultTransferPanel.jsx'
+import { createRateEstimator } from '../lib/transferRate.js'
 import { ExternalFileDropSurface } from '../components/ExternalFileDropSurface.jsx'
 import { VaultRecoveryPanel, vaultTreeFolderOptions } from '../components/vault/VaultRecoveryPanel.jsx'
 import {
@@ -64,13 +66,12 @@ import { readFolderHistory, resolveFolderHistoryTarget, writeFolderHistory } fro
 import { WorkspaceMarqueeScope, WorkspaceMarqueeSource } from '../components/WorkspaceMarquee.jsx'
 import { isInternalItemDrag, isExternalFileDrag, writeDragPayload, readDragPayload } from '../lib/fileDragDrop.js'
 import { decryptFileContent, decryptBlobMeta } from '../lib/vaultCrypto.js'
-import { decryptVaultV2Meta, unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
+import { unwrapVaultV2Dek } from '../lib/vaultChunkCrypto.js'
 import { reconcileVaultAfterUpload } from '../lib/vaultPostUploadReconcile.js'
 import {
-  downloadVaultV2, createFileSystemSink, createBufferedSink, MAX_BUFFERED_PLAINTEXT_BYTES,
+  downloadVaultV2, createBufferedSink, MAX_BUFFERED_PLAINTEXT_BYTES, prepareVaultV2Download, VAULT_DOWNLOAD_TIMING,
 } from '../lib/vaultChunkedDownload.js'
 const MAX_PREVIEW_CEILING_BYTES = MAX_BUFFERED_PLAINTEXT_BYTES
-import { supportsStreamingFileSink } from '../lib/vaultChunkedDownload.js'
 
 /** blob id ทึบ: '2:id' — key เดียวกับ GET /api/vault inventory ที่จอใช้แมตช์บล็อบจริงของโหนด */
 const refKey = (r) => `${r?.formatVersion ?? 1}:${String(r?.id ?? '')}`
@@ -92,6 +93,7 @@ function displayNodeName(t, node, rootId) {
    ซองถูกพิสูจน์ความถูกต้องด้วย (decrypt meta ยังถูกเรียก — ผลถูกทิ้ง) แต่ไม่ถูกใช้ตั้งชื่อไฟล์ */
 export async function treeDownloadEntry({
   t, lang, kek, node, blob, unlockedState = null, onFailed,
+  controller = null, onStage, onProgress, onTiming, clickTs = null,
 }) {
   if (!node?.blobRef || !blob) { onFailed?.('NOT_FOUND'); return }
   const ref = { formatVersion: node.blobRef.formatVersion, id: String(node.blobRef.id) }
@@ -99,33 +101,31 @@ export async function treeDownloadEntry({
   // spec §3.2: Download saves the exact original bytes as octet-stream — never the upload-time mediaType,
   // the extension, or the detected preview format (preview needs a render MIME; download does not)
   const type = 'application/octet-stream'
-  const ctrl = new AbortController()
+  const ctrl = controller ?? new AbortController()
   unlockedState?.registerAbort?.(ctrl)
   try {
     if (ref.formatVersion === 2) {
-      // พิสูจน์ซองก่อน (ผลถูกทิ้ง — ชื่อมาจาก manifest เท่านั้น)
-      await decryptVaultV2Meta(kek, blob)
+      // ⚠️ ไม่มี await ใดก่อนบรรทัดนี้: ตัวเลือกไฟล์ต้องเปิดทันทีภายใน user gesture ของการกด
+      //    งานก่อนตัวเลือกไฟล์เป็น O(1) ไม่ขึ้นกับขนาดไฟล์ — ซองถูกพิสูจน์หลังเลือกปลายทาง
+      //    แต่ก่อน createWritable() และก่อนไบต์แรกของเนื้อไฟล์ (prepareVaultV2Download)
+      //    ผลของซองถูกทิ้ง — ชื่อมาจาก manifest เท่านั้น
+      onTiming?.(VAULT_DOWNLOAD_TIMING.CLICK, clickTs ?? globalThis.performance?.now?.() ?? Date.now())
       const plainSize = node.plainSize ?? Math.max(0, blob.size - blob.chunkCount * 16)
-      let sink = null
-      if (supportsStreamingFileSink()) {
-        try {
-          const handle = await globalThis.showSaveFilePicker({ suggestedName: name })
-          sink = createFileSystemSink(await handle.createWritable())
-        } catch (err) {
-          if (err?.name === 'AbortError') return
-          onFailed?.('PICKER')
-          return
-        }
-      } else if (plainSize > MAX_BUFFERED_PLAINTEXT_BYTES) {
-        onFailed?.('TOO_LARGE')
+      const prepared = await prepareVaultV2Download({
+        kek, blob, suggestedName: name, plainSize, signal: ctrl.signal, onTiming,
+      })
+      if (!prepared.ok) {
+        if (prepared.reason === 'cancelled') return
+        onFailed?.(prepared.reason === 'too-large-for-memory' ? 'TOO_LARGE'
+          : prepared.reason === 'picker' || prepared.reason === 'destination' ? 'PICKER' : 'DOWNLOAD')
         return
-      } else {
-        sink = createBufferedSink()
       }
-      const res = await downloadVaultV2({ kek, blob, sink, signal: ctrl.signal })
+      const { sink, dek } = prepared
+      onStage?.({ stage: 'downloading', totalBytes: plainSize, chunkCount: blob.chunkCount })
+      const res = await downloadVaultV2({ dek, blob, sink, signal: ctrl.signal, onProgress, onTiming })
       if (!res.ok) {
         if (res.reason === 'cancelled') return
-        onFailed?.('DOWNLOAD')
+        onFailed?.('DOWNLOAD', res.reason)
         return
       }
       if (sink.kind === 'buffered') {
@@ -339,6 +339,7 @@ export function VaultTreeScreen({
   purgeRef.current = () => {
     setDialog(null)
     setNotice(null)
+    setDownloadTransfer(null)
     setUploadOpen(false)
     releaseTreePreview()
     setDetailsCipher(null)
@@ -483,20 +484,52 @@ export function VaultTreeScreen({
 
   /* ── ดาวน์โหลด: ไฟล์เท่านั้น, ทีละไฟล์, ล็อก = หยุด (TS-14) ──────────────── */
   const [downloadBusy, setDownloadBusy] = useState(false)
+  const downloadBusyRef = useRef(false)
+  // แถบความคืบหน้าจริงของการดาวน์โหลด V2 — ทุกตัวเลขมาจาก onProgress ของ downloadVaultV2
+  const [downloadTransfer, setDownloadTransfer] = useState(null)
+  const downloadAbortRef = useRef(null)
+  const downloadRateRef = useRef(null)
   const startBulkDownload = async (nodes) => {
-    if (downloadBusy || !kek) return
+    const clickTs = globalThis.performance?.now?.() ?? Date.now()
+    if (!kek) return
+    // ⚠️ กดซ้ำระหว่างที่ยังโอนอยู่ต้องได้คำตอบ ไม่ใช่เงียบ (เดิมเงียบ = "กดแล้วไม่เกิดอะไร")
+    if (downloadBusyRef.current) { announce('vaultTreeDownloadBusy'); return }
+    downloadBusyRef.current = true
     setDownloadBusy(true)
     try {
       const files = nodes.filter((n) => n.kind === 'file')
       for (const n of files) {
         if (unlockedState?.isPurged?.()) return // ล็อก = หยุดทันที
         const blob = blobIndex.get(refKey(n.blobRef))
+        const ctrl = new AbortController()
+        downloadAbortRef.current = ctrl
+        downloadRateRef.current = createRateEstimator()
+        let failed = false
         await treeDownloadEntry({
-          t, lang, kek, node: n, blob, unlockedState,
-          onFailed: () => announce('vaultTreeDownloadFailed'),
+          t, lang, kek, node: n, blob, unlockedState, controller: ctrl, clickTs,
+          onStage: ({ totalBytes, chunkCount }) => setDownloadTransfer({
+            kind: 'download', stage: 'downloading', name: n.name ?? null,
+            transferredBytes: 0, totalBytes, percent: 0, chunkIndex: 0, chunkCount, rate: null,
+          }),
+          onProgress: (p) => {
+            const rate = downloadRateRef.current?.sample(p.bytesWritten, performance.now(), { totalBytes: p.totalBytes }) ?? null
+            setDownloadTransfer((prev) => (prev
+              ? { ...prev, ...p, transferredBytes: p.bytesWritten, rate: rate ?? prev.rate }
+              : prev))
+          },
+          onFailed: (_code, reason) => {
+            failed = true
+            announce('vaultTreeDownloadFailed')
+            setDownloadTransfer((prev) => (prev ? { ...prev, stage: 'failed', reason } : prev))
+          },
         })
+        downloadAbortRef.current = null
+        if (!failed) setDownloadTransfer(null)
+        // Cancel (หรือล็อก) = หยุดทั้งชุด ไม่ใช่ข้ามไปไฟล์ถัดไป
+        if (ctrl.signal.aborted) return
       }
     } finally {
+      downloadBusyRef.current = false
       setDownloadBusy(false)
     }
   }
@@ -1205,6 +1238,12 @@ export function VaultTreeScreen({
       <p role="alert" data-testid="vault-tree-notice" data-marquee-ignore="" className="text-[12.5px] text-ink-3 mb-3 min-h-[16px]">
         {announcementText ?? ''}
       </p>
+      <VaultTransferPanel
+        t={t}
+        transfer={downloadTransfer}
+        onCancel={() => downloadAbortRef.current?.abort()}
+        onDismiss={() => setDownloadTransfer(null)}
+      />
       {/* Decision P2A-W: head written by a newer Drive (manifest v2) — browse/preview/download only until reload */}
       {tree.manifestNewer && (
         <p role="status" data-testid="vault-tree-manifest-newer" data-marquee-ignore="" className="text-[12.5px] text-ink-2 mb-3 rounded-[var(--r-tile)] border border-line bg-card px-3 py-2">
