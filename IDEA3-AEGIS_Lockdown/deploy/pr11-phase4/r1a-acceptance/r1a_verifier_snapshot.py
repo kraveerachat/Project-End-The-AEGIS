@@ -102,10 +102,66 @@ def check_tree_owner(root: Path, owner_uid: int = PRODUCTION_OWNER_UID) -> None:
         st = entry.lstat()
         if stat.S_ISLNK(st.st_mode):
             raise SnapshotError("SYMLINK_IN_SNAPSHOT")
+        if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):
+            raise SnapshotError(f"SPECIAL_FILE_IN_TREE:{entry.relative_to(root) if entry != root else '.'}")
         if st.st_uid != owner_uid:
             raise SnapshotError(f"SNAPSHOT_ENTRY_NOT_TRUSTED_OWNER:{entry.relative_to(root) if entry != root else '.'}")
         if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
             raise SnapshotError(f"SNAPSHOT_ENTRY_GROUP_OR_WORLD_WRITABLE:{entry.relative_to(root) if entry != root else '.'}")
+
+
+def read_regular(path: Path) -> bytes:
+    """Defence in depth for every privileged source read: never follow a symlink, never block on a FIFO, and read ONLY a regular file (checked on the opened fd)."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        raise SnapshotError("SOURCE_READ_REFUSED") from None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise SnapshotError("SOURCE_NOT_A_REGULAR_FILE")
+        chunks = []
+        while True:
+            chunk = os.read(fd, 1 << 20)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+    finally:
+        os.close(fd)
+
+
+def check_source_authority(src: Path, trust: str) -> None:
+    """PRODUCTION SOURCE AUTHORITY, proven BEFORE any closure parsing, os.walk, open or read of the source: the source path is canonical; the source root and EVERY ancestor to the trust root are real
+    directories owned by uid 0 and not group/world writable; then (lstat only: nothing is opened or read) every entry is owned by uid 0, not group/world writable, and neither a symlink nor a special file
+    (FIFO, device, socket). Only a root-owned, operator-immutable source (the exact-main authority checkout) can pass."""
+    src = Path(src)
+    if not src.is_absolute() or os.path.abspath(str(src)) != str(src):
+        raise SnapshotError("SOURCE_NOT_ABSOLUTE_AND_CANONICAL")
+    try:
+        check_trusted_path(src, PRODUCTION_OWNER_UID, trust)
+        check_tree_owner(src, PRODUCTION_OWNER_UID)
+    except SnapshotError as exc:
+        raise SnapshotError(f"SOURCE_NOT_TRUSTED:{exc}") from None
+
+
+def check_tool_authority(trust: str, tool_dir: Path | None = None) -> None:
+    """DEFENCE IN DEPTH for every privileged root-owned freeze/build: the directory holding the RUNNING tool code is canonical, root-owned, has root-owned non-writable ancestors to the trust root and no symlink
+    component, and its entries (the tool and every sibling module it imports) are root-owned, non-writable and neither symlinks nor special files. This does NOT by itself solve bootstrap trust: the workflow must
+    already execute the tool FROM the root-owned exact-main authority (README section 17, phase A/B)."""
+    here = Path(os.path.abspath(__file__)).parent if tool_dir is None else Path(tool_dir)
+    if Path(os.path.realpath(here)) != here:
+        raise SnapshotError("TOOL_AUTHORITY_PATH_NOT_CANONICAL")
+    try:
+        check_trusted_path(here, PRODUCTION_OWNER_UID, trust)
+        check_tree_owner(here, PRODUCTION_OWNER_UID)
+    except SnapshotError as exc:
+        raise SnapshotError(f"TOOL_AUTHORITY_NOT_TRUSTED:{exc}") from None
+
+
+def _prove_privileged_inputs(source: Path, trust: str) -> None:
+    if os.geteuid() != 0:
+        raise SnapshotError("ROOT_REQUIRED_FOR_ROOT_OWNED_SNAPSHOT")
+    check_tool_authority(trust)
+    check_source_authority(source, trust)
 
 
 def _begin_destination(dest: Path, root_owned: bool, trust: str) -> None:
@@ -167,7 +223,7 @@ def _module_file(app: Path, name: str) -> Path | None:
 
 def _imports(path: Path) -> set[str]:
     """Local ``aegis_soc`` module names imported anywhere in ``path`` (relative, ``from aegis_soc import x``, ``import aegis_soc.x``)."""
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = ast.parse(read_regular(path).decode("utf-8"), filename=str(path))
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
@@ -212,7 +268,7 @@ def closure(app: Path) -> list[str]:
 
 
 def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(read_regular(path)).hexdigest()
 
 
 def manifest_text(app: Path) -> str:
@@ -222,12 +278,14 @@ def manifest_text(app: Path) -> str:
 def snapshot(app: Path, dest: Path, *, root_owned: bool = False, trust_root: str = PRODUCTION_TRUST_ROOT) -> str:
     """Copy exactly the closure into a NEW directory, write the manifest, make everything read-only. Returns the manifest SHA-256."""
     app, dest = Path(app), Path(dest)
+    if root_owned:
+        _prove_privileged_inputs(app, trust_root)  # tool authority + SOURCE authority, BEFORE closure() parses or reads anything
     rels = closure(app)
     _begin_destination(dest, root_owned, trust_root)
     for rel in rels:
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes((app / rel).read_bytes())
+        target.write_bytes(read_regular(app / rel))
         target.chmod(0o444)
     text = manifest_text(dest)
     manifest = dest / MANIFEST_NAME
@@ -299,13 +357,15 @@ def control_files(src: Path) -> list[str]:
 def control_snapshot(src: Path, dest: Path, *, root_owned: bool = False, trust_root: str = PRODUCTION_TRUST_ROOT) -> str:
     """Copy the whole control tree into a NEW directory (preserving the executable bit), write the manifest, make everything read-only. Returns the manifest SHA-256."""
     src, dest = Path(src), Path(dest)
+    if root_owned:
+        _prove_privileged_inputs(src, trust_root)  # tool authority + SOURCE authority, BEFORE control_files() scans or reads anything
     rels = control_files(src)
     _begin_destination(dest, root_owned, trust_root)
     lines = []
     for rel in rels:
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        data = (src / rel).read_bytes()
+        data = read_regular(src / rel)
         target.write_bytes(data)
         target.chmod(0o555 if os.access(src / rel, os.X_OK) else 0o444)
         lines.append(f"{hashlib.sha256(data).hexdigest()}  {rel}\n")

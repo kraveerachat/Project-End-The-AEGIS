@@ -31,8 +31,12 @@ BUILDERS = [
 
 
 def build(kind: str, src: Path, dest: "Path | str", trust: Path | None, *, extra: str = "--root-owned") -> subprocess.CompletedProcess[str]:
-    seam = base.trust_seam(trust) if trust is not None else ""
-    return base.userns_bash(f'{seam}python3 "{TOOL_PATH}" {kind} "{src}" "{dest}" {extra}')
+    """A root-owned build the way production runs it: the TOOL (a copy of both files) and the SOURCE both sit in the trusted temp tree; only the DESTINATION is varied by the tests."""
+    tmp = trust.parent if trust is not None else Path("/nonexistent")
+    tools = base.authority_tools(tmp)
+    source = base.copy_verifier_src(tmp) if kind == "snapshot" else base.copy_control_src(tmp)
+    seam = base.trust_seam(tmp)
+    return base.userns_bash(f'{seam}python3 -I -B "{tools}/r1a_verifier_snapshot.py" {kind} "{source}" "{dest}" {extra}')
 
 
 def tree(root: Path) -> list[str]:
@@ -59,11 +63,13 @@ def test_a_symlinked_parent_or_symlinked_ancestor_is_refused_before_any_file_is_
 
 
 @needs_userns
-@pytest.mark.parametrize("kind,src,check,manifest", BUILDERS)
-def test_a_parent_owned_by_another_uid_is_refused_before_create(tmp_path: Path, kind, src, check, manifest) -> None:
-    target = Path("/usr/share/r1a-snapshot-must-never-exist")  # owned by the REAL root: inside the user namespace it appears as another (nobody) uid
-    refused = build(kind, src, target, Path("/usr/share"))
-    assert refused.returncode == 1 and "DEST_PARENT_NOT_TRUSTED" in refused.stderr and "NOT_TRUSTED_OWNER" in refused.stderr, refused.stderr
+def test_a_parent_owned_by_another_uid_is_refused_before_create(tmp_path: Path) -> None:
+    """`_begin_destination` is the shared destination gate of both builders; /usr/share is owned by the REAL root, so inside the user namespace it appears as another (nobody) uid."""
+    target = Path("/usr/share/r1a-snapshot-must-never-exist")
+    code = (f"import sys; sys.path.insert(0, '{base.authority_tools(tmp_path)}'); import r1a_verifier_snapshot as t; from pathlib import Path\n"
+            f"try:\n    t._begin_destination(Path('{target}'), True, '/usr/share')\nexcept t.SnapshotError as e:\n    print('REFUSED', e)\n")
+    result = base.userns_bash(f'python3 -I -B -c "{code}"')
+    assert "REFUSED DEST_PARENT_NOT_TRUSTED" in result.stdout and "NOT_TRUSTED_OWNER" in result.stdout, (result.stdout, result.stderr)
     assert not target.exists()
 
 
@@ -222,7 +228,7 @@ def test_the_library_and_the_runner_still_refuse_or_forward_the_test_seam_correc
 def test_the_documented_owner_snapshot_commands_name_no_trust_root_and_use_root_owned() -> None:
     readme = (base.P4 / "README.md").read_text()
     section = readme[readme.index("## 17. Stage R1A — pre-live hardening"):]
-    commands = re.findall(r"`(sudo python3 r1a_verifier_snapshot\.py[^`]*)`", section)
+    commands = re.findall(r"`(sudo /usr/bin/python3 -I -B \S+r1a_verifier_snapshot\.py[^`]*)`", section)
     assert len(commands) == 2 and all("--root-owned" in c and "--trust-root" not in c for c in commands)
     assert any(" control-snapshot " in c and "/opt/aegis-idea3-r1a-authority/control" in c for c in commands)
     assert any(" snapshot " in c and "/opt/aegis-idea3-r1a-authority/verifier" in c for c in commands)
@@ -236,8 +242,9 @@ def test_the_python_api_also_refuses_a_non_canonical_destination_before_create(t
     trusted = tmp_path / "trusted"
     (trusted / "sub").mkdir(parents=True)
     fn = "snapshot" if kind == "snapshot" else "control_snapshot"
-    code = (f"import sys; sys.path.insert(0, '{TOOL_PATH.parent}'); import r1a_verifier_snapshot as t; from pathlib import Path\n"
-            f"try:\n    t.{fn}(Path('{src}'), Path('{trusted}/sub/../out'), root_owned=True, trust_root='{trusted}')\nexcept t.SnapshotError as e:\n    print('REFUSED', e)\n")
-    result = base.userns_bash(f'{base.trust_seam(trusted)}python3 -c "{code}"')
+    source = base.copy_verifier_src(tmp_path) if kind == "snapshot" else base.copy_control_src(tmp_path)
+    code = (f"import sys; sys.path.insert(0, '{base.authority_tools(tmp_path)}'); import r1a_verifier_snapshot as t; from pathlib import Path\n"
+            f"try:\n    t.{fn}(Path('{source}'), Path('{trusted}/sub/../out'), root_owned=True, trust_root='{tmp_path}')\nexcept t.SnapshotError as e:\n    print('REFUSED', e)\n")
+    result = base.userns_bash(f'{base.trust_seam(tmp_path)}python3 -I -B -c "{code}"')
     assert "REFUSED DEST_NOT_ABSOLUTE_AND_CANONICAL" in result.stdout, (result.stdout, result.stderr)
     assert tree(trusted) == ["sub"]

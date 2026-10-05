@@ -717,6 +717,33 @@ def userns_bash(script: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["unshare", "-r", "bash", "-c", script], env=os.environ, text=True, capture_output=True)
 
 
+def authority_tools(tmp_path: Path) -> Path:
+    """A COPY of the two freeze tools (one directory, siblings together) inside the trusted temp tree: privileged root-owned runs must execute tool bytes that sit under trusted, root-owned ancestors (the
+    production workflow runs them from the root-owned exact-main authority; inside a user namespace the temp tree's files appear as uid 0)."""
+    dest = tmp_path / "authority-tools"
+    if not dest.exists():
+        dest.mkdir()
+        shutil.copy(SNAPSHOT_TOOL, dest / "r1a_verifier_snapshot.py")
+        shutil.copy(P4 / "r1a-acceptance/r1a_runner_freeze.py", dest / "r1a_runner_freeze.py")
+    return dest
+
+
+def copy_verifier_src(tmp_path: Path) -> Path:
+    """A trusted COPY of the verifier source (the `aegis_soc` package) for root-owned `snapshot` builds."""
+    dest = tmp_path / "src-verifier"
+    if not dest.exists():
+        shutil.copytree(ROOT / "aegis_soc", dest / "aegis_soc", ignore=shutil.ignore_patterns("__pycache__"))
+    return dest
+
+
+def copy_control_src(tmp_path: Path) -> Path:
+    """A trusted COPY of the control-plane tree for root-owned `control-snapshot` builds."""
+    dest = tmp_path / "src-control"
+    if not dest.exists():
+        shutil.copytree(P4, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    return dest
+
+
 def trust_seam(trust_root: Path) -> str:
     return f'export R1A_TEST_ONLY_SNAPSHOT_TRUST_ENABLED=YES R1A_TEST_ONLY_SNAPSHOT_TRUST_ROOT="{trust_root}"\n'
 
@@ -1431,13 +1458,14 @@ def test_the_freeze_tooling_installs_root_owned_snapshots_and_refuses_without_ro
     shutil.copytree(P4, src, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     plain = subprocess.run(["python3", str(SNAPSHOT_TOOL), "control-snapshot", str(src), str(tmp_path / "plain"), "--root-owned"], capture_output=True, text=True)
     assert plain.returncode == 1 and "ROOT_REQUIRED_FOR_ROOT_OWNED_SNAPSHOT" in plain.stderr  # a non-root freeze cannot claim a root-owned snapshot
-    installed = userns_bash(f'{trust_seam(tmp_path)}python3 "{SNAPSHOT_TOOL}" control-snapshot "{src}" "{tmp_path / "installed"}" --root-owned')
+    installed = userns_bash(f'{trust_seam(tmp_path)}python3 -I -B "{authority_tools(tmp_path)}/r1a_verifier_snapshot.py" control-snapshot "{copy_control_src(tmp_path)}" "{tmp_path / "installed"}" --root-owned')
     assert installed.returncode == 0 and "R1A_CONTROL_MANIFEST_SHA256=" in installed.stdout, installed.stderr
     sha = re.search(r"=([0-9a-f]{64})", installed.stdout).group(1)
     assert userns_bash(f'{trust_seam(tmp_path)}python3 "{SNAPSHOT_TOOL}" control-check "{tmp_path / "installed"}" {sha}').returncode == 0
-    vinstalled = userns_bash(f'{trust_seam(tmp_path)}python3 "{SNAPSHOT_TOOL}" snapshot "{ROOT}" "{tmp_path / "vinstalled"}" --root-owned')
+    vinstalled = userns_bash(f'{trust_seam(tmp_path)}python3 -I -B "{authority_tools(tmp_path)}/r1a_verifier_snapshot.py" snapshot "{copy_verifier_src(tmp_path)}" "{tmp_path / "vinstalled"}" --root-owned')
     assert vinstalled.returncode == 0 and "R1A_VERIFIER_MANIFEST_SHA256=" in vinstalled.stdout, vinstalled.stderr
-    refused = userns_bash(f'chmod 777 "{tmp_path}"\n{trust_seam(tmp_path)}python3 "{SNAPSHOT_TOOL}" control-snapshot "{src}" "{tmp_path / "bad"}" --root-owned')
+    tools_dir, csrc = authority_tools(tmp_path), copy_control_src(tmp_path)
+    refused = userns_bash(f'chmod 777 "{tmp_path}"\n{trust_seam(tmp_path)}python3 -I -B "{tools_dir}/r1a_verifier_snapshot.py" control-snapshot "{csrc}" "{tmp_path / "bad"}" --root-owned')
     assert refused.returncode == 1 and "ANCESTOR_WRITABLE" in refused.stderr  # the freeze refuses an untrusted parent instead of producing an unprotected snapshot
 
 

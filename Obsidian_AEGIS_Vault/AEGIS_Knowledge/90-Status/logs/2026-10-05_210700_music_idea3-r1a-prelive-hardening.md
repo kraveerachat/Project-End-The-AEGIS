@@ -36,6 +36,13 @@ edit_policy: append-by-new-file
 - `git diff --check` — pass; forbidden-action scan of the R1A shell files and secret scan of the added lines — pass.
 - No Production command was run; tests never touched the real canonical path.
 
+## Bootstrap authority repair (I1, I2, M1, M2-parent) — repository only
+
+- **I1/I2:** privileged freeze tools no longer trust operator-mutable bytes. The documented owner workflow is Phase A (system-only bootstrap of a root-owned exact-main authority with `/usr/bin/git`; no repository script or Python runs as root before it exists), Phase B (every privileged run from that authority with `/usr/bin/python3 -I -B`) and Phase C (verify). `--root-owned` runs additionally fail closed, before any import of the sibling tool, parse, read, scan or create, unless the tool directory and the source are canonical, root-owned, free of group/world-writable, symlink and special entries, under trusted ancestors; privileged reads use `O_NOFOLLOW` and regular files only. This is defence in depth, not a substitute for Phase A.
+- **M1:** pin validators use full-string matches; a trailing newline, CRLF or surrounding whitespace is refused before anything is written.
+- **M2-parent:** the canonical directory's parent is always made durable before the marker is created (also on a retry when the directory already exists); failure means nothing consumed.
+- Verification: `/usr/bin/python3 -m pytest -q tests/r1a tests/test_r1_acceptance.py tests/r1i` — pass: 437 passed; the shared Phase-4 suites — pass: 694 passed. Mutation controls (removing the tool-authority gate, the source-authority gate, the ownership check, the special-file refusal, `O_NOFOLLOW`, full-string matching, the runner authority gate, or the parent barrier) each fail tests. Not hermetically inducible: the post-open inode race guards and a genuinely different-uid file owner (only unit-tested through the ownership function).
+
 ## Source files changed
 
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-r1a-run-lib.sh` — `r1a_fsync`/`r1a_durable` barriers in the marker and window-record sequences.

@@ -301,7 +301,7 @@ def test_without_root_a_root_owned_freeze_is_refused_and_a_plain_freeze_does_not
 def test_the_root_owned_freeze_and_verify_print_the_four_owner_results_and_the_sha(tmp_path: Path) -> None:
     repo, main = make_repo(tmp_path)
     out = tmp_path / "frozen.sh"
-    frozen = tuserns(f'python3 "{TOOL_PATH}" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned', trust=tmp_path)
+    frozen = tuserns(f'python3 -I -B "{base.authority_tools(tmp_path)}/r1a_runner_freeze.py" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned', trust=tmp_path)
     assert frozen.returncode == 0, frozen.stderr
     for line in ("RUNNER_TEMPLATE_AUTHORITY=PASS", "RUNNER_ONLY_APPROVED_PINS_CHANGED=PASS", "RUNNER_ROOT_OWNED=PASS", "RUNNER_NONWRITABLE=PASS"):
         assert line in frozen.stdout, frozen.stdout
@@ -320,7 +320,7 @@ def test_a_writable_or_untrusted_runner_location_fails_the_production_verify(tmp
     inner = trusted / "inner"
     inner.mkdir(parents=True)
     out = inner / "frozen.sh"
-    ok = tuserns(f'python3 "{TOOL_PATH}" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned', trust=trusted)
+    ok = tuserns(f'python3 -I -B "{base.authority_tools(tmp_path)}/r1a_runner_freeze.py" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned', trust=tmp_path)
     assert ok.returncode == 0, ok.stderr
     target = out
     if breach == "writable_file":
@@ -363,8 +363,8 @@ def test_the_freeze_tool_only_ever_writes_the_new_destination() -> None:
 
 
 def root_freeze(repo: Path, main: str, tmp_path: Path, out: Path, trust: Path | None) -> subprocess.CompletedProcess[str]:
-    cmd = f'python3 "{TOOL_PATH}" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned'
-    return tuserns(cmd, trust) if trust is not None else base.userns_bash(cmd)
+    cmd = f'python3 -I -B "{base.authority_tools(tmp_path)}/r1a_runner_freeze.py" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned'
+    return tuserns(cmd, tmp_path) if trust is not None else base.userns_bash(cmd)
 
 
 def files_under(root: Path) -> list[str]:
@@ -391,10 +391,12 @@ def test_a_symlinked_parent_is_refused_before_any_file_is_created_at_the_symlink
 
 @needs_userns
 def test_a_parent_owned_by_another_uid_is_refused_before_create(tmp_path: Path) -> None:
-    repo, main = make_repo(tmp_path)
-    target = Path("/usr/share/r1a-freeze-must-never-exist.sh")  # owned by the REAL root: inside the user namespace it appears as another (nobody) uid
-    result = root_freeze(repo, main, tmp_path, target, Path("/usr/share"))
-    assert result.returncode == 1 and "RUNNER_PARENT_NOT_TRUSTED" in result.stderr and "NOT_TRUSTED_OWNER" in result.stderr, result.stderr
+    """The destination gate itself (the tool/repo authority gates run first in the CLI): /usr/share is owned by the REAL root, so inside the user namespace it appears as another (nobody) uid."""
+    target = Path("/usr/share/r1a-freeze-must-never-exist.sh")
+    code = (f"import sys; sys.path.insert(0, '{base.authority_tools(tmp_path)}'); import r1a_runner_freeze as t; from pathlib import Path\n"
+            f"try:\n    t._prewrite_path_proof(Path('{target}'))\nexcept t.FreezeError as e:\n    print('REFUSED', e)\n")
+    result = tuserns(f'python3 -I -B -c "{code}"', Path("/usr/share"))
+    assert "REFUSED RUNNER_PARENT_NOT_TRUSTED" in result.stdout and "NOT_TRUSTED_OWNER" in result.stdout, (result.stdout, result.stderr)
     assert not target.exists()
 
 
@@ -463,7 +465,7 @@ def test_the_default_trust_root_is_the_literal_slash_and_the_owner_commands_neve
     assert tool.trust_root() == "/"
     readme = (base.P4 / "README.md").read_text()
     section = readme[readme.index("## 17. Stage R1A — pre-live hardening"):]
-    commands = re.findall(r"`((?:sudo )?python3 r1a_runner_freeze\.py[^`]*)`", section)  # the documented owner COMMANDS (code spans), not the prose around them
+    commands = re.findall(r"`((?:sudo )?/usr/bin/python3 -I -B \S+r1a_runner_freeze\.py[^`]*)`", section)  # the documented owner COMMANDS (code spans), not the prose around them
     assert len(commands) == 2 and all("--trust-root" not in command for command in commands)
     assert "no `--trust-root`" in section or "no --trust-root" in section  # the docs state it explicitly
 
@@ -511,7 +513,7 @@ def test_a_live_root_owned_freeze_pins_the_trust_root_to_slash_and_creates_nothi
     trusted.mkdir()
     out = trusted / "frozen.sh"
     result = root_freeze(repo, main, tmp_path, out, None)  # NO seam: the chain to `/` is checked, and `/tmp`, `/` are not uid 0 inside the namespace
-    assert result.returncode == 1 and "RUNNER_PARENT_NOT_TRUSTED" in result.stderr, result.stderr
+    assert result.returncode == 1 and "PRIVILEGED_AUTHORITY_NOT_TRUSTED" in result.stderr, result.stderr  # the tool authority chain (/tmp, `/`) is refused before anything else
     assert not out.exists() and files_under(trusted) == []
     verify = base.userns_bash(f'python3 "{TOOL_PATH}" verify --repo "{repo}" --main {main} --runner "{out}"')
     assert verify.returncode == 1  # and verify has no way to stop earlier than `/` either

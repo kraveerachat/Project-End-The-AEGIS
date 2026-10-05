@@ -60,3 +60,7 @@ Core and detector lifecycle, `current`, the L2 table (including `blocked_ipv4`),
 ## Claim boundary
 
 A future successful run may print `R1_EVIDENCE_VERIFIED=YES` and `REAL_DETECTOR_CHAIN_VERIFIED=YES`, but automatic code never promotes `F1_REAL_DETECTOR_ACCEPTANCE` or `R1_VERIFIED`; that needs a separately reviewed LIVE closeout after independent inspection. `RECOVERY_R1_R8_PROVEN=NO`.
+
+## Bootstrap authority (PR #355 repair)
+
+Root never executes operator-mutable repository bytes: a system-only Phase A (absolute system executables, clean Git environment, replacement objects disabled) creates a root-owned exact-main authority; every privileged freeze tool then runs from it under `/usr/bin/python3 -I -B`. The tools' own tool-directory and source-authority checks (canonical, root-owned, trusted ancestors, no writable/symlink/special entries, `O_NOFOLLOW` regular-file reads) run before any read and are defence in depth only. Pin values are full-string validated, and the canonical directory's parent is always forced durable before the marker. See `deploy/pr11-phase4/README.md` section 17. Repository implementation only; no live execution, Authorization or K3.

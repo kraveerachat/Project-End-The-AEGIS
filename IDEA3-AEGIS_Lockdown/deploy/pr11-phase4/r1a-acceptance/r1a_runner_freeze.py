@@ -36,10 +36,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import r1a_verifier_snapshot as snapshot_tool  # noqa: E402  (the shared ownership invariant lives there)
 
+# The imported sibling must be the file next to THIS file (never a decoy found elsewhere on sys.path); the privileged tool-authority check covers the whole directory holding both.
+SIBLING_IN_SAME_DIRECTORY = Path(snapshot_tool.__file__).resolve().parent == Path(__file__).resolve().parent
+
 TEMPLATE_REL = "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-r1a-owner.sh"
 
-_SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_PATH = re.compile(r"^/[A-Za-z0-9._/-]{0,200}$")
+_SHA256 = re.compile(r"[0-9a-f]{64}")  # every validator below uses re.fullmatch: `$` would accept a trailing newline
+_PATH = re.compile(r"/[A-Za-z0-9._/-]{0,200}")
 
 
 class FreezeError(ValueError):
@@ -47,7 +50,7 @@ class FreezeError(ValueError):
 
 
 def _path_ok(value: str) -> bool:
-    return bool(_PATH.match(value)) and ".." not in value.split("/") and "//" not in value and (value == "/" or not value.endswith("/"))
+    return bool(_PATH.fullmatch(value)) and ".." not in value.split("/") and "//" not in value and (value == "/" or not value.endswith("/"))
 
 
 def _ipv4_external(value: str) -> bool:
@@ -67,7 +70,7 @@ VALIDATORS = {
     "user": lambda v: bool(re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", v)),
     "uid": lambda v: bool(re.fullmatch(r"[1-9][0-9]{0,9}", v)),
     "release": lambda v: bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", v)) and ".." not in v,
-    "sha256": lambda v: bool(_SHA256.match(v)),
+    "sha256": lambda v: bool(_SHA256.fullmatch(v)),
     "path": _path_ok,
     "ipv4": _ipv4_external,
     "seconds": lambda v: bool(re.fullmatch(r"[1-9][0-9]{0,5}", v)),
@@ -270,16 +273,31 @@ def _prewrite_path_proof(out: Path) -> int:
     return fd
 
 
+def _prove_privileged_authority(repo: Path) -> None:
+    """DEFENCE IN DEPTH for a ROOT-OWNED freeze (it does not replace running the tool FROM the root-owned exact-main authority): the tool directory (the tool and its sibling), and the Git repository the template
+    is read from, must be canonical, root-owned, non-writable and under trusted root-owned ancestors to the trust root, with no symlink and no special file."""
+    trust = trust_root()
+    if not SIBLING_IN_SAME_DIRECTORY:
+        raise FreezeError("SIBLING_TOOL_NOT_IN_THE_SAME_AUTHORITY_DIRECTORY")
+    try:
+        snapshot_tool.check_tool_authority(trust, Path(os.path.abspath(__file__)).parent)
+        snapshot_tool.check_source_authority(repo, trust)  # the exact-main authority repository itself (read BY Git below)
+    except snapshot_tool.SnapshotError as exc:
+        raise FreezeError(f"PRIVILEGED_AUTHORITY_NOT_TRUSTED:{exc}") from None
+
+
 def freeze(repo: Path, main: str, pins: dict[str, str], out: Path, *, root_owned: bool = False) -> dict[str, str]:
     """Create a NEW frozen runner (never overwrites, never touches the template), then prove it exactly as ``verify`` does. ``--root-owned`` proves the path BEFORE creating."""
-    template = read_template(repo, main)
-    if pins.get("EXPECTED_MAIN") != main:
-        raise FreezeError("EXPECTED_MAIN_PIN_IS_NOT_THE_REVIEWED_MAIN")
-    frozen = render(template, pins)
     out = Path(out)
     if root_owned:
         if os.geteuid() != 0:
             raise FreezeError("ROOT_REQUIRED_FOR_ROOT_OWNED_RUNNER")
+        _prove_privileged_authority(Path(repo))  # tool + sibling + the Git repository are root-owned and trusted BEFORE anything is read from them
+    template = read_template(repo, main)
+    if pins.get("EXPECTED_MAIN") != main:
+        raise FreezeError("EXPECTED_MAIN_PIN_IS_NOT_THE_REVIEWED_MAIN")
+    frozen = render(template, pins)
+    if root_owned:
         parent_fd = _prewrite_path_proof(out)  # raises BEFORE any file exists
         try:
             fd = os.open(out.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o555, dir_fd=parent_fd)  # exclusive, relative to the verified parent, never through a symlink

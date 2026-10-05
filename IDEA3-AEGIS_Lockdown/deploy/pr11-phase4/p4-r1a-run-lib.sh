@@ -97,8 +97,10 @@ r1a_consume_attempt() {
   canon=$(r1a_canonical_dir); marker="$canon/$R1A_GLOBAL_MARKER_NAME"
   if ! $SUDO test -d "$canon"; then
     $SUDO mkdir -m 0700 "$canon" 2>/dev/null || { r1a_reason "R1A_CANONICAL_DIR_NOT_CREATABLE (nothing was consumed)"; return 1; }
-    r1a_fsync "$(dirname "$canon")" || { r1a_reason "R1A_CANONICAL_DIR_ENTRY_NOT_DURABLE (nothing was consumed: no marker exists yet)"; return 1; }
   fi
+  # The canonical directory's ENTRY in its parent is forced durable on EVERY invocation, before any marker can exist (a directory created by an earlier invocation whose parent sync failed would otherwise
+  # skip this barrier on retry). Nothing is consumed yet: a failure here leaves no marker. The exclusive noclobber create below remains the only authority over whether the marker may be created.
+  r1a_fsync "$(dirname "$canon")" || { r1a_reason "R1A_CANONICAL_DIR_ENTRY_NOT_DURABLE (nothing was consumed: no marker exists yet)"; return 1; }
   # Logical order (fixed): (1) marker proven absent (above); (2) EXCLUSIVE create (noclobber); (3) the marker FILE is forced durable; (4) its containing canonical DIRECTORY is forced durable;
   # (5) ONLY AFTER both barriers succeed: best-effort chattr +i, then the window START is sampled, then the local marker is written, then observation may begin.
   if ! $SUDO bash -c 'set -o noclobber; printf "consumed_at=%s\n" "$(date -u +%FT%TZ)" > "$1"' _ "$marker" 2>/dev/null; then

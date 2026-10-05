@@ -59,7 +59,8 @@ def kinds(ops: list[str]) -> list[str]:
     for line in ops:
         if line.startswith("SYNC "):
             path = line.split(" ", 2)[2]
-            out.append("SYNC_MARKER" if path.endswith("R1A-GLOBAL-ATTEMPT-CONSUMED") else "SYNC_WINDOW" if path.endswith("R1A-ATTEMPT-WINDOW") else "SYNC_DIR")
+            name = path.rsplit("/", 1)[-1]
+            out.append("SYNC_MARKER" if name == "R1A-GLOBAL-ATTEMPT-CONSUMED" else "SYNC_WINDOW" if name == "R1A-ATTEMPT-WINDOW" else "SYNC_DIR" if name == "canon" else "SYNC_PARENT")
         elif line == "DATE +%s.%N":
             out.append("WINDOW_START_SAMPLE" if epochs == 0 else "WINDOW_END_SAMPLE")
             epochs += 1
@@ -71,13 +72,13 @@ def kinds(ops: list[str]) -> list[str]:
 def test_the_successful_path_orders_create_durability_then_start_sample_then_observation_then_window_durability_then_final(tmp_path: Path) -> None:
     result, ops = run_attempt(tmp_path, second_run=False)
     assert "rc=0" in result.stdout and "R1A_RESULT=PASS" in result.stdout, result.stderr
-    assert kinds(ops) == ["MARKER_CREATE", "SYNC_MARKER", "SYNC_DIR", "CHATTR", "WINDOW_START_SAMPLE", "OBSERVE_ENTER", "WINDOW_END_SAMPLE", "WINDOW_CREATE", "SYNC_WINDOW", "SYNC_DIR", "FINAL_CALLED", "VERIFY_CALLED"], kinds(ops)
+    assert kinds(ops) == ["SYNC_PARENT", "MARKER_CREATE", "SYNC_MARKER", "SYNC_DIR", "CHATTR", "WINDOW_START_SAMPLE", "OBSERVE_ENTER", "WINDOW_END_SAMPLE", "WINDOW_CREATE", "SYNC_WINDOW", "SYNC_DIR", "FINAL_CALLED", "VERIFY_CALLED"], kinds(ops)
     syncs = [line for line in ops if line.startswith("SYNC ")]
-    assert syncs[1].endswith(str(tmp_path / "canon")) and syncs[3].endswith(str(tmp_path / "canon"))  # the DIRECTORY barrier follows each FILE barrier
+    assert syncs[0].endswith(str(tmp_path)) and syncs[2].endswith(str(tmp_path / "canon")) and syncs[4].endswith(str(tmp_path / "canon"))  # parent barrier first; the DIRECTORY barrier follows each FILE barrier
     assert (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").is_file() and (tmp_path / "canon/R1A-ATTEMPT-WINDOW").is_file()
 
 
-@pytest.mark.parametrize("fail_n,label", [(1, "marker file"), (2, "marker parent directory")])
+@pytest.mark.parametrize("fail_n,label", [(2, "marker file"), (3, "marker parent directory")])
 def test_a_marker_durability_failure_is_a_consumed_fail_with_no_window_observation_or_retry(tmp_path: Path, fail_n: int, label: str) -> None:
     result, ops = run_attempt(tmp_path, fail_sync_n=fail_n)
     assert "rc=1" in result.stdout, label
@@ -85,13 +86,13 @@ def test_a_marker_durability_failure_is_a_consumed_fail_with_no_window_observati
     assert "R1A_EVENT_WINDOW_OPEN=YES" not in result.stdout and "R1A_MARKER_NOT_DURABLE" in result.stderr
     got = kinds(ops)
     assert "WINDOW_START_SAMPLE" not in got and "CHATTR" not in got and "OBSERVE_ENTER" not in got  # nothing past the barrier ran: no start sample, no observation
-    assert got[0] == "MARKER_CREATE" and got.index("MARKER_CREATE") < got.index("SYNC_MARKER" if fail_n == 1 else "SYNC_DIR")
+    assert got[:2] == ["SYNC_PARENT", "MARKER_CREATE"] and got.index("MARKER_CREATE") < got.index("SYNC_MARKER" if fail_n == 2 else "SYNC_DIR")
     assert (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").is_file()  # never deleted, reset or rewritten
     assert "rerun_rc=1" in result.stdout and "R1A_ATTEMPT_ALREADY_CONSUMED" in result.stderr  # no retry
     assert got.count("MARKER_CREATE") == 1
 
 
-@pytest.mark.parametrize("fail_n,label", [(3, "window record file"), (4, "window record parent directory")])
+@pytest.mark.parametrize("fail_n,label", [(4, "window record file"), (5, "window record parent directory")])
 def test_a_window_record_durability_failure_never_runs_final_or_verify(tmp_path: Path, fail_n: int, label: str) -> None:
     result, ops = run_attempt(tmp_path, fail_sync_n=fail_n)
     assert "rc=1" in result.stdout, label
@@ -107,7 +108,7 @@ def test_a_missing_canonical_directory_is_created_once_and_its_parent_entry_is_m
     result, ops = run_attempt(tmp_path, precreate_canon=False, second_run=False)
     assert "rc=0" in result.stdout, result.stderr
     got = kinds(ops)
-    assert got[:2] == ["SYNC_DIR", "MARKER_CREATE"]  # the new directory's parent barrier precedes the exclusive marker creation
+    assert got[:2] == ["SYNC_PARENT", "MARKER_CREATE"]  # the canonical directory's parent barrier precedes the exclusive marker creation
     assert ops[[i for i, line in enumerate(ops) if line.startswith("SYNC ")][0]].endswith(str(tmp_path))  # that first barrier is on the PARENT of the canonical directory
     failed, ops2 = run_attempt(tmp_path / "second", fail_sync_n=1, precreate_canon=False, second_run=False) if (tmp_path / "second").mkdir() is None else (None, [])
     assert "R1A_ATTEMPT_CONSUMED=NO" in failed.stdout and "R1A_CANONICAL_DIR_ENTRY_NOT_DURABLE" in failed.stderr  # nothing consumed yet: no marker exists
@@ -129,3 +130,32 @@ def test_the_seam_is_the_only_way_tests_reach_the_marker_and_the_real_path_is_ne
     result, ops = run_attempt(tmp_path, second_run=False)
     synced = [line.split(" ", 2)[2] for line in ops if line.startswith("SYNC ")]
     assert synced and all(path.startswith(str(tmp_path)) for path in synced)  # every barrier targeted the temp seam, never /var/lib
+
+
+# --- M2-parent: the canonical directory's parent entry is forced durable on EVERY invocation, before any marker can exist -----------------------------------------
+
+
+def test_a_failed_parent_barrier_is_unconsumed_and_the_retry_syncs_the_parent_again_before_the_marker_is_created(tmp_path: Path) -> None:
+    result, ops = run_attempt(tmp_path, fail_sync_n=1, precreate_canon=False, second_run=True)  # invocation 1: new canonical dir, parent sync FAILS; invocation 2: the directory already exists
+    assert result.stdout.count("rc=1") == 1 and "R1A_ATTEMPT_CONSUMED=NO" in result.stdout and "R1A_CANONICAL_DIR_ENTRY_NOT_DURABLE" in result.stderr
+    assert "rerun_rc=0" in result.stdout  # an unconsumed attempt may be retried
+    got = kinds(ops)
+    assert got[:3] == ["SYNC_PARENT", "SYNC_PARENT", "MARKER_CREATE"], got  # the retry performed the parent barrier AGAIN, and only then created the marker
+    assert got.count("MARKER_CREATE") == 1
+    first_marker = got.index("MARKER_CREATE")
+    assert got[:first_marker] == ["SYNC_PARENT", "SYNC_PARENT"]  # no marker (and nothing else) before the second parent barrier succeeded
+    assert (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").is_file()
+
+
+def test_a_pre_existing_canonical_directory_still_gets_the_parent_barrier_before_the_marker(tmp_path: Path) -> None:
+    result, ops = run_attempt(tmp_path, second_run=False)  # canonical directory pre-created (as after an earlier invocation)
+    got = kinds(ops)
+    assert "rc=0" in result.stdout and got[0] == "SYNC_PARENT" and got.index("SYNC_PARENT") < got.index("MARKER_CREATE")
+
+
+def test_a_parent_barrier_failure_on_an_existing_directory_leaves_no_marker_and_no_consumption(tmp_path: Path) -> None:
+    result, ops = run_attempt(tmp_path, fail_sync_n=1, precreate_canon=True, second_run=False)  # the directory exists; the (now mandatory) parent barrier fails
+    got = kinds(ops)
+    assert "rc=1" in result.stdout and "R1A_ATTEMPT_CONSUMED=NO" in result.stdout and "R1A_CANONICAL_DIR_ENTRY_NOT_DURABLE" in result.stderr
+    assert got == ["SYNC_PARENT"]  # nothing past the barrier ran: no marker create, no start sample, no observation
+    assert not (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").exists()
