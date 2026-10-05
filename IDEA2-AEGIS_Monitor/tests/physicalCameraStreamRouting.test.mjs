@@ -314,9 +314,9 @@ async function streamHarness(t, scenario = 'normal', service = null) {
           sessionBindingHash: `v1:${'a'.repeat(64)}`, leaseExpiresAtMs: Date.now() + 30000,
           dbNowMs: Date.now(), dbObservationStartMs: Date.now(), dbObservationEndMs: Date.now() }
       state.acquired.push(handle)
-      state.active.add(handle)
+      state.active.add(handle.demandOwnerId)
       if (scenario === 'acquire-denied') {
-        state.active.delete(handle)
+        state.active.delete(handle.demandOwnerId)
         state.acquired.pop()
         throw new CameraAccessError(403, 'PRODUCER_AUTHORITY_DENIED')
       }
@@ -326,7 +326,7 @@ async function streamHarness(t, scenario = 'normal', service = null) {
     renew: async ({ handle, access, sessionBinding }) => {
       assert.equal(sessionBinding, binding)
       assert.equal(access.logicalCameraId, handle.logicalCameraId)
-      assert.ok(state.active.has(handle))
+      assert.ok(state.active.has(handle.demandOwnerId))
       state.renewed.push(handle)
       state.events.push('renew-start')
       renewing += 1
@@ -346,7 +346,7 @@ async function streamHarness(t, scenario = 'normal', service = null) {
       state.events.push('release')
       state.released.push(handle)
       if (scenario === 'release-failure') throw new Error('fixture cleanup unavailable')
-      state.active.delete(handle)
+      state.active.delete(handle.demandOwnerId)
       state.retired = state.active.size === 0
       return outcome ?? { released: true, epochRetired: state.retired }
     },
@@ -655,11 +655,13 @@ test('real PostgreSQL HTTP viewers share one epoch; final route cleanup retires 
   let one
   let two
   const waitForRelease = async (handle, context) => {
+    const wasReleased = () => state.released.some(released => released.demandOwnerId === handle.demandOwnerId
+      && released.producerGeneration === handle.producerGeneration)
     const started = Date.now()
-    while (!state.released.includes(handle) && Date.now() - started < transactionTimeoutMs)
+    while (!wasReleased() && Date.now() - started < transactionTimeoutMs)
       await new Promise(resolve => setTimeout(resolve, 5))
-    t.diagnostic(`${context}: releaseCompleted=${state.released.includes(handle)} waitMs=${Date.now() - started}`)
-    assert.ok(state.released.includes(handle), `${context}: real transaction must release before DB assertions/teardown`)
+    t.diagnostic(`${context}: releaseCompleted=${wasReleased()} waitMs=${Date.now() - started}`)
+    assert.ok(wasReleased(), `${context}: real transaction must release before DB assertions/teardown`)
   }
   try {
     await admin.query(`CREATE SCHEMA "${schema}"`)
