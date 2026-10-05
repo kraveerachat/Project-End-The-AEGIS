@@ -278,6 +278,88 @@ class ViewerDemandTests(unittest.TestCase):
             recorder._ensure_writer(Frame(seq=101, image=np.zeros((480, 640, 3), dtype=np.uint8)))
             self.assertEqual(opened, [(640, 480)])
 
+    def test_recorder_normalizes_30fps_capture_to_24fps_media_timeline(self):
+        metrics = MetricsRegistry()
+
+        class FakeWriter:
+            def __init__(self):
+                self.writes = 0
+
+            def write(self, _image):
+                self.writes += 1
+
+        recorder = SegmentRecorder(
+            EngineConfig(target_fps=24),
+            metrics,
+            queue.Queue(),
+            on_segment=lambda _info: None,
+        )
+        writer = FakeWriter()
+        recorder._writer = writer
+        recorder._writer_size = (16, 16)
+        recorder._segment_capture_started_monotonic = 100.0
+
+        image = np.zeros((16, 16, 3), dtype=np.uint8)
+
+        # 301 captured frames across ten real seconds ~= 30 fps input.
+        for seq in range(301):
+            recorder._write(
+                Frame(
+                    seq=seq,
+                    image=image,
+                    captured_at=100.0 + (10.0 * seq / 300.0),
+                )
+            )
+
+        self.assertEqual(writer.writes, 241)
+        self.assertLess(writer.writes, 301)
+        self.assertAlmostEqual(
+            writer.writes / 24.0,
+            10.0,
+            delta=0.1,
+        )
+
+    def test_recorder_duplicates_slow_capture_to_preserve_media_timeline(self):
+        metrics = MetricsRegistry()
+
+        class FakeWriter:
+            def __init__(self):
+                self.writes = 0
+
+            def write(self, _image):
+                self.writes += 1
+
+        recorder = SegmentRecorder(
+            EngineConfig(target_fps=24),
+            metrics,
+            queue.Queue(),
+            on_segment=lambda _info: None,
+        )
+        writer = FakeWriter()
+        recorder._writer = writer
+        recorder._writer_size = (16, 16)
+        recorder._segment_capture_started_monotonic = 200.0
+
+        image = np.zeros((16, 16, 3), dtype=np.uint8)
+
+        # 151 captured frames across ten real seconds ~= 15 fps input.
+        for seq in range(151):
+            recorder._write(
+                Frame(
+                    seq=seq,
+                    image=image,
+                    captured_at=200.0 + (10.0 * seq / 150.0),
+                )
+            )
+
+        self.assertEqual(writer.writes, 241)
+        self.assertGreater(writer.writes, 151)
+        self.assertAlmostEqual(
+            writer.writes / 24.0,
+            10.0,
+            delta=0.1,
+        )
+
     def test_camera_opens_only_while_viewer_demand_exists(self):
         demand = threading.Event()
         stop = threading.Event()

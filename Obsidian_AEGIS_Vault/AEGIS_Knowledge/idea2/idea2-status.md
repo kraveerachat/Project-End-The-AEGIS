@@ -19,8 +19,8 @@ edit_policy: owner-writable
 
 Task: PR2 Recording / Archive. Branch:
 `feat/idea2-pr2-recording-archive-5min-download`; owner: Pub; starting main:
-`9cebd2a061f8d47bc97349762aa87f169c706710`. Current state: IN PROGRESS — SOURCE + HOME/LOCAL VALIDATION COMPLETE;
-PRODUCTION / REAL NAS ACCEPTANCE PENDING. Production mutation allowed: NO.
+`9cebd2a061f8d47bc97349762aa87f169c706710`. Current state: IN PROGRESS ? SOURCE + MACHINE A RECORDING ACCEPTANCE COMPLETE;
+ARCHIVE / PRODUCTION / REAL NAS ACCEPTANCE PENDING. Production mutation allowed: NO.
 
 Goal: while the authenticated Operator camera session remains active, record
 continuously and finalize one truthful clip every 300 seconds. Navigation among
@@ -47,14 +47,16 @@ Acceptance boundary for this repository session:
   playback;
 - NAS success remains transfer -> integrity verify -> clip metadata publication;
 - source/unit/build validation must pass before this session can be called PASS;
-- Machine A >5-minute real-camera, logout partial, NAS, playback/download and
-  Production deployment acceptance remain separate owner-run evidence.
+- Machine A >5-minute real-camera recording, navigation continuity, logout
+  partial and truthful media-duration acceptance are owner-run PASS. Real NAS,
+  Archive playback/download live RBAC and Production deployment acceptance
+  remain separate owner-run evidence.
 
 ### PR2 Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PR2-S1 | 300s recording + truthful partial + browser-playable NAS Archive + playback/download source contract | LOCAL/HOME ACCEPTANCE COMPLETE; PRODUCTION/NAS PENDING | Monitor full suite 245 tests: 187 pass / 58 conditional skip / 0 fail; Vite build PASS; Engine full suite 292 tests / 7 conditional skip / 0 fail; focused recording 7/7 PASS; focused NAS fail-closed 4/4 PASS; real local FFmpeg mp4v -> libx264 H.264/yuv420p PASS; collaboration guardrails PASS | `3ee733874a10b1248f2e8e3684574c5508b04f77` | SOURCE VALIDATION PASS / LOCAL RECORDING CONTRACT PASS / LOCAL FAIL-CLOSED PASS / LOCAL H264 PIPELINE PASS | Production deploy, DB default 600 -> 300, real >5m camera/browser flow, Archive live playback/download/RBAC, real NAS transfer/hash | keep PR #344 Draft; no Production mutation; defer Production/NAS acceptance |
+| PR2-S1 | 300s recording + truthful partial + portable CFR normalization + browser-playable NAS Archive + playback/download source contract | SOURCE + MACHINE A RECORDING ACCEPTANCE COMPLETE; PRODUCTION/NAS/ARCHIVE PENDING | Focused recording 9/9 PASS; Engine full suite 294/294 PASS in disposable Python 3.12; Machine A 300s rotation PASS, navigation continuity PASS, truthful full/partial media duration PASS, real-camera local H.264/yuv420p +faststart PASS | portable FPS checkpoint | SOURCE VALIDATION PASS / MACHINE A RECORDING PASS / LOCAL H264 PIPELINE PASS | Archive live playback/seek/download/RBAC, real NAS transfer/hash, Production DB default 600 -> 300, Production deploy | keep PR #344 Draft; prove portable FPS source on Machine A at target_fps=24 |
 
 ### PR2-S1 checkpoint — source validated and HOME/LOCAL acceptance complete; Production/NAS pending
 
@@ -106,6 +108,51 @@ PR #344 remains Draft. No Production container, Production database, Twingate,
 IDEA1, IDEA3, SSH server configuration, camera runtime, NAS, or filesystem
 permission was mutated by this HOME/LOCAL validation checkpoint. This is not
 the final task receipt and PR2 is not CLOSED.
+
+### PR2-S1 portable FPS / Machine A recording checkpoint ? 2026-10-05
+
+Owner-run Machine A recording acceptance is complete. With the temporary
+Machine A runtime target set to 30 FPS, one authenticated viewer produced a
+300.0-second first segment and a 52.6-second logout partial. Resulting media
+durations were 300.767 seconds and 52.267 seconds. Navigation
+Live -> Archive -> Diagnostics -> Settings -> Live produced zero pre-logout
+demand, camera-connection or viewer-count drops, and logout returned the Engine
+to idle.
+
+The duration defect was traced to camera cadence versus VideoWriter timebase:
+Machine A supplied about 30 captured frames per second while the writer
+declared 24 FPS, so 9023 frames from a 300-second segment played for about
+375.96 seconds.
+
+The PR2 source now maps Frame.captured_at monotonic time onto the configured
+constant-frame-rate output instead of assuming that the physical camera obeys
+CAP_PROP_FPS. Faster sources drop surplus presentation frames and slower
+sources duplicate the latest available frame. The implementation therefore
+does not hard-code Machine A's 30 FPS behavior.
+
+Portable-FPS source validation:
+- focused viewer/recording suite: 9/9 PASS, including explicit 30 -> 24 FPS
+  normalization and slower-source duplication regressions;
+- Detection Engine full suite: 294/294 PASS in a disposable CPython 3.12
+  environment containing Engine and locked Identity Agent dependencies;
+- dependency import proof: PASS, including cryptography 50.0.1, OpenCV,
+  FastAPI and pywin32;
+- source immutability after testing: PASS.
+
+A real-camera local FFmpeg smoke also converted a finalized mp4v clip to
+H.264/yuv420p with fast-start while preserving its 52.266667-second duration.
+
+The portable source fix has NOT yet been deployed to Machine A. Machine A still
+uses the temporary AEGIS_TARGET_FPS=30 workaround. Next acceptance is to deploy
+only the reviewed SegmentRecorder source, restore AEGIS_TARGET_FPS=24, and
+prove truthful real-camera media duration without the per-machine FPS
+workaround.
+
+Production Monitor, Production database, Twingate and NAS were not changed.
+Real NAS verification, Archive live playback/seek/download/RBAC and Production
+deployment remain pending. PR #344 remains Draft. This is not the final PR2
+receipt and PR2 is not CLOSED.
+
 
 ## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
 
