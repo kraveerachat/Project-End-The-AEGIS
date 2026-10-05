@@ -20,23 +20,107 @@ TRUSTEDCLOCK_NOT_SYNCED (and, for the wait, CHRONY_LEAP_NOT_NORMAL).
 from __future__ import annotations
 
 import argparse
+import ctypes
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from aegis_soc.trusted_time import (  # noqa: E402
-    STA_UNSYNC,
-    TIME_ERROR,
-    ClockSync,
-    MAX_ERROR_US,
-    RawAdjtimex,
-    TimeTrust,
-    TrustedClock,
-    adjtimex_raw,
-    clock_sync_from_raw,
-)
+# Normal source-tree execution imports the canonical Core implementation. A frozen
+# Phase-4 control snapshot contains only deploy/pr11-phase4, so the historical
+# parents[2] import path is absent there. Fall back to a byte-local, read-only
+# implementation of the SAME kernel predicate rather than recording UNAVAILABLE.
+# This fallback exists only to make evidence capture self-contained; it does not
+# adjust time, start a service, or weaken the predicate.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from aegis_soc.trusted_time import (  # type: ignore[import-not-found]  # noqa: E402
+        STA_UNSYNC,
+        TIME_ERROR,
+        ClockSync,
+        MAX_ERROR_US,
+        RawAdjtimex,
+        TimeTrust,
+        TrustedClock,
+        adjtimex_raw,
+        clock_sync_from_raw,
+    )
+except ModuleNotFoundError:
+    TIME_ERROR = 5
+    STA_UNSYNC = 0x0040
+    MAX_ERROR_US = 1_000_000
+    TIME_FLOOR = 1789430400
+
+    class TimeTrust(StrEnum):
+        SYNCED = "SYNCED"
+        HOLDOVER = "HOLDOVER"
+        UNTRUSTED = "UNTRUSTED"
+        UNKNOWN = "UNKNOWN"
+
+    @dataclass(frozen=True)
+    class ClockSync:
+        synced: bool
+        maxerror_us: int
+
+    class _Timeval(ctypes.Structure):
+        _fields_ = [("tv_sec", ctypes.c_long), ("tv_usec", ctypes.c_long)]
+
+    class _Timex(ctypes.Structure):
+        _fields_ = [
+            ("modes", ctypes.c_uint), ("offset", ctypes.c_long), ("freq", ctypes.c_long),
+            ("maxerror", ctypes.c_long), ("esterror", ctypes.c_long), ("status", ctypes.c_int),
+            ("constant", ctypes.c_long), ("precision", ctypes.c_long), ("tolerance", ctypes.c_long),
+            ("time", _Timeval), ("tick", ctypes.c_long), ("ppsfreq", ctypes.c_long),
+            ("jitter", ctypes.c_long), ("shift", ctypes.c_int), ("stabil", ctypes.c_long),
+            ("jitcnt", ctypes.c_long), ("calcnt", ctypes.c_long), ("errcnt", ctypes.c_long),
+            ("stbcnt", ctypes.c_long), ("tai", ctypes.c_int), ("_reserved", ctypes.c_int * 11),
+            ("_guard", ctypes.c_char * 64),
+        ]
+
+    @dataclass(frozen=True)
+    class RawAdjtimex:
+        ret: int
+        status: int
+        maxerror_us: int
+
+    def adjtimex_raw(*, libc=None, platform: str | None = None):
+        if (platform or sys.platform) != "linux":
+            return None
+        try:
+            library = libc if libc is not None else ctypes.CDLL(None, use_errno=True)
+            function = library.adjtimex
+        except (OSError, AttributeError):
+            return None
+        buffer = _Timex()
+        buffer.modes = 0
+        state = function(ctypes.byref(buffer))
+        if state < 0:
+            return None
+        return RawAdjtimex(ret=int(state), status=int(buffer.status), maxerror_us=int(buffer.maxerror))
+
+    def clock_sync_from_raw(raw):
+        if raw is None:
+            return None
+        return ClockSync(synced=bool(raw.ret != TIME_ERROR and not raw.status & STA_UNSYNC), maxerror_us=raw.maxerror_us)
+
+    class TrustedClock:
+        def __init__(self, probe, *, wall=time.time, **_ignored):
+            self._probe = probe
+            self._wall = wall
+
+        def state(self):
+            try:
+                sample = self._probe()
+            except Exception:
+                sample = None
+            wall = self._wall()
+            if sample is None:
+                return TimeTrust.UNKNOWN
+            if sample.synced and 0 <= sample.maxerror_us <= MAX_ERROR_US and wall >= TIME_FLOOR:
+                return TimeTrust.SYNCED
+            return TimeTrust.UNTRUSTED
 
 
 def raw_fields(raw) -> str:
