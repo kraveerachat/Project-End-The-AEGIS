@@ -100,6 +100,7 @@ class StreamLifecycleRegressionTests(unittest.TestCase):
             response = await endpoint(Request({'type': 'http', 'headers': [
                 (b'x-detection-engine-key', b'test-key'),
                 (b'x-aegis-producer-generation', b'1'),
+                (b'x-aegis-logical-camera-id', b'CAM-01'),
             ]}))
             self.assertEqual(response.status_code, 200)
             self.assertEqual(hub.viewers, 0)

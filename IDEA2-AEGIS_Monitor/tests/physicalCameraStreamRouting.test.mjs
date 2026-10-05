@@ -423,12 +423,13 @@ async function streamHarness(t, scenario = 'normal', service = null) {
     else process.env.DETECTION_ENGINE_API_KEY = previousKey
   })
   async function open(alias = 'CAM-01', user = 2, onRequest = () => {}) {
-    const payload = JSON.stringify({ producerGeneration: '888', nodeId: 'forged', physicalCameraId: 999 })
+    const payload = JSON.stringify({ producerGeneration: '888', logicalCameraId: 'CAM-99', nodeId: 'forged', physicalCameraId: 999 })
     return new Promise((resolve, reject) => {
       const request = http.request({ hostname: '127.0.0.1', port: server.address().port,
-        path: `/api/cameras/${alias}/stream?producerGeneration=666&nodeId=forged&physicalCameraId=999`,
+        path: `/api/cameras/${alias}/stream?producerGeneration=666&logicalCameraId=CAM-98&nodeId=forged&physicalCameraId=999`,
         headers: { 'x-test-user': String(user), 'X-Aegis-Producer-Generation': '777', 'content-type': 'application/json',
           'X-Detection-Engine-Key': 'browser-forged-key',
+          'X-Aegis-Logical-Camera-Id': 'CAM-97',
           'content-length': Buffer.byteLength(payload) } }, resolve)
       request.once('error', reject)
       onRequest(request)
@@ -470,8 +471,11 @@ test('strict_stream_sends_server_generation_and_key; client_generation_claim_can
   assert.equal(state.fetched[0].acquired, 1)
   assert.equal(state.fetched[0].authorized, 1)
   assert.equal(state.fetched[0].options.headers['X-Aegis-Producer-Generation'], generation)
+  assert.equal(state.fetched[0].options.headers['X-Aegis-Logical-Camera-Id'], 'CAM-01')
+  assert.equal(state.fetched[0].options.headers['X-Aegis-Logical-Camera-Id'], state.acquired[0].logicalCameraId)
   assert.equal(state.fetched[0].options.headers['X-Detection-Engine-Key'], 'server-only-engine-key')
   assert.equal(response.headers['x-aegis-producer-generation'], undefined)
+  assert.equal(response.headers['x-aegis-logical-camera-id'], undefined)
   assert.equal(response.headers['x-detection-engine-key'], undefined)
   assert.ok(!body.includes(generation) && !body.includes(binding) && !body.includes('machine-a-node')
     && !body.includes('server-only-engine-key'))
@@ -535,6 +539,7 @@ test('two_account_aliases_share_physical_upstream; final viewer retires its epoc
   assert.equal(state.acquired[0].producerGeneration, '9007199254740993')
   assert.equal(state.acquired[1].producerGeneration, '9007199254740993')
   assert.deepEqual(state.fetched.map(entry => entry.url), ['http://engine.test/stream.mjpg', 'http://engine.test/stream.mjpg'])
+  assert.deepEqual(state.fetched.map(entry => entry.options.headers['X-Aegis-Logical-Camera-Id']), ['CAM-01', 'CAM-02'])
   first.destroy()
   const deadline = Date.now() + 50
   while (!state.released.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 1))

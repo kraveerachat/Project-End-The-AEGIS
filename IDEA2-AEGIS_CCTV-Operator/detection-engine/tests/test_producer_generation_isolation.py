@@ -78,6 +78,26 @@ class ProducerGenerationIsolationTests(unittest.TestCase):
         self.assertEqual(hub.viewers, 1)
         self.assertTrue(hub._capture_demand_event.is_set())
 
+    def test_final_release_retires_generation_but_not_earlier_alias_release(self):
+        hub = self.hub()
+        first = hub.add_viewer(producer_generation=51)
+        second = hub.add_viewer(producer_generation=51)
+        hub.remove_viewer(*first)
+        third = hub.add_viewer(producer_generation=51)
+        hub.remove_viewer(*second)
+        hub.remove_viewer(*third)
+        hub.remove_viewer(*third)  # cleanup remains idempotent
+
+        with self.assertRaises(StaleProducerGenerationError):
+            hub.add_viewer(producer_generation=51)
+        with self.assertRaises(StaleProducerGenerationError):
+            hub.prepare_producer_generation(51)
+        self.assertEqual(hub.viewers, 0)
+        self.assertFalse(hub._capture_demand_event.is_set())
+        current = hub.add_viewer(producer_generation=52)
+        hub.remove_viewer(*first)  # old cleanup cannot retire the new producer
+        self.assertTrue(hub.viewer_is_active(*current))
+
 
 if __name__ == "__main__":
     unittest.main()

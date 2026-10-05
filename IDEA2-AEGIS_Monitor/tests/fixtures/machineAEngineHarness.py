@@ -151,6 +151,7 @@ def _contract_probe() -> int:
             headers={
                 "X-Detection-Engine-Key": engine.key,
                 "X-Aegis-Producer-Generation": "1",
+                "X-Aegis-Logical-Camera-Id": "CAM-01",
             },
         )
         response = connection.getresponse()

@@ -15,9 +15,11 @@ import threading
 class RecordingStreamHub:
     def __init__(self):
         self.viewer_generations = []
+        self.viewer_aliases = []
 
-    def add_viewer(self, *, producer_generation):
+    def add_viewer(self, *, producer_generation, logical_camera_id=None):
         self.viewer_generations.append(producer_generation)
+        self.viewer_aliases.append(logical_camera_id)
         return "viewer-owner", 1
 
     def prepare_producer_generation(self, _producer_generation):
@@ -93,6 +95,7 @@ class ProducerGenerationContractTests(unittest.TestCase):
                     (b"x-detection-engine-key", b"test-key"),
                     (b"x-aegis-producer-generation", b"21"),
                     (b"x-aegis-producer-generation", b"22"),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
                 )
             )
             return missing, duplicate
@@ -128,12 +131,13 @@ class ProducerGenerationContractTests(unittest.TestCase):
                 ),
                 timeout=1.0,
             )
-            return response.status_code, stream_hub.viewer_generations
+            return response.status_code, stream_hub.viewer_generations, stream_hub.viewer_aliases
 
-        status, generations = asyncio.run(exercise())
+        status, generations, aliases = asyncio.run(exercise())
 
         self.assertEqual(status, 200)
         self.assertEqual(generations, [None])
+        self.assertEqual(aliases, [None])
 
     def test_authenticated_stream_rejects_noncanonical_or_out_of_range_generation(self):
         invalid_values = (
@@ -156,6 +160,7 @@ class ProducerGenerationContractTests(unittest.TestCase):
                 self.request(
                     (b"x-detection-engine-key", b"test-key"),
                     (b"x-aegis-producer-generation", value),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
                 )
             )
 
@@ -203,6 +208,7 @@ class ProducerGenerationContractTests(unittest.TestCase):
                         b"x-aegis-producer-generation",
                         b"9223372036854775807",
                     ),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
                 )
             )
             receive_queue = asyncio.Queue()
@@ -222,12 +228,13 @@ class ProducerGenerationContractTests(unittest.TestCase):
                 ),
                 timeout=1.0,
             )
-            return response.status_code, stream_hub.viewer_generations
+            return response.status_code, stream_hub.viewer_generations, stream_hub.viewer_aliases
 
-        status, generations = asyncio.run(exercise())
+        status, generations, aliases = asyncio.run(exercise())
 
         self.assertEqual(status, 200)
         self.assertEqual(generations, [9223372036854775807])
+        self.assertEqual(aliases, ["CAM-01"])
 
     def test_stale_generation_is_rejected_before_stream_response_or_new_demand(self):
         hub = StreamHub(
@@ -242,6 +249,7 @@ class ProducerGenerationContractTests(unittest.TestCase):
                 self.request(
                     (b"x-detection-engine-key", b"test-key"),
                     (b"x-aegis-producer-generation", b"21"),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
                 )
             )
         )
@@ -264,6 +272,7 @@ class ProducerGenerationContractTests(unittest.TestCase):
                 self.request(
                     (b"x-detection-engine-key", b"test-key"),
                     (b"x-aegis-producer-generation", b"21"),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
                 )
             )
 
@@ -293,6 +302,7 @@ class ProducerGenerationContractTests(unittest.TestCase):
                 self.request(
                     (b"x-detection-engine-key", b"test-key"),
                     (b"x-aegis-producer-generation", b"21"),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
                 )
             )
             first_old_chunk = asyncio.create_task(anext(response.body_iterator))

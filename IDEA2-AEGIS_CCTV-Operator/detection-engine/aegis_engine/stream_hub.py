@@ -30,6 +30,7 @@ Backpressure/liveness contract
 from __future__ import annotations
 
 import queue
+import re
 import secrets
 import threading
 import time
@@ -72,8 +73,10 @@ class StreamHub(threading.Thread):
         self._jpeg: Optional[bytes] = None
         self._viewers = 0
         self._current_producer_generation: Optional[int] = None
+        self._producer_generation_retired = False
         self._viewer_lease_generation = 0
         self._viewer_leases: dict[str, int] = {}
+        self._viewer_aliases: dict[str, Optional[str]] = {}
         self._viewer_started_at = float("inf")
         self._encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(config.stream_jpeg_quality)]
 
@@ -181,12 +184,17 @@ class StreamHub(threading.Thread):
                 raise StaleProducerGenerationError("stale producer generation")
             return
         current = self._current_producer_generation
-        if current is not None and producer_generation < current:
+        if current is not None and (
+            producer_generation < current
+            or (producer_generation == current and self._producer_generation_retired)
+        ):
             raise StaleProducerGenerationError("stale producer generation")
         if current is None or producer_generation > current:
             self._current_producer_generation = producer_generation
+            self._producer_generation_retired = False
             self._viewer_lease_generation += 1
             self._viewer_leases.clear()
+            self._viewer_aliases.clear()
             self._viewers = 0
             if self._capture_demand_event is not None:
                 self._capture_demand_event.clear()
@@ -201,14 +209,23 @@ class StreamHub(threading.Thread):
             self._prepare_producer_generation_locked(producer_generation)
 
     def add_viewer(
-        self, *, producer_generation: Optional[int] = None
+        self, *, producer_generation: Optional[int] = None,
+        logical_camera_id: Optional[str] = None,
     ) -> tuple[str, int]:
         self._validate_producer_generation(producer_generation)
+        if logical_camera_id is not None and (
+            producer_generation is None
+            or not isinstance(logical_camera_id, str)
+            or len(logical_camera_id) > 64
+            or re.fullmatch(r"CAM-[0-9]+", logical_camera_id) is None
+        ):
+            raise ValueError("invalid logical camera id")
         with self._cond:
             self._prepare_producer_generation_locked(producer_generation)
             owner_id = secrets.token_hex(16)
             lease = (owner_id, self._viewer_lease_generation)
             self._viewer_leases[owner_id] = self._viewer_lease_generation
+            self._viewer_aliases[owner_id] = logical_camera_id
             self._viewers = len(self._viewer_leases)
             n = self._viewers
             if n == 1:
@@ -227,9 +244,15 @@ class StreamHub(threading.Thread):
             if self._viewer_leases.get(owner_id) != lease_generation:
                 return
             del self._viewer_leases[owner_id]
+            del self._viewer_aliases[owner_id]
             self._viewers = len(self._viewer_leases)
             n = self._viewers
             if n == 0:
+                # The same server-owned epoch must never reopen after its
+                # final physical viewer leaves. Earlier alias exits do not
+                # retire a generation while another viewer still owns it.
+                if self._current_producer_generation is not None:
+                    self._producer_generation_retired = True
                 if self._capture_demand_event is not None:
                     self._capture_demand_event.clear()
                 self._jpeg = None

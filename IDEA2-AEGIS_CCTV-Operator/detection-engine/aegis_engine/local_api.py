@@ -23,6 +23,7 @@ events are produced by worker threads and bridged onto that loop by
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
 from collections import deque
 from contextlib import asynccontextmanager
@@ -56,6 +57,7 @@ log = get_logger("LocalEventAPI")
 # engine<->Monitor boundary; the browser never sees it (Monitor proxies).
 _KEY_HEADER = "x-detection-engine-key"
 _PRODUCER_GENERATION_HEADER = b"x-aegis-producer-generation"
+_LOGICAL_CAMERA_ID_HEADER = b"x-aegis-logical-camera-id"
 _MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807
 _MJPEG_BOUNDARY = "aegisframe"
 
@@ -332,6 +334,26 @@ class LocalEventAPI:
                 )
             return value
 
+        def _logical_camera_id(req: "Request", generation: int | None) -> str | None | Response:
+            values = [
+                value for name, value in req.scope.get("headers", ())
+                if name.lower() == _LOGICAL_CAMERA_ID_HEADER
+            ]
+            if not values and generation is None and not cfg.capture_on_demand:
+                return None
+            if (
+                generation is None
+                or len(values) != 1
+                or len(values[0]) > 64
+                or re.fullmatch(rb"CAM-[0-9]+", values[0]) is None
+            ):
+                return Response(
+                    status_code=400,
+                    content='{"error":"invalid logical camera id"}',
+                    media_type="application/json",
+                )
+            return values[0].decode("ascii")
+
         @app.get("/stream.mjpg")
         async def stream_mjpg(request: "Request"):
             denied = _authorized(request)
@@ -340,6 +362,9 @@ class LocalEventAPI:
             producer_generation = _producer_generation(request)
             if isinstance(producer_generation, Response):
                 return producer_generation
+            logical_camera_id = _logical_camera_id(request, producer_generation)
+            if isinstance(logical_camera_id, Response):
+                return logical_camera_id
             if stream_hub is None:
                 return Response(status_code=503, content='{"error":"stream not enabled"}',
                                 media_type="application/json")
@@ -360,7 +385,8 @@ class LocalEventAPI:
                 has_sent_frame = False
                 try:
                     lease = stream_hub.add_viewer(
-                        producer_generation=producer_generation
+                        producer_generation=producer_generation,
+                        logical_camera_id=logical_camera_id,
                     )
                 except StaleProducerGenerationError:
                     # A newer producer can supersede this request after route

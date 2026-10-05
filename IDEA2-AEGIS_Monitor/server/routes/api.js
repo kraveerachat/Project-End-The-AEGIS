@@ -626,7 +626,10 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
         redirect: 'error',
         headers: {
           'X-Detection-Engine-Key': process.env.DETECTION_ENGINE_API_KEY ?? '',
-          ...(strictOperator ? { 'X-Aegis-Producer-Generation': demandHandle.producerGeneration } : {}),
+          ...(strictOperator ? {
+            'X-Aegis-Producer-Generation': demandHandle.producerGeneration,
+            'X-Aegis-Logical-Camera-Id': demandHandle.logicalCameraId,
+          } : {}),
         },
       })
     } catch (err) {
