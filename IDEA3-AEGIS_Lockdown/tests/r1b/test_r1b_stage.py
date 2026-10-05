@@ -26,6 +26,9 @@ R1B_FILES = [STG / "apply.sh", STG / "verify.sh", STG / "rollback.sh", LIB, RUNN
 F1_RECEIPT = f"{LOGS}/2026-10-04_233030_music_idea3-f1-attempt2-live-closeout.md"
 FOUNDATION = f"{LOGS}/2026-10-05_005444_music_idea3-r1-real-detector-acceptance.md"
 F1U_RECEIPT = f"{LOGS}/2026-10-05_041108_music_idea3-f1u-live-closeout.md"
+R1D_RECEIPT = f"{LOGS}/2026-10-06_140000_music_idea3-r1d-live-closeout.md"
+R1D_LINES = ("R1D_LIVE=CLOSED_PASS", "R1D_LIVE_EXECUTED=YES", "R1D_ATTEMPT_CONSUMED=YES", "R1D_RERUN_ALLOWED=NO", "R1D_RESULT=PASS", "PREEXISTING_OPEN_INCIDENT_COUNT=0",
+             "R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES", "R1B_ATTEMPT_CONSUMED=NO", "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "R1_VERIFIED=NOT_CLAIMED", "RECOVERY_R2_R8_EXECUTED=NO")
 R1A_FAIL_RECEIPT = f"{LOGS}/2026-10-05_232827_music_idea3-r1a-live-failure-closeout.md"
 R1I_RECEIPT = f"{LOGS}/2026-10-05_063546_music_idea3-r1i-live-closeout.md"
 RELEASE = "912b18005bb2fc80bb4e8d1fe8aa88803ac27314"
@@ -51,8 +54,8 @@ def stages() -> list[str]:
 def test_r1b_is_registered_exactly_once_after_the_historical_r1a_and_before_l8() -> None:
     order = stages()
     assert order.count("R1B") == 1
-    assert order.index("F1u") < order.index("R1I") < order.index("R1A") < order.index("R1B") < order.index("L8") < order.index("L9")
-    assert order[order.index("R1I") + 1] == "R1A" and order[order.index("R1A") + 1] == "R1B" and order[order.index("R1B") + 1] == "L8"
+    assert order.index("F1u") < order.index("R1I") < order.index("R1A") < order.index("R1Du") < order.index("R1D") < order.index("R1B") < order.index("L8") < order.index("L9")
+    assert order[order.index("R1A") + 1:order.index("R1A") + 4] == ["R1Du", "R1D", "R1B"] and order[order.index("R1B") + 1] == "L8"  # R1Du and R1D (historical disposition) precede the unchanged R1B
 
 
 def test_r1b_is_a_mutating_stage_with_no_gap_and_no_authorization_extra() -> None:
@@ -67,9 +70,9 @@ def test_r1b_handler_surface_is_complete_and_registered() -> None:
 
 
 def test_documented_operational_order_names_r1b_and_recovery_stays_after_it() -> None:
-    assert "F1u -> R1I -> R1A (historical consumed FAIL) -> R1B -> Recovery R2-R8" in P4_LIB.read_text()
+    assert "F1u -> R1I -> R1A (historical consumed FAIL) -> R1Du -> R1D -> R1B -> Recovery R2-R8" in P4_LIB.read_text()
     readme = (P4 / "README.md").read_text()
-    assert "R1I -> R1A (historical consumed FAIL) -> R1B -> Recovery R2-R8" in readme
+    assert "R1I -> R1A (historical consumed FAIL) -> R1Du -> R1D -> R1B -> Recovery R2-R8" in readme
 
 
 # --------------------------------------------------------------------------- owner runner (inert template)
@@ -215,6 +218,7 @@ def receipt_repo(tmp_path: Path, **change: str | None) -> Path:
             "R1I_LIVE=CLOSED_PASS", "R1I_LIVE_EXECUTED=YES", "R1I_PRODUCTION_DEPLOYED=YES", "R1I_ATTEMPT_CONSUMED=YES", "R1I_RERUN_ALLOWED=NO",
             "PRODUCTION_NFT_NORMALIZATION=PASS_OBSERVED_LIVE", "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "R1_VERIFIED=NOT_CLAIMED")) + "\n",
     }
+    files[R1D_RECEIPT] = "\n".join(f"- `{x}`" for x in R1D_LINES) + "\n"
     files[R1A_FAIL_RECEIPT] = "\n".join(f"- `{x}`" for x in (
         "R1A_LIVE_EXECUTED=YES", "R1A_ATTEMPT_CONSUMED=YES", "R1A_RERUN_ALLOWED=NO", "R1A_RESULT=FAIL", "R1A_STAGE_VERIFY=NOT_REACHED",
         "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "R1_VERIFIED=NOT_CLAIMED", "RECOVERY_R2_R8_EXECUTED=NO")) + "\n"
@@ -1243,7 +1247,8 @@ def replaced_world(tmp_path: Path) -> dict:
     receipts.mkdir(parents=True, exist_ok=True)
     for rel, text in ((F1_RECEIPT, "- `F1_LIVE_RESULT=PASS`\n- `F1_PRODUCTION_DEPLOYED=YES`\n- `F1_DETECTOR_STARTED=YES`\n"),
                       (FOUNDATION, "- `R1_EVIDENCE_VERIFIER_IMPLEMENTED=YES`\n- `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`\n- `R1_VERIFIED=NOT_CLAIMED`\n"),
-                      (F1U_RECEIPT, f"release `{RELEASE}` was installed and activated.\nF1u proves deployment only.\n")):
+                      (F1U_RECEIPT, f"release `{RELEASE}` was installed and activated.\nF1u proves deployment only.\n"),
+                      (R1D_RECEIPT, "\n".join(f"- `{x}`" for x in R1D_LINES) + "\n")):
         (repo / rel).write_text(text)
     run_git(repo, "init", "-q")
     run_git(repo, "config", "user.email", "t@e.invalid")

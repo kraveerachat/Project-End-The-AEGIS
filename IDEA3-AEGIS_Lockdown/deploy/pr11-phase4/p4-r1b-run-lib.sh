@@ -140,6 +140,19 @@ _r1b_only_receipt() {
   done
   [ "$(printf '%s\n' "$files" | wc -l)" = 1 ] && [ "${files#"$main":}" = "$canonical" ] || return 1
 }
+# _r1b_unique_suffix_receipt REPO MAIN NAME_SUFFIX FIELD=VALUE... — exactly ONE receipt of the pinned commit carries ALL the whole-line fields and its file name ends with NAME_SUFFIX (the closeout of a stage whose
+# date-stamped name did not exist when this library was written).
+_r1b_unique_suffix_receipt() {
+  local repo=$1 main=$2 suffix=$3 pair files="" part
+  shift 3
+  for pair in "$@"; do
+    part=$(r1b_field_files "$repo" "$main" "${pair%%=*}" "${pair#*=}")
+    [ -n "$part" ] || return 1
+    if [ -z "$files" ]; then files=$part; else files=$(comm -12 <(printf '%s\n' "$files") <(printf '%s\n' "$part")); fi
+    [ -n "$files" ] || return 1
+  done
+  [ "$(printf '%s\n' "$files" | wc -l)" = 1 ] && [[ "$files" == "$main:$R1B_LOGS_REL/"*"$suffix" ]] || return 1
+}
 # r1b_receipt_gate REPO RELEASE_ID MAIN — F1 detector deployed, the R1 evidence foundation merged, F1u (Core with ALERT_ACCEPTED) deployed, R1I LIVE closed — each from ONE canonical receipt of the pinned
 # commit (read as MAIN:path with replacement objects disabled) — and no contradictory or duplicate success state, and R1B not already recorded.
 r1b_receipt_gate() {
@@ -150,10 +163,24 @@ r1b_receipt_gate() {
     || { r1b_reason "R1B_F1_CLOSEOUT_MISSING_OR_AMBIGUOUS"; return 1; }
   _r1b_only_receipt "$repo" "$main" "$F1U_R1_FOUNDATION_RECEIPT_REL" R1_FOUNDATION R1_EVIDENCE_VERIFIER_IMPLEMENTED=YES F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
     || { r1b_reason "R1B_R1_FOUNDATION_MISSING_OR_AMBIGUOUS"; return 1; }
-  # F1u closeout: ONE canonical receipt, naming the pinned current release as installed and activated, deployment-only boundary.
+  # F1u closeout (history) must exist. The pinned CURRENT release is proved by EITHER that F1u closeout (it names the release as installed and activated, deployment-only boundary) OR — after the owner-approved
+  # R1Du Core upgrade that carries the R1D historical-disposition authority — by the ONE unique R1Du closeout (whole-line fields, naming the pinned release). This recognises the new release/Core ONLY; the
+  # zero-open-incident baseline, the NEW-incident requirement, CREATED semantics, the genuine external event, source-IP/window binding and one-attempt/no-retry are untouched.
   git -C "$repo" cat-file -e "$main:$R1B_F1U_CLOSEOUT_RECEIPT_REL" 2>/dev/null || { r1b_reason "R1B_F1U_CLOSEOUT_MISSING"; return 1; }
-  git -C "$repo" grep -qF "$release" "$main" -- "$R1B_F1U_CLOSEOUT_RECEIPT_REL" && git -C "$repo" grep -q "installed and activated" "$main" -- "$R1B_F1U_CLOSEOUT_RECEIPT_REL" \
-    && git -C "$repo" grep -q "F1u proves deployment only" "$main" -- "$R1B_F1U_CLOSEOUT_RECEIPT_REL" || { r1b_reason "R1B_F1U_CLOSEOUT_DOES_NOT_CARRY_THE_PINNED_RELEASE"; return 1; }
+  if git -C "$repo" grep -qF "$release" "$main" -- "$R1B_F1U_CLOSEOUT_RECEIPT_REL" && git -C "$repo" grep -q "installed and activated" "$main" -- "$R1B_F1U_CLOSEOUT_RECEIPT_REL" \
+      && git -C "$repo" grep -q "F1u proves deployment only" "$main" -- "$R1B_F1U_CLOSEOUT_RECEIPT_REL"; then
+    :
+  else
+    _r1b_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1du-live-closeout.md" R1DU_LIVE=CLOSED_PASS R1DU_LIVE_EXECUTED=YES R1DU_PRODUCTION_DEPLOYED=YES R1DU_ATTEMPT_CONSUMED=YES \
+      R1DU_RERUN_ALLOWED=NO R1DU_RELEASE_ID="$release" R1DU_R1D_EXECUTED=NO R1DU_INCIDENT_MUTATED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED RECOVERY_R2_R8_EXECUTED=NO \
+      || { r1b_reason "R1B_F1U_CLOSEOUT_DOES_NOT_CARRY_THE_PINNED_RELEASE (and no unique R1Du closeout carries it)"; return 1; }
+  fi
+  # R1D (historical R1A incident disposition) LIVE PASS closeout: the governed stage order proof. The ONE unique R1D closeout must carry the full success state; R1B's own zero-open-incident baseline is NOT a
+  # substitute (another closure path could satisfy it) and is itself unchanged.
+  _r1b_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1d-live-closeout.md" R1D_LIVE=CLOSED_PASS R1D_LIVE_EXECUTED=YES R1D_ATTEMPT_CONSUMED=YES R1D_RERUN_ALLOWED=NO R1D_RESULT=PASS \
+    PREEXISTING_OPEN_INCIDENT_COUNT=0 R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES R1B_ATTEMPT_CONSUMED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
+    RECOVERY_R2_R8_EXECUTED=NO || { r1b_reason "R1B_R1D_CLOSEOUT_MISSING_OR_AMBIGUOUS (R1B needs the unique R1D LIVE PASS closeout)"; return 1; }
+  [ -z "$(r1b_field_files "$repo" "$main" R1D_RESULT FAIL)" ] || { r1b_reason "R1B_R1D_FAILURE_RECORDED (an R1D FAIL receipt exists)"; return 1; }
   # R1I LIVE closeout: ONE canonical receipt carrying the full success state, and still the unproven claim boundary.
   _r1b_only_receipt "$repo" "$main" "$R1B_R1I_CLOSEOUT_RECEIPT_REL" R1I_CLOSEOUT R1I_LIVE=CLOSED_PASS R1I_LIVE_EXECUTED=YES R1I_PRODUCTION_DEPLOYED=YES R1I_ATTEMPT_CONSUMED=YES \
     R1I_RERUN_ALLOWED=NO PRODUCTION_NFT_NORMALIZATION=PASS_OBSERVED_LIVE F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \

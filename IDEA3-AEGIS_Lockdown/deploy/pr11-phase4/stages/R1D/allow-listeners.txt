@@ -1,0 +1,1 @@
+# R1D creates no socket or network listener (the Core's dedicated local socket is Core-owned and pre-exists the stage; it is a unix socket, not a network listener).
