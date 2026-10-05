@@ -172,6 +172,34 @@ export async function apiFetchBytes(path, { signal, timeoutMs = 120_000 } = {}) 
 }
 
 /**
+ * ดึง response แบบสตรีม — คืน body "ที่ยังไม่ได้อ่าน" ให้ผู้เรียกอ่านทีละก้อนเอง (ZIP หลายไฟล์ของ Files)
+ *
+ * ⚠️ ห้าม arrayBuffer() ที่นี่: ไฟล์ขนาดหลาย GB ต้องไม่ถูกโหลดเข้าหน่วยความจำของแท็บทั้งก้อน (spec §10)
+ * ⚠️ ไม่มี timeout ภายใน: ไฟล์ใหญ่บนสายช้าต้องไม่ถูกตัดขณะไบต์ยังวิ่งอยู่ — ตัวจับเวลา "ต้นทางเงียบ"
+ *    และการ abort เป็นของผู้เรียก (filesEntrySource) ผ่าน signal ที่ส่งเข้ามา
+ * @returns {Promise<{ ok: boolean, status: number, headers: Headers|null, body: ReadableStream|null,
+ *                     errorKind: null|'network'|'unauthorized'|'forbidden'|'server' }>}
+ */
+export async function apiFetchStream(path, { signal } = {}) {
+  let res
+  try {
+    res = await fetch(withBase(path), { credentials: 'include', signal })
+  } catch {
+    return { ok: false, status: 0, headers: null, body: null, errorKind: 'network' }
+  }
+  if (!res.ok) {
+    if (res.status === 401) {
+      onUnauthorized?.()
+      sessionInvalidated()
+      return { ok: false, status: 401, headers: res.headers, body: null, errorKind: 'unauthorized' }
+    }
+    if (res.status === 403) return { ok: false, status: 403, headers: res.headers, body: null, errorKind: 'forbidden' }
+    return { ok: false, status: res.status, headers: res.headers, body: null, errorKind: 'server' }
+  }
+  return { ok: true, status: res.status, headers: res.headers, body: res.body, errorKind: null }
+}
+
+/**
  * @param {string} path เช่น '/api/files'
  * @param {{ method?: string, body?: object, signal?: AbortSignal,
  *           suppressAuthHandler?: boolean }} opts

@@ -28,11 +28,13 @@ const STUBBED = new Set([
   // PR #157 Task 6.3: vaultTreeUpload imports the chunked uploader with a './' specifier —
   // stub it too so tree-screen tests can drive uploads through ctl.uploadImpl.
   './vaultChunkedUpload.js',
+  // multi-file streaming ZIP: bulkZipDownload/bulkDownloadPlan import the download module with './'
+  './vaultChunkedDownload.js',
   // PR #157: tests that need the stub KEK directly load it by absolute id — map that form too
   '/src/lib/vaultCrypto.js',
 ])
 
-export async function startVaultScreenEnv({ previewIndexTilesStub = false, derivativeGenerateStub = false, legacyGridStub = false } = {}) {
+export async function startVaultScreenEnv({ previewIndexTilesStub = false, derivativeGenerateStub = false, legacyGridStub = false, bulkZipEnabled = false } = {}) {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost/drive/vault',
     pretendToBeVisual: true,
@@ -93,6 +95,11 @@ export async function startVaultScreenEnv({ previewIndexTilesStub = false, deriv
         // PR #334: the legacy FLAT grid is unreachable once unlocked in production; opt-in reach for its V2 download
         if (legacyGridStub && source === '../lib/vaultConvergence.js') {
           return normalizePath(path.join(rootDir, 'tests/fixtures/legacyGridConvergenceStub.js'))
+        }
+        // multi-file streaming ZIP lands disabled (PR-1); the screen is mounted through Vault.jsx, so suites that
+        // exercise the enabled path swap in a plan module whose BULK_ZIP_ENABLED is true (everything else is real)
+        if (bulkZipEnabled && source === '../lib/bulkDownloadPlan.js') {
+          return normalizePath(path.join(rootDir, 'tests/fixtures/bulkZipEnabledPlan.js'))
         }
         return STUBBED.has(source) ? backendStub : null
       },

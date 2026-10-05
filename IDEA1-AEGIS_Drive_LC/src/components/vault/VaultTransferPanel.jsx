@@ -18,7 +18,10 @@ export function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss 
   const humanIndex = Math.min(chunkCount, chunkIndex + 1)
   const vars = { index: humanIndex, count: chunkCount }
 
-  const label = stage === 'preparing' ? t('vaultXferPreparing')
+  // ZIP หลายไฟล์ (kind 'download'): ขั้นเตรียม/กำลังรวมไฟล์/กำลังปิดท้าย — "เตรียมการเข้ารหัส" คงไว้ให้การอัปโหลดเท่านั้น
+  const label = stage === 'preparing' ? t(kind === 'download' ? 'zipPreparing' : 'vaultXferPreparing')
+    : stage === 'archiving' ? t('zipArchiving', { index: transfer.index ?? 0, count: transfer.count ?? 0, name: transfer.name ?? '' })
+    : stage === 'finalizing' ? t('zipFinalizing')
     : stage === 'encrypting' ? t('vaultXferEncrypting', vars)
       : stage === 'uploading' ? t('vaultXferUploading', vars)
         : stage === 'committing' ? t('vaultXferCommitting')
@@ -35,18 +38,24 @@ export function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss 
     integrity: 'vaultXferReasonIntegrity',
     expired: 'vaultXferReasonExpired',
     'auth-failed': 'vaultXferReasonAuth',
+    // ดิสก์ของผู้ใช้เต็ม ≠ Data Lake เต็ม — ห้ามใช้ข้อความ noSpace (spec §19)
+    localDiskFull: 'xferReasonLocalDiskFull',
+    finalizeFailed: 'xferReasonFinalizeFailed',
   }[transfer.reason]
 
   // ⚠️ ความเร็วมีความหมายเฉพาะช่วงที่ไบต์กำลังวิ่งจริง ระหว่าง 'committing' เซิร์ฟเวอร์
   //    กำลังตรวจไบต์ของตัวเองอยู่ ไม่มีอะไรวิ่งบนสาย — การขึ้น "กำลังรอเครือข่าย" ตรงนั้น
   //    จะเป็นคำเตือนปลอมที่ทำให้ผู้ใช้กดยกเลิก commit ที่กำลังทำงานปกติ
-  const measuring = stage === 'uploading' || stage === 'encrypting' || stage === 'downloading'
+  const measuring = stage === 'uploading' || stage === 'encrypting' || stage === 'downloading' || stage === 'archiving'
+    || (kind === 'download' && stage === 'preparing')
   const rateLine = transferRateLine(t, transfer.rate)
   const rateBps = transfer.rate?.bytesPerSecond ?? null
   const etaSeconds = transfer.rate?.etaSeconds ?? null
 
   const active = stage === 'preparing' || stage === 'encrypting' || stage === 'uploading'
-    || stage === 'committing' || stage === 'downloading'
+    || stage === 'committing' || stage === 'downloading' || stage === 'archiving' || stage === 'finalizing'
+  // ⚠️ ระหว่าง finalizing (close() เริ่มแล้ว) การยกเลิกรับประกันไม่ได้ว่าเบราว์เซอร์จะไม่ commit ไฟล์ — ไม่มีปุ่ม Cancel
+  const cancellable = active && stage !== 'finalizing'
   const stopped = stage === 'failed' || stage === 'paused' || stage === 'unsupported'
   const tone = stage === 'failed' ? 'var(--danger)' : stage === 'paused' ? 'var(--warn)' : 'var(--ink-2)'
 
@@ -109,12 +118,15 @@ export function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss 
       {reasonKey && (
         <p className="text-[12px] text-ink-3 mt-2">{t(reasonKey)}</p>
       )}
+      {stage === 'failed' && transfer.failedName && (
+        <p className="text-[12px] text-ink-3 mt-1" data-vault-transfer-failed-entry="">{t('zipFailedEntry', { name: transfer.failedName })}</p>
+      )}
 
       <div className="flex gap-2 mt-3">
         {stage === 'paused' && (
           <Btn variant="primary" size="sm" onClick={onResume}>{t('vaultXferResume')}</Btn>
         )}
-        {active && (
+        {cancellable && (
           <Btn variant="outline" size="sm" onClick={onCancel}>{t('vaultXferCancel')}</Btn>
         )}
         {stopped && (

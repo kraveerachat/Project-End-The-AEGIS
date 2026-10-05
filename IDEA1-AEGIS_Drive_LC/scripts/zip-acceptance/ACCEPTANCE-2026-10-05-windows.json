@@ -1,0 +1,48 @@
+{
+  "feature": "IDEA1 multi-file streaming ZIP (spec docs/superpowers/specs/2026-10-05-idea1-multi-file-streaming-zip.md §24)",
+  "implementationPR": 351,
+  "implementationSha": "40cb863637c61787028d061cc64b01e0e713a3f4",
+  "candidate": "implementation SHA + local acceptance-only BULK_ZIP_ENABLED=true; disposable local non-Production instance (PostgreSQL, /drive/ gateway stand-in)",
+  "date": "2026-10-05",
+  "humanDecision": {
+    "WINDOWS_ONLY_ZIP_ACCEPTANCE": "APPROVED",
+    "requiredBrowser": "Chrome on Windows (File System Access)",
+    "requiredReaders": ["Python zipfile", "Windows Explorer"],
+    "deferred": ["Firefox (no FSA)", "macOS Chrome", "macOS Safari", "macOS Archive Utility"]
+  },
+  "environment": { "os": "Windows 11 Pro 10.0.26200", "node": "24.14.0", "python": "3.11.9", "vaultChunkPlaintextBytes": 33554432 },
+  "archives": {
+    "R1": { "sha256": "a4507c5522e1a7fe82ff77aa629b9a0d2167c411db8e02816c059ac1b1b181aa", "bytes": 7987, "path": "Files source; 0-byte, Thai/CJK/emoji, duplicate and reserved names" },
+    "R2": { "sha256": "24617a20a977731b02e626858ddeff3edca6f18adeebbaa2de0bf883016b3277", "bytes": 4402352670, "path": "Vault V2 source; size-ZIP64 entry of 4402341479 bytes" },
+    "R3": { "sha256": "70c98977e5a618ecc61c9358af03be873aa6d7583e44acc0565acc8c702e1e14", "bytes": 4724465706, "path": "Files source; offset-only ZIP64 final entry at local-header offset 4724464240" },
+    "note": "Archives generated once through planBulkDownload → runBulkZip → source → zipStreamWriter; raw archives are not committed."
+  },
+  "readers": {
+    "pythonZipfile": { "R1": "PASS", "R2": "PASS", "R3": "PASS", "R3OffsetOnlyInspection": "PASS (header_offset 4724464240, classic sizes, offset-only ZIP64 extra, version 45)" },
+    "windowsExplorer": { "method": "Windows compressed-folder handler (zipfldr) via Shell namespace extraction", "R1": "PASS", "R2": "PASS", "R3": "PASS" },
+    "macOSArchiveUtility": { "R1": "DEFERRED", "R2": "DEFERRED", "R3": "DEFERRED", "status": "NOT VERIFIED — NO HOST" },
+    "sevenZipOptional": { "R1": "PASS", "R2": "PASS", "R3": "PASS" }
+  },
+  "browserMatrix": {
+    "chromeWindowsFSA": {
+      "A1": "PASS", "A2": "PASS", "A3": "PASS", "A4": "PASS", "A5": "PASS", "A6": "PASS",
+      "A7": "PASS", "A8": "PASS", "A9": "PASS", "A10": "PASS", "A11": "PASS", "A12": "PASS"
+    },
+    "firefoxWindowsNoFSA": "DEFERRED — NOT VERIFIED",
+    "chromeMacOS": "DEFERRED — NOT VERIFIED (no macOS host)",
+    "safariMacOS": "DEFERRED — NOT VERIFIED (no macOS host)"
+  },
+  "A10": "failed-transfer panel after controlled API-server stop during entry 2; no success; no later entry requested; destination 0-byte, not a ZIP; server restarted; fixtures preserved",
+  "A11": {
+    "method": "plan section L: tab renderer private memory, 1 s samples, dedicated browser profile; one archive per capture",
+    "run1GiB": { "baselineMiB": 117, "peakMiB": 427, "growthMiB": 310 },
+    "run5GiB": { "baselineMiB": 119, "peakMiB": 403, "growthMiB": 284 },
+    "growthDifferenceMiB": 26,
+    "criterion": "< 64 MiB and not proportional to entry size",
+    "result": "PASS",
+    "earlierPair": "first pair FAILED the criterion (difference 91 MiB within each transfer window); the same 1 GiB archive varied by 136 MiB between captures; recorded, not averaged"
+  },
+  "dm5": "PENDING / DEFERRED — macOS Archive Utility not verified; non-blocking under the Human-approved Windows-only scope",
+  "productionDeployed": false,
+  "productionMutation": false
+}
