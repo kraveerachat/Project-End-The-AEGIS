@@ -4,15 +4,10 @@
 #   2. MARKER-BOUNDED WINDOW plus WALL/MONOTONIC continuity: the wall-clock elapsed duration must agree with the monotonic elapsed duration within 500 ms, so a material wall-clock step inside the window fails closed.
 #      - the completing trusted source event(s) and the detector's own alert carry sub-second journald times and must lie EXACTLY inside [window_start, window_end] (window_start = the instant AFTER the
 #        canonical marker exists; window_end = the instant the bounded wait completed);
-#      - the Core audit rows (the new incident, INCIDENT_BOUND and ALERT_ACCEPTED) carry WHOLE-SECOND times (the real time rounded DOWN), so no exact sub-second predicate can be proved for them and none is
+#      - R1B preserves the already-open R1A incident. The CURRENT delivery row is ALERT_ACCEPTED action=EXISTING; no current-window INCIDENT_BOUND or new incident is expected. Core audit time is WHOLE-SECOND.
 #        claimed. DIVISION OF RESPONSIBILITY:
-#        * r1_acceptance (the evidence authority) enforces the causal ordering for ALL THREE rows: the incident opened_at, INCIDENT_BOUND and ALERT_ACCEPTED stored seconds must not be later than the detector's
-#          own alert line time (AUDIT_ROW_AFTER_DETECTOR_ALERT, no tolerance), because the Core writes its rows before it replies and the detector logs its alert line only after the reply. It also requires exactly ONE
-#          detector alert line, ONE ALERT_ACCEPTED row and ONE new incident for the same address and the detector's PID.
-#        * this script only sees the result's evidence_times (incident_opened_at, alert_accepted_at, detector_alert_at, source_completed_at). As defense in depth it re-checks that the incident and ALERT_ACCEPTED
-#          seconds are not later than the detector alert, and that floor(window_start) <= stored <= window_end for those two rows (the floor reflects the 1 s granularity; the ceiling is exact because a stored
-#          second never exceeds the real time of the in-window alert that follows the row). There is NO post-deadline grace.
-#        * INCIDENT_BOUND's timestamp is NOT in evidence_times, so this script does NOT independently window-check INCIDENT_BOUND; its ordering rests on r1_acceptance.
+#        * r1_acceptance enforces that the preserved incident is unchanged, no fresh incident/current-window INCIDENT_BOUND appears, exactly ONE new ALERT_ACCEPTED action=EXISTING names the same address and detector PID, and the detector line is SENT_EXISTING.
+#        * this script sees incident_opened_at only as historical context; it does NOT require that old R1A timestamp to fall inside R1B. It requires ALERT_ACCEPTED's whole-second time, the detector alert, and the trusted source completion to fall in the R1B marker window, with no post-deadline grace.
 # It never promotes a project claim; promotion needs a separately reviewed LIVE closeout.
 set -uo pipefail
 fail() { printf 'R1B_VERIFY=FAIL reason=%s\n' "$1" >&2; exit 1; }
@@ -35,8 +30,13 @@ except (OSError, ValueError):
     bad("RESULT_UNREADABLE")
 need = {"F1_REAL_DETECTOR_ACCEPTANCE": "NOT_PROVEN", "R1_VERIFIED": "NOT_CLAIMED", "RECOVERY_R1_R8_PROVEN": "NO"}
 if not (d.get("schema") == "aegis.idea3.r1-acceptance/1" and d.get("result") == "PASS" and d.get("reason") == "OK"
+        and d.get("acceptance_mode") == "PRESERVED_EXISTING"
         and all(d.get("claims", {}).get(k) == v for k, v in need.items())
-        and d.get("checks", {}).get("REAL_DETECTOR_CHAIN_VERIFIED") == "YES" and d.get("checks", {}).get("R1_EVIDENCE_VERIFIED") == "YES"):
+        and d.get("checks", {}).get("REAL_DETECTOR_CHAIN_VERIFIED") == "YES"
+        and d.get("checks", {}).get("R1_EVIDENCE_VERIFIED") == "YES"
+        and d.get("checks", {}).get("PRESERVED_OPEN_INCIDENT_UNCHANGED") == "YES"
+        and d.get("checks", {}).get("EXISTING_INCIDENT_REACCEPTED") == "YES"
+        and d.get("checks", {}).get("HISTORICAL_INCIDENT_BOUND_VERIFIED") == "YES"):
     bad("RESULT_NOT_PASS_OR_CLAIMS_ALTERED")
 
 # 1. source IP binding: the pin must be a real external-capable IPv4 address and the accepted incident must be exactly that address
@@ -76,20 +76,22 @@ if not isinstance(t, dict) or not isinstance(t.get("source_completed_at"), list)
     bad("EVIDENCE_TIMES_MISSING")
 sources = [num(v) for v in t["source_completed_at"]]
 alert, opened, accepted = num(t.get("detector_alert_at")), num(t.get("incident_opened_at")), num(t.get("alert_accepted_at"))
-# the trusted completing source event(s) and the detector's alert carry sub-second journal times: they must lie EXACTLY inside [start, end]
+# trusted source completion and detector alert are sub-second and must lie exactly inside R1B.
 if any(v < w0 for v in sources) or alert < w0:
     bad("EVENT_BEFORE_THE_MARKER")
 if any(v > w1 for v in sources) or alert > w1:
     bad("EVENT_AFTER_THE_OBSERVATION_DEADLINE")
-# defense in depth (the r1_acceptance verifier already refuses it): a stored audit second can never be later than the detector's own alert line
-if opened > alert or accepted > alert:
+# The preserved incident opened historically, before R1B. Its timestamp is never promoted as current-window evidence.
+if opened > w0:
+    bad("PRESERVED_INCIDENT_NOT_HISTORICAL")
+# Current ALERT_ACCEPTED is whole-second: lower bound is floor(marker), upper bound exact deadline; it must precede the detector's reply/log.
+if accepted > alert:
     bad("AUDIT_ROW_AFTER_DETECTOR_ALERT")
-# audit rows carry whole-second times (granularity: 1 s): lower bound at the marker's second, upper bound exactly the deadline (no delivery grace)
-if opened < math.floor(w0) or accepted < math.floor(w0):
-    bad("AUDIT_ROW_BEFORE_THE_MARKER")
-if opened > w1 or accepted > w1:
-    bad("AUDIT_ROW_AFTER_THE_OBSERVATION_DEADLINE")
+if accepted < math.floor(w0):
+    bad("ALERT_ACCEPTED_BEFORE_THE_MARKER")
+if accepted > w1:
+    bad("ALERT_ACCEPTED_AFTER_THE_OBSERVATION_DEADLINE")
 PYEOF
 ) || fail "${reason:-RESULT_NOT_PASS_OR_CLAIMS_ALTERED}"
-printf 'R1B_VERIFY=PASS\nR1B_SOURCE_IP_BOUND=YES\nR1B_MARKER_BOUNDED_WINDOW=YES\nR1B_CLOCK_CONTINUITY=PASS\nR1_EVIDENCE_VERIFIED=YES\nREAL_DETECTOR_CHAIN_VERIFIED=YES\n'
+printf 'R1B_VERIFY=PASS\nR1B_SOURCE_IP_BOUND=YES\nR1B_PRESERVED_R1A_INCIDENT_UNCHANGED=YES\nR1B_EXISTING_INCIDENT_REACCEPTED=YES\nR1B_MARKER_BOUNDED_WINDOW=YES\nR1B_CLOCK_CONTINUITY=PASS\nR1_EVIDENCE_VERIFIED=YES\nREAL_DETECTOR_CHAIN_VERIFIED=YES\n'
 printf 'F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN\nR1_VERIFIED=NOT_CLAIMED\nRECOVERY_R1_R8_PROVEN=NO\nR1B_PROMOTION=NOT_AUTOMATIC\n'
