@@ -8,7 +8,8 @@
 // ⚠️ สิ่งที่ worker นี้ **ไม่** ทำ และต้องไม่มีใครเพิ่มเข้ามาภายหลัง:
 //    - ไม่แตะ Cache API เลยแม้แต่บรรทัดเดียว (plaintext ห้ามถูกเก็บนอกหน่วยความจำ)
 //    - ไม่เขียนอะไรลง IndexedDB / storage ใด ๆ
-//    - ไม่ดักคำขออื่นนอกจาก path เสมือนของ preview — คำขอปกติทุกใบผ่านไปตามเดิม
+//    - ไม่ดักคำขออื่นนอกจาก path เสมือนของ preview และ path เสมือนของการดาวน์โหลดแบบสตรีม
+//      (<scope>__aegis-download/<token>) — คำขอปกติทุกใบผ่านไปตามเดิม
 //    - ไม่เก็บเซสชันข้ามการรีสตาร์ตของ worker: ถ้า worker ถูกปลุกใหม่ มันขอสำเนา
 //      CryptoKey จากหน้าเว็บที่ยังปลดล็อกและยังถือ token ใบนั้นอยู่ใน memory เท่านั้น
 import { previewTokenFromPath } from './lib/vaultPreviewRange.js'
@@ -17,6 +18,9 @@ import { createPreviewWorkerState } from './lib/vaultPreviewWorkerState.js'
 import { PREVIEW_FAILURE_REASON, previewFailureGroup } from './lib/vaultPreviewErrors.js'
 import { createPreviewDiagnostics, previewDiagnosticsEnabled } from './lib/vaultPreviewDiagnostics.js'
 import { PREVIEW_CLAIM_MESSAGE, handlePreviewClaimRequest } from './lib/vaultPreviewClaim.js'
+import {
+  createDownloadStreamWorkerState, handleDownloadStreamFetch, handleDownloadStreamMessage,
+} from './lib/downloadStreamWorkerState.js'
 
 let diagnosticsEnabled = previewDiagnosticsEnabled(self)
 const diagnostics = createPreviewDiagnostics({
@@ -33,6 +37,8 @@ const state = createPreviewWorkerState({
   onReadAheadEvent: (kind, fields) => diagnostics.record(`read-ahead-${kind}`, fields),
 })
 let requestNumber = 0
+// ZIP หลายไฟล์บนเบราว์เซอร์ที่ไม่มี File System Access — โปรโตคอลและการทดสอบอยู่ใน lib/downloadStreamWorkerState.js
+const downloads = createDownloadStreamWorkerState()
 
 const scopeBase = () => new URL('./', self.registration?.scope ?? self.location.href).pathname
 
@@ -50,6 +56,7 @@ self.addEventListener('message', (event) => {
   const msg = event.data
   const reply = (payload) => event.ports?.[0]?.postMessage(payload)
   if (!msg || typeof msg !== 'object') return
+  if (handleDownloadStreamMessage(downloads, msg, event.ports, reply)) return
 
   switch (msg.type) {
     case 'vault-preview-open':
@@ -74,6 +81,8 @@ self.addEventListener('message', (event) => {
     case 'vault-preview-close-all':
       // ใช้ตอนล็อกตู้/ล็อกอัตโนมัติ: ไม่มีเซสชันใดรอดจากการล็อก
       state.closeAll()
+      // การดาวน์โหลด ZIP ของ Vault ที่ยังวิ่งอยู่จบแบบ error ด้วย — ไม่มี plaintext ใดรอดจากการล็อก
+      downloads.closeAll({ source: 'vault' })
       diagnosticsEnabled = false
       reply({ ok: true })
       return
@@ -158,6 +167,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
   // ⚠️ ต้นทางอื่น หรือ path ที่ไม่ใช่ของ preview = ไม่ใช่ธุระของ worker นี้ ปล่อยผ่าน
   if (url.origin !== self.location.origin) return
+  const download = handleDownloadStreamFetch(downloads, event.request, { origin: self.location.origin, scopePath: scopeBase() })
+  if (download) { event.respondWith(download); return }
   const token = previewTokenFromPath(url.pathname)
   if (!token) return
 

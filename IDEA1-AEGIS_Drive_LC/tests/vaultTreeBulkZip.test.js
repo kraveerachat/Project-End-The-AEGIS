@@ -17,6 +17,9 @@ import { CORRECT_PASSPHRASE, serverBlob, serverBlobV2 } from './fixtures/vaultSc
 import { makeVaultTreeBackend } from './fixtures/vaultTreeBackend.js'
 import { createFakeTreeServer } from './helpers/vaultTreeFakeServer.mjs'
 import { startVaultScreenEnv, settle, click, pressKey, type, unlock, lockVault } from './helpers/vaultScreenHarness.js'
+import {
+  createDownloadStreamWorkerState, handleDownloadStreamFetch, handleDownloadStreamMessage,
+} from '../src/lib/downloadStreamWorkerState.js'
 
 const t = makeT('en')
 
@@ -456,4 +459,114 @@ test('VZS-13 single-file entry points stay per-file even with 4+ selected', asyn
     assert.equal(dialogOpen(), 0)
     assert.deepEqual(log.pickers.map((p) => p.suggestedName), ['c.bin'])
   } finally { await h.unmount() }
+})
+
+/* ── no FSA, but the existing /drive/ Service Worker can stream (Brave on Windows) ── */
+
+/**
+ * Installs a service-worker container whose controller is wired to the REAL worker-side download state
+ * (and answers vault-preview-close-all the way the real worker does), plus a MutationObserver that plays
+ * the browser's navigation of the hidden iframe. Returns the captured response bodies.
+ */
+function installWorkerStream() {
+  const state = createDownloadStreamWorkerState()
+  const sw = { state, frames: [], bodies: [] }
+  const controller = {
+    postMessage(msg, ports = []) {
+      const reply = (p) => ports[0]?.postMessage(p)
+      if (handleDownloadStreamMessage(state, msg, ports, reply)) return
+      if (msg?.type === 'vault-preview-close-all') { state.closeAll({ source: 'vault' }); reply({ ok: true }); return }
+      reply({ ok: false })
+    },
+  }
+  const nav = dom.window.navigator
+  Object.defineProperty(nav, 'serviceWorker', {
+    configurable: true,
+    value: { controller, async register() { return { active: controller } }, addEventListener() {}, removeEventListener() {} },
+  })
+  globalThis.isSecureContext = true
+  const observer = new dom.window.MutationObserver((records) => {
+    for (const r of records) {
+      for (const n of r.addedNodes) {
+        if (n.tagName !== 'IFRAME') continue
+        const src = n.getAttribute('src')
+        sw.frames.push({ src, hidden: n.hidden })
+        const scopePath = /^(.*\/)__aegis-download\/[0-9a-f]{32}$/.exec(src)?.[1] ?? '/'
+        const res = handleDownloadStreamFetch(state, new Request(new URL(src, 'http://localhost/').href), { origin: 'http://localhost', scopePath })
+        sw.bodies.push(res.arrayBuffer().then((b) => new Uint8Array(b), (e) => e))
+      }
+    }
+  })
+  observer.observe(doc().body, { childList: true, subtree: true })
+  sw.uninstall = () => {
+    observer.disconnect()
+    delete nav.serviceWorker
+    delete globalThis.isSecureContext
+  }
+  return sw
+}
+
+const eocdCount = (bytes) => {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  assert.equal(dv.getUint32(bytes.length - 22, true), 0x06054b50, 'EOCD signature')
+  return dv.getUint16(bytes.length - 22 + 10, true)
+}
+
+test('VZS-WS-1 no FSA + worker-stream: the plaintext warning comes first; Confirm → ONE ZIP through the worker, no picker, no Blob', async (t) => {
+  await seed({ files: FIVE })
+  backend.streamingSink = false // no File System Access (Brave on Windows)
+  const blobs = []
+  t.mock.method(URL, 'createObjectURL', (b) => { blobs.push(b); return 'blob:x' })
+  const sw = installWorkerStream()
+  const h = await mount()
+  try {
+    await selectAll(FIVE)
+    await bulkDownload()
+    assert.equal(dialogOpen(), 1, 'the plaintext-export warning is shown first')
+    assert.equal(sw.frames.length, 0, 'nothing streams before Confirm')
+    assert.deepEqual(backend.downloadEvents, [])
+    await click(dom, q('[data-testid="vault-zip-export-confirm"]'))
+    for (let i = 0; i < 50 && sw.bodies.length === 0; i += 1) await tick(1)
+    assert.equal(sw.frames.length, 1)
+    assert.equal(sw.frames[0].hidden, true)
+    const body = await sw.bodies[0]
+    assert.ok(body instanceof Uint8Array, String(body))
+    assert.equal(eocdCount(body), 5)
+    assert.equal(blobs.length, 0, 'no whole-archive Blob')
+    await tick(4)
+    assert.equal(panel(), null, 'done clears the panel')
+    assert.equal(sw.state.sessionCount(), 0)
+  } finally { await h.unmount(); sw.uninstall() }
+})
+
+test('VZS-WS-2 locking the Vault mid-transfer errors the worker download; never reported as success', async () => {
+  await seed({ files: FIVE })
+  backend.streamingSink = false // no File System Access (Brave on Windows)
+  const sw = installWorkerStream()
+  let reachedSecond = false
+  backend.downloadImpl = async ({ sink, signal, blob }) => {
+    backend.downloadEvents.push(`dl:${blob.id}`)
+    if (blob.id === idOf('b.bin')) {
+      reachedSecond = true
+      await new Promise((r) => signal?.addEventListener('abort', r))
+      return { ok: false, reason: 'cancelled' }
+    }
+    await sink.write(new Uint8Array([1, 2, 3, 4]))
+    await sink.close()
+    return { ok: true, bytesWritten: 4 }
+  }
+  const h = await mount()
+  try {
+    await selectAll(FIVE)
+    await bulkDownload()
+    await click(dom, q('[data-testid="vault-zip-export-confirm"]'))
+    for (let i = 0; i < 50 && !reachedSecond; i += 1) await tick(1)
+    assert.equal(reachedSecond, true)
+    await lockVault(dom, t)
+    await tick(6)
+    const body = await sw.bodies[0]
+    assert.ok(body instanceof Error, 'the browser download ends in an error, not a clean file')
+    assert.ok(!backend.downloadEvents.includes(`dl:${idOf('c.bin')}`), 'no later entry')
+    assert.equal(sw.state.sessionCount(), 0)
+  } finally { await h.unmount(); sw.uninstall(); delete backend.downloadImpl }
 })
