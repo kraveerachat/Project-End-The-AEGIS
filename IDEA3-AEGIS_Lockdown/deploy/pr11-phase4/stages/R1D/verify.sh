@@ -26,7 +26,7 @@ if not (d.get("schema") == "aegis.idea3.r1d-result/1" and d.get("result") == "PA
         and re.fullmatch(r"[0-9a-f]{64}", binding or "") and d.get("binding_sha256") == binding
         and all(d.get("claims", {}).get(k) == v for k, v in need.items()) and set(d.get("claims", {})) == set(need)
         and checks.get("PREEXISTING_OPEN_INCIDENT_COUNT") == 0 and checks.get("R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED") == "YES"
-        and checks.get("R1B_ATTEMPT_CONSUMED") == "NO" and checks.get("DISPOSITION_AUDIT_ROW") == "ONE" and checks.get("HASH_CHAIN") == "VALID"
+        and checks.get("R1B_ATTEMPT_CONSUMED") == "NO" and checks.get("DISPOSITION_AUDIT_ROW") == "ONE" and checks.get("ATTEMPT_ROW") == "ONE" and checks.get("ONE_SHOT_INDEX") == "EXPECTED_DEFINITION" and checks.get("HASH_CHAIN") == "VALID"
         and checks.get("RECOVERY_R8_FABRICATED") == "NO"):
     bad("RESULT_NOT_PASS_OR_CLAIMS_ALTERED")
 PYEOF

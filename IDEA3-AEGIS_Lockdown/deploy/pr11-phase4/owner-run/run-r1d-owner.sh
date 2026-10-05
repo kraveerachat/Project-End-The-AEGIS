@@ -5,7 +5,9 @@
 # Usage (the FROZEN operator user/uid, NOT root):  bash run-r1d-owner.sh <AUTH_DIR>     AUTH_DIR holds authorization-R1D.txt and k3-R1D.txt (FRESH same-day, stage=R1D, no extra field)
 # Stage order: ... -> F1u -> R1I -> R1A (historical consumed FAIL) -> R1Du -> R1D -> R1B -> Recovery R2-R8 -> LVR -> L8 -> L9. R1D is NOT an R1A retry and NOT Recovery R8.
 # OWNER-APPROVED MODEL (fixed): R1D is a MUTATING governed stage; ONE attempt; NO retry. Its ONLY Production effect is ONE Core-mediated, atomic, evidence-preserving disposition of the single historical
-# incident the immutable failed R1A attempt left OPEN (audit event INCIDENT_DISPOSED_HISTORICAL, incident OPEN -> CLOSED), made through the Core's dedicated local channel (kernel-verified peer uid 0).
+# incident the immutable failed R1A attempt left OPEN, made through the Core's dedicated local channel (kernel-verified peer uid 0). DECLARED MUTATION SET (nothing else): one Core attempt row
+# (R1D_DISPOSITION_ATTEMPT_RECORDED), one INCIDENT_DISPOSED_HISTORICAL audit row, the incident OPEN -> CLOSED, the audit hash-chain advance and ONE persistent SQLite partial unique index
+# (ux_audit_historical_disposition, the database-level one-shot); the read-only observer verifies exactly that set and the exact index definition.
 # The Core derives the target itself; this runner supplies only the owner-authorized binding digest. It generates no traffic, alert or journal line, runs no Recovery R2-R8 (no PROBE/ISOLATE/RESTORE/CLOSE),
 # never touches R1I, ESP32, MQTT, nftables or a unit, and never reopens, deletes or edits any evidence. A failed attempt stops with the evidence preserved and the marker kept (R1D_RERUN_ALLOWED=NO).
 # R1D proves ONLY the precondition for R1B (zero open incidents); it promotes no claim and does not claim R1B PASS.

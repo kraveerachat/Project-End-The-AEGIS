@@ -2,7 +2,7 @@
 # R1D "apply": the ONLY Production effect of the R1D stage is ONE Core-mediated historical-incident disposition. Steps, selected by AEGIS_R1D_STEP:
 #   BASELINE  read-only PRE record: the preserved historical incident is the single eligible one and its binding equals the owner-authorized digest (never an operator-supplied incident id or address)
 #   WINDOW    read-only: the incident's durable times are compatible with the preserved immutable R1A window (root-readable canonical record)
-#   DISPOSE   the ONE Core call (dedicated local socket, kernel-verified uid 0): the Core re-derives the target, re-checks everything and commits ONE atomic transaction; no retry, ever
+#   DISPOSE   the ONE Core call (declared mutation set: the Core's attempt row, the disposition audit row, the incident OPEN -> CLOSED and the one-shot partial unique index) (dedicated local socket, kernel-verified uid 0): the Core re-derives the target, re-checks everything and commits ONE atomic transaction; no retry, ever
 #   FINAL     read-only POST proof: only the expected transition happened
 # Every step is guarded by an exclusive (noclobber) step marker in the work directory that is never removed. This handler never writes the audit DB, never opens SQLite read-write, never generates an
 # event, never runs Recovery R2-R8 and never touches R1I, nftables, a unit, a release, MQTT or ESP32.

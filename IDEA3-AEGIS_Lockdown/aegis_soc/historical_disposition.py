@@ -35,6 +35,10 @@ from .ip_containment import ContainmentRejected, parse_ipv4
 
 BINDING_VERSION = "R1D_BINDING_V1"
 EVENT_TYPE = db.HISTORICAL_DISPOSITION_EVENT  # INCIDENT_DISPOSED_HISTORICAL — never RECOVERY_R8_CLOSE / INCIDENT_CLOSED
+ATTEMPT_EVENT = "R1D_DISPOSITION_ATTEMPT_RECORDED"  # the Core-side ONE-ATTEMPT record: written (durably) when the first authorized peer connects, whatever the outcome
+INDEX_NAME = "ux_audit_historical_disposition"
+INDEX_DEFINITION = "CREATE UNIQUE INDEX ux_audit_historical_disposition ON audit_logs (event_type) WHERE event_type = 'INCIDENT_DISPOSED_HISTORICAL'"  # the exact expected sqlite_master text
+CANONICAL_MARKER = "/var/lib/aegis-idea3-governance/R1D-GLOBAL-ATTEMPT-CONSUMED"  # the governed runner's root-private marker (a Core account normally cannot traverse it: the attempt row is authoritative)
 OP_DISPOSE = "DISPOSE_HISTORICAL"
 CHANNEL_NAME = "historical-disposition.sock"
 REQUIRED_PEER_UID = 0
@@ -148,6 +152,34 @@ def read_binding(audit_db: str, detector_uid: int | None) -> dict[str, Any]:
     return {"incident_id": incident["id"], "binding_sha256": hashlib.sha256(data).hexdigest(), "canonical_bytes": data}
 
 
+def attempt_exists() -> bool:
+    """True when the Core-side one-attempt row exists (fail closed to True when the database cannot be read)."""
+    try:
+        conn = db._connect()
+        try:
+            return conn.execute("SELECT 1 FROM audit_logs WHERE event_type = ? LIMIT 1", (ATTEMPT_EVENT,)).fetchone() is not None
+        finally:
+            conn.close()
+    except Exception:
+        return True
+
+
+def marker_present(path: str | None = None) -> bool:
+    """True when the governed R1D marker is VISIBLE to this process. If the (root-private) directory cannot be traversed by the Core account the marker cannot be observed and the durable Core attempt row governs."""
+    try:
+        os.lstat(path or CANONICAL_MARKER)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False  # not observable from the Core account (permission): never an error that opens anything, never the only guard
+    return True
+
+
+def record_attempt(peer: lr.Peer) -> None:
+    """Durably record, BEFORE any request is evaluated, that an authorized peer used the one attempt. Raises when it cannot be recorded (the caller then refuses and the channel stays dead)."""
+    db.log_event_strict(ATTEMPT_EVENT, f"peer_uid={peer.uid} peer_pid={peer.pid} one_attempt=YES retry=NO", db.INFO, None)
+
+
 def disposition_exists() -> bool:
     """True when the one-shot disposition row exists (fail closed to True when the database cannot be read)."""
     try:
@@ -219,7 +251,8 @@ def _peer_from(connection: socket.socket) -> lr.Peer:
 class HistoricalDispositionServer:
     """Core-owned AF_UNIX server (0600): peer-credential checked BEFORE any byte is read, bounded, one request per connection; closes for good after a success."""
 
-    def __init__(self, path: Path | str, service: HistoricalDispositionService, *, allowed_uid: int = REQUIRED_PEER_UID) -> None:
+    def __init__(self, path: Path | str, service: HistoricalDispositionService, *, allowed_uid: int = REQUIRED_PEER_UID, marker_path: str | None = None) -> None:
+        self.marker_path = marker_path or CANONICAL_MARKER
         self.path = Path(path)
         self.service = service
         self.allowed_uid = int(allowed_uid)
@@ -256,8 +289,8 @@ class HistoricalDispositionServer:
     def start(self) -> None:
         if self._listener is not None:
             return
-        if disposition_exists():  # permanently dead after a recorded disposition (also after a Core restart)
-            raise DispositionChannelError("a historical disposition already exists; the channel stays closed")
+        if disposition_exists() or attempt_exists() or marker_present(self.marker_path):  # permanently dead after a disposition, after ANY recorded attempt and when the governed marker is visible (also after a Core restart)
+            raise DispositionChannelError("a historical disposition or the one attempt is already recorded; the channel stays closed")
         self._prepare_path()
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
@@ -285,15 +318,15 @@ class HistoricalDispositionServer:
             with connection:
                 connection.settimeout(REQUEST_DEADLINE_SEC)
                 try:
-                    response = self._read_and_handle(connection)
+                    response, authorized = self._read_and_handle(connection)
                 except Exception:
-                    response = _response(False, "OUTCOME_UNKNOWN", "the result was lost; do not assume success")
+                    response, authorized = _response(False, "OUTCOME_UNKNOWN", "the result was lost; do not assume success"), True  # an unknown outcome is still the one attempt
                 try:
                     connection.sendall(json.dumps(response, ensure_ascii=True).encode("ascii") + b"\n")
                 except OSError:
                     pass
-            if response.get("ok") is True:
-                break
+            if authorized:
+                break  # ONE ATTEMPT: after the first authorized peer's request the channel is unavailable for this process, whatever the outcome
         self._finish()
 
     def _finish(self) -> None:
@@ -307,13 +340,18 @@ class HistoricalDispositionServer:
             pass
         self._done.set()
 
-    def _read_and_handle(self, connection: socket.socket) -> dict[str, Any]:
+    def _read_and_handle(self, connection: socket.socket) -> tuple[dict[str, Any], bool]:
+        """(response, authorized): an unauthorized peer gets a refusal and consumes nothing; an authorized peer's request is the one attempt."""
         try:
             peer = _peer_from(connection)
         except OSError:
-            return _response(False, "PEER_REFUSED", "peer credentials unavailable")
+            return _response(False, "PEER_REFUSED", "peer credentials unavailable"), False
         if peer.uid != self.allowed_uid:
-            return _response(False, "PEER_REFUSED", "request is not from the required local peer")  # before reading a single request byte
+            return _response(False, "PEER_REFUSED", "request is not from the required local peer"), False  # before reading a single request byte
+        try:
+            record_attempt(peer)  # durable BEFORE the request is even read
+        except Exception:
+            return _response(False, "ATTEMPT_NOT_RECORDED", "the one attempt could not be recorded; the channel stays closed"), True
         deadline = time.monotonic() + REQUEST_DEADLINE_SEC
         data = bytearray()
         try:
@@ -332,8 +370,8 @@ class HistoricalDispositionServer:
                 raise ValueError
             body = json.loads(bytes(data).split(b"\n", 1)[0].decode("utf-8"))
         except (OSError, UnicodeError, ValueError):
-            return _response(False, "REQUEST_INVALID", "the request is not exactly the disposition request")
-        return self.service.dispose(body, peer)
+            return _response(False, "REQUEST_INVALID", "the request is not exactly the disposition request"), True
+        return self.service.dispose(body, peer), True
 
     def close(self) -> None:
         self._stop.set()
@@ -379,6 +417,10 @@ def _marks(conn: sqlite3.Connection) -> dict[str, int]:
     }
 
 
+def _index_names(conn: sqlite3.Connection) -> list[str]:
+    return sorted(row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('audit_logs', 'incidents') AND name NOT LIKE 'sqlite_%'"))
+
+
 def _write_exclusive(path: str, document: dict[str, Any]) -> None:
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -401,11 +443,16 @@ def capture_baseline(audit_db: str, detector_uid: int, binding: str) -> dict[str
         if not _chain_valid(conn):
             raise ObserverError("AUDIT_CHAIN_BROKEN")
         marks = _marks(conn)
+        indexes = _index_names(conn)
+        if INDEX_NAME in indexes:
+            raise ObserverError("DISPOSITION_INDEX_PREEXISTS")  # the mutation set is exact: this stage creates that one index
+        if conn.execute("SELECT 1 FROM audit_logs WHERE event_type = ? LIMIT 1", (ATTEMPT_EVENT,)).fetchone() is not None:
+            raise ObserverError("ATTEMPT_ALREADY_RECORDED")
     finally:
         conn.close()
     if marks["open_incidents"] != 1:
         raise ObserverError("OPEN_INCIDENT_COUNT_NOT_ONE")
-    return {"schema": BASELINE_SCHEMA, "incident_id": incident["id"], "binding_sha256": binding, "incident": incident, **marks}
+    return {"schema": BASELINE_SCHEMA, "incident_id": incident["id"], "binding_sha256": binding, "incident": incident, "index_names": indexes, **marks}
 
 
 def window_check(audit_db: str, detector_uid: int, window_record: str) -> dict[str, Any]:
@@ -457,8 +504,19 @@ def verify_final(audit_db: str, baseline: dict[str, Any], binding: str) -> dict[
             (baseline["audit_max_id"],),
         ).fetchone() is not None:
             raise ObserverError("RECOVERY_EVENT_FABRICATED_OR_PRESENT")
-        if marks["audit_max_id"] != baseline["audit_max_id"] + 1 or rows[0][0] != marks["audit_max_id"]:
-            raise ObserverError("AUDIT_ADVANCE_NOT_EXACTLY_ONE_ROW")
+        attempts = conn.execute("SELECT id, details FROM audit_logs WHERE event_type = ?", (ATTEMPT_EVENT,)).fetchall()
+        peer = re.compile(r"peer_uid=(\d+) peer_pid=(\d+)")
+        a_peer, d_peer = peer.search(attempts[0][1]) if attempts else None, peer.search(rows[0][1])
+        if len(attempts) != 1 or attempts[0][0] != baseline["audit_max_id"] + 1 or a_peer is None or d_peer is None or a_peer.groups() != d_peer.groups():
+            raise ObserverError("ATTEMPT_ROW_MISSING_OR_AMBIGUOUS")  # exactly one attempt row, first after the baseline, by the SAME authorized peer as the disposition
+        if marks["audit_max_id"] != baseline["audit_max_id"] + 2 or rows[0][0] != marks["audit_max_id"]:
+            raise ObserverError("AUDIT_ADVANCE_NOT_EXACTLY_ATTEMPT_PLUS_DISPOSITION")
+        now_indexes = _index_names(conn)
+        if now_indexes != sorted([*baseline["index_names"], INDEX_NAME]):
+            raise ObserverError("INDEX_SET_NOT_EXACTLY_BASELINE_PLUS_THE_ONE_SHOT_INDEX")
+        definition = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?", (INDEX_NAME,)).fetchone()
+        if definition is None or " ".join((definition[0] or "").split()) != INDEX_DEFINITION:
+            raise ObserverError("ONE_SHOT_INDEX_DEFINITION_UNEXPECTED")
         if marks["incident_max_id"] != baseline["incident_max_id"]:
             raise ObserverError("INCIDENT_SET_CHANGED")
         row = conn.execute("SELECT id, opened_at, closed_at, state, attacker_ip, summary FROM incidents WHERE id = ?", (iid,)).fetchone()
@@ -472,7 +530,7 @@ def verify_final(audit_db: str, baseline: dict[str, Any], binding: str) -> dict[
         "schema": RESULT_SCHEMA, "result": "PASS", "reason": "OK", "incident_id": iid, "binding_sha256": binding, "claims": dict(CLAIMS),
         "checks": {
             "PREEXISTING_OPEN_INCIDENT_COUNT": 0, "R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED": "YES", "R1B_ATTEMPT_CONSUMED": "NO",
-            "DISPOSITION_AUDIT_ROW": "ONE", "HASH_CHAIN": "VALID", "RECOVERY_R8_FABRICATED": "NO",
+            "DISPOSITION_AUDIT_ROW": "ONE", "ATTEMPT_ROW": "ONE", "ONE_SHOT_INDEX": "EXPECTED_DEFINITION", "HASH_CHAIN": "VALID", "RECOVERY_R8_FABRICATED": "NO",
         },
     }
 

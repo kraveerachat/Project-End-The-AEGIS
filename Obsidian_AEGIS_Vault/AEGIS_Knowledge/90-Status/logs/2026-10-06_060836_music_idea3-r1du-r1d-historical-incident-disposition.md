@@ -1,6 +1,6 @@
 ---
 title: Task Receipt — IDEA3 R1Du + R1D historical R1A incident disposition (repository)
-date: 2026-10-06T16:00:00+07:00
+date: 2026-10-06T06:08:36+07:00
 owner: music
 area: idea3
 branch: feat/idea3-r1du-r1d-historical-incident-disposition
@@ -15,7 +15,9 @@ edit_policy: append-by-new-file
 - Resolved, in the repository only, a governed pre-live blocker for R1B: the immutable failed R1A attempt left incident #1 `OPEN`, R1B's baseline refuses any open incident (`PREEXISTING_OPEN_INCIDENT`) and the Core returns `EXISTING` / `IGNORED_DIFFERENT_IP` while one is open, so R1B could not create a NEW incident with `CREATED` semantics. No reviewed path could close it (Recovery R8 needs R1-R7; the desktop wizard writes SQLite directly).
 - Core authority `aegis_soc/historical_disposition.py` plus `database.dispose_historical_incident_atomic`: a dedicated Core-private, root-only (`SO_PEERCRED` uid 0), inert-by-default channel; the Core derives the target itself and confirms an `R1D_BINDING_V1` digest it reconstructs; ONE atomic transaction (one `INCIDENT_DISPOSED_HISTORICAL` audit row + `OPEN -> CLOSED`, rolled back together on any failure); one-shot unique index; the server is dead after one success and after any restart once the row exists. Not Recovery R8; `recovery_core.py`, `recovery_protocol.py`, `recovery_evidence.py`, `r1_acceptance.py` are byte-unchanged.
 - R1Du (F1u-style Core upgrade carrying the authority; arms the channel with one exact core.env line, removed exactly by rollback) and R1D (frozen-runner, marker-bounded one-shot disposition with a read-only observer from an immutable snapshot) stages, registered in order `R1A -> R1Du -> R1D -> R1B`.
-- R1B's predecessor gate additionally recognises the unique R1Du closeout and the new current release; the zero-open-incident baseline, NEW-incident requirement, `CREATED` semantics, genuine event, source-IP/window binding and one-attempt/no-retry are unchanged.
+- R1B's predecessor gate additionally recognises the unique R1Du closeout and the new current release and REQUIRES the unique R1D LIVE PASS closeout (`R1D_LIVE=CLOSED_PASS`, `R1D_RESULT=PASS`, `PREEXISTING_OPEN_INCIDENT_COUNT=0`, `R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES`, `R1B_ATTEMPT_CONSUMED=NO`, ...); the zero-open-incident baseline, NEW-incident requirement, `CREATED` semantics, genuine event, source-IP/window binding and one-attempt/no-retry are unchanged.
+- **Declared R1D mutation set (and nothing else):** one Core attempt row (`R1D_DISPOSITION_ATTEMPT_RECORDED`), one `INCIDENT_DISPOSED_HISTORICAL` audit row, the incident `OPEN -> CLOSED`, the audit hash-chain advance, and ONE persistent SQLite partial unique index `ux_audit_historical_disposition` (the database-level one-shot). The read-only observer requires exactly that set and the exact index definition.
+- **One attempt at the Core boundary:** the Core records the attempt row when the first authorized peer connects and the channel is unavailable afterwards whatever the outcome; startup refuses when the attempt row, the disposition row or a visible governed marker exists.
 
 ## Result and boundary
 
@@ -47,9 +49,9 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `/usr/bin/python3 -m pytest -q tests/r1d tests/r1b tests/r1a tests/r1i tests/test_r1_acceptance.py` — pass except the receipt-presence test that this receipt satisfies; see the PR body for the final counts.
+- `/usr/bin/python3 -m pytest -q tests/r1d tests/r1b tests/test_historical_disposition.py` — pass; see the PR body for the final counts (review round 1 re-ran only the focused suites).
 - `/usr/bin/python3 -m pytest -q tests/test_historical_disposition.py tests/test_core_recovery.py tests/test_core_alert_ingress.py tests/test_core_service.py tests/test_local_restore.py tests/test_pr11_phase4_r1du_stage.py` — pass: 728 passed.
-- Negative controls — pass: 36 deliberate breakages (digest comparison, single-open, open-state, detector uid, recovery-evidence, peer uid, request keys, already-disposed, IP agreement, one-shot index, transaction rollback, server self-close, restart-dead, socket mode, supervisor flag and root-only uid; R1Du arming/unarming/already-armed/authority/socket/flag/suffix/journal/content; R1D history/receipt/marker/parent-barrier/ordering/socket-literal/binding-pin; R1B amendment fields/suffix) each failed a test and passed after restore.
+- Negative controls — pass: 49 deliberate breakages (36 + 13 for the review corrections: one-attempt stop, attempt record, startup checks, unauthorized peer, unknown outcome, index set/definition, attempt-row check, baseline index, R1B's R1D requirement) (digest comparison, single-open, open-state, detector uid, recovery-evidence, peer uid, request keys, already-disposed, IP agreement, one-shot index, transaction rollback, server self-close, restart-dead, socket mode, supervisor flag and root-only uid; R1Du arming/unarming/already-armed/authority/socket/flag/suffix/journal/content; R1D history/receipt/marker/parent-barrier/ordering/socket-literal/binding-pin; R1B amendment fields/suffix) each failed a test and passed after restore.
 - Full IDEA3 regression was started and terminated at the owner's instruction: `FULL_REGRESSION=INCOMPLETE_TIME_BUDGET` (about 81% complete, no completed result is claimed; earlier runs showed environment failures such as the missing `pip` module on `main`).
 - `git diff --check`, bash -n, python compile and a secret scan of the added lines — pass. No Production command was run.
 

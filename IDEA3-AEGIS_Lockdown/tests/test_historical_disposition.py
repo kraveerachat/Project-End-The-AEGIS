@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import socket
 import sqlite3
 import threading
@@ -26,6 +27,12 @@ IP = "203.0.113.9"
 UID = 987
 PID = 4321
 ROOT_PEER = lr.Peer(uid=0, pid=1234)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_marker(tmp_path, monkeypatch):
+    """The Core's marker probe must never look at the real governance directory in a test."""
+    monkeypatch.setattr(hd, "CANONICAL_MARKER", str(tmp_path / "no-governance-dir" / "R1D-GLOBAL-ATTEMPT-CONSUMED"))
 
 
 @pytest.fixture
@@ -387,14 +394,15 @@ def test_the_server_refuses_to_start_when_a_disposition_already_exists(world):
     assert not sock_path(world).exists()
 
 
-def test_oversized_and_malformed_requests_are_refused(world):
+@pytest.mark.parametrize("payload", [b"not json", b"x" * 5000])
+def test_oversized_and_malformed_requests_are_refused_and_still_consume_the_one_attempt(world, payload):
     server, path = make_server(world, allowed_uid=os.geteuid())
     server.service = service(required_peer_uid=os.geteuid())
     server.start()
     try:
-        refused(send(path, b"not json"), "REQUEST_INVALID")
-        refused(send(path, b"x" * 5000), "REQUEST_INVALID")
+        refused(send(path, payload), "REQUEST_INVALID")
         assert open_count() == 1
+        wait_dead(server, path)
     finally:
         server.close()
 
@@ -496,6 +504,7 @@ def test_the_observer_final_passes_only_for_the_exact_transition(world):
     seed()
     digest = binding()
     base = baseline_file(world)
+    hd.record_attempt(ROOT_PEER)  # what the server does for the first authorized peer
     assert service().dispose(request(digest), ROOT_PEER)["ok"] is True
     out = str(world / "result.json")
     assert hd.main(["final", "--audit-db", config.DB_PATH, "--baseline", base, "--binding-sha256", digest, "--out", out]) == 0
@@ -510,7 +519,7 @@ def test_the_observer_final_passes_only_for_the_exact_transition(world):
     ("fabricated_r8", "RECOVERY_EVENT_FABRICATED_OR_PRESENT"),
     ("extra_incident", "INCIDENT_SET_CHANGED"),
     ("wrong_summary", "INCIDENT_NOT_EXACTLY_THE_EXPECTED_TRANSITION"),
-    ("extra_audit", "AUDIT_ADVANCE_NOT_EXACTLY_ONE_ROW"),
+    ("extra_audit", "AUDIT_ADVANCE_NOT_EXACTLY_ATTEMPT_PLUS_DISPOSITION"),
 ])
 def test_the_observer_final_fails_closed_on_any_other_change(world, capsys, tamper, reason):
     seed()
@@ -519,6 +528,7 @@ def test_the_observer_final_fails_closed_on_any_other_change(world, capsys, tamp
     if tamper == "still_open":
         pass
     else:
+        hd.record_attempt(ROOT_PEER)
         assert service().dispose(request(digest), ROOT_PEER)["ok"] is True
         if tamper == "fabricated_r8":
             db.log_event_strict("RECOVERY_R8_CLOSE", "x", db.INFO, 1)
@@ -560,3 +570,176 @@ def test_the_observer_cli_has_no_mutating_subcommand_and_opens_sqlite_read_only(
     cli = text[text.index("# --------------------------------------------------------------------------- read-only observer CLI"):]
     assert "mode=ro" in cli and "dispose_historical_incident_atomic" not in cli and "db.close_incident" not in cli
     assert "UPDATE" not in cli.split("def main")[0].replace("INCIDENT_NOT_EXACTLY", "")
+
+
+
+# ------------------------------------------------------------------------------------------------ ONE ATTEMPT at the Core boundary
+def wait_dead(server, path, tries=60):
+    for _ in range(tries):
+        if server.finished() and not path.exists():
+            return
+        threading.Event().wait(0.1)
+    raise AssertionError("the channel did not become unavailable")
+
+
+def refused_connect(path) -> bool:
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            s.connect(str(path))
+        return False
+    except OSError:
+        return True
+
+
+def own_server(world, **kw):
+    seed()
+    path = sock_path(world)
+    server = hd.HistoricalDispositionServer(path, service(required_peer_uid=os.geteuid()), allowed_uid=os.geteuid(), marker_path=str(world / "no-such-marker"), **kw)
+    return server, path
+
+
+def test_a_failed_authorized_first_request_leaves_the_channel_unavailable_for_a_second_request(world):
+    server, path = own_server(world)
+    server.start()
+    try:
+        refused(send(path, json.dumps(request("f" * 64)).encode()), "BINDING_MISMATCH")  # authorized peer, request refused: that WAS the attempt
+        wait_dead(server, path)
+        assert refused_connect(path)
+        assert open_count() == 1 and len(audit_rows(hd.ATTEMPT_EVENT)) == 1 and not audit_rows(hd.EVENT_TYPE)
+    finally:
+        server.close()
+
+
+def test_an_outcome_unknown_first_request_allows_no_second_governed_request(world, monkeypatch):
+    server, path = own_server(world)
+
+    def boom(*a, **k):
+        raise RuntimeError("lost")
+
+    monkeypatch.setattr(server.service, "dispose", boom)
+    server.start()
+    try:
+        refused(send(path, json.dumps(request(binding())).encode()), "OUTCOME_UNKNOWN")
+        wait_dead(server, path)
+        assert refused_connect(path) and len(audit_rows(hd.ATTEMPT_EVENT)) == 1
+    finally:
+        server.close()
+
+
+def test_an_unauthorized_peer_neither_gets_authority_nor_consumes_the_attempt(world):
+    seed()
+    path = sock_path(world)
+    server = hd.HistoricalDispositionServer(path, service(), allowed_uid=os.geteuid() + 1, marker_path=str(world / "none"))
+    server.start()
+    try:
+        for _ in range(3):
+            refused(send(path, json.dumps(request(binding())).encode()), "PEER_REFUSED")  # still listening, still refusing
+        assert not audit_rows(hd.ATTEMPT_EVENT) and open_count() == 1 and not server.finished()
+    finally:
+        server.close()
+
+
+def test_the_attempt_row_is_written_before_the_request_is_evaluated_and_a_write_failure_closes_the_channel(world, monkeypatch):
+    server, path = own_server(world)
+    monkeypatch.setattr(hd, "record_attempt", lambda peer: (_ for _ in ()).throw(RuntimeError("audit unavailable")))
+    server.start()
+    try:
+        refused(send(path, json.dumps(request(binding())).encode()), "ATTEMPT_NOT_RECORDED")
+        wait_dead(server, path)
+        assert open_count() == 1 and not audit_rows(hd.EVENT_TYPE)  # nothing was evaluated, nothing changed
+    finally:
+        server.close()
+
+
+def test_a_core_restart_after_a_failed_attempt_does_not_reopen_the_channel(world):
+    server, path = own_server(world)
+    server.start()
+    refused(send(path, json.dumps(request("f" * 64)).encode()), "BINDING_MISMATCH")
+    wait_dead(server, path)
+    server.close()
+    again = hd.HistoricalDispositionServer(sock_path(world), service(), allowed_uid=0, marker_path=str(world / "none"))
+    with pytest.raises(hd.DispositionChannelError):
+        again.start()
+    assert not sock_path(world).exists()
+
+
+def test_a_visible_consumed_r1d_marker_keeps_the_channel_closed_at_startup(world):
+    seed()
+    marker = world / "R1D-GLOBAL-ATTEMPT-CONSUMED"
+    marker.write_text("consumed_at=x\n")
+    server = hd.HistoricalDispositionServer(sock_path(world), service(), allowed_uid=0, marker_path=str(marker))
+    with pytest.raises(hd.DispositionChannelError):
+        server.start()
+    assert hd.marker_present(str(marker)) is True and hd.marker_present(str(world / "absent")) is False
+    assert hd.marker_present("/proc/1/root/forbidden/never") is False  # not observable from this account: the durable attempt row remains the authority
+
+
+def test_a_successful_disposition_keeps_the_channel_permanently_dead_including_after_a_restart(world):
+    server, path = own_server(world)
+    server.start()
+    response = send(path, json.dumps(request(binding())).encode())
+    assert response["ok"] is True
+    wait_dead(server, path)
+    server.close()
+    again = hd.HistoricalDispositionServer(sock_path(world), service(), allowed_uid=0, marker_path=str(world / "none"))
+    with pytest.raises(hd.DispositionChannelError):
+        again.start()
+    assert len(audit_rows(hd.ATTEMPT_EVENT)) == 1 and len(audit_rows(hd.EVENT_TYPE)) == 1
+
+
+def test_no_code_path_deletes_resets_or_reopens_the_one_attempt():
+    text = (ROOT / "aegis_soc/historical_disposition.py").read_text()
+    assert not re.search(r"DELETE FROM|DROP INDEX|DROP TABLE|unlink\(\)\s*#\s*reset|os\.remove", text.replace("self.path.unlink()", "")), "no reset path"
+    assert "def reset" not in text and "def retry" not in text and "def reopen" not in text
+
+
+# ------------------------------------------------------------------------------------------------ the one-shot index belongs to the declared mutation set
+def test_the_observer_final_requires_exactly_the_baseline_indexes_plus_the_expected_one_shot_index(world, capsys):
+    seed()
+    digest = binding()
+    base = baseline_file(world)
+    hd.record_attempt(ROOT_PEER)
+    assert service().dispose(request(digest), ROOT_PEER)["ok"] is True
+    conn = sqlite3.connect(config.DB_PATH)
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE name = ?", (hd.INDEX_NAME,)).fetchone()
+    assert " ".join(row[0].split()) == hd.INDEX_DEFINITION  # the definition the stage declares is the definition SQLite stored
+    conn.execute("CREATE INDEX ix_foreign ON audit_logs (timestamp)")
+    conn.commit()
+    conn.close()
+    rc = hd.main(["final", "--audit-db", config.DB_PATH, "--baseline", base, "--binding-sha256", digest, "--out", str(world / "r.json")])
+    assert rc == 1 and "INDEX_SET_NOT_EXACTLY_BASELINE_PLUS_THE_ONE_SHOT_INDEX" in capsys.readouterr().err
+
+
+def test_a_wrong_one_shot_index_definition_fails_the_observer(world, capsys):
+    seed()
+    digest = binding()
+    base = baseline_file(world)
+    hd.record_attempt(ROOT_PEER)
+    assert service().dispose(request(digest), ROOT_PEER)["ok"] is True
+    conn = sqlite3.connect(config.DB_PATH)
+    conn.execute(f"DROP INDEX {hd.INDEX_NAME}")
+    conn.execute(f"CREATE INDEX {hd.INDEX_NAME} ON audit_logs (timestamp)")  # same name, different definition
+    conn.commit()
+    conn.close()
+    assert hd.main(["final", "--audit-db", config.DB_PATH, "--baseline", base, "--binding-sha256", digest, "--out", str(world / "r.json")]) == 1
+    assert "ONE_SHOT_INDEX_DEFINITION_UNEXPECTED" in capsys.readouterr().err
+
+
+def test_the_baseline_refuses_a_pre_existing_one_shot_index_or_attempt_row(world, capsys):
+    seed()
+    conn = sqlite3.connect(config.DB_PATH)
+    conn.execute(f"CREATE UNIQUE INDEX {hd.INDEX_NAME} ON audit_logs (event_type) WHERE event_type = 'INCIDENT_DISPOSED_HISTORICAL'")
+    conn.commit()
+    conn.close()
+    assert hd.main(["baseline", "--audit-db", config.DB_PATH, "--detector-uid", str(UID), "--binding-sha256", binding(), "--out", str(world / "b.json")]) == 1
+    assert "DISPOSITION_INDEX_PREEXISTS" in capsys.readouterr().err
+
+
+def test_a_disposition_without_the_core_attempt_row_fails_the_observer(world, capsys):
+    seed()
+    digest = binding()
+    base = baseline_file(world)
+    assert service().dispose(request(digest), ROOT_PEER)["ok"] is True  # (direct call: the server's attempt record is absent)
+    assert hd.main(["final", "--audit-db", config.DB_PATH, "--baseline", base, "--binding-sha256", digest, "--out", str(world / "r.json")]) == 1
+    assert "ATTEMPT_ROW_MISSING_OR_AMBIGUOUS" in capsys.readouterr().err

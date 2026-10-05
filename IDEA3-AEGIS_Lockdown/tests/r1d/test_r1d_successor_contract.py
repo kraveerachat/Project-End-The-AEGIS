@@ -189,3 +189,29 @@ def test_the_dispose_step_refuses_a_non_literal_socket_path_and_a_wrong_caller_w
     env.pop("AEGIS_R1D_TEST_ONLY_SOCKET")
     result = subprocess.run(["unshare", "-r", "bash", str(base.apply_copy(env, name="d.sh"))], env={**os.environ, **env}, text=True, capture_output=True)
     assert result.returncode == 1 and "SOCKET_PATH_REFUSED" in result.stderr
+
+
+def test_verify_requires_the_attempt_row_and_the_one_shot_index_in_the_observer_result(tmp_path: Path) -> None:
+    def verify(checks: dict) -> subprocess.CompletedProcess[str]:
+        work = tmp_path / "w"
+        work.mkdir(exist_ok=True)
+        (work / "R1D-FINAL-RAN").write_text("x\n")
+        doc = {"schema": "aegis.idea3.r1d-result/1", "result": "PASS", "reason": "OK", "binding_sha256": "7" * 64,
+               "claims": {"F1_REAL_DETECTOR_ACCEPTANCE": "NOT_PROVEN", "R1_VERIFIED": "NOT_CLAIMED", "RECOVERY_R1_R8_PROVEN": "NO"}, "checks": checks}
+        (work / "r1d-result.json").write_text(json.dumps(doc))
+        return subprocess.run(["bash", str(STG / "verify.sh")], env={**os.environ, "AEGIS_R1D_WORK_DIR": str(work), "AEGIS_PYTHON_BIN": sys.executable, "AEGIS_R1D_BINDING_SHA256": "7" * 64},
+                              text=True, capture_output=True)
+
+    good = {"PREEXISTING_OPEN_INCIDENT_COUNT": 0, "R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED": "YES", "R1B_ATTEMPT_CONSUMED": "NO", "DISPOSITION_AUDIT_ROW": "ONE",
+            "ATTEMPT_ROW": "ONE", "ONE_SHOT_INDEX": "EXPECTED_DEFINITION", "HASH_CHAIN": "VALID", "RECOVERY_R8_FABRICATED": "NO"}
+    assert verify(good).returncode == 0
+    for drop in ("ATTEMPT_ROW", "ONE_SHOT_INDEX"):
+        assert verify({k: v for k, v in good.items() if k != drop}).returncode == 1, drop
+
+
+def test_the_declared_mutation_set_is_stated_in_the_runner_handler_and_docs() -> None:
+    for path in (RUNNER, STG / "apply.sh"):
+        assert "ux_audit_historical_disposition" in path.read_text() or "one-shot partial unique index" in path.read_text(), path.name
+    readme = (P4 / "README.md").read_text()
+    section = readme[readme.index("## 19. Stages R1Du and R1D"):]
+    assert "ux_audit_historical_disposition" in section and "R1D_DISPOSITION_ATTEMPT_RECORDED" in section and "R1D LIVE PASS closeout" in section

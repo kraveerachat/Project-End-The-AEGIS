@@ -736,8 +736,8 @@ class AegisSupervisor:
         if config.ALERT_SOURCE_UID is None:
             self.log_event("ERROR", "historical_disposition_failed", error="DETECTOR_AUTHORITY_UNCONFIGURED")
             return
-        if hd.disposition_exists():
-            self.log_event("INFO", "historical_disposition_closed", reason="ALREADY_DISPOSED")
+        if hd.disposition_exists() or hd.attempt_exists() or hd.marker_present():
+            self.log_event("INFO", "historical_disposition_closed", reason="ALREADY_DISPOSED_OR_ATTEMPTED")
             return
         server = hd.HistoricalDispositionServer(
             self.settings.runtime_dir / hd.CHANNEL_NAME,

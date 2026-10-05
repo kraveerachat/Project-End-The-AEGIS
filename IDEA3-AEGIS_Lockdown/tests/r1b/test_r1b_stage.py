@@ -26,6 +26,9 @@ R1B_FILES = [STG / "apply.sh", STG / "verify.sh", STG / "rollback.sh", LIB, RUNN
 F1_RECEIPT = f"{LOGS}/2026-10-04_233030_music_idea3-f1-attempt2-live-closeout.md"
 FOUNDATION = f"{LOGS}/2026-10-05_005444_music_idea3-r1-real-detector-acceptance.md"
 F1U_RECEIPT = f"{LOGS}/2026-10-05_041108_music_idea3-f1u-live-closeout.md"
+R1D_RECEIPT = f"{LOGS}/2026-10-06_140000_music_idea3-r1d-live-closeout.md"
+R1D_LINES = ("R1D_LIVE=CLOSED_PASS", "R1D_LIVE_EXECUTED=YES", "R1D_ATTEMPT_CONSUMED=YES", "R1D_RERUN_ALLOWED=NO", "R1D_RESULT=PASS", "PREEXISTING_OPEN_INCIDENT_COUNT=0",
+             "R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES", "R1B_ATTEMPT_CONSUMED=NO", "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "R1_VERIFIED=NOT_CLAIMED", "RECOVERY_R2_R8_EXECUTED=NO")
 R1A_FAIL_RECEIPT = f"{LOGS}/2026-10-05_232827_music_idea3-r1a-live-failure-closeout.md"
 R1I_RECEIPT = f"{LOGS}/2026-10-05_063546_music_idea3-r1i-live-closeout.md"
 RELEASE = "912b18005bb2fc80bb4e8d1fe8aa88803ac27314"
@@ -215,6 +218,7 @@ def receipt_repo(tmp_path: Path, **change: str | None) -> Path:
             "R1I_LIVE=CLOSED_PASS", "R1I_LIVE_EXECUTED=YES", "R1I_PRODUCTION_DEPLOYED=YES", "R1I_ATTEMPT_CONSUMED=YES", "R1I_RERUN_ALLOWED=NO",
             "PRODUCTION_NFT_NORMALIZATION=PASS_OBSERVED_LIVE", "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "R1_VERIFIED=NOT_CLAIMED")) + "\n",
     }
+    files[R1D_RECEIPT] = "\n".join(f"- `{x}`" for x in R1D_LINES) + "\n"
     files[R1A_FAIL_RECEIPT] = "\n".join(f"- `{x}`" for x in (
         "R1A_LIVE_EXECUTED=YES", "R1A_ATTEMPT_CONSUMED=YES", "R1A_RERUN_ALLOWED=NO", "R1A_RESULT=FAIL", "R1A_STAGE_VERIFY=NOT_REACHED",
         "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "R1_VERIFIED=NOT_CLAIMED", "RECOVERY_R2_R8_EXECUTED=NO")) + "\n"
@@ -1243,7 +1247,8 @@ def replaced_world(tmp_path: Path) -> dict:
     receipts.mkdir(parents=True, exist_ok=True)
     for rel, text in ((F1_RECEIPT, "- `F1_LIVE_RESULT=PASS`\n- `F1_PRODUCTION_DEPLOYED=YES`\n- `F1_DETECTOR_STARTED=YES`\n"),
                       (FOUNDATION, "- `R1_EVIDENCE_VERIFIER_IMPLEMENTED=YES`\n- `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`\n- `R1_VERIFIED=NOT_CLAIMED`\n"),
-                      (F1U_RECEIPT, f"release `{RELEASE}` was installed and activated.\nF1u proves deployment only.\n")):
+                      (F1U_RECEIPT, f"release `{RELEASE}` was installed and activated.\nF1u proves deployment only.\n"),
+                      (R1D_RECEIPT, "\n".join(f"- `{x}`" for x in R1D_LINES) + "\n")):
         (repo / rel).write_text(text)
     run_git(repo, "init", "-q")
     run_git(repo, "config", "user.email", "t@e.invalid")

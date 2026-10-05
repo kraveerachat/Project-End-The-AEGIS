@@ -175,6 +175,12 @@ r1b_receipt_gate() {
       R1DU_RERUN_ALLOWED=NO R1DU_RELEASE_ID="$release" R1DU_R1D_EXECUTED=NO R1DU_INCIDENT_MUTATED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED RECOVERY_R2_R8_EXECUTED=NO \
       || { r1b_reason "R1B_F1U_CLOSEOUT_DOES_NOT_CARRY_THE_PINNED_RELEASE (and no unique R1Du closeout carries it)"; return 1; }
   fi
+  # R1D (historical R1A incident disposition) LIVE PASS closeout: the governed stage order proof. The ONE unique R1D closeout must carry the full success state; R1B's own zero-open-incident baseline is NOT a
+  # substitute (another closure path could satisfy it) and is itself unchanged.
+  _r1b_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1d-live-closeout.md" R1D_LIVE=CLOSED_PASS R1D_LIVE_EXECUTED=YES R1D_ATTEMPT_CONSUMED=YES R1D_RERUN_ALLOWED=NO R1D_RESULT=PASS \
+    PREEXISTING_OPEN_INCIDENT_COUNT=0 R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES R1B_ATTEMPT_CONSUMED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
+    RECOVERY_R2_R8_EXECUTED=NO || { r1b_reason "R1B_R1D_CLOSEOUT_MISSING_OR_AMBIGUOUS (R1B needs the unique R1D LIVE PASS closeout)"; return 1; }
+  [ -z "$(r1b_field_files "$repo" "$main" R1D_RESULT FAIL)" ] || { r1b_reason "R1B_R1D_FAILURE_RECORDED (an R1D FAIL receipt exists)"; return 1; }
   # R1I LIVE closeout: ONE canonical receipt carrying the full success state, and still the unproven claim boundary.
   _r1b_only_receipt "$repo" "$main" "$R1B_R1I_CLOSEOUT_RECEIPT_REL" R1I_CLOSEOUT R1I_LIVE=CLOSED_PASS R1I_LIVE_EXECUTED=YES R1I_PRODUCTION_DEPLOYED=YES R1I_ATTEMPT_CONSUMED=YES \
     R1I_RERUN_ALLOWED=NO PRODUCTION_NFT_NORMALIZATION=PASS_OBSERVED_LIVE F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
