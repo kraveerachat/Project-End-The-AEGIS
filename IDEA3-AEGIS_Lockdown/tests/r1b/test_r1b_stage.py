@@ -30,7 +30,7 @@ SNAPSHOT = P4 / "r1b-acceptance/r1b_verifier_snapshot.py"
 FREEZE = P4 / "r1b-acceptance/r1b_runner_freeze.py"
 
 IP = "203.0.113.50"
-OLD_IP = "198.51.100.9"
+OLD_IP = IP
 UID = 987
 PID = "4321"
 T0 = 1_800_000_000.0
@@ -72,31 +72,44 @@ def make_db(path: Path, *, opens: int = 1) -> None:
            attacker_ip TEXT, summary TEXT);"""
     )
     for i in range(opens):
-        conn.execute(
+        cur = conn.execute(
             "INSERT INTO incidents (opened_at, state, attacker_ip) VALUES (?, 'OPEN', ?)",
             (stamp(T0 - 100 - i), OLD_IP if i == 0 else f"198.51.100.{10 + i}"),
         )
+        if i == 0:
+            iid = int(cur.lastrowid)
+            conn.execute(
+                "INSERT INTO audit_logs (timestamp, level, event_type, details, incident_id) "
+                "VALUES (?, 'WARN', 'INCIDENT_BOUND', ?, ?)",
+                (stamp(T0 - 99), f"attacker_ip={OLD_IP} source=detector_alert action=CREATED", iid),
+            )
+            conn.execute(
+                "INSERT INTO audit_logs (timestamp, level, event_type, details, incident_id) "
+                "VALUES (?, 'INFO', 'ALERT_ACCEPTED', ?, ?)",
+                (stamp(T0 - 99), f"uid={UID} pid={PID} attacker_ip={OLD_IP} action=CREATED", iid),
+            )
     conn.commit()
     conn.close()
 
 
-def add_new_incident(path: Path, *, at: float = T0 + 8) -> int:
+def add_existing_alert(path: Path, *, at: float = T0 + 8) -> None:
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "INSERT INTO audit_logs (timestamp, level, event_type, details, incident_id) "
+        "VALUES (?, 'INFO', 'ALERT_ACCEPTED', ?, 1)",
+        (stamp(at), f"uid={UID} pid={PID} attacker_ip={IP} action=EXISTING"),
+    )
+    conn.commit()
+    conn.close()
+
+
+def add_unexpected_fresh_incident(path: Path, *, at: float = T0 + 8) -> int:
     conn = sqlite3.connect(path)
     cur = conn.execute(
         "INSERT INTO incidents (opened_at, state, attacker_ip) VALUES (?, 'OPEN', ?)",
         (stamp(at), IP),
     )
     iid = int(cur.lastrowid)
-    conn.execute(
-        "INSERT INTO audit_logs (timestamp, level, event_type, details, incident_id) "
-        "VALUES (?, 'INFO', 'ALERT_ACCEPTED', ?, ?)",
-        (stamp(at), f"uid={UID} pid={PID} attacker_ip={IP} action=CREATED", iid),
-    )
-    conn.execute(
-        "INSERT INTO audit_logs (timestamp, level, event_type, details, incident_id) "
-        "VALUES (?, 'WARN', 'INCIDENT_BOUND', ?, ?)",
-        (stamp(at), f"attacker_ip={IP} source=detector_alert action=CREATED", iid),
-    )
     conn.commit()
     conn.close()
     return iid
@@ -115,9 +128,9 @@ def net_event(at: float, port: str) -> dict:
     }
 
 
-def detector_line(at: float = T0 + 9) -> dict:
+def detector_line(at: float = T0 + 9, result: str = "SENT_EXISTING") -> dict:
     return {
-        "message": f"[F1-DETECTOR] alert result=SENT_BOUND detail=- ip={IP}",
+        "message": f"[F1-DETECTOR] alert result={result} detail=- ip={IP}",
         "pid": PID,
         "unit": r1.DETECTOR_UNIT,
         "at": at,
@@ -129,7 +142,7 @@ def services() -> dict[str, dict[str, str]]:
 
 
 def baseline(path: Path) -> dict:
-    return r1.capture_baseline(
+    document = r1.capture_baseline(
         audit_db=str(path),
         release_id="rel-r1b",
         detector_sha256="a" * 64,
@@ -138,6 +151,7 @@ def baseline(path: Path) -> dict:
         services=services(),
         allowed_open_incidents=1,
     )
+    return r1b._bind_preserved_incident(document, str(path), IP)
 
 
 def test_r1b_is_registered_exactly_once_after_immutable_r1a() -> None:
@@ -294,11 +308,11 @@ def test_r1b_preconsume_refuses_preserved_incident_change(tmp_path: Path) -> Non
     assert exc.value.code == "PRESERVED_INCIDENT_CHANGED"
 
 
-def test_r1b_can_verify_one_fresh_incident_while_preserving_the_r1a_incident(tmp_path: Path) -> None:
+def test_r1b_reaccepts_the_preserved_incident_without_creating_or_rebinding_it(tmp_path: Path) -> None:
     db = tmp_path / "audit.db"
     make_db(db, opens=1)
     b = baseline(db)
-    add_new_incident(db)
+    add_existing_alert(db)
     source = [net_event(T0 + 4 + i * 0.5, str(40001 + i)) for i in range(10)]
     f = r1.capture_final(
         now=T0 + 60,
@@ -307,12 +321,15 @@ def test_r1b_can_verify_one_fresh_incident_while_preserving_the_r1a_incident(tmp
     )
     result = r1.verify(b, f, str(db))
     assert result["result"] == "PASS", result
-    assert result["incident_id"] == 2 and result["attacker_ip"] == IP
+    assert result["acceptance_mode"] == "PRESERVED_EXISTING"
+    assert result["incident_id"] == 1 and result["attacker_ip"] == IP
     assert result["reconstructed_rules"] == ["port_scan"]
+    assert result["checks"]["PRESERVED_OPEN_INCIDENT_UNCHANGED"] == "YES"
+    assert result["checks"]["EXISTING_INCIDENT_REACCEPTED"] == "YES"
     conn = sqlite3.connect(db)
-    old = conn.execute("SELECT state, attacker_ip FROM incidents WHERE id=1").fetchone()
+    rows = conn.execute("SELECT id, state, attacker_ip FROM incidents ORDER BY id").fetchall()
     conn.close()
-    assert old == ("OPEN", OLD_IP)
+    assert rows == [(1, "OPEN", OLD_IP)]
 
 
 def test_r1b_final_refuses_any_change_to_preserved_r1a_incident(tmp_path: Path) -> None:
@@ -323,10 +340,19 @@ def test_r1b_final_refuses_any_change_to_preserved_r1a_incident(tmp_path: Path) 
     conn.execute("UPDATE incidents SET state='CLOSED', closed_at=? WHERE id=1", (stamp(T0 + 1),))
     conn.commit()
     conn.close()
-    add_new_incident(db)
     source = [net_event(T0 + 4 + i * 0.5, str(40001 + i)) for i in range(10)]
     f = r1.capture_final(now=T0 + 60, services=services(), journal={"detector": [detector_line()], "source": source})
     assert r1.verify(b, f, str(db))["reason"] == "PRESERVED_INCIDENT_CHANGED"
+
+
+def test_r1b_refuses_an_unexpected_fresh_incident(tmp_path: Path) -> None:
+    db = tmp_path / "audit.db"
+    make_db(db, opens=1)
+    b = baseline(db)
+    add_unexpected_fresh_incident(db)
+    source = [net_event(T0 + 4 + i * 0.5, str(40001 + i)) for i in range(10)]
+    f = r1.capture_final(now=T0 + 60, services=services(), journal={"detector": [detector_line()], "source": source})
+    assert r1.verify(b, f, str(db))["reason"] == "FRESH_INCIDENT_CREATED_UNEXPECTED"
 
 
 def test_owner_runner_has_preconsume_stability_and_no_posthoc_listener_allowance() -> None:
