@@ -122,8 +122,46 @@ def test_the_durability_helper_is_a_real_sync_never_a_sleep_and_nothing_deletes_
     assert "sync --" in helper and "sleep" not in helper and "|| true" not in helper and "R1A_DURABILITY_BARRIER_FAILED" in helper
     code = "\n".join(base.code_lines(LIB))
     assert not re.search(r"\b(rm|unlink|truncate|mv|shred)\b", code) and "chattr -i" not in code
-    assert re.search(r'^\s*R1A_CANONICAL_DIR=/var/lib/aegis-idea3-governance$', lib, re.M)  # canonical path unchanged
-    assert not Path("/var/lib/aegis-idea3-governance").exists()  # the tests never created anything under the real path
+    assert re.search(r'^\s*R1A_CANONICAL_DIR=/var/lib/aegis-idea3-governance
+
+def test_the_seam_is_the_only_way_tests_reach_the_marker_and_the_real_path_is_never_used(tmp_path: Path) -> None:
+    result, ops = run_attempt(tmp_path, second_run=False)
+    synced = [line.split(" ", 2)[2] for line in ops if line.startswith("SYNC ")]
+    assert synced and all(path.startswith(str(tmp_path)) for path in synced)  # every barrier targeted the temp seam, never /var/lib
+
+
+# --- M2-parent: the canonical directory's parent entry is forced durable on EVERY invocation, before any marker can exist -----------------------------------------
+
+
+def test_a_failed_parent_barrier_is_unconsumed_and_the_retry_syncs_the_parent_again_before_the_marker_is_created(tmp_path: Path) -> None:
+    result, ops = run_attempt(tmp_path, fail_sync_n=1, precreate_canon=False, second_run=True)  # invocation 1: new canonical dir, parent sync FAILS; invocation 2: the directory already exists
+    assert result.stdout.count("rc=1") == 1 and "R1A_ATTEMPT_CONSUMED=NO" in result.stdout and "R1A_CANONICAL_DIR_ENTRY_NOT_DURABLE" in result.stderr
+    assert "rerun_rc=0" in result.stdout  # an unconsumed attempt may be retried
+    got = kinds(ops)
+    assert got[:3] == ["SYNC_PARENT", "SYNC_PARENT", "MARKER_CREATE"], got  # the retry performed the parent barrier AGAIN, and only then created the marker
+    assert got.count("MARKER_CREATE") == 1
+    first_marker = got.index("MARKER_CREATE")
+    assert got[:first_marker] == ["SYNC_PARENT", "SYNC_PARENT"]  # no marker (and nothing else) before the second parent barrier succeeded
+    assert (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").is_file()
+
+
+def test_a_pre_existing_canonical_directory_still_gets_the_parent_barrier_before_the_marker(tmp_path: Path) -> None:
+    result, ops = run_attempt(tmp_path, second_run=False)  # canonical directory pre-created (as after an earlier invocation)
+    got = kinds(ops)
+    assert "rc=0" in result.stdout and got[0] == "SYNC_PARENT" and got.index("SYNC_PARENT") < got.index("MARKER_CREATE")
+
+
+def test_a_parent_barrier_failure_on_an_existing_directory_leaves_no_marker_and_no_consumption(tmp_path: Path) -> None:
+    result, ops = run_attempt(tmp_path, fail_sync_n=1, precreate_canon=True, second_run=False)  # the directory exists; the (now mandatory) parent barrier fails
+    got = kinds(ops)
+    assert "rc=1" in result.stdout and "R1A_ATTEMPT_CONSUMED=NO" in result.stdout and "R1A_CANONICAL_DIR_ENTRY_NOT_DURABLE" in result.stderr
+    assert got == ["SYNC_PARENT"]  # nothing past the barrier ran: no marker create, no start sample, no observation
+    assert not (tmp_path / "canon/R1A-GLOBAL-ATTEMPT-CONSUMED").exists()
+, lib, re.M)  # canonical path unchanged
+    # Host-independent: a real workstation may legitimately contain the canonical
+    # directory after R1A LIVE. The hermetic guarantee is instead proven by the
+    # temp seam + logged sync targets in the test below; never assert real-host absence.
+    assert "R1A_TEST_ONLY_CANONICAL_DIR" in lib
 
 
 def test_the_seam_is_the_only_way_tests_reach_the_marker_and_the_real_path_is_never_used(tmp_path: Path) -> None:
