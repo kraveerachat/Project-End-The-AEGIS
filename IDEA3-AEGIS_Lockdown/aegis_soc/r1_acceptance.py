@@ -171,26 +171,56 @@ def _audit_marks(audit_db: Any) -> dict[str, Any]:
     return {"audit_max_id": int(audit_max), "incident_max_id": int(incident_max), "open_incidents": int(open_count)}
 
 
+def _preserved_open_incidents(audit_db: Any) -> list[dict[str, Any]]:
+    """Sanitized snapshot of pre-existing non-closed incidents for a successor stage.
+
+    R1A historically required zero. R1B may explicitly allow exactly one preserved
+    R1A incident and must prove it is byte-for-byte unchanged in the relevant
+    database fields at FINAL. This is read-only and never closes or edits it.
+    """
+    view = open_audit_view(audit_db)
+    try:
+        rows = view.execute(
+            "SELECT id, opened_at, closed_at, state, attacker_ip FROM incidents "
+            "WHERE state != 'CLOSED' ORDER BY id"
+        ).fetchall()
+        return [dict(row) for row in rows]
+    except sqlite3.Error:
+        raise AcceptanceError("STORE_MALFORMED") from None
+    finally:
+        view.close()
+
+
 def capture_baseline(
     *, audit_db: str, release_id: str, detector_sha256: str, detector_uid: int, now: float,
-    services: dict[str, dict[str, str]],
+    services: dict[str, dict[str, str]], allowed_open_incidents: int = 0,
 ) -> dict[str, Any]:
     """The PRE record. It carries no mode or claim: it is only the boundary the verifier compares against."""
     if not re.fullmatch(r"[0-9a-f]{64}", detector_sha256) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", release_id):
         raise AcceptanceError("IDENTITY_MALFORMED")
     if type(detector_uid) is not int or detector_uid <= 0:
         raise AcceptanceError("DETECTOR_UID_INVALID")
+    if type(allowed_open_incidents) is not int or allowed_open_incidents not in (0, 1):
+        raise AcceptanceError("ALLOWED_OPEN_INCIDENTS_INVALID")
     marks = _audit_marks(audit_db)
-    if marks["open_incidents"] != 0:
-        raise AcceptanceError("PREEXISTING_OPEN_INCIDENT")  # a new alert would be EXISTING, not a created incident
+    preserved: list[dict[str, Any]] = []
+    if marks["open_incidents"] != allowed_open_incidents:
+        raise AcceptanceError("PREEXISTING_OPEN_INCIDENT")
+    if allowed_open_incidents:
+        preserved = _preserved_open_incidents(audit_db)
+        if len(preserved) != 1 or preserved[0].get("state") != "OPEN":
+            raise AcceptanceError("PREEXISTING_OPEN_INCIDENT")
     for unit, key in ((CORE_UNIT, "core"), (DETECTOR_UNIT, "detector")):
         _require_running(services.get(key), "BASELINE_" + key.upper())
-    return {
+    document = {
         "schema": SCHEMA_BASELINE, "started_at": float(now), "release_id": release_id,
         "detector_sha256": detector_sha256, "detector_uid": detector_uid, **marks,
         "core": {k: services["core"][k] for k in SHOW_PROPERTIES},
         "detector": {k: services["detector"][k] for k in SHOW_PROPERTIES},
     }
+    if preserved:
+        document["preserved_open_incidents"] = preserved
+    return document
 
 
 def _require_running(snap: Any, label: str) -> None:
@@ -350,8 +380,22 @@ def _verify(baseline: Any, final: Any, audit_db: str) -> dict[str, Any]:
 
 
 def _verify_view(baseline, final, view, incidents, audit, started, ended, pid, uid) -> dict[str, Any]:
-    if any(row["id"] <= baseline["incident_max_id"] and row["state"] != "CLOSED" for row in incidents):
-        raise AcceptanceError("PREEXISTING_INCIDENT_OPEN")
+    preserved = baseline.get("preserved_open_incidents")
+    if preserved is None:
+        if any(row["id"] <= baseline["incident_max_id"] and row["state"] != "CLOSED" for row in incidents):
+            raise AcceptanceError("PREEXISTING_INCIDENT_OPEN")
+    else:
+        if not isinstance(preserved, list) or len(preserved) != 1 or not isinstance(preserved[0], dict):
+            raise AcceptanceError("PRESERVED_INCIDENT_BASELINE_MALFORMED")
+        before = preserved[0]
+        if set(before) != {"id", "opened_at", "closed_at", "state", "attacker_ip"} or before.get("state") != "OPEN":
+            raise AcceptanceError("PRESERVED_INCIDENT_BASELINE_MALFORMED")
+        current = [
+            dict(row) for row in incidents
+            if row["id"] <= baseline["incident_max_id"] and row["state"] != "CLOSED"
+        ]
+        if current != [before]:
+            raise AcceptanceError("PRESERVED_INCIDENT_CHANGED")
     fresh = [row for row in incidents if row["id"] > baseline["incident_max_id"]]
     if not fresh:
         raise AcceptanceError("NO_NEW_INCIDENT")
@@ -486,6 +530,7 @@ def main(argv: list[str] | None = None) -> int:
     base.add_argument("--release-id", required=True)
     base.add_argument("--detector-sha256", required=True)
     base.add_argument("--detector-uid", type=int, required=True)
+    base.add_argument("--allow-baseline-open-incidents", type=int, choices=(0, 1), default=0)
     base.add_argument("--out", required=True)
     fin = sub.add_parser("final")
     fin.add_argument("--baseline", required=True)
@@ -498,6 +543,7 @@ def main(argv: list[str] | None = None) -> int:
             document = capture_baseline(
                 audit_db=args.audit_db, release_id=args.release_id, detector_sha256=args.detector_sha256,
                 detector_uid=args.detector_uid, now=time.time(), services=services,
+                allowed_open_incidents=args.allow_baseline_open_incidents,
             )
             _write_new(args.out, render(document))
             return 0
