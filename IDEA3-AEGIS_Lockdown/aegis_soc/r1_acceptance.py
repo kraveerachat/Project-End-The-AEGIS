@@ -8,8 +8,10 @@ read-only ``systemctl show`` / ``journalctl`` argvs below. It holds no secret an
 
 Provenance model (no new secret, no detector change, no new trust boundary):
 
-* DELIVERY: the Core ingress durably records ``ALERT_ACCEPTED uid=<peer uid> pid=<peer pid> attacker_ip=<IPv4> action=CREATED``
-  (kernel SO_PEERCRED values) next to the existing ``INCIDENT_BOUND ... source=detector_alert action=CREATED`` row. The peer pid must be
+* DELIVERY (default creation mode): the Core ingress durably records ``ALERT_ACCEPTED ... action=CREATED`` next to
+  ``INCIDENT_BOUND ... action=CREATED``. Successor mode is explicit and separate: one preserved OPEN incident is snapshotted,
+  must remain unchanged, the Core must record exactly one new ``ALERT_ACCEPTED ... action=EXISTING``, no new incident or
+  current-window INCIDENT_BOUND may appear, and the detector must report ``SENT_EXISTING``. The peer pid must be
   the detector's baseline MainPID and equal the journald ``_PID`` of the detector's own ``alert result=SENT_BOUND`` line. A direct write
   to ``alert.sock`` by any other process fails this.
 * SOURCE EVENT: the deployed detector matches message TEXT from ``journalctl -f -o cat``, so a forged journal line could make the real
@@ -380,10 +382,27 @@ def _verify(baseline: Any, final: Any, audit_db: str) -> dict[str, Any]:
 
 def _verify_view(baseline, final, view, incidents, audit, started, ended, pid, uid) -> dict[str, Any]:
     preserved = baseline.get("preserved_open_incidents")
-    if preserved is None:
+    successor_existing = preserved is not None
+
+    if not successor_existing:
         if any(row["id"] <= baseline["incident_max_id"] and row["state"] != "CLOSED" for row in incidents):
             raise AcceptanceError("PREEXISTING_INCIDENT_OPEN")
+        fresh = [row for row in incidents if row["id"] > baseline["incident_max_id"]]
+        if not fresh:
+            raise AcceptanceError("NO_NEW_INCIDENT")
+        if len(fresh) > 1:
+            raise AcceptanceError("AMBIGUOUS_INCIDENTS")
+        incident = dict(fresh[0])
+        if incident["state"] != "OPEN":
+            raise AcceptanceError("INCIDENT_NOT_OPEN")
+        opened = _epoch(incident["opened_at"])
+        if not (started - SKEW_SEC <= opened <= ended + SKEW_SEC):
+            raise AcceptanceError("INCIDENT_OUTSIDE_WINDOW")
+        expected_action = "CREATED"
+        expected_detector_result = "SENT_BOUND"
     else:
+        # R1B successor mode: R1A's real incident is immutable evidence. The Core's single-open-incident contract
+        # MUST return EXISTING for the same attacker; creating/closing/rebinding an incident would rewrite history.
         if not isinstance(preserved, list) or len(preserved) != 1 or not isinstance(preserved[0], dict):
             raise AcceptanceError("PRESERVED_INCIDENT_BASELINE_MALFORMED")
         before = preserved[0]
@@ -395,17 +414,14 @@ def _verify_view(baseline, final, view, incidents, audit, started, ended, pid, u
         ]
         if current != [before]:
             raise AcceptanceError("PRESERVED_INCIDENT_CHANGED")
-    fresh = [row for row in incidents if row["id"] > baseline["incident_max_id"]]
-    if not fresh:
-        raise AcceptanceError("NO_NEW_INCIDENT")
-    if len(fresh) > 1:
-        raise AcceptanceError("AMBIGUOUS_INCIDENTS")
-    incident = dict(fresh[0])
-    if incident["state"] != "OPEN":
-        raise AcceptanceError("INCIDENT_NOT_OPEN")
-    opened = _epoch(incident["opened_at"])
-    if not (started - SKEW_SEC <= opened <= ended + SKEW_SEC):
-        raise AcceptanceError("INCIDENT_OUTSIDE_WINDOW")
+        fresh = [row for row in incidents if row["id"] > baseline["incident_max_id"]]
+        if fresh:
+            raise AcceptanceError("FRESH_INCIDENT_CREATED_UNEXPECTED")
+        incident = dict(current[0])
+        opened = _epoch(incident["opened_at"])  # historical R1A time; not required to fall in the R1B window
+        expected_action = "EXISTING"
+        expected_detector_result = "SENT_EXISTING"
+
     try:
         ip = str(validate_block_target(incident["attacker_ip"], ()))
     except ContainmentRejected:
@@ -413,58 +429,70 @@ def _verify_view(baseline, final, view, incidents, audit, started, ended, pid, u
     if ip != incident["attacker_ip"]:
         raise AcceptanceError("ATTACKER_IP_INVALID")
 
+    # Only audit rows NEWER than the baseline participate in the current delivery proof.
     mine = [row for row in audit if row["incident_id"] == incident["id"]]
     bound = [_BOUND.match(r["details"]) for r in mine if r["event_type"] == "INCIDENT_BOUND"]
-    if len(bound) != 1 or bound[0] is None:
-        raise AcceptanceError("INCIDENT_BOUND_MISSING_OR_AMBIGUOUS")
-    if bound[0].groups() != (ip, "detector_alert", "CREATED"):
-        raise AcceptanceError("INCIDENT_BOUND_MISMATCH")
+    if successor_existing:
+        if bound:
+            raise AcceptanceError("CURRENT_INCIDENT_BOUND_UNEXPECTED")
+    else:
+        if len(bound) != 1 or bound[0] is None:
+            raise AcceptanceError("INCIDENT_BOUND_MISSING_OR_AMBIGUOUS")
+        if bound[0].groups() != (ip, "detector_alert", "CREATED"):
+            raise AcceptanceError("INCIDENT_BOUND_MISMATCH")
+
     accepted = [_ACCEPTED.match(r["details"]) for r in mine if r["event_type"] == "ALERT_ACCEPTED"]
     if len(accepted) != 1 or accepted[0] is None:
         raise AcceptanceError("ALERT_ACCEPTED_MISSING_OR_AMBIGUOUS")
     a_uid, a_pid, a_ip, a_action = accepted[0].groups()
-    if a_ip != ip or a_action != "CREATED":
+    if a_ip != ip or a_action != expected_action:
         raise AcceptanceError("ALERT_ACCEPTED_MISMATCH")
     if int(a_uid) != uid:
         raise AcceptanceError("ALERT_SOURCE_UID_MISMATCH")
     if a_pid != pid:
-        raise AcceptanceError("ALERT_SOURCE_PID_NOT_DETECTOR")  # direct injection by another process lands here
-    # Any other alert row in the window means the evidence is not a single clean detector event.
+        raise AcceptanceError("ALERT_SOURCE_PID_NOT_DETECTOR")
     if any(r["event_type"] in ("ALERT_ACCEPTED", "INCIDENT_BOUND") and r["incident_id"] != incident["id"] for r in audit):
         raise AcceptanceError("UNRELATED_ALERT_ROWS")
 
+    # Historical R1 binding must still be valid in successor mode; in creation mode this proves the just-created binding.
     gate, _ = ev._r1(ev._AuditStore(view), incident["id"])
     if gate["verdict"] != ev.VERIFIED or gate["evidence"].get("detector_alert") != ev.VERIFIED:
         raise AcceptanceError("R1_GATE_NOT_VERIFIED")
 
     matches = []
-    for event in final["journal"]:
-        if not isinstance(event, dict) or not all(k in event for k in ("message", "pid", "unit", "at")):
+    for journal_event in final["journal"]:
+        if not isinstance(journal_event, dict) or not all(k in journal_event for k in ("message", "pid", "unit", "at")):
             raise AcceptanceError("JOURNAL_MALFORMED")
-        if event["unit"] != DETECTOR_UNIT or not (started - SKEW_SEC <= event["at"] <= ended + SKEW_SEC):
+        if journal_event["unit"] != DETECTOR_UNIT or not (started - SKEW_SEC <= journal_event["at"] <= ended + SKEW_SEC):
             continue
-        line = _ALERT_LINE.match(event["message"])
+        line = _ALERT_LINE.match(journal_event["message"])
         if line:
-            if event["pid"] != pid:
+            if journal_event["pid"] != pid:
                 raise AcceptanceError("JOURNAL_PID_NOT_DETECTOR")
-            matches.append((event, line.groups()))
+            matches.append((journal_event, line.groups()))
     if len(matches) != 1:
         raise AcceptanceError("DETECTOR_ALERT_LINE_MISSING_OR_AMBIGUOUS")
-    event, (result, _detail, j_ip) = matches[0]
-    if result != "SENT_BOUND":
-        raise AcceptanceError("DETECTOR_RESULT_NOT_BOUND")
+    journal_event, (result, _detail, j_ip) = matches[0]
+    if result != expected_detector_result:
+        raise AcceptanceError("DETECTOR_RESULT_NOT_EXPECTED")
     if j_ip != ip:
         raise AcceptanceError("DETECTOR_IP_MISMATCH")
-    accepted_at = _epoch(next(r["timestamp"] for r in mine if r["event_type"] == "ALERT_ACCEPTED"))
-    if event["at"] > accepted_at + SKEW_SEC or event["at"] < started - SKEW_SEC:
-        raise AcceptanceError("DETECTOR_EVENT_STALE")
-    # CAUSAL ORDER of the real path: the Core writes INCIDENT_BOUND / ALERT_ACCEPTED while handling the alert and only THEN replies; the detector logs ``alert result=SENT_BOUND`` after that reply. So every
-    # stored audit time (a whole-second value, i.e. the real time rounded DOWN) must not be later than the detector's own alert line time. A row stored AFTER the alert line cannot belong to this chain.
-    bound_at = _epoch(next(r["timestamp"] for r in mine if r["event_type"] == "INCIDENT_BOUND"))
-    if max(accepted_at, bound_at, opened) > event["at"]:
-        raise AcceptanceError("AUDIT_ROW_AFTER_DETECTOR_ALERT")
 
-    # The detector acts on message TEXT, so prove the TRIGGER was a real source event, not text any local writer could emit.
+    accepted_at = _epoch(next(r["timestamp"] for r in mine if r["event_type"] == "ALERT_ACCEPTED"))
+    if not (started - SKEW_SEC <= accepted_at <= ended + SKEW_SEC):
+        raise AcceptanceError("ALERT_ACCEPTED_OUTSIDE_WINDOW")
+    if journal_event["at"] > accepted_at + SKEW_SEC or journal_event["at"] < started - SKEW_SEC:
+        raise AcceptanceError("DETECTOR_EVENT_STALE")
+
+    if successor_existing:
+        if accepted_at > journal_event["at"]:
+            raise AcceptanceError("AUDIT_ROW_AFTER_DETECTOR_ALERT")
+    else:
+        bound_at = _epoch(next(r["timestamp"] for r in mine if r["event_type"] == "INCIDENT_BOUND"))
+        if max(accepted_at, bound_at, opened) > journal_event["at"]:
+            raise AcceptanceError("AUDIT_ROW_AFTER_DETECTOR_ALERT")
+
+    # Prove the trigger was a genuine trusted source event, using the deployed detector's exact thresholds/windows.
     source = final.get("source_events")
     needed = ("kind", "ip", "dpt", "pid", "unit", "transport", "exe", "at")
     if not isinstance(source, list) or len(source) > MAX_SOURCE_EVENTS or not all(
@@ -476,26 +504,53 @@ def _verify_view(baseline, final, view, incidents, audit, started, ended, pid, u
     window = [e for e in source if e["ip"] == ip and horizon <= e["at"] <= ended + SKEW_SEC]
     if any(not source_is_trusted(e) for e in window):
         raise AcceptanceError("UNTRUSTED_SOURCE_LINES_PRESENT")
-    rules = reconstruct_rules(window, ip, event["at"])
+    rules = reconstruct_rules(window, ip, journal_event["at"])
     if not rules:
         raise AcceptanceError("NO_TRUSTED_SOURCE_EVENT")
-    # Causality is strict: completion <= the detector's alert line, and the alert follows within SOURCE_TO_ALERT_MAX_SEC.
-    qualifying = sorted(done for done in rules.values() if 0 <= event["at"] - done <= SOURCE_TO_ALERT_MAX_SEC and done >= started - SKEW_SEC)
+    qualifying = sorted(
+        done for done in rules.values()
+        if 0 <= journal_event["at"] - done <= SOURCE_TO_ALERT_MAX_SEC and done >= started - SKEW_SEC
+    )
     if not qualifying:
         raise AcceptanceError("SOURCE_EVENT_NOT_BEFORE_ALERT")
 
+    checks = {
+        "R1_EVIDENCE_VERIFIED": "YES",
+        "REAL_DETECTOR_CHAIN_VERIFIED": "YES",
+        "TRUSTED_SOURCE_EVENT_RECONSTRUCTED": "YES",
+        "ALERT_DELIVERED_TO_CORE": "YES",
+        "ALERT_SOURCE_UID_VALIDATED": "YES",
+        "ALERT_SOURCE_PID_IS_DETECTOR": "YES",
+        "INCIDENT_ATTACKER_IPV4_VALID": "YES",
+    }
+    if successor_existing:
+        checks.update({
+            "PRESERVED_OPEN_INCIDENT_UNCHANGED": "YES",
+            "EXISTING_INCIDENT_REACCEPTED": "YES",
+            "HISTORICAL_INCIDENT_BOUND_VERIFIED": "YES",
+        })
+    else:
+        checks.update({
+            "OPEN_INCIDENT_CREATED": "YES",
+            "INCIDENT_BOUND_AUDIT_PRESENT": "YES",
+        })
+
     return {
-        "schema": SCHEMA_RESULT, "result": "PASS", "reason": "OK", "incident_id": incident["id"], "attacker_ip": ip,
-        "reconstructed_rules": sorted(rules), "release_id": baseline["release_id"],
-        # Sanitized epoch times of the chain links, so a LIVE stage can bind them to its own marker-bounded observation window. Informational only: no acceptance predicate reads them.
+        "schema": SCHEMA_RESULT,
+        "result": "PASS",
+        "reason": "OK",
+        "acceptance_mode": "PRESERVED_EXISTING" if successor_existing else "CREATED",
+        "incident_id": incident["id"],
+        "attacker_ip": ip,
+        "reconstructed_rules": sorted(rules),
+        "release_id": baseline["release_id"],
         "evidence_times": {
-            "incident_opened_at": opened, "alert_accepted_at": accepted_at, "detector_alert_at": event["at"], "source_completed_at": qualifying,
+            "incident_opened_at": opened,
+            "alert_accepted_at": accepted_at,
+            "detector_alert_at": journal_event["at"],
+            "source_completed_at": qualifying,
         },
-        "checks": {
-            "R1_EVIDENCE_VERIFIED": "YES", "REAL_DETECTOR_CHAIN_VERIFIED": "YES", "TRUSTED_SOURCE_EVENT_RECONSTRUCTED": "YES",
-            "ALERT_DELIVERED_TO_CORE": "YES", "ALERT_SOURCE_UID_VALIDATED": "YES", "ALERT_SOURCE_PID_IS_DETECTOR": "YES",
-            "OPEN_INCIDENT_CREATED": "YES", "INCIDENT_ATTACKER_IPV4_VALID": "YES", "INCIDENT_BOUND_AUDIT_PRESENT": "YES",
-        },
+        "checks": checks,
         "claims": dict(CLAIMS),
     }
 
