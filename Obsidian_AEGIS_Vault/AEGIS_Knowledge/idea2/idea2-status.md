@@ -56,7 +56,7 @@ Acceptance boundary for this repository session:
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PR2-S1 | 300s recording + truthful partial + portable CFR normalization + browser-playable NAS Archive + playback/download source contract | SOURCE + MACHINE A RECORDING ACCEPTANCE COMPLETE; PRODUCTION/NAS/ARCHIVE PENDING | Focused recording 9/9 PASS; Engine full suite 294/294 PASS in disposable Python 3.12; Machine A 300s rotation PASS, navigation continuity PASS, truthful full/partial media duration PASS, real-camera local H.264/yuv420p +faststart PASS | portable FPS checkpoint | SOURCE VALIDATION PASS / MACHINE A RECORDING PASS / LOCAL H264 PIPELINE PASS | Archive live playback/seek/download/RBAC, real NAS transfer/hash, Production DB default 600 -> 300, Production deploy | keep PR #344 Draft; prove portable FPS source on Machine A at target_fps=24 |
+| PR2-S1 | 300s recording + truthful partial + portable CFR normalization + browser-playable NAS Archive + playback/download source contract | SOURCE + MACHINE A RECORDING ACCEPTANCE COMPLETE; PRODUCTION/NAS/ARCHIVE PENDING | Focused recording 9/9 PASS; Engine full suite 294/294 PASS in disposable Python 3.12; Machine A 300s rotation PASS, navigation continuity PASS, truthful full/partial media duration PASS, real-camera local H.264/yuv420p +faststart PASS | portable FPS checkpoint | SOURCE VALIDATION PASS / MACHINE A RECORDING PASS / LOCAL H264 PIPELINE PASS | Archive live playback/seek/download/RBAC, real NAS transfer/hash, Production DB default 600 -> 300, Production deploy | keep PR #344 Draft; continue Archive/NAS/Production acceptance |
 
 ### PR2-S1 checkpoint — source validated and HOME/LOCAL acceptance complete; Production/NAS pending
 
@@ -142,15 +142,28 @@ Portable-FPS source validation:
 A real-camera local FFmpeg smoke also converted a finalized mp4v clip to
 H.264/yuv420p with fast-start while preserving its 52.266667-second duration.
 
-The portable source fix has NOT yet been deployed to Machine A. Machine A still
-uses the temporary AEGIS_TARGET_FPS=30 workaround. Next acceptance is to deploy
-only the reviewed SegmentRecorder source, restore AEGIS_TARGET_FPS=24, and
-prove truthful real-camera media duration without the per-machine FPS
-workaround.
+Machine A portable-FPS runtime acceptance is now PASS. The reviewed
+SegmentRecorder from PR2 head 948d82ff21fa2aea2a8cf0713f32ee54b61e94c4
+was deployed with an exact SHA-256 match, and the temporary
+AEGIS_TARGET_FPS=30 workaround was removed. The active runtime now uses
+AEGIS_TARGET_FPS=24 and AEGIS_SEGMENT_SECONDS=300.
+
+Real-camera proof at target_fps=24 observed an approximately 29.95 FPS
+physical capture rate while the recorded CFR remained exactly 24.000 FPS.
+The authenticated Live session produced 2098 captured frames and 1674 CFR
+output frames. Recorder duration was 70.2 seconds; ffprobe reported
+69.750000 seconds, an absolute delta of 0.450000 seconds and ratio
+0.993590. The proof had zero demand-drop, camera-connection-drop, or
+viewer-zero samples before logout. Logout finalized exactly one non-empty
+partial segment and returned the Engine to idle.
+
+Therefore the original approximately-30-FPS-camera versus 24-FPS-writer
+duration defect is closed on Machine A without a per-camera 30 FPS source
+default. Portable FPS runtime acceptance is PASS.
 
 Production Monitor, Production database, Twingate and NAS were not changed.
-Real NAS verification, Archive live playback/seek/download/RBAC and Production
-deployment remain pending. PR #344 remains Draft. This is not the final PR2
+Real NAS verification, Archive live playback/seek/download/RBAC, Production
+DB default reconciliation and Production deployment remain pending. PR #344 remains Draft. This is not the final PR2
 receipt and PR2 is not CLOSED.
 
 
