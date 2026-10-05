@@ -9,8 +9,9 @@ import { assignZipEntryNames } from './zipEntryNames.js'
 import { needsZip64End } from './zipStreamWriter.js'
 import { estimatedPlainSize, MAX_BUFFERED_PLAINTEXT_BYTES } from './vaultChunkedDownload.js'
 
-/** spec §25 / PR-1: ปิดไว้เมื่อ implementation ลง — เปิดในงาน acceptance แยกต่างหากเท่านั้น */
-export const BULK_ZIP_ENABLED = false
+/** spec §25: เปิดหลังผ่าน acceptance แบบ Windows-only ที่ Human อนุมัติ (Chrome Windows FSA; Python + Windows Explorer
+ *  ผ่าน R1–R3) — Firefox/macOS ยังไม่ได้ตรวจ ดู scripts/zip-acceptance/ACCEPTANCE-2026-10-05-windows.json */
+export const BULK_ZIP_ENABLED = true
 export const ZIP_THRESHOLD = 4
 export const MAX_ZIP_ENTRIES = 1000
 
