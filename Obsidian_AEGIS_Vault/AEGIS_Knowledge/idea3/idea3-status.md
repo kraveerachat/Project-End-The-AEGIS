@@ -11,6 +11,12 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 R1A real detector acceptance stage — repository implementation — 2026-10-05
+
+> [!important] **Repository implementation only (IMPLEMENTED != LIVE EXECUTED).** `R1A_STAGE_ID_OWNER_APPROVED=YES`; `R1A` is registered in `P4_STAGES` after `R1I` and before `L8`. `R1A_GOVERNANCE_CLASS=MUTATING`, `R1A_ONE_ATTEMPT=YES`, `R1A_NO_RETRY=YES`, `R1A_GENUINE_EXTERNAL_EVENT_REQUIRED=YES`, `R1A_SYNTHETIC_ALERT_ALLOWED=NO`, `R1A_REAL_EVIDENCE_ROLLBACK_ALLOWED=NO`, `R1I_MUST_REMAIN_INSTALLED=YES`. `R1A_REPOSITORY_IMPLEMENTED=YES`, `R1A_LIVE_EXECUTED=NO`. The stage observes only: it generates no traffic, alert, journal line, Core write or database write; its rollback is evidence-preserving and acts on nothing; the existing fail-closed `r1_acceptance` verifier is the authority and is unchanged. No authorization, K3 or frozen runner exists.
+
+- **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`. Recovery R2-R8 stays blocked until R1A/R1 succeeds; promotion needs a separately reviewed LIVE closeout.
+
 ## IDEA3 R1I LIVE — CLOSED_PASS — 2026-10-05
 
 > [!important] **R1I LIVE executed once and passed (owner-run).** `R1I_LIVE=CLOSED_PASS`, `R1I_ATTEMPT_CONSUMED=YES`, `R1I_RERUN_ALLOWED=NO`, `R1I_LIVE_EXECUTED=YES`, `R1I_PRODUCTION_DEPLOYED=YES`, `PRODUCTION_NFT_NORMALIZATION=PASS_OBSERVED_LIVE`. The frozen successor runner at main `c111a29b9a2f386cbccccfdf57c84b6a9b4f23d5` created only `table inet aegis_idea3_r1i`: input hook only, priority `-10`, IPv4 only, `ct state new`, `tcp flags & (syn | ack) == syn`, `limit rate 50/second burst 60 packets`, `log prefix "AEGIS_NEWCONN "`, no verdict. `R1I_APPLY=PASS`, `R1I_VERIFY=PASS`, PRE/POST captures complete, `R1I_PRE_POST_COMPARE=PASS`, `PRESERVATION_S10=PASS`, `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_APPROVED_CHANGE=3`; Core and detector were not restarted.

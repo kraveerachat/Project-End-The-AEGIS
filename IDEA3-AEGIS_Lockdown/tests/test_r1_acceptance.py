@@ -615,12 +615,16 @@ def test_baseline_document_holds_no_secret_material(world):
     assert "core.env" not in text and "password" not in text.lower()
 
 
-def test_r1i_is_registered_but_r1a_remains_unregistered():
-    """Owner-approved R1I is first-class; R1A remains a later, separate unregistered stage."""
+def test_r1i_and_r1a_are_registered_in_order_and_neither_promotes_the_claim():
+    """Owner-approved R1I and R1A are first-class stages (R1I -> R1A -> Recovery); registration promotes nothing."""
     root = os.path.join(os.path.dirname(__file__), "..", "deploy", "pr11-phase4")
     lib = Path(root, "p4-lib.sh").read_text(encoding="utf-8")
-    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I L8 L9"' in lib
-    assert "R1A" not in next(line for line in lib.splitlines() if line.startswith("readonly P4_STAGES="))
+    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A L8 L9"' in lib
+    assert "REGISTERED" == subprocess.run(
+        ["bash", "-c", f'. "{Path(root, "p4-lib.sh")}"; p4_stage_handler_status R1A'],
+        text=True, capture_output=True, check=False,
+    ).stdout.strip()
+    assert r1.CLAIMS["F1_REAL_DETECTOR_ACCEPTANCE"] == "NOT_PROVEN" and r1.CLAIMS["R1_VERIFIED"] == "NOT_CLAIMED"  # registration promotes nothing
     assert "REGISTERED" == subprocess.run(
         ["bash", "-c", f'. "{Path(root, "p4-lib.sh")}"; p4_stage_handler_status R1I'],
         text=True, capture_output=True, check=False,

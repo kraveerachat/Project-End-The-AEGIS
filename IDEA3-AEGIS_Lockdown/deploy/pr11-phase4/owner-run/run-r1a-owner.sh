@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# AEGIS IDEA3 PR11 Phase 4 — R1A (real detector acceptance) LIVE window, ONE owner-supervised attempt. OWNER-RUN ONLY.
+# REPOSITORY TEMPLATE: every value marked PIN_ is unpinned, so this file REFUSES TO RUN as committed. The owner freeze workflow copies it OUTSIDE the repository, replaces the PIN_ values, records
+# the frozen file's SHA-256 and only then authorizes a run. Nothing in this repository executes it, creates an authorization or K3 record, freezes a pin, or generates the event.
+# Usage (the FROZEN operator user/uid, NOT root):  bash run-r1a-owner.sh <AUTH_DIR>     AUTH_DIR holds authorization-R1A.txt and k3-R1A.txt (FRESH same-day, stage=R1A, no extra field)
+# Stage order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A -> Recovery R2-R8 -> LVR -> L8 -> L9. Recovery R2-R8 stays BLOCKED until R1A/R1 succeeds.
+# OWNER-APPROVED MODEL (fixed): R1A is a MUTATING governed stage (a genuine external event may durably create ALERT_ACCEPTED, INCIDENT_BOUND and an OPEN incident); ONE attempt; NO retry; the event must be
+# GENUINE and EXTERNAL. This runner OBSERVES ONLY: it generates no traffic, alert, journal line, Core write or database write. It keeps the R1I table installed. Genuine evidence is never deleted, closed,
+# edited or rolled back; a failed attempt stops with the evidence preserved and the marker kept (R1A_RESULT=FAIL, R1A_RERUN_ALLOWED=NO).
+# The automatic result NEVER promotes F1_REAL_DETECTOR_ACCEPTANCE or R1_VERIFIED; promotion needs a separately reviewed LIVE closeout.
+set -Eeuo pipefail
+umask 077
+
+# ---- frozen pins: the committed template refuses while ANY of these is unpinned ------------------------------------------------------------------
+EXPECTED_MAIN=PIN_MAIN_SHA
+OPERATOR_USER=PIN_OPERATOR_USER
+OPERATOR_UID=PIN_OPERATOR_UID
+RELEASE_ID=PIN_RELEASE_ID
+PRODUCTION_DETECTOR_SHA256=PIN_PRODUCTION_DETECTOR_SHA256
+DETECTOR_UNIT_SHA256=PIN_DETECTOR_UNIT_SHA256
+RECOVERY_CORE_SHA256=PIN_RECOVERY_CORE_SHA256
+R1_ACCEPTANCE_SHA256=PIN_R1_ACCEPTANCE_SHA256
+R1I_TOOL_SHA256=PIN_R1I_TOOL_SHA256
+AUDIT_DB=PIN_AUDIT_DB_PATH
+DETECTOR_UID=PIN_DETECTOR_UID
+EXPECTED_SOURCE_IP=PIN_EXPECTED_SOURCE_IP
+OBSERVE_SECONDS=PIN_OBSERVE_SECONDS
+for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID RELEASE_ID PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 R1_ACCEPTANCE_SHA256 R1I_TOOL_SHA256 AUDIT_DB DETECTOR_UID EXPECTED_SOURCE_IP OBSERVE_SECONDS; do
+  case "${!pin}" in PIN_*) echo "STOP: runner is not pinned ($pin). Run the owner freeze workflow first."; exit 2 ;; esac
+done
+[[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ ]] || { echo "STOP: EXPECTED_MAIN is not a 40-hex SHA."; exit 2; }
+[[ "$OPERATOR_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "STOP: OPERATOR_USER is not a valid account identifier."; exit 2; }
+[[ "$OPERATOR_UID" =~ ^[1-9][0-9]*$ ]] || { echo "STOP: OPERATOR_UID is not a valid non-root uid."; exit 2; }
+[[ "$RELEASE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] && [[ "$RELEASE_ID" != *..* ]] || { echo "STOP: RELEASE_ID is not a valid release id."; exit 2; }
+for pin in PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 R1_ACCEPTANCE_SHA256 R1I_TOOL_SHA256; do
+  [[ "${!pin}" =~ ^[0-9a-f]{64}$ ]] || { echo "STOP: $pin is not a 64-hex SHA-256."; exit 2; }
+done
+[[ "$DETECTOR_UID" =~ ^[1-9][0-9]*$ ]] || { echo "STOP: DETECTOR_UID is not a valid non-root uid."; exit 2; }
+[[ "$EXPECTED_SOURCE_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo "STOP: EXPECTED_SOURCE_IP is not an IPv4 address."; exit 2; }
+[[ "$OBSERVE_SECONDS" =~ ^[1-9][0-9]{0,5}$ ]] || { echo "STOP: OBSERVE_SECONDS is not a bounded positive integer."; exit 2; }
+[[ "$AUDIT_DB" == /* ]] && [[ "$AUDIT_DB" != *..* ]] || { echo "STOP: AUDIT_DB must be an absolute path."; exit 2; }
+[ "$(id -u)" != 0 ] || { echo "Run as your normal user, not root."; exit 2; }
+# No environment may redirect a live run: fixture roots, handler overrides and R1A/R1I switches must all be unset.
+for var in AEGIS_P4_FS_ROOT P4_FS_ROOT AEGIS_P4_HANDLER_DIR AEGIS_R1A_STEP AEGIS_R1A_WORK_DIR AEGIS_R1A_LIVE_AUTHORIZED AEGIS_R1A_APP_DIR AEGIS_R1A_AUDIT_DB AEGIS_R1I_LIVE_AUTHORIZED; do
+  [ -z "${!var:-}" ] || { echo "STOP: environment override $var is set; refusing a live run."; exit 2; }
+done
+AUTH_DIR=${1:-}
+[ -n "$AUTH_DIR" ] && [ -d "$AUTH_DIR" ] && [ ! -L "$AUTH_DIR" ] || { echo "usage: bash $0 <AUTH_DIR with authorization-R1A.txt and k3-R1A.txt>"; exit 2; }
+
+# ---- frozen inputs -------------------------------------------------------------------------------------------------------------------------------
+REPO=/home/PIN_OPERATOR_HOME/PIN_PINNED_WORKTREE_NOT_A_REAL_PATH   # replaced by the freeze workflow: a clean worktree at EXPECTED_MAIN
+case "$REPO" in */PIN_*) echo "STOP: runner is not pinned (REPO). Run the owner freeze workflow first."; exit 2 ;; esac
+PY=PIN_PYTHON_BIN
+case "$PY" in PIN_*) echo "STOP: runner is not pinned (PY). Run the owner freeze workflow first."; exit 2 ;; esac
+APP=$REPO/IDEA3-AEGIS_Lockdown
+P4=$APP/deploy/pr11-phase4
+STG=$P4/stages/R1A
+LIB=$P4/p4-r1a-run-lib.sh
+RELEASE_PATH=/opt/aegis-idea3/releases/$RELEASE_ID
+CURRENT_LINK=/opt/aegis-idea3/current
+CORE_UNIT=aegis-idea3-core.service
+DETECTOR_UNIT=aegis-idea3-detector.service
+BROKER_UNIT=aegis-idea3-mosquitto.service
+ENGINE=aegis-detection-engine.service; TUNNEL=aegis-detection-tunnel.service
+AP_IF=wlp0s20f3; AP_ADDR=10.77.30.1
+TODAY=$(TZ=Asia/Bangkok date +%F); STAMP=$(TZ=Asia/Bangkok date +%Y%m%d-%H%M%S)
+EVID=/PIN_EVIDENCE_ROOT/$TODAY-r1a-$STAMP
+case "$EVID" in /PIN_*) echo "STOP: runner is not pinned (EVID). Run the owner freeze workflow first."; exit 2 ;; esac
+WORK=$EVID/r1a-work; PRE=$EVID/pre-root; POST=$EVID/post-root
+
+die() { echo "STOP: $*" >&2; exit 1; }
+GATE_FAILED=0; gate() { echo "GATE_FAIL: $*" >&2; GATE_FAILED=1; }
+show() { systemctl show -p "$2" --value "$1"; }
+[ -f "$LIB" ] || die "gate library missing: $LIB (is $REPO at the pinned main?)"
+# shellcheck disable=SC1090
+source "$LIB"
+RUNNER_SHA256=$(sha256sum "$0" | cut -d' ' -f1)
+l7u_identity_gate "$OPERATOR_USER" "$OPERATOR_UID" || die "operator identity is not the frozen R1A operator; nothing was created or touched"
+echo "R1A_SYNTHETIC_EVENT_GENERATED=NO R1I_MUST_REMAIN_INSTALLED=YES RECOVERY_R2_R8_EXECUTED=NO"
+sudo -v || die "sudo authentication failed"
+
+snap() { printf '%s/%s\n' "$(show "$1" MainPID)" "$(show "$1" NRestarts)"; }
+
+# ===== PRE-AUTH / PRE-ATTEMPT gates (all read-only; NONE consumes the attempt) ==========================================================================
+pregates() {
+  local f
+  # 1-2. exact-main + source integrity (pinned clean worktree; r1_acceptance, R1I tool and the deployed authority files byte-exact)
+  [ "$(git -C "$REPO" rev-parse HEAD)" = "$EXPECTED_MAIN" ] || gate "worktree HEAD is not $EXPECTED_MAIN"
+  [ -z "$(git -C "$REPO" status --porcelain)" ] || gate "worktree is not clean"
+  git -C "$REPO" fetch -q origin 2>/dev/null && [ "$(git -C "$REPO" rev-parse origin/main)" = "$EXPECTED_MAIN" ] || gate "origin/main is not $EXPECTED_MAIN (or fetch failed); not silently re-pinning"
+  r1a_digest_gate "$APP/aegis_soc/r1_acceptance.py" "$R1_ACCEPTANCE_SHA256" R1_ACCEPTANCE || gate "r1_acceptance.py is not the frozen source"
+  r1a_digest_gate "$P4/r1i-input-instrumentation/r1i_input_instrumentation.py" "$R1I_TOOL_SHA256" R1I_TOOL || gate "the R1I validator is not the frozen source"
+  # 3. runner integrity: the owner records the frozen runner SHA-256 in the authorization scope (checked below)
+  # 4-5. FRESH same-day stage=R1A records (never an R1I/F1u/F1 record), exact key sets, bound to this main and this runner
+  for f in authorization-R1A.txt k3-R1A.txt; do
+    [ -f "$AUTH_DIR/$f" ] && [ ! -L "$AUTH_DIR/$f" ] || gate "$f missing"
+    grep -qx "date=$TODAY" "$AUTH_DIR/$f" 2>/dev/null || gate "$f date is not today ($TODAY Asia/Bangkok)"
+    grep -qx "stage=R1A" "$AUTH_DIR/$f" 2>/dev/null || gate "$f is not stage=R1A"
+  done
+  [ "$(sed -n '2,$ s/^\([a-z0-9_]*\)=.*/\1/p' "$AUTH_DIR/authorization-R1A.txt" 2>/dev/null | sort | tr '\n' ' ')" = "authorizer date reference scope stage " ] || gate "authorization-R1A.txt carries a field other than stage/date/authorizer/scope/reference"
+  [ "$(sed -n '2,$ s/^\([a-z0-9_]*\)=.*/\1/p' "$AUTH_DIR/k3-R1A.txt" 2>/dev/null | sort | tr '\n' ' ')" = "confirmation_mode confirmed_by date idea1_window_overlap reference stage " ] || gate "k3-R1A.txt key set is not the V2 self-attestation set"
+  grep -qF "$EXPECTED_MAIN" "$AUTH_DIR/authorization-R1A.txt" 2>/dev/null || gate "authorization-R1A.txt does not name the pinned main"
+  grep -qF "$RUNNER_SHA256" "$AUTH_DIR/authorization-R1A.txt" 2>/dev/null || gate "authorization-R1A.txt does not name this exact runner SHA-256"
+  grep -qF "$EXPECTED_SOURCE_IP" "$AUTH_DIR/authorization-R1A.txt" 2>/dev/null || gate "authorization-R1A.txt does not name the expected external source IP"
+  for f in apply.sh verify.sh rollback.sh allow-keys.txt allow-listeners.txt; do [ -f "$STG/$f" ] || gate "handler file $f missing"; done
+  gate_out=$(TZ=Asia/Bangkok bash "$P4/p4-stage-gate.sh" --stage R1A --mode live --authorization "$AUTH_DIR/authorization-R1A.txt" --k3 "$AUTH_DIR/k3-R1A.txt" 2>&1) || gate "stage gate failed"
+  for f in AUTHORIZATION_RECORD=VALID K3_CONFIRMATION=VALID ROLLBACK_HANDLER=REGISTERED; do printf '%s\n' "$gate_out" | grep -qx "$f" || gate "stage gate did not report $f"; done
+  # 6. predecessors (pinned-commit receipt CONTENT) + 19. no R1A success already recorded + 20. attempt marker absent
+  r1a_receipt_gate "$REPO" "$RELEASE_ID" || gate "predecessor receipt gate failed (see reason above)"
+  r1a_attempt_unconsumed "$AUTH_DIR" || gate "this authorization already consumed its one attempt"
+  # 7-8. disk/headroom, operator identity (already enforced), preserved services
+  l7_disk_gate 80 / /var /opt /run || gate "disk headroom below 20% free (see reason above)"
+  l8p_service_gate twingate.service mosquitto.service "$BROKER_UNIT" || gate "a preserved service is not active/running (see reason above)"
+  l7_broker_runtime_gate "$BROKER_UNIT" "$AP_ADDR" || gate "the persistent L6b broker gate failed (see reason above)"
+  l7_idea2_s10_gate "$ENGINE" "$TUNNEL" || gate "IDEA2 §10 fresh preservation precondition failed (see reason above)"
+  # 9. R1I still installed with the exact owned shape
+  r1a_r1i_present_gate "$P4/r1i-input-instrumentation/r1i_input_instrumentation.py" || gate "R1I is not present in the exact owned shape (see reason above)"
+  # 10-14. Core and detector healthy, detector authority (source + unit digests), current release identity
+  l7u_core_running_gate "$CORE_UNIT" || gate "the Core is not in the running baseline (see reason above)"
+  f1u_detector_running_gate || gate "the detector is not the running F1 unit (see reason above)"
+  r1a_digest_gate "$RELEASE_PATH/aegis_soc/production_detector.py" "$PRODUCTION_DETECTOR_SHA256" DETECTOR_SOURCE || gate "the deployed detector source is not the frozen digest"
+  r1a_digest_gate "$RELEASE_PATH/aegis_soc/recovery_core.py" "$RECOVERY_CORE_SHA256" RECOVERY_CORE || gate "the deployed recovery_core.py is not the frozen digest"
+  r1a_digest_gate "/etc/systemd/system/$DETECTOR_UNIT" "$DETECTOR_UNIT_SHA256" DETECTOR_UNIT || gate "the detector unit is not the frozen digest"
+  r1a_current_release_gate "$CURRENT_LINK" "$RELEASE_PATH" || gate "current is not the frozen release"
+  # 18. trusted journal access
+  r1a_journal_access_gate || gate "the journal is not readable (see reason above)"
+  [ "$GATE_FAILED" = 0 ]
+}
+# 15-17 (no pre-existing open incident, baseline audit state, baseline runtime state) are enforced by the read-only r1_acceptance BASELINE capture, which refuses PREEXISTING_OPEN_INCIDENT.
+
+CORE_PRE=""; DETECTOR_PRE=""
+ATTEMPT_STARTED=0
+capture() { sudo env EVID_DIR="$2" CAPTURE_LABEL="${1,,}" JOURNAL_SINCE="$JOURNAL_SINCE" bash "$P4/p4-l0-capture.sh" || return 1
+  sudo grep -q 'L0_CAPTURE=COMPLETE' "$2/capture.log" || return 1; sudo bash -c "cd '$2' && sha256sum -c --quiet --strict SHA256SUMS" || return 1; echo "CAPTURE_$1=COMPLETE SHA256=PASS"; }
+compare() {  # compare BEFORE AFTER OUTFILE — NO allowed drift for R1A: every captured generic key must be identical.
+  local rc=0
+  sudo env DISK_THRESHOLD_PCT=90 AEGIS_AP_INTERFACE="$AP_IF" AEGIS_AP_ADDRESS="$AP_ADDR" ALLOW_KEYS_FILE="$STG/allow-keys.txt" ALLOW_LISTENERS_FILE="$STG/allow-listeners.txt" \
+    bash "$P4/p4-compare.sh" "$1" "$2" > "$3" 2>&1 || rc=$?
+  grep -E '^(FINDING|FINDINGS_|PRESERVATION_S10|COMPARE_RESULT)' "$3" || true; [ "$rc" = 0 ] || return 1
+  for l in FINDINGS_NEW_OR_WORSENED_DRIFT=0 FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0 FINDINGS_INCOMPARABLE=0 FINDINGS_APPROVED_CHANGE=0 PRESERVATION_S10=PASS COMPARE_RESULT=PASS; do
+    grep -qx "$l" "$3" || { echo "COMPARE_REQUIREMENT_FAILED: $l"; return 1; }; done; }
+# The handlers run as ROOT and are READ-ONLY observers. The live flag exists nowhere else, and only after every gate, the baseline and the consumed attempt.
+handler() {
+  sudo env -u AEGIS_P4_FS_ROOT -u P4_FS_ROOT AEGIS_R1A_LIVE_AUTHORIZED=YES AEGIS_R1A_WORK_DIR="$WORK" AEGIS_R1A_STEP="$1" AEGIS_R1A_APP_DIR="$APP" AEGIS_R1A_AUDIT_DB="$AUDIT_DB" \
+    AEGIS_R1A_RELEASE_ID="$RELEASE_ID" AEGIS_R1A_DETECTOR_SHA256="$PRODUCTION_DETECTOR_SHA256" AEGIS_R1A_DETECTOR_UID="$DETECTOR_UID" AEGIS_PYTHON_BIN="$PY" PYTHONDONTWRITEBYTECODE=1 \
+    bash "$STG/${2:-apply.sh}"
+}
+runtime_unchanged() { [ "$(snap $CORE_UNIT)" = "$CORE_PRE" ] && [ "$(snap $DETECTOR_UNIT)" = "$DETECTOR_PRE" ]; }
+
+# ---- hooks for the attempt state machine (r1a_run_attempt owns the ordering and the marker) -------------------------------------------------------------
+r1a_hook_pregates() { echo "== R1A pre-gates (read-only; nothing consumed)"; pregates; }
+r1a_hook_baseline() {
+  CORE_PRE=$(snap $CORE_UNIT); DETECTOR_PRE=$(snap $DETECTOR_UNIT)
+  mkdir -m 700 "$EVID" && exec > >(tee -a "$EVID/owner-run.log") 2>&1
+  JOURNAL_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S UTC'); printf '%s\n' "$JOURNAL_SINCE" > "$EVID/journal_since.txt"
+  cp "$AUTH_DIR/authorization-R1A.txt" "$AUTH_DIR/k3-R1A.txt" "$EVID/"
+  { echo "MAIN=$EXPECTED_MAIN"; echo "RELEASE_ID=$RELEASE_ID"; echo "RUNNER_SHA256=$RUNNER_SHA256"; echo "CORE_PRE=$CORE_PRE"; echo "DETECTOR_PRE=$DETECTOR_PRE"; echo "EXPECTED_SOURCE_IP=$EXPECTED_SOURCE_IP"; echo "OBSERVE_SECONDS=$OBSERVE_SECONDS"; } > "$EVID/frozen-inputs.txt"
+  sudo install -d -m 700 -o root -g root "$WORK" || return 1
+  echo "== PRE capture and immutable R1 baseline (read-only)"
+  capture PRE "$PRE" || return 1
+  sudo chown -R "$(id -u):$(id -g)" "$PRE" 2>/dev/null || true
+  handler BASELINE || return 1
+}
+r1a_hook_regate() {
+  # re-prove the critical authority just before the one-shot boundary
+  r1a_r1i_present_gate "$P4/r1i-input-instrumentation/r1i_input_instrumentation.py" && runtime_unchanged && l7u_core_running_gate "$CORE_UNIT" && f1u_detector_running_gate \
+    && r1a_current_release_gate "$CURRENT_LINK" "$RELEASE_PATH" && [ ! -e "$AUTH_DIR/R1A-ATTEMPT-CONSUMED" ]
+}
+r1a_hook_observe() {
+  # OBSERVE ONLY: a bounded wait. The genuine external event is produced by the owner, outside this runner. No loop retries anything.
+  local seconds=$1
+  sleep "$seconds"
+}
+r1a_hook_final() {
+  # ONE final capture + the ONE verifier run (r1_acceptance final). The generic POST capture and compare must show no unrelated drift.
+  capture POST "$POST" || return 1
+  sudo chown -R "$(id -u):$(id -g)" "$POST" 2>/dev/null || true
+  handler FINAL || return 1
+  compare "$PRE" "$POST" "$EVID/compare-pre-post.txt" || return 1
+  runtime_unchanged || { echo "R1A_SERVICE_LIFECYCLE_DRIFT=YES"; return 1; }
+  r1a_r1i_present_gate "$P4/r1i-input-instrumentation/r1i_input_instrumentation.py" || return 1
+}
+r1a_hook_verify() {
+  local out
+  out=$(handler FINAL verify.sh 2>&1) || { printf '%s\n' "$out"; return 1; }
+  printf '%s\n' "$out"; grep -qx 'R1A_VERIFY=PASS' <<< "$out"
+}
+r1a_hook_preserve_evidence() {
+  # EVIDENCE-PRESERVING: the rollback handler performs no action. Nothing real is deleted, closed, edited or restored.
+  handler FINAL rollback.sh 2>/dev/null || true
+  echo "R1A_EVIDENCE_ROOT=$EVID (retained; the R1A attempt marker is retained and never removed)"
+}
+
+if r1a_run_attempt "$AUTH_DIR" "$OBSERVE_SECONDS"; then
+  echo "R1A_LIVE_EXECUTED=YES R1A_VERIFIER_RESULT=PASS R1_EVIDENCE_VERIFIED=YES REAL_DETECTOR_CHAIN_VERIFIED=YES (automatic result only)"
+  echo "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED RECOVERY_R1_R8_PROVEN=NO"
+  echo "R1A_CLAIM_BOUNDARY: this is an automatic verifier result. F1_REAL_DETECTOR_ACCEPTANCE / R1_VERIFIED are promoted ONLY by a separately reviewed LIVE closeout after independent inspection of the evidence."
+  exit 0
+fi
+exit 1

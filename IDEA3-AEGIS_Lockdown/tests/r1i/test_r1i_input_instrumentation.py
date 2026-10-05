@@ -132,19 +132,18 @@ def test_kernel_payload_matches_the_merged_detector_parser() -> None:
 # --------------------------------------------------------------------------- registry
 
 
-def test_registered_stage_order_and_handler_surface_keep_r1a_unregistered() -> None:
+def test_registered_stage_order_and_handler_surface_place_r1a_after_r1i() -> None:
     registry = P4_LIB.read_text()
-    expected = 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I L8 L9"'
+    expected = 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A L8 L9"'
     assert expected in registry
-    assert "R1A" not in next(line for line in registry.splitlines() if line.startswith("readonly P4_STAGES="))
+    assert registry.count(" R1I R1A L8 ") == 1  # R1A is a separate, later stage (owner-approved registration; its own tests live in tests/r1a)
     result = subprocess.run(
         ["bash", "-c", f'. "{P4_LIB}"; p4_stage_known R1I; p4_stage_mutates R1I; p4_stage_handler_status R1I'],
         text=True, capture_output=True, check=False,
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "REGISTERED"
-    assert not any("r1a" in path.name.lower() for path in (ROOT / "deploy/pr11-phase4").rglob("*.sh"))
-    assert not any(ROOT.rglob("run-r1a*.sh"))
+    assert not any("r1a" in path.name.lower() for path in (ROOT / "deploy/pr11-phase4/r1i-input-instrumentation").rglob("*"))  # R1I never carries R1A material
 
 
 def test_handlers_are_logging_only_and_cannot_touch_core_detector_alert_or_shared_firewall() -> None:
