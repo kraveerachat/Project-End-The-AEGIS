@@ -3,7 +3,7 @@ title: Task Receipt — IDEA1 multi-file ZIP Windows-only acceptance and enablem
 date: 2026-10-05T17:40:05+07:00
 owner: kla
 area: idea1
-branch: accept/idea1-multi-file-zip-windows-only
+branch: chore/idea1-multi-file-zip-windows-acceptance
 status: complete
 edit_policy: append-by-new-file
 ---

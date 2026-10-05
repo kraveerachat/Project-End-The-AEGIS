@@ -20,7 +20,7 @@ edit_policy: owner-writable
 | Field | Current value |
 |---|---|
 | Task | Non-Production acceptance of PR #351 (head `40cb8636`) under the Human-approved **Windows-only** scope, and the stacked enablement change (`BULK_ZIP_ENABLED` false → true). |
-| Branch / PR | `accept/idea1-multi-file-zip-windows-only` / Draft stacked PR on `feat/idea1-multi-file-streaming-zip`; must not merge before PR #351 |
+| Branch / PR | `chore/idea1-multi-file-zip-windows-acceptance` / Draft stacked PR on `feat/idea1-multi-file-streaming-zip`; must not merge before PR #351 |
 | Owner | kla |
 | State | `WINDOWS_ONLY_ACCEPTANCE=PASS`; `BULK_ZIP_ENABLED=true` in this stacked PR only (PR #351 keeps `false`); `PRODUCTION_DEPLOYED=NO`. |
 | Evidence | Chrome Windows (FSA) A1–A12 **PASS**; A11 clean pair growth 310 vs 284 MiB, difference **26 MiB** < 64 MiB (first pair failed at 91 MiB, recorded); Python `zipfile` R1–R3 **PASS** (R3 offset-only ZIP64 at 4724464240); Windows Explorer R1–R3 **PASS**. Manifest: `IDEA1-AEGIS_Drive_LC/scripts/zip-acceptance/ACCEPTANCE-2026-10-05-windows.json`. |
