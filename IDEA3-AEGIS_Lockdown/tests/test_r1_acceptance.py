@@ -644,11 +644,11 @@ def test_baseline_document_holds_no_secret_material(world):
     assert "core.env" not in text and "password" not in text.lower()
 
 
-def test_r1i_and_r1a_are_registered_in_order_and_neither_promotes_the_claim():
-    """Owner-approved R1I and R1A are first-class stages (R1I -> R1A -> Recovery); registration promotes nothing."""
+def test_r1i_r1a_r1b_are_registered_in_order_and_none_promotes_the_claim():
+    """Owner-approved R1I, immutable R1A and successor R1B are first-class stages (R1I -> R1A -> R1B -> Recovery); registration promotes nothing."""
     root = os.path.join(os.path.dirname(__file__), "..", "deploy", "pr11-phase4")
     lib = Path(root, "p4-lib.sh").read_text(encoding="utf-8")
-    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A L8 L9"' in lib
+    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1B L8 L9"' in lib
     assert "REGISTERED" == subprocess.run(
         ["bash", "-c", f'. "{Path(root, "p4-lib.sh")}"; p4_stage_handler_status R1A'],
         text=True, capture_output=True, check=False,
