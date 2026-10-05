@@ -147,13 +147,15 @@ test('FZ-1 1–3 files: one anchor per file, no picker (unchanged)', async () =>
   } finally { await m.unmount() }
 })
 
-test('FZ-2 default off (PR-1): 4 files still click one anchor each', async () => {
+test('FZ-2 default on (accepted): with no prop, 4 files save as one ZIP through one picker', async () => {
   const m = await mountFiles(rows6())
   try {
     await m.select(['f0', 'f1', 'f2', 'f3'])
     await m.click(m.bulkButton())
-    assert.equal(m.log.anchors.length, 4)
-    assert.equal(m.log.pickers.length, 0)
+    await m.settle(10)
+    assert.equal(m.log.pickers.length, 1)
+    assert.equal(m.log.anchors.length, 0)
+    assert.equal(m.log.writables[0].closed, true)
   } finally { await m.unmount() }
 })
 

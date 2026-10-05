@@ -1,7 +1,7 @@
-// tests/vaultTreeBulkZipDefaultOff.test.js — AEGIS Drive (IDEA1) · multi-file streaming ZIP, Task 11b (PR-1)
+// tests/vaultTreeBulkZipDefault.test.js — AEGIS Drive (IDEA1) · multi-file streaming ZIP default
 //
-// The implementation lands with BULK_ZIP_ENABLED = false: with no override, 4+ Vault files keep the
-// per-file path exactly as #334 shipped it — no confirmation dialog, one picker per file.
+// After the Human-approved Windows-only acceptance, BULK_ZIP_ENABLED defaults to true (spec §25): with no
+// override, 4+ Vault files open the plaintext-export confirmation and no per-file picker opens on click.
 import assert from 'node:assert/strict'
 import test, { after, before } from 'node:test'
 import React from 'react'
@@ -19,9 +19,9 @@ let dom
 before(async () => { env = await startVaultScreenEnv(); ({ dom } = env) })
 after(async () => { await env?.stop(); delete globalThis.__VAULT_BACKEND__; delete globalThis.showSaveFilePicker })
 
-test('VZS-OFF-1 default off: 4 Vault files download per file with no dialog', async () => {
+test('VZS-DEFAULT-1 default on: 4 Vault files open the plaintext-export confirmation, no picker on click', async () => {
   const { BULK_ZIP_ENABLED } = await env.load('/src/lib/bulkDownloadPlan.js')
-  assert.equal(BULK_ZIP_ENABLED, false)
+  assert.equal(BULK_ZIP_ENABLED, true)
   const kek = await (await env.load('/src/lib/vaultCrypto.js')).unlockVault(CORRECT_PASSPHRASE)
   const sync = await env.load('/src/lib/vaultTreeSync.js')
   const api = await env.load('/src/lib/vaultTreeApi.js')
@@ -72,8 +72,8 @@ test('VZS-OFF-1 default off: 4 Vault files download per file with no dialog', as
     }
     await click(dom, doc.querySelector('[data-testid="vault-tree-bulk-download"]'))
     for (let i = 0; i < 8; i += 1) await settle()
-    assert.equal(doc.querySelectorAll('[data-testid="vault-zip-export"]').length, 0, 'no confirmation dialog')
-    assert.deepEqual(pickers, names, 'one picker per file, as before')
+    assert.equal(doc.querySelectorAll('[data-testid="vault-zip-export"]').length, 1, 'plaintext-export confirmation shown')
+    assert.deepEqual(pickers, [], 'no picker until Confirm')
   } finally {
     await h.unmount()
   }

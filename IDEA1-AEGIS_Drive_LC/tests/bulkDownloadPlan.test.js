@@ -131,10 +131,10 @@ const vaultPlan = (nodes, blobs, opts = {}) => {
 }
 const range = (n) => Array.from({ length: n }, (_, i) => i)
 
-test('PLAN-1 constants: threshold 4, cap 1000, feature off on landing (PR-1)', () => {
+test('PLAN-1 constants: threshold 4, cap 1000, feature on after Windows-only acceptance (spec §25)', () => {
   assert.equal(ZIP_THRESHOLD, 4)
   assert.equal(MAX_ZIP_ENTRIES, 1000)
-  assert.equal(BULK_ZIP_ENABLED, false)
+  assert.equal(BULK_ZIP_ENABLED, true)
 })
 
 test('PLAN-2 counts: 0 none, 1–3 per-file, 4 and 1000 zip, 1001 refused too-many', () => {
