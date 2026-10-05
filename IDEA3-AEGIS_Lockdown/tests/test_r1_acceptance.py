@@ -658,6 +658,10 @@ def test_r1i_r1a_r1b_are_registered_in_order_and_none_promotes_the_claim():
         ["bash", "-c", f'. "{Path(root, "p4-lib.sh")}"; p4_stage_handler_status R1I'],
         text=True, capture_output=True, check=False,
     ).stdout.strip()
+    assert "REGISTERED" == subprocess.run(
+        ["bash", "-c", f'. "{Path(root, "p4-lib.sh")}"; p4_stage_handler_status R1B'],
+        text=True, capture_output=True, check=False,
+    ).stdout.strip()
     assert "PIN_MAIN_SHA" in Path(root, "owner-run/run-r1i-owner.sh").read_text(encoding="utf-8")
 
 
