@@ -166,6 +166,36 @@ Real NAS verification, Archive live playback/seek/download/RBAC, Production
 DB default reconciliation and Production deployment remain pending. PR #344 remains Draft. This is not the final PR2
 receipt and PR2 is not CLOSED.
 
+### PR2 existing Production DB default migration checkpoint - 2026-10-05
+
+Production read-only discovery confirmed that the authoritative Monitor
+database is `aegis_monitor`. Its existing `public.clips` table is present with
+zero rows and `duration_sec INTEGER NOT NULL DEFAULT 600`.
+
+PR2 fresh-schema source already declares `DEFAULT 300`, but an existing table
+retains its previous column default. PR2 therefore adds
+`006_pr2_clip_duration_default_300.sql`.
+
+Migration 006 changes only the future `clips.duration_sec` default to 300. It
+does not update or rewrite historical clip rows or measured durations.
+
+Production Monitor is still the pre-PR2 PR343 image. Production clip storage
+is also not a verified remote NAS: `/nas/clips` is currently a read-only bind
+of `/opt/aegis/data/monitor-clips`, which resolves to the Production server
+root ext4 filesystem and currently contains zero clip files.
+
+Therefore real NAS verification remains pending and `NAS_VERIFIED=PASS` must
+not be claimed.
+
+Remaining acceptance requires real NAS preparation, separately authorized
+Production application of migration 006 and the reviewed PR2 Monitor image,
+followed by end-to-end transfer/hash verification, `stored_on_nas=true`,
+Archive playback/seek/download and RBAC proof.
+
+No Production container, Production database, filesystem, NAS, Twingate,
+Identity Agent, IDEA1 or IDEA3 mutation was performed by this source work.
+PR #344 remains Draft and PR2 is not CLOSED.
+
 
 ## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
 
