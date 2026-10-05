@@ -47,11 +47,16 @@ _octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
 [[ "$AUDIT_DB" == /* ]] && [[ "$AUDIT_DB" != *..* ]] || { echo "STOP: AUDIT_DB must be an absolute path."; exit 2; }
 [ "$(id -u)" != 0 ] || { echo "Run as your normal user, not root."; exit 2; }
 # No environment may redirect a live run: fixture roots, handler overrides and R1A/R1I switches must all be unset.
-for var in AEGIS_P4_FS_ROOT P4_FS_ROOT AEGIS_P4_HANDLER_DIR AEGIS_R1A_STEP AEGIS_R1A_WORK_DIR AEGIS_R1A_LIVE_AUTHORIZED AEGIS_R1A_APP_DIR AEGIS_R1A_AUDIT_DB AEGIS_R1A_EXPECTED_SOURCE_IP AEGIS_R1A_WINDOW_START AEGIS_R1A_WINDOW_END AEGIS_R1A_VERIFIER_MANIFEST_SHA256 R1A_WINDOW_START R1A_WINDOW_END R1A_CANONICAL_DIR R1A_TEST_ONLY_CANONICAL_DIR R1A_TEST_ONLY_CANONICAL_DIR_ENABLED GLOBAL_MARKER_DIR AEGIS_R1I_LIVE_AUTHORIZED; do
+for var in AEGIS_P4_FS_ROOT P4_FS_ROOT AEGIS_P4_HANDLER_DIR AEGIS_R1A_STEP AEGIS_R1A_WORK_DIR AEGIS_R1A_LIVE_AUTHORIZED AEGIS_R1A_APP_DIR AEGIS_R1A_AUDIT_DB AEGIS_R1A_EXPECTED_SOURCE_IP AEGIS_R1A_WINDOW_START AEGIS_R1A_WINDOW_END AEGIS_R1A_VERIFIER_MANIFEST_SHA256 R1A_TEST_ONLY_SNAPSHOT_TRUST_ENABLED R1A_TEST_ONLY_SNAPSHOT_TRUST_ROOT R1A_WINDOW_START R1A_WINDOW_END R1A_CANONICAL_DIR R1A_TEST_ONLY_CANONICAL_DIR R1A_TEST_ONLY_CANONICAL_DIR_ENABLED GLOBAL_MARKER_DIR AEGIS_R1I_LIVE_AUTHORIZED; do
   [ -z "${!var:-}" ] || { echo "STOP: environment override $var is set; refusing a live run."; exit 2; }
 done
 AUTH_DIR=${1:-}
 [ -n "$AUTH_DIR" ] && [ -d "$AUTH_DIR" ] && [ ! -L "$AUTH_DIR" ] || { echo "usage: bash $0 <AUTH_DIR with authorization-R1A.txt and k3-R1A.txt>"; exit 2; }
+
+# Snapshot ownership invariant (LITERAL constants of the frozen runner, not environment): the control snapshot and EVERY ancestor up to the trusted parent are owned by this uid and not group/world writable.
+# The committed template pins 0 (root) and `/`; a test copy may substitute its own values, a live freeze must not.
+SNAPSHOT_OWNER_UID=0
+SNAPSHOT_TRUST_ROOT=/
 
 # ---- frozen inputs -------------------------------------------------------------------------------------------------------------------------------
 REPO=/home/PIN_OPERATOR_HOME/PIN_PINNED_WORKTREE_NOT_A_REAL_PATH   # replaced by the freeze workflow: a worktree at EXPECTED_MAIN used ONLY to read pinned git objects (receipts, byte-equality); NO shell or Python is sourced or executed from it
@@ -78,11 +83,25 @@ WORK=$EVID/r1a-work; PRE=$EVID/pre-root; POST=$EVID/post-root
 die() { echo "STOP: $*" >&2; exit 1; }
 GATE_FAILED=0; gate() { echo "GATE_FAIL: $*" >&2; GATE_FAILED=1; }
 show() { systemctl show -p "$2" --value "$1"; }
+# Git authority reads run with replacement objects DISABLED on every invocation (a real `git replace GOOD EVIL` would otherwise keep the apparent SHA while changing the bytes Git returns). A shell function,
+# so it also covers the git calls inside every library sourced later; a caller's environment cannot re-enable replacement.
+git() { GIT_NO_REPLACE_OBJECTS=1 command git "$@"; }
 # control_gate — the frozen runner re-proves the control snapshot ITSELF (inline, never via sourced code): manifest digest, every file's digest, exact file set, no symlink, nothing writable. Run BEFORE the first
 # source and again immediately before EVERY root execution (capture, compare, stage handlers, stage gate).
 control_gate() {
-  local m="$CTRL/R1A-CONTROL-SHA256SUMS"
+  local m="$CTRL/R1A-CONTROL-SHA256SUMS" d
   [ -d "$CTRL" ] && [ ! -L "$CTRL" ] && [ -f "$m" ] && [ ! -L "$m" ] || { echo "GATE_FAIL: CONTROL_SNAPSHOT_INVALID" >&2; return 1; }
+  # OWNERSHIP INVARIANT: canonical path; every entry owned by SNAPSHOT_OWNER_UID; every ancestor up to SNAPSHOT_TRUST_ROOT a real directory owned by it and not group/world writable. A same-uid owner could
+  # otherwise chmod a read-only snapshot writable and swap bytes between this gate and a privileged execution.
+  [[ "$CTRL" == /* ]] && [ "$(readlink -f "$CTRL")" = "$CTRL" ] || { echo "GATE_FAIL: CONTROL_PATH_NOT_CANONICAL" >&2; return 1; }
+  [ -z "$(find "$CTRL" ! -uid "$SNAPSHOT_OWNER_UID" -print -quit)" ] || { echo "GATE_FAIL: CONTROL_SNAPSHOT_NOT_TRUSTED_OWNER" >&2; return 1; }
+  d=$CTRL
+  while :; do
+    [ -d "$d" ] && [ ! -L "$d" ] && [ "$(stat -c %u "$d")" = "$SNAPSHOT_OWNER_UID" ] && [ -z "$(find "$d" -maxdepth 0 -perm /022)" ] || { echo "GATE_FAIL: CONTROL_ANCESTOR_NOT_TRUSTED:$d" >&2; return 1; }
+    [ "$d" = "$SNAPSHOT_TRUST_ROOT" ] && break
+    [ "$d" != / ] || { echo "GATE_FAIL: CONTROL_TRUST_ROOT_NOT_AN_ANCESTOR" >&2; return 1; }
+    d=$(dirname "$d")
+  done
   [ "$(sha256sum "$m" | cut -d' ' -f1)" = "$CONTROL_MANIFEST_SHA256" ] || { echo "GATE_FAIL: CONTROL_MANIFEST_DRIFT" >&2; return 1; }
   ( cd "$CTRL" && sha256sum -c --quiet --strict R1A-CONTROL-SHA256SUMS ) >/dev/null 2>&1 || { echo "GATE_FAIL: CONTROL_FILE_DRIFT" >&2; return 1; }
   [ -z "$(find "$CTRL" -type l -print -quit)" ] || { echo "GATE_FAIL: CONTROL_SYMLINK_PRESENT" >&2; return 1; }
@@ -92,9 +111,11 @@ control_gate() {
 # control_git_gate — every control snapshot file is byte-identical to its pinned-main git object (the snapshot is exactly the reviewed source).
 control_git_gate() {
   local sha rel got
-  [ "$(git -C "$REPO" rev-parse HEAD 2>/dev/null)" = "$EXPECTED_MAIN" ] || { echo "GATE_FAIL: CONTROL_REPO_HEAD_NOT_PINNED_MAIN" >&2; return 1; }
+  # the pinned commit must be a REAL commit object (replacement objects disabled by the git wrapper above) and HEAD must be exactly it; the reviewed bytes are read as EXPECTED_MAIN:path, never HEAD:path
+  [ "$(git -C "$REPO" rev-parse --verify "$EXPECTED_MAIN^{commit}" 2>/dev/null)" = "$EXPECTED_MAIN" ] || { echo "GATE_FAIL: CONTROL_PINNED_COMMIT_NOT_A_COMMIT_OBJECT" >&2; return 1; }
+  [ "$(git -C "$REPO" rev-parse --verify "HEAD^{commit}" 2>/dev/null)" = "$EXPECTED_MAIN" ] || { echo "GATE_FAIL: CONTROL_REPO_HEAD_NOT_PINNED_MAIN" >&2; return 1; }
   while read -r sha rel; do
-    got=$(git -C "$REPO" show "HEAD:$GIT_P4_REL/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1)
+    got=$(git -C "$REPO" show "$EXPECTED_MAIN:$GIT_P4_REL/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1)
     [ "$got" = "$sha" ] || { echo "GATE_FAIL: CONTROL_FILE_NOT_THE_PINNED_MAIN_SOURCE:$rel" >&2; return 1; }
   done < "$CTRL/R1A-CONTROL-SHA256SUMS"
 }
@@ -115,7 +136,7 @@ authority_gates() {
   local rc=0
   control_gate || rc=1
   control_git_gate || rc=1
-  r1a_verifier_gate "$VERIFIER_SNAPSHOT_DIR" "$VERIFIER_MANIFEST_SHA256" "$REPO" "$PRODUCTION_DETECTOR_SHA256" "$CTRL/r1a-acceptance/r1a_verifier_snapshot.py" || rc=1
+  r1a_verifier_gate "$VERIFIER_SNAPSHOT_DIR" "$VERIFIER_MANIFEST_SHA256" "$REPO" "$PRODUCTION_DETECTOR_SHA256" "$CTRL/r1a-acceptance/r1a_verifier_snapshot.py" "$EXPECTED_MAIN" || rc=1
   r1a_interpreter_gate "$PY" || rc=1
   r1a_r1i_present_gate "$CTRL/r1i-input-instrumentation/r1i_input_instrumentation.py" || rc=1
   l7u_core_running_gate "$CORE_UNIT" || rc=1
@@ -153,7 +174,7 @@ pregates() {
   gate_out=$(TZ=Asia/Bangkok bash "$CTRL/p4-stage-gate.sh" --stage R1A --mode live --authorization "$AUTH_DIR/authorization-R1A.txt" --k3 "$AUTH_DIR/k3-R1A.txt" 2>&1) || gate "stage gate failed"
   for f in AUTHORIZATION_RECORD=VALID K3_CONFIRMATION=VALID ROLLBACK_HANDLER=REGISTERED; do printf '%s\n' "$gate_out" | grep -qx "$f" || gate "stage gate did not report $f"; done
   # 6. predecessors (pinned-commit receipt CONTENT) + 19. no R1A success already recorded + 20. attempt marker absent
-  r1a_receipt_gate "$REPO" "$RELEASE_ID" || gate "predecessor receipt gate failed (see reason above)"
+  r1a_receipt_gate "$REPO" "$RELEASE_ID" "$EXPECTED_MAIN" || gate "predecessor receipt gate failed (see reason above)"
   r1a_attempt_unconsumed "$AUTH_DIR" || gate "R1A is ONE attempt TOTAL and one is already consumed (canonical stage-global or authorization marker), or the canonical marker directory is invalid"
   # 7-8. disk/headroom, operator identity (already enforced), preserved services
   l7_disk_gate 80 / /var /opt /run || gate "disk headroom below 20% free (see reason above)"

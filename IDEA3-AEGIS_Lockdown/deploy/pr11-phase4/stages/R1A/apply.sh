@@ -9,6 +9,10 @@ set -uo pipefail
 fail() { printf 'R1A_APPLY=FAIL reason=%s\n' "$1" >&2; exit 1; }
 STEP="${AEGIS_R1A_STEP:-}"
 WORK="${AEGIS_R1A_WORK_DIR:-}"
+# Snapshot ownership invariant (LITERAL constants, never environment): the verifier snapshot and EVERY ancestor up to the trusted parent are owned by root and not group/world writable. A same-uid owner could
+# otherwise chmod a read-only snapshot writable and replace bytes between this check and the Python start below. A test copy may substitute its own values; production keeps 0 and `/`.
+SNAPSHOT_OWNER_UID=0
+SNAPSHOT_TRUST_ROOT=/
 PY="${AEGIS_PYTHON_BIN:-python3}"
 APP="${AEGIS_R1A_APP_DIR:-}"            # the frozen IMMUTABLE verifier snapshot (never a mutable worktree)
 MANIFEST_SHA="${AEGIS_R1A_VERIFIER_MANIFEST_SHA256:-}"
@@ -17,6 +21,15 @@ MANIFEST_SHA="${AEGIS_R1A_VERIFIER_MANIFEST_SHA256:-}"
 [ -n "$WORK" ] && [ -d "$WORK" ] && [ ! -L "$WORK" ] || fail WORK_DIR_REQUIRED
 [ -n "$APP" ] && [ -d "$APP" ] && [ ! -L "$APP" ] && [ -f "$APP/aegis_soc/r1_acceptance.py" ] || fail APP_DIR_INVALID
 [[ "$MANIFEST_SHA" =~ ^[0-9a-f]{64}$ ]] || fail VERIFIER_MANIFEST_PIN_INVALID
+[[ "$APP" == /* ]] && [ "$(readlink -f "$APP")" = "$APP" ] || fail VERIFIER_PATH_NOT_CANONICAL
+[ -z "$(find "$APP" ! -uid "$SNAPSHOT_OWNER_UID" -print -quit)" ] || fail VERIFIER_SNAPSHOT_NOT_TRUSTED_OWNER
+d=$APP
+while :; do
+  [ -d "$d" ] && [ ! -L "$d" ] && [ "$(stat -c %u "$d")" = "$SNAPSHOT_OWNER_UID" ] && [ -z "$(find "$d" -maxdepth 0 -perm /022)" ] || fail "VERIFIER_ANCESTOR_NOT_TRUSTED"
+  [ "$d" = "$SNAPSHOT_TRUST_ROOT" ] && break
+  [ "$d" != / ] || fail VERIFIER_TRUST_ROOT_NOT_AN_ANCESTOR
+  d=$(dirname "$d")
+done
 # Root must never execute mutable bytes: re-prove the snapshot IMMEDIATELY before use (manifest digest, every file digest, exact file set, no symlink, nothing writable).
 MANIFEST="$APP/R1A-VERIFIER-SHA256SUMS"
 [ -f "$MANIFEST" ] && [ ! -L "$MANIFEST" ] && [ "$(sha256sum "$MANIFEST" | cut -d' ' -f1)" = "$MANIFEST_SHA" ] || fail VERIFIER_MANIFEST_DRIFT

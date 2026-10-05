@@ -4,10 +4,11 @@
 #   2. MARKER-BOUNDED WINDOW, with the evidence's real granularity stated explicitly:
 #      - the completing trusted source event(s) and the detector's own alert carry sub-second journald times and must lie EXACTLY inside [window_start, window_end] (window_start = the instant AFTER the
 #        canonical marker exists; window_end = the instant the bounded wait completed);
-#      - the Core audit rows (the new incident and ALERT_ACCEPTED) carry WHOLE-SECOND times, so no exact sub-second predicate can be proved for them and none is claimed. They are bound causally: the
-#        r1_acceptance verifier already requires exactly ONE detector alert line, ONE ALERT_ACCEPTED row and ONE new incident for the same address and the detector's PID, with the row preceding the detector's
-#        own alert line, so a row that belongs to an in-window alert cannot predate the in-window source event. The whole-second stored time is therefore required to satisfy
-#        floor(window_start) <= stored <= window_end (a stored second can never exceed the real time of the in-window alert that follows the row, so the upper bound is exact and there is NO post-deadline grace).
+#      - the Core audit rows (the new incident, INCIDENT_BOUND and ALERT_ACCEPTED) carry WHOLE-SECOND times (the real time rounded DOWN), so no exact sub-second predicate can be proved for them and none is
+#        claimed. What the CODE proves: (1) the r1_acceptance verifier requires exactly ONE detector alert line, ONE ALERT_ACCEPTED row and ONE new incident for the same address and the detector's PID, and
+#        (since the Core writes its rows before it replies and the detector logs its alert only after the reply) that every stored audit time is NOT LATER than the detector's own alert line time
+#        (AUDIT_ROW_AFTER_DETECTOR_ALERT otherwise, no tolerance); (2) this script then requires floor(window_start) <= stored <= window_end for the rows (the floor reflects the 1 s granularity; the ceiling
+#        is exact because a stored second never exceeds the real time of the in-window alert that follows the row). There is NO post-deadline grace.
 # It never promotes a project claim; promotion needs a separately reviewed LIVE closeout.
 set -uo pipefail
 fail() { printf 'R1A_VERIFY=FAIL reason=%s\n' "$1" >&2; exit 1; }
@@ -68,6 +69,9 @@ if any(v < w0 for v in sources) or alert < w0:
     bad("EVENT_BEFORE_THE_MARKER")
 if any(v > w1 for v in sources) or alert > w1:
     bad("EVENT_AFTER_THE_OBSERVATION_DEADLINE")
+# defense in depth (the r1_acceptance verifier already refuses it): a stored audit second can never be later than the detector's own alert line
+if opened > alert or accepted > alert:
+    bad("AUDIT_ROW_AFTER_DETECTOR_ALERT")
 # audit rows carry whole-second times (granularity: 1 s): lower bound at the marker's second, upper bound exactly the deadline (no delivery grace)
 if opened < math.floor(w0) or accepted < math.floor(w0):
     bad("AUDIT_ROW_BEFORE_THE_MARKER")

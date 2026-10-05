@@ -10,6 +10,11 @@ _R1A_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=p4-f1u-run-lib.sh
 . "$_R1A_LIB_DIR/p4-f1u-run-lib.sh"
 
+# Every Git read that feeds an R1A trust decision runs with replacement objects DISABLED. A real `git replace GOOD EVIL` keeps the apparent commit SHA while changing the bytes plain Git resolves, so the
+# wrapper sets GIT_NO_REPLACE_OBJECTS=1 explicitly on EVERY invocation (a caller's environment cannot re-enable replacement). It is a shell function, so it also covers the shared run libraries sourced
+# above, which call plain `git`.
+git() { GIT_NO_REPLACE_OBJECTS=1 command git "$@"; }
+
 R1A_LOGS_REL="Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs"
 R1A_R1I_CLOSEOUT_RECEIPT_REL="$R1A_LOGS_REL/2026-10-05_063546_music_idea3-r1i-live-closeout.md"
 R1A_F1U_CLOSEOUT_RECEIPT_REL="$R1A_LOGS_REL/2026-10-05_041108_music_idea3-f1u-live-closeout.md"
@@ -27,6 +32,11 @@ if ! readonly -p 2>/dev/null | grep -q 'R1A_CANONICAL_DIR='; then
   R1A_CANONICAL_DIR=/var/lib/aegis-idea3-governance
   readonly R1A_CANONICAL_DIR
 fi
+# Production snapshot ownership invariant (see r1a_verifier_snapshot.py): uid 0 owns the snapshot and every ancestor up to the trusted parent `/`. The python checker's owner uid is fixed to 0; the ONLY
+# test seam is the trusted parent (honoured only when BOTH test variables are set; the frozen runner refuses to start if either is set).
+r1a_snapshot_trust_root() {
+  if [ "${R1A_TEST_ONLY_SNAPSHOT_TRUST_ENABLED:-}" = YES ] && [ -n "${R1A_TEST_ONLY_SNAPSHOT_TRUST_ROOT:-}" ]; then printf '%s' "$R1A_TEST_ONLY_SNAPSHOT_TRUST_ROOT"; else printf '/'; fi
+}
 R1A_GLOBAL_MARKER_NAME="R1A-GLOBAL-ATTEMPT-CONSUMED"
 R1A_WINDOW_RECORD_NAME="R1A-ATTEMPT-WINDOW"
 R1A_WINDOW_START=""
@@ -90,29 +100,53 @@ r1a_consume_attempt() {
 }
 
 # ---- predecessor receipt gates (pinned-commit content, never PR numbers) ------------------------------------------------------------------------------
-# r1a_receipt_gate REPO RELEASE_ID — F1 detector deployed, the R1 evidence foundation merged, F1u (Core with ALERT_ACCEPTED) deployed, R1I LIVE closed — each from ONE canonical receipt of the pinned
-# commit — and no contradictory or duplicate success state, and R1A not already recorded.
+# r1a_commit_gate REPO MAIN — the pinned commit is a real commit object (replacement disabled) and HEAD is exactly that commit. Every receipt/byte read below uses MAIN explicitly, never HEAD.
+r1a_commit_gate() {
+  local repo=${1:-} main=${2:-}
+  [[ "$main" =~ ^[0-9a-f]{40}$ ]] || { r1a_reason "R1A_PINNED_COMMIT_MALFORMED"; return 1; }
+  [ "$(git -C "$repo" rev-parse --verify "$main^{commit}" 2>/dev/null)" = "$main" ] || { r1a_reason "R1A_PINNED_COMMIT_NOT_A_COMMIT_OBJECT"; return 1; }
+  [ "$(git -C "$repo" rev-parse --verify "HEAD^{commit}" 2>/dev/null)" = "$main" ] || { r1a_reason "R1A_HEAD_NOT_THE_PINNED_COMMIT"; return 1; }
+}
+# r1a_field_files REPO MAIN FIELD VALUE — status-log receipts OF THE PINNED COMMIT holding FIELD=VALUE as a whole line (output lines are `MAIN:path`).
+r1a_field_files() {
+  git -C "$1" grep -lE "^[[:space:]]*([-*][[:space:]]+)?\`?$3[[:space:]]*=[[:space:]]*$4\`?[[:space:]]*\$" "$2" -- "$R1A_LOGS_REL" 2>/dev/null | sort
+}
+# _r1a_only_receipt REPO MAIN CANONICAL_REL LABEL FIELD=VALUE... — exactly ONE receipt of the pinned commit carries ALL the whole-line fields, and it is the canonical receipt path.
+_r1a_only_receipt() {
+  local repo=$1 main=$2 canonical=$3 label=$4 pair files="" part
+  shift 4
+  for pair in "$@"; do
+    part=$(r1a_field_files "$repo" "$main" "${pair%%=*}" "${pair#*=}")
+    [ -n "$part" ] || return 1
+    if [ -z "$files" ]; then files=$part; else files=$(comm -12 <(printf '%s\n' "$files") <(printf '%s\n' "$part")); fi
+    [ -n "$files" ] || return 1
+  done
+  [ "$(printf '%s\n' "$files" | wc -l)" = 1 ] && [ "${files#"$main":}" = "$canonical" ] || return 1
+}
+# r1a_receipt_gate REPO RELEASE_ID MAIN — F1 detector deployed, the R1 evidence foundation merged, F1u (Core with ALERT_ACCEPTED) deployed, R1I LIVE closed — each from ONE canonical receipt of the pinned
+# commit (read as MAIN:path with replacement objects disabled) — and no contradictory or duplicate success state, and R1A not already recorded.
 r1a_receipt_gate() {
-  local repo=${1:-} release=${2:-} claim files
+  local repo=${1:-} release=${2:-} main=${3:-} claim files
   [ -n "$repo" ] && [[ "$release" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { r1a_reason "R1A_RECEIPT_GATE_INPUT_INVALID"; return 1; }
-  _f1u_only_receipt "$repo" "$F1U_F1_CLOSEOUT_RECEIPT_REL" F1_CLOSEOUT F1_LIVE_RESULT=PASS F1_PRODUCTION_DEPLOYED=YES F1_DETECTOR_STARTED=YES \
+  r1a_commit_gate "$repo" "$main" || return 1
+  _r1a_only_receipt "$repo" "$main" "$F1U_F1_CLOSEOUT_RECEIPT_REL" F1_CLOSEOUT F1_LIVE_RESULT=PASS F1_PRODUCTION_DEPLOYED=YES F1_DETECTOR_STARTED=YES \
     || { r1a_reason "R1A_F1_CLOSEOUT_MISSING_OR_AMBIGUOUS"; return 1; }
-  _f1u_only_receipt "$repo" "$F1U_R1_FOUNDATION_RECEIPT_REL" R1_FOUNDATION R1_EVIDENCE_VERIFIER_IMPLEMENTED=YES F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
+  _r1a_only_receipt "$repo" "$main" "$F1U_R1_FOUNDATION_RECEIPT_REL" R1_FOUNDATION R1_EVIDENCE_VERIFIER_IMPLEMENTED=YES F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
     || { r1a_reason "R1A_R1_FOUNDATION_MISSING_OR_AMBIGUOUS"; return 1; }
   # F1u closeout: ONE canonical receipt, naming the pinned current release as installed and activated, deployment-only boundary.
-  git -C "$repo" cat-file -e "HEAD:$R1A_F1U_CLOSEOUT_RECEIPT_REL" 2>/dev/null || { r1a_reason "R1A_F1U_CLOSEOUT_MISSING"; return 1; }
-  git -C "$repo" grep -qF "$release" HEAD -- "$R1A_F1U_CLOSEOUT_RECEIPT_REL" && git -C "$repo" grep -q "installed and activated" HEAD -- "$R1A_F1U_CLOSEOUT_RECEIPT_REL" \
-    && git -C "$repo" grep -q "F1u proves deployment only" HEAD -- "$R1A_F1U_CLOSEOUT_RECEIPT_REL" || { r1a_reason "R1A_F1U_CLOSEOUT_DOES_NOT_CARRY_THE_PINNED_RELEASE"; return 1; }
+  git -C "$repo" cat-file -e "$main:$R1A_F1U_CLOSEOUT_RECEIPT_REL" 2>/dev/null || { r1a_reason "R1A_F1U_CLOSEOUT_MISSING"; return 1; }
+  git -C "$repo" grep -qF "$release" "$main" -- "$R1A_F1U_CLOSEOUT_RECEIPT_REL" && git -C "$repo" grep -q "installed and activated" "$main" -- "$R1A_F1U_CLOSEOUT_RECEIPT_REL" \
+    && git -C "$repo" grep -q "F1u proves deployment only" "$main" -- "$R1A_F1U_CLOSEOUT_RECEIPT_REL" || { r1a_reason "R1A_F1U_CLOSEOUT_DOES_NOT_CARRY_THE_PINNED_RELEASE"; return 1; }
   # R1I LIVE closeout: ONE canonical receipt carrying the full success state, and still the unproven claim boundary.
-  _f1u_only_receipt "$repo" "$R1A_R1I_CLOSEOUT_RECEIPT_REL" R1I_CLOSEOUT R1I_LIVE=CLOSED_PASS R1I_LIVE_EXECUTED=YES R1I_PRODUCTION_DEPLOYED=YES R1I_ATTEMPT_CONSUMED=YES \
+  _r1a_only_receipt "$repo" "$main" "$R1A_R1I_CLOSEOUT_RECEIPT_REL" R1I_CLOSEOUT R1I_LIVE=CLOSED_PASS R1I_LIVE_EXECUTED=YES R1I_PRODUCTION_DEPLOYED=YES R1I_ATTEMPT_CONSUMED=YES \
     R1I_RERUN_ALLOWED=NO PRODUCTION_NFT_NORMALIZATION=PASS_OBSERVED_LIVE F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
     || { r1a_reason "R1A_R1I_CLOSEOUT_MISSING_OR_AMBIGUOUS"; return 1; }
   # no second success claim for R1I anywhere, and no contradictory live claim
-  files=$(l8p_result_field_files "$repo" R1I_LIVE CLOSED_PASS)
+  files=$(r1a_field_files "$repo" "$main" R1I_LIVE CLOSED_PASS)
   [ "$(printf '%s\n' "$files" | wc -l)" = 1 ] || { r1a_reason "R1A_R1I_SUCCESS_NOT_UNIQUE"; return 1; }
   for claim in R1I_LIVE=FAIL R1I_RERUN_ALLOWED=YES F1_REAL_DETECTOR_ACCEPTANCE=PROVEN R1_VERIFIED=VERIFIED R1_VERIFIED=YES RECOVERY_R1_R8_PROVEN=YES \
       R1A_LIVE_EXECUTED=YES R1A_LIVE=CLOSED_PASS R1A_LIVE=FAIL R1A_ATTEMPT_CONSUMED=YES; do
-    [ -z "$(l8p_result_field_files "$repo" "${claim%%=*}" "${claim#*=}")" ] || { r1a_reason "R1A_CONTRADICTORY_OR_ALREADY_RECORDED (a receipt carries ${claim})"; return 1; }
+    [ -z "$(r1a_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}")" ] || { r1a_reason "R1A_CONTRADICTORY_OR_ALREADY_RECORDED (a receipt carries ${claim})"; return 1; }
   done
 }
 
@@ -143,16 +177,17 @@ r1a_journal_access_gate() {
 }
 
 # ---- immutable verifier authority ------------------------------------------------------------------------------------------------------------------
-# r1a_verifier_gate SNAPSHOT MANIFEST_SHA256 REPO DETECTOR_SHA256 TOOL — the verifier source root executes is the frozen immutable snapshot: manifest digest, every file digest, exact file set, no symlink and
+# r1a_verifier_gate SNAPSHOT MANIFEST_SHA256 REPO DETECTOR_SHA256 TOOL MAIN — the verifier source root executes is the frozen immutable snapshot: manifest digest, every file digest, exact file set, no symlink and
 # nothing writable (the pinned tool); every snapshot file is byte-identical to the PINNED-main git object (so the whole dependency closure is the reviewed source); and the snapshot's production_detector.py
 # (which the verifier imports to reconstruct the detector's rules) is exactly the deployed detector's frozen digest. Read-only.
 r1a_verifier_gate() {
-  local snap=${1:-} want=${2:-} repo=${3:-} det=${4:-} tool=${5:-} sha rel got
+  local snap=${1:-} want=${2:-} repo=${3:-} det=${4:-} tool=${5:-} main=${6:-} sha rel got
   [ -f "$tool" ] && [[ "$want" =~ ^[0-9a-f]{64}$ ]] && [[ "$det" =~ ^[0-9a-f]{64}$ ]] || { r1a_reason "R1A_VERIFIER_GATE_INPUT_INVALID"; return 1; }
-  python3 "$tool" check "$snap" "$want" >/dev/null 2>&1 || { r1a_reason "R1A_VERIFIER_SNAPSHOT_DRIFT"; return 1; }
+  r1a_commit_gate "$repo" "$main" || return 1
+  python3 "$tool" check "$snap" "$want" --trust-root "$(r1a_snapshot_trust_root)" >/dev/null 2>&1 || { r1a_reason "R1A_VERIFIER_SNAPSHOT_DRIFT_OR_NOT_ROOT_OWNED"; return 1; }
   while read -r sha rel; do
     [ "$rel" != "" ] || continue
-    got=$(git -C "$repo" show "HEAD:IDEA3-AEGIS_Lockdown/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1)
+    got=$(git -C "$repo" show "$main:IDEA3-AEGIS_Lockdown/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1)
     [ "$got" = "$sha" ] || { r1a_reason "R1A_VERIFIER_FILE_NOT_THE_PINNED_MAIN_SOURCE:$rel"; return 1; }
   done < "$snap/R1A-VERIFIER-SHA256SUMS"
   [ "$(sha256sum "$snap/aegis_soc/production_detector.py" 2>/dev/null | cut -d' ' -f1)" = "$det" ] || { r1a_reason "R1A_VERIFIER_DETECTOR_NOT_THE_DEPLOYED_DIGEST"; return 1; }

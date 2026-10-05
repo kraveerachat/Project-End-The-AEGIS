@@ -33,6 +33,12 @@ Status: repository implementation only. `R1A_REPOSITORY_IMPLEMENTED=YES`, `R1A_L
 - **Mandatory window record.** Created exclusively after the wait; a failure is a consumed `R1A_RESULT=FAIL` with evidence preserved and no final capture or verifier run. An existing or orphan record fails closed.
 - **Audit-row granularity.** Whole-second Core audit times cannot prove an exact `[start, end]` predicate and none is claimed. Source event(s) and the detector alert are exact; the incident and `ALERT_ACCEPTED` rows are bound causally (the Core writes them before the detector logs its alert line, and the verifier requires one alert line, one row and one incident for the detector's PID) and must satisfy `floor(start) <= stored <= end` with no post-deadline grace.
 
+## Round 5 repairs
+
+- **Root-owned snapshots.** The control and verifier snapshots must be owned by uid 0 with trusted (root-owned, non-group/world-writable, symlink-free) ancestors up to `/`; enforced inline by the runner, by the snapshot tool's production defaults, by the library gate and by `apply.sh` before root starts the verifier. The freeze tool's `--root-owned` mode (root only) installs the snapshot `root:root` and refuses an untrusted parent.
+- **Replace refs.** Git authority reads run with replacement objects disabled on every call and name the pinned commit (`EXPECTED_MAIN:path`), never `HEAD:path`; the pinned commit is validated as a commit object and HEAD must equal it.
+- **Audit causality.** The Core writes its rows before it replies and the detector logs its alert line after the reply, so the verifier now requires every stored audit second (incident, `INCIDENT_BOUND`, `ALERT_ACCEPTED`) to be not later than the detector's alert line time (`AUDIT_ROW_AFTER_DETECTOR_ALERT`).
+
 ## Attempt ordering
 
 Pre-auth gates (exact main, source integrity, runner integrity, fresh Authorization and K3, predecessor receipts, disk, operator, R1I present in the exact owned shape, Core and detector healthy, detector source/unit authority, current release, trusted journal access, no R1A success recorded, marker absent) → immutable R1 baseline (refuses a pre-existing open incident) → re-gate → exclusive marker → observation window opens → bounded observation (no event generated) → final capture and the ONE verifier run → generic POST compare (no approved drift) → result.

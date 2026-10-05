@@ -33,6 +33,67 @@ class SnapshotError(ValueError):
     pass
 
 
+# --- PRODUCTION OWNERSHIP INVARIANT -----------------------------------------------------------------------------------------------------------------
+# A read-only mode alone does not protect a snapshot from the uid that owns it (that uid can chmod it writable and replace bytes between a gate and a privileged execution). The live invariant is:
+#   * the snapshot root and EVERY file and directory inside it are owned by uid 0 (root);
+#   * nothing inside is group/world writable;
+#   * EVERY ancestor of the snapshot path, up to and including the designated trusted parent (``/`` in production), is a real directory (no symlink) owned by uid 0 and not group/world writable;
+#   * the path is canonical (no symlink component).
+# ``owner_uid``/``trust_root`` are parameters only so hermetic tests can exercise the same code under a user namespace; every production entry point uses the defaults (0 and ``/``).
+PRODUCTION_OWNER_UID = 0
+PRODUCTION_TRUST_ROOT = "/"
+
+
+def check_trusted_path(path: Path, owner_uid: int = PRODUCTION_OWNER_UID, trust_root: str = PRODUCTION_TRUST_ROOT) -> None:
+    """The snapshot path is canonical and every ancestor up to the trusted parent is a real directory owned by ``owner_uid`` and not group/world writable."""
+    p = Path(os.path.abspath(path))
+    if Path(os.path.realpath(p)) != p:
+        raise SnapshotError("SNAPSHOT_PATH_NOT_CANONICAL")
+    trust = Path(trust_root)
+    if trust != p and trust not in p.parents:
+        raise SnapshotError("TRUST_ROOT_NOT_AN_ANCESTOR")
+    for directory in [p, *p.parents]:
+        st = directory.lstat()
+        if not stat.S_ISDIR(st.st_mode) or stat.S_ISLNK(st.st_mode):
+            raise SnapshotError(f"SNAPSHOT_ANCESTOR_NOT_A_DIRECTORY:{directory}")
+        if st.st_uid != owner_uid:
+            raise SnapshotError(f"SNAPSHOT_ANCESTOR_NOT_TRUSTED_OWNER:{directory}")
+        if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise SnapshotError(f"SNAPSHOT_ANCESTOR_WRITABLE:{directory}")
+        if directory == trust:
+            return
+    raise SnapshotError("TRUST_ROOT_NOT_REACHED")
+
+
+def check_tree_owner(root: Path, owner_uid: int = PRODUCTION_OWNER_UID) -> None:
+    """Every entry of the snapshot (and the root itself) is owned by ``owner_uid`` and none is group/world writable; no symlink."""
+    root = Path(root)
+    entries = [root]
+    for current, dirs, files in os.walk(root):
+        entries.extend(Path(current) / name for name in dirs + files)
+    for entry in entries:
+        st = entry.lstat()
+        if stat.S_ISLNK(st.st_mode):
+            raise SnapshotError("SYMLINK_IN_SNAPSHOT")
+        if st.st_uid != owner_uid:
+            raise SnapshotError(f"SNAPSHOT_ENTRY_NOT_TRUSTED_OWNER:{entry.relative_to(root) if entry != root else '.'}")
+        if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise SnapshotError(f"SNAPSHOT_ENTRY_GROUP_OR_WORLD_WRITABLE:{entry.relative_to(root) if entry != root else '.'}")
+
+
+def _install_root_owned(dest: Path, trust_root: str) -> None:
+    """Freeze step: make the freshly built snapshot root:root and prove the full production invariant. Requires root; never relaxes anything."""
+    if os.geteuid() != 0:
+        raise SnapshotError("ROOT_REQUIRED_FOR_ROOT_OWNED_SNAPSHOT")
+    entries = [Path(dest)]
+    for current, dirs, files in os.walk(dest):
+        entries.extend(Path(current) / name for name in dirs + files)
+    for entry in entries:
+        os.chown(entry, 0, 0, follow_symlinks=False)
+    check_tree_owner(dest, 0)
+    check_trusted_path(dest, 0, trust_root)
+
+
 def _module_file(app: Path, name: str) -> Path | None:
     base = app / PACKAGE
     path = base / f"{name}.py"
@@ -96,7 +157,7 @@ def manifest_text(app: Path) -> str:
     return "".join(f"{digest(Path(app) / rel)}  {rel}\n" for rel in closure(Path(app)))
 
 
-def snapshot(app: Path, dest: Path) -> str:
+def snapshot(app: Path, dest: Path, *, root_owned: bool = False, trust_root: str = PRODUCTION_TRUST_ROOT) -> str:
     """Copy exactly the closure into a NEW directory, write the manifest, make everything read-only. Returns the manifest SHA-256."""
     app, dest = Path(app), Path(dest)
     if dest.exists() or dest.is_symlink():
@@ -114,12 +175,18 @@ def snapshot(app: Path, dest: Path) -> str:
     manifest.chmod(0o444)
     for directory in sorted({p.parent for p in (dest / rel for rel in rels)} | {dest}, key=lambda p: -len(p.parts)):
         directory.chmod(0o555)
+    if root_owned:
+        _install_root_owned(dest, trust_root)
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def check(snap: Path, expected_manifest_sha256: str) -> None:
-    """Fail closed unless the snapshot is EXACTLY the pinned manifest: manifest digest, every file's digest, no extra file, no symlink."""
+def check(snap: Path, expected_manifest_sha256: str, *, owner_uid: int | None = PRODUCTION_OWNER_UID, trust_root: str = PRODUCTION_TRUST_ROOT) -> None:
+    """Fail closed unless the snapshot is EXACTLY the pinned manifest: manifest digest, every file's digest, no extra file, no symlink, AND (production default) the root-ownership invariant.
+    ``owner_uid=None`` skips ONLY the ownership invariant (hermetic tests of the digest logic); every production caller uses the default."""
     snap = Path(snap)
+    if owner_uid is not None:
+        check_trusted_path(snap, owner_uid, trust_root)
+        check_tree_owner(snap, owner_uid)
     manifest = snap / MANIFEST_NAME
     if snap.is_symlink() or not snap.is_dir() or manifest.is_symlink() or not manifest.is_file():
         raise SnapshotError("SNAPSHOT_INVALID")
@@ -168,7 +235,7 @@ def control_files(src: Path) -> list[str]:
     return sorted(found)
 
 
-def control_snapshot(src: Path, dest: Path) -> str:
+def control_snapshot(src: Path, dest: Path, *, root_owned: bool = False, trust_root: str = PRODUCTION_TRUST_ROOT) -> str:
     """Copy the whole control tree into a NEW directory (preserving the executable bit), write the manifest, make everything read-only. Returns the manifest SHA-256."""
     src, dest = Path(src), Path(dest)
     if dest.exists() or dest.is_symlink():
@@ -189,12 +256,17 @@ def control_snapshot(src: Path, dest: Path) -> str:
     manifest.chmod(0o444)
     for directory in sorted({p for rel in rels for p in [(dest / rel).parent, *(dest / rel).parent.parents] if dest in (p, *p.parents)}, key=lambda p: -len(p.parts)):
         directory.chmod(0o555)
+    if root_owned:
+        _install_root_owned(dest, trust_root)
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def control_check(snap: Path, expected_manifest_sha256: str) -> None:
-    """Fail closed unless the control snapshot is EXACTLY the pinned manifest: digest, every file, exact file set, no symlink, nothing writable."""
+def control_check(snap: Path, expected_manifest_sha256: str, *, owner_uid: int | None = PRODUCTION_OWNER_UID, trust_root: str = PRODUCTION_TRUST_ROOT) -> None:
+    """Fail closed unless the control snapshot is EXACTLY the pinned manifest: digest, every file, exact file set, no symlink, nothing writable, AND (production default) the root-ownership invariant."""
     snap = Path(snap)
+    if owner_uid is not None:
+        check_trusted_path(snap, owner_uid, trust_root)
+        check_tree_owner(snap, owner_uid)
     manifest = snap / CONTROL_MANIFEST_NAME
     if snap.is_symlink() or not snap.is_dir() or manifest.is_symlink() or not manifest.is_file():
         raise SnapshotError("CONTROL_SNAPSHOT_INVALID")
@@ -239,6 +311,10 @@ def main(argv: list[str] | None = None) -> int:
     chk = sub.add_parser("check")
     chk.add_argument("snapshot", type=Path)
     chk.add_argument("manifest_sha256")
+    for builder in (snap, csnap):
+        builder.add_argument("--root-owned", action="store_true", help="FREEZE: chown the snapshot root:root and prove the production ownership invariant (must run as root)")
+    for sub_parser in (snap, csnap, cchk, chk):
+        sub_parser.add_argument("--trust-root", default=PRODUCTION_TRUST_ROOT, help="the designated trusted parent: every ancestor up to it must be root-owned and not group/world writable (default /)")
     args = parser.parse_args(argv)
     try:
         if args.command == "closure":
@@ -246,14 +322,14 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "manifest":
             sys.stdout.write(manifest_text(args.app))
         elif args.command == "control-snapshot":
-            print(f"R1A_CONTROL_MANIFEST_SHA256={control_snapshot(args.src, args.dest)}")
+            print(f"R1A_CONTROL_MANIFEST_SHA256={control_snapshot(args.src, args.dest, root_owned=args.root_owned, trust_root=args.trust_root)}")
         elif args.command == "control-check":
-            control_check(args.snapshot, args.manifest_sha256)
+            control_check(args.snapshot, args.manifest_sha256, trust_root=args.trust_root)
             print("R1A_CONTROL_SNAPSHOT=PASS")
         elif args.command == "snapshot":
-            print(f"R1A_VERIFIER_MANIFEST_SHA256={snapshot(args.app, args.dest)}")
+            print(f"R1A_VERIFIER_MANIFEST_SHA256={snapshot(args.app, args.dest, root_owned=args.root_owned, trust_root=args.trust_root)}")
         else:
-            check(args.snapshot, args.manifest_sha256)
+            check(args.snapshot, args.manifest_sha256, trust_root=args.trust_root)
             print("R1A_VERIFIER_SNAPSHOT=PASS")
     except (SnapshotError, OSError, SyntaxError) as exc:
         print(f"R1A_VERIFIER_SNAPSHOT=FAIL reason={exc}", file=sys.stderr)

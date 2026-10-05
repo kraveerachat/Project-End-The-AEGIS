@@ -98,7 +98,7 @@ def make_control_snapshot(tmp_path: Path, src: Path | None = None) -> tuple[Path
     return dest, tool.control_snapshot(src or P4, dest)
 
 
-def pinned_copy(tmp_path: Path, repo: Path | None = None, **override: str) -> Path:
+def pinned_copy(tmp_path: Path, repo: Path | None = None, real_constants: bool = False, **override: str) -> Path:
     pins = {
         "EXPECTED_MAIN": "a" * 40, "OPERATOR_USER": "owner", "OPERATOR_UID": "1000", "RELEASE_ID": RELEASE, "PRODUCTION_DETECTOR_SHA256": "b" * 64,
         "DETECTOR_UNIT_SHA256": "c" * 64, "RECOVERY_CORE_SHA256": "d" * 64, "VERIFIER_MANIFEST_SHA256": "e" * 64, "VERIFIER_SNAPSHOT_DIR": "/opt/x/verifier", "CONTROL_MANIFEST_SHA256": "9" * 64, "CONTROL_SNAPSHOT_DIR": "/opt/x/control",
@@ -110,6 +110,9 @@ def pinned_copy(tmp_path: Path, repo: Path | None = None, **override: str) -> Pa
         text = re.sub(rf"^{key}=PIN_\w+$", f"{key}={value}", text, flags=re.M)
     text = text.replace("PIN_PYTHON_BIN", "/usr/bin/python3").replace("/home/PIN_OPERATOR_HOME/PIN_PINNED_WORKTREE_NOT_A_REAL_PATH", str(repo or ROOT.parent))
     text = text.replace("/PIN_EVIDENCE_ROOT/", f"{tmp_path}/evidence/")
+    if not real_constants:  # a TEST COPY substitutes its own ownership constants (the committed template pins uid 0 and `/`; asserted separately)
+        text = re.sub(r"^SNAPSHOT_OWNER_UID=0$", f"SNAPSHOT_OWNER_UID={os.getuid()}", text, flags=re.M)
+        text = re.sub(r"^SNAPSHOT_TRUST_ROOT=/$", f"SNAPSHOT_TRUST_ROOT={tmp_path}", text, flags=re.M)
     path = tmp_path / "frozen.sh"
     path.write_text(text)
     return path
@@ -229,8 +232,12 @@ def receipt_repo(tmp_path: Path, **change: str | None) -> Path:
     return repo
 
 
+def head_of(repo: Path) -> str:
+    return subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+
+
 def gate(repo: Path) -> subprocess.CompletedProcess[str]:
-    return bash(f'. "{LIB}"; r1a_receipt_gate "{repo}" {RELEASE}')
+    return bash(f'. "{LIB}"; r1a_receipt_gate "{repo}" {RELEASE} {head_of(repo)}')
 
 
 def test_receipt_gate_passes_only_with_the_full_canonical_predecessor_state(tmp_path: Path) -> None:
@@ -265,7 +272,8 @@ def test_a_second_r1i_success_receipt_is_ambiguous(tmp_path: Path) -> None:
 
 
 def test_f1u_closeout_must_carry_the_pinned_release(tmp_path: Path) -> None:
-    assert bash(f'. "{LIB}"; r1a_receipt_gate "{receipt_repo(tmp_path)}" {"1" * 40}').returncode == 1
+    repo = receipt_repo(tmp_path)
+    assert bash(f'. "{LIB}"; r1a_receipt_gate "{repo}" {"1" * 40} {head_of(repo)}').returncode == 1
 
 
 # --------------------------------------------------------------------------- one-attempt state machine
@@ -466,8 +474,20 @@ def apply_env(tmp_path: Path, app: Path, manifest_sha: str, step: str = "FINAL")
             "AEGIS_R1A_VERIFIER_MANIFEST_SHA256": manifest_sha, "AEGIS_R1A_AUDIT_DB": str(tmp_path / "audit.db"), "AEGIS_PYTHON_BIN": str(fake)}
 
 
-def run_apply(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["unshare", "-r", "bash", str(STG / "apply.sh")], env={**os.environ, **env}, text=True, capture_output=True)
+def apply_copy(env: dict[str, str], owner_uid: int = 0, trust_root: Path | None = None, name: str = "apply_copy.sh") -> Path:
+    """A TEST COPY of apply.sh with its two LITERAL ownership constants substituted (the committed handler pins uid 0 and `/`; asserted separately)."""
+    app = Path(env["AEGIS_R1A_APP_DIR"])
+    text = (STG / "apply.sh").read_text()
+    text = re.sub(r"^SNAPSHOT_OWNER_UID=0$", f"SNAPSHOT_OWNER_UID={owner_uid}", text, flags=re.M)
+    text = re.sub(r"^SNAPSHOT_TRUST_ROOT=/$", f"SNAPSHOT_TRUST_ROOT={trust_root or app.parent}", text, flags=re.M)
+    path = app.parent / name
+    path.write_text(text)
+    return path
+
+
+def run_apply(env: dict[str, str], script: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """Runs the handler as (user-namespace) root: files owned by the invoking user appear as uid 0, so the production owner uid 0 is exercised for real."""
+    return subprocess.run(["unshare", "-r", "bash", str(script or apply_copy(env))], env={**os.environ, **env}, text=True, capture_output=True)
 
 
 @pytest.mark.skipif(not userns_usable(), reason="user namespace unavailable")
@@ -585,7 +605,7 @@ def test_an_event_immediately_before_the_marker_fails(tmp_path: Path) -> None:
 
 
 def test_an_event_exactly_inside_the_authorized_window_passes(tmp_path: Path) -> None:
-    t = {"incident_opened_at": 1001.0, "alert_accepted_at": 1001.0, "detector_alert_at": 1000.9, "source_completed_at": [1000.5]}  # exactly at the marker instant
+    t = {"incident_opened_at": 1001.0, "alert_accepted_at": 1001.0, "detector_alert_at": 1001.2, "source_completed_at": [1000.5]}  # source exactly at the marker instant; rows precede the alert line
     assert verify(tmp_path, result_doc(evidence_times=t), start="1000.5", end="1600.5").returncode == 0
     edge = {"incident_opened_at": 1600.0, "alert_accepted_at": 1600.0, "detector_alert_at": 1600.5, "source_completed_at": [1600.4]}  # at the deadline
     assert verify(tmp_path, result_doc(evidence_times=edge), start="1000.5", end="1600.5").returncode == 0
@@ -653,12 +673,12 @@ def test_the_snapshot_closure_covers_every_module_that_affects_acceptance_semant
 def test_snapshot_build_is_new_dir_only_read_only_and_verifiable(tmp_path: Path) -> None:
     tool = load_snapshot_tool()
     dest, sha = make_snapshot(tmp_path)
-    tool.check(dest, sha)
+    tool.check(dest, sha, owner_uid=None)  # digest/file-set logic only; the ownership invariant has its own tests
     assert all(not (p.stat().st_mode & 0o222) for p in dest.rglob("*"))
     with pytest.raises(tool.SnapshotError):
         tool.snapshot(ROOT, dest)  # never overwrites an existing snapshot
     with pytest.raises(tool.SnapshotError):
-        tool.check(dest, "0" * 64)
+        tool.check(dest, "0" * 64, owner_uid=None)
 
 
 @pytest.mark.parametrize("drift", ["file", "extra", "symlink", "writable"])
@@ -680,7 +700,7 @@ def test_dependency_or_verifier_drift_fails_the_snapshot_check(tmp_path: Path, d
     else:
         target.chmod(0o666)
     with pytest.raises(tool.SnapshotError):
-        tool.check(dest, sha)
+        tool.check(dest, sha, owner_uid=None)
 
 
 def repo_with_aegis_soc(tmp_path: Path) -> Path:
@@ -692,8 +712,17 @@ def repo_with_aegis_soc(tmp_path: Path) -> Path:
     return repo
 
 
-def verifier_gate(repo: Path, snap: Path, sha: str, detector: str) -> subprocess.CompletedProcess[str]:
-    return bash(f'. "{LIB}"; r1a_verifier_gate "{snap}" {sha} "{repo}" {detector} "{SNAPSHOT_TOOL}"')
+def userns_bash(script: str) -> subprocess.CompletedProcess[str]:
+    """bash as (user-namespace) root: the invoking user's files appear as uid 0, so the PRODUCTION owner uid 0 is exercised for real."""
+    return subprocess.run(["unshare", "-r", "bash", "-c", script], env=os.environ, text=True, capture_output=True)
+
+
+def trust_seam(trust_root: Path) -> str:
+    return f'export R1A_TEST_ONLY_SNAPSHOT_TRUST_ENABLED=YES R1A_TEST_ONLY_SNAPSHOT_TRUST_ROOT="{trust_root}"\n'
+
+
+def verifier_gate(repo: Path, snap: Path, sha: str, detector: str, main: str | None = None) -> subprocess.CompletedProcess[str]:
+    return userns_bash(f'{trust_seam(snap.parent)}. "{LIB}"; r1a_verifier_gate "{snap}" {sha} "{repo}" {detector} "{SNAPSHOT_TOOL}" {main or head_of(repo)}')
 
 
 def test_the_verifier_gate_requires_the_snapshot_to_be_the_pinned_main_source_and_the_deployed_detector(tmp_path: Path) -> None:
@@ -885,9 +914,11 @@ def test_audit_rows_use_whole_second_granularity_with_a_floor_at_the_marker_seco
     pre = verify(tmp_path, result_doc(evidence_times=times(999.0, 999.0)), **w)
     assert pre.returncode == 1 and "AUDIT_ROW_BEFORE_THE_MARKER" in pre.stderr  # one stored second earlier is provably before the marker
     assert verify(tmp_path, result_doc(evidence_times=times(1600.0, 1600.0, alert=1600.4, source=1600.3)), **w).returncode == 0
-    post = verify(tmp_path, result_doc(evidence_times=times(1601.0, 1601.0, alert=1600.4, source=1600.3)), **w)  # the former undocumented +2 s grace would have accepted this
-    assert post.returncode == 1 and "AUDIT_ROW_AFTER_THE_OBSERVATION_DEADLINE" in post.stderr
+    post = verify(tmp_path, result_doc(evidence_times=times(1601.0, 1601.0, alert=1600.4, source=1600.3)), **w)  # rows after the in-window alert are impossible for this chain (and the old +2 s grace is gone)
+    assert post.returncode == 1 and "AUDIT_ROW_AFTER_DETECTOR_ALERT" in post.stderr
     assert verify(tmp_path, result_doc(evidence_times=times(1602.0, 1602.0, alert=1600.4, source=1600.3)), **w).returncode == 1
+    late_alert = verify(tmp_path, result_doc(evidence_times=times(1601.0, 1601.0, alert=1601.2, source=1600.3)), **w)  # rows precede the alert, but the alert itself is after the deadline
+    assert late_alert.returncode == 1 and "EVENT_AFTER_THE_OBSERVATION_DEADLINE" in late_alert.stderr
     mixed = verify(tmp_path, result_doc(evidence_times=times(1000.0, 1601.0)), **w)  # either audit row alone out of range fails
     assert mixed.returncode == 1
 
@@ -968,7 +999,7 @@ def control_world(tmp_path: Path) -> tuple[Path, Path, str, str]:
 
 
 def gates(repo: Path, dest: Path, sha: str, head: str) -> subprocess.CompletedProcess[str]:
-    script = (f'CTRL="{dest}"; CONTROL_MANIFEST_SHA256={sha}; REPO="{repo}"; EXPECTED_MAIN={head}; GIT_P4_REL=IDEA3-AEGIS_Lockdown/deploy/pr11-phase4\n'
+    script = (f'CTRL="{dest}"; CONTROL_MANIFEST_SHA256={sha}; REPO="{repo}"; EXPECTED_MAIN={head}; GIT_P4_REL=IDEA3-AEGIS_Lockdown/deploy/pr11-phase4; SNAPSHOT_OWNER_UID={os.getuid()}; SNAPSHOT_TRUST_ROOT="{dest.parent}"\n'
               f'{runner_function("control_gate")}\n{runner_function("control_git_gate")}\ncontrol_gate; echo "control=$?"; control_git_gate; echo "git=$?"\n')
     return bash(script)
 
@@ -1043,12 +1074,12 @@ def test_extra_symlink_writable_missing_or_manifest_drift_in_the_control_snapsho
 def test_the_python_control_check_agrees_with_the_runner_gate(tmp_path: Path) -> None:
     tool = load_snapshot_tool()
     _, dest, sha, _ = control_world(tmp_path)
-    tool.control_check(dest, sha)
+    tool.control_check(dest, sha, owner_uid=None)
     unlock(dest)
     (dest / "p4-lib.sh").write_text("# drift\n")
     relock(dest)
     with pytest.raises(tool.SnapshotError):
-        tool.control_check(dest, sha)
+        tool.control_check(dest, sha, owner_uid=None)
 
 
 def test_root_never_executes_tampered_control_plane_bytes(tmp_path: Path) -> None:
@@ -1057,7 +1088,7 @@ def test_root_never_executes_tampered_control_plane_bytes(tmp_path: Path) -> Non
     log = tmp_path / "sudo.log"
     prelude = (f'CTRL="{dest}"; STG="$CTRL/stages/R1A"; CONTROL_MANIFEST_SHA256={sha}; EVID_DIR_UNUSED=1; JOURNAL_SINCE=x; AP_IF=if0; AP_ADDR=10.0.0.1; WORK="{tmp_path}/w"; '
                f'AUDIT_DB=/x; RELEASE_ID=r; PRODUCTION_DETECTOR_SHA256={"a" * 64}; DETECTOR_UID=1000; PY=/usr/bin/python3; EXPECTED_SOURCE_IP=203.0.113.9; VERIFIER_SNAPSHOT_DIR=/v; '
-               f'VERIFIER_MANIFEST_SHA256={"b" * 64}; R1A_WINDOW_START=1; R1A_WINDOW_END=2\nsudo() {{ echo "SUDO $*" >> "{log}"; return 0; }}\n')
+               f'VERIFIER_MANIFEST_SHA256={"b" * 64}; R1A_WINDOW_START=1; R1A_WINDOW_END=2; SNAPSHOT_OWNER_UID={os.getuid()}; SNAPSHOT_TRUST_ROOT="{tmp_path}"\nsudo() {{ echo "SUDO $*" >> "{log}"; return 0; }}\n')
     text = RUNNER.read_text()
     funcs = (runner_function("control_gate") + "\n" + text[text.index("capture() {"):text.index("# The handlers run as ROOT")] + "\n"
              + text[text.index("handler() {"):text.index("runtime_unchanged() {")])
@@ -1164,6 +1195,258 @@ def test_the_intact_snapshot_reaches_the_library_and_the_sentinel_proves_the_pro
     assert sentinel.exists() and "operator identity" in result.stdout + result.stderr
 
 
+# --- round 5 I2: git replace refs cannot change the bytes R1A authority reads ----------------------------------------------------------------------
+
+
+def run_git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True, check=check)
+
+
+def replaced_world(tmp_path: Path) -> dict:
+    """A repo whose pinned commit GOOD has been silently replaced by EVIL (`git replace GOOD EVIL`): the SHA GOOD is unchanged but plain Git resolves EVIL's bytes."""
+    repo = tmp_path / "repo"
+    src = repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4"
+    shutil.copytree(P4, src, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(ROOT / "aegis_soc", repo / "IDEA3-AEGIS_Lockdown/aegis_soc", ignore=shutil.ignore_patterns("__pycache__"))
+    receipts = repo / LOGS
+    receipts.mkdir(parents=True, exist_ok=True)
+    for rel, text in ((F1_RECEIPT, "- `F1_LIVE_RESULT=PASS`\n- `F1_PRODUCTION_DEPLOYED=YES`\n- `F1_DETECTOR_STARTED=YES`\n"),
+                      (FOUNDATION, "- `R1_EVIDENCE_VERIFIER_IMPLEMENTED=YES`\n- `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`\n- `R1_VERIFIED=NOT_CLAIMED`\n"),
+                      (F1U_RECEIPT, f"release `{RELEASE}` was installed and activated.\nF1u proves deployment only.\n")):
+        (repo / rel).write_text(text)
+    run_git(repo, "init", "-q")
+    run_git(repo, "config", "user.email", "t@e.invalid")
+    run_git(repo, "config", "user.name", "t")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "-m", "GOOD: the reviewed tree (no R1I closeout receipt)")
+    good = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+    sentinel = tmp_path / "SENTINEL_SOURCED"
+    lib = src / "p4-r1a-run-lib.sh"
+    lib.write_text(f'echo tampered-library-was-sourced > "{sentinel}"\n' + lib.read_text())
+    dependency = repo / "IDEA3-AEGIS_Lockdown/aegis_soc/recovery_evidence.py"
+    dependency.write_text(dependency.read_text() + "\n# EVIL change to a verifier dependency\n")
+    (repo / R1I_RECEIPT).write_text("\n".join(f"- `{x}`" for x in (
+        "R1I_LIVE=CLOSED_PASS", "R1I_LIVE_EXECUTED=YES", "R1I_PRODUCTION_DEPLOYED=YES", "R1I_ATTEMPT_CONSUMED=YES", "R1I_RERUN_ALLOWED=NO",
+        "PRODUCTION_NFT_NORMALIZATION=PASS_OBSERVED_LIVE", "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "R1_VERIFIED=NOT_CLAIMED")) + "\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "-m", "EVIL: altered library and a forged R1I closeout")
+    evil = run_git(repo, "rev-parse", "HEAD").stdout.strip()
+    evil_src = tmp_path / "evil-src"
+    shutil.copytree(src, evil_src)
+    evil_vsnap = tmp_path / "evil-verifier-snapshot"  # a self-consistent verifier snapshot built from the EVIL tree
+    evil_vsha = load_snapshot_tool().snapshot(repo / "IDEA3-AEGIS_Lockdown", evil_vsnap)
+    run_git(repo, "checkout", "-q", good)  # HEAD back on GOOD ...
+    run_git(repo, "replace", good, evil)  # ... and GOOD silently replaced by EVIL
+    return {"repo": repo, "good": good, "evil": evil, "evil_src": evil_src, "sentinel": sentinel, "evil_vsnap": evil_vsnap, "evil_vsha": evil_vsha}
+
+
+def test_plain_git_is_fooled_by_a_replace_ref_but_the_r1a_authority_is_not(tmp_path: Path) -> None:
+    w = replaced_world(tmp_path)
+    repo, good = w["repo"], w["good"]
+    rel = "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-r1a-run-lib.sh"
+    assert run_git(repo, "rev-parse", "HEAD").stdout.strip() == good  # the apparent SHA is unchanged
+    plain = run_git(repo, "show", f"{good}:{rel}").stdout
+    real = subprocess.run(["git", "-C", str(repo), "show", f"{good}:{rel}"], env={**os.environ, "GIT_NO_REPLACE_OBJECTS": "1"}, text=True, capture_output=True).stdout
+    assert "tampered-library-was-sourced" in plain and "tampered-library-was-sourced" not in real  # plain Git exposes the replaced (EVIL) bytes
+    # the repaired control_git_gate (git wrapper defined) refuses the self-consistent EVIL snapshot; the same function WITHOUT the wrapper accepts it (the bypass)
+    evil_dest = tmp_path / "evil-snapshot"
+    sha = load_snapshot_tool().control_snapshot(w["evil_src"], evil_dest)
+    fn = runner_function("control_git_gate")
+    wrapper = runner_function("git")
+    base = f'CTRL="{evil_dest}"; REPO="{repo}"; EXPECTED_MAIN={good}; GIT_P4_REL=IDEA3-AEGIS_Lockdown/deploy/pr11-phase4; CONTROL_MANIFEST_SHA256={sha}\n'
+    repaired = bash(base + wrapper + "\n" + fn + "\ncontrol_git_gate; echo \"git=$?\"\n")
+    assert "git=1" in repaired.stdout and "NOT_THE_PINNED_MAIN_SOURCE" in repaired.stderr
+    bypassed = bash(base + fn + "\ncontrol_git_gate; echo \"git=$?\"\n")  # plain `git`
+    assert "git=0" in bypassed.stdout, bypassed.stderr  # proves the replace ref really defeats plain Git
+
+
+def test_the_caller_environment_cannot_re_enable_replacement(tmp_path: Path) -> None:
+    w = replaced_world(tmp_path)
+    rel = "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-r1a-run-lib.sh"
+    out = bash(f'export GIT_NO_REPLACE_OBJECTS=0\n{runner_function("git")}\ngit -C "{w["repo"]}" show {w["good"]}:{rel}')
+    assert "tampered-library-was-sourced" not in out.stdout
+    out = bash(f'export GIT_NO_REPLACE_OBJECTS=0\n. "{LIB}"; git -C "{w["repo"]}" show {w["good"]}:{rel}')  # the library installs the same wrapper
+    assert "tampered-library-was-sourced" not in out.stdout
+
+
+def test_a_replaced_pinned_commit_never_gets_its_tampered_library_sourced(tmp_path: Path) -> None:
+    w = replaced_world(tmp_path)
+    dest = tmp_path / "evil-snapshot"
+    sha = load_snapshot_tool().control_snapshot(w["evil_src"], dest)  # self-consistent: control_gate passes
+    frozen = pinned_copy(tmp_path, w["repo"], CONTROL_SNAPSHOT_DIR=str(dest), CONTROL_MANIFEST_SHA256=sha, EXPECTED_MAIN=w["good"])
+    result = bash(f'bash "{frozen}" "{tmp_path}"')
+    assert result.returncode == 1 and "CONTROL_FILE_NOT_THE_PINNED_MAIN_SOURCE" in result.stderr
+    assert not w["sentinel"].exists(), "the replaced (EVIL) library was sourced"
+
+
+def test_the_receipt_and_verifier_gates_read_the_real_pinned_commit_not_the_replacement(tmp_path: Path) -> None:
+    w = replaced_world(tmp_path)
+    repo, good = w["repo"], w["good"]
+    plain_pass = bash(f'. "{LIB}"; unset -f git; r1a_receipt_gate "{repo}" {RELEASE} {good}')  # plain Git: the forged R1I closeout of EVIL is visible
+    assert plain_pass.returncode == 0, plain_pass.stderr
+    repaired = bash(f'. "{LIB}"; r1a_receipt_gate "{repo}" {RELEASE} {good}')
+    assert repaired.returncode == 1 and "R1A_R1I_CLOSEOUT_MISSING_OR_AMBIGUOUS" in repaired.stderr  # the REAL commit has no R1I closeout
+    import hashlib
+
+    snap, vsha = w["evil_vsnap"], w["evil_vsha"]
+    det = hashlib.sha256((snap / "aegis_soc/production_detector.py").read_bytes()).hexdigest()
+    plain_v = userns_bash(f'{trust_seam(snap.parent)}. "{LIB}"; unset -f git; r1a_verifier_gate "{snap}" {vsha} "{repo}" {det} "{SNAPSHOT_TOOL}" {good}')
+    assert plain_v.returncode == 0, plain_v.stderr  # plain Git would accept the self-consistent EVIL verifier snapshot
+    repaired_v = verifier_gate(repo, snap, vsha, det, good)
+    assert repaired_v.returncode == 1 and "NOT_THE_PINNED_MAIN_SOURCE" in repaired_v.stderr
+
+
+def test_the_pinned_commit_must_be_a_real_commit_and_equal_head(tmp_path: Path) -> None:
+    repo = receipt_repo(tmp_path)
+    head = head_of(repo)
+    assert bash(f'. "{LIB}"; r1a_commit_gate "{repo}" {head}').returncode == 0
+    for bad in ("1" * 40, "abc", head[:12], "HEAD"):
+        assert bash(f'. "{LIB}"; r1a_commit_gate "{repo}" {bad}').returncode == 1, bad
+    (repo / "x").write_text("x")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "-m", "next")
+    assert bash(f'. "{LIB}"; r1a_commit_gate "{repo}" {head}').returncode == 1  # HEAD moved off the pinned commit
+
+
+def test_every_r1a_git_trust_read_names_the_pinned_commit_not_head() -> None:
+    for path in (LIB, RUNNER):
+        for line in code_lines(path):
+            if re.search(r"\bgit\b.*\b(show|grep|cat-file)\b", line):
+                assert "HEAD:" not in line and not re.search(r'"?\$?\{?repo\}?"? HEAD\b| HEAD -- ', line), (path.name, line)
+
+
+# --- round 5 I1: snapshots must be ROOT-OWNED with trusted ancestors (read-only mode alone does not stop the owning uid) -----------------------------
+
+
+needs_userns = pytest.mark.skipif(not userns_usable(), reason="user namespace unavailable")
+
+
+def runner_gate_script(dest: Path, sha: str, owner: str, trust: str) -> str:
+    return (f'CTRL="{dest}"; CONTROL_MANIFEST_SHA256={sha}; SNAPSHOT_OWNER_UID={owner}; SNAPSHOT_TRUST_ROOT="{trust}"\n'
+            f'{runner_function("control_gate")}\ncontrol_gate; echo "control=$?"\n')
+
+
+def test_the_committed_templates_pin_uid_zero_and_the_filesystem_root_literally() -> None:
+    runner = RUNNER.read_text()
+    assert re.search(r"^SNAPSHOT_OWNER_UID=0$", runner, re.M) and re.search(r"^SNAPSHOT_TRUST_ROOT=/$", runner, re.M)
+    apply = (STG / "apply.sh").read_text()
+    assert re.search(r"^SNAPSHOT_OWNER_UID=0$", apply, re.M) and re.search(r"^SNAPSHOT_TRUST_ROOT=/$", apply, re.M)
+    lib = LIB.read_text()
+    assert "printf '/'" in lib and "R1A_TEST_ONLY_SNAPSHOT_TRUST_ENABLED" in lib
+    tool = SNAPSHOT_TOOL.read_text()
+    assert "PRODUCTION_OWNER_UID = 0" in tool and 'PRODUCTION_TRUST_ROOT = "/"' in tool
+    for var in ("R1A_TEST_ONLY_SNAPSHOT_TRUST_ENABLED", "R1A_TEST_ONLY_SNAPSHOT_TRUST_ROOT"):
+        assert var in "\n".join(code_lines(RUNNER))  # the frozen runner refuses to start with a test seam set
+
+
+def test_the_frozen_runner_refuses_to_start_when_a_snapshot_trust_seam_is_set(tmp_path: Path) -> None:
+    frozen = pinned_copy(tmp_path)
+    for var in ("R1A_TEST_ONLY_SNAPSHOT_TRUST_ENABLED", "R1A_TEST_ONLY_SNAPSHOT_TRUST_ROOT"):
+        result = bash(f'bash "{frozen}" "{tmp_path}"', env={var: "x"})
+        assert result.returncode == 2 and "environment override" in result.stdout, var
+
+
+def test_a_non_root_owned_control_snapshot_fails_the_runner_gate_with_the_production_constants(tmp_path: Path) -> None:
+    repo, dest, sha, head = control_world(tmp_path)  # built by the invoking (non-root) user: exactly the shape the old gates accepted
+    out = bash(runner_gate_script(dest, sha, "0", "/"))
+    assert "control=1" in out.stdout and ("NOT_TRUSTED_OWNER" in out.stderr or "ANCESTOR_NOT_TRUSTED" in out.stderr), out.stderr
+    assert "control=1" in bash(runner_gate_script(dest, sha, "0", str(tmp_path))).stdout  # even with a perfect trust root, a non-root owner is refused
+
+
+def test_a_non_root_owned_verifier_snapshot_fails_python_lib_and_apply(tmp_path: Path) -> None:
+    tool = load_snapshot_tool()
+    dest, sha = make_snapshot(tmp_path)
+    with pytest.raises(tool.SnapshotError, match="NOT_TRUSTED_OWNER"):
+        tool.check(dest, sha)  # production default: owner uid 0, trust root /
+    cdest, csha = make_control_snapshot(tmp_path)
+    with pytest.raises(tool.SnapshotError, match="NOT_TRUSTED_OWNER"):
+        tool.control_check(cdest, csha)  # the control check has the same production default
+    cli = subprocess.run(["python3", str(SNAPSHOT_TOOL), "check", str(dest), sha, "--trust-root", str(tmp_path)], capture_output=True, text=True)
+    assert cli.returncode == 1 and "NOT_TRUSTED_OWNER" in cli.stderr  # the CLI default owner is root
+    assert bash(f'{trust_seam(tmp_path)}. "{LIB}"; r1a_verifier_gate "{dest}" {sha} "{ROOT.parent}" {"0" * 64} "{SNAPSHOT_TOOL}" {"1" * 40}').returncode == 1
+
+
+@needs_userns
+def test_the_correct_root_owned_production_shape_passes_every_gate(tmp_path: Path) -> None:
+    """Inside a user namespace the invoking user's files are uid 0, so the REAL production owner uid 0 is exercised; only the trusted parent is narrowed to the temp tree."""
+    repo, dest, sha, head = control_world(tmp_path)
+    out = userns_bash(runner_gate_script(dest, sha, "0", str(tmp_path)))
+    assert "control=0" in out.stdout, out.stderr
+    tool_run = userns_bash(f'python3 "{SNAPSHOT_TOOL}" control-check "{dest}" {sha} --trust-root "{tmp_path}"')
+    assert tool_run.returncode == 0 and "R1A_CONTROL_SNAPSHOT=PASS" in tool_run.stdout, tool_run.stderr
+    vdest, vsha = make_snapshot(tmp_path)
+    assert userns_bash(f'python3 "{SNAPSHOT_TOOL}" check "{vdest}" {vsha} --trust-root "{tmp_path}"').returncode == 0
+    app, msha = write_baseline_app(tmp_path)
+    env = apply_env(tmp_path, app, msha)
+    ok = run_apply(env)  # apply.sh (substituted trust root, literal owner uid 0) reaches the interpreter
+    assert ok.returncode == 0 and "R1A_APPLY=COMPLETE" in ok.stdout, ok.stderr
+
+
+@needs_userns
+@pytest.mark.parametrize("breach", ["group_writable_ancestor", "world_writable_ancestor", "symlinked_ancestor"])
+def test_a_writable_or_substituted_ancestor_fails_every_gate(tmp_path: Path, breach: str) -> None:
+    outer = tmp_path / "trusted"
+    middle = outer / "mid"
+    middle.mkdir(parents=True)
+    src_dest = middle / "control-snapshot"
+    repo, _, _, head = control_world(tmp_path / "w")
+    sha = load_snapshot_tool().control_snapshot(repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4", src_dest)
+    outer.chmod(0o755)
+    assert "control=0" in userns_bash(runner_gate_script(src_dest, sha, "0", str(outer))).stdout  # baseline: the shape is fine
+    target = src_dest
+    if breach == "group_writable_ancestor":
+        middle.chmod(0o775)
+    elif breach == "world_writable_ancestor":
+        middle.chmod(0o777)
+    else:
+        real = tmp_path / "elsewhere"
+        real.mkdir()
+        shutil.move(str(middle), str(real / "mid"))
+        middle.symlink_to(real / "mid")  # the path now traverses a symlink
+        target = middle / "control-snapshot"
+    gate_out = userns_bash(runner_gate_script(target, sha, "0", str(outer)))
+    assert "control=1" in gate_out.stdout, (breach, gate_out.stderr)
+    tool_out = userns_bash(f'python3 "{SNAPSHOT_TOOL}" control-check "{target}" {sha} --trust-root "{outer}"')
+    assert tool_out.returncode == 1 and ("ANCESTOR" in tool_out.stderr or "NOT_CANONICAL" in tool_out.stderr), (breach, tool_out.stderr)
+
+
+@needs_userns
+def test_apply_refuses_a_non_root_or_untrusted_verifier_snapshot_before_the_interpreter_starts(tmp_path: Path) -> None:
+    app, sha = write_baseline_app(tmp_path)
+    env = apply_env(tmp_path, app, sha)
+    wrong_owner = run_apply(env, apply_copy(env, owner_uid=4242, name="wrong_owner.sh"))  # nothing in the snapshot is owned by uid 4242
+    assert wrong_owner.returncode == 1 and "VERIFIER_SNAPSHOT_NOT_TRUSTED_OWNER" in wrong_owner.stderr
+    production_constants = run_apply(env, STG / "apply.sh")  # the real committed handler: trusted parent `/` (not root-owned in the namespace)
+    assert production_constants.returncode == 1 and "VERIFIER_ANCESTOR_NOT_TRUSTED" in production_constants.stderr
+    app.parent.chmod(0o777)  # a world-writable parent directory of the snapshot
+    parent_writable = run_apply(env, apply_copy(env, name="parent_writable.sh"))
+    assert parent_writable.returncode == 1 and "VERIFIER_ANCESTOR_NOT_TRUSTED" in parent_writable.stderr
+    app.parent.chmod(0o755)
+    assert not (tmp_path / "calls.txt").exists() and not (tmp_path / "work/R1A-FINAL-RAN").exists()  # the interpreter never ran
+
+
+@needs_userns
+def test_the_freeze_tooling_installs_root_owned_snapshots_and_refuses_without_root(tmp_path: Path) -> None:
+    src = tmp_path / "ctrl-src"
+    shutil.copytree(P4, src, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    plain = subprocess.run(["python3", str(SNAPSHOT_TOOL), "control-snapshot", str(src), str(tmp_path / "plain"), "--root-owned", "--trust-root", str(tmp_path)], capture_output=True, text=True)
+    assert plain.returncode == 1 and "ROOT_REQUIRED_FOR_ROOT_OWNED_SNAPSHOT" in plain.stderr  # a non-root freeze cannot claim a root-owned snapshot
+    installed = userns_bash(f'python3 "{SNAPSHOT_TOOL}" control-snapshot "{src}" "{tmp_path / "installed"}" --root-owned --trust-root "{tmp_path}"')
+    assert installed.returncode == 0 and "R1A_CONTROL_MANIFEST_SHA256=" in installed.stdout, installed.stderr
+    sha = re.search(r"=([0-9a-f]{64})", installed.stdout).group(1)
+    assert userns_bash(f'python3 "{SNAPSHOT_TOOL}" control-check "{tmp_path / "installed"}" {sha} --trust-root "{tmp_path}"').returncode == 0
+    vinstalled = userns_bash(f'python3 "{SNAPSHOT_TOOL}" snapshot "{ROOT}" "{tmp_path / "vinstalled"}" --root-owned --trust-root "{tmp_path}"')
+    assert vinstalled.returncode == 0 and "R1A_VERIFIER_MANIFEST_SHA256=" in vinstalled.stdout, vinstalled.stderr
+    refused = userns_bash(f'chmod 777 "{tmp_path}"; python3 "{SNAPSHOT_TOOL}" control-snapshot "{src}" "{tmp_path / "bad"}" --root-owned --trust-root "{tmp_path}"')
+    assert refused.returncode == 1 and "ANCESTOR_WRITABLE" in refused.stderr  # the freeze refuses an untrusted parent instead of producing an unprotected snapshot
+
+
+def test_no_ownership_tooling_removes_or_resets_anything() -> None:
+    tool = SNAPSHOT_TOOL.read_text()
+    assert not re.search(r"\b(rmtree|unlink|os\.remove|shutil\.move)\b", tool)
+    assert tool.count("os.chown") == 1 and "follow_symlinks=False" in tool
+
+
 # --------------------------------------------------------------------------- evidence (existing fail-closed verifier is the authority)
 
 
@@ -1211,3 +1494,12 @@ def test_repository_documents_implemented_but_not_executed_and_never_promotes() 
                  "R1A_SYNTHETIC_ALERT_ALLOWED=NO", "R1A_REAL_EVIDENCE_ROLLBACK_ALLOWED=NO", "R1I_MUST_REMAIN_INSTALLED=YES", "R1A_REPOSITORY_IMPLEMENTED=YES", "R1A_LIVE_EXECUTED=NO",
                  "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "R1_VERIFIED=NOT_CLAIMED", "RECOVERY_R1_R8_PROVEN=NO", "PRODUCTION_MUTATION_PERFORMED=NO"):
         assert line in text, line
+
+
+def test_an_audit_row_later_than_the_detector_alert_line_fails_in_verify_too(tmp_path: Path) -> None:
+    """Defense in depth next to the r1_acceptance predicate: a stored audit second later than the detector's alert line is physically impossible for this chain."""
+    late = {"incident_opened_at": 1060.0, "alert_accepted_at": 1061.0, "detector_alert_at": 1060.4, "source_completed_at": [1059.9]}
+    result = verify(tmp_path, result_doc(evidence_times=late))
+    assert result.returncode == 1 and "AUDIT_ROW_AFTER_DETECTOR_ALERT" in result.stderr
+    ok = {"incident_opened_at": 1060.0, "alert_accepted_at": 1060.0, "detector_alert_at": 1060.4, "source_completed_at": [1059.9]}
+    assert verify(tmp_path, result_doc(evidence_times=ok)).returncode == 0

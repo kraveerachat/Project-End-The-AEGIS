@@ -415,6 +415,11 @@ def _verify_view(baseline, final, view, incidents, audit, started, ended, pid, u
     accepted_at = _epoch(next(r["timestamp"] for r in mine if r["event_type"] == "ALERT_ACCEPTED"))
     if event["at"] > accepted_at + SKEW_SEC or event["at"] < started - SKEW_SEC:
         raise AcceptanceError("DETECTOR_EVENT_STALE")
+    # CAUSAL ORDER of the real path: the Core writes INCIDENT_BOUND / ALERT_ACCEPTED while handling the alert and only THEN replies; the detector logs ``alert result=SENT_BOUND`` after that reply. So every
+    # stored audit time (a whole-second value, i.e. the real time rounded DOWN) must not be later than the detector's own alert line time. A row stored AFTER the alert line cannot belong to this chain.
+    bound_at = _epoch(next(r["timestamp"] for r in mine if r["event_type"] == "INCIDENT_BOUND"))
+    if max(accepted_at, bound_at, opened) > event["at"]:
+        raise AcceptanceError("AUDIT_ROW_AFTER_DETECTOR_ALERT")
 
     # The detector acts on message TEXT, so prove the TRIGGER was a real source event, not text any local writer could emit.
     source = final.get("source_events")
