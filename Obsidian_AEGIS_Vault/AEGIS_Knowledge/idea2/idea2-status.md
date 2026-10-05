@@ -196,6 +196,36 @@ No Production container, Production database, filesystem, NAS, Twingate,
 Identity Agent, IDEA1 or IDEA3 mutation was performed by this source work.
 PR #344 remains Draft and PR2 is not CLOSED.
 
+### PR2 Machine A NAS client preparation checkpoint - 2026-10-05
+
+Machine A home-side NAS client preparation is complete without contacting a
+NAS or changing Production.
+
+Windows OpenSSH 9.5p2 provides ssh, scp and ssh-keygen. FFmpeg/ffprobe
+8.1.2 are available. Native rsync is not installed, so the reviewed Windows
+transfer method is scp.
+
+A dedicated ED25519 keypair for IDEA2 NAS transfer was created under the
+Detection Engine runtime NAS directory. The private key ACL has inheritance
+disabled and remains local to Machine A. The runtime .env now references
+that dedicated key and sets AEGIS_NAS_METHOD=scp.
+
+Safety state remains fail-closed:
+- AEGIS_NAS_ENABLED=false;
+- NAS host is unset;
+- NAS user is unset;
+- verification mode is checksum;
+- the Detection Engine was not restarted;
+- no NAS connection or transfer was attempted;
+- the Engine remained idle with zero viewers.
+
+This checkpoint proves Machine A client readiness only. It does not prove a
+real NAS, NAS filesystem, NAS account, destination permissions, transfer,
+remote SHA-256 verification, Archive publication or Production NAS mounting.
+
+REAL_NAS_VERIFIED=NO remains mandatory. Production, Twingate, Identity
+Agent, IDEA1 and IDEA3 were unchanged. PR #344 remains Draft and PR2 is not
+CLOSED.
 
 ## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
 
