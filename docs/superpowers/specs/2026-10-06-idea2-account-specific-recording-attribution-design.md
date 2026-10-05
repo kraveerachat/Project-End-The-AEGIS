@@ -100,10 +100,13 @@ never a JavaScript Number. At least one recorded demand for that generation
 must carry the claimed logical alias and a non-null `viewer_user_id`. The
 demand was inserted only after the producer lifecycle transaction locked and
 rechecked that user's active Operator status, camera assignment, Node, physical
-camera and account alias policy. Ingest additionally rechecks the current
-assignment/user where available; if that authority was revoked before a
-delayed NAS publication, the clip stays local/unpublished rather than being
-attributed optimistically. Static `AEGIS_CAMERA_ID`, a matching filename or
+camera and account alias policy. Ingest requires that historical demand/user
+association but does not require a currently active assignment: later revocation
+must prevent new demand, renewal and post-revocation capture authority, not
+retroactively invalidate previously authorized footage awaiting verified
+transfer. The existing schema does not retain independent assignment history;
+the historical demand's lifecycle write invariant is the available evidence.
+Static `AEGIS_CAMERA_ID`, a matching filename or
 the Engine's mere possession of a generation never substitutes for these
 checks. No wrong-alias fallback exists.
 
@@ -113,9 +116,10 @@ times, no future segment, and the segment's relationship to the epoch's
 generation is not treated as *current*. Its already-finalized partial or
 full segment may publish after transfer only when its claimed capture interval
 is bounded by the recorded lifecycle; a new interval after release is
-rejected. The implementation plan must specify the source-derived scheduling
-and clock-skew allowance before tests/code, including the valid final-release
-race. Duplicate publication of the same verified storage object must not
+rejected. A configurable 30-second default timestamp tolerance is a bounded
+clock/close sanity allowance, not an authorization boundary; tests cover its
+exact and just-outside boundaries. Duplicate publication of the same verified
+storage object must not
 create a second row. Any ambiguous or unverifiable combination fails closed.
 
 Only then insert `camera_id`, `physical_camera_id` and
@@ -155,8 +159,11 @@ Write RED tests first for the existing static-alias misattribution. Then cover:
   PostgreSQL clip row, with verified Node/physical/demand/user-assignment
   association and a released-generation delayed-finalization positive case;
 - post-release new-interval, impossible/future timestamp, excessive or
-  nonpositive duration, duplicate storage object, revoked assignment and
-  generation/alias/physical mismatch cases fail closed;
+  nonpositive duration, duplicate storage object, post-revocation new demand
+  or renewal, and generation/alias/physical mismatch cases fail closed;
+- delayed publication after later assignment revocation succeeds for a
+  pre-revocation authorized interval; timestamp tolerance has exact-boundary,
+  just-outside-boundary and configured-override coverage;
 - transfer/conversion/checksum failure publishes no row; rapid rotations and
   simultaneous aliases have collision-safe names;
 - Archive operator/operator2 scope, SOC behavior, playback/Download RBAC and
