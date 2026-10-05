@@ -7,6 +7,7 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer, normalizePath } from 'vite'
 import reactPlugin from '@vitejs/plugin-react'
+import { makeT } from '../src/lib/strings.js'
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const fixture = (name) => normalizePath(path.join(rootDir, 'tests/fixtures', name))
@@ -28,7 +29,7 @@ test('shared authenticated primitives expose one Neo styling contract without ch
     },
   })
   try {
-    const { Card, Segmented } = await vite.ssrLoadModule('/src/components/ui.jsx')
+    const { Card, Segmented, ThemeToggle } = await vite.ssrLoadModule('/src/components/ui.jsx')
     const { Sidebar } = await vite.ssrLoadModule('/src/components/Sidebar.jsx')
     const { TopBar } = await vite.ssrLoadModule('/src/components/TopBar.jsx')
 
@@ -45,6 +46,13 @@ test('shared authenticated primitives expose one Neo styling contract without ch
     assert.match(segmentedMarkup, /role="radiogroup"/)
     assert.match(segmentedMarkup, /class="[^"]*ui-segmented/)
     assert.equal((segmentedMarkup.match(/role="radio"/g) ?? []).length, 2)
+
+    const thaiThemeToggle = renderToStaticMarkup(React.createElement(ThemeToggle, {
+      theme: 'dark',
+      setTheme() {},
+      t: makeT('th'),
+    }))
+    assert.match(thaiThemeToggle, /aria-label="เปลี่ยนเป็นโหมดสว่าง"/)
 
     const t = (key) => key
     const sidebarMarkup = renderToStaticMarkup(React.createElement(Sidebar, {

@@ -26,12 +26,12 @@ import { normalizeDashboardData, shouldShowDashboardFetchError } from '../lib/da
    ที่ไฟล์ถูกอัปโหลดทับหรือถูกลบ — จอจึงบอกสิ่งที่นับได้จริง ไม่ใช่สิ่งที่ดูน่าประทับใจกว่า */
 
 /* ── Stat card — hero number counts, ค่าจริงจากเซิร์ฟเวอร์ ─────────── */
-function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, statusTone = 'ok', delay = 0, footer }) {
+function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, statusTone = 'ok', delay = 0, footer, meterPercent = null, meterLabel = '' }) {
   const v = useCountUp(value, 700, decimals)
   const display = decimals > 0 ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US')
   return (
     <Card
-      className={`dashboard-stat-card relative overflow-hidden p-5 rise-in ${alarm ? 'border-pulse' : ''}`}
+      className={`dashboard-stat-card relative overflow-hidden p-5 rise-in ${meterPercent != null ? 'dashboard-capacity-card' : ''} ${alarm ? 'border-pulse' : ''}`}
       style={{
         animationDelay: `${delay}ms`,
         ...(alarm ? { background: 'var(--danger-soft)', borderColor: 'var(--danger)' } : {}),
@@ -60,6 +60,11 @@ function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, 
         {valueLabel ?? display}
         {suffix && <span className="ml-1.5 text-[15px] font-semibold text-ink-3">{suffix}</span>}
       </p>
+      {meterPercent != null && (
+        <div className="dashboard-capacity-ring" style={{ '--capacity-pct': `${meterPercent}%` }} role="img" aria-label={`${meterPercent}% ${meterLabel}`}>
+          <span lang="en">{meterPercent}%</span>
+        </div>
+      )}
       {footer && (
         <div className="mt-3 border-t border-line pt-3">
           {footer}
@@ -106,7 +111,7 @@ function LakeHealth({ t, health }) {
         {TIERS.map((tier, idx) => {
           const state = tierStates[tier.id]
           const layer = health?.layers?.[tier.id]
-          const tech = tier.id === 'metadata' && health?.db === 'memory' ? 'in-memory (not connected)' : tier.tech
+          const tech = tier.id === 'metadata' && health?.db === 'memory' ? t('metadataMemoryDisconnected') : tier.tech
           const dimmed = state === 'healthy' && brokenBelow(idx)
           const tone = state === 'healthy' ? 'ok' : state === 'degraded' ? 'warn' : state === 'down' ? 'danger' : 'neutral'
           const lat = layer?.measured === true && Number.isFinite(layer.latencyMs)
@@ -138,13 +143,13 @@ function LakeHealth({ t, health }) {
                 }}
               >
                 <Dot tone={tone} pulse={state === 'healthy'} />
-                <span className="text-[12.5px] font-semibold tracking-[0.04em] text-ink whitespace-nowrap">{t(tier.nameKey)}</span>
+                <span className="lake-health-name text-[12.5px] font-semibold tracking-[0.04em] text-ink whitespace-nowrap">{t(tier.nameKey)}</span>
                 <span className="text-[12.5px] text-ink-3 whitespace-nowrap max-xl:hidden">{tech}</span>
                 <div className="flex-1 min-w-4" />
-                <span className="text-[12px] font-medium w-16 text-right" style={{ fontVariantNumeric: 'tabular-nums', color: state === 'healthy' ? 'var(--ink-2)' : tone === 'warn' ? 'var(--warn)' : tone === 'danger' ? 'var(--danger)' : 'var(--ink-3)' }}>
+                <span className="lake-health-latency text-[12px] font-medium w-16 text-right" style={{ fontVariantNumeric: 'tabular-nums', color: state === 'healthy' ? 'var(--ink-2)' : tone === 'warn' ? 'var(--warn)' : tone === 'danger' ? 'var(--danger)' : 'var(--ink-3)' }}>
                   {lat != null ? `${lat.toFixed(1)} ms` : t('latencyUnavailable')}
                 </span>
-                  <Chip tone={tone}>{state === 'healthy' ? t('tierHealthy') : state === 'degraded' ? t('tierDegraded') : state === 'down' ? t('tierDown') : state === 'unavailable' ? t('latencyUnavailable') : t('notConnected')}</Chip>
+                <Chip tone={tone} className="lake-health-state">{state === 'healthy' ? t('tierHealthy') : state === 'degraded' ? t('tierDegraded') : state === 'down' ? t('tierDown') : state === 'unavailable' ? t('latencyUnavailable') : t('notConnected')}</Chip>
               </div>
             </div>
           )
@@ -339,7 +344,7 @@ function ActivityChart({ t, lang, data }) {
       </CardTitle>
       {/* ⚠️ ยังไม่มีกิจกรรมเลย ≠ กราฟเปล่าที่ดูเหมือนพัง — บอกตรง ๆ ว่าไม่มีเหตุการณ์
           ในเจ็ดวันนี้ (ของเดิมไม่มีสถานะนี้เพราะข้อมูลปลอมทำให้มีแท่งอยู่เสมอ) */}
-      <div className="h-56">
+      <div className="dashboard-activity-plot h-56" role="img" aria-label={t('activityTitle')}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={rows} barGap={3} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke="var(--line)" strokeWidth={1} />
@@ -352,6 +357,17 @@ function ActivityChart({ t, lang, data }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
+      <table className="sr-only">
+        <caption>{t('activitySub')}</caption>
+        <thead><tr><th scope="col">{t('activityDay')}</th><th scope="col">{t('uploads')}</th><th scope="col">{t('downloads')}</th></tr></thead>
+        <tbody>{rows.map((row) => (
+          <tr key={row.date}>
+            <th scope="row"><time dateTime={row.date}>{row.date}</time></th>
+            <td>{row.uploads}</td>
+            <td>{row.downloads}</td>
+          </tr>
+        ))}</tbody>
+      </table>
       {empty && <InlineEmptyState className="pt-3 pb-0 text-center">{t('activityEmpty')}</InlineEmptyState>}
     </Card>
   )
@@ -366,33 +382,36 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
   if (dash.loading || health.loading) return <SkeletonLoader type="dashboard" />
 
   const usingPlaceholder = !isPlatformWired(health.data)
-  const d = normalizeDashboardData(usingPlaceholder ? null : dash.data)
+  const showDashboardError = shouldShowDashboardFetchError(dash.error, health.data)
+  const dashboardUnavailable = usingPlaceholder || showDashboardError || dash.data == null
+  const d = normalizeDashboardData(dashboardUnavailable ? null : dash.data)
   const m = d.metrics
   // ⚠️ null = statfs อ่านค่าไม่ได้ ไม่ใช่ "ศูนย์" — การ์ดต้องบอกว่าไม่รู้ ไม่ใช่วาด 0%
-  const hasCapacity = !usingPlaceholder && m.storageTotalBytes != null && m.storageBytes != null
+  const hasCapacity = !dashboardUnavailable && m.storageTotalBytes != null && m.storageBytes != null
   const usedPct = hasCapacity && m.storageTotalBytes > 0
     ? Math.min(100, Math.round((m.storageBytes / m.storageTotalBytes) * 100))
     : 0
-  const showDashboardError = shouldShowDashboardFetchError(dash.error, health.data)
   const showStorageError = shouldShowDashboardFetchError(storage.error, health.data)
-  const placeholderLabel = usingPlaceholder ? t('notConnected') : null
+  const placeholderLabel = dashboardUnavailable ? t(usingPlaceholder ? 'notConnected' : 'dashboardUnavailable') : null
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="dashboard-layout flex flex-col gap-5">
       {showDashboardError && (
         <Card><ErrorState t={t} kind={dash.error} onRetry={dash.retry} /></Card>
       )}
       {/* Top 4 KPI Cards — ตัวเลขจริงจากเซิร์ฟเวอร์ทั้งหมด */}
       <Reveal delay={0}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="dashboard-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             icon={Database}
             label={t('statStorage')}
             value={hasCapacity ? m.storageBytes : 0}
             valueLabel={hasCapacity ? fmtBytes(m.storageBytes) : '—'}
-            suffix={hasCapacity ? `/ ${m.storageTotalBytes === 0 ? '0 GB' : fmtBytes(m.storageTotalBytes)}` : t('notAvailable')}
+            suffix={hasCapacity ? `/ ${m.storageTotalBytes === 0 ? '0 GB' : fmtBytes(m.storageTotalBytes)}` : null}
             allClearLabel={placeholderLabel}
             statusTone="neutral"
+            meterPercent={hasCapacity ? usedPct : null}
+            meterLabel={t('capacityUsed')}
             footer={hasCapacity ? (
               <div className="flex flex-col gap-1.5">
                 <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -405,50 +424,29 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
               </div>
             ) : (
               // อ่านความจุไม่ได้ — บอกตรง ๆ แทนที่จะวาดแถบจากค่าที่เดา
-              <p className="text-[11.5px] text-ink-3 leading-relaxed">{t('capacityUnreadable')}</p>
+              <p className="text-[11.5px] text-ink-3 leading-relaxed">{t(dashboardUnavailable ? 'dashboardUnavailable' : 'capacityUnreadable')}</p>
             )}
           />
-          <StatCard icon={FilesIcon} label={t('statFiles')} value={m.files} valueLabel={usingPlaceholder ? '—' : undefined} allClearLabel={placeholderLabel ?? t('resOk')} statusTone={usingPlaceholder ? 'neutral' : 'ok'} delay={40} />
-          <StatCard icon={Link2} label={t('activeLinks')} value={m.activeShares} valueLabel={usingPlaceholder ? '—' : undefined} allClearLabel={placeholderLabel ?? t('resOk')} statusTone={usingPlaceholder ? 'neutral' : 'ok'} delay={80} />
+          <StatCard icon={FilesIcon} label={t('statFiles')} value={m.files} valueLabel={dashboardUnavailable ? '—' : undefined} allClearLabel={placeholderLabel} statusTone="neutral" delay={40} />
+          <StatCard icon={Link2} label={t('activeLinks')} value={m.activeShares} valueLabel={dashboardUnavailable ? '—' : undefined} allClearLabel={placeholderLabel} statusTone="neutral" delay={80} />
           <StatCard
             icon={ShieldCheck}
             label={t('statSecurity')}
             value={d.securityAlerts}
-            valueLabel={usingPlaceholder ? '—' : undefined}
-            alarm={d.securityAlerts > 0}
+            valueLabel={dashboardUnavailable ? '—' : undefined}
+            alarm={!dashboardUnavailable && d.securityAlerts > 0}
             allClearLabel={placeholderLabel ?? t('allClear')}
-            statusTone={usingPlaceholder ? 'neutral' : 'ok'}
+            statusTone={dashboardUnavailable ? 'neutral' : 'ok'}
             delay={120}
           />
         </div>
       </Reveal>
 
-      {/* Mid row: LakeHealth (จาก /healthz) + login history / active links */}
+      {/* Primary evidence: actual storage categories and seven-day audit events.
+          Telemetry is current-state only; the API has no historical series. */}
       <Reveal delay={100}>
-        <div className="flex flex-col lg:flex-row gap-6">
-          <div className="flex-1 lg:w-2/3">
-            <LakeHealth t={t} health={health.data} />
-          </div>
-          <div className="w-full lg:w-1/3 flex flex-col gap-6">
-            <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={usingPlaceholder} />
-            <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={usingPlaceholder} />
-          </div>
-        </div>
-      </Reveal>
-
-      {/* Fed by App's /api/telemetry poll (10s). Disk and Drive service uptime
-          are measured by Drive itself; CPU/memory/network/host uptime come from
-          the host telemetry agent over a Unix socket. null — and any metric the
-          agent could not supply — renders an explicit unavailable tile, never a
-          zero. See server/telemetry/index.js for the contract. */}
-      <Reveal delay={160}>
-        <ServerTelemetry t={t} data={telemetry} loading={telemetryLoading} />
-      </Reveal>
-
-      {/* Bottom row: breakdown (จาก /api/storage) + transfer chart */}
-      <Reveal delay={200}>
-        <div className="flex flex-col lg:flex-row gap-6">
-          <div className="flex-1 lg:w-1/2">
+        <div className={`dashboard-primary-grid ${dashboardUnavailable ? 'is-dashboard-unavailable' : ''}`}>
+          <div className="dashboard-storage-panel">
             {usingPlaceholder ? (
               <Card className="p-5"><CardTitle>{t('storageBreakdown')}</CardTitle><DependencyUnavailableState t={t} title={t('dashboardUnavailable')} /></Card>
             ) : storage.loading ? (
@@ -465,8 +463,8 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
               />
             )}
           </div>
-          <div className="flex-1 lg:w-1/2">
-            {usingPlaceholder ? (
+          <div className="dashboard-activity-panel">
+            {dashboardUnavailable ? (
               <Card className="p-5"><CardTitle>{t('activityTitle')}</CardTitle><DependencyUnavailableState t={t} title={t('dashboardUnavailable')} /></Card>
             ) : (
               <ActivityChart t={t} lang={lang} data={d.activity7d ?? []} />
@@ -475,11 +473,26 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
         </div>
       </Reveal>
 
+      {/* Fed by App's /api/telemetry poll (10s). Each reading keeps its own
+          available/stale/restricted/unavailable state; no fabricated history. */}
+      <Reveal delay={160}>
+        <ServerTelemetry t={t} data={telemetry} loading={telemetryLoading} />
+      </Reveal>
+
+      {/* Secondary status from independent /healthz and /api/dashboard sources. */}
+      <Reveal delay={200}>
+        <div className="dashboard-secondary-grid">
+          <LakeHealth t={t} health={health.data} />
+          <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={dashboardUnavailable} />
+          <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={dashboardUnavailable} />
+        </div>
+      </Reveal>
+
       {/* recent files — จาก /api/dashboard */}
       <Reveal delay={260}>
         <Card className="p-5">
           <CardTitle>{t('recentFiles')}</CardTitle>
-          {usingPlaceholder ? (
+          {dashboardUnavailable ? (
             <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
           ) : (d.recentFiles ?? []).length === 0 ? (
             <InlineEmptyState>{t('emptyNoRecentFiles')}</InlineEmptyState>

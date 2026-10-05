@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Gauge, Folder, Vault as VaultIcon, Upload, Link2, History, HardDrive,
-  ScrollText, UserCog, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, Trash2,
+  ScrollText, UserCog, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, Trash2, X,
 } from 'lucide-react'
 import { AegisLockup, AegisMark } from './AegisMark.jsx'
 import { Progress } from './ui.jsx'
@@ -44,6 +44,7 @@ function NavItem({ icon, label, active, collapsed, onClick, delay = 0 }) {
       type="button"
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
+      aria-label={collapsed ? label : undefined}
       title={collapsed ? label : undefined}
       className={`sidebar-nav-item flex items-center gap-3 h-10 rounded-[10px] text-[14px] font-medium transition-all duration-[var(--dur-fast)] cursor-pointer w-full rise-in ${
         active
@@ -58,7 +59,51 @@ function NavItem({ icon, label, active, collapsed, onClick, delay = 0 }) {
   )
 }
 
-export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, metrics, metricsUnavailable = false, resolvedTheme, mobileOpen, closeMobile }) {
+export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, metrics, metricsUnavailable = false, resolvedTheme, mobileOpen, closeMobile, neoDashboard = false }) {
+  const mobilePanelRef = useRef(null)
+  const closeMobileRef = useRef(closeMobile)
+  closeMobileRef.current = closeMobile
+
+  useEffect(() => {
+    if (!mobileOpen) return undefined
+    const previousFocus = document.activeElement
+    const panel = mobilePanelRef.current
+    const main = document.querySelector('.authenticated-shell main')
+    const previousOverflow = main?.style.overflow
+    if (main) main.style.overflow = 'hidden'
+    panel?.querySelector('.neo-mobile-close')?.focus()
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeMobileRef.current()
+        return
+      }
+      if (event.key !== 'Tab' || !panel) return
+      const focusable = [...panel.querySelectorAll('button:not([disabled]), a[href], input:not([disabled])')]
+        .filter((element) => element.getClientRects().length > 0)
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable.at(-1)
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      } else if (!panel.contains(document.activeElement)) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      if (main) main.style.overflow = previousOverflow
+      if (previousFocus?.isConnected) previousFocus.focus()
+    }
+  }, [mobileOpen])
+
   // metrics มาจาก /api/dashboard — ระหว่างโหลดเป็น null → มิเตอร์แสดง skeleton
   // ใช้ bytes + fmtBytes ชุดเดียวกับ Dashboard/Storage ห้ามผสม decimal GB กับ binary GB
   const storageBytes = useCountUp(metrics?.storageBytes ?? 0, 700)
@@ -67,8 +112,8 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
   const groups = ['navGroupWorkspace', 'navGroupProtection', 'navGroupAdmin']
 
   const body = (
-    <div className="app-sidebar flex flex-col h-full bg-card border-r border-line" data-material="shell-glass">
-      <div className={`flex items-center h-16 shrink-0 ${collapsed ? 'justify-center px-0' : 'justify-between px-5'}`}>
+    <div className={`app-sidebar flex flex-col h-full bg-card border-r border-line ${neoDashboard ? 'neo-dashboard-sidebar' : ''}`} data-material={neoDashboard ? 'solid' : 'shell-glass'}>
+      <div className={`neo-sidebar-header flex items-center h-16 shrink-0 ${collapsed ? 'justify-center px-0' : 'justify-between px-5'}`}>
         {collapsed
           ? <AegisMark size={32} theme={resolvedTheme} />
           : <AegisLockup markSize={36} theme={resolvedTheme} title="AEGIS Drive_LC" sub={t('productLockupSub')} />}
@@ -80,6 +125,11 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
             className="size-8 flex items-center justify-center rounded-full text-ink-3 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer max-lg:hidden"
           >
             <PanelLeftClose size={15} strokeWidth={1.5} />
+          </button>
+        )}
+        {mobileOpen && (
+          <button type="button" aria-label={t('close')} onClick={closeMobile} className="neo-mobile-close lg:hidden size-10 flex items-center justify-center rounded-[10px] text-ink-2 hover:bg-sunken">
+            <X size={18} aria-hidden />
           </button>
         )}
       </div>
@@ -180,7 +230,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
               --ink เป็นสีเกือบขาวในธีมมืด สูตรเดิมจึงปูสีขาว 30% ทับทั้งหน้า
               ทำให้ทั้ง shell ดูขุ่นเป็นหมอก แทนที่จะหรี่ลง (ดู .drawer-scrim) */}
           <div className="drawer-scrim fade-in" onClick={closeMobile} aria-hidden />
-          <div className="app-drawer-panel absolute left-0 top-0 bottom-0 w-[260px]" style={{ animation: 'sidebar-in var(--dur-base) var(--ease) both' }}>
+          <div ref={mobilePanelRef} role="dialog" aria-modal="true" aria-label={t('productName')} className="app-drawer-panel absolute left-0 top-0 bottom-0 w-[260px]" style={{ animation: 'sidebar-in var(--dur-base) var(--ease) both' }}>
             {body}
           </div>
         </div>

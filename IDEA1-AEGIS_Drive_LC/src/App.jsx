@@ -6,7 +6,7 @@ import { useApi, useReducedMotion } from './lib/hooks.js'
 import { isPlatformWired } from './lib/fetchState.js'
 import { buildLocationForIntent, normalizeNavigationIntent, readLocationIntent, resolveAuthorizedScreen, visiblePrimaryNav } from './lib/navigationIntent.js'
 import { armAuthenticatedBackBoundary, authenticatedNavigationState, handleAuthenticatedBack, releaseAuthenticatedBackBoundary } from './lib/authBackBoundary.js'
-import { HatchDefs, SkeletonLoader } from './components/ui.jsx'
+import { Dot, HatchDefs, SkeletonLoader } from './components/ui.jsx'
 import { Sidebar } from './components/Sidebar.jsx'
 import { useScrollReveal } from './lib/useScrollReveal.js'
 import { TopBar } from './components/TopBar.jsx'
@@ -246,6 +246,7 @@ export default function App() {
   // URL selections with the exact menu the server authorized for this session.
   const activeScreen = resolveAuthorizedScreen(screen, serverNav)
   const workspaceSurfaceActive = WORKSPACE_SCREENS.has(activeScreen)
+  const neoDashboard = interfaceStyle === 'neo' && activeScreen === 'dashboard'
   const PageSurface = workspaceSurfaceActive ? WorkspaceMarqueeSurface : 'div'
 
   const go = useCallback((destination, params = {}, options = {}) => {
@@ -518,7 +519,7 @@ export default function App() {
   }[activeScreen]
 
   return (
-    <div className="authenticated-shell h-full flex bg-canvas" data-interface-style={interfaceStyle}>
+    <div className="authenticated-shell h-full flex bg-canvas" data-interface-style={interfaceStyle} data-screen={activeScreen}>
       <HatchDefs />
       <Sidebar
         t={t}
@@ -532,6 +533,7 @@ export default function App() {
         resolvedTheme={resolvedTheme}
         mobileOpen={mobileNav}
         closeMobile={() => setMobileNav(false)}
+        neoDashboard={neoDashboard}
       />
       <div className="flex-1 flex flex-col min-w-0 h-full">
         <TopBar
@@ -546,6 +548,20 @@ export default function App() {
           onSettings={() => { setSettingsTab('appearance'); go('settings') }}
           onSignOut={signOut}
           openMobileNav={() => setMobileNav(true)}
+          neoDashboard={neoDashboard}
+          collapsed={collapsed}
+          setCollapsed={setCollapsed}
+          search={neoDashboard ? (
+            <GlobalSearch
+              t={t}
+              screen={activeScreen}
+              go={go}
+              nav={nav}
+              files={filesApi.data?.files ?? []}
+              people={usersApi.data?.users ?? []}
+              className="neo-topbar-search"
+            />
+          ) : null}
         />
         <main
           ref={mainRef}
@@ -557,7 +573,7 @@ export default function App() {
           <PageSurface
             key={activeScreen}
             data-testid="app-page-content"
-            className={workspaceSurfaceActive ? 'workspace-full-pane-surface min-h-full flex flex-col' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
+            className={workspaceSurfaceActive ? 'workspace-full-pane-surface min-h-full flex flex-col' : neoDashboard ? 'neo-dashboard-content min-h-full' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
           >
             {/* One composed header: breadcrumb + title on the left, search/actions on the right. */}
             <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${workspaceSurfaceActive ? 'workspace-pane-content pt-7 max-md:pt-5' : ''}`}>
@@ -568,16 +584,25 @@ export default function App() {
               </nav>
 
               <div className="page-header-main flex items-center justify-between gap-5">
-                <h1 className="shrink-0 text-2xl md:text-[28px] font-bold tracking-[-0.025em] text-ink">
-                  {t(TITLE_KEYS[activeScreen])}
-                </h1>
+                <div className="min-w-0">
+                  <h1 className="text-2xl md:text-[28px] font-bold tracking-[-0.025em] text-ink">
+                    {t(TITLE_KEYS[activeScreen])}
+                  </h1>
+                  {neoDashboard && <p className="mt-1 text-[13px] text-ink-2">{t('dashOverviewSub')}</p>}
+                  {neoDashboard && (
+                    <div className="neo-dashboard-inline-status" role="status" aria-live="polite">
+                      <span><Dot tone={healthApi.data?.layers?.application?.checked === true && healthApi.data?.layers?.application?.ok === true ? 'ok' : 'neutral'} size={6} />{healthApi.data?.layers?.application?.checked === true && healthApi.data?.layers?.application?.ok === true ? t('driveOnline') : t('driveNotConnected')}</span>
+                      <span><Dot tone={healthApi.data?.layers?.metadata?.checked === true && healthApi.data?.layers?.metadata?.ok === true ? 'accent' : 'neutral'} size={6} />{healthApi.data?.layers?.metadata?.checked === true && healthApi.data?.layers?.metadata?.ok === true ? t('metadataConnected', { source: healthApi.data?.db === 'postgres' ? 'PostgreSQL' : 'in-memory' }) : t('metadataNotConnected')}</span>
+                    </div>
+                  )}
+                </div>
 
                 <div className="page-header-tools flex min-w-0 items-center justify-end gap-2.5">
                   {/* Context search — ไม่ render ซ้ำบน Files/Access ที่มี local filter
                       จอ Vault ได้ช่อง disabled เพื่อบอกข้อจำกัดตามจริง
                       ⚠️ ดัชนีที่ส่งเข้าไปมีแค่ files + users ที่เซิร์ฟเวอร์อนุญาตแล้ว —
                          ไม่มีข้อมูล vault อยู่ในนี้เลยไม่ว่าจออะไร */}
-                  {!HEADER_SEARCH_HIDDEN_SCREENS.has(activeScreen) && (
+                  {!neoDashboard && !HEADER_SEARCH_HIDDEN_SCREENS.has(activeScreen) && (
                     <GlobalSearch
                       t={t}
                       screen={activeScreen}

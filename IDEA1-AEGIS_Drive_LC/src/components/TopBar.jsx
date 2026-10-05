@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Menu, LogOut, Settings, UserRound } from 'lucide-react'
 import { Dot, Avatar, ThemeToggle } from './ui.jsx'
+import { AegisLockup } from './AegisMark.jsx'
 
 function Dropdown({ open, onClose, children, label, align = 'right', width = 280 }) {
   const ref = useRef(null)
@@ -31,7 +32,7 @@ function Dropdown({ open, onClose, children, label, align = 'right', width = 280
   )
 }
 
-export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSettings, onSignOut, openMobileNav, resolvedTheme = 'light', onThemeChange }) {
+export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSettings, onSignOut, openMobileNav, resolvedTheme = 'light', onThemeChange, neoDashboard = false, collapsed = false, setCollapsed, search = null }) {
   const [avatarOpen, setAvatarOpen] = useState(false)
 
   // Live Tactical Clock (matching CCTV-Operator topbar clock)
@@ -54,32 +55,48 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
 
   return (
     <header
-      className="app-topbar h-[68px] shrink-0 bg-card border-b border-line flex items-center justify-between gap-6 px-6 max-lg:px-4 transition-all duration-[var(--dur-base)] sticky top-0 z-[var(--z-sticky)]"
-      data-material="shell-glass"
+      className={`app-topbar h-[68px] shrink-0 bg-card border-b border-line flex items-center justify-between gap-6 px-6 max-lg:px-4 transition-all duration-[var(--dur-base)] sticky top-0 z-[var(--z-sticky)] ${neoDashboard ? 'neo-dashboard-topbar' : ''}`}
+      data-material={neoDashboard ? 'solid' : 'shell-glass'}
       style={{ boxShadow: scrolled ? 'var(--elev-1)' : 'none' }}
     >
       {/* LEFT ZONE: Mobile Toggle Button / Left Spacer */}
-      <div className="flex items-center min-w-[40px]">
+      <div className={`flex items-center min-w-[40px] ${neoDashboard ? 'neo-topbar-identity' : ''}`}>
         <button
           type="button"
           aria-label={t('expandSidebar')}
           onClick={openMobileNav}
-          className="lg:hidden size-9 flex items-center justify-center rounded-full text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer"
+          className="lg:hidden size-10 flex items-center justify-center rounded-[10px] text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer"
         >
           <Menu size={18} strokeWidth={1.5} />
         </button>
+        {neoDashboard && (
+          <>
+            <button
+              type="button"
+              aria-label={collapsed ? t('expandSidebar') : t('collapseSidebar')}
+              aria-expanded={!collapsed}
+              onClick={() => setCollapsed?.(!collapsed)}
+              className="neo-sidebar-toggle hidden lg:flex size-10 items-center justify-center rounded-[10px] text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer"
+            >
+              <Menu size={19} strokeWidth={1.6} />
+            </button>
+            <span className="neo-topbar-identity-divider" aria-hidden />
+            <AegisLockup markSize={35} theme={resolvedTheme} title="AEGIS Drive_LC" sub={t('productLockupSub')} />
+          </>
+        )}
       </div>
 
       {/* CENTER ZONE: Status Pills — ค่าจริงจาก /healthz (poll 15s) */}
-      <div className="flex items-center justify-center gap-3 max-lg:hidden" role="status" aria-live="polite">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
+      <div className={`flex items-center justify-center gap-3 ${neoDashboard ? 'neo-topbar-utilities' : 'max-lg:hidden'}`} role={neoDashboard ? undefined : 'status'} aria-live={neoDashboard ? undefined : 'polite'}>
+        <div role={neoDashboard ? 'status' : undefined} className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs ${neoDashboard ? 'neo-status-pill' : ''}`}>
           <Dot tone={applicationUp ? 'ok' : 'neutral'} pulse={applicationUp} size={6} />
           <span>{applicationUp ? t('driveOnline') : t('driveNotConnected')}</span>
         </div>
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
+        <div role={neoDashboard ? 'status' : undefined} className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs ${neoDashboard ? 'neo-status-pill' : ''}`}>
           <Dot tone={metadataUp ? 'accent' : 'neutral'} pulse={metadataUp} size={6} />
           <span>{metadataUp ? t('metadataConnected', { source: dbMode === 'postgres' ? 'PostgreSQL' : 'in-memory' }) : t('metadataNotConnected')}</span>
         </div>
+        {search}
       </div>
 
       {/* RIGHT ZONE: Tactical Clock & Profile */}

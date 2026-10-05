@@ -68,7 +68,10 @@ test('Dashboard ห้าม early-return เป็น error page จนกร�
   assert.doesNotMatch(source, /if\s*\(dash\.error\)\s*return\s*<ErrorState/)
   assert.match(source, /const usingPlaceholder = !isPlatformWired\(health\.data\)/)
   assert.doesNotMatch(source, /useApi\(['"]\/healthz['"]/)
-  assert.match(source, /normalizeDashboardData\(usingPlaceholder \? null : dash\.data\)/)
+  assert.match(source, /const dashboardUnavailable = usingPlaceholder \|\| showDashboardError \|\| dash\.data == null/)
+  assert.match(source, /normalizeDashboardData\(dashboardUnavailable \? null : dash\.data\)/)
+  assert.match(source, /valueLabel=\{dashboardUnavailable \? '—' : undefined\}/)
+  assert.match(source, /unavailable=\{dashboardUnavailable\}/)
   assert.match(source, /usage=\{usingPlaceholder \? \{\} : storage\.data\?\.usage/)
 })
 

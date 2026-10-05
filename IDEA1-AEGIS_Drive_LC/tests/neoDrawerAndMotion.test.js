@@ -144,8 +144,9 @@ test('NEO-MOTION-3 one easing curve, and it eases out without bouncing', () => {
 /* ── reduced motion and the reveal safety rule ── */
 
 test('NEO-MOTION-4 prefers-reduced-motion switches the whole layer off', () => {
-  const at = css.lastIndexOf('@media (prefers-reduced-motion: reduce)')
-  const block = css.slice(at)
+  const neoEnd = css.indexOf('/* ── Tile hover controls')
+  const at = css.lastIndexOf('@media (prefers-reduced-motion: reduce)', neoEnd)
+  const block = css.slice(at, neoEnd)
   assert.match(block, /:root\[data-ui-style="neo"\] \.ui-card[\s\S]*transform:\s*none !important/)
   assert.match(block, /:root\[data-ui-style="neo"\] \.ui-modal[\s\S]*animation:\s*none !important/)
   assert.match(block, /\[data-reveal\][\s\S]*opacity:\s*1 !important/, 'revealed content is simply shown')
