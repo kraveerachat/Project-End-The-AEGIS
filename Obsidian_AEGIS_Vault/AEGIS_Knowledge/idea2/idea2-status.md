@@ -15,6 +15,78 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## PR #348 event-attribution source closeout checkpoint — 2026-10-06
+
+Branch `feat/idea2-multi-node-camera-provisioning` is at source checkpoint
+`49c9e1a27179cc2367cd8574fef8f79f2c3a94df`, stacked on PR #344 base
+`37d02b6f8bb5b92c6eef17e04416d8c0ae6ad416`, which contains authoritative
+main `1128e5253d72171bc04e9c48d50a05d044390476`. The stack was synchronized
+with normal merge commits only; no rebase or force-push was used.
+
+The CAM-02 detection/alert attribution defect discovered during Machine A
+operator2 acceptance is repaired in source. In strict capture-on-demand mode,
+new security events derive logical camera identity from currently live,
+authenticated recording-authority contexts rather than static
+`AEGIS_CAMERA_ID`. One physical frame can fan out deterministically to
+concurrent authorized logical aliases. Releasing one alias removes only that
+alias from new event authority while another active alias survives. A frame
+captured before release but processed after release cannot create a new event
+for the released authority. Retired generations cannot publish new events.
+
+`producer_generation` now propagates through DetectionResult, Engine,
+MonitorClient, Identity Agent pipe transport, Monitor detection persistence,
+and Monitor alert persistence. Monitor validates strict live event attribution
+transactionally against verified Node/physical-camera provenance, exact live
+producer generation, and exact live demand alias/viewer authority. Legacy
+ingest without generation retains the bounded compatibility path; legacy
+ingest cannot supply a generation to impersonate strict attribution.
+
+Strict alert payloads no longer reuse the static physical-camera label for a
+different authenticated logical alias. For an attributed CAM-02 event the
+payload camera id and label are CAM-02; legacy non-strict events retain the
+configured descriptive camera label. This closes the source-side condition
+that previously allowed a CAM-02 session to produce a CAM-01 Telegram caption.
+
+Post-sync source verification at the checkpoint:
+- Detection Engine full suite: 382 tests, 0 failures, 7 conditional native
+  pywin32 skips.
+- Monitor full non-database suite: 312 tests total, 204 pass, 108 conditional
+  PostgreSQL skips, 0 failures.
+- Browser acceptance: 32/32 PASS after restoring the Playwright Chromium
+  binary required by the existing package version; no repository dependency
+  version was changed.
+- Monitor Vite production build: PASS.
+- Repository governance: 61/61 PASS.
+- Vault validation: PASS with the same two pre-existing owner-canvas warnings.
+- Stacked diff check: PASS.
+- Added-content secret review: PASS; six matches were reviewed placeholders,
+  test-only `test-key` values, an empty environment template assignment, or
+  explicit disposable-database documentation. No real secret material was
+  found.
+- Earlier focused real disposable PostgreSQL gates remain PASS:
+  event attribution 1/1, Agent ingest provenance 3/3, producer lifecycle 50/50,
+  and clip attribution 48/48. The database-enabled all-files Node runner
+  previously stalled with an idle client/open-handle condition and no observed
+  database lock blocker; that whole-suite mode is not claimed green.
+
+The server-side event claim is intentionally bounded to live demand at event
+publication. Historical per-frame event authorization is not claimed.
+Recording authority remains separate and may preserve an authorized queued
+pre-release recording tail.
+
+Machine A previously proved operator2 -> CAM-02 Live/recording/archive
+attribution before this event fix, but that run exposed the legacy CAM-01
+detection/alert identity defect. Therefore the new event/Telegram correction
+is SOURCE-VERIFIED but NOT YET LIVE-PRODUCTION-ACCEPTED. A fresh authorized
+Production rollout and Machine A CAM-02 detection/alert acceptance are still
+required before closing that claim.
+
+PR #348 remains Draft. No final immutable receipt exists. No Production
+database, Production container, Machine A runtime, Twingate, IDEA1, IDEA3,
+or remote NAS was mutated by this source-closeout checkpoint. The Production
+Monitor/Engine installed state is not claimed to contain this new source fix.
+
+
 ## PR #348 source checkpoint — alias-scoped recording attribution (2026-10-06)
 
 Draft PR #348 remains stacked on unchanged Draft PR #344. Source implementation and local verification cover one physical producer generation serving concurrent CAM-01/CAM-02 demands, independently finalized 300-second/partial alias recordings, verified-transfer-before-publication, and PostgreSQL historical clip association. Queued frames captured before final viewer release are drained against the recorded authority interval, including rotation backlog; re-entry cannot append across an idle gap. Detection rows do not yet carry authenticated viewer alias/generation, so new attributed Archive clips show a neutral “Detection result unavailable” result and are excluded from Authorized/Unknown filters. Legacy clip classification, playback, download and server-side RBAC are unchanged. The Monitor-issued demand grant and exact generation remain server-authoritative; static `AEGIS_CAMERA_ID` cannot override attributed recording. An Identity Agent pipe-protocol extension carries authenticated alias/generation metadata, and clip HTTP publication now rejects redirects instead of treating a redirected login response as acknowledgement. No Agent key or installed service was changed.
