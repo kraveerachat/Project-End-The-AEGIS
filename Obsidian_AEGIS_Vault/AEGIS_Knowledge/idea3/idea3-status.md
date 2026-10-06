@@ -4,7 +4,7 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-06
+updated: 2026-10-07
 owner: music
 edit_policy: owner-writable
 ---
@@ -17,6 +17,23 @@ edit_policy: owner-writable
 
 > **Recovery has NOT run.** `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`. The next governed action is independent review + human merge of this RRu closeout, followed by a NEW exact-main Recovery authority/freeze.
 
+### Current Task
+
+Task: IDEA3 RRu LIVE closeout → Recovery handoff
+Branch: `docs/idea3-rru-live-closeout`
+Owner: `music`
+Current state: RRu `CLOSED_PASS`; PR #373 in final review; Recovery NOT EXECUTED
+RRu rerun allowed: NO
+Recovery attempt consumed: NO
+Production mutation allowed by this closeout task: NO
+Next: finish exact-head independent review → human merge PR #373 → create NEW exact-main Recovery authority
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| RRu-S2 | RRu LIVE execution and canonical closeout | FINAL REVIEW | canonical RRu LIVE receipt; exact-head predecessor/successor gates; 279 focused regression tests; collaboration guardrails PASS | `RRU_LIVE=CLOSED_PASS`; `RRU_ATTEMPT_CONSUMED=YES`; `RRU_RERUN_ALLOWED=NO`; Recovery NOT executed | exact-head final review and human merge only | NEW exact-main Recovery authority after merge |
+
 ## IDEA3 Recovery Runtime successor RRu — repository implementation (historical; RRu has since executed once and PASSED) — 2026-10-06
 
 > [!note] **Historical repository-only snapshot.** Statements below that `RRU_LIVE_EXECUTED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=NO`, no frozen runner/Authorization existed, or RRu had not run were true before the 2026-10-07 LIVE attempt and are SUPERSEDED by the CLOSED_PASS section above.
@@ -25,19 +42,19 @@ edit_policy: owner-writable
 >
 > RRu owns only one immutable Recovery-capable release installation and one atomic `current` transition OLD → NEW. Its repository machinery requires fresh Authorization + K3, exact-main/frozen-runner authority, `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`, and an absent `RECOVERY-GLOBAL-ATTEMPT-CONSUMED`. It journals before each mutation, proves NEW is exactly OLD plus the CLI entrypoint, preserves the running Core/detector processes and all captured surfaces, and bounds rollback to its own NEW release/pointer transition. It does not restart Core or detector, arm R1D, mutate core.env/credentials/nft/MQTT/SQLite/Recovery sockets, run ISOLATE/RESTORE/CLOSE, touch Production, or touch ESP32.
 >
-> **Current truth:** `RRU_REPOSITORY_IMPLEMENTED=YES`, `RRU_LIVE_EXECUTED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`. No RRu Authorization, K3, frozen live runner, host install, current transition, or RRu receipt exists yet. The future RRu closeout may establish only `RRU_RESULT=PASS` and `RECOVERY_RUNTIME_RELEASE_READY=YES`; it must not promote Recovery, R1, LVR, L8, or L9.
+> **Historical pre-LIVE truth (superseded):** `RRU_REPOSITORY_IMPLEMENTED=YES`, `RRU_LIVE_EXECUTED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`. At that repository-only checkpoint no RRu Authorization, K3, frozen live runner, host install, current transition, or RRu receipt existed yet. These execution-state statements are historical only and are superseded by the RRu `CLOSED_PASS` section and current task above.
 
-### Current Task
+### Historical RRu Task Snapshot (superseded)
 
 Task: IDEA3 Recovery Runtime release successor RRu
 Branch: `fix/idea3-recovery-release-cli-successor`
 Owner: `music`
-Current state: REPOSITORY IMPLEMENTED / LOCAL VERIFIED; LIVE NOT EXECUTED
+Historical state: REPOSITORY IMPLEMENTED / LOCAL VERIFIED; LIVE NOT EXECUTED
 Started: 2026-10-06
 Base SHA: `ee1f58c118d64bc635e16feefad6d1d6da0d5432`
-Production mutation allowed: NO
+Production mutation allowed at that repository-only checkpoint: NO
 
-### Session Register
+### Historical RRu Session Register (superseded)
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
