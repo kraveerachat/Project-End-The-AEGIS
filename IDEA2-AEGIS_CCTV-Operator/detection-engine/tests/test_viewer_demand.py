@@ -423,6 +423,172 @@ class ViewerDemandTests(unittest.TestCase):
             delta=0.1,
         )
 
+    def test_camera_property_hint_exception_is_fail_soft(self):
+        metrics = MetricsRegistry()
+        catcher = VideoCatcher(
+            EngineConfig(
+                capture_on_demand=True,
+                detection_engine_api_key="key",
+            ),
+            metrics,
+            sinks=[],
+            capture_demand_event=threading.Event(),
+        )
+
+        class HintFailingCapture:
+            def __init__(self):
+                self.released = False
+
+            def isOpened(self):
+                return True
+
+            def set(self, prop, _value):
+                if prop == video_catcher_module.cv2.CAP_PROP_FPS:
+                    raise RuntimeError("simulated OpenCV property failure")
+                return True
+
+            def release(self):
+                self.released = True
+
+        cap = HintFailingCapture()
+
+        with (
+            patch.object(
+                video_catcher_module.cv2,
+                "VideoCapture",
+                return_value=cap,
+            ),
+            patch.object(
+                video_catcher_module.cv2,
+                "CAP_PROP_FRAME_WIDTH",
+                3,
+                create=True,
+            ),
+            patch.object(
+                video_catcher_module.cv2,
+                "CAP_PROP_FRAME_HEIGHT",
+                4,
+                create=True,
+            ),
+            patch.object(
+                video_catcher_module.cv2,
+                "CAP_PROP_FPS",
+                5,
+                create=True,
+            ),
+            patch.object(
+                video_catcher_module.cv2,
+                "CAP_PROP_BUFFERSIZE",
+                38,
+                create=True,
+            ),
+        ):
+            self.assertTrue(catcher._open_camera())
+
+        self.assertIs(catcher._cap, cap)
+        self.assertFalse(cap.released)
+
+    def test_open_exception_retries_without_killing_capture_worker(self):
+        demand = threading.Event()
+        demand.set()
+        stop = threading.Event()
+        metrics = MetricsRegistry()
+
+        catcher = VideoCatcher(
+            EngineConfig(
+                capture_on_demand=True,
+                detection_engine_api_key="key",
+                capture_reconnect_delay_s=0.01,
+                capture_max_reconnect_delay_s=0.02,
+            ),
+            metrics,
+            sinks=[],
+            stop_event=stop,
+            capture_demand_event=demand,
+        )
+
+        recovered = threading.Event()
+        attempts = {"count": 0}
+
+        def open_camera():
+            attempts["count"] += 1
+
+            if attempts["count"] == 1:
+                raise RuntimeError("simulated OpenCV open exception")
+
+            cap = FakeCapture()
+            catcher._cap = cap
+            recovered.set()
+            return True
+
+        catcher._open_camera = open_camera
+        catcher.start()
+
+        self.assertTrue(
+            recovered.wait(1.5),
+            "capture worker did not retry after open exception",
+        )
+        self.assertTrue(catcher.is_alive())
+        self.assertGreaterEqual(attempts["count"], 2)
+
+        demand.clear()
+        stop.set()
+        catcher.join(1.0)
+
+        self.assertFalse(catcher.is_alive())
+
+    def test_read_exception_reconnects_without_killing_capture_worker(self):
+        demand = threading.Event()
+        demand.set()
+        stop = threading.Event()
+        metrics = MetricsRegistry()
+
+        catcher = VideoCatcher(
+            EngineConfig(
+                capture_on_demand=True,
+                detection_engine_api_key="key",
+                capture_reconnect_delay_s=0.01,
+                capture_max_reconnect_delay_s=0.02,
+            ),
+            metrics,
+            sinks=[],
+            stop_event=stop,
+            capture_demand_event=demand,
+        )
+
+        second_open = threading.Event()
+        opens = {"count": 0}
+
+        class FailingReadCapture(FakeCapture):
+            def read(self):
+                raise RuntimeError("simulated OpenCV read exception")
+
+        def open_camera():
+            opens["count"] += 1
+
+            if opens["count"] == 1:
+                catcher._cap = FailingReadCapture()
+            else:
+                catcher._cap = FakeCapture()
+                second_open.set()
+
+            return True
+
+        catcher._open_camera = open_camera
+        catcher.start()
+
+        self.assertTrue(
+            second_open.wait(1.5),
+            "capture worker did not reconnect after read exception",
+        )
+        self.assertTrue(catcher.is_alive())
+        self.assertGreaterEqual(opens["count"], 2)
+
+        demand.clear()
+        stop.set()
+        catcher.join(1.0)
+
+        self.assertFalse(catcher.is_alive())
     def test_camera_opens_only_while_viewer_demand_exists(self):
         demand = threading.Event()
         stop = threading.Event()

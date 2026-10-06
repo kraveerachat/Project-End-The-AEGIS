@@ -98,32 +98,103 @@ class VideoCatcher(threading.Thread):
         except (TypeError, ValueError):
             return src
 
+    def _set_camera_hint(self, cap, prop, value, label: str) -> None:
+        """Apply one non-authoritative backend hint without killing capture.
+
+        OpenCV camera backends may reject or throw while applying width,
+        height, FPS or buffer hints. Those settings are best-effort and must
+        never terminate the sole long-lived VideoCatcher worker.
+        """
+        try:
+            accepted = cap.set(prop, value)
+            if accepted is False:
+                log.warning(
+                    "camera %s ignored %s hint",
+                    self._cfg.camera_source,
+                    label,
+                )
+        except Exception:
+            log.warning(
+                "camera %s rejected %s hint; continuing with backend defaults",
+                self._cfg.camera_source,
+                label,
+                exc_info=True,
+            )
+
     def _open_camera(self) -> bool:
         source = self._open_source()
-        cap = cv2.VideoCapture(source)
-        if not cap.isOpened():
-            cap.release()
-            return False
-        # Best-effort hints; devices may ignore them.
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._cfg.frame_width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._cfg.frame_height)
-        cap.set(cv2.CAP_PROP_FPS, self._cfg.target_fps)
-        # Small internal buffer keeps latency low on the live feed.
+        cap = None
         try:
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            cap = cv2.VideoCapture(source)
+            if not cap.isOpened():
+                cap.release()
+                return False
+
+            self._set_camera_hint(
+                cap,
+                cv2.CAP_PROP_FRAME_WIDTH,
+                self._cfg.frame_width,
+                "width",
+            )
+            self._set_camera_hint(
+                cap,
+                cv2.CAP_PROP_FRAME_HEIGHT,
+                self._cfg.frame_height,
+                "height",
+            )
+            self._set_camera_hint(
+                cap,
+                cv2.CAP_PROP_FPS,
+                self._cfg.target_fps,
+                "fps",
+            )
+            self._set_camera_hint(
+                cap,
+                cv2.CAP_PROP_BUFFERSIZE,
+                1,
+                "buffer-size",
+            )
+
+            self._cap = cap
+            return True
         except Exception:
-            pass
-        self._cap = cap
-        return True
+            log.exception(
+                "camera %s open attempt raised; treating camera as unavailable",
+                self._cfg.camera_source,
+            )
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+            return False
 
     def _connect_with_backoff(self) -> bool:
         """Block (interruptibly) until the camera opens or we're told to stop."""
         delay = self._cfg.capture_reconnect_delay_s
         first = True
         while not self._stop_event.is_set() and self._capture_is_demanded():
-            if self._open_camera():
-                w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or self._cfg.frame_width
-                h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or self._cfg.frame_height
+            try:
+                opened = self._open_camera()
+            except Exception:
+                # Defensive boundary: even an unexpected open-path exception
+                # becomes an ordinary reconnect attempt, never a dead worker.
+                log.exception(
+                    "camera %s open cycle failed; retrying",
+                    self._cfg.camera_source,
+                )
+                self._release_camera()
+                opened = False
+
+            if opened:
+                try:
+                    w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or self._cfg.frame_width
+                except Exception:
+                    w = self._cfg.frame_width
+                try:
+                    h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or self._cfg.frame_height
+                except Exception:
+                    h = self._cfg.frame_height
                 log.info("camera %s opened (%dx%d)", self._cfg.camera_source, w, h)
                 self._metrics.on_camera_state(connected=True, reconnect=not first)
                 return True
@@ -221,7 +292,20 @@ class VideoCatcher(threading.Thread):
                     not self._stop_event.is_set()
                     and self._capture_is_demanded()
                 ):
-                    ok, image = self._cap.read()
+                    try:
+                        ok, image = self._cap.read()
+                    except Exception:
+                        log.exception(
+                            "camera %s read raised; reconnecting",
+                            self._cfg.camera_source,
+                        )
+                        self._metrics.on_camera_state(connected=False)
+                        self._release_camera()
+                        if not self._connect_with_backoff():
+                            break
+                        consecutive_failures = 0
+                        continue
+
                     if not self._capture_is_demanded():
                         break
                     if not ok or image is None:
