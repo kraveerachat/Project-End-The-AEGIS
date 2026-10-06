@@ -120,6 +120,21 @@ dbTest('strict Archive result classification requires exact alias, physical came
   // turn Machine A's Authorized-only clip into Unknown.
   assert.equal(byId.get(aRow.id)?.kind, 'auth')
 })
+dbTest('CAM-02 strict Archive classification uses the same exact provenance rule', async () => {
+  const handle = await acquire('a', 2)
+  const row = await publish(clip(handle), auth('a'))
+  assert.ok(row.id)
+  await db.query(`INSERT INTO detections
+    (frame_id, at, camera_id, physical_camera_id, producer_generation, result)
+    VALUES ('cam02-unknown', $1, 'CAM-02', 1, $2, 'Unknown')`,
+  [iso(origin + 500), handle.producerGeneration])
+  const rows = await store.listClips(new Set(['CAM-02']))
+  const archive = rows.find(item => item.id === row.id)
+  assert.equal(archive?.kind, 'unknown')
+  assert.equal(archive?.hasUnknown, true)
+  assert.equal(archive?.nodeId, 'node-a')
+})
+
 dbTest('legacy Archive detection classification remains evidence-based', async () => {
   const { rows: [unknownClip] } = await db.query(`INSERT INTO clips
     (camera_id, started_at, duration_sec, file_path, stored_on_nas)
