@@ -11,6 +11,30 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 Recovery Runtime successor RRu — repository implemented, LIVE not executed — 2026-10-06
+
+> [!important] **RRu is a new governed successor stage, not a retry.** The deterministic release builder now treats `cli` as a first-class entrypoint alongside `supervisor`, `recovery_ui`, and `production_detector`, and the release tests prove the complete transitive closure, manifest/checksum entry, real built-release import, and D4 `/dev/null` interactive-terminal refusal. RRu is registered exactly once after `R1Bv` and before `Recovery`.
+>
+> RRu owns only one immutable Recovery-capable release installation and one atomic `current` transition OLD → NEW. Its repository machinery requires fresh Authorization + K3, exact-main/frozen-runner authority, `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`, and an absent `RECOVERY-GLOBAL-ATTEMPT-CONSUMED`. It journals before each mutation, proves NEW is exactly OLD plus the CLI entrypoint, preserves the running Core/detector processes and all captured surfaces, and bounds rollback to its own NEW release/pointer transition. It does not restart Core or detector, arm R1D, mutate core.env/credentials/nft/MQTT/SQLite/Recovery sockets, run ISOLATE/RESTORE/CLOSE, touch Production, or touch ESP32.
+>
+> **Current truth:** `RRU_REPOSITORY_IMPLEMENTED=YES`, `RRU_LIVE_EXECUTED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`. No RRu Authorization, K3, frozen live runner, host install, current transition, or RRu receipt exists yet. The future RRu closeout may establish only `RRU_RESULT=PASS` and `RECOVERY_RUNTIME_RELEASE_READY=YES`; it must not promote Recovery, R1, LVR, L8, or L9.
+
+### Current Task
+
+Task: IDEA3 Recovery Runtime release successor RRu
+Branch: `fix/idea3-recovery-release-cli-successor`
+Owner: `music`
+Current state: REPOSITORY IMPLEMENTED / LOCAL VERIFIED; LIVE NOT EXECUTED
+Started: 2026-10-06
+Base SHA: `ee1f58c118d64bc635e16feefad6d1d6da0d5432`
+Production mutation allowed: NO
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| RRu-S1 | Continue Claude handoff; builder CLI closure and governed RRu machinery | CLOSED | builder/registry/Recovery focused suites: 641 passed; policy/vault: 59 passed; shell, Python, secret scan, diff checks pass | `feac56f5` plus RRu implementation checkpoint | repository implementation PASS; LIVE intentionally unexecuted | owner/integration review; no LIVE execution | human review of Draft PR; no LIVE execution |
+
 ## IDEA3 R1Bv LIVE — CLOSED_PASS (read-only successor validation of the existing failed R1B evidence) — 2026-10-06
 
 > [!important] **R1Bv executed once and PASSED.** `R1BV_LIVE=CLOSED_PASS`, `R1BV_LIVE_EXECUTED=YES`, `R1BV_RESULT=PASS`, `R1BV_VERIFY=PASS`, `R1BV_IS_R1B_RETRY=NO`, `R1BV_READ_ONLY_VALIDATION_ONLY=YES`. It generated no external event, mutated no incident or R1B marker, and never created or reconstructed the missing `R1B-ATTEMPT-WINDOW`. Mechanically proven: the root-owned canonical R1B marker time authority and the `[L, L+600]` historical bound, the expected-source binding, the real detector/Core chain with `CREATED` semantics, audit provenance AND audit hash-chain integrity, R1I state, current TrustedClock evidence (the validation environment only, not the historical R1B clock) and the PRE -> POST preservation comparison (`PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`). Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_154016_music_idea3-r1bv-live-closeout.md`.
