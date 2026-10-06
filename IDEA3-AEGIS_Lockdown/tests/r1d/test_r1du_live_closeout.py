@@ -39,15 +39,18 @@ def test_exactly_one_r1du_closeout_receipt_exists() -> None:
         assert f"- `{line}`" in text, line
 
 
-def test_the_merged_r1d_receipt_gate_accepts_the_closeout_for_the_live_release() -> None:
+def test_the_r1d_receipt_gate_now_refuses_because_r1d_has_run_once_and_failed_immutably() -> None:
+    """Historical: this gate accepted the R1Du closeout BEFORE R1D ran. R1D has since executed once (immutable FAIL, committed disposition), so the one-shot R1D pre-gate must refuse forever."""
     head = git("rev-parse", "HEAD")
     result = base.bash(f'. "{LIB}"; r1d_receipt_gate "{REPO}" {RELEASE} {head}')
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1 and "R1D_CONTRADICTORY_OR_ALREADY_RECORDED" in result.stderr, result.stderr
 
 
 @pytest.mark.parametrize("claim", ["R1D_LIVE=CLOSED_PASS", "R1D_LIVE_EXECUTED=YES", "R1D_ATTEMPT_CONSUMED=YES", "R1B_LIVE_EXECUTED=YES", "R1B_LIVE=CLOSED_PASS", "R1B_ATTEMPT_CONSUMED=YES",
                                    "RECOVERY_R2_R8_EXECUTED=YES", "F1_REAL_DETECTOR_ACCEPTANCE=PROVEN", "R1_VERIFIED=VERIFIED", "RECOVERY_R1_R8_PROVEN=YES"])
 def test_no_r1d_r1b_or_recovery_success_claim_is_recorded_by_the_closeout(claim: str) -> None:
     field, value = claim.split("=")
-    found = base.bash(f'. "{LIB}"; r1d_field_files "{REPO}" "$(git -C "{REPO}" rev-parse HEAD)" {field} {value}').stdout.strip()
-    assert found == "", f"a receipt carries {claim}: {found}"
+    found = base.bash(f'. "{LIB}"; r1d_field_files "{REPO}" "$(git -C "{REPO}" rev-parse HEAD)" {field} {value}').stdout.split()
+    # the ONLY receipt allowed to record that R1D executed and consumed its attempt is the unique immutable R1D FAILURE closeout (R1D_RESULT=FAIL_IMMUTABLE; never a PASS)
+    found = [f for f in found if not (claim in ("R1D_LIVE_EXECUTED=YES", "R1D_ATTEMPT_CONSUMED=YES") and f.endswith("_music_idea3-r1d-live-failure-closeout.md"))]
+    assert found == [], f"a receipt carries {claim}: {found}"

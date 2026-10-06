@@ -135,10 +135,13 @@ def test_the_runner_is_read_only_ordered_and_needs_no_k3() -> None:
     for needle in ("STAGE_MUTATES_PRODUCTION=NO", "READ_ONLY_CAPTURE_ALLOWED=YES", "BINDING_SHA256", "$RUNNER_SHA256", "$EXPECTED_MAIN"):
         assert needle in text, needle
     seq = text[text.index("echo \"== R1Dv pre-gates"):]
-    order = ["pregates ||", "capture PRE", "clock_available \"$PRE\"", "handler BASELINE", "authority_gates ||", "handler FINAL ||", "capture POST", "clock_available \"$POST\"", "compare \"$PRE\" \"$POST\"",
-             "runtime_unchanged ||", "r1dv_r1i_present_gate", "handler FINAL verify.sh"]
+    order = ["pregates ||", "capture PRE", "clock_available \"$PRE\"", "handler BASELINE", "capture POST", "clock_available \"$POST\"", "compare \"$PRE\" \"$POST\"",
+             "authority_gates || r1dv_fail authority_before_final", "handler FINAL || r1dv_fail final", "handler FINAL verify.sh"]
     positions = [seq.index(o) for o in order]
     assert positions == sorted(positions), dict(zip(order, positions))
+    # the FINAL durable-state observation is the last substantive validation: nothing but verify sits between FINAL and verify
+    between = seq[seq.index("handler FINAL || r1dv_fail final"):seq.index("handler FINAL verify.sh")]
+    assert not re.search(r"runtime_unchanged|r1dv_r1i_present_gate|capture |compare |authority_gates", between.split("\n", 1)[1]), between
     assert "r1dv_run_attempt" not in text and "r1dv_consume" not in text and "R1DV_IS_R1D_RETRY=NO" in text and "R1DV_ATTEMPT_MARKER_CREATED=NO" in text
 
 
@@ -457,3 +460,18 @@ def test_verify_requires_every_check_and_the_unpromoted_claims(tmp_path: Path) -
     wrong = json.loads(json.dumps(good))
     wrong["original_binding_sha256"] = "8" * 64
     assert verify(wrong).returncode == 1
+
+
+@needs_userns
+def test_a_database_change_after_baseline_and_before_the_final_observation_is_refused(tmp_path: Path, monkeypatch) -> None:
+    audit, binding = committed_db(tmp_path, monkeypatch)
+    snapshot, manifest = base.make_snapshot(tmp_path)
+    marker = tmp_path / "R1D-GLOBAL-ATTEMPT-CONSUMED"
+    marker.write_text("x\n")
+    env = lambda step: handler_env(tmp_path, snapshot, manifest, step, audit, binding, marker)  # noqa: E731
+    assert run_step(env("BASELINE"), "b.sh").returncode == 0
+    # the window the old ordering left unobserved: durable state changes after BASELINE (and the generic POST work) but before FINAL
+    db.create_incident("203.0.113.77")
+    r = run_step(env("FINAL"), "f.sh")
+    assert r.returncode == 1 and re.search(r"OPEN_INCIDENTS_PRESENT|INCIDENT_SET_CHANGED_BETWEEN_PRE_AND_POST|HISTORICAL_INCIDENT_NOT_EXACTLY_ONE", r.stderr + r.stdout), (r.stdout, r.stderr)
+    assert not (tmp_path / "work/r1dv-result.json").exists() or "PASS" not in (tmp_path / "work/r1dv-result.json").read_text()

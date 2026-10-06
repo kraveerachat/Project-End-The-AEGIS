@@ -165,7 +165,7 @@ r1b_r1d_history_gate() {
   pass_files=$(r1b_field_files "$repo" "$main" R1D_RESULT PASS)
   fail_files=$(r1b_field_files "$repo" "$main" R1D_RESULT FAIL)
   v_files=$(r1b_field_files "$repo" "$main" R1DV_RESULT PASS; r1b_field_files "$repo" "$main" R1DV_RESULT FAIL; r1b_field_files "$repo" "$main" R1DV_LIVE CLOSED_PASS; r1b_field_files "$repo" "$main" R1DV_LIVE CLOSED_FAIL)
-  for claim in R1DV_INCIDENT_MUTATED=YES R1DV_R1D_SOCKET_CONNECTED=YES R1DV_DISPOSITION_CREATED=YES R1DV_IS_R1D_RETRY=YES R1DV_READ_ONLY_VALIDATION_ONLY=NO; do
+  for claim in R1DV_INCIDENT_MUTATED=YES R1DV_R1D_SOCKET_CONNECTED=YES R1DV_DISPOSITION_CREATED=YES R1DV_IS_R1D_RETRY=YES R1DV_READ_ONLY_VALIDATION_ONLY=NO R1DV_RESULT=FAIL R1DV_LIVE=CLOSED_FAIL; do
     [ -z "$(r1b_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}")" ] || { r1b_reason "R1B_R1DV_FORBIDDEN_CLAIM (a receipt carries ${claim})"; return 1; }
   done
   if [ -n "$pass_files" ] && [ -n "$fail_files" ]; then r1b_reason "R1B_R1D_HISTORY_CONTRADICTORY (both an R1D PASS and an R1D FAIL receipt exist)"; return 1; fi
@@ -174,6 +174,8 @@ r1b_r1d_history_gate() {
     _r1b_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1d-live-closeout.md" R1D_LIVE=CLOSED_PASS R1D_LIVE_EXECUTED=YES R1D_ATTEMPT_CONSUMED=YES R1D_RERUN_ALLOWED=NO R1D_RESULT=PASS \
       PREEXISTING_OPEN_INCIDENT_COUNT=0 R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES R1B_ATTEMPT_CONSUMED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
       RECOVERY_R2_R8_EXECUTED=NO || { r1b_reason "R1B_R1D_CLOSEOUT_MISSING_OR_AMBIGUOUS (R1B needs the unique R1D LIVE PASS closeout)"; return 1; }
+    # the R1D_RESULT=PASS file set must be EXACTLY the canonical closeout: an extra partial/bare PASS receipt makes the history ambiguous
+    [ "$(printf '%s\n' "$pass_files" | grep -c .)" = 1 ] || { r1b_reason "R1B_R1D_CLOSEOUT_MISSING_OR_AMBIGUOUS (an extra receipt carries R1D_RESULT=PASS)"; return 1; }
     return 0
   fi
   if [ -z "$fail_files" ]; then r1b_reason "R1B_R1D_CLOSEOUT_MISSING_OR_AMBIGUOUS (R1B needs the unique R1D LIVE PASS closeout, or the R1D failure closeout plus the R1Dv LIVE PASS closeout)"; return 1; fi
@@ -181,6 +183,8 @@ r1b_r1d_history_gate() {
     R1D_RESULT=FAIL R1D_FAILED_STAGE=final R1D_CORE_DISPOSITION_CALL=ONCE R1D_DISPOSITION_COMMITTED=YES R1D_DISPOSITION=DISPOSED R1D_RECOVERY_R8=NO R1D_FINAL=PASS R1D_VERIFY=NOT_REACHED \
     PRESERVATION_S10=FAIL COMPARE_RESULT=FAIL R1D_FAILURE_ROOT_CAUSE=R1D_VERIFIER_SNAPSHOT_MISSING_TRUSTED_TIME HISTORICAL_INCIDENT_STATE=CLOSED R1DV_REQUIRED=YES \
     F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED RECOVERY_R2_R8_EXECUTED=NO || { r1b_reason "R1B_R1D_FAILURE_CLOSEOUT_MISSING_OR_AMBIGUOUS"; return 1; }
+  # the R1D_RESULT=FAIL file set must be EXACTLY the canonical failure closeout: an extra partial/bare FAIL receipt makes the history ambiguous
+  [ "$(printf '%s\n' "$fail_files" | grep -c .)" = 1 ] || { r1b_reason "R1B_R1D_FAILURE_CLOSEOUT_MISSING_OR_AMBIGUOUS (an extra receipt carries R1D_RESULT=FAIL)"; return 1; }
   # exactly ONE R1Dv closeout file in total, and it must be the complete PASS closeout (a FAIL R1Dv or an incomplete one fails)
   [ "$(printf '%s\n' "$v_files" | sort -u | grep -c .)" = 1 ] || { r1b_reason "R1B_R1DV_CLOSEOUT_MISSING_OR_AMBIGUOUS (the R1D failure history needs the unique R1Dv LIVE PASS closeout)"; return 1; }
   _r1b_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1dv-live-closeout.md" R1DV_LIVE=CLOSED_PASS R1DV_LIVE_EXECUTED=YES R1DV_RESULT=PASS R1DV_IS_R1D_RETRY=NO R1DV_READ_ONLY_VALIDATION_ONLY=YES \

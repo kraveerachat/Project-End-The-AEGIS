@@ -273,3 +273,22 @@ def test_a_generic_r1d_fail_receipt_or_a_forged_failure_closeout_never_opens_pat
 def test_r1b_acceptance_semantics_are_unchanged_by_the_two_paths() -> None:
     acceptance = (ROOT / "aegis_soc/r1_acceptance.py").read_text()
     assert 'raise AcceptanceError("PREEXISTING_OPEN_INCIDENT")' in acceptance and 'groups() != (ip, "detector_alert", "CREATED")' in acceptance
+
+
+def test_one_r1dv_closeout_carrying_both_pass_and_fail_results_is_refused(tmp_path: Path) -> None:
+    both = r1dv_text(extra=("R1DV_RESULT=FAIL",))
+    assert gate(path_b(tmp_path, **{R1DV_CLOSEOUT: both})).returncode == 1
+    (tmp_path / "l").mkdir()
+    assert gate(path_b(tmp_path / "l", **{R1DV_CLOSEOUT: r1dv_text(extra=("R1DV_LIVE=CLOSED_FAIL",))})).returncode == 1
+
+
+def test_an_extra_bare_r1d_fail_receipt_makes_path_b_ambiguous(tmp_path: Path) -> None:
+    extra = f"{LOGS}/2026-10-06_090000_music_idea3-r1d-partial.md"
+    result = gate(path_b(tmp_path, **{extra: "- `R1D_RESULT=FAIL`\n"}))
+    assert result.returncode == 1 and "R1B_R1D_FAILURE_CLOSEOUT_MISSING_OR_AMBIGUOUS" in result.stderr
+
+
+def test_an_extra_bare_r1d_pass_receipt_makes_path_a_ambiguous(tmp_path: Path) -> None:
+    extra = f"{LOGS}/2026-10-06_090000_music_idea3-r1d-partial.md"
+    result = gate(repo_with(tmp_path, **{extra: "- `R1D_RESULT=PASS`\n"}))
+    assert result.returncode == 1 and "R1B_R1D_CLOSEOUT_MISSING_OR_AMBIGUOUS" in result.stderr

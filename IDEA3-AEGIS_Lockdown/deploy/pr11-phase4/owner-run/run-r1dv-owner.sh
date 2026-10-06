@@ -216,16 +216,16 @@ capture PRE "$PRE" || r1dv_fail pre_capture
 sudo chown -R "$(id -u):$(id -g)" "$PRE" 2>/dev/null || true
 clock_available "$PRE" || { echo "R1DV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=NO capture=pre"; r1dv_fail trustedclock_pre; }
 handler BASELINE || r1dv_fail baseline
-authority_gates || r1dv_fail authority_before_final
-echo "== R1Dv FINAL observation, POST capture and PRE -> POST comparison (all read-only)"
-handler FINAL || r1dv_fail final
+echo "== POST capture and PRE -> POST comparison (read-only)"
 capture POST "$POST" || r1dv_fail post_capture
 sudo chown -R "$(id -u):$(id -g)" "$POST" 2>/dev/null || true
 clock_available "$POST" || { echo "R1DV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=NO capture=post"; r1dv_fail trustedclock_post; }
 echo "R1DV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=YES"
 compare "$PRE" "$POST" "$EVID/compare-pre-post.txt" || r1dv_fail compare
-runtime_unchanged || { echo "R1DV_SERVICE_LIFECYCLE_DRIFT=YES"; r1dv_fail lifecycle; }
-r1dv_r1i_present_gate "$CTRL/r1i-input-instrumentation/r1i_input_instrumentation.py" || r1dv_fail r1i
+# The FINAL durable-state observation is the LAST substantive host-state validation: the fresh authority/lifecycle/R1I gates run immediately BEFORE it, and FINAL (compared against BASELINE) covers the whole stage window.
+authority_gates || r1dv_fail authority_before_final
+echo "== R1Dv FINAL observation (read-only; last host-state validation before verify)"
+handler FINAL || r1dv_fail final
 out=$(handler FINAL verify.sh 2>&1) || { printf '%s\n' "$out"; r1dv_fail verify; }
 printf '%s\n' "$out"; grep -qx 'R1DV_VERIFY=PASS' <<< "$out" || r1dv_fail verify
 echo "R1DV_RESULT=PASS R1DV_LIVE_EXECUTED=YES R1DV_IS_R1D_RETRY=NO R1DV_READ_ONLY_VALIDATION_ONLY=YES R1DV_PRESERVATION_S10=PASS R1DV_COMPARE_RESULT=PASS (automatic result only)"

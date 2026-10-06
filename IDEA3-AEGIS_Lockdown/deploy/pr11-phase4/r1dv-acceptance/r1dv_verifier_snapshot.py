@@ -25,7 +25,7 @@ from pathlib import Path
 
 ENTRY = "historical_validation"
 # The immutable verifier authority is the union of EVERY local entry point the stage executes under the snapshot PYTHONPATH: the read-only observer AND the generic evidence-capture helper (`p4-l5-clock.py`, run by
-# p4-l0-capture.sh), which imports `aegis_soc.trusted_time`. R1DV's live attempt failed closed (TRUSTEDCLOCK evidence UNAVAILABLE -> INCOMPARABLE) because the closure was rooted only in the observer.
+# p4-l0-capture.sh), which imports `aegis_soc.trusted_time`. The historical R1D live failure (TRUSTEDCLOCK evidence UNAVAILABLE -> INCOMPARABLE) was reproduced as a missing-trusted_time failure mode: the R1D snapshot closure was rooted only in the observer.
 ENTRIES = (ENTRY, "trusted_time")
 PACKAGE = "aegis_soc"
 MANIFEST_NAME = "R1DV-VERIFIER-SHA256SUMS"
