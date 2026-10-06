@@ -129,13 +129,7 @@ State: CLOSED · Branch: `feat/idea3-recovery-r2-r8-stage` · Starting SHA:
 
 The prior “no Recovery stage exists” wording below is historical/superseded.
 
-Implementation evidence: Recovery Core driver, one-attempt marker, normal D4
-boundary, owner-run controls, immutable verifier/freeze tooling, Recovery
-handler registration, preservation allowlist, focused tests, and this status
-reconciliation are complete. The focused suites passed 1,169 tests; vault
-validation passed with two pre-existing canvas owner-review warnings;
-collaboration policy tests passed. Recovery LIVE, Production mutation, R1B/R1Bv
-reruns, and ESP32 access remain explicitly unexecuted.
+Implementation evidence: the independent review (3 CRITICAL, 7 IMPORTANT, 3 MINOR) was remediated in place: the owner reason is validated before the marker; the runner and root handlers prove the root-owned control and verifier snapshots, exact-main Git authority and the real stage gate before executing; one durable canonical attempt marker; real PRE/POST preservation with a semantic containment-delta allowance; root-owned work/result bound to the attempt; PASS from the Core's own durable evidence and CLOSE record; the RESTORE secret only into the pinned release CLI. Focused suites passed (331 stage/authority/preservation, 142 freeze/snapshot, 354 Core/evidence, 1,409 registry/harness); the full suite had only pre-existing or re-pinned failures. Recovery LIVE, Production mutation, R1B/R1Bv reruns, and ESP32 access remain explicitly unexecuted; a fresh independent review is still required.
 
 ## IDEA3 F1u LIVE closeout — deployment PASS — 2026-10-05
 

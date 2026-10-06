@@ -29,7 +29,7 @@ import re
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote
 
 # Importing the Core modules constructs the rotating audit log handler, which would create a file. This checker must not
@@ -497,8 +497,12 @@ def evaluate(
     incident_id: int | None = None,
     now: float,
     max_age_sec: float = DEFAULT_MAX_AGE_SEC,
+    opener: Callable[[Any, dict[str, set[str]]], sqlite3.Connection] | None = None,
 ) -> dict[str, Any]:
-    """Pure read-only evaluation. ``now`` is explicit so identical inputs always give byte-identical output."""
+    """Pure read-only evaluation. ``now`` is explicit so identical inputs always give byte-identical output.
+
+    ``opener`` is an explicit read-only store-opener seam (default ``_open_ro``). A caller that must read a LIVE WAL store passes a consistent in-memory
+    view opener instead of patching module state, so no global is ever changed."""
     if incident_id is not None and type(incident_id) is not int:
         raise EvidenceError("BAD_INCIDENT_ID")
     if not _is_number(now) or not _is_number(max_age_sec) or max_age_sec <= 0:
@@ -513,10 +517,11 @@ def evaluate(
             obs_problem = problem.kind
     ctx = _Context(float(now), float(max_age_sec), obs, obs_problem)
 
+    open_store = _open_ro if opener is None else opener
     gates: dict[str, dict[str, Any]]
     incident: dict[str, Any] | None = None
     try:
-        audit = _AuditStore(_open_ro(audit_db, {"audit_logs": _AUDIT_COLUMNS, "incidents": _INCIDENT_COLUMNS}))
+        audit = _AuditStore(open_store(audit_db, {"audit_logs": _AUDIT_COLUMNS, "incidents": _INCIDENT_COLUMNS}))
     except StoreProblem as problem:
         verdict = BLOCKED if problem.kind == "MALFORMED" else NOT_PROVEN
         gates = _store_gates(verdict, f"AUDIT_STORE_{problem.kind}")
@@ -528,7 +533,7 @@ def evaluate(
         if protocol_db is None:
             protocol_problem = "MISSING"
         else:
-            protocol = _ProtocolStore(_open_ro(protocol_db, {"protocol_commands": _PROTOCOL_COLUMNS}))
+            protocol = _ProtocolStore(open_store(protocol_db, {"protocol_commands": _PROTOCOL_COLUMNS}))
     except StoreProblem as problem:
         protocol_problem = problem.kind
 

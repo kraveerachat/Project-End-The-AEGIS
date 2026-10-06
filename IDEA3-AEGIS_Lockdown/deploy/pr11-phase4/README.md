@@ -1,27 +1,5 @@
 # AEGIS IDEA3 PR11 Phase 4 — T1 / G-15 capture, compare, and stage-gate harness
 
-## Recovery R2-R8 — repository implementation, LIVE NEXT (2026-10-06)
-
-`RECOVERY_REPOSITORY_IMPLEMENTED=YES` · `RECOVERY_LIVE_EXECUTED=NO` ·
-`RECOVERY_R2_R8_EXECUTED=NO`
-
-Recovery is exactly one mutating Phase-4 stage, registered after `R1Bv` and
-before `L8`; it is not seven stages and it does not invent `L10`. It reuses the
-Core Recovery protocol/client/evidence path and requires the unique R1B
-`FAIL_IMMUTABLE` plus unique R1Bv `PASS` predecessor gate. Read-only pregates
-and PRE capture precede one exclusive attempt marker immediately before the
-first mutation, `ISOLATE`; post-marker failures are preserved and never blindly
-retried. R3 derives its target from the Core-bound incident.
-
-R4/R5 come only from the owner’s interactive normal `aegisctl restore` with the
-exact `RESTORE UPLINK` confirmation. The runner records only the exit code; the
-secret never enters the runner, argv, environment, pins, evidence, receipts,
-or Git. Break-glass, direct DB/MQTT/nft access, attacker-supplied IPs, automatic
-RESTORE retry, incident rebinding, and reopening a closed incident are refused.
-R8 requires the Core’s own R1-R7 recheck, unique `RECOVERY_R8_CLOSE` and
-`INCIDENT_CLOSED` evidence, and audit hash-chain integrity. Recovery LIVE is not
-executed by this implementation PR; LVR/L8/L9 remain unclaimed.
-
 Repository framework only. **Nothing here has run on the Core or Production.**
 
 ```text
@@ -881,3 +859,47 @@ Stage order, current: `... -> R1A (immutable FAIL) -> R1Du (PASS) -> R1D (immuta
 - **R1B is unchanged.** `R1B_RESULT=FAIL_IMMUTABLE`, `R1B_RESULT_REWRITTEN=NO`, `R1B_RERUN_ALLOWED=NO`; the window record is absent and was never reconstructed.
 - **Recovery predecessor satisfied, Recovery not run.** `r1bv_recovery_predecessor_gate` accepts exactly the immutable R1B failure plus this unique R1Bv LIVE PASS closeout. `RECOVERY_R2_R8_EXECUTED=NO`; the other Recovery prerequisites and a separate owner decision remain.
 - **Claims.** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`. `R1I_MUST_REMAIN_INSTALLED=YES`.
+
+## 24. Stage Recovery — the ONE governed R2-R8 stage — repository only
+
+`RECOVERY_REPOSITORY_IMPLEMENTED=YES` · `RECOVERY_LIVE_EXECUTED=NO` · `RECOVERY_R2_R8_EXECUTED=NO` · `R1B_RESULT=FAIL_IMMUTABLE` · `R1BV_RESULT=PASS`. Nothing here has run on Production, and the stage
+authorizes nothing: it needs a fresh same-day Authorization **and K3** (it is mutating), a root-owned frozen runner derived from the reviewed template, and a separately reviewed LIVE closeout.
+
+**Registry.** `Recovery` is exactly one stage, registered after `R1Bv` and before `L8` (no `L10`, no per-gate stages). The shared registry (`p4-lib.sh`) and stage gate (`p4-stage-gate.sh`) changed only for that
+registration and the Authorization/K3 recognition; older stages are semantically unchanged.
+
+**Authority split (fixed).** The Core Recovery socket accepts only the configured OPERATOR uid, so the Core operations (STATUS, PROBE, ISOLATE, RESTORE_STATUS, CLOSE) and the owner's interactive D4 run as the operator
+from the immutable verifier snapshot; ROOT only captures, compares and runs read-only verifiers inside a root-owned work directory under the canonical governance directory. The runner never accepts an attacker IP
+(the Core derives the ISOLATE target from its bound incident), never writes SQLite, never publishes MQTT, never mutates nft, never uses break-glass and never receives the RESTORE secret.
+
+**Live authority (before the first source).** The frozen runner re-proves the control snapshot itself (`control_gate`: canonical path, root-owned entries and ancestors to `/`, manifest, every file digest, exact file
+set, no symlink, nothing writable) and byte-equality with the pinned-main Git objects (`control_git_gate`, `GIT_NO_REPLACE_OBJECTS=1`, the pinned commit must be a real commit and equal HEAD) and only then sources
+`p4-recovery-run-lib.sh`. It then proves the operator identity, the REAL `p4-stage-gate.sh --stage Recovery --mode live` (Authorization bound to the main, the runner SHA-256, the release and the source IP; K3 V2 key set;
+no extra field, no secret), the existing `r1bv_recovery_predecessor_gate` (reused, never copied), the immutable verifier snapshot (manifest, digests, closure, byte-equal to the pinned main), the interpreter, R1I, Core/detector
+health and digests, the current release, the pinned release CLI, the Recovery socket, disk, services, the broker, IDEA2 S10 and the owner reason. Root handlers re-prove their own snapshot and work directory (trusted
+ownership chain to `/`) before running anything; the interpreter must be an absolute root-owned non-writable file.
+
+**One attempt.** ONE canonical stage-global marker (`RECOVERY-GLOBAL-ATTEMPT-CONSUMED`) in the root-owned `/var/lib/aegis-idea3-governance`, created exclusively IMMEDIATELY before the first mutation (Core ISOLATE): the canonical
+directory's entry in its parent is forced durable on EVERY invocation, the marker is created `noclobber`, its file then its directory are forced durable, and only then best-effort `chattr +i`. There is no second marker
+implementation. Before the marker: `RECOVERY_LIVE_EXECUTED=NO RECOVERY_ATTEMPT_CONSUMED=NO`. After it: `RECOVERY_ATTEMPT_CONSUMED=YES RECOVERY_RERUN_ALLOWED=NO`, even if the next command fails; any later failure is
+`RECOVERY_RESULT=FAIL_IMMUTABLE`, evidence preserved, nothing retried, repaired, reopened or rolled back. The marker is never deleted, rewritten or reconstructed.
+
+**D4 (R4/R5).** The owner reason (non-secret, bounded by the production RESTORE-reason validator plus a shell-active-character refusal) is validated BEFORE the marker and passed unchanged as one quoted
+`--reason=` argv element to the PINNED release program (`<release>/venv/bin/python -m aegis_soc.cli restore`, digest-pinned `cli.py`, a controlled environment with the pinned runtime directory, fixed `PATH`; `PYTHON`,
+`PYTHONPATH` and friends are refused). The secret and the `RESTORE UPLINK` confirmation are typed into that program's own prompts; stdin is not captured and its output bypasses the run log. D4 runs ONCE; exit
+`0`/`3` only continue into READ-ONLY reconciliation (`RESTORE_STATUS`, never a resend); `1`, `2`, `4` and anything else are terminal. `--break-glass` is never passed and break-glass evidence can never count.
+
+**Evidence.** The final verifier (root) accepts only the Core's OWN durable evidence: the single R3 request/result, the single RESTORE request/publication with the correlated ACCEPTED ack and status, `RECOVERY_R8_CLOSE`,
+`INCIDENT_CLOSED`, in order, after the attempt marker, with an intact audit hash chain (provenance is not integrity). The Core CLOSE success is the authority that R1-R7 — including its own live R2/R6/R7 probes and the
+physical NORMAL confirmation — were re-evaluated; those are labelled `ATTESTED_BY_CORE_CLOSE`, never independent. Operator step records are an operator trace: non-authoritative and never read by the final verifier.
+Outputs (baseline, `RECOVERY-FINAL-RAN`, result, SHA-256 sidecar) are created exclusively in the root work directory; `verify.sh` re-proves them against the canonical marker and rejects a hand-written result.
+
+**Preservation.** PRE and POST are the real `p4-l0-capture.sh`, compared by the real `p4-compare.sh` with NO static allowance. The only intended host-visible change — the Core-derived bound attacker ADDED to
+`inet aegis_idea3 blocked_ipv4` — is approved only after the stage proves it semantically (the nft dumps equal the captured hashes, the table is otherwise identical, the set delta is exactly the bound attacker) and
+then only for the two captured hash keys that change as a result; the comparator must approve exactly that many findings. Core/detector restarts, R1I removal, TrustedClock, listeners, sysctl, network, services, the
+current release, MQTT and IDEA1/IDEA2 drift all fail. TrustedClock must be captured and `SYNCED`.
+
+**Claims.** An automatic result prints `RECOVERY_RESULT=PASS` and `RECOVERY_PROMOTION=NOT_AUTOMATIC` and never the canonical live closed-pass token (reserved for a separately reviewed LIVE closeout receipt). `R1B_RESULT`
+stays `FAIL_IMMUTABLE`, `R1BV_RESULT` stays `PASS`; `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `LVR_PROVEN=NO`, `L8_ACCEPTANCE=NO`, `L9_PROVEN=NO`. R1I stays installed.
+
+**Freeze tooling.** The runner freeze (`recovery-acceptance/recovery_runner_freeze.py`) and the snapshot tool (`recovery_verifier_snapshot.py`) follow the system-only bootstrap workflow of section 17: privileged freezes run from a root-owned exact-main authority (section 17, phase A then phase B). A frozen runner is the exact reviewed template plus ONLY the 22 approved pin substitutions; no trust-root option exists, the production trust root is literally `/`. The pin set carries no secret and no runtime or chat value is a repository constant.

@@ -54,8 +54,8 @@ def stages() -> list[str]:
 def test_r1b_is_registered_exactly_once_after_the_historical_r1a_and_before_l8() -> None:
     order = stages()
     assert order.count("R1B") == 1
-    assert order.index("F1u") < order.index("R1I") < order.index("R1A") < order.index("R1Du") < order.index("R1D") < order.index("R1Dv") < order.index("R1B") < order.index("R1Bv") < order.index("L8") < order.index("L9")
-    assert order[order.index("R1A") + 1:order.index("R1A") + 4] == ["R1Du", "R1D", "R1Dv"] and order[order.index("R1B") + 1] == "R1Bv" and order[order.index("R1Bv") + 1] == "L8"  # R1Du and R1D (historical disposition) precede the unchanged R1B
+    assert order.index("F1u") < order.index("R1I") < order.index("R1A") < order.index("R1Du") < order.index("R1D") < order.index("R1Dv") < order.index("R1B") < order.index("R1Bv") < order.index("Recovery") < order.index("L8") < order.index("L9")
+    assert order[order.index("R1A") + 1:order.index("R1A") + 4] == ["R1Du", "R1D", "R1Dv"] and order[order.index("R1B") + 1] == "R1Bv" and order[order.index("R1Bv") + 1] == "Recovery" and order[order.index("Recovery") + 1] == "L8"  # R1Du and R1D (historical disposition) precede the unchanged R1B
 
 
 def test_r1b_is_a_mutating_stage_with_no_gap_and_no_authorization_extra() -> None:
