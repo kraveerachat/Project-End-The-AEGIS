@@ -11,6 +11,11 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 R1Du LIVE — CLOSED_PASS (deployment only) — 2026-10-06
+
+> [!important] **R1Du executed once and is permanently consumed.** `R1DU_LIVE=CLOSED_PASS`, `R1DU_LIVE_EXECUTED=YES`, `R1DU_PRODUCTION_DEPLOYED=YES`, `R1DU_ATTEMPT_CONSUMED=YES`, `R1DU_RERUN_ALLOWED=NO`, `R1DU_RELEASE_ID=ebffab6f8a6d7d98973fac7e89167352d529a87e`. The Core was restarted exactly once and runs the new release; the detector was cycled by systemd (Option A, zero explicit detector commands); the Core-private R1D channel is armed and served by the Core (`R1DU_R1D_CHANNEL_ARMED=YES`, `R1DU_R1D_SOCKET_SERVED_BY_CORE=YES`); apply, verify and the PRE/POST comparison passed with `SECRET_SCAN_HITS=0`.
+> R1Du proves deployment only: `R1DU_R1D_EXECUTED=NO`, `R1DU_INCIDENT_MUTATED=NO`. Historical incident #1 is still `OPEN` (`PREEXISTING_OPEN_INCIDENT_COUNT=1`); `R1D_ATTEMPT_CONSUMED=NO`, `R1B_ATTEMPT_CONSUMED=NO`. `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R2_R8_EXECUTED=NO`. The next governed step is R1D (a separate owner decision). Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_070624_music_idea3-r1du-live-closeout.md`.
+
 ## IDEA3 R1Du + R1D historical R1A incident disposition — repository implementation, NOT executed — 2026-10-06
 
 > [!important] **Repository only; a governed pre-live blocker for R1B is resolved in the repository, not on any host.** The immutable failed R1A attempt left incident #1 `OPEN`; R1B requires a NEW incident with `CREATED` semantics and its baseline refuses any open incident, and no reviewed path could close it. Owner-approved order: `R1A (immutable FAIL) -> R1Du -> R1D -> R1B -> Recovery R2-R8`. `R1DU_REPOSITORY_IMPLEMENTED=YES`, `R1D_REPOSITORY_IMPLEMENTED=YES`, `R1DU_LIVE_EXECUTED=NO`, `R1D_LIVE_EXECUTED=NO`, `R1D_ATTEMPT_CONSUMED=NO`, `R1B_ATTEMPT_CONSUMED=NO`, `CORE_RESTARTED=NO`, `INCIDENT_MUTATED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. `R1A_RESULT=FAIL_IMMUTABLE` and `R1A_RERUN_ALLOWED=NO` are untouched; R1B stays `R1B_IS_R1A_RETRY=NO` with its NEW-incident / `CREATED` / genuine-event / source-IP / one-attempt semantics unchanged (`R1B_NEW_INCIDENT_CREATED_SEMANTICS_UNCHANGED=YES`).

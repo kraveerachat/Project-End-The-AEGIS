@@ -25,8 +25,9 @@ gate, or create `R1A_LIVE=CLOSED_PASS`. Do not rerun R1A. See [[idea3/idea3-stat
 
 A governed pre-live blocker for the successor R1B (the preserved historical R1A incident is still `OPEN`) is resolved in the
 repository only by the owner-approved `R1Du` (Core upgrade) and `R1D` (one Core-mediated, atomic historical-incident
-disposition) stages; neither has run, R1B is unchanged and not consumed, and Recovery R2–R8 stays blocked. See
-[[idea3/idea3-status]].
+disposition) stages. `R1Du` has now executed once (`R1DU_LIVE=CLOSED_PASS`, deployment only, permanently consumed: the
+Core runs the new release with the R1D channel armed and unused); the historical incident is still `OPEN`, `R1D` has not
+run, R1B is unchanged and not consumed, and Recovery R2–R8 stays blocked. See [[idea3/idea3-status]].
 
 ## Start here
 
