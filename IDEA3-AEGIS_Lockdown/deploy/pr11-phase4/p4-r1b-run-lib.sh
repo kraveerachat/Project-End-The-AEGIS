@@ -153,6 +153,42 @@ _r1b_unique_suffix_receipt() {
   done
   [ "$(printf '%s\n' "$files" | wc -l)" = 1 ] && [[ "$files" == "$main:$R1B_LOGS_REL/"*"$suffix" ]] || return 1
 }
+# r1b_r1d_history_gate REPO MAIN — the R1D predecessor history, fail closed:
+#   PATH A (direct success): the unique R1D LIVE PASS closeout (R1D_LIVE=CLOSED_PASS, R1D_RESULT=PASS and every field below) and NO R1D failure closeout and NO R1Dv closeout.
+#   PATH B (immutable-failure successor history, owner decision): the unique immutable R1D FAILURE closeout (the disposition COMMITTED, the final preservation comparison FAILED because the immutable verifier snapshot
+#     omitted trusted_time) PLUS the unique R1Dv LIVE PASS closeout (R1DV_IS_R1D_RETRY=NO, read-only validation, no socket/mutation/disposition, audit integrity and the one-shot index proven, TrustedClock evidence
+#     available, S10 and the comparison PASS). R1Dv is a successor validation path, NEVER a retroactive R1D PASS: `R1D_RESULT=PASS` is never written for the failed attempt.
+# Everything else fails: a FAIL closeout alone, an R1Dv PASS without the exact R1D failure closeout, R1D FAIL + R1Dv FAIL, duplicates or ambiguity of either closeout, contradictory PASS and FAIL histories, and any R1Dv
+# mutation / socket / disposition claim. There is NO generic allowance of R1D_RESULT=FAIL.
+r1b_r1d_history_gate() {
+  local repo=${1:-} main=${2:-} pass_files fail_files v_files v_pass_files claim
+  pass_files=$(r1b_field_files "$repo" "$main" R1D_RESULT PASS)
+  fail_files=$(r1b_field_files "$repo" "$main" R1D_RESULT FAIL)
+  v_files=$(r1b_field_files "$repo" "$main" R1DV_RESULT PASS; r1b_field_files "$repo" "$main" R1DV_RESULT FAIL; r1b_field_files "$repo" "$main" R1DV_LIVE CLOSED_PASS; r1b_field_files "$repo" "$main" R1DV_LIVE CLOSED_FAIL)
+  for claim in R1DV_INCIDENT_MUTATED=YES R1DV_R1D_SOCKET_CONNECTED=YES R1DV_DISPOSITION_CREATED=YES R1DV_IS_R1D_RETRY=YES R1DV_READ_ONLY_VALIDATION_ONLY=NO; do
+    [ -z "$(r1b_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}")" ] || { r1b_reason "R1B_R1DV_FORBIDDEN_CLAIM (a receipt carries ${claim})"; return 1; }
+  done
+  if [ -n "$pass_files" ] && [ -n "$fail_files" ]; then r1b_reason "R1B_R1D_HISTORY_CONTRADICTORY (both an R1D PASS and an R1D FAIL receipt exist)"; return 1; fi
+  if [ -n "$pass_files" ]; then
+    [ -z "$v_files" ] || { r1b_reason "R1B_R1DV_PRESENT_WITHOUT_AN_R1D_FAILURE (Path A takes no R1Dv receipt)"; return 1; }
+    _r1b_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1d-live-closeout.md" R1D_LIVE=CLOSED_PASS R1D_LIVE_EXECUTED=YES R1D_ATTEMPT_CONSUMED=YES R1D_RERUN_ALLOWED=NO R1D_RESULT=PASS \
+      PREEXISTING_OPEN_INCIDENT_COUNT=0 R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES R1B_ATTEMPT_CONSUMED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
+      RECOVERY_R2_R8_EXECUTED=NO || { r1b_reason "R1B_R1D_CLOSEOUT_MISSING_OR_AMBIGUOUS (R1B needs the unique R1D LIVE PASS closeout)"; return 1; }
+    return 0
+  fi
+  if [ -z "$fail_files" ]; then r1b_reason "R1B_R1D_CLOSEOUT_MISSING_OR_AMBIGUOUS (R1B needs the unique R1D LIVE PASS closeout, or the R1D failure closeout plus the R1Dv LIVE PASS closeout)"; return 1; fi
+  _r1b_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1d-live-failure-closeout.md" R1D_FAILURE_CLOSEOUT=YES R1D_LIVE=CLOSED_FAIL R1D_LIVE_EXECUTED=YES R1D_ATTEMPT_CONSUMED=YES R1D_RERUN_ALLOWED=NO \
+    R1D_RESULT=FAIL R1D_FAILED_STAGE=final R1D_CORE_DISPOSITION_CALL=ONCE R1D_DISPOSITION_COMMITTED=YES R1D_DISPOSITION=DISPOSED R1D_RECOVERY_R8=NO R1D_FINAL=PASS R1D_VERIFY=NOT_REACHED \
+    PRESERVATION_S10=FAIL COMPARE_RESULT=FAIL R1D_FAILURE_ROOT_CAUSE=R1D_VERIFIER_SNAPSHOT_MISSING_TRUSTED_TIME HISTORICAL_INCIDENT_STATE=CLOSED R1DV_REQUIRED=YES \
+    F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED RECOVERY_R2_R8_EXECUTED=NO || { r1b_reason "R1B_R1D_FAILURE_CLOSEOUT_MISSING_OR_AMBIGUOUS"; return 1; }
+  # exactly ONE R1Dv closeout file in total, and it must be the complete PASS closeout (a FAIL R1Dv or an incomplete one fails)
+  [ "$(printf '%s\n' "$v_files" | sort -u | grep -c .)" = 1 ] || { r1b_reason "R1B_R1DV_CLOSEOUT_MISSING_OR_AMBIGUOUS (the R1D failure history needs the unique R1Dv LIVE PASS closeout)"; return 1; }
+  _r1b_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1dv-live-closeout.md" R1DV_LIVE=CLOSED_PASS R1DV_LIVE_EXECUTED=YES R1DV_RESULT=PASS R1DV_IS_R1D_RETRY=NO R1DV_READ_ONLY_VALIDATION_ONLY=YES \
+    R1DV_R1D_SOCKET_CONNECTED=NO R1DV_INCIDENT_MUTATED=NO R1DV_DISPOSITION_CREATED=NO R1DV_R1D_ATTEMPT_AUDIT_COUNT=1 R1DV_R1D_DISPOSITION_AUDIT_COUNT=1 R1DV_RECOVERY_R8_CLOSE_COUNT=0 \
+    R1DV_HISTORICAL_INCIDENT_STATE=CLOSED PREEXISTING_OPEN_INCIDENT_COUNT=0 R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES R1DV_ONE_SHOT_INDEX=PASS R1DV_AUDIT_INTEGRITY=PASS \
+    R1DV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=YES R1DV_PRESERVATION_S10=PASS R1DV_COMPARE_RESULT=PASS R1B_ATTEMPT_CONSUMED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
+    RECOVERY_R1_R8_PROVEN=NO RECOVERY_R2_R8_EXECUTED=NO || { r1b_reason "R1B_R1DV_CLOSEOUT_MISSING_OR_AMBIGUOUS (R1Dv LIVE PASS closeout incomplete, failed or not unique)"; return 1; }
+}
 # r1b_receipt_gate REPO RELEASE_ID MAIN — F1 detector deployed, the R1 evidence foundation merged, F1u (Core with ALERT_ACCEPTED) deployed, R1I LIVE closed — each from ONE canonical receipt of the pinned
 # commit (read as MAIN:path with replacement objects disabled) — and no contradictory or duplicate success state, and R1B not already recorded.
 r1b_receipt_gate() {
@@ -175,12 +211,8 @@ r1b_receipt_gate() {
       R1DU_RERUN_ALLOWED=NO R1DU_RELEASE_ID="$release" R1DU_R1D_EXECUTED=NO R1DU_INCIDENT_MUTATED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED RECOVERY_R2_R8_EXECUTED=NO \
       || { r1b_reason "R1B_F1U_CLOSEOUT_DOES_NOT_CARRY_THE_PINNED_RELEASE (and no unique R1Du closeout carries it)"; return 1; }
   fi
-  # R1D (historical R1A incident disposition) LIVE PASS closeout: the governed stage order proof. The ONE unique R1D closeout must carry the full success state; R1B's own zero-open-incident baseline is NOT a
-  # substitute (another closure path could satisfy it) and is itself unchanged.
-  _r1b_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1d-live-closeout.md" R1D_LIVE=CLOSED_PASS R1D_LIVE_EXECUTED=YES R1D_ATTEMPT_CONSUMED=YES R1D_RERUN_ALLOWED=NO R1D_RESULT=PASS \
-    PREEXISTING_OPEN_INCIDENT_COUNT=0 R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES R1B_ATTEMPT_CONSUMED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
-    RECOVERY_R2_R8_EXECUTED=NO || { r1b_reason "R1B_R1D_CLOSEOUT_MISSING_OR_AMBIGUOUS (R1B needs the unique R1D LIVE PASS closeout)"; return 1; }
-  [ -z "$(r1b_field_files "$repo" "$main" R1D_RESULT FAIL)" ] || { r1b_reason "R1B_R1D_FAILURE_RECORDED (an R1D FAIL receipt exists)"; return 1; }
+  # R1D (historical R1A incident disposition) predecessor history. Exactly ONE of two explicit paths is valid (see r1b_r1d_history_gate); the governed stage-order proof is never inferred from R1B's own baseline.
+  r1b_r1d_history_gate "$repo" "$main" || return 1
   # R1I LIVE closeout: ONE canonical receipt carrying the full success state, and still the unproven claim boundary.
   _r1b_only_receipt "$repo" "$main" "$R1B_R1I_CLOSEOUT_RECEIPT_REL" R1I_CLOSEOUT R1I_LIVE=CLOSED_PASS R1I_LIVE_EXECUTED=YES R1I_PRODUCTION_DEPLOYED=YES R1I_ATTEMPT_CONSUMED=YES \
     R1I_RERUN_ALLOWED=NO PRODUCTION_NFT_NORMALIZATION=PASS_OBSERVED_LIVE F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED \
