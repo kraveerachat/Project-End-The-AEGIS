@@ -1497,8 +1497,8 @@ textarea:focus-visible {
     transform: none !important;
   }
 
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-capacity-ring,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-stat-card {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-capacity-ring,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-card {
     animation: none !important;
     transition: none !important;
   }
@@ -1723,9 +1723,11 @@ textarea:focus-visible {
 }
 
 /* IDEA1 Neo Dashboard calibration. The reference images supply composition;
-   the two repository assets supply atmosphere. Other Neo screens and Classic
-   retain their existing shell and content styling. */
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] {
+   the two repository assets supply atmosphere. The floating shell (Sidebar,
+   Top Bar, background, page header) is shared by every Neo screen through
+   `.authenticated-shell[data-screen]`; Dashboard-only content classes keep
+   their own names. Classic retains its existing shell and content styling. */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] {
   --card: #ffffff;
   --card-sunken: #eef4fc;
   --line: #d4e1f2;
@@ -1737,7 +1739,7 @@ textarea:focus-visible {
   background: #e7f1ff url('/assets/backgrounds/neo/Neo-Light_BG.webp') center top / cover no-repeat;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] {
   --card: #0b1c38;
   --card-sunken: #152644;
   --line: #294567;
@@ -1752,15 +1754,15 @@ textarea:focus-visible {
   background: linear-gradient(180deg, rgba(3, 10, 28, 0.12), rgba(3, 10, 28, 0.32)), url('/assets/backgrounds/neo/Neo-Black_BG.webp') center top / cover no-repeat;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] > div:last-child > main {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] > div:last-child > main {
   background: transparent;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] > div:last-child > main {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] > div:last-child > main {
   background: transparent;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame {
   position: relative;
   z-index: 2;
   height: calc(100% - 24px);
@@ -1771,7 +1773,7 @@ textarea:focus-visible {
   overflow: visible;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame > .app-sidebar {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame > .app-sidebar {
   position: absolute;
   inset: 0 auto 0 0;
   width: 100%;
@@ -1779,16 +1781,16 @@ textarea:focus-visible {
   transition: width 220ms cubic-bezier(.25, 1, .5, 1);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame[data-rail-state="hover"] {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="hover"] {
   z-index: calc(var(--z-sticky) + 1);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame[data-rail-state="hover"] > .app-sidebar {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="hover"] > .app-sidebar {
   width: 260px;
   box-shadow: 12px 20px 36px -20px #000117, 0 0 0 1px var(--neo-dashboard-border) !important;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame > .app-sidebar {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame > .app-sidebar {
   border: 1px solid rgba(202, 209, 255, .35);
   border-radius: 18px;
   background: linear-gradient(120deg, rgba(255, 255, 255, .09), transparent 48%), linear-gradient(162deg, #293dd6 0%, #3e48c1 46%, #6c5ba4 100%) !important;
@@ -1802,20 +1804,20 @@ textarea:focus-visible {
   backdrop-filter: none;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-sidebar .text-ink,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-sidebar .text-ink-2 {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .text-ink,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .text-ink-2 {
   color: #f8f9ff;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-sidebar .text-ink-3 {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .text-ink-3 {
   color: #f0f2ff;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-sidebar .bg-sunken {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .bg-sunken {
   background: rgba(1, 7, 58, .23);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header {
   height: 112px;
   padding: 12px 14px 10px;
   flex-direction: column;
@@ -1824,7 +1826,7 @@ textarea:focus-visible {
   border-bottom: 1px solid rgba(230, 233, 255, .2);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-brand-row {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-row {
   min-height: 48px;
   display: flex;
   align-items: center;
@@ -1832,18 +1834,18 @@ textarea:focus-visible {
   min-width: 0;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-brand-row [lang="en"] {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-row [lang="en"] {
   color: #fff;
   font-size: 15px;
   letter-spacing: -.02em;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header {
   position: relative;
   height: 116px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-brand-row {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-brand-row {
   position: absolute;
   top: 17px;
   left: 13px;
@@ -1852,12 +1854,12 @@ textarea:focus-visible {
   justify-content: flex-start;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-brand-mark {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-mark {
   flex: none;
   transition: scale 220ms var(--neo-ease);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-brand-name {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-name {
   position: absolute;
   left: 55px;
   max-width: 128px;
@@ -1872,26 +1874,26 @@ textarea:focus-visible {
   transition: opacity 180ms var(--neo-ease), translate 220ms var(--neo-ease);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame[data-rail-state="compact"] .neo-sidebar-brand-name {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="compact"] .neo-sidebar-brand-name {
   opacity: 0;
   translate: -6px 0;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame:not([data-rail-state="compact"]) .neo-sidebar-brand-mark {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame:not([data-rail-state="compact"]) .neo-sidebar-brand-mark {
   scale: 1.09;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header--compact {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header--compact {
   height: 116px;
   padding-inline: 11px;
   align-items: center;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header--compact .neo-sidebar-brand-row {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header--compact .neo-sidebar-brand-row {
   justify-content: center;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header-toggle {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header-toggle {
   position: absolute;
   top: 17px;
   left: 14px;
@@ -1901,37 +1903,37 @@ textarea:focus-visible {
   transition: translate 220ms var(--neo-ease), background-color 180ms var(--neo-ease), color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header--compact .neo-sidebar-header-toggle {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header--compact .neo-sidebar-header-toggle {
   translate: 0 50px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame[data-rail-state="hover"] .neo-sidebar-header-toggle {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="hover"] .neo-sidebar-header-toggle {
   translate: 188px 0;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header-toggle:is(:hover, :focus-visible) {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header-toggle:is(:hover, :focus-visible) {
   background: rgba(226, 230, 255, .22);
   box-shadow: 0 0 16px rgba(165, 177, 255, .24);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header-toggle:is(:hover, :focus-visible) svg {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header-toggle:is(:hover, :focus-visible) svg {
   scale: 1.06;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header-toggle:active svg {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header-toggle:active svg {
   scale: .97;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header + button {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header + button {
   display: none;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar nav {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar nav {
   position: relative;
   padding-top: 18px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-nav-indicator {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-nav-indicator {
   position: absolute;
   z-index: 0;
   top: 0;
@@ -1946,17 +1948,17 @@ textarea:focus-visible {
   transition: transform 240ms var(--neo-ease);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame[data-rail-state="compact"] .neo-nav-indicator {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="compact"] .neo-nav-indicator {
   right: 12px;
   left: 12px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .sidebar-nav-item {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .sidebar-nav-item {
   position: relative;
   z-index: 1;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame nav[data-nav-indicator="ready"] .sidebar-nav-item.is-active {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame nav[data-nav-indicator="ready"] .sidebar-nav-item.is-active {
   background: transparent !important;
   box-shadow: none;
 }
@@ -1966,30 +1968,30 @@ textarea:focus-visible {
   to { opacity: 1; transform: translateX(0); }
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame[data-rail-state="hover"] .sidebar-nav-item span {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="hover"] .sidebar-nav-item span {
   animation: neo-sidebar-label-in 180ms cubic-bezier(.25, 1, .5, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-nav-indicator {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-nav-indicator {
     transition: none;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame > .app-sidebar {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame > .app-sidebar {
     transition: none;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame[data-rail-state="hover"] .sidebar-nav-item span {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="hover"] .sidebar-nav-item span {
     animation: none;
   }
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .sidebar-nav-item {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item {
   min-height: 46px;
   border-radius: 11px;
   font-weight: 600;
   color: #f0f1ff;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .sidebar-nav-item:not(.is-active):is(:hover, :focus-visible) {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item:not(.is-active):is(:hover, :focus-visible) {
   color: #fff;
   background: rgba(229, 233, 255, .16);
   box-shadow: inset 0 0 0 1px rgba(241, 242, 255, .18);
@@ -2006,11 +2008,14 @@ textarea:focus-visible {
   to { --neo-sidebar-trace-angle: 360deg; }
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle) {
-  --neo-sidebar-trace: conic-gradient(from var(--neo-sidebar-trace-angle), transparent 0deg 232deg, #48cfff 258deg, #6a8eff 289deg, #a97cf6 320deg, #e488d6 344deg, transparent 360deg);
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle) {
+  /* A travelling comet, not a distributed rainbow: one bright head with a
+     short blue → violet tail that fades to nothing, so the eye follows a
+     single point of light around the perimeter. */
+  --neo-sidebar-trace: conic-gradient(from var(--neo-sidebar-trace-angle), transparent 0deg 268deg, rgba(72, 140, 255, 0) 268deg, rgba(106, 142, 255, 0.38) 306deg, rgba(169, 124, 246, 0.78) 336deg, #d9c6ff 351deg, #ffffff 355deg, rgba(228, 136, 214, 0.55) 357deg, transparent 360deg);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle)::before {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle)::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -2027,73 +2032,73 @@ textarea:focus-visible {
   transition: opacity 180ms var(--neo-ease);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header-toggle {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header-toggle {
   isolation: isolate;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header-toggle:focus-visible,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-sidebar .sidebar-nav-item:focus-visible {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header-toggle:focus-visible,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .sidebar-nav-item:focus-visible {
   outline: 2px solid #f8f9ff;
   outline-offset: 2px;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar::before,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-sidebar .sidebar-nav-item:hover::before,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header-toggle:hover::before {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar::before,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .sidebar-nav-item:hover::before,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header-toggle:hover::before {
     opacity: 1;
-    animation: neo-sidebar-trace 4.8s linear infinite;
+    animation: neo-sidebar-trace 2.8s linear infinite;
   }
 
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar {
     filter: drop-shadow(0 0 4px rgba(115, 150, 255, .14));
   }
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-sidebar .sidebar-nav-item:focus-visible::before,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header-toggle:focus-visible::before {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .sidebar-nav-item:focus-visible::before,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header-toggle:focus-visible::before {
   opacity: 1;
-  animation: neo-sidebar-trace 4.8s linear infinite;
+  animation: neo-sidebar-trace 2.8s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-brand-mark,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-brand-name,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header-toggle {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-mark,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-name,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header-toggle {
     transition: none;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle)::before {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle)::before {
     animation: none !important;
     transition: none;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar {
     filter: none;
   }
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .sidebar-nav-item svg {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item svg {
   transition: transform 180ms var(--neo-ease), filter 180ms var(--neo-ease);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .sidebar-nav-item:hover svg {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item:hover svg {
     transform: translateY(-1px) scale(1.06);
     filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 60%, transparent));
   }
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .sidebar-nav-item:focus-visible svg {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item:focus-visible svg {
   transform: translateY(-1px) scale(1.06);
   filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 60%, transparent));
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .sidebar-nav-item.is-active {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item.is-active {
   background: linear-gradient(105deg, #0965d2 0%, #3d45e3 60%, #9d3fc1 100%) !important;
   color: #fff !important;
   box-shadow: 0 0 0 1px rgba(230, 235, 255, .62), 0 7px 20px rgba(15, 26, 130, .42);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-topbar {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar {
   position: relative;
   inset: auto;
   z-index: var(--z-sticky);
@@ -2118,16 +2123,16 @@ textarea:focus-visible {
   border-color: rgba(131, 153, 215, .28);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-topbar .text-ink,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-topbar .text-ink-2 {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar .text-ink,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar .text-ink-2 {
   color: #f5f7ff;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-topbar .text-ink-3 {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar .text-ink-3 {
   color: #b2bfdc;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-identity {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-identity {
   flex: 0 0 auto;
   gap: 12px;
 }
@@ -2138,19 +2143,19 @@ textarea:focus-visible {
   background: var(--line);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-utilities {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-utilities {
   flex: 1 1 auto;
   min-width: 130px;
   justify-content: flex-end;
 }
 
 @media (min-width: 1024px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-topbar-mobile-toggle {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-topbar-mobile-toggle {
     display: none;
   }
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-status-pill {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-status-pill {
   border-color: transparent;
   border-radius: 0;
   background: transparent;
@@ -2159,59 +2164,59 @@ textarea:focus-visible {
   gap: 8px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-status-pill + .neo-status-pill {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-status-pill + .neo-status-pill {
   border-left: 1px solid rgba(167, 185, 233, .2);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search {
   flex: 1 1 240px;
   min-width: 130px;
   max-width: 340px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search input {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search input {
   background: #252530 !important;
   border-color: transparent;
   color: #f5f7ff !important;
   transition: background-color 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search input::placeholder {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search input::placeholder {
   color: #aebbd7;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search .search-shortcut,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-topbar .theme-toggle {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search .search-shortcut,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar .theme-toggle {
   background: #252530;
   border-color: #404b71;
   color: #d9e2ff;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-topbar .theme-toggle:is(:hover, :focus-visible) {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar .theme-toggle:is(:hover, :focus-visible) {
   background: #30354d;
   border-color: #718be0;
   box-shadow: 0 0 16px rgba(100, 120, 230, .18);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search input:is(:hover, :focus-visible) {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search input:is(:hover, :focus-visible) {
   background: #2e3040 !important;
   border-color: rgba(113, 138, 225, .48);
   box-shadow: 0 0 0 3px rgba(81, 108, 220, .14);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-profile-trigger {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-profile-trigger {
   border-radius: 12px;
   transition: background-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-profile-trigger:is(:hover, :focus-visible),
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-profile-trigger[aria-expanded="true"] {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-profile-trigger:is(:hover, :focus-visible),
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-profile-trigger[aria-expanded="true"] {
   background: #252530;
   box-shadow: 0 0 0 1px rgba(120, 145, 235, .32), 0 0 18px rgba(86, 103, 211, .14);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-profile-menu,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-search-menu {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-profile-menu,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-search-menu {
   background: #111a33 !important;
   border-color: #384b78;
   color: #f6f8ff;
@@ -2223,24 +2228,24 @@ textarea:focus-visible {
   box-shadow: 0 18px 46px -20px rgba(0, 1, 23, .88), 0 0 0 1px rgba(131, 153, 215, .1) !important;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.neo-profile-menu, .neo-search-menu) .text-ink {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu) .text-ink {
   color: #f6f8ff;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.neo-profile-menu, .neo-search-menu) .text-ink-2 {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu) .text-ink-2 {
   color: #d7e0f6;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.neo-profile-menu, .neo-search-menu) .text-ink-3 {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu) .text-ink-3 {
   color: #b1c2e2;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-search-menu [role="option"][aria-selected="true"] {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-search-menu [role="option"][aria-selected="true"] {
   background: #28375a !important;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-search-menu [role="option"]:is(:hover, :focus-visible),
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-profile-menu [role="menuitem"]:is(:hover, :focus-visible) {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-search-menu [role="option"]:is(:hover, :focus-visible),
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-profile-menu [role="menuitem"]:is(:hover, :focus-visible) {
   background: #314574 !important;
   color: #fff;
 }
@@ -2255,18 +2260,18 @@ textarea:focus-visible {
   to { opacity: 0; transform: translateY(-4px) scale(.99); }
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.neo-profile-menu, .neo-search-menu)[data-state="open"] {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu)[data-state="open"] {
   animation: neo-pop-in 180ms cubic-bezier(.2, .8, .2, 1) both;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.neo-profile-menu, .neo-search-menu)[data-state="closing"] {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu)[data-state="closing"] {
   animation: neo-pop-out 160ms ease-in both;
   pointer-events: none;
 }
 
 /* Dark Dashboard Top Bar: a quieter companion to the floating Sidebar's
    #293dd6 -> #6c5ba4 spectrum. No other theme or screen inherits this pass. */
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar {
   --neo-topbar-blue: #293dd6;
   --neo-topbar-violet: #6c5ba4;
   --neo-topbar-edge: rgba(145, 164, 244, .4);
@@ -2279,11 +2284,11 @@ textarea:focus-visible {
     0 4px 16px -10px rgba(13, 23, 100, .66) !important;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-topbar-utilities {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-topbar-utilities {
   gap: clamp(8px, .85vw, 14px);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-status-pill {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-status-pill {
   min-height: 38px;
   padding-inline: 13px;
   border: 1px solid rgba(148, 168, 246, .3);
@@ -2294,29 +2299,29 @@ textarea:focus-visible {
   transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease), background-color 180ms var(--neo-ease);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-status-pill + .neo-status-pill {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-status-pill + .neo-status-pill {
   border-left: 1px solid rgba(148, 168, 246, .3);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-status-pill:hover {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-status-pill:hover {
     border-color: rgba(142, 170, 255, .68);
     box-shadow: inset 0 1px 0 rgba(222, 228, 255, .13), 0 0 0 1px rgba(76, 101, 224, .12);
   }
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-status-pill:focus-visible {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-status-pill:focus-visible {
   outline: 2px solid #a8baff;
   outline-offset: 2px;
   border-color: #9baeff;
   box-shadow: 0 0 0 4px rgba(84, 106, 226, .22);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search {
   position: relative;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search input {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search input {
   min-height: 40px;
   border: 1px solid rgba(145, 164, 244, .3);
   border-radius: 11px;
@@ -2326,40 +2331,40 @@ textarea:focus-visible {
   transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search input::placeholder {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search input::placeholder {
   color: #b7c6e9;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search .search-shortcut {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search .search-shortcut {
   border-color: rgba(147, 165, 240, .36);
   background: rgba(73, 76, 136, .3);
   color: #e4ebff;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search > svg {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search > svg {
   color: #afc7ff;
   transition: color 180ms var(--neo-ease), transform 180ms var(--neo-ease);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search:hover input {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search:hover input {
     transform: translateY(-1px);
     border-color: rgba(135, 159, 252, .6);
     box-shadow: inset 0 1px 0 rgba(222, 228, 255, .1), 0 7px 20px -12px rgba(64, 84, 229, .58);
   }
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search:focus-within input {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search:focus-within input {
   border-color: #97adff;
   box-shadow: inset 0 1px 0 rgba(222, 228, 255, .12), 0 0 0 3px rgba(75, 105, 227, .26), 0 9px 22px -12px rgba(82, 99, 231, .55);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search:focus-within > svg {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search:focus-within > svg {
   color: #e0e8ff;
   transform: scale(1.08);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .theme-toggle {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .theme-toggle {
   width: 40px;
   height: 40px;
   border: 1px solid rgba(145, 164, 244, .38);
@@ -2371,32 +2376,32 @@ textarea:focus-visible {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .theme-toggle:hover {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .theme-toggle:hover {
     transform: translateY(-1px);
     border-color: rgba(156, 177, 255, .76);
     box-shadow: inset 0 1px 0 rgba(222, 228, 255, .17), 0 0 16px rgba(81, 103, 227, .3);
   }
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .theme-toggle:focus-visible {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .theme-toggle:focus-visible {
   outline: 2px solid #a8baff;
   outline-offset: 2px;
   border-color: #a8baff;
   box-shadow: 0 0 0 4px rgba(84, 106, 226, .22);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .theme-toggle:active {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .theme-toggle:active {
   transform: scale(.97);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-clock {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-clock {
   min-width: 90px;
   gap: 2px;
   padding-inline: 8px 3px;
   font-variant-numeric: tabular-nums;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-time {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-time {
   color: #f5f7ff;
   font-size: 15px;
   font-weight: 700;
@@ -2404,19 +2409,19 @@ textarea:focus-visible {
   line-height: 1.15;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-date {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-date {
   color: #bdc9e5;
   font-size: 11px;
   letter-spacing: .02em;
   line-height: 1.15;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-account-zone > [aria-hidden] {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-account-zone > [aria-hidden] {
   height: 30px;
   background: rgba(160, 177, 243, .25);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-profile-trigger {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-profile-trigger {
   min-height: 46px;
   gap: 9px;
   padding: 4px 10px 4px 5px;
@@ -2427,113 +2432,113 @@ textarea:focus-visible {
   transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-avatar-shell {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-avatar-shell {
   padding: 2px;
   background: linear-gradient(145deg, #5a89ff, #9b77d9);
   box-shadow: 0 0 0 1px rgba(185, 199, 255, .28);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-profile-meta {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-profile-meta {
   max-width: 160px;
   gap: 2px;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-profile-meta span:last-child {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-profile-meta span:last-child {
   color: #bfcae8;
   font-size: 11px;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-profile-trigger:hover {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-profile-trigger:hover {
     transform: translateY(-1px);
     border-color: rgba(154, 177, 255, .74);
     box-shadow: inset 0 1px 0 rgba(222, 228, 255, .14), 0 0 18px rgba(84, 106, 226, .25);
   }
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-profile-trigger:is(:focus-visible, [aria-expanded="true"]) {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-profile-trigger:is(:focus-visible, [aria-expanded="true"]) {
   outline: 2px solid #a8baff;
   outline-offset: 2px;
   border-color: #a8baff;
   box-shadow: 0 0 0 4px rgba(84, 106, 226, .22);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-profile-trigger:active {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-profile-trigger:active {
   transform: scale(.98);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] :is(.neo-profile-menu, .neo-search-menu) {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu) {
   border-color: rgba(146, 169, 255, .52);
   border-radius: 14px;
   background: radial-gradient(ellipse at 8% 0%, rgba(48, 67, 164, .38), transparent 64%), linear-gradient(135deg, #111a33, #1b1b3e) !important;
   box-shadow: inset 0 1px 0 rgba(222, 228, 255, .12), 0 18px 45px -18px rgba(0, 1, 23, .88) !important;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] :is(.neo-profile-menu, .neo-search-menu) :is([role="menuitem"], [role="option"]):focus-visible {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu) :is([role="menuitem"], [role="option"]):focus-visible {
   outline: 2px solid #a8baff;
   outline-offset: -2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] :is(.neo-status-pill, .neo-topbar-search input, .neo-topbar-search > svg, .theme-toggle, .neo-profile-trigger) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] :is(.neo-status-pill, .neo-topbar-search input, .neo-topbar-search > svg, .theme-toggle, .neo-profile-trigger) {
     transition: none !important;
     transform: none !important;
   }
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-topbar > div:last-child {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar > div:last-child {
   flex: 0 0 auto;
   gap: clamp(8px, 1vw, 16px);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] > div:last-child > main {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] > div:last-child > main {
   padding-top: 0;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-content {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-content {
   width: 100%;
   max-width: 1880px;
   margin-inline: auto;
   padding: 28px clamp(18px, 2vw, 38px) 50px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-page-header {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-page-header {
   margin-bottom: 24px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-page-header h1 {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-page-header h1 {
   font-size: clamp(26px, 2vw, 34px);
   line-height: 1.15;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-page-header nav {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-page-header nav {
   color: #465879;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-page-header nav span:nth-child(2) {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-page-header nav span:nth-child(2) {
   opacity: .8;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-page-header nav span:last-child {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-page-header nav span:last-child {
   color: #174bbb;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-page-header nav {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-page-header nav {
   color: #c4d2ed;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-page-header nav span:last-child {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-page-header nav span:last-child {
   color: #93b7ff;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-inline-status {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-inline-status {
   display: none;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-inline-status > span {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-inline-status > span {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -2547,14 +2552,14 @@ textarea:focus-visible {
   font-weight: 600;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .ui-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .ui-card {
   background: var(--neo-dashboard-card) !important;
   border: 1px solid var(--neo-dashboard-border);
   border-radius: 15px;
   box-shadow: none !important;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .metric-icon {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .metric-icon {
   width: 42px;
   height: 42px;
   color: var(--accent-ink);
@@ -2562,18 +2567,18 @@ textarea:focus-visible {
   box-shadow: none;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-grid {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
   display: grid;
   grid-template-columns: minmax(270px, 1.6fr) repeat(3, minmax(170px, 1fr));
   gap: 14px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-stat-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-card {
   min-height: 172px;
   padding: 20px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-capacity-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-capacity-card {
   padding-right: 120px;
 }
 
@@ -2603,55 +2608,55 @@ textarea:focus-visible {
   font: 700 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
   gap: 16px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid > div {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid > div {
   min-width: 0;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid > div > .ui-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid > div > .ui-card {
   height: 100%;
   min-height: 378px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid.is-dashboard-unavailable > div > .ui-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid.is-dashboard-unavailable > div > .ui-card {
   min-height: 220px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-activity-plot {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-activity-plot {
   height: 288px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.75fr) repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: stretch;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid > .ui-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid > .ui-card {
   min-width: 0;
   height: 100%;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .lake-health-row,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] article[aria-busy] {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-row,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] article[aria-busy] {
   background: var(--neo-dashboard-inner) !important;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .ui-card .ui-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .ui-card .ui-card {
   box-shadow: none !important;
 }
 
 @media (max-width: 1350px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-status-pill {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-status-pill {
     display: none;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-inline-status {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-inline-status {
     display: flex;
   }
 }
@@ -2659,46 +2664,46 @@ textarea:focus-visible {
 /* The full Dark utility row still fits laptop widths; keep measured statuses
    in the Top Bar until the narrower compact-shell breakpoint is reached. */
 @media (min-width: 1200px) and (max-width: 1350px) {
-  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-status-pill {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-status-pill {
     display: inline-flex;
   }
-  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-inline-status {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-dashboard-inline-status {
     display: none;
   }
 }
 
 @media (max-width: 1180px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-grid {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid > :first-child {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid > :first-child {
     grid-column: 1 / -1;
   }
 }
 
 @media (max-width: 767px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-topbar {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar {
     height: 64px;
     min-height: 64px;
     margin: 10px 10px 0;
     padding-inline: 12px;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-identity > button,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .theme-toggle {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-identity > button,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .theme-toggle {
     width: 44px;
     height: 44px;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search input {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search input {
     min-height: 44px;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] > div:last-child > main {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] > div:last-child > main {
     padding-top: 0;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-drawer-panel .app-sidebar {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-drawer-panel .app-sidebar {
     border-radius: 0 16px 16px 0;
     border-right: 1px solid rgba(202, 209, 255, .35);
     background: linear-gradient(120deg, rgba(255, 255, 255, .09), transparent 48%), linear-gradient(162deg, #293dd6 0%, #3e48c1 46%, #6c5ba4 100%) !important;
@@ -2708,20 +2713,20 @@ textarea:focus-visible {
     --card-sunken: rgba(1, 7, 58, .23);
     --line: rgba(230, 233, 255, .25);
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-drawer-panel .neo-sidebar-header {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-drawer-panel .neo-sidebar-header {
     position: relative;
     height: 120px;
     padding: 14px;
     border-bottom: 1px solid rgba(230, 233, 255, .2);
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-drawer-panel .neo-sidebar-brand-row {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-drawer-panel .neo-sidebar-brand-row {
     justify-content: flex-start;
     gap: 12px;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-drawer-panel .neo-sidebar-brand-name {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-drawer-panel .neo-sidebar-brand-name {
     position: static;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-drawer-panel .neo-mobile-close {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-drawer-panel .neo-mobile-close {
     position: absolute;
     top: 67px;
     right: 12px;
@@ -2730,32 +2735,32 @@ textarea:focus-visible {
 }
 
 @media (max-width: 640px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid > :first-child {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid > :first-child {
     grid-column: auto;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-content {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-content {
     padding: 22px 14px 36px;
   }
 }
 
 @media (max-width: 480px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-identity > div:last-child > div:last-child {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-identity > div:last-child > div:last-child {
     display: none;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-identity-divider {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-identity-divider {
     display: none;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-grid {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-capacity-card {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-capacity-card {
     padding-right: 118px;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .lake-health-row {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-row {
     display: grid;
     grid-template-columns: 8px minmax(0, 1fr) auto;
     column-gap: 8px;
@@ -2764,35 +2769,35 @@ textarea:focus-visible {
     min-height: 56px;
     padding: 8px 10px;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .lake-health-row > .flex-1 {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-row > .flex-1 {
     display: none;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .lake-health-name {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-name {
     grid-column: 2;
     white-space: normal;
     line-height: 1.2;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .lake-health-latency {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-latency {
     grid-column: 2;
     grid-row: 2;
     width: auto;
     text-align: left;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .lake-health-state {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-state {
     grid-column: 3;
     grid-row: 1 / 3;
   }
 }
 
 @media (max-width: 360px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-topbar {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar {
     gap: 8px;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-utilities,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-utilities,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search {
     min-width: 0;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-identity > div:last-child {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-identity > div:last-child {
     display: none;
   }
 }
@@ -2800,7 +2805,7 @@ textarea:focus-visible {
 /* V2: operational-priority Bento. Storage and current telemetry occupy the
    first scan line; counts are deliberately subordinate. These rules are
    scoped to the Dashboard so Classic and the other Neo pages retain their UI. */
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] {
   --neo-category-docs: #2b92f8;
   --neo-category-media: #7258ec;
   --neo-category-vault: #4958d8;
@@ -2809,25 +2814,25 @@ textarea:focus-visible {
   --neo-category-other: #ad77d9;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-grid {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(245px, 2.8fr);
   align-items: stretch;
   gap: 16px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-grid > * {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid > * {
   min-width: 0;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-panel-heading {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-panel-heading {
   display: flex;
   align-items: flex-start;
   gap: 12px;
   min-width: 0;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-panel-icon {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-panel-icon {
   display: grid;
   flex: none;
   width: 40px;
@@ -2838,7 +2843,7 @@ textarea:focus-visible {
   color: var(--accent-ink);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-panel-title {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-panel-title {
   color: var(--ink);
   font-size: 16px;
   font-weight: 700;
@@ -2846,19 +2851,19 @@ textarea:focus-visible {
   text-wrap: balance;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-panel-subtitle {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-panel-subtitle {
   margin-top: 3px;
   color: var(--ink-2);
   font-size: 12px;
   line-height: 1.45;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-hero {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-hero {
   min-height: 444px;
   padding: 22px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-hero-body {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-hero-body {
   display: grid;
   grid-template-columns: minmax(152px, 0.9fr) minmax(0, 1.1fr);
   align-items: stretch;
@@ -2866,14 +2871,14 @@ textarea:focus-visible {
   margin-top: 22px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-capacity {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-capacity {
   display: flex;
   flex-direction: column;
   align-items: center;
   min-width: 0;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-radial {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial {
   display: grid;
   width: min(100%, 184px);
   aspect-ratio: 1;
@@ -2882,11 +2887,11 @@ textarea:focus-visible {
   background: conic-gradient(from 210deg, #2b92f8 0 var(--capacity-pct), var(--neo-dashboard-inner) var(--capacity-pct) 100%);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-radial.is-unavailable {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial.is-unavailable {
   background: var(--neo-dashboard-inner);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-radial-center {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial-center {
   display: flex;
   width: calc(100% - 26px);
   height: calc(100% - 26px);
@@ -2898,13 +2903,13 @@ textarea:focus-visible {
   color: var(--ink);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-radial-center strong {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial-center strong {
   font-size: clamp(26px, 2.4vw, 38px);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-radial-center span {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial-center span {
   margin-top: 8px;
   color: var(--ink-2);
   font-size: 11px;
@@ -2912,15 +2917,15 @@ textarea:focus-visible {
   text-align: center;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-totals {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-totals {
   display: grid;
   width: 100%;
   gap: 8px;
   margin-top: 18px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-totals > div,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-label {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-totals > div,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-label {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -2928,13 +2933,13 @@ textarea:focus-visible {
   min-width: 0;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-totals dt,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-label > span:first-child {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-totals dt,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-label > span:first-child {
   color: var(--ink-2);
   font-size: 12px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-totals dd {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-totals dd {
   color: var(--ink);
   font-size: 14px;
   font-weight: 700;
@@ -2942,33 +2947,33 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-categories {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-categories {
   min-width: 0;
   padding: 16px;
   border-radius: 12px;
   background: var(--neo-dashboard-inner);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-categories h3 {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-categories h3 {
   margin-bottom: 3px;
   color: var(--ink);
   font-size: 13px;
   font-weight: 700;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-denominator {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-denominator {
   margin-bottom: 13px;
   color: var(--ink-2);
   font-size: 11px;
   line-height: 1.4;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-list {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-list {
   display: grid;
   gap: 12px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-label > span:last-child {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-label > span:last-child {
   color: var(--ink);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -2976,13 +2981,13 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-label small {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-label small {
   margin-inline-start: 4px;
   color: var(--ink-2);
   font-size: 10px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-track {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-track {
   height: 7px;
   margin-top: 6px;
   overflow: hidden;
@@ -2990,13 +2995,13 @@ textarea:focus-visible {
   background: var(--neo-dashboard-card);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-track > span {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-track > span {
   display: block;
   height: 100%;
   border-radius: inherit;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-status {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-status {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3009,7 +3014,7 @@ textarea:focus-visible {
   line-height: 1.4;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-status button {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-status button {
   min-height: 32px;
   padding-inline: 8px;
   border: 1px solid var(--neo-dashboard-border);
@@ -3018,7 +3023,7 @@ textarea:focus-visible {
   font-weight: 600;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-quiet-state {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-quiet-state {
   display: flex;
   min-height: 190px;
   flex-direction: column;
@@ -3034,7 +3039,7 @@ textarea:focus-visible {
   text-align: center;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-quiet-state button {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-quiet-state button {
   min-height: 40px;
   padding-inline: 14px;
   border: 1px solid var(--neo-dashboard-border);
@@ -3042,17 +3047,17 @@ textarea:focus-visible {
   color: var(--ink);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-card {
   min-height: 444px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-grid {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 16px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-tile {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-tile {
   min-height: 105px;
   padding: 14px 0;
   border-bottom: 1px solid var(--neo-dashboard-border);
@@ -3060,19 +3065,19 @@ textarea:focus-visible {
   background: transparent;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-tile p {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-tile p {
   margin-top: 10px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress > div,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-empty-track {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress > div,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-empty-track {
   flex: 1;
   min-width: 42px;
   height: 7px;
@@ -3081,7 +3086,7 @@ textarea:focus-visible {
   background: var(--neo-dashboard-inner);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress > div > span {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress > div > span {
   display: block;
   height: 100%;
   border-radius: inherit;
@@ -3150,54 +3155,54 @@ textarea:focus-visible {
   .navigation-position-preview { padding: 7px 4px; }
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress[data-state="warning"] > div > span,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress[data-state="stale"] > div > span {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress[data-state="warning"] > div > span,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress[data-state="stale"] > div > span {
   background: var(--warn);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress[data-state="critical"] > div > span {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress[data-state="critical"] > div > span {
   background: var(--danger);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-empty-track {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-empty-track {
   display: block;
   width: 100%;
   margin-top: 16px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-stack {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack {
   display: grid;
   grid-template-rows: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-stack .dashboard-stat-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack .dashboard-stat-card {
   min-height: 0;
   padding: 16px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-stack .dashboard-stat-card .metric-icon {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack .dashboard-stat-card .metric-icon {
   width: 34px;
   height: 34px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-stack .dashboard-stat-card > p:last-child {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack .dashboard-stat-card > p:last-child {
   font-size: 23px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid {
   grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid > div > .ui-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid > div > .ui-card {
   min-height: 350px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid > :first-child {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid > :first-child {
   grid-column: auto;
 }
 
@@ -3206,10 +3211,10 @@ textarea:focus-visible {
 }
 
 @media (max-width: 1240px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-grid {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-stack {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack {
     grid-column: 1 / -1;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     grid-template-rows: none;
@@ -3217,99 +3222,99 @@ textarea:focus-visible {
 }
 
 @media (max-width: 900px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-grid,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-stack {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack {
     grid-column: auto;
   }
 }
 
 @media (max-width: 640px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-hero-body,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-hero-body,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-stack {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack {
     grid-template-columns: minmax(0, 1fr);
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-capacity {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-capacity {
     flex-direction: row;
     gap: 18px;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-radial {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial {
     width: min(48%, 166px);
     flex: none;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-totals {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-totals {
     margin-top: 0;
   }
 }
 
 @media (max-width: 420px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-capacity {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-capacity {
     flex-direction: column;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-radial {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial {
     width: min(100%, 184px);
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-grid {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
 /* Final Dashboard scan order: capacity + current measurements, then health
    and security, then seven-day activity and secondary counts. */
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-grid {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid {
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-security-panel {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-security-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid .dashboard-security-panel > .ui-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid .dashboard-security-panel > .ui-card {
   min-height: 0;
   height: auto;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-security-panel > .dashboard-stat-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-security-panel > .dashboard-stat-card {
   padding: 16px 20px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
   grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid .dashboard-kpi-stack {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid .dashboard-kpi-stack {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: repeat(2, minmax(0, 1fr));
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-recents-grid {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-recents-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
   gap: 16px;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-recents-grid > .ui-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-recents-grid > .ui-card {
   min-width: 0;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card {
   position: relative;
   transform-style: preserve-3d;
   transition: border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card::after {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card::after {
   position: absolute;
   inset: 0;
   z-index: 1;
@@ -3327,31 +3332,31 @@ textarea:focus-visible {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card:hover::after {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:hover::after {
     opacity: 1;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card:hover {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:hover {
     border-color: #7288da;
     box-shadow: 0 22px 48px -27px rgba(53, 84, 222, .65), 0 0 20px -14px rgba(108, 88, 229, .5) !important;
   }
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card:focus-within::after {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:focus-within::after {
   opacity: .86;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card:focus-within {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:focus-within {
   border-color: #7288da;
   box-shadow: 0 22px 48px -27px rgba(53, 84, 222, .65), 0 0 20px -14px rgba(108, 88, 229, .5) !important;
 }
 
-:root[data-ui-style="neo"][data-theme="light"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card:is(:hover, :focus-within) {
+:root[data-ui-style="neo"][data-theme="light"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:is(:hover, :focus-within) {
   box-shadow: 0 20px 42px -27px rgba(43, 83, 178, .36), 0 0 16px -14px rgba(108, 88, 229, .24) !important;
 }
 
 /* Dark Dashboard only: ten operational cards share one translucent material.
    Keep shell/navigation opaque and retain the measured/unavailable data states. */
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout {
   --card: rgba(12, 25, 55, .78);
   --card-sunken: rgba(28, 43, 78, .76);
   --line: rgba(124, 152, 225, .30);
@@ -3360,7 +3365,7 @@ textarea:focus-visible {
   --neo-dashboard-border: rgba(130, 157, 232, .34);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .ui-card {
   background: linear-gradient(145deg, rgba(83, 108, 200, .18), rgba(18, 30, 71, .07) 43%, rgba(6, 15, 38, .12)), var(--neo-dashboard-card) !important;
   border-color: var(--neo-dashboard-border);
   box-shadow: inset 0 1px 0 rgba(205, 219, 255, .14), 0 5px 8px -6px rgba(0, 0, 0, .8) !important;
@@ -3368,30 +3373,30 @@ textarea:focus-visible {
   backdrop-filter: blur(12px) saturate(1.16);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-storage-hero {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-storage-hero {
   background: radial-gradient(circle at 12% 0, rgba(72, 119, 225, .25), transparent 49%), var(--neo-dashboard-card) !important;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-telemetry-card {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-telemetry-card {
   background: radial-gradient(circle at 94% 0, rgba(99, 74, 196, .20), transparent 47%), var(--neo-dashboard-card) !important;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card:is(:hover, :focus-within) {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:is(:hover, :focus-within) {
   border-color: rgba(151, 172, 255, .72);
   box-shadow: inset 0 1px 0 rgba(220, 230, 255, .24), 0 7px 8px -5px rgba(12, 25, 80, .84), 0 0 12px -7px rgba(111, 85, 236, .72) !important;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout :is(.dashboard-storage-categories, .dashboard-quiet-state, .lake-health-row, article[aria-busy]) {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout :is(.dashboard-storage-categories, .dashboard-quiet-state, .lake-health-row, article[aria-busy]) {
   background: linear-gradient(145deg, rgba(96, 118, 190, .10), rgba(26, 38, 75, .02)), var(--neo-dashboard-inner) !important;
   border: 1px solid rgba(131, 153, 220, .20);
   box-shadow: inset 0 1px 0 rgba(199, 213, 255, .08);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-telemetry-tile {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-telemetry-tile {
   border-color: rgba(131, 153, 220, .25);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-telemetry-empty.hatch {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-telemetry-empty.hatch {
   margin-top: 9px;
   padding: 1px 7px 7px;
   border-radius: 8px;
@@ -3399,51 +3404,51 @@ textarea:focus-visible {
   background-image: repeating-linear-gradient(135deg, rgba(164, 180, 230, .055) 0 1px, transparent 1px 8px) !important;
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-storage-radial-center {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-storage-radial-center {
   background: rgba(9, 20, 48, .93);
   box-shadow: inset 0 1px 0 rgba(193, 211, 255, .10);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout :is(.dashboard-panel-icon, .metric-icon) {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout :is(.dashboard-panel-icon, .metric-icon) {
   background: linear-gradient(145deg, rgba(74, 112, 231, .28), rgba(59, 48, 151, .16));
   border: 1px solid rgba(136, 169, 255, .31);
   box-shadow: inset 0 1px 0 rgba(218, 229, 255, .16), 0 0 10px -7px rgba(58, 118, 255, .8);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-stat-card .metric-icon {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-stat-card .metric-icon {
   transition: border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease), transform 180ms var(--neo-ease);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-stat-card:hover .metric-icon {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-stat-card:hover .metric-icon {
     transform: translateY(-2px);
     border-color: rgba(163, 190, 255, .62);
     box-shadow: inset 0 1px 0 rgba(218, 229, 255, .21), 0 0 12px -5px rgba(73, 119, 255, .78);
   }
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout :is([role="status"].hatch, .dashboard-quiet-state) {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout :is([role="status"].hatch, .dashboard-quiet-state) {
   color: var(--ink-2);
   border-color: rgba(135, 160, 221, .28);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout [role="status"].hatch {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout [role="status"].hatch {
   background: linear-gradient(145deg, rgba(105, 119, 180, .14), rgba(25, 42, 79, .12)), rgba(31, 43, 76, .58) !important;
   box-shadow: inset 0 1px 0 rgba(208, 216, 255, .10);
 }
 
-:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout [role="status"].hatch > span:first-child {
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout [role="status"].hatch > span:first-child {
   background: rgba(65, 82, 140, .32);
   border-color: rgba(146, 167, 225, .34);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress {
   position: relative;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category[data-tooltip]::after,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress[data-tooltip]::after {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category[data-tooltip]::after,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress[data-tooltip]::after {
   position: absolute;
   z-index: 4;
   left: 0;
@@ -3464,37 +3469,37 @@ textarea:focus-visible {
   content: attr(data-tooltip);
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category[data-tooltip]:is(:hover, :focus-within)::after,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress[data-tooltip]:is(:hover, :focus-within)::after {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category[data-tooltip]:is(:hover, :focus-within)::after,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress[data-tooltip]:is(:hover, :focus-within)::after {
   opacity: 1;
 }
 
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-track > span,
-:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress > div > span {
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-track > span,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress > div > span {
   transform-origin: left center;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.neo-profile-menu, .neo-search-menu),
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header-toggle,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .sidebar-nav-item svg {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu),
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header-toggle,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item svg {
     animation: none !important;
     transition: none !important;
     transform: none !important;
   }
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card::after,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .metric-icon,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-track > span,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress > div > span {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card::after,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .metric-icon,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-track > span,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress > div > span {
     transition: none;
   }
 }
 
 @media (max-width: 900px) {
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-grid,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-primary-grid,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-secondary-grid,
-  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-recents-grid {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-recents-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

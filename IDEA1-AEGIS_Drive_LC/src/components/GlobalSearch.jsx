@@ -298,6 +298,11 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
         : <Search size={15} strokeWidth={1.5} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />}
       <input
         ref={inputRef}
+        // A search field, not a username: keeps browser credential autofill
+        // (triggered by any password input on the page) out of global search.
+        type="search"
+        name="aegis-global-search"
+        autoComplete="off"
         value={disabled ? '' : query}
         onChange={(e) => { if (disabled) return; setQuery(e.target.value); setOpen(true) }}
         onFocus={() => { if (!disabled) setOpen(true) }}

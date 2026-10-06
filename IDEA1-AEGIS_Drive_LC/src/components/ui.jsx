@@ -5,9 +5,10 @@ import { useReducedMotion } from '../lib/hooks.js'
 import { apiUrl } from '../lib/api.js'
 
 /* ── Card — solid white paper on the gray canvas ─────────────────── */
-export function Card({ children, className = '', style, onClick, interactive = Boolean(onClick) }) {
+export function Card({ children, className = '', style, onClick, interactive = Boolean(onClick), ...rest }) {
   return (
     <div
+      {...rest}
       onClick={onClick}
       data-material="solid"
       className={`ui-card bg-card rounded-[var(--r-card)] ${interactive ? 'is-interactive' : ''} ${className}`}
@@ -745,8 +746,8 @@ export function ErrorState({ t, onRetry, kind = 'server' }) {
    ไม่ใช่แถวปลอม ไม่ใช่จอว่างเปล่า: บอกว่าที่นี่ยังไม่มีอะไร และ (ถ้ามี) จะเริ่มยังไง */
 export function EmptyState({ icon: Icon, title, hint, action }) {
   return (
-    <div role="status" className="flex flex-col items-center justify-center text-center gap-3 py-14 px-6">
-      <span className="flex items-center justify-center size-12 rounded-[var(--r-tile)] hatch hatch-ink3 bg-sunken border border-line">
+    <div role="status" className="ui-empty-state flex flex-col items-center justify-center text-center gap-3 py-14 px-6">
+      <span className="ui-empty-state__icon flex items-center justify-center size-12 rounded-[var(--r-tile)] hatch hatch-ink3 bg-sunken border border-line">
         {Icon && <Icon size={20} strokeWidth={1.5} className="text-ink-3" aria-hidden />}
       </span>
       <p className="text-[15px] font-semibold text-ink">{title}</p>
@@ -762,7 +763,7 @@ export function InlineEmptyState({ children, action, className = '' }) {
   return (
     <div
       role="status"
-      className={`min-h-14 px-5 py-4 flex items-center justify-center gap-3 text-center text-[12.5px] text-ink-3 ${className}`}
+      className={`ui-inline-empty min-h-14 px-5 py-4 flex items-center justify-center gap-3 text-center text-[12.5px] text-ink-3 ${className}`}
     >
       <span>{children}</span>
       {action}
@@ -780,7 +781,7 @@ export function NotYetImplemented({ label, children }) {
   return (
     <div
       role="note"
-      className="rounded-[var(--r-tile)] border border-dashed border-line bg-sunken px-4 py-3.5 flex gap-3"
+      className="ui-not-implemented rounded-[var(--r-tile)] border border-dashed border-line bg-sunken px-4 py-3.5 flex gap-3"
     >
       <span aria-hidden className="mt-0.5 size-5 shrink-0 rounded-[6px] hatch hatch-ink3 border border-line" />
       <div className="min-w-0">
@@ -823,7 +824,7 @@ export function Avatar({ userId, name, size = 40, className = '', hasAvatar, ver
     <span
       aria-hidden
       style={box}
-      className={`relative rounded-full bg-ink text-card font-bold flex items-center justify-center shrink-0 overflow-hidden ${className}`}
+      className={`ui-avatar relative rounded-full bg-ink text-card font-bold flex items-center justify-center shrink-0 overflow-hidden ${className}`}
     >
       {initials}
       {/* ⚠️ hasAvatar === false = "เซิร์ฟเวอร์บอกแล้วว่าไม่มีรูป" จึงต้องไม่ render
@@ -857,7 +858,7 @@ export function Avatar({ userId, name, size = 40, className = '', hasAvatar, ver
    surrounding page chrome mounted, but state clearly that data cannot be read. */
 export function DependencyUnavailableState({ t, title, compact = false, className = '' }) {
   return (
-    <div role="status" aria-live="polite" className={`flex ${compact ? 'items-center text-left' : 'flex-col items-center text-center'} justify-center gap-3 ${compact ? 'px-5 py-4' : 'px-6 py-10'} hatch hatch-ink3 rounded-[var(--r-tile)] border border-dashed border-line bg-sunken ${className}`}>
+    <div role="status" aria-live="polite" className={`ui-unavailable flex ${compact ? 'items-center text-left' : 'flex-col items-center text-center'} justify-center gap-3 ${compact ? 'px-5 py-4' : 'px-6 py-10'} hatch hatch-ink3 rounded-[var(--r-tile)] border border-dashed border-line bg-sunken ${className}`}>
       <span className="size-9 shrink-0 rounded-[9px] border border-line bg-card flex items-center justify-center" aria-hidden>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
           <path d="M8 2v4M16 2v4M7 10h10M12 14v3M9 20h6" />

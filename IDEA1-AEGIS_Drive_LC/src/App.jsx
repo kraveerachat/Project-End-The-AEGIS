@@ -10,6 +10,7 @@ import { Dot, HatchDefs, SkeletonLoader } from './components/ui.jsx'
 import { Sidebar } from './components/Sidebar.jsx'
 import { PositionedNavigation } from './components/PositionedNavigation.jsx'
 import { useScrollReveal } from './lib/useScrollReveal.js'
+import { useNeoPageMotion } from './lib/useNeoPageMotion.js'
 import { TopBar } from './components/TopBar.jsx'
 import { GlobalSearch } from './components/GlobalSearch.jsx'
 import { DashboardQuickActions } from './components/DashboardQuickActions.jsx'
@@ -250,6 +251,9 @@ export default function App() {
   const activeScreen = resolveAuthorizedScreen(screen, serverNav)
   const workspaceSurfaceActive = WORKSPACE_SCREENS.has(activeScreen)
   const neoDashboard = interfaceStyle === 'neo' && activeScreen === 'dashboard'
+  // The approved floating Sidebar + Top Bar are the shell of every Neo screen,
+  // not only Dashboard. Dashboard-specific content still keys off neoDashboard.
+  const neoShell = interfaceStyle === 'neo'
   // Dashboard has its own bounded GSAP/ScrollTrigger pass; other Neo screens
   // retain the established IntersectionObserver reveal and its failsafe.
   useScrollReveal(mainRef, screen, interfaceStyle === 'neo' && !neoDashboard)
@@ -350,6 +354,9 @@ export default function App() {
       return () => clearTimeout(timer)
     }
   }, [screen, session, reduced])
+  // Dark Neo pages share the Dashboard's edge light + panel entrance; the
+  // Dashboard keeps its own GSAP pass (useDashboardMotion).
+  useNeoPageMotion(mainRef, activeScreen, Boolean(session) && !loadingScreen, neoShell && !neoDashboard && resolvedTheme === 'dark', reduced)
 
   const getSkeletonType = (scr) => {
     if (scr === 'dashboard') return 'dashboard'
@@ -541,7 +548,7 @@ export default function App() {
         resolvedTheme={resolvedTheme}
         mobileOpen={mobileNav}
         closeMobile={() => setMobileNav(false)}
-        neoDashboard={neoDashboard}
+        neoDashboard={neoShell}
         position={navigationPosition}
       />
       <div className="flex-1 flex flex-col min-w-0 h-full">
@@ -557,11 +564,11 @@ export default function App() {
           onSettings={() => { setSettingsTab('appearance'); go('settings') }}
           onSignOut={signOut}
           openMobileNav={() => setMobileNav(true)}
-          neoDashboard={neoDashboard}
+          neoDashboard={neoShell}
           collapsed={collapsed}
           setCollapsed={setCollapsed}
           navigationPosition={navigationPosition}
-          search={neoDashboard ? (
+          search={neoShell ? (
             <GlobalSearch
               t={t}
               screen={activeScreen}
@@ -569,6 +576,7 @@ export default function App() {
               nav={nav}
               files={filesApi.data?.files ?? []}
               people={usersApi.data?.users ?? []}
+              disabled={SEARCH_DISABLED_SCREENS.has(activeScreen)}
               className="neo-topbar-search"
               neoDashboard
             />
@@ -585,7 +593,7 @@ export default function App() {
           <PageSurface
             key={activeScreen}
             data-testid="app-page-content"
-            className={workspaceSurfaceActive ? 'workspace-full-pane-surface min-h-full flex flex-col' : neoDashboard ? 'neo-dashboard-content min-h-full' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
+            className={workspaceSurfaceActive ? 'workspace-full-pane-surface min-h-full flex flex-col' : neoDashboard ? 'neo-dashboard-content min-h-full' : neoShell ? 'neo-page-content min-h-full' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
           >
             {/* One composed header: breadcrumb + title on the left, search/actions on the right. */}
             <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${workspaceSurfaceActive ? 'workspace-pane-content pt-7 max-md:pt-5' : ''}`}>
@@ -614,7 +622,7 @@ export default function App() {
                       จอ Vault ได้ช่อง disabled เพื่อบอกข้อจำกัดตามจริง
                       ⚠️ ดัชนีที่ส่งเข้าไปมีแค่ files + users ที่เซิร์ฟเวอร์อนุญาตแล้ว —
                          ไม่มีข้อมูล vault อยู่ในนี้เลยไม่ว่าจออะไร */}
-                  {!neoDashboard && !HEADER_SEARCH_HIDDEN_SCREENS.has(activeScreen) && (
+                  {!neoShell && !HEADER_SEARCH_HIDDEN_SCREENS.has(activeScreen) && (
                     <GlobalSearch
                       t={t}
                       screen={activeScreen}
