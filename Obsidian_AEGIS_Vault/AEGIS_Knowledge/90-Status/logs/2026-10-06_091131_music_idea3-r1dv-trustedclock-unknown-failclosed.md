@@ -21,9 +21,26 @@ edit_policy: append-by-new-file
 - Repository only. `R1DV_LIVE_EXECUTED=NO`, `R1DV_AUTHORITY_CREATED=NO`, `R1DV_AUTHORIZATION_CREATED=NO`, `R1D_RERUN_EXECUTED=NO`, `R1D_SOCKET_CONNECTED=NO`, `R1B_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
 - `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`.
 
-## Verification
+## Verification evidence
 
 - `/usr/bin/python3 -m pytest -q tests/r1dv` — 218 passed.
+- `node scripts/validate-vault.mjs` — pass (2 known canvas warnings). No Production command was run.
+
+## Source files changed
+
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-r1dv-owner.sh`, `r1dv-acceptance/r1dv_verifier_snapshot.py` (docstring only), `deploy/pr11-phase4/README.md` (section 20), `tests/r1dv/test_r1dv_contract.py`, and this receipt.
+
+## Canonical notes updated
+
+- None (hotfix; no canonical note change).
+
+## Shared surfaces touched
+
+- None — all paths are inside the IDEA3/Music-owned boundary.
+
+## Integration requests
+
+- Independent review. R1Dv LIVE preparation resumes after merge; nothing here authorizes it.
 
 ## Known limitations
 
