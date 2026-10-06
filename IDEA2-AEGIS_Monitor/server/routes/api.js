@@ -38,7 +38,12 @@ import {
   RENEW_BEFORE_MS,
 } from '../db/producerLifecycle.js'
 import { approvedStreamUrlForPhysicalCamera } from '../auth/physicalStreamSource.js'
-import { readEngineBoot, mintDemandGrant, sendDemandControl } from '../auth/producerDemandGrant.js'
+import {
+  readEngineBoot,
+  mintDemandGrant,
+  sendDemandControl,
+  isRetryableProducerSyncError,
+} from '../auth/producerDemandGrant.js'
 import { BrowserAssociationChallengeStore } from '../nodeIdentity/browserAssociationChallenges.js'
 import {
   canonicalBrowserAssociationPayload,
@@ -681,42 +686,213 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
 
     // One awaited cycle owns session reload, live authorization and renewal.
     // Scheduling only after completion prevents overlapping DB renewals.
-    const revalidate = async () => {
+    // Only post-renew Engine transport/server synchronization may retry.
+    // Every retry revalidates session/access and obtains a fresh DB renewal.
+    const POST_RENEW_SYNC_ATTEMPTS = 2
+    const POST_RENEW_SYNC_RETRY_DELAY_MS = 25
+
+    const logRevalidation = (phase, outcome) => {
+      // Keep diagnostics intentionally low-cardinality. Never log raw session
+      // binding, producer owner/grant, API secret, registry context or SQL.
+      console.warn(`[aegis-monitor] stream ${cameraId}: revalidation ${phase} ${outcome}`)
+    }
+
+    const waitForRetryWindow = async () => {
+      if (lifecycle.closed || res.destroyed) return false
+
+      await new Promise(resolve => {
+        let settled = false
+        let timer = null
+
+        const finish = () => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          res.off('close', finish)
+          lifecycle.signal?.removeEventListener('abort', finish)
+          resolve()
+        }
+
+        res.once('close', finish)
+        lifecycle.signal?.addEventListener('abort', finish, { once: true })
+        timer = setTimeout(finish, POST_RENEW_SYNC_RETRY_DELAY_MS)
+
+        // Close can race listener registration.
+        if (lifecycle.closed || res.destroyed) finish()
+      })
+
+      return !(lifecycle.closed || res.destroyed)
+    }
+
+    const reloadLiveSession = async () => {
       try {
         await new Promise((resolve, reject) => {
           if (!req.session?.reload) return reject(new Error('session ended'))
           req.session.reload(error => error ? reject(error) : resolve())
         })
-        if (lifecycle.closed) return
+        if (lifecycle.closed) return null
         const user = currentUser(req)
         if (!user) throw new Error('session ended')
-        if (strictOperator) {
-          const liveAccess = await resolveOperatorAccess(req, cameraId, Date.now())
-          if (lifecycle.closed) return
-          if (!(await canSeeCamera({ ...user, id: liveAccess.userId, role: ROLES.OPERATOR }, cameraId))) {
-            throw new Error('access revoked')
-          }
-          if (lifecycle.closed) return
-          demandHandle = await producerLifecycle.renew({ handle: demandHandle, access: liveAccess,
-            sessionBinding: currentNodeSessionBinding(req) })
-          if (lifecycle.closed) return
-          const currentBoot = await readEngineBoot({ url: engineUrl, nodeId: demandHandle.nodeId,
-            secret: engineSecret, signal: ctrl.signal })
-          // Restart requires a new stream and fresh acquire, not resurrecting an old viewer.
-          if (currentBoot.bootId !== engineBoot.bootId) throw new Error('engine restarted')
-          engineBoot = currentBoot
-          await sendDemandControl({ url: engineUrl, handle: demandHandle, boot: engineBoot,
-            secret: engineSecret, action: 'refresh', signal: ctrl.signal })
-        } else {
+        return user
+      } catch {
+        if (!lifecycle.closed) {
+          logRevalidation('session', 'failed - closing')
+          abort()
+        }
+        return null
+      }
+    }
+
+    const resolveLiveOperatorAccess = async user => {
+      try {
+        const liveAccess = await resolveOperatorAccess(req, cameraId, Date.now())
+        if (lifecycle.closed) return null
+        if (!(await canSeeCamera({ ...user, id: liveAccess.userId, role: ROLES.OPERATOR }, cameraId))) {
+          throw new Error('access revoked')
+        }
+        return liveAccess
+      } catch {
+        if (!lifecycle.closed) {
+          logRevalidation('access', 'failed - closing')
+          abort()
+        }
+        return null
+      }
+    }
+
+    const revalidate = async () => {
+      const user = await reloadLiveSession()
+      if (!user || lifecycle.closed) return
+
+      if (!strictOperator) {
+        try {
           const actor = REQUIRE_LOCAL_NODE_ASSOCIATION ? await resolveLiveCameraActor(req) : null
           const liveUser = actor ? { ...user, id: actor.userId, username: actor.username, role: actor.role } : user
           if ((actor && actor.role !== ROLES.SOC) || !(await canSeeCamera(liveUser, cameraId))) {
             throw new Error('access revoked')
           }
+        } catch {
+          if (!lifecycle.closed) {
+            logRevalidation('access', 'failed - closing')
+            abort()
+          }
         }
-      } catch {
-        // No raw session binding, registry context or DB error enters logs.
-        abort()
+        return
+      }
+
+      let liveAccess = await resolveLiveOperatorAccess(user)
+      if (!liveAccess || lifecycle.closed) return
+
+      for (let attempt = 1; attempt <= POST_RENEW_SYNC_ATTEMPTS; attempt += 1) {
+        if (attempt > 1) {
+          // A retry must not extend producer authority using stale session or
+          // access state. Re-resolve everything before the fresh DB renewal.
+          const retryUser = await reloadLiveSession()
+          if (!retryUser || lifecycle.closed) return
+
+          liveAccess = await resolveLiveOperatorAccess(retryUser)
+          if (!liveAccess || lifecycle.closed) return
+        }
+
+        try {
+          demandHandle = await producerLifecycle.renew({
+            handle: demandHandle,
+            access: liveAccess,
+            sessionBinding: currentNodeSessionBinding(req),
+          })
+        } catch {
+          if (!lifecycle.closed) {
+            logRevalidation('producer-renewal', 'failed - closing')
+            abort()
+          }
+          return
+        }
+
+        if (lifecycle.closed) return
+
+        let currentBoot
+        try {
+          currentBoot = await readEngineBoot({
+            url: engineUrl,
+            nodeId: demandHandle.nodeId,
+            secret: engineSecret,
+            signal: ctrl.signal,
+          })
+        } catch (error) {
+          if (lifecycle.closed) return
+
+          if (
+            attempt < POST_RENEW_SYNC_ATTEMPTS
+            && isRetryableProducerSyncError(error)
+          ) {
+            logRevalidation(
+              'engine-boot',
+              `failed attempt ${attempt}/${POST_RENEW_SYNC_ATTEMPTS} - retrying`,
+            )
+            if (!(await waitForRetryWindow())) return
+            continue
+          }
+
+          if (isRetryableProducerSyncError(error)) {
+            logRevalidation(
+              'engine-boot',
+              `failed attempt ${attempt}/${POST_RENEW_SYNC_ATTEMPTS}; retry exhausted - closing`,
+            )
+          } else {
+            logRevalidation('engine-boot', 'rejected - closing')
+          }
+
+          abort()
+          return
+        }
+
+        // Engine restart/stale boot is never made resilient. The existing
+        // stream must die and a fresh acquire must create new authority.
+        if (currentBoot.bootId !== engineBoot.bootId) {
+          logRevalidation('engine-boot', 'changed - closing')
+          abort()
+          return
+        }
+
+        try {
+          await sendDemandControl({
+            url: engineUrl,
+            handle: demandHandle,
+            boot: currentBoot,
+            secret: engineSecret,
+            action: 'refresh',
+            signal: ctrl.signal,
+          })
+
+          engineBoot = currentBoot
+          return
+        } catch (error) {
+          if (lifecycle.closed) return
+
+          if (
+            attempt < POST_RENEW_SYNC_ATTEMPTS
+            && isRetryableProducerSyncError(error)
+          ) {
+            logRevalidation(
+              'engine-refresh',
+              `failed attempt ${attempt}/${POST_RENEW_SYNC_ATTEMPTS} - retrying`,
+            )
+            if (!(await waitForRetryWindow())) return
+            continue
+          }
+
+          if (isRetryableProducerSyncError(error)) {
+            logRevalidation(
+              'engine-refresh',
+              `failed attempt ${attempt}/${POST_RENEW_SYNC_ATTEMPTS}; retry exhausted - closing`,
+            )
+          } else {
+            logRevalidation('engine-refresh', 'rejected - closing')
+          }
+
+          abort()
+          return
+        }
       }
     }
     const scheduleRevalidation = () => {

@@ -289,7 +289,8 @@ async function streamHarness(t, scenario = 'normal', service = null) {
   const state = { acquired: [], released: [], fetched: [], renewed: [], cancelled: 0, aborted: 0,
     authorization: [], live: true, assignment: true, active: new Set(), retired: false, maxRenewing: 0,
     events: [], controls: [], reloads: 0, drainEvents: 0, closesBeforeRelease: 0,
-    socLive: true, socAccess: true, socDbRole: 'SOC-Responder', socDbActive: true }
+    socLive: true, socAccess: true, socDbRole: 'SOC-Responder', socDbActive: true,
+    bootCalls: 0, refreshAttempts: 0, association: true, releaseBootFailure: null }
   let renewing = 0
   const generation = '9007199254740993'
   const binding = Buffer.alloc(32, 7).toString('base64url')
@@ -299,6 +300,8 @@ async function streamHarness(t, scenario = 'normal', service = null) {
     viewDetections: async view => [{ id: `frame-${view.nodeId}`, cam: view.cameraId }],
     actor: async req => ({ userId: req.user.id, username: req.user.username, role: req.user.role }),
     access: async (req, alias) => {
+      if (!state.association)
+        throw new CameraAccessError(403, 'LOCAL_NODE_ASSOCIATION_DENIED')
       if (!state.assignment || alias !== (req.user.id === 2 ? 'CAM-01' : 'CAM-02'))
         throw new CameraAccessError(403, 'CAMERA_ALIAS_DENIED')
       return { kind: 'verified-node', viewerMode: 'demanding', userId: req.user.id, nodeId: 'machine-a-node',
@@ -362,7 +365,24 @@ async function streamHarness(t, scenario = 'normal', service = null) {
   process.env.DETECTION_ENGINE_API_KEY = 'server-only-engine-key'
   globalThis.fetch = async (url, options) => {
     if (String(url).endsWith('/producer/boot')) {
-      const claims = { engineBootId: Buffer.alloc(32, 4).toString('base64url'),
+      state.bootCalls += 1
+
+      if (scenario === 'transient-boot-probe' && state.bootCalls === 2)
+        throw new Error('fixture transient boot probe failure')
+
+      if (scenario === 'repeated-boot-probe' && state.bootCalls >= 2)
+        throw new Error('fixture repeated boot probe failure')
+
+      if (scenario === 'client-close-during-boot-retry' && state.bootCalls === 2) {
+        await new Promise(resolve => { state.releaseBootFailure = resolve })
+        throw new Error('fixture delayed transient boot failure')
+      }
+
+      if (scenario === 'boot-change-on-retry' && state.bootCalls === 2)
+        throw new Error('fixture transient boot probe failure')
+
+      const bootByte = scenario === 'boot-change-on-retry' && state.bootCalls >= 3 ? 5 : 4
+      const claims = { engineBootId: Buffer.alloc(32, bootByte).toString('base64url'),
         nodeId: 'machine-a-node', nonce: options.headers['X-Aegis-Clock-Nonce'], engineNowMs: Date.now() }
       const raw = Buffer.from(JSON.stringify(claims, Object.keys(claims).sort()))
       const key = createHmac('sha256', 'server-only-engine-key').update('AEGIS-demand-grant-v1-key').digest()
@@ -372,6 +392,14 @@ async function streamHarness(t, scenario = 'normal', service = null) {
     if (String(url).endsWith('/producer/control')) {
       const token = options.headers['X-Aegis-Demand-Grant']
       state.controls.push(JSON.parse(Buffer.from(token.split('.')[0], 'base64url')))
+      const controlAction = state.controls.at(-1).action
+      if (controlAction === 'refresh') {
+        state.refreshAttempts += 1
+        if (scenario === 'transient-refresh-control' && state.refreshAttempts === 1)
+          throw new Error('fixture transient refresh control failure')
+        if (scenario === 'repeated-refresh-control')
+          throw new Error('fixture repeated refresh control failure')
+      }
       state.events.push(state.controls.at(-1).action)
       return { ok: true }
     }
@@ -441,6 +469,7 @@ async function streamHarness(t, scenario = 'normal', service = null) {
         if (scenario === 'slow-reload') return setTimeout(callback, 40)
         if (scenario === 'session-revoked') return callback(new Error('revoked'))
         if (scenario === 'assignment-revoked' || scenario === 'backpressure-revoked') state.assignment = false
+        if (scenario === 'association-revoked') state.association = false
         if (!state.live) return callback(new Error('session destroyed'))
         if (scenario === 'absolute-expiry') req.session.createdAt = 1
         callback()
@@ -744,8 +773,8 @@ test('transactional acquire denial returns redacted authority error without fetc
 })
 
 for (const scenario of ['normal', 'socket-close', 'non-2xx', 'missing-body', 'fetch-throw', 'route-error',
-  'idle', 'first-byte-timeout', 'logout', 'session-revoked', 'assignment-revoked', 'renewal-failure', 'absolute-expiry', 'release-failure',
-  'reader-read-throw']) {
+  'idle', 'first-byte-timeout', 'logout', 'session-revoked', 'assignment-revoked', 'association-revoked',
+  'renewal-failure', 'absolute-expiry', 'release-failure', 'reader-read-throw']) {
   test(`close_and_every_upstream_failure_release_demand: ${scenario}`, async t => {
     const { state, open, settle, logout } = await streamHarness(t, scenario)
     const response = await open()
@@ -756,6 +785,8 @@ for (const scenario of ['normal', 'socket-close', 'non-2xx', 'missing-body', 'fe
     assert.equal(state.aborted, 1)
     if (!['non-2xx', 'missing-body', 'fetch-throw'].includes(scenario)) assert.equal(state.cancelled, 1)
     if (scenario === 'renewal-failure') assert.equal(state.renewed.length, 1)
+    if (['session-revoked', 'assignment-revoked', 'association-revoked'].includes(scenario))
+      assert.equal(state.renewed.length, 0)
     if (scenario === 'release-failure') {
       assert.equal(state.active.size, 1, 'failed release is bounded by DB lease, not reported as removed')
       assert.equal(state.retired, false)
@@ -781,6 +812,138 @@ test('two_account_aliases_share_physical_upstream; final viewer retires its epoc
   assert.equal(state.active.size, 0)
   assert.equal(state.retired, true)
   assert.equal(state.released.length, 2)
+})
+
+test('production class: transient post-renew boot probe failure must recover without killing stream', async t => {
+  const { state, open } = await streamHarness(t, 'transient-boot-probe')
+  const response = await open()
+  response.resume()
+  try {
+    const deadline = Date.now() + 300
+    while (state.renewed.length < 2 && Date.now() < deadline)
+      await new Promise(resolve => setTimeout(resolve, 5))
+
+    assert.ok(
+      state.renewed.length >= 2,
+      'retry must perform a fresh producer DB renewal after transient boot failure',
+    )
+    assert.ok(
+      state.bootCalls >= 3,
+      'retry must obtain a fresh Engine boot observation',
+    )
+    assert.equal(
+      state.released.length,
+      0,
+      'a recovered transient boot failure must not release the healthy stream',
+    )
+  } finally {
+    response.destroy()
+    const cleanupDeadline = Date.now() + 300
+    while (!state.released.length && Date.now() < cleanupDeadline)
+      await new Promise(resolve => setTimeout(resolve, 5))
+  }
+
+  assert.deepEqual(state.released, state.acquired)
+  assert.equal(state.maxRenewing, 1)
+})
+
+test('production class: transient post-renew refresh failure must recover with fresh authority', async t => {
+  const { state, open } = await streamHarness(t, 'transient-refresh-control')
+  const response = await open()
+  response.resume()
+  try {
+    const deadline = Date.now() + 300
+    while (state.refreshAttempts < 2 && Date.now() < deadline)
+      await new Promise(resolve => setTimeout(resolve, 5))
+
+    assert.ok(
+      state.renewed.length >= 2,
+      'refresh retry must use a fresh producer DB renewal',
+    )
+    assert.ok(
+      state.bootCalls >= 3,
+      'refresh retry must use a fresh Engine boot observation',
+    )
+    assert.ok(
+      state.refreshAttempts >= 2,
+      'transient refresh control failure must be retried',
+    )
+    assert.equal(
+      state.released.length,
+      0,
+      'a recovered transient refresh failure must not release the healthy stream',
+    )
+  } finally {
+    response.destroy()
+    const cleanupDeadline = Date.now() + 300
+    while (!state.released.length && Date.now() < cleanupDeadline)
+      await new Promise(resolve => setTimeout(resolve, 5))
+  }
+
+  assert.deepEqual(state.released, state.acquired)
+  assert.equal(state.maxRenewing, 1)
+})
+
+test('production class: repeated post-renew boot failures exhaust retry and fail closed once', async t => {
+  const { state, open, settle } = await streamHarness(t, 'repeated-boot-probe')
+  const response = await open()
+  await settle(response)
+
+  assert.equal(state.renewed.length, 2)
+  assert.equal(state.bootCalls, 3)
+  assert.equal(state.released.length, 1)
+  assert.deepEqual(state.released, state.acquired)
+  assert.equal(state.maxRenewing, 1)
+})
+
+test('production class: repeated post-renew refresh failures exhaust retry and fail closed once', async t => {
+  const { state, open, settle } = await streamHarness(t, 'repeated-refresh-control')
+  const response = await open()
+  await settle(response)
+
+  assert.equal(state.renewed.length, 2)
+  assert.equal(state.refreshAttempts, 2)
+  assert.equal(state.released.length, 1)
+  assert.deepEqual(state.released, state.acquired)
+  assert.equal(state.maxRenewing, 1)
+})
+
+test('production class: Engine boot change during retry is immediate fail closed', async t => {
+  const { state, open, settle } = await streamHarness(t, 'boot-change-on-retry')
+  const response = await open()
+  await settle(response)
+
+  assert.equal(state.renewed.length, 2)
+  assert.equal(state.bootCalls, 3)
+  assert.equal(state.refreshAttempts, 0)
+  assert.equal(state.released.length, 1)
+  assert.deepEqual(state.released, state.acquired)
+})
+
+test('production class: client close while transient boot failure is pending cannot resurrect demand', async t => {
+  const { state, open } = await streamHarness(t, 'client-close-during-boot-retry')
+  const response = await open()
+  response.resume()
+
+  const pendingDeadline = Date.now() + 300
+  while (!state.releaseBootFailure && Date.now() < pendingDeadline)
+    await new Promise(resolve => setTimeout(resolve, 5))
+
+  assert.equal(typeof state.releaseBootFailure, 'function')
+  assert.equal(state.renewed.length, 1)
+  assert.equal(state.bootCalls, 2)
+
+  response.destroy()
+  state.releaseBootFailure()
+
+  const releaseDeadline = Date.now() + 300
+  while (!state.released.length && Date.now() < releaseDeadline)
+    await new Promise(resolve => setTimeout(resolve, 5))
+
+  assert.equal(state.renewed.length, 1, 'client close must prevent a retry renewal')
+  assert.equal(state.refreshAttempts, 0)
+  assert.equal(state.released.length, 1)
+  assert.deepEqual(state.released, state.acquired)
 })
 
 test('revalidation awaits renewal instead of overlapping callbacks', async t => {
