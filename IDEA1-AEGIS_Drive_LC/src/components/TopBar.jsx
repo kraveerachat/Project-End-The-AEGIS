@@ -3,28 +3,63 @@ import { Menu, LogOut, Settings, UserRound } from 'lucide-react'
 import { Dot, Avatar, ThemeToggle } from './ui.jsx'
 import { AegisLockup } from './AegisMark.jsx'
 
-function Dropdown({ open, onClose, children, label, align = 'right', width = 280 }) {
+function Dropdown({ open, onClose, children, label, align = 'right', width = 280, neoDashboard = false, triggerRef }) {
   const ref = useRef(null)
+  const [visible, setVisible] = useState(open)
+  useEffect(() => {
+    if (!neoDashboard) return undefined
+    if (open) {
+      setVisible(true)
+      const frame = requestAnimationFrame(() => ref.current?.querySelector('[role="menuitem"]')?.focus())
+      return () => cancelAnimationFrame(frame)
+    }
+    const timer = setTimeout(() => setVisible(false), 160)
+    return () => clearTimeout(timer)
+  }, [open, neoDashboard])
   useEffect(() => {
     if (!open) return
     const onDown = (e) => {
-      if (!ref.current?.contains(e.target)) onClose()
+      if (!ref.current?.contains(e.target) && !(neoDashboard && triggerRef?.current?.contains(e.target))) onClose()
     }
-    const onKey = (e) => e.key === 'Escape' && onClose()
+    const onFocus = (e) => {
+      if (neoDashboard && !ref.current?.contains(e.target) && !triggerRef?.current?.contains(e.target)) onClose()
+    }
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      onClose()
+      if (neoDashboard) triggerRef?.current?.focus()
+    }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
+    document.addEventListener('focusin', onFocus)
     return () => {
       window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey)
+      document.removeEventListener('focusin', onFocus)
     }
-  }, [open, onClose])
-  if (!open) return null
+  }, [open, onClose, neoDashboard, triggerRef])
+  if (!open && (!neoDashboard || !visible)) return null
   return (
     <div
       ref={ref}
       role="menu"
       aria-label={label}
-      className={`absolute top-[calc(100%+8px)] bg-card border border-line rounded-xl py-2 fade-in ${align === 'right' ? 'right-0' : 'left-0'}`}
+      aria-hidden={!open}
+      inert={!open}
+      data-state={open ? 'open' : 'closing'}
+      onKeyDown={(event) => {
+        if (!neoDashboard || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+        const items = [...event.currentTarget.querySelectorAll('[role="menuitem"]')]
+        if (!items.length) return
+        event.preventDefault()
+        const current = items.indexOf(document.activeElement)
+        const next = event.key === 'Home' ? 0
+          : event.key === 'End' ? items.length - 1
+            : event.key === 'ArrowDown' ? (current + 1) % items.length
+              : (current - 1 + items.length) % items.length
+        items[next].focus()
+      }}
+      className={`absolute top-[calc(100%+8px)] bg-card border border-line rounded-xl py-2 ${neoDashboard ? 'neo-profile-menu' : 'fade-in'} ${align === 'right' ? 'right-0' : 'left-0'}`}
       style={{ width, boxShadow: 'var(--elev-2)', zIndex: 'var(--z-dropdown)' }}
     >
       {children}
@@ -34,6 +69,7 @@ function Dropdown({ open, onClose, children, label, align = 'right', width = 280
 
 export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSettings, onSignOut, openMobileNav, resolvedTheme = 'light', onThemeChange, neoDashboard = false, collapsed = false, setCollapsed, navigationPosition = 'left', search = null }) {
   const [avatarOpen, setAvatarOpen] = useState(false)
+  const avatarTriggerRef = useRef(null)
 
   // Live Tactical Clock (matching CCTV-Operator topbar clock)
   const [now, setNow] = useState(() => new Date())
@@ -90,11 +126,11 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
       {/* CENTER ZONE: Status Pills — ค่าจริงจาก /healthz (poll 15s) */}
       <div className={`flex items-center justify-center gap-3 ${neoDashboard ? 'neo-topbar-utilities' : 'max-lg:hidden'}`} role={neoDashboard ? undefined : 'status'} aria-live={neoDashboard ? undefined : 'polite'}>
         <div role={neoDashboard ? 'status' : undefined} className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs ${neoDashboard ? 'neo-status-pill' : ''}`}>
-          <Dot tone={applicationUp ? 'ok' : 'neutral'} pulse={applicationUp} size={6} />
+          <Dot tone={applicationUp ? 'ok' : 'neutral'} pulse={!neoDashboard && applicationUp} size={6} />
           <span>{applicationUp ? t('driveOnline') : t('driveNotConnected')}</span>
         </div>
         <div role={neoDashboard ? 'status' : undefined} className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs ${neoDashboard ? 'neo-status-pill' : ''}`}>
-          <Dot tone={metadataUp ? 'accent' : 'neutral'} pulse={metadataUp} size={6} />
+          <Dot tone={metadataUp ? 'accent' : 'neutral'} pulse={!neoDashboard && metadataUp} size={6} />
           <span>{metadataUp ? t('metadataConnected', { source: dbMode === 'postgres' ? 'PostgreSQL' : 'in-memory' }) : t('metadataNotConnected')}</span>
         </div>
         {search}
@@ -117,12 +153,13 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
         {/* Profile Avatar & Usermeta Badge */}
         <div className="relative">
           <button
+            ref={avatarTriggerRef}
             type="button"
             aria-label={user.displayName}
             aria-haspopup="menu"
             aria-expanded={avatarOpen}
             onClick={() => setAvatarOpen((v) => !v)}
-            className="flex items-center gap-3 p-1 rounded-full hover:bg-sunken transition-colors cursor-pointer text-left"
+            className={`flex items-center gap-3 p-1 rounded-full hover:bg-sunken transition-colors cursor-pointer text-left ${neoDashboard ? 'neo-profile-trigger' : ''}`}
           >
             {/* รูปโปรไฟล์จริงถ้าผู้ใช้อัปโหลดไว้ ไม่งั้นตกลงมาที่อักษรย่อเหมือนเดิม
                 (Avatar จัดการ fallback เอง — ดู src/components/ui.jsx) */}
@@ -136,7 +173,7 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
             </div>
           </button>
 
-          <Dropdown open={avatarOpen} onClose={() => setAvatarOpen(false)} label={user.displayName} width={220}>
+          <Dropdown open={avatarOpen} onClose={() => setAvatarOpen(false)} label={user.displayName} width={220} neoDashboard={neoDashboard} triggerRef={avatarTriggerRef}>
             <div className="px-4 pb-2 border-b border-line mb-1.5">
               <p className="text-[13.5px] font-bold text-ink">{user.displayName}</p>
               <p className="font-mono text-xs text-ink-3">{user.username} · {user.role}</p>

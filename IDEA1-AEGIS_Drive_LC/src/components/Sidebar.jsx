@@ -166,20 +166,33 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
   const renderBody = (isCollapsed, isMobile = false) => (
     <div className={`app-sidebar flex flex-col h-full bg-card border-r border-line ${neoDashboard ? 'neo-dashboard-sidebar' : ''}`} data-material={neoDashboard ? 'solid' : 'shell-glass'}>
       <div className={`neo-sidebar-header flex items-center h-16 shrink-0 ${isCollapsed ? 'justify-center px-0 neo-sidebar-header--compact' : 'justify-between px-5'}`}>
-        {isCollapsed
+        {neoDashboard ? (
+          <>
+            <div className="neo-sidebar-brand-row">
+              {isCollapsed
+                ? <AegisMark size={44} theme="dark" />
+                : <AegisLockup markSize={44} theme="dark" title="AEGIS Drive_LC" sub={null} />}
+              {mobileOpen && (
+                <button type="button" aria-label={t('close')} onClick={closeMobile} className="neo-mobile-close lg:hidden size-10 flex items-center justify-center rounded-[10px] text-ink-2 hover:bg-sunken">
+                  <X size={18} aria-hidden />
+                </button>
+              )}
+            </div>
+            {!isMobile && (
+              <button
+                type="button"
+                aria-label={collapsed ? t('expandSidebar') : t('collapseSidebar')}
+                aria-expanded={!collapsed}
+                onClick={() => setCollapsed((current) => !current)}
+                className="neo-sidebar-header-toggle size-9 shrink-0 flex items-center justify-center rounded-[9px] cursor-pointer"
+              >
+                <Menu size={19} strokeWidth={1.8} aria-hidden />
+              </button>
+            )}
+          </>
+        ) : isCollapsed
           ? <AegisMark size={32} theme={resolvedTheme} />
           : <AegisLockup markSize={36} theme={resolvedTheme} title="AEGIS Drive_LC" sub={t('productLockupSub')} />}
-        {neoDashboard && !isMobile && (
-          <button
-            type="button"
-            aria-label={collapsed ? t('expandSidebar') : t('collapseSidebar')}
-            aria-expanded={!collapsed}
-            onClick={() => setCollapsed(!collapsed)}
-            className="neo-sidebar-header-toggle size-8 shrink-0 flex items-center justify-center rounded-[9px] text-ink-2 hover:text-ink cursor-pointer"
-          >
-            <Menu size={18} strokeWidth={1.7} aria-hidden />
-          </button>
-        )}
         {!neoDashboard && !isCollapsed && (
           <button
             type="button"
@@ -190,7 +203,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
             <PanelLeftClose size={15} strokeWidth={1.5} />
           </button>
         )}
-        {mobileOpen && (
+        {!neoDashboard && mobileOpen && (
           <button type="button" aria-label={t('close')} onClick={closeMobile} className="neo-mobile-close lg:hidden size-10 flex items-center justify-center rounded-[10px] text-ink-2 hover:bg-sunken">
             <X size={18} aria-hidden />
           </button>

@@ -90,8 +90,9 @@ function Row({ row, idx, active, q, onRun, onHover }) {
  * ปิดตัวเองสี่ทาง: คลิกนอกกรอบ · Escape · เปลี่ยนจอ · เลือกผลลัพธ์
  * ข้อมูลมาจาก props (App ถือ fetch ไว้ตัวเดียว) — ที่นี่ไม่ยิง request เอง
  */
-export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [], disabled = false, className = '' }) {
+export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [], disabled = false, className = '', neoDashboard = false }) {
   const [open, setOpen] = useState(false)
+  const [panelVisible, setPanelVisible] = useState(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const containerRef = useRef(null)
@@ -99,6 +100,17 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
   const listRef = useRef(null)
   const now = useNow(30_000)
   const searchLabel = t(SEARCH_PLACEHOLDER_KEYS[screen] ?? 'searchPlaceholder')
+  const shortcutHint = neoDashboard && typeof navigator !== 'undefined' && !/Mac|iPhone|iPad/.test(navigator.userAgent) ? 'Ctrl K' : '⌘K'
+
+  useEffect(() => {
+    if (!neoDashboard) return undefined
+    if (open && !disabled) {
+      setPanelVisible(true)
+      return undefined
+    }
+    const timer = setTimeout(() => setPanelVisible(false), 160)
+    return () => clearTimeout(timer)
+  }, [open, disabled, neoDashboard])
 
   // ① คลิกนอกกรอบ (input + panel อยู่ใน containerRef เดียวกัน) → ปิด
   useEffect(() => {
@@ -106,9 +118,16 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
     const onDown = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false)
     }
+    const onFocus = (e) => {
+      if (neoDashboard && containerRef.current && !containerRef.current.contains(e.target)) setOpen(false)
+    }
     document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
+    document.addEventListener('focusin', onFocus)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('focusin', onFocus)
+    }
+  }, [open, neoDashboard])
 
   // ② Escape → ปิด (ฟังที่ document เพื่อให้ทำงานแม้โฟกัสอยู่ในผลลัพธ์)
   useEffect(() => {
@@ -297,20 +316,23 @@ export function GlobalSearch({ t, screen, go, nav = [], files = [], people = [],
       {/* ⌘K เป็นคำสัญญาว่า "กดแล้วค้นได้" — จอที่ปิดการค้นหาจึงไม่ควรโชว์ */}
       {!disabled && (
         <kbd className="search-shortcut absolute right-3 top-1/2 -translate-y-1/2 rounded-[5px] border border-line bg-sunken px-1.5 py-0.5 font-mono text-[10px] font-medium text-ink-3 pointer-events-none max-sm:hidden">
-          ⌘K
+          {shortcutHint}
         </kbd>
       )}
       {disabled && <span className="sr-only" role="note">{tip}</span>}
 
-      {panelOpen && (
+      {(neoDashboard ? panelVisible && !disabled : panelOpen) && (
         <div
           id="global-search-panel"
           ref={listRef}
           role="listbox"
           aria-label={searchLabel}
+          aria-hidden={!panelOpen}
+          inert={!panelOpen}
+          data-state={panelOpen ? 'open' : 'closing'}
           /* ยึดใต้ "ช่องค้นหา" เท่านั้น: กว้างเท่า input (right-0 กันล้นขอบขวาของจอ)
              ไม่ยืดเต็มบรรทัดหัวเรื่อง จึงไม่กินพื้นที่ปุ่มอื่นในแนวนอน */
-          className="absolute top-[calc(100%+6px)] right-0 w-full rounded-xl border border-line bg-card py-1.5 overflow-y-auto overscroll-contain search-pop"
+          className={`absolute top-[calc(100%+6px)] right-0 w-full rounded-xl border border-line bg-card py-1.5 overflow-y-auto overscroll-contain ${neoDashboard ? 'neo-search-menu' : 'search-pop'}`}
           style={{ maxHeight: 'min(60vh, 420px)', boxShadow: 'var(--elev-2)', zIndex: 'var(--z-dropdown)' }}
         >
           {q && flat.length === 0 && (

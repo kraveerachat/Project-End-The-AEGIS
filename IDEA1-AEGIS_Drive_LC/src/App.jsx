@@ -570,6 +570,7 @@ export default function App() {
               files={filesApi.data?.files ?? []}
               people={usersApi.data?.users ?? []}
               className="neo-topbar-search"
+              neoDashboard
             />
           ) : null}
         />
