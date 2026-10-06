@@ -245,6 +245,55 @@ def claim_break_glass(episode_id, claim_case, incident_id, reason, details):
     return claim_id
 
 
+HISTORICAL_DISPOSITION_EVENT = "INCIDENT_DISPOSED_HISTORICAL"
+
+
+def dispose_historical_incident_atomic(plan_fn, *, summary, level=None):
+    """R1D: the historical-incident disposition as ONE all-or-nothing transaction (modelled on ``claim_break_glass``).
+
+    ``plan_fn(conn)`` runs INSIDE the write transaction: it re-reads and re-checks the complete eligibility predicate
+    and returns ``{"incident_id": int, "details": str}`` or raises to refuse. Then, in the same transaction, the
+    database-level one-shot index is ensured, ONE ``INCIDENT_DISPOSED_HISTORICAL`` audit row is appended with the
+    chain hash computed from the same transaction, and exactly one eligible incident goes OPEN -> CLOSED (a rowcount
+    other than 1 fails the whole transaction). Any failure rolls the audit row and the transition back together.
+    Notification/log emission happens only after the durable commit and never undoes or repeats the disposition.
+    """
+    level = INFO if level is None else level
+    t_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    with _AUDIT_WRITE_LOCK:
+        conn = _connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            plan = plan_fn(conn)
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_audit_historical_disposition ON audit_logs (event_type) "
+                "WHERE event_type = 'INCIDENT_DISPOSED_HISTORICAL'"
+            )
+            prev_hash = _get_last_hash(conn)
+            conn.execute(
+                "INSERT INTO audit_logs (timestamp, level, event_type, details, incident_id, hash) VALUES (?, ?, ?, ?, ?, ?)",
+                (t_str, level, HISTORICAL_DISPOSITION_EVENT, plan["details"], plan["incident_id"],
+                 _compute_hash(t_str, level, HISTORICAL_DISPOSITION_EVENT, plan["details"], prev_hash)),
+            )
+            cursor = conn.execute(
+                "UPDATE incidents SET state='CLOSED', closed_at=?, summary=? WHERE id=? AND state != 'CLOSED'",
+                (t_str, summary, plan["incident_id"]),
+            )
+            if cursor.rowcount != 1:
+                raise sqlite3.IntegrityError("the historical incident transition did not affect exactly one eligible incident")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+    try:  # after durability only; it never rolls back or repeats the disposition
+        _emit_event(HISTORICAL_DISPOSITION_EVENT, plan["details"], level)
+    except Exception:
+        pass
+    return plan["incident_id"]
+
+
 def consume_break_glass_claim(claim_id, episode_id) -> bool:
     """Atomically mark a real, spent claim as dispatched exactly once (a forged or reused basis cannot pass)."""
     t_str = time.strftime("%Y-%m-%d %H:%M:%S")

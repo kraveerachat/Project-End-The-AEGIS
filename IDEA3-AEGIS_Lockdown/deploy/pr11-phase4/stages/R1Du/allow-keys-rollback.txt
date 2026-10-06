@@ -1,0 +1,15 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage R1Du PRE->RB allowances (rollback compare).
+# The running Core/detector release identity (cwd) is approved BY KEY ONLY: a rollback that restarts the Core lands it on the OLD current release, which is NOT the PRE running release. The tool proves
+# the class (EXACT_PROCESS / EXACT_RELEASE / SAFE_EQUIVALENT, the last only after the machine equivalence proof) and the runner gate r1du_runtime_transition_gate proves the exact values; a PASS is never reported
+# as exact PRE restoration unless the Core process itself was never replaced.
+# PRE->RB must be ZERO-DRIFT for every R1Du-owned surface (current, the release catalog, the sockets, core.env). The ONLY thing it may approve is the restart-volatile identity of the Core:
+# a bounded rollback may restart the Core once onto the OLD release, so its MainPID and start timestamp legitimately differ from PRE, and so do the detector's (cycled by systemd as the Requires= consequence; D1 -> D2 -> D3). All of them are equal when no restart was needed. NRestarts, ActiveState,
+# SubState, Result, UnitFileState and every other key must equal PRE.
+svc.aegis-idea3-core.service.MainPID
+svc.aegis-idea3-core.service.ExecMainStartTimestamp
+svc.aegis-idea3-detector.service.MainPID
+svc.aegis-idea3-detector.service.ExecMainStartTimestamp
+host.aegis_idea3.recovery.core.runtime_cwd
+host.aegis_idea3.alert.detector.runtime_cwd
+# core.env was rewritten twice by the owned arm/unarm (atomic replace): size must equal PRE again (the tool proves it), only the mtime may differ.
+host.aegis_idea3.file./etc/aegis-idea3/core.env.meta
