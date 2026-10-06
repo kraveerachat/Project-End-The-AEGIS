@@ -589,6 +589,141 @@ class ViewerDemandTests(unittest.TestCase):
         catcher.join(1.0)
 
         self.assertFalse(catcher.is_alive())
+
+    def test_blocked_read_requests_engine_shutdown_for_supervisor_recovery(self):
+        demand = threading.Event()
+        demand.set()
+        stop = threading.Event()
+        metrics = MetricsRegistry()
+        blocked = threading.Event()
+        release_read = threading.Event()
+
+        catcher = VideoCatcher(
+            EngineConfig(
+                capture_on_demand=True,
+                detection_engine_api_key="key",
+                stream_first_frame_timeout_s=2,
+                stream_idle_timeout_s=1,
+            ),
+            metrics,
+            sinks=[],
+            stop_event=stop,
+            capture_demand_event=demand,
+        )
+
+        class BlockingAfterFirstCapture(FakeCapture):
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+
+            def read(self):
+                self.calls += 1
+                if self.calls == 1:
+                    return True, object()
+
+                blocked.set()
+                release_read.wait(3.0)
+                return False, None
+
+        cap = BlockingAfterFirstCapture()
+
+        def open_camera():
+            catcher._cap = cap
+            return True
+
+        catcher._open_camera = open_camera
+        catcher.start()
+
+        try:
+            self.assertTrue(
+                blocked.wait(1.0),
+                "capture worker never entered the simulated blocked read",
+            )
+            self.assertTrue(
+                stop.wait(2.5),
+                "blocked native read did not request Engine supervisor recovery",
+            )
+            self.assertFalse(metrics.snapshot()["camera_connected"])
+        finally:
+            release_read.set()
+            demand.clear()
+            stop.set()
+            catcher.join(2.0)
+
+        self.assertFalse(catcher.is_alive())
+
+    def test_watchdog_ignores_stale_completed_read_snapshot(self):
+        stop = threading.Event()
+        metrics = MetricsRegistry()
+
+        catcher = VideoCatcher(
+            EngineConfig(
+                capture_on_demand=True,
+                detection_engine_api_key="key",
+                stream_first_frame_timeout_s=2,
+                stream_idle_timeout_s=1,
+            ),
+            metrics,
+            sinks=[],
+            stop_event=stop,
+            capture_demand_event=threading.Event(),
+        )
+
+        sampled = threading.Event()
+        continue_clock = threading.Event()
+
+        with catcher._read_state_lock:
+            catcher._read_started_at = 10.0
+            catcher._read_has_frame_since_open = True
+
+        def fake_monotonic():
+            if threading.current_thread().name == "RaceWatchdog":
+                sampled.set()
+                continue_clock.wait(1.0)
+                return 11.5
+            return 11.4
+
+        watchdog = threading.Thread(
+            target=catcher._read_watchdog_loop,
+            name="RaceWatchdog",
+            daemon=True,
+        )
+
+        with patch.object(
+            video_catcher_module.time,
+            "monotonic",
+            side_effect=fake_monotonic,
+        ):
+            watchdog.start()
+
+            try:
+                self.assertTrue(
+                    sampled.wait(1.0),
+                    "watchdog did not snapshot the simulated old read",
+                )
+
+                # Complete the sampled read and begin a newer one before the
+                # watchdog performs its timeout escalation.
+                with catcher._read_state_lock:
+                    catcher._read_started_at = 11.4
+                    catcher._read_generation = (
+                        getattr(catcher, "_read_generation", 0) + 1
+                    )
+                    catcher._read_has_frame_since_open = True
+
+                continue_clock.set()
+                time.sleep(0.35)
+
+                self.assertFalse(
+                    stop.is_set(),
+                    "stale read snapshot incorrectly stopped the Engine",
+                )
+            finally:
+                catcher._read_watchdog_stop.set()
+                continue_clock.set()
+                watchdog.join(1.0)
+
+        self.assertFalse(watchdog.is_alive())
     def test_camera_opens_only_while_viewer_demand_exists(self):
         demand = threading.Event()
         stop = threading.Event()
