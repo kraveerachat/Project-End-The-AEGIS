@@ -45,7 +45,7 @@ done
 [[ "$R1B_EVIDENCE_DIR" == /* ]] && [[ "$R1B_EVIDENCE_DIR" != *..* ]] && [[ "$R1B_AUTH_DIR" == /* ]] && [[ "$R1B_AUTH_DIR" != *..* ]] || { echo "STOP: R1B_EVIDENCE_DIR and R1B_AUTH_DIR must be absolute paths."; exit 2; }
 [ "$(id -u)" != 0 ] || { echo "Run as your normal user, not root."; exit 2; }
 # No environment may redirect a live run: fixture roots, handler overrides and R1Bv/R1I switches must all be unset.
-for var in AEGIS_P4_FS_ROOT P4_FS_ROOT AEGIS_P4_HANDLER_DIR AEGIS_R1BV_STEP AEGIS_R1BV_WORK_DIR AEGIS_R1BV_LIVE_AUTHORIZED AEGIS_R1BV_APP_DIR AEGIS_R1BV_AUDIT_DB AEGIS_R1BV_EXPECTED_SOURCE_IP AEGIS_R1BV_R1B_EVIDENCE_DIR AEGIS_R1BV_R1B_AUTH_DIR AEGIS_R1BV_TEST_ONLY_MARKER AEGIS_R1BV_VERIFIER_MANIFEST_SHA256 R1BV_TEST_ONLY_SNAPSHOT_TRUST_ENABLED R1BV_TEST_ONLY_SNAPSHOT_TRUST_ROOT R1BV_CANONICAL_DIR R1BV_TEST_ONLY_CANONICAL_DIR R1BV_TEST_ONLY_CANONICAL_DIR_ENABLED GLOBAL_MARKER_DIR AEGIS_R1I_LIVE_AUTHORIZED; do
+for var in AEGIS_P4_FS_ROOT P4_FS_ROOT AEGIS_P4_HANDLER_DIR AEGIS_R1BV_STEP AEGIS_R1BV_WORK_DIR AEGIS_R1BV_LIVE_AUTHORIZED AEGIS_R1BV_APP_DIR AEGIS_R1BV_AUDIT_DB AEGIS_R1BV_EXPECTED_SOURCE_IP AEGIS_R1BV_R1B_EVIDENCE_DIR AEGIS_R1BV_R1B_AUTH_DIR AEGIS_R1BV_RELEASE_ID AEGIS_R1BV_DETECTOR_SHA256 AEGIS_R1BV_DETECTOR_UID AEGIS_R1BV_TEST_ONLY_MARKER AEGIS_R1BV_VERIFIER_MANIFEST_SHA256 R1BV_TEST_ONLY_SNAPSHOT_TRUST_ENABLED R1BV_TEST_ONLY_SNAPSHOT_TRUST_ROOT R1BV_CANONICAL_DIR R1BV_TEST_ONLY_CANONICAL_DIR R1BV_TEST_ONLY_CANONICAL_DIR_ENABLED GLOBAL_MARKER_DIR AEGIS_R1I_LIVE_AUTHORIZED; do
   [ -z "${!var:-}" ] || { echo "STOP: environment override $var is set; refusing a live run."; exit 2; }
 done
 AUTH_DIR=${1:-}
@@ -119,6 +119,9 @@ control_git_gate() {
 }
 control_gate || die "the control snapshot is not the frozen immutable authority; nothing was sourced, created or touched"
 control_git_gate || die "the control snapshot is not byte-identical to the pinned-main source; nothing was sourced, created or touched"
+# EVERY privileged command after the single interactive `sudo -v` below is NON-INTERACTIVE (`sudo -n`): the libraries use $SUDO, so it is fixed to `sudo -n` BEFORE they are sourced. An expired credential makes the
+# command itself fail (no password prompt can stall the stage, including on the failure path).
+SUDO="sudo -n"
 # shellcheck disable=SC1090
 source "$LIB"
 RUNNER_SHA256=$(sha256sum "$0" | cut -d' ' -f1)
@@ -184,12 +187,12 @@ pregates() {
 }
 
 
-capture() { control_gate || return 1; sudo env PYTHONPATH="$VERIFIER_SNAPSHOT_DIR" PYTHONDONTWRITEBYTECODE=1 EVID_DIR="$2" CAPTURE_LABEL="${1,,}" JOURNAL_SINCE="$JOURNAL_SINCE" bash "$CTRL/p4-l0-capture.sh" || return 1
-  sudo grep -q 'L0_CAPTURE=COMPLETE' "$2/capture.log" || return 1; sudo bash -c "cd '$2' && sha256sum -c --quiet --strict SHA256SUMS" || return 1; echo "CAPTURE_$1=COMPLETE SHA256=PASS"; }
+capture() { control_gate || return 1; sudo -n env PYTHONPATH="$VERIFIER_SNAPSHOT_DIR" PYTHONDONTWRITEBYTECODE=1 EVID_DIR="$2" CAPTURE_LABEL="${1,,}" JOURNAL_SINCE="$JOURNAL_SINCE" bash "$CTRL/p4-l0-capture.sh" || return 1
+  sudo -n grep -q 'L0_CAPTURE=COMPLETE' "$2/capture.log" || return 1; sudo -n bash -c "cd '$2' && sha256sum -c --quiet --strict SHA256SUMS" || return 1; echo "CAPTURE_$1=COMPLETE SHA256=PASS"; }
 compare() {  # compare BEFORE AFTER OUTFILE — NO allowed drift for R1Bv: every captured generic key must be identical.
   local rc=0
   control_gate || return 1
-  sudo env DISK_THRESHOLD_PCT=90 AEGIS_AP_INTERFACE="$AP_IF" AEGIS_AP_ADDRESS="$AP_ADDR" ALLOW_KEYS_FILE="$STG/allow-keys.txt" ALLOW_LISTENERS_FILE="$STG/allow-listeners.txt" \
+  sudo -n env DISK_THRESHOLD_PCT=90 AEGIS_AP_INTERFACE="$AP_IF" AEGIS_AP_ADDRESS="$AP_ADDR" ALLOW_KEYS_FILE="$STG/allow-keys.txt" ALLOW_LISTENERS_FILE="$STG/allow-listeners.txt" \
     bash "$CTRL/p4-compare.sh" "$1" "$2" > "$3" 2>&1 || rc=$?
   grep -E '^(FINDING|FINDINGS_|PRESERVATION_S10|COMPARE_RESULT)' "$3" || true; [ "$rc" = 0 ] || return 1
   for l in FINDINGS_NEW_OR_WORSENED_DRIFT=0 FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0 FINDINGS_INCOMPARABLE=0 FINDINGS_APPROVED_CHANGE=0 PRESERVATION_S10=PASS COMPARE_RESULT=PASS; do
@@ -200,15 +203,15 @@ clock_available() { awk -F'\t' '$1=="time.trustedclock.state" {n++; v=$2} END{ex
 # The handlers run as ROOT and are READ-ONLY observers (BASELINE, FINAL). They have no marker, no socket, no caller and no DISPOSE step.
 handler() {
   control_gate || return 1   # root never executes a handler whose control snapshot drifted
-  sudo env -u AEGIS_P4_FS_ROOT -u P4_FS_ROOT AEGIS_R1BV_LIVE_AUTHORIZED=YES AEGIS_R1BV_WORK_DIR="$WORK" AEGIS_R1BV_STEP="$1" AEGIS_R1BV_APP_DIR="$VERIFIER_SNAPSHOT_DIR" AEGIS_R1BV_VERIFIER_MANIFEST_SHA256="$VERIFIER_MANIFEST_SHA256" \
-    AEGIS_R1BV_AUDIT_DB="$AUDIT_DB" AEGIS_R1BV_EXPECTED_SOURCE_IP="$EXPECTED_SOURCE_IP" AEGIS_R1BV_R1B_EVIDENCE_DIR="$R1B_EVIDENCE_DIR" AEGIS_R1BV_R1B_AUTH_DIR="$R1B_AUTH_DIR" AEGIS_PYTHON_BIN="$PY" PYTHONDONTWRITEBYTECODE=1 \
+  sudo -n env -u AEGIS_P4_FS_ROOT -u P4_FS_ROOT AEGIS_R1BV_LIVE_AUTHORIZED=YES AEGIS_R1BV_WORK_DIR="$WORK" AEGIS_R1BV_STEP="$1" AEGIS_R1BV_APP_DIR="$VERIFIER_SNAPSHOT_DIR" AEGIS_R1BV_VERIFIER_MANIFEST_SHA256="$VERIFIER_MANIFEST_SHA256" \
+    AEGIS_R1BV_AUDIT_DB="$AUDIT_DB" AEGIS_R1BV_EXPECTED_SOURCE_IP="$EXPECTED_SOURCE_IP" AEGIS_R1BV_R1B_EVIDENCE_DIR="$R1B_EVIDENCE_DIR" AEGIS_R1BV_R1B_AUTH_DIR="$R1B_AUTH_DIR" AEGIS_R1BV_RELEASE_ID="$RELEASE_ID" AEGIS_R1BV_DETECTOR_SHA256="$PRODUCTION_DETECTOR_SHA256" AEGIS_R1BV_DETECTOR_UID="$DETECTOR_UID" AEGIS_PYTHON_BIN="$PY" PYTHONDONTWRITEBYTECODE=1 \
     bash "$STG/${2:-apply.sh}"
 }
 runtime_unchanged() { [ "$(snap $CORE_UNIT)" = "$CORE_PRE" ] && [ "$(snap $DETECTOR_UNIT)" = "$DETECTOR_PRE" ]; }
 
 # ---- the R1Bv sequence (no attempt state machine, no marker, no window record, no sleep: the stage is read-only and owns no one-shot) ---------------------------------------------------------------------------
 # Every privileged phase is preceded by a NON-INTERACTIVE sudo credential check (a lapsed credential fails HERE with a reason, never as an ambiguous late-stage failure like the R1B windowrecord failure).
-r1bv_fail() { echo "R1BV_RESULT=FAIL R1BV_FAILED_STAGE=$1 R1BV_IS_R1B_RETRY=NO R1BV_MUTATION_PERFORMED=NO (read-only; nothing to roll back; R1B stays R1B_RESULT=FAIL_IMMUTABLE; evidence kept at $EVID)"; handler FINAL rollback.sh 2>/dev/null || true; exit 1; }
+r1bv_fail() { echo "R1BV_RESULT=FAIL R1BV_FAILED_STAGE=$1 R1BV_IS_R1B_RETRY=NO R1BV_MUTATION_PERFORMED=NO (read-only; R1Bv owns NOTHING to roll back, so the failure path invokes NO privileged command and cannot prompt; R1B stays R1B_RESULT=FAIL_IMMUTABLE; evidence kept at $EVID)"; exit 1; }
 echo "== R1Bv pre-gates (read-only)"
 pregates || die "one or more pre-gates failed; NOTHING was created or changed on the host"
 CORE_PRE=$(snap $CORE_UNIT); DETECTOR_PRE=$(snap $DETECTOR_UNIT)
@@ -217,11 +220,11 @@ JOURNAL_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S UTC'); printf '%s\n' "$JOURNAL_SINCE
 cp "$AUTH_DIR/authorization-R1Bv.txt" "$EVID/"
 { echo "MAIN=$EXPECTED_MAIN"; echo "RELEASE_ID=$RELEASE_ID"; echo "VERIFIER_MANIFEST_SHA256=$VERIFIER_MANIFEST_SHA256"; echo "RUNNER_SHA256=$RUNNER_SHA256"; echo "CORE_PRE=$CORE_PRE"; echo "DETECTOR_PRE=$DETECTOR_PRE"; } > "$EVID/frozen-inputs.txt"
 r1bv_sudo_noninteractive_gate || r1bv_fail sudo_credential_workdir
-sudo install -d -m 700 -o root -g root "$WORK" || r1bv_fail workdir
+sudo -n install -d -m 700 -o root -g root "$WORK" || r1bv_fail workdir
 echo "== PRE capture (read-only)"
 r1bv_sudo_noninteractive_gate || r1bv_fail sudo_credential_pre_capture
 capture PRE "$PRE" || r1bv_fail pre_capture
-sudo chown -R "$(id -u):$(id -g)" "$PRE" 2>/dev/null || true
+sudo -n chown -R "$(id -u):$(id -g)" "$PRE" 2>/dev/null || true
 clock_available "$PRE" || { echo "R1BV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=NO capture=pre"; r1bv_fail trustedclock_pre; }
 echo "== R1Bv BASELINE validation of the existing R1B evidence (read-only; the bound comes from the root-owned canonical R1B marker)"
 r1bv_sudo_noninteractive_gate || r1bv_fail sudo_credential_baseline
@@ -229,7 +232,7 @@ handler BASELINE || r1bv_fail baseline
 echo "== POST capture and PRE -> POST comparison (read-only)"
 r1bv_sudo_noninteractive_gate || r1bv_fail sudo_credential_post_capture
 capture POST "$POST" || r1bv_fail post_capture
-sudo chown -R "$(id -u):$(id -g)" "$POST" 2>/dev/null || true
+sudo -n chown -R "$(id -u):$(id -g)" "$POST" 2>/dev/null || true
 clock_available "$POST" || { echo "R1BV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=NO capture=post"; r1bv_fail trustedclock_post; }
 echo "R1BV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=YES (the CURRENT clock; this is NOT evidence of the historical R1B clock state)"
 compare "$PRE" "$POST" "$EVID/compare-pre-post.txt" || r1bv_fail compare

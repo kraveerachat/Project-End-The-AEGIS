@@ -235,7 +235,7 @@ R1BV_CLOSEOUT_REL = f"{LOGS}/2026-10-08_100000_music_idea3-r1bv-live-closeout.md
 R1BV_LIVE_FIELDS = ("R1BV_LIVE=CLOSED_PASS", "R1BV_LIVE_EXECUTED=YES", "R1BV_RESULT=PASS", "R1BV_VERIFY=PASS", "R1BV_IS_R1B_RETRY=NO", "R1BV_READ_ONLY_VALIDATION_ONLY=YES", "R1BV_NEW_EXTERNAL_EVENT_GENERATED=NO",
                     "R1BV_EXISTING_R1B_EVIDENCE_ONLY=YES", "R1BV_INCIDENT_MUTATED=NO", "R1BV_R1B_MARKER_MUTATED=NO", "R1BV_WINDOW_RECORD_CREATED=NO", "R1BV_WINDOW_RECORD_RECONSTRUCTED=NO",
                     "R1BV_CANONICAL_MARKER_TIME_AUTHORITY=PASS", "R1BV_HISTORICAL_BOUND=PASS", "R1BV_EXPECTED_SOURCE_BOUND=PASS", "R1BV_REAL_DETECTOR_CHAIN=PASS", "R1BV_NEW_INCIDENT_CREATED_SEMANTICS=PASS",
-                    "R1BV_AUDIT_PROVENANCE=PASS", "R1BV_R1I_STATE=PASS", "R1BV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=YES", "R1BV_PRESERVATION_S10=PASS", "R1BV_COMPARE_RESULT=PASS", "R1B_RESULT=FAIL_IMMUTABLE",
+                    "R1BV_AUDIT_PROVENANCE=PASS", "R1BV_AUDIT_INTEGRITY=PASS", "R1BV_R1I_STATE=PASS", "R1BV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=YES", "R1BV_PRESERVATION_S10=PASS", "R1BV_COMPARE_RESULT=PASS", "R1B_RESULT=FAIL_IMMUTABLE",
                     "R1B_RESULT_REWRITTEN=NO", "RECOVERY_R2_R8_EXECUTED=NO", "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN", "R1_VERIFIED=NOT_CLAIMED", "RECOVERY_R1_R8_PROVEN=NO")
 REAL_RECEIPTS = ["2026-10-04_233030_music_idea3-f1-attempt2-live-closeout.md", "2026-10-05_005444_music_idea3-r1-real-detector-acceptance.md", "2026-10-05_041108_music_idea3-f1u-live-closeout.md",
                  "2026-10-05_063546_music_idea3-r1i-live-closeout.md", "2026-10-05_232827_music_idea3-r1a-live-failure-closeout.md", "2026-10-06_070624_music_idea3-r1du-live-closeout.md",
@@ -378,31 +378,93 @@ def test_the_runner_is_read_only_and_ordered_with_the_final_observation_last() -
     assert "R1BV_R1I_STATE=PASS" in text and "R1B_RESULT=FAIL_IMMUTABLE (R1B_RESULT_REWRITTEN=NO)" in text
 
 
-def test_a_noninteractive_sudo_credential_gate_precedes_every_privileged_phase() -> None:
+def runner_code_lines() -> list[str]:
+    return [ln for ln in RUNNER.read_text().split("\n") if not ln.lstrip().startswith("#")]
+
+
+def test_every_privileged_command_after_the_single_interactive_auth_is_itself_noninteractive() -> None:
+    lines = runner_code_lines()
+    sudo_uses = [ln for ln in lines if re.search(r"(?<![A-Za-z0-9_$])sudo(?![A-Za-z0-9_-])", ln.split("echo ", 1)[0] if ln.lstrip().startswith("echo") else ln)]
+    interactive = [ln for ln in sudo_uses if re.search(r"(?<![A-Za-z0-9_$\"])sudo\s+(?!-n\b)(?!-v\b)", re.sub(r'"[^"]*"', '""', ln))]
+    assert not interactive, interactive  # no `sudo <cmd>` without -n; the ONE interactive boundary is `sudo -v`
+    assert sum(1 for ln in lines if re.match(r"\s*sudo -v\b", ln)) == 1
+    text = RUNNER.read_text()
+    assert text.index('SUDO="sudo -n"') < text.index('source "$LIB"') < text.index("sudo -v || die")  # the libraries' $SUDO is non-interactive from their first use
+    assert "sudo -n install -d -m 700" in text and "sudo -n chown" in text and "sudo -n grep -q 'L0_CAPTURE=COMPLETE'" in text and 'sudo -n bash -c "cd' in text and "sudo -n env -u AEGIS_P4_FS_ROOT" in text
+    # the library's own $SUDO uses stay non-interactive too: the gate only ever calls `<sudo> -n true`
+    assert "${SUDO%% *} -n true" in LIB.read_text()
+
+
+def test_a_noninteractive_credential_gate_still_precedes_every_privileged_phase() -> None:
     text = RUNNER.read_text()
     seq = text[text.index('echo "== R1Bv pre-gates'):]
-    phases = ["sudo install -d -m 700 -o root -g root \"$WORK\"", "capture PRE \"$PRE\"", "handler BASELINE", "capture POST \"$POST\"", "authority_gates || r1bv_fail authority_before_final", "handler FINAL || r1bv_fail final", "out=$(handler FINAL verify.sh"]
+    phases = ["sudo -n install -d -m 700 -o root -g root \"$WORK\"", "capture PRE \"$PRE\"", "handler BASELINE", "capture POST \"$POST\"", "authority_gates || r1bv_fail authority_before_final", "handler FINAL || r1bv_fail final", "out=$(handler FINAL verify.sh"]
     for phase in phases:
         idx = seq.index(phase)
-        window = seq[max(0, idx - 200):idx]
-        assert "r1bv_sudo_noninteractive_gate" in window, phase
-    assert text.count("r1bv_sudo_noninteractive_gate") >= 7 and "sudo -v || die" in text  # one interactive auth BEFORE the stage starts, then only non-interactive checks
+        assert "r1bv_sudo_noninteractive_gate" in seq[max(0, idx - 200):idx], phase
+
+
+def extract(text: str, start: str, end_suffix: str) -> str:
+    lines = text.split("\n")
+    i = next(n for n, ln in enumerate(lines) if ln.startswith(start))
+    j = next(n for n in range(i, len(lines)) if lines[n].rstrip().endswith(end_suffix))
+    return "\n".join(lines[i:j + 1])
 
 
 def stub_sudo(tmp_path: Path, rc_n: int) -> str:
+    """A stub `sudo`: `-n ...` exits ``rc_n`` (non-zero = an EXPIRED credential); anything else is PROMPT-CAPABLE and is recorded as such. Every call is logged."""
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
-    (bindir / "sudo").write_text('#!/bin/sh\nif [ "$1" = "-n" ]; then exit %d; fi\nexec "$@"\n' % rc_n)
+    log = tmp_path / "sudo.log"
+    (bindir / "sudo").write_text('#!/bin/sh\necho "$*" >> "%s"\nif [ "$1" = "-n" ]; then exit %d; fi\necho "PROMPT_CAPABLE: $*" >> "%s"\nexit 1\n' % (log, rc_n, log))
     os.chmod(bindir / "sudo", 0o755)
     return f'PATH="{bindir}:$PATH"; '
 
 
+def test_expired_credentials_refuse_every_phase_before_substantive_work_and_the_failure_path_never_prompts(tmp_path: Path) -> None:
+    text = RUNNER.read_text()
+    fn = "\n".join([extract(text, "capture() {", "; }"), extract(text, "compare() {", "done; }"), extract(text, "handler() {", "}"), extract(text, "r1bv_fail() {", "exit 1; }")])
+    work = tmp_path / "w"
+    work.mkdir()
+    script = f"""{stub_sudo(tmp_path, 1)}
+control_gate() {{ return 0; }}
+SUDO="sudo -n"; CTRL=/nonexistent/ctrl; STG=/nonexistent/stg; WORK="{work}"; VERIFIER_SNAPSHOT_DIR=/nonexistent/v; VERIFIER_MANIFEST_SHA256=x; AUDIT_DB=/nonexistent/db
+EXPECTED_SOURCE_IP=203.0.113.1; R1B_EVIDENCE_DIR=/nonexistent/e; R1B_AUTH_DIR=/nonexistent/a; RELEASE_ID=r; PRODUCTION_DETECTOR_SHA256=x; DETECTOR_UID=1; PY=/usr/bin/python3; JOURNAL_SINCE=x; AP_IF=x; AP_ADDR=x; EVID=/nonexistent/evid
+{fn}
+. "{LIB}"; SUDO="sudo -n"
+capture PRE "{tmp_path}/pre"; echo "capture_rc=$?"
+handler BASELINE; echo "handler_rc=$?"
+compare "{tmp_path}/a" "{tmp_path}/b" "{tmp_path}/out" ; echo "compare_rc=$?"
+r1bv_sudo_noninteractive_gate; echo "gate_rc=$?"
+LOG_BEFORE=$(wc -l < "{tmp_path}/sudo.log")
+(r1bv_fail final_stage_x) ; echo "fail_rc=$?"
+LOG_AFTER=$(wc -l < "{tmp_path}/sudo.log")
+echo "failure_path_sudo_calls=$((LOG_AFTER-LOG_BEFORE))"
+"""
+    result = base.bash(script)
+    out = result.stdout
+    for line in ("capture_rc=1", "handler_rc=1", "compare_rc=1", "gate_rc=1", "fail_rc=1", "failure_path_sudo_calls=0"):
+        assert line in out, (line, out, result.stderr)
+    log = (tmp_path / "sudo.log").read_text()
+    assert log.strip() and all(ln.startswith("-n ") for ln in log.splitlines()), log  # every sudo invocation was non-interactive
+    assert "PROMPT_CAPABLE" not in log
+    assert "owns NOTHING to roll back" in out and "NO privileged command" in out and "R1BV_RESULT=FAIL" in out
+    assert not (tmp_path / "pre").exists() and list(work.iterdir()) == []  # nothing created, nothing mutated
+    assert not (tmp_path / "out").exists() or (tmp_path / "out").read_text() == ""  # only the (empty) redirect target of the user-side evidence file may exist; no host state
+
+
+def test_the_failure_path_never_invokes_the_rollback_handler_or_any_privileged_command() -> None:
+    fail_line = extract(RUNNER.read_text(), "r1bv_fail() {", "exit 1; }")
+    assert "sudo" not in fail_line and "handler" not in fail_line and "rollback" not in fail_line
+    assert not re.search(r"handler\s+(BASELINE|FINAL)[^\n]*rollback|STG/rollback|\$STG/\$\{?2?:?-?rollback", "\n".join(runner_code_lines()))  # only the presence check of the handler files mentions it
+
+
 def test_a_lapsed_sudo_credential_fails_the_gate_with_an_explicit_reason_and_never_prompts(tmp_path: Path) -> None:
-    ok = base.bash(f'{stub_sudo(tmp_path, 0)}. "{LIB}"; SUDO=sudo; r1bv_sudo_noninteractive_gate')
-    bad = base.bash(f'{stub_sudo(tmp_path, 1)}. "{LIB}"; SUDO=sudo; r1bv_sudo_noninteractive_gate')
+    ok = base.bash(f'{stub_sudo(tmp_path, 0)}. "{LIB}"; SUDO="sudo -n"; r1bv_sudo_noninteractive_gate')
+    bad = base.bash(f'{stub_sudo(tmp_path / "x", 1) if (tmp_path / "x").mkdir() is None else ""}. "{LIB}"; SUDO="sudo -n"; r1bv_sudo_noninteractive_gate')
     assert ok.returncode == 0 and bad.returncode == 1 and "R1BV_SUDO_CREDENTIAL_NOT_ACTIVE" in bad.stderr
     assert base.bash(f'. "{LIB}"; SUDO=""; r1bv_sudo_noninteractive_gate').returncode == 0  # no sudo in use (tests / root)
-    assert "$SUDO -n true" in LIB.read_text()  # `-n`: never a password prompt
+    assert "PROMPT_CAPABLE" not in (tmp_path / "sudo.log").read_text() and "PROMPT_CAPABLE" not in (tmp_path / "x" / "sudo.log").read_text()
 
 
 # ---------------------------------------------------------------- the R1Bv predecessor receipt gate (REAL receipts as the fixture)
@@ -595,7 +657,7 @@ def good_doc() -> dict:
 
     return {"schema": "aegis.idea3.r1bv-result/1", "result": "PASS", "reason": "OK", "expected_source_ip": "203.0.113.50", "attacker_ip": "203.0.113.50", "claims": dict(v.CLAIMS),
             "checks": {"R1BV_CANONICAL_MARKER_TIME_AUTHORITY": "PASS", "R1BV_TIMING_CORROBORATION": "PASS", "R1BV_HISTORICAL_BOUND": "PASS", "R1BV_EXPECTED_SOURCE_BOUND": "PASS", "R1BV_REAL_DETECTOR_CHAIN": "PASS",
-                       "R1BV_NEW_INCIDENT_CREATED_SEMANTICS": "PASS", "R1BV_AUDIT_PROVENANCE": "PASS", "R1BV_WINDOW_RECORD_ABSENT": "YES"},
+                       "R1BV_NEW_INCIDENT_CREATED_SEMANTICS": "PASS", "R1BV_AUDIT_PROVENANCE": "PASS", "R1BV_AUDIT_INTEGRITY": "PASS", "R1BV_WINDOW_RECORD_ABSENT": "YES"},
             "bound": {"lower": 1791259349.358577, "deadline": 1791259949.358577, "observe_seconds": 600, "derivation": "x"}}
 
 
@@ -634,7 +696,7 @@ def test_the_observer_cli_baseline_then_final_passes_and_a_mutation_between_them
     real_bound, real_load = v.derive_bound, v.load_baseline
     monkeypatch.setattr(v, "CANONICAL_MARKER", str(w.marker))
     monkeypatch.setattr(v, "derive_bound", lambda marker, **kw: real_bound(marker, owner_uid=uid, trust_root=str(w.tmp), **kw))
-    monkeypatch.setattr(v, "load_baseline", lambda path, bound, **kw: real_load(path, bound, owner_uid=uid))
+    monkeypatch.setattr(v, "load_baseline", lambda path, bound, **kw: real_load(path, bound, owner_uid=uid, **kw))
     monkeypatch.setattr(r1, "service_snapshot", lambda unit, run=None: dict(w.services["core" if unit == r1.CORE_UNIT else "detector"]))
     monkeypatch.setattr(r1, "read_journal", lambda since: copy_journal(w))
     monkeypatch.setattr(v, "_services_now", lambda: {k: dict(x) for k, x in w.services.items()})
@@ -642,7 +704,7 @@ def test_the_observer_cli_baseline_then_final_passes_and_a_mutation_between_them
     work.mkdir(mode=0o700)
     (work / "r1-baseline.json").write_text(json.dumps(w.baseline))
     os.chmod(work / "r1-baseline.json", 0o600)
-    common = ["--audit-db", w.db, "--r1b-baseline", str(work / "r1-baseline.json"), "--expected-source-ip", obs.SRC, "--local-marker", str(w.local), "--runner-log", str(w.log)]
+    common = ["--audit-db", w.db, "--r1b-baseline", str(work / "r1-baseline.json"), "--expected-source-ip", obs.SRC, "--expected-release-id", "rel-1", "--expected-detector-sha256", "a" * 64, "--expected-detector-uid", str(acc_uid()), "--local-marker", str(w.local), "--runner-log", str(w.log)]
     # defaults were bound at definition time: route the module's own defaults through the seams
     monkeypatch.setattr(v, "validate", lambda **kw: orig_validate(services=lambda: {k: dict(x) for k, x in w.services.items()}, journal=lambda s: copy_journal(w), **kw))
     monkeypatch.setattr(v, "fingerprint", lambda **kw: orig_fp(services=lambda: {k: dict(x) for k, x in w.services.items()}, **kw))
@@ -660,8 +722,15 @@ def test_the_observer_cli_baseline_then_final_passes_and_a_mutation_between_them
     conn.execute("INSERT INTO audit_logs (timestamp, level, event_type, details, incident_id) VALUES ('2030-01-01 00:00:00', 'INFO', 'X', 'x', NULL)")
     conn.commit()
     conn.close()
+    obs.rechain(w.db)  # a VALID chain: only the no-mutation fingerprint (not the chain) must catch the appended row
     assert v.main(["final", *common, "--baseline", str(tmp_path / "base.json"), "--out", str(tmp_path / "result2.json")]) == 1
     assert "STATE_CHANGED_BETWEEN_VALIDATIONS:audit_max_id" in capsys.readouterr().err and not (tmp_path / "result2.json").exists()
+
+
+def acc_uid() -> int:
+    import test_r1_acceptance as acc
+
+    return acc.UID
 
 
 def copy_journal(w) -> dict:
@@ -737,3 +806,117 @@ def test_the_handler_creates_nothing_before_every_guard_has_passed(tmp_path: Pat
     work.mkdir()
     run_apply({"AEGIS_R1BV_LIVE_AUTHORIZED": "YES", "AEGIS_R1BV_WORK_DIR": str(work), "AEGIS_R1BV_STEP": "BASELINE"})
     assert list(work.iterdir()) == []  # no step marker, no evidence, no governance record from a refused invocation
+
+
+# ---------------------------------------------------------------- I4: every positive R1Bv live-result claim must be in the ONE canonical closeout
+@pytest.mark.parametrize("claim", ["R1BV_LIVE_EXECUTED=YES", "R1BV_VERIFY=PASS", "R1BV_RESULT=PASS", "R1BV_LIVE=CLOSED_PASS", "R1BV_HISTORICAL_BOUND=PASS", "R1BV_REAL_DETECTOR_CHAIN=PASS", "R1BV_AUDIT_INTEGRITY=PASS", "R1BV_COMPARE_RESULT=PASS"])
+def test_a_valid_canonical_closeout_plus_an_extra_bare_positive_claim_is_ambiguous(tmp_path: Path, claim: str) -> None:
+    extra = {f"{LOGS}/2026-10-08_140000_music_idea3-notes.md": f"- `{claim}`\n"}
+    assert recovery_gate(world(tmp_path, closeout=bullet(R1BV_LIVE_FIELDS), **extra)).returncode == 1, claim
+    (tmp_path / "ctl").mkdir()
+    assert recovery_gate(world(tmp_path / "ctl", closeout=bullet(R1BV_LIVE_FIELDS))).returncode == 0  # control: the canonical closeout alone is accepted
+
+
+def test_successful_r1bv_fields_split_across_files_are_refused(tmp_path: Path) -> None:
+    half = len(R1BV_LIVE_FIELDS) // 2
+    change = {R1BV_CLOSEOUT_REL: bullet(R1BV_LIVE_FIELDS[:half]), f"{LOGS}/2026-10-08_150000_music_idea3-r1bv-live-closeout-part2.md": bullet(R1BV_LIVE_FIELDS[half:])}
+    assert recovery_gate(world(tmp_path, **change)).returncode == 1
+    (tmp_path / "m").mkdir()
+    assert recovery_gate(world(tmp_path / "m", **{f"{LOGS}/2026-10-08_160000_music_idea3-r1bv-misnamed.md": bullet(R1BV_LIVE_FIELDS)})).returncode == 1  # a complete but MISNAMED closeout
+
+
+def test_the_receipt_gate_for_a_live_preparation_also_refuses_any_positive_r1bv_claim(tmp_path: Path) -> None:
+    for claim in ("R1BV_VERIFY=PASS", "R1BV_LIVE_EXECUTED=YES", "R1BV_RESULT=PASS"):
+        sub = tmp_path / claim.split("=")[0]
+        sub.mkdir()
+        assert receipt_gate(world(sub, **{f"{LOGS}/2026-10-08_170000_music_x.md": f"- `{claim}`\n"})).returncode == 1, claim
+
+
+# ---------------------------------------------------------------- I1: the snapshot detector is the pinned production detector
+def test_the_verifier_gate_binds_the_snapshot_production_detector_to_the_pinned_digest() -> None:
+    text = LIB.read_text()
+    assert 'sha256sum "$snap/aegis_soc/production_detector.py"' in text and "R1BV_SNAPSHOT_DETECTOR_NOT_THE_PINNED_PRODUCTION_DETECTOR" in text
+    gate_src = extract(text, "r1bv_verifier_gate() {", "\n}") if False else text[text.index("r1bv_verifier_gate() {"):text.index("r1bv_interpreter_gate() {")]
+    assert gate_src.index("NOT_THE_PINNED_PRODUCTION_DETECTOR") < gate_src.index("R1BV_VERIFIER_CLOSURE_INCOMPLETE")
+
+
+def test_a_snapshot_whose_production_detector_differs_from_the_pin_fails_and_the_matching_digest_passes(tmp_path: Path) -> None:
+    import hashlib
+
+    snap = tmp_path / "snap"
+    (snap / "aegis_soc").mkdir(parents=True)
+    detector = snap / "aegis_soc/production_detector.py"
+    detector.write_text("# detector\n")
+    line = next(ln.strip() for ln in LIB.read_text().split("\n") if 'sha256sum "$snap/aegis_soc/production_detector.py"' in ln)  # the exact production line
+    good = hashlib.sha256(detector.read_bytes()).hexdigest()
+
+    def check(pin: str) -> subprocess.CompletedProcess[str]:
+        return base.bash(f'r1bv_reason() {{ printf "%s\\n" "$1" >&2; return 1; }}; f() {{ snap="{snap}"; det="{pin}"; {line}; echo MATCH; }}; f')
+
+    assert "MATCH" in check(good).stdout
+    bad = check("0" * 64)
+    assert "MATCH" not in bad.stdout and "R1BV_SNAPSHOT_DETECTOR_NOT_THE_PINNED_PRODUCTION_DETECTOR" in bad.stderr
+    detector.write_text("# tampered detector\n")  # the snapshot bytes change, the pin does not
+    assert "MATCH" not in check(good).stdout
+
+
+def text_between(text: str, start: str, end: str) -> str:
+    a = text.index(start)
+    line_start = text.rfind("\n", 0, a) + 1
+    b = text.index(end, a)
+    return text[line_start:b].rstrip()
+
+
+def test_the_frozen_identity_pins_are_load_bearing_not_dead_authority() -> None:
+    runner, apply_sh = RUNNER.read_text(), (STG / "apply.sh").read_text()
+    for pin, env in (("RELEASE_ID", "AEGIS_R1BV_RELEASE_ID"), ("PRODUCTION_DETECTOR_SHA256", "AEGIS_R1BV_DETECTOR_SHA256"), ("DETECTOR_UID", "AEGIS_R1BV_DETECTOR_UID")):
+        assert f'{env}="${pin}"' in runner, pin  # the frozen runner pin reaches the handler environment
+    for flag in ("--expected-release-id", "--expected-detector-sha256", "--expected-detector-uid"):
+        assert flag in apply_sh
+    obs = OBSERVER.read_text()
+    assert 'baseline["release_id"] != expected["release_id"]' in obs and 'baseline["detector_sha256"] != expected["detector_sha256"]' in obs and "baseline[\"detector_uid\"] != expected[\"detector_uid\"]" in obs
+    assert "DETECTOR_UID" in re.sub(r"^DETECTOR_UID=.*$|^\[\[ \"\$DETECTOR_UID\".*$", "", runner, flags=re.M)  # used beyond its definition and syntax check
+
+
+# ---------------------------------------------------------------- M2: no stale "R1Bv not implemented" current-state wording
+def current_sections(path: Path):
+    out, head, buf = [], "", []
+    for line in path.read_text().split("\n"):
+        if line.startswith("## "):
+            out.append((head, "\n".join(buf)))
+            head, buf = line, []
+        else:
+            buf.append(line)
+    out.append((head, "\n".join(buf)))
+    return out
+
+
+def test_no_current_state_text_says_r1bv_is_not_implemented() -> None:
+    stale = re.compile(r"R1Bv[^.\n]{0,80}(NOT implemented|not implemented)|R1BV_REPOSITORY_IMPLEMENTED=NO", re.I)
+    vault = REPO / "Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3"
+    bad = []
+    for path in (vault / "idea3-status.md", vault / "idea3-moc.md", P4 / "README.md"):
+        for head, body in current_sections(path):
+            text = head + "\n" + body
+            for m in stale.finditer(text):
+                around = text[max(0, m.start() - 250):m.end() + 250].lower()
+                opening = (head + "\n" + body[:900]).lower()
+                if not (("historical" in around or "superseded" in around or "since implemented" in around or "has since" in around) and ("historical" in opening or "superseded" in opening)):
+                    bad.append((path.name, head[:70], m.group(0)[:70]))
+    assert not bad, bad
+    status = (vault / "idea3-status.md").read_text()
+    assert "R1BV_REPOSITORY_IMPLEMENTED=YES" in status[:status.index("## IDEA3 R1B LIVE")] and "R1BV_LIVE_EXECUTED=NO" in status[:status.index("## IDEA3 R1B LIVE")]
+    readme = (P4 / "README.md").read_text()
+    assert "R1BV_REPOSITORY_IMPLEMENTED=YES" in readme[readme.index("## 22. Stage R1Bv"):]
+
+
+# ---------------------------------------------------------------- M1: the design spec matches the owner-approved successor history (no legacy R1B PASS path)
+def test_the_design_spec_has_only_the_failure_plus_r1bv_pass_recovery_history() -> None:
+    spec = (ROOT / "docs/superpowers/specs/2026-10-06-idea3-r1bv-successor-validation-design.md").read_text()
+    section = spec[spec.index("## 10."):]
+    assert "PATH A" not in section and "PATH B" not in section and "legacy R1B LIVE PASS" not in section
+    assert "There is no legacy R1B PASS path and none is added" in section and "exactly ONE accepted successor history" in section
+    assert "R1BV_AUDIT_INTEGRITY" in spec and "does NOT verify the audit hash chain" in spec
+    gate = LIB.read_text()
+    body = gate[gate.index("r1bv_recovery_predecessor_gate() {"):gate.index("# ---- host gates")]
+    assert "legacy" not in body.lower() and "R1B_RESULT=PASS" in body  # R1B PASS appears only as a REFUSED claim

@@ -30,6 +30,22 @@ class World:
     pass
 
 
+EXPECTED = {"release_id": "rel-1", "detector_sha256": "a" * 64, "detector_uid": acc.UID}
+
+
+def rechain(path: str) -> None:
+    """Rebuild a VALID audit hash chain over the fixture rows (the hand-built r1_acceptance fixtures carry no hashes), with the repository's own hash function."""
+    from aegis_soc import database as db
+
+    conn = sqlite3.connect(path)
+    previous = "GENESIS"
+    for row_id, timestamp, level, event_type, details in conn.execute("SELECT id, timestamp, level, event_type, details FROM audit_logs ORDER BY id").fetchall():
+        previous = db._compute_hash(timestamp, level, event_type, details, previous)
+        conn.execute("UPDATE audit_logs SET hash = ? WHERE id = ?", (previous, row_id))
+    conn.commit()
+    conn.close()
+
+
 def stamp_marker(path: Path, epoch: float) -> None:
     import calendar
     import time
@@ -59,6 +75,7 @@ def build(tmp_path: Path, *, marker_epoch: float = L, incident_at: float = acc.T
     world.baseline = r1.capture_baseline(audit_db=world.db, release_id="rel-1", detector_sha256="a" * 64, detector_uid=acc.UID, now=min(acc.T0, marker_epoch - 1.0), services=world.services)
     acc.add_incident(world.db, at=incident_at)
     world.journal = {"detector": [acc.journal_line(at=journal_at)], "source": acc.ssh_burst()}
+    rechain(world.db)
     return world
 
 
@@ -293,11 +310,11 @@ def write_baseline(w: World, doc) -> str:
 def test_the_preserved_baseline_loads_only_when_trusted_present_and_consistent(w: World) -> None:
     b = bound(w)
     path = write_baseline(w, w.baseline)
-    assert v.load_baseline(path, b, owner_uid=UID)["audit_max_id"] == w.baseline["audit_max_id"]
-    assert code(lambda: v.load_baseline(str(w.tmp / "r1b-work" / "absent.json"), b, owner_uid=UID)) == "PRESERVED_BASELINE_MISSING_OR_UNTRUSTED"
-    assert code(lambda: v.load_baseline(path, b, owner_uid=UID + 1)) == "PRESERVED_BASELINE_MISSING_OR_UNTRUSTED"
+    assert v.load_baseline(path, b, expected=EXPECTED, owner_uid=UID)["audit_max_id"] == w.baseline["audit_max_id"]
+    assert code(lambda: v.load_baseline(str(w.tmp / "r1b-work" / "absent.json"), b, expected=EXPECTED, owner_uid=UID)) == "PRESERVED_BASELINE_MISSING_OR_UNTRUSTED"
+    assert code(lambda: v.load_baseline(path, b, expected=EXPECTED, owner_uid=UID + 1)) == "PRESERVED_BASELINE_MISSING_OR_UNTRUSTED"
     os.chmod(Path(path).parent, 0o770)
-    assert code(lambda: v.load_baseline(path, b, owner_uid=UID)) == "PRESERVED_BASELINE_MISSING_OR_UNTRUSTED"
+    assert code(lambda: v.load_baseline(path, b, expected=EXPECTED, owner_uid=UID)) == "PRESERVED_BASELINE_MISSING_OR_UNTRUSTED"
 
 
 @pytest.mark.parametrize("mutate,expected", [
@@ -312,7 +329,7 @@ def test_a_malformed_or_inconsistent_preserved_baseline_fails(w: World, mutate, 
     doc = copy.deepcopy(w.baseline)
     mutate(doc)
     path = write_baseline(w, doc)
-    assert code(lambda: v.load_baseline(path, bound(w), owner_uid=UID)) == expected
+    assert code(lambda: v.load_baseline(path, bound(w), expected=EXPECTED, owner_uid=UID)) == expected
 
 
 def test_a_non_json_preserved_baseline_fails(w: World) -> None:
@@ -320,7 +337,7 @@ def test_a_non_json_preserved_baseline_fails(w: World) -> None:
     d.mkdir(mode=0o700)
     (d / "r1-baseline.json").write_text("{not json")
     os.chmod(d / "r1-baseline.json", 0o600)
-    assert code(lambda: v.load_baseline(str(d / "r1-baseline.json"), bound(w), owner_uid=UID)) == "PRESERVED_BASELINE_MALFORMED"
+    assert code(lambda: v.load_baseline(str(d / "r1-baseline.json"), bound(w), expected=EXPECTED, owner_uid=UID)) == "PRESERVED_BASELINE_MALFORMED"
 
 
 # ----------------------------------------------------------------------------- the window record and the no-mutation fingerprint
@@ -385,3 +402,54 @@ def test_the_default_journal_read_is_bounded_by_the_deadline_and_is_the_fixed_re
     argv = seen["argv"]
     assert argv[:2] == ["journalctl", "-o"] and "--no-pager" in argv and f"--until=@{int(b['deadline']) + 2}" in argv
     assert not any(x in argv for x in ("-f", "--follow", "--vacuum-time", "--rotate", "--flush", "--sync"))  # read-only, never a journal-maintenance verb
+
+
+# ----------------------------------------------------------------------------- I1: the preserved baseline is bound to the frozen pins
+def baseline_path(w: World, doc) -> str:
+    return write_baseline(w, doc)
+
+
+def test_matching_identities_pass_and_each_mismatching_identity_fails(w: World) -> None:
+    b = bound(w)
+    assert v.load_baseline(baseline_path(w, w.baseline), b, expected=EXPECTED, owner_uid=UID)["release_id"] == "rel-1"
+    for key, bad, expected_code in (("release_id", "rel-2", "PRESERVED_BASELINE_RELEASE_ID_MISMATCH"), ("detector_sha256", "b" * 64, "PRESERVED_BASELINE_DETECTOR_SHA256_MISMATCH"),
+                                    ("detector_uid", acc.UID + 1, "PRESERVED_BASELINE_DETECTOR_UID_MISMATCH")):
+        assert code(lambda: v.load_baseline(baseline_path(w, w.baseline), b, expected=dict(EXPECTED, **{key: bad}), owner_uid=UID)) == expected_code, key
+    # the baseline file itself is never rewritten to match a pin: a baseline claiming a DIFFERENT identity than the pins fails
+    forged = dict(w.baseline, detector_uid=acc.UID + 1)
+    assert code(lambda: v.load_baseline(baseline_path(w, forged), b, expected=EXPECTED, owner_uid=UID)) == "PRESERVED_BASELINE_DETECTOR_UID_MISMATCH"
+    assert code(lambda: v.load_baseline(baseline_path(w, w.baseline), b, expected={"release_id": "rel-1"}, owner_uid=UID)) == "EXPECTED_IDENTITY_MISSING"
+    assert code(lambda: v.load_baseline(baseline_path(w, dict(w.baseline, detector_uid=str(acc.UID))), b, expected=EXPECTED, owner_uid=UID)) == "PRESERVED_BASELINE_DETECTOR_UID_MISMATCH"  # a string uid is not the int pin
+
+
+# ----------------------------------------------------------------------------- I2: the audit hash chain is verified (separate from provenance)
+def test_the_audit_chain_check_passes_on_an_intact_chain_and_reports_a_separate_integrity_check(w: World) -> None:
+    assert v.audit_chain_intact(w.db) == "PASS"
+    out = validate(w)
+    assert out["checks"]["R1BV_AUDIT_INTEGRITY"] == "PASS" and out["checks"]["R1BV_AUDIT_PROVENANCE"] == "PASS"  # two separate checks
+
+
+def test_a_tampered_audit_row_or_stored_hash_without_a_rebuilt_chain_fails_with_a_stable_refusal(w: World) -> None:
+    conn = sqlite3.connect(w.db)
+    conn.execute("UPDATE audit_logs SET hash = 'deadbeef' WHERE id = (SELECT MAX(id) FROM audit_logs)")  # the semantic fields stay valid; only the chain breaks
+    conn.commit()
+    conn.close()
+    assert code(lambda: validate(w)) == "AUDIT_CHAIN_BROKEN"
+    assert code(lambda: v.audit_chain_intact(w.db)) == "AUDIT_CHAIN_BROKEN"
+
+
+def test_an_earlier_row_edited_in_place_breaks_the_chain_even_when_the_later_hashes_are_untouched(tmp_path: Path) -> None:
+    w2 = build(tmp_path)
+    conn = sqlite3.connect(w2.db)
+    conn.execute("UPDATE audit_logs SET level = 'ERROR' WHERE id = 1")  # a row the R1 chain does not read
+    conn.commit()
+    conn.close()
+    assert code(lambda: validate(w2)) == "AUDIT_CHAIN_BROKEN"
+
+
+def test_the_chain_check_uses_the_repository_semantics_on_a_readonly_view(w: World) -> None:
+    src = Path(v.__file__).read_text()
+    assert "hd._chain_valid(view)" in src and "r1.open_audit_view(audit_db)" in src and "def _compute_hash" not in src  # no second, incompatible definition
+    before = Path(w.db).read_bytes()
+    v.audit_chain_intact(w.db)
+    assert Path(w.db).read_bytes() == before  # the check wrote nothing

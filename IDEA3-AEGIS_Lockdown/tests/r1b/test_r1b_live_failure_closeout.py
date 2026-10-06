@@ -72,7 +72,7 @@ def test_current_state_documentation_no_longer_says_r1b_has_not_run() -> None:
     i = status.index("## IDEA3 R1B successor governed stage")
     assert "historical PRE-LIVE snapshot" in status[i:i + 400] and "NOT current" in status[i:i + 900]
     readme = (base.P4 / "README.md").read_text()
-    assert "## 21. Stage R1B — LIVE outcome" in readme and "R1Bv (required and authorized, NOT implemented, NOT run)" in readme
+    assert "## 21. Stage R1B — LIVE outcome" in readme and "R1Bv (required and authorized; REPOSITORY_IMPLEMENTED by section 22, LIVE NOT RUN)" in readme
     assert not re.search(r"R1Bv.{0,40}(LIVE=CLOSED_PASS|RESULT=PASS)", moc + status)
 
 

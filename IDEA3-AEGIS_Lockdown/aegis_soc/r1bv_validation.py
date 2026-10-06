@@ -158,7 +158,7 @@ def window_record_absent(canonical_marker: str = CANONICAL_MARKER) -> str:
 # ----------------------------------------------------------------------------------------------- the validation
 
 
-def load_baseline(path: str, bound: dict[str, Any], *, owner_uid: int = 0) -> dict[str, Any]:
+def load_baseline(path: str, bound: dict[str, Any], *, expected: dict[str, Any], owner_uid: int = 0) -> dict[str, Any]:
     """The PRESERVED pre-consume R1B baseline. It lives in the root-private R1B work directory, which sits under an operator-owned evidence directory: the TRUST is the file AND its own directory being
     owned by ``owner_uid`` and not group/world writable (an operator cannot create root-owned entries). Never invented: absent / unreadable / malformed / inconsistent refuses."""
     try:
@@ -180,6 +180,15 @@ def load_baseline(path: str, bound: dict[str, Any], *, owner_uid: int = 0) -> di
     started = baseline["started_at"]
     if isinstance(started, bool) or not isinstance(started, (int, float)):
         raise ValidationError("PRESERVED_BASELINE_MALFORMED")
+    # the historical identity of the preserved baseline is BOUND to the immutable frozen pins (nothing is rewritten or trusted from the file alone)
+    if not (isinstance(expected, dict) and set(expected) == {"release_id", "detector_sha256", "detector_uid"}):
+        raise ValidationError("EXPECTED_IDENTITY_MISSING")
+    if baseline["release_id"] != expected["release_id"]:
+        raise ValidationError("PRESERVED_BASELINE_RELEASE_ID_MISMATCH")
+    if baseline["detector_sha256"] != expected["detector_sha256"]:
+        raise ValidationError("PRESERVED_BASELINE_DETECTOR_SHA256_MISMATCH")
+    if type(baseline["detector_uid"]) is not int or baseline["detector_uid"] != expected["detector_uid"]:
+        raise ValidationError("PRESERVED_BASELINE_DETECTOR_UID_MISMATCH")
     if baseline["open_incidents"] != 0:
         raise ValidationError("PRESERVED_BASELINE_HAD_OPEN_INCIDENT")
     if not 0 <= bound["lower"] - float(started) <= BASELINE_MAX_LEAD_SEC:
@@ -240,9 +249,24 @@ def validate(*, baseline: dict[str, Any], bound: dict[str, Any], audit_db: str, 
         "evidence_times": times,
         "checks": {
             "R1BV_CANONICAL_MARKER_TIME_AUTHORITY": "PASS", "R1BV_TIMING_CORROBORATION": "PASS", "R1BV_HISTORICAL_BOUND": "PASS", "R1BV_EXPECTED_SOURCE_BOUND": "PASS",
-            "R1BV_REAL_DETECTOR_CHAIN": "PASS", "R1BV_NEW_INCIDENT_CREATED_SEMANTICS": "PASS", "R1BV_AUDIT_PROVENANCE": "PASS", "R1BV_WINDOW_RECORD_ABSENT": window_record_absent(bound["canonical_marker"]),
+            "R1BV_REAL_DETECTOR_CHAIN": "PASS", "R1BV_NEW_INCIDENT_CREATED_SEMANTICS": "PASS", "R1BV_AUDIT_PROVENANCE": "PASS", "R1BV_AUDIT_INTEGRITY": audit_chain_intact(audit_db), "R1BV_WINDOW_RECORD_ABSENT": window_record_absent(bound["canonical_marker"]),
         },
     }
+
+
+def audit_chain_intact(audit_db: str) -> str:
+    """The audit_logs hash chain, using the repository's EXISTING semantics (``historical_disposition._chain_valid`` over ``database._compute_hash``) on ONE read-only, consistent in-memory view.
+    Chain integrity is separate from the semantic provenance predicates of ``r1_acceptance``/``recovery_evidence``, which do NOT check the chain."""
+    from . import historical_disposition as hd  # lazy: part of the verifier snapshot closure
+
+    view = r1.open_audit_view(audit_db)
+    try:
+        intact = hd._chain_valid(view)
+    finally:
+        view.close()
+    if not intact:
+        raise ValidationError("AUDIT_CHAIN_BROKEN")
+    return "PASS"
 
 
 def fingerprint(*, bound: dict[str, Any], audit_db: str, services: Callable[[], dict[str, dict[str, str]]] = _services_now) -> dict[str, Any]:
@@ -284,6 +308,9 @@ def main(argv: list[str] | None = None) -> int:
         item.add_argument("--audit-db", required=True)
         item.add_argument("--r1b-baseline", required=True)
         item.add_argument("--expected-source-ip", required=True)
+        item.add_argument("--expected-release-id", required=True)
+        item.add_argument("--expected-detector-sha256", required=True)
+        item.add_argument("--expected-detector-uid", type=int, required=True)
         item.add_argument("--local-marker", required=True)
         item.add_argument("--runner-log", required=True)
         item.add_argument("--out", required=True)
@@ -292,7 +319,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         bound = derive_bound(CANONICAL_MARKER, local_marker=args.local_marker, runner_log=args.runner_log)
-        preserved = load_baseline(args.r1b_baseline, bound)
+        expected_identity = {"release_id": args.expected_release_id, "detector_sha256": args.expected_detector_sha256, "detector_uid": args.expected_detector_uid}
+        preserved = load_baseline(args.r1b_baseline, bound, expected=expected_identity)
         observed = validate(baseline=preserved, bound=bound, audit_db=args.audit_db, expected_source_ip=args.expected_source_ip)
         fp = fingerprint(bound=bound, audit_db=args.audit_db)
         public_bound = {k: bound[k] for k in ("lower", "deadline", "observe_seconds", "derivation")}

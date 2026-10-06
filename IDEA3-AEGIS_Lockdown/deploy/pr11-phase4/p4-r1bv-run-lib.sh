@@ -78,7 +78,7 @@ r1bv_corroboration_gate() {
 # r1bv_sudo_noninteractive_gate — R1Bv has NO long wait, but every privileged phase is preceded by this NON-INTERACTIVE check: a lapsed sudo credential fails here with an explicit reason, BEFORE the phase starts
 # (R1B failed late because a password prompt could not complete). It never prompts and never weakens root authority. With no sudo in use (tests) it passes.
 r1bv_sudo_noninteractive_gate() {
-  [ -z "$SUDO" ] || $SUDO -n true 2>/dev/null || { r1bv_reason "R1BV_SUDO_CREDENTIAL_NOT_ACTIVE (refusing to start a privileged phase that could stall on a password prompt)"; return 1; }
+  [ -z "$SUDO" ] || ${SUDO%% *} -n true 2>/dev/null || { r1bv_reason "R1BV_SUDO_CREDENTIAL_NOT_ACTIVE (refusing to start a privileged phase that could stall on a password prompt)"; return 1; }
 }
 
 # ---- predecessor receipt gates (pinned-commit content, never PR numbers) ------------------------------------------------
@@ -148,8 +148,10 @@ r1bv_receipt_gate() {
       R1BV_NEW_EXTERNAL_EVENT_GENERATED=YES R1B_RESULT_REWRITTEN=YES; do
     [ -z "$(r1bv_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}")" ] || { r1bv_reason "R1BV_CONTRADICTORY_OR_ALREADY_RECORDED (a receipt carries ${claim})"; return 1; }
   done
-  files=$(r1bv_field_files "$repo" "$main" R1BV_LIVE CLOSED_PASS; r1bv_field_files "$repo" "$main" R1BV_RESULT PASS)
-  [ -z "$files" ] || { r1bv_reason "R1BV_ALREADY_RECORDED"; return 1; }
+  # no R1Bv success of ANY kind is recorded yet (every positive live-result claim is refused, canonical name or not): a second live run is never prepared on top of one
+  for claim in R1BV_LIVE=CLOSED_PASS R1BV_LIVE_EXECUTED=YES R1BV_RESULT=PASS R1BV_VERIFY=PASS R1BV_HISTORICAL_BOUND=PASS R1BV_REAL_DETECTOR_CHAIN=PASS R1BV_AUDIT_INTEGRITY=PASS R1BV_COMPARE_RESULT=PASS R1BV_PRESERVATION_S10=PASS; do
+    [ -z "$(r1bv_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}")" ] || { r1bv_reason "R1BV_ALREADY_RECORDED (a receipt carries ${claim})"; return 1; }
+  done
 }
 # _r1bv_r1b_failure_closeout REPO MAIN — the ONE unique immutable R1B failure closeout (exact governance fields); the R1B result-file sets resolve uniquely to it (an extra bare receipt is ambiguity). The R1Bv LIVE closeout itself
 # restates R1B_RESULT=FAIL_IMMUTABLE by contract, so ONLY that canonical-name file is excluded from the uniqueness count.
@@ -176,13 +178,14 @@ r1bv_recovery_predecessor_gate() {
       R1BV_NEW_EXTERNAL_EVENT_GENERATED=YES R1BV_EXISTING_R1B_EVIDENCE_ONLY=NO RECOVERY_R2_R8_EXECUTED=YES F1_REAL_DETECTOR_ACCEPTANCE=PROVEN R1_VERIFIED=VERIFIED RECOVERY_R1_R8_PROVEN=YES; do
     [ -z "$(r1bv_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}")" ] || { r1bv_reason "R1BV_RECOVERY_FORBIDDEN_CLAIM (a receipt carries ${claim})"; return 1; }
   done
-  # exactly ONE R1Bv closeout file in total (any R1Bv result/live field), and it must be the complete PASS closeout
-  files=$({ r1bv_field_files "$repo" "$main" R1BV_RESULT PASS; r1bv_field_files "$repo" "$main" R1BV_LIVE CLOSED_PASS; } | sort -u)
-  [ "$(printf '%s\n' "$files" | grep -c .)" = 1 ] || { r1bv_reason "R1BV_RECOVERY_R1BV_CLOSEOUT_MISSING_OR_AMBIGUOUS (the R1B failure history needs the unique R1Bv LIVE PASS closeout)"; return 1; }
+  # EVERY positive R1Bv live-result claim must resolve to the SAME single canonical closeout: an extra, misnamed or bare receipt carrying ANY of them is ambiguity (split fields across files included)
+  files=$({ for claim in R1BV_LIVE=CLOSED_PASS R1BV_LIVE_EXECUTED=YES R1BV_RESULT=PASS R1BV_VERIFY=PASS R1BV_HISTORICAL_BOUND=PASS R1BV_REAL_DETECTOR_CHAIN=PASS R1BV_AUDIT_INTEGRITY=PASS R1BV_COMPARE_RESULT=PASS R1BV_PRESERVATION_S10=PASS; do
+      r1bv_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}"; done; } | sort -u)
+  [ "$(printf '%s\n' "$files" | grep -c .)" = 1 ] || { r1bv_reason "R1BV_RECOVERY_R1BV_CLOSEOUT_MISSING_OR_AMBIGUOUS (every positive R1Bv claim must be in the ONE canonical R1Bv LIVE PASS closeout)"; return 1; }
   _r1bv_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1bv-live-closeout.md" R1BV_LIVE=CLOSED_PASS R1BV_LIVE_EXECUTED=YES R1BV_RESULT=PASS R1BV_VERIFY=PASS R1BV_IS_R1B_RETRY=NO \
     R1BV_READ_ONLY_VALIDATION_ONLY=YES R1BV_NEW_EXTERNAL_EVENT_GENERATED=NO R1BV_EXISTING_R1B_EVIDENCE_ONLY=YES R1BV_INCIDENT_MUTATED=NO R1BV_R1B_MARKER_MUTATED=NO R1BV_WINDOW_RECORD_CREATED=NO \
     R1BV_WINDOW_RECORD_RECONSTRUCTED=NO R1BV_CANONICAL_MARKER_TIME_AUTHORITY=PASS R1BV_HISTORICAL_BOUND=PASS R1BV_EXPECTED_SOURCE_BOUND=PASS R1BV_REAL_DETECTOR_CHAIN=PASS \
-    R1BV_NEW_INCIDENT_CREATED_SEMANTICS=PASS R1BV_AUDIT_PROVENANCE=PASS R1BV_R1I_STATE=PASS R1BV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=YES R1BV_PRESERVATION_S10=PASS R1BV_COMPARE_RESULT=PASS \
+    R1BV_NEW_INCIDENT_CREATED_SEMANTICS=PASS R1BV_AUDIT_PROVENANCE=PASS R1BV_AUDIT_INTEGRITY=PASS R1BV_R1I_STATE=PASS R1BV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=YES R1BV_PRESERVATION_S10=PASS R1BV_COMPARE_RESULT=PASS \
     R1B_RESULT=FAIL_IMMUTABLE R1B_RESULT_REWRITTEN=NO RECOVERY_R2_R8_EXECUTED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED RECOVERY_R1_R8_PROVEN=NO \
     || { r1bv_reason "R1BV_RECOVERY_R1BV_CLOSEOUT_MISSING_OR_AMBIGUOUS (R1Bv LIVE PASS closeout incomplete, failed or not unique)"; return 1; }
 }
@@ -227,6 +230,7 @@ r1bv_verifier_gate() {
     got=$(git -C "$repo" show "$main:IDEA3-AEGIS_Lockdown/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1)
     [ "$got" = "$sha" ] || { r1bv_reason "R1BV_VERIFIER_FILE_NOT_THE_PINNED_MAIN_SOURCE:$rel"; return 1; }
   done < "$snap/R1BV-VERIFIER-SHA256SUMS"
+  [ "$(sha256sum "$snap/aegis_soc/production_detector.py" 2>/dev/null | cut -d' ' -f1)" = "$det" ] || { r1bv_reason "R1BV_SNAPSHOT_DETECTOR_NOT_THE_PINNED_PRODUCTION_DETECTOR"; return 1; }
   [ -f "$snap/aegis_soc/r1bv_validation.py" ] && [ -f "$snap/aegis_soc/r1_acceptance.py" ] && [ -f "$snap/aegis_soc/production_detector.py" ] && [ -f "$snap/aegis_soc/recovery_evidence.py" ] && [ -f "$snap/aegis_soc/ip_containment.py" ] && [ -f "$snap/aegis_soc/trusted_time.py" ] || { r1bv_reason "R1BV_VERIFIER_CLOSURE_INCOMPLETE"; return 1; }
 }
 # r1bv_interpreter_gate PY — root runs this interpreter: it must resolve to a root-owned file that is not group/world writable.

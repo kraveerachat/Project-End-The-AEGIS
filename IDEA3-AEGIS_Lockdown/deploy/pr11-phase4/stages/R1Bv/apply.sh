@@ -39,6 +39,8 @@ MANIFEST="$APP/R1BV-VERIFIER-SHA256SUMS"
 AUDIT_DB="${AEGIS_R1BV_AUDIT_DB:-}"
 [ -n "$AUDIT_DB" ] && [ -f "$AUDIT_DB" ] || fail AUDIT_DB_REQUIRED
 SRC_IP="${AEGIS_R1BV_EXPECTED_SOURCE_IP:-}"; R1B_EVID="${AEGIS_R1BV_R1B_EVIDENCE_DIR:-}"; R1B_AUTH="${AEGIS_R1BV_R1B_AUTH_DIR:-}"
+EXP_REL="${AEGIS_R1BV_RELEASE_ID:-}"; EXP_DET_SHA="${AEGIS_R1BV_DETECTOR_SHA256:-}"; EXP_DET_UID="${AEGIS_R1BV_DETECTOR_UID:-}"
+[[ "$EXP_REL" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] && [[ "$EXP_DET_SHA" =~ ^[0-9a-f]{64}$ ]] && [[ "$EXP_DET_UID" =~ ^[1-9][0-9]*$ ]] || fail EXPECTED_IDENTITY_INVALID
 [[ "$SRC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || fail EXPECTED_SOURCE_INVALID
 for d in "$R1B_EVID" "$R1B_AUTH"; do [[ "$d" == /* ]] && [[ "$d" != *..* ]] && [ -d "$d" ] && [ ! -L "$d" ] || fail R1B_INPUT_DIR_INVALID; done
 # the observer runs with a CLEAN environment, a fixed PATH (systemctl/journalctl by name) and ONLY the immutable snapshot on the import path; its module-level logger goes to /dev/null and the configured DB path is a never-opened sentinel
@@ -46,7 +48,7 @@ R1BV_PY() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C PYTHONPATH="$APP"
 case "$STEP" in BASELINE | FINAL) ;; *) fail STEP_INVALID ;; esac
 ( set -o noclobber; printf 'step=%s\nat=%s\n' "$STEP" "$(date -u +%FT%TZ)" > "$WORK/R1BV-$STEP-RAN" ) 2>/dev/null || fail "STEP_ALREADY_RAN_$STEP"
 cd "$WORK" || fail WORK_DIR_REQUIRED   # a neutral cwd: nothing in the working directory can shadow a module
-COMMON=(--audit-db "$AUDIT_DB" --r1b-baseline "$R1B_EVID/r1b-work/r1-baseline.json" --expected-source-ip "$SRC_IP" --local-marker "$R1B_AUTH/R1B-ATTEMPT-CONSUMED" --runner-log "$R1B_EVID/owner-run.log")
+COMMON=(--audit-db "$AUDIT_DB" --r1b-baseline "$R1B_EVID/r1b-work/r1-baseline.json" --expected-source-ip "$SRC_IP" --expected-release-id "$EXP_REL" --expected-detector-sha256 "$EXP_DET_SHA" --expected-detector-uid "$EXP_DET_UID" --local-marker "$R1B_AUTH/R1B-ATTEMPT-CONSUMED" --runner-log "$R1B_EVID/owner-run.log")
 case "$STEP" in
   BASELINE)
     R1BV_PY baseline "${COMMON[@]}" --out "$WORK/r1bv-baseline.json" || fail BASELINE_REFUSED
