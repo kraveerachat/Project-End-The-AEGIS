@@ -395,7 +395,7 @@ def test_the_new_package_has_exactly_the_frozen_file_set() -> None:
 
 
 def test_no_new_l_number_stage_was_invented() -> None:
-    assert (DEPLOY / "p4-lib.sh").read_text().count('readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv L8 L9"') == 1
+    assert (DEPLOY / "p4-lib.sh").read_text().count('readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv Recovery L8 L9"') == 1
     assert not (DEPLOY / "stages" / "L10").exists() and not (DEPLOY / "stages" / "L4b").exists()
 
 

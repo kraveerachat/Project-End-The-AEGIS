@@ -1,5 +1,27 @@
 # AEGIS IDEA3 PR11 Phase 4 — T1 / G-15 capture, compare, and stage-gate harness
 
+## Recovery R2-R8 — repository implementation, LIVE NEXT (2026-10-06)
+
+`RECOVERY_REPOSITORY_IMPLEMENTED=YES` · `RECOVERY_LIVE_EXECUTED=NO` ·
+`RECOVERY_R2_R8_EXECUTED=NO`
+
+Recovery is exactly one mutating Phase-4 stage, registered after `R1Bv` and
+before `L8`; it is not seven stages and it does not invent `L10`. It reuses the
+Core Recovery protocol/client/evidence path and requires the unique R1B
+`FAIL_IMMUTABLE` plus unique R1Bv `PASS` predecessor gate. Read-only pregates
+and PRE capture precede one exclusive attempt marker immediately before the
+first mutation, `ISOLATE`; post-marker failures are preserved and never blindly
+retried. R3 derives its target from the Core-bound incident.
+
+R4/R5 come only from the owner’s interactive normal `aegisctl restore` with the
+exact `RESTORE UPLINK` confirmation. The runner records only the exit code; the
+secret never enters the runner, argv, environment, pins, evidence, receipts,
+or Git. Break-glass, direct DB/MQTT/nft access, attacker-supplied IPs, automatic
+RESTORE retry, incident rebinding, and reopening a closed incident are refused.
+R8 requires the Core’s own R1-R7 recheck, unique `RECOVERY_R8_CLOSE` and
+`INCIDENT_CLOSED` evidence, and audit hash-chain integrity. Recovery LIVE is not
+executed by this implementation PR; LVR/L8/L9 remain unclaimed.
+
 Repository framework only. **Nothing here has run on the Core or Production.**
 
 ```text

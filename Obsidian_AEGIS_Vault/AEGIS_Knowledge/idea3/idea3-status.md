@@ -107,6 +107,36 @@ edit_policy: owner-writable
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
+## Current governed state — Recovery R2-R8 repository implementation — 2026-10-06
+
+`RECOVERY_REPOSITORY_IMPLEMENTED=YES`
+`RECOVERY_LIVE_EXECUTED=NO`
+`RECOVERY_R2_R8_EXECUTED=NO`
+
+The single mutating Phase-4 `Recovery` stage is registered after `R1Bv` and
+before `L8`; it drives the Core-owned ordered R2-R8 ladder as one consumed,
+non-retriable attempt. Fresh same-day Authorization and K3 are required because
+Recovery mutates Production. Normal D4 remains owner-interactive and the runner
+records only its exit code; no secret enters the runner, argv, environment,
+pins, evidence, or Git. The repository does not execute Recovery LIVE.
+
+Sequence: `R1A FAIL_IMMUTABLE -> R1Du PASS -> R1D FAIL_IMMUTABLE -> R1Dv PASS -> R1B FAIL_IMMUTABLE -> R1Bv PASS -> Recovery R2-R8 IMPLEMENTED / LIVE NEXT -> LVR -> L8 -> L9`.
+
+### Session S2 — Recovery R2-R8 implementation continuation
+
+State: CLOSED · Branch: `feat/idea3-recovery-r2-r8-stage` · Starting SHA:
+`c6885cb1d949389fbaead66d2076a7727ccebc2b` · Production mutation allowed: NO
+
+The prior “no Recovery stage exists” wording below is historical/superseded.
+
+Implementation evidence: Recovery Core driver, one-attempt marker, normal D4
+boundary, owner-run controls, immutable verifier/freeze tooling, Recovery
+handler registration, preservation allowlist, focused tests, and this status
+reconciliation are complete. The focused suites passed 1,169 tests; vault
+validation passed with two pre-existing canvas owner-review warnings;
+collaboration policy tests passed. Recovery LIVE, Production mutation, R1B/R1Bv
+reruns, and ESP32 access remain explicitly unexecuted.
+
 ## IDEA3 F1u LIVE closeout — deployment PASS — 2026-10-05
 
 > [!important] **F1u LIVE executed once and passed its deployment boundary.** `F1U_LIVE_EXECUTED=YES`, `F1U_PRODUCTION_DEPLOYED=YES`, `F1U_APPLY=PASS`, `F1U_VERIFY=PASS`, `F1U_ROLLBACK=NOT_NEEDED`. The immutable release `912b18005bb2fc80bb4e8d1fe8aa88803ac27314` was installed, activated, and the Core restarted exactly once. This proves deployment only; it does not prove real detector acceptance, R1, Recovery R2–R8, LVR, L8, or L9.

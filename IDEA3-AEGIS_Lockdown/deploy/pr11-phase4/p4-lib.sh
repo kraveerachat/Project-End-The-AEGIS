@@ -28,7 +28,7 @@ readonly P4_WINDOW_TZ=Asia/Bangkok
 # immutable release, switch current OLD -> NEW, restart the Core EXACTLY ONCE without touching the running detector, prove the Core runs from the NEW release). L6c keeps its original position and its
 # historical PRE-L7 meaning: its verifier requires the L7 material absent and the Core unit not-found, which is false by design on the post-L7 host (a maintenance reuse
 # of L6c failed closed for exactly that reason), so L6c is never reused post-L7 and is not changed.
-readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv L8 L9"
+readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv Recovery L8 L9"
 
 p4_stage_known() { [[ " $P4_STAGES " == *" $1 "* ]] && [ -n "$1" ]; }
 
@@ -73,6 +73,7 @@ p4_stage_gaps() {
     R1Dv) echo none ;;
     # R1Bv is the READ-ONLY successor validation of the EXISTING failed R1B evidence (not an R1B retry): it owns no Production change, no marker and no window record.
     R1Bv) echo none ;;
+    Recovery) echo none ;;
     # R1D is the one Core-mediated historical-incident disposition (evidence-preserving, irreversible, one attempt); it owns no reversible Production change.
     R1D) echo none ;;
     # R1B is a NEW governed successor after the immutable consumed R1A FAIL; it is not a retry and owns no reversible Production change.

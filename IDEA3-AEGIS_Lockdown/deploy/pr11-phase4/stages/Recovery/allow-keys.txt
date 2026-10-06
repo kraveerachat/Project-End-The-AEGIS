@@ -1,0 +1,12 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage Recovery allowed PRE->POST host state drift.
+#
+# Recovery's narrow intended changes are Core audit/database state for R3/D4/R8,
+# the R3 containment blocked set, normal-path protocol/device/uplink transition,
+# and final incident closure. Core/detector restarts, R1I removal, TrustedClock
+# drift, and IDEA1/IDEA2 changes remain forbidden.
+recovery.audit
+recovery.database
+containment.blocked_ipv4
+protocol.restore
+device.uplink
+incident.state
