@@ -73,7 +73,9 @@ export function DashboardQuickActions({ t, go }) {
               onClick={() => run(action)}
               className={`header-action-button ${action.primary ? 'is-primary' : ''}`}
             >
-              <Icon size={15} strokeWidth={1.8} aria-hidden />
+              <span className="header-action-icon" aria-hidden>
+                <Icon size={16} strokeWidth={1.9} />
+              </span>
               <span>{action.shortLabel}</span>
             </button>
           )

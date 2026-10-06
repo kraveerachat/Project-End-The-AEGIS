@@ -51,13 +51,16 @@ test('REF-SCOPE reference colour and overlay glass are Dark Neo only', () => {
     assert.match(selector, /:root\[data-ui-style="neo"\]/, `dashboard rule not Neo-scoped: ${selector}`)
     assert.doesNotMatch(selector, /data-theme="light"/)
   }
-  // Every rule that sets reference colour/light is Dark-scoped.
+  // Reference colour/light (literal hex/rgba) is Dark-scoped. A both-theme
+  // rule may only colour through the existing theme tokens (var(--…)).
   const blocks = dashCss.match(/[^{}]+\{[^{}]*\}/g) ?? []
   for (const block of blocks) {
-    if (!/(background|box-shadow|text-shadow|filter):/.test(block)) continue
     const selector = block.slice(0, block.indexOf('{'))
-    if (/dashboard-list-icon/.test(selector) && !/data-theme/.test(selector)) continue // token-only base
-    assert.match(selector, /data-theme="dark"/, `colour rule leaks into Light: ${selector.trim()}`)
+    if (/data-theme="dark"/.test(selector)) continue
+    const colourDecls = block.match(/(?:^|;|\{)\s*(?:background[\w-]*|box-shadow|text-shadow|filter|color|border-color)\s*:[^;}]*/g) ?? []
+    for (const decl of colourDecls) {
+      assert.doesNotMatch(decl, /#[0-9a-f]{3,8}\b|rgba?\(/i, `literal colour leaks into Light: ${selector.trim()} → ${decl.trim()}`)
+    }
   }
 })
 
@@ -87,4 +90,43 @@ test('REF-FOCUS controls keep their own radius under keyboard focus', () => {
 test('REF-390 the activity data table stays for assistive tech but cannot widen the page', () => {
   assert.match(dashboard, /<table className="sr-only">/)
   assert.match(dashCss, /\.dashboard-activity-card table\.sr-only \{[\s\S]*?display: block;[\s\S]*?max-width: 1px;[\s\S]*?overflow: hidden;/)
+})
+
+test('POLISH-DASH resources split into usage vs runtime groups, same six tiles in order', () => {
+  assert.match(telemetry, /\{ id: 'usage', labelKey: 'telemetryGroupUsage', ids: \['cpu', 'memory', 'disk'\] \}/)
+  assert.match(telemetry, /\{ id: 'state', labelKey: 'telemetryGroupState', ids: \['network', 'uptime', 'temperature'\] \}/)
+  const strings = read('src/lib/strings.js')
+  assert.equal((strings.match(/telemetryGroupUsage:/g) ?? []).length, 3, 'EN/TH/ZH parity')
+  assert.equal((strings.match(/telemetryGroupState:/g) ?? []).length, 3, 'EN/TH/ZH parity')
+})
+
+test('POLISH-DASH active shares sit in the ops row; sign-in history spans the bottom row', () => {
+  const ops = dashboard.slice(dashboard.indexOf('className="dashboard-ops-grid"'), dashboard.indexOf('className="dashboard-links-row"'))
+  const bottom = dashboard.slice(dashboard.indexOf('className="dashboard-links-row"'))
+  assert.match(ops, /<ActiveLinksCard /)
+  assert.match(bottom, /<LoginHistoryCard /)
+})
+
+test('POLISH-DASH Data Lake state colour comes only from the real probe tone', () => {
+  assert.match(dashboard, /const TIER_ICONS = \{ application: Server, metadata: Database, storage: HardDrive \}/)
+  assert.match(dashboard, /<span className="lake-tier-icon" data-tone=\{tone\} aria-hidden>/)
+  for (const tone of ['ok', 'warn', 'danger', 'neutral']) {
+    assert.ok(dashCss.includes(`.lake-tier-icon[data-tone="${tone}"]`), `${tone} tone styled`)
+  }
+  // The storage KPI meter is the same real ratio as its number.
+  assert.match(dashboard, /aria-valuenow=\{storagePct\}/)
+  assert.match(dashboard, /<span style=\{\{ width: `\$\{storagePct\}%` \}\} \/>/)
+})
+
+test('POLISH-OVERLAY header actions, selection bar, select triggers and drop overlay join the family', () => {
+  const quick = read('src/components/DashboardQuickActions.jsx')
+  assert.match(quick, /className="header-action-icon"/)
+  assert.match(dashCss, /\.header-action-button:focus-visible \{[\s\S]*?border-radius: 14px;/)
+  const bar = read('src/components/SelectionActionBar.jsx')
+  assert.match(bar, /selection-action-bar/)
+  assert.match(bar, /data-danger=\{danger \? 'true' : undefined\}/)
+  for (const hook of ['.selection-action-bar', '.vault-transfer-panel', '.external-drop-overlay']) {
+    assert.ok(overlayCss.includes(hook), `${hook} styled`)
+  }
+  assert.match(overlayCss, /\.authenticated-shell select,[\s\S]*?background-image: url\("data:image\/svg\+xml/)
 })

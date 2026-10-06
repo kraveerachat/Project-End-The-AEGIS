@@ -46,6 +46,12 @@ const METRICS = [
   { id: 'temperature', labelKey: 'telemetryTemperature', icon: Thermometer },
 ]
 
+// Presentation grouping of the same six tiles, order unchanged.
+const TELEMETRY_GROUPS = [
+  { id: 'usage', labelKey: 'telemetryGroupUsage', ids: ['cpu', 'memory', 'disk'] },
+  { id: 'state', labelKey: 'telemetryGroupState', ids: ['network', 'uptime', 'temperature'] },
+]
+
 const STATE_META = {
   loading: { labelKey: 'telemetryStateLoading', tone: 'neutral' },
   available: { labelKey: 'telemetryStateNormal', tone: 'ok' },
@@ -291,15 +297,25 @@ export function ServerTelemetry({ t, data, loading = false }) {
   return (
     <Card className="dashboard-telemetry-card dashboard-motion-card p-5">
       <CardTitle icon={Cpu} sub={t('serverTelemetrySub')}>{t('serverTelemetry')}</CardTitle>
-      <div className="dashboard-telemetry-grid">
-        {METRICS.map((definition) => (
-          <TelemetryTile
-            key={definition.id}
-            t={t}
-            definition={definition}
-            value={metrics?.[definition.id]}
-            loading={loading}
-          />
+      {/* Two groups, same six tiles in the same order: consumption metrics
+          (a real percentage drawn as a meter) and runtime/environment state
+          (values without a bar). Grouping is presentation only. */}
+      <div className="dashboard-telemetry-groups">
+        {TELEMETRY_GROUPS.map((group) => (
+          <section key={group.id} className="dashboard-telemetry-group" data-group={group.id}>
+            <h3 className="dashboard-telemetry-group-title">{t(group.labelKey)}</h3>
+            <div className="dashboard-telemetry-grid">
+              {group.ids.map((id) => METRICS.find((definition) => definition.id === id)).map((definition) => (
+                <TelemetryTile
+                  key={definition.id}
+                  t={t}
+                  definition={definition}
+                  value={metrics?.[definition.id]}
+                  loading={loading}
+                />
+              ))}
+            </div>
+          </section>
         ))}
       </div>
     </Card>

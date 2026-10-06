@@ -621,3 +621,257 @@
     transition: none !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   Final polish pass
+   ───────────────────────────────────────────────────────────────── */
+
+/* ── Header actions (Upload · Share · Vault) ───────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button {
+  height: 44px;
+  gap: 10px;
+  padding: 0 16px 0 6px;
+  border: 1px solid rgba(92, 144, 240, 0.42);
+  border-radius: 14px;
+  color: #e6efff;
+  background: linear-gradient(180deg, rgba(22, 44, 98, 0.85), rgba(9, 22, 56, 0.9));
+  box-shadow: inset 0 1px 0 rgba(160, 200, 255, 0.2), 0 12px 24px -18px rgba(0, 4, 22, 0.95);
+  font-size: 13px;
+  font-weight: 650;
+  transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease), background 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid rgba(120, 178, 255, 0.45);
+  border-radius: 10px;
+  color: #cfe6ff;
+  background: linear-gradient(150deg, rgba(47, 116, 236, 0.55), rgba(20, 52, 138, 0.55));
+  box-shadow: inset 0 1px 0 rgba(220, 236, 255, 0.3), 0 0 14px -6px rgba(44, 120, 255, 0.8);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-icon svg {
+  filter: drop-shadow(0 0 5px rgba(140, 200, 255, 0.7));
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button.is-primary {
+  border-color: rgba(147, 183, 255, 0.7);
+  color: #ffffff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 60%),
+    linear-gradient(105deg, #2262ef, #3b82f6 60%, #4f6bff);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 14px 28px -14px rgba(44, 110, 255, 0.95);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button.is-primary .header-action-icon {
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button:hover {
+    border-color: rgba(140, 190, 255, 0.85);
+    color: #ffffff;
+    transform: translateY(-2px);
+    box-shadow: inset 0 1px 0 rgba(180, 215, 255, 0.3), 0 16px 30px -16px rgba(0, 6, 30, 0.95), 0 0 20px -8px rgba(70, 130, 255, 0.75);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button:active {
+  transform: translateY(0) scale(0.98);
+  transition-duration: 90ms;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button:focus-visible {
+  border-radius: 14px;
+  outline: 2px solid #8fb6ff;
+  outline-offset: 3px;
+}
+
+/* ── Storage KPI meter (the real used/total ratio) ─────────────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-support:has(.dashboard-stat-meter) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 9px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-meter {
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--card-sunken);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-meter > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-meter-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-stat-meter {
+  background: rgba(28, 52, 110, 0.7);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-stat-meter > span {
+  background: linear-gradient(90deg, #19c8ff, #2262ef 55%, #8a5cff);
+  box-shadow: 0 0 12px -2px rgba(69, 193, 244, 0.85);
+}
+
+/* ── Data Lake rows: tier icon · name/tech · latency · state ─────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-row {
+  height: auto !important;
+  min-height: 62px;
+  padding-block: 10px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-tier-icon {
+  position: relative;
+  display: grid;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 11px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-tier-dot {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  width: 13px;
+  height: 13px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--card);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-icon {
+  border: 1px solid rgba(110, 165, 255, 0.36);
+  color: #bfe0ff;
+  background: linear-gradient(150deg, rgba(47, 116, 236, 0.42), rgba(20, 52, 138, 0.42));
+  box-shadow: inset 0 1px 0 rgba(220, 236, 255, 0.24);
+}
+
+/* State is explicit and colour-coded only from the real probe result. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-icon[data-tone="ok"] {
+  border-color: rgba(6, 210, 136, 0.45);
+  box-shadow: inset 0 1px 0 rgba(220, 255, 240, 0.2), 0 0 14px -6px rgba(6, 210, 136, 0.7);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-icon[data-tone="warn"] {
+  border-color: rgba(246, 192, 62, 0.55);
+  color: #ffe2a3;
+  box-shadow: 0 0 14px -6px rgba(246, 192, 62, 0.7);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-icon[data-tone="danger"] {
+  border-color: rgba(255, 110, 140, 0.6);
+  color: #ffc2cd;
+  background: linear-gradient(150deg, rgba(200, 40, 80, 0.35), rgba(110, 20, 50, 0.35));
+  box-shadow: 0 0 14px -6px rgba(255, 110, 140, 0.8);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-icon[data-tone="neutral"] {
+  color: var(--ref-label);
+  filter: saturate(0.3);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-dot {
+  background: #0b1a40;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-health-latency {
+  color: #e6efff !important;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-health-name {
+  color: #ffffff;
+}
+
+/* ── Resources: usage vs runtime/environment ──────────────────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-groups {
+  display: grid;
+  gap: 14px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-group-title {
+  margin-bottom: 4px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group {
+  padding: 12px 14px 6px;
+  border: 1px solid rgba(82, 132, 232, 0.24);
+  border-radius: 13px;
+  background: rgba(9, 25, 64, 0.5);
+  box-shadow: inset 0 1px 0 rgba(150, 190, 255, 0.07);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ref-label);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group-title::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: linear-gradient(135deg, #3fa2ff, #8a5cff);
+  content: '';
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group[data-group="state"] .dashboard-telemetry-group-title::before {
+  background: linear-gradient(135deg, #06d288, #45c1f4);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group .dashboard-telemetry-tile:last-child {
+  border-bottom: 0 !important;
+}
+
+/* Runtime/environment rows carry values, not bars: tighter rows. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group[data-group="state"] .dashboard-telemetry-tile {
+  padding-block: 8px;
+}
+
+/* ── Sign-in history at full width: a multi-column log ─────────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-links-row .dashboard-login-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 6px 14px;
+  max-height: 228px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-login-list > .dashboard-list-row {
+  border: 1px solid rgba(90, 135, 230, 0.14);
+  background: rgba(9, 25, 64, 0.42);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button {
+    transition: none;
+    transform: none !important;
+  }
+}

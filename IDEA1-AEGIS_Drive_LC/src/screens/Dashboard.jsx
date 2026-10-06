@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import {
   Database, Files as FilesIcon, Link2, ShieldCheck, ArrowUpRight, ArrowDownRight,
-  LogIn, FileText, Clock, Layers, Activity,
+  LogIn, FileText, Clock, Layers, Activity, Server, HardDrive,
 } from 'lucide-react'
 import { Card, CardTitle, Chip, Dot, ErrorState, DependencyUnavailableState, SkeletonLoader } from '../components/ui.jsx'
 import { ServerTelemetry } from '../components/ServerTelemetry.jsx'
@@ -94,6 +94,8 @@ const TIERS = [
   { id: 'storage', nameKey: 'tierStorage', techKey: 'tierStorageTech' },
 ]
 
+const TIER_ICONS = { application: Server, metadata: Database, storage: HardDrive }
+
 function LakeHealth({ t, health }) {
   // แต่ละแถวอ่านผล probe ของตัวเองเท่านั้น — missing/unchecked = ยังไม่มีข้อมูล,
   // checked+failed = ล่มจริง ห้ามใช้ health.ok ก้อนเดียวสร้างสีเขียวให้ทั้งสามชั้น
@@ -121,6 +123,7 @@ function LakeHealth({ t, health }) {
             : tier.techKey ? t(tier.techKey) : tier.tech
           const dimmed = state === 'healthy' && brokenBelow(idx)
           const tone = state === 'healthy' ? 'ok' : state === 'degraded' ? 'warn' : state === 'down' ? 'danger' : 'neutral'
+          const TierIcon = TIER_ICONS[tier.id]
           const lat = layer?.measured === true && Number.isFinite(layer.latencyMs)
             ? layer.latencyMs
             : null
@@ -149,10 +152,14 @@ function LakeHealth({ t, health }) {
                   transitionTimingFunction: 'var(--ease)',
                 }}
               >
-                <Dot tone={tone} pulse={state === 'healthy'} />
-                <span className="lake-health-name text-[12.5px] font-semibold tracking-[0.04em] text-ink whitespace-nowrap">{t(tier.nameKey)}</span>
-                <span className="text-[12.5px] text-ink-3 whitespace-nowrap max-xl:hidden">{tech}</span>
-                <div className="flex-1 min-w-4" />
+                <span className="lake-tier-icon" data-tone={tone} aria-hidden>
+                  <TierIcon size={16} strokeWidth={1.7} />
+                  <span className="lake-tier-dot"><Dot tone={tone} pulse={state === 'healthy'} size={7} /></span>
+                </span>
+                <span className="min-w-0 flex-1 flex flex-col">
+                  <span className="lake-health-name text-[12.5px] font-semibold tracking-[0.04em] text-ink truncate">{t(tier.nameKey)}</span>
+                  <span className="lake-health-tech text-[11.5px] text-ink-3 truncate">{tech}</span>
+                </span>
                 <span className="lake-health-latency text-[12px] font-medium w-16 text-right" style={{ fontVariantNumeric: 'tabular-nums', color: state === 'healthy' ? 'var(--ink-2)' : tone === 'warn' ? 'var(--warn)' : tone === 'danger' ? 'var(--danger)' : 'var(--ink-3)' }}>
                   {lat != null ? `${lat.toFixed(1)} ms` : t('latencyUnavailable')}
                 </span>
@@ -176,7 +183,7 @@ function LoginHistoryCard({ t, events, unavailable = false }) {
       ) : events.length === 0 ? (
         <InlineEmptyState>{t('emptyNoLoginHistory')}</InlineEmptyState>
       ) : (
-        <div className="flex flex-col gap-1 overflow-y-auto -mr-2 pr-2 max-h-[300px]">
+        <div className="dashboard-login-list flex flex-col gap-1 overflow-y-auto -mr-2 pr-2 max-h-[300px]">
           {events.map((e, i) => {
             const at = new Date(e.at).getTime()
             const bad = e.result !== 'OK'
@@ -478,8 +485,21 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
           statusTone="neutral"
           support={storageKnown ? (
             <>
-              <Chip tone="accent" lang="en">{storagePct}%</Chip>
-              <span>{t('capacityTotal')} <span lang="en">{fmtBytes(storageTotal)}</span></span>
+              {/* Real used / total ratio from the same bytes as the number above. */}
+              <span
+                className="dashboard-stat-meter"
+                role="progressbar"
+                aria-label={t('capacityUsedPct')}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={storagePct}
+              >
+                <span style={{ width: `${storagePct}%` }} />
+              </span>
+              <span className="dashboard-stat-meter-legend">
+                <Chip tone="accent" lang="en">{storagePct}%</Chip>
+                <span>{t('capacityTotal')} <span lang="en">{fmtBytes(storageTotal)}</span></span>
+              </span>
             </>
           ) : null}
           delay={0}
@@ -526,7 +546,7 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
         <ServerTelemetry t={t} data={telemetry} loading={telemetryLoading} />
       </div>
 
-      {/* Row 3 — operational layers, recent work, personal sign-in history. */}
+      {/* Row 3 — operational layers, recent work, live share links. */}
       <div className="dashboard-ops-grid">
         <LakeHealth t={t} health={health.data} />
         <Card className="dashboard-list-card p-5">
@@ -547,12 +567,12 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
             </div>
           )}
         </Card>
-        <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={dashboardUnavailable} />
+        <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={dashboardUnavailable} />
       </div>
 
-      {/* Row 4 — live share links. */}
+      {/* Row 4 — personal sign-in history (full width: the longest list). */}
       <div className="dashboard-links-row">
-        <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={dashboardUnavailable} />
+        <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={dashboardUnavailable} />
       </div>
     </div>
   )
