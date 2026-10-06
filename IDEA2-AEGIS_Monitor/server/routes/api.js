@@ -834,7 +834,19 @@ apiRouter.get('/clips', requireAuth, async (req, res, next) => {
     const cams = await getVisibleCameras(req.user)
     const visible = new Set(cams.map((c) => c.id))
     const nameOf = (id) => cams.find((c) => c.id === id)?.name ?? id
-    res.json({ clips: (await store.listClips(visible)).map((c) => ({ ...c, camName: nameOf(c.cam) })) })
+    const isSoc = req.user.role === ROLES.SOC
+    const clips = (await store.listClips(visible)).map((clip) => {
+      // Physical IDs and producer generations remain server-only. SOC may see
+      // the registered Node label so same logical aliases across Machines A/B/C
+      // remain distinguishable in Archive without exposing internal authority IDs.
+      const { physicalCameraId, producerGeneration, nodeId, ...safe } = clip
+      return {
+        ...safe,
+        camName: nameOf(clip.cam),
+        ...(isSoc && nodeId ? { nodeId } : {}),
+      }
+    })
+    res.json({ clips })
   } catch (err) { next(err) }
 })
 
