@@ -121,6 +121,8 @@ def test_ctu_verify_uses_real_runtime_and_has_no_caller_success_pins() -> None:
     assert "p4-ctu-runtime-verify.py" in verify
     assert "status.json" in RUNTIME_VERIFY.read_text()
     assert "lockdown_episodes" in RUNTIME_VERIFY.read_text()
+    assert "protocol_seen_d2c" in RUNTIME_VERIFY.read_text()
+    assert "audit_logs" in RUNTIME_VERIFY.read_text()
 
 
 def test_ctu_operator_identity_and_fixed_marker_contract_is_fail_closed() -> None:
@@ -161,8 +163,9 @@ def test_ctu_marker_creation_is_exclusive_and_never_recreated() -> None:
             "AEGIS_CTU_TEST_ONLY_CANONICAL_DIR_ENABLED": "YES",
             "AEGIS_CTU_TEST_ONLY_CANONICAL_DIR": str(canonical),
             "AEGIS_CTU_TEST_ONLY_TRUST_ROOT": str(root),
+            "AEGIS_CTU_TEST_ONLY_BOUNDARY": "CTU_PRE_PROTOCOL_SEEN_ID=0\nCTU_PRE_AUDIT_ID=0",
         }
-        command = f'. "{script}"; ctu_consume_attempt "$1"'
+        command = f'. "{script}"; ctu_consume_attempt "$1" esp32-01 /tmp/ctu-runtime-verify.py'
         first = subprocess.Popen(["bash", "-c", command, "consume", str(root / "work-1")], env=env)
         second = subprocess.Popen(["bash", "-c", command, "consume", str(root / "work-2")], env=env)
         results = [first.wait(), second.wait()]
@@ -190,6 +193,40 @@ def test_ctu_post_consumption_failures_have_terminal_rollback_paths() -> None:
     assert "then post_fail VERIFY" in text
 
 
+def test_ctu_proves_the_expected_implicit_detector_lifecycle() -> None:
+    runner = RUNNER.read_text()
+    verify = VERIFY.read_text()
+    for field in ("InvocationID", "NRestarts", "ActiveState", "SubState", "ExecMainStartTimestampMonotonic"):
+        assert field in runner or field in verify
+    assert "AEGIS_CTU_PRE_DETECTOR_INVOCATION" in verify
+    assert "AEGIS_CTU_PRE_DETECTOR_NRESTARTS" in verify
+    assert "AEGIS_CTU_PRE_DETECTOR_PID" in verify
+    assert "DETECTOR_START_AFTER_CORE" in RUNTIME_VERIFY.read_text()
+    assert "systemctl restart aegis-idea3-detector.service" not in runner
+    assert "systemctl restart aegis-idea3-detector.service" not in (CTU / "apply.sh").read_text()
+    assert "systemctl restart aegis-idea3-detector.service" not in (CTU / "rollback.sh").read_text()
+
+
+def test_detector_lifecycle_proof_rejects_unchanged_multiple_failed_and_unrelated_states() -> None:
+    verifier = _load_runtime_verifier()
+    pre = {"pid": "10", "start": "old", "invocation": "a" * 32, "nrestarts": "0", "monotonic": "100"}
+    post = {"pid": "20", "start": "new", "invocation": "b" * 32, "nrestarts": "0", "monotonic": "101", "load": "loaded", "active": "active", "sub": "running", "unit_file": "disabled", "restart": "no"}
+    verifier.verify_detector(pre, post, 90)
+    cases = (
+        {**post, "pid": "10"},
+        {**post, "nrestarts": "1"},
+        {**post, "active": "failed"},
+        {**post, "monotonic": "200000100"},
+    )
+    for bad in cases:
+        try:
+            verifier.verify_detector(pre, bad, 90)
+        except verifier.RuntimeProofError:
+            pass
+        else:
+            raise AssertionError("invalid detector lifecycle must fail closed")
+
+
 def _load_runtime_verifier():
     spec = importlib.util.spec_from_file_location("ctu_runtime_verify", RUNTIME_VERIFY)
     module = importlib.util.module_from_spec(spec)
@@ -198,25 +235,41 @@ def _load_runtime_verifier():
     return module
 
 
-def _runtime_fixture(tmp: Path, *, status: dict, episode: bool = True):
+def _runtime_fixture(tmp: Path, *, status: dict, episode: bool = True, protocol_rows=(), audit_rows=(), boundary=(0, 0)):
     status_path = tmp / "status.json"
     status_path.write_text(json.dumps(status))
     db_path = tmp / "audit.sqlite3"
     con = sqlite3.connect(db_path)
     con.executescript("""
         CREATE TABLE lockdown_episodes (
-            id INTEGER PRIMARY KEY, device_id TEXT, open_msg_id TEXT,
+            id INTEGER PRIMARY KEY, device_id TEXT, opened_at TEXT, open_msg_id TEXT,
             closed_at TEXT
+        );
+        CREATE TABLE audit_logs (
+            id INTEGER PRIMARY KEY, timestamp TEXT, event_type TEXT, details TEXT
         );
     """)
     if episode:
         con.execute(
-            "INSERT INTO lockdown_episodes(device_id, open_msg_id, closed_at) VALUES (?, ?, NULL)",
-            ("esp32-01", "msg-123"),
+            "INSERT INTO lockdown_episodes(device_id, opened_at, open_msg_id, closed_at) VALUES (?, ?, ?, NULL)",
+            ("esp32-01", "2026-10-07 00:00:00", "msg-123"),
         )
+    con.executemany("INSERT INTO audit_logs(id, timestamp, event_type, details) VALUES (?, ?, ?, ?)", audit_rows)
     con.commit()
     con.close()
-    return status_path, db_path
+    protocol_path = tmp / "protocol.sqlite3"
+    con = sqlite3.connect(protocol_path)
+    con.execute("CREATE TABLE protocol_seen_d2c (device_id TEXT, msg_id TEXT, kind TEXT, received_at REAL)")
+    con.executemany("INSERT INTO protocol_seen_d2c(rowid, device_id, msg_id, kind, received_at) VALUES (?, ?, ?, ?, ?)", protocol_rows)
+    con.commit()
+    con.close()
+    marker_path = tmp / "marker"
+    marker_path.write_text(
+        "CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_DEVICE_ID=esp32-01\n"
+        "CTU_CONSUMED_AT_EPOCH=10.0\n"
+        f"CTU_PRE_PROTOCOL_SEEN_ID={boundary[0]}\nCTU_PRE_AUDIT_ID={boundary[1]}\n"
+    )
+    return status_path, db_path, protocol_path, marker_path
 
 
 def test_runtime_verifier_requires_fresh_core_status_and_authenticated_episode() -> None:
@@ -228,18 +281,50 @@ def test_runtime_verifier_requires_fresh_core_status_and_authenticated_episode()
             "time_trust": "SYNCED", "broker": "CONNECTED",
             "device": "ONLINE", "uplink": "LOCKDOWN",
         }
-        status_path, db_path = _runtime_fixture(tmp, status=status)
-        assert verifier.verify_files(status_path, db_path, 2743, 10.0, "esp32-01") is None
-        forged = dict(status, device="ONLINE", uplink="LOCKDOWN")
-        status_path.write_text(json.dumps(forged))
-        db_path.unlink()
-        status_path, db_path = _runtime_fixture(tmp, status=forged, episode=False)
+        status_path, db_path, protocol_path, marker_path = _runtime_fixture(
+            tmp, status=status, protocol_rows=[(1, "esp32-01", "old", "STATUS", 1.0)],
+            audit_rows=[(1, "2026-10-07 00:00:01", "DEVICE_STATUS", "LOCKDOWN (old)")],
+            boundary=(1, 1),
+        )
         try:
-            verifier.verify_files(status_path, db_path, 2743, 10.0, "esp32-01")
+            verifier.verify_files(status_path, db_path, protocol_path, marker_path, 2743, 10.0, "esp32-01", 10.0)
         except verifier.RuntimeProofError:
             pass
         else:
-            raise AssertionError("status values without authenticated episode must fail")
+            raise AssertionError("historical open episode must not satisfy CTu")
+
+
+def test_runtime_verifier_accepts_only_post_restart_fresh_lockdown_evidence() -> None:
+    verifier = _load_runtime_verifier()
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        status = {"pid": 2743, "updated_at": 20.0, "state": "LOCKDOWN", "time_trust": "SYNCED", "broker": "CONNECTED", "device": "ONLINE", "uplink": "LOCKDOWN"}
+        status_path, db_path, protocol_path, marker_path = _runtime_fixture(
+            tmp, status=status, protocol_rows=[(1, "esp32-01", "old", "STATUS", 1.0), (2, "esp32-01", "new", "STATUS", 20.0)],
+            audit_rows=[(1, "2026-10-07 00:00:01", "DEVICE_STATUS", "LOCKDOWN (old)"), (2, "2026-10-07 00:00:20", "DEVICE_STATUS", "LOCKDOWN (new)")],
+            boundary=(1, 1),
+        )
+        assert verifier.verify_files(status_path, db_path, protocol_path, marker_path, 2743, 10.0, "esp32-01", 10.0) is None
+
+
+def test_runtime_verifier_rejects_wrong_device_and_normal_post_restart_evidence() -> None:
+    verifier = _load_runtime_verifier()
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        status = {"pid": 2743, "updated_at": 20.0, "state": "LOCKDOWN", "time_trust": "SYNCED", "broker": "CONNECTED", "device": "ONLINE", "uplink": "LOCKDOWN"}
+        for index, (device, detail) in enumerate((("other-device", "LOCKDOWN (new)"), ("esp32-01", "NORMAL (new)"))):
+            case = tmp / f"case-{index}"
+            case.mkdir()
+            status_path, db_path, protocol_path, marker_path = _runtime_fixture(
+                case, status=status, protocol_rows=[(2, device, "new", "STATUS", 20.0)],
+                audit_rows=[(2, "2026-10-07 00:00:20", "DEVICE_STATUS", detail)], boundary=(1, 1),
+            )
+            try:
+                verifier.verify_files(status_path, db_path, protocol_path, marker_path, 2743, 10.0, "esp32-01", 10.0)
+            except verifier.RuntimeProofError:
+                pass
+            else:
+                raise AssertionError("wrong-device or NORMAL evidence must fail")
 
 
 def test_runtime_verifier_rejects_forged_success_values_and_stale_status() -> None:
@@ -251,10 +336,10 @@ def test_runtime_verifier_rejects_forged_success_values_and_stale_status() -> No
             "time_trust": "SYNCED", "broker": "CONNECTED",
             "device": "ONLINE", "uplink": "LOCKDOWN",
         }
-        status_path, db_path = _runtime_fixture(tmp, status=status)
+        status_path, db_path, protocol_path, marker_path = _runtime_fixture(tmp, status=status)
         for pid, pre_time in ((9999, 1.0), (2743, 9.0)):
             try:
-                verifier.verify_files(status_path, db_path, pid, pre_time, "esp32-01")
+                verifier.verify_files(status_path, db_path, protocol_path, marker_path, pid, pre_time, "esp32-01", 10.0)
             except verifier.RuntimeProofError:
                 continue
             raise AssertionError("forged or stale runtime success must fail")

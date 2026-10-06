@@ -33,11 +33,17 @@ ctu_marker_unconsumed() {
 }
 ctu_fsync() { $CTU_SUDO sync -- "$1" 2>/dev/null; }
 ctu_consume_attempt() {
-  local work=${1:-} dir marker; [[ "$work" == /* && "$work" != *..* ]] || return 1
+  local work=${1:-} device=${2:-} verifier=${3:-} dir marker boundary; [[ "$work" == /* && "$work" != *..* ]] || return 1
+  [[ "$device" =~ ^[A-Za-z0-9._-]+$ && "$verifier" == /* && "$verifier" != *..* ]] || return 1
   ctu_marker_unconsumed || return 1; dir=$(ctu_canonical_dir); marker=$(ctu_marker_path)
   if ! $CTU_SUDO test -d "$dir"; then $CTU_SUDO mkdir -m 0700 "$dir" || return 1; fi
   ctu_fsync "$(dirname "$dir")" || return 1
-  if ! $CTU_SUDO bash -c 'set -o noclobber; printf "CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nconsumed_at=%s\nwork=%s\n" "$(date -u +%FT%TZ)" "$2" > "$1"' _ "$marker" "$work"; then echo CTU_ATTEMPT_ALREADY_CONSUMED >&2; return 1; fi
+  if [ "${AEGIS_CTU_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" = YES ] && [ -n "${AEGIS_CTU_TEST_ONLY_BOUNDARY:-}" ]; then
+    boundary=$AEGIS_CTU_TEST_ONLY_BOUNDARY
+  else
+    boundary=$($CTU_SUDO /usr/bin/python3 "$verifier" --capture-boundary --device-id "$device") || return 1
+  fi
+  if ! printf 'CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_DEVICE_ID=%s\nCTU_CONSUMED_AT_EPOCH=%s\nwork=%s\n%s\n' "$device" "$(date -u +%s.%N)" "$work" "$boundary" | $CTU_SUDO bash -c 'set -o noclobber; cat > "$1"' _ "$marker"; then echo CTU_ATTEMPT_ALREADY_CONSUMED >&2; return 1; fi
   CTU_MARKER_CREATED=1
   ctu_fsync "$marker" && ctu_fsync "$dir" || { echo CTU_MARKER_NOT_DURABLE_ATTEMPT_CONSUMED >&2; return 1; }
   $CTU_SUDO chattr +i "$marker" 2>/dev/null || true

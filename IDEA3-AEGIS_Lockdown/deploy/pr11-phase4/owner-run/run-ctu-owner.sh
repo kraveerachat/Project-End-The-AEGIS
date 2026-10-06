@@ -15,7 +15,7 @@ done
 AUTH_DIR=${1:-}
 [ -d "$AUTH_DIR" ] || { echo 'usage: run-ctu-owner.sh <fresh auth dir>' >&2; exit 2; }
 [ "$(id -u)" != 0 ] || { echo 'STOP: run as the frozen operator, not root.' >&2; exit 2; }
-[ -z "${AEGIS_CTU_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" ] && [ -z "${AEGIS_CTU_TEST_ONLY_CANONICAL_DIR:-}" ] && [ -z "${AEGIS_CTU_TEST_ONLY_TRUST_ROOT:-}" ] || { echo 'STOP: test-only CTu governance seam is forbidden in the live runner.' >&2; exit 2; }
+[ -z "${AEGIS_CTU_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" ] && [ -z "${AEGIS_CTU_TEST_ONLY_CANONICAL_DIR:-}" ] && [ -z "${AEGIS_CTU_TEST_ONLY_TRUST_ROOT:-}" ] && [ -z "${AEGIS_CTU_TEST_ONLY_BOUNDARY:-}" ] || { echo 'STOP: test-only CTu governance seam is forbidden in the live runner.' >&2; exit 2; }
 TODAY=$(TZ=Asia/Bangkok date +%F)
 REPO=PIN_MERGED_MAIN_WORKTREE
 APP=$REPO/IDEA3-AEGIS_Lockdown
@@ -72,12 +72,22 @@ post_fail() {
 }
 CORE_PRE_PID=$(sudo systemctl show -p MainPID --value aegis-idea3-core.service)
 CORE_PRE_START=$(sudo systemctl show -p ExecMainStartTimestamp --value aegis-idea3-core.service)
+CORE_PRE_NRESTARTS=$(sudo systemctl show -p NRestarts --value aegis-idea3-core.service)
 DEVICE_ID=esp32-01
 STATUS_PRE_UPDATED_AT=$(sudo /usr/bin/python3 -c 'import json; print(float(json.load(open("/run/aegis-idea3/status.json"))["updated_at"]))') || exit 1
+DETECTOR_PRE_STATE=$(sudo systemctl show -p MainPID -p ExecMainStartTimestamp -p InvocationID -p NRestarts aegis-idea3-detector.service)
+DETECTOR_PRE_PID=$(awk -F= '$1 == "MainPID" {print $2}' <<<"$DETECTOR_PRE_STATE")
+DETECTOR_PRE_START=$(awk -F= '$1 == "ExecMainStartTimestamp" {print $2}' <<<"$DETECTOR_PRE_STATE")
+DETECTOR_PRE_INVOCATION=$(awk -F= '$1 == "InvocationID" {print $2}' <<<"$DETECTOR_PRE_STATE")
+DETECTOR_PRE_NRESTARTS=$(awk -F= '$1 == "NRestarts" {print $2}' <<<"$DETECTOR_PRE_STATE")
+DETECTOR_PRE_MONOTONIC=$(sudo systemctl show -p ExecMainStartTimestampMonotonic --value aegis-idea3-detector.service)
+[ "$CORE_PRE_NRESTARTS" = 0 ] || exit 1
+[[ "$DETECTOR_PRE_PID" =~ ^[1-9][0-9]*$ && "$DETECTOR_PRE_NRESTARTS" = 0 && "$DETECTOR_PRE_INVOCATION" =~ ^[0-9a-f]{32}$ && "$DETECTOR_PRE_MONOTONIC" =~ ^[0-9]+$ ]] || exit 1
 capture "$PRE" ctu-pre || exit 1
 ctu_marker_unconsumed || exit 1
 CONSUMED=0; CTU_MARKER_CREATED=0; ROLLBACK_DONE=0
-if ! ctu_consume_attempt "$WORK"; then
+RUNTIME_VERIFY="$P4/p4-ctu-runtime-verify.py"
+if ! ctu_consume_attempt "$WORK" "$DEVICE_ID" "$RUNTIME_VERIFY"; then
   if [ "$CTU_MARKER_CREATED" = 1 ]; then
     CONSUMED=1; post_fail MARKER_DURABILITY
   fi
@@ -90,5 +100,5 @@ if ! capture "$POST" ctu-post; then post_fail POST_CAPTURE; fi
 if ! compare "$PRE" "$P4/stages/CTu/allow-keys.txt" "$PRE" "$POST" "$EVID/compare-pre-post.txt"; then post_fail COMPARE_S10; fi
 . "$P4/p4-l7u-run-lib.sh"
 if ! l7u_secret_scan "$EVID" /usr/bin/python3; then post_fail SECRET_SCAN; fi
-if ! sudo env AEGIS_CTU_UNIT_SOURCE="$UNIT_SOURCE" AEGIS_CTU_PRE_CORE_PID="$CORE_PRE_PID" AEGIS_CTU_PRE_CORE_START="$CORE_PRE_START" AEGIS_CTU_PRE_STATUS_UPDATED_AT="$STATUS_PRE_UPDATED_AT" AEGIS_CTU_DEVICE_ID="$DEVICE_ID" bash "$P4/stages/CTu/verify.sh"; then post_fail VERIFY; fi
+if ! sudo env AEGIS_CTU_UNIT_SOURCE="$UNIT_SOURCE" AEGIS_CTU_PRE_CORE_PID="$CORE_PRE_PID" AEGIS_CTU_PRE_CORE_START="$CORE_PRE_START" AEGIS_CTU_PRE_CORE_NRESTARTS="$CORE_PRE_NRESTARTS" AEGIS_CTU_PRE_STATUS_UPDATED_AT="$STATUS_PRE_UPDATED_AT" AEGIS_CTU_DEVICE_ID="$DEVICE_ID" AEGIS_CTU_PRE_DETECTOR_PID="$DETECTOR_PRE_PID" AEGIS_CTU_PRE_DETECTOR_START="$DETECTOR_PRE_START" AEGIS_CTU_PRE_DETECTOR_INVOCATION="$DETECTOR_PRE_INVOCATION" AEGIS_CTU_PRE_DETECTOR_NRESTARTS="$DETECTOR_PRE_NRESTARTS" AEGIS_CTU_PRE_DETECTOR_MONOTONIC="$DETECTOR_PRE_MONOTONIC" bash "$P4/stages/CTu/verify.sh"; then post_fail VERIFY; fi
 printf 'CTU_LIVE=PASS RECOVERY_LIVE_EXECUTED=NO RECOVERY_ATTEMPT_CONSUMED=NO\n'

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Read-only CTu proof from the Core process and its owned audit database."""
+"""Read-only CTu proof from Core-owned runtime and durable Protocol-v1 evidence."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
+import re
 from pathlib import Path
 
 
@@ -17,7 +19,108 @@ def _fail(reason: str) -> None:
     raise RuntimeProofError(reason)
 
 
-def verify_files(status_path: Path, audit_db: Path, core_pid: int, pre_updated_at: float, device_id: str) -> None:
+def _connect(path: Path) -> sqlite3.Connection:
+    try:
+        return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.Error as exc:
+        _fail(f"AUDIT_DB_UNREADABLE:{type(exc).__name__}")
+
+
+def capture_boundary(audit_db: Path, protocol_db: Path, device_id: str) -> tuple[int, int]:
+    if not device_id:
+        _fail("DEVICE_ID_INVALID")
+    protocol = _connect(protocol_db)
+    try:
+        row = protocol.execute(
+            "SELECT COALESCE(MAX(rowid), 0) FROM protocol_seen_d2c "
+            "WHERE device_id = ? AND kind = 'STATUS'",
+            (device_id,),
+        ).fetchone()
+    except sqlite3.Error as exc:
+        _fail(f"PROTOCOL_DB_UNREADABLE:{type(exc).__name__}")
+    finally:
+        protocol.close()
+    audit = _connect(audit_db)
+    try:
+        audit_row = audit.execute("SELECT COALESCE(MAX(id), 0) FROM audit_logs").fetchone()
+    except sqlite3.Error as exc:
+        _fail(f"AUDIT_LOG_UNREADABLE:{type(exc).__name__}")
+    finally:
+        audit.close()
+    return int(row[0]), int(audit_row[0])
+
+
+def _read_boundary(marker_path: Path, device_id: str) -> tuple[int, int, float]:
+    try:
+        values = {}
+        for line in marker_path.read_text().splitlines():
+            if "=" in line:
+                key, value = line.split("=", 1)
+                values[key] = value
+    except (OSError, UnicodeError) as exc:
+        _fail(f"CTU_MARKER_UNREADABLE:{type(exc).__name__}")
+    if values.get("CTU_ATTEMPT_CONSUMED") != "YES" or values.get("CTU_RERUN_ALLOWED") != "NO":
+        _fail("CTU_MARKER_NOT_CONSUMED")
+    if values.get("CTU_DEVICE_ID") != device_id:
+        _fail("CTU_MARKER_DEVICE_MISMATCH")
+    try:
+        consumed_at = float(values["CTU_CONSUMED_AT_EPOCH"])
+    except (KeyError, TypeError, ValueError):
+        _fail("CTU_MARKER_CONSUMED_TIME_INVALID")
+    try:
+        protocol_id = int(values["CTU_PRE_PROTOCOL_SEEN_ID"])
+        audit_id = int(values["CTU_PRE_AUDIT_ID"])
+    except (KeyError, TypeError, ValueError):
+        _fail("CTU_MARKER_BOUNDARY_INVALID")
+    if protocol_id < 0 or audit_id < 0:
+        _fail("CTU_MARKER_BOUNDARY_INVALID")
+    return protocol_id, audit_id, consumed_at
+
+
+def _process_start_epoch(core_pid: int) -> float:
+    try:
+        btime = float(next(line.split()[1] for line in Path("/proc/stat").read_text().splitlines() if line.startswith("btime ")))
+        stat = Path(f"/proc/{core_pid}/stat").read_text()
+        start_ticks = int(stat.rsplit(")", 1)[1].split()[19])
+        return btime + start_ticks / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+    except (OSError, StopIteration, IndexError, ValueError, KeyError):
+        _fail("CORE_PROCESS_START_UNREADABLE")
+
+
+def verify_detector(pre: dict[str, str], post: dict[str, str], core_post_monotonic: int) -> None:
+    """Prove the single clean detector invocation expected after Core restart."""
+    if pre.get("nrestarts") != "0" or post.get("nrestarts") != "0":
+        _fail("DETECTOR_UNEXPECTED_RESTART_COUNT")
+    for key, value in (("load", "loaded"), ("active", "active"), ("sub", "running"), ("unit_file", "disabled"), ("restart", "no")):
+        if post.get(key) != value:
+            _fail(f"DETECTOR_{key.upper()}_INVALID")
+    if not re.fullmatch(r"[1-9][0-9]*", post.get("pid", "")) or post.get("pid") == pre.get("pid"):
+        _fail("DETECTOR_PID_TRANSITION_INVALID")
+    if not pre.get("pid", "").isdigit() or not pre.get("start") or post.get("start") == pre.get("start"):
+        _fail("DETECTOR_START_TRANSITION_INVALID")
+    if not re.fullmatch(r"[0-9a-f]{32}", pre.get("invocation", "")) or not re.fullmatch(r"[0-9a-f]{32}", post.get("invocation", "")):
+        _fail("DETECTOR_INVOCATION_INVALID")
+    if post["invocation"] == pre["invocation"]:
+        _fail("DETECTOR_INVOCATION_UNCHANGED")
+    try:
+        pre_mono = int(pre["monotonic"])
+        post_mono = int(post["monotonic"])
+    except (KeyError, TypeError, ValueError):
+        _fail("DETECTOR_MONOTONIC_START_UNAVAILABLE")
+    if post_mono <= pre_mono or post_mono <= core_post_monotonic or post_mono > core_post_monotonic + 30_000_000:
+        _fail("DETECTOR_START_AFTER_CORE")
+
+
+def verify_files(
+    status_path: Path,
+    audit_db: Path,
+    protocol_db: Path,
+    marker_path: Path,
+    core_pid: int,
+    pre_updated_at: float,
+    device_id: str,
+    process_start_epoch: float | None = None,
+) -> None:
     try:
         status = json.loads(status_path.read_text())
     except (OSError, ValueError) as exc:
@@ -32,42 +135,118 @@ def verify_files(status_path: Path, audit_db: Path, core_pid: int, pre_updated_a
         _fail("STATUS_TIMESTAMP_INVALID")
     if updated_at <= pre_updated_at:
         _fail("STATUS_NOT_REFRESHED_BY_CURRENT_CORE")
+    post_start_epoch = _process_start_epoch(core_pid) if process_start_epoch is None else process_start_epoch
+    if updated_at <= post_start_epoch:
+        _fail("STATUS_NOT_POST_RESTART")
     expected = {"state": "LOCKDOWN", "time_trust": "SYNCED", "broker": "CONNECTED", "device": "ONLINE", "uplink": "LOCKDOWN"}
     for key, value in expected.items():
         if status.get(key) != value:
             _fail(f"STATUS_{key.upper()}_NOT_EXPECTED")
+
+    pre_protocol_id, pre_audit_id, consumed_at = _read_boundary(marker_path, device_id)
+    protocol = _connect(protocol_db)
     try:
-        connection = sqlite3.connect(f"file:{audit_db}?mode=ro", uri=True)
+        seen = protocol.execute(
+            "SELECT rowid, msg_id, received_at FROM protocol_seen_d2c "
+            "WHERE rowid > ? AND device_id = ? AND kind = 'STATUS' "
+            "AND received_at > ? ORDER BY rowid DESC LIMIT 1",
+            (pre_protocol_id, device_id, max(pre_updated_at, consumed_at, post_start_epoch)),
+        ).fetchone()
     except sqlite3.Error as exc:
-        _fail(f"AUDIT_DB_UNREADABLE:{type(exc).__name__}")
+        _fail(f"PROTOCOL_STATUS_EVIDENCE_UNREADABLE:{type(exc).__name__}")
+    finally:
+        protocol.close()
+    if not seen or not isinstance(seen[1], str) or not seen[1]:
+        _fail("AUTHENTICATED_STATUS_NOT_POST_RESTART")
+
+    audit = _connect(audit_db)
     try:
-        row = connection.execute(
-            "SELECT open_msg_id FROM lockdown_episodes WHERE device_id = ? AND closed_at IS NULL ORDER BY id DESC LIMIT 1",
-            (device_id,),
+        lockdown_audit = audit.execute(
+            "SELECT id, timestamp, details FROM audit_logs "
+            "WHERE id > ? AND event_type = 'DEVICE_STATUS' "
+            "AND details LIKE 'LOCKDOWN (%' ORDER BY id DESC LIMIT 1",
+            (pre_audit_id,),
         ).fetchone()
     except sqlite3.Error as exc:
         _fail(f"AUTHENTICATED_STATUS_AUDIT_UNREADABLE:{type(exc).__name__}")
+    try:
+        episode = audit.execute(
+            "SELECT open_msg_id FROM lockdown_episodes "
+            "WHERE device_id = ? AND closed_at IS NULL ORDER BY id DESC LIMIT 1",
+            (device_id,),
+        ).fetchone()
+    except sqlite3.Error as exc:
+        _fail(f"LOCKDOWN_EPISODE_UNREADABLE:{type(exc).__name__}")
     finally:
-        connection.close()
-    if not row or not isinstance(row[0], str) or not row[0]:
+        audit.close()
+    if not lockdown_audit:
+        _fail("LOCKDOWN_STATUS_NOT_POST_RESTART")
+    if not episode or not isinstance(episode[0], str) or not episode[0]:
         _fail("AUTHENTICATED_STATUS_NOT_PROVEN")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--core-pid", type=int, required=True)
-    parser.add_argument("--pre-updated-at", type=float, required=True)
+    parser.add_argument("--capture-boundary", action="store_true")
+    parser.add_argument("--verify-detector", action="store_true")
+    parser.add_argument("--core-pid", type=int)
+    parser.add_argument("--pre-updated-at", type=float)
     parser.add_argument("--device-id", required=True)
+    parser.add_argument("--core-post-monotonic", type=int)
+    for prefix in ("pre", "post"):
+        parser.add_argument(f"--{prefix}-detector-pid")
+        parser.add_argument(f"--{prefix}-detector-start")
+        parser.add_argument(f"--{prefix}-detector-invocation")
+        parser.add_argument(f"--{prefix}-detector-nrestarts")
+        parser.add_argument(f"--{prefix}-detector-monotonic")
+    parser.add_argument("--post-detector-load")
+    parser.add_argument("--post-detector-active")
+    parser.add_argument("--post-detector-sub")
+    parser.add_argument("--post-detector-unit-file")
+    parser.add_argument("--post-detector-restart")
     args = parser.parse_args()
-    if args.core_pid <= 0 or not args.device_id:
+    if args.verify_detector:
+        try:
+            if args.core_post_monotonic is None:
+                _fail("CORE_POST_MONOTONIC_INVALID")
+            verify_detector(
+                {"pid": args.pre_detector_pid, "start": args.pre_detector_start, "invocation": args.pre_detector_invocation, "nrestarts": args.pre_detector_nrestarts, "monotonic": args.pre_detector_monotonic},
+                {"pid": args.post_detector_pid, "start": args.post_detector_start, "invocation": args.post_detector_invocation, "nrestarts": args.post_detector_nrestarts, "monotonic": args.post_detector_monotonic, "load": args.post_detector_load, "active": args.post_detector_active, "sub": args.post_detector_sub, "unit_file": args.post_detector_unit_file, "restart": args.post_detector_restart},
+                args.core_post_monotonic,
+            )
+        except RuntimeProofError as exc:
+            print(f"CTU_DETECTOR_VERIFY=FAIL reason={exc}")
+            return 1
+        print("CTU_DETECTOR_VERIFY=PASS implicit_requires_consequence=PROVEN")
+        return 0
+    audit_db = Path("/var/lib/aegis-idea3/data/core-audit.sqlite3")
+    protocol_db = Path("/var/lib/aegis-idea3/data/core-protocol.sqlite3")
+    if args.capture_boundary:
+        try:
+            protocol_id, audit_id = capture_boundary(audit_db, protocol_db, args.device_id)
+        except RuntimeProofError as exc:
+            print(f"CTU_BOUNDARY=FAIL reason={exc}")
+            return 1
+        print(f"CTU_PRE_PROTOCOL_SEEN_ID={protocol_id}")
+        print(f"CTU_PRE_AUDIT_ID={audit_id}")
+        return 0
+    if args.core_pid is None or args.pre_updated_at is None or args.core_pid <= 0:
         print("CTU_RUNTIME_VERIFY=FAIL reason=INVALID_BASELINE")
         return 1
     try:
-        verify_files(Path(f"/proc/{args.core_pid}/root/run/aegis-idea3/status.json"), Path("/var/lib/aegis-idea3/data/core-audit.sqlite3"), args.core_pid, args.pre_updated_at, args.device_id)
+        verify_files(
+            Path(f"/proc/{args.core_pid}/root/run/aegis-idea3/status.json"),
+            audit_db,
+            protocol_db,
+            Path("/var/lib/aegis-idea3-governance/CTU-GLOBAL-ATTEMPT-CONSUMED"),
+            args.core_pid,
+            args.pre_updated_at,
+            args.device_id,
+        )
     except RuntimeProofError as exc:
         print(f"CTU_RUNTIME_VERIFY=FAIL reason={exc}")
         return 1
-    print("CTU_RUNTIME_VERIFY=PASS authenticated_status=PROVEN")
+    print("CTU_RUNTIME_VERIFY=PASS authenticated_status=POST_RESTART_PROVEN")
     return 0
 
 
