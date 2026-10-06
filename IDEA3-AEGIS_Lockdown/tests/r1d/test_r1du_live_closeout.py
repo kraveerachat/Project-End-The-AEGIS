@@ -52,5 +52,6 @@ def test_no_r1d_r1b_or_recovery_success_claim_is_recorded_by_the_closeout(claim:
     field, value = claim.split("=")
     found = base.bash(f'. "{LIB}"; r1d_field_files "{REPO}" "$(git -C "{REPO}" rev-parse HEAD)" {field} {value}').stdout.split()
     # the ONLY receipt allowed to record that R1D executed and consumed its attempt is the unique immutable R1D FAILURE closeout (R1D_RESULT=FAIL_IMMUTABLE; never a PASS)
-    found = [f for f in found if not (claim in ("R1D_LIVE_EXECUTED=YES", "R1D_ATTEMPT_CONSUMED=YES") and f.endswith("_music_idea3-r1d-live-failure-closeout.md"))]
+    found = [f for f in found if not (claim in ("R1D_LIVE_EXECUTED=YES", "R1D_ATTEMPT_CONSUMED=YES") and f.endswith("_music_idea3-r1d-live-failure-closeout.md"))
+             and not (claim in ("R1B_LIVE_EXECUTED=YES", "R1B_ATTEMPT_CONSUMED=YES") and f.endswith("_music_idea3-r1b-live-failure-closeout.md"))]  # historical R1B has since run once and failed immutably (that receipt alone may say so)
     assert found == [], f"a receipt carries {claim}: {found}"

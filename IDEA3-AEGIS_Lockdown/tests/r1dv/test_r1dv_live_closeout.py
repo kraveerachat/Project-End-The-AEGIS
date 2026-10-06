@@ -45,10 +45,11 @@ def test_the_closeout_never_promotes_or_rewrites_anything() -> None:
         assert never not in whole, never
 
 
-def test_the_r1b_predecessor_gate_accepts_the_complete_path_b_history_at_head() -> None:
+def test_the_r1b_predecessor_gate_refused_nothing_before_r1b_ran_but_now_refuses_the_consumed_attempt() -> None:
+    """Historical: at the R1Dv closeout the R1B gate accepted the complete Path B history. R1B has since run once (immutable FAIL), so the one-shot gate must refuse forever."""
     head = subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True, capture_output=True, check=True).stdout.strip()
     result = base.bash(f'. "{B_LIB}"; r1b_receipt_gate "{REPO}" {RELEASE} {head}')
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1 and "R1B_CONTRADICTORY_OR_ALREADY_RECORDED" in result.stderr, result.stderr
 
 
 def test_the_r1dv_gate_for_a_second_run_now_refuses_because_a_closeout_exists() -> None:
