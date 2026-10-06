@@ -63,4 +63,3 @@ edit_policy: append-by-new-file
 - The two vault canvas warnings are pre-existing owner-review warnings.
 - The repository default PlatformIO Python lacks pytest; the system Python runner was used successfully.
 - The untracked .impeccable/hook.cache.json was observed as unrelated worktree state and is not included.
-
