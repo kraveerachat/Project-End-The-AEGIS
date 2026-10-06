@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""R1D verifier-authority tooling (repository tooling; authorises nothing live, touches no Production).
+"""R1DV verifier-authority tooling (repository tooling; authorises nothing live, touches no Production).
 
-Root executes the R1 acceptance verifier during a LIVE R1D attempt, so it must never run from mutable application bytes. This tool computes the COMPLETE local import closure of
+Root executes the R1 acceptance verifier during a LIVE R1DV attempt, so it must never run from mutable application bytes. This tool computes the COMPLETE local import closure of
 ``aegis_soc.r1_acceptance`` (every ``aegis_soc`` module whose code can affect R1 acceptance semantics, found by walking the AST of each module for import statements at any depth), writes a
 manifest of SHA-256 digests, and builds an immutable (read-only) snapshot of exactly that closure OUTSIDE the mutable worktree. The frozen runner pins the manifest digest and executes
 BASELINE and FINAL only from that snapshot, re-proving it immediately before each use.
@@ -10,7 +10,7 @@ Subcommands: ``closure SRC_APP``; ``manifest SRC_APP``; ``snapshot SRC_APP DEST`
 
 The same model protects the LIVE CONTROL PLANE (the shell libraries, stage handlers, stage gate, capture and compare scripts and helpers that the frozen runner sources and that root executes):
 ``control-snapshot SRC_P4 DEST`` copies the WHOLE ``deploy/pr11-phase4`` tree (a deliberate superset: no static analysis gap can leave a sourced or executed file out) into a NEW read-only directory with a
-manifest named ``R1D-CONTROL-SHA256SUMS``; ``control-check SNAPSHOT MANIFEST_SHA256`` re-proves it. The frozen runner re-proves it inline before it sources anything and before every root execution.
+manifest named ``R1DV-CONTROL-SHA256SUMS``; ``control-check SNAPSHOT MANIFEST_SHA256`` re-proves it. The frozen runner re-proves it inline before it sources anything and before every root execution.
 """
 
 from __future__ import annotations
@@ -23,13 +23,13 @@ import stat
 import sys
 from pathlib import Path
 
-ENTRY = "historical_disposition"
+ENTRY = "historical_validation"
 # The immutable verifier authority is the union of EVERY local entry point the stage executes under the snapshot PYTHONPATH: the read-only observer AND the generic evidence-capture helper (`p4-l5-clock.py`, run by
-# p4-l0-capture.sh), which imports `aegis_soc.trusted_time`. R1D's live attempt failed closed (TRUSTEDCLOCK evidence UNAVAILABLE -> INCOMPARABLE) because the closure was rooted only in the observer.
+# p4-l0-capture.sh), which imports `aegis_soc.trusted_time`. The historical R1D live failure (TRUSTEDCLOCK evidence UNAVAILABLE -> INCOMPARABLE) was reproduced as a missing-trusted_time failure mode: the R1D snapshot closure was rooted only in the observer.
 ENTRIES = (ENTRY, "trusted_time")
 PACKAGE = "aegis_soc"
-MANIFEST_NAME = "R1D-VERIFIER-SHA256SUMS"
-CONTROL_MANIFEST_NAME = "R1D-CONTROL-SHA256SUMS"
+MANIFEST_NAME = "R1DV-VERIFIER-SHA256SUMS"
+CONTROL_MANIFEST_NAME = "R1DV-CONTROL-SHA256SUMS"
 
 
 class SnapshotError(ValueError):
@@ -47,8 +47,8 @@ PRODUCTION_OWNER_UID = 0
 PRODUCTION_TRUST_ROOT = "/"
 # The production trust root is LITERALLY ``/`` and no CLI option can narrow it. The only alternative is an explicit TEST seam (both variables together), honoured ONLY inside a user namespace: the real (initial)
 # root namespace refuses it, a half-set seam is refused everywhere, and the root must be a canonical absolute directory. The frozen runner and the library refuse/forward these names unchanged.
-TEST_SEAM_ENABLED = "R1D_TEST_ONLY_SNAPSHOT_TRUST_ENABLED"
-TEST_SEAM_ROOT = "R1D_TEST_ONLY_SNAPSHOT_TRUST_ROOT"
+TEST_SEAM_ENABLED = "R1DV_TEST_ONLY_SNAPSHOT_TRUST_ENABLED"
+TEST_SEAM_ROOT = "R1DV_TEST_ONLY_SNAPSHOT_TRUST_ROOT"
 
 
 def _initial_user_namespace() -> bool:
@@ -447,17 +447,17 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "manifest":
             sys.stdout.write(manifest_text(args.app))
         elif args.command == "control-snapshot":
-            print(f"R1D_CONTROL_MANIFEST_SHA256={control_snapshot(args.src, Path(args.dest), root_owned=args.root_owned, trust_root=trust)}")
+            print(f"R1DV_CONTROL_MANIFEST_SHA256={control_snapshot(args.src, Path(args.dest), root_owned=args.root_owned, trust_root=trust)}")
         elif args.command == "control-check":
             control_check(args.snapshot, args.manifest_sha256, trust_root=trust)
-            print("R1D_CONTROL_SNAPSHOT=PASS")
+            print("R1DV_CONTROL_SNAPSHOT=PASS")
         elif args.command == "snapshot":
-            print(f"R1D_VERIFIER_MANIFEST_SHA256={snapshot(args.app, Path(args.dest), root_owned=args.root_owned, trust_root=trust)}")
+            print(f"R1DV_VERIFIER_MANIFEST_SHA256={snapshot(args.app, Path(args.dest), root_owned=args.root_owned, trust_root=trust)}")
         else:
             check(args.snapshot, args.manifest_sha256, trust_root=trust)
-            print("R1D_VERIFIER_SNAPSHOT=PASS")
+            print("R1DV_VERIFIER_SNAPSHOT=PASS")
     except (SnapshotError, OSError, SyntaxError) as exc:
-        print(f"R1D_VERIFIER_SNAPSHOT=FAIL reason={exc}", file=sys.stderr)
+        print(f"R1DV_VERIFIER_SNAPSHOT=FAIL reason={exc}", file=sys.stderr)
         return 1
     return 0
 

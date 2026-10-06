@@ -23,11 +23,13 @@ pending a separately reviewed post-failure governance decision under a new
 stage ID; no adjudication may alter `R1A_RESULT=FAIL`, bypass an R1A receipt
 gate, or create `R1A_LIVE=CLOSED_PASS`. Do not rerun R1A. See [[idea3/idea3-status]].
 
-A governed pre-live blocker for the successor R1B (the preserved historical R1A incident is still `OPEN`) is resolved in the
+A governed pre-live blocker for the successor R1B (the blocker existed because the preserved historical R1A incident was `OPEN`) is resolved in the
 repository only by the owner-approved `R1Du` (Core upgrade) and `R1D` (one Core-mediated, atomic historical-incident
-disposition) stages. `R1Du` has now executed once (`R1DU_LIVE=CLOSED_PASS`, deployment only, permanently consumed: the
-Core runs the new release with the R1D channel armed and unused); the historical incident is still `OPEN`, `R1D` has not
-run, R1B is unchanged and not consumed, and Recovery R2–R8 stays blocked. See [[idea3/idea3-status]].
+disposition) stages. `R1Du` executed once (`R1DU_LIVE=CLOSED_PASS`, deployment only, permanently consumed). `R1D` then ran once: the
+disposition COMMITTED (incident #1 `CLOSED`, `R1D_DISPOSITION_COMMITTED=YES`) but the stage is `R1D_RESULT=FAIL_IMMUTABLE`
+(never rerun, never rewritten to PASS): its final TrustedClock evidence was unavailable because the verifier snapshot lacked
+`trusted_time`. The repository now carries the snapshot repair and the read-only, non-mutating `R1Dv` validation stage (not an R1D
+retry; not yet executed). R1B stays blocked until a unique R1Dv LIVE PASS closeout exists, and Recovery R2–R8 stays blocked. See [[idea3/idea3-status]].
 
 ## Start here
 

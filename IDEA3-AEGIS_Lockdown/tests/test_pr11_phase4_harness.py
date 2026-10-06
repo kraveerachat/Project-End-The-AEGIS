@@ -613,7 +613,7 @@ def test_flush_ruleset_never_appears_in_t1(path: Path) -> None:
 def test_only_reviewed_stage_handlers_are_registered() -> None:
     stages = DEPLOY / "stages"
     assert stages.is_dir()
-    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8p", "F1i", "F1r", "F1", "F1u", "R1I", "R1A", "R1Du", "R1D", "R1B", "L8", "L9"}
+    assert {p.name for p in stages.iterdir() if p.is_dir()} == {"L1", "L2", "L3", "L4", "L5", "L6a", "L6b", "L6c", "L7", "L7u", "L8p", "F1i", "F1r", "F1", "F1u", "R1I", "R1A", "R1Du", "R1D", "R1Dv", "R1B", "L8", "L9"}
     core_handler_files = {
         "apply.sh",
         "verify.sh",
