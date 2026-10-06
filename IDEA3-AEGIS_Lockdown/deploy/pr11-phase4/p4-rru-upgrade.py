@@ -181,7 +181,8 @@ def post_r1d_surfaces(host, core_pid: int) -> None:
     Recovery and alert transports remain live and Core-owned. The one-shot historical-disposition socket, however, must be gone after the
     committed disposition; the unchanged Core process still carries the R1Du arming environment value that established the original authority.
     """
-    R1DU.check_surfaces(host, core_pid, armed=False)  # validates Recovery/alert + alert uid and requires the R1D socket to be absent
+    # armed=False is deliberate only for RRu's terminal post-R1D state: Recovery/alert remain required and any R1D socket presence is refused.
+    R1DU.check_surfaces(host, core_pid, armed=False)
     if host.proc_environ_value(core_pid, R1DU.ARM_KEY) != "YES":
         refuse("CORE_RUNNING_WITHOUT_R1D_ARMING")
 
