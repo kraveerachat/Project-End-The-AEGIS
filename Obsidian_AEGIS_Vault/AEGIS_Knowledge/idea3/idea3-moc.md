@@ -10,18 +10,17 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3 — AEGIS Lockdown
 
-Current checkpoint: `R1A` executed live exactly once and is permanently consumed.
-The genuine external detector chain was observed, and an owner-run read-only
-post-attempt forensic readout (not a governed stage output and not reproducible
-from committed public evidence alone) bound it to the authorized marker window
-(`REAL_DETECTOR_CHAIN_EVIDENCE=PASS`, `FORENSIC_CHAIN_BINDING=PASS`), but the governed stage closed FAIL at the
-PRE→POST preservation comparator before its final verify hook
-(`R1A_RESULT=FAIL`, `R1A_RERUN_ALLOWED=NO`). No acceptance claim is promoted:
-`F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, and
-Recovery R2–R8 remains blocked. The runtime-only R1I table remains installed
-pending a separately reviewed post-failure governance decision under a new
-stage ID; no adjudication may alter `R1A_RESULT=FAIL`, bypass an R1A receipt
-gate, or create `R1A_LIVE=CLOSED_PASS`. Do not rerun R1A. See [[idea3/idea3-status]].
+Current checkpoint (2026-10-06): the historical `R1A` attempt executed live exactly once and remains an immutable, consumed FAIL
+(`R1A_RESULT=FAIL`, `R1A_RERUN_ALLOWED=NO`): the genuine external detector chain was observed (owner-run read-only forensic readout,
+`REAL_DETECTOR_CHAIN_EVIDENCE=PASS`), but the governed stage closed FAIL at the PRE→POST preservation comparator. `R1Du` then deployed
+the current release (`R1DU_LIVE=CLOSED_PASS`, deployment only; current deployed release
+`ebffab6f8a6d7d98973fac7e89167352d529a87e`). `R1D` ran once and is `R1D_RESULT=FAIL_IMMUTABLE` after its disposition committed
+(`R1D_DISPOSITION_COMMITTED=YES`, `R1D_RERUN_ALLOWED=NO`). `R1Dv` ran once and is `R1DV_LIVE=CLOSED_PASS`
+(`R1DV_RESULT=PASS`, read-only validation of the committed disposition, not an R1D retry). `R1B` is the next governed stage and has NOT run
+(`R1B_ATTEMPT_CONSUMED=NO`, `R1B_LIVE_EXECUTED=NO`); `RECOVERY_R2_R8_EXECUTED=NO` and Recovery R2–R8 stays blocked until R1B PASS. The
+runtime-only R1I table remains installed. No acceptance claim is promoted: `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`,
+`R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`. No adjudication may alter `R1A_RESULT=FAIL` or `R1D_RESULT=FAIL_IMMUTABLE` or create
+`R1A_LIVE=CLOSED_PASS`. Do not rerun R1A or R1D. See [[idea3/idea3-status]].
 
 A governed pre-live blocker for the successor R1B (the blocker existed because the preserved historical R1A incident was `OPEN`) is resolved in the
 repository only by the owner-approved `R1Du` (Core upgrade) and `R1D` (one Core-mediated, atomic historical-incident
@@ -29,7 +28,7 @@ disposition) stages. `R1Du` executed once (`R1DU_LIVE=CLOSED_PASS`, deployment o
 disposition COMMITTED (incident #1 `CLOSED`, `R1D_DISPOSITION_COMMITTED=YES`) but the stage is `R1D_RESULT=FAIL_IMMUTABLE`
 (never rerun, never rewritten to PASS): its final TrustedClock evidence was unavailable because the verifier snapshot lacked
 `trusted_time`. The repository now carries the snapshot repair and the read-only, non-mutating `R1Dv` validation stage (not an R1D
-retry; not yet executed). R1B stays blocked until a unique R1Dv LIVE PASS closeout exists, and Recovery R2–R8 stays blocked. See [[idea3/idea3-status]].
+retry). `R1Dv` has since executed once and PASSED (`R1DV_LIVE=CLOSED_PASS`, read-only: no socket, no incident mutation, no disposition; unique closeout receipt recorded). R1B's predecessor Path B is therefore satisfied, but R1B has NOT run (`R1B_ATTEMPT_CONSUMED=NO`) and stays a separate owner decision; Recovery R2–R8 stays blocked until R1B passes. See [[idea3/idea3-status]].
 
 ## Start here
 
@@ -71,7 +70,7 @@ Owner: **Music**. The owned code area is `IDEA3-AEGIS_Lockdown/`; the canonical 
 
 ## Current state and open work
 
-The Headless Python Core, authenticated MQTT command lifecycle, correlated ACK/STATUS firmware contract, dry-run safeguards, and automated regressions are established on `main`. F1u LIVE deployment passed on 2026-10-05: immutable release `912b18005bb2fc80bb4e8d1fe8aa88803ac27314` is active, Core restarted once from the new release, and the unchanged detector was cycled by the Core restart under Option A. F1u proves deployment only; real detector acceptance, R1, Recovery R2–R8, LVR, L8, and L9 remain unproven. Project-sequence PR5 preserves the firmware contract `GPIO27 LOW = LOCKDOWN/CUT` and `GPIO27 HIGH = NORMAL/RESTORE`; external ULN2003 inversion plus pull-down/pull-up biasing produced the required relay behavior. RJ45 continuity, powered EN/reset, reconnect-without-auto-restore, explicit recovery, and real Ethernet traffic interruption/recovery were observed by the owner. Total-control-power-loss fail-secure behavior remains unproven, the breadboard prototype requires deployment-grade mechanical stabilization, and final relay-cycle Twingate auto-recovery is not claimed.
+The Headless Python Core, authenticated MQTT command lifecycle, correlated ACK/STATUS firmware contract, dry-run safeguards, and automated regressions are established on `main`. F1u LIVE deployment passed on 2026-10-05 (an earlier deployment stage: immutable release `912b18005bb2fc80bb4e8d1fe8aa88803ac27314` was then active, Core restarted once, and the unchanged detector was cycled under Option A); R1Du (2026-10-06) later upgraded the Core and `current` release, so the CURRENT deployed release is `ebffab6f8a6d7d98973fac7e89167352d529a87e`. Both prove deployment only. R1D ran once and is `R1D_RESULT=FAIL_IMMUTABLE` with its disposition committed; R1Dv ran once and passed read-only (`R1DV_LIVE=CLOSED_PASS`) but proves neither full R1 nor Recovery. R1B has not executed (`R1B_LIVE_EXECUTED=NO`), Recovery R2–R8 has not executed (`RECOVERY_R2_R8_EXECUTED=NO`), and ESP32 was untouched in this sequence (`ESP32_TOUCHED=NO`). Real detector acceptance, R1, Recovery R2–R8, LVR, L8, and L9 remain unproven. Project-sequence PR5 preserves the firmware contract `GPIO27 LOW = LOCKDOWN/CUT` and `GPIO27 HIGH = NORMAL/RESTORE`; external ULN2003 inversion plus pull-down/pull-up biasing produced the required relay behavior. RJ45 continuity, powered EN/reset, reconnect-without-auto-restore, explicit recovery, and real Ethernet traffic interruption/recovery were observed by the owner. Total-control-power-loss fail-secure behavior remains unproven, the breadboard prototype requires deployment-grade mechanical stabilization, and final relay-cycle Twingate auto-recovery is not claimed.
 
 PR #178 is merged on `main` (`PR178_MERGED = YES`). IDEA3 scope is formally frozen as a Security Orchestrator + Physical Containment MVP (`PR11_MVP_SCOPE = SECURITY_ORCHESTRATOR_PHYSICAL_CONTAINMENT`, `SCOPE_FREEZE_OWNER_APPROVED = YES`). PR #181 closed the dynamic nftables software IP blocking gap on the Arch Core (source implementation merged `21d7b7824e6edf1950a7bd914f5d780366fd13c7`; receipt recovered by PR #182): `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`, `SOFTWARE_IP_UNBLOCK = SOURCE_IMPLEMENTED`, still `HOST_VERIFIED = NO`. All Phase 4 handlers L1..L9 are registered and merged (`L2_L9_REPOSITORY_HANDLERS = ALREADY_CLOSED`, `L2_L9_LIVE_EXECUTION = OPEN_NEEDS_EVIDENCE`). PR10 server-hosted Web and Arch Linux Core deployment, PR11 live cross-IDEA and authorized E2E (`PR11_MVP_COMPLETE = NO`), and PR12 final acceptance (`PR12_FINAL_ACCEPTANCE = OPEN`) remain open. Extended production hardening and full DR certification are deferred (`POST_PRODUCTION_HARDENING = DEFER_FUTURE_WORK`). `F1U_PRODUCTION_DEPLOYED = YES`; `PRODUCTION_DEPLOYED = YES` for the F1u deployment boundary only; `IDEA3_PRODUCTION_COMPLETE = NO`. See [[idea3/idea3-status]] for the exact evidence boundary and the host-verification contract.
 
