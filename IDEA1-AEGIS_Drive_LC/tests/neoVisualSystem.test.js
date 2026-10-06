@@ -19,6 +19,7 @@ test('shared authenticated primitives expose one Neo styling contract without ch
   const vite = await createServer({
     configFile: false,
     root: rootDir,
+    cacheDir: path.join(rootDir, 'node_modules/.vite-neo-visual-test'),
     appType: 'custom',
     logLevel: 'silent',
     plugins: [reactPlugin()],
@@ -156,6 +157,23 @@ test('shared authenticated primitives expose one Neo styling contract without ch
     assert.match(topbarMarkup, /class="[^"]*app-topbar/)
     assert.match(topbarMarkup, /data-material="shell-glass"/)
     assert.match(topbarMarkup, /class="[^"]*avatar-accent/)
+
+    const neoTopbarMarkup = renderToStaticMarkup(React.createElement(TopBar, {
+      t,
+      user: { id: '1', username: 'admin', displayName: 'Admin', role: 'Admin' },
+      health: { data: { layers: { application: { ok: true, checked: true }, metadata: { ok: false, checked: true } } } },
+      onSignOut() {},
+      openMobileNav() {},
+      neoDashboard: true,
+      resolvedTheme: 'dark',
+    }))
+    assert.match(neoTopbarMarkup, /class="[^"]*neo-dashboard-topbar/)
+    assert.match(neoTopbarMarkup, /class="[^"]*neo-topbar-clock/)
+    assert.match(neoTopbarMarkup, /class="[^"]*neo-topbar-profile-meta/)
+    assert.match(neoTopbarMarkup, /driveOnline/)
+    assert.match(neoTopbarMarkup, /metadataNotConnected/)
+    assert.doesNotMatch(neoTopbarMarkup, /metadataConnected/)
+    assert.match(neoTopbarMarkup, /aria-label="profile · Admin"/)
   } finally {
     await vite.close()
   }

@@ -2264,6 +2264,223 @@ textarea:focus-visible {
   pointer-events: none;
 }
 
+/* Dark Dashboard Top Bar: a quieter companion to the floating Sidebar's
+   #293dd6 -> #6c5ba4 spectrum. No other theme or screen inherits this pass. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar {
+  --neo-topbar-blue: #293dd6;
+  --neo-topbar-violet: #6c5ba4;
+  --neo-topbar-edge: rgba(145, 164, 244, .4);
+  background: radial-gradient(ellipse at 16% 0%, rgba(41, 61, 214, .42), transparent 48%),
+    radial-gradient(ellipse at 93% 105%, rgba(108, 91, 164, .3), transparent 42%),
+    linear-gradient(112deg, #0b1548 0%, #0a102c 46%, #18142f 100%) !important;
+  border-color: rgba(159, 176, 244, .38);
+  box-shadow: inset 0 1px 0 rgba(216, 225, 255, .16),
+    0 16px 38px -28px rgba(0, 1, 23, .96),
+    0 4px 16px -10px rgba(13, 23, 100, .66) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-topbar-utilities {
+  gap: clamp(8px, .85vw, 14px);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-status-pill {
+  min-height: 38px;
+  padding-inline: 13px;
+  border: 1px solid rgba(148, 168, 246, .3);
+  border-radius: 11px;
+  background: linear-gradient(135deg, rgba(32, 46, 103, .86), rgba(39, 35, 78, .86));
+  color: #e9efff;
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .08), 0 5px 14px -11px rgba(0, 1, 23, .9);
+  transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease), background-color 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-status-pill + .neo-status-pill {
+  border-left: 1px solid rgba(148, 168, 246, .3);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-status-pill:hover {
+    border-color: rgba(142, 170, 255, .68);
+    box-shadow: inset 0 1px 0 rgba(222, 228, 255, .13), 0 0 0 1px rgba(76, 101, 224, .12);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-status-pill:focus-visible {
+  outline: 2px solid #a8baff;
+  outline-offset: 2px;
+  border-color: #9baeff;
+  box-shadow: 0 0 0 4px rgba(84, 106, 226, .22);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search {
+  position: relative;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search input {
+  min-height: 40px;
+  border: 1px solid rgba(145, 164, 244, .3);
+  border-radius: 11px;
+  background: linear-gradient(115deg, rgba(16, 27, 69, .95), rgba(33, 30, 67, .94)) !important;
+  color: #f6f8ff !important;
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .06);
+  transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search input::placeholder {
+  color: #b7c6e9;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search .search-shortcut {
+  border-color: rgba(147, 165, 240, .36);
+  background: rgba(73, 76, 136, .3);
+  color: #e4ebff;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search > svg {
+  color: #afc7ff;
+  transition: color 180ms var(--neo-ease), transform 180ms var(--neo-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search:hover input {
+    transform: translateY(-1px);
+    border-color: rgba(135, 159, 252, .6);
+    box-shadow: inset 0 1px 0 rgba(222, 228, 255, .1), 0 7px 20px -12px rgba(64, 84, 229, .58);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search:focus-within input {
+  border-color: #97adff;
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .12), 0 0 0 3px rgba(75, 105, 227, .26), 0 9px 22px -12px rgba(82, 99, 231, .55);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-search:focus-within > svg {
+  color: #e0e8ff;
+  transform: scale(1.08);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .theme-toggle {
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(145, 164, 244, .38);
+  border-radius: 11px;
+  background: linear-gradient(135deg, rgba(38, 53, 120, .9), rgba(52, 41, 94, .9));
+  color: #e4ebff;
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .1);
+  transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease), color 180ms var(--neo-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .theme-toggle:hover {
+    transform: translateY(-1px);
+    border-color: rgba(156, 177, 255, .76);
+    box-shadow: inset 0 1px 0 rgba(222, 228, 255, .17), 0 0 16px rgba(81, 103, 227, .3);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .theme-toggle:focus-visible {
+  outline: 2px solid #a8baff;
+  outline-offset: 2px;
+  border-color: #a8baff;
+  box-shadow: 0 0 0 4px rgba(84, 106, 226, .22);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .theme-toggle:active {
+  transform: scale(.97);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-clock {
+  min-width: 90px;
+  gap: 2px;
+  padding-inline: 8px 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-time {
+  color: #f5f7ff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  line-height: 1.15;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-date {
+  color: #bdc9e5;
+  font-size: 11px;
+  letter-spacing: .02em;
+  line-height: 1.15;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-account-zone > [aria-hidden] {
+  height: 30px;
+  background: rgba(160, 177, 243, .25);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-profile-trigger {
+  min-height: 46px;
+  gap: 9px;
+  padding: 4px 10px 4px 5px;
+  border: 1px solid rgba(145, 164, 244, .29);
+  border-radius: 13px;
+  background: linear-gradient(120deg, rgba(34, 45, 103, .68), rgba(52, 42, 91, .68));
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .08);
+  transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-avatar-shell {
+  padding: 2px;
+  background: linear-gradient(145deg, #5a89ff, #9b77d9);
+  box-shadow: 0 0 0 1px rgba(185, 199, 255, .28);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-profile-meta {
+  max-width: 160px;
+  gap: 2px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-topbar-profile-meta span:last-child {
+  color: #bfcae8;
+  font-size: 11px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-profile-trigger:hover {
+    transform: translateY(-1px);
+    border-color: rgba(154, 177, 255, .74);
+    box-shadow: inset 0 1px 0 rgba(222, 228, 255, .14), 0 0 18px rgba(84, 106, 226, .25);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-profile-trigger:is(:focus-visible, [aria-expanded="true"]) {
+  outline: 2px solid #a8baff;
+  outline-offset: 2px;
+  border-color: #a8baff;
+  box-shadow: 0 0 0 4px rgba(84, 106, 226, .22);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-profile-trigger:active {
+  transform: scale(.98);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] :is(.neo-profile-menu, .neo-search-menu) {
+  border-color: rgba(146, 169, 255, .52);
+  border-radius: 14px;
+  background: radial-gradient(ellipse at 8% 0%, rgba(48, 67, 164, .38), transparent 64%), linear-gradient(135deg, #111a33, #1b1b3e) !important;
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .12), 0 18px 45px -18px rgba(0, 1, 23, .88) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] :is(.neo-profile-menu, .neo-search-menu) :is([role="menuitem"], [role="option"]):focus-visible {
+  outline: 2px solid #a8baff;
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] :is(.neo-status-pill, .neo-topbar-search input, .neo-topbar-search > svg, .theme-toggle, .neo-profile-trigger) {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
 :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-topbar > div:last-child {
   flex: 0 0 auto;
   gap: clamp(8px, 1vw, 16px);
@@ -2436,6 +2653,17 @@ textarea:focus-visible {
   }
   :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-inline-status {
     display: flex;
+  }
+}
+
+/* The full Dark utility row still fits laptop widths; keep measured statuses
+   in the Top Bar until the narrower compact-shell breakpoint is reached. */
+@media (min-width: 1200px) and (max-width: 1350px) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .app-topbar .neo-status-pill {
+    display: inline-flex;
+  }
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-inline-status {
+    display: none;
   }
 }
 

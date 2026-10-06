@@ -137,15 +137,15 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
       </div>
 
       {/* RIGHT ZONE: Tactical Clock & Profile */}
-      <div className="flex items-center gap-4">
+      <div className={`flex items-center gap-4 ${neoDashboard ? 'neo-topbar-account-zone' : ''}`}>
         {onThemeChange && (
           <ThemeToggle theme={resolvedTheme} setTheme={onThemeChange} t={t} />
         )}
 
         {/* Tactical Clock (Monospace Stacked) */}
-        <div className="flex flex-col items-end leading-tight max-sm:hidden select-none">
-          <span className="font-mono text-sm font-bold text-ink tracking-tight">{clockText}</span>
-          <span className="font-mono text-[10.5px] font-medium text-ink-3 tracking-wide">{dateText}</span>
+        <div className={`flex flex-col items-end leading-tight max-sm:hidden select-none ${neoDashboard ? 'neo-topbar-clock' : ''}`}>
+          <span className="neo-topbar-time font-mono text-sm font-bold text-ink tracking-tight">{clockText}</span>
+          <span className="neo-topbar-date font-mono text-[10.5px] font-medium text-ink-3 tracking-wide">{dateText}</span>
         </div>
 
         <div className="w-px h-6 bg-line max-sm:hidden" aria-hidden />
@@ -155,7 +155,7 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
           <button
             ref={avatarTriggerRef}
             type="button"
-            aria-label={user.displayName}
+            aria-label={neoDashboard ? `${t('profile')} · ${user.displayName}` : user.displayName}
             aria-haspopup="menu"
             aria-expanded={avatarOpen}
             onClick={() => setAvatarOpen((v) => !v)}
@@ -163,10 +163,10 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
           >
             {/* รูปโปรไฟล์จริงถ้าผู้ใช้อัปโหลดไว้ ไม่งั้นตกลงมาที่อักษรย่อเหมือนเดิม
                 (Avatar จัดการ fallback เอง — ดู src/components/ui.jsx) */}
-            <div className="p-[2px] rounded-full bg-accent shadow-sm shrink-0">
+            <div className={`p-[2px] rounded-full bg-accent shadow-sm shrink-0 ${neoDashboard ? 'neo-topbar-avatar-shell' : ''}`}>
               <Avatar userId={user.id} name={user.displayName} hasAvatar={user.hasAvatar} version={user.avatarVersion} size={36} className="avatar-accent bg-blue-600 text-white" />
             </div>
-            <div className="flex flex-col text-left max-lg:hidden min-w-0 pr-1">
+            <div className={`flex flex-col text-left max-lg:hidden min-w-0 pr-1 ${neoDashboard ? 'neo-topbar-profile-meta' : ''}`}>
               <span className="text-[13px] font-bold text-ink leading-tight truncate">{user.displayName}</span>
               {/* role เป็นจอแสดงผลของสิ่งที่เซิร์ฟเวอร์ตัดสินมา — ไม่ใช่ปุ่ม เปลี่ยนไม่ได้ */}
               <span className="text-xs font-mono text-ink-3 leading-tight truncate">AEGIS Drive · {user.role}</span>
