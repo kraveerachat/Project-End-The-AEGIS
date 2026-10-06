@@ -14,8 +14,9 @@ const storeSource = `
   export async function listClips(visibleIds) {
     return globalThis.archiveScopeFixture.clips
       .filter(clip => visibleIds.has(clip.cam) && clip.storedOnNas)
-      .map(({ id, cam, start, durationSec, storedOnNas }) =>
-        ({ id: String(id), cam, start, durationSec, storedOnNas, kind: 'auth', live: false, segs: [] }));
+      .map(({ id, node, cam, start, durationSec, storedOnNas }) =>
+        ({ id: String(id), nodeId: `node-${node.toLowerCase()}`, cam, start, durationSec,
+          storedOnNas, kind: 'auth', hasAuthorized: true, hasUnknown: false, live: false, segs: [] }));
   }
   export async function getClipById(id) {
     globalThis.archiveScopeFixture.clipLookups.push(String(id));
@@ -118,10 +119,18 @@ test('six Node/account mappings retain logical Archive scope despite shared phys
     assert.equal(JSON.stringify(body).includes('filePath'), false)
     assert.equal(JSON.stringify(body).includes('physicalCameraId'), false)
     assert.equal(JSON.stringify(body).includes('producerGeneration'), false)
+    assert.equal(JSON.stringify(body).includes('nodeId'), false)
   }
   const soc = await request('soc', '/clips')
   assert.equal(soc.status, 200)
-  assert.equal((await soc.json()).clips.length, 6)
+  const socBody = await soc.json()
+  assert.equal(socBody.clips.length, 6)
+  assert.deepEqual(
+    [...new Set(socBody.clips.map(clip => clip.nodeId))].sort(),
+    ['node-a', 'node-b', 'node-c'],
+  )
+  assert.equal(JSON.stringify(socBody).includes('physicalCameraId'), false)
+  assert.equal(JSON.stringify(socBody).includes('producerGeneration'), false)
 })
 
 test('direct playback and download enforce logical camera scope before storage resolution', async t => {
