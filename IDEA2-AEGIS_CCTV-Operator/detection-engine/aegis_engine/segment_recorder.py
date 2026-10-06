@@ -1,12 +1,13 @@
 """
 SegmentRecorder — interval-based disk recording from one raw frame queue.
 
-Strict capture-on-demand recording fans each authorized raw frame out to
-independent ``(producer generation, logical alias)`` writers. Each writer has
-its own 300-second rollover and a measured final partial when that alias's
-last viewer leaves. The always-on compatibility path retains one configured
-camera writer; it never supplies strict account attribution. Neither path is
-detection-triggered.
+Strict capture-on-demand recording fans each authorized detector-processed
+frame out to independent ``(producer generation, logical alias)`` writers.
+The processed frame carries the exact same burned-in face boxes/labels as Live;
+positive detection does not start recording because the detector publishes a
+frame even when no face is present. Each writer keeps its own 300-second
+rollover and measured final partial when that alias's last viewer leaves. The
+always-on compatibility path retains its raw configured-camera writer.
 
 Each finalized segment is handed to ``on_segment`` (wired to the NAS worker's
 queue by the engine) as a :class:`SegmentInfo`. The recorder never deletes
@@ -15,7 +16,9 @@ files — that is the NAS worker's job, and only after a verified transfer.
 Threading notes
 ---------------
 Runs in its own thread and consumes :class:`Frame` objects from the record
-queue. The ``cv2.VideoWriter`` is created lazily from the first frame's real
+queue. In strict viewer-demand mode that queue is fed by the detector render
+path so Archive and Live use identical geometry; legacy always-on mode keeps
+the raw capture queue. The ``cv2.VideoWriter`` is created lazily from the first frame's real
 dimensions (so it matches whatever the device actually delivers). Rotation is
 checked on every frame *and* on the read-timeout, so an idle/stalled feed still
 rolls its file on schedule instead of leaving one segment open forever.
@@ -41,8 +44,9 @@ except Exception as exc:  # pragma: no cover
 from .config import EngineConfig
 from .logging_setup import get_logger
 from .metrics import MetricsRegistry
-from .models import Frame, SegmentInfo, utc_now_iso
+from .models import DetectionResult, Frame, SegmentInfo, utc_now_iso
 from .recording_authority import RecordingAuthority
+from .stream_hub import annotate_detection_frame
 
 log = get_logger("SegmentRecorder")
 
@@ -59,6 +63,7 @@ class _StrictSegment:
     started_wall: str
     authority_started_monotonic: float
     frames: int = 0
+    last_image: object | None = None
 
 
 class SegmentRecorder(threading.Thread):
@@ -94,6 +99,31 @@ class SegmentRecorder(threading.Thread):
 
     def stop(self) -> None:
         self._stop_event.set()
+
+    def submit_detection(self, result: DetectionResult, frame: Frame) -> bool:
+        """Feed one exact detector frame into strict archival recording.
+
+        The queue remains bounded and drops its oldest rendered frame if the
+        writer falls behind. Raw capture is untouched; legacy recording never
+        enters this path.
+        """
+        if not self._strict_mode or result.frame_seq != frame.seq:
+            return False
+        annotated = annotate_detection_frame(result, frame)
+        try:
+            self._queue.put_nowait(annotated)
+        except queue.Full:
+            try:
+                self._queue.get_nowait()
+                self._metrics.on_record_drop()
+            except queue.Empty:
+                pass
+            try:
+                self._queue.put_nowait(annotated)
+            except queue.Full:
+                self._metrics.on_record_drop()
+                return False
+        return True
 
     # -- lifecycle ---------------------------------------------------------
     def run(self) -> None:
@@ -233,6 +263,7 @@ class SegmentRecorder(threading.Thread):
         image = frame.image
         if (image.shape[1], image.shape[0]) != segment.size:
             image = cv2.resize(image, segment.size)
+        segment.last_image = image
         elapsed = max(0.0, float(frame.captured_at) - segment.capture_started_monotonic)
         target_total = max(1, int(elapsed * float(self._cfg.target_fps)) + 1)
         try:
@@ -242,6 +273,23 @@ class SegmentRecorder(threading.Thread):
                 self._metrics.on_frame_recorded()
         except Exception:
             log.exception("failed writing attributed frame to %s", segment.path)
+
+    def _pad_strict_segment(self, segment: _StrictSegment, ended_monotonic: float) -> None:
+        """Extend the CFR media timeline to the exact authority/rotation end."""
+        if segment.last_image is None:
+            return
+        elapsed = max(
+            0.0,
+            float(ended_monotonic) - segment.capture_started_monotonic,
+        )
+        target_total = max(1, int(elapsed * float(self._cfg.target_fps)) + 1)
+        try:
+            for _ in range(max(0, target_total - segment.frames)):
+                segment.writer.write(segment.last_image)
+                segment.frames += 1
+                self._metrics.on_frame_recorded()
+        except Exception:
+            log.exception("failed padding attributed frame to %s", segment.path)
 
     def _finalize_strict_segment(
         self, key: tuple[int, str], ended_monotonic=None, ended_wall=None
@@ -260,6 +308,7 @@ class SegmentRecorder(threading.Thread):
             key[0], key[1], segment.authority_started_monotonic)
         if stopped is not None and stopped[0] <= ended_monotonic:
             ended_monotonic, ended_wall = stopped
+        self._pad_strict_segment(segment, ended_monotonic)
         self._recording_authority.unobserve(key[0], key[1], segment.authority_started_monotonic)
         try:
             segment.writer.release()
