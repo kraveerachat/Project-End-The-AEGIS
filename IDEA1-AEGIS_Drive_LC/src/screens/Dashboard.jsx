@@ -480,7 +480,10 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
         <div className="dashboard-secondary-grid">
           <div className="dashboard-activity-panel">
             {dashboardUnavailable ? (
-              <Card className="p-5 dashboard-activity-card"><CardTitle>{t('activityTitle')}</CardTitle><p className="dashboard-quiet-state" role="status">{t('dashboardUnavailable')}</p></Card>
+              <Card className="p-5 dashboard-activity-card">
+                <CardTitle>{t('activityTitle')}</CardTitle>
+                <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
+              </Card>
             ) : (
               <ActivityChart t={t} lang={lang} data={d.activity7d ?? []} />
             )}

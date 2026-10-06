@@ -258,7 +258,7 @@ function TelemetryTile({ t, definition, value, loading }) {
         <Chip tone={meta.tone} className="ml-auto">{t(meta.labelKey)}</Chip>
       </div>
       {isEmpty ? (
-        <div className="dashboard-telemetry-empty">
+        <div className={`dashboard-telemetry-empty ${state === 'unavailable' ? 'hatch hatch-ink3' : ''}`}>
           {['cpu', 'memory', 'disk'].includes(definition.id) && <span className="dashboard-telemetry-empty-track" aria-hidden />}
           <p className="mt-4 text-[12.5px] text-ink-2 leading-relaxed max-w-[32ch]">{emptyKey ? t(emptyKey) : ' '}</p>
         </div>

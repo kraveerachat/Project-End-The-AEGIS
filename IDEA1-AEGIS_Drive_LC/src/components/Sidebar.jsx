@@ -65,6 +65,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
   const indicatorRef = useRef(null)
   const indicatorPlacedRef = useRef(false)
   const indicatorYRef = useRef(null)
+  const hoverTimerRef = useRef(null)
   const reducedMotion = useReducedMotion()
   const [temporaryExpanded, setTemporaryExpanded] = useState(false)
   const closeMobileRef = useRef(closeMobile)
@@ -123,6 +124,8 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
     if (!hoverRail) setTemporaryExpanded(false)
   }, [hoverRail])
 
+  useEffect(() => () => clearTimeout(hoverTimerRef.current), [])
+
   useLayoutEffect(() => {
     if (!neoDashboard || position !== 'left') return undefined
     const navElement = desktopNavRef.current
@@ -169,9 +172,10 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
         {neoDashboard ? (
           <>
             <div className="neo-sidebar-brand-row">
-              {isCollapsed
-                ? <AegisMark size={44} theme="dark" />
-                : <AegisLockup markSize={44} theme="dark" title="AEGIS Drive_LC" sub={null} />}
+              <AegisMark size={44} theme="dark" className="neo-sidebar-brand-mark" />
+              <span lang="en" className="neo-sidebar-brand-name" aria-hidden={isCollapsed}>
+                AEGIS Drive_LC
+              </span>
               {mobileOpen && (
                 <button type="button" aria-label={t('close')} onClick={closeMobile} className="neo-mobile-close lg:hidden size-10 flex items-center justify-center rounded-[10px] text-ink-2 hover:bg-sunken">
                   <X size={18} aria-hidden />
@@ -183,8 +187,11 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
                 type="button"
                 aria-label={collapsed ? t('expandSidebar') : t('collapseSidebar')}
                 aria-expanded={!collapsed}
-                onClick={() => setCollapsed((current) => !current)}
-                className="neo-sidebar-header-toggle size-9 shrink-0 flex items-center justify-center rounded-[9px] cursor-pointer"
+                onClick={() => {
+                  clearTimeout(hoverTimerRef.current)
+                  setCollapsed((current) => !current)
+                }}
+                className="neo-sidebar-header-toggle size-11 shrink-0 flex items-center justify-center rounded-[9px] cursor-pointer"
               >
                 <Menu size={19} strokeWidth={1.8} aria-hidden />
               </button>
@@ -298,10 +305,18 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
         className={`app-sidebar-frame shrink-0 h-full transition-[width] duration-[var(--dur-slow)] ${position === 'left' ? 'hidden lg:block' : 'hidden'}`}
         data-rail-state={neoDashboard ? railState : undefined}
         onPointerEnter={(event) => {
-          if (hoverRail && event.pointerType === 'mouse') setTemporaryExpanded(true)
+          if (hoverRail && event.pointerType === 'mouse') {
+            clearTimeout(hoverTimerRef.current)
+            hoverTimerRef.current = setTimeout(() => setTemporaryExpanded(true), 180)
+          }
         }}
-        onPointerLeave={() => setTemporaryExpanded(false)}
-        onFocusCapture={() => { if (hoverRail) setTemporaryExpanded(true) }}
+        onPointerLeave={() => {
+          clearTimeout(hoverTimerRef.current)
+          setTemporaryExpanded(false)
+        }}
+        onFocusCapture={(event) => {
+          if (hoverRail && event.target.matches(':focus-visible')) setTemporaryExpanded(true)
+        }}
         onBlurCapture={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) setTemporaryExpanded(false)
         }}

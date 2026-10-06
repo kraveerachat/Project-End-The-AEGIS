@@ -127,6 +127,7 @@ test('shared authenticated primitives expose one Neo styling contract without ch
       const enter = new dom.window.Event('pointerover', { bubbles: true })
       Object.defineProperty(enter, 'pointerType', { value: 'mouse' })
       await act(async () => frame.dispatchEvent(enter))
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 200)))
       assert.equal(frame.dataset.railState, 'hover')
       assert.equal(frame.style.width, '72px', 'hover expansion must not resize the Dashboard')
       assert.match(frame.textContent, /navDashboard/)

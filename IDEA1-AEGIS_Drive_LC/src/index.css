@@ -1838,6 +1838,49 @@ textarea:focus-visible {
   letter-spacing: -.02em;
 }
 
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header {
+  position: relative;
+  height: 116px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-brand-row {
+  position: absolute;
+  top: 17px;
+  left: 13px;
+  height: 48px;
+  width: calc(100% - 26px);
+  justify-content: flex-start;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-brand-mark {
+  flex: none;
+  transition: scale 220ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-brand-name {
+  position: absolute;
+  left: 55px;
+  max-width: 128px;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  opacity: 1;
+  translate: 0 0;
+  transition: opacity 180ms var(--neo-ease), translate 220ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame[data-rail-state="compact"] .neo-sidebar-brand-name {
+  opacity: 0;
+  translate: -6px 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame:not([data-rail-state="compact"]) .neo-sidebar-brand-mark {
+  scale: 1.09;
+}
+
 :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header--compact {
   height: 116px;
   padding-inline: 11px;
@@ -1849,25 +1892,34 @@ textarea:focus-visible {
 }
 
 :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header-toggle {
-  align-self: flex-end;
+  position: absolute;
+  top: 17px;
+  left: 14px;
+  translate: 188px 0;
   color: #eef1ff;
   background: rgba(1, 7, 58, .2);
-  transition: background-color 180ms var(--neo-ease), color 180ms var(--neo-ease), transform 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
+  transition: translate 220ms var(--neo-ease), background-color 180ms var(--neo-ease), color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
 }
 
 :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header--compact .neo-sidebar-header-toggle {
-  align-self: center;
+  translate: 0 50px;
 }
 
 :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame[data-rail-state="hover"] .neo-sidebar-header-toggle {
-  align-self: flex-start;
-  margin-left: 3px;
+  translate: 188px 0;
 }
 
 :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header-toggle:is(:hover, :focus-visible) {
-  transform: translateY(-1px);
   background: rgba(226, 230, 255, .22);
   box-shadow: 0 0 16px rgba(165, 177, 255, .24);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header-toggle:is(:hover, :focus-visible) svg {
+  scale: 1.06;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-header-toggle:active svg {
+  scale: .97;
 }
 
 :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header + button {
@@ -1941,6 +1993,82 @@ textarea:focus-visible {
   color: #fff;
   background: rgba(229, 233, 255, .16);
   box-shadow: inset 0 0 0 1px rgba(241, 242, 255, .18);
+}
+
+/* Neo border current is interaction-only; the selected row keeps its static fill. */
+@property --neo-sidebar-trace-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes neo-sidebar-trace {
+  to { --neo-sidebar-trace-angle: 360deg; }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle) {
+  --neo-sidebar-trace: conic-gradient(from var(--neo-sidebar-trace-angle), transparent 0deg 232deg, #48cfff 258deg, #6a8eff 289deg, #a97cf6 320deg, #e488d6 344deg, transparent 360deg);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--neo-sidebar-trace);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header-toggle {
+  isolation: isolate;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header-toggle:focus-visible,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-sidebar .sidebar-nav-item:focus-visible {
+  outline: 2px solid #f8f9ff;
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar::before,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-sidebar .sidebar-nav-item:hover::before,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header-toggle:hover::before {
+    opacity: 1;
+    animation: neo-sidebar-trace 4.8s linear infinite;
+  }
+
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar {
+    filter: drop-shadow(0 0 4px rgba(115, 150, 255, .14));
+  }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-dashboard-sidebar .sidebar-nav-item:focus-visible::before,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header-toggle:focus-visible::before {
+  opacity: 1;
+  animation: neo-sidebar-trace 4.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-brand-mark,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .neo-sidebar-brand-name,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame .neo-sidebar-header-toggle {
+    transition: none;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle)::before {
+    animation: none !important;
+    transition: none;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar {
+    filter: none;
+  }
 }
 
 :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .sidebar-nav-item svg {
@@ -2357,6 +2485,13 @@ textarea:focus-visible {
     height: 120px;
     padding: 14px;
     border-bottom: 1px solid rgba(230, 233, 255, .2);
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-drawer-panel .neo-sidebar-brand-row {
+    justify-content: flex-start;
+    gap: 12px;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-drawer-panel .neo-sidebar-brand-name {
+    position: static;
   }
   :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .app-drawer-panel .neo-mobile-close {
     position: absolute;
@@ -2986,6 +3121,94 @@ textarea:focus-visible {
   box-shadow: 0 20px 42px -27px rgba(43, 83, 178, .36), 0 0 16px -14px rgba(108, 88, 229, .24) !important;
 }
 
+/* Dark Dashboard only: ten operational cards share one translucent material.
+   Keep shell/navigation opaque and retain the measured/unavailable data states. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout {
+  --card: rgba(12, 25, 55, .78);
+  --card-sunken: rgba(28, 43, 78, .76);
+  --line: rgba(124, 152, 225, .30);
+  --neo-dashboard-card: rgba(9, 21, 50, .72);
+  --neo-dashboard-inner: rgba(34, 47, 82, .66);
+  --neo-dashboard-border: rgba(130, 157, 232, .34);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card {
+  background: linear-gradient(145deg, rgba(83, 108, 200, .18), rgba(18, 30, 71, .07) 43%, rgba(6, 15, 38, .12)), var(--neo-dashboard-card) !important;
+  border-color: var(--neo-dashboard-border);
+  box-shadow: inset 0 1px 0 rgba(205, 219, 255, .14), 0 5px 8px -6px rgba(0, 0, 0, .8) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.16);
+  backdrop-filter: blur(12px) saturate(1.16);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-storage-hero {
+  background: radial-gradient(circle at 12% 0, rgba(72, 119, 225, .25), transparent 49%), var(--neo-dashboard-card) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-telemetry-card {
+  background: radial-gradient(circle at 94% 0, rgba(99, 74, 196, .20), transparent 47%), var(--neo-dashboard-card) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card:is(:hover, :focus-within) {
+  border-color: rgba(151, 172, 255, .72);
+  box-shadow: inset 0 1px 0 rgba(220, 230, 255, .24), 0 7px 8px -5px rgba(12, 25, 80, .84), 0 0 12px -7px rgba(111, 85, 236, .72) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout :is(.dashboard-storage-categories, .dashboard-quiet-state, .lake-health-row, article[aria-busy]) {
+  background: linear-gradient(145deg, rgba(96, 118, 190, .10), rgba(26, 38, 75, .02)), var(--neo-dashboard-inner) !important;
+  border: 1px solid rgba(131, 153, 220, .20);
+  box-shadow: inset 0 1px 0 rgba(199, 213, 255, .08);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-telemetry-tile {
+  border-color: rgba(131, 153, 220, .25);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-telemetry-empty.hatch {
+  margin-top: 9px;
+  padding: 1px 7px 7px;
+  border-radius: 8px;
+  background-color: rgba(55, 69, 109, .15);
+  background-image: repeating-linear-gradient(135deg, rgba(164, 180, 230, .055) 0 1px, transparent 1px 8px) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-storage-radial-center {
+  background: rgba(9, 20, 48, .93);
+  box-shadow: inset 0 1px 0 rgba(193, 211, 255, .10);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout :is(.dashboard-panel-icon, .metric-icon) {
+  background: linear-gradient(145deg, rgba(74, 112, 231, .28), rgba(59, 48, 151, .16));
+  border: 1px solid rgba(136, 169, 255, .31);
+  box-shadow: inset 0 1px 0 rgba(218, 229, 255, .16), 0 0 10px -7px rgba(58, 118, 255, .8);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-stat-card .metric-icon {
+  transition: border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease), transform 180ms var(--neo-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-stat-card:hover .metric-icon {
+    transform: translateY(-2px);
+    border-color: rgba(163, 190, 255, .62);
+    box-shadow: inset 0 1px 0 rgba(218, 229, 255, .21), 0 0 12px -5px rgba(73, 119, 255, .78);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout :is([role="status"].hatch, .dashboard-quiet-state) {
+  color: var(--ink-2);
+  border-color: rgba(135, 160, 221, .28);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout [role="status"].hatch {
+  background: linear-gradient(145deg, rgba(105, 119, 180, .14), rgba(25, 42, 79, .12)), rgba(31, 43, 76, .58) !important;
+  box-shadow: inset 0 1px 0 rgba(208, 216, 255, .10);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout [role="status"].hatch > span:first-child {
+  background: rgba(65, 82, 140, .32);
+  border-color: rgba(146, 167, 225, .34);
+}
+
 :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category,
 :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress {
   position: relative;
@@ -3032,6 +3255,7 @@ textarea:focus-visible {
     transform: none !important;
   }
   :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card::after,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .metric-icon,
   :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-track > span,
   :root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress > div > span {
     transition: none;
