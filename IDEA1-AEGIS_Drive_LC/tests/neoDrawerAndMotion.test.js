@@ -172,5 +172,5 @@ test('NEO-REVEAL-1 the reveal enhances a visible default and can never strand co
 
 test('NEO-REVEAL-2 the reveal is Neo-only, so Classic keeps its accepted baseline', () => {
   const app = fs.readFileSync(path.join(rootDir, 'src/App.jsx'), 'utf8')
-  assert.match(app, /useScrollReveal\(mainRef, screen, interfaceStyle === 'neo'\)/)
+  assert.match(app, /useScrollReveal\(mainRef, screen, interfaceStyle === 'neo' && !neoDashboard\)/)
 })

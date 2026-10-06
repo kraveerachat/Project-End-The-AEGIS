@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   Gauge, Folder, Vault as VaultIcon, Upload, Link2, History, HardDrive,
-  ScrollText, UserCog, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, Trash2, X,
+  ScrollText, UserCog, Settings as SettingsIcon, PanelLeftClose, PanelLeftOpen, Menu, Trash2, X,
 } from 'lucide-react'
 import { AegisLockup, AegisMark } from './AegisMark.jsx'
 import { Progress } from './ui.jsx'
-import { useCountUp } from '../lib/hooks.js'
+import { useCountUp, useReducedMotion } from '../lib/hooks.js'
 import { fmtBytes } from '../lib/format.js'
 
 export const ICONS = { gauge: Gauge, folder: Folder, vault: VaultIcon, upload: Upload, link: Link2, history: History, trash: Trash2, harddrive: HardDrive, scroll: ScrollText, usercog: UserCog, settings: SettingsIcon }
@@ -61,6 +61,12 @@ function NavItem({ icon, label, active, collapsed, onClick, delay = 0 }) {
 
 export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, metrics, metricsUnavailable = false, resolvedTheme, mobileOpen, closeMobile, neoDashboard = false, position = 'left' }) {
   const mobilePanelRef = useRef(null)
+  const desktopNavRef = useRef(null)
+  const indicatorRef = useRef(null)
+  const indicatorPlacedRef = useRef(false)
+  const indicatorYRef = useRef(null)
+  const reducedMotion = useReducedMotion()
+  const [temporaryExpanded, setTemporaryExpanded] = useState(false)
   const closeMobileRef = useRef(closeMobile)
   closeMobileRef.current = closeMobile
 
@@ -110,14 +116,71 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
   const totalBytes = metrics?.storageTotalBytes ?? 0
   const storagePct = totalBytes > 0 ? (storageBytes / totalBytes) * 100 : 0
   const groups = ['navGroupWorkspace', 'navGroupProtection', 'navGroupAdmin']
+  const hoverRail = neoDashboard && position === 'left' && collapsed
+  const railState = !collapsed ? 'pinned' : temporaryExpanded && hoverRail ? 'hover' : 'compact'
 
-  const body = (
+  useEffect(() => {
+    if (!hoverRail) setTemporaryExpanded(false)
+  }, [hoverRail])
+
+  useLayoutEffect(() => {
+    if (!neoDashboard || position !== 'left') return undefined
+    const navElement = desktopNavRef.current
+    const indicator = indicatorRef.current
+    const active = navElement?.querySelector('.sidebar-nav-item.is-active')
+    if (!navElement || !indicator || !active) return undefined
+    const positionIndicator = () => {
+      const navRect = navElement.getBoundingClientRect()
+      const activeRect = active.getBoundingClientRect()
+      if (activeRect.height <= 0 || navRect.height <= 0) return
+      const y = activeRect.top - navRect.top + navElement.scrollTop
+      if (!indicatorPlacedRef.current || reducedMotion) {
+        indicator.style.transition = 'none'
+        indicator.style.transform = `translateY(${y}px)`
+        indicator.style.height = `${activeRect.height}px`
+        indicator.style.opacity = '1'
+      } else if (Math.abs(y - (indicatorYRef.current ?? y)) > 1) {
+        indicator.style.transition = ''
+        indicator.style.transform = `translateY(${y}px)`
+        indicator.style.height = `${activeRect.height}px`
+      }
+      indicatorYRef.current = y
+      indicatorPlacedRef.current = true
+      navElement.dataset.navIndicator = 'ready'
+    }
+    const frame = requestAnimationFrame(positionIndicator)
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(positionIndicator) : null
+    observer?.observe(active)
+    observer?.observe(navElement)
+    window.addEventListener('resize', positionIndicator)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer?.disconnect()
+      window.removeEventListener('resize', positionIndicator)
+    }
+  }, [screen, collapsed, temporaryExpanded, neoDashboard, position, nav, reducedMotion])
+
+  // The desktop rail owns its visual expansion. Its flex footprint stays at
+  // 72px while the panel overlays the Dashboard; the mobile drawer is always
+  // fully labelled, independent of the desktop pin preference.
+  const renderBody = (isCollapsed, isMobile = false) => (
     <div className={`app-sidebar flex flex-col h-full bg-card border-r border-line ${neoDashboard ? 'neo-dashboard-sidebar' : ''}`} data-material={neoDashboard ? 'solid' : 'shell-glass'}>
-      <div className={`neo-sidebar-header flex items-center h-16 shrink-0 ${collapsed ? 'justify-center px-0' : 'justify-between px-5'}`}>
-        {collapsed
+      <div className={`neo-sidebar-header flex items-center h-16 shrink-0 ${isCollapsed ? 'justify-center px-0 neo-sidebar-header--compact' : 'justify-between px-5'}`}>
+        {isCollapsed
           ? <AegisMark size={32} theme={resolvedTheme} />
           : <AegisLockup markSize={36} theme={resolvedTheme} title="AEGIS Drive_LC" sub={t('productLockupSub')} />}
-        {!collapsed && (
+        {neoDashboard && !isMobile && (
+          <button
+            type="button"
+            aria-label={collapsed ? t('expandSidebar') : t('collapseSidebar')}
+            aria-expanded={!collapsed}
+            onClick={() => setCollapsed(!collapsed)}
+            className="neo-sidebar-header-toggle size-8 shrink-0 flex items-center justify-center rounded-[9px] text-ink-2 hover:text-ink cursor-pointer"
+          >
+            <Menu size={18} strokeWidth={1.7} aria-hidden />
+          </button>
+        )}
+        {!neoDashboard && !isCollapsed && (
           <button
             type="button"
             aria-label={t('collapseSidebar')}
@@ -133,7 +196,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
           </button>
         )}
       </div>
-      {collapsed && (
+      {!neoDashboard && isCollapsed && (
         <button
           type="button"
           aria-label={t('expandSidebar')}
@@ -144,24 +207,25 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
         </button>
       )}
 
-      <nav className={`flex-1 overflow-y-auto py-2 flex flex-col gap-0.5 ${collapsed ? 'px-3' : 'px-4'}`} aria-label={t('productName')}>
+      <nav ref={isMobile ? undefined : desktopNavRef} className={`flex-1 overflow-y-auto py-2 flex flex-col gap-0.5 ${isCollapsed ? 'px-3' : 'px-4'}`} aria-label={t('productName')}>
+        {neoDashboard && !isMobile && <span ref={indicatorRef} className="neo-nav-indicator" aria-hidden />}
         {groups.map((groupKey) => {
           // filter BEFORE map — สิ่งที่ role นี้ไม่มีสิทธิ์ "ไม่ถูก render เลย"
           const items = nav.filter((n) => n.group === groupKey)
           const isAdminGroup = groupKey === 'navGroupAdmin'
           const inner = items.length > 0 && (
             <div className="flex flex-col gap-0.5">
-              {!collapsed && (
+              {!isCollapsed && (
                 <p className="text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.1em] px-3.5 pt-4 pb-1.5">{t(groupKey)}</p>
               )}
-              {collapsed && <div className="h-3" aria-hidden />}
+              {isCollapsed && <div className="h-3" aria-hidden />}
               {items.map((item, i) => (
                 <NavItem
                   key={item.id}
                   icon={item.icon}
                   label={t(item.labelKey)}
                   active={screen === item.id}
-                  collapsed={collapsed}
+                  collapsed={isCollapsed}
                   delay={i * 40}
                   onClick={() => { setScreen(item.id); closeMobile() }}
                 />
@@ -174,19 +238,19 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
         })}
 
         <div className="flex flex-col gap-0.5 mt-1">
-          {collapsed && <div className="h-3" aria-hidden />}
+          {isCollapsed && <div className="h-3" aria-hidden />}
           <NavItem
             icon="settings"
             label={t('navSettings')}
             active={screen === 'settings'}
-            collapsed={collapsed}
+            collapsed={isCollapsed}
             onClick={() => { setScreen('settings'); closeMobile() }}
           />
         </div>
       </nav>
 
       {/* storage meter — จากเซิร์ฟเวอร์เท่านั้น; ระหว่างโหลด = skeleton ไม่ใช่เลขปลอม */}
-      {!collapsed && (
+      {!isCollapsed && (
         <div className="m-4 mt-2 p-3.5 rounded-[var(--r-tile)] bg-sunken">
           {metricsUnavailable ? (
             <div role="status" className="hatch hatch-ink3 rounded-[9px] border border-dashed border-line px-3 py-2.5 flex items-center justify-between gap-3">
@@ -219,9 +283,24 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
       {/* desktop */}
       <aside
         className={`app-sidebar-frame shrink-0 h-full transition-[width] duration-[var(--dur-slow)] ${position === 'left' ? 'hidden lg:block' : 'hidden'}`}
+        data-rail-state={neoDashboard ? railState : undefined}
+        onPointerEnter={(event) => {
+          if (hoverRail && event.pointerType === 'mouse') setTemporaryExpanded(true)
+        }}
+        onPointerLeave={() => setTemporaryExpanded(false)}
+        onFocusCapture={() => { if (hoverRail) setTemporaryExpanded(true) }}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setTemporaryExpanded(false)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && temporaryExpanded) {
+            setTemporaryExpanded(false)
+            event.stopPropagation()
+          }
+        }}
         style={{ width: collapsed ? 72 : 260, transitionTimingFunction: 'var(--ease)' }}
       >
-        {body}
+        {renderBody(collapsed && !temporaryExpanded)}
       </aside>
       {/* mobile off-canvas */}
       {mobileOpen && (
@@ -231,7 +310,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
               ทำให้ทั้ง shell ดูขุ่นเป็นหมอก แทนที่จะหรี่ลง (ดู .drawer-scrim) */}
           <div className="drawer-scrim fade-in" onClick={closeMobile} aria-hidden />
           <div ref={mobilePanelRef} role="dialog" aria-modal="true" aria-label={t('productName')} className="app-drawer-panel absolute left-0 top-0 bottom-0 w-[260px]" style={{ animation: 'sidebar-in var(--dur-base) var(--ease) both' }}>
-            {body}
+            {renderBody(false, true)}
           </div>
         </div>
       )}

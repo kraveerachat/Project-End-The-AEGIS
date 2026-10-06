@@ -238,7 +238,6 @@ export default function App() {
      บังคับรีเซ็ตรหัสผ่าน) — hook ที่ถูกเรียกบ้างไม่เรียกบ้างทำให้ลำดับ hook ของ
      React เพี้ยนทั้งต้นไม้ ("Rendered more hooks than during the previous render")
      ตัว hook เองไม่ทำอะไรเลยจนกว่าจะมี mainRef และ Neo เป็นสไตล์ที่ใช้อยู่ */
-  useScrollReveal(mainRef, screen, interfaceStyle === 'neo')
 
   // เมนูถูก filter ตาม role "ฝั่งเซิร์ฟเวอร์" มาแล้ว (server/rbac/permissions.js)
   // — client แค่ render สิ่งที่ได้รับ รายการที่ไม่มีสิทธิ์ไม่เคยมาถึง DOM เลย
@@ -251,6 +250,9 @@ export default function App() {
   const activeScreen = resolveAuthorizedScreen(screen, serverNav)
   const workspaceSurfaceActive = WORKSPACE_SCREENS.has(activeScreen)
   const neoDashboard = interfaceStyle === 'neo' && activeScreen === 'dashboard'
+  // Dashboard has its own bounded GSAP/ScrollTrigger pass; other Neo screens
+  // retain the established IntersectionObserver reveal and its failsafe.
+  useScrollReveal(mainRef, screen, interfaceStyle === 'neo' && !neoDashboard)
   const PageSurface = workspaceSurfaceActive ? WorkspaceMarqueeSurface : 'div'
 
   const go = useCallback((destination, params = {}, options = {}) => {

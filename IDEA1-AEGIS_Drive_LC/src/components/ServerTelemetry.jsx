@@ -1,8 +1,11 @@
+import { useLayoutEffect, useRef } from 'react'
+import { gsap } from 'gsap'
 import {
   Activity, Cpu, HardDrive, MemoryStick, Network, Thermometer,
 } from 'lucide-react'
 import { Card, CardTitle, Chip } from './ui.jsx'
 import { fmtBytes, fmtCountdown } from '../lib/format.js'
+import { useReducedMotion } from '../lib/hooks.js'
 
 // Renders the /api/telemetry contract (see server/telemetry/index.js).
 //
@@ -124,13 +127,22 @@ function metricState(id, metric, loading = false) {
 }
 
 function MetricProgress({ value, label, state }) {
+  const barRef = useRef(null)
+  const revealed = useRef(false)
+  const reduced = useReducedMotion()
+  useLayoutEffect(() => {
+    if (reduced || revealed.current || !barRef.current) return undefined
+    revealed.current = true
+    const tween = gsap.fromTo(barRef.current, { scaleX: 0 }, { scaleX: 1, duration: 0.56, ease: 'power3.out' })
+    return () => tween.kill()
+  }, [reduced, value])
   if (!number(value)) return null
   const normalized = Math.min(100, Math.max(0, value))
   return (
-    <div className="dashboard-telemetry-progress" data-state={state}>
+    <div className="dashboard-telemetry-progress" data-state={state} data-tooltip={`${label} · ${Math.round(normalized)}%`}>
       <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(normalized)}%</strong>
-      <div role="progressbar" aria-label={label} aria-valuenow={normalized} aria-valuemin={0} aria-valuemax={100}>
-        <span style={{ width: `${normalized}%` }} />
+      <div role="progressbar" tabIndex={0} aria-label={label} aria-valuenow={normalized} aria-valuemin={0} aria-valuemax={100}>
+        <span ref={barRef} style={{ width: `${normalized}%` }} />
       </div>
     </div>
   )
@@ -275,7 +287,7 @@ function TelemetryTile({ t, definition, value, loading }) {
 export function ServerTelemetry({ t, data, loading = false }) {
   const metrics = data?.metrics ?? null
   return (
-    <Card className="dashboard-telemetry-card p-5">
+    <Card className="dashboard-telemetry-card dashboard-motion-card p-5">
       <CardTitle sub={t('serverTelemetrySub')}>{t('serverTelemetry')}</CardTitle>
       <div className="dashboard-telemetry-grid">
         {METRICS.map((definition) => (

@@ -52,7 +52,7 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
   const metadataUp = health.data?.layers?.metadata?.ok === true
     && health.data?.layers?.metadata?.checked === true
   const dbMode = health.data?.db
-  const showIdentity = neoDashboard || navigationPosition !== 'left'
+  const showIdentity = navigationPosition !== 'left'
 
   return (
     <header
@@ -61,7 +61,7 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
       style={{ boxShadow: scrolled ? 'var(--elev-1)' : 'none' }}
     >
       {/* LEFT ZONE: Mobile Toggle Button / Left Spacer */}
-      <div className={`flex items-center min-w-[40px] ${showIdentity ? 'neo-topbar-identity' : ''}`}>
+      <div className={`flex items-center min-w-[40px] ${showIdentity ? 'neo-topbar-identity' : ''} ${neoDashboard && !showIdentity ? 'neo-dashboard-topbar-mobile-toggle' : ''}`}>
         <button
           type="button"
           aria-label={t('expandSidebar')}

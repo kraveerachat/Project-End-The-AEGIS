@@ -73,7 +73,7 @@ test('Dashboard ห้าม early-return เป็น error page จนกร�
   assert.match(source, /valueLabel=\{dashboardUnavailable \? '—' : undefined\}/)
   assert.match(source, /unavailable=\{dashboardUnavailable\}/)
   assert.match(source, /usage=\{storage\.data\?\.usage\}/)
-  assert.match(source, /const categoriesAvailable = !unavailable && !storageLoading && !storageError/)
+  assert.match(source, /const categoriesAvailable = !storageLoading && !storageError && usage != null/)
 })
 
 test('Vite dev proxy ส่ง health check ไป backend เพื่อไม่สร้างสถานะ offline ปลอม', async () => {
@@ -118,7 +118,7 @@ test('P1 labels ระบุ semantic scope จริง และทุกจ�
   assert.match(sidebar, /fmtBytes\(storageBytes\)/)
   assert.match(sidebar, /fmtBytes\(totalBytes\)/)
   assert.doesNotMatch(sidebar, /\/\s*1e9/)
-  assert.match(dashboard, /usedBytes=\{m\.storageBytes\}/)
+  assert.match(dashboard, /usedBytes=\{hasStorageCapacity \? measuredCapacity\.usedBytes : m\.storageBytes\}/)
   assert.match(dashboard, /capacityKnown \? fmtBytes\(usedBytes\) : '—'/)
   assert.doesNotMatch(dashboard, /m\.storageBytes\s*\/\s*1e9/)
 

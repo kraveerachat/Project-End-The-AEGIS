@@ -1,3 +1,5 @@
+import { useLayoutEffect, useRef } from 'react'
+import { gsap } from 'gsap'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, Cell,
 } from 'recharts'
@@ -11,6 +13,7 @@ import { useApi, useCountUp, useNow, useReducedMotion } from '../lib/hooks.js'
 import { fmtRelative, fmtCountdown, fmtStamp, fmtBytes } from '../lib/format.js'
 import { isPlatformWired } from '../lib/fetchState.js'
 import { normalizeDashboardData, shouldShowDashboardFetchError } from '../lib/dashboardState.js'
+import { useDashboardMotion } from '../lib/useDashboardMotion.js'
 
 /* ทุกตัวเลขบนจอนี้มาจาก /api/dashboard · /api/storage · /healthz และจัดการครบสี่สถานะ
    (loading = skeleton · error = ข้อความ + Retry · empty = บอกตรง ๆ · success = ข้อมูลจริง)
@@ -83,9 +86,9 @@ function InlineEmptyState({ children, className = '' }) {
 
 /* ── Data Lake Health — สถานะจาก /healthz เท่านั้น ไม่มี client override ── */
 const TIERS = [
-  { id: 'application', nameKey: 'tierApp', tech: 'Express event loop' },
+  { id: 'application', nameKey: 'tierApp', techKey: 'tierAppTech' },
   { id: 'metadata', nameKey: 'tierMeta', tech: 'PostgreSQL' },
-  { id: 'storage', nameKey: 'tierStorage', tech: 'Linux FS / HDD' },
+  { id: 'storage', nameKey: 'tierStorage', techKey: 'tierStorageTech' },
 ]
 
 function LakeHealth({ t, health }) {
@@ -103,14 +106,16 @@ function LakeHealth({ t, health }) {
   const brokenBelow = (idx) => TIERS.some((tier, i) => i > idx && tierStates[tier.id] !== 'healthy')
 
   return (
-    <Card className="lake-health-card p-5 rise-in" style={{ animationDelay: '160ms' }}>
+    <Card className="lake-health-card dashboard-motion-card p-5 rise-in" style={{ animationDelay: '160ms' }}>
       <CardTitle sub={t('lakeSubtitle')}>{t('lakeHealth')}</CardTitle>
 
       <div className="flex flex-col">
         {TIERS.map((tier, idx) => {
           const state = tierStates[tier.id]
           const layer = health?.layers?.[tier.id]
-          const tech = tier.id === 'metadata' && health?.db === 'memory' ? t('metadataMemoryDisconnected') : tier.tech
+          const tech = tier.id === 'metadata' && health?.db === 'memory'
+            ? t('metadataMemoryDisconnected')
+            : tier.techKey ? t(tier.techKey) : tier.tech
           const dimmed = state === 'healthy' && brokenBelow(idx)
           const tone = state === 'healthy' ? 'ok' : state === 'degraded' ? 'warn' : state === 'down' ? 'danger' : 'neutral'
           const lat = layer?.measured === true && Number.isFinite(layer.latencyMs)
@@ -227,10 +232,17 @@ const SEG_COLORS = {
 }
 
 function StorageHero({ t, usedBytes, totalBytes, usage, unavailable, unavailableLabel, storageLoading, storageError, onRetry }) {
+  const ringRef = useRef(null)
+  const categoriesRef = useRef(null)
+  const lastRingPct = useRef(null)
+  const categoriesRevealed = useRef(false)
+  const reduced = useReducedMotion()
   const capacityKnown = !unavailable && Number.isFinite(usedBytes) && Number.isFinite(totalBytes) && totalBytes > 0
   const usedPct = capacityKnown ? Math.min(100, Math.max(0, Math.round((usedBytes / totalBytes) * 100))) : null
   const freeBytes = capacityKnown ? Math.max(0, totalBytes - usedBytes) : null
-  const categoriesAvailable = !unavailable && !storageLoading && !storageError && usage != null
+  // /api/storage is independent of /api/dashboard. A metadata/dashboard
+  // outage must not hide a successful storage response or relabel its error.
+  const categoriesAvailable = !storageLoading && !storageError && usage != null
   const segs = categoriesAvailable
     ? Object.keys(SEG_COLORS).map((key) => ({ key, bytes: usage?.[key] ?? 0, color: SEG_COLORS[key] })).filter((seg) => seg.bytes > 0)
     : []
@@ -241,8 +253,26 @@ function StorageHero({ t, usedBytes, totalBytes, usage, unavailable, unavailable
   // the volume capacity. These are different denominators and must stay named.
   const accounted = segs.reduce((sum, seg) => sum + seg.bytes, 0)
 
+  useLayoutEffect(() => {
+    if (reduced) return undefined
+    const tweens = []
+    if (capacityKnown && ringRef.current && lastRingPct.current !== usedPct) {
+      tweens.push(gsap.fromTo(ringRef.current,
+        { '--capacity-pct': `${lastRingPct.current ?? 0}%` },
+        { '--capacity-pct': `${usedPct}%`, duration: 0.72, ease: 'power3.out' }))
+      lastRingPct.current = usedPct
+    }
+    if (categoriesAvailable && categoriesRef.current && !categoriesRevealed.current) {
+      tweens.push(gsap.fromTo(categoriesRef.current.querySelectorAll('.dashboard-storage-category-track > span'),
+        { scaleX: 0 },
+        { scaleX: 1, duration: 0.52, stagger: 0.055, ease: 'power3.out' }))
+      categoriesRevealed.current = true
+    }
+    return () => tweens.forEach((tween) => tween.kill())
+  }, [capacityKnown, usedPct, categoriesAvailable, reduced])
+
   return (
-    <Card className="dashboard-storage-hero p-5">
+    <Card className="dashboard-storage-hero dashboard-motion-card p-5">
       <div className="dashboard-panel-heading">
         <span className="dashboard-panel-icon"><Database size={19} strokeWidth={1.7} aria-hidden /></span>
         <div className="min-w-0">
@@ -255,6 +285,7 @@ function StorageHero({ t, usedBytes, totalBytes, usage, unavailable, unavailable
       <div className="dashboard-storage-hero-body">
         <div className="dashboard-storage-capacity">
           <div
+            ref={ringRef}
             className={`dashboard-storage-radial ${capacityKnown ? '' : 'is-unavailable'}`}
             style={capacityKnown ? { '--capacity-pct': `${usedPct}%` } : undefined}
             role="img"
@@ -274,19 +305,20 @@ function StorageHero({ t, usedBytes, totalBytes, usage, unavailable, unavailable
 
         <div className="dashboard-storage-categories">
           <h3>{t('storageBreakdown')}</h3>
+          <p className="dashboard-storage-denominator">{t('storageCategoryShare')}</p>
           {categoriesAvailable && segs.length === 0 ? (
             <InlineEmptyState>{t('emptyNoFiles')}</InlineEmptyState>
           ) : (
-            <div className="dashboard-storage-category-list">
+            <div ref={categoriesRef} className="dashboard-storage-category-list">
               {visibleCategories.map((seg) => {
                 const percent = seg.bytes != null && accounted > 0 ? (seg.bytes / accounted) * 100 : null
                 return (
-                  <div className="dashboard-storage-category" key={seg.key}>
+                  <div className="dashboard-storage-category" key={seg.key} data-tooltip={percent != null ? `${t(seg.key)} · ${fmtBytes(seg.bytes)} · ${percent.toFixed(1)}%` : undefined}>
                     <div className="dashboard-storage-category-label">
                       <span>{t(seg.key)}</span>
                       <span lang="en">{seg.bytes != null ? <>{fmtBytes(seg.bytes)} <small>{percent.toFixed(1)}%</small></> : '—'}</span>
                     </div>
-                    <div className="dashboard-storage-category-track" role={percent != null ? 'progressbar' : undefined} aria-label={percent != null ? t(seg.key) : undefined} aria-valuenow={percent != null ? Math.round(percent) : undefined} aria-valuemin={percent != null ? 0 : undefined} aria-valuemax={percent != null ? 100 : undefined} aria-hidden={percent == null ? true : undefined}>
+                    <div className="dashboard-storage-category-track" role={percent != null ? 'progressbar' : undefined} tabIndex={percent != null ? 0 : undefined} aria-label={percent != null ? t(seg.key) : undefined} aria-valuenow={percent != null ? Math.round(percent) : undefined} aria-valuetext={percent != null ? `${percent.toFixed(1)}% ${t('storageCategoryShare')}` : undefined} aria-valuemin={percent != null ? 0 : undefined} aria-valuemax={percent != null ? 100 : undefined} aria-hidden={percent == null ? true : undefined}>
                       {percent != null && <span style={{ width: `${percent}%`, background: seg.color }} />}
                     </div>
                   </div>
@@ -294,7 +326,7 @@ function StorageHero({ t, usedBytes, totalBytes, usage, unavailable, unavailable
               })}
               {!categoriesAvailable && (
                 <div className="dashboard-storage-category-status" role="status">
-                  <span>{unavailable ? unavailableLabel : t(storageLoading ? 'telemetryStateLoading' : 'dashboardUnavailable')}</span>
+                  <span>{t(storageLoading ? 'telemetryStateLoading' : 'notAvailable')}</span>
                   {storageError && <button type="button" onClick={onRetry}>{t('retry')}</button>}
                 </div>
               )}
@@ -326,20 +358,14 @@ function ActivityChart({ t, lang, data }) {
   const reduced = useReducedMotion()
   // ป้ายแกน X เป็นชื่อวันตามภาษาที่เลือก — เซิร์ฟเวอร์คืนวันที่ ISO ไม่ใช่ชื่อวันภาษาอังกฤษ
   // (ชื่อวันเป็นเรื่องของการแสดงผล ไม่ใช่ข้อมูล)
-  const displayData = data.length > 0 ? data : Array.from({ length: 7 }, (_, index) => {
-    const day = new Date()
-    day.setUTCHours(0, 0, 0, 0)
-    day.setUTCDate(day.getUTCDate() - (6 - index))
-    return { date: day.toISOString().slice(0, 10), uploads: 0, downloads: 0 }
-  })
-  const rows = displayData.map((d) => ({
+  const rows = data.map((d) => ({
     ...d,
     label: new Date(`${d.date}T00:00:00Z`).toLocaleDateString(
       lang === 'th' ? 'th-TH' : lang === 'zh' ? 'zh-CN' : 'en-US',
       { weekday: 'short', timeZone: 'UTC' },
     ),
   }))
-  const empty = rows.every((r) => r.uploads === 0 && r.downloads === 0)
+  const empty = rows.length === 0 || rows.every((r) => r.uploads === 0 && r.downloads === 0)
 
   return (
     <Card className="p-5 rise-in" style={{ animationDelay: '280ms' }}>
@@ -356,7 +382,7 @@ function ActivityChart({ t, lang, data }) {
       </CardTitle>
       {/* ⚠️ ยังไม่มีกิจกรรมเลย ≠ กราฟเปล่าที่ดูเหมือนพัง — บอกตรง ๆ ว่าไม่มีเหตุการณ์
           ในเจ็ดวันนี้ (ของเดิมไม่มีสถานะนี้เพราะข้อมูลปลอมทำให้มีแท่งอยู่เสมอ) */}
-      <div className="dashboard-activity-plot h-56" role="img" aria-label={t('activityTitle')}>
+      {rows.length > 0 && <div className="dashboard-activity-plot h-56" role="img" aria-label={t('activityTitle')}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={rows} barGap={3} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} stroke="var(--line)" strokeWidth={1} />
@@ -368,7 +394,7 @@ function ActivityChart({ t, lang, data }) {
             <Bar dataKey="downloads" radius={[8, 8, 0, 0]} maxBarSize={18} fill="var(--accent)" isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
           </BarChart>
         </ResponsiveContainer>
-      </div>
+      </div>}
       <table className="sr-only">
         <caption>{t('activitySub')}</caption>
         <thead><tr><th scope="col">{t('activityDay')}</th><th scope="col">{t('uploads')}</th><th scope="col">{t('downloads')}</th></tr></thead>
@@ -387,9 +413,12 @@ function ActivityChart({ t, lang, data }) {
 
 /* ── The dashboard grid — สี่สถานะครบที่ระดับจอ ───────────────────────── */
 export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoading = false }) {
+  const rootRef = useRef(null)
+  const reduced = useReducedMotion()
   const now = useNow(1000)
   const dash = useApi('/api/dashboard', { refreshMs: 30_000 })
   const storage = useApi('/api/storage', { refreshMs: 60_000 })
+  useDashboardMotion(rootRef, !dash.loading && !health.loading, reduced)
 
   if (dash.loading || health.loading) return <SkeletonLoader type="dashboard" />
 
@@ -399,30 +428,38 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
   const d = normalizeDashboardData(dashboardUnavailable ? null : dash.data)
   const m = d.metrics
   const showStorageError = shouldShowDashboardFetchError(storage.error, health.data)
+  const measuredCapacity = storage.data?.capacityBytes
+  const hasStorageCapacity = Number.isFinite(measuredCapacity?.usedBytes)
+    && Number.isFinite(measuredCapacity?.totalBytes)
+    && measuredCapacity.totalBytes > 0
   const placeholderLabel = dashboardUnavailable ? t(usingPlaceholder ? 'notConnected' : 'dashboardUnavailable') : null
 
   return (
-    <div className="dashboard-layout flex flex-col gap-5">
+    <div ref={rootRef} className="dashboard-layout flex flex-col gap-5">
       {showDashboardError && (
         <Card><ErrorState t={t} kind={dash.error} onRetry={dash.retry} /></Card>
       )}
-      {/* Storage and measured telemetry lead; count KPIs stay subordinate. */}
+      {/* Storage capacity and measured telemetry lead the scan path. */}
       <div className="dashboard-kpi-grid">
         <StorageHero
           t={t}
-          usedBytes={m.storageBytes}
-          totalBytes={m.storageTotalBytes}
+          usedBytes={hasStorageCapacity ? measuredCapacity.usedBytes : m.storageBytes}
+          totalBytes={hasStorageCapacity ? measuredCapacity.totalBytes : m.storageTotalBytes}
           usage={storage.data?.usage}
-          unavailable={dashboardUnavailable}
+          unavailable={dashboardUnavailable && !hasStorageCapacity}
           unavailableLabel={placeholderLabel}
           storageLoading={storage.loading}
           storageError={showStorageError}
           onRetry={storage.retry}
         />
         <ServerTelemetry t={t} data={telemetry} loading={telemetryLoading} />
-        <div className="dashboard-kpi-stack">
-          <StatCard icon={FilesIcon} label={t('statFiles')} value={m.files} valueLabel={dashboardUnavailable ? '—' : undefined} allClearLabel={placeholderLabel} statusTone="neutral" delay={40} />
-          <StatCard icon={Link2} label={t('activeLinks')} value={m.activeShares} valueLabel={dashboardUnavailable ? '—' : undefined} allClearLabel={placeholderLabel} statusTone="neutral" delay={80} />
+      </div>
+
+      {/* Operational and account security state precedes secondary counts. */}
+      <Reveal delay={100}>
+        <div className="dashboard-primary-grid">
+          <div className="dashboard-health-panel"><LakeHealth t={t} health={health.data} /></div>
+          <div className="dashboard-security-panel">
           <StatCard
             icon={ShieldCheck}
             label={t('statSecurity')}
@@ -433,12 +470,14 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
             statusTone={dashboardUnavailable ? 'neutral' : 'ok'}
             delay={120}
           />
+            <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={dashboardUnavailable} />
+          </div>
         </div>
-      </div>
+      </Reveal>
 
       {/* Seven-day audit history is real; /api/telemetry supplies current values only. */}
-      <Reveal delay={100}>
-        <div className="dashboard-primary-grid">
+      <Reveal delay={200}>
+        <div className="dashboard-secondary-grid">
           <div className="dashboard-activity-panel">
             {dashboardUnavailable ? (
               <Card className="p-5 dashboard-activity-card"><CardTitle>{t('activityTitle')}</CardTitle><p className="dashboard-quiet-state" role="status">{t('dashboardUnavailable')}</p></Card>
@@ -446,21 +485,18 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
               <ActivityChart t={t} lang={lang} data={d.activity7d ?? []} />
             )}
           </div>
-          <div className="dashboard-health-panel"><LakeHealth t={t} health={health.data} /></div>
+          <div className="dashboard-kpi-stack">
+            <StatCard icon={FilesIcon} label={t('statFiles')} value={m.files} valueLabel={dashboardUnavailable ? '—' : undefined} allClearLabel={placeholderLabel} statusTone="neutral" delay={40} />
+            <StatCard icon={Link2} label={t('activeLinks')} value={m.activeShares} valueLabel={dashboardUnavailable ? '—' : undefined} allClearLabel={placeholderLabel} statusTone="neutral" delay={80} />
+          </div>
         </div>
       </Reveal>
 
-      {/* Secondary status from /api/dashboard. */}
-      <Reveal delay={200}>
-        <div className="dashboard-secondary-grid">
-          <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={dashboardUnavailable} />
-          <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={dashboardUnavailable} />
-        </div>
-      </Reveal>
-
-      {/* recent files — จาก /api/dashboard */}
+      {/* Secondary lists from /api/dashboard. */}
       <Reveal delay={260}>
-        <Card className="p-5">
+        <div className="dashboard-recents-grid">
+          <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={dashboardUnavailable} />
+          <Card className="p-5">
           <CardTitle>{t('recentFiles')}</CardTitle>
           {dashboardUnavailable ? (
             <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
@@ -477,7 +513,8 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
               ))}
             </div>
           )}
-        </Card>
+          </Card>
+        </div>
       </Reveal>
     </div>
   )
