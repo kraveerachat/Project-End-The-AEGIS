@@ -15,7 +15,7 @@ const storeSource = `
     return globalThis.archiveScopeFixture.clips
       .filter(clip => visibleIds.has(clip.cam) && clip.storedOnNas)
       .map(({ id, node, cam, start, durationSec, storedOnNas }) =>
-        ({ id: String(id), nodeId: `node-${node.toLowerCase()}`, cam, start, durationSec,
+        ({ id: String(id), nodeId: 'node-' + node.toLowerCase(), cam, start, durationSec,
           storedOnNas, kind: 'auth', hasAuthorized: true, hasUnknown: false, live: false, segs: [] }));
   }
   export async function getClipById(id) {
