@@ -31,12 +31,13 @@ edit_policy: append-by-new-file
 - IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-stage-gate.sh — Recovery treated as mutating and K3-required.
 - IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/README.md — current implementation/live boundary.
 - IDEA3-AEGIS_Lockdown/tests/test_recovery_stage.py — focused Recovery contract tests.
-- IDEA3-AEGIS_Lockdown/tests/r1bv/test_r1bv_contract.py, tests/r1i/test_r1i_input_instrumentation.py, tests/test_pr11_phase4_dnsmasq_unit_repair_reboot_and_scope.py, tests/test_pr11_phase4_f1u_stage.py, tests/test_pr11_phase4_r1du_stage.py, tests/test_r1_acceptance.py — affected registry-order expectations.
+- IDEA3-AEGIS_Lockdown/tests/r1bv/test_r1bv_contract.py, tests/r1i/test_r1i_input_instrumentation.py, tests/test_pr11_phase4_harness.py, tests/test_pr11_phase4_dnsmasq_unit_repair_reboot_and_scope.py, tests/test_pr11_phase4_f1u_stage.py, tests/test_pr11_phase4_r1du_stage.py, tests/test_r1_acceptance.py — affected registry-order and shared-pin expectations.
 - Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md and idea3-moc.md — durable current state.
 
 ## Verification evidence
 
 - /usr/bin/python3 -m pytest -q focused Recovery, R1Bv, registry, and acceptance suites — pass: 1,169 passed.
+- /usr/bin/python3 -m pytest -q IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_harness.py IDEA3-AEGIS_Lockdown/tests/r1i/test_r1i_input_instrumentation.py IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_dnsmasq_unit_repair_reboot_and_scope.py — pass: 375 passed.
 - /usr/bin/python3 -m pytest -q IDEA3-AEGIS_Lockdown/tests/r1bv IDEA3-AEGIS_Lockdown/tests/test_core_recovery.py IDEA3-AEGIS_Lockdown/tests/test_core_recovery_security.py IDEA3-AEGIS_Lockdown/tests/test_core_restore_policy.py IDEA3-AEGIS_Lockdown/tests/test_core_break_glass.py IDEA3-AEGIS_Lockdown/tests/test_recovery_evidence.py — pass after registry expectation reconciliation; initial stale-contract run was 708 passed / 2 stale assertion failures.
 - node --test tests/collaborationPolicy.test.mjs — pass: 33 passed.
 - node scripts/validate-vault.mjs — pass with 2 existing canvas owner-review warnings.
@@ -51,11 +52,12 @@ edit_policy: append-by-new-file
 
 ## Shared surfaces touched
 
-- None — all changed paths are within the IDEA3/Music-owned code, tests, Phase-4 knowledge, and IDEA3 canonical notes.
+- IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-lib.sh — shared Phase-4 stage registry now includes Recovery.
+- IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-stage-gate.sh — shared Authorization/K3 gate recognizes Recovery as mutating.
 
 ## Integration requests
 
-- Music functional owner review and Kla integration review of the governed stage registration, K3/Authorization boundary, Core Recovery reuse, and preservation allowlist before any future LIVE authorization. Human owner must open/review/merge the Draft PR; no agent merge.
+- Music functional owner review and Kla integration review of p4-lib.sh and p4-stage-gate.sh, the governed stage registration, K3/Authorization boundary, Core Recovery reuse, and preservation allowlist before any future LIVE authorization. Human owner must review and merge the Draft PR; no agent merge.
 
 ## Known limitations
 
