@@ -190,14 +190,27 @@ class DetectionEngine:
             )
             if cfg.stream_enabled else None
         )
+        nas = NASSyncWorker(cfg, metrics, stop_event=stop_event, monitor=monitor)
+        recorder = SegmentRecorder(
+            cfg,
+            metrics,
+            record_queue,
+            on_segment=nas.submit,
+            stop_event=stop_event,
+            capture_demand_event=capture_demand,
+            recording_authority=recording_authority,
+        )
 
         def publish_detection(result: DetectionResult, frame: Frame) -> None:
-            # Stream annotation is physical-frame work and happens once.
-            # Security/event identity is fan-out from authenticated frame-time
-            # authority below; the detector's static camera_id cannot override it.
+            # Strict Archive footage is fed from the same exact detector frame
+            # used by Live so stored video burns in aligned boxes/labels.
+            if cfg.capture_on_demand:
+                recorder.submit_detection(result, frame)
             if stream is not None:
                 stream.submit_detection(result, frame)
 
+            # Security/event identity remains a separate authority fan-out; the
+            # recorder render path cannot create or override logical authority.
             for attributed in _attributed_results_for_frame(
                 result,
                 frame,
@@ -220,16 +233,6 @@ class DetectionEngine:
             publish=api.publish_event,
             monitor=monitor,
         )
-        nas = NASSyncWorker(cfg, metrics, stop_event=stop_event, monitor=monitor)
-        recorder = SegmentRecorder(
-            cfg,
-            metrics,
-            record_queue,
-            on_segment=nas.submit,
-            stop_event=stop_event,
-            capture_demand_event=capture_demand,
-            recording_authority=recording_authority,
-        )
         detector = FaceDetectorProcessor(
             cfg,
             metrics,
@@ -238,10 +241,12 @@ class DetectionEngine:
             recognizer=recognizer,
             stop_event=stop_event,
         )
-        sinks = [
-            Sink("record", record_queue, OverflowPolicy.DROP_OLDEST),
-            Sink("detect", detect_queue, OverflowPolicy.LATEST_ONLY),
-        ]
+        # Strict viewer-demand recording is detector-rendered so Archive video
+        # matches Live. Legacy always-on recording keeps the independent raw
+        # capture sink for backward compatibility.
+        sinks = [Sink("detect", detect_queue, OverflowPolicy.LATEST_ONLY)]
+        if not cfg.capture_on_demand:
+            sinks.insert(0, Sink("record", record_queue, OverflowPolicy.DROP_OLDEST))
         catcher = VideoCatcher(
             cfg,
             metrics,
