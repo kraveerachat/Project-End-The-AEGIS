@@ -118,15 +118,29 @@ def test_current_state_documentation_no_longer_says_r1bv_live_has_not_run() -> N
     assert "Historical (repository implementation as merged)" in sec22 and "SUPERSEDED by section 23" in sec22
 
 
-def test_stale_r1bv_not_run_claims_survive_only_in_sections_marked_historical() -> None:
-    stale = re.compile(r"R1BV_LIVE_EXECUTED=NO|R1Bv[^.\n]{0,60}LIVE NOT RUN|R1Bv[^.\n]{0,40}has NOT run live|Recovery R2[^.\n]{0,40}blocked until[^.\n]{0,30}R1Bv")
+def test_stale_r1bv_not_run_claims_survive_only_in_sections_marked_historical_and_locally_superseded() -> None:
+    """A current-looking section may not say R1Bv live was not run / Recovery is blocked until R1Bv PASS. The wording may survive ONLY in a section whose heading/opening is historical/superseded AND with a local historical/superseded cue."""
+    stale = re.compile(r"R1BV_LIVE_EXECUTED=NO|R1Bv[^.\n]{0,60}(LIVE NOT RUN|live NOT run|NOT run live|live not run)|blocked until[^.\n]{0,30}R1Bv")
     bad = []
     for path in (VAULT / "idea3/idea3-status.md", VAULT / "idea3/idea3-moc.md", P4 / "README.md"):
         for head_, body in sections(path):
             text = head_ + "\n" + body
-            if not stale.search(text):
-                continue
-            opening = (head_ + "\n" + body[:1200]).lower()
-            if not ("historical" in opening or "superseded" in opening):
-                bad.append((path.name, head_[:90]))
+            for m in stale.finditer(text):
+                opening = (head_ + "\n" + body[:1500]).lower()
+                around = text[max(0, m.start() - 300):m.end() + 300].lower()
+                section_ok = "historical" in opening or "superseded" in opening
+                local_ok = any(w in around for w in ("historical", "superseded", "at the time", "at that merge", "true only then", "at that time", "was then", "since been", "has since"))
+                if not (section_ok and local_ok):
+                    bad.append((path.name, head_[:80], m.group(0)[:60]))
     assert not bad, bad
+
+
+def test_the_r1b_closeout_sections_state_the_current_r1bv_truth_beside_their_historical_wording() -> None:
+    status = (VAULT / "idea3/idea3-status.md").read_text()
+    i = status.index("## IDEA3 R1B LIVE")
+    section = status[i:status.index("\n## ", i + 5)]
+    assert "historical" in section.split("\n", 1)[0].lower() and "R1BV_LIVE=CLOSED_PASS" in section and "RECOVERY_PREDECESSOR_BY_R1BV=SATISFIED" in section and "SUPERSEDED" in section
+    readme = (P4 / "README.md").read_text()
+    s21 = readme[readme.index("## 21. Stage R1B"):readme.index("## 22. Stage R1Bv")]
+    assert "SUPERSEDED by sections 22 and 23" in s21 and "R1BV_LIVE_EXECUTED=YES" in s21 and "RECOVERY_PREDECESSOR_BY_R1BV=SATISFIED" in s21
+    assert "LIVE NOT RUN" not in s21 and "blocked until R1Bv LIVE PASS" not in s21

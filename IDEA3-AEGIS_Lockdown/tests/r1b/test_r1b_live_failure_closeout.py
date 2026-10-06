@@ -72,7 +72,7 @@ def test_current_state_documentation_no_longer_says_r1b_has_not_run() -> None:
     i = status.index("## IDEA3 R1B successor governed stage")
     assert "historical PRE-LIVE snapshot" in status[i:i + 400] and "NOT current" in status[i:i + 900]
     readme = (base.P4 / "README.md").read_text()
-    assert "## 21. Stage R1B — LIVE outcome" in readme and "R1Bv (required and authorized; REPOSITORY_IMPLEMENTED by section 22, LIVE NOT RUN)" in readme
+    assert "## 21. Stage R1B — LIVE outcome" in readme and "R1Bv (LIVE PASS, read-only; see section 23) -> Recovery R2-R8 (NEXT; predecessor satisfied; NOT executed)" in readme
     # an R1Bv PASS statement is legitimate ONLY once the unique R1Bv LIVE closeout receipt exists (it was a forbidden claim at the time of the R1B failure closeout)
     if re.search(r"R1Bv.{0,40}(LIVE=CLOSED_PASS|RESULT=PASS)", moc + status):
         assert len(list((REPO / LOGS).glob("*_music_idea3-r1bv-live-closeout.md"))) == 1
