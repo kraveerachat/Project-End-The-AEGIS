@@ -153,6 +153,7 @@ recovery_authority_gates() {
   local rc=0
   control_gate || rc=1
   control_git_gate || rc=1
+  rru_recovery_successor_gate "$REPO" "$EXPECTED_MAIN" "$RELEASE_ID" || rc=1
   recovery_verifier_gate "$VERIFIER_SNAPSHOT_DIR" "$VERIFIER_MANIFEST_SHA256" "$REPO" "$CTRL/recovery-acceptance/recovery_verifier_snapshot.py" "$EXPECTED_MAIN" || rc=1
   recovery_interpreter_gate "$PY" || rc=1
   recovery_r1i_present_gate "$CTRL/r1i-input-instrumentation/r1i_input_instrumentation.py" || rc=1
@@ -203,6 +204,7 @@ recovery_pregates() {
   for f in AUTHORIZATION_RECORD=VALID K3_CONFIRMATION=VALID ROLLBACK_HANDLER=REGISTERED; do printf '%s\n' "$gate_out" | grep -qx "$f" || gate "stage gate did not report $f"; done
   # 4. the existing reviewed R1B-failure + R1Bv-PASS predecessor gate (pinned-commit receipt CONTENT), and the attempt authority
   recovery_predecessor_gate "$REPO" "$EXPECTED_MAIN" || gate "predecessor gate failed (see reason above)"
+  rru_recovery_successor_gate "$REPO" "$EXPECTED_MAIN" "$RELEASE_ID" || gate "RRu Recovery-runtime successor gate failed (see reason above)"
   recovery_attempt_unconsumed || gate "Recovery is ONE attempt TOTAL and one is already consumed, or the canonical marker directory is invalid"
   recovery_sudo_authority_gate || gate "the sudo keepalive is not healthy or the credential is not active (the runner establishes it once with sudo -v)"
   # 5. disk/headroom, preserved services, broker, IDEA2 S10
