@@ -2,10 +2,11 @@ import { test, expect } from '@playwright/test'
 
 const firstStart = Date.parse('2026-10-05T14:23:00Z')
 const clips = [
-  { id: 'clip-300', cam: 'entry-z', camName: 'Main entrance', start: firstStart,
-    durationSec: 300, kind: 'auth', segs: [{ k: 'ok', w: 100 }] },
-  { id: 'clip-83', cam: 'CAM-02', camName: 'Test parking', start: firstStart + 300_000,
-    durationSec: 83, kind: 'unknown', segs: [{ k: 'ok', w: 60 }, { k: 'warn', w: 40 }] },
+  { id: 'clip-300', cam: 'entry-z', camName: 'Main entrance', nodeId: 'node-a', start: firstStart,
+    durationSec: 300, kind: 'auth', hasAuthorized: true, hasUnknown: false, segs: [{ k: 'ok', w: 100 }] },
+  { id: 'clip-83', cam: 'CAM-02', camName: 'Test parking', nodeId: 'node-a', start: firstStart + 300_000,
+    durationSec: 83, kind: 'unknown', hasAuthorized: true, hasUnknown: true,
+    segs: [{ k: 'ok', w: 60 }, { k: 'warn', w: 40 }] },
   { id: 'hidden-clip', cam: 'restricted-9', camName: 'Restricted camera', start: firstStart,
     durationSec: 300, kind: 'auth', segs: [{ k: 'ok', w: 100 }] },
 ]
@@ -42,11 +43,13 @@ test('Archive plays each scoped clip in its fixed card media region, without an 
   }
 
   await expect(cards.nth(0)).toContainText('5:00')
-  await expect(cards.nth(0)).toContainText('Main entrance')
+  await expect(cards.nth(0)).toContainText('entry-z · Main entrance · node-a')
+  await expect(cards.nth(0)).toContainText('5 ต.ค. 2569')
+  await expect(cards.nth(0)).toContainText('21:23:00')
   await expect(cards.nth(0)).toContainText('Authorized only')
   await expect(cards.nth(1)).toContainText('1:23')
-  await expect(cards.nth(1)).toContainText('Test parking')
-  await expect(cards.nth(1)).toContainText('Unknown')
+  await expect(cards.nth(1)).toContainText('CAM-02 · Test parking · node-a')
+  await expect(cards.nth(1)).toContainText('Unknown present')
   await page.screenshot({ path: info.outputPath('archive-inline-player.png'), fullPage: true })
 
   await page.getByLabel('Result').selectOption('unknown')
