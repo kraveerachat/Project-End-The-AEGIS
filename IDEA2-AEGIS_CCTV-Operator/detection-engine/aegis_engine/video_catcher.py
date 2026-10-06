@@ -84,10 +84,98 @@ class VideoCatcher(threading.Thread):
         self._capture_demand_event = capture_demand_event
         self._cap: "Optional[cv2.VideoCapture]" = None
         self._seq = 0
+        self._read_state_lock = threading.Lock()
+        self._read_started_at: Optional[float] = None
+        self._read_generation = 0
+        self._read_has_frame_since_open = False
+        self._read_watchdog_stop = threading.Event()
 
     # -- public API --------------------------------------------------------
     def stop(self) -> None:
         self._stop_event.set()
+
+    def _reset_read_state_for_open(self) -> None:
+        with self._read_state_lock:
+            self._read_started_at = None
+            self._read_generation += 1
+            self._read_has_frame_since_open = False
+
+    def _begin_read(self) -> None:
+        with self._read_state_lock:
+            self._read_generation += 1
+            self._read_started_at = time.monotonic()
+
+    def _finish_read(self, delivered: bool) -> None:
+        with self._read_state_lock:
+            self._read_started_at = None
+            if delivered:
+                self._read_has_frame_since_open = True
+
+    def _read_watchdog_loop(self) -> None:
+        """Fail the process closed when native VideoCapture.read() never returns.
+
+        Python cannot safely cancel a C/C++ camera read that is blocked inside
+        an OpenCV backend. The Engine supervisor already owns process recovery,
+        so a bounded stall requests normal Engine shutdown instead of leaking a
+        wedged camera handle or pretending the camera remains connected.
+        """
+        while not self._stop_event.is_set():
+            if self._read_watchdog_stop.wait(0.25):
+                return
+
+            with self._read_state_lock:
+                started_at = self._read_started_at
+                generation = self._read_generation
+                has_frame = self._read_has_frame_since_open
+
+            if started_at is None:
+                continue
+
+            limit = float(
+                self._cfg.stream_idle_timeout_s
+                if has_frame
+                else self._cfg.stream_first_frame_timeout_s
+            )
+            limit = max(1.0, limit)
+            elapsed = time.monotonic() - started_at
+
+            if elapsed < limit:
+                continue
+
+            # The native read may have completed after our snapshot and the
+            # capture thread may already be executing a newer read. Revalidate
+            # the exact read generation before escalating to Engine shutdown.
+            with self._read_state_lock:
+                if (
+                    self._read_generation != generation
+                    or self._read_started_at != started_at
+                ):
+                    continue
+
+                # Latch this timeout so no later watchdog iteration can
+                # escalate the same native read twice.
+                self._read_started_at = None
+
+            log.error(
+                "camera %s read blocked for %.1fs (limit %.1fs); "
+                "requesting Engine shutdown for supervisor recovery",
+                self._cfg.camera_source,
+                elapsed,
+                limit,
+            )
+            self._metrics.on_camera_state(connected=False)
+            self._stop_event.set()
+            return
+
+    def _start_read_watchdog(self) -> threading.Thread:
+        self._read_watchdog_stop.clear()
+        watchdog = threading.Thread(
+            target=self._read_watchdog_loop,
+            name="VideoCatcherReadWatchdog",
+            daemon=True,
+        )
+        watchdog.start()
+        return watchdog
 
     # -- camera plumbing ---------------------------------------------------
     def _open_source(self):
@@ -156,6 +244,7 @@ class VideoCatcher(threading.Thread):
             )
 
             self._cap = cap
+            self._reset_read_state_for_open()
             return True
         except Exception:
             log.exception(
@@ -280,6 +369,7 @@ class VideoCatcher(threading.Thread):
     def run(self) -> None:
         mode = "viewer-demand" if self._capture_demand_event is not None else "always-on"
         log.info("starting capture loop for %s (%s)", self._cfg.camera_id, mode)
+        watchdog = self._start_read_watchdog()
         try:
             while not self._stop_event.is_set():
                 if not self._wait_for_demand():
@@ -292,9 +382,11 @@ class VideoCatcher(threading.Thread):
                     not self._stop_event.is_set()
                     and self._capture_is_demanded()
                 ):
+                    self._begin_read()
                     try:
                         ok, image = self._cap.read()
                     except Exception:
+                        self._finish_read(False)
                         log.exception(
                             "camera %s read raised; reconnecting",
                             self._cfg.camera_source,
@@ -305,6 +397,8 @@ class VideoCatcher(threading.Thread):
                             break
                         consecutive_failures = 0
                         continue
+
+                    self._finish_read(bool(ok and image is not None))
 
                     if not self._capture_is_demanded():
                         break
@@ -338,11 +432,19 @@ class VideoCatcher(threading.Thread):
         except Exception:  # pragma: no cover - defensive catch-all
             log.exception("unhandled error in capture loop")
         finally:
+            self._read_watchdog_stop.set()
+            if (
+                watchdog is not threading.current_thread()
+                and watchdog.is_alive()
+            ):
+                watchdog.join(timeout=1.0)
             self._release_camera()
             self._metrics.on_camera_state(connected=False)
             log.info("capture loop stopped (%d frames captured)", self._seq)
 
     def _release_camera(self) -> None:
+        with self._read_state_lock:
+            self._read_started_at = None
         if self._cap is not None:
             try:
                 self._cap.release()
