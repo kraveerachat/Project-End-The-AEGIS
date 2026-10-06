@@ -29,6 +29,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
 try:
@@ -44,6 +45,18 @@ from .models import DetectionResult, DetectionStatus, Frame, utc_now_iso
 log = get_logger("AlertManager")
 
 _TELEGRAM_API = "https://api.telegram.org/bot{token}/sendPhoto"
+
+_THAILAND_TZ = timezone(timedelta(hours=7))
+
+
+def _format_thailand_time(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return str(value)
+        return parsed.astimezone(_THAILAND_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return str(value)
 
 
 @dataclass
@@ -199,7 +212,7 @@ class AlertManager(threading.Thread):
             f"Node: {job.payload['node_id']}\n"
             f"Count: {job.payload['unknown_count']} · "
             f"Conf: {job.payload['confidence']}%\n"
-            f"Time: {job.payload['timestamp']}"
+            f"Time: {_format_thailand_time(job.payload['timestamp'])}"
         )
         telegram_sent = False
         if self._dry_run:
