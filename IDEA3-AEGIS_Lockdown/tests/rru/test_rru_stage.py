@@ -89,8 +89,10 @@ class World:
         self.core_cwd, self.det_cwd = OLD_PATH, OLD_PATH
         self.events: list[str] = []
         self.hooks: dict[str, object] = {}
-        self.core_fds = {101, 102, 103}
-        self.listeners = {ALERT: {101}, RECOVERY: {102}, R1D_SOCK: {103}}
+        # RRu runs after the committed R1D disposition: that one-shot server has closed and unlinked its socket.
+        self.core_fds = {101, 102}
+        self.listeners = {ALERT: {101}, RECOVERY: {102}}
+        self.r1d_arming = "YES"  # the unchanged running Core still carries the R1Du process environment
         self.groups = [CORE_UID, REC_GID, ALERT_GID]
         self.systemctl_calls: list[tuple[str, ...]] = []
         self.host: FakeHost | None = None
@@ -139,8 +141,7 @@ class FakeHost(tool.RRuHost):
         self.ident = {"/run/aegis-idea3-recovery": {"kind": "dir", "mode": 0o750, "uid": CORE_UID, "gid": REC_GID},
                       "/run/aegis-idea3-alert": {"kind": "dir", "mode": 0o2750, "uid": CORE_UID, "gid": ALERT_GID},
                       ALERT: {"kind": "socket", "mode": 0o620, "uid": CORE_UID, "gid": ALERT_GID},
-                      RECOVERY: {"kind": "socket", "mode": 0o660, "uid": CORE_UID, "gid": REC_GID},
-                      R1D_SOCK: {"kind": "socket", "mode": 0o600, "uid": CORE_UID, "gid": CORE_UID}}
+                      RECOVERY: {"kind": "socket", "mode": 0o660, "uid": CORE_UID, "gid": REC_GID}}
         self.ops: list[tuple[str, ...]] = []
         self.snapshots: list[bool] = []
         self.release(OLD_PATH, OLD, OLD)
@@ -275,7 +276,7 @@ class FakeHost(tool.RRuHost):
         return list(self.world.groups)
 
     def proc_environ_value(self, pid, key):
-        return "YES" if key == tool.R1DU.ARM_KEY else str(DET_UID)
+        return self.world.r1d_arming if key == tool.R1DU.ARM_KEY else str(DET_UID)
 
     def proc_socket_inodes(self, pid):
         return set(self.world.core_fds)
@@ -308,6 +309,15 @@ def run_verify(host, backend, work, **over):
 def assert_untouched(host, world, work):
     assert world.events == [] and host.links == {CURRENT: OLD_PATH} and not host.ops and not (work / tool.JOURNAL_NAME).exists()
     assert NEW_PATH not in host.dirs and world.core["MainPID"] == "4242" and world.det["MainPID"] == "5151"
+
+
+def test_default_world_is_the_post_r1d_terminal_surface_and_preflight_accepts_it(tmp_path) -> None:
+    host, backend, world, work = build(tmp_path)
+    assert R1D_SOCK not in host.ident and R1D_SOCK not in world.listeners and 103 not in world.core_fds
+    assert world.r1d_arming == "YES"
+    facts = tool.preflight(host, backend, PINS)
+    assert facts["old_target"] == OLD_PATH and facts["core"]["MainPID"] == "4242"
+    assert not (work / tool.JOURNAL_NAME).exists() and world.events == [] and not host.ops
 
 
 # ═══ the stage is NEW and registered once ═════════════════════════════════════════════════════════════════════════════════════
@@ -361,6 +371,12 @@ def test_the_only_accepted_argv_are_read_only_show_of_the_two_units() -> None:
     assert tool.RRuBackend.allowed(("show", "aegis-idea3-detector.service", "-pMainPID", "-pNRestarts"))
     assert not tool.RRuBackend.allowed(("show", "sshd.service", "-pMainPID"))
     assert not hasattr(tool, "RESTART_ARGS")
+
+
+def test_rru_has_no_r1d_authority_reopen_or_connection_path() -> None:
+    text = TOOL_PATH.read_text()
+    for forbidden in ("HistoricalDispositionServer", "r1d_dispose_call", ".connect(", "socket.socket("):
+        assert forbidden not in text
 
 
 # ═══ apply ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -441,7 +457,12 @@ def test_a_release_whose_cli_is_not_the_pinned_digest_or_not_manifested_is_refus
     ("the Core is down", lambda h, w: w.core.update(ActiveState="failed"), "CORE_PRESTATE_NOT_HEALTHY"),
     ("the detector is not running", lambda h, w: w.det.update(ActiveState="inactive"), "DETECTOR_NOT_RUNNING"),
     ("the detector runs from another release", lambda h, w: setattr(w, "det_cwd", f"{RELEASES}/other"), "DETECTOR_SOURCE_SHA256_MISMATCH"),
+    ("the Recovery socket is missing", lambda h, w: h.ident.pop(RECOVERY), "RECOVERY_SOCKET_MISSING"),
+    ("the Recovery socket is not served by the Core", lambda h, w: w.listeners.__setitem__(RECOVERY, set()), "RECOVERY_SOCKET_NOT_SERVED_BY_CORE"),
+    ("the alert socket is missing", lambda h, w: h.ident.pop(ALERT), "ALERT_SOCKET_MISSING"),
     ("the alert socket is not served by the Core", lambda h, w: w.listeners.__setitem__(ALERT, set()), "ALERT_SOCKET_NOT_SERVED_BY_CORE"),
+    ("the terminal R1D socket reappears", lambda h, w: h.ident.__setitem__(R1D_SOCK, {"kind": "socket", "mode": 0o600, "uid": CORE_UID, "gid": CORE_UID}), "R1D_SOCKET_PRESENT_WHILE_UNARMED"),
+    ("the persisted R1D arming identity is missing", lambda h, w: setattr(w, "r1d_arming", "NO"), "CORE_RUNNING_WITHOUT_R1D_ARMING"),
     ("the OLD release fails the guard", lambda h, w: h.guard.__setitem__(OLD_PATH, "OWNER_MISMATCH"), "RELEASE_GUARD"),
     ("a stale temp link exists", lambda h, w: h.links.__setitem__(tool.TMP_LINK, OLD_PATH), "SWITCH_TEMP_EXISTS"),
 ])
@@ -480,6 +501,20 @@ def test_a_detector_that_drifts_before_the_switch_stops_before_the_switch(tmp_pa
     world.hooks["install"] = lambda: world.det.update(MainPID="6000")
     assert "DETECTOR_DRIFT" in refusal(run_apply, host, backend, work)
     assert host.links[CURRENT] == OLD_PATH
+
+
+def test_a_stale_r1d_socket_that_reappears_during_switch_fails_the_post_switch_proof(tmp_path) -> None:
+    host, backend, world, work = build(tmp_path)
+    world.hooks["switch"] = lambda: host.ident.__setitem__(R1D_SOCK, {"kind": "socket", "mode": 0o600, "uid": CORE_UID, "gid": CORE_UID})
+    assert refusal(run_apply, host, backend, work) == "R1D_SOCKET_PRESENT_WHILE_UNARMED"
+    assert journal(work)["phase"] == "switched"
+
+
+def test_missing_r1d_arming_identity_during_switch_fails_the_post_switch_proof(tmp_path) -> None:
+    host, backend, world, work = build(tmp_path)
+    world.hooks["switch"] = lambda: setattr(world, "r1d_arming", "NO")
+    assert refusal(run_apply, host, backend, work) == "CORE_RUNNING_WITHOUT_R1D_ARMING"
+    assert journal(work)["phase"] == "switched"
 
 
 def test_a_core_that_is_restarted_by_someone_else_during_the_switch_fails_the_post_switch_proof(tmp_path) -> None:
@@ -540,7 +575,10 @@ def test_verify_without_an_applied_journal_refuses(tmp_path) -> None:
     ("the Core moved release", lambda h, w: setattr(w, "core_cwd", NEW_PATH), "CORE_RESTARTED_OR_REPLACED"),
     ("the detector was cycled", lambda h, w: w.det.update(MainPID="6000"), "DETECTOR_DRIFT"),
     ("the OLD release changed", lambda h, w: h.files.__setitem__(f"{OLD_PATH}/aegis_soc/supervisor.py", b"#x"), "OLD_RELEASE_TREE_CHANGED"),
-    ("a socket lost its Core", lambda h, w: w.listeners.__setitem__(RECOVERY, set()), "RECOVERY_SOCKET_NOT_SERVED_BY_CORE"),
+    ("the Recovery socket lost its Core", lambda h, w: w.listeners.__setitem__(RECOVERY, set()), "RECOVERY_SOCKET_NOT_SERVED_BY_CORE"),
+    ("the alert socket lost its Core", lambda h, w: w.listeners.__setitem__(ALERT, set()), "ALERT_SOCKET_NOT_SERVED_BY_CORE"),
+    ("the terminal R1D socket reappeared", lambda h, w: h.ident.__setitem__(R1D_SOCK, {"kind": "socket", "mode": 0o600, "uid": CORE_UID, "gid": CORE_UID}), "R1D_SOCKET_PRESENT_WHILE_UNARMED"),
+    ("the persisted R1D arming identity drifted", lambda h, w: setattr(w, "r1d_arming", "NO"), "CORE_RUNNING_WITHOUT_R1D_ARMING"),
 ])
 def test_verify_refuses_every_post_apply_deviation(tmp_path, label, mutate, code) -> None:
     host, backend, world, work = applied(tmp_path)
