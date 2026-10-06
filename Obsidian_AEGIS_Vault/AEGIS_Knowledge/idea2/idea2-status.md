@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-06
+updated: 2026-10-07
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -15,6 +15,45 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## PR #370 SOC passive Live post-merge reconciliation — 2026-10-07
+
+PR #370, `feat(idea2): add SOC passive live viewer`, is MERGED into
+`feat/idea2-multi-node-camera-provisioning` at merge commit
+`2cdf03a2cb05816f0a371cace33fbf446c21767e`. The merged source head was
+`c67d1633a8dee6180b728973298c9269be997544`; PR #348 now carries that merge.
+
+The implementation is Monitor-owned passive observation. SOC can attach only
+to an already-active Operator source; SOC does not open an independent
+Detection Engine stream and does not create, renew, or release producer demand.
+Opaque active-view IDs distinguish same-alias sources across Nodes, and
+view-scoped detection projection prevents a selected physical source from being
+paired with detections from another Node.
+
+Merged-source verification recorded before publication:
+- Monitor: 223 pass / 109 environment-conditional skips / 0 fail.
+- Browser Playwright final gate: 34/34 PASS.
+- Isolated camera-selector stability: 10/10 PASS.
+- Targeted Engine regression: 76 PASS with no Engine source change.
+- Repository governance: 59 PASS.
+- Real disposable PostgreSQL passive-route lifecycle: PASS; SOC attachment did
+  not increase producer epochs/demands, and final Operator release returned
+  both active counts to zero.
+- Vite production build and diff checks: PASS.
+
+The final PR #370 Ready/merge transition occurred without the required
+current-task Obsidian receipt, so its final Collaboration guardrails run
+correctly recorded a missing-receipt failure. This post-merge reconciliation is
+a new documentation task; it does not rewrite the merged PR or its historical
+CI result.
+
+SOC passive Live is therefore MERGED/SOURCE-VERIFIED but NOT YET
+PRODUCTION-ACCEPTED. Production deployment and Machine A acceptance require a
+separate authorization. Multi-node Archive authorization hardening remains a
+separate prerequisite before Friend Machine / Node 2 rollout.
+
+No Production runtime, Production database, Detection Engine source, Identity
+Agent, Twingate, firewall, Machine A installed runtime, or Friend Machine is
+mutated by this reconciliation.
 ## PR #348 event-attribution source closeout checkpoint — 2026-10-06
 
 Branch `feat/idea2-multi-node-camera-provisioning` is at source checkpoint
