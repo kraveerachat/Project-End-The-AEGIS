@@ -6,8 +6,9 @@ Why the detector submits frames
 The raw capture fan-out cannot attach a trustworthy bounding box: detection
 finishes asynchronously, after that raw frame may already have been encoded.
 The detector therefore submits the exact frame/result pair it just processed.
-Stream annotations stay spatially aligned, while the recorder continues to
-receive the untouched camera frame on its separate queue.
+Stream annotations stay spatially aligned. Strict viewer-demand Archive
+recording reuses the same renderer on its own bounded queue, while legacy
+always-on recording keeps the untouched capture queue.
 
 Why a hub rather than a queue per viewer
 ----------------------------------------
@@ -159,9 +160,9 @@ class StreamHub(threading.Thread):
     def submit_detection(self, result: DetectionResult, frame: Frame) -> None:
         """Queue the newest processed frame with its real detector geometry.
 
-        Annotation happens only while an authorized viewer is connected. The
-        source image is copied before drawing so recordings and alert evidence
-        keep the original pixels.
+        Live queuing happens only while an authorized viewer is connected.
+        The shared renderer always copies first, so inference and alert evidence
+        keep the original pixels while strict Archive may burn in the same tag.
         """
         if result.frame_seq != frame.seq:
             return
