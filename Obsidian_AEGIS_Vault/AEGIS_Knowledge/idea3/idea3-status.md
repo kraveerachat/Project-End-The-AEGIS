@@ -107,6 +107,32 @@ edit_policy: owner-writable
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
 
+## Current governed state — Recovery R2-R8 repository implementation — 2026-10-06
+
+`RECOVERY_REPOSITORY_IMPLEMENTED=YES`
+`RECOVERY_LIVE_EXECUTED=NO`
+`RECOVERY_R2_R8_EXECUTED=NO`
+
+The single mutating Phase-4 `Recovery` stage is registered after `R1Bv` and
+before `L8`; it drives the Core-owned ordered R2-R8 ladder as one consumed,
+non-retriable attempt. Fresh same-day Authorization and K3 are required because
+Recovery mutates Production. Normal D4 remains owner-interactive and the runner
+records only its exit code; no secret enters the runner, argv, environment,
+pins, evidence, or Git. The repository does not execute Recovery LIVE.
+
+Sequence: `R1A FAIL_IMMUTABLE -> R1Du PASS -> R1D FAIL_IMMUTABLE -> R1Dv PASS -> R1B FAIL_IMMUTABLE -> R1Bv PASS -> Recovery R2-R8 IMPLEMENTED / LIVE NEXT -> LVR -> L8 -> L9`.
+
+### Session S2 — Recovery R2-R8 implementation continuation
+
+State: CLOSED · Branch: `feat/idea3-recovery-r2-r8-stage` · Starting SHA:
+`c6885cb1d949389fbaead66d2076a7727ccebc2b` · Production mutation allowed: NO
+
+The prior “no Recovery stage exists” wording below is historical/superseded.
+
+Implementation evidence: the independent review (3 CRITICAL, 7 IMPORTANT, 3 MINOR) was remediated in place: the owner reason is validated before the marker; the runner and root handlers prove the root-owned control and verifier snapshots, exact-main Git authority and the real stage gate before executing; one durable canonical attempt marker; real PRE/POST preservation with a semantic containment-delta allowance; root-owned work/result bound to the attempt; PASS from the Core's own durable evidence and CLOSE record; the RESTORE secret only into the pinned release CLI. Focused suites passed (331 stage/authority/preservation, 142 freeze/snapshot, 354 Core/evidence, 1,409 registry/harness); the full suite had only pre-existing or re-pinned failures. Recovery LIVE, Production mutation, R1B/R1Bv reruns, and ESP32 access remain explicitly unexecuted; a fresh independent review is still required.
+
+Final narrow remediation (fresh review F1–F4, M-a–M-c): the pinned D4 CLI now writes to an exclusive 0600 operator log under the private evidence directory via an explicit `AEGIS_LOG_PATH` (every operator and root `env -i` stage call sets one; none can fall back to a relative `aegis_soc.log`); before the marker the runner requires a terminal and rehearses the exact D4 command with stdin `/dev/null` (exit 2 plus the interactive-terminal refusal, no secret, no socket); one `sudo -v` is followed by a bounded `sudo -n -v` keepalive that is re-checked before the marker and before FINAL; the running Core's mandatory R2/R6/R7 configuration and its timezone are proven before the marker; the D4 closure is bound to the release `RELEASE-SHA256SUMS` through a 23rd pin. Repository only: `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`.
+
 ## IDEA3 F1u LIVE closeout — deployment PASS — 2026-10-05
 
 > [!important] **F1u LIVE executed once and passed its deployment boundary.** `F1U_LIVE_EXECUTED=YES`, `F1U_PRODUCTION_DEPLOYED=YES`, `F1U_APPLY=PASS`, `F1U_VERIFY=PASS`, `F1U_ROLLBACK=NOT_NEEDED`. The immutable release `912b18005bb2fc80bb4e8d1fe8aa88803ac27314` was installed, activated, and the Core restarted exactly once. This proves deployment only; it does not prove real detector acceptance, R1, Recovery R2–R8, LVR, L8, or L9.

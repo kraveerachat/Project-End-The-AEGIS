@@ -10,6 +10,8 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3 — AEGIS Lockdown
 
+> **Current Recovery state (2026-10-06):** `RECOVERY_REPOSITORY_IMPLEMENTED=YES`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. The one mutating `Recovery` stage is registered after `R1Bv` and before `L8`; it requires fresh Authorization + K3, reuses the Core Recovery client, consumes one attempt immediately before `ISOLATE`, and leaves normal D4 owner-interactive. `R1B_RESULT=FAIL_IMMUTABLE` and `R1BV_RESULT=PASS` remain immutable history. The older “no Recovery stage exists” statements are historical/superseded.
+
 Current checkpoint (2026-10-06): the historical `R1A` attempt executed live exactly once and remains an immutable, consumed FAIL
 (`R1A_RESULT=FAIL`, `R1A_RERUN_ALLOWED=NO`): the genuine external detector chain was observed (owner-run read-only forensic readout,
 `REAL_DETECTOR_CHAIN_EVIDENCE=PASS`), but the governed stage closed FAIL at the PRE→POST preservation comparator. `R1Du` then deployed

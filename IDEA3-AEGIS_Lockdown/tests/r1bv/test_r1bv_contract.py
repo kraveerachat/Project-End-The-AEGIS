@@ -283,7 +283,7 @@ def recovery_gate(repo: Path) -> subprocess.CompletedProcess[str]:
 def test_r1bv_is_registered_exactly_once_right_after_r1b_and_is_non_mutating() -> None:
     order = base.stages()
     assert order.count("R1Bv") == 1 and order.index("R1Dv") < order.index("R1B") < order.index("R1Bv") < order.index("L8") < order.index("L9")
-    assert order[order.index("R1B") + 1] == "R1Bv" and order[order.index("R1Bv") + 1] == "L8"
+    assert order[order.index("R1B") + 1] == "R1Bv" and order[order.index("R1Bv") + 1] == "Recovery" and order[order.index("Recovery") + 1] == "L8"
     out = base.bash(f'. "{base.P4_LIB}"; p4_stage_known R1Bv && echo KNOWN; p4_stage_mutates R1Bv && echo MUTATES || echo NON_MUTATING; p4_stage_gaps R1Bv; echo "extra=[$(p4_stage_auth_extra R1Bv)]"; p4_stage_handler_status R1Bv').stdout.split("\n")
     assert out[:5] == ["KNOWN", "NON_MUTATING", "none", "extra=[]", "REGISTERED"]
     for mutating in ("R1B", "R1D", "R1A", "L8"):
@@ -632,7 +632,7 @@ def test_recovery_predecessor_refuses_duplicate_ambiguous_or_failed_r1bv_closeou
 def test_the_recovery_gate_is_not_wired_to_a_stage_and_bypasses_nothing() -> None:
     lib = LIB.read_text()
     assert "No Recovery stage exists in this repository yet" in lib and "ONE predecessor, not the whole Recovery gate" in lib or "one predecessor, not the whole Recovery gate" in lib
-    assert "recovery" not in " ".join(base.stages()).lower() and "R2" not in re.search(r'readonly P4_STAGES="([^"]*)"', base.P4_LIB.read_text()).group(1)
+    assert "Recovery" in base.stages() and base.stages()[base.stages().index("R1Bv") + 1] == "Recovery"
     assert "r1bv_recovery_predecessor_gate" not in RUNNER.read_text() and "r1bv_recovery_predecessor_gate" not in " ".join((p.read_text() for p in STG.glob("*.sh")))
 
 

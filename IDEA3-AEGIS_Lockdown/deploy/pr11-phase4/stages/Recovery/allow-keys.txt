@@ -1,0 +1,7 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage Recovery STATIC allowed PRE->POST host state drift: NONE.
+#
+# Recovery has exactly one intended host-visible change: the Core-derived bound attacker is ADDED to inet aegis_idea3 blocked_ipv4 (R3). That change is NOT approved here. After the stage has mechanically
+# proven it (the PRE/POST nft dumps equal the captured hashes, the table is otherwise identical, and the set delta is exactly the bound attacker) the runner generates ONE allow file in the root work
+# directory naming only the captured table/ruleset hash keys, and requires the comparator to approve exactly that many findings. Core and detector restarts, R1I removal, TrustedClock, listeners, sysctl,
+# network, services, the current release, MQTT and IDEA1/IDEA2 keys stay IDENTICAL. The audit store, incident state, protocol store and device/uplink changes are not generic captured host keys; they are
+# verified from the Core's own durable evidence by the final verifier. No key is invented here.

@@ -311,7 +311,8 @@ def test_an_unconfigured_detector_authority_refuses(world, monkeypatch):
 PINS = {
     "recovery_core.py": "c92d2c3c2d4a5d0c5decb890e7b13e5eac3ff8e6b97c38ef7ac8d541c3657435",
     "recovery_protocol.py": "1854124f815057b5efe9d7bee84ee95163b3d4a207224997bfe7a4596de19d60",
-    "recovery_evidence.py": "7426b5ebc9878711059b5a028ca98998f2dedb93234ddedb7c49a9ce45e451ec",
+    # re-pinned by the Recovery R2-R8 stage task (2026-10-06): evaluate() gained ONE explicit optional `opener` read-only store seam (default unchanged); no R8 or R1B acceptance predicate changed.
+    "recovery_evidence.py": "ec1c95dc2881b31eea2b46408d0ee2a6e60b16f0b871097503519bd85203e1b9",
     "r1_acceptance.py": "2ef349d4e7a4594b1b2a02d7222b00393fd4d80b7998b6d3b569e761fa057577",
 }
 

@@ -346,12 +346,12 @@ SHARED_PINS = {
     # re-pinned by the F1i post-L7 repaired-release install stage task (2026-10-04): p4-lib.sh registers stage F1i (after L8p, before F1r; no repository gap), p4-stage-gate.sh binds F1i
     # to the same no-extra-field authorization rule, and p4-compare.sh adds the label `stage F1i` to the existing RELATIONAL one-release catalog allowance (behavior unchanged:
     # every release already present must stay byte-identical, exactly one named id may be added). No other stage, gate or record rule changed.
-    "p4-stage-gate.sh": "1c6c93cc7a2a8dcae47ff9500215f3732f54260840ad6ae32feb337b69f76af1",
+    "p4-stage-gate.sh": "352aeea2400d109fe235b8888250d1f91ab7e8f8a8cb44b8c4b5ec9d19093480",
     # Re-pinned by the owner-approved R1I registration (2026-10-05): additive
     # R1I stage catalog entry; existing stage behavior remains unchanged.
     # Re-pinned by the owner-approved R1A registration (2026-10-05): additive R1A stage catalog entry (after R1I, before L8), its operational-order comment and `R1A) echo none`
     # in p4_stage_gaps; p4_stage_mutates is unchanged (the existing "every stage except L0" rule). No existing stage behavior changed.
-    "p4-lib.sh": "4d04fae1ceeed33b662f76a117e07b0446e4a2295b281a5029264a5fcbfa337d",
+    "p4-lib.sh": "0e4017fe2c168f2adafcb72c8070961cca1a41171a058e78a22bd9eb57b8297c",
     # re-pinned by the SAFE_STOPPED governed-successor task (2026-10-03): ONE additive, task-specific catalog DNSMASQ_SAFE_STOPPED_POST; no existing catalog changed
     "p4-compare.sh": "75d0a0dc0e4d529ed39bf2929cd3c54a9ef7a8a4eb8d643725af1d61862f6294",
     "p4-l0-capture.sh": "e5d82dc5959dbcd1aa13ca0d58aa15ed5375a77e918be9a1ec2a8a2ac740a61b",
@@ -395,7 +395,7 @@ def test_the_new_package_has_exactly_the_frozen_file_set() -> None:
 
 
 def test_no_new_l_number_stage_was_invented() -> None:
-    assert (DEPLOY / "p4-lib.sh").read_text().count('readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv L8 L9"') == 1
+    assert (DEPLOY / "p4-lib.sh").read_text().count('readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv Recovery L8 L9"') == 1
     assert not (DEPLOY / "stages" / "L10").exists() and not (DEPLOY / "stages" / "L4b").exists()
 
 
