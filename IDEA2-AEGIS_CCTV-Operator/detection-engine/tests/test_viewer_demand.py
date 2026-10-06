@@ -173,6 +173,69 @@ class ViewerDemandTests(unittest.TestCase):
                 (0, 157, 255),
             )
 
+    def test_strict_archive_uses_the_same_aligned_box_renderer_as_live(self):
+        frames = queue.Queue(maxsize=1)
+
+        def fake_rectangle(image, first, _second, color, _thickness):
+            image[first[1], first[0]] = color
+            return image
+
+        with (
+            patch.object(stream_hub_module.cv2, "FONT_HERSHEY_SIMPLEX", 0, create=True),
+            patch.object(stream_hub_module.cv2, "FILLED", -1, create=True),
+            patch.object(stream_hub_module.cv2, "LINE_AA", 16, create=True),
+            patch.object(
+                stream_hub_module.cv2,
+                "rectangle",
+                side_effect=fake_rectangle,
+                create=True,
+            ),
+            patch.object(
+                stream_hub_module.cv2,
+                "getTextSize",
+                return_value=((40, 10), 2),
+                create=True,
+            ),
+            patch.object(
+                stream_hub_module.cv2,
+                "putText",
+                side_effect=lambda image, *_args, **_kwargs: image,
+                create=True,
+            ),
+        ):
+            recorder = SegmentRecorder(
+                EngineConfig(capture_on_demand=True),
+                MetricsRegistry(),
+                frames,
+                on_segment=lambda _info: None,
+                recording_authority=object(),
+            )
+            source = np.zeros((120, 160, 3), dtype=np.uint8)
+            frame = Frame(seq=11, image=source, captured_at=123.0)
+            result = DetectionResult(
+                camera_id="CAM-01",
+                frame_seq=11,
+                entities=[
+                    DetectedEntity(
+                        status=DetectionStatus.UNKNOWN,
+                        confidence=91.0,
+                        bbox=(30, 20, 60, 70),
+                    )
+                ],
+                processing_ms=4.0,
+            )
+
+            self.assertTrue(recorder.submit_detection(result, frame))
+            annotated = frames.get_nowait()
+
+            self.assertEqual(annotated.seq, frame.seq)
+            self.assertIsNot(annotated.image, source)
+            self.assertFalse(source.any(), "Archive rendering mutated the raw inference frame")
+            self.assertTupleEqual(
+                tuple(int(v) for v in annotated.image[20, 30]),
+                (0, 157, 255),
+            )
+
     def test_stream_does_not_annotate_without_a_viewer(self):
         frames = queue.Queue(maxsize=1)
         with patch.object(
