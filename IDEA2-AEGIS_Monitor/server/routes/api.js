@@ -19,7 +19,7 @@ import {
 } from '../auth/session.js'
 import { checkLock, recordFailure, recordSuccess } from '../auth/rateLimit.js'
 import { getMenuForRole, ROLES } from '../rbac/permissions.js'
-import { requireAuth } from '../middleware/requireRole.js'
+import { requireAuth, requireRole } from '../middleware/requireRole.js'
 import {
   getVisibleCameras,
   canSeeCamera,
@@ -31,6 +31,7 @@ import {
 } from '../db/connection.js'
 import * as store from '../db/store.js'
 import { createUpstreamLifecycle, waitForDrainOrClose } from '../streamLifecycle.js'
+import { passiveLiveRegistry } from '../passiveLiveRegistry.js'
 import {
   createProducerLifecycle,
   STREAM_REVALIDATE_MS as PRODUCER_REVALIDATE_MS,
@@ -490,6 +491,98 @@ apiRouter.get('/cameras', requireAuth, async (req, res, next) => {
   }
 })
 
+// SOC only observes already-active demanding Operator routes. These paths do
+// not resolve an Engine URL, acquire a demand or write producer authority.
+async function liveSocUser(req) {
+  const cached = currentUser(req)
+  if (cached?.role !== ROLES.SOC || cached.id == null) return null
+  const live = await getUserById(cached.id)
+  return live?.active === true
+    && live?.role === ROLES.SOC
+    && String(live.id) === String(cached.id)
+    && live.username === cached.username
+    && !live.mustResetPassword ? live : null
+}
+
+apiRouter.get('/live/active-views', requireRole(ROLES.SOC), async (req, res, next) => {
+  try {
+    const user = await liveSocUser(req)
+    if (!user) return res.status(403).json({ error: 'Live view unavailable' })
+    const cameras = await getVisibleCameras(user)
+    const byId = new Map(cameras.map(camera => [camera.id, camera]))
+    const views = passiveLiveRegistry.list().filter(view => byId.has(view.cameraId))
+      .map(view => ({ ...view, cameraName: byId.get(view.cameraId).name }))
+    res.setHeader('Cache-Control', 'no-store')
+    res.json({ views })
+  } catch (error) { next(error) }
+})
+
+apiRouter.get('/live/active-views/:viewId/detections', requireRole(ROLES.SOC), async (req, res, next) => {
+  try {
+    const user = await liveSocUser(req)
+    if (!user) return res.status(403).json({ error: 'Live view unavailable' })
+    const source = passiveLiveRegistry.get(req.params.viewId)
+    if (!source?.active || !(await canSeeCamera(user, source.logicalCameraId)) || !source.active) {
+      return res.status(404).json({ error: 'Live view unavailable' })
+    }
+    const detections = await store.listDetectionsForPhysicalView({
+      cameraId: source.logicalCameraId,
+      physicalCameraId: source.physicalCameraId,
+      producerGeneration: source.producerGeneration,
+      nodeId: source.nodeId,
+    })
+    if (!source.active) return res.status(404).json({ error: 'Live view unavailable' })
+    res.setHeader('Cache-Control', 'no-store')
+    res.json({ detections })
+  } catch (error) { next(error) }
+})
+
+apiRouter.get('/live/active-views/:viewId/stream', requireRole(ROLES.SOC), async (req, res, next) => {
+  try {
+    const user = await liveSocUser(req)
+    if (!user) return res.status(403).json({ error: 'Live view unavailable' })
+    const source = passiveLiveRegistry.get(req.params.viewId)
+    if (!source?.active) return res.status(404).json({ error: 'Live view unavailable' })
+    if (!(await canSeeCamera(user, source.logicalCameraId)) || !source.active) {
+      return res.status(404).json({ error: 'Live view unavailable' })
+    }
+    if (!source.subscribe(res)) return res.status(503).json({ error: 'Live view unavailable' })
+    res.status(200)
+    res.setHeader('Content-Type', source.contentType)
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('X-Accel-Buffering', 'no')
+    res.flushHeaders?.()
+
+    let timer = null
+    let stopped = false
+    const stop = () => {
+      if (stopped) return
+      stopped = true
+      clearTimeout(timer)
+      // Closing a passive response only removes this subscriber.
+      source.subscribers.forEach(viewer => {
+        if (viewer.response === res) viewer.close()
+      })
+    }
+    res.once('close', stop)
+    const revalidate = async () => {
+      try {
+        await new Promise((resolve, reject) => {
+          if (!req.session?.reload) return reject(new Error('session ended'))
+          req.session.reload(error => error ? reject(error) : resolve())
+        })
+        if (stopped || !source.active) return stop()
+        const user = await liveSocUser(req)
+        if (!user || !(await canSeeCamera(user, source.logicalCameraId))) return stop()
+        if (stopped || !source.active) return stop()
+        timer = setTimeout(revalidate, STREAM_REVALIDATE_MS)
+      } catch { stop() }
+    }
+    timer = setTimeout(revalidate, STREAM_REVALIDATE_MS)
+  } catch (error) { next(error) }
+})
+
 // ── Live MJPEG proxy ─────────────────────────────────────────────────────
 // GET /api/cameras/:id/stream — เบราว์เซอร์ต่อมาที่ origin ของ Monitor เท่านั้น
 // ไม่เคยต่อตรงไปหา Detection Engine (engine อยู่ VLAN 20 และถือ API key ที่ client
@@ -512,6 +605,7 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
   let hasReceivedStreamData = false
   let revalidateTimer = null
   let revalidation = Promise.resolve()
+  let passiveSource = null
   const abort = () => lifecycle?.abort()
   try {
     let src
@@ -546,6 +640,11 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
         throw error
       }
     } else {
+      // SOC must never fall through the logical heartbeat compatibility path.
+      // Only the read-only active-view endpoint may serve an SOC browser.
+      if (liveRouteUser.role === ROLES.SOC) {
+        return res.status(403).json({ error: 'SOC_PASSIVE_VIEW_REQUIRED' })
+      }
       // Compatibility path while the rollout switch remains false. This path
       // keeps the existing camera_assignment and logical-heartbeat behavior.
       if (!(await canSeeCamera(liveRouteUser, cameraId))) {
@@ -564,6 +663,7 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     // — ถ้าไม่ทำ socket ไปหา engine จะค้างไว้ตลอดกาลและ engine จะนับ viewer ค้าง
     const ctrl = new AbortController()
     lifecycle = createUpstreamLifecycle(ctrl)
+    ctrl.signal.addEventListener('abort', () => passiveSource?.close(), { once: true })
     res.once('close', abort)
     if (res.destroyed) abort()
 
@@ -667,9 +767,20 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     lifecycle.attachReader(reader)
     if (lifecycle.closed) return
 
+    const upstreamContentType = upstream.headers.get('content-type') ?? 'multipart/x-mixed-replace'
+    if (strictOperator) {
+      passiveSource = passiveLiveRegistry.register({
+        logicalCameraId: demandHandle.logicalCameraId,
+        nodeId: demandHandle.nodeId,
+        physicalCameraId: demandHandle.physicalCameraId,
+        producerGeneration: demandHandle.producerGeneration,
+        contentType: upstreamContentType,
+      })
+    }
+
     // ส่งต่อ content-type พร้อม boundary เดิม — <img> ฝั่งเบราว์เซอร์อ่านตรงนี้
     res.status(200)
-    res.setHeader('Content-Type', upstream.headers.get('content-type') ?? 'multipart/x-mixed-replace')
+    res.setHeader('Content-Type', upstreamContentType)
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('Pragma', 'no-cache')
     res.setHeader('X-Accel-Buffering', 'no') // ห้าม proxy ชั้นใดบัฟเฟอร์สตรีมสด
@@ -696,6 +807,7 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
         if (value?.byteLength > 0) {
           hasReceivedStreamData = true
           armWatchdog() // เริ่ม steady-state timer หลังข้อมูลจริงเท่านั้น
+          passiveSource?.publish(value)
         }
         // เขียนไม่ทัน (client ช้า) → รอ backpressure แทนที่จะกองใน memory
         if (!res.write(Buffer.from(value))) {
@@ -716,6 +828,7 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
     clearTimeout(idleTimer)
     clearTimeout(revalidateTimer)
     abort()
+    passiveSource?.close()
     res.off('close', abort)
     // A pending renewal must finish before release, never resurrecting a
     // demand after cleanup. The DB lease bounds a failed cleanup attempt.
@@ -761,7 +874,6 @@ apiRouter.get('/cameras/:id', requireAuth, async (req, res, next) => {
 // ════ Data endpoints (Phase 2) ═══════════════════════════════════════
 // ⚠️ ทุกตัว: (1) requireAuth (2) ตรวจ role (3) สำหรับ Operator — ข้อมูลถูกกรอง
 //    ผ่าน camera_assignment "ฝั่งเซิร์ฟเวอร์" เสมอ — ห้ามเชื่อ filter จาก client
-import { requireRole } from '../middleware/requireRole.js'
 /** เซ็ตกล้องที่ผู้เรียกเห็นได้ — ทุก endpoint ข้อมูลเรียกตัวนี้ก่อนเสมอ */
 async function visibleIdsOf(user) {
   const cams = await getVisibleCameras(user)

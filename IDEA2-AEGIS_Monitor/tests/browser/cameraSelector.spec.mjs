@@ -75,18 +75,16 @@ test('empty assignment is safe and creates no viewer', async ({ page, request })
   expect((await stats(request)).opened).toEqual([])
 })
 
-test('SOC leaving Live cancels both main and thumbnail retries', async ({ page, request }) => {
+test('SOC leaving Live cancels its passive-stream retry', async ({ page, request }) => {
   await request.post('/__fixture/reset?scenario=soc-error')
   await page.goto('/monitor/', { waitUntil: 'domcontentloaded' })
   await expect(page.getByText('Stream interrupted — reconnecting…')).toBeVisible()
-  await card(page, second).click()
-  await expect.poll(async () => (await stats(request)).active).toEqual(['CAM-02'])
   await page.getByRole('button', { name: 'Settings', exact: true }).last().click()
   await expect.poll(async () => (await stats(request)).active).toEqual([])
-  const entryRequests = (await stats(request)).opened.filter(id => id === 'entry-z').length
+  const attempts = (await stats(request)).opened.filter(id => id === 'passive:opaque-view-a').length
   // Deliberately cross the existing 2s retry deadline, not just React teardown.
   await page.waitForTimeout(2400)
-  expect((await stats(request)).opened.filter(id => id === 'entry-z')).toHaveLength(entryRequests)
+  expect((await stats(request)).opened.filter(id => id === 'passive:opaque-view-a')).toHaveLength(attempts)
 })
 
 test('server availability loss unmounts the current viewer', async ({ page, request }) => {
@@ -146,16 +144,17 @@ test('desktop selector has three live preview columns below the main feed', asyn
   await page.screenshot({ path: info.outputPath('selector-three-columns.png'), fullPage: true })
 })
 
-test('SOC with two server cameras gets two working choices, not a fabricated third camera', async ({ page, request }) => {
-  await request.post('/__fixture/reset?scenario=two-cameras')
+test('SOC gets only two current Operator sources and view-scoped detection context', async ({ page, request }) => {
+  await request.post('/__fixture/reset?scenario=soc-passive')
   await page.goto('/monitor/', { waitUntil: 'domcontentloaded' })
   await expect(page.locator('.camera-option')).toHaveCount(2)
   await expect(page.getByText('Test SOC', { exact: true })).toBeVisible()
-  await card(page, second).click()
-  await expect(page.locator('.hero .hchip').first()).toContainText('CAM-02 · Test parking')
-  await expect(page.locator('.acpanel')).toContainText('Fixture Bob')
-  await expect(page.locator('.streampanel')).toContainText('Fixture Bob')
-  await expect.poll(() => activeIds(request)).toEqual(normalStreams)
+  await page.getByRole('button', { name: /CAM-01.*machine-b/i }).click()
+  await expect(page.locator('.hero .hchip').first()).toContainText('CAM-01 · Test main entrance · machine-b')
+  await expect(page.locator('.acpanel')).toContainText('Machine B person')
+  await expect(page.locator('.streampanel')).toContainText('Machine B person')
+  await expect(page.locator('.canvasR')).not.toContainText('Machine A person')
+  await expect.poll(() => activeIds(request)).toEqual(['passive:opaque-view-b'])
 })
 
 for (const width of [360, 768, 1024, 1440]) {
@@ -189,21 +188,15 @@ for (const width of [360, 768, 1024, 1440]) {
   })
 }
 
-test('paging bounds demand to three cameras and releases every old-page viewer', async ({ page, request }) => {
-  await request.post('/__fixture/reset?scenario=soc-all-streams')
+test('SOC passive selector opens no thumbnail viewers and releases the old selection', async ({ page, request }) => {
+  await request.post('/__fixture/reset?scenario=soc-passive')
   await page.goto('/monitor/', { waitUntil: 'domcontentloaded' })
-  await expect.poll(() => activeIds(request)).toEqual(['CAM-02', 'entry-z', 'offline-7'])
-  await expect(page.locator('.camera-preview img')).toHaveCount(2)
-  await expect(card(page, first).locator('canvas')).toHaveCount(1)
-  expect((await stats(request)).opened).not.toContain('extra-8')
-  await page.getByRole('button', { name: 'Next cameras' }).click()
-  await expect.poll(() => activeIds(request)).toEqual(['extra-8'])
-  await expect(page.locator('.camera-option')).toHaveCount(1)
-  await expect(page.locator('.hero .hchip').first()).toContainText('extra-8')
-  await expect(page.locator('.canvasR')).toContainText('No recent detection')
-  for (const id of ['CAM-02', 'entry-z', 'offline-7']) expect((await stats(request)).closed).toContain(id)
-  await page.getByRole('button', { name: 'Previous cameras' }).click()
-  await expect.poll(() => activeIds(request)).toEqual(['CAM-02', 'entry-z', 'offline-7'])
+  await expect.poll(() => activeIds(request)).toEqual(['passive:opaque-view-a'])
+  await expect(page.locator('.camera-preview img')).toHaveCount(0)
+  await page.getByRole('button', { name: /CAM-01.*machine-b/i }).click()
+  await expect.poll(() => activeIds(request)).toEqual(['passive:opaque-view-b'])
+  expect((await stats(request)).closed).toContain('passive:opaque-view-a')
+  expect((await stats(request)).opened.every(id => id.startsWith('passive:'))).toBe(true)
   await page.getByRole('button', { name: 'Settings', exact: true }).last().click()
   await expect.poll(() => activeIds(request)).toEqual([])
 })

@@ -23,7 +23,7 @@ let opened = []
 let closed = []
 const active = new Map()
 let counter = 0
-const socScenario = () => ['two-cameras', 'soc-error', 'soc-all-streams'].includes(scenario)
+const socScenario = () => ['two-cameras', 'soc-error', 'soc-all-streams', 'soc-passive', 'soc-idle'].includes(scenario)
 const assigned = () => scenario === 'empty' ? []
   : ['single-camera', 'no-live-menu'].includes(scenario) ? allCameras.slice(0, 1)
   : scenario === 'single-camera-2' ? allCameras.slice(1, 2)
@@ -96,6 +96,17 @@ function handler(req, res, next) {
   if (expired) return json(res, { error: 'Unauthenticated' }, 401)
   if (path === '/api/me') return json(res, fixtureSession())
   if (path === '/api/cameras') return json(res, { cameras: assigned() })
+  if (path === '/api/live/active-views') return json(res, { views: scenario === 'soc-idle' ? []
+    : ['soc-passive', 'soc-error'].includes(scenario) ? [
+      { viewId: 'opaque-view-a', cameraId: 'CAM-01', cameraName: 'Test main entrance', nodeId: 'machine-a', active: true },
+      ...(scenario === 'soc-passive' ? [
+        { viewId: 'opaque-view-b', cameraId: 'CAM-01', cameraName: 'Test main entrance', nodeId: 'machine-b', active: true },
+      ] : []),
+    ] : [] })
+  const passiveDetection = path.match(/^\/api\/live\/active-views\/(opaque-view-[ab])\/detections$/)
+  if (passiveDetection) return json(res, { detections: [{ id: `event-${passiveDetection[1]}`,
+    cam: 'CAM-01', at: Date.now(), people: [{ k: 'auth',
+      name: passiveDetection[1] === 'opaque-view-a' ? 'Machine A person' : 'Machine B person', conf: 97 }] }] })
   if (path === '/api/link') return json(res, {
     status: 'online', lastFrameAt: Date.now(),
     cameras: assigned().map((camera, i) => ({
@@ -112,14 +123,17 @@ function handler(req, res, next) {
     // Deliberately hostile response verifies the view never leaks other context.
     { id: 'event-hidden', cam: 'restricted-9', at: Date.now(), people: [{ k: 'auth', name: 'Hidden Person', conf: 99 }] },
   ] })
+  const passiveStream = path.match(/^\/api\/live\/active-views\/(opaque-view-[ab])\/stream$/)
   const match = path.match(/^\/api\/cameras\/([^/]+)\/stream$/)
-  if (match) {
-    const id = decodeURIComponent(match[1])
-    if (!assigned().some(camera => camera.id === id)) return json(res, { error: 'Forbidden' }, 403)
-    opened.push(id)
+  if (match && socScenario()) return json(res, { error: 'SOC_PASSIVE_VIEW_REQUIRED' }, 403)
+  if (passiveStream || match) {
+    const id = passiveStream ? 'entry-z' : decodeURIComponent(match[1])
+    if (!passiveStream && !assigned().some(camera => camera.id === id)) return json(res, { error: 'Forbidden' }, 403)
+    const streamId = passiveStream ? `passive:${passiveStream[1]}` : id
+    opened.push(streamId)
     if (['error', 'soc-error'].includes(scenario) && id === 'entry-z') return json(res, { error: 'Fixture failure' }, 503)
     const key = ++counter
-    active.set(key, { id, response: res })
+    active.set(key, { id: streamId, response: res })
     res.writeHead(200, {
       'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
       'Cache-Control': 'no-store',
@@ -132,7 +146,7 @@ function handler(req, res, next) {
     }
     frame()
     const timer = setInterval(frame, 100)
-    res.on('close', () => { clearInterval(timer); active.delete(key); closed.push(id) })
+    res.on('close', () => { clearInterval(timer); active.delete(key); closed.push(streamId) })
     return
   }
   return json(res, {})

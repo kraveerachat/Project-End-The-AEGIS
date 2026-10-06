@@ -628,6 +628,35 @@ export async function listDetections(visibleIds, limit = 40) {
       LIMIT $2`,
     [ids, limit * 8], // over-fetch: หลายแถว = หนึ่งเฟรม แล้วค่อยตัดเป็น limit เฟรม
   )
+  return detectionFrames(rows, limit)
+}
+
+/** View-scoped SOC projection. Physical/generation/Node stay server-internal. */
+export async function listDetectionsForPhysicalView(
+  { cameraId, physicalCameraId, producerGeneration, nodeId },
+  { executeQuery = query, postgresEnabled = usingPostgres, limit = 40 } = {},
+) {
+  if (!postgresEnabled) return []
+  const { rows } = await executeQuery(
+    `SELECT d.frame_id, d.camera_id,
+            EXTRACT(EPOCH FROM d.at) * 1000 AS at_ms,
+            d.result, d.matched_name, d.confidence, d.synced_to_nas
+       FROM detections d
+       JOIN camera_producer_epochs epoch
+         ON epoch.producer_generation = d.producer_generation
+        AND epoch.physical_camera_id = d.physical_camera_id
+      WHERE d.camera_id = $1
+        AND d.physical_camera_id = $2
+        AND d.producer_generation = $3::bigint
+        AND epoch.node_id = $4
+      ORDER BY d.at DESC, d.id DESC
+      LIMIT $5`,
+    [cameraId, physicalCameraId, producerGeneration, nodeId, limit * 8],
+  )
+  return detectionFrames(rows, limit)
+}
+
+function detectionFrames(rows, limit) {
   const byFrame = new Map()
   for (const r of rows) {
     let f = byFrame.get(r.frame_id)
