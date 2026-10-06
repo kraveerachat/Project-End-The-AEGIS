@@ -784,44 +784,83 @@ export async function ackAlert(id, user) {
   return exist.length ? { id: String(id) } : null
 }
 
-// ── clips — option A: ไม่มี segs (engine ไม่ผลิต segment-level heat) และไม่มี live clip
-//    คลิปโผล่เฉพาะที่ finalize + verified บน NAS แล้ว (nas_sync เขียนหลัง verify)
-//    kind ('auth'|'unknown') ได้จากการเช็คว่ามี detection ผล 'Unknown' ในช่วงเวลาคลิปไหม
+// ── clips — verified Archive rows only; result classification is derived from
+//    detection evidence inside the exact clip interval. Strict clips require the
+//    same logical camera, physical camera and producer generation so same-alias
+//    recordings on different Nodes/generations can never contaminate each other.
 export async function listClips(visibleIds) {
   if (!usingPostgres) return []
   const ids = [...visibleIds]
   if (ids.length === 0) return []
   const { rows } = await query(
-    `SELECT c.id, c.camera_id, c.producer_generation,
+    `SELECT c.id, c.camera_id, c.physical_camera_id, c.producer_generation,
+            pc.node_id,
             EXTRACT(EPOCH FROM c.started_at) * 1000 AS start_ms,
             c.duration_sec, c.stored_on_nas,
-            CASE WHEN c.producer_generation IS NOT NULL THEN NULL ELSE EXISTS (
-              SELECT 1 FROM detections d
-               WHERE d.camera_id = c.camera_id
-                 AND d.result = 'Unknown'
-                 AND d.at >= c.started_at
-                 AND d.at < c.started_at + make_interval(secs => c.duration_sec)
-            ) END AS has_unknown
+            CASE
+              WHEN c.producer_generation IS NOT NULL THEN EXISTS (
+                SELECT 1 FROM detections d
+                 WHERE d.camera_id = c.camera_id
+                   AND d.physical_camera_id = c.physical_camera_id
+                   AND d.producer_generation = c.producer_generation
+                   AND d.result = 'Unknown'
+                   AND d.at >= c.started_at
+                   AND d.at < c.started_at + make_interval(secs => c.duration_sec)
+              )
+              ELSE EXISTS (
+                SELECT 1 FROM detections d
+                 WHERE d.camera_id = c.camera_id
+                   AND d.result = 'Unknown'
+                   AND d.at >= c.started_at
+                   AND d.at < c.started_at + make_interval(secs => c.duration_sec)
+              )
+            END AS has_unknown,
+            CASE
+              WHEN c.producer_generation IS NOT NULL THEN EXISTS (
+                SELECT 1 FROM detections d
+                 WHERE d.camera_id = c.camera_id
+                   AND d.physical_camera_id = c.physical_camera_id
+                   AND d.producer_generation = c.producer_generation
+                   AND d.result = 'Authorized'
+                   AND d.at >= c.started_at
+                   AND d.at < c.started_at + make_interval(secs => c.duration_sec)
+              )
+              ELSE EXISTS (
+                SELECT 1 FROM detections d
+                 WHERE d.camera_id = c.camera_id
+                   AND d.result = 'Authorized'
+                   AND d.at >= c.started_at
+                   AND d.at < c.started_at + make_interval(secs => c.duration_sec)
+              )
+            END AS has_authorized
        FROM clips c
+  LEFT JOIN physical_cameras pc
+         ON pc.physical_camera_id = c.physical_camera_id
       WHERE c.camera_id = ANY($1)
         AND c.stored_on_nas = TRUE
       ORDER BY c.started_at DESC
       LIMIT 60`,
     [ids],
   )
-  return rows.map((r) => ({
-    id: String(r.id),
-    cam: r.camera_id,
-    // Current detection rows lack authenticated alias/generation context, so
-    // a new attributed clip cannot truthfully claim Authorized or Unknown.
-    // Preserve the pre-existing legacy classification for historical clips.
-    kind: r.producer_generation != null ? 'unavailable' : r.has_unknown ? 'unknown' : 'auth',
-    live: false,
-    start: Math.round(Number(r.start_ms)),
-    durationSec: r.duration_sec,
-    storedOnNas: r.stored_on_nas,
-    segs: [], // option A: ไม่มี segment-level heat จาก engine
-  }))
+  return rows.map((r) => {
+    const hasUnknown = r.has_unknown === true
+    const hasAuthorized = r.has_authorized === true
+    return {
+      id: String(r.id),
+      cam: r.camera_id,
+      nodeId: r.node_id ?? null,
+      physicalCameraId: r.physical_camera_id == null ? null : String(r.physical_camera_id),
+      producerGeneration: r.producer_generation == null ? null : String(r.producer_generation),
+      kind: hasUnknown ? 'unknown' : hasAuthorized ? 'auth' : 'unavailable',
+      hasUnknown,
+      hasAuthorized,
+      live: false,
+      start: Math.round(Number(r.start_ms)),
+      durationSec: r.duration_sec,
+      storedOnNas: r.stored_on_nas,
+      segs: [],
+    }
+  })
 }
 
 /** clip เดียว "พร้อม file_path" — ใช้โดย route เล่นวิดีโอเท่านั้น (listClips ข้างบน
