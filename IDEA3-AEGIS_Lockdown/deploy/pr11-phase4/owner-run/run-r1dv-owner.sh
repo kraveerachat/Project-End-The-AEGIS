@@ -191,7 +191,8 @@ compare() {  # compare BEFORE AFTER OUTFILE — NO allowed drift for R1Dv: every
   for l in FINDINGS_NEW_OR_WORSENED_DRIFT=0 FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0 FINDINGS_INCOMPARABLE=0 FINDINGS_APPROVED_CHANGE=0 PRESERVATION_S10=PASS COMPARE_RESULT=PASS; do
     grep -qx "$l" "$3" || { echo "COMPARE_REQUIREMENT_FAILED: $l"; return 1; }; done; }
 # TrustedClock evidence must be AVAILABLE (a probe that cannot run records UNAVAILABLE, which the comparator correctly refuses as INCOMPARABLE): exactly one record whose value is a real state, in BOTH captures.
-clock_available() { awk -F'\t' '$1=="time.trustedclock.state" {n++; v=$2} END{exit (n==1 && v!="" && v!="UNAVAILABLE" && v!="NOT_RECORDED") ? 0 : 1}' "$1/time.tsv"; }
+# Evidence is AVAILABLE only when exactly ONE record carries an actually evaluated state. UNKNOWN (p4-l5-clock.py: PROBE_UNAVAILABLE), UNAVAILABLE, NOT_RECORDED, empty, missing, duplicate and any other value are refused.
+clock_available() { awk -F'\t' '$1=="time.trustedclock.state" {n++; v=$2} END{exit (n==1 && (v=="SYNCED" || v=="HOLDOVER" || v=="UNTRUSTED")) ? 0 : 1}' "$1/time.tsv"; }
 # The handlers run as ROOT and are READ-ONLY observers (BASELINE, FINAL). They have no marker, no socket, no caller and no DISPOSE step.
 handler() {
   control_gate || return 1   # root never executes a handler whose control snapshot drifted

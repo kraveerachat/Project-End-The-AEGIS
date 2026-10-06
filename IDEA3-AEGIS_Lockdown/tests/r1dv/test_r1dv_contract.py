@@ -358,15 +358,47 @@ def test_the_snapshot_repair_does_not_weaken_the_comparator_or_allowlists() -> N
             assert not any("trustedclock" in ln.lower() for ln in active) and active == [], (stage, name)
 
 
-def test_the_runner_treats_unavailable_trustedclock_evidence_as_a_failure_not_as_comparable(tmp_path: Path) -> None:
-    fn = re.search(r"^clock_available\(\) \{.*\}$", RUNNER.read_text(), re.M).group(0)
-    for state, ok in (("SYNCED", True), ("UNSYNCED", True), ("UNTRUSTED", True), ("UNAVAILABLE", False), ("NOT_RECORDED", False), ("", False)):
-        (tmp_path / "time.tsv").write_text(f"time.trustedclock.state\t{state}\n")
-        assert (subprocess.run(["bash", "-c", f'{fn}\nclock_available "{tmp_path}"']).returncode == 0) is ok, state
-    (tmp_path / "time.tsv").write_text("time.other\tx\n")
-    assert subprocess.run(["bash", "-c", f'{fn}\nclock_available "{tmp_path}"']).returncode != 0  # a missing key is not evidence
-    (tmp_path / "time.tsv").write_text("time.trustedclock.state\tSYNCED\ntime.trustedclock.state\tSYNCED\n")
-    assert subprocess.run(["bash", "-c", f'{fn}\nclock_available "{tmp_path}"']).returncode != 0  # a duplicated key is ambiguous
+def clock_fn() -> str:
+    return re.search(r"^clock_available\(\) \{.*\}$", RUNNER.read_text(), re.M).group(0)
+
+
+def clock_ok(tmp_path: Path, rows: str) -> bool:
+    (tmp_path / "time.tsv").write_text(rows)
+    return subprocess.run(["bash", "-c", f'{clock_fn()}\nclock_available "{tmp_path}"']).returncode == 0
+
+
+@pytest.mark.parametrize("state,ok", [("SYNCED", True), ("HOLDOVER", True), ("UNTRUSTED", True), ("UNKNOWN", False), ("UNAVAILABLE", False), ("NOT_RECORDED", False), ("", False), ("synced", False), ("BOGUS", False)])
+def test_only_an_evaluated_trustedclock_state_is_available_evidence(tmp_path: Path, state: str, ok: bool) -> None:
+    assert clock_ok(tmp_path, f"time.trustedclock.state\t{state}\n") is ok, state
+
+
+def test_a_missing_or_duplicated_trustedclock_record_is_not_evidence(tmp_path: Path) -> None:
+    assert clock_ok(tmp_path, "time.other\tx\n") is False
+    assert clock_ok(tmp_path, "") is False
+    assert clock_ok(tmp_path, "time.trustedclock.state\tSYNCED\ntime.trustedclock.state\tSYNCED\n") is False
+
+
+def test_an_unavailable_probe_is_recorded_as_unknown_and_the_r1dv_gate_refuses_it(tmp_path: Path, capsys) -> None:
+    """The real failure mode: p4-l5-clock.py `state` with an unavailable kernel probe prints state=UNKNOWN reason=PROBE_UNAVAILABLE and p4-l0-capture records only the parsed state. Hermetic: the probe is
+    stubbed in-process and the fixture CLI is used; the live clock is never touched."""
+    clock = load(P4 / "p4-l5-clock.py", "p4_l5_clock_hermetic")
+    clock.adjtimex_raw = lambda: None  # kernel probe unavailable
+    assert clock.main(["state"]) == 0
+    line = capsys.readouterr().out.splitlines()[0]
+    assert line.startswith("state=UNKNOWN reason=PROBE_UNAVAILABLE"), line
+    fixture = subprocess.run([sys.executable, str(P4 / "p4-l5-clock.py"), "probe", "--fixture-probe", "none"], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+    assert fixture.stdout.startswith("state=UNKNOWN reason=PROBE_UNAVAILABLE"), fixture.stdout
+    parsed = subprocess.run(["sed", "-n", r"s/^state=\([A-Z]*\) .*/\1/p"], input=line + "\n", capture_output=True, text=True).stdout.strip()  # exactly the sed p4-l0-capture.sh applies
+    assert parsed == "UNKNOWN" and "sed -n 's/^state=\\([A-Z]*\\) .*/\\1/p'" in (P4 / "p4-l0-capture.sh").read_text()
+    assert clock_ok(tmp_path, f"time.trustedclock.state\t{parsed}\n") is False  # evidence unavailable -> R1Dv refuses
+
+
+def test_the_clock_gate_fix_does_not_touch_the_comparator_the_allowlists_or_historical_r1d() -> None:
+    for stage in ("R1D", "R1Dv"):
+        active = [ln for ln in (P4 / "stages" / stage / "allow-keys.txt").read_text().splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+        assert active == [], stage
+    assert not any("UNKNOWN" in ln for ln in (P4 / "p4-compare.sh").read_text().splitlines() if "trustedclock" in ln)
+    assert "UNKNOWN" not in "\n".join(l for l in (P4 / "owner-run/run-r1d-owner.sh").read_text().splitlines() if "clock_available" in l)
 
 
 # ---------------------------------------------------------------- end to end: real handlers + real snapshot + real read-only observer

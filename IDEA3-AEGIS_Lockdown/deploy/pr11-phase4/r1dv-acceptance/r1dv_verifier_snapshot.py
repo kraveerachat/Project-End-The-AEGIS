@@ -2,7 +2,7 @@
 """R1DV verifier-authority tooling (repository tooling; authorises nothing live, touches no Production).
 
 Root executes the R1 acceptance verifier during a LIVE R1DV attempt, so it must never run from mutable application bytes. This tool computes the COMPLETE local import closure of
-``aegis_soc.r1_acceptance`` (every ``aegis_soc`` module whose code can affect R1 acceptance semantics, found by walking the AST of each module for import statements at any depth), writes a
+the R1Dv entry points ``aegis_soc.historical_validation`` and ``aegis_soc.trusted_time`` (every ``aegis_soc`` module whose code can affect R1 acceptance semantics, found by walking the AST of each module for import statements at any depth), writes a
 manifest of SHA-256 digests, and builds an immutable (read-only) snapshot of exactly that closure OUTSIDE the mutable worktree. The frozen runner pins the manifest digest and executes
 BASELINE and FINAL only from that snapshot, re-proving it immediately before each use.
 
