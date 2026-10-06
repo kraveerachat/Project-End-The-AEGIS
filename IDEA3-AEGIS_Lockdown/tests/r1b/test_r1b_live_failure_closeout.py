@@ -73,13 +73,15 @@ def test_current_state_documentation_no_longer_says_r1b_has_not_run() -> None:
     assert "historical PRE-LIVE snapshot" in status[i:i + 400] and "NOT current" in status[i:i + 900]
     readme = (base.P4 / "README.md").read_text()
     assert "## 21. Stage R1B — LIVE outcome" in readme and "R1Bv (required and authorized; REPOSITORY_IMPLEMENTED by section 22, LIVE NOT RUN)" in readme
-    assert not re.search(r"R1Bv.{0,40}(LIVE=CLOSED_PASS|RESULT=PASS)", moc + status)
+    # an R1Bv PASS statement is legitimate ONLY once the unique R1Bv LIVE closeout receipt exists (it was a forbidden claim at the time of the R1B failure closeout)
+    if re.search(r"R1Bv.{0,40}(LIVE=CLOSED_PASS|RESULT=PASS)", moc + status):
+        assert len(list((REPO / LOGS).glob("*_music_idea3-r1bv-live-closeout.md"))) == 1
 
 
-def test_r1bv_has_no_live_artifact_and_the_r1b_gate_stays_closed() -> None:
-    """History: PR #365 added no R1Bv. R1Bv is now IMPLEMENTED in the repository (separate suite tests/r1bv) but must have NO live closeout, authority, authorization or frozen runner."""
+def test_no_authorization_artifact_is_committed_and_the_r1b_stage_stays_registered_before_r1bv() -> None:
+    """History: PR #365 added no R1Bv; R1Bv has since run LIVE (its closeout is checked by tests/r1bv/test_r1bv_live_closeout.py). No Authorization file is ever committed."""
     p4 = base.P4
-    assert not list((REPO / LOGS).glob("*_music_idea3-r1bv-live-closeout.md")) and not list(p4.glob("**/authorization-R1Bv*"))
+    assert not list(p4.glob("**/authorization-R1Bv*"))
     assert "R1B R1Bv L8" in re.search(r'readonly P4_STAGES="([^"]*)"', (p4 / "p4-lib.sh").read_text()).group(1).replace("R1Dv ", "")
 
 
