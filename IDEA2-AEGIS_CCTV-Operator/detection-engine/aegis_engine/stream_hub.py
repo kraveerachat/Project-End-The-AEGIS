@@ -56,6 +56,67 @@ class StaleProducerGenerationError(ValueError):
     """The requested physical producer generation is no longer authoritative."""
 
 
+def annotate_detection_frame(result: DetectionResult, frame: Frame) -> Frame:
+    """Return an annotated copy using the exact Live bounding-box style.
+
+    The raw camera frame is never mutated. Archive recording can therefore
+    burn the same detector geometry into stored footage without changing
+    inference input, alert evidence, or the original capture buffer.
+    """
+    if result.frame_seq != frame.seq:
+        return frame
+
+    image = frame.image.copy()
+    height, width = image.shape[:2]
+    for entity in result.entities:
+        if entity.bbox is None or entity.status is DetectionStatus.NO_FACE:
+            continue
+        x, y, w, h = entity.bbox
+        x1 = max(0, min(int(x), width - 1))
+        y1 = max(0, min(int(y), height - 1))
+        x2 = max(x1, min(int(x + w), width - 1))
+        y2 = max(y1, min(int(y + h), height - 1))
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        color = (
+            (0, 157, 255)
+            if entity.status is DetectionStatus.UNKNOWN
+            else (255, 229, 0)
+        )
+        label = entity.display_name().upper()
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+        (text_w, text_h), baseline = cv2.getTextSize(
+            label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2
+        )
+        label_top = max(0, y1 - text_h - baseline - 6)
+        label_right = min(width - 1, x1 + text_w + 8)
+        cv2.rectangle(
+            image,
+            (x1, label_top),
+            (label_right, y1),
+            color,
+            cv2.FILLED,
+        )
+        cv2.putText(
+            image,
+            label,
+            (x1 + 4, max(text_h + 1, y1 - baseline - 3)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (20, 20, 20),
+            2,
+            cv2.LINE_AA,
+        )
+
+    return Frame(
+        seq=frame.seq,
+        image=image,
+        captured_at=frame.captured_at,
+        captured_wall=frame.captured_wall,
+    )
+
+
 class StreamHub(threading.Thread):
     def __init__(
         self,
@@ -108,57 +169,7 @@ class StreamHub(threading.Thread):
             if self._viewers == 0 or frame.captured_at <= self._viewer_started_at:
                 return
 
-        image = frame.image.copy()
-        height, width = image.shape[:2]
-        for entity in result.entities:
-            if entity.bbox is None or entity.status is DetectionStatus.NO_FACE:
-                continue
-            x, y, w, h = entity.bbox
-            x1 = max(0, min(int(x), width - 1))
-            y1 = max(0, min(int(y), height - 1))
-            x2 = max(x1, min(int(x + w), width - 1))
-            y2 = max(y1, min(int(y + h), height - 1))
-            if x2 <= x1 or y2 <= y1:
-                continue
-
-            # Placeholder recognition may only claim Unknown. Teal remains for
-            # a future recognizer that explicitly returns Authorized.
-            color = (
-                (0, 157, 255)
-                if entity.status is DetectionStatus.UNKNOWN
-                else (255, 229, 0)
-            )
-            label = entity.display_name().upper()
-            cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
-            (text_w, text_h), baseline = cv2.getTextSize(
-                label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2
-            )
-            label_top = max(0, y1 - text_h - baseline - 6)
-            label_right = min(width - 1, x1 + text_w + 8)
-            cv2.rectangle(
-                image,
-                (x1, label_top),
-                (label_right, y1),
-                color,
-                cv2.FILLED,
-            )
-            cv2.putText(
-                image,
-                label,
-                (x1 + 4, max(text_h + 1, y1 - baseline - 3)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (20, 20, 20),
-                2,
-                cv2.LINE_AA,
-            )
-
-        annotated = Frame(
-            seq=frame.seq,
-            image=image,
-            captured_at=frame.captured_at,
-            captured_wall=frame.captured_wall,
-        )
+        annotated = annotate_detection_frame(result, frame)
         with self._cond:
             # Inference/drawing may span a disconnect and a new session.
             if self._viewers == 0 or frame.captured_at <= self._viewer_started_at:
