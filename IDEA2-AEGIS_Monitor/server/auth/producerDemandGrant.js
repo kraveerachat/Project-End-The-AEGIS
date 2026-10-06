@@ -3,6 +3,22 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { CameraAccessError } from './cameraAccess.js'
 
 const fail = () => new CameraAccessError(503, 'PRODUCER_AUTHORITY_UNAVAILABLE')
+
+class ProducerSyncError extends CameraAccessError {
+  constructor(retryable) {
+    super(503, 'PRODUCER_AUTHORITY_UNAVAILABLE')
+    this.name = 'ProducerSyncError'
+    Object.defineProperty(this, 'retryable', {
+      value: retryable === true,
+      enumerable: false,
+    })
+  }
+}
+
+const syncFail = retryable => new ProducerSyncError(retryable)
+
+export const isRetryableProducerSyncError = error =>
+  error instanceof ProducerSyncError && error.retryable === true
 const keyFor = secret => createHmac('sha256', secret).update('AEGIS-demand-grant-v1-key').digest()
 const canonical = value => JSON.stringify(value, Object.keys(value).sort())
 const integer = value => Number.isSafeInteger(value)
@@ -68,26 +84,66 @@ export function mintDemandGrant({ handle, bootId, secret, nowMs = Date.now(), cl
 }
 
 export async function readEngineBoot({ url, nodeId, secret, signal, fetchImpl = fetch }) {
+  const nonce = randomBytes(32).toString('hex')
+  const startMs = Date.now()
+  let response
   try {
-    const nonce = randomBytes(32).toString('hex')
-    const startMs = Date.now()
-    const response = await fetchImpl(new URL('/producer/boot', url), {
+    response = await fetchImpl(new URL('/producer/boot', url), {
       redirect: 'error', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(500)]) : AbortSignal.timeout(500),
       headers: { 'X-Detection-Engine-Key': secret, 'X-Aegis-Clock-Nonce': nonce },
     })
-    if (!response.ok) throw fail()
-    const token = await response.text()
+  } catch {
+    // Transport failure or the bounded 500ms probe timeout may be transient.
+    // The caller still has to revalidate DB authority before retrying.
+    throw syncFail(true)
+  }
+
+  if (!response.ok) {
+    // Engine-side 4xx is an authority rejection and must not be retried.
+    // Only a server-side 5xx may be treated as transient.
+    throw syncFail(Number(response.status) >= 500)
+  }
+
+  let token
+  try {
+    token = await response.text()
+  } catch {
+    throw syncFail(true)
+  }
+
+  try {
     return verifyBootClock({ token, secret, nonce, nodeId, startMs, endMs: Date.now() })
-  } catch { throw fail() }
+  } catch {
+    // Invalid signature/node/nonce/clock evidence is never accepted via retry.
+    throw syncFail(false)
+  }
 }
 
 export async function sendDemandControl({ url, handle, boot, secret, action, signal, fetchImpl = fetch }) {
-  const token = mintDemandGrant({ handle, bootId: boot.bootId, secret, action,
-    clockUncertaintyMs: boot.uncertaintyMs })
-  const response = await fetchImpl(new URL('/producer/control', url), {
-    method: 'POST', redirect: 'error',
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(500)]) : AbortSignal.timeout(500),
-    headers: { 'X-Detection-Engine-Key': secret, 'X-Aegis-Demand-Grant': token },
-  })
-  if (!response.ok) throw fail()
+  let token
+  try {
+    token = mintDemandGrant({ handle, bootId: boot.bootId, secret, action,
+      clockUncertaintyMs: boot.uncertaintyMs })
+  } catch {
+    // A DB observation can age out of its 500ms mint window. A caller may
+    // retry only after obtaining a fresh authorization-sensitive DB renewal.
+    throw syncFail(true)
+  }
+
+  let response
+  try {
+    response = await fetchImpl(new URL('/producer/control', url), {
+      method: 'POST', redirect: 'error',
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(500)]) : AbortSignal.timeout(500),
+      headers: { 'X-Detection-Engine-Key': secret, 'X-Aegis-Demand-Grant': token },
+    })
+  } catch {
+    throw syncFail(true)
+  }
+
+  if (!response.ok) {
+    // 403/409 and every other 4xx remain immediate authority failures.
+    // Only Engine 5xx is eligible for the bounded caller retry.
+    throw syncFail(Number(response.status) >= 500)
+  }
 }

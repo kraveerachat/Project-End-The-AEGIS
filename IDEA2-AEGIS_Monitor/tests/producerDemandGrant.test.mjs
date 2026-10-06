@@ -65,3 +65,77 @@ test('DB clock exact 500ms bound is accepted and just outside rejected', () => {
   assert.ok(grant.mintDemandGrant({ ...options, handle: { ...handle, dbNowMs: now + 480 } }))
   assert.throws(() => grant.mintDemandGrant({ ...options, handle: { ...handle, dbNowMs: now + 481 } }))
 })
+
+test('producer sync classifier retries transport failure but not Engine authority rejection', async () => {
+  await assert.rejects(
+    grant.readEngineBoot({
+      url: 'http://engine.test/stream.mjpg',
+      nodeId: 'edge-node-01',
+      secret,
+      fetchImpl: async () => { throw new Error('transient network failure') },
+    }),
+    error => {
+      assert.equal(error.code, 'PRODUCER_AUTHORITY_UNAVAILABLE')
+      assert.equal(grant.isRetryableProducerSyncError(error), true)
+      return true
+    },
+  )
+
+  await assert.rejects(
+    grant.readEngineBoot({
+      url: 'http://engine.test/stream.mjpg',
+      nodeId: 'edge-node-01',
+      secret,
+      fetchImpl: async () => ({ ok: false, status: 403 }),
+    }),
+    error => {
+      assert.equal(error.code, 'PRODUCER_AUTHORITY_UNAVAILABLE')
+      assert.equal(grant.isRetryableProducerSyncError(error), false)
+      return true
+    },
+  )
+})
+
+test('producer control retries transport failure but never retries stale-generation rejection', async () => {
+  const instant = Date.now()
+  const freshHandle = {
+    ...handle,
+    leaseExpiresAtMs: instant + 30_000,
+    dbNowMs: instant,
+    dbObservationStartMs: instant - 10,
+    dbObservationEndMs: instant,
+  }
+  const liveBoot = { bootId: boot, uncertaintyMs: 0 }
+
+  await assert.rejects(
+    grant.sendDemandControl({
+      url: 'http://engine.test/stream.mjpg',
+      handle: freshHandle,
+      boot: liveBoot,
+      secret,
+      action: 'refresh',
+      fetchImpl: async () => { throw new Error('transient network failure') },
+    }),
+    error => {
+      assert.equal(error.code, 'PRODUCER_AUTHORITY_UNAVAILABLE')
+      assert.equal(grant.isRetryableProducerSyncError(error), true)
+      return true
+    },
+  )
+
+  await assert.rejects(
+    grant.sendDemandControl({
+      url: 'http://engine.test/stream.mjpg',
+      handle: freshHandle,
+      boot: liveBoot,
+      secret,
+      action: 'refresh',
+      fetchImpl: async () => ({ ok: false, status: 409 }),
+    }),
+    error => {
+      assert.equal(error.code, 'PRODUCER_AUTHORITY_UNAVAILABLE')
+      assert.equal(grant.isRetryableProducerSyncError(error), false)
+      return true
+    },
+  )
+})
