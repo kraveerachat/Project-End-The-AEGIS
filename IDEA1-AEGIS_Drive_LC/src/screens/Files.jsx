@@ -526,7 +526,7 @@ export function FolderTile({ t, file, selected, anySelected, onSelect, onOpen, o
 function SectionHeading({ children }) {
   // หัวข้อส่วนไม่ใช่พื้นที่ว่างของกริด — ลากจากป้าย "Folders"/"Files" ต้องไม่เริ่มกรอบเลือก
   return (
-    <h2 data-marquee-ignore="" className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-ink-3 mb-2.5 select-none">{children}</h2>
+    <h2 data-marquee-ignore="" className="neo-section-heading text-[11.5px] font-semibold uppercase tracking-[0.08em] text-ink-3 mb-2.5 select-none">{children}</h2>
   )
 }
 
@@ -1141,7 +1141,7 @@ export function Files({
         onCancel={() => downloadAbortRef.current?.abort()}
         onDismiss={() => setDownloadTransfer(null)}
       />
-      <nav aria-label={t('breadcrumb')} className="flex items-center gap-1.5 text-[13px] text-ink-3 font-semibold mb-4 select-none flex-wrap">
+      <nav aria-label={t('breadcrumb')} className="neo-folder-path flex items-center gap-1.5 text-[13px] text-ink-3 font-semibold mb-4 select-none flex-wrap">
         <button
           type="button"
           onClick={() => goToFolder(null)}
@@ -1182,7 +1182,7 @@ export function Files({
       )}
 
       {/* toolbar */}
-      <div className="flex items-center gap-2.5 mb-5 flex-wrap">
+      <div className="neo-toolbar neo-files-toolbar flex items-center gap-2.5 mb-5 flex-wrap">
         <label className="relative flex-1 min-w-[220px] max-w-md">
           <span className="sr-only">{t('searchFilesPlaceholder')}</span>
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" aria-hidden />
@@ -1200,7 +1200,7 @@ export function Files({
             {availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}
           </PillSelect>
         </div>
-        <div className="inline-flex items-center gap-0.5 bg-card border border-line rounded-full p-0.5">
+        <div className="neo-view-toggle inline-flex items-center gap-0.5 bg-card border border-line rounded-full p-0.5">
           {[{ v: 'grid', icon: LayoutGrid, label: t('gridView') }, { v: 'list', icon: List, label: t('listView') }].map(({ v, icon: I, label }) => (
             <button
                key={v}
@@ -1221,6 +1221,8 @@ export function Files({
             ))}
           </PillSelect>
         </div>
+        {/* Primary actions sit together at the end of the toolbar (Neo only). */}
+        <span className="neo-toolbar-spacer" aria-hidden />
         <Btn variant="outline" onClick={() => { setFolderModal(true); setMutateError(false) }}>
           <FolderPlus size={15} strokeWidth={1.5} />
           {t('newFolder')}

@@ -50,7 +50,7 @@ function TrashPreviewContent({ item, t, lang, onClose, modal = false }) {
         )}
       </div>
       <div data-trash-preview-state={status}
-        className="mt-4 flex min-h-[240px] items-center justify-center overflow-hidden rounded-[var(--r-tile)] border border-line bg-sunken">
+        className="neo-media-frame mt-4 flex min-h-[240px] items-center justify-center overflow-hidden rounded-[var(--r-tile)] border border-line bg-sunken">
         {kind && phase !== 'failed' ? (
           <div className="relative flex min-h-[240px] w-full items-center justify-center">
             {phase === 'loading' && <p role="status" className="absolute text-[13px] text-ink-2">{t('previewLoading')}</p>}
@@ -91,7 +91,7 @@ function TrashPreviewContent({ item, t, lang, onClose, modal = false }) {
    แต่สถานะนี้คือ "ข้อมูลถูกกันไว้" จนกว่าจะยืนยันรหัสผ่าน */
 function LockedRow() {
   return (
-    <Card className="px-5 py-4">
+    <Card className="neo-row-card px-5 py-4">
       <div className="flex items-center gap-4">
         <span className="size-10 shrink-0 rounded-xl bg-sunken" />
         <div className="min-w-0 flex-1">
@@ -342,7 +342,7 @@ export function Trash({ t, lang = 'en', user, onStorageMutationCommitted }) {
           role="status"
           inert={unlockOpen || undefined}
           aria-hidden={unlockOpen ? 'true' : undefined}
-          className="mb-5 flex flex-wrap items-center gap-3 rounded-[var(--r-card)] border border-line bg-card px-4 py-3"
+          className="neo-lock-banner mb-5 flex flex-wrap items-center gap-3 rounded-[var(--r-card)] border border-line bg-card px-4 py-3"
           style={{ boxShadow: 'var(--elev-1)' }}
         >
           <Chip tone="warn"><LockKeyhole size={12} />{t('trashLockedBadge')}</Chip>
@@ -441,8 +441,8 @@ export function Trash({ t, lang = 'en', user, onStorageMutationCommitted }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
-        <div className="flex items-center gap-2.5">
+      <div className="neo-policy-strip flex items-center justify-between gap-3 mb-5 flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <Chip tone="warn"><Clock3 size={12} />{t('trashRetention')}</Chip>
           <span className="text-[12.5px] text-ink-3">{t('trashRetentionBody')}</span>
         </div>
@@ -456,7 +456,7 @@ export function Trash({ t, lang = 'en', user, onStorageMutationCommitted }) {
 
       {feedback && <div role="status" className="mb-4 rounded-xl border border-line bg-card px-4 py-3 text-[13px] font-medium text-ink">{feedback}</div>}
 
-      <div className="flex items-center gap-2.5 mb-5 flex-wrap">
+      <div className="neo-toolbar flex items-center gap-2.5 mb-5 flex-wrap">
         <form role="search" onSubmit={(event) => event.preventDefault()} className="relative flex-1 min-w-[220px] max-w-md">
           <label className="relative block w-full">
             <span className="sr-only">{t('trashSearch')}</span>
@@ -493,14 +493,15 @@ export function Trash({ t, lang = 'en', user, onStorageMutationCommitted }) {
             <div className="grid gap-3">
               {visible.map((item) => (
                 <Card key={item.id}
-                  className={`px-5 py-4 ${selectedId === item.id ? 'border-accent bg-accent-soft/30' : ''}`}>
+                  className={`neo-row-card px-5 py-4 ${selectedId === item.id ? 'border-accent bg-accent-soft/30' : ''}`}
+                  data-selected={selectedId === item.id ? 'true' : undefined}>
                   <div data-trash-row={item.id} className="flex items-center gap-4 max-md:items-start">
                     <button type="button" data-trash-select={item.id}
                       aria-label={`${t('fileDetails')}: ${item.name}`}
                       aria-pressed={selectedId === item.id}
                       onClick={(event) => { selectedRowRef.current = event.currentTarget; setSelectedId(item.id) }}
                       className="flex min-w-0 flex-1 items-center gap-4 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sunken text-ink-3"><File size={18} strokeWidth={1.5} aria-hidden /></span>
+                      <span className="neo-row-icon flex size-10 shrink-0 items-center justify-center rounded-xl bg-sunken text-ink-3"><File size={18} strokeWidth={1.5} aria-hidden /></span>
                       <span className="min-w-0 flex-1">
                         <span data-trash-name className="block truncate text-[14px] font-semibold text-ink">{item.name}</span>
                         <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -525,7 +526,7 @@ export function Trash({ t, lang = 'en', user, onStorageMutationCommitted }) {
         </div>
         {selected && !narrow && (
           <aside aria-labelledby="trash-preview-title"
-            className="sticky top-4 w-[min(32vw,400px)] min-w-[300px] shrink-0 rounded-[var(--r-card)] border border-line bg-card p-5">
+            className="neo-side-panel sticky top-4 w-[min(32vw,400px)] min-w-[300px] shrink-0 rounded-[var(--r-card)] border border-line bg-card p-5">
             <TrashPreviewContent key={selected.id} item={selected} t={t} lang={lang} onClose={closePreview} />
           </aside>
         )}
