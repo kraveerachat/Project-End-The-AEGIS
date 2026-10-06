@@ -12,11 +12,14 @@ edit_policy: append-by-new-file
 
 ## What changed
 
+- The historical R1B uniqueness gate now recognises the canonical R1Bv and RRu successor closeouts as governed restatements of `R1B_RESULT=FAIL_IMMUTABLE`; arbitrary extra R1B failure receipts remain ambiguous and fail closed.
+
 - Records the single owner-run RRu LIVE result executed against authoritative main `954ce1c191885e9e90198a6f54a3d990bcf144fc`.
 - RRu installed one immutable Recovery-capable successor release and atomically changed `/opt/aegis-idea3/current` from `ebffab6f8a6d7d98973fac7e89167352d529a87e` to `954ce1c191885e9e90198a6f54a3d990bcf144fc`.
 - The successor was mechanically proven to be the OLD release plus exactly the manifested Recovery CLI entrypoint required for D4.
+- Recovery successor admission is hardened to require `RRU_ATTEMPT_CONSUMED=YES` and `RRU_RERUN_ALLOWED=NO` in the same unique pinned-main canonical RRu LIVE closeout.
 - RRu restarted neither the Core nor detector, injected no alert, mutated no incident and did not execute Recovery.
-- This closeout changes repository documentation/tests only. It does not perform another Production action.
+- This closeout changes IDEA3 documentation/tests and hardens the Recovery successor gate so the canonical RRu closeout must also prove the RRu attempt was consumed and non-retriable. It does not perform another Production action.
 
 ## Governed result
 
@@ -76,6 +79,10 @@ After independent review and human merge of this closeout into `main`, Recovery 
 
 ## Verification evidence
 
+- `/home/kittipat/.venvs/aegis-idea3-core/bin/python -m pytest -q IDEA3-AEGIS_Lockdown/tests/rru/test_rru_stage.py IDEA3-AEGIS_Lockdown/tests/rru/test_rru_live_closeout.py IDEA3-AEGIS_Lockdown/tests/r1bv/test_r1bv_contract.py` — PASS: 279 tests passed after the RRu one-shot and R1B/R1Bv/RRu successor-history remediation.
+- `git diff --check` — PASS for the complete review remediation.
+- `node scripts/validate-vault.mjs` — PASS with two existing owner-review Canvas warnings.
+
 - Preserved owner-run log reports `RRU_RESULT=PASS`, `RRU_LIVE_EXECUTED=YES`, `RRU_PRODUCTION_DEPLOYED=YES`, `RRU_APPLY=PASS`, `RRU_VERIFY=PASS`, `RRU_POST_CAPTURE=COMPLETE` and `RRU_PRE_POST_COMPARE=PASS`.
 - PRE and POST L0 captures completed and their SHA-256 manifests verified successfully.
 - PRE -> POST comparison reported `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `PRESERVATION_S10=PASS` and `COMPARE_RESULT=PASS`.
@@ -87,6 +94,9 @@ After independent review and human merge of this closeout into `main`, Recovery 
 - No Production command is executed by this closeout repository task.
 
 ## Source files changed
+
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-r1bv-run-lib.sh` — hardens the RRu Recovery successor gate to require the consumed/no-rerun immutability fields from the same canonical closeout and preserves the R1B immutable-history predecessor across canonical R1Bv/RRu successor restatements.
+- `IDEA3-AEGIS_Lockdown/tests/rru/test_rru_stage.py` — adds fail-closed negative coverage for missing or wrong RRu attempt immutability fields.
 
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-07_005834_music_idea3-rru-live-closeout.md` — canonical RRu LIVE PASS closeout receipt.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` — reconciles the current governed state to RRu CLOSED_PASS while keeping Recovery unexecuted.
@@ -102,7 +112,7 @@ After independent review and human merge of this closeout into `main`, Recovery 
 
 ## Shared surfaces touched
 
-- None. The closeout modifies IDEA3/Music-owned documentation and focused tests only.
+- None. The closeout modifies IDEA3/Music-owned documentation, focused tests, and the IDEA3 Recovery successor gate only.
 - No shared runtime service, Production host state, ESP32 state, IDEA1 runtime or IDEA2 runtime is changed by this closeout task.
 
 ## Integration requests
@@ -115,6 +125,8 @@ After independent review and human merge of this closeout into `main`, Recovery 
 - After merge, create a NEW exact-main Recovery authority/freeze; this RRu authority and runner must never be reused for Recovery.
 
 ## Known limitations
+
+- Historical sequencing deviation: the intended non-mutating D4 CLI rehearsal was not performed before the RRu Authorization/K3 and the one-shot RRu LIVE execution. This closeout does not backfill or claim that rehearsal. RRu remains consumed and must never be rerun. Recovery must perform its own required D4 rehearsal under the NEW exact-main Recovery authority before Recovery Authorization/K3/LIVE.
 
 - RRu proves deployment readiness only. Recovery R2-R8 has not executed.
 - `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `LVR_PROVEN=NO`, `L8_ACCEPTANCE=NO` and `L9_PROVEN=NO`.

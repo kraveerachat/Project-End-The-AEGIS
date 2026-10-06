@@ -720,10 +720,20 @@ def bash(script: str, **env) -> subprocess.CompletedProcess[str]:
     return _REAL_RUN(["bash", "-c", script], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "HOME": "/tmp", **env})
 
 
-def receipt_repo(tmp: Path, change: dict[str, str | None] | None = None) -> Path:
-    """A throw-away repo holding the REAL committed status logs of this checkout (so the real R1B-failure/R1Bv/R1Du closeouts are exercised), optionally mutated."""
+def receipt_repo(
+    tmp: Path,
+    change: dict[str, str | None] | None = None,
+    *,
+    include_real_rru: bool = True,
+) -> Path:
+    """Build a throw-away receipt-history repo from this checkout."""
     repo = tmp / "repo"
     shutil.copytree(ROOT / LOGS, repo / LOGS)
+    if not include_real_rru:
+        for closeout in (repo / LOGS).glob(
+            "*_music_idea3-rru-live-closeout.md"
+        ):
+            closeout.unlink()
     for rel, text in (change or {}).items():
         if text is None:
             (repo / rel).unlink()
@@ -747,9 +757,33 @@ R1DU_CLOSEOUT = f"{LOGS}/2026-10-06_070624_music_idea3-r1du-live-closeout.md"
 REAL_OLD = "ebffab6f8a6d7d98973fac7e89167352d529a87e"
 
 
-def test_the_real_committed_history_satisfies_the_predecessor_gate_and_rru_is_not_yet_recorded(tmp_path) -> None:
+def test_the_real_committed_history_blocks_a_second_rru_attempt_once_closeout_is_recorded(tmp_path) -> None:
     result = receipt_gate(receipt_repo(tmp_path), REAL_OLD)
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1
+    assert "RRU_ALREADY_EXECUTED" in result.stderr
+
+
+REAL_RRU_RELEASE = "954ce1c191885e9e90198a6f54a3d990bcf144fc"
+
+
+def test_real_rru_closeout_preserves_recovery_predecessor_and_satisfies_successor(
+    tmp_path,
+) -> None:
+    repo = receipt_repo(tmp_path)
+    pinned = head(repo)
+
+    predecessor = bash(
+        f'. "{LIB}"; SUDO=""; '
+        f'r1bv_recovery_predecessor_gate "{repo}" "{pinned}"'
+    )
+    assert predecessor.returncode == 0, predecessor.stderr
+
+    successor = bash(
+        f'. "{LIB}"; SUDO=""; '
+        f'rru_recovery_successor_gate "{repo}" "{pinned}" '
+        f'"{REAL_RRU_RELEASE}"'
+    )
+    assert successor.returncode == 0, successor.stderr
 
 
 def test_the_closeout_must_name_the_pinned_old_release(tmp_path) -> None:
@@ -853,11 +887,24 @@ def test_rru_existing_canonical_marker_blocks_without_any_mutation(tmp_path) -> 
     assert marker.read_text() == "kept\n"
 
 
+def successor_fixture_repo(
+    tmp: Path,
+    change: dict[str, str | None] | None = None,
+) -> Path:
+    return receipt_repo(
+        tmp,
+        change,
+        include_real_rru=False,
+    )
+
+
 RRU_CLOSEOUT = f"{LOGS}/2026-10-07_000000_music_idea3-rru-live-closeout.md"
 RRU_SUCCESSOR_FIELDS = """RRU_LIVE=CLOSED_PASS
 RRU_LIVE_EXECUTED=YES
 RRU_RESULT=PASS
 RRU_PRODUCTION_DEPLOYED=YES
+RRU_ATTEMPT_CONSUMED=YES
+RRU_RERUN_ALLOWED=NO
 RECOVERY_RUNTIME_RELEASE_READY=YES
 RRU_RELEASE_ID=912b18005bb2fc80bb4e8d1fe8aa88803ac27314
 RECOVERY_ATTEMPT_CONSUMED=NO
@@ -873,11 +920,52 @@ def successor_gate(repo: Path, release: str = "912b18005bb2fc80bb4e8d1fe8aa88803
 
 
 def test_recovery_successor_gate_requires_one_pinned_main_rru_closeout(tmp_path) -> None:
-    repo = receipt_repo(tmp_path)
+    repo = successor_fixture_repo(tmp_path)
     assert successor_gate(repo).returncode == 1
-    repo = receipt_repo(tmp_path / "valid", {RRU_CLOSEOUT: RRU_SUCCESSOR_FIELDS})
+    repo = successor_fixture_repo(tmp_path / "valid", {RRU_CLOSEOUT: RRU_SUCCESSOR_FIELDS})
     result = successor_gate(repo)
     assert result.returncode == 0, result.stderr
+
+
+
+@pytest.mark.parametrize("missing", [
+    "RRU_ATTEMPT_CONSUMED=YES\n",
+    "RRU_RERUN_ALLOWED=NO\n",
+])
+def test_recovery_successor_gate_requires_rru_attempt_immutability_fields(
+    tmp_path,
+    missing,
+) -> None:
+    receipt = RRU_SUCCESSOR_FIELDS.replace(missing, "")
+    result = successor_gate(
+        successor_fixture_repo(
+            tmp_path,
+            {RRU_CLOSEOUT: receipt},
+        )
+    )
+    assert result.returncode == 1
+
+
+@pytest.mark.parametrize(
+    ("old", "bad"),
+    [
+        ("RRU_ATTEMPT_CONSUMED=YES", "RRU_ATTEMPT_CONSUMED=NO"),
+        ("RRU_RERUN_ALLOWED=NO", "RRU_RERUN_ALLOWED=YES"),
+    ],
+)
+def test_recovery_successor_gate_rejects_wrong_rru_attempt_immutability(
+    tmp_path,
+    old,
+    bad,
+) -> None:
+    receipt = RRU_SUCCESSOR_FIELDS.replace(old, bad)
+    result = successor_gate(
+        successor_fixture_repo(
+            tmp_path,
+            {RRU_CLOSEOUT: receipt},
+        )
+    )
+    assert result.returncode == 1
 
 
 @pytest.mark.parametrize("change", [
@@ -887,19 +975,19 @@ def test_recovery_successor_gate_requires_one_pinned_main_rru_closeout(tmp_path)
     {RRU_CLOSEOUT: RRU_SUCCESSOR_FIELDS.replace("RRU_LIVE_EXECUTED=YES", "RRU_LIVE_EXECUTED=NO")},
 ])
 def test_recovery_successor_gate_rejects_failed_unready_or_mismatched_closeout(tmp_path, change) -> None:
-    result = successor_gate(receipt_repo(tmp_path, change))
+    result = successor_gate(successor_fixture_repo(tmp_path, change))
     assert result.returncode == 1
 
 
 def test_recovery_successor_gate_rejects_duplicate_or_split_pinned_main_closeouts(tmp_path) -> None:
-    duplicate = receipt_repo(tmp_path, {RRU_CLOSEOUT: RRU_SUCCESSOR_FIELDS, f"{LOGS}/2026-10-07_000001_music_idea3-rru-live-closeout.md": RRU_SUCCESSOR_FIELDS})
+    duplicate = successor_fixture_repo(tmp_path, {RRU_CLOSEOUT: RRU_SUCCESSOR_FIELDS, f"{LOGS}/2026-10-07_000001_music_idea3-rru-live-closeout.md": RRU_SUCCESSOR_FIELDS})
     assert successor_gate(duplicate).returncode == 1
-    split = receipt_repo(tmp_path / "split", {RRU_CLOSEOUT: "RRU_LIVE=CLOSED_PASS\n", f"{LOGS}/2026-10-07_000001_music_idea3-rru-live-closeout.md": RRU_SUCCESSOR_FIELDS.replace("RRU_LIVE=CLOSED_PASS\n", "")})
+    split = successor_fixture_repo(tmp_path / "split", {RRU_CLOSEOUT: "RRU_LIVE=CLOSED_PASS\n", f"{LOGS}/2026-10-07_000001_music_idea3-rru-live-closeout.md": RRU_SUCCESSOR_FIELDS.replace("RRU_LIVE=CLOSED_PASS\n", "")})
     assert successor_gate(split).returncode == 1
 
 
 def test_recovery_successor_gate_ignores_working_tree_only_closeout(tmp_path) -> None:
-    repo = receipt_repo(tmp_path)
+    repo = successor_fixture_repo(tmp_path)
     path = repo / RRU_CLOSEOUT
     path.write_text(RRU_SUCCESSOR_FIELDS)
     result = successor_gate(repo)

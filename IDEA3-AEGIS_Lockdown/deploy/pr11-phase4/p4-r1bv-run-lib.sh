@@ -154,8 +154,8 @@ r1bv_receipt_gate() {
     [ -z "$(r1bv_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}")" ] || { r1bv_reason "R1BV_ALREADY_RECORDED (a receipt carries ${claim})"; return 1; }
   done
 }
-# _r1bv_r1b_failure_closeout REPO MAIN — the ONE unique immutable R1B failure closeout (exact governance fields); the R1B result-file sets resolve uniquely to it (an extra bare receipt is ambiguity). The R1Bv LIVE closeout itself
-# restates R1B_RESULT=FAIL_IMMUTABLE by contract, so ONLY that canonical-name file is excluded from the uniqueness count.
+# _r1bv_r1b_failure_closeout REPO MAIN — the ONE unique immutable R1B failure closeout (exact governance fields); the R1B result-file sets resolve uniquely to it (an extra bare receipt is ambiguity). The canonical R1Bv and RRu LIVE successor closeouts
+# restate R1B_RESULT=FAIL_IMMUTABLE by contract, so ONLY those canonical successor-name files are excluded from the historical R1B uniqueness count.
 _r1bv_r1b_failure_closeout() {
   local repo=${1:-} main=${2:-} set
   _r1bv_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1b-live-failure-closeout.md" R1B_FAILURE_CLOSEOUT=YES R1B_LIVE=CLOSED_FAIL R1B_LIVE_EXECUTED=YES R1B_ATTEMPT_CONSUMED=YES R1B_RERUN_ALLOWED=NO \
@@ -163,7 +163,7 @@ _r1bv_r1b_failure_closeout() {
     R1B_FINAL_CAPTURE_REACHED=NO R1B_FINAL_VERIFIER_REACHED=NO R1BV_REQUIRED=YES R1BV_AUTHORIZED=YES R1BV_IS_R1B_RETRY=NO R1BV_READ_ONLY_VALIDATION_ONLY=YES R1I_MUST_REMAIN_INSTALLED=YES \
     RECOVERY_R2_R8_EXECUTED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED || { r1bv_reason "R1BV_R1B_FAILURE_CLOSEOUT_MISSING_OR_AMBIGUOUS"; return 1; }
   for set in "R1B_RESULT FAIL_IMMUTABLE" "R1B_LIVE CLOSED_FAIL"; do
-    [ "$(r1bv_field_files "$repo" "$main" ${set% *} ${set#* } | grep -v '_music_idea3-r1bv-live-closeout\.md$' | grep -c .)" = 1 ] || { r1bv_reason "R1BV_R1B_FAILURE_CLOSEOUT_MISSING_OR_AMBIGUOUS (an extra receipt carries ${set% *}=${set#* })"; return 1; }
+    [ "$(r1bv_field_files "$repo" "$main" ${set% *} ${set#* } | grep -Ev '_music_idea3-(r1bv|rru)-live-closeout\.md$' | grep -c .)" = 1 ] || { r1bv_reason "R1BV_R1B_FAILURE_CLOSEOUT_MISSING_OR_AMBIGUOUS (an extra receipt carries ${set% *}=${set#* })"; return 1; }
   done
 }
 # r1bv_recovery_predecessor_gate REPO MAIN — the reusable fail-closed R1B/R1Bv predecessor check a Recovery R2-R8 stage must call. No Recovery stage exists in this repository yet, so nothing here is wired to one. It
@@ -179,10 +179,33 @@ r1bv_recovery_predecessor_gate() {
       R1BV_NEW_EXTERNAL_EVENT_GENERATED=YES R1BV_EXISTING_R1B_EVIDENCE_ONLY=NO RECOVERY_R2_R8_EXECUTED=YES F1_REAL_DETECTOR_ACCEPTANCE=PROVEN R1_VERIFIED=VERIFIED RECOVERY_R1_R8_PROVEN=YES; do
     [ -z "$(r1bv_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}")" ] || { r1bv_reason "R1BV_RECOVERY_FORBIDDEN_CLAIM (a receipt carries ${claim})"; return 1; }
   done
-  # EVERY positive R1Bv live-result claim must resolve to the SAME single canonical closeout: an extra, misnamed or bare receipt carrying ANY of them is ambiguity (split fields across files included)
-  files=$({ for claim in R1BV_LIVE=CLOSED_PASS R1BV_LIVE_EXECUTED=YES R1BV_RESULT=PASS R1BV_VERIFY=PASS R1BV_HISTORICAL_BOUND=PASS R1BV_REAL_DETECTOR_CHAIN=PASS R1BV_AUDIT_INTEGRITY=PASS R1BV_COMPARE_RESULT=PASS R1BV_PRESERVATION_S10=PASS; do
+  # Every R1Bv-owned positive live-result claim except the historical PASS
+  # restatement must resolve to the SAME single canonical R1Bv closeout.
+  # RRu is allowed to restate ONLY R1BV_RESULT=PASS because Recovery's
+  # additive RRu successor receipt explicitly binds that predecessor fact.
+  files=$({ for claim in R1BV_LIVE=CLOSED_PASS R1BV_LIVE_EXECUTED=YES R1BV_VERIFY=PASS R1BV_HISTORICAL_BOUND=PASS R1BV_REAL_DETECTOR_CHAIN=PASS R1BV_AUDIT_INTEGRITY=PASS R1BV_COMPARE_RESULT=PASS R1BV_PRESERVATION_S10=PASS; do
       r1bv_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}"; done; } | sort -u)
-  [ "$(printf '%s\n' "$files" | grep -c .)" = 1 ] || { r1bv_reason "R1BV_RECOVERY_R1BV_CLOSEOUT_MISSING_OR_AMBIGUOUS (every positive R1Bv claim must be in the ONE canonical R1Bv LIVE PASS closeout)"; return 1; }
+  [ "$(printf '%s\n' "$files" | grep -c .)" = 1 ] || { r1bv_reason "R1BV_RECOVERY_R1BV_CLOSEOUT_MISSING_OR_AMBIGUOUS (every R1Bv-owned positive live-result claim must be in the ONE canonical R1Bv LIVE PASS closeout)"; return 1; }
+
+  # R1BV_RESULT=PASS itself must exist in the canonical R1Bv closeout.
+  # It may additionally appear in at most ONE canonical RRu LIVE closeout.
+  # Any arbitrary/misnamed/bare third receipt is still ambiguity.
+  files=$(r1bv_field_files "$repo" "$main" R1BV_RESULT PASS)
+
+  [ "$(printf '%s\n' "$files" | grep -Ec '_music_idea3-r1bv-live-closeout\.md$')" = 1 ] || {
+    r1bv_reason "R1BV_RECOVERY_R1BV_RESULT_PASS_MISSING_OR_AMBIGUOUS"
+    return 1
+  }
+
+  [ "$(printf '%s\n' "$files" | grep -Ec '_music_idea3-rru-live-closeout\.md$')" -le 1 ] || {
+    r1bv_reason "R1BV_RECOVERY_RRU_RESTATEMENT_AMBIGUOUS"
+    return 1
+  }
+
+  [ -z "$(printf '%s\n' "$files" | grep -Ev '_music_idea3-(r1bv|rru)-live-closeout\.md$')" ] || {
+    r1bv_reason "R1BV_RECOVERY_R1BV_RESULT_PASS_EXTRA_RECEIPT"
+    return 1
+  }
   _r1bv_unique_suffix_receipt "$repo" "$main" "_music_idea3-r1bv-live-closeout.md" R1BV_LIVE=CLOSED_PASS R1BV_LIVE_EXECUTED=YES R1BV_RESULT=PASS R1BV_VERIFY=PASS R1BV_IS_R1B_RETRY=NO \
     R1BV_READ_ONLY_VALIDATION_ONLY=YES R1BV_NEW_EXTERNAL_EVENT_GENERATED=NO R1BV_EXISTING_R1B_EVIDENCE_ONLY=YES R1BV_INCIDENT_MUTATED=NO R1BV_R1B_MARKER_MUTATED=NO R1BV_WINDOW_RECORD_CREATED=NO \
     R1BV_WINDOW_RECORD_RECONSTRUCTED=NO R1BV_CANONICAL_MARKER_TIME_AUTHORITY=PASS R1BV_HISTORICAL_BOUND=PASS R1BV_EXPECTED_SOURCE_BOUND=PASS R1BV_REAL_DETECTOR_CHAIN=PASS \
@@ -196,10 +219,10 @@ rru_recovery_successor_gate() {
   local repo=${1:-} main=${2:-} release=${3:-} claim files
   [ -n "$repo" ] && [[ "$release" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { r1bv_reason "RRU_SUCCESSOR_GATE_INPUT_INVALID"; return 1; }
   r1bv_commit_gate "$repo" "$main" || return 1
-  files=$({ for claim in RRU_LIVE=CLOSED_PASS RRU_LIVE_EXECUTED=YES RRU_RESULT=PASS RRU_PRODUCTION_DEPLOYED=YES RECOVERY_RUNTIME_RELEASE_READY=YES "RRU_RELEASE_ID=$release"; do
+  files=$({ for claim in RRU_LIVE=CLOSED_PASS RRU_LIVE_EXECUTED=YES RRU_RESULT=PASS RRU_PRODUCTION_DEPLOYED=YES RRU_ATTEMPT_CONSUMED=YES RRU_RERUN_ALLOWED=NO RECOVERY_RUNTIME_RELEASE_READY=YES "RRU_RELEASE_ID=$release"; do
       r1bv_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}"; done; } | sort -u)
   [ "$(printf '%s\n' "$files" | grep -c .)" = 1 ] || { r1bv_reason "RRU_SUCCESSOR_CLOSEOUT_MISSING_OR_AMBIGUOUS (all required fields must be in exactly one pinned-main closeout)"; return 1; }
-  _r1bv_unique_suffix_receipt "$repo" "$main" "$R1BV_RRU_CLOSEOUT_SUFFIX" RRU_LIVE=CLOSED_PASS RRU_LIVE_EXECUTED=YES RRU_RESULT=PASS RRU_PRODUCTION_DEPLOYED=YES \
+  _r1bv_unique_suffix_receipt "$repo" "$main" "$R1BV_RRU_CLOSEOUT_SUFFIX" RRU_LIVE=CLOSED_PASS RRU_LIVE_EXECUTED=YES RRU_RESULT=PASS RRU_PRODUCTION_DEPLOYED=YES RRU_ATTEMPT_CONSUMED=YES RRU_RERUN_ALLOWED=NO \
     RECOVERY_RUNTIME_RELEASE_READY=YES "RRU_RELEASE_ID=$release" RECOVERY_ATTEMPT_CONSUMED=NO RECOVERY_LIVE_EXECUTED=NO RECOVERY_R2_R8_EXECUTED=NO R1B_RESULT=FAIL_IMMUTABLE R1BV_RESULT=PASS \
     || { r1bv_reason "RRU_SUCCESSOR_CLOSEOUT_MISSING_OR_AMBIGUOUS (the canonical RRu LIVE closeout is incomplete, failed, stale or not unique)"; return 1; }
 }
