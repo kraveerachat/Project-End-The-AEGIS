@@ -294,7 +294,7 @@ def test_documented_order_names_r1bv_after_r1b_and_keeps_recovery_blocked() -> N
     assert "R1Dv -> R1B (immutable FAIL at windowrecord) -> R1Bv -> Recovery R2-R8 -> LVR -> L8 -> L9" in base.P4_LIB.read_text()
     readme = (P4 / "README.md").read_text()
     section = readme[readme.index("## 22. Stage R1Bv"):]
-    for needle in ("IMPLEMENTED != LIVE EXECUTED != PASS", "R1BV_LIVE_EXECUTED=NO", "R1Bv (REPOSITORY_IMPLEMENTED, LIVE NOT RUN)", "Recovery R2-R8 (blocked until R1Bv LIVE PASS)"):
+    for needle in ("IMPLEMENTED != LIVE EXECUTED != PASS", "R1BV_LIVE_EXECUTED=NO", "R1Bv (REPOSITORY_IMPLEMENTED; at that merge LIVE NOT RUN", "Recovery R2-R8 (at that merge blocked until R1Bv LIVE PASS", "superseded by section 23"):
         assert needle in section, needle
 
 
@@ -770,12 +770,12 @@ def test_the_r1bv_verifier_gate_requires_the_reused_verifier_and_clock_in_the_sn
 
 
 # ---------------------------------------------------------------- no claim promotion from the repository implementation
-def test_the_repository_implementation_promotes_no_claim_and_creates_no_live_artifact() -> None:
+def test_the_repository_implementation_promotes_no_claim_and_creates_no_authorization() -> None:
     from aegis_soc import r1bv_validation as v
 
     assert v.CLAIMS == {"F1_REAL_DETECTOR_ACCEPTANCE": "NOT_PROVEN", "R1_VERIFIED": "NOT_CLAIMED", "RECOVERY_R1_R8_PROVEN": "NO", "RECOVERY_R2_R8_EXECUTED": "NO", "R1B_RESULT": "FAIL_IMMUTABLE",
                         "R1B_RESULT_REWRITTEN": "NO", "R1BV_IS_R1B_RETRY": "NO"}
-    assert not list((REPO / LOGS).glob("*_music_idea3-r1bv-live-closeout.md"))  # IMPLEMENTED != LIVE EXECUTED != PASS: no LIVE closeout exists
+    # (history: at the implementation merge no LIVE closeout existed; the LIVE closeout is now recorded and checked by tests/r1bv/test_r1bv_live_closeout.py)
     for path in [f for f in FILES if f != LIB] + [P4 / "r1bv-acceptance/r1bv_runner_freeze.py"]:  # the library only LISTS these as refused claims (covered by the gate tests)
         text = path.read_text()
         for never in ("R1B_RESULT=PASS", "R1B_LIVE=CLOSED_PASS"):
