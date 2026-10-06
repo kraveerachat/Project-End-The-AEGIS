@@ -785,6 +785,8 @@ Follows the merged R1A stage (section 16). `R1A_PRELIVE_HARDENING_REPOSITORY_IMP
 
 ## 18. Stage R1B — successor governed real-detector acceptance — repository only
 
+> **Historical (repository implementation as merged).** Execution-state fields in this section (`*_LIVE_EXECUTED=NO`, `R1B_ATTEMPT_CONSUMED=NO`, ...) were true before the stage ran and are SUPERSEDED by section 21 (R1B has since executed once and is `R1B_RESULT=FAIL_IMMUTABLE`).
+
 Stage order: `L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A (historical consumed FAIL) -> R1Du -> R1D -> R1B -> Recovery R2-R8 -> LVR -> L8 -> L9`. `R1B_REPOSITORY_IMPLEMENTED=YES`; nothing here executes R1B live, creates an Authorization/K3, consumes the R1B marker, generates an event or touches Production (`R1B_LIVE_EXECUTED=NO`, `R1B_ATTEMPT_CONSUMED=NO`).
 
 - **Identity.** `R1B_IS_SUCCESSOR_GOVERNED_STAGE=YES`, `R1B_IS_R1A_RETRY=NO`. R1A stays in history as `R1A_RESULT=FAIL_IMMUTABLE` (consumed, no rerun; the failure closeout receipt is the canonical record). R1B is a MUTATING governed stage with its own records (`authorization-R1B.txt`, `k3-R1B.txt`), ONE attempt total, NO retry, a GENUINE external event only (`R1B_SYNTHETIC_EVENT_ALLOWED=NO`); the runner observes only. R1I must stay installed (the exact owned table is required before consumption and again before FINAL) and Recovery R2-R8 stays blocked until a separately reviewed R1B LIVE closeout.
@@ -795,6 +797,8 @@ Stage order: `L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A (histori
 - **Claims.** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; even a verifier PASS keeps `R1B_PROMOTION=NOT_AUTOMATIC`.
 
 ## 19. Stages R1Du and R1D — historical R1A incident disposition before R1B — repository only
+
+> **Historical (repository implementation as merged).** Execution-state fields in this section (`*_LIVE_EXECUTED=NO`, `R1B_ATTEMPT_CONSUMED=NO`, ...) were true before the stage ran and are SUPERSEDED by section 21 (R1B has since executed once and is `R1B_RESULT=FAIL_IMMUTABLE`).
 
 Stage order: `L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A (historical consumed FAIL) -> R1Du -> R1D -> R1B -> Recovery R2-R8 -> LVR -> L8 -> L9`. `R1DU_REPOSITORY_IMPLEMENTED=YES`, `R1D_REPOSITORY_IMPLEMENTED=YES`; nothing here executes either stage, restarts the Core, mutates an incident, runs Recovery R2-R8, consumes an R1B marker, creates an Authorization/K3, or touches Production or ESP32 (`R1DU_LIVE_EXECUTED=NO`, `R1D_LIVE_EXECUTED=NO`, `R1B_ATTEMPT_CONSUMED=NO`). Design: `docs/superpowers/specs/2026-10-06-idea3-r1du-r1d-historical-incident-disposition-design.md`.
 
@@ -807,6 +811,8 @@ Stage order: `L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A (histori
 - **Claims.** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `RECOVERY_R2_R8_EXECUTED=NO`.
 
 ## 20. Stage R1Dv — read-only validation of the committed R1D disposition — repository only
+
+> **Historical (repository implementation as merged).** Execution-state fields in this section (`*_LIVE_EXECUTED=NO`, `R1B_ATTEMPT_CONSUMED=NO`, ...) were true before the stage ran and are SUPERSEDED by section 21 (R1B has since executed once and is `R1B_RESULT=FAIL_IMMUTABLE`).
 
 Stage order: `L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A (immutable FAIL) -> R1Du (PASS) -> R1D (immutable FAIL after a COMMITTED disposition) -> R1Dv -> R1B -> Recovery R2-R8 -> LVR -> L8 -> L9`. `R1DV_REPOSITORY_IMPLEMENTED=YES`; nothing here executes R1Dv, creates an Authorization, connects to the R1D socket or touches Production (`R1DV_LIVE_EXECUTED=NO`, `R1B_ATTEMPT_CONSUMED=NO`).
 

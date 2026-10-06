@@ -80,3 +80,51 @@ def test_r1bv_is_not_implemented_by_this_closeout() -> None:
     p4 = base.P4
     assert not list(p4.glob("**/*r1bv*")) and not (p4 / "stages/R1Bv").exists()
     assert 'R1Bv' not in re.search(r'readonly P4_STAGES="([^"]*)"', (p4 / "p4-lib.sh").read_text()).group(1)
+
+
+STALE = re.compile(r"R1B_LIVE_EXECUTED=NO|R1B_ATTEMPT_CONSUMED=NO|R1B has NOT run|R1B has not run", re.I)
+
+
+def sections(path: Path) -> list[tuple[str, str]]:
+    out, head, buf = [], "", []
+    for line in path.read_text().split("\n"):
+        if line.startswith("## "):
+            out.append((head, "\n".join(buf)))
+            head, buf = line, []
+        else:
+            buf.append(line)
+    out.append((head, "\n".join(buf)))
+    return out
+
+
+@pytest.mark.parametrize("path", [VAULT / "idea3/idea3-status.md", VAULT / "idea3/idea3-moc.md", base.P4 / "README.md"], ids=lambda p: p.name)
+def test_no_section_presents_r1b_has_not_run_as_current_state(path: Path) -> None:
+    """A section may carry the pre-run R1B execution-state values only when it is explicitly historical/superseded (heading or opening note); the R1B LIVE / R1D LIVE failure sections state the current truth."""
+    bad = []
+    for head, body in sections(path):
+        text = head + "\n" + body
+        if not STALE.search(text):
+            continue
+        opening = (head + "\n" + body[:900]).lower()
+        section_marked = "historical" in opening or "superseded" in opening or "live outcome" in head.lower()
+        for m in STALE.finditer(text):
+            around = text[max(0, m.start() - 220):m.end() + 220].lower()
+            local = any(w in around for w in ("historical", "superseded", "at that time", "at that merge", "have since", "has since", "before the stage ran", "before it ran", "closeout", "pre-marker failure"))  # the last: a conditional design rule of the stage, not a state claim
+            if not (section_marked and local):
+                bad.append((head[:80], around[:120]))
+    assert not bad, bad
+
+
+def test_the_r1dv_live_section_is_explicitly_historical_and_points_to_the_current_r1b_state() -> None:
+    status = (VAULT / "idea3/idea3-status.md").read_text()
+    i = status.index("## IDEA3 R1Dv LIVE")
+    j = status.index("\n## ", i + 5)
+    section = status[i:j]
+    heading = section.split("\n", 1)[0]
+    assert "historical" in heading.lower() and "R1B has since run once and failed immutably" in heading
+    assert "SUPERSEDED" in section and "R1B_RESULT=FAIL_IMMUTABLE" in section and "R1B_LIVE_EXECUTED=YES" in section
+    # the stale values may appear only inside a sentence that is itself labelled as historical/superseded
+    for m in STALE.finditer(section):
+        around = section[max(0, m.start() - 160):m.end() + 160].lower()
+        assert "at that time" in around or "superseded" in around or "were true only then" in around, around
+    assert "R1Dv itself remains PASS" in section and "`R1DV_RESULT=PASS`" in section  # R1Dv is not rewritten
