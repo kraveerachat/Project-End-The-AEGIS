@@ -11,7 +11,15 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
-## IDEA3 Recovery Runtime successor RRu — repository implemented, LIVE not executed — 2026-10-06
+## IDEA3 RRu LIVE — CLOSED_PASS — 2026-10-07
+
+> [!important] **RRu executed once and PASSED.** `RRU_LIVE=CLOSED_PASS`, `RRU_LIVE_EXECUTED=YES`, `RRU_RESULT=PASS`, `RRU_PRODUCTION_DEPLOYED=YES`, `RRU_ATTEMPT_CONSUMED=YES`, `RRU_RERUN_ALLOWED=NO`. Production `current` now points at immutable release `954ce1c191885e9e90198a6f54a3d990bcf144fc`. The Core and detector processes were unchanged, no service restart or detector command occurred, and the successor is exactly the OLD runtime plus the manifested Recovery CLI entrypoint. `RECOVERY_RUNTIME_RELEASE_READY=YES`. Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-07_005834_music_idea3-rru-live-closeout.md`.
+
+> **Recovery has NOT run.** `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`. The next governed action is independent review + human merge of this RRu closeout, followed by a NEW exact-main Recovery authority/freeze.
+
+## IDEA3 Recovery Runtime successor RRu — repository implementation (historical; RRu has since executed once and PASSED) — 2026-10-06
+
+> [!note] **Historical repository-only snapshot.** Statements below that `RRU_LIVE_EXECUTED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=NO`, no frozen runner/Authorization existed, or RRu had not run were true before the 2026-10-07 LIVE attempt and are SUPERSEDED by the CLOSED_PASS section above.
 
 > [!important] **RRu is a new governed successor stage, not a retry.** The deterministic release builder now treats `cli` as a first-class entrypoint alongside `supervisor`, `recovery_ui`, and `production_detector`, and the release tests prove the complete transitive closure, manifest/checksum entry, real built-release import, and D4 `/dev/null` interactive-terminal refusal. RRu is registered exactly once after `R1Bv` and before `Recovery`.
 >
