@@ -305,13 +305,13 @@ def test_without_root_a_root_owned_freeze_is_refused_and_a_plain_freeze_does_not
 def test_the_root_owned_freeze_and_verify_print_the_four_owner_results_and_the_sha(tmp_path: Path) -> None:
     repo, main = make_repo(tmp_path)
     out = tmp_path / "frozen.sh"
-    frozen = tuserns(f'python3 -I -B "{base.authority_tools(tmp_path)}/recovery_runner_freeze.py" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned', trust=tmp_path)
+    frozen = root_freeze(repo, main, tmp_path, out, tmp_path)
     assert frozen.returncode == 0, frozen.stderr
     for line in ("RUNNER_TEMPLATE_AUTHORITY=PASS", "RUNNER_ONLY_APPROVED_PINS_CHANGED=PASS", "RUNNER_ROOT_OWNED=PASS", "RUNNER_NONWRITABLE=PASS"):
         assert line in frozen.stdout, frozen.stdout
     sha = re.search(r"RUNNER_SHA256=([0-9a-f]{64})", frozen.stdout).group(1)
     assert sha == hashlib.sha256(out.read_bytes()).hexdigest()
-    again = tuserns(f'python3 "{TOOL_PATH}" verify --repo "{repo}" --main {main} --runner "{out}"', trust=tmp_path)
+    again = tuserns(f'export RECOVERY_TEST_ONLY_CTU_CLOSEOUT="{tmp_path}/ctu-closeout"; python3 "{TOOL_PATH}" verify --repo "{repo}" --main {main} --runner "{out}"', trust=tmp_path)
     assert again.returncode == 0 and f"RUNNER_SHA256={sha}" in again.stdout
     assert out.stat().st_mode & 0o222 == 0
 
@@ -324,7 +324,7 @@ def test_a_writable_or_untrusted_runner_location_fails_the_production_verify(tmp
     inner = trusted / "inner"
     inner.mkdir(parents=True)
     out = inner / "frozen.sh"
-    ok = tuserns(f'python3 -I -B "{base.authority_tools(tmp_path)}/recovery_runner_freeze.py" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned', trust=tmp_path)
+    ok = root_freeze(repo, main, tmp_path, out, tmp_path)
     assert ok.returncode == 0, ok.stderr
     target = out
     if breach == "writable_file":
@@ -367,7 +367,14 @@ def test_the_freeze_tool_only_ever_writes_the_new_destination() -> None:
 
 
 def root_freeze(repo: Path, main: str, tmp_path: Path, out: Path, trust: Path | None) -> subprocess.CompletedProcess[str]:
-    cmd = f'python3 -I -B "{base.authority_tools(tmp_path)}/recovery_runner_freeze.py" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned'
+    closeout = tmp_path / "ctu-closeout"
+    closeout.write_text(
+        "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
+        f"CTU_EXPECTED_MAIN={main}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
+        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+        "CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=" + "b" * 64 + "\nCTU_EVIDENCE_ROOT=/tmp/evidence\n"
+    )
+    cmd = f'export RECOVERY_TEST_ONLY_CTU_CLOSEOUT="{closeout}"; python3 -I -B "{base.authority_tools(tmp_path)}/recovery_runner_freeze.py" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned'
     return tuserns(cmd, tmp_path) if trust is not None else base.userns_bash(cmd)
 
 
@@ -495,8 +502,11 @@ def test_the_test_seam_is_refused_in_the_real_root_namespace(tmp_path: Path) -> 
     repo, main, out = frozen_world(tmp_path)
     env = {**os.environ, tool.TEST_SEAM_ENABLED: "YES", tool.TEST_SEAM_ROOT: str(tmp_path)}
     result = subprocess.run([sys.executable, str(TOOL_PATH), "verify", "--repo", str(repo), "--main", main, "--runner", str(out)], env=env, text=True, capture_output=True)
-    assert result.returncode == 1 and "TEST_TRUST_SEAM_REFUSED_IN_THE_REAL_ROOT_NAMESPACE" in result.stderr  # a real (initial-namespace) caller cannot narrow the trust root
-    assert tool._initial_user_namespace() is True
+    assert result.returncode == 1
+    if tool._initial_user_namespace():
+        assert "TEST_TRUST_SEAM_REFUSED_IN_THE_REAL_ROOT_NAMESPACE" in result.stderr  # a real (initial-namespace) caller cannot narrow the trust root
+    else:
+        assert "RUNNER_NOT_ROOT_OWNED" in result.stderr  # this harness itself is already inside a user namespace
 
 
 @needs_userns

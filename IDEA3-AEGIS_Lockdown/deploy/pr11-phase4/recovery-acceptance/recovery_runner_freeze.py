@@ -106,6 +106,8 @@ PIN_SPECS: dict[str, tuple[re.Pattern[str], str, str]] = {
 
 TEST_SEAM_ENABLED = "RECOVERY_TEST_ONLY_RUNNER_TRUST_ENABLED"
 TEST_SEAM_ROOT = "RECOVERY_TEST_ONLY_RUNNER_TRUST_ROOT"
+CTU_CLOSEOUT = "/var/lib/aegis-idea3-governance/CTU-GLOBAL-CLOSEOUT-PASS"
+CTU_TEST_CLOSEOUT = "RECOVERY_TEST_ONLY_CTU_CLOSEOUT"
 
 
 def _initial_user_namespace() -> bool:
@@ -253,6 +255,7 @@ def verify(repo: Path, main: str, runner: Path, *, owner_uid: int | None = snaps
         if st.st_mode & 0o222:
             raise FreezeError("RUNNER_WRITABLE")
         results["RUNNER_NONWRITABLE"] = "PASS"
+        _verify_ctu_pass_for_freeze(main)
     results["RUNNER_SHA256"] = sha256_of(runner)
     return results
 
@@ -290,6 +293,54 @@ def _prove_privileged_authority(repo: Path) -> None:
         raise FreezeError(f"PRIVILEGED_AUTHORITY_NOT_TRUSTED:{exc}") from None
 
 
+def _ctu_closeout_for_freeze() -> Path:
+    """Return the fixed CTu successor proof, with one user-namespace-only test seam."""
+    candidate = os.environ.get(CTU_TEST_CLOSEOUT)
+    if candidate:
+        if _initial_user_namespace() or os.environ.get(TEST_SEAM_ENABLED) != "YES":
+            raise FreezeError("CTU_CLOSEOUT_TEST_SEAM_REFUSED")
+        path = Path(candidate)
+    else:
+        path = Path(CTU_CLOSEOUT)
+    if not path.is_absolute() or ".." in path.parts or path.is_symlink() or not path.is_file():
+        raise FreezeError("CTU_PASS_CLOSEOUT_MISSING_OR_UNSAFE")
+    if not os.environ.get(CTU_TEST_CLOSEOUT):
+        siblings = [item for item in path.parent.glob("CTU-GLOBAL-CLOSEOUT-*") if item.is_file()]
+        if len(siblings) != 1 or siblings[0] != path:
+            raise FreezeError("CTU_PASS_CLOSEOUT_NOT_UNIQUE")
+    st = path.lstat()
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
+        raise FreezeError("CTU_PASS_CLOSEOUT_NOT_ROOT_OWNED")
+    if not os.environ.get(CTU_TEST_CLOSEOUT):
+        try:
+            snapshot_tool.check_trusted_path(path.parent, 0, trust_root())
+        except snapshot_tool.SnapshotError as exc:
+            raise FreezeError(f"CTU_PASS_CLOSEOUT_PARENT_NOT_TRUSTED:{exc}") from None
+    return path
+
+
+def _verify_ctu_pass_for_freeze(main: str) -> None:
+    path = _ctu_closeout_for_freeze()
+    lines = path.read_text(encoding="utf-8").splitlines()
+    pairs = [line.split("=", 1) for line in lines if "=" in line]
+    if len(pairs) != len({key for key, _ in pairs}):
+        raise FreezeError("CTU_PASS_CLOSEOUT_DUPLICATE_KEYS")
+    values = dict(pairs)
+    required = {
+        "CTU_LIVE": "CLOSED_PASS", "CTU_LIVE_EXECUTED": "YES", "CTU_RESULT": "PASS",
+        "CTU_ATTEMPT_CONSUMED": "YES", "CTU_RERUN_ALLOWED": "NO", "CTU_EXPECTED_MAIN": main,
+        "CTU_STAGE": "CTu", "CTU_RUNTIME_PROOF": "PASS", "CTU_AUTHENTICATED_STATUS_PROOF": "PASS",
+        "CTU_DETECTOR_LIFECYCLE_PROOF": "PASS", "CTU_PRE_POST_PRESERVATION": "PASS",
+        "RECOVERY_LIVE_EXECUTED": "NO", "RECOVERY_ATTEMPT_CONSUMED": "NO", "CTU_FAILURE_RESULT": "NONE",
+    }
+    if any(values.get(key) != value for key, value in required.items()):
+        raise FreezeError("CTU_PASS_CLOSEOUT_NOT_VALID_FOR_MAIN")
+    if not re.fullmatch(r"[0-9a-f]{64}", values.get("CTU_UNIT_SHA256", "")):
+        raise FreezeError("CTU_PASS_CLOSEOUT_UNIT_BINDING_INVALID")
+    if not _path_ok(values.get("CTU_EVIDENCE_ROOT", "")):
+        raise FreezeError("CTU_PASS_CLOSEOUT_EVIDENCE_ROOT_INVALID")
+
+
 def freeze(repo: Path, main: str, pins: dict[str, str], out: Path, *, root_owned: bool = False) -> dict[str, str]:
     """Create a NEW frozen runner (never overwrites, never touches the template), then prove it exactly as ``verify`` does. ``--root-owned`` proves the path BEFORE creating."""
     out = Path(out)
@@ -297,6 +348,7 @@ def freeze(repo: Path, main: str, pins: dict[str, str], out: Path, *, root_owned
         if os.geteuid() != 0:
             raise FreezeError("ROOT_REQUIRED_FOR_ROOT_OWNED_RUNNER")
         _prove_privileged_authority(Path(repo))  # tool + sibling + the Git repository are root-owned and trusted BEFORE anything is read from them
+        _verify_ctu_pass_for_freeze(main)  # Recovery authority cannot be frozen before the exact-main CTu live closeout exists
     template = read_template(repo, main)
     if pins.get("EXPECTED_MAIN") != main:
         raise FreezeError("EXPECTED_MAIN_PIN_IS_NOT_THE_REVIEWED_MAIN")

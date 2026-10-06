@@ -120,6 +120,36 @@ recovery_consume_attempt() {
 # ---- predecessor + host gates ------------------------------------------------------------------------------------------------------------------------------------------
 recovery_commit_gate() { r1bv_commit_gate "$@"; }
 recovery_predecessor_gate() { r1bv_recovery_predecessor_gate "$@"; }   # the existing, reviewed R1B-failure + R1Bv-PASS predecessor gate (reused, never copied)
+recovery_ctu_successor_gate() {
+  local main=${1:-} canon closeout want=0 count keys
+  [ -n "$SUDO" ] || want=$(id -u)
+  [[ "$main" =~ ^[0-9a-f]{40}$ ]] || { recovery_reason RECOVERY_CTU_MAIN_INVALID; return 1; }
+  canon=$(recovery_canonical_dir); closeout="$canon/CTU-GLOBAL-CLOSEOUT-PASS"
+  recovery_canonical_dir_valid || { recovery_reason RECOVERY_CTU_CANONICAL_DIR_INVALID; return 1; }
+  count=$($SUDO find "$canon" -maxdepth 1 -type f -name 'CTU-GLOBAL-CLOSEOUT-*' -printf '%f\n' 2>/dev/null | wc -l)
+  [ "$count" = 1 ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_NOT_UNIQUE; return 1; }
+  [ -f "$closeout" ] && [ ! -L "$closeout" ] || { recovery_reason RECOVERY_CTU_PASS_CLOSEOUT_MISSING; return 1; }
+  [ "$(stat -c %u -- "$closeout" 2>/dev/null)" = "$want" ] || { recovery_reason RECOVERY_CTU_PASS_CLOSEOUT_OWNER_INVALID; return 1; }
+  keys=$($SUDO awk -F= 'NF >= 2 {print $1}' "$closeout" | sort | uniq -d)
+  [ -z "$keys" ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_DUPLICATE_KEYS; return 1; }
+  [ "$($SUDO awk -F= 'NF >= 2 {print $1}' "$closeout" | sort | tr '\n' ' ')" = "CTU_ATTEMPT_CONSUMED CTU_AUTHENTICATED_STATUS_PROOF CTU_DETECTOR_LIFECYCLE_PROOF CTU_EVIDENCE_ROOT CTU_EXPECTED_MAIN CTU_FAILURE_RESULT CTU_LIVE CTU_LIVE_EXECUTED CTU_PRE_POST_PRESERVATION CTU_RERUN_ALLOWED CTU_RESULT CTU_RUNTIME_PROOF CTU_STAGE CTU_UNIT_SHA256 RECOVERY_ATTEMPT_CONSUMED RECOVERY_LIVE_EXECUTED " ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_FIELDS_INVALID; return 1; }
+  grep -qx "CTU_LIVE=$(printf 'CLOSED_%s' PASS)" "$closeout" || { recovery_reason RECOVERY_CTU_LIVE_NOT_CLOSED_RESULT; return 1; }
+  grep -qx 'CTU_LIVE_EXECUTED=YES' "$closeout" || { recovery_reason RECOVERY_CTU_LIVE_NOT_EXECUTED; return 1; }
+  grep -qx 'CTU_RESULT=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_PASS_RESULT_INVALID; return 1; }
+  grep -qx 'CTU_ATTEMPT_CONSUMED=YES' "$closeout" || { recovery_reason RECOVERY_CTU_ATTEMPT_NOT_CONSUMED; return 1; }
+  grep -qx 'CTU_RERUN_ALLOWED=NO' "$closeout" || { recovery_reason RECOVERY_CTU_RERUN_ALLOWED; return 1; }
+  grep -qx "CTU_EXPECTED_MAIN=$main" "$closeout" || { recovery_reason RECOVERY_CTU_MAIN_MISMATCH; return 1; }
+  grep -qx 'CTU_STAGE=CTu' "$closeout" || { recovery_reason RECOVERY_CTU_SUCCESSOR_INVALID; return 1; }
+  grep -qx 'CTU_RUNTIME_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_RUNTIME_PROOF_INVALID; return 1; }
+  grep -qx 'CTU_AUTHENTICATED_STATUS_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_AUTH_PROOF_INVALID; return 1; }
+  grep -qx 'CTU_DETECTOR_LIFECYCLE_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_DETECTOR_PROOF_INVALID; return 1; }
+  grep -qx 'CTU_PRE_POST_PRESERVATION=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_PRESERVATION_PROOF_INVALID; return 1; }
+  grep -qx 'RECOVERY_LIVE_EXECUTED=NO' "$closeout" || { recovery_reason RECOVERY_CTU_RECOVERY_ALREADY_EXECUTED; return 1; }
+  grep -qx 'RECOVERY_ATTEMPT_CONSUMED=NO' "$closeout" || { recovery_reason RECOVERY_CTU_RECOVERY_ALREADY_CONSUMED; return 1; }
+  grep -qx 'CTU_FAILURE_RESULT=NONE' "$closeout" || { recovery_reason RECOVERY_CTU_CONTRADICTORY_FAILURE; return 1; }
+  grep -qE '^CTU_UNIT_SHA256=[0-9a-f]{64}$' "$closeout" || { recovery_reason RECOVERY_CTU_UNIT_BINDING_INVALID; return 1; }
+  grep -qE '^CTU_EVIDENCE_ROOT=/[^.]*$' "$closeout" || { recovery_reason RECOVERY_CTU_EVIDENCE_ROOT_INVALID; return 1; }
+}
 
 recovery_sudo_noninteractive_gate() {
   [ -z "$SUDO" ] || $SUDO true 2>/dev/null || { recovery_reason RECOVERY_SUDO_CREDENTIAL_NOT_ACTIVE; return 1; }

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import sqlite3
@@ -26,7 +27,7 @@ def _connect(path: Path) -> sqlite3.Connection:
         _fail(f"AUDIT_DB_UNREADABLE:{type(exc).__name__}")
 
 
-def capture_boundary(audit_db: Path, protocol_db: Path, device_id: str) -> tuple[int, int]:
+def capture_boundary(audit_db: Path, protocol_db: Path, device_id: str) -> tuple[int, int, int]:
     if not device_id:
         _fail("DEVICE_ID_INVALID")
     protocol = _connect(protocol_db)
@@ -43,14 +44,18 @@ def capture_boundary(audit_db: Path, protocol_db: Path, device_id: str) -> tuple
     audit = _connect(audit_db)
     try:
         audit_row = audit.execute("SELECT COALESCE(MAX(id), 0) FROM audit_logs").fetchone()
+        episode_row = audit.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM lockdown_episodes WHERE device_id = ?",
+            (device_id,),
+        ).fetchone()
     except sqlite3.Error as exc:
         _fail(f"AUDIT_LOG_UNREADABLE:{type(exc).__name__}")
     finally:
         audit.close()
-    return int(row[0]), int(audit_row[0])
+    return int(row[0]), int(audit_row[0]), int(episode_row[0])
 
 
-def _read_boundary(marker_path: Path, device_id: str) -> tuple[int, int, float]:
+def _read_boundary(marker_path: Path, device_id: str) -> tuple[int, int, int, float]:
     try:
         values = {}
         for line in marker_path.read_text().splitlines():
@@ -70,11 +75,12 @@ def _read_boundary(marker_path: Path, device_id: str) -> tuple[int, int, float]:
     try:
         protocol_id = int(values["CTU_PRE_PROTOCOL_SEEN_ID"])
         audit_id = int(values["CTU_PRE_AUDIT_ID"])
+        episode_id = int(values["CTU_PRE_EPISODE_ID"])
     except (KeyError, TypeError, ValueError):
         _fail("CTU_MARKER_BOUNDARY_INVALID")
-    if protocol_id < 0 or audit_id < 0:
+    if protocol_id < 0 or audit_id < 0 or episode_id < 0:
         _fail("CTU_MARKER_BOUNDARY_INVALID")
-    return protocol_id, audit_id, consumed_at
+    return protocol_id, audit_id, episode_id, consumed_at
 
 
 def _process_start_epoch(core_pid: int) -> float:
@@ -85,6 +91,19 @@ def _process_start_epoch(core_pid: int) -> float:
         return btime + start_ticks / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
     except (OSError, StopIteration, IndexError, ValueError, KeyError):
         _fail("CORE_PROCESS_START_UNREADABLE")
+
+
+def _systemd_timestamp_epoch(value: str) -> float:
+    value = value.strip()
+    for fmt in ("%a %Y-%m-%d %H:%M:%S %Z", "%a %Y-%m-%d %H:%M:%S %z", "%Y-%m-%d %H:%M:%S %Z"):
+        try:
+            parsed = dt.datetime.strptime(value, fmt)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=dt.timezone.utc)
+            return parsed.timestamp()
+        except ValueError:
+            continue
+    _fail("CORE_SYSTEMD_START_TIMESTAMP_INVALID")
 
 
 def verify_detector(pre: dict[str, str], post: dict[str, str], core_post_monotonic: int) -> None:
@@ -120,6 +139,7 @@ def verify_files(
     pre_updated_at: float,
     device_id: str,
     process_start_epoch: float | None = None,
+    post_core_start_timestamp: str | None = None,
 ) -> None:
     try:
         status = json.loads(status_path.read_text())
@@ -135,7 +155,12 @@ def verify_files(
         _fail("STATUS_TIMESTAMP_INVALID")
     if updated_at <= pre_updated_at:
         _fail("STATUS_NOT_REFRESHED_BY_CURRENT_CORE")
-    post_start_epoch = _process_start_epoch(core_pid) if process_start_epoch is None else process_start_epoch
+    if process_start_epoch is not None:
+        post_start_epoch = process_start_epoch
+    elif post_core_start_timestamp is not None:
+        post_start_epoch = _systemd_timestamp_epoch(post_core_start_timestamp)
+    else:
+        _fail("CORE_PRECISE_START_BOUNDARY_REQUIRED")
     if updated_at <= post_start_epoch:
         _fail("STATUS_NOT_POST_RESTART")
     expected = {"state": "LOCKDOWN", "time_trust": "SYNCED", "broker": "CONNECTED", "device": "ONLINE", "uplink": "LOCKDOWN"}
@@ -143,7 +168,7 @@ def verify_files(
         if status.get(key) != value:
             _fail(f"STATUS_{key.upper()}_NOT_EXPECTED")
 
-    pre_protocol_id, pre_audit_id, consumed_at = _read_boundary(marker_path, device_id)
+    pre_protocol_id, pre_audit_id, pre_episode_id, consumed_at = _read_boundary(marker_path, device_id)
     protocol = _connect(protocol_db)
     try:
         seen = protocol.execute(
@@ -158,31 +183,22 @@ def verify_files(
         protocol.close()
     if not seen or not isinstance(seen[1], str) or not seen[1]:
         _fail("AUTHENTICATED_STATUS_NOT_POST_RESTART")
+    protocol_msg_id = seen[1]
 
     audit = _connect(audit_db)
     try:
-        lockdown_audit = audit.execute(
-            "SELECT id, timestamp, details FROM audit_logs "
-            "WHERE id > ? AND event_type = 'DEVICE_STATUS' "
-            "AND details LIKE 'LOCKDOWN (%' ORDER BY id DESC LIMIT 1",
-            (pre_audit_id,),
-        ).fetchone()
-    except sqlite3.Error as exc:
-        _fail(f"AUTHENTICATED_STATUS_AUDIT_UNREADABLE:{type(exc).__name__}")
-    try:
         episode = audit.execute(
-            "SELECT open_msg_id FROM lockdown_episodes "
-            "WHERE device_id = ? AND closed_at IS NULL ORDER BY id DESC LIMIT 1",
-            (device_id,),
+            "SELECT id, open_msg_id FROM lockdown_episodes "
+            "WHERE id > ? AND device_id = ? AND open_msg_id = ? AND closed_at IS NULL "
+            "ORDER BY id DESC LIMIT 1",
+            (pre_episode_id, device_id, protocol_msg_id),
         ).fetchone()
     except sqlite3.Error as exc:
         _fail(f"LOCKDOWN_EPISODE_UNREADABLE:{type(exc).__name__}")
     finally:
         audit.close()
-    if not lockdown_audit:
-        _fail("LOCKDOWN_STATUS_NOT_POST_RESTART")
-    if not episode or not isinstance(episode[0], str) or not episode[0]:
-        _fail("AUTHENTICATED_STATUS_NOT_PROVEN")
+    if not episode or not isinstance(episode[1], str) or not episode[1]:
+        _fail("AUTHENTICATED_STATUS_NOT_CORRELATED")
 
 
 def main() -> int:
@@ -193,6 +209,7 @@ def main() -> int:
     parser.add_argument("--pre-updated-at", type=float)
     parser.add_argument("--device-id", required=True)
     parser.add_argument("--core-post-monotonic", type=int)
+    parser.add_argument("--post-core-start-timestamp")
     for prefix in ("pre", "post"):
         parser.add_argument(f"--{prefix}-detector-pid")
         parser.add_argument(f"--{prefix}-detector-start")
@@ -223,12 +240,13 @@ def main() -> int:
     protocol_db = Path("/var/lib/aegis-idea3/data/core-protocol.sqlite3")
     if args.capture_boundary:
         try:
-            protocol_id, audit_id = capture_boundary(audit_db, protocol_db, args.device_id)
+            protocol_id, audit_id, episode_id = capture_boundary(audit_db, protocol_db, args.device_id)
         except RuntimeProofError as exc:
             print(f"CTU_BOUNDARY=FAIL reason={exc}")
             return 1
         print(f"CTU_PRE_PROTOCOL_SEEN_ID={protocol_id}")
         print(f"CTU_PRE_AUDIT_ID={audit_id}")
+        print(f"CTU_PRE_EPISODE_ID={episode_id}")
         return 0
     if args.core_pid is None or args.pre_updated_at is None or args.core_pid <= 0:
         print("CTU_RUNTIME_VERIFY=FAIL reason=INVALID_BASELINE")
@@ -242,6 +260,7 @@ def main() -> int:
             args.core_pid,
             args.pre_updated_at,
             args.device_id,
+            post_core_start_timestamp=args.post_core_start_timestamp,
         )
     except RuntimeProofError as exc:
         print(f"CTU_RUNTIME_VERIFY=FAIL reason={exc}")

@@ -68,10 +68,10 @@ def test_ctu_handlers_are_shell_valid_and_scope_limited() -> None:
     apply = (CTU / "apply.sh").read_text()
     rollback = (CTU / "rollback.sh").read_text()
     for text in (apply, rollback):
-        assert "aegis-idea3-detector.service" not in text
         assert "mosquitto" not in text
         assert "esp32" not in text.lower()
         assert "CUT" not in text and "RESTORE" not in text
+        assert not re.search(r"systemctl +(restart|start|stop|reload).*detector", text)
     assert apply.count("systemctl restart aegis-idea3-core.service") == 1
     assert rollback.count("systemctl restart aegis-idea3-core.service") == 1
     assert "systemctl daemon-reload" in apply
@@ -102,9 +102,15 @@ def test_ctu_runner_is_unpinned_and_consumes_its_own_marker_before_apply() -> No
     assert "ATTEMPT_MARKER=\"$AUTH_DIR/CTU-GLOBAL-ATTEMPT-CONSUMED\"" not in text
     assert "CTU_CANONICAL_DIR=/var/lib/aegis-idea3-governance" in lib
     assert "ctu_consume_attempt" in text
-    assert text.index("ctu_consume_attempt") < text.index('bash \"$P4/stages/CTu/apply.sh\"')
+    assert text.index("ctu_consume_attempt") < text.index('bash \"$BUNDLE/stages/CTu/apply.sh\"')
     assert "--stage RRu" not in text and "--stage Recovery" not in text
     assert not re.search(r"systemctl +(restart|start|stop|reload).*detector", text)
+    assert "SUDO" in text and "SUDO" in lib
+    assert "PIN_MERGED_MAIN_WORKTREE" in text
+    assert "PIN_EVIDENCE_ROOT" in text
+    assert "ctu_prepare_bundle" in text and "CTU-BUNDLE-SHA256SUMS" in lib
+    assert "trap 'exit_handler' EXIT" in text
+    assert "GIT_" in text and "environment override SUDO" in text
 
 
 def test_ctu_verify_uses_real_runtime_and_has_no_caller_success_pins() -> None:
@@ -118,11 +124,14 @@ def test_ctu_verify_uses_real_runtime_and_has_no_caller_success_pins() -> None:
     ):
         assert forbidden not in runner
         assert forbidden not in verify
-    assert "p4-ctu-runtime-verify.py" in verify
+    assert "AEGIS_CTU_RUNTIME_VERIFY" in verify
     assert "status.json" in RUNTIME_VERIFY.read_text()
     assert "lockdown_episodes" in RUNTIME_VERIFY.read_text()
     assert "protocol_seen_d2c" in RUNTIME_VERIFY.read_text()
     assert "audit_logs" in RUNTIME_VERIFY.read_text()
+    assert "open_msg_id" in RUNTIME_VERIFY.read_text()
+    assert "pre_episode_id" in RUNTIME_VERIFY.read_text()
+    assert "protocol_msg_id" in RUNTIME_VERIFY.read_text()
 
 
 def test_ctu_operator_identity_and_fixed_marker_contract_is_fail_closed() -> None:
@@ -191,6 +200,10 @@ def test_ctu_post_consumption_failures_have_terminal_rollback_paths() -> None:
     assert "then post_fail COMPARE_S10" in text
     assert "then post_fail SECRET_SCAN" in text
     assert "then post_fail VERIFY" in text
+    assert "trap" in text and "INT" in text and "TERM" in text and "HUP" in text
+    assert 'source "$BUNDLE/p4-l7u-run-lib.sh"' in text
+    assert text.index('source "$BUNDLE/p4-l7u-run-lib.sh"') < text.index("ctu_consume_attempt")
+    assert "SECRET_SCAN" in text[text.index("rollback_flow"):text.index("post_fail()")]
 
 
 def test_ctu_proves_the_expected_implicit_detector_lifecycle() -> None:
@@ -235,7 +248,7 @@ def _load_runtime_verifier():
     return module
 
 
-def _runtime_fixture(tmp: Path, *, status: dict, episode: bool = True, protocol_rows=(), audit_rows=(), boundary=(0, 0)):
+def _runtime_fixture(tmp: Path, *, status: dict, episode: bool = True, episode_msg_id="msg-123", episode_id=None, protocol_rows=(), audit_rows=(), boundary=(0, 0)):
     status_path = tmp / "status.json"
     status_path.write_text(json.dumps(status))
     db_path = tmp / "audit.sqlite3"
@@ -250,10 +263,16 @@ def _runtime_fixture(tmp: Path, *, status: dict, episode: bool = True, protocol_
         );
     """)
     if episode:
-        con.execute(
-            "INSERT INTO lockdown_episodes(device_id, opened_at, open_msg_id, closed_at) VALUES (?, ?, ?, NULL)",
-            ("esp32-01", "2026-10-07 00:00:00", "msg-123"),
-        )
+        if episode_id is None:
+            con.execute(
+                "INSERT INTO lockdown_episodes(device_id, opened_at, open_msg_id, closed_at) VALUES (?, ?, ?, NULL)",
+                ("esp32-01", "2026-10-07 00:00:00", episode_msg_id),
+            )
+        else:
+            con.execute(
+                "INSERT INTO lockdown_episodes(id, device_id, opened_at, open_msg_id, closed_at) VALUES (?, ?, ?, ?, NULL)",
+                (episode_id, "esp32-01", "2026-10-07 00:00:00", episode_msg_id),
+            )
     con.executemany("INSERT INTO audit_logs(id, timestamp, event_type, details) VALUES (?, ?, ?, ?)", audit_rows)
     con.commit()
     con.close()
@@ -267,7 +286,7 @@ def _runtime_fixture(tmp: Path, *, status: dict, episode: bool = True, protocol_
     marker_path.write_text(
         "CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_DEVICE_ID=esp32-01\n"
         "CTU_CONSUMED_AT_EPOCH=10.0\n"
-        f"CTU_PRE_PROTOCOL_SEEN_ID={boundary[0]}\nCTU_PRE_AUDIT_ID={boundary[1]}\n"
+        f"CTU_PRE_PROTOCOL_SEEN_ID={boundary[0]}\nCTU_PRE_AUDIT_ID={boundary[1]}\nCTU_PRE_EPISODE_ID={boundary[1]}\n"
     )
     return status_path, db_path, protocol_path, marker_path
 
@@ -302,9 +321,99 @@ def test_runtime_verifier_accepts_only_post_restart_fresh_lockdown_evidence() ->
         status_path, db_path, protocol_path, marker_path = _runtime_fixture(
             tmp, status=status, protocol_rows=[(1, "esp32-01", "old", "STATUS", 1.0), (2, "esp32-01", "new", "STATUS", 20.0)],
             audit_rows=[(1, "2026-10-07 00:00:01", "DEVICE_STATUS", "LOCKDOWN (old)"), (2, "2026-10-07 00:00:20", "DEVICE_STATUS", "LOCKDOWN (new)")],
-            boundary=(1, 1),
+            boundary=(1, 1), episode_msg_id="new", episode_id=2,
         )
         assert verifier.verify_files(status_path, db_path, protocol_path, marker_path, 2743, 10.0, "esp32-01", 10.0) is None
+
+
+def test_runtime_verifier_rejects_fresh_status_with_historical_episode_or_unrelated_audit() -> None:
+    verifier = _load_runtime_verifier()
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        status = {"pid": 2743, "updated_at": 20.0, "state": "LOCKDOWN", "time_trust": "SYNCED", "broker": "CONNECTED", "device": "ONLINE", "uplink": "LOCKDOWN"}
+        status_path, db_path, protocol_path, marker_path = _runtime_fixture(
+            tmp, status=status, protocol_rows=[(2, "esp32-01", "new", "STATUS", 20.0)],
+            audit_rows=[(2, "2026-10-07 00:00:20", "DEVICE_STATUS", "LOCKDOWN (unrelated)")], boundary=(1, 1), episode_msg_id="old",
+        )
+        for process_start in (10.0, 19.0):
+            try:
+                verifier.verify_files(status_path, db_path, protocol_path, marker_path, 2743, 10.0, "esp32-01", process_start)
+            except verifier.RuntimeProofError:
+                continue
+            raise AssertionError("unrelated or historical lockdown evidence must fail")
+
+
+def test_runtime_verifier_rejects_pre_restart_timing_sliver_and_accepts_correlated_event() -> None:
+    verifier = _load_runtime_verifier()
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        status = {"pid": 2743, "updated_at": 20.0, "state": "LOCKDOWN", "time_trust": "SYNCED", "broker": "CONNECTED", "device": "ONLINE", "uplink": "LOCKDOWN"}
+        status_path, db_path, protocol_path, marker_path = _runtime_fixture(
+            tmp, status=status, protocol_rows=[(2, "esp32-01", "new", "STATUS", 14.0)],
+            audit_rows=[(2, "2026-10-07 00:00:14", "DEVICE_STATUS", "LOCKDOWN (new)")], boundary=(1, 1), episode_msg_id="new",
+        )
+        try:
+            verifier.verify_files(status_path, db_path, protocol_path, marker_path, 2743, 10.0, "esp32-01", 15.0)
+        except verifier.RuntimeProofError:
+            pass
+        else:
+            raise AssertionError("pre-restart timing sliver must fail")
+
+
+def test_ctu_uses_root_snapshot_and_recovery_requires_ctu_pass() -> None:
+    runner = RUNNER.read_text()
+    apply = (CTU / "apply.sh").read_text()
+    recovery = (P4 / "owner-run" / "run-recovery-owner.sh").read_text()
+    recovery_lib = (P4 / "p4-recovery-run-lib.sh").read_text()
+    assert "AEGIS_CTU_UNIT_SNAPSHOT" in runner and "sha256sum" in runner
+    assert "AEGIS_CTU_UNIT_SNAPSHOT" in apply and "AEGIS_CTU_UNIT_SHA256" in apply
+    assert "CTU-GLOBAL-CLOSEOUT-PASS" in recovery_lib
+    assert "recovery_ctu_successor_gate" in recovery
+
+
+def test_recovery_gate_refuses_without_ctu_closeout_and_accepts_exact_bound(tmp_path: Path) -> None:
+    canonical = tmp_path / "governance"
+    canonical.mkdir()
+    lib = P4 / "p4-recovery-run-lib.sh"
+    command = f'. "{lib}"; recovery_ctu_successor_gate "$1"'
+    env = {
+        **__import__("os").environ,
+        "SUDO": "",
+        "RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED": "YES",
+        "RECOVERY_TEST_ONLY_CANONICAL_DIR": str(canonical),
+        "RECOVERY_TEST_ONLY_TRUST_ROOT": str(tmp_path),
+    }
+    missing = subprocess.run(["bash", "-c", command, "gate", "a" * 40], env=env, capture_output=True)
+    assert missing.returncode != 0
+    (canonical / "CTU-GLOBAL-CLOSEOUT-PASS").write_text(
+        "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
+        f"CTU_EXPECTED_MAIN={'a' * 40}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
+        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+        "CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=" + "b" * 64 + "\nCTU_EVIDENCE_ROOT=/tmp/evidence\n"
+    )
+    accepted = subprocess.run(["bash", "-c", command, "gate", "a" * 40], env=env, capture_output=True)
+    assert accepted.returncode == 0, accepted.stderr.decode()
+    (canonical / "CTU-GLOBAL-CLOSEOUT-FAIL").write_text("CTU_RESULT=FAIL_IMMUTABLE\n")
+    duplicate = subprocess.run(["bash", "-c", command, "gate", "a" * 40], env=env, capture_output=True)
+    assert duplicate.returncode != 0
+    (canonical / "CTU-GLOBAL-CLOSEOUT-FAIL").unlink()
+    stale = subprocess.run(["bash", "-c", command, "gate", "b" * 40], env=env, capture_output=True)
+    assert stale.returncode != 0
+
+
+def test_ctu_live_environment_rejects_sudo_override_and_snapshot_symlinks() -> None:
+    runner = RUNNER.read_text()
+    apply = (CTU / "apply.sh").read_text()
+    assert "SUDO" in runner and "environment override SUDO" in runner
+    assert "-L" in apply
+    assert "mv -f" in apply
+
+
+def test_moc_current_sequence_places_ctu_before_recovery_and_history_is_explicit() -> None:
+    moc = (ROOT.parent / "Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-moc.md").read_text()
+    assert "CTu" in moc and "CTu PASS" in moc
+    assert moc.index("CTu") < moc.index("Recovery LIVE")
+    assert "blocked until R1Bv passed" in moc
 
 
 def test_runtime_verifier_rejects_wrong_device_and_normal_post_restart_evidence() -> None:
