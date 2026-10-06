@@ -654,6 +654,8 @@ def test_the_shell_surfaces_only_read_the_recovery_marker_and_never_write_it() -
             if "RECOVERY-GLOBAL-ATTEMPT-CONSUMED" in line or "RRU_RECOVERY_MARKER_NAME" in line or "RRU_CANONICAL_DIR/" in line:
                 assert not re.search(r"(>|\btouch\b|\bmkdir\b|\brm\b|\bln\b|\bchattr\b|\binstall\b|\btee\b)", line.replace("2>/dev/null", "")), (path.name, line)
         for write in ("chattr", "recovery_consume_attempt", "rm -f", "nft add", "nft delete", "mosquitto_pub", "sqlite3", "systemctl restart", "systemctl stop", "systemctl start", "cli restore", "--reason"):
+            if write == "chattr" and path == LIB:
+                continue  # RRu may best-effort chattr its own durable canonical marker only.
             assert write not in text, (path.name, write)
 
 
@@ -745,7 +747,7 @@ def test_a_stale_pinned_commit_is_refused(tmp_path) -> None:
 def test_the_recovery_marker_must_be_absent(tmp_path) -> None:
     canon = tmp_path / "gov"
     canon.mkdir()
-    gate = f'. "{LIB}"; SUDO=""; RRU_CANONICAL_DIR="{canon}"; rru_recovery_marker_absent'
+    gate = f'export RRU_TEST_ONLY_CANONICAL_DIR_ENABLED=YES RRU_TEST_ONLY_CANONICAL_DIR="{canon}" RRU_TEST_ONLY_TRUST_ROOT="{tmp_path}"; . "{LIB}"; SUDO=""; rru_recovery_marker_absent'
     assert bash(gate).returncode == 0
     (canon / "RECOVERY-GLOBAL-ATTEMPT-CONSUMED").write_text("x")
     result = bash(gate)
@@ -755,13 +757,115 @@ def test_the_recovery_marker_must_be_absent(tmp_path) -> None:
     assert bash(gate).returncode == 1
 
 
-def test_the_rru_marker_is_distinct_atomic_and_never_creates_the_recovery_marker(tmp_path) -> None:
+def test_the_rru_marker_is_canonical_durable_atomic_and_never_uses_auth_dir(tmp_path) -> None:
     auth = tmp_path / "auth"
     auth.mkdir()
-    script = f'. "{LIB}"; SUDO=""; rru_attempt_unconsumed "{auth}" && rru_consume_attempt "{auth}" && echo consumed; rru_attempt_unconsumed "{auth}"; rru_consume_attempt "{auth}"'
+    (auth / "RRU-ATTEMPT-CONSUMED").write_text("operator-created\n")
+    script = (f'export RRU_TEST_ONLY_CANONICAL_DIR_ENABLED=YES RRU_TEST_ONLY_CANONICAL_DIR="{tmp_path / "canon"}" '
+              f'RRU_TEST_ONLY_TRUST_ROOT="{tmp_path}"; . "{LIB}"; SUDO=""; '
+              f'rru_attempt_unconsumed "{auth}" && rru_consume_attempt "{auth}" && echo consumed; '
+              f'rru_attempt_unconsumed "{auth}"; rru_consume_attempt "{auth}"')
     result = bash(script)
     assert "consumed" in result.stdout and result.stderr.count("RRU_ATTEMPT_ALREADY_CONSUMED") == 2
-    assert [p.name for p in auth.iterdir()] == ["RRU-ATTEMPT-CONSUMED"]
+    marker = tmp_path / "canon" / "RRU-GLOBAL-ATTEMPT-CONSUMED"
+    assert marker.is_file() and "consumed_at=" in marker.read_text()
+    assert (auth / "RRU-ATTEMPT-CONSUMED").read_text() == "operator-created\n"
+    assert not (tmp_path / "canon" / "RECOVERY-GLOBAL-ATTEMPT-CONSUMED").exists()
+
+
+def test_rru_marker_requires_private_real_canonical_directory_and_durable_sync(tmp_path) -> None:
+    auth = tmp_path / "auth"
+    auth.mkdir()
+    canon = tmp_path / "canon"
+    canon.mkdir(mode=0o770)
+    canon.chmod(0o770)
+    bad = bash(f'export RRU_TEST_ONLY_CANONICAL_DIR_ENABLED=YES RRU_TEST_ONLY_CANONICAL_DIR="{canon}" RRU_TEST_ONLY_TRUST_ROOT="{tmp_path}"; . "{LIB}"; SUDO=""; rru_attempt_unconsumed "{auth}"')
+    assert bad.returncode == 1 and "RRU_CANONICAL_DIR_NOT_PRIVATE_ROOT_OWNED" in bad.stderr
+    stat_bin = tmp_path / "stat-bin"
+    stat_bin.mkdir()
+    (stat_bin / "stat").write_text('#!/bin/sh\n[ "$1" = -c ] && [ "$2" = %u ] && { echo 999; exit 0; }\nexec /usr/bin/stat "$@"\n')
+    (stat_bin / "stat").chmod(0o755)
+    wrong_owner = bash(f'export PATH="{stat_bin}:/usr/bin:/bin" RRU_TEST_ONLY_CANONICAL_DIR_ENABLED=YES RRU_TEST_ONLY_CANONICAL_DIR="{canon}" RRU_TEST_ONLY_TRUST_ROOT="{tmp_path}"; . "{LIB}"; SUDO=""; rru_attempt_unconsumed "{auth}"')
+    assert wrong_owner.returncode == 1 and "RRU_CANONICAL_DIR_NOT_PRIVATE_ROOT_OWNED" in wrong_owner.stderr
+    canon.chmod(0o700)
+    canon.rename(tmp_path / "real")
+    canon.symlink_to(tmp_path / "real")
+    bad_link = bash(f'export RRU_TEST_ONLY_CANONICAL_DIR_ENABLED=YES RRU_TEST_ONLY_CANONICAL_DIR="{canon}" RRU_TEST_ONLY_TRUST_ROOT="{tmp_path}"; . "{LIB}"; SUDO=""; rru_attempt_unconsumed "{auth}"')
+    assert bad_link.returncode == 1
+    canon.unlink()
+    calls = tmp_path / "sync.calls"
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    (shim / "sync").write_text(f'#!/bin/sh\necho "$*" >> "{calls}"\n')
+    (shim / "sync").chmod(0o755)
+    good = bash(f'export PATH="{shim}:/usr/bin:/bin" RRU_TEST_ONLY_CANONICAL_DIR_ENABLED=YES RRU_TEST_ONLY_CANONICAL_DIR="{canon}" RRU_TEST_ONLY_TRUST_ROOT="{tmp_path}"; . "{LIB}"; SUDO=""; rru_consume_attempt "{auth}"')
+    assert good.returncode == 0, good.stderr
+    assert len(calls.read_text().splitlines()) >= 3  # parent-before-create, marker, containing directory
+
+
+def test_rru_existing_canonical_marker_blocks_without_any_mutation(tmp_path) -> None:
+    auth = tmp_path / "auth"
+    auth.mkdir()
+    canon = tmp_path / "canon"
+    canon.mkdir(mode=0o700)
+    marker = canon / "RRU-GLOBAL-ATTEMPT-CONSUMED"
+    marker.write_text("kept\n")
+    result = bash(f'export RRU_TEST_ONLY_CANONICAL_DIR_ENABLED=YES RRU_TEST_ONLY_CANONICAL_DIR="{canon}" RRU_TEST_ONLY_TRUST_ROOT="{tmp_path}"; . "{LIB}"; SUDO=""; if rru_attempt_unconsumed "{auth}"; then echo mutation; exit 2; else exit 1; fi')
+    assert result.returncode == 1 and "RRU_ATTEMPT_ALREADY_CONSUMED" in result.stderr and "mutation" not in result.stdout
+    assert marker.read_text() == "kept\n"
+
+
+RRU_CLOSEOUT = f"{LOGS}/2026-10-07_000000_music_idea3-rru-live-closeout.md"
+RRU_SUCCESSOR_FIELDS = """RRU_LIVE=CLOSED_PASS
+RRU_LIVE_EXECUTED=YES
+RRU_RESULT=PASS
+RRU_PRODUCTION_DEPLOYED=YES
+RECOVERY_RUNTIME_RELEASE_READY=YES
+RRU_RELEASE_ID=912b18005bb2fc80bb4e8d1fe8aa88803ac27314
+RECOVERY_ATTEMPT_CONSUMED=NO
+RECOVERY_LIVE_EXECUTED=NO
+RECOVERY_R2_R8_EXECUTED=NO
+R1B_RESULT=FAIL_IMMUTABLE
+R1BV_RESULT=PASS
+"""
+
+
+def successor_gate(repo: Path, release: str = "912b18005bb2fc80bb4e8d1fe8aa88803ac27314") -> subprocess.CompletedProcess[str]:
+    return bash(f'. "{LIB}"; SUDO=""; rru_recovery_successor_gate "{repo}" {head(repo)} "{release}"')
+
+
+def test_recovery_successor_gate_requires_one_pinned_main_rru_closeout(tmp_path) -> None:
+    repo = receipt_repo(tmp_path)
+    assert successor_gate(repo).returncode == 1
+    repo = receipt_repo(tmp_path / "valid", {RRU_CLOSEOUT: RRU_SUCCESSOR_FIELDS})
+    result = successor_gate(repo)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("change", [
+    {RRU_CLOSEOUT: RRU_SUCCESSOR_FIELDS.replace("RRU_RESULT=PASS", "RRU_RESULT=FAIL")},
+    {RRU_CLOSEOUT: RRU_SUCCESSOR_FIELDS.replace("RECOVERY_RUNTIME_RELEASE_READY=YES", "RECOVERY_RUNTIME_RELEASE_READY=NO")},
+    {RRU_CLOSEOUT: RRU_SUCCESSOR_FIELDS.replace("RRU_RELEASE_ID=912b18005bb2fc80bb4e8d1fe8aa88803ac27314", "RRU_RELEASE_ID=other")},
+    {RRU_CLOSEOUT: RRU_SUCCESSOR_FIELDS.replace("RRU_LIVE_EXECUTED=YES", "RRU_LIVE_EXECUTED=NO")},
+])
+def test_recovery_successor_gate_rejects_failed_unready_or_mismatched_closeout(tmp_path, change) -> None:
+    result = successor_gate(receipt_repo(tmp_path, change))
+    assert result.returncode == 1
+
+
+def test_recovery_successor_gate_rejects_duplicate_or_split_pinned_main_closeouts(tmp_path) -> None:
+    duplicate = receipt_repo(tmp_path, {RRU_CLOSEOUT: RRU_SUCCESSOR_FIELDS, f"{LOGS}/2026-10-07_000001_music_idea3-rru-live-closeout.md": RRU_SUCCESSOR_FIELDS})
+    assert successor_gate(duplicate).returncode == 1
+    split = receipt_repo(tmp_path / "split", {RRU_CLOSEOUT: "RRU_LIVE=CLOSED_PASS\n", f"{LOGS}/2026-10-07_000001_music_idea3-rru-live-closeout.md": RRU_SUCCESSOR_FIELDS.replace("RRU_LIVE=CLOSED_PASS\n", "")})
+    assert successor_gate(split).returncode == 1
+
+
+def test_recovery_successor_gate_ignores_working_tree_only_closeout(tmp_path) -> None:
+    repo = receipt_repo(tmp_path)
+    path = repo / RRU_CLOSEOUT
+    path.write_text(RRU_SUCCESSOR_FIELDS)
+    result = successor_gate(repo)
+    assert result.returncode == 1
 
 
 def make_source(tmp: Path, cli_line: bool = True, corrupt: str | None = None) -> tuple[Path, Path]:
@@ -835,6 +939,14 @@ def test_the_rollback_output_gate_accepts_only_the_exact_process_class() -> None
 
 def test_recovery_authority_is_unchanged_by_this_stage() -> None:
     lib = (DEPLOY / "p4-recovery-run-lib.sh").read_text()
+    runner = (DEPLOY / "owner-run/run-recovery-owner.sh").read_text()
     for kept in ("recovery_cli_gate", "recovery_release_closure_gate", "RESTORE_CLI_SHA256", "RELEASE_SUMS_SHA256", "RECOVERY_CLI_NOT_A_MANIFESTED_ENTRY", "RECOVERY_CLI_DIGEST_MISMATCH"):
         assert kept in lib or kept in (DEPLOY / "recovery-acceptance" / "recovery_runner_freeze.py").read_text()
-    assert "rru" not in lib.lower()  # Recovery's predecessor/authority is not weakened or rewired by RRu
+    assert "rru_recovery_successor_gate" in runner and "recovery_predecessor_gate" in runner  # additive RRu readiness; existing R1B/R1Bv gate remains
+
+
+def test_rru_canonical_marker_is_before_apply_and_rollback_never_clears_it() -> None:
+    runner = RUNNER.read_text()
+    assert runner.index("rru_consume_attempt") < runner.index("handler apply.sh")
+    rollback = (STAGE / "rollback.sh").read_text()
+    assert "RRU-GLOBAL-ATTEMPT-CONSUMED" not in rollback and "RRU-ATTEMPT-CONSUMED" not in rollback

@@ -3,14 +3,14 @@ title: IDEA3 AEGIS Lockdown MOC
 tags: [aegis, idea3, moc]
 type: moc
 created: 2026-08-13
-updated: 2026-10-06
+updated: 2026-10-07
 owner: music
 edit_policy: owner-writable
 ---
 
 # 🔒 IDEA3 — AEGIS Lockdown
 
-> **Current Recovery state (2026-10-06):** `RECOVERY_REPOSITORY_IMPLEMENTED=YES`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. The new mutating `RRu` successor is repository-implemented and registered exactly once after `R1Bv` and before `Recovery`; it is Recovery preparation only and has not executed LIVE. RRu adds one immutable release carrying the manifested `aegis_soc/cli.py` closure and atomically switches `current`, with no Core/detector restart or Recovery mutation. `RRU_REPOSITORY_IMPLEMENTED=YES`, `RRU_LIVE_EXECUTED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=NO`. The one mutating `Recovery` stage remains separately owner-authorized, requires fresh Authorization + K3, reuses the Core Recovery client, consumes one attempt immediately before `ISOLATE`, and leaves normal D4 owner-interactive. `R1B_RESULT=FAIL_IMMUTABLE` and `R1BV_RESULT=PASS` remain immutable history. The older “no Recovery stage exists” statements are historical/superseded.
+> **Current Recovery state (2026-10-07):** `RECOVERY_REPOSITORY_IMPLEMENTED=YES`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. PR #369's RRu successor remains repository-only and has not executed LIVE. Its one-shot authority is now the canonical durable root-owned `RRU-GLOBAL-ATTEMPT-CONSUMED` marker under `/var/lib/aegis-idea3-governance`; `AUTH_DIR` is Authorization/K3 input only. Recovery preserves the existing R1B-failure + R1Bv-PASS predecessor and additionally requires exactly one pinned-main governed RRu LIVE closeout with `RRU_RESULT=PASS`, `RECOVERY_RUNTIME_RELEASE_READY=YES`, and an exact `RRU_RELEASE_ID` binding to the frozen Recovery release. The required sequence is: PR #369 merge → one owner-authorized RRu LIVE attempt → evidence review and separately merged RRu closeout → new exact-main Recovery authority/freeze → Recovery LIVE. `RRU_REPOSITORY_IMPLEMENTED=YES`, `RRU_LIVE_EXECUTED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=NO`; no Recovery marker, Production mutation, or ESP32 action occurred.
 
 Current checkpoint (2026-10-06): the historical `R1A` attempt executed live exactly once and remains an immutable, consumed FAIL
 (`R1A_RESULT=FAIL`, `R1A_RERUN_ALLOWED=NO`): the genuine external detector chain was observed (owner-run read-only forensic readout,

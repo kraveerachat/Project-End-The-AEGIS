@@ -22,6 +22,7 @@ R1BV_LOGS_REL="Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs"
 R1BV_R1A_FAILURE_CLOSEOUT_RECEIPT_REL="$R1BV_LOGS_REL/2026-10-05_232827_music_idea3-r1a-live-failure-closeout.md"
 R1BV_R1I_CLOSEOUT_RECEIPT_REL="$R1BV_LOGS_REL/2026-10-05_063546_music_idea3-r1i-live-closeout.md"
 R1BV_F1U_CLOSEOUT_RECEIPT_REL="$R1BV_LOGS_REL/2026-10-05_041108_music_idea3-f1u-live-closeout.md"
+R1BV_RRU_CLOSEOUT_SUFFIX="_music_idea3-rru-live-closeout.md"
 R1BV_R1I_TABLE="inet aegis_idea3_r1i"
 
 r1bv_reason() { printf '%s\n' "$1" >&2; return 1; }
@@ -188,6 +189,19 @@ r1bv_recovery_predecessor_gate() {
     R1BV_NEW_INCIDENT_CREATED_SEMANTICS=PASS R1BV_AUDIT_PROVENANCE=PASS R1BV_AUDIT_INTEGRITY=PASS R1BV_R1I_STATE=PASS R1BV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=YES R1BV_PRESERVATION_S10=PASS R1BV_COMPARE_RESULT=PASS \
     R1B_RESULT=FAIL_IMMUTABLE R1B_RESULT_REWRITTEN=NO RECOVERY_R2_R8_EXECUTED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED RECOVERY_R1_R8_PROVEN=NO \
     || { r1bv_reason "R1BV_RECOVERY_R1BV_CLOSEOUT_MISSING_OR_AMBIGUOUS (R1Bv LIVE PASS closeout incomplete, failed or not unique)"; return 1; }
+}
+
+# rru_recovery_successor_gate REPO MAIN RELEASE_ID — Recovery's additive successor gate. It accepts only one reviewed, canonical RRu LIVE closeout from the pinned-main Git objects, with every field in the same receipt and the exact release frozen by Recovery.
+rru_recovery_successor_gate() {
+  local repo=${1:-} main=${2:-} release=${3:-} claim files
+  [ -n "$repo" ] && [[ "$release" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { r1bv_reason "RRU_SUCCESSOR_GATE_INPUT_INVALID"; return 1; }
+  r1bv_commit_gate "$repo" "$main" || return 1
+  files=$({ for claim in RRU_LIVE=CLOSED_PASS RRU_LIVE_EXECUTED=YES RRU_RESULT=PASS RRU_PRODUCTION_DEPLOYED=YES RECOVERY_RUNTIME_RELEASE_READY=YES "RRU_RELEASE_ID=$release"; do
+      r1bv_field_files "$repo" "$main" "${claim%%=*}" "${claim#*=}"; done; } | sort -u)
+  [ "$(printf '%s\n' "$files" | grep -c .)" = 1 ] || { r1bv_reason "RRU_SUCCESSOR_CLOSEOUT_MISSING_OR_AMBIGUOUS (all required fields must be in exactly one pinned-main closeout)"; return 1; }
+  _r1bv_unique_suffix_receipt "$repo" "$main" "$R1BV_RRU_CLOSEOUT_SUFFIX" RRU_LIVE=CLOSED_PASS RRU_LIVE_EXECUTED=YES RRU_RESULT=PASS RRU_PRODUCTION_DEPLOYED=YES \
+    RECOVERY_RUNTIME_RELEASE_READY=YES "RRU_RELEASE_ID=$release" RECOVERY_ATTEMPT_CONSUMED=NO RECOVERY_LIVE_EXECUTED=NO RECOVERY_R2_R8_EXECUTED=NO R1B_RESULT=FAIL_IMMUTABLE R1BV_RESULT=PASS \
+    || { r1bv_reason "RRU_SUCCESSOR_CLOSEOUT_MISSING_OR_AMBIGUOUS (the canonical RRu LIVE closeout is incomplete, failed, stale or not unique)"; return 1; }
 }
 
 # ---- host gates (read-only) ---------------------------------------------------------------------------------------------------------------------------

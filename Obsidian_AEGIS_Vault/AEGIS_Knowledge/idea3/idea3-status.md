@@ -8724,6 +8724,34 @@ merge and final closeout being recorded there; this authorization did not
 extend to any further Production mutation, service lifecycle action, or
 reboot.
 
+## IDEA3 PR #369 RRu critical remediation — repository-only — 2026-10-07
+
+> [!important] PR #369 remains Draft and unmerged. This remediation fixes the two independent critical findings without executing RRu LIVE, Recovery LIVE, Production mutation, or ESP32 work.
+
+```text
+RRU_001                         = FIXED
+RRU_ATTEMPT_AUTHORITY           = CANONICAL_DURABLE_ROOT_OWNED
+RRU_MARKER                      = /var/lib/aegis-idea3-governance/RRU-GLOBAL-ATTEMPT-CONSUMED
+RRU_AUTH_DIR_ROLE               = AUTHORIZATION_K3_INPUT_ONLY
+RRU_002                         = FIXED
+RECOVERY_RRU_SUCCESSOR_GATE     = ENFORCED
+RECOVERY_RRU_RELEASE_BINDING    = ENFORCED
+RRU_REPOSITORY_IMPLEMENTED      = YES
+RRU_LIVE_EXECUTED               = NO
+RECOVERY_RUNTIME_RELEASE_READY  = NO
+RECOVERY_ATTEMPT_CONSUMED       = NO
+RECOVERY_LIVE_EXECUTED          = NO
+RECOVERY_R2_R8_EXECUTED         = NO
+R1B_RESULT                      = FAIL_IMMUTABLE
+R1BV_RESULT                     = PASS
+PRODUCTION_MUTATION_PERFORMED   = NO
+ESP32_TOUCHED                   = NO
+```
+
+- RRu now validates a fixed canonical directory/trusted ancestor chain, creates the stage-global marker exclusively, fsyncs the parent before creation and the marker plus containing directory afterward, and never removes or rewrites it. Test-only path seams are forbidden by the frozen runner.
+- Recovery keeps `r1bv_recovery_predecessor_gate` and adds `rru_recovery_successor_gate` in both pre-gates and the immediate pre-marker authority re-gate. The successor requires one pinned-main closeout receipt containing all required RRu PASS/runtime-ready fields and the exact frozen release ID; implementation-only or working-tree-only records cannot satisfy it.
+- A future automatic RRu PASS remains distinct from the separately reviewed `RRU_LIVE=CLOSED_PASS` closeout. Recovery waits for that closeout to be merged before a new exact-main Recovery authority/freeze.
+
 ## IDEA3 PR11 Phase 4 L7 release builder — status reconciliation (current state) — 2026-09-27
 
 > [!important] This is a status correction, not a rewrite of the 2026-09-24 receipt below (kept unedited). The builder itself is unchanged repository-only tooling: no `/opt` write, no sudo, no systemd, no Production mutation, no live L7.

@@ -8,7 +8,7 @@
 # RRu owns ONLY: install ONE new immutable release that also carries aegis_soc/cli.py (reviewed installer, once) and atomically switch /opt/aegis-idea3/current from the exact OLD target to the exact NEW target.
 # It restarts NOTHING: no Core restart, no detector command, no daemon-reload, no core.env edit. The NEW release is machine-proved to be OLD plus exactly cli.py, so the running Core (from OLD) stays correct.
 # RRu mutates NO incident, database, R1I, R1B/R1Bv evidence or Recovery marker, runs NO ISOLATE/RESTORE/CLOSE, injects NO alert and never touches the ESP32. It proves RECOVERY_RUNTIME_RELEASE_READY only and leaves
-# RECOVERY_ATTEMPT_CONSUMED=NO. Consumes ONE attempt (RRU-ATTEMPT-CONSUMED); there is NO automatic second attempt and NO retry after rollback.
+# RECOVERY_ATTEMPT_CONSUMED=NO. Consumes ONE canonical stage-global attempt (RRU-GLOBAL-ATTEMPT-CONSUMED); there is NO automatic second attempt and NO retry after rollback.
 set -Eeuo pipefail
 umask 077
 
@@ -72,6 +72,10 @@ show() { systemctl show -p "$2" --value "$1"; }
 # shellcheck disable=SC1090
 source "$LIB"
 
+for var in RRU_TEST_ONLY_CANONICAL_DIR_ENABLED RRU_TEST_ONLY_CANONICAL_DIR RRU_TEST_ONLY_TRUST_ROOT; do
+  [ -z "${!var:-}" ] || die "test-only RRu canonical-directory seam is forbidden in the frozen runner"
+done
+
 # The runner is invoked by exactly the frozen operator identity (the reused L7u identity gate). It runs BEFORE sudo, the evidence directory, the PRE capture, the attempt marker and any handler.
 l7u_identity_gate "$OPERATOR_USER" "$OPERATOR_UID" || die "operator identity is not the frozen RRu operator (see reason above); nothing was created or touched"
 
@@ -85,7 +89,12 @@ for f in authorization-RRu.txt k3-RRu.txt; do
   grep -qx "date=$TODAY" "$AUTH_DIR/$f" 2>/dev/null || gate "$f date is not today ($TODAY Asia/Bangkok)"
   grep -qx "stage=RRu" "$AUTH_DIR/$f" 2>/dev/null || gate "$f is not stage=RRu"
 done
-rru_attempt_unconsumed "$AUTH_DIR" || gate "this authorization already consumed its one live attempt"
+if ! rru_attempt_unconsumed "$AUTH_DIR"; then
+  if sudo test -e "$(rru_canonical_dir)/$RRU_GLOBAL_MARKER_NAME" || sudo test -L "$(rru_canonical_dir)/$RRU_GLOBAL_MARKER_NAME"; then
+    echo "RRU_ATTEMPT_CONSUMED=YES RRU_RERUN_ALLOWED=NO"
+  fi
+  gate "the canonical RRu attempt is already consumed or its authority is invalid"
+fi
 [ "$(git -C "$REPO" rev-parse HEAD)" = "$EXPECTED_MAIN" ] || gate "worktree HEAD is not $EXPECTED_MAIN"
 [ -z "$(git -C "$REPO" status --porcelain)" ] || gate "worktree is not clean"
 git -C "$REPO" fetch -q origin 2>/dev/null && [ "$(git -C "$REPO" rev-parse origin/main)" = "$EXPECTED_MAIN" ] \
@@ -152,7 +161,7 @@ s10_unchanged() { [ "$(snap $ENGINE)" = "$ENGINE_PRE" ] && [ "$(snap $TUNNEL)" =
   && [ "$(snap mosquitto.service)" = "$MQ_PRE" ] && [ "$(snap $BROKER_UNIT)" = "$BROKER_PRE" ]; }
 processes_unchanged() { rru_unit_snapshot_gate "$CORE_UNIT" "$CORE_PRE" && rru_unit_snapshot_gate "$DETECTOR_UNIT" "$DETECTOR_PRE" && l7u_core_running_gate "$CORE_UNIT" && rru_detector_running_gate; }
 # Failure/abort path ONLY. One rollback of what this attempt owns; never a retry, never a restart or a detector action of any kind.
-rollback_flow() { trap - ERR INT TERM; [ "$ROLLED_BACK" = 0 ] || return 0; ROLLED_BACK=1; echo "== RRu ROLLBACK (reason: $1) — failure/abort path only"
+rollback_flow() { trap - ERR INT TERM; [ "$ROLLED_BACK" = 0 ] || return 0; ROLLED_BACK=1; echo "RRU_RESULT=FAIL_IMMUTABLE RRU_LIVE_EXECUTED=YES RRU_ATTEMPT_CONSUMED=YES RRU_RERUN_ALLOWED=NO"; echo "== RRu ROLLBACK (reason: $1) — failure/abort path only"
   local out
   out=$(handler rollback.sh 2>&1) || { printf '%s\n' "$out"; echo "RRU_ROLLBACK=FAIL (owner decision) — ESCALATE; do NOT retry; do NOT command the Core or the detector; inspect $EVID"; exit 3; }
   printf '%s\n' "$out"
@@ -165,7 +174,7 @@ rollback_flow() { trap - ERR INT TERM; [ "$ROLLED_BACK" = 0 ] || return 0; ROLLE
   rru_runtime_unchanged_gate "$PRE" "$EVID/rb-root" "$OLD_RELEASE_PATH" || { echo "RRU_RB_RUNTIME_UNCHANGED=FAIL — ESCALATE; do NOT retry; inspect $EVID"; exit 3; }
   compare "$PRE" "$EVID/rb-root" "$EVID/compare-pre-rb.txt" "$STG/allow-keys-rollback.txt" && s10_unchanged || { echo "PRE_RB_COMPARE=FAIL — ESCALATE; do NOT retry"; exit 3; }
   echo "PRE_RB_COMPARE=PASS (ZERO allowance: class EXACT_PROCESS, nothing was ever restarted). RRU_PRODUCTION_DEPLOYED=NO (rolled back). NOT retrying. Authorization is consumed."; exit 1; }
-fail_after_attempt() { [ "$ATTEMPTED" = 1 ] && rollback_flow "$1" || { echo "STOP before the attempt was consumed: $1"; exit 1; }; }
+fail_after_attempt() { [ "$ATTEMPTED" = 1 ] && { echo "RRU_RESULT=FAIL_IMMUTABLE RRU_LIVE_EXECUTED=YES RRU_ATTEMPT_CONSUMED=YES RRU_RERUN_ALLOWED=NO"; rollback_flow "$1"; } || { echo "STOP before the attempt was consumed: $1"; exit 1; }; }
 trap 'fail_after_attempt "unexpected error at line $LINENO"' ERR
 trap 'fail_after_attempt "interrupted"' INT TERM
 
@@ -181,7 +190,12 @@ processes_unchanged || die "the Core or the detector drifted during the PRE capt
 
 sudo install -d -m 700 -o root -g root "$WORK" || die "could not create the private root work directory"
 # one attempt: from this point a second invocation for this AUTH_DIR is refused, even after a failure
-rru_consume_attempt "$AUTH_DIR" || die "could not consume the one-attempt marker"
+if ! rru_consume_attempt "$AUTH_DIR"; then
+  if sudo test -e "$(rru_canonical_dir)/$RRU_GLOBAL_MARKER_NAME" || sudo test -L "$(rru_canonical_dir)/$RRU_GLOBAL_MARKER_NAME"; then
+    echo "RRU_RESULT=FAIL_IMMUTABLE RRU_ATTEMPT_CONSUMED=YES RRU_RERUN_ALLOWED=NO RRU_LIVE_EXECUTED=YES"
+  fi
+  die "could not consume the canonical one-attempt marker"
+fi
 ATTEMPTED=1
 
 echo "== RRu APPLY (once; journal before each owned step: install the release once, switch current once; NO restart; then the unchanged-process proofs)"
@@ -205,7 +219,7 @@ compare "$PRE" "$EVID/post-root" "$EVID/compare-pre-post.txt" "$STG/allow-keys.t
 l7u_secret_scan "$EVID" "$PY" || rollback_flow "SECRET_OUTPUT_SCAN failed"
 s10_unchanged || rollback_flow "S10/legacy mosquitto/Twingate/L6b broker preservation failed"
 trap - ERR INT TERM
-echo "RRU_LIVE_EXECUTED=YES RRU_PRODUCTION_DEPLOYED=YES RRU_RELEASE_ID=$NEW_RELEASE_ID RRU_APPLY=PASS RRU_VERIFY=PASS RRU_POST_CAPTURE=COMPLETE RRU_PRE_POST_COMPARE=PASS"
+echo "RRU_RESULT=PASS RRU_LIVE_EXECUTED=YES RRU_PRODUCTION_DEPLOYED=YES RRU_RELEASE_ID=$NEW_RELEASE_ID RRU_APPLY=PASS RRU_VERIFY=PASS RRU_POST_CAPTURE=COMPLETE RRU_PRE_POST_COMPARE=PASS"
 echo "RECOVERY_RUNTIME_RELEASE_READY=YES CORE_RESTART_INVOCATIONS=0 CORE_PROCESS_UNCHANGED=YES DETECTOR_PROCESS_UNCHANGED=YES EXPLICIT_DETECTOR_COMMANDS=0 NEW_RELEASE_IS_OLD_PLUS_CLI_ONLY=YES ALERT_INJECTED=NO"
 echo "RECOVERY_ATTEMPT_CONSUMED=NO RECOVERY_LIVE_EXECUTED=NO RECOVERY_R2_R8_EXECUTED=NO F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN R1_VERIFIED=NOT_CLAIMED RECOVERY_R1_R8_PROVEN=NO LVR_PROVEN=NO L8_ACCEPTANCE=NO L9_PROVEN=NO"
 echo "RRU_CLAIM_BOUNDARY: RRu proves DEPLOYMENT of the Recovery-capable release only (current now points at a release that manifests aegis_soc/cli.py). Recovery R2-R8 has NOT run; its marker is untouched; a NEW exact-main Recovery authority bound to the merged main must be created before Recovery."

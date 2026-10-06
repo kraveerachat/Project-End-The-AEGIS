@@ -3,7 +3,7 @@
 # owner-run gate library (sourced by the external frozen owner runner; nothing here runs on its own and nothing here mutates the host). Pure gate logic so it can be tested with stubs and fixture repositories. Every
 # function returns 0 on PASS; on FAIL it prints one `reason` line to stderr and returns 1. Commands are resolved from PATH so tests can stub them; SUDO defaults to `sudo` (tests set SUDO=""). Read-only: only git
 # reads, file reads, `systemctl show`, `pgrep` and the read-only `check` of p4-rru-upgrade.py.
-# RRu owns its OWN one-attempt marker (RRU-ATTEMPT-CONSUMED), receipt gate and authorization records (stage=RRu, no extra field). It is NOT a retry of F1i/F1r/F1u/R1Du (consumed forever). It reuses the R1B-failure +
+# RRu owns its OWN canonical one-attempt marker (RRU-GLOBAL-ATTEMPT-CONSUMED), receipt gate and authorization records (stage=RRu, no extra field). It is NOT a retry of F1i/F1r/F1u/R1Du (consumed forever). It reuses the R1B-failure +
 # R1Bv-PASS predecessor gate unchanged. It requires the Recovery attempt marker to be ABSENT, never creates one, never touches an incident, the audit/protocol databases or Recovery state, never claims a Recovery
 # result, R1 verification, LVR, L8 or L9, and proves RECOVERY_RUNTIME_RELEASE_READY only.
 
@@ -19,33 +19,81 @@ RRU_CORE_UNIT=aegis-idea3-core.service
 RRU_DETECTOR_UNIT=aegis-idea3-detector.service
 RRU_APP_REL="IDEA3-AEGIS_Lockdown"
 RRU_CANONICAL_DIR=/var/lib/aegis-idea3-governance
+readonly RRU_CANONICAL_DIR
+RRU_GLOBAL_MARKER_NAME="RRU-GLOBAL-ATTEMPT-CONSUMED"
 RRU_RECOVERY_MARKER_NAME="RECOVERY-GLOBAL-ATTEMPT-CONSUMED"
 
 rru_reason() { printf '%s\n' "$1" >&2; return 1; }
 
-# rru_attempt_unconsumed AUTH_DIR — read-only pre-gate: this authorization directory has not yet consumed its one RRu attempt.
-rru_attempt_unconsumed() {
-  local dir=${1:-}
-  [ -d "$dir" ] && [ ! -L "$dir" ] || { rru_reason "RRU_ATTEMPT_AUTH_DIR_INVALID"; return 1; }
-  [ ! -e "$dir/RRU-ATTEMPT-CONSUMED" ] || { rru_reason "RRU_ATTEMPT_ALREADY_CONSUMED (one live attempt per authorization; there is NO automatic retry)"; return 1; }
+# rru_canonical_dir — fixed production path; the test-only seam is accepted only by hermetic tests and is refused by the frozen runner.
+rru_canonical_dir() {
+  if [ "${RRU_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" = YES ] && [ -n "${RRU_TEST_ONLY_CANONICAL_DIR:-}" ]; then printf '%s' "$RRU_TEST_ONLY_CANONICAL_DIR"; else printf '%s' "$RRU_CANONICAL_DIR"; fi
 }
 
-# rru_consume_attempt AUTH_DIR — one live attempt per authorization. Atomic create-if-absent (noclobber); a second invocation for the same AUTH_DIR fails closed even if the first attempt failed. The marker name is
-# distinct from every other stage (F1I, F1R, F1, F1U, R1DU, R1D, R1B, RECOVERY…), so none of their markers ever authorizes RRu and RRu never consumes theirs.
-rru_consume_attempt() {
-  local dir=${1:-} marker
-  [ -d "$dir" ] && [ ! -L "$dir" ] || { rru_reason "RRU_ATTEMPT_AUTH_DIR_INVALID"; return 1; }
-  marker="$dir/RRU-ATTEMPT-CONSUMED"
-  if ( set -o noclobber; printf 'consumed_at=%s\n' "$(date -u +%FT%TZ)" > "$marker" ) 2>/dev/null; then
-    return 0
+rru_trusted_dir_chain() {
+  local d=${1:-} want=0 stop=/
+  [ -z "$SUDO" ] && want=$(id -u)
+  if [ "${RRU_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" = YES ] && [ -n "${RRU_TEST_ONLY_TRUST_ROOT:-}" ]; then stop=$RRU_TEST_ONLY_TRUST_ROOT; fi
+  [[ "$d" == /* ]] && [[ "$d" != *..* ]] || return 1
+  while :; do
+    $SUDO test -d "$d" && ! $SUDO test -L "$d" || return 1
+    [ "$($SUDO stat -c %u "$d" 2>/dev/null)" = "$want" ] && [ -z "$($SUDO find "$d" -maxdepth 0 -perm /022 2>/dev/null)" ] || return 1
+    [ "$d" = "$stop" ] && return 0
+    [ "$d" != / ] || return 1
+    d=$(dirname "$d")
+  done
+}
+
+rru_canonical_dir_valid() {
+  local dir
+  dir=$(rru_canonical_dir)
+  [[ "$dir" == /* ]] && [[ "$dir" != *..* ]] || { rru_reason "RRU_CANONICAL_DIR_INVALID"; return 1; }
+  if $SUDO test -e "$dir" || $SUDO test -L "$dir"; then
+    rru_trusted_dir_chain "$dir" || { rru_reason "RRU_CANONICAL_DIR_NOT_PRIVATE_ROOT_OWNED"; return 1; }
+  else
+    rru_trusted_dir_chain "$(dirname "$dir")" || { rru_reason "RRU_CANONICAL_DIR_PARENT_NOT_TRUSTED"; return 1; }
   fi
-  rru_reason "RRU_ATTEMPT_ALREADY_CONSUMED (one live attempt per authorization; there is NO automatic retry)"
+}
+
+rru_fsync() {
+  local path=${1:-}
+  [ -n "$path" ] && $SUDO sync -- "$path" 2>/dev/null || { rru_reason "RRU_DURABILITY_BARRIER_FAILED:$(basename "$path")"; return 1; }
+}
+
+rru_durable() { rru_fsync "${1:-}" && rru_fsync "${2:-}"; }
+
+# rru_attempt_unconsumed AUTH_DIR — read-only pre-gate: the canonical stage-global marker is absent. AUTH_DIR is only Authorization/K3 input; any local marker there is ignored.
+rru_attempt_unconsumed() {
+  local dir=${1:-} canon marker
+  [ -d "$dir" ] && [ ! -L "$dir" ] || { rru_reason "RRU_ATTEMPT_AUTH_DIR_INVALID"; return 1; }
+  rru_canonical_dir_valid || return 1
+  canon=$(rru_canonical_dir); marker="$canon/$RRU_GLOBAL_MARKER_NAME"
+  if $SUDO test -e "$marker" || $SUDO test -L "$marker"; then
+    rru_reason "RRU_ATTEMPT_ALREADY_CONSUMED (RRu is ONE live attempt TOTAL; the canonical marker exists; there is NO retry)"; return 1
+  fi
+}
+
+# rru_consume_attempt AUTH_DIR — canonical durable one-shot authority. The AUTH_DIR is validated only as an input directory and never receives an attempt marker.
+rru_consume_attempt() {
+  local dir=${1:-} canon marker
+  [ -d "$dir" ] && [ ! -L "$dir" ] || { rru_reason "RRU_ATTEMPT_AUTH_DIR_INVALID"; return 1; }
+  rru_attempt_unconsumed "$dir" || return 1
+  canon=$(rru_canonical_dir); marker="$canon/$RRU_GLOBAL_MARKER_NAME"
+  if ! $SUDO test -d "$canon"; then
+    $SUDO mkdir -m 0700 "$canon" 2>/dev/null || { rru_reason "RRU_CANONICAL_DIR_NOT_CREATABLE (nothing was consumed)"; return 1; }
+  fi
+  rru_fsync "$(dirname "$canon")" || { rru_reason "RRU_CANONICAL_DIR_ENTRY_NOT_DURABLE (nothing was consumed: no marker exists yet)"; return 1; }
+  if ! $SUDO bash -c 'set -o noclobber; printf "RRU_ATTEMPT_CONSUMED=YES\nRRU_RERUN_ALLOWED=NO\nconsumed_at=%s\n" "$(date -u +%FT%TZ)" > "$1"' _ "$marker" 2>/dev/null; then
+    rru_reason "RRU_ATTEMPT_ALREADY_CONSUMED (the canonical marker exists or could not be created exclusively)"; return 1
+  fi
+  rru_durable "$marker" "$canon" || { rru_reason "RRU_MARKER_NOT_DURABLE (the attempt IS consumed; no retry is permitted)"; return 1; }
+  $SUDO chattr +i "$marker" 2>/dev/null || true
 }
 
 # rru_recovery_marker_absent — the ONE canonical stage-global Recovery attempt marker does not exist (not even as a dangling symlink). RRu is Recovery PREPARATION: it must never run after Recovery consumed its attempt, and it
 # never creates, rewrites or removes that marker. Read-only.
 rru_recovery_marker_absent() {
-  local marker="$RRU_CANONICAL_DIR/$RRU_RECOVERY_MARKER_NAME"
+  local marker="$(rru_canonical_dir)/$RRU_RECOVERY_MARKER_NAME"
   if $SUDO test -e "$marker" || $SUDO test -L "$marker"; then
     rru_reason "RRU_RECOVERY_ATTEMPT_ALREADY_CONSUMED (RRu is Recovery PREPARATION only; the Recovery marker must be absent)"; return 1
   fi
