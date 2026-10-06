@@ -89,31 +89,51 @@ dbTest('six account/Node mappings persist independent aliases on physical genera
     ['CAM-01', '1'], ['CAM-02', '1'], ['CAM-01', '2'], ['CAM-02', '2'], ['CAM-01', '3'], ['CAM-02', '3']])
   for (const row of rows) assert.match(row.producer_generation, /^[1-9][0-9]*$/)
 })
-dbTest('new attributed Archive clips never claim a detection result without alias/generation evidence', async () => {
-  const a = await acquire('a', 1), b = await acquire('b', 1)
+dbTest('strict Archive result classification requires exact alias, physical camera and generation', async () => {
+  const a = await acquire('a', 1), b = await acquire('b', 1), cHandle = await acquire('c', 1)
   const aRow = await publish(clip(a), auth('a'))
   const bRow = await publish(clip(b), auth('b'))
-  assert.ok(aRow.id && bRow.id)
-  // The current detection ingest contract has no producer generation and
-  // takes its alias from static Engine configuration, not viewer demand.
+  const cRow = await publish(clip(cHandle), auth('c'))
+  assert.ok(aRow.id && bRow.id && cRow.id)
+
   await db.query(`INSERT INTO detections
-    (frame_id, at, camera_id, physical_camera_id, result)
-    VALUES ($1, $2, 'CAM-01', $3, 'Unknown')`,
-  ['node-b-only', iso(origin + 500), '2'])
+    (frame_id, at, camera_id, physical_camera_id, producer_generation, result)
+    VALUES
+      ('a-auth', $1, 'CAM-01', 1, $2, 'Authorized'),
+      ('b-unknown', $1, 'CAM-01', 2, $3, 'Unknown')`,
+  [iso(origin + 500), a.producerGeneration, b.producerGeneration])
+
   const rows = await store.listClips(new Set(['CAM-01']))
-  const kinds = new Map(rows.map(row => [row.id, row.kind]))
-  assert.equal(kinds.get(aRow.id), 'unavailable')
-  assert.equal(kinds.get(bRow.id), 'unavailable')
+  const byId = new Map(rows.map(row => [row.id, row]))
+
+  assert.equal(byId.get(aRow.id)?.kind, 'auth')
+  assert.equal(byId.get(bRow.id)?.kind, 'unknown')
+  assert.equal(byId.get(cRow.id)?.kind, 'unavailable')
+  assert.equal(byId.get(aRow.id)?.nodeId, 'node-a')
+  assert.equal(byId.get(bRow.id)?.nodeId, 'node-b')
+  assert.equal(byId.get(cRow.id)?.nodeId, 'node-c')
+  assert.equal(byId.get(aRow.id)?.hasAuthorized, true)
+  assert.equal(byId.get(aRow.id)?.hasUnknown, false)
+  assert.equal(byId.get(bRow.id)?.hasUnknown, true)
+
+  // Same logical alias and timestamp on another physical generation must not
+  // turn Machine A's Authorized-only clip into Unknown.
+  assert.equal(byId.get(aRow.id)?.kind, 'auth')
 })
-dbTest('legacy Archive detection classification remains unchanged', async () => {
-  const { rows: [legacy] } = await db.query(`INSERT INTO clips
+dbTest('legacy Archive detection classification remains evidence-based', async () => {
+  const { rows: [unknownClip] } = await db.query(`INSERT INTO clips
     (camera_id, started_at, duration_sec, file_path, stored_on_nas)
     VALUES ('CAM-01', $1, 1, $2, TRUE) RETURNING id::text`,
-  [iso(origin), `/verified/legacy-${randomBytes(8).toString('hex')}.mp4`])
+  [iso(origin), `/verified/legacy-unknown-${randomBytes(8).toString('hex')}.mp4`])
+  const { rows: [emptyClip] } = await db.query(`INSERT INTO clips
+    (camera_id, started_at, duration_sec, file_path, stored_on_nas)
+    VALUES ('CAM-01', $1, 1, $2, TRUE) RETURNING id::text`,
+  [iso(origin + 2000), `/verified/legacy-empty-${randomBytes(8).toString('hex')}.mp4`])
   await db.query(`INSERT INTO detections (frame_id, at, camera_id, result)
     VALUES ('legacy-unknown', $1, 'CAM-01', 'Unknown')`, [iso(origin + 500)])
   const rows = await store.listClips(new Set(['CAM-01']))
-  assert.equal(rows.find(row => row.id === legacy.id)?.kind, 'unknown')
+  assert.equal(rows.find(row => row.id === unknownClip.id)?.kind, 'unknown')
+  assert.equal(rows.find(row => row.id === emptyClip.id)?.kind, 'unavailable')
 })
 dbTest('generation beyond JavaScript safe integer remains an exact decimal string', async () => {
   await db.query('ALTER TABLE camera_producer_epochs ALTER COLUMN producer_generation RESTART WITH 9007199254740993')
