@@ -15,6 +15,11 @@ Why no restart is needed (and how that is PROVEN, not assumed): the running Core
 requirements digest), the file set of OLD plus EXACTLY ``aegis_soc/cli.py`` (nothing else added or removed), every shared payload digest identical (venv, interpreter, every ``aegis_soc`` module incl. the detector and
 the Core runtime, requirements) and only the manifest identity fields differing. No other module imports ``cli``. Anything else fails closed before anything is installed.
 
+Post-R1D terminal surface: RRu runs only after the committed one-shot R1D disposition. That successful disposition closes and unlinks
+``historical-disposition.sock``, while the unchanged running Core still carries ``AEGIS_R1D_DISPOSITION_ENABLED=YES`` from R1Du. RRu therefore requires the historical-disposition socket to remain ABSENT,
+requires the persisted arming value to remain YES, and continues to require the Recovery and alert sockets plus the alert-uid contract to be served by that exact Core process. RRu never recreates, reconnects to or
+repairs the terminal R1D authority.
+
 Rollback is journal-driven and bounded to what this stage owns: ``current`` back to OLD and removal of ONLY the release this attempt installed (ownership = a journaled tree digest, re-proved). It never restarts
 anything, so the Core and detector are verified to be EXACTLY as at preflight on every path (the rollback class is always EXACT_PROCESS).
 """
@@ -170,8 +175,20 @@ def core_unchanged(host, backend, journal: dict) -> dict:
     return now
 
 
+def post_r1d_surfaces(host, core_pid: int) -> None:
+    """Validate the terminal post-R1D runtime without weakening R1Du's historical pre-disposition contract.
+
+    Recovery and alert transports remain live and Core-owned. The one-shot historical-disposition socket, however, must be gone after the
+    committed disposition; the unchanged Core process still carries the R1Du arming environment value that established the original authority.
+    """
+    # armed=False is deliberate only for RRu's terminal post-R1D state: Recovery/alert remain required and any R1D socket presence is refused.
+    R1DU.check_surfaces(host, core_pid, armed=False)
+    if host.proc_environ_value(core_pid, R1DU.ARM_KEY) != "YES":
+        refuse("CORE_RUNNING_WITHOUT_R1D_ARMING")
+
+
 def surfaces_and_material(host, journal: dict, pid: int) -> None:
-    R1DU.check_surfaces(host, pid, armed=True)  # Recovery/alert (and the R1Du R1D channel) sockets still held by that very Core process; nothing connects
+    post_r1d_surfaces(host, pid)
     if not R1DU.material_matches(F1I.material_metadata(host), journal["material"]):
         refuse("MATERIAL_METADATA_DRIFT")  # core.env and the credentials are byte-metadata IDENTICAL: RRu owns no edit of them
 
@@ -226,7 +243,7 @@ def preflight(host, backend, pins: Pins) -> dict:
     successor_equivalence(host, old_path, pins.source_dir)  # the release about to be installed is OLD + cli.py and nothing else: the running Core stays correct without a restart
     detector = R1DU.detector_state(host, backend)
     R1DU.check_detector_pre(detector, pins)
-    R1DU.check_surfaces(host, int(core["MainPID"]), armed=True)
+    post_r1d_surfaces(host, int(core["MainPID"]))
     return {"old_target": old_target, "new_target": release_path(pins.new_id), "core": core, "detector": detector, "material": F1I.material_metadata(host),
             "old_release_tree_digest": host.tree_digest(old_path)}
 
