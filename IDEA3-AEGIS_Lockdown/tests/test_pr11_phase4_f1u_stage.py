@@ -1646,7 +1646,7 @@ def test_f1u_is_registered_exactly_once_after_f1_and_r1a_follows_r1i():
     assert order.count("R1I") == 1
     assert order.index("F1u") < order.index("R1I") < order.index("R1A") < order.index("R1Du") < order.index("R1D") < order.index("R1Dv") < order.index("R1B") < order.index("R1Bv") < order.index("L8")  # R1B succeeds the immutable consumed R1A failure
     assert order.count("R1A") == 1 and order.count("R1B") == 1 and order.count("R1Du") == 1 and order.count("R1D") == 1 and "R1a" not in order and "R1b" not in order
-    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv Recovery L8 L9"' in P4_LIB.read_text()
+    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu Recovery L8 L9"' in P4_LIB.read_text()
 
 
 def sh(script: str, env: dict | None = None, cwd: Path | None = None):

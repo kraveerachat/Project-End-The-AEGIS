@@ -11,6 +11,29 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 Core TrustedClock sandbox repair — repository-only successor preparation — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired in the repository.** The Core's required read-only `adjtimex(2)` TrustedClock probe was blocked by `ProtectClock=true` in the reviewed Core unit. The smallest fix changes only that setting to `ProtectClock=false`; `User=aegis-idea3`, `NoNewPrivileges=true`, empty `CapabilityBoundingSet=`, empty `AmbientCapabilities=`, and the existing unrelated hardening remain unchanged. Linux clock mutation authority is not granted: `CAP_SYS_TIME` is absent and the service is non-root with no ambient/bounding capabilities.
+
+`CTu` is a NEW governed successor stage, not an L7/F1u/R1Du/RRu retry. Its future LIVE boundary is limited to installing the reviewed Core unit, conditional `daemon-reload`, and one governed Core restart. The detector may move only through its existing `Requires=aegis-idea3-core.service` dependency; CTu issues no detector command. The frozen runner requires fresh CTu Authorization/K3, exact merged-main pins, one CTU-GLOBAL-ATTEMPT-CONSUMED marker immediately before the first host mutation, PRE/POST capture, compare, verification and fail-closed rollback.
+
+`CTU_REPOSITORY_IMPLEMENTED=YES`; `CTU_APPLICATION_RELEASE_DEPLOY_REQUIRED=NO`; `CTU_LIVE_EXECUTED=NO`; `CTU_PRODUCTION_MUTATION_PERFORMED=NO`; `CTU_CORE_RESTARTED=NO`; `CTU_DETECTOR_EXPLICITLY_COMMANDED=NO`; `ESP32_TOUCHED=NO`; `NTP_REACTIVATION_RERUN=NO`. RRu remains consumed/PASS and immutable; Recovery remains `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. Existing Recovery freeze/Authorization/K3 artifacts bound to the pre-repair main are stale after this repair merges and must not be reused. After human merge, a NEW exact-main Recovery authority is required.
+
+### Current Task
+
+Task: IDEA3 Core TrustedClock / ProtectClock root-cause repair and CTu successor preparation
+Branch: `fix/idea3-core-trusted-time-successor`
+Owner: `music`
+Current state: repository implementation complete; Draft PR pending owner/integration review; LIVE NOT EXECUTED
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently freeze fresh CTu authority before any LIVE restart
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S1 | Core TrustedClock sandbox repair and governed successor package | READY FOR REVIEW | unit/security regression tests; CTu handler contract tests; diff/vault/collaboration validation | repository-only repair PASS; no Production mutation | owner/integration review; CTu LIVE intentionally unexecuted | human merge, then NEW exact-main CTu authority if LIVE work is separately approved |
+
 ## IDEA3 RRu LIVE — CLOSED_PASS — 2026-10-07
 
 > [!important] **RRu executed once and PASSED.** `RRU_LIVE=CLOSED_PASS`, `RRU_LIVE_EXECUTED=YES`, `RRU_RESULT=PASS`, `RRU_PRODUCTION_DEPLOYED=YES`, `RRU_ATTEMPT_CONSUMED=YES`, `RRU_RERUN_ALLOWED=NO`. Production `current` now points at immutable release `954ce1c191885e9e90198a6f54a3d990bcf144fc`. The Core and detector processes were unchanged, no service restart or detector command occurred, and the successor is exactly the OLD runtime plus the manifested Recovery CLI entrypoint. `RECOVERY_RUNTIME_RELEASE_READY=YES`. Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-07_005834_music_idea3-rru-live-closeout.md`.
