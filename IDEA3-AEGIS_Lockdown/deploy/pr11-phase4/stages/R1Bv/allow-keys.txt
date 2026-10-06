@@ -1,0 +1,4 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage R1Bv allowed PRE->POST host state drift.
+#
+# R1Bv is a READ-ONLY validation stage and approves NO drift of any kind: every captured generic key (Core and detector lifecycle, the current release, the L2 table incl. blocked_ipv4, the R1I table, listeners,
+# sysctl, network, time incl. TrustedClock, MQTT, IDEA1/IDEA2) must be IDENTICAL between PRE and POST, and TrustedClock evidence must be AVAILABLE (never UNAVAILABLE) in both captures.

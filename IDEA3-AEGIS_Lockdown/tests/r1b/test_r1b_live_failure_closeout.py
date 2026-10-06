@@ -76,10 +76,11 @@ def test_current_state_documentation_no_longer_says_r1b_has_not_run() -> None:
     assert not re.search(r"R1Bv.{0,40}(LIVE=CLOSED_PASS|RESULT=PASS)", moc + status)
 
 
-def test_r1bv_is_not_implemented_by_this_closeout() -> None:
+def test_r1bv_has_no_live_artifact_and_the_r1b_gate_stays_closed() -> None:
+    """History: PR #365 added no R1Bv. R1Bv is now IMPLEMENTED in the repository (separate suite tests/r1bv) but must have NO live closeout, authority, authorization or frozen runner."""
     p4 = base.P4
-    assert not list(p4.glob("**/*r1bv*")) and not (p4 / "stages/R1Bv").exists()
-    assert 'R1Bv' not in re.search(r'readonly P4_STAGES="([^"]*)"', (p4 / "p4-lib.sh").read_text()).group(1)
+    assert not list((REPO / LOGS).glob("*_music_idea3-r1bv-live-closeout.md")) and not list(p4.glob("**/authorization-R1Bv*"))
+    assert "R1B R1Bv L8" in re.search(r'readonly P4_STAGES="([^"]*)"', (p4 / "p4-lib.sh").read_text()).group(1).replace("R1Dv ", "")
 
 
 STALE = re.compile(r"R1B_LIVE_EXECUTED=NO|R1B_ATTEMPT_CONSUMED=NO|R1B has NOT run|R1B has not run", re.I)
