@@ -119,11 +119,11 @@ test('multi-camera Operator retains the selector and camera-switch cleanup', asy
   await expect.poll(async () => (await stats(request)).closed).toContain('entry-z')
 })
 
-test('SOC retains its selector but releases Live viewers on navigation', async ({ page, request }) => {
-  await request.post('/__fixture/reset?scenario=two-cameras')
+test('SOC passive Live releases its viewer on navigation without retaining demand', async ({ page, request }) => {
+  await request.post('/__fixture/reset?scenario=soc-passive')
   await page.goto('/monitor/', { waitUntil: 'domcontentloaded' })
   await expect(page.locator('.camera-selector')).toBeVisible()
-  await expect.poll(async () => (await stats(request)).active.sort()).toEqual(['CAM-02', 'entry-z'])
+  await expect.poll(async () => (await stats(request)).active).toEqual(['passive:opaque-view-a'])
   await nav(page, 'Archival footage').click()
   await expect.poll(async () => (await stats(request)).active).toEqual([])
   await expect(page.locator('.hero')).toHaveCount(0)

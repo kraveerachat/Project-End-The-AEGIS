@@ -22,7 +22,7 @@ function StreamImage({ src, alt, onLoad, onError }) {
   return <img ref={imageRef} className="feedimg" alt={alt} draggable={false} />
 }
 
-function FeedSession({ cameraId, cameraName, lost, compact, hideStatus, onStateChange }) {
+function FeedSession({ cameraId, cameraName, streamPath, lost, compact, hideStatus, onStateChange }) {
   const [nonce, setNonce] = useState(0)
   const [state, setState] = useState('connecting')
   const [justRecovered, setJustRecovered] = useState(false)
@@ -75,7 +75,8 @@ function FeedSession({ cameraId, cameraName, lost, compact, hideStatus, onStateC
     setState('live')
   }, [])
 
-  const src = `${import.meta.env.BASE_URL}api/cameras/${encodeURIComponent(cameraId)}/stream?t=${nonce}`
+  const path = streamPath ?? `/api/cameras/${encodeURIComponent(cameraId)}/stream`
+  const src = `${import.meta.env.BASE_URL}${path.replace(/^\//, '')}?t=${nonce}`
   return (
     <>
       <div className="hatch" />

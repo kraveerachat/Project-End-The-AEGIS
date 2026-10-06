@@ -235,7 +235,8 @@ test('strict HTTP route cannot use a cached SOC role after the live account is O
 const routeBase = new URL('../server/routes/api.js', import.meta.url)
 const injectedSources = {
   '../db/connection.js': `export * from ${JSON.stringify(new URL('../server/db/connection.js', import.meta.url).href)};
-    export const canSeeCamera = (...args) => globalThis.streamTest.canSeeCamera(...args);`,
+    export const canSeeCamera = (...args) => globalThis.streamTest.canSeeCamera(...args);
+    export const getUserById = (...args) => globalThis.streamTest.getUserById(...args);`,
   '../auth/cameraAccess.js': `export * from ${JSON.stringify(new URL('../server/auth/cameraAccess.js', import.meta.url).href)};
     import { resolvePhysicalStreamTarget as resolveTarget } from ${JSON.stringify(new URL('../server/auth/cameraAccess.js', import.meta.url).href)};
     export const resolvePhysicalStreamTarget = (req, id, now, deps) => resolveTarget(req, id, now,
@@ -244,6 +245,7 @@ const injectedSources = {
     export const resolveOperatorAccess = (...args) => globalThis.streamTest.access(...args);`,
   '../db/store.js': `export * from ${JSON.stringify(new URL('../server/db/store.js', import.meta.url).href)};
     export const streamSourceForPhysicalCamera = (...args) => globalThis.streamTest.source(...args);
+    export const listDetectionsForPhysicalView = (...args) => globalThis.streamTest.viewDetections(...args);
     export const streamSourceFor = () => globalThis.streamTest.legacySource();`,
   '../auth/physicalStreamSource.js': `export const approvedStreamUrlForPhysicalCamera = () => 'http://engine.test/stream.mjpg';`,
   '../db/producerLifecycle.js': `export const createProducerLifecycle = () => ({
@@ -286,12 +288,16 @@ async function streamHarness(t, scenario = 'normal', service = null) {
   const express = (await import('express')).default
   const state = { acquired: [], released: [], fetched: [], renewed: [], cancelled: 0, aborted: 0,
     authorization: [], live: true, assignment: true, active: new Set(), retired: false, maxRenewing: 0,
-    events: [], controls: [], reloads: 0, drainEvents: 0, closesBeforeRelease: 0 }
+    events: [], controls: [], reloads: 0, drainEvents: 0, closesBeforeRelease: 0,
+    socLive: true, socAccess: true, socDbRole: 'SOC-Responder', socDbActive: true }
   let renewing = 0
   const generation = '9007199254740993'
   const binding = Buffer.alloc(32, 7).toString('base64url')
   globalThis.streamTest = {
-    actor: async req => ({ userId: req.user.id, username: req.user.username, role: 'CCTV-Operator' }),
+    getUserById: async id => ({ id, username: 'soc', role: state.socDbRole,
+      active: state.socDbActive, mustResetPassword: false }),
+    viewDetections: async view => [{ id: `frame-${view.nodeId}`, cam: view.cameraId }],
+    actor: async req => ({ userId: req.user.id, username: req.user.username, role: req.user.role }),
     access: async (req, alias) => {
       if (!state.assignment || alias !== (req.user.id === 2 ? 'CAM-01' : 'CAM-02'))
         throw new CameraAccessError(403, 'CAMERA_ALIAS_DENIED')
@@ -300,7 +306,7 @@ async function streamHarness(t, scenario = 'normal', service = null) {
     },
     canSeeCamera: async (user, alias) => {
       state.authorization.push([user.id, alias])
-      return scenario !== 'unauthorized' && state.assignment
+      return scenario !== 'unauthorized' && (user.role === 'SOC-Responder' ? state.socAccess : state.assignment)
     },
     source: async id => {
       assert.equal(id, 41)
@@ -386,12 +392,15 @@ async function streamHarness(t, scenario = 'normal', service = null) {
         if (reads === 1 && scenario === 'first-byte-timeout') {
           return new Promise(resolve => { pendingResolve = resolve })
         }
-        if (reads === 1) return Promise.resolve({ done: false, value: Buffer.from('frame') })
+        if (reads === 1) return Promise.resolve({ done: false,
+          value: Buffer.from('--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\nframe\r\n') })
         if (scenario === 'normal') return Promise.resolve({ done: true })
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
           pendingResolve = resolve
+          if (scenario === 'passive-source-failure') state.failSource = () => reject(new Error('upstream failed'))
           if (scenario === 'real-viewers') frameTimer = setTimeout(() => {
-            resolve({ done: false, value: Buffer.from('frame') })
+            resolve({ done: false,
+              value: Buffer.from('--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 5\r\n\r\nframe\r\n') })
           }, 20)
         })
       },
@@ -412,6 +421,10 @@ async function streamHarness(t, scenario = 'normal', service = null) {
   const app = express()
   app.use(express.json())
   app.use((req, _res, next) => {
+    if (req.headers['x-test-slow-soc'] === 'yes') {
+      const write = _res.write.bind(_res)
+      _res.write = (...args) => { write(...args); return false }
+    }
     if (scenario.startsWith('backpressure-')) {
       const write = _res.write.bind(_res)
       _res.write = (...args) => { write(...args); return false }
@@ -419,9 +432,12 @@ async function streamHarness(t, scenario = 'normal', service = null) {
       _res.on('close', () => { if (!state.released.length) state.closesBeforeRelease += 1 })
     }
     req.session = { createdAt: Date.now(), nodeSessionBinding: binding,
-      user: { id: req.headers['x-test-user'] === '3' ? 3 : 2, username: 'operator', role: 'CCTV-Operator' },
+      user: { id: req.headers['x-test-user'] === '3' ? 3 : 2,
+        username: req.headers['x-test-role'] === 'soc' ? 'soc' : 'operator',
+        role: req.headers['x-test-role'] === 'soc' ? 'SOC-Responder' : 'CCTV-Operator' },
       reload(callback) {
         state.reloads += 1
+        if (req.session.user.role === 'SOC-Responder' && !state.socLive) return callback(new Error('SOC revoked'))
         if (scenario === 'slow-reload') return setTimeout(callback, 40)
         if (scenario === 'session-revoked') return callback(new Error('revoked'))
         if (scenario === 'assignment-revoked' || scenario === 'backpressure-revoked') state.assignment = false
@@ -479,8 +495,193 @@ async function streamHarness(t, scenario = 'normal', service = null) {
     await once(response, 'end')
     assert.equal(response.statusCode, 200)
   }
-  return { state, open, settle, logout, generation, binding }
+  async function socRequest(resource, { streaming = false, slow = false } = {}) {
+    return new Promise((resolve, reject) => {
+      const request = http.get({ hostname: '127.0.0.1', port: server.address().port,
+        path: resource, headers: { 'x-test-role': 'soc', ...(slow ? { 'x-test-slow-soc': 'yes' } : {}) } }, resolve)
+      request.once('error', reject)
+    }).then(async response => {
+      if (streaming) return response
+      let body = ''
+      response.on('data', chunk => { body += chunk })
+      await once(response, 'end')
+      let parsed
+      try { parsed = JSON.parse(body) } catch { parsed = body }
+      return { status: response.statusCode, body: parsed }
+    })
+  }
+  return { state, open, settle, logout, socRequest, generation, binding }
 }
+
+test('SOC idle active-view list is empty and cannot wake an Engine', async t => {
+  const { state, socRequest } = await streamHarness(t)
+  const list = await socRequest('/api/live/active-views')
+  assert.equal(list.status, 200)
+  assert.deepEqual(list.body, { views: [] })
+  const forged = await socRequest('/api/live/active-views/forged/stream')
+  assert.equal(forged.status, 404)
+  assert.equal(state.fetched.length, 0)
+  assert.equal(state.acquired.length, 0)
+})
+
+test('two CAM-01 physical Nodes remain distinct through SOC HTTP list, stream and detection routes', async t => {
+  const bounded = (label, promise) => Promise.race([promise, new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`SOC cross-node ${label} timed out`)), 1000).unref()
+  })])
+  const { passiveLiveRegistry } = await import('../server/passiveLiveRegistry.js')
+  const { state, socRequest } = await streamHarness(t)
+  const a = passiveLiveRegistry.register({ logicalCameraId: 'CAM-01', nodeId: 'node-a',
+    physicalCameraId: 41, producerGeneration: '9007199254740993',
+    contentType: 'multipart/x-mixed-replace; boundary=frame' })
+  const b = passiveLiveRegistry.register({ logicalCameraId: 'CAM-01', nodeId: 'node-b',
+    physicalCameraId: 42, producerGeneration: '9007199254740994',
+    contentType: 'multipart/x-mixed-replace; boundary=frame' })
+  t.after(() => { a.close(); b.close() })
+  const views = (await socRequest('/api/live/active-views')).body.views
+  assert.deepEqual(new Set(views.map(view => view.viewId)), new Set([a.viewId, b.viewId]))
+  assert.deepEqual(new Set(views.map(view => view.nodeId)), new Set(['node-a', 'node-b']))
+  const aStream = await bounded('a-open', socRequest(`/api/live/active-views/${a.viewId}/stream`, { streaming: true }))
+  const bStream = await bounded('b-open', socRequest(`/api/live/active-views/${b.viewId}/stream`, { streaming: true }))
+  const aBytes = once(aStream, 'data')
+  const bBytes = once(bStream, 'data')
+  a.publish(Buffer.from('--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 6\r\n\r\nnode-a\r\n'))
+  b.publish(Buffer.from('--frame\r\nContent-Type: image/jpeg\r\nContent-Length: 6\r\n\r\nnode-b\r\n'))
+  assert.match((await bounded('a-bytes', aBytes))[0].toString(), /node-a/)
+  assert.match((await bounded('b-bytes', bBytes))[0].toString(), /node-b/)
+  assert.deepEqual((await socRequest(`/api/live/active-views/${a.viewId}/detections`)).body.detections,
+    [{ id: 'frame-node-a', cam: 'CAM-01' }])
+  assert.deepEqual((await socRequest(`/api/live/active-views/${b.viewId}/detections`)).body.detections,
+    [{ id: 'frame-node-b', cam: 'CAM-01' }])
+  aStream.destroy(); bStream.destroy()
+  assert.equal(state.fetched.length, 0, 'SOC route must not fetch Engine for either Node')
+  assert.equal(state.acquired.length, 0)
+})
+
+test('SOC attaches to an existing Operator source without another Engine fetch or demand', async t => {
+  const { state, open, settle, socRequest } = await streamHarness(t, 'real-viewers')
+  const operator = await open('CAM-01', 2)
+  assert.equal(operator.statusCode, 200)
+  const list = await socRequest('/api/live/active-views')
+  assert.equal(list.status, 200)
+  assert.equal(list.body.views.length, 1)
+  const view = list.body.views[0]
+  assert.equal(view.cameraId, 'CAM-01')
+  assert.equal(view.nodeId, 'machine-a-node')
+  assert.equal('producerGeneration' in view, false)
+  assert.equal('physicalCameraId' in view, false)
+  const soc = await socRequest(`/api/live/active-views/${encodeURIComponent(view.viewId)}/stream`, { streaming: true })
+  assert.equal(soc.statusCode, 200)
+  assert.equal(state.fetched.length, 1)
+  assert.equal(state.acquired.length, 1)
+  await settle(soc, true)
+  assert.equal(state.released.length, 0)
+  await settle(operator, true)
+  assert.equal(state.released.length, 1)
+})
+
+test('final Operator close removes the passive source and terminates the SOC viewer', async t => {
+  const { state, open, settle, socRequest } = await streamHarness(t, 'real-viewers')
+  const operator = await open()
+  const { body } = await socRequest('/api/live/active-views')
+  const soc = await socRequest(`/api/live/active-views/${body.views[0].viewId}/stream`, { streaming: true })
+  assert.equal(soc.statusCode, 200)
+  soc.resume()
+  const socClosed = once(soc, 'close')
+  await settle(operator, true)
+  await socClosed
+  assert.equal(state.released.length, 1)
+  assert.deepEqual((await socRequest('/api/live/active-views')).body.views, [])
+  assert.equal(state.fetched.length, 1)
+})
+
+test('SOC session revocation closes only its passive viewer', async t => {
+  const { state, open, settle, socRequest } = await streamHarness(t, 'real-viewers')
+  const operator = await open()
+  const { body } = await socRequest('/api/live/active-views')
+  const soc = await socRequest(`/api/live/active-views/${body.views[0].viewId}/stream`, { streaming: true })
+  soc.resume()
+  const socClosed = once(soc, 'close')
+  state.socLive = false
+  await socClosed
+  assert.equal(state.released.length, 0)
+  assert.equal(state.fetched.length, 1)
+  await settle(operator, true)
+})
+
+test('SOC camera access revocation closes its passive viewer without releasing Operator demand', async t => {
+  const { state, open, settle, socRequest } = await streamHarness(t, 'real-viewers')
+  const operator = await open()
+  const { body } = await socRequest('/api/live/active-views')
+  const soc = await socRequest(`/api/live/active-views/${body.views[0].viewId}/stream`, { streaming: true })
+  soc.resume()
+  const socClosed = once(soc, 'close')
+  state.socAccess = false
+  await socClosed
+  assert.equal(state.released.length, 0)
+  await settle(operator, true)
+})
+
+test('live SOC database role or active-state revocation denies new views and closes an open passive viewer', async t => {
+  const { state, open, settle, socRequest } = await streamHarness(t, 'real-viewers')
+  const operator = await open('CAM-01', 2)
+  const { body } = await socRequest('/api/live/active-views')
+  const viewId = body.views[0].viewId
+  const soc = await socRequest(`/api/live/active-views/${viewId}/stream`, { streaming: true })
+  soc.resume()
+  const socClosed = once(soc, 'close')
+  state.socDbRole = 'CCTV-Operator'
+  await socClosed
+  assert.equal((await socRequest('/api/live/active-views')).status, 403)
+  assert.equal((await socRequest(`/api/live/active-views/${viewId}/detections`)).status, 403)
+  state.socDbRole = 'SOC-Responder'
+  state.socDbActive = false
+  assert.equal((await socRequest(`/api/live/active-views/${viewId}/stream`)).status, 403)
+  assert.equal(state.fetched.length, 1)
+  await settle(operator, true)
+})
+
+test('SOC cannot invoke the legacy logical camera stream or forge physical authority', async t => {
+  const { state, open, settle, socRequest } = await streamHarness(t, 'real-viewers')
+  const operator = await open()
+  const forged = await socRequest('/api/live/active-views/forged/stream?producerGeneration=999&physicalCameraId=2&nodeId=forged')
+  assert.equal(forged.status, 404)
+  const legacy = await socRequest('/api/cameras/CAM-01/stream')
+  assert.equal(legacy.status, 403)
+  assert.equal(state.fetched.length, 1)
+  assert.equal(state.acquired.length, 1)
+  await settle(operator, true)
+})
+
+test('slow SOC backpressure disconnects only SOC and does not stall the demanding Operator', async t => {
+  const { state, open, settle, socRequest } = await streamHarness(t, 'real-viewers')
+  const operator = await open()
+  const { body } = await socRequest('/api/live/active-views')
+  const soc = await socRequest(`/api/live/active-views/${body.views[0].viewId}/stream`,
+    { streaming: true, slow: true })
+  soc.resume()
+  const socClosed = new Promise(resolve => { soc.on('error', () => {}); soc.once('close', resolve) })
+  await socClosed
+  assert.equal(state.released.length, 0)
+  assert.equal(state.fetched.length, 1)
+  assert.equal(state.active.size, 1)
+  await settle(operator, true)
+})
+
+test('upstream failure closes passive SOC and releases Operator demand exactly once', async t => {
+  const { state, open, settle, socRequest } = await streamHarness(t, 'passive-source-failure')
+  const operator = await open()
+  operator.resume()
+  const { body } = await socRequest('/api/live/active-views')
+  const soc = await socRequest(`/api/live/active-views/${body.views[0].viewId}/stream`, { streaming: true })
+  soc.resume()
+  const socClosed = once(soc, 'close')
+  const operatorClosed = once(operator, 'close')
+  state.failSource()
+  await Promise.all([socClosed, operatorClosed])
+  assert.equal(state.released.length, 1)
+  assert.equal(state.fetched.length, 1)
+  assert.deepEqual((await socRequest('/api/live/active-views')).body.views, [])
+})
 
 test('strict_stream_sends_server_generation_and_key; client_generation_claim_cannot_override', async t => {
   const { state, open, settle, generation, binding } = await streamHarness(t)
@@ -654,6 +855,8 @@ test('real PostgreSQL HTTP viewers share one epoch; final route cleanup retires 
   let state
   let one
   let two
+  let socOne
+  let socTwo
   const waitForRelease = async (handle, context) => {
     const wasReleased = () => state.released.some(released => released.demandOwnerId === handle.demandOwnerId
       && released.producerGeneration === handle.producerGeneration)
@@ -669,7 +872,9 @@ test('real PostgreSQL HTTP viewers share one epoch; final route cleanup retires 
     await admin.query(fs.readFileSync(new URL('../server/db/schema.sql', import.meta.url), 'utf8'))
     await admin.query(`
       INSERT INTO users (id, username, password_hash, display_name) VALUES
-        (2, 'operator', 'test-only', 'One'), (3, 'operator2', 'test-only', 'Two');
+        (2, 'operator', 'test-only', 'One'), (3, 'operator2', 'test-only', 'Two'),
+        (4, 'soc', 'test-only', 'SOC');
+      UPDATE users SET role = 'SOC-Responder' WHERE id = 4;
       INSERT INTO cameras (id, name, zone) VALUES ('CAM-01', 'One', 'lab'), ('CAM-02', 'Two', 'lab');
       INSERT INTO camera_assignment (camera_id, user_id) VALUES ('CAM-01', 2), ('CAM-02', 3);
       INSERT INTO detection_nodes (node_id, public_key, public_key_fingerprint, key_version)
@@ -680,6 +885,22 @@ test('real PostgreSQL HTTP viewers share one epoch; final route cleanup retires 
         VALUES ('machine-a-node', 2, 'CAM-01'), ('machine-a-node', 3, 'CAM-02');
       SELECT setval('camera_producer_epochs_producer_generation_seq', 9007199254740993, false);
     `)
+    const scopedDatabaseUrl = new URL(process.env.AEGIS_MONITOR_TEST_DATABASE_URL)
+    scopedDatabaseUrl.searchParams.set('options', `-csearch_path=${schema}`)
+    const previousDatabaseUrl = process.env.DATABASE_URL
+    process.env.DATABASE_URL = scopedDatabaseUrl.toString()
+    let liveUserDb
+    try { liveUserDb = await import(`../server/db/connection.js?soc-user-revocation=${schema}`) }
+    finally {
+      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL
+      else process.env.DATABASE_URL = previousDatabaseUrl
+    }
+    try {
+      assert.equal((await liveUserDb.getUserById(4)).active, true)
+      await admin.query('UPDATE users SET active = FALSE WHERE id = 4')
+      assert.equal((await liveUserDb.getUserById(4)).active, false,
+        'real PostgreSQL mapping must expose deactivation to passive SOC revalidation')
+    } finally { await liveUserDb.closePool() }
     const transact = async fn => {
       const client = await pool.connect()
       try {
@@ -696,9 +917,25 @@ test('real PostgreSQL HTTP viewers share one epoch; final route cleanup retires 
     const harness = await streamHarness(t, 'real-viewers', service)
     state = harness.state
     one = await harness.open('CAM-01', 2)
-    two = await harness.open('CAM-02', 3)
     assert.equal(one.statusCode, 200)
+    assert.equal((await admin.query('SELECT * FROM camera_producer_demands WHERE released_at IS NULL')).rowCount, 1)
+    assert.equal((await admin.query('SELECT * FROM camera_producer_epochs WHERE released_at IS NULL')).rowCount, 1)
+    const firstViews = (await harness.socRequest('/api/live/active-views')).body.views
+    assert.equal(firstViews.length, 1)
+    socOne = await harness.socRequest(`/api/live/active-views/${firstViews[0].viewId}/stream`, { streaming: true })
+    assert.equal(socOne.statusCode, 200)
+    assert.equal((await admin.query('SELECT * FROM camera_producer_demands WHERE released_at IS NULL')).rowCount, 1)
+    assert.equal((await admin.query('SELECT * FROM camera_producer_epochs WHERE released_at IS NULL')).rowCount, 1)
+    socOne.destroy()
+    assert.equal((await admin.query('SELECT * FROM camera_producer_demands WHERE released_at IS NULL')).rowCount, 1)
+    two = await harness.open('CAM-02', 3)
     assert.equal(two.statusCode, 200)
+    const secondViews = (await harness.socRequest('/api/live/active-views')).body.views
+    assert.equal(secondViews.length, 2)
+    const cam02View = secondViews.find(view => view.cameraId === 'CAM-02')
+    socTwo = await harness.socRequest(`/api/live/active-views/${cam02View.viewId}/stream`, { streaming: true })
+    socTwo.resume()
+    const socTwoClosed = once(socTwo, 'close')
     assert.deepEqual(state.fetched.map(entry => entry.options.headers['X-Aegis-Producer-Generation']),
       ['9007199254740993', '9007199254740993'])
     const rows = (await admin.query('SELECT logical_camera_id, viewer_user_id FROM camera_producer_demands ORDER BY viewer_user_id')).rows
@@ -710,14 +947,46 @@ test('real PostgreSQL HTTP viewers share one epoch; final route cleanup retires 
     assert.equal((await admin.query('SELECT * FROM camera_producer_epochs WHERE released_at IS NULL')).rowCount, 1)
     two.destroy()
     await waitForRelease(state.acquired[1], 'final viewer close')
+    await socTwoClosed
     assert.equal((await admin.query('SELECT * FROM camera_producer_demands WHERE released_at IS NULL')).rowCount, 0)
     assert.equal((await admin.query('SELECT * FROM camera_producer_epochs WHERE released_at IS NULL')).rowCount, 0)
+    assert.equal(state.fetched.length, 2, 'SOC must not open a third Engine stream')
+    await admin.query(`
+      INSERT INTO detection_nodes (node_id, public_key, public_key_fingerprint, key_version)
+        VALUES ('machine-b-node', 'test-key-b', 'test-fingerprint-b', 1);
+      INSERT INTO physical_cameras (physical_camera_id, node_id) OVERRIDING SYSTEM VALUE
+        VALUES (42, 'machine-b-node');
+    `)
+    const secondNodeEpoch = (await admin.query(`
+      INSERT INTO camera_producer_epochs (physical_camera_id, node_id, lease_expires_at, released_at)
+      VALUES (42, 'machine-b-node', now() + interval '1 minute', now())
+      RETURNING producer_generation
+    `)).rows[0].producer_generation
+    await admin.query(`
+      INSERT INTO detections (frame_id, camera_id, physical_camera_id, producer_generation, result)
+      VALUES ('node-a-frame', 'CAM-01', 41, $1::bigint, 'Unknown'),
+             ('node-b-frame', 'CAM-01', 42, $2::bigint, 'Unknown')
+    `, [state.acquired[0].producerGeneration, secondNodeEpoch])
+    const { listDetectionsForPhysicalView } = await import('../server/db/store.js')
+    const readView = ({ physicalCameraId, producerGeneration, nodeId }) =>
+      listDetectionsForPhysicalView({ cameraId: 'CAM-01', physicalCameraId, producerGeneration, nodeId },
+        { postgresEnabled: true, executeQuery: (sql, params) => admin.query(sql, params) })
+    assert.deepEqual((await readView({ physicalCameraId: 41,
+      producerGeneration: state.acquired[0].producerGeneration, nodeId: 'machine-a-node' }))
+      .map(frame => frame.id), ['node-a-frame'])
+    assert.deepEqual((await readView({ physicalCameraId: 42,
+      producerGeneration: secondNodeEpoch, nodeId: 'machine-b-node' }))
+      .map(frame => frame.id), ['node-b-frame'])
+    assert.deepEqual(await readView({ physicalCameraId: 41,
+      producerGeneration: secondNodeEpoch, nodeId: 'machine-a-node' }), [])
   } finally {
     // Close both viewers even when an earlier assertion fails, then wait for
     // real route cleanup before removing the schema those transactions use.
     try {
       one?.destroy()
       two?.destroy()
+      socOne?.destroy()
+      socTwo?.destroy()
       for (const handle of state?.acquired ?? []) await waitForRelease(handle, 'fixture teardown')
     } finally {
       await admin.query('ROLLBACK')
