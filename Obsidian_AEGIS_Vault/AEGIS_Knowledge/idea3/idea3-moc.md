@@ -29,7 +29,7 @@ disposition) stages. `R1Du` executed once (`R1DU_LIVE=CLOSED_PASS`, deployment o
 disposition COMMITTED (incident #1 `CLOSED`, `R1D_DISPOSITION_COMMITTED=YES`) but the stage is `R1D_RESULT=FAIL_IMMUTABLE`
 (never rerun, never rewritten to PASS): its final TrustedClock evidence was unavailable because the verifier snapshot lacked
 `trusted_time`. The repository now carries the snapshot repair and the read-only, non-mutating `R1Dv` validation stage (not an R1D
-retry; not yet executed). R1B stays blocked until a unique R1Dv LIVE PASS closeout exists, and Recovery R2–R8 stays blocked. See [[idea3/idea3-status]].
+retry). `R1Dv` has since executed once and PASSED (`R1DV_LIVE=CLOSED_PASS`, read-only: no socket, no incident mutation, no disposition; unique closeout receipt recorded). R1B's predecessor Path B is therefore satisfied, but R1B has NOT run (`R1B_ATTEMPT_CONSUMED=NO`) and stays a separate owner decision; Recovery R2–R8 stays blocked until R1B passes. See [[idea3/idea3-status]].
 
 ## Start here
 
