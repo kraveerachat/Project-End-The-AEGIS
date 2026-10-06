@@ -275,7 +275,7 @@ if [ -n "${ALLOW_DYNAMIC_TRANSITIONS_FILE:-}" ]; then
   ! grep -q $'\r' "$ALLOW_DYNAMIC_TRANSITIONS_FILE" || stop "ALLOW_DYNAMIC_TRANSITIONS_FILE must not contain CR"
 fi
 
-# ALLOW_L6C_RELEASE_FILE (stage L6c, stage L7u for the post-L7 Recovery Core upgrade, stage F1i for the post-L7 repaired-release install, or stage F1u for the post-F1 Core upgrade): names the ONE exact new release id this run is
+# ALLOW_L6C_RELEASE_FILE (stage L6c, stage L7u for the post-L7 Recovery Core upgrade, stage F1i for the post-L7 repaired-release install, stage F1u for the post-F1 Core upgrade, or stage R1Du for the post-R1A Core upgrade that carries the R1D authority): names the ONE exact new release id this run is
 # authorized to add to host.aegis_idea3.release_catalog. Strict contract: exactly two active lines, exactly one stage line (`stage L6c`, `stage L7u`, `stage F1i` OR
 # `stage F1u`; the label only names the stage, the RELATIONAL behavior is identical) and `release_id <id>` once, single-space separated, no CR, no other token. It never approves a mutation or removal of any id already present
 # in BEFORE — that check is unconditional (see the release-catalog rule below) and cannot be satisfied by this file.
@@ -286,15 +286,15 @@ if [ -n "${ALLOW_L6C_RELEASE_FILE:-}" ]; then
   while IFS= read -r line || [ -n "$line" ]; do
     [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
     case "$line" in
-      'stage L6c' | 'stage L7u' | 'stage F1i' | 'stage F1u') n_stage=$((n_stage + 1)) ;;
+      'stage L6c' | 'stage L7u' | 'stage F1i' | 'stage F1u' | 'stage R1Du') n_stage=$((n_stage + 1)) ;;
       release_id\ *)
         rid=${line#release_id }
         [[ "$rid" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || stop "malformed release_id in ALLOW_L6C_RELEASE_FILE"
         L6C_RELEASE_ID="$rid"; n_rid=$((n_rid + 1)) ;;
-      *) stop "malformed ALLOW_L6C_RELEASE_FILE line: only one 'stage L6c'|'stage L7u'|'stage F1i'|'stage F1u' line and 'release_id <id>' are approvable" ;;
+      *) stop "malformed ALLOW_L6C_RELEASE_FILE line: only one 'stage L6c'|'stage L7u'|'stage F1i'|'stage F1u'|'stage R1Du' line and 'release_id <id>' are approvable" ;;
     esac
   done < "$ALLOW_L6C_RELEASE_FILE"
-  [ "$n_stage" = 1 ] && [ "$n_rid" = 1 ] || stop "ALLOW_L6C_RELEASE_FILE must declare exactly one stage (L6c, L7u, F1i or F1u) once and exactly one release_id once"
+  [ "$n_stage" = 1 ] && [ "$n_rid" = 1 ] || stop "ALLOW_L6C_RELEASE_FILE must declare exactly one stage (L6c, L7u, F1i, F1u or R1Du) once and exactly one release_id once"
   ! grep -q $'\r' "$ALLOW_L6C_RELEASE_FILE" || stop "ALLOW_L6C_RELEASE_FILE must not contain CR"
 fi
 

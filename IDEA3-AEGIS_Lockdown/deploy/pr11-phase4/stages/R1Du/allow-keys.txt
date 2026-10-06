@@ -1,0 +1,20 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage R1Du allowed PRE->POST host state drift.
+#
+# R1Du moves ONE pointer and restarts the Core once. Key approval is by key only; the exact VALUES are proven separately by p4-r1du-upgrade.py (journal + verify: current OLD -> NEW, the Core's
+# working directory, a new MainPID, the detector unchanged) and by the runner gates (r1du_current_transition_gate, r1du_catalog_transition_gate against the PRE/POST host.tsv).
+# The release catalog is NOT listed: it is approved only by the RELATIONAL ALLOW_L6C_RELEASE_FILE rule (`stage R1Du` + the one new release id): every PRE release stays byte-identical.
+# NRestarts is NOT listed (a manual restart is not an automatic restart: it must stay 0). The detector unit IS captured (svc.* + unit file): ONLY its process identity (MainPID, ExecMainStartTimestamp) may change,
+# because systemd cycles it as the Requires= consequence of the one Core restart (OPTION A). Its unit bytes, UnitFileState, Restart and every other field must stay identical; the tool proves the rest exactly.
+# The RUNNING Core/detector release identity (cwd) is captured too: forward it must become the NEW release; the runner gates prove the exact values (r1du_core_runtime_gate).
+# core.env METADATA IS listed (host.aegis_idea3.file./etc/aegis-idea3/core.env.meta): R1Du appends the ONE exact arming line, so ONLY its size and mtime may change; the tool proves the exact suffix, that owner/group/mode and
+# every other byte are unchanged (in memory only), and that the running Core carries the flag. Credential metadata and every other /etc/aegis-idea3 entry must be IDENTICAL.
+# Deliberately NOT listed: credential metadata, any other config file, any unit file or drop-in, tmpfiles, the Recovery/alert group, directory or socket records (they must be IDENTICAL after the restart),
+# any listener, sysctl, firewall, network, time, MQTT, IDEA1/IDEA2 key.
+host.symlink./opt/aegis-idea3/current.target
+svc.aegis-idea3-core.service.MainPID
+svc.aegis-idea3-core.service.ExecMainStartTimestamp
+svc.aegis-idea3-detector.service.MainPID
+svc.aegis-idea3-detector.service.ExecMainStartTimestamp
+host.aegis_idea3.recovery.core.runtime_cwd
+host.aegis_idea3.alert.detector.runtime_cwd
+host.aegis_idea3.file./etc/aegis-idea3/core.env.meta

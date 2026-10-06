@@ -162,6 +162,9 @@ RECOVERY_SOCKET = os.getenv("AEGIS_RECOVERY_SOCKET", "").strip()
 # F1: the Core-local production alert ingress (R1 source). One numeric uid (the account running the detector) may submit
 # an IPv4 attacker candidate over the dedicated F1 socket below. Unset or invalid keeps the channel disabled (fail closed).
 ALERT_SOURCE_UID = _optional_int("AEGIS_ALERT_SOURCE_UID")
+# R1D: the historical-incident disposition channel is INERT by default: it exists only when this flag is exactly YES (and the
+# profile is production, a detector authority is configured and no disposition has ever been recorded). The peer must be uid 0.
+R1D_DISPOSITION_ENABLED = os.getenv("AEGIS_R1D_DISPOSITION_ENABLED", "")
 # OD-F1-DEPLOY-01: the dedicated F1 alert transport. Constants on purpose (no environment override): the general runtime
 # directory and the Recovery runtime are never an alert path. The group is filesystem reachability only; the uid is the authority.
 ALERT_RUNTIME_DIR = "/run/aegis-idea3-alert"

@@ -22,18 +22,18 @@ readonly P4_FS_ROOT="${AEGIS_P4_FS_ROOT:-${P4_FS_ROOT:-}}"
 readonly P4_WINDOW_TZ=Asia/Bangkok
 
 # ── stages (execution document §9, §12) ──────────────────────────────────────
-# Operational order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A -> Recovery R2-R8 -> LVR -> L8 -> L9.
+# Operational order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A (historical consumed FAIL) -> R1Du -> R1D (immutable FAIL after a committed disposition) -> R1Dv -> R1B -> Recovery R2-R8 -> LVR -> L8 -> L9.
 # F1i = governed POST-L7 install of ONE already-built repaired immutable release (creates /opt/aegis-idea3/releases/<id> only); F1r = governed atomic switch of
 # /opt/aegis-idea3/current to that ALREADY-INSTALLED release (no Core restart); F1 = governed F1 detector unit install + one start; F1u = governed post-F1 Core upgrade (install ONE new
 # immutable release, switch current OLD -> NEW, restart the Core EXACTLY ONCE without touching the running detector, prove the Core runs from the NEW release). L6c keeps its original position and its
 # historical PRE-L7 meaning: its verifier requires the L7 material absent and the Core unit not-found, which is false by design on the post-L7 host (a maintenance reuse
 # of L6c failed closed for exactly that reason), so L6c is never reused post-L7 and is not changed.
-readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A L8 L9"
+readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B L8 L9"
 
 p4_stage_known() { [[ " $P4_STAGES " == *" $1 "* ]] && [ -n "$1" ]; }
 
-# Every stage except the read-only L0 baseline changes the Core host.
-p4_stage_mutates() { [ "$1" != L0 ]; }
+# Every stage except the read-only L0 baseline and the read-only R1Dv validation (the R1D post-disposition validation: no marker, no socket, no write) changes the Core host.
+p4_stage_mutates() { [ "$1" != L0 ] && [ "$1" != R1Dv ]; }
 
 # Repository gaps that must be merged before the stage (§6, §9). The gate
 # reports them; it cannot verify merge state and never claims to.
@@ -67,6 +67,14 @@ p4_stage_gaps() {
     # R1A (real detector acceptance): MUTATING governed stage (a genuine external event may durably create ALERT_ACCEPTED, INCIDENT_BOUND and an OPEN incident); no repository gap. It owns no
     # reversible Production change (evidence-preserving rollback), generates no event, keeps R1I installed and never claims Recovery R2-R8, LVR, L8 or L9.
     R1A) echo none ;;
+    # R1Du is a governed Core upgrade (F1u-style: one release, one `current` switch, one Core restart) that carries the R1D historical-disposition authority; it mutates no incident and runs no R1D.
+    R1Du) echo none ;;
+    # R1Dv is the READ-ONLY successor validation of the committed R1D disposition (not an R1D retry): it owns no Production change and no one-attempt marker.
+    R1Dv) echo none ;;
+    # R1D is the one Core-mediated historical-incident disposition (evidence-preserving, irreversible, one attempt); it owns no reversible Production change.
+    R1D) echo none ;;
+    # R1B is a NEW governed successor after the immutable consumed R1A FAIL; it is not a retry and owns no reversible Production change.
+    R1B) echo none ;;
     # F1r (current-release activation) owns ONLY the atomic switch of /opt/aegis-idea3/current between two already-installed immutable releases: no
     # repository gap applies. It never installs a release (that is F1i), restarts the Core, starts the detector (F1) or claims Recovery, LVR, L8 or L9.
     F1r) echo none ;;
