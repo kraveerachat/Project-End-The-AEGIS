@@ -101,6 +101,16 @@ def _camera(value: Any) -> None:
         raise PipeProtocolError("cameraId is not canonical")
 
 
+def _generation(value: Any) -> None:
+    if (
+        not isinstance(value, str)
+        or _GENERATION_RE.fullmatch(value) is None
+        or len(value) > 19
+        or int(value) > 9223372036854775807
+    ):
+        raise PipeProtocolError("producerGeneration is not canonical BIGINT")
+
+
 def _reject_authority_fields(value: Any) -> None:
     if isinstance(value, dict):
         for key, child in value.items():
@@ -134,8 +144,14 @@ def _validate_heartbeat(payload: dict[str, Any]) -> None:
 
 
 def _validate_detection(payload: dict[str, Any]) -> None:
-    _closed(payload, required={"cameraId", "entities"}, optional={"frameId", "at"})
+    _closed(
+        payload,
+        required={"cameraId", "entities"},
+        optional={"frameId", "at", "producerGeneration"},
+    )
     _camera(payload["cameraId"])
+    if "producerGeneration" in payload:
+        _generation(payload["producerGeneration"])
     entities = payload["entities"]
     if not isinstance(entities, list) or len(entities) > 64:
         raise PipeProtocolError("entities must be a bounded list")
@@ -154,12 +170,18 @@ def _validate_detection(payload: dict[str, Any]) -> None:
     if "at" in payload:
         _text(payload["at"], label="at", maximum=64, nullable=True)
 
-
 def _validate_alert(payload: dict[str, Any]) -> None:
-    _closed(payload, required={
-        "cameraId", "severity", "alertType", "title", "snapshotPath", "telegramSent",
-    })
+    _closed(
+        payload,
+        required={
+            "cameraId", "severity", "alertType", "title",
+            "snapshotPath", "telegramSent",
+        },
+        optional={"producerGeneration"},
+    )
     _camera(payload["cameraId"])
+    if "producerGeneration" in payload:
+        _generation(payload["producerGeneration"])
     if payload["severity"] not in {"amber", "red"}:
         raise PipeProtocolError("severity is invalid")
     _text(payload["alertType"], label="alertType", maximum=64)
@@ -167,7 +189,6 @@ def _validate_alert(payload: dict[str, Any]) -> None:
     _text(payload["snapshotPath"], label="snapshotPath", maximum=1024, nullable=True)
     if not isinstance(payload["telegramSent"], bool):
         raise PipeProtocolError("telegramSent must be boolean")
-
 
 def _validate_clip(payload: dict[str, Any]) -> None:
     _closed(payload, required={

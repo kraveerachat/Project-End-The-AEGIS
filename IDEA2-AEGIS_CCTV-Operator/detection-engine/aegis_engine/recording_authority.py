@@ -77,6 +77,20 @@ class RecordingAuthority:
                     result[(generation, alias)] = started
             return MappingProxyType(result)
 
+    def active_intervals_for_frame(self, captured_at: float):
+        """Return frame contexts that are still live at event publication.
+
+        Detection/alert authority is deliberately stricter than recording:
+        closed intervals remain available to the recorder for queued frames,
+        but they cannot authorize a new security event after release.
+        """
+        with self._lock:
+            return MappingProxyType({
+                key: started
+                for key, started in self._active.items()
+                if started < captured_at
+            })
+
     def discard_closed(self, through: float | None = None) -> None:
         """FIFO recorder acknowledgement; observed writers retain their end."""
         with self._lock:

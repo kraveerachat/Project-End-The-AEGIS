@@ -83,10 +83,12 @@ test('real PostgreSQL writes physical provenance only from verified Agent contex
     }, auth)
     await store.insertDetection({
       cameraId: 'CAM-01', frameId, physicalCameraId: 999,
+      producerGeneration: handle.producerGeneration,
       entities: [{ status: 'Unknown', confidence: 88 }],
     }, auth)
     await store.insertAlert({
       cameraId: 'CAM-01', title, severity: 'amber', physicalCameraId: 999,
+      producerGeneration: handle.producerGeneration,
     }, auth)
     const now = Date.now()
     const clipResult = await store.insertClip({
@@ -108,13 +110,17 @@ test('real PostgreSQL writes physical provenance only from verified Agent contex
     const evidence = await client.query(
       `SELECT
          (SELECT physical_camera_id FROM detections WHERE frame_id = $1 LIMIT 1) AS detection_physical,
+         (SELECT producer_generation::text FROM detections WHERE frame_id = $1 LIMIT 1) AS detection_generation,
          (SELECT physical_camera_id FROM alerts WHERE title = $2 LIMIT 1) AS alert_physical,
+         (SELECT producer_generation::text FROM alerts WHERE title = $2 LIMIT 1) AS alert_generation,
          (SELECT physical_camera_id FROM clips WHERE file_path = $3 LIMIT 1) AS clip_physical,
          (SELECT physical_camera_id FROM detections WHERE frame_id = $4 LIMIT 1) AS legacy_physical`,
       [frameId, title, filePath, legacyFrameId],
     )
     assert.equal(Number(evidence.rows[0].detection_physical), physicalCameraId)
+    assert.equal(evidence.rows[0].detection_generation, handle.producerGeneration)
     assert.equal(Number(evidence.rows[0].alert_physical), physicalCameraId)
+    assert.equal(evidence.rows[0].alert_generation, handle.producerGeneration)
     assert.equal(Number(evidence.rows[0].clip_physical), physicalCameraId)
     assert.equal((await client.query('SELECT producer_generation::text FROM clips WHERE file_path = $1', [filePath])).rows[0].producer_generation, handle.producerGeneration)
     assert.equal(evidence.rows[0].legacy_physical, null)

@@ -116,19 +116,29 @@ class AlertManager(threading.Thread):
     def _build_payload(self, result: DetectionResult, snapshot_path: str) -> dict:
         unknowns = [e for e in result.entities if e.status is DetectionStatus.UNKNOWN]
         top_conf = max((e.confidence for e in unknowns), default=0.0)
-        return {
+        payload = {
             "type": "alert",
             "severity": "warning",
             "reason": "unknown_face",
             "node_id": self._cfg.node_id,
             "camera_id": result.camera_id,
-            "camera_label": self._cfg.camera_label,
+            # A strict attributed event must never reuse the static physical
+            # camera label for a different authenticated logical alias.
+            # Legacy events retain the configured descriptive label.
+            "camera_label": (
+                result.camera_id
+                if result.producer_generation is not None
+                else self._cfg.camera_label
+            ),
             "unknown_count": len(unknowns),
             "confidence": round(top_conf, 1),
             "frame_seq": result.frame_seq,
             "snapshot": os.path.abspath(snapshot_path),
             "timestamp": utc_now_iso(),
         }
+        if result.producer_generation is not None:
+            payload["producer_generation"] = result.producer_generation
+        return payload
 
     def _make_snapshot(self, result: DetectionResult, frame: Frame):
         """Draw boxes on a copy of the frame, encode JPEG, and persist it."""
@@ -220,6 +230,7 @@ class AlertManager(threading.Thread):
             title="Unknown person detected",
             snapshot_path=payload.get("snapshot"),
             telegram_sent=telegram_sent,
+            producer_generation=payload.get("producer_generation"),
         )
 
     def _send_telegram(self, jpeg: bytes, caption: str) -> bool:

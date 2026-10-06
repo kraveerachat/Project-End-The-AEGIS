@@ -15,6 +15,7 @@ import bcrypt from 'bcryptjs'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { usingPostgres, query, withTransaction } from './connection.js'
 import { validateClipAttribution } from './clipAttribution.js'
+import { validateEventAttribution } from './eventAttribution.js'
 
 // ⚠️ Phase 3: ตัวจำลอง detection/alert/clip แบบ in-memory (generator + seed arrays)
 //    ถูก "ถอดออกทั้งหมด" แล้ว — ข้อมูลจริงมาจาก Detection Engine (Laptop, VLAN 20)
@@ -367,51 +368,102 @@ async function cameraExists(id) {
  *  (NoFace ไม่ลงตาราง; result CHECK อนุญาตแค่สองค่านี้) */
 export async function insertDetection(input, ingestAuth = { kind: 'legacy_unverified' }) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
+
   const cameraId = String(input?.cameraId ?? '').trim()
   if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
-  if (!(await cameraExists(cameraId))) return { error: `unknown camera ${cameraId}`, status: 400 }
+  if (!(await cameraExists(cameraId))) {
+    return { error: `unknown camera ${cameraId}`, status: 400 }
+  }
+
+  const strict = ingestAuth?.kind === 'ed25519'
+  if (!strict && input?.producerGeneration != null) {
+    return { error: 'EVENT_ATTRIBUTION_DENIED', status: 403 }
+  }
 
   const frameId = String(input?.frameId || randomUUID()).slice(0, 128)
+
   let atIso = null
   if (input?.at != null) {
     const d = new Date(input.at)
-    if (Number.isNaN(d.getTime())) return { error: 'invalid at timestamp', status: 400 }
+    if (Number.isNaN(d.getTime())) {
+      return { error: 'invalid at timestamp', status: 400 }
+    }
     atIso = d.toISOString()
   }
 
   const entities = Array.isArray(input?.entities) ? input.entities : []
   const valid = entities
     .map((e) => ({
-      result: e?.status === 'Unknown' ? 'Unknown' : e?.status === 'Authorized' ? 'Authorized' : null,
+      result:
+        e?.status === 'Unknown'
+          ? 'Unknown'
+          : e?.status === 'Authorized'
+            ? 'Authorized'
+            : null,
       name: e?.name != null ? String(e.name).slice(0, 120) : null,
-      confidence: Number.isFinite(Number(e?.confidence)) ? Number(e.confidence) : null,
+      confidence: Number.isFinite(Number(e?.confidence))
+        ? Number(e.confidence)
+        : null,
     }))
     .filter((e) => e.result !== null)
-  if (valid.length === 0) return { error: 'no recognizable faces in payload', status: 400 }
+
+  if (valid.length === 0) {
+    return { error: 'no recognizable faces in payload', status: 400 }
+  }
 
   const faces = valid.length
-  const physicalCameraId = ingestAuth?.kind === 'ed25519'
-    ? Number(ingestAuth.verifiedNode?.physicalCameraId)
-    : null
-  if (ingestAuth?.kind === 'ed25519' && (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1)) {
-    return { error: 'invalid physical provenance', status: 401 }
-  }
-  await withTransaction(async (client) => {
-    for (const e of valid) {
-      await client.query(
-        `INSERT INTO detections (
-           frame_id, at, camera_id, physical_camera_id,
-           faces_in_frame, result, matched_name, confidence)
-         VALUES ($1, COALESCE($2::timestamptz, now()), $3, $4, $5, $6, $7, $8)`,
-        // matched_name เป็น NULL เสมอเมื่อ Unknown (ไม่มีตัวตนให้จับคู่)
-        [
-          frameId, atIso, cameraId, physicalCameraId, faces,
-          e.result, e.result === 'Unknown' ? null : e.name, e.confidence,
-        ],
-      )
+
+  try {
+    return await withTransaction(async (client) => {
+      const bound = strict
+        ? await validateEventAttribution(
+            client,
+            input,
+            ingestAuth.verifiedNode,
+          )
+        : {
+            cameraId,
+            physicalCameraId: null,
+            producerGeneration: null,
+          }
+
+      for (const e of valid) {
+        await client.query(
+          `INSERT INTO detections (
+             frame_id, at, camera_id, physical_camera_id,
+             producer_generation, faces_in_frame,
+             result, matched_name, confidence)
+           VALUES (
+             $1, COALESCE($2::timestamptz, now()), $3, $4,
+             $5, $6, $7, $8, $9
+           )`,
+          [
+            frameId,
+            atIso,
+            bound.cameraId,
+            bound.physicalCameraId,
+            bound.producerGeneration,
+            faces,
+            e.result,
+            e.result === 'Unknown' ? null : e.name,
+            e.confidence,
+          ],
+        )
+      }
+
+      return { frameId, rows: faces }
+    })
+  } catch (error) {
+    if (!strict) throw error
+
+    return {
+      error:
+        error?.status === 403
+          ? 'EVENT_ATTRIBUTION_DENIED'
+          : 'EVENT_ATTRIBUTION_UNAVAILABLE',
+      status: error?.status === 403 ? 403 : 503,
     }
-  })
-  return { frameId, rows: faces }
+  }
 }
 
 /** เขียน clip หนึ่งช่วง — เรียกโดย nas_sync "หลัง" ยืนยัน sha256 บน NAS สำเร็จเท่านั้น
@@ -441,32 +493,88 @@ export async function insertClip(input, ingestAuth = { kind: 'legacy_unverified'
  *  (สำเร็จหรือไม่ก็ persist เสมอ — บันทึกไม่หายแม้ Telegram ล่ม) */
 export async function insertAlert(input, ingestAuth = { kind: 'legacy_unverified' }) {
   if (!usingPostgres) return { error: 'database unavailable', status: 503 }
+
   const cameraId = String(input?.cameraId ?? '').trim()
   if (!CAM_RE.test(cameraId)) return { error: 'invalid camera_id', status: 400 }
-  if (!(await cameraExists(cameraId))) return { error: `unknown camera ${cameraId}`, status: 400 }
-
-  // severity ต้องเป็น 'amber' | 'red' เท่านั้น (schema CHECK) — engine map 'warning'→'amber' มาก่อนแล้ว
-  const severity = input?.severity === 'red' ? 'red' : input?.severity === 'amber' ? 'amber' : null
-  if (!severity) return { error: "severity must be 'amber' or 'red'", status: 400 }
-  const type = String(input?.alertType ?? input?.type ?? 'unknown_face').slice(0, 64)
-  const title = String(input?.title ?? 'Unknown person detected').slice(0, 200)
-  const snapshotPath = input?.snapshotPath ? String(input.snapshotPath).slice(0, 1024) : null
-  const telegramSent = Boolean(input?.telegramSent)
-  const physicalCameraId = ingestAuth?.kind === 'ed25519'
-    ? Number(ingestAuth.verifiedNode?.physicalCameraId)
-    : null
-  if (ingestAuth?.kind === 'ed25519' && (!Number.isSafeInteger(physicalCameraId) || physicalCameraId < 1)) {
-    return { error: 'invalid physical provenance', status: 401 }
+  if (!(await cameraExists(cameraId))) {
+    return { error: `unknown camera ${cameraId}`, status: 400 }
   }
 
-  const { rows } = await query(
-    `INSERT INTO alerts (
-       severity, type, title, camera_id, physical_camera_id,
-       snapshot_path, telegram_sent, acked)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE) RETURNING id`,
-    [severity, type, title, cameraId, physicalCameraId, snapshotPath, telegramSent],
-  )
-  return { id: String(rows[0].id) }
+  const strict = ingestAuth?.kind === 'ed25519'
+  if (!strict && input?.producerGeneration != null) {
+    return { error: 'EVENT_ATTRIBUTION_DENIED', status: 403 }
+  }
+
+  const severity =
+    input?.severity === 'red'
+      ? 'red'
+      : input?.severity === 'amber'
+        ? 'amber'
+        : null
+
+  if (!severity) {
+    return { error: "severity must be 'amber' or 'red'", status: 400 }
+  }
+
+  const type = String(
+    input?.alertType ?? input?.type ?? 'unknown_face'
+  ).slice(0, 64)
+
+  const title = String(
+    input?.title ?? 'Unknown person detected'
+  ).slice(0, 200)
+
+  const snapshotPath = input?.snapshotPath
+    ? String(input.snapshotPath).slice(0, 1024)
+    : null
+
+  const telegramSent = Boolean(input?.telegramSent)
+
+  try {
+    return await withTransaction(async (client) => {
+      const bound = strict
+        ? await validateEventAttribution(
+            client,
+            input,
+            ingestAuth.verifiedNode,
+          )
+        : {
+            cameraId,
+            physicalCameraId: null,
+            producerGeneration: null,
+          }
+
+      const { rows } = await client.query(
+        `INSERT INTO alerts (
+           severity, type, title, camera_id, physical_camera_id,
+           producer_generation, snapshot_path, telegram_sent, acked)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)
+         RETURNING id`,
+        [
+          severity,
+          type,
+          title,
+          bound.cameraId,
+          bound.physicalCameraId,
+          bound.producerGeneration,
+          snapshotPath,
+          telegramSent,
+        ],
+      )
+
+      return { id: String(rows[0].id) }
+    })
+  } catch (error) {
+    if (!strict) throw error
+
+    return {
+      error:
+        error?.status === 403
+          ? 'EVENT_ATTRIBUTION_DENIED'
+          : 'EVENT_ATTRIBUTION_UNAVAILABLE',
+      status: error?.status === 403 ? 403 : 503,
+    }
+  }
 }
 
 /** ปลายทาง Telegram ของกล้องหนึ่งตัว — ใช้โดย Detection Engine "ก่อน" ส่งข้อความ

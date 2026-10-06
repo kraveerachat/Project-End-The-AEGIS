@@ -111,6 +111,7 @@ class DetectionResult:
     frame_seq: int
     entities: List[DetectedEntity]
     processing_ms: float
+    producer_generation: Optional[int] = None
     timestamp: str = field(default_factory=utc_now_iso)
 
     @property
@@ -122,7 +123,7 @@ class DetectionResult:
         return sum(1 for e in self.entities if e.status is not DetectionStatus.NO_FACE)
 
     def to_dict(self) -> dict:
-        return {
+        value = {
             "type": "detection",
             "camera_id": self.camera_id,
             "frame_seq": self.frame_seq,
@@ -132,6 +133,9 @@ class DetectionResult:
             "entities": [e.to_dict() for e in self.entities],
             "timestamp": self.timestamp,
         }
+        if self.producer_generation is not None:
+            value["producer_generation"] = self.producer_generation
+        return value
 
 
 @dataclass

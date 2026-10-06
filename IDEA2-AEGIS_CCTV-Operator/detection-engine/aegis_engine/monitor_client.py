@@ -105,14 +105,24 @@ class MonitorClient:
     def post_detection(
         self, camera_id: str, entities: List[Dict[str, Any]],
         frame_id: Optional[str] = None, at: Optional[str] = None,
-    ) -> None:
+        producer_generation: int | None = None,
+    ) -> bool:
         """One recognition event (a frame may carry several people)."""
         body: Dict[str, Any] = {"cameraId": camera_id, "entities": entities}
         if frame_id is not None:
             body["frameId"] = frame_id
         if at is not None:
             body["at"] = at
-        self._post("detection", "/internal/detections", body)
+        if producer_generation is not None:
+            if (
+                isinstance(producer_generation, bool)
+                or not isinstance(producer_generation, int)
+                or not 0 < producer_generation <= 9223372036854775807
+            ):
+                log.warning("invalid detection producer generation; event not published")
+                return False
+            body["producerGeneration"] = str(producer_generation)
+        return self._post("detection", "/internal/detections", body)
 
     def post_clip(
         self, camera_id: str, started_at: str, duration_sec: float,
@@ -182,16 +192,27 @@ class MonitorClient:
     def post_alert(
         self, camera_id: str, severity: str, alert_type: str, title: str,
         snapshot_path: Optional[str], telegram_sent: bool,
-    ) -> None:
+        producer_generation: int | None = None,
+    ) -> bool:
         """An alert. Persist whether or not Telegram delivery succeeded."""
-        self._post("alert", "/internal/alerts", {
+        body: Dict[str, Any] = {
             "cameraId": camera_id,
-            "severity": severity,          # 'amber' | 'red' (already mapped by caller)
+            "severity": severity,
             "alertType": alert_type,
             "title": title,
             "snapshotPath": snapshot_path,
             "telegramSent": bool(telegram_sent),
-        })
+        }
+        if producer_generation is not None:
+            if (
+                isinstance(producer_generation, bool)
+                or not isinstance(producer_generation, int)
+                or not 0 < producer_generation <= 9223372036854775807
+            ):
+                log.warning("invalid alert producer generation; event not published")
+                return False
+            body["producerGeneration"] = str(producer_generation)
+        return self._post("alert", "/internal/alerts", body)
 
     # -- transport (never raises) ------------------------------------------
     def _post(self, operation: str, path: str, body: Dict[str, Any]) -> bool:

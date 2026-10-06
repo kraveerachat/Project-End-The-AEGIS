@@ -11,7 +11,7 @@ from __future__ import annotations
 import signal
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Optional, Sequence, TYPE_CHECKING
 
 from .config import EngineConfig
@@ -52,6 +52,42 @@ class EngineComponents:
 ComponentFactory = Callable[
     [EngineContext, Optional["FaceRecognizer"]], EngineComponents
 ]
+
+
+def _attributed_results_for_frame(
+    result: DetectionResult,
+    frame: Frame,
+    recording_authority,
+    *,
+    strict: bool,
+) -> tuple[DetectionResult, ...]:
+    """Bind one physical inference result to frame-time logical authority.
+
+    Strict capture-on-demand mode never trusts the static AEGIS_CAMERA_ID for
+    event identity. The same physical frame may legitimately belong to more
+    than one authenticated logical alias, so emit one immutable result per
+    authorized (generation, alias) context in deterministic order.
+
+    No authority means no attributed event.
+    """
+    if not strict:
+        return (result,)
+
+    if recording_authority is None:
+        return ()
+
+    contexts = recording_authority.active_intervals_for_frame(
+        frame.captured_at
+    )
+
+    return tuple(
+        replace(
+            result,
+            camera_id=alias,
+            producer_generation=generation,
+        )
+        for generation, alias in sorted(contexts)
+    )
 
 
 class DetectionEngine:
@@ -156,11 +192,19 @@ class DetectionEngine:
         )
 
         def publish_detection(result: DetectionResult, frame: Frame) -> None:
-            # Stream the exact frame that produced these boxes. The capture
-            # fan-out keeps recording raw frames on its independent queue.
+            # Stream annotation is physical-frame work and happens once.
+            # Security/event identity is fan-out from authenticated frame-time
+            # authority below; the detector's static camera_id cannot override it.
             if stream is not None:
                 stream.submit_detection(result, frame)
-            context.on_detection(result, frame)
+
+            for attributed in _attributed_results_for_frame(
+                result,
+                frame,
+                recording_authority,
+                strict=cfg.capture_on_demand,
+            ):
+                context.on_detection(attributed, frame)
 
         api = LocalEventAPI(
             cfg,
@@ -238,6 +282,7 @@ class DetectionEngine:
                 entities=entities,
                 frame_id=uuid.uuid4().hex,
                 at=result.timestamp,
+                producer_generation=result.producer_generation,
             )
 
     def start(self) -> None:
