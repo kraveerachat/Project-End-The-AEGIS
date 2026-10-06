@@ -903,3 +903,14 @@ current release, MQTT and IDEA1/IDEA2 drift all fail. TrustedClock must be captu
 stays `FAIL_IMMUTABLE`, `R1BV_RESULT` stays `PASS`; `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `LVR_PROVEN=NO`, `L8_ACCEPTANCE=NO`, `L9_PROVEN=NO`. R1I stays installed.
 
 **Freeze tooling.** The runner freeze (`recovery-acceptance/recovery_runner_freeze.py`) and the snapshot tool (`recovery_verifier_snapshot.py`) follow the system-only bootstrap workflow of section 17: privileged freezes run from a root-owned exact-main authority (section 17, phase A then phase B). A frozen runner is the exact reviewed template plus ONLY the 23 approved pin substitutions; no trust-root option exists, the production trust root is literally `/`. The pin set carries no secret and no runtime or chat value is a repository constant.
+
+
+## 25. Stage RRu — LIVE outcome: PASS — documentation only
+
+RRu executed once and is now `RRU_LIVE=CLOSED_PASS`: `RRU_LIVE_EXECUTED=YES`, `RRU_RESULT=PASS`, `RRU_PRODUCTION_DEPLOYED=YES`, `RRU_ATTEMPT_CONSUMED=YES`, `RRU_RERUN_ALLOWED=NO`. Production `current` points at `954ce1c191885e9e90198a6f54a3d990bcf144fc` and `RECOVERY_RUNTIME_RELEASE_READY=YES`.
+
+The successor is mechanically proven to be the previous immutable runtime plus exactly the manifested `aegis_soc/cli.py` Recovery entrypoint. The running Core and detector processes were unchanged (`CORE_RESTART_INVOCATIONS=0`, `CORE_PROCESS_UNCHANGED=YES`, `DETECTOR_PROCESS_UNCHANGED=YES`, `EXPLICIT_DETECTOR_COMMANDS=0`). PRE/POST preservation passed and the secret scan found zero hits.
+
+Canonical receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-07_005834_music_idea3-rru-live-closeout.md`.
+
+Recovery remains separate and unexecuted: `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. `R1B_RESULT=FAIL_IMMUTABLE` and `R1BV_RESULT=PASS` remain unchanged. Recovery requires this closeout merged into the pinned main and then a NEW exact-main Recovery authority/freeze before any LIVE attempt.
