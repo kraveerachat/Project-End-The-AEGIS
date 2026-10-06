@@ -11,8 +11,10 @@ Fan-out and back-pressure
 Each downstream consumer gets its own :class:`~queue.Queue` "sink" with an
 explicit overflow policy:
 
-* ``DROP_OLDEST`` — recorder: keep the stream flowing; if the writer briefly
-  falls behind, drop the oldest frame rather than growing memory unbounded.
+* ``DROP_OLDEST`` — legacy always-on recorder: keep the stream flowing; if
+  the writer briefly falls behind, drop the oldest raw frame rather than growing
+  memory unbounded. Strict viewer-demand Archive recording is fed later from the
+  detector-render path so stored footage can match Live annotations.
 * ``LATEST_ONLY`` — detector: only ever hold the *freshest* frame (queue size
   1). Inference on a stale frame is worthless for a live security feed, so we
   overwrite instead of backing up.
