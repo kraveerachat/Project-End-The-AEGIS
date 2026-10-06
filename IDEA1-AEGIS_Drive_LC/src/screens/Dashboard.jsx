@@ -5,9 +5,9 @@ import {
 } from 'recharts'
 import {
   Database, Files as FilesIcon, Link2, ShieldCheck, ArrowUpRight, ArrowDownRight,
-  LogIn, FileText, Clock,
+  LogIn, FileText, Clock, Layers, Activity,
 } from 'lucide-react'
-import { Card, CardTitle, Chip, Dot, Reveal, ErrorState, DependencyUnavailableState, SkeletonLoader } from '../components/ui.jsx'
+import { Card, CardTitle, Chip, Dot, ErrorState, DependencyUnavailableState, SkeletonLoader } from '../components/ui.jsx'
 import { ServerTelemetry } from '../components/ServerTelemetry.jsx'
 import { useApi, useCountUp, useNow, useReducedMotion } from '../lib/hooks.js'
 import { fmtRelative, fmtCountdown, fmtStamp, fmtBytes } from '../lib/format.js'
@@ -28,11 +28,13 @@ import { useDashboardMotion } from '../lib/useDashboardMotion.js'
    ที่ไฟล์ถูกอัปโหลดทับหรือถูกลบ — จอจึงบอกสิ่งที่นับได้จริง ไม่ใช่สิ่งที่ดูน่าประทับใจกว่า */
 
 /* ── Stat card — hero number counts, ค่าจริงจากเซิร์ฟเวอร์ ─────────── */
-function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, statusTone = 'ok', delay = 0, footer, meterPercent = null, meterLabel = '' }) {
+function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, statusTone = 'ok', delay = 0, footer, meterPercent = null, meterLabel = '', accent, support = null }) {
   const v = useCountUp(value, 700, decimals)
   const display = decimals > 0 ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US')
   return (
     <Card
+      data-accent={accent}
+      data-alarm={alarm ? 'true' : undefined}
       className={`dashboard-stat-card relative overflow-hidden p-5 rise-in ${meterPercent != null ? 'dashboard-capacity-card' : ''} ${alarm ? 'border-pulse' : ''}`}
       style={{
         animationDelay: `${delay}ms`,
@@ -67,6 +69,7 @@ function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, 
           <span lang="en">{meterPercent}%</span>
         </div>
       )}
+      {support && <div className="dashboard-stat-support">{support}</div>}
       {footer && (
         <div className="mt-3 border-t border-line pt-3">
           {footer}
@@ -107,7 +110,7 @@ function LakeHealth({ t, health }) {
 
   return (
     <Card className="lake-health-card dashboard-motion-card p-5 rise-in" style={{ animationDelay: '160ms' }}>
-      <CardTitle sub={t('lakeSubtitle')}>{t('lakeHealth')}</CardTitle>
+      <CardTitle icon={Layers} sub={t('lakeSubtitle')}>{t('lakeHealth')}</CardTitle>
 
       <div className="flex flex-col">
         {TIERS.map((tier, idx) => {
@@ -166,8 +169,8 @@ function LakeHealth({ t, health }) {
 /* ── Login history — personal security status (สเปกของจอ Dashboard) ── */
 function LoginHistoryCard({ t, events, unavailable = false }) {
   return (
-    <Card className="p-5 rise-in flex flex-col min-h-0" style={{ animationDelay: '200ms' }}>
-      <CardTitle sub={t('dashLoginHistorySub')}>{t('dashLoginHistory')}</CardTitle>
+    <Card className="dashboard-list-card p-5 rise-in flex flex-col min-h-0" style={{ animationDelay: '200ms' }}>
+      <CardTitle icon={LogIn} sub={t('dashLoginHistorySub')}>{t('dashLoginHistory')}</CardTitle>
       {unavailable ? (
         <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
       ) : events.length === 0 ? (
@@ -178,7 +181,7 @@ function LoginHistoryCard({ t, events, unavailable = false }) {
             const at = new Date(e.at).getTime()
             const bad = e.result !== 'OK'
             return (
-              <div key={i} className="flex items-start gap-3 rounded-[10px] px-3 py-2.5">
+              <div key={i} data-result={bad ? 'denied' : 'ok'} className="dashboard-list-row flex items-start gap-3 rounded-[10px] px-3 py-2.5">
                 <div className="size-7 rounded-full bg-sunken flex items-center justify-center shrink-0 mt-0.5">
                   <LogIn size={13} strokeWidth={1.5} className={bad ? 'text-danger' : 'text-ink-2'} />
                 </div>
@@ -201,16 +204,16 @@ function LoginHistoryCard({ t, events, unavailable = false }) {
 /* ── Active share links (สเปกของจอ Dashboard) ────────────────────────── */
 function ActiveLinksCard({ t, shares, now, unavailable = false }) {
   return (
-    <Card className="p-5 flex flex-col min-h-0" style={{ animationDelay: '250ms' }}>
-      <CardTitle>{t('activeLinks')}</CardTitle>
+    <Card className="dashboard-list-card dashboard-links-card p-5 flex flex-col min-h-0" style={{ animationDelay: '250ms' }}>
+      <CardTitle icon={Link2}>{t('activeLinks')}</CardTitle>
       {unavailable ? (
         <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
       ) : shares.length === 0 ? (
         <InlineEmptyState>{t('emptyNoShares')}</InlineEmptyState>
       ) : (
-        <div className="flex flex-col gap-2.5">
+        <div className="dashboard-links-list">
           {shares.map((s) => (
-            <div key={s.id} className="flex items-center gap-3 py-2 border-b border-line last:border-b-0">
+            <div key={s.id} className="dashboard-list-row flex items-center gap-3 py-2 border-b border-line last:border-b-0">
               <Link2 size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" />
               <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{s.fileName}</span>
               <span className="text-[11.5px] text-ink-3 font-mono shrink-0 flex items-center gap-1.5">
@@ -339,14 +342,19 @@ function StorageHero({ t, usedBytes, totalBytes, usage, unavailable, unavailable
 }
 
 /* ── Activity — จำนวนครั้งของการอัปโหลด/ดาวน์โหลดต่อวัน จาก audit_log จริง ──── */
+// Series colours are tokens: Light keeps ink/accent, Neo Dark maps them to the
+// reference blue/violet pair (index.css). The data and its meaning are unchanged.
+const UPLOAD_COLOR = 'var(--dashboard-series-uploads, var(--ink))'
+const DOWNLOAD_COLOR = 'var(--dashboard-series-downloads, var(--accent))'
+
 function ChartTooltip({ active, payload, label, t }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="bg-card border border-line rounded-[var(--r-tile)] px-3.5 py-2.5" style={{ boxShadow: 'var(--elev-2)' }}>
+    <div className="dashboard-chart-tooltip bg-card border border-line rounded-[var(--r-tile)] px-3.5 py-2.5" style={{ boxShadow: 'var(--elev-2)' }}>
       <p className="text-[12px] font-semibold text-ink mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.dataKey} className="text-[12.5px] text-ink-2 flex items-center gap-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <span className="size-2 rounded-full" style={{ background: p.dataKey === 'uploads' ? 'var(--ink)' : 'var(--accent)' }} />
+          <span className="size-2 rounded-full" style={{ background: p.dataKey === 'uploads' ? UPLOAD_COLOR : DOWNLOAD_COLOR }} />
           {p.dataKey === 'uploads' ? t('uploads') : t('downloads')} · {p.value}
         </p>
       ))}
@@ -368,13 +376,14 @@ function ActivityChart({ t, lang, data }) {
   const empty = rows.length === 0 || rows.every((r) => r.uploads === 0 && r.downloads === 0)
 
   return (
-    <Card className="p-5 rise-in" style={{ animationDelay: '280ms' }}>
+    <Card className="dashboard-activity-card p-5 rise-in" style={{ animationDelay: '280ms' }}>
       <CardTitle
+        icon={Activity}
         sub={t('activitySub')}
         right={
           <div className="flex items-center gap-3 text-[12px] font-medium text-ink-3">
-            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: 'var(--ink)' }} />{t('uploads')}</span>
-            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: 'var(--accent)' }} />{t('downloads')}</span>
+            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: UPLOAD_COLOR }} />{t('uploads')}</span>
+            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: DOWNLOAD_COLOR }} />{t('downloads')}</span>
           </div>
         }
       >
@@ -385,13 +394,23 @@ function ActivityChart({ t, lang, data }) {
       {rows.length > 0 && <div className="dashboard-activity-plot h-56" role="img" aria-label={t('activityTitle')}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={rows} barGap={3} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id="dash-series-uploads" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" style={{ stopColor: 'var(--dashboard-series-uploads-top, var(--dashboard-series-uploads, var(--ink)))' }} />
+                <stop offset="100%" style={{ stopColor: UPLOAD_COLOR }} />
+              </linearGradient>
+              <linearGradient id="dash-series-downloads" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" style={{ stopColor: 'var(--dashboard-series-downloads-top, var(--dashboard-series-downloads, var(--accent)))' }} />
+                <stop offset="100%" style={{ stopColor: DOWNLOAD_COLOR }} />
+              </linearGradient>
+            </defs>
             <CartesianGrid vertical={false} stroke="var(--line)" strokeWidth={1} />
             <XAxis dataKey="label" axisLine={false} tickLine={false} dy={6} />
             {/* allowDecimals=false — จำนวนครั้งเป็นจำนวนเต็มเสมอ */}
             <YAxis axisLine={false} tickLine={false} width={38} allowDecimals={false} domain={[0, 'auto']} />
             <RTooltip content={<ChartTooltip t={t} />} cursor={{ fill: 'var(--card-sunken)' }} />
-            <Bar dataKey="uploads" radius={[8, 8, 0, 0]} maxBarSize={18} fill="var(--ink)" isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
-            <Bar dataKey="downloads" radius={[8, 8, 0, 0]} maxBarSize={18} fill="var(--accent)" isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
+            <Bar dataKey="uploads" radius={[8, 8, 0, 0]} maxBarSize={18} fill="url(#dash-series-uploads)" isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
+            <Bar dataKey="downloads" radius={[8, 8, 0, 0]} maxBarSize={18} fill="url(#dash-series-downloads)" isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
           </BarChart>
         </ResponsiveContainer>
       </div>}
@@ -434,13 +453,55 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
     && measuredCapacity.totalBytes > 0
   const placeholderLabel = dashboardUnavailable ? t(usingPlaceholder ? 'notConnected' : 'dashboardUnavailable') : null
 
+  const storageUsed = hasStorageCapacity ? measuredCapacity.usedBytes : m.storageBytes
+  const storageTotal = hasStorageCapacity ? measuredCapacity.totalBytes : m.storageTotalBytes
+  const storageKnown = !(dashboardUnavailable && !hasStorageCapacity)
+    && Number.isFinite(storageUsed) && Number.isFinite(storageTotal) && storageTotal > 0
+  const storagePct = storageKnown ? Math.min(100, Math.max(0, Math.round((storageUsed / storageTotal) * 100))) : null
+
   return (
     <div ref={rootRef} className="dashboard-layout flex flex-col gap-5">
       {showDashboardError && (
         <Card><ErrorState t={t} kind={dash.error} onRetry={dash.retry} /></Card>
       )}
-      {/* Storage capacity and measured telemetry lead the scan path. */}
-      <div className="dashboard-kpi-grid">
+
+      {/* Row 1 — the four real headline numbers. No sparklines: /api/dashboard
+          carries no history for these values, and a trend line would be invented. */}
+      <div className="dashboard-kpi-row">
+        <StatCard
+          icon={Database}
+          accent="storage"
+          label={t('statStorage')}
+          value={storageKnown ? storagePct : 0}
+          valueLabel={storageKnown ? fmtBytes(storageUsed) : '—'}
+          allClearLabel={storageKnown ? null : (placeholderLabel ?? t('capacityUnreadable'))}
+          statusTone="neutral"
+          support={storageKnown ? (
+            <>
+              <Chip tone="accent" lang="en">{storagePct}%</Chip>
+              <span>{t('capacityTotal')} <span lang="en">{fmtBytes(storageTotal)}</span></span>
+            </>
+          ) : null}
+          delay={0}
+        />
+        <StatCard icon={FilesIcon} accent="files" label={t('statFiles')} value={m.files} valueLabel={dashboardUnavailable ? '—' : undefined} allClearLabel={placeholderLabel} statusTone="neutral" delay={40} />
+        <StatCard icon={Link2} accent="shares" label={t('activeLinks')} value={m.activeShares} valueLabel={dashboardUnavailable ? '—' : undefined} allClearLabel={placeholderLabel} statusTone="neutral" delay={80} />
+        <StatCard
+          icon={ShieldCheck}
+          accent="security"
+          label={t('statSecurity')}
+          value={d.securityAlerts}
+          valueLabel={dashboardUnavailable ? '—' : undefined}
+          alarm={!dashboardUnavailable && d.securityAlerts > 0}
+          allClearLabel={placeholderLabel ?? t('allClear')}
+          statusTone={dashboardUnavailable ? 'neutral' : 'ok'}
+          delay={120}
+        />
+      </div>
+
+      {/* Row 2 — storage composition, seven-day activity (real audit counts),
+          and the current host resources (current values only, no history). */}
+      <div className="dashboard-analytics-grid">
         <StorageHero
           t={t}
           usedBytes={hasStorageCapacity ? measuredCapacity.usedBytes : m.storageBytes}
@@ -452,73 +513,47 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
           storageError={showStorageError}
           onRetry={storage.retry}
         />
+        <div className="dashboard-activity-panel">
+          {dashboardUnavailable ? (
+            <Card className="p-5 dashboard-activity-card">
+              <CardTitle icon={Activity}>{t('activityTitle')}</CardTitle>
+              <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
+            </Card>
+          ) : (
+            <ActivityChart t={t} lang={lang} data={d.activity7d ?? []} />
+          )}
+        </div>
         <ServerTelemetry t={t} data={telemetry} loading={telemetryLoading} />
       </div>
 
-      {/* Operational and account security state precedes secondary counts. */}
-      <Reveal delay={100}>
-        <div className="dashboard-primary-grid">
-          <div className="dashboard-health-panel"><LakeHealth t={t} health={health.data} /></div>
-          <div className="dashboard-security-panel">
-          <StatCard
-            icon={ShieldCheck}
-            label={t('statSecurity')}
-            value={d.securityAlerts}
-            valueLabel={dashboardUnavailable ? '—' : undefined}
-            alarm={!dashboardUnavailable && d.securityAlerts > 0}
-            allClearLabel={placeholderLabel ?? t('allClear')}
-            statusTone={dashboardUnavailable ? 'neutral' : 'ok'}
-            delay={120}
-          />
-            <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={dashboardUnavailable} />
-          </div>
-        </div>
-      </Reveal>
-
-      {/* Seven-day audit history is real; /api/telemetry supplies current values only. */}
-      <Reveal delay={200}>
-        <div className="dashboard-secondary-grid">
-          <div className="dashboard-activity-panel">
-            {dashboardUnavailable ? (
-              <Card className="p-5 dashboard-activity-card">
-                <CardTitle>{t('activityTitle')}</CardTitle>
-                <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
-              </Card>
-            ) : (
-              <ActivityChart t={t} lang={lang} data={d.activity7d ?? []} />
-            )}
-          </div>
-          <div className="dashboard-kpi-stack">
-            <StatCard icon={FilesIcon} label={t('statFiles')} value={m.files} valueLabel={dashboardUnavailable ? '—' : undefined} allClearLabel={placeholderLabel} statusTone="neutral" delay={40} />
-            <StatCard icon={Link2} label={t('activeLinks')} value={m.activeShares} valueLabel={dashboardUnavailable ? '—' : undefined} allClearLabel={placeholderLabel} statusTone="neutral" delay={80} />
-          </div>
-        </div>
-      </Reveal>
-
-      {/* Secondary lists from /api/dashboard. */}
-      <Reveal delay={260}>
-        <div className="dashboard-recents-grid">
-          <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={dashboardUnavailable} />
-          <Card className="p-5">
-          <CardTitle>{t('recentFiles')}</CardTitle>
+      {/* Row 3 — operational layers, recent work, personal sign-in history. */}
+      <div className="dashboard-ops-grid">
+        <LakeHealth t={t} health={health.data} />
+        <Card className="dashboard-list-card p-5">
+          <CardTitle icon={FileText}>{t('recentFiles')}</CardTitle>
           {dashboardUnavailable ? (
             <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
           ) : (d.recentFiles ?? []).length === 0 ? (
             <InlineEmptyState>{t('emptyNoRecentFiles')}</InlineEmptyState>
           ) : (
-            <div className="flex flex-col">
+            <div className="dashboard-list flex flex-col">
               {d.recentFiles.map((f) => (
-                <div key={f.id} className="flex items-center gap-3 py-2 border-b border-line last:border-b-0">
-                  <FileText size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" />
+                <div key={f.id} className="dashboard-list-row flex items-center gap-3 py-2 border-b border-line last:border-b-0">
+                  <span className="dashboard-list-icon"><FileText size={14} strokeWidth={1.6} aria-hidden /></span>
                   <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{f.name}</span>
                   <span className="text-[11.5px] text-ink-3 font-mono shrink-0">{fmtRelative(t, f.modified, now)}</span>
                 </div>
               ))}
             </div>
           )}
-          </Card>
-        </div>
-      </Reveal>
+        </Card>
+        <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={dashboardUnavailable} />
+      </div>
+
+      {/* Row 4 — live share links. */}
+      <div className="dashboard-links-row">
+        <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={dashboardUnavailable} />
+      </div>
     </div>
   )
 }

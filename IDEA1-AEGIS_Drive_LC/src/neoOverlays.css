@@ -1,0 +1,359 @@
+/* ─────────────────────────────────────────────────────────────────
+   Neo Dark overlay system — one family for every floating surface:
+
+     modal / confirm dialogs (ui.jsx Modal)       anchored menus (AnchoredMenu)
+     top-bar popovers (profile menu, search list) quick-actions menu
+     upload side sheet (UploadEntryPanel)          upload status tray + launcher
+     native select options                         chart / meter tooltips
+
+   Overlays portal to <body>, so they are scoped from :root (Neo + Dark),
+   never from the shell. Light and Classic are untouched.
+   Rule: one blur on the outer surface; items and rows are solid fills.
+   ───────────────────────────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] {
+  --ov-glass: linear-gradient(180deg, rgba(22, 44, 98, 0.9), rgba(9, 22, 56, 0.94));
+  --ov-edge: rgba(92, 144, 240, 0.42);
+  --ov-edge-top: inset 0 1px 0 rgba(160, 200, 255, 0.22);
+  --ov-shadow: 0 26px 60px -28px rgba(0, 4, 22, 0.95), 0 0 0 1px rgba(4, 16, 54, 0.4);
+  --ov-item-hover: linear-gradient(90deg, rgba(46, 110, 255, 0.22), rgba(138, 92, 255, 0.1));
+  --ov-item-selected: linear-gradient(90deg, rgba(46, 110, 255, 0.34), rgba(138, 92, 255, 0.2));
+  --ov-blur: blur(16px) saturate(1.3);
+  --ov-r: 14px;
+  --ov-ease-in: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes neo-overlay-pop {
+  from { opacity: 0; transform: translateY(-6px) scale(0.975); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes neo-overlay-rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes neo-sheet-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Modal / confirm ────────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .modal-scrim {
+  background: radial-gradient(80% 70% at 50% 40%, rgba(16, 40, 110, 0.35), rgba(1, 6, 22, 0.7));
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .ui-modal {
+  border: 1px solid var(--ov-edge);
+  border-radius: 18px;
+  background: radial-gradient(90% 60% at 0% 0%, rgba(46, 104, 226, 0.22), transparent 60%), var(--ov-glass) !important;
+  box-shadow: var(--ov-edge-top), var(--ov-shadow) !important;
+  animation: neo-overlay-rise 260ms var(--ov-ease-in) both;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .ui-modal h2 {
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+/* Destructive confirm stays unmistakably destructive. */
+:root[data-ui-style="neo"][data-theme="dark"] .ui-modal .ui-button.bg-danger {
+  background: linear-gradient(180deg, #ef4f6b, #c92a49) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 220, 228, 0.3), 0 10px 22px -12px rgba(230, 50, 90, 0.9);
+}
+
+/* ── Anchored menus + quick actions ─────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.anchored-menu, .quick-actions-menu) {
+  border: 1px solid var(--ov-edge) !important;
+  border-radius: var(--ov-r) !important;
+  padding: 6px !important;
+  background: var(--ov-glass) !important;
+  box-shadow: var(--ov-edge-top), var(--ov-shadow) !important;
+  -webkit-backdrop-filter: var(--ov-blur);
+  backdrop-filter: var(--ov-blur);
+  transform-origin: top right;
+  animation: neo-overlay-pop 180ms var(--ov-ease-in) both;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.anchored-menu, .quick-actions-menu) :is([role="menuitem"], button) {
+  min-height: 38px;
+  border-radius: 9px;
+  transition: background-color 160ms var(--neo-ease), color 160ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.anchored-menu, .quick-actions-menu) :is([role="menuitem"], button):is(:hover, :focus-visible):not(:disabled) {
+  color: #ffffff !important;
+  background: var(--ov-item-hover) !important;
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgba(120, 170, 255, 0.3);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.anchored-menu, .quick-actions-menu) :is([role="menuitem"], button).text-danger:is(:hover, :focus-visible) {
+  color: #ffb3c2 !important;
+  background: rgba(240, 70, 100, 0.16) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 120, 150, 0.32);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.anchored-menu, .quick-actions-menu) :is([role="menuitem"], button):disabled {
+  opacity: 0.45;
+}
+
+/* ── Top-bar popovers (Top Bar itself unchanged) ────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu) {
+  border: 1px solid var(--ov-edge) !important;
+  border-radius: var(--ov-r) !important;
+  background: var(--ov-glass) !important;
+  box-shadow: var(--ov-edge-top), var(--ov-shadow) !important;
+  -webkit-backdrop-filter: var(--ov-blur);
+  backdrop-filter: var(--ov-blur);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-profile-menu [role="menuitem"] {
+  width: calc(100% - 12px);
+  margin-inline: 6px;
+  border-radius: 9px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] :is(.neo-profile-menu [role="menuitem"], .neo-search-menu [role="option"]):is(:hover, :focus-visible) {
+  color: #ffffff !important;
+  background: var(--ov-item-hover) !important;
+  box-shadow: inset 0 0 0 1px rgba(120, 170, 255, 0.3);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-search-menu [role="option"][aria-selected="true"] {
+  color: #ffffff !important;
+  background: var(--ov-item-selected) !important;
+  box-shadow: inset 0 0 0 1px rgba(140, 180, 255, 0.4);
+}
+
+/* ── Native selects: the OS draws the list; colours stay legible ── */
+:root[data-ui-style="neo"][data-theme="dark"] select option {
+  color: #f2f6ff;
+  background: #0d1f4a;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] select option:checked {
+  color: #ffffff;
+  background: #1d4fc4;
+}
+
+/* ── Chart / meter tooltips (CSS data-tooltip) ──────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] [data-tooltip]::after {
+  border-color: rgba(110, 160, 255, 0.4) !important;
+  border-radius: 9px !important;
+  background: rgba(10, 24, 60, 0.95) !important;
+  color: #f2f6ff !important;
+  box-shadow: inset 0 1px 0 rgba(170, 210, 255, 0.16), 0 12px 28px -14px rgba(0, 0, 0, 0.95) !important;
+  transition: opacity 140ms ease-out;
+}
+
+/* ── Upload side sheet ──────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-scrim {
+  background: linear-gradient(90deg, rgba(1, 6, 22, 0.2), rgba(1, 6, 22, 0.55));
+  animation: fade-in 220ms ease-out both;
+}
+
+/* A floating sheet inset from the viewport edge, casting light and shadow
+   toward the content it sits over. Width stays the existing 420px. */
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-panel {
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: min(420px, calc(100vw - 24px));
+  border: 1px solid var(--ov-edge) !important;
+  border-radius: 20px;
+  overflow: hidden;
+  background:
+    radial-gradient(90% 50% at 100% 0%, rgba(138, 92, 255, 0.18), transparent 60%),
+    radial-gradient(90% 60% at 0% 0%, rgba(46, 104, 226, 0.24), transparent 62%),
+    var(--ov-glass) !important;
+  box-shadow: var(--ov-edge-top), -24px 0 60px -30px rgba(0, 4, 22, 0.95), 0 0 34px -18px rgba(70, 120, 255, 0.6) !important;
+  -webkit-backdrop-filter: var(--ov-blur);
+  backdrop-filter: var(--ov-blur);
+  animation: neo-sheet-in 300ms var(--ov-ease-in) both;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-panel :is(.upload-entry-header, .upload-entry-footer) {
+  border-color: rgba(110, 160, 255, 0.18) !important;
+  background: rgba(8, 20, 52, 0.4) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-panel .upload-entry-header h2 {
+  color: #ffffff;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-panel .text-ink-3 {
+  color: #a6badf;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-dropzone {
+  border: 1.5px dashed rgba(110, 165, 255, 0.5) !important;
+  border-radius: 18px !important;
+  background:
+    radial-gradient(70% 70% at 50% 30%, rgba(46, 116, 255, 0.18), transparent 70%),
+    rgba(9, 24, 62, 0.55) !important;
+  transition: border-color 200ms var(--neo-ease), box-shadow 200ms var(--neo-ease), transform 200ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-dropzone:is(:hover, :focus-visible),
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-dropzone[data-drag-over="true"] {
+  border-color: #6fc4ff !important;
+  background:
+    radial-gradient(70% 70% at 50% 30%, rgba(69, 193, 244, 0.26), transparent 70%),
+    rgba(12, 32, 80, 0.62) !important;
+  box-shadow: inset 0 0 30px -12px rgba(69, 193, 244, 0.8), 0 0 26px -12px rgba(69, 193, 244, 0.8);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-dropzone[data-drag-over="true"] {
+  transform: translateY(-2px);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-dropzone-icon {
+  width: 56px;
+  height: 56px;
+  border: 1px solid rgba(120, 178, 255, 0.55);
+  border-radius: 16px;
+  background: linear-gradient(150deg, #2f74ec 0%, #1a46b0 62%, #14348a 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(220, 236, 255, 0.4), 0 0 0 5px rgba(44, 110, 255, 0.08), 0 0 26px -4px rgba(44, 120, 255, 0.7) !important;
+  transition: box-shadow 200ms var(--neo-ease), transform 200ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-dropzone-icon svg {
+  color: #d6ecff !important;
+  filter: drop-shadow(0 0 6px rgba(150, 210, 255, 0.9));
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-dropzone[data-drag-over="true"] .upload-entry-dropzone-icon {
+  transform: translateY(-2px) scale(1.04);
+  box-shadow: inset 0 1px 0 rgba(220, 236, 255, 0.45), 0 0 0 6px rgba(69, 193, 244, 0.14), 0 0 34px -2px rgba(69, 193, 244, 0.9) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-choose {
+  height: 46px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 60%),
+    linear-gradient(105deg, #2262ef, #3b82f6 60%, #4f6bff) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 12px 26px -12px rgba(44, 110, 255, 0.95) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-choose:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-hint {
+  border-color: rgba(110, 160, 255, 0.2) !important;
+  background: rgba(9, 24, 62, 0.5) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .upload-entry-panel :is([data-upload-drawer-queue] ul, details .divide-y) {
+  border-color: rgba(110, 160, 255, 0.2) !important;
+  background: rgba(9, 24, 62, 0.5) !important;
+}
+
+/* ── Upload status tray + launcher ─────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] [data-upload-tray] {
+  border: 1px solid var(--ov-edge) !important;
+  border-radius: 18px !important;
+  background: radial-gradient(90% 60% at 0% 0%, rgba(46, 104, 226, 0.22), transparent 60%), var(--ov-glass) !important;
+  box-shadow: var(--ov-edge-top), var(--ov-shadow), 0 0 30px -18px rgba(70, 120, 255, 0.6) !important;
+  -webkit-backdrop-filter: var(--ov-blur);
+  backdrop-filter: var(--ov-blur);
+  transform-origin: bottom right;
+  animation: neo-overlay-rise 280ms var(--ov-ease-in) both;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] [data-upload-tray] > header {
+  border-color: rgba(110, 160, 255, 0.18) !important;
+  background: rgba(8, 20, 52, 0.45) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] [data-upload-tray] > header > span:first-child {
+  border: 1px solid rgba(120, 178, 255, 0.45);
+  background: linear-gradient(150deg, rgba(47, 116, 236, 0.5), rgba(20, 52, 138, 0.5));
+  box-shadow: 0 0 14px -4px rgba(44, 120, 255, 0.7);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is([data-upload-tray], .upload-entry-panel) [data-upload-row] {
+  border-color: rgba(110, 160, 255, 0.14) !important;
+  animation: neo-overlay-pop 220ms var(--ov-ease-in) both;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is([data-upload-tray], .upload-entry-panel) [data-upload-row] > div:first-child > span:first-child {
+  border: 1px solid rgba(110, 160, 255, 0.24);
+  background: rgba(30, 60, 130, 0.45) !important;
+}
+
+/* Progress: the fill width is always the measured bytes (inline style);
+   only colour and light follow the real stage. */
+:root[data-ui-style="neo"][data-theme="dark"] :is([data-upload-tray], .upload-entry-panel) [data-upload-row] [role="progressbar"] {
+  height: 6px;
+  background: rgba(28, 52, 110, 0.7) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is([data-upload-tray], .upload-entry-panel) [data-upload-row] [role="progressbar"] > div {
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2262ef, #45c1f4) !important;
+  box-shadow: 0 0 10px -1px rgba(69, 193, 244, 0.85);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is([data-upload-tray], .upload-entry-panel) [data-upload-row]:is([data-upload-stage="waiting"], [data-upload-stage="preparing"], [data-upload-stage="hashing"], [data-upload-stage="processing"]) [role="progressbar"] > div {
+  background: linear-gradient(90deg, #6b4fe0, #ac5dfc) !important;
+  box-shadow: 0 0 10px -1px rgba(172, 93, 252, 0.7);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is([data-upload-tray], .upload-entry-panel) [data-upload-row][data-upload-stage="complete"] [role="progressbar"] > div {
+  background: linear-gradient(90deg, #04a86d, #06d288) !important;
+  box-shadow: 0 0 10px -1px rgba(6, 210, 136, 0.8);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is([data-upload-tray], .upload-entry-panel) [data-upload-row]:is([data-upload-stage="paused"], [data-upload-stage="interrupted"]) [role="progressbar"] > div {
+  background: linear-gradient(90deg, #d98a14, #f6c03e) !important;
+  box-shadow: none;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is([data-upload-tray], .upload-entry-panel) [data-upload-row][data-upload-stage="failed"] [role="progressbar"] > div {
+  background: linear-gradient(90deg, #c92a49, #ef4f6b) !important;
+  box-shadow: none;
+}
+
+/* One-shot state light, triggered by the real stage attribute changing:
+   success glows green once, failure flashes its edge once, then both rest. */
+@keyframes neo-upload-complete {
+  0% { background-color: rgba(6, 210, 136, 0.18); box-shadow: inset 0 0 0 1px rgba(6, 210, 136, 0.55); }
+  100% { background-color: transparent; box-shadow: inset 0 0 0 1px transparent; }
+}
+
+@keyframes neo-upload-failed {
+  0% { box-shadow: inset 0 0 0 1px rgba(255, 110, 140, 0.7); }
+  100% { box-shadow: inset 0 0 0 1px rgba(255, 110, 140, 0.18); }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is([data-upload-tray], .upload-entry-panel) [data-upload-row][data-upload-stage="complete"] {
+  animation: neo-upload-complete 900ms ease-out both;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is([data-upload-tray], .upload-entry-panel) [data-upload-row][data-upload-stage="failed"] {
+  background: rgba(240, 70, 100, 0.06);
+  animation: neo-upload-failed 900ms ease-out both;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] [data-upload-tray-launcher] {
+  border: 1px solid var(--ov-edge);
+  color: #ffffff !important;
+  background: var(--ov-glass) !important;
+  box-shadow: var(--ov-edge-top), var(--ov-shadow), 0 0 24px -12px rgba(70, 120, 255, 0.8) !important;
+  -webkit-backdrop-filter: var(--ov-blur);
+  backdrop-filter: var(--ov-blur);
+  animation: neo-overlay-rise 240ms var(--ov-ease-in) both;
+}
+
+/* ── Reduced motion: no spatial motion; a short fade only ───────── */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"][data-theme="dark"] :is(.ui-modal, .anchored-menu, .quick-actions-menu, .upload-entry-panel, .upload-entry-scrim, [data-upload-tray], [data-upload-tray-launcher], [data-upload-row]) {
+    animation: fade-in 120ms linear both !important;
+  }
+  :root[data-ui-style="neo"][data-theme="dark"] :is(.upload-entry-dropzone, .upload-entry-dropzone-icon) {
+    transform: none !important;
+    transition: none !important;
+  }
+}

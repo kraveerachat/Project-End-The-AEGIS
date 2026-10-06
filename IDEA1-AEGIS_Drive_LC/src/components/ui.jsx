@@ -19,10 +19,15 @@ export function Card({ children, className = '', style, onClick, interactive = B
   )
 }
 
-export function CardTitle({ children, sub, right }) {
+export function CardTitle({ children, sub, right, icon: Icon }) {
   return (
     <div className="flex items-start justify-between gap-3 mb-4">
-      <div>
+      {Icon && (
+        <span className="dashboard-panel-icon card-title-icon" aria-hidden>
+          <Icon size={18} strokeWidth={1.7} />
+        </span>
+      )}
+      <div className={Icon ? 'min-w-0 flex-1' : undefined}>
         <h2 className="text-[16px] font-semibold text-ink leading-snug">{children}</h2>
         {sub && <p className="text-[12px] font-medium text-ink-3 mt-0.5">{sub}</p>}
       </div>

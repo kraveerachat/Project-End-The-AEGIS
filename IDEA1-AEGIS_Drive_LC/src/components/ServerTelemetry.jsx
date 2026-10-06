@@ -246,6 +246,8 @@ function TelemetryTile({ t, definition, value, loading }) {
 
   return (
     <article
+      data-metric={definition.id}
+      data-state={state}
       className="dashboard-telemetry-tile min-w-0 rounded-[var(--r-tile)] p-4"
       aria-label={`${t(definition.labelKey)} · ${t(meta.labelKey)}`}
       aria-busy={state === 'loading' ? 'true' : undefined}
@@ -288,7 +290,7 @@ export function ServerTelemetry({ t, data, loading = false }) {
   const metrics = data?.metrics ?? null
   return (
     <Card className="dashboard-telemetry-card dashboard-motion-card p-5">
-      <CardTitle sub={t('serverTelemetrySub')}>{t('serverTelemetry')}</CardTitle>
+      <CardTitle icon={Cpu} sub={t('serverTelemetrySub')}>{t('serverTelemetry')}</CardTitle>
       <div className="dashboard-telemetry-grid">
         {METRICS.map((definition) => (
           <TelemetryTile
