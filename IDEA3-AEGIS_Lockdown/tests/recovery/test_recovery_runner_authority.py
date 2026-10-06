@@ -22,7 +22,7 @@ import test_pr11_phase4_harness as h  # noqa: E402
 
 LIB, RUNNER, STG, P4 = sup.LIB, sup.RUNNER, sup.STG, sup.P4
 needs_userns = pytest.mark.skipif(not sup.userns_usable(), reason="user namespace unavailable")
-CLEAN_VARS = ("PYTHON", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE", "LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV", "ENV", "AEGIS_RUNTIME_DIR")
+CLEAN_VARS = ("PYTHON", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE", "LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV", "ENV", "AEGIS_RUNTIME_DIR", "AEGIS_LOG_PATH", "AEGIS_DB_PATH")
 CLEAN = "env " + " ".join(f"-u {v}" for v in CLEAN_VARS)
 
 
@@ -61,7 +61,7 @@ def test_a_malformed_or_non_external_pinned_source_ip_refuses_before_anything_ru
 
 
 @pytest.mark.parametrize("var", ["PYTHON", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV", "AEGIS_RUNTIME_DIR", "AEGIS_P4_FS_ROOT", "P4_FS_ROOT", "AEGIS_P4_HANDLER_DIR",
-                                 "AEGIS_RECOVERY_SOCKET", "AEGIS_RECOVERY_CORE_USER", "AEGIS_RCVSTAGE_APP_DIR", "AEGIS_RCVSTAGE_AUDIT_DB", "AEGIS_RCVSTAGE_WORK_DIR", "AEGIS_RCVSTAGE_STEP",
+                                 "AEGIS_LOG_PATH", "AEGIS_DB_PATH", "AEGIS_RECOVERY_SOCKET", "AEGIS_RECOVERY_CORE_USER", "AEGIS_RCVSTAGE_APP_DIR", "AEGIS_RCVSTAGE_AUDIT_DB", "AEGIS_RCVSTAGE_WORK_DIR", "AEGIS_RCVSTAGE_STEP",
                                  "AEGIS_RCVSTAGE_LIVE_AUTHORIZED", "AEGIS_RCVSTAGE_SECRET", "RECOVERY_SECRET", "RECOVERY_RESTORE_CONFIRMATION", "RECOVERY_CANONICAL_DIR", "RECOVERY_TEST_ONLY_CANONICAL_DIR",
                                  "RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED", "RECOVERY_TEST_ONLY_TRUST_ROOT", "RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ENABLED", "RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ROOT"])
 def test_the_frozen_runner_refuses_to_start_with_any_redirection_or_test_seam_variable_set(tmp_path: Path, var: str) -> None:
@@ -393,13 +393,13 @@ def test_the_runner_runs_the_real_stage_gate_from_the_control_snapshot_and_binds
 def test_every_live_authority_link_is_in_the_authority_gates_and_is_reproved_before_the_marker_and_before_final() -> None:
     gates_fn = sup.runner_function("recovery_authority_gates")
     for needle in ("control_gate", "control_git_gate", "recovery_verifier_gate", "recovery_interpreter_gate", "recovery_r1i_present_gate", "l7u_core_running_gate", "f1u_detector_running_gate", "RECOVERY_CORE",
-                   "DETECTOR_SOURCE", "DETECTOR_UNIT", "recovery_current_release_gate", "recovery_cli_gate", "recovery_runtime_unchanged"):
+                   "DETECTOR_SOURCE", "DETECTOR_UNIT", "recovery_current_release_gate", "recovery_release_closure_gate", "recovery_cli_gate", "recovery_runtime_unchanged"):
         assert needle in gates_fn, needle
     pregates = sup.runner_function("recovery_pregates")
-    for needle in ("recovery_authority_gates", "l7_disk_gate", "l8p_service_gate", "l7_broker_runtime_gate", "l7_idea2_s10_gate", "recovery_sudo_noninteractive_gate", "recovery_predecessor_gate", "socket-check"):
+    for needle in ("recovery_authority_gates", "l7_disk_gate", "l8p_service_gate", "l7_broker_runtime_gate", "l7_idea2_s10_gate", "recovery_sudo_authority_gate", "recovery_predecessor_gate", "socket-check"):
         assert needle in pregates, needle
     lib = LIB.read_text()
-    assert "recovery_authority_gates && recovery_attempt_unconsumed" in lib  # the regate before the marker
+    assert "recovery_authority_gates && recovery_sudo_authority_gate && recovery_tty_gate && recovery_attempt_unconsumed" in lib  # the regate before the marker
     assert "recovery_authority_gates || { echo \"RECOVERY_AUTHORITY_DRIFT_BEFORE_FINAL=YES\"" in lib  # and immediately before FINAL
 
 

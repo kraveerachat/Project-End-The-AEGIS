@@ -212,6 +212,10 @@ recovery_runtime_unchanged() { mark runtime_unchanged; [ "${FAIL:-}" != runtime_
 recovery_r1i_present_gate() { mark r1i; [ "${FAIL:-}" != r1i ]; }
 recovery_operator_py() { mark "py:$1"; }
 recovery_prepare_evidence() { mark prepare; }
+recovery_logs_prepare() { mark logs; [ "${FAIL:-}" != logs ]; }
+recovery_tty_gate() { mark tty; [ "${FAIL:-}" != tty ]; }
+recovery_d4_rehearsal() { mark rehearsal; [ "${FAIL:-}" != rehearsal ]; }
+recovery_sudo_authority_gate() { mark sudo; [ "${FAIL:-}" != sudo ]; }
 """
 
 
@@ -226,14 +230,14 @@ def run_hook(tmp_path: Path, hook: str, fail: str = "", delta_n: str = "2") -> t
 def test_the_final_hook_runs_authority_capture_clock_dump_final_delta_compare_runtime_and_r1i_in_that_order(tmp_path: Path) -> None:
     result, calls = run_hook(tmp_path, "recovery_hook_final")
     assert "rc=0" in result.stdout, result.stderr
-    assert calls == ["authority", "capture:POST", "clock:post-root", "handler:NFT_POST", "handler:FINAL", "handler:DELTA", "compare:pre-root:post-root:approved=2:allow=allow-keys.generated", "runtime_unchanged", "r1i"]
+    assert calls == ["sudo", "authority", "capture:POST", "clock:post-root", "handler:NFT_POST", "handler:FINAL", "handler:DELTA", "compare:pre-root:post-root:approved=2:allow=allow-keys.generated", "runtime_unchanged", "r1i"]
 
 
-@pytest.mark.parametrize("fail", ["authority", "capture:POST", "clock:post-root", "handler:NFT_POST", "handler:FINAL", "handler:DELTA", "compare", "runtime_unchanged", "r1i"])
+@pytest.mark.parametrize("fail", ["sudo", "authority", "capture:POST", "clock:post-root", "handler:NFT_POST", "handler:FINAL", "handler:DELTA", "compare", "runtime_unchanged", "r1i"])
 def test_every_final_preservation_link_failing_fails_the_stage_and_runs_nothing_after_it(tmp_path: Path, fail: str) -> None:
     result, calls = run_hook(tmp_path, "recovery_hook_final", fail=fail)
     assert "rc=1" in result.stdout
-    order = ["authority", "capture:POST", "clock:post-root", "handler:NFT_POST", "handler:FINAL", "handler:DELTA", "compare", "runtime_unchanged", "r1i"]
+    order = ["sudo", "authority", "capture:POST", "clock:post-root", "handler:NFT_POST", "handler:FINAL", "handler:DELTA", "compare", "runtime_unchanged", "r1i"]
     names = [c.split(":approved")[0].split(":pre-root")[0] for c in calls]
     assert not any(name in order[order.index(fail) + 1:] for name in names)
 
@@ -248,11 +252,12 @@ def test_the_baseline_hook_captures_twice_proves_the_clock_quiescence_the_firewa
     (tmp_path / "canon").mkdir(mode=0o700)
     result, calls = run_hook(tmp_path, "recovery_hook_baseline")
     assert "rc=0" in result.stdout, result.stderr
-    assert calls == ["prepare", "capture:PRECHECK", "clock:precheck-root", "capture:PRE", "clock:pre-root", "compare:precheck-root:pre-root:approved=0:allow=none", "handler:NFT_PRE", "handler:NFT_PRE_CHECK",
-                     "handler:BASELINE", "py:status", "py:probe-pre"]
+    assert calls == ["prepare", "logs", "tty", "rehearsal", "sudo", "capture:PRECHECK", "clock:precheck-root", "capture:PRE", "clock:pre-root", "compare:precheck-root:pre-root:approved=0:allow=none", "handler:NFT_PRE",
+                     "handler:NFT_PRE_CHECK", "handler:READINESS", "handler:BASELINE", "py:status", "py:probe-pre"]
 
 
-@pytest.mark.parametrize("fail", ["capture:PRECHECK", "clock:precheck-root", "capture:PRE", "clock:pre-root", "compare", "handler:NFT_PRE", "handler:NFT_PRE_CHECK", "handler:BASELINE"])
+@pytest.mark.parametrize("fail", ["logs", "tty", "rehearsal", "sudo", "capture:PRECHECK", "clock:precheck-root", "capture:PRE", "clock:pre-root", "compare", "handler:NFT_PRE", "handler:NFT_PRE_CHECK", "handler:READINESS",
+                                  "handler:BASELINE"])
 def test_a_failed_pre_marker_capture_clock_quiescence_dump_or_baseline_stops_before_any_core_call(tmp_path: Path, fail: str) -> None:
     (tmp_path / "canon").mkdir(mode=0o700)
     result, calls = run_hook(tmp_path, "recovery_hook_baseline", fail=fail)

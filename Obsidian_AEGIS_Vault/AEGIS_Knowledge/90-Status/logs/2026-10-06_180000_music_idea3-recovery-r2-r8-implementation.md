@@ -30,8 +30,8 @@ edit_policy: append-by-new-file
 - IDEA3-AEGIS_Lockdown/aegis_soc/recovery_stage.py — operator-side ladder, D4 recording, root-side baseline/final/verify-result/containment-delta, trusted-path helpers; no marker, no observation authority.
 - IDEA3-AEGIS_Lockdown/aegis_soc/recovery_evidence.py — one explicit optional read-only `opener` seam on `evaluate()` (default unchanged).
 - IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-recovery-run-lib.sh — canonical marker, gates, operator/root wrappers, D4 boundary, capture/compare wiring, attempt state machine.
-- IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-recovery-owner.sh — hardened frozen-runner template (22 pins, no secret).
-- IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/recovery-acceptance/recovery_runner_freeze.py — Recovery pin set updated (22 pins).
+- IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-recovery-owner.sh — hardened frozen-runner template (23 pins, no secret).
+- IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/recovery-acceptance/recovery_runner_freeze.py — Recovery pin set updated (23 pins).
 - IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/Recovery/ (apply.sh, verify.sh, rollback.sh, allow-keys.txt, allow-listeners.txt) — verified-snapshot root handlers; no static allowance.
 - IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-lib.sh and p4-stage-gate.sh — registration and K3 recognition only (shared surfaces, unchanged since the first push of this PR).
 - IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/README.md — section 24 describes the corrected design.
@@ -40,15 +40,12 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `python -m pytest tests/test_recovery_stage.py tests/test_recovery_final_verify.py tests/recovery/test_recovery_attempt.py tests/recovery/test_recovery_runner_authority.py tests/recovery/test_recovery_preservation.py` (run per suite) — pass: 50 + 58 + 62 + 114 + 47 = 331 passed.
-- `python -m pytest tests/recovery/test_recovery_runner_freeze.py tests/recovery/test_recovery_snapshot_freeze.py tests/recovery/test_recovery_bootstrap_authority.py` — pass: 73 + 41 + 28 = 142 passed (direct tests of the privileged freeze and snapshot tools).
-- `python -m pytest tests/test_recovery_evidence.py tests/test_core_recovery.py tests/test_core_recovery_security.py tests/test_core_restore_policy.py tests/test_core_break_glass.py` — pass: 131 + 73 + 37 + 50 + 63 = 354 passed.
-- `python -m pytest` on the harness, F1u, R1Du, R1 acceptance, R1I, dnsmasq-scope, R1Bv contract and historical-disposition suites — pass: 243 + 352 + 367 + 89 + 33 + 99 + 156 + 70 = 1,409 passed.
-- `python -m pytest tests` (full suite, before re-pinning) — 14 failed, 10011 passed, 11 skipped: 8 failures also fail on the untouched base `c6885cb1` (host-dependent F1/F1r systemctl stubs, a pinned `p4-compare.sh` digest, three `historical_disposition` closure expectations, two stale L7u/L8p registry assertions); 1 (`test_local_restore` supervisor channel) passed in isolation; 5 were caused by this PR and are fixed and re-run green (two stale R1B registry assertions, two shared-gate digest pins in the V8 scope contract, the `recovery_evidence.py` digest pin).
-- `node --test tests/collaborationPolicy.test.mjs` — pass: 33 passed.
-- `node scripts/validate-vault.mjs` — pass with 2 existing canvas owner-review warnings.
-- `bash -n`, `python -m py_compile` on all 22 changed shell/Python files, and `git diff --check` — pass.
-- No Production, Recovery LIVE, ISOLATE, RESTORE, CLOSE, R1B/R1Bv rerun or ESP32 operation was performed; every test is hermetic and stubbed.
+- `python -m pytest tests/test_recovery_stage.py tests/test_recovery_final_verify.py tests/recovery/test_recovery_attempt.py tests/recovery/test_recovery_runner_authority.py tests/recovery/test_recovery_preservation.py tests/recovery/test_recovery_d4_readiness.py` (run per suite) — pass: 50 + 58 + 64 + 116 + 53 + 58 = 399 passed (the last file holds the real-CLI D4 rehearsal, fake-sudo keepalive, readiness/timezone, release-closure drift and log-path tests).
+- `python -m pytest tests/recovery/test_recovery_runner_freeze.py tests/recovery/test_recovery_snapshot_freeze.py tests/recovery/test_recovery_bootstrap_authority.py` — pass: 74 + 41 + 28 = 143 passed.
+- `python -m pytest tests/test_core_restore_policy.py tests/test_core_recovery.py tests/test_core_recovery_security.py tests/test_recovery_evidence.py tests/test_historical_disposition.py tests/test_pr11_phase4_harness.py tests/test_pr11_phase4_l34_v8_scope_contract.py tests/r1b tests/r1bv tests/test_pr11_phase4_l7_release_guard_helper.py` — pass: 1354 passed.
+- `node --test tests/collaborationPolicy.test.mjs` and `node scripts/validate-vault.mjs` — pass (re-run on the final head; see the PR Verification section).
+- `bash -n` on the changed shell files, `python -m py_compile` on the changed Python files, and `git diff --check` — pass.
+- No full-suite rerun in the narrow remediation round. No Production, Recovery LIVE, ISOLATE, RESTORE, CLOSE, R1B/R1Bv rerun or ESP32 operation was performed; every test is hermetic (fake sudo, read-only release copy, stdin `/dev/null`).
 
 ## Canonical notes updated
 

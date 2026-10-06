@@ -719,6 +719,82 @@ def containment_delta(*, pre_bundle: str, post_bundle: str, pre_nft: str, post_n
     return [key for key in (TABLE_KEY, RULESET_KEY) if pre_rec[key] != post_rec[key]]
 
 
+# ----------------------------------------------------------------------------------------------- root side: pre-marker readiness (Core configuration + timezone)
+
+
+READINESS_KEYS = ("AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET", "AEGIS_RECOVERY_NETWORK_PROBE_TARGETS", "AEGIS_RECOVERY_WEB_READINESS_URL")
+_TZ_SAMPLE_OFFSETS_SEC = (0, 86400 * 91, 86400 * 182, 86400 * 273, -86400 * 91, -86400 * 182)
+
+
+def _probe_target_ok(target: str) -> bool:
+    """The same shape ``recovery_core._tcp_probe`` accepts (``host:port``, numeric port), plus a real port range and no whitespace/control character."""
+    host, _, port = target.rpartition(":")
+    return bool(host) and port.isdigit() and 1 <= int(port) <= 65535 and target.isprintable() and not any(ch.isspace() for ch in target)
+
+
+def config_readiness(environ: dict[str, str]) -> dict[str, str]:
+    """The RUNNING Core's mandatory later Recovery settings are present and usable (the exact settings ``_run_r2``/``_run_r6``/``_run_r7`` read). Only configured/not-configured is ever reported: no value is returned."""
+    management = environ.get("AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET", "").strip()
+    network = [item.strip() for item in environ.get("AEGIS_RECOVERY_NETWORK_PROBE_TARGETS", "").split(",") if item.strip()]
+    web = environ.get("AEGIS_RECOVERY_WEB_READINESS_URL", "").strip()
+    if not management or not _probe_target_ok(management):
+        raise StageError("CONFIG_NOT_READY:MANAGEMENT_PROBE_TARGET")
+    if not network or not all(_probe_target_ok(item) for item in network):
+        raise StageError("CONFIG_NOT_READY:NETWORK_PROBE_TARGETS")  # R6 would be NOT_CONFIGURED/FAILED and the Core would refuse CLOSE after RESTORE
+    if not web.lower().startswith("https://") or len(web) <= len("https://") or not web.isprintable() or any(ch.isspace() for ch in web):
+        raise StageError("CONFIG_NOT_READY:WEB_READINESS_URL")  # R7's web check is mandatory and https-only
+    return {"MANAGEMENT": "CONFIGURED", "NETWORK_TARGETS": str(len(network)), "WEB": "CONFIGURED"}
+
+
+def read_core_environ(pid: Any, proc_root: str = "/proc") -> dict[str, str]:
+    """The listed settings (and ``TZ``) from the running Core's process environment (root-only ``/proc/<pid>/environ``); nothing else is kept, so no secret is ever held or returned."""
+    if type(pid) is not int or pid <= 0:
+        raise StageError("CORE_PID_INVALID")
+    try:
+        raw = Path(f"{proc_root}/{pid}/environ").read_bytes()
+    except OSError:
+        raise StageError("CORE_ENVIRON_UNREADABLE") from None
+    wanted = {*READINESS_KEYS, "TZ"}
+    out: dict[str, str] = {}
+    for item in raw.split(b"\0"):
+        key, sep, value = item.decode("utf-8", "replace").partition("=")
+        if sep and key in wanted:
+            out[key] = value
+    return out
+
+
+def _utc_offsets(tz: str | None, now: float) -> list[int]:
+    saved = os.environ.get("TZ")
+    try:
+        if tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = tz
+        time.tzset()
+        return [time.localtime(now + delta).tm_gmtoff for delta in _TZ_SAMPLE_OFFSETS_SEC]
+    finally:
+        if saved is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = saved
+        time.tzset()
+
+
+def timezone_equal(core_tz: str | None, now: float | None = None) -> str:
+    """Audit stamps are written by the Core with local-time ``strftime`` and read here with local-time ``mktime``: the Core's effective timezone must equal this verifier's (compared at several instants a year apart)."""
+    instant = time.time() if now is None else now
+    if _utc_offsets(core_tz, instant) != _utc_offsets(os.environ.get("TZ"), instant):
+        raise StageError("TIMEZONE_MISMATCH")
+    return "EQUAL"
+
+
+def readiness(core_pid: Any, proc_root: str = "/proc") -> dict[str, str]:
+    environ = read_core_environ(core_pid, proc_root)
+    result = config_readiness(environ)
+    result["TIMEZONE"] = timezone_equal(environ.get("TZ"))
+    return result
+
+
 # ----------------------------------------------------------------------------------------------- CLI
 
 
@@ -751,6 +827,8 @@ def main(argv: list[str] | None = None, *, request: Request = default_request) -
     ver = sub.add_parser("verify-result")
     for flag in ("--audit-db", "--work-dir", "--attempt-marker"):
         ver.add_argument(flag, required=True)
+    ready = sub.add_parser("readiness")
+    ready.add_argument("--core-pid", type=int, required=True)
     dump = sub.add_parser("nft-dump-check")
     for flag in ("--bundle", "--nft"):
         dump.add_argument(flag, required=True)
@@ -772,6 +850,9 @@ def main(argv: list[str] | None = None, *, request: Request = default_request) -
         elif args.command == "verify-result":
             verify_result(audit_db=args.audit_db, work=args.work_dir, attempt_marker=args.attempt_marker)
             print("RECOVERY_RESULT_BOUND_TO_ATTEMPT=PASS")
+        elif args.command == "readiness":
+            out = readiness(args.core_pid)
+            print("RECOVERY_READINESS=PASS " + " ".join(f"{k}={v}" for k, v in sorted(out.items())))
         elif args.command == "nft-dump-check":
             print(f"RECOVERY_NFT_DUMP={nft_dump_matches_capture(bundle=args.bundle, nft=args.nft)}")
         elif args.command == "containment-delta":

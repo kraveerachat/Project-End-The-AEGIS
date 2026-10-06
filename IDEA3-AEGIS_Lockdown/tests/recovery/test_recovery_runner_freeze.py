@@ -30,7 +30,7 @@ spec.loader.exec_module(tool)
 def pins_for(main: str, **override: str) -> dict[str, str]:
     pins = {
         "EXPECTED_MAIN": main, "OPERATOR_USER": "owner", "OPERATOR_UID": "1000", "RELEASE_ID": base.RELEASE, "PRODUCTION_DETECTOR_SHA256": SHA["a"], "DETECTOR_UNIT_SHA256": SHA["b"],
-        "RECOVERY_CORE_SHA256": SHA["c"], "RESTORE_CLI_SHA256": SHA["a"], "CONTROL_SNAPSHOT_DIR": "/opt/x/control", "CONTROL_MANIFEST_SHA256": SHA["d"], "VERIFIER_SNAPSHOT_DIR": "/opt/x/verifier",
+        "RECOVERY_CORE_SHA256": SHA["c"], "RESTORE_CLI_SHA256": SHA["a"], "RELEASE_SUMS_SHA256": SHA["b"], "CONTROL_SNAPSHOT_DIR": "/opt/x/control", "CONTROL_MANIFEST_SHA256": SHA["d"], "VERIFIER_SNAPSHOT_DIR": "/opt/x/verifier",
         "VERIFIER_MANIFEST_SHA256": SHA["e"], "R1I_TOOL_SHA256": SHA["f"], "PROTOCOL_DB": "/var/lib/x/protocol.db", "AUDIT_DB": "/var/lib/x/audit.db", "DETECTOR_UID": "948", "EXPECTED_SOURCE_IP": "203.0.113.50",
         "R1B_EVIDENCE_DIR": "/srv/evidence/r1b-run", "RUNTIME_DIR": "/run/aegis-idea3", "REPO": "/srv/worktree", "PY": "/usr/bin/python3", "EVIDENCE_ROOT": "/srv/evidence",
     }
@@ -78,7 +78,7 @@ def test_legitimate_pins_freeze_and_the_output_is_the_template_plus_only_the_pin
     frozen = out.read_text().splitlines()
     assert len(template) == len(frozen)
     changed = [i for i, (a, b) in enumerate(zip(template, frozen)) if a != b]
-    assert len(changed) == len(tool.PIN_SPECS) == 22  # exactly one line per approved pin site, nothing else
+    assert len(changed) == len(tool.PIN_SPECS) == 23  # exactly one line per approved pin site, nothing else
     assert oct(out.stat().st_mode & 0o777) == "0o555"
     assert git(repo, "status", "--porcelain") == "" and (repo / TEMPLATE_REL).read_text() == base.RUNNER.read_text()  # the template is never modified
     again = tool.verify(repo, main, out, owner_uid=None)

@@ -3,6 +3,7 @@
 # containment delta proof. It never calls the Core Recovery socket (the Core accepts only the operator uid), never mutates the Core, SQLite, nft, MQTT or a service, and never accepts an attacker IP.
 # Steps, selected by AEGIS_RCVSTAGE_STEP, each runnable ONCE per work directory (an exclusive step marker in the root work directory, never removed):
 #   BASELINE       the PRE-MARKER proof that the single open incident is the genuine R1B-created one with no Recovery history (and an intact audit chain)
+#   READINESS      the RUNNING Core's mandatory R2/R6/R7 settings (configured/not-configured only, no value) and its timezone equal this verifier's; proven BEFORE the marker
 #   NFT_PRE/POST   one read-only `nft --stateless list table inet aegis_idea3` dump into the root work directory (the semantic input of the containment delta proof)
 #   NFT_PRE_CHECK  the PRE dump is exactly the state the generic PRE capture hashed
 #   FINAL          the single final proof (the Core's own durable evidence; creates the root FINAL-RAN marker, the result and its SHA-256 sidecar)
@@ -57,15 +58,20 @@ AUDIT_DB="${AEGIS_RCVSTAGE_AUDIT_DB:-}"
 MARKER="${AEGIS_RCVSTAGE_ATTEMPT_MARKER:-}"
 [[ "$MARKER" == /* ]] && [[ "$MARKER" != *..* ]] || fail ATTEMPT_MARKER_REQUIRED
 # the verifier runs with a CLEAN environment, a fixed PATH and ONLY the immutable snapshot on the import path
-RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C PYTHONPATH="$APP" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
+umask 077
+# an explicit root-owned private log under the root work directory: importing the Core modules opens a log file and must never fall back to a relative `aegis_soc.log`
+RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_LOG_PATH="$WORK/stage-root.log" PYTHONPATH="$APP" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
 cd "$WORK" || fail WORK_DIR_REQUIRED   # a neutral cwd: nothing in the working directory can shadow a module
-case "$STEP" in BASELINE | NFT_PRE | NFT_POST | NFT_PRE_CHECK | FINAL | DELTA) ;; *) fail STEP_INVALID ;; esac
+case "$STEP" in BASELINE | READINESS | NFT_PRE | NFT_POST | NFT_PRE_CHECK | FINAL | DELTA) ;; *) fail STEP_INVALID ;; esac
 ( set -o noclobber; printf 'step=%s\nat=%s\n' "$STEP" "$(date -u +%FT%TZ)" > "$WORK/RECOVERY-STEP-$STEP-RAN" ) 2>/dev/null || fail "STEP_ALREADY_RAN_$STEP"
 case "$STEP" in
   BASELINE)
     SRC_IP="${AEGIS_RCVSTAGE_EXPECTED_SOURCE_IP:-}"; DET_UID="${AEGIS_RCVSTAGE_DETECTOR_UID:-}"; R1B_BASELINE="${AEGIS_RCVSTAGE_R1B_BASELINE:-}"
     [[ "$DET_UID" =~ ^[1-9][0-9]*$ ]] && [[ "$R1B_BASELINE" == /* ]] && [ -n "$SRC_IP" ] || fail BASELINE_INPUTS_INVALID
     RUN baseline-db --audit-db "$AUDIT_DB" --r1b-baseline "$R1B_BASELINE" --expected-source-ip "$SRC_IP" --detector-uid "$DET_UID" --work-dir "$WORK" || fail BASELINE_REFUSED ;;
+  READINESS)
+    core_pid=$(env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin systemctl show -p MainPID --value aegis-idea3-core.service 2>/dev/null); [[ "$core_pid" =~ ^[1-9][0-9]*$ ]] || fail CORE_PID_UNAVAILABLE
+    RUN readiness --core-pid "$core_pid" || fail READINESS_NOT_PROVEN ;;
   NFT_PRE | NFT_POST)
     label=pre; [ "$STEP" = NFT_POST ] && label=post
     ( set -o noclobber; env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin nft --stateless list table inet aegis_idea3 > "$WORK/nft-$label.txt" ) 2>/dev/null || fail NFT_DUMP_FAILED ;;

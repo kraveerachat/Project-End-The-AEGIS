@@ -86,6 +86,7 @@ PIN_SPECS: dict[str, tuple[re.Pattern[str], str, str]] = {
     "DETECTOR_UNIT_SHA256": (re.compile(r"^DETECTOR_UNIT_SHA256=(.*)$", re.M), "PIN_DETECTOR_UNIT_SHA256", "sha256"),
     "RECOVERY_CORE_SHA256": (re.compile(r"^RECOVERY_CORE_SHA256=(.*)$", re.M), "PIN_RECOVERY_CORE_SHA256", "sha256"),
     "RESTORE_CLI_SHA256": (re.compile(r"^RESTORE_CLI_SHA256=(.*)$", re.M), "PIN_RESTORE_CLI_SHA256", "sha256"),
+    "RELEASE_SUMS_SHA256": (re.compile(r"^RELEASE_SUMS_SHA256=(.*)$", re.M), "PIN_RELEASE_SUMS_SHA256", "sha256"),
     "CONTROL_SNAPSHOT_DIR": (re.compile(r"^CONTROL_SNAPSHOT_DIR=(.*)$", re.M), "PIN_CONTROL_SNAPSHOT_DIR", "path"),
     "CONTROL_MANIFEST_SHA256": (re.compile(r"^CONTROL_MANIFEST_SHA256=(.*)$", re.M), "PIN_CONTROL_MANIFEST_SHA256", "sha256"),
     "VERIFIER_SNAPSHOT_DIR": (re.compile(r"^VERIFIER_SNAPSHOT_DIR=(.*)$", re.M), "PIN_VERIFIER_SNAPSHOT_DIR", "path"),

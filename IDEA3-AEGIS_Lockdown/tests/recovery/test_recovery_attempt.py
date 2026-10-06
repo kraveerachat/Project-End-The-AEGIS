@@ -133,7 +133,7 @@ def test_the_exclusive_create_is_the_ultimate_authority_when_a_marker_appears_af
 
 def test_there_is_exactly_one_marker_implementation_and_no_code_removes_or_rewrites_it() -> None:
     lib = "\n".join(sup.code_lines(LIB))
-    assert lib.count("RECOVERY-GLOBAL-ATTEMPT-CONSUMED") == 1 and lib.count("set -o noclobber") == 1
+    assert lib.count("RECOVERY-GLOBAL-ATTEMPT-CONSUMED") == 1 and lib.count('set -o noclobber; printf "RECOVERY_ATTEMPT_CONSUMED=YES') == 1
     stage_py = (sup.ROOT / "aegis_soc/recovery_stage.py").read_text()
     assert "def consume_attempt" not in stage_py and "recovery-attempt/1" not in stage_py and "RECOVERY-GLOBAL-ATTEMPT-CONSUMED" not in stage_py  # the Python side only READS the marker
     runner = "\n".join(sup.code_lines(RUNNER))
@@ -282,7 +282,8 @@ def test_a_valid_reason_reaches_the_marker_stage_and_a_leading_dash_is_not_an_op
 
 def test_the_frozen_runner_requires_the_reason_argument_before_anything_runs_and_validates_it_in_the_pregates(tmp_path: Path) -> None:
     frozen = sup.pinned_copy(tmp_path)
-    assert sup.bash(f'bash "{frozen}" "{tmp_path}"').returncode == 2 and "owner reason" in sup.bash(f'bash "{frozen}" "{tmp_path}"').stderr
+    clean = "env -u AEGIS_LOG_PATH -u AEGIS_DB_PATH"
+    assert sup.bash(f'{clean} bash "{frozen}" "{tmp_path}"').returncode == 2 and "owner reason" in sup.bash(f'{clean} bash "{frozen}" "{tmp_path}"').stderr
     assert not (tmp_path / "evidence").exists()
     pregates = sup.runner_function("recovery_pregates")
     assert 'recovery_reason_gate "$RECOVERY_REASON"' in pregates and pregates.index("recovery_reason_gate") > pregates.index("recovery_authority_gates")  # after the verifier snapshot is proven
@@ -302,13 +303,13 @@ def fake_release(tmp_path: Path, exit_code: int = 0) -> Path:
     return release
 
 
-D4_ENV = 'RELEASE_PATH="{release}"; RUNTIME_DIR=/run/pinned-runtime; RECOVERY_REASON={reason}; RECOVERY_D4_OUT_FD=3; RECOVERY_D4_ERR_FD=4'
+D4_ENV = 'RELEASE_PATH="{release}"; RUNTIME_DIR=/run/pinned-runtime; RECOVERY_D4_LOG="{log}"; RECOVERY_REASON={reason}; RECOVERY_D4_OUT_FD=3; RECOVERY_D4_ERR_FD=4'
 
 
 def d4(tmp_path: Path, *, exit_code: int = 0, stdin: str = "", hostile_env: dict[str, str] | None = None):
     release = fake_release(tmp_path, exit_code)
     term_out, term_err = tmp_path / "tty.out", tmp_path / "tty.err"
-    script = f'. "{LIB}"; SUDO=""; {D4_ENV.format(release=release, reason=shell_quote("Owner-approved normal restore"))}\nrecovery_d4_run 3>"{term_out}" 4>"{term_err}"; echo "rc=$?"'
+    script = f'. "{LIB}"; SUDO=""; {D4_ENV.format(release=release, log=tmp_path / 'd4-cli.log', reason=shell_quote("Owner-approved normal restore"))}\nrecovery_d4_run 3>"{term_out}" 4>"{term_err}"; echo "rc=$?"'
     result = subprocess.run(["bash", "-c", script], input=stdin, env={**os.environ, **(hostile_env or {})}, text=True, capture_output=True)
     rec = (tmp_path / "d4.rec").read_text() if (tmp_path / "d4.rec").exists() else ""
     return result, rec, term_out, term_err
@@ -345,17 +346,18 @@ def test_d4_environment_is_clean_pinned_and_immune_to_interpreter_and_path_redir
     result, rec, _, _ = d4(tmp_path, hostile_env=hostile)
     env_lines = [line[4:] for line in rec.splitlines() if line.startswith("ENV:")]
     names = {line.split("=", 1)[0] for line in env_lines}
-    assert names <= {"PATH", "HOME", "TERM", "LANG", "AEGIS_RUNTIME_DIR", "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE", "PWD", "SHLVL", "_", "OLDPWD", "LC_CTYPE"}, names
+    assert names <= {"PATH", "HOME", "TERM", "LANG", "AEGIS_RUNTIME_DIR", "AEGIS_LOG_PATH", "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE", "PWD", "SHLVL", "_", "OLDPWD", "LC_CTYPE"}, names
     assert "AEGIS_RUNTIME_DIR=/run/pinned-runtime" in env_lines and "PATH=/usr/sbin:/usr/bin:/sbin:/bin" in env_lines  # the PINNED runtime dir and a FIXED path
     assert not any(name in names for name in hostile if name != "AEGIS_RUNTIME_DIR")
 
 
 @pytest.mark.parametrize("var", ["PYTHON", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV", "AEGIS_P4_FS_ROOT", "AEGIS_RECOVERY_SOCKET", "RECOVERY_SECRET", "AEGIS_RCVSTAGE_SECRET",
-                                 "RECOVERY_RESTORE_CONFIRMATION", "RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED", "RECOVERY_TEST_ONLY_TRUST_ROOT"])
+                                 "RECOVERY_RESTORE_CONFIRMATION", "RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED", "RECOVERY_TEST_ONLY_TRUST_ROOT", "AEGIS_LOG_PATH", "AEGIS_DB_PATH"])
 def test_the_environment_gate_refuses_every_redirection_variable(tmp_path: Path, var: str) -> None:
-    result = subprocess.run(["bash", "-c", f'. "{LIB}"; recovery_env_gate'], env={**os.environ, var: "x"}, text=True, capture_output=True)
+    base = {k: v for k, v in os.environ.items() if k not in ("AEGIS_LOG_PATH", "AEGIS_DB_PATH")}  # the pytest conftest sets these two; the live gate refuses them
+    result = subprocess.run(["bash", "-c", f'. "{LIB}"; recovery_env_gate'], env={**base, var: "x"}, text=True, capture_output=True)
     assert result.returncode == 1 and f"RECOVERY_ENVIRONMENT_OVERRIDE_SET:{var}" in result.stderr
-    assert subprocess.run(["bash", "-c", f'. "{LIB}"; recovery_env_gate'], text=True, capture_output=True, env={k: v for k, v in os.environ.items() if k != var}).returncode == 0
+    assert subprocess.run(["bash", "-c", f'. "{LIB}"; recovery_env_gate'], text=True, capture_output=True, env={k: v for k, v in base.items() if k != var}).returncode == 0
 
 
 @pytest.mark.parametrize("code", [1, 2, 4, 7])
@@ -364,7 +366,7 @@ def test_d4_exit_1_2_4_and_unexpected_are_terminal_d4_is_invoked_exactly_once_an
 
     steps = helper.steps_to_post_isolate(tmp_path)
     release = fake_release(tmp_path, code)
-    hooks = HOOKS.replace('recovery_hook_d4() { mark "d4:marker=$(has_marker)"; [ "${FAIL_AT:-}" != d4 ]; }', "")  # the REAL d4 hook, driven with the REAL record-d4 command
+    hooks = HOOKS.replace('recovery_hook_d4() { mark "d4:marker=$(has_marker)"; [ "${FAIL_AT:-}" != d4 ]; }', f'RECOVERY_D4_LOG="{tmp_path}/d4-cli.log"')  # the REAL d4 hook, driven with the REAL record-d4 command
     pre = (f'export PY="{VENV_PY}" VERIFIER_SNAPSHOT_DIR="{sup.ROOT}"; STEPS="{steps}"; RELEASE_PATH="{release}"; RUNTIME_DIR=/run/x; RECOVERY_REASON="Owner-approved normal restore"\n'
            'recovery_hook_isolate() { mark isolate; }\n')
     result, calls = attempt(tmp_path, hooks=hooks, pre=pre)
@@ -379,7 +381,7 @@ def test_d4_exit_0_and_3_continue_into_read_only_reconciliation_without_a_resend
 
     steps = helper.steps_to_post_isolate(tmp_path)
     release = fake_release(tmp_path, code)
-    hooks = HOOKS.replace('recovery_hook_d4() { mark "d4:marker=$(has_marker)"; [ "${FAIL_AT:-}" != d4 ]; }', "")
+    hooks = HOOKS.replace('recovery_hook_d4() { mark "d4:marker=$(has_marker)"; [ "${FAIL_AT:-}" != d4 ]; }', f'RECOVERY_D4_LOG="{tmp_path}/d4-cli.log"')
     pre = (f'export PY="{VENV_PY}" VERIFIER_SNAPSHOT_DIR="{sup.ROOT}"; STEPS="{steps}"; RELEASE_PATH="{release}"; RUNTIME_DIR=/run/x; RECOVERY_REASON="Owner-approved normal restore"\n'
            'recovery_hook_isolate() { mark isolate; }\n')
     result, calls = attempt(tmp_path, hooks=hooks, pre=pre)

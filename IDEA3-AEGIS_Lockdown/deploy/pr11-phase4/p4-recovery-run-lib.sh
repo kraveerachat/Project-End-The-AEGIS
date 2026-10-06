@@ -30,6 +30,13 @@ git() { GIT_NO_REPLACE_OBJECTS=1 command git "$@"; }
 RECOVERY_SAFE_PATH=/usr/sbin:/usr/bin:/sbin:/bin
 RECOVERY_R1I_TABLE="inet aegis_idea3_r1i"
 RECOVERY_D4_WAIT_SECONDS=120
+# Bounded `sudo -n -v` keepalive (one per owner-run process; refreshed while the owner types D4 and the Core settles). Plain assignments: only a caller AFTER sourcing can change them (tests); the environment cannot.
+RECOVERY_KEEPALIVE_INTERVAL_SEC=30
+RECOVERY_KEEPALIVE_MAX_SEC=14400
+RECOVERY_KEEPALIVE_PID=""
+RECOVERY_KEEPALIVE_FAILED=0
+RECOVERY_D4_LOG=""
+RECOVERY_OPERATOR_LOG=""
 RECOVERY_CLOSE_SUMMARY='Recovery completed through the Core normal-path closure.'
 
 recovery_reason() { printf '%s\n' "$1" >&2; return 1; }
@@ -123,7 +130,7 @@ recovery_env_gate() {
   for var in PYTHON PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE PYTHONINSPECT PYTHONBREAKPOINT PYTHONEXECUTABLE LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT BASH_ENV ENV \
       AEGIS_P4_FS_ROOT P4_FS_ROOT AEGIS_P4_HANDLER_DIR AEGIS_RECOVERY_SOCKET AEGIS_RECOVERY_CORE_USER AEGIS_RCVSTAGE_APP_DIR AEGIS_RCVSTAGE_AUDIT_DB AEGIS_RCVSTAGE_PROTOCOL_DB AEGIS_RCVSTAGE_WORK_DIR \
       AEGIS_RCVSTAGE_STEP AEGIS_RCVSTAGE_LIVE_AUTHORIZED AEGIS_RCVSTAGE_SECRET RECOVERY_SECRET RECOVERY_RESTORE_CONFIRMATION RECOVERY_TEST_ONLY_CANONICAL_DIR RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED \
-      RECOVERY_TEST_ONLY_TRUST_ROOT RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ENABLED RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ROOT GLOBAL_MARKER_DIR; do
+      RECOVERY_TEST_ONLY_TRUST_ROOT RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ENABLED RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ROOT GLOBAL_MARKER_DIR AEGIS_LOG_PATH AEGIS_DB_PATH; do
     [ -z "${!var:-}" ] || { recovery_reason "RECOVERY_ENVIRONMENT_OVERRIDE_SET:$var"; return 1; }
   done
 }
@@ -182,11 +189,70 @@ recovery_cli_gate() {
   recovery_interpreter_gate "$release/venv/bin/python" || return 1
 }
 
+# recovery_release_closure_gate RELEASE_ID RELEASE_PATH SUMS_SHA256 — the D4 execution closure is the release's OWN authoritative manifest: the existing L7 release guard (real directory, no symlink/special file, root-owned,
+# nothing group/world-writable, exact layout, RELEASE-SHA256SUMS matching EVERY payload file incl. the whole aegis_soc closure and the venv) plus the pinned digest of that manifest and the manifested `cli.py` entry.
+recovery_release_closure_gate() {
+  local rid=${1:-} release=${2:-} sums=${3:-} guard="${CTRL:-}/p4-l7-release-guard.py" out cli_sha
+  [[ "$rid" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] && [[ "$sums" =~ ^[0-9a-f]{64}$ ]] && [ -f "$guard" ] || { recovery_reason "RECOVERY_RELEASE_CLOSURE_INPUT_INVALID"; return 1; }
+  out=$($SUDO "$PY" "$guard" check --logical-path "/opt/aegis-idea3/releases/$rid" --host-path "$release" --expect-owner root 2>&1) && [[ "$out" == L7_RELEASE_GUARD=PASS* ]] \
+    || { recovery_reason "RECOVERY_RELEASE_CLOSURE_NOT_THE_MANIFESTED_RELEASE:${out##*reason=}"; return 1; }
+  [ "$($SUDO sha256sum "$release/RELEASE-SHA256SUMS" 2>/dev/null | cut -d' ' -f1)" = "$sums" ] || { recovery_reason "RECOVERY_RELEASE_MANIFEST_DIGEST_MISMATCH"; return 1; }
+  cli_sha=$(sha256sum "$release/aegis_soc/cli.py" 2>/dev/null | cut -d' ' -f1)
+  grep -qx "$cli_sha  aegis_soc/cli.py" "$release/RELEASE-SHA256SUMS" 2>/dev/null || { recovery_reason "RECOVERY_CLI_NOT_A_MANIFESTED_ENTRY"; return 1; }
+}
+
+# ---- bounded sudo keepalive (F3): ONE interactive `sudo -v` is the runner's; this library only ever runs `sudo -n -v` afterwards ------------------------------------------------------------------------------
+# A failed refresh signals the owner-run process (USR1, trapped here); the gate then fails closed. Before the marker that is RECOVERY_ATTEMPT_CONSUMED=NO; after it, FAIL_IMMUTABLE. Nothing persists beyond this process: the loop
+# ends when the parent exits, at EXIT (the runner's trap) or after RECOVERY_KEEPALIVE_MAX_SEC. No secret is ever involved.
+recovery_keepalive_failed() { RECOVERY_KEEPALIVE_FAILED=1; }
+recovery_start_sudo_keepalive() {
+  local parent=$$ interval=$RECOVERY_KEEPALIVE_INTERVAL_SEC max=$RECOVERY_KEEPALIVE_MAX_SEC
+  [ -n "$SUDO" ] || return 0
+  [ -z "$RECOVERY_KEEPALIVE_PID" ] || { recovery_reason "RECOVERY_KEEPALIVE_ALREADY_STARTED"; return 1; }
+  trap recovery_keepalive_failed USR1
+  (
+    waited=0
+    while kill -0 "$parent" 2>/dev/null && [ "$waited" -lt "$max" ]; do
+      sleep "$interval"; waited=$((waited + interval))
+      $SUDO -v >/dev/null 2>&1 </dev/null || { kill -USR1 "$parent" 2>/dev/null; exit 1; }
+    done
+  ) >/dev/null 2>&1 </dev/null &
+  RECOVERY_KEEPALIVE_PID=$!
+}
+recovery_stop_sudo_keepalive() {
+  [ -z "$RECOVERY_KEEPALIVE_PID" ] || { kill "$RECOVERY_KEEPALIVE_PID" 2>/dev/null; wait "$RECOVERY_KEEPALIVE_PID" 2>/dev/null; RECOVERY_KEEPALIVE_PID=""; }
+  return 0
+}
+# recovery_sudo_authority_gate — the refresher is running, has never failed, and a non-interactive privileged command works RIGHT NOW.
+recovery_sudo_authority_gate() {
+  [ -n "$SUDO" ] || return 0
+  [ -n "$RECOVERY_KEEPALIVE_PID" ] && [ "$RECOVERY_KEEPALIVE_FAILED" = 0 ] && kill -0 "$RECOVERY_KEEPALIVE_PID" 2>/dev/null || { recovery_reason "RECOVERY_SUDO_KEEPALIVE_NOT_HEALTHY"; return 1; }
+  $SUDO true >/dev/null 2>&1 </dev/null || { recovery_reason "RECOVERY_SUDO_AUTHORITY_LOST"; return 1; }
+}
+
+# ---- D4 program preparation (F1/F2): private operator-owned logs OUTSIDE the immutable release, a terminal, and an exact rehearsal BEFORE the marker ----------------------------------------------------------
+# recovery_private_log_prepare VAR NAME — "$EVID/NAME" is created exclusively (0600, operator-owned, not a symlink) inside the private operator-owned evidence directory; the path is derived here, never from the environment.
+recovery_private_log_prepare() {
+  local var=$1 name=$2 me path
+  me=$(id -u); path="${EVID:-}/$name"
+  [[ "${EVID:-}" == /* ]] && [ -d "$EVID" ] && [ ! -L "$EVID" ] && [ "$(stat -c %u "$EVID")" = "$me" ] && [ -z "$(find "$EVID" -maxdepth 0 -perm /077)" ] || { recovery_reason "RECOVERY_EVIDENCE_DIR_NOT_PRIVATE_OPERATOR_OWNED"; return 1; }
+  ( set -o noclobber; : > "$path" ) 2>/dev/null || { recovery_reason "RECOVERY_LOG_NOT_CREATABLE:$name"; return 1; }
+  chmod 600 "$path" && [ ! -L "$path" ] && [ "$(stat -c '%a %u' "$path")" = "600 $me" ] || { recovery_reason "RECOVERY_LOG_NOT_PRIVATE:$name"; return 1; }
+  printf -v "$var" '%s' "$path"
+}
+recovery_logs_prepare() { recovery_private_log_prepare RECOVERY_D4_LOG d4-cli.log && recovery_private_log_prepare RECOVERY_OPERATOR_LOG stage-operator.log; }
+# recovery_tty_gate — the real CLI refuses (exit 2) without an interactive terminal AFTER the attempt would be consumed; stdin and the terminal output descriptor must both be terminals.
+recovery_tty_gate() {
+  [ -t 0 ] && [ -t "${RECOVERY_D4_OUT_FD:-1}" ] || { recovery_reason "RECOVERY_INTERACTIVE_TERMINAL_REQUIRED (stdin and the terminal descriptor must be a terminal; nothing was consumed)"; return 1; }
+}
+
 # ---- operator / root program wrappers ----------------------------------------------------------------------------------------------------------------------------------
 # The Core client steps run as the OPERATOR (the only uid the Core Recovery socket accepts) from the IMMUTABLE verifier snapshot only, with a clean environment and a fixed PATH. Root-side commands use the same
 # snapshot under the privilege prefix. Neither ever runs a file from a worktree or /home.
-recovery_operator_py() { env -i PATH="$RECOVERY_SAFE_PATH" PYTHONPATH="$VERIFIER_SNAPSHOT_DIR" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
-recovery_root_py() { $SUDO env -i PATH="$RECOVERY_SAFE_PATH" PYTHONPATH="$VERIFIER_SNAPSHOT_DIR" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
+# EVERY invocation sets an explicit AEGIS_LOG_PATH (importing the Core modules opens a log file; without it the path falls back to a relative `aegis_soc.log` in the cwd). Before the private operator log exists it is /dev/null;
+# root-side commands log into the root-owned private work directory. The caller's environment never chooses it.
+recovery_operator_py() { env -i PATH="$RECOVERY_SAFE_PATH" AEGIS_LOG_PATH="${RECOVERY_OPERATOR_LOG:-/dev/null}" PYTHONPATH="$VERIFIER_SNAPSHOT_DIR" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
+recovery_root_py() { $SUDO env -i PATH="$RECOVERY_SAFE_PATH" AEGIS_LOG_PATH="${WORK:-/dev/null}/stage-root.log" PYTHONPATH="$VERIFIER_SNAPSHOT_DIR" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
 # recovery_reason_gate REASON — the existing production RESTORE-reason validator (bounded, printable, no shell-active character). Run BEFORE the marker; the SAME reason is then passed to D4.
 recovery_reason_gate() {
   local reason=${1-}
@@ -233,6 +299,8 @@ recovery_hook_baseline() {
   local canon
   recovery_require_hook recovery_handler && recovery_require_hook recovery_prepare_evidence || return 1
   recovery_prepare_evidence || { recovery_reason "RECOVERY_EVIDENCE_DIR_NOT_CREATABLE"; return 1; }
+  # F1/F2/F3: the private logs, the terminal, the EXACT D4 rehearsal and the privilege authority are proven BEFORE anything else (and long before the marker)
+  recovery_logs_prepare && recovery_tty_gate && recovery_d4_rehearsal && recovery_sudo_authority_gate || return 1
   canon=$(recovery_canonical_dir)
   $SUDO test -d "$canon" || $SUDO mkdir -m 0700 "$canon" 2>/dev/null || { recovery_reason "RECOVERY_CANONICAL_DIR_NOT_CREATABLE"; return 1; }
   [ -n "${WORK:-}" ] && [ "$(dirname "$WORK")" = "$canon" ] && ! $SUDO test -e "$WORK" && $SUDO mkdir -m 0700 -- "$WORK" || { recovery_reason "RECOVERY_WORK_DIR_NOT_CREATABLE"; return 1; }
@@ -247,17 +315,30 @@ recovery_hook_baseline() {
   echo "RECOVERY_PRECONSUME_TRUSTEDCLOCK=PASS"; echo "RECOVERY_PRECONSUME_QUIESCENCE=PASS"
   recovery_handler NFT_PRE || return 1
   recovery_handler NFT_PRE_CHECK || return 1
+  recovery_handler READINESS || return 1   # F4/M-c: the running Core's R2/R6/R7 settings and its timezone, proven BEFORE the marker
   recovery_handler BASELINE || return 1
   recovery_operator_py status --steps-dir "$STEPS" && recovery_operator_py probe-pre --steps-dir "$STEPS"
 }
-recovery_hook_regate() { recovery_require_hook recovery_authority_gates && recovery_authority_gates && recovery_attempt_unconsumed; }
+recovery_hook_regate() { recovery_require_hook recovery_authority_gates && recovery_authority_gates && recovery_sudo_authority_gate && recovery_tty_gate && recovery_attempt_unconsumed; }
 # --- post-marker hooks: ANY failure here is a consumed immutable FAIL; none of them is ever retried -------------------------------------------------------------------------
 recovery_hook_isolate() { recovery_operator_py isolate --steps-dir "$STEPS" && recovery_operator_py probe-post-isolate --steps-dir "$STEPS"; }
 # recovery_d4_run — the owner's interactive NORMAL-path RESTORE: ONE invocation, from the pinned release, with the validated reason. The secret and the confirmation are typed into that program's own prompts on the
 # terminal; this wrapper passes no secret and no confirmation, captures no stdin, and writes the program's output to the terminal descriptors only (never to the run log).
+recovery_d4_exec() {
+  ( cd "$RELEASE_PATH" && exec env -i PATH="$RECOVERY_SAFE_PATH" HOME="${HOME:-/nonexistent}" TERM="${TERM:-dumb}" LANG="${LANG:-C.UTF-8}" AEGIS_RUNTIME_DIR="$RUNTIME_DIR" AEGIS_LOG_PATH="$RECOVERY_D4_LOG" PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 \
+      "$RELEASE_PATH/venv/bin/python" -B -s -m aegis_soc.cli restore "--reason=$RECOVERY_REASON" --wait "$RECOVERY_D4_WAIT_SECONDS" )
+}
 recovery_d4_run() {
-  ( cd "$RELEASE_PATH" && exec env -i PATH="$RECOVERY_SAFE_PATH" HOME="${HOME:-/nonexistent}" TERM="${TERM:-dumb}" LANG="${LANG:-C.UTF-8}" AEGIS_RUNTIME_DIR="$RUNTIME_DIR" PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 \
-      "$RELEASE_PATH/venv/bin/python" -B -s -m aegis_soc.cli restore "--reason=$RECOVERY_REASON" --wait "$RECOVERY_D4_WAIT_SECONDS" ) >&"${RECOVERY_D4_OUT_FD:-1}" 2>&"${RECOVERY_D4_ERR_FD:-2}"
+  [ -n "$RECOVERY_D4_LOG" ] || { recovery_reason "RECOVERY_D4_LOG_NOT_PREPARED"; return 1; }
+  recovery_d4_exec >&"${RECOVERY_D4_OUT_FD:-1}" 2>&"${RECOVERY_D4_ERR_FD:-2}"   # stdin is inherited: the owner types the secret into the program's own prompt
+}
+# recovery_d4_rehearsal — the EXACT pinned D4 command (same release, interpreter, environment, reason, wait, log) with stdin from /dev/null. The real CLI validates the reason, then refuses BEFORE any prompt, secret read or Recovery
+# request because no terminal is attached: exit 2 with that specific message proves import + argument parsing work. It reads no secret, connects to nothing and consumes nothing.
+recovery_d4_rehearsal() {
+  local out rc
+  [ -n "$RECOVERY_D4_LOG" ] || { recovery_reason "RECOVERY_D4_LOG_NOT_PREPARED"; return 1; }
+  out=$(recovery_d4_exec </dev/null 2>&1); rc=$?
+  [ "$rc" = 2 ] && [[ "$out" == *"RESTORE refused: an interactive local terminal is required"* ]] && [[ "$out" != *Traceback* ]] || { recovery_reason "RECOVERY_D4_REHEARSAL_FAILED (the pinned D4 program did not reach its interactive-terminal refusal; nothing was consumed)"; return 1; }
 }
 recovery_hook_d4() {
   local code
@@ -269,6 +350,7 @@ recovery_hook_restore_status() { recovery_operator_py restore-status --steps-dir
 recovery_hook_close() { recovery_operator_py close --steps-dir "$STEPS" --summary "$RECOVERY_CLOSE_SUMMARY"; }
 recovery_hook_final() {
   local out n
+  recovery_sudo_authority_gate || { echo "RECOVERY_SUDO_AUTHORITY_LOST_BEFORE_FINAL=YES"; return 1; }
   recovery_require_hook recovery_authority_gates && recovery_authority_gates || { echo "RECOVERY_AUTHORITY_DRIFT_BEFORE_FINAL=YES"; return 1; }
   recovery_capture POST "$WORK/post-root" || return 1
   recovery_trustedclock_gate "$WORK/post-root" || return 1
@@ -306,6 +388,10 @@ recovery_run_attempt() {
       return 1
     fi
   done
+  if ! recovery_sudo_authority_gate; then
+    echo "RECOVERY_PRE_ATTEMPT_FAILURE=sudo RECOVERY_LIVE_EXECUTED=NO RECOVERY_ATTEMPT_CONSUMED=NO RECOVERY_R2_R8_EXECUTED=NO (the privilege authority was lost immediately before the marker; no marker was created)"
+    return 1
+  fi
   if ! recovery_consume_attempt "$WORK"; then
     canon=$(recovery_canonical_dir)
     if $SUDO test -e "$canon/$RECOVERY_GLOBAL_MARKER_NAME" || $SUDO test -L "$canon/$RECOVERY_GLOBAL_MARKER_NAME"; then

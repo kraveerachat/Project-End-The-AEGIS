@@ -127,7 +127,7 @@ def relock(dest: Path) -> None:
 
 PINS = {
     "EXPECTED_MAIN": "a" * 40, "OPERATOR_USER": "owner", "OPERATOR_UID": "1000", "RELEASE_ID": RELEASE, "PRODUCTION_DETECTOR_SHA256": "b" * 64, "DETECTOR_UNIT_SHA256": "c" * 64,
-    "RECOVERY_CORE_SHA256": "d" * 64, "RESTORE_CLI_SHA256": "e" * 64, "VERIFIER_MANIFEST_SHA256": "f" * 64, "VERIFIER_SNAPSHOT_DIR": "/opt/x/verifier", "CONTROL_MANIFEST_SHA256": "9" * 64,
+    "RECOVERY_CORE_SHA256": "d" * 64, "RESTORE_CLI_SHA256": "e" * 64, "RELEASE_SUMS_SHA256": "7" * 64, "VERIFIER_MANIFEST_SHA256": "f" * 64, "VERIFIER_SNAPSHOT_DIR": "/opt/x/verifier", "CONTROL_MANIFEST_SHA256": "9" * 64,
     "CONTROL_SNAPSHOT_DIR": "/opt/x/control", "R1I_TOOL_SHA256": "8" * 64, "PROTOCOL_DB": "/var/lib/x/protocol.db", "AUDIT_DB": "/var/lib/x/audit.db", "R1B_EVIDENCE_DIR": "/var/lib/x/r1b",
     "EXPECTED_SOURCE_IP": IP, "DETECTOR_UID": "948", "RUNTIME_DIR": "/run/x",
 }

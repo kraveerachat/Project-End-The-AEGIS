@@ -22,6 +22,7 @@ PRODUCTION_DETECTOR_SHA256=PIN_PRODUCTION_DETECTOR_SHA256
 DETECTOR_UNIT_SHA256=PIN_DETECTOR_UNIT_SHA256
 RECOVERY_CORE_SHA256=PIN_RECOVERY_CORE_SHA256
 RESTORE_CLI_SHA256=PIN_RESTORE_CLI_SHA256
+RELEASE_SUMS_SHA256=PIN_RELEASE_SUMS_SHA256
 CONTROL_SNAPSHOT_DIR=PIN_CONTROL_SNAPSHOT_DIR
 CONTROL_MANIFEST_SHA256=PIN_CONTROL_MANIFEST_SHA256
 VERIFIER_SNAPSHOT_DIR=PIN_VERIFIER_SNAPSHOT_DIR
@@ -33,14 +34,14 @@ R1B_EVIDENCE_DIR=PIN_R1B_EVIDENCE_DIR
 EXPECTED_SOURCE_IP=PIN_EXPECTED_SOURCE_IP
 DETECTOR_UID=PIN_DETECTOR_UID
 RUNTIME_DIR=PIN_RUNTIME_DIR
-for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID RELEASE_ID PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 RESTORE_CLI_SHA256 CONTROL_SNAPSHOT_DIR CONTROL_MANIFEST_SHA256 VERIFIER_SNAPSHOT_DIR VERIFIER_MANIFEST_SHA256 R1I_TOOL_SHA256 PROTOCOL_DB AUDIT_DB R1B_EVIDENCE_DIR EXPECTED_SOURCE_IP DETECTOR_UID RUNTIME_DIR; do
+for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID RELEASE_ID PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 RESTORE_CLI_SHA256 RELEASE_SUMS_SHA256 CONTROL_SNAPSHOT_DIR CONTROL_MANIFEST_SHA256 VERIFIER_SNAPSHOT_DIR VERIFIER_MANIFEST_SHA256 R1I_TOOL_SHA256 PROTOCOL_DB AUDIT_DB R1B_EVIDENCE_DIR EXPECTED_SOURCE_IP DETECTOR_UID RUNTIME_DIR; do
   case "${!pin}" in PIN_*) echo "STOP: runner is not pinned ($pin). Run the owner freeze workflow first." >&2; exit 2 ;; esac
 done
 [[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ ]] || { echo "STOP: EXPECTED_MAIN is not a 40-hex SHA." >&2; exit 2; }
 [[ "$OPERATOR_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || { echo "STOP: OPERATOR_USER is not a valid account identifier." >&2; exit 2; }
 [[ "$OPERATOR_UID" =~ ^[1-9][0-9]*$ ]] || { echo "STOP: OPERATOR_UID is not a valid non-root uid." >&2; exit 2; }
 [[ "$RELEASE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] && [[ "$RELEASE_ID" != *..* ]] || { echo "STOP: RELEASE_ID is not a valid release id." >&2; exit 2; }
-for pin in PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 RESTORE_CLI_SHA256 CONTROL_MANIFEST_SHA256 VERIFIER_MANIFEST_SHA256 R1I_TOOL_SHA256; do
+for pin in PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 RESTORE_CLI_SHA256 RELEASE_SUMS_SHA256 CONTROL_MANIFEST_SHA256 VERIFIER_MANIFEST_SHA256 R1I_TOOL_SHA256; do
   [[ "${!pin}" =~ ^[0-9a-f]{64}$ ]] || { echo "STOP: $pin is not a 64-hex SHA-256." >&2; exit 2; }
 done
 [[ "$DETECTOR_UID" =~ ^[1-9][0-9]*$ ]] || { echo "STOP: DETECTOR_UID is not a valid non-root uid." >&2; exit 2; }
@@ -54,7 +55,7 @@ done
 # No environment may redirect a live run: interpreter/loader/module overrides, fixture roots, handler overrides, Recovery/RESTORE targets and test seams must all be unset (the library repeats and extends this).
 for var in PYTHON PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE LD_PRELOAD LD_LIBRARY_PATH BASH_ENV ENV AEGIS_RUNTIME_DIR AEGIS_P4_FS_ROOT P4_FS_ROOT AEGIS_P4_HANDLER_DIR AEGIS_RECOVERY_SOCKET AEGIS_RECOVERY_CORE_USER \
     AEGIS_RCVSTAGE_APP_DIR AEGIS_RCVSTAGE_AUDIT_DB AEGIS_RCVSTAGE_PROTOCOL_DB AEGIS_RCVSTAGE_WORK_DIR AEGIS_RCVSTAGE_STEP AEGIS_RCVSTAGE_LIVE_AUTHORIZED AEGIS_RCVSTAGE_SECRET RECOVERY_SECRET RECOVERY_RESTORE_CONFIRMATION \
-    RECOVERY_CANONICAL_DIR RECOVERY_TEST_ONLY_CANONICAL_DIR RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED RECOVERY_TEST_ONLY_TRUST_ROOT RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ENABLED RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ROOT GLOBAL_MARKER_DIR; do
+    RECOVERY_CANONICAL_DIR RECOVERY_TEST_ONLY_CANONICAL_DIR RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED RECOVERY_TEST_ONLY_TRUST_ROOT RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ENABLED RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ROOT GLOBAL_MARKER_DIR AEGIS_LOG_PATH AEGIS_DB_PATH; do
   [ -z "${!var:-}" ] || { echo "STOP: environment override $var is set; refusing a live run." >&2; exit 2; }
 done
 AUTH_DIR=${1:-}
@@ -135,6 +136,8 @@ l7u_identity_gate "$OPERATOR_USER" "$OPERATOR_UID" || die "operator identity is 
 recovery_no_live_claims
 sudo -v || die "sudo authentication failed"   # the ONLY interactive sudo establishment; every privileged command below uses `sudo -n`
 SUDO='sudo -n'
+recovery_start_sudo_keepalive || die "the bounded sudo keepalive could not start; nothing was created"
+trap recovery_stop_sudo_keepalive EXIT   # nothing outlives this owner-run process
 
 EVID=$EVID_ROOT/$TODAY-recovery-$STAMP
 STEPS=$EVID/steps
@@ -159,6 +162,7 @@ recovery_authority_gates() {
   recovery_digest_gate "$RELEASE_PATH/aegis_soc/recovery_core.py" "$RECOVERY_CORE_SHA256" RECOVERY_CORE || rc=1
   recovery_digest_gate "/etc/systemd/system/$DETECTOR_UNIT" "$DETECTOR_UNIT_SHA256" DETECTOR_UNIT || rc=1
   recovery_current_release_gate "$CURRENT_LINK" "$RELEASE_PATH" || rc=1
+  recovery_release_closure_gate "$RELEASE_ID" "$RELEASE_PATH" "$RELEASE_SUMS_SHA256" || rc=1
   recovery_cli_gate "$RELEASE_PATH" "$RESTORE_CLI_SHA256" || rc=1
   [ -z "$CORE_PRE" ] || recovery_runtime_unchanged || { recovery_reason "RECOVERY_CORE_OR_DETECTOR_IDENTITY_CHANGED"; rc=1; }
   return "$rc"
@@ -200,7 +204,7 @@ recovery_pregates() {
   # 4. the existing reviewed R1B-failure + R1Bv-PASS predecessor gate (pinned-commit receipt CONTENT), and the attempt authority
   recovery_predecessor_gate "$REPO" "$EXPECTED_MAIN" || gate "predecessor gate failed (see reason above)"
   recovery_attempt_unconsumed || gate "Recovery is ONE attempt TOTAL and one is already consumed, or the canonical marker directory is invalid"
-  recovery_sudo_noninteractive_gate || gate "the sudo credential is not active (run once: sudo -v)"
+  recovery_sudo_authority_gate || gate "the sudo keepalive is not healthy or the credential is not active (the runner establishes it once with sudo -v)"
   # 5. disk/headroom, preserved services, broker, IDEA2 S10
   l7_disk_gate 80 / /var /opt /run || gate "disk headroom below 20% free (see reason above)"
   l8p_service_gate twingate.service mosquitto.service "$BROKER_UNIT" || gate "a preserved service is not active/running (see reason above)"
