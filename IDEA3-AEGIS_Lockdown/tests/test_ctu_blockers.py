@@ -1427,3 +1427,142 @@ ctu_operator_identity_gate "$OPERATOR_USER" "$OPERATOR_UID"
     assert missing_res.returncode != 0
     assert ("fatal: invalid object name" in missing_res.stderr or "fatal: path" in missing_res.stderr)
     assert "ctu_operator_identity_gate: command not found" in missing_res.stderr
+
+
+def test_ctu_bundle_manifest_relative_cwd_verification_matrix(tmp_path: Path) -> None:
+    """Relative checksum manifest must be verified from the bundle directory.
+
+    GNU sha256sum resolves relative filenames relative to process CWD, not the
+    manifest directory. When runner CWD is outside the bundle, verification must
+    subshell cd into the bundle directory or fail deterministically.
+    """
+    bundle = tmp_path / "bundle"
+    outside = tmp_path / "outside"
+    bundle.mkdir()
+    outside.mkdir()
+    (bundle / "stages" / "CTu").mkdir(parents=True)
+
+    f1 = bundle / "p4-lib.sh"
+    f1.write_text("echo p4-lib\n")
+    f2 = bundle / "stages" / "CTu" / "verify.sh"
+    f2.write_text("echo verify\n")
+
+    p1 = subprocess.run(["sha256sum", "p4-lib.sh"], cwd=bundle, capture_output=True, text=True, check=True).stdout
+    p2 = subprocess.run(["sha256sum", "stages/CTu/verify.sh"], cwd=bundle, capture_output=True, text=True, check=True).stdout
+    manifest = bundle / "CTU-BUNDLE-SHA256SUMS"
+    manifest.write_text(p1 + p2)
+
+    # 1. Manifest contains relative paths
+    assert "p4-lib.sh" in manifest.read_text()
+    assert "stages/CTu/verify.sh" in manifest.read_text()
+
+    # 2. OLD BASE_MAIN final verification fails while cwd is outside the bundle
+    old_cmd = ["sha256sum", "-c", "--quiet", "--strict", str(manifest)]
+    res_old = subprocess.run(old_cmd, cwd=outside, capture_output=True, text=True)
+    assert res_old.returncode != 0
+    assert "No such file or directory" in res_old.stderr
+
+    # 3. Repaired verification while cwd is outside the bundle must PASS
+    repaired_script = f'( cd "{bundle}" && sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS )'
+    res_repaired = subprocess.run(["bash", "-c", repaired_script], cwd=outside, capture_output=True, text=True)
+    assert res_repaired.returncode == 0
+
+    # 4. Modify bundled file after manifest creation must FAIL
+    f1.write_text("echo p4-lib-tampered\n")
+    res_tampered = subprocess.run(["bash", "-c", repaired_script], cwd=outside, capture_output=True, text=True)
+    assert res_tampered.returncode != 0
+    f1.write_text("echo p4-lib\n")
+
+    # 5. Missing file must FAIL
+    f2.unlink()
+    res_missing = subprocess.run(["bash", "-c", repaired_script], cwd=outside, capture_output=True, text=True)
+    assert res_missing.returncode != 0
+    f2.write_text("echo verify\n")
+
+    # 6. Malformed checksum manifest must FAIL under --strict
+    manifest.write_text("malformed line without sha256 hash\n")
+    res_malformed = subprocess.run(["bash", "-c", repaired_script], cwd=outside, capture_output=True, text=True)
+    assert res_malformed.returncode != 0
+
+
+def test_ctu_prepare_bundle_end_to_end_behavioral(tmp_path: Path) -> None:
+    """ctu_prepare_bundle must succeed and verify when caller cwd is outside the bundle."""
+    import stat
+
+    tmp_repo = tmp_path / "repo"
+    tmp_repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main", str(tmp_repo)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_repo), "config", "user.name", "AEGIS Test"], check=True)
+    subprocess.run(["git", "-C", str(tmp_repo), "config", "user.email", "test@aegis.local"], check=True)
+
+    target_p4 = tmp_repo / "IDEA3-AEGIS_Lockdown" / "deploy" / "pr11-phase4"
+    target_p4.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(P4, target_p4)
+
+    subprocess.run(["git", "-C", str(tmp_repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_repo), "commit", "-m", "commit pr11-phase4"], check=True)
+    commit_sha = subprocess.run(
+        ["git", "-C", str(tmp_repo), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+    bundle_dir = tmp_path / "bundle"
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+
+    # Behavioral execution with caller CWD outside bundle
+    script = f"""
+set -Eeuo pipefail
+cd "{outside_dir}"
+CTU_SUDO=""
+source "{target_p4}/p4-ctu-run-lib.sh"
+ctu_prepare_bundle "{tmp_repo}" "{target_p4}" "{bundle_dir}" "{commit_sha}"
+ctu_verify_bundle "{bundle_dir}"
+echo "PREPARE_AND_VERIFY=PASS"
+"""
+    if _userns_usable():
+        runner_cmd = ["unshare", "-r", "bash", "-c", script]
+    else:
+        runner_cmd = ["bash", "-c", script]
+
+    res = subprocess.run(runner_cmd, capture_output=True, text=True)
+    assert res.returncode == 0, f"ctu_prepare_bundle failed: {res.stderr}"
+    assert "PREPARE_AND_VERIFY=PASS" in res.stdout
+
+    # Verify all bundle directories are sealed to 0555
+    for d in [bundle_dir, *bundle_dir.rglob("*")]:
+        if d.is_dir():
+            mode = stat.S_IMODE(d.stat().st_mode)
+            assert mode == 0o555, f"Directory {d} mode {oct(mode)} != 0555"
+
+    # Verify manifest is 0444
+    manifest = bundle_dir / "CTU-BUNDLE-SHA256SUMS"
+    assert manifest.is_file() and not manifest.is_symlink()
+    assert stat.S_IMODE(manifest.stat().st_mode) == 0o444
+
+    # Verify OLD BASE_MAIN verification fails from outside
+    old_verify = subprocess.run(
+        ["sha256sum", "-c", "--quiet", "--strict", str(manifest)],
+        cwd=outside_dir, capture_output=True, text=True
+    )
+    assert old_verify.returncode != 0
+
+    # Verify tampering causes ctu_verify_bundle to fail
+    tamper_file = bundle_dir / "p4-lib.sh"
+    tamper_file.chmod(0o755)
+    tamper_file.write_text("tampered\n")
+    tamper_file.chmod(0o555)
+
+    tamper_script = f"""
+set -Eeuo pipefail
+cd "{outside_dir}"
+CTU_SUDO=""
+source "{target_p4}/p4-ctu-run-lib.sh"
+ctu_verify_bundle "{bundle_dir}"
+"""
+    if _userns_usable():
+        tamper_cmd = ["unshare", "-r", "bash", "-c", tamper_script]
+    else:
+        tamper_cmd = ["bash", "-c", tamper_script]
+    tamper_res = subprocess.run(tamper_cmd, capture_output=True, text=True)
+    assert tamper_res.returncode != 0

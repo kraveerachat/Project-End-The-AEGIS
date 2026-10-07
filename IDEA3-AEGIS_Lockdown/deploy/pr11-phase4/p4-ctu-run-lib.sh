@@ -159,9 +159,10 @@ ctu_prepare_bundle() {
     printf '%s  %s\n' "$got" "$rel" | $CTU_SUDO tee -a "$bundle/CTU-BUNDLE-SHA256SUMS" >/dev/null || return 1
   done
   $CTU_SUDO chown -R root:root -- "$bundle"
-  $CTU_SUDO chmod 0555 "$bundle" "$bundle/stages" "$bundle/stages/CTu" "$bundle/owner-run"
+  $CTU_SUDO chmod 0555 "$bundle" "$bundle/stages" "$bundle/stages/CTu" "$bundle/owner-run" "$bundle/ctu-acceptance"
+  $CTU_SUDO chmod 0444 "$bundle/CTU-BUNDLE-SHA256SUMS"
   ctu_fsync "$bundle/CTU-BUNDLE-SHA256SUMS" && ctu_fsync "$bundle" || return 1
-  $CTU_SUDO sha256sum -c --quiet --strict "$bundle/CTU-BUNDLE-SHA256SUMS" >/dev/null 2>&1
+  ( cd "$bundle" && $CTU_SUDO sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) >/dev/null 2>&1
 }
 ctu_verify_bundle() {
   local bundle=${1:-}

@@ -11,6 +11,27 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 CTu bundle manifest relative CWD verification repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** In `ctu_prepare_bundle()` (`IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh`), `CTU-BUNDLE-SHA256SUMS` was verified using `$CTU_SUDO sha256sum -c --quiet --strict "$bundle/CTU-BUNDLE-SHA256SUMS"` without changing CWD to the bundle directory. Because `sha256sum` resolves relative filenames relative to process CWD, verification deterministically failed whenever runner CWD was outside `$bundle`, triggering `post_fail CTU_BUNDLE` (`CTU_RESULT=FAIL_IMMUTABLE CTU_ATTEMPT_CONSUMED=NO reason=CTU_BUNDLE`). Fixed by executing `( cd "$bundle" && $CTU_SUDO sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) >/dev/null 2>&1`, matching `ctu_verify_bundle()`, `verify.sh`, and apply/rollback routines. Additionally sealed `$bundle/ctu-acceptance` to mode `0555` and `$bundle/CTU-BUNDLE-SHA256SUMS` to mode `0444`. The failed frozen runner bound to main `8f337dad15f4e89d2265a95741b90128c14e6a39` / SHA `ed1e656a24f7d126b87828b59d5b726b9d337d5887c4b4c5a8b26ed7b2b173e0` is invalidated for future LIVE use. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `FAILURE_PHASE=PRE_CONSUME_BUNDLE_PREPARATION`; `FAILURE_REASON=CTU_BUNDLE`; `BUNDLE_MANIFEST_CWD_VERIFICATION=PASS`.
+
+### Current Task
+
+Task: IDEA3 CTu bundle manifest relative CWD verification repair
+Branch: `fix/idea3-ctu-bundle-manifest-cwd`
+Owner: `music`
+Current state: repository repair in p4-ctu-run-lib.sh line 164 and behavioral regression tests implemented and verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently generate fresh post-merge exact-main CTu authority, clone, pins, frozen runner, Authorization, and K3 before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S7 | CTu bundle manifest relative CWD verification repair (`p4-ctu-run-lib.sh` line 164 subshell cd verification; seal ctu-acceptance to 0555 and manifest to 0444; behavioral regression tests) | READY FOR REVIEW | 80 focused CTu/repair tests PASS, 676 recovery suite tests PASS, 59 vault/policy tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; generate fresh exact-main CTu authority and frozen runner after merge |
+
 ## IDEA3 CTu runner git eval library load quoting repair — pre-first-LIVE — 2026-10-07
 
 > [!important] **Root cause confirmed and repaired:** Frozen CTu runner entry failed closed before stage governance initialization (`fatal: cannot change to '"/home/.../ctu-live-main-6a5a7a7f"': No such file or directory` and `ctu_operator_identity_gate: command not found`). Inside bash command substitution `"$( ... )"`, backslash-escaped quotes `\"` expand to literal double-quote characters in `argv`, passing `"/path/to/repo"` to `git -C`. `run-ctu-owner.sh` line 49 is repaired to `eval "$(git -C "$REPO" show "$EXPECTED_MAIN:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh")"`, preserving exact-main Git object loading without literal quotes. The failed frozen runner bound to main `6a5a7a7f31912b1bf51c0349beca6699184bcca3` (SHA `5fe09edc51133aa502e865fb817ee5b5b95faec126c447873e5bc574955b89d1`) is invalidated. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.
