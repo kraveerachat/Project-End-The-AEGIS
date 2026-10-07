@@ -69,7 +69,7 @@ AUTH="$AUTH_DIR/authorization-CTv.txt"; K3="$AUTH_DIR/k3-CTv.txt"
 [ -f "$AUTH" ] && [ -f "$K3" ] && [ ! -L "$AUTH" ] && [ ! -L "$K3" ] || { echo 'STOP: fresh CTv Authorization/K3 required.' >&2; exit 2; }
 grep -qx 'stage=CTv' "$AUTH" && grep -qx 'stage=CTv' "$K3" || exit 2
 grep -qx "expected_main=$EXPECTED_MAIN" "$AUTH" && grep -qx "expected_main=$EXPECTED_MAIN" "$K3" || exit 2
-grep -qx "runner_sha256=$RUNNER_SHA256" "$AUTH" && grep -qx "runner_sha256=$RUNNER_SHA256" "$K3" || exit 2
+grep -qx "frozen_runner_sha256=$RUNNER_SHA256" "$AUTH" && grep -qx "frozen_runner_sha256=$RUNNER_SHA256" "$K3" || exit 2
 grep -qx "runner_template_sha256=$TEMPLATE_SHA256" "$AUTH" && grep -qx "runner_template_sha256=$TEMPLATE_SHA256" "$K3" || exit 2
 CTV_RUNNER_TEMPLATE_SHA256=$TEMPLATE_SHA256
 CTV_FROZEN_RUNNER_SHA256=$RUNNER_SHA256

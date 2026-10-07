@@ -349,7 +349,7 @@ ctv_preconsume_rehearsal() {
     [ "$(ctv_git -C "$repo" rev-parse --verify HEAD^{commit})" = "$main" ] && [ -z "$(ctv_git -C "$repo" status --porcelain=v1)" ] || return 1
     grep -qx 'stage=CTv' "$auth" && grep -qx 'stage=CTv' "$k3" || return 1
     grep -qx "expected_main=$main" "$auth" && grep -qx "expected_main=$main" "$k3" || return 1
-    grep -qx "runner_sha256=$runner_sha" "$auth" && grep -qx "runner_sha256=$runner_sha" "$k3" || return 1
+    grep -qx "frozen_runner_sha256=$runner_sha" "$auth" && grep -qx "frozen_runner_sha256=$runner_sha" "$k3" || return 1
     grep -qx "runner_template_sha256=$template_sha" "$auth" && grep -qx "runner_template_sha256=$template_sha" "$k3" || return 1
     ctv_predecessor_gate "$canon" || return 1
     ctv_marker_unconsumed || return 1
