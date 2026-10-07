@@ -111,7 +111,7 @@ EXTRA=$(p4_stage_auth_extra "$STAGE")
 if [ -z "$AUTH" ]; then
   fail AUTHORIZATION_MISSING
 elif ! parse_record "$AUTH" AEGIS_P4_AUTHORIZATION_V1 \
-  "stage date authorizer scope reference d6_notice integration_review recovery_authorization physical_recovery_attestation" \
+  "stage date authorizer scope reference d6_notice integration_review recovery_authorization physical_recovery_attestation expected_main frozen_runner_sha256 operator_user operator_uid recovery_execution_main" \
   "stage date authorizer scope reference $EXTRA"; then
   fail AUTHORIZATION_MALFORMED
 elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[authorizer]}" != music ] \
@@ -124,7 +124,7 @@ elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[authorizer]}" != music ] \
   fail AUTHORIZATION_MALFORMED
 elif [ "${R[stage]}" != "$STAGE" ]; then
   fail AUTHORIZATION_STAGE_MISMATCH
-elif { [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ] || [ "$STAGE" = F1 ] || [ "$STAGE" = F1r ] || [ "$STAGE" = F1i ] || [ "$STAGE" = F1u ] || [ "$STAGE" = R1A ] || [ "$STAGE" = R1Du ] || [ "$STAGE" = R1D ] || [ "$STAGE" = R1Dv ] || [ "$STAGE" = R1Bv ] || [ "$STAGE" = R1B ] || [ "$STAGE" = RRu ] || [ "$STAGE" = Recovery ]; } && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ]; }; then
+elif { [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ] || [ "$STAGE" = F1 ] || [ "$STAGE" = F1r ] || [ "$STAGE" = F1i ] || [ "$STAGE" = F1u ] || [ "$STAGE" = R1A ] || [ "$STAGE" = R1Du ] || [ "$STAGE" = R1D ] || [ "$STAGE" = R1Dv ] || [ "$STAGE" = R1Bv ] || [ "$STAGE" = R1B ] || [ "$STAGE" = RRu ] || [ "$STAGE" = Recovery ]; } && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ] || [ -n "${R[expected_main]+set}" ] || [ -n "${R[frozen_runner_sha256]+set}" ] || [ -n "${R[operator_user]+set}" ] || [ -n "${R[operator_uid]+set}" ] || [ -n "${R[recovery_execution_main]+set}" ]; }; then
   # L8p likewise never carries the L8-only recovery_authorization nor the L7/L2 notices (it has its own physical_recovery_attestation).
   # F1r (current-release activation), F1i (post-L7 repaired-release install) and F1u (post-F1 Core upgrade) are bound by the same rule as F1: no extra field at all.
   # F1 carries NO extra field at all: not the L7/L2 notices, not recovery_authorization, not physical_recovery_attestation (L8p alone).
@@ -134,15 +134,19 @@ elif { [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ] || [ "$STAGE" = F1 ] || [ "$STAG
 elif [ "$STAGE" != L8p ] && [ -n "${R[physical_recovery_attestation]+set}" ]; then
   # physical_recovery_attestation belongs to L8p alone.
   fail AUTHORIZATION_MALFORMED
+elif [ "$STAGE" = LVR ] && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ]; }; then
+  fail AUTHORIZATION_MALFORMED
 elif [ "${R[date]}" != "$TODAY" ]; then
   fail AUTHORIZATION_STALE
+elif [ "$STAGE" = LVR ] && { ! [[ "${R[expected_main]:-}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[frozen_runner_sha256]:-}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]:-}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]:-}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[recovery_execution_main]:-}" =~ ^[0-9a-f]{40}$ ]]; }; then
+  fail AUTHORIZATION_LVR_BINDING_INVALID
 else
   AUTH_OK=1
 fi
 
 # ── K3 confirmation (S-01), every Production mutation stage ──────────────────
 K3_STATE=NOT_REQUIRED
-if p4_stage_mutates "$STAGE"; then
+if p4_stage_requires_k3 "$STAGE"; then
   K3_STATE=INVALID
   if [ -z "$K3" ]; then
     fail K3_MISSING

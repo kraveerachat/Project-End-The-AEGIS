@@ -35,12 +35,15 @@ readonly P4_WINDOW_TZ=Asia/Bangkok
 # immutable release, switch current OLD -> NEW, restart the Core EXACTLY ONCE without touching the running detector, prove the Core runs from the NEW release). L6c keeps its original position and its
 # historical PRE-L7 meaning: its verifier requires the L7 material absent and the Core unit not-found, which is false by design on the post-L7 host (a maintenance reuse
 # of L6c failed closed for exactly that reason), so L6c is never reused post-L7 and is not changed.
-readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu Recovery L8 L9"
+readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu Recovery LVR L8 L9"
 
 p4_stage_known() { [[ " $P4_STAGES " == *" $1 "* ]] && [ -n "$1" ]; }
 
-# Every stage except the read-only L0 baseline and the read-only R1Dv / R1Bv validations (R1Dv: R1D post-disposition validation; R1Bv: successor validation of the existing failed R1B evidence; no marker, no socket, no write) changes the Core host.
-p4_stage_mutates() { [ "$1" != L0 ] && [ "$1" != R1Dv ] && [ "$1" != R1Bv ]; }
+# Every stage except the read-only L0 baseline, R1Dv/R1Bv validations and LVR
+# acceptance changes the Core host. LVR has fresh Authorization/K3 governance,
+# but deliberately owns no irreversible marker or Production mutation.
+p4_stage_mutates() { [ "$1" != L0 ] && [ "$1" != R1Dv ] && [ "$1" != R1Bv ] && [ "$1" != LVR ]; }
+p4_stage_requires_k3() { [ "$1" = LVR ] || p4_stage_mutates "$1"; }
 
 # Repository gaps that must be merged before the stage (§6, §9). The gate
 # reports them; it cannot verify merge state and never claims to.
@@ -87,6 +90,9 @@ p4_stage_gaps() {
     # repository gap and never authorizes Recovery.
     CTu) echo none ;;
     Recovery) echo none ;;
+    # LVR is a non-mutating post-Recovery acceptance stage. It still requires
+    # fresh stage-specific Authorization/K3, but no rollback handler or marker.
+    LVR) echo none ;;
     # R1D is the one Core-mediated historical-incident disposition (evidence-preserving, irreversible, one attempt); it owns no reversible Production change.
     R1D) echo none ;;
     # R1B is a NEW governed successor after the immutable consumed R1A FAIL; it is not a retry and owns no reversible Production change.
@@ -108,6 +114,7 @@ p4_stage_auth_extra() {
     L1 | L7) echo d6_notice ;;
     L2) echo integration_review ;;
     L8) echo recovery_authorization ;;
+    LVR) echo expected_main frozen_runner_sha256 operator_user operator_uid recovery_execution_main ;;
     # L8p replaces the D4 attestation with an attested physical recovery procedure; it never carries recovery_authorization (L8-only).
     L8p) echo physical_recovery_attestation ;;
   esac

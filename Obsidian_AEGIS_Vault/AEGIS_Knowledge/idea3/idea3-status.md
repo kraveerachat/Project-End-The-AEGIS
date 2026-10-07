@@ -11,6 +11,25 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 LVR read-only post-Recovery acceptance stage — repository implementation — 2026-10-07
+
+> [!important] **Governed read-only LVR acceptance stage repository implementation complete.** `LVR_REPOSITORY_IMPLEMENTED=YES`; `LVR_LIVE_EXECUTED=NO`; `LVR_PRODUCTION_MUTATION_PERFORMED=NO`. LVR is the read-only post-Recovery acceptance boundary, not a Recovery retry or L8 provisioning stage. It requires canonical Recovery `CLOSED_PASS` where `RECOVERY_EXECUTION_MAIN` is an ancestor of LVR `EXPECTED_MAIN` with `GIT_NO_REPLACE_OBJECTS=1` and the closeout exists in descendant history. The runtime acceptance verifier verifies Core/Detector systemd services (loaded/active/running/success, NRestarts=0), PID integrity, broker CONNECTED, device ONLINE, uplink NORMAL, time trust SYNCED, zero open incidents, and correlated recovery audit records via read-only SQLite (`mode=ro&immutable=1`). Generic apply and rollback handlers are explicit no-op read-only contract handlers (`LVR_PRODUCTION_MUTATION=NO`). Runner freeze derivation mechanically derives the frozen runner from the reviewed Git object `run-lvr-owner.sh` with 12 allowlisted pin substitutions and enforces mode 0555 non-writable protection. Fresh Authorization and K3 confirmation are required for LVR (stage=LVR, date=$TODAY, authorizer=music). Cross-stage reuse is rejected. Recovery remains unexecuted in this task (`RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`). No Live closeout is fabricated.
+
+### Current Task
+
+Task: IDEA3 LVR governed read-only post-Recovery acceptance stage repository implementation
+Branch: `feat/idea3-lvr-governed-stage`
+Owner: `music`
+Current state: repository implementation complete; positive/negative verification passed; ready for stacked review; LIVE NOT EXECUTED
+Production mutation allowed by this task: NO
+Next: owner review of stacked PR; after Recovery CLOSED_PASS, independently freeze fresh LVR authority
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| LVR-S1 | Governed read-only LVR acceptance stage repository implementation | READY FOR REVIEW | 68 focused LVR tests; 243 Phase-4 harness tests; 50 Recovery stage tests; 156 R1Bv contract tests; diff/vault/collaboration validation | repository-only implementation PASS; zero Production mutation | owner review of stacked PR against #375; LVR LIVE intentionally unexecuted | human merge of #375, then review of LVR PR |
+
 ## IDEA3 Core TrustedClock sandbox repair — repository-only successor preparation — 2026-10-07
 
 > [!important] **Root cause confirmed and repaired in the repository.** The Core's required read-only `adjtimex(2)` TrustedClock probe was blocked by `ProtectClock=true` in the reviewed Core unit. The smallest fix changes only that setting to `ProtectClock=false`; `User=aegis-idea3`, `NoNewPrivileges=true`, empty `CapabilityBoundingSet=`, empty `AmbientCapabilities=`, and the existing unrelated hardening remain unchanged. Linux clock mutation authority is not granted: `CAP_SYS_TIME` is absent and the service is non-root with no ambient/bounding capabilities.
