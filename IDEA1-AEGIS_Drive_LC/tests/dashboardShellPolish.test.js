@@ -11,7 +11,7 @@ test('Neo Dashboard brand and pin control remain inside the floating sidebar', (
   const sidebar = read('src/components/Sidebar.jsx')
   const css = read('src/index.css')
 
-  assert.match(sidebar, /neo-sidebar-brand-row[\s\S]*?<AegisMark size=\{44\} theme="dark" className="neo-sidebar-brand-mark"/)
+  assert.match(sidebar, /neo-sidebar-brand-row[\s\S]*?<AegisMark size=\{44\} theme=\{resolvedTheme === 'dark' \? 'dark' : 'light'\} className="neo-sidebar-brand-mark"/)
   assert.match(sidebar, /neo-sidebar-brand-name" aria-hidden=\{isCollapsed\}/)
   assert.match(sidebar, /neo-sidebar-brand-row[\s\S]*?neo-sidebar-header-toggle/)
   assert.match(sidebar, /onClick=\{\(\) => \{\s*clearTimeout\(hoverTimerRef\.current\)\s*setCollapsed\(\(current\) => !current\)/)

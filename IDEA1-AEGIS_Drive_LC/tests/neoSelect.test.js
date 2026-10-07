@@ -54,18 +54,25 @@ function withDom(theme, fn) {
 
 const key = (el, k, win) => el.dispatchEvent(new win.KeyboardEvent('keydown', { key: k, bubbles: true }))
 
-test('NEO-SELECT-1 outside Neo Dark the native <select> renders unchanged (SSR, Light, Classic)', async () => {
+test('NEO-SELECT-1 outside Neo the native <select> renders unchanged (SSR, Classic); Neo Light uses NeoSelect', async () => {
   const { vite, ui } = await loadUi()
   try {
     const html = renderToStaticMarkup(React.createElement(ui.PillSelect, { 'aria-label': 'sort', defaultValue: 'b', onChange() {} },
       React.createElement('option', { value: 'a' }, 'A'), React.createElement('option', { value: 'b' }, 'B')))
     assert.match(html, /^<select[^>]*aria-label="sort"/)
     assert.doesNotMatch(html, /role="combobox"/)
-    await withDom('light', async (dom) => {
+    await withDom(null, async (dom) => {
       const root = createRoot(dom.window.document.getElementById('root'))
       await act(async () => root.render(React.createElement(ui.PillSelect, { 'aria-label': 'x' }, React.createElement('option', { value: 'a' }, 'A'))))
-      assert.equal(dom.window.document.querySelector('[role="combobox"]'), null, 'Light keeps the native select')
+      assert.equal(dom.window.document.querySelector('[role="combobox"]'), null, 'Classic keeps the native select')
       assert.ok(dom.window.document.querySelector('select[aria-label="x"]'))
+      await act(async () => root.unmount())
+    })
+    await withDom('light', async (dom) => {
+      const root = createRoot(dom.window.document.getElementById('root'))
+      await act(async () => root.render(React.createElement(ui.PillSelect, { 'aria-label': 'y' }, React.createElement('option', { value: 'a' }, 'A'))))
+      assert.equal(dom.window.document.querySelector('[role="combobox"]')?.getAttribute('aria-label'), 'y', 'Neo Light draws the same listbox as Neo Dark')
+      assert.equal(dom.window.document.querySelector('select').getAttribute('aria-hidden'), 'true')
       await act(async () => root.unmount())
     })
   } finally { await vite.close() }
@@ -150,12 +157,22 @@ test('NEO-SELECT-2 in Neo Dark: combobox + rounded listbox; keyboard, change con
   } finally { await vite.close() }
 })
 
-test('NEO-SELECT-3 every select in the app goes through PillSelect; list styling is Dark-scoped and rounded', () => {
+test('NEO-SELECT-3 every select in the app goes through PillSelect; one rounded list for both Neo themes', () => {
   const src = path.join(rootDir, 'src')
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name)) : /\.jsx$/.test(e.name) ? [path.join(d, e.name)] : [])
   const rawSelects = walk(src).filter((f) => /<select\b/.test(fs.readFileSync(f, 'utf8')))
   assert.deepEqual(rawSelects.map((f) => path.relative(src, f).replace(/\\/g, '/')).sort(), ['components/NeoSelect.jsx', 'components/ui.jsx'])
-  const css = fs.readFileSync(path.join(src, 'neoOverlays.css'), 'utf8')
+  const css = fs.readFileSync(path.join(src, 'neoSelect.css'), 'utf8')
+  // Geometry is shared by both Neo themes; colour only through per-theme --ns-* tokens.
+  const body = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  const rules = [...body.matchAll(/([^{}@]+)\{([^{}]*)\}/g)].filter((m) => m[1].trim().startsWith(':root'))
+  for (const [, sel, decl] of rules) {
+    if (/\[data-theme="(dark|light)"\]\s*$/.test(sel.trim())) continue
+    assert.doesNotMatch(decl, /#[0-9a-f]{3,8}\b|rgba?\(/i, `literal colour outside the token blocks: ${sel.trim()}`)
+  }
+  assert.match(css, /:root\[data-ui-style="neo"\]\[data-theme="dark"\] \{[\s\S]*?--ns-panel-fill:/)
+  assert.match(css, /:root\[data-ui-style="neo"\]\[data-theme="light"\] \{[\s\S]*?--ns-check: #4F5DFF;/)
+  assert.doesNotMatch(fs.readFileSync(path.join(src, 'neoOverlays.css'), 'utf8'), /neo-select/)
   assert.match(css, /\.neo-select-panel \{[\s\S]*?border-radius: 14px;[\s\S]*?z-index: var\(--z-tooltip\)|\.neo-select-panel \{[\s\S]*?z-index: var\(--z-tooltip\);[\s\S]*?border-radius: 14px;/)
   assert.match(css, /\.neo-select-trigger:focus-visible,[\s\S]*?border-radius: 999px;/)
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.neo-select-panel/)

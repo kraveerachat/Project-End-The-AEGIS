@@ -172,7 +172,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
         {neoDashboard ? (
           <>
             <div className="neo-sidebar-brand-row">
-              <AegisMark size={44} theme="dark" className="neo-sidebar-brand-mark" />
+              <AegisMark size={44} theme={resolvedTheme === 'dark' ? 'dark' : 'light'} className="neo-sidebar-brand-mark" />
               <span lang="en" className="neo-sidebar-brand-name" aria-hidden={isCollapsed}>
                 AEGIS Drive_LC
               </span>

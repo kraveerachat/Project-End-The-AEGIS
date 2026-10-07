@@ -2,10 +2,10 @@ import { Children, isValidElement, useCallback, useEffect, useId, useLayoutEffec
 import { createPortal } from 'react-dom'
 
 /*
- * NeoSelect — the Neo Dark presentation of PillSelect.
+ * NeoSelect — the Neo presentation of PillSelect (Dark and Light).
  *
  * A native <select> opens an operating-system list that CSS cannot round,
- * tint or animate, so in Neo Dark the OPEN list is drawn here as an
+ * tint or animate, so in Neo the OPEN list is drawn here as an
  * accessible combobox + listbox. The behaviour contract is unchanged:
  *
  *   - The real <select> (with every original prop and <option> child) is
@@ -265,11 +265,10 @@ export function NeoSelect({ className = '', children, selectProps }) {
   )
 }
 
-/** True while the document is Neo + Dark; follows live theme/style changes. */
-export function useNeoDarkUi() {
+/** True while the document uses the Neo interface (either theme); follows live style changes. */
+export function useNeoUi() {
   const read = () => typeof document !== 'undefined'
     && document.documentElement.dataset.uiStyle === 'neo'
-    && document.documentElement.dataset.theme === 'dark'
   const [on, setOn] = useState(read)
   useEffect(() => {
     if (typeof MutationObserver !== 'function') return undefined

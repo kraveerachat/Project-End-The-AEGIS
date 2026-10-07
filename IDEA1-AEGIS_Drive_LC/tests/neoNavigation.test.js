@@ -50,16 +50,25 @@ test('NEO-NAV-1 markup keeps the route contract and adds only presentation hooks
   }
 })
 
-test('NEO-NAV-2 every Neo navigation rule is Dark-scoped; Light keeps the index.css bar', () => {
-  const selectors = css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}@;]+(?=\{)/g)
+test('NEO-NAV-2 one Neo navigation system for both themes: shared geometry, colour only from theme tokens; Classic keeps index.css', () => {
+  const body = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  const selectors = body.match(/[^{}@;]+(?=\{)/g)
     .map((s) => s.trim())
     .filter((s) => s && !/^(?:\(|from|to|\d)/.test(s) && !s.startsWith('media'))
   assert.ok(selectors.length > 20)
   for (const selector of selectors) {
     for (const part of selector.split(/,(?![^(]*\))/)) {
-      assert.match(part.trim(), /^:root\[data-ui-style="neo"\]\[data-theme="dark"\]/, `unscoped: ${part.trim()}`)
+      assert.match(part.trim(), /^:root\[data-ui-style="neo"\]/, `not Neo-scoped: ${part.trim()}`)
     }
   }
+  // Colour literals live only in the two theme token blocks (masks use #000).
+  for (const [, sel, decl] of body.matchAll(/([^{}@]+)\{([^{}]*)\}/g)) {
+    if (/\[data-theme="(dark|light)"\] \.positioned-navigation\s*$/.test(sel.trim())) continue
+    assert.doesNotMatch(decl.replace(/linear-gradient\(#000 0 0\)/g, ''), /#[0-9a-f]{3,8}\b|rgba?\(/i, `literal colour outside the token blocks: ${sel.trim()}`)
+  }
+  const light = css.match(/\[data-theme="light"\] \.positioned-navigation \{([\s\S]*?)\n  \}/)[1]
+  for (const hex of ['#4F5DFF', '#78C7FF', '#FABFFF']) assert.ok(light.includes(hex) || light.toLowerCase().includes(hex.toLowerCase()) || /rgba\((79, 93, 255|120, 199, 255|250, 191, 255)/.test(light), `palette ${hex}`)
+  assert.match(light, /--nav-pod-fill:[\s\S]*?#78C7FF 0%, #4F5DFF 55%/)
   const index = read('src/index.css')
   assert.match(index, /\.positioned-navigation__item\.is-active \{ color: #fff; background: linear-gradient\(110deg, #126ded, #504be6 64%, #9656bf\); \}/)
   assert.match(index, /\.positioned-navigation__cradle \{ display: none; \}/)
@@ -82,7 +91,8 @@ test('NEO-NAV-3 top = suspended tab that drops DOWN; bottom = round pod that ris
   assert.match(top, /\.positioned-navigation__shoulder\[data-side="start"\] \{[\s\S]*?radial-gradient\(circle at 0 100%/)
   assert.doesNotMatch(top, /border-radius: 50%/, 'no circular pod on the top rail')
   assert.match(top, /:has\(\.is-active:focus-visible\) \.positioned-navigation__cradle/)
-  assert.match(top, /\.positioned-navigation__item:focus-visible:not\(\.is-active\) \{[\s\S]*?box-shadow: 0 0 0 2px/)
+  assert.match(top, /\.positioned-navigation__item:focus-visible:not\(\.is-active\) \{[\s\S]*?box-shadow: var\(--nav-focus-shadow\);/)
+  assert.match(css, /--nav-focus-shadow: 0 0 0 2px #8ea8ff/)
   // Bottom keeps the round raised pod.
   assert.match(bottom, /--nav-lift: -25px;/)
   assert.match(bottom, /\.positioned-navigation__pod \{[\s\S]*?border-radius: 50%;/)
