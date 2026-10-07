@@ -331,7 +331,7 @@ def stages() -> list[str]:
 def test_rru_is_a_new_stage_registered_exactly_once_between_r1bv_and_recovery() -> None:
     order = stages()
     assert order.count("RRu") == 1 and len(order) == len(set(order))
-    assert order[order.index("R1Bv") + 1] == "RRu" and order[order.index("RRu") + 1] == "Recovery"
+    assert order[order.index("R1Bv") + 1] == "RRu" and order[order.index("RRu") + 1] == "CTu" and order[order.index("CTu") + 1] == "Recovery"
     for consumed in ("F1i", "F1r", "F1u", "R1Du", "R1D", "R1B"):
         assert consumed in order and consumed != "RRu"
 

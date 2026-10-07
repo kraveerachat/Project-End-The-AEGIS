@@ -65,8 +65,9 @@ V7_AND_SHARED_PINS = {
     "p4-stage-gate.sh": "352aeea2400d109fe235b8888250d1f91ab7e8f8a8cb44b8c4b5ec9d19093480",
     # re-pinned by the owner-approved R1B successor stage registration (2026-10-06): p4-lib.sh registers stage R1B after the historical R1A (no repository gap) and updates the documented stage order;
     # re-pinned again by the R1Du/R1D historical-disposition task (2026-10-06): p4-lib.sh registers R1Du and R1D between R1A and R1B, p4-stage-gate.sh binds both to the no-extra-field rule and p4-compare.sh accepts the label `stage R1Du`.
-    # re-pinned by the Recovery R2-R8 stage task (2026-10-06): p4-lib.sh registers the one Recovery stage after R1Bv and before L8 (no repository gap).
-    "p4-lib.sh": "0e4017fe2c168f2adafcb72c8070961cca1a41171a058e78a22bd9eb57b8297c",
+    # Re-pinned for CTu (2026-10-07): p4-lib.sh intentionally registers the
+    # new Core TrustedClock successor after consumed RRu and before Recovery.
+    "p4-lib.sh": "b0c5bb140b348def1a4f28646ee43a0b5a4bcaa5c9e2240e7de5732c0a7f3f61",
     "p4-compare.sh": "75d0a0dc0e4d529ed39bf2929cd3c54a9ef7a8a4eb8d643725af1d61862f6294",
     "p4-l0-capture.sh": "e5d82dc5959dbcd1aa13ca0d58aa15ed5375a77e918be9a1ec2a8a2ac740a61b",
 }

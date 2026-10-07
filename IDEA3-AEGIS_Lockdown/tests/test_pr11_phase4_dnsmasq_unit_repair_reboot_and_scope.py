@@ -351,7 +351,9 @@ SHARED_PINS = {
     # R1I stage catalog entry; existing stage behavior remains unchanged.
     # Re-pinned by the owner-approved R1A registration (2026-10-05): additive R1A stage catalog entry (after R1I, before L8), its operational-order comment and `R1A) echo none`
     # in p4_stage_gaps; p4_stage_mutates is unchanged (the existing "every stage except L0" rule). No existing stage behavior changed.
-    "p4-lib.sh": "0e4017fe2c168f2adafcb72c8070961cca1a41171a058e78a22bd9eb57b8297c",
+    # Re-pinned for CTu (2026-10-07): this shared registry intentionally adds
+    # the new successor stage; p4-compare and p4-stage-gate remain unchanged.
+    "p4-lib.sh": "b0c5bb140b348def1a4f28646ee43a0b5a4bcaa5c9e2240e7de5732c0a7f3f61",
     # re-pinned by the SAFE_STOPPED governed-successor task (2026-10-03): ONE additive, task-specific catalog DNSMASQ_SAFE_STOPPED_POST; no existing catalog changed
     "p4-compare.sh": "75d0a0dc0e4d529ed39bf2929cd3c54a9ef7a8a4eb8d643725af1d61862f6294",
     "p4-l0-capture.sh": "e5d82dc5959dbcd1aa13ca0d58aa15ed5375a77e918be9a1ec2a8a2ac740a61b",
@@ -395,7 +397,7 @@ def test_the_new_package_has_exactly_the_frozen_file_set() -> None:
 
 
 def test_no_new_l_number_stage_was_invented() -> None:
-    assert (DEPLOY / "p4-lib.sh").read_text().count('readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv Recovery L8 L9"') == 1
+    assert (DEPLOY / "p4-lib.sh").read_text().count('readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu Recovery L8 L9"') == 1
     assert not (DEPLOY / "stages" / "L10").exists() and not (DEPLOY / "stages" / "L4b").exists()
 
 

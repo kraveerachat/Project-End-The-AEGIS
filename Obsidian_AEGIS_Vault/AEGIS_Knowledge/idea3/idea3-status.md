@@ -11,6 +11,30 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 Core TrustedClock sandbox repair — repository-only successor preparation — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired in the repository.** The Core's required read-only `adjtimex(2)` TrustedClock probe was blocked by `ProtectClock=true` in the reviewed Core unit. The smallest fix changes only that setting to `ProtectClock=false`; `User=aegis-idea3`, `NoNewPrivileges=true`, empty `CapabilityBoundingSet=`, empty `AmbientCapabilities=`, and the existing unrelated hardening remain unchanged. Linux clock mutation authority is not granted: `CAP_SYS_TIME` is absent and the service is non-root with no ambient/bounding capabilities.
+
+`CTu` is a NEW governed successor stage, not an L7/F1u/R1Du/RRu retry. Its future LIVE boundary is limited to installing the reviewed Core unit, conditional `daemon-reload`, and one governed Core restart. The detector may move only through its existing `Requires=aegis-idea3-core.service` dependency; CTu issues no detector command. The frozen runner requires fresh CTu Authorization/K3, exact merged-main pins, one CTU-GLOBAL-ATTEMPT-CONSUMED marker immediately before the first host mutation, PRE/POST capture, compare, verification and fail-closed rollback.
+
+`CTU_REPOSITORY_IMPLEMENTED=YES`; `CTU_APPLICATION_RELEASE_DEPLOY_REQUIRED=NO`; `CTU_LIVE_EXECUTED=NO`; `CTU_PRODUCTION_MUTATION_PERFORMED=NO`; `CTU_CORE_RESTARTED=NO`; `CTU_DETECTOR_EXPLICITLY_COMMANDED=NO`; `ESP32_TOUCHED=NO`; `NTP_REACTIVATION_RERUN=NO`. All 12 reviewer blockers are resolved and mechanically proven: runner pre-capture order (`RUNNER_PRE_CAPTURE_ORDER=PASS`), pre-existing open episode support for Case A and Case B (`ALREADY_OPEN_LOCKDOWN_CASE=PASS`), detector single implicit lifecycle (`DETECTOR_SINGLE_CYCLE_PROOF=PASS`), signal-safe rollback without recursive trapping (`SIGNAL_SAFE_ROLLBACK=PASS`), atomic closeout immutability (`ATOMIC_CLOSEOUT=PASS`, `CTU_PASS_SURVIVES_ROLLBACK=NO`), CTu -> Recovery descendant history binding (`CTU_RECOVERY_DESCENDANT_BINDING=PASS`), real CTu freeze and verifier trust closure (`CTU_FREEZE_IMPLEMENTATION_EXISTS=YES`, `CTU_FREEZE_VERIFIER_EXISTS=YES`, `CTU_TRUST_CLOSURE=PASS`), Authorization and K3 V2 binding (`CTU_AUTH_BINDING=PASS`, `CTU_K3_BINDING=PASS`, `CTU_EXTRA_FIELDS_REFUSED=YES`), pre-consume gates and non-interactive sudo keepalive (`POST_CONSUME_SUDO_PROMPT_POSSIBLE=NO`), manual reconciliation inspection tooling (`CTU_MANUAL_RECONCILIATION_READY=YES`), restored security intent (`TRUST_SEAM_TEST_WEAKENED=NO`), and Recovery negative test matrix (`RECOVERY_CTU_GATE_NEGATIVE_TESTS=PASS`). Its fixed root-owned stage-global marker is consumed durably before mutation; every post-consumption failure is terminal and invokes bounded Core-unit rollback without reopening the marker. RRu remains consumed/PASS and immutable; Recovery remains `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. Existing Recovery freeze/Authorization/K3 artifacts bound to the pre-repair main are stale after this repair merges and must not be reused. The required governed sequence is: `RRu PASS -> NTP successor PASS / consumed -> CTu -> CTu closeout -> fresh Recovery authority/freeze -> Recovery -> LVR -> L8 -> L9`.
+
+### Current Task
+
+Task: IDEA3 Core TrustedClock / ProtectClock root-cause repair and CTu successor preparation (all 12 reviewer blockers resolved)
+Branch: `fix/idea3-core-trusted-time-successor`
+Owner: `music`
+Current state: repository implementation complete; all 12 reviewer blockers resolved and proven; Draft PR pending owner/integration review; LIVE NOT EXECUTED
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently freeze fresh CTu authority before any LIVE restart
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S1 | Core TrustedClock sandbox repair and governed successor package | CLOSED | 18 focused CTu tests; 367 + 1,224 affected governance tests; 82 IP-containment tests; diff/vault/collaboration validation | repository-only repair PASS; no Production mutation | owner/integration review; CTu LIVE intentionally unexecuted | human review and merge |
+| CTu-S2 | Resolve 12 CTu reviewer blockers (runner order, open episode, detector cycle, signal rollback, atomic closeout, descendant binding, freeze/trust closure, auth binding, pre-consume sudo, reconciliation, security intent, negative matrix) | READY FOR REVIEW | 12/12 dedicated blocker tests PASS (`test_ctu_blockers.py`); 24/24 repair tests PASS (`test_core_trusted_time_repair.py`); 74/74 recovery freeze tests PASS; 368 affected regression tests PASS; vault validation PASS; core governance PASS | all 12 reviewer blockers resolved; zero Production mutation | owner and integration review | human review and merge PR #375 |
+
 ## IDEA3 RRu LIVE — CLOSED_PASS — 2026-10-07
 
 > [!important] **RRu executed once and PASSED.** `RRU_LIVE=CLOSED_PASS`, `RRU_LIVE_EXECUTED=YES`, `RRU_RESULT=PASS`, `RRU_PRODUCTION_DEPLOYED=YES`, `RRU_ATTEMPT_CONSUMED=YES`, `RRU_RERUN_ALLOWED=NO`. Production `current` now points at immutable release `954ce1c191885e9e90198a6f54a3d990bcf144fc`. The Core and detector processes were unchanged, no service restart or detector command occurred, and the successor is exactly the OLD runtime plus the manifested Recovery CLI entrypoint. `RECOVERY_RUNTIME_RELEASE_READY=YES`. Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-07_005834_music_idea3-rru-live-closeout.md`.

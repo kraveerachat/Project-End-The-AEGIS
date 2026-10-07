@@ -10,7 +10,9 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3 — AEGIS Lockdown
 
-> **Current Recovery state (2026-10-07):** RRu LIVE executed once and `CLOSED_PASS`; `RRU_RESULT=PASS`, `RRU_PRODUCTION_DEPLOYED=YES`, `RRU_ATTEMPT_CONSUMED=YES`, `RRU_RERUN_ALLOWED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=YES`. Production `current` is immutable release `954ce1c191885e9e90198a6f54a3d990bcf144fc`. Recovery itself remains unexecuted: `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. The canonical closeout is `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-07_005834_music_idea3-rru-live-closeout.md`. Required sequence now: independent RRu closeout review -> human merge -> NEW exact-main Recovery authority/freeze -> Recovery LIVE -> LVR -> L8 -> L9.
+> **Current repair state (2026-10-07):** The Core TrustedClock sandbox root cause is repaired in repository bytes only: the Core unit uses `ProtectClock=false` solely so its read-only `adjtimex(2)` probe can run, while non-root identity, `NoNewPrivileges=true`, empty capability bounding/ambient sets, and unrelated hardening remain. All 12 reviewer blockers for CTu are resolved and mechanically proven (runner pre-capture order, pre-existing open lockdown episode support, detector single implicit lifecycle, signal-safe rollback, atomic closeout immutability, CTu -> Recovery descendant history binding, real CTu freeze and verifier trust closure, Authorization/K3 V2 binding, pre-consume gates and non-interactive sudo keepalive, manual reconciliation inspection tooling, restored security intent, and Recovery negative matrix). New stage `CTu` is prepared but has not run live (`CTU_LIVE_EXECUTED=NO`, `CTU_PRODUCTION_MUTATION_PERFORMED=NO`). No Core restart, Detector command, ESP32 touch, NTP rerun, or Recovery execution occurred. Existing Recovery authority artifacts bound to the old main become stale after this repair merges; a new exact-main authority is required.
+
+> **Current Recovery state (2026-10-07):** RRu LIVE executed once and `CLOSED_PASS`; `RRU_RESULT=PASS`, `RRU_PRODUCTION_DEPLOYED=YES`, `RRU_ATTEMPT_CONSUMED=YES`, `RRU_RERUN_ALLOWED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=YES`. Production `current` is immutable release `954ce1c191885e9e90198a6f54a3d990bcf144fc`. Recovery itself remains unexecuted: `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. The canonical closeout is `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-07_005834_music_idea3-rru-live-closeout.md`. Required sequence now: RRu PASS -> NTP successor PASS / consumed -> CTu (Pre-Recovery repair) -> CTu closeout -> fresh Recovery authority/freeze -> Recovery LIVE -> LVR -> L8 -> L9. Recovery is mechanically gated on the root-owned CTu PASS closeout bound to an ancestor of that exact Recovery main.
 
 Current checkpoint (2026-10-06): the historical `R1A` attempt executed live exactly once and remains an immutable, consumed FAIL
 (`R1A_RESULT=FAIL`, `R1A_RERUN_ALLOWED=NO`): the genuine external detector chain was observed (owner-run read-only forensic readout,
@@ -32,7 +34,11 @@ disposition) stages. `R1Du` executed once (`R1DU_LIVE=CLOSED_PASS`, deployment o
 disposition COMMITTED (incident #1 `CLOSED`, `R1D_DISPOSITION_COMMITTED=YES`) but the stage is `R1D_RESULT=FAIL_IMMUTABLE`
 (never rerun, never rewritten to PASS): its final TrustedClock evidence was unavailable because the verifier snapshot lacked
 `trusted_time`. The repository now carries the snapshot repair and the read-only, non-mutating `R1Dv` validation stage (not an R1D
-retry). `R1Dv` has since executed once and PASSED (`R1DV_LIVE=CLOSED_PASS`, read-only: no socket, no incident mutation, no disposition; unique closeout receipt recorded). R1B's predecessor Path B was therefore satisfied and R1B has since run once and failed immutably (see the checkpoint above); Recovery R2–R8 was blocked until R1Bv passed; that predecessor is now satisfied but Recovery has not run. See [[idea3/idea3-status]].
+retry). `R1Dv` has since executed once and PASSED (`R1DV_LIVE=CLOSED_PASS`, read-only: no socket, no incident mutation, no disposition; unique closeout receipt recorded). R1B's predecessor Path B was therefore satisfied and R1B has since run once and failed immutably (see the checkpoint above); that predecessor is now satisfied but Recovery has not run. See [[idea3/idea3-status]].
+
+## Historical R1Bv prerequisite note — superseded
+
+At the earlier repository-only checkpoint, Recovery R2–R8 was blocked until R1Bv passed. That historical wording is superseded by the unique R1Bv `CLOSED_PASS` closeout above; it remains here only to preserve the prior sequence meaning.
 
 ## Start here
 
