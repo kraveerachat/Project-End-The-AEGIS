@@ -282,8 +282,8 @@ def recovery_gate(repo: Path) -> subprocess.CompletedProcess[str]:
 # ---------------------------------------------------------------- registry
 def test_r1bv_is_registered_exactly_once_right_after_r1b_and_is_non_mutating() -> None:
     order = base.stages()
-    assert order.count("R1Bv") == 1 and order.index("R1Dv") < order.index("R1B") < order.index("R1Bv") < order.index("RRu") < order.index("CTu") < order.index("Recovery") < order.index("L8") < order.index("L9")
-    assert order[order.index("R1B") + 1] == "R1Bv" and order[order.index("R1Bv") + 1] == "RRu" and order[order.index("RRu") + 1] == "CTu" and order[order.index("CTu") + 1] == "Recovery" and order[order.index("Recovery") + 1] == "L8"
+    assert order.count("R1Bv") == 1 and order.index("R1Dv") < order.index("R1B") < order.index("R1Bv") < order.index("RRu") < order.index("CTu") < order.index("Recovery") < order.index("L8u") < order.index("L8") < order.index("L9")
+    assert order[order.index("R1B") + 1] == "R1Bv" and order[order.index("R1Bv") + 1] == "RRu" and order[order.index("RRu") + 1] == "CTu" and order[order.index("CTu") + 1] == "Recovery" and order[order.index("Recovery") + 1] == "L8u" and order[order.index("L8u") + 1] == "L8"
     out = base.bash(f'. "{base.P4_LIB}"; p4_stage_known R1Bv && echo KNOWN; p4_stage_mutates R1Bv && echo MUTATES || echo NON_MUTATING; p4_stage_gaps R1Bv; echo "extra=[$(p4_stage_auth_extra R1Bv)]"; p4_stage_handler_status R1Bv').stdout.split("\n")
     assert out[:5] == ["KNOWN", "NON_MUTATING", "none", "extra=[]", "REGISTERED"]
     for mutating in ("R1B", "R1D", "R1A", "L8"):

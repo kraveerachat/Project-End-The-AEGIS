@@ -81,7 +81,7 @@ def run_ladder(core: Core, tmp_path: Path, *, d4: int = 0) -> str:
 
 def test_recovery_is_registered_once_after_rru_before_l8_mutating_with_no_gap_and_no_authorization_extra() -> None:
     order = sup.stages()
-    assert order.count("Recovery") == 1 and order[order.index("R1Bv") + 1] == "RRu" and order[order.index("RRu") + 1] == "CTu" and order[order.index("CTu") + 1] == "Recovery" and order[order.index("Recovery") + 1] == "L8"
+    assert order.count("Recovery") == 1 and order[order.index("R1Bv") + 1] == "RRu" and order[order.index("RRu") + 1] == "CTu" and order[order.index("CTu") + 1] == "Recovery" and order[order.index("Recovery") + 1] == "L8u" and order[order.index("L8u") + 1] == "L8"
     out = sup.bash(f'. "{sup.P4_LIB}"; p4_stage_known Recovery && p4_stage_mutates Recovery && echo MUTATES; p4_stage_gaps Recovery; echo "extra=[$(p4_stage_auth_extra Recovery)]"; p4_stage_handler_status Recovery').stdout.split("\n")
     assert out[0] == "MUTATES" and out[1] == "none" and out[2] == "extra=[]" and out[3] == "REGISTERED"
     assert "L10" not in order and not any(name.startswith("Recovery") and name != "Recovery" for name in order)  # exactly ONE Recovery stage, no new unnecessary stage

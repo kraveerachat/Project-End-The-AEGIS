@@ -346,14 +346,15 @@ SHARED_PINS = {
     # re-pinned by the F1i post-L7 repaired-release install stage task (2026-10-04): p4-lib.sh registers stage F1i (after L8p, before F1r; no repository gap), p4-stage-gate.sh binds F1i
     # to the same no-extra-field authorization rule, and p4-compare.sh adds the label `stage F1i` to the existing RELATIONAL one-release catalog allowance (behavior unchanged:
     # every release already present must stay byte-identical, exactly one named id may be added). No other stage, gate or record rule changed.
-    "p4-stage-gate.sh": "352aeea2400d109fe235b8888250d1f91ab7e8f8a8cb44b8c4b5ec9d19093480",
+    "p4-stage-gate.sh": "f78fbc0009c8842c1a6e3cfbe416385cd8c7aa999a1a74d69a6a3b49cc8f6792",
     # Re-pinned by the owner-approved R1I registration (2026-10-05): additive
     # R1I stage catalog entry; existing stage behavior remains unchanged.
     # Re-pinned by the owner-approved R1A registration (2026-10-05): additive R1A stage catalog entry (after R1I, before L8), its operational-order comment and `R1A) echo none`
     # in p4_stage_gaps; p4_stage_mutates is unchanged (the existing "every stage except L0" rule). No existing stage behavior changed.
     # Re-pinned for CTu (2026-10-07): this shared registry intentionally adds
     # the new successor stage; p4-compare and p4-stage-gate remain unchanged.
-    "p4-lib.sh": "b0c5bb140b348def1a4f28646ee43a0b5a4bcaa5c9e2240e7de5732c0a7f3f61",
+    # Re-pinned for L8u (2026-10-07): p4-lib.sh registers the read-only L8u stage between Recovery and L8; p4-stage-gate.sh adds L8u to the no-extra-field list. Nothing else changed.
+    "p4-lib.sh": "a43df8b596125e77353f2597dbf74115c0df72f5047468dd48e6919216fc9aeb",
     # re-pinned by the SAFE_STOPPED governed-successor task (2026-10-03): ONE additive, task-specific catalog DNSMASQ_SAFE_STOPPED_POST; no existing catalog changed
     "p4-compare.sh": "75d0a0dc0e4d529ed39bf2929cd3c54a9ef7a8a4eb8d643725af1d61862f6294",
     "p4-l0-capture.sh": "e5d82dc5959dbcd1aa13ca0d58aa15ed5375a77e918be9a1ec2a8a2ac740a61b",
@@ -397,7 +398,7 @@ def test_the_new_package_has_exactly_the_frozen_file_set() -> None:
 
 
 def test_no_new_l_number_stage_was_invented() -> None:
-    assert (DEPLOY / "p4-lib.sh").read_text().count('readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu Recovery L8 L9"') == 1
+    assert (DEPLOY / "p4-lib.sh").read_text().count('readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu Recovery L8u L8 L9"') == 1
     assert not (DEPLOY / "stages" / "L10").exists() and not (DEPLOY / "stages" / "L4b").exists()
 
 
