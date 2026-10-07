@@ -113,7 +113,7 @@ function LinkRow({ t, link, now, revoking, onAskRevoke }) {
       style={{ maxHeight: revoking ? 0 : 64, opacity: revoking ? 0 : 1, transitionTimingFunction: 'var(--ease)' }}
     >
       <div
-        className={`grid items-center gap-3 px-4 h-14 border-b border-line text-[13px] ${revoking ? 'hatch hatch-ink3' : ''}`}
+        className={`neo-table-row grid items-center gap-3 px-4 h-14 border-b border-line text-[13px] ${revoking ? 'hatch hatch-ink3' : ''}`}
         style={{
           gridTemplateColumns: 'minmax(150px, 1fr) 104px 100px 84px 36px 88px',
           filter: revoking ? 'saturate(0)' : 'none',
@@ -369,7 +369,8 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                 <PillInput
                   id="share-pw"
                   type="password"
-                  autoComplete="off"
+                  // new-password: browsers must never offer the account password here.
+                  autoComplete="new-password"
                   value={linkPassword}
                   onChange={(e) => { setLinkPassword(e.target.value); setCreateError(null) }}
                   placeholder={t('linkPasswordPlaceholder')}
@@ -436,11 +437,11 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                   </Btn>
                   <Btn variant="ghost" size="sm" onClick={() => setCreated(null)}>{t('done')}</Btn>
                 </div>
-                <p className="text-[11.5px] leading-relaxed rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
+                <p className="neo-callout text-[11.5px] leading-relaxed rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
                   {t('shareLinkOnceWarn')}
                 </p>
                 {created.isPublic && (
-                  <p className="text-[11.5px] leading-relaxed rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
+                  <p className="neo-callout text-[11.5px] leading-relaxed rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
                     {t('shareLinkPublicNote')}
                   </p>
                 )}
@@ -473,7 +474,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
       <div className="col-span-7 max-lg:col-span-12">
         <Card className="overflow-hidden">
           <div className="px-5 pt-5 pb-3 flex items-center gap-2">
-            <Link2 size={16} strokeWidth={1.5} className="text-ink-3" />
+            <span className="neo-panel-icon text-ink-3" aria-hidden><Link2 size={16} strokeWidth={1.6} /></span>
             <h2 className="text-[16px] font-semibold text-ink">{t('activeLinks')}</h2>
             <Chip tone="neutral" className="ml-auto">
               {filtered ? `${visibleShares.length} / ${shares.length}` : shares.length}
@@ -481,7 +482,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
           </div>
 
           {/* ตัวกรองของตารางนี้ — แทนที่ช่องค้นหาระดับระบบบนจอนี้ */}
-          <div className="px-5 pb-3 flex items-center gap-2.5 flex-wrap">
+          <div className="neo-toolbar px-5 pb-3 flex items-center gap-2.5 flex-wrap">
               <div className="w-[168px]">
                 <PillSelect aria-label={t('filterScope')} value={fScope} onChange={(e) => setFScope(e.target.value)}>
                   <option value="all">{t('filterScope')} · {t('filterAll')}</option>
@@ -502,7 +503,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
           <div className="overflow-x-auto">
             <div className="min-w-[720px]">
               <div
-                className="grid gap-3 px-4 py-2 border-b border-line text-[11px] font-semibold text-ink-3 uppercase tracking-[0.06em]"
+                className="neo-table-head grid gap-3 px-4 py-2 border-b border-line text-[11px] font-semibold text-ink-3 uppercase tracking-[0.06em]"
                 style={{ gridTemplateColumns: 'minmax(150px, 1fr) 104px 100px 84px 36px 88px' }}
               >
                 <span>{t('shareFile')}</span>

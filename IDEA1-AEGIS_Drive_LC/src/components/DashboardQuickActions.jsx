@@ -35,6 +35,7 @@ export function DashboardQuickActions({ t, go }) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef(null)
   const menuRef = useRef(null)
+  const triggerRef = useRef(null)
   const actions = buildActions(t, go)
 
   useEffect(() => {
@@ -43,12 +44,16 @@ export function DashboardQuickActions({ t, go }) {
       if (!containerRef.current?.contains(event.target)) setOpen(false)
     }
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
     }
     document.addEventListener('mousedown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
-    requestAnimationFrame(() => menuRef.current?.querySelector('button')?.focus())
+    const frame = window.requestAnimationFrame(() => menuRef.current?.querySelector('button')?.focus())
     return () => {
+      window.cancelAnimationFrame(frame)
       document.removeEventListener('mousedown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
@@ -73,7 +78,9 @@ export function DashboardQuickActions({ t, go }) {
               onClick={() => run(action)}
               className={`header-action-button ${action.primary ? 'is-primary' : ''}`}
             >
-              <Icon size={15} strokeWidth={1.8} aria-hidden />
+              <span className="header-action-icon" aria-hidden>
+                <Icon size={16} strokeWidth={1.9} />
+              </span>
               <span>{action.shortLabel}</span>
             </button>
           )
@@ -81,6 +88,7 @@ export function DashboardQuickActions({ t, go }) {
       </div>
 
       <button
+        ref={triggerRef}
         type="button"
         className="quick-actions-trigger md:hidden"
         aria-label={t('quickActions')}
@@ -99,6 +107,15 @@ export function DashboardQuickActions({ t, go }) {
           role="menu"
           aria-label={t('quickActions')}
           className="quick-actions-menu md:hidden"
+          onKeyDown={(event) => {
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+            const items = [...event.currentTarget.querySelectorAll('[role="menuitem"]')]
+            const current = items.indexOf(document.activeElement)
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+              : event.key === 'ArrowDown' ? (current + 1) % items.length : (current - 1 + items.length) % items.length
+            event.preventDefault()
+            items[next]?.focus()
+          }}
         >
           {actions.map((action) => {
             const Icon = action.icon

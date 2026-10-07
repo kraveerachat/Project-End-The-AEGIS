@@ -178,7 +178,7 @@ export function CapacityCard({ t, capacityBytes, usage, unaccountedBytes }) {
   const accessibleLabel = `${t('capacityRingLabel', { used: fmtBytes(used), total: fmtBytes(total), free: amount(free), pct: usedPct })}. ${t('capacityAegisRingLabel', { total: amount(model.aegisTotal), n: String(model.aegis.filter((row) => row.bytes > 0).length) })}`
 
   return (
-    <Card className="p-5">
+    <Card className="neo-capacity-card p-5">
       <CardTitle sub={t('capacitySub')}>{t('capacity')}</CardTitle>
 
       <div className="capacity-dual-layout grid grid-cols-[minmax(280px,0.9fr)_minmax(320px,1.1fr)] gap-8 items-center max-lg:grid-cols-1">
@@ -232,7 +232,7 @@ export function CapacityCard({ t, capacityBytes, usage, unaccountedBytes }) {
         </div>
       </div>
 
-      <dl className="grid grid-cols-4 gap-x-6 gap-y-4 mt-6 pt-5 border-t border-line max-md:grid-cols-2">
+      <dl className="neo-metric-strip grid grid-cols-4 gap-x-6 gap-y-4 mt-6 pt-5 border-t border-line max-md:grid-cols-2">
         {[
           [t('capacityTotal'), amount(total)],
           [t('capacityUsed'), amount(used)],

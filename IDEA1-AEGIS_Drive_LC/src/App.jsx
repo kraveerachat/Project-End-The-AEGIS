@@ -6,9 +6,11 @@ import { useApi, useReducedMotion } from './lib/hooks.js'
 import { isPlatformWired } from './lib/fetchState.js'
 import { buildLocationForIntent, normalizeNavigationIntent, readLocationIntent, resolveAuthorizedScreen, visiblePrimaryNav } from './lib/navigationIntent.js'
 import { armAuthenticatedBackBoundary, authenticatedNavigationState, handleAuthenticatedBack, releaseAuthenticatedBackBoundary } from './lib/authBackBoundary.js'
-import { HatchDefs, SkeletonLoader } from './components/ui.jsx'
+import { Dot, HatchDefs, SkeletonLoader } from './components/ui.jsx'
 import { Sidebar } from './components/Sidebar.jsx'
+import { PositionedNavigation } from './components/PositionedNavigation.jsx'
 import { useScrollReveal } from './lib/useScrollReveal.js'
+import { useNeoPageMotion } from './lib/useNeoPageMotion.js'
 import { TopBar } from './components/TopBar.jsx'
 import { GlobalSearch } from './components/GlobalSearch.jsx'
 import { DashboardQuickActions } from './components/DashboardQuickActions.jsx'
@@ -22,11 +24,14 @@ import {
   applyAuthenticatedInterfaceStyle,
   clearAuthenticatedInterfaceStyle,
 } from './lib/interfaceStyle.js'
+import { InterfaceStyleContext } from './lib/interfaceStyleContext.js'
 import { Login } from './screens/Login.jsx'
 import { MandatoryPasswordReset } from './screens/MandatoryPasswordReset.jsx'
 
 const lazyNamed = (loader, name) => lazy(() => loader().then((module) => ({ default: module[name] })))
 const Dashboard = lazyNamed(() => import('./screens/Dashboard.jsx'), 'Dashboard')
+// Classic keeps its approved Glossy Enamel Dashboard (PR #388); Neo keeps its own above.
+const ClassicDashboard = lazyNamed(() => import('./screens/ClassicDashboard.jsx'), 'ClassicDashboard')
 const Files = lazyNamed(() => import('./screens/Files.jsx'), 'Files')
 const Vault = lazyNamed(() => import('./screens/Vault.jsx'), 'Vault')
 const WORKSPACE_SCREENS = new Set(['files', 'vault'])
@@ -90,6 +95,7 @@ export default function App() {
   ))
   const [density, setDensity] = useState('comfortable')
   const [interfaceStyle, setInterfaceStyle] = useState('classic')
+  const [navigationPosition, setNavigationPosition] = useState('left')
   const [preferenceSaving, setPreferenceSaving] = useState(false)
   const [preferenceError, setPreferenceError] = useState(false)
   const [settingsTab, setSettingsTab] = useState('appearance')
@@ -151,6 +157,7 @@ export default function App() {
         language: preferences?.language ?? 'th',
         density: preferences?.density ?? 'comfortable',
         interfaceStyle: preferences?.interfaceStyle ?? 'classic',
+        navigationPosition: preferences?.navigationPosition ?? 'left',
       },
     })
     // บันทึกไม่ผ่าน = ธีมที่ตาเห็นยังถูกต้องสำหรับเบราว์เซอร์นี้ (shell hint เขียนไปแล้ว)
@@ -183,6 +190,7 @@ export default function App() {
     setSession({ ...user, menu })
     setLang(user.preferences?.language ?? 'th')
     setDensity(user.preferences?.density ?? 'comfortable')
+    setNavigationPosition(user.preferences?.navigationPosition ?? 'left')
     adoptTheme(decision.theme)
     // หลังจุดนี้: users.ui_theme = shell hint = ธีมที่ render จริง (ไม่เหลือค่าที่ขัดกัน)
     if (decision.persistToAccount) persistThemeToAccount(decision.theme, user.preferences)
@@ -234,7 +242,6 @@ export default function App() {
      บังคับรีเซ็ตรหัสผ่าน) — hook ที่ถูกเรียกบ้างไม่เรียกบ้างทำให้ลำดับ hook ของ
      React เพี้ยนทั้งต้นไม้ ("Rendered more hooks than during the previous render")
      ตัว hook เองไม่ทำอะไรเลยจนกว่าจะมี mainRef และ Neo เป็นสไตล์ที่ใช้อยู่ */
-  useScrollReveal(mainRef, screen, interfaceStyle === 'neo')
 
   // เมนูถูก filter ตาม role "ฝั่งเซิร์ฟเวอร์" มาแล้ว (server/rbac/permissions.js)
   // — client แค่ render สิ่งที่ได้รับ รายการที่ไม่มีสิทธิ์ไม่เคยมาถึง DOM เลย
@@ -246,6 +253,16 @@ export default function App() {
   // URL selections with the exact menu the server authorized for this session.
   const activeScreen = resolveAuthorizedScreen(screen, serverNav)
   const workspaceSurfaceActive = WORKSPACE_SCREENS.has(activeScreen)
+  const neoDashboard = interfaceStyle === 'neo' && activeScreen === 'dashboard'
+  const classicDashboard = interfaceStyle === 'classic' && activeScreen === 'dashboard'
+  // The approved floating Sidebar + Top Bar are the shell of every Neo screen,
+  // not only Dashboard. Dashboard-specific content still keys off neoDashboard.
+  const neoShell = interfaceStyle === 'neo'
+  // Both styles use the same shell behavior. Their materials stay isolated in CSS.
+  const modernShell = neoShell || interfaceStyle === 'classic'
+  // Dashboard has its own bounded GSAP/ScrollTrigger pass; other Neo screens
+  // retain the established IntersectionObserver reveal and its failsafe.
+  useScrollReveal(mainRef, screen, interfaceStyle === 'neo' && !neoDashboard)
   const PageSurface = workspaceSurfaceActive ? WorkspaceMarqueeSurface : 'div'
 
   const go = useCallback((destination, params = {}, options = {}) => {
@@ -343,6 +360,9 @@ export default function App() {
       return () => clearTimeout(timer)
     }
   }, [screen, session, reduced])
+  // Dark Neo pages share the Dashboard's edge light + panel entrance; the
+  // Dashboard keeps its own GSAP pass (useDashboardMotion).
+  useNeoPageMotion(mainRef, activeScreen, Boolean(session) && !loadingScreen, neoShell && !neoDashboard && resolvedTheme === 'dark', reduced)
 
   const getSkeletonType = (scr) => {
     if (scr === 'dashboard') return 'dashboard'
@@ -408,13 +428,14 @@ export default function App() {
   }
 
   const updatePreference = async (key, value) => {
-    const previous = { theme, language: lang, density, interfaceStyle }
+    const previous = { theme, language: lang, density, interfaceStyle, navigationPosition }
     // ธีมเดินผ่าน adoptTheme() เสมอ (เขียน DOM + shell hint ทันที) — จอ Settings/TopBar
     // จึงใช้เส้นทางเดียวกับด่านล็อกอิน ไม่มีเส้นทางที่สองที่เขียนธีมด้วยกฎของตัวเอง
     const setValue = {
       theme: adoptTheme,
       language: setLang,
       density: setDensity,
+      navigationPosition: setNavigationPosition,
     }[key]
     setValue(value)
     setPreferenceSaving(true)
@@ -436,7 +457,7 @@ export default function App() {
     if (value === interfaceStyle) return true
     setPreferenceSaving(true)
     setPreferenceError(false)
-    const next = { theme, language: lang, density, interfaceStyle: value }
+    const next = { theme, language: lang, density, interfaceStyle: value, navigationPosition }
     const result = await apiFetch('/api/preferences', { method: 'PATCH', body: next })
     if (!result.ok) {
       setPreferenceSaving(false)
@@ -463,13 +484,23 @@ export default function App() {
   }
 
   const screenEl = {
-    dashboard: (
+    dashboard: interfaceStyle === 'classic' ? (
+      <ClassicDashboard
+        t={t}
+        lang={lang}
+        health={healthApi}
+        go={go}
+        telemetry={telemetryApi.data}
+        telemetryLoading={telemetryApi.loading}
+      />
+    ) : (
       <Dashboard
         t={t}
         lang={lang}
         health={healthApi}
         go={go}
         telemetry={telemetryApi.data}
+        interfaceStyle={interfaceStyle}
         // Passed so the tiles can tell "not read yet" from "read and failed".
         telemetryLoading={telemetryApi.loading}
       />
@@ -502,6 +533,7 @@ export default function App() {
         t={t} lang={lang} setLang={(value) => updatePreference('language', value)}
         theme={theme} setTheme={(value) => updatePreference('theme', value)}
         density={density} setDensity={(value) => updatePreference('density', value)}
+        navigationPosition={navigationPosition} setNavigationPosition={(value) => updatePreference('navigationPosition', value)}
         interfaceStyle={interfaceStyle}
         onInterfaceStyleChange={switchInterfaceStyle}
         role={effectiveRole} user={session}
@@ -518,7 +550,8 @@ export default function App() {
   }[activeScreen]
 
   return (
-    <div className="authenticated-shell h-full flex bg-canvas" data-interface-style={interfaceStyle}>
+    <InterfaceStyleContext.Provider value={interfaceStyle}>
+    <div className="authenticated-shell h-full flex bg-canvas" data-interface-style={interfaceStyle} data-screen={activeScreen} data-navigation-position={navigationPosition}>
       <HatchDefs />
       <Sidebar
         t={t}
@@ -532,8 +565,10 @@ export default function App() {
         resolvedTheme={resolvedTheme}
         mobileOpen={mobileNav}
         closeMobile={() => setMobileNav(false)}
+        neoDashboard={modernShell}
+        position={navigationPosition}
       />
-      <div className="flex-1 flex flex-col min-w-0 h-full">
+      <div className="app-main-column flex-1 flex flex-col min-w-0 h-full">
         <TopBar
           t={t}
           lang={lang}
@@ -546,38 +581,66 @@ export default function App() {
           onSettings={() => { setSettingsTab('appearance'); go('settings') }}
           onSignOut={signOut}
           openMobileNav={() => setMobileNav(true)}
+          neoDashboard={modernShell}
+          classic={interfaceStyle === 'classic'}
+          collapsed={collapsed}
+          setCollapsed={setCollapsed}
+          navigationPosition={navigationPosition}
+          search={modernShell ? (
+            <GlobalSearch
+              t={t}
+              screen={activeScreen}
+              go={go}
+              nav={nav}
+              files={filesApi.data?.files ?? []}
+              people={usersApi.data?.users ?? []}
+              disabled={SEARCH_DISABLED_SCREENS.has(activeScreen)}
+              className="neo-topbar-search"
+              neoDashboard
+            />
+          ) : null}
         />
+        {navigationPosition === 'top' && <PositionedNavigation t={t} nav={nav} screen={activeScreen} go={go} position="top" />}
         <main
           ref={mainRef}
           onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 4)}
-          className="flex-1 overflow-y-auto"
+          className="app-main-scroll flex-1 overflow-y-auto"
         >
           {/* Files and Vault: the whole main pane is ONE shared marquee surface (it paints the
               rectangle and owns the drag); the screen inside only registers its selection. */}
           <PageSurface
             key={activeScreen}
             data-testid="app-page-content"
-            className={workspaceSurfaceActive ? 'workspace-full-pane-surface min-h-full flex flex-col' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
+            className={workspaceSurfaceActive ? 'workspace-full-pane-surface min-h-full flex flex-col' : neoDashboard ? 'neo-dashboard-content min-h-full' : classicDashboard ? 'classic-dashboard-content min-h-full' : neoShell ? 'neo-page-content min-h-full' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
           >
             {/* One composed header: breadcrumb + title on the left, search/actions on the right. */}
             <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${workspaceSurfaceActive ? 'workspace-pane-content pt-7 max-md:pt-5' : ''}`}>
-              <nav aria-label={t('breadcrumb')} className="flex items-center gap-2 text-xs font-mono font-medium tracking-wider text-slate-400 dark:text-slate-500 uppercase select-none">
+              <nav aria-label={t('breadcrumb')} className="page-breadcrumb flex items-center gap-2 text-xs font-mono font-medium tracking-wider text-slate-400 dark:text-slate-500 uppercase select-none">
                 <span>AEGIS</span>
                 <span className="opacity-40">/</span>
-                <span className="font-semibold text-blue-600 dark:text-blue-400">{t(TITLE_KEYS[activeScreen])}</span>
+                <span className="page-breadcrumb-current font-semibold text-blue-600 dark:text-blue-400">{t(TITLE_KEYS[activeScreen])}</span>
               </nav>
 
               <div className="page-header-main flex items-center justify-between gap-5">
-                <h1 className="shrink-0 text-2xl md:text-[28px] font-bold tracking-[-0.025em] text-ink">
-                  {t(TITLE_KEYS[activeScreen])}
-                </h1>
+                <div className="min-w-0">
+                  <h1 className="page-title text-2xl md:text-[28px] font-bold tracking-[-0.025em] text-ink">
+                    {t(TITLE_KEYS[activeScreen])}
+                  </h1>
+                  {neoDashboard && <p className="mt-1 text-[13px] text-ink-2">{t('dashOverviewSub')}</p>}
+                  {neoDashboard && (
+                    <div className="neo-dashboard-inline-status" role="status" aria-live="polite">
+                      <span><Dot tone={healthApi.data?.layers?.application?.checked === true && healthApi.data?.layers?.application?.ok === true ? 'ok' : 'neutral'} size={6} />{healthApi.data?.layers?.application?.checked === true && healthApi.data?.layers?.application?.ok === true ? t('driveOnline') : t('driveNotConnected')}</span>
+                      <span><Dot tone={healthApi.data?.layers?.metadata?.checked === true && healthApi.data?.layers?.metadata?.ok === true ? 'accent' : 'neutral'} size={6} />{healthApi.data?.layers?.metadata?.checked === true && healthApi.data?.layers?.metadata?.ok === true ? t('metadataConnected', { source: healthApi.data?.db === 'postgres' ? 'PostgreSQL' : 'in-memory' }) : t('metadataNotConnected')}</span>
+                    </div>
+                  )}
+                </div>
 
                 <div className="page-header-tools flex min-w-0 items-center justify-end gap-2.5">
                   {/* Context search — ไม่ render ซ้ำบน Files/Access ที่มี local filter
                       จอ Vault ได้ช่อง disabled เพื่อบอกข้อจำกัดตามจริง
                       ⚠️ ดัชนีที่ส่งเข้าไปมีแค่ files + users ที่เซิร์ฟเวอร์อนุญาตแล้ว —
                          ไม่มีข้อมูล vault อยู่ในนี้เลยไม่ว่าจออะไร */}
-                  {!HEADER_SEARCH_HIDDEN_SCREENS.has(activeScreen) && (
+                  {!modernShell && !HEADER_SEARCH_HIDDEN_SCREENS.has(activeScreen) && (
                     <GlobalSearch
                       t={t}
                       screen={activeScreen}
@@ -602,7 +665,9 @@ export default function App() {
             )}
           </PageSurface>
         </main>
+        {navigationPosition === 'bottom' && <PositionedNavigation t={t} nav={nav} screen={activeScreen} go={go} position="bottom" />}
       </div>
     </div>
+    </InterfaceStyleContext.Provider>
   )
 }

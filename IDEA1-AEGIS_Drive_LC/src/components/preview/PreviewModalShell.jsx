@@ -53,7 +53,7 @@ export function PreviewModalShell({
         {...bodyProps}
         data-preview-shell="1"
         data-preview-state={effective}
-        className="mt-4 rounded-[var(--r-tile)] bg-sunken border border-line flex items-center justify-center overflow-hidden relative"
+        className="neo-media-frame mt-4 rounded-[var(--r-tile)] bg-sunken border border-line flex items-center justify-center overflow-hidden relative"
         style={{ minHeight: 220, ...(bodyProps.style ?? {}) }}
       >
         {effective === 'loading' && (
