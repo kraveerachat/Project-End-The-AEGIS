@@ -201,6 +201,30 @@
   --meter-fill: var(--mat-acc);
   --meter-track: var(--mat-well);
   --topbar-rest-shadow: var(--raised);
+
+  /* Navigation semantics — every shell surface reads these, both modes. */
+  --nav-dur: 280ms;
+  --nav-label-dur: 200ms;
+  --nav-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --classic-nav-bg: var(--mat-bar);
+  --classic-nav-bg-raised: var(--mat-plate);
+  --classic-nav-bg-pressed: var(--bar-well);
+  --classic-nav-hover: color-mix(in srgb, var(--bar-well) 50%, transparent);
+  --classic-nav-hover-surface: color-mix(in srgb, var(--well-a) 55%, transparent);
+  --classic-nav-border: var(--edge);
+  --classic-nav-shadow: var(--raised);
+  --classic-nav-overlay-shadow: 18px 0 30px -18px var(--lo);
+  --classic-nav-text: var(--bar-ink);
+  --classic-nav-text-muted: var(--ink-2);
+  --classic-nav-text-strong: var(--ink);
+  --classic-nav-accent: var(--acc);
+  --classic-nav-active-bg: var(--acc-b);
+  --classic-nav-active-ink: var(--acc-ink);
+  --classic-nav-focus: var(--acc);
+  --classic-nav-divider: var(--rule-engrave);
+  --classic-nav-ring: var(--face-a);
+  --classic-nav-drop: 7px;
+  --classic-nav-rise: -12px;
 }
 
 @media (prefers-contrast: more) {
@@ -251,6 +275,12 @@
 
   .app-sidebar-frame {
     height: calc(100% - var(--shell-gap));
+  }
+
+  /* No rail in Top/Bottom placement: drop the shell's left gutter so the bars,
+     the positioned rail and the page share one 20px edge. */
+  .authenticated-shell:is([data-navigation-position="top"], [data-navigation-position="bottom"]) {
+    padding-left: 0;
   }
 
   .app-topbar {
@@ -344,10 +374,41 @@
     color: var(--acc-ink);
   }
 
-  /* ── Sidebar ── */
+  /* ── Sidebar ─────────────────────────────────────────────────────
+     The rail state machine (compact · hover · pinned) is the shared one in
+     Sidebar.jsx (data-rail-state); Classic only supplies material + motion.
+     The frame keeps its inline 72px footprint while the bar inside it widens
+     over the page, so a temporary hover never reflows the content. */
+  .app-sidebar-frame {
+    position: relative;
+    z-index: 2;
+    overflow: visible;
+  }
+
+  .app-sidebar-frame[data-rail-state="hover"] {
+    z-index: calc(var(--z-sticky) + 1);
+  }
+
+  .app-sidebar-frame > .app-sidebar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 100%;
+    overflow: hidden;
+    transition:
+      width var(--nav-dur) var(--nav-ease),
+      box-shadow var(--nav-dur) var(--nav-ease),
+      background-color 0.2s var(--ease),
+      color 0.2s var(--ease);
+  }
+
+  .app-sidebar-frame[data-rail-state="hover"] > .app-sidebar {
+    width: 260px;
+    box-shadow: var(--raised), var(--classic-nav-overlay-shadow);
+  }
+
   .app-sidebar {
     box-sizing: border-box;
-    padding: 18px 14px;
+    padding: 16px 14px;
   }
 
   .app-drawer-panel {
@@ -355,62 +416,102 @@
     padding: 12px;
   }
 
-  .sidebar-brand {
+  .app-drawer-panel .app-sidebar {
+    position: static;
+    width: 100%;
+  }
+
+  /* Brand header: mark · name · pin toggle on one centred row (no subtitle). */
+  .neo-sidebar-header {
     height: auto;
-    min-height: 44px;
-    padding: 0 0 4px;
+    min-height: 48px;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    padding: 0 0 12px;
+    border-bottom: 1px solid var(--classic-nav-divider);
+    box-shadow: 0 1px 0 var(--hi);
+  }
+
+  .app-sidebar-frame[data-rail-state="compact"] .neo-sidebar-header {
+    flex-direction: column;
     gap: 10px;
   }
 
-  .aegis-lockup-mark {
-    box-sizing: content-box;
+  .neo-sidebar-brand-row {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .app-sidebar-frame[data-rail-state="compact"] .neo-sidebar-brand-row {
+    flex: none;
+    justify-content: center;
+  }
+
+  .neo-sidebar-brand-mark {
+    box-sizing: border-box;
+    flex: none;
+    width: 40px;
+    height: 40px;
     padding: 4px;
-    border-radius: 12px;
+    border-radius: 11px;
     background-image: var(--mat-plate);
     box-shadow: var(--raised-s);
-    color: var(--acc);
   }
 
-  .app-sidebar .aegis-lockup-title {
-    font-size: 17px;
+  .neo-sidebar-brand-name {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--classic-nav-text);
+    font-size: 16px;
     font-weight: 700;
-    letter-spacing: 0;
-    color: var(--bar-ink);
-    white-space: normal;
+    letter-spacing: -0.005em;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .app-sidebar .aegis-lockup-sub {
-    margin-top: 2px;
-    font-size: 12px;
-    font-weight: 500;
-    line-height: 1.45;
-    letter-spacing: 0;
-    text-transform: none;
-    color: var(--bar-ink);
-    white-space: normal;
+  .app-sidebar-frame[data-rail-state="compact"] .neo-sidebar-brand-name {
+    display: none;
   }
 
-  .sidebar-collapse-button {
-    flex: 0 0 auto;
-    width: 34px;
-    height: 34px;
+  .neo-sidebar-header-toggle,
+  .neo-sidebar-toggle {
+    width: 40px;
+    height: 40px;
+    flex: none;
     border-radius: 10px;
+    background-color: var(--face-a);
     background-image: var(--mat-plate);
     box-shadow: var(--raised-s);
     color: var(--ink);
     text-shadow: none;
+    transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
   }
 
-  .sidebar-collapse-button:hover {
+  .neo-sidebar-header-toggle:hover,
+  .neo-sidebar-toggle:hover {
     color: var(--acc);
   }
 
-  .sidebar-collapse-button:active {
+  .neo-sidebar-header-toggle:active,
+  .neo-sidebar-toggle:active {
     transform: translateY(1px);
     box-shadow: var(--inset);
   }
 
+  .neo-sidebar-header-toggle:focus-visible,
+  .neo-sidebar-toggle:focus-visible {
+    outline: 2px solid var(--classic-nav-focus);
+    outline-offset: 2px;
+  }
+
   .sidebar-nav {
+    position: relative;
     padding: 4px 0 0;
     gap: 2px;
   }
@@ -418,24 +519,28 @@
   .sidebar-group-label {
     margin: 0 0 6px;
     padding: 14px 4px 6px;
-    border-bottom: 1px solid var(--rule-engrave);
+    border-bottom: 1px solid var(--classic-nav-divider);
     box-shadow: 0 1px 0 var(--hi);
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 1.4px;
-    color: var(--bar-ink);
+    color: var(--classic-nav-text);
+    white-space: nowrap;
   }
 
   .sidebar-nav-item {
     position: relative;
+    z-index: 1;
     height: auto;
     min-height: 44px;
     padding: 10px 12px;
     border-radius: var(--r-in);
     font-size: 14px;
     font-weight: 500;
-    color: var(--bar-ink);
+    color: var(--classic-nav-text);
     background-color: transparent;
+    white-space: nowrap;
+    transition: background-color 0.18s var(--ease), color 0.18s var(--ease), box-shadow 0.18s var(--ease), transform 0.18s var(--ease);
   }
 
   .sidebar-nav-item .sidebar-nav-icon {
@@ -445,47 +550,92 @@
   }
 
   .sidebar-nav-item:hover:not(.is-active) {
-    background-color: color-mix(in srgb, var(--bar-well) 50%, transparent);
-    color: var(--bar-ink);
+    background-color: var(--classic-nav-hover);
+    color: var(--classic-nav-text);
   }
 
-  /* Active = pressed into the bar. !important only because index.css paints
-     the legacy active fill with !important in dark mode. */
+  .sidebar-nav-item:active:not(.is-active) {
+    transform: translateY(1px);
+  }
+
+  /* Active = pressed into the bar. The pressed well is the shared indicator,
+     which slides between rows (Sidebar.jsx measures it); the row itself is
+     only bold. !important only because index.css paints the legacy active
+     fill with !important in dark mode. */
   .sidebar-nav-item.is-active {
-    --accent-soft: var(--bar-well);
-    background-color: var(--bar-well) !important;
-    box-shadow: var(--press);
-    color: var(--bar-ink);
+    --accent-soft: transparent;
+    background-color: transparent !important;
+    box-shadow: none;
+    color: var(--classic-nav-text);
     font-weight: 700;
   }
 
-  .sidebar-nav-item.is-active::before {
+  .neo-nav-indicator {
+    position: absolute;
+    z-index: 0;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 44px;
+    border-radius: var(--r-in);
+    background-color: var(--classic-nav-bg-pressed);
+    box-shadow: var(--press);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform var(--nav-dur) var(--nav-ease);
+  }
+
+  .neo-nav-indicator::before {
     content: "";
     position: absolute;
-    left: -2px;
     top: 10px;
     bottom: 10px;
+    left: -2px;
     width: 4px;
     border-radius: 2px;
-    background: var(--acc);
+    background: var(--classic-nav-accent);
+    box-shadow: 0 0 8px var(--glow);
+  }
+
+  /* Mobile drawer has no sliding indicator: the active row carries the well. */
+  .app-drawer-panel .sidebar-nav-item.is-active {
+    background-color: var(--classic-nav-bg-pressed) !important;
+    box-shadow: var(--press);
+  }
+
+  .app-drawer-panel .sidebar-nav-item.is-active::before {
+    content: "";
+    position: absolute;
+    top: 10px;
+    bottom: 10px;
+    left: -2px;
+    width: 4px;
+    border-radius: 2px;
+    background: var(--classic-nav-accent);
     box-shadow: 0 0 8px var(--glow);
   }
 
   .sidebar-nav-item:focus-visible {
-    outline: 2px solid var(--acc);
+    outline: 2px solid var(--classic-nav-focus);
     outline-offset: 2px;
   }
 
+  /* Labels reveal after the bar starts widening: fade + a few px, no bounce. */
+  .app-sidebar-frame:not([data-rail-state="compact"]) :is(.sidebar-nav-label, .sidebar-group-label, .neo-sidebar-brand-name, .sidebar-meter) {
+    animation: classic-label-in var(--nav-label-dur) var(--nav-ease) 60ms both;
+  }
+
   .sidebar-meter {
-    margin: 16px 0 0;
+    margin: 14px 0 0;
     padding: 12px 12px 14px;
     border-radius: var(--r-in);
-    background-color: var(--bar-well);
+    background-color: var(--classic-nav-bg-pressed) !important;
     box-shadow: var(--inset);
+    white-space: nowrap;
   }
 
   .sidebar-meter p {
-    color: var(--bar-ink);
+    color: var(--classic-nav-text);
   }
 
   .sidebar-meter-value,
@@ -502,36 +652,54 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 8px var(--glow);
   }
 
-  /* ── Top bar ── */
+  /* ── Top bar (utility bar; navigation lives in the rail or positioned nav) ── */
   .app-topbar {
+    position: relative;
     height: auto;
     min-height: 68px;
-    flex-wrap: wrap;
     justify-content: flex-start;
-    gap: 12px 16px;
+    gap: 12px 14px;
     padding: 12px 18px;
   }
 
-  .app-topbar > :first-child {
+  .neo-topbar-identity {
+    gap: 12px;
     min-width: 0;
   }
 
-  .topbar-tools {
-    margin-left: auto;
-    gap: 14px;
+  .neo-topbar-identity .aegis-lockup-title {
+    color: var(--bar-ink);
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0;
   }
 
-  .topbar-menu-button {
-    width: 44px;
-    height: 44px;
+  .neo-topbar-identity .aegis-lockup-mark {
+    box-sizing: content-box;
+    padding: 4px;
     border-radius: 12px;
     background-image: var(--mat-plate);
     box-shadow: var(--raised-s);
-    color: var(--ink);
-    text-shadow: none;
   }
 
-  .status-pill {
+  .neo-topbar-identity-divider {
+    width: 1px;
+    height: 28px;
+    background: var(--classic-nav-divider);
+    box-shadow: 1px 0 0 var(--hi);
+  }
+
+  .neo-topbar-utilities {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .neo-status-pill {
+    flex: none;
     border: 0;
     border-radius: 999px;
     background-color: var(--bar-well);
@@ -542,20 +710,60 @@
     font-weight: 500;
   }
 
-  /* Pills: online = green LED, not connected = red LED (the label says which). */
-  .status-pill .status-dot {
+  .neo-status-pill .status-dot {
     width: 8px !important;
     height: 8px !important;
   }
 
-  .status-pill .status-dot[data-tone="accent"] {
+  /* Pills: online = green LED, not connected = red LED (the label says which). */
+  .neo-status-pill .status-dot[data-tone="accent"] {
     background-image: var(--led-ok);
     box-shadow: var(--led-ok-glow);
   }
 
-  .status-pill .status-dot[data-tone="neutral"] {
+  .neo-status-pill .status-dot[data-tone="neutral"] {
     background-image: var(--led-danger);
     box-shadow: var(--led-danger-glow);
+  }
+
+  .neo-topbar-search {
+    flex: 1 1 240px;
+    min-width: 140px;
+    max-width: 340px;
+    margin-left: auto;
+  }
+
+  .neo-topbar-search input {
+    width: 100%;
+    height: 42px;
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--well-b);
+    background-image: var(--mat-well);
+    box-shadow: var(--inset);
+    color: var(--ink);
+    font-size: 14px;
+    text-shadow: none;
+  }
+
+  .neo-topbar-search input::placeholder {
+    color: var(--ink-2);
+  }
+
+  .neo-topbar-search input:focus-visible {
+    box-shadow: var(--inset), 0 0 0 2px var(--classic-nav-focus);
+  }
+
+  .neo-topbar-search svg {
+    color: var(--ink-2);
+  }
+
+  .neo-topbar-account-zone {
+    gap: 12px;
+  }
+
+  .neo-topbar-account-zone > .w-px {
+    display: none;
   }
 
   .classic-theme-switch {
@@ -595,11 +803,11 @@
   }
 
   .classic-theme-switch:focus-visible {
-    outline: 2px solid var(--acc);
+    outline: 2px solid var(--classic-nav-focus);
     outline-offset: 3px;
   }
 
-  .topbar-clock {
+  .neo-topbar-clock {
     align-items: center;
     padding: 5px 14px;
     border-radius: 12px;
@@ -608,7 +816,7 @@
     text-shadow: none;
   }
 
-  .topbar-clock-time {
+  .neo-topbar-time {
     font-size: 17px;
     font-weight: 600;
     letter-spacing: 0.02em;
@@ -616,33 +824,31 @@
     text-shadow: 0 0 8px var(--glow);
   }
 
-  .topbar-clock-date {
+  .neo-topbar-date {
     font-size: 11px;
     font-weight: 400;
     color: var(--ink-2);
   }
 
-  .topbar-divider {
-    display: none;
-  }
-
-  .topbar-profile {
+  .neo-profile-trigger {
     gap: 10px;
     padding: 0 6px 0 0;
+    border-radius: 999px;
   }
 
-  .topbar-profile:hover {
-    background-color: transparent;
+  .neo-profile-trigger:hover,
+  .neo-profile-trigger[aria-expanded="true"] {
+    background-color: var(--classic-nav-hover);
   }
 
-  .topbar-avatar-ring {
+  .neo-topbar-avatar-shell {
     padding: 4px;
     background-color: var(--face-a);
     background-image: var(--mat-plate);
     box-shadow: var(--raised-s);
   }
 
-  .topbar-avatar-ring .avatar-accent {
+  .neo-topbar-avatar-shell .avatar-accent {
     background: transparent;
     color: var(--acc);
     font-family: var(--font-sans);
@@ -650,15 +856,173 @@
     text-shadow: 0 1px 0 var(--hi);
   }
 
-  .topbar-profile-name {
+  .neo-topbar-profile-meta > span:first-child {
     font-size: 14px;
     font-weight: 700;
     color: var(--bar-ink);
   }
 
-  .topbar-profile-role {
+  .neo-topbar-profile-meta > span:last-child {
     font-size: 11px;
     color: var(--bar-ink);
+  }
+
+  .app-topbar > div:first-child > button.lg\:hidden {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--ink);
+    text-shadow: none;
+  }
+
+  :is(.neo-profile-menu, .neo-search-menu) {
+    border: 1px solid var(--edge);
+    border-radius: var(--r-in);
+    background-image: var(--mat-card);
+    box-shadow: var(--raised);
+    text-shadow: none;
+  }
+
+  /* ── Positioned navigation (Top / Bottom) ────────────────────────
+     Route logic, phases (up → move → down) and cradle measurement are the
+     shared PositionedNavigation.jsx; Classic draws an enamel rail and a
+     selected tab that physically descends (Top) or a pod that rises (Bottom). */
+  .positioned-navigation {
+    color: var(--classic-nav-text-muted);
+  }
+
+  /* Top sits in flow above the page (and over it while its tab descends);
+     Bottom keeps the shared fixed, floating placement. */
+  .positioned-navigation--top {
+    position: relative;
+    z-index: 3;
+    margin: 12px var(--shell-gap) 0;
+    min-height: 0;
+    padding: 8px 14px 0;
+    border: 1px solid var(--edge);
+    border-radius: var(--r);
+    background-color: var(--face-a);
+    background-image: var(--mat-card);
+    box-shadow: var(--raised);
+  }
+
+  .positioned-navigation--top .positioned-navigation__items {
+    gap: 4px;
+    margin-bottom: -10px;
+    padding: 0 4px 16px;
+  }
+
+  .positioned-navigation__cradle {
+    display: none;
+  }
+
+  .positioned-navigation__item {
+    min-height: 42px;
+    padding: 0 14px;
+    border: 1px solid transparent;
+    border-radius: var(--r-in);
+    background: transparent;
+    color: var(--classic-nav-text-muted);
+    font-size: 13px;
+    font-weight: 600;
+    text-shadow: 0 1px 0 var(--hi);
+    transition:
+      transform var(--nav-dur) var(--nav-ease),
+      background-color 0.18s var(--ease),
+      color 0.18s var(--ease),
+      box-shadow var(--nav-dur) var(--nav-ease);
+  }
+
+  .positioned-navigation__item svg {
+    stroke-width: 2;
+  }
+
+  .positioned-navigation__item:hover:not(.is-active) {
+    background-color: var(--classic-nav-hover-surface);
+    color: var(--classic-nav-text-strong);
+  }
+
+  .positioned-navigation__item:focus-visible {
+    outline: 2px solid var(--classic-nav-focus);
+    outline-offset: 2px;
+  }
+
+  .positioned-navigation__item.is-active {
+    border-color: var(--btn-acc-edge);
+    background-color: var(--classic-nav-active-bg);
+    background-image: var(--gloss), var(--mat-acc);
+    box-shadow: var(--btn-acc);
+    color: var(--classic-nav-active-ink);
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+  }
+
+  /* Top: the selected tab descends below the rail; the old one retracts. */
+  .positioned-navigation--top .positioned-navigation__item:hover:not(.is-active) {
+    transform: translateY(2px);
+  }
+
+  .positioned-navigation--top .positioned-navigation__items[data-tab-phase="down"] .positioned-navigation__item.is-active {
+    transform: translateY(var(--classic-nav-drop));
+  }
+
+  /* Bottom: floating enamel rail; the selected pod rises above it. */
+  .positioned-navigation--bottom {
+    padding: 6px 8px;
+    border: 1px solid var(--edge);
+    border-radius: var(--r);
+    background-color: var(--face-a);
+    background-image: var(--mat-card);
+    box-shadow: var(--raised), 0 18px 34px -16px var(--lo);
+  }
+
+  .positioned-navigation--bottom .positioned-navigation__items {
+    margin-top: -14px;
+    padding: 14px 2px 0;
+  }
+
+  .positioned-navigation--bottom .positioned-navigation__item {
+    background: transparent;
+    box-shadow: none;
+    border-color: transparent;
+    color: var(--classic-nav-text-muted);
+    text-shadow: 0 1px 0 var(--hi);
+  }
+
+  .positioned-navigation--bottom .positioned-navigation__pod {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border-radius: 50%;
+    transition: transform var(--nav-dur) var(--nav-ease), box-shadow var(--nav-dur) var(--nav-ease), background-color 0.18s var(--ease);
+  }
+
+  .positioned-navigation--bottom .positioned-navigation__item:hover:not(.is-active) .positioned-navigation__pod {
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    transform: translateY(-2px);
+  }
+
+  .positioned-navigation--bottom .positioned-navigation__item.is-active {
+    background: transparent;
+    box-shadow: none;
+    color: var(--classic-nav-text-strong);
+    text-shadow: 0 1px 0 var(--hi);
+  }
+
+  .positioned-navigation--bottom .positioned-navigation__item.is-active .positioned-navigation__pod {
+    border: 1px solid var(--btn-acc-edge);
+    background-color: var(--classic-nav-active-bg);
+    background-image: var(--gloss), var(--mat-acc);
+    box-shadow: var(--btn-acc), 0 0 0 3px var(--classic-nav-ring);
+    color: var(--classic-nav-active-ink);
+    transform: translateY(var(--classic-nav-rise));
+  }
+
+  [data-navigation-position="bottom"] .app-main-scroll {
+    padding-bottom: 112px;
   }
 
   /* ── Page header ── */
@@ -1357,6 +1721,248 @@
   .recent-file-time {
     font-size: 12px;
     color: var(--ink-2);
+  }
+}
+
+/* ── 6. Settings → Appearance previews ─────────────────────────── */
+
+/* The Classic style card is a thumbnail OF Classic, so it shows Glossy Enamel
+   Light in both interface styles. Its literal colours are the Classic Light
+   token values (kept here, the Classic token file). The Neo card is untouched. */
+:root {
+  --classic-preview-base: #f4ecdb;
+  --classic-preview-base2: #e9dfc9;
+  --classic-preview-bar-a: #789bda;
+  --classic-preview-bar-b: #668ccf;
+  --classic-preview-face-a: #fbf5e8;
+  --classic-preview-face-b: #efe5cf;
+  --classic-preview-acc-a: #34569f;
+  --classic-preview-acc-b: #102a5c;
+  --classic-preview-edge: rgba(80, 55, 20, 0.24);
+  --classic-preview-lo: rgba(80, 55, 20, 0.3);
+  --classic-preview-hi: rgba(255, 255, 255, 0.9);
+  --classic-preview-gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 50%);
+}
+
+:root[data-ui-style] .interface-style-preview__canvas.is-classic {
+  border-color: var(--classic-preview-edge);
+  background: linear-gradient(180deg, var(--classic-preview-base), var(--classic-preview-base2));
+  box-shadow: inset 0 1px 0 var(--classic-preview-hi), 0 4px 10px -6px var(--classic-preview-lo);
+}
+
+:root[data-ui-style] .interface-style-preview__canvas.is-classic .interface-style-preview__sidebar {
+  border: 1px solid var(--classic-preview-edge);
+  background: var(--classic-preview-gloss), linear-gradient(180deg, var(--classic-preview-bar-a), var(--classic-preview-bar-b));
+  box-shadow: inset 0 1px 0 var(--classic-preview-hi), 0 1px 2px var(--classic-preview-lo);
+}
+
+:root[data-ui-style] .interface-style-preview__canvas.is-classic .interface-style-preview__bar {
+  height: 5px;
+  background: var(--classic-preview-gloss), linear-gradient(180deg, var(--classic-preview-bar-a), var(--classic-preview-bar-b));
+  box-shadow: 0 1px 1px var(--classic-preview-lo);
+}
+
+:root[data-ui-style] .interface-style-preview__canvas.is-classic .interface-style-preview__cards i {
+  border: 1px solid var(--classic-preview-edge);
+  background: var(--classic-preview-gloss), linear-gradient(180deg, var(--classic-preview-face-a), var(--classic-preview-face-b));
+  box-shadow: inset 0 1px 0 var(--classic-preview-hi), 0 1px 2px var(--classic-preview-lo);
+}
+
+:root[data-ui-style] .interface-style-preview__canvas.is-classic .interface-style-preview__cards i:first-child {
+  background: var(--classic-preview-gloss), linear-gradient(180deg, var(--classic-preview-acc-a), var(--classic-preview-acc-b));
+}
+
+/* The Neo thumbnail is drawn from the live --accent/--violet tokens. Inside
+   Classic those are the Classic accent (gold in Dark), which would misdescribe
+   Neo, so the thumbnail is pinned to the app's default Neo-facing values. */
+:root[data-ui-style="classic"] .interface-style-preview__canvas.is-neo {
+  --accent: #2563eb;
+  --violet: #8b5cf6;
+  --card: #ffffff;
+  --card-sunken: #eef2f8;
+  --line: #e2e8f0;
+}
+
+/* Inside Classic, the selection and the position previews use Classic tokens. */
+:root[data-ui-style="classic"] {
+  .interface-style-preview,
+  .navigation-position-preview {
+    border-color: var(--edge);
+    background-color: var(--face-a);
+    background-image: var(--gloss), var(--mat-plate);
+    box-shadow: var(--raised-s);
+    text-shadow: 0 1px 0 var(--hi);
+  }
+
+  .interface-style-preview.is-active,
+  .navigation-position-preview.is-active {
+    border-color: var(--acc);
+    box-shadow: var(--raised-s), 0 0 0 2px var(--classic-nav-focus);
+  }
+
+  .interface-style-preview__check,
+  .navigation-position-preview__check {
+    background-image: var(--mat-acc);
+    color: var(--acc-ink);
+    box-shadow: 0 1px 2px var(--lo);
+  }
+
+  .navigation-position-preview__canvas {
+    border-color: var(--edge);
+    background: linear-gradient(180deg, var(--base), var(--base2));
+    box-shadow: var(--inset);
+  }
+
+  .navigation-position-preview__chrome {
+    background: var(--mat-bar);
+    box-shadow: 0 1px 1px var(--lo2);
+  }
+
+  .navigation-position-preview__content i {
+    border: 1px solid var(--edge);
+    background: var(--mat-card);
+  }
+
+  .navigation-position-preview__nav,
+  .navigation-position-preview__active {
+    transition: transform var(--nav-dur) var(--nav-ease);
+  }
+
+  .navigation-position-preview__active {
+    position: absolute;
+    display: block;
+  }
+
+  /* LEFT: compact enamel rail with a pressed active row (+ LED strip). */
+  .navigation-position-preview__canvas.is-left .navigation-position-preview__nav {
+    background: var(--mat-bar);
+    box-shadow: inset 0 1px 0 var(--hi), 0 1px 2px var(--lo2);
+  }
+
+  .navigation-position-preview__canvas.is-left .navigation-position-preview__active {
+    top: 26px;
+    left: 9px;
+    width: 14px;
+    height: 7px;
+    border-radius: 2px;
+    background: var(--bar-well);
+    box-shadow: inset 2px 0 0 var(--classic-nav-accent), inset 0 1px 2px var(--lo);
+  }
+
+  .navigation-position-preview__canvas.is-left :is(.navigation-position-preview__nav, .navigation-position-preview__active) {
+    transform-origin: left center;
+  }
+
+  .navigation-position-preview:hover:not(:disabled) .navigation-position-preview__canvas.is-left .navigation-position-preview__nav {
+    transform: scaleX(1.45);
+  }
+
+  .navigation-position-preview:hover:not(:disabled) .navigation-position-preview__canvas.is-left .navigation-position-preview__active {
+    transform: scaleX(1.7);
+  }
+
+  /* TOP: enamel rail with the selected tab descended below it. */
+  .navigation-position-preview__canvas.is-top .navigation-position-preview__nav,
+  .navigation-position-preview__canvas.is-bottom .navigation-position-preview__nav {
+    border: 1px solid var(--edge);
+    background: var(--mat-card);
+    box-shadow: inset 0 1px 0 var(--hi), 0 1px 2px var(--lo2);
+  }
+
+  .navigation-position-preview__canvas.is-top .navigation-position-preview__active {
+    top: 18px;
+    left: calc(50% - 10px);
+    width: 20px;
+    height: 9px;
+    border-radius: 3px;
+    background: var(--mat-acc);
+    box-shadow: 0 2px 3px -1px var(--lo);
+    transform: translateY(3px);
+  }
+
+  .navigation-position-preview:hover:not(:disabled) .navigation-position-preview__canvas.is-top .navigation-position-preview__active {
+    transform: translateY(6px);
+  }
+
+  /* BOTTOM: floating rail with the selected pod risen above it. */
+  .navigation-position-preview__canvas.is-bottom .navigation-position-preview__active {
+    bottom: 7px;
+    left: calc(50% - 6px);
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--mat-acc);
+    box-shadow: 0 0 0 2px var(--classic-nav-ring), 0 2px 3px -1px var(--lo);
+    transform: translateY(-3px);
+  }
+
+  .navigation-position-preview:hover:not(:disabled) .navigation-position-preview__canvas.is-bottom .navigation-position-preview__active {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes classic-label-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Reduced motion: state changes are immediate; nothing travels. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="classic"] {
+    --nav-dur: 0.01ms;
+
+    .app-sidebar-frame:not([data-rail-state="compact"]) :is(.sidebar-nav-label, .sidebar-group-label, .neo-sidebar-brand-name, .sidebar-meter) {
+      animation: none;
+    }
+
+    .positioned-navigation__item,
+    .positioned-navigation__pod,
+    .navigation-position-preview__nav,
+    .navigation-position-preview__active,
+    .neo-nav-indicator {
+      transition: none;
+    }
+
+    .positioned-navigation--top .positioned-navigation__item:hover:not(.is-active),
+    .positioned-navigation--bottom .positioned-navigation__item:hover:not(.is-active) .positioned-navigation__pod,
+    .navigation-position-preview:hover:not(:disabled) .navigation-position-preview__canvas .navigation-position-preview__active {
+      transform: none;
+    }
+  }
+}
+
+/* TopBar density follows the shared shell policy (same breakpoints PR #359
+   chose for Classic): status pills give way first, then the clock. */
+@media (max-width: 1100px) {
+  :root[data-ui-style="classic"] .neo-status-pill {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  :root[data-ui-style="classic"] {
+    .app-topbar {
+      gap: 8px;
+    }
+
+    .neo-topbar-utilities {
+      min-width: 0;
+    }
+
+    .neo-topbar-search {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .neo-topbar-clock {
+      display: none;
+    }
   }
 }
 

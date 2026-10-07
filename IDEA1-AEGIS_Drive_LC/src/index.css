@@ -1496,6 +1496,12 @@ textarea:focus-visible {
   :root[data-ui-style="neo"] .sidebar-nav-item {
     transform: none !important;
   }
+
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-capacity-ring,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-card {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 /* ── Tile hover controls (Private Vault overflow menu) ────────────
@@ -1714,4 +1720,1888 @@ textarea:focus-visible {
   .login-shell *, .login-shell *::before, .login-shell *::after { transition-duration: 0ms !important; }
   .login-shell button { transform: none !important; scale: none !important; }
   .login-submit { translate: none !important; }
+}
+
+/* IDEA1 Neo Dashboard calibration. The reference images supply composition;
+   the two repository assets supply atmosphere. The floating shell (Sidebar,
+   Top Bar, background, page header) is shared by every Neo screen through
+   `.authenticated-shell[data-screen]`; Dashboard-only content classes keep
+   their own names. Classic retains its existing shell and content styling. */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] {
+  --card: #ffffff;
+  --card-sunken: #eef4fc;
+  --line: #d4e1f2;
+  --neo-dashboard-sidebar: #293dd6;
+  --neo-dashboard-topbar: #000117;
+  --neo-dashboard-card: #ffffff;
+  --neo-dashboard-inner: #eef4fc;
+  --neo-dashboard-border: #d5e4f5;
+  background: #e7f1ff url('/assets/backgrounds/neo/Neo-Light_BG.webp') center top / cover no-repeat;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] {
+  --card: #0b1c38;
+  --card-sunken: #152644;
+  --line: #294567;
+  --ink-2: #d0def3;
+  --ink-3: #9bb3d3;
+  --neo-dashboard-sidebar: #293dd6;
+  --neo-dashboard-topbar: #000117;
+  --neo-dashboard-card: #0b1c38;
+  --neo-dashboard-inner: #152644;
+  --neo-dashboard-utility: #252530;
+  --neo-dashboard-border: #315078;
+  background: linear-gradient(180deg, rgba(3, 10, 28, 0.12), rgba(3, 10, 28, 0.32)), url('/assets/backgrounds/neo/Neo-Black_BG.webp') center top / cover no-repeat;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] > div:last-child > main {
+  background: transparent;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] > div:last-child > main {
+  background: transparent;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame {
+  position: relative;
+  z-index: 2;
+  height: calc(100% - 24px);
+  margin: 12px 0 12px 12px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  overflow: visible;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame > .app-sidebar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  overflow: hidden;
+  transition: width 220ms cubic-bezier(.25, 1, .5, 1);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="hover"] {
+  z-index: calc(var(--z-sticky) + 1);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="hover"] > .app-sidebar {
+  width: 260px;
+  box-shadow: 12px 20px 36px -20px #000117, 0 0 0 1px var(--neo-dashboard-border) !important;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame > .app-sidebar {
+  border: 1px solid rgba(202, 209, 255, .35);
+  border-radius: 18px;
+  background: linear-gradient(120deg, rgba(255, 255, 255, .09), transparent 48%), linear-gradient(162deg, #293dd6 0%, #3e48c1 46%, #6c5ba4 100%) !important;
+  box-shadow: 0 18px 42px -28px rgba(3, 10, 28, .7), 0 4px 16px -12px rgba(3, 10, 28, .48) !important;
+  --ink: #fff;
+  --ink-2: #f0f1ff;
+  --ink-3: #f0f2ff;
+  --card-sunken: rgba(1, 7, 58, .23);
+  --line: rgba(230, 233, 255, .25);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .text-ink,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .text-ink-2 {
+  color: #f8f9ff;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .text-ink-3 {
+  color: #f0f2ff;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .bg-sunken {
+  background: rgba(1, 7, 58, .23);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header {
+  height: 112px;
+  padding: 12px 14px 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  border-bottom: 1px solid rgba(230, 233, 255, .2);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-row {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-row [lang="en"] {
+  color: #fff;
+  font-size: 15px;
+  letter-spacing: -.02em;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header {
+  position: relative;
+  height: 116px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-brand-row {
+  position: absolute;
+  top: 17px;
+  left: 13px;
+  height: 48px;
+  width: calc(100% - 26px);
+  justify-content: flex-start;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-mark {
+  flex: none;
+  transition: scale 220ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-name {
+  position: absolute;
+  left: 55px;
+  max-width: 128px;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  opacity: 1;
+  translate: 0 0;
+  transition: opacity 180ms var(--neo-ease), translate 220ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="compact"] .neo-sidebar-brand-name {
+  opacity: 0;
+  translate: -6px 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame:not([data-rail-state="compact"]) .neo-sidebar-brand-mark {
+  scale: 1.09;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header--compact {
+  height: 116px;
+  padding-inline: 11px;
+  align-items: center;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header--compact .neo-sidebar-brand-row {
+  justify-content: center;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header-toggle {
+  position: absolute;
+  top: 17px;
+  left: 14px;
+  translate: 188px 0;
+  color: #eef1ff;
+  background: rgba(1, 7, 58, .2);
+  transition: translate 220ms var(--neo-ease), background-color 180ms var(--neo-ease), color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header--compact .neo-sidebar-header-toggle {
+  translate: 0 50px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="hover"] .neo-sidebar-header-toggle {
+  translate: 188px 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header-toggle:is(:hover, :focus-visible) {
+  background: rgba(226, 230, 255, .22);
+  box-shadow: 0 0 16px rgba(165, 177, 255, .24);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header-toggle:is(:hover, :focus-visible) svg {
+  scale: 1.06;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header-toggle:active svg {
+  scale: .97;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header + button {
+  display: none;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar nav {
+  position: relative;
+  padding-top: 18px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-nav-indicator {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 16px;
+  left: 16px;
+  height: 46px;
+  border-radius: 11px;
+  background: linear-gradient(105deg, #0965d2 0%, #3d45e3 60%, #9d3fc1 100%);
+  box-shadow: 0 0 0 1px rgba(230, 235, 255, .62), 0 7px 20px rgba(15, 26, 130, .42);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 240ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="compact"] .neo-nav-indicator {
+  right: 12px;
+  left: 12px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .sidebar-nav-item {
+  position: relative;
+  z-index: 1;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame nav[data-nav-indicator="ready"] .sidebar-nav-item.is-active {
+  background: transparent !important;
+  box-shadow: none;
+}
+
+@keyframes neo-sidebar-label-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="hover"] .sidebar-nav-item span {
+  animation: neo-sidebar-label-in 180ms cubic-bezier(.25, 1, .5, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-nav-indicator {
+    transition: none;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame > .app-sidebar {
+    transition: none;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame[data-rail-state="hover"] .sidebar-nav-item span {
+    animation: none;
+  }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item {
+  min-height: 46px;
+  border-radius: 11px;
+  font-weight: 600;
+  color: #f0f1ff;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item:not(.is-active):is(:hover, :focus-visible) {
+  color: #fff;
+  background: rgba(229, 233, 255, .16);
+  box-shadow: inset 0 0 0 1px rgba(241, 242, 255, .18);
+}
+
+/* Neo border current is interaction-only; the selected row keeps its static fill. */
+@property --neo-sidebar-trace-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes neo-sidebar-trace {
+  to { --neo-sidebar-trace-angle: 360deg; }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle) {
+  /* A travelling comet, not a distributed rainbow: one bright head with a
+     short blue → violet tail that fades to nothing, so the eye follows a
+     single point of light around the perimeter. */
+  --neo-sidebar-trace: conic-gradient(from var(--neo-sidebar-trace-angle), transparent 0deg 268deg, rgba(72, 140, 255, 0) 268deg, rgba(106, 142, 255, 0.38) 306deg, rgba(169, 124, 246, 0.78) 336deg, #d9c6ff 351deg, #ffffff 355deg, rgba(228, 136, 214, 0.55) 357deg, transparent 360deg);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--neo-sidebar-trace);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header-toggle {
+  isolation: isolate;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header-toggle:focus-visible,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .sidebar-nav-item:focus-visible {
+  outline: 2px solid #f8f9ff;
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar::before,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .sidebar-nav-item:hover::before,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header-toggle:hover::before {
+    opacity: 1;
+    animation: neo-sidebar-trace 2.8s linear infinite;
+  }
+
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar {
+    filter: drop-shadow(0 0 4px rgba(115, 150, 255, .14));
+  }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-sidebar .sidebar-nav-item:focus-visible::before,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header-toggle:focus-visible::before {
+  opacity: 1;
+  animation: neo-sidebar-trace 2.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-mark,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-brand-name,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame .neo-sidebar-header-toggle {
+    transition: none;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.app-sidebar-frame > .app-sidebar, .neo-dashboard-sidebar .sidebar-nav-item, .app-sidebar-frame .neo-sidebar-header-toggle)::before {
+    animation: none !important;
+    transition: none;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-sidebar-frame:not([data-rail-state="compact"]):hover > .app-sidebar {
+    filter: none;
+  }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item svg {
+  transition: transform 180ms var(--neo-ease), filter 180ms var(--neo-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item:hover svg {
+    transform: translateY(-1px) scale(1.06);
+    filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 60%, transparent));
+  }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item:focus-visible svg {
+  transform: translateY(-1px) scale(1.06);
+  filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 60%, transparent));
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item.is-active {
+  background: linear-gradient(105deg, #0965d2 0%, #3d45e3 60%, #9d3fc1 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 0 0 1px rgba(230, 235, 255, .62), 0 7px 20px rgba(15, 26, 130, .42);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar {
+  position: relative;
+  inset: auto;
+  z-index: var(--z-sticky);
+  width: auto;
+  height: 70px;
+  min-height: 70px;
+  margin: 12px 12px 0 12px;
+  padding-inline: clamp(14px, 1.5vw, 30px);
+  gap: clamp(12px, 1.25vw, 24px);
+  border: 1px solid var(--neo-dashboard-border);
+  border-radius: 18px;
+  background: var(--neo-dashboard-topbar) !important;
+  box-shadow: 0 6px 24px -20px rgba(4, 17, 42, 0.48) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  --ink: #f6f8ff;
+  --ink-2: #d7def3;
+  --ink-3: #abb9d7;
+  --card-sunken: #252530;
+  --line: #343d61;
+  --neo-dashboard-utility: #252530;
+  border-color: rgba(131, 153, 215, .28);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar .text-ink,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar .text-ink-2 {
+  color: #f5f7ff;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar .text-ink-3 {
+  color: #b2bfdc;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-identity {
+  flex: 0 0 auto;
+  gap: 12px;
+}
+
+.neo-topbar-identity-divider {
+  width: 1px;
+  height: 32px;
+  background: var(--line);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-utilities {
+  flex: 1 1 auto;
+  min-width: 130px;
+  justify-content: flex-end;
+}
+
+@media (min-width: 1024px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-topbar-mobile-toggle {
+    display: none;
+  }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-status-pill {
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-inline: 9px;
+  gap: 8px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-status-pill + .neo-status-pill {
+  border-left: 1px solid rgba(167, 185, 233, .2);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search {
+  flex: 1 1 240px;
+  min-width: 130px;
+  max-width: 340px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search input {
+  background: #252530 !important;
+  border-color: transparent;
+  color: #f5f7ff !important;
+  transition: background-color 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search input::placeholder {
+  color: #aebbd7;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search .search-shortcut,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar .theme-toggle {
+  background: #252530;
+  border-color: #404b71;
+  color: #d9e2ff;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar .theme-toggle:is(:hover, :focus-visible) {
+  background: #30354d;
+  border-color: #718be0;
+  box-shadow: 0 0 16px rgba(100, 120, 230, .18);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search input:is(:hover, :focus-visible) {
+  background: #2e3040 !important;
+  border-color: rgba(113, 138, 225, .48);
+  box-shadow: 0 0 0 3px rgba(81, 108, 220, .14);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-profile-trigger {
+  border-radius: 12px;
+  transition: background-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-profile-trigger:is(:hover, :focus-visible),
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-profile-trigger[aria-expanded="true"] {
+  background: #252530;
+  box-shadow: 0 0 0 1px rgba(120, 145, 235, .32), 0 0 18px rgba(86, 103, 211, .14);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-profile-menu,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-search-menu {
+  background: #111a33 !important;
+  border-color: #384b78;
+  color: #f6f8ff;
+  --ink: #f6f8ff;
+  --ink-2: #d7e0f6;
+  --ink-3: #b1c2e2;
+  --card-sunken: #28375a;
+  --line: #384b78;
+  box-shadow: 0 18px 46px -20px rgba(0, 1, 23, .88), 0 0 0 1px rgba(131, 153, 215, .1) !important;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu) .text-ink {
+  color: #f6f8ff;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu) .text-ink-2 {
+  color: #d7e0f6;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu) .text-ink-3 {
+  color: #b1c2e2;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-search-menu [role="option"][aria-selected="true"] {
+  background: #28375a !important;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-search-menu [role="option"]:is(:hover, :focus-visible),
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-profile-menu [role="menuitem"]:is(:hover, :focus-visible) {
+  background: #314574 !important;
+  color: #fff;
+}
+
+@keyframes neo-pop-in {
+  from { opacity: 0; transform: translateY(-5px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes neo-pop-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-4px) scale(.99); }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu)[data-state="open"] {
+  animation: neo-pop-in 180ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu)[data-state="closing"] {
+  animation: neo-pop-out 160ms ease-in both;
+  pointer-events: none;
+}
+
+/* Dark Dashboard Top Bar: a quieter companion to the floating Sidebar's
+   #293dd6 -> #6c5ba4 spectrum. No other theme or screen inherits this pass. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar {
+  --neo-topbar-blue: #293dd6;
+  --neo-topbar-violet: #6c5ba4;
+  --neo-topbar-edge: rgba(145, 164, 244, .4);
+  background: radial-gradient(ellipse at 16% 0%, rgba(41, 61, 214, .42), transparent 48%),
+    radial-gradient(ellipse at 93% 105%, rgba(108, 91, 164, .3), transparent 42%),
+    linear-gradient(112deg, #0b1548 0%, #0a102c 46%, #18142f 100%) !important;
+  border-color: rgba(159, 176, 244, .38);
+  box-shadow: inset 0 1px 0 rgba(216, 225, 255, .16),
+    0 16px 38px -28px rgba(0, 1, 23, .96),
+    0 4px 16px -10px rgba(13, 23, 100, .66) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-topbar-utilities {
+  gap: clamp(8px, .85vw, 14px);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-status-pill {
+  min-height: 38px;
+  padding-inline: 13px;
+  border: 1px solid rgba(148, 168, 246, .3);
+  border-radius: 11px;
+  background: linear-gradient(135deg, rgba(32, 46, 103, .86), rgba(39, 35, 78, .86));
+  color: #e9efff;
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .08), 0 5px 14px -11px rgba(0, 1, 23, .9);
+  transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease), background-color 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-status-pill + .neo-status-pill {
+  border-left: 1px solid rgba(148, 168, 246, .3);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-status-pill:hover {
+    border-color: rgba(142, 170, 255, .68);
+    box-shadow: inset 0 1px 0 rgba(222, 228, 255, .13), 0 0 0 1px rgba(76, 101, 224, .12);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-status-pill:focus-visible {
+  outline: 2px solid #a8baff;
+  outline-offset: 2px;
+  border-color: #9baeff;
+  box-shadow: 0 0 0 4px rgba(84, 106, 226, .22);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search {
+  position: relative;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search input {
+  min-height: 40px;
+  border: 1px solid rgba(145, 164, 244, .3);
+  border-radius: 11px;
+  background: linear-gradient(115deg, rgba(16, 27, 69, .95), rgba(33, 30, 67, .94)) !important;
+  color: #f6f8ff !important;
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .06);
+  transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search input::placeholder {
+  color: #b7c6e9;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search .search-shortcut {
+  border-color: rgba(147, 165, 240, .36);
+  background: rgba(73, 76, 136, .3);
+  color: #e4ebff;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search > svg {
+  color: #afc7ff;
+  transition: color 180ms var(--neo-ease), transform 180ms var(--neo-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search:hover input {
+    transform: translateY(-1px);
+    border-color: rgba(135, 159, 252, .6);
+    box-shadow: inset 0 1px 0 rgba(222, 228, 255, .1), 0 7px 20px -12px rgba(64, 84, 229, .58);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search:focus-within input {
+  border-color: #97adff;
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .12), 0 0 0 3px rgba(75, 105, 227, .26), 0 9px 22px -12px rgba(82, 99, 231, .55);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-search:focus-within > svg {
+  color: #e0e8ff;
+  transform: scale(1.08);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .theme-toggle {
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(145, 164, 244, .38);
+  border-radius: 11px;
+  background: linear-gradient(135deg, rgba(38, 53, 120, .9), rgba(52, 41, 94, .9));
+  color: #e4ebff;
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .1);
+  transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease), color 180ms var(--neo-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .theme-toggle:hover {
+    transform: translateY(-1px);
+    border-color: rgba(156, 177, 255, .76);
+    box-shadow: inset 0 1px 0 rgba(222, 228, 255, .17), 0 0 16px rgba(81, 103, 227, .3);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .theme-toggle:focus-visible {
+  outline: 2px solid #a8baff;
+  outline-offset: 2px;
+  border-color: #a8baff;
+  box-shadow: 0 0 0 4px rgba(84, 106, 226, .22);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .theme-toggle:active {
+  transform: scale(.97);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-clock {
+  min-width: 90px;
+  gap: 2px;
+  padding-inline: 8px 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-time {
+  color: #f5f7ff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  line-height: 1.15;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-date {
+  color: #bdc9e5;
+  font-size: 11px;
+  letter-spacing: .02em;
+  line-height: 1.15;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-account-zone > [aria-hidden] {
+  height: 30px;
+  background: rgba(160, 177, 243, .25);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-profile-trigger {
+  min-height: 46px;
+  gap: 9px;
+  padding: 4px 10px 4px 5px;
+  border: 1px solid rgba(145, 164, 244, .29);
+  border-radius: 13px;
+  background: linear-gradient(120deg, rgba(34, 45, 103, .68), rgba(52, 42, 91, .68));
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .08);
+  transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-avatar-shell {
+  padding: 2px;
+  background: linear-gradient(145deg, #5a89ff, #9b77d9);
+  box-shadow: 0 0 0 1px rgba(185, 199, 255, .28);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-profile-meta {
+  max-width: 160px;
+  gap: 2px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-topbar-profile-meta span:last-child {
+  color: #bfcae8;
+  font-size: 11px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-profile-trigger:hover {
+    transform: translateY(-1px);
+    border-color: rgba(154, 177, 255, .74);
+    box-shadow: inset 0 1px 0 rgba(222, 228, 255, .14), 0 0 18px rgba(84, 106, 226, .25);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-profile-trigger:is(:focus-visible, [aria-expanded="true"]) {
+  outline: 2px solid #a8baff;
+  outline-offset: 2px;
+  border-color: #a8baff;
+  box-shadow: 0 0 0 4px rgba(84, 106, 226, .22);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-profile-trigger:active {
+  transform: scale(.98);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu) {
+  border-color: rgba(146, 169, 255, .52);
+  border-radius: 14px;
+  background: radial-gradient(ellipse at 8% 0%, rgba(48, 67, 164, .38), transparent 64%), linear-gradient(135deg, #111a33, #1b1b3e) !important;
+  box-shadow: inset 0 1px 0 rgba(222, 228, 255, .12), 0 18px 45px -18px rgba(0, 1, 23, .88) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu) :is([role="menuitem"], [role="option"]):focus-visible {
+  outline: 2px solid #a8baff;
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] :is(.neo-status-pill, .neo-topbar-search input, .neo-topbar-search > svg, .theme-toggle, .neo-profile-trigger) {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar > div:last-child {
+  flex: 0 0 auto;
+  gap: clamp(8px, 1vw, 16px);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] > div:last-child > main {
+  padding-top: 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-content {
+  width: 100%;
+  max-width: 1880px;
+  margin-inline: auto;
+  padding: 28px clamp(18px, 2vw, 38px) 50px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-page-header {
+  margin-bottom: 24px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-page-header h1 {
+  font-size: clamp(26px, 2vw, 34px);
+  line-height: 1.15;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-page-header nav {
+  color: #465879;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-page-header nav span:nth-child(2) {
+  opacity: .8;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-page-header nav span:last-child {
+  color: #174bbb;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-page-header nav {
+  color: #c4d2ed;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-page-header nav span:last-child {
+  color: #93b7ff;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-inline-status {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-inline-status > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--neo-dashboard-border);
+  border-radius: 999px;
+  background: var(--neo-dashboard-card);
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .ui-card {
+  background: var(--neo-dashboard-card) !important;
+  border: 1px solid var(--neo-dashboard-border);
+  border-radius: 15px;
+  box-shadow: none !important;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .metric-icon {
+  width: 42px;
+  height: 42px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
+  display: grid;
+  grid-template-columns: minmax(270px, 1.6fr) repeat(3, minmax(170px, 1fr));
+  gap: 14px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-card {
+  min-height: 172px;
+  padding: 20px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-capacity-card {
+  padding-right: 120px;
+}
+
+.dashboard-capacity-ring {
+  position: absolute;
+  top: 35px;
+  right: 20px;
+  display: grid;
+  width: 88px;
+  height: 88px;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) var(--capacity-pct), var(--card-sunken) 0);
+}
+
+.dashboard-capacity-ring::before {
+  position: absolute;
+  inset: 9px;
+  border-radius: 50%;
+  background: var(--neo-dashboard-card);
+  content: '';
+}
+
+.dashboard-capacity-ring span {
+  z-index: 1;
+  color: var(--ink);
+  font: 700 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 16px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid > div {
+  min-width: 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid > div > .ui-card {
+  height: 100%;
+  min-height: 378px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid.is-dashboard-unavailable > div > .ui-card {
+  min-height: 220px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-activity-plot {
+  height: 288px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid > .ui-card {
+  min-width: 0;
+  height: 100%;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-row,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] article[aria-busy] {
+  background: var(--neo-dashboard-inner) !important;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .ui-card .ui-card {
+  box-shadow: none !important;
+}
+
+@media (max-width: 1350px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-status-pill {
+    display: none;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-inline-status {
+    display: flex;
+  }
+}
+
+/* The full Dark utility row still fits laptop widths; keep measured statuses
+   in the Top Bar until the narrower compact-shell breakpoint is reached. */
+@media (min-width: 1200px) and (max-width: 1350px) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .app-topbar .neo-status-pill {
+    display: inline-flex;
+  }
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-dashboard-inline-status {
+    display: none;
+  }
+}
+
+@media (max-width: 1180px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 767px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar {
+    height: 64px;
+    min-height: 64px;
+    margin: 10px 10px 0;
+    padding-inline: 12px;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-identity > button,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .theme-toggle {
+    width: 44px;
+    height: 44px;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search input {
+    min-height: 44px;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] > div:last-child > main {
+    padding-top: 0;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-drawer-panel .app-sidebar {
+    border-radius: 0 16px 16px 0;
+    border-right: 1px solid rgba(202, 209, 255, .35);
+    background: linear-gradient(120deg, rgba(255, 255, 255, .09), transparent 48%), linear-gradient(162deg, #293dd6 0%, #3e48c1 46%, #6c5ba4 100%) !important;
+    --ink: #fff;
+    --ink-2: #f0f1ff;
+    --ink-3: #f0f2ff;
+    --card-sunken: rgba(1, 7, 58, .23);
+    --line: rgba(230, 233, 255, .25);
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-drawer-panel .neo-sidebar-header {
+    position: relative;
+    height: 120px;
+    padding: 14px;
+    border-bottom: 1px solid rgba(230, 233, 255, .2);
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-drawer-panel .neo-sidebar-brand-row {
+    justify-content: flex-start;
+    gap: 12px;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-drawer-panel .neo-sidebar-brand-name {
+    position: static;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-drawer-panel .neo-mobile-close {
+    position: absolute;
+    top: 67px;
+    right: 12px;
+    color: #fff;
+  }
+}
+
+@media (max-width: 640px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid > :first-child {
+    grid-column: auto;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-dashboard-content {
+    padding: 22px 14px 36px;
+  }
+}
+
+@media (max-width: 480px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-identity > div:last-child > div:last-child {
+    display: none;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-identity-divider {
+    display: none;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-capacity-card {
+    padding-right: 118px;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-row {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) auto;
+    column-gap: 8px;
+    row-gap: 2px;
+    height: auto;
+    min-height: 56px;
+    padding: 8px 10px;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-row > .flex-1 {
+    display: none;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-name {
+    grid-column: 2;
+    white-space: normal;
+    line-height: 1.2;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-latency {
+    grid-column: 2;
+    grid-row: 2;
+    width: auto;
+    text-align: left;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-state {
+    grid-column: 3;
+    grid-row: 1 / 3;
+  }
+}
+
+@media (max-width: 360px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .app-topbar {
+    gap: 8px;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-utilities,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-search {
+    min-width: 0;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-topbar-identity > div:last-child {
+    display: none;
+  }
+}
+
+/* V2: operational-priority Bento. Storage and current telemetry occupy the
+   first scan line; counts are deliberately subordinate. These rules are
+   scoped to the Dashboard so Classic and the other Neo pages retain their UI. */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] {
+  --neo-category-docs: #2b92f8;
+  --neo-category-media: #7258ec;
+  --neo-category-vault: #4958d8;
+  --neo-category-versions: #39b3df;
+  --neo-category-archives: #849bd1;
+  --neo-category-other: #ad77d9;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(245px, 2.8fr);
+  align-items: stretch;
+  gap: 16px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid > * {
+  min-width: 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-panel-icon {
+  display: grid;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-panel-title {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-panel-subtitle {
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-hero {
+  min-height: 444px;
+  padding: 22px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-hero-body {
+  display: grid;
+  grid-template-columns: minmax(152px, 0.9fr) minmax(0, 1.1fr);
+  align-items: stretch;
+  gap: 20px;
+  margin-top: 22px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-capacity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial {
+  display: grid;
+  width: min(100%, 184px);
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(from 210deg, #2b92f8 0 var(--capacity-pct), var(--neo-dashboard-inner) var(--capacity-pct) 100%);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial.is-unavailable {
+  background: var(--neo-dashboard-inner);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial-center {
+  display: flex;
+  width: calc(100% - 26px);
+  height: calc(100% - 26px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--neo-dashboard-card);
+  color: var(--ink);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial-center strong {
+  font-size: clamp(26px, 2.4vw, 38px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial-center span {
+  margin-top: 8px;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-totals {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-totals > div,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-totals dt,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-label > span:first-child {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-totals dd {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-categories {
+  min-width: 0;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--neo-dashboard-inner);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-categories h3 {
+  margin-bottom: 3px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-denominator {
+  margin-bottom: 13px;
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-list {
+  display: grid;
+  gap: 12px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-label > span:last-child {
+  color: var(--ink);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-label small {
+  margin-inline-start: 4px;
+  color: var(--ink-2);
+  font-size: 10px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-track {
+  height: 7px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--neo-dashboard-card);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--neo-dashboard-border);
+  color: var(--ink-2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-status button {
+  min-height: 32px;
+  padding-inline: 8px;
+  border: 1px solid var(--neo-dashboard-border);
+  border-radius: 8px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-quiet-state {
+  display: flex;
+  min-height: 190px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--neo-dashboard-inner);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-quiet-state button {
+  min-height: 40px;
+  padding-inline: 14px;
+  border: 1px solid var(--neo-dashboard-border);
+  border-radius: 9px;
+  color: var(--ink);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-card {
+  min-height: 444px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-tile {
+  min-height: 105px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--neo-dashboard-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-tile p {
+  margin-top: 10px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress > div,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-empty-track {
+  flex: 1;
+  min-width: 42px;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--neo-dashboard-inner);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress > div > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.navigation-position-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: min(100%, 540px);
+}
+
+.navigation-position-preview {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-tile);
+  background: var(--card-sunken);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+
+.navigation-position-preview:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
+.navigation-position-preview:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.navigation-position-preview.is-active { border-color: var(--accent); color: var(--ink); }
+.navigation-position-preview:disabled { opacity: .65; cursor: wait; }
+
+.navigation-position-preview__canvas {
+  position: relative;
+  display: block;
+  width: min(100%, 114px);
+  height: 70px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  overflow: hidden;
+}
+
+.navigation-position-preview__chrome,
+.navigation-position-preview__nav,
+.navigation-position-preview__content {
+  position: absolute;
+  display: block;
+}
+
+.navigation-position-preview__chrome { top: 5px; right: 6px; left: 6px; height: 6px; border-radius: 3px; background: var(--card-sunken); }
+.navigation-position-preview__nav { background: linear-gradient(120deg, var(--accent), var(--violet)); }
+.navigation-position-preview__canvas.is-left .navigation-position-preview__nav { top: 16px; bottom: 5px; left: 5px; width: 22px; border-radius: 4px; }
+.navigation-position-preview__canvas.is-top .navigation-position-preview__nav { top: 17px; right: 16px; left: 16px; height: 10px; border-radius: 999px; }
+.navigation-position-preview__canvas.is-bottom .navigation-position-preview__nav { right: 21px; bottom: 5px; left: 21px; height: 11px; border-radius: 999px; }
+.navigation-position-preview__content { top: 30px; right: 11px; left: 38px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 3px; }
+.navigation-position-preview__content i { display: block; flex: 1 1 28%; border-radius: 2px; background: var(--card-sunken); }
+.navigation-position-preview__canvas.is-top .navigation-position-preview__content { top: 33px; left: 12px; }
+.navigation-position-preview__canvas.is-bottom .navigation-position-preview__content { top: 18px; left: 12px; bottom: 23px; }
+.navigation-position-preview__check { position: absolute; top: 3px; right: 3px; display: grid; width: 16px; height: 16px; place-items: center; border-radius: 50%; background: var(--accent); color: #fff; }
+
+@media (max-width: 520px) {
+  .navigation-position-grid { gap: 6px; }
+  .navigation-position-preview { padding: 7px 4px; }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress[data-state="warning"] > div > span,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress[data-state="stale"] > div > span {
+  background: var(--warn);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress[data-state="critical"] > div > span {
+  background: var(--danger);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-empty-track {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack {
+  display: grid;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack .dashboard-stat-card {
+  min-height: 0;
+  padding: 16px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack .dashboard-stat-card .metric-icon {
+  width: 34px;
+  height: 34px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack .dashboard-stat-card > p:last-child {
+  font-size: 23px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid {
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid > div > .ui-card {
+  min-height: 350px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid > :first-child {
+  grid-column: auto;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .hatch {
+  background-image: none !important;
+}
+
+@media (max-width: 1240px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: none;
+  }
+}
+
+@media (max-width: 900px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-hero-body,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-stack {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-capacity {
+    flex-direction: row;
+    gap: 18px;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial {
+    width: min(48%, 166px);
+    flex: none;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-totals {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-capacity {
+    flex-direction: column;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-radial {
+    width: min(100%, 184px);
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Final Dashboard scan order: capacity + current measurements, then health
+   and security, then seven-day activity and secondary counts. */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-security-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid .dashboard-security-panel > .ui-card {
+  min-height: 0;
+  height: auto;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-security-panel > .dashboard-stat-card {
+  padding: 16px 20px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid {
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid .dashboard-kpi-stack {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-recents-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 16px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-recents-grid > .ui-card {
+  min-width: 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card {
+  position: relative;
+  transform-style: preserve-3d;
+  transition: border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card::after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 1px;
+  border-radius: inherit;
+  background: radial-gradient(240px circle at var(--pointer-x, 50%) var(--pointer-y, 50%), #657eff, #5a43b9 35%, transparent 72%);
+  opacity: 0;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  transition: opacity 180ms ease-out;
+  content: '';
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:hover::after {
+    opacity: 1;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:hover {
+    border-color: #7288da;
+    box-shadow: 0 22px 48px -27px rgba(53, 84, 222, .65), 0 0 20px -14px rgba(108, 88, 229, .5) !important;
+  }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:focus-within::after {
+  opacity: .86;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:focus-within {
+  border-color: #7288da;
+  box-shadow: 0 22px 48px -27px rgba(53, 84, 222, .65), 0 0 20px -14px rgba(108, 88, 229, .5) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="light"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:is(:hover, :focus-within) {
+  box-shadow: 0 20px 42px -27px rgba(43, 83, 178, .36), 0 0 16px -14px rgba(108, 88, 229, .24) !important;
+}
+
+/* Dark Dashboard only: ten operational cards share one translucent material.
+   Keep shell/navigation opaque and retain the measured/unavailable data states. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout {
+  --card: rgba(12, 25, 55, .78);
+  --card-sunken: rgba(28, 43, 78, .76);
+  --line: rgba(124, 152, 225, .30);
+  --neo-dashboard-card: rgba(9, 21, 50, .72);
+  --neo-dashboard-inner: rgba(34, 47, 82, .66);
+  --neo-dashboard-border: rgba(130, 157, 232, .34);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .ui-card {
+  background: linear-gradient(145deg, rgba(83, 108, 200, .18), rgba(18, 30, 71, .07) 43%, rgba(6, 15, 38, .12)), var(--neo-dashboard-card) !important;
+  border-color: var(--neo-dashboard-border);
+  box-shadow: inset 0 1px 0 rgba(205, 219, 255, .14), 0 5px 8px -6px rgba(0, 0, 0, .8) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.16);
+  backdrop-filter: blur(12px) saturate(1.16);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-storage-hero {
+  background: radial-gradient(circle at 12% 0, rgba(72, 119, 225, .25), transparent 49%), var(--neo-dashboard-card) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-telemetry-card {
+  background: radial-gradient(circle at 94% 0, rgba(99, 74, 196, .20), transparent 47%), var(--neo-dashboard-card) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .ui-card:is(:hover, :focus-within) {
+  border-color: rgba(151, 172, 255, .72);
+  box-shadow: inset 0 1px 0 rgba(220, 230, 255, .24), 0 7px 8px -5px rgba(12, 25, 80, .84), 0 0 12px -7px rgba(111, 85, 236, .72) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout :is(.dashboard-storage-categories, .dashboard-quiet-state, .lake-health-row, article[aria-busy]) {
+  background: linear-gradient(145deg, rgba(96, 118, 190, .10), rgba(26, 38, 75, .02)), var(--neo-dashboard-inner) !important;
+  border: 1px solid rgba(131, 153, 220, .20);
+  box-shadow: inset 0 1px 0 rgba(199, 213, 255, .08);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-telemetry-tile {
+  border-color: rgba(131, 153, 220, .25);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-telemetry-empty.hatch {
+  margin-top: 9px;
+  padding: 1px 7px 7px;
+  border-radius: 8px;
+  background-color: rgba(55, 69, 109, .15);
+  background-image: repeating-linear-gradient(135deg, rgba(164, 180, 230, .055) 0 1px, transparent 1px 8px) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-storage-radial-center {
+  background: rgba(9, 20, 48, .93);
+  box-shadow: inset 0 1px 0 rgba(193, 211, 255, .10);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout :is(.dashboard-panel-icon, .metric-icon) {
+  background: linear-gradient(145deg, rgba(74, 112, 231, .28), rgba(59, 48, 151, .16));
+  border: 1px solid rgba(136, 169, 255, .31);
+  box-shadow: inset 0 1px 0 rgba(218, 229, 255, .16), 0 0 10px -7px rgba(58, 118, 255, .8);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-stat-card .metric-icon {
+  transition: border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease), transform 180ms var(--neo-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout .dashboard-stat-card:hover .metric-icon {
+    transform: translateY(-2px);
+    border-color: rgba(163, 190, 255, .62);
+    box-shadow: inset 0 1px 0 rgba(218, 229, 255, .21), 0 0 12px -5px rgba(73, 119, 255, .78);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout :is([role="status"].hatch, .dashboard-quiet-state) {
+  color: var(--ink-2);
+  border-color: rgba(135, 160, 221, .28);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout [role="status"].hatch {
+  background: linear-gradient(145deg, rgba(105, 119, 180, .14), rgba(25, 42, 79, .12)), rgba(31, 43, 76, .58) !important;
+  box-shadow: inset 0 1px 0 rgba(208, 216, 255, .10);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .dashboard-layout [role="status"].hatch > span:first-child {
+  background: rgba(65, 82, 140, .32);
+  border-color: rgba(146, 167, 225, .34);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress {
+  position: relative;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category[data-tooltip]::after,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress[data-tooltip]::after {
+  position: absolute;
+  z-index: 4;
+  left: 0;
+  bottom: calc(100% + 5px);
+  width: max-content;
+  max-width: min(260px, 80vw);
+  padding: 6px 9px;
+  border: 1px solid var(--neo-dashboard-border);
+  border-radius: 8px;
+  background: var(--neo-dashboard-card);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: var(--elev-1);
+  content: attr(data-tooltip);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category[data-tooltip]:is(:hover, :focus-within)::after,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress[data-tooltip]:is(:hover, :focus-within)::after {
+  opacity: 1;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-track > span,
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress > div > span {
+  transform-origin: left center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.neo-profile-menu, .neo-search-menu),
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-sidebar-header-toggle,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .sidebar-nav-item svg {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .ui-card::after,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-layout .metric-icon,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-category-track > span,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-progress > div > span {
+    transition: none;
+  }
+}
+
+@media (max-width: 900px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-primary-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-secondary-grid,
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-recents-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Navigation placement remains a route selector, separate from the utility bar.
+   The backend-filtered menu is reused; no new destinations are inferred here. */
+@media (min-width: 1024px) {
+  .positioned-navigation {
+    display: flex;
+    min-width: 0;
+    color: var(--ink-2);
+  }
+
+  .positioned-navigation--top {
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    min-height: 60px;
+    padding: 8px 24px;
+    border-bottom: 1px solid var(--line);
+    background: var(--card);
+  }
+
+  .positioned-navigation__items {
+    display: flex;
+    position: relative;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .positioned-navigation--top .positioned-navigation__items {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    white-space: nowrap;
+  }
+
+  .positioned-navigation__item {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 650;
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+  }
+
+  .positioned-navigation__cradle { display: none; }
+  .positioned-navigation__pod { display: inline-flex; }
+
+  .positioned-navigation__item:hover { color: var(--ink); background: var(--card-sunken); }
+  .positioned-navigation__item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .positioned-navigation__item.is-active { color: #fff; background: linear-gradient(110deg, #126ded, #504be6 64%, #9656bf); }
+
+  .positioned-navigation--bottom {
+    position: fixed;
+    z-index: var(--z-sticky);
+    left: 50%;
+    bottom: max(20px, env(safe-area-inset-bottom));
+    width: max-content;
+    max-width: calc(100vw - 32px);
+    padding: 6px;
+    transform: translateX(-50%);
+    border: 1px solid var(--line);
+    border-radius: 15px;
+    background: var(--card);
+    box-shadow: var(--elev-1);
+  }
+
+  .positioned-navigation--bottom .positioned-navigation__items {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .positioned-navigation--bottom .positioned-navigation__item {
+    flex-direction: column;
+    gap: 2px;
+    min-width: 44px;
+    height: 45px;
+    padding: 4px 7px;
+    border-radius: 9px;
+  }
+
+  .positioned-navigation--bottom .positioned-navigation__label { display: none; }
+  [data-navigation-position="bottom"] main { padding-bottom: 92px; }
+}
+
+@media (min-width: 1450px) {
+  .positioned-navigation--bottom .positioned-navigation__item { min-width: 64px; height: 54px; }
+  .positioned-navigation--bottom .positioned-navigation__label { display: block; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .positioned-navigation__item,
+  .navigation-position-preview { transition-duration: 0.01ms; }
 }

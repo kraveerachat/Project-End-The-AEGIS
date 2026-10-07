@@ -61,7 +61,7 @@ export function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss 
 
   return (
     <div
-      className="rounded-[var(--r-tile)] border border-line bg-sunken px-4 py-3 mb-4"
+      className="vault-transfer-panel rounded-[var(--r-tile)] border border-line bg-sunken px-4 py-3 mb-4"
       data-vault-transfer={kind}
       data-vault-transfer-stage={stage}
     >

@@ -1,9 +1,11 @@
+import { useLayoutEffect, useRef } from 'react'
+import { gsap } from 'gsap'
 import {
-  Activity, Cpu, Gauge, HardDrive, MemoryStick, Network, Thermometer,
+  Activity, Cpu, HardDrive, MemoryStick, Network, Thermometer,
 } from 'lucide-react'
 import { Card, CardTitle, Chip } from './ui.jsx'
 import { fmtBytes, fmtCountdown } from '../lib/format.js'
-import { useIsClassic } from '../lib/interfaceStyleContext.js'
+import { useReducedMotion } from '../lib/hooks.js'
 
 // Renders the /api/telemetry contract (see server/telemetry/index.js).
 //
@@ -42,6 +44,12 @@ const METRICS = [
   { id: 'network', labelKey: 'telemetryNetwork', icon: Network },
   { id: 'uptime', labelKey: 'telemetryUptime', icon: Activity },
   { id: 'temperature', labelKey: 'telemetryTemperature', icon: Thermometer },
+]
+
+// Presentation grouping of the same six tiles, order unchanged.
+const TELEMETRY_GROUPS = [
+  { id: 'usage', labelKey: 'telemetryGroupUsage', ids: ['cpu', 'memory', 'disk'] },
+  { id: 'state', labelKey: 'telemetryGroupState', ids: ['network', 'uptime', 'temperature'] },
 ]
 
 const STATE_META = {
@@ -124,73 +132,25 @@ function metricState(id, metric, loading = false) {
   return 'available'
 }
 
-function MiniGauge({ value, label }) {
+function MetricProgress({ value, label, state }) {
+  const barRef = useRef(null)
+  const revealed = useRef(false)
+  const reduced = useReducedMotion()
+  useLayoutEffect(() => {
+    if (reduced || revealed.current || !barRef.current) return undefined
+    revealed.current = true
+    const tween = gsap.fromTo(barRef.current, { scaleX: 0 }, { scaleX: 1, duration: 0.56, ease: 'power3.out' })
+    return () => tween.kill()
+  }, [reduced, value])
   if (!number(value)) return null
   const normalized = Math.min(100, Math.max(0, value))
   return (
-    <div className="flex items-center gap-2.5" aria-label={`${label} ${Math.round(normalized)}%`}>
-      <span className="relative size-9 rounded-full grid place-items-center bg-sunken" aria-hidden>
-        <span
-          className="absolute inset-0 rounded-full"
-          style={{ background: `conic-gradient(var(--accent) ${normalized}%, var(--line) 0)` }}
-        />
-        <span className="absolute inset-[4px] rounded-full bg-card" />
-        <Gauge size={13} strokeWidth={1.6} className="relative text-ink-3" />
-      </span>
-      <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {Math.round(normalized)}%
-      </strong>
-    </div>
-  )
-}
-
-/*
- * Classic ring gauge: a raised round plate holding an SVG ring (r=26, so the
- * circumference is 2πr ≈ 163.4 and dasharray maps percent → arc length).
- * The number beside it is the same rounded percentage MiniGauge shows; the
- * readings passed as children keep their existing wording and order.
- */
-const RING_CIRCUMFERENCE = 2 * Math.PI * 26
-
-function RingGauge({ value, label, children }) {
-  if (!number(value)) return children
-  const normalized = Math.min(100, Math.max(0, value))
-  const pct = Math.round(normalized)
-  return (
-    <div className="ring-gauge-block">
-      <span className="ring-gauge-plate" role="img" aria-label={`${label} ${pct}%`}>
-        <svg className="ring-gauge" viewBox="0 0 64 64" aria-hidden>
-          <circle className="ring-gauge-track" cx="32" cy="32" r="26" />
-          {normalized > 0 && (
-            <circle
-              className="ring-gauge-value"
-              cx="32"
-              cy="32"
-              r="26"
-              strokeDasharray={`${(normalized / 100) * RING_CIRCUMFERENCE} 200`}
-            />
-          )}
-        </svg>
-      </span>
-      <div className="ring-gauge-readings">
-        <strong className="ring-gauge-number" aria-hidden>{pct}%</strong>
-        {children}
+    <div className="dashboard-telemetry-progress" data-state={state} data-tooltip={`${label} · ${Math.round(normalized)}%`}>
+      <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(normalized)}%</strong>
+      <div role="progressbar" tabIndex={0} aria-label={label} aria-valuenow={normalized} aria-valuemin={0} aria-valuemax={100}>
+        <span ref={barRef} style={{ width: `${normalized}%` }} />
       </div>
     </div>
-  )
-}
-
-/* Classic heat rail for the CPU package: 0–100 °C mapped onto the rail. 100 °C
-   is the x86 throttle region the thresholds above already reason about, so
-   the rail is a reading of the same number, not a new claim. Decorative —
-   the °C value next to it is the accessible reading. */
-function HeatRail({ celsius }) {
-  if (!number(celsius)) return null
-  const pct = Math.min(100, Math.max(0, celsius))
-  return (
-    <span className="classic-rail telemetry-heat-rail" aria-hidden>
-      <span className="classic-rail-fill" style={{ width: `${pct}%` }} />
-    </span>
   )
 }
 
@@ -206,21 +166,11 @@ function Labelled({ t, label, value }) {
   return <span>{`${label} ${value ?? t('telemetryValueUnavailable')}`}</span>
 }
 
-function MetricRows({ t, id, metric, classic = false }) {
-  if (classic && (id === 'cpu' || id === 'memory' || id === 'disk')) {
-    return (
-      <RingGauge value={metric.percent} label={t('telemetryUsage')}>
-        {id === 'cpu' && <span>{number(metric.windowSeconds) ? `${metric.windowSeconds}s` : t('telemetryValueUnavailable')}</span>}
-        {id !== 'cpu' && <UsedOfTotal t={t} used={metric.usedBytes} total={metric.totalBytes} />}
-        {id === 'disk' && <span className="ring-gauge-note"><Labelled t={t} label={t('telemetryDiskHealth')} value={null} /></span>}
-      </RingGauge>
-    )
-  }
-
+function MetricRows({ t, id, metric, state }) {
   if (id === 'cpu') {
     return (
       <>
-        <MiniGauge value={metric.percent} label={t('telemetryUsage')} />
+        <MetricProgress value={metric.percent} label={t('telemetryUsage')} state={state} />
         <span>{number(metric.windowSeconds) ? `${metric.windowSeconds}s` : t('telemetryValueUnavailable')}</span>
       </>
     )
@@ -229,7 +179,7 @@ function MetricRows({ t, id, metric, classic = false }) {
   if (id === 'memory') {
     return (
       <>
-        <MiniGauge value={metric.percent} label={t('telemetryUsage')} />
+        <MetricProgress value={metric.percent} label={t('telemetryUsage')} state={state} />
         <UsedOfTotal t={t} used={metric.usedBytes} total={metric.totalBytes} />
       </>
     )
@@ -238,7 +188,7 @@ function MetricRows({ t, id, metric, classic = false }) {
   if (id === 'disk') {
     return (
       <>
-        <MiniGauge value={metric.percent} label={t('telemetryUsage')} />
+        <MetricProgress value={metric.percent} label={t('telemetryUsage')} state={state} />
         <UsedOfTotal t={t} used={metric.usedBytes} total={metric.totalBytes} />
         {/* SMART/RAID need raw device access this container does not have, so
             physical drive health stays explicitly unknown rather than green. */}
@@ -264,11 +214,10 @@ function MetricRows({ t, id, metric, classic = false }) {
     // unmistakably the CPU package and not the SSD's SMART reading.
     return (
       <>
-        <strong className="telemetry-temp-value font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
           {number(metric.celsius) ? `${metric.celsius} °C` : t('telemetryValueUnavailable')}
         </strong>
         <span>{metric.sensor || t('telemetryValueUnavailable')}</span>
-        {classic && <HeatRail celsius={metric.celsius} />}
       </>
     )
   }
@@ -292,7 +241,6 @@ function MetricRows({ t, id, metric, classic = false }) {
 }
 
 function TelemetryTile({ t, definition, value, loading }) {
-  const classic = useIsClassic()
   const metric = value && typeof value === 'object' ? value : {}
   const state = metricState(definition.id, value, loading)
   const meta = STATE_META[state]
@@ -305,27 +253,29 @@ function TelemetryTile({ t, definition, value, loading }) {
   return (
     <article
       data-metric={definition.id}
-      className={`telemetry-tile min-w-0 rounded-[var(--r-tile)] border border-line bg-card p-4 ${state === 'unavailable' ? 'hatch hatch-ink3' : ''}`}
+      data-state={state}
+      className="dashboard-telemetry-tile min-w-0 rounded-[var(--r-tile)] p-4"
       aria-label={`${t(definition.labelKey)} · ${t(meta.labelKey)}`}
       aria-busy={state === 'loading' ? 'true' : undefined}
     >
       <div className="flex items-center gap-2.5">
-        <span className="telemetry-tile-icon size-8 rounded-[9px] bg-sunken grid place-items-center text-ink-2">
+        <span className="size-8 rounded-[9px] bg-sunken grid place-items-center text-ink-2">
           <Icon size={15} strokeWidth={1.5} aria-hidden />
         </span>
-        <h3 className="telemetry-tile-title text-[13px] font-semibold text-ink">{t(definition.labelKey)}</h3>
+        <h3 className="text-[13px] font-semibold text-ink">{t(definition.labelKey)}</h3>
         <Chip tone={meta.tone} className="ml-auto">{t(meta.labelKey)}</Chip>
       </div>
       {isEmpty ? (
-        <p className="mt-4 text-[12.5px] text-ink-2 leading-relaxed max-w-[32ch]">
-          {emptyKey ? t(emptyKey) : ' '}
-        </p>
+        <div className={`dashboard-telemetry-empty ${state === 'unavailable' ? 'hatch hatch-ink3' : ''}`}>
+          {['cpu', 'memory', 'disk'].includes(definition.id) && <span className="dashboard-telemetry-empty-track" aria-hidden />}
+          <p className="mt-4 text-[12.5px] text-ink-2 leading-relaxed max-w-[32ch]">{emptyKey ? t(emptyKey) : ' '}</p>
+        </div>
       ) : (
         <div
-          className="telemetry-tile-body mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-ink-2 font-mono"
+          className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-ink-2 font-mono"
           style={{ fontVariantNumeric: 'tabular-nums' }}
         >
-          <MetricRows t={t} id={definition.id} metric={metric} classic={classic} />
+          <MetricRows t={t} id={definition.id} metric={metric} state={state} />
         </div>
       )}
     </article>
@@ -345,17 +295,27 @@ function TelemetryTile({ t, definition, value, loading }) {
 export function ServerTelemetry({ t, data, loading = false }) {
   const metrics = data?.metrics ?? null
   return (
-    <Card className="p-5">
-      <CardTitle sub={t('serverTelemetrySub')}>{t('serverTelemetry')}</CardTitle>
-      <div className="telemetry-grid grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {METRICS.map((definition) => (
-          <TelemetryTile
-            key={definition.id}
-            t={t}
-            definition={definition}
-            value={metrics?.[definition.id]}
-            loading={loading}
-          />
+    <Card className="dashboard-telemetry-card dashboard-motion-card p-5">
+      <CardTitle icon={Cpu} sub={t('serverTelemetrySub')}>{t('serverTelemetry')}</CardTitle>
+      {/* Two groups, same six tiles in the same order: consumption metrics
+          (a real percentage drawn as a meter) and runtime/environment state
+          (values without a bar). Grouping is presentation only. */}
+      <div className="dashboard-telemetry-groups">
+        {TELEMETRY_GROUPS.map((group) => (
+          <section key={group.id} className="dashboard-telemetry-group" data-group={group.id}>
+            <h3 className="dashboard-telemetry-group-title">{t(group.labelKey)}</h3>
+            <div className="dashboard-telemetry-grid">
+              {group.ids.map((id) => METRICS.find((definition) => definition.id === id)).map((definition) => (
+                <TelemetryTile
+                  key={definition.id}
+                  t={t}
+                  definition={definition}
+                  value={metrics?.[definition.id]}
+                  loading={loading}
+                />
+              ))}
+            </div>
+          </section>
         ))}
       </div>
     </Card>
