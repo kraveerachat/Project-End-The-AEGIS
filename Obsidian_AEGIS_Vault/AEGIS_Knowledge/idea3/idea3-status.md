@@ -11,6 +11,27 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 CTu trusted work directory traversal contract repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** In the latest CTu owner-run, bundle verification failed closed with `CTU_RESULT=FAIL_IMMUTABLE CTU_ATTEMPT_CONSUMED=NO reason=CTU_BUNDLE`. Forensic inspection of `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-07-ctu-20261007-214845` confirmed all 18 bundle files existed and matched expected sha256 sums when verified under root. However, the parent work directory `$WORK` (`ctu-work`) was created implicitly with `root:root 0700` (`---` for others), preventing the unprivileged operator user (`kittipat`, UID 1000) from traversing (`cd`) into `$bundle` (`0555`), triggering `Permission denied`. Repaired by introducing `ctu_prepare_work_dir()` in `p4-ctu-run-lib.sh` to explicitly create `$work` as `root:root 0711` (`--x` for group and others) and enforcing `ctu_verify_work_dir()` across all components (`run-ctu-owner.sh`, `stages/CTu/verify.sh`, apply and rollback routines). Mode `0711` permits directory traversal lookup (`--x`) without granting read/listing (`-r`) or write (`-w`) permissions to non-root users. The failed frozen runner bound to main `5d3245eaab9aa7337b570ef7fb949e937a46575b` / SHA `35441dd71996b4def12a89d948afe0c8fdbf43ab91291fead525378c0811df4c` is invalidated for future LIVE use. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `FAILURE_PHASE=PRE_CONSUME_BUNDLE_PREPARATION`; `FAILURE_REASON=CTU_BUNDLE`; `WORK_DIR_TRAVERSAL_CONTRACT=PASS`.
+
+### Current Task
+
+Task: IDEA3 CTu trusted work directory traversal contract repair
+Branch: `fix/idea3-ctu-trusted-work-traverse`
+Owner: `music`
+Current state: repository repair in p4-ctu-run-lib.sh, run-ctu-owner.sh, verify.sh, and behavioral regression tests implemented and verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently generate fresh post-merge exact-main CTu authority, clone, pins, frozen runner, Authorization, and K3 before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S8 | CTu trusted work directory traversal contract repair (`p4-ctu-run-lib.sh` ctu_prepare_work_dir mode 0711 and ctu_verify_work_dir; `run-ctu-owner.sh` and `verify.sh` 0:711 checks; behavioral regression tests) | READY FOR REVIEW | 81 focused CTu/repair tests PASS, 676 recovery suite tests PASS, 59 vault/policy tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; generate fresh exact-main CTu authority and frozen runner after merge |
+
 ## IDEA3 CTu bundle manifest relative CWD verification repair — pre-first-LIVE — 2026-10-07
 
 > [!important] **Root cause confirmed and repaired:** In `ctu_prepare_bundle()` (`IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh`), `CTU-BUNDLE-SHA256SUMS` was verified using `$CTU_SUDO sha256sum -c --quiet --strict "$bundle/CTU-BUNDLE-SHA256SUMS"` without changing CWD to the bundle directory. Because `sha256sum` resolves relative filenames relative to process CWD, verification deterministically failed whenever runner CWD was outside `$bundle`, triggering `post_fail CTU_BUNDLE` (`CTU_RESULT=FAIL_IMMUTABLE CTU_ATTEMPT_CONSUMED=NO reason=CTU_BUNDLE`). Fixed by executing `( cd "$bundle" && $CTU_SUDO sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) >/dev/null 2>&1`, matching `ctu_verify_bundle()`, `verify.sh`, and apply/rollback routines. Additionally sealed `$bundle/ctu-acceptance` to mode `0555` and `$bundle/CTU-BUNDLE-SHA256SUMS` to mode `0444`. The failed frozen runner bound to main `8f337dad15f4e89d2265a95741b90128c14e6a39` / SHA `ed1e656a24f7d126b87828b59d5b726b9d337d5887c4b4c5a8b26ed7b2b173e0` is invalidated for future LIVE use. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.

@@ -23,6 +23,7 @@ fail() { printf 'CTU_VERIFY=FAIL reason=%s\n' "$1" >&2; exit 1; }
 : "${AEGIS_CTU_REPO:?AEGIS_CTU_REPO required}"
 : "${AEGIS_CTU_EXPECTED_MAIN:?AEGIS_CTU_EXPECTED_MAIN required}"
 TARGET=/etc/systemd/system/aegis-idea3-core.service
+[ -d "$AEGIS_CTU_WORK_DIR" ] && [ ! -L "$AEGIS_CTU_WORK_DIR" ] && [ "$(stat -c %u:%a -- "$AEGIS_CTU_WORK_DIR")" = "0:711" ] || fail WORK_DIR_INVALID
 [ -d "$AEGIS_CTU_BUNDLE" ] && [ ! -L "$AEGIS_CTU_BUNDLE" ] && [ "$(stat -c %u -- "$AEGIS_CTU_BUNDLE")" = 0 ] || fail CTU_BUNDLE_INVALID
 [ -z "$(find "$AEGIS_CTU_BUNDLE" -type l -print -quit)" ] || fail CTU_BUNDLE_SYMLINK
 ( cd "$AEGIS_CTU_BUNDLE" && sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) || fail CTU_BUNDLE_DRIFT
