@@ -15,6 +15,10 @@ edit_policy: append-by-new-file
 - `CTU_LIVE_EXECUTED=NO`
 - `CTU_ATTEMPT_CONSUMED=NO`
 - `RECOVERY_LIVE_EXECUTED=NO`
+- `RECOVERY_ATTEMPT_CONSUMED=NO`
+- `PRODUCTION_MUTATION_PERFORMED=NO`
+- `MERGE_PERFORMED=NO`
+- `CTU_FIRST_LIVE_ATTEMPT_NOT_YET_CONSUMED=YES`
 - `PRODUCTION_MUTATION_PERFORMED=NO`
 - `CTU_STAGE_REUSED_WITHOUT_RETRY=YES`
 
@@ -44,6 +48,10 @@ Read-only host inspection post-reboot revealed two blockers before CTu first exe
   - Recorded `CTU_DEVICE_ID` in terminal closeout.
 - Recovery Gate Update:
   - Updated `recovery_ctu_successor_gate` and `recovery_runner_freeze.py` to validate `CTU_DETECTOR_BASELINE_MODE=(ACTIVE|INACTIVE)` and `CTU_DEVICE_ID` in CTu closeout without weakening security.
+- Pre-live security closure:
+  - `CTU_DIRECT_APPLY_BYPASS_CLOSED=YES`: CTu apply requires the canonical consumed marker and exact frozen-runner/bundle provenance before mutation.
+  - `RECOVERY_DIRECT_PRIVILEGED_HANDLER_GATED=YES`: Recovery apply/verify require root-created provenance bound to the frozen runner and control manifest.
+  - `ROOT_EXECUTES_MUTABLE_WORKTREE_CODE=NO`, `AMBIENT_CTU_PYTHON_ACCEPTED=NO`, `GIT_TRUST_CLOSURE=PASS`, `CORE_ENV_TOCTOU_CLOSED=YES`, `TRANSIENT_INACTIVE_EXECUTION_MECHANICALLY_REFUSED=YES`, and `FREEZE_TEMPLATE_PIN_CARDINALITY_ENFORCED=YES`.
 
 ## Source files changed
 
@@ -61,17 +69,20 @@ Read-only host inspection post-reboot revealed two blockers before CTu first exe
 - `IDEA3-AEGIS_Lockdown/tests/test_ctu_blockers.py` — updated and added tests for dual detector baseline modes and 7 `core.env` parsing cases.
 - `IDEA3-AEGIS_Lockdown/tests/test_core_trusted_time_repair.py` — fixed PIN_DEVICE collision and updated mock closeouts.
 - `IDEA3-AEGIS_Lockdown/tests/recovery/test_recovery_runner_freeze.py` — updated mock closeouts with baseline mode and device ID.
+- Takeover continuation also changed exactly: `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/README.md`, `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-ctu-owner.sh`, `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-recovery-owner.sh`, `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh`, `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-runtime-verify.py`, `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-recovery-run-lib.sh`, `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/CTu/apply.sh`, `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/CTu/verify.sh`, `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/Recovery/apply.sh`, `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/Recovery/verify.sh`, `IDEA3-AEGIS_Lockdown/tests/recovery/recovery_support.py`, and `IDEA3-AEGIS_Lockdown/tests/test_ctu_blockers.py`.
 
 ## Verification evidence
 
-- `pytest -v IDEA3-AEGIS_Lockdown/tests/test_ctu_blockers.py` — pass: 13 passed in 1.48s
+- `/usr/bin/python3 -m pytest -q tests/test_ctu_blockers.py tests/test_core_trusted_time_repair.py tests/recovery/test_recovery_runner_authority.py tests/recovery/test_recovery_runner_freeze.py` — 230 passed; 2 pre-existing environment-only trust-seam expectation failures (real-root namespace reports ancestor ownership before the older expected seam token)
+- `/usr/bin/python3 -m pytest -q tests/test_core_trusted_time_repair.py tests/test_ctu_blockers.py tests/recovery/test_recovery_runner_freeze.py tests/recovery/test_recovery_attempt.py tests/recovery/test_recovery_preservation.py tests/recovery/test_recovery_runner_authority.py tests/rru/test_rru_stage.py tests/r1bv/test_r1bv_contract.py tests/test_recovery_stage.py tests/test_pr11_phase4_harness.py` — 915 passed; 2 pre-existing environment-only trust-seam expectation failures, no PR-introduced failures
+- `/usr/bin/python3 -m pytest -q tests/test_ctu_blockers.py tests/test_core_trusted_time_repair.py` — pass after final one-shot CTu handler-provenance tightening: 42 passed
 - `pytest -v IDEA3-AEGIS_Lockdown/tests/test_core_trusted_time_repair.py` — pass: 24 passed in 2.21s
 - `pytest -v IDEA3-AEGIS_Lockdown/tests/recovery/test_recovery_runner_freeze.py` — pass: 74 passed in 25.10s
 - `pytest -q IDEA3-AEGIS_Lockdown/tests/r1bv/ IDEA3-AEGIS_Lockdown/tests/r1i/ IDEA3-AEGIS_Lockdown/tests/rru/ IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_harness.py` — pass: 757 passed in 165.23s
 - `bash -n` on all changed shell scripts — pass: exit 0, no syntax errors
-- `python3 -m py_compile` on all changed Python files — pass: exit 0, no syntax errors
+- `/usr/bin/python3 -m py_compile` on all changed Python files — pass: exit 0, no syntax errors
 - `git diff --check` — pass: exit 0, clean whitespace
-- `node scripts/validate-vault.mjs` — pass: exit 0, 0 errors
+- `node scripts/validate-vault.mjs` — pass: exit 0, 0 errors, 2 pre-existing canvas owner-review warnings
 
 ## Canonical notes updated
 
@@ -92,4 +103,4 @@ Read-only host inspection post-reboot revealed two blockers before CTu first exe
 - `CTU_ATTEMPT_CONSUMED=NO`: Attempt marker `CTU-GLOBAL-ATTEMPT-CONSUMED` is absent.
 - `RECOVERY_LIVE_EXECUTED=NO`: Recovery remains unexecuted.
 - `PRODUCTION_MUTATION_PERFORMED=NO`: Zero live mutations performed.
-- Human review and merge required before any live execution.
+- Human review and merge required before any live execution. Independent exact-head Security and Governance review remains required; no Draft PR was merged.

@@ -5,6 +5,7 @@ set -Eeuo pipefail
 umask 077
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export PATH LC_ALL=C
+git() { HOME=/nonexistent GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git "$@"; }
 EXPECTED_MAIN=PIN_MAIN_SHA
 OPERATOR_USER=PIN_OPERATOR_USER
 OPERATOR_UID=PIN_OPERATOR_UID
@@ -33,7 +34,7 @@ P4=$APP/deploy/pr11-phase4
 UNIT_SOURCE=$APP/deploy/aegis-idea3-core.service.example
 AUTH=$AUTH_DIR/authorization-CTu.txt
 K3=$AUTH_DIR/k3-CTu.txt
-. "$P4/p4-ctu-run-lib.sh"
+eval "$(git -C \"$REPO\" show \"$EXPECTED_MAIN:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh\")"
 RUNNER_SHA256=$(sha256sum "$0" | cut -d' ' -f1)
 ctu_operator_identity_gate "$OPERATOR_USER" "$OPERATOR_UID" || { echo CTU_OPERATOR_IDENTITY_INVALID >&2; exit 2; }
 for f in "$AUTH" "$K3"; do
@@ -76,6 +77,7 @@ CORE_PRE_START=$(sudo -n systemctl show -p ExecMainStartTimestamp --value aegis-
 CORE_PRE_NRESTARTS=$(sudo -n systemctl show -p NRestarts --value aegis-idea3-core.service)
 [ "$CORE_PRE_LOAD" = "loaded" ] && [ "$CORE_PRE_ACTIVE" = "active" ] && [ "$CORE_PRE_SUB" = "running" ] && [ "$CORE_PRE_RESULT" = "success" ] && [ "$CORE_PRE_NRESTARTS" = 0 ] && [[ "$CORE_PRE_PID" =~ ^[1-9][0-9]*$ ]] || { echo 'STOP: Core is not in active running state before CTu.' >&2; exit 1; }
 ctu_validate_core_env_device_id /etc/aegis-idea3/core.env "$DEVICE_ID" || { echo 'STOP: core.env AEGIS_P1_DEVICE_ID does not match frozen DEVICE_ID or is invalid.' >&2; exit 1; }
+CORE_ENV_PRE_SHA=$(sudo -n sha256sum /etc/aegis-idea3/core.env | cut -d' ' -f1)
 STATUS_PRE_UPDATED_AT=$(sudo -n /usr/bin/python3 -c 'import json; print(float(json.load(open("/run/aegis-idea3/status.json"))["updated_at"]))') || exit 1
 DETECTOR_PRE_LOAD=$(sudo -n systemctl show -p LoadState --value aegis-idea3-detector.service)
 DETECTOR_PRE_ACTIVE=$(sudo -n systemctl show -p ActiveState --value aegis-idea3-detector.service)
@@ -184,7 +186,7 @@ grep -qx 'K3_CONFIRMATION=VALID' <<<"$gate_out" || post_fail PRE_K3
 if ! ctu_validate_core_env_device_id /etc/aegis-idea3/core.env "$DEVICE_ID"; then
   post_fail CORE_ENV_DEVICE_MISMATCH
 fi
-if ! ctu_consume_attempt "$WORK" "$DEVICE_ID" "$BUNDLE/p4-ctu-runtime-verify.py"; then
+if ! ctu_consume_attempt "$WORK" "$DEVICE_ID" "$BUNDLE/p4-ctu-runtime-verify.py" "$RUNNER_SHA256" "$BUNDLE"; then
   if [ "${CTU_MARKER_CREATED:-0}" = 1 ]; then
     CONSUMED=1; post_fail MARKER_DURABILITY
   fi
@@ -192,11 +194,11 @@ if ! ctu_consume_attempt "$WORK" "$DEVICE_ID" "$BUNDLE/p4-ctu-runtime-verify.py"
   exit 1
 fi
 CONSUMED=1
-if ! sudo -n env AEGIS_CTU_LIVE_AUTHORIZED=YES AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_BUNDLE="$BUNDLE" AEGIS_CTU_UNIT_SNAPSHOT="$UNIT_SNAPSHOT" AEGIS_CTU_UNIT_SHA256="$UNIT_SHA256" bash "$BUNDLE/stages/CTu/apply.sh"; then post_fail APPLY; fi
+if ! sudo -n env AEGIS_CTU_LIVE_AUTHORIZED=YES AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_BUNDLE="$BUNDLE" AEGIS_CTU_UNIT_SNAPSHOT="$UNIT_SNAPSHOT" AEGIS_CTU_UNIT_SHA256="$UNIT_SHA256" AEGIS_CTU_JOURNAL_SINCE="$JOURNAL_SINCE" AEGIS_CTU_DETECTOR_PRE_MODE="$DETECTOR_PRE_MODE" bash "$BUNDLE/stages/CTu/apply.sh"; then post_fail APPLY; fi
 if ! capture "$POST" ctu-post; then post_fail POST_CAPTURE; fi
 if ! compare "$PRE" "stages/CTu/allow-keys.txt" "$PRE" "$POST" "$EVID/compare-pre-post.txt"; then post_fail COMPARE_S10; fi
 if ! l7u_secret_scan "$EVID" /usr/bin/python3; then post_fail SECRET_SCAN; fi
-if ! sudo -n env AEGIS_CTU_BUNDLE="$BUNDLE" AEGIS_CTU_UNIT_SNAPSHOT="$UNIT_SNAPSHOT" AEGIS_CTU_UNIT_SHA256="$UNIT_SHA256" AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_RUNTIME_VERIFY="$BUNDLE/p4-ctu-runtime-verify.py" AEGIS_CTU_PRE_CORE_PID="$CORE_PRE_PID" AEGIS_CTU_PRE_CORE_START="$CORE_PRE_START" AEGIS_CTU_PRE_CORE_NRESTARTS="$CORE_PRE_NRESTARTS" AEGIS_CTU_PRE_STATUS_UPDATED_AT="$STATUS_PRE_UPDATED_AT" AEGIS_CTU_DEVICE_ID="$DEVICE_ID" AEGIS_CTU_DETECTOR_PRE_MODE="$DETECTOR_PRE_MODE" AEGIS_CTU_PRE_DETECTOR_PID="$DETECTOR_PRE_PID" AEGIS_CTU_PRE_DETECTOR_START="$DETECTOR_PRE_START" AEGIS_CTU_PRE_DETECTOR_INVOCATION="$DETECTOR_PRE_INVOCATION" AEGIS_CTU_PRE_DETECTOR_NRESTARTS="$DETECTOR_PRE_NRESTARTS" AEGIS_CTU_PRE_DETECTOR_MONOTONIC="$DETECTOR_PRE_MONOTONIC" bash "$BUNDLE/stages/CTu/verify.sh"; then post_fail VERIFY; fi
+if ! sudo -n env AEGIS_CTU_BUNDLE="$BUNDLE" AEGIS_CTU_UNIT_SNAPSHOT="$UNIT_SNAPSHOT" AEGIS_CTU_UNIT_SHA256="$UNIT_SHA256" AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_RUNTIME_VERIFY="$BUNDLE/p4-ctu-runtime-verify.py" AEGIS_CTU_PRE_CORE_PID="$CORE_PRE_PID" AEGIS_CTU_PRE_CORE_START="$CORE_PRE_START" AEGIS_CTU_PRE_CORE_NRESTARTS="$CORE_PRE_NRESTARTS" AEGIS_CTU_PRE_STATUS_UPDATED_AT="$STATUS_PRE_UPDATED_AT" AEGIS_CTU_PRE_CORE_ENV_SHA="$CORE_ENV_PRE_SHA" AEGIS_CTU_DEVICE_ID="$DEVICE_ID" AEGIS_CTU_DETECTOR_PRE_MODE="$DETECTOR_PRE_MODE" AEGIS_CTU_PRE_DETECTOR_PID="$DETECTOR_PRE_PID" AEGIS_CTU_PRE_DETECTOR_START="$DETECTOR_PRE_START" AEGIS_CTU_PRE_DETECTOR_INVOCATION="$DETECTOR_PRE_INVOCATION" AEGIS_CTU_PRE_DETECTOR_NRESTARTS="$DETECTOR_PRE_NRESTARTS" AEGIS_CTU_PRE_DETECTOR_MONOTONIC="$DETECTOR_PRE_MONOTONIC" bash "$BUNDLE/stages/CTu/verify.sh"; then post_fail VERIFY; fi
 if ! ctu_record_success "$EXPECTED_MAIN" "$UNIT_SHA256" "$EVID" "$DEVICE_ID" "$DETECTOR_PRE_MODE"; then post_fail CTU_CLOSEOUT; fi
 ctu_stop_sudo_keepalive 2>/dev/null || true
 TERMINAL=1

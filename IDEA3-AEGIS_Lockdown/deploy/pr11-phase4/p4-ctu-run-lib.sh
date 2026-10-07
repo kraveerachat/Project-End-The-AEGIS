@@ -6,6 +6,10 @@ CTU_CANONICAL_DIR=/var/lib/aegis-idea3-governance
 CTU_GLOBAL_MARKER_NAME=CTU-GLOBAL-ATTEMPT-CONSUMED
 CTU_SUDO="${CTU_SUDO-${SUDO-sudo}}"
 CTU_CLOSEOUT_NAME=CTU-GLOBAL-CLOSEOUT-PASS
+ctu_git() {
+  HOME=/nonexistent GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git "$@"
+}
 ctu_canonical_dir() {
   if [ "${AEGIS_CTU_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" = YES ] && [ -n "${AEGIS_CTU_TEST_ONLY_CANONICAL_DIR:-}" ]; then printf '%s' "$AEGIS_CTU_TEST_ONLY_CANONICAL_DIR"; else printf '%s' "$CTU_CANONICAL_DIR"; fi
 }
@@ -45,9 +49,8 @@ ctu_validate_core_env_device_id() {
   local env_file=${1:-/etc/aegis-idea3/core.env} expected=${2:-}
   [[ "$expected" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || { echo "CTU_DEVICE_ID_GRAMMAR_INVALID" >&2; return 1; }
   ${CTU_SUDO:-} test -f "$env_file" && ! ${CTU_SUDO:-} test -L "$env_file" || { echo "CTU_CORE_ENV_MISSING_OR_SYMLINK" >&2; return 1; }
-  local out py="${CTU_PYTHON:-/usr/bin/python3}"
-  if [ ! -x "$py" ]; then py=$(command -v python3 || echo /usr/bin/python3); fi
-  out=$(${CTU_SUDO:-} "$py" -c '
+  local out
+  out=$(${CTU_SUDO:-} /usr/bin/python3 -I -B -c '
 import sys, re
 path, expected = sys.argv[1], sys.argv[2]
 pattern = re.compile(r"^[ \t]*AEGIS_P1_DEVICE_ID[ \t]*=(.*)$")
@@ -88,8 +91,13 @@ print("MATCH")
   [ "$out" = "MATCH" ]
 }
 ctu_consume_attempt() {
-  local work=${1:-} device=${2:-} verifier=${3:-} dir marker boundary; [[ "$work" == /* && "$work" != *..* ]] || return 1
+  local work=${1:-} device=${2:-} verifier=${3:-} runner_sha=${4:-} bundle=${5:-} dir marker provenance boundary bundle_sha; [[ "$work" == /* && "$work" != *..* ]] || return 1
   [[ "$device" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ && "$verifier" == /* && "$verifier" != *..* ]] || return 1
+  local provenance=1
+  if [ -z "$runner_sha" ] && [ -z "$bundle" ]; then provenance=0; else
+    [[ "$runner_sha" =~ ^[0-9a-f]{64}$ && "$bundle" == /* && "$bundle" != *..* && -f "$bundle/CTU-BUNDLE-SHA256SUMS" ]] || return 1
+    bundle_sha=$(sha256sum "$bundle/CTU-BUNDLE-SHA256SUMS" | cut -d' ' -f1)
+  fi
   ctu_marker_unconsumed || return 1; dir=$(ctu_canonical_dir); marker=$(ctu_marker_path)
   if ! $CTU_SUDO test -d "$dir"; then $CTU_SUDO mkdir -m 0700 "$dir" || return 1; fi
   ctu_fsync "$(dirname "$dir")" || return 1
@@ -98,9 +106,21 @@ ctu_consume_attempt() {
   else
     boundary=$($CTU_SUDO /usr/bin/python3 "$verifier" --capture-boundary --device-id "$device") || return 1
   fi
-  if ! printf 'CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_DEVICE_ID=%s\nCTU_CONSUMED_AT_EPOCH=%s\nwork=%s\n%s\n' "$device" "$(date -u +%s.%N)" "$work" "$boundary" | $CTU_SUDO bash -c 'set -o noclobber; cat > "$1"' _ "$marker"; then echo CTU_ATTEMPT_ALREADY_CONSUMED >&2; return 1; fi
+  if [ "$provenance" = 1 ]; then
+    marker_extra=$(printf 'CTU_FROZEN_RUNNER_SHA256=%s\nCTU_BUNDLE_MANIFEST_SHA256=%s\n' "$runner_sha" "$bundle_sha")
+  else marker_extra=""; fi
+  if ! printf 'CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_DEVICE_ID=%s\n%sCTU_CONSUMED_AT_EPOCH=%s\nwork=%s\n%s\n' "$device" "$marker_extra" "$(date -u +%s.%N)" "$work" "$boundary" | $CTU_SUDO bash -c 'set -o noclobber; cat > "$1"' _ "$marker"; then echo CTU_ATTEMPT_ALREADY_CONSUMED >&2; return 1; fi
   CTU_MARKER_CREATED=1
   ctu_fsync "$marker" && ctu_fsync "$dir" || { echo CTU_MARKER_NOT_DURABLE_ATTEMPT_CONSUMED >&2; return 1; }
+  if [ "$provenance" = 1 ]; then
+    provenance="$dir/CTU-FROZEN-RUNNER-PROVENANCE"
+    if ! printf 'CTU_FROZEN_RUNNER_SHA256=%s\nCTU_BUNDLE_MANIFEST_SHA256=%s\n' "$runner_sha" "$bundle_sha" | $CTU_SUDO bash -c 'set -o noclobber; cat > "$1"' _ "$provenance"; then
+      echo CTU_HANDLER_PROVENANCE_NOT_CREATED >&2
+      return 1
+    fi
+    $CTU_SUDO chmod 0400 "$provenance" || return 1
+    ctu_fsync "$provenance" && ctu_fsync "$dir" || { echo CTU_HANDLER_PROVENANCE_NOT_DURABLE >&2; return 1; }
+  fi
   $CTU_SUDO chattr +i "$marker" 2>/dev/null || true
 }
 ctu_prepare_unit_snapshot() {
@@ -131,8 +151,8 @@ ctu_prepare_bundle() {
   for rel in "${files[@]}"; do
     src="$p4/$rel"; dst="$bundle/$rel"
     [ -f "$src" ] && [ ! -L "$src" ] || { echo "CTU_BUNDLE_SOURCE_INVALID:$rel" >&2; return 1; }
-    git -C "$repo" cat-file -e "$main:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/$rel" 2>/dev/null || return 1
-    expected=$(git -C "$repo" show "$main:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1) || return 1
+    ctu_git -C "$repo" cat-file -e "$main:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/$rel" 2>/dev/null || return 1
+    expected=$(ctu_git -C "$repo" show "$main:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1) || return 1
     got=$(sha256sum -- "$src" | cut -d' ' -f1)
     [ "$got" = "$expected" ] || { echo "CTU_BUNDLE_SOURCE_NOT_EXACT_MAIN:$rel" >&2; return 1; }
     $CTU_SUDO install -o root -g root -m 0555 -- "$src" "$dst" || return 1
@@ -213,6 +233,6 @@ ctu_operator_identity_gate() {
 ctu_rru_successor_gate() {
   local repo=${1:-} main=${2:-} files
   [ -n "$repo" ] && [ -d "$repo/.git" ] && [[ "$main" =~ ^[0-9a-f]{40}$ ]] || return 1
-  files=$(GIT_NO_REPLACE_OBJECTS=1 git -C "$repo" grep -l "RRU_LIVE=CLOSED_PASS" "$main" -- 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/' 2>/dev/null || true)
+  files=$(ctu_git -C "$repo" grep -l "RRU_LIVE=CLOSED_PASS" "$main" -- 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/' 2>/dev/null || true)
   [ -n "$files" ] || { echo "CTU_RRU_SUCCESSOR_GATE_FAILED" >&2; return 1; }
 }

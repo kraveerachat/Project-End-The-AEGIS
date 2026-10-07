@@ -25,7 +25,7 @@ _RECOVERY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Every Git read that feeds a Recovery trust decision runs with replacement objects DISABLED (a real `git replace GOOD EVIL` keeps the apparent SHA while changing the bytes Git returns). A shell function, so it
 # also covers the sourced libraries; a caller's environment cannot re-enable replacement.
-git() { GIT_NO_REPLACE_OBJECTS=1 command git "$@"; }
+git() { HOME=/nonexistent GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git "$@"; }
 
 RECOVERY_SAFE_PATH=/usr/sbin:/usr/bin:/sbin:/bin
 RECOVERY_R1I_TABLE="inet aegis_idea3_r1i"
@@ -182,6 +182,23 @@ recovery_ctu_successor_gate() {
       grep -qE '^[[:space:]]*AmbientCapabilities[[:space:]]*=[[:space:]]*$' "$installed_unit" || { recovery_reason RECOVERY_CTU_SECURITY_HARDENING_INVALID; return 1; }
     fi
   fi
+}
+recovery_ctu_detector_mode_gate() {
+  local canon mode out pid
+  canon=$(recovery_canonical_dir)
+  mode=$($SUDO awk -F= '$1 == "CTU_DETECTOR_BASELINE_MODE" {print $2}' "$canon/CTU-GLOBAL-CLOSEOUT-PASS" 2>/dev/null)
+  case "$mode" in
+    ACTIVE)
+      f1u_detector_running_gate || { recovery_reason RECOVERY_CTU_ACTIVE_DETECTOR_MISMATCH; return 1; }
+      ;;
+    INACTIVE)
+      out=$($SUDO systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Restart -p MainPID -p InvocationID -p NRestarts aegis-idea3-detector.service 2>/dev/null) || { recovery_reason RECOVERY_CTU_INACTIVE_DETECTOR_STATE_UNREADABLE; return 1; }
+      pid=$(awk -F= '$1 == "MainPID" {print $2}' <<< "$out")
+      grep -qx 'LoadState=loaded' <<< "$out" && grep -qx 'ActiveState=inactive' <<< "$out" && grep -qx 'SubState=dead' <<< "$out" && grep -qx 'UnitFileState=disabled' <<< "$out" && grep -qx 'Restart=no' <<< "$out" && [ "$pid" = 0 ] && grep -qx 'InvocationID=' <<< "$out" && grep -qx 'NRestarts=0' <<< "$out" || { recovery_reason RECOVERY_CTU_INACTIVE_DETECTOR_MISMATCH; return 1; }
+      [ "$($SUDO pgrep -fc 'aegis_soc[.]production_detector' 2>/dev/null || true)" = 0 ] || { recovery_reason RECOVERY_CTU_INACTIVE_PROCESS_PRESENT; return 1; }
+      ;;
+    *) recovery_reason RECOVERY_CTU_DETECTOR_MODE_INVALID; return 1 ;;
+  esac
 }
 
 recovery_sudo_noninteractive_gate() {
@@ -367,6 +384,8 @@ recovery_hook_baseline() {
   canon=$(recovery_canonical_dir)
   $SUDO test -d "$canon" || $SUDO mkdir -m 0700 "$canon" 2>/dev/null || { recovery_reason "RECOVERY_CANONICAL_DIR_NOT_CREATABLE"; return 1; }
   [ -n "${WORK:-}" ] && [ "$(dirname "$WORK")" = "$canon" ] && ! $SUDO test -e "$WORK" && $SUDO mkdir -m 0700 -- "$WORK" || { recovery_reason "RECOVERY_WORK_DIR_NOT_CREATABLE"; return 1; }
+  $SUDO bash -c 'set -o noclobber; printf "RECOVERY_FROZEN_RUNNER_SHA256=%s\nRECOVERY_CONTROL_MANIFEST_SHA256=%s\n" "$1" "$2" > "$3"' _ "$RUNNER_SHA256" "$CONTROL_MANIFEST_SHA256" "$WORK/RECOVERY-FROZEN-RUNNER-PROVENANCE" || { recovery_reason "RECOVERY_PROVENANCE_NOT_CREATED"; return 1; }
+  $SUDO chmod 0400 "$WORK/RECOVERY-FROZEN-RUNNER-PROVENANCE" || return 1
   mkdir -m 700 -- "$STEPS" || { recovery_reason "RECOVERY_STEPS_DIR_NOT_CREATABLE"; return 1; }
   echo "== PRE-MARKER quiescence captures, trusted clock, firewall dump and immutable baseline (read-only)"
   recovery_capture PRECHECK "$WORK/precheck-root" || return 1

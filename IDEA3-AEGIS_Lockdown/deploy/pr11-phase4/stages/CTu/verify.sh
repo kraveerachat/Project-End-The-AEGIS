@@ -9,6 +9,7 @@ fail() { printf 'CTU_VERIFY=FAIL reason=%s\n' "$1" >&2; exit 1; }
 : "${AEGIS_CTU_PRE_CORE_START:?AEGIS_CTU_PRE_CORE_START required}"
 : "${AEGIS_CTU_PRE_CORE_NRESTARTS:?AEGIS_CTU_PRE_CORE_NRESTARTS required}"
 : "${AEGIS_CTU_PRE_STATUS_UPDATED_AT:?AEGIS_CTU_PRE_STATUS_UPDATED_AT required}"
+: "${AEGIS_CTU_PRE_CORE_ENV_SHA:?AEGIS_CTU_PRE_CORE_ENV_SHA required}"
 : "${AEGIS_CTU_DEVICE_ID:?AEGIS_CTU_DEVICE_ID required}"
 : "${AEGIS_CTU_DETECTOR_PRE_MODE:?AEGIS_CTU_DETECTOR_PRE_MODE required}"
 [[ "$AEGIS_CTU_DETECTOR_PRE_MODE" =~ ^(ACTIVE|INACTIVE)$ ]] || fail DETECTOR_PRE_MODE_INVALID
@@ -31,6 +32,9 @@ TARGET=/etc/systemd/system/aegis-idea3-core.service
 [ "$(sha256sum -- "$TARGET" | cut -d' ' -f1)" = "$AEGIS_CTU_UNIT_SHA256" ] || fail INSTALLED_UNIT_MISMATCH
 [ "$(systemctl show -p FragmentPath --value aegis-idea3-core.service)" = "$TARGET" ] || fail CORE_FRAGMENT_PATH_INVALID
 [ -z "$(systemctl show -p DropInPaths --value aegis-idea3-core.service)" ] || fail CORE_DROPIN_PRESENT
+[ -z "$(grep -E '^[[:space:]]*Environment[[:space:]]*=' "$AEGIS_CTU_UNIT_SNAPSHOT" || true)" ] || fail CORE_CONFLICTING_ENVIRONMENT
+[ -f /etc/aegis-idea3/core.env ] && [ ! -L /etc/aegis-idea3/core.env ] || fail CORE_ENV_MISSING_OR_SYMLINK
+[ "$(sha256sum /etc/aegis-idea3/core.env | cut -d' ' -f1)" = "$AEGIS_CTU_PRE_CORE_ENV_SHA" ] || fail CORE_ENV_CHANGED_AFTER_PRE
 [ "$(systemctl show -p NeedDaemonReload --value aegis-idea3-core.service)" = "NeedDaemonReload=no" ] || fail CORE_DAEMON_RELOAD_PENDING
 protect_clock=$(systemctl show -p ProtectClock --value aegis-idea3-core.service)
 case "$protect_clock" in false|no) ;; *) fail CORE_EFFECTIVE_PROTECTCLOCK_INVALID ;; esac
@@ -72,7 +76,7 @@ grep -qx 'LoadState=loaded' <<<"$detector_state" || fail DETECTOR_NOT_LOADED
 grep -qx 'UnitFileState=disabled' <<<"$detector_state" || fail DETECTOR_UNIT_STATE_CHANGED
 grep -qx 'Restart=no' <<<"$detector_state" || fail DETECTOR_RESTART_POLICY_CHANGED
 
-apply_detector_pid=$(read_runtime detector_pid); apply_detector_start=$(read_runtime detector_start); apply_detector_invocation=$(read_runtime detector_invocation); apply_detector_mono=$(read_runtime detector_monotonic); apply_detector_nrestarts=$(read_runtime detector_nrestarts); apply_detector_load=$(read_runtime detector_load); apply_detector_active=$(read_runtime detector_active); apply_detector_sub=$(read_runtime detector_sub); apply_detector_unit_file=$(read_runtime detector_unit_file); apply_detector_restart=$(read_runtime detector_restart); apply_detector_result=$(read_runtime detector_result); apply_detector_count=$(read_runtime detector_process_count)
+apply_detector_pid=$(read_runtime detector_pid); apply_detector_start=$(read_runtime detector_start); apply_detector_invocation=$(read_runtime detector_invocation); apply_detector_mono=$(read_runtime detector_monotonic); apply_detector_nrestarts=$(read_runtime detector_nrestarts); apply_detector_load=$(read_runtime detector_load); apply_detector_active=$(read_runtime detector_active); apply_detector_sub=$(read_runtime detector_sub); apply_detector_unit_file=$(read_runtime detector_unit_file); apply_detector_restart=$(read_runtime detector_restart); apply_detector_result=$(read_runtime detector_result); apply_detector_count=$(read_runtime detector_process_count); apply_detector_lifecycle_events=$(read_runtime detector_lifecycle_events)
 
 if [ "$AEGIS_CTU_DETECTOR_PRE_MODE" = "ACTIVE" ]; then
   grep -qx 'ActiveState=active' <<<"$detector_state" || fail DETECTOR_NOT_ACTIVE
@@ -122,15 +126,16 @@ elif [ "$AEGIS_CTU_DETECTOR_PRE_MODE" = "INACTIVE" ]; then
   [ "$apply_detector_sub" = dead ] || fail DETECTOR_APPLY_NOT_DEAD
   [ "$apply_detector_nrestarts" = 0 ] || fail DETECTOR_APPLY_RESTARTS_INVALID
   [ "$apply_detector_count" = 0 ] || fail DETECTOR_APPLY_PROCESS_COUNT_INVALID
+  [ "$apply_detector_lifecycle_events" = 0 ] || fail DETECTOR_TRANSIENT_LIFECYCLE_DETECTED
 
-  /usr/bin/python3 -I "$AEGIS_CTU_RUNTIME_VERIFY" --verify-detector --detector-mode INACTIVE --device-id "$AEGIS_CTU_DEVICE_ID" --core-post-monotonic "${core_post_mono:-0}" \
+  /usr/bin/python3 -I "$AEGIS_CTU_RUNTIME_VERIFY" --verify-detector --detector-mode INACTIVE --device-id "$AEGIS_CTU_DEVICE_ID" --core-post-monotonic "${core_post_mono:-0}" --post-detector-lifecycle-events "$apply_detector_lifecycle_events" \
     --pre-detector-pid "$AEGIS_CTU_PRE_DETECTOR_PID" --pre-detector-start "$AEGIS_CTU_PRE_DETECTOR_START" --pre-detector-invocation "$AEGIS_CTU_PRE_DETECTOR_INVOCATION" --pre-detector-nrestarts "$AEGIS_CTU_PRE_DETECTOR_NRESTARTS" --pre-detector-monotonic "$AEGIS_CTU_PRE_DETECTOR_MONOTONIC" \
     --post-detector-pid "$detector_pid" --post-detector-start "$detector_start" --post-detector-invocation "$detector_invocation" --post-detector-nrestarts "$detector_nrestarts" --post-detector-monotonic "$detector_mono" \
     --post-detector-load "$detector_load" --post-detector-active "$detector_active" --post-detector-sub "$detector_sub" --post-detector-unit-file "$detector_unit_file" --post-detector-restart "$detector_restart" || fail DETECTOR_INACTIVE_PRESERVATION_UNPROVEN
 else
   fail DETECTOR_PRE_MODE_INVALID
 fi
-runtime_args=(--core-pid "$post_pid" --pre-updated-at "$AEGIS_CTU_PRE_STATUS_UPDATED_AT" --device-id "$AEGIS_CTU_DEVICE_ID" --post-core-start-timestamp "$post_start")
+runtime_args=(--core-pid "$post_pid" --pre-updated-at "$AEGIS_CTU_PRE_STATUS_UPDATED_AT" --device-id "$AEGIS_CTU_DEVICE_ID" --post-core-start-timestamp "$post_start" --core-env-path /etc/aegis-idea3/core.env --pre-core-env-sha "$AEGIS_CTU_PRE_CORE_ENV_SHA")
 runtime_last=''
 for attempt in $(seq 1 30); do
   if runtime_last=$(/usr/bin/python3 -I "$AEGIS_CTU_RUNTIME_VERIFY" "${runtime_args[@]}" 2>&1); then

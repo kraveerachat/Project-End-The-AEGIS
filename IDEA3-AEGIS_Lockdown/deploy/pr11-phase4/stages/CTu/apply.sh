@@ -7,11 +7,25 @@ fail() { printf 'CTU_APPLY=FAIL reason=%s\n' "$1" >&2; exit 1; }
 : "${AEGIS_CTU_UNIT_SNAPSHOT:?AEGIS_CTU_UNIT_SNAPSHOT required}"
 : "${AEGIS_CTU_UNIT_SHA256:?AEGIS_CTU_UNIT_SHA256 required}"
 : "${AEGIS_CTU_BUNDLE:?AEGIS_CTU_BUNDLE required}"
+: "${AEGIS_CTU_JOURNAL_SINCE:?AEGIS_CTU_JOURNAL_SINCE required}"
+: "${AEGIS_CTU_DETECTOR_PRE_MODE:?AEGIS_CTU_DETECTOR_PRE_MODE required}"
 [ "${AEGIS_CTU_LIVE_AUTHORIZED:-}" = YES ] || fail AEGIS_CTU_LIVE_AUTHORIZED_REQUIRED
 [ "$(id -u)" = 0 ] || fail ROOT_REQUIRED
 [ -d "$AEGIS_CTU_BUNDLE" ] && [ ! -L "$AEGIS_CTU_BUNDLE" ] && [ "$(stat -c %u -- "$AEGIS_CTU_BUNDLE")" = 0 ] || fail CTU_BUNDLE_INVALID
 [ -z "$(find "$AEGIS_CTU_BUNDLE" -type l -print -quit)" ] || fail CTU_BUNDLE_SYMLINK
 ( cd "$AEGIS_CTU_BUNDLE" && sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) || fail CTU_BUNDLE_DRIFT
+MARKER=/var/lib/aegis-idea3-governance/CTU-GLOBAL-ATTEMPT-CONSUMED
+[ -f "$MARKER" ] && [ ! -L "$MARKER" ] && [ "$(stat -c %u:%a "$MARKER")" = "0:600" ] || fail CTU_PROVENANCE_MISSING
+marker_runner=$(awk -F= '$1 == "CTU_FROZEN_RUNNER_SHA256" {print $2}' "$MARKER")
+marker_bundle=$(awk -F= '$1 == "CTU_BUNDLE_MANIFEST_SHA256" {print $2}' "$MARKER")
+[[ "$marker_runner" =~ ^[0-9a-f]{64}$ ]] && [ "$marker_runner" = "$(sha256sum "$AEGIS_CTU_BUNDLE/owner-run/run-ctu-owner.sh" | cut -d' ' -f1)" ] || fail CTU_FROZEN_RUNNER_PROVENANCE_INVALID
+[[ "$marker_bundle" =~ ^[0-9a-f]{64}$ ]] && [ "$marker_bundle" = "$(sha256sum "$AEGIS_CTU_BUNDLE/CTU-BUNDLE-SHA256SUMS" | cut -d' ' -f1)" ] || fail CTU_BUNDLE_PROVENANCE_INVALID
+PROVENANCE=/var/lib/aegis-idea3-governance/CTU-FROZEN-RUNNER-PROVENANCE
+[ -f "$PROVENANCE" ] && [ ! -L "$PROVENANCE" ] && [ "$(stat -c %u:%a "$PROVENANCE")" = "0:400" ] || fail CTU_HANDLER_PROVENANCE_MISSING
+grep -qx "CTU_FROZEN_RUNNER_SHA256=$marker_runner" "$PROVENANCE" || fail CTU_HANDLER_PROVENANCE_RUNNER_MISMATCH
+grep -qx "CTU_BUNDLE_MANIFEST_SHA256=$marker_bundle" "$PROVENANCE" || fail CTU_HANDLER_PROVENANCE_BUNDLE_MISMATCH
+rm -f -- "$PROVENANCE" || fail CTU_HANDLER_PROVENANCE_CONSUME_FAILED
+sync -- "$(dirname "$PROVENANCE")" || fail CTU_HANDLER_PROVENANCE_NOT_DURABLE
 [ -f "$AEGIS_CTU_UNIT_SNAPSHOT" ] && [ ! -L "$AEGIS_CTU_UNIT_SNAPSHOT" ] || fail UNIT_SNAPSHOT_INVALID
 [ "$(stat -c %u -- "$AEGIS_CTU_UNIT_SNAPSHOT" 2>/dev/null)" = 0 ] || fail UNIT_SNAPSHOT_OWNER_INVALID
 [ "$(sha256sum -- "$AEGIS_CTU_UNIT_SNAPSHOT" | cut -d' ' -f1)" = "$AEGIS_CTU_UNIT_SHA256" ] || fail UNIT_SNAPSHOT_SHA256_MISMATCH
@@ -68,6 +82,10 @@ printf 'phase=after-core-restart\n' >> "$AEGIS_CTU_WORK_DIR/journal"
   printf 'detector_restart=%s\n' "$(systemctl show -p Restart --value aegis-idea3-detector.service)"
   printf 'detector_result=%s\n' "$(systemctl show -p Result --value aegis-idea3-detector.service)"
   printf 'detector_process_count=%s\n' "$(pgrep -fc 'aegis_soc[.]production_detector' 2>/dev/null || true)"
+  journal_raw=$(journalctl -u aegis-idea3-detector.service --since "$AEGIS_CTU_JOURNAL_SINCE" --no-pager -o cat 2>/dev/null) || fail DETECTOR_LIFECYCLE_EVIDENCE_UNAVAILABLE
+  lifecycle_events=$(printf '%s\n' "$journal_raw" | grep -E '^(Starting|Started|Stopping|Stopped|Deactivated|Failed to start)' | wc -l)
+  [ "$AEGIS_CTU_DETECTOR_PRE_MODE" != INACTIVE ] || [ "$lifecycle_events" = 0 ] || fail DETECTOR_INACTIVE_LIFECYCLE_EVENT
+  printf 'detector_lifecycle_events=%s\n' "$lifecycle_events"
 } > "$AEGIS_CTU_WORK_DIR/post-apply-runtime.tmp"
 mv -f -- "$AEGIS_CTU_WORK_DIR/post-apply-runtime.tmp" "$AEGIS_CTU_WORK_DIR/post-apply-runtime"
 printf 'CTU_APPLY=PASS\n'

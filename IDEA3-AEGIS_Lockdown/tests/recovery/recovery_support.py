@@ -178,7 +178,19 @@ def apply_env(tmp_path: Path, app: Path, manifest_sha: str, step: str = "FINAL",
     if not fake.exists():
         fake.write_text(f'#!/bin/sh\necho "$@" >> "{tmp_path / "calls.txt"}"\npwd >> "{tmp_path / "cwd.txt"}"\nexit 2\n')
         fake.chmod(0o755)
+    control = tmp_path / "control"
+    (control / "owner-run").mkdir(parents=True, exist_ok=True)
+    runner_copy = control / "owner-run/run-recovery-owner.sh"
+    runner_copy.write_bytes((RUNNER).read_bytes())
+    runner_sha = hashlib.sha256(runner_copy.read_bytes()).hexdigest()
+    manifest = control / "RECOVERY-CONTROL-SHA256SUMS"
+    manifest.write_text("fixture\n")
+    control_sha = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    provenance = work / "RECOVERY-FROZEN-RUNNER-PROVENANCE"
+    provenance.write_text(f"RECOVERY_FROZEN_RUNNER_SHA256={runner_sha}\nRECOVERY_CONTROL_MANIFEST_SHA256={control_sha}\n")
+    provenance.chmod(0o400)
     return {"AEGIS_RCVSTAGE_LIVE_AUTHORIZED": "YES", "AEGIS_RCVSTAGE_WORK_DIR": str(work), "AEGIS_RCVSTAGE_STEP": step, "AEGIS_RCVSTAGE_APP_DIR": str(app),
+            "AEGIS_RCVSTAGE_PROVENANCE_FILE": str(provenance), "RECOVERY_FROZEN_RUNNER_SHA256": runner_sha, "AEGIS_RCVSTAGE_CONTROL_DIR": str(control), "AEGIS_RCVSTAGE_CONTROL_MANIFEST_SHA256": control_sha,
             "AEGIS_RCVSTAGE_VERIFIER_MANIFEST_SHA256": manifest_sha, "AEGIS_RCVSTAGE_AUDIT_DB": str(tmp_path / "audit.db"), "AEGIS_RCVSTAGE_PROTOCOL_DB": str(tmp_path / "protocol.db"),
             "AEGIS_RCVSTAGE_ATTEMPT_MARKER": str(tmp_path / "canon/RECOVERY-GLOBAL-ATTEMPT-CONSUMED"), "AEGIS_RCVSTAGE_EXPECTED_SOURCE_IP": IP, "AEGIS_RCVSTAGE_DETECTOR_UID": "948",
             "AEGIS_RCVSTAGE_R1B_BASELINE": str(tmp_path / "r1b-baseline.json"), "AEGIS_PYTHON_BIN": str(fake)}

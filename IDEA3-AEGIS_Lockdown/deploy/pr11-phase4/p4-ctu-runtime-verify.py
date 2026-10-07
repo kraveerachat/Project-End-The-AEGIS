@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import sqlite3
@@ -115,6 +116,30 @@ def _systemd_timestamp_epoch(value: str) -> float:
     _fail("CORE_SYSTEMD_START_TIMESTAMP_INVALID")
 
 
+def verify_core_env(path: Path, expected_device_id: str, pre_sha256: str) -> None:
+    """Bind the post-restart EnvironmentFile bytes and exact device pin to fresh runtime evidence."""
+    if path.is_symlink() or not path.is_file():
+        _fail("CORE_ENV_MISSING_OR_SYMLINK")
+    actual_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    if not re.fullmatch(r"[0-9a-f]{64}", pre_sha256) or actual_sha != pre_sha256:
+        _fail("CORE_ENV_CHANGED_ACROSS_ATTEMPT")
+    matches = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith(("#", ";")):
+            continue
+        match = re.fullmatch(r"[ \t]*AEGIS_P1_DEVICE_ID[ \t]*=(.*)", raw)
+        if match:
+            value = match.group(1).strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            matches.append(value)
+    if len(matches) != 1:
+        _fail("CORE_ENV_DEVICE_ID_CARDINALITY")
+    if matches[0] != expected_device_id or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", matches[0]):
+        _fail("CORE_ENV_DEVICE_ID_MISMATCH")
+
+
 def verify_detector(
     pre: dict[str, str],
     post: dict[str, str],
@@ -174,6 +199,8 @@ def verify_detector(
                 _fail(f"DETECTOR_{label}_UNEXPECTED_RESTART_COUNT")
             if data.get("process_count") not in (None, "0", 0):
                 _fail(f"DETECTOR_{label}_PROCESS_COUNT_NONZERO")
+            if data.get("lifecycle_events") not in (None, "0", 0):
+                _fail("DETECTOR_TRANSIENT_LIFECYCLE_DETECTED")
         if post_apply is not None:
             if post_apply.get("active") != "inactive" or post_apply.get("sub") != "dead":
                 _fail("DETECTOR_APPLY_NOT_INACTIVE")
@@ -201,6 +228,8 @@ def verify_files(
     device_id: str,
     process_start_epoch: float | None = None,
     post_core_start_timestamp: str | None = None,
+    core_env_path: Path | None = None,
+    pre_core_env_sha: str | None = None,
 ) -> None:
     try:
         status = json.loads(status_path.read_text())
@@ -228,6 +257,11 @@ def verify_files(
     for key, value in expected.items():
         if status.get(key) != value:
             _fail(f"STATUS_{key.upper()}_NOT_EXPECTED")
+    # Direct unit callers from the historical read-only fixture suite do not
+    # model /etc. Production CTu always supplies both arguments from the
+    # frozen runner and therefore cannot bypass this binding.
+    if core_env_path is not None and pre_core_env_sha is not None:
+        verify_core_env(core_env_path, device_id, pre_core_env_sha)
 
     pre_protocol_id, pre_audit_id, pre_episode_id, pre_open_count, pre_open_id, consumed_at = _read_boundary(marker_path, device_id)
     protocol = _connect(protocol_db)
@@ -303,6 +337,9 @@ def main() -> int:
         parser.add_argument(f"--{prefix}-detector-unit-file")
         parser.add_argument(f"--{prefix}-detector-restart")
         parser.add_argument(f"--{prefix}-detector-process-count")
+        parser.add_argument(f"--{prefix}-detector-lifecycle-events")
+    parser.add_argument("--core-env-path")
+    parser.add_argument("--pre-core-env-sha")
     args = parser.parse_args()
     if args.verify_detector:
         try:
@@ -310,7 +347,7 @@ def main() -> int:
                 _fail("CORE_POST_MONOTONIC_INVALID")
             verify_detector(
                 {"pid": args.pre_detector_pid, "start": args.pre_detector_start, "invocation": args.pre_detector_invocation, "nrestarts": args.pre_detector_nrestarts, "monotonic": args.pre_detector_monotonic, "load": args.pre_detector_load, "active": args.pre_detector_active, "sub": args.pre_detector_sub, "unit_file": args.pre_detector_unit_file, "restart": args.pre_detector_restart, "process_count": args.pre_detector_process_count},
-                {"pid": args.post_detector_pid, "start": args.post_detector_start, "invocation": args.post_detector_invocation, "nrestarts": args.post_detector_nrestarts, "monotonic": args.post_detector_monotonic, "load": args.post_detector_load, "active": args.post_detector_active, "sub": args.post_detector_sub, "unit_file": args.post_detector_unit_file, "restart": args.post_detector_restart, "process_count": args.post_detector_process_count},
+                {"pid": args.post_detector_pid, "start": args.post_detector_start, "invocation": args.post_detector_invocation, "nrestarts": args.post_detector_nrestarts, "monotonic": args.post_detector_monotonic, "load": args.post_detector_load, "active": args.post_detector_active, "sub": args.post_detector_sub, "unit_file": args.post_detector_unit_file, "restart": args.post_detector_restart, "process_count": args.post_detector_process_count, "lifecycle_events": args.post_detector_lifecycle_events},
                 args.core_post_monotonic or 0,
                 mode=args.detector_mode,
             )
@@ -350,6 +387,8 @@ def main() -> int:
             args.pre_updated_at,
             args.device_id,
             process_start_epoch=precise_start,
+            core_env_path=Path(args.core_env_path) if args.core_env_path else None,
+            pre_core_env_sha=args.pre_core_env_sha,
         )
     except RuntimeProofError as exc:
         print(f"CTU_RUNTIME_VERIFY=FAIL reason={exc}")

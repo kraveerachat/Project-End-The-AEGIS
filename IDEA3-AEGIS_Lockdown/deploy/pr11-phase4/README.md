@@ -940,6 +940,16 @@ CTu resolves the Core unit sandbox root-cause where `adjtimex(2)` clock-reading 
 11. **Security intent in trust seam tests (`TRUST_SEAM_TEST_WEAKENED=NO`):** Preserves `_initial_user_namespace()` enforcement and real root namespace protection.
 12. **Recovery CTu negative test matrix (`RECOVERY_CTU_GATE_NEGATIVE_TESTS=PASS`):** Comprehensive negative matrix in `test_ctu_blockers.py` covering missing closeout, wrong main, non-ancestor, conflicting closeouts, duplicate keys, wrong unit SHA, unhardened unit (`ProtectClock=true`), and already consumed Recovery.
 
+### Pre-first-execution trust and provenance closure
+
+- `ROOT_EXECUTES_MUTABLE_WORKTREE_CODE=NO`: the owner runner first evaluates the exact-main Git object and then sources only the verified root-owned frozen bundle; mutable worktree helper tampering cannot reach privileged execution.
+- `AMBIENT_CTU_PYTHON_ACCEPTED=NO`: production CTu validation uses `/usr/bin/python3 -I -B`; no ambient `CTU_PYTHON`, PATH lookup, symlink interpreter, or accidental test seam is accepted.
+- `GIT_TRUST_CLOSURE=PASS`: security-sensitive Git reads disable replacement objects and system/global configuration with an isolated HOME/config environment.
+- `CTU_DIRECT_APPLY_BYPASS_CLOSED=YES`: `stages/CTu/apply.sh` requires the root-owned consumed marker and exact frozen-runner/bundle hashes before any mutation. `RECOVERY_DIRECT_PRIVILEGED_HANDLER_GATED=YES`: Recovery apply/verify require root-created provenance bound to the frozen runner and control manifest. Caller-controlled authorization or replayed hashes cannot satisfy either handler.
+- `CORE_ENV_TOCTOU_CLOSED=YES`: the PRE authoritative `core.env` digest is carried across Core restart, the POST file is revalidated as the same non-symlink file with exactly one matching `AEGIS_P1_DEVICE_ID`, and fresh authenticated runtime evidence is required.
+- `TRANSIENT_INACTIVE_EXECUTION_MECHANICALLY_REFUSED=YES`: inactive mode requires zero lifecycle events from the CTu journal window in addition to the inactive/dead/disabled/PID/process baseline; unavailable lifecycle evidence fails closed.
+- `FREEZE_TEMPLATE_PIN_CARDINALITY_ENFORCED=YES`: freeze rejects missing, duplicate, unknown, unresolved, missing-device, or extra pin keys before rendering.
+
 ### Pre-Live Host Reconciliation (Read-Only Host Findings)
 
 Observed host state on the live machine revealed two critical blockers prior to CTu first execution:

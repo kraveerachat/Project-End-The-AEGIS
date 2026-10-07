@@ -12,6 +12,7 @@ PY="${AEGIS_PYTHON_BIN:-}"
 APP="${AEGIS_RCVSTAGE_APP_DIR:-}"            # the frozen IMMUTABLE verifier snapshot (never a mutable worktree)
 MANIFEST_SHA="${AEGIS_RCVSTAGE_VERIFIER_MANIFEST_SHA256:-}"
 WORK="${AEGIS_RCVSTAGE_WORK_DIR:-}"
+PROVENANCE="${AEGIS_RCVSTAGE_PROVENANCE_FILE:-}"; CONTROL="${AEGIS_RCVSTAGE_CONTROL_DIR:-}"; RUNNER_SHA="${RECOVERY_FROZEN_RUNNER_SHA256:-}"; CONTROL_SHA="${AEGIS_RCVSTAGE_CONTROL_MANIFEST_SHA256:-}"
 [ "${AEGIS_RCVSTAGE_LIVE_AUTHORIZED:-NO}" = YES ] || fail LIVE_AUTHORIZATION_REQUIRED
 [ "$(id -u)" = 0 ] || fail ROOT_REQUIRED
 # trusted_chain DIR LABEL — DIR is canonical and DIR and EVERY ancestor to the trusted parent are real directories owned by SNAPSHOT_OWNER_UID and not group/world writable.
@@ -42,6 +43,12 @@ MANIFEST="$APP/RECOVERY-VERIFIER-SHA256SUMS"
 ( cd "$APP" && sha256sum -c --quiet --strict RECOVERY-VERIFIER-SHA256SUMS ) >/dev/null 2>&1 || fail VERIFIER_FILE_DRIFT
 [ -z "$(find "$APP" -type l -print -quit)" ] || fail VERIFIER_SYMLINK_PRESENT
 [ -z "$(find "$APP" -perm /222 -print -quit)" ] || fail VERIFIER_SOURCE_WRITABLE
+[ -f "$PROVENANCE" ] && [ ! -L "$PROVENANCE" ] && [ "$(stat -c %u:%a "$PROVENANCE")" = "0:400" ] || fail RECOVERY_PROVENANCE_MISSING
+grep -qx "RECOVERY_FROZEN_RUNNER_SHA256=$RUNNER_SHA" "$PROVENANCE" || fail RECOVERY_PROVENANCE_RUNNER_MISMATCH
+grep -qx "RECOVERY_CONTROL_MANIFEST_SHA256=$CONTROL_SHA" "$PROVENANCE" || fail RECOVERY_PROVENANCE_CONTROL_MISMATCH
+[[ "$RUNNER_SHA" =~ ^[0-9a-f]{64}$ && "$CONTROL_SHA" =~ ^[0-9a-f]{64}$ ]] || fail RECOVERY_PROVENANCE_FORMAT_INVALID
+[ -f "$CONTROL/owner-run/run-recovery-owner.sh" ] && [ "$(sha256sum "$CONTROL/owner-run/run-recovery-owner.sh" | cut -d' ' -f1)" = "$RUNNER_SHA" ] || fail RECOVERY_FROZEN_RUNNER_PROVENANCE_INVALID
+[ -f "$CONTROL/RECOVERY-CONTROL-SHA256SUMS" ] && [ "$(sha256sum "$CONTROL/RECOVERY-CONTROL-SHA256SUMS" | cut -d' ' -f1)" = "$CONTROL_SHA" ] || fail RECOVERY_CONTROL_PROVENANCE_INVALID
 [ "$(find "$APP" -type f ! -name RECOVERY-VERIFIER-SHA256SUMS | wc -l)" = "$(wc -l < "$MANIFEST")" ] || fail VERIFIER_FILE_SET_DRIFT
 for module in recovery_stage recovery_evidence recovery_client recovery_protocol local_restore ip_containment r1_acceptance r1bv_validation historical_disposition; do
   [ -f "$APP/aegis_soc/$module.py" ] || fail "VERIFIER_CLOSURE_INCOMPLETE:$module"

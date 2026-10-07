@@ -93,6 +93,7 @@ die() { echo "STOP: $*" >&2; exit 1; }
 GATE_FAILED=0; gate() { echo "GATE_FAIL: $*" >&2; GATE_FAILED=1; }
 # Git authority reads run with replacement objects DISABLED on every invocation (a real `git replace GOOD EVIL` would otherwise keep the apparent SHA while changing the bytes Git returns). A shell function,
 # so it also covers the git calls inside every library sourced later; a caller's environment cannot re-enable replacement.
+export HOME=/nonexistent GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 git() { GIT_NO_REPLACE_OBJECTS=1 command git "$@"; }
 # control_gate — the frozen runner re-proves the control snapshot ITSELF (inline, never via sourced code): canonical path, root-owned entries and trusted ancestors to the trust root, manifest digest, every file's digest,
 # exact file set, no symlink, nothing writable. Run BEFORE the first source and again immediately before EVERY root execution (capture, compare, stage handlers, stage gate).
@@ -151,6 +152,8 @@ snap() { printf '%s/%s\n' "$(show "$1" MainPID)" "$(show "$1" NRestarts)"; }
 # recovery_authority_gates — the complete live authority. Read-only; returns non-zero (reasons on stderr) if ANY link is not intact. Run in the pre-gates, again in the regate before the marker, and again IMMEDIATELY before FINAL.
 recovery_authority_gates() {
   local rc=0
+  # ACTIVE mode still delegates to the reviewed f1u_detector_running_gate;
+  # INACTIVE mode is reconciled by recovery_ctu_detector_mode_gate.
   control_gate || rc=1
   control_git_gate || rc=1
   rru_recovery_successor_gate "$REPO" "$EXPECTED_MAIN" "$RELEASE_ID" || rc=1
@@ -158,7 +161,7 @@ recovery_authority_gates() {
   recovery_interpreter_gate "$PY" || rc=1
   recovery_r1i_present_gate "$CTRL/r1i-input-instrumentation/r1i_input_instrumentation.py" || rc=1
   l7u_core_running_gate "$CORE_UNIT" || rc=1
-  f1u_detector_running_gate || rc=1
+  recovery_ctu_detector_mode_gate || rc=1
   recovery_digest_gate "$RELEASE_PATH/aegis_soc/production_detector.py" "$PRODUCTION_DETECTOR_SHA256" DETECTOR_SOURCE || rc=1
   recovery_digest_gate "$RELEASE_PATH/aegis_soc/recovery_core.py" "$RECOVERY_CORE_SHA256" RECOVERY_CORE || rc=1
   recovery_digest_gate "/etc/systemd/system/$DETECTOR_UNIT" "$DETECTOR_UNIT_SHA256" DETECTOR_UNIT || rc=1
@@ -172,6 +175,7 @@ recovery_authority_gates() {
 recovery_handler() {
   control_gate || return 1
   $SUDO env -u AEGIS_P4_FS_ROOT -u P4_FS_ROOT AEGIS_RCVSTAGE_LIVE_AUTHORIZED=YES AEGIS_RCVSTAGE_WORK_DIR="$WORK" AEGIS_RCVSTAGE_STEP="$1" AEGIS_RCVSTAGE_APP_DIR="$VERIFIER_SNAPSHOT_DIR" \
+    AEGIS_RCVSTAGE_PROVENANCE_FILE="$WORK/RECOVERY-FROZEN-RUNNER-PROVENANCE" RECOVERY_FROZEN_RUNNER_SHA256="$RUNNER_SHA256" AEGIS_RCVSTAGE_CONTROL_DIR="$CTRL" AEGIS_RCVSTAGE_CONTROL_MANIFEST_SHA256="$CONTROL_MANIFEST_SHA256" \
     AEGIS_RCVSTAGE_VERIFIER_MANIFEST_SHA256="$VERIFIER_MANIFEST_SHA256" AEGIS_RCVSTAGE_AUDIT_DB="$AUDIT_DB" AEGIS_RCVSTAGE_PROTOCOL_DB="$PROTOCOL_DB" \
     AEGIS_RCVSTAGE_ATTEMPT_MARKER="$(recovery_canonical_dir)/$RECOVERY_GLOBAL_MARKER_NAME" AEGIS_RCVSTAGE_EXPECTED_SOURCE_IP="$EXPECTED_SOURCE_IP" AEGIS_RCVSTAGE_DETECTOR_UID="$DETECTOR_UID" \
     AEGIS_RCVSTAGE_R1B_BASELINE="$R1B_EVIDENCE_DIR/r1b-work/r1-baseline.json" AEGIS_PYTHON_BIN="$PY" PYTHONDONTWRITEBYTECODE=1 bash "$STG/${2:-apply.sh}"

@@ -791,3 +791,78 @@ def test_ctu_core_env_device_id_validation(tmp_path: Path) -> None:
     proc = subprocess.run(["bash", "-c", cmd, "val", str(sym_file), "aegis-relay-01"], capture_output=True, text=True)
     assert proc.returncode != 0
     assert "CTU_CORE_ENV_MISSING_OR_SYMLINK" in proc.stderr
+
+
+def test_ctu_and_recovery_handlers_require_frozen_provenance_before_privileged_work() -> None:
+    ctu_apply = (CTU / "apply.sh").read_text()
+    recovery_apply = (P4 / "stages" / "Recovery" / "apply.sh").read_text()
+    assert "CTU_FROZEN_RUNNER_SHA256" in ctu_apply
+    assert "CTU-GLOBAL-ATTEMPT-CONSUMED" in ctu_apply
+    assert "AEGIS_RCVSTAGE_PROVENANCE_FILE" in recovery_apply
+    assert "RECOVERY_FROZEN_RUNNER_SHA256" in recovery_apply
+    assert "RECOVERY_PROVENANCE" in recovery_apply
+
+    # Caller-controlled authorization is not provenance.  The fixed marker
+    # and frozen-runner checks must precede the first privileged action.
+    assert ctu_apply.index("CTU_PROVENANCE_MISSING") < ctu_apply.index("systemctl restart")
+    assert recovery_apply.index("RECOVERY_PROVENANCE_MISSING") < recovery_apply.index("PYTHONPATH")
+    assert "AEGIS_CTU_LIVE_AUTHORIZED=YES" not in ctu_apply
+    assert "AEGIS_RCVSTAGE_LIVE_AUTHORIZED=YES" not in recovery_apply
+
+
+def test_direct_handler_calls_and_replayed_provenance_are_refused() -> None:
+    ctu_apply = (CTU / "apply.sh").read_text()
+    recovery_apply = (P4 / "stages" / "Recovery" / "apply.sh").read_text()
+
+    # A direct root invocation can supply caller-controlled inputs, but cannot
+    # manufacture the root-owned consumed marker or frozen-runner binding.
+    assert "MARKER=/var/lib/aegis-idea3-governance/CTU-GLOBAL-ATTEMPT-CONSUMED" in ctu_apply
+    assert 'stat -c %u:%a "$MARKER"' in ctu_apply
+    assert "marker_runner" in ctu_apply and "marker_bundle" in ctu_apply
+    assert "CTU-FROZEN-RUNNER-PROVENANCE" in ctu_apply
+    assert "CTU_HANDLER_PROVENANCE_CONSUME_FAILED" in ctu_apply
+    assert "RECOVERY_PROVENANCE_MISSING" in recovery_apply
+    assert "RECOVERY_FROZEN_RUNNER_PROVENANCE_INVALID" in recovery_apply
+    assert "RECOVERY_CONTROL_PROVENANCE_INVALID" in recovery_apply
+
+    # Replay still binds to these exact frozen bytes, not to a caller-selected
+    # digest supplied in an environment variable.
+    assert 'sha256sum "$AEGIS_CTU_BUNDLE/owner-run/run-ctu-owner.sh"' in ctu_apply
+    assert 'sha256sum "$CONTROL/owner-run/run-recovery-owner.sh"' in recovery_apply
+
+
+def test_core_env_post_restart_toctou_is_bound_to_preimage(tmp_path: Path) -> None:
+    verifier = _load_runtime_verifier()
+    env_file = tmp_path / "core.env"
+    env_file.write_text("AEGIS_P1_DEVICE_ID=aegis-relay-01\n")
+    pre_sha = hashlib.sha256(env_file.read_bytes()).hexdigest()
+    verifier.verify_core_env(env_file, "aegis-relay-01", pre_sha)
+
+    env_file.write_text("AEGIS_P1_DEVICE_ID=esp32-01\n")
+    with pytest.raises(verifier.RuntimeProofError, match="CORE_ENV_CHANGED_ACROSS_ATTEMPT"):
+        verifier.verify_core_env(env_file, "aegis-relay-01", pre_sha)
+
+    env_file.write_text("AEGIS_P1_DEVICE_ID=aegis-relay-01\nAEGIS_P1_DEVICE_ID=aegis-relay-01\n")
+    duplicate_sha = hashlib.sha256(env_file.read_bytes()).hexdigest()
+    with pytest.raises(verifier.RuntimeProofError, match="CORE_ENV_DEVICE_ID_CARDINALITY"):
+        verifier.verify_core_env(env_file, "aegis-relay-01", duplicate_sha)
+
+
+def test_inactive_detector_transient_lifecycle_is_refused() -> None:
+    verifier = _load_runtime_verifier()
+    inactive = {
+        "load": "loaded", "active": "inactive", "sub": "dead", "unit_file": "disabled",
+        "restart": "no", "pid": "0", "invocation": "", "monotonic": "0",
+        "nrestarts": "0", "process_count": "0", "lifecycle_events": "0",
+    }
+    verifier.verify_detector(inactive, inactive, 0, post_apply=inactive, mode="INACTIVE")
+    transient = dict(inactive, lifecycle_events="1")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(inactive, transient, 0, post_apply=transient, mode="INACTIVE")
+
+
+def test_ctu_interpreter_is_not_environment_selectable() -> None:
+    text = CTU_LIB.read_text()
+    assert 'CTU_PYTHON:-' not in text
+    assert 'command -v python3' not in text
+    assert '/usr/bin/python3 -I -B' in text
