@@ -373,7 +373,7 @@ recovery_pregates() {
   for f in AUTHORIZATION_RECORD=VALID K3_CONFIRMATION=VALID ROLLBACK_HANDLER=REGISTERED; do printf '%s\n' "$gate_out" | grep -qx "$f" || gate "stage gate did not report $f"; done
   # 4. the existing reviewed R1B-failure + R1Bv-PASS predecessor gate (pinned-commit receipt CONTENT), and the attempt authority
   recovery_predecessor_gate "$REPO" "$EXPECTED_MAIN" || gate "predecessor gate failed (see reason above)"
-  recovery_ctu_successor_gate "$REPO" "$EXPECTED_MAIN" || gate "CTu PASS closeout is missing or not bound to this exact main"
+  recovery_ctu_successor_gate "$REPO" "$EXPECTED_MAIN" || recovery_ctv_successor_gate "$REPO" "$EXPECTED_MAIN" || gate "neither historical CTu PASS nor reviewed CTv PASS successor closeout is present"
   rru_recovery_successor_gate "$REPO" "$EXPECTED_MAIN" "$RELEASE_ID" || gate "RRu Recovery-runtime successor gate failed (see reason above)"
   recovery_attempt_unconsumed || gate "Recovery is ONE attempt TOTAL and one is already consumed, or the canonical marker directory is invalid"
   recovery_sudo_authority_gate || gate "the sudo keepalive is not healthy or the credential is not active (the runner establishes it once with sudo -v)"

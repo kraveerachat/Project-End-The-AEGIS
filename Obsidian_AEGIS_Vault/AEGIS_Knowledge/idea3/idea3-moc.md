@@ -97,3 +97,6 @@ path:"90-Status/logs" [owner:music]
 ## Finish an area task
 
 Update the Music-owned current state only with demonstrated evidence, add one immutable receipt, and submit infrastructure or shared-contract changes for integration review.
+## CTv successor after immutable CTu failure — repository implementation — 2026-10-08
+
+CTu remains permanently `FAIL_IMMUTABLE` after one consumed APPLY attempt; its marker and FAIL closeout are historical truth and are not rewritten. The repository now defines CTv as a distinct one-attempt successor (`CTV_IS_CTU_RETRY=NO`) with separate frozen-runner, exact-main template, bundle-manifest, and control-manifest provenance domains. A complete non-consuming rehearsal is required before CTv consumption, and a durable `consumed-no-production-mutation` journal makes no-mutation rollback representable without a Core restart or Detector lifecycle command. Recovery remains blocked unless either a valid historical CTu PASS path applies or this installation has a separately reviewed CTv CLOSED_PASS closeout. CTv and Recovery LIVE execution remain intentionally unperformed.

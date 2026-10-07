@@ -221,6 +221,31 @@ recovery_ctu_successor_gate() {
     fi
   fi
 }
+
+# This is a separate Recovery predecessor path.  CTu FAIL is never promoted to
+# PASS: this path requires a distinct, reviewed CTv CLOSED_PASS closeout and
+# the CTv repository receipt bound to the same exact main.
+recovery_ctv_successor_gate() {
+  local repo=${1:-} main=${2:-} canon closeout receipt_rel receipt
+  [ -n "$repo" ] && [ -d "$repo/.git" ] && [[ "$main" =~ ^[0-9a-f]{40}$ ]] || return 1
+  canon=$(recovery_canonical_dir)
+  recovery_canonical_dir_valid || { recovery_reason RECOVERY_CTV_CANONICAL_DIR_INVALID; return 1; }
+  [ ! -e "$canon/$RECOVERY_GLOBAL_MARKER_NAME" ] || { recovery_reason RECOVERY_ALREADY_CONSUMED; return 1; }
+  closeout="$canon/CTV-GLOBAL-CLOSEOUT-PASS"
+  [ -f "$closeout" ] && [ ! -L "$closeout" ] || { recovery_reason RECOVERY_CTV_PASS_CLOSEOUT_MISSING; return 1; }
+  grep -qx 'CTV_RESULT=CLOSED_PASS' "$closeout" || { recovery_reason RECOVERY_CTV_RESULT_INVALID; return 1; }
+  grep -qx 'CTV_IS_CTU_RETRY=NO' "$closeout" || { recovery_reason RECOVERY_CTV_RETRY_FLAG_INVALID; return 1; }
+  grep -qx 'CTV_ATTEMPT_CONSUMED=YES' "$closeout" || { recovery_reason RECOVERY_CTV_ATTEMPT_NOT_CONSUMED; return 1; }
+  grep -qx 'CTV_RERUN_ALLOWED=NO' "$closeout" || { recovery_reason RECOVERY_CTV_RERUN_ALLOWED; return 1; }
+  grep -qx "CTV_EXPECTED_MAIN=$main" "$closeout" || { recovery_reason RECOVERY_CTV_MAIN_MISMATCH; return 1; }
+  receipt_rel=${CTV_LIVE_RECEIPT_RELATIVE:-}
+  [[ "$receipt_rel" == /* && "$receipt_rel" != *..* ]] || { recovery_reason RECOVERY_CTV_RECEIPT_PIN_INVALID; return 1; }
+  receipt="$repo$receipt_rel"
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] || { recovery_reason RECOVERY_CTV_RECEIPT_MISSING; return 1; }
+  grep -qx 'CTV_LIVE=CLOSED_PASS' "$receipt" || { recovery_reason RECOVERY_CTV_RECEIPT_NOT_PASS; return 1; }
+  grep -qx 'CTV_IS_CTU_RETRY=NO' "$receipt" || { recovery_reason RECOVERY_CTV_RECEIPT_RETRY_INVALID; return 1; }
+  grep -qx "CTV_EXPECTED_MAIN=$main" "$receipt" || { recovery_reason RECOVERY_CTV_RECEIPT_MAIN_INVALID; return 1; }
+}
 recovery_ctu_detector_mode_gate() {
   local canon mode out pid
   canon=$(recovery_canonical_dir)

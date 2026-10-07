@@ -9020,3 +9020,25 @@ L7_BROKER_STATUS_FIX     = IMPLEMENTED_REPOSITORY (not merged)
 - Fix: `_on_connection` now persists the status atomically (`RuntimeStatus.write`) on every connect and disconnect; an `OSError` is logged and never propagates into the MQTT thread. `verify.sh` and `apply.sh` are unchanged: broker must still read CONNECTED, missing/unreadable status still fails, and the established Core to broker :8883 TCP proof stays required. No sleep and no verifier wait was added.
 - Review follow-up (PR #265): `os.replace` is atomic but does not order concurrent writers, so an older supervisor-loop snapshot could land after the callback's CONNECTED write. `RuntimeStatus.write` now serializes snapshot + replace under a lock, covering `transition()`, `set_armed()` and `_on_connection()`; a deterministic out-of-order regression proves an older in-flight write cannot regress CONNECTED.
 - Authorization #5 is consumed and must not be reused. The next live L7 attempt requires this fix merged, a fresh freeze and readiness, and a fresh authorization. Acceptance remains NOT_PROVEN.
+## IDEA3 CTv successor after immutable CTu APPLY failure — repository-only — 2026-10-08
+
+> [!important] **CTu remains immutable FAIL.** The consumed CTu attempt is not rerun or rewritten: `CTU_RESULT=FAIL_IMMUTABLE`, `CTU_ATTEMPT_CONSUMED=YES`, `CTU_RERUN_ALLOWED=NO`, `CTU_FAILURE_REASON=APPLY`, `CTU_PRODUCTION_RUNTIME_MUTATION_OCCURRED=NO`, `CTU_CORE_RESTARTS=0`, and `CTU_DETECTOR_COMMANDS=0`. The confirmed APPLY detail was a frozen-runner/template provenance-domain mismatch; rollback reported `JOURNAL_MISSING` because the consumed/no-production-mutation state was not represented.
+
+> **Repository implementation:** CTv is a new one-attempt governed successor, never a CTu retry (`CTV_IS_CTU_RETRY=NO`, `CTV_NEW_ONE_ATTEMPT_STAGE=YES`, `CTV_NO_RETRY=YES`). Its provenance records distinguish the actual frozen runner, exact-main runner template, bundle manifest, and control manifest. All deterministic checks are required in a non-consuming rehearsal before the CTv marker. Immediately after any future consume, a root-trusted durable `phase=consumed-no-production-mutation` journal is written before mutation; rollback of that phase is PASS with zero Core restart and zero Detector lifecycle commands. Recovery accepts either a valid historical CTu PASS path or, for this installation, a reviewed CTv CLOSED_PASS path; CTu FAIL is never fabricated as PASS.
+
+> **Execution boundary:** `CTV_LIVE_EXECUTED=NO`, `CTV_ATTEMPT_CONSUMED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, and `PRODUCTION_MUTATION_PERFORMED_DURING_IMPLEMENTATION=NO`. No CTu rerun, CTv LIVE execution, Recovery LIVE execution, Production change, Core restart, Detector command, or governance-marker mutation occurred in this repository task. Human merge and independent exact-head review remain required.
+
+### Current Task
+
+Task: IDEA3 CTv immutable-CTu-failure successor
+Branch: `feat/idea3-ctv-ctu-immutable-failure-successor`
+Owner: `music`
+Current state: REPOSITORY IMPLEMENTED / LOCAL VERIFICATION IN PROGRESS; LIVE NOT EXECUTED
+Base SHA: `4706b5f8d9798ac5248572b04a13a00d77846e1c`
+Production mutation allowed: NO
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| CTv-S1 | Separate CTu/CTv provenance domains, predecessor gate, pre-consume rehearsal, durable consumed-no-mutation journal, Recovery successor gate, and refusal-only stage handlers | IN PROGRESS | Focused hermetic CTv tests and shell/Python syntax checks | implementation checkpoint | repository implementation present; LIVE intentionally unexecuted | broad regression, vault/policy checks, receipt, owner review | finish verification, commit, push, open Draft PR |
