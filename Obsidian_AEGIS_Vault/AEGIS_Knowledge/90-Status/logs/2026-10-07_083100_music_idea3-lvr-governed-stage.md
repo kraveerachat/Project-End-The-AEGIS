@@ -16,17 +16,17 @@ edit_policy: append-by-new-file
 - LVR is read-only post-Recovery acceptance: zero Production mutation, zero apply/rollback mutations, zero service restarts, zero hardware modifications. Generic apply and rollback handlers are explicit no-op read-only contract handlers (`LVR_PRODUCTION_MUTATION=NO`).
 - Built predecessor validation (`lvr_recovery_closeout_gate`) enforcing canonical Recovery `CLOSED_PASS` where `RECOVERY_EXECUTION_MAIN` is an ancestor of LVR `EXPECTED_MAIN` with `GIT_NO_REPLACE_OBJECTS=1` and closeout exists in descendant git history; strictly rejects absent, failed, duplicate, contradictory, symlink, or unreadable receipts.
 - Built recovery marker validation (`lvr_recovery_marker_gate`) enforcing canonical path, regular file (rejects symlinks), mode 0600, consumed=YES, rerun=NO.
-- Built read-only runtime acceptance verifier (`p4-lvr-runtime-verify.py`) using read-only SQLite (`mode=ro&immutable=1`), verifying systemd Core/Detector services (active/running/success, NRestarts=0), PID integrity, broker CONNECTED, device ONLINE, uplink NORMAL, time trust SYNCED, zero open incidents, and correlated recovery audit records.
+- Built read-only runtime acceptance verifier (`p4-lvr-runtime-verify.py`) using WAL-compatible read-only SQLite (`file:...?mode=ro` with `PRAGMA query_only=ON`, observing uncheckpointed committed WAL state without logical mutation), verifying systemd Core/Detector services (active/running/success, NRestarts=0, PID > 1), broker CONNECTED, device ONLINE, uplink NORMAL, time trust SYNCED, zero open incidents, and correlated recovery audit records matching the latest incident.
 - Implemented mechanical runner freeze derivation (`lvr_runner_freeze.py`) reading template from reviewed Git commit object `run-lvr-owner.sh`, allowlisting only 12 pin substitutions, enforcing non-writable mode 0555, and verifying ancestor chain trust.
-- Enforced fresh stage=LVR Authorization and K3 confirmation via `p4-stage-gate.sh` with non-root operator binding. Cross-stage reuse is blocked.
-- Added comprehensive unit and regression tests in `IDEA3-AEGIS_Lockdown/tests/lvr/`.
+- Enforced fresh stage=LVR Authorization and K3 confirmation via `p4-stage-gate.sh` with non-root operator binding, rejecting cross-stage reuse and forbidden extra fields (`d6_notice`, `integration_review`, `recovery_authorization`).
+- Added comprehensive unit, freeze trust, and regression tests in `IDEA3-AEGIS_Lockdown/tests/lvr/`.
 
 ## Source files changed
 
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-lib.sh` — registered LVR in `P4_STAGES`, configured non-mutating stage, required K3, defined LVR authorization extra fields.
-- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-stage-gate.sh` — validated fresh stage=LVR authorization bindings and enforced K3 confirmation for LVR.
-- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-lvr-run-lib.sh` — operator identity gate, Recovery predecessor closeout ancestor gate, Recovery marker gate, and LVR closeout format validation.
-- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-lvr-runtime-verify.py` — read-only runtime acceptance verifier querying systemd, status.json, and audit SQLite.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-stage-gate.sh` — validated fresh stage=LVR authorization bindings, strictly rejected forbidden extra authorization fields, and enforced K3 confirmation for LVR.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-lvr-run-lib.sh` — operator identity gate, Recovery predecessor closeout ancestor gate, Recovery marker gate, and LVR closeout format validation (binding LVR_RUNTIME_PROOF_SHA256).
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-lvr-runtime-verify.py` — read-only runtime acceptance verifier querying systemd, status.json, and audit SQLite via query_only WAL-compatible mode.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/LVR/apply.sh` — read-only contract no-op apply handler.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/LVR/rollback.sh` — read-only contract no-op rollback handler.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/LVR/verify.sh` — read-only verification invocation wrapper.
@@ -42,7 +42,7 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- `pytest IDEA3-AEGIS_Lockdown/tests/lvr/` — pass: 68 passed.
+- `pytest IDEA3-AEGIS_Lockdown/tests/lvr/` — pass: 74 passed.
 - `pytest IDEA3-AEGIS_Lockdown/tests/test_recovery_stage.py` — pass: 50 passed.
 - `pytest IDEA3-AEGIS_Lockdown/tests/r1bv/test_r1bv_contract.py` — pass: 156 passed.
 - `pytest IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_harness.py` — pass: 243 passed.

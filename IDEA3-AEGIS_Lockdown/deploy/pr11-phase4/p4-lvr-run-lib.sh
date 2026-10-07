@@ -116,6 +116,9 @@ lvr_validate_closeout_content() {
   [[ "$runner_sha" =~ ^[0-9a-f]{64}$ ]] || return 1
   recovery_main=$(printf '%s\n' "$content" | sed -n 's/^LVR_RECOVERY_EXECUTION_MAIN=//p')
   [[ "$recovery_main" =~ ^[0-9a-f]{40}$ ]] || return 1
+  local runtime_sha
+  runtime_sha=$(printf '%s\n' "$content" | sed -n 's/^LVR_RUNTIME_PROOF_SHA256=//p')
+  [[ "$runtime_sha" =~ ^[0-9a-f]{64}$ ]] || return 1
   [ -z "$(printf '%s\n' "$content" | grep -E '^LVR_(LIVE|RESULT)=CLOSED_FAIL|^LVR_RESULT=FAIL')" ] || return 1
   return 0
 }

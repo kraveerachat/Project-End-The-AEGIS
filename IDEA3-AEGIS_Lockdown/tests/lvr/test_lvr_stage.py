@@ -219,8 +219,14 @@ def test_stage_gate_fails_on_invalid_lvr_binding_field(tmp_path: Path, field: st
     assert "GATE_FAIL AUTHORIZATION_LVR_BINDING_INVALID" in res.stdout or "GATE_FAIL AUTHORIZATION_MALFORMED" in res.stdout
 
 
-def test_stage_gate_fails_on_forbidden_extra_field(tmp_path: Path) -> None:
-    auth = make_auth(tmp_path, d6_notice="kla")
+@pytest.mark.parametrize("field,val", [
+    ("d6_notice", "pub"),
+    ("integration_review", "kla"),
+    ("recovery_authorization", "REF-REC-123"),
+    ("physical_recovery_attestation", "REF-PHY-123"),
+])
+def test_stage_gate_fails_on_forbidden_extra_field(tmp_path: Path, field: str, val: str) -> None:
+    auth = make_auth(tmp_path, **{field: val})
     k3 = make_k3_v1(tmp_path)
     res = bash(f'bash "{STAGE_GATE}" --stage LVR --mode live --authorization "{auth}" --k3 "{k3}"')
     assert res.returncode == 1
@@ -568,13 +574,60 @@ def test_runtime_verifier_fails_when_recovery_close_logs_missing(tmp_path: Path)
     assert "reason=RECOVERY_CLOSE_EVIDENCE_MISSING" in res.stdout
 
 
-def test_runtime_verifier_fails_on_db_pending_sidecar(tmp_path: Path) -> None:
+def test_runtime_verifier_observes_committed_wal_state_and_cannot_mutate(tmp_path: Path) -> None:
     status, fixture, marker, db = setup_runtime_fixture(tmp_path)
-    wal = Path(str(db) + "-wal")
-    wal.write_text("pending wal data")
+    # Enable WAL mode with auto-checkpoint disabled; live connection simulates running Core service
+    live_conn = sqlite3.connect(db)
+    live_conn.execute("PRAGMA journal_mode=WAL")
+    live_conn.execute("PRAGMA wal_autocheckpoint=0")
+    live_conn.execute("INSERT INTO incidents (id, state) VALUES (2, 'CLOSED')")
+    live_conn.execute("INSERT INTO audit_logs (id, event_type, incident_id) VALUES (3, 'RECOVERY_R8_CLOSE', 2)")
+    live_conn.execute("INSERT INTO audit_logs (id, event_type, incident_id) VALUES (4, 'INCIDENT_CLOSED', 2)")
+    live_conn.commit()
+
+    wal_file = Path(str(db) + "-wal")
+    assert wal_file.exists() and wal_file.stat().st_size > 0
+
+    try:
+        # LVR runtime verifier MUST observe the committed rows in WAL while Core is running
+        res = run_runtime_verify(status, fixture, marker, db)
+        assert res.returncode == 0
+        assert "LVR_RUNTIME_PROOF=PASS" in res.stdout
+
+        # Prove query_only / read-only guarantee: logical writes are strictly blocked
+        ro_conn = sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True)
+        ro_conn.execute("PRAGMA query_only=ON")
+        cur = ro_conn.cursor()
+        for stmt in ["INSERT INTO incidents (id, state) VALUES (3, 'OPEN')", "UPDATE incidents SET state='OPEN'", "DELETE FROM incidents", "CREATE TABLE dummy (x INT)"]:
+            with pytest.raises(sqlite3.OperationalError, match="attempt to write a readonly database"):
+                cur.execute(stmt)
+        ro_conn.close()
+    finally:
+        live_conn.close()
+
+
+def test_runtime_verifier_fails_when_recovery_close_not_on_latest_incident(tmp_path: Path) -> None:
+    status, fixture, marker, db = setup_runtime_fixture(tmp_path)
+    conn = sqlite3.connect(db)
+    # Incident 2 was created after incident 1, but incident 1 was the one with RECOVERY_R8_CLOSE
+    conn.execute("INSERT INTO incidents (id, state) VALUES (2, 'CLOSED')")
+    conn.commit()
+    conn.close()
     res = run_runtime_verify(status, fixture, marker, db)
     assert res.returncode == 1
-    assert "reason=AUDIT_DB_PENDING_SIDECAR" in res.stdout
+    assert "reason=RECOVERY_CLOSE_NOT_LATEST_INCIDENT" in res.stdout
+
+
+def test_runtime_verifier_fails_when_detector_pid_invalid(tmp_path: Path) -> None:
+    status, fixture, marker, db = setup_runtime_fixture(tmp_path)
+    # Tamper with detector fixture to set invalid MainPID
+    det_show = fixture / "aegis-idea3-detector.show"
+    content = det_show.read_text(encoding="utf-8")
+    tampered = content.replace("MainPID=5556", "MainPID=0")
+    det_show.write_text(tampered, encoding="utf-8")
+    res = run_runtime_verify(status, fixture, marker, db)
+    assert res.returncode == 1
+    assert "reason=DETECTOR_PID_INVALID" in res.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -661,6 +714,7 @@ LVR_RUNNER_SHA256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 LVR_RECOVERY_PREDECESSOR=PASS
 LVR_RECOVERY_EXECUTION_MAIN=cccccccccccccccccccccccccccccccccccccccc
 LVR_RUNTIME_PROOF=PASS
+LVR_RUNTIME_PROOF_SHA256=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 LVR_PRE_POST_PRESERVATION=PASS
 LVR_S10=PASS
 LVR_PRODUCTION_MUTATION=NO
@@ -676,6 +730,16 @@ L9_PROVEN=NO
     invalid_content = valid_content.replace("LVR_LIVE=CLOSED_PASS\n", "")
     res_bad = bash(f'. "{LVR_LIB}"; lvr_validate_closeout_content "{invalid_content}" && echo VALID')
     assert res_bad.returncode == 1
+
+    # missing runtime proof sha
+    missing_sha = valid_content.replace("LVR_RUNTIME_PROOF_SHA256=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n", "")
+    res_no_sha = bash(f'. "{LVR_LIB}"; lvr_validate_closeout_content "{missing_sha}" && echo VALID')
+    assert res_no_sha.returncode == 1
+
+    # invalid runtime proof sha
+    bad_sha = valid_content.replace("LVR_RUNTIME_PROOF_SHA256=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n", "LVR_RUNTIME_PROOF_SHA256=short-sha\n")
+    res_bad_sha = bash(f'. "{LVR_LIB}"; lvr_validate_closeout_content "{bad_sha}" && echo VALID')
+    assert res_bad_sha.returncode == 1
 
     # contradictory failure
     contradictory = valid_content + "LVR_RESULT=FAIL\n"

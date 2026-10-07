@@ -134,6 +134,8 @@ elif { [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ] || [ "$STAGE" = F1 ] || [ "$STAG
 elif [ "$STAGE" != L8p ] && [ -n "${R[physical_recovery_attestation]+set}" ]; then
   # physical_recovery_attestation belongs to L8p alone.
   fail AUTHORIZATION_MALFORMED
+elif [ "$STAGE" = LVR ] && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ]; }; then
+  fail AUTHORIZATION_MALFORMED
 elif [ "${R[date]}" != "$TODAY" ]; then
   fail AUTHORIZATION_STALE
 elif [ "$STAGE" = LVR ] && { ! [[ "${R[expected_main]:-}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[frozen_runner_sha256]:-}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]:-}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]:-}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[recovery_execution_main]:-}" =~ ^[0-9a-f]{40}$ ]]; }; then

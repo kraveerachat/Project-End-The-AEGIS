@@ -199,3 +199,43 @@ def test_cli_freeze_and_verify(git_repo_with_template: tuple[Path, str], valid_p
     bad_res = run_cmd(bad_verify_cmd)
     assert bad_res.returncode == 1
     assert "LVR_RUNNER_FREEZE=FAIL" in bad_res.stderr
+
+
+def test_frozen_runner_refuses_mutated_control_snapshot_and_operator_mismatch(git_repo_with_template: tuple[Path, str], valid_pins: dict[str, str], tmp_path: Path) -> None:
+    repo, commit = git_repo_with_template
+    # Create a control snapshot dir with manifested files
+    ctrl = tmp_path / "ctrl"
+    ctrl.mkdir(parents=True)
+    helper = ctrl / "p4-lvr-run-lib.sh"
+    helper.write_text("# helper content\n")
+
+    # Compute manifest
+    manifest_line = run_cmd(f"sha256sum p4-lvr-run-lib.sh", cwd=ctrl).stdout.strip()
+    manifest_file = ctrl / "LVR-CONTROL-SHA256SUMS"
+    manifest_file.write_text(manifest_line + "\n")
+    manifest_sha = run_cmd(f"sha256sum LVR-CONTROL-SHA256SUMS", cwd=ctrl).stdout.split()[0]
+
+    # Pin runner
+    valid_pins["CONTROL_SNAPSHOT_DIR"] = str(ctrl)
+    valid_pins["CONTROL_MANIFEST_SHA256"] = manifest_sha
+    valid_pins["OPERATOR_USER"] = "different_user"
+    valid_pins["OPERATOR_UID"] = "9999"
+
+    out_runner = tmp_path / "runner.sh"
+    lvr_runner_freeze.freeze(repo, commit, valid_pins, out_runner, owner_uid=None)
+
+    # 1. Running with operator mismatch fails
+    res_op = run_cmd(f'bash "{out_runner}" "{tmp_path}"')
+    assert res_op.returncode == 2
+    assert "STOP: frozen operator identity mismatch" in res_op.stderr
+
+    # 2. Running with environment override fails when operator matches
+    import getpass
+    valid_pins["OPERATOR_USER"] = getpass.getuser()
+    valid_pins["OPERATOR_UID"] = str(os.getuid())
+    out_runner2 = tmp_path / "runner2.sh"
+    lvr_runner_freeze.freeze(repo, commit, valid_pins, out_runner2, owner_uid=None)
+
+    res_env = run_cmd(f'PYTHONPATH=/tmp bash "{out_runner2}" "{tmp_path}"')
+    assert res_env.returncode == 2
+    assert "STOP: environment override PYTHONPATH is set" in res_env.stderr

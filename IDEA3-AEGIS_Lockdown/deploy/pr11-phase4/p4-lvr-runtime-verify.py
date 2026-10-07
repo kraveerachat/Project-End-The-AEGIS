@@ -24,12 +24,8 @@ def fail(code: str) -> None:
 def readonly_db(path: Path) -> sqlite3.Connection:
     if not path.is_file():
         fail("AUDIT_DB_MISSING")
-    for suffix in ("-wal", "-journal"):
-        sidecar = Path(str(path) + suffix)
-        if sidecar.exists() and sidecar.stat().st_size:
-            fail("AUDIT_DB_PENDING_SIDECAR")
     try:
-        conn = sqlite3.connect(f"file:{quote(str(path.resolve()))}?mode=ro&immutable=1", uri=True)
+        conn = sqlite3.connect(f"file:{quote(str(path.resolve()))}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA query_only=ON")
         required = {
@@ -99,6 +95,9 @@ def verify(args: argparse.Namespace) -> None:
                 fail(f"{label}_{key.upper()}_INVALID")
     if str(core.get("MainPID")) != str(pid):
         fail("STATUS_PID_NOT_CURRENT_CORE")
+    detector_pid = detector.get("MainPID")
+    if not detector_pid or not detector_pid.isdigit() or int(detector_pid) <= 1:
+        fail("DETECTOR_PID_INVALID")
 
     marker = Path(args.recovery_marker)
     try:
@@ -113,12 +112,17 @@ def verify(args: argparse.Namespace) -> None:
         open_count = conn.execute("SELECT COUNT(*) FROM incidents WHERE state != 'CLOSED'").fetchone()[0]
         if open_count:
             fail("OPEN_INCIDENT_REMAINS")
+        latest_incident = conn.execute("SELECT MAX(id) FROM incidents").fetchone()[0]
+        if latest_incident is None:
+            fail("RECOVERY_CLOSE_EVIDENCE_MISSING")
         rows = conn.execute("SELECT id, incident_id FROM audit_logs WHERE event_type='RECOVERY_R8_CLOSE' ORDER BY id").fetchall()
         closes = conn.execute("SELECT id, incident_id FROM audit_logs WHERE event_type='INCIDENT_CLOSED' ORDER BY id").fetchall()
         if not rows or not closes:
             fail("RECOVERY_CLOSE_EVIDENCE_MISSING")
         if rows[-1][1] is None or closes[-1][1] != rows[-1][1]:
             fail("RECOVERY_CLOSE_EVENT_NOT_CORRELATED")
+        if rows[-1][1] != latest_incident:
+            fail("RECOVERY_CLOSE_NOT_LATEST_INCIDENT")
     finally:
         conn.close()
     print("LVR_RUNTIME_PROOF=PASS")
