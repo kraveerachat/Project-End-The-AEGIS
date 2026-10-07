@@ -417,6 +417,9 @@ function NavigationPositionPreview({ value, label, active, onSelect, disabled })
       <span className={`navigation-position-preview__canvas is-${value}`} aria-hidden>
         <span className="navigation-position-preview__chrome" />
         <span className="navigation-position-preview__nav" />
+        {/* Classic draws the selected tab/pod as its own part (descends on Top, rises on
+            Bottom); Neo has no rule for it, so it stays an empty, unpainted span there. */}
+        <span className="navigation-position-preview__active" />
         <span className="navigation-position-preview__content"><i /><i /><i /></span>
         {active && <span className="navigation-position-preview__check"><Check size={10} strokeWidth={2.6} /></span>}
       </span>

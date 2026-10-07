@@ -105,7 +105,7 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
     <header
       className={`app-topbar h-[68px] shrink-0 bg-card border-b border-line flex items-center justify-between gap-6 px-6 max-lg:px-4 transition-all duration-[var(--dur-base)] sticky top-0 z-[var(--z-sticky)] ${neoDashboard ? 'neo-dashboard-topbar' : ''}`}
       data-material={neoDashboard ? 'solid' : 'shell-glass'}
-      style={{ boxShadow: scrolled ? 'var(--elev-1)' : 'none' }}
+      style={{ boxShadow: scrolled ? 'var(--elev-1)' : 'var(--topbar-rest-shadow, none)' }}
     >
       {/* LEFT ZONE: Mobile Toggle Button / Left Spacer */}
       <div className={`flex items-center min-w-[40px] ${showIdentity ? 'neo-topbar-identity' : ''} ${neoDashboard && !showIdentity ? 'neo-dashboard-topbar-mobile-toggle' : ''}`}>
@@ -129,7 +129,8 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
               <Menu size={19} strokeWidth={1.6} />
             </button>
             {navigationPosition === 'left' && <span className="neo-topbar-identity-divider" aria-hidden />}
-            <AegisLockup markSize={35} theme={resolvedTheme} title="AEGIS Drive_LC" sub={t('productLockupSub')} />
+            {/* Classic brand is the name alone (no marketing subtitle); Neo keeps its lockup line. */}
+            <AegisLockup markSize={35} theme={resolvedTheme} title="AEGIS Drive_LC" sub={classic ? null : t('productLockupSub')} />
           </>
         )}
       </div>

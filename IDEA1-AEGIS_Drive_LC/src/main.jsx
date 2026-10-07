@@ -7,7 +7,9 @@ import './neoOverlays.css'
 import './neoSelect.css'
 import './neoNavigation.css'
 import './neoLight.css'
-import './classicPrecision.css'
+// Classic = Glossy Enamel (PR #388). It supersedes PR #359's Classic Precision layer,
+// so classicPrecision.css is no longer imported; every rule is [data-ui-style="classic"].
+import './theme-classic.css'
 import App from './App.jsx'
 import { ErrorBoundary } from './components/ErrorBoundary.jsx'
 

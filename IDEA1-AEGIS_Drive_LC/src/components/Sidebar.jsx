@@ -64,8 +64,8 @@ function NavItem({ icon, label, active, collapsed, onClick, delay = 0 }) {
       } ${collapsed ? 'justify-center px-0' : 'px-3.5'}`}
       style={{ animationDelay: `${delay}ms` }}
     >
-      <Icon size={17} strokeWidth={1.5} className="shrink-0" />
-      {!collapsed && <span className="truncate">{label}</span>}
+      <Icon size={17} strokeWidth={1.5} className="sidebar-nav-icon shrink-0" />
+      {!collapsed && <span className="sidebar-nav-label truncate">{label}</span>}
     </button>
   )
 }
@@ -238,7 +238,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
         </button>
       )}
 
-      <nav ref={isMobile ? undefined : desktopNavRef} className={`flex-1 overflow-y-auto py-2 flex flex-col gap-0.5 ${isCollapsed ? 'px-3' : 'px-4'}`} aria-label={t('productName')}>
+      <nav ref={isMobile ? undefined : desktopNavRef} className={`sidebar-nav flex-1 overflow-y-auto py-2 flex flex-col gap-0.5 ${isCollapsed ? 'px-3' : 'px-4'}`} aria-label={t('productName')}>
         {neoDashboard && !isMobile && <span ref={indicatorRef} className="neo-nav-indicator" aria-hidden />}
         {groups.map((groupKey) => {
           // filter BEFORE map — สิ่งที่ role นี้ไม่มีสิทธิ์ "ไม่ถูก render เลย"
@@ -247,9 +247,9 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
           const inner = items.length > 0 && (
             <div className="flex flex-col gap-0.5">
               {!isCollapsed && (
-                <p className="text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.1em] px-3.5 pt-4 pb-1.5">{t(groupKey)}</p>
+                <p className="sidebar-group-label text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.1em] px-3.5 pt-4 pb-1.5">{t(groupKey)}</p>
               )}
-              {isCollapsed && <div className="h-3" aria-hidden />}
+              {isCollapsed && <div className="sidebar-group-gap h-3" aria-hidden />}
               {items.map((item, i) => (
                 <NavItem
                   key={item.id}
@@ -269,7 +269,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
         })}
 
         <div className="flex flex-col gap-0.5 mt-1">
-          {isCollapsed && <div className="h-3" aria-hidden />}
+          {isCollapsed && <div className="sidebar-group-gap h-3" aria-hidden />}
           <NavItem
             icon="settings"
             label={t('navSettings')}
@@ -282,7 +282,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
 
       {/* storage meter — จากเซิร์ฟเวอร์เท่านั้น; ระหว่างโหลด = skeleton ไม่ใช่เลขปลอม */}
       {!isCollapsed && (
-        <div className="m-4 mt-2 p-3.5 rounded-[var(--r-tile)] bg-sunken">
+        <div className="sidebar-meter m-4 mt-2 p-3.5 rounded-[var(--r-tile)] bg-sunken">
           {metricsUnavailable ? (
             <div role="status" className="hatch hatch-ink3 rounded-[9px] border border-dashed border-line px-3 py-2.5 flex items-center justify-between gap-3">
               <p className="text-[12px] font-semibold text-ink-2">{t('storageMeter')}</p>
@@ -292,11 +292,17 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
             <>
               <div className="flex items-baseline justify-between">
                 <p className="text-[12px] font-semibold text-ink-2">{t('storageMeter')}</p>
-                <p className="text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                <p className="sidebar-meter-value text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
                   <span className="font-semibold text-ink">{fmtBytes(storageBytes)}</span> / {fmtBytes(totalBytes)}
                 </p>
               </div>
-              <Progress value={storagePct} height={4} className="mt-2.5" />
+              <Progress
+                value={storagePct}
+                height="var(--meter-h, 4px)"
+                color="var(--meter-fill, var(--accent))"
+                track="var(--meter-track, var(--line))"
+                className="sidebar-meter-rail mt-2.5"
+              />
             </>
           ) : (
             <div className="flex flex-col gap-2.5" aria-busy="true">

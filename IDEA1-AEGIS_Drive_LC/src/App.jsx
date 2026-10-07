@@ -24,11 +24,14 @@ import {
   applyAuthenticatedInterfaceStyle,
   clearAuthenticatedInterfaceStyle,
 } from './lib/interfaceStyle.js'
+import { InterfaceStyleContext } from './lib/interfaceStyleContext.js'
 import { Login } from './screens/Login.jsx'
 import { MandatoryPasswordReset } from './screens/MandatoryPasswordReset.jsx'
 
 const lazyNamed = (loader, name) => lazy(() => loader().then((module) => ({ default: module[name] })))
 const Dashboard = lazyNamed(() => import('./screens/Dashboard.jsx'), 'Dashboard')
+// Classic keeps its approved Glossy Enamel Dashboard (PR #388); Neo keeps its own above.
+const ClassicDashboard = lazyNamed(() => import('./screens/ClassicDashboard.jsx'), 'ClassicDashboard')
 const Files = lazyNamed(() => import('./screens/Files.jsx'), 'Files')
 const Vault = lazyNamed(() => import('./screens/Vault.jsx'), 'Vault')
 const WORKSPACE_SCREENS = new Set(['files', 'vault'])
@@ -481,7 +484,16 @@ export default function App() {
   }
 
   const screenEl = {
-    dashboard: (
+    dashboard: interfaceStyle === 'classic' ? (
+      <ClassicDashboard
+        t={t}
+        lang={lang}
+        health={healthApi}
+        go={go}
+        telemetry={telemetryApi.data}
+        telemetryLoading={telemetryApi.loading}
+      />
+    ) : (
       <Dashboard
         t={t}
         lang={lang}
@@ -538,6 +550,7 @@ export default function App() {
   }[activeScreen]
 
   return (
+    <InterfaceStyleContext.Provider value={interfaceStyle}>
     <div className="authenticated-shell h-full flex bg-canvas" data-interface-style={interfaceStyle} data-screen={activeScreen} data-navigation-position={navigationPosition}>
       <HatchDefs />
       <Sidebar
@@ -555,7 +568,7 @@ export default function App() {
         neoDashboard={modernShell}
         position={navigationPosition}
       />
-      <div className="flex-1 flex flex-col min-w-0 h-full">
+      <div className="app-main-column flex-1 flex flex-col min-w-0 h-full">
         <TopBar
           t={t}
           lang={lang}
@@ -591,7 +604,7 @@ export default function App() {
         <main
           ref={mainRef}
           onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 4)}
-          className="flex-1 overflow-y-auto"
+          className="app-main-scroll flex-1 overflow-y-auto"
         >
           {/* Files and Vault: the whole main pane is ONE shared marquee surface (it paints the
               rectangle and owns the drag); the screen inside only registers its selection. */}
@@ -602,19 +615,19 @@ export default function App() {
           >
             {/* One composed header: breadcrumb + title on the left, search/actions on the right. */}
             <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${workspaceSurfaceActive ? 'workspace-pane-content pt-7 max-md:pt-5' : ''}`}>
-              <nav aria-label={t('breadcrumb')} className="flex items-center gap-2 text-xs font-mono font-medium tracking-wider text-slate-400 dark:text-slate-500 uppercase select-none">
+              <nav aria-label={t('breadcrumb')} className="page-breadcrumb flex items-center gap-2 text-xs font-mono font-medium tracking-wider text-slate-400 dark:text-slate-500 uppercase select-none">
                 <span>AEGIS</span>
                 <span className="opacity-40">/</span>
-                <span className="font-semibold text-blue-600 dark:text-blue-400">{t(TITLE_KEYS[activeScreen])}</span>
+                <span className="page-breadcrumb-current font-semibold text-blue-600 dark:text-blue-400">{t(TITLE_KEYS[activeScreen])}</span>
               </nav>
 
               <div className="page-header-main flex items-center justify-between gap-5">
                 <div className="min-w-0">
-                  <h1 className="text-2xl md:text-[28px] font-bold tracking-[-0.025em] text-ink">
+                  <h1 className="page-title text-2xl md:text-[28px] font-bold tracking-[-0.025em] text-ink">
                     {t(TITLE_KEYS[activeScreen])}
                   </h1>
-                  {(neoDashboard || classicDashboard) && <p className="mt-1 text-[13px] text-ink-2">{t('dashOverviewSub')}</p>}
-                  {(neoDashboard || classicDashboard) && (
+                  {neoDashboard && <p className="mt-1 text-[13px] text-ink-2">{t('dashOverviewSub')}</p>}
+                  {neoDashboard && (
                     <div className="neo-dashboard-inline-status" role="status" aria-live="polite">
                       <span><Dot tone={healthApi.data?.layers?.application?.checked === true && healthApi.data?.layers?.application?.ok === true ? 'ok' : 'neutral'} size={6} />{healthApi.data?.layers?.application?.checked === true && healthApi.data?.layers?.application?.ok === true ? t('driveOnline') : t('driveNotConnected')}</span>
                       <span><Dot tone={healthApi.data?.layers?.metadata?.checked === true && healthApi.data?.layers?.metadata?.ok === true ? 'accent' : 'neutral'} size={6} />{healthApi.data?.layers?.metadata?.checked === true && healthApi.data?.layers?.metadata?.ok === true ? t('metadataConnected', { source: healthApi.data?.db === 'postgres' ? 'PostgreSQL' : 'in-memory' }) : t('metadataNotConnected')}</span>
@@ -655,5 +668,6 @@ export default function App() {
         {navigationPosition === 'bottom' && <PositionedNavigation t={t} nav={nav} screen={activeScreen} go={go} position="bottom" />}
       </div>
     </div>
+    </InterfaceStyleContext.Provider>
   )
 }

@@ -22,16 +22,17 @@ test('Classic Phase 1 keeps the Neo dashboard module structure and truthful data
   assert.match(app, /neoDashboard=\{modernShell\}/)
 })
 
-test('Classic Light and Dark have solid canvas and a dedicated visual layer', () => {
-  const css = read('src/classicPrecision.css')
-  assert.match(read('src/main.jsx'), /import '\.\/classicPrecision\.css'/)
+// PR #388 (stacked on this branch) replaces the Classic Precision visual layer
+// with Glossy Enamel. The dedicated-layer contract still holds — it now lives
+// in theme-classic.css, and classicPrecision.css is no longer loaded.
+test('Classic Light and Dark have a dedicated visual layer (Glossy Enamel supersedes Classic Precision)', () => {
+  const main = read('src/main.jsx')
+  const css = read('src/theme-classic.css')
+  assert.match(main, /import '\.\/theme-classic\.css'/)
+  assert.doesNotMatch(main, /import '\.\/classicPrecision\.css'/)
+  assert.ok(main.indexOf('theme-classic.css') > main.indexOf('neoLight.css'), 'Classic layer loads after the Neo layers')
   assert.match(css, /:root\[data-ui-style="classic"\]\[data-theme="light"\]/)
   assert.match(css, /:root\[data-ui-style="classic"\]\[data-theme="dark"\]/)
-  assert.match(css, /--canvas: #F4F6FA;/i)
-  assert.match(css, /--canvas: #0E1117;/i)
-  assert.ok(!/url\(|radial-gradient|linear-gradient|aurora|bloom/i.test(css), 'Classic must contain no decorative image or multicolor field')
-  assert.match(css, /dashboard-analytics-grid/)
-  assert.match(css, /dashboard-telemetry-tile/)
   assert.match(css, /app-sidebar-frame\[data-rail-state="hover"\]/)
   assert.match(css, /positioned-navigation--top/)
   assert.match(css, /positioned-navigation--bottom/)
