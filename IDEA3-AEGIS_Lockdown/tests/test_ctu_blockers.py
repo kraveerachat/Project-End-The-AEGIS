@@ -7,9 +7,11 @@ reviewer contracts and required result tokens.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import tempfile
@@ -500,6 +502,276 @@ def test_blocker7_ctu_freeze_implementation_and_verifier(tmp_path: Path) -> None
     assert "CTU_FREEZE_IMPLEMENTATION_EXISTS=YES"
     assert "CTU_FREEZE_VERIFIER_EXISTS=YES"
     assert "CTU_TRUST_CLOSURE=PASS"
+
+
+def _load_snapshot_tool():
+    spec = importlib.util.spec_from_file_location("ctu_verifier_snapshot", SNAPSHOT_TOOL)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _userns_usable() -> bool:
+    return bool(shutil.which("unshare")) and subprocess.run(["unshare", "-r", "true"], capture_output=True).returncode == 0
+
+
+def test_blocker7_ctu_control_snapshot_directory_seal_and_permissions(tmp_path: Path) -> None:
+    tool = _load_snapshot_tool()
+    snap_dir = tmp_path / "snap"
+    sha = tool.control_snapshot(P4, snap_dir)
+
+    # 1. Nested directories are non-writable and 0555
+    nested_dirs = [p for p in snap_dir.rglob("*") if p.is_dir()]
+    assert len(nested_dirs) > 0
+    assert all(not (d.stat().st_mode & 0o222) for d in nested_dirs)
+    assert all((d.stat().st_mode & 0o777) == 0o555 for d in nested_dirs)
+
+    # 2. Root snapshot directory is non-writable and 0555
+    assert not (snap_dir.stat().st_mode & 0o222)
+    assert (snap_dir.stat().st_mode & 0o777) == 0o555
+
+    # 3. Nested ctu-acceptance directory is non-writable and 0555
+    ctu_acc = snap_dir / "ctu-acceptance"
+    assert ctu_acc.is_dir()
+    assert not (ctu_acc.stat().st_mode & 0o222)
+    assert (ctu_acc.stat().st_mode & 0o777) == 0o555
+
+    # 4. Nested stages/CTu directory is non-writable and 0555
+    stages_ctu = snap_dir / "stages" / "CTu"
+    assert stages_ctu.is_dir()
+    assert not (stages_ctu.stat().st_mode & 0o222)
+    assert (stages_ctu.stat().st_mode & 0o777) == 0o555
+
+    # 5. Copied executable/script files remain 0555
+    scripts = [snap_dir / rel for rel in tool.TRUST_CLOSURE_FILES if rel.endswith((".sh", ".py"))]
+    assert len(scripts) > 0
+    assert all(not (s.stat().st_mode & 0o222) for s in scripts)
+    assert all((s.stat().st_mode & 0o777) == 0o555 for s in scripts)
+
+    # 6. Non-executable files remain 0444
+    non_exec = [snap_dir / rel for rel in tool.TRUST_CLOSURE_FILES if rel.endswith(".txt")]
+    assert len(non_exec) > 0
+    assert all(not (f.stat().st_mode & 0o222) for f in non_exec)
+    assert all((f.stat().st_mode & 0o777) == 0o444 for f in non_exec)
+
+    # 7. Manifest remains 0444
+    manifest = snap_dir / tool.CONTROL_MANIFEST_NAME
+    assert manifest.is_file()
+    assert not (manifest.stat().st_mode & 0o222)
+    assert (manifest.stat().st_mode & 0o777) == 0o444
+
+    # 8. control_check succeeds immediately on a freshly generated valid snapshot
+    tool.control_check(snap_dir, sha, owner_uid=None)
+    tool.check_trust_closure(snap_dir, check_permissions=True)
+
+
+def test_blocker7_ctu_control_snapshot_writable_refusal(tmp_path: Path) -> None:
+    tool = _load_snapshot_tool()
+    snap_dir = tmp_path / "snap"
+    sha = tool.control_snapshot(P4, snap_dir)
+
+    # 9. Manually re-adding write bit to a directory causes control_check FAIL
+    # Nested ctu-acceptance
+    ctu_acc = snap_dir / "ctu-acceptance"
+    ctu_acc.chmod(0o755)
+    with pytest.raises(tool.SnapshotError, match=r"CONTROL_SOURCE_WRITABLE:ctu-acceptance"):
+        tool.control_check(snap_dir, sha, owner_uid=None)
+    ctu_acc.chmod(0o555)
+
+    # Nested stages/CTu
+    stages_ctu = snap_dir / "stages" / "CTu"
+    stages_ctu.chmod(0o755)
+    with pytest.raises(tool.SnapshotError, match=r"CONTROL_SOURCE_WRITABLE:stages/CTu"):
+        tool.control_check(snap_dir, sha, owner_uid=None)
+    stages_ctu.chmod(0o555)
+
+    # Root snapshot directory
+    snap_dir.chmod(0o755)
+    with pytest.raises(tool.SnapshotError, match=r"CONTROL_SOURCE_WRITABLE:\."):
+        tool.control_check(snap_dir, sha, owner_uid=None)
+    snap_dir.chmod(0o555)
+
+    # 10. Manually re-adding write bit to a file causes control_check FAIL
+    # Script file
+    f_sh = snap_dir / "p4-ctu-run-lib.sh"
+    f_sh.chmod(0o755)
+    with pytest.raises(tool.SnapshotError, match=r"CONTROL_SOURCE_WRITABLE:p4-ctu-run-lib\.sh"):
+        tool.control_check(snap_dir, sha, owner_uid=None)
+    f_sh.chmod(0o555)
+
+    # Non-executable file
+    f_txt = snap_dir / "stages" / "CTu" / "allow-keys.txt"
+    f_txt.chmod(0o644)
+    with pytest.raises(tool.SnapshotError, match=r"CONTROL_SOURCE_WRITABLE:stages/CTu/allow-keys\.txt"):
+        tool.control_check(snap_dir, sha, owner_uid=None)
+    f_txt.chmod(0o444)
+
+    # Manifest file
+    manifest = snap_dir / tool.CONTROL_MANIFEST_NAME
+    manifest.chmod(0o644)
+    with pytest.raises(tool.SnapshotError, match=rf"CONTROL_SOURCE_WRITABLE:{re.escape(tool.CONTROL_MANIFEST_NAME)}"):
+        tool.control_check(snap_dir, sha, owner_uid=None)
+    manifest.chmod(0o444)
+
+
+def test_blocker7_ctu_control_snapshot_symlink_fail_closed(tmp_path: Path) -> None:
+    tool = _load_snapshot_tool()
+    snap_dir = tmp_path / "snap"
+    sha = tool.control_snapshot(P4, snap_dir)
+
+    # 11. Symlink protections remain fail-closed
+    # Symlink file in snapshot
+    snap_dir.chmod(0o755)
+    (snap_dir / "stages" / "CTu").chmod(0o755)
+    link = snap_dir / "stages" / "CTu" / "symlink_test.sh"
+    link.symlink_to(snap_dir / "p4-ctu-run-lib.sh")
+    (snap_dir / "stages" / "CTu").chmod(0o555)
+    snap_dir.chmod(0o555)
+    with pytest.raises(tool.SnapshotError, match="CONTROL_SYMLINK_IN_SNAPSHOT"):
+        tool.control_check(snap_dir, sha, owner_uid=None)
+    snap_dir.chmod(0o755)
+    (snap_dir / "stages" / "CTu").chmod(0o755)
+    link.unlink()
+    (snap_dir / "stages" / "CTu").chmod(0o555)
+    snap_dir.chmod(0o555)
+
+    # Symlink directory in snapshot
+    snap_dir.chmod(0o755)
+    dlink = snap_dir / "symlink_dir"
+    dlink.symlink_to(snap_dir / "ctu-acceptance")
+    snap_dir.chmod(0o555)
+    with pytest.raises(tool.SnapshotError, match="CONTROL_SYMLINK_IN_SNAPSHOT"):
+        tool.control_check(snap_dir, sha, owner_uid=None)
+    snap_dir.chmod(0o755)
+    dlink.unlink()
+    snap_dir.chmod(0o555)
+
+    # Symlinked snapshot root
+    root_link = tmp_path / "snap_link"
+    root_link.symlink_to(snap_dir)
+    with pytest.raises(tool.SnapshotError, match="CONTROL_SNAPSHOT_INVALID"):
+        tool.control_check(root_link, sha, owner_uid=None)
+
+
+def test_blocker7_ctu_control_snapshot_trust_closure_exactness(tmp_path: Path) -> None:
+    tool = _load_snapshot_tool()
+    snap_dir = tmp_path / "snap"
+    sha = tool.control_snapshot(P4, snap_dir)
+
+    # 12. Trust closure set remains exact
+    # Extra foreign file
+    snap_dir.chmod(0o755)
+    extra = snap_dir / "foreign.sh"
+    extra.write_bytes(b"#!/bin/bash\nexit 0\n")
+    extra.chmod(0o555)
+    snap_dir.chmod(0o555)
+    with pytest.raises(tool.SnapshotError, match="CONTROL_FILE_SET_MISMATCH"):
+        tool.control_check(snap_dir, sha, owner_uid=None)
+    snap_dir.chmod(0o755)
+    extra.unlink()
+    snap_dir.chmod(0o555)
+
+    # Missing trust closure file
+    snap_dir.chmod(0o755)
+    (snap_dir / "stages" / "CTu").chmod(0o755)
+    missing_file = snap_dir / "stages" / "CTu" / "allow-keys.txt"
+    content = missing_file.read_bytes()
+    missing_file.unlink()
+    (snap_dir / "stages" / "CTu").chmod(0o555)
+    snap_dir.chmod(0o555)
+    with pytest.raises(tool.SnapshotError, match="CONTROL_FILE_SET_MISMATCH"):
+        tool.control_check(snap_dir, sha, owner_uid=None)
+    with pytest.raises(tool.SnapshotError, match=r"TRUST_CLOSURE_MISSING:stages/CTu/allow-keys\.txt"):
+        tool.check_trust_closure(snap_dir)
+    snap_dir.chmod(0o755)
+    (snap_dir / "stages" / "CTu").chmod(0o755)
+    missing_file.write_bytes(content)
+    missing_file.chmod(0o444)
+    (snap_dir / "stages" / "CTu").chmod(0o555)
+    snap_dir.chmod(0o555)
+
+    # Altered file digest
+    altered_file = snap_dir / "stages" / "CTu" / "allow-keys.txt"
+    (snap_dir / "stages" / "CTu").chmod(0o755)
+    altered_file.chmod(0o644)
+    altered_file.write_bytes(b"modified_key_content\n")
+    altered_file.chmod(0o444)
+    (snap_dir / "stages" / "CTu").chmod(0o555)
+    with pytest.raises(tool.SnapshotError, match=r"CONTROL_FILE_DIGEST_MISMATCH:stages/CTu/allow-keys\.txt"):
+        tool.control_check(snap_dir, sha, owner_uid=None)
+
+
+def test_blocker7_ctu_control_snapshot_root_owned_protection(tmp_path: Path) -> None:
+    tool = _load_snapshot_tool()
+
+    # 13. Root-owned behavior remains protected
+    # Non-root cannot invoke root-owned snapshot
+    with pytest.raises(tool.SnapshotError, match="ROOT_REQUIRED_FOR_ROOT_OWNED_SNAPSHOT"):
+        tool.control_snapshot(P4, tmp_path / "snap_root", root_owned=True)
+
+    # Production trust root defaults
+    assert tool.PRODUCTION_TRUST_ROOT == "/"
+    assert tool.PRODUCTION_OWNER_UID == 0
+    assert tool.trust_root() == "/"
+
+    # Test seam refused in real root namespace (when initial userns)
+    if tool._initial_user_namespace():
+        old_en = os.environ.get(tool.TEST_SEAM_ENABLED)
+        old_rt = os.environ.get(tool.TEST_SEAM_ROOT)
+        try:
+            os.environ[tool.TEST_SEAM_ENABLED] = "YES"
+            os.environ[tool.TEST_SEAM_ROOT] = str(tmp_path)
+            with pytest.raises(tool.SnapshotError, match="TEST_TRUST_SEAM_REFUSED_IN_THE_REAL_ROOT_NAMESPACE"):
+                tool.trust_root()
+        finally:
+            if old_en is not None:
+                os.environ[tool.TEST_SEAM_ENABLED] = old_en
+            else:
+                os.environ.pop(tool.TEST_SEAM_ENABLED, None)
+            if old_rt is not None:
+                os.environ[tool.TEST_SEAM_ROOT] = old_rt
+            else:
+                os.environ.pop(tool.TEST_SEAM_ROOT, None)
+
+    # Half-set test seam refused
+    old_en = os.environ.get(tool.TEST_SEAM_ENABLED)
+    try:
+        os.environ[tool.TEST_SEAM_ENABLED] = "YES"
+        os.environ.pop(tool.TEST_SEAM_ROOT, None)
+        with pytest.raises(tool.SnapshotError, match="TEST_TRUST_SEAM_HALF_SET"):
+            tool.trust_root()
+    finally:
+        if old_en is not None:
+            os.environ[tool.TEST_SEAM_ENABLED] = old_en
+        else:
+            os.environ.pop(tool.TEST_SEAM_ENABLED, None)
+
+    # User namespace execution if unshare available
+    if _userns_usable():
+        script = f"""
+set -euo pipefail
+TRUSTED="{tmp_path}/trusted"
+mkdir -p "$TRUSTED"
+export CTU_TEST_ONLY_SNAPSHOT_TRUST_ENABLED=YES
+export CTU_TEST_ONLY_SNAPSHOT_TRUST_ROOT="$TRUSTED"
+python3 -c '
+import sys, os
+from pathlib import Path
+sys.path.insert(0, "{SNAPSHOT_TOOL.parent}")
+import ctu_verifier_snapshot as t
+src = Path("{P4}")
+dest = Path("{tmp_path}/trusted/snap_userns")
+sha = t.control_snapshot(src, dest, root_owned=True, trust_root_dir="{tmp_path}/trusted")
+t.control_check(dest, sha, owner_uid=0, trust_root_dir="{tmp_path}/trusted")
+for p in [dest, *dest.rglob("*")]:
+    if p.is_dir():
+        assert (p.stat().st_mode & 0o777) == 0o555, f"Dir not 0555: {{p}}"
+print("USERNS_ROOT_OWNED=PASS")
+'
+"""
+        proc = subprocess.run(["unshare", "-r", "bash", "-c", script], capture_output=True, text=True)
+        assert proc.returncode == 0, f"Userns run failed: stdout={proc.stdout}\nstderr={proc.stderr}"
+        assert "USERNS_ROOT_OWNED=PASS" in proc.stdout
 
 
 # ==============================================================================
