@@ -1,0 +1,1434 @@
+/* ─────────────────────────────────────────────────────────────────
+   AEGIS Drive_LC — Classic · Glossy Enamel (skeuomorphic)
+
+   The default authenticated interface style. Every rule below is rooted at
+   :root[data-ui-style="classic"], the mirror of the Neo block in index.css:
+   - Login never receives data-ui-style, so the protected entry surface is
+     untouched;
+   - Neo is a different value of the same attribute, so no rule here can
+     reach it.
+
+   This file is the ONLY place Classic colours live. Components read tokens;
+   the literal colours here are the token values themselves plus the LED and
+   gloss/cylinder highlight constants the brief allows.
+
+   Light and dark change values only. Geometry (padding, sizes, radii,
+   borders) is declared once, outside the theme blocks, so switching the mode
+   cannot move layout.
+   ───────────────────────────────────────────────────────────────── */
+@import "@fontsource/ibm-plex-sans-thai/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+/* ── 1. Tokens ─────────────────────────────────────────────────── */
+:root[data-ui-style="classic"] {
+  /* shared geometry */
+  --r: 20px;
+  --r-in: calc(var(--r) - 4px);
+  --r-tile: calc(var(--r) - 2px);
+  --r-card: var(--r);
+  --sidebar-w: 256px;
+  --sidebar-w-collapsed: 76px;
+  --shell-gap: 20px;
+
+  --led-ok: radial-gradient(circle at 35% 30%, #c9ffe1, #2fbf71 55%, #12804a);
+  --led-ok-glow: 0 0 7px rgba(47, 191, 113, 0.9);
+  --led-warn: radial-gradient(circle at 35% 30%, #fff1c9, #f0a92b 55%, #a8640a);
+  --led-warn-glow: 0 0 7px rgba(240, 169, 43, 0.85);
+  --led-danger: radial-gradient(circle at 35% 30%, #ffd0d1, #e5484d 55%, #9e1c22);
+  --led-danger-glow: 0 0 7px rgba(229, 72, 77, 0.85);
+  --led-off: radial-gradient(circle at 35% 30%, #e7e2d8, #8f8a80 55%, #5c584f);
+
+  --cyl-hi: #ffffff;
+  --cyl-hi-a: 0.4;
+  --cyl-lo: #000000;
+  --cyl-lo-a: 0.25;
+  --dot-gloss: inset 0 1px 1px rgba(255, 255, 255, 0.55), inset 0 -1px 1px rgba(0, 0, 0, 0.25);
+  --seg-gloss: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 0 rgba(0, 0, 0, 0.2);
+  --btn-acc-edge: rgba(0, 0, 0, 0.28);
+  --rule-engrave: rgba(0, 0, 0, 0.14);
+
+  --font-sans: "IBM Plex Sans Thai", "Leelawadee UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  /* Thai inside a mono run (e.g. "72% ใช้ไป") falls through to Plex Sans Thai */
+  --font-mono: "IBM Plex Mono", "IBM Plex Sans Thai", ui-monospace, monospace;
+}
+
+/* Light — the default mode. Contrast-adjusted values are marked ▲ (see the
+   task receipt for measurements): the brief's own values are kept in comments. */
+:root[data-ui-style="classic"],
+:root[data-ui-style="classic"][data-theme="light"] {
+  --base: #f4ecdb;
+  --base2: #e9dfc9;
+  --bar-a: #789bda; /* ▲ brief #6E93D6 — navy bar text reached 3.3:1 at the foot of the sidebar */
+  --bar-b: #668ccf; /* ▲ brief #4C76BF */
+  --acc: #102a5c;
+  --acc-a: #34569f;
+  --acc-b: #102a5c;
+  --acc-ink: #ffffff;
+  --acc2: #3c6fd1;
+
+  --face-a: #fbf5e8;
+  --face-b: #efe5cf;
+  --well-a: #ddd2b8;
+  --well-b: #ebe2cc;
+  --ink-c: #112b5e;
+  --ink2-c: #44547a; /* ▲ brief #4F5F85 — 4.2:1 inside wells */
+  --ink3-c: #4a5a7f;
+  --bar-ink: #081739; /* ▲ brief #0E2455 */
+  --bar-ts: 0 1px 0 rgba(255, 255, 255, 0.45);
+  --bar-well: rgba(10, 30, 80, 0.1); /* ▲ brief .22 — pressed rows fell to 2.5:1 */
+  --hi: rgba(255, 255, 255, 0.95);
+  --lo: rgba(80, 55, 20, 0.36);
+  --lo2: rgba(80, 55, 20, 0.15);
+  --edge: rgba(80, 55, 20, 0.2);
+  --glow: rgba(60, 111, 209, 0.55);
+  --track: rgba(60, 45, 20, 0.16);
+
+  --gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 46%);
+  --bg-halo: rgba(255, 255, 255, 0.7);
+
+  --seg-docs: #3c6fd1;
+  --seg-archives: #7b8db5;
+  --seg-media: #6e93d6;
+  --seg-vault: #5a7fc0;
+  --seg-versions: #102a5c;
+  --seg-other: #c2b79b;
+  --chart-up: var(--acc);
+  --chart-down: var(--acc2);
+
+  /* existing app tokens remapped, so every Classic screen shares the palette */
+  --canvas: var(--base);
+  --card: var(--face-a);
+  --card-sunken: var(--well-b);
+  --ink: var(--ink-c);
+  --ink-2: var(--ink2-c);
+  --ink-3: var(--ink3-c);
+  --line: var(--edge);
+  --accent: var(--acc);
+  --accent-soft: rgba(16, 42, 92, 0.1);
+  --accent-ink: #1b3a78;
+  --capacity-rail: var(--well-a);
+  --drawer-scrim: rgba(40, 30, 10, 0.34);
+  --modal-scrim: rgba(40, 30, 10, 0.36);
+
+  color-scheme: light;
+}
+
+:root[data-ui-style="classic"][data-theme="dark"] {
+  --base: #2d2a27;
+  --base2: #232120;
+  --bar-a: #40536b;
+  --bar-b: #31425a;
+  --acc: #e6b04a;
+  --acc-a: #f3c468;
+  --acc-b: #cb9226;
+  --acc-ink: #2b1c00;
+  --acc2: #7db8e8;
+
+  --face-a: #3d3935;
+  --face-b: #322f2b;
+  --well-a: #1e1c1a;
+  --well-b: #292624;
+  --ink-c: #f0eadf;
+  --ink2-c: #b0a89b;
+  --ink3-c: #b0a89b;
+  --bar-ink: #f3eee4;
+  --bar-ts: 0 -1px 0 rgba(0, 0, 0, 0.55);
+  --bar-well: rgba(0, 0, 0, 0.3);
+  --hi: rgba(255, 240, 215, 0.14);
+  --lo: rgba(0, 0, 0, 0.6);
+  --lo2: rgba(0, 0, 0, 0.32);
+  --edge: rgba(0, 0, 0, 0.42);
+  --glow: rgba(230, 176, 74, 0.5);
+  --track: rgba(0, 0, 0, 0.45);
+
+  --gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 46%);
+  --bg-halo: rgba(255, 255, 255, 0.06);
+
+  --seg-docs: #7db8e8;
+  --seg-archives: #9a9285;
+  --seg-media: #4c6e94;
+  --seg-vault: #b98a2a;
+  --seg-versions: #e6b04a;
+  --seg-other: #6f685e;
+  --chart-up: var(--acc);
+  /* ▲ brief uses --acc2 (#7DB8E8): same lightness as the gold upload series,
+     so the two read apart by hue alone. A deeper blue keeps a 2:1 gap. */
+  --chart-down: #4c86c4;
+
+  --canvas: var(--base);
+  --card: var(--face-a);
+  --card-sunken: var(--well-b);
+  --ink: var(--ink-c);
+  --ink-2: var(--ink2-c);
+  --ink-3: var(--ink3-c);
+  --line: var(--edge);
+  --accent: var(--acc);
+  --accent-soft: rgba(230, 176, 74, 0.14);
+  --accent-ink: #f3c468;
+  --capacity-rail: var(--well-a);
+  --drawer-scrim: rgba(0, 0, 0, 0.5);
+  --modal-scrim: rgba(0, 0, 0, 0.58);
+
+  color-scheme: dark;
+}
+
+/* shadows + material recipes resolve per mode because they reference tokens */
+:root[data-ui-style="classic"] {
+  --raised: inset 0 1px 0 var(--hi), inset 0 -2px 0 var(--lo2), 0 1px 2px var(--lo), 0 14px 26px -12px var(--lo);
+  --raised-s: inset 0 1px 0 var(--hi), inset 0 -1px 0 var(--lo2), 0 1px 2px var(--lo), 0 4px 8px -3px var(--lo);
+  --inset: inset 0 2px 5px var(--lo), inset 0 -1px 0 var(--hi), 0 1px 0 var(--hi);
+  --press: inset 0 3px 8px var(--lo), inset 0 -1px 0 var(--hi);
+  --btn-acc: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -2px 0 rgba(0, 0, 0, 0.28), 0 8px 14px -6px var(--glow), 0 1px 2px var(--lo);
+
+  --mat-card: var(--gloss), linear-gradient(180deg, var(--face-a), var(--face-b));
+  --mat-bar: var(--gloss), linear-gradient(180deg, var(--bar-a), var(--bar-b));
+  --mat-well: linear-gradient(180deg, var(--well-a), var(--well-b));
+  --mat-plate: linear-gradient(145deg, var(--face-a), var(--face-b));
+  --mat-acc: linear-gradient(180deg, var(--acc-a), var(--acc-b));
+  --bg: radial-gradient(900px 420px at 25% -5%, var(--bg-halo), transparent 70%), linear-gradient(180deg, var(--base), var(--base2));
+
+  /* hooks the shared components read, with their Neo/legacy defaults as fallback */
+  --elev-1: var(--raised);
+  --elev-2: var(--raised);
+  --active-glow: 0 0 8px var(--glow);
+  --stat-zero-ok: var(--ink);
+  --lake-row-bg: var(--mat-well);
+  --lake-row-border: transparent;
+  --lake-latency-ok: var(--acc);
+  --meter-h: 10px;
+  --meter-fill: var(--mat-acc);
+  --meter-track: var(--mat-well);
+  --topbar-rest-shadow: var(--raised);
+}
+
+@media (prefers-contrast: more) {
+  :root[data-ui-style="classic"] {
+    --edge: rgba(60, 40, 10, 0.55);
+    --gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 46%);
+  }
+  :root[data-ui-style="classic"][data-theme="dark"] {
+    --edge: rgba(255, 240, 215, 0.35);
+    --gloss: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 46%);
+  }
+}
+
+/* ── 2. Materials + shell ──────────────────────────────────────── */
+:root[data-ui-style="classic"] {
+  body {
+    background: var(--base2);
+  }
+
+  /* One theme transition for the enamel surfaces (colour/effects only). */
+  .authenticated-shell,
+  .app-sidebar,
+  .app-topbar,
+  .ui-card,
+  .telemetry-tile,
+  .lake-health-row,
+  .login-row,
+  .dashboard-inline-empty,
+  .header-action-button,
+  .context-search-input {
+    transition:
+      background-color 0.2s var(--ease),
+      color 0.2s var(--ease),
+      box-shadow 0.2s var(--ease),
+      border-color 0.2s var(--ease),
+      transform var(--dur-fast) var(--ease);
+  }
+
+  /* The page: enamel ground, sidebar + main column inset by 20px. The main
+     pane stays the scroller (Files/Vault marquee depends on it); its own
+     padding gives card shadows room instead of clipping them. */
+  .authenticated-shell {
+    box-sizing: border-box;
+    padding: var(--shell-gap) 0 0 var(--shell-gap);
+    background: var(--bg);
+    font-family: var(--font-sans);
+  }
+
+  .app-sidebar-frame {
+    height: calc(100% - var(--shell-gap));
+  }
+
+  .app-topbar {
+    margin-inline: var(--shell-gap);
+  }
+
+  .app-main-scroll {
+    padding: 0 var(--shell-gap) var(--shell-gap);
+  }
+
+  .app-main-scroll:has(> .workspace-full-pane-surface) {
+    padding: 0;
+  }
+
+  .app-main-scroll > [data-testid="app-page-content"]:not(.workspace-full-pane-surface) {
+    padding: var(--shell-gap) 0 4px;
+  }
+
+  /* Bars: sidebar + top bar */
+  .app-sidebar,
+  .app-topbar {
+    border: 1px solid var(--edge);
+    border-radius: var(--r);
+    background-image: var(--mat-bar);
+    color: var(--bar-ink);
+    text-shadow: var(--bar-ts);
+    --elev-1: var(--raised);
+  }
+
+  /* Cards */
+  .ui-card {
+    border: 1px solid var(--edge);
+    border-radius: var(--r);
+    background-image: var(--mat-card);
+  }
+
+  .ui-card.is-interactive:hover {
+    border-color: var(--edge);
+  }
+
+  .card-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ink);
+    text-shadow: 0 1px 0 var(--hi);
+  }
+
+  .card-sub {
+    font-size: 12.5px;
+    font-weight: 400;
+    color: var(--ink-2);
+  }
+
+  /* Generic chip = enamel plate badge with an LED */
+  .ui-chip {
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background-color: var(--face-a);
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 600;
+    text-shadow: none;
+  }
+
+  .ui-chip::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--led-off);
+  }
+
+  .ui-chip[data-tone="ok"]::before { background: var(--led-ok); box-shadow: var(--led-ok-glow); }
+  .ui-chip[data-tone="warn"]::before { background: var(--led-warn); box-shadow: var(--led-warn-glow); }
+  .ui-chip[data-tone="danger"]::before { background: var(--led-danger); box-shadow: var(--led-danger-glow); }
+
+  /* Status dots become LEDs (the tone still sets the meaning; text carries it too) */
+  .status-dot { background-image: var(--led-off); }
+  .status-dot[data-tone="ok"] { background-image: var(--led-ok); box-shadow: var(--led-ok-glow); }
+  .status-dot[data-tone="warn"] { background-image: var(--led-warn); box-shadow: var(--led-warn-glow); }
+  .status-dot[data-tone="danger"] { background-image: var(--led-danger); box-shadow: var(--led-danger-glow); }
+
+  /* Primary accent fills: the accent is gold in dark mode, so text on it uses
+     the accent ink instead of white. */
+  .bg-accent.text-white,
+  .quick-menu-icon.is-primary {
+    color: var(--acc-ink);
+  }
+
+  /* ── Sidebar ── */
+  .app-sidebar {
+    box-sizing: border-box;
+    padding: 18px 14px;
+  }
+
+  .app-drawer-panel {
+    width: 284px;
+    padding: 12px;
+  }
+
+  .sidebar-brand {
+    height: auto;
+    min-height: 44px;
+    padding: 0 0 4px;
+    gap: 10px;
+  }
+
+  .aegis-lockup-mark {
+    box-sizing: content-box;
+    padding: 4px;
+    border-radius: 12px;
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--acc);
+  }
+
+  .app-sidebar .aegis-lockup-title {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0;
+    color: var(--bar-ink);
+    white-space: normal;
+  }
+
+  .app-sidebar .aegis-lockup-sub {
+    margin-top: 2px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.45;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--bar-ink);
+    white-space: normal;
+  }
+
+  .sidebar-collapse-button {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--ink);
+    text-shadow: none;
+  }
+
+  .sidebar-collapse-button:hover {
+    color: var(--acc);
+  }
+
+  .sidebar-collapse-button:active {
+    transform: translateY(1px);
+    box-shadow: var(--inset);
+  }
+
+  .sidebar-nav {
+    padding: 4px 0 0;
+    gap: 2px;
+  }
+
+  .sidebar-group-label {
+    margin: 0 0 6px;
+    padding: 14px 4px 6px;
+    border-bottom: 1px solid var(--rule-engrave);
+    box-shadow: 0 1px 0 var(--hi);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.4px;
+    color: var(--bar-ink);
+  }
+
+  .sidebar-nav-item {
+    position: relative;
+    height: auto;
+    min-height: 44px;
+    padding: 10px 12px;
+    border-radius: var(--r-in);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--bar-ink);
+    background-color: transparent;
+  }
+
+  .sidebar-nav-item .sidebar-nav-icon {
+    width: 20px;
+    height: 20px;
+    stroke-width: 2;
+  }
+
+  .sidebar-nav-item:hover:not(.is-active) {
+    background-color: color-mix(in srgb, var(--bar-well) 50%, transparent);
+    color: var(--bar-ink);
+  }
+
+  /* Active = pressed into the bar. !important only because index.css paints
+     the legacy active fill with !important in dark mode. */
+  .sidebar-nav-item.is-active {
+    --accent-soft: var(--bar-well);
+    background-color: var(--bar-well) !important;
+    box-shadow: var(--press);
+    color: var(--bar-ink);
+    font-weight: 700;
+  }
+
+  .sidebar-nav-item.is-active::before {
+    content: "";
+    position: absolute;
+    left: -2px;
+    top: 10px;
+    bottom: 10px;
+    width: 4px;
+    border-radius: 2px;
+    background: var(--acc);
+    box-shadow: 0 0 8px var(--glow);
+  }
+
+  .sidebar-nav-item:focus-visible {
+    outline: 2px solid var(--acc);
+    outline-offset: 2px;
+  }
+
+  .sidebar-meter {
+    margin: 16px 0 0;
+    padding: 12px 12px 14px;
+    border-radius: var(--r-in);
+    background-color: var(--bar-well);
+    box-shadow: var(--inset);
+  }
+
+  .sidebar-meter p {
+    color: var(--bar-ink);
+  }
+
+  .sidebar-meter-value,
+  .sidebar-meter-value span {
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
+
+  .sidebar-meter-rail {
+    box-shadow: var(--inset);
+  }
+
+  .sidebar-meter-rail > div {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 8px var(--glow);
+  }
+
+  /* ── Top bar ── */
+  .app-topbar {
+    height: auto;
+    min-height: 68px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 12px 16px;
+    padding: 12px 18px;
+  }
+
+  .app-topbar > :first-child {
+    min-width: 0;
+  }
+
+  .topbar-tools {
+    margin-left: auto;
+    gap: 14px;
+  }
+
+  .topbar-menu-button {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--ink);
+    text-shadow: none;
+  }
+
+  .status-pill {
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--bar-well);
+    box-shadow: var(--inset);
+    color: var(--bar-ink);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  /* Pills: online = green LED, not connected = red LED (the label says which). */
+  .status-pill .status-dot {
+    width: 8px !important;
+    height: 8px !important;
+  }
+
+  .status-pill .status-dot[data-tone="accent"] {
+    background-image: var(--led-ok);
+    box-shadow: var(--led-ok-glow);
+  }
+
+  .status-pill .status-dot[data-tone="neutral"] {
+    background-image: var(--led-danger);
+    box-shadow: var(--led-danger-glow);
+  }
+
+  .classic-theme-switch {
+    position: relative;
+    display: inline-flex;
+    width: 76px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--bar-well);
+    box-shadow: var(--inset);
+  }
+
+  .classic-theme-switch__knob {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border-radius: 50%;
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--acc);
+    text-shadow: none;
+    transition: transform 0.24s var(--ease);
+  }
+
+  .classic-theme-switch[aria-pressed="true"] .classic-theme-switch__knob {
+    transform: translateX(36px);
+  }
+
+  .classic-theme-switch:active .classic-theme-switch__knob {
+    box-shadow: var(--inset);
+  }
+
+  .classic-theme-switch:focus-visible {
+    outline: 2px solid var(--acc);
+    outline-offset: 3px;
+  }
+
+  .topbar-clock {
+    align-items: center;
+    padding: 5px 14px;
+    border-radius: 12px;
+    background-image: var(--mat-well);
+    box-shadow: var(--inset);
+    text-shadow: none;
+  }
+
+  .topbar-clock-time {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--acc);
+    text-shadow: 0 0 8px var(--glow);
+  }
+
+  .topbar-clock-date {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--ink-2);
+  }
+
+  .topbar-divider {
+    display: none;
+  }
+
+  .topbar-profile {
+    gap: 10px;
+    padding: 0 6px 0 0;
+  }
+
+  .topbar-profile:hover {
+    background-color: transparent;
+  }
+
+  .topbar-avatar-ring {
+    padding: 4px;
+    background-color: var(--face-a);
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+  }
+
+  .topbar-avatar-ring .avatar-accent {
+    background: transparent;
+    color: var(--acc);
+    font-family: var(--font-sans);
+    font-weight: 700;
+    text-shadow: 0 1px 0 var(--hi);
+  }
+
+  .topbar-profile-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--bar-ink);
+  }
+
+  .topbar-profile-role {
+    font-size: 11px;
+    color: var(--bar-ink);
+  }
+
+  /* ── Page header ── */
+  .dashboard-page-header {
+    margin-bottom: 20px;
+    gap: 2px;
+  }
+
+  .page-breadcrumb {
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 1.5px;
+    color: var(--ink-2);
+  }
+
+  .page-breadcrumb-current {
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .page-title {
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    text-shadow: 0 1px 0 var(--hi), 0 -1px 0 var(--lo2);
+  }
+
+  .page-header-tools {
+    gap: 12px;
+  }
+
+  .header-context-search {
+    width: 320px;
+    max-width: 320px;
+  }
+
+  .context-search-input {
+    height: 44px;
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--well-b);
+    background-image: var(--mat-well);
+    box-shadow: var(--inset);
+    font-size: 14px;
+    color: var(--ink);
+  }
+
+  .context-search-input::placeholder {
+    color: var(--ink-2);
+  }
+
+  .context-search-input:focus-visible {
+    box-shadow: var(--inset), 0 0 0 2px var(--acc);
+  }
+
+  .search-shortcut {
+    border: 0;
+    border-radius: 6px;
+    background-color: var(--face-a);
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--ink-2);
+  }
+
+  .header-action-button,
+  .quick-actions-trigger {
+    height: 44px;
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    background-color: var(--face-a);
+    background-image: var(--gloss), var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--ink);
+    padding-inline: 18px;
+    font-size: 14px;
+    font-weight: 600;
+    text-shadow: 0 1px 0 var(--hi);
+  }
+
+  .quick-actions-trigger {
+    width: 44px;
+    padding-inline: 0;
+  }
+
+  .header-action-button:hover,
+  .quick-actions-trigger:hover {
+    border-color: var(--edge);
+    background-color: var(--face-a);
+    color: var(--ink);
+    transform: translateY(-1px);
+  }
+
+  .header-action-button.is-primary,
+  .header-action-button.is-primary:hover {
+    border-color: var(--btn-acc-edge);
+    background-color: var(--acc-b);
+    background-image: var(--mat-acc);
+    box-shadow: var(--btn-acc);
+    color: var(--acc-ink);
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+  }
+
+  .header-action-button:active,
+  .quick-actions-trigger:active,
+  .header-action-button.is-primary:active {
+    transform: translateY(1px);
+    box-shadow: inset 0 1px 3px var(--lo2), 0 1px 1px var(--lo2);
+  }
+
+  .header-action-button svg {
+    width: 16px;
+    height: 16px;
+    stroke-width: 2;
+  }
+
+  .quick-actions-menu {
+    border-color: var(--edge);
+    border-radius: var(--r-in);
+    background-image: var(--mat-card);
+    box-shadow: var(--raised);
+  }
+
+  .quick-menu-icon {
+    border-radius: 50%;
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--acc);
+  }
+
+  .quick-menu-icon.is-primary {
+    background-image: var(--mat-acc);
+  }
+
+  /* shared "recessed rail" (KPI storage, temperature) */
+  .classic-rail {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    height: 14px;
+    padding: 2px;
+    border-radius: 999px;
+    background-image: var(--mat-well);
+    box-shadow: var(--inset);
+    overflow: hidden;
+  }
+
+  .classic-rail-fill {
+    display: block;
+    height: 100%;
+    min-width: 10px;
+    border-radius: 999px;
+    background-image: var(--mat-acc);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 8px var(--glow);
+  }
+}
+
+/* ── 3. Dashboard ──────────────────────────────────────────────── */
+:root[data-ui-style="classic"] .dashboard-page {
+  gap: 20px;
+
+  .dashboard-reveal + .dashboard-reveal {
+    margin-top: 0;
+  }
+
+  /* KPI row */
+  .dashboard-kpi-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+
+  .dashboard-kpi-grid > * {
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+
+  .dashboard-kpi-grid > :first-child {
+    flex: 1.45 1 300px;
+  }
+
+  .dashboard-stat-card {
+    padding: 18px 20px;
+  }
+
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--acc);
+  }
+
+  .stat-icon svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 2;
+  }
+
+  /* KPI badge: recessed capsule (the plate variant lives on rows/tiles) */
+  .dashboard-stat-card .ui-chip {
+    background-image: var(--mat-well);
+    box-shadow: var(--inset);
+  }
+
+  .stat-label {
+    margin-top: 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink-2);
+    text-shadow: 0 1px 0 var(--hi);
+  }
+
+  .stat-value {
+    margin-top: 6px;
+    font-size: 34px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    text-shadow: 0 1px 0 var(--hi);
+  }
+
+  .stat-suffix {
+    margin-left: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+
+  .stat-footer {
+    margin-top: 14px;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .stat-rail {
+    box-sizing: border-box;
+    height: 14px;
+    padding: 2px;
+    border-radius: 999px;
+    background-color: var(--well-b);
+    background-image: var(--mat-well);
+    box-shadow: var(--inset);
+  }
+
+  .stat-rail-fill {
+    min-width: 10px;
+    background-image: var(--mat-acc);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 8px var(--glow);
+  }
+
+  .stat-rail-legend {
+    margin-top: 2px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+
+  /* Data Lake + right column */
+  .dashboard-row {
+    gap: 20px;
+  }
+
+  @media (min-width: 1024px) {
+    .dashboard-mid-main {
+      width: auto;
+      flex: 1.7 1 0;
+      min-width: 0;
+    }
+
+    .dashboard-mid-side {
+      width: auto;
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .dashboard-mid-main > .ui-card {
+      height: 100%;
+    }
+
+    .dashboard-half {
+      width: auto;
+      flex: 1 1 440px;
+      min-width: 0;
+    }
+  }
+
+  .dashboard-mid-side {
+    gap: 20px;
+  }
+
+  .lake-connector {
+    height: 10px;
+    opacity: 1;
+  }
+
+  .lake-connector > div {
+    border-color: var(--track) !important;
+    background: transparent !important;
+  }
+
+  .lake-health-row {
+    height: 52px;
+    border-radius: var(--r-in);
+    box-shadow: var(--inset);
+  }
+
+  .lake-tier-name {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+  }
+
+  .lake-tier-tech {
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+
+  .lake-latency {
+    width: auto;
+    min-width: 64px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .lake-latency[data-state="healthy"] {
+    text-shadow: 0 0 8px var(--glow);
+  }
+
+  .lake-health-row .ui-chip::before {
+    display: none;
+  }
+
+  .login-row {
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: var(--r-in);
+    background-image: var(--mat-well);
+    box-shadow: var(--inset);
+  }
+
+  .login-row + .login-row {
+    margin-top: 6px;
+  }
+
+  .login-row-icon {
+    width: 32px;
+    height: 32px;
+    margin-top: 0;
+    background-color: var(--face-a);
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+  }
+
+  .login-row-icon svg {
+    width: 15px;
+    height: 15px;
+    stroke-width: 2;
+  }
+
+  .login-row-icon svg:not(.text-danger) {
+    color: var(--acc);
+  }
+
+  /* timestamp + IP stack on the left, badge on the right */
+  .login-row-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 10px;
+    align-items: center;
+  }
+
+  .login-row-head {
+    display: contents;
+  }
+
+  .login-row-time {
+    grid-column: 1;
+    grid-row: 1;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .login-row-head .ui-chip {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .login-row-ip {
+    grid-column: 1;
+    grid-row: 2;
+    margin-top: 0;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .dashboard-inline-empty {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 18px;
+    border-radius: var(--r-in);
+    background-image: var(--mat-well);
+    box-shadow: var(--inset);
+    font-size: 13.5px;
+    color: var(--ink-2);
+  }
+
+  .dashboard-inline-empty-icon {
+    color: var(--ink-2);
+  }
+
+  .dashboard-list-row {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--track);
+    box-shadow: 0 1px 0 var(--hi);
+  }
+
+  .dashboard-list-row:last-child {
+    border-bottom: 0;
+    box-shadow: none;
+  }
+
+  /* Server telemetry */
+  .telemetry-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .telemetry-tile {
+    --elev-1: var(--inset);
+    flex: 1 1 290px;
+    padding: 14px 16px;
+    border: 1px solid transparent;
+    border-radius: var(--r-tile);
+    box-shadow: var(--inset);
+  }
+
+  .telemetry-tile:not(.hatch) {
+    background-image: var(--mat-well);
+  }
+
+  .telemetry-tile.hatch {
+    background-image:
+      repeating-linear-gradient(45deg, var(--hatch-color) 0px, var(--hatch-color) 1px, transparent 1px, transparent 5px),
+      var(--mat-well);
+  }
+
+  .telemetry-tile-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: var(--face-a);
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--acc);
+  }
+
+  .telemetry-tile-icon svg {
+    width: 16px;
+    height: 16px;
+    stroke-width: 2;
+  }
+
+  .telemetry-tile-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+    text-shadow: 0 1px 0 var(--hi);
+  }
+
+  .telemetry-tile-body {
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--ink);
+  }
+
+  .telemetry-tile[data-metric="network"] .telemetry-tile-body,
+  .telemetry-tile[data-metric="uptime"] .telemetry-tile-body {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .telemetry-tile[data-metric="temperature"] .telemetry-tile-body {
+    align-items: baseline;
+    column-gap: 10px;
+  }
+
+  .telemetry-temp-value {
+    font-size: 26px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .telemetry-tile[data-metric="temperature"] .telemetry-tile-body > span:not(.classic-rail) {
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .telemetry-heat-rail {
+    flex: 1 0 100%;
+    height: 10px;
+    margin-top: 4px;
+  }
+
+  .ring-gauge-block {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+  }
+
+  .ring-gauge-plate {
+    display: grid;
+    flex: 0 0 auto;
+    width: 68px;
+    height: 68px;
+    place-items: center;
+    border-radius: 50%;
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+  }
+
+  .ring-gauge {
+    width: 54px;
+    height: 54px;
+    transform: rotate(-90deg);
+  }
+
+  .ring-gauge-track,
+  .ring-gauge-value {
+    fill: none;
+    stroke-width: 8;
+  }
+
+  .ring-gauge-track {
+    stroke: var(--track);
+  }
+
+  .ring-gauge-value {
+    stroke: var(--acc2);
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 3px var(--glow));
+  }
+
+  .ring-gauge-readings {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .ring-gauge-number {
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1.15;
+    color: var(--ink);
+    text-shadow: 0 1px 0 var(--hi);
+  }
+
+  .ring-gauge-note {
+    font-family: var(--font-sans);
+  }
+
+  /* Storage split — "glass tube" */
+  .storage-tube {
+    box-sizing: border-box;
+    height: 26px;
+    align-items: stretch;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 999px;
+    background-image: var(--mat-well);
+    box-shadow: var(--inset);
+  }
+
+  .storage-seg {
+    height: auto;
+    min-width: 3px;
+    border-radius: 999px;
+    box-shadow: var(--seg-gloss);
+  }
+
+  .storage-legend {
+    margin-top: 14px;
+  }
+
+  .storage-legend-row {
+    margin-inline: 0;
+    padding: 9px 4px;
+    gap: 10px;
+    border-radius: 0;
+    border-bottom: 1px solid var(--track);
+    box-shadow: 0 1px 0 var(--hi);
+  }
+
+  .storage-legend-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    box-shadow: var(--dot-gloss);
+  }
+
+  .storage-legend-name {
+    font-size: 14px;
+    color: var(--ink);
+  }
+
+  .storage-legend-size {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .storage-legend-pct {
+    width: 56px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .storage-free {
+    margin-top: 12px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink-2);
+  }
+
+  /* Activity */
+  .activity-legend {
+    gap: 14px;
+    color: var(--ink);
+  }
+
+  .activity-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    box-shadow: var(--dot-gloss);
+  }
+
+  .activity-screen {
+    padding: 14px 14px 10px;
+    border-radius: var(--r-in);
+    background-image: var(--mat-well);
+    box-shadow: var(--inset);
+  }
+
+  .activity-plot {
+    height: 200px;
+  }
+
+  .activity-cylinder {
+    filter: drop-shadow(0 2px 4px var(--lo2));
+  }
+
+  /* Recent files */
+  .recent-file-icon {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border-radius: 10px;
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+  }
+
+  .recent-file-icon svg {
+    width: 16px;
+    height: 16px;
+    stroke-width: 2;
+    color: var(--acc);
+  }
+
+  .recent-file-name {
+    overflow: visible;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink);
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .recent-file-time {
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+}
+
+/* ── 4. Narrow screens ─────────────────────────────────────────── */
+@media (max-width: 767px) {
+  :root[data-ui-style="classic"] {
+    --shell-gap: 16px;
+
+    .header-context-search {
+      width: auto;
+      max-width: none;
+    }
+
+    .page-title {
+      font-size: 28px;
+    }
+
+    .app-topbar {
+      padding: 10px 12px;
+    }
+
+    .card-title-row {
+      flex-wrap: wrap;
+    }
+
+    .activity-legend > span {
+      white-space: nowrap;
+    }
+
+    /* Rack rows keep LED · layer · ms · badge on one line at phone width
+       (the tech label is already hidden below xl). */
+    .dashboard-page .lake-health-row {
+      gap: 8px;
+      padding-inline: 12px;
+    }
+
+    .dashboard-page .lake-tier-name {
+      font-size: 12px;
+      letter-spacing: 0;
+    }
+
+    .dashboard-page .lake-latency {
+      min-width: 0;
+      font-size: 12px;
+    }
+
+    .dashboard-page .lake-health-row .flex-1 {
+      min-width: 4px;
+    }
+  }
+}
+
+/* ── 5. Motion preferences ─────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="classic"] {
+    .authenticated-shell,
+    .app-sidebar,
+    .app-topbar,
+    .ui-card,
+    .telemetry-tile,
+    .lake-health-row,
+    .login-row,
+    .dashboard-inline-empty,
+    .header-action-button,
+    .context-search-input,
+    .classic-theme-switch__knob {
+      transition: none;
+    }
+
+    .header-action-button:hover,
+    .quick-actions-trigger:hover {
+      transform: none;
+    }
+  }
+}

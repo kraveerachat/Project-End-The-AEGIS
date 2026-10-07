@@ -12,6 +12,7 @@ import { useApi, useCountUp, useNow, useReducedMotion } from '../lib/hooks.js'
 import { fmtRelative, fmtCountdown, fmtStamp, fmtBytes } from '../lib/format.js'
 import { isPlatformWired } from '../lib/fetchState.js'
 import { normalizeDashboardData, shouldShowDashboardFetchError } from '../lib/dashboardState.js'
+import { useIsClassic } from '../lib/interfaceStyleContext.js'
 
 /* ทุกตัวเลขบนจอนี้มาจาก /api/dashboard · /api/storage · /healthz และจัดการครบสี่สถานะ
    (loading = skeleton · error = ข้อความ + Retry · empty = บอกตรง ๆ · success = ข้อมูลจริง)
@@ -38,7 +39,7 @@ function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, 
       }}
     >
       <div className="flex items-start justify-between">
-        <div className="metric-icon flex size-9 items-center justify-center rounded-[10px] bg-accent-soft text-accent-ink">
+        <div className="metric-icon stat-icon flex size-9 items-center justify-center rounded-[10px] bg-accent-soft text-accent-ink">
           <Icon size={17} strokeWidth={1.6} />
         </div>
         {delta != null ? (
@@ -50,18 +51,18 @@ function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, 
           <Chip tone={alarm ? 'danger' : statusTone}>{alarm ? `▲ ${value}` : allClearLabel}</Chip>
         ) : null}
       </div>
-      <p className="mt-3 text-[13px] font-medium text-ink-2">{label}</p>
+      <p className="stat-label mt-3 text-[13px] font-medium text-ink-2">{label}</p>
       {/* lang="en" — DESIGN.md · Cascade traps. This is a tabular-nums stat */}
       <p
         lang="en"
-        className="mt-1.5 font-mono text-[28px] font-semibold tracking-[-0.025em] leading-none text-ink"
-        style={{ fontVariantNumeric: 'tabular-nums', color: alarm ? 'var(--danger)' : value === 0 && allClearLabel && statusTone === 'ok' ? 'var(--ok)' : undefined }}
+        className="stat-value mt-1.5 font-mono text-[28px] font-semibold tracking-[-0.025em] leading-none text-ink"
+        style={{ fontVariantNumeric: 'tabular-nums', color: alarm ? 'var(--danger)' : value === 0 && allClearLabel && statusTone === 'ok' ? 'var(--stat-zero-ok, var(--ok))' : undefined }}
       >
         {valueLabel ?? display}
-        {suffix && <span className="ml-1.5 text-[15px] font-semibold text-ink-3">{suffix}</span>}
+        {suffix && <span className="stat-suffix ml-1.5 text-[15px] font-semibold text-ink-3">{suffix}</span>}
       </p>
       {footer && (
-        <div className="mt-3 border-t border-line pt-3">
+        <div className="stat-footer mt-3 border-t border-line pt-3">
           {footer}
         </div>
       )}
@@ -69,9 +70,10 @@ function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, 
   )
 }
 
-function InlineEmptyState({ children, className = '' }) {
+function InlineEmptyState({ children, className = '', icon: Icon = null }) {
   return (
-    <p role="status" className={`py-5 text-[13px] text-ink-3 leading-relaxed ${className}`}>
+    <p role="status" className={`dashboard-inline-empty py-5 text-[13px] text-ink-3 leading-relaxed ${className}`}>
+      {Icon && <Icon size={18} strokeWidth={2} className="dashboard-inline-empty-icon shrink-0" aria-hidden />}
       {children}
     </p>
   )
@@ -132,16 +134,16 @@ function LakeHealth({ t, health }) {
                   transform: dimmed ? 'translateY(2px)' : 'translateY(0)',
                   filter: dimmed ? 'saturate(0)' : 'none',
                   opacity: dimmed ? 0.62 : 1,
-                  background: state === 'degraded' ? 'var(--warn-soft)' : state === 'down' ? 'var(--danger-soft)' : 'var(--card)',
-                  borderColor: state === 'healthy' ? 'var(--line)' : 'transparent',
+                  background: state === 'degraded' ? 'var(--warn-soft)' : state === 'down' ? 'var(--danger-soft)' : 'var(--lake-row-bg, var(--card))',
+                  borderColor: state === 'healthy' ? 'var(--lake-row-border, var(--line))' : 'transparent',
                   transitionTimingFunction: 'var(--ease)',
                 }}
               >
                 <Dot tone={tone} pulse={state === 'healthy'} />
-                <span className="text-[12.5px] font-semibold tracking-[0.04em] text-ink whitespace-nowrap">{t(tier.nameKey)}</span>
-                <span className="text-[12.5px] text-ink-3 whitespace-nowrap max-xl:hidden">{tech}</span>
+                <span className="lake-tier-name text-[12.5px] font-semibold tracking-[0.04em] text-ink whitespace-nowrap">{t(tier.nameKey)}</span>
+                <span className="lake-tier-tech text-[12.5px] text-ink-3 whitespace-nowrap max-xl:hidden">{tech}</span>
                 <div className="flex-1 min-w-4" />
-                <span className="text-[12px] font-medium w-16 text-right" style={{ fontVariantNumeric: 'tabular-nums', color: state === 'healthy' ? 'var(--ink-2)' : tone === 'warn' ? 'var(--warn)' : tone === 'danger' ? 'var(--danger)' : 'var(--ink-3)' }}>
+                <span className="lake-latency text-[12px] font-medium w-16 text-right" data-state={state} style={{ fontVariantNumeric: 'tabular-nums', color: state === 'healthy' ? 'var(--lake-latency-ok, var(--ink-2))' : tone === 'warn' ? 'var(--warn)' : tone === 'danger' ? 'var(--danger)' : 'var(--ink-3)' }}>
                   {lat != null ? `${lat.toFixed(1)} ms` : t('latencyUnavailable')}
                 </span>
                   <Chip tone={tone}>{state === 'healthy' ? t('tierHealthy') : state === 'degraded' ? t('tierDegraded') : state === 'down' ? t('tierDown') : state === 'unavailable' ? t('latencyUnavailable') : t('notConnected')}</Chip>
@@ -169,16 +171,16 @@ function LoginHistoryCard({ t, events, unavailable = false }) {
             const at = new Date(e.at).getTime()
             const bad = e.result !== 'OK'
             return (
-              <div key={i} className="flex items-start gap-3 rounded-[10px] px-3 py-2.5">
-                <div className="size-7 rounded-full bg-sunken flex items-center justify-center shrink-0 mt-0.5">
+              <div key={i} className="login-row flex items-start gap-3 rounded-[10px] px-3 py-2.5">
+                <div className="login-row-icon size-7 rounded-full bg-sunken flex items-center justify-center shrink-0 mt-0.5">
                   <LogIn size={13} strokeWidth={1.5} className={bad ? 'text-danger' : 'text-ink-2'} />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] text-ink-2 leading-snug flex items-center gap-2">
-                    <span className="font-mono text-[12px]">{fmtStamp(at)}</span>
+                <div className="login-row-body min-w-0 flex-1">
+                  <p className="login-row-head text-[13px] text-ink-2 leading-snug flex items-center gap-2">
+                    <span className="login-row-time font-mono text-[12px]">{fmtStamp(at)}</span>
                     <Chip tone={bad ? 'danger' : 'ok'}>{bad ? t('resDenied') : t('resOk')}</Chip>
                   </p>
-                  <p className="font-mono text-[11.5px] text-ink-3 mt-0.5">{e.source_ip ?? e.sourceIp ?? '—'}</p>
+                  <p className="login-row-ip font-mono text-[11.5px] text-ink-3 mt-0.5">{e.source_ip ?? e.sourceIp ?? '—'}</p>
                 </div>
               </div>
             )
@@ -191,17 +193,18 @@ function LoginHistoryCard({ t, events, unavailable = false }) {
 
 /* ── Active share links (สเปกของจอ Dashboard) ────────────────────────── */
 function ActiveLinksCard({ t, shares, now, unavailable = false }) {
+  const classic = useIsClassic()
   return (
     <Card className="p-5 flex flex-col min-h-0" style={{ animationDelay: '250ms' }}>
       <CardTitle>{t('activeLinks')}</CardTitle>
       {unavailable ? (
         <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
       ) : shares.length === 0 ? (
-        <InlineEmptyState>{t('emptyNoShares')}</InlineEmptyState>
+        <InlineEmptyState icon={classic ? Link2 : null}>{t('emptyNoShares')}</InlineEmptyState>
       ) : (
         <div className="flex flex-col gap-2.5">
           {shares.map((s) => (
-            <div key={s.id} className="flex items-center gap-3 py-2 border-b border-line last:border-b-0">
+            <div key={s.id} className="dashboard-list-row flex items-center gap-3 py-2 border-b border-line last:border-b-0">
               <Link2 size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" />
               <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{s.fileName}</span>
               <span className="text-[11.5px] text-ink-3 font-mono shrink-0 flex items-center gap-1.5">
@@ -218,8 +221,8 @@ function ActiveLinksCard({ t, shares, now, unavailable = false }) {
 
 /* ── Storage breakdown — ไบต์จริงจาก /api/storage (hatch = ว่าง) ──────── */
 const SEG_COLORS = {
-  docs: 'var(--accent)', archives: 'var(--ink-3)', media: 'var(--violet)',
-  vaultSeg: 'var(--ink)', versions: 'var(--warn)', other: 'var(--accent-ink)',
+  docs: 'var(--seg-docs, var(--accent))', archives: 'var(--seg-archives, var(--ink-3))', media: 'var(--seg-media, var(--violet))',
+  vaultSeg: 'var(--seg-vault, var(--ink))', versions: 'var(--seg-versions, var(--warn))', other: 'var(--seg-other, var(--accent-ink))',
 }
 
 function StorageBreakdown({ t, usage, capacityBytes }) {
@@ -247,11 +250,11 @@ function StorageBreakdown({ t, usage, capacityBytes }) {
         </>
       ) : (
         <>
-          <div className="flex items-end gap-0.5 h-8 mt-1" aria-hidden>
+          <div className="storage-tube flex items-end gap-0.5 h-8 mt-1" aria-hidden>
             {segs.map((seg, i) => (
               <div
                 key={seg.key}
-                className={`h-7 transition-transform duration-[var(--dur-fast)] ${i === 0 ? 'rounded-l-full' : ''} ${i === segs.length - 1 ? 'rounded-r-full' : ''}`}
+                className={`storage-seg h-7 transition-transform duration-[var(--dur-fast)] ${i === 0 ? 'rounded-l-full' : ''} ${i === segs.length - 1 ? 'rounded-r-full' : ''}`}
                 style={{
                   width: `${(seg.bytes / total) * 100}%`,
                   backgroundColor: seg.color,
@@ -261,25 +264,25 @@ function StorageBreakdown({ t, usage, capacityBytes }) {
               />
             ))}
           </div>
-          <div className="mt-4 flex flex-col">
+          <div className="storage-legend mt-4 flex flex-col">
             {segs.map((seg) => (
               <div
                 key={seg.key}
                 onMouseEnter={() => setHovered(seg.key)}
                 onMouseLeave={() => setHovered(null)}
-                className="flex items-center gap-2.5 py-1.5 px-2 -mx-2 rounded-[8px] hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-default"
+                className="storage-legend-row flex items-center gap-2.5 py-1.5 px-2 -mx-2 rounded-[8px] hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-default"
               >
-                <span className="size-3 rounded-[4px] shrink-0" style={{ backgroundColor: seg.color }} aria-hidden />
-                <span className="text-[13px] font-medium text-ink-2">{t(seg.key)}</span>
-                <span className="ml-auto text-[13px] text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(seg.bytes)}</span>
-                <span className="w-12 text-right text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                <span className="storage-legend-dot size-3 rounded-[4px] shrink-0" style={{ backgroundColor: seg.color }} aria-hidden />
+                <span className="storage-legend-name text-[13px] font-medium text-ink-2">{t(seg.key)}</span>
+                <span className="storage-legend-size ml-auto text-[13px] text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(seg.bytes)}</span>
+                <span className="storage-legend-pct w-12 text-right text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
                   {((seg.bytes / total) * 100).toFixed(1)}%
                 </span>
               </div>
             ))}
           </div>
           {capacityBytes && (
-            <p className="text-[11.5px] text-ink-3 mt-3 leading-relaxed">
+            <p className="storage-free text-[11.5px] text-ink-3 mt-3 leading-relaxed">
               {t('storageBreakdownFree')} <span className="font-mono">{fmtBytes(capacityBytes.freeBytes)}</span>
             </p>
           )}
@@ -290,6 +293,23 @@ function StorageBreakdown({ t, usage, capacityBytes }) {
 }
 
 /* ── Activity — จำนวนครั้งของการอัปโหลด/ดาวน์โหลดต่อวัน จาก audit_log จริง ──── */
+// สีของสองชุดข้อมูลมาจาก token ของธีม (Classic กำหนด --chart-up/--chart-down เอง) — fallback = ค่าเดิม
+const UPLOAD_COLOR = 'var(--chart-up, var(--ink))'
+const DOWNLOAD_COLOR = 'var(--chart-down, var(--accent))'
+
+/* Classic: แท่ง "ทรงกระบอก" — สีชุดข้อมูล + ชั้นเงาแนวนอน (ขอบซ้ายสว่าง → ขอบขวาเข้ม)
+   ค่า 0 ไม่วาดอะไรเลย (ไม่ใช่แท่งสูง 0px ที่ยังมีเงา); สีทั้งหมดมาจาก token ใน theme-classic.css */
+function CylinderBar({ x, y, width, height, fill }) {
+  if (!height || height <= 0 || !width) return null
+  const r = Math.min(5, width / 2, height)
+  const d = `M${x},${y + height} V${y + r} Q${x},${y} ${x + r},${y} H${x + width - r} Q${x + width},${y} ${x + width},${y + r} V${y + height} Z`
+  return (
+    <g className="activity-cylinder">
+      <path d={d} fill={fill} />
+      <path d={d} fill="url(#activity-cylinder-gloss)" />
+    </g>
+  )
+}
 function ChartTooltip({ active, payload, label, t }) {
   if (!active || !payload?.length) return null
   return (
@@ -297,7 +317,7 @@ function ChartTooltip({ active, payload, label, t }) {
       <p className="text-[12px] font-semibold text-ink mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.dataKey} className="text-[12.5px] text-ink-2 flex items-center gap-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <span className="size-2 rounded-full" style={{ background: p.dataKey === 'uploads' ? 'var(--ink)' : 'var(--accent)' }} />
+          <span className="size-2 rounded-full" style={{ background: p.dataKey === 'uploads' ? UPLOAD_COLOR : DOWNLOAD_COLOR }} />
           {p.dataKey === 'uploads' ? t('uploads') : t('downloads')} · {p.value}
         </p>
       ))}
@@ -307,6 +327,7 @@ function ChartTooltip({ active, payload, label, t }) {
 
 function ActivityChart({ t, lang, data }) {
   const reduced = useReducedMotion()
+  const classic = useIsClassic()
   // ป้ายแกน X เป็นชื่อวันตามภาษาที่เลือก — เซิร์ฟเวอร์คืนวันที่ ISO ไม่ใช่ชื่อวันภาษาอังกฤษ
   // (ชื่อวันเป็นเรื่องของการแสดงผล ไม่ใช่ข้อมูล)
   const displayData = data.length > 0 ? data : Array.from({ length: 7 }, (_, index) => {
@@ -329,9 +350,9 @@ function ActivityChart({ t, lang, data }) {
       <CardTitle
         sub={t('activitySub')}
         right={
-          <div className="flex items-center gap-3 text-[12px] font-medium text-ink-3">
-            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: 'var(--ink)' }} />{t('uploads')}</span>
-            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: 'var(--accent)' }} />{t('downloads')}</span>
+          <div className="activity-legend flex items-center gap-3 text-[12px] font-medium text-ink-3">
+            <span className="flex items-center gap-1.5"><span className="activity-legend-dot size-2.5 rounded-[3px]" style={{ background: UPLOAD_COLOR }} />{t('uploads')}</span>
+            <span className="flex items-center gap-1.5"><span className="activity-legend-dot size-2.5 rounded-[3px]" style={{ background: DOWNLOAD_COLOR }} />{t('downloads')}</span>
           </div>
         }
       >
@@ -339,18 +360,29 @@ function ActivityChart({ t, lang, data }) {
       </CardTitle>
       {/* ⚠️ ยังไม่มีกิจกรรมเลย ≠ กราฟเปล่าที่ดูเหมือนพัง — บอกตรง ๆ ว่าไม่มีเหตุการณ์
           ในเจ็ดวันนี้ (ของเดิมไม่มีสถานะนี้เพราะข้อมูลปลอมทำให้มีแท่งอยู่เสมอ) */}
-      <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={rows} barGap={3} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-            <CartesianGrid vertical={false} stroke="var(--line)" strokeWidth={1} />
-            <XAxis dataKey="label" axisLine={false} tickLine={false} dy={6} />
-            {/* allowDecimals=false — จำนวนครั้งเป็นจำนวนเต็มเสมอ */}
-            <YAxis axisLine={false} tickLine={false} width={38} allowDecimals={false} domain={[0, 'auto']} />
-            <RTooltip content={<ChartTooltip t={t} />} cursor={{ fill: 'var(--card-sunken)' }} />
-            <Bar dataKey="uploads" radius={[8, 8, 0, 0]} maxBarSize={18} fill="var(--ink)" isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
-            <Bar dataKey="downloads" radius={[8, 8, 0, 0]} maxBarSize={18} fill="var(--accent)" isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
-          </BarChart>
-        </ResponsiveContainer>
+      <div className="activity-screen">
+        <div className="activity-plot h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={rows} barGap={classic ? 4 : 3} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+              {classic && (
+                <defs>
+                  <linearGradient id="activity-cylinder-gloss" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0" style={{ stopColor: 'var(--cyl-hi)', stopOpacity: 'var(--cyl-hi-a)' }} />
+                    <stop offset="0.42" style={{ stopColor: 'var(--cyl-hi)', stopOpacity: 0 }} />
+                    <stop offset="1" style={{ stopColor: 'var(--cyl-lo)', stopOpacity: 'var(--cyl-lo-a)' }} />
+                  </linearGradient>
+                </defs>
+              )}
+              <CartesianGrid vertical={false} stroke={classic ? 'var(--track)' : 'var(--line)'} strokeWidth={1} strokeDasharray={classic ? '4 4' : undefined} />
+              <XAxis dataKey="label" axisLine={false} tickLine={false} dy={6} tick={classic ? { fill: 'var(--ink-2)', fontSize: 12 } : undefined} />
+              {/* allowDecimals=false — จำนวนครั้งเป็นจำนวนเต็มเสมอ */}
+              <YAxis axisLine={false} tickLine={false} width={38} allowDecimals={false} domain={[0, 'auto']} tick={classic ? { fill: 'var(--ink-2)', fontSize: 11, fontFamily: 'var(--font-mono)' } : undefined} />
+              <RTooltip content={<ChartTooltip t={t} />} cursor={{ fill: 'var(--card-sunken)' }} />
+              <Bar dataKey="uploads" radius={[8, 8, 0, 0]} maxBarSize={18} barSize={classic ? 16 : undefined} shape={classic ? CylinderBar : undefined} fill={UPLOAD_COLOR} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
+              <Bar dataKey="downloads" radius={[8, 8, 0, 0]} maxBarSize={18} barSize={classic ? 16 : undefined} shape={classic ? CylinderBar : undefined} fill={DOWNLOAD_COLOR} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
       {empty && <InlineEmptyState className="pt-3 pb-0 text-center">{t('activityEmpty')}</InlineEmptyState>}
     </Card>
@@ -378,13 +410,13 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
   const placeholderLabel = usingPlaceholder ? t('notConnected') : null
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="dashboard-page flex flex-col gap-5">
       {showDashboardError && (
         <Card><ErrorState t={t} kind={dash.error} onRetry={dash.retry} /></Card>
       )}
       {/* Top 4 KPI Cards — ตัวเลขจริงจากเซิร์ฟเวอร์ทั้งหมด */}
       <Reveal delay={0}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="dashboard-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             icon={Database}
             label={t('statStorage')}
@@ -395,10 +427,10 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
             statusTone="neutral"
             footer={hasCapacity ? (
               <div className="flex flex-col gap-1.5">
-                <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                  <div className="h-full bg-accent rounded-full" style={{ width: `${usedPct}%` }} />
+                <div className="stat-rail w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                  <div className="stat-rail-fill h-full bg-accent rounded-full" style={{ width: `${usedPct}%` }} />
                 </div>
-                <div className="flex justify-between text-[11px] text-slate-400 dark:text-slate-500 font-semibold font-mono">
+                <div className="stat-rail-legend flex justify-between text-[11px] text-slate-400 dark:text-slate-500 font-semibold font-mono">
                   <span>{usedPct}% {t('capacityUsed')}</span>
                   <span>{m.storageTotalBytes === 0 ? '0 GB' : fmtBytes(Math.max(0, m.storageTotalBytes - m.storageBytes))} {t('free')}</span>
                 </div>
@@ -425,11 +457,11 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
 
       {/* Mid row: LakeHealth (จาก /healthz) + login history / active links */}
       <Reveal delay={100}>
-        <div className="flex flex-col lg:flex-row gap-6">
-          <div className="flex-1 lg:w-2/3">
+        <div className="dashboard-row dashboard-mid-row flex flex-col lg:flex-row gap-6">
+          <div className="dashboard-mid-main flex-1 lg:w-2/3">
             <LakeHealth t={t} health={health.data} />
           </div>
-          <div className="w-full lg:w-1/3 flex flex-col gap-6">
+          <div className="dashboard-mid-side w-full lg:w-1/3 flex flex-col gap-6">
             <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={usingPlaceholder} />
             <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={usingPlaceholder} />
           </div>
@@ -447,8 +479,8 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
 
       {/* Bottom row: breakdown (จาก /api/storage) + transfer chart */}
       <Reveal delay={200}>
-        <div className="flex flex-col lg:flex-row gap-6">
-          <div className="flex-1 lg:w-1/2">
+        <div className="dashboard-row dashboard-bottom-row flex flex-col lg:flex-row gap-6">
+          <div className="dashboard-half flex-1 lg:w-1/2">
             {usingPlaceholder ? (
               <Card className="p-5"><CardTitle>{t('storageBreakdown')}</CardTitle><DependencyUnavailableState t={t} title={t('dashboardUnavailable')} /></Card>
             ) : storage.loading ? (
@@ -465,7 +497,7 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
               />
             )}
           </div>
-          <div className="flex-1 lg:w-1/2">
+          <div className="dashboard-half flex-1 lg:w-1/2">
             {usingPlaceholder ? (
               <Card className="p-5"><CardTitle>{t('activityTitle')}</CardTitle><DependencyUnavailableState t={t} title={t('dashboardUnavailable')} /></Card>
             ) : (
@@ -486,10 +518,10 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
           ) : (
             <div className="flex flex-col">
               {d.recentFiles.map((f) => (
-                <div key={f.id} className="flex items-center gap-3 py-2 border-b border-line last:border-b-0">
-                  <FileText size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" />
-                  <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{f.name}</span>
-                  <span className="text-[11.5px] text-ink-3 font-mono shrink-0">{fmtRelative(t, f.modified, now)}</span>
+                <div key={f.id} className="dashboard-list-row recent-file-row flex items-center gap-3 py-2 border-b border-line last:border-b-0">
+                  <span className="recent-file-icon inline-flex shrink-0"><FileText size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" /></span>
+                  <span className="recent-file-name block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{f.name}</span>
+                  <span className="recent-file-time text-[11.5px] text-ink-3 font-mono shrink-0">{fmtRelative(t, f.modified, now)}</span>
                 </div>
               ))}
             </div>

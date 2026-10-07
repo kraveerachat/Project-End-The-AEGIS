@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-05
+updated: 2026-10-07
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -15,7 +15,22 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
-## Current Task — IDEA1-ZIP-NO-FSA-STREAM — Cross-browser large ZIP over the existing Service Worker
+## Current Task — IDEA1-CLASSIC-GLOSSY — Classic interface style restyled as "Glossy Enamel"
+
+| Field | Current value |
+|---|---|
+| Task | Restyle the authenticated **Classic** interface style (the default) to the approved Glossy Enamel skeuomorphic mockups, light + dark, with the Dashboard as the target page. Presentation only: no API, data, route, RBAC or backend change. Neo and Login untouched. |
+| Branch / PR | `feat/idea1-classic-glossy-dashboard` from `origin/main` `5d3245ea`; one PR, not merged by the agent |
+| Owner | kla |
+| Design | New `src/theme-classic.css`: every rule rooted at `:root[data-ui-style="classic"]` (mirror of the Neo block). It remaps the existing app tokens (`--canvas/--card/--ink/--line/--accent`…), so every Classic screen gets the palette, enamel cards and the bar-style Sidebar/TopBar. The Dashboard gets the full component treatment (KPI plates, rack-unit Data Lake rows, SVG ring gauges, glass-tube storage split, cylinder chart bars, recessed wells). Fonts: IBM Plex Sans Thai 700 + IBM Plex Mono (self-hosted via `@fontsource/ibm-plex-mono`). `InterfaceStyleContext` (default `null`) lets three spots render Classic-only markup (track/knob theme switch, ring gauge, cylinder bars) without changing Neo or Login. Light/dark keeps the existing shared `aegis_shell_theme` + account preference (owner-controlled contract). |
+| Contrast nudges | Light `--bar-a/--bar-b` `#6E93D6/#4C76BF`→`#789BDA/#668CCF`, `--bar-ink` `#0E2455`→`#081739`, `--bar-well` α .22→.10, `--ink2` `#4F5F85`→`#44547A`; dark download series `#7DB8E8`→`#4C86C4` (lightness gap vs gold upload). All measured pairs ≥ 4.5:1. |
+| State | `IMPLEMENTED / LOCALLY VERIFIED`; `PRODUCTION_DEPLOYED=NO`. |
+| Evidence | Agent-driven headless Chrome on local non-Production (own PG container + `vite preview` of the production build): light/dark × 1440/390 screenshots; toggling theme moves 0 px across 12 measured elements; 390 px has no page-level horizontal overflow; 0 outbound requests; Neo pixel-diff vs an `origin/main` build differs only in live values (clock, ms, login timestamps, uptime). Host telemetry used a labelled fixture for the gauges (no telemetry agent on Windows). |
+| NOT VERIFIED | Human visual acceptance; real telemetry-agent values; Files/Vault/Settings etc. in Classic only received the palette/card/shell pass and were not screenshot-reviewed. |
+| Next gate | Owner visual review, merge; Production deploy is a separate task. |
+| Receipt | `90-Status/logs/2026-10-07_222045_kla_idea1-classic-glossy-dashboard.md` |
+
+## Previous Task — IDEA1-ZIP-NO-FSA-STREAM — Cross-browser large ZIP over the existing Service Worker
 
 | Field | Current value |
 |---|---|
@@ -3233,7 +3248,7 @@ Production mutation without separate authorization.
 ### Dual interface theme system (2026-09-04)
 
 * The current feature branch adds a server-owned `interfaceStyle` preference (`classic` or `neo`) alongside the independent `theme`, `language`, and `density` preferences. Existing rows and invalid/missing values fail closed to Classic; PostgreSQL receives the additive, idempotent `006_interface_style.sql` migration after Protected Trash migration `005` from `main`.
-* Classic preserves the existing authenticated Precision Ledger interface. Neo applies a shared semantic token and material adapter across Dashboard, Files, Private Vault, Secure Shares, File History, Storage & Backup, Audit Log, Access Control, and Settings. Neo Light uses cool-white shadow-led layers; Neo Dark uses stepped graphite/navy layers. Content cards remain solid, and static glass is limited to Sidebar, Topbar, Modal, and segmented housing.
+* Classic preserved the Precision Ledger interface until IDEA1-CLASSIC-GLOSSY (2026-10-07), which restyled Classic as Glossy Enamel through `src/theme-classic.css` (scoped `[data-ui-style="classic"]`). Neo applies a shared semantic token and material adapter across Dashboard, Files, Private Vault, Secure Shares, File History, Storage & Backup, Audit Log, Access Control, and Settings. Neo Light uses cool-white shadow-led layers; Neo Dark uses stepped graphite/navy layers. Content cards remain solid, and static glass is limited to Sidebar, Topbar, Modal, and segmented housing.
 * Login is explicitly outside the interface-style system and remains visually and behaviorally unchanged. `data-ui-style` is absent before authentication and after logout. The saved account style is resolved synchronously before the authenticated shell mounts.
 * Settings → Appearance exposes accessible Classic/Neo preview radios. A style change is confirmed, persisted first, and only then ends the current session. Save failure preserves the current session and current shell. The live browser pass found and fixed a credential-mapping omission that had discarded saved preferences at fresh login; the regression suite now covers a separate new authenticated session.
 * Local visual QA covered all nine authenticated routes in Neo Light, Neo Dark, Comfortable, Compact, and a 390×844 viewport. No horizontal overflow was observed; mobile segmented controls meet a 44×44 CSS minimum, focus remains visible, and reduced-motion rules disable Neo transforms. This branch is not yet production-deployed or production-accepted.

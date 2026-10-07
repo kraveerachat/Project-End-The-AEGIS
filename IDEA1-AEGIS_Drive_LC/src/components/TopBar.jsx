@@ -56,7 +56,7 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
     <header
       className="app-topbar h-[68px] shrink-0 bg-card border-b border-line flex items-center justify-between gap-6 px-6 max-lg:px-4 transition-all duration-[var(--dur-base)] sticky top-0 z-[var(--z-sticky)]"
       data-material="shell-glass"
-      style={{ boxShadow: scrolled ? 'var(--elev-1)' : 'none' }}
+      style={{ boxShadow: scrolled ? 'var(--elev-1)' : 'var(--topbar-rest-shadow, none)' }}
     >
       {/* LEFT ZONE: Mobile Toggle Button / Left Spacer */}
       <div className="flex items-center min-w-[40px]">
@@ -64,37 +64,37 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
           type="button"
           aria-label={t('expandSidebar')}
           onClick={openMobileNav}
-          className="lg:hidden size-9 flex items-center justify-center rounded-full text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer"
+          className="topbar-menu-button lg:hidden size-9 flex items-center justify-center rounded-full text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer"
         >
           <Menu size={18} strokeWidth={1.5} />
         </button>
       </div>
 
       {/* CENTER ZONE: Status Pills — ค่าจริงจาก /healthz (poll 15s) */}
-      <div className="flex items-center justify-center gap-3 max-lg:hidden" role="status" aria-live="polite">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
+      <div className="topbar-status flex items-center justify-center gap-3 max-lg:hidden" role="status" aria-live="polite">
+        <div className="status-pill inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
           <Dot tone={applicationUp ? 'ok' : 'neutral'} pulse={applicationUp} size={6} />
           <span>{applicationUp ? t('driveOnline') : t('driveNotConnected')}</span>
         </div>
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
+        <div className="status-pill inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
           <Dot tone={metadataUp ? 'accent' : 'neutral'} pulse={metadataUp} size={6} />
           <span>{metadataUp ? t('metadataConnected', { source: dbMode === 'postgres' ? 'PostgreSQL' : 'in-memory' }) : t('metadataNotConnected')}</span>
         </div>
       </div>
 
       {/* RIGHT ZONE: Tactical Clock & Profile */}
-      <div className="flex items-center gap-4">
+      <div className="topbar-tools flex items-center gap-4">
         {onThemeChange && (
           <ThemeToggle theme={resolvedTheme} setTheme={onThemeChange} t={t} />
         )}
 
         {/* Tactical Clock (Monospace Stacked) */}
-        <div className="flex flex-col items-end leading-tight max-sm:hidden select-none">
-          <span className="font-mono text-sm font-bold text-ink tracking-tight">{clockText}</span>
-          <span className="font-mono text-[10.5px] font-medium text-ink-3 tracking-wide">{dateText}</span>
+        <div className="topbar-clock flex flex-col items-end leading-tight max-sm:hidden select-none">
+          <span className="topbar-clock-time font-mono text-sm font-bold text-ink tracking-tight">{clockText}</span>
+          <span className="topbar-clock-date font-mono text-[10.5px] font-medium text-ink-3 tracking-wide">{dateText}</span>
         </div>
 
-        <div className="w-px h-6 bg-line max-sm:hidden" aria-hidden />
+        <div className="topbar-divider w-px h-6 bg-line max-sm:hidden" aria-hidden />
 
         {/* Profile Avatar & Usermeta Badge */}
         <div className="relative">
@@ -104,17 +104,17 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
             aria-haspopup="menu"
             aria-expanded={avatarOpen}
             onClick={() => setAvatarOpen((v) => !v)}
-            className="flex items-center gap-3 p-1 rounded-full hover:bg-sunken transition-colors cursor-pointer text-left"
+            className="topbar-profile flex items-center gap-3 p-1 rounded-full hover:bg-sunken transition-colors cursor-pointer text-left"
           >
             {/* รูปโปรไฟล์จริงถ้าผู้ใช้อัปโหลดไว้ ไม่งั้นตกลงมาที่อักษรย่อเหมือนเดิม
                 (Avatar จัดการ fallback เอง — ดู src/components/ui.jsx) */}
-            <div className="p-[2px] rounded-full bg-accent shadow-sm shrink-0">
+            <div className="topbar-avatar-ring p-[2px] rounded-full bg-accent shadow-sm shrink-0">
               <Avatar userId={user.id} name={user.displayName} hasAvatar={user.hasAvatar} version={user.avatarVersion} size={36} className="avatar-accent bg-blue-600 text-white" />
             </div>
             <div className="flex flex-col text-left max-lg:hidden min-w-0 pr-1">
-              <span className="text-[13px] font-bold text-ink leading-tight truncate">{user.displayName}</span>
+              <span className="topbar-profile-name text-[13px] font-bold text-ink leading-tight truncate">{user.displayName}</span>
               {/* role เป็นจอแสดงผลของสิ่งที่เซิร์ฟเวอร์ตัดสินมา — ไม่ใช่ปุ่ม เปลี่ยนไม่ได้ */}
-              <span className="text-xs font-mono text-ink-3 leading-tight truncate">AEGIS Drive · {user.role}</span>
+              <span className="topbar-profile-role text-xs font-mono text-ink-3 leading-tight truncate">AEGIS Drive · {user.role}</span>
             </div>
           </button>
 

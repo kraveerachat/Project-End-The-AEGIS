@@ -52,7 +52,7 @@ function NavItem({ icon, label, active, collapsed, onClick, delay = 0 }) {
       } ${collapsed ? 'justify-center px-0' : 'px-3.5'}`}
       style={{ animationDelay: `${delay}ms` }}
     >
-      <Icon size={17} strokeWidth={1.5} className="shrink-0" />
+      <Icon size={17} strokeWidth={1.5} className="sidebar-nav-icon shrink-0" />
       {!collapsed && <span className="truncate">{label}</span>}
     </button>
   )
@@ -68,7 +68,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
 
   const body = (
     <div className="app-sidebar flex flex-col h-full bg-card border-r border-line" data-material="shell-glass">
-      <div className={`flex items-center h-16 shrink-0 ${collapsed ? 'justify-center px-0' : 'justify-between px-5'}`}>
+      <div className={`sidebar-brand flex items-center h-16 shrink-0 ${collapsed ? 'justify-center px-0' : 'justify-between px-5'}`}>
         {collapsed
           ? <AegisMark size={32} theme={resolvedTheme} />
           : <AegisLockup markSize={36} theme={resolvedTheme} title="AEGIS Drive_LC" sub={t('productLockupSub')} />}
@@ -77,7 +77,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
             type="button"
             aria-label={t('collapseSidebar')}
             onClick={() => setCollapsed(true)}
-            className="size-8 flex items-center justify-center rounded-full text-ink-3 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer max-lg:hidden"
+            className="sidebar-collapse-button size-8 flex items-center justify-center rounded-full text-ink-3 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer max-lg:hidden"
           >
             <PanelLeftClose size={15} strokeWidth={1.5} />
           </button>
@@ -88,13 +88,13 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
           type="button"
           aria-label={t('expandSidebar')}
           onClick={() => setCollapsed(false)}
-          className="mx-auto mb-1 size-8 flex items-center justify-center rounded-full text-ink-3 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer"
+          className="sidebar-collapse-button mx-auto mb-1 size-8 flex items-center justify-center rounded-full text-ink-3 hover:bg-sunken hover:text-ink transition-colors duration-[var(--dur-fast)] cursor-pointer"
         >
           <PanelLeftOpen size={15} strokeWidth={1.5} />
         </button>
       )}
 
-      <nav className={`flex-1 overflow-y-auto py-2 flex flex-col gap-0.5 ${collapsed ? 'px-3' : 'px-4'}`} aria-label={t('productName')}>
+      <nav className={`sidebar-nav flex-1 overflow-y-auto py-2 flex flex-col gap-0.5 ${collapsed ? 'px-3' : 'px-4'}`} aria-label={t('productName')}>
         {groups.map((groupKey) => {
           // filter BEFORE map — สิ่งที่ role นี้ไม่มีสิทธิ์ "ไม่ถูก render เลย"
           const items = nav.filter((n) => n.group === groupKey)
@@ -102,7 +102,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
           const inner = items.length > 0 && (
             <div className="flex flex-col gap-0.5">
               {!collapsed && (
-                <p className="text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.1em] px-3.5 pt-4 pb-1.5">{t(groupKey)}</p>
+                <p className="sidebar-group-label text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.1em] px-3.5 pt-4 pb-1.5">{t(groupKey)}</p>
               )}
               {collapsed && <div className="h-3" aria-hidden />}
               {items.map((item, i) => (
@@ -137,7 +137,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
 
       {/* storage meter — จากเซิร์ฟเวอร์เท่านั้น; ระหว่างโหลด = skeleton ไม่ใช่เลขปลอม */}
       {!collapsed && (
-        <div className="m-4 mt-2 p-3.5 rounded-[var(--r-tile)] bg-sunken">
+        <div className="sidebar-meter m-4 mt-2 p-3.5 rounded-[var(--r-tile)] bg-sunken">
           {metricsUnavailable ? (
             <div role="status" className="hatch hatch-ink3 rounded-[9px] border border-dashed border-line px-3 py-2.5 flex items-center justify-between gap-3">
               <p className="text-[12px] font-semibold text-ink-2">{t('storageMeter')}</p>
@@ -147,11 +147,17 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
             <>
               <div className="flex items-baseline justify-between">
                 <p className="text-[12px] font-semibold text-ink-2">{t('storageMeter')}</p>
-                <p className="text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                <p className="sidebar-meter-value text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
                   <span className="font-semibold text-ink">{fmtBytes(storageBytes)}</span> / {fmtBytes(totalBytes)}
                 </p>
               </div>
-              <Progress value={storagePct} height={4} className="mt-2.5" />
+              <Progress
+                value={storagePct}
+                height="var(--meter-h, 4px)"
+                color="var(--meter-fill, var(--accent))"
+                track="var(--meter-track, var(--line))"
+                className="sidebar-meter-rail mt-2.5"
+              />
             </>
           ) : (
             <div className="flex flex-col gap-2.5" aria-busy="true">
@@ -169,7 +175,7 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
       {/* desktop */}
       <aside
         className="app-sidebar-frame hidden lg:block shrink-0 h-full transition-[width] duration-[var(--dur-slow)]"
-        style={{ width: collapsed ? 72 : 260, transitionTimingFunction: 'var(--ease)' }}
+        style={{ width: collapsed ? 'var(--sidebar-w-collapsed, 72px)' : 'var(--sidebar-w, 260px)', transitionTimingFunction: 'var(--ease)' }}
       >
         {body}
       </aside>

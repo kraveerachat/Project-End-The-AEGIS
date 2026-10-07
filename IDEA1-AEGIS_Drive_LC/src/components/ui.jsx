@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useReducedMotion } from '../lib/hooks.js'
 import { apiUrl } from '../lib/api.js'
+import { useIsClassic } from '../lib/interfaceStyleContext.js'
 
 /* ── Card — solid white paper on the gray canvas ─────────────────── */
 export function Card({ children, className = '', style, onClick, interactive = Boolean(onClick) }) {
@@ -20,10 +21,10 @@ export function Card({ children, className = '', style, onClick, interactive = B
 
 export function CardTitle({ children, sub, right }) {
   return (
-    <div className="flex items-start justify-between gap-3 mb-4">
+    <div className="card-title-row flex items-start justify-between gap-3 mb-4">
       <div>
-        <h2 className="text-[16px] font-semibold text-ink leading-snug">{children}</h2>
-        {sub && <p className="text-[12px] font-medium text-ink-3 mt-0.5">{sub}</p>}
+        <h2 className="card-title text-[16px] font-semibold text-ink leading-snug">{children}</h2>
+        {sub && <p className="card-sub text-[12px] font-medium text-ink-3 mt-0.5">{sub}</p>}
       </div>
       {right}
     </div>
@@ -42,7 +43,8 @@ const CHIP_TONES = {
 export function Chip({ tone = 'neutral', children, className = '', mono = false, ...rest }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.02em] whitespace-nowrap ${CHIP_TONES[tone]} ${mono ? 'font-mono' : ''} ${className}`}
+      data-tone={tone}
+      className={`ui-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.02em] whitespace-nowrap ${CHIP_TONES[tone]} ${mono ? 'font-mono' : ''} ${className}`}
       {...rest}
     >
       {children}
@@ -56,8 +58,9 @@ export function Dot({ tone = 'ok', pulse = false, size = 8 }) {
   return (
     <span
       aria-hidden
-      className={`inline-block rounded-full shrink-0 ${pulse ? 'dot-pulse' : ''}`}
-      style={{ width: size, height: size, background: DOT_TONES[tone] }}
+      data-tone={tone}
+      className={`status-dot inline-block rounded-full shrink-0 ${pulse ? 'dot-pulse' : ''}`}
+      style={{ width: size, height: size, backgroundColor: DOT_TONES[tone] }}
     />
   )
 }
@@ -115,8 +118,35 @@ export function SparkleButton({ size = 'lg', className = '', children, ...rest }
   )
 }
 
+const SUN_ICON = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+const MOON_ICON = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+
+/* Classic: สวิตช์ราง + ปุ่มเลื่อน (track/knob) — ปุ่มเลื่อนบอกโหมด "ปัจจุบัน" ด้วยไอคอน
+   และตำแหน่ง ไม่ใช่สีอย่างเดียว
+   ⚠️ accessible name ต้องเหมือน ThemeToggle เดิมทุกตัวอักษร ("Switch to … mode"):
+      เป็นสัญญาธีมที่ Owner ควบคุม (tests/themeAuthTransition.test.js หาปุ่มด้วยชื่อนี้)
+      ชื่อแบบ action จึงไม่ใช้ role="switch"; aria-pressed บอกสถานะมืดแทน */
+function ClassicThemeSwitch({ dark, setTheme, t }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={dark}
+      aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={t?.('themeSwitchAria')}
+      onClick={() => setTheme(dark ? 'light' : 'dark')}
+      className="classic-theme-switch shrink-0 cursor-pointer"
+    >
+      <span className="classic-theme-switch__knob" aria-hidden>
+        {dark ? MOON_ICON : SUN_ICON}
+      </span>
+    </button>
+  )
+}
+
 export function ThemeToggle({ theme, setTheme, t }) {
   const dark = theme === 'dark'
+  const classic = useIsClassic()
+  if (classic) return <ClassicThemeSwitch dark={dark} setTheme={setTheme} t={t} />
   return (
     <button
       type="button"

@@ -22,6 +22,7 @@ import {
   applyAuthenticatedInterfaceStyle,
   clearAuthenticatedInterfaceStyle,
 } from './lib/interfaceStyle.js'
+import { InterfaceStyleContext } from './lib/interfaceStyleContext.js'
 import { Login } from './screens/Login.jsx'
 import { MandatoryPasswordReset } from './screens/MandatoryPasswordReset.jsx'
 
@@ -518,6 +519,7 @@ export default function App() {
   }[activeScreen]
 
   return (
+    <InterfaceStyleContext.Provider value={interfaceStyle}>
     <div className="authenticated-shell h-full flex bg-canvas" data-interface-style={interfaceStyle}>
       <HatchDefs />
       <Sidebar
@@ -533,7 +535,7 @@ export default function App() {
         mobileOpen={mobileNav}
         closeMobile={() => setMobileNav(false)}
       />
-      <div className="flex-1 flex flex-col min-w-0 h-full">
+      <div className="app-main-column flex-1 flex flex-col min-w-0 h-full">
         <TopBar
           t={t}
           lang={lang}
@@ -550,7 +552,7 @@ export default function App() {
         <main
           ref={mainRef}
           onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 4)}
-          className="flex-1 overflow-y-auto"
+          className="app-main-scroll flex-1 overflow-y-auto"
         >
           {/* Files and Vault: the whole main pane is ONE shared marquee surface (it paints the
               rectangle and owns the drag); the screen inside only registers its selection. */}
@@ -561,14 +563,14 @@ export default function App() {
           >
             {/* One composed header: breadcrumb + title on the left, search/actions on the right. */}
             <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${workspaceSurfaceActive ? 'workspace-pane-content pt-7 max-md:pt-5' : ''}`}>
-              <nav aria-label={t('breadcrumb')} className="flex items-center gap-2 text-xs font-mono font-medium tracking-wider text-slate-400 dark:text-slate-500 uppercase select-none">
+              <nav aria-label={t('breadcrumb')} className="page-breadcrumb flex items-center gap-2 text-xs font-mono font-medium tracking-wider text-slate-400 dark:text-slate-500 uppercase select-none">
                 <span>AEGIS</span>
                 <span className="opacity-40">/</span>
-                <span className="font-semibold text-blue-600 dark:text-blue-400">{t(TITLE_KEYS[activeScreen])}</span>
+                <span className="page-breadcrumb-current font-semibold text-blue-600 dark:text-blue-400">{t(TITLE_KEYS[activeScreen])}</span>
               </nav>
 
               <div className="page-header-main flex items-center justify-between gap-5">
-                <h1 className="shrink-0 text-2xl md:text-[28px] font-bold tracking-[-0.025em] text-ink">
+                <h1 className="page-title shrink-0 text-2xl md:text-[28px] font-bold tracking-[-0.025em] text-ink">
                   {t(TITLE_KEYS[activeScreen])}
                 </h1>
 
@@ -604,5 +606,6 @@ export default function App() {
         </main>
       </div>
     </div>
+    </InterfaceStyleContext.Provider>
   )
 }
