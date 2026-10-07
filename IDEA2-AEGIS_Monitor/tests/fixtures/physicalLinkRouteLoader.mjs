@@ -19,10 +19,9 @@ export async function linkStatus() {
 `
 
 const accessSource = `
+import { CameraAccessError } from ${JSON.stringify(new URL('../../server/auth/cameraAccess.js', import.meta.url).href)};
+export { CameraAccessError };
 const fixture = globalThis.__physicalLinkFixture
-export class CameraAccessError extends Error {
-  constructor(status, code) { super(code); this.status = status; this.code = code }
-}
 export function parseLocalNodeAssociationRequirement() { return true }
 export async function resolveLiveCameraActor() {
   if (fixture.actorError) throw new CameraAccessError(fixture.actorError.status, fixture.actorError.code)
@@ -58,12 +57,14 @@ export function createProducerLifecycle() {
       const fixture = globalThis.__physicalLinkFixture;
       if (sessionBinding !== fixture.sessionBinding || access.keyVersion !== 1)
         throw new Error('fixture requires authenticated binding and key version');
-      const handle = { ...access, producerGeneration: '9007199254740993', demandOwnerId: 'redirect-test-demand' };
+      const handle = { ...access, producerGeneration: '9007199254740993', demandOwnerId: Buffer.alloc(32, 5).toString('base64url'),
+        sessionBindingHash: 'v1:' + 'a'.repeat(64), leaseExpiresAtMs: Date.now() + 30000,
+        dbNowMs: Date.now(), dbObservationStartMs: Date.now(), dbObservationEndMs: Date.now() };
       fixture.acquireCalls.push(handle);
       return handle;
     },
     async renew() { throw new Error('short redirect test must not renew'); },
-    async release(handle) { globalThis.__physicalLinkFixture.releaseCalls.push(handle); },
+    async release(handle) { globalThis.__physicalLinkFixture.releaseCalls.push(handle); return { released: true, epochRetired: true }; },
   };
 }
 `

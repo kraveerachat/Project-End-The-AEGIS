@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import { Download, RefreshCw, SearchX, ServerOff } from 'lucide-react'
-import { fmtHM } from '../data.js'
 import { EmptyState } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
 import { getViewState, VIEW_STATE } from '../lib/viewState.js'
@@ -20,6 +19,33 @@ function formatDuration(seconds) {
     : `${minutes}:${String(secs).padStart(2, '0')}`
 }
 
+const THAILAND_TIME_ZONE = 'Asia/Bangkok'
+const thaiDate = new Intl.DateTimeFormat('th-TH-u-ca-buddhist-nu-latn', {
+  timeZone: THAILAND_TIME_ZONE,
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+})
+const thaiTime = new Intl.DateTimeFormat('th-TH-u-nu-latn', {
+  timeZone: THAILAND_TIME_ZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+})
+
+function formatThailandWindow(startMs, durationSeconds) {
+  const start = Number(startMs)
+  const end = start + clipDurationSeconds({ durationSec: durationSeconds }) * 1000
+  const startDate = thaiDate.format(start)
+  const endDate = thaiDate.format(end)
+  const startTime = thaiTime.format(start)
+  const endTime = thaiTime.format(end)
+  return startDate === endDate
+    ? `${startDate} · ${startTime}–${endTime}`
+    : `${startDate} ${startTime} – ${endDate} ${endTime}`
+}
+
 // ⚠️ `cameras` มาจาก GET /api/cameras — ขอบเขตถูกกรองผ่าน camera_assignment
 // "ฝั่งเซิร์ฟเวอร์" แล้ว ตัวกรองกล้องใน UI เป็นความสะดวก ไม่ใช่ control:
 // รายการคลิปถูกจำกัดตามขอบเขตนี้เสมอ ไม่ว่า client จะเลือกอะไร
@@ -37,7 +63,7 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
     let list = allClips.filter((c) => visibleIds.has(c.cam))
     if (arcCam !== 'all' && visibleIds.has(arcCam)) list = list.filter((c) => c.cam === arcCam)
     if (arcResult !== 'all') {
-      list = list.filter((c) => (arcResult === 'auth' ? c.kind === 'auth' : c.kind === 'unknown'))
+      list = list.filter((c) => c.kind === arcResult)
     }
     return list
   }, [allClips, arcCam, arcResult, visibleIds])
@@ -98,7 +124,7 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                   <video
                     className="clipvideo"
                     src={videoUrl}
-                    aria-label={`${cl.cam} recording from ${fmtHM(cl.start)}`}
+                    aria-label={`${cl.cam} recording · ${formatThailandWindow(cl.start, durationSec)}`}
                     controls
                     preload="metadata"
                   />
@@ -110,20 +136,24 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                 <div className="clipbody">
                   <div className="cliprow">
                     <div>
-                      <div className="clipstart mono">{fmtHM(cl.start)} – {fmtHM(cl.start + durationSec * 1000)} · {formatDuration(durationSec)}</div>
-                      <div className="clipcam">{cl.camName ?? cl.cam}</div>
+                      <div className="clipstart mono">{formatThailandWindow(cl.start, durationSec)} · {formatDuration(durationSec)}</div>
+                      <div className="clipcam">
+                        {cl.cam} · {cl.camName ?? cl.cam}{cl.nodeId ? ` · ${cl.nodeId}` : ''}
+                      </div>
                     </div>
-                    <a className="ackbtn" href={downloadUrl} download aria-label={`Download ${cl.cam} clip from ${fmtHM(cl.start)}`}>
+                    <a className="ackbtn" href={downloadUrl} download aria-label={`Download ${cl.cam} clip · ${formatThailandWindow(cl.start, durationSec)}`}>
                       <Download aria-hidden="true" size={13} style={{ marginRight: 6 }} />Download
                     </a>
                   </div>
                   <div className="tags">
-                    {cl.kind === 'auth' ? (
+                    {cl.kind === 'unavailable' ? (
+                      <span className="tag">Detection result unavailable</span>
+                    ) : cl.kind === 'auth' ? (
                       <span className="tag auth">Authorized only</span>
                     ) : (
                       <>
-                        <span className="tag auth">Authorized</span>
-                        <span className="tag unk">Unknown</span>
+                        {cl.hasAuthorized ? <span className="tag auth">Authorized</span> : null}
+                        <span className="tag unk">Unknown present</span>
                       </>
                     )}
                   </div>

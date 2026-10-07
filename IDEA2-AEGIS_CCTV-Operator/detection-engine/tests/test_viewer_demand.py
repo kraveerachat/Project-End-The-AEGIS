@@ -173,6 +173,69 @@ class ViewerDemandTests(unittest.TestCase):
                 (0, 157, 255),
             )
 
+    def test_strict_archive_uses_the_same_aligned_box_renderer_as_live(self):
+        frames = queue.Queue(maxsize=1)
+
+        def fake_rectangle(image, first, _second, color, _thickness):
+            image[first[1], first[0]] = color
+            return image
+
+        with (
+            patch.object(stream_hub_module.cv2, "FONT_HERSHEY_SIMPLEX", 0, create=True),
+            patch.object(stream_hub_module.cv2, "FILLED", -1, create=True),
+            patch.object(stream_hub_module.cv2, "LINE_AA", 16, create=True),
+            patch.object(
+                stream_hub_module.cv2,
+                "rectangle",
+                side_effect=fake_rectangle,
+                create=True,
+            ),
+            patch.object(
+                stream_hub_module.cv2,
+                "getTextSize",
+                return_value=((40, 10), 2),
+                create=True,
+            ),
+            patch.object(
+                stream_hub_module.cv2,
+                "putText",
+                side_effect=lambda image, *_args, **_kwargs: image,
+                create=True,
+            ),
+        ):
+            recorder = SegmentRecorder(
+                EngineConfig(capture_on_demand=True),
+                MetricsRegistry(),
+                frames,
+                on_segment=lambda _info: None,
+                recording_authority=object(),
+            )
+            source = np.zeros((120, 160, 3), dtype=np.uint8)
+            frame = Frame(seq=11, image=source, captured_at=123.0)
+            result = DetectionResult(
+                camera_id="CAM-01",
+                frame_seq=11,
+                entities=[
+                    DetectedEntity(
+                        status=DetectionStatus.UNKNOWN,
+                        confidence=91.0,
+                        bbox=(30, 20, 60, 70),
+                    )
+                ],
+                processing_ms=4.0,
+            )
+
+            self.assertTrue(recorder.submit_detection(result, frame))
+            annotated = frames.get_nowait()
+
+            self.assertEqual(annotated.seq, frame.seq)
+            self.assertIsNot(annotated.image, source)
+            self.assertFalse(source.any(), "Archive rendering mutated the raw inference frame")
+            self.assertTupleEqual(
+                tuple(int(v) for v in annotated.image[20, 30]),
+                (0, 157, 255),
+            )
+
     def test_stream_does_not_annotate_without_a_viewer(self):
         frames = queue.Queue(maxsize=1)
         with patch.object(
@@ -360,6 +423,307 @@ class ViewerDemandTests(unittest.TestCase):
             delta=0.1,
         )
 
+    def test_camera_property_hint_exception_is_fail_soft(self):
+        metrics = MetricsRegistry()
+        catcher = VideoCatcher(
+            EngineConfig(
+                capture_on_demand=True,
+                detection_engine_api_key="key",
+            ),
+            metrics,
+            sinks=[],
+            capture_demand_event=threading.Event(),
+        )
+
+        class HintFailingCapture:
+            def __init__(self):
+                self.released = False
+
+            def isOpened(self):
+                return True
+
+            def set(self, prop, _value):
+                if prop == video_catcher_module.cv2.CAP_PROP_FPS:
+                    raise RuntimeError("simulated OpenCV property failure")
+                return True
+
+            def release(self):
+                self.released = True
+
+        cap = HintFailingCapture()
+
+        with (
+            patch.object(
+                video_catcher_module.cv2,
+                "VideoCapture",
+                return_value=cap,
+            ),
+            patch.object(
+                video_catcher_module.cv2,
+                "CAP_PROP_FRAME_WIDTH",
+                3,
+                create=True,
+            ),
+            patch.object(
+                video_catcher_module.cv2,
+                "CAP_PROP_FRAME_HEIGHT",
+                4,
+                create=True,
+            ),
+            patch.object(
+                video_catcher_module.cv2,
+                "CAP_PROP_FPS",
+                5,
+                create=True,
+            ),
+            patch.object(
+                video_catcher_module.cv2,
+                "CAP_PROP_BUFFERSIZE",
+                38,
+                create=True,
+            ),
+        ):
+            self.assertTrue(catcher._open_camera())
+
+        self.assertIs(catcher._cap, cap)
+        self.assertFalse(cap.released)
+
+    def test_open_exception_retries_without_killing_capture_worker(self):
+        demand = threading.Event()
+        demand.set()
+        stop = threading.Event()
+        metrics = MetricsRegistry()
+
+        catcher = VideoCatcher(
+            EngineConfig(
+                capture_on_demand=True,
+                detection_engine_api_key="key",
+                capture_reconnect_delay_s=0.01,
+                capture_max_reconnect_delay_s=0.02,
+            ),
+            metrics,
+            sinks=[],
+            stop_event=stop,
+            capture_demand_event=demand,
+        )
+
+        recovered = threading.Event()
+        attempts = {"count": 0}
+
+        def open_camera():
+            attempts["count"] += 1
+
+            if attempts["count"] == 1:
+                raise RuntimeError("simulated OpenCV open exception")
+
+            cap = FakeCapture()
+            catcher._cap = cap
+            recovered.set()
+            return True
+
+        catcher._open_camera = open_camera
+        catcher.start()
+
+        self.assertTrue(
+            recovered.wait(1.5),
+            "capture worker did not retry after open exception",
+        )
+        self.assertTrue(catcher.is_alive())
+        self.assertGreaterEqual(attempts["count"], 2)
+
+        demand.clear()
+        stop.set()
+        catcher.join(1.0)
+
+        self.assertFalse(catcher.is_alive())
+
+    def test_read_exception_reconnects_without_killing_capture_worker(self):
+        demand = threading.Event()
+        demand.set()
+        stop = threading.Event()
+        metrics = MetricsRegistry()
+
+        catcher = VideoCatcher(
+            EngineConfig(
+                capture_on_demand=True,
+                detection_engine_api_key="key",
+                capture_reconnect_delay_s=0.01,
+                capture_max_reconnect_delay_s=0.02,
+            ),
+            metrics,
+            sinks=[],
+            stop_event=stop,
+            capture_demand_event=demand,
+        )
+
+        second_open = threading.Event()
+        opens = {"count": 0}
+
+        class FailingReadCapture(FakeCapture):
+            def read(self):
+                raise RuntimeError("simulated OpenCV read exception")
+
+        def open_camera():
+            opens["count"] += 1
+
+            if opens["count"] == 1:
+                catcher._cap = FailingReadCapture()
+            else:
+                catcher._cap = FakeCapture()
+                second_open.set()
+
+            return True
+
+        catcher._open_camera = open_camera
+        catcher.start()
+
+        self.assertTrue(
+            second_open.wait(1.5),
+            "capture worker did not reconnect after read exception",
+        )
+        self.assertTrue(catcher.is_alive())
+        self.assertGreaterEqual(opens["count"], 2)
+
+        demand.clear()
+        stop.set()
+        catcher.join(1.0)
+
+        self.assertFalse(catcher.is_alive())
+
+    def test_blocked_read_requests_engine_shutdown_for_supervisor_recovery(self):
+        demand = threading.Event()
+        demand.set()
+        stop = threading.Event()
+        metrics = MetricsRegistry()
+        blocked = threading.Event()
+        release_read = threading.Event()
+
+        catcher = VideoCatcher(
+            EngineConfig(
+                capture_on_demand=True,
+                detection_engine_api_key="key",
+                stream_first_frame_timeout_s=2,
+                stream_idle_timeout_s=1,
+            ),
+            metrics,
+            sinks=[],
+            stop_event=stop,
+            capture_demand_event=demand,
+        )
+
+        class BlockingAfterFirstCapture(FakeCapture):
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+
+            def read(self):
+                self.calls += 1
+                if self.calls == 1:
+                    return True, object()
+
+                blocked.set()
+                release_read.wait(3.0)
+                return False, None
+
+        cap = BlockingAfterFirstCapture()
+
+        def open_camera():
+            catcher._cap = cap
+            return True
+
+        catcher._open_camera = open_camera
+        catcher.start()
+
+        try:
+            self.assertTrue(
+                blocked.wait(1.0),
+                "capture worker never entered the simulated blocked read",
+            )
+            self.assertTrue(
+                stop.wait(2.5),
+                "blocked native read did not request Engine supervisor recovery",
+            )
+            self.assertFalse(metrics.snapshot()["camera_connected"])
+        finally:
+            release_read.set()
+            demand.clear()
+            stop.set()
+            catcher.join(2.0)
+
+        self.assertFalse(catcher.is_alive())
+
+    def test_watchdog_ignores_stale_completed_read_snapshot(self):
+        stop = threading.Event()
+        metrics = MetricsRegistry()
+
+        catcher = VideoCatcher(
+            EngineConfig(
+                capture_on_demand=True,
+                detection_engine_api_key="key",
+                stream_first_frame_timeout_s=2,
+                stream_idle_timeout_s=1,
+            ),
+            metrics,
+            sinks=[],
+            stop_event=stop,
+            capture_demand_event=threading.Event(),
+        )
+
+        sampled = threading.Event()
+        continue_clock = threading.Event()
+
+        with catcher._read_state_lock:
+            catcher._read_started_at = 10.0
+            catcher._read_has_frame_since_open = True
+
+        def fake_monotonic():
+            if threading.current_thread().name == "RaceWatchdog":
+                sampled.set()
+                continue_clock.wait(1.0)
+                return 11.5
+            return 11.4
+
+        watchdog = threading.Thread(
+            target=catcher._read_watchdog_loop,
+            name="RaceWatchdog",
+            daemon=True,
+        )
+
+        with patch.object(
+            video_catcher_module.time,
+            "monotonic",
+            side_effect=fake_monotonic,
+        ):
+            watchdog.start()
+
+            try:
+                self.assertTrue(
+                    sampled.wait(1.0),
+                    "watchdog did not snapshot the simulated old read",
+                )
+
+                # Complete the sampled read and begin a newer one before the
+                # watchdog performs its timeout escalation.
+                with catcher._read_state_lock:
+                    catcher._read_started_at = 11.4
+                    catcher._read_generation = (
+                        getattr(catcher, "_read_generation", 0) + 1
+                    )
+                    catcher._read_has_frame_since_open = True
+
+                continue_clock.set()
+                time.sleep(0.35)
+
+                self.assertFalse(
+                    stop.is_set(),
+                    "stale read snapshot incorrectly stopped the Engine",
+                )
+            finally:
+                catcher._read_watchdog_stop.set()
+                continue_clock.set()
+                watchdog.join(1.0)
+
+        self.assertFalse(watchdog.is_alive())
     def test_camera_opens_only_while_viewer_demand_exists(self):
         demand = threading.Event()
         stop = threading.Event()

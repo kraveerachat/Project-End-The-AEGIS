@@ -6,9 +6,6 @@ import pg from 'pg'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { createInternalRouter } from '../server/routes/internal.js'
-import * as store from '../server/db/store.js'
-
 const monitorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 test('all four ingest handlers pass server-derived authentication context to storage', async () => {
@@ -16,7 +13,6 @@ test('all four ingest handlers pass server-derived authentication context to sto
   for (const method of ['recordHeartbeat', 'insertDetection', 'insertAlert', 'insertClip']) {
     assert.match(source, new RegExp(`storeAdapter\\.${method}\\(req\\.body \\?\\? \\{\\}, req\\.ingestAuth\\)`))
   }
-  assert.equal(typeof createInternalRouter, 'function')
 })
 
 test('trusted stores use verified physical provenance and legacy calls remain nullable', () => {
@@ -39,10 +35,28 @@ test('real PostgreSQL writes physical provenance only from verified Agent contex
   const legacyFrameId = `legacy-${suffix}`
   const title = `alert-${suffix}`
   const filePath = `/verified/${suffix}.mp4`
+  const schema = `aegis_ingest_${suffix}`
+  assert.equal(process.env.DATABASE_URL, process.env.AEGIS_MONITOR_TEST_DATABASE_URL,
+    'store and fixture must use the same explicit disposable database')
+  const target = new URL(process.env.AEGIS_MONITOR_TEST_DATABASE_URL)
+  assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(target.hostname))
+  assert.match(target.pathname, /(?:test|disposable)/i)
   const client = new pg.Client({ connectionString: process.env.AEGIS_MONITOR_TEST_DATABASE_URL })
   await client.connect()
   let physicalCameraId = null
+  let connection
   try {
+    await client.query(`CREATE SCHEMA "${schema}"`)
+    await client.query(`SET search_path TO "${schema}"`)
+    await client.query(fs.readFileSync(path.join(monitorRoot, 'server/db/schema.sql'), 'utf8'))
+    await client.query(`INSERT INTO users (id, username, password_hash, display_name) VALUES (1, 'operator', 'test-only', 'Operator');
+      INSERT INTO cameras (id, name, zone) VALUES ('CAM-01', 'One', 'lab');
+      INSERT INTO camera_assignment (camera_id, user_id) VALUES ('CAM-01', 1);`)
+    target.searchParams.set('options', `-c search_path=${schema} -c statement_timeout=8000`)
+    process.env.DATABASE_URL = target.toString()
+    const store = await import('../server/db/store.js')
+    connection = await import('../server/db/connection.js')
+    const { createProducerLifecycle } = await import('../server/db/producerLifecycle.js')
     await client.query(
       `INSERT INTO detection_nodes
          (node_id, camera_id, public_key, public_key_fingerprint, key_version, ingest_auth_mode, active)
@@ -54,6 +68,10 @@ test('real PostgreSQL writes physical provenance only from verified Agent contex
       [nodeId],
     )
     physicalCameraId = Number(inserted.rows[0].physical_camera_id)
+    await client.query("INSERT INTO node_camera_alias_policy (node_id, mode, fixed_camera_id) VALUES ($1, 'fixed', 'CAM-01')", [nodeId])
+    const lifecycle = createProducerLifecycle({ secret: 'ingest-test-session-secret-32-bytes!!!' })
+    const handle = await lifecycle.acquire({ access: { userId: 1, nodeId, physicalCameraId, logicalCameraId: 'CAM-01', keyVersion: 1 },
+      sessionBinding: Buffer.alloc(32, 17).toString('base64url') })
     const auth = {
       kind: 'ed25519',
       verifiedNode: { nodeId, keyVersion: 1, physicalCameraId, agentSessionId: 'not-persisted' },
@@ -65,15 +83,20 @@ test('real PostgreSQL writes physical provenance only from verified Agent contex
     }, auth)
     await store.insertDetection({
       cameraId: 'CAM-01', frameId, physicalCameraId: 999,
+      producerGeneration: handle.producerGeneration,
       entities: [{ status: 'Unknown', confidence: 88 }],
     }, auth)
     await store.insertAlert({
       cameraId: 'CAM-01', title, severity: 'amber', physicalCameraId: 999,
+      producerGeneration: handle.producerGeneration,
     }, auth)
-    await store.insertClip({
-      cameraId: 'CAM-01', filePath, startedAt: new Date().toISOString(),
+    const now = Date.now()
+    const clipResult = await store.insertClip({
+      cameraId: 'CAM-01', filePath,
       durationSec: 1, storedOnNas: true, physicalCameraId: 999,
+      producerGeneration: handle.producerGeneration, startedAt: new Date(now - 1000).toISOString(), endedAt: new Date(now).toISOString(),
     }, auth)
+    assert.ok(clipResult.id)
     await store.insertDetection({
       cameraId: 'CAM-01', frameId: legacyFrameId, physicalCameraId,
       entities: [{ status: 'Unknown', confidence: 50 }],
@@ -87,24 +110,24 @@ test('real PostgreSQL writes physical provenance only from verified Agent contex
     const evidence = await client.query(
       `SELECT
          (SELECT physical_camera_id FROM detections WHERE frame_id = $1 LIMIT 1) AS detection_physical,
+         (SELECT producer_generation::text FROM detections WHERE frame_id = $1 LIMIT 1) AS detection_generation,
          (SELECT physical_camera_id FROM alerts WHERE title = $2 LIMIT 1) AS alert_physical,
+         (SELECT producer_generation::text FROM alerts WHERE title = $2 LIMIT 1) AS alert_generation,
          (SELECT physical_camera_id FROM clips WHERE file_path = $3 LIMIT 1) AS clip_physical,
          (SELECT physical_camera_id FROM detections WHERE frame_id = $4 LIMIT 1) AS legacy_physical`,
       [frameId, title, filePath, legacyFrameId],
     )
     assert.equal(Number(evidence.rows[0].detection_physical), physicalCameraId)
+    assert.equal(evidence.rows[0].detection_generation, handle.producerGeneration)
     assert.equal(Number(evidence.rows[0].alert_physical), physicalCameraId)
+    assert.equal(evidence.rows[0].alert_generation, handle.producerGeneration)
     assert.equal(Number(evidence.rows[0].clip_physical), physicalCameraId)
+    assert.equal((await client.query('SELECT producer_generation::text FROM clips WHERE file_path = $1', [filePath])).rows[0].producer_generation, handle.producerGeneration)
     assert.equal(evidence.rows[0].legacy_physical, null)
   } finally {
-    await client.query('DELETE FROM detections WHERE frame_id = ANY($1)', [[frameId, legacyFrameId]])
-    await client.query('DELETE FROM alerts WHERE title = $1', [title])
-    await client.query('DELETE FROM clips WHERE file_path = $1', [filePath])
-    if (physicalCameraId) {
-      await client.query('DELETE FROM physical_camera_heartbeat WHERE physical_camera_id = $1', [physicalCameraId])
-    }
-    await client.query('DELETE FROM physical_cameras WHERE node_id = $1', [nodeId])
-    await client.query('DELETE FROM detection_nodes WHERE node_id = $1', [nodeId])
+    if (connection) await connection.closePool()
+    await client.query('SET search_path TO public')
+    await client.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
     await client.end()
   }
 })

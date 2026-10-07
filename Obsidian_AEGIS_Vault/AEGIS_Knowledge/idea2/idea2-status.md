@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-05
+updated: 2026-10-07
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -15,6 +15,151 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## PR #370 SOC passive Live post-merge reconciliation — 2026-10-07
+
+PR #370, `feat(idea2): add SOC passive live viewer`, is MERGED into
+`feat/idea2-multi-node-camera-provisioning` at merge commit
+`2cdf03a2cb05816f0a371cace33fbf446c21767e`. The merged source head was
+`c67d1633a8dee6180b728973298c9269be997544`; PR #348 now carries that merge.
+
+The implementation is Monitor-owned passive observation. SOC can attach only
+to an already-active Operator source; SOC does not open an independent
+Detection Engine stream and does not create, renew, or release producer demand.
+Opaque active-view IDs distinguish same-alias sources across Nodes, and
+view-scoped detection projection prevents a selected physical source from being
+paired with detections from another Node.
+
+Merged-source verification recorded before publication:
+- Monitor: 223 pass / 109 environment-conditional skips / 0 fail.
+- Browser Playwright final gate: 34/34 PASS.
+- Isolated camera-selector stability: 10/10 PASS.
+- Targeted Engine regression: 76 PASS with no Engine source change.
+- Repository governance: 59 PASS.
+- Real disposable PostgreSQL passive-route lifecycle: PASS; SOC attachment did
+  not increase producer epochs/demands, and final Operator release returned
+  both active counts to zero.
+- Vite production build and diff checks: PASS.
+
+The final PR #370 Ready/merge transition occurred without the required
+current-task Obsidian receipt, so its final Collaboration guardrails run
+correctly recorded a missing-receipt failure. This post-merge reconciliation is
+a new documentation task; it does not rewrite the merged PR or its historical
+CI result.
+
+SOC passive Live is therefore MERGED/SOURCE-VERIFIED but NOT YET
+PRODUCTION-ACCEPTED. Production deployment and Machine A acceptance require a
+separate authorization. Multi-node Archive authorization hardening remains a
+separate prerequisite before Friend Machine / Node 2 rollout.
+
+No Production runtime, Production database, Detection Engine source, Identity
+Agent, Twingate, firewall, Machine A installed runtime, or Friend Machine is
+mutated by this reconciliation.
+## PR #348 event-attribution source closeout checkpoint — 2026-10-06
+
+Branch `feat/idea2-multi-node-camera-provisioning` is at source checkpoint
+`49c9e1a27179cc2367cd8574fef8f79f2c3a94df`, stacked on PR #344 base
+`37d02b6f8bb5b92c6eef17e04416d8c0ae6ad416`, which contains authoritative
+main `1128e5253d72171bc04e9c48d50a05d044390476`. The stack was synchronized
+with normal merge commits only; no rebase or force-push was used.
+
+The CAM-02 detection/alert attribution defect discovered during Machine A
+operator2 acceptance is repaired in source. In strict capture-on-demand mode,
+new security events derive logical camera identity from currently live,
+authenticated recording-authority contexts rather than static
+`AEGIS_CAMERA_ID`. One physical frame can fan out deterministically to
+concurrent authorized logical aliases. Releasing one alias removes only that
+alias from new event authority while another active alias survives. A frame
+captured before release but processed after release cannot create a new event
+for the released authority. Retired generations cannot publish new events.
+
+`producer_generation` now propagates through DetectionResult, Engine,
+MonitorClient, Identity Agent pipe transport, Monitor detection persistence,
+and Monitor alert persistence. Monitor validates strict live event attribution
+transactionally against verified Node/physical-camera provenance, exact live
+producer generation, and exact live demand alias/viewer authority. Legacy
+ingest without generation retains the bounded compatibility path; legacy
+ingest cannot supply a generation to impersonate strict attribution.
+
+Strict alert payloads no longer reuse the static physical-camera label for a
+different authenticated logical alias. For an attributed CAM-02 event the
+payload camera id and label are CAM-02; legacy non-strict events retain the
+configured descriptive camera label. This closes the source-side condition
+that previously allowed a CAM-02 session to produce a CAM-01 Telegram caption.
+
+Post-sync source verification at the checkpoint:
+- Detection Engine full suite: 382 tests, 0 failures, 7 conditional native
+  pywin32 skips.
+- Monitor full non-database suite: 312 tests total, 204 pass, 108 conditional
+  PostgreSQL skips, 0 failures.
+- Browser acceptance: 32/32 PASS after restoring the Playwright Chromium
+  binary required by the existing package version; no repository dependency
+  version was changed.
+- Monitor Vite production build: PASS.
+- Repository governance: 61/61 PASS.
+- Vault validation: PASS with the same two pre-existing owner-canvas warnings.
+- Stacked diff check: PASS.
+- Added-content secret review: PASS; six matches were reviewed placeholders,
+  test-only `test-key` values, an empty environment template assignment, or
+  explicit disposable-database documentation. No real secret material was
+  found.
+- Earlier focused real disposable PostgreSQL gates remain PASS:
+  event attribution 1/1, Agent ingest provenance 3/3, producer lifecycle 50/50,
+  and clip attribution 48/48. The database-enabled all-files Node runner
+  previously stalled with an idle client/open-handle condition and no observed
+  database lock blocker; that whole-suite mode is not claimed green.
+
+The server-side event claim is intentionally bounded to live demand at event
+publication. Historical per-frame event authorization is not claimed.
+Recording authority remains separate and may preserve an authorized queued
+pre-release recording tail.
+
+Machine A previously proved operator2 -> CAM-02 Live/recording/archive
+attribution before this event fix, but that run exposed the legacy CAM-01
+detection/alert identity defect. Therefore the new event/Telegram correction
+is SOURCE-VERIFIED but NOT YET LIVE-PRODUCTION-ACCEPTED. A fresh authorized
+Production rollout and Machine A CAM-02 detection/alert acceptance are still
+required before closing that claim.
+
+PR #348 remains Draft. No final immutable receipt exists. No Production
+database, Production container, Machine A runtime, Twingate, IDEA1, IDEA3,
+or remote NAS was mutated by this source-closeout checkpoint. The Production
+Monitor/Engine installed state is not claimed to contain this new source fix.
+
+
+## PR #348 source checkpoint — alias-scoped recording attribution (2026-10-06)
+
+Draft PR #348 remains stacked on unchanged Draft PR #344. Source implementation and local verification cover one physical producer generation serving concurrent CAM-01/CAM-02 demands, independently finalized 300-second/partial alias recordings, verified-transfer-before-publication, and PostgreSQL historical clip association. Queued frames captured before final viewer release are drained against the recorded authority interval, including rotation backlog; re-entry cannot append across an idle gap. Detection rows do not yet carry authenticated viewer alias/generation, so new attributed Archive clips show a neutral “Detection result unavailable” result and are excluded from Authorized/Unknown filters. Legacy clip classification, playback, download and server-side RBAC are unchanged. The Monitor-issued demand grant and exact generation remain server-authoritative; static `AEGIS_CAMERA_ID` cannot override attributed recording. An Identity Agent pipe-protocol extension carries authenticated alias/generation metadata, and clip HTTP publication now rejects redirects instead of treating a redirected login response as acknowledgement. No Agent key or installed service was changed.
+
+The relational evidence is bounded: `HISTORICAL_DEMAND_ASSOCIATION=PROVEN`; `PHYSICAL_PROVENANCE=PROVEN`; `PER_FRAME_HISTORICAL_AUTHORIZATION=NOT_CLAIMED`. Released historical demand may support delayed publication of a pre-release clip after later assignment revocation; it does not authorize new capture. Final local source verification: Engine 362/362, neutral Monitor 197 pass / 107 conditional skip / 0 fail (with the verified Python 3.12 path for its cross-language test), browser 32/32, disposable PostgreSQL clip/ingest 54/54, root governance 74/74, and Vault validation passed with two pre-existing owner-canvas warnings. Independent source re-review found no remaining Critical/Important issue. These are source and fixture results, not Machine A dual-alias or Production acceptance. PR #348 remains Draft; Machine A operator2→CAM-02 live acceptance, Production deployment, and final receipt remain pending. No Production or installed Machine A/B/C runtime mutation was performed by this source checkpoint.
+
+## Current task — Multi-node camera provisioning (2026-10-05)
+
+Branch: feat/idea2-multi-node-camera-provisioning; owner: Pub; starting main: 912b18005bb2fc80bb4e8d1fe8aa88803ac27314.
+
+Current state: IN PROGRESS — REPOSITORY / LOCAL PREPARATION ONLY. Production mutation allowed: NO.
+
+Authority model:
+- Machine A: operator + CAM-01 and operator2 + CAM-02 resolve to Physical Camera A.
+- Machine B: the same aliases resolve to Physical Camera B.
+- Machine C: the same aliases resolve to Physical Camera C.
+
+Each machine requires its own unique Node identity, server-generated physical-camera identity, protected Agent identity, SSH identity, reverse-forward allocation, and local camera-device selection. Logical aliases CAM-01 and CAM-02 are intentionally reusable per Node.
+
+Machine A may prepare repository scripts, templates, preflight checks, runbooks, and acceptance collectors only. Machine B/C private identity, SSH private key, camera device, and protected Agent identity must be generated or discovered on the target machine itself. No Twingate change, PR2 mutation, or Production registration is authorized during preparation.
+
+| ID | Scope | State | Next |
+|---|---|---|---|
+| MN-P0 | isolated task/worktree + authority model | PASS | checkpoint session note |
+| MN-P1 | target-machine read-only preflight | PASS — SOURCE + MACHINE A SMOKE | run unchanged preflight on Machine B/C before any provisioning |
+MN-P1 evidence: Windows PowerShell read-only target preflight added with 4/4 static regression tests PASS. Machine A real smoke PASS confirmed Windows/hardware, Python 3.12/3.14 x64, FFmpeg/libx264, camera metadata, OpenSSH, local port ownership, and existing AEGIS runtime ownership. The smoke reported SERVERCONTACT=NO, PRODUCTIONMUTATION=NO, TWINGATEMUTATION=NO, CAMERAOPEN=NO, CONFIGWRITE=NO, and PRIVATEKEYREAD=NO. This does not claim Machine B/C hardware acceptance; the same preflight must still run on each target machine before provisioning.
+
+| MN-P2 | target-machine provisioning runbook | PASS ? SOURCE/RUNBOOK READY | target Machine B/C preflight + local provisioning + separately authorized server registration remain pending |
+MN-P2 evidence: Windows multi-node provisioning source package is prepared and statically verified with 6/6 tests PASS. The runbook preserves one unique Node identity, one server-generated physical-camera identity, one target-local Agent identity, one target-local SSH identity, one unique reverse-forward allocation, and reusable per-Node logical aliases `operator -> CAM-01` / `operator2 -> CAM-02`. Templates contain no real private key, Production credential, Machine A identity, or fixed server IP. The Engine override template no longer hardcodes CAM-01/CAM-02 and explicitly records the current limitation that `AEGIS_CAMERA_ID` is one static event-time logical alias per Engine process. Therefore Live account alias authority may be source-ready while detection/clip/alert account-specific attribution still requires explicit review and live acceptance. No Machine B/C provisioning, server registration, Production mutation, or Twingate change is claimed.
+
+| MN-P3 | multi-node live acceptance | PREPARATION PASS ? LIVE PENDING | acceptance collector/verifier/checklist ready; execute on Machine B/C real hardware after provisioning |
+
+
+MN-P3 evidence: multi-node acceptance preparation is source-complete. A local Windows collector, bundle verifier, and acceptance checklist were added and statically verified with 5/5 tests PASS; the PowerShell collector parses with zero errors and its source contains no sensitive-runtime read markers. The collector is intentionally bounded to local lifecycle metadata and `127.0.0.1:8077/health`; it does not open the camera, read private keys/configuration, contact Production, mutate Twingate, or perform server registration. This preparation does not prove Machine B/C hardware acceptance, account alias routing, cross-node physical-camera isolation, event alias attribution, reboot lifecycle, or Production acceptance. Those claims remain PENDING until target hardware execution.
 ## Current task — PR2 Recording / Archive 5-minute clips + NAS playback/download (2026-10-05)
 
 Task: PR2 Recording / Archive. Branch:

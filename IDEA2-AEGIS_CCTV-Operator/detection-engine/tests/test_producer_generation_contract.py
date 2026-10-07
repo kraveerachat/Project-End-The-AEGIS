@@ -15,9 +15,11 @@ import threading
 class RecordingStreamHub:
     def __init__(self):
         self.viewer_generations = []
+        self.viewer_aliases = []
 
-    def add_viewer(self, *, producer_generation):
+    def add_viewer(self, *, producer_generation, logical_camera_id=None):
         self.viewer_generations.append(producer_generation)
+        self.viewer_aliases.append(logical_camera_id)
         return "viewer-owner", 1
 
     def prepare_producer_generation(self, _producer_generation):
@@ -37,6 +39,12 @@ class RecordingStreamHub:
 
 
 class ProducerGenerationContractTests(unittest.TestCase):
+    @staticmethod
+    def grant_header(hub, generation, alias="CAM-01"):
+        from test_producer_demand_coordination import _grant
+        return (b"x-aegis-demand-grant", _grant(owner="contract", generation=generation,
+                alias=alias, boot_id=hub.producer_boot_id))
+
     def endpoint(self, stream_hub=None, *, capture_on_demand=True):
         api = LocalEventAPI(
             EngineConfig(
@@ -93,6 +101,7 @@ class ProducerGenerationContractTests(unittest.TestCase):
                     (b"x-detection-engine-key", b"test-key"),
                     (b"x-aegis-producer-generation", b"21"),
                     (b"x-aegis-producer-generation", b"22"),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
                 )
             )
             return missing, duplicate
@@ -128,12 +137,13 @@ class ProducerGenerationContractTests(unittest.TestCase):
                 ),
                 timeout=1.0,
             )
-            return response.status_code, stream_hub.viewer_generations
+            return response.status_code, stream_hub.viewer_generations, stream_hub.viewer_aliases
 
-        status, generations = asyncio.run(exercise())
+        status, generations, aliases = asyncio.run(exercise())
 
         self.assertEqual(status, 200)
         self.assertEqual(generations, [None])
+        self.assertEqual(aliases, [None])
 
     def test_authenticated_stream_rejects_noncanonical_or_out_of_range_generation(self):
         invalid_values = (
@@ -156,6 +166,7 @@ class ProducerGenerationContractTests(unittest.TestCase):
                 self.request(
                     (b"x-detection-engine-key", b"test-key"),
                     (b"x-aegis-producer-generation", value),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
                 )
             )
 
@@ -195,7 +206,8 @@ class ProducerGenerationContractTests(unittest.TestCase):
 
     def test_max_postgresql_bigint_generation_reaches_viewer_lease_exactly(self):
         async def exercise():
-            stream_hub = RecordingStreamHub()
+            stream_hub = StreamHub(EngineConfig(), queue.Queue(maxsize=1),
+                                   capture_demand_event=threading.Event())
             response = await self.endpoint(stream_hub)(
                 self.request(
                     (b"x-detection-engine-key", b"test-key"),
@@ -203,31 +215,30 @@ class ProducerGenerationContractTests(unittest.TestCase):
                         b"x-aegis-producer-generation",
                         b"9223372036854775807",
                     ),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
+                    self.grant_header(stream_hub, 9223372036854775807),
                 )
             )
-            receive_queue = asyncio.Queue()
-            await receive_queue.put(
-                {"type": "http.request", "body": b"", "more_body": False}
-            )
+            pending = asyncio.create_task(anext(response.body_iterator))
+            for _ in range(100):
+                if stream_hub.viewers: break
+                await asyncio.sleep(.002)
+            with stream_hub._cond:
+                stream_hub._seq += 1
+                stream_hub._jpeg = b"test-jpeg"
+                stream_hub._cond.notify_all()
+            self.assertIn(b"test-jpeg", await asyncio.wait_for(pending, .5))
+            generation = stream_hub._current_producer_generation
+            aliases = list(stream_hub._viewer_aliases.values())
+            await response.body_iterator.aclose()
+            stream_hub.stop()
+            return response.status_code, [generation], aliases
 
-            async def send(message):
-                if message["type"] == "http.response.body" and message.get("body"):
-                    await receive_queue.put({"type": "http.disconnect"})
-
-            await asyncio.wait_for(
-                response(
-                    {"type": "http", "asgi": {"spec_version": "2.4"}},
-                    receive_queue.get,
-                    send,
-                ),
-                timeout=1.0,
-            )
-            return response.status_code, stream_hub.viewer_generations
-
-        status, generations = asyncio.run(exercise())
+        status, generations, aliases = asyncio.run(exercise())
 
         self.assertEqual(status, 200)
         self.assertEqual(generations, [9223372036854775807])
+        self.assertEqual(aliases, ["CAM-01"])
 
     def test_stale_generation_is_rejected_before_stream_response_or_new_demand(self):
         hub = StreamHub(
@@ -242,6 +253,8 @@ class ProducerGenerationContractTests(unittest.TestCase):
                 self.request(
                     (b"x-detection-engine-key", b"test-key"),
                     (b"x-aegis-producer-generation", b"21"),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
+                    self.grant_header(hub, 21),
                 )
             )
         )
@@ -264,6 +277,8 @@ class ProducerGenerationContractTests(unittest.TestCase):
                 self.request(
                     (b"x-detection-engine-key", b"test-key"),
                     (b"x-aegis-producer-generation", b"21"),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
+                    self.grant_header(hub, 21),
                 )
             )
 
@@ -293,6 +308,8 @@ class ProducerGenerationContractTests(unittest.TestCase):
                 self.request(
                     (b"x-detection-engine-key", b"test-key"),
                     (b"x-aegis-producer-generation", b"21"),
+                    (b"x-aegis-logical-camera-id", b"CAM-01"),
+                    self.grant_header(hub, 21),
                 )
             )
             first_old_chunk = asyncio.create_task(anext(response.body_iterator))

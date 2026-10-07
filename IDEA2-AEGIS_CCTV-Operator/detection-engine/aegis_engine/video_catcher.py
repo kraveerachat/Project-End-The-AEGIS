@@ -11,8 +11,10 @@ Fan-out and back-pressure
 Each downstream consumer gets its own :class:`~queue.Queue` "sink" with an
 explicit overflow policy:
 
-* ``DROP_OLDEST`` — recorder: keep the stream flowing; if the writer briefly
-  falls behind, drop the oldest frame rather than growing memory unbounded.
+* ``DROP_OLDEST`` — legacy always-on recorder: keep the stream flowing; if
+  the writer briefly falls behind, drop the oldest raw frame rather than growing
+  memory unbounded. Strict viewer-demand Archive recording is fed later from the
+  detector-render path so stored footage can match Live annotations.
 * ``LATEST_ONLY`` — detector: only ever hold the *freshest* frame (queue size
   1). Inference on a stale frame is worthless for a live security feed, so we
   overwrite instead of backing up.
@@ -82,10 +84,98 @@ class VideoCatcher(threading.Thread):
         self._capture_demand_event = capture_demand_event
         self._cap: "Optional[cv2.VideoCapture]" = None
         self._seq = 0
+        self._read_state_lock = threading.Lock()
+        self._read_started_at: Optional[float] = None
+        self._read_generation = 0
+        self._read_has_frame_since_open = False
+        self._read_watchdog_stop = threading.Event()
 
     # -- public API --------------------------------------------------------
     def stop(self) -> None:
         self._stop_event.set()
+
+    def _reset_read_state_for_open(self) -> None:
+        with self._read_state_lock:
+            self._read_started_at = None
+            self._read_generation += 1
+            self._read_has_frame_since_open = False
+
+    def _begin_read(self) -> None:
+        with self._read_state_lock:
+            self._read_generation += 1
+            self._read_started_at = time.monotonic()
+
+    def _finish_read(self, delivered: bool) -> None:
+        with self._read_state_lock:
+            self._read_started_at = None
+            if delivered:
+                self._read_has_frame_since_open = True
+
+    def _read_watchdog_loop(self) -> None:
+        """Fail the process closed when native VideoCapture.read() never returns.
+
+        Python cannot safely cancel a C/C++ camera read that is blocked inside
+        an OpenCV backend. The Engine supervisor already owns process recovery,
+        so a bounded stall requests normal Engine shutdown instead of leaking a
+        wedged camera handle or pretending the camera remains connected.
+        """
+        while not self._stop_event.is_set():
+            if self._read_watchdog_stop.wait(0.25):
+                return
+
+            with self._read_state_lock:
+                started_at = self._read_started_at
+                generation = self._read_generation
+                has_frame = self._read_has_frame_since_open
+
+            if started_at is None:
+                continue
+
+            limit = float(
+                self._cfg.stream_idle_timeout_s
+                if has_frame
+                else self._cfg.stream_first_frame_timeout_s
+            )
+            limit = max(1.0, limit)
+            elapsed = time.monotonic() - started_at
+
+            if elapsed < limit:
+                continue
+
+            # The native read may have completed after our snapshot and the
+            # capture thread may already be executing a newer read. Revalidate
+            # the exact read generation before escalating to Engine shutdown.
+            with self._read_state_lock:
+                if (
+                    self._read_generation != generation
+                    or self._read_started_at != started_at
+                ):
+                    continue
+
+                # Latch this timeout so no later watchdog iteration can
+                # escalate the same native read twice.
+                self._read_started_at = None
+
+            log.error(
+                "camera %s read blocked for %.1fs (limit %.1fs); "
+                "requesting Engine shutdown for supervisor recovery",
+                self._cfg.camera_source,
+                elapsed,
+                limit,
+            )
+            self._metrics.on_camera_state(connected=False)
+            self._stop_event.set()
+            return
+
+    def _start_read_watchdog(self) -> threading.Thread:
+        self._read_watchdog_stop.clear()
+        watchdog = threading.Thread(
+            target=self._read_watchdog_loop,
+            name="VideoCatcherReadWatchdog",
+            daemon=True,
+        )
+        watchdog.start()
+        return watchdog
 
     # -- camera plumbing ---------------------------------------------------
     def _open_source(self):
@@ -96,32 +186,104 @@ class VideoCatcher(threading.Thread):
         except (TypeError, ValueError):
             return src
 
+    def _set_camera_hint(self, cap, prop, value, label: str) -> None:
+        """Apply one non-authoritative backend hint without killing capture.
+
+        OpenCV camera backends may reject or throw while applying width,
+        height, FPS or buffer hints. Those settings are best-effort and must
+        never terminate the sole long-lived VideoCatcher worker.
+        """
+        try:
+            accepted = cap.set(prop, value)
+            if accepted is False:
+                log.warning(
+                    "camera %s ignored %s hint",
+                    self._cfg.camera_source,
+                    label,
+                )
+        except Exception:
+            log.warning(
+                "camera %s rejected %s hint; continuing with backend defaults",
+                self._cfg.camera_source,
+                label,
+                exc_info=True,
+            )
+
     def _open_camera(self) -> bool:
         source = self._open_source()
-        cap = cv2.VideoCapture(source)
-        if not cap.isOpened():
-            cap.release()
-            return False
-        # Best-effort hints; devices may ignore them.
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._cfg.frame_width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._cfg.frame_height)
-        cap.set(cv2.CAP_PROP_FPS, self._cfg.target_fps)
-        # Small internal buffer keeps latency low on the live feed.
+        cap = None
         try:
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            cap = cv2.VideoCapture(source)
+            if not cap.isOpened():
+                cap.release()
+                return False
+
+            self._set_camera_hint(
+                cap,
+                cv2.CAP_PROP_FRAME_WIDTH,
+                self._cfg.frame_width,
+                "width",
+            )
+            self._set_camera_hint(
+                cap,
+                cv2.CAP_PROP_FRAME_HEIGHT,
+                self._cfg.frame_height,
+                "height",
+            )
+            self._set_camera_hint(
+                cap,
+                cv2.CAP_PROP_FPS,
+                self._cfg.target_fps,
+                "fps",
+            )
+            self._set_camera_hint(
+                cap,
+                cv2.CAP_PROP_BUFFERSIZE,
+                1,
+                "buffer-size",
+            )
+
+            self._cap = cap
+            self._reset_read_state_for_open()
+            return True
         except Exception:
-            pass
-        self._cap = cap
-        return True
+            log.exception(
+                "camera %s open attempt raised; treating camera as unavailable",
+                self._cfg.camera_source,
+            )
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+            return False
 
     def _connect_with_backoff(self) -> bool:
         """Block (interruptibly) until the camera opens or we're told to stop."""
         delay = self._cfg.capture_reconnect_delay_s
         first = True
         while not self._stop_event.is_set() and self._capture_is_demanded():
-            if self._open_camera():
-                w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or self._cfg.frame_width
-                h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or self._cfg.frame_height
+            try:
+                opened = self._open_camera()
+            except Exception:
+                # Defensive boundary: even an unexpected open-path exception
+                # becomes an ordinary reconnect attempt, never a dead worker.
+                log.exception(
+                    "camera %s open cycle failed; retrying",
+                    self._cfg.camera_source,
+                )
+                self._release_camera()
+                opened = False
+
+            if opened:
+                try:
+                    w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or self._cfg.frame_width
+                except Exception:
+                    w = self._cfg.frame_width
+                try:
+                    h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or self._cfg.frame_height
+                except Exception:
+                    h = self._cfg.frame_height
                 log.info("camera %s opened (%dx%d)", self._cfg.camera_source, w, h)
                 self._metrics.on_camera_state(connected=True, reconnect=not first)
                 return True
@@ -207,6 +369,7 @@ class VideoCatcher(threading.Thread):
     def run(self) -> None:
         mode = "viewer-demand" if self._capture_demand_event is not None else "always-on"
         log.info("starting capture loop for %s (%s)", self._cfg.camera_id, mode)
+        watchdog = self._start_read_watchdog()
         try:
             while not self._stop_event.is_set():
                 if not self._wait_for_demand():
@@ -219,7 +382,24 @@ class VideoCatcher(threading.Thread):
                     not self._stop_event.is_set()
                     and self._capture_is_demanded()
                 ):
-                    ok, image = self._cap.read()
+                    self._begin_read()
+                    try:
+                        ok, image = self._cap.read()
+                    except Exception:
+                        self._finish_read(False)
+                        log.exception(
+                            "camera %s read raised; reconnecting",
+                            self._cfg.camera_source,
+                        )
+                        self._metrics.on_camera_state(connected=False)
+                        self._release_camera()
+                        if not self._connect_with_backoff():
+                            break
+                        consecutive_failures = 0
+                        continue
+
+                    self._finish_read(bool(ok and image is not None))
+
                     if not self._capture_is_demanded():
                         break
                     if not ok or image is None:
@@ -250,13 +430,24 @@ class VideoCatcher(threading.Thread):
                     self._metrics.on_camera_state(connected=False)
                     log.info("camera released (no authenticated viewers)")
         except Exception:  # pragma: no cover - defensive catch-all
+            # A terminal capture-worker failure must never leave the API
+            # advertising a healthy Engine without a physical producer.
             log.exception("unhandled error in capture loop")
+            self._stop_event.set()
         finally:
+            self._read_watchdog_stop.set()
+            if (
+                watchdog is not threading.current_thread()
+                and watchdog.is_alive()
+            ):
+                watchdog.join(timeout=1.0)
             self._release_camera()
             self._metrics.on_camera_state(connected=False)
             log.info("capture loop stopped (%d frames captured)", self._seq)
 
     def _release_camera(self) -> None:
+        with self._read_state_lock:
+            self._read_started_at = None
         if self._cap is not None:
             try:
                 self._cap.release()

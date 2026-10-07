@@ -177,6 +177,40 @@ class PipeProtocolTests(unittest.TestCase):
         with self.assertRaises(PipeProtocolError):
             encode_request("clip", payload)
 
+    def test_strict_clip_schema_preserves_exact_generation_and_end_time(self):
+        payload = dict(
+            samples()["clip"],
+            cameraId="CAM-02",
+            producerGeneration="9007199254740993",
+            endedAt="2026-09-19T00:00:10.500Z",
+        )
+        self.assertEqual(payload, decode_request(encode_request("clip", payload)).payload)
+
+    def test_strict_clip_accepts_authorized_long_numeric_alias(self):
+        payload = dict(samples()["clip"], cameraId="CAM-1234",
+                       producerGeneration="42", endedAt="2026-09-19T00:00:10Z")
+        self.assertEqual("CAM-1234", decode_request(encode_request("clip", payload)).payload["cameraId"])
+
+    def test_strict_clip_requires_both_canonical_generation_and_timezone_end_time(self):
+        valid = dict(samples()["clip"], producerGeneration="7",
+                     endedAt="2026-09-19T00:00:10Z")
+        bad_fields = (
+            {"producerGeneration": None}, {"producerGeneration": 7},
+            {"producerGeneration": "0"}, {"producerGeneration": "07"},
+            {"producerGeneration": "+7"}, {"producerGeneration": " 7"},
+            {"producerGeneration": "9223372036854775808"},
+            {"endedAt": None}, {"endedAt": "2026-09-19T00:00:10"},
+            {"endedAt": "2026-02-30T00:00:10Z"},
+        )
+        for changed in bad_fields:
+            with self.subTest(changed=changed), self.assertRaises(PipeProtocolError):
+                encode_request("clip", dict(valid, **changed))
+        for missing in ("producerGeneration", "endedAt"):
+            payload = dict(valid)
+            del payload[missing]
+            with self.subTest(missing=missing), self.assertRaises(PipeProtocolError):
+                encode_request("clip", payload)
+
     def test_engine_cannot_supply_any_heartbeat_url(self):
         payload = dict(samples()["heartbeat"], streamUrl="http://127.0.0.1:8077/stream.mjpg")
         with self.assertRaises(PipeProtocolError):

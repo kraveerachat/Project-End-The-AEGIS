@@ -11,7 +11,7 @@ For every finalized segment the recorder emits, this worker:
 4. **Verifies** the copy landed intact — by re-hashing on the NAS over SSH
    (``checksum``) or comparing byte size (``size``). Unverified success is
    forbidden; a successful transfer exit code alone is never sufficient.
-5. Deletes the local file **only if** verification passed.
+5. Deletes the local file **only if** verification and clip publication passed.
 
 Transfers are retried with exponential backoff. A segment that never verifies
 is **kept on local disk** and logged loudly — we would rather run the edge disk
@@ -177,15 +177,25 @@ class NASSyncWorker(threading.Thread):
         # Persist the clip row NOW — this line is reached only *after* the
         # sha256/size verification above passed, so stored_on_nas=True is never
         # optimistic. file_path is the verified location on the NAS. Fail-soft:
-        # a DB write failure must not stop us from freeing local disk below.
+        # a rejected/unavailable publication keeps the local source available
+        # for reconciliation, even though the verified NAS copy is intact.
+        published = False
         if self._monitor is not None:
-            self._monitor.post_clip(
-                camera_id=info.camera_id,
-                started_at=info.started_wall,
-                duration_sec=info.duration_s,
-                file_path=remote_path,
-                stored_on_nas=True,
-            )
+            try:
+                published = self._monitor.post_clip(
+                    camera_id=info.camera_id,
+                    started_at=info.started_wall,
+                    duration_sec=info.duration_s,
+                    file_path=remote_path,
+                    stored_on_nas=True,
+                    producer_generation=info.producer_generation,
+                    ended_at=info.ended_wall if info.producer_generation is not None else None,
+                ) is True
+            except Exception:
+                log.warning("clip publication unavailable; keeping local source")
+        if not published:
+            log.warning("verified NAS copy has no acknowledged clip row; keeping local source")
+            return
 
         if not self._cfg.nas_delete_after_sync:
             return
@@ -200,52 +210,110 @@ class NASSyncWorker(threading.Thread):
         """Make default mp4v recording bytes safe for browser <video> playback.
 
         Already-H.264-like fourcc values are left untouched. For the default
-        mp4v path, ffmpeg/libx264 is mandatory: failure keeps the original local
-        file and prevents NAS/DB publication, so Archival footage never claims
-        a clip that the browser cannot play.
+        mp4v path, ffmpeg/libx264 is mandatory. One clearly transient resource
+        allocation failure may be retried; permanent failures remain fail-fast.
+        No failed/unverified output is ever published as a clip.
         """
         fourcc = self._cfg.segment_fourcc.strip().lower()
         if fourcc in {"h264", "avc1", "x264"}:
             return True
         if self._cfg.segment_extension.strip().lower() != "mp4":
-            log.error("unsupported archive container .%s", self._cfg.segment_extension)
+            log.error(
+                "unsupported archive container .%s",
+                self._cfg.segment_extension,
+            )
             return False
 
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
-            log.error("ffmpeg unavailable; cannot create browser-compatible H.264 archive")
+            log.error(
+                "ffmpeg unavailable; cannot create browser-compatible H.264 archive"
+            )
             return False
 
         tmp_path = path + ".h264tmp.mp4"
+
         cmd = [
             ffmpeg, "-y", "-i", path,
             "-an",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-c:v", "libx264",
+            "-threads", "1",
+            "-preset", "veryfast",
+            "-crf", "23",
             "-pix_fmt", "yuv420p",
             "-movflags", "+faststart",
             tmp_path,
         ]
-        rc, _out, err = self._run(cmd, timeout=self._cfg.nas_transfer_timeout_s)
-        if rc != 0 or not os.path.exists(tmp_path) or os.path.getsize(tmp_path) <= 0:
-            log.error("ffmpeg H.264 transcode failed for %s: %s", os.path.basename(path), err[-300:])
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
-            return False
-        try:
-            os.replace(tmp_path, path)
-        except OSError as exc:
-            log.error("could not replace source with H.264 archive %s: %s", os.path.basename(path), exc)
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
-            return False
-        return True
 
+        transient_markers = (
+            "cannot allocate memory",
+            "out of memory",
+            "insufficient memory",
+            "resource temporarily unavailable",
+        )
+
+        for attempt in range(1, 3):
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+
+            rc, _out, err = self._run(
+                cmd,
+                timeout=self._cfg.nas_transfer_timeout_s,
+            )
+
+            if (
+                rc == 0
+                and os.path.exists(tmp_path)
+                and os.path.getsize(tmp_path) > 0
+            ):
+                try:
+                    os.replace(tmp_path, path)
+                except OSError as exc:
+                    log.error(
+                        "could not replace source with H.264 archive %s: %s",
+                        os.path.basename(path),
+                        exc,
+                    )
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.remove(tmp_path)
+                    except OSError:
+                        pass
+                    return False
+                return True
+
+            detail = (err or "").lower()
+            transient = any(marker in detail for marker in transient_markers)
+
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+
+            if transient and attempt == 1 and not self._stop_event.is_set():
+                log.warning(
+                    "ffmpeg H.264 transcode hit transient resource pressure for %s; retrying once",
+                    os.path.basename(path),
+                )
+                delay = min(max(self._cfg.nas_retry_backoff_s, 0.0), 5.0)
+                if delay > 0 and self._stop_event.wait(delay):
+                    return False
+                if self._stop_event.is_set():
+                    return False
+                continue
+
+            log.error(
+                "ffmpeg H.264 transcode failed for %s: %s",
+                os.path.basename(path),
+                (err or "")[-300:],
+            )
+            return False
+
+        return False
     def _transfer(self, local_path: str, remote_path: str):
         target = f"{self._cfg.nas_user}@{self._cfg.nas_host}:{remote_path}"
         if self._cfg.nas_method == "rsync":
