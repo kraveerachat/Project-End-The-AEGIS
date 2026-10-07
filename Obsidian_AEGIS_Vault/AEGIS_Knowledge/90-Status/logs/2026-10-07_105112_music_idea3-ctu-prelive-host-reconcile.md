@@ -55,7 +55,9 @@ Read-only host inspection post-reboot revealed two blockers before CTu first exe
   - `CTU_DIRECT_APPLY_BYPASS_CLOSED=YES`, `PROVENANCE_FORGEABLE_BY_PRIVILEGED_OPERATOR=NO`, `DIRECT_HANDLER_DYNAMIC_NEGATIVE_TEST=PASS`.
   - `RECOVERY_DIRECT_PRIVILEGED_HANDLER_GATED=YES`, `RECOVERY_PROVENANCE_FORGEABLE_BY_PRIVILEGED_OPERATOR=NO`, `RECOVERY_CTU_HOST_PROVENANCE_BOUND=YES`.
 - `CORE_RESTART_CONTRACT_TRUTHFUL=YES`: pre-consume=0, success=1, post-consume failure max=2, rollback additional max=1; no undocumented third restart is present.
-- `TRUSTED_SHELL_STARTUP=PASS`, `BASH_ENV_NEUTRALIZED_BEFORE_EFFECT=YES`, `PATH_FAKE_BASH_REFUSED=YES`, `AMBIENT_SHELL_FUNCTION_IMPORT_REFUSED=YES`.
+- `CTU_TRUSTED_SHELL_STARTUP=PASS`, `CTU_BASH_ENV_NEUTRALIZED_BEFORE_EFFECT=YES`, `CTU_PATH_FAKE_BASH_REFUSED=YES`, `CTU_AMBIENT_SHELL_FUNCTION_IMPORT_REFUSED=YES`.
+- `RECOVERY_CLEAN_STARTUP_BOUNDARY=PASS`, `RECOVERY_BASH_ENV_NEUTRALIZED_BEFORE_EFFECT=YES`, `RECOVERY_PATH_FAKE_BASH_REFUSED=YES`, `RECOVERY_AMBIENT_SHELL_FUNCTION_IMPORT_REFUSED=YES`, `RECOVERY_ENV_STARTUP_REFUSED=YES`.
+- `RECOVERY_TRUSTED_INTERPRETER=PASS`, `RECOVERY_PYTHON_ENV_CLOSED=YES`, `RECOVERY_GIT_ENV_CLOSED=YES`; the Recovery shell boundary strips caller variables before the frozen body, while native loader behavior remains an OS trust-base assumption rather than an arbitrary-root guarantee.
 - `TRUSTED_INTERPRETER=PASS`, `ALL_CTU_PYTHON_INVOCATIONS_ISOLATED=YES`, `PYTHONPATH_INJECTION_REFUSED=YES`, `PYTHONHOME_INJECTION_REFUSED=YES`, `LD_PRELOAD_INJECTION_REFUSED=YES`, `LD_LIBRARY_PATH_INJECTION_REFUSED=YES`.
 
 ## Source files changed
@@ -80,6 +82,8 @@ Read-only host inspection post-reboot revealed two blockers before CTu first exe
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-recovery-run-lib.sh` — all changed Recovery Python execution uses `/usr/bin/python3 -I -B` and absolute trusted snapshot module paths, without ambient `PYTHONPATH` authority.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-ctu-owner.sh` — executable entrypoint now performs a POSIX clean-environment re-exec before Bash runner code; status inspection uses isolated Python.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-recovery-owner.sh` — embedded Recovery Python execution uses isolated Python and absolute snapshot module paths.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-recovery-owner.sh` — executable Recovery entrypoint now establishes the pre-body clean shell boundary before the frozen runner body.
+- `IDEA3-AEGIS_Lockdown/tests/recovery/test_recovery_runner_authority.py` — dynamic hostile Recovery startup/environment fixture covering PATH, startup files, imported functions, Python, loader, and Git variables.
 - `IDEA3-AEGIS_Lockdown/tests/test_ctu_blockers.py` — updated and added tests for dual detector baseline modes and 7 `core.env` parsing cases.
 - `IDEA3-AEGIS_Lockdown/tests/test_core_trusted_time_repair.py` — fixed PIN_DEVICE collision and updated mock closeouts.
 - `IDEA3-AEGIS_Lockdown/tests/recovery/test_recovery_runner_freeze.py` — updated mock closeouts with baseline mode and device ID.
@@ -88,7 +92,7 @@ Read-only host inspection post-reboot revealed two blockers before CTu first exe
 ## Verification evidence
 
 - `/usr/bin/python3 -m pytest -q tests/test_ctu_blockers.py tests/test_core_trusted_time_repair.py tests/recovery/test_recovery_runner_authority.py tests/recovery/test_recovery_runner_freeze.py tests/recovery/test_recovery_attempt.py` — 297 passed; 3 pre-existing environment-only trust-seam expectation failures
-- `/usr/bin/python3 -m pytest -q tests/test_ctu_blockers.py tests/test_core_trusted_time_repair.py tests/recovery tests/rru/test_rru_stage.py tests/r1bv/test_r1bv_contract.py tests/test_recovery_stage.py tests/test_pr11_phase4_harness.py` — final rerun: 1045 passed; 4 environment-only failures (socket permission plus three root/user-namespace trust-seam expectation mismatches), no PR-introduced failures
+- `/usr/bin/python3 -m pytest -q tests/test_ctu_blockers.py tests/test_core_trusted_time_repair.py tests/recovery tests/rru/test_rru_stage.py tests/r1bv/test_r1bv_contract.py tests/test_recovery_stage.py tests/test_pr11_phase4_harness.py` — final rerun: 1046 passed; 4 environment-only failures (socket permission plus three root/user-namespace trust-seam expectation mismatches), no PR-introduced failures
 - `/usr/bin/python3 -m pytest -q tests/test_ctu_blockers.py tests/test_core_trusted_time_repair.py` — pass after final one-shot CTu handler-provenance tightening: 42 passed
 - `pytest -v IDEA3-AEGIS_Lockdown/tests/test_core_trusted_time_repair.py` — pass: 24 passed in 2.21s
 - `pytest -v IDEA3-AEGIS_Lockdown/tests/recovery/test_recovery_runner_freeze.py` — pass: 74 passed in 25.10s

@@ -1,4 +1,13 @@
-#!/usr/bin/env bash
+#!/bin/sh
+# The executable entry point is a POSIX launcher.  It establishes a clean
+# fixed-interpreter boundary before the Recovery Bash body can read startup
+# files, imported functions, PATH lookups, or caller environment.  A caller
+# that supplies the guard still reaches this check under /bin/sh and is
+# refused before any Bash-only runner code can execute.
+if [ "${AEGIS_RECOVERY_CLEAN_START:-}" != YES ]; then
+  exec /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_RECOVERY_CLEAN_START=YES /bin/bash --noprofile --norc "$0" "$@"
+fi
+[ -n "${BASH_VERSION:-}" ] || { echo 'STOP: Recovery runner clean Bash boundary was not established.' >&2; exit 2; }
 # AEGIS IDEA3 PR11 Phase 4 — Recovery R2-R8 LIVE stage, ONE owner-supervised attempt. OWNER-RUN ONLY.
 # REPOSITORY TEMPLATE: every value marked PIN_ is unpinned, so this file REFUSES TO RUN as committed. The owner freeze workflow (recovery_runner_freeze.py) derives ONE root-owned frozen runner from this exact
 # template (the EXPECTED_MAIN Git object, replacement objects disabled) plus ONLY the approved pin substitutions, records its SHA-256 and only then authorizes a run. Nothing in this repository executes it, creates
