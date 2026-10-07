@@ -53,7 +53,7 @@ def test_blocker1_runner_pre_capture_order() -> None:
     pos_pre_capture = text.index('capture "$PRE" ctu-pre')
     pos_pre_regate = text.index('gate_out=$(TZ=Asia/Bangkok bash "$BUNDLE/p4-stage-gate.sh"')
     pos_consume = text.index("ctu_consume_attempt")
-    pos_apply = text.index("declare -f ctu_apply_fail")
+    pos_apply = text.index("declare -f ctu_validate_dropins_root ctu_apply_fail")
 
     assert pos_pregates < pos_bundle_prep
     assert pos_bundle_prep < pos_bundle_verify
@@ -1048,8 +1048,8 @@ def test_ctu_core_restart_contract_is_truthful_on_success_and_failure_paths() ->
     assert "DIRECT_HANDLER_INVOCATION_REFUSED" in (CTU / "apply.sh").read_text()
     assert "DIRECT_HANDLER_INVOCATION_REFUSED" in (CTU / "rollback.sh").read_text()
     assert runner.count("systemctl restart aegis-idea3-core.service") == 2
-    assert "declare -f ctu_apply_fail ctu_apply_governed" in runner
-    assert "declare -f ctu_rollback_fail ctu_rollback_governed" in runner
+    assert "declare -f ctu_validate_dropins_root ctu_apply_fail ctu_apply_governed" in runner
+    assert "declare -f ctu_validate_dropins_root ctu_rollback_fail ctu_rollback_governed" in runner
     apply_body = runner[runner.index("ctu_apply_governed() {"):runner.index("ctu_rollback_fail()")]
     rollback_body = runner[runner.index("ctu_rollback_governed() {"):runner.index("IN_POST_FAIL=0")]
     assert apply_body.count("systemctl restart aegis-idea3-core.service") == 1
@@ -1057,5 +1057,5 @@ def test_ctu_core_restart_contract_is_truthful_on_success_and_failure_paths() ->
     assert "PRECONSUME_CORE_RESTARTS=0" in runner
     assert "POST_CONSUME_FAILURE_MAX_CORE_RESTARTS=2" in runner
     assert "ROLLBACK_CORE_RESTARTS_MAX=1" in runner
-    assert "systemctl restart aegis-idea3-core.service" not in runner[runner.index("ctu_consume_attempt"):runner.index("declare -f ctu_apply_fail")]
+    assert "systemctl restart aegis-idea3-core.service" not in runner[runner.index("ctu_consume_attempt"):runner.index("declare -f ctu_validate_dropins_root ctu_apply_fail")]
     assert "post_fail" in runner and "rollback_flow" in runner

@@ -20,6 +20,8 @@ fail() { printf 'CTU_VERIFY=FAIL reason=%s\n' "$1" >&2; exit 1; }
 : "${AEGIS_CTU_PRE_DETECTOR_MONOTONIC:?AEGIS_CTU_PRE_DETECTOR_MONOTONIC required}"
 : "${AEGIS_CTU_RUNTIME_VERIFY:?AEGIS_CTU_RUNTIME_VERIFY required}"
 : "${AEGIS_CTU_BUNDLE:?AEGIS_CTU_BUNDLE required}"
+: "${AEGIS_CTU_REPO:?AEGIS_CTU_REPO required}"
+: "${AEGIS_CTU_EXPECTED_MAIN:?AEGIS_CTU_EXPECTED_MAIN required}"
 TARGET=/etc/systemd/system/aegis-idea3-core.service
 [ -d "$AEGIS_CTU_BUNDLE" ] && [ ! -L "$AEGIS_CTU_BUNDLE" ] && [ "$(stat -c %u -- "$AEGIS_CTU_BUNDLE")" = 0 ] || fail CTU_BUNDLE_INVALID
 [ -z "$(find "$AEGIS_CTU_BUNDLE" -type l -print -quit)" ] || fail CTU_BUNDLE_SYMLINK
@@ -31,17 +33,45 @@ TARGET=/etc/systemd/system/aegis-idea3-core.service
 [ "$(stat -c %u:%a -- "$TARGET" 2>/dev/null)" = "0:644" ] || fail INSTALLED_UNIT_OWNERSHIP_OR_MODE
 [ "$(sha256sum -- "$TARGET" | cut -d' ' -f1)" = "$AEGIS_CTU_UNIT_SHA256" ] || fail INSTALLED_UNIT_MISMATCH
 [ "$(systemctl show -p FragmentPath --value aegis-idea3-core.service)" = "$TARGET" ] || fail CORE_FRAGMENT_PATH_INVALID
-[ -z "$(systemctl show -p DropInPaths --value aegis-idea3-core.service)" ] || fail CORE_DROPIN_PRESENT
+dropin_paths=$(systemctl show -p DropInPaths --value aegis-idea3-core.service) || fail CORE_DROPIN_READ
+read -r -a dropin_args <<< "$dropin_paths"
+dropin_verify_args=()
+for dropin_path in "${dropin_args[@]}"; do dropin_verify_args+=(--drop-in-path "$dropin_path"); done
+/usr/bin/python3 -I -B "$AEGIS_CTU_BUNDLE/ctu-acceptance/ctu_dropin_contract.py" \
+  --repo "$AEGIS_CTU_REPO" --main "$AEGIS_CTU_EXPECTED_MAIN" --root / "${dropin_verify_args[@]}" || fail CORE_DROPIN_CONTRACT_INVALID
 [ -z "$(grep -E '^[[:space:]]*Environment[[:space:]]*=' "$AEGIS_CTU_UNIT_SNAPSHOT" || true)" ] || fail CORE_CONFLICTING_ENVIRONMENT
 [ -f /etc/aegis-idea3/core.env ] && [ ! -L /etc/aegis-idea3/core.env ] || fail CORE_ENV_MISSING_OR_SYMLINK
 [ "$(sha256sum /etc/aegis-idea3/core.env | cut -d' ' -f1)" = "$AEGIS_CTU_PRE_CORE_ENV_SHA" ] || fail CORE_ENV_CHANGED_AFTER_PRE
-[ "$(systemctl show -p NeedDaemonReload --value aegis-idea3-core.service)" = "NeedDaemonReload=no" ] || fail CORE_DAEMON_RELOAD_PENDING
+case "$(systemctl show -p NeedDaemonReload --value aegis-idea3-core.service 2>/dev/null || true)" in no|"NeedDaemonReload=no") ;; *) fail CORE_DAEMON_RELOAD_PENDING ;; esac
 protect_clock=$(systemctl show -p ProtectClock --value aegis-idea3-core.service)
 case "$protect_clock" in false|no) ;; *) fail CORE_EFFECTIVE_PROTECTCLOCK_INVALID ;; esac
-[ "$(systemctl show -p User --value aegis-idea3-core.service)" = aegis-idea3 ] || fail CORE_EFFECTIVE_USER_INVALID
-[ "$(systemctl show -p NoNewPrivileges --value aegis-idea3-core.service)" = yes ] || fail CORE_EFFECTIVE_NNP_INVALID
-[ -z "$(systemctl show -p CapabilityBoundingSet --value aegis-idea3-core.service)" ] || fail CORE_EFFECTIVE_CAPABILITY_BOUND_INVALID
-[ -z "$(systemctl show -p AmbientCapabilities --value aegis-idea3-core.service)" ] || fail CORE_EFFECTIVE_AMBIENT_CAPABILITY_INVALID
+user_val=$(systemctl show -p User --value aegis-idea3-core.service)
+[ "$user_val" = aegis-idea3 ] || fail CORE_EFFECTIVE_USER_INVALID
+nnp_val=$(systemctl show -p NoNewPrivileges --value aegis-idea3-core.service)
+case "$nnp_val" in yes|true) ;; *) fail CORE_EFFECTIVE_NNP_INVALID ;; esac
+caps_val=$(systemctl show -p CapabilityBoundingSet --value aegis-idea3-core.service)
+[ -z "$caps_val" ] || fail CORE_EFFECTIVE_CAPABILITY_BOUND_INVALID
+ambient_val=$(systemctl show -p AmbientCapabilities --value aegis-idea3-core.service)
+[ -z "$ambient_val" ] || fail CORE_EFFECTIVE_AMBIENT_CAPABILITY_INVALID
+supp_groups=$(systemctl show -p SupplementaryGroups --value aegis-idea3-core.service)
+read -r -a supp_group_arr <<< "$supp_groups"
+for req_group in aegis-idea3-recovery aegis-idea3-alert; do
+  printf '%s\n' "${supp_group_arr[@]:-}" | grep -qx -- "$req_group" || fail CORE_EFFECTIVE_SUPPLEMENTARY_GROUPS_MISSING
+done
+rw_paths=$(systemctl show -p ReadWritePaths --value aegis-idea3-core.service)
+read -r -a rw_path_arr <<< "$rw_paths"
+for req_path in /var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3 /run/aegis-idea3-recovery /run/aegis-idea3-alert; do
+  printf '%s\n' "${rw_path_arr[@]:-}" | grep -qx -- "$req_path" || fail CORE_EFFECTIVE_READWRITEPATHS_MISSING
+done
+/usr/bin/python3 -I -B "$AEGIS_CTU_BUNDLE/ctu-acceptance/ctu_dropin_contract.py" \
+  --verify-effective \
+  --supplementary-groups "$supp_groups" \
+  --read-write-paths "$rw_paths" \
+  --protect-clock "$protect_clock" \
+  --user "$user_val" \
+  --no-new-privileges "$nnp_val" \
+  --capability-bounding-set "$caps_val" \
+  --ambient-capabilities "$ambient_val" || fail CORE_EFFECTIVE_PROPERTIES_CONTRACT_INVALID
 [ "$(systemctl show -p ActiveState --value aegis-idea3-core.service)" = active ] || fail CORE_NOT_ACTIVE
 [ "$(systemctl show -p SubState --value aegis-idea3-core.service)" = running ] || fail CORE_NOT_RUNNING
 [ "$(systemctl show -p Result --value aegis-idea3-core.service)" = success ] || fail CORE_RESULT_NOT_SUCCESS

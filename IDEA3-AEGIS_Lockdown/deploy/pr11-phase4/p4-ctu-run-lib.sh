@@ -144,9 +144,9 @@ ctu_prepare_bundle() {
     p4-lib.sh p4-stage-gate.sh p4-ctu-run-lib.sh p4-l0-capture.sh p4-compare.sh p4-l7u-run-lib.sh p4-l7-run-lib.sh p4-l6b-run-lib.sh p4-ctu-runtime-verify.py
     stages/CTu/apply.sh stages/CTu/verify.sh stages/CTu/rollback.sh
     stages/CTu/allow-keys.txt stages/CTu/allow-keys-rollback.txt stages/CTu/allow-listeners.txt
-    p4-iw-phy-regnorm.awk owner-run/run-ctu-owner.sh
+    p4-iw-phy-regnorm.awk owner-run/run-ctu-owner.sh ctu-acceptance/ctu_dropin_contract.py
   )
-  $CTU_SUDO mkdir -p -m 0700 -- "$bundle/stages/CTu" "$bundle/owner-run" || return 1
+  $CTU_SUDO mkdir -p -m 0700 -- "$bundle/stages/CTu" "$bundle/owner-run" "$bundle/ctu-acceptance" || return 1
   : | $CTU_SUDO tee "$bundle/CTU-BUNDLE-SHA256SUMS" >/dev/null || return 1
   for rel in "${files[@]}"; do
     src="$p4/$rel"; dst="$bundle/$rel"
