@@ -11,6 +11,26 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 CTv final pre-live proof closure — repository-only — 2026-10-08
+
+The CTv pre-live repair is complete in repository bytes only. Non-hermetic CTv now validates the frozen `DEVICE_ID` against the actual Production `core.env`, derives the governed detector baseline from actual host state, and records neither value as `UNKNOWN`. Hermetic fixtures remain limited to hermetic tests; non-hermetic execution captures fresh L0 PRE/POST evidence and runs the reviewed comparator plus fresh runtime checks for Core state, effective unit hardening, exact unit digest, exact drop-ins, detector preservation, Recovery unconsumed state, and device identity. Recovery now separates `CTV_EXECUTION_MAIN` from the current reviewed successor main and requires a successor receipt bound to the immutable host closeout digest and all relevant CTv digests. The runner records `CTV_REPOSITORY_RECEIPT=POSTLIVE_REVIEW_REQUIRED` and never promotes the pre-live partial receipt to a LIVE PASS receipt.
+
+`CTU_RESULT=FAIL_IMMUTABLE`, `CTU_ATTEMPT_CONSUMED=YES`, and `CTU_RERUN_ALLOWED=NO` remain untouched. `CTV_ATTEMPT_CONSUMED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`, and `LIVE_EXECUTED=NO` remain the implementation boundary. No CTu/CTv/Recovery LIVE, Production mutation, governance-marker mutation, commit, push, or merge was performed. Additional deterministic pre-live blocker: `NONE`.
+
+### Current Task
+
+Task: IDEA3 CTv final pre-live proof closure
+Branch: `fix/idea3-ctv-live-proof-closure`
+Owner: `music`
+Current state: repository implementation verified; final pre-live review pending; LIVE not executed
+Production mutation allowed: NO
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTv-Closure-1 | Close identity, real non-hermetic post-runtime proof, and Recovery execution/review-main circularity | READY FOR FINAL PRE-LIVE REVIEW | CTv successor 67 PASS; CTu/TrustedClock/Recovery focused suites PASS; full Recovery/harness 1004 PASS with 3 pre-existing CTv stage-registration expectation failures; vault validation PASS with 2 pre-existing canvas warnings; collaborationPolicy/vaultMultiWriter environment-blocked | repository repair PASS; LIVE intentionally unexecuted | human owner/integration review and manual Git closeout | merge review only; generate fresh exact-main authority before any future LIVE |
+
 ## IDEA3 CTv successor after immutable CTu failure — repository implementation — 2026-10-08
 
 > [!important] CTu remains permanently consumed and failed: `CTU_RESULT=FAIL_IMMUTABLE`, `CTU_FAILURE_REASON=APPLY`, `CTU_ATTEMPT_CONSUMED=YES`, `CTU_RERUN_ALLOWED=NO`. CTv is a distinct successor (`CTV_IS_CTU_RETRY=NO`) and has not run live: `CTV_ATTEMPT_CONSUMED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
