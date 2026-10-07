@@ -43,6 +43,7 @@ export function HoverPreview({
   const anchorX = useRef(null)
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState(null)
+  const [layoutTick, setLayoutTick] = useState(0)
   // The trigger may also be a caller's animation target (e.g. a GSAP ring), so
   // both refs receive the same node.
   const setTriggerRef = useCallback((node) => {
@@ -80,16 +81,21 @@ export function HoverPreview({
     if (closeActive === close) closeActive = null
   }, [close])
 
-  // Anything that moves the trigger under a fixed panel ends the preview
-  // rather than leaving it pointing at the wrong row.
+  // A scroll under a pointer-opened panel ends the preview rather than leaving
+  // it pointing at the wrong row. Keyboard focus scrolls its own target into
+  // view, so a focused trigger keeps its preview and the panel follows it.
   useEffect(() => {
     if (!open) return undefined
     const onKey = (event) => { if (event.key === 'Escape') close() }
-    window.addEventListener('scroll', close, true)
+    const onScroll = () => {
+      if (triggerRef.current?.contains(document.activeElement)) setLayoutTick((tick) => tick + 1)
+      else close()
+    }
+    window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', close)
     document.addEventListener('keydown', onKey)
     return () => {
-      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', close)
       document.removeEventListener('keydown', onKey)
     }
@@ -111,7 +117,7 @@ export function HoverPreview({
       : rect.bottom + GAP
     const arrow = Math.min(Math.max(14, ax - left), panel.width - 14)
     setPos({ left: Math.round(left), top: Math.round(top), placement, arrow: Math.round(arrow) })
-  }, [open])
+  }, [open, layoutTick])
 
   if (!preview) {
     return <Tag ref={externalRef} className={className} {...rest}>{children}</Tag>

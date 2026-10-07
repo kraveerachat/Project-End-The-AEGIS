@@ -15,6 +15,18 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
 
+## Current Task — IDEA1-UI-INTERACTION — Interaction system + Secure Shares column repair (Classic + Neo)
+
+| Field | Current value |
+|---|---|
+| Task | Repair Secure Shares Active links layout (six explicit columns, scope badge confined, revoke hitbox, responsive reflow) and add a shared hover/focus preview + interaction system to both authenticated styles. Presentation only: no API, data, route, auth, RBAC or backend change. |
+| Branch / PR | `feat/idea1-ui-interaction-secure-shares-polish` from `origin/main` `56beb898`; one Draft PR, not merged by the agent |
+| Owner | kla |
+| Design | `HoverPreview` + `lib/previewContent.js` (explicit field picks, unknown ≠ 0, no fetch); `src/interactionSystem.css` (shared geometry/timing + Neo materials); Classic materials in `theme-classic.css` §8. |
+| State | `IMPLEMENTED / LOCALLY VERIFIED` (agent-driven, 4 style/theme combos × 7 widths). `PRODUCTION_DEPLOYED=NO`. |
+| Receipt | `90-Status/logs/2026-10-08_025608_kla_idea1-ui-interaction-secure-shares-polish.md` |
+| NOT VERIFIED | Human visual acceptance; real telemetry-agent values. |
+
 ## Current Task — IDEA1-CLASSIC-GLOSSY — Classic interface style restyled as "Glossy Enamel"
 
 | Field | Current value |
