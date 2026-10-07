@@ -15,22 +15,22 @@ edit_policy: owner-writable
 
 > [!important] CTu remains permanently consumed and failed: `CTU_RESULT=FAIL_IMMUTABLE`, `CTU_FAILURE_REASON=APPLY`, `CTU_ATTEMPT_CONSUMED=YES`, `CTU_RERUN_ALLOWED=NO`. CTv is a distinct successor (`CTV_IS_CTU_RETRY=NO`) and has not run live: `CTV_ATTEMPT_CONSUMED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
 
-Repository implementation now has an explicit frozen CLI (`AUTH_DIR --rehearse|--live`), a real non-consuming deterministic rehearsal, non-circular runtime runner SHA, separate template/bundle/control manifest domains, strict exact-main bundle/control checks, durable prepared and consumed-no-mutation journal phases, governed apply/rollback phases, PRE/POST capture and evidence manifest, and a CTv-aware Recovery successor gate. Hermetic coverage proves rehearsal remains marker-free, isolated fake-LIVE consumes once and closes PASS, and 13 deterministic pre-consume blockers are rejected before the marker. CTv LIVE, Recovery LIVE, Production mutation, Core restart, Detector lifecycle, governance-marker mutation, merge, and Ready transition were intentionally not performed.
+Repository implementation now has an explicit frozen CLI (`AUTH_DIR --rehearse|--live`), a real non-consuming deterministic rehearsal, non-circular runtime runner SHA, separate template/bundle/control manifest domains, strict exact-main bundle/control checks, durable prepared and consumed-no-mutation journal phases, governed apply/rollback phases, PRE/POST capture and evidence manifest, and a CTv-aware Recovery successor gate. The pre-live target-unit path hotfix now makes the non-hermetic default resolve to the reviewed `deploy/aegis-idea3-core.service.example`; the hermetic `--unit-source` override remains supported. Exact-main audit coverage proves every CTv production repository dependency exists at `56beb898f5b4f8bd4b39d0934ef0f80bc9dc63e2`. CTv LIVE, Recovery LIVE, Production mutation, Core restart, Detector lifecycle, governance-marker mutation, merge, and Ready transition were intentionally not performed.
 
 ### Current Task
 
-Task: IDEA3 CTv complete governed execution repair
-Branch: `feat/idea3-ctv-ctu-immutable-failure-successor`
+Task: IDEA3 CTv deterministic target-unit path hotfix
+Branch: `fix/idea3-ctv-target-unit-path`
 Owner: `music`
-PR: #390
-Current state: repository implementation locally verified; commit/push blocked because this session cannot write the linked worktree Git administrative directory; Draft PR remains pending exact-head owner/integration review; CTv LIVE NOT EXECUTED; Recovery LIVE NOT EXECUTED; human merge only
+PR: Draft pending
+Current state: repository-only path repair in progress; CTv LIVE NOT EXECUTED; Recovery LIVE NOT EXECUTED; human merge only
 Production mutation allowed by this task: NO
 
 ### Session Register
 
 | ID | Scope | State | Evidence | Result | Remaining | Next |
 |---|---|---|---|---|---|---|
-| CTv-S2 | Complete explicit runner, provenance closure, journal/apply/rollback state machine, Recovery successor gate, and hermetic behavior matrix | BLOCKED | 23 CTv tests PASS; CTu/L0/Core-time/RRu focused suites PASS; Recovery suite blocked by sandbox EPERM socket capability; shell/Python/diff checks PASS; Git commit blocked by read-only linked worktree admin directory | repository behavior materially implemented; no live or Production action; no new head or pushed commit | owner/integration review, full host-capability Recovery verification, commit/push when Git metadata is writable | resume from unchanged working tree; stage exact paths, commit, push, then keep PR Draft |
+| CTv-Path-1 | Correct deterministic production Core unit path and audit CTv repository dependency closure | IN PROGRESS | TDD regression RED before fix; exact-main path audit PASS; remaining focused/full verification pending | source and regression changed; no live or Production action | complete required suites, receipt, commit, Draft PR | run verification, record receipt, commit/push if network permits |
 
 ## IDEA3 CTu PRE-capture dependency-closure repair — repository-only — 2026-10-07
 

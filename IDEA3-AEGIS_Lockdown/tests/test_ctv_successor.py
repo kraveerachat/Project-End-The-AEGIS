@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import os
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -40,6 +41,27 @@ def test_ctv_has_distinct_provenance_domains_and_preconsume_rehearsal():
     ):
         assert name in text
     assert "CTV_FROZEN_RUNNER_SHA256=\"$CTV_RUNNER_TEMPLATE_SHA256\"" not in text
+
+
+def test_ctv_production_default_targets_reviewed_core_unit_and_override_is_preserved():
+    text = CTV_RUNNER.read_text()
+    match = re.search(r"^UNIT_SOURCE=(.+)$", text, re.MULTILINE)
+    assert match, "CTv production UNIT_SOURCE default must remain explicit"
+    default = match.group(1).replace("$MERGED_MAIN_WORKTREE", str(ROOT), 1)
+    assert default == str(ROOT / "IDEA3-AEGIS_Lockdown/deploy/aegis-idea3-core.service.example")
+    assert Path(default).is_file()
+    assert "pr11-phase4/units/aegis-idea3-core.service" not in match.group(1)
+
+    unit = Path(default).read_text().splitlines()
+    properties = {line.split("=", 1)[0]: line.split("=", 1)[1] for line in unit if "=" in line}
+    assert properties["ProtectClock"] == "false"
+    assert properties["User"] == "aegis-idea3"
+    assert properties["NoNewPrivileges"] == "true"
+    assert properties["CapabilityBoundingSet"] == ""
+    assert properties["AmbientCapabilities"] == ""
+
+    assert "--unit-source" in text
+    assert re.search(r"--unit-source\).*UNIT_SOURCE=\$2", text)
 
 
 def test_historical_ctu_template_comparison_is_a_real_domain_mismatch():
