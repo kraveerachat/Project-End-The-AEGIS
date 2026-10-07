@@ -6,6 +6,8 @@ import {
 import { Card, CardTitle, Chip } from './ui.jsx'
 import { fmtBytes, fmtCountdown } from '../lib/format.js'
 import { useReducedMotion } from '../lib/hooks.js'
+import { HoverPreview } from './HoverPreview.jsx'
+import { telemetryPreview } from '../lib/previewContent.js'
 
 // Renders the /api/telemetry contract (see server/telemetry/index.js).
 //
@@ -145,9 +147,9 @@ function MetricProgress({ value, label, state }) {
   if (!number(value)) return null
   const normalized = Math.min(100, Math.max(0, value))
   return (
-    <div className="dashboard-telemetry-progress" data-state={state} data-tooltip={`${label} · ${Math.round(normalized)}%`}>
+    <div className="dashboard-telemetry-progress" data-state={state}>
       <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(normalized)}%</strong>
-      <div role="progressbar" tabIndex={0} aria-label={label} aria-valuenow={normalized} aria-valuemin={0} aria-valuemax={100}>
+      <div role="progressbar" aria-label={label} aria-valuenow={normalized} aria-valuemin={0} aria-valuemax={100}>
         <span ref={barRef} style={{ width: `${normalized}%` }} />
       </div>
     </div>
@@ -251,10 +253,13 @@ function TelemetryTile({ t, definition, value, loading }) {
   const isEmpty = state in EMPTY_COPY
 
   return (
-    <article
+    <HoverPreview
+      as="article"
+      preview={telemetryPreview(t, { id: definition.id, label: t(definition.labelKey), metric: value, stateLabel: t(meta.labelKey), tone: meta.tone })}
+      tabIndex={0}
       data-metric={definition.id}
       data-state={state}
-      className="dashboard-telemetry-tile min-w-0 rounded-[var(--r-tile)] p-4"
+      className="dashboard-telemetry-tile ix-tile min-w-0 rounded-[var(--r-tile)] p-4"
       aria-label={`${t(definition.labelKey)} · ${t(meta.labelKey)}`}
       aria-busy={state === 'loading' ? 'true' : undefined}
     >
@@ -278,7 +283,7 @@ function TelemetryTile({ t, definition, value, loading }) {
           <MetricRows t={t} id={definition.id} metric={metric} state={state} />
         </div>
       )}
-    </article>
+    </HoverPreview>
   )
 }
 

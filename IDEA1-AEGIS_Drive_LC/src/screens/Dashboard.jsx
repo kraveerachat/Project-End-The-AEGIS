@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, Cell,
@@ -9,11 +9,16 @@ import {
 } from 'lucide-react'
 import { Card, CardTitle, Chip, Dot, ErrorState, DependencyUnavailableState, SkeletonLoader } from '../components/ui.jsx'
 import { ServerTelemetry } from '../components/ServerTelemetry.jsx'
+import { HoverPreview } from '../components/HoverPreview.jsx'
 import { useApi, useCountUp, useNow, useReducedMotion } from '../lib/hooks.js'
 import { fmtRelative, fmtCountdown, fmtStamp, fmtBytes } from '../lib/format.js'
 import { isPlatformWired } from '../lib/fetchState.js'
 import { normalizeDashboardData, shouldShowDashboardFetchError } from '../lib/dashboardState.js'
 import { useDashboardMotion } from '../lib/useDashboardMotion.js'
+import {
+  capacityPreview, lakePreview, loginPreview, recentFilePreview, securityPreview, sharePreview,
+  shareScopeChip, storageCategoryPreview,
+} from '../lib/previewContent.js'
 
 /* ทุกตัวเลขบนจอนี้มาจาก /api/dashboard · /api/storage · /healthz และจัดการครบสี่สถานะ
    (loading = skeleton · error = ข้อความ + Retry · empty = บอกตรง ๆ · success = ข้อมูลจริง)
@@ -28,14 +33,16 @@ import { useDashboardMotion } from '../lib/useDashboardMotion.js'
    ที่ไฟล์ถูกอัปโหลดทับหรือถูกลบ — จอจึงบอกสิ่งที่นับได้จริง ไม่ใช่สิ่งที่ดูน่าประทับใจกว่า */
 
 /* ── Stat card — hero number counts, ค่าจริงจากเซิร์ฟเวอร์ ─────────── */
-function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, statusTone = 'ok', delay = 0, footer, meterPercent = null, meterLabel = '', accent, support = null }) {
+function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, statusTone = 'ok', delay = 0, footer, meterPercent = null, meterLabel = '', accent, support = null, preview = null }) {
   const v = useCountUp(value, 700, decimals)
   const display = decimals > 0 ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US')
   return (
-    <Card
+    <HoverPreview
+      as={Card}
+      preview={preview}
       data-accent={accent}
       data-alarm={alarm ? 'true' : undefined}
-      className={`dashboard-stat-card relative overflow-hidden p-5 rise-in ${meterPercent != null ? 'dashboard-capacity-card' : ''} ${alarm ? 'border-pulse' : ''}`}
+      className={`dashboard-stat-card relative overflow-hidden p-5 rise-in ${meterPercent != null ? 'dashboard-capacity-card' : ''} ${alarm ? 'alarm-attention' : ''}`}
       style={{
         animationDelay: `${delay}ms`,
         ...(alarm ? { background: 'var(--danger-soft)', borderColor: 'var(--danger)' } : {}),
@@ -75,7 +82,7 @@ function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, 
           {footer}
         </div>
       )}
-    </Card>
+    </HoverPreview>
   )
 }
 
@@ -127,6 +134,7 @@ function LakeHealth({ t, health }) {
           const lat = layer?.measured === true && Number.isFinite(layer.latencyMs)
             ? layer.latencyMs
             : null
+          const stateLabel = state === 'healthy' ? t('tierHealthy') : state === 'degraded' ? t('tierDegraded') : state === 'down' ? t('tierDown') : state === 'unavailable' ? t('latencyUnavailable') : t('notConnected')
           return (
             <div key={tier.id}>
               {idx > 0 && (
@@ -141,10 +149,13 @@ function LakeHealth({ t, health }) {
                   />
                 </div>
               )}
-              <div
-                className="lake-health-row flex h-14 items-center gap-3 rounded-[var(--r-tile)] border px-4 transition-[transform,background-color,border-color,filter] duration-[var(--dur-base)]"
+              <HoverPreview
+                preview={lakePreview(t, { name: t(tier.nameKey), tech, state, stateLabel, tone, latencyMs: lat })}
+                tabIndex={0}
+                data-state={state}
+                className="lake-health-row ix-row flex h-14 items-center gap-3 rounded-[var(--r-tile)] border px-4 transition-[transform,background-color,border-color,filter] duration-[var(--dur-base)]"
                 style={{
-                  transform: dimmed ? 'translateY(2px)' : 'translateY(0)',
+                  transform: dimmed ? 'translateY(2px)' : undefined,
                   filter: dimmed ? 'saturate(0)' : 'none',
                   opacity: dimmed ? 0.62 : 1,
                   background: state === 'degraded' ? 'var(--warn-soft)' : state === 'down' ? 'var(--danger-soft)' : 'var(--card)',
@@ -163,8 +174,8 @@ function LakeHealth({ t, health }) {
                 <span className="lake-health-latency text-[12px] font-medium w-16 text-right" style={{ fontVariantNumeric: 'tabular-nums', color: state === 'healthy' ? 'var(--ink-2)' : tone === 'warn' ? 'var(--warn)' : tone === 'danger' ? 'var(--danger)' : 'var(--ink-3)' }}>
                   {lat != null ? `${lat.toFixed(1)} ms` : t('latencyUnavailable')}
                 </span>
-                <Chip tone={tone} className="lake-health-state">{state === 'healthy' ? t('tierHealthy') : state === 'degraded' ? t('tierDegraded') : state === 'down' ? t('tierDown') : state === 'unavailable' ? t('latencyUnavailable') : t('notConnected')}</Chip>
-              </div>
+                <Chip tone={tone} className="lake-health-state">{stateLabel}</Chip>
+              </HoverPreview>
             </div>
           )
         })}
@@ -174,7 +185,7 @@ function LakeHealth({ t, health }) {
 }
 
 /* ── Login history — personal security status (สเปกของจอ Dashboard) ── */
-function LoginHistoryCard({ t, events, unavailable = false }) {
+function LoginHistoryCard({ t, events, now, unavailable = false }) {
   return (
     <Card className="dashboard-list-card p-5 rise-in flex flex-col min-h-0" style={{ animationDelay: '200ms' }}>
       <CardTitle icon={LogIn} sub={t('dashLoginHistorySub')}>{t('dashLoginHistory')}</CardTitle>
@@ -188,8 +199,15 @@ function LoginHistoryCard({ t, events, unavailable = false }) {
             const at = new Date(e.at).getTime()
             const bad = e.result !== 'OK'
             return (
-              <div key={i} data-result={bad ? 'denied' : 'ok'} className="dashboard-list-row flex items-start gap-3 rounded-[10px] px-3 py-2.5">
-                <div className="size-7 rounded-full bg-sunken flex items-center justify-center shrink-0 mt-0.5">
+              <HoverPreview
+                key={i}
+                preview={loginPreview(t, e, now)}
+                tabIndex={0}
+                data-result={bad ? 'denied' : 'ok'}
+                className="dashboard-list-row ix-row flex items-start gap-3 rounded-[10px] px-3 py-2.5"
+                style={{ '--ix-i': i }}
+              >
+                <div className="ix-row-icon size-7 rounded-full bg-sunken flex items-center justify-center shrink-0 mt-0.5">
                   <LogIn size={13} strokeWidth={1.5} className={bad ? 'text-danger' : 'text-ink-2'} />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -199,7 +217,7 @@ function LoginHistoryCard({ t, events, unavailable = false }) {
                   </p>
                   <p className="font-mono text-[11.5px] text-ink-3 mt-0.5">{e.source_ip ?? e.sourceIp ?? '—'}</p>
                 </div>
-              </div>
+              </HoverPreview>
             )
           })}
         </div>
@@ -219,16 +237,30 @@ function ActiveLinksCard({ t, shares, now, unavailable = false }) {
         <InlineEmptyState>{t('emptyNoShares')}</InlineEmptyState>
       ) : (
         <div className="dashboard-links-list">
-          {shares.map((s) => (
-            <div key={s.id} className="dashboard-list-row flex items-center gap-3 py-2 border-b border-line last:border-b-0">
-              <Link2 size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" />
-              <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{s.fileName}</span>
-              <span className="text-[11.5px] text-ink-3 font-mono shrink-0 flex items-center gap-1.5">
-                <Clock size={11} strokeWidth={1.8} />
-                {fmtCountdown(s.expiresAt - now, t('expired'))}
-              </span>
-            </div>
-          ))}
+          {shares.map((s, i) => {
+            const msLeft = s.expiresAt - now
+            const scope = shareScopeChip(s.scope)
+            return (
+              <HoverPreview
+                key={s.id}
+                preview={sharePreview(t, s, now)}
+                tabIndex={0}
+                data-expiring={msLeft > 0 && msLeft < 3_600_000 ? 'true' : undefined}
+                className="dashboard-list-row dashboard-share-row ix-row flex items-center gap-3 py-2 border-b border-line last:border-b-0"
+                style={{ '--ix-i': i }}
+              >
+                <Link2 size={14} strokeWidth={1.5} className="ix-row-icon text-ink-3 shrink-0" />
+                <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{s.fileName}</span>
+                <span className="dashboard-share-scope" data-tone={scope.tone} title={t(scope.key)}>
+                  <span className="sr-only">{t(scope.key)}</span>
+                </span>
+                <span className="dashboard-share-expiry text-[11.5px] text-ink-3 font-mono shrink-0 flex items-center gap-1.5">
+                  <Clock size={11} strokeWidth={1.8} />
+                  {fmtCountdown(msLeft, t('expired'))}
+                </span>
+              </HoverPreview>
+            )
+          })}
         </div>
       )}
     </Card>
@@ -247,6 +279,7 @@ function StorageHero({ t, usedBytes, totalBytes, usage, unavailable, unavailable
   const lastRingPct = useRef(null)
   const categoriesRevealed = useRef(false)
   const reduced = useReducedMotion()
+  const [activeCategory, setActiveCategory] = useState(null)
   const capacityKnown = !unavailable && Number.isFinite(usedBytes) && Number.isFinite(totalBytes) && totalBytes > 0
   const usedPct = capacityKnown ? Math.min(100, Math.max(0, Math.round((usedBytes / totalBytes) * 100))) : null
   const freeBytes = capacityKnown ? Math.max(0, totalBytes - usedBytes) : null
@@ -294,8 +327,9 @@ function StorageHero({ t, usedBytes, totalBytes, usage, unavailable, unavailable
 
       <div className="dashboard-storage-hero-body">
         <div className="dashboard-storage-capacity">
-          <div
+          <HoverPreview
             ref={ringRef}
+            preview={capacityKnown ? capacityPreview(t, { usedBytes, totalBytes }) : null}
             className={`dashboard-storage-radial ${capacityKnown ? '' : 'is-unavailable'}`}
             style={capacityKnown ? { '--capacity-pct': `${usedPct}%` } : undefined}
             role="img"
@@ -305,7 +339,7 @@ function StorageHero({ t, usedBytes, totalBytes, usage, unavailable, unavailable
               <strong lang="en">{capacityKnown ? `${usedPct}%` : '—'}</strong>
               <span>{t('capacityUsedPct')}</span>
             </div>
-          </div>
+          </HoverPreview>
           <dl className="dashboard-storage-totals">
             <div><dt>{t('capacityUsed')}</dt><dd lang="en">{capacityKnown ? fmtBytes(usedBytes) : '—'}</dd></div>
             <div><dt>{t('free')}</dt><dd lang="en">{freeBytes != null ? fmtBytes(freeBytes) : '—'}</dd></div>
@@ -319,11 +353,17 @@ function StorageHero({ t, usedBytes, totalBytes, usage, unavailable, unavailable
           {categoriesAvailable && segs.length === 0 ? (
             <InlineEmptyState>{t('emptyNoFiles')}</InlineEmptyState>
           ) : (
-            <div ref={categoriesRef} className="dashboard-storage-category-list">
+            <div ref={categoriesRef} className="dashboard-storage-category-list" data-linked={activeCategory ?? undefined}>
               {visibleCategories.map((seg) => {
                 const percent = seg.bytes != null && accounted > 0 ? (seg.bytes / accounted) * 100 : null
                 return (
-                  <div className="dashboard-storage-category" key={seg.key} data-tooltip={percent != null ? `${t(seg.key)} · ${fmtBytes(seg.bytes)} · ${percent.toFixed(1)}%` : undefined}>
+                  <HoverPreview
+                    className="dashboard-storage-category"
+                    key={seg.key}
+                    preview={percent != null ? storageCategoryPreview(t, { key: seg.key, bytes: seg.bytes, accounted }) : null}
+                    onActiveChange={(on) => setActiveCategory(on ? seg.key : null)}
+                    data-active={activeCategory === seg.key ? 'true' : undefined}
+                  >
                     <div className="dashboard-storage-category-label">
                       <span>{t(seg.key)}</span>
                       <span lang="en">{seg.bytes != null ? <>{fmtBytes(seg.bytes)} <small>{percent.toFixed(1)}%</small></> : '—'}</span>
@@ -331,7 +371,7 @@ function StorageHero({ t, usedBytes, totalBytes, usage, unavailable, unavailable
                     <div className="dashboard-storage-category-track" role={percent != null ? 'progressbar' : undefined} tabIndex={percent != null ? 0 : undefined} aria-label={percent != null ? t(seg.key) : undefined} aria-valuenow={percent != null ? Math.round(percent) : undefined} aria-valuetext={percent != null ? `${percent.toFixed(1)}% ${t('storageCategoryShare')}` : undefined} aria-valuemin={percent != null ? 0 : undefined} aria-valuemax={percent != null ? 100 : undefined} aria-hidden={percent == null ? true : undefined}>
                       {percent != null && <span style={{ width: `${percent}%`, background: seg.color }} />}
                     </div>
-                  </div>
+                  </HoverPreview>
                 )
               })}
               {!categoriesAvailable && (
@@ -356,9 +396,13 @@ const DOWNLOAD_COLOR = 'var(--dashboard-series-downloads, var(--accent))'
 
 function ChartTooltip({ active, payload, label, t }) {
   if (!active || !payload?.length) return null
+  const date = payload[0]?.payload?.date
   return (
-    <div className="dashboard-chart-tooltip bg-card border border-line rounded-[var(--r-tile)] px-3.5 py-2.5" style={{ boxShadow: 'var(--elev-2)' }}>
-      <p className="text-[12px] font-semibold text-ink mb-1">{label}</p>
+    <div className="dashboard-chart-tooltip chart-tooltip bg-card border border-line rounded-[var(--r-tile)] px-3.5 py-2.5" style={{ boxShadow: 'var(--elev-2)' }}>
+      <p className="chart-tooltip-title text-[12px] font-semibold text-ink mb-1">
+        {label}
+        {date && <span lang="en" className="chart-tooltip-date">{date}</span>}
+      </p>
       {payload.map((p) => (
         <p key={p.dataKey} className="text-[12.5px] text-ink-2 flex items-center gap-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
           <span className="size-2 rounded-full" style={{ background: p.dataKey === 'uploads' ? UPLOAD_COLOR : DOWNLOAD_COLOR }} />
@@ -371,6 +415,13 @@ function ChartTooltip({ active, payload, label, t }) {
 
 function ActivityChart({ t, lang, data, classic = false }) {
   const reduced = useReducedMotion()
+  // Changes only when the pointer crosses into another day or legend item.
+  const [activeIndex, setActiveIndex] = useState(null)
+  const [activeSeries, setActiveSeries] = useState(null)
+  const barState = (series, index) => {
+    const dim = (activeSeries != null && activeSeries !== series) || (activeIndex != null && index !== activeIndex)
+    return `activity-bar${dim ? ' is-dim' : ''}${activeIndex === index ? ' is-active' : ''}`
+  }
   // ป้ายแกน X เป็นชื่อวันตามภาษาที่เลือก — เซิร์ฟเวอร์คืนวันที่ ISO ไม่ใช่ชื่อวันภาษาอังกฤษ
   // (ชื่อวันเป็นเรื่องของการแสดงผล ไม่ใช่ข้อมูล)
   const rows = data.map((d) => ({
@@ -388,9 +439,18 @@ function ActivityChart({ t, lang, data, classic = false }) {
         icon={Activity}
         sub={t('activitySub')}
         right={
-          <div className="flex items-center gap-3 text-[12px] font-medium text-ink-3">
-            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: UPLOAD_COLOR }} />{t('uploads')}</span>
-            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: DOWNLOAD_COLOR }} />{t('downloads')}</span>
+          <div className="activity-legend flex items-center gap-3 text-[12px] font-medium text-ink-3" data-series={activeSeries ?? undefined}>
+            {[['uploads', UPLOAD_COLOR], ['downloads', DOWNLOAD_COLOR]].map(([key, color]) => (
+              <span
+                key={key}
+                className="activity-legend-item flex items-center gap-1.5"
+                data-active={activeSeries === key ? 'true' : undefined}
+                onPointerEnter={() => setActiveSeries(key)}
+                onPointerLeave={() => setActiveSeries(null)}
+              >
+                <span className="size-2.5 rounded-[3px]" style={{ background: color }} />{t(key)}
+              </span>
+            ))}
           </div>
         }
       >
@@ -398,9 +458,18 @@ function ActivityChart({ t, lang, data, classic = false }) {
       </CardTitle>
       {/* ⚠️ ยังไม่มีกิจกรรมเลย ≠ กราฟเปล่าที่ดูเหมือนพัง — บอกตรง ๆ ว่าไม่มีเหตุการณ์
           ในเจ็ดวันนี้ (ของเดิมไม่มีสถานะนี้เพราะข้อมูลปลอมทำให้มีแท่งอยู่เสมอ) */}
-      {rows.length > 0 && <div className="dashboard-activity-plot h-56" role="img" aria-label={t('activityTitle')}>
+      {rows.length > 0 && <div className="dashboard-activity-plot h-56" role="img" aria-label={t('activityTitle')} data-hovering={activeIndex != null ? 'true' : undefined}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={rows} barGap={3} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <BarChart data={rows}
+            barGap={3}
+            margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+            onMouseMove={(state) => {
+              const raw = state?.activeTooltipIndex
+              const next = raw != null && raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : null
+              setActiveIndex((prev) => (prev === next ? prev : next))
+            }}
+            onMouseLeave={() => setActiveIndex(null)}
+          >
             <defs>
               <linearGradient id="dash-series-uploads" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" style={{ stopColor: 'var(--dashboard-series-uploads-top, var(--dashboard-series-uploads, var(--ink)))' }} />
@@ -416,8 +485,12 @@ function ActivityChart({ t, lang, data, classic = false }) {
             {/* allowDecimals=false — จำนวนครั้งเป็นจำนวนเต็มเสมอ */}
             <YAxis axisLine={false} tickLine={false} width={38} allowDecimals={false} domain={[0, 'auto']} />
             <RTooltip content={<ChartTooltip t={t} />} cursor={{ fill: 'var(--card-sunken)' }} />
-            <Bar dataKey="uploads" radius={[5, 5, 0, 0]} maxBarSize={18} fill={classic ? UPLOAD_COLOR : 'url(#dash-series-uploads)'} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
-            <Bar dataKey="downloads" radius={[5, 5, 0, 0]} maxBarSize={18} fill={classic ? DOWNLOAD_COLOR : 'url(#dash-series-downloads)'} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
+            <Bar dataKey="uploads" radius={[5, 5, 0, 0]} maxBarSize={18} fill={classic ? UPLOAD_COLOR : 'url(#dash-series-uploads)'} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out">
+              {rows.map((row, index) => <Cell key={row.date} className={barState('uploads', index)} />)}
+            </Bar>
+            <Bar dataKey="downloads" radius={[5, 5, 0, 0]} maxBarSize={18} fill={classic ? DOWNLOAD_COLOR : 'url(#dash-series-downloads)'} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out">
+              {rows.map((row, index) => <Cell key={row.date} className={barState('downloads', index)} />)}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>}
@@ -484,6 +557,7 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
           valueLabel={storageKnown ? fmtBytes(storageUsed) : '—'}
           allClearLabel={storageKnown ? null : (placeholderLabel ?? t('capacityUnreadable'))}
           statusTone="neutral"
+          preview={storageKnown ? capacityPreview(t, { usedBytes: storageUsed, totalBytes: storageTotal }) : null}
           support={storageKnown ? (
             <>
               {/* Real used / total ratio from the same bytes as the number above. */}
@@ -516,6 +590,7 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
           alarm={!dashboardUnavailable && d.securityAlerts > 0}
           allClearLabel={placeholderLabel ?? t('allClear')}
           statusTone={dashboardUnavailable ? 'neutral' : 'ok'}
+          preview={securityPreview(t, { count: d.securityAlerts, unavailable: dashboardUnavailable })}
           delay={120}
         />
       </div>
@@ -558,12 +633,18 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
             <InlineEmptyState>{t('emptyNoRecentFiles')}</InlineEmptyState>
           ) : (
             <div className="dashboard-list flex flex-col">
-              {d.recentFiles.map((f) => (
-                <div key={f.id} className="dashboard-list-row flex items-center gap-3 py-2 border-b border-line last:border-b-0">
-                  <span className="dashboard-list-icon"><FileText size={14} strokeWidth={1.6} aria-hidden /></span>
+              {d.recentFiles.map((f, i) => (
+                <HoverPreview
+                  key={f.id}
+                  preview={recentFilePreview(t, f, now)}
+                  tabIndex={0}
+                  className="dashboard-list-row ix-row flex items-center gap-3 py-2 border-b border-line last:border-b-0"
+                  style={{ '--ix-i': i }}
+                >
+                  <span className="dashboard-list-icon ix-row-icon"><FileText size={14} strokeWidth={1.6} aria-hidden /></span>
                   <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{f.name}</span>
                   <span className="text-[11.5px] text-ink-3 font-mono shrink-0">{fmtRelative(t, f.modified, now)}</span>
-                </div>
+                </HoverPreview>
               ))}
             </div>
           )}
@@ -573,7 +654,7 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
 
       {/* Row 4 — personal sign-in history (full width: the longest list). */}
       <div className="dashboard-links-row">
-        <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={dashboardUnavailable} />
+        <LoginHistoryCard t={t} events={d.loginHistory ?? []} now={now} unavailable={dashboardUnavailable} />
       </div>
     </div>
   )
