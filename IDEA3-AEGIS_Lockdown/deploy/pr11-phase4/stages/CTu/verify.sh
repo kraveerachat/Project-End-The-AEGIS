@@ -106,7 +106,7 @@ if [ "$AEGIS_CTU_DETECTOR_PRE_MODE" = "ACTIVE" ]; then
   [ "$detector_sub" = "$apply_detector_sub" ] || fail DETECTOR_SUB_STATE_CHANGED_AFTER_APPLY
   [[ "$core_post_mono" =~ ^[0-9]+$ && "$detector_mono" =~ ^[0-9]+$ ]] || fail DETECTOR_MONOTONIC_START_UNAVAILABLE
 
-  /usr/bin/python3 -I "$AEGIS_CTU_RUNTIME_VERIFY" --verify-detector --detector-mode ACTIVE --device-id "$AEGIS_CTU_DEVICE_ID" --core-post-monotonic "$core_post_mono" \
+  /usr/bin/python3 -I -B "$AEGIS_CTU_RUNTIME_VERIFY" --verify-detector --detector-mode ACTIVE --device-id "$AEGIS_CTU_DEVICE_ID" --core-post-monotonic "$core_post_mono" \
     --pre-detector-pid "$AEGIS_CTU_PRE_DETECTOR_PID" --pre-detector-start "$AEGIS_CTU_PRE_DETECTOR_START" --pre-detector-invocation "$AEGIS_CTU_PRE_DETECTOR_INVOCATION" --pre-detector-nrestarts "$AEGIS_CTU_PRE_DETECTOR_NRESTARTS" --pre-detector-monotonic "$AEGIS_CTU_PRE_DETECTOR_MONOTONIC" \
     --post-detector-pid "$detector_pid" --post-detector-start "$detector_start" --post-detector-invocation "$detector_invocation" --post-detector-nrestarts "$detector_nrestarts" --post-detector-monotonic "$detector_mono" \
     --post-detector-load "$detector_load" --post-detector-active "$detector_active" --post-detector-sub "$detector_sub" --post-detector-unit-file "$detector_unit_file" --post-detector-restart "$detector_restart" || fail DETECTOR_IMPLICIT_LIFECYCLE_UNPROVEN
@@ -128,7 +128,7 @@ elif [ "$AEGIS_CTU_DETECTOR_PRE_MODE" = "INACTIVE" ]; then
   [ "$apply_detector_count" = 0 ] || fail DETECTOR_APPLY_PROCESS_COUNT_INVALID
   [ "$apply_detector_lifecycle_events" = 0 ] || fail DETECTOR_TRANSIENT_LIFECYCLE_DETECTED
 
-  /usr/bin/python3 -I "$AEGIS_CTU_RUNTIME_VERIFY" --verify-detector --detector-mode INACTIVE --device-id "$AEGIS_CTU_DEVICE_ID" --core-post-monotonic "${core_post_mono:-0}" --post-detector-lifecycle-events "$apply_detector_lifecycle_events" \
+  /usr/bin/python3 -I -B "$AEGIS_CTU_RUNTIME_VERIFY" --verify-detector --detector-mode INACTIVE --device-id "$AEGIS_CTU_DEVICE_ID" --core-post-monotonic "${core_post_mono:-0}" --post-detector-lifecycle-events "$apply_detector_lifecycle_events" \
     --pre-detector-pid "$AEGIS_CTU_PRE_DETECTOR_PID" --pre-detector-start "$AEGIS_CTU_PRE_DETECTOR_START" --pre-detector-invocation "$AEGIS_CTU_PRE_DETECTOR_INVOCATION" --pre-detector-nrestarts "$AEGIS_CTU_PRE_DETECTOR_NRESTARTS" --pre-detector-monotonic "$AEGIS_CTU_PRE_DETECTOR_MONOTONIC" \
     --post-detector-pid "$detector_pid" --post-detector-start "$detector_start" --post-detector-invocation "$detector_invocation" --post-detector-nrestarts "$detector_nrestarts" --post-detector-monotonic "$detector_mono" \
     --post-detector-load "$detector_load" --post-detector-active "$detector_active" --post-detector-sub "$detector_sub" --post-detector-unit-file "$detector_unit_file" --post-detector-restart "$detector_restart" || fail DETECTOR_INACTIVE_PRESERVATION_UNPROVEN
@@ -138,7 +138,7 @@ fi
 runtime_args=(--core-pid "$post_pid" --pre-updated-at "$AEGIS_CTU_PRE_STATUS_UPDATED_AT" --device-id "$AEGIS_CTU_DEVICE_ID" --post-core-start-timestamp "$post_start" --core-env-path /etc/aegis-idea3/core.env --pre-core-env-sha "$AEGIS_CTU_PRE_CORE_ENV_SHA")
 runtime_last=''
 for attempt in $(seq 1 30); do
-  if runtime_last=$(/usr/bin/python3 -I "$AEGIS_CTU_RUNTIME_VERIFY" "${runtime_args[@]}" 2>&1); then
+  if runtime_last=$(/usr/bin/python3 -I -B "$AEGIS_CTU_RUNTIME_VERIFY" "${runtime_args[@]}" 2>&1); then
     printf '%s\n' "$runtime_last"
     printf 'CTU_VERIFY=PASS runtime=CORE_SANDBOX authenticated_status=PROVEN time_trust=SYNCED device=ONLINE uplink=LOCKDOWN\n'
     exit 0

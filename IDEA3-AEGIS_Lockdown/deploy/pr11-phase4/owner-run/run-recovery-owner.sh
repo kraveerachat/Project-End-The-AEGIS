@@ -237,7 +237,7 @@ RCV_MARKER="${AEGIS_RCVSTAGE_ATTEMPT_MARKER:-}"
 # the verifier runs with a CLEAN environment, a fixed PATH and ONLY the immutable snapshot on the import path
 umask 077
 # an explicit root-owned private log under the root work directory: importing the Core modules opens a log file and must never fall back to a relative `aegis_soc.log`
-RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_LOG_PATH="$RCV_WORK/stage-root.log" PYTHONPATH="$RCV_APP" PYTHONDONTWRITEBYTECODE=1 "$RCV_PY" -B -s -m aegis_soc.recovery_stage "$@"; }
+RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_LOG_PATH="$RCV_WORK/stage-root.log" PYTHONDONTWRITEBYTECODE=1 "$RCV_PY" -I -B -c 'import runpy,sys; sys.path.insert(0,sys.argv[1]); sys.argv=sys.argv[1:]; runpy.run_module("aegis_soc.recovery_stage",run_name="__main__")' "$RCV_APP" "$@"; }
 cd "$RCV_WORK" || recovery_handler_fail WORK_DIR_REQUIRED   # a neutral cwd: nothing in the working directory can shadow a module
 case "$STEP" in BASELINE | READINESS | NFT_PRE | NFT_POST | NFT_PRE_CHECK | FINAL | DELTA) ;; *) recovery_handler_fail STEP_INVALID ;; esac
 ( set -o noclobber; printf 'step=%s\nat=%s\n' "$STEP" "$(date -u +%FT%TZ)" > "$RCV_WORK/RECOVERY-STEP-$STEP-RAN" ) 2>/dev/null || recovery_handler_fail "STEP_ALREADY_RAN_$STEP"
@@ -321,7 +321,7 @@ RCV_MARKER="${AEGIS_RCVSTAGE_ATTEMPT_MARKER:-}"
 [[ "$RCV_MARKER" == /* ]] && [[ "$RCV_MARKER" != *..* ]] || recovery_handler_fail ATTEMPT_MARKER_REQUIRED
 # the verifier runs with a CLEAN environment, a fixed PATH and ONLY the immutable snapshot on the import path
 umask 077
-RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_LOG_PATH="$RCV_WORK/stage-root.log" PYTHONPATH="$RCV_APP" PYTHONDONTWRITEBYTECODE=1 "$RCV_PY" -B -s -m aegis_soc.recovery_stage "$@"; }
+RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_LOG_PATH="$RCV_WORK/stage-root.log" PYTHONDONTWRITEBYTECODE=1 "$RCV_PY" -I -B -c 'import runpy,sys; sys.path.insert(0,sys.argv[1]); sys.argv=sys.argv[1:]; runpy.run_module("aegis_soc.recovery_stage",run_name="__main__")' "$RCV_APP" "$@"; }
 cd "$RCV_WORK" || recovery_handler_fail WORK_DIR_REQUIRED   # a neutral cwd: nothing in the working directory can shadow a module
 RUN verify-result --audit-db "$RCV_AUDIT_DB" --work-dir "$RCV_WORK" --attempt-marker "$RCV_MARKER" || recovery_handler_fail RESULT_NOT_BOUND_TO_THE_ATTEMPT
 printf 'RECOVERY_VERIFY=PASS\nRECOVERY_RESULT_BOUND_TO_ATTEMPT=YES\nRECOVERY_PROMOTION=NOT_AUTOMATIC\n'

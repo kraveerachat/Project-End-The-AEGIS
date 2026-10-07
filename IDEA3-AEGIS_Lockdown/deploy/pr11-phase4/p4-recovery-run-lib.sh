@@ -257,7 +257,7 @@ recovery_r1i_present_gate() {
   [ -f "$tool" ] || { recovery_reason "RECOVERY_R1I_VALIDATOR_MISSING"; return 1; }
   $SUDO nft list tables 2>/dev/null | grep -qxF "table $RECOVERY_R1I_TABLE" || { recovery_reason "RECOVERY_R1I_TABLE_MISSING (R1I must stay installed; a reboot removes it)"; return 1; }
   state=$($SUDO nft --stateless list table $RECOVERY_R1I_TABLE 2>/dev/null) || { recovery_reason "RECOVERY_R1I_TABLE_UNREADABLE"; return 1; }
-  printf '%s\n' "$state" | python3 "$tool" validate-state /dev/stdin >/dev/null 2>&1 || { recovery_reason "RECOVERY_R1I_TABLE_NOT_EXACT_OWNED_SHAPE"; return 1; }
+  printf '%s\n' "$state" | /usr/bin/python3 -I -B "$tool" validate-state /dev/stdin >/dev/null 2>&1 || { recovery_reason "RECOVERY_R1I_TABLE_NOT_EXACT_OWNED_SHAPE"; return 1; }
 }
 recovery_digest_gate() {
   local file=${1:-} want=${2:-} label=${3:-FILE} got
@@ -281,7 +281,7 @@ recovery_verifier_gate() {
   local snap=${1:-} want=${2:-} repo=${3:-} tool=${4:-} main=${5:-} sha rel got module
   [ -f "$tool" ] && [[ "$want" =~ ^[0-9a-f]{64}$ ]] || { recovery_reason "RECOVERY_VERIFIER_GATE_INPUT_INVALID"; return 1; }
   recovery_commit_gate "$repo" "$main" || return 1
-  python3 "$tool" check "$snap" "$want" >/dev/null 2>&1 || { recovery_reason "RECOVERY_VERIFIER_SNAPSHOT_DRIFT_OR_NOT_ROOT_OWNED"; return 1; }
+  /usr/bin/python3 -I -B "$tool" check "$snap" "$want" >/dev/null 2>&1 || { recovery_reason "RECOVERY_VERIFIER_SNAPSHOT_DRIFT_OR_NOT_ROOT_OWNED"; return 1; }
   while read -r sha rel; do
     [ "$rel" != "" ] || continue
     got=$(git -C "$repo" show "$main:IDEA3-AEGIS_Lockdown/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1)
@@ -369,8 +369,8 @@ recovery_tty_gate() {
 # snapshot under the privilege prefix. Neither ever runs a file from a worktree or /home.
 # EVERY invocation sets an explicit AEGIS_LOG_PATH (importing the Core modules opens a log file; without it the path falls back to a relative `aegis_soc.log` in the cwd). Before the private operator log exists it is /dev/null;
 # root-side commands log into the root-owned private work directory. The caller's environment never chooses it.
-recovery_operator_py() { env -i PATH="$RECOVERY_SAFE_PATH" AEGIS_LOG_PATH="${RECOVERY_OPERATOR_LOG:-/dev/null}" PYTHONPATH="$VERIFIER_SNAPSHOT_DIR" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
-recovery_root_py() { $SUDO env -i PATH="$RECOVERY_SAFE_PATH" AEGIS_LOG_PATH="${WORK:-/dev/null}/stage-root.log" PYTHONPATH="$VERIFIER_SNAPSHOT_DIR" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
+recovery_operator_py() { env -i PATH="$RECOVERY_SAFE_PATH" AEGIS_LOG_PATH="${RECOVERY_OPERATOR_LOG:-/dev/null}" PYTHONDONTWRITEBYTECODE=1 "$PY" -I -B -c 'import runpy,sys; sys.path.insert(0,sys.argv[1]); sys.argv=sys.argv[1:]; runpy.run_module("aegis_soc.recovery_stage",run_name="__main__")' "$VERIFIER_SNAPSHOT_DIR" "$@"; }
+recovery_root_py() { $SUDO env -i PATH="$RECOVERY_SAFE_PATH" AEGIS_LOG_PATH="${WORK:-/dev/null}/stage-root.log" PYTHONDONTWRITEBYTECODE=1 "$PY" -I -B -c 'import runpy,sys; sys.path.insert(0,sys.argv[1]); sys.argv=sys.argv[1:]; runpy.run_module("aegis_soc.recovery_stage",run_name="__main__")' "$VERIFIER_SNAPSHOT_DIR" "$@"; }
 # recovery_reason_gate REASON — the existing production RESTORE-reason validator (bounded, printable, no shell-active character). Run BEFORE the marker; the SAME reason is then passed to D4.
 recovery_reason_gate() {
   local reason=${1-}

@@ -1,4 +1,13 @@
-#!/usr/bin/env bash
+#!/bin/sh
+# The executable entry point is a POSIX launcher so Bash startup files and
+# caller-selected PATH entries cannot run before the governed runner starts.
+# The clean re-exec deliberately carries no caller environment.  A caller who
+# supplies the guard still reaches this line under /bin/sh and is refused
+# before any Bash-only runner code can execute.
+if [ "${AEGIS_CTU_CLEAN_START:-}" != YES ]; then
+  exec /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_CTU_CLEAN_START=YES /bin/bash --noprofile --norc "$0" "$@"
+fi
+[ -n "${BASH_VERSION:-}" ] || { echo 'STOP: CTu runner clean Bash boundary was not established.' >&2; exit 2; }
 # Frozen post-merge CTu owner runner template. It is intentionally unpinned;
 # a future exact-main authority must fill the pins after human merge.
 set -Eeuo pipefail
@@ -81,7 +90,7 @@ CORE_PRE_NRESTARTS=$(sudo -n systemctl show -p NRestarts --value aegis-idea3-cor
 [ "$CORE_PRE_LOAD" = "loaded" ] && [ "$CORE_PRE_ACTIVE" = "active" ] && [ "$CORE_PRE_SUB" = "running" ] && [ "$CORE_PRE_RESULT" = "success" ] && [ "$CORE_PRE_NRESTARTS" = 0 ] && [[ "$CORE_PRE_PID" =~ ^[1-9][0-9]*$ ]] || { echo 'STOP: Core is not in active running state before CTu.' >&2; exit 1; }
 ctu_validate_core_env_device_id /etc/aegis-idea3/core.env "$DEVICE_ID" || { echo 'STOP: core.env AEGIS_P1_DEVICE_ID does not match frozen DEVICE_ID or is invalid.' >&2; exit 1; }
 CORE_ENV_PRE_SHA=$(sudo -n sha256sum /etc/aegis-idea3/core.env | cut -d' ' -f1)
-STATUS_PRE_UPDATED_AT=$(sudo -n /usr/bin/python3 -c 'import json; print(float(json.load(open("/run/aegis-idea3/status.json"))["updated_at"]))') || exit 1
+STATUS_PRE_UPDATED_AT=$(sudo -n /usr/bin/python3 -I -B -c 'import json; print(float(json.load(open("/run/aegis-idea3/status.json"))["updated_at"]))') || exit 1
 DETECTOR_PRE_LOAD=$(sudo -n systemctl show -p LoadState --value aegis-idea3-detector.service)
 DETECTOR_PRE_ACTIVE=$(sudo -n systemctl show -p ActiveState --value aegis-idea3-detector.service)
 DETECTOR_PRE_SUB=$(sudo -n systemctl show -p SubState --value aegis-idea3-detector.service)

@@ -484,7 +484,8 @@ def test_a_handler_step_runs_exactly_once_per_work_dir_from_the_immutable_snapsh
     second = sup.run_handler(env)
     assert second.returncode == 1 and "STEP_ALREADY_RAN_FINAL" in second.stderr
     calls = (tmp_path / "calls.txt").read_text()
-    assert calls.count("aegis_soc.recovery_stage final-verify") == 1 and "-B -s -m aegis_soc.recovery_stage final-verify" in calls
+    assert calls.count("runpy.run_module(\"aegis_soc.recovery_stage\",run_name=\"__main__\")") == 1
+    assert "-I -B -c" in calls and "final-verify" in calls
     assert f"--attempt-marker {tmp_path}/canon/RECOVERY-GLOBAL-ATTEMPT-CONSUMED" in calls and (tmp_path / "cwd.txt").read_text().strip() == str(tmp_path / "work")
     assert (tmp_path / "work/RECOVERY-STEP-FINAL-RAN").is_file()
 

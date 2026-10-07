@@ -60,7 +60,7 @@ MARKER="${AEGIS_RCVSTAGE_ATTEMPT_MARKER:-}"
 [[ "$MARKER" == /* ]] && [[ "$MARKER" != *..* ]] || fail ATTEMPT_MARKER_REQUIRED
 # the verifier runs with a CLEAN environment, a fixed PATH and ONLY the immutable snapshot on the import path
 umask 077
-RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_LOG_PATH="$WORK/stage-root.log" PYTHONPATH="$APP" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
+RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_LOG_PATH="$WORK/stage-root.log" PYTHONDONTWRITEBYTECODE=1 "$PY" -I -B -c 'import runpy,sys; sys.path.insert(0,sys.argv[1]); sys.argv=sys.argv[1:]; runpy.run_module("aegis_soc.recovery_stage",run_name="__main__")' "$APP" "$@"; }
 cd "$WORK" || fail WORK_DIR_REQUIRED   # a neutral cwd: nothing in the working directory can shadow a module
 RUN verify-result --audit-db "$AUDIT_DB" --work-dir "$WORK" --attempt-marker "$MARKER" || fail RESULT_NOT_BOUND_TO_THE_ATTEMPT
 printf 'RECOVERY_VERIFY=PASS\nRECOVERY_RESULT_BOUND_TO_ATTEMPT=YES\nRECOVERY_PROMOTION=NOT_AUTOMATIC\n'

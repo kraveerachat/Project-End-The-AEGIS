@@ -71,7 +71,7 @@ MARKER="${AEGIS_RCVSTAGE_ATTEMPT_MARKER:-}"
 # the verifier runs with a CLEAN environment, a fixed PATH and ONLY the immutable snapshot on the import path
 umask 077
 # an explicit root-owned private log under the root work directory: importing the Core modules opens a log file and must never fall back to a relative `aegis_soc.log`
-RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_LOG_PATH="$WORK/stage-root.log" PYTHONPATH="$APP" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
+RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_LOG_PATH="$WORK/stage-root.log" PYTHONDONTWRITEBYTECODE=1 "$PY" -I -B -c 'import runpy,sys; sys.path.insert(0,sys.argv[1]); sys.argv=sys.argv[1:]; runpy.run_module("aegis_soc.recovery_stage",run_name="__main__")' "$APP" "$@"; }
 cd "$WORK" || fail WORK_DIR_REQUIRED   # a neutral cwd: nothing in the working directory can shadow a module
 case "$STEP" in BASELINE | READINESS | NFT_PRE | NFT_POST | NFT_PRE_CHECK | FINAL | DELTA) ;; *) fail STEP_INVALID ;; esac
 ( set -o noclobber; printf 'step=%s\nat=%s\n' "$STEP" "$(date -u +%FT%TZ)" > "$WORK/RECOVERY-STEP-$STEP-RAN" ) 2>/dev/null || fail "STEP_ALREADY_RAN_$STEP"

@@ -104,7 +104,7 @@ ctu_consume_attempt() {
   if [ "${AEGIS_CTU_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" = YES ] && [ -n "${AEGIS_CTU_TEST_ONLY_BOUNDARY:-}" ]; then
     boundary=$AEGIS_CTU_TEST_ONLY_BOUNDARY
   else
-    boundary=$($CTU_SUDO /usr/bin/python3 "$verifier" --capture-boundary --device-id "$device") || return 1
+    boundary=$($CTU_SUDO /usr/bin/python3 -I -B "$verifier" --capture-boundary --device-id "$device") || return 1
   fi
   if [ "$provenance" = 1 ]; then
     marker_extra=$(printf 'CTU_FROZEN_RUNNER_SHA256=%s\nCTU_BUNDLE_MANIFEST_SHA256=%s\n' "$runner_sha" "$bundle_sha")

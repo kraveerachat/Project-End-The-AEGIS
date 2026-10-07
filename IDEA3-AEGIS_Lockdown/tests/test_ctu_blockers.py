@@ -841,7 +841,7 @@ def test_ctu_and_recovery_handlers_require_frozen_provenance_before_privileged_w
     # Caller-controlled authorization is not provenance.  The fixed marker
     # and frozen-runner checks must precede the first privileged action.
     assert ctu_runner.index("CTU_PROVENANCE_MISSING") < ctu_runner.index("systemctl restart")
-    assert recovery_apply.index("RECOVERY_PROVENANCE_MISSING") < recovery_apply.index("PYTHONPATH")
+    assert recovery_apply.index("RECOVERY_PROVENANCE_MISSING") < recovery_apply.index("RUN()")
     assert "AEGIS_CTU_LIVE_AUTHORIZED=YES" in ctu_runner
     assert "AEGIS_RCVSTAGE_LIVE_AUTHORIZED=YES" not in recovery_apply
 
@@ -984,6 +984,63 @@ def test_ctu_interpreter_is_not_environment_selectable() -> None:
     assert 'CTU_PYTHON:-' not in text
     assert 'command -v python3' not in text
     assert '/usr/bin/python3 -I -B' in text
+
+
+def test_ctu_frozen_entrypoint_cleans_startup_and_loader_environment(tmp_path: Path) -> None:
+    """The executable runner must sanitize before Bash/Python can be selected."""
+    sentinel = tmp_path / "startup-sentinel"
+    calls = tmp_path / "mutation-calls"
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    for name in ("bash", "python3", "systemctl"):
+        fake = fake_bin / name
+        fake.write_text(f'#!/bin/sh\nprintf "{name}" >> "{calls}"\nexit 97\n')
+        fake.chmod(0o755)
+    bash_env = tmp_path / "bash-env"
+    bash_env.write_text(f'printf sourced > "{sentinel}"\n')
+    hostile_python = tmp_path / "hostile-python"
+    hostile_python.mkdir()
+    (hostile_python / "sitecustomize.py").write_text(f'open("{sentinel}", "w").write("python")\n')
+
+    base = {
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "BASH_ENV": str(bash_env),
+        "ENV": str(bash_env),
+        "PYTHONPATH": str(hostile_python),
+        "PYTHONHOME": str(tmp_path / "not-python"),
+        "PYTHONSTARTUP": str(bash_env),
+        "PYTHONINSPECT": "1",
+        "LD_PRELOAD": str(tmp_path / "missing-preload.so"),
+        "LD_LIBRARY_PATH": str(tmp_path),
+        "AEGIS_CTU_LIVE_AUTHORIZED": "YES",
+        "GIT_DIR": str(tmp_path / "hostile.git"),
+        "BASH_FUNC_systemctl%%": "() { echo imported >> '" + str(calls) + "'; }",
+    }
+    proc = subprocess.run([str(RUNNER), str(tmp_path / "fake-auth")], env=base, text=True, capture_output=True)
+    assert proc.returncode != 0
+    assert not sentinel.exists(), proc.stderr
+    assert not calls.exists(), proc.stderr
+    assert "CTU-GLOBAL-ATTEMPT-CONSUMED" not in str(tmp_path)
+
+    # Each loader/startup variable is independently neutralized by the clean
+    # exec boundary; this also guards against a future partial allow-list.
+    for name, value in {
+        "BASH_ENV": str(bash_env),
+        "ENV": str(bash_env),
+        "PYTHONPATH": str(hostile_python),
+        "PYTHONHOME": str(tmp_path / "not-python"),
+        "PYTHONSTARTUP": str(bash_env),
+        "PYTHONINSPECT": "1",
+        "LD_PRELOAD": str(tmp_path / "missing-preload.so"),
+        "LD_LIBRARY_PATH": str(tmp_path),
+    }.items():
+        sentinel.unlink(missing_ok=True)
+        calls.unlink(missing_ok=True)
+        env = {"PATH": "/usr/bin:/bin", name: value}
+        result = subprocess.run([str(RUNNER), str(tmp_path / "fake-auth")], env=env, text=True, capture_output=True)
+        assert result.returncode != 0, name
+        assert not sentinel.exists(), (name, result.stderr)
+        assert not calls.exists(), (name, result.stderr)
 
 
 def test_ctu_core_restart_contract_is_truthful_on_success_and_failure_paths() -> None:
