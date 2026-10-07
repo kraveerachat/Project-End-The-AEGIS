@@ -1331,3 +1331,99 @@ def test_ctu_core_restart_contract_is_truthful_on_success_and_failure_paths() ->
     assert "ROLLBACK_CORE_RESTARTS_MAX=1" in runner
     assert "systemctl restart aegis-idea3-core.service" not in runner[runner.index("ctu_consume_attempt"):runner.index("declare -f ctu_validate_dropins_root ctu_apply_fail")]
     assert "post_fail" in runner and "rollback_flow" in runner
+
+
+def test_ctu_runner_git_eval_library_load_regression(tmp_path: Path) -> None:
+    """The CTu runner exact-main library load must not escape quotes inside command substitution.
+
+    Inside bash command substitutions $( ... ), nested double quotes do not require
+    backslash escapes. Escaping quotes as \\" passes literal quote marks in argv to git -C,
+    causing git to fail to change directory and leaving ctu_operator_identity_gate undefined.
+    """
+    import pwd
+
+    runner_text = RUNNER.read_text()
+    load_lines = [
+        line.strip()
+        for line in runner_text.splitlines()
+        if "p4-ctu-run-lib.sh" in line and "eval" in line
+    ]
+    assert len(load_lines) == 1, f"Expected exactly 1 eval library-load line, found: {load_lines}"
+    load_cmd = load_lines[0]
+
+    # Static assertion: no backslash-escaped quotes in the library-load command
+    assert r'\"' not in load_cmd, f"Found backslash-escaped quotes in load command: {load_cmd}"
+    assert load_cmd == 'eval "$(git -C "$REPO" show "$EXPECTED_MAIN:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh")"'
+
+    # Initialize a valid test repository
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main", str(repo_dir)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.name", "AEGIS Test"], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.email", "test@aegis.local"], check=True)
+
+    rel_lib = "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh"
+    target_lib = repo_dir / rel_lib
+    target_lib.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(CTU_LIB, target_lib)
+
+    subprocess.run(["git", "-C", str(repo_dir), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "commit", "-m", "commit p4-ctu-run-lib.sh"], check=True)
+    expected_main = subprocess.run(
+        ["git", "-C", str(repo_dir), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True
+    ).stdout.strip()
+    assert re.fullmatch(r"[0-9a-f]{40}", expected_main)
+
+    current_uid = str(os.getuid())
+    current_user = pwd.getpwuid(os.getuid()).pw_name
+
+    # 1. Behavioral execution of repaired library-load expression: must succeed and define gate
+    bash_script = f"""
+set -Eeuo pipefail
+git() {{ HOME=/nonexistent GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git "$@"; }}
+REPO="{repo_dir}"
+EXPECTED_MAIN="{expected_main}"
+OPERATOR_USER="{current_user}"
+OPERATOR_UID="{current_uid}"
+{load_cmd}
+declare -f ctu_operator_identity_gate >/dev/null
+ctu_operator_identity_gate "$OPERATOR_USER" "$OPERATOR_UID"
+echo "CTU_OPERATOR_IDENTITY_GATE_LOADED=PASS"
+"""
+    res = subprocess.run(["bash", "-c", bash_script], capture_output=True, text=True)
+    assert res.returncode == 0, f"Repaired library load failed: {res.stderr}"
+    assert "CTU_OPERATOR_IDENTITY_GATE_LOADED=PASS" in res.stdout
+
+    # 2. Regression against BASE_MAIN: literal escaped quotes fail git -C and leave gate undefined
+    base_main_buggy_cmd = r'eval "$(git -C \"$REPO\" show \"$EXPECTED_MAIN:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh\")"'
+    buggy_script = f"""
+set -Eeuo pipefail
+git() {{ HOME=/nonexistent GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git "$@"; }}
+REPO="{repo_dir}"
+EXPECTED_MAIN="{expected_main}"
+OPERATOR_USER="{current_user}"
+OPERATOR_UID="{current_uid}"
+{base_main_buggy_cmd}
+ctu_operator_identity_gate "$OPERATOR_USER" "$OPERATOR_UID"
+"""
+    buggy_res = subprocess.run(["bash", "-c", buggy_script], capture_output=True, text=True)
+    assert buggy_res.returncode != 0
+    assert 'cannot change to \'"' in buggy_res.stderr
+    assert "ctu_operator_identity_gate: command not found" in buggy_res.stderr
+
+    # 3. Negative control: genuine git object load failure must not silently proceed
+    missing_object_script = f"""
+set -Eeuo pipefail
+git() {{ HOME=/nonexistent GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git "$@"; }}
+REPO="{repo_dir}"
+EXPECTED_MAIN="0000000000000000000000000000000000000000"
+OPERATOR_USER="{current_user}"
+OPERATOR_UID="{current_uid}"
+{load_cmd}
+ctu_operator_identity_gate "$OPERATOR_USER" "$OPERATOR_UID"
+"""
+    missing_res = subprocess.run(["bash", "-c", missing_object_script], capture_output=True, text=True)
+    assert missing_res.returncode != 0
+    assert ("fatal: invalid object name" in missing_res.stderr or "fatal: path" in missing_res.stderr)
+    assert "ctu_operator_identity_gate: command not found" in missing_res.stderr
