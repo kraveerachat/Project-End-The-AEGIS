@@ -11,6 +11,27 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 CTv successor after immutable CTu failure — repository implementation — 2026-10-08
+
+> [!important] CTu remains permanently consumed and failed: `CTU_RESULT=FAIL_IMMUTABLE`, `CTU_FAILURE_REASON=APPLY`, `CTU_ATTEMPT_CONSUMED=YES`, `CTU_RERUN_ALLOWED=NO`. CTv is a distinct successor (`CTV_IS_CTU_RETRY=NO`) and has not run live: `CTV_ATTEMPT_CONSUMED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
+
+Repository implementation now has an explicit frozen CLI (`AUTH_DIR --rehearse|--live`), a real non-consuming deterministic rehearsal, non-circular runtime runner SHA, separate template/bundle/control manifest domains, strict exact-main bundle/control checks, durable prepared and consumed-no-mutation journal phases, governed apply/rollback phases, PRE/POST capture and evidence manifest, and a CTv-aware Recovery successor gate. Hermetic coverage proves rehearsal remains marker-free, isolated fake-LIVE consumes once and closes PASS, and 13 deterministic pre-consume blockers are rejected before the marker. CTv LIVE, Recovery LIVE, Production mutation, Core restart, Detector lifecycle, governance-marker mutation, merge, and Ready transition were intentionally not performed.
+
+### Current Task
+
+Task: IDEA3 CTv complete governed execution repair
+Branch: `feat/idea3-ctv-ctu-immutable-failure-successor`
+Owner: `music`
+PR: #390
+Current state: repository implementation locally verified; commit/push blocked because this session cannot write the linked worktree Git administrative directory; Draft PR remains pending exact-head owner/integration review; CTv LIVE NOT EXECUTED; Recovery LIVE NOT EXECUTED; human merge only
+Production mutation allowed by this task: NO
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTv-S2 | Complete explicit runner, provenance closure, journal/apply/rollback state machine, Recovery successor gate, and hermetic behavior matrix | BLOCKED | 23 CTv tests PASS; CTu/L0/Core-time/RRu focused suites PASS; Recovery suite blocked by sandbox EPERM socket capability; shell/Python/diff checks PASS; Git commit blocked by read-only linked worktree admin directory | repository behavior materially implemented; no live or Production action; no new head or pushed commit | owner/integration review, full host-capability Recovery verification, commit/push when Git metadata is writable | resume from unchanged working tree; stage exact paths, commit, push, then keep PR Draft |
+
 ## IDEA3 CTu PRE-capture dependency-closure repair — repository-only — 2026-10-07
 
 > [!important] **Root cause confirmed by owner-authorized forensic evidence:** the post-PR387 frozen CTu bundle included `p4-l0-capture.sh` but omitted its two direct `$P4_HERE` runtime helpers, `p4-l5-clock.py` and `p4-l6c-tree-digest.py`. The historical PRE capture recorded every installed release as `<release-id>:UNREADABLE`, which set `partial=1` and ended with `L0_CAPTURE=PARTIAL` before `ctu_consume_attempt`. The protected evidence was read successfully; its SHA256 self-check passed (`PRE_SHA256SUMS_RC=0`). `time.trustedclock.state=UNAVAILABLE` was observed but is optional (`run_ro 0`) and is not a partial cause. No other deterministic PRE_CAPTURE blocker was found.
@@ -9033,7 +9054,7 @@ L7_BROKER_STATUS_FIX     = IMPLEMENTED_REPOSITORY (not merged)
 Task: IDEA3 CTv immutable-CTu-failure successor
 Branch: `feat/idea3-ctv-ctu-immutable-failure-successor`
 Owner: `music`
-Current state: REPOSITORY IMPLEMENTED / LOCAL VERIFICATION IN PROGRESS; LIVE NOT EXECUTED
+Current state: REPOSITORY IMPLEMENTED / LOCAL VERIFICATION COMPLETE WITH ENVIRONMENT LIMITATIONS; LIVE NOT EXECUTED
 Base SHA: `4706b5f8d9798ac5248572b04a13a00d77846e1c`
 Production mutation allowed: NO
 
@@ -9041,4 +9062,4 @@ Production mutation allowed: NO
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| CTv-S1 | Separate CTu/CTv provenance domains, predecessor gate, pre-consume rehearsal, durable consumed-no-mutation journal, Recovery successor gate, and refusal-only stage handlers | READY FOR REVIEW | 216 focused CTu/CTv/Recovery regression tests PASS; 59 collaboration/vault tests PASS; vault validation PASS with two pre-existing canvas warnings; shell/Python syntax and diff checks PASS; GitHub collaboration guardrails PASS on Draft PR #390 | `af934d17` | repository implementation PASS; LIVE intentionally unexecuted | independent Security/Governance review; human merge only; fresh CTv authority after review | do not run CTu/CTv/Recovery LIVE from this branch |
+| CTv-S1 | Separate CTu/CTv provenance domains, complete pre-consume rehearsal, durable consumed-no-mutation journal, full post-consume failure matrix, Recovery successor gate, and refusal-only stage handlers | READY FOR MANUAL GIT INTEGRATION | CTv 62 PASS; CTu 35 PASS; RRu 123 PASS; TrustedClock 64 PASS; Recovery 103 PASS before sandbox UNIX-socket bind `EPERM`; hermetic Recovery CTv successor tests 22 PASS; vault validation PASS with two pre-existing canvas warnings; shell/Python syntax and diff checks PASS; collaborationPolicy/vaultMultiWriter remain blocked by temporary-cwd harness path resolution | uncommitted local repair; committed HEAD `b4ac656055a974869ec790bccc283c5e8c759b1b` | repository implementation PASS; LIVE intentionally unexecuted | independent Security/Governance review; human merge only; fresh CTv authority after review | do not run CTu/CTv/Recovery LIVE from this branch |

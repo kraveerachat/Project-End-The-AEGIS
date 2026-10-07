@@ -34,6 +34,7 @@ def pins_for(main: str, **override: str) -> dict[str, str]:
         "VERIFIER_MANIFEST_SHA256": SHA["e"], "R1I_TOOL_SHA256": SHA["f"], "PROTOCOL_DB": "/var/lib/x/protocol.db", "AUDIT_DB": "/var/lib/x/audit.db", "DETECTOR_UID": "948", "EXPECTED_SOURCE_IP": "203.0.113.50",
         "R1B_EVIDENCE_DIR": "/srv/evidence/r1b-run", "RUNTIME_DIR": "/run/aegis-idea3", "REPO": "/srv/worktree", "PY": "/usr/bin/python3", "EVIDENCE_ROOT": "/srv/evidence",
         "CTU_LIVE_RECEIPT_RELATIVE": "/ctu-live-receipt.md", "CTU_REPO_RECEIPT_SHA256": SHA["a"],
+        "CTV_LIVE_RECEIPT_RELATIVE": "Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/ctv.md", "CTV_REPO_RECEIPT_SHA256": SHA["b"],
     }
     pins.update(override)
     return pins
@@ -79,7 +80,7 @@ def test_legitimate_pins_freeze_and_the_output_is_the_template_plus_only_the_pin
     frozen = out.read_text().splitlines()
     assert len(template) == len(frozen)
     changed = [i for i, (a, b) in enumerate(zip(template, frozen)) if a != b]
-    assert len(changed) == len(tool.PIN_SPECS) == 25  # exactly one line per approved pin site, nothing else
+    assert len(changed) == len(tool.PIN_SPECS) == 27  # exactly one line per approved pin site, nothing else
     assert oct(out.stat().st_mode & 0o777) == "0o555"
     assert git(repo, "status", "--porcelain") == "" and (repo / TEMPLATE_REL).read_text() == base.RUNNER.read_text()  # the template is never modified
     again = tool.verify(repo, main, out, owner_uid=None)

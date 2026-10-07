@@ -131,6 +131,7 @@ PINS = {
     "CONTROL_SNAPSHOT_DIR": "/opt/x/control", "R1I_TOOL_SHA256": "8" * 64, "PROTOCOL_DB": "/var/lib/x/protocol.db", "AUDIT_DB": "/var/lib/x/audit.db", "R1B_EVIDENCE_DIR": "/var/lib/x/r1b",
     "EXPECTED_SOURCE_IP": IP, "DETECTOR_UID": "948", "RUNTIME_DIR": "/run/x",
     "CTU_LIVE_RECEIPT_RELATIVE": "/ctu-live-receipt.md", "CTU_REPO_RECEIPT_SHA256": "a" * 64,
+    "CTV_LIVE_RECEIPT_RELATIVE": "Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/ctv.md", "CTV_REPO_RECEIPT_SHA256": "b" * 64,
 }
 
 

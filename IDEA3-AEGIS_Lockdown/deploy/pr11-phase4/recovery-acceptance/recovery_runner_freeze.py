@@ -52,6 +52,9 @@ class FreezeError(ValueError):
 def _path_ok(value: str) -> bool:
     return bool(_PATH.fullmatch(value)) and ".." not in value.split("/") and "//" not in value and (value == "/" or not value.endswith("/"))
 
+def _relative_path_ok(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9._/-]{1,240}", value)) and not value.startswith("/") and ".." not in value.split("/") and "//" not in value
+
 
 def _ipv4_external(value: str) -> bool:
     import ipaddress
@@ -72,6 +75,7 @@ VALIDATORS = {
     "release": lambda v: bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", v)) and ".." not in v,
     "sha256": lambda v: bool(_SHA256.fullmatch(v)),
     "path": _path_ok,
+    "relative": _relative_path_ok,
     "ipv4": _ipv4_external,
     "seconds": lambda v: bool(re.fullmatch(r"[1-9][0-9]{0,5}", v)),
 }
@@ -103,6 +107,8 @@ PIN_SPECS: dict[str, tuple[re.Pattern[str], str, str]] = {
     "EVIDENCE_ROOT": (re.compile(r"^EVID_ROOT=(.*)$", re.M), "/PIN_EVIDENCE_ROOT", "path"),
     "CTU_LIVE_RECEIPT_RELATIVE": (re.compile(r"^CTU_LIVE_RECEIPT_RELATIVE=(.*)$", re.M), "PIN_CTU_LIVE_RECEIPT_RELATIVE", "path"),
     "CTU_REPO_RECEIPT_SHA256": (re.compile(r"^CTU_REPO_RECEIPT_SHA256=(.*)$", re.M), "PIN_CTU_REPO_RECEIPT_SHA256", "sha256"),
+    "CTV_LIVE_RECEIPT_RELATIVE": (re.compile(r"^CTV_LIVE_RECEIPT_RELATIVE=(.*)$", re.M), "PIN_CTV_LIVE_RECEIPT_RELATIVE", "relative"),
+    "CTV_REPO_RECEIPT_SHA256": (re.compile(r"^CTV_REPO_RECEIPT_SHA256=(.*)$", re.M), "PIN_CTV_REPO_RECEIPT_SHA256", "sha256"),
 }
 
 
@@ -235,6 +241,8 @@ def sha256_of(path: Path) -> str:
 
 def verify(repo: Path, main: str, runner: Path, *, owner_uid: int | None = snapshot_tool.PRODUCTION_OWNER_UID) -> dict[str, str]:
     """The four owner-facing results plus the runner SHA-256. ``owner_uid=None`` skips ONLY the ownership/non-writable proof (hermetic tests of the byte logic); the CLI never does."""
+    if _initial_user_namespace() and os.environ.get(TEST_SEAM_ENABLED) == "YES" and os.environ.get(TEST_SEAM_ROOT):
+        raise FreezeError("TEST_TRUST_SEAM_REFUSED_IN_THE_REAL_ROOT_NAMESPACE")
     runner = Path(runner)
     template = read_template(repo, main)
     results = {"RUNNER_TEMPLATE_AUTHORITY": "PASS"}
