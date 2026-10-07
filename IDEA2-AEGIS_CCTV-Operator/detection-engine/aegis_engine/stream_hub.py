@@ -158,31 +158,45 @@ class StreamHub(threading.Thread):
         self._encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(config.stream_jpeg_quality)]
 
     def submit_detection(self, result: DetectionResult, frame: Frame) -> None:
-        """Queue the newest processed frame with its real detector geometry.
-
-        Live queuing happens only while an authorized viewer is connected.
-        The shared renderer always copies first, so inference and alert evidence
-        keep the original pixels while strict Archive may burn in the same tag.
-        """
+        """Render one detector frame for direct StreamHub callers."""
         if result.frame_seq != frame.seq:
             return
+
         with self._cond:
-            if self._viewers == 0 or frame.captured_at <= self._viewer_started_at:
+            if (
+                self._viewers == 0
+                or frame.captured_at <= self._viewer_started_at
+            ):
                 return
 
-        annotated = annotate_detection_frame(result, frame)
+        self.submit_annotated(
+            annotate_detection_frame(result, frame)
+        )
+
+    def submit_annotated(self, frame: Frame) -> bool:
+        """Queue one already-rendered immutable Live frame."""
         with self._cond:
-            # Inference/drawing may span a disconnect and a new session.
-            if self._viewers == 0 or frame.captured_at <= self._viewer_started_at:
-                return
+            # A viewer may disconnect while detection/rendering is in flight.
+            if (
+                self._viewers == 0
+                or frame.captured_at <= self._viewer_started_at
+            ):
+                return False
+
             try:
-                self._queue.put_nowait(annotated)
+                self._queue.put_nowait(frame)
             except queue.Full:
                 try:
                     self._queue.get_nowait()
                 except queue.Empty:
                     pass
-                self._queue.put_nowait(annotated)
+
+                try:
+                    self._queue.put_nowait(frame)
+                except queue.Full:
+                    return False
+
+            return True
 
     def stop(self) -> None:
         self._stop_event.set()

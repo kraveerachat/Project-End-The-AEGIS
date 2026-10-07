@@ -54,6 +54,13 @@ ComponentFactory = Callable[
 ]
 
 
+def annotate_detection_frame(result: DetectionResult, frame: Frame) -> Frame:
+    """Render one copy for strict Live + Archive fan-out."""
+    from .stream_hub import annotate_detection_frame as render_detection_frame
+
+    return render_detection_frame(result, frame)
+
+
 def _attributed_results_for_frame(
     result: DetectionResult,
     frame: Frame,
@@ -155,8 +162,19 @@ class DetectionEngine:
         cfg = context.config
         metrics = context.metrics
         stop_event = context.stop_event
-        record_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=cfg.record_queue_size)
-        detect_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=cfg.detect_queue_size)
+        # Legacy always-on recording retains its configured buffer.
+        # Strict Archive holds only a small number of rendered full frames.
+        record_queue_size = (
+            min(cfg.record_queue_size, 2)
+            if cfg.capture_on_demand
+            else cfg.record_queue_size
+        )
+        record_queue: "queue.Queue[Frame]" = queue.Queue(
+            maxsize=record_queue_size
+        )
+        detect_queue: "queue.Queue[Frame]" = queue.Queue(
+            maxsize=cfg.detect_queue_size
+        )
         stream_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=1)
         capture_demand = threading.Event() if cfg.capture_on_demand else None
         recording_authority = RecordingAuthority() if cfg.capture_on_demand else None
@@ -202,11 +220,26 @@ class DetectionEngine:
         )
 
         def publish_detection(result: DetectionResult, frame: Frame) -> None:
-            # Strict Archive footage is fed from the same exact detector frame
-            # used by Live so stored video burns in aligned boxes/labels.
+            # Detection geometry is meaningful only for the exact frame that
+            # produced it. Fail closed before Live, Archive or event fan-out.
+            if result.frame_seq != frame.seq:
+                log.warning(
+                    "dropping mismatched detection/frame pair "
+                    "(result_seq=%d frame_seq=%d)",
+                    result.frame_seq,
+                    frame.seq,
+                )
+                return
+
+            # Strict Live + Archive share one rendered full-frame copy.
+            # The original detector frame remains untouched for inference,
+            # alerts, evidence and authority attribution.
             if cfg.capture_on_demand:
-                recorder.submit_detection(result, frame)
-            if stream is not None:
+                annotated = annotate_detection_frame(result, frame)
+                recorder.submit_annotated(annotated)
+                if stream is not None:
+                    stream.submit_annotated(annotated)
+            elif stream is not None:
                 stream.submit_detection(result, frame)
 
             # Security/event identity remains a separate authority fan-out; the

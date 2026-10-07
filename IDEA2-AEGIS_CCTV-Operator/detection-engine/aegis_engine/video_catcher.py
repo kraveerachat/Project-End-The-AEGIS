@@ -430,7 +430,10 @@ class VideoCatcher(threading.Thread):
                     self._metrics.on_camera_state(connected=False)
                     log.info("camera released (no authenticated viewers)")
         except Exception:  # pragma: no cover - defensive catch-all
+            # A terminal capture-worker failure must never leave the API
+            # advertising a healthy Engine without a physical producer.
             log.exception("unhandled error in capture loop")
+            self._stop_event.set()
         finally:
             self._read_watchdog_stop.set()
             if (
