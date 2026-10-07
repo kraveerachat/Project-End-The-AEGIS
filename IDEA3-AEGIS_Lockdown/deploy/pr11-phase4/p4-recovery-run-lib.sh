@@ -25,7 +25,7 @@ _RECOVERY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Every Git read that feeds a Recovery trust decision runs with replacement objects DISABLED (a real `git replace GOOD EVIL` keeps the apparent SHA while changing the bytes Git returns). A shell function, so it
 # also covers the sourced libraries; a caller's environment cannot re-enable replacement.
-git() { GIT_NO_REPLACE_OBJECTS=1 command git "$@"; }
+git() { HOME=/nonexistent GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git "$@"; }
 
 RECOVERY_SAFE_PATH=/usr/sbin:/usr/bin:/sbin:/bin
 RECOVERY_R1I_TABLE="inet aegis_idea3_r1i"
@@ -121,7 +121,7 @@ recovery_consume_attempt() {
 recovery_commit_gate() { r1bv_commit_gate "$@"; }
 recovery_predecessor_gate() { r1bv_recovery_predecessor_gate "$@"; }   # the existing, reviewed R1B-failure + R1Bv-PASS predecessor gate (reused, never copied)
 recovery_ctu_successor_gate() {
-  local repo main ctu_main canon closeout want=0 count keys installed_unit installed_sha ctu_unit_sha
+  local repo main ctu_main execution_main runner_sha evidence_manifest device detector_mode canon closeout host_sha host_sum receipt receipt_sha rel receipt_rel want=0 count keys installed_unit installed_sha ctu_unit_sha
   if [ $# -ge 2 ]; then
     repo=$1; main=$2
   elif [ -n "${REPO:-}" ]; then
@@ -136,13 +136,17 @@ recovery_ctu_successor_gate() {
   if $SUDO test -e "$canon/$RECOVERY_GLOBAL_MARKER_NAME" || $SUDO test -L "$canon/$RECOVERY_GLOBAL_MARKER_NAME"; then
     recovery_reason RECOVERY_ALREADY_CONSUMED; return 1
   fi
-  count=$($SUDO find "$canon" -maxdepth 1 -type f -name 'CTU-GLOBAL-CLOSEOUT-*' -printf '%f\n' 2>/dev/null | wc -l)
+  count=$($SUDO find "$canon" -maxdepth 1 -type f \( -name 'CTU-GLOBAL-CLOSEOUT-PASS' -o -name 'CTU-GLOBAL-CLOSEOUT-FAIL' \) -printf '%f\n' 2>/dev/null | wc -l)
   [ "$count" = 1 ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_NOT_UNIQUE; return 1; }
   [ -f "$closeout" ] && [ ! -L "$closeout" ] || { recovery_reason RECOVERY_CTU_PASS_CLOSEOUT_MISSING; return 1; }
   [ "$(stat -c %u -- "$closeout" 2>/dev/null)" = "$want" ] || { recovery_reason RECOVERY_CTU_PASS_CLOSEOUT_OWNER_INVALID; return 1; }
+  host_sum="$closeout.sha256"
+  [ -f "$host_sum" ] && [ ! -L "$host_sum" ] && [ "$(stat -c %u:%a "$host_sum" 2>/dev/null)" = "$want:600" ] || { recovery_reason RECOVERY_CTU_HOST_CLOSEOUT_DIGEST_MISSING; return 1; }
+  ( cd "$canon" && sha256sum -c --quiet --strict "$(basename "$host_sum")" ) || { recovery_reason RECOVERY_CTU_HOST_CLOSEOUT_DIGEST_INVALID; return 1; }
+  host_sha=$($SUDO awk 'NF >= 1 {print $1}' "$host_sum")
   keys=$($SUDO awk -F= 'NF >= 2 {print $1}' "$closeout" | sort | uniq -d)
   [ -z "$keys" ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_DUPLICATE_KEYS; return 1; }
-  [ "$($SUDO awk -F= 'NF >= 2 {print $1}' "$closeout" | sort | tr '\n' ' ')" = "CTU_ATTEMPT_CONSUMED CTU_AUTHENTICATED_STATUS_PROOF CTU_DETECTOR_LIFECYCLE_PROOF CTU_EVIDENCE_ROOT CTU_EXPECTED_MAIN CTU_FAILURE_RESULT CTU_LIVE CTU_LIVE_EXECUTED CTU_PRE_POST_PRESERVATION CTU_RERUN_ALLOWED CTU_RESULT CTU_RUNTIME_PROOF CTU_STAGE CTU_UNIT_SHA256 RECOVERY_ATTEMPT_CONSUMED RECOVERY_LIVE_EXECUTED " ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_FIELDS_INVALID; return 1; }
+  [ "$($SUDO awk -F= 'NF >= 2 {print $1}' "$closeout" | sort | tr '\n' ' ')" = "CTU_ATTEMPT_CONSUMED CTU_AUTHENTICATED_STATUS_PROOF CTU_DETECTOR_BASELINE_MODE CTU_DETECTOR_LIFECYCLE_PROOF CTU_DEVICE_ID CTU_EVIDENCE_MANIFEST_SHA256 CTU_EVIDENCE_ROOT CTU_EXECUTION_MAIN CTU_EXPECTED_MAIN CTU_FAILURE_RESULT CTU_LIVE CTU_LIVE_EXECUTED CTU_PRE_POST_PRESERVATION CTU_RERUN_ALLOWED CTU_RESULT CTU_RUNNER_SHA256 CTU_RUNTIME_PROOF CTU_STAGE CTU_UNIT_SHA256 RECOVERY_ATTEMPT_CONSUMED RECOVERY_LIVE_EXECUTED " ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_FIELDS_INVALID; return 1; }
   grep -qx "CTU_LIVE=$(printf 'CLOSED_%s' PASS)" "$closeout" || { recovery_reason RECOVERY_CTU_LIVE_NOT_CLOSED_RESULT; return 1; }
   grep -qx 'CTU_LIVE_EXECUTED=YES' "$closeout" || { recovery_reason RECOVERY_CTU_LIVE_NOT_EXECUTED; return 1; }
   grep -qx 'CTU_RESULT=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_PASS_RESULT_INVALID; return 1; }
@@ -161,13 +165,49 @@ recovery_ctu_successor_gate() {
   grep -qx 'CTU_RUNTIME_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_RUNTIME_PROOF_INVALID; return 1; }
   grep -qx 'CTU_AUTHENTICATED_STATUS_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_AUTH_PROOF_INVALID; return 1; }
   grep -qx 'CTU_DETECTOR_LIFECYCLE_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_DETECTOR_PROOF_INVALID; return 1; }
+  grep -qE '^CTU_DETECTOR_BASELINE_MODE=(ACTIVE|INACTIVE)$' "$closeout" || { recovery_reason RECOVERY_CTU_DETECTOR_MODE_INVALID; return 1; }
+  grep -qE '^CTU_DEVICE_ID=[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' "$closeout" || { recovery_reason RECOVERY_CTU_DEVICE_ID_INVALID; return 1; }
+  execution_main=$($SUDO awk -F= '$1 == "CTU_EXECUTION_MAIN" {print $2}' "$closeout")
+  [ "$execution_main" = "$ctu_main" ] || { recovery_reason RECOVERY_CTU_EXECUTION_MAIN_INVALID; return 1; }
+  runner_sha=$($SUDO awk -F= '$1 == "CTU_RUNNER_SHA256" {print $2}' "$closeout")
+  [[ "$runner_sha" =~ ^[0-9a-f]{64}$ ]] || { recovery_reason RECOVERY_CTU_RUNNER_SHA_INVALID; return 1; }
+  evidence_manifest=$($SUDO awk -F= '$1 == "CTU_EVIDENCE_MANIFEST_SHA256" {print $2}' "$closeout")
+  [[ "$evidence_manifest" =~ ^[0-9a-f]{64}$ ]] || { recovery_reason RECOVERY_CTU_EVIDENCE_MANIFEST_INVALID; return 1; }
+  device=$($SUDO awk -F= '$1 == "CTU_DEVICE_ID" {print $2}' "$closeout")
+  detector_mode=$($SUDO awk -F= '$1 == "CTU_DETECTOR_BASELINE_MODE" {print $2}' "$closeout")
+  ctu_unit_sha=$($SUDO awk -F= '$1 == "CTU_UNIT_SHA256" {print $2}' "$closeout")
   grep -qx 'CTU_PRE_POST_PRESERVATION=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_PRESERVATION_PROOF_INVALID; return 1; }
   grep -qx 'RECOVERY_LIVE_EXECUTED=NO' "$closeout" || { recovery_reason RECOVERY_CTU_RECOVERY_ALREADY_EXECUTED; return 1; }
   grep -qx 'RECOVERY_ATTEMPT_CONSUMED=NO' "$closeout" || { recovery_reason RECOVERY_CTU_RECOVERY_ALREADY_CONSUMED; return 1; }
   grep -qx 'CTU_FAILURE_RESULT=NONE' "$closeout" || { recovery_reason RECOVERY_CTU_CONTRADICTORY_FAILURE; return 1; }
   grep -qE '^CTU_UNIT_SHA256=[0-9a-f]{64}$' "$closeout" || { recovery_reason RECOVERY_CTU_UNIT_BINDING_INVALID; return 1; }
   grep -qE '^CTU_EVIDENCE_ROOT=/[^.]*$' "$closeout" || { recovery_reason RECOVERY_CTU_EVIDENCE_ROOT_INVALID; return 1; }
-  ctu_unit_sha=$($SUDO awk -F= '$1 == "CTU_UNIT_SHA256" {print $2}' "$closeout")
+  if [ "${RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" = YES ] && [ -n "${RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT:-}" ]; then
+    receipt="$RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT"
+  else
+    receipt_rel=${CTU_LIVE_RECEIPT_RELATIVE:-}
+    [[ "$receipt_rel" == /* && "$receipt_rel" != *..* ]] || { recovery_reason RECOVERY_CTU_LIVE_RECEIPT_PIN_INVALID; return 1; }
+    receipt="$repo$receipt_rel"
+  fi
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] || { recovery_reason RECOVERY_CTU_LIVE_RECEIPT_MISSING; return 1; }
+  receipt_sha=$($SUDO sha256sum "$receipt" | cut -d' ' -f1)
+  if [ "${RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" != YES ] || [ -z "${RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT:-}" ]; then
+    [ "$receipt_sha" = "${CTU_REPO_RECEIPT_SHA256:-}" ] || { recovery_reason RECOVERY_CTU_LIVE_RECEIPT_DIGEST_INVALID; return 1; }
+    rel=${receipt#"$repo/"}
+    [ "$rel" != "$receipt" ] && [ "$(git -C "$repo" hash-object -- "$rel")" = "$receipt_sha" ] && [ "$(git -C "$repo" rev-parse "$main:$rel" 2>/dev/null)" = "$receipt_sha" ] || { recovery_reason RECOVERY_CTU_LIVE_RECEIPT_NOT_IN_EXACT_MAIN; return 1; }
+  fi
+  local live_pass; live_pass="CLOSED_"'PASS'
+  grep -qx "CTU_LIVE=$live_pass" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_NOT_LIVE_PASS; return 1; }
+  grep -qx 'CTU_LIVE_EXECUTED=YES' "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_NOT_EXECUTED; return 1; }
+  grep -qx 'CTU_ATTEMPT_CONSUMED=YES' "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_NOT_CONSUMED; return 1; }
+  grep -qx "CTU_EXPECTED_MAIN=$ctu_main" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_MAIN_INVALID; return 1; }
+  grep -qx "CTU_EXECUTION_MAIN=$execution_main" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_EXECUTION_MAIN_INVALID; return 1; }
+  grep -qx "CTU_RUNNER_SHA256=$runner_sha" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_RUNNER_INVALID; return 1; }
+  grep -qx "CTU_UNIT_SHA256=$ctu_unit_sha" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_UNIT_INVALID; return 1; }
+  grep -qx "CTU_DEVICE_ID=$device" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_DEVICE_INVALID; return 1; }
+  grep -qx "CTU_DETECTOR_BASELINE_MODE=$detector_mode" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_MODE_INVALID; return 1; }
+  grep -qx "CTU_EVIDENCE_MANIFEST_SHA256=$evidence_manifest" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_EVIDENCE_INVALID; return 1; }
+  grep -qx "CTU_HOST_CLOSEOUT_SHA256=$host_sha" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_HOST_BINDING_INVALID; return 1; }
   installed_unit="${AEGIS_CORE_UNIT_FILE:-/etc/systemd/system/aegis-idea3-core.service}"
   if [ -n "${AEGIS_CORE_UNIT_FILE:-}" ] || [ "${RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" != YES ]; then
     if [ -f "$installed_unit" ] && [ ! -L "$installed_unit" ]; then
@@ -180,6 +220,23 @@ recovery_ctu_successor_gate() {
       grep -qE '^[[:space:]]*AmbientCapabilities[[:space:]]*=[[:space:]]*$' "$installed_unit" || { recovery_reason RECOVERY_CTU_SECURITY_HARDENING_INVALID; return 1; }
     fi
   fi
+}
+recovery_ctu_detector_mode_gate() {
+  local canon mode out pid
+  canon=$(recovery_canonical_dir)
+  mode=$($SUDO awk -F= '$1 == "CTU_DETECTOR_BASELINE_MODE" {print $2}' "$canon/CTU-GLOBAL-CLOSEOUT-PASS" 2>/dev/null)
+  case "$mode" in
+    ACTIVE)
+      f1u_detector_running_gate || { recovery_reason RECOVERY_CTU_ACTIVE_DETECTOR_MISMATCH; return 1; }
+      ;;
+    INACTIVE)
+      out=$($SUDO systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Restart -p MainPID -p InvocationID -p NRestarts aegis-idea3-detector.service 2>/dev/null) || { recovery_reason RECOVERY_CTU_INACTIVE_DETECTOR_STATE_UNREADABLE; return 1; }
+      pid=$(awk -F= '$1 == "MainPID" {print $2}' <<< "$out")
+      grep -qx 'LoadState=loaded' <<< "$out" && grep -qx 'ActiveState=inactive' <<< "$out" && grep -qx 'SubState=dead' <<< "$out" && grep -qx 'UnitFileState=disabled' <<< "$out" && grep -qx 'Restart=no' <<< "$out" && [ "$pid" = 0 ] && grep -qx 'InvocationID=' <<< "$out" && grep -qx 'NRestarts=0' <<< "$out" || { recovery_reason RECOVERY_CTU_INACTIVE_DETECTOR_MISMATCH; return 1; }
+      [ "$($SUDO pgrep -fc 'aegis_soc[.]production_detector' 2>/dev/null || true)" = 0 ] || { recovery_reason RECOVERY_CTU_INACTIVE_PROCESS_PRESENT; return 1; }
+      ;;
+    *) recovery_reason RECOVERY_CTU_DETECTOR_MODE_INVALID; return 1 ;;
+  esac
 }
 
 recovery_sudo_noninteractive_gate() {
@@ -200,7 +257,7 @@ recovery_r1i_present_gate() {
   [ -f "$tool" ] || { recovery_reason "RECOVERY_R1I_VALIDATOR_MISSING"; return 1; }
   $SUDO nft list tables 2>/dev/null | grep -qxF "table $RECOVERY_R1I_TABLE" || { recovery_reason "RECOVERY_R1I_TABLE_MISSING (R1I must stay installed; a reboot removes it)"; return 1; }
   state=$($SUDO nft --stateless list table $RECOVERY_R1I_TABLE 2>/dev/null) || { recovery_reason "RECOVERY_R1I_TABLE_UNREADABLE"; return 1; }
-  printf '%s\n' "$state" | python3 "$tool" validate-state /dev/stdin >/dev/null 2>&1 || { recovery_reason "RECOVERY_R1I_TABLE_NOT_EXACT_OWNED_SHAPE"; return 1; }
+  printf '%s\n' "$state" | /usr/bin/python3 -I -B "$tool" validate-state /dev/stdin >/dev/null 2>&1 || { recovery_reason "RECOVERY_R1I_TABLE_NOT_EXACT_OWNED_SHAPE"; return 1; }
 }
 recovery_digest_gate() {
   local file=${1:-} want=${2:-} label=${3:-FILE} got
@@ -224,7 +281,7 @@ recovery_verifier_gate() {
   local snap=${1:-} want=${2:-} repo=${3:-} tool=${4:-} main=${5:-} sha rel got module
   [ -f "$tool" ] && [[ "$want" =~ ^[0-9a-f]{64}$ ]] || { recovery_reason "RECOVERY_VERIFIER_GATE_INPUT_INVALID"; return 1; }
   recovery_commit_gate "$repo" "$main" || return 1
-  python3 "$tool" check "$snap" "$want" >/dev/null 2>&1 || { recovery_reason "RECOVERY_VERIFIER_SNAPSHOT_DRIFT_OR_NOT_ROOT_OWNED"; return 1; }
+  /usr/bin/python3 -I -B "$tool" check "$snap" "$want" >/dev/null 2>&1 || { recovery_reason "RECOVERY_VERIFIER_SNAPSHOT_DRIFT_OR_NOT_ROOT_OWNED"; return 1; }
   while read -r sha rel; do
     [ "$rel" != "" ] || continue
     got=$(git -C "$repo" show "$main:IDEA3-AEGIS_Lockdown/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1)
@@ -312,8 +369,8 @@ recovery_tty_gate() {
 # snapshot under the privilege prefix. Neither ever runs a file from a worktree or /home.
 # EVERY invocation sets an explicit AEGIS_LOG_PATH (importing the Core modules opens a log file; without it the path falls back to a relative `aegis_soc.log` in the cwd). Before the private operator log exists it is /dev/null;
 # root-side commands log into the root-owned private work directory. The caller's environment never chooses it.
-recovery_operator_py() { env -i PATH="$RECOVERY_SAFE_PATH" AEGIS_LOG_PATH="${RECOVERY_OPERATOR_LOG:-/dev/null}" PYTHONPATH="$VERIFIER_SNAPSHOT_DIR" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
-recovery_root_py() { $SUDO env -i PATH="$RECOVERY_SAFE_PATH" AEGIS_LOG_PATH="${WORK:-/dev/null}/stage-root.log" PYTHONPATH="$VERIFIER_SNAPSHOT_DIR" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
+recovery_operator_py() { env -i PATH="$RECOVERY_SAFE_PATH" AEGIS_LOG_PATH="${RECOVERY_OPERATOR_LOG:-/dev/null}" PYTHONDONTWRITEBYTECODE=1 "$PY" -I -B -c 'import runpy,sys; sys.path.insert(0,sys.argv[1]); sys.argv=sys.argv[1:]; runpy.run_module("aegis_soc.recovery_stage",run_name="__main__")' "$VERIFIER_SNAPSHOT_DIR" "$@"; }
+recovery_root_py() { $SUDO env -i PATH="$RECOVERY_SAFE_PATH" AEGIS_LOG_PATH="${WORK:-/dev/null}/stage-root.log" PYTHONDONTWRITEBYTECODE=1 "$PY" -I -B -c 'import runpy,sys; sys.path.insert(0,sys.argv[1]); sys.argv=sys.argv[1:]; runpy.run_module("aegis_soc.recovery_stage",run_name="__main__")' "$VERIFIER_SNAPSHOT_DIR" "$@"; }
 # recovery_reason_gate REASON — the existing production RESTORE-reason validator (bounded, printable, no shell-active character). Run BEFORE the marker; the SAME reason is then passed to D4.
 recovery_reason_gate() {
   local reason=${1-}
@@ -365,6 +422,8 @@ recovery_hook_baseline() {
   canon=$(recovery_canonical_dir)
   $SUDO test -d "$canon" || $SUDO mkdir -m 0700 "$canon" 2>/dev/null || { recovery_reason "RECOVERY_CANONICAL_DIR_NOT_CREATABLE"; return 1; }
   [ -n "${WORK:-}" ] && [ "$(dirname "$WORK")" = "$canon" ] && ! $SUDO test -e "$WORK" && $SUDO mkdir -m 0700 -- "$WORK" || { recovery_reason "RECOVERY_WORK_DIR_NOT_CREATABLE"; return 1; }
+  $SUDO bash -c 'set -o noclobber; printf "RECOVERY_FROZEN_RUNNER_SHA256=%s\nRECOVERY_CONTROL_MANIFEST_SHA256=%s\n" "$1" "$2" > "$3"' _ "$RUNNER_SHA256" "$CONTROL_MANIFEST_SHA256" "$WORK/RECOVERY-FROZEN-RUNNER-PROVENANCE" || { recovery_reason "RECOVERY_PROVENANCE_NOT_CREATED"; return 1; }
+  $SUDO chmod 0400 "$WORK/RECOVERY-FROZEN-RUNNER-PROVENANCE" || return 1
   mkdir -m 700 -- "$STEPS" || { recovery_reason "RECOVERY_STEPS_DIR_NOT_CREATABLE"; return 1; }
   echo "== PRE-MARKER quiescence captures, trusted clock, firewall dump and immutable baseline (read-only)"
   recovery_capture PRECHECK "$WORK/precheck-root" || return 1

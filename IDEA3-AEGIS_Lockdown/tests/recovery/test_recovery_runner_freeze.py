@@ -33,6 +33,7 @@ def pins_for(main: str, **override: str) -> dict[str, str]:
         "RECOVERY_CORE_SHA256": SHA["c"], "RESTORE_CLI_SHA256": SHA["a"], "RELEASE_SUMS_SHA256": SHA["b"], "CONTROL_SNAPSHOT_DIR": "/opt/x/control", "CONTROL_MANIFEST_SHA256": SHA["d"], "VERIFIER_SNAPSHOT_DIR": "/opt/x/verifier",
         "VERIFIER_MANIFEST_SHA256": SHA["e"], "R1I_TOOL_SHA256": SHA["f"], "PROTOCOL_DB": "/var/lib/x/protocol.db", "AUDIT_DB": "/var/lib/x/audit.db", "DETECTOR_UID": "948", "EXPECTED_SOURCE_IP": "203.0.113.50",
         "R1B_EVIDENCE_DIR": "/srv/evidence/r1b-run", "RUNTIME_DIR": "/run/aegis-idea3", "REPO": "/srv/worktree", "PY": "/usr/bin/python3", "EVIDENCE_ROOT": "/srv/evidence",
+        "CTU_LIVE_RECEIPT_RELATIVE": "/ctu-live-receipt.md", "CTU_REPO_RECEIPT_SHA256": SHA["a"],
     }
     pins.update(override)
     return pins
@@ -78,7 +79,7 @@ def test_legitimate_pins_freeze_and_the_output_is_the_template_plus_only_the_pin
     frozen = out.read_text().splitlines()
     assert len(template) == len(frozen)
     changed = [i for i, (a, b) in enumerate(zip(template, frozen)) if a != b]
-    assert len(changed) == len(tool.PIN_SPECS) == 23  # exactly one line per approved pin site, nothing else
+    assert len(changed) == len(tool.PIN_SPECS) == 25  # exactly one line per approved pin site, nothing else
     assert oct(out.stat().st_mode & 0o777) == "0o555"
     assert git(repo, "status", "--porcelain") == "" and (repo / TEMPLATE_REL).read_text() == base.RUNNER.read_text()  # the template is never modified
     again = tool.verify(repo, main, out, owner_uid=None)
@@ -169,7 +170,7 @@ def assert_refused(repo: Path, main: str, out: Path, match: str = "NON_PIN_BYTES
     ("reason gate dropped", lambda t: t.replace('recovery_reason_gate "$RECOVERY_REASON" || gate', 'true || gate', 1)),
     ("fixed PATH removed", lambda t: t.replace("export PATH=/usr/sbin:/usr/bin:/sbin:/bin", "", 1)),
     ("claim boundary altered", lambda t: t.replace("R1B stays FAIL_IMMUTABLE", "R1B stays PASS", 1)),
-    ("root execution path changed", lambda t: t.replace('bash "$STG/${2:-apply.sh}"', 'bash "/tmp/${2:-apply.sh}"', 1)),
+        ("root execution path changed", lambda t: t.replace('bash -c "$(declare -f recovery_handler_fail recovery_apply_governed recovery_verify_governed); if [ \\"$2\\" = verify.sh ]; then recovery_verify_governed; else recovery_apply_governed; fi"', 'bash "/tmp/${2:-apply.sh}"', 1)),
     ("arbitrary extra line appended", lambda t: t + "\necho owned\n"),
     ("trailing whitespace", lambda t: t.replace("set -Eeuo pipefail\n", "set -Eeuo pipefail \n", 1)),
     ("comment edited", lambda t: t.replace("OWNER-RUN ONLY.", "OWNER-RUN ONLY!", 1)),
@@ -311,7 +312,7 @@ def test_the_root_owned_freeze_and_verify_print_the_four_owner_results_and_the_s
         assert line in frozen.stdout, frozen.stdout
     sha = re.search(r"RUNNER_SHA256=([0-9a-f]{64})", frozen.stdout).group(1)
     assert sha == hashlib.sha256(out.read_bytes()).hexdigest()
-    again = tuserns(f'export RECOVERY_TEST_ONLY_CTU_CLOSEOUT="{tmp_path}/ctu-closeout"; python3 "{TOOL_PATH}" verify --repo "{repo}" --main {main} --runner "{out}"', trust=tmp_path)
+    again = tuserns(f'export RECOVERY_TEST_ONLY_CTU_CLOSEOUT="{tmp_path}/ctu-closeout" RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT="{tmp_path}/ctu-live-receipt.md"; python3 "{TOOL_PATH}" verify --repo "{repo}" --main {main} --runner "{out}"', trust=tmp_path)
     assert again.returncode == 0 and f"RUNNER_SHA256={sha}" in again.stdout
     assert out.stat().st_mode & 0o222 == 0
 
@@ -370,11 +371,18 @@ def root_freeze(repo: Path, main: str, tmp_path: Path, out: Path, trust: Path | 
     closeout = tmp_path / "ctu-closeout"
     closeout.write_text(
         "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
-        f"CTU_EXPECTED_MAIN={main}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
-        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+        f"CTU_EXPECTED_MAIN={main}\nCTU_EXECUTION_MAIN={main}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
+        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\nCTU_EVIDENCE_MANIFEST_SHA256=" + "d" * 64 + "\n"
+        "CTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
         "CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=" + "b" * 64 + "\nCTU_EVIDENCE_ROOT=/tmp/evidence\n"
     )
-    cmd = f'export RECOVERY_TEST_ONLY_CTU_CLOSEOUT="{closeout}"; python3 -I -B "{base.authority_tools(tmp_path)}/recovery_runner_freeze.py" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned'
+    host_sha = hashlib.sha256(closeout.read_bytes()).hexdigest()
+    sidecar = Path(f"{closeout}.sha256")
+    sidecar.write_text(f"{host_sha}  {closeout.name}\n")
+    sidecar.chmod(0o600)
+    receipt = tmp_path / "ctu-live-receipt.md"
+    receipt.write_text(f"CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_EXPECTED_MAIN={main}\nCTU_EXECUTION_MAIN={main}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_UNIT_SHA256={'b' * 64}\nCTU_DEVICE_ID=aegis-relay-01\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_EVIDENCE_MANIFEST_SHA256={'d' * 64}\nCTU_HOST_CLOSEOUT_SHA256={host_sha}\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n")
+    cmd = f'export RECOVERY_TEST_ONLY_CTU_CLOSEOUT="{closeout}" RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT="{receipt}"; python3 -I -B "{base.authority_tools(tmp_path)}/recovery_runner_freeze.py" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned'
     return tuserns(cmd, tmp_path) if trust is not None else base.userns_bash(cmd)
 
 

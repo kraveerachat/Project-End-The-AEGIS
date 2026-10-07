@@ -68,7 +68,8 @@ def test_the_frozen_runner_refuses_to_start_with_any_redirection_or_test_seam_va
     frozen = sup.pinned_copy(tmp_path)
     cleaner = "env " + " ".join(f"-u {v}" for v in CLEAN_VARS if v != var)
     result = sup.bash(f'{cleaner} bash "{frozen}" "{tmp_path}" "reason text here"', env={var: "x"})
-    assert result.returncode == 2 and "environment override" in result.stderr, var
+    assert result.returncode in (1, 2), var
+    assert "environment override" in result.stderr or "control snapshot" in result.stderr, var
     assert not (tmp_path / "evidence").exists()
 
 
@@ -91,6 +92,55 @@ def test_the_runner_fixes_PATH_and_a_hostile_path_cannot_substitute_a_program(tm
     assert result.returncode in (1, 2) and not sentinel.exists(), result.stderr
     code = "\n".join(sup.code_lines(RUNNER))
     assert code.index("export PATH=/usr/sbin:/usr/bin:/sbin:/bin") < code.index("date")  # fixed before any program is used
+
+
+def test_recovery_executable_entrypoint_cleans_startup_and_authority_environment(tmp_path: Path) -> None:
+    """Exercise the actual shebang entrypoint, before the pin/body gates."""
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    calls = tmp_path / "calls"
+    for name in ("bash", "python3", "git", "systemctl", "sudo"):
+        fake = fake_bin / name
+        fake.write_text(f'#!/bin/sh\nprintf "{name}" >> "{calls}"\nexit 97\n')
+        fake.chmod(0o755)
+    sentinel = tmp_path / "startup-sentinel"
+    startup = tmp_path / "startup"
+    startup.write_text(f'printf sourced > "{sentinel}"\n')
+    hostile_python = tmp_path / "hostile-python"
+    hostile_python.mkdir()
+    (hostile_python / "sitecustomize.py").write_text(f'printf python > "{sentinel}"\n')
+    env = {
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "BASH_ENV": str(startup), "ENV": str(startup),
+        "PYTHONPATH": str(hostile_python), "PYTHONHOME": str(tmp_path / "not-python"),
+        "PYTHONSTARTUP": str(startup), "PYTHONINSPECT": "1",
+        "LD_PRELOAD": str(tmp_path / "missing-preload.so"), "LD_LIBRARY_PATH": str(tmp_path),
+        "GIT_DIR": str(tmp_path / "hostile.git"), "GIT_WORK_TREE": str(tmp_path / "hostile-worktree"),
+        "GIT_INDEX_FILE": str(tmp_path / "hostile-index"),
+        "GIT_OBJECT_DIRECTORY": str(tmp_path / "hostile-objects"),
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(tmp_path / "hostile-alternates"),
+        "BASH_FUNC_systemctl%%": "() { printf imported > '" + str(sentinel) + "'; }",
+    }
+    result = subprocess.run([str(RUNNER), str(tmp_path / "auth"), "reason"], env=env, text=True, capture_output=True)
+    assert result.returncode == 2 and "runner is not pinned" in result.stderr
+    assert not sentinel.exists(), result.stderr
+    assert not calls.exists(), result.stderr
+    assert not list(tmp_path.glob("**/RECOVERY-GLOBAL-ATTEMPT-CONSUMED"))
+
+    for name, value in {
+        "BASH_ENV": str(startup), "ENV": str(startup), "PYTHONPATH": str(hostile_python),
+        "PYTHONHOME": str(tmp_path / "not-python"), "PYTHONSTARTUP": str(startup), "PYTHONINSPECT": "1",
+        "LD_PRELOAD": str(tmp_path / "missing-preload.so"), "LD_LIBRARY_PATH": str(tmp_path),
+        "GIT_DIR": str(tmp_path / "hostile.git"), "GIT_WORK_TREE": str(tmp_path / "hostile-worktree"),
+        "GIT_INDEX_FILE": str(tmp_path / "hostile-index"), "GIT_OBJECT_DIRECTORY": str(tmp_path / "hostile-objects"),
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(tmp_path / "hostile-alternates"),
+    }.items():
+        sentinel.unlink(missing_ok=True)
+        calls.unlink(missing_ok=True)
+        one = subprocess.run([str(RUNNER), str(tmp_path / "auth"), "reason"], env={"PATH": "/usr/bin:/bin", name: value}, text=True, capture_output=True)
+        assert one.returncode == 2, name
+        assert not sentinel.exists(), (name, one.stderr)
+        assert not calls.exists(), (name, one.stderr)
 
 
 # --------------------------------------------------------------------------- operator identity; stop before any file is created
@@ -472,9 +522,8 @@ def handler_world(tmp_path: Path, step: str = "FINAL", **kw):
 
 def test_the_handlers_refuse_without_authorization_or_root() -> None:
     for script in ("apply.sh", "verify.sh"):
-        assert "LIVE_AUTHORIZATION_REQUIRED" in sup.bash(f'bash "{STG / script}"').stderr
-        out = sup.bash(f'bash "{STG / script}"', env={"AEGIS_RCVSTAGE_LIVE_AUTHORIZED": "YES"})
-        assert out.returncode == 1 and "ROOT_REQUIRED" in out.stderr  # the test user is never root
+        out = sup.bash(f'bash "{STG / script}"')
+        assert out.returncode == 1 and "DIRECT_HANDLER_INVOCATION_REFUSED" in out.stderr
 
 
 @needs_userns
@@ -485,7 +534,8 @@ def test_a_handler_step_runs_exactly_once_per_work_dir_from_the_immutable_snapsh
     second = sup.run_handler(env)
     assert second.returncode == 1 and "STEP_ALREADY_RAN_FINAL" in second.stderr
     calls = (tmp_path / "calls.txt").read_text()
-    assert calls.count("aegis_soc.recovery_stage final-verify") == 1 and "-B -s -m aegis_soc.recovery_stage final-verify" in calls
+    assert calls.count("runpy.run_module(\"aegis_soc.recovery_stage\",run_name=\"__main__\")") == 1
+    assert "-I -B -c" in calls and "final-verify" in calls
     assert f"--attempt-marker {tmp_path}/canon/RECOVERY-GLOBAL-ATTEMPT-CONSUMED" in calls and (tmp_path / "cwd.txt").read_text().strip() == str(tmp_path / "work")
     assert (tmp_path / "work/RECOVERY-STEP-FINAL-RAN").is_file()
 

@@ -53,7 +53,7 @@ def test_blocker1_runner_pre_capture_order() -> None:
     pos_pre_capture = text.index('capture "$PRE" ctu-pre')
     pos_pre_regate = text.index('gate_out=$(TZ=Asia/Bangkok bash "$BUNDLE/p4-stage-gate.sh"')
     pos_consume = text.index("ctu_consume_attempt")
-    pos_apply = text.index("stages/CTu/apply.sh")
+    pos_apply = text.index("declare -f ctu_apply_fail")
 
     assert pos_pregates < pos_bundle_prep
     assert pos_bundle_prep < pos_bundle_verify
@@ -83,6 +83,7 @@ def _runtime_fixture(
     boundary: tuple[int, int] = (0, 0),
     episode_msg_id: str | None = None,
     open_boundary: bool = False,
+    device_id: str = "aegis-relay-01",
 ):
     status_path = tmp_path / "status.json"
     status_path.write_text(json.dumps(status))
@@ -99,8 +100,8 @@ def _runtime_fixture(
         if episode_msg_id:
             ep_id = 1 if open_boundary else boundary[1] + 1
             conn.execute(
-                "INSERT INTO lockdown_episodes VALUES (?, 'esp32-01', '2026-10-07 00:00:00', ?, NULL)",
-                (ep_id, episode_msg_id,),
+                "INSERT INTO lockdown_episodes VALUES (?, ?, '2026-10-07 00:00:00', ?, NULL)",
+                (ep_id, device_id, episode_msg_id,),
             )
     protocol_path = tmp_path / "protocol.sqlite3"
     with sqlite3.connect(protocol_path) as conn:
@@ -113,7 +114,7 @@ def _runtime_fixture(
     lines = [
         "CTU_ATTEMPT_CONSUMED=YES",
         "CTU_RERUN_ALLOWED=NO",
-        "CTU_DEVICE_ID=esp32-01",
+        f"CTU_DEVICE_ID={device_id}",
         "CTU_CONSUMED_AT_EPOCH=10.0",
         f"CTU_PRE_PROTOCOL_SEEN_ID={boundary[0]}",
         f"CTU_PRE_AUDIT_ID={boundary[1]}",
@@ -146,33 +147,33 @@ def test_blocker2_already_open_lockdown_cases(tmp_path: Path) -> None:
     case_a_dir.mkdir()
     s_a, db_a, p_a, m_a = _runtime_fixture(
         case_a_dir, status=valid_status,
-        protocol_rows=[(2, "esp32-01", "new-msg-1", "STATUS", 18.0)],
+        protocol_rows=[(2, "aegis-relay-01", "new-msg-1", "STATUS", 18.0)],
         audit_rows=[(2, "2026-10-07 00:00:18", "DEVICE_STATUS", "LOCKDOWN (new)")],
         boundary=(1, 1), episode_msg_id="new-msg-1", open_boundary=False,
     )
-    verifier.verify_files(s_a, db_a, p_a, m_a, 2743, 10.0, "esp32-01", 12.0)
+    verifier.verify_files(s_a, db_a, p_a, m_a, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Case B: Pre-open episode at PRE + fresh status post-restart
     case_b_dir = tmp_path / "case_b"
     case_b_dir.mkdir()
     s_b, db_b, p_b, m_b = _runtime_fixture(
         case_b_dir, status=valid_status,
-        protocol_rows=[(2, "esp32-01", "pre-existing-msg", "STATUS", 18.0)],
+        protocol_rows=[(2, "aegis-relay-01", "pre-existing-msg", "STATUS", 18.0)],
         audit_rows=[(2, "2026-10-07 00:00:18", "DEVICE_STATUS", "LOCKDOWN (pre)")],
         boundary=(1, 1), episode_msg_id="pre-existing-msg", open_boundary=True,
     )
-    verifier.verify_files(s_b, db_b, p_b, m_b, 2743, 10.0, "esp32-01", 12.0)
+    verifier.verify_files(s_b, db_b, p_b, m_b, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Negative 1: Pre-open episode with stale status
     case_neg1_dir = tmp_path / "case_neg1"
     case_neg1_dir.mkdir()
     s_n1, db_n1, p_n1, m_n1 = _runtime_fixture(
         case_neg1_dir, status={**valid_status, "updated_at": 8.0},
-        protocol_rows=[(2, "esp32-01", "pre-existing-msg", "STATUS", 8.0)],
+        protocol_rows=[(2, "aegis-relay-01", "pre-existing-msg", "STATUS", 8.0)],
         boundary=(1, 1), episode_msg_id="pre-existing-msg", open_boundary=True,
     )
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_files(s_n1, db_n1, p_n1, m_n1, 2743, 10.0, "esp32-01", 12.0)
+        verifier.verify_files(s_n1, db_n1, p_n1, m_n1, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Negative 2: Wrong device in post-restart status
     case_neg2_dir = tmp_path / "case_neg2"
@@ -183,41 +184,41 @@ def test_blocker2_already_open_lockdown_cases(tmp_path: Path) -> None:
         boundary=(1, 1), episode_msg_id="pre-existing-msg", open_boundary=True,
     )
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_files(s_n2, db_n2, p_n2, m_n2, 2743, 10.0, "esp32-01", 12.0)
+        verifier.verify_files(s_n2, db_n2, p_n2, m_n2, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Negative 3: NORMAL state post-restart
     case_neg3_dir = tmp_path / "case_neg3"
     case_neg3_dir.mkdir()
     s_n3, db_n3, p_n3, m_n3 = _runtime_fixture(
         case_neg3_dir, status={**valid_status, "state": "NORMAL"},
-        protocol_rows=[(2, "esp32-01", "pre-existing-msg", "STATUS", 18.0)],
+        protocol_rows=[(2, "aegis-relay-01", "pre-existing-msg", "STATUS", 18.0)],
         boundary=(1, 1), episode_msg_id="pre-existing-msg", open_boundary=True,
     )
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_files(s_n3, db_n3, p_n3, m_n3, 2743, 10.0, "esp32-01", 12.0)
+        verifier.verify_files(s_n3, db_n3, p_n3, m_n3, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Negative 4: Old open episode with no fresh STATUS post-restart
     case_neg4_dir = tmp_path / "case_neg4"
     case_neg4_dir.mkdir()
     s_n4, db_n4, p_n4, m_n4 = _runtime_fixture(
         case_neg4_dir, status=valid_status,
-        protocol_rows=[(1, "esp32-01", "old-msg", "STATUS", 8.0)],
+        protocol_rows=[(1, "aegis-relay-01", "old-msg", "STATUS", 8.0)],
         boundary=(1, 1), episode_msg_id="pre-existing-msg", open_boundary=True,
     )
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_files(s_n4, db_n4, p_n4, m_n4, 2743, 10.0, "esp32-01", 12.0)
+        verifier.verify_files(s_n4, db_n4, p_n4, m_n4, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Negative 5: Unrelated audit log (uncorrelated episode msg_id)
     case_neg5_dir = tmp_path / "case_neg5"
     case_neg5_dir.mkdir()
     s_n5, db_n5, p_n5, m_n5 = _runtime_fixture(
         case_neg5_dir, status=valid_status,
-        protocol_rows=[(2, "esp32-01", "status-msg-xyz", "STATUS", 18.0)],
+        protocol_rows=[(2, "aegis-relay-01", "status-msg-xyz", "STATUS", 18.0)],
         audit_rows=[(2, "2026-10-07 00:00:18", "UNRELATED_AUDIT", "something")],
         boundary=(1, 1), episode_msg_id="different-msg-abc", open_boundary=False,
     )
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_files(s_n5, db_n5, p_n5, m_n5, 2743, 10.0, "esp32-01", 12.0)
+        verifier.verify_files(s_n5, db_n5, p_n5, m_n5, 2743, 10.0, "aegis-relay-01", 12.0)
 
     result = "ALREADY_OPEN_LOCKDOWN_CASE=PASS"
     assert result == "ALREADY_OPEN_LOCKDOWN_CASE=PASS"
@@ -240,27 +241,86 @@ def test_blocker3_detector_single_cycle_proof() -> None:
     }
     # Expected single cycle: PRE != POST_APPLY, and VERIFY == POST_APPLY
     verify_same = dict(post_apply)
-    verifier.verify_detector(pre, verify_same, 1500, post_apply=post_apply)
+    verifier.verify_detector(pre, verify_same, 1500, post_apply=post_apply, mode="ACTIVE")
 
     # Second cycle between POST_APPLY and VERIFY (e.g. pid changed or restart incremented)
     verify_second_cycle = dict(post_apply, pid="300", monotonic="3000", invocation="c" * 32)
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_detector(pre, verify_second_cycle, 1500, post_apply=post_apply)
+        verifier.verify_detector(pre, verify_second_cycle, 1500, post_apply=post_apply, mode="ACTIVE")
 
     # Third cycle
     verify_third_cycle = dict(post_apply, pid="400", nrestarts="2", invocation="d" * 32)
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_detector(pre, verify_third_cycle, 1500, post_apply=post_apply)
+        verifier.verify_detector(pre, verify_third_cycle, 1500, post_apply=post_apply, mode="ACTIVE")
 
-    # Duplicate process count
+    # Duplicate process count in active mode
     verify_dup_proc = dict(post_apply, process_count="2")
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_detector(pre, verify_dup_proc, 1500, post_apply=post_apply)
+        verifier.verify_detector(pre, verify_dup_proc, 1500, post_apply=post_apply, mode="ACTIVE")
 
-    # Inactive or failed detector
+    # Inactive or failed detector in active mode
     verify_inactive = dict(post_apply, active="failed", result="failed")
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_detector(pre, verify_inactive, 1500, post_apply=post_apply)
+        verifier.verify_detector(pre, verify_inactive, 1500, post_apply=post_apply, mode="ACTIVE")
+
+    # ACTIVE -> unexpected inactive failure
+    verify_unexpected_dead = dict(post_apply, active="inactive", sub="dead")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre, verify_unexpected_dead, 1500, post_apply=post_apply, mode="ACTIVE")
+
+    # MODE B — INACTIVE baseline preservation
+    pre_inactive = {
+        "load": "loaded", "active": "inactive", "sub": "dead",
+        "unit_file": "disabled", "restart": "no", "pid": "0",
+        "invocation": "", "monotonic": "0", "nrestarts": "0", "process_count": "0",
+    }
+    post_inactive = {
+        "load": "loaded", "active": "inactive", "sub": "dead",
+        "unit_file": "disabled", "restart": "no", "pid": "0",
+        "invocation": "", "monotonic": "0", "nrestarts": "0", "process_count": "0",
+    }
+    # Positive case: stays inactive through Core restart
+    verifier.verify_detector(pre_inactive, post_inactive, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Negative case: inactive detector unexpectedly becomes active
+    post_became_active = dict(post_inactive, active="active", sub="running", pid="500")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_became_active, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Negative case: post_apply became active
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_inactive, 0, post_apply=post_became_active, mode="INACTIVE")
+
+    # Negative case: detector process appears in inactive mode
+    post_with_proc = dict(post_inactive, process_count="1")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_with_proc, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Negative case: non-zero PID in inactive mode
+    post_nonzero_pid = dict(post_inactive, pid="123")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_nonzero_pid, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Negative case: non-empty invocation in inactive mode
+    post_nonempty_inv = dict(post_inactive, invocation="a" * 32)
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_nonempty_inv, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Negative case: restart count incremented
+    post_restart_inc = dict(post_inactive, nrestarts="1")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_restart_inc, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Verify ZERO explicit detector lifecycle commands exist in apply, verify, rollback, runner
+    for path in (CTU / "apply.sh", CTU / "verify.sh", CTU / "rollback.sh", RUNNER):
+        content = path.read_text()
+        for forbidden in (
+            "systemctl start aegis-idea3-detector",
+            "systemctl restart aegis-idea3-detector",
+            "systemctl enable aegis-idea3-detector",
+            "systemctl reload aegis-idea3-detector",
+        ):
+            assert forbidden not in content, f"Forbidden command {forbidden} found in {path}"
 
     result = "DETECTOR_SINGLE_CYCLE_PROOF=PASS"
     assert result == "DETECTOR_SINGLE_CYCLE_PROOF=PASS"
@@ -313,7 +373,7 @@ def test_blocker5_atomic_closeout_and_rollback_survival(tmp_path: Path) -> None:
         "CTU_SUDO": "",
         "SUDO": "",
     }
-    cmd = f'CTU_SUDO="" SUDO="" . "{CTU_LIB}"; ctu_record_success "{"a" * 40}" "{"b" * 64}" "/tmp/evidence"'
+    cmd = f'CTU_SUDO="" SUDO="" . "{CTU_LIB}"; ctu_record_success "{"a" * 40}" "{"b" * 64}" "/tmp/evidence" "aegis-relay-01" "ACTIVE" "{"c" * 64}" "{"d" * 64}"'
     proc = subprocess.run(["bash", "-c", cmd], env=env, capture_output=True, text=True)
     assert proc.returncode != 0
     assert "CTU_FAIL_CLOSEOUT_ALREADY_EXISTS" in proc.stderr
@@ -358,10 +418,17 @@ def test_blocker6_ctu_recovery_descendant_binding(tmp_path: Path) -> None:
     closeout = canonical / "CTU-GLOBAL-CLOSEOUT-PASS"
     closeout.write_text(
         "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
-        f"CTU_EXPECTED_MAIN={ctu_main}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
-        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+        f"CTU_EXPECTED_MAIN={ctu_main}\nCTU_EXECUTION_MAIN={ctu_main}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
+        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\nCTU_EVIDENCE_MANIFEST_SHA256=" + "d" * 64 + "\n"
+        "CTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
         "CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=" + "b" * 64 + "\nCTU_EVIDENCE_ROOT=/tmp/evidence\n"
     )
+    host_sha = hashlib.sha256(closeout.read_bytes()).hexdigest()
+    sidecar = canonical / "CTU-GLOBAL-CLOSEOUT-PASS.sha256"
+    sidecar.write_text(f"{host_sha}  CTU-GLOBAL-CLOSEOUT-PASS\n")
+    sidecar.chmod(0o600)
+    receipt = tmp_path / "ctu-live-receipt.md"
+    receipt.write_text(f"CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_EXPECTED_MAIN={ctu_main}\nCTU_EXECUTION_MAIN={ctu_main}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_UNIT_SHA256={'b' * 64}\nCTU_DEVICE_ID=aegis-relay-01\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_EVIDENCE_MANIFEST_SHA256={'d' * 64}\nCTU_HOST_CLOSEOUT_SHA256={host_sha}\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n")
 
     env = {
         **os.environ,
@@ -370,6 +437,7 @@ def test_blocker6_ctu_recovery_descendant_binding(tmp_path: Path) -> None:
         "RECOVERY_TEST_ONLY_CANONICAL_DIR": str(canonical),
         "RECOVERY_TEST_ONLY_TRUST_ROOT": str(tmp_path),
         "GIT_NO_REPLACE_OBJECTS": "1",
+        "RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT": str(receipt),
     }
     cmd = f'. "{RECOVERY_LIB}"; recovery_ctu_successor_gate "$1" "$2"'
 
@@ -423,6 +491,7 @@ def test_blocker7_ctu_freeze_implementation_and_verifier(tmp_path: Path) -> None
     assert "UNIT_SHA256" in freeze_text
     assert "MERGED_MAIN_WORKTREE" in freeze_text
     assert "EVIDENCE_ROOT" in freeze_text
+    assert "DEVICE_ID" in freeze_text
 
     # Verify --capture-boundary in run-ctu-owner.sh uses $BUNDLE
     runner_text = RUNNER.read_text()
@@ -445,19 +514,20 @@ def test_blocker8_ctu_authorization_and_k3_binding(tmp_path: Path) -> None:
     unit_sha = "c" * 64
     user = "music"
     uid = "1001"
+    device_id = "aegis-relay-01"
 
     valid_auth = (
         "AEGIS_P4_AUTHORIZATION_V1\n"
         f"stage=CTu\ndate={today}\nauthorizer=music\nscope=full\nreference=test-ref\n"
         f"expected_main={main_sha}\nrunner_sha256={runner_sha}\nunit_sha256={unit_sha}\n"
-        f"operator_user={user}\noperator_uid={uid}\n"
+        f"operator_user={user}\noperator_uid={uid}\ndevice_id={device_id}\n"
     )
     valid_k3 = (
         "AEGIS_P4_K3_CONFIRMATION_V2\n"
         f"stage=CTu\ndate={today}\nconfirmed_by=music\nconfirmation_mode=IDEA3_OWNER_SELF_ATTESTATION\n"
         f"idea1_window_overlap=NONE_KNOWN\nreference=test-ref\n"
         f"expected_main={main_sha}\nrunner_sha256={runner_sha}\nunit_sha256={unit_sha}\n"
-        f"operator_user={user}\noperator_uid={uid}\n"
+        f"operator_user={user}\noperator_uid={uid}\ndevice_id={device_id}\n"
     )
 
     auth.write_text(valid_auth)
@@ -492,6 +562,24 @@ def test_blocker8_ctu_authorization_and_k3_binding(tmp_path: Path) -> None:
     p_replay = subprocess.run(cmd, capture_output=True, text=True)
     assert p_replay.returncode != 0
 
+    # Negative 5: Device ID mismatch between Auth and K3
+    auth.write_text(valid_auth)
+    k3.write_text(valid_k3.replace(f"device_id={device_id}", "device_id=other-device"))
+    p_dev_mismatch = subprocess.run(cmd, capture_output=True, text=True)
+    assert p_dev_mismatch.returncode != 0
+    assert "K3_CTU_BINDING_MISMATCH" in p_dev_mismatch.stderr or p_dev_mismatch.returncode != 0
+
+    # Negative 6: Malformed device ID in Auth
+    auth.write_text(valid_auth.replace(f"device_id={device_id}", "device_id=bad/name"))
+    k3.write_text(valid_k3)
+    p_dev_malformed = subprocess.run(cmd, capture_output=True, text=True)
+    assert p_dev_malformed.returncode != 0
+
+    # Negative 7: Missing device ID in Auth
+    auth.write_text(valid_auth.replace(f"device_id={device_id}\n", ""))
+    p_dev_missing = subprocess.run(cmd, capture_output=True, text=True)
+    assert p_dev_missing.returncode != 0
+
     assert "CTU_AUTH_BINDING=PASS"
     assert "CTU_K3_BINDING=PASS"
     assert "CTU_EXTRA_FIELDS_REFUSED=YES"
@@ -502,6 +590,9 @@ def test_blocker8_ctu_authorization_and_k3_binding(tmp_path: Path) -> None:
 # ==============================================================================
 def test_blocker9_pre_consume_gates_and_sudo_noninteractive() -> None:
     text = RUNNER.read_text()
+    assert "DEVICE_ID=PIN_DEVICE_ID" in text
+    assert "ctu_validate_core_env_device_id" in text
+    assert "DETECTOR_PRE_MODE=" in text
     assert "RECOVERY-GLOBAL-ATTEMPT-CONSUMED" in text
     assert "ctu_rru_successor_gate" in text
     assert "aegis-idea3-mosquitto.service" in text or "mosquitto.service" in text
@@ -533,7 +624,7 @@ def test_blocker10_manual_reconciliation(tmp_path: Path) -> None:
 
     # Interrupted attempt: marker present, no closeout
     marker = canonical / "CTU-GLOBAL-ATTEMPT-CONSUMED"
-    marker.write_text("CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_DEVICE_ID=esp32-01\n")
+    marker.write_text("CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_DEVICE_ID=aegis-relay-01\n")
 
     env = {**os.environ, "AEGIS_CTU_TEST_ONLY_CANONICAL_DIR": str(canonical)}
     proc = subprocess.run(["python3", str(RECONCILE_TOOL), "--governance-dir", str(canonical)], env=env, capture_output=True, text=True)
@@ -584,18 +675,29 @@ def test_blocker12_recovery_ctu_negative_matrix(tmp_path: Path) -> None:
     def _write_closeout(sha: str, extra_lines: str = ""):
         content = (
             "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
-            f"CTU_EXPECTED_MAIN={main_sha}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
-            "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+                f"CTU_EXPECTED_MAIN={main_sha}\nCTU_EXECUTION_MAIN={main_sha}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
+                "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\nCTU_EVIDENCE_MANIFEST_SHA256=" + "d" * 64 + "\n"
+            "CTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
             f"CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256={sha}\nCTU_EVIDENCE_ROOT=/tmp/evidence\n" + extra_lines
         )
         closeout.write_text(content)
+        host_sha = hashlib.sha256(closeout.read_bytes()).hexdigest()
+        sidecar = canonical / "CTU-GLOBAL-CLOSEOUT-PASS.sha256"
+        sidecar.write_text(f"{host_sha}  CTU-GLOBAL-CLOSEOUT-PASS\n")
+        sidecar.chmod(0o600)
+        receipt = tmp_path / "ctu-live-receipt.md"
+        receipt.write_text(
+                "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\n"
+                f"CTU_EXPECTED_MAIN={main_sha}\nCTU_EXECUTION_MAIN={main_sha}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_UNIT_SHA256={sha}\nCTU_DEVICE_ID=aegis-relay-01\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_EVIDENCE_MANIFEST_SHA256={'d' * 64}\nCTU_HOST_CLOSEOUT_SHA256={host_sha}\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+        )
+        return receipt
 
     mock_unit = tmp_path / "aegis-idea3-core.service"
     mock_unit.write_text(
         "[Unit]\nDescription=Mock\n[Service]\nUser=aegis-idea3\nNoNewPrivileges=true\nCapabilityBoundingSet=\nAmbientCapabilities=\nProtectClock=false\n"
     )
     unit_sha = hashlib.sha256(mock_unit.read_bytes()).hexdigest()
-    _write_closeout(unit_sha)
+    receipt = _write_closeout(unit_sha)
 
     env = {
         **os.environ,
@@ -604,12 +706,29 @@ def test_blocker12_recovery_ctu_negative_matrix(tmp_path: Path) -> None:
         "RECOVERY_TEST_ONLY_CANONICAL_DIR": str(canonical),
         "RECOVERY_TEST_ONLY_TRUST_ROOT": str(tmp_path),
         "AEGIS_CORE_UNIT_FILE": str(mock_unit),
+        "RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT": str(receipt),
     }
     cmd = f'. "{RECOVERY_LIB}"; recovery_ctu_successor_gate "$1" "$2"'
 
     # Positive control
     p_ok = subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True, text=True)
     assert p_ok.returncode == 0, p_ok.stderr
+
+    # Host closeout and reviewed repository receipt are both mandatory.
+    sidecar = canonical / "CTU-GLOBAL-CLOSEOUT-PASS.sha256"
+    sidecar.unlink()
+    assert "RECOVERY_CTU_HOST_CLOSEOUT_DIGEST_MISSING" in subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True, text=True).stderr
+    receipt = _write_closeout(unit_sha)
+    sidecar.write_text("0" * 64 + "  CTU-GLOBAL-CLOSEOUT-PASS\n")
+    sidecar.chmod(0o600)
+    assert "RECOVERY_CTU_HOST_CLOSEOUT_DIGEST_INVALID" in subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True, text=True).stderr
+    _write_closeout(unit_sha)
+    receipt.unlink()
+    assert "RECOVERY_CTU_LIVE_RECEIPT_MISSING" in subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True, text=True).stderr
+    receipt = _write_closeout(unit_sha)
+    receipt.write_text(receipt.read_text().replace("CTU_HOST_CLOSEOUT_SHA256=", "CTU_HOST_CLOSEOUT_SHA256=" + "0" * 64 + " #"))
+    assert "RECOVERY_CTU_REPOSITORY_RECEIPT_HOST_BINDING_INVALID" in subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True, text=True).stderr
+    _write_closeout(unit_sha)
 
     # 1. Missing closeout
     closeout.unlink()
@@ -644,4 +763,299 @@ def test_blocker12_recovery_ctu_negative_matrix(tmp_path: Path) -> None:
     assert subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True).returncode != 0
     (canonical / "RECOVERY-GLOBAL-ATTEMPT-CONSUMED").unlink()
 
+    # 8. Invalid CTU_DETECTOR_BASELINE_MODE
+    closeout.write_text(closeout.read_text().replace("CTU_DETECTOR_BASELINE_MODE=ACTIVE", "CTU_DETECTOR_BASELINE_MODE=INVALID"))
+    p_bad_det = subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True)
+    assert p_bad_det.returncode != 0
+    _write_closeout(unit_sha)
+
+    # 9. Malformed CTU_DEVICE_ID
+    closeout.write_text(closeout.read_text().replace("CTU_DEVICE_ID=aegis-relay-01", "CTU_DEVICE_ID=bad/device"))
+    p_bad_dev = subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True)
+    assert p_bad_dev.returncode != 0
+    _write_closeout(unit_sha)
+
     assert "RECOVERY_CTU_GATE_NEGATIVE_TESTS=PASS"
+
+
+# ==============================================================================
+# BLOCKER 13 — CORE.ENV DEVICE ID VALIDATION TESTS
+# ==============================================================================
+def test_ctu_core_env_device_id_validation(tmp_path: Path) -> None:
+    env_file = tmp_path / "core.env"
+    cmd = f'export CTU_SUDO="" SUDO=""; . "{CTU_LIB}"; ctu_validate_core_env_device_id "$1" "$2"'
+
+    # 1. Matching device ID
+    env_file.write_text("AEGIS_P1_DEVICE_ID=aegis-relay-01\nOTHER_VAR=secret\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+
+    # 2. Quoted value and comments/whitespace
+    env_file.write_text("# Comment\n\nAEGIS_P1_DEVICE_ID=\"aegis-relay-01\"\n# Another comment\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+
+    # 3. Missing key
+    env_file.write_text("SOME_OTHER_VAR=value\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "MISSING_DEVICE_ID" in proc.stderr
+
+    # 4. Duplicate key
+    env_file.write_text("AEGIS_P1_DEVICE_ID=aegis-relay-01\nAEGIS_P1_DEVICE_ID=aegis-relay-02\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "DUPLICATE_DEVICE_ID" in proc.stderr
+
+    # 5. Malformed device ID in file
+    env_file.write_text("AEGIS_P1_DEVICE_ID=bad/character\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "MALFORMED_DEVICE_ID" in proc.stderr
+
+    # 6. Device ID mismatch
+    env_file.write_text("AEGIS_P1_DEVICE_ID=esp32-01\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "DEVICE_ID_MISMATCH" in proc.stderr
+
+    # 7. Symlink env file refused
+    sym_file = tmp_path / "sym_core.env"
+    sym_file.symlink_to(env_file)
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(sym_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "CTU_CORE_ENV_MISSING_OR_SYMLINK" in proc.stderr
+
+
+def test_ctu_and_recovery_handlers_require_frozen_provenance_before_privileged_work() -> None:
+    ctu_apply = (CTU / "apply.sh").read_text()
+    ctu_runner = RUNNER.read_text()
+    recovery_apply = (P4 / "stages" / "Recovery" / "apply.sh").read_text()
+    assert "CTU_FROZEN_RUNNER_SHA256" in ctu_runner
+    assert "CTU-GLOBAL-ATTEMPT-CONSUMED" in ctu_runner
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in ctu_apply
+    assert "AEGIS_RCVSTAGE_PROVENANCE_FILE" in recovery_apply
+    assert "RECOVERY_FROZEN_RUNNER_SHA256" in recovery_apply
+    assert "RECOVERY_PROVENANCE" in recovery_apply
+
+    # Caller-controlled authorization is not provenance.  The fixed marker
+    # and frozen-runner checks must precede the first privileged action.
+    assert ctu_runner.index("CTU_PROVENANCE_MISSING") < ctu_runner.index("systemctl restart")
+    assert recovery_apply.index("RECOVERY_PROVENANCE_MISSING") < recovery_apply.index("RUN()")
+    assert "AEGIS_CTU_LIVE_AUTHORIZED=YES" in ctu_runner
+    assert "AEGIS_RCVSTAGE_LIVE_AUTHORIZED=YES" not in recovery_apply
+
+
+def test_direct_handler_calls_and_replayed_provenance_are_refused() -> None:
+    ctu_apply = (CTU / "apply.sh").read_text()
+    ctu_runner = RUNNER.read_text()
+    recovery_apply = (P4 / "stages" / "Recovery" / "apply.sh").read_text()
+
+    # A direct root invocation can supply caller-controlled inputs, but cannot
+    # manufacture the root-owned consumed marker or frozen-runner binding.
+    assert "MARKER=/var/lib/aegis-idea3-governance/CTU-GLOBAL-ATTEMPT-CONSUMED" in ctu_runner
+    assert 'stat -c %u:%a "$MARKER"' in ctu_runner
+    assert "marker_runner" in ctu_runner and "marker_bundle" in ctu_runner
+    assert "CTU-FROZEN-RUNNER-PROVENANCE" in ctu_runner
+    assert "CTU_HANDLER_PROVENANCE_CONSUME_FAILED" in ctu_runner
+    assert "RECOVERY_PROVENANCE_MISSING" in recovery_apply
+    assert "RECOVERY_FROZEN_RUNNER_PROVENANCE_INVALID" in recovery_apply
+    assert "RECOVERY_CONTROL_PROVENANCE_INVALID" in recovery_apply
+
+    # Replay still binds to these exact frozen bytes, not to a caller-selected
+    # digest supplied in an environment variable.
+    assert 'sha256sum "$AEGIS_CTU_BUNDLE/owner-run/run-ctu-owner.sh"' in ctu_runner
+    assert 'sha256sum "$CONTROL/owner-run/run-recovery-owner.sh"' in recovery_apply
+
+
+def test_direct_handler_dynamic_negative_fixture_reaches_no_privileged_call(tmp_path: Path) -> None:
+    calls = tmp_path / "calls"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for command in ("systemctl", "install", "mv", "cp"):
+        (fake_bin / command).write_text(f'#!/bin/sh\nprintf {command}-called >> "{calls}"\nexit 0\n')
+        (fake_bin / command).chmod(0o755)
+    unit = tmp_path / "aegis-idea3-core.service"
+    unit.write_text("original-unit\n")
+    unit_before = unit.read_bytes()
+    fake_bundle = tmp_path / "bundle"
+    (fake_bundle / "owner-run").mkdir(parents=True)
+    (fake_bundle / "CTU-BUNDLE-SHA256SUMS").write_text("fake\n")
+    fake_provenance = tmp_path / "CTU-FROZEN-RUNNER-PROVENANCE"
+    fake_provenance.write_text("CTU_FROZEN_RUNNER_SHA256=" + "a" * 64 + "\n")
+    fake_provenance.chmod(0o600)
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "AEGIS_CTU_LIVE_AUTHORIZED": "YES",
+        "AEGIS_CTU_WORK_DIR": str(tmp_path),
+        "AEGIS_CTU_UNIT_SNAPSHOT": str(tmp_path / "unit"),
+        "AEGIS_CTU_UNIT_SHA256": "b" * 64,
+        "AEGIS_CTU_BUNDLE": str(fake_bundle),
+        "AEGIS_CTU_JOURNAL_SINCE": "now",
+        "AEGIS_CTU_DETECTOR_PRE_MODE": "INACTIVE",
+    }
+    for label, runner_sha in (("fake", "a" * 64), ("wrong", "b" * 64), ("stale", "c" * 64)):
+        fake_provenance.chmod(0o600)
+        fake_provenance.write_text(f"CTU_FROZEN_RUNNER_SHA256={runner_sha}\n")
+        fake_provenance.chmod(0o400)
+        direct = subprocess.run(["bash", str(CTU / "apply.sh")], env=env, text=True, capture_output=True)
+        assert direct.returncode != 0, label
+        assert "DIRECT_HANDLER_INVOCATION_REFUSED" in direct.stderr, label
+        assert not calls.exists(), f"direct CTu apply reached the systemctl stub ({label})"
+        sourced = subprocess.run(
+            ["bash", "-c", 'source "$1"', "direct-source", str(CTU / "apply.sh")],
+            env=env, text=True, capture_output=True,
+        )
+        assert sourced.returncode != 0 and "DIRECT_HANDLER_INVOCATION_REFUSED" in sourced.stderr, label
+        assert not calls.exists(), f"sourced CTu apply reached the systemctl stub ({label})"
+        assert unit.read_bytes() == unit_before
+
+    rollback_direct = subprocess.run(
+        ["bash", str(CTU / "rollback.sh")], env=env, text=True, capture_output=True,
+    )
+    assert rollback_direct.returncode != 0
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in rollback_direct.stderr
+    assert not calls.exists(), "direct CTu rollback reached the systemctl stub"
+    assert unit.read_bytes() == unit_before
+    assert not (tmp_path / "mutation-journal").exists()
+
+    recovery = P4 / "stages" / "Recovery" / "apply.sh"
+    recovery_direct = subprocess.run(
+        ["bash", str(recovery)],
+        env={**env, "AEGIS_RCVSTAGE_LIVE_AUTHORIZED": "YES", "AEGIS_RCVSTAGE_STEP": "FINAL"},
+        text=True,
+        capture_output=True,
+    )
+    assert recovery_direct.returncode != 0
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in recovery_direct.stderr
+    assert not calls.exists(), "direct Recovery handler reached the systemctl stub"
+    verify_direct = subprocess.run(
+        ["bash", str(P4 / "stages" / "Recovery" / "verify.sh")],
+        env={**env, "AEGIS_RCVSTAGE_LIVE_AUTHORIZED": "YES", "AEGIS_RCVSTAGE_STEP": "FINAL"},
+        text=True,
+        capture_output=True,
+    )
+    assert verify_direct.returncode != 0
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in verify_direct.stderr
+    assert not calls.exists(), "direct Recovery verify reached the systemctl stub"
+
+    # The reviewed runner is the only caller that exports the embedded
+    # privileged routine; it does not execute a standalone handler file.
+    runner = RUNNER.read_text()
+    recovery_runner = (P4 / "owner-run" / "run-recovery-owner.sh").read_text()
+    assert "ctu_apply_governed" in runner
+    assert "recovery_apply_governed" in recovery_runner
+    assert "recovery_verify_governed" in recovery_runner
+
+
+def test_core_env_post_restart_toctou_is_bound_to_preimage(tmp_path: Path) -> None:
+    verifier = _load_runtime_verifier()
+    env_file = tmp_path / "core.env"
+    env_file.write_text("AEGIS_P1_DEVICE_ID=aegis-relay-01\n")
+    pre_sha = hashlib.sha256(env_file.read_bytes()).hexdigest()
+    verifier.verify_core_env(env_file, "aegis-relay-01", pre_sha)
+
+    env_file.write_text("AEGIS_P1_DEVICE_ID=esp32-01\n")
+    with pytest.raises(verifier.RuntimeProofError, match="CORE_ENV_CHANGED_ACROSS_ATTEMPT"):
+        verifier.verify_core_env(env_file, "aegis-relay-01", pre_sha)
+
+    env_file.write_text("AEGIS_P1_DEVICE_ID=aegis-relay-01\nAEGIS_P1_DEVICE_ID=aegis-relay-01\n")
+    duplicate_sha = hashlib.sha256(env_file.read_bytes()).hexdigest()
+    with pytest.raises(verifier.RuntimeProofError, match="CORE_ENV_DEVICE_ID_CARDINALITY"):
+        verifier.verify_core_env(env_file, "aegis-relay-01", duplicate_sha)
+
+
+def test_inactive_detector_transient_lifecycle_is_refused() -> None:
+    verifier = _load_runtime_verifier()
+    inactive = {
+        "load": "loaded", "active": "inactive", "sub": "dead", "unit_file": "disabled",
+        "restart": "no", "pid": "0", "invocation": "", "monotonic": "0",
+        "nrestarts": "0", "process_count": "0", "lifecycle_events": "0",
+    }
+    verifier.verify_detector(inactive, inactive, 0, post_apply=inactive, mode="INACTIVE")
+    transient = dict(inactive, lifecycle_events="1")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(inactive, transient, 0, post_apply=transient, mode="INACTIVE")
+
+
+def test_ctu_interpreter_is_not_environment_selectable() -> None:
+    text = CTU_LIB.read_text()
+    assert 'CTU_PYTHON:-' not in text
+    assert 'command -v python3' not in text
+    assert '/usr/bin/python3 -I -B' in text
+
+
+def test_ctu_frozen_entrypoint_cleans_startup_and_loader_environment(tmp_path: Path) -> None:
+    """The executable runner must sanitize before Bash/Python can be selected."""
+    sentinel = tmp_path / "startup-sentinel"
+    calls = tmp_path / "mutation-calls"
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    for name in ("bash", "python3", "systemctl"):
+        fake = fake_bin / name
+        fake.write_text(f'#!/bin/sh\nprintf "{name}" >> "{calls}"\nexit 97\n')
+        fake.chmod(0o755)
+    bash_env = tmp_path / "bash-env"
+    bash_env.write_text(f'printf sourced > "{sentinel}"\n')
+    hostile_python = tmp_path / "hostile-python"
+    hostile_python.mkdir()
+    (hostile_python / "sitecustomize.py").write_text(f'open("{sentinel}", "w").write("python")\n')
+
+    base = {
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "BASH_ENV": str(bash_env),
+        "ENV": str(bash_env),
+        "PYTHONPATH": str(hostile_python),
+        "PYTHONHOME": str(tmp_path / "not-python"),
+        "PYTHONSTARTUP": str(bash_env),
+        "PYTHONINSPECT": "1",
+        "LD_PRELOAD": str(tmp_path / "missing-preload.so"),
+        "LD_LIBRARY_PATH": str(tmp_path),
+        "AEGIS_CTU_LIVE_AUTHORIZED": "YES",
+        "GIT_DIR": str(tmp_path / "hostile.git"),
+        "BASH_FUNC_systemctl%%": "() { echo imported >> '" + str(calls) + "'; }",
+    }
+    proc = subprocess.run([str(RUNNER), str(tmp_path / "fake-auth")], env=base, text=True, capture_output=True)
+    assert proc.returncode != 0
+    assert not sentinel.exists(), proc.stderr
+    assert not calls.exists(), proc.stderr
+    assert "CTU-GLOBAL-ATTEMPT-CONSUMED" not in str(tmp_path)
+
+    # Each loader/startup variable is independently neutralized by the clean
+    # exec boundary; this also guards against a future partial allow-list.
+    for name, value in {
+        "BASH_ENV": str(bash_env),
+        "ENV": str(bash_env),
+        "PYTHONPATH": str(hostile_python),
+        "PYTHONHOME": str(tmp_path / "not-python"),
+        "PYTHONSTARTUP": str(bash_env),
+        "PYTHONINSPECT": "1",
+        "LD_PRELOAD": str(tmp_path / "missing-preload.so"),
+        "LD_LIBRARY_PATH": str(tmp_path),
+    }.items():
+        sentinel.unlink(missing_ok=True)
+        calls.unlink(missing_ok=True)
+        env = {"PATH": "/usr/bin:/bin", name: value}
+        result = subprocess.run([str(RUNNER), str(tmp_path / "fake-auth")], env=env, text=True, capture_output=True)
+        assert result.returncode != 0, name
+        assert not sentinel.exists(), (name, result.stderr)
+        assert not calls.exists(), (name, result.stderr)
+
+
+def test_ctu_core_restart_contract_is_truthful_on_success_and_failure_paths() -> None:
+    runner = RUNNER.read_text()
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in (CTU / "apply.sh").read_text()
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in (CTU / "rollback.sh").read_text()
+    assert runner.count("systemctl restart aegis-idea3-core.service") == 2
+    assert "declare -f ctu_apply_fail ctu_apply_governed" in runner
+    assert "declare -f ctu_rollback_fail ctu_rollback_governed" in runner
+    apply_body = runner[runner.index("ctu_apply_governed() {"):runner.index("ctu_rollback_fail()")]
+    rollback_body = runner[runner.index("ctu_rollback_governed() {"):runner.index("IN_POST_FAIL=0")]
+    assert apply_body.count("systemctl restart aegis-idea3-core.service") == 1
+    assert rollback_body.count("systemctl restart aegis-idea3-core.service") == 1
+    assert "PRECONSUME_CORE_RESTARTS=0" in runner
+    assert "POST_CONSUME_FAILURE_MAX_CORE_RESTARTS=2" in runner
+    assert "ROLLBACK_CORE_RESTARTS_MAX=1" in runner
+    assert "systemctl restart aegis-idea3-core.service" not in runner[runner.index("ctu_consume_attempt"):runner.index("declare -f ctu_apply_fail")]
+    assert "post_fail" in runner and "rollback_flow" in runner

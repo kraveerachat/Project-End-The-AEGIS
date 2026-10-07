@@ -6,6 +6,7 @@ ESP32.
 """
 
 from pathlib import Path
+import hashlib
 import importlib.util
 import json
 import re
@@ -72,9 +73,11 @@ def test_ctu_handlers_are_shell_valid_and_scope_limited() -> None:
         assert "esp32" not in text.lower()
         assert "CUT" not in text and "RESTORE" not in text
         assert not re.search(r"systemctl +(restart|start|stop|reload).*detector", text)
-    assert apply.count("systemctl restart aegis-idea3-core.service") == 1
-    assert rollback.count("systemctl restart aegis-idea3-core.service") == 1
-    assert "systemctl daemon-reload" in apply
+    runner = RUNNER.read_text()
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in apply
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in rollback
+    assert runner.count("systemctl restart aegis-idea3-core.service") == 2
+    assert "systemctl daemon-reload" in runner
 
 
 def test_ctu_allow_catalog_is_narrow_and_detector_transition_is_dependency_only() -> None:
@@ -102,7 +105,7 @@ def test_ctu_runner_is_unpinned_and_consumes_its_own_marker_before_apply() -> No
     assert "ATTEMPT_MARKER=\"$AUTH_DIR/CTU-GLOBAL-ATTEMPT-CONSUMED\"" not in text
     assert "CTU_CANONICAL_DIR=/var/lib/aegis-idea3-governance" in lib
     assert "ctu_consume_attempt" in text
-    assert text.index("ctu_consume_attempt") < text.index('bash \"$BUNDLE/stages/CTu/apply.sh\"')
+    assert text.index("ctu_consume_attempt") < text.index("declare -f ctu_apply_fail")
     assert "--stage RRu" not in text and "--stage Recovery" not in text
     assert not re.search(r"systemctl +(restart|start|stop|reload).*detector", text)
     assert "SUDO" in text and "SUDO" in lib
@@ -118,7 +121,7 @@ def test_ctu_verify_uses_real_runtime_and_has_no_caller_success_pins() -> None:
     verify = VERIFY.read_text()
     for forbidden in (
         "PIN_AUTHENTICATED_STATUS", "PIN_TRUSTED_CLOCK", "PIN_TIME_TRUST",
-        "PIN_DEVICE", "PIN_UPLINK", "PIN_BROKER", "AEGIS_CTU_AUTHENTICATED_STATUS",
+        "PIN_DEVICE=", "PIN_UPLINK", "PIN_BROKER", "AEGIS_CTU_AUTHENTICATED_STATUS",
         "AEGIS_CTU_TRUSTED_CLOCK", "AEGIS_CTU_TIME_TRUST", "AEGIS_CTU_DEVICE=",
         "AEGIS_CTU_UPLINK=", "AEGIS_CTU_BROKER=",
     ):
@@ -367,7 +370,7 @@ def test_ctu_uses_root_snapshot_and_recovery_requires_ctu_pass() -> None:
     recovery = (P4 / "owner-run" / "run-recovery-owner.sh").read_text()
     recovery_lib = (P4 / "p4-recovery-run-lib.sh").read_text()
     assert "AEGIS_CTU_UNIT_SNAPSHOT" in runner and "sha256sum" in runner
-    assert "AEGIS_CTU_UNIT_SNAPSHOT" in apply and "AEGIS_CTU_UNIT_SHA256" in apply
+    assert "AEGIS_CTU_UNIT_SNAPSHOT" in runner and "AEGIS_CTU_UNIT_SHA256" in runner
     assert "CTU-GLOBAL-CLOSEOUT-PASS" in recovery_lib
     assert "recovery_ctu_successor_gate" in recovery
 
@@ -386,12 +389,21 @@ def test_recovery_gate_refuses_without_ctu_closeout_and_accepts_exact_bound(tmp_
     }
     missing = subprocess.run(["bash", "-c", command, "gate", "a" * 40], env=env, capture_output=True)
     assert missing.returncode != 0
-    (canonical / "CTU-GLOBAL-CLOSEOUT-PASS").write_text(
+    closeout = canonical / "CTU-GLOBAL-CLOSEOUT-PASS"
+    closeout.write_text(
         "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
-        f"CTU_EXPECTED_MAIN={'a' * 40}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
-        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+        f"CTU_EXPECTED_MAIN={'a' * 40}\nCTU_EXECUTION_MAIN={'a' * 40}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
+        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\nCTU_EVIDENCE_MANIFEST_SHA256=" + "d" * 64 + "\n"
+        "CTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
         "CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=" + "b" * 64 + "\nCTU_EVIDENCE_ROOT=/tmp/evidence\n"
     )
+    host_sha = hashlib.sha256(closeout.read_bytes()).hexdigest()
+    sidecar = canonical / "CTU-GLOBAL-CLOSEOUT-PASS.sha256"
+    sidecar.write_text(f"{host_sha}  CTU-GLOBAL-CLOSEOUT-PASS\n")
+    sidecar.chmod(0o600)
+    receipt = tmp_path / "ctu-live-receipt.md"
+    receipt.write_text(f"CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_EXPECTED_MAIN={'a' * 40}\nCTU_EXECUTION_MAIN={'a' * 40}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_UNIT_SHA256={'b' * 64}\nCTU_DEVICE_ID=aegis-relay-01\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_EVIDENCE_MANIFEST_SHA256={'d' * 64}\nCTU_HOST_CLOSEOUT_SHA256={host_sha}\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n")
+    env["RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT"] = str(receipt)
     accepted = subprocess.run(["bash", "-c", command, "gate", "a" * 40], env=env, capture_output=True)
     assert accepted.returncode == 0, accepted.stderr.decode()
     (canonical / "CTU-GLOBAL-CLOSEOUT-FAIL").write_text("CTU_RESULT=FAIL_IMMUTABLE\n")
@@ -406,8 +418,8 @@ def test_ctu_live_environment_rejects_sudo_override_and_snapshot_symlinks() -> N
     runner = RUNNER.read_text()
     apply = (CTU / "apply.sh").read_text()
     assert "SUDO" in runner and "environment override SUDO" in runner
-    assert "-L" in apply
-    assert "mv -f" in apply
+    assert "-L" in runner
+    assert "mv -f" in runner
 
 
 def test_moc_current_sequence_places_ctu_before_recovery_and_history_is_explicit() -> None:

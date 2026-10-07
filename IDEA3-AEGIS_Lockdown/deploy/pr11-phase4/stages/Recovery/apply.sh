@@ -10,6 +10,7 @@
 #   DELTA          proves the ONLY firewall change is the Core-derived bound attacker ADDED to blocked_ipv4 and generates the ONE exact allow-keys file for the generic comparator
 set -uo pipefail
 fail() { printf 'RECOVERY_APPLY=FAIL reason=%s\n' "$1" >&2; exit 1; }
+recovery_stage_handler() {
 STEP="${AEGIS_RCVSTAGE_STEP:-}"
 # Snapshot ownership invariant (LITERAL constants, never environment): the verifier snapshot and EVERY ancestor up to the trusted parent are owned by root and not group/world writable. A same-uid owner could
 # otherwise chmod a read-only snapshot writable and replace bytes between this check and the Python start below. A test copy may substitute its own values; production keeps 0 and `/`.
@@ -19,6 +20,10 @@ PY="${AEGIS_PYTHON_BIN:-}"
 APP="${AEGIS_RCVSTAGE_APP_DIR:-}"            # the frozen IMMUTABLE verifier snapshot (never a mutable worktree)
 MANIFEST_SHA="${AEGIS_RCVSTAGE_VERIFIER_MANIFEST_SHA256:-}"
 WORK="${AEGIS_RCVSTAGE_WORK_DIR:-}"
+PROVENANCE="${AEGIS_RCVSTAGE_PROVENANCE_FILE:-}"
+CONTROL="${AEGIS_RCVSTAGE_CONTROL_DIR:-}"
+RUNNER_SHA="${RECOVERY_FROZEN_RUNNER_SHA256:-}"
+CONTROL_SHA="${AEGIS_RCVSTAGE_CONTROL_MANIFEST_SHA256:-}"
 [ "${AEGIS_RCVSTAGE_LIVE_AUTHORIZED:-NO}" = YES ] || fail LIVE_AUTHORIZATION_REQUIRED
 [ "$(id -u)" = 0 ] || fail ROOT_REQUIRED
 # trusted_chain DIR LABEL — DIR is canonical and DIR and EVERY ancestor to the trusted parent are real directories owned by SNAPSHOT_OWNER_UID and not group/world writable.
@@ -49,6 +54,12 @@ MANIFEST="$APP/RECOVERY-VERIFIER-SHA256SUMS"
 ( cd "$APP" && sha256sum -c --quiet --strict RECOVERY-VERIFIER-SHA256SUMS ) >/dev/null 2>&1 || fail VERIFIER_FILE_DRIFT
 [ -z "$(find "$APP" -type l -print -quit)" ] || fail VERIFIER_SYMLINK_PRESENT
 [ -z "$(find "$APP" -perm /222 -print -quit)" ] || fail VERIFIER_SOURCE_WRITABLE
+[ -f "$PROVENANCE" ] && [ ! -L "$PROVENANCE" ] && [ "$(stat -c %u:%a "$PROVENANCE")" = "0:400" ] || fail RECOVERY_PROVENANCE_MISSING
+grep -qx "RECOVERY_FROZEN_RUNNER_SHA256=$RUNNER_SHA" "$PROVENANCE" || fail RECOVERY_PROVENANCE_RUNNER_MISMATCH
+grep -qx "RECOVERY_CONTROL_MANIFEST_SHA256=$CONTROL_SHA" "$PROVENANCE" || fail RECOVERY_PROVENANCE_CONTROL_MISMATCH
+[[ "$RUNNER_SHA" =~ ^[0-9a-f]{64}$ && "$CONTROL_SHA" =~ ^[0-9a-f]{64}$ ]] || fail RECOVERY_PROVENANCE_FORMAT_INVALID
+[ -f "$CONTROL/owner-run/run-recovery-owner.sh" ] && [ "$(sha256sum "$CONTROL/owner-run/run-recovery-owner.sh" | cut -d' ' -f1)" = "$RUNNER_SHA" ] || fail RECOVERY_FROZEN_RUNNER_PROVENANCE_INVALID
+[ -f "$CONTROL/RECOVERY-CONTROL-SHA256SUMS" ] && [ "$(sha256sum "$CONTROL/RECOVERY-CONTROL-SHA256SUMS" | cut -d' ' -f1)" = "$CONTROL_SHA" ] || fail RECOVERY_CONTROL_PROVENANCE_INVALID
 [ "$(find "$APP" -type f ! -name RECOVERY-VERIFIER-SHA256SUMS | wc -l)" = "$(wc -l < "$MANIFEST")" ] || fail VERIFIER_FILE_SET_DRIFT
 for module in recovery_stage recovery_evidence recovery_client recovery_protocol local_restore ip_containment r1_acceptance r1bv_validation historical_disposition; do
   [ -f "$APP/aegis_soc/$module.py" ] || fail "VERIFIER_CLOSURE_INCOMPLETE:$module"
@@ -60,7 +71,7 @@ MARKER="${AEGIS_RCVSTAGE_ATTEMPT_MARKER:-}"
 # the verifier runs with a CLEAN environment, a fixed PATH and ONLY the immutable snapshot on the import path
 umask 077
 # an explicit root-owned private log under the root work directory: importing the Core modules opens a log file and must never fall back to a relative `aegis_soc.log`
-RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_LOG_PATH="$WORK/stage-root.log" PYTHONPATH="$APP" PYTHONDONTWRITEBYTECODE=1 "$PY" -B -s -m aegis_soc.recovery_stage "$@"; }
+RUN() { env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C AEGIS_LOG_PATH="$WORK/stage-root.log" PYTHONDONTWRITEBYTECODE=1 "$PY" -I -B -c 'import runpy,sys; sys.path.insert(0,sys.argv[1]); sys.argv=sys.argv[1:]; runpy.run_module("aegis_soc.recovery_stage",run_name="__main__")' "$APP" "$@"; }
 cd "$WORK" || fail WORK_DIR_REQUIRED   # a neutral cwd: nothing in the working directory can shadow a module
 case "$STEP" in BASELINE | READINESS | NFT_PRE | NFT_POST | NFT_PRE_CHECK | FINAL | DELTA) ;; *) fail STEP_INVALID ;; esac
 ( set -o noclobber; printf 'step=%s\nat=%s\n' "$STEP" "$(date -u +%FT%TZ)" > "$WORK/RECOVERY-STEP-$STEP-RAN" ) 2>/dev/null || fail "STEP_ALREADY_RAN_$STEP"
@@ -86,3 +97,14 @@ case "$STEP" in
     RUN containment-delta --pre-bundle "$WORK/pre-root" --post-bundle "$WORK/post-root" --pre-nft "$WORK/nft-pre.txt" --post-nft "$WORK/nft-post.txt" --work-dir "$WORK" || fail CONTAINMENT_DELTA_NOT_PROVEN ;;
 esac
 printf 'RECOVERY_APPLY=COMPLETE\nRECOVERY_STEP=%s\nRECOVERY_ATTACKER_IP_ACCEPTED_FROM_RUNNER=NO\n' "$STEP"
+}
+
+# Direct execution is never a production capability. Test copies may run only
+# inside the explicitly isolated user namespace used by repository tests.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  fail DIRECT_HANDLER_INVOCATION_REFUSED
+fi
+_test_uid_map=$(awk 'NR == 1 {print $1 ":" $2}' /proc/self/uid_map 2>/dev/null || true)
+if [[ "${RECOVERY_TEST_ONLY_HANDLER_EXECUTION:-}" != YES || "$_test_uid_map" == 0:0 ]]; then
+  fail DIRECT_HANDLER_INVOCATION_REFUSED
+fi
