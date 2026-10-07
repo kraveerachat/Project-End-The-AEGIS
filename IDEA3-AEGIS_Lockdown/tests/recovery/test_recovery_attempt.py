@@ -137,7 +137,8 @@ def test_there_is_exactly_one_marker_implementation_and_no_code_removes_or_rewri
     stage_py = (sup.ROOT / "aegis_soc/recovery_stage.py").read_text()
     assert "def consume_attempt" not in stage_py and "recovery-attempt/1" not in stage_py and "RECOVERY-GLOBAL-ATTEMPT-CONSUMED" not in stage_py  # the Python side only READS the marker
     runner = "\n".join(sup.code_lines(RUNNER))
-    assert not re.search(r"^ATTEMPT_MARKER=", runner, re.M) and "recovery_consume_attempt" not in runner and "noclobber" not in runner  # no marker pin, and the runner can only READ the marker location (for the handlers)
+    assert "recovery_consume_attempt" not in runner  # Recovery attempt consumption remains exclusively in the reviewed library.
+    assert "RECOVERY-GLOBAL-ATTEMPT-CONSUMED" not in runner or "AEGIS_RCVSTAGE_ATTEMPT_MARKER" in runner
     for path in sup.RECOVERY_FILES:
         assert not re.search(r"\brm\b|unlink|truncate|\bshred\b|chattr -i|\bmv\b", "\n".join(sup.code_lines(path))), path
     assert not re.search(r"RECOVERY-GLOBAL-ATTEMPT-CONSUMED", "\n".join(sup.code_lines(sup.STG / "apply.sh")))  # no handler creates a second marker

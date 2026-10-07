@@ -121,7 +121,7 @@ recovery_consume_attempt() {
 recovery_commit_gate() { r1bv_commit_gate "$@"; }
 recovery_predecessor_gate() { r1bv_recovery_predecessor_gate "$@"; }   # the existing, reviewed R1B-failure + R1Bv-PASS predecessor gate (reused, never copied)
 recovery_ctu_successor_gate() {
-  local repo main ctu_main canon closeout want=0 count keys installed_unit installed_sha ctu_unit_sha
+  local repo main ctu_main execution_main runner_sha evidence_manifest device detector_mode canon closeout host_sha host_sum receipt receipt_sha rel receipt_rel want=0 count keys installed_unit installed_sha ctu_unit_sha
   if [ $# -ge 2 ]; then
     repo=$1; main=$2
   elif [ -n "${REPO:-}" ]; then
@@ -136,13 +136,17 @@ recovery_ctu_successor_gate() {
   if $SUDO test -e "$canon/$RECOVERY_GLOBAL_MARKER_NAME" || $SUDO test -L "$canon/$RECOVERY_GLOBAL_MARKER_NAME"; then
     recovery_reason RECOVERY_ALREADY_CONSUMED; return 1
   fi
-  count=$($SUDO find "$canon" -maxdepth 1 -type f -name 'CTU-GLOBAL-CLOSEOUT-*' -printf '%f\n' 2>/dev/null | wc -l)
+  count=$($SUDO find "$canon" -maxdepth 1 -type f \( -name 'CTU-GLOBAL-CLOSEOUT-PASS' -o -name 'CTU-GLOBAL-CLOSEOUT-FAIL' \) -printf '%f\n' 2>/dev/null | wc -l)
   [ "$count" = 1 ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_NOT_UNIQUE; return 1; }
   [ -f "$closeout" ] && [ ! -L "$closeout" ] || { recovery_reason RECOVERY_CTU_PASS_CLOSEOUT_MISSING; return 1; }
   [ "$(stat -c %u -- "$closeout" 2>/dev/null)" = "$want" ] || { recovery_reason RECOVERY_CTU_PASS_CLOSEOUT_OWNER_INVALID; return 1; }
+  host_sum="$closeout.sha256"
+  [ -f "$host_sum" ] && [ ! -L "$host_sum" ] && [ "$(stat -c %u:%a "$host_sum" 2>/dev/null)" = "$want:600" ] || { recovery_reason RECOVERY_CTU_HOST_CLOSEOUT_DIGEST_MISSING; return 1; }
+  ( cd "$canon" && sha256sum -c --quiet --strict "$(basename "$host_sum")" ) || { recovery_reason RECOVERY_CTU_HOST_CLOSEOUT_DIGEST_INVALID; return 1; }
+  host_sha=$($SUDO awk 'NF >= 1 {print $1}' "$host_sum")
   keys=$($SUDO awk -F= 'NF >= 2 {print $1}' "$closeout" | sort | uniq -d)
   [ -z "$keys" ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_DUPLICATE_KEYS; return 1; }
-  [ "$($SUDO awk -F= 'NF >= 2 {print $1}' "$closeout" | sort | tr '\n' ' ')" = "CTU_ATTEMPT_CONSUMED CTU_AUTHENTICATED_STATUS_PROOF CTU_DETECTOR_BASELINE_MODE CTU_DETECTOR_LIFECYCLE_PROOF CTU_DEVICE_ID CTU_EVIDENCE_ROOT CTU_EXPECTED_MAIN CTU_FAILURE_RESULT CTU_LIVE CTU_LIVE_EXECUTED CTU_PRE_POST_PRESERVATION CTU_RERUN_ALLOWED CTU_RESULT CTU_RUNTIME_PROOF CTU_STAGE CTU_UNIT_SHA256 RECOVERY_ATTEMPT_CONSUMED RECOVERY_LIVE_EXECUTED " ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_FIELDS_INVALID; return 1; }
+  [ "$($SUDO awk -F= 'NF >= 2 {print $1}' "$closeout" | sort | tr '\n' ' ')" = "CTU_ATTEMPT_CONSUMED CTU_AUTHENTICATED_STATUS_PROOF CTU_DETECTOR_BASELINE_MODE CTU_DETECTOR_LIFECYCLE_PROOF CTU_DEVICE_ID CTU_EVIDENCE_MANIFEST_SHA256 CTU_EVIDENCE_ROOT CTU_EXECUTION_MAIN CTU_EXPECTED_MAIN CTU_FAILURE_RESULT CTU_LIVE CTU_LIVE_EXECUTED CTU_PRE_POST_PRESERVATION CTU_RERUN_ALLOWED CTU_RESULT CTU_RUNNER_SHA256 CTU_RUNTIME_PROOF CTU_STAGE CTU_UNIT_SHA256 RECOVERY_ATTEMPT_CONSUMED RECOVERY_LIVE_EXECUTED " ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_FIELDS_INVALID; return 1; }
   grep -qx "CTU_LIVE=$(printf 'CLOSED_%s' PASS)" "$closeout" || { recovery_reason RECOVERY_CTU_LIVE_NOT_CLOSED_RESULT; return 1; }
   grep -qx 'CTU_LIVE_EXECUTED=YES' "$closeout" || { recovery_reason RECOVERY_CTU_LIVE_NOT_EXECUTED; return 1; }
   grep -qx 'CTU_RESULT=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_PASS_RESULT_INVALID; return 1; }
@@ -163,13 +167,47 @@ recovery_ctu_successor_gate() {
   grep -qx 'CTU_DETECTOR_LIFECYCLE_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_DETECTOR_PROOF_INVALID; return 1; }
   grep -qE '^CTU_DETECTOR_BASELINE_MODE=(ACTIVE|INACTIVE)$' "$closeout" || { recovery_reason RECOVERY_CTU_DETECTOR_MODE_INVALID; return 1; }
   grep -qE '^CTU_DEVICE_ID=[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' "$closeout" || { recovery_reason RECOVERY_CTU_DEVICE_ID_INVALID; return 1; }
+  execution_main=$($SUDO awk -F= '$1 == "CTU_EXECUTION_MAIN" {print $2}' "$closeout")
+  [ "$execution_main" = "$ctu_main" ] || { recovery_reason RECOVERY_CTU_EXECUTION_MAIN_INVALID; return 1; }
+  runner_sha=$($SUDO awk -F= '$1 == "CTU_RUNNER_SHA256" {print $2}' "$closeout")
+  [[ "$runner_sha" =~ ^[0-9a-f]{64}$ ]] || { recovery_reason RECOVERY_CTU_RUNNER_SHA_INVALID; return 1; }
+  evidence_manifest=$($SUDO awk -F= '$1 == "CTU_EVIDENCE_MANIFEST_SHA256" {print $2}' "$closeout")
+  [[ "$evidence_manifest" =~ ^[0-9a-f]{64}$ ]] || { recovery_reason RECOVERY_CTU_EVIDENCE_MANIFEST_INVALID; return 1; }
+  device=$($SUDO awk -F= '$1 == "CTU_DEVICE_ID" {print $2}' "$closeout")
+  detector_mode=$($SUDO awk -F= '$1 == "CTU_DETECTOR_BASELINE_MODE" {print $2}' "$closeout")
+  ctu_unit_sha=$($SUDO awk -F= '$1 == "CTU_UNIT_SHA256" {print $2}' "$closeout")
   grep -qx 'CTU_PRE_POST_PRESERVATION=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_PRESERVATION_PROOF_INVALID; return 1; }
   grep -qx 'RECOVERY_LIVE_EXECUTED=NO' "$closeout" || { recovery_reason RECOVERY_CTU_RECOVERY_ALREADY_EXECUTED; return 1; }
   grep -qx 'RECOVERY_ATTEMPT_CONSUMED=NO' "$closeout" || { recovery_reason RECOVERY_CTU_RECOVERY_ALREADY_CONSUMED; return 1; }
   grep -qx 'CTU_FAILURE_RESULT=NONE' "$closeout" || { recovery_reason RECOVERY_CTU_CONTRADICTORY_FAILURE; return 1; }
   grep -qE '^CTU_UNIT_SHA256=[0-9a-f]{64}$' "$closeout" || { recovery_reason RECOVERY_CTU_UNIT_BINDING_INVALID; return 1; }
   grep -qE '^CTU_EVIDENCE_ROOT=/[^.]*$' "$closeout" || { recovery_reason RECOVERY_CTU_EVIDENCE_ROOT_INVALID; return 1; }
-  ctu_unit_sha=$($SUDO awk -F= '$1 == "CTU_UNIT_SHA256" {print $2}' "$closeout")
+  if [ "${RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" = YES ] && [ -n "${RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT:-}" ]; then
+    receipt="$RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT"
+  else
+    receipt_rel=${CTU_LIVE_RECEIPT_RELATIVE:-}
+    [[ "$receipt_rel" == /* && "$receipt_rel" != *..* ]] || { recovery_reason RECOVERY_CTU_LIVE_RECEIPT_PIN_INVALID; return 1; }
+    receipt="$repo$receipt_rel"
+  fi
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] || { recovery_reason RECOVERY_CTU_LIVE_RECEIPT_MISSING; return 1; }
+  receipt_sha=$($SUDO sha256sum "$receipt" | cut -d' ' -f1)
+  if [ "${RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" != YES ] || [ -z "${RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT:-}" ]; then
+    [ "$receipt_sha" = "${CTU_REPO_RECEIPT_SHA256:-}" ] || { recovery_reason RECOVERY_CTU_LIVE_RECEIPT_DIGEST_INVALID; return 1; }
+    rel=${receipt#"$repo/"}
+    [ "$rel" != "$receipt" ] && [ "$(git -C "$repo" hash-object -- "$rel")" = "$receipt_sha" ] && [ "$(git -C "$repo" rev-parse "$main:$rel" 2>/dev/null)" = "$receipt_sha" ] || { recovery_reason RECOVERY_CTU_LIVE_RECEIPT_NOT_IN_EXACT_MAIN; return 1; }
+  fi
+  local live_pass; live_pass="CLOSED_"'PASS'
+  grep -qx "CTU_LIVE=$live_pass" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_NOT_LIVE_PASS; return 1; }
+  grep -qx 'CTU_LIVE_EXECUTED=YES' "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_NOT_EXECUTED; return 1; }
+  grep -qx 'CTU_ATTEMPT_CONSUMED=YES' "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_NOT_CONSUMED; return 1; }
+  grep -qx "CTU_EXPECTED_MAIN=$ctu_main" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_MAIN_INVALID; return 1; }
+  grep -qx "CTU_EXECUTION_MAIN=$execution_main" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_EXECUTION_MAIN_INVALID; return 1; }
+  grep -qx "CTU_RUNNER_SHA256=$runner_sha" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_RUNNER_INVALID; return 1; }
+  grep -qx "CTU_UNIT_SHA256=$ctu_unit_sha" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_UNIT_INVALID; return 1; }
+  grep -qx "CTU_DEVICE_ID=$device" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_DEVICE_INVALID; return 1; }
+  grep -qx "CTU_DETECTOR_BASELINE_MODE=$detector_mode" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_MODE_INVALID; return 1; }
+  grep -qx "CTU_EVIDENCE_MANIFEST_SHA256=$evidence_manifest" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_EVIDENCE_INVALID; return 1; }
+  grep -qx "CTU_HOST_CLOSEOUT_SHA256=$host_sha" "$receipt" || { recovery_reason RECOVERY_CTU_REPOSITORY_RECEIPT_HOST_BINDING_INVALID; return 1; }
   installed_unit="${AEGIS_CORE_UNIT_FILE:-/etc/systemd/system/aegis-idea3-core.service}"
   if [ -n "${AEGIS_CORE_UNIT_FILE:-}" ] || [ "${RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" != YES ]; then
     if [ -f "$installed_unit" ] && [ ! -L "$installed_unit" ]; then

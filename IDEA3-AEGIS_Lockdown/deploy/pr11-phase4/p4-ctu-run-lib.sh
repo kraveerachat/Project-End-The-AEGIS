@@ -196,10 +196,11 @@ ctu_stop_sudo_keepalive() {
   fi
 }
 ctu_record_success() {
-  local main=${1:-} unit_sha=${2:-} evidence=${3:-} device=${4:-aegis-relay-01} detector_mode=${5:-ACTIVE} marker closeout tmp fail_closeout
+  local main=${1:-} unit_sha=${2:-} evidence=${3:-} device=${4:-aegis-relay-01} detector_mode=${5:-ACTIVE} runner_sha=${6:-} evidence_manifest_sha=${7:-} marker closeout tmp fail_closeout
   [[ "$main" =~ ^[0-9a-f]{40}$ && "$unit_sha" =~ ^[0-9a-f]{64}$ && "$evidence" == /* && "$evidence" != *..* ]] || return 1
   [[ "$device" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || return 1
   [[ "$detector_mode" =~ ^(ACTIVE|INACTIVE)$ ]] || return 1
+  [[ "$runner_sha" =~ ^[0-9a-f]{64}$ && "$evidence_manifest_sha" =~ ^[0-9a-f]{64}$ ]] || return 1
   marker=$(ctu_marker_path); closeout=$(ctu_closeout_path)
   fail_closeout="$(ctu_canonical_dir)/CTU-GLOBAL-CLOSEOUT-FAIL"
   if $CTU_SUDO test -e "$fail_closeout" || $CTU_SUDO test -L "$fail_closeout"; then
@@ -207,11 +208,15 @@ ctu_record_success() {
   fi
   $CTU_SUDO test -f "$marker" && ! $CTU_SUDO test -L "$marker" || return 1
   tmp="$closeout.tmp.$$"
-  printf 'CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_EXPECTED_MAIN=%s\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\nCTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=%s\nCTU_DEVICE_ID=%s\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\nCTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=%s\nCTU_EVIDENCE_ROOT=%s\n' "$main" "$detector_mode" "$device" "$unit_sha" "$evidence" | $CTU_SUDO bash -c 'umask 077; cat > "$1"' _ "$tmp" || return 1
+  printf 'CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_EXPECTED_MAIN=%s\nCTU_EXECUTION_MAIN=%s\nCTU_RUNNER_SHA256=%s\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\nCTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=%s\nCTU_DEVICE_ID=%s\nCTU_EVIDENCE_MANIFEST_SHA256=%s\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\nCTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=%s\nCTU_EVIDENCE_ROOT=%s\n' "$main" "$main" "$runner_sha" "$detector_mode" "$device" "$evidence_manifest_sha" "$unit_sha" "$evidence" | $CTU_SUDO bash -c 'umask 077; cat > "$1"' _ "$tmp" || return 1
   $CTU_SUDO chmod 0600 -- "$tmp" || return 1
   ctu_fsync "$tmp" || return 1
   $CTU_SUDO mv -n -- "$tmp" "$closeout" || return 1
-  ctu_fsync "$(dirname "$closeout")"
+  ctu_fsync "$(dirname "$closeout")" || return 1
+  local host_sha; host_sha=$($CTU_SUDO sha256sum "$closeout" | cut -d' ' -f1) || return 1
+  printf '%s  %s\n' "$host_sha" "$(basename "$closeout")" | $CTU_SUDO bash -c 'umask 077; cat > "$1"' _ "${closeout}.sha256" || return 1
+  $CTU_SUDO chmod 0600 -- "${closeout}.sha256" || return 1
+  ctu_fsync "${closeout}.sha256" && ctu_fsync "$(dirname "$closeout")"
 }
 ctu_record_failure() {
   local reason=${1:-UNKNOWN} marker closeout tmp

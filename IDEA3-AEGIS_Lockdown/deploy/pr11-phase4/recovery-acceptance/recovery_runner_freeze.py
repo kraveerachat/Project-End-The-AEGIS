@@ -101,6 +101,8 @@ PIN_SPECS: dict[str, tuple[re.Pattern[str], str, str]] = {
     "REPO": (re.compile(r"^REPO=(\S+)   # ", re.M), "/home/PIN_OPERATOR_HOME/PIN_PINNED_WORKTREE_NOT_A_REAL_PATH", "path"),
     "PY": (re.compile(r"^PY=(.*)$", re.M), "PIN_PYTHON_BIN", "path"),
     "EVIDENCE_ROOT": (re.compile(r"^EVID_ROOT=(.*)$", re.M), "/PIN_EVIDENCE_ROOT", "path"),
+    "CTU_LIVE_RECEIPT_RELATIVE": (re.compile(r"^CTU_LIVE_RECEIPT_RELATIVE=(.*)$", re.M), "PIN_CTU_LIVE_RECEIPT_RELATIVE", "path"),
+    "CTU_REPO_RECEIPT_SHA256": (re.compile(r"^CTU_REPO_RECEIPT_SHA256=(.*)$", re.M), "PIN_CTU_REPO_RECEIPT_SHA256", "sha256"),
 }
 
 
@@ -255,7 +257,7 @@ def verify(repo: Path, main: str, runner: Path, *, owner_uid: int | None = snaps
         if st.st_mode & 0o222:
             raise FreezeError("RUNNER_WRITABLE")
         results["RUNNER_NONWRITABLE"] = "PASS"
-        _verify_ctu_pass_for_freeze(repo, main)
+        _verify_ctu_pass_for_freeze(repo, main, values)
     results["RUNNER_SHA256"] = sha256_of(runner)
     return results
 
@@ -322,7 +324,7 @@ def _ctu_closeout_for_freeze() -> Path:
     return path
 
 
-def _verify_ctu_pass_for_freeze(repo: Path, main: str) -> None:
+def _verify_ctu_pass_for_freeze(repo: Path, main: str, pins: dict[str, str]) -> None:
     path = _ctu_closeout_for_freeze()
     lines = path.read_text(encoding="utf-8").splitlines()
     pairs = [line.split("=", 1) for line in lines if "=" in line]
@@ -331,9 +333,9 @@ def _verify_ctu_pass_for_freeze(repo: Path, main: str) -> None:
     values = dict(pairs)
     required_keys = {
         "CTU_ATTEMPT_CONSUMED", "CTU_AUTHENTICATED_STATUS_PROOF", "CTU_DETECTOR_BASELINE_MODE",
-        "CTU_DETECTOR_LIFECYCLE_PROOF", "CTU_DEVICE_ID", "CTU_EVIDENCE_ROOT", "CTU_EXPECTED_MAIN",
+        "CTU_DETECTOR_LIFECYCLE_PROOF", "CTU_DEVICE_ID", "CTU_EVIDENCE_MANIFEST_SHA256", "CTU_EVIDENCE_ROOT", "CTU_EXECUTION_MAIN", "CTU_EXPECTED_MAIN",
         "CTU_FAILURE_RESULT", "CTU_LIVE", "CTU_LIVE_EXECUTED", "CTU_PRE_POST_PRESERVATION",
-        "CTU_RERUN_ALLOWED", "CTU_RESULT", "CTU_RUNTIME_PROOF", "CTU_STAGE", "CTU_UNIT_SHA256",
+        "CTU_RERUN_ALLOWED", "CTU_RESULT", "CTU_RUNTIME_PROOF", "CTU_RUNNER_SHA256", "CTU_STAGE", "CTU_UNIT_SHA256",
         "RECOVERY_ATTEMPT_CONSUMED", "RECOVERY_LIVE_EXECUTED",
     }
     if set(values.keys()) != required_keys:
@@ -366,10 +368,47 @@ def _verify_ctu_pass_for_freeze(repo: Path, main: str) -> None:
                 raise FreezeError("CTU_PASS_CLOSEOUT_MAIN_NOT_ANCESTOR")
         except OSError:
             raise FreezeError("GIT_READ_FAILED")
+    if values.get("CTU_EXECUTION_MAIN") != ctu_main:
+        raise FreezeError("CTU_PASS_CLOSEOUT_EXECUTION_MAIN_INVALID")
+    if not re.fullmatch(r"[0-9a-f]{64}", values.get("CTU_RUNNER_SHA256", "")):
+        raise FreezeError("CTU_PASS_CLOSEOUT_RUNNER_SHA_INVALID")
+    if not re.fullmatch(r"[0-9a-f]{64}", values.get("CTU_EVIDENCE_MANIFEST_SHA256", "")):
+        raise FreezeError("CTU_PASS_CLOSEOUT_EVIDENCE_MANIFEST_INVALID")
     if not re.fullmatch(r"[0-9a-f]{64}", values.get("CTU_UNIT_SHA256", "")):
         raise FreezeError("CTU_PASS_CLOSEOUT_UNIT_BINDING_INVALID")
     if not _path_ok(values.get("CTU_EVIDENCE_ROOT", "")):
         raise FreezeError("CTU_PASS_CLOSEOUT_EVIDENCE_ROOT_INVALID")
+    host_sum = Path(f"{path}.sha256")
+    if not host_sum.is_file() or host_sum.is_symlink() or host_sum.stat().st_mode & 0o077 or host_sum.stat().st_uid != 0:
+        raise FreezeError("CTU_HOST_CLOSEOUT_DIGEST_MISSING_OR_UNSAFE")
+    try:
+        subprocess.run(["sha256sum", "-c", "--quiet", "--strict", host_sum.name], cwd=host_sum.parent, check=True, capture_output=True)
+    except (OSError, subprocess.CalledProcessError):
+        raise FreezeError("CTU_HOST_CLOSEOUT_DIGEST_INVALID") from None
+    host_sha = host_sum.read_text(encoding="utf-8").split()[0]
+    receipt_override = os.environ.get("RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT")
+    receipt = Path(receipt_override) if receipt_override else Path(repo) / pins["CTU_LIVE_RECEIPT_RELATIVE"].lstrip("/")
+    if not receipt.is_file() or receipt.is_symlink():
+        raise FreezeError("CTU_LIVE_REPOSITORY_RECEIPT_MISSING")
+    receipt_sha = hashlib.sha256(receipt.read_bytes()).hexdigest()
+    if not receipt_override:
+        if receipt_sha != pins["CTU_REPO_RECEIPT_SHA256"]:
+            raise FreezeError("CTU_LIVE_REPOSITORY_RECEIPT_DIGEST_INVALID")
+        rel = receipt.relative_to(repo).as_posix()
+        if _git(repo, "hash-object", "--", rel).strip() != receipt_sha or _git(repo, "rev-parse", f"{main}:{rel}").strip() != receipt_sha:
+            raise FreezeError("CTU_LIVE_REPOSITORY_RECEIPT_NOT_IN_EXACT_MAIN")
+    receipt_text = receipt.read_text(encoding="utf-8")
+    for line in (
+        "CTU_LIVE=CLOSED_PASS", "CTU_LIVE_EXECUTED=YES", "CTU_ATTEMPT_CONSUMED=YES",
+        "CTU_RESULT=PASS", "RECOVERY_LIVE_EXECUTED=NO", "RECOVERY_ATTEMPT_CONSUMED=NO",
+        f"CTU_EXPECTED_MAIN={values['CTU_EXPECTED_MAIN']}", f"CTU_EXECUTION_MAIN={values['CTU_EXECUTION_MAIN']}",
+        f"CTU_HOST_CLOSEOUT_SHA256={host_sha}", f"CTU_RUNNER_SHA256={values['CTU_RUNNER_SHA256']}",
+        f"CTU_UNIT_SHA256={values['CTU_UNIT_SHA256']}", f"CTU_DEVICE_ID={values['CTU_DEVICE_ID']}",
+        f"CTU_DETECTOR_BASELINE_MODE={values['CTU_DETECTOR_BASELINE_MODE']}",
+        f"CTU_EVIDENCE_MANIFEST_SHA256={values['CTU_EVIDENCE_MANIFEST_SHA256']}",
+    ):
+        if line not in receipt_text.splitlines():
+            raise FreezeError("CTU_LIVE_REPOSITORY_RECEIPT_BINDING_INVALID")
     recovery_marker = path.parent / "RECOVERY-GLOBAL-ATTEMPT-CONSUMED"
     if recovery_marker.exists() or recovery_marker.is_symlink():
         raise FreezeError("RECOVERY_ALREADY_CONSUMED")
@@ -394,7 +433,7 @@ def freeze(repo: Path, main: str, pins: dict[str, str], out: Path, *, root_owned
         if os.geteuid() != 0:
             raise FreezeError("ROOT_REQUIRED_FOR_ROOT_OWNED_RUNNER")
         _prove_privileged_authority(Path(repo))  # tool + sibling + the Git repository are root-owned and trusted BEFORE anything is read from them
-        _verify_ctu_pass_for_freeze(repo, main)  # Recovery authority cannot be frozen before the exact-main CTu live closeout exists
+        _verify_ctu_pass_for_freeze(repo, main, pins)  # Recovery authority cannot be frozen before the exact-main CTu live closeout exists
     template = read_template(repo, main)
     if pins.get("EXPECTED_MAIN") != main:
         raise FreezeError("EXPECTED_MAIN_PIN_IS_NOT_THE_REVIEWED_MAIN")

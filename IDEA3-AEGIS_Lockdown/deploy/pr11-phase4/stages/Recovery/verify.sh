@@ -4,6 +4,7 @@
 # It never promotes a project claim and never prints the canonical live closed-pass token: that is reserved for a separately reviewed LIVE closeout receipt.
 set -uo pipefail
 fail() { printf 'RECOVERY_VERIFY=FAIL reason=%s\n' "$1" >&2; exit 1; }
+recovery_stage_handler() {
 # Snapshot ownership invariant (LITERAL constants, never environment): the verifier snapshot and EVERY ancestor up to the trusted parent are owned by root and not group/world writable. A same-uid owner could
 # otherwise chmod a read-only snapshot writable and replace bytes between this check and the Python start below. A test copy may substitute its own values; production keeps 0 and `/`.
 SNAPSHOT_OWNER_UID=0
@@ -64,3 +65,14 @@ cd "$WORK" || fail WORK_DIR_REQUIRED   # a neutral cwd: nothing in the working d
 RUN verify-result --audit-db "$AUDIT_DB" --work-dir "$WORK" --attempt-marker "$MARKER" || fail RESULT_NOT_BOUND_TO_THE_ATTEMPT
 printf 'RECOVERY_VERIFY=PASS\nRECOVERY_RESULT_BOUND_TO_ATTEMPT=YES\nRECOVERY_PROMOTION=NOT_AUTOMATIC\n'
 printf 'R1B_RESULT=FAIL_IMMUTABLE\nR1BV_RESULT=PASS\nLVR_PROVEN=NO\nL8_ACCEPTANCE=NO\nL9_PROVEN=NO\nF1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN\nR1_VERIFIED=NOT_CLAIMED\n'
+}
+
+# Direct execution is never a production capability. Test copies may run only
+# inside the explicitly isolated user namespace used by repository tests.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  fail DIRECT_HANDLER_INVOCATION_REFUSED
+fi
+_test_uid_map=$(awk 'NR == 1 {print $1 ":" $2}' /proc/self/uid_map 2>/dev/null || true)
+if [[ "${RECOVERY_TEST_ONLY_HANDLER_EXECUTION:-}" != YES || "$_test_uid_map" == 0:0 ]]; then
+  fail DIRECT_HANDLER_INVOCATION_REFUSED
+fi

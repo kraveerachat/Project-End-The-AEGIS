@@ -130,6 +130,7 @@ PINS = {
     "RECOVERY_CORE_SHA256": "d" * 64, "RESTORE_CLI_SHA256": "e" * 64, "RELEASE_SUMS_SHA256": "7" * 64, "VERIFIER_MANIFEST_SHA256": "f" * 64, "VERIFIER_SNAPSHOT_DIR": "/opt/x/verifier", "CONTROL_MANIFEST_SHA256": "9" * 64,
     "CONTROL_SNAPSHOT_DIR": "/opt/x/control", "R1I_TOOL_SHA256": "8" * 64, "PROTOCOL_DB": "/var/lib/x/protocol.db", "AUDIT_DB": "/var/lib/x/audit.db", "R1B_EVIDENCE_DIR": "/var/lib/x/r1b",
     "EXPECTED_SOURCE_IP": IP, "DETECTOR_UID": "948", "RUNTIME_DIR": "/run/x",
+    "CTU_LIVE_RECEIPT_RELATIVE": "/ctu-live-receipt.md", "CTU_REPO_RECEIPT_SHA256": "a" * 64,
 }
 
 
@@ -209,7 +210,11 @@ def handler_copy(env: dict[str, str], script: str = "apply.sh", owner_uid: int =
 
 def run_handler(env: dict[str, str], script: Path | None = None) -> subprocess.CompletedProcess[str]:
     """Runs the handler as (user-namespace) root: files owned by the invoking user appear as uid 0, so the production owner uid 0 is exercised for real."""
-    return subprocess.run(["unshare", "-r", "bash", str(script or handler_copy(env))], env={**os.environ, **env}, text=True, capture_output=True)
+    selected = script or handler_copy(env)
+    return subprocess.run(
+        ["unshare", "-r", "bash", "-c", 'export RECOVERY_TEST_ONLY_HANDLER_EXECUTION=YES; source "$1"; recovery_stage_handler', "_", str(selected)],
+        env={**os.environ, **env}, text=True, capture_output=True,
+    )
 
 
 # --------------------------------------------------------------------------- Core evidence fixtures (hash-chained audit store + protocol store)

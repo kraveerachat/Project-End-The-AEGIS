@@ -49,9 +49,12 @@ Read-only host inspection post-reboot revealed two blockers before CTu first exe
 - Recovery Gate Update:
   - Updated `recovery_ctu_successor_gate` and `recovery_runner_freeze.py` to validate `CTU_DETECTOR_BASELINE_MODE=(ACTIVE|INACTIVE)` and `CTU_DEVICE_ID` in CTu closeout without weakening security.
 - Pre-live security closure:
-  - `CTU_DIRECT_APPLY_BYPASS_CLOSED=YES`: CTu apply requires the canonical consumed marker and exact frozen-runner/bundle provenance before mutation.
-  - `RECOVERY_DIRECT_PRIVILEGED_HANDLER_GATED=YES`: Recovery apply/verify require root-created provenance bound to the frozen runner and control manifest.
+- `CTU_DIRECT_APPLY_BYPASS_CLOSED=YES`, `CTU_DIRECT_ROLLBACK_BYPASS_CLOSED=YES`: CTu apply and rollback files are permanent refusal-only stubs; mutation and rollback routines are embedded in the frozen owner runner.
+- `RECOVERY_DIRECT_PRIVILEGED_HANDLER_GATED=YES`: standalone Recovery apply/verify invocation refuses before privileged execution; the frozen owner runner embeds the only privileged read-only execution boundary.
   - `ROOT_EXECUTES_MUTABLE_WORKTREE_CODE=NO`, `AMBIENT_CTU_PYTHON_ACCEPTED=NO`, `GIT_TRUST_CLOSURE=PASS`, `CORE_ENV_TOCTOU_CLOSED=YES`, `TRANSIENT_INACTIVE_EXECUTION_MECHANICALLY_REFUSED=YES`, and `FREEZE_TEMPLATE_PIN_CARDINALITY_ENFORCED=YES`.
+  - `CTU_DIRECT_APPLY_BYPASS_CLOSED=YES`, `PROVENANCE_FORGEABLE_BY_PRIVILEGED_OPERATOR=NO`, `DIRECT_HANDLER_DYNAMIC_NEGATIVE_TEST=PASS`.
+  - `RECOVERY_DIRECT_PRIVILEGED_HANDLER_GATED=YES`, `RECOVERY_PROVENANCE_FORGEABLE_BY_PRIVILEGED_OPERATOR=NO`, `RECOVERY_CTU_HOST_PROVENANCE_BOUND=YES`.
+  - `CORE_RESTART_CONTRACT_TRUTHFUL=YES`: pre-consume=0, success=1, post-consume failure max=2, rollback additional max=1; no undocumented third restart is present.
 
 ## Source files changed
 
@@ -60,10 +63,15 @@ Read-only host inspection post-reboot revealed two blockers before CTu first exe
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh` — added safe `ctu_validate_core_env_device_id`, updated `ctu_record_success` to record `CTU_DETECTOR_BASELINE_MODE` and `CTU_DEVICE_ID`.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/ctu-acceptance/ctu_runner_freeze.py` — added `DEVICE_ID=PIN_DEVICE_ID` pin spec and validation.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-ctu-owner.sh` — frozen `DEVICE_ID` pin, pre-consume `core.env` validation, dual detector baseline contract (Mode A active implicit cycle / Mode B inactive preservation), recording baseline mode and device ID in terminal result.
-- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/CTu/apply.sh` — captured detector load, unit_file, and restart state for baseline preservation.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/CTu/apply.sh` — permanent refusal-only non-mutating public/bundle stub.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/CTu/rollback.sh` — permanent refusal-only non-mutating public/bundle stub.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/stages/CTu/verify.sh` — required `AEGIS_CTU_DETECTOR_PRE_MODE` (`ACTIVE|INACTIVE`), asserting single implicit cycle for ACTIVE and baseline preservation for INACTIVE without issuing detector commands.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-runtime-verify.py` — added `--detector-mode` CLI argument and dual mode verification in `verify_detector()`.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-recovery-run-lib.sh` — updated `recovery_ctu_successor_gate` key list and validations for `CTU_DETECTOR_BASELINE_MODE` and `CTU_DEVICE_ID`.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-recovery-run-lib.sh` — bound Recovery to the root-owned host closeout sidecar and reviewed exact-main CTu LIVE receipt.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/recovery-acceptance/recovery_runner_freeze.py` — pinned the reviewed CTu LIVE receipt path/digest and host closeout digest.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-ctu-owner.sh` — embedded CTu mutation/rollback routines and enforces the truthful restart contract.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-recovery-owner.sh` — embedded Recovery privileged read-only routines and removed standalone handler execution.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/recovery-acceptance/recovery_runner_freeze.py` — updated `_verify_ctu_pass_for_freeze` to require and validate `CTU_DETECTOR_BASELINE_MODE` and `CTU_DEVICE_ID`.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/README.md` — Section 26 updated with pre-live host reconciliation findings, dual detector baseline contract, and device pin binding.
 - `IDEA3-AEGIS_Lockdown/tests/test_ctu_blockers.py` — updated and added tests for dual detector baseline modes and 7 `core.env` parsing cases.
@@ -73,8 +81,8 @@ Read-only host inspection post-reboot revealed two blockers before CTu first exe
 
 ## Verification evidence
 
-- `/usr/bin/python3 -m pytest -q tests/test_ctu_blockers.py tests/test_core_trusted_time_repair.py tests/recovery/test_recovery_runner_authority.py tests/recovery/test_recovery_runner_freeze.py` — 230 passed; 2 pre-existing environment-only trust-seam expectation failures (real-root namespace reports ancestor ownership before the older expected seam token)
-- `/usr/bin/python3 -m pytest -q tests/test_core_trusted_time_repair.py tests/test_ctu_blockers.py tests/recovery/test_recovery_runner_freeze.py tests/recovery/test_recovery_attempt.py tests/recovery/test_recovery_preservation.py tests/recovery/test_recovery_runner_authority.py tests/rru/test_rru_stage.py tests/r1bv/test_r1bv_contract.py tests/test_recovery_stage.py tests/test_pr11_phase4_harness.py` — 915 passed; 2 pre-existing environment-only trust-seam expectation failures, no PR-introduced failures
+- `/usr/bin/python3 -m pytest -q tests/test_ctu_blockers.py tests/test_core_trusted_time_repair.py tests/recovery/test_recovery_runner_authority.py tests/recovery/test_recovery_runner_freeze.py tests/recovery/test_recovery_attempt.py` — 297 passed; 3 pre-existing environment-only trust-seam expectation failures
+- `/usr/bin/python3 -m pytest -q tests/test_ctu_blockers.py tests/test_core_trusted_time_repair.py tests/recovery tests/rru/test_rru_stage.py tests/r1bv/test_r1bv_contract.py tests/test_recovery_stage.py tests/test_pr11_phase4_harness.py` — 1044 passed; 4 environment-only failures (socket permission plus three root/user-namespace trust-seam expectation mismatches), no PR-introduced failures
 - `/usr/bin/python3 -m pytest -q tests/test_ctu_blockers.py tests/test_core_trusted_time_repair.py` — pass after final one-shot CTu handler-provenance tightening: 42 passed
 - `pytest -v IDEA3-AEGIS_Lockdown/tests/test_core_trusted_time_repair.py` — pass: 24 passed in 2.21s
 - `pytest -v IDEA3-AEGIS_Lockdown/tests/recovery/test_recovery_runner_freeze.py` — pass: 74 passed in 25.10s
@@ -91,11 +99,14 @@ Read-only host inspection post-reboot revealed two blockers before CTu first exe
 
 ## Shared surfaces touched
 
-- `None` — task stayed inside its selected area (`idea3`)
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-lib.sh` and `p4-stage-gate.sh` — shared Phase-4 authorization/stage-governance surfaces changed for CTu device binding.
+- `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh`, `p4-recovery-run-lib.sh`, owner runners, CTu/Recovery handlers, freeze tools, and affected tests/README — shared Phase-4 CTu/Recovery governance surfaces changed for provenance, host closeout binding, and source-only handler execution.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-moc.md` and `idea3-status.md` — IDEA3 canonical state updates.
+- `REPAIR_RECEIPT_SCOPE_TRUTHFUL=YES`
 
 ## Integration requests
 
-- `None` — valid only when no cross-scope/shared path changed
+- Independent Security and Governance review must verify the exact new head, especially private owner-runner mutation boundaries, host closeout/receipt binding, and the two-restart maximum failure paths. Human owner performs the merge; no live execution is authorized by this receipt.
 
 ## Known limitations
 

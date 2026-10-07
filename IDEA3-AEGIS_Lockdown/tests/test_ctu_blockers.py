@@ -53,7 +53,7 @@ def test_blocker1_runner_pre_capture_order() -> None:
     pos_pre_capture = text.index('capture "$PRE" ctu-pre')
     pos_pre_regate = text.index('gate_out=$(TZ=Asia/Bangkok bash "$BUNDLE/p4-stage-gate.sh"')
     pos_consume = text.index("ctu_consume_attempt")
-    pos_apply = text.index("stages/CTu/apply.sh")
+    pos_apply = text.index("declare -f ctu_apply_fail")
 
     assert pos_pregates < pos_bundle_prep
     assert pos_bundle_prep < pos_bundle_verify
@@ -373,7 +373,7 @@ def test_blocker5_atomic_closeout_and_rollback_survival(tmp_path: Path) -> None:
         "CTU_SUDO": "",
         "SUDO": "",
     }
-    cmd = f'CTU_SUDO="" SUDO="" . "{CTU_LIB}"; ctu_record_success "{"a" * 40}" "{"b" * 64}" "/tmp/evidence" "aegis-relay-01" "ACTIVE"'
+    cmd = f'CTU_SUDO="" SUDO="" . "{CTU_LIB}"; ctu_record_success "{"a" * 40}" "{"b" * 64}" "/tmp/evidence" "aegis-relay-01" "ACTIVE" "{"c" * 64}" "{"d" * 64}"'
     proc = subprocess.run(["bash", "-c", cmd], env=env, capture_output=True, text=True)
     assert proc.returncode != 0
     assert "CTU_FAIL_CLOSEOUT_ALREADY_EXISTS" in proc.stderr
@@ -418,11 +418,17 @@ def test_blocker6_ctu_recovery_descendant_binding(tmp_path: Path) -> None:
     closeout = canonical / "CTU-GLOBAL-CLOSEOUT-PASS"
     closeout.write_text(
         "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
-        f"CTU_EXPECTED_MAIN={ctu_main}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
-        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\n"
+        f"CTU_EXPECTED_MAIN={ctu_main}\nCTU_EXECUTION_MAIN={ctu_main}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
+        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\nCTU_EVIDENCE_MANIFEST_SHA256=" + "d" * 64 + "\n"
         "CTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
         "CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=" + "b" * 64 + "\nCTU_EVIDENCE_ROOT=/tmp/evidence\n"
     )
+    host_sha = hashlib.sha256(closeout.read_bytes()).hexdigest()
+    sidecar = canonical / "CTU-GLOBAL-CLOSEOUT-PASS.sha256"
+    sidecar.write_text(f"{host_sha}  CTU-GLOBAL-CLOSEOUT-PASS\n")
+    sidecar.chmod(0o600)
+    receipt = tmp_path / "ctu-live-receipt.md"
+    receipt.write_text(f"CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_EXPECTED_MAIN={ctu_main}\nCTU_EXECUTION_MAIN={ctu_main}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_UNIT_SHA256={'b' * 64}\nCTU_DEVICE_ID=aegis-relay-01\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_EVIDENCE_MANIFEST_SHA256={'d' * 64}\nCTU_HOST_CLOSEOUT_SHA256={host_sha}\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n")
 
     env = {
         **os.environ,
@@ -431,6 +437,7 @@ def test_blocker6_ctu_recovery_descendant_binding(tmp_path: Path) -> None:
         "RECOVERY_TEST_ONLY_CANONICAL_DIR": str(canonical),
         "RECOVERY_TEST_ONLY_TRUST_ROOT": str(tmp_path),
         "GIT_NO_REPLACE_OBJECTS": "1",
+        "RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT": str(receipt),
     }
     cmd = f'. "{RECOVERY_LIB}"; recovery_ctu_successor_gate "$1" "$2"'
 
@@ -668,19 +675,29 @@ def test_blocker12_recovery_ctu_negative_matrix(tmp_path: Path) -> None:
     def _write_closeout(sha: str, extra_lines: str = ""):
         content = (
             "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
-            f"CTU_EXPECTED_MAIN={main_sha}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
-            "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\n"
+                f"CTU_EXPECTED_MAIN={main_sha}\nCTU_EXECUTION_MAIN={main_sha}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
+                "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\nCTU_EVIDENCE_MANIFEST_SHA256=" + "d" * 64 + "\n"
             "CTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
             f"CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256={sha}\nCTU_EVIDENCE_ROOT=/tmp/evidence\n" + extra_lines
         )
         closeout.write_text(content)
+        host_sha = hashlib.sha256(closeout.read_bytes()).hexdigest()
+        sidecar = canonical / "CTU-GLOBAL-CLOSEOUT-PASS.sha256"
+        sidecar.write_text(f"{host_sha}  CTU-GLOBAL-CLOSEOUT-PASS\n")
+        sidecar.chmod(0o600)
+        receipt = tmp_path / "ctu-live-receipt.md"
+        receipt.write_text(
+                "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\n"
+                f"CTU_EXPECTED_MAIN={main_sha}\nCTU_EXECUTION_MAIN={main_sha}\nCTU_RUNNER_SHA256={'c' * 64}\nCTU_UNIT_SHA256={sha}\nCTU_DEVICE_ID=aegis-relay-01\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_EVIDENCE_MANIFEST_SHA256={'d' * 64}\nCTU_HOST_CLOSEOUT_SHA256={host_sha}\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+        )
+        return receipt
 
     mock_unit = tmp_path / "aegis-idea3-core.service"
     mock_unit.write_text(
         "[Unit]\nDescription=Mock\n[Service]\nUser=aegis-idea3\nNoNewPrivileges=true\nCapabilityBoundingSet=\nAmbientCapabilities=\nProtectClock=false\n"
     )
     unit_sha = hashlib.sha256(mock_unit.read_bytes()).hexdigest()
-    _write_closeout(unit_sha)
+    receipt = _write_closeout(unit_sha)
 
     env = {
         **os.environ,
@@ -689,12 +706,29 @@ def test_blocker12_recovery_ctu_negative_matrix(tmp_path: Path) -> None:
         "RECOVERY_TEST_ONLY_CANONICAL_DIR": str(canonical),
         "RECOVERY_TEST_ONLY_TRUST_ROOT": str(tmp_path),
         "AEGIS_CORE_UNIT_FILE": str(mock_unit),
+        "RECOVERY_TEST_ONLY_CTU_LIVE_RECEIPT": str(receipt),
     }
     cmd = f'. "{RECOVERY_LIB}"; recovery_ctu_successor_gate "$1" "$2"'
 
     # Positive control
     p_ok = subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True, text=True)
     assert p_ok.returncode == 0, p_ok.stderr
+
+    # Host closeout and reviewed repository receipt are both mandatory.
+    sidecar = canonical / "CTU-GLOBAL-CLOSEOUT-PASS.sha256"
+    sidecar.unlink()
+    assert "RECOVERY_CTU_HOST_CLOSEOUT_DIGEST_MISSING" in subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True, text=True).stderr
+    receipt = _write_closeout(unit_sha)
+    sidecar.write_text("0" * 64 + "  CTU-GLOBAL-CLOSEOUT-PASS\n")
+    sidecar.chmod(0o600)
+    assert "RECOVERY_CTU_HOST_CLOSEOUT_DIGEST_INVALID" in subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True, text=True).stderr
+    _write_closeout(unit_sha)
+    receipt.unlink()
+    assert "RECOVERY_CTU_LIVE_RECEIPT_MISSING" in subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True, text=True).stderr
+    receipt = _write_closeout(unit_sha)
+    receipt.write_text(receipt.read_text().replace("CTU_HOST_CLOSEOUT_SHA256=", "CTU_HOST_CLOSEOUT_SHA256=" + "0" * 64 + " #"))
+    assert "RECOVERY_CTU_REPOSITORY_RECEIPT_HOST_BINDING_INVALID" in subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True, text=True).stderr
+    _write_closeout(unit_sha)
 
     # 1. Missing closeout
     closeout.unlink()
@@ -795,40 +829,124 @@ def test_ctu_core_env_device_id_validation(tmp_path: Path) -> None:
 
 def test_ctu_and_recovery_handlers_require_frozen_provenance_before_privileged_work() -> None:
     ctu_apply = (CTU / "apply.sh").read_text()
+    ctu_runner = RUNNER.read_text()
     recovery_apply = (P4 / "stages" / "Recovery" / "apply.sh").read_text()
-    assert "CTU_FROZEN_RUNNER_SHA256" in ctu_apply
-    assert "CTU-GLOBAL-ATTEMPT-CONSUMED" in ctu_apply
+    assert "CTU_FROZEN_RUNNER_SHA256" in ctu_runner
+    assert "CTU-GLOBAL-ATTEMPT-CONSUMED" in ctu_runner
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in ctu_apply
     assert "AEGIS_RCVSTAGE_PROVENANCE_FILE" in recovery_apply
     assert "RECOVERY_FROZEN_RUNNER_SHA256" in recovery_apply
     assert "RECOVERY_PROVENANCE" in recovery_apply
 
     # Caller-controlled authorization is not provenance.  The fixed marker
     # and frozen-runner checks must precede the first privileged action.
-    assert ctu_apply.index("CTU_PROVENANCE_MISSING") < ctu_apply.index("systemctl restart")
+    assert ctu_runner.index("CTU_PROVENANCE_MISSING") < ctu_runner.index("systemctl restart")
     assert recovery_apply.index("RECOVERY_PROVENANCE_MISSING") < recovery_apply.index("PYTHONPATH")
-    assert "AEGIS_CTU_LIVE_AUTHORIZED=YES" not in ctu_apply
+    assert "AEGIS_CTU_LIVE_AUTHORIZED=YES" in ctu_runner
     assert "AEGIS_RCVSTAGE_LIVE_AUTHORIZED=YES" not in recovery_apply
 
 
 def test_direct_handler_calls_and_replayed_provenance_are_refused() -> None:
     ctu_apply = (CTU / "apply.sh").read_text()
+    ctu_runner = RUNNER.read_text()
     recovery_apply = (P4 / "stages" / "Recovery" / "apply.sh").read_text()
 
     # A direct root invocation can supply caller-controlled inputs, but cannot
     # manufacture the root-owned consumed marker or frozen-runner binding.
-    assert "MARKER=/var/lib/aegis-idea3-governance/CTU-GLOBAL-ATTEMPT-CONSUMED" in ctu_apply
-    assert 'stat -c %u:%a "$MARKER"' in ctu_apply
-    assert "marker_runner" in ctu_apply and "marker_bundle" in ctu_apply
-    assert "CTU-FROZEN-RUNNER-PROVENANCE" in ctu_apply
-    assert "CTU_HANDLER_PROVENANCE_CONSUME_FAILED" in ctu_apply
+    assert "MARKER=/var/lib/aegis-idea3-governance/CTU-GLOBAL-ATTEMPT-CONSUMED" in ctu_runner
+    assert 'stat -c %u:%a "$MARKER"' in ctu_runner
+    assert "marker_runner" in ctu_runner and "marker_bundle" in ctu_runner
+    assert "CTU-FROZEN-RUNNER-PROVENANCE" in ctu_runner
+    assert "CTU_HANDLER_PROVENANCE_CONSUME_FAILED" in ctu_runner
     assert "RECOVERY_PROVENANCE_MISSING" in recovery_apply
     assert "RECOVERY_FROZEN_RUNNER_PROVENANCE_INVALID" in recovery_apply
     assert "RECOVERY_CONTROL_PROVENANCE_INVALID" in recovery_apply
 
     # Replay still binds to these exact frozen bytes, not to a caller-selected
     # digest supplied in an environment variable.
-    assert 'sha256sum "$AEGIS_CTU_BUNDLE/owner-run/run-ctu-owner.sh"' in ctu_apply
+    assert 'sha256sum "$AEGIS_CTU_BUNDLE/owner-run/run-ctu-owner.sh"' in ctu_runner
     assert 'sha256sum "$CONTROL/owner-run/run-recovery-owner.sh"' in recovery_apply
+
+
+def test_direct_handler_dynamic_negative_fixture_reaches_no_privileged_call(tmp_path: Path) -> None:
+    calls = tmp_path / "calls"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for command in ("systemctl", "install", "mv", "cp"):
+        (fake_bin / command).write_text(f'#!/bin/sh\nprintf {command}-called >> "{calls}"\nexit 0\n')
+        (fake_bin / command).chmod(0o755)
+    unit = tmp_path / "aegis-idea3-core.service"
+    unit.write_text("original-unit\n")
+    unit_before = unit.read_bytes()
+    fake_bundle = tmp_path / "bundle"
+    (fake_bundle / "owner-run").mkdir(parents=True)
+    (fake_bundle / "CTU-BUNDLE-SHA256SUMS").write_text("fake\n")
+    fake_provenance = tmp_path / "CTU-FROZEN-RUNNER-PROVENANCE"
+    fake_provenance.write_text("CTU_FROZEN_RUNNER_SHA256=" + "a" * 64 + "\n")
+    fake_provenance.chmod(0o600)
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "AEGIS_CTU_LIVE_AUTHORIZED": "YES",
+        "AEGIS_CTU_WORK_DIR": str(tmp_path),
+        "AEGIS_CTU_UNIT_SNAPSHOT": str(tmp_path / "unit"),
+        "AEGIS_CTU_UNIT_SHA256": "b" * 64,
+        "AEGIS_CTU_BUNDLE": str(fake_bundle),
+        "AEGIS_CTU_JOURNAL_SINCE": "now",
+        "AEGIS_CTU_DETECTOR_PRE_MODE": "INACTIVE",
+    }
+    for label, runner_sha in (("fake", "a" * 64), ("wrong", "b" * 64), ("stale", "c" * 64)):
+        fake_provenance.chmod(0o600)
+        fake_provenance.write_text(f"CTU_FROZEN_RUNNER_SHA256={runner_sha}\n")
+        fake_provenance.chmod(0o400)
+        direct = subprocess.run(["bash", str(CTU / "apply.sh")], env=env, text=True, capture_output=True)
+        assert direct.returncode != 0, label
+        assert "DIRECT_HANDLER_INVOCATION_REFUSED" in direct.stderr, label
+        assert not calls.exists(), f"direct CTu apply reached the systemctl stub ({label})"
+        sourced = subprocess.run(
+            ["bash", "-c", 'source "$1"', "direct-source", str(CTU / "apply.sh")],
+            env=env, text=True, capture_output=True,
+        )
+        assert sourced.returncode != 0 and "DIRECT_HANDLER_INVOCATION_REFUSED" in sourced.stderr, label
+        assert not calls.exists(), f"sourced CTu apply reached the systemctl stub ({label})"
+        assert unit.read_bytes() == unit_before
+
+    rollback_direct = subprocess.run(
+        ["bash", str(CTU / "rollback.sh")], env=env, text=True, capture_output=True,
+    )
+    assert rollback_direct.returncode != 0
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in rollback_direct.stderr
+    assert not calls.exists(), "direct CTu rollback reached the systemctl stub"
+    assert unit.read_bytes() == unit_before
+    assert not (tmp_path / "mutation-journal").exists()
+
+    recovery = P4 / "stages" / "Recovery" / "apply.sh"
+    recovery_direct = subprocess.run(
+        ["bash", str(recovery)],
+        env={**env, "AEGIS_RCVSTAGE_LIVE_AUTHORIZED": "YES", "AEGIS_RCVSTAGE_STEP": "FINAL"},
+        text=True,
+        capture_output=True,
+    )
+    assert recovery_direct.returncode != 0
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in recovery_direct.stderr
+    assert not calls.exists(), "direct Recovery handler reached the systemctl stub"
+    verify_direct = subprocess.run(
+        ["bash", str(P4 / "stages" / "Recovery" / "verify.sh")],
+        env={**env, "AEGIS_RCVSTAGE_LIVE_AUTHORIZED": "YES", "AEGIS_RCVSTAGE_STEP": "FINAL"},
+        text=True,
+        capture_output=True,
+    )
+    assert verify_direct.returncode != 0
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in verify_direct.stderr
+    assert not calls.exists(), "direct Recovery verify reached the systemctl stub"
+
+    # The reviewed runner is the only caller that exports the embedded
+    # privileged routine; it does not execute a standalone handler file.
+    runner = RUNNER.read_text()
+    recovery_runner = (P4 / "owner-run" / "run-recovery-owner.sh").read_text()
+    assert "ctu_apply_governed" in runner
+    assert "recovery_apply_governed" in recovery_runner
+    assert "recovery_verify_governed" in recovery_runner
 
 
 def test_core_env_post_restart_toctou_is_bound_to_preimage(tmp_path: Path) -> None:
@@ -866,3 +984,21 @@ def test_ctu_interpreter_is_not_environment_selectable() -> None:
     assert 'CTU_PYTHON:-' not in text
     assert 'command -v python3' not in text
     assert '/usr/bin/python3 -I -B' in text
+
+
+def test_ctu_core_restart_contract_is_truthful_on_success_and_failure_paths() -> None:
+    runner = RUNNER.read_text()
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in (CTU / "apply.sh").read_text()
+    assert "DIRECT_HANDLER_INVOCATION_REFUSED" in (CTU / "rollback.sh").read_text()
+    assert runner.count("systemctl restart aegis-idea3-core.service") == 2
+    assert "declare -f ctu_apply_fail ctu_apply_governed" in runner
+    assert "declare -f ctu_rollback_fail ctu_rollback_governed" in runner
+    apply_body = runner[runner.index("ctu_apply_governed() {"):runner.index("ctu_rollback_fail()")]
+    rollback_body = runner[runner.index("ctu_rollback_governed() {"):runner.index("IN_POST_FAIL=0")]
+    assert apply_body.count("systemctl restart aegis-idea3-core.service") == 1
+    assert rollback_body.count("systemctl restart aegis-idea3-core.service") == 1
+    assert "PRECONSUME_CORE_RESTARTS=0" in runner
+    assert "POST_CONSUME_FAILURE_MAX_CORE_RESTARTS=2" in runner
+    assert "ROLLBACK_CORE_RESTARTS_MAX=1" in runner
+    assert "systemctl restart aegis-idea3-core.service" not in runner[runner.index("ctu_consume_attempt"):runner.index("declare -f ctu_apply_fail")]
+    assert "post_fail" in runner and "rollback_flow" in runner

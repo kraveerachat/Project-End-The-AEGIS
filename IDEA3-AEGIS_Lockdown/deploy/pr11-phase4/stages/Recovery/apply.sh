@@ -10,6 +10,7 @@
 #   DELTA          proves the ONLY firewall change is the Core-derived bound attacker ADDED to blocked_ipv4 and generates the ONE exact allow-keys file for the generic comparator
 set -uo pipefail
 fail() { printf 'RECOVERY_APPLY=FAIL reason=%s\n' "$1" >&2; exit 1; }
+recovery_stage_handler() {
 STEP="${AEGIS_RCVSTAGE_STEP:-}"
 # Snapshot ownership invariant (LITERAL constants, never environment): the verifier snapshot and EVERY ancestor up to the trusted parent are owned by root and not group/world writable. A same-uid owner could
 # otherwise chmod a read-only snapshot writable and replace bytes between this check and the Python start below. A test copy may substitute its own values; production keeps 0 and `/`.
@@ -96,3 +97,14 @@ case "$STEP" in
     RUN containment-delta --pre-bundle "$WORK/pre-root" --post-bundle "$WORK/post-root" --pre-nft "$WORK/nft-pre.txt" --post-nft "$WORK/nft-post.txt" --work-dir "$WORK" || fail CONTAINMENT_DELTA_NOT_PROVEN ;;
 esac
 printf 'RECOVERY_APPLY=COMPLETE\nRECOVERY_STEP=%s\nRECOVERY_ATTACKER_IP_ACCEPTED_FROM_RUNNER=NO\n' "$STEP"
+}
+
+# Direct execution is never a production capability. Test copies may run only
+# inside the explicitly isolated user namespace used by repository tests.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  fail DIRECT_HANDLER_INVOCATION_REFUSED
+fi
+_test_uid_map=$(awk 'NR == 1 {print $1 ":" $2}' /proc/self/uid_map 2>/dev/null || true)
+if [[ "${RECOVERY_TEST_ONLY_HANDLER_EXECUTION:-}" != YES || "$_test_uid_map" == 0:0 ]]; then
+  fail DIRECT_HANDLER_INVOCATION_REFUSED
+fi

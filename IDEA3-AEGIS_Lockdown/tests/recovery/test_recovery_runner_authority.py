@@ -472,9 +472,8 @@ def handler_world(tmp_path: Path, step: str = "FINAL", **kw):
 
 def test_the_handlers_refuse_without_authorization_or_root() -> None:
     for script in ("apply.sh", "verify.sh"):
-        assert "LIVE_AUTHORIZATION_REQUIRED" in sup.bash(f'bash "{STG / script}"').stderr
-        out = sup.bash(f'bash "{STG / script}"', env={"AEGIS_RCVSTAGE_LIVE_AUTHORIZED": "YES"})
-        assert out.returncode == 1 and "ROOT_REQUIRED" in out.stderr  # the test user is never root
+        out = sup.bash(f'bash "{STG / script}"')
+        assert out.returncode == 1 and "DIRECT_HANDLER_INVOCATION_REFUSED" in out.stderr
 
 
 @needs_userns
