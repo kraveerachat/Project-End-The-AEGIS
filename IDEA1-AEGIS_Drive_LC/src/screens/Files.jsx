@@ -238,7 +238,7 @@ function MetaDrawer({ t, lang, file, onClose }) {
   return (
     <>
       <div
-        className="fixed inset-0 fade-in"
+        className="file-details-scrim fixed inset-0 fade-in"
         style={{ background: 'color-mix(in srgb, var(--ink) 18%, transparent)', zIndex: 'var(--z-scrim)' }}
         onClick={onClose}
         aria-hidden
@@ -246,7 +246,7 @@ function MetaDrawer({ t, lang, file, onClose }) {
       <aside
         role="dialog"
         aria-label={t('fileDetails')}
-        className={`fixed top-0 right-0 bottom-0 w-[400px] max-sm:w-full bg-card border-l border-line overflow-y-auto ${jolt ? 'shake-x' : ''}`}
+        className={`file-details-drawer fixed top-0 right-0 bottom-0 w-[400px] max-sm:w-full bg-card border-l border-line overflow-y-auto ${jolt ? 'shake-x' : ''}`}
         style={{ zIndex: 'var(--z-drawer)', boxShadow: 'var(--elev-2)', animation: 'drawer-in var(--dur-slow) var(--ease) both' }}
       >
         <div className="p-6">
@@ -258,7 +258,7 @@ function MetaDrawer({ t, lang, file, onClose }) {
           </div>
 
           {/* preview */}
-          <div className={`mt-4 h-40 rounded-[var(--r-tile)] border border-line flex items-center justify-center ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}>
+          <div className={`neo-media-frame mt-4 h-40 rounded-[var(--r-tile)] border border-line flex items-center justify-center ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}>
             <Icon size={44} strokeWidth={1.2} className="text-ink-3" />
           </div>
           <div className="flex items-center gap-2 mt-3">

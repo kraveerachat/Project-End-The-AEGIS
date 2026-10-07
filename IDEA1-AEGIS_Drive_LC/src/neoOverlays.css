@@ -422,7 +422,7 @@
 }
 
 /* External drop overlay (drag files over Files / Vault). */
-:root[data-ui-style="neo"][data-theme="dark"] .external-drop-overlay {
+:root[data-ui-style="neo"][data-theme="dark"] [data-neo-drop-overlay] {
   border-color: #6fc4ff !important;
   background:
     radial-gradient(60% 60% at 50% 40%, rgba(69, 193, 244, 0.22), transparent 70%),
@@ -468,7 +468,213 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root[data-ui-style="neo"][data-theme="dark"] :is(.selection-action-bar, .external-drop-overlay) {
+  :root[data-ui-style="neo"][data-theme="dark"] :is(.selection-action-bar, [data-neo-drop-overlay]) {
     animation: fade-in 120ms linear both !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   NeoSelect — Neo Dark replacement for the OS-drawn select list.
+   Closed trigger: glass pill. Open list: rounded glass listbox,
+   portalled to <body> above modals (--z-tooltip), flips upward when
+   the space below is short. The hidden native <select> keeps value,
+   form semantics and onChange.
+   ───────────────────────────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-trigger {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 16px;
+  border: 1px solid rgba(124, 152, 225, 0.3);
+  border-radius: 999px;
+  color: #eef3ff;
+  background: linear-gradient(180deg, rgba(20, 40, 92, 0.6), rgba(8, 20, 50, 0.72));
+  box-shadow: inset 0 1px 0 rgba(160, 200, 255, 0.12);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease), background-color 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-toolbar .neo-select-trigger {
+  height: 38px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .neo-select-trigger:hover:not(:disabled) {
+    border-color: rgba(151, 172, 255, 0.58);
+    box-shadow: inset 0 1px 0 rgba(180, 215, 255, 0.18), 0 0 16px -8px rgba(70, 130, 255, 0.8);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-trigger:focus-visible,
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select[data-open="true"] .neo-select-trigger {
+  border-color: #7f9cff;
+  border-radius: 999px;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(91, 124, 255, 0.28), inset 0 1px 0 rgba(180, 215, 255, 0.18);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-trigger:disabled {
+  border-style: dashed;
+  color: #8ea3c7;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-chevron {
+  flex: none;
+  color: #a9c4ff;
+  transition: transform 200ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select[data-open="true"] .neo-select-chevron {
+  transform: rotate(180deg);
+}
+
+/* Open list. */
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-panel {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  min-width: 160px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid var(--ov-edge);
+  border-radius: 14px;
+  background: var(--ov-glass);
+  box-shadow: var(--ov-edge-top), var(--ov-shadow), 0 0 26px -16px rgba(70, 120, 255, 0.8);
+  -webkit-backdrop-filter: var(--ov-blur);
+  backdrop-filter: var(--ov-blur);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 160, 240, 0.45) transparent;
+  transform-origin: top center;
+  animation: neo-select-in 180ms var(--ov-ease-in) both;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-panel[data-placement="top"] {
+  transform-origin: bottom center;
+  animation-name: neo-select-in-up;
+}
+
+@keyframes neo-select-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes neo-select-in-up {
+  from { opacity: 0; transform: translateY(5px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-option {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  color: #d6e3fb;
+  font-size: 13.5px;
+  line-height: 1.45;
+  cursor: pointer;
+  transition: background-color 140ms var(--neo-ease), color 140ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-option-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-option[data-active="true"] {
+  color: #ffffff;
+  background: var(--ov-item-hover);
+  box-shadow: inset 0 0 0 1px rgba(120, 170, 255, 0.3);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-option[aria-selected="true"] {
+  color: #ffffff;
+  background: var(--ov-item-selected);
+  font-weight: 650;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-option[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .neo-select-check {
+  flex: none;
+  color: #9fd2ff;
+}
+
+/* ── Files: file-details drawer (was tinted from --ink: milky in dark) ── */
+:root[data-ui-style="neo"][data-theme="dark"] .file-details-scrim {
+  background: linear-gradient(90deg, rgba(1, 6, 22, 0.25), rgba(1, 6, 22, 0.6)) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .file-details-drawer {
+  top: 12px !important;
+  right: 12px !important;
+  bottom: 12px !important;
+  width: min(400px, calc(100vw - 24px)) !important;
+  border: 1px solid var(--ov-edge) !important;
+  border-radius: 20px;
+  background:
+    radial-gradient(90% 50% at 100% 0%, rgba(138, 92, 255, 0.16), transparent 60%),
+    radial-gradient(90% 60% at 0% 0%, rgba(46, 104, 226, 0.22), transparent 62%),
+    var(--ov-glass) !important;
+  box-shadow: var(--ov-edge-top), -24px 0 60px -30px rgba(0, 4, 22, 0.95) !important;
+  -webkit-backdrop-filter: var(--ov-blur);
+  backdrop-filter: var(--ov-blur);
+  animation: neo-sheet-in 300ms var(--ov-ease-in) both !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .file-details-drawer .neo-media-frame {
+  border-color: rgba(110, 160, 255, 0.2) !important;
+  background-color: rgba(4, 10, 26, 0.7) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .file-details-drawer :is(.bg-sunken, .border-line) {
+  border-color: rgba(110, 160, 255, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"][data-theme="dark"] :is(.neo-select-panel, .file-details-drawer) {
+    animation: fade-in 120ms linear both !important;
+  }
+  :root[data-ui-style="neo"][data-theme="dark"] .neo-select-chevron {
+    transition: none;
   }
 }

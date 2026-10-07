@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useReducedMotion } from '../lib/hooks.js'
 import { apiUrl } from '../lib/api.js'
+import { NeoSelect, useNeoDarkUi } from './NeoSelect.jsx'
 
 /* ── Card — solid white paper on the gray canvas ─────────────────── */
 export function Card({ children, className = '', style, onClick, interactive = Boolean(onClick), ...rest }) {
@@ -210,6 +211,10 @@ export function PillInput({ className = '', ...rest }) {
 }
 
 export function PillSelect({ className = '', children, ...rest }) {
+  // Neo Dark draws the open list itself (rounded glass listbox); the native
+  // <select> stays inside NeoSelect as the value / onChange / form source.
+  const neoDark = useNeoDarkUi()
+  if (neoDark) return <NeoSelect className={className} selectProps={rest}>{children}</NeoSelect>
   return (
     <select
       className={`w-full h-10 px-4 pr-8 rounded-full bg-sunken border border-line text-[13.5px] font-medium text-ink outline-none appearance-none cursor-pointer transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-accent focus:shadow-[0_0_0_3px_var(--accent-soft)] bg-no-repeat bg-[right_14px_center] ${className}`}

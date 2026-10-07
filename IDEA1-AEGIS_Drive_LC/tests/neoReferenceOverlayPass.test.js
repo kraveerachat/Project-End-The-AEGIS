@@ -125,7 +125,7 @@ test('POLISH-OVERLAY header actions, selection bar, select triggers and drop ove
   const bar = read('src/components/SelectionActionBar.jsx')
   assert.match(bar, /selection-action-bar/)
   assert.match(bar, /data-danger=\{danger \? 'true' : undefined\}/)
-  for (const hook of ['.selection-action-bar', '.vault-transfer-panel', '.external-drop-overlay']) {
+  for (const hook of ['.selection-action-bar', '.vault-transfer-panel', '[data-neo-drop-overlay]']) {
     assert.ok(overlayCss.includes(hook), `${hook} styled`)
   }
   assert.match(overlayCss, /\.authenticated-shell select,[\s\S]*?background-image: url\("data:image\/svg\+xml/)
