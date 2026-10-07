@@ -68,8 +68,12 @@ test('Dashboard ห้าม early-return เป็น error page จนกร�
   assert.doesNotMatch(source, /if\s*\(dash\.error\)\s*return\s*<ErrorState/)
   assert.match(source, /const usingPlaceholder = !isPlatformWired\(health\.data\)/)
   assert.doesNotMatch(source, /useApi\(['"]\/healthz['"]/)
-  assert.match(source, /normalizeDashboardData\(usingPlaceholder \? null : dash\.data\)/)
-  assert.match(source, /usage=\{usingPlaceholder \? \{\} : storage\.data\?\.usage/)
+  assert.match(source, /const dashboardUnavailable = usingPlaceholder \|\| showDashboardError \|\| dash\.data == null/)
+  assert.match(source, /normalizeDashboardData\(dashboardUnavailable \? null : dash\.data\)/)
+  assert.match(source, /valueLabel=\{dashboardUnavailable \? '—' : undefined\}/)
+  assert.match(source, /unavailable=\{dashboardUnavailable\}/)
+  assert.match(source, /usage=\{storage\.data\?\.usage\}/)
+  assert.match(source, /const categoriesAvailable = !storageLoading && !storageError && usage != null/)
 })
 
 test('Vite dev proxy ส่ง health check ไป backend เพื่อไม่สร้างสถานะ offline ปลอม', async () => {
@@ -114,7 +118,8 @@ test('P1 labels ระบุ semantic scope จริง และทุกจ�
   assert.match(sidebar, /fmtBytes\(storageBytes\)/)
   assert.match(sidebar, /fmtBytes\(totalBytes\)/)
   assert.doesNotMatch(sidebar, /\/\s*1e9/)
-  assert.match(dashboard, /valueLabel=\{hasCapacity \? fmtBytes\(m\.storageBytes\)/)
+  assert.match(dashboard, /usedBytes=\{hasStorageCapacity \? measuredCapacity\.usedBytes : m\.storageBytes\}/)
+  assert.match(dashboard, /capacityKnown \? fmtBytes\(usedBytes\) : '—'/)
   assert.doesNotMatch(dashboard, /m\.storageBytes\s*\/\s*1e9/)
 
   assert.equal(makeT('th')('statSecurity'), 'เหตุการณ์ DENIED/BLOCKED (100 รายการล่าสุด)')

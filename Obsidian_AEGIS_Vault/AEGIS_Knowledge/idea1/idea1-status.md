@@ -6207,3 +6207,13 @@ Local verification for this pass: focused regressions **140 total / 137 pass / 3
 * [[concepts/VLAN_Segmentation_and_Port_Mapping]]
 * [[concepts/Identity_Decoupling]]
 * [[concepts/Large_File_Transfer_V2]]
+
+## 2026-10-08 — PR #359 Neo Dashboard / Navigation pre-merge closeout
+
+- PR #359 implementation authority verified at `6c432e8a2e92da36b86b14127de38f8ea2c32862` against main `4706b5f8d9798ac5248572b04a13a00d77846e1c`.
+- Focused regression verification: **90/90 PASS**; production build **PASS**.
+- PostgreSQL migration 013 was exercised against a disposable PostgreSQL 15 instance: additive application, idempotence, existing-row `left` default and database CHECK constraint all passed.
+- The real `connection.js` PostgreSQL adapter successfully read `bottom`, persisted `top`, and read `top` back.
+- Production remains unchanged. Migration 013 must run before the PR #359 server build is deployed.
+- Authenticated Production visual acceptance and populated-state browser QA remain pending and are not claimed here.
+- Final immutable receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-08_001932_kla_idea1-pr359-neo-navigation-final.md`.

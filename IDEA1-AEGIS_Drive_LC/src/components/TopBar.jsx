@@ -1,29 +1,76 @@
 import { useEffect, useRef, useState } from 'react'
 import { Menu, LogOut, Settings, UserRound } from 'lucide-react'
 import { Dot, Avatar, ThemeToggle } from './ui.jsx'
+import { AegisLockup } from './AegisMark.jsx'
 
-function Dropdown({ open, onClose, children, label, align = 'right', width = 280 }) {
+const nextFrame = (callback) => {
+  if (typeof globalThis.requestAnimationFrame === 'function') return globalThis.requestAnimationFrame(callback)
+  if (typeof window.requestAnimationFrame === 'function') return window.requestAnimationFrame(callback)
+  return window.setTimeout(callback, 0)
+}
+const cancelFrame = (id) => {
+  if (typeof globalThis.cancelAnimationFrame === 'function') globalThis.cancelAnimationFrame(id)
+  else if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(id)
+  else window.clearTimeout(id)
+}
+
+function Dropdown({ open, onClose, children, label, align = 'right', width = 280, neoDashboard = false, triggerRef }) {
   const ref = useRef(null)
+  const [visible, setVisible] = useState(open)
+  useEffect(() => {
+    if (!neoDashboard) return undefined
+    if (open) {
+      setVisible(true)
+      const frame = nextFrame(() => ref.current?.querySelector('[role="menuitem"]')?.focus())
+      return () => cancelFrame(frame)
+    }
+    const timer = setTimeout(() => setVisible(false), 160)
+    return () => clearTimeout(timer)
+  }, [open, neoDashboard])
   useEffect(() => {
     if (!open) return
     const onDown = (e) => {
-      if (!ref.current?.contains(e.target)) onClose()
+      if (!ref.current?.contains(e.target) && !(neoDashboard && triggerRef?.current?.contains(e.target))) onClose()
     }
-    const onKey = (e) => e.key === 'Escape' && onClose()
+    const onFocus = (e) => {
+      if (neoDashboard && !ref.current?.contains(e.target) && !triggerRef?.current?.contains(e.target)) onClose()
+    }
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      onClose()
+      if (neoDashboard) triggerRef?.current?.focus()
+    }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
+    document.addEventListener('focusin', onFocus)
     return () => {
       window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey)
+      document.removeEventListener('focusin', onFocus)
     }
-  }, [open, onClose])
-  if (!open) return null
+  }, [open, onClose, neoDashboard, triggerRef])
+  if (!open && (!neoDashboard || !visible)) return null
   return (
     <div
       ref={ref}
       role="menu"
       aria-label={label}
-      className={`absolute top-[calc(100%+8px)] bg-card border border-line rounded-xl py-2 fade-in ${align === 'right' ? 'right-0' : 'left-0'}`}
+      aria-hidden={!open}
+      inert={!open}
+      data-state={open ? 'open' : 'closing'}
+      onKeyDown={(event) => {
+        if (!neoDashboard || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+        const items = [...event.currentTarget.querySelectorAll('[role="menuitem"]')]
+        if (!items.length) return
+        event.preventDefault()
+        const current = items.indexOf(document.activeElement)
+        const next = event.key === 'Home' ? 0
+          : event.key === 'End' ? items.length - 1
+            : event.key === 'ArrowDown' ? (current + 1) % items.length
+              : (current - 1 + items.length) % items.length
+        items[next].focus()
+      }}
+      className={`absolute top-[calc(100%+8px)] bg-card border border-line rounded-xl py-2 ${neoDashboard ? 'neo-profile-menu' : 'fade-in'} ${align === 'right' ? 'right-0' : 'left-0'}`}
       style={{ width, boxShadow: 'var(--elev-2)', zIndex: 'var(--z-dropdown)' }}
     >
       {children}
@@ -31,8 +78,9 @@ function Dropdown({ open, onClose, children, label, align = 'right', width = 280
   )
 }
 
-export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSettings, onSignOut, openMobileNav, resolvedTheme = 'light', onThemeChange }) {
+export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSettings, onSignOut, openMobileNav, resolvedTheme = 'light', onThemeChange, neoDashboard = false, classic = false, collapsed = false, setCollapsed, navigationPosition = 'left', search = null }) {
   const [avatarOpen, setAvatarOpen] = useState(false)
+  const avatarTriggerRef = useRef(null)
 
   // Live Tactical Clock (matching CCTV-Operator topbar clock)
   const [now, setNow] = useState(() => new Date())
@@ -51,47 +99,64 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
   const metadataUp = health.data?.layers?.metadata?.ok === true
     && health.data?.layers?.metadata?.checked === true
   const dbMode = health.data?.db
+  const showIdentity = navigationPosition !== 'left'
 
   return (
     <header
-      className="app-topbar h-[68px] shrink-0 bg-card border-b border-line flex items-center justify-between gap-6 px-6 max-lg:px-4 transition-all duration-[var(--dur-base)] sticky top-0 z-[var(--z-sticky)]"
-      data-material="shell-glass"
+      className={`app-topbar h-[68px] shrink-0 bg-card border-b border-line flex items-center justify-between gap-6 px-6 max-lg:px-4 transition-all duration-[var(--dur-base)] sticky top-0 z-[var(--z-sticky)] ${neoDashboard ? 'neo-dashboard-topbar' : ''}`}
+      data-material={neoDashboard ? 'solid' : 'shell-glass'}
       style={{ boxShadow: scrolled ? 'var(--elev-1)' : 'none' }}
     >
       {/* LEFT ZONE: Mobile Toggle Button / Left Spacer */}
-      <div className="flex items-center min-w-[40px]">
+      <div className={`flex items-center min-w-[40px] ${showIdentity ? 'neo-topbar-identity' : ''} ${neoDashboard && !showIdentity ? 'neo-dashboard-topbar-mobile-toggle' : ''}`}>
         <button
           type="button"
           aria-label={t('expandSidebar')}
           onClick={openMobileNav}
-          className="lg:hidden size-9 flex items-center justify-center rounded-full text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer"
+          className="lg:hidden size-10 flex items-center justify-center rounded-[10px] text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer"
         >
           <Menu size={18} strokeWidth={1.5} />
         </button>
+        {showIdentity && (
+          <>
+            <button
+              type="button"
+              aria-label={collapsed ? t('expandSidebar') : t('collapseSidebar')}
+              aria-expanded={!collapsed}
+              onClick={() => setCollapsed?.(!collapsed)}
+              className={`neo-sidebar-toggle ${navigationPosition === 'left' ? 'hidden lg:flex' : 'hidden'} size-10 items-center justify-center rounded-[10px] text-ink-2 hover:bg-sunken hover:text-ink transition-colors cursor-pointer`}
+            >
+              <Menu size={19} strokeWidth={1.6} />
+            </button>
+            {navigationPosition === 'left' && <span className="neo-topbar-identity-divider" aria-hidden />}
+            <AegisLockup markSize={35} theme={resolvedTheme} title="AEGIS Drive_LC" sub={t('productLockupSub')} />
+          </>
+        )}
       </div>
 
       {/* CENTER ZONE: Status Pills — ค่าจริงจาก /healthz (poll 15s) */}
-      <div className="flex items-center justify-center gap-3 max-lg:hidden" role="status" aria-live="polite">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
-          <Dot tone={applicationUp ? 'ok' : 'neutral'} pulse={applicationUp} size={6} />
+      <div className={`flex items-center justify-center gap-3 ${neoDashboard ? 'neo-topbar-utilities' : 'max-lg:hidden'}`} role={neoDashboard ? undefined : 'status'} aria-live={neoDashboard ? undefined : 'polite'}>
+        <div role={neoDashboard ? 'status' : undefined} className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs ${neoDashboard ? 'neo-status-pill' : ''}`}>
+          <Dot tone={applicationUp ? 'ok' : 'neutral'} pulse={!neoDashboard && applicationUp} size={6} />
           <span>{applicationUp ? t('driveOnline') : t('driveNotConnected')}</span>
         </div>
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs">
-          <Dot tone={metadataUp ? 'accent' : 'neutral'} pulse={metadataUp} size={6} />
+        <div role={neoDashboard ? 'status' : undefined} className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-sunken border border-line text-ink-2 text-xs font-mono font-medium select-none shadow-xs ${neoDashboard ? 'neo-status-pill' : ''}`}>
+          <Dot tone={metadataUp ? 'accent' : 'neutral'} pulse={!neoDashboard && metadataUp} size={6} />
           <span>{metadataUp ? t('metadataConnected', { source: dbMode === 'postgres' ? 'PostgreSQL' : 'in-memory' }) : t('metadataNotConnected')}</span>
         </div>
+        {search}
       </div>
 
       {/* RIGHT ZONE: Tactical Clock & Profile */}
-      <div className="flex items-center gap-4">
+      <div className={`flex items-center gap-4 ${neoDashboard ? 'neo-topbar-account-zone' : ''}`}>
         {onThemeChange && (
           <ThemeToggle theme={resolvedTheme} setTheme={onThemeChange} t={t} />
         )}
 
         {/* Tactical Clock (Monospace Stacked) */}
-        <div className="flex flex-col items-end leading-tight max-sm:hidden select-none">
-          <span className="font-mono text-sm font-bold text-ink tracking-tight">{clockText}</span>
-          <span className="font-mono text-[10.5px] font-medium text-ink-3 tracking-wide">{dateText}</span>
+        <div className={`flex flex-col items-end leading-tight max-sm:hidden select-none ${neoDashboard ? 'neo-topbar-clock' : ''}`}>
+          <span className="neo-topbar-time font-mono text-sm font-bold text-ink tracking-tight">{clockText}</span>
+          <span className="neo-topbar-date font-mono text-[10.5px] font-medium text-ink-3 tracking-wide">{dateText}</span>
         </div>
 
         <div className="w-px h-6 bg-line max-sm:hidden" aria-hidden />
@@ -99,26 +164,27 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
         {/* Profile Avatar & Usermeta Badge */}
         <div className="relative">
           <button
+            ref={avatarTriggerRef}
             type="button"
-            aria-label={user.displayName}
+            aria-label={neoDashboard && !classic ? `${t('profile')} · ${user.displayName}` : user.displayName}
             aria-haspopup="menu"
             aria-expanded={avatarOpen}
             onClick={() => setAvatarOpen((v) => !v)}
-            className="flex items-center gap-3 p-1 rounded-full hover:bg-sunken transition-colors cursor-pointer text-left"
+            className={`flex items-center gap-3 p-1 rounded-full hover:bg-sunken transition-colors cursor-pointer text-left ${neoDashboard ? 'neo-profile-trigger' : ''}`}
           >
             {/* รูปโปรไฟล์จริงถ้าผู้ใช้อัปโหลดไว้ ไม่งั้นตกลงมาที่อักษรย่อเหมือนเดิม
                 (Avatar จัดการ fallback เอง — ดู src/components/ui.jsx) */}
-            <div className="p-[2px] rounded-full bg-accent shadow-sm shrink-0">
+            <div className={`p-[2px] rounded-full bg-accent shadow-sm shrink-0 ${neoDashboard ? 'neo-topbar-avatar-shell' : ''}`}>
               <Avatar userId={user.id} name={user.displayName} hasAvatar={user.hasAvatar} version={user.avatarVersion} size={36} className="avatar-accent bg-blue-600 text-white" />
             </div>
-            <div className="flex flex-col text-left max-lg:hidden min-w-0 pr-1">
+            <div className={`flex flex-col text-left max-lg:hidden min-w-0 pr-1 ${neoDashboard ? 'neo-topbar-profile-meta' : ''}`}>
               <span className="text-[13px] font-bold text-ink leading-tight truncate">{user.displayName}</span>
               {/* role เป็นจอแสดงผลของสิ่งที่เซิร์ฟเวอร์ตัดสินมา — ไม่ใช่ปุ่ม เปลี่ยนไม่ได้ */}
               <span className="text-xs font-mono text-ink-3 leading-tight truncate">AEGIS Drive · {user.role}</span>
             </div>
           </button>
 
-          <Dropdown open={avatarOpen} onClose={() => setAvatarOpen(false)} label={user.displayName} width={220}>
+          <Dropdown open={avatarOpen} onClose={() => setAvatarOpen(false)} label={user.displayName} width={220} neoDashboard={neoDashboard} triggerRef={avatarTriggerRef}>
             <div className="px-4 pb-2 border-b border-line mb-1.5">
               <p className="text-[13.5px] font-bold text-ink">{user.displayName}</p>
               <p className="font-mono text-xs text-ink-3">{user.username} · {user.role}</p>

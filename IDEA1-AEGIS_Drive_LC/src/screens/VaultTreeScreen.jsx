@@ -1327,7 +1327,7 @@ export function VaultTreeScreen({
           {t('vaultTreeManifestNewer')}
         </p>
       )}
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
+      <div className="neo-vault-status flex items-center gap-2 mb-4 flex-wrap">
         {head && (
           <VaultBreadcrumbs
             t={t}
@@ -1349,7 +1349,7 @@ export function VaultTreeScreen({
         </Btn>
       </div>
 
-      <div data-testid="vault-workspace-toolbar" data-marquee-ignore="" className="flex items-center gap-2.5 mb-5 flex-wrap">
+      <div data-testid="vault-workspace-toolbar" data-marquee-ignore="" className="neo-toolbar neo-files-toolbar flex items-center gap-2.5 mb-5 flex-wrap">
         <label className="relative flex-1 min-w-[220px] max-w-md">
           <span className="sr-only">{t('searchFilesPlaceholder')}</span>
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" aria-hidden="true" />
@@ -1370,7 +1370,7 @@ export function VaultTreeScreen({
             ))}
           </PillSelect>
         </div>
-        <div className="inline-flex items-center gap-0.5 bg-card border border-line rounded-full p-0.5">
+        <div className="neo-view-toggle inline-flex items-center gap-0.5 bg-card border border-line rounded-full p-0.5">
           <button
             data-testid="vault-workspace-grid"
             type="button"
@@ -1415,6 +1415,7 @@ export function VaultTreeScreen({
             <option value="trash">{t('vaultTreeMenuTrash')}</option>
           </PillSelect>
         </div>
+        <span className="neo-toolbar-spacer" aria-hidden="true" />
         {!tree.mutationLock && !isTrashView && (
           <Btn variant="outline" data-testid="vault-tree-new-folder" onClick={() => setDialog({ kind: 'createFolder' })}>
             <FolderPlus size={15} strokeWidth={1.6} />

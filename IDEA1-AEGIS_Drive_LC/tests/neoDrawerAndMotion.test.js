@@ -144,8 +144,9 @@ test('NEO-MOTION-3 one easing curve, and it eases out without bouncing', () => {
 /* ── reduced motion and the reveal safety rule ── */
 
 test('NEO-MOTION-4 prefers-reduced-motion switches the whole layer off', () => {
-  const at = css.lastIndexOf('@media (prefers-reduced-motion: reduce)')
-  const block = css.slice(at)
+  const neoEnd = css.indexOf('/* ── Tile hover controls')
+  const at = css.lastIndexOf('@media (prefers-reduced-motion: reduce)', neoEnd)
+  const block = css.slice(at, neoEnd)
   assert.match(block, /:root\[data-ui-style="neo"\] \.ui-card[\s\S]*transform:\s*none !important/)
   assert.match(block, /:root\[data-ui-style="neo"\] \.ui-modal[\s\S]*animation:\s*none !important/)
   assert.match(block, /\[data-reveal\][\s\S]*opacity:\s*1 !important/, 'revealed content is simply shown')
@@ -171,5 +172,5 @@ test('NEO-REVEAL-1 the reveal enhances a visible default and can never strand co
 
 test('NEO-REVEAL-2 the reveal is Neo-only, so Classic keeps its accepted baseline', () => {
   const app = fs.readFileSync(path.join(rootDir, 'src/App.jsx'), 'utf8')
-  assert.match(app, /useScrollReveal\(mainRef, screen, interfaceStyle === 'neo'\)/)
+  assert.match(app, /useScrollReveal\(mainRef, screen, interfaceStyle === 'neo' && !neoDashboard\)/)
 })
