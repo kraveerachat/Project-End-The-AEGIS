@@ -11,6 +11,27 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 CTu exact-two predecessor drop-in preservation repair — repository-only successor — 2026-10-07
+
+> [!important] **Root cause confirmed:** CTu previously treated any Core `DropInPaths` as invalid, but the governed Production topology legitimately contains exactly `10-recovery.conf` and `20-f1-alert.conf`. This continuation adds a fail-closed exact-two contract bound to the exact-main Git template bytes: both paths must be regular non-symlinks owned `root:root` mode `0644`, with no third/foreign file; systemd ordering is compared semantically as a set. The gate runs before marker consumption and after install/reload/restart; rollback validates preservation and never removes or rewrites either predecessor drop-in.
+
+`CTU_DROPIN_PRECONSUME_GATE=PASS`; `CTU_DROPIN_EXACT_MAIN_BYTE_BINDING=PASS`; `CTU_DROPIN_FOREIGN_REFUSAL=PASS`; `CTU_DROPIN_MISSING_REFUSAL=PASS`; `CTU_DROPIN_SYMLINK_REFUSAL=PASS`; `CTU_DROPIN_POSTRESTART_PRESERVATION=PASS` (repository tests). The recovery template digest is `3bee66130df5715c715d7434e255cff4fd7fd289da765420ce1026cd1f88f0a5`; the alert template digest is `7acc031b9341e9684683c55cc55a5b378b971de0d37a554e596be737fa50f41c`. This is repository-only: `CTU_LIVE_EXECUTED=NO`, `CTU_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
+
+### Current Task
+
+Task: IDEA3 CTu exact-two predecessor drop-in preservation repair
+Branch: `fix/idea3-ctu-dropin-preservation`
+Owner: `music`
+Current state: repository repair implemented and locally verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently freeze fresh exact-main CTu authority before any LIVE restart
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S4 | Exact-two predecessor drop-in preservation contract and regression repair | IN PROGRESS | focused CTu tests green; broad CTu/Recovery/RRu suite completed with only environment-only failures; final docs/receipt/PR checks pending | repository implementation PASS; zero Production mutation | final validation, immutable receipt, Draft PR | owner and independent Security/Governance review |
+
 ## IDEA3 Core TrustedClock sandbox repair — repository-only successor preparation — 2026-10-07
 
 > [!important] **Root cause confirmed and repaired in the repository.** The Core's required read-only `adjtimex(2)` TrustedClock probe was blocked by `ProtectClock=true` in the reviewed Core unit. The smallest fix changes only that setting to `ProtectClock=false`; `User=aegis-idea3`, `NoNewPrivileges=true`, empty `CapabilityBoundingSet=`, empty `AmbientCapabilities=`, and the existing unrelated hardening remain unchanged. Linux clock mutation authority is not granted: `CAP_SYS_TIME` is absent and the service is non-root with no ambient/bounding capabilities.

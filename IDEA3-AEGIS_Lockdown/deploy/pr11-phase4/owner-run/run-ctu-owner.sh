@@ -139,11 +139,20 @@ compare() {
   sudo -n env DISK_THRESHOLD_PCT=90 ALLOW_KEYS_FILE="$BUNDLE/$2" ALLOW_LISTENERS_FILE="$BUNDLE/stages/CTu/allow-listeners.txt" bash "$BUNDLE/p4-compare.sh" "$3" "$4" > "$5"
   grep -qx 'PRESERVATION_S10=PASS' "$5" && grep -qx 'COMPARE_RESULT=PASS' "$5"
 }
+ctu_validate_dropins_root() {
+  local raw path
+  local -a paths=() args=()
+  raw=$(systemctl show -p DropInPaths --value aegis-idea3-core.service) || return 1
+  read -r -a paths <<< "$raw"
+  for path in "${paths[@]}"; do args+=(--drop-in-path "$path"); done
+  /usr/bin/python3 -I -B "$AEGIS_CTU_BUNDLE/ctu-acceptance/ctu_dropin_contract.py" \
+    --repo "$AEGIS_CTU_REPO" --main "$AEGIS_CTU_EXPECTED_MAIN" --root / "${args[@]}"
+}
 rollback_flow() {
   local reason=$1 out
   [ "${ROLLBACK_DONE:-0}" = 0 ] || return 1
   ROLLBACK_DONE=1
-  if ! out=$(sudo -n env AEGIS_CTU_LIVE_AUTHORIZED=YES AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_BUNDLE="$BUNDLE" bash -c "$(declare -f ctu_rollback_fail ctu_rollback_governed); ctu_rollback_governed" 2>&1); then
+  if ! out=$(sudo -n env AEGIS_CTU_LIVE_AUTHORIZED=YES AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_BUNDLE="$BUNDLE" AEGIS_CTU_REPO="$REPO" AEGIS_CTU_EXPECTED_MAIN="$EXPECTED_MAIN" bash -c "$(declare -f ctu_validate_dropins_root ctu_rollback_fail ctu_rollback_governed); ctu_rollback_governed" 2>&1); then
     l7u_secret_scan "$EVID" /usr/bin/python3 || true
     printf '%s\nCTU_RESULT=FAIL_IMMUTABLE CTU_ATTEMPT_CONSUMED=YES CTU_ROLLBACK=INCOMPLETE reason=%s\n' "$out" "$reason" >&2
     return 1
@@ -207,12 +216,13 @@ printf 'installed_sha=%s\n' "$(sha256sum -- "$TARGET" | cut -d' ' -f1)" >> "$AEG
 printf 'phase=after-install\n' >> "$AEGIS_CTU_WORK_DIR/journal"
 fragment=$(systemctl show -p FragmentPath --value aegis-idea3-core.service) || ctu_apply_fail CORE_UNIT_SHOW_FAILED
 [ "$fragment" = "$TARGET" ] || ctu_apply_fail CORE_FRAGMENT_PATH_INVALID
-[ -z "$(systemctl show -p DropInPaths --value aegis-idea3-core.service)" ] || ctu_apply_fail CORE_DROPIN_PRESENT
+ctu_validate_dropins_root || ctu_apply_fail CORE_DROPIN_CONTRACT_INVALID_AFTER_INSTALL
 if [ "$(systemctl show -p NeedDaemonReload --value aegis-idea3-core.service 2>/dev/null || true)" = yes ]; then
   printf 'phase=before-daemon-reload\n' >> "$AEGIS_CTU_WORK_DIR/journal"
   systemctl daemon-reload
 fi
 [ "$(systemctl show -p NeedDaemonReload --value aegis-idea3-core.service 2>/dev/null || true)" = no ] || ctu_apply_fail CORE_DAEMON_RELOAD_PENDING
+ctu_validate_dropins_root || ctu_apply_fail CORE_DROPIN_CONTRACT_INVALID_AFTER_RELOAD
 for property in ProtectClock=false User=aegis-idea3 NoNewPrivileges=true CapabilityBoundingSet= AmbientCapabilities=; do
   key=${property%%=*}; value=${property#*=}
   actual=$(systemctl show -p "$key" --value aegis-idea3-core.service)
@@ -222,6 +232,7 @@ printf 'phase=after-daemon-reload\n' >> "$AEGIS_CTU_WORK_DIR/journal"
 printf 'phase=before-core-restart\n' >> "$AEGIS_CTU_WORK_DIR/journal"
 systemctl restart aegis-idea3-core.service
 printf 'phase=after-core-restart\n' >> "$AEGIS_CTU_WORK_DIR/journal"
+ctu_validate_dropins_root || ctu_apply_fail CORE_DROPIN_CONTRACT_INVALID_AFTER_RESTART
 {
   printf 'core_pid=%s\n' "$(systemctl show -p MainPID --value aegis-idea3-core.service)"
   printf 'core_start=%s\n' "$(systemctl show -p ExecMainStartTimestamp --value aegis-idea3-core.service)"
@@ -256,6 +267,7 @@ ctu_rollback_governed() {
 [ -d "$AEGIS_CTU_BUNDLE" ] && [ ! -L "$AEGIS_CTU_BUNDLE" ] && [ "$(stat -c %u -- "$AEGIS_CTU_BUNDLE")" = 0 ] || ctu_rollback_fail CTU_BUNDLE_INVALID
 [ -z "$(find "$AEGIS_CTU_BUNDLE" -type l -print -quit)" ] || ctu_rollback_fail CTU_BUNDLE_SYMLINK
 ( cd "$AEGIS_CTU_BUNDLE" && sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) || ctu_rollback_fail CTU_BUNDLE_DRIFT
+ctu_validate_dropins_root || ctu_rollback_fail CORE_DROPIN_CONTRACT_INVALID_BEFORE_ROLLBACK
 [ -f "$AEGIS_CTU_WORK_DIR/journal" ] || ctu_rollback_fail JOURNAL_MISSING
 TARGET=/etc/systemd/system/aegis-idea3-core.service
 if [ -L "$TARGET" ]; then ctu_rollback_fail UNIT_TARGET_SYMLINK; fi
@@ -279,6 +291,7 @@ if [ "$phase" != before-install ]; then
   systemctl daemon-reload
   systemctl restart aegis-idea3-core.service
 fi
+ctu_validate_dropins_root || ctu_rollback_fail CORE_DROPIN_CONTRACT_INVALID_AFTER_ROLLBACK
 [ "$(systemctl show -p ActiveState --value aegis-idea3-core.service)" = active ] || ctu_rollback_fail CORE_NOT_ACTIVE_AFTER_ROLLBACK
 [ "$(systemctl show -p SubState --value aegis-idea3-core.service)" = running ] || ctu_rollback_fail CORE_NOT_RUNNING_AFTER_ROLLBACK
 [ "$(systemctl show -p Result --value aegis-idea3-core.service)" = success ] || ctu_rollback_fail CORE_RESULT_NOT_SUCCESS_AFTER_ROLLBACK
@@ -333,6 +346,12 @@ grep -qx 'K3_CONFIRMATION=VALID' <<<"$gate_out" || post_fail PRE_K3
 if ! ctu_validate_core_env_device_id /etc/aegis-idea3/core.env "$DEVICE_ID"; then
   post_fail CORE_ENV_DEVICE_MISMATCH
 fi
+DROPIN_PATHS=$(sudo -n systemctl show -p DropInPaths --value aegis-idea3-core.service) || post_fail PRE_DROPIN_READ
+read -r -a DROPIN_PATH_ARGS <<< "$DROPIN_PATHS"
+DROPIN_VERIFY_ARGS=()
+for dropin_path in "${DROPIN_PATH_ARGS[@]}"; do DROPIN_VERIFY_ARGS+=(--drop-in-path "$dropin_path"); done
+sudo -n /usr/bin/python3 -I -B "$BUNDLE/ctu-acceptance/ctu_dropin_contract.py" \
+  --repo "$REPO" --main "$EXPECTED_MAIN" --root / "${DROPIN_VERIFY_ARGS[@]}" || post_fail PRE_DROPIN_CONTRACT
 if ! ctu_consume_attempt "$WORK" "$DEVICE_ID" "$BUNDLE/p4-ctu-runtime-verify.py" "$RUNNER_SHA256" "$BUNDLE"; then
   if [ "${CTU_MARKER_CREATED:-0}" = 1 ]; then
     CONSUMED=1; post_fail MARKER_DURABILITY
@@ -341,11 +360,12 @@ if ! ctu_consume_attempt "$WORK" "$DEVICE_ID" "$BUNDLE/p4-ctu-runtime-verify.py"
   exit 1
 fi
 CONSUMED=1
-if ! sudo -n env AEGIS_CTU_LIVE_AUTHORIZED=YES AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_BUNDLE="$BUNDLE" AEGIS_CTU_UNIT_SNAPSHOT="$UNIT_SNAPSHOT" AEGIS_CTU_UNIT_SHA256="$UNIT_SHA256" AEGIS_CTU_JOURNAL_SINCE="$JOURNAL_SINCE" AEGIS_CTU_DETECTOR_PRE_MODE="$DETECTOR_PRE_MODE" bash -c "$(declare -f ctu_apply_fail ctu_apply_governed); ctu_apply_governed"; then post_fail APPLY; fi
+if ! sudo -n env AEGIS_CTU_LIVE_AUTHORIZED=YES AEGIS_CTU_REPO="$REPO" AEGIS_CTU_EXPECTED_MAIN="$EXPECTED_MAIN" AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_BUNDLE="$BUNDLE" AEGIS_CTU_UNIT_SNAPSHOT="$UNIT_SNAPSHOT" AEGIS_CTU_UNIT_SHA256="$UNIT_SHA256" AEGIS_CTU_JOURNAL_SINCE="$JOURNAL_SINCE" AEGIS_CTU_DETECTOR_PRE_MODE="$DETECTOR_PRE_MODE" bash -c "$(declare -f ctu_validate_dropins_root ctu_apply_fail ctu_apply_governed); ctu_apply_governed"; then post_fail APPLY; fi
 if ! capture "$POST" ctu-post; then post_fail POST_CAPTURE; fi
 if ! compare "$PRE" "stages/CTu/allow-keys.txt" "$PRE" "$POST" "$EVID/compare-pre-post.txt"; then post_fail COMPARE_S10; fi
 if ! l7u_secret_scan "$EVID" /usr/bin/python3; then post_fail SECRET_SCAN; fi
-if ! sudo -n env AEGIS_CTU_BUNDLE="$BUNDLE" AEGIS_CTU_UNIT_SNAPSHOT="$UNIT_SNAPSHOT" AEGIS_CTU_UNIT_SHA256="$UNIT_SHA256" AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_RUNTIME_VERIFY="$BUNDLE/p4-ctu-runtime-verify.py" AEGIS_CTU_PRE_CORE_PID="$CORE_PRE_PID" AEGIS_CTU_PRE_CORE_START="$CORE_PRE_START" AEGIS_CTU_PRE_CORE_NRESTARTS="$CORE_PRE_NRESTARTS" AEGIS_CTU_PRE_STATUS_UPDATED_AT="$STATUS_PRE_UPDATED_AT" AEGIS_CTU_PRE_CORE_ENV_SHA="$CORE_ENV_PRE_SHA" AEGIS_CTU_DEVICE_ID="$DEVICE_ID" AEGIS_CTU_DETECTOR_PRE_MODE="$DETECTOR_PRE_MODE" AEGIS_CTU_PRE_DETECTOR_PID="$DETECTOR_PRE_PID" AEGIS_CTU_PRE_DETECTOR_START="$DETECTOR_PRE_START" AEGIS_CTU_PRE_DETECTOR_INVOCATION="$DETECTOR_PRE_INVOCATION" AEGIS_CTU_PRE_DETECTOR_NRESTARTS="$DETECTOR_PRE_NRESTARTS" AEGIS_CTU_PRE_DETECTOR_MONOTONIC="$DETECTOR_PRE_MONOTONIC" bash "$BUNDLE/stages/CTu/verify.sh"; then post_fail VERIFY; fi
+if ! sudo -n env AEGIS_CTU_REPO="$REPO" AEGIS_CTU_EXPECTED_MAIN="$EXPECTED_MAIN" AEGIS_CTU_BUNDLE="$BUNDLE" AEGIS_CTU_UNIT_SNAPSHOT="$UNIT_SNAPSHOT" AEGIS_CTU_UNIT_SHA256="$UNIT_SHA256" AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_RUNTIME_VERIFY="$BUNDLE/p4-ctu-runtime-verify.py" AEGIS_CTU_PRE_CORE_PID="$CORE_PRE_PID" AEGIS_CTU_PRE_CORE_START="$CORE_PRE_START" AEGIS_CTU_PRE_CORE_NRESTARTS="$CORE_PRE_NRESTARTS" AEGIS_CTU_PRE_STATUS_UPDATED_AT="$STATUS_PRE_UPDATED_AT" AEGIS_CTU_PRE_CORE_ENV_SHA="$CORE_ENV_PRE_SHA" AEGIS_CTU_DEVICE_ID="$DEVICE_ID" AEGIS_CTU_DETECTOR_PRE_MODE="$DETECTOR_PRE_MODE" AEGIS_CTU_PRE_DETECTOR_PID="$PRE_DETECTOR_PID" AEGIS_CTU_PRE_DETECTOR_START="$DETECTOR_PRE_START" AEGIS_CTU_PRE_DETECTOR_INVOCATION="$DETECTOR_PRE_INVOCATION" AEGIS_CTU_PRE_DETECTOR_NRESTARTS="$DETECTOR_PRE_NRESTARTS" AEGIS_CTU_PRE_DETECTOR_MONOTONIC="$DETECTOR_PRE_MONOTONIC" bash "$BUNDLE/stages/CTu/verify.sh"; then post_fail VERIFY; fi
+PRE_DETECTOR_PID="$DETECTOR_PRE_PID" PRE_DETECTOR_START="$DETECTOR_PRE_START" PRE_DETECTOR_INVOCATION="$DETECTOR_PRE_INVOCATION" PRE_DETECTOR_NRESTARTS="$DETECTOR_PRE_NRESTARTS" PRE_DETECTOR_MONOTONIC="$DETECTOR_PRE_MONOTONIC"
 EVIDENCE_MANIFEST="$EVID/CTU-EVIDENCE-SHA256SUMS"
 ( cd "$EVID" && find . -type f ! -name "$(basename "$EVIDENCE_MANIFEST")" ! -name 'terminal-result*' -print0 | sort -z | xargs -0 sha256sum ) > "$EVIDENCE_MANIFEST.tmp" || post_fail EVIDENCE_MANIFEST
 mv -f -- "$EVIDENCE_MANIFEST.tmp" "$EVIDENCE_MANIFEST" || post_fail EVIDENCE_MANIFEST

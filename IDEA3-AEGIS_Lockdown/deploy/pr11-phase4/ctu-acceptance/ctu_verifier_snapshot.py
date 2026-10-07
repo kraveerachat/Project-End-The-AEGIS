@@ -24,6 +24,7 @@ CONTROL_MANIFEST_NAME = "CTU-CONTROL-SHA256SUMS"
 
 TRUST_CLOSURE_FILES = (
     "owner-run/run-ctu-owner.sh",
+    "ctu-acceptance/ctu_dropin_contract.py",
     "p4-ctu-run-lib.sh",
     "p4-ctu-runtime-verify.py",
     "p4-stage-gate.sh",

@@ -23,6 +23,79 @@ CTU = P4 / "stages" / "CTu"
 RUNNER = P4 / "owner-run" / "run-ctu-owner.sh"
 VERIFY = CTU / "verify.sh"
 RUNTIME_VERIFY = P4 / "p4-ctu-runtime-verify.py"
+DROPIN_VERIFY = P4 / "ctu-acceptance" / "ctu_dropin_contract.py"
+
+
+def _load_dropin_verifier():
+    spec = importlib.util.spec_from_file_location("ctu_dropin_contract", DROPIN_VERIFY)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _dropin_fixture(tmp_path: Path) -> tuple[Path, Path, list[str]]:
+    root = tmp_path / "root"
+    dropin_dir = root / "etc/systemd/system/aegis-idea3-core.service.d"
+    dropin_dir.mkdir(parents=True)
+    names = ["10-recovery.conf", "20-f1-alert.conf"]
+    for name, source in zip(
+        names,
+        (APP / "aegis-idea3-core-recovery.dropin.example", APP / "aegis-idea3-core-alert.dropin.example"),
+    ):
+        target = dropin_dir / name
+        target.write_bytes(source.read_bytes())
+        target.chmod(0o644)
+    return root, dropin_dir, [str(dropin_dir / name) for name in names]
+
+
+def test_ctu_dropin_contract_accepts_exact_two_and_reordered_systemd_paths(tmp_path: Path) -> None:
+    verifier = _load_dropin_verifier()
+    root, _dropin_dir, paths = _dropin_fixture(tmp_path)
+    result = verifier.validate_dropins(ROOT, "3e26a61e32cc1073265f68659c6bbd5805d5401b", root, list(reversed(paths)), owner_uid=__import__("os").geteuid(), owner_gid=__import__("os").getegid())
+    assert result == {"10-recovery.conf", "20-f1-alert.conf"}
+
+
+def test_ctu_dropin_contract_refuses_wrong_owner_expectation(tmp_path: Path) -> None:
+    verifier = _load_dropin_verifier()
+    root, _dropin_dir, paths = _dropin_fixture(tmp_path)
+    with __import__("pytest").raises(verifier.DropInContractError, match="OWNER_MISMATCH"):
+        verifier.validate_dropins(ROOT, "3e26a61e32cc1073265f68659c6bbd5805d5401b", root, paths, owner_uid=__import__("os").geteuid() + 1, owner_gid=__import__("os").getegid())
+
+
+@__import__("pytest").mark.parametrize(
+    "case",
+    ("missing-recovery", "missing-alert", "foreign", "changed-recovery", "changed-alert", "symlink", "wrong-mode"),
+)
+def test_ctu_dropin_contract_refuses_invalid_preconsume_topology(tmp_path: Path, case: str) -> None:
+    verifier = _load_dropin_verifier()
+    root, dropin_dir, paths = _dropin_fixture(tmp_path)
+    if case == "missing-recovery":
+        paths[0] = str(dropin_dir / "missing-recovery.conf")
+    elif case == "missing-alert":
+        paths[1] = str(dropin_dir / "missing-alert.conf")
+    elif case == "foreign":
+        (dropin_dir / "30-foreign.conf").write_text("[Service]\nProtectSystem=false\n")
+        paths.append(str(dropin_dir / "30-foreign.conf"))
+    elif case == "changed-recovery":
+        (dropin_dir / "10-recovery.conf").write_text("changed\n")
+    elif case == "changed-alert":
+        (dropin_dir / "20-f1-alert.conf").write_text("changed\n")
+    elif case == "symlink":
+        target = dropin_dir / "10-recovery.conf"
+        target.unlink()
+        target.symlink_to(APP / "aegis-idea3-core-recovery.dropin.example")
+    elif case == "wrong-mode":
+        (dropin_dir / "20-f1-alert.conf").chmod(0o600)
+    with __import__("pytest").raises(verifier.DropInContractError):
+        verifier.validate_dropins(ROOT, "3e26a61e32cc1073265f68659c6bbd5805d5401b", root, paths, owner_uid=__import__("os").geteuid(), owner_gid=__import__("os").getegid())
+
+
+def test_ctu_dropin_contract_binds_expected_bytes_to_exact_main_git_object(tmp_path: Path) -> None:
+    verifier = _load_dropin_verifier()
+    root, dropin_dir, paths = _dropin_fixture(tmp_path)
+    (dropin_dir / "10-recovery.conf").write_bytes(b"mutable working tree authority\n")
+    with __import__("pytest").raises(verifier.DropInContractError, match="DIGEST_MISMATCH"):
+        verifier.validate_dropins(ROOT, "3e26a61e32cc1073265f68659c6bbd5805d5401b", root, paths, owner_uid=__import__("os").geteuid(), owner_gid=__import__("os").getegid())
 
 
 def test_core_unit_allows_only_the_read_only_trusted_clock_probe() -> None:
@@ -53,6 +126,108 @@ def test_core_unit_preserves_existing_hardening() -> None:
         "LockPersonality=true", "SystemCallArchitectures=native",
     ):
         assert setting in text
+
+
+def test_ctu_dropin_contract_accepts_valid_effective_unit_properties() -> None:
+    verifier = _load_dropin_verifier()
+    verifier.validate_effective_unit(
+        supplementary_groups="aegis-idea3-recovery aegis-idea3-alert",
+        read_write_paths="/var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3 /run/aegis-idea3-recovery /run/aegis-idea3-alert",
+        protect_clock="false",
+        user="aegis-idea3",
+        no_new_privileges="yes",
+        capability_bounding_set="",
+        ambient_capabilities="",
+    )
+
+
+def test_ctu_dropin_contract_accepts_reordered_effective_unit_properties() -> None:
+    verifier = _load_dropin_verifier()
+    verifier.validate_effective_unit(
+        supplementary_groups="aegis-idea3-alert aegis-idea3-recovery extra-group",
+        read_write_paths="/run/aegis-idea3-alert /run/aegis-idea3-recovery /var/log/aegis-idea3 /var/lib/aegis-idea3 /run/aegis-idea3",
+        protect_clock="no",
+        user="aegis-idea3",
+        no_new_privileges="true",
+        capability_bounding_set="",
+        ambient_capabilities="",
+    )
+
+
+@__import__("pytest").mark.parametrize(
+    "prop_kwargs,err_match",
+    (
+        ({"supplementary_groups": "aegis-idea3-recovery"}, "SUPPLEMENTARY_GROUPS_MISSING"),
+        ({"supplementary_groups": "aegis-idea3-alert"}, "SUPPLEMENTARY_GROUPS_MISSING"),
+        ({"read_write_paths": "/var/lib/aegis-idea3 /run/aegis-idea3"}, "READWRITEPATHS_MISSING"),
+        ({"read_write_paths": "/var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3 /run/aegis-idea3-recovery"}, "READWRITEPATHS_MISSING"),
+        ({"protect_clock": "true"}, "PROTECTCLOCK_INVALID"),
+        ({"protect_clock": "yes"}, "PROTECTCLOCK_INVALID"),
+        ({"user": "root"}, "USER_INVALID"),
+        ({"no_new_privileges": "no"}, "NNP_INVALID"),
+        ({"capability_bounding_set": "CAP_SYS_TIME"}, "CAPABILITY_BOUND_INVALID"),
+        ({"ambient_capabilities": "CAP_SYS_ADMIN"}, "AMBIENT_CAPABILITY_INVALID"),
+    ),
+)
+def test_ctu_dropin_contract_refuses_invalid_effective_unit_properties(prop_kwargs: dict, err_match: str) -> None:
+    verifier = _load_dropin_verifier()
+    valid = {
+        "supplementary_groups": "aegis-idea3-recovery aegis-idea3-alert",
+        "read_write_paths": "/var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3 /run/aegis-idea3-recovery /run/aegis-idea3-alert",
+        "protect_clock": "false",
+        "user": "aegis-idea3",
+        "no_new_privileges": "yes",
+        "capability_bounding_set": "",
+        "ambient_capabilities": "",
+    }
+    valid.update(prop_kwargs)
+    with __import__("pytest").raises(verifier.DropInContractError, match=err_match):
+        verifier.validate_effective_unit(**valid)
+
+
+def test_ctu_dropin_preservation_across_install_reload_restart() -> None:
+    runner = RUNNER.read_text()
+    pos_install = runner.index("phase=unit-installed")
+    pos_validate_install = runner.index("CORE_DROPIN_CONTRACT_INVALID_AFTER_INSTALL")
+    pos_reload = runner.index("systemctl daemon-reload")
+    pos_validate_reload = runner.index("CORE_DROPIN_CONTRACT_INVALID_AFTER_RELOAD")
+    pos_restart = runner.index("systemctl restart aegis-idea3-core.service")
+    pos_validate_restart = runner.index("CORE_DROPIN_CONTRACT_INVALID_AFTER_RESTART")
+    assert pos_install < pos_validate_install < pos_reload < pos_validate_reload < pos_restart < pos_validate_restart
+
+
+def test_ctu_pre_refusal_leaves_global_marker_absent() -> None:
+    runner = RUNNER.read_text()
+    pos_dropin_pre = runner.index("PRE_DROPIN_CONTRACT")
+    pos_consume = runner.index("ctu_consume_attempt")
+    assert pos_dropin_pre < pos_consume
+    post_fail_block = runner[runner.index("post_fail() {"):runner.index("IN_POST_FAIL=1") + 300]
+    assert "local consumed=NO" in post_fail_block
+    assert "ctu_marker_path" in post_fail_block
+    assert 'rollback_flow "$reason"' in post_fail_block
+
+
+def test_ctu_dropin_gate_is_exact_main_bound_and_preconsume() -> None:
+    runner = RUNNER.read_text()
+    verify = VERIFY.read_text()
+    assert "ctu_dropin_contract.py" in runner
+    assert "ctu_dropin_contract.py" in verify
+    assert "CORE_DROPIN_PRESENT" not in runner
+    assert runner.index("PRE_DROPIN_CONTRACT") < runner.index("ctu_consume_attempt")
+    assert "AEGIS_CTU_EXPECTED_MAIN" in verify
+    assert "DropInPaths" in verify
+    assert "ctu_validate_dropins_root" in runner
+    assert "SupplementaryGroups" in verify
+    assert "ReadWritePaths" in verify
+    assert "--verify-effective" in verify
+
+
+def test_ctu_rollback_never_targets_predecessor_dropin_directory() -> None:
+    runner = RUNNER.read_text()
+    rollback = runner[runner.index("ctu_rollback_governed()"):runner.index("IN_POST_FAIL=0")]
+    assert "aegis-idea3-core.service.d" not in rollback
+    assert "10-recovery.conf" not in rollback
+    assert "20-f1-alert.conf" not in rollback
 
 
 def test_ctu_is_registered_and_has_all_handlers() -> None:
@@ -105,7 +280,7 @@ def test_ctu_runner_is_unpinned_and_consumes_its_own_marker_before_apply() -> No
     assert "ATTEMPT_MARKER=\"$AUTH_DIR/CTU-GLOBAL-ATTEMPT-CONSUMED\"" not in text
     assert "CTU_CANONICAL_DIR=/var/lib/aegis-idea3-governance" in lib
     assert "ctu_consume_attempt" in text
-    assert text.index("ctu_consume_attempt") < text.index("declare -f ctu_apply_fail")
+    assert text.index("ctu_consume_attempt") < text.index("declare -f ctu_validate_dropins_root ctu_apply_fail")
     assert "--stage RRu" not in text and "--stage Recovery" not in text
     assert not re.search(r"systemctl +(restart|start|stop|reload).*detector", text)
     assert "SUDO" in text and "SUDO" in lib
