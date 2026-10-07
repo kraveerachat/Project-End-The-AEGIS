@@ -225,6 +225,16 @@
   --classic-nav-ring: var(--face-a);
   --classic-nav-drop: 7px;
   --classic-nav-rise: -12px;
+  --classic-rail-float: 0 16px 30px -18px var(--lo);
+
+  /* Menu family (dropdowns, selects, popovers). */
+  --menu-pad: 6px;
+  --menu-radius: 14px;
+  --menu-row-h: 38px;
+  --menu-row-radius: 10px;
+  --classic-menu-drop: 0 18px 32px -18px var(--lo);
+  --classic-menu-hover: color-mix(in srgb, var(--well-a) 62%, transparent);
+  --classic-menu-selected: color-mix(in srgb, var(--acc) 13%, transparent);
 }
 
 @media (prefers-contrast: more) {
@@ -886,32 +896,48 @@
   }
 
   /* ── Positioned navigation (Top / Bottom) ────────────────────────
-     Route logic, phases (up → move → down) and cradle measurement are the
-     shared PositionedNavigation.jsx; Classic draws an enamel rail and a
-     selected tab that physically descends (Top) or a pod that rises (Bottom). */
+     Route logic, phases (up → move → down) and measurement are the shared
+     PositionedNavigation.jsx. Classic follows Neo's proven proportions — a
+     centred floating rail, one cell width for every route, icon over label —
+     drawn in enamel: solid face, hairline edge, soft drop shadow, no glow. */
   .positioned-navigation {
+    --rail-cell-w: 108px;
+    --rail-cell-h: 52px;
+    --rail-pad: 5px;
+    --rail-radius: 18px;
+    --rail-cell-radius: 12px;
     color: var(--classic-nav-text-muted);
+    pointer-events: none;
   }
 
-  /* Top sits in flow above the page (and over it while its tab descends);
-     Bottom keeps the shared fixed, floating placement. */
+  /* The nav element is only a placement band; the rail is the item list. */
   .positioned-navigation--top {
     position: relative;
     z-index: 3;
-    margin: 12px var(--shell-gap) 0;
     min-height: 0;
-    padding: 8px 14px 0;
+    margin: 0;
+    padding: 12px var(--shell-gap) 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  .positioned-navigation__items {
+    gap: 2px;
+    max-width: 100%;
+    padding: var(--rail-pad);
     border: 1px solid var(--edge);
-    border-radius: var(--r);
+    border-radius: var(--rail-radius);
     background-color: var(--face-a);
     background-image: var(--mat-card);
-    box-shadow: var(--raised);
+    box-shadow: var(--raised), var(--classic-rail-float);
+    pointer-events: auto;
   }
 
   .positioned-navigation--top .positioned-navigation__items {
-    gap: 4px;
-    margin-bottom: -10px;
-    padding: 0 4px 16px;
+    margin-inline: auto;
+    padding: var(--rail-pad);
+    overflow: visible;
   }
 
   .positioned-navigation__cradle {
@@ -919,14 +945,21 @@
   }
 
   .positioned-navigation__item {
-    min-height: 42px;
-    padding: 0 14px;
+    flex: 0 1 var(--rail-cell-w);
+    flex-direction: column;
+    gap: 3px;
+    width: var(--rail-cell-w);
+    min-width: 64px;
+    height: var(--rail-cell-h);
+    min-height: 0;
+    padding: 0 4px;
     border: 1px solid transparent;
-    border-radius: var(--r-in);
+    border-radius: var(--rail-cell-radius);
     background: transparent;
     color: var(--classic-nav-text-muted);
-    font-size: 13px;
+    font-size: 11.5px;
     font-weight: 600;
+    letter-spacing: 0;
     text-shadow: 0 1px 0 var(--hi);
     transition:
       transform var(--nav-dur) var(--nav-ease),
@@ -935,8 +968,31 @@
       box-shadow var(--nav-dur) var(--nav-ease);
   }
 
-  .positioned-navigation__item svg {
+  .positioned-navigation__pod {
+    display: grid;
+    flex: none;
+    width: 22px;
+    height: 22px;
+    place-items: center;
+  }
+
+  .positioned-navigation__pod svg {
+    width: 18px;
+    height: 18px;
     stroke-width: 2;
+  }
+
+  /* One line wherever the cell allows it; a long Thai label balances onto a
+     second line instead of truncating. No overflow clipping: Thai tone marks
+     and upper vowels sit above the line box. Cell widths cap labels at two
+     lines and cell height is fixed, so the rail never jitters. */
+  .positioned-navigation__label {
+    display: block;
+    max-width: 100%;
+    line-height: 1.3;
+    text-align: center;
+    text-wrap: balance;
+    white-space: normal;
   }
 
   .positioned-navigation__item:hover:not(.is-active) {
@@ -950,6 +1006,13 @@
   }
 
   .positioned-navigation__item.is-active {
+    cursor: default;
+    font-weight: 700;
+  }
+
+  /* Top: the selected cell is an enamel tab that descends past the rail edge;
+     the old tab retracts first (shared up → move → down phases). */
+  .positioned-navigation--top .positioned-navigation__item.is-active {
     border-color: var(--btn-acc-edge);
     background-color: var(--classic-nav-active-bg);
     background-image: var(--gloss), var(--mat-acc);
@@ -958,45 +1021,53 @@
     text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
   }
 
-  /* Top: the selected tab descends below the rail; the old one retracts. */
   .positioned-navigation--top .positioned-navigation__item:hover:not(.is-active) {
-    transform: translateY(2px);
+    transform: translateY(1px);
   }
 
   .positioned-navigation--top .positioned-navigation__items[data-tab-phase="down"] .positioned-navigation__item.is-active {
     transform: translateY(var(--classic-nav-drop));
   }
 
-  /* Bottom: floating enamel rail; the selected pod rises above it. */
+  /* Bottom: compact floating dock; the selected pod rises out of it. */
   .positioned-navigation--bottom {
-    padding: 6px 8px;
-    border: 1px solid var(--edge);
-    border-radius: var(--r);
-    background-color: var(--face-a);
-    background-image: var(--mat-card);
-    box-shadow: var(--raised), 0 18px 34px -16px var(--lo);
+    --rail-cell-w: 96px;
+    --rail-cell-h: 58px;
+    --rail-pad: 6px;
+    --rail-radius: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
   }
 
   .positioned-navigation--bottom .positioned-navigation__items {
-    margin-top: -14px;
-    padding: 14px 2px 0;
+    gap: 4px;
+    padding: var(--rail-pad) 10px;
+    overflow: visible;
   }
 
   .positioned-navigation--bottom .positioned-navigation__item {
+    justify-content: flex-start;
+    gap: 3px;
+    padding: 4px 2px;
+    font-size: 10.5px;
+  }
+
+  .positioned-navigation--bottom .positioned-navigation__item:hover:not(.is-active) {
     background: transparent;
-    box-shadow: none;
-    border-color: transparent;
-    color: var(--classic-nav-text-muted);
-    text-shadow: 0 1px 0 var(--hi);
   }
 
   .positioned-navigation--bottom .positioned-navigation__pod {
-    display: grid;
-    width: 34px;
-    height: 34px;
-    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid transparent;
     border-radius: 50%;
-    transition: transform var(--nav-dur) var(--nav-ease), box-shadow var(--nav-dur) var(--nav-ease), background-color 0.18s var(--ease);
+    transition:
+      transform var(--nav-dur) var(--nav-ease),
+      box-shadow var(--nav-dur) var(--nav-ease),
+      background-color 0.18s var(--ease);
   }
 
   .positioned-navigation--bottom .positioned-navigation__item:hover:not(.is-active) .positioned-navigation__pod {
@@ -1006,14 +1077,11 @@
   }
 
   .positioned-navigation--bottom .positioned-navigation__item.is-active {
-    background: transparent;
-    box-shadow: none;
     color: var(--classic-nav-text-strong);
-    text-shadow: 0 1px 0 var(--hi);
   }
 
   .positioned-navigation--bottom .positioned-navigation__item.is-active .positioned-navigation__pod {
-    border: 1px solid var(--btn-acc-edge);
+    border-color: var(--btn-acc-edge);
     background-color: var(--classic-nav-active-bg);
     background-image: var(--gloss), var(--mat-acc);
     box-shadow: var(--btn-acc), 0 0 0 3px var(--classic-nav-ring);
@@ -1021,9 +1089,36 @@
     transform: translateY(var(--classic-nav-rise));
   }
 
+  /* The base hides bottom labels below 1450px; Classic keeps icon + label
+     together at every desktop width so each cell reads the same. */
+  .positioned-navigation--bottom .positioned-navigation__label {
+    display: block;
+    max-width: 100%;
+    font-size: 10.5px;
+  }
+
   [data-navigation-position="bottom"] .app-main-scroll {
     padding-bottom: 112px;
   }
+
+  /* Narrower desktops: cells give way evenly before any label truncates. */
+  @media (max-width: 1279px) {
+    .positioned-navigation--top {
+      --rail-cell-w: 92px;
+      --rail-cell-h: 54px;
+    }
+
+    .positioned-navigation--top .positioned-navigation__item {
+      gap: 2px;
+      font-size: 11px;
+    }
+
+    .positioned-navigation--bottom {
+      --rail-cell-w: 84px;
+      --rail-cell-h: 70px;
+    }
+  }
+
 
   /* ── Page header ── */
   .dashboard-page-header {
@@ -1933,6 +2028,210 @@
     .positioned-navigation--bottom .positioned-navigation__item:hover:not(.is-active) .positioned-navigation__pod,
     .navigation-position-preview:hover:not(:disabled) .navigation-position-preview__canvas .navigation-position-preview__active {
       transform: none;
+    }
+  }
+}
+
+/* ── 7. Menu family: dropdowns, selects, popovers ─────────────────
+   One enamel surface for every list that opens over the page: the custom
+   select listbox (shared NeoSelect component), Vault/Files tile menus
+   (AnchoredMenu), the profile menu, search results and dashboard quick
+   actions. Same radius, padding, row height, hover, selection and focus in
+   Light and Dark. Panels are portaled, so rules key off the root attribute. */
+:root[data-ui-style="classic"] {
+  :is(.neo-select-panel, .anchored-menu, .neo-profile-menu, .neo-search-menu, .search-pop[role="listbox"], .quick-actions-menu) {
+    padding: var(--menu-pad);
+    border: 1px solid var(--edge);
+    border-radius: var(--menu-radius);
+    background-color: var(--face-a);
+    background-image: var(--mat-card);
+    box-shadow: var(--raised), var(--classic-menu-drop);
+    color: var(--ink);
+    text-shadow: none;
+    scrollbar-width: thin;
+    scrollbar-color: var(--track) transparent;
+  }
+
+  :is(.neo-select-option, .anchored-menu [role="menuitem"], .neo-profile-menu [role="menuitem"], .neo-search-menu [role="option"], .search-pop [role="option"], .quick-actions-menu > button) {
+    min-height: var(--menu-row-h);
+    height: auto;
+    gap: 10px;
+    padding: 7px 12px;
+    border-radius: var(--menu-row-radius);
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 500;
+    line-height: 1.45;
+    transition: background-color 0.14s var(--ease), color 0.14s var(--ease), box-shadow 0.14s var(--ease);
+  }
+
+  :is(.anchored-menu [role="menuitem"], .neo-profile-menu [role="menuitem"]) svg {
+    flex: none;
+    color: var(--ink-2);
+  }
+
+  :is(.neo-select-option[data-active="true"], .anchored-menu [role="menuitem"]:hover, .neo-profile-menu [role="menuitem"]:hover, .neo-search-menu [role="option"]:hover, .search-pop [role="option"]:hover, .quick-actions-menu > button:hover) {
+    background-color: var(--classic-menu-hover);
+  }
+
+  /* Selected = quiet accent wash + bold + check; never a glow. */
+  :is(.neo-select-option[aria-selected="true"], .neo-search-menu [role="option"][aria-selected="true"], .search-pop [role="option"][aria-selected="true"]) {
+    background-color: var(--classic-menu-selected);
+    box-shadow: inset 0 1px 2px var(--lo2);
+    color: var(--ink);
+    font-weight: 650;
+  }
+
+  .neo-select-check {
+    color: var(--acc);
+  }
+
+  :is(.neo-select-option, .anchored-menu [role="menuitem"], .neo-profile-menu [role="menuitem"], .neo-search-menu [role="option"], .quick-actions-menu > button):focus-visible {
+    outline: 2px solid var(--classic-nav-focus);
+    outline-offset: -2px;
+  }
+
+  :is(.anchored-menu, .neo-profile-menu) [role="menuitem"].text-danger,
+  :is(.anchored-menu, .neo-profile-menu) [role="menuitem"].text-danger svg {
+    color: var(--danger);
+  }
+
+  /* Section labels and dividers inside menus. */
+  :is(.anchored-menu, .neo-profile-menu, .neo-search-menu) .border-line {
+    border-color: var(--track);
+  }
+
+  /* Select (shared NeoSelect markup) — closed control is a recessed well. */
+  .neo-select {
+    position: relative;
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .neo-select-native {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .neo-select-trigger {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px 0 16px;
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    background-color: var(--well-b);
+    background-image: var(--mat-well);
+    box-shadow: var(--inset);
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 600;
+    text-align: left;
+    text-shadow: none;
+    cursor: pointer;
+    transition: border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+  }
+
+  .neo-select-trigger:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--acc) 40%, var(--edge));
+  }
+
+  .neo-select-trigger:focus-visible,
+  .neo-select[data-open="true"] .neo-select-trigger {
+    outline: none;
+    border-color: var(--acc);
+    box-shadow: var(--inset), 0 0 0 2px var(--classic-nav-focus);
+  }
+
+  .neo-select-trigger:disabled {
+    border-style: dashed;
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
+  .neo-select-value {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .neo-select-chevron {
+    flex: none;
+    color: var(--ink-2);
+    transition: transform 0.2s var(--ease);
+  }
+
+  .neo-select[data-open="true"] .neo-select-chevron {
+    transform: rotate(180deg);
+  }
+
+  .neo-select-panel {
+    position: fixed;
+    z-index: var(--z-tooltip);
+    min-width: 160px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    transform-origin: top center;
+    animation: classic-menu-in 0.16s var(--nav-ease) both;
+  }
+
+  .neo-select-panel[data-placement="top"] {
+    transform-origin: bottom center;
+  }
+
+  .neo-select-option {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+  }
+
+  .neo-select-option-label {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .neo-select-option[aria-disabled="true"] {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .neo-select-check {
+    flex: none;
+  }
+}
+
+@keyframes classic-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="classic"] {
+    .neo-select-panel {
+      animation: none;
+    }
+
+    .neo-select-chevron {
+      transition: none;
     }
   }
 }

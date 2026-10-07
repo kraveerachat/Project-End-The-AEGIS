@@ -46,6 +46,13 @@ edit_policy: append-by-new-file
 - Reduced motion: rail/indicator transitions ≈0, label animation `none`, hover expansion still works.
 - Neo regression: identical Neo QA on a pure #359 build vs this build — same rail/top/bottom states; screenshot diffs limited to GSAP entrance timing and live values; Appearance differs only in the Classic card (intended).
 
+## Continuation — Classic rails + menu family refinement (local)
+
+- Top/Bottom: Classic follows Neo's proportions as a centred floating enamel rail (Top cells 108 px, Bottom 96 px; 92/84 px below 1280 px), icon over label, uniform cell width, icon centre offset 0 px. Top tab descends 7 px, Bottom pod rises 12 px; no glow. Thai labels: one line at ≥1280 px; below that the single longest label balances onto two lines; no ellipsis and no clipping of tone marks.
+- Menu family: one Classic enamel surface (14 px radius, 6 px padding, 38 px rows, shared hover/selected/focus) for the select listbox, Files/Vault overflow menus (AnchoredMenu), profile menu, search results and quick actions. Classic `PillSelect` now reuses the shared custom listbox (`NeoSelect`) instead of the OS-native list; Neo path unchanged; Login (outside the shell context) keeps the native control.
+- Files: `IDEA1-AEGIS_Drive_LC/src/theme-classic.css`, `IDEA1-AEGIS_Drive_LC/src/components/ui.jsx`, `IDEA1-AEGIS_Drive_LC/tests/classicGlossyShell.test.js`.
+- Verification: build pass; 25 select/nav/settings/theme suites — 188/189 on the change and identically 188/189 on `70af9d7f` (the failure is the #359 baseline); `classicGlossyShell` 8/8; isolated-harness QA Light+Dark × Top/Bottom × 1920/1600/1440/1280/1024 — uniform widths, 0 clipped labels, no horizontal overflow, focus ring 2 px; 768/390 use the drawer; reduced motion: rail transitions ≈0, select panel animation none; all new CSS rules Classic-scoped (0 unscoped in the built CSS).
+
 ## Source files changed
 
 - `IDEA1-AEGIS_Drive_LC/src/theme-classic.css` — new: all §3 tokens for light and dark, plus the material, shell, Dashboard, narrow-screen, `prefers-contrast` and reduced-motion rules, all scoped `:root[data-ui-style="classic"]`

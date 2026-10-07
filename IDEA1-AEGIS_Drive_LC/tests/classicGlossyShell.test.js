@@ -63,3 +63,27 @@ test('Appearance previews: Classic card shows Glossy Enamel; position previews h
   assert.match(css, /\.navigation-position-preview:hover:not\(:disabled\) \.navigation-position-preview__canvas\.is-top \.navigation-position-preview__active/)
   assert.doesNotMatch(read('src/lib/strings.js'), /interfaceStyleClassicDescription: '[^']*Precision Ledger/)
 })
+
+test('Classic Top/Bottom rails: centred floating rail, one cell width, labels never ellipsised', () => {
+  const css = read('src/theme-classic.css')
+  assert.match(css, /\.positioned-navigation--top \.positioned-navigation__items \{\s*margin-inline: auto;/)
+  assert.match(css, /\.positioned-navigation__item \{\s*flex: 0 1 var\(--rail-cell-w\);[\s\S]*?width: var\(--rail-cell-w\);[\s\S]*?height: var\(--rail-cell-h\);/)
+  // Thai tone marks must not be shaved: no clamp/overflow clipping on rail labels.
+  const label = css.match(/\.positioned-navigation__label \{([^}]*)\}/)[1]
+  assert.doesNotMatch(label, /overflow:\s*hidden|line-clamp|text-overflow/)
+  assert.match(label, /white-space: normal;/)
+  // Bottom keeps icon + label together at every desktop width (base hides labels <1450px).
+  assert.match(css, /\.positioned-navigation--bottom \.positioned-navigation__label \{\s*display: block;/)
+})
+
+test('Classic selects reuse the shared custom listbox; menus share one Classic surface', () => {
+  const ui = read('src/components/ui.jsx')
+  assert.match(ui, /const classic = useIsClassic\(\)\s*if \(neo \|\| classic\) return <NeoSelect/)
+  const css = read('src/theme-classic.css')
+  for (const surface of ['.neo-select-panel', '.anchored-menu', '.neo-profile-menu', '.neo-search-menu', '.quick-actions-menu']) {
+    assert.ok(css.includes(surface), `${surface} has a Classic surface`)
+  }
+  for (const token of ['--menu-radius', '--menu-row-h', '--classic-menu-hover', '--classic-menu-selected']) {
+    assert.match(css, new RegExp(`${token}:`))
+  }
+})

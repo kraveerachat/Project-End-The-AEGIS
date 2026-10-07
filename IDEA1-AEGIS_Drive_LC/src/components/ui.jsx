@@ -244,7 +244,11 @@ export function PillSelect({ className = '', children, ...rest }) {
   // Neo (Dark and Light) draws the open list itself (rounded listbox); the native
   // <select> stays inside NeoSelect as the value / onChange / form source.
   const neo = useNeoUi()
-  if (neo) return <NeoSelect className={className} selectProps={rest}>{children}</NeoSelect>
+  // Classic reuses the same custom listbox (keyboard, typeahead, placement);
+  // only its materials differ (theme-classic.css). Outside the authenticated
+  // shell the context is null, so Login keeps the native control.
+  const classic = useIsClassic()
+  if (neo || classic) return <NeoSelect className={className} selectProps={rest}>{children}</NeoSelect>
   return (
     <select
       className={`w-full h-10 px-4 pr-8 rounded-full bg-sunken border border-line text-[13.5px] font-medium text-ink outline-none appearance-none cursor-pointer transition-[border-color,box-shadow] duration-[var(--dur-fast)] focus:border-accent focus:shadow-[0_0_0_3px_var(--accent-soft)] bg-no-repeat bg-[right_14px_center] ${className}`}
