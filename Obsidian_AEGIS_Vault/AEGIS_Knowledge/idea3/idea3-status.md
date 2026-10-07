@@ -11,6 +11,27 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 CTu runner git eval library load quoting repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** Frozen CTu runner entry failed closed before stage governance initialization (`fatal: cannot change to '"/home/.../ctu-live-main-6a5a7a7f"': No such file or directory` and `ctu_operator_identity_gate: command not found`). Inside bash command substitution `"$( ... )"`, backslash-escaped quotes `\"` expand to literal double-quote characters in `argv`, passing `"/path/to/repo"` to `git -C`. `run-ctu-owner.sh` line 49 is repaired to `eval "$(git -C "$REPO" show "$EXPECTED_MAIN:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh")"`, preserving exact-main Git object loading without literal quotes. The failed frozen runner bound to main `6a5a7a7f31912b1bf51c0349beca6699184bcca3` (SHA `5fe09edc51133aa502e865fb817ee5b5b95faec126c447873e5bc574955b89d1`) is invalidated. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `RUNNER_GIT_EVAL_LIBRARY_LOAD=PASS`.
+
+### Current Task
+
+Task: IDEA3 CTu runner git eval library load quoting repair
+Branch: `fix/idea3-ctu-runner-git-eval-quoting`
+Owner: `music`
+Current state: repository repair to run-ctu-owner.sh line 49 and behavioral regression test implemented and verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently generate fresh post-merge exact-main CTu authority and frozen runner before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S6 | CTu runner git eval library load quoting repair (`run-ctu-owner.sh` line 49 unescaped quotes; behavioral regression test) | READY FOR REVIEW | 78 focused CTu/repair tests PASS, 83 recovery tests PASS, 676 recovery suite tests PASS, 59 vault/policy tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; generate fresh exact-main CTu authority and frozen runner after merge |
+
 ## IDEA3 CTu control snapshot directory seal repair — pre-first-LIVE — 2026-10-07
 
 > [!important] **Root cause confirmed and repaired:** Fresh post-merge CTu authority preparation reached `CTU_CONTROL_MANIFEST_SHA256=d910400b965a6b1883e1c266bd0d32f35904f1644478461e7c1b1af610de0bb1` and `CTU_TRUST_CLOSURE=PASS`, but immediate control verification failed closed with `reason=CONTROL_SOURCE_WRITABLE:ctu-acceptance`. `control_snapshot()` previously created directories with default umask without sealing them to `0555`, while `control_check()` rejects any write bit (`stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH`). `ctu_verifier_snapshot.py` now deterministically seals all snapshot directories (destination root and nested subdirectories `ctu-acceptance/`, `stages/CTu/`, `owner-run/`) to `0555` after files/manifest are written, immediately satisfying `control_check` without operator intervention. File modes (`0555` scripts, `0444` non-executable/manifest) and root ownership boundaries remain preserved. Zero Production runtime mutation occurred; CTu LIVE was NOT executed.

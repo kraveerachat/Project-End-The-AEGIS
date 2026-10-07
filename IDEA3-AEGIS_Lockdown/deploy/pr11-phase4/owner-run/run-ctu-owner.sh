@@ -46,7 +46,7 @@ P4=$APP/deploy/pr11-phase4
 UNIT_SOURCE=$APP/deploy/aegis-idea3-core.service.example
 AUTH=$AUTH_DIR/authorization-CTu.txt
 K3=$AUTH_DIR/k3-CTu.txt
-eval "$(git -C \"$REPO\" show \"$EXPECTED_MAIN:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh\")"
+eval "$(git -C "$REPO" show "$EXPECTED_MAIN:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh")"
 RUNNER_SHA256=$(sha256sum "$0" | cut -d' ' -f1)
 ctu_operator_identity_gate "$OPERATOR_USER" "$OPERATOR_UID" || { echo CTU_OPERATOR_IDENTITY_INVALID >&2; exit 2; }
 for f in "$AUTH" "$K3"; do
