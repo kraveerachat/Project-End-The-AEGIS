@@ -330,11 +330,11 @@ def _verify_ctu_pass_for_freeze(repo: Path, main: str) -> None:
         raise FreezeError("CTU_PASS_CLOSEOUT_DUPLICATE_KEYS")
     values = dict(pairs)
     required_keys = {
-        "CTU_ATTEMPT_CONSUMED", "CTU_AUTHENTICATED_STATUS_PROOF", "CTU_DETECTOR_LIFECYCLE_PROOF",
-        "CTU_EVIDENCE_ROOT", "CTU_EXPECTED_MAIN", "CTU_FAILURE_RESULT", "CTU_LIVE",
-        "CTU_LIVE_EXECUTED", "CTU_PRE_POST_PRESERVATION", "CTU_RERUN_ALLOWED", "CTU_RESULT",
-        "CTU_RUNTIME_PROOF", "CTU_STAGE", "CTU_UNIT_SHA256", "RECOVERY_ATTEMPT_CONSUMED",
-        "RECOVERY_LIVE_EXECUTED",
+        "CTU_ATTEMPT_CONSUMED", "CTU_AUTHENTICATED_STATUS_PROOF", "CTU_DETECTOR_BASELINE_MODE",
+        "CTU_DETECTOR_LIFECYCLE_PROOF", "CTU_DEVICE_ID", "CTU_EVIDENCE_ROOT", "CTU_EXPECTED_MAIN",
+        "CTU_FAILURE_RESULT", "CTU_LIVE", "CTU_LIVE_EXECUTED", "CTU_PRE_POST_PRESERVATION",
+        "CTU_RERUN_ALLOWED", "CTU_RESULT", "CTU_RUNTIME_PROOF", "CTU_STAGE", "CTU_UNIT_SHA256",
+        "RECOVERY_ATTEMPT_CONSUMED", "RECOVERY_LIVE_EXECUTED",
     }
     if set(values.keys()) != required_keys:
         raise FreezeError("CTU_PASS_CLOSEOUT_FIELDS_INVALID")
@@ -347,6 +347,10 @@ def _verify_ctu_pass_for_freeze(repo: Path, main: str) -> None:
     }
     if any(values.get(key) != value for key, value in required.items()):
         raise FreezeError("CTU_PASS_CLOSEOUT_NOT_VALID_FOR_MAIN")
+    if values.get("CTU_DETECTOR_BASELINE_MODE") not in ("ACTIVE", "INACTIVE"):
+        raise FreezeError("CTU_PASS_CLOSEOUT_DETECTOR_MODE_INVALID")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", values.get("CTU_DEVICE_ID", "")):
+        raise FreezeError("CTU_PASS_CLOSEOUT_DEVICE_ID_INVALID")
     ctu_main = values.get("CTU_EXPECTED_MAIN", "")
     if not re.fullmatch(r"[0-9a-f]{40}", ctu_main):
         raise FreezeError("CTU_PASS_CLOSEOUT_MAIN_INVALID")

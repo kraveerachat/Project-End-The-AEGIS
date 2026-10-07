@@ -120,36 +120,75 @@ def verify_detector(
     post: dict[str, str],
     core_post_monotonic: int,
     post_apply: dict[str, str] | None = None,
+    mode: str = "ACTIVE",
 ) -> None:
-    """Prove the single clean detector invocation expected after Core restart."""
-    if pre.get("nrestarts") != "0" or post.get("nrestarts") != "0":
-        _fail("DETECTOR_UNEXPECTED_RESTART_COUNT")
-    for key, value in (("load", "loaded"), ("active", "active"), ("sub", "running"), ("unit_file", "disabled"), ("restart", "no")):
-        if post.get(key) != value:
-            _fail(f"DETECTOR_{key.upper()}_INVALID")
-    if post.get("process_count") not in (None, "1", 1):
-        _fail("DETECTOR_PROCESS_COUNT_INVALID")
-    if not re.fullmatch(r"[1-9][0-9]*", post.get("pid", "")) or post.get("pid") == pre.get("pid"):
-        _fail("DETECTOR_PID_TRANSITION_INVALID")
-    if not pre.get("pid", "").isdigit() or not pre.get("start") or post.get("start") == pre.get("start"):
-        _fail("DETECTOR_START_TRANSITION_INVALID")
-    if not re.fullmatch(r"[0-9a-f]{32}", pre.get("invocation", "")) or not re.fullmatch(r"[0-9a-f]{32}", post.get("invocation", "")):
-        _fail("DETECTOR_INVOCATION_INVALID")
-    if post["invocation"] == pre["invocation"]:
-        _fail("DETECTOR_INVOCATION_UNCHANGED")
-    try:
-        pre_mono = int(pre["monotonic"])
-        post_mono = int(post["monotonic"])
-    except (KeyError, TypeError, ValueError):
-        _fail("DETECTOR_MONOTONIC_START_UNAVAILABLE")
-    if post_mono <= pre_mono or post_mono <= core_post_monotonic or post_mono > core_post_monotonic + 30_000_000:
-        _fail("DETECTOR_START_AFTER_CORE")
-    if post_apply is not None:
-        for key in ("pid", "start", "invocation", "monotonic", "nrestarts", "active", "sub", "result"):
-            if key in post_apply and post.get(key) != post_apply.get(key):
-                _fail(f"DETECTOR_CHANGED_AFTER_APPLY:{key.upper()}")
-        if post_apply.get("pid") == pre.get("pid") or post_apply.get("invocation") == pre.get("invocation"):
-            _fail("DETECTOR_APPLY_IDENTITY_NOT_NEW")
+    """Prove the single clean detector invocation expected after Core restart or inactive baseline preservation."""
+    if mode == "ACTIVE":
+        if pre.get("nrestarts") != "0" or post.get("nrestarts") != "0":
+            _fail("DETECTOR_UNEXPECTED_RESTART_COUNT")
+        for key, value in (("load", "loaded"), ("active", "active"), ("sub", "running"), ("unit_file", "disabled"), ("restart", "no")):
+            if post.get(key) != value:
+                _fail(f"DETECTOR_{key.upper()}_INVALID")
+        if post.get("process_count") not in (None, "1", 1):
+            _fail("DETECTOR_PROCESS_COUNT_INVALID")
+        if not re.fullmatch(r"[1-9][0-9]*", post.get("pid", "")) or post.get("pid") == pre.get("pid"):
+            _fail("DETECTOR_PID_TRANSITION_INVALID")
+        if not pre.get("pid", "").isdigit() or not pre.get("start") or post.get("start") == pre.get("start"):
+            _fail("DETECTOR_START_TRANSITION_INVALID")
+        if not re.fullmatch(r"[0-9a-f]{32}", pre.get("invocation", "")) or not re.fullmatch(r"[0-9a-f]{32}", post.get("invocation", "")):
+            _fail("DETECTOR_INVOCATION_INVALID")
+        if post["invocation"] == pre["invocation"]:
+            _fail("DETECTOR_INVOCATION_UNCHANGED")
+        try:
+            pre_mono = int(pre["monotonic"])
+            post_mono = int(post["monotonic"])
+        except (KeyError, TypeError, ValueError):
+            _fail("DETECTOR_MONOTONIC_START_UNAVAILABLE")
+        if post_mono <= pre_mono or post_mono <= core_post_monotonic or post_mono > core_post_monotonic + 30_000_000:
+            _fail("DETECTOR_START_AFTER_CORE")
+        if post_apply is not None:
+            for key in ("pid", "start", "invocation", "monotonic", "nrestarts", "active", "sub", "result"):
+                if key in post_apply and post.get(key) != post_apply.get(key):
+                    _fail(f"DETECTOR_CHANGED_AFTER_APPLY:{key.upper()}")
+            if post_apply.get("pid") == pre.get("pid") or post_apply.get("invocation") == pre.get("invocation"):
+                _fail("DETECTOR_APPLY_IDENTITY_NOT_NEW")
+    elif mode == "INACTIVE":
+        for data, label in ((pre, "PRE"), (post, "POST")):
+            if data.get("load") not in (None, "loaded"):
+                _fail(f"DETECTOR_{label}_LOAD_INVALID")
+            if data.get("active") != "inactive":
+                _fail(f"DETECTOR_{label}_NOT_INACTIVE")
+            if data.get("sub") != "dead":
+                _fail(f"DETECTOR_{label}_NOT_DEAD")
+            if data.get("unit_file") not in (None, "disabled"):
+                _fail(f"DETECTOR_{label}_UNIT_FILE_INVALID")
+            if data.get("restart") not in (None, "no"):
+                _fail(f"DETECTOR_{label}_RESTART_POLICY_INVALID")
+            if data.get("pid") not in (None, "0", 0, ""):
+                _fail(f"DETECTOR_{label}_PID_NONZERO")
+            if data.get("invocation"):
+                _fail(f"DETECTOR_{label}_INVOCATION_NONEMPTY")
+            if data.get("monotonic") not in (None, "0", 0, ""):
+                _fail(f"DETECTOR_{label}_MONOTONIC_NONZERO")
+            if data.get("nrestarts") not in (None, "0", 0):
+                _fail(f"DETECTOR_{label}_UNEXPECTED_RESTART_COUNT")
+            if data.get("process_count") not in (None, "0", 0):
+                _fail(f"DETECTOR_{label}_PROCESS_COUNT_NONZERO")
+        if post_apply is not None:
+            if post_apply.get("active") != "inactive" or post_apply.get("sub") != "dead":
+                _fail("DETECTOR_APPLY_NOT_INACTIVE")
+            if post_apply.get("pid") not in (None, "0", 0, ""):
+                _fail("DETECTOR_APPLY_PID_NONZERO")
+            if post_apply.get("invocation"):
+                _fail("DETECTOR_APPLY_INVOCATION_NONEMPTY")
+            if post_apply.get("monotonic") not in (None, "0", 0, ""):
+                _fail("DETECTOR_APPLY_MONOTONIC_NONZERO")
+            if post_apply.get("nrestarts") not in (None, "0", 0):
+                _fail("DETECTOR_APPLY_UNEXPECTED_RESTART_COUNT")
+            if post_apply.get("process_count") not in (None, "0", 0):
+                _fail("DETECTOR_APPLY_PROCESS_COUNT_NONZERO")
+    else:
+        _fail(f"UNKNOWN_DETECTOR_MODE:{mode}")
 
 
 def verify_files(
@@ -246,6 +285,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--capture-boundary", action="store_true")
     parser.add_argument("--verify-detector", action="store_true")
+    parser.add_argument("--detector-mode", choices=["ACTIVE", "INACTIVE"], default="ACTIVE")
     parser.add_argument("--core-pid", type=int)
     parser.add_argument("--pre-updated-at", type=float)
     parser.add_argument("--device-id", required=True)
@@ -257,20 +297,22 @@ def main() -> int:
         parser.add_argument(f"--{prefix}-detector-invocation")
         parser.add_argument(f"--{prefix}-detector-nrestarts")
         parser.add_argument(f"--{prefix}-detector-monotonic")
-    parser.add_argument("--post-detector-load")
-    parser.add_argument("--post-detector-active")
-    parser.add_argument("--post-detector-sub")
-    parser.add_argument("--post-detector-unit-file")
-    parser.add_argument("--post-detector-restart")
+        parser.add_argument(f"--{prefix}-detector-load")
+        parser.add_argument(f"--{prefix}-detector-active")
+        parser.add_argument(f"--{prefix}-detector-sub")
+        parser.add_argument(f"--{prefix}-detector-unit-file")
+        parser.add_argument(f"--{prefix}-detector-restart")
+        parser.add_argument(f"--{prefix}-detector-process-count")
     args = parser.parse_args()
     if args.verify_detector:
         try:
-            if args.core_post_monotonic is None:
+            if args.detector_mode == "ACTIVE" and args.core_post_monotonic is None:
                 _fail("CORE_POST_MONOTONIC_INVALID")
             verify_detector(
-                {"pid": args.pre_detector_pid, "start": args.pre_detector_start, "invocation": args.pre_detector_invocation, "nrestarts": args.pre_detector_nrestarts, "monotonic": args.pre_detector_monotonic},
-                {"pid": args.post_detector_pid, "start": args.post_detector_start, "invocation": args.post_detector_invocation, "nrestarts": args.post_detector_nrestarts, "monotonic": args.post_detector_monotonic, "load": args.post_detector_load, "active": args.post_detector_active, "sub": args.post_detector_sub, "unit_file": args.post_detector_unit_file, "restart": args.post_detector_restart},
-                args.core_post_monotonic,
+                {"pid": args.pre_detector_pid, "start": args.pre_detector_start, "invocation": args.pre_detector_invocation, "nrestarts": args.pre_detector_nrestarts, "monotonic": args.pre_detector_monotonic, "load": args.pre_detector_load, "active": args.pre_detector_active, "sub": args.pre_detector_sub, "unit_file": args.pre_detector_unit_file, "restart": args.pre_detector_restart, "process_count": args.pre_detector_process_count},
+                {"pid": args.post_detector_pid, "start": args.post_detector_start, "invocation": args.post_detector_invocation, "nrestarts": args.post_detector_nrestarts, "monotonic": args.post_detector_monotonic, "load": args.post_detector_load, "active": args.post_detector_active, "sub": args.post_detector_sub, "unit_file": args.post_detector_unit_file, "restart": args.post_detector_restart, "process_count": args.post_detector_process_count},
+                args.core_post_monotonic or 0,
+                mode=args.detector_mode,
             )
         except RuntimeProofError as exc:
             print(f"CTU_DETECTOR_VERIFY=FAIL reason={exc}")

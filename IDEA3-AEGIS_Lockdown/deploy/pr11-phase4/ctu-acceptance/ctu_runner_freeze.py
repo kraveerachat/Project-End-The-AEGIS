@@ -44,6 +44,7 @@ VALIDATORS = {
     "uid": lambda v: bool(re.fullmatch(r"[1-9][0-9]{0,9}", v)),
     "sha256": lambda v: bool(_SHA256.fullmatch(v)),
     "path": _path_ok,
+    "device": lambda v: bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", v)),
 }
 
 PIN_SPECS: dict[str, tuple[re.Pattern[str], str, str]] = {
@@ -53,6 +54,7 @@ PIN_SPECS: dict[str, tuple[re.Pattern[str], str, str]] = {
     "UNIT_SHA256": (re.compile(r"^UNIT_SHA256=(.*)$", re.M), "PIN_CORE_UNIT_SHA256", "sha256"),
     "MERGED_MAIN_WORKTREE": (re.compile(r"^MERGED_MAIN_WORKTREE=(.*)$", re.M), "PIN_MERGED_MAIN_WORKTREE", "path"),
     "EVIDENCE_ROOT": (re.compile(r"^EVIDENCE_ROOT=(.*)$", re.M), "PIN_EVIDENCE_ROOT", "path"),
+    "DEVICE_ID": (re.compile(r"^DEVICE_ID=(.*)$", re.M), "PIN_DEVICE_ID", "device"),
 }
 
 TEST_SEAM_ENABLED = "CTU_TEST_ONLY_RUNNER_TRUST_ENABLED"

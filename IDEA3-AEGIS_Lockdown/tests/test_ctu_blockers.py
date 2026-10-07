@@ -83,6 +83,7 @@ def _runtime_fixture(
     boundary: tuple[int, int] = (0, 0),
     episode_msg_id: str | None = None,
     open_boundary: bool = False,
+    device_id: str = "aegis-relay-01",
 ):
     status_path = tmp_path / "status.json"
     status_path.write_text(json.dumps(status))
@@ -99,8 +100,8 @@ def _runtime_fixture(
         if episode_msg_id:
             ep_id = 1 if open_boundary else boundary[1] + 1
             conn.execute(
-                "INSERT INTO lockdown_episodes VALUES (?, 'esp32-01', '2026-10-07 00:00:00', ?, NULL)",
-                (ep_id, episode_msg_id,),
+                "INSERT INTO lockdown_episodes VALUES (?, ?, '2026-10-07 00:00:00', ?, NULL)",
+                (ep_id, device_id, episode_msg_id,),
             )
     protocol_path = tmp_path / "protocol.sqlite3"
     with sqlite3.connect(protocol_path) as conn:
@@ -113,7 +114,7 @@ def _runtime_fixture(
     lines = [
         "CTU_ATTEMPT_CONSUMED=YES",
         "CTU_RERUN_ALLOWED=NO",
-        "CTU_DEVICE_ID=esp32-01",
+        f"CTU_DEVICE_ID={device_id}",
         "CTU_CONSUMED_AT_EPOCH=10.0",
         f"CTU_PRE_PROTOCOL_SEEN_ID={boundary[0]}",
         f"CTU_PRE_AUDIT_ID={boundary[1]}",
@@ -146,33 +147,33 @@ def test_blocker2_already_open_lockdown_cases(tmp_path: Path) -> None:
     case_a_dir.mkdir()
     s_a, db_a, p_a, m_a = _runtime_fixture(
         case_a_dir, status=valid_status,
-        protocol_rows=[(2, "esp32-01", "new-msg-1", "STATUS", 18.0)],
+        protocol_rows=[(2, "aegis-relay-01", "new-msg-1", "STATUS", 18.0)],
         audit_rows=[(2, "2026-10-07 00:00:18", "DEVICE_STATUS", "LOCKDOWN (new)")],
         boundary=(1, 1), episode_msg_id="new-msg-1", open_boundary=False,
     )
-    verifier.verify_files(s_a, db_a, p_a, m_a, 2743, 10.0, "esp32-01", 12.0)
+    verifier.verify_files(s_a, db_a, p_a, m_a, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Case B: Pre-open episode at PRE + fresh status post-restart
     case_b_dir = tmp_path / "case_b"
     case_b_dir.mkdir()
     s_b, db_b, p_b, m_b = _runtime_fixture(
         case_b_dir, status=valid_status,
-        protocol_rows=[(2, "esp32-01", "pre-existing-msg", "STATUS", 18.0)],
+        protocol_rows=[(2, "aegis-relay-01", "pre-existing-msg", "STATUS", 18.0)],
         audit_rows=[(2, "2026-10-07 00:00:18", "DEVICE_STATUS", "LOCKDOWN (pre)")],
         boundary=(1, 1), episode_msg_id="pre-existing-msg", open_boundary=True,
     )
-    verifier.verify_files(s_b, db_b, p_b, m_b, 2743, 10.0, "esp32-01", 12.0)
+    verifier.verify_files(s_b, db_b, p_b, m_b, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Negative 1: Pre-open episode with stale status
     case_neg1_dir = tmp_path / "case_neg1"
     case_neg1_dir.mkdir()
     s_n1, db_n1, p_n1, m_n1 = _runtime_fixture(
         case_neg1_dir, status={**valid_status, "updated_at": 8.0},
-        protocol_rows=[(2, "esp32-01", "pre-existing-msg", "STATUS", 8.0)],
+        protocol_rows=[(2, "aegis-relay-01", "pre-existing-msg", "STATUS", 8.0)],
         boundary=(1, 1), episode_msg_id="pre-existing-msg", open_boundary=True,
     )
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_files(s_n1, db_n1, p_n1, m_n1, 2743, 10.0, "esp32-01", 12.0)
+        verifier.verify_files(s_n1, db_n1, p_n1, m_n1, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Negative 2: Wrong device in post-restart status
     case_neg2_dir = tmp_path / "case_neg2"
@@ -183,41 +184,41 @@ def test_blocker2_already_open_lockdown_cases(tmp_path: Path) -> None:
         boundary=(1, 1), episode_msg_id="pre-existing-msg", open_boundary=True,
     )
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_files(s_n2, db_n2, p_n2, m_n2, 2743, 10.0, "esp32-01", 12.0)
+        verifier.verify_files(s_n2, db_n2, p_n2, m_n2, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Negative 3: NORMAL state post-restart
     case_neg3_dir = tmp_path / "case_neg3"
     case_neg3_dir.mkdir()
     s_n3, db_n3, p_n3, m_n3 = _runtime_fixture(
         case_neg3_dir, status={**valid_status, "state": "NORMAL"},
-        protocol_rows=[(2, "esp32-01", "pre-existing-msg", "STATUS", 18.0)],
+        protocol_rows=[(2, "aegis-relay-01", "pre-existing-msg", "STATUS", 18.0)],
         boundary=(1, 1), episode_msg_id="pre-existing-msg", open_boundary=True,
     )
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_files(s_n3, db_n3, p_n3, m_n3, 2743, 10.0, "esp32-01", 12.0)
+        verifier.verify_files(s_n3, db_n3, p_n3, m_n3, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Negative 4: Old open episode with no fresh STATUS post-restart
     case_neg4_dir = tmp_path / "case_neg4"
     case_neg4_dir.mkdir()
     s_n4, db_n4, p_n4, m_n4 = _runtime_fixture(
         case_neg4_dir, status=valid_status,
-        protocol_rows=[(1, "esp32-01", "old-msg", "STATUS", 8.0)],
+        protocol_rows=[(1, "aegis-relay-01", "old-msg", "STATUS", 8.0)],
         boundary=(1, 1), episode_msg_id="pre-existing-msg", open_boundary=True,
     )
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_files(s_n4, db_n4, p_n4, m_n4, 2743, 10.0, "esp32-01", 12.0)
+        verifier.verify_files(s_n4, db_n4, p_n4, m_n4, 2743, 10.0, "aegis-relay-01", 12.0)
 
     # Negative 5: Unrelated audit log (uncorrelated episode msg_id)
     case_neg5_dir = tmp_path / "case_neg5"
     case_neg5_dir.mkdir()
     s_n5, db_n5, p_n5, m_n5 = _runtime_fixture(
         case_neg5_dir, status=valid_status,
-        protocol_rows=[(2, "esp32-01", "status-msg-xyz", "STATUS", 18.0)],
+        protocol_rows=[(2, "aegis-relay-01", "status-msg-xyz", "STATUS", 18.0)],
         audit_rows=[(2, "2026-10-07 00:00:18", "UNRELATED_AUDIT", "something")],
         boundary=(1, 1), episode_msg_id="different-msg-abc", open_boundary=False,
     )
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_files(s_n5, db_n5, p_n5, m_n5, 2743, 10.0, "esp32-01", 12.0)
+        verifier.verify_files(s_n5, db_n5, p_n5, m_n5, 2743, 10.0, "aegis-relay-01", 12.0)
 
     result = "ALREADY_OPEN_LOCKDOWN_CASE=PASS"
     assert result == "ALREADY_OPEN_LOCKDOWN_CASE=PASS"
@@ -240,27 +241,86 @@ def test_blocker3_detector_single_cycle_proof() -> None:
     }
     # Expected single cycle: PRE != POST_APPLY, and VERIFY == POST_APPLY
     verify_same = dict(post_apply)
-    verifier.verify_detector(pre, verify_same, 1500, post_apply=post_apply)
+    verifier.verify_detector(pre, verify_same, 1500, post_apply=post_apply, mode="ACTIVE")
 
     # Second cycle between POST_APPLY and VERIFY (e.g. pid changed or restart incremented)
     verify_second_cycle = dict(post_apply, pid="300", monotonic="3000", invocation="c" * 32)
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_detector(pre, verify_second_cycle, 1500, post_apply=post_apply)
+        verifier.verify_detector(pre, verify_second_cycle, 1500, post_apply=post_apply, mode="ACTIVE")
 
     # Third cycle
     verify_third_cycle = dict(post_apply, pid="400", nrestarts="2", invocation="d" * 32)
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_detector(pre, verify_third_cycle, 1500, post_apply=post_apply)
+        verifier.verify_detector(pre, verify_third_cycle, 1500, post_apply=post_apply, mode="ACTIVE")
 
-    # Duplicate process count
+    # Duplicate process count in active mode
     verify_dup_proc = dict(post_apply, process_count="2")
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_detector(pre, verify_dup_proc, 1500, post_apply=post_apply)
+        verifier.verify_detector(pre, verify_dup_proc, 1500, post_apply=post_apply, mode="ACTIVE")
 
-    # Inactive or failed detector
+    # Inactive or failed detector in active mode
     verify_inactive = dict(post_apply, active="failed", result="failed")
     with pytest.raises(verifier.RuntimeProofError):
-        verifier.verify_detector(pre, verify_inactive, 1500, post_apply=post_apply)
+        verifier.verify_detector(pre, verify_inactive, 1500, post_apply=post_apply, mode="ACTIVE")
+
+    # ACTIVE -> unexpected inactive failure
+    verify_unexpected_dead = dict(post_apply, active="inactive", sub="dead")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre, verify_unexpected_dead, 1500, post_apply=post_apply, mode="ACTIVE")
+
+    # MODE B — INACTIVE baseline preservation
+    pre_inactive = {
+        "load": "loaded", "active": "inactive", "sub": "dead",
+        "unit_file": "disabled", "restart": "no", "pid": "0",
+        "invocation": "", "monotonic": "0", "nrestarts": "0", "process_count": "0",
+    }
+    post_inactive = {
+        "load": "loaded", "active": "inactive", "sub": "dead",
+        "unit_file": "disabled", "restart": "no", "pid": "0",
+        "invocation": "", "monotonic": "0", "nrestarts": "0", "process_count": "0",
+    }
+    # Positive case: stays inactive through Core restart
+    verifier.verify_detector(pre_inactive, post_inactive, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Negative case: inactive detector unexpectedly becomes active
+    post_became_active = dict(post_inactive, active="active", sub="running", pid="500")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_became_active, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Negative case: post_apply became active
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_inactive, 0, post_apply=post_became_active, mode="INACTIVE")
+
+    # Negative case: detector process appears in inactive mode
+    post_with_proc = dict(post_inactive, process_count="1")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_with_proc, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Negative case: non-zero PID in inactive mode
+    post_nonzero_pid = dict(post_inactive, pid="123")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_nonzero_pid, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Negative case: non-empty invocation in inactive mode
+    post_nonempty_inv = dict(post_inactive, invocation="a" * 32)
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_nonempty_inv, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Negative case: restart count incremented
+    post_restart_inc = dict(post_inactive, nrestarts="1")
+    with pytest.raises(verifier.RuntimeProofError):
+        verifier.verify_detector(pre_inactive, post_restart_inc, 0, post_apply=post_inactive, mode="INACTIVE")
+
+    # Verify ZERO explicit detector lifecycle commands exist in apply, verify, rollback, runner
+    for path in (CTU / "apply.sh", CTU / "verify.sh", CTU / "rollback.sh", RUNNER):
+        content = path.read_text()
+        for forbidden in (
+            "systemctl start aegis-idea3-detector",
+            "systemctl restart aegis-idea3-detector",
+            "systemctl enable aegis-idea3-detector",
+            "systemctl reload aegis-idea3-detector",
+        ):
+            assert forbidden not in content, f"Forbidden command {forbidden} found in {path}"
 
     result = "DETECTOR_SINGLE_CYCLE_PROOF=PASS"
     assert result == "DETECTOR_SINGLE_CYCLE_PROOF=PASS"
@@ -313,7 +373,7 @@ def test_blocker5_atomic_closeout_and_rollback_survival(tmp_path: Path) -> None:
         "CTU_SUDO": "",
         "SUDO": "",
     }
-    cmd = f'CTU_SUDO="" SUDO="" . "{CTU_LIB}"; ctu_record_success "{"a" * 40}" "{"b" * 64}" "/tmp/evidence"'
+    cmd = f'CTU_SUDO="" SUDO="" . "{CTU_LIB}"; ctu_record_success "{"a" * 40}" "{"b" * 64}" "/tmp/evidence" "aegis-relay-01" "ACTIVE"'
     proc = subprocess.run(["bash", "-c", cmd], env=env, capture_output=True, text=True)
     assert proc.returncode != 0
     assert "CTU_FAIL_CLOSEOUT_ALREADY_EXISTS" in proc.stderr
@@ -359,7 +419,8 @@ def test_blocker6_ctu_recovery_descendant_binding(tmp_path: Path) -> None:
     closeout.write_text(
         "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
         f"CTU_EXPECTED_MAIN={ctu_main}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
-        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\n"
+        "CTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
         "CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=" + "b" * 64 + "\nCTU_EVIDENCE_ROOT=/tmp/evidence\n"
     )
 
@@ -423,6 +484,7 @@ def test_blocker7_ctu_freeze_implementation_and_verifier(tmp_path: Path) -> None
     assert "UNIT_SHA256" in freeze_text
     assert "MERGED_MAIN_WORKTREE" in freeze_text
     assert "EVIDENCE_ROOT" in freeze_text
+    assert "DEVICE_ID" in freeze_text
 
     # Verify --capture-boundary in run-ctu-owner.sh uses $BUNDLE
     runner_text = RUNNER.read_text()
@@ -445,19 +507,20 @@ def test_blocker8_ctu_authorization_and_k3_binding(tmp_path: Path) -> None:
     unit_sha = "c" * 64
     user = "music"
     uid = "1001"
+    device_id = "aegis-relay-01"
 
     valid_auth = (
         "AEGIS_P4_AUTHORIZATION_V1\n"
         f"stage=CTu\ndate={today}\nauthorizer=music\nscope=full\nreference=test-ref\n"
         f"expected_main={main_sha}\nrunner_sha256={runner_sha}\nunit_sha256={unit_sha}\n"
-        f"operator_user={user}\noperator_uid={uid}\n"
+        f"operator_user={user}\noperator_uid={uid}\ndevice_id={device_id}\n"
     )
     valid_k3 = (
         "AEGIS_P4_K3_CONFIRMATION_V2\n"
         f"stage=CTu\ndate={today}\nconfirmed_by=music\nconfirmation_mode=IDEA3_OWNER_SELF_ATTESTATION\n"
         f"idea1_window_overlap=NONE_KNOWN\nreference=test-ref\n"
         f"expected_main={main_sha}\nrunner_sha256={runner_sha}\nunit_sha256={unit_sha}\n"
-        f"operator_user={user}\noperator_uid={uid}\n"
+        f"operator_user={user}\noperator_uid={uid}\ndevice_id={device_id}\n"
     )
 
     auth.write_text(valid_auth)
@@ -492,6 +555,24 @@ def test_blocker8_ctu_authorization_and_k3_binding(tmp_path: Path) -> None:
     p_replay = subprocess.run(cmd, capture_output=True, text=True)
     assert p_replay.returncode != 0
 
+    # Negative 5: Device ID mismatch between Auth and K3
+    auth.write_text(valid_auth)
+    k3.write_text(valid_k3.replace(f"device_id={device_id}", "device_id=other-device"))
+    p_dev_mismatch = subprocess.run(cmd, capture_output=True, text=True)
+    assert p_dev_mismatch.returncode != 0
+    assert "K3_CTU_BINDING_MISMATCH" in p_dev_mismatch.stderr or p_dev_mismatch.returncode != 0
+
+    # Negative 6: Malformed device ID in Auth
+    auth.write_text(valid_auth.replace(f"device_id={device_id}", "device_id=bad/name"))
+    k3.write_text(valid_k3)
+    p_dev_malformed = subprocess.run(cmd, capture_output=True, text=True)
+    assert p_dev_malformed.returncode != 0
+
+    # Negative 7: Missing device ID in Auth
+    auth.write_text(valid_auth.replace(f"device_id={device_id}\n", ""))
+    p_dev_missing = subprocess.run(cmd, capture_output=True, text=True)
+    assert p_dev_missing.returncode != 0
+
     assert "CTU_AUTH_BINDING=PASS"
     assert "CTU_K3_BINDING=PASS"
     assert "CTU_EXTRA_FIELDS_REFUSED=YES"
@@ -502,6 +583,9 @@ def test_blocker8_ctu_authorization_and_k3_binding(tmp_path: Path) -> None:
 # ==============================================================================
 def test_blocker9_pre_consume_gates_and_sudo_noninteractive() -> None:
     text = RUNNER.read_text()
+    assert "DEVICE_ID=PIN_DEVICE_ID" in text
+    assert "ctu_validate_core_env_device_id" in text
+    assert "DETECTOR_PRE_MODE=" in text
     assert "RECOVERY-GLOBAL-ATTEMPT-CONSUMED" in text
     assert "ctu_rru_successor_gate" in text
     assert "aegis-idea3-mosquitto.service" in text or "mosquitto.service" in text
@@ -533,7 +617,7 @@ def test_blocker10_manual_reconciliation(tmp_path: Path) -> None:
 
     # Interrupted attempt: marker present, no closeout
     marker = canonical / "CTU-GLOBAL-ATTEMPT-CONSUMED"
-    marker.write_text("CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_DEVICE_ID=esp32-01\n")
+    marker.write_text("CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_DEVICE_ID=aegis-relay-01\n")
 
     env = {**os.environ, "AEGIS_CTU_TEST_ONLY_CANONICAL_DIR": str(canonical)}
     proc = subprocess.run(["python3", str(RECONCILE_TOOL), "--governance-dir", str(canonical)], env=env, capture_output=True, text=True)
@@ -585,7 +669,8 @@ def test_blocker12_recovery_ctu_negative_matrix(tmp_path: Path) -> None:
         content = (
             "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
             f"CTU_EXPECTED_MAIN={main_sha}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
-            "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+            "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\n"
+            "CTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
             f"CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256={sha}\nCTU_EVIDENCE_ROOT=/tmp/evidence\n" + extra_lines
         )
         closeout.write_text(content)
@@ -644,4 +729,65 @@ def test_blocker12_recovery_ctu_negative_matrix(tmp_path: Path) -> None:
     assert subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True).returncode != 0
     (canonical / "RECOVERY-GLOBAL-ATTEMPT-CONSUMED").unlink()
 
+    # 8. Invalid CTU_DETECTOR_BASELINE_MODE
+    closeout.write_text(closeout.read_text().replace("CTU_DETECTOR_BASELINE_MODE=ACTIVE", "CTU_DETECTOR_BASELINE_MODE=INVALID"))
+    p_bad_det = subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True)
+    assert p_bad_det.returncode != 0
+    _write_closeout(unit_sha)
+
+    # 9. Malformed CTU_DEVICE_ID
+    closeout.write_text(closeout.read_text().replace("CTU_DEVICE_ID=aegis-relay-01", "CTU_DEVICE_ID=bad/device"))
+    p_bad_dev = subprocess.run(["bash", "-c", cmd, "gate", str(repo), main_sha], env=env, capture_output=True)
+    assert p_bad_dev.returncode != 0
+    _write_closeout(unit_sha)
+
     assert "RECOVERY_CTU_GATE_NEGATIVE_TESTS=PASS"
+
+
+# ==============================================================================
+# BLOCKER 13 — CORE.ENV DEVICE ID VALIDATION TESTS
+# ==============================================================================
+def test_ctu_core_env_device_id_validation(tmp_path: Path) -> None:
+    env_file = tmp_path / "core.env"
+    cmd = f'export CTU_SUDO="" SUDO=""; . "{CTU_LIB}"; ctu_validate_core_env_device_id "$1" "$2"'
+
+    # 1. Matching device ID
+    env_file.write_text("AEGIS_P1_DEVICE_ID=aegis-relay-01\nOTHER_VAR=secret\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+
+    # 2. Quoted value and comments/whitespace
+    env_file.write_text("# Comment\n\nAEGIS_P1_DEVICE_ID=\"aegis-relay-01\"\n# Another comment\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+
+    # 3. Missing key
+    env_file.write_text("SOME_OTHER_VAR=value\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "MISSING_DEVICE_ID" in proc.stderr
+
+    # 4. Duplicate key
+    env_file.write_text("AEGIS_P1_DEVICE_ID=aegis-relay-01\nAEGIS_P1_DEVICE_ID=aegis-relay-02\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "DUPLICATE_DEVICE_ID" in proc.stderr
+
+    # 5. Malformed device ID in file
+    env_file.write_text("AEGIS_P1_DEVICE_ID=bad/character\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "MALFORMED_DEVICE_ID" in proc.stderr
+
+    # 6. Device ID mismatch
+    env_file.write_text("AEGIS_P1_DEVICE_ID=esp32-01\n")
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(env_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "DEVICE_ID_MISMATCH" in proc.stderr
+
+    # 7. Symlink env file refused
+    sym_file = tmp_path / "sym_core.env"
+    sym_file.symlink_to(env_file)
+    proc = subprocess.run(["bash", "-c", cmd, "val", str(sym_file), "aegis-relay-01"], capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "CTU_CORE_ENV_MISSING_OR_SYMLINK" in proc.stderr

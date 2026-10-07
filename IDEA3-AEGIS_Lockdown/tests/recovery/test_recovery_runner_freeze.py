@@ -371,7 +371,8 @@ def root_freeze(repo: Path, main: str, tmp_path: Path, out: Path, trust: Path | 
     closeout.write_text(
         "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
         f"CTU_EXPECTED_MAIN={main}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
-        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\n"
+        "CTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
         "CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=" + "b" * 64 + "\nCTU_EVIDENCE_ROOT=/tmp/evidence\n"
     )
     cmd = f'export RECOVERY_TEST_ONLY_CTU_CLOSEOUT="{closeout}"; python3 -I -B "{base.authority_tools(tmp_path)}/recovery_runner_freeze.py" freeze --repo "{repo}" --main {main} --pins "{pins_file(tmp_path, main)}" --out "{out}" --root-owned'

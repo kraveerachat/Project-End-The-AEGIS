@@ -21,10 +21,10 @@ edit_policy: owner-writable
 
 ### Current Task
 
-Task: IDEA3 Core TrustedClock / ProtectClock root-cause repair and CTu successor preparation (all 12 reviewer blockers resolved)
-Branch: `fix/idea3-core-trusted-time-successor`
+Task: IDEA3 CTu Pre-Live Host Reconciliation (Dual Detector Baseline + Configured Device ID Pin Binding)
+Branch: `fix/idea3-ctu-prelive-host-reconcile`
 Owner: `music`
-Current state: repository implementation complete; all 12 reviewer blockers resolved and proven; Draft PR pending owner/integration review; LIVE NOT EXECUTED
+Current state: repository repair complete; dual detector baseline (Mode A active / Mode B inactive preservation) and exact frozen DEVICE_ID pin binding verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED
 Production mutation allowed by this task: NO
 Next: human review and merge only; after merge, independently freeze fresh CTu authority before any LIVE restart
 
@@ -33,7 +33,8 @@ Next: human review and merge only; after merge, independently freeze fresh CTu a
 | ID | Scope | State | Evidence | Result | Remaining | Next |
 |---|---|---|---|---|---|---|
 | CTu-S1 | Core TrustedClock sandbox repair and governed successor package | CLOSED | 18 focused CTu tests; 367 + 1,224 affected governance tests; 82 IP-containment tests; diff/vault/collaboration validation | repository-only repair PASS; no Production mutation | owner/integration review; CTu LIVE intentionally unexecuted | human review and merge |
-| CTu-S2 | Resolve 12 CTu reviewer blockers (runner order, open episode, detector cycle, signal rollback, atomic closeout, descendant binding, freeze/trust closure, auth binding, pre-consume sudo, reconciliation, security intent, negative matrix) | READY FOR REVIEW | 12/12 dedicated blocker tests PASS (`test_ctu_blockers.py`); 24/24 repair tests PASS (`test_core_trusted_time_repair.py`); 74/74 recovery freeze tests PASS; 368 affected regression tests PASS; vault validation PASS; core governance PASS | all 12 reviewer blockers resolved; zero Production mutation | owner and integration review | human review and merge PR #375 |
+| CTu-S2 | Resolve 12 CTu reviewer blockers (runner order, open episode, detector cycle, signal rollback, atomic closeout, descendant binding, freeze/trust closure, auth binding, pre-consume sudo, reconciliation, security intent, negative matrix) | CLOSED | 12/12 dedicated blocker tests PASS (`test_ctu_blockers.py`); 24/24 repair tests PASS (`test_core_trusted_time_repair.py`); 74/74 recovery freeze tests PASS; 368 affected regression tests PASS; vault validation PASS; core governance PASS | all 12 reviewer blockers resolved; zero Production mutation | merged via PR #375 (`f3ab9229694dd2b8d95b345e3a444f9a00887e24`) | proceed to pre-live host reconciliation |
+| CTu-S3 | CTu pre-live host reconciliation: dual detector baseline contract (Mode A active cycle / Mode B inactive preservation) + exact frozen DEVICE_ID pin binding (`aegis-relay-01`) | READY FOR REVIEW | 13/13 blocker tests PASS, 24/24 repair tests PASS, 74/74 recovery freeze tests PASS, R1Bv/R1I/RRu/phase4 harness PASS; bash -n PASS; py_compile PASS; vault validation PASS | repository repair PASS; zero Production mutation; CTU-GLOBAL-ATTEMPT-CONSUMED=ABSENT; no stage retry | owner and integration review; CTu LIVE intentionally unexecuted | human review and merge Draft PR |
 
 ## IDEA3 RRu LIVE — CLOSED_PASS — 2026-10-07
 

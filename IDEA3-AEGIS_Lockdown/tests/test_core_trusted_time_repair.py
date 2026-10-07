@@ -118,7 +118,7 @@ def test_ctu_verify_uses_real_runtime_and_has_no_caller_success_pins() -> None:
     verify = VERIFY.read_text()
     for forbidden in (
         "PIN_AUTHENTICATED_STATUS", "PIN_TRUSTED_CLOCK", "PIN_TIME_TRUST",
-        "PIN_DEVICE", "PIN_UPLINK", "PIN_BROKER", "AEGIS_CTU_AUTHENTICATED_STATUS",
+        "PIN_DEVICE=", "PIN_UPLINK", "PIN_BROKER", "AEGIS_CTU_AUTHENTICATED_STATUS",
         "AEGIS_CTU_TRUSTED_CLOCK", "AEGIS_CTU_TIME_TRUST", "AEGIS_CTU_DEVICE=",
         "AEGIS_CTU_UPLINK=", "AEGIS_CTU_BROKER=",
     ):
@@ -389,7 +389,8 @@ def test_recovery_gate_refuses_without_ctu_closeout_and_accepts_exact_bound(tmp_
     (canonical / "CTU-GLOBAL-CLOSEOUT-PASS").write_text(
         "CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n"
         f"CTU_EXPECTED_MAIN={'a' * 40}\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\n"
-        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
+        "CTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=ACTIVE\nCTU_DEVICE_ID=aegis-relay-01\n"
+        "CTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\n"
         "CTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=" + "b" * 64 + "\nCTU_EVIDENCE_ROOT=/tmp/evidence\n"
     )
     accepted = subprocess.run(["bash", "-c", command, "gate", "a" * 40], env=env, capture_output=True)

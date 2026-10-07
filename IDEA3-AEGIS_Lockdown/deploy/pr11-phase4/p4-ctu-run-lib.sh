@@ -40,10 +40,56 @@ ctu_marker_unconsumed() {
     echo CTU_CLOSEOUT_ALREADY_PRESENT >&2; return 1
   fi
 }
-ctu_fsync() { $CTU_SUDO sync -- "$1" 2>/dev/null; }
+ctu_fsync() { ${CTU_SUDO:-} sync -- "$1" 2>/dev/null; }
+ctu_validate_core_env_device_id() {
+  local env_file=${1:-/etc/aegis-idea3/core.env} expected=${2:-}
+  [[ "$expected" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || { echo "CTU_DEVICE_ID_GRAMMAR_INVALID" >&2; return 1; }
+  ${CTU_SUDO:-} test -f "$env_file" && ! ${CTU_SUDO:-} test -L "$env_file" || { echo "CTU_CORE_ENV_MISSING_OR_SYMLINK" >&2; return 1; }
+  local out py="${CTU_PYTHON:-/usr/bin/python3}"
+  if [ ! -x "$py" ]; then py=$(command -v python3 || echo /usr/bin/python3); fi
+  out=$(${CTU_SUDO:-} "$py" -c '
+import sys, re
+path, expected = sys.argv[1], sys.argv[2]
+pattern = re.compile(r"^[ \t]*AEGIS_P1_DEVICE_ID[ \t]*=(.*)$")
+device_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+matches = []
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or stripped.startswith(";"):
+                continue
+            m = pattern.match(line)
+            if m:
+                val = m.group(1).strip()
+                if len(val) >= 2 and ((val.startswith("\"") and val.endswith("\"")) or (val.startswith("\x27") and val.endswith("\x27"))):
+                    val = val[1:-1]
+                matches.append(val)
+except Exception:
+    sys.exit(2)
+if len(matches) == 0:
+    print("MISSING_DEVICE_ID")
+    sys.exit(1)
+if len(matches) > 1:
+    print("DUPLICATE_DEVICE_ID")
+    sys.exit(1)
+dev = matches[0]
+if not device_re.fullmatch(dev):
+    print("MALFORMED_DEVICE_ID")
+    sys.exit(1)
+if dev != expected:
+    print("DEVICE_ID_MISMATCH")
+    sys.exit(1)
+print("MATCH")
+' "$env_file" "$expected" 2>/dev/null) || {
+    echo "CTU_CORE_ENV_VALIDATION_FAILED:${out:-EXEC_ERROR}" >&2
+    return 1
+  }
+  [ "$out" = "MATCH" ]
+}
 ctu_consume_attempt() {
   local work=${1:-} device=${2:-} verifier=${3:-} dir marker boundary; [[ "$work" == /* && "$work" != *..* ]] || return 1
-  [[ "$device" =~ ^[A-Za-z0-9._-]+$ && "$verifier" == /* && "$verifier" != *..* ]] || return 1
+  [[ "$device" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ && "$verifier" == /* && "$verifier" != *..* ]] || return 1
   ctu_marker_unconsumed || return 1; dir=$(ctu_canonical_dir); marker=$(ctu_marker_path)
   if ! $CTU_SUDO test -d "$dir"; then $CTU_SUDO mkdir -m 0700 "$dir" || return 1; fi
   ctu_fsync "$(dirname "$dir")" || return 1
@@ -130,8 +176,10 @@ ctu_stop_sudo_keepalive() {
   fi
 }
 ctu_record_success() {
-  local main=${1:-} unit_sha=${2:-} evidence=${3:-} marker closeout tmp fail_closeout
+  local main=${1:-} unit_sha=${2:-} evidence=${3:-} device=${4:-aegis-relay-01} detector_mode=${5:-ACTIVE} marker closeout tmp fail_closeout
   [[ "$main" =~ ^[0-9a-f]{40}$ && "$unit_sha" =~ ^[0-9a-f]{64}$ && "$evidence" == /* && "$evidence" != *..* ]] || return 1
+  [[ "$device" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || return 1
+  [[ "$detector_mode" =~ ^(ACTIVE|INACTIVE)$ ]] || return 1
   marker=$(ctu_marker_path); closeout=$(ctu_closeout_path)
   fail_closeout="$(ctu_canonical_dir)/CTU-GLOBAL-CLOSEOUT-FAIL"
   if $CTU_SUDO test -e "$fail_closeout" || $CTU_SUDO test -L "$fail_closeout"; then
@@ -139,7 +187,7 @@ ctu_record_success() {
   fi
   $CTU_SUDO test -f "$marker" && ! $CTU_SUDO test -L "$marker" || return 1
   tmp="$closeout.tmp.$$"
-  printf 'CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_EXPECTED_MAIN=%s\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\nCTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\nCTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=%s\nCTU_EVIDENCE_ROOT=%s\n' "$main" "$unit_sha" "$evidence" | $CTU_SUDO bash -c 'umask 077; cat > "$1"' _ "$tmp" || return 1
+  printf 'CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_EXPECTED_MAIN=%s\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\nCTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=%s\nCTU_DEVICE_ID=%s\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\nCTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=%s\nCTU_EVIDENCE_ROOT=%s\n' "$main" "$detector_mode" "$device" "$unit_sha" "$evidence" | $CTU_SUDO bash -c 'umask 077; cat > "$1"' _ "$tmp" || return 1
   $CTU_SUDO chmod 0600 -- "$tmp" || return 1
   ctu_fsync "$tmp" || return 1
   $CTU_SUDO mv -n -- "$tmp" "$closeout" || return 1

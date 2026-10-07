@@ -11,11 +11,13 @@ OPERATOR_UID=PIN_OPERATOR_UID
 UNIT_SHA256=PIN_CORE_UNIT_SHA256
 MERGED_MAIN_WORKTREE=PIN_MERGED_MAIN_WORKTREE
 EVIDENCE_ROOT=PIN_EVIDENCE_ROOT
-for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID UNIT_SHA256 MERGED_MAIN_WORKTREE EVIDENCE_ROOT; do
+DEVICE_ID=PIN_DEVICE_ID
+for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID UNIT_SHA256 MERGED_MAIN_WORKTREE EVIDENCE_ROOT DEVICE_ID; do
   case "${!pin}" in PIN_*) echo "STOP: runner is not pinned ($pin)." >&2; exit 2 ;; esac
 done
 [[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ ]] || exit 2
 [[ "$UNIT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 2
+[[ "$DEVICE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || exit 2
 REPO=$MERGED_MAIN_WORKTREE
 AUTH_DIR=${1:-}
 [ -n "$AUTH_DIR" ] && [ -d "$AUTH_DIR" ] && [ ! -L "$AUTH_DIR" ] && [ "$(readlink -f -- "$AUTH_DIR")" = "$AUTH_DIR" ] || { echo 'usage: run-ctu-owner.sh <fresh auth dir>' >&2; exit 2; }
@@ -43,6 +45,7 @@ for f in "$AUTH" "$K3"; do
   grep -qx "unit_sha256=$UNIT_SHA256" "$f" || exit 1
   grep -qx "operator_user=$OPERATOR_USER" "$f" || exit 1
   grep -qx "operator_uid=$OPERATOR_UID" "$f" || exit 1
+  grep -qx "device_id=$DEVICE_ID" "$f" || exit 1
 done
 [ "$(git -C "$REPO" rev-parse HEAD)" = "$EXPECTED_MAIN" ] || exit 1
 [ -z "$(git -C "$REPO" status --porcelain)" ] || exit 1
@@ -72,11 +75,13 @@ CORE_PRE_PID=$(sudo -n systemctl show -p MainPID --value aegis-idea3-core.servic
 CORE_PRE_START=$(sudo -n systemctl show -p ExecMainStartTimestamp --value aegis-idea3-core.service)
 CORE_PRE_NRESTARTS=$(sudo -n systemctl show -p NRestarts --value aegis-idea3-core.service)
 [ "$CORE_PRE_LOAD" = "loaded" ] && [ "$CORE_PRE_ACTIVE" = "active" ] && [ "$CORE_PRE_SUB" = "running" ] && [ "$CORE_PRE_RESULT" = "success" ] && [ "$CORE_PRE_NRESTARTS" = 0 ] && [[ "$CORE_PRE_PID" =~ ^[1-9][0-9]*$ ]] || { echo 'STOP: Core is not in active running state before CTu.' >&2; exit 1; }
-DEVICE_ID=esp32-01
+ctu_validate_core_env_device_id /etc/aegis-idea3/core.env "$DEVICE_ID" || { echo 'STOP: core.env AEGIS_P1_DEVICE_ID does not match frozen DEVICE_ID or is invalid.' >&2; exit 1; }
 STATUS_PRE_UPDATED_AT=$(sudo -n /usr/bin/python3 -c 'import json; print(float(json.load(open("/run/aegis-idea3/status.json"))["updated_at"]))') || exit 1
 DETECTOR_PRE_LOAD=$(sudo -n systemctl show -p LoadState --value aegis-idea3-detector.service)
 DETECTOR_PRE_ACTIVE=$(sudo -n systemctl show -p ActiveState --value aegis-idea3-detector.service)
 DETECTOR_PRE_SUB=$(sudo -n systemctl show -p SubState --value aegis-idea3-detector.service)
+DETECTOR_PRE_UNIT_FILE=$(sudo -n systemctl show -p UnitFileState --value aegis-idea3-detector.service)
+DETECTOR_PRE_RESTART=$(sudo -n systemctl show -p Restart --value aegis-idea3-detector.service)
 DETECTOR_PRE_RESULT=$(sudo -n systemctl show -p Result --value aegis-idea3-detector.service)
 DETECTOR_PRE_STATE=$(sudo -n systemctl show -p MainPID -p ExecMainStartTimestamp -p InvocationID -p NRestarts aegis-idea3-detector.service)
 DETECTOR_PRE_PID=$(awk -F= '$1 == "MainPID" {print $2}' <<<"$DETECTOR_PRE_STATE")
@@ -84,7 +89,24 @@ DETECTOR_PRE_START=$(awk -F= '$1 == "ExecMainStartTimestamp" {print $2}' <<<"$DE
 DETECTOR_PRE_INVOCATION=$(awk -F= '$1 == "InvocationID" {print $2}' <<<"$DETECTOR_PRE_STATE")
 DETECTOR_PRE_NRESTARTS=$(awk -F= '$1 == "NRestarts" {print $2}' <<<"$DETECTOR_PRE_STATE")
 DETECTOR_PRE_MONOTONIC=$(sudo -n systemctl show -p ExecMainStartTimestampMonotonic --value aegis-idea3-detector.service)
-[ "$DETECTOR_PRE_LOAD" = "loaded" ] && [ "$DETECTOR_PRE_ACTIVE" = "active" ] && [ "$DETECTOR_PRE_SUB" = "running" ] && [ "$DETECTOR_PRE_RESULT" = "success" ] && [ "$DETECTOR_PRE_NRESTARTS" = 0 ] && [[ "$DETECTOR_PRE_PID" =~ ^[1-9][0-9]*$ ]] && [[ "$DETECTOR_PRE_INVOCATION" =~ ^[0-9a-f]{32}$ ]] && [[ "$DETECTOR_PRE_MONOTONIC" =~ ^[0-9]+$ ]] || { echo 'STOP: Detector is not in active running state before CTu.' >&2; exit 1; }
+DETECTOR_PRE_PROC_COUNT=$(pgrep -fc 'aegis_soc[.]production_detector' 2>/dev/null || true)
+DETECTOR_PRE_MODE=""
+if [ "$DETECTOR_PRE_LOAD" = "loaded" ] && [ "$DETECTOR_PRE_ACTIVE" = "active" ] && [ "$DETECTOR_PRE_SUB" = "running" ] && \
+   [ "$DETECTOR_PRE_UNIT_FILE" = "disabled" ] && [ "$DETECTOR_PRE_RESTART" = "no" ] && [ "$DETECTOR_PRE_RESULT" = "success" ] && \
+   [ "$DETECTOR_PRE_NRESTARTS" = 0 ] && [[ "$DETECTOR_PRE_PID" =~ ^[1-9][0-9]*$ ]] && \
+   [[ "$DETECTOR_PRE_INVOCATION" =~ ^[0-9a-f]{32}$ ]] && [[ "$DETECTOR_PRE_MONOTONIC" =~ ^[0-9]+$ ]] && \
+   [ "$DETECTOR_PRE_PROC_COUNT" = 1 ]; then
+  DETECTOR_PRE_MODE="ACTIVE"
+elif [ "$DETECTOR_PRE_LOAD" = "loaded" ] && [ "$DETECTOR_PRE_ACTIVE" = "inactive" ] && [ "$DETECTOR_PRE_SUB" = "dead" ] && \
+     [ "$DETECTOR_PRE_UNIT_FILE" = "disabled" ] && [ "$DETECTOR_PRE_RESTART" = "no" ] && \
+     [ "$DETECTOR_PRE_NRESTARTS" = 0 ] && [ "$DETECTOR_PRE_PID" = "0" ] && \
+     [ -z "$DETECTOR_PRE_INVOCATION" ] && [ "$DETECTOR_PRE_MONOTONIC" = "0" ] && \
+     [ "$DETECTOR_PRE_PROC_COUNT" = 0 ]; then
+  DETECTOR_PRE_MODE="INACTIVE"
+else
+  echo 'STOP: Detector is neither in valid ACTIVE nor valid INACTIVE state before CTu.' >&2
+  exit 1
+fi
 INSTALLED_CORE_UNIT="/etc/systemd/system/aegis-idea3-core.service"
 PRE_UNIT_SHA=""
 if [ -f "$INSTALLED_CORE_UNIT" ] && [ ! -L "$INSTALLED_CORE_UNIT" ]; then
@@ -159,6 +181,9 @@ ctu_marker_unconsumed || post_fail PRE_MARKER
 gate_out=$(TZ=Asia/Bangkok bash "$BUNDLE/p4-stage-gate.sh" --stage CTu --mode live --authorization "$AUTH" --k3 "$K3") || post_fail PRE_REGATE
 grep -qx 'AUTHORIZATION_RECORD=VALID' <<<"$gate_out" || post_fail PRE_AUTH
 grep -qx 'K3_CONFIRMATION=VALID' <<<"$gate_out" || post_fail PRE_K3
+if ! ctu_validate_core_env_device_id /etc/aegis-idea3/core.env "$DEVICE_ID"; then
+  post_fail CORE_ENV_DEVICE_MISMATCH
+fi
 if ! ctu_consume_attempt "$WORK" "$DEVICE_ID" "$BUNDLE/p4-ctu-runtime-verify.py"; then
   if [ "${CTU_MARKER_CREATED:-0}" = 1 ]; then
     CONSUMED=1; post_fail MARKER_DURABILITY
@@ -171,11 +196,11 @@ if ! sudo -n env AEGIS_CTU_LIVE_AUTHORIZED=YES AEGIS_CTU_WORK_DIR="$WORK" AEGIS_
 if ! capture "$POST" ctu-post; then post_fail POST_CAPTURE; fi
 if ! compare "$PRE" "stages/CTu/allow-keys.txt" "$PRE" "$POST" "$EVID/compare-pre-post.txt"; then post_fail COMPARE_S10; fi
 if ! l7u_secret_scan "$EVID" /usr/bin/python3; then post_fail SECRET_SCAN; fi
-if ! sudo -n env AEGIS_CTU_BUNDLE="$BUNDLE" AEGIS_CTU_UNIT_SNAPSHOT="$UNIT_SNAPSHOT" AEGIS_CTU_UNIT_SHA256="$UNIT_SHA256" AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_RUNTIME_VERIFY="$BUNDLE/p4-ctu-runtime-verify.py" AEGIS_CTU_PRE_CORE_PID="$CORE_PRE_PID" AEGIS_CTU_PRE_CORE_START="$CORE_PRE_START" AEGIS_CTU_PRE_CORE_NRESTARTS="$CORE_PRE_NRESTARTS" AEGIS_CTU_PRE_STATUS_UPDATED_AT="$STATUS_PRE_UPDATED_AT" AEGIS_CTU_DEVICE_ID="$DEVICE_ID" AEGIS_CTU_PRE_DETECTOR_PID="$DETECTOR_PRE_PID" AEGIS_CTU_PRE_DETECTOR_START="$DETECTOR_PRE_START" AEGIS_CTU_PRE_DETECTOR_INVOCATION="$DETECTOR_PRE_INVOCATION" AEGIS_CTU_PRE_DETECTOR_NRESTARTS="$DETECTOR_PRE_NRESTARTS" AEGIS_CTU_PRE_DETECTOR_MONOTONIC="$DETECTOR_PRE_MONOTONIC" bash "$BUNDLE/stages/CTu/verify.sh"; then post_fail VERIFY; fi
-if ! ctu_record_success "$EXPECTED_MAIN" "$UNIT_SHA256" "$EVID"; then post_fail CTU_CLOSEOUT; fi
+if ! sudo -n env AEGIS_CTU_BUNDLE="$BUNDLE" AEGIS_CTU_UNIT_SNAPSHOT="$UNIT_SNAPSHOT" AEGIS_CTU_UNIT_SHA256="$UNIT_SHA256" AEGIS_CTU_WORK_DIR="$WORK" AEGIS_CTU_RUNTIME_VERIFY="$BUNDLE/p4-ctu-runtime-verify.py" AEGIS_CTU_PRE_CORE_PID="$CORE_PRE_PID" AEGIS_CTU_PRE_CORE_START="$CORE_PRE_START" AEGIS_CTU_PRE_CORE_NRESTARTS="$CORE_PRE_NRESTARTS" AEGIS_CTU_PRE_STATUS_UPDATED_AT="$STATUS_PRE_UPDATED_AT" AEGIS_CTU_DEVICE_ID="$DEVICE_ID" AEGIS_CTU_DETECTOR_PRE_MODE="$DETECTOR_PRE_MODE" AEGIS_CTU_PRE_DETECTOR_PID="$DETECTOR_PRE_PID" AEGIS_CTU_PRE_DETECTOR_START="$DETECTOR_PRE_START" AEGIS_CTU_PRE_DETECTOR_INVOCATION="$DETECTOR_PRE_INVOCATION" AEGIS_CTU_PRE_DETECTOR_NRESTARTS="$DETECTOR_PRE_NRESTARTS" AEGIS_CTU_PRE_DETECTOR_MONOTONIC="$DETECTOR_PRE_MONOTONIC" bash "$BUNDLE/stages/CTu/verify.sh"; then post_fail VERIFY; fi
+if ! ctu_record_success "$EXPECTED_MAIN" "$UNIT_SHA256" "$EVID" "$DEVICE_ID" "$DETECTOR_PRE_MODE"; then post_fail CTU_CLOSEOUT; fi
 ctu_stop_sudo_keepalive 2>/dev/null || true
 TERMINAL=1
-printf 'CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_EXPECTED_MAIN=%s\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\nCTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\nCTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=%s\nCTU_EVIDENCE_ROOT=%s\n' "$EXPECTED_MAIN" "$UNIT_SHA256" "$EVID" > "$EVID/terminal-result.tmp.$$"
+printf 'CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_EXPECTED_MAIN=%s\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\nCTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_DETECTOR_BASELINE_MODE=%s\nCTU_DEVICE_ID=%s\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\nCTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=%s\nCTU_EVIDENCE_ROOT=%s\n' "$EXPECTED_MAIN" "$DETECTOR_PRE_MODE" "$DEVICE_ID" "$UNIT_SHA256" "$EVID" > "$EVID/terminal-result.tmp.$$"
 sync -- "$EVID/terminal-result.tmp.$$" 2>/dev/null || true
 mv -f -- "$EVID/terminal-result.tmp.$$" "$EVID/terminal-result" 2>/dev/null || true
 sync -- "$EVID/terminal-result" "$EVID"

@@ -142,7 +142,7 @@ recovery_ctu_successor_gate() {
   [ "$(stat -c %u -- "$closeout" 2>/dev/null)" = "$want" ] || { recovery_reason RECOVERY_CTU_PASS_CLOSEOUT_OWNER_INVALID; return 1; }
   keys=$($SUDO awk -F= 'NF >= 2 {print $1}' "$closeout" | sort | uniq -d)
   [ -z "$keys" ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_DUPLICATE_KEYS; return 1; }
-  [ "$($SUDO awk -F= 'NF >= 2 {print $1}' "$closeout" | sort | tr '\n' ' ')" = "CTU_ATTEMPT_CONSUMED CTU_AUTHENTICATED_STATUS_PROOF CTU_DETECTOR_LIFECYCLE_PROOF CTU_EVIDENCE_ROOT CTU_EXPECTED_MAIN CTU_FAILURE_RESULT CTU_LIVE CTU_LIVE_EXECUTED CTU_PRE_POST_PRESERVATION CTU_RERUN_ALLOWED CTU_RESULT CTU_RUNTIME_PROOF CTU_STAGE CTU_UNIT_SHA256 RECOVERY_ATTEMPT_CONSUMED RECOVERY_LIVE_EXECUTED " ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_FIELDS_INVALID; return 1; }
+  [ "$($SUDO awk -F= 'NF >= 2 {print $1}' "$closeout" | sort | tr '\n' ' ')" = "CTU_ATTEMPT_CONSUMED CTU_AUTHENTICATED_STATUS_PROOF CTU_DETECTOR_BASELINE_MODE CTU_DETECTOR_LIFECYCLE_PROOF CTU_DEVICE_ID CTU_EVIDENCE_ROOT CTU_EXPECTED_MAIN CTU_FAILURE_RESULT CTU_LIVE CTU_LIVE_EXECUTED CTU_PRE_POST_PRESERVATION CTU_RERUN_ALLOWED CTU_RESULT CTU_RUNTIME_PROOF CTU_STAGE CTU_UNIT_SHA256 RECOVERY_ATTEMPT_CONSUMED RECOVERY_LIVE_EXECUTED " ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_FIELDS_INVALID; return 1; }
   grep -qx "CTU_LIVE=$(printf 'CLOSED_%s' PASS)" "$closeout" || { recovery_reason RECOVERY_CTU_LIVE_NOT_CLOSED_RESULT; return 1; }
   grep -qx 'CTU_LIVE_EXECUTED=YES' "$closeout" || { recovery_reason RECOVERY_CTU_LIVE_NOT_EXECUTED; return 1; }
   grep -qx 'CTU_RESULT=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_PASS_RESULT_INVALID; return 1; }
@@ -161,6 +161,8 @@ recovery_ctu_successor_gate() {
   grep -qx 'CTU_RUNTIME_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_RUNTIME_PROOF_INVALID; return 1; }
   grep -qx 'CTU_AUTHENTICATED_STATUS_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_AUTH_PROOF_INVALID; return 1; }
   grep -qx 'CTU_DETECTOR_LIFECYCLE_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_DETECTOR_PROOF_INVALID; return 1; }
+  grep -qE '^CTU_DETECTOR_BASELINE_MODE=(ACTIVE|INACTIVE)$' "$closeout" || { recovery_reason RECOVERY_CTU_DETECTOR_MODE_INVALID; return 1; }
+  grep -qE '^CTU_DEVICE_ID=[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' "$closeout" || { recovery_reason RECOVERY_CTU_DEVICE_ID_INVALID; return 1; }
   grep -qx 'CTU_PRE_POST_PRESERVATION=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_PRESERVATION_PROOF_INVALID; return 1; }
   grep -qx 'RECOVERY_LIVE_EXECUTED=NO' "$closeout" || { recovery_reason RECOVERY_CTU_RECOVERY_ALREADY_EXECUTED; return 1; }
   grep -qx 'RECOVERY_ATTEMPT_CONSUMED=NO' "$closeout" || { recovery_reason RECOVERY_CTU_RECOVERY_ALREADY_CONSUMED; return 1; }
