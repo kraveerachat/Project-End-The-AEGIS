@@ -19,33 +19,59 @@ export function PositionedNavigation({ t, nav, screen, go, position }) {
     ? nav
     : [...nav, { id: 'settings', icon: 'settings', labelKey: 'navSettings' }]
   const listRef = useRef(null)
+  const shownScreen = useRef(null)
 
-  // Presentation only: the Neo Dark cradle follows the current item's icon.
+  // Presentation only. In Neo Dark the cradle marks the current route:
+  // top = a suspended tab under the whole cell, bottom = a bulge under the pod.
   useLayoutEffect(() => {
     const list = listRef.current
     if (!list) return undefined
     const measure = () => {
-      const pod = list.querySelector('.positioned-navigation__item.is-active .positioned-navigation__pod')
-      if (!pod || pod.offsetWidth === 0) {
+      // While the top tab retracts it stays where it was.
+      if (list.dataset.tabPhase === 'up') return
+      const item = list.querySelector('.positioned-navigation__item.is-active')
+      const anchor = position === 'top' ? item : item?.querySelector('.positioned-navigation__pod')
+      if (!anchor || anchor.offsetWidth === 0) {
         list.dataset.cradle = 'none'
         return
       }
-      const { x, y } = offsetWithin(pod, list)
-      list.style.setProperty('--nav-cradle-x', `${x + pod.offsetWidth / 2}px`)
-      list.style.setProperty('--nav-cradle-y', `${y + pod.offsetHeight / 2}px`)
-      // The first placement snaps into place; later route changes glide.
+      const { x, y } = offsetWithin(anchor, list)
+      list.style.setProperty('--nav-cradle-x', `${x + anchor.offsetWidth / 2}px`)
+      list.style.setProperty('--nav-cradle-y', `${y + anchor.offsetHeight / 2}px`)
+      list.style.setProperty('--nav-cradle-w', `${anchor.offsetWidth}px`)
+      // The first placement snaps into place; later route changes animate.
       list.dataset.cradle = list.dataset.cradle === 'placed' || list.dataset.cradle === 'ready' ? 'ready' : 'placed'
     }
-    measure()
+
+    // Top route change: the old tab retracts into the rail, then the tab
+    // moves and descends at the new route. Reduced motion switches directly.
+    let retract = 0
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (position === 'top' && !reduce && list.dataset.cradle === 'ready' && shownScreen.current !== screen) {
+      list.dataset.tabPhase = 'up'
+      retract = window.setTimeout(() => {
+        list.dataset.tabPhase = 'down'
+        measure()
+      }, 190)
+    } else {
+      list.dataset.tabPhase = 'down'
+      measure()
+    }
+    shownScreen.current = screen
+
     // Test DOMs may lack rAF; the synchronous measure above already placed it.
     const settle = typeof window.requestAnimationFrame === 'function' ? window.requestAnimationFrame(measure) : 0
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
     observer?.observe(list)
     return () => {
+      if (retract) {
+        window.clearTimeout(retract)
+        list.dataset.tabPhase = 'down'
+      }
       if (settle) window.cancelAnimationFrame(settle)
       observer?.disconnect()
     }
-  }, [screen, items.length])
+  }, [screen, items.length, position])
 
   return (
     <nav
@@ -54,7 +80,10 @@ export function PositionedNavigation({ t, nav, screen, go, position }) {
       className={`positioned-navigation positioned-navigation--${position} hidden lg:flex`}
     >
       <div ref={listRef} className="positioned-navigation__items">
-        <span className="positioned-navigation__cradle" aria-hidden="true" />
+        <span className="positioned-navigation__cradle" aria-hidden="true">
+          <span className="positioned-navigation__shoulder" data-side="start" />
+          <span className="positioned-navigation__shoulder" data-side="end" />
+        </span>
         {items.map((item) => {
           const Icon = ICONS[item.icon] ?? ICONS.gauge
           const label = t(item.labelKey)

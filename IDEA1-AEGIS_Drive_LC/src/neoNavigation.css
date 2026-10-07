@@ -2,59 +2,36 @@
    Neo Dark — floating route navigator (Navigation Position: top / bottom).
    Dark + Neo only; Light and Classic keep index.css.
 
-   One capsule of dense dark glass. The current route's icon becomes a
-   lifted pod that leaves the bar through a sculpted bulge (the cradle):
-   it hangs DOWN from the top bar and RISES from the bottom bar. The cradle
-   glides to the new route; the pod lifts once it arrives.
+   Shared: one rail of dense dark glass, the same rim, type, icon weight,
+   hover and focus language, and one easing family.
+
+   Selected-state geometry is deliberately opposite:
+     TOP     suspended tab — the current cell's glass extends DOWN out of
+             the rail as a rounded fin with concave shoulders. On a route
+             change the old tab retracts into the rail, then the tab moves
+             and descends at the new route.
+     BOTTOM  raised pod — the current icon rises UP out of the rail through
+             a round bulge; the bulge glides, the pod lifts after it.
    ───────────────────────────────────────────────────────────────── */
 @media (min-width: 1024px) {
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation {
     --nav-bar-fill: linear-gradient(180deg, rgba(17, 30, 72, 0.9), rgba(7, 14, 40, 0.93));
-    --nav-bulge-fill: rgba(10, 20, 54, 0.96);
+    --nav-solid: rgba(9, 18, 50, 0.97);
     --nav-edge: rgba(126, 156, 236, 0.3);
-    --nav-pod: 36px;
-    --nav-pod-active: 42px;
-    --nav-cradle: 58px;
-    --nav-lift: 0px;
+    --nav-ink: #b9c8e8;
+    --nav-icon: #9fb4e0;
     --nav-hint: 0px;
-    --nav-glide: 340ms;
+    --nav-glide: 300ms;
     --nav-rise: 260ms;
-    color: #b9c8e8;
+    color: var(--nav-ink);
   }
 
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top {
-    --nav-lift: 18px;
-    --nav-hint: 2px;
-    position: relative;
-    z-index: calc(var(--z-sticky) - 1);
-    min-height: 0;
-    padding: 12px 16px 0;
-    border: 0;
-    background: transparent;
-    /* The hanging pod reaches into the page's own top padding. */
-    margin-bottom: -8px;
-    pointer-events: none;
-  }
-
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom {
-    --nav-lift: -24px;
-    --nav-hint: -2px;
-    bottom: max(22px, env(safe-area-inset-bottom));
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-    pointer-events: none;
-  }
-
-  /* The capsule. */
+  /* ── Shared rail ── */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__items {
     position: relative;
     isolation: isolate;
     gap: 2px;
     max-width: 100%;
-    padding: 6px 10px;
     overflow: visible;
     border: 1px solid var(--nav-edge);
     border-radius: 999px;
@@ -69,7 +46,7 @@
     pointer-events: auto;
   }
 
-  /* Faint spectral rim along the capsule's outer edge. */
+  /* Faint spectral rim along the rail's outer edge. */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__items::before {
     content: "";
     position: absolute;
@@ -84,53 +61,13 @@
     pointer-events: none;
   }
 
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__items {
-    margin-inline: auto;
-    white-space: nowrap;
-  }
-
-  /* ── Cradle: the bulge the pod sits in ── */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__cradle {
     position: absolute;
     z-index: 0;
     top: 0;
     left: 0;
     display: block;
-    width: var(--nav-cradle);
-    height: var(--nav-cradle);
-    border-radius: 50%;
-    background: var(--nav-bulge-fill);
-    -webkit-backdrop-filter: blur(22px) saturate(1.35);
-    backdrop-filter: blur(22px) saturate(1.35);
-    transform: translate(
-      calc(var(--nav-cradle-x, 0px) - var(--nav-cradle) / 2),
-      calc(var(--nav-cradle-y, 0px) - var(--nav-cradle) / 2 + var(--nav-lift))
-    );
-    opacity: 1;
     pointer-events: none;
-  }
-
-  /* Edge light on the outer half of the bulge only, so it reads as one
-     continuous silhouette with the capsule rather than a ring on top. */
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__cradle::before {
-    content: "";
-    position: absolute;
-    inset: -1px;
-    padding: 1px;
-    border-radius: inherit;
-    background: linear-gradient(var(--nav-cradle-light, 180deg), rgba(150, 178, 255, 0.62), rgba(150, 178, 255, 0.18) 34%, transparent 50%);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-  }
-
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__cradle {
-    --nav-cradle-light: 0deg;
-    box-shadow: 0 12px 22px -12px rgba(0, 4, 22, 0.9);
-  }
-
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__cradle {
-    box-shadow: 0 -10px 22px -14px rgba(70, 110, 255, 0.55);
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__items[data-cradle="none"] .positioned-navigation__cradle,
@@ -138,111 +75,57 @@
     opacity: 0;
   }
 
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__items[data-cradle="ready"] .positioned-navigation__cradle {
-    transition: transform var(--nav-glide) var(--neo-ease), opacity 200ms var(--neo-ease);
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__shoulder {
+    display: none;
   }
 
-  /* ── Items ── */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item {
     position: relative;
     z-index: 1;
-    gap: 8px;
-    min-height: 44px;
-    padding: 0 12px 0 4px;
+    flex-direction: column;
+    gap: 3px;
     border: 0;
-    border-radius: 999px;
-    color: #b9c8e8;
+    color: var(--nav-ink);
     background: transparent;
-    font-size: 12.5px;
     font-weight: 600;
     letter-spacing: 0.005em;
-    transition: color 220ms var(--neo-ease), background-color 220ms var(--neo-ease);
+    transition:
+      color 220ms var(--neo-ease),
+      background-color 220ms var(--neo-ease),
+      box-shadow 220ms var(--neo-ease),
+      transform 220ms var(--neo-ease);
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__pod {
     position: relative;
     display: inline-flex;
     flex: none;
-    width: var(--nav-pod);
-    height: var(--nav-pod);
     align-items: center;
     justify-content: center;
-    border-radius: 50%;
-    color: #9fb4e0;
+    color: var(--nav-icon);
     transition:
       transform var(--nav-rise) var(--neo-ease),
       width var(--nav-rise) var(--neo-ease),
       height var(--nav-rise) var(--neo-ease),
       color 220ms var(--neo-ease),
       background-color 220ms var(--neo-ease),
-      box-shadow var(--nav-rise) var(--neo-ease);
+      box-shadow var(--nav-rise) var(--neo-ease),
+      filter 220ms var(--neo-ease);
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__label {
+    max-width: 112px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.25;
     transition: color 220ms var(--neo-ease);
   }
 
-  @media (hover: hover) and (pointer: fine) {
-    :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:not(.is-active):hover {
-      color: #eef3ff;
-      background: transparent;
-    }
-
-    :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:not(.is-active):hover .positioned-navigation__pod {
-      color: #d8e6ff;
-      background-color: rgba(96, 130, 255, 0.14);
-      box-shadow: inset 0 0 0 1px rgba(140, 170, 255, 0.22), 0 0 18px -6px rgba(90, 130, 255, 0.7);
-      transform: translateY(var(--nav-hint));
-    }
-  }
-
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:not(.is-active):active .positioned-navigation__pod {
-    transform: translateY(var(--nav-hint)) scale(0.94);
-    transition-duration: 90ms;
-  }
-
-  /* Keyboard focus: a rounded ring that follows the capsule shape. */
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:focus-visible {
-    outline: none;
-  }
-
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:focus-visible:not(.is-active) {
-    background: rgba(91, 124, 255, 0.12);
-    box-shadow: 0 0 0 2px #8ea8ff, 0 0 16px -4px rgba(91, 124, 255, 0.75);
-  }
-
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item.is-active:focus-visible .positioned-navigation__pod {
-    box-shadow:
-      0 0 0 4px rgba(8, 16, 44, 0.98),
-      0 0 0 6px #a9bdff,
-      0 12px 26px -10px rgba(84, 112, 255, 0.95);
-  }
-
-  /* ── Active: the hero pod ── */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item.is-active {
     color: #ffffff;
     background: transparent;
     cursor: default;
-  }
-
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item.is-active .positioned-navigation__pod {
-    z-index: 2;
-    color: #ffffff;
-    background:
-      radial-gradient(120% 90% at 30% 18%, rgba(255, 255, 255, 0.28), transparent 46%),
-      linear-gradient(140deg, #2f7bff 0%, #4d56f0 52%, #8a4fd8 100%);
-    box-shadow:
-      0 0 0 4px rgba(8, 16, 44, 0.98),
-      0 0 0 5px rgba(130, 160, 255, 0.28),
-      0 12px 26px -10px rgba(84, 112, 255, 0.95),
-      0 0 30px -6px rgba(120, 92, 255, 0.55),
-      inset 0 1px 0 rgba(255, 255, 255, 0.35);
-    transform: translateY(var(--nav-lift));
-    transition-delay: 70ms;
-  }
-
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item.is-active .positioned-navigation__pod svg {
-    filter: drop-shadow(0 1px 2px rgba(10, 16, 60, 0.45));
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item.is-active .positioned-navigation__label {
@@ -250,73 +133,328 @@
     font-weight: 700;
   }
 
-  /* Top: active item gets a little more room for the pendant. */
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item.is-active {
-    padding-inline: 2px 16px;
+  @media (hover: hover) and (pointer: fine) {
+    :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:not(.is-active):hover {
+      color: #eef3ff;
+    }
+
+    :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:not(.is-active):hover .positioned-navigation__pod {
+      color: #d8e6ff;
+    }
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:focus-visible {
+    outline: none;
+  }
+
+  /* ─────────────────────────── TOP: suspended tabs ─────────────────────────── */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top {
+    --nav-hint: 1.5px;
+    --nav-cell-h: 46px;
+    --nav-tab-top: 3px;
+    --nav-tab-base: 48px;   /* tab height inside the rail */
+    --nav-tab-drop: 18px;   /* extra length; 14px shows below the rail edge */
+    --nav-tab-shift: 9px;   /* active cell content re-centred in the tab */
+    --nav-tab-join: rgba(26, 39, 92, 0.98); /* matches the tinted cell, so no seam at the rail edge */
+    position: relative;
+    z-index: calc(var(--z-sticky) - 1);
+    min-height: 0;
+    padding: 12px 16px 0;
+    border: 0;
+    background: transparent;
+    /* The suspended tab reaches into the page's own top padding. */
+    margin-bottom: -6px;
+    pointer-events: none;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__items {
+    margin-inline: auto;
+    padding: 4px 10px;
+    white-space: nowrap;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item {
+    min-width: 46px;
+    height: var(--nav-cell-h);
+    min-height: 0;
+    padding: 0 12px;
+    border-radius: 14px;
+    font-size: 11.5px;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__pod svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item:not(.is-active):hover {
+      background: rgba(96, 130, 255, 0.1);
+      box-shadow: inset 0 -1px 0 rgba(150, 178, 255, 0.5), 0 6px 14px -10px rgba(90, 120, 255, 0.9);
+      transform: translateY(var(--nav-hint));
+    }
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item:not(.is-active):active {
+    transform: translateY(var(--nav-hint)) scale(0.97);
+    transition-duration: 90ms;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item:focus-visible:not(.is-active) {
+    background: rgba(91, 124, 255, 0.12);
+    box-shadow: 0 0 0 2px #8ea8ff, 0 0 16px -4px rgba(91, 124, 255, 0.75);
+  }
+
+  /* Active cell: content drops with the tab so icon and label stay centred in it. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top [data-tab-phase="down"] .positioned-navigation__item.is-active {
+    transform: translateY(var(--nav-tab-shift));
+    transition-duration: 220ms, 220ms, 220ms, 300ms;
+    transition-delay: 0ms, 0ms, 0ms, 60ms;
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item.is-active .positioned-navigation__pod {
-    width: var(--nav-pod-active);
-    height: var(--nav-pod-active);
-    margin-block: -3px;
+    color: #ffffff;
+    filter: drop-shadow(0 0 6px rgba(120, 156, 255, 0.85));
   }
 
-  /* ── Bottom: icon over label, pod rises above the capsule ── */
+  /* The tab. Translucent where it lies inside the rail (the rail shows
+     through as the cell highlight), solid glass where it leaves the rail,
+     brightening toward its lower edge. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__cradle {
+    top: var(--nav-tab-top);
+    width: calc(var(--nav-cradle-w, 46px) + 4px);
+    height: calc(var(--nav-tab-base) + var(--nav-tab-drop));
+    border-radius: 15px 15px 20px 20px / 15px 15px 18px 18px;
+    background:
+      radial-gradient(80% 46% at 50% 100%, rgba(122, 104, 255, 0.4), transparent 72%),
+      linear-gradient(180deg,
+        rgba(92, 124, 255, 0.2) 0,
+        rgba(92, 124, 255, 0.14) calc(var(--nav-tab-base) - 2px),
+        var(--nav-tab-join) calc(var(--nav-tab-base) - 1px),
+        rgba(38, 44, 124, 0.98) 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(180, 206, 255, 0.22),
+      inset 0 -10px 16px -12px rgba(150, 132, 255, 0.75),
+      0 10px 22px -10px rgba(84, 108, 255, 0.85),
+      0 4px 10px -6px rgba(0, 4, 22, 0.9);
+    transform: translateX(calc(var(--nav-cradle-x, 0px) - (var(--nav-cradle-w, 46px) + 4px) / 2));
+    /* Negative insets keep the glow; the drop retracts by clipping (paint only). */
+    clip-path: inset(-12px -12px -24px -12px round 15px 15px 20px 20px);
+  }
+
+  /* Thin bright edge: absent where the tab meets the rail, brightest at its lower rim. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__cradle::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(180deg,
+      rgba(150, 178, 255, 0.34) 0,
+      rgba(150, 178, 255, 0) 14px,
+      rgba(150, 178, 255, 0) calc(var(--nav-tab-base) + 1px),
+      rgba(146, 170, 255, 0.5) calc(var(--nav-tab-base) + 6px),
+      rgba(186, 200, 255, 0.9) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  /* Concave shoulders where the tab leaves the rail: one sculpted piece. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__shoulder {
+    position: absolute;
+    top: calc(var(--nav-tab-base) + 1px);
+    display: block;
+    width: 10px;
+    height: 10px;
+    transition: opacity 160ms var(--neo-ease);
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__shoulder[data-side="start"] {
+    left: -9px;
+    background: radial-gradient(circle at 0 100%, transparent 9.5px, var(--nav-tab-join) 10px);
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__shoulder[data-side="end"] {
+    right: -9px;
+    background: radial-gradient(circle at 100% 100%, transparent 9.5px, var(--nav-tab-join) 10px);
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top [data-tab-phase="up"] .positioned-navigation__cradle {
+    clip-path: inset(-12px -12px var(--nav-tab-drop) -12px round 15px 15px 12px 12px);
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top [data-tab-phase="up"] .positioned-navigation__shoulder {
+    opacity: 0;
+  }
+
+  /* Retract 190ms → move + descend 300ms (descend starts 60ms after). */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top [data-cradle="ready"] .positioned-navigation__cradle {
+    transition:
+      transform var(--nav-glide) var(--neo-ease),
+      width var(--nav-glide) var(--neo-ease),
+      clip-path 300ms var(--neo-ease) 60ms,
+      opacity 200ms var(--neo-ease);
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top [data-cradle="ready"][data-tab-phase="up"] .positioned-navigation__cradle {
+    transition: clip-path 190ms var(--neo-ease);
+  }
+
+  /* Keyboard focus on the current route follows the tab outline. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__items:has(.is-active:focus-visible) .positioned-navigation__cradle {
+    box-shadow:
+      0 0 0 2px #a9bdff,
+      0 0 18px -4px rgba(120, 150, 255, 0.85),
+      inset 0 -10px 16px -12px rgba(150, 132, 255, 0.75);
+  }
+
+  /* ─────────────────────────── BOTTOM: raised pod ─────────────────────────── */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom {
+    --nav-hint: -2px;
+    --nav-lift: -25px;
+    --nav-pod: 36px;
+    --nav-pod-active: 45px;
+    --nav-cradle: 61px;
+    bottom: max(22px, env(safe-area-inset-bottom));
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    pointer-events: none;
+  }
+
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__items {
-    gap: 4px;
-    padding: 6px 12px;
-    overflow: visible;
+    gap: 6px;
+    padding: 6px 14px;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__cradle {
+    width: var(--nav-cradle);
+    height: var(--nav-cradle);
+    border-radius: 50%;
+    background: var(--nav-solid);
+    -webkit-backdrop-filter: blur(22px) saturate(1.35);
+    backdrop-filter: blur(22px) saturate(1.35);
+    box-shadow: 0 -10px 22px -14px rgba(70, 110, 255, 0.55);
+    transform: translate(
+      calc(var(--nav-cradle-x, 0px) - var(--nav-cradle) / 2),
+      calc(var(--nav-cradle-y, 0px) - var(--nav-cradle) / 2 + var(--nav-lift))
+    );
+  }
+
+  /* Edge light on the outer half of the bulge only, so it reads as one
+     continuous silhouette with the rail rather than a ring on top. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__cradle::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgba(150, 178, 255, 0.62), rgba(150, 178, 255, 0.18) 34%, transparent 50%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom [data-cradle="ready"] .positioned-navigation__cradle {
+    transition: transform 340ms var(--neo-ease), opacity 200ms var(--neo-ease);
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item {
-    flex-direction: column;
     gap: 2px;
-    min-width: 52px;
-    height: 52px;
+    min-width: 54px;
+    height: 56px;
     padding: 2px 6px;
     border-radius: 18px;
+    font-size: 11px;
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__pod {
-    --nav-pod: 34px;
+    width: var(--nav-pod);
+    height: var(--nav-pod);
+    border-radius: 50%;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__pod svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item:not(.is-active):hover .positioned-navigation__pod {
+      background-color: rgba(96, 130, 255, 0.14);
+      box-shadow: inset 0 0 0 1px rgba(140, 170, 255, 0.22), 0 0 18px -6px rgba(90, 130, 255, 0.7);
+      transform: translateY(var(--nav-hint));
+    }
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item:not(.is-active):active .positioned-navigation__pod {
+    transform: translateY(var(--nav-hint)) scale(0.94);
+    transition-duration: 90ms;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item:focus-visible:not(.is-active) {
+    background: rgba(91, 124, 255, 0.12);
+    box-shadow: 0 0 0 2px #8ea8ff, 0 0 16px -4px rgba(91, 124, 255, 0.75);
   }
 
   /* Compact widths: inactive items are icon-only; the current route keeps its name. */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active {
-    min-width: 76px;
+    min-width: 80px;
     justify-content: flex-end;
-    padding-bottom: 5px;
+    padding-bottom: 6px;
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active .positioned-navigation__label {
     display: block;
-    max-width: 104px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 10.5px;
-    line-height: 1.2;
+    max-width: 108px;
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active .positioned-navigation__pod {
     position: absolute;
+    z-index: 2;
     top: 50%;
     left: 50%;
     margin: calc(var(--nav-pod-active) / -2) 0 0 calc(var(--nav-pod-active) / -2);
     width: var(--nav-pod-active);
     height: var(--nav-pod-active);
+    color: #ffffff;
+    background:
+      radial-gradient(120% 90% at 32% 16%, rgba(255, 255, 255, 0.26), transparent 48%),
+      linear-gradient(145deg, #3a82ff 0%, #4f58f0 54%, #8650d8 100%);
+    box-shadow:
+      0 0 0 4px rgba(8, 16, 44, 0.98),
+      0 12px 26px -10px rgba(84, 112, 255, 0.9),
+      0 0 26px -8px rgba(120, 92, 255, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32);
     transform: translateY(var(--nav-lift));
+    transition-delay: 70ms;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active .positioned-navigation__pod svg {
+    filter: drop-shadow(0 1px 2px rgba(10, 16, 60, 0.45));
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active:focus-visible .positioned-navigation__pod {
+    box-shadow:
+      0 0 0 4px rgba(8, 16, 44, 0.98),
+      0 0 0 6px #a9bdff,
+      0 12px 26px -10px rgba(84, 112, 255, 0.95);
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] [data-navigation-position="bottom"] main {
-    padding-bottom: 116px;
+    padding-bottom: 122px;
   }
 }
 
-/* Top bar between 1024 and 1439: inactive items fold to icons so the full
-   menu fits without scrolling; names stay in title/aria-label. */
+/* Top rail between 1024 and 1439: inactive cells fold to icons so every
+   route fits without scrolling; names stay in title/aria-label. The current
+   route always keeps its name. */
 @media (min-width: 1024px) and (max-width: 1439.98px) {
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item:not(.is-active) {
+    min-width: 42px;
     padding: 0 4px;
   }
 
@@ -327,21 +465,19 @@
 
 @media (min-width: 1450px) {
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item {
-    min-width: 72px;
-    height: 56px;
+    min-width: 76px;
+    height: 60px;
     justify-content: flex-end;
-    padding-bottom: 5px;
+    padding-bottom: 6px;
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__label {
-    max-width: 96px;
-    font-size: 10.5px;
-    font-weight: 600;
+    max-width: 100px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root[data-ui-style="neo"][data-theme="dark"] :is(.positioned-navigation__cradle, .positioned-navigation__pod, .positioned-navigation__item, .positioned-navigation__label) {
+  :root[data-ui-style="neo"][data-theme="dark"] :is(.positioned-navigation__cradle, .positioned-navigation__shoulder, .positioned-navigation__pod, .positioned-navigation__item, .positioned-navigation__label) {
     transition-duration: 0.01ms !important;
     transition-delay: 0ms !important;
   }

@@ -41,7 +41,7 @@ test('NEO-NAV-1 markup keeps the route contract and adds only presentation hooks
       assert.deepEqual(labels, ['T:navDashboard', 'T:navFiles', 'T:navAudit', 'T:navSettings'])
       assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1)
       assert.match(html, /aria-current="page" class="positioned-navigation__item is-active"/)
-      assert.match(html, /<span class="positioned-navigation__cradle" aria-hidden="true"><\/span>/)
+      assert.match(html, /<span class="positioned-navigation__cradle" aria-hidden="true"><span class="positioned-navigation__shoulder" data-side="start"><\/span><span class="positioned-navigation__shoulder" data-side="end"><\/span><\/span>/)
       assert.equal((html.match(/class="positioned-navigation__pod"/g) ?? []).length, 4)
       assert.match(html, /<span class="positioned-navigation__label">T:navFiles<\/span>/)
     }
@@ -66,13 +66,33 @@ test('NEO-NAV-2 every Neo navigation rule is Dark-scoped; Light keeps the index.
   assert.match(read('src/main.jsx'), /import '\.\/neoNavigation\.css'/)
 })
 
-test('NEO-NAV-3 direction, motion and focus: top hangs down, bottom rises, reduced motion collapses', () => {
-  assert.match(css, /\.positioned-navigation--top \{[\s\S]*?--nav-lift: 18px;/)
-  assert.match(css, /\.positioned-navigation--bottom \{[\s\S]*?--nav-lift: -24px;/)
-  assert.match(css, /\.is-active \.positioned-navigation__pod \{[\s\S]*?transform: translateY\(var\(--nav-lift\)\);/)
-  assert.match(css, /\[data-cradle="ready"\] \.positioned-navigation__cradle \{\s*transition: transform var\(--nav-glide\)/)
+test('NEO-NAV-3 top = suspended tab that drops DOWN; bottom = round pod that rises UP', () => {
+  const top = css.slice(css.indexOf('TOP: suspended tabs'), css.indexOf('BOTTOM: raised pod'))
+  const bottom = css.slice(css.indexOf('BOTTOM: raised pod'))
+  // Top: one centred column per cell; the tab is the cell's glass extended below the rail.
+  assert.match(css, /\.positioned-navigation__item \{[\s\S]*?flex-direction: column;/)
+  assert.match(top, /--nav-tab-drop: 18px;/)
+  assert.match(top, /\.positioned-navigation--top \.positioned-navigation__cradle \{[\s\S]*?width: calc\(var\(--nav-cradle-w, 46px\) \+ 4px\);[\s\S]*?border-radius: 15px 15px 20px 20px/)
+  assert.match(top, /\[data-tab-phase="down"\] \.positioned-navigation__item\.is-active \{\s*transform: translateY\(var\(--nav-tab-shift\)\);/)
+  assert.match(top, /\[data-tab-phase="up"\] \.positioned-navigation__cradle \{\s*clip-path: inset\(-12px -12px var\(--nav-tab-drop\)/)
+  assert.match(top, /\.positioned-navigation__shoulder\[data-side="start"\] \{[\s\S]*?radial-gradient\(circle at 0 100%/)
+  assert.doesNotMatch(top, /border-radius: 50%/, 'no circular pod on the top rail')
+  assert.match(top, /:has\(\.is-active:focus-visible\) \.positioned-navigation__cradle/)
+  assert.match(top, /\.positioned-navigation__item:focus-visible:not\(\.is-active\) \{[\s\S]*?box-shadow: 0 0 0 2px/)
+  // Bottom keeps the round raised pod.
+  assert.match(bottom, /--nav-lift: -25px;/)
+  assert.match(bottom, /\.positioned-navigation__cradle \{[\s\S]*?border-radius: 50%;/)
+  assert.match(bottom, /\.is-active \.positioned-navigation__pod \{[\s\S]*?transform: translateY\(var\(--nav-lift\)\);/)
+  // Shared: rounded rail, reduced motion, no overshoot.
   assert.match(css, /\.positioned-navigation__items \{[\s\S]*?border-radius: 999px;/)
-  assert.match(css, /\.positioned-navigation__item:focus-visible:not\(\.is-active\) \{[\s\S]*?box-shadow: 0 0 0 2px/)
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?positioned-navigation__cradle[\s\S]*?transition-duration: 0\.01ms !important;/)
   assert.doesNotMatch(css, /cubic-bezier\([^)]*-|\b(?:bounce|elastic)\b/, 'no overshoot easing')
+})
+
+test('NEO-NAV-4 the top tab retracts before it moves, and switches directly under reduced motion', () => {
+  const jsx = read('src/components/PositionedNavigation.jsx')
+  assert.match(jsx, /position === 'top' && !reduce && list\.dataset\.cradle === 'ready'/)
+  assert.match(jsx, /list\.dataset\.tabPhase = 'up'/)
+  assert.match(jsx, /if \(list\.dataset\.tabPhase === 'up'\) return/)
+  assert.match(jsx, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/)
 })
