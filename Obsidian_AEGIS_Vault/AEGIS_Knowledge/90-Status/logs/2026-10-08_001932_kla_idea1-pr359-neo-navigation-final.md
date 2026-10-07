@@ -29,7 +29,45 @@ edit_policy: append-by-new-file
 - PR: #359
 - Branch: `codex/idea1-neo-dashboard-calibration`
 
+## Source files changed
+
+- `IDEA1-AEGIS_Drive_LC/server/db/connection.js` — reads, validates and persists the per-account navigation position.
+- `IDEA1-AEGIS_Drive_LC/server/db/migrations/013_navigation_position.sql` — additive PostgreSQL migration for `ui_navigation_position`.
+- `IDEA1-AEGIS_Drive_LC/server/db/schema.sql` — new-install schema contract for the navigation-position column and CHECK constraint.
+- `IDEA1-AEGIS_Drive_LC/server/routes/api.js` — extends the authenticated preference endpoint while preserving older clients that omit navigation position.
+- `IDEA1-AEGIS_Drive_LC/src/App.jsx`, shared navigation/shell components, Neo CSS layers and authenticated screens — presentation and navigation integration.
+- `IDEA1-AEGIS_Drive_LC/tests/` — focused Neo, Classic, Settings, authentication-transition and user-preference regression coverage.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` — canonical pre-merge status update.
+- This receipt — final current-task evidence record.
+
+## Canonical notes updated
+
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea1/idea1-status.md` records the PR #359 verified implementation head, focused test/build result, PostgreSQL migration/application-adapter evidence, required migration ordering and remaining Production acceptance boundary.
+
+## Shared surfaces touched
+
+- `IDEA1-AEGIS_Drive_LC/server/db/schema.sql`
+- `IDEA1-AEGIS_Drive_LC/server/db/migrations/013_navigation_position.sql`
+- `IDEA1-AEGIS_Drive_LC/server/db/connection.js`
+- `IDEA1-AEGIS_Drive_LC/server/routes/api.js`
+- These remain inside IDEA1 ownership, but they are rollout-sensitive server/database surfaces and require migration-before-application deployment ordering.
+
+## Integration requests
+
+- Kla/integration review must confirm migration `013_navigation_position.sql` is applied before deploying the server build that reads `ui_navigation_position`.
+- Owner review must preserve the rollback order: application rollback first; the additive database column may remain in place.
+- Final Production visual acceptance remains a post-deployment human gate and must not be inferred from repository-side tests.
+
 ## Verification evidence
+
+- `node --test --test-concurrency=1 <PR359 focused suites>` — **PASS: 90/90, 0 failed**.
+- `npm run build -- --outDir node_modules/.pr359-final-build` — **PASS**.
+- `git diff --check` — **PASS**.
+- `psql -v ON_ERROR_STOP=1 -f /tmp/013-navigation.sql` against disposable PostgreSQL 15 — **PASS**, including idempotence and the `left | top | bottom` CHECK contract.
+- Real `connection.js` PostgreSQL adapter read/write smoke — **PASS**: `bottom → top → top`.
+
+
+### Additional recorded evidence
 
 - Focused PR #359 regression set: **90 passed, 0 failed**.
 - Vite production build: **PASS**.
