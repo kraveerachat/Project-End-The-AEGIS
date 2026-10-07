@@ -21,8 +21,8 @@ export function PositionedNavigation({ t, nav, screen, go, position }) {
   const listRef = useRef(null)
   const shownScreen = useRef(null)
 
-  // Presentation only. In Neo Dark the cradle marks the current route:
-  // top = a suspended tab under the whole cell, bottom = a bulge under the pod.
+  // Presentation only. In Neo Dark the top rail's cradle is the suspended tab
+  // under the current cell (the bottom bar's pod draws its own ring instead).
   useLayoutEffect(() => {
     const list = listRef.current
     if (!list) return undefined
@@ -43,16 +43,18 @@ export function PositionedNavigation({ t, nav, screen, go, position }) {
       list.dataset.cradle = list.dataset.cradle === 'placed' || list.dataset.cradle === 'ready' ? 'ready' : 'placed'
     }
 
-    // Top route change: the old tab retracts into the rail, then the tab
-    // moves and descends at the new route. Reduced motion switches directly.
-    let retract = 0
+    // Top route change, three phases: the old tab retracts into the rail (up),
+    // the retracted tab slides to the new cell (move), then it descends (down).
+    // Reduced motion switches directly.
+    const timers = []
     const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (position === 'top' && !reduce && list.dataset.cradle === 'ready' && shownScreen.current !== screen) {
       list.dataset.tabPhase = 'up'
-      retract = window.setTimeout(() => {
-        list.dataset.tabPhase = 'down'
+      timers.push(window.setTimeout(() => {
+        list.dataset.tabPhase = 'move'
         measure()
-      }, 190)
+        timers.push(window.setTimeout(() => { list.dataset.tabPhase = 'down' }, 200))
+      }, 160))
     } else {
       list.dataset.tabPhase = 'down'
       measure()
@@ -64,8 +66,8 @@ export function PositionedNavigation({ t, nav, screen, go, position }) {
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
     observer?.observe(list)
     return () => {
-      if (retract) {
-        window.clearTimeout(retract)
+      if (timers.length) {
+        timers.forEach((id) => window.clearTimeout(id))
         list.dataset.tabPhase = 'down'
       }
       if (settle) window.cancelAnimationFrame(settle)

@@ -71,28 +71,39 @@ test('NEO-NAV-3 top = suspended tab that drops DOWN; bottom = round pod that ris
   const bottom = css.slice(css.indexOf('BOTTOM: raised pod'))
   // Top: one centred column per cell; the tab is the cell's glass extended below the rail.
   assert.match(css, /\.positioned-navigation__item \{[\s\S]*?flex-direction: column;/)
-  assert.match(top, /--nav-tab-drop: 18px;/)
+  assert.match(top, /--nav-tab-drop: 22px;/)
+  // Equal hit blocks: every cell takes one width from the same token.
+  assert.match(top, /\.positioned-navigation--top \.positioned-navigation__item \{[\s\S]*?flex: none;\s*width: var\(--nav-cell-w\);/)
+  assert.match(css, /--nav-cell-w: 112px;/)
+  assert.match(css, /--nav-cell-w: 106px;/)
   assert.match(top, /\.positioned-navigation--top \.positioned-navigation__cradle \{[\s\S]*?width: calc\(var\(--nav-cradle-w, 46px\) \+ 4px\);[\s\S]*?border-radius: 15px 15px 20px 20px/)
   assert.match(top, /\[data-tab-phase="down"\] \.positioned-navigation__item\.is-active \{\s*transform: translateY\(var\(--nav-tab-shift\)\);/)
-  assert.match(top, /\[data-tab-phase="up"\] \.positioned-navigation__cradle \{\s*clip-path: inset\(-12px -12px var\(--nav-tab-drop\)/)
+  assert.match(top, /:is\(\[data-tab-phase="up"\], \[data-tab-phase="move"\]\) \.positioned-navigation__cradle \{\s*clip-path: inset\(-12px -12px var\(--nav-tab-drop\)/)
   assert.match(top, /\.positioned-navigation__shoulder\[data-side="start"\] \{[\s\S]*?radial-gradient\(circle at 0 100%/)
   assert.doesNotMatch(top, /border-radius: 50%/, 'no circular pod on the top rail')
   assert.match(top, /:has\(\.is-active:focus-visible\) \.positioned-navigation__cradle/)
   assert.match(top, /\.positioned-navigation__item:focus-visible:not\(\.is-active\) \{[\s\S]*?box-shadow: 0 0 0 2px/)
   // Bottom keeps the round raised pod.
   assert.match(bottom, /--nav-lift: -25px;/)
-  assert.match(bottom, /\.positioned-navigation__cradle \{[\s\S]*?border-radius: 50%;/)
+  assert.match(bottom, /\.positioned-navigation__pod \{[\s\S]*?border-radius: 50%;/)
   assert.match(bottom, /\.is-active \.positioned-navigation__pod \{[\s\S]*?transform: translateY\(var\(--nav-lift\)\);/)
+  // No double frame: no separate bulge; the active pod has exactly one spread
+  // ring at rest and one masked rim drawn concentrically by the pod itself.
+  assert.match(bottom, /\.positioned-navigation--bottom \.positioned-navigation__cradle \{\s*display: none;/)
+  const activePod = bottom.match(/\.positioned-navigation__item\.is-active \.positioned-navigation__pod \{([\s\S]*?)\n  \}/)[1]
+  assert.equal((activePod.match(/0 0 0 /g) ?? []).length, 1, 'one separation ring')
+  assert.match(activePod, /0 0 0 var\(--nav-ring\) var\(--nav-solid\)/)
+  assert.match(bottom, /\.positioned-navigation__pod::after \{[\s\S]*?inset: calc\(-1 \* var\(--nav-ring\) - 1px\);[\s\S]*?border-radius: 50%;/)
   // Shared: rounded rail, reduced motion, no overshoot.
   assert.match(css, /\.positioned-navigation__items \{[\s\S]*?border-radius: 999px;/)
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?positioned-navigation__cradle[\s\S]*?transition-duration: 0\.01ms !important;/)
   assert.doesNotMatch(css, /cubic-bezier\([^)]*-|\b(?:bounce|elastic)\b/, 'no overshoot easing')
 })
 
-test('NEO-NAV-4 the top tab retracts before it moves, and switches directly under reduced motion', () => {
+test('NEO-NAV-4 the top tab retracts, slides, then descends; reduced motion switches directly', () => {
   const jsx = read('src/components/PositionedNavigation.jsx')
   assert.match(jsx, /position === 'top' && !reduce && list\.dataset\.cradle === 'ready'/)
-  assert.match(jsx, /list\.dataset\.tabPhase = 'up'/)
+  assert.match(jsx, /list\.dataset\.tabPhase = 'up'[\s\S]*?list\.dataset\.tabPhase = 'move'[\s\S]*?list\.dataset\.tabPhase = 'down'/)
   assert.match(jsx, /if \(list\.dataset\.tabPhase === 'up'\) return/)
   assert.match(jsx, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/)
 })

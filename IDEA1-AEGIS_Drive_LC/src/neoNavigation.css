@@ -6,12 +6,12 @@
    hover and focus language, and one easing family.
 
    Selected-state geometry is deliberately opposite:
-     TOP     suspended tab — the current cell's glass extends DOWN out of
-             the rail as a rounded fin with concave shoulders. On a route
-             change the old tab retracts into the rail, then the tab moves
-             and descends at the new route.
-     BOTTOM  raised pod — the current icon rises UP out of the rail through
-             a round bulge; the bulge glides, the pod lifts after it.
+     TOP     suspended tab — equal cells; the current cell's glass extends
+             DOWN out of the rail as a rounded fin with concave shoulders.
+             Route change: retract into the rail → slide → descend.
+     BOTTOM  raised pod — the current icon rises UP out of the rail. The pod
+             draws its own separation ring and rim, so pod, ring, rim and
+             icon share one centre on every route.
    ───────────────────────────────────────────────────────────────── */
 @media (min-width: 1024px) {
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation {
@@ -150,12 +150,13 @@
   /* ─────────────────────────── TOP: suspended tabs ─────────────────────────── */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top {
     --nav-hint: 1.5px;
+    --nav-cell-w: 112px;    /* one width for every route: the rail reads as one set */
     --nav-cell-h: 46px;
     --nav-tab-top: 3px;
     --nav-tab-base: 48px;   /* tab height inside the rail */
-    --nav-tab-drop: 18px;   /* extra length; 14px shows below the rail edge */
-    --nav-tab-shift: 9px;   /* active cell content re-centred in the tab */
-    --nav-tab-join: rgba(26, 39, 92, 0.98); /* matches the tinted cell, so no seam at the rail edge */
+    --nav-tab-drop: 22px;   /* extra length; 18px shows below the rail edge */
+    --nav-tab-shift: 11px;  /* active cell content re-centred in the tab */
+    --nav-tab-join: rgba(28, 41, 98, 0.98); /* matches the lit cell, so no seam at the rail edge */
     position: relative;
     z-index: calc(var(--z-sticky) - 1);
     min-height: 0;
@@ -169,17 +170,24 @@
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__items {
     margin-inline: auto;
-    padding: 4px 10px;
+    gap: 2px;
+    padding: 4px 8px;
     white-space: nowrap;
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item {
-    min-width: 46px;
+    flex: none;
+    width: var(--nav-cell-w);
+    min-width: 0;
     height: var(--nav-cell-h);
     min-height: 0;
-    padding: 0 12px;
+    padding: 0 6px;
     border-radius: 14px;
     font-size: 11.5px;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__label {
+    max-width: 100%;
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__pod svg {
@@ -205,41 +213,41 @@
     box-shadow: 0 0 0 2px #8ea8ff, 0 0 16px -4px rgba(91, 124, 255, 0.75);
   }
 
-  /* Active cell: content drops with the tab so icon and label stay centred in it. */
+  /* Active cell content descends with the tab so icon and label stay centred in it. */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top [data-tab-phase="down"] .positioned-navigation__item.is-active {
     transform: translateY(var(--nav-tab-shift));
-    transition-duration: 220ms, 220ms, 220ms, 300ms;
-    transition-delay: 0ms, 0ms, 0ms, 60ms;
+    transition-duration: 220ms, 220ms, 220ms, 320ms;
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item.is-active .positioned-navigation__pod {
     color: #ffffff;
-    filter: drop-shadow(0 0 6px rgba(120, 156, 255, 0.85));
+    filter: drop-shadow(0 0 7px rgba(126, 160, 255, 0.95));
   }
 
-  /* The tab. Translucent where it lies inside the rail (the rail shows
-     through as the cell highlight), solid glass where it leaves the rail,
-     brightening toward its lower edge. */
+  /* The tab. Lit glass where it lies inside the rail (the cell highlight),
+     solid glass where it leaves the rail, brightening to its lower edge. */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__cradle {
     top: var(--nav-tab-top);
     width: calc(var(--nav-cradle-w, 46px) + 4px);
     height: calc(var(--nav-tab-base) + var(--nav-tab-drop));
     border-radius: 15px 15px 20px 20px / 15px 15px 18px 18px;
     background:
-      radial-gradient(80% 46% at 50% 100%, rgba(122, 104, 255, 0.4), transparent 72%),
+      radial-gradient(85% 44% at 50% 100%, rgba(126, 108, 255, 0.5), transparent 74%),
       linear-gradient(180deg,
-        rgba(92, 124, 255, 0.2) 0,
-        rgba(92, 124, 255, 0.14) calc(var(--nav-tab-base) - 2px),
+        rgba(96, 128, 255, 0.26) 0,
+        rgba(96, 128, 255, 0.18) calc(var(--nav-tab-base) - 2px),
         var(--nav-tab-join) calc(var(--nav-tab-base) - 1px),
-        rgba(38, 44, 124, 0.98) 100%);
+        rgba(42, 46, 132, 0.98) 100%);
     box-shadow:
-      inset 0 1px 0 rgba(180, 206, 255, 0.22),
-      inset 0 -10px 16px -12px rgba(150, 132, 255, 0.75),
-      0 10px 22px -10px rgba(84, 108, 255, 0.85),
+      inset 0 1px 0 rgba(186, 210, 255, 0.28),
+      inset 0 -2px 0 rgba(176, 192, 255, 0.55),
+      inset 0 -12px 18px -12px rgba(156, 136, 255, 0.85),
+      0 14px 26px -12px rgba(92, 104, 255, 0.95),
       0 4px 10px -6px rgba(0, 4, 22, 0.9);
     transform: translateX(calc(var(--nav-cradle-x, 0px) - (var(--nav-cradle-w, 46px) + 4px) / 2));
+    transform-origin: 50% 0;
     /* Negative insets keep the glow; the drop retracts by clipping (paint only). */
-    clip-path: inset(-12px -12px -24px -12px round 15px 15px 20px 20px);
+    clip-path: inset(-12px -12px -28px -12px round 15px 15px 20px 20px);
   }
 
   /* Thin bright edge: absent where the tab meets the rail, brightest at its lower rim. */
@@ -250,11 +258,11 @@
     padding: 1px;
     border-radius: inherit;
     background: linear-gradient(180deg,
-      rgba(150, 178, 255, 0.34) 0,
+      rgba(156, 184, 255, 0.42) 0,
       rgba(150, 178, 255, 0) 14px,
       rgba(150, 178, 255, 0) calc(var(--nav-tab-base) + 1px),
-      rgba(146, 170, 255, 0.5) calc(var(--nav-tab-base) + 6px),
-      rgba(186, 200, 255, 0.9) 100%);
+      rgba(150, 174, 255, 0.6) calc(var(--nav-tab-base) + 7px),
+      rgba(196, 208, 255, 0.95) 100%);
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
@@ -280,25 +288,26 @@
     background: radial-gradient(circle at 100% 100%, transparent 9.5px, var(--nav-tab-join) 10px);
   }
 
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top [data-tab-phase="up"] .positioned-navigation__cradle {
-    clip-path: inset(-12px -12px var(--nav-tab-drop) -12px round 15px 15px 12px 12px);
+  /* Retracted (up + move): only the lit cell remains, flush inside the rail. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top :is([data-tab-phase="up"], [data-tab-phase="move"]) .positioned-navigation__cradle {
+    clip-path: inset(-12px -12px var(--nav-tab-drop) -12px round 15px 15px 13px 13px);
   }
 
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top [data-tab-phase="up"] .positioned-navigation__shoulder {
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top :is([data-tab-phase="up"], [data-tab-phase="move"]) .positioned-navigation__shoulder {
     opacity: 0;
   }
 
-  /* Retract 190ms → move + descend 300ms (descend starts 60ms after). */
+  /* Phase timing: up 160ms (retract) → move 240ms (slide) → down 320ms (descend). */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top [data-cradle="ready"] .positioned-navigation__cradle {
     transition:
-      transform var(--nav-glide) var(--neo-ease),
-      width var(--nav-glide) var(--neo-ease),
-      clip-path 300ms var(--neo-ease) 60ms,
+      transform 240ms var(--neo-ease),
+      width 240ms var(--neo-ease),
+      clip-path 320ms var(--neo-ease),
       opacity 200ms var(--neo-ease);
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top [data-cradle="ready"][data-tab-phase="up"] .positioned-navigation__cradle {
-    transition: clip-path 190ms var(--neo-ease);
+    transition: clip-path 160ms var(--neo-ease);
   }
 
   /* Keyboard focus on the current route follows the tab outline. */
@@ -306,7 +315,8 @@
     box-shadow:
       0 0 0 2px #a9bdff,
       0 0 18px -4px rgba(120, 150, 255, 0.85),
-      inset 0 -10px 16px -12px rgba(150, 132, 255, 0.75);
+      inset 0 -2px 0 rgba(176, 192, 255, 0.55),
+      inset 0 -12px 18px -12px rgba(156, 136, 255, 0.85);
   }
 
   /* ─────────────────────────── BOTTOM: raised pod ─────────────────────────── */
@@ -315,7 +325,7 @@
     --nav-lift: -25px;
     --nav-pod: 36px;
     --nav-pod-active: 45px;
-    --nav-cradle: 61px;
+    --nav-ring: 6px;        /* dark separation = the bulge out of the rail */
     bottom: max(22px, env(safe-area-inset-bottom));
     padding: 0;
     border: 0;
@@ -330,36 +340,9 @@
     padding: 6px 14px;
   }
 
+  /* The pod draws its own ring, so no separate bulge can drift off-centre. */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__cradle {
-    width: var(--nav-cradle);
-    height: var(--nav-cradle);
-    border-radius: 50%;
-    background: var(--nav-solid);
-    -webkit-backdrop-filter: blur(22px) saturate(1.35);
-    backdrop-filter: blur(22px) saturate(1.35);
-    box-shadow: 0 -10px 22px -14px rgba(70, 110, 255, 0.55);
-    transform: translate(
-      calc(var(--nav-cradle-x, 0px) - var(--nav-cradle) / 2),
-      calc(var(--nav-cradle-y, 0px) - var(--nav-cradle) / 2 + var(--nav-lift))
-    );
-  }
-
-  /* Edge light on the outer half of the bulge only, so it reads as one
-     continuous silhouette with the rail rather than a ring on top. */
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__cradle::before {
-    content: "";
-    position: absolute;
-    inset: -1px;
-    padding: 1px;
-    border-radius: inherit;
-    background: linear-gradient(180deg, rgba(150, 178, 255, 0.62), rgba(150, 178, 255, 0.18) 34%, transparent 50%);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-  }
-
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom [data-cradle="ready"] .positioned-navigation__cradle {
-    transition: transform 340ms var(--neo-ease), opacity 200ms var(--neo-ease);
+    display: none;
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item {
@@ -380,6 +363,23 @@
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__pod svg {
     width: 18px;
     height: 18px;
+  }
+
+  /* The single rim: 1px light on the outer edge of the separation ring,
+     upper half only, so it reads as the silhouette leaving the rail. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__pod::after {
+    content: "";
+    position: absolute;
+    inset: calc(-1 * var(--nav-ring) - 1px);
+    padding: 1px;
+    border-radius: 50%;
+    background: linear-gradient(180deg, rgba(160, 186, 255, 0.7), rgba(150, 178, 255, 0.2) 30%, transparent 48%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms var(--neo-ease);
   }
 
   @media (hover: hover) and (pointer: fine) {
@@ -412,6 +412,7 @@
     max-width: 108px;
   }
 
+  /* One pod, one ring, one rim, one soft halo — identical on every route. */
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active .positioned-navigation__pod {
     position: absolute;
     z-index: 2;
@@ -422,15 +423,18 @@
     height: var(--nav-pod-active);
     color: #ffffff;
     background:
-      radial-gradient(120% 90% at 32% 16%, rgba(255, 255, 255, 0.26), transparent 48%),
+      radial-gradient(120% 90% at 32% 16%, rgba(255, 255, 255, 0.24), transparent 48%),
       linear-gradient(145deg, #3a82ff 0%, #4f58f0 54%, #8650d8 100%);
     box-shadow:
-      0 0 0 4px rgba(8, 16, 44, 0.98),
-      0 12px 26px -10px rgba(84, 112, 255, 0.9),
-      0 0 26px -8px rgba(120, 92, 255, 0.5),
-      inset 0 1px 0 rgba(255, 255, 255, 0.32);
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      0 0 0 var(--nav-ring) var(--nav-solid),
+      0 -6px 22px -4px rgba(92, 112, 255, 0.42);
     transform: translateY(var(--nav-lift));
     transition-delay: 70ms;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active .positioned-navigation__pod::after {
+    opacity: 1;
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active .positioned-navigation__pod svg {
@@ -439,9 +443,10 @@
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active:focus-visible .positioned-navigation__pod {
     box-shadow:
-      0 0 0 4px rgba(8, 16, 44, 0.98),
-      0 0 0 6px #a9bdff,
-      0 12px 26px -10px rgba(84, 112, 255, 0.95);
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      0 0 0 var(--nav-ring) var(--nav-solid),
+      0 0 0 calc(var(--nav-ring) + 2px) #a9bdff,
+      0 -6px 22px -4px rgba(92, 112, 255, 0.42);
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] [data-navigation-position="bottom"] main {
@@ -449,13 +454,24 @@
   }
 }
 
-/* Top rail between 1024 and 1439: inactive cells fold to icons so every
-   route fits without scrolling; names stay in title/aria-label. The current
-   route always keeps its name. */
+/* Top rail 1024–1439: same equal-cell system, slightly narrower cells. */
 @media (min-width: 1024px) and (max-width: 1439.98px) {
-  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item:not(.is-active) {
-    min-width: 42px;
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top {
+    --nav-cell-w: 106px;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item {
     padding: 0 4px;
+    font-size: 11px;
+  }
+}
+
+/* Top rail 1024–1279: inactive cells fold to equal icon cells; the current
+   route keeps a full cell with its name. Names stay in title/aria-label. */
+@media (min-width: 1024px) and (max-width: 1279.98px) {
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item:not(.is-active) {
+    width: 46px;
+    padding: 0;
   }
 
   :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item:not(.is-active) .positioned-navigation__label {
@@ -477,7 +493,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root[data-ui-style="neo"][data-theme="dark"] :is(.positioned-navigation__cradle, .positioned-navigation__shoulder, .positioned-navigation__pod, .positioned-navigation__item, .positioned-navigation__label) {
+  :root[data-ui-style="neo"][data-theme="dark"] :is(.positioned-navigation__cradle, .positioned-navigation__shoulder, .positioned-navigation__pod, .positioned-navigation__pod::after, .positioned-navigation__item, .positioned-navigation__label) {
     transition-duration: 0.01ms !important;
     transition-delay: 0ms !important;
   }
