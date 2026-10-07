@@ -11,6 +11,24 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 CTu PRE-capture dependency-closure repair — repository-only — 2026-10-07
+
+> [!important] **Root cause confirmed from repository behavior:** the post-PR387 frozen CTu bundle included `p4-l0-capture.sh` but omitted its two direct `$P4_HERE` runtime helpers, `p4-l5-clock.py` and `p4-l6c-tree-digest.py`. A non-empty release catalog therefore recorded `rel-a:UNREADABLE` and ended with `L0_CAPTURE=PARTIAL` before `ctu_consume_attempt`. The required host-evidence forensic read was attempted with the exact requested `sudo -n sed` loop but is blocked on this machine because sudo requires a password; no historical evidence or Production state was modified.
+
+Repository repair: `ctu_prepare_bundle()` now includes both helpers with the existing exact-main Git-object, regular-file/non-symlink, root-owned `0555`, manifest, strict checksum, and `ctu_verify_bundle()` controls. The immutable control snapshot trust closure also includes both helpers. Executable regressions construct a frozen-style bundle, reproduce BASE_MAIN missing-helper PARTIAL behavior, run repaired L0 capture to `COMPLETE` with a valid 64-hex release tree digest, refuse missing/tampered helper files, and mechanically derive the direct `$P4_HERE` dependency set. No other missing pre-consume local helper was found in the audited closure. `CTU_ATTEMPT_CONSUMED=NO`, `CTU_LIVE_EXECUTED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, and `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO` remain unchanged. The failed runner `7e31328f6e6576c4c7514b02e0125f871be8f6734d59030c43e36152bb64bc95` and its Authorization/K3 remain permanently invalid.
+
+### Current Task
+
+Task: IDEA3 CTu L0 capture dependency-closure repair
+
+Current state: repository implementation and executable regression coverage PASS; historical protected PRE evidence read BLOCKED by unavailable non-interactive sudo; one existing host-socket regression is unexecutable in this sandbox; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+
+Next: human review and merge only; after merge, generate fresh post-merge exact-main clone, root authority, control snapshot, pins, frozen runner, Authorization, and K3 before any LIVE execution
+
+### Session Register
+
+| CTu-S9 | CTu PRE-capture local dependency-closure repair (`p4-l5-clock.py` and `p4-l6c-tree-digest.py` in bundle and control snapshot trust closure; behavioral L0/integrity regressions) | PARTIAL / READY FOR REVIEW | 5 new dependency-closure tests PASS; 362 affected CTu/Phase-4 tests PASS with one host-socket test deselected; bash -n, py_compile, git diff --check PASS; immutable receipt added | repository repair PASS; historical sudo-protected evidence read blocked; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO | owner and independent exact-head Security/Governance review; human merge only; fresh authority and frozen artifacts after merge | verify protected PRE evidence on an authorized host; rerun socket-dependent regression where host capability permits; fresh exact-main CTu authority before any LIVE execution |
+
 ## IDEA3 CTu trusted work directory traversal contract repair — pre-first-LIVE — 2026-10-07
 
 > [!important] **Root cause confirmed and repaired:** In the latest CTu owner-run, bundle verification failed closed with `CTU_RESULT=FAIL_IMMUTABLE CTU_ATTEMPT_CONSUMED=NO reason=CTU_BUNDLE`. Forensic inspection of `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-07-ctu-20261007-214845` confirmed all 18 bundle files existed and matched expected sha256 sums when verified under root. However, the parent work directory `$WORK` (`ctu-work`) was created implicitly with `root:root 0700` (`---` for others), preventing the unprivileged operator user (`kittipat`, UID 1000) from traversing (`cd`) into `$bundle` (`0555`), triggering `Permission denied`. Repaired by introducing `ctu_prepare_work_dir()` in `p4-ctu-run-lib.sh` to explicitly create `$work` as `root:root 0711` (`--x` for group and others) and enforcing `ctu_verify_work_dir()` across all components (`run-ctu-owner.sh`, `stages/CTu/verify.sh`, apply and rollback routines). Mode `0711` permits directory traversal lookup (`--x`) without granting read/listing (`-r`) or write (`-w`) permissions to non-root users. The failed frozen runner bound to main `5d3245eaab9aa7337b570ef7fb949e937a46575b` / SHA `35441dd71996b4def12a89d948afe0c8fdbf43ab91291fead525378c0811df4c` is invalidated for future LIVE use. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.

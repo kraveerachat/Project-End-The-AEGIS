@@ -170,7 +170,7 @@ ctu_prepare_bundle() {
   local repo=${1:-} p4=${2:-} bundle=${3:-} main=${4:-} rel src dst got expected
   [[ "$repo" == /* && "$p4" == /* && "$bundle" == /* && "$bundle" != *..* && "$main" =~ ^[0-9a-f]{40}$ ]] || return 1
   local -a files=(
-    p4-lib.sh p4-stage-gate.sh p4-ctu-run-lib.sh p4-l0-capture.sh p4-compare.sh p4-l7u-run-lib.sh p4-l7-run-lib.sh p4-l6b-run-lib.sh p4-ctu-runtime-verify.py
+    p4-lib.sh p4-stage-gate.sh p4-ctu-run-lib.sh p4-l0-capture.sh p4-l5-clock.py p4-l6c-tree-digest.py p4-compare.sh p4-l7u-run-lib.sh p4-l7-run-lib.sh p4-l6b-run-lib.sh p4-ctu-runtime-verify.py
     stages/CTu/apply.sh stages/CTu/verify.sh stages/CTu/rollback.sh
     stages/CTu/allow-keys.txt stages/CTu/allow-keys-rollback.txt stages/CTu/allow-listeners.txt
     p4-iw-phy-regnorm.awk owner-run/run-ctu-owner.sh ctu-acceptance/ctu_dropin_contract.py
