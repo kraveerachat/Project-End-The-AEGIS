@@ -8,11 +8,16 @@ import {
 } from 'lucide-react'
 import { Card, CardTitle, Chip, Dot, Reveal, ErrorState, DependencyUnavailableState, SkeletonLoader } from '../components/ui.jsx'
 import { ServerTelemetry } from '../components/ClassicServerTelemetry.jsx'
+import { HoverPreview } from '../components/HoverPreview.jsx'
 import { useApi, useCountUp, useNow, useReducedMotion } from '../lib/hooks.js'
 import { fmtRelative, fmtCountdown, fmtStamp, fmtBytes } from '../lib/format.js'
 import { isPlatformWired } from '../lib/fetchState.js'
 import { normalizeDashboardData, shouldShowDashboardFetchError } from '../lib/dashboardState.js'
 import { useIsClassic } from '../lib/interfaceStyleContext.js'
+import {
+  capacityPreview, lakePreview, loginPreview, recentFilePreview, securityPreview, sharePreview,
+  shareScopeChip, storageCategoryPreview,
+} from '../lib/previewContent.js'
 
 /* ทุกตัวเลขบนจอนี้มาจาก /api/dashboard · /api/storage · /healthz และจัดการครบสี่สถานะ
    (loading = skeleton · error = ข้อความ + Retry · empty = บอกตรง ๆ · success = ข้อมูลจริง)
@@ -27,12 +32,15 @@ import { useIsClassic } from '../lib/interfaceStyleContext.js'
    ที่ไฟล์ถูกอัปโหลดทับหรือถูกลบ — จอจึงบอกสิ่งที่นับได้จริง ไม่ใช่สิ่งที่ดูน่าประทับใจกว่า */
 
 /* ── Stat card — hero number counts, ค่าจริงจากเซิร์ฟเวอร์ ─────────── */
-function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, statusTone = 'ok', delay = 0, footer }) {
+function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, statusTone = 'ok', delay = 0, footer, preview = null }) {
   const v = useCountUp(value, 700, decimals)
   const display = decimals > 0 ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US')
   return (
-    <Card
-      className={`dashboard-stat-card relative overflow-hidden p-5 rise-in ${alarm ? 'border-pulse' : ''}`}
+    <HoverPreview
+      as={Card}
+      preview={preview}
+      data-tone={alarm ? 'danger' : statusTone}
+      className={`dashboard-stat-card relative overflow-hidden p-5 rise-in ${alarm ? 'alarm-attention' : ''}`}
       style={{
         animationDelay: `${delay}ms`,
         ...(alarm ? { background: 'var(--danger-soft)', borderColor: 'var(--danger)' } : {}),
@@ -66,7 +74,7 @@ function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, 
           {footer}
         </div>
       )}
-    </Card>
+    </HoverPreview>
   )
 }
 
@@ -114,6 +122,7 @@ function LakeHealth({ t, health }) {
           const lat = layer?.measured === true && Number.isFinite(layer.latencyMs)
             ? layer.latencyMs
             : null
+          const stateLabel = state === 'healthy' ? t('tierHealthy') : state === 'degraded' ? t('tierDegraded') : state === 'down' ? t('tierDown') : state === 'unavailable' ? t('latencyUnavailable') : t('notConnected')
           return (
             <div key={tier.id}>
               {idx > 0 && (
@@ -128,10 +137,13 @@ function LakeHealth({ t, health }) {
                   />
                 </div>
               )}
-              <div
-                className="lake-health-row flex h-14 items-center gap-3 rounded-[var(--r-tile)] border px-4 transition-[transform,background-color,border-color,filter] duration-[var(--dur-base)]"
+              <HoverPreview
+                preview={lakePreview(t, { name: t(tier.nameKey), tech, state, stateLabel, tone, latencyMs: lat })}
+                tabIndex={0}
+                data-state={state}
+                className="lake-health-row ix-row flex h-14 items-center gap-3 rounded-[var(--r-tile)] border px-4 transition-[transform,background-color,border-color,filter] duration-[var(--dur-base)]"
                 style={{
-                  transform: dimmed ? 'translateY(2px)' : 'translateY(0)',
+                  transform: dimmed ? 'translateY(2px)' : undefined,
                   filter: dimmed ? 'saturate(0)' : 'none',
                   opacity: dimmed ? 0.62 : 1,
                   background: state === 'degraded' ? 'var(--warn-soft)' : state === 'down' ? 'var(--danger-soft)' : 'var(--lake-row-bg, var(--card))',
@@ -146,8 +158,8 @@ function LakeHealth({ t, health }) {
                 <span className="lake-latency text-[12px] font-medium w-16 text-right" data-state={state} style={{ fontVariantNumeric: 'tabular-nums', color: state === 'healthy' ? 'var(--lake-latency-ok, var(--ink-2))' : tone === 'warn' ? 'var(--warn)' : tone === 'danger' ? 'var(--danger)' : 'var(--ink-3)' }}>
                   {lat != null ? `${lat.toFixed(1)} ms` : t('latencyUnavailable')}
                 </span>
-                  <Chip tone={tone}>{state === 'healthy' ? t('tierHealthy') : state === 'degraded' ? t('tierDegraded') : state === 'down' ? t('tierDown') : state === 'unavailable' ? t('latencyUnavailable') : t('notConnected')}</Chip>
-              </div>
+                  <Chip tone={tone}>{stateLabel}</Chip>
+              </HoverPreview>
             </div>
           )
         })}
@@ -157,7 +169,7 @@ function LakeHealth({ t, health }) {
 }
 
 /* ── Login history — personal security status (สเปกของจอ Dashboard) ── */
-function LoginHistoryCard({ t, events, unavailable = false }) {
+function LoginHistoryCard({ t, events, now, unavailable = false }) {
   return (
     <Card className="p-5 rise-in flex flex-col min-h-0" style={{ animationDelay: '200ms' }}>
       <CardTitle sub={t('dashLoginHistorySub')}>{t('dashLoginHistory')}</CardTitle>
@@ -171,7 +183,14 @@ function LoginHistoryCard({ t, events, unavailable = false }) {
             const at = new Date(e.at).getTime()
             const bad = e.result !== 'OK'
             return (
-              <div key={i} className="login-row flex items-start gap-3 rounded-[10px] px-3 py-2.5">
+              <HoverPreview
+                key={i}
+                preview={loginPreview(t, e, now)}
+                tabIndex={0}
+                data-result={bad ? 'denied' : 'ok'}
+                className="login-row ix-row flex items-start gap-3 rounded-[10px] px-3 py-2.5"
+                style={{ '--ix-i': i }}
+              >
                 <div className="login-row-icon size-7 rounded-full bg-sunken flex items-center justify-center shrink-0 mt-0.5">
                   <LogIn size={13} strokeWidth={1.5} className={bad ? 'text-danger' : 'text-ink-2'} />
                 </div>
@@ -182,7 +201,7 @@ function LoginHistoryCard({ t, events, unavailable = false }) {
                   </p>
                   <p className="login-row-ip font-mono text-[11.5px] text-ink-3 mt-0.5">{e.source_ip ?? e.sourceIp ?? '—'}</p>
                 </div>
-              </div>
+              </HoverPreview>
             )
           })}
         </div>
@@ -203,16 +222,30 @@ function ActiveLinksCard({ t, shares, now, unavailable = false }) {
         <InlineEmptyState icon={classic ? Link2 : null}>{t('emptyNoShares')}</InlineEmptyState>
       ) : (
         <div className="flex flex-col gap-2.5">
-          {shares.map((s) => (
-            <div key={s.id} className="dashboard-list-row flex items-center gap-3 py-2 border-b border-line last:border-b-0">
-              <Link2 size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" />
-              <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{s.fileName}</span>
-              <span className="text-[11.5px] text-ink-3 font-mono shrink-0 flex items-center gap-1.5">
-                <Clock size={11} strokeWidth={1.8} />
-                {fmtCountdown(s.expiresAt - now, t('expired'))}
-              </span>
-            </div>
-          ))}
+          {shares.map((s, i) => {
+            const msLeft = s.expiresAt - now
+            const scope = shareScopeChip(s.scope)
+            return (
+              <HoverPreview
+                key={s.id}
+                preview={sharePreview(t, s, now)}
+                tabIndex={0}
+                data-expiring={msLeft > 0 && msLeft < 3_600_000 ? 'true' : undefined}
+                className="dashboard-list-row dashboard-share-row ix-row flex items-center gap-3 py-2 border-b border-line last:border-b-0"
+                style={{ '--ix-i': i }}
+              >
+                <Link2 size={14} strokeWidth={1.5} className="ix-row-icon text-ink-3 shrink-0" />
+                <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{s.fileName}</span>
+                <span className="dashboard-share-scope" data-tone={scope.tone} title={t(scope.key)}>
+                  <span className="sr-only">{t(scope.key)}</span>
+                </span>
+                <span className="dashboard-share-expiry text-[11.5px] text-ink-3 font-mono shrink-0 flex items-center gap-1.5">
+                  <Clock size={11} strokeWidth={1.8} />
+                  {fmtCountdown(msLeft, t('expired'))}
+                </span>
+              </HoverPreview>
+            )
+          })}
         </div>
       )}
     </Card>
@@ -250,27 +283,34 @@ function StorageBreakdown({ t, usage, capacityBytes }) {
         </>
       ) : (
         <>
-          <div className="storage-tube flex items-end gap-0.5 h-8 mt-1" aria-hidden>
+          {/* Segment and legend are linked both ways: hovering either one marks
+              the pair. Tiny segments stay reachable through their legend row,
+              which is focusable and carries the same preview. */}
+          <div className="storage-tube flex items-end gap-0.5 h-8 mt-1" data-linked={hovered ?? undefined} aria-hidden>
             {segs.map((seg, i) => (
-              <div
+              <HoverPreview
                 key={seg.key}
-                className={`storage-seg h-7 transition-transform duration-[var(--dur-fast)] ${i === 0 ? 'rounded-l-full' : ''} ${i === segs.length - 1 ? 'rounded-r-full' : ''}`}
+                preview={storageCategoryPreview(t, { key: seg.key, bytes: seg.bytes, accounted })}
+                onActiveChange={(on) => setHovered(on ? seg.key : null)}
+                data-active={hovered === seg.key ? 'true' : undefined}
+                className={`storage-seg h-7 ${i === 0 ? 'rounded-l-full' : ''} ${i === segs.length - 1 ? 'rounded-r-full' : ''}`}
                 style={{
                   width: `${(seg.bytes / total) * 100}%`,
                   backgroundColor: seg.color,
-                  transform: hovered === seg.key ? 'translateY(-3px)' : 'none',
-                  transitionTimingFunction: 'var(--ease)',
+                  '--ix-i': i,
                 }}
               />
             ))}
           </div>
-          <div className="storage-legend mt-4 flex flex-col">
+          <div className="storage-legend mt-4 flex flex-col" data-linked={hovered ?? undefined}>
             {segs.map((seg) => (
-              <div
+              <HoverPreview
                 key={seg.key}
-                onMouseEnter={() => setHovered(seg.key)}
-                onMouseLeave={() => setHovered(null)}
-                className="storage-legend-row flex items-center gap-2.5 py-1.5 px-2 -mx-2 rounded-[8px] hover:bg-sunken transition-colors duration-[var(--dur-fast)] cursor-default"
+                preview={storageCategoryPreview(t, { key: seg.key, bytes: seg.bytes, accounted })}
+                onActiveChange={(on) => setHovered(on ? seg.key : null)}
+                tabIndex={0}
+                data-active={hovered === seg.key ? 'true' : undefined}
+                className="storage-legend-row ix-row flex items-center gap-2.5 py-1.5 px-2 -mx-2 rounded-[8px] transition-colors duration-[var(--dur-fast)] cursor-default"
               >
                 <span className="storage-legend-dot size-3 rounded-[4px] shrink-0" style={{ backgroundColor: seg.color }} aria-hidden />
                 <span className="storage-legend-name text-[13px] font-medium text-ink-2">{t(seg.key)}</span>
@@ -278,7 +318,7 @@ function StorageBreakdown({ t, usage, capacityBytes }) {
                 <span className="storage-legend-pct w-12 text-right text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
                   {((seg.bytes / total) * 100).toFixed(1)}%
                 </span>
-              </div>
+              </HoverPreview>
             ))}
           </div>
           {capacityBytes && (
@@ -299,12 +339,12 @@ const DOWNLOAD_COLOR = 'var(--chart-down, var(--accent))'
 
 /* Classic: แท่ง "ทรงกระบอก" — สีชุดข้อมูล + ชั้นเงาแนวนอน (ขอบซ้ายสว่าง → ขอบขวาเข้ม)
    ค่า 0 ไม่วาดอะไรเลย (ไม่ใช่แท่งสูง 0px ที่ยังมีเงา); สีทั้งหมดมาจาก token ใน theme-classic.css */
-function CylinderBar({ x, y, width, height, fill }) {
+function CylinderBar({ x, y, width, height, fill, dim = false, active = false }) {
   if (!height || height <= 0 || !width) return null
   const r = Math.min(5, width / 2, height)
   const d = `M${x},${y + height} V${y + r} Q${x},${y} ${x + r},${y} H${x + width - r} Q${x + width},${y} ${x + width},${y + r} V${y + height} Z`
   return (
-    <g className="activity-cylinder">
+    <g className="activity-cylinder" data-dim={dim ? 'true' : undefined} data-active={active ? 'true' : undefined}>
       <path d={d} fill={fill} />
       <path d={d} fill="url(#activity-cylinder-gloss)" />
     </g>
@@ -312,9 +352,13 @@ function CylinderBar({ x, y, width, height, fill }) {
 }
 function ChartTooltip({ active, payload, label, t }) {
   if (!active || !payload?.length) return null
+  const date = payload[0]?.payload?.date
   return (
-    <div className="bg-card border border-line rounded-[var(--r-tile)] px-3.5 py-2.5" style={{ boxShadow: 'var(--elev-2)' }}>
-      <p className="text-[12px] font-semibold text-ink mb-1">{label}</p>
+    <div className="chart-tooltip bg-card border border-line rounded-[var(--r-tile)] px-3.5 py-2.5" style={{ boxShadow: 'var(--elev-2)' }}>
+      <p className="chart-tooltip-title text-[12px] font-semibold text-ink mb-1">
+        {label}
+        {date && <span lang="en" className="chart-tooltip-date">{date}</span>}
+      </p>
       {payload.map((p) => (
         <p key={p.dataKey} className="text-[12.5px] text-ink-2 flex items-center gap-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
           <span className="size-2 rounded-full" style={{ background: p.dataKey === 'uploads' ? UPLOAD_COLOR : DOWNLOAD_COLOR }} />
@@ -328,6 +372,10 @@ function ChartTooltip({ active, payload, label, t }) {
 function ActivityChart({ t, lang, data }) {
   const reduced = useReducedMotion()
   const classic = useIsClassic()
+  // Hover state changes only when the pointer crosses into another day or
+  // legend item, never per raw pointermove.
+  const [activeIndex, setActiveIndex] = useState(null)
+  const [activeSeries, setActiveSeries] = useState(null)
   // ป้ายแกน X เป็นชื่อวันตามภาษาที่เลือก — เซิร์ฟเวอร์คืนวันที่ ISO ไม่ใช่ชื่อวันภาษาอังกฤษ
   // (ชื่อวันเป็นเรื่องของการแสดงผล ไม่ใช่ข้อมูล)
   const displayData = data.length > 0 ? data : Array.from({ length: 7 }, (_, index) => {
@@ -350,9 +398,18 @@ function ActivityChart({ t, lang, data }) {
       <CardTitle
         sub={t('activitySub')}
         right={
-          <div className="activity-legend flex items-center gap-3 text-[12px] font-medium text-ink-3">
-            <span className="flex items-center gap-1.5"><span className="activity-legend-dot size-2.5 rounded-[3px]" style={{ background: UPLOAD_COLOR }} />{t('uploads')}</span>
-            <span className="flex items-center gap-1.5"><span className="activity-legend-dot size-2.5 rounded-[3px]" style={{ background: DOWNLOAD_COLOR }} />{t('downloads')}</span>
+          <div className="activity-legend flex items-center gap-3 text-[12px] font-medium text-ink-3" data-series={activeSeries ?? undefined}>
+            {[['uploads', UPLOAD_COLOR], ['downloads', DOWNLOAD_COLOR]].map(([key, color]) => (
+              <span
+                key={key}
+                className="activity-legend-item flex items-center gap-1.5"
+                data-active={activeSeries === key ? 'true' : undefined}
+                onPointerEnter={() => setActiveSeries(key)}
+                onPointerLeave={() => setActiveSeries(null)}
+              >
+                <span className="activity-legend-dot size-2.5 rounded-[3px]" style={{ background: color }} />{t(key)}
+              </span>
+            ))}
           </div>
         }
       >
@@ -361,9 +418,19 @@ function ActivityChart({ t, lang, data }) {
       {/* ⚠️ ยังไม่มีกิจกรรมเลย ≠ กราฟเปล่าที่ดูเหมือนพัง — บอกตรง ๆ ว่าไม่มีเหตุการณ์
           ในเจ็ดวันนี้ (ของเดิมไม่มีสถานะนี้เพราะข้อมูลปลอมทำให้มีแท่งอยู่เสมอ) */}
       <div className="activity-screen">
-        <div className="activity-plot h-56">
+        <div className="activity-plot h-56" data-hovering={activeIndex != null ? 'true' : undefined}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={rows} barGap={classic ? 4 : 3} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            <BarChart
+              data={rows}
+              barGap={classic ? 4 : 3}
+              margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+              onMouseMove={(state) => {
+                const raw = state?.activeTooltipIndex
+                const next = raw != null && raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : null
+                setActiveIndex((prev) => (prev === next ? prev : next))
+              }}
+              onMouseLeave={() => setActiveIndex(null)}
+            >
               {classic && (
                 <defs>
                   <linearGradient id="activity-cylinder-gloss" x1="0" y1="0" x2="1" y2="0">
@@ -378,12 +445,41 @@ function ActivityChart({ t, lang, data }) {
               {/* allowDecimals=false — จำนวนครั้งเป็นจำนวนเต็มเสมอ */}
               <YAxis axisLine={false} tickLine={false} width={38} allowDecimals={false} domain={[0, 'auto']} tick={classic ? { fill: 'var(--ink-2)', fontSize: 11, fontFamily: 'var(--font-mono)' } : undefined} />
               <RTooltip content={<ChartTooltip t={t} />} cursor={{ fill: 'var(--card-sunken)' }} />
-              <Bar dataKey="uploads" radius={[8, 8, 0, 0]} maxBarSize={18} barSize={classic ? 16 : undefined} shape={classic ? CylinderBar : undefined} fill={UPLOAD_COLOR} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
-              <Bar dataKey="downloads" radius={[8, 8, 0, 0]} maxBarSize={18} barSize={classic ? 16 : undefined} shape={classic ? CylinderBar : undefined} fill={DOWNLOAD_COLOR} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
+              {[['uploads', UPLOAD_COLOR], ['downloads', DOWNLOAD_COLOR]].map(([key, color]) => (
+                <Bar
+                  key={key}
+                  dataKey={key}
+                  radius={[8, 8, 0, 0]}
+                  maxBarSize={18}
+                  barSize={classic ? 16 : undefined}
+                  shape={(props) => (
+                    <CylinderBar
+                      {...props}
+                      dim={(activeSeries != null && activeSeries !== key) || (activeIndex != null && props.index !== activeIndex)}
+                      active={activeIndex != null && props.index === activeIndex}
+                    />
+                  )}
+                  fill={color}
+                  isAnimationActive={!reduced}
+                  animationDuration={600}
+                  animationEasing="ease-out"
+                />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
+      <table className="sr-only">
+        <caption>{t('activitySub')}</caption>
+        <thead><tr><th scope="col">{t('activityDay')}</th><th scope="col">{t('uploads')}</th><th scope="col">{t('downloads')}</th></tr></thead>
+        <tbody>{rows.map((row) => (
+          <tr key={row.date}>
+            <th scope="row"><time dateTime={row.date}>{row.date}</time></th>
+            <td>{row.uploads}</td>
+            <td>{row.downloads}</td>
+          </tr>
+        ))}</tbody>
+      </table>
       {empty && <InlineEmptyState className="pt-3 pb-0 text-center">{t('activityEmpty')}</InlineEmptyState>}
     </Card>
   )
@@ -425,10 +521,11 @@ export function ClassicDashboard({ t, lang, health, go, telemetry = null, teleme
             suffix={hasCapacity ? `/ ${m.storageTotalBytes === 0 ? '0 GB' : fmtBytes(m.storageTotalBytes)}` : t('notAvailable')}
             allClearLabel={placeholderLabel}
             statusTone="neutral"
+            preview={hasCapacity ? capacityPreview(t, { usedBytes: m.storageBytes, totalBytes: m.storageTotalBytes }) : null}
             footer={hasCapacity ? (
               <div className="flex flex-col gap-1.5">
                 <div className="stat-rail w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                  <div className="stat-rail-fill h-full bg-accent rounded-full" style={{ width: `${usedPct}%` }} />
+                  <div className="stat-rail-fill h-full bg-accent rounded-full" role="progressbar" aria-label={t('capacityUsedPct')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={usedPct} style={{ width: `${usedPct}%` }} />
                 </div>
                 <div className="stat-rail-legend flex justify-between text-[11px] text-slate-400 dark:text-slate-500 font-semibold font-mono">
                   <span>{usedPct}% {t('capacityUsed')}</span>
@@ -450,6 +547,7 @@ export function ClassicDashboard({ t, lang, health, go, telemetry = null, teleme
             alarm={d.securityAlerts > 0}
             allClearLabel={placeholderLabel ?? t('allClear')}
             statusTone={usingPlaceholder ? 'neutral' : 'ok'}
+            preview={securityPreview(t, { count: d.securityAlerts, unavailable: usingPlaceholder })}
             delay={120}
           />
         </div>
@@ -462,7 +560,7 @@ export function ClassicDashboard({ t, lang, health, go, telemetry = null, teleme
             <LakeHealth t={t} health={health.data} />
           </div>
           <div className="dashboard-mid-side w-full lg:w-1/3 flex flex-col gap-6">
-            <LoginHistoryCard t={t} events={d.loginHistory ?? []} unavailable={usingPlaceholder} />
+            <LoginHistoryCard t={t} events={d.loginHistory ?? []} now={now} unavailable={usingPlaceholder} />
             <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={usingPlaceholder} />
           </div>
         </div>
@@ -517,12 +615,18 @@ export function ClassicDashboard({ t, lang, health, go, telemetry = null, teleme
             <InlineEmptyState>{t('emptyNoRecentFiles')}</InlineEmptyState>
           ) : (
             <div className="flex flex-col">
-              {d.recentFiles.map((f) => (
-                <div key={f.id} className="dashboard-list-row recent-file-row flex items-center gap-3 py-2 border-b border-line last:border-b-0">
-                  <span className="recent-file-icon inline-flex shrink-0"><FileText size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" /></span>
+              {d.recentFiles.map((f, i) => (
+                <HoverPreview
+                  key={f.id}
+                  preview={recentFilePreview(t, f, now)}
+                  tabIndex={0}
+                  className="dashboard-list-row recent-file-row ix-row flex items-center gap-3 py-2 border-b border-line last:border-b-0"
+                  style={{ '--ix-i': i }}
+                >
+                  <span className="recent-file-icon ix-row-icon inline-flex shrink-0"><FileText size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" /></span>
                   <span className="recent-file-name block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{f.name}</span>
                   <span className="recent-file-time text-[11.5px] text-ink-3 font-mono shrink-0">{fmtRelative(t, f.modified, now)}</span>
-                </div>
+                </HoverPreview>
               ))}
             </div>
           )}

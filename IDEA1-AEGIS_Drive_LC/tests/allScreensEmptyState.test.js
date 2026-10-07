@@ -37,7 +37,11 @@ test('Upload Drawer, Shares, and Audit preserve list/table chrome around compact
   ])
   assert.match(uploads, /InlineEmptyState/)
   assert.match(shares, /t\('emptyNoShares'\)/)
-  assert.match(shares, /min-w-\[720px\]/)
+  // Active links keep their table chrome (header + rowgroup) around the empty
+  // row. The six columns reflow by container width instead of a fixed
+  // min-width + horizontal scroll (Secure Shares column repair).
+  assert.match(shares, /className="share-table" role="table"/)
+  assert.match(shares, /role="columnheader"/)
   assert.doesNotMatch(shares, /\{shares\.length > 0 && \(/)
   assert.doesNotMatch(audit, /if\s*\(api\.loading\)\s*return/)
   assert.doesNotMatch(audit, /if\s*\(api\.error\)\s*return/)

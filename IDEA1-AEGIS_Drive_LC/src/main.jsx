@@ -7,6 +7,8 @@ import './neoOverlays.css'
 import './neoSelect.css'
 import './neoNavigation.css'
 import './neoLight.css'
+// Shared interaction geometry/timing (+ Neo materials); Classic materials are in theme-classic.css §8.
+import './interactionSystem.css'
 // Classic = Glossy Enamel (PR #388). It supersedes PR #359's Classic Precision layer,
 // so classicPrecision.css is no longer imported; every rule is [data-ui-style="classic"].
 import './theme-classic.css'

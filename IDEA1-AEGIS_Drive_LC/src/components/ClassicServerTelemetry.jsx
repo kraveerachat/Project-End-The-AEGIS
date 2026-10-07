@@ -4,6 +4,8 @@ import {
 import { Card, CardTitle, Chip } from './ui.jsx'
 import { fmtBytes, fmtCountdown } from '../lib/format.js'
 import { useIsClassic } from '../lib/interfaceStyleContext.js'
+import { HoverPreview } from './HoverPreview.jsx'
+import { telemetryPreview } from '../lib/previewContent.js'
 
 // Renders the /api/telemetry contract (see server/telemetry/index.js).
 //
@@ -303,9 +305,13 @@ function TelemetryTile({ t, definition, value, loading }) {
   const isEmpty = state in EMPTY_COPY
 
   return (
-    <article
+    <HoverPreview
+      as="article"
+      preview={telemetryPreview(t, { id: definition.id, label: t(definition.labelKey), metric: value, stateLabel: t(meta.labelKey), tone: meta.tone })}
+      tabIndex={0}
       data-metric={definition.id}
-      className={`telemetry-tile min-w-0 rounded-[var(--r-tile)] border border-line bg-card p-4 ${state === 'unavailable' ? 'hatch hatch-ink3' : ''}`}
+      data-state={state}
+      className={`telemetry-tile ix-tile min-w-0 rounded-[var(--r-tile)] border border-line bg-card p-4 ${state === 'unavailable' ? 'hatch hatch-ink3' : ''}`}
       aria-label={`${t(definition.labelKey)} · ${t(meta.labelKey)}`}
       aria-busy={state === 'loading' ? 'true' : undefined}
     >
@@ -328,7 +334,7 @@ function TelemetryTile({ t, definition, value, loading }) {
           <MetricRows t={t} id={definition.id} metric={metric} classic={classic} />
         </div>
       )}
-    </article>
+    </HoverPreview>
   )
 }
 

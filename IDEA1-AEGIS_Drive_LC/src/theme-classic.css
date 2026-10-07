@@ -2337,3 +2337,330 @@
     }
   }
 }
+
+/* ── 8. Interaction language ──────────────────────────────────────
+   Physical parts moving slightly under light: a plate releases upward on
+   hover, a key presses in, a gauge sweeps once, a segmented rail extends.
+   No glow, no bloom, no looping gradient: the only light is the enamel
+   gloss already on every surface (and the existing LED tokens). Timing
+   comes from the shared --ix-* tokens (interactionSystem.css).
+
+   Hover lifts use the independent `translate` property, never `transform`:
+   cards keep their `rise-in` entrance (fill-mode both) on `transform`, and
+   that animation would otherwise pin the card in place. */
+:root[data-ui-style="classic"] {
+  --classic-lift-shadow: var(--raised), 0 22px 34px -18px var(--lo);
+  --classic-row-hover: var(--classic-menu-hover);
+  --classic-led-accent: radial-gradient(circle at 35% 30%, #d9e6ff, var(--acc2) 55%, var(--acc));
+
+  /* Preview: a small enamel plate. Solid, tactile, restrained shadow. */
+  .hover-preview {
+    border-color: var(--edge);
+    background-color: var(--face-a);
+    background-image: var(--mat-card);
+    box-shadow: var(--raised-s), 0 16px 28px -16px var(--lo);
+    color: var(--ink);
+    text-shadow: none;
+  }
+
+  .hover-preview__arrow {
+    border-color: var(--edge);
+    background: var(--face-b);
+  }
+
+  .hover-preview[data-placement="bottom"] .hover-preview__arrow {
+    background: var(--face-a);
+  }
+
+  .hover-preview__rows {
+    border-top-color: var(--track);
+  }
+
+  .hover-preview__status {
+    border: 1px solid var(--edge);
+    background-color: var(--face-a);
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--ink);
+  }
+
+  .hover-preview__status-dot { width: 7px; height: 7px; background: var(--led-off); }
+  .hover-preview__status[data-tone="ok"] .hover-preview__status-dot { background: var(--led-ok); box-shadow: var(--led-ok-glow); }
+  .hover-preview__status[data-tone="warn"] .hover-preview__status-dot { background: var(--led-warn); box-shadow: var(--led-warn-glow); }
+  .hover-preview__status[data-tone="danger"] .hover-preview__status-dot { background: var(--led-danger); box-shadow: var(--led-danger-glow); }
+  .hover-preview__status[data-tone="accent"] .hover-preview__status-dot { background: var(--classic-led-accent); }
+
+  .chart-tooltip {
+    border-color: var(--edge);
+    background-color: var(--face-a);
+    background-image: var(--mat-card);
+    animation: hover-preview-in var(--ix-pop) var(--ix-ease) both;
+  }
+
+  /* ── Secure Shares: enamel scope plate with an LED ─────────────── */
+  .share-table-head {
+    color: var(--ink-2);
+  }
+
+  .share-row:hover,
+  .share-row:focus-within {
+    background-color: var(--classic-row-hover);
+  }
+
+  .share-scope-badge {
+    height: 26px;
+    padding: 0 11px 0 8px;
+    border-color: var(--edge);
+    background-color: var(--face-a);
+    background-image: var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--ink);
+  }
+
+  .share-scope-dot { width: 7px; height: 7px; background: var(--led-off); }
+  .share-scope-badge[data-tone="accent"] .share-scope-dot { background: var(--classic-led-accent); }
+  .share-scope-badge[data-tone="warn"] .share-scope-dot { background: var(--led-warn); box-shadow: var(--led-warn-glow); }
+  .share-scope-badge[data-tone="danger"] .share-scope-dot { background: var(--led-danger); box-shadow: var(--led-danger-glow); }
+
+  .share-row:hover .share-scope-badge {
+    filter: brightness(1.03);
+  }
+
+  /* Revoke: an enamel key that reads destructive by ink, not by alarm. */
+  .share-revoke {
+    border: 1px solid var(--edge);
+    background-color: var(--face-a);
+    background-image: var(--gloss), var(--mat-plate);
+    box-shadow: var(--raised-s);
+    color: var(--danger);
+    text-shadow: none;
+    transition:
+      border-color var(--ix-fast) var(--ix-ease),
+      box-shadow var(--ix-press) var(--ix-ease),
+      translate var(--ix-press) var(--ix-ease);
+  }
+
+  .share-revoke:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--danger) 45%, var(--edge));
+    opacity: 1;
+    translate: 0 -1px;
+  }
+
+  .share-revoke:active:not(:disabled) {
+    box-shadow: var(--press);
+    translate: 0 1px;
+    transform: none;
+  }
+
+  /* ── Data rows (Data Lake, sign-ins, recent files, share rows) ─── */
+  .ix-row {
+    transition:
+      background-color var(--ix-fast) var(--ix-ease),
+      box-shadow var(--ix-fast) var(--ix-ease);
+  }
+
+  .ix-row:is(:hover, [data-preview-open="true"]) {
+    background-color: var(--classic-row-hover);
+  }
+
+  .ix-row:focus-visible,
+  .ix-tile:focus-visible {
+    outline: 2px solid var(--classic-nav-focus);
+    outline-offset: -2px;
+  }
+
+  .ix-row .ix-row-icon,
+  .ix-row .login-row-icon svg,
+  .telemetry-tile-icon svg,
+  .stat-icon svg {
+    transition: translate var(--ix-fast) var(--ix-ease);
+  }
+
+  .ix-row:is(:hover, :focus-visible) :is(.ix-row-icon, .login-row-icon svg) {
+    translate: 0 -1px;
+  }
+
+  /* Wells keep their recess; hover adds a thin accent rim and lifts the
+     latency reading forward. (Row backgrounds are inline per state.) */
+  .lake-health-row:is(:hover, [data-preview-open="true"]) {
+    box-shadow: var(--inset), 0 0 0 1px color-mix(in srgb, var(--acc) 26%, transparent);
+  }
+
+  .lake-latency {
+    transition: color var(--ix-fast) var(--ix-ease);
+  }
+
+  .lake-health-row:is(:hover, [data-preview-open="true"]) .lake-latency {
+    color: var(--ink);
+    font-weight: 700;
+  }
+
+  .login-row:is(:hover, [data-preview-open="true"]) .login-row-time,
+  .login-row:is(:hover, [data-preview-open="true"]) .login-row-ip {
+    color: var(--ink);
+  }
+
+  .dashboard-share-scope { width: 8px; height: 8px; background: var(--led-off); }
+  .dashboard-share-scope[data-tone="accent"] { background: var(--classic-led-accent); }
+  .dashboard-share-scope[data-tone="warn"] { background: var(--led-warn); box-shadow: var(--led-warn-glow); }
+  .dashboard-share-scope[data-tone="danger"] { background: var(--led-danger); box-shadow: var(--led-danger-glow); }
+
+  /* ── KPI plates release upward ───────────────────────────────── */
+  .dashboard-stat-card {
+    transition:
+      translate var(--ix-lift) var(--ix-ease),
+      box-shadow var(--ix-lift) var(--ix-ease);
+  }
+
+  .dashboard-stat-card:is(:hover, [data-preview-open="true"]) {
+    --elev-1: var(--classic-lift-shadow);
+    translate: 0 -2px;
+  }
+
+  .dashboard-stat-card:is(:hover, [data-preview-open="true"]) .stat-icon svg {
+    translate: 0 -1px;
+  }
+
+  /* Capacity rail extends once on arrival, then follows value changes. */
+  .stat-rail-fill {
+    transform-origin: left center;
+    animation: ix-meter-in 640ms var(--ix-ease) 220ms backwards;
+    transition: width 600ms var(--ix-ease);
+  }
+
+  .header-action-button svg {
+    transition: translate var(--ix-fast) var(--ix-ease);
+  }
+
+  .header-action-button:hover svg {
+    translate: 0 -1px;
+  }
+
+  .header-action-button:focus-visible,
+  .quick-actions-trigger:focus-visible {
+    outline: 2px solid var(--classic-nav-focus);
+    outline-offset: 2px;
+  }
+
+  /* ── Telemetry: wells brighten their rim; the ring sweeps once ──── */
+  .telemetry-tile {
+    transition: box-shadow var(--ix-lift) var(--ix-ease);
+  }
+
+  .telemetry-tile:not(.hatch):is(:hover, [data-preview-open="true"]) {
+    box-shadow: var(--inset), 0 0 0 1px color-mix(in srgb, var(--acc) 24%, transparent);
+  }
+
+  .telemetry-tile:is(:hover, [data-preview-open="true"]) .telemetry-tile-icon svg {
+    translate: 0 -1px;
+  }
+
+  .telemetry-tile .ui-chip {
+    transition: background-color var(--ix-lift) var(--ix-ease), color var(--ix-lift) var(--ix-ease);
+  }
+
+  .ring-gauge-value {
+    animation: classic-ring-sweep 760ms var(--ix-ease) 200ms backwards;
+    transition: stroke-dasharray 600ms var(--ix-ease);
+  }
+
+  .telemetry-heat-rail .classic-rail-fill {
+    transform-origin: left center;
+    animation: ix-meter-in 640ms var(--ix-ease) 260ms backwards;
+    transition: width 600ms var(--ix-ease);
+  }
+
+  /* ── Storage: a segmented rail that extends, linked to its legend ── */
+  .storage-seg {
+    transform-origin: left center;
+    animation: classic-seg-in 520ms var(--ix-ease) backwards;
+    animation-delay: calc(var(--ix-i, 0) * 70ms + 160ms);
+    transition: translate var(--ix-fast) var(--ix-ease), filter var(--ix-fast) var(--ix-ease);
+  }
+
+  .storage-tube[data-linked] .storage-seg:not([data-active]) {
+    filter: saturate(0.45);
+  }
+
+  .storage-seg[data-active] {
+    translate: 0 -3px;
+  }
+
+  .storage-legend-row {
+    transition: background-color var(--ix-fast) var(--ix-ease), opacity var(--ix-fast) var(--ix-ease);
+  }
+
+  .storage-legend-row:is(:hover, [data-active], [data-preview-open="true"]) {
+    background-color: var(--classic-row-hover);
+  }
+
+  .storage-legend[data-linked] .storage-legend-row:not([data-active]) {
+    opacity: 0.6;
+  }
+
+  /* ── Activity: the day under the pointer stays lit ───────────── */
+  .activity-cylinder {
+    transition: opacity var(--ix-fast) var(--ix-ease), filter var(--ix-fast) var(--ix-ease);
+  }
+
+  .activity-cylinder[data-dim] {
+    opacity: 0.36;
+  }
+
+  .activity-cylinder[data-active] {
+    filter: brightness(1.08);
+  }
+
+  .activity-plot .recharts-cartesian-grid line {
+    transition: stroke-opacity var(--ix-fast) var(--ix-ease);
+  }
+
+  .activity-plot[data-hovering] .recharts-cartesian-grid line {
+    stroke-opacity: 0.55;
+  }
+}
+
+@keyframes classic-ring-sweep {
+  from { stroke-dasharray: 0 200; }
+}
+
+@keyframes classic-seg-in {
+  from { transform: scaleX(0); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="classic"] {
+    .share-revoke,
+    .share-row,
+    .ix-row,
+    .ix-row .ix-row-icon,
+    .dashboard-stat-card,
+    .telemetry-tile,
+    .storage-seg,
+    .storage-legend-row,
+    .activity-cylinder,
+    .lake-latency,
+    .header-action-button svg {
+      transition: none;
+    }
+
+    .stat-rail-fill,
+    .ring-gauge-value,
+    .telemetry-heat-rail .classic-rail-fill,
+    .storage-seg,
+    .chart-tooltip {
+      animation: none;
+      transition: none;
+    }
+
+    .dashboard-stat-card:hover,
+    .storage-seg[data-active],
+    .share-revoke:is(:hover, :active),
+    .ix-row:hover :is(.ix-row-icon, .login-row-icon svg),
+    .dashboard-stat-card:hover .stat-icon svg,
+    .header-action-button:hover svg {
+      translate: none;
+    }
+  }
+}
