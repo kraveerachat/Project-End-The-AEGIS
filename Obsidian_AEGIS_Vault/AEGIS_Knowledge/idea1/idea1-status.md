@@ -4,7 +4,7 @@ aliases: ["02 - 💾 IDEA1 AEGIS Drive LC"]
 tags: [aegis, drive, datalake, nas, storage, zero-knowledge, encryption, share-links, file-versions]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-07
+updated: 2026-10-08
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: kla
 edit_policy: owner-writable
@@ -14,6 +14,22 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Kla**. This is the canonical IDEA1 status fragment. Other contributors request changes through their task receipt instead of editing it concurrently.
+
+## Current Task — IDEA1-SECURE-SHARE-SCOPE-AUTH-LAYOUT — Active Shares source hotfix
+
+| Field | Current value |
+|---|---|
+| Task | PR #395 fixes the Secure Shares Active Shares Scope/Auth row collision risk in shared presentation geometry only. Current task boundary is implementation and pre-merge verification; Production deployment and real-row acceptance are a separate follow-up task after human merge. |
+| Branch / PR | `fix/idea1-secure-share-scope-auth-layout` / PR #395, based on `origin/main` `538af3187c2092b0905ebd9d2f99531f96b33998` |
+| Owner | kla |
+| Implementation checkpoint | `c7a34e8dac004cd290cabdf203886ea0a81ce04a` |
+| IMPLEMENTATION_COMPLETE | YES — Scope has a contained badge and a 176px track; Auth has a 104px track; the row reflows below the 744px six-column minimum. Compact metadata cells retain full programmatic labels. |
+| PREMERGE_VERIFICATION | PASS — 51/51 focused tests; scratch Vite build pass; local headless Chrome display-only fixture checked Neo/Classic × Light/Dark at ten card widths (40 samples), with zero Scope/Auth box collisions or row overflows. This is local contract evidence only. |
+| PRODUCTION_DEPLOYMENT | PENDING — not part of PR #395's implementation closeout. |
+| PRODUCTION_REAL_ROW_ACCEPTANCE | PENDING — the existing real `PUBLIC INTERNET` / `Password` row has not been checked after deployment. |
+| FOLLOW_UP_TASK_REQUIRED | YES — after human merge, start a separate deployment and read-only Production-verification task against the resulting merged main. |
+| Safety | No backend, API, authentication, RBAC, encryption, schema, database-content, or Production mutation. No share was created, edited, or revoked for QA. |
+| Receipt | `90-Status/logs/2026-10-08_040335_kla_idea1-secure-share-scope-auth-layout.md` — one final receipt for the implementation task. |
 
 ## Current Task — IDEA1-UI-INTERACTION — Interaction system + Secure Shares column repair (Classic + Neo)
 

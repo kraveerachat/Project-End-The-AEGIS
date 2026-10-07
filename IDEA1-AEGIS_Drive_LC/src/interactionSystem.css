@@ -236,18 +236,16 @@
 
 /* ── Secure Shares · Active links table ─────────────────────────────
    One column template shared by the header and every row. Scope owns a
-   fixed track sized for the longest real label in TH/EN/ZH ("อินเทอร์เน็ต
-   สาธารณะ", "AEGIS-REACHABLE"), so it can never spill into Auth, and the
-   Expires/Hits/Action tracks never move with Scope text. Below the width
-   that holds all six tracks (container query, not viewport), the same
-   cells reflow into a two-line row instead of squeezing. */
+   dedicated track with room for real TH/EN/ZH labels. The badge itself is
+   constrained to that track, so it cannot spill into Auth. Below the width
+   that holds all six tracks with breathing room (container query, not
+   viewport), the same cells reflow into a two-line row instead of squeezing. */
 .share-table {
-  /* Measured longest labels (TH/EN/ZH, both styles): scope badge 139px,
-     auth 87px, "EXPIRES IN" heading 68px, "ครั้งที่เปิด" heading 48px,
-     Revoke 88px. File keeps >= 160px so names stay readable; below that
-     the row reflows (see the container query). */
-  --share-cols: minmax(160px, 1fr) 142px 92px 72px 52px 88px;
-  --share-gap: 10px;
+  /* The former 688px threshold equalled the tracks' exact minimum, leaving
+     no reserve for font, language, or theme differences in the Scope badge.
+     Keep File flexible and reflow before the security labels become cramped. */
+  --share-cols: minmax(160px, 1fr) 176px 104px 72px 52px 88px;
+  --share-gap: 12px;
   --share-pad: 16px;
   container: share-table / inline-size;
 }
@@ -324,6 +322,10 @@
   gap: 1px;
 }
 
+.share-cell--scope {
+  overflow: hidden;
+}
+
 .share-file-name,
 .share-file-owner,
 .share-auth-value {
@@ -383,7 +385,11 @@
 
 .share-scope-badge {
   display: inline-flex;
+  box-sizing: border-box;
+  width: max-content;
   max-width: 100%;
+  min-width: 0;
+  flex: 0 1 auto;
   height: 24px;
   align-items: center;
   gap: 6px;
@@ -399,6 +405,7 @@
 }
 
 .share-scope-label {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   padding-block: 2px;
@@ -446,7 +453,7 @@
   max-width: 100%;
 }
 
-@container share-table (max-width: 687px) {
+@container share-table (max-width: 743px) {
   .share-table-head {
     display: none;
   }
