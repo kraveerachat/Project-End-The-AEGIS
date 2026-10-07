@@ -144,7 +144,8 @@ def test_ctv_closeout_is_one_shot_and_separate_from_ctu(tmp_path):
         set -Eeuo pipefail
         source "{CTV_LIB}"
         CTV_SUDO="" CTV_TEST_ONLY_CANONICAL_DIR_ENABLED=YES CTV_TEST_ONLY_CANONICAL_DIR="{canon}" \\
-          CTV_CANONICAL_DIR="{canon}" ctv_record_success "{'a' * 40}" "{'b' * 64}" receipt "{'c' * 64}" "{'d' * 64}" "{'e' * 64}" "{'f' * 64}"
+          CTV_CANONICAL_DIR="{canon}" CTV_DETECTOR_BASELINE_MODE=INACTIVE CTV_DEVICE_ID=aegis-relay-01 CTV_EVIDENCE_MANIFEST_SHA256="{'1' * 64}" \
+          ctv_record_success "{'a' * 40}" "{'b' * 64}" NOT_CREATED_PRELIVE "{'c' * 64}" "{'d' * 64}" "{'e' * 64}" "{'f' * 64}"
         grep -qx CTV_RESULT=CLOSED_PASS "{canon}/CTV-GLOBAL-CLOSEOUT-PASS"
         ! CTV_SUDO="" CTV_TEST_ONLY_CANONICAL_DIR_ENABLED=YES CTV_TEST_ONLY_CANONICAL_DIR="{canon}" \\
           CTV_CANONICAL_DIR="{canon}" ctv_record_failure SECOND_ATTEMPT
@@ -152,6 +153,37 @@ def test_ctv_closeout_is_one_shot_and_separate_from_ctu(tmp_path):
     '''
     result = run_bash(script, env={"CTV_SUDO": ""})
     assert result.returncode == 0, result.stderr
+
+
+def test_ctv_closeout_refuses_unvalidated_identity_and_never_writes_unknown(tmp_path):
+    canon = tmp_path / "governance"
+    canon.mkdir()
+    (canon / "CTV-GLOBAL-ATTEMPT-CONSUMED").write_text("CTV_ATTEMPT_CONSUMED=YES\n")
+    script = f'''
+        set -Eeuo pipefail
+        source "{CTV_LIB}"
+        CTV_SUDO="" CTV_TEST_ONLY_CANONICAL_DIR_ENABLED=YES CTV_TEST_ONLY_CANONICAL_DIR="{canon}" \
+          CTV_CANONICAL_DIR="{canon}" CTV_DEVICE_ID=UNKNOWN CTV_DETECTOR_BASELINE_MODE=UNKNOWN \
+          ctv_record_success "{'a' * 40}" "{'b' * 64}" NOT_CREATED_PRELIVE "{'c' * 64}" "{'d' * 64}" "{'e' * 64}" "{'f' * 64}"
+    '''
+    result = run_bash(script, env={"CTV_SUDO": ""})
+    assert result.returncode != 0
+    assert not (canon / "CTV-GLOBAL-CLOSEOUT-PASS").exists()
+
+
+def test_nonhermetic_runner_uses_fresh_l0_capture_and_compare_not_fixture_runtime_proof():
+    text = CTV_RUNNER.read_text()
+    assert "p4-l0-capture.sh" in text
+    assert "p4-compare.sh" in text
+    assert "FIXTURE_ROOT" in text
+    assert "if [ \"$HERMETIC\" = YES ]" in text
+    assert "ctv_host_runtime_verify \"$UNIT_DEST\" \"$UNIT_SHA256\"" in text
+
+
+def test_ctv_bundle_closure_contains_shared_l0_compare_and_device_validator():
+    text = CTV_LIB.read_text()
+    for rel in ("p4-l0-capture.sh", "p4-compare.sh", "p4-ctu-run-lib.sh"):
+        assert rel in text
 
 
 def test_hermetic_apply_and_post_restart_rollback_have_bounded_restarts(tmp_path):
@@ -225,6 +257,7 @@ def _frozen_ctv_world(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path, Pat
     (repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/ctv-acceptance").mkdir(parents=True)
     shutil.copy2(CTV_RUNNER, repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-ctv-owner.sh")
     shutil.copy2(CTV_LIB, repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctv-run-lib.sh")
+    shutil.copy2(ROOT / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh", repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh")
     (repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/units").mkdir(parents=True)
     unit = repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/units/aegis-idea3-core.service"
     unit.write_text("ProtectClock=false\nUser=aegis-idea3\nNoNewPrivileges=true\nCapabilityBoundingSet=\nAmbientCapabilities=\n")
@@ -247,8 +280,12 @@ def _frozen_ctv_world(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path, Pat
     (canon / "CTU-GLOBAL-ATTEMPT-CONSUMED").write_text("CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\n")
     (canon / "CTU-GLOBAL-CLOSEOUT-FAIL").write_text("CTU_RESULT=FAIL_IMMUTABLE\nCTU_FAILURE_REASON=APPLY\nCTU_ATTEMPT_CONSUMED=YES\n")
     shutil.copy2(repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctv-run-lib.sh", bundle / "p4-ctv-run-lib.sh")
+    shutil.copy2(ROOT / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh", bundle / "p4-ctu-run-lib.sh")
     bundle_manifest = bundle / "CTV-BUNDLE-SHA256SUMS"
-    bundle_manifest.write_text(f"{hashlib.sha256((bundle / 'p4-ctv-run-lib.sh').read_bytes()).hexdigest()}  p4-ctv-run-lib.sh\n")
+    bundle_manifest.write_text(
+        f"{hashlib.sha256((bundle / 'p4-ctv-run-lib.sh').read_bytes()).hexdigest()}  p4-ctv-run-lib.sh\n"
+        f"{hashlib.sha256((bundle / 'p4-ctu-run-lib.sh').read_bytes()).hexdigest()}  p4-ctu-run-lib.sh\n"
+    )
     bundle_manifest.chmod(0o444); (bundle / "p4-ctv-run-lib.sh").chmod(0o555)
     subprocess.run([sys.executable, str(SNAPSHOT), "control-snapshot", "--repo", str(repo), "--main", main, "--out", str(control), "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctv-run-lib.sh"], check=True, text=True, capture_output=True)
     checked = subprocess.run([sys.executable, str(SNAPSHOT), "control-check", "--repo", str(repo), "--main", main, "--control", str(control)], text=True, capture_output=True)
@@ -391,9 +428,7 @@ def _recovery_ctv_world(tmp_path: Path) -> tuple[Path, str, Path, Path, Path]:
     receipt.write_text("CTV_LIVE=CLOSED_PASS\nCTV_IS_CTU_RETRY=NO\n")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "receipt")
-    main = _git(repo, "rev-parse", "HEAD")
-    main = _git(repo, "rev-parse", "HEAD")
-    receipt_sha = hashlib.sha256(receipt.read_bytes()).hexdigest()
+    execution_main = _git(repo, "rev-parse", "HEAD")
 
     canon = tmp_path / "canon"
     canon.mkdir(mode=0o700)
@@ -409,7 +444,7 @@ def _recovery_ctv_world(tmp_path: Path) -> tuple[Path, str, Path, Path, Path]:
     closeout = canon / "CTV-GLOBAL-CLOSEOUT-PASS"
     closeout.write_text(
         "CTV_RESULT=CLOSED_PASS\nCTV_IS_CTU_RETRY=NO\nCTV_ATTEMPT_CONSUMED=YES\nCTV_RERUN_ALLOWED=NO\n"
-        f"CTV_EXPECTED_MAIN={main}\nCTV_LIVE_EXECUTED=YES\nCTV_DETECTOR_BASELINE_MODE=INACTIVE\n"
+        f"CTV_EXPECTED_MAIN={execution_main}\nCTV_EXECUTION_MAIN={execution_main}\nCTV_LIVE_EXECUTED=YES\nCTV_DETECTOR_BASELINE_MODE=INACTIVE\n"
         "CTV_DEVICE_ID=aegis-relay-01\n" + "CTV_EVIDENCE_MANIFEST_SHA256=" + "a" * 64 + "\n"
         + "CTV_FROZEN_RUNNER_SHA256=" + "b" * 64 + "\nCTV_RUNNER_TEMPLATE_SHA256=" + "c" * 64 + "\n"
         + "CTV_BUNDLE_MANIFEST_SHA256=" + "d" * 64 + "\nCTV_CONTROL_MANIFEST_SHA256=" + "e" * 64 + "\n"
@@ -420,14 +455,54 @@ def _recovery_ctv_world(tmp_path: Path) -> tuple[Path, str, Path, Path, Path]:
     sidecar = canon / "CTV-GLOBAL-CLOSEOUT-PASS.sha256"
     sidecar.write_text(f"{digest}  {closeout.name}\n")
     sidecar.chmod(0o444)
+    receipt.write_text(
+        "CTV_LIVE=CLOSED_PASS\nCTV_IS_CTU_RETRY=NO\n"
+        f"CTV_EXECUTION_MAIN={execution_main}\nCTV_HOST_CLOSEOUT_SHA256={digest}\n"
+        "CTV_DETECTOR_BASELINE_MODE=INACTIVE\nCTV_DEVICE_ID=aegis-relay-01\n"
+        + "CTV_FROZEN_RUNNER_SHA256=" + "b" * 64 + "\nCTV_RUNNER_TEMPLATE_SHA256=" + "c" * 64 + "\n"
+        + "CTV_BUNDLE_MANIFEST_SHA256=" + "d" * 64 + "\nCTV_CONTROL_MANIFEST_SHA256=" + "e" * 64 + "\n"
+        + f"CTV_UNIT_SHA256={unit_sha}\nCTV_EVIDENCE_MANIFEST_SHA256=" + "a" * 64 + "\n"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "reviewed CTv closeout receipt")
+    main = _git(repo, "rev-parse", "HEAD")
     return repo, main, canon, unit, receipt_rel
 
 
+def test_recovery_requires_reviewed_successor_receipt_bound_to_host_closeout(tmp_path):
+    repo, _review_main, canon, unit, receipt_rel = _recovery_ctv_world(tmp_path)
+    execution_main = next(line.split("=", 1)[1] for line in (canon / "CTV-GLOBAL-CLOSEOUT-PASS").read_text().splitlines() if line.startswith("CTV_EXECUTION_MAIN="))
+    receipt = repo / receipt_rel
+    receipt.unlink()
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "remove unreviewed receipt")
+    unreviewed_main = _git(repo, "rev-parse", "HEAD")
+    result = _run_recovery_ctv_gate(repo, unreviewed_main, canon, unit, receipt_rel)
+    assert result.returncode != 0, "Recovery must block without a reviewed repository receipt"
+
+    receipt.write_text(
+        "CTV_LIVE=CLOSED_PASS\nCTV_IS_CTU_RETRY=NO\n"
+        f"CTV_EXECUTION_MAIN={execution_main}\n"
+        f"CTV_HOST_CLOSEOUT_SHA256={hashlib.sha256((canon / 'CTV-GLOBAL-CLOSEOUT-PASS').read_bytes()).hexdigest()}\n"
+        "CTV_DETECTOR_BASELINE_MODE=INACTIVE\nCTV_DEVICE_ID=aegis-relay-01\n"
+        + "CTV_FROZEN_RUNNER_SHA256=" + "b" * 64 + "\nCTV_RUNNER_TEMPLATE_SHA256=" + "c" * 64 + "\n"
+        + "CTV_BUNDLE_MANIFEST_SHA256=" + "d" * 64 + "\nCTV_CONTROL_MANIFEST_SHA256=" + "e" * 64 + "\n"
+        + f"CTV_UNIT_SHA256={hashlib.sha256(unit.read_bytes()).hexdigest()}\nCTV_EVIDENCE_MANIFEST_SHA256=" + "a" * 64 + "\n"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "reviewed successor receipt")
+    successor_main = _git(repo, "rev-parse", "HEAD")
+    result = _run_recovery_ctv_gate(repo, successor_main, canon, unit, receipt_rel)
+    assert result.returncode == 0, result.stderr
+
+
 def _run_recovery_ctv_gate(repo: Path, main: str, canon: Path, unit: Path, receipt_rel: Path) -> subprocess.CompletedProcess[str]:
+    receipt_path = repo / receipt_rel
+    receipt_sha = hashlib.sha256(receipt_path.read_bytes()).hexdigest() if receipt_path.exists() else "0" * 64
     script = f'''set -Eeuo pipefail
 export SUDO="" RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED=YES
 export RECOVERY_TEST_ONLY_CANONICAL_DIR="{canon}" RECOVERY_TEST_ONLY_TRUST_ROOT="{canon.parent}"
-export CTV_LIVE_RECEIPT_RELATIVE="{receipt_rel}" CTV_REPO_RECEIPT_SHA256="{hashlib.sha256((repo / receipt_rel).read_bytes()).hexdigest()}"
+export CTV_LIVE_RECEIPT_RELATIVE="{receipt_rel}" CTV_REPO_RECEIPT_SHA256="{receipt_sha}"
 export AEGIS_CORE_UNIT_FILE="{unit}"
 source "{DEPLOY / 'p4-recovery-run-lib.sh'}"
 recovery_ctv_successor_gate "{repo}" "{main}"
@@ -455,7 +530,7 @@ def test_recovery_ctv_successor_gate_rejects_each_governance_break(tmp_path, mut
     if mutation == "ctu-pass": (canon / "CTU-GLOBAL-CLOSEOUT-PASS").write_text("fake\n")
     elif mutation == "ctv-marker": (canon / "CTV-GLOBAL-ATTEMPT-CONSUMED").unlink()
     elif mutation == "ctv-fail": (canon / "CTV-GLOBAL-CLOSEOUT-FAIL").write_text("fake\n")
-    elif mutation == "main": closeout.write_text(closeout.read_text().replace(f"CTV_EXPECTED_MAIN={main}", "CTV_EXPECTED_MAIN=" + "0" * 40))
+    elif mutation == "main": closeout.write_text(closeout.read_text().replace("CTV_EXECUTION_MAIN=", "CTV_EXECUTION_MAIN=" + "0" * 40 + " #"))
     elif mutation in {"runner", "template", "bundle", "control", "evidence"}:
         field = {"runner": "CTV_FROZEN_RUNNER_SHA256", "template": "CTV_RUNNER_TEMPLATE_SHA256", "bundle": "CTV_BUNDLE_MANIFEST_SHA256", "control": "CTV_CONTROL_MANIFEST_SHA256", "evidence": "CTV_EVIDENCE_MANIFEST_SHA256"}[mutation]
         closeout.write_text(closeout.read_text().replace(field + "=" + ({"runner": "b", "template": "c", "bundle": "d", "control": "e", "evidence": "a"}[mutation] * 64), field + "=" + "0" * 63 + "X"))

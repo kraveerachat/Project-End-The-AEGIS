@@ -226,7 +226,7 @@ recovery_ctu_successor_gate() {
 # PASS: this path requires a distinct, reviewed CTv CLOSED_PASS closeout and
 # the CTv repository receipt bound to the same exact main.
 recovery_ctv_successor_gate() {
-  local repo=${1:-} main=${2:-} canon closeout receipt_rel receipt receipt_sha want=0
+  local repo=${1:-} main=${2:-} canon closeout receipt_rel receipt receipt_sha execution_main host_closeout_sha want=0 field value
   [ -n "$repo" ] && [ -d "$repo/.git" ] && [[ "$main" =~ ^[0-9a-f]{40}$ ]] || return 1
   [ -z "$SUDO" ] || want=0
   [ -n "$SUDO" ] || want=$(id -u)
@@ -249,7 +249,10 @@ recovery_ctv_successor_gate() {
   grep -qx 'CTV_IS_CTU_RETRY=NO' "$closeout" || { recovery_reason RECOVERY_CTV_RETRY_FLAG_INVALID; return 1; }
   grep -qx 'CTV_ATTEMPT_CONSUMED=YES' "$closeout" || { recovery_reason RECOVERY_CTV_ATTEMPT_NOT_CONSUMED; return 1; }
   grep -qx 'CTV_RERUN_ALLOWED=NO' "$closeout" || { recovery_reason RECOVERY_CTV_RERUN_ALLOWED; return 1; }
-  grep -qx "CTV_EXPECTED_MAIN=$main" "$closeout" || { recovery_reason RECOVERY_CTV_MAIN_MISMATCH; return 1; }
+  execution_main=$(awk -F= '$1 == "CTV_EXECUTION_MAIN" {print $2}' "$closeout")
+  [[ "$execution_main" =~ ^[0-9a-f]{40}$ ]] || { recovery_reason RECOVERY_CTV_EXECUTION_MAIN_INVALID; return 1; }
+  [ "$execution_main" != "$main" ] || { recovery_reason RECOVERY_CTV_REVIEW_MAIN_MUST_BE_SUCCESSOR; return 1; }
+  GIT_NO_REPLACE_OBJECTS=1 git -C "$repo" merge-base --is-ancestor "$execution_main" "$main" 2>/dev/null || { recovery_reason RECOVERY_CTV_EXECUTION_MAIN_NOT_ANCESTOR; return 1; }
   receipt_rel=${CTV_LIVE_RECEIPT_RELATIVE:-}; receipt_sha=${CTV_REPO_RECEIPT_SHA256:-}
   [[ -n "$receipt_rel" && "$receipt_rel" != /* && "$receipt_rel" != *..* && "$receipt_sha" =~ ^[0-9a-f]{64}$ ]] || { recovery_reason RECOVERY_CTV_RECEIPT_PIN_INVALID; return 1; }
   receipt="$repo/$receipt_rel"
@@ -260,6 +263,13 @@ recovery_ctv_successor_gate() {
   [ -f "$closeout.sha256" ] && [ ! -L "$closeout.sha256" ] && [ "$(stat -c %u:%a "$closeout.sha256" 2>/dev/null)" = "$want:444" ] && (cd "$canon" && sha256sum --strict --check "$(basename "$closeout.sha256")" >/dev/null 2>&1) || { recovery_reason RECOVERY_CTV_CLOSEOUT_DIGEST_INVALID; return 1; }
   grep -qx 'CTV_LIVE=CLOSED_PASS' "$receipt" || { recovery_reason RECOVERY_CTV_RECEIPT_NOT_PASS; return 1; }
   grep -qx 'CTV_IS_CTU_RETRY=NO' "$receipt" || { recovery_reason RECOVERY_CTV_RECEIPT_RETRY_INVALID; return 1; }
+  grep -qx "CTV_EXECUTION_MAIN=$execution_main" "$receipt" || { recovery_reason RECOVERY_CTV_RECEIPT_EXECUTION_MAIN_MISMATCH; return 1; }
+  host_closeout_sha=$(sha256sum "$closeout" | cut -d' ' -f1)
+  grep -qx "CTV_HOST_CLOSEOUT_SHA256=$host_closeout_sha" "$receipt" || { recovery_reason RECOVERY_CTV_RECEIPT_CLOSEOUT_MISMATCH; return 1; }
+  for field in CTV_FROZEN_RUNNER_SHA256 CTV_RUNNER_TEMPLATE_SHA256 CTV_BUNDLE_MANIFEST_SHA256 CTV_CONTROL_MANIFEST_SHA256 CTV_UNIT_SHA256 CTV_EVIDENCE_MANIFEST_SHA256 CTV_DETECTOR_BASELINE_MODE CTV_DEVICE_ID; do
+    value=$(awk -F= -v key="$field" '$1 == key {print $2}' "$closeout")
+    grep -qx "$field=$value" "$receipt" || { recovery_reason "RECOVERY_CTV_RECEIPT_${field}_MISMATCH"; return 1; }
+  done
   grep -qx 'CTV_LIVE_EXECUTED=YES' "$closeout" || { recovery_reason RECOVERY_CTV_NOT_EXECUTED; return 1; }
   grep -Eq '^CTV_DETECTOR_BASELINE_MODE=(ACTIVE|INACTIVE)$' "$closeout" || { recovery_reason RECOVERY_CTV_DETECTOR_MODE_INVALID; return 1; }
   grep -Eq '^CTV_DEVICE_ID=[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' "$closeout" || { recovery_reason RECOVERY_CTV_DEVICE_ID_INVALID; return 1; }

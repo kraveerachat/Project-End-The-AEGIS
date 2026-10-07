@@ -54,6 +54,7 @@ CTV_LIB=$CONTROL_DIR/IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctv-run-lib.sh
 [ -f "$CTV_LIB" ] || CTV_LIB=$CONTROL_DIR/p4-ctv-run-lib.sh
 [ -f "$CTV_LIB" ] && [ ! -L "$CTV_LIB" ] || { echo 'STOP: CTv control snapshot is missing.' >&2; exit 1; }
 . "$CTV_LIB"
+. "$BUNDLE_DIR/p4-ctu-run-lib.sh"
 # CTV_PRECONSUME_REHEARSAL=PASS is emitted only after the real rehearsal below.
 CTV_CANONICAL_DIR=$CANONICAL_DIR
 CTV_TEST_ONLY_CANONICAL_DIR_ENABLED=YES
@@ -76,14 +77,37 @@ CTV_BUNDLE_MANIFEST_SHA256=$(sha256sum -- "$BUNDLE_DIR/CTV-BUNDLE-SHA256SUMS" 2>
 CTV_CONTROL_MANIFEST_SHA256=$(sha256sum -- "$CONTROL_DIR/CTV-CONTROL-SHA256SUMS" 2>/dev/null | cut -d' ' -f1 || true)
 export CTV_RUNNER_TEMPLATE_SHA256 CTV_FROZEN_RUNNER_SHA256 CTV_BUNDLE_MANIFEST_SHA256 CTV_CONTROL_MANIFEST_SHA256
 CTV_ATTEMPT_CONSUMED=NO
-if ! ctv_preconsume_rehearsal "$REPO" "$EXPECTED_MAIN" "$AUTH" "$K3" "$CANONICAL_DIR" "$BUNDLE_DIR" "$CONTROL_DIR" "$0" "$RUNNER_SHA256" "$TEMPLATE_SHA256" "$UNIT_SOURCE" "$UNIT_SHA256" "$FIXTURE_ROOT"; then
+if ! ctv_validate_core_env_device_id /etc/aegis-idea3/core.env "$DEVICE_ID"; then
+  if [ "$HERMETIC" = YES ]; then
+    :
+  else
+    echo 'STOP: core.env AEGIS_P1_DEVICE_ID does not match frozen DEVICE_ID.' >&2; exit 1
+  fi
+fi
+if [ "$HERMETIC" != YES ]; then
+  CTV_DETECTOR_BASELINE_MODE=$(ctv_detector_baseline_mode) || { echo 'STOP: detector is neither governed ACTIVE nor INACTIVE.' >&2; exit 1; }
+  export CTV_DETECTOR_BASELINE_MODE CTV_DEVICE_ID="$DEVICE_ID"
+else
+  CTV_DETECTOR_BASELINE_MODE=$(cat "$FIXTURE_ROOT/detector.state")
+  CTV_DEVICE_ID=$(cat "$FIXTURE_ROOT/device-id")
+  export CTV_DETECTOR_BASELINE_MODE CTV_DEVICE_ID
+fi
+PRECONSUME_FIXTURE=$FIXTURE_ROOT; [ "$HERMETIC" = YES ] || PRECONSUME_FIXTURE=
+if ! ctv_preconsume_rehearsal "$REPO" "$EXPECTED_MAIN" "$AUTH" "$K3" "$CANONICAL_DIR" "$BUNDLE_DIR" "$CONTROL_DIR" "$0" "$RUNNER_SHA256" "$TEMPLATE_SHA256" "$UNIT_SOURCE" "$UNIT_SHA256" "$PRECONSUME_FIXTURE"; then
   echo 'CTV_PRECONSUME_REHEARSAL=FAIL' >&2; exit 1
 fi
 [ "$MODE" = --rehearse ] && { printf 'CTV_LIVE_EXECUTED=NO\nCTV_ATTEMPT_CONSUMED=NO\nPRODUCTION_MUTATION_PERFORMED=NO\n'; exit 0; }
 ctv_marker_unconsumed || exit 1
 ctv_prepare_work_dir "$WORK_DIR"
 ctv_prepare_no_mutation_journal "$WORK_DIR/journal"
-ctv_capture_state "$WORK_DIR/pre" "$FIXTURE_ROOT" PRE || exit 1
+if [ "$HERMETIC" = YES ]; then
+  ctv_capture_state "$WORK_DIR/pre" "$FIXTURE_ROOT" PRE || exit 1
+else
+  JOURNAL_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+  mkdir -m 700 "$WORK_DIR/pre-root"
+  ctv_run env EVID_DIR="$WORK_DIR/pre-root" CAPTURE_LABEL=ctv-pre JOURNAL_SINCE="$JOURNAL_SINCE" bash "$BUNDLE_DIR/p4-l0-capture.sh" || exit 1
+  grep -q 'L0_CAPTURE=COMPLETE' "$WORK_DIR/pre-root/capture.log" || exit 1
+fi
 ctv_live_abort() {
   local rc=$?
   trap - EXIT
@@ -105,11 +129,26 @@ if ! ctv_apply_governed "$WORK_DIR/journal" "$UNIT_SOURCE" "$UNIT_DEST" "$UNIT_S
 fi
 ctv_journal_phase "$WORK_DIR/journal" apply-verified
 ctv_failpoint post-runtime-verify || exit 1
-ctv_capture_state "$WORK_DIR/post" "$FIXTURE_ROOT" POST || exit 1
+if [ "$HERMETIC" = YES ]; then
+  ctv_capture_state "$WORK_DIR/post" "$FIXTURE_ROOT" POST || exit 1
+else
+  ctv_run env EVID_DIR="$WORK_DIR/post-root" CAPTURE_LABEL=ctv-post JOURNAL_SINCE="$JOURNAL_SINCE" bash "$BUNDLE_DIR/p4-l0-capture.sh" || exit 1
+  grep -q 'L0_CAPTURE=COMPLETE' "$WORK_DIR/post-root/capture.log" || exit 1
+fi
 ctv_failpoint post-capture || exit 1
-ctv_compare_preservation "$WORK_DIR/pre" "$WORK_DIR/post" || exit 1
+if [ "$HERMETIC" = YES ]; then
+  ctv_compare_preservation "$WORK_DIR/pre" "$WORK_DIR/post" || exit 1
+else
+  ctv_run env DISK_THRESHOLD_PCT=90 ALLOW_KEYS_FILE="$BUNDLE_DIR/stages/CTv/allow-keys.txt" ALLOW_LISTENERS_FILE="$BUNDLE_DIR/stages/CTv/allow-listeners.txt" bash "$BUNDLE_DIR/p4-compare.sh" "$WORK_DIR/pre-root" "$WORK_DIR/post-root" > "$WORK_DIR/compare-pre-post.txt" || exit 1
+  grep -qx 'PRESERVATION_S10=PASS' "$WORK_DIR/compare-pre-post.txt" || exit 1
+  grep -qx 'COMPARE_RESULT=PASS' "$WORK_DIR/compare-pre-post.txt" || exit 1
+fi
 ctv_failpoint preservation-compare || exit 1
-ctv_runtime_verify "$FIXTURE_ROOT" || exit 1
+if [ "$HERMETIC" = YES ]; then
+  ctv_runtime_verify "$FIXTURE_ROOT" || exit 1
+else
+  ctv_host_runtime_verify "$UNIT_DEST" "$UNIT_SHA256" "$DEVICE_ID" "$CTV_DETECTOR_BASELINE_MODE" || exit 1
+fi
 ctv_failpoint detector-preservation || exit 1
 ctv_evidence_manifest "$WORK_DIR" || exit 1
 ctv_failpoint evidence-manifest || exit 1
