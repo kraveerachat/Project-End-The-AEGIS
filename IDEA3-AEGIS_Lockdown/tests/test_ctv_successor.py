@@ -105,3 +105,22 @@ def test_ctv_rehearsal_is_explicitly_non_consuming():
     assert "ctv_consume_attempt" in text
     assert text.index("CTV_PRECONSUME_REHEARSAL=PASS") < text.index("ctv_consume_attempt")
     assert "CTV_ATTEMPT_CONSUMED=NO" in text
+
+
+def test_ctv_closeout_is_one_shot_and_separate_from_ctu(tmp_path):
+    canon = tmp_path / "governance"
+    canon.mkdir()
+    marker = canon / "CTV-GLOBAL-ATTEMPT-CONSUMED"
+    marker.write_text("CTV_ATTEMPT_CONSUMED=YES\n")
+    script = f'''
+        set -Eeuo pipefail
+        source "{CTV_LIB}"
+        CTV_SUDO="" CTV_TEST_ONLY_CANONICAL_DIR_ENABLED=YES CTV_TEST_ONLY_CANONICAL_DIR="{canon}" \\
+          CTV_CANONICAL_DIR="{canon}" ctv_record_success "{'a' * 40}" "{'b' * 64}" receipt "{'c' * 64}" "{'d' * 64}" "{'e' * 64}" "{'f' * 64}"
+        grep -qx CTV_RESULT=CLOSED_PASS "{canon}/CTV-GLOBAL-CLOSEOUT-PASS"
+        ! CTV_SUDO="" CTV_TEST_ONLY_CANONICAL_DIR_ENABLED=YES CTV_TEST_ONLY_CANONICAL_DIR="{canon}" \\
+          CTV_CANONICAL_DIR="{canon}" ctv_record_failure SECOND_ATTEMPT
+        ! grep -q CTU_RESULT=PASS "{canon}/CTV-GLOBAL-CLOSEOUT-PASS"
+    '''
+    result = run_bash(script, env={"CTV_SUDO": ""})
+    assert result.returncode == 0, result.stderr

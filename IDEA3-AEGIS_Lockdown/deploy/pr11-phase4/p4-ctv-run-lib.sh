@@ -109,6 +109,22 @@ ctv_consume_attempt() {
   printf 'CTV_ATTEMPT_CONSUMED=YES\nCTV_RERUN_ALLOWED=NO\nCTV_FROZEN_RUNNER_SHA256=%s\nCTV_RUNNER_TEMPLATE_SHA256=%s\nCTV_BUNDLE_MANIFEST_SHA256=%s\nCTV_CONTROL_MANIFEST_SHA256=%s\nwork=%s\n' "$runner_sha" "$template_sha" "$bundle_sha" "$control_sha" "$work" | ctv_run bash -c 'set -o noclobber; cat > "$1"' _ "$marker" || return 1
   ctv_fsync "$marker" && ctv_fsync "$dir"
 }
+ctv_record_success() {
+  local main=${1:-} unit_sha=${2:-} receipt=${3:-} runner_sha=${4:-} template_sha=${5:-} bundle_sha=${6:-} control_sha=${7:-} dir closeout tmp
+  [[ "$main" =~ ^[0-9a-f]{40}$ && "$unit_sha" =~ ^[0-9a-f]{64}$ && "$runner_sha" =~ ^[0-9a-f]{64}$ && "$template_sha" =~ ^[0-9a-f]{64}$ && "$bundle_sha" =~ ^[0-9a-f]{64}$ && "$control_sha" =~ ^[0-9a-f]{64}$ ]] || return 1
+  [ "$runner_sha" != "$template_sha" ] || return 1
+  dir=$(ctv_canonical_dir); closeout="$dir/$CTV_CLOSEOUT_PASS_NAME"; tmp="$closeout.tmp.$$"
+  [ -f "$dir/$CTV_GLOBAL_MARKER_NAME" ] && [ ! -e "$closeout" ] && [ ! -e "$dir/$CTV_CLOSEOUT_FAIL_NAME" ] || return 1
+  printf 'CTV_RESULT=CLOSED_PASS\nCTV_LIVE=CLOSED_PASS\nCTV_LIVE_EXECUTED=YES\nCTV_ATTEMPT_CONSUMED=YES\nCTV_RERUN_ALLOWED=NO\nCTV_IS_CTU_RETRY=NO\nCTV_EXPECTED_MAIN=%s\nCTV_UNIT_SHA256=%s\nCTV_FROZEN_RUNNER_SHA256=%s\nCTV_RUNNER_TEMPLATE_SHA256=%s\nCTV_BUNDLE_MANIFEST_SHA256=%s\nCTV_CONTROL_MANIFEST_SHA256=%s\nCTV_CORE_RESTARTS=1\nCTV_EXPLICIT_DETECTOR_LIFECYCLE_COMMANDS=0\nCTV_PRODUCTION_RUNTIME_MUTATION_OCCURRED=YES\nCTV_REPOSITORY_RECEIPT=%s\n' "$main" "$unit_sha" "$runner_sha" "$template_sha" "$bundle_sha" "$control_sha" "$receipt" | ctv_run tee "$tmp" >/dev/null || return 1
+  ctv_run chmod 0600 "$tmp"; ctv_fsync "$tmp"; ctv_run mv -n "$tmp" "$closeout"; ctv_fsync "$closeout"; ctv_fsync "$dir"
+}
+ctv_record_failure() {
+  local reason=${1:-UNKNOWN} dir closeout tmp
+  dir=$(ctv_canonical_dir); closeout="$dir/$CTV_CLOSEOUT_FAIL_NAME"; tmp="$closeout.tmp.$$"
+  [ -f "$dir/$CTV_GLOBAL_MARKER_NAME" ] && [ ! -e "$dir/$CTV_CLOSEOUT_PASS_NAME" ] && [ ! -e "$closeout" ] || return 1
+  printf 'CTV_RESULT=FAIL_IMMUTABLE\nCTV_LIVE=CLOSED_FAIL\nCTV_LIVE_EXECUTED=NO\nCTV_ATTEMPT_CONSUMED=YES\nCTV_RERUN_ALLOWED=NO\nCTV_IS_CTU_RETRY=NO\nCTV_FAILURE_REASON=%s\n' "$reason" | ctv_run tee "$tmp" >/dev/null || return 1
+  ctv_run chmod 0600 "$tmp"; ctv_fsync "$tmp"; ctv_run mv -n "$tmp" "$closeout"; ctv_fsync "$closeout"; ctv_fsync "$dir"
+}
 ctv_predecessor_gate() {
   local canon=${1:-}; ctv_path_ok "$canon" || return 1
   [ -f "$canon/CTU-GLOBAL-ATTEMPT-CONSUMED" ] && [ -f "$canon/CTU-GLOBAL-CLOSEOUT-FAIL" ] || return 1
@@ -116,7 +132,9 @@ ctv_predecessor_gate() {
   grep -qx 'CTU_RESULT=FAIL_IMMUTABLE' "$canon/CTU-GLOBAL-CLOSEOUT-FAIL" || return 1
   grep -qx 'CTU_FAILURE_REASON=APPLY' "$canon/CTU-GLOBAL-CLOSEOUT-FAIL" || return 1
   grep -qx 'CTU_ATTEMPT_CONSUMED=YES' "$canon/CTU-GLOBAL-ATTEMPT-CONSUMED" || return 1
-  grep -qx 'CTU_RERUN_ALLOWED=NO' "$canon/CTU-GLOBAL-ATTEMPT-CONSUMED"
+  grep -qx 'CTU_RERUN_ALLOWED=NO' "$canon/CTU-GLOBAL-ATTEMPT-CONSUMED" || return 1
+  [ ! -e "$canon/$CTV_GLOBAL_MARKER_NAME" ] && [ ! -e "$canon/$CTV_CLOSEOUT_PASS_NAME" ] && [ ! -e "$canon/$CTV_CLOSEOUT_FAIL_NAME" ] || return 1
+  [ ! -e "$canon/RECOVERY-GLOBAL-ATTEMPT-CONSUMED" ] && [ ! -L "$canon/RECOVERY-GLOBAL-ATTEMPT-CONSUMED" ]
 }
 ctv_target_unit_preflight() {
   local unit=${1:-} expected_sha=${2:-}; ctv_verify_regular_trusted "$unit" "$expected_sha" || return 1

@@ -38,7 +38,7 @@ edit_policy: append-by-new-file
 - `python3` direct execution of all focused CTv test functions — pass.
 - `bash -n` on changed shell scripts — pass.
 - `python3 -m pytest -q IDEA3-AEGIS_Lockdown/tests/test_ctv_successor.py` — blocked: pytest is not installed in this environment; direct execution passed.
-- `pytest -q tests/test_ctv_successor.py tests/test_ctu_blockers.py tests/test_ctu_l0_dependency_closure.py tests/test_core_trusted_time_repair.py tests/rru` — pass: 215 tests.
+- `pytest -q tests/test_ctv_successor.py tests/test_ctu_blockers.py tests/test_ctu_l0_dependency_closure.py tests/test_core_trusted_time_repair.py tests/rru` — pass: 216 tests.
 - `node --test tests/collaborationPolicy.test.mjs tests/vaultMultiWriter.test.mjs tests/vaultStructure.test.mjs` — pass: 59 tests with host Git permissions.
 - `node scripts/validate-vault.mjs` — pass with two pre-existing canvas owner-data warnings.
 - CTv LIVE / Recovery LIVE — intentionally not run.
