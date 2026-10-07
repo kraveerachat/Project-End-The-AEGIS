@@ -30,6 +30,8 @@ TRUST_CLOSURE_FILES = (
     "p4-stage-gate.sh",
     "p4-lib.sh",
     "p4-l0-capture.sh",
+    "p4-l5-clock.py",
+    "p4-l6c-tree-digest.py",
     "p4-compare.sh",
     "p4-l7u-run-lib.sh",
     "p4-l7-run-lib.sh",

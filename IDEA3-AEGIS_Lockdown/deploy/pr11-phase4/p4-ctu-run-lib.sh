@@ -123,17 +123,46 @@ ctu_consume_attempt() {
   fi
   $CTU_SUDO chattr +i "$marker" 2>/dev/null || true
 }
+ctu_prepare_work_dir() {
+  local work=${1:-} owner="root:root"
+  [[ "$work" == /* && "$work" != *..* ]] || return 1
+  if [ -z "$CTU_SUDO" ] && [ "$(id -u)" != 0 ]; then
+    owner="$(id -u):$(id -g)"
+  fi
+  $CTU_SUDO mkdir -p -- "$work" || return 1
+  $CTU_SUDO chown "$owner" -- "$work" || return 1
+  $CTU_SUDO chmod 0711 -- "$work" || return 1
+  ctu_fsync "$work" || return 1
+  ctu_verify_work_dir "$work"
+}
+ctu_verify_work_dir() {
+  local work=${1:-} owner="0:0"
+  [[ "$work" == /* && "$work" != *..* ]] || return 1
+  if [ -z "$CTU_SUDO" ] && [ "$(id -u)" != 0 ]; then
+    owner="$(id -u):$(id -g)"
+  fi
+  [ -d "$work" ] && [ ! -L "$work" ] || return 1
+  [ "$($CTU_SUDO stat -c %u:%g -- "$work" 2>/dev/null)" = "$owner" ] || return 1
+  case "$($CTU_SUDO stat -c %a -- "$work" 2>/dev/null)" in 711|0711) ;; *) return 1 ;; esac
+  [ -z "$($CTU_SUDO find "$work" -maxdepth 0 -perm /022 2>/dev/null)" ] || return 1
+  [ -x "$work" ] || return 1
+  if [ "$(id -u)" != 0 ] && [ "$owner" = "0:0" ]; then
+    [ ! -w "$work" ] || return 1
+    [ ! -r "$work" ] || return 1
+  fi
+}
 ctu_prepare_unit_snapshot() {
   local source=${1:-} snapshot=${2:-} expected=${3:-} tmp
   [ -f "$source" ] && [ ! -L "$source" ] || { echo CTU_UNIT_SOURCE_NOT_REGULAR >&2; return 1; }
   [ "$(stat -c %F -- "$source" 2>/dev/null)" = "regular file" ] || { echo CTU_UNIT_SOURCE_NOT_REGULAR >&2; return 1; }
   [[ "$snapshot" == /* && "$snapshot" != *..* && "$expected" =~ ^[0-9a-f]{64}$ ]] || return 1
   tmp="$snapshot.tmp.$$.${RANDOM}"
-  $CTU_SUDO mkdir -p -m 0700 -- "$(dirname "$snapshot")" || return 1
+  ctu_prepare_work_dir "$(dirname "$snapshot")" || return 1
   $CTU_SUDO install -o root -g root -m 0644 -- "$source" "$tmp" || return 1
   $CTU_SUDO mv -f -- "$tmp" "$snapshot" || return 1
   $CTU_SUDO test ! -L "$snapshot" || return 1
   [ "$($CTU_SUDO stat -c %u -- "$snapshot")" = 0 ] || return 1
+  [ "$($CTU_SUDO stat -c %a -- "$snapshot")" = "644" ] || return 1
   [ "$($CTU_SUDO sha256sum -- "$snapshot" | cut -d' ' -f1)" = "$expected" ] || { echo CTU_UNIT_SNAPSHOT_SHA256_MISMATCH >&2; return 1; }
   ctu_fsync "$snapshot" && ctu_fsync "$(dirname "$snapshot")"
 }
@@ -141,11 +170,12 @@ ctu_prepare_bundle() {
   local repo=${1:-} p4=${2:-} bundle=${3:-} main=${4:-} rel src dst got expected
   [[ "$repo" == /* && "$p4" == /* && "$bundle" == /* && "$bundle" != *..* && "$main" =~ ^[0-9a-f]{40}$ ]] || return 1
   local -a files=(
-    p4-lib.sh p4-stage-gate.sh p4-ctu-run-lib.sh p4-l0-capture.sh p4-compare.sh p4-l7u-run-lib.sh p4-l7-run-lib.sh p4-l6b-run-lib.sh p4-ctu-runtime-verify.py
+    p4-lib.sh p4-stage-gate.sh p4-ctu-run-lib.sh p4-l0-capture.sh p4-l5-clock.py p4-l6c-tree-digest.py p4-compare.sh p4-l7u-run-lib.sh p4-l7-run-lib.sh p4-l6b-run-lib.sh p4-ctu-runtime-verify.py
     stages/CTu/apply.sh stages/CTu/verify.sh stages/CTu/rollback.sh
     stages/CTu/allow-keys.txt stages/CTu/allow-keys-rollback.txt stages/CTu/allow-listeners.txt
     p4-iw-phy-regnorm.awk owner-run/run-ctu-owner.sh ctu-acceptance/ctu_dropin_contract.py
   )
+  ctu_prepare_work_dir "$(dirname "$bundle")" || return 1
   $CTU_SUDO mkdir -p -m 0700 -- "$bundle/stages/CTu" "$bundle/owner-run" "$bundle/ctu-acceptance" || return 1
   : | $CTU_SUDO tee "$bundle/CTU-BUNDLE-SHA256SUMS" >/dev/null || return 1
   for rel in "${files[@]}"; do
@@ -162,10 +192,13 @@ ctu_prepare_bundle() {
   $CTU_SUDO chmod 0555 "$bundle" "$bundle/stages" "$bundle/stages/CTu" "$bundle/owner-run" "$bundle/ctu-acceptance"
   $CTU_SUDO chmod 0444 "$bundle/CTU-BUNDLE-SHA256SUMS"
   ctu_fsync "$bundle/CTU-BUNDLE-SHA256SUMS" && ctu_fsync "$bundle" || return 1
+  ctu_verify_work_dir "$(dirname "$bundle")" || return 1
   ( cd "$bundle" && $CTU_SUDO sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) >/dev/null 2>&1
 }
 ctu_verify_bundle() {
   local bundle=${1:-}
+  [[ "$bundle" == /* && "$bundle" != *..* ]] || return 1
+  ctu_verify_work_dir "$(dirname "$bundle")" || return 1
   [ -d "$bundle" ] && [ ! -L "$bundle" ] || return 1
   [ "$($CTU_SUDO stat -c %u -- "$bundle" 2>/dev/null)" = 0 ] || return 1
   [ -z "$($CTU_SUDO find "$bundle" -type l -print -quit)" ] || return 1
@@ -173,8 +206,11 @@ ctu_verify_bundle() {
 }
 ctu_verify_unit_snapshot() {
   local snapshot=${1:-} expected=${2:-}
+  [[ "$snapshot" == /* && "$snapshot" != *..* ]] || return 1
+  ctu_verify_work_dir "$(dirname "$snapshot")" || return 1
   [ -f "$snapshot" ] && [ ! -L "$snapshot" ] || return 1
   [ "$($CTU_SUDO stat -c %u -- "$snapshot" 2>/dev/null)" = 0 ] || return 1
+  [ "$($CTU_SUDO stat -c %a -- "$snapshot" 2>/dev/null)" = "644" ] || return 1
   [ "$($CTU_SUDO sha256sum -- "$snapshot" 2>/dev/null | cut -d' ' -f1)" = "$expected" ]
 }
 CTU_KEEPALIVE_PID=""

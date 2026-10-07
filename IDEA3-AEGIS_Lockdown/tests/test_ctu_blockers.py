@@ -515,6 +515,20 @@ def _userns_usable() -> bool:
     return bool(shutil.which("unshare")) and subprocess.run(["unshare", "-r", "true"], capture_output=True).returncode == 0
 
 
+def _multi_uid_userns_usable() -> bool:
+    if not shutil.which("unshare"):
+        return False
+    cmd = [
+        "unshare",
+        "--map-users", "0:1000:1",
+        "--map-users", "1000:100000:1",
+        "--map-groups", "0:1000:1",
+        "--map-groups", "1000:100000:1",
+        "true",
+    ]
+    return subprocess.run(cmd, capture_output=True).returncode == 0
+
+
 def test_blocker7_ctu_control_snapshot_directory_seal_and_permissions(tmp_path: Path) -> None:
     tool = _load_snapshot_tool()
     snap_dir = tmp_path / "snap"
@@ -1506,7 +1520,8 @@ def test_ctu_prepare_bundle_end_to_end_behavioral(tmp_path: Path) -> None:
         check=True, capture_output=True, text=True
     ).stdout.strip()
 
-    bundle_dir = tmp_path / "bundle"
+    work_dir = tmp_path / "ctu-work"
+    bundle_dir = work_dir / "bundle"
     outside_dir = tmp_path / "outside"
     outside_dir.mkdir()
 
@@ -1516,6 +1531,7 @@ set -Eeuo pipefail
 cd "{outside_dir}"
 CTU_SUDO=""
 source "{target_p4}/p4-ctu-run-lib.sh"
+ctu_prepare_work_dir "{work_dir}"
 ctu_prepare_bundle "{tmp_repo}" "{target_p4}" "{bundle_dir}" "{commit_sha}"
 ctu_verify_bundle "{bundle_dir}"
 echo "PREPARE_AND_VERIFY=PASS"
@@ -1528,6 +1544,9 @@ echo "PREPARE_AND_VERIFY=PASS"
     res = subprocess.run(runner_cmd, capture_output=True, text=True)
     assert res.returncode == 0, f"ctu_prepare_bundle failed: {res.stderr}"
     assert "PREPARE_AND_VERIFY=PASS" in res.stdout
+
+    # Verify work directory is 0711
+    assert stat.S_IMODE(work_dir.stat().st_mode) == 0o711
 
     # Verify all bundle directories are sealed to 0555
     for d in [bundle_dir, *bundle_dir.rglob("*")]:
@@ -1566,3 +1585,211 @@ ctu_verify_bundle "{bundle_dir}"
         tamper_cmd = ["bash", "-c", tamper_script]
     tamper_res = subprocess.run(tamper_cmd, capture_output=True, text=True)
     assert tamper_res.returncode != 0
+
+
+def test_ctu_trusted_work_live_permission_topology_matrix(tmp_path: Path) -> None:
+    """Models the LIVE path permission topology:
+
+    EVID (operator-owned 0700) -> WORK (root-owned 0711) -> BUNDLE (root-owned 0555).
+    Verifies that:
+    1. All 8 pre-consume operator accesses succeed under root:root 0711:
+       - ctu_prepare_bundle
+       - ctu_verify_bundle
+       - ctu_prepare_unit_snapshot
+       - ctu_verify_unit_snapshot
+       - operator source of bundled p4-ctu-run-lib.sh
+       - operator source of bundled p4-l7u-run-lib.sh
+       - bundled stage-gate execution
+       - pre-marker manifest provenance read used by ctu_consume_attempt
+    2. OPERATOR_CAN_TRAVERSE_WORK=YES
+    3. OPERATOR_CAN_LIST_WORK=NO
+    4. OPERATOR_CAN_WRITE_WORK=NO
+    5. ROOT_CAN_WRITE_REQUIRED_WORK_ARTIFACTS=YES
+    6. BASE_MAIN regression failure is reproduced when WORK is 0700 (blocking operator).
+    """
+    tmp_repo = tmp_path / "repo"
+    tmp_repo.mkdir()
+    subprocess.run(["git", "init", "-b", "main", str(tmp_repo)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_repo), "config", "user.name", "AEGIS Test"], check=True)
+    subprocess.run(["git", "-C", str(tmp_repo), "config", "user.email", "test@aegis.local"], check=True)
+
+    target_p4 = tmp_repo / "IDEA3-AEGIS_Lockdown" / "deploy" / "pr11-phase4"
+    target_p4.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(P4, target_p4)
+
+    unit_source = tmp_repo / "IDEA3-AEGIS_Lockdown" / "deploy" / "aegis-idea3-core.service.example"
+    unit_source.write_text("[Unit]\nDescription=AEGIS Test Unit\n")
+
+    subprocess.run(["git", "-C", str(tmp_repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(tmp_repo), "commit", "-m", "commit pr11-phase4"], check=True)
+    commit_sha = subprocess.run(
+        ["git", "-C", str(tmp_repo), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True
+    ).stdout.strip()
+    unit_sha = hashlib.sha256(unit_source.read_bytes()).hexdigest()
+
+    test_script = f"""
+set -Eeuo pipefail
+td_run=$(mktemp -d -p /tmp)
+chmod 0755 "$td_run"
+evid="$td_run/evid"
+mkdir -m 0700 "$evid"
+chown 1000:1000 "$evid"
+work="$evid/ctu-work"
+bundle="$work/bundle"
+snapshot="$work/core.service.snapshot"
+
+# Prepare work, bundle, unit snapshot as root
+source "{target_p4}/p4-ctu-run-lib.sh"
+CTU_SUDO=""
+ctu_prepare_work_dir "$work"
+ctu_prepare_bundle "{tmp_repo}" "{target_p4}" "$bundle" "{commit_sha}"
+ctu_prepare_unit_snapshot "{unit_source}" "$snapshot" "{unit_sha}"
+ctu_verify_bundle "$bundle"
+ctu_verify_unit_snapshot "$snapshot" "{unit_sha}"
+
+# Verify root can write required work artifacts into work
+touch "$work/pre-core.service"
+echo "test-journal" > "$work/journal"
+echo "test-runtime" > "$work/post-apply-runtime"
+[ -f "$work/pre-core.service" ]
+[ -f "$work/journal" ]
+[ -f "$work/post-apply-runtime" ]
+
+# Verify ownership and modes
+[ "$(stat -c %u:%g "$work")" = "0:0" ]
+case "$(stat -c %a "$work")" in 711|0711) ;; *) exit 1 ;; esac
+[ "$(stat -c %u "$bundle")" = 0 ]
+case "$(stat -c %a "$bundle")" in 555|0555) ;; *) exit 1 ;; esac
+[ "$(stat -c %u "$bundle/CTU-BUNDLE-SHA256SUMS")" = 0 ]
+case "$(stat -c %a "$bundle/CTU-BUNDLE-SHA256SUMS")" in 444|0444) ;; *) exit 1 ;; esac
+[ "$(stat -c %u "$snapshot")" = 0 ]
+case "$(stat -c %a "$snapshot")" in 644|0644) ;; *) exit 1 ;; esac
+
+# Verify operator actions with dropped uid/gid (1000:1000)
+env WORK="$work" BUNDLE="$bundle" SNAPSHOT="$snapshot" python3 - << 'PYEOF'
+import os, subprocess, sys
+os.setresgid(1000, 1000, 1000)
+os.setresuid(1000, 1000, 1000)
+
+work = os.environ["WORK"]
+bundle = os.environ["BUNDLE"]
+snapshot = os.environ["SNAPSHOT"]
+manifest = os.path.join(bundle, "CTU-BUNDLE-SHA256SUMS")
+ctu_lib = os.path.join(bundle, "p4-ctu-run-lib.sh")
+l7u_lib = os.path.join(bundle, "p4-l7u-run-lib.sh")
+gate = os.path.join(bundle, "p4-stage-gate.sh")
+
+# 1. Operator CAN traverse work
+os.chdir(bundle)
+assert os.getcwd() == bundle, "Operator should be able to traverse work"
+
+# 2. Operator CANNOT list work
+try:
+    os.listdir(work)
+    raise AssertionError("Operator should NOT be able to list work")
+except PermissionError:
+    pass
+
+# 3. Operator CANNOT write work
+try:
+    with open(os.path.join(work, "tamper.tmp"), "w") as f:
+        f.write("tamper")
+    raise AssertionError("Operator should NOT be able to write work")
+except PermissionError:
+    pass
+
+# 4. Operator CAN read unit snapshot
+with open(snapshot, "r") as f:
+    content = f.read()
+    assert "[Unit]" in content
+
+# 5. Operator CAN read manifest
+with open(manifest, "r") as f:
+    content = f.read()
+    assert "p4-ctu-run-lib.sh" in content
+
+# 6. Operator CAN source bundled p4-ctu-run-lib.sh
+res = subprocess.run(["bash", "-c", "source '" + ctu_lib + "' && ctu_canonical_dir"], capture_output=True, text=True)
+assert res.returncode == 0, "Operator source of ctu lib failed: " + res.stderr
+
+# 7. Operator CAN source bundled p4-l7u-run-lib.sh
+res = subprocess.run(["bash", "-c", "source '" + l7u_lib + "' && type l7u_secret_scan"], capture_output=True, text=True)
+assert res.returncode == 0, "Operator source of l7u lib failed: " + res.stderr
+
+# 8. Operator CAN execute bundled stage-gate
+res = subprocess.run(["bash", gate, "--help"], capture_output=True, text=True)
+assert res.returncode in (0, 1, 2)
+
+# 9. Operator CAN read manifest for consume provenance
+res = subprocess.run(["sha256sum", manifest], capture_output=True, text=True)
+assert res.returncode == 0
+
+print("OPERATOR_ALL_PRECONSUME_CHECKS=PASS")
+PYEOF
+
+# Test BASE_MAIN regression failure: when work is 0700, operator fails
+chmod 0700 "$work"
+env WORK="$work" BUNDLE="$bundle" SNAPSHOT="$snapshot" python3 - << 'PYEOF'
+import os, subprocess, sys
+os.setresgid(1000, 1000, 1000)
+os.setresuid(1000, 1000, 1000)
+
+work = os.environ["WORK"]
+bundle = os.environ["BUNDLE"]
+snapshot = os.environ["SNAPSHOT"]
+manifest = os.path.join(bundle, "CTU-BUNDLE-SHA256SUMS")
+
+# chdir bundle fails
+try:
+    os.chdir(bundle)
+    raise AssertionError("BASE_MAIN: 0700 should have blocked chdir")
+except PermissionError:
+    pass
+
+# reading manifest fails
+try:
+    with open(manifest, "r") as f:
+        pass
+    raise AssertionError("BASE_MAIN: 0700 should have blocked manifest read")
+except PermissionError:
+    pass
+
+# reading snapshot fails
+try:
+    with open(snapshot, "r") as f:
+        pass
+    raise AssertionError("BASE_MAIN: 0700 should have blocked snapshot read")
+except PermissionError:
+    pass
+
+print("BASE_MAIN_REGRESSION_FAILURE=CONFIRMED")
+PYEOF
+
+rm -rf "$td_run"
+"""
+    if _multi_uid_userns_usable():
+        runner_cmd = [
+            "unshare",
+            "--map-users", "0:1000:1",
+            "--map-users", "1000:100000:1",
+            "--map-groups", "0:1000:1",
+            "--map-groups", "1000:100000:1",
+            "bash", "-c", test_script,
+        ]
+        res = subprocess.run(runner_cmd, capture_output=True, text=True)
+        assert res.returncode == 0, f"live topology regression failed:\nSTDOUT: {res.stdout}\nSTDERR: {res.stderr}"
+        assert "OPERATOR_ALL_PRECONSUME_CHECKS=PASS" in res.stdout
+        assert "BASE_MAIN_REGRESSION_FAILURE=CONFIRMED" in res.stdout
+    else:
+        # Fallback contract assertions
+        lib_src = CTU_LIB.read_text()
+        runner_src = RUNNER.read_text()
+        verify_src = (CTU / "verify.sh").read_text()
+        assert "ctu_prepare_work_dir" in lib_src
+        assert "ctu_verify_work_dir" in lib_src
+        assert "chmod 0711" in lib_src
+        assert 'ctu_prepare_work_dir "$WORK"' in runner_src
+        assert 'ctu_verify_work_dir "$WORK"' in runner_src
+        assert "WORK_DIR_INVALID" in runner_src
+        assert "WORK_DIR_INVALID" in verify_src

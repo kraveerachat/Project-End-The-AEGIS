@@ -19,9 +19,9 @@ const motion = read('src/lib/useNeoPageMotion.js')
 
 test('NEO-DARK-SHELL the approved floating shell is shared by every Neo screen', () => {
   assert.match(app, /const neoShell = interfaceStyle === 'neo'/)
-  assert.match(app, /neoDashboard=\{neoShell\}\s+position=\{navigationPosition\}/, 'Sidebar receives the shell for every screen')
-  assert.match(app, /neoDashboard=\{neoShell\}\s+collapsed=\{collapsed\}/, 'TopBar receives the shell for every screen')
-  assert.match(app, /search=\{neoShell \? \(/, 'Top Bar search is the single search on every Neo screen')
+  assert.match(app, /neoDashboard=\{modernShell\}\s+position=\{navigationPosition\}/, 'Sidebar receives the shell for every screen')
+  assert.match(app, /<TopBar[\s\S]*?neoDashboard=\{modernShell\}[\s\S]*?collapsed=\{collapsed\}/, 'TopBar receives the shell for every screen')
+  assert.match(app, /search=\{modernShell \? \(/, 'Top Bar search is the single search on every Neo screen')
   assert.match(app, /neoShell \? 'neo-page-content min-h-full'/)
   // Shell rules are no longer gated on the Dashboard route.
   assert.doesNotMatch(indexCss, /\.authenticated-shell\[data-screen="dashboard"\] \.app-sidebar-frame/)
