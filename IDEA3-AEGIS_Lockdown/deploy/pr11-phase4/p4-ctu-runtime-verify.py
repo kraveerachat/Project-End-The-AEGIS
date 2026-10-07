@@ -27,7 +27,7 @@ def _connect(path: Path) -> sqlite3.Connection:
         _fail(f"AUDIT_DB_UNREADABLE:{type(exc).__name__}")
 
 
-def capture_boundary(audit_db: Path, protocol_db: Path, device_id: str) -> tuple[int, int, int]:
+def capture_boundary(audit_db: Path, protocol_db: Path, device_id: str) -> tuple[int, int, int, int, int]:
     if not device_id:
         _fail("DEVICE_ID_INVALID")
     protocol = _connect(protocol_db)
@@ -48,14 +48,19 @@ def capture_boundary(audit_db: Path, protocol_db: Path, device_id: str) -> tuple
             "SELECT COALESCE(MAX(id), 0) FROM lockdown_episodes WHERE device_id = ?",
             (device_id,),
         ).fetchone()
+        open_episode = audit.execute(
+            "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM lockdown_episodes "
+            "WHERE device_id = ? AND closed_at IS NULL",
+            (device_id,),
+        ).fetchone()
     except sqlite3.Error as exc:
         _fail(f"AUDIT_LOG_UNREADABLE:{type(exc).__name__}")
     finally:
         audit.close()
-    return int(row[0]), int(audit_row[0]), int(episode_row[0])
+    return int(row[0]), int(audit_row[0]), int(episode_row[0]), int(open_episode[0]), int(open_episode[1])
 
 
-def _read_boundary(marker_path: Path, device_id: str) -> tuple[int, int, int, float]:
+def _read_boundary(marker_path: Path, device_id: str) -> tuple[int, int, int, int, int, float]:
     try:
         values = {}
         for line in marker_path.read_text().splitlines():
@@ -76,11 +81,15 @@ def _read_boundary(marker_path: Path, device_id: str) -> tuple[int, int, int, fl
         protocol_id = int(values["CTU_PRE_PROTOCOL_SEEN_ID"])
         audit_id = int(values["CTU_PRE_AUDIT_ID"])
         episode_id = int(values["CTU_PRE_EPISODE_ID"])
+        open_count = int(values["CTU_PRE_OPEN_EPISODE_COUNT"])
+        open_id = int(values["CTU_PRE_OPEN_EPISODE_ID"])
     except (KeyError, TypeError, ValueError):
         _fail("CTU_MARKER_BOUNDARY_INVALID")
     if protocol_id < 0 or audit_id < 0 or episode_id < 0:
         _fail("CTU_MARKER_BOUNDARY_INVALID")
-    return protocol_id, audit_id, episode_id, consumed_at
+    if open_count not in (0, 1) or open_id < 0 or (open_count == 0 and open_id != 0):
+        _fail("CTU_MARKER_OPEN_EPISODE_BOUNDARY_INVALID")
+    return protocol_id, audit_id, episode_id, open_count, open_id, consumed_at
 
 
 def _process_start_epoch(core_pid: int) -> float:
@@ -106,13 +115,20 @@ def _systemd_timestamp_epoch(value: str) -> float:
     _fail("CORE_SYSTEMD_START_TIMESTAMP_INVALID")
 
 
-def verify_detector(pre: dict[str, str], post: dict[str, str], core_post_monotonic: int) -> None:
+def verify_detector(
+    pre: dict[str, str],
+    post: dict[str, str],
+    core_post_monotonic: int,
+    post_apply: dict[str, str] | None = None,
+) -> None:
     """Prove the single clean detector invocation expected after Core restart."""
     if pre.get("nrestarts") != "0" or post.get("nrestarts") != "0":
         _fail("DETECTOR_UNEXPECTED_RESTART_COUNT")
     for key, value in (("load", "loaded"), ("active", "active"), ("sub", "running"), ("unit_file", "disabled"), ("restart", "no")):
         if post.get(key) != value:
             _fail(f"DETECTOR_{key.upper()}_INVALID")
+    if post.get("process_count") not in (None, "1", 1):
+        _fail("DETECTOR_PROCESS_COUNT_INVALID")
     if not re.fullmatch(r"[1-9][0-9]*", post.get("pid", "")) or post.get("pid") == pre.get("pid"):
         _fail("DETECTOR_PID_TRANSITION_INVALID")
     if not pre.get("pid", "").isdigit() or not pre.get("start") or post.get("start") == pre.get("start"):
@@ -128,6 +144,12 @@ def verify_detector(pre: dict[str, str], post: dict[str, str], core_post_monoton
         _fail("DETECTOR_MONOTONIC_START_UNAVAILABLE")
     if post_mono <= pre_mono or post_mono <= core_post_monotonic or post_mono > core_post_monotonic + 30_000_000:
         _fail("DETECTOR_START_AFTER_CORE")
+    if post_apply is not None:
+        for key in ("pid", "start", "invocation", "monotonic", "nrestarts", "active", "sub", "result"):
+            if key in post_apply and post.get(key) != post_apply.get(key):
+                _fail(f"DETECTOR_CHANGED_AFTER_APPLY:{key.upper()}")
+        if post_apply.get("pid") == pre.get("pid") or post_apply.get("invocation") == pre.get("invocation"):
+            _fail("DETECTOR_APPLY_IDENTITY_NOT_NEW")
 
 
 def verify_files(
@@ -168,7 +190,7 @@ def verify_files(
         if status.get(key) != value:
             _fail(f"STATUS_{key.upper()}_NOT_EXPECTED")
 
-    pre_protocol_id, pre_audit_id, pre_episode_id, consumed_at = _read_boundary(marker_path, device_id)
+    pre_protocol_id, pre_audit_id, pre_episode_id, pre_open_count, pre_open_id, consumed_at = _read_boundary(marker_path, device_id)
     protocol = _connect(protocol_db)
     try:
         seen = protocol.execute(
@@ -187,18 +209,37 @@ def verify_files(
 
     audit = _connect(audit_db)
     try:
-        episode = audit.execute(
-            "SELECT id, open_msg_id FROM lockdown_episodes "
-            "WHERE id > ? AND device_id = ? AND open_msg_id = ? AND closed_at IS NULL "
-            "ORDER BY id DESC LIMIT 1",
-            (pre_episode_id, device_id, protocol_msg_id),
-        ).fetchone()
+        if pre_open_count == 0:
+            # When no episode existed at PRE, the same accepted STATUS must
+            # open the new episode.  An audit row is never an identity source.
+            episode = audit.execute(
+                "SELECT id, open_msg_id FROM lockdown_episodes "
+                "WHERE id > ? AND device_id = ? AND open_msg_id = ? AND closed_at IS NULL "
+                "ORDER BY id DESC LIMIT 1",
+                (pre_episode_id, device_id, protocol_msg_id),
+            ).fetchone()
+            if not episode:
+                _fail("AUTHENTICATED_STATUS_NOT_CORRELATED")
+        else:
+            # A legitimate already-open episode may remain open across the
+            # restart.  It is not itself post-restart proof: the new Core must
+            # still have accepted a fresh STATUS for the configured device and
+            # report the current LOCKDOWN state above.  Require exactly the
+            # one PRE-bound open episode and reject any newly ambiguous state.
+            open_rows = audit.execute(
+                "SELECT id, open_msg_id FROM lockdown_episodes "
+                "WHERE device_id = ? AND closed_at IS NULL ORDER BY id",
+                (device_id,),
+            ).fetchall()
+            if len(open_rows) != 1 or int(open_rows[0][0]) != pre_open_id:
+                _fail("PRE_OPEN_LOCKDOWN_EPISODE_CHANGED")
+            episode = open_rows[0]
     except sqlite3.Error as exc:
         _fail(f"LOCKDOWN_EPISODE_UNREADABLE:{type(exc).__name__}")
     finally:
         audit.close()
     if not episode or not isinstance(episode[1], str) or not episode[1]:
-        _fail("AUTHENTICATED_STATUS_NOT_CORRELATED")
+        _fail("LOCKDOWN_EPISODE_IDENTITY_INVALID")
 
 
 def main() -> int:
@@ -240,18 +281,24 @@ def main() -> int:
     protocol_db = Path("/var/lib/aegis-idea3/data/core-protocol.sqlite3")
     if args.capture_boundary:
         try:
-            protocol_id, audit_id, episode_id = capture_boundary(audit_db, protocol_db, args.device_id)
+            protocol_id, audit_id, episode_id, open_count, open_id = capture_boundary(audit_db, protocol_db, args.device_id)
         except RuntimeProofError as exc:
             print(f"CTU_BOUNDARY=FAIL reason={exc}")
             return 1
         print(f"CTU_PRE_PROTOCOL_SEEN_ID={protocol_id}")
         print(f"CTU_PRE_AUDIT_ID={audit_id}")
         print(f"CTU_PRE_EPISODE_ID={episode_id}")
+        print(f"CTU_PRE_OPEN_EPISODE_COUNT={open_count}")
+        print(f"CTU_PRE_OPEN_EPISODE_ID={open_id}")
         return 0
     if args.core_pid is None or args.pre_updated_at is None or args.core_pid <= 0:
         print("CTU_RUNTIME_VERIFY=FAIL reason=INVALID_BASELINE")
         return 1
     try:
+        # The process start tick is the precise kernel boundary.  The
+        # second-precision systemd wall timestamp remains a compatibility
+        # fallback only for direct test callers that provide it explicitly.
+        precise_start = _process_start_epoch(args.core_pid)
         verify_files(
             Path(f"/proc/{args.core_pid}/root/run/aegis-idea3/status.json"),
             audit_db,
@@ -260,7 +307,7 @@ def main() -> int:
             args.core_pid,
             args.pre_updated_at,
             args.device_id,
-            post_core_start_timestamp=args.post_core_start_timestamp,
+            process_start_epoch=precise_start,
         )
     except RuntimeProofError as exc:
         print(f"CTU_RUNTIME_VERIFY=FAIL reason={exc}")

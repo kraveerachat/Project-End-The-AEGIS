@@ -76,12 +76,23 @@ grep -qx 'Restart=no' <<<"$detector_state" || fail DETECTOR_RESTART_POLICY_CHANG
 [[ "$detector_nrestarts" =~ ^[0-9]+$ && "$AEGIS_CTU_PRE_DETECTOR_NRESTARTS" = 0 && "$detector_nrestarts" = 0 ]] || fail DETECTOR_UNEXPECTED_RESTART_COUNT
 [[ "$detector_invocation" =~ ^[0-9a-f]{32}$ ]] || fail DETECTOR_INVOCATION_INVALID
 [ "$(pgrep -fc 'aegis_soc[.]production_detector' 2>/dev/null || true)" = 1 ] || fail DETECTOR_PROCESS_SET_UNEXPECTED
-apply_detector_pid=$(read_runtime detector_pid); apply_detector_start=$(read_runtime detector_start); apply_detector_invocation=$(read_runtime detector_invocation); apply_detector_mono=$(read_runtime detector_monotonic); apply_detector_nrestarts=$(read_runtime detector_nrestarts)
+apply_detector_pid=$(read_runtime detector_pid); apply_detector_start=$(read_runtime detector_start); apply_detector_invocation=$(read_runtime detector_invocation); apply_detector_mono=$(read_runtime detector_monotonic); apply_detector_nrestarts=$(read_runtime detector_nrestarts); apply_detector_active=$(read_runtime detector_active); apply_detector_sub=$(read_runtime detector_sub); apply_detector_result=$(read_runtime detector_result); apply_detector_count=$(read_runtime detector_process_count)
+[ "$apply_detector_pid" != "$AEGIS_CTU_PRE_DETECTOR_PID" ] || fail DETECTOR_PID_UNCHANGED_FROM_PRE
+[ "$apply_detector_start" != "$AEGIS_CTU_PRE_DETECTOR_START" ] || fail DETECTOR_START_UNCHANGED_FROM_PRE
+[ "$apply_detector_invocation" != "$AEGIS_CTU_PRE_DETECTOR_INVOCATION" ] || fail DETECTOR_INVOCATION_UNCHANGED_FROM_PRE
+[ "$apply_detector_mono" -gt "$AEGIS_CTU_PRE_DETECTOR_MONOTONIC" ] || fail DETECTOR_MONOTONIC_NOT_ADVANCED_FROM_PRE
+[ "$apply_detector_active" = active ] || fail DETECTOR_APPLY_NOT_ACTIVE
+[ "$apply_detector_sub" = running ] || fail DETECTOR_APPLY_NOT_RUNNING
+[ "$apply_detector_result" = success ] || fail DETECTOR_APPLY_RESULT_NOT_SUCCESS
+[ "$apply_detector_nrestarts" = 0 ] || fail DETECTOR_APPLY_RESTARTS_INVALID
+[ "$apply_detector_count" = 1 ] || fail DETECTOR_APPLY_PROCESS_COUNT_INVALID
 [ "$detector_pid" = "$apply_detector_pid" ] || fail DETECTOR_CHANGED_AFTER_APPLY
 [ "$detector_start" = "$apply_detector_start" ] || fail DETECTOR_START_CHANGED_AFTER_APPLY
 [ "$detector_invocation" = "$apply_detector_invocation" ] || fail DETECTOR_INVOCATION_CHANGED_AFTER_APPLY
 [ "$detector_mono" = "$apply_detector_mono" ] || fail DETECTOR_MONOTONIC_CHANGED_AFTER_APPLY
 [ "$detector_nrestarts" = "$apply_detector_nrestarts" ] || fail DETECTOR_RESTART_COUNT_CHANGED_AFTER_APPLY
+[ "$detector_active" = "$apply_detector_active" ] || fail DETECTOR_ACTIVE_STATE_CHANGED_AFTER_APPLY
+[ "$detector_sub" = "$apply_detector_sub" ] || fail DETECTOR_SUB_STATE_CHANGED_AFTER_APPLY
 [[ "$core_post_mono" =~ ^[0-9]+$ && "$detector_mono" =~ ^[0-9]+$ ]] || fail DETECTOR_MONOTONIC_START_UNAVAILABLE
 /usr/bin/python3 -I "$AEGIS_CTU_RUNTIME_VERIFY" --verify-detector --device-id "$AEGIS_CTU_DEVICE_ID" --core-post-monotonic "$core_post_mono" \
   --pre-detector-pid "$AEGIS_CTU_PRE_DETECTOR_PID" --pre-detector-start "$AEGIS_CTU_PRE_DETECTOR_START" --pre-detector-invocation "$AEGIS_CTU_PRE_DETECTOR_INVOCATION" --pre-detector-nrestarts "$AEGIS_CTU_PRE_DETECTOR_NRESTARTS" --pre-detector-monotonic "$AEGIS_CTU_PRE_DETECTOR_MONOTONIC" \

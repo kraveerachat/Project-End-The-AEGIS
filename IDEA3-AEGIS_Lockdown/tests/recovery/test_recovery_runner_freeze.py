@@ -502,11 +502,8 @@ def test_the_test_seam_is_refused_in_the_real_root_namespace(tmp_path: Path) -> 
     repo, main, out = frozen_world(tmp_path)
     env = {**os.environ, tool.TEST_SEAM_ENABLED: "YES", tool.TEST_SEAM_ROOT: str(tmp_path)}
     result = subprocess.run([sys.executable, str(TOOL_PATH), "verify", "--repo", str(repo), "--main", main, "--runner", str(out)], env=env, text=True, capture_output=True)
-    assert result.returncode == 1
-    if tool._initial_user_namespace():
-        assert "TEST_TRUST_SEAM_REFUSED_IN_THE_REAL_ROOT_NAMESPACE" in result.stderr  # a real (initial-namespace) caller cannot narrow the trust root
-    else:
-        assert "RUNNER_NOT_ROOT_OWNED" in result.stderr  # this harness itself is already inside a user namespace
+    assert result.returncode == 1 and "TEST_TRUST_SEAM_REFUSED_IN_THE_REAL_ROOT_NAMESPACE" in result.stderr  # a real (initial-namespace) caller cannot narrow the trust root
+    assert tool._initial_user_namespace() is True
 
 
 @needs_userns

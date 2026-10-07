@@ -121,11 +121,21 @@ recovery_consume_attempt() {
 recovery_commit_gate() { r1bv_commit_gate "$@"; }
 recovery_predecessor_gate() { r1bv_recovery_predecessor_gate "$@"; }   # the existing, reviewed R1B-failure + R1Bv-PASS predecessor gate (reused, never copied)
 recovery_ctu_successor_gate() {
-  local main=${1:-} canon closeout want=0 count keys
+  local repo main ctu_main canon closeout want=0 count keys installed_unit installed_sha ctu_unit_sha
+  if [ $# -ge 2 ]; then
+    repo=$1; main=$2
+  elif [ -n "${REPO:-}" ]; then
+    repo=$REPO; main=$1
+  else
+    repo=""; main=$1
+  fi
   [ -n "$SUDO" ] || want=$(id -u)
   [[ "$main" =~ ^[0-9a-f]{40}$ ]] || { recovery_reason RECOVERY_CTU_MAIN_INVALID; return 1; }
   canon=$(recovery_canonical_dir); closeout="$canon/CTU-GLOBAL-CLOSEOUT-PASS"
   recovery_canonical_dir_valid || { recovery_reason RECOVERY_CTU_CANONICAL_DIR_INVALID; return 1; }
+  if $SUDO test -e "$canon/$RECOVERY_GLOBAL_MARKER_NAME" || $SUDO test -L "$canon/$RECOVERY_GLOBAL_MARKER_NAME"; then
+    recovery_reason RECOVERY_ALREADY_CONSUMED; return 1
+  fi
   count=$($SUDO find "$canon" -maxdepth 1 -type f -name 'CTU-GLOBAL-CLOSEOUT-*' -printf '%f\n' 2>/dev/null | wc -l)
   [ "$count" = 1 ] || { recovery_reason RECOVERY_CTU_CLOSEOUT_NOT_UNIQUE; return 1; }
   [ -f "$closeout" ] && [ ! -L "$closeout" ] || { recovery_reason RECOVERY_CTU_PASS_CLOSEOUT_MISSING; return 1; }
@@ -138,7 +148,15 @@ recovery_ctu_successor_gate() {
   grep -qx 'CTU_RESULT=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_PASS_RESULT_INVALID; return 1; }
   grep -qx 'CTU_ATTEMPT_CONSUMED=YES' "$closeout" || { recovery_reason RECOVERY_CTU_ATTEMPT_NOT_CONSUMED; return 1; }
   grep -qx 'CTU_RERUN_ALLOWED=NO' "$closeout" || { recovery_reason RECOVERY_CTU_RERUN_ALLOWED; return 1; }
-  grep -qx "CTU_EXPECTED_MAIN=$main" "$closeout" || { recovery_reason RECOVERY_CTU_MAIN_MISMATCH; return 1; }
+  ctu_main=$($SUDO awk -F= '$1 == "CTU_EXPECTED_MAIN" {print $2}' "$closeout")
+  [[ "$ctu_main" =~ ^[0-9a-f]{40}$ ]] || { recovery_reason RECOVERY_CTU_MAIN_INVALID; return 1; }
+  if [ -n "$repo" ] && [ -d "$repo/.git" ]; then
+    if [ "$ctu_main" != "$main" ]; then
+      GIT_NO_REPLACE_OBJECTS=1 git -C "$repo" merge-base --is-ancestor "$ctu_main" "$main" 2>/dev/null || { recovery_reason RECOVERY_CTU_MAIN_NOT_ANCESTOR; return 1; }
+    fi
+  else
+    [ "$ctu_main" = "$main" ] || { recovery_reason RECOVERY_CTU_MAIN_MISMATCH; return 1; }
+  fi
   grep -qx 'CTU_STAGE=CTu' "$closeout" || { recovery_reason RECOVERY_CTU_SUCCESSOR_INVALID; return 1; }
   grep -qx 'CTU_RUNTIME_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_RUNTIME_PROOF_INVALID; return 1; }
   grep -qx 'CTU_AUTHENTICATED_STATUS_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTU_AUTH_PROOF_INVALID; return 1; }
@@ -149,6 +167,19 @@ recovery_ctu_successor_gate() {
   grep -qx 'CTU_FAILURE_RESULT=NONE' "$closeout" || { recovery_reason RECOVERY_CTU_CONTRADICTORY_FAILURE; return 1; }
   grep -qE '^CTU_UNIT_SHA256=[0-9a-f]{64}$' "$closeout" || { recovery_reason RECOVERY_CTU_UNIT_BINDING_INVALID; return 1; }
   grep -qE '^CTU_EVIDENCE_ROOT=/[^.]*$' "$closeout" || { recovery_reason RECOVERY_CTU_EVIDENCE_ROOT_INVALID; return 1; }
+  ctu_unit_sha=$($SUDO awk -F= '$1 == "CTU_UNIT_SHA256" {print $2}' "$closeout")
+  installed_unit="${AEGIS_CORE_UNIT_FILE:-/etc/systemd/system/aegis-idea3-core.service}"
+  if [ -n "${AEGIS_CORE_UNIT_FILE:-}" ] || [ "${RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" != YES ]; then
+    if [ -f "$installed_unit" ] && [ ! -L "$installed_unit" ]; then
+      installed_sha=$($SUDO sha256sum "$installed_unit" 2>/dev/null | cut -d' ' -f1)
+      [ "$installed_sha" = "$ctu_unit_sha" ] || { recovery_reason RECOVERY_CTU_INSTALLED_UNIT_MISMATCH; return 1; }
+      grep -qE '^[[:space:]]*ProtectClock[[:space:]]*=[[:space:]]*(false|no)[[:space:]]*$' "$installed_unit" || { recovery_reason RECOVERY_CTU_PROTECTCLOCK_INVALID; return 1; }
+      grep -qE '^[[:space:]]*User[[:space:]]*=[[:space:]]*aegis-idea3[[:space:]]*$' "$installed_unit" || { recovery_reason RECOVERY_CTU_SECURITY_HARDENING_INVALID; return 1; }
+      grep -qE '^[[:space:]]*NoNewPrivileges[[:space:]]*=[[:space:]]*true[[:space:]]*$' "$installed_unit" || { recovery_reason RECOVERY_CTU_SECURITY_HARDENING_INVALID; return 1; }
+      grep -qE '^[[:space:]]*CapabilityBoundingSet[[:space:]]*=[[:space:]]*$' "$installed_unit" || { recovery_reason RECOVERY_CTU_SECURITY_HARDENING_INVALID; return 1; }
+      grep -qE '^[[:space:]]*AmbientCapabilities[[:space:]]*=[[:space:]]*$' "$installed_unit" || { recovery_reason RECOVERY_CTU_SECURITY_HARDENING_INVALID; return 1; }
+    fi
+  fi
 }
 
 recovery_sudo_noninteractive_gate() {

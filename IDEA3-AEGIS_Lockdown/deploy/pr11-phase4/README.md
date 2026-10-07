@@ -914,3 +914,48 @@ The successor is mechanically proven to be the previous immutable runtime plus e
 Canonical receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-07_005834_music_idea3-rru-live-closeout.md`.
 
 Recovery remains separate and unexecuted: `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. `R1B_RESULT=FAIL_IMMUTABLE` and `R1BV_RESULT=PASS` remain unchanged. Recovery requires this closeout merged into the pinned main and then a NEW exact-main Recovery authority/freeze before any LIVE attempt.
+
+
+## 26. Stage CTu — Core Trusted-Time Repair (Pre-Recovery prerequisite) — repository only
+
+`CTU_REPOSITORY_IMPLEMENTED=YES` · `CTU_APPLICATION_RELEASE_DEPLOY_REQUIRED=NO` · `CTU_LIVE_EXECUTED=NO` · `CTU_PRODUCTION_MUTATION_PERFORMED=NO` · `CTU_CORE_RESTARTED=NO` · `CTU_DETECTOR_EXPLICITLY_COMMANDED=NO` · `ESP32_TOUCHED=NO` · `NTP_REACTIVATION_RERUN=NO`.
+
+CTu resolves the Core unit sandbox root-cause where `adjtimex(2)` clock-reading failed due to `ProtectClock=true`. The unit file changes ONLY `ProtectClock=false` while strictly preserving non-root user (`User=aegis-idea3`), `NoNewPrivileges=true`, empty capability sets (`CapabilityBoundingSet=`, `AmbientCapabilities=`), and all security hardening.
+
+### 12-Blocker Resolution Summary
+
+1. **Runner PRE capture order (`RUNNER_PRE_CAPTURE_ORDER=PASS`):** pregates → trusted root-owned bundle creation (`ctu_prepare_bundle`) → unit snapshot creation (`ctu_prepare_unit_snapshot`) → bundle & unit verification (`ctu_verify_bundle`, `ctu_verify_unit_snapshot`) → PRE capture using trusted bundle (`$BUNDLE/p4-l0-capture.sh`) → pre-consume regate (`$BUNDLE/p4-stage-gate.sh`) → consume marker (`ctu_consume_attempt`) → apply (`$BUNDLE/stages/CTu/apply.sh`). Zero production mutation occurs before marker consumption.
+2. **Pre-existing open lockdown episode (`ALREADY_OPEN_LOCKDOWN_CASE=PASS`):** Supports both Case A (no open episode at PRE → require new correlated episode after restart matching `open_msg_id == protocol_seen_d2c.msg_id`) and Case B (valid open episode at PRE → require unchanged pre-open episode ID, exactly 1 open episode, plus fresh post-restart STATUS from configured device proving ONLINE, LOCKDOWN, SYNCED, CONNECTED).
+3. **Detector single implicit lifecycle (`DETECTOR_SINGLE_CYCLE_PROOF=PASS`):** Captured immediately post-apply (`InvocationID`, `MainPID`, `ExecMainStartTimestampMonotonic`, `ActiveState`, `SubState`, `Result`, `NRestarts`, process count == 1). Verify requires `PRE != POST_APPLY` and `VERIFY == POST_APPLY`. Duplicate cycles or explicit detector commands are strictly rejected.
+4. **Signal-safe rollback (`SIGNAL_SAFE_ROLLBACK=PASS`):** Once marker is consumed, any `INT`, `TERM`, `HUP`, or `EXIT` signal triggers `post_fail` guarded with `IN_POST_FAIL=1` and traps ignored during rollback (`trap '' INT TERM HUP EXIT`). Rollback executes exactly once, failure closeout is recorded, sudo keepalive is stopped, and durable terminal result is synced.
+5. **Atomic CTu terminal closeout (`ATOMIC_CLOSEOUT=PASS`, `CTU_PASS_SURVIVES_ROLLBACK=NO`):** Success closeout `CTU-GLOBAL-CLOSEOUT-PASS` writes via temporary file → `fsync` → `mv -n` → `fsync` directory. Refused if `CTU-GLOBAL-CLOSEOUT-FAIL` already exists. A PASS closeout never survives a subsequent rollback.
+6. **CTu → Recovery descendant history (`CTU_RECOVERY_DESCENDANT_BINDING=PASS`):** Real Git ancestry enforced via `GIT_NO_REPLACE_OBJECTS=1 git merge-base --is-ancestor "$ctu_main" "$main"`. Recovery main must contain or descend from the CTu execution main.
+7. **Real CTu freeze & verifier (`CTU_FREEZE_IMPLEMENTATION_EXISTS=YES`, `CTU_FREEZE_VERIFIER_EXISTS=YES`, `CTU_TRUST_CLOSURE=PASS`):** Implemented in `ctu-acceptance/ctu_runner_freeze.py` and `ctu-acceptance/ctu_verifier_snapshot.py`. Complete trust closure verified including all runner and stage scripts, awk normalizers, allowlists, and reviewed Core unit bytes. Root never executes mutable worktree bytes.
+8. **Authorization / K3 V2 binding (`CTU_AUTH_BINDING=PASS`, `CTU_K3_BINDING=PASS`, `CTU_EXTRA_FIELDS_REFUSED=YES`):** Enforces exact required keys: `expected_main`, `runner_sha256`, `unit_sha256`, `operator_user`, `operator_uid`. Extra fields (e.g., `recovery_authorization=`, `d6_notice=`) and field mismatches are refused.
+9. **Pre-consume gates & non-interactive sudo (`POST_CONSUME_SUDO_PROMPT_POSSIBLE=NO`):** Verifies absent Recovery marker, RRu PASS closeout, broker/NTP readiness, Core/Detector active states, and performs `sudo -v` before consume. Sudo keepalive runs in background; all post-consume privileged commands strictly use `sudo -n`.
+10. **Manual reconciliation tooling (`CTU_MANUAL_RECONCILIATION_READY=YES`):** Tooling in `reconciliation/reconcile-ctu.py` provides read-only inspection for SIGKILL, host crash, or power loss scenarios. Inspects canonical marker, journal phase, terminal closeouts, Core/Detector identities, and unit hashes. Never reruns CTu; preserves consumed marker permanently.
+11. **Security intent in trust seam tests (`TRUST_SEAM_TEST_WEAKENED=NO`):** Preserves `_initial_user_namespace()` enforcement and real root namespace protection.
+12. **Recovery CTu negative test matrix (`RECOVERY_CTU_GATE_NEGATIVE_TESTS=PASS`):** Comprehensive negative matrix in `test_ctu_blockers.py` covering missing closeout, wrong main, non-ancestor, conflicting closeouts, duplicate keys, wrong unit SHA, unhardened unit (`ProtectClock=true`), and already consumed Recovery.
+
+### Manual Reconciliation Procedure (SIGKILL / Host Crash / Power Loss)
+
+If a CTu run is interrupted by an uncatchable event (SIGKILL, host reboot, power loss) after the attempt marker has been consumed:
+1. **DO NOT attempt to rerun CTu.** The canonical attempt marker `CTU-GLOBAL-ATTEMPT-CONSUMED` is permanently consumed and rerun is forbidden.
+2. Run the read-only reconciliation inspector:
+   ```bash
+   python3 IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/reconciliation/reconcile-ctu.py
+   ```
+3. The tool inspects:
+   - Presence of `CTU-GLOBAL-ATTEMPT-CONSUMED` marker and its bound properties (`CTU_DEVICE_ID`, `CTU_CONSUMED_AT_EPOCH`, etc.).
+   - Presence and integrity of terminal closeout files (`CTU-GLOBAL-CLOSEOUT-PASS` / `CTU-GLOBAL-CLOSEOUT-FAIL`).
+   - Host systemd unit state, effective `ProtectClock` property, installed unit SHA-256 vs. preimage unit SHA-256.
+   - Core and Detector process identities and active states.
+4. Output diagnosises:
+   - `COMPLETED_PASS`: Pass closeout recorded atomically, unit installed and verified.
+   - `COMPLETED_FAIL`: Failure closeout recorded atomically, rollback applied or required.
+   - `INTERRUPTED_POST_CONSUME`: Process terminated mid-execution before closeout. The human operator must review evidence in `/tmp/idea3-p4-evidence/` and execute manual inspection before deciding next steps. The attempt marker remains permanently consumed.
+
+### Governed Sequence
+
+The required governed sequence is:
+`... -> R1Bv (LIVE PASS) -> RRu (LIVE PASS) -> NTP successor (PASS / consumed) -> CTu (Pre-Recovery repair; ready for LIVE attempt) -> CTu closeout -> fresh Recovery authority/freeze -> Recovery (R2-R8) -> LVR -> L8 -> L9`.

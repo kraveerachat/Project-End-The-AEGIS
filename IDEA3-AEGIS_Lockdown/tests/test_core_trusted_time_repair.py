@@ -172,7 +172,7 @@ def test_ctu_marker_creation_is_exclusive_and_never_recreated() -> None:
             "AEGIS_CTU_TEST_ONLY_CANONICAL_DIR_ENABLED": "YES",
             "AEGIS_CTU_TEST_ONLY_CANONICAL_DIR": str(canonical),
             "AEGIS_CTU_TEST_ONLY_TRUST_ROOT": str(root),
-            "AEGIS_CTU_TEST_ONLY_BOUNDARY": "CTU_PRE_PROTOCOL_SEEN_ID=0\nCTU_PRE_AUDIT_ID=0",
+            "AEGIS_CTU_TEST_ONLY_BOUNDARY": "CTU_PRE_PROTOCOL_SEEN_ID=0\nCTU_PRE_AUDIT_ID=0\nCTU_PRE_EPISODE_ID=0\nCTU_PRE_OPEN_EPISODE_COUNT=0\nCTU_PRE_OPEN_EPISODE_ID=0",
         }
         command = f'. "{script}"; ctu_consume_attempt "$1" esp32-01 /tmp/ctu-runtime-verify.py'
         first = subprocess.Popen(["bash", "-c", command, "consume", str(root / "work-1")], env=env)
@@ -248,7 +248,7 @@ def _load_runtime_verifier():
     return module
 
 
-def _runtime_fixture(tmp: Path, *, status: dict, episode: bool = True, episode_msg_id="msg-123", episode_id=None, protocol_rows=(), audit_rows=(), boundary=(0, 0)):
+def _runtime_fixture(tmp: Path, *, status: dict, episode: bool = True, episode_msg_id="msg-123", episode_id=None, protocol_rows=(), audit_rows=(), boundary=(0, 0), open_boundary=(0, 0)):
     status_path = tmp / "status.json"
     status_path.write_text(json.dumps(status))
     db_path = tmp / "audit.sqlite3"
@@ -287,6 +287,7 @@ def _runtime_fixture(tmp: Path, *, status: dict, episode: bool = True, episode_m
         "CTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_DEVICE_ID=esp32-01\n"
         "CTU_CONSUMED_AT_EPOCH=10.0\n"
         f"CTU_PRE_PROTOCOL_SEEN_ID={boundary[0]}\nCTU_PRE_AUDIT_ID={boundary[1]}\nCTU_PRE_EPISODE_ID={boundary[1]}\n"
+        f"CTU_PRE_OPEN_EPISODE_COUNT={open_boundary[0]}\nCTU_PRE_OPEN_EPISODE_ID={open_boundary[1]}\n"
     )
     return status_path, db_path, protocol_path, marker_path
 

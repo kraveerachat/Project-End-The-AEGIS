@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 CTU_CANONICAL_DIR=/var/lib/aegis-idea3-governance
 CTU_GLOBAL_MARKER_NAME=CTU-GLOBAL-ATTEMPT-CONSUMED
-CTU_SUDO=${SUDO-sudo}
+CTU_SUDO="${CTU_SUDO-${SUDO-sudo}}"
 CTU_CLOSEOUT_NAME=CTU-GLOBAL-CLOSEOUT-PASS
 ctu_canonical_dir() {
   if [ "${AEGIS_CTU_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" = YES ] && [ -n "${AEGIS_CTU_TEST_ONLY_CANONICAL_DIR:-}" ]; then printf '%s' "$AEGIS_CTU_TEST_ONLY_CANONICAL_DIR"; else printf '%s' "$CTU_CANONICAL_DIR"; fi
@@ -32,6 +32,13 @@ ctu_marker_unconsumed() {
   ctu_canonical_dir_valid || { echo CTU_CANONICAL_DIR_NOT_TRUSTED >&2; return 1; }
   local marker; marker=$(ctu_marker_path)
   if $CTU_SUDO test -e "$marker" || $CTU_SUDO test -L "$marker"; then echo CTU_ATTEMPT_ALREADY_CONSUMED >&2; return 1; fi
+  local canon pass fail
+  canon=$(ctu_canonical_dir)
+  pass="$canon/CTU-GLOBAL-CLOSEOUT-PASS"
+  fail="$canon/CTU-GLOBAL-CLOSEOUT-FAIL"
+  if $CTU_SUDO test -e "$pass" || $CTU_SUDO test -L "$pass" || $CTU_SUDO test -e "$fail" || $CTU_SUDO test -L "$fail"; then
+    echo CTU_CLOSEOUT_ALREADY_PRESENT >&2; return 1
+  fi
 }
 ctu_fsync() { $CTU_SUDO sync -- "$1" 2>/dev/null; }
 ctu_consume_attempt() {
@@ -68,11 +75,12 @@ ctu_prepare_bundle() {
   local repo=${1:-} p4=${2:-} bundle=${3:-} main=${4:-} rel src dst got expected
   [[ "$repo" == /* && "$p4" == /* && "$bundle" == /* && "$bundle" != *..* && "$main" =~ ^[0-9a-f]{40}$ ]] || return 1
   local -a files=(
-    p4-lib.sh p4-l0-capture.sh p4-compare.sh p4-l7u-run-lib.sh p4-l7-run-lib.sh p4-l6b-run-lib.sh p4-ctu-runtime-verify.py
+    p4-lib.sh p4-stage-gate.sh p4-ctu-run-lib.sh p4-l0-capture.sh p4-compare.sh p4-l7u-run-lib.sh p4-l7-run-lib.sh p4-l6b-run-lib.sh p4-ctu-runtime-verify.py
     stages/CTu/apply.sh stages/CTu/verify.sh stages/CTu/rollback.sh
     stages/CTu/allow-keys.txt stages/CTu/allow-keys-rollback.txt stages/CTu/allow-listeners.txt
+    p4-iw-phy-regnorm.awk owner-run/run-ctu-owner.sh
   )
-  $CTU_SUDO mkdir -p -m 0700 -- "$bundle/stages/CTu" || return 1
+  $CTU_SUDO mkdir -p -m 0700 -- "$bundle/stages/CTu" "$bundle/owner-run" || return 1
   : | $CTU_SUDO tee "$bundle/CTU-BUNDLE-SHA256SUMS" >/dev/null || return 1
   for rel in "${files[@]}"; do
     src="$p4/$rel"; dst="$bundle/$rel"
@@ -85,23 +93,78 @@ ctu_prepare_bundle() {
     printf '%s  %s\n' "$got" "$rel" | $CTU_SUDO tee -a "$bundle/CTU-BUNDLE-SHA256SUMS" >/dev/null || return 1
   done
   $CTU_SUDO chown -R root:root -- "$bundle"
-  $CTU_SUDO chmod 0555 "$bundle" "$bundle/stages" "$bundle/stages/CTu"
+  $CTU_SUDO chmod 0555 "$bundle" "$bundle/stages" "$bundle/stages/CTu" "$bundle/owner-run"
   ctu_fsync "$bundle/CTU-BUNDLE-SHA256SUMS" && ctu_fsync "$bundle" || return 1
   $CTU_SUDO sha256sum -c --quiet --strict "$bundle/CTU-BUNDLE-SHA256SUMS" >/dev/null 2>&1
 }
+ctu_verify_bundle() {
+  local bundle=${1:-}
+  [ -d "$bundle" ] && [ ! -L "$bundle" ] || return 1
+  [ "$($CTU_SUDO stat -c %u -- "$bundle" 2>/dev/null)" = 0 ] || return 1
+  [ -z "$($CTU_SUDO find "$bundle" -type l -print -quit)" ] || return 1
+  ( cd "$bundle" && $CTU_SUDO sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) >/dev/null 2>&1
+}
+ctu_verify_unit_snapshot() {
+  local snapshot=${1:-} expected=${2:-}
+  [ -f "$snapshot" ] && [ ! -L "$snapshot" ] || return 1
+  [ "$($CTU_SUDO stat -c %u -- "$snapshot" 2>/dev/null)" = 0 ] || return 1
+  [ "$($CTU_SUDO sha256sum -- "$snapshot" 2>/dev/null | cut -d' ' -f1)" = "$expected" ]
+}
+CTU_KEEPALIVE_PID=""
+ctu_start_sudo_keepalive() {
+  local parent=$$ max=3600 interval=20 waited=0
+  [ -z "$CTU_KEEPALIVE_PID" ] || return 0
+  (
+    while kill -0 "$parent" 2>/dev/null && [ "$waited" -lt "$max" ]; do
+      sleep "$interval"; waited=$((waited + interval))
+      sudo -n -v >/dev/null 2>&1 </dev/null || exit 1
+    done
+  ) >/dev/null 2>&1 </dev/null &
+  CTU_KEEPALIVE_PID=$!
+}
+ctu_stop_sudo_keepalive() {
+  if [ -n "$CTU_KEEPALIVE_PID" ]; then
+    kill "$CTU_KEEPALIVE_PID" 2>/dev/null || true
+    wait "$CTU_KEEPALIVE_PID" 2>/dev/null || true
+    CTU_KEEPALIVE_PID=""
+  fi
+}
 ctu_record_success() {
-  local main=${1:-} unit_sha=${2:-} evidence=${3:-} marker closeout
+  local main=${1:-} unit_sha=${2:-} evidence=${3:-} marker closeout tmp fail_closeout
   [[ "$main" =~ ^[0-9a-f]{40}$ && "$unit_sha" =~ ^[0-9a-f]{64}$ && "$evidence" == /* && "$evidence" != *..* ]] || return 1
   marker=$(ctu_marker_path); closeout=$(ctu_closeout_path)
-  $CTU_SUDO test -f "$marker" && ! $CTU_SUDO test -L "$marker" || return 1
-  if ! printf 'CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_EXPECTED_MAIN=%s\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\nCTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\nCTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=%s\nCTU_EVIDENCE_ROOT=%s\n' "$main" "$unit_sha" "$evidence" | $CTU_SUDO bash -c 'set -o noclobber; cat > "$1"' _ "$closeout"; then
-    return 1
+  fail_closeout="$(ctu_canonical_dir)/CTU-GLOBAL-CLOSEOUT-FAIL"
+  if $CTU_SUDO test -e "$fail_closeout" || $CTU_SUDO test -L "$fail_closeout"; then
+    echo CTU_FAIL_CLOSEOUT_ALREADY_EXISTS >&2; return 1
   fi
-  ctu_fsync "$closeout" && ctu_fsync "$(dirname "$closeout")"
+  $CTU_SUDO test -f "$marker" && ! $CTU_SUDO test -L "$marker" || return 1
+  tmp="$closeout.tmp.$$"
+  printf 'CTU_LIVE=CLOSED_PASS\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=PASS\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_EXPECTED_MAIN=%s\nCTU_STAGE=CTu\nCTU_RUNTIME_PROOF=PASS\nCTU_AUTHENTICATED_STATUS_PROOF=PASS\nCTU_DETECTOR_LIFECYCLE_PROOF=PASS\nCTU_PRE_POST_PRESERVATION=PASS\nRECOVERY_LIVE_EXECUTED=NO\nRECOVERY_ATTEMPT_CONSUMED=NO\nCTU_FAILURE_RESULT=NONE\nCTU_UNIT_SHA256=%s\nCTU_EVIDENCE_ROOT=%s\n' "$main" "$unit_sha" "$evidence" | $CTU_SUDO bash -c 'umask 077; cat > "$1"' _ "$tmp" || return 1
+  $CTU_SUDO chmod 0600 -- "$tmp" || return 1
+  ctu_fsync "$tmp" || return 1
+  $CTU_SUDO mv -n -- "$tmp" "$closeout" || return 1
+  ctu_fsync "$(dirname "$closeout")"
+}
+ctu_record_failure() {
+  local reason=${1:-UNKNOWN} marker closeout tmp
+  marker=$(ctu_marker_path); closeout="$(ctu_canonical_dir)/CTU-GLOBAL-CLOSEOUT-FAIL"
+  $CTU_SUDO test -e "$marker" || return 0
+  tmp="$closeout.tmp.$$"
+  printf 'CTU_LIVE=CLOSED_FAIL\nCTU_LIVE_EXECUTED=YES\nCTU_RESULT=FAIL_IMMUTABLE\nCTU_ATTEMPT_CONSUMED=YES\nCTU_RERUN_ALLOWED=NO\nCTU_FAILURE_RESULT=FAIL_IMMUTABLE\nCTU_FAILURE_REASON=%s\n' "$reason" | $CTU_SUDO bash -c 'umask 077; cat > "$1"' _ "$tmp" || return 1
+  $CTU_SUDO chmod 0600 -- "$tmp" || return 1
+  ctu_fsync "$tmp" || return 1
+  $CTU_SUDO mv -n -- "$tmp" "$closeout" || return 1
+  ctu_fsync "$(dirname "$closeout")"
 }
 ctu_operator_identity_gate() {
   local expected_user=${1:-} expected_uid=${2:-} actual_uid actual_user
   [[ "$expected_user" =~ ^[a-z_][a-z0-9_-]*$ && "$expected_uid" =~ ^[1-9][0-9]*$ ]] || return 1
   actual_uid=$(id -u); actual_user=$(id -un)
   [ "$actual_uid" = "$expected_uid" ] && [ "$actual_user" = "$expected_user" ] && [ "$actual_uid" != 0 ]
+}
+ctu_rru_successor_gate() {
+  local repo=${1:-} main=${2:-} files
+  [ -n "$repo" ] && [ -d "$repo/.git" ] && [[ "$main" =~ ^[0-9a-f]{40}$ ]] || return 1
+  files=$(GIT_NO_REPLACE_OBJECTS=1 git -C "$repo" grep -l "RRU_LIVE=CLOSED_PASS" "$main" -- 'Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/' 2>/dev/null || true)
+  [ -n "$files" ] || { echo "CTU_RRU_SUCCESSOR_GATE_FAILED" >&2; return 1; }
 }

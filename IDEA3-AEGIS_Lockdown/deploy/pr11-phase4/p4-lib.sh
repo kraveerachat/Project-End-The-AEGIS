@@ -110,6 +110,8 @@ p4_stage_auth_extra() {
     L8) echo recovery_authorization ;;
     # L8p replaces the D4 attestation with an attested physical recovery procedure; it never carries recovery_authorization (L8-only).
     L8p) echo physical_recovery_attestation ;;
+    # CTu records bind the actual frozen attempt, not only stage/date.
+    CTu) echo expected_main runner_sha256 unit_sha256 operator_user operator_uid ;;
   esac
 }
 
