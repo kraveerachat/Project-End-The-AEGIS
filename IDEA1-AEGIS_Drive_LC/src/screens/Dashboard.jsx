@@ -369,7 +369,7 @@ function ChartTooltip({ active, payload, label, t }) {
   )
 }
 
-function ActivityChart({ t, lang, data }) {
+function ActivityChart({ t, lang, data, classic = false }) {
   const reduced = useReducedMotion()
   // ป้ายแกน X เป็นชื่อวันตามภาษาที่เลือก — เซิร์ฟเวอร์คืนวันที่ ISO ไม่ใช่ชื่อวันภาษาอังกฤษ
   // (ชื่อวันเป็นเรื่องของการแสดงผล ไม่ใช่ข้อมูล)
@@ -416,8 +416,8 @@ function ActivityChart({ t, lang, data }) {
             {/* allowDecimals=false — จำนวนครั้งเป็นจำนวนเต็มเสมอ */}
             <YAxis axisLine={false} tickLine={false} width={38} allowDecimals={false} domain={[0, 'auto']} />
             <RTooltip content={<ChartTooltip t={t} />} cursor={{ fill: 'var(--card-sunken)' }} />
-            <Bar dataKey="uploads" radius={[8, 8, 0, 0]} maxBarSize={18} fill="url(#dash-series-uploads)" isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
-            <Bar dataKey="downloads" radius={[8, 8, 0, 0]} maxBarSize={18} fill="url(#dash-series-downloads)" isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
+            <Bar dataKey="uploads" radius={[5, 5, 0, 0]} maxBarSize={18} fill={classic ? UPLOAD_COLOR : 'url(#dash-series-uploads)'} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
+            <Bar dataKey="downloads" radius={[5, 5, 0, 0]} maxBarSize={18} fill={classic ? DOWNLOAD_COLOR : 'url(#dash-series-downloads)'} isAnimationActive={!reduced} animationDuration={600} animationEasing="ease-out" />
           </BarChart>
         </ResponsiveContainer>
       </div>}
@@ -438,13 +438,14 @@ function ActivityChart({ t, lang, data }) {
 }
 
 /* ── The dashboard grid — สี่สถานะครบที่ระดับจอ ───────────────────────── */
-export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoading = false }) {
+export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoading = false, interfaceStyle = 'neo' }) {
   const rootRef = useRef(null)
   const reduced = useReducedMotion()
   const now = useNow(1000)
   const dash = useApi('/api/dashboard', { refreshMs: 30_000 })
   const storage = useApi('/api/storage', { refreshMs: 60_000 })
-  useDashboardMotion(rootRef, !dash.loading && !health.loading, reduced)
+  const classic = interfaceStyle === 'classic'
+  useDashboardMotion(rootRef, !dash.loading && !health.loading, reduced, classic)
 
   if (dash.loading || health.loading) return <SkeletonLoader type="dashboard" />
 
@@ -540,7 +541,7 @@ export function Dashboard({ t, lang, health, go, telemetry = null, telemetryLoad
               <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
             </Card>
           ) : (
-            <ActivityChart t={t} lang={lang} data={d.activity7d ?? []} />
+            <ActivityChart t={t} lang={lang} data={d.activity7d ?? []} classic={classic} />
           )}
         </div>
         <ServerTelemetry t={t} data={telemetry} loading={telemetryLoading} />

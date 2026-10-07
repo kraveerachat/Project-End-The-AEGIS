@@ -10,8 +10,8 @@ function Dropdown({ open, onClose, children, label, align = 'right', width = 280
     if (!neoDashboard) return undefined
     if (open) {
       setVisible(true)
-      const frame = requestAnimationFrame(() => ref.current?.querySelector('[role="menuitem"]')?.focus())
-      return () => cancelAnimationFrame(frame)
+      const frame = window.requestAnimationFrame(() => ref.current?.querySelector('[role="menuitem"]')?.focus())
+      return () => window.cancelAnimationFrame(frame)
     }
     const timer = setTimeout(() => setVisible(false), 160)
     return () => clearTimeout(timer)
@@ -67,7 +67,7 @@ function Dropdown({ open, onClose, children, label, align = 'right', width = 280
   )
 }
 
-export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSettings, onSignOut, openMobileNav, resolvedTheme = 'light', onThemeChange, neoDashboard = false, collapsed = false, setCollapsed, navigationPosition = 'left', search = null }) {
+export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSettings, onSignOut, openMobileNav, resolvedTheme = 'light', onThemeChange, neoDashboard = false, classic = false, collapsed = false, setCollapsed, navigationPosition = 'left', search = null }) {
   const [avatarOpen, setAvatarOpen] = useState(false)
   const avatarTriggerRef = useRef(null)
 
@@ -155,7 +155,7 @@ export function TopBar({ t, lang = 'en', scrolled, user, health, onProfile, onSe
           <button
             ref={avatarTriggerRef}
             type="button"
-            aria-label={neoDashboard ? `${t('profile')} · ${user.displayName}` : user.displayName}
+            aria-label={neoDashboard && !classic ? `${t('profile')} · ${user.displayName}` : user.displayName}
             aria-haspopup="menu"
             aria-expanded={avatarOpen}
             onClick={() => setAvatarOpen((v) => !v)}

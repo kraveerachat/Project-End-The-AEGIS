@@ -251,9 +251,12 @@ export default function App() {
   const activeScreen = resolveAuthorizedScreen(screen, serverNav)
   const workspaceSurfaceActive = WORKSPACE_SCREENS.has(activeScreen)
   const neoDashboard = interfaceStyle === 'neo' && activeScreen === 'dashboard'
+  const classicDashboard = interfaceStyle === 'classic' && activeScreen === 'dashboard'
   // The approved floating Sidebar + Top Bar are the shell of every Neo screen,
   // not only Dashboard. Dashboard-specific content still keys off neoDashboard.
   const neoShell = interfaceStyle === 'neo'
+  // Both styles use the same shell behavior. Their materials stay isolated in CSS.
+  const modernShell = neoShell || interfaceStyle === 'classic'
   // Dashboard has its own bounded GSAP/ScrollTrigger pass; other Neo screens
   // retain the established IntersectionObserver reveal and its failsafe.
   useScrollReveal(mainRef, screen, interfaceStyle === 'neo' && !neoDashboard)
@@ -485,6 +488,7 @@ export default function App() {
         health={healthApi}
         go={go}
         telemetry={telemetryApi.data}
+        interfaceStyle={interfaceStyle}
         // Passed so the tiles can tell "not read yet" from "read and failed".
         telemetryLoading={telemetryApi.loading}
       />
@@ -548,7 +552,7 @@ export default function App() {
         resolvedTheme={resolvedTheme}
         mobileOpen={mobileNav}
         closeMobile={() => setMobileNav(false)}
-        neoDashboard={neoShell}
+        neoDashboard={modernShell}
         position={navigationPosition}
       />
       <div className="flex-1 flex flex-col min-w-0 h-full">
@@ -564,11 +568,12 @@ export default function App() {
           onSettings={() => { setSettingsTab('appearance'); go('settings') }}
           onSignOut={signOut}
           openMobileNav={() => setMobileNav(true)}
-          neoDashboard={neoShell}
+          neoDashboard={modernShell}
+          classic={interfaceStyle === 'classic'}
           collapsed={collapsed}
           setCollapsed={setCollapsed}
           navigationPosition={navigationPosition}
-          search={neoShell ? (
+          search={modernShell ? (
             <GlobalSearch
               t={t}
               screen={activeScreen}
@@ -593,7 +598,7 @@ export default function App() {
           <PageSurface
             key={activeScreen}
             data-testid="app-page-content"
-            className={workspaceSurfaceActive ? 'workspace-full-pane-surface min-h-full flex flex-col' : neoDashboard ? 'neo-dashboard-content min-h-full' : neoShell ? 'neo-page-content min-h-full' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
+            className={workspaceSurfaceActive ? 'workspace-full-pane-surface min-h-full flex flex-col' : neoDashboard ? 'neo-dashboard-content min-h-full' : classicDashboard ? 'classic-dashboard-content min-h-full' : neoShell ? 'neo-page-content min-h-full' : 'px-8 py-7 max-md:px-4 max-md:py-5 max-w-[1440px] mx-auto'}
           >
             {/* One composed header: breadcrumb + title on the left, search/actions on the right. */}
             <div className={`dashboard-page-header flex flex-col gap-2 mb-6 rise-in ${workspaceSurfaceActive ? 'workspace-pane-content pt-7 max-md:pt-5' : ''}`}>
@@ -608,8 +613,8 @@ export default function App() {
                   <h1 className="text-2xl md:text-[28px] font-bold tracking-[-0.025em] text-ink">
                     {t(TITLE_KEYS[activeScreen])}
                   </h1>
-                  {neoDashboard && <p className="mt-1 text-[13px] text-ink-2">{t('dashOverviewSub')}</p>}
-                  {neoDashboard && (
+                  {(neoDashboard || classicDashboard) && <p className="mt-1 text-[13px] text-ink-2">{t('dashOverviewSub')}</p>}
+                  {(neoDashboard || classicDashboard) && (
                     <div className="neo-dashboard-inline-status" role="status" aria-live="polite">
                       <span><Dot tone={healthApi.data?.layers?.application?.checked === true && healthApi.data?.layers?.application?.ok === true ? 'ok' : 'neutral'} size={6} />{healthApi.data?.layers?.application?.checked === true && healthApi.data?.layers?.application?.ok === true ? t('driveOnline') : t('driveNotConnected')}</span>
                       <span><Dot tone={healthApi.data?.layers?.metadata?.checked === true && healthApi.data?.layers?.metadata?.ok === true ? 'accent' : 'neutral'} size={6} />{healthApi.data?.layers?.metadata?.checked === true && healthApi.data?.layers?.metadata?.ok === true ? t('metadataConnected', { source: healthApi.data?.db === 'postgres' ? 'PostgreSQL' : 'in-memory' }) : t('metadataNotConnected')}</span>
@@ -622,7 +627,7 @@ export default function App() {
                       จอ Vault ได้ช่อง disabled เพื่อบอกข้อจำกัดตามจริง
                       ⚠️ ดัชนีที่ส่งเข้าไปมีแค่ files + users ที่เซิร์ฟเวอร์อนุญาตแล้ว —
                          ไม่มีข้อมูล vault อยู่ในนี้เลยไม่ว่าจออะไร */}
-                  {!neoShell && !HEADER_SEARCH_HIDDEN_SCREENS.has(activeScreen) && (
+                  {!modernShell && !HEADER_SEARCH_HIDDEN_SCREENS.has(activeScreen) && (
                     <GlobalSearch
                       t={t}
                       screen={activeScreen}

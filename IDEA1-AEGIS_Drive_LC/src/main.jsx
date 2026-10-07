@@ -7,6 +7,7 @@ import './neoOverlays.css'
 import './neoSelect.css'
 import './neoNavigation.css'
 import './neoLight.css'
+import './classicPrecision.css'
 import App from './App.jsx'
 import { ErrorBoundary } from './components/ErrorBoundary.jsx'
 

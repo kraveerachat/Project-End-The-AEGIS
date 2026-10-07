@@ -15,7 +15,7 @@ const settle = (progress) => (1 - (1 + 7 * progress) * Math.exp(-7 * progress)) 
  * when already in view). Hover is a small lift plus pointer-following edge
  * light written to CSS variables; there is no 3D tilt.
  */
-export function useDashboardMotion(rootRef, enabled, reducedMotion) {
+export function useDashboardMotion(rootRef, enabled, reducedMotion, classic = false) {
   useEffect(() => {
     const root = rootRef.current
     if (!enabled || !root || reducedMotion) return undefined
@@ -28,18 +28,18 @@ export function useDashboardMotion(rootRef, enabled, reducedMotion) {
     const context = gsap.context(() => {
       const heading = root.ownerDocument.querySelector('.dashboard-page-header')
       if (heading) {
-        gsap.fromTo(heading, { autoAlpha: 0, y: 8 }, { autoAlpha: 1, y: 0, duration: 0.36, ease: 'power3.out', clearProps: 'transform,opacity,visibility' })
+        gsap.fromTo(heading, { autoAlpha: 0, y: classic ? 5 : 8 }, { autoAlpha: 1, y: 0, duration: classic ? 0.22 : 0.36, ease: 'power3.out', clearProps: 'transform,opacity,visibility' })
       }
       const kpis = root.querySelectorAll('.dashboard-kpi-row > .ui-card')
       gsap.fromTo(kpis,
-        { autoAlpha: 0, y: 14 },
-        { autoAlpha: 1, y: 0, duration: 0.46, delay: 0.06, stagger: 0.06, ease: 'power3.out', clearProps: 'transform,opacity,visibility' })
+        { autoAlpha: 0, y: classic ? 5 : 14 },
+        { autoAlpha: 1, y: 0, duration: classic ? 0.23 : 0.46, delay: 0.06, stagger: classic ? 0.03 : 0.06, ease: 'power3.out', clearProps: 'transform,opacity,visibility' })
       const analytics = root.querySelectorAll('.dashboard-analytics-grid > *')
       gsap.fromTo(analytics,
-        { autoAlpha: 0, y: 16 },
-        { autoAlpha: 1, y: 0, duration: 0.5, delay: 0.24, stagger: 0.07, ease: 'power3.out', clearProps: 'transform,opacity,visibility' })
+        { autoAlpha: 0, y: classic ? 6 : 16 },
+        { autoAlpha: 1, y: 0, duration: classic ? 0.26 : 0.5, delay: classic ? 0.12 : 0.24, stagger: classic ? 0.04 : 0.07, ease: 'power3.out', clearProps: 'transform,opacity,visibility' })
 
-      if (finePointer) {
+      if (finePointer && !classic) {
         root.querySelectorAll('.ui-card').forEach((card) => {
           if (card.parentElement?.closest('.ui-card')) return
           let frame = 0
@@ -82,8 +82,8 @@ export function useDashboardMotion(rootRef, enabled, reducedMotion) {
             start: 'top 94%',
             once: true,
             onEnter: () => gsap.fromTo(section.children,
-              { autoAlpha: 0, y: 12 },
-              { autoAlpha: 1, y: 0, duration: 0.44, stagger: 0.06, ease: 'power3.out', overwrite: 'auto', clearProps: 'transform,opacity,visibility' }),
+              { autoAlpha: 0, y: classic ? 5 : 12 },
+              { autoAlpha: 1, y: 0, duration: classic ? 0.24 : 0.44, stagger: classic ? 0.03 : 0.06, ease: 'power3.out', overwrite: 'auto', clearProps: 'transform,opacity,visibility' }),
           })
         })
       }
@@ -93,5 +93,5 @@ export function useDashboardMotion(rootRef, enabled, reducedMotion) {
       cleanups.forEach((cleanup) => cleanup())
       context.revert()
     }
-  }, [rootRef, enabled, reducedMotion])
+  }, [rootRef, enabled, reducedMotion, classic])
 }

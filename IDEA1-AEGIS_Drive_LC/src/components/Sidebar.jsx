@@ -19,8 +19,8 @@ function Collapse({ show, children }) {
   useEffect(() => {
     if (show) {
       setMounted(true)
-      const id = requestAnimationFrame(() => requestAnimationFrame(() => setOpen(true)))
-      return () => cancelAnimationFrame(id)
+      const id = window.requestAnimationFrame(() => window.requestAnimationFrame(() => setOpen(true)))
+      return () => window.cancelAnimationFrame(id)
     }
     setOpen(false)
     const id = setTimeout(() => setMounted(false), 320)
@@ -151,13 +151,13 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
       indicatorPlacedRef.current = true
       navElement.dataset.navIndicator = 'ready'
     }
-    const frame = requestAnimationFrame(positionIndicator)
+    const frame = window.requestAnimationFrame(positionIndicator)
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(positionIndicator) : null
     observer?.observe(active)
     observer?.observe(navElement)
     window.addEventListener('resize', positionIndicator)
     return () => {
-      cancelAnimationFrame(frame)
+      window.cancelAnimationFrame(frame)
       observer?.disconnect()
       window.removeEventListener('resize', positionIndicator)
     }
