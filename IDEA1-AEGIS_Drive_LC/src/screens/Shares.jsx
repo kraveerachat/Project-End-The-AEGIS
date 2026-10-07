@@ -125,21 +125,21 @@ function LinkRow({ t, link, now, revoking, onAskRevoke }) {
             <span className="share-file-owner">{link.createdBy}</span>
           </span>
           <span className="share-row-meta">
-            <span role="cell" className="share-cell share-cell--scope" data-label={t('colScope')}>
+            <span role="cell" className="share-cell share-cell--scope" data-label={t('colScope')} aria-label={`${t('colScope')}: ${scopeLabel}`}>
               <span className="share-scope-badge" data-tone={scopeChip.tone} title={scopeLabel}>
                 <span className="share-scope-dot" aria-hidden />
                 <span className="share-scope-label">{scopeLabel}</span>
               </span>
             </span>
-            <span role="cell" className="share-cell share-cell--auth" data-label={t('colAuth')}>
+            <span role="cell" className="share-cell share-cell--auth" data-label={t('colAuth')} aria-label={`${t('colAuth')}: ${t(SHARE_AUTH_LABEL[link.authType] ?? 'authNone')}`}>
               <span className="share-auth-value" title={t(SHARE_AUTH_LABEL[link.authType] ?? 'authNone')}>
                 {t(SHARE_AUTH_LABEL[link.authType] ?? 'authNone')}
               </span>
             </span>
-            <span role="cell" className="share-cell share-cell--expires" data-label={t('colExpiresIn')}>
+            <span role="cell" className="share-cell share-cell--expires" data-label={t('colExpiresIn')} aria-label={`${t('colExpiresIn')}: ${isExpired ? t('expired') : fmtCountdown(msLeft, t('expired'))}`}>
               <span className="share-expires-value">{isExpired ? t('expired') : fmtCountdown(msLeft, t('expired'))}</span>
             </span>
-            <span role="cell" className="share-cell share-cell--hits" data-label={t('colHits')}>
+            <span role="cell" className="share-cell share-cell--hits" data-label={t('colHits')} aria-label={`${t('colHits')}: ${hitsKnown ? link.hits : '—'}`}>
               <span className="share-hits-value">{hitsKnown ? link.hits : '—'}</span>
             </span>
           </span>
