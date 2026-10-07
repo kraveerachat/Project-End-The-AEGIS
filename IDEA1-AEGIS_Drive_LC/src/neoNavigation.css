@@ -1,0 +1,348 @@
+/* ─────────────────────────────────────────────────────────────────
+   Neo Dark — floating route navigator (Navigation Position: top / bottom).
+   Dark + Neo only; Light and Classic keep index.css.
+
+   One capsule of dense dark glass. The current route's icon becomes a
+   lifted pod that leaves the bar through a sculpted bulge (the cradle):
+   it hangs DOWN from the top bar and RISES from the bottom bar. The cradle
+   glides to the new route; the pod lifts once it arrives.
+   ───────────────────────────────────────────────────────────────── */
+@media (min-width: 1024px) {
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation {
+    --nav-bar-fill: linear-gradient(180deg, rgba(17, 30, 72, 0.9), rgba(7, 14, 40, 0.93));
+    --nav-bulge-fill: rgba(10, 20, 54, 0.96);
+    --nav-edge: rgba(126, 156, 236, 0.3);
+    --nav-pod: 36px;
+    --nav-pod-active: 42px;
+    --nav-cradle: 58px;
+    --nav-lift: 0px;
+    --nav-hint: 0px;
+    --nav-glide: 340ms;
+    --nav-rise: 260ms;
+    color: #b9c8e8;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top {
+    --nav-lift: 18px;
+    --nav-hint: 2px;
+    position: relative;
+    z-index: calc(var(--z-sticky) - 1);
+    min-height: 0;
+    padding: 12px 16px 0;
+    border: 0;
+    background: transparent;
+    /* The hanging pod reaches into the page's own top padding. */
+    margin-bottom: -8px;
+    pointer-events: none;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom {
+    --nav-lift: -24px;
+    --nav-hint: -2px;
+    bottom: max(22px, env(safe-area-inset-bottom));
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    pointer-events: none;
+  }
+
+  /* The capsule. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__items {
+    position: relative;
+    isolation: isolate;
+    gap: 2px;
+    max-width: 100%;
+    padding: 6px 10px;
+    overflow: visible;
+    border: 1px solid var(--nav-edge);
+    border-radius: 999px;
+    background: var(--nav-bar-fill);
+    box-shadow:
+      inset 0 1px 0 rgba(176, 204, 255, 0.16),
+      inset 0 -1px 0 rgba(4, 8, 26, 0.6),
+      0 20px 44px -22px rgba(0, 4, 22, 0.95),
+      0 0 34px -20px rgba(92, 108, 255, 0.7);
+    -webkit-backdrop-filter: blur(22px) saturate(1.35);
+    backdrop-filter: blur(22px) saturate(1.35);
+    pointer-events: auto;
+  }
+
+  /* Faint spectral rim along the capsule's outer edge. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__items::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: -1px;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(100deg, rgba(64, 140, 255, 0.5), rgba(124, 92, 255, 0.18) 40%, rgba(124, 92, 255, 0.12) 62%, rgba(214, 92, 220, 0.42));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__items {
+    margin-inline: auto;
+    white-space: nowrap;
+  }
+
+  /* ── Cradle: the bulge the pod sits in ── */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__cradle {
+    position: absolute;
+    z-index: 0;
+    top: 0;
+    left: 0;
+    display: block;
+    width: var(--nav-cradle);
+    height: var(--nav-cradle);
+    border-radius: 50%;
+    background: var(--nav-bulge-fill);
+    -webkit-backdrop-filter: blur(22px) saturate(1.35);
+    backdrop-filter: blur(22px) saturate(1.35);
+    transform: translate(
+      calc(var(--nav-cradle-x, 0px) - var(--nav-cradle) / 2),
+      calc(var(--nav-cradle-y, 0px) - var(--nav-cradle) / 2 + var(--nav-lift))
+    );
+    opacity: 1;
+    pointer-events: none;
+  }
+
+  /* Edge light on the outer half of the bulge only, so it reads as one
+     continuous silhouette with the capsule rather than a ring on top. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__cradle::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(var(--nav-cradle-light, 180deg), rgba(150, 178, 255, 0.62), rgba(150, 178, 255, 0.18) 34%, transparent 50%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__cradle {
+    --nav-cradle-light: 0deg;
+    box-shadow: 0 12px 22px -12px rgba(0, 4, 22, 0.9);
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__cradle {
+    box-shadow: 0 -10px 22px -14px rgba(70, 110, 255, 0.55);
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__items[data-cradle="none"] .positioned-navigation__cradle,
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__items:not([data-cradle]) .positioned-navigation__cradle {
+    opacity: 0;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__items[data-cradle="ready"] .positioned-navigation__cradle {
+    transition: transform var(--nav-glide) var(--neo-ease), opacity 200ms var(--neo-ease);
+  }
+
+  /* ── Items ── */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item {
+    position: relative;
+    z-index: 1;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 12px 0 4px;
+    border: 0;
+    border-radius: 999px;
+    color: #b9c8e8;
+    background: transparent;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.005em;
+    transition: color 220ms var(--neo-ease), background-color 220ms var(--neo-ease);
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__pod {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    width: var(--nav-pod);
+    height: var(--nav-pod);
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: #9fb4e0;
+    transition:
+      transform var(--nav-rise) var(--neo-ease),
+      width var(--nav-rise) var(--neo-ease),
+      height var(--nav-rise) var(--neo-ease),
+      color 220ms var(--neo-ease),
+      background-color 220ms var(--neo-ease),
+      box-shadow var(--nav-rise) var(--neo-ease);
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__label {
+    transition: color 220ms var(--neo-ease);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:not(.is-active):hover {
+      color: #eef3ff;
+      background: transparent;
+    }
+
+    :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:not(.is-active):hover .positioned-navigation__pod {
+      color: #d8e6ff;
+      background-color: rgba(96, 130, 255, 0.14);
+      box-shadow: inset 0 0 0 1px rgba(140, 170, 255, 0.22), 0 0 18px -6px rgba(90, 130, 255, 0.7);
+      transform: translateY(var(--nav-hint));
+    }
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:not(.is-active):active .positioned-navigation__pod {
+    transform: translateY(var(--nav-hint)) scale(0.94);
+    transition-duration: 90ms;
+  }
+
+  /* Keyboard focus: a rounded ring that follows the capsule shape. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:focus-visible {
+    outline: none;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item:focus-visible:not(.is-active) {
+    background: rgba(91, 124, 255, 0.12);
+    box-shadow: 0 0 0 2px #8ea8ff, 0 0 16px -4px rgba(91, 124, 255, 0.75);
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item.is-active:focus-visible .positioned-navigation__pod {
+    box-shadow:
+      0 0 0 4px rgba(8, 16, 44, 0.98),
+      0 0 0 6px #a9bdff,
+      0 12px 26px -10px rgba(84, 112, 255, 0.95);
+  }
+
+  /* ── Active: the hero pod ── */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item.is-active {
+    color: #ffffff;
+    background: transparent;
+    cursor: default;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item.is-active .positioned-navigation__pod {
+    z-index: 2;
+    color: #ffffff;
+    background:
+      radial-gradient(120% 90% at 30% 18%, rgba(255, 255, 255, 0.28), transparent 46%),
+      linear-gradient(140deg, #2f7bff 0%, #4d56f0 52%, #8a4fd8 100%);
+    box-shadow:
+      0 0 0 4px rgba(8, 16, 44, 0.98),
+      0 0 0 5px rgba(130, 160, 255, 0.28),
+      0 12px 26px -10px rgba(84, 112, 255, 0.95),
+      0 0 30px -6px rgba(120, 92, 255, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    transform: translateY(var(--nav-lift));
+    transition-delay: 70ms;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item.is-active .positioned-navigation__pod svg {
+    filter: drop-shadow(0 1px 2px rgba(10, 16, 60, 0.45));
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation__item.is-active .positioned-navigation__label {
+    color: #ffffff;
+    font-weight: 700;
+  }
+
+  /* Top: active item gets a little more room for the pendant. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item.is-active {
+    padding-inline: 2px 16px;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item.is-active .positioned-navigation__pod {
+    width: var(--nav-pod-active);
+    height: var(--nav-pod-active);
+    margin-block: -3px;
+  }
+
+  /* ── Bottom: icon over label, pod rises above the capsule ── */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__items {
+    gap: 4px;
+    padding: 6px 12px;
+    overflow: visible;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item {
+    flex-direction: column;
+    gap: 2px;
+    min-width: 52px;
+    height: 52px;
+    padding: 2px 6px;
+    border-radius: 18px;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__pod {
+    --nav-pod: 34px;
+  }
+
+  /* Compact widths: inactive items are icon-only; the current route keeps its name. */
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active {
+    min-width: 76px;
+    justify-content: flex-end;
+    padding-bottom: 5px;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active .positioned-navigation__label {
+    display: block;
+    max-width: 104px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10.5px;
+    line-height: 1.2;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item.is-active .positioned-navigation__pod {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    margin: calc(var(--nav-pod-active) / -2) 0 0 calc(var(--nav-pod-active) / -2);
+    width: var(--nav-pod-active);
+    height: var(--nav-pod-active);
+    transform: translateY(var(--nav-lift));
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] [data-navigation-position="bottom"] main {
+    padding-bottom: 116px;
+  }
+}
+
+/* Top bar between 1024 and 1439: inactive items fold to icons so the full
+   menu fits without scrolling; names stay in title/aria-label. */
+@media (min-width: 1024px) and (max-width: 1439.98px) {
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item:not(.is-active) {
+    padding: 0 4px;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--top .positioned-navigation__item:not(.is-active) .positioned-navigation__label {
+    display: none;
+  }
+}
+
+@media (min-width: 1450px) {
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__item {
+    min-width: 72px;
+    height: 56px;
+    justify-content: flex-end;
+    padding-bottom: 5px;
+  }
+
+  :root[data-ui-style="neo"][data-theme="dark"] .positioned-navigation--bottom .positioned-navigation__label {
+    max-width: 96px;
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"][data-theme="dark"] :is(.positioned-navigation__cradle, .positioned-navigation__pod, .positioned-navigation__item, .positioned-navigation__label) {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+}

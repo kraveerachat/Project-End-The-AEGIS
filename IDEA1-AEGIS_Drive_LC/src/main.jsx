@@ -4,6 +4,7 @@ import './index.css'
 import './neoDarkApp.css'
 import './neoDashboard.css'
 import './neoOverlays.css'
+import './neoNavigation.css'
 import App from './App.jsx'
 import { ErrorBoundary } from './components/ErrorBoundary.jsx'
 
