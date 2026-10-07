@@ -22,7 +22,7 @@ edit_policy: owner-writable
 Task: IDEA3 CTu exact-two predecessor drop-in preservation repair
 Branch: `fix/idea3-ctu-dropin-preservation`
 Owner: `music`
-Current state: repository repair implemented and locally verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED
+Current state: repository repair, exact-two predecessor drop-in preservation contract, and nounset verify-environment remediation implemented and locally verified; Draft PR #383 pending owner/integration re-review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_MUTATION_PERFORMED=NO
 Production mutation allowed by this task: NO
 Next: human review and merge only; after merge, independently freeze fresh exact-main CTu authority before any LIVE restart
 
@@ -30,7 +30,7 @@ Next: human review and merge only; after merge, independently freeze fresh exact
 
 | ID | Scope | State | Evidence | Result | Remaining | Next |
 |---|---|---|---|---|---|---|
-| CTu-S4 | Exact-two predecessor drop-in preservation contract and regression repair | IN PROGRESS | focused CTu tests green; broad CTu/Recovery/RRu suite completed with only environment-only failures; final docs/receipt/PR checks pending | repository implementation PASS; zero Production mutation | final validation, immutable receipt, Draft PR | owner and independent Security/Governance review |
+| CTu-S4 | Exact-two predecessor drop-in preservation contract and regression repair | READY FOR REVIEW | focused CTu suites (72 passed), nounset behavioral regression, and affected test suites pass; immutable receipt and Draft PR #383 exist | repository implementation PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance re-review of Draft PR #383; human merge only; zero LIVE execution | independent exact-head re-review; human merge only; freeze fresh exact-main CTu authority after merge |
 
 ## IDEA3 Core TrustedClock sandbox repair — repository-only successor preparation — 2026-10-07
 

@@ -398,6 +398,88 @@ def test_ctu_proves_the_expected_implicit_detector_lifecycle() -> None:
     assert "systemctl restart aegis-idea3-detector.service" not in (CTU / "rollback.sh").read_text()
 
 
+def test_ctu_runner_verify_invocation_nounset_semantics(tmp_path: Path) -> None:
+    """Exercising verify-environment construction under Bash nounset (-u) semantics.
+
+    Proves that all variables passed to stages/CTu/verify.sh in run-ctu-owner.sh
+    are bound before execution in the runner's pre-capture state, and that
+    Bash nounset aborts if any expansion is unbound (such as PRE_DETECTOR_PID).
+    """
+    runner_text = RUNNER.read_text()
+    verify_lines = [line.strip() for line in runner_text.splitlines() if "stages/CTu/verify.sh" in line]
+    assert len(verify_lines) == 1, f"expected exactly 1 verify invocation line, found {len(verify_lines)}"
+    verify_cmd = verify_lines[0]
+
+    out_file = tmp_path / "env_args.txt"
+
+    def run_harness(var_assignments: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        vars_bash = "\n".join(f'{k}="{v}"' for k, v in var_assignments.items())
+        script = f"""set -Eeuo pipefail
+{vars_bash}
+
+sudo() {{
+    shift 2  # consume -n env
+    printf '%s\\n' "$@" > "{out_file}"
+}}
+
+post_fail() {{
+    printf "post_fail called: %s\\n" "$1" >&2
+    exit 1
+}}
+
+{verify_cmd}
+"""
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+
+    base_vars = {
+        "REPO": "/mock/repo",
+        "EXPECTED_MAIN": "3e26a61e32cc1073265f68659c6bbd5805d5401b",
+        "BUNDLE": "/mock/bundle",
+        "UNIT_SNAPSHOT": "/mock/snapshot",
+        "UNIT_SHA256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "WORK": "/mock/work",
+        "CORE_PRE_PID": "1001",
+        "CORE_PRE_START": "2026-10-07 10:00:00 UTC",
+        "CORE_PRE_NRESTARTS": "0",
+        "STATUS_PRE_UPDATED_AT": "1728300000.0",
+        "CORE_ENV_PRE_SHA": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        "DEVICE_ID": "aegis-relay-01",
+        "DETECTOR_PRE_MODE": "ACTIVE",
+        "DETECTOR_PRE_PID": "2002",
+        "DETECTOR_PRE_START": "2026-10-07 10:00:01 UTC",
+        "DETECTOR_PRE_INVOCATION": "0123456789abcdef0123456789abcdef",
+        "DETECTOR_PRE_NRESTARTS": "0",
+        "DETECTOR_PRE_MONOTONIC": "50000",
+    }
+
+    # 1. Successful execution with all runner-provided pre-capture variables bound
+    res = run_harness(base_vars)
+    assert res.returncode == 0, f"Runner verify invocation failed under nounset: {res.stderr}"
+    assert "unbound variable" not in res.stderr
+
+    recorded_args = dict(
+        line.split("=", 1)
+        for line in out_file.read_text().splitlines()
+        if "=" in line
+    )
+    assert recorded_args["AEGIS_CTU_PRE_DETECTOR_PID"] == "2002"
+    assert recorded_args["AEGIS_CTU_PRE_DETECTOR_START"] == "2026-10-07 10:00:01 UTC"
+    assert recorded_args["AEGIS_CTU_PRE_DETECTOR_INVOCATION"] == "0123456789abcdef0123456789abcdef"
+    assert recorded_args["AEGIS_CTU_PRE_DETECTOR_NRESTARTS"] == "0"
+    assert recorded_args["AEGIS_CTU_PRE_DETECTOR_MONOTONIC"] == "50000"
+    assert recorded_args["AEGIS_CTU_PRE_CORE_PID"] == "1001"
+    assert recorded_args["AEGIS_CTU_DEVICE_ID"] == "aegis-relay-01"
+    assert recorded_args["AEGIS_CTU_DETECTOR_PRE_MODE"] == "ACTIVE"
+
+    # 2. Negative behavioral proof: prove that nounset semantics genuinely abort
+    # if DETECTOR_PRE_PID (or any other required expansion) is omitted.
+    missing_detector = dict(base_vars)
+    del missing_detector["DETECTOR_PRE_PID"]
+    res_neg = run_harness(missing_detector)
+    assert res_neg.returncode != 0
+    assert "DETECTOR_PRE_PID: unbound variable" in res_neg.stderr
+
+
 def test_detector_lifecycle_proof_rejects_unchanged_multiple_failed_and_unrelated_states() -> None:
     verifier = _load_runtime_verifier()
     pre = {"pid": "10", "start": "old", "invocation": "a" * 32, "nrestarts": "0", "monotonic": "100"}
