@@ -10,6 +10,17 @@ import { fmtBytes } from '../lib/format.js'
 
 export const ICONS = { gauge: Gauge, folder: Folder, vault: VaultIcon, upload: Upload, link: Link2, history: History, trash: Trash2, harddrive: HardDrive, scroll: ScrollText, usercog: UserCog, settings: SettingsIcon }
 
+const nextFrame = (callback) => {
+  if (typeof globalThis.requestAnimationFrame === 'function') return globalThis.requestAnimationFrame(callback)
+  if (typeof window.requestAnimationFrame === 'function') return window.requestAnimationFrame(callback)
+  return window.setTimeout(callback, 0)
+}
+const cancelFrame = (id) => {
+  if (typeof globalThis.cancelAnimationFrame === 'function') globalThis.cancelAnimationFrame(id)
+  else if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(id)
+  else window.clearTimeout(id)
+}
+
 /* Height+fade collapse used when the preview role gains/loses the admin
    group. While closed the children are UNMOUNTED — no DOM trace. The exit
    animation exists only for the developer preview instrument. */
@@ -19,8 +30,8 @@ function Collapse({ show, children }) {
   useEffect(() => {
     if (show) {
       setMounted(true)
-      const id = window.requestAnimationFrame(() => window.requestAnimationFrame(() => setOpen(true)))
-      return () => window.cancelAnimationFrame(id)
+      const id = nextFrame(() => nextFrame(() => setOpen(true)))
+      return () => cancelFrame(id)
     }
     setOpen(false)
     const id = setTimeout(() => setMounted(false), 320)
@@ -151,13 +162,13 @@ export function Sidebar({ t, nav, screen, setScreen, collapsed, setCollapsed, me
       indicatorPlacedRef.current = true
       navElement.dataset.navIndicator = 'ready'
     }
-    const frame = window.requestAnimationFrame(positionIndicator)
+    const frame = nextFrame(positionIndicator)
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(positionIndicator) : null
     observer?.observe(active)
     observer?.observe(navElement)
     window.addEventListener('resize', positionIndicator)
     return () => {
-      window.cancelAnimationFrame(frame)
+      cancelFrame(frame)
       observer?.disconnect()
       window.removeEventListener('resize', positionIndicator)
     }

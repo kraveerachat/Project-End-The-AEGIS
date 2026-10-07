@@ -3,6 +3,17 @@ import { Menu, LogOut, Settings, UserRound } from 'lucide-react'
 import { Dot, Avatar, ThemeToggle } from './ui.jsx'
 import { AegisLockup } from './AegisMark.jsx'
 
+const nextFrame = (callback) => {
+  if (typeof globalThis.requestAnimationFrame === 'function') return globalThis.requestAnimationFrame(callback)
+  if (typeof window.requestAnimationFrame === 'function') return window.requestAnimationFrame(callback)
+  return window.setTimeout(callback, 0)
+}
+const cancelFrame = (id) => {
+  if (typeof globalThis.cancelAnimationFrame === 'function') globalThis.cancelAnimationFrame(id)
+  else if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(id)
+  else window.clearTimeout(id)
+}
+
 function Dropdown({ open, onClose, children, label, align = 'right', width = 280, neoDashboard = false, triggerRef }) {
   const ref = useRef(null)
   const [visible, setVisible] = useState(open)
@@ -10,8 +21,8 @@ function Dropdown({ open, onClose, children, label, align = 'right', width = 280
     if (!neoDashboard) return undefined
     if (open) {
       setVisible(true)
-      const frame = window.requestAnimationFrame(() => ref.current?.querySelector('[role="menuitem"]')?.focus())
-      return () => window.cancelAnimationFrame(frame)
+      const frame = nextFrame(() => ref.current?.querySelector('[role="menuitem"]')?.focus())
+      return () => cancelFrame(frame)
     }
     const timer = setTimeout(() => setVisible(false), 160)
     return () => clearTimeout(timer)
