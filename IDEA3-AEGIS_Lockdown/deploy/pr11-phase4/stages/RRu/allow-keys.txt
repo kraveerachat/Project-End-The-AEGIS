@@ -1,0 +1,8 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage RRu allowed PRE->POST host state drift.
+#
+# RRu moves ONE pointer and installs ONE release. It restarts NOTHING. Key approval is by key only; the exact VALUES are proven separately by p4-rru-upgrade.py (journal + verify: current OLD -> NEW, the new release is
+# exactly OLD + cli.py, the Core and detector are the SAME processes) and by the runner gates (rru_current_transition_gate, rru_catalog_transition_gate, rru_runtime_unchanged_gate against the PRE/POST host.tsv).
+# The release catalog is NOT listed: it is approved only by the RELATIONAL ALLOW_L6C_RELEASE_FILE rule (`stage RRu` + the one new release id): every PRE release stays byte-identical.
+# NOT listed on purpose: the Core and detector MainPID/ExecMainStartTimestamp and their running-release (cwd) records (they must be IDENTICAL: nothing restarts), core.env metadata, credential metadata, every unit file,
+# drop-in, tmpfiles, group, socket record, listener, sysctl, firewall, network, time, MQTT, IDEA1/IDEA2 key.
+host.symlink./opt/aegis-idea3/current.target

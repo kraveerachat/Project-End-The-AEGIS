@@ -85,21 +85,23 @@ l7u_alert_identity_gate() {
 # L7u handles no owner secret of its own; this is the generic evidence scan. Prints only counts, never values.
 l7u_secret_scan() {
   local evid=$1 py=$2
-  $SUDO "$py" - "$evid" <<'PYC'
+  $SUDO "$py" -I - "$evid" <<'PYC'
 import pathlib, re, sys
 ev = pathlib.Path(sys.argv[1])
 pem = re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 scrypt = re.compile(rb"scrypt\$\d+\$\d+\$\d+\$[0-9a-f]{16,}\$[0-9a-f]{32,}")
-keys = re.compile(rb"^(AEGIS_MQTT_PASS|AEGIS_ADMIN_PIN|AEGIS_TG_TOKEN|AEGIS_P1_C2D_KEY_FILE|AEGIS_P1_D2C_KEY_FILE)=", re.M)
-bad = scanned = 0
+keys = re.compile(rb"^(?:Environment=)?(?:AEGIS_MQTT_PASS|AEGIS_ADMIN_PIN|AEGIS_TG_TOKEN|AEGIS_P1_C2D_KEY_FILE|AEGIS_P1_D2C_KEY_FILE)=", re.M)
+bad = scanned = skipped = 0
 for f in ev.rglob("*"):
     if not f.is_file() or f.stat().st_size >= 50_000_000:
+        if f.is_file() and f.stat().st_size >= 50_000_000:
+            skipped += 1
         continue
     scanned += 1
     data = f.read_bytes()
     if pem.search(data) or scrypt.search(data) or keys.search(data):
         bad += 1
-print(f"SECRET_SCAN_FILES={scanned} SECRET_SCAN_HITS={bad}")
+print(f"SECRET_SCAN_FILES={scanned} SECRET_SCAN_HITS={bad}" + (f" SECRET_SCAN_SKIPPED={skipped}" if skipped else ""))
 sys.exit(1 if bad else 0)
 PYC
 }

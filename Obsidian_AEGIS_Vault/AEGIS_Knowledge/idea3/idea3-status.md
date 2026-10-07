@@ -4,24 +4,258 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-06
+updated: 2026-10-07
 owner: music
 edit_policy: owner-writable
 ---
 
 # 🔒 IDEA3: AEGIS Lockdown
 
-## IDEA3 R1Du + R1D historical R1A incident disposition — repository implementation, NOT executed — 2026-10-06
+## IDEA3 CTu PRE-capture dependency-closure repair — repository-only — 2026-10-07
 
-> [!important] **Repository only; a governed pre-live blocker for R1B is resolved in the repository, not on any host.** The immutable failed R1A attempt left incident #1 `OPEN`; R1B requires a NEW incident with `CREATED` semantics and its baseline refuses any open incident, and no reviewed path could close it. Owner-approved order: `R1A (immutable FAIL) -> R1Du -> R1D -> R1B -> Recovery R2-R8`. `R1DU_REPOSITORY_IMPLEMENTED=YES`, `R1D_REPOSITORY_IMPLEMENTED=YES`, `R1DU_LIVE_EXECUTED=NO`, `R1D_LIVE_EXECUTED=NO`, `R1D_ATTEMPT_CONSUMED=NO`, `R1B_ATTEMPT_CONSUMED=NO`, `CORE_RESTARTED=NO`, `INCIDENT_MUTATED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. `R1A_RESULT=FAIL_IMMUTABLE` and `R1A_RERUN_ALLOWED=NO` are untouched; R1B stays `R1B_IS_R1A_RETRY=NO` with its NEW-incident / `CREATED` / genuine-event / source-IP / one-attempt semantics unchanged (`R1B_NEW_INCIDENT_CREATED_SEMANTICS_UNCHANGED=YES`).
+> [!important] **Root cause confirmed by owner-authorized forensic evidence:** the post-PR387 frozen CTu bundle included `p4-l0-capture.sh` but omitted its two direct `$P4_HERE` runtime helpers, `p4-l5-clock.py` and `p4-l6c-tree-digest.py`. The historical PRE capture recorded every installed release as `<release-id>:UNREADABLE`, which set `partial=1` and ended with `L0_CAPTURE=PARTIAL` before `ctu_consume_attempt`. The protected evidence was read successfully; its SHA256 self-check passed (`PRE_SHA256SUMS_RC=0`). `time.trustedclock.state=UNAVAILABLE` was observed but is optional (`run_ro 0`) and is not a partial cause. No other deterministic PRE_CAPTURE blocker was found.
+
+Repository repair: `ctu_prepare_bundle()` now includes both helpers with the existing exact-main Git-object, regular-file/non-symlink, root-owned `0555`, manifest, strict checksum, and `ctu_verify_bundle()` controls. The immutable control snapshot trust closure also includes both helpers. Executable regressions construct a frozen-style bundle, reproduce BASE_MAIN missing-helper PARTIAL behavior, run repaired L0 capture to `COMPLETE` with a valid 64-hex release tree digest, refuse missing/tampered helper files, and mechanically derive the direct `$P4_HERE` dependency set. No other missing pre-consume local helper was found in the audited closure. `CTU_ATTEMPT_CONSUMED=NO`, `CTU_LIVE_EXECUTED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, and `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO` remain unchanged. The failed runner `7e31328f6e6576c4c7514b02e0125f871be8f6734d59030c43e36152bb64bc95` and its Authorization/K3 remain permanently invalid.
+
+### Current Task
+
+Task: IDEA3 CTu L0 capture dependency-closure repair
+
+Current state: repository implementation and executable regression coverage PASS; owner-authorized historical PRE evidence read and SHA256 integrity verification PASS; the release catalog missing-helper failure is the only concrete `partial=1` cause; `time.trustedclock.state=UNAVAILABLE` is optional and not a partial cause; one existing host-socket regression remains unexecutable in this sandbox; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+
+Next: human review and merge only; after merge, generate fresh post-merge exact-main clone, root authority, control snapshot, pins, frozen runner, Authorization, and K3 before any LIVE execution
+
+### Session Register
+
+| CTu-S9 | CTu PRE-capture local dependency-closure repair (`p4-l5-clock.py` and `p4-l6c-tree-digest.py` in bundle and control snapshot trust closure; behavioral L0/integrity regressions) | READY FOR REVIEW | 5 new dependency-closure tests PASS; 362 affected CTu/Phase-4 tests PASS with one host-socket test deselected; owner-authorized historical PRE evidence read PASS; `PRE_SHA256SUMS_RC=0`; bash -n, py_compile, git diff --check PASS; immutable implementation and forensic receipts present | repository repair PASS; historical evidence integrity PASS; release catalog is the only concrete partial cause; `time.trustedclock.state=UNAVAILABLE` is optional/non-partial; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO | owner and independent exact-head Security/Governance review; human merge only; fresh authority and frozen artifacts after merge | fresh exact-main CTu authority before any LIVE execution; rerun socket-dependent regression where host capability permits |
+
+## IDEA3 CTu trusted work directory traversal contract repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** In the latest CTu owner-run, bundle verification failed closed with `CTU_RESULT=FAIL_IMMUTABLE CTU_ATTEMPT_CONSUMED=NO reason=CTU_BUNDLE`. Forensic inspection of `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-07-ctu-20261007-214845` confirmed all 18 bundle files existed and matched expected sha256 sums when verified under root. However, the parent work directory `$WORK` (`ctu-work`) was created implicitly with `root:root 0700` (`---` for others), preventing the unprivileged operator user (`kittipat`, UID 1000) from traversing (`cd`) into `$bundle` (`0555`), triggering `Permission denied`. Repaired by introducing `ctu_prepare_work_dir()` in `p4-ctu-run-lib.sh` to explicitly create `$work` as `root:root 0711` (`--x` for group and others) and enforcing `ctu_verify_work_dir()` across all components (`run-ctu-owner.sh`, `stages/CTu/verify.sh`, apply and rollback routines). Mode `0711` permits directory traversal lookup (`--x`) without granting read/listing (`-r`) or write (`-w`) permissions to non-root users. The failed frozen runner bound to main `5d3245eaab9aa7337b570ef7fb949e937a46575b` / SHA `35441dd71996b4def12a89d948afe0c8fdbf43ab91291fead525378c0811df4c` is invalidated for future LIVE use. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `FAILURE_PHASE=PRE_CONSUME_BUNDLE_PREPARATION`; `FAILURE_REASON=CTU_BUNDLE`; `WORK_DIR_TRAVERSAL_CONTRACT=PASS`.
+
+### Current Task
+
+Task: IDEA3 CTu trusted work directory traversal contract repair
+Branch: `fix/idea3-ctu-trusted-work-traverse`
+Owner: `music`
+Current state: repository repair in p4-ctu-run-lib.sh, run-ctu-owner.sh, verify.sh, and behavioral regression tests implemented and verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently generate fresh post-merge exact-main CTu authority, clone, pins, frozen runner, Authorization, and K3 before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S8 | CTu trusted work directory traversal contract repair (`p4-ctu-run-lib.sh` ctu_prepare_work_dir mode 0711 and ctu_verify_work_dir; `run-ctu-owner.sh` and `verify.sh` 0:711 checks; behavioral regression tests) | READY FOR REVIEW | 81 focused CTu/repair tests PASS, 676 recovery suite tests PASS, 59 vault/policy tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; generate fresh exact-main CTu authority and frozen runner after merge |
+
+## IDEA3 CTu bundle manifest relative CWD verification repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** In `ctu_prepare_bundle()` (`IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh`), `CTU-BUNDLE-SHA256SUMS` was verified using `$CTU_SUDO sha256sum -c --quiet --strict "$bundle/CTU-BUNDLE-SHA256SUMS"` without changing CWD to the bundle directory. Because `sha256sum` resolves relative filenames relative to process CWD, verification deterministically failed whenever runner CWD was outside `$bundle`, triggering `post_fail CTU_BUNDLE` (`CTU_RESULT=FAIL_IMMUTABLE CTU_ATTEMPT_CONSUMED=NO reason=CTU_BUNDLE`). Fixed by executing `( cd "$bundle" && $CTU_SUDO sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) >/dev/null 2>&1`, matching `ctu_verify_bundle()`, `verify.sh`, and apply/rollback routines. Additionally sealed `$bundle/ctu-acceptance` to mode `0555` and `$bundle/CTU-BUNDLE-SHA256SUMS` to mode `0444`. The failed frozen runner bound to main `8f337dad15f4e89d2265a95741b90128c14e6a39` / SHA `ed1e656a24f7d126b87828b59d5b726b9d337d5887c4b4c5a8b26ed7b2b173e0` is invalidated for future LIVE use. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `FAILURE_PHASE=PRE_CONSUME_BUNDLE_PREPARATION`; `FAILURE_REASON=CTU_BUNDLE`; `BUNDLE_MANIFEST_CWD_VERIFICATION=PASS`.
+
+### Current Task
+
+Task: IDEA3 CTu bundle manifest relative CWD verification repair
+Branch: `fix/idea3-ctu-bundle-manifest-cwd`
+Owner: `music`
+Current state: repository repair in p4-ctu-run-lib.sh line 164 and behavioral regression tests implemented and verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently generate fresh post-merge exact-main CTu authority, clone, pins, frozen runner, Authorization, and K3 before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S7 | CTu bundle manifest relative CWD verification repair (`p4-ctu-run-lib.sh` line 164 subshell cd verification; seal ctu-acceptance to 0555 and manifest to 0444; behavioral regression tests) | READY FOR REVIEW | 80 focused CTu/repair tests PASS, 676 recovery suite tests PASS, 59 vault/policy tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; generate fresh exact-main CTu authority and frozen runner after merge |
+
+## IDEA3 CTu runner git eval library load quoting repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** Frozen CTu runner entry failed closed before stage governance initialization (`fatal: cannot change to '"/home/.../ctu-live-main-6a5a7a7f"': No such file or directory` and `ctu_operator_identity_gate: command not found`). Inside bash command substitution `"$( ... )"`, backslash-escaped quotes `\"` expand to literal double-quote characters in `argv`, passing `"/path/to/repo"` to `git -C`. `run-ctu-owner.sh` line 49 is repaired to `eval "$(git -C "$REPO" show "$EXPECTED_MAIN:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh")"`, preserving exact-main Git object loading without literal quotes. The failed frozen runner bound to main `6a5a7a7f31912b1bf51c0349beca6699184bcca3` (SHA `5fe09edc51133aa502e865fb817ee5b5b95faec126c447873e5bc574955b89d1`) is invalidated. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `RUNNER_GIT_EVAL_LIBRARY_LOAD=PASS`.
+
+### Current Task
+
+Task: IDEA3 CTu runner git eval library load quoting repair
+Branch: `fix/idea3-ctu-runner-git-eval-quoting`
+Owner: `music`
+Current state: repository repair to run-ctu-owner.sh line 49 and behavioral regression test implemented and verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently generate fresh post-merge exact-main CTu authority and frozen runner before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S6 | CTu runner git eval library load quoting repair (`run-ctu-owner.sh` line 49 unescaped quotes; behavioral regression test) | READY FOR REVIEW | 78 focused CTu/repair tests PASS, 83 recovery tests PASS, 676 recovery suite tests PASS, 59 vault/policy tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; generate fresh exact-main CTu authority and frozen runner after merge |
+
+## IDEA3 CTu control snapshot directory seal repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** Fresh post-merge CTu authority preparation reached `CTU_CONTROL_MANIFEST_SHA256=d910400b965a6b1883e1c266bd0d32f35904f1644478461e7c1b1af610de0bb1` and `CTU_TRUST_CLOSURE=PASS`, but immediate control verification failed closed with `reason=CONTROL_SOURCE_WRITABLE:ctu-acceptance`. `control_snapshot()` previously created directories with default umask without sealing them to `0555`, while `control_check()` rejects any write bit (`stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH`). `ctu_verifier_snapshot.py` now deterministically seals all snapshot directories (destination root and nested subdirectories `ctu-acceptance/`, `stages/CTu/`, `owner-run/`) to `0555` after files/manifest are written, immediately satisfying `control_check` without operator intervention. File modes (`0555` scripts, `0444` non-executable/manifest) and root ownership boundaries remain preserved. Zero Production runtime mutation occurred; CTu LIVE was NOT executed.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `SNAPSHOT_DIRECTORIES_SEALED_0555=PASS`; `CONTROL_CHECK_FRESH_SNAPSHOT=PASS`. The failed preparation authority `/opt/aegis-idea3-ctu-authority-23f5d0f8b55ce1478f840b6df0ae8b75b9e62f46` is historical failed-preparation evidence only; it was neither modified nor reused.
+
+### Current Task
+
+Task: IDEA3 CTu control snapshot directory seal repair
+Branch: `fix/idea3-ctu-control-snapshot-directory-seal`
+Owner: `music`
+Current state: repository repair, deterministic 0555 directory seal, and 14 behavioral regression requirements implemented and locally verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently build fresh exact-main CTu authority before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S5 | CTu control snapshot directory seal repair (seal all dirs to 0555; fail-closed control_check) | READY FOR REVIEW | 77 focused CTu/repair tests PASS, 676 Recovery successor tests PASS, 59 vault/policy tests PASS, userns root-owned tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; build fresh exact-main CTu authority after merge |
+
+## IDEA3 CTu exact-two predecessor drop-in preservation repair — repository-only successor — 2026-10-07
+
+> [!important] **Root cause confirmed:** CTu previously treated any Core `DropInPaths` as invalid, but the governed Production topology legitimately contains exactly `10-recovery.conf` and `20-f1-alert.conf`. This continuation adds a fail-closed exact-two contract bound to the exact-main Git template bytes: both paths must be regular non-symlinks owned `root:root` mode `0644`, with no third/foreign file; systemd ordering is compared semantically as a set. The gate runs before marker consumption and after install/reload/restart; rollback validates preservation and never removes or rewrites either predecessor drop-in.
+
+`CTU_DROPIN_PRECONSUME_GATE=PASS`; `CTU_DROPIN_EXACT_MAIN_BYTE_BINDING=PASS`; `CTU_DROPIN_FOREIGN_REFUSAL=PASS`; `CTU_DROPIN_MISSING_REFUSAL=PASS`; `CTU_DROPIN_SYMLINK_REFUSAL=PASS`; `CTU_DROPIN_POSTRESTART_PRESERVATION=PASS` (repository tests). The recovery template digest is `3bee66130df5715c715d7434e255cff4fd7fd289da765420ce1026cd1f88f0a5`; the alert template digest is `7acc031b9341e9684683c55cc55a5b378b971de0d37a554e596be737fa50f41c`. This is repository-only: `CTU_LIVE_EXECUTED=NO`, `CTU_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
+
+### Current Task
+
+Task: IDEA3 CTu exact-two predecessor drop-in preservation repair
+Branch: `fix/idea3-ctu-dropin-preservation`
+Owner: `music`
+Current state: repository repair, exact-two predecessor drop-in preservation contract, and nounset verify-environment remediation implemented and locally verified; Draft PR #383 pending owner/integration re-review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently freeze fresh exact-main CTu authority before any LIVE restart
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S4 | Exact-two predecessor drop-in preservation contract and regression repair | READY FOR REVIEW | focused CTu suites (72 passed), nounset behavioral regression, and affected test suites pass; immutable receipt and Draft PR #383 exist | repository implementation PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance re-review of Draft PR #383; human merge only; zero LIVE execution | independent exact-head re-review; human merge only; freeze fresh exact-main CTu authority after merge |
+
+## IDEA3 Core TrustedClock sandbox repair — repository-only successor preparation — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired in the repository.** The Core's required read-only `adjtimex(2)` TrustedClock probe was blocked by `ProtectClock=true` in the reviewed Core unit. The smallest fix changes only that setting to `ProtectClock=false`; `User=aegis-idea3`, `NoNewPrivileges=true`, empty `CapabilityBoundingSet=`, empty `AmbientCapabilities=`, and the existing unrelated hardening remain unchanged. Linux clock mutation authority is not granted: `CAP_SYS_TIME` is absent and the service is non-root with no ambient/bounding capabilities.
+
+`CTu` is a NEW governed successor stage, not an L7/F1u/R1Du/RRu retry. Its future LIVE boundary is limited to installing the reviewed Core unit, conditional `daemon-reload`, and one governed Core restart. The detector may move only through its existing `Requires=aegis-idea3-core.service` dependency; CTu issues no detector command. The frozen runner requires fresh CTu Authorization/K3, exact merged-main pins, one CTU-GLOBAL-ATTEMPT-CONSUMED marker immediately before the first host mutation, PRE/POST capture, compare, verification and fail-closed rollback.
+
+`CTU_REPOSITORY_IMPLEMENTED=YES`; `CTU_APPLICATION_RELEASE_DEPLOY_REQUIRED=NO`; `CTU_LIVE_EXECUTED=NO`; `CTU_PRODUCTION_MUTATION_PERFORMED=NO`; `CTU_CORE_RESTARTED=NO`; `CTU_DETECTOR_EXPLICITLY_COMMANDED=NO`; `ESP32_TOUCHED=NO`; `NTP_REACTIVATION_RERUN=NO`. All 12 reviewer blockers are resolved and mechanically proven: runner pre-capture order (`RUNNER_PRE_CAPTURE_ORDER=PASS`), pre-existing open episode support for Case A and Case B (`ALREADY_OPEN_LOCKDOWN_CASE=PASS`), detector single implicit lifecycle (`DETECTOR_SINGLE_CYCLE_PROOF=PASS`), signal-safe rollback without recursive trapping (`SIGNAL_SAFE_ROLLBACK=PASS`), atomic closeout immutability (`ATOMIC_CLOSEOUT=PASS`, `CTU_PASS_SURVIVES_ROLLBACK=NO`), CTu -> Recovery descendant history binding (`CTU_RECOVERY_DESCENDANT_BINDING=PASS`), real CTu freeze and verifier trust closure (`CTU_FREEZE_IMPLEMENTATION_EXISTS=YES`, `CTU_FREEZE_VERIFIER_EXISTS=YES`, `CTU_TRUST_CLOSURE=PASS`), Authorization and K3 V2 binding (`CTU_AUTH_BINDING=PASS`, `CTU_K3_BINDING=PASS`, `CTU_EXTRA_FIELDS_REFUSED=YES`), pre-consume gates and non-interactive sudo keepalive (`POST_CONSUME_SUDO_PROMPT_POSSIBLE=NO`), manual reconciliation inspection tooling (`CTU_MANUAL_RECONCILIATION_READY=YES`), restored security intent (`TRUST_SEAM_TEST_WEAKENED=NO`), and Recovery negative test matrix (`RECOVERY_CTU_GATE_NEGATIVE_TESTS=PASS`). Its fixed root-owned stage-global marker is consumed durably before mutation; every post-consumption failure is terminal and invokes bounded Core-unit rollback without reopening the marker. RRu remains consumed/PASS and immutable; Recovery remains `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. Existing Recovery freeze/Authorization/K3 artifacts bound to the pre-repair main are stale after this repair merges and must not be reused. The required governed sequence is: `RRu PASS -> NTP successor PASS / consumed -> CTu -> CTu closeout -> fresh Recovery authority/freeze -> Recovery -> LVR -> L8 -> L9`.
+
+### Current Task
+
+Task: IDEA3 CTu Pre-Live Host Reconciliation (Dual Detector Baseline + Configured Device ID Pin Binding)
+Branch: `fix/idea3-ctu-prelive-host-reconcile`
+Owner: `music`
+Current state: repository repair complete; dual detector baseline (Mode A active / Mode B inactive preservation) and exact frozen DEVICE_ID pin binding verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently freeze fresh CTu authority before any LIVE restart
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S1 | Core TrustedClock sandbox repair and governed successor package | CLOSED | 18 focused CTu tests; 367 + 1,224 affected governance tests; 82 IP-containment tests; diff/vault/collaboration validation | repository-only repair PASS; no Production mutation | owner/integration review; CTu LIVE intentionally unexecuted | human review and merge |
+| CTu-S2 | Resolve 12 CTu reviewer blockers (runner order, open episode, detector cycle, signal rollback, atomic closeout, descendant binding, freeze/trust closure, auth binding, pre-consume sudo, reconciliation, security intent, negative matrix) | CLOSED | 12/12 dedicated blocker tests PASS (`test_ctu_blockers.py`); 24/24 repair tests PASS (`test_core_trusted_time_repair.py`); 74/74 recovery freeze tests PASS; 368 affected regression tests PASS; vault validation PASS; core governance PASS | all 12 reviewer blockers resolved; zero Production mutation | merged via PR #375 (`f3ab9229694dd2b8d95b345e3a444f9a00887e24`) | proceed to pre-live host reconciliation |
+| CTu-S3 | CTu pre-live host reconciliation: dual detector baseline contract (Mode A active cycle / Mode B inactive preservation), exact frozen DEVICE_ID pin binding (`aegis-relay-01`), and CTu/Recovery frozen-runner provenance closure | READY FOR REVIEW | focused CTu/core/recovery tests PASS except two pre-existing namespace trust-seam expectation failures; direct-call/replay and core.env TOCTOU tests PASS; bash -n/py_compile/diff checks pending final rerun | repository repair PASS; zero Production mutation; CTU-GLOBAL-ATTEMPT-CONSUMED=ABSENT; no stage retry; CTU_DIRECT_APPLY_BYPASS_CLOSED=YES; RECOVERY_DIRECT_PRIVILEGED_HANDLER_GATED=YES | owner and independent exact-head Security/Governance review; CTu LIVE intentionally unexecuted | human review and merge Draft PR |
+
+## IDEA3 RRu LIVE — CLOSED_PASS — 2026-10-07
+
+> [!important] **RRu executed once and PASSED.** `RRU_LIVE=CLOSED_PASS`, `RRU_LIVE_EXECUTED=YES`, `RRU_RESULT=PASS`, `RRU_PRODUCTION_DEPLOYED=YES`, `RRU_ATTEMPT_CONSUMED=YES`, `RRU_RERUN_ALLOWED=NO`. Production `current` now points at immutable release `954ce1c191885e9e90198a6f54a3d990bcf144fc`. The Core and detector processes were unchanged, no service restart or detector command occurred, and the successor is exactly the OLD runtime plus the manifested Recovery CLI entrypoint. `RECOVERY_RUNTIME_RELEASE_READY=YES`. Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-07_005834_music_idea3-rru-live-closeout.md`.
+
+> **Recovery has NOT run.** `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`. The next governed action is independent review + human merge of this RRu closeout, followed by a NEW exact-main Recovery authority/freeze.
+
+### Current Task
+
+Task: IDEA3 RRu LIVE closeout → Recovery handoff
+Branch: `docs/idea3-rru-live-closeout`
+Owner: `music`
+Current state: RRu `CLOSED_PASS`; PR #373 in final review; Recovery NOT EXECUTED
+RRu rerun allowed: NO
+Recovery attempt consumed: NO
+Production mutation allowed by this closeout task: NO
+Next: finish exact-head independent review → human merge PR #373 → create NEW exact-main Recovery authority
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| RRu-S2 | RRu LIVE execution and canonical closeout | FINAL REVIEW | canonical RRu LIVE receipt; exact-head predecessor/successor gates; 279 focused regression tests; collaboration guardrails PASS | `RRU_LIVE=CLOSED_PASS`; `RRU_ATTEMPT_CONSUMED=YES`; `RRU_RERUN_ALLOWED=NO`; Recovery NOT executed | exact-head final review and human merge only | NEW exact-main Recovery authority after merge |
+
+## IDEA3 Recovery Runtime successor RRu — repository implementation (historical; RRu has since executed once and PASSED) — 2026-10-06
+
+> [!note] **Historical repository-only snapshot.** Statements below that `RRU_LIVE_EXECUTED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=NO`, no frozen runner/Authorization existed, or RRu had not run were true before the 2026-10-07 LIVE attempt and are SUPERSEDED by the CLOSED_PASS section above.
+
+> [!important] **RRu is a new governed successor stage, not a retry.** The deterministic release builder now treats `cli` as a first-class entrypoint alongside `supervisor`, `recovery_ui`, and `production_detector`, and the release tests prove the complete transitive closure, manifest/checksum entry, real built-release import, and D4 `/dev/null` interactive-terminal refusal. RRu is registered exactly once after `R1Bv` and before `Recovery`.
+>
+> RRu owns only one immutable Recovery-capable release installation and one atomic `current` transition OLD → NEW. Its repository machinery requires fresh Authorization + K3, exact-main/frozen-runner authority, `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`, and an absent `RECOVERY-GLOBAL-ATTEMPT-CONSUMED`. It journals before each mutation, proves NEW is exactly OLD plus the CLI entrypoint, preserves the running Core/detector processes and all captured surfaces, and bounds rollback to its own NEW release/pointer transition. It does not restart Core or detector, arm R1D, mutate core.env/credentials/nft/MQTT/SQLite/Recovery sockets, run ISOLATE/RESTORE/CLOSE, touch Production, or touch ESP32.
+>
+> **Historical pre-LIVE truth (superseded):** `RRU_REPOSITORY_IMPLEMENTED=YES`, `RRU_LIVE_EXECUTED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`. At that repository-only checkpoint no RRu Authorization, K3, frozen live runner, host install, current transition, or RRu receipt existed yet. These execution-state statements are historical only and are superseded by the RRu `CLOSED_PASS` section and current task above.
+
+### Historical RRu Task Snapshot (superseded)
+
+Task: IDEA3 Recovery Runtime release successor RRu
+Branch: `fix/idea3-recovery-release-cli-successor`
+Owner: `music`
+Historical state: REPOSITORY IMPLEMENTED / LOCAL VERIFIED; LIVE NOT EXECUTED
+Started: 2026-10-06
+Base SHA: `ee1f58c118d64bc635e16feefad6d1d6da0d5432`
+Production mutation allowed at that repository-only checkpoint: NO
+
+### Historical RRu Session Register (superseded)
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| RRu-S1 | Continue Claude handoff; builder CLI closure and governed RRu machinery | CLOSED | builder/registry/Recovery focused suites: 641 passed; policy/vault: 59 passed; shell, Python, secret scan, diff checks pass | `feac56f5` plus RRu implementation checkpoint | repository implementation PASS; LIVE intentionally unexecuted | owner/integration review; no LIVE execution | human review of Draft PR; no LIVE execution |
+
+## IDEA3 R1Bv LIVE — CLOSED_PASS (read-only successor validation of the existing failed R1B evidence) — 2026-10-06
+
+> [!important] **R1Bv executed once and PASSED.** `R1BV_LIVE=CLOSED_PASS`, `R1BV_LIVE_EXECUTED=YES`, `R1BV_RESULT=PASS`, `R1BV_VERIFY=PASS`, `R1BV_IS_R1B_RETRY=NO`, `R1BV_READ_ONLY_VALIDATION_ONLY=YES`. It generated no external event, mutated no incident or R1B marker, and never created or reconstructed the missing `R1B-ATTEMPT-WINDOW`. Mechanically proven: the root-owned canonical R1B marker time authority and the `[L, L+600]` historical bound, the expected-source binding, the real detector/Core chain with `CREATED` semantics, audit provenance AND audit hash-chain integrity, R1I state, current TrustedClock evidence (the validation environment only, not the historical R1B clock) and the PRE -> POST preservation comparison (`PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`). Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_154016_music_idea3-r1bv-live-closeout.md`.
+> **R1B stays `R1B_RESULT=FAIL_IMMUTABLE`** (`R1B_RESULT_REWRITTEN=NO`, `R1B_RERUN_ALLOWED=NO`). **Recovery predecessor: SATISFIED** by the immutable R1B failure plus this unique R1Bv LIVE PASS closeout. **Recovery R2-R8 is the NEXT governed work and has NOT run** (`RECOVERY_R2_R8_EXECUTED=NO`). `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`; `R1I_MUST_REMAIN_INSTALLED=YES`. Sequence: R1A FAIL_IMMUTABLE -> R1Du PASS -> R1D FAIL_IMMUTABLE -> R1Dv PASS -> R1B FAIL_IMMUTABLE -> R1Bv LIVE PASS -> Recovery R2-R8 NEXT -> LVR -> L8 -> L9.
+
+## IDEA3 R1Bv — repository implementation (historical; R1Bv has since executed once and PASSED, see the R1Bv LIVE section above) — 2026-10-06
+
+> [!note] **Historical at the repository implementation (superseded):** the `R1BV_LIVE_EXECUTED=NO`, "no LIVE closeout" and "Recovery blocked until an R1Bv LIVE PASS closeout" statements below were true only then and are SUPERSEDED by the R1Bv LIVE section above (R1Bv LIVE PASS recorded; Recovery R2-R8 still NOT executed).
+> [!important] **Repository only (at that merge).** `R1BV_REPOSITORY_IMPLEMENTED=YES`, `R1BV_LIVE_EXECUTED=NO`, `R1BV_IS_R1B_RETRY=NO`, `R1BV_READ_ONLY_VALIDATION_ONLY=YES`. R1Bv is a NEW non-mutating governed stage (registered after R1B) that validates the EXISTING failed R1B attempt's evidence read-only: no new event, no incident or R1B marker mutation, no window-record creation or reconstruction, no observation sleep. R1B stays `R1B_RESULT=FAIL_IMMUTABLE` (`R1B_RESULT_REWRITTEN=NO`); a future R1Bv success is its own separate result and never rewrites R1B.
+> **Time authority:** the ROOT-OWNED canonical R1B marker is the PRIMARY lower bound (`L`), the deadline is `L + 600` with NO grace or widening; the operator-writable local marker and the preserved runner output only corroborate (a disagreement fails closed). The existing `r1_acceptance` verifier is reused unchanged over the PRESERVED baseline with evidence pre-filtered to `[L, D]` and every chain time re-checked strictly. The expected source, the R1B evidence/authorization directories, the audit DB and the UID are LIVE pins, never repository constants. **Recovery:** the reusable `r1bv_recovery_predecessor_gate` (no Recovery stage exists yet) accepts only the unique R1B FAILURE closeout plus the unique R1Bv LIVE PASS closeout.
+> At that merge (superseded): `R1BV_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO` (at that time blocked until an R1Bv LIVE PASS closeout), `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `R1I_MUST_REMAIN_INSTALLED=YES`. No R1Bv authority, Authorization, frozen runner or LIVE closeout exists. Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-06-idea3-r1bv-successor-validation-design.md`; README section 22.
+
+## IDEA3 R1B LIVE — FAIL_IMMUTABLE at `windowrecord` after a PROVEN genuine external event (historical at the R1B closeout; R1Bv has since been implemented and run LIVE with PASS, see the R1Bv LIVE section above) — 2026-10-06
+
+> [!note] **Historical at the R1B failure closeout (superseded for R1Bv).** The statements below that R1Bv was "required", not implemented / "NOT run live" (`R1BV_LIVE_EXECUTED=NO`) and that Recovery was "blocked until R1Bv PASS" were true only then and are SUPERSEDED by the R1Bv LIVE section above. **Current truth:** `R1BV_LIVE=CLOSED_PASS`, `R1BV_LIVE_EXECUTED=YES`, `R1BV_RESULT=PASS`, `R1B_RESULT=FAIL_IMMUTABLE`, `RECOVERY_PREDECESSOR_BY_R1BV=SATISFIED`, `RECOVERY_R2_R8_EXECUTED=NO`. The R1B facts below (failed, consumed, no rerun) are unchanged.
+> [!important] **R1B ran once, consumed its attempt and stays failed.** `R1B_LIVE=CLOSED_FAIL`, `R1B_LIVE_EXECUTED=YES`, `R1B_ATTEMPT_CONSUMED=YES`, `R1B_RESULT=FAIL_IMMUTABLE`, `R1B_FAILED_STAGE=windowrecord`, `R1B_RERUN_ALLOWED=NO`. Root cause (owner interpretation): `POST_OBSERVATION_SUDO_AUTH_EXPIRY_DURING_WINDOW_RECORD` — the post-observation durable window record could not be written, so `R1B_WINDOW_RECORD=ABSENT` (never fabricated or reconstructed), and the final capture and verifier were not reached. The canonical and local markers are present.
+> **The genuine event is real and preserved:** `R1B_GENUINE_EXTERNAL_EVENT=PROVEN` (iPad `192.168.1.180`, 12 unique destination ports 51000–51011, detector `SENT_BOUND`); the Core created NEW incident #2 (`OPEN`, `attacker_ip=192.168.1.180`) with audit rows `INCIDENT_BOUND` and `ALERT_ACCEPTED` (`CREATED`); incident #1 (historical) stays `CLOSED`. This does NOT turn R1B into a PASS and does NOT authorize a rerun.
+> **Next:** `R1BV_REQUIRED=YES`, `R1BV_AUTHORIZED=YES` — a new read-only successor validation (`R1BV_IS_R1B_RETRY=NO`) using only the existing R1B evidence, with no new event, no incident or marker mutation and no window-record reconstruction. At the time of the closeout it was not yet implemented; it was then IMPLEMENTED in the repository and has SINCE been run LIVE and PASSED (superseded: `R1BV_LIVE_EXECUTED=YES`, see the R1Bv LIVE section above). `R1I_MUST_REMAIN_INSTALLED=YES`; `RECOVERY_R2_R8_EXECUTED=NO` (at the time blocked until R1Bv PASS — superseded: that predecessor is now satisfied; Recovery is still not executed). `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`. Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_112233_music_idea3-r1b-live-failure-closeout.md`.
+
+## IDEA3 R1Dv LIVE — CLOSED_PASS (read-only validation of the committed R1D disposition) — 2026-10-06 (historical at the R1Dv closeout; R1B has since run once and failed immutably, see the R1B LIVE section above)
+
+> [!note] **Historical at the instant R1Dv closed.** The R1B execution-state statements in this section ("R1B has NOT run", `R1B_ATTEMPT_CONSUMED=NO`, `R1B_LIVE_EXECUTED=NO`) were true only then and are SUPERSEDED by the R1B LIVE section above: R1B has since executed once and is `R1B_LIVE_EXECUTED=YES`, `R1B_ATTEMPT_CONSUMED=YES`, `R1B_RESULT=FAIL_IMMUTABLE`, `R1B_FAILED_STAGE=windowrecord`, `R1B_RERUN_ALLOWED=NO`; R1Bv is required but not run and Recovery R2-R8 stays blocked until R1Bv PASS. R1Dv itself remains PASS.
+> [!important] **R1Dv executed once and PASSED.** `R1DV_LIVE=CLOSED_PASS`, `R1DV_LIVE_EXECUTED=YES`, `R1DV_RESULT=PASS`, `R1DV_VERIFY=PASS`, `R1DV_IS_R1D_RETRY=NO`, `R1DV_READ_ONLY_VALIDATION_ONLY=YES`; no R1D socket, no incident mutation, no disposition created. It validated the already committed R1D disposition (one attempt row, one disposition row, `RECOVERY_R8_CLOSE_COUNT=0`, incident #1 `CLOSED`, `PREEXISTING_OPEN_INCIDENT_COUNT=0`, one-shot index and audit integrity PASS) with TrustedClock evidence available (`SYNCED`) and an unchanged PRE -> POST comparison (`PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`, three informational disk findings). `R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES`.
+> **R1D stays `R1D_RESULT=FAIL_IMMUTABLE`** (`R1D_RESULT_REWRITTEN=NO`). At that time R1B had NOT run (`R1B_ATTEMPT_CONSUMED=NO`, `R1B_LIVE_EXECUTED=NO` — superseded, see the note above) and was a separate owner decision; Recovery R2-R8 was not executed (still true; blocked until R1Bv PASS). `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`. Runner SHA-256 `4403ffeb43f11f7936ed2ad76c306363a49655cf2191b761442ce3012c16b8c4`. Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_095103_music_idea3-r1dv-live-closeout.md`.
+
+## IDEA3 R1D LIVE — FAIL_IMMUTABLE after a COMMITTED disposition; R1Dv read-only validation (repository implementation; historical — R1Dv has since executed, see the R1Dv LIVE section above) — 2026-10-06
+
+> [!important] **R1D ran once and stays failed.** `R1D_RESULT=FAIL_IMMUTABLE` (stage result `FAIL`, `R1D_FAILED_STAGE=final`), `R1D_ATTEMPT_CONSUMED=YES`, `R1D_RERUN_ALLOWED=NO`. **The disposition itself committed:** `R1D_DISPOSITION_COMMITTED=YES`, `R1D_DISPOSITION=DISPOSED`, historical incident #1 `CLOSED` (one attempt row, one `INCIDENT_DISPOSED_HISTORICAL` row, `RECOVERY_R8_CLOSE_COUNT=0`), `PREEXISTING_OPEN_INCIDENT_COUNT=0`. The final comparison failed on `time.trustedclock.state` evidence UNAVAILABLE (`PRESERVATION_S10=FAIL`); root cause: the R1D immutable verifier snapshot lacked `aegis_soc/trusted_time.py` (clock drift is NOT proven). Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_073302_music_idea3-r1d-live-failure-closeout.md`.
+> **Repository repair (as merged; R1Dv has since executed once and passed — see the section above):** the snapshot closure now includes every entry point (`trusted_time`) and its transitive imports, and the new NON-MUTATING governed stage `R1Dv` (`R1DV_IS_R1D_RETRY=NO`, `R1DV_READ_ONLY_VALIDATION_ONLY=YES`; no marker, no socket, no disposition) validates the committed R1D state. Stage order: `... R1Du R1D R1Dv R1B ...`. `R1DV_LIVE_EXECUTED=NO` at that merge (superseded: R1Dv LIVE PASS is closed above). R1B was blocked (`R1B_BLOCKED_UNTIL_R1DV_PASS_AND_CLOSEOUT=YES`) and its predecessor gate accepts Path A (legacy unique R1D PASS closeout) or Path B (the immutable R1D failure closeout plus a unique R1Dv LIVE PASS closeout) only; `RECOVERY_R2_R8_BLOCKED_UNTIL_R1B_PASS=YES`. Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-06-idea3-r1dv-post-r1d-validation-design.md`.
+> Claims boundary: `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; at that merge `R1B_ATTEMPT_CONSUMED=NO` (superseded: R1B has since run once and failed immutably).
+
+## IDEA3 R1Du LIVE — CLOSED_PASS (deployment only) — 2026-10-06 (historical; R1D and R1B have since run and failed immutably, see the sections above)
+
+> [!important] **R1Du executed once and is permanently consumed.** `R1DU_LIVE=CLOSED_PASS`, `R1DU_LIVE_EXECUTED=YES`, `R1DU_PRODUCTION_DEPLOYED=YES`, `R1DU_ATTEMPT_CONSUMED=YES`, `R1DU_RERUN_ALLOWED=NO`, `R1DU_RELEASE_ID=ebffab6f8a6d7d98973fac7e89167352d529a87e`. The Core was restarted exactly once and runs the new release; the detector was cycled by systemd (Option A, zero explicit detector commands); the Core-private R1D channel is armed and served by the Core (`R1DU_R1D_CHANNEL_ARMED=YES`, `R1DU_R1D_SOCKET_SERVED_BY_CORE=YES`); apply, verify and the PRE/POST comparison passed with `SECRET_SCAN_HITS=0`.
+> R1Du proves deployment only: `R1DU_R1D_EXECUTED=NO`, `R1DU_INCIDENT_MUTATED=NO`. Historical incident #1 is still `OPEN` (`PREEXISTING_OPEN_INCIDENT_COUNT=1`); `R1D_ATTEMPT_CONSUMED=NO`, `R1B_ATTEMPT_CONSUMED=NO`. `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R2_R8_EXECUTED=NO`. The governed step that followed was R1D (it then ran and failed immutably after a committed disposition; see the R1D section above). Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_070624_music_idea3-r1du-live-closeout.md`.
+
+## IDEA3 R1Du + R1D historical R1A incident disposition — repository implementation (historical PRE-LIVE snapshot; R1Du has since executed, see the R1Du LIVE section above) — 2026-10-06
+
+> [!note] **Historical PRE-LIVE snapshot (superseded for R1Du by the R1Du LIVE section above).** This section records the repository implementation as it stood when merged, before any live stage ran; its execution-state fields are NOT current. **Current:** `R1DU_LIVE=CLOSED_PASS`, `R1DU_LIVE_EXECUTED=YES`, `R1DU_PRODUCTION_DEPLOYED=YES`, `R1DU_ATTEMPT_CONSUMED=YES`, `R1DU_RERUN_ALLOWED=NO` (deployment only); at the R1Du closeout R1B had not run (`R1B_ATTEMPT_CONSUMED=NO`, since superseded: R1B has run once and failed immutably); R1D has since run once and failed immutably with a committed disposition (see the R1D section above; the R1D flags in this historical snapshot, `R1D_LIVE_EXECUTED=NO` / `R1D_ATTEMPT_CONSUMED=NO`, are no longer current) and `RECOVERY_R2_R8_EXECUTED=NO`. At the time of the snapshot, a governed pre-live blocker for R1B was resolved in the repository, not on any host. The immutable failed R1A attempt left incident #1 `OPEN`; R1B requires a NEW incident with `CREATED` semantics and its baseline refuses any open incident, and no reviewed path could close it. Owner-approved order: `R1A (immutable FAIL) -> R1Du -> R1D -> R1B -> Recovery R2-R8`. `R1DU_REPOSITORY_IMPLEMENTED=YES`, `R1D_REPOSITORY_IMPLEMENTED=YES` (at merge time the live-state fields were all `NO`; they are intentionally not repeated here as current state). `R1A_RESULT=FAIL_IMMUTABLE` and `R1A_RERUN_ALLOWED=NO` are untouched; R1B stays `R1B_IS_R1A_RETRY=NO` with its NEW-incident / `CREATED` / genuine-event / source-IP / one-attempt semantics unchanged (`R1B_NEW_INCIDENT_CREATED_SEMANTICS_UNCHANGED=YES`).
 
 - **Core authority:** a dedicated Core-private, root-only (kernel `SO_PEERCRED` uid 0), inert-by-default channel disposes of the one preserved historical incident in ONE atomic SQLite transaction (a single `INCIDENT_DISPOSED_HISTORICAL` audit row plus `OPEN -> CLOSED`, with the binding `R1D_BINDING_V1` confirmed against a digest the Core reconstructs itself); it is permanently dead after one use. Not Recovery R8: normal `CLOSE` stays R1-R7 gated and the disposed incident reports `NO_CORE_CLOSE_RECORD`. A past read-only R2/R6/R7 probe leaves no durable row and is NOT claimed absent.
 - **Stages:** R1Du (F1u-style Core upgrade carrying the authority; arms the channel with one exact core.env line; one governed Core restart) and R1D (one-shot, frozen-runner, marker-bounded disposition). R1B's predecessor gate additionally recognises the R1Du closeout and the new current release and requires the unique R1D LIVE PASS closeout. The R1D mutation set is exactly: one Core attempt row, one `INCIDENT_DISPOSED_HISTORICAL` audit row, the incident `OPEN -> CLOSED`, the hash-chain advance and ONE persistent partial unique SQLite index (`ux_audit_historical_disposition`); the Core channel is single-attempt (a durable attempt row is written when the first authorized peer connects).
 - **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`. R1D PASS would prove only `PREEXISTING_OPEN_INCIDENT_COUNT=0` and `R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES`.
 
-## IDEA3 R1B successor governed stage — repository implementation, NOT executed — 2026-10-06
+## IDEA3 R1B successor governed stage — repository implementation (historical PRE-LIVE snapshot; R1B has since executed once and failed immutably, see the R1B LIVE section above) — 2026-10-06
 
-> [!important] **Repository only.** `R1B_IS_SUCCESSOR_GOVERNED_STAGE=YES`, `R1B_IS_R1A_RETRY=NO`, `R1B_REPOSITORY_IMPLEMENTED=YES`, `R1B_LIVE_EXECUTED=NO`, `R1B_ATTEMPT_CONSUMED=NO`. R1A stays `R1A_RESULT=FAIL_IMMUTABLE` (`R1A_ATTEMPT_CONSUMED=YES`, `R1A_RERUN_ALLOWED=NO`). R1B is ONE attempt (`R1B_NO_RETRY=YES`) with its own canonical marker, a genuine external event only (`R1B_SYNTHETIC_EVENT_ALLOWED=NO`), two pre-consume captures with TrustedClock `SYNCED` and no-drift comparison before the marker, and TrustedClock imported from the immutable verifier snapshot. `R1I_MUST_REMAIN_INSTALLED=YES`; `RECOVERY_R2_R8_BLOCKED_UNTIL_R1B_PASS=YES`; `RECOVERY_R2_R8_EXECUTED=NO`.
+> [!note] **Historical PRE-LIVE snapshot — the execution-state fields below are NOT current** (current: `R1B_LIVE_EXECUTED=YES`, `R1B_ATTEMPT_CONSUMED=YES`, `R1B_RESULT=FAIL_IMMUTABLE`; see the R1B LIVE section above).
+> **Repository only (at that merge).** `R1B_IS_SUCCESSOR_GOVERNED_STAGE=YES`, `R1B_IS_R1A_RETRY=NO`, `R1B_REPOSITORY_IMPLEMENTED=YES`, `R1B_LIVE_EXECUTED=NO`, `R1B_ATTEMPT_CONSUMED=NO`. R1A stays `R1A_RESULT=FAIL_IMMUTABLE` (`R1A_ATTEMPT_CONSUMED=YES`, `R1A_RERUN_ALLOWED=NO`). R1B is ONE attempt (`R1B_NO_RETRY=YES`) with its own canonical marker, a genuine external event only (`R1B_SYNTHETIC_EVENT_ALLOWED=NO`), two pre-consume captures with TrustedClock `SYNCED` and no-drift comparison before the marker, and TrustedClock imported from the immutable verifier snapshot. `R1I_MUST_REMAIN_INSTALLED=YES`; `RECOVERY_R2_R8_BLOCKED_UNTIL_R1B_PASS=YES`; `RECOVERY_R2_R8_EXECUTED=NO`.
 
 - **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`; a future R1B verifier PASS stays `R1B_PROMOTION=NOT_AUTOMATIC`.
 
@@ -69,6 +303,32 @@ edit_policy: owner-writable
 > Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. K1 is now reconciled in the repository and merged (PR #144 at `e4183fefd83727eba82cdb6c0d94d14b4bf349e4`); the Phase 2B overlay form is merged (PR #145 at `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`); neither merge changed the running HUB or enabled Phase 2B. The K1 reconciliation: the owner-captured live HUB artifact (`16cee162…`) is the reviewed baseline, the IR-1 `/security` browser route is added on top, the Phase 2B mTLS block is reviewed but not included, and a HUB routing contract test proves preservation plus the additions. K3 is CLEAR on the merged IDEA1 PR #141 closeout. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 PR11 Phase 4 L7 #7 — LIVE ACCEPTANCE PROVEN — 2026-09-30" first (the CURRENT L7 result; L7 `L7_LIVE_ACCEPTANCE = PROVEN`, ESP32/L8 untouched), then the L7 #6 failed-attempt section that it supersedes, then "IDEA3 PR11 Post-Containment Reconciliation + Live-Readiness Contract — 2026-09-23" (this reconciliation task; confirms PR #181 merged at `21d7b7824e6edf1950a7bd914f5d780366fd13c7` and its PR #182 recovery receipt merged at `f2f92425...`; `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`, `SOFTWARE_IP_UNBLOCK = SOURCE_IMPLEMENTED`, still not host-verified; defines the exact host-verification contract required before `SOFTWARE_BLOCK_IP`/`SOFTWARE_UNBLOCK = IMPLEMENTED_AND_HOST_VERIFIED`; no live mutation performed), then "IDEA3 PR11 MVP dynamic IP containment — source implementation — 2026-09-22" (PR #181, now MERGED — no longer Draft; BLOCK_IP/UNBLOCK_IP source implemented through a root socket-activated nftables helper; Core stays unprivileged; generic attacker events now use software containment instead of automatic CUT; `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`, not host-verified), then "IDEA3 Final Project — PR11 MVP Scope Freeze — 2026-09-22" (PR #178 merged at `3b91fc40`; IDEA3 Final Project scope formally frozen as Security Orchestrator + Physical Containment MVP; PR11 exit criteria and PR12 A1–A7 acceptance defined; software IP blocking and live cross-IDEA integrations open; IDEA2 narrowed preservation decision pending; production hardening deferred; `PR11_MVP_COMPLETE = NO`, `PR12_FINAL_ACCEPTANCE = OPEN`), then "IDEA3 PR11 Phase 4 L1 disk-threshold owner decision reconciliation — 2026-09-22" (PR #178 merged; canonical threshold 90%, PR #174 conflict resolved for repository purposes; live L1 blocked on disk usage 96%, IDEA2 §10, and authorizations), then "IDEA3 PR11 Phase 4 Official L0 live baseline — durable closeout — 2026-09-21" (official post-repair read-only baseline accepted; disk 96% used blocks L1, disk threshold contract reconciliation required, IDEA2 §10 remains freshly blocking, L1 live backend not implemented fail-closed; `PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`), then "IDEA3 PR11 Phase 4 L0 harness portability and fail-closed repair — 2026-09-21" (repository repair of locale determinism, paths with spaces in argv-aware filesystem reads, and fail-closed metadata handling), then "IDEA3 PR11 Phase 4 live-readiness reconciliation — 2026-09-21", then "IDEA3 PR11 Phase 4 L1 package installation handler repository registration — 2026-09-21", then "IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17" (repository-only systemd 261 unit correction; `PHASE3_RUNTIME_COMPLETE = NO`), then "IDEA3 PR11 Phase 2 runtime — final closeout — 2026-09-17" (owner-run T3 wrong-CA and T4 revoked-certificate gates PASS; `PHASE2_RUNTIME_COMPLETE = YES`; K12, Phase 3, Phase 4, D4 live, and PR11 remain open), then "IDEA3 PR11 Phase 2 runtime — live evidence reconciliation — 2026-09-16" (Phase 2A PASS and Phase 2B activated live; its T3/T4 SKIP state is superseded), then "IDEA3 PR11 K10 server-held client CA amendment — 2026-09-16," then "IDEA3 PR11 Phase 2 runtime completion — post-#144/#145 reconciliation — 2026-09-16," then "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
 
 > **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
+
+## Current governed state — Recovery R2-R8 repository implementation — 2026-10-06
+
+`RECOVERY_REPOSITORY_IMPLEMENTED=YES`
+`RECOVERY_LIVE_EXECUTED=NO`
+`RECOVERY_R2_R8_EXECUTED=NO`
+
+The single mutating Phase-4 `Recovery` stage is registered after `R1Bv` and
+before `L8`; it drives the Core-owned ordered R2-R8 ladder as one consumed,
+non-retriable attempt. Fresh same-day Authorization and K3 are required because
+Recovery mutates Production. Normal D4 remains owner-interactive and the runner
+records only its exit code; no secret enters the runner, argv, environment,
+pins, evidence, or Git. The repository does not execute Recovery LIVE.
+
+Sequence: `R1A FAIL_IMMUTABLE -> R1Du PASS -> R1D FAIL_IMMUTABLE -> R1Dv PASS -> R1B FAIL_IMMUTABLE -> R1Bv PASS -> Recovery R2-R8 IMPLEMENTED / LIVE NEXT -> LVR -> L8 -> L9`.
+
+### Session S2 — Recovery R2-R8 implementation continuation
+
+State: CLOSED · Branch: `feat/idea3-recovery-r2-r8-stage` · Starting SHA:
+`c6885cb1d949389fbaead66d2076a7727ccebc2b` · Production mutation allowed: NO
+
+The prior “no Recovery stage exists” wording below is historical/superseded.
+
+Implementation evidence: the independent review (3 CRITICAL, 7 IMPORTANT, 3 MINOR) was remediated in place: the owner reason is validated before the marker; the runner and root handlers prove the root-owned control and verifier snapshots, exact-main Git authority and the real stage gate before executing; one durable canonical attempt marker; real PRE/POST preservation with a semantic containment-delta allowance; root-owned work/result bound to the attempt; PASS from the Core's own durable evidence and CLOSE record; the RESTORE secret only into the pinned release CLI. Focused suites passed (331 stage/authority/preservation, 142 freeze/snapshot, 354 Core/evidence, 1,409 registry/harness); the full suite had only pre-existing or re-pinned failures. Recovery LIVE, Production mutation, R1B/R1Bv reruns, and ESP32 access remain explicitly unexecuted; a fresh independent review is still required.
+
+Final narrow remediation (fresh review F1–F4, M-a–M-c): the pinned D4 CLI now writes to an exclusive 0600 operator log under the private evidence directory via an explicit `AEGIS_LOG_PATH` (every operator and root `env -i` stage call sets one; none can fall back to a relative `aegis_soc.log`); before the marker the runner requires a terminal and rehearses the exact D4 command with stdin `/dev/null` (exit 2 plus the interactive-terminal refusal, no secret, no socket); one `sudo -v` is followed by a bounded `sudo -n -v` keepalive that is re-checked before the marker and before FINAL; the running Core's mandatory R2/R6/R7 configuration and its timezone are proven before the marker; the D4 closure is bound to the release `RELEASE-SHA256SUMS` through a 23rd pin. Repository only: `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`.
 
 ## IDEA3 F1u LIVE closeout — deployment PASS — 2026-10-05
 
@@ -8636,6 +8896,34 @@ FINAL_RECEIPT_AREA=idea3
 merge and final closeout being recorded there; this authorization did not
 extend to any further Production mutation, service lifecycle action, or
 reboot.
+
+## IDEA3 PR #369 RRu critical remediation — repository-only — 2026-10-07
+
+> [!important] PR #369 remains Draft and unmerged. This remediation fixes the two independent critical findings without executing RRu LIVE, Recovery LIVE, Production mutation, or ESP32 work.
+
+```text
+RRU_001                         = FIXED
+RRU_ATTEMPT_AUTHORITY           = CANONICAL_DURABLE_ROOT_OWNED
+RRU_MARKER                      = /var/lib/aegis-idea3-governance/RRU-GLOBAL-ATTEMPT-CONSUMED
+RRU_AUTH_DIR_ROLE               = AUTHORIZATION_K3_INPUT_ONLY
+RRU_002                         = FIXED
+RECOVERY_RRU_SUCCESSOR_GATE     = ENFORCED
+RECOVERY_RRU_RELEASE_BINDING    = ENFORCED
+RRU_REPOSITORY_IMPLEMENTED      = YES
+RRU_LIVE_EXECUTED               = NO
+RECOVERY_RUNTIME_RELEASE_READY  = NO
+RECOVERY_ATTEMPT_CONSUMED       = NO
+RECOVERY_LIVE_EXECUTED          = NO
+RECOVERY_R2_R8_EXECUTED         = NO
+R1B_RESULT                      = FAIL_IMMUTABLE
+R1BV_RESULT                     = PASS
+PRODUCTION_MUTATION_PERFORMED   = NO
+ESP32_TOUCHED                   = NO
+```
+
+- RRu now validates a fixed canonical directory/trusted ancestor chain, creates the stage-global marker exclusively, fsyncs the parent before creation and the marker plus containing directory afterward, and never removes or rewrites it. Test-only path seams are forbidden by the frozen runner.
+- Recovery keeps `r1bv_recovery_predecessor_gate` and adds `rru_recovery_successor_gate` in both pre-gates and the immediate pre-marker authority re-gate. The successor requires one pinned-main closeout receipt containing all required RRu PASS/runtime-ready fields and the exact frozen release ID; implementation-only or working-tree-only records cannot satisfy it.
+- A future automatic RRu PASS remains distinct from the separately reviewed `RRU_LIVE=CLOSED_PASS` closeout. Recovery waits for that closeout to be merged before a new exact-main Recovery authority/freeze.
 
 ## IDEA3 PR11 Phase 4 L7 release builder — status reconciliation (current state) — 2026-09-27
 

@@ -1,0 +1,4 @@
+svc.aegis-idea3-core.service.MainPID
+svc.aegis-idea3-core.service.ExecMainStartTimestamp
+svc.aegis-idea3-detector.service.MainPID
+svc.aegis-idea3-detector.service.ExecMainStartTimestamp

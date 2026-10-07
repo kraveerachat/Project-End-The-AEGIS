@@ -1,0 +1,9 @@
+# Reviewed Core unit bytes/metadata, Core restart identity, and only the
+# detector Requires= lifecycle identity consequence.
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.class
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.meta
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.sha256
+svc.aegis-idea3-core.service.MainPID
+svc.aegis-idea3-core.service.ExecMainStartTimestamp
+svc.aegis-idea3-detector.service.MainPID
+svc.aegis-idea3-detector.service.ExecMainStartTimestamp

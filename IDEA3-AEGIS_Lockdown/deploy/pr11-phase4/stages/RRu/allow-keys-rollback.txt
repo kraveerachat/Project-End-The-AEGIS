@@ -1,0 +1,3 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage RRu PRE->RB allowances (rollback compare).
+# ZERO active entries by contract: RRu restarts nothing, so after a rollback `current`, the release catalog, the Core and the detector must equal PRE exactly (class EXACT_PROCESS). The tool proves it and the runner
+# compares PRE->RB with no allowance at all.

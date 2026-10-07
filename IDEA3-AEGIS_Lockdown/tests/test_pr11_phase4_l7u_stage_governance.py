@@ -54,9 +54,9 @@ def lib(script: str, *, path_prefix: Path | None = None, env: dict[str, str] | N
 def test_l7u_is_registered_between_l7_and_l8() -> None:
     line = next(l for l in P4_LIB.read_text().splitlines() if l.strip().startswith("readonly P4_STAGES="))
     stages = line.split('"')[1].split()
-    # L8p (device provisioning only, before Recovery) sits between L7u and L8; L7u still directly follows L7.
+    # L8p (device provisioning only, before Recovery) sits between L7u and L8; the governed post-R1Bv RRu successor sits immediately before Recovery.
     assert stages.index("L7") + 1 == stages.index("L7u") and stages.index("L7u") + 1 == stages.index("L8p") < stages.index("L8")
-    assert stages[stages.index("L6c"):stages.index("L9") + 1] == ["L6c", "L7", "L7u", "L8p", "F1i", "F1r", "F1", "F1u", "L8", "L9"]
+    assert stages[stages.index("L6c"):stages.index("L9") + 1] == ["L6c", "L7", "L7u", "L8p", "F1i", "F1r", "F1", "F1u", "R1I", "R1A", "R1Du", "R1D", "R1Dv", "R1B", "R1Bv", "RRu", "CTu", "Recovery", "L8", "L9"]
 
 
 def test_l7u_is_a_mutating_stage_with_no_extra_authorization_field() -> None:

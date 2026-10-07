@@ -24,6 +24,9 @@ import sys
 from pathlib import Path
 
 ENTRY = "historical_disposition"
+# The immutable verifier authority is the union of EVERY local entry point the stage executes under the snapshot PYTHONPATH: the read-only observer AND the generic evidence-capture helper (`p4-l5-clock.py`, run by
+# p4-l0-capture.sh), which imports `aegis_soc.trusted_time`. R1D's live attempt failed closed (TRUSTEDCLOCK evidence UNAVAILABLE -> INCOMPARABLE) because the closure was rooted only in the observer.
+ENTRIES = (ENTRY, "trusted_time")
 PACKAGE = "aegis_soc"
 MANIFEST_NAME = "R1D-VERIFIER-SHA256SUMS"
 CONTROL_MANIFEST_NAME = "R1D-CONTROL-SHA256SUMS"
@@ -243,11 +246,12 @@ def _imports(path: Path) -> set[str]:
 
 
 def closure(app: Path) -> list[str]:
-    """Sorted relative paths (``aegis_soc/x.py``) of the entry module, its transitive local imports and the package ``__init__``."""
+    """Sorted relative paths (``aegis_soc/x.py``) of every entry module, its transitive local imports and the package ``__init__``."""
     app = Path(app)
-    if _module_file(app, ENTRY) is None:
-        raise SnapshotError("ENTRY_MODULE_MISSING")
-    todo, seen = [ENTRY], set()
+    for entry in ENTRIES:
+        if _module_file(app, entry) is None:
+            raise SnapshotError("ENTRY_MODULE_MISSING")
+    todo, seen = list(ENTRIES), set()
     while todo:
         name = todo.pop()
         if name in seen:

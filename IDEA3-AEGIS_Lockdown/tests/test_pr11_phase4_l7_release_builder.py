@@ -33,11 +33,11 @@ TOOL = ROOT / "deploy" / "pr11-phase4" / "p4-l7-build-release.py"
 
 MANIFEST_FIELDS = {"schema_version", "release_id", "source_git_sha", "source_tree_dirty", "python_version",
                    "requirements_sha256", "file_count", "created_by_tool_version"}
-CLOSURE = {"__init__", "alert_sink", "comms", "config", "controller", "database", "dispatch_client", "dispatch_ledger", "dispatch_worker",
+CLOSURE = {"__init__", "alert_sink", "cli", "comms", "config", "controller", "database", "dispatch_client", "dispatch_ledger", "dispatch_worker", "historical_disposition",
            "ip_containment", "local_restore", "mqtt_client", "paths", "platform_lock", "protocol_inbound", "protocol_runtime",
            "production_detector", "protocol_store", "protocol_v1", "recovery_client", "recovery_core", "recovery_protocol", "recovery_ui", "runtime",
            "security", "supervisor", "systemd_credentials", "trusted_time"}
-NOT_RUNTIME = {"cli", "gui", "production_runtime", "telegram_control", "theme",
+NOT_RUNTIME = {"gui", "production_runtime", "telegram_control", "theme",
                "windows_launcher", "wizard"}
 
 
@@ -150,6 +150,73 @@ def test_runtime_closure_is_exact(good: Path) -> None:
     assert names == CLOSURE
     assert not names & NOT_RUNTIME
     assert not (good / "detector.py").exists() and not (good / "server_admin.py").exists()
+
+
+RECOVERY_LIB = ROOT / "deploy" / "pr11-phase4" / "p4-recovery-run-lib.sh"
+D4_REFUSAL = "RESTORE refused: an interactive local terminal is required"
+
+
+def test_cli_is_a_first_class_release_entrypoint_and_the_old_entrypoint_set_would_omit_it(tool, repo) -> None:
+    project = repo / "IDEA3-AEGIS_Lockdown"
+    assert tool.ENTRYPOINTS == ("supervisor", "recovery_ui", "production_detector", "cli")
+    old_modules, _ = tool.runtime_closure(project, ("supervisor", "recovery_ui", "production_detector"))
+    new_modules, third = tool.runtime_closure(project)
+    assert "cli" not in old_modules and "cli" in new_modules  # the defect: the pre-fix builder shipped no aegis_soc/cli.py
+    assert set(new_modules) - set(old_modules) == {"cli"} and third == {"paho"}  # cli adds NO transitive module and NO third-party import
+    for kept in ("supervisor", "recovery_ui", "production_detector", "recovery_core", "recovery_client", "alert_sink", "ip_containment"):
+        assert kept in new_modules  # existing closures are preserved
+
+
+def test_built_release_ships_cli_manifested_and_summed(good: Path) -> None:
+    assert (good / "aegis_soc" / "cli.py").is_file() and not (good / "aegis_soc" / "cli.py").is_symlink()
+    sums = (good / "RELEASE-SHA256SUMS").read_text().splitlines()
+    digest = hashlib.sha256((good / "aegis_soc" / "cli.py").read_bytes()).hexdigest()
+    assert f"{digest}  aegis_soc/cli.py" in sums  # the exact line the Recovery release-closure gate greps for
+    assert digest == hashlib.sha256((ROOT / "aegis_soc" / "cli.py").read_bytes()).hexdigest()  # byte-identical to reviewed source
+    manifest = json.loads((good / "RELEASE-MANIFEST.json").read_text())
+    assert manifest["file_count"] == len([p for p in good.rglob("*") if p.is_file() and p.name not in {"RELEASE-SHA256SUMS", "RELEASE-MANIFEST.json"}])
+
+
+def test_verifier_refuses_a_release_that_lacks_cli(tool, rel: Path) -> None:
+    (rel / "aegis_soc" / "cli.py").unlink()
+    manifest = json.loads((rel / "RELEASE-MANIFEST.json").read_text())
+    manifest["file_count"] -= 1  # keep the manifest/sums internally consistent so ONLY the closure check can refuse
+    (rel / "RELEASE-MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    resum(rel)
+    assert "ENTRYPOINT_MISSING" in refuses(tool.verify_release, rel, expect_owner="self")  # a release without the cli entrypoint fails closed (file_count drift is irrelevant: the closure check refuses first)
+
+
+def test_the_built_release_cli_imports_from_the_release_itself(good: Path, tmp_path: Path) -> None:
+    log = tmp_path / "cli.log"
+    log.write_text("")
+    log.chmod(0o600)
+    env = {"PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1", "AEGIS_RUNTIME_DIR": str(tmp_path / "rt"), "AEGIS_LOG_PATH": str(log)}
+    out = subprocess.run([str(good / "venv" / "bin" / "python"), "-B", "-s", "-c", "import aegis_soc.cli as c; print(c.__file__)"],
+                         cwd=good, env=env, stdin=subprocess.DEVNULL, text=True, capture_output=True)
+    assert out.returncode == 0, out.stderr
+    assert Path(out.stdout.strip()).resolve() == (good / "aegis_soc" / "cli.py").resolve()  # imported from the release, not a worktree
+
+
+def test_d4_rehearsal_against_a_freshly_built_release_reaches_exactly_the_terminal_refusal(good: Path, tmp_path: Path) -> None:
+    log = tmp_path / "d4.log"
+    log.write_text("")
+    log.chmod(0o600)
+    release = tmp_path / "ro-release"
+    shutil.copytree(good, release)
+    for d in [release, *release.rglob("*")]:
+        if d.is_dir():
+            d.chmod(0o555)
+    try:
+        script = (f'. "{RECOVERY_LIB}"; SUDO=""; RELEASE_PATH="{release}"; RUNTIME_DIR="{tmp_path / "no-runtime"}"; RECOVERY_D4_LOG="{log}"; '
+                  f'RECOVERY_REASON="Owner-approved normal restore"\nrecovery_d4_rehearsal; echo "rc=$?"')
+        r = subprocess.run(["bash", "-c", script.replace("\\n", "\n")], text=True, capture_output=True, stdin=subprocess.DEVNULL,
+                           env={k: v for k, v in os.environ.items() if k not in ("AEGIS_LOG_PATH", "AEGIS_DB_PATH")})
+        assert "rc=0" in r.stdout, r.stdout + r.stderr
+        assert not (tmp_path / "no-runtime").exists()  # stdin=/dev/null: stopped at the refusal, never reached a Recovery socket or Production
+    finally:
+        for d in [release, *release.rglob("*")]:
+            if d.is_dir():
+                d.chmod(0o755)
 
 
 def test_manifest_has_exact_allowlisted_fields(good: Path) -> None:

@@ -169,7 +169,7 @@ def test_a_duplicate_misnamed_or_failed_r1d_closeout_does_not_satisfy_r1b(tmp_pa
     (tmp_path / "p").mkdir()
     fail_only = f"{LOGS}/2026-10-06_150000_music_idea3-r1d-failure.md"
     result = gate(repo_with(tmp_path / "p", **{fail_only: "- `R1D_RESULT=FAIL`\n"}))
-    assert result.returncode == 1 and "R1B_R1D_FAILURE_RECORDED" in result.stderr
+    assert result.returncode == 1 and "R1B_R1D_HISTORY_CONTRADICTORY" in result.stderr  # a bare FAIL beside a PASS closeout is contradictory, never accepted
 
 
 @pytest.mark.parametrize("malformed", ["R1D_LIVE = CLOSED_PASS extra", "R1D_RESULT=PASS maybe", "prose: R1D_LIVE=CLOSED_PASS one day"])
@@ -182,3 +182,113 @@ def test_a_malformed_r1d_closeout_line_is_never_a_whole_line_match(tmp_path: Pat
 def test_the_r1d_requirement_does_not_touch_the_r1b_acceptance_baseline() -> None:
     acceptance = (ROOT / "aegis_soc/r1_acceptance.py").read_text()
     assert 'raise AcceptanceError("PREEXISTING_OPEN_INCIDENT")' in acceptance and 'groups() != (ip, "detector_alert", "CREATED")' in acceptance
+
+
+# ---------------------------------------------------------------- PATH B: immutable R1D FAIL + unique R1Dv LIVE PASS
+R1D_FAIL_CLOSEOUT = f"{LOGS}/2026-10-06_073302_music_idea3-r1d-live-failure-closeout.md"
+R1DV_CLOSEOUT = f"{LOGS}/2026-10-07_100000_music_idea3-r1dv-live-closeout.md"
+R1DV_LINES = ("R1DV_LIVE=CLOSED_PASS", "R1DV_LIVE_EXECUTED=YES", "R1DV_RESULT=PASS", "R1DV_IS_R1D_RETRY=NO", "R1DV_READ_ONLY_VALIDATION_ONLY=YES", "R1DV_R1D_SOCKET_CONNECTED=NO",
+              "R1DV_INCIDENT_MUTATED=NO", "R1DV_DISPOSITION_CREATED=NO", "R1DV_R1D_ATTEMPT_AUDIT_COUNT=1", "R1DV_R1D_DISPOSITION_AUDIT_COUNT=1", "R1DV_RECOVERY_R8_CLOSE_COUNT=0",
+              "R1DV_HISTORICAL_INCIDENT_STATE=CLOSED", "PREEXISTING_OPEN_INCIDENT_COUNT=0", "R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES", "R1DV_ONE_SHOT_INDEX=PASS", "R1DV_AUDIT_INTEGRITY=PASS",
+              "R1DV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=YES", "R1DV_PRESERVATION_S10=PASS", "R1DV_COMPARE_RESULT=PASS", "R1B_ATTEMPT_CONSUMED=NO", "F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN",
+              "R1_VERIFIED=NOT_CLAIMED", "RECOVERY_R1_R8_PROVEN=NO", "RECOVERY_R2_R8_EXECUTED=NO")
+
+
+def r1dv_text(drop: str | None = None, extra: tuple[str, ...] = ()) -> str:
+    return "\n".join(f"- `{x}`" for x in (*[l for l in R1DV_LINES if l != drop], *extra)) + "\n"
+
+
+def path_b(tmp_path: Path, **change: str | None) -> Path:
+    real = (ROOT.parent / R1D_FAIL_CLOSEOUT).read_text()  # the REAL shipped failure closeout is the fixture
+    return repo_with(tmp_path, **{R1D_CLOSEOUT: None, R1D_FAIL_CLOSEOUT: real, R1DV_CLOSEOUT: r1dv_text(), **change})
+
+
+def test_path_a_still_passes_with_the_unique_legacy_r1d_pass_closeout(tmp_path: Path) -> None:
+    assert gate(repo_with(tmp_path)).returncode == 0
+
+
+def test_path_b_passes_with_the_unique_r1d_failure_closeout_and_the_unique_r1dv_pass_closeout(tmp_path: Path) -> None:
+    result = gate(path_b(tmp_path))
+    assert result.returncode == 0, result.stderr
+
+
+def test_the_r1d_failure_closeout_alone_does_not_unblock_r1b(tmp_path: Path) -> None:
+    result = gate(path_b(tmp_path, **{R1DV_CLOSEOUT: None}))
+    assert result.returncode == 1 and "R1B_R1DV_CLOSEOUT_MISSING_OR_AMBIGUOUS" in result.stderr
+
+
+def test_an_r1dv_pass_without_the_exact_r1d_failure_closeout_does_not_unblock_r1b(tmp_path: Path) -> None:
+    assert gate(path_b(tmp_path, **{R1D_FAIL_CLOSEOUT: None})).returncode == 1
+    (tmp_path / "x").mkdir()
+    assert gate(repo_with(tmp_path / "x", **{R1D_CLOSEOUT: None, R1DV_CLOSEOUT: r1dv_text()})).returncode == 1
+
+
+def test_an_r1d_pass_and_an_r1d_failure_together_are_contradictory(tmp_path: Path) -> None:
+    result = gate(path_b(tmp_path, **{R1D_CLOSEOUT: r1d_text()}))
+    assert result.returncode == 1 and "R1B_R1D_HISTORY_CONTRADICTORY" in result.stderr
+
+
+def test_path_a_refuses_any_r1dv_receipt(tmp_path: Path) -> None:
+    assert gate(repo_with(tmp_path, **{R1DV_CLOSEOUT: r1dv_text()})).returncode == 1
+
+
+def test_r1d_failure_plus_r1dv_failure_or_duplicate_r1dv_fails_closed(tmp_path: Path) -> None:
+    failed = r1dv_text("R1DV_LIVE=CLOSED_PASS").replace("R1DV_RESULT=PASS", "R1DV_RESULT=FAIL")
+    assert gate(path_b(tmp_path, **{R1DV_CLOSEOUT: failed})).returncode == 1
+    (tmp_path / "d").mkdir()
+    dup = f"{LOGS}/2026-10-07_110000_music_idea3-r1dv-live-closeout.md"
+    assert gate(path_b(tmp_path / "d", **{dup: r1dv_text()})).returncode == 1
+    (tmp_path / "e").mkdir()
+    dupfail = f"{LOGS}/2026-10-06_000000_music_idea3-r1d-live-failure-closeout.md"
+    assert gate(path_b(tmp_path / "e", **{dupfail: (ROOT.parent / R1D_FAIL_CLOSEOUT).read_text()})).returncode == 1
+
+
+@pytest.mark.parametrize("drop", R1DV_LINES)
+def test_each_r1dv_pass_closeout_field_is_load_bearing(tmp_path: Path, drop: str) -> None:
+    assert gate(path_b(tmp_path, **{R1DV_CLOSEOUT: r1dv_text(drop)})).returncode == 1
+
+
+@pytest.mark.parametrize("claim", ["R1DV_INCIDENT_MUTATED=YES", "R1DV_R1D_SOCKET_CONNECTED=YES", "R1DV_DISPOSITION_CREATED=YES", "R1DV_IS_R1D_RETRY=YES", "R1DV_READ_ONLY_VALIDATION_ONLY=NO"])
+def test_an_r1dv_mutation_socket_disposition_or_retry_claim_fails_closed(tmp_path: Path, claim: str) -> None:
+    other = f"{LOGS}/2026-10-07_120000_music_idea3-other.md"
+    result = gate(path_b(tmp_path, **{other: f"- `{claim}`\n"}))
+    assert result.returncode == 1 and "R1B_R1DV_FORBIDDEN_CLAIM" in result.stderr
+
+
+def test_missing_s10_compare_audit_integrity_or_clock_evidence_in_the_r1dv_closeout_fails(tmp_path: Path) -> None:
+    for i, key in enumerate(("R1DV_PRESERVATION_S10=PASS", "R1DV_COMPARE_RESULT=PASS", "R1DV_AUDIT_INTEGRITY=PASS", "R1DV_TRUSTEDCLOCK_EVIDENCE_AVAILABLE=YES")):
+        (tmp_path / str(i)).mkdir()
+        assert gate(path_b(tmp_path / str(i), **{R1DV_CLOSEOUT: r1dv_text(key)})).returncode == 1, key
+
+
+def test_a_generic_r1d_fail_receipt_or_a_forged_failure_closeout_never_opens_path_b(tmp_path: Path) -> None:
+    forged = f"{LOGS}/2026-10-06_073302_music_idea3-r1d-live-failure-closeout.md"
+    thin = "- `R1D_RESULT=FAIL`\n- `R1D_FAILURE_CLOSEOUT=YES`\n"
+    assert gate(path_b(tmp_path, **{forged: thin})).returncode == 1
+    (tmp_path / "g").mkdir()
+    generic = f"{LOGS}/2026-10-06_090000_music_idea3-r1d-anything.md"
+    assert gate(path_b(tmp_path / "g", **{R1D_FAIL_CLOSEOUT: None, generic: (ROOT.parent / R1D_FAIL_CLOSEOUT).read_text()})).returncode == 1  # wrong name
+
+
+def test_r1b_acceptance_semantics_are_unchanged_by_the_two_paths() -> None:
+    acceptance = (ROOT / "aegis_soc/r1_acceptance.py").read_text()
+    assert 'raise AcceptanceError("PREEXISTING_OPEN_INCIDENT")' in acceptance and 'groups() != (ip, "detector_alert", "CREATED")' in acceptance
+
+
+def test_one_r1dv_closeout_carrying_both_pass_and_fail_results_is_refused(tmp_path: Path) -> None:
+    both = r1dv_text(extra=("R1DV_RESULT=FAIL",))
+    assert gate(path_b(tmp_path, **{R1DV_CLOSEOUT: both})).returncode == 1
+    (tmp_path / "l").mkdir()
+    assert gate(path_b(tmp_path / "l", **{R1DV_CLOSEOUT: r1dv_text(extra=("R1DV_LIVE=CLOSED_FAIL",))})).returncode == 1
+
+
+def test_an_extra_bare_r1d_fail_receipt_makes_path_b_ambiguous(tmp_path: Path) -> None:
+    extra = f"{LOGS}/2026-10-06_090000_music_idea3-r1d-partial.md"
+    result = gate(path_b(tmp_path, **{extra: "- `R1D_RESULT=FAIL`\n"}))
+    assert result.returncode == 1 and "R1B_R1D_FAILURE_CLOSEOUT_MISSING_OR_AMBIGUOUS" in result.stderr
+
+
+def test_an_extra_bare_r1d_pass_receipt_makes_path_a_ambiguous(tmp_path: Path) -> None:
+    extra = f"{LOGS}/2026-10-06_090000_music_idea3-r1d-partial.md"
+    result = gate(repo_with(tmp_path, **{extra: "- `R1D_RESULT=PASS`\n"}))
+    assert result.returncode == 1 and "R1B_R1D_CLOSEOUT_MISSING_OR_AMBIGUOUS" in result.stderr

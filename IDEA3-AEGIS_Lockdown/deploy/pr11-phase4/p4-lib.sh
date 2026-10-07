@@ -22,18 +22,25 @@ readonly P4_FS_ROOT="${AEGIS_P4_FS_ROOT:-${P4_FS_ROOT:-}}"
 readonly P4_WINDOW_TZ=Asia/Bangkok
 
 # ── stages (execution document §9, §12) ──────────────────────────────────────
-# Operational order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A (historical consumed FAIL) -> R1Du -> R1D -> R1B -> Recovery R2-R8 -> LVR -> L8 -> L9.
+# Operational order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A (historical consumed FAIL) -> R1Du -> R1D (immutable FAIL after a committed disposition) -> R1Dv -> R1B (immutable FAIL at windowrecord) -> R1Bv -> Recovery R2-R8 -> LVR -> L8 -> L9.
+# RRu (governed Recovery-PREPARATION release deployment) is registered between R1Bv and Recovery R2-R8: it installs ONE new immutable release carrying aegis_soc/cli.py and switches `current`; it is
+# not a retry of any earlier stage and never claims a Recovery result.
+# CTu is a NEW governed Core TrustedClock unit successor after RRu: it installs
+# only the reviewed Core unit, reloads systemd when needed, and restarts Core
+# once. It never retries RRu, changes runtime/NTP/network/device state, or
+# commands the detector; any detector lifecycle movement is only the existing
+# Requires= consequence and must be compared explicitly.
 # F1i = governed POST-L7 install of ONE already-built repaired immutable release (creates /opt/aegis-idea3/releases/<id> only); F1r = governed atomic switch of
 # /opt/aegis-idea3/current to that ALREADY-INSTALLED release (no Core restart); F1 = governed F1 detector unit install + one start; F1u = governed post-F1 Core upgrade (install ONE new
 # immutable release, switch current OLD -> NEW, restart the Core EXACTLY ONCE without touching the running detector, prove the Core runs from the NEW release). L6c keeps its original position and its
 # historical PRE-L7 meaning: its verifier requires the L7 material absent and the Core unit not-found, which is false by design on the post-L7 host (a maintenance reuse
 # of L6c failed closed for exactly that reason), so L6c is never reused post-L7 and is not changed.
-readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1B L8 L9"
+readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu Recovery L8 L9"
 
 p4_stage_known() { [[ " $P4_STAGES " == *" $1 "* ]] && [ -n "$1" ]; }
 
-# Every stage except the read-only L0 baseline changes the Core host.
-p4_stage_mutates() { [ "$1" != L0 ]; }
+# Every stage except the read-only L0 baseline and the read-only R1Dv / R1Bv validations (R1Dv: R1D post-disposition validation; R1Bv: successor validation of the existing failed R1B evidence; no marker, no socket, no write) changes the Core host.
+p4_stage_mutates() { [ "$1" != L0 ] && [ "$1" != R1Dv ] && [ "$1" != R1Bv ]; }
 
 # Repository gaps that must be merged before the stage (§6, §9). The gate
 # reports them; it cannot verify merge state and never claims to.
@@ -69,6 +76,17 @@ p4_stage_gaps() {
     R1A) echo none ;;
     # R1Du is a governed Core upgrade (F1u-style: one release, one `current` switch, one Core restart) that carries the R1D historical-disposition authority; it mutates no incident and runs no R1D.
     R1Du) echo none ;;
+    # R1Dv is the READ-ONLY successor validation of the committed R1D disposition (not an R1D retry): it owns no Production change and no one-attempt marker.
+    R1Dv) echo none ;;
+    # R1Bv is the READ-ONLY successor validation of the EXISTING failed R1B evidence (not an R1B retry): it owns no Production change, no marker and no window record.
+    R1Bv) echo none ;;
+    # RRu is the governed Recovery PREPARATION successor: it installs ONE new immutable release that also carries aegis_soc/cli.py (the Recovery D4 restore entrypoint) and switches `current` to it. NO Core restart,
+    # no detector action, no arming, no incident/Recovery mutation; it is NOT an F1i/F1r/R1Du retry and never claims Recovery, R1 verification, LVR, L8 or L9.
+    RRu) echo none ;;
+    # CTu is the narrowly scoped post-RRu Core unit successor; it carries no
+    # repository gap and never authorizes Recovery.
+    CTu) echo none ;;
+    Recovery) echo none ;;
     # R1D is the one Core-mediated historical-incident disposition (evidence-preserving, irreversible, one attempt); it owns no reversible Production change.
     R1D) echo none ;;
     # R1B is a NEW governed successor after the immutable consumed R1A FAIL; it is not a retry and owns no reversible Production change.
@@ -92,6 +110,8 @@ p4_stage_auth_extra() {
     L8) echo recovery_authorization ;;
     # L8p replaces the D4 attestation with an attested physical recovery procedure; it never carries recovery_authorization (L8-only).
     L8p) echo physical_recovery_attestation ;;
+    # CTu records bind the actual frozen attempt, not only stage/date.
+    CTu) echo expected_main runner_sha256 unit_sha256 operator_user operator_uid device_id ;;
   esac
 }
 
