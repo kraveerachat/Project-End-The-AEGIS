@@ -27,7 +27,12 @@ if [ "${AEGIS_L9_BACKEND:-fixture}" = live ]; then
   [ "$live_count" = "1" ] || fail "expected exactly one evidence bundle, found $live_count"
   [ -f "$EVIDENCE_DIR/l9-live-evidence.json" ] && [ ! -L "$EVIDENCE_DIR/l9-live-evidence.json" ] || fail "live evidence bundle missing or not named l9-live-evidence.json"
   P4_LIVE="$(cd "$HERE/../.." && pwd)"
-  "$PYTHON_BIN" "$P4_LIVE/p4-l9-live-observe.py" verify --evidence-dir "$EVIDENCE_DIR" || fail "live evidence bundle verification failed"
+  for var in AEGIS_L9_MARKER AEGIS_L9_RUN_ID AEGIS_L9_DEVICE_ID AEGIS_L9_EXPECTED_MAIN AEGIS_L9_RUNNER_SHA256; do
+    [ -n "${!var:-}" ] || fail "$var required"
+  done
+  /usr/bin/python3 -I "$P4_LIVE/p4-l9-live-observe.py" verify \
+    --marker "$AEGIS_L9_MARKER" --evidence-dir "$EVIDENCE_DIR" --work-dir "$WORK_DIR" --device-id "$AEGIS_L9_DEVICE_ID" \
+    --run-id "$AEGIS_L9_RUN_ID" --expected-main "$AEGIS_L9_EXPECTED_MAIN" --runner-sha256 "$AEGIS_L9_RUNNER_SHA256" || fail "live evidence bundle verification failed"
   for allow in allow-keys.txt allow-listeners.txt; do
     active=$(grep -cvE '^[[:space:]]*(#|$)' "$HERE/$allow" || true)
     [ "$active" = "0" ] || fail "$allow must have zero active entries (found $active)"

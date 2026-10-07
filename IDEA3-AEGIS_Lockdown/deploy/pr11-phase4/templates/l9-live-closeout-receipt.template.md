@@ -11,6 +11,11 @@ status: TEMPLATE — NOT A RECEIPT
 > its whole-line `FIELD=VALUE` lines in that directory, so a template placed there would be treated as a claim.
 > Never commit this file under 90-Status/logs; copy it to a new, correctly named receipt only after a real PASS.
 
+**Do not hand-write the real receipt.** After a real PASS, run `p4-l9-closeout.py verify-host` and then `derive` on the host: the machine fields below are derived from
+the root-owned host closeout `L9-GLOBAL-CLOSEOUT-PASS` (verified against the marker, the single-use claim, the evidence bundle and the terminal result), and
+`verify-receipt` refuses any receipt whose fields were not derived that way. Git history alone (`p4-l9-gates.py final-closeout`) can verify uniqueness, immutability
+and ancestry after the merge, but it cannot prove the physical host still exists.
+
 Required file name: `YYYY-MM-DD_HHMMSS_music_idea3-l9-live-closeout.md` (the name must end with `_music_idea3-l9-live-closeout.md`).
 
 Rules the gate enforces on the real receipt:

@@ -31,7 +31,7 @@ if [ "${AEGIS_L9_BACKEND:-fixture}" = live ]; then
     fail "LIVE_L9_NOT_AUTHORIZED (AEGIS_L9_LIVE_AUTHORIZED=YES required) (LIVE_L9=NOT_AUTHORIZED)"
   [ -z "${AEGIS_L9_FIXTURE_NOW:-}${AEGIS_L9_INPUT_DIR:-}" ] ||
     fail "LIVE_L9_FIXTURE_INPUT_COMBINATION_REFUSED (LIVE_L9=NOT_AUTHORIZED)"
-  for var in AEGIS_L9_WORK_DIR AEGIS_L9_EVIDENCE_DIR AEGIS_L9_DEVICE_ID AEGIS_L9_RUN_ID AEGIS_L9_WINDOW_SECONDS AEGIS_L9_MARKER; do
+  for var in AEGIS_L9_WORK_DIR AEGIS_L9_EVIDENCE_DIR AEGIS_L9_DEVICE_ID AEGIS_L9_RUN_ID AEGIS_L9_WINDOW_SECONDS AEGIS_L9_MARKER AEGIS_L9_EXPECTED_MAIN AEGIS_L9_RUNNER_SHA256; do
     require_env "$var"
   done
   [ ! -L "$AEGIS_L9_WORK_DIR" ] || fail "AEGIS_L9_WORK_DIR must not be a symlink"
@@ -41,14 +41,19 @@ if [ "${AEGIS_L9_BACKEND:-fixture}" = live ]; then
   esac
   [[ "$AEGIS_L9_DEVICE_ID" =~ ^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$ ]] || fail "invalid device id: $AEGIS_L9_DEVICE_ID"
   [[ "$AEGIS_L9_WINDOW_SECONDS" =~ ^[0-9]{3}$ ]] || fail "AEGIS_L9_WINDOW_SECONDS must be a 3-digit number of seconds"
+  [[ "$AEGIS_L9_EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ && "$AEGIS_L9_RUNNER_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "AEGIS_L9_EXPECTED_MAIN / AEGIS_L9_RUNNER_SHA256 malformed"
   mkdir -p "$AEGIS_L9_WORK_DIR" "$AEGIS_L9_EVIDENCE_DIR"
   chmod 0700 "$AEGIS_L9_WORK_DIR" "$AEGIS_L9_EVIDENCE_DIR"
   LIVE_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  "${AEGIS_PYTHON_BIN:-python3}" "$LIVE_HERE/p4-l9-live-observe.py" observe \
+  # Isolated interpreter only: no caller-selected binary (AEGIS_PYTHON_BIN is ignored here) and no PYTHONPATH/PYTHONHOME/user-site influence.
+  /usr/bin/python3 -I "$LIVE_HERE/p4-l9-live-observe.py" observe \
     --marker "$AEGIS_L9_MARKER" \
     --evidence-dir "$AEGIS_L9_EVIDENCE_DIR" \
+    --work-dir "$AEGIS_L9_WORK_DIR" \
     --device-id "$AEGIS_L9_DEVICE_ID" \
     --run-id "$AEGIS_L9_RUN_ID" \
+    --expected-main "$AEGIS_L9_EXPECTED_MAIN" \
+    --runner-sha256 "$AEGIS_L9_RUNNER_SHA256" \
     --window-seconds "$AEGIS_L9_WINDOW_SECONDS" || fail "live observation failed"
   printf 'L9_COMMAND_SENT=NONE\n'
   printf 'L9_LIVE_OBSERVATION=COMPLETE\n'

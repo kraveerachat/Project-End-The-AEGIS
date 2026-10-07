@@ -39,7 +39,7 @@ already wrote itself:
 Invariants (first violated one is the `failure_boundary`): Core `active/running/success`, same PID/invocation/
 `NRestarts`; detector unchanged and `active/running`; `status.json` refreshed by that PID with `time_trust=SYNCED`,
 `broker=CONNECTED`, `device=ONLINE` and `uplink` unchanged from PRE; window ≥ 120 s (two dead-man periods) and ≤ 900 s;
-≥ 3 PERIODIC accepted STATUS rows with no gap above 45 s (firmware cadence 30 s plus margin); **zero** `DEADMAN`,
+≥ 3 PERIODIC accepted STATUS rows and continuity over the WHOLE window (first row ≤ 45 s after the window start, no internal gap above 45 s, last row ≤ 45 s before the window end, every `received_at` inside the window — an early burst followed by silence, a late first frame, stale or future-stamped rows and pre-window history all fail); **zero** `DEADMAN`,
 `BOOT`, `BOOT_GRACE`, `COMMAND`, `SEQUENCE_REJECTED` rows; one constant output state; zero new command rows, allocator
 unchanged, zero `COMMAND_SENT`, zero correlation anomalies; open incident and open episode counts unchanged.
 
@@ -82,31 +82,57 @@ introducing commit; any L9-owned result field already recorded (replay preventio
 moves main, so `L8_EXECUTION_MAIN` must be a **strict** ancestor of the pinned main and the closeout must not exist at
 it. Unrelated historical fields (`L8_ACCEPTANCE=NO`, `L8P_*`, `L9_PROVEN=NO`, `L8=NOT_RUN`) are ignored.
 
-## 3. Owner runner, freeze, Authorization, K3
+## 3. Owner runner, freeze, trust closure, Authorization, K3
 
-`owner-run/run-l9-owner.sh` is an unpinned template that refuses to run. `p4-l9-freeze.py` derives the frozen runner
-from the exact reviewed template Git object with only seven pin substitutions (`EXPECTED_MAIN`, `OPERATOR_USER`,
-`OPERATOR_UID`, `DEVICE_ID`, `WINDOW_SECONDS`, `MERGED_MAIN_WORKTREE`, `EVIDENCE_ROOT`), exclusive creation, mode 0555,
-root-owned chain to `/`, and — for a production freeze and every production verify — the L8 predecessor gate at that
-main. The runner then: refuses test seams and caller environment; proves HEAD == origin main == pin and a clean tree;
-re-verifies the frozen runner and the L8 predecessor; requires an Authorization with **exactly** the five base fields
-(`stage=L9`, today, `authorizer=music`, `scope`, `reference`; no other stage's extra field) whose `scope` contains the
-whole tokens `main=<sha>`, `runner=<sha256>` and `l8=<sha>`; requires a V1/V2 K3 for `stage=L9` today and runs the stage
-gate; checks the marker is unconsumed and sudo is non-interactive; builds a root-owned byte-exact bundle (every file
-equal to its exact-main object, verified before anything is installed); PRE capture; **consumes the one-shot marker**
-(with the PRE boundary taken from the Core's own sources); observation; POST capture; zero-drift preservation (S10);
-secret scan; stage verify; host closeout. Every failure after consumption is terminal (`FAIL_IMMUTABLE`, never rerun).
+`owner-run/run-l9-owner.sh` is an unpinned template that refuses to run. `p4-l9-freeze.py` derives the frozen runner from the exact
+reviewed template Git object with nine pin substitutions (`EXPECTED_MAIN`, `OPERATOR_USER`, `OPERATOR_UID`, `DEVICE_ID`, `WINDOW_SECONDS`,
+`MERGED_MAIN_WORKTREE`, `EVIDENCE_ROOT`, `AUTHORITY_DIR`, `AUTHORITY_MANIFEST_SHA256`), exclusive creation, mode 0555, root-owned chain to `/`.
 
-## 4. Final closeout contract
+**Trust closure (no worktree-sourced root trust code).** The frozen runner is self-contained up to one check. Every file it sources or executes
+afterwards (run-lib, gates, stage gate, `p4-lib.sh`, the observer, the freeze and closeout tools, capture/compare helpers, the L9 stage
+handlers) lives in a root-owned, exact-main **authority directory** built by `p4-l9-freeze.py authority` from Git OBJECTS (never from working-tree
+files) with a SHA-256 manifest whose digest is a runner pin. Before anything in it is sourced or run, the runner verifies in plain bash:
+the directory chain is root-owned, non-writable and symlink-free; the file set equals the manifest; the manifest digest equals the pin; every file
+equals its manifest hash; and every file equals the Git object of the pinned main (read with replacement objects off). No circular trust: the
+verifier is the runner's own reviewed bytes, and the Authorization binds the runner SHA (which contains the manifest digest). Every Git call runs
+through an isolated wrapper (`env -i`, `GIT_NO_REPLACE_OBJECTS=1`, no system/global config, no program-executing local options); every interpreter
+call is `python3 -I`; inherited `GIT_*`, `PYTHON*`, `LD_*`, `BASH_ENV`, `SUDO` and any `AEGIS_L9_*` / `*_TEST_ONLY_*` variable is refused.
 
-Host: `L9-GLOBAL-CLOSEOUT-PASS` (root-owned, exact key set, written only after verify, preservation and secret scan).
-Repository: one immutable receipt `..._music_idea3-l9-live-closeout.md` whose fields are `gates.L9_CONTRACT` plus
-`L9_EXECUTION_MAIN`, `L8_EXECUTION_MAIN`, `L9_EVIDENCE_BUNDLE_SHA256`
-(template: `deploy/pr11-phase4/templates/l9-live-closeout-receipt.template.md`, which is not a receipt and must never be
-placed under `90-Status/logs`). `p4-l9-gates.py final-closeout` accepts only: one unique receipt, introduced by exactly
-one commit, `L9_EXECUTION_MAIN` a strict ancestor, the same L8 closeout evaluated at that main, and no contradictory L9
-record anywhere. Claim vocabulary: `LIVE_CORE_OBSERVATION`, `NO_DEADMAN_OVER_WINDOW`, `REPOSITORY_FIXTURE_ONLY`.
-Final project acceptance beyond these facts (a physical CUT/RESTORE test, L10+) is outside L9 and is not claimed.
+The runner then proves HEAD == origin main == pin and a clean checkout, re-verifies the frozen runner and the L8 predecessor, requires an Authorization
+with **exactly** the five base fields (`stage=L9`, today, `authorizer=music`, `scope`, `reference`) whose `scope` contains the whole tokens `main=<sha>`,
+`runner=<sha256>` and `l8=<sha>`, requires a V1/V2 K3 for `stage=L9` today and runs the stage gate, checks the marker is unconsumed and sudo is
+non-interactive, PRE capture, **consumes the one-shot marker** (PRE boundary from the Core's own sources), observation, POST capture, zero-drift
+preservation (S10), secret scan, stage verify, host closeout. Every failure after consumption is terminal (`FAIL_IMMUTABLE`, never rerun).
+
+**Marker identity and single use.** The marker binds the run id, exact main, frozen runner SHA, work and evidence paths, device, consumed epoch and the PRE
+boundary. The observer requires exact equality with the current invocation (no caller value overrides it), refuses a stale (> 120 s), future or
+boundary-inconsistent marker, and creates the exclusive durable claim `L9-OBSERVATION-USED` BEFORE reading any Core source: a second apply, another evidence
+directory, or a copied marker is refused. Verify re-checks the marker, the claim and the bundle binding.
+
+## 3a. L8 host provenance — OPEN SECURITY BLOCKER `L8_HOST_PROVENANCE_REQUIRED`
+
+The L8 predecessor is parsed behind ONE interface (`l8_predecessor_gate`; the host layer is the single function `l8_host_provenance`). The current
+receipt contract (§2) is layer 1 only, so a hand-written receipt can satisfy it. Layer 2 — proof from the canonical L8 HOST closeout — belongs to the L8
+implementation and its schema is deliberately **not** guessed here. Until it is wired, every LIVE-capable caller (the runner's gate, the freeze, the
+authority build, production verify) refuses with `L8_HOST_PROVENANCE_REQUIRED`; only tests and the pure Git-history verification may use
+`--receipt-contract-only`. `L8_HOST_PROVENANCE_IMPLEMENTED=NO`. This PR must not be marked ready for independent final review while this remains.
+
+## 4. Final closeout contract — two layers
+
+**Layer 1 (LIVE host provenance, `p4-l9-closeout.py`, run on the host before the receipt is merged).** The runner writes the root-owned host terminal
+closeout `L9-GLOBAL-CLOSEOUT-PASS` (exact ordered keys: the fixed result fields plus `L9_EXPECTED_MAIN`, `L9_RUN_ID`, `L9_RUNNER_SHA256`,
+`L8_EXECUTION_MAIN`, `L9_EVIDENCE_BUNDLE_SHA256`, `L9_EVIDENCE_ROOT`, `L9_TERMINAL_EPOCH`) only after verify, preservation and the secret scan. `verify-host`
+proves it against the canonical marker, the single-use claim, the evidence bundle (recomputed invariants, digest, run id, main, runner SHA, marker binding,
+class `LIVE_CORE_OBSERVATION`) and the runner's terminal result, and refuses any conflicting record. `derive` then writes the repository receipt
+`..._music_idea3-l9-live-closeout.md` whose machine fields come ONLY from the verified host values and the gate contract; `verify-receipt` recomputes them and
+refuses any hand-written or altered receipt. Fixture evidence cannot generate a LIVE closeout.
+
+**Layer 2 (immutable Git history, `p4-l9-gates.py final-closeout`, after the merge).** It accepts only: one unique receipt, introduced by exactly one commit,
+`L9_EXECUTION_MAIN` a strict ancestor, the same L8 closeout evaluated at that main (receipt-contract layer), and no contradictory L9 record anywhere. It cannot
+prove that the physical host still exists — that is exactly what layer 1 proved before the merge; this document does not claim otherwise.
+
+Claim vocabulary: `LIVE_CORE_OBSERVATION`, `NO_DEADMAN_OVER_WINDOW`, `REPOSITORY_FIXTURE_ONLY`. Template: `deploy/pr11-phase4/templates/l9-live-closeout-receipt.template.md`
+(not a receipt; never place it under `90-Status/logs`). Final project acceptance beyond these facts (a physical CUT/RESTORE test, L10+) is outside L9.
 
 ## 5. Dependencies and status
 
@@ -117,4 +143,4 @@ L9_REPOSITORY_IMPLEMENTED=YES   L9_LIVE_EXECUTED=NO   L8_LIVE_EXECUTED=NO   PROD
 LIVE_STAGE_AUTHORIZED=NO        PR375_MODIFIED=NO     MERGE=HUMAN_ONLY
 ```
 
-The L8 closeout field names in §2 must be reconciled with the L8 work before this PR is retargeted at `main`.
+The L8 closeout field names in §2 and the L8 host-provenance wiring in §3a must be reconciled with the L8 work before this PR is retargeted at `main`.

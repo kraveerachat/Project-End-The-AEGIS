@@ -37,21 +37,22 @@ l9_marker_unconsumed() {
   if $L9_SUDO test -e "$marker" || $L9_SUDO test -L "$marker" || $L9_SUDO test -e "$closeout" || $L9_SUDO test -L "$closeout"; then echo L9_ATTEMPT_ALREADY_CONSUMED >&2; return 1; fi
 }
 l9_fsync() { $L9_SUDO sync -- "$1" 2>/dev/null; }
-# l9_consume_attempt WORK DEVICE RUN_ID OBSERVE_TOOL — consume the single global attempt, durably, BEFORE the observation, and
-# store the PRE boundary taken from the Core's own sources (never a caller value outside the guarded test seam).
+# l9_consume_attempt WORK EVIDENCE DEVICE RUN_ID OBSERVE_TOOL MAIN RUNNER_SHA256 — consume the single global attempt, durably, BEFORE the
+# observation. The marker binds the run id, exact main, frozen runner SHA, work and evidence paths and the device, and stores the PRE
+# boundary taken from the Core's own sources (never a caller value outside the guarded test seam).
 l9_consume_attempt() {
-  local work=${1:-} device=${2:-} run=${3:-} tool=${4:-} dir marker boundary
-  [[ "$work" == /* && "$work" != *..* && "$tool" == /* && "$tool" != *..* ]] || return 1
-  [[ "$device" =~ ^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$ && "$run" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || return 1
+  local work=${1:-} evidence=${2:-} device=${3:-} run=${4:-} tool=${5:-} main=${6:-} runner=${7:-} dir marker boundary
+  [[ "$work" == /* && "$work" != *..* && "$evidence" == /* && "$evidence" != *..* && "$tool" == /* && "$tool" != *..* ]] || return 1
+  [[ "$device" =~ ^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$ && "$run" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ && "$main" =~ ^[0-9a-f]{40}$ && "$runner" =~ ^[0-9a-f]{64}$ ]] || return 1
   l9_marker_unconsumed || return 1; dir=$(l9_canonical_dir); marker=$(l9_marker_path)
   if ! $L9_SUDO test -d "$dir"; then $L9_SUDO mkdir -m 0700 "$dir" || return 1; fi
   l9_fsync "$(dirname "$dir")" || return 1
   if [ "${AEGIS_L9_TEST_ONLY_CANONICAL_DIR_ENABLED:-}" = YES ] && [ -n "${AEGIS_L9_TEST_ONLY_BOUNDARY:-}" ]; then
     boundary=$AEGIS_L9_TEST_ONLY_BOUNDARY
   else
-    boundary=$($L9_SUDO /usr/bin/python3 "$tool" capture-boundary --device-id "$device") || return 1
+    boundary=$($L9_SUDO /usr/bin/python3 -I "$tool" capture-boundary --device-id "$device") || return 1
   fi
-  if ! printf 'L9_ATTEMPT_CONSUMED=YES\nL9_RERUN_ALLOWED=NO\nL9_DEVICE_ID=%s\nL9_RUN_ID=%s\nL9_CONSUMED_AT_EPOCH=%s\nwork=%s\n%s\n' "$device" "$run" "$(date -u +%s.%N)" "$work" "$boundary" | $L9_SUDO bash -c 'set -o noclobber; cat > "$1"' _ "$marker"; then echo L9_ATTEMPT_ALREADY_CONSUMED >&2; return 1; fi
+  if ! printf 'L9_ATTEMPT_CONSUMED=YES\nL9_RERUN_ALLOWED=NO\nL9_DEVICE_ID=%s\nL9_RUN_ID=%s\nL9_EXPECTED_MAIN=%s\nL9_RUNNER_SHA256=%s\nL9_WORK_DIR=%s\nL9_EVIDENCE_DIR=%s\nL9_CONSUMED_AT_EPOCH=%s\n%s\n' "$device" "$run" "$main" "$runner" "$work" "$evidence" "$(date -u +%s.%N)" "$boundary" | $L9_SUDO bash -c 'set -o noclobber; cat > "$1"' _ "$marker"; then echo L9_ATTEMPT_ALREADY_CONSUMED >&2; return 1; fi
   L9_MARKER_CREATED=1
   l9_fsync "$marker" && l9_fsync "$dir" || { echo L9_MARKER_NOT_DURABLE_ATTEMPT_CONSUMED >&2; return 1; }
   $L9_SUDO chattr +i "$marker" 2>/dev/null || true
@@ -85,45 +86,15 @@ l9_authorization_gate() {
   # no other main/runner/l8 token may be present (a second, conflicting binding is a refusal)
   [ "$(grep -oE '(^| )(main|runner|l8)=' <<<" $value" | wc -l)" = 3 ] || { echo L9_AUTHORIZATION_AMBIGUOUS_BINDING >&2; return 1; }
 }
-# l9_prepare_bundle REPO P4 BUNDLE MAIN — a root-owned, read-only copy of exactly the reviewed files, each byte-identical to its object at MAIN.
-l9_prepare_bundle() {
-  local repo=${1:-} p4=${2:-} bundle=${3:-} main=${4:-} rel src dst got expected
-  [[ "$repo" == /* && "$p4" == /* && "$bundle" == /* && "$bundle" != *..* && "$main" =~ ^[0-9a-f]{40}$ ]] || return 1
-  local -a files=(
-    p4-lib.sh p4-l0-capture.sh p4-compare.sh p4-l7u-run-lib.sh p4-l7-run-lib.sh p4-l6b-run-lib.sh
-    p4-l9-live-observe.py p4-l9-gates.py p4-l9-auth.py
-    stages/L9/apply.sh stages/L9/verify.sh stages/L9/rollback.sh stages/L9/allow-keys.txt stages/L9/allow-listeners.txt
-  )
-  # 1. verify EVERY source against the exact-main object BEFORE anything is created (no partial bundle on a mismatch)
-  for rel in "${files[@]}"; do
-    src="$p4/$rel"
-    [ -f "$src" ] && [ ! -L "$src" ] || { echo "L9_BUNDLE_SOURCE_INVALID:$rel" >&2; return 1; }
-    expected=$(GIT_NO_REPLACE_OBJECTS=1 git -C "$repo" show "$main:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1) || return 1
-    got=$(sha256sum -- "$src" | cut -d' ' -f1)
-    [ "$got" = "$expected" ] && [ "$expected" != e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 ] || { echo "L9_BUNDLE_SOURCE_NOT_EXACT_MAIN:$rel" >&2; return 1; }
-  done
-  # 2. install the verified bytes root-owned and read-only, with a digest manifest
-  $L9_SUDO mkdir -p -m 0700 -- "$bundle/stages/L9" || return 1
-  : | $L9_SUDO tee "$bundle/L9-BUNDLE-SHA256SUMS" >/dev/null || return 1
-  for rel in "${files[@]}"; do
-    src="$p4/$rel"; dst="$bundle/$rel"
-    got=$(sha256sum -- "$src" | cut -d' ' -f1)
-    $L9_SUDO install -o root -g root -m 0555 -- "$src" "$dst" || return 1
-    printf '%s  %s\n' "$got" "$rel" | $L9_SUDO tee -a "$bundle/L9-BUNDLE-SHA256SUMS" >/dev/null || return 1
-  done
-  $L9_SUDO chown -R root:root -- "$bundle"
-  $L9_SUDO chmod 0555 "$bundle" "$bundle/stages" "$bundle/stages/L9"
-  l9_fsync "$bundle/L9-BUNDLE-SHA256SUMS" && l9_fsync "$bundle" || return 1
-  $L9_SUDO sha256sum -c --quiet --strict "$bundle/L9-BUNDLE-SHA256SUMS" >/dev/null 2>&1
-}
-# l9_record_success MAIN L8_MAIN BUNDLE_SHA256 EVIDENCE_ROOT — the unique host closeout. It is written only after VERIFY, preservation
-# and the secret scan passed, with the EXACT key set below, and never replaced.
+# l9_record_success MAIN L8_MAIN BUNDLE_SHA256 EVIDENCE_ROOT RUN_ID RUNNER_SHA256 — the unique host terminal closeout. It is written only after
+# VERIFY, preservation and the secret scan passed, with the EXACT ordered key set below (the same set p4-l9-closeout.py verifies and derives
+# the repository receipt from), and never replaced.
 l9_record_success() {
-  local main=${1:-} l8=${2:-} bundle_sha=${3:-} evidence=${4:-} marker closeout
-  [[ "$main" =~ ^[0-9a-f]{40}$ && "$l8" =~ ^[0-9a-f]{40}$ && "$bundle_sha" =~ ^[0-9a-f]{64}$ && "$evidence" == /* && "$evidence" != *..* ]] || return 1
+  local main=${1:-} l8=${2:-} bundle_sha=${3:-} evidence=${4:-} run=${5:-} runner=${6:-} marker closeout
+  [[ "$main" =~ ^[0-9a-f]{40}$ && "$l8" =~ ^[0-9a-f]{40}$ && "$bundle_sha" =~ ^[0-9a-f]{64}$ && "$evidence" == /* && "$evidence" != *..* && "$run" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ && "$runner" =~ ^[0-9a-f]{64}$ ]] || return 1
   marker=$(l9_marker_path); closeout=$(l9_closeout_path)
   $L9_SUDO test -f "$marker" && ! $L9_SUDO test -L "$marker" || return 1
-  if ! printf 'L9_LIVE=CLOSED_PASS\nL9_LIVE_EXECUTED=YES\nL9_RESULT=PASS\nL9_ATTEMPT_CONSUMED=YES\nL9_RERUN_ALLOWED=NO\nL9_STAGE=L9\nL9_EVIDENCE_CLASS=LIVE_CORE_OBSERVATION\nL9_EXPECTED_MAIN=%s\nL8_EXECUTION_MAIN=%s\nL9_EVIDENCE_BUNDLE_SHA256=%s\nL9_EVIDENCE_ROOT=%s\nL9_AUTHENTICATED_STATUS_OBSERVED=YES\nL9_DEADMAN_ABSENT_OVER_WINDOW=YES\nL9_COMMANDS_EMITTED=0\nL9_RELAY_ACTUATION=NONE\nL9_NEGATIVE_PROBES_INJECTED_LIVE=NO\nL9_PRE_POST_PRESERVATION=PASS\nL9_SECRET_SCAN=PASS\nL9_FAILURE_RESULT=NONE\n' "$main" "$l8" "$bundle_sha" "$evidence" | $L9_SUDO bash -c 'set -o noclobber; cat > "$1"' _ "$closeout"; then return 1; fi
+  if ! printf 'L9_LIVE=CLOSED_PASS\nL9_LIVE_EXECUTED=YES\nL9_RESULT=PASS\nL9_ATTEMPT_CONSUMED=YES\nL9_RERUN_ALLOWED=NO\nL9_STAGE=L9\nL9_EVIDENCE_CLASS=LIVE_CORE_OBSERVATION\nL9_AUTHENTICATED_STATUS_OBSERVED=YES\nL9_DEADMAN_ABSENT_OVER_WINDOW=YES\nL9_COMMANDS_EMITTED=0\nL9_RELAY_ACTUATION=NONE\nL9_NEGATIVE_PROBES_INJECTED_LIVE=NO\nL9_PRE_POST_PRESERVATION=PASS\nL9_SECRET_SCAN=PASS\nL9_FAILURE_RESULT=NONE\nL9_EXPECTED_MAIN=%s\nL9_RUN_ID=%s\nL9_RUNNER_SHA256=%s\nL8_EXECUTION_MAIN=%s\nL9_EVIDENCE_BUNDLE_SHA256=%s\nL9_EVIDENCE_ROOT=%s\nL9_TERMINAL_EPOCH=%s\n' "$main" "$run" "$runner" "$l8" "$bundle_sha" "$evidence" "$(date -u +%s.%N)" | $L9_SUDO bash -c 'set -o noclobber; cat > "$1"' _ "$closeout"; then return 1; fi
   l9_fsync "$closeout" && l9_fsync "$(dirname "$closeout")" || return 1
   $L9_SUDO chattr +i "$closeout" 2>/dev/null || true
 }

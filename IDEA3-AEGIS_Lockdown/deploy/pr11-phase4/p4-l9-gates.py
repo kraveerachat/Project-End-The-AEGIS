@@ -85,14 +85,21 @@ class GateError(RuntimeError):
 
 
 def _env() -> dict[str, str]:
+    """A clean Git environment: nothing from the caller can redirect the repository, re-enable replacement objects or inject config."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
     env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+    env["GIT_TERMINAL_PROMPT"] = "0"
     return env
 
 
+# Repository-local config is still read by Git, so the options that could execute a program are pinned off explicitly.
+_SAFE_OPTIONS = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "core.pager=cat", "-c", "protocol.allow=never")
+
+
 def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=_env(), check=False)
+    done = subprocess.run(["git", *_SAFE_OPTIONS, "-C", str(repo), *args], capture_output=True, text=True, env=_env(), check=False)
     if check and done.returncode != 0:
         raise GateError("GIT_READ_FAILED")
     return done
@@ -179,8 +186,29 @@ def _strict_ancestor(repo: Path, ancestor: str, main: str, path: str, label: str
         raise GateError(f"{label}_CLOSEOUT_PREDATES_ITS_EXECUTION")
 
 
-def l8_predecessor_gate(repo: Path, main: str, *, require_head: bool = True) -> dict[str, str]:
-    """Canonical L8 PASS at ``main``: unique, truthful, ancestry-bound and with no L9 result recorded yet."""
+# ---------------------------------------------------------------------------- L8 predecessor: ONE interface, two layers
+#
+# Layer 1 (implemented, pure Git): the receipt contract above. A hand-written receipt satisfies it.
+# Layer 2 (NOT implemented — SECURITY BLOCKER ``L8_HOST_PROVENANCE_REQUIRED``): proof from the canonical L8 host closeout that the
+# receipt was derived from a real, root-owned L8 result. Its schema belongs to the L8 implementation and must not be guessed here.
+# ``l8_host_provenance`` is the single wiring point; until it is implemented, every LIVE-capable caller (the owner runner, the
+# production freeze and verify) refuses with ``L8_HOST_PROVENANCE_REQUIRED``. Only the receipt-contract layer is available to
+# tests and to the later pure Git-history verification, via ``require_host_provenance=False``.
+L8_HOST_PROVENANCE_IMPLEMENTED = False
+
+
+def l8_host_provenance(receipt: dict[str, str]) -> None:
+    """Wire the canonical L8 host closeout cross-check here (run on the host, before any LIVE use). Not implemented on purpose."""
+    if not L8_HOST_PROVENANCE_IMPLEMENTED:
+        raise GateError("L8_HOST_PROVENANCE_REQUIRED")
+    raise GateError("L8_HOST_PROVENANCE_REQUIRED")  # unreachable guard: an implementation must replace this body, never flip the flag alone
+
+
+def l8_predecessor_gate(repo: Path, main: str, *, require_head: bool = True, require_host_provenance: bool = True) -> dict[str, str]:
+    """Canonical L8 PASS at ``main``: unique, truthful, ancestry-bound and with no L9 result recorded yet.
+
+    ``require_host_provenance=True`` (the default, and the only mode any LIVE-capable caller may use) additionally runs the
+    L8 host-provenance layer, which is a deliberate blocker until the L8 host closeout contract is wired."""
     repo = Path(repo)
     commit_gate(repo, main, require_head=require_head)
     fields = receipt_fields(repo, main)
@@ -198,6 +226,9 @@ def l8_predecessor_gate(repo: Path, main: str, *, require_head: bool = True) -> 
             raise GateError(f"L9_ALREADY_RECORDED:{key}")
     _single_introducing_commit(repo, main, path, "L8")
     _strict_ancestor(repo, values["L8_EXECUTION_MAIN"], main, path, "L8")
+    result = {"L8_CLOSEOUT_PATH": path, "L8_EXECUTION_MAIN": values["L8_EXECUTION_MAIN"], "L8_EVIDENCE_CLASS": values["L8_EVIDENCE_CLASS"]}
+    if require_host_provenance:
+        l8_host_provenance(result)
     return {"L8_CLOSEOUT_PATH": path, "L8_EXECUTION_MAIN": values["L8_EXECUTION_MAIN"], "L8_EVIDENCE_CLASS": values["L8_EVIDENCE_CLASS"]}
 
 
@@ -215,7 +246,7 @@ def final_closeout_gate(repo: Path, main: str, *, require_head: bool = True) -> 
     _strict_ancestor(repo, values["L9_EXECUTION_MAIN"], main, path, "L9")
     # The L8 predecessor, evaluated exactly at the commit L9 executed on, must be the one the closeout names.
     execution = values["L9_EXECUTION_MAIN"]
-    prior = l8_predecessor_gate(repo, execution, require_head=False)
+    prior = l8_predecessor_gate(repo, execution, require_head=False, require_host_provenance=False)  # pure Git history: the host is not readable forever
     if prior["L8_EXECUTION_MAIN"] != values["L8_EXECUTION_MAIN"]:
         raise GateError("L9_CLOSEOUT_L8_BINDING_MISMATCH")
     return {"L9_CLOSEOUT_PATH": path, "L9_EXECUTION_MAIN": execution, "L8_EXECUTION_MAIN": values["L8_EXECUTION_MAIN"],
@@ -230,10 +261,14 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--repo", required=True)
         p.add_argument("--main", required=True)
         p.add_argument("--no-require-head", action="store_true")
+        if name == "l8-predecessor":
+            p.add_argument("--receipt-contract-only", action="store_true", help="skip the L8 host-provenance layer (tests / history checks only; never for LIVE)")
     args = parser.parse_args(argv)
-    gate = l8_predecessor_gate if args.command == "l8-predecessor" else final_closeout_gate
     try:
-        result = gate(Path(args.repo), args.main, require_head=not args.no_require_head)
+        if args.command == "l8-predecessor":
+            result = l8_predecessor_gate(Path(args.repo), args.main, require_head=not args.no_require_head, require_host_provenance=not args.receipt_contract_only)
+        else:
+            result = final_closeout_gate(Path(args.repo), args.main, require_head=not args.no_require_head)
     except GateError as exc:
         print(f"L9_GATE=FAIL reason={exc}", file=sys.stderr)
         return 1

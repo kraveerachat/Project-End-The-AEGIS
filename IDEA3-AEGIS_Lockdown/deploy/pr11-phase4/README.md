@@ -917,17 +917,18 @@ Recovery remains separate and unexecuted: `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOV
 
 ## 26. Stage L9 — live-capable governed successor (read-only observation) — repository only
 
-L9 is **authentication without actuation**. The repository now also carries a live-capable path that observes the RUNNING Core's own authenticated evidence for a bounded window; it sends nothing, injects nothing, issues no COMMAND and mutates nothing (design: `docs/superpowers/specs/2026-10-07-idea3-pr11-phase4-l9-live-successor-design.md`, OD-L9-01a/OD-L9-08a). Nothing here was executed: `L9_LIVE_EXECUTED=NO`, `L8_LIVE_EXECUTED=NO`, `LIVE_STAGE_AUTHORIZED=NO`, `PRODUCTION_MUTATION=NO`.
+L9 is **authentication without actuation**. The repository now also carries a live-capable path that observes the RUNNING Core's own authenticated evidence for a bounded window; it sends nothing, injects nothing, issues no COMMAND and mutates nothing (design: `docs/superpowers/specs/2026-10-07-idea3-pr11-phase4-l9-live-successor-design.md`, OD-L9-01a/OD-L9-08a). Nothing here was executed: `L9_LIVE_EXECUTED=NO`, `L8_LIVE_EXECUTED=NO`, `LIVE_STAGE_AUTHORIZED=NO`, `PRODUCTION_MUTATION=NO`, `L8_HOST_PROVENANCE_IMPLEMENTED=NO` (open security blocker).
 
 Operational order: `... -> CTu -> Recovery R2-R8 -> LVR -> L8 -> L9` (L9 last). L9 requires the canonical **L8 PASS**: one unique, immutable, ancestry-bound `_music_idea3-l8-live-closeout.md` (`p4-l9-gates.py l8-predecessor`; a missing, failed, repository-only, stale, duplicated or split L8 record is refused).
 
 | File | Role |
 |---|---|
-| `p4-l9-gates.py` | L8 -> L9 predecessor gate and the final L9 closeout gate (read-only, Git objects of the pinned main) |
-| `p4-l9-live-observe.py` | the live backend: `capture-boundary`, `observe`, `verify` (read-only sqlite, `systemctl show` only, no override flags) |
-| `p4-l9-freeze.py` | frozen runner = exact reviewed template + only the seven approved pins; production verify also requires the L8 predecessor |
-| `p4-l9-run-lib.sh` | one-shot marker, exact Authorization binding (`main=`, `runner=`, `l8=` tokens in `scope`), byte-exact bundle, unique closeout |
-| `owner-run/run-l9-owner.sh` | unpinned template; refuses to run as committed |
-| `templates/l9-live-closeout-receipt.template.md` | template (NOT a receipt) for the one final closeout receipt |
+| `p4-l9-gates.py` | L8 -> L9 predecessor gate (receipt-contract layer; the host-provenance layer is the OPEN blocker `L8_HOST_PROVENANCE_REQUIRED`) and the pure Git-history final closeout gate; all Git calls isolated (`GIT_NO_REPLACE_OBJECTS=1`, no global/system config) |
+| `p4-l9-live-observe.py` | the live backend: `capture-boundary`, `observe`, `verify` (read-only sqlite, `systemctl show` only, no override flags; whole-window continuity; authenticated protocol rows only; marker identity binding, freshness and single-use claim) |
+| `p4-l9-freeze.py` | frozen runner = exact reviewed template + only the nine approved pins; `authority` builds the root-owned exact-main authority directory from Git objects; production verify requires the authority and the L8 predecessor |
+| `p4-l9-closeout.py` | LIVE host provenance verification and receipt derivation (`verify-host`, `derive`, `verify-receipt`); a hand-written receipt cannot originate a closeout |
+| `p4-l9-run-lib.sh` | one-shot marker (binds run id, main, runner SHA, work/evidence paths), exact Authorization binding (`main=`, `runner=`, `l8=` tokens in `scope`), unique host closeout |
+| `owner-run/run-l9-owner.sh` | unpinned template; refuses to run as committed; sources and executes nothing from the worktree (everything from the verified authority directory) |
+| `templates/l9-live-closeout-receipt.template.md` | template (NOT a receipt) for the final closeout receipt |
 
 Limits recorded in every bundle: negative probes are not injected live (`REPOSITORY_FIXTURE_ONLY`); the device-side heartbeat effect is evidenced only indirectly (`NO_DEADMAN_OVER_WINDOW`).

@@ -11,6 +11,10 @@
 * The output is created exclusively, never touches the template, is mode 0555 and, with ``--root-owned`` (root only), is chowned
   root:root and proven to sit below a root-owned, non-group/world-writable chain to ``/`` (shared invariant:
   ``recovery_verifier_snapshot.check_trusted_path``; the only narrower root is its user-namespace-only test seam).
+* TRUST CLOSURE: the frozen runner executes NOTHING from the operator-owned worktree. Every executable or sourced dependency lives in a
+  root-owned, exact-main AUTHORITY directory (``authority`` subcommand) built from Git OBJECTS (never from working-tree files), with a
+  SHA-256 manifest whose digest is a pin of the frozen runner. The runner re-verifies that directory (set, bytes, ownership, and equality
+  with the Git objects of the pinned main) before it sources or runs anything from it.
 * A production-grade freeze and every production ``verify`` additionally require the canonical L8 PASS predecessor of
   ``p4-l9-gates.py`` at the exact pinned main, so a runner cannot be frozen for a main whose L8 evidence is absent, failed,
   stale, duplicated or not an ancestor.
@@ -53,6 +57,7 @@ VALIDATORS = {
     "device": lambda v: bool(re.fullmatch(r"[a-z0-9][a-z0-9-]{1,30}[a-z0-9]", v)),
     "window": lambda v: bool(re.fullmatch(r"[0-9]{3}", v)) and 120 <= int(v) <= 900,
     "path": _path_ok,
+    "sha256": lambda v: bool(re.fullmatch(r"[0-9a-f]{64}", v)),
 }
 
 PIN_SPECS: dict[str, tuple[re.Pattern[str], str, str]] = {
@@ -63,16 +68,29 @@ PIN_SPECS: dict[str, tuple[re.Pattern[str], str, str]] = {
     "WINDOW_SECONDS": (re.compile(r"^WINDOW_SECONDS=(.*)$", re.M), "PIN_WINDOW_SECONDS", "window"),
     "MERGED_MAIN_WORKTREE": (re.compile(r"^MERGED_MAIN_WORKTREE=(.*)$", re.M), "PIN_MERGED_MAIN_WORKTREE", "path"),
     "EVIDENCE_ROOT": (re.compile(r"^EVIDENCE_ROOT=(.*)$", re.M), "PIN_EVIDENCE_ROOT", "path"),
+    "AUTHORITY_DIR": (re.compile(r"^AUTHORITY_DIR=(.*)$", re.M), "PIN_AUTHORITY_DIR", "path"),
+    "AUTHORITY_MANIFEST_SHA256": (re.compile(r"^AUTHORITY_MANIFEST_SHA256=(.*)$", re.M), "PIN_AUTHORITY_MANIFEST_SHA256", "sha256"),
 }
 
 
-def _git(repo: Path, *args: str) -> str:
+_SAFE_OPTIONS = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "core.pager=cat", "-c", "protocol.allow=never")
+
+
+def _git_env() -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    env.update({"GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_NOSYSTEM": "1"})
-    done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=env, check=False)
+    env.update({"GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_TERMINAL_PROMPT": "0"})
+    return env
+
+
+def _git_bytes(repo: Path, *args: str) -> bytes:
+    done = subprocess.run(["git", *_SAFE_OPTIONS, "-C", str(repo), *args], capture_output=True, env=_git_env(), check=False)
     if done.returncode != 0:
         raise FreezeError("GIT_READ_FAILED")
     return done.stdout
+
+
+def _git(repo: Path, *args: str) -> str:
+    return _git_bytes(repo, *args).decode("utf-8")
 
 
 def read_template(repo: Path, main: str) -> str:
@@ -154,7 +172,7 @@ def _gates():
 def _require_l8(repo: Path, main: str) -> dict[str, str]:
     gates = _gates()
     try:
-        return gates.l8_predecessor_gate(Path(repo), main, require_head=False)
+        return gates.l8_predecessor_gate(Path(repo), main, require_head=False, require_host_provenance=True)
     except gates.GateError as exc:
         raise FreezeError(f"L8_PREDECESSOR_NOT_SATISFIED:{exc}") from None
 
@@ -181,11 +199,117 @@ def verify(repo: Path, main: str, runner: Path, *, owner_uid: int | None = snaps
         if st.st_mode & 0o222:
             raise FreezeError("RUNNER_WRITABLE")
         results["RUNNER_NONWRITABLE"] = "PASS"
+        authority = verify_authority(Path(values["AUTHORITY_DIR"]), repo, main, owner_uid=owner_uid, pinned_manifest_sha256=values["AUTHORITY_MANIFEST_SHA256"])
+        results["AUTHORITY_VERIFIED"] = authority["AUTHORITY_VERIFIED"]
         prior = _require_l8(repo, main)
         results["L8_PREDECESSOR"] = "PASS"
         results["L8_EXECUTION_MAIN"] = prior["L8_EXECUTION_MAIN"]
     results["RUNNER_SHA256"] = hashlib.sha256(runner.read_bytes()).hexdigest()
     return results
+
+
+P4_REL = "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4"
+MANIFEST_NAME = "L9-AUTHORITY-SHA256SUMS"
+# EVERYTHING the frozen runner may source or execute at run time. Nothing else is ever run from the worktree.
+AUTHORITY_FILES = (
+    "p4-lib.sh", "p4-stage-gate.sh", "p4-l0-capture.sh", "p4-compare.sh", "p4-l7u-run-lib.sh", "p4-l7-run-lib.sh", "p4-l6b-run-lib.sh",
+    "p4-l9-run-lib.sh", "p4-l9-gates.py", "p4-l9-live-observe.py", "p4-l9-freeze.py", "p4-l9-closeout.py",
+    "recovery-acceptance/recovery_verifier_snapshot.py",
+    "stages/L9/apply.sh", "stages/L9/verify.sh", "stages/L9/rollback.sh", "stages/L9/allow-keys.txt", "stages/L9/allow-listeners.txt",
+)
+
+
+def _git_object(repo: Path, main: str, rel: str) -> bytes:
+    return _git_bytes(Path(repo), "show", f"{main}:{P4_REL}/{rel}")
+
+
+def authority_manifest(contents: dict[str, bytes]) -> str:
+    return "".join(f"{hashlib.sha256(contents[rel]).hexdigest()}  {rel}\n" for rel in sorted(contents))
+
+
+def verify_authority(directory: Path, repo: Path, main: str, *, owner_uid: int | None = snapshot_tool.PRODUCTION_OWNER_UID,
+                     pinned_manifest_sha256: str | None = None) -> dict[str, str]:
+    """The authority directory holds EXACTLY the manifested files, byte-identical to the Git objects of ``main``, root-owned and read-only.
+    ``owner_uid=None`` skips ONLY the ownership proof (hermetic tests); the production caller never does."""
+    directory = Path(directory)
+    if not VALIDATORS["main"](main):
+        raise FreezeError("MAIN_MALFORMED")
+    if not directory.is_dir() or directory.is_symlink() or Path(os.path.realpath(directory)) != Path(os.path.abspath(directory)):
+        raise FreezeError("AUTHORITY_DIR_NOT_CANONICAL")
+    if owner_uid is not None:
+        try:
+            snapshot_tool.check_trusted_path(directory, owner_uid, snapshot_tool.trust_root())
+        except snapshot_tool.SnapshotError as exc:
+            raise FreezeError(f"AUTHORITY_DIR_NOT_TRUSTED:{exc}") from None
+    seen: set[str] = set()
+    for path in sorted(directory.rglob("*")):
+        st = path.lstat()
+        rel = path.relative_to(directory).as_posix()
+        if stat.S_ISLNK(st.st_mode):
+            raise FreezeError(f"AUTHORITY_SYMLINK:{rel}")
+        if stat.S_ISDIR(st.st_mode):
+            if owner_uid is not None and (st.st_uid != owner_uid or st.st_mode & 0o022):
+                raise FreezeError(f"AUTHORITY_ENTRY_NOT_ROOT_OWNED:{rel}")
+            continue
+        if not stat.S_ISREG(st.st_mode):
+            raise FreezeError(f"AUTHORITY_SPECIAL_FILE:{rel}")
+        if owner_uid is not None and (st.st_uid != owner_uid or st.st_mode & 0o222):
+            raise FreezeError(f"AUTHORITY_ENTRY_NOT_ROOT_OWNED:{rel}")
+        seen.add(rel)
+    if seen != {*AUTHORITY_FILES, MANIFEST_NAME}:
+        raise FreezeError("AUTHORITY_FILE_SET_INVALID")
+    manifest_bytes = (directory / MANIFEST_NAME).read_bytes()
+    manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
+    if pinned_manifest_sha256 is not None and manifest_sha != pinned_manifest_sha256:
+        raise FreezeError("AUTHORITY_MANIFEST_DIGEST_MISMATCH")
+    recorded = {}
+    for line in manifest_bytes.decode("utf-8").splitlines():
+        m = re.fullmatch(r"([0-9a-f]{64})  (\S+)", line)
+        if not m or m.group(2) in recorded:
+            raise FreezeError("AUTHORITY_MANIFEST_MALFORMED")
+        recorded[m.group(2)] = m.group(1)
+    if set(recorded) != set(AUTHORITY_FILES):
+        raise FreezeError("AUTHORITY_MANIFEST_FILE_SET_INVALID")
+    for rel in AUTHORITY_FILES:
+        actual = hashlib.sha256((directory / rel).read_bytes()).hexdigest()
+        if actual != recorded[rel]:
+            raise FreezeError(f"AUTHORITY_FILE_DIGEST_MISMATCH:{rel}")
+        if actual != hashlib.sha256(_git_object(repo, main, rel)).hexdigest():
+            raise FreezeError(f"AUTHORITY_FILE_NOT_EXACT_MAIN:{rel}")
+    return {"AUTHORITY_VERIFIED": "PASS", "AUTHORITY_MANIFEST_SHA256": manifest_sha}
+
+
+def build_authority(repo: Path, main: str, out: Path, *, root_owned: bool = False) -> dict[str, str]:
+    """Create the exact-main authority directory from Git OBJECTS (never from the working tree), exclusively, then prove it."""
+    out = Path(out)
+    if root_owned and os.geteuid() != 0:
+        raise FreezeError("ROOT_REQUIRED_FOR_ROOT_OWNED_AUTHORITY")
+    read_template(repo, main)  # validates main as a commit object
+    contents = {rel: _git_object(repo, main, rel) for rel in AUTHORITY_FILES}
+    if root_owned:
+        _require_l8(Path(repo), main)  # no authority is built for a main whose L8 predecessor is not satisfied
+        os.close(_prewrite_path_proof(out))
+    elif os.path.lexists(out):
+        raise FreezeError("DESTINATION_EXISTS")
+    try:
+        os.mkdir(out, 0o700)
+    except FileExistsError:
+        raise FreezeError("DESTINATION_EXISTS") from None
+    for rel, data in {**contents, MANIFEST_NAME: authority_manifest(contents).encode()}.items():
+        target = out / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(target, 0o555)
+    for directory in sorted({p for p in out.rglob("*") if p.is_dir()} | {out}, reverse=True):
+        os.chmod(directory, 0o555)
+    if root_owned:
+        for path in [out, *out.rglob("*")]:
+            os.chown(path, 0, 0, follow_symlinks=False)
+    return verify_authority(out, repo, main, owner_uid=0 if root_owned else None)
 
 
 def _prewrite_path_proof(out: Path) -> int:
@@ -253,12 +377,19 @@ def main(argv: list[str] | None = None) -> int:
     vf.add_argument("--repo", type=Path, required=True)
     vf.add_argument("--main", required=True)
     vf.add_argument("--runner", type=Path, required=True)
+    au = sub.add_parser("authority")
+    au.add_argument("--repo", type=Path, required=True)
+    au.add_argument("--main", required=True)
+    au.add_argument("--out", type=Path, required=True)
+    au.add_argument("--root-owned", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.command == "freeze":
             results = freeze(args.repo, args.main, load_pins(args.pins.read_text(encoding="utf-8")), args.out, root_owned=args.root_owned)
             if not args.root_owned:
                 print("NOTE: not root-owned; ownership and the L8 predecessor are NOT proven (rerun with --root-owned as root before any Authorization)")
+        elif args.command == "authority":
+            results = build_authority(args.repo, args.main, args.out, root_owned=args.root_owned)
         else:
             results = verify(args.repo, args.main, args.runner)
     except (FreezeError, OSError, UnicodeDecodeError) as exc:

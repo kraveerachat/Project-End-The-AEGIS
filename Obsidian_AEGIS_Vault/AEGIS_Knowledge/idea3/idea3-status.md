@@ -13,18 +13,18 @@ edit_policy: owner-writable
 
 ## IDEA3 L9 live-capable governed successor — repository-only, STACKED — 2026-10-07
 
-> [!important] **Stacked on PR #375 (CTu) → LVR work → L8 work; DO NOT MERGE.** L9 is authentication without actuation. The repository now carries a live-capable, **read-only** L9 path: it observes the running Core's own authenticated evidence for a bounded window and sends nothing, injects nothing, issues no COMMAND and mutates nothing. `L9_REPOSITORY_IMPLEMENTED=YES`; `L9_LIVE_EXECUTED=NO`; `L8_LIVE_EXECUTED=NO`; `LIVE_STAGE_AUTHORIZED=NO`; `PRODUCTION_MUTATION=NO`; `ESP32_TOUCHED=NO`.
+> [!important] **Stacked on PR #375 (CTu) → LVR work → L8 work; DO NOT MERGE.** L9 is authentication without actuation. The repository now carries a live-capable, **read-only** L9 path: it observes the running Core's own authenticated evidence for a bounded window and sends nothing, injects nothing, issues no COMMAND and mutates nothing. `L9_REPOSITORY_IMPLEMENTED=YES`; `L9_LIVE_EXECUTED=NO`; `L8_LIVE_EXECUTED=NO`; `LIVE_STAGE_AUTHORIZED=NO`; `PRODUCTION_MUTATION=NO`; `ESP32_TOUCHED=NO`; `L8_HOST_PROVENANCE_IMPLEMENTED=NO` (open security blocker).
 
-L9 requires the canonical L8 PASS (`p4-l9-gates.py l8-predecessor`: one unique, immutable, ancestry-bound closeout; a missing, failed, repository-only, stale, duplicated or split L8 record is refused). The owner runner is an unpinned template; `p4-l9-freeze.py` derives the frozen runner from the exact reviewed Git object with seven pins; the Authorization carries exactly the five base fields and binds `main=`, `runner=` and `l8=` in its scope; the one-shot marker is consumed before the observation; every post-consumption failure is terminal. The final closeout is one unique immutable receipt gated by `p4-l9-gates.py final-closeout`. Recorded limits: negative probes are not injected live (`REPOSITORY_FIXTURE_ONLY`) and the device-side heartbeat effect is evidenced only by `NO_DEADMAN_OVER_WINDOW`. Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-07-idea3-pr11-phase4-l9-live-successor-design.md`. The L8 work must emit the L8 closeout contract of that design (§2) before this branch is retargeted at `main`.
+L9 requires the canonical L8 PASS (`p4-l9-gates.py l8-predecessor`: one unique, immutable, ancestry-bound closeout; a missing, failed, repository-only, stale, duplicated or split L8 record is refused; L8 host-provenance layer is the OPEN blocker `L8_HOST_PROVENANCE_REQUIRED`). The owner runner is an unpinned template; `p4-l9-freeze.py` derives the frozen runner from the exact reviewed Git object with nine approved pins; `authority` builds the root-owned exact-main authority directory from Git objects; the runner sources and executes nothing from the mutable worktree; the Authorization carries exactly the five base fields and binds `main=`, `runner=` and `l8=` in its scope; the one-shot marker binds run id, main, runner SHA, work and evidence paths, device, consumed epoch and the PRE boundary, and creates an exclusive single-use claim before observation; every post-consumption failure is terminal. The final closeout uses a two-layer model: `p4-l9-closeout.py` verifies root-owned host provenance before receipt derivation, and `p4-l9-gates.py final-closeout` gates the merged receipt in Git history. Recorded limits: negative probes are not injected live (`REPOSITORY_FIXTURE_ONLY`) and the device-side heartbeat effect is evidenced only by `NO_DEADMAN_OVER_WINDOW`. Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-07-idea3-pr11-phase4-l9-live-successor-design.md`. The L8 work must emit the L8 closeout contract of that design (§2) and wire the host provenance (§3a) before this branch is retargeted at `main`.
 
 ### Current Task
 
 Task: IDEA3 L9 live-capable governed successor (repository implementation)
 Branch: `feat/idea3-l9-governed-live-successor`
 Owner: `music`
-Current state: repository implementation complete; Draft PR stacked on PR #375; LIVE NOT EXECUTED
+Current state: repository implementation complete; Draft PR stacked on PR #375; LIVE NOT EXECUTED; open security blocker `L8_HOST_PROVENANCE_REQUIRED`
 Production mutation allowed by this task: NO
-Next: independent review; reconcile the L8 closeout field names with the L8 work; human merge only after the stack merges
+Next: independent review; reconcile the L8 closeout field names and host provenance with the L8 work; human merge only after the stack merges
 
 ## IDEA3 Core TrustedClock sandbox repair — repository-only successor preparation — 2026-10-07
 
