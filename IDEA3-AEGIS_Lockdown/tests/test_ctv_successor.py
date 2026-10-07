@@ -340,11 +340,65 @@ def _frozen_ctv_world(tmp_path: Path) -> tuple[Path, Path, Path, Path, Path, Pat
     assert checked_runner.returncode == 0, checked_runner.stderr
     runner_sha = hashlib.sha256(runner.read_bytes()).hexdigest()
     template_sha = hashlib.sha256((_git(repo, "show", f"{main}:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run/run-ctv-owner.sh") + "\n").encode()).hexdigest()
-    auth_text = f"stage=CTv\nexpected_main={main}\nrunner_sha256={runner_sha}\nrunner_template_sha256={template_sha}\n"
+    auth_text = f"stage=CTv\nexpected_main={main}\nfrozen_runner_sha256={runner_sha}\nrunner_template_sha256={template_sha}\n"
     (auth / "authorization-CTv.txt").write_text(auth_text)
     (auth / "k3-CTv.txt").write_text(auth_text)
     _write_fixture(fixture, main, device)
     return runner, auth, canon, evidence, bundle, control, fixture, main
+
+
+def test_ctv_canonical_authority_field_is_accepted_by_stage_gate_and_rehearsal(tmp_path: Path):
+    runner, auth, canon, evidence, bundle, control, fixture, main = _frozen_ctv_world(tmp_path)
+    unit_sha = hashlib.sha256((evidence / "unit").read_bytes()).hexdigest()
+    runner_sha = hashlib.sha256(runner.read_bytes()).hexdigest()
+    template_sha = text_sha(runner, main, tmp_path)
+    bundle_sha = hashlib.sha256((bundle / "CTV-BUNDLE-SHA256SUMS").read_bytes()).hexdigest()
+    control_sha = hashlib.sha256((control / "CTV-CONTROL-SHA256SUMS").read_bytes()).hexdigest()
+    today = subprocess.run(["bash", "-c", "TZ=Asia/Bangkok date +%F"], text=True, capture_output=True, check=True).stdout.strip()
+    authority = (
+        "AEGIS_P4_AUTHORIZATION_V1\n"
+        f"stage=CTv\ndate={today}\nauthorizer=music\nscope=CTv authority binding\nreference=ctv-authority-regression\n"
+        f"expected_main={main}\nfrozen_runner_sha256={runner_sha}\nrunner_template_sha256={template_sha}\n"
+        f"bundle_manifest_sha256={bundle_sha}\ncontrol_manifest_sha256={control_sha}\nunit_sha256={unit_sha}\n"
+        "operator_user=music\noperator_uid=1000\ndevice_id=aegis-relay-01\n"
+    )
+    k3 = (
+        "AEGIS_P4_K3_CONFIRMATION_V2\n"
+        f"stage=CTv\ndate={today}\nconfirmed_by=music\nconfirmation_mode=IDEA3_OWNER_SELF_ATTESTATION\n"
+        "idea1_window_overlap=NONE_KNOWN\nreference=ctv-authority-regression\n"
+        f"expected_main={main}\nfrozen_runner_sha256={runner_sha}\nrunner_template_sha256={template_sha}\n"
+        f"bundle_manifest_sha256={bundle_sha}\ncontrol_manifest_sha256={control_sha}\nunit_sha256={unit_sha}\n"
+        "operator_user=music\noperator_uid=1000\ndevice_id=aegis-relay-01\n"
+    )
+    (auth / "authorization-CTv.txt").write_text(authority)
+    (auth / "k3-CTv.txt").write_text(k3)
+    gate = subprocess.run(
+        ["bash", str(DEPLOY / "p4-stage-gate.sh"), "--stage", "CTv", "--mode", "simulate", "--authorization", str(auth / "authorization-CTv.txt"), "--k3", str(auth / "k3-CTv.txt")],
+        text=True, capture_output=True, env={"TZ": "Asia/Bangkok", "PATH": os.environ["PATH"]},
+    )
+    assert gate.returncode == 0, gate.stdout + gate.stderr
+    assert "AUTHORIZATION_RECORD=VALID" in gate.stdout and "K3_CONFIRMATION=VALID" in gate.stdout
+    rehearsal = subprocess.run(
+        [str(runner), str(auth), "--rehearse", "--hermetic", "--canonical-dir", str(canon), "--bundle-dir", str(bundle), "--control-dir", str(control), "--fixture-root", str(fixture), "--unit-source", str(evidence / "unit"), "--unit-dest", str(evidence / "installed"), "--work-dir", str(evidence / "ctv-work")],
+        text=True, capture_output=True, env={"PATH": "/usr/bin:/bin"},
+    )
+    assert rehearsal.returncode == 0, rehearsal.stdout + rehearsal.stderr
+    assert "CTV_PRECONSUME_REHEARSAL=PASS" in rehearsal.stdout
+
+    legacy = authority.replace("frozen_runner_sha256=", "runner_sha256=")
+    (auth / "authorization-CTv.txt").write_text(legacy)
+    (auth / "k3-CTv.txt").write_text(k3.replace("frozen_runner_sha256=", "runner_sha256="))
+    rejected = subprocess.run(
+        ["bash", str(DEPLOY / "p4-stage-gate.sh"), "--stage", "CTv", "--mode", "simulate", "--authorization", str(auth / "authorization-CTv.txt"), "--k3", str(auth / "k3-CTv.txt")],
+        text=True, capture_output=True, env={"TZ": "Asia/Bangkok", "PATH": os.environ["PATH"]},
+    )
+    assert rejected.returncode != 0
+    assert "AUTHORIZATION_RECORD=INVALID" in rejected.stdout
+    legacy_rehearsal = subprocess.run(
+        [str(runner), str(auth), "--rehearse", "--hermetic", "--canonical-dir", str(canon), "--bundle-dir", str(bundle), "--control-dir", str(control), "--fixture-root", str(fixture), "--unit-source", str(evidence / "unit"), "--unit-dest", str(evidence / "installed-legacy"), "--work-dir", str(evidence / "ctv-work-legacy")],
+        text=True, capture_output=True, env={"PATH": "/usr/bin:/bin"},
+    )
+    assert legacy_rehearsal.returncode != 0
 
 
 def test_full_frozen_runner_rehearsal_is_non_consuming_and_executes_real_gates(tmp_path):
@@ -382,7 +436,7 @@ def test_deterministic_failure_injection_is_rejected_before_ctv_marker(tmp_path,
     runner, auth, canon, evidence, bundle, control, fixture, main = _frozen_ctv_world(tmp_path)
     unit = evidence / "unit"
     if blocker == "runner":
-        text = (auth / "authorization-CTv.txt").read_text().replace("runner_sha256=" + hashlib.sha256(runner.read_bytes()).hexdigest(), "runner_sha256=" + "0" * 64)
+        text = (auth / "authorization-CTv.txt").read_text().replace("frozen_runner_sha256=" + hashlib.sha256(runner.read_bytes()).hexdigest(), "frozen_runner_sha256=" + "0" * 64)
         (auth / "authorization-CTv.txt").write_text(text)
     elif blocker == "template":
         text = (auth / "authorization-CTv.txt").read_text().replace("runner_template_sha256=" + text_sha(runner, main, tmp_path), "runner_template_sha256=" + "0" * 64)
