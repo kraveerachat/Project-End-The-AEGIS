@@ -74,7 +74,7 @@ ctv_prepare_bundle() {
   ctv_path_ok "$repo" && ctv_path_ok "$p4" && ctv_path_ok "$bundle" || return 1
   [[ "$main" =~ ^[0-9a-f]{40}$ ]] || return 1
   local -a files=(
-    p4-lib.sh p4-stage-gate.sh p4-ctv-run-lib.sh p4-l0-capture.sh p4-l5-clock.py p4-l6c-tree-digest.py
+    p4-lib.sh p4-stage-gate.sh p4-ctv-run-lib.sh p4-ctu-run-lib.sh p4-l0-capture.sh p4-compare.sh p4-iw-phy-regnorm.awk p4-l5-clock.py p4-l6c-tree-digest.py
     p4-l7u-run-lib.sh p4-l7-run-lib.sh p4-l6b-run-lib.sh p4-ctu-runtime-verify.py
     owner-run/run-ctv-owner.sh ctv-acceptance/ctv_runner_freeze.py ctv-acceptance/ctv_verifier_snapshot.py
     stages/CTv/apply.sh stages/CTv/verify.sh stages/CTv/rollback.sh stages/CTv/allow-keys.txt
@@ -161,9 +161,13 @@ ctv_record_success() {
   local main=${1:-} unit_sha=${2:-} receipt=${3:-} runner_sha=${4:-} template_sha=${5:-} bundle_sha=${6:-} control_sha=${7:-} dir closeout tmp
   [[ "$main" =~ ^[0-9a-f]{40}$ && "$unit_sha" =~ ^[0-9a-f]{64}$ && "$runner_sha" =~ ^[0-9a-f]{64}$ && "$template_sha" =~ ^[0-9a-f]{64}$ && "$bundle_sha" =~ ^[0-9a-f]{64}$ && "$control_sha" =~ ^[0-9a-f]{64}$ ]] || return 1
   [ "$runner_sha" != "$template_sha" ] || return 1
+  [[ "${CTV_DETECTOR_BASELINE_MODE:-}" =~ ^(ACTIVE|INACTIVE)$ ]] || return 1
+  [[ "${CTV_DEVICE_ID:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || return 1
+  [ "${CTV_DEVICE_ID:-}" != UNKNOWN ] || return 1
+  [[ "${CTV_EVIDENCE_MANIFEST_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || return 1
   dir=$(ctv_canonical_dir); closeout="$dir/$CTV_CLOSEOUT_PASS_NAME"; tmp="$closeout.tmp.$$"
   [ -f "$dir/$CTV_GLOBAL_MARKER_NAME" ] && [ ! -e "$closeout" ] && [ ! -e "$dir/$CTV_CLOSEOUT_FAIL_NAME" ] || return 1
-  printf 'CTV_RESULT=CLOSED_PASS\nCTV_LIVE=CLOSED_PASS\nCTV_LIVE_EXECUTED=YES\nCTV_ATTEMPT_CONSUMED=YES\nCTV_RERUN_ALLOWED=NO\nCTV_IS_CTU_RETRY=NO\nCTV_EXPECTED_MAIN=%s\nCTV_UNIT_SHA256=%s\nCTV_FROZEN_RUNNER_SHA256=%s\nCTV_RUNNER_TEMPLATE_SHA256=%s\nCTV_BUNDLE_MANIFEST_SHA256=%s\nCTV_CONTROL_MANIFEST_SHA256=%s\nCTV_CORE_RESTARTS=1\nCTV_EXPLICIT_DETECTOR_LIFECYCLE_COMMANDS=0\nCTV_PRODUCTION_RUNTIME_MUTATION_OCCURRED=YES\nCTV_RUNTIME_PROOF=PASS\nCTV_DETECTOR_BASELINE_MODE=${CTV_DETECTOR_BASELINE_MODE:-UNKNOWN}\nCTV_DEVICE_ID=${CTV_DEVICE_ID:-UNKNOWN}\nCTV_EVIDENCE_MANIFEST_SHA256=${CTV_EVIDENCE_MANIFEST_SHA256:-UNKNOWN}\nCTV_PRE_POST_PRESERVATION=PASS\nCTV_REPOSITORY_RECEIPT=%s\n' "$main" "$unit_sha" "$runner_sha" "$template_sha" "$bundle_sha" "$control_sha" "$receipt" | ctv_run tee "$tmp" >/dev/null || return 1
+  printf 'CTV_RESULT=CLOSED_PASS\nCTV_LIVE=CLOSED_PASS\nCTV_LIVE_EXECUTED=YES\nCTV_ATTEMPT_CONSUMED=YES\nCTV_RERUN_ALLOWED=NO\nCTV_IS_CTU_RETRY=NO\nCTV_EXPECTED_MAIN=%s\nCTV_EXECUTION_MAIN=%s\nCTV_UNIT_SHA256=%s\nCTV_FROZEN_RUNNER_SHA256=%s\nCTV_RUNNER_TEMPLATE_SHA256=%s\nCTV_BUNDLE_MANIFEST_SHA256=%s\nCTV_CONTROL_MANIFEST_SHA256=%s\nCTV_CORE_RESTARTS=1\nCTV_EXPLICIT_DETECTOR_LIFECYCLE_COMMANDS=0\nCTV_PRODUCTION_RUNTIME_MUTATION_OCCURRED=YES\nCTV_RUNTIME_PROOF=PASS\nCTV_DETECTOR_BASELINE_MODE=%s\nCTV_DEVICE_ID=%s\nCTV_EVIDENCE_MANIFEST_SHA256=%s\nCTV_PRE_POST_PRESERVATION=PASS\nCTV_REPOSITORY_RECEIPT=POSTLIVE_REVIEW_REQUIRED\n' "$main" "$main" "$unit_sha" "$runner_sha" "$template_sha" "$bundle_sha" "$control_sha" "$CTV_DETECTOR_BASELINE_MODE" "$CTV_DEVICE_ID" "$CTV_EVIDENCE_MANIFEST_SHA256" | ctv_run tee "$tmp" >/dev/null || return 1
   ctv_run chmod 0600 "$tmp"; ctv_fsync "$tmp"; ctv_run mv -n "$tmp" "$closeout"; ctv_fsync "$closeout"; ctv_fsync "$dir"
   printf '%s  %s\n' "$(sha256sum "$closeout" | cut -d' ' -f1)" "$(basename "$closeout")" | ctv_run tee "$closeout.sha256" >/dev/null
   ctv_run chmod 0444 "$closeout.sha256"; ctv_fsync "$closeout.sha256"; ctv_fsync "$dir"
@@ -225,6 +229,58 @@ ctv_runtime_verify() {
   grep -qx PASS "$fixture/runtime-verify" || return 1
   grep -qx PASS "$fixture/detector-preservation" || return 1
 }
+ctv_detector_baseline_mode() {
+  local out pid invocation monotonic proc_count
+  out=$(ctv_run systemctl show -p LoadState -p ActiveState -p SubState -p UnitFileState -p Restart -p Result -p MainPID -p InvocationID -p ExecMainStartTimestampMonotonic -p NRestarts aegis-idea3-detector.service 2>/dev/null) || return 1
+  pid=$(awk -F= '$1 == "MainPID" {print $2}' <<<"$out")
+  invocation=$(awk -F= '$1 == "InvocationID" {print $2}' <<<"$out")
+  monotonic=$(awk -F= '$1 == "ExecMainStartTimestampMonotonic" {print $2}' <<<"$out")
+  proc_count=$(ctv_run pgrep -fc 'aegis_soc[.]production_detector' 2>/dev/null || true)
+  if grep -qx 'LoadState=loaded' <<<"$out" && grep -qx 'ActiveState=active' <<<"$out" && grep -qx 'SubState=running' <<<"$out" && \
+     grep -qx 'UnitFileState=disabled' <<<"$out" && grep -qx 'Restart=no' <<<"$out" && grep -qx 'Result=success' <<<"$out" && \
+     [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [[ "$invocation" =~ ^[0-9a-f]{32}$ ]] && [[ "$monotonic" =~ ^[0-9]+$ ]] && [ "$proc_count" = 1 ]; then
+    printf 'ACTIVE\n'; return 0
+  fi
+  if grep -qx 'LoadState=loaded' <<<"$out" && grep -qx 'ActiveState=inactive' <<<"$out" && grep -qx 'SubState=dead' <<<"$out" && \
+     grep -qx 'UnitFileState=disabled' <<<"$out" && grep -qx 'Restart=no' <<<"$out" && [ "$pid" = 0 ] && \
+     [ -z "$invocation" ] && [ "$monotonic" = 0 ] && [ "$proc_count" = 0 ]; then
+    printf 'INACTIVE\n'; return 0
+  fi
+  return 1
+}
+ctv_host_runtime_verify() {
+  local unit=${1:-/etc/systemd/system/aegis-idea3-core.service} expected_sha=${2:-} device=${3:-} mode=${4:-} dropins effective
+  [ -f "$unit" ] && [ ! -L "$unit" ] || return 1
+  local core_state; core_state=$(ctv_run systemctl show -p LoadState -p ActiveState -p SubState -p Result -p MainPID aegis-idea3-core.service) || return 1
+  grep -qx 'LoadState=loaded' <<<"$core_state" && grep -qx 'ActiveState=active' <<<"$core_state" && \
+    grep -qx 'SubState=running' <<<"$core_state" && grep -qx 'Result=success' <<<"$core_state" || return 1
+  ctv_target_unit_preflight "$unit" "$expected_sha" || return 1
+  effective=$(ctv_run systemctl show -p ProtectClock -p User -p NoNewPrivileges -p CapabilityBoundingSet -p AmbientCapabilities aegis-idea3-core.service) || return 1
+  grep -qx 'ProtectClock=false' <<<"$effective" && grep -qx 'User=aegis-idea3' <<<"$effective" && \
+    grep -qx 'NoNewPrivileges=true' <<<"$effective" && grep -qx 'CapabilityBoundingSet=' <<<"$effective" && \
+    grep -qx 'AmbientCapabilities=' <<<"$effective" || return 1
+  dropins=$(ctv_run systemctl show -p DropInPaths --value aegis-idea3-core.service) || return 1
+  read -r -a dropin_paths <<<"$dropins"
+  [ "${#dropin_paths[@]}" = 2 ] || return 1
+  printf '%s\n' "${dropin_paths[@]}" | LC_ALL=C sort | diff -u <(printf '%s\n' \
+    /etc/systemd/system/aegis-idea3-core.service.d/10-recovery.conf \
+    /etc/systemd/system/aegis-idea3-core.service.d/20-f1-alert.conf | LC_ALL=C sort) >/dev/null || return 1
+  [ "$mode" = "$(ctv_detector_baseline_mode)" ] || return 1
+  [[ "$device" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || return 1
+  [ ! -e "$(ctv_canonical_dir)/RECOVERY-GLOBAL-ATTEMPT-CONSUMED" ] || return 1
+  printf 'CTV_RUNTIME_PROOF=PASS\nCTV_DETECTOR_BASELINE_MODE=%s\nCTV_DEVICE_ID=%s\n' "$mode" "$device"
+}
+ctv_host_preconsume_verify() {
+  local core_state dropins
+  core_state=$(ctv_run systemctl show -p LoadState -p ActiveState -p SubState -p Result -p MainPID aegis-idea3-core.service) || return 1
+  grep -qx 'LoadState=loaded' <<<"$core_state" && grep -qx 'ActiveState=active' <<<"$core_state" && \
+    grep -qx 'SubState=running' <<<"$core_state" && grep -qx 'Result=success' <<<"$core_state" || return 1
+  dropins=$(ctv_run systemctl show -p DropInPaths --value aegis-idea3-core.service) || return 1
+  grep -qw '/etc/systemd/system/aegis-idea3-core.service.d/10-recovery.conf' <<<"$dropins" || return 1
+  grep -qw '/etc/systemd/system/aegis-idea3-core.service.d/20-f1-alert.conf' <<<"$dropins" || return 1
+  [ ! -e "$(ctv_canonical_dir)/RECOVERY-GLOBAL-ATTEMPT-CONSUMED" ] || return 1
+  printf 'CTV_PRE_HOST_RUNTIME=PASS\n'
+}
 ctv_evidence_manifest() {
   local work=${1:-} manifest
   ctv_path_ok "$work" || return 1
@@ -279,11 +335,16 @@ ctv_preconsume_rehearsal() {
   if [ -z "$repo" ]; then
     [ "${CTV_ATTEMPT_CONSUMED:-NO}" = NO ] && [ "${CTV_PRODUCTION_MUTATION:-NO}" = NO ] || return 1
   else
-    ctv_path_ok "$repo" && ctv_path_ok "$auth" && ctv_path_ok "$k3" && ctv_path_ok "$canon" && ctv_path_ok "$bundle" && ctv_path_ok "$control" && ctv_path_ok "$runner" && ctv_path_ok "$unit" && ctv_path_ok "$fixture" || return 1
-    [ -d "$fixture" ] && [ ! -L "$fixture" ] || return 1
-    local required_file; for required_file in remote-main device-id work-topology operator-identity auth-k3-binding auth-fresh k3-fresh frozen-derivation target-unit core.state core-security detector.state dropins l0-pre.result rollback-preflight evidence-capacity runtime-verify detector-preservation remote-main-equality recovery-unconsumed; do
-      [ -f "$fixture/$required_file" ] && [ ! -L "$fixture/$required_file" ] || return 1
-    done
+    ctv_path_ok "$repo" && ctv_path_ok "$auth" && ctv_path_ok "$k3" && ctv_path_ok "$canon" && ctv_path_ok "$bundle" && ctv_path_ok "$control" && ctv_path_ok "$runner" && ctv_path_ok "$unit" || return 1
+    if [ -n "$fixture" ]; then
+      ctv_path_ok "$fixture" || return 1
+      [ -d "$fixture" ] && [ ! -L "$fixture" ] || return 1
+      local required_file; for required_file in remote-main device-id work-topology operator-identity auth-k3-binding auth-fresh k3-fresh frozen-derivation target-unit core.state core-security detector.state dropins l0-pre.result rollback-preflight evidence-capacity runtime-verify detector-preservation remote-main-equality recovery-unconsumed; do
+        [ -f "$fixture/$required_file" ] && [ ! -L "$fixture/$required_file" ] || return 1
+      done
+    else
+      ctv_host_preconsume_verify || return 1
+    fi
     [[ "$main" =~ ^[0-9a-f]{40}$ && "$runner_sha" =~ ^[0-9a-f]{64}$ && "$template_sha" =~ ^[0-9a-f]{64}$ && "$unit_sha" =~ ^[0-9a-f]{64}$ ]] || return 1
     [ "$(ctv_git -C "$repo" rev-parse --verify HEAD^{commit})" = "$main" ] && [ -z "$(ctv_git -C "$repo" status --porcelain=v1)" ] || return 1
     grep -qx 'stage=CTv' "$auth" && grep -qx 'stage=CTv' "$k3" || return 1
@@ -299,8 +360,9 @@ ctv_preconsume_rehearsal() {
     [ -z "$(find "$control" -perm /222 -print -quit 2>/dev/null)" ] || return 1
     ctv_verify_regular_trusted "$runner" "$runner_sha" || return 1
     ctv_target_unit_preflight "$unit" "$unit_sha" || return 1
-    [ "$(cat "$fixture/remote-main")" = "$main" ] || return 1
-    grep -qx "${DEVICE_ID:-${CTV_DEVICE_ID:-}}" "$fixture/device-id" || return 1
+    if [ -n "$fixture" ]; then
+      [ "$(cat "$fixture/remote-main")" = "$main" ] || return 1
+      grep -qx "${DEVICE_ID:-${CTV_DEVICE_ID:-}}" "$fixture/device-id" || return 1
     grep -qx PASS "$fixture/work-topology" || return 1
     grep -qx PASS "$fixture/operator-identity" || return 1
     grep -qx PASS "$fixture/auth-k3-binding" || return 1
@@ -318,7 +380,11 @@ ctv_preconsume_rehearsal() {
     grep -qx PASS "$fixture/runtime-verify" || return 1
     grep -qx PASS "$fixture/detector-preservation" || return 1
     grep -qx PASS "$fixture/remote-main-equality" || return 1
-    grep -qx PASS "$fixture/recovery-unconsumed" || return 1
+      grep -qx PASS "$fixture/recovery-unconsumed" || return 1
+    else
+      ctv_validate_core_env_device_id /etc/aegis-idea3/core.env "${DEVICE_ID:-${CTV_DEVICE_ID:-}}" || return 1
+      ctv_detector_baseline_mode >/dev/null || return 1
+    fi
   fi
   printf 'CTV_PRECONSUME_REHEARSAL=PASS\nADDITIONAL_DETERMINISTIC_PRECONSUME_BLOCKER=NONE\n'
 }
