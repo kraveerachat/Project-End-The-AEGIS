@@ -124,9 +124,11 @@ elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[authorizer]}" != music ] \
   fail AUTHORIZATION_MALFORMED
 elif [ "$STAGE" = CTu ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[device_id]}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; }; then
   fail AUTHORIZATION_CTU_BINDING_MALFORMED
+elif [ "$STAGE" = CTv ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[frozen_runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[runner_template_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[bundle_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[control_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[device_id]}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || [ "${R[frozen_runner_sha256]}" = "${R[runner_template_sha256]}" ]; }; then
+  fail AUTHORIZATION_CTV_BINDING_MALFORMED
 elif [ "${R[stage]}" != "$STAGE" ]; then
   fail AUTHORIZATION_STAGE_MISMATCH
-elif { [ "$STAGE" = CTu ] || [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ] || [ "$STAGE" = F1 ] || [ "$STAGE" = F1r ] || [ "$STAGE" = F1i ] || [ "$STAGE" = F1u ] || [ "$STAGE" = R1A ] || [ "$STAGE" = R1Du ] || [ "$STAGE" = R1D ] || [ "$STAGE" = R1Dv ] || [ "$STAGE" = R1Bv ] || [ "$STAGE" = R1B ] || [ "$STAGE" = RRu ] || [ "$STAGE" = Recovery ]; } && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ]; }; then
+elif { [ "$STAGE" = CTu ] || [ "$STAGE" = CTv ] || [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ] || [ "$STAGE" = F1 ] || [ "$STAGE" = F1r ] || [ "$STAGE" = F1i ] || [ "$STAGE" = F1u ] || [ "$STAGE" = R1A ] || [ "$STAGE" = R1Du ] || [ "$STAGE" = R1D ] || [ "$STAGE" = R1Dv ] || [ "$STAGE" = R1Bv ] || [ "$STAGE" = R1B ] || [ "$STAGE" = RRu ] || [ "$STAGE" = Recovery ]; } && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ]; }; then
   # L8p likewise never carries the L8-only recovery_authorization nor the L7/L2 notices (it has its own physical_recovery_attestation).
   # F1r (current-release activation), F1i (post-L7 repaired-release install) and F1u (post-F1 Core upgrade) are bound by the same rule as F1: no extra field at all.
   # F1 carries NO extra field at all: not the L7/L2 notices, not recovery_authorization, not physical_recovery_attestation (L8p alone).
@@ -147,6 +149,16 @@ else
     AUTH_CTU_USER="${R[operator_user]:-}"
     AUTH_CTU_UID="${R[operator_uid]:-}"
     AUTH_CTU_DEVICE="${R[device_id]:-}"
+  elif [ "$STAGE" = CTv ]; then
+    AUTH_CTV_MAIN="${R[expected_main]:-}"
+    AUTH_CTV_RUNNER="${R[frozen_runner_sha256]:-}"
+    AUTH_CTV_TEMPLATE="${R[runner_template_sha256]:-}"
+    AUTH_CTV_BUNDLE="${R[bundle_manifest_sha256]:-}"
+    AUTH_CTV_CONTROL="${R[control_manifest_sha256]:-}"
+    AUTH_CTV_UNIT="${R[unit_sha256]:-}"
+    AUTH_CTV_USER="${R[operator_user]:-}"
+    AUTH_CTV_UID="${R[operator_uid]:-}"
+    AUTH_CTV_DEVICE="${R[device_id]:-}"
   fi
 fi
 
@@ -177,6 +189,8 @@ if p4_stage_mutates "$STAGE"; then
     fi
     if [ "$STAGE" = CTu ]; then
       K3_ALLOWED="$K3_ALLOWED expected_main runner_sha256 unit_sha256 operator_user operator_uid device_id"
+    elif [ "$STAGE" = CTv ]; then
+      K3_ALLOWED="$K3_ALLOWED expected_main frozen_runner_sha256 runner_template_sha256 bundle_manifest_sha256 control_manifest_sha256 unit_sha256 operator_user operator_uid device_id"
     fi
     if [ -z "$K3_KIND" ] || ! parse_record "$K3" "$K3_MAGIC" "$K3_ALLOWED" "$K3_ALLOWED"; then
       fail K3_MALFORMED
@@ -186,6 +200,8 @@ if p4_stage_mutates "$STAGE"; then
       fail K3_MALFORMED
     elif [ "$STAGE" = CTu ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[device_id]}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; }; then
       fail K3_CTU_BINDING_MALFORMED
+    elif [ "$STAGE" = CTv ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[frozen_runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[runner_template_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[bundle_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[control_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[device_id]}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || [ "${R[frozen_runner_sha256]}" = "${R[runner_template_sha256]}" ]; }; then
+      fail K3_CTV_BINDING_MALFORMED
     elif [ "$STAGE" = CTu ] && { \
       [ "${R[expected_main]}" != "${AUTH_CTU_MAIN:-}" ] || \
       [ "${R[runner_sha256]}" != "${AUTH_CTU_RUNNER:-}" ] || \
@@ -194,6 +210,15 @@ if p4_stage_mutates "$STAGE"; then
       [ "${R[operator_uid]}" != "${AUTH_CTU_UID:-}" ] || \
       [ "${R[device_id]}" != "${AUTH_CTU_DEVICE:-}" ]; }; then
       fail K3_CTU_BINDING_MISMATCH
+    elif [ "$STAGE" = CTv ] && { \
+      [ "${R[expected_main]}" != "${AUTH_CTV_MAIN:-}" ] || \
+      [ "${R[frozen_runner_sha256]}" != "${AUTH_CTV_RUNNER:-}" ] || \
+      [ "${R[runner_template_sha256]}" != "${AUTH_CTV_TEMPLATE:-}" ] || \
+      [ "${R[bundle_manifest_sha256]}" != "${AUTH_CTV_BUNDLE:-}" ] || \
+      [ "${R[control_manifest_sha256]}" != "${AUTH_CTV_CONTROL:-}" ] || \
+      [ "${R[unit_sha256]}" != "${AUTH_CTV_UNIT:-}" ] || \
+      [ "${R[operator_user]}" != "${AUTH_CTV_USER:-}" ] || [ "${R[operator_uid]}" != "${AUTH_CTV_UID:-}" ] || [ "${R[device_id]}" != "${AUTH_CTV_DEVICE:-}" ]; }; then
+      fail K3_CTV_BINDING_MISMATCH
     elif [ "${R[stage]}" != "$STAGE" ]; then
       fail K3_STAGE_MISMATCH
     elif [ "${R[date]}" != "$TODAY" ]; then

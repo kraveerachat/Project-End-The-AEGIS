@@ -1693,7 +1693,7 @@ def test_r1du_is_registered_exactly_once_after_the_historical_r1a_and_before_r1d
     assert order.index("R1A") < order.index("R1Du") < order.index("R1D") < order.index("R1Dv") < order.index("R1B") < order.index("R1Bv") < order.index("RRu") < order.index("CTu") < order.index("Recovery") < order.index("L8") < order.index("L9")
     assert order[order.index("R1A") + 1:order.index("R1A") + 4] == ["R1Du", "R1D", "R1Dv"]
     assert all(order.count(x) == 1 for x in ("R1I", "R1A", "R1Du", "R1D", "R1Dv", "R1B", "R1Bv", "RRu", "CTu", "Recovery")) and "R1a" not in order and "R1b" not in order
-    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu Recovery L8 L9"' in P4_LIB.read_text()
+    assert 'readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu CTv Recovery L8 L9"' in P4_LIB.read_text()
 
 
 def sh(script: str, env: dict | None = None, cwd: Path | None = None):

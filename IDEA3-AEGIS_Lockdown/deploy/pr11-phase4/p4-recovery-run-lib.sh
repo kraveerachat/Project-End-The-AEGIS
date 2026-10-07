@@ -221,6 +221,73 @@ recovery_ctu_successor_gate() {
     fi
   fi
 }
+
+# This is a separate Recovery predecessor path.  CTu FAIL is never promoted to
+# PASS: this path requires a distinct, reviewed CTv CLOSED_PASS closeout and
+# the CTv repository receipt bound to the same exact main.
+recovery_ctv_successor_gate() {
+  local repo=${1:-} main=${2:-} canon closeout receipt_rel receipt receipt_sha want=0
+  [ -n "$repo" ] && [ -d "$repo/.git" ] && [[ "$main" =~ ^[0-9a-f]{40}$ ]] || return 1
+  [ -z "$SUDO" ] || want=0
+  [ -n "$SUDO" ] || want=$(id -u)
+  canon=$(recovery_canonical_dir)
+  recovery_canonical_dir_valid || { recovery_reason RECOVERY_CTV_CANONICAL_DIR_INVALID; return 1; }
+  [ ! -e "$canon/$RECOVERY_GLOBAL_MARKER_NAME" ] || { recovery_reason RECOVERY_ALREADY_CONSUMED; return 1; }
+  [ -f "$canon/CTU-GLOBAL-ATTEMPT-CONSUMED" ] && [ ! -L "$canon/CTU-GLOBAL-ATTEMPT-CONSUMED" ] || { recovery_reason RECOVERY_CTV_CTU_ATTEMPT_MARKER_MISSING; return 1; }
+  [ -f "$canon/CTU-GLOBAL-CLOSEOUT-FAIL" ] && [ ! -L "$canon/CTU-GLOBAL-CLOSEOUT-FAIL" ] || { recovery_reason RECOVERY_CTV_CTU_FAIL_CLOSEOUT_MISSING; return 1; }
+  [ ! -e "$canon/CTU-GLOBAL-CLOSEOUT-PASS" ] && [ ! -L "$canon/CTU-GLOBAL-CLOSEOUT-PASS" ] || { recovery_reason RECOVERY_CTV_CTU_PASS_MUST_BE_ABSENT; return 1; }
+  grep -qx 'CTU_RESULT=FAIL_IMMUTABLE' "$canon/CTU-GLOBAL-CLOSEOUT-FAIL" || { recovery_reason RECOVERY_CTV_CTU_RESULT_INVALID; return 1; }
+  grep -qx 'CTU_FAILURE_REASON=APPLY' "$canon/CTU-GLOBAL-CLOSEOUT-FAIL" || { recovery_reason RECOVERY_CTV_CTU_FAILURE_REASON_INVALID; return 1; }
+  grep -qx 'CTU_ATTEMPT_CONSUMED=YES' "$canon/CTU-GLOBAL-CLOSEOUT-FAIL" || { recovery_reason RECOVERY_CTV_CTU_ATTEMPT_INVALID; return 1; }
+  grep -qx 'CTU_RERUN_ALLOWED=NO' "$canon/CTU-GLOBAL-CLOSEOUT-FAIL" || { recovery_reason RECOVERY_CTV_CTU_RERUN_INVALID; return 1; }
+  [ -f "$canon/CTV-GLOBAL-ATTEMPT-CONSUMED" ] && [ ! -L "$canon/CTV-GLOBAL-ATTEMPT-CONSUMED" ] || { recovery_reason RECOVERY_CTV_ATTEMPT_MARKER_MISSING; return 1; }
+  grep -qx 'CTV_ATTEMPT_CONSUMED=YES' "$canon/CTV-GLOBAL-ATTEMPT-CONSUMED" || { recovery_reason RECOVERY_CTV_ATTEMPT_MARKER_INVALID; return 1; }
+  [ ! -e "$canon/CTV-GLOBAL-CLOSEOUT-FAIL" ] && [ ! -L "$canon/CTV-GLOBAL-CLOSEOUT-FAIL" ] || { recovery_reason RECOVERY_CTV_FAIL_CLOSEOUT_PRESENT; return 1; }
+  closeout="$canon/CTV-GLOBAL-CLOSEOUT-PASS"
+  [ -f "$closeout" ] && [ ! -L "$closeout" ] && [ "$(stat -c %u:%a "$closeout" 2>/dev/null)" = "$want:600" ] || { recovery_reason RECOVERY_CTV_PASS_CLOSEOUT_UNTRUSTED; return 1; }
+  grep -qx 'CTV_RESULT=CLOSED_PASS' "$closeout" || { recovery_reason RECOVERY_CTV_RESULT_INVALID; return 1; }
+  grep -qx 'CTV_IS_CTU_RETRY=NO' "$closeout" || { recovery_reason RECOVERY_CTV_RETRY_FLAG_INVALID; return 1; }
+  grep -qx 'CTV_ATTEMPT_CONSUMED=YES' "$closeout" || { recovery_reason RECOVERY_CTV_ATTEMPT_NOT_CONSUMED; return 1; }
+  grep -qx 'CTV_RERUN_ALLOWED=NO' "$closeout" || { recovery_reason RECOVERY_CTV_RERUN_ALLOWED; return 1; }
+  grep -qx "CTV_EXPECTED_MAIN=$main" "$closeout" || { recovery_reason RECOVERY_CTV_MAIN_MISMATCH; return 1; }
+  receipt_rel=${CTV_LIVE_RECEIPT_RELATIVE:-}; receipt_sha=${CTV_REPO_RECEIPT_SHA256:-}
+  [[ -n "$receipt_rel" && "$receipt_rel" != /* && "$receipt_rel" != *..* && "$receipt_sha" =~ ^[0-9a-f]{64}$ ]] || { recovery_reason RECOVERY_CTV_RECEIPT_PIN_INVALID; return 1; }
+  receipt="$repo/$receipt_rel"
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] || { recovery_reason RECOVERY_CTV_RECEIPT_MISSING; return 1; }
+  [ "$(sha256sum "$receipt" | cut -d' ' -f1)" = "$receipt_sha" ] || { recovery_reason RECOVERY_CTV_RECEIPT_DIGEST_INVALID; return 1; }
+  [[ "$receipt_rel" != /* && "$receipt_rel" != *..* && "$receipt_rel" != *//* ]] || { recovery_reason RECOVERY_CTV_RECEIPT_PATH_INVALID; return 1; }
+  [ "$(git -C "$repo" cat-file -e "$main:$receipt_rel" 2>/dev/null; git -C "$repo" show "$main:$receipt_rel" 2>/dev/null | sha256sum | cut -d' ' -f1)" = "$receipt_sha" ] || { recovery_reason RECOVERY_CTV_RECEIPT_NOT_EXACT_MAIN; return 1; }
+  [ -f "$closeout.sha256" ] && [ ! -L "$closeout.sha256" ] && [ "$(stat -c %u:%a "$closeout.sha256" 2>/dev/null)" = "$want:444" ] && (cd "$canon" && sha256sum --strict --check "$(basename "$closeout.sha256")" >/dev/null 2>&1) || { recovery_reason RECOVERY_CTV_CLOSEOUT_DIGEST_INVALID; return 1; }
+  grep -qx 'CTV_LIVE=CLOSED_PASS' "$receipt" || { recovery_reason RECOVERY_CTV_RECEIPT_NOT_PASS; return 1; }
+  grep -qx 'CTV_IS_CTU_RETRY=NO' "$receipt" || { recovery_reason RECOVERY_CTV_RECEIPT_RETRY_INVALID; return 1; }
+  grep -qx 'CTV_LIVE_EXECUTED=YES' "$closeout" || { recovery_reason RECOVERY_CTV_NOT_EXECUTED; return 1; }
+  grep -Eq '^CTV_DETECTOR_BASELINE_MODE=(ACTIVE|INACTIVE)$' "$closeout" || { recovery_reason RECOVERY_CTV_DETECTOR_MODE_INVALID; return 1; }
+  grep -Eq '^CTV_DEVICE_ID=[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' "$closeout" || { recovery_reason RECOVERY_CTV_DEVICE_ID_INVALID; return 1; }
+  grep -Eq '^CTV_EVIDENCE_MANIFEST_SHA256=[0-9a-f]{64}$' "$closeout" || { recovery_reason RECOVERY_CTV_EVIDENCE_INVALID; return 1; }
+  for field in CTV_FROZEN_RUNNER_SHA256 CTV_RUNNER_TEMPLATE_SHA256 CTV_BUNDLE_MANIFEST_SHA256 CTV_CONTROL_MANIFEST_SHA256 CTV_UNIT_SHA256 CTV_EVIDENCE_MANIFEST_SHA256; do
+    grep -Eq "^${field}=[0-9a-f]{64}$" "$closeout" || { recovery_reason "RECOVERY_CTV_${field}_MISSING_OR_INVALID"; return 1; }
+  done
+  grep -qx 'CTV_RUNTIME_PROOF=PASS' "$closeout" || { recovery_reason RECOVERY_CTV_RUNTIME_PROOF_INVALID; return 1; }
+  grep -qx 'CTV_PRE_POST_PRESERVATION=PASS' "$closeout" || { recovery_reason RECOVERY_CTV_PRESERVATION_INVALID; return 1; }
+  installed_unit=${AEGIS_CORE_UNIT_FILE:-/etc/systemd/system/aegis-idea3-core.service}
+  [ -f "$installed_unit" ] && [ ! -L "$installed_unit" ] || { recovery_reason RECOVERY_CTV_INSTALLED_UNIT_MISSING; return 1; }
+  [ "$(sha256sum "$installed_unit" | cut -d' ' -f1)" = "$(awk -F= '$1 == "CTV_UNIT_SHA256" {print $2}' "$closeout")" ] || { recovery_reason RECOVERY_CTV_INSTALLED_UNIT_MISMATCH; return 1; }
+  grep -qx 'ProtectClock=false' "$installed_unit" || { recovery_reason RECOVERY_CTV_PROTECTCLOCK_INVALID; return 1; }
+  grep -qx 'User=aegis-idea3' "$installed_unit" || { recovery_reason RECOVERY_CTV_USER_INVALID; return 1; }
+  grep -qx 'NoNewPrivileges=true' "$installed_unit" || { recovery_reason RECOVERY_CTV_NONPRIVILEGE_INVALID; return 1; }
+  grep -qx 'CapabilityBoundingSet=' "$installed_unit" || { recovery_reason RECOVERY_CTV_CAPABILITY_BOUND_INVALID; return 1; }
+  grep -qx 'AmbientCapabilities=' "$installed_unit" || { recovery_reason RECOVERY_CTV_AMBIENT_CAPABILITY_INVALID; return 1; }
+}
+recovery_successor_detector_mode_gate() {
+  local canon mode
+  canon=$(recovery_canonical_dir)
+  if [ -f "$canon/CTV-GLOBAL-CLOSEOUT-PASS" ]; then
+    mode=$($SUDO awk -F= '$1 == "CTV_DETECTOR_BASELINE_MODE" {print $2}' "$canon/CTV-GLOBAL-CLOSEOUT-PASS" 2>/dev/null)
+    case "$mode" in ACTIVE|INACTIVE) ;; *) recovery_reason RECOVERY_CTV_DETECTOR_MODE_INVALID; return 1;; esac
+    return 0
+  fi
+  recovery_ctu_detector_mode_gate
+}
 recovery_ctu_detector_mode_gate() {
   local canon mode out pid
   canon=$(recovery_canonical_dir)

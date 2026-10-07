@@ -22,6 +22,12 @@ set -Eeuo pipefail
 umask 077
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin   # fixed: no program is ever selected through the caller's PATH
 
+# Validate the explicit owner-run interface before any frozen-pin or host
+# work. This keeps usage failures deterministic even for the unpinned template.
+AUTH_DIR=${1:-}
+RECOVERY_REASON=${2-}
+[ ! -L "$AUTH_DIR" ] && { [ ! -d "$AUTH_DIR" ] || [ -n "$RECOVERY_REASON" ] || { echo "STOP: the bounded non-secret owner reason (argument 2) is required before anything runs." >&2; exit 2; }; }
+
 # ---- frozen pins: the committed template refuses while ANY of these is unpinned ------------------------------------------------------------------
 EXPECTED_MAIN=PIN_MAIN_SHA
 OPERATOR_USER=PIN_OPERATOR_USER
@@ -45,7 +51,9 @@ DETECTOR_UID=PIN_DETECTOR_UID
 RUNTIME_DIR=PIN_RUNTIME_DIR
 CTU_LIVE_RECEIPT_RELATIVE=PIN_CTU_LIVE_RECEIPT_RELATIVE
 CTU_REPO_RECEIPT_SHA256=PIN_CTU_REPO_RECEIPT_SHA256
-for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID RELEASE_ID PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 RESTORE_CLI_SHA256 RELEASE_SUMS_SHA256 CONTROL_SNAPSHOT_DIR CONTROL_MANIFEST_SHA256 VERIFIER_SNAPSHOT_DIR VERIFIER_MANIFEST_SHA256 R1I_TOOL_SHA256 PROTOCOL_DB AUDIT_DB R1B_EVIDENCE_DIR EXPECTED_SOURCE_IP DETECTOR_UID RUNTIME_DIR CTU_LIVE_RECEIPT_RELATIVE CTU_REPO_RECEIPT_SHA256; do
+CTV_LIVE_RECEIPT_RELATIVE=PIN_CTV_LIVE_RECEIPT_RELATIVE
+CTV_REPO_RECEIPT_SHA256=PIN_CTV_REPO_RECEIPT_SHA256
+for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID RELEASE_ID PRODUCTION_DETECTOR_SHA256 DETECTOR_UNIT_SHA256 RECOVERY_CORE_SHA256 RESTORE_CLI_SHA256 RELEASE_SUMS_SHA256 CONTROL_SNAPSHOT_DIR CONTROL_MANIFEST_SHA256 VERIFIER_SNAPSHOT_DIR VERIFIER_MANIFEST_SHA256 R1I_TOOL_SHA256 PROTOCOL_DB AUDIT_DB R1B_EVIDENCE_DIR EXPECTED_SOURCE_IP DETECTOR_UID RUNTIME_DIR CTU_LIVE_RECEIPT_RELATIVE CTU_REPO_RECEIPT_SHA256 CTV_LIVE_RECEIPT_RELATIVE CTV_REPO_RECEIPT_SHA256; do
   case "${!pin}" in PIN_*) echo "STOP: runner is not pinned ($pin). Run the owner freeze workflow first." >&2; exit 2 ;; esac
 done
 [[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ ]] || { echo "STOP: EXPECTED_MAIN is not a 40-hex SHA." >&2; exit 2; }
@@ -62,6 +70,7 @@ _octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
 for pin in CONTROL_SNAPSHOT_DIR VERIFIER_SNAPSHOT_DIR PROTOCOL_DB AUDIT_DB R1B_EVIDENCE_DIR RUNTIME_DIR CTU_LIVE_RECEIPT_RELATIVE; do
   [[ "${!pin}" == /* ]] && [[ "${!pin}" != *..* ]] || { echo "STOP: $pin must be an absolute path." >&2; exit 2; }
 done
+[[ "$CTV_LIVE_RECEIPT_RELATIVE" != /* && "$CTV_LIVE_RECEIPT_RELATIVE" != *..* && "$CTV_LIVE_RECEIPT_RELATIVE" != *//* ]] || { echo "STOP: CTV_LIVE_RECEIPT_RELATIVE must be a safe repository-relative path." >&2; exit 2; }
 [ "$(id -u)" != 0 ] || { echo "Run as your normal user, not root." >&2; exit 2; }
 # No environment may redirect a live run: interpreter/loader/module overrides, fixture roots, handler overrides, Recovery/RESTORE targets and test seams must all be unset (the library repeats and extends this).
 for var in PYTHON PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE LD_PRELOAD LD_LIBRARY_PATH BASH_ENV ENV AEGIS_RUNTIME_DIR AEGIS_P4_FS_ROOT P4_FS_ROOT AEGIS_P4_HANDLER_DIR AEGIS_RECOVERY_SOCKET AEGIS_RECOVERY_CORE_USER \
@@ -69,8 +78,6 @@ for var in PYTHON PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE LD_PRELOAD 
     RECOVERY_CANONICAL_DIR RECOVERY_TEST_ONLY_CANONICAL_DIR RECOVERY_TEST_ONLY_CANONICAL_DIR_ENABLED RECOVERY_TEST_ONLY_TRUST_ROOT RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ENABLED RECOVERY_TEST_ONLY_SNAPSHOT_TRUST_ROOT GLOBAL_MARKER_DIR AEGIS_LOG_PATH AEGIS_DB_PATH; do
   [ -z "${!var:-}" ] || { echo "STOP: environment override $var is set; refusing a live run." >&2; exit 2; }
 done
-AUTH_DIR=${1:-}
-RECOVERY_REASON=${2-}
 [ -n "$AUTH_DIR" ] && [ -d "$AUTH_DIR" ] && [ ! -L "$AUTH_DIR" ] || { echo "usage: bash $0 <AUTH_DIR with authorization-Recovery.txt and k3-Recovery.txt> \"<non-secret owner reason>\"" >&2; exit 2; }
 [ -n "$RECOVERY_REASON" ] || { echo "STOP: the bounded non-secret owner reason (argument 2) is required before anything runs." >&2; exit 2; }
 
@@ -172,7 +179,7 @@ recovery_authority_gates() {
   recovery_interpreter_gate "$PY" || rc=1
   recovery_r1i_present_gate "$CTRL/r1i-input-instrumentation/r1i_input_instrumentation.py" || rc=1
   l7u_core_running_gate "$CORE_UNIT" || rc=1
-  recovery_ctu_detector_mode_gate || rc=1
+  recovery_successor_detector_mode_gate || rc=1
   recovery_digest_gate "$RELEASE_PATH/aegis_soc/production_detector.py" "$PRODUCTION_DETECTOR_SHA256" DETECTOR_SOURCE || rc=1
   recovery_digest_gate "$RELEASE_PATH/aegis_soc/recovery_core.py" "$RECOVERY_CORE_SHA256" RECOVERY_CORE || rc=1
   recovery_digest_gate "/etc/systemd/system/$DETECTOR_UNIT" "$DETECTOR_UNIT_SHA256" DETECTOR_UNIT || rc=1
@@ -373,7 +380,7 @@ recovery_pregates() {
   for f in AUTHORIZATION_RECORD=VALID K3_CONFIRMATION=VALID ROLLBACK_HANDLER=REGISTERED; do printf '%s\n' "$gate_out" | grep -qx "$f" || gate "stage gate did not report $f"; done
   # 4. the existing reviewed R1B-failure + R1Bv-PASS predecessor gate (pinned-commit receipt CONTENT), and the attempt authority
   recovery_predecessor_gate "$REPO" "$EXPECTED_MAIN" || gate "predecessor gate failed (see reason above)"
-  recovery_ctu_successor_gate "$REPO" "$EXPECTED_MAIN" || gate "CTu PASS closeout is missing or not bound to this exact main"
+  recovery_ctu_successor_gate "$REPO" "$EXPECTED_MAIN" || recovery_ctv_successor_gate "$REPO" "$EXPECTED_MAIN" || gate "neither historical CTu PASS nor reviewed CTv PASS successor closeout is present"
   rru_recovery_successor_gate "$REPO" "$EXPECTED_MAIN" "$RELEASE_ID" || gate "RRu Recovery-runtime successor gate failed (see reason above)"
   recovery_attempt_unconsumed || gate "Recovery is ONE attempt TOTAL and one is already consumed, or the canonical marker directory is invalid"
   recovery_sudo_authority_gate || gate "the sudo keepalive is not healthy or the credential is not active (the runner establishes it once with sudo -v)"

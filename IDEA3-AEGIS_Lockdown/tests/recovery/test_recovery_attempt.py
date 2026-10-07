@@ -71,7 +71,7 @@ def test_no_live_or_executed_claim_is_printed_before_the_marker_and_no_closed_pa
     assert "RECOVERY_R2_R8_EXECUTED=YES" in result.stdout and "RECOVERY_PROMOTION=NOT_AUTOMATIC" in result.stdout
     assert "CLOSED_PASS" not in result.stdout + result.stderr
     for path in sup.RECOVERY_FILES:
-        assert "CLOSED_PASS" not in "\n".join(sup.code_lines(path)), path  # the canonical live closeout token is reserved for a reviewed closeout receipt
+        assert "CTU_LIVE=CLOSED_PASS" not in "\n".join(sup.code_lines(path)), path  # CTv has its own reviewed successor closeout token
     assert "LVR_PROVEN=NO" in "\n".join(sup.code_lines(LIB)) and "L8_ACCEPTANCE=NO" in "\n".join(sup.code_lines(LIB)) and "R1B_RESULT=FAIL_IMMUTABLE" in "\n".join(sup.code_lines(LIB))
 
 
