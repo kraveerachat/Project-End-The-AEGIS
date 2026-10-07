@@ -131,6 +131,7 @@ avail_pct=$(df -P "$EVIDENCE_ROOT" | awk 'NR==2 {print 100 - int($5)}')
 EVID=$EVIDENCE_ROOT/$(TZ=Asia/Bangkok date +%F)-ctu-$(TZ=Asia/Bangkok date +%Y%m%d-%H%M%S)
 WORK=$EVID/ctu-work; PRE=$EVID/pre-root; POST=$EVID/post-root; RB=$EVID/rb-root
 mkdir -m 700 "$EVID" || exit 1
+ctu_prepare_work_dir "$WORK" || { echo 'STOP: could not prepare trusted work directory.' >&2; exit 1; }
 BUNDLE=$WORK/bundle
 UNIT_SNAPSHOT=$WORK/core.service.snapshot
 JOURNAL_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
@@ -176,6 +177,7 @@ ctu_apply_governed() {
 : "${AEGIS_CTU_DETECTOR_PRE_MODE:?AEGIS_CTU_DETECTOR_PRE_MODE required}"
 [ "${AEGIS_CTU_LIVE_AUTHORIZED:-}" = YES ] || ctu_apply_fail AEGIS_CTU_LIVE_AUTHORIZED_REQUIRED
 [ "$(id -u)" = 0 ] || ctu_apply_fail ROOT_REQUIRED
+[ -d "$AEGIS_CTU_WORK_DIR" ] && [ ! -L "$AEGIS_CTU_WORK_DIR" ] && [ "$(stat -c %u:%a -- "$AEGIS_CTU_WORK_DIR")" = "0:711" ] || ctu_apply_fail WORK_DIR_INVALID
 [ -d "$AEGIS_CTU_BUNDLE" ] && [ ! -L "$AEGIS_CTU_BUNDLE" ] && [ "$(stat -c %u -- "$AEGIS_CTU_BUNDLE")" = 0 ] || ctu_apply_fail CTU_BUNDLE_INVALID
 [ -z "$(find "$AEGIS_CTU_BUNDLE" -type l -print -quit)" ] || ctu_apply_fail CTU_BUNDLE_SYMLINK
 ( cd "$AEGIS_CTU_BUNDLE" && sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) || ctu_apply_fail CTU_BUNDLE_DRIFT
@@ -264,6 +266,7 @@ ctu_rollback_governed() {
 : "${AEGIS_CTU_BUNDLE:?AEGIS_CTU_BUNDLE required}"
 [ "${AEGIS_CTU_LIVE_AUTHORIZED:-}" = YES ] || ctu_rollback_fail AEGIS_CTU_LIVE_AUTHORIZED_REQUIRED
 [ "$(id -u)" = 0 ] || ctu_rollback_fail ROOT_REQUIRED
+[ -d "$AEGIS_CTU_WORK_DIR" ] && [ ! -L "$AEGIS_CTU_WORK_DIR" ] && [ "$(stat -c %u:%a -- "$AEGIS_CTU_WORK_DIR")" = "0:711" ] || ctu_rollback_fail WORK_DIR_INVALID
 [ -d "$AEGIS_CTU_BUNDLE" ] && [ ! -L "$AEGIS_CTU_BUNDLE" ] && [ "$(stat -c %u -- "$AEGIS_CTU_BUNDLE")" = 0 ] || ctu_rollback_fail CTU_BUNDLE_INVALID
 [ -z "$(find "$AEGIS_CTU_BUNDLE" -type l -print -quit)" ] || ctu_rollback_fail CTU_BUNDLE_SYMLINK
 ( cd "$AEGIS_CTU_BUNDLE" && sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) || ctu_rollback_fail CTU_BUNDLE_DRIFT
@@ -332,6 +335,7 @@ trap 'exit_handler' EXIT
 trap 'handle_signal INT' INT
 trap 'handle_signal TERM' TERM
 trap 'handle_signal HUP' HUP
+if ! ctu_verify_work_dir "$WORK"; then post_fail WORK_DIR; fi
 if ! ctu_prepare_bundle "$REPO" "$P4" "$BUNDLE" "$EXPECTED_MAIN"; then post_fail CTU_BUNDLE; fi
 if ! ctu_prepare_unit_snapshot "$UNIT_SOURCE" "$UNIT_SNAPSHOT" "$UNIT_SHA256"; then post_fail UNIT_SNAPSHOT; fi
 if ! ctu_verify_bundle "$BUNDLE"; then post_fail BUNDLE_VERIFY; fi
