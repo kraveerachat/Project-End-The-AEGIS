@@ -64,6 +64,46 @@ def test_ctv_production_default_targets_reviewed_core_unit_and_override_is_prese
     assert re.search(r"--unit-source\).*UNIT_SOURCE=\$2", text)
 
 
+@pytest.mark.parametrize(
+    ("protect_clock", "no_new_privileges", "expected"),
+    [("no", "yes", 0), ("false", "true", 0), ("yes", "no", 1), ("true", "false", 1)],
+)
+def test_ctv_effective_runtime_boolean_serialization_is_semantic(
+    tmp_path: Path, protect_clock: str, no_new_privileges: str, expected: int
+):
+    unit = tmp_path / "aegis-idea3-core.service"
+    unit.write_text("ProtectClock=false\nUser=aegis-idea3\nNoNewPrivileges=true\nCapabilityBoundingSet=\nAmbientCapabilities=\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "systemctl").write_text(
+        f'''#!/bin/bash
+case "$*" in
+  *"aegis-idea3-core.service"*)
+    case "$*" in
+      *"ProtectClock"*) printf 'ProtectClock={protect_clock}\\nUser=aegis-idea3\\nNoNewPrivileges={no_new_privileges}\\nCapabilityBoundingSet=\\nAmbientCapabilities=\\n' ;;
+      *"DropInPaths"*) printf '/etc/systemd/system/aegis-idea3-core.service.d/10-recovery.conf /etc/systemd/system/aegis-idea3-core.service.d/20-f1-alert.conf\\n' ;;
+      *) printf 'LoadState=loaded\\nActiveState=active\\nSubState=running\\nResult=success\\nMainPID=123\\n' ;;
+    esac ;;
+  *"aegis-idea3-detector.service"*) printf 'LoadState=loaded\\nActiveState=active\\nSubState=running\\nUnitFileState=disabled\\nRestart=no\\nResult=success\\nMainPID=123\\nInvocationID=0123456789abcdef0123456789abcdef\\nExecMainStartTimestampMonotonic=1\\nNRestarts=0\\n' ;;
+  *) exit 1 ;;
+esac
+'''
+    )
+    (bindir / "systemctl").chmod(0o755)
+    (bindir / "pgrep").write_text("#!/bin/bash\nprintf '1\\n'\n")
+    (bindir / "pgrep").chmod(0o755)
+    (bindir / "diff").write_text("#!/bin/bash\ncat >/dev/null\nexit 0\n")
+    (bindir / "diff").chmod(0o755)
+    script = f'''set -Eeuo pipefail
+source "{CTV_LIB}"
+CTV_SUDO="" CTV_TEST_ONLY_CANONICAL_DIR_ENABLED=YES \\
+CTV_TEST_ONLY_CANONICAL_DIR="{tmp_path}" PATH="{bindir}:/usr/bin:/bin" \\
+ctv_host_runtime_verify "{unit}" "{hashlib.sha256(unit.read_bytes()).hexdigest()}" aegis-relay-01 ACTIVE
+'''
+    result = run_bash(script, env={"CTV_SUDO": "", "PATH": f"{bindir}:/usr/bin:/bin"})
+    assert result.returncode == expected, result.stderr
+
+
 def test_historical_ctu_template_comparison_is_a_real_domain_mismatch():
     spec = importlib.util.spec_from_file_location("ctu_freeze", DEPLOY / "ctu-acceptance" / "ctu_runner_freeze.py")
     module = importlib.util.module_from_spec(spec)

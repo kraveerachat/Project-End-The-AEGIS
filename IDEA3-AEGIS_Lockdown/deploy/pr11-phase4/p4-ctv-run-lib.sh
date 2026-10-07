@@ -256,8 +256,8 @@ ctv_host_runtime_verify() {
     grep -qx 'SubState=running' <<<"$core_state" && grep -qx 'Result=success' <<<"$core_state" || return 1
   ctv_target_unit_preflight "$unit" "$expected_sha" || return 1
   effective=$(ctv_run systemctl show -p ProtectClock -p User -p NoNewPrivileges -p CapabilityBoundingSet -p AmbientCapabilities aegis-idea3-core.service) || return 1
-  grep -qx 'ProtectClock=false' <<<"$effective" && grep -qx 'User=aegis-idea3' <<<"$effective" && \
-    grep -qx 'NoNewPrivileges=true' <<<"$effective" && grep -qx 'CapabilityBoundingSet=' <<<"$effective" && \
+  grep -Eq '^ProtectClock=(no|false)$' <<<"$effective" && grep -qx 'User=aegis-idea3' <<<"$effective" && \
+    grep -Eq '^NoNewPrivileges=(yes|true)$' <<<"$effective" && grep -qx 'CapabilityBoundingSet=' <<<"$effective" && \
     grep -qx 'AmbientCapabilities=' <<<"$effective" || return 1
   dropins=$(ctv_run systemctl show -p DropInPaths --value aegis-idea3-core.service) || return 1
   read -r -a dropin_paths <<<"$dropins"
