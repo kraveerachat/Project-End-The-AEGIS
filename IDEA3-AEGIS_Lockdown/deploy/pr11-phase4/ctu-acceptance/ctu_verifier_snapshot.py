@@ -153,6 +153,14 @@ def control_snapshot(src: Path, dest: Path, *, root_owned: bool = False, trust_r
     manifest = dest / CONTROL_MANIFEST_NAME
     manifest.write_text(text, encoding="utf-8")
     manifest.chmod(0o444)
+    snapshot_dirs = {dest} | {
+        p
+        for rel in rels
+        for p in [(dest / rel).parent, *(dest / rel).parent.parents]
+        if dest in (p, *p.parents)
+    }
+    for directory in sorted(snapshot_dirs, key=lambda p: (-len(p.parts), str(p))):
+        directory.chmod(0o555)
     if root_owned:
         if os.geteuid() != 0:
             raise SnapshotError("ROOT_REQUIRED_FOR_ROOT_OWNED_SNAPSHOT")
@@ -162,6 +170,7 @@ def control_snapshot(src: Path, dest: Path, *, root_owned: bool = False, trust_r
         os.chown(dest, 0, 0, follow_symlinks=False)
         check_tree_owner(dest, 0)
         check_trusted_path(dest, 0, trust_root_dir)
+        control_check(dest, hashlib.sha256(text.encode("utf-8")).hexdigest(), owner_uid=0, trust_root_dir=trust_root_dir)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -173,6 +182,8 @@ def control_check(snap: Path, expected_manifest_sha256: str, *, owner_uid: int |
     manifest = snap / CONTROL_MANIFEST_NAME
     if snap.is_symlink() or not snap.is_dir() or manifest.is_symlink() or not manifest.is_file():
         raise SnapshotError("CONTROL_SNAPSHOT_INVALID")
+    if snap.stat().st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
+        raise SnapshotError(f"CONTROL_SOURCE_WRITABLE:{snap.relative_to(snap)}")
     if hashlib.sha256(manifest.read_bytes()).hexdigest() != expected_manifest_sha256:
         raise SnapshotError("CONTROL_MANIFEST_DIGEST_MISMATCH")
     listed = {}

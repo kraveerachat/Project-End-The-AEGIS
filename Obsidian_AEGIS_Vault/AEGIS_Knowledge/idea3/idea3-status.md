@@ -11,6 +11,27 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 CTu control snapshot directory seal repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** Fresh post-merge CTu authority preparation reached `CTU_CONTROL_MANIFEST_SHA256=d910400b965a6b1883e1c266bd0d32f35904f1644478461e7c1b1af610de0bb1` and `CTU_TRUST_CLOSURE=PASS`, but immediate control verification failed closed with `reason=CONTROL_SOURCE_WRITABLE:ctu-acceptance`. `control_snapshot()` previously created directories with default umask without sealing them to `0555`, while `control_check()` rejects any write bit (`stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH`). `ctu_verifier_snapshot.py` now deterministically seals all snapshot directories (destination root and nested subdirectories `ctu-acceptance/`, `stages/CTu/`, `owner-run/`) to `0555` after files/manifest are written, immediately satisfying `control_check` without operator intervention. File modes (`0555` scripts, `0444` non-executable/manifest) and root ownership boundaries remain preserved. Zero Production runtime mutation occurred; CTu LIVE was NOT executed.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `SNAPSHOT_DIRECTORIES_SEALED_0555=PASS`; `CONTROL_CHECK_FRESH_SNAPSHOT=PASS`. The failed preparation authority `/opt/aegis-idea3-ctu-authority-23f5d0f8b55ce1478f840b6df0ae8b75b9e62f46` is historical failed-preparation evidence only; it was neither modified nor reused.
+
+### Current Task
+
+Task: IDEA3 CTu control snapshot directory seal repair
+Branch: `fix/idea3-ctu-control-snapshot-directory-seal`
+Owner: `music`
+Current state: repository repair, deterministic 0555 directory seal, and 14 behavioral regression requirements implemented and locally verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently build fresh exact-main CTu authority before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S5 | CTu control snapshot directory seal repair (seal all dirs to 0555; fail-closed control_check) | READY FOR REVIEW | 77 focused CTu/repair tests PASS, 676 Recovery successor tests PASS, 59 vault/policy tests PASS, userns root-owned tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; build fresh exact-main CTu authority after merge |
+
 ## IDEA3 CTu exact-two predecessor drop-in preservation repair — repository-only successor — 2026-10-07
 
 > [!important] **Root cause confirmed:** CTu previously treated any Core `DropInPaths` as invalid, but the governed Production topology legitimately contains exactly `10-recovery.conf` and `20-f1-alert.conf`. This continuation adds a fail-closed exact-two contract bound to the exact-main Git template bytes: both paths must be regular non-symlinks owned `root:root` mode `0644`, with no third/foreign file; systemd ordering is compared semantically as a set. The gate runs before marker consumption and after install/reload/restart; rollback validates preservation and never removes or rewrites either predecessor drop-in.
