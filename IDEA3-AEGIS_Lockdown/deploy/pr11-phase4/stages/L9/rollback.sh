@@ -12,6 +12,10 @@
 # It never sends a restore command, never reopens plaintext MQTT, and never
 # runs legacy v0.
 #
+# Live backend (OD-L9-08a): live L9 is a READ-ONLY observation, so there is nothing to undo. Rollback
+# then takes no Core action at all (it never stops the Core and never touches the device); the
+# fail-secure hold above is unchanged for the unreachable-device case and is not triggered by L9.
+#
 # Idempotent: repeated execution exits 0 and changes nothing further.
 set -euo pipefail
 
@@ -36,6 +40,9 @@ if [ -n "$EVIDENCE_DIR" ] && [ -d "$EVIDENCE_DIR" ]; then
   printf 'L9_EVIDENCE_PRESERVED=YES\n'
 else
   printf 'L9_EVIDENCE_PRESERVED=NO\n'
+fi
+if [ "${AEGIS_L9_BACKEND:-fixture}" = live ]; then
+  printf 'L9_LIVE_OBSERVATION_MUTATED_NOTHING=YES\n'
 fi
 printf 'L9_ROLLBACK=COMPLETE\n'
 exit 0

@@ -11,6 +11,21 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 L9 live-capable governed successor — repository-only, STACKED — 2026-10-07
+
+> [!important] **Stacked on PR #375 (CTu) → LVR work → L8 work; DO NOT MERGE.** L9 is authentication without actuation. The repository now carries a live-capable, **read-only** L9 path: it observes the running Core's own authenticated evidence for a bounded window and sends nothing, injects nothing, issues no COMMAND and mutates nothing. `L9_REPOSITORY_IMPLEMENTED=YES`; `L9_LIVE_EXECUTED=NO`; `L8_LIVE_EXECUTED=NO`; `LIVE_STAGE_AUTHORIZED=NO`; `PRODUCTION_MUTATION=NO`; `ESP32_TOUCHED=NO`.
+
+L9 requires the canonical L8 PASS (`p4-l9-gates.py l8-predecessor`: one unique, immutable, ancestry-bound closeout; a missing, failed, repository-only, stale, duplicated or split L8 record is refused). The owner runner is an unpinned template; `p4-l9-freeze.py` derives the frozen runner from the exact reviewed Git object with seven pins; the Authorization carries exactly the five base fields and binds `main=`, `runner=` and `l8=` in its scope; the one-shot marker is consumed before the observation; every post-consumption failure is terminal. The final closeout is one unique immutable receipt gated by `p4-l9-gates.py final-closeout`. Recorded limits: negative probes are not injected live (`REPOSITORY_FIXTURE_ONLY`) and the device-side heartbeat effect is evidenced only by `NO_DEADMAN_OVER_WINDOW`. Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-07-idea3-pr11-phase4-l9-live-successor-design.md`. The L8 work must emit the L8 closeout contract of that design (§2) before this branch is retargeted at `main`.
+
+### Current Task
+
+Task: IDEA3 L9 live-capable governed successor (repository implementation)
+Branch: `feat/idea3-l9-governed-live-successor`
+Owner: `music`
+Current state: repository implementation complete; Draft PR stacked on PR #375; LIVE NOT EXECUTED
+Production mutation allowed by this task: NO
+Next: independent review; reconcile the L8 closeout field names with the L8 work; human merge only after the stack merges
+
 ## IDEA3 Core TrustedClock sandbox repair — repository-only successor preparation — 2026-10-07
 
 > [!important] **Root cause confirmed and repaired in the repository.** The Core's required read-only `adjtimex(2)` TrustedClock probe was blocked by `ProtectClock=true` in the reviewed Core unit. The smallest fix changes only that setting to `ProtectClock=false`; `User=aegis-idea3`, `NoNewPrivileges=true`, empty `CapabilityBoundingSet=`, empty `AmbientCapabilities=`, and the existing unrelated hardening remain unchanged. Linux clock mutation authority is not granted: `CAP_SYS_TIME` is absent and the service is non-root with no ambient/bounding capabilities.

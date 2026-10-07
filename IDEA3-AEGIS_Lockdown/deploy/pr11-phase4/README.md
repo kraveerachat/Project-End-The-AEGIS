@@ -914,3 +914,20 @@ The successor is mechanically proven to be the previous immutable runtime plus e
 Canonical receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-07_005834_music_idea3-rru-live-closeout.md`.
 
 Recovery remains separate and unexecuted: `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. `R1B_RESULT=FAIL_IMMUTABLE` and `R1BV_RESULT=PASS` remain unchanged. Recovery requires this closeout merged into the pinned main and then a NEW exact-main Recovery authority/freeze before any LIVE attempt.
+
+## 26. Stage L9 — live-capable governed successor (read-only observation) — repository only
+
+L9 is **authentication without actuation**. The repository now also carries a live-capable path that observes the RUNNING Core's own authenticated evidence for a bounded window; it sends nothing, injects nothing, issues no COMMAND and mutates nothing (design: `docs/superpowers/specs/2026-10-07-idea3-pr11-phase4-l9-live-successor-design.md`, OD-L9-01a/OD-L9-08a). Nothing here was executed: `L9_LIVE_EXECUTED=NO`, `L8_LIVE_EXECUTED=NO`, `LIVE_STAGE_AUTHORIZED=NO`, `PRODUCTION_MUTATION=NO`.
+
+Operational order: `... -> CTu -> Recovery R2-R8 -> LVR -> L8 -> L9` (L9 last). L9 requires the canonical **L8 PASS**: one unique, immutable, ancestry-bound `_music_idea3-l8-live-closeout.md` (`p4-l9-gates.py l8-predecessor`; a missing, failed, repository-only, stale, duplicated or split L8 record is refused).
+
+| File | Role |
+|---|---|
+| `p4-l9-gates.py` | L8 -> L9 predecessor gate and the final L9 closeout gate (read-only, Git objects of the pinned main) |
+| `p4-l9-live-observe.py` | the live backend: `capture-boundary`, `observe`, `verify` (read-only sqlite, `systemctl show` only, no override flags) |
+| `p4-l9-freeze.py` | frozen runner = exact reviewed template + only the seven approved pins; production verify also requires the L8 predecessor |
+| `p4-l9-run-lib.sh` | one-shot marker, exact Authorization binding (`main=`, `runner=`, `l8=` tokens in `scope`), byte-exact bundle, unique closeout |
+| `owner-run/run-l9-owner.sh` | unpinned template; refuses to run as committed |
+| `templates/l9-live-closeout-receipt.template.md` | template (NOT a receipt) for the one final closeout receipt |
+
+Limits recorded in every bundle: negative probes are not injected live (`REPOSITORY_FIXTURE_ONLY`); the device-side heartbeat effect is evidenced only indirectly (`NO_DEADMAN_OVER_WINDOW`).

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # AEGIS IDEA3 PR11 Phase 4 — Stage L9 verify handler.
 # Read-only post-stage verification. Opens no device and changes nothing.
+# AEGIS_L9_BACKEND=live selects the live-observation bundle (l9-live-evidence.json, class
+# LIVE_CORE_OBSERVATION); anything else selects the fixture bundle. A bundle of the other class,
+# or under the other name, never verifies.
 set -euo pipefail
 
 fail() {
@@ -17,6 +20,22 @@ INPUT_DIR="${AEGIS_L9_INPUT_DIR:-}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="${AEGIS_PYTHON_BIN:-python3}"
+
+# 0. Live backend: recompute the pass criteria from the bundle and reconcile it with the Core's own durable rows.
+if [ "${AEGIS_L9_BACKEND:-fixture}" = live ]; then
+  live_count=$(find "$EVIDENCE_DIR" -maxdepth 1 -type f -name '*.json' | wc -l)
+  [ "$live_count" = "1" ] || fail "expected exactly one evidence bundle, found $live_count"
+  [ -f "$EVIDENCE_DIR/l9-live-evidence.json" ] && [ ! -L "$EVIDENCE_DIR/l9-live-evidence.json" ] || fail "live evidence bundle missing or not named l9-live-evidence.json"
+  P4_LIVE="$(cd "$HERE/../.." && pwd)"
+  "$PYTHON_BIN" "$P4_LIVE/p4-l9-live-observe.py" verify --evidence-dir "$EVIDENCE_DIR" || fail "live evidence bundle verification failed"
+  for allow in allow-keys.txt allow-listeners.txt; do
+    active=$(grep -cvE '^[[:space:]]*(#|$)' "$HERE/$allow" || true)
+    [ "$active" = "0" ] || fail "$allow must have zero active entries (found $active)"
+  done
+  printf 'HOST_PRE_TO_RB_ZERO_DRIFT=YES\n'
+  printf 'L9_VERIFY=PASS\n'
+  exit 0
+fi
 
 # 1. Exactly one stage-local evidence bundle (OD-L9-07)
 bundle_count=$(find "$EVIDENCE_DIR" -maxdepth 1 -type f -name '*.json' | wc -l)

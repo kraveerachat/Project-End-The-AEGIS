@@ -5,9 +5,13 @@
 # Authority: docs/superpowers/specs/
 #   2026-09-21-idea3-pr11-phase4-l9-operational-design.md (OD-L9-01..OD-L9-09)
 #
-# Fails closed on any constraint violation. The only implemented device
-# backend is the fixture backend; the live backend is refused because no live
-# probe mechanism exists in this repository. LIVE_L9=NOT_AUTHORIZED.
+# Fails closed on any constraint violation. Two backends exist:
+#   fixture  the original repository exercise (p4-l9-auth.py): fixture Core/device material only.
+#   live     READ-ONLY observation of the RUNNING Core's own authenticated evidence
+#            (p4-l9-live-observe.py, OD-L9-01a). It sends nothing, injects nothing and mutates
+#            nothing. It is reachable only with AEGIS_L9_LIVE_AUTHORIZED=YES, no fixture inputs and
+#            the root-owned one-shot attempt marker that the governed owner runner consumes first.
+# LIVE_L9 stays NOT_AUTHORIZED unless every one of those conditions holds.
 set -euo pipefail
 
 fail() {
@@ -20,6 +24,38 @@ require_env() {
   local value=${!name:-}
   [ -n "$value" ] || fail "$name required"
 }
+
+# 0. Live backend (OD-L9-01a): a separate, read-only path that never reaches the fixture code below.
+if [ "${AEGIS_L9_BACKEND:-fixture}" = live ]; then
+  [ "${AEGIS_L9_LIVE_AUTHORIZED:-NO}" = YES ] ||
+    fail "LIVE_L9_NOT_AUTHORIZED (AEGIS_L9_LIVE_AUTHORIZED=YES required) (LIVE_L9=NOT_AUTHORIZED)"
+  [ -z "${AEGIS_L9_FIXTURE_NOW:-}${AEGIS_L9_INPUT_DIR:-}" ] ||
+    fail "LIVE_L9_FIXTURE_INPUT_COMBINATION_REFUSED (LIVE_L9=NOT_AUTHORIZED)"
+  for var in AEGIS_L9_WORK_DIR AEGIS_L9_EVIDENCE_DIR AEGIS_L9_DEVICE_ID AEGIS_L9_RUN_ID AEGIS_L9_WINDOW_SECONDS AEGIS_L9_MARKER; do
+    require_env "$var"
+  done
+  [ ! -L "$AEGIS_L9_WORK_DIR" ] || fail "AEGIS_L9_WORK_DIR must not be a symlink"
+  [ ! -L "$AEGIS_L9_EVIDENCE_DIR" ] || fail "AEGIS_L9_EVIDENCE_DIR must not be a symlink"
+  case "$AEGIS_L9_EVIDENCE_DIR" in
+    /etc/* | /opt/* | /dev/* | /run/*) fail "AEGIS_L9_EVIDENCE_DIR must not be a host system path" ;;
+  esac
+  [[ "$AEGIS_L9_DEVICE_ID" =~ ^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$ ]] || fail "invalid device id: $AEGIS_L9_DEVICE_ID"
+  [[ "$AEGIS_L9_WINDOW_SECONDS" =~ ^[0-9]{3}$ ]] || fail "AEGIS_L9_WINDOW_SECONDS must be a 3-digit number of seconds"
+  mkdir -p "$AEGIS_L9_WORK_DIR" "$AEGIS_L9_EVIDENCE_DIR"
+  chmod 0700 "$AEGIS_L9_WORK_DIR" "$AEGIS_L9_EVIDENCE_DIR"
+  LIVE_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  "${AEGIS_PYTHON_BIN:-python3}" "$LIVE_HERE/p4-l9-live-observe.py" observe \
+    --marker "$AEGIS_L9_MARKER" \
+    --evidence-dir "$AEGIS_L9_EVIDENCE_DIR" \
+    --device-id "$AEGIS_L9_DEVICE_ID" \
+    --run-id "$AEGIS_L9_RUN_ID" \
+    --window-seconds "$AEGIS_L9_WINDOW_SECONDS" || fail "live observation failed"
+  printf 'L9_COMMAND_SENT=NONE\n'
+  printf 'L9_LIVE_OBSERVATION=COMPLETE\n'
+  printf 'HOST_PRE_TO_RB_ZERO_DRIFT=YES\n'
+  printf 'L9_APPLY=COMPLETE\n'
+  exit 0
+fi
 
 # 1. Mandatory environment (OD-L9-01, design §2)
 for var in \
@@ -45,7 +81,7 @@ case "$BACKEND" in
   fixture)
     ;;
   live)
-    fail "LIVE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY (LIVE_L9=NOT_AUTHORIZED)"
+    fail "LIVE_L9_UNREACHABLE_FIXTURE_PATH (LIVE_L9=NOT_AUTHORIZED)"
     ;;
   *)
     fail "unknown backend: $BACKEND"

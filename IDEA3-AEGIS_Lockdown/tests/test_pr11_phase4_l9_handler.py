@@ -320,11 +320,14 @@ def test_l9_apply_requires_environment(tmp_path: Path, var: str) -> None:
     assert var in combined(res)
 
 
-@pytest.mark.parametrize("authorized", ["NO", "YES"])
-def test_l9_live_backend_is_refused_by_apply(tmp_path: Path, authorized: str) -> None:
+@pytest.mark.parametrize("authorized,reason", [("NO", "LIVE_L9_NOT_AUTHORIZED"), ("YES", "LIVE_L9_FIXTURE_INPUT_COMBINATION_REFUSED")])
+def test_l9_live_backend_is_refused_by_apply(tmp_path: Path, authorized: str, reason: str) -> None:
+    # Contract amended by the live successor (OD-L9-01a): the live backend is reachable ONLY with an explicit live authorization, no
+    # fixture inputs and the canonical consumed marker. With the fixture environment of this suite it is still always refused, and
+    # never reaches the fixture code path or writes evidence. The exhaustive live gating tests live in test_pr11_phase4_l9_live_successor.py.
     res = run_stage("apply.sh", l9_env(tmp_path, AEGIS_L9_BACKEND="live", AEGIS_L9_LIVE_AUTHORIZED=authorized))
     assert res.returncode != 0
-    assert "LIVE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY" in combined(res)
+    assert reason in combined(res)
     assert "LIVE_L9=NOT_AUTHORIZED" in combined(res)
     assert not (tmp_path / "evidence" / EVIDENCE_NAME).exists()
 
