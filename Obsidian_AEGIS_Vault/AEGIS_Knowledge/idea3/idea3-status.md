@@ -11,6 +11,14 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 L8u — governed read-only L8 live acceptance after LVR PASS — repository-only (STACKED on PR #375) — 2026-10-07
+
+> [!important] **Repository implementation only; nothing ran live.** L8p (historical device provisioning) is CLOSED/PASS and is never rerun; the registered `L8` handler is the original combined inspect/NVS/flash stage and is superseded for the provisioned ESP32. The new stage `L8u` (registered between `Recovery` and `L8`) is the missing **acceptance** stage: a passive, observation-only check through the Core of the already-provisioned production ESP32 (`L8U_CLAIM=LOGICAL_ACCEPTANCE_ONLY`). It never opens a serial port, runs esptool, resets, flashes, provisions, publishes MQTT, restarts a unit or reruns NTP/L8p.
+
+`LVR → L8u` is enforced mechanically from the Git objects of the pinned main (`l8u_predecessors.py`, one implementation for the freeze tool and the runner): exactly one canonical LVR PASS closeout whose `LVR_EXECUTION_MAIN` is a **strict ancestor** of the L8u main (the closeout merge moves main) plus the historical L8p closeout; LVR missing/FAIL/duplicate/split/stale/repository-only and a closeout-digest pin mismatch all refuse. **LVR itself has no machine-readable closeout in the repository (it is an owner-runbook ceremony); the receipt contract in the L8u spec §2 is the integration point with the LVR work stream.** The frozen runner is mechanically derived from the reviewed template (`l8u_runner_freeze.py`, 17 pins, refused before LVR PASS), executes only from an immutable control snapshot, binds Authorization (main + exact runner SHA-256 + device MAC + firmware SHA-256 + LVR closeout SHA-256, exact key set) and K3, consumes ONE attempt total, and fails `FAIL_IMMUTABLE` with durable terminal evidence and a FAIL closeout on any failure/signal after the marker (nothing to roll back: no mutation).
+
+`L8U_REPOSITORY_IMPLEMENTED=YES`; `L8U_LIVE=NOT_AUTHORIZED`; `L8U_LIVE_EXECUTED=NO`; `L8P_EXECUTED=NO`; `ESP32_TOUCHED=NO`; `ESP32_REFLASH_REQUIRED=NO`; `NTP_RERUN_REQUIRED=NO`; `L8_ACCEPTANCE=NO`; `L9_PROVEN=NO`; `ELECTRICAL_RELAY_PROOF=NO`; `PRODUCTION_MUTATION_PERFORMED=NO`. Spec: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-07-idea3-pr11-phase4-l8u-governed-live-acceptance.md`.
+
 ## IDEA3 Core TrustedClock sandbox repair — repository-only successor preparation — 2026-10-07
 
 > [!important] **Root cause confirmed and repaired in the repository.** The Core's required read-only `adjtimex(2)` TrustedClock probe was blocked by `ProtectClock=true` in the reviewed Core unit. The smallest fix changes only that setting to `ProtectClock=false`; `User=aegis-idea3`, `NoNewPrivileges=true`, empty `CapabilityBoundingSet=`, empty `AmbientCapabilities=`, and the existing unrelated hardening remain unchanged. Linux clock mutation authority is not granted: `CAP_SYS_TIME` is absent and the service is non-root with no ambient/bounding capabilities.

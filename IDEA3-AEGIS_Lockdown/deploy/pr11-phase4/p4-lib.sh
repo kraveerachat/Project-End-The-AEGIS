@@ -25,6 +25,8 @@ readonly P4_WINDOW_TZ=Asia/Bangkok
 # Operational order: L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> F1u -> R1I -> R1A (historical consumed FAIL) -> R1Du -> R1D (immutable FAIL after a committed disposition) -> R1Dv -> R1B (immutable FAIL at windowrecord) -> R1Bv -> Recovery R2-R8 -> LVR -> L8 -> L9.
 # RRu (governed Recovery-PREPARATION release deployment) is registered between R1Bv and Recovery R2-R8: it installs ONE new immutable release carrying aegis_soc/cli.py and switches `current`; it is
 # not a retry of any earlier stage and never claims a Recovery result.
+# L8u (governed read-only L8 live ACCEPTANCE; Recovery -> LVR -> L8u) is registered between Recovery and the historical L8 provisioning stage. The historical L8 handler remains registered but is
+# SUPERSEDED for the already-provisioned production ESP32 and must never be run live after the closed L8p provisioning; see docs/superpowers/specs/2026-10-07-idea3-pr11-phase4-l8u-governed-live-acceptance.md.
 # CTu is a NEW governed Core TrustedClock unit successor after RRu: it installs
 # only the reviewed Core unit, reloads systemd when needed, and restarts Core
 # once. It never retries RRu, changes runtime/NTP/network/device state, or
@@ -35,7 +37,7 @@ readonly P4_WINDOW_TZ=Asia/Bangkok
 # immutable release, switch current OLD -> NEW, restart the Core EXACTLY ONCE without touching the running detector, prove the Core runs from the NEW release). L6c keeps its original position and its
 # historical PRE-L7 meaning: its verifier requires the L7 material absent and the Core unit not-found, which is false by design on the post-L7 host (a maintenance reuse
 # of L6c failed closed for exactly that reason), so L6c is never reused post-L7 and is not changed.
-readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu Recovery L8 L9"
+readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu Recovery L8u L8 L9"
 
 p4_stage_known() { [[ " $P4_STAGES " == *" $1 "* ]] && [ -n "$1" ]; }
 
@@ -98,6 +100,9 @@ p4_stage_gaps() {
     # touches `current`, restarts the Core, starts the detector or claims Recovery, LVR, L8 or L9.
     F1i) echo none ;;
     L8) echo G-04,G-11,G-16 ;;
+    # L8u is the governed READ-ONLY live acceptance successor that follows LVR PASS. It owns no repository gap: it reuses the merged Core/protocol evidence and the historical L8p closeout as
+    # predecessor proof only. It never flashes, resets, provisions or commands the ESP32, never publishes MQTT and never claims physical or electrical proof.
+    L8u) echo none ;;
     L9) echo none ;;
   esac
 }
