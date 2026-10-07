@@ -173,7 +173,7 @@ async function loadApp({ shell = null, prefersDark = false } = {}) {
       await act(async () => { await settle() })
     },
     async signOut() {
-      await this.click(this.button('Veerachat J.'))
+      await this.click(document.querySelector('button[aria-haspopup="menu"][aria-expanded]'))
       await this.click(this.byText(t('signOut')))
     },
     async cleanup() {
