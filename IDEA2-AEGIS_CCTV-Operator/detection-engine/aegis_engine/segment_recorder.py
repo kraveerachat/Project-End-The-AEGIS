@@ -101,28 +101,33 @@ class SegmentRecorder(threading.Thread):
         self._stop_event.set()
 
     def submit_detection(self, result: DetectionResult, frame: Frame) -> bool:
-        """Feed one exact detector frame into strict archival recording.
-
-        The queue remains bounded and drops its oldest rendered frame if the
-        writer falls behind. Raw capture is untouched; legacy recording never
-        enters this path.
-        """
+        """Render and queue one detector frame for direct recorder callers."""
         if not self._strict_mode or result.frame_seq != frame.seq:
             return False
-        annotated = annotate_detection_frame(result, frame)
+        return self.submit_annotated(
+            annotate_detection_frame(result, frame)
+        )
+
+    def submit_annotated(self, frame: Frame) -> bool:
+        """Queue one already-rendered immutable strict Archive frame."""
+        if not self._strict_mode:
+            return False
+
         try:
-            self._queue.put_nowait(annotated)
+            self._queue.put_nowait(frame)
         except queue.Full:
             try:
                 self._queue.get_nowait()
                 self._metrics.on_record_drop()
             except queue.Empty:
                 pass
+
             try:
-                self._queue.put_nowait(annotated)
+                self._queue.put_nowait(frame)
             except queue.Full:
                 self._metrics.on_record_drop()
                 return False
+
         return True
 
     # -- lifecycle ---------------------------------------------------------
