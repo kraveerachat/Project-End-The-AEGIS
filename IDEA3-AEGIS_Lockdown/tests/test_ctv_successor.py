@@ -647,3 +647,51 @@ def test_recovery_ctv_successor_gate_rejects_each_governance_break(tmp_path, mut
     result = _run_recovery_ctv_gate(repo, main, canon, unit, receipt_rel)
     assert result.returncode != 0, (mutation, result.stdout, result.stderr)
     assert not (canon / "RECOVERY-GLOBAL-ATTEMPT-CONSUMED").exists()
+
+
+CTU_LIB = DEPLOY / "p4-ctu-run-lib.sh"
+
+
+def test_ctv_core_env_device_id_validator_is_available_and_delegates_to_ctu(tmp_path):
+    env_file = tmp_path / "core.env"
+    cmd = f'export CTV_SUDO="" CTU_SUDO="" SUDO=""; . "{CTV_LIB}"; . "{CTU_LIB}"; ctv_validate_core_env_device_id "$1" "$2"'
+    assert run_bash('. "$1"; declare -F ctv_validate_core_env_device_id', str(CTV_LIB)).returncode == 0
+
+    env_file.write_text("# c\nAEGIS_P1_DEVICE_ID=\"aegis-relay-01\"\n")
+    assert run_bash(cmd, str(env_file), "aegis-relay-01").returncode == 0
+    for body, expected in (
+        ("AEGIS_P1_DEVICE_ID=other-device\n", "aegis-relay-01"),
+        ("OTHER=1\n", "aegis-relay-01"),
+        ("AEGIS_P1_DEVICE_ID=a\nAEGIS_P1_DEVICE_ID=a\n", "a"),
+        ("AEGIS_P1_DEVICE_ID=aegis-relay-01\n", "bad id;"),
+        ("AEGIS_P1_DEVICE_ID=aegis-relay-01\n", ""),
+    ):
+        env_file.write_text(body)
+        assert run_bash(cmd, str(env_file), expected).returncode != 0, (body, expected)
+    link = tmp_path / "link.env"
+    link.symlink_to(env_file)
+    env_file.write_text("AEGIS_P1_DEVICE_ID=aegis-relay-01\n")
+    assert run_bash(cmd, str(link), "aegis-relay-01").returncode != 0
+    assert run_bash(cmd, str(tmp_path / "absent.env"), "aegis-relay-01").returncode != 0
+
+
+def test_ctv_missing_ctu_validator_is_rejected_before_attempt_consumption(tmp_path):
+    env_file = tmp_path / "core.env"
+    env_file.write_text("AEGIS_P1_DEVICE_ID=aegis-relay-01\n")
+    canon = tmp_path / "canon"
+    canon.mkdir()
+    # CTu library deliberately not sourced: the validator must fail closed.
+    cmd = (
+        f'export CTV_SUDO="" SUDO=""; . "{CTV_LIB}"; '
+        'if ctv_validate_core_env_device_id "$1" aegis-relay-01; then echo ACCEPTED; exit 0; fi; echo REJECTED'
+    )
+    proc = run_bash(cmd, str(env_file))
+    assert proc.stdout.strip() == "REJECTED"
+    assert "CTV_DEVICE_ID_VALIDATOR_MISSING" in proc.stderr
+    assert list(canon.iterdir()) == []
+
+
+def test_ctv_runner_validates_device_id_before_marker_consumption():
+    text = CTV_RUNNER.read_text()
+    assert text.index("ctv_validate_core_env_device_id /etc/aegis-idea3/core.env") < text.index("ctv_marker_unconsumed")
+    assert text.index("ctv_validate_core_env_device_id /etc/aegis-idea3/core.env") < text.index("ctv_consume_attempt")

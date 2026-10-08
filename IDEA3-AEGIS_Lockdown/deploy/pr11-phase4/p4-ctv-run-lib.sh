@@ -34,6 +34,12 @@ ctv_canonical_dir() {
   else printf '%s' "$CTV_CANONICAL_DIR"; fi
 }
 ctv_fsync() { ctv_run sync -- "$1" 2>/dev/null; }
+# Delegates to the reviewed CTu validator (sourced from the bundle by the
+# runner); a missing validator is a fail-closed pre-consume rejection.
+ctv_validate_core_env_device_id() {
+  declare -F ctu_validate_core_env_device_id >/dev/null 2>&1 || { echo "CTV_DEVICE_ID_VALIDATOR_MISSING" >&2; return 1; }
+  CTU_SUDO=${CTV_SUDO-} ctu_validate_core_env_device_id "$@"
+}
 ctv_prepare_work_dir() {
   local dir=${1:-}; ctv_path_ok "$dir" || return 1
   ctv_run mkdir -p -- "$dir" || return 1
