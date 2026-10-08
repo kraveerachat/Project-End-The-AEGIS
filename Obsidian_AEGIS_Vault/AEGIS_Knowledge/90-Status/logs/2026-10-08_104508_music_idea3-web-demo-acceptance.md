@@ -15,7 +15,7 @@ edit_policy: append-by-new-file
 - Ran the existing Security Center (Express + React) end to end on isolated local resources and fixed two real defects found by that run. Baseline main `c96e1c80dbeac16dffe0983b7e2e052f7bb9b911`: 566 tests passed, build passed.
 - **Demo isolation defect (fixed).** While Demo Mode was active, alert acknowledgement, incident notes, recovery dry-run, policy edits and audit export were written to the durable Live SQLite repository. A Demo policy edit persisted into Live policy and simulated rows (for example `ALERT/ACKNOWLEDGE/demo-alert-001`) appeared in the Live audit ledger. Demo Mode now uses a session-scoped, memory-only repository (`demoRegistry`) built on the existing `memoryRepository`; it is discarded on deactivation, re-activation, logout and login, and is bounded to 32 sessions. Only the mode switch itself is recorded in the durable ledger. `GET /audit` returns the active mode's ledger only.
 - **Audit page truthfulness defect (fixed).** The Audit page hard-coded "Tamper evidence VERIFIED / chain check succeeded" (neither audit store has a hash chain) and a fixed retention and export limit in Live as well as Demo. It now reports `NOT VERIFIED` and reads retention and export limit from the active policy.
-- Added a deterministic local launcher `npm run demo:local` and `npm run acceptance`. The launcher refuses `NODE_ENV=production`, binds loopback, uses a random one-run password and a temporary audit database deleted on exit, strips IDEA1/IDEA2/runtime URLs, tokens, dispatch and proxy settings, and cannot reach MQTT, an ESP32 or a relay.
+- Added a deterministic local launcher `npm run demo:local` and `npm run acceptance`. The launcher refuses `NODE_ENV=production`, binds loopback, uses a random one-run password and a private temporary audit directory that only the launcher itself allocates and removes (on SIGINT, SIGTERM, SIGHUP, startup failure such as a busy port, and normal or error process exit; production is refused before anything is allocated; SIGKILL or power loss cannot be handled and may leave an `aegis-idea3-demo-*` directory, which is safe to delete), strips IDEA1/IDEA2/runtime URLs, tokens, dispatch and proxy settings, and cannot reach MQTT, an ESP32 or a relay.
 - Added acceptance suites that drive the real stack: real Express session, CSRF and origin checks, real SQLite repository, real `App` UI with its `fetch` bridged to a listening server. Only upstream HTTP responses and the Core machine-identity headers are test-injected.
 
 ## Source files changed
@@ -25,13 +25,13 @@ edit_policy: append-by-new-file
 - `IDEA3-AEGIS_Lockdown/web/server/routes/authRoutes.js` — release Demo state on login and logout.
 - `IDEA3-AEGIS_Lockdown/web/server/createApp.js` — create and inject the Demo registry.
 - `IDEA3-AEGIS_Lockdown/web/src/pages/AuditPage.jsx` — remove invented tamper-evidence, retention and export-limit claims.
-- `IDEA3-AEGIS_Lockdown/web/scripts/demo-local.mjs` — local, non-production launcher.
+- `IDEA3-AEGIS_Lockdown/web/scripts/demo-local.mjs` — local, non-production launcher; review finding F1 fixed (production refusal before allocation, handlers installed before startup, synchronous idempotent removal of only the launcher-owned directory, SIGHUP support).
 - `IDEA3-AEGIS_Lockdown/web/package.json` — `acceptance` and `demo:local` scripts.
 - `IDEA3-AEGIS_Lockdown/web/package-lock.json` — lock-only patch bump of transitive `proxy-addr` 2.0.7 to 2.0.8 (Express 5.2.1 allows `~2.0.7`); no `package.json` dependency range changed.
 - `IDEA3-AEGIS_Lockdown/web/README.md` — local demo and acceptance usage, Demo isolation behaviour.
 - `IDEA3-AEGIS_Lockdown/web/tests/server/demoIsolation.test.js` — regression tests for the isolation defect (4 + 1).
 - `IDEA3-AEGIS_Lockdown/web/tests/client/auditTruthfulness.test.jsx` — regression tests for the Audit page claims (3).
-- `IDEA3-AEGIS_Lockdown/web/tests/server/demoLocalLauncher.test.js` — launcher environment tests (4).
+- `IDEA3-AEGIS_Lockdown/web/tests/server/demoLocalLauncher.test.js` — launcher environment tests plus real-process cleanup tests with a private TMPDIR: production refusal, busy port, and SIGINT/SIGTERM/SIGHUP after an actual login (4 + 2 + 5).
 - `IDEA3-AEGIS_Lockdown/web/tests/acceptance/liveContract.acceptance.test.js` — live contract acceptance (10).
 - `IDEA3-AEGIS_Lockdown/web/tests/acceptance/presenterFlow.acceptance.test.jsx` — UI to API presenter-flow acceptance (4).
 
@@ -48,6 +48,8 @@ edit_policy: append-by-new-file
 - `npm audit --omit=dev` — before: transitive `proxy-addr` 2.0.7, critical GHSA-jqcg-44mw-7w3h (IP spoofing via IPv4-mapped IPv6 trust subnet; relevant to the pinned-proxy production mode). After the lock-only bump to 2.0.8: 0 vulnerabilities; full web suite, including the proxied-listener production tests, still passes.
 - `npm run demo:local` re-verified after the merge with `AEGIS_IDEA1_STATUS_URL` and `AEGIS_IDEA3_DISPATCH_ENABLED=true` set in the caller environment: single listener on 127.0.0.1, zero non-loopback connections, temporary audit directory mode 700, login with the random one-run password, Live shows `NOT_CONFIGURED`/`UNKNOWN` with no dispatch, Demo containment refused (409), SIGINT leaves no listener and removes the temporary directory. Credentials were not written to evidence.
 
+- Independent review (Claude #1, comment 6051923407) on head 98177b20 found F1 (launcher temporary audit DB left behind on production refusal, busy-port startup failure and SIGHUP); fixed in this PR. Re-run: `npm test` 36 files / 599 tests, `npm run build`, `npm run acceptance` 14, `npm audit --omit=dev` 0 vulnerabilities, `git diff --check`, vault validation — pass. With the exit handler and SIGHUP support disabled, the busy-port and SIGHUP tests fail.
+
 ## Canonical notes updated
 
 - `None` — no durable project fact changed; this receipt records the acceptance result.
@@ -62,6 +64,7 @@ edit_policy: append-by-new-file
 
 ## Known limitations
 
+- Review findings recorded and NOT fixed here (non-blocking): F2 a malformed JSON body returns 500 instead of 400 (present on main); F3 one Demo session's in-memory audit list is unbounded and removing the login-time `demoRegistry.reset` is not caught by a test; F4 `repositoryFor` does not re-check `demoAllowed` (not reachable today).
 - No real browser was available; the UI was exercised with the real `App` in jsdom against a real listening server, not in Chrome or Firefox.
 - In LIVE mode the IDEA1, IDEA2, Alerts and Devices evidence pages stay empty by design (`events: []`; live events travel only in `integration.events` and correlated incidents) because live IDEA1/IDEA2 event integration is OPEN in the PR7 design. Their zero-count metrics are therefore not evidence of absence. The Demo path is the presentation path for those pages.
 - Physical relay confirmation, real MQTT, ESP32 and Core claim/ACK flows were not exercised against hardware; the Core is simulated through the shared dispatch contract.

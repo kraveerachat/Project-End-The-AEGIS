@@ -101,7 +101,7 @@ npm run demo:local      # เปิด http://127.0.0.1:8003/ รหัสผ่
 npm run acceptance      # UI → HTTP → server → SQLite แบบ end-to-end ในเครื่อง
 ```
 
-`demo:local` ทำงานเฉพาะ loopback ในโหมด development ใช้ audit database ชั่วคราวที่ลบเมื่อหยุด
+`demo:local` ทำงานเฉพาะ loopback ในโหมด development ใช้ audit database ชั่วคราวใน directory ส่วนตัวที่ launcher สร้างเอง และลบเฉพาะ directory นั้นเมื่อ SIGINT/SIGTERM/SIGHUP, เริ่มระบบไม่สำเร็จ (เช่น port ถูกใช้) หรือ process จบการทำงานตามปกติ ส่วน SIGKILL/ไฟดับไม่สามารถ cleanup ได้ จึงอาจเหลือ `aegis-idea3-demo-*` ใน temp directory ซึ่งลบทิ้งได้อย่างปลอดภัย
 ตัด IDEA1/IDEA2/runtime URL, token, dispatch และ proxy ออกจาก environment ก่อนเริ่ม และปฏิเสธการรันเมื่อ
 `NODE_ENV=production` จึงไม่สามารถส่ง MQTT, เข้าถึง ESP32/Relay หรือสร้าง dispatch จริงได้ Live mode แสดง
 `NOT_CONFIGURED` ตามจริง ส่วนข้อมูลสาธิตอยู่ใน Settings → Demo Mode (มีป้ายข้อมูลจำลองทุกหน้า)
