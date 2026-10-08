@@ -17,6 +17,7 @@ test('SOC selects distinct same-alias Node sources without an Engine or logical 
   await expect(page.getByRole('button', { name: /CAM-01.*machine-a/i })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.hero .feedimg')).toHaveAttribute('src', /\/api\/live\/active-views\/opaque-view-a\/stream/)
   await expect(page.locator('.acpanel')).toContainText('Machine A person')
+  await expect(page.locator('.hero .bbox')).toHaveCount(0)
   await expect(page.locator('.canvasR')).not.toContainText('Machine B person')
   await expect.poll(async () => (await stats(request)).active).toEqual(['passive:opaque-view-a'])
   await page.getByRole('button', { name: /CAM-01.*machine-b/i }).click()

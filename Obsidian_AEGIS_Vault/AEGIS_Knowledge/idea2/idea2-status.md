@@ -15,6 +15,27 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
+## Live face-box attribution source correction — 2026-10-09
+
+The Live canvas no longer projects persisted detection rows into fixed screen
+slots. Those rows contain identity/event history but no bounding-box geometry,
+so the former overlay could place an old ADMIN label over an unrelated current
+frame. Operator and SOC Live now rely only on the Detection Engine's annotation
+of the exact frame that produced each result. The Engine label includes the
+measured entity confidence; Unknown status always renders UNKNOWN even if a
+malformed entity carries a name. Multiple exact-frame face boxes remain
+supported and recognition thresholds are unchanged.
+
+Focused synthetic Engine tests and the complete 35-test browser fixture suite
+pass; the Monitor production build and 58 governance/Vault tests pass. The full
+Engine suite is environment-blocked by the local test interpreter missing
+`cryptography` (7 errors unrelated to this delta). The full neutral Monitor
+suite retains one pre-existing PR #348 contract-test mismatch in
+`archiveRecordingContract.test.mjs`; the affected Live, SOC scope, stream,
+recognizer and worker-memory tests pass. No Production or Machine A/C runtime
+was touched. Real Machine C visual acceptance remains pending a separately
+authorized deployment and operator-run camera test.
+
 ## PR #370 SOC passive Live post-merge reconciliation — 2026-10-07
 
 PR #370, `feat(idea2): add SOC passive live viewer`, is MERGED into
