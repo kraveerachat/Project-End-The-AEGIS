@@ -27,14 +27,14 @@ edit_policy: append-by-new-file
 - `/usr/bin/python3 -m pytest -q tests/recovery/test_recovery_third_successor_readiness.py` — 154 passed. Includes the real `recovery_ctv_successor_gate` refusing a CTv FAIL history (`RECOVERY_CTV_FAIL_CLOSEOUT_PRESENT`) without creating a marker.
 - `/usr/bin/python3 -m py_compile deploy/pr11-phase4/recovery-acceptance/recovery_third_successor_readiness.py tests/recovery/test_recovery_third_successor_readiness.py` — pass.
 - `/usr/bin/python3 -m pytest -q tests/recovery` — 805 passed, 4 failed. Remaining failures are pre-existing environment/test-seam mismatches outside this task: `tests/recovery/test_recovery_d4_readiness.py::test_the_rehearsal_stops_before_the_recovery_request_boundary_no_secret_no_socket_no_marker` (`EPERM` binding UNIX socket), `tests/recovery/test_recovery_runner_authority.py::test_the_correct_root_owned_production_shape_passes_the_control_and_snapshot_gates`, `tests/recovery/test_recovery_runner_freeze.py::test_the_test_seam_is_refused_in_the_real_root_namespace`, and `tests/recovery/test_recovery_snapshot_freeze.py::test_the_test_seam_is_refused_in_the_real_root_namespace` (expected test-seam refusal text is pre-empted by `/tmp` ownership validation).
-- `git diff --check` — pass. No live Recovery, attempt consumption, marker mutation, Production, credentials, hardware, staging, commit, push, merge, or main merge was performed.
+- `git diff --check` — PASS during the original sandbox review; that sandbox performed no Git writes. Subsequent owner-host Git-only staging, commits, `main` reconciliation and PR-branch pushes did occur. No live Recovery, attempt consumption, marker mutation, Production, credentials or hardware action occurred.
 - `pytest tests/recovery tests/rru tests/r1bv tests/test_recovery_stage.py tests/test_pr11_phase4_harness.py` — 1353 passed, 3 failed (before merging main; 1108 passed, 3 failed on the impacted subset after it) (the known stale stage-order tests, identical on unchanged main).
 - Release-builder, guard/installer, l7u, CTv and CTu suites — 5 failed, 56 errors (`No module named pip`), identical to a worktree at exact main 6ed42345 reproduced earlier in this session.
 - `git diff --check` and vault validation — see the PR.
 
 ## Canonical notes updated
 
-- Existing PR407 receipt reconciled in place; no new receipt created.
+- None — no canonical IDEA3 MOC/status note changed. This is the single new current-task receipt introduced by PR #407; corrections before merge were recorded in that same unmerged-task receipt.
 
 ## Shared surfaces touched
 
