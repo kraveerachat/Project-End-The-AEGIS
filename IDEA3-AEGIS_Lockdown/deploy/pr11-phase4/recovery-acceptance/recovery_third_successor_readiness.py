@@ -43,7 +43,7 @@ RECOVERY_LIB_REL = "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-recovery-run-lib.
 HEX40 = re.compile(r"[0-9a-f]{40}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{7,63}")
-KV = re.compile(r"([A-Z][A-Z0-9_]*)=([^\n\r]*)")
+KV = re.compile(r"([A-Za-z][A-Za-z0-9_]*)=([^\n\r]*)")
 FORBIDDEN_ENV = (
     "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONINSPECT", "PYTHONBREAKPOINT", "PYTHONSAFEPATH", "PYTHONDONTWRITEBYTECODE",
     "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "BASH_ENV", "ENV", "GIT_DIR", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
@@ -59,6 +59,18 @@ CLOSEOUT_FIXED = {
     "CTV_JOURNAL_PHASE": "apply-verified", "CTV_DETECTOR_BASELINE_MODE": "INACTIVE", "CTV_TRUSTEDCLOCK_AT_DISPOSITION": "SYNCED",
 }
 CTU_CLOSEOUT_FIXED = {"CTU_RESULT": "FAIL_IMMUTABLE", "CTU_ATTEMPT_CONSUMED": "YES", "CTU_RERUN_ALLOWED": "NO"}
+CTV_MARKER_KEYS = {
+    "CTV_ATTEMPT_CONSUMED", "CTV_RERUN_ALLOWED", "CTV_FROZEN_RUNNER_SHA256",
+    "CTV_RUNNER_TEMPLATE_SHA256", "CTV_BUNDLE_MANIFEST_SHA256",
+    "CTV_CONTROL_MANIFEST_SHA256", "work",
+}
+CTU_MARKER_KEYS = {
+    "CTU_ATTEMPT_CONSUMED", "CTU_RERUN_ALLOWED", "CTU_DEVICE_ID",
+    "CTU_FROZEN_RUNNER_SHA256", "CTU_BUNDLE_MANIFEST_SHA256",
+    "CTU_CONSUMED_AT_EPOCH", "work", "CTU_PRE_PROTOCOL_SEEN_ID",
+    "CTU_PRE_AUDIT_ID", "CTU_PRE_EPISODE_ID", "CTU_PRE_OPEN_EPISODE_COUNT",
+    "CTU_PRE_OPEN_EPISODE_ID",
+}
 AUTH_KEYS = (
     "AUTH_SCHEMA", "AUTH_ID", "AUTH_DATE_UTC", "AUTH_MAIN", "AUTH_CTV_CLOSEOUT_SHA256", "AUTH_STAGE", "AUTH_IS_CTV_RETRY",
     "AUTH_INHERITS_PREVIOUS_AUTHORIZATION", "AUTH_SINGLE_ATTEMPT", "AUTH_K3_BINDING_SHA256", "AUTH_REVIEWED_SUCCESSOR_AUTHORITY_ID",
@@ -194,6 +206,41 @@ def parse_kv(data: bytes, what: str, *, allow_prefix_noise: bool = False) -> dic
     return out
 
 
+def validate_marker(marker: dict[str, str], *, prefix: str, keys: set[str]) -> None:
+    if set(marker) != keys:
+        raise Refuse(f"{prefix}_MARKER_SCHEMA_NOT_EXACT")
+    if marker[f"{prefix}_ATTEMPT_CONSUMED"] != "YES" or marker[f"{prefix}_RERUN_ALLOWED"] != "NO":
+        raise Refuse(f"{prefix}_MARKER_NOT_CONSUMED_NO_RERUN")
+    if prefix == "CTV":
+        for key in ("CTV_FROZEN_RUNNER_SHA256", "CTV_RUNNER_TEMPLATE_SHA256", "CTV_BUNDLE_MANIFEST_SHA256", "CTV_CONTROL_MANIFEST_SHA256"):
+            if not HEX64.fullmatch(marker[key]):
+                raise Refuse(f"CTV_MARKER_FIELD_INVALID:{key}")
+        if not marker["work"].startswith("/") or ".." in Path(marker["work"]).parts:
+            raise Refuse("CTV_MARKER_WORK_DIR_INVALID")
+        return
+    if not ID.fullmatch(marker["CTU_DEVICE_ID"]):
+        raise Refuse("CTU_MARKER_FIELD_INVALID:CTU_DEVICE_ID")
+    for key in ("CTU_FROZEN_RUNNER_SHA256", "CTU_BUNDLE_MANIFEST_SHA256"):
+        if not HEX64.fullmatch(marker[key]):
+            raise Refuse(f"CTU_MARKER_FIELD_INVALID:{key}")
+    try:
+        consumed = float(marker["CTU_CONSUMED_AT_EPOCH"])
+        boundary = {key: int(marker[key]) for key in (
+            "CTU_PRE_PROTOCOL_SEEN_ID", "CTU_PRE_AUDIT_ID", "CTU_PRE_EPISODE_ID",
+            "CTU_PRE_OPEN_EPISODE_COUNT", "CTU_PRE_OPEN_EPISODE_ID",
+        )}
+    except (ValueError, TypeError):
+        raise Refuse("CTU_MARKER_BOUNDARY_INVALID") from None
+    if consumed <= 0 or not (consumed < float("inf")) or any(value < 0 for value in boundary.values()):
+        raise Refuse("CTU_MARKER_BOUNDARY_INVALID")
+    if boundary["CTU_PRE_OPEN_EPISODE_COUNT"] not in (0, 1) or (
+        boundary["CTU_PRE_OPEN_EPISODE_COUNT"] == 0 and boundary["CTU_PRE_OPEN_EPISODE_ID"] != 0
+    ):
+        raise Refuse("CTU_MARKER_OPEN_EPISODE_BOUNDARY_INVALID")
+    if not marker["work"].startswith("/") or ".." in Path(marker["work"]).parts:
+        raise Refuse("CTU_MARKER_WORK_DIR_INVALID")
+
+
 # ─── report ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 class Report:
     def __init__(self) -> None:
@@ -262,6 +309,10 @@ def read_history(canon: str, pins: dict[str, str], stop: Path | None) -> tuple[s
         return "BLOCKED", "CLOSEOUT_SIDECAR_DOES_NOT_MATCH_THE_CLOSEOUT", {}
     closeout = parse_kv(closeout_raw, "CLOSEOUT")
     marker = parse_kv(marker_raw, "MARKER")
+    try:
+        validate_marker(marker, prefix="CTV", keys=CTV_MARKER_KEYS)
+    except Refuse as exc:
+        return "BLOCKED", str(exc), {}
     for k, v in CLOSEOUT_FIXED.items():
         if closeout.get(k) != v:
             return "BLOCKED", f"CLOSEOUT_FIELD_NOT_THE_IMMUTABLE_FAIL:{k}", {}
@@ -277,6 +328,11 @@ def read_history(canon: str, pins: dict[str, str], stop: Path | None) -> tuple[s
         return "BLOCKED", "CTU_PASS_PRESENT_CONTRADICTS_THE_RECORDED_HISTORY", {}
     if not (ctu_marker.name in names and ctu_fail.name in names):
         return "UNKNOWN", "CTU_HISTORY_NOT_PRESENT_IN_THE_SUPPLIED_COPY", {}
+    try:
+        ctu_marker_values = parse_kv(trusted_read(str(ctu_marker), stop), "CTU_MARKER")
+        validate_marker(ctu_marker_values, prefix="CTU", keys=CTU_MARKER_KEYS)
+    except Refuse as exc:
+        return "BLOCKED", str(exc), {}
     ctu = parse_kv(trusted_read(str(ctu_fail), stop), "CTU_CLOSEOUT")
     for k, v in CTU_CLOSEOUT_FIXED.items():
         if ctu.get(k) != v:
@@ -471,12 +527,10 @@ def run(args: argparse.Namespace) -> tuple[Report, int]:
 
     if hist == "BLOCKED":
         readiness = "BLOCKED"
-    elif (hist == "VERIFIED" and runtime == "PARTIAL" and rel == "VERIFIED" and prereq_pass and detector in ("PARTIAL", "VERIFIED")
-          and auth == "PRESENT_NOT_EXECUTED" and pinned_ok and not hermetic):
-        readiness = "AWAITING_APPROVAL"
     else:
-        readiness = "PARTIAL"
-    if hermetic and readiness == "AWAITING_APPROVAL":
+        # PARTIAL is evidence maturity, never an approval-ready state.  This
+        # verifier is offline and transcript-driven; even a complete-looking
+        # production transcript cannot become an approval barrier here.
         readiness = "PARTIAL"
     r.add("READINESS", readiness)
     r.add("MISSING_OWNER_EVIDENCE", ",".join(k for k, v in req.items() if v in ("UNKNOWN", "PARTIAL")) or "NONE")

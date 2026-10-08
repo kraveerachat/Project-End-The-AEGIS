@@ -46,7 +46,11 @@ CLOSEOUT = {
     "CTV_S10_HISTORICAL_COMPARE": "FAIL", "CTV_S10_PROMOTED_TO_PASS": "NO", "CTV_RECOVERY_AUTHORIZED": "NO", "CTV_JOURNAL_PHASE": "apply-verified",
     "CTV_DETECTOR_BASELINE_MODE": "INACTIVE", "CTV_TRUSTEDCLOCK_AT_DISPOSITION": "SYNCED", "CTV_FROZEN_RUNNER_SHA256": H["a"], "CTV_UNIT_SHA256": H["u"],
 }
-MARKER = {"CTV_ATTEMPT_CONSUMED": "YES", "CTV_RERUN_ALLOWED": "NO", "CTV_FROZEN_RUNNER_SHA256": H["a"]}
+MARKER = {
+    "CTV_ATTEMPT_CONSUMED": "YES", "CTV_RERUN_ALLOWED": "NO", "CTV_FROZEN_RUNNER_SHA256": H["a"],
+    "CTV_RUNNER_TEMPLATE_SHA256": H["c"], "CTV_BUNDLE_MANIFEST_SHA256": H["d"],
+    "CTV_CONTROL_MANIFEST_SHA256": H["e"], "work": "/var/lib/aegis-idea3-work",
+}
 CTU_FAIL = {"CTU_RESULT": "FAIL_IMMUTABLE", "CTU_ATTEMPT_CONSUMED": "YES", "CTU_RERUN_ALLOWED": "NO"}
 
 
@@ -96,7 +100,13 @@ class World:
         self.put(c / "CTV-GLOBAL-CLOSEOUT-FAIL", kv(closeout or self.closeout))
         self.put(c / "CTV-GLOBAL-CLOSEOUT-FAIL.sha256", f"{sha((c / 'CTV-GLOBAL-CLOSEOUT-FAIL').read_bytes())}  CTV-GLOBAL-CLOSEOUT-FAIL\n")
         self.put(c / "CTV-GLOBAL-ATTEMPT-CONSUMED", kv(MARKER))
-        self.put(c / "CTU-GLOBAL-ATTEMPT-CONSUMED", "CTU_ATTEMPT_CONSUMED=YES\n")
+        self.put(c / "CTU-GLOBAL-ATTEMPT-CONSUMED", kv({
+            "CTU_ATTEMPT_CONSUMED": "YES", "CTU_RERUN_ALLOWED": "NO", "CTU_DEVICE_ID": "aegis-relay-01",
+            "CTU_FROZEN_RUNNER_SHA256": H["a"], "CTU_BUNDLE_MANIFEST_SHA256": H["b"],
+            "CTU_CONSUMED_AT_EPOCH": "1790000000.0", "work": str(self.root / "ctu-work"),
+            "CTU_PRE_PROTOCOL_SEEN_ID": "0", "CTU_PRE_AUDIT_ID": "0", "CTU_PRE_EPISODE_ID": "0",
+            "CTU_PRE_OPEN_EPISODE_COUNT": "0", "CTU_PRE_OPEN_EPISODE_ID": "0",
+        }))
         self.put(c / "CTU-GLOBAL-CLOSEOUT-FAIL", kv(CTU_FAIL))
 
     def attestation(self, **over: str) -> Path:
@@ -295,6 +305,45 @@ def test_duplicate_or_stray_ctv_entries_are_rejected(w, extra):
 def test_missing_consumed_marker_is_rejected(w):
     (w.canon / "CTV-GLOBAL-ATTEMPT-CONSUMED").unlink()
     assert full(w)["HISTORICAL_EVIDENCE"] == "BLOCKED"
+
+
+@pytest.mark.parametrize("change", [
+    lambda m: {**m, "CTU_ATTEMPT_CONSUMED": "NO"},
+    lambda m: {**m, "CTU_RERUN_ALLOWED": "YES"},
+    lambda m: {**m, "CTU_DEVICE_ID": ""},
+    lambda m: {**m, "CTU_CONSUMED_AT_EPOCH": "not-a-time"},
+    lambda m: {**m, "CTU_PRE_OPEN_EPISODE_COUNT": "2"},
+    lambda m: {**m, "CTU_FROZEN_RUNNER_SHA256": "bad"},
+])
+def test_ctu_marker_contents_are_required_not_just_the_filename(w, change):
+    marker = w.canon / "CTU-GLOBAL-ATTEMPT-CONSUMED"
+    values = {line.split("=", 1)[0]: line.split("=", 1)[1] for line in marker.read_text().splitlines()}
+    w.put(marker, kv(change(values)))
+    o = full(w)
+    assert o["HISTORICAL_EVIDENCE"] == "BLOCKED" and o.rc == 2
+
+
+def test_ctu_marker_with_an_unknown_key_is_rejected(w):
+    marker = w.canon / "CTU-GLOBAL-ATTEMPT-CONSUMED"
+    w.put(marker, marker.read_text() + "CTU_NOTE=unexpected\n")
+    o = full(w)
+    assert o["HISTORICAL_EVIDENCE"] == "BLOCKED" and "SCHEMA_NOT_EXACT" in o["HISTORICAL_EVIDENCE_REASON"]
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "writable"])
+def test_ctu_marker_file_trust_boundary_is_enforced(w, kind):
+    marker = w.canon / "CTU-GLOBAL-ATTEMPT-CONSUMED"
+    if kind == "symlink":
+        real = w.ev / "ctu-marker-real"
+        w.put(real, marker.read_text())
+        marker.unlink()
+        marker.symlink_to(real)
+    elif kind == "hardlink":
+        os.link(marker, w.ev / "ctu-marker-hardlink")
+    else:
+        os.chmod(marker, 0o666)
+    o = full(w)
+    assert o.rc == 2 and o["HISTORICAL_EVIDENCE"] == "BLOCKED" and o["RECOVERY_AUTHORIZED"] == "NO"
 
 
 def test_a_consumed_marker_that_allows_rerun_is_rejected(w):
@@ -680,10 +729,10 @@ def prod_run(w: World, drop: str = "", **over) -> tuple[Out, int]:
     return o, code
 
 
-def test_awaiting_approval_is_reachable_only_with_every_prerequisite_and_never_exits_zero(w):
+def test_partial_runtime_is_never_misrepresented_as_awaiting_approval(w):
     o, code = prod_run(w)
     assert o["MODE"] == "PRODUCTION" and o["RELEASE_CLI"] == "VERIFIED" and o["CURRENT_RUNTIME"] == "PARTIAL"
-    assert o["READINESS"] == "AWAITING_APPROVAL" and code == 4
+    assert o["READINESS"] == "PARTIAL" and code == 3
     assert o["RECOVERY_AUTHORIZED"] == "NO" and o["RECOVERY_EXECUTED"] == "NO" and o["PRODUCTION_MUTATION"] == "NO"
     assert o["REQUIREMENT_RESTORE_CUT_RESTRICTIONS"] == "UNKNOWN"
 
@@ -800,19 +849,6 @@ def test_mutation_environment_check_removed_runs_with_pythonpath(tmp_path):
                "        if name.startswith((\"PYTHON\", \"LD_\"))", "        if False")
     o = w.run(env={"LD_PRELOAD": "/nonexistent"})
     assert "ENVIRONMENT_OVERRIDE_SET:LD_PRELOAD" not in o.stdout
-
-
-def test_mutation_exit_code_zero_for_awaiting_approval_is_detected(tmp_path):
-    w = mutant(tmp_path, "\"AWAITING_APPROVAL\": 4}", "\"AWAITING_APPROVAL\": 0}")
-    o, code = prod_run(w)
-    assert o["READINESS"] == "AWAITING_APPROVAL" and code == 0, "the unmutated tool returns 4 (asserted above)"
-
-
-def test_mutation_hermetic_readiness_cap_removed(tmp_path):
-    w = mutant(tmp_path, "    if hermetic and readiness == \"AWAITING_APPROVAL\":\n        readiness = \"PARTIAL\"\n", "",
-               "and auth == \"PRESENT_NOT_EXECUTED\" and pinned_ok and not hermetic", "and auth == \"PRESENT_NOT_EXECUTED\" and pinned_ok",
-               "    if hermetic:\n        return \"PARTIAL\", \"HERMETIC_TEST_IS_NEVER_PRODUCTION_EVIDENCE\"\n    return \"VERIFIED\", \"NONE\"", "    return \"VERIFIED\", \"NONE\"")
-    assert full(w)["READINESS"] == "AWAITING_APPROVAL"
 
 
 def test_mutation_gate_anchor_check_removed_lets_a_weakened_gate_pass(tmp_path):
