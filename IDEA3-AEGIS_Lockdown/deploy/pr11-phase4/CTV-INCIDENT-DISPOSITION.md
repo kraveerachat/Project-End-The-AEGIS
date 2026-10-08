@@ -60,3 +60,64 @@ Nothing below may start without a separate written authorization naming the exac
 
 No CTv/CTu rerun, no Recovery, no marker change, no Production mutation or service restart, no frozen-runner edit,
 no new stage.
+
+## Option B prepared (source-only; NOT authorized, NOT executed)
+
+Option B retains the installed target Core unit with **no additional restart**. Owner-verified evidence (not re-readable by the
+preparing session): installed unit sha256 `82446332f6367f16390f432370ec9bcb7f16f78d0bc6badb4f187b7a74c1627c`, pre-image sha256
+`b2425b0bdc4402f09b7ff616afb66b0686f045459d3b7826796e73ad64a59890`, journal `apply-verified`, detector baseline INACTIVE, both drop-ins,
+TrustedClock SYNCED/OK, PRE/POST evidence integrity PASS, historical S10 FAIL. The unit pin was independently proven to equal
+`aegis-idea3-core.service.example` at merged main `d34b535fbad130e7423b37c2bece8812c4ea6e51`. The pre-image pin rests on owner evidence only.
+
+Files (`deploy/pr11-phase4/ctv-incident/`):
+
+- `ctv-option-b-guard.sh` — shared Production guard, sourced only after it is proven equal to the exact-main blob.
+- `ctv-option-b-verify.sh` — read-only, fail-closed verifier. Only `systemctl show` is ever issued. It does not use `ctv_host_runtime_verify`
+  (its `diff -u` has a single operand and fails on the host; **left unfixed here**, out of scope) or the historical S10 comparison.
+- `ctv-incident-disposition.sh` — the separately governed action. Default is a dry check that writes nothing and prints the evidence digests the
+  Owner must bind into the authorization.
+
+### Production protections (review findings B1–B4, I1)
+
+- **B1 — no `--hermetic` bypass.** Test seams need `--hermetic` **and** `CTV_OPTION_B_TEST_ONLY=YES` **and** a safe `CTV_OPTION_B_TEST_ROOT` (canonical,
+  not a symlink, not `/`, not under or equal to `/etc /var /usr /opt /boot /bin /sbin /lib* /root /srv /proc /sys /dev /run`, owned by the caller, not group/world
+  writable). Every path must be canonical, inside that root, and never a production governance path. Without `--hermetic` the canonical directory is
+  **exactly** `/var/lib/aegis-idea3-governance` and the unit and `core.env` paths are fixed; any override is refused.
+- **B2 — positive, anchored S10 evidence.** The historical compare output must be a genuine `p4-compare.sh` report (schema line, no-mutation line) containing
+  `PRESERVATION_S10=FAIL` and `COMPARE_RESULT=FAIL` exactly once each; absence of PASS is not accepted. The PRE `SHA256SUMS`, POST `SHA256SUMS` and compare-output
+  digests are bound into the authorization and re-checked on every run. The PRE detector baseline (loaded/inactive/dead/PID 0/disabled) is read from the
+  integrity-verified PRE capture, in addition to the current host check.
+- **B3 — trusted execution.** The verifier proves the complete import closure of the clock probe (`aegis_soc/__init__.py`, `trusted_time.py`, `protocol_v1.py`;
+  a test recomputes it with `ast`), the guard and both libraries against the exact-main blobs, and requires the repo (every ancestor), every executed file, the
+  work directory and `/usr/bin/python3` to be root-owned and not group/world writable in Production. `CTV_SUDO` is pinned (root: none; otherwise
+  `/usr/bin/sudo`), never inherited. The unit must be `0:0` and not group/world writable. Scripts start with `#!/bin/bash -p` and re-exec under `env -i`, so
+  `BASH_ENV`, `ENV`, `PYTHON*`, `SHELLOPTS` are neutralized; running `bash <script>` with `BASH_ENV`/`ENV` set is refused. Python runs with `-I -B -X pycache_prefix=<missing dir>`.
+- **B4 — crash safety.** The closeout is created once, atomically (`ln`, never an overwrite), then its sidecar is created the same way. If a crash leaves a closeout
+  without its sidecar, a rerun regenerates the exact expected text, requires it to match byte for byte, and creates **only** the sidecar; the closeout is never
+  rewritten. A tampered closeout, a mismatching sidecar, or a sidecar without a closeout are refused without changes. Stale temp files are ignored.
+- **I1 — no stale commit.** Immediately before the commit the action re-runs the whole verifier and requires the same mutable-state digest as the first proof,
+  otherwise it refuses (`STATE_DRIFT_BEFORE_COMMIT`) and removes its temp file. A final post-write verification repeats the check. A sub-millisecond window
+  between that last proof and the `ln` cannot be eliminated by a userspace script; the exclusive lock and the append-only `ln` bound its effect.
+
+The closeout states: FAIL_IMMUTABLE, rollback **incomplete**, target unit **retained**, no additional Core restart, historical S10 **FAIL, not promoted**,
+Recovery **not** authorized (the Recovery successor gate refuses any CTv FAIL closeout), plus the pins, evidence digests, frozen-runner digest, verifier, guard and
+action digests, device, detector mode, TrustedClock and Core MainPID at disposition.
+
+### Exact Production action proposal (requires separate explicit Human Owner authorization)
+
+1. Merge this PR after independent review. As root, create a **root-owned** exact-main tree for execution (for example `git clone --no-hardlinks` of the
+   merged repository into a root-owned directory whose ancestors are all root-owned, then `git checkout <merged-main>`). A user-owned worktree is refused.
+2. As root run the dry check and keep its output (it prints the three evidence digests):
+   `ctv-incident-disposition.sh --repo <root-owned-tree> --main <merged-main> --canon /var/lib/aegis-idea3-governance --work <evidence>/ctv-work --device <device-id>`
+3. The Human Owner writes a root-owned authorization file (mode 0600/0400) containing exactly these thirteen lines and nothing else:
+   `stage=CTv-incident-disposition`, `disposition=OPTION_B_TARGET_UNIT_RETAINED`, `expected_main=<merged-main>`,
+   `unit_sha256=82446332f6367f16390f432370ec9bcb7f16f78d0bc6badb4f187b7a74c1627c`,
+   `preimage_sha256=b2425b0bdc4402f09b7ff616afb66b0686f045459d3b7826796e73ad64a59890`, `device_id=<device-id>`,
+   `verifier_sha256=<sha256 of ctv-option-b-verify.sh>`, `action_sha256=<sha256 of ctv-incident-disposition.sh>`, `guard_sha256=<sha256 of ctv-option-b-guard.sh>`,
+   `pre_sha256sums_sha256=<dry-check value>`, `post_sha256sums_sha256=<dry-check value>`, `compare_output_sha256=<dry-check value>`, `authorization_id=<unique id>`.
+4. Run the same command with `--authorization <file> --record`. Expected: `CTV_INCIDENT_DISPOSITION=RECORDED`. Any refusal means nothing was written.
+   If the process is interrupted after the closeout appears, rerun the identical command: it completes only the sidecar.
+
+No restart, reload, unit change, marker change, evidence change, or CTv/CTu/Recovery execution is part of this action. If the verifier
+refuses (for example the pre-image sha does not match), stop and return to the Owner; Option A (restore the pre-image) would then be a new
+authorized stage.
