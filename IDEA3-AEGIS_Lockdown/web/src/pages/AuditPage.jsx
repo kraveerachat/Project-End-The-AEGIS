@@ -15,14 +15,20 @@ const columns = [
   { key: 'resourceId', label: 'Resource', render: (value) => <span className="mono">{value}</span> },
 ]
 
+// The audit store is an append-oriented SQLite ledger (Live) or an unchained in-memory ledger (Demo). Neither
+// verifies a tamper-evidence hash chain today, so the page must never claim one was verified.
+const policyCount = (value) => (Number.isSafeInteger(value) ? formatCount(value) : '—')
+
 export function AuditPage({ snapshot, onExport = () => {} }) {
+  const policy = snapshot.settings?.policy ?? {}
+  const policyDetail = snapshot.mode === 'DEMO' ? 'นโยบาย Demo (จำลอง)' : 'นโยบายที่ตั้งไว้ในระบบ'
   return (
     <div className="page-stack">
       <section className="metric-grid metric-grid--four">
         <MetricCard icon={FileCheck2} label="Audit records" value={formatCount(snapshot.audit.length)} status="HEALTHY" />
-        <MetricCard icon={ShieldCheck} label="Tamper evidence" value="VERIFIED" status="HEALTHY" detail="ตรวจสอบ chain ล่าสุดสำเร็จ" />
-        <MetricCard icon={Archive} label="Retention" value="180" suffix="วัน" detail="นโยบาย Demo" />
-        <MetricCard icon={Download} label="Export limit" value="1,000" suffix="records" detail="ทุก export ถูก Audit" />
+        <MetricCard icon={ShieldCheck} label="Tamper evidence" value="NOT VERIFIED" status="UNKNOWN" detail="ยังไม่มีการตรวจ hash-chain ของ audit store" />
+        <MetricCard icon={Archive} label="Retention" value={policyCount(policy.auditRetentionDays)} suffix="วัน" detail={policyDetail} />
+        <MetricCard icon={Download} label="Export limit" value={policyCount(policy.exportLimit)} suffix="records" detail="ทุก export ถูก Audit" />
       </section>
       <Panel title="Security audit ledger" description="แยกจาก operational event และไม่มี token, secret หรือ raw exception" action={<button className="button button--secondary" onClick={onExport}><Download size={15} />ขอส่งออกแบบจำกัด</button>}>
         <DataTable columns={columns} rows={snapshot.audit} emptyLabel="ยังไม่มี Audit record" />
