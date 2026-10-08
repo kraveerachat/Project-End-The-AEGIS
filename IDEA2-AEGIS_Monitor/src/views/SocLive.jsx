@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
 import { ListTree, Maximize2, ShieldCheck } from 'lucide-react'
-import { BBox, EmptyState, FeedChrome } from '../components/ui.jsx'
+import { EmptyState, FeedChrome } from '../components/ui.jsx'
 import LiveFeed from '../components/LiveFeed.jsx'
-import { bboxesFor, eventText, fmtDate, fmtTime, hasUnk, ini } from '../data.js'
+import { eventText, fmtDate, fmtTime, hasUnk, ini } from '../data.js'
 import { useApi } from '../lib/hooks.js'
 
 function SelectedPassiveView({ view, now, views, onSelect }) {
@@ -13,7 +13,6 @@ function SelectedPassiveView({ view, now, views, onSelect }) {
     { refreshMs: 5000 })
   const detections = detectionsApi.data?.detections ?? []
   const heroFrame = detections[0] ?? null
-  const heroBoxes = bboxesFor(heroFrame)
   const grant = heroFrame && !hasUnk(heroFrame) ? heroFrame : null
   const grantPerson = grant?.people?.[0]
   const toggleFullscreen = () => {
@@ -40,7 +39,6 @@ function SelectedPassiveView({ view, now, views, onSelect }) {
             <Maximize2 aria-hidden="true" />
           </button>
         </div>
-        {heroBoxes.map((box, index) => <BBox key={`${box.label}-${index}`} {...box} kind={box.kind} />)}
         <span className="herots mono">{fmtDate(now)} {fmtTime(now)}</span>
       </div>
       <section className="camera-selector" aria-labelledby="active-view-heading">

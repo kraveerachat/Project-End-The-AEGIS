@@ -2,10 +2,10 @@ import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { ListTree, Maximize2, ShieldCheck, WifiOff } from 'lucide-react'
 import {
-  bboxesFor, eventText,
+  eventText,
   fmtDate, fmtTime, hasUnk, ini,
 } from '../data.js'
-import { BBox, EmptyState, FeedChrome, StaleBadge } from '../components/ui.jsx'
+import { EmptyState, FeedChrome, StaleBadge } from '../components/ui.jsx'
 import LiveFeed from '../components/LiveFeed.jsx'
 import CameraSelector from '../components/CameraSelector.jsx'
 import { selectedCamera, cameraDetections, cameraHeartbeat } from '../lib/liveCamera.js'
@@ -54,10 +54,7 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
   // All camera-context panels derive from the same authorized selection.
   const scoped = cameraDetections(detections, cam.id)
 
-  // overlay = detection "ล่าสุดจริง" ของกล้องที่กำลังโฟกัส (ไม่มี = ไม่วาดอะไรเลย)
-  // เดิมบรรทัดนี้คือ HERO_SCENES[cam.id] ซึ่งเป็นฉากที่แต่งไว้ตายตัวต่อ camera id
   const heroFrame = scoped[0] ?? null
-  const heroBoxes = bboxesFor(heroFrame)
   const subjects = heroFrame?.people?.length ?? 0
   const hasUnknownNow = Boolean(heroFrame && hasUnk(heroFrame))
 
@@ -114,9 +111,9 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
           >
-            {/* ⚠️ Phase B: ภาพจริงมาแทนลาย hatch แล้ว — LiveFeed วางภาพที่
-                inset:0 กินกรอบเดียวกับ .hero เป๊ะ ๆ พิกัด % ของ BBox ด้านล่างจึง
-                อ้างอิงกรอบใบเดิมไม่เปลี่ยน (ดูคอมเมนต์ .feedimg ใน index.css) */}
+            {/* The Engine burns face boxes into the exact frame it recognized.
+                Persisted detection rows deliberately have no geometry and must
+                never be projected into synthetic positions over a newer frame. */}
             <LiveFeed
               cameraId={cam.id}
               cameraName={cam.name}
@@ -159,7 +156,6 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
                   <Maximize2 aria-hidden="true" />
                 </motion.button>
               </div>
-            {!lost && heroBoxes.map((b, i) => <BBox key={`${b.label}-${i}`} {...b} kind={b.kind} />)}
             {/* ⚠️ เดิมประกาศชื่อรุ่นโมเดล "FACE_RECOGNITION V1.3" ที่ไม่มีอยู่จริง
                 (engine ยังรัน PlaceholderRecognizer) และนับ subject จากฉากที่แต่งไว้
                 ตอนนี้นับจากคนในเฟรม detection จริง และไม่เอ่ยชื่อโมเดลใด ๆ */}

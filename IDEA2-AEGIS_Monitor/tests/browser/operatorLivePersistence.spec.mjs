@@ -24,6 +24,13 @@ test('authenticated Operator without an activated or permitted Live view creates
   expect(idle.active).toEqual([])
 })
 
+test('historical detection cannot paint a fabricated box over the current Operator stream', async ({ page, request }) => {
+  await openSingleCamera(page, request)
+  await expect(page.locator('.acpanel')).toContainText('Fixture Alice')
+  await expect(page.locator('.hero .feedimg')).toBeVisible()
+  await expect(page.locator('.hero .bbox')).toHaveCount(0)
+})
+
 test('re-authenticating on Archive does not activate Live until Operator selects it', async ({ page, request }) => {
   const cameraId = await openSingleCamera(page, request)
   await nav(page, 'Archival footage').click()

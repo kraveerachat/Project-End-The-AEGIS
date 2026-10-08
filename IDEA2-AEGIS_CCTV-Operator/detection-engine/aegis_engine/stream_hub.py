@@ -85,7 +85,13 @@ def annotate_detection_frame(result: DetectionResult, frame: Frame) -> Frame:
             if entity.status is DetectionStatus.UNKNOWN
             else (255, 229, 0)
         )
-        label = entity.display_name().upper()
+        confidence = f"{float(entity.confidence):.2f}".rstrip("0").rstrip(".")
+        identity_label = (
+            "UNKNOWN"
+            if entity.status is DetectionStatus.UNKNOWN
+            else entity.display_name().upper()
+        )
+        label = f"{identity_label} // {confidence}%"
         cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
         (text_w, text_h), baseline = cv2.getTextSize(
             label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2
