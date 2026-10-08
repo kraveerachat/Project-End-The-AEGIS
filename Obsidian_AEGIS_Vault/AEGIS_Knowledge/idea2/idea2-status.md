@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-07
+updated: 2026-10-08
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,37 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## Current Task — New Archive ingest and Machine C Telegram recovery (2026-10-08)
+
+Task branch: `fix/idea2-archive-ingest-audio-recovery`, stacked on Draft PR
+#348 (`db263207f355678315e1a85fcfbc73df0e9be2dc`), which depends on Draft
+PR #344. Owner: Pub. Production mutation allowed: NO. Machine A/C mutation
+allowed: NO. Physical camera or microphone access allowed: NO.
+
+The current repository-only session corrects the existing NAS browser-playback
+transcode so a video+audio MP4 requests AAC audio in the H.264 output, with an
+optional audio map for historical video-only clips. NAS `ok`/`synced_total`
+now requires both verified transfer and an acknowledged Monitor clip
+publication; a rejected publication keeps the local source and reports a
+failed end-to-end Archive ingest. This does not establish that new clips are
+currently arriving from either machine. The actual synthetic MP4/AAC test is
+conditional on local `ffmpeg`/`ffprobe`, which were unavailable in this
+development environment; command and acknowledgement regressions passed.
+
+Machine A's new-clip failure point remains unproven without separately
+authorized runtime evidence. Machine C's reported NAS-disabled state means its
+existing local recordings cannot be ingested by Beelink alone; enabling the
+existing Edge sync lifecycle requires separate Machine C authorization.
+Machine A Telegram remains owner-reported working and unchanged. A centralized
+Machine C sender is NOT_IMPLEMENTED: the current Engine sends directly, and a
+server-side authenticated, duplicate-free delivery authority requires a
+separate reviewed design before code. No historical alerts will be replayed.
+
+| Session | Scope | State | Evidence | Remaining | Next |
+|---|---|---|---|---|---|
+| REC-S1 | Source-only audio and Archive acknowledgement truthfulness | SOURCE CHECKPOINT | `850a8d23` NAS RED: 2 expected failures; focused GREEN: 8 passed, 2 conditional ffmpeg skips; governance 61/61; Vault PASS with 2 existing canvas warnings | real-media tests, adjacent `requests`-dependent checks, and Machine A/C ingest remain unverified; Draft PR pending | retain Draft status |
+| REC-S2 | Machine A/C new-clip root cause and Machine C Telegram authority | BLOCKED | owner-reported A `nas=ok` without new rows; C `nas=disabled`; direct Engine Telegram source | authorized runtime/Edge evidence and reviewed server-delivery contract | no Machine A/C or Production action |
 
 ## PR #370 SOC passive Live post-merge reconciliation — 2026-10-07
 
