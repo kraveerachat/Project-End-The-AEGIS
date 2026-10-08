@@ -1,15 +1,70 @@
-# IDEA3 hardware H0 readiness and local E2E acceptance (2026-10-08)
+# IDEA3 hardware H0 readiness and local E2E acceptance (2026-10-09)
 
-Evidence class: **H0 = read-only discovery + compile-only build**, and **SIMULATED_LOCAL_E2E** (`tests/test_local_e2e_acceptance.py`). Nothing here is Production,
-physical, hardware-actuation or Recovery evidence. Tested tree: main `2cb731aeadd40d25e3e4970494c57fefe1ac44c5` plus this branch's changes.
+Evidence class: **H0 = read-only discovery + compile-only build**,
+**OFFLINE_FLASH_BACKUP_DIAGNOSTICS**, and **SIMULATED_LOCAL_E2E**
+(`tests/test_local_e2e_acceptance.py`). Nothing here is Production,
+physical, hardware-actuation or Recovery evidence. The original 2026-10-08
+baseline and its test provenance remain historical; this reconciliation is
+bound to authoritative merged main `31a68fa222a64c309cb064f32f82ed9faf5d37e0`.
 
-## 1. Hardware H0 inventory (read-only; the serial port was NOT opened, no reset, no flash, no GPIO)
+## 0. Owner-reported hardware evidence reconciliation — 2026-10-09
+
+The original 2026-10-08 H0 period deliberately did not open the serial port,
+reset the board, read identity, flash, erase, or actuate GPIO. That statement
+remains correct for that period; it is not the current owner-observation state.
+
+The owner subsequently reported an ESP32-D0WD-V3 revision 3.1 identity and a
+successful MAC read. The MAC address is intentionally not published here, and
+the raw identity artifact/hash is not included. This observation identifies
+silicon/read activity but does not prove the board is the provisioned AEGIS
+device or authorize firmware changes.
+
+The owner also reported a complete read-only ROM/no-stub backup at 115200 baud:
+
+| Check | Result |
+|---|---|
+| Flash size | `4,194,304` bytes |
+| Read mode | ROM / no-stub |
+| Baud rate | `115200` |
+| SHA-256 verification | PASS |
+| Bootloader header | EXPECTED |
+| Partition header | EXPECTED |
+| Firmware writing | NO |
+| Flash erasing | NO |
+| Backup restoration tested | NO |
+
+The earlier 460800-baud backup failure remains historical evidence and is not
+silently replaced. This is owner-reported hardware evidence, not an independent
+hardware run by this documentation task. The raw backup and sensitive identity
+material remain outside the repository.
+
+PR #413 is merged into authoritative main by merge commit `f0e4fcfd` (source
+commit `7d6e30550b81423400625c03522716969b3402b7`). Its offline validator
+consumes owner-declared evidence only and reports
+`hardware_behavior_observed=NOT_OBSERVED`; its 198-test owner-host result does
+not independently prove backup provenance or restoration. PR #414 is merged by
+`31a68fa222a64c309cb064f32f82ed9faf5d37e0` (source commit
+`f6b2eac9bd7e4ab289968f4ff151942a62402d64`); its engineering review preserves
+F2 **FAIL-OPEN** and F5 **NOT PROVEN**, with no hardware modification or live
+test. These are merged source/evidence findings, not hardware acceptance.
+
+Codex 1's companion offline diagnostic is
+`IDEA3-AEGIS_Lockdown/docs/operations/idea3-flash-backup-diagnostics.md`, with
+validator `deploy/pr11-phase4/flash-backup-diagnostics.py` and focused result
+8/8 PASS on synthetic/local evidence. It never opens serial or invokes esptool.
+Codex 2's companion review is
+`IDEA3-AEGIS_Lockdown/docs/operations/idea3-hardware-f2-f5-fail-secure-review.md`.
+It keeps F2 **FAIL-OPEN by design analysis** and F5 **NOT PROVEN as complete
+link isolation**.
+
+## 1. Hardware H0 inventory (original 2026-10-08 period; later read-only owner evidence is in §0)
 
 | Item | Observed | What it proves / does not prove |
 |---|---|---|
 | USB enumeration | `10c4:ea60` Silicon Labs **CP2102** USB-to-UART bridge on bus 3-3 (`CP2102 USB to UART Bridge Controller`) | A CP210x bridge is attached. It does **not** prove an ESP32 is behind it, powered, running, or the provisioned AEGIS device. |
-| Serial node | `/dev/ttyUSB0` (`crw-rw---- root:uucp`), `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0` | The invoking user is in group `uucp`, so the node is openable; deliberately not opened. Generic serial `0001` (sha256 prefix `24d9b35c727e`) cannot identify a unique board. |
-| Chip/MAC/flash identity | **NOT READ** | Needs an esptool/serial session = device interaction; blocked until physical isolation and owner consent. |
+| Serial node | `/dev/ttyUSB0` (`crw-rw---- root:uucp`), `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0` | During the original 2026-10-08 period it was deliberately not opened. A later owner-reported read is recorded in §0. |
+| Chip/MAC/flash identity | **Original period NOT READ; later owner observation recorded in §0** | The later ESP32-D0WD-V3 rev 3.1/MAC observation does not publish the MAC, prove provisioning, or authorize a write. |
+| Owner-declared flash backup | **OWNER-DECLARED READ-ONLY PASS (validator: `hardware_behavior_observed=NOT_OBSERVED`)** | Owner reported a complete 4 MiB read with SHA-256 and expected bootloader/partition headers; no write or erase. The validator did not observe hardware, and raw dump/restoration evidence are not in the repository. |
 | Other USB | a camera, a Bluetooth adapter and two unrelated HID/receiver devices | Not part of the system. |
 | Toolchain | PlatformIO core in `~/.platformio`, `espressif32@7.0.1`, `esptool.py v4.11.0` bundled | Compile only. |
 
@@ -54,7 +109,9 @@ Failure modes (analysis of the above; **not measured tonight**):
 |---|---|---|
 | USB bridge present | PASS | `lsusb`/sysfs |
 | Serial node permissions | PASS (not opened) | group `uucp` |
-| ESP32 identity / MAC / flash size | BLOCKED | needs serial session |
+| ESP32 identity / MAC | OWNER-REPORTED / NOT INDEPENDENTLY VERIFIED | D0WD-V3 rev 3.1 and successful MAC read reported; MAC withheld and raw artifact/hash absent |
+| ESP32 flash-size/read backup | OWNER-DECLARED / NOT INDEPENDENTLY OBSERVED | Owner reported 4 MiB no-stub ROM read at 115200; the diagnostic validator checks the declaration and reports `hardware_behavior_observed=NOT_OBSERVED` |
+| Flash backup | OWNER-DECLARED READ-ONLY PASS | Owner reported a 4,194,304-byte ROM/no-stub read at 115200; SHA-256 and headers expected; no independent hardware observation |
 | Firmware compiles | PASS | `pio run`, digests above |
 | Firmware = the deployed image | UNKNOWN | CA placeholder differs; no readback |
 | Provisioning state of the board | UNKNOWN | historical L8p PASS is a record, not a current read |
@@ -104,3 +161,13 @@ Simulated: broker (no TLS/ACL), the ESP32/relay (`FirmwareModelDevice`, pinned t
 
 Existing Demo Mode and `demo:local` were exercised on loopback only (599 baseline web tests + the new ones pass). Demo records are session-scoped, labelled simulated, and are never mixed into live audit (`test_s19_*`).
 No page can dispatch to Production: the web can mint only `CUT_UPLINK`; `RESTORE` is Core-local (D4).
+
+### Current verification reconciliation
+
+The completed host-offline suite (`test_offline_core_acceptance.py`,
+`test_protocol_v1.py`, and `test_local_e2e_acceptance.py`) is recorded as
+**199 passed, 10 skipped** in
+`/home/kittipat/Workspace/IDEA3-Cyber-Last/h0-implementation-6lOG3I7e/host-offline.log`.
+This is offline evidence, not a live hardware, broker, isolated-network,
+Production, or Recovery result. Earlier PR413 validator and local-E2E results
+remain separately scoped and are not added to this suite total.

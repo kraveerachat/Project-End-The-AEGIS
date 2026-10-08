@@ -10,6 +10,28 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3 — AEGIS Lockdown
 
+> **H0 hardware evidence reconciliation (2026-10-09):** The historical
+> `460800`-baud ESP32 flash-read failure remains preserved, but owner-provided
+> read-only ROM/no-stub backup evidence at `115200` records `4,194,304` bytes,
+> SHA-256 **PASS**, expected bootloader header, and expected partition header.
+> This is owner-declared evidence only; the validator records
+> `hardware_behavior_observed=NOT_OBSERVED`. No firmware write or flash erase
+> occurred; restoration was not tested. This does not clear physical
+> acceptance, F2 relay-supply fail-open risk, F5
+> pin-2-only containment limitation, live MQTT/network gates, or Recovery gates.
+
+> **H0 merged-dependency reconciliation (2026-10-09):** PR #413 is MERGED by
+> `f0e4fcfd` from source commit `7d6e30550b81423400625c03522716969b3402b7`;
+> its validator preserves owner-declared evidence and
+> `hardware_behavior_observed=NOT_OBSERVED`. PR #414 is MERGED by
+> `31a68fa222a64c309cb064f32f82ed9faf5d37e0` from source commit
+> `f6b2eac9bd7e4ab289968f4ff151942a62402d64` and preserves F2
+> **FAIL-OPEN** and F5 **NOT PROVEN**. The completed host-offline verification
+> is **199 passed, 10 skipped** and host governance is **33 passed, 0 failed**;
+> physical acceptance is absent. PR #405 is MERGED by `9065a094`, with
+> offline-only B1 evidence. CTu remains immutable failure, CTv remains
+> `CLOSED_FAIL`, and Recovery remains blocked.
+
 > **Current CTv successor state (2026-10-08):** CTu is preserved as `CTU_RESULT=FAIL_IMMUTABLE`, `CTU_FAILURE_REASON=APPLY`, `CTU_ATTEMPT_CONSUMED=YES`, `CTU_RERUN_ALLOWED=NO`; CTv is a new stage, not a retry (`CTV_IS_CTU_RETRY=NO`). PR #390’s implementation is followed by the repository-only target-unit path hotfix: the production default now resolves to the reviewed `IDEA3-AEGIS_Lockdown/deploy/aegis-idea3-core.service.example`, while hermetic `--unit-source` remains supported. Exact-main audit coverage proves every CTv production repository dependency exists at `56beb898f5b4f8bd4b39d0934ef0f80bc9dc63e2`. No CTv LIVE, Recovery LIVE, Production mutation, Core restart, Detector lifecycle command, or governance-marker mutation was performed; human and integration review remain required.
 
 > **Current CTv proof-closure state (2026-10-08):** The final pre-live repair now binds `CTV_DEVICE_ID` to the frozen pin and actual Production `core.env`, derives `CTV_DETECTOR_BASELINE_MODE` from governed host state, and refuses `UNKNOWN`. Non-hermetic CTv uses fresh L0 PRE/POST captures and `p4-compare.sh` plus fresh runtime verification; fixture state is hermetic-only. Recovery requires a reviewed successor-main receipt bound to `CTV_EXECUTION_MAIN`, the immutable host closeout SHA256, all relevant runner/template/bundle/control/unit/evidence digests, detector mode, and device ID. The host closeout explicitly records `CTV_REPOSITORY_RECEIPT=POSTLIVE_REVIEW_REQUIRED`; no pre-live receipt is promoted. `ADDITIONAL_DETERMINISTIC_PRELIVE_BLOCKER=NONE`. CTu immutable FAIL and all no-LIVE/no-Production boundaries remain unchanged.

@@ -11,6 +11,61 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 H0 shared-document reconciliation — owner-reported evidence — 2026-10-09
+
+The original PR408 H0 baseline remains preserved as a 2026-10-08-period claim:
+the serial port was not opened, identity was not read, and no reset, write,
+erase, GPIO, broker, Production, or Recovery action occurred during that test
+period. The later owner report is a separate evidence layer, not a rewrite of
+that baseline.
+
+The owner subsequently reported ESP32-D0WD-V3 revision 3.1 identity and a
+successful MAC read; the MAC is intentionally not published and no raw
+identity artifact/hash is included. The owner also declared a complete
+read-only ROM/no-stub backup at 115200 baud: `4,194,304` bytes, SHA-256
+verification **PASS**, bootloader and partition headers **EXPECTED**, firmware
+writing **NO**, flash erasing **NO**, and backup restoration tested **NO**. The
+validator records `hardware_behavior_observed=NOT_OBSERVED`; the earlier
+460800-baud backup failure remains historical evidence.
+
+Codex 1's merged companion `idea3-flash-backup-diagnostics.md` and
+`flash-backup-diagnostics.py` provide the repository-only validator contract;
+the focused synthetic/local diagnostic result is 8/8 PASS and the validator
+preserves owner-declared evidence with `hardware_behavior_observed=NOT_OBSERVED`;
+it does not prove hardware identity, provisioning, restoration, or production
+readiness. Codex 2's merged companion `idea3-hardware-f2-f5-fail-secure-review.md` records F2 as
+**FAIL-OPEN by design analysis** when relay/ULN2003 coil supply is lost and F5
+as **NOT PROVEN as complete link isolation** with pin-2-only switching. Both
+remain physical-security blockers.
+
+Independent repository tests and owner-reported observations remain separate;
+no claim below promotes the owner report to independent hardware acceptance.
+
+Current verification is bounded and reconciled: the completed host-offline
+suite (`test_offline_core_acceptance.py`, `test_protocol_v1.py`, and
+`test_local_e2e_acceptance.py`) recorded `199 passed, 10 skipped` in the
+supplied host log, and host governance recorded `33 passed, 0 failed`. This is
+offline repository/governance evidence only; physical acceptance is absent.
+The direct offline protocol/dispatch/MQTT/restore suite's
+`474 passed, 1 skipped, 11 failed` remains a separate local layer, with the failures caused by
+sandbox `AF_UNIX` bind `EPERM` in alert-ingress/local-restore tests. The
+`tests/offline_acceptance.py` wrapper remains unusable here because its configured
+PlatformIO interpreter lacks pytest and its legacy matcher returns zero tests;
+the web Vitest command is blocked because dependencies are unavailable. Vault
+validation passes with two pre-existing Canvas owner-data warnings; the focused
+collaboration-policy harness result is recorded separately above. PR #413 is
+MERGED by `f0e4fcfd` from source commit
+`7d6e30550b81423400625c03522716969b3402b7`; PR #414 is MERGED by
+`31a68fa222a64c309cb064f32f82ed9faf5d37e0` from source commit
+`f6b2eac9bd7e4ab289968f4ff151942a62402d64`. PR413 contributes read-only,
+owner-declared backup-diagnostic evidence with
+`hardware_behavior_observed=NOT_OBSERVED` (198 owner-host tests reported);
+PR414 contributes F2 **FAIL-OPEN** and F5 **NOT PROVEN** engineering findings.
+PR #405 is merged by `9065a094` with offline-only B1 evidence (33 passed, 1
+strict expected xfail). CTu remains immutable failure, CTv remains
+`CLOSED_FAIL`, Recovery remains blocked, and isolated hardware/Production
+acceptance remain **UNVERIFIED**.
+
 ## IDEA3 PR405 B1 authorization-output remediation — repository-only — 2026-10-08
 
 The PR405 B1 regression guard is narrowed correctly. The strict xfail covers
