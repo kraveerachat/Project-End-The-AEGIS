@@ -27,6 +27,7 @@ edit_policy: append-by-new-file
 - `IDEA3-AEGIS_Lockdown/web/src/pages/AuditPage.jsx` — remove invented tamper-evidence, retention and export-limit claims.
 - `IDEA3-AEGIS_Lockdown/web/scripts/demo-local.mjs` — local, non-production launcher.
 - `IDEA3-AEGIS_Lockdown/web/package.json` — `acceptance` and `demo:local` scripts.
+- `IDEA3-AEGIS_Lockdown/web/package-lock.json` — lock-only patch bump of transitive `proxy-addr` 2.0.7 to 2.0.8 (Express 5.2.1 allows `~2.0.7`); no `package.json` dependency range changed.
 - `IDEA3-AEGIS_Lockdown/web/README.md` — local demo and acceptance usage, Demo isolation behaviour.
 - `IDEA3-AEGIS_Lockdown/web/tests/server/demoIsolation.test.js` — regression tests for the isolation defect (4 + 1).
 - `IDEA3-AEGIS_Lockdown/web/tests/client/auditTruthfulness.test.jsx` — regression tests for the Audit page claims (3).
@@ -43,7 +44,9 @@ edit_policy: append-by-new-file
 - Real-server run (loopback, temporary audit database): wrong password 401, unauthenticated snapshot 401, write without CSRF 403, cross-origin write 403, Live snapshot reports `idea1`/`idea2` `NOT_CONFIGURED` and overall `UNKNOWN`, Demo containment 409 `DEMO_MODE_ACTIVE`, logout 204 then 401. After the fix a Demo session's actions left only the two mode-switch rows in the Live ledger and the Live policy unchanged (it was changed before the fix).
 - Real-process production-mode check: dev login with a production environment and no bcrypt hash fails at startup; with a valid hash the development password is rejected (401); `AEGIS_DEMO_ALLOWED=true` still returns 403 `DEMO_DISABLED`; the session cookie is `Secure; HttpOnly; SameSite=Strict`.
 - `npm run demo:local` real run on port 18005 with `AEGIS_IDEA1_STATUS_URL` set in the caller environment — pass: URL stripped (IDEA1 reported `NOT_CONFIGURED`), login, Demo on, static UI served, SIGINT removes the temporary audit directory.
-- `npm audit --omit=dev` — finding, unchanged: transitive `proxy-addr` advisory GHSA-jqcg-44mw-7w3h (critical); `npm audit fix --dry-run` offers no non-breaking fix. Present on main; not modified here.
+- Merged `origin/main` (`b858bd128c2f464b33dc608c902fb1bf88513e82`, PR #401, Python offline-acceptance files only) into the branch with a normal merge and no conflicts; re-ran `npm ci`, `npm test` (592), `npm run build` and `npm run acceptance` (14) on the merged tree — pass.
+- `npm audit --omit=dev` — before: transitive `proxy-addr` 2.0.7, critical GHSA-jqcg-44mw-7w3h (IP spoofing via IPv4-mapped IPv6 trust subnet; relevant to the pinned-proxy production mode). After the lock-only bump to 2.0.8: 0 vulnerabilities; full web suite, including the proxied-listener production tests, still passes.
+- `npm run demo:local` re-verified after the merge with `AEGIS_IDEA1_STATUS_URL` and `AEGIS_IDEA3_DISPATCH_ENABLED=true` set in the caller environment: single listener on 127.0.0.1, zero non-loopback connections, temporary audit directory mode 700, login with the random one-run password, Live shows `NOT_CONFIGURED`/`UNKNOWN` with no dispatch, Demo containment refused (409), SIGINT leaves no listener and removes the temporary directory. Credentials were not written to evidence.
 
 ## Canonical notes updated
 
@@ -62,5 +65,5 @@ edit_policy: append-by-new-file
 - No real browser was available; the UI was exercised with the real `App` in jsdom against a real listening server, not in Chrome or Firefox.
 - In LIVE mode the IDEA1, IDEA2, Alerts and Devices evidence pages stay empty by design (`events: []`; live events travel only in `integration.events` and correlated incidents) because live IDEA1/IDEA2 event integration is OPEN in the PR7 design. Their zero-count metrics are therefore not evidence of absence. The Demo path is the presentation path for those pages.
 - Physical relay confirmation, real MQTT, ESP32 and Core claim/ACK flows were not exercised against hardware; the Core is simulated through the shared dispatch contract.
-- The unfixed `proxy-addr` advisory above needs an owner decision about the dependency set.
+- Dependency evidence covers the production dependency tree only (`--omit=dev`).
 - Recovery R2–R8, CTv, CTu, the Recovery runner, predecessor gates and all incident evidence were not touched. `04_SESSION_HANDOFF.md` was not edited to avoid conflicts with parallel work.
