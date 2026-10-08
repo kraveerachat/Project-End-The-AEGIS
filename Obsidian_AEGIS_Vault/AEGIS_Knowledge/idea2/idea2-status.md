@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-07
+updated: 2026-10-09
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,32 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## Opt-in Engine performance profiling source checkpoint — 2026-10-09
+
+Branch `feat/idea2-engine-performance-profiler`, based on the PR #348 source
+head `db263207f355678315e1a85fcfbc73df0e9be2dc`, adds disabled-by-default,
+aggregate-only instrumentation for the Detection Engine performance pipeline.
+The bounded profile reports sample counts, p50/p95/p99 latency, and completed
+throughput for camera acquisition, detector queue wait, image preprocessing,
+YuNet CPU detection, YOLO CPU or CUDA inference, SFace CPU verification,
+frame rendering, callback/recording submission, JPEG encoding, and stream
+delivery. CPU and CUDA YOLO measurements remain explicitly distinct.
+
+CUDA timing uses synchronized CUDA events only when profiling is explicitly
+enabled. Normal Engine operation retains the existing asynchronous path. The
+profile accepts no camera image, identity name, embedding, model output, or
+other payload and retains only bounded numeric aggregates. Existing identity
+thresholds, capture-on-demand, recording, Archive, Telegram, producer
+authority, and viewer-release behavior are unchanged.
+
+Offline verification is complete: 11 focused instrumentation tests passed;
+the full Engine suite passed 408 tests with seven environment-conditional
+native pywin32 skips. A real Machine C profile has not run, the exact installed
+Machine C Engine revision and effective runtime configuration were not read,
+and no RTX 5070 bottleneck or 60 FPS hardware result is claimed. Machine C
+deployment, a separately approved profiling session, camera-mode proof, and a
+sustained unique-frame hardware acceptance remain human gates.
 
 ## PR #370 SOC passive Live post-merge reconciliation — 2026-10-07
 

@@ -138,6 +138,11 @@ class EngineConfig:
     face_detector_max_side: int = 640
     yolo_gate_ttl_s: float = 2.0
 
+    # --- Opt-in aggregate performance profiling --------------------------
+    # Disabled by default so ordinary Machine A/C throughput is unchanged.
+    performance_profiling_enabled: bool = False
+    performance_profiling_max_samples: int = 600
+
     # --- Recording (SegmentRecorder) -------------------------------------
     segment_seconds: int = 300  # 5 minutes per full clip
     segment_dir: str = "./segments"
@@ -278,6 +283,14 @@ class EngineConfig:
             yolo_gate_ttl_s=_env_float(
                 "AEGIS_YOLO_GATE_TTL_S", cls.yolo_gate_ttl_s
             ),
+            performance_profiling_enabled=_env_bool(
+                "AEGIS_PERFORMANCE_PROFILING_ENABLED",
+                cls.performance_profiling_enabled,
+            ),
+            performance_profiling_max_samples=_env_int(
+                "AEGIS_PERFORMANCE_PROFILING_MAX_SAMPLES",
+                cls.performance_profiling_max_samples,
+            ),
             segment_seconds=_env_int("AEGIS_SEGMENT_SECONDS", cls.segment_seconds),
             segment_dir=_env_str("AEGIS_SEGMENT_DIR", cls.segment_dir),
             segment_fourcc=_env_str("AEGIS_SEGMENT_FOURCC", cls.segment_fourcc),
@@ -414,6 +427,10 @@ class EngineConfig:
                 raise ValueError("AEGIS_YOLO_GATE_TTL_S must be between 0 and 10")
         if self.record_queue_size <= 0 or self.detect_queue_size <= 0:
             raise ValueError("AEGIS_RECORD_QUEUE_SIZE and AEGIS_DETECT_QUEUE_SIZE must be > 0")
+        if not 10 <= self.performance_profiling_max_samples <= 10_000:
+            raise ValueError(
+                "AEGIS_PERFORMANCE_PROFILING_MAX_SAMPLES must be between 10 and 10000"
+            )
         if self.nas_enabled:
             if self.nas_method not in {"rsync", "scp"}:
                 raise ValueError("AEGIS_NAS_METHOD must be 'rsync' or 'scp' when NAS is enabled")

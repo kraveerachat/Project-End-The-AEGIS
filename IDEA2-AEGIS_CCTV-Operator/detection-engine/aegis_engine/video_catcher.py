@@ -384,7 +384,8 @@ class VideoCatcher(threading.Thread):
                 ):
                     self._begin_read()
                     try:
-                        ok, image = self._cap.read()
+                        with self._metrics.profiler.measure("camera_acquisition"):
+                            ok, image = self._cap.read()
                     except Exception:
                         self._finish_read(False)
                         log.exception(

@@ -138,6 +138,8 @@ class FaceDetectorProcessor(threading.Thread):
         self._recognizer: FaceRecognizer = recognizer or PlaceholderRecognizer(
             min_confidence=config.detect_min_confidence
         )
+        if hasattr(self._recognizer, "set_performance_profiler"):
+            self._recognizer.set_performance_profiler(self._metrics.profiler)
         self._stop_event = stop_event or threading.Event()
         if hasattr(self._recognizer, "inference_status"):
             self._metrics.on_inference_status(self._recognizer.inference_status())
@@ -172,6 +174,10 @@ class FaceDetectorProcessor(threading.Thread):
             log.info("detector loop stopped")
 
     def _process_one(self, frame: Frame) -> None:
+        self._metrics.profiler.record(
+            "detector_queue_wait",
+            max(0.0, (time.monotonic() - frame.captured_at) * 1000.0),
+        )
         started = time.monotonic()
         try:
             # ================= AI INFERENCE HAPPENS HERE =================
@@ -209,6 +215,7 @@ class FaceDetectorProcessor(threading.Thread):
 
         self._metrics.on_detection(result.to_dict(), processing_ms)
         try:
-            self._on_result(result, frame)
+            with self._metrics.profiler.measure("callback_recording"):
+                self._on_result(result, frame)
         except Exception:  # pragma: no cover - defensive
             log.exception("on_result callback raised for frame %d", frame.seq)

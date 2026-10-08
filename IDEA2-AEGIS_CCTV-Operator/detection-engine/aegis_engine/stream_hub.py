@@ -127,6 +127,7 @@ class StreamHub(threading.Thread):
         capture_demand_event: Optional[threading.Event] = None,
         *, wall_clock=time.time, monotonic_clock=time.monotonic,
         recording_authority: Optional[RecordingAuthority] = None,
+        performance_profiler=None,
     ) -> None:
         super().__init__(name="StreamHub", daemon=True)
         self._cfg = config
@@ -134,6 +135,7 @@ class StreamHub(threading.Thread):
         self._stop_event = stop_event or threading.Event()
         self._capture_demand_event = capture_demand_event
         self._recording_authority = recording_authority
+        self._performance_profiler = performance_profiler
         self.producer_boot_id = secrets.token_urlsafe(32)
         self._wall_clock = wall_clock
         self._monotonic_clock = monotonic_clock
@@ -148,6 +150,7 @@ class StreamHub(threading.Thread):
         self._cond = threading.Condition()
         self._seq = 0
         self._jpeg: Optional[bytes] = None
+        self._jpeg_ready_at: Optional[float] = None
         self._viewers = 0
         self._current_producer_generation: Optional[int] = None
         self._producer_generation_retired = False
@@ -389,6 +392,7 @@ class StreamHub(threading.Thread):
             if self._capture_demand_event is not None:
                 self._capture_demand_event.clear()
             self._jpeg = None
+            self._jpeg_ready_at = None
             self._drain_frame_queue()
             self._cond.notify_all()
 
@@ -427,6 +431,7 @@ class StreamHub(threading.Thread):
                 # Never replay a previous session's final frame to a newly
                 # authorized viewer while the camera is waking up.
                 self._jpeg = None
+                self._jpeg_ready_at = None
                 self._viewer_started_at = time.monotonic()
                 self._drain_frame_queue()
                 if self._capture_demand_event is not None:
@@ -475,6 +480,11 @@ class StreamHub(threading.Thread):
         with self._cond:
             if self._jpeg is None:
                 return None
+            if self._performance_profiler is not None and self._jpeg_ready_at is not None:
+                self._performance_profiler.record(
+                    "stream_delivery",
+                    (self._monotonic_clock() - self._jpeg_ready_at) * 1000.0,
+                )
             return self._seq, self._jpeg
 
     def wait_for(self, after_seq: int, timeout: float) -> Optional[Tuple[int, bytes]]:
@@ -483,11 +493,21 @@ class StreamHub(threading.Thread):
             if self._stop_event.is_set():
                 return None
             if self._seq > after_seq and self._jpeg is not None:
+                if self._performance_profiler is not None and self._jpeg_ready_at is not None:
+                    self._performance_profiler.record(
+                        "stream_delivery",
+                        (self._monotonic_clock() - self._jpeg_ready_at) * 1000.0,
+                    )
                 return self._seq, self._jpeg
             self._cond.wait(timeout)
             if self._stop_event.is_set():
                 return None
             if self._seq > after_seq and self._jpeg is not None:
+                if self._performance_profiler is not None and self._jpeg_ready_at is not None:
+                    self._performance_profiler.record(
+                        "stream_delivery",
+                        (self._monotonic_clock() - self._jpeg_ready_at) * 1000.0,
+                    )
                 return self._seq, self._jpeg
             return None
 
@@ -517,7 +537,11 @@ class StreamHub(threading.Thread):
                     continue  # throttle: viewers do not need every capture frame
                 last_emit = now
 
-                ok, buf = cv2.imencode(".jpg", frame.image, self._encode_params)
+                if self._performance_profiler is None:
+                    ok, buf = cv2.imencode(".jpg", frame.image, self._encode_params)
+                else:
+                    with self._performance_profiler.measure("jpeg_encode"):
+                        ok, buf = cv2.imencode(".jpg", frame.image, self._encode_params)
                 if not ok:
                     continue
                 with self._cond:
@@ -525,6 +549,7 @@ class StreamHub(threading.Thread):
                         continue
                     self._seq += 1
                     self._jpeg = buf.tobytes()
+                    self._jpeg_ready_at = self._monotonic_clock()
                     self._cond.notify_all()
         except Exception:  # pragma: no cover - defensive
             log.exception("unhandled error in stream hub loop")

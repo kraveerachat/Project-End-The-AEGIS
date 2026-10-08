@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import os
 import time
+from contextlib import nullcontext
 from typing import Iterable, List
 
 import numpy as np
@@ -82,6 +83,8 @@ class YoloSFaceAdminRecognizer:
         self._gpu_required = gpu_required
         self._successful_gpu_inference_samples = 0
         self._accelerator_failed = False
+        self._performance_profiler = None
+        self._torch_runtime = torch_runtime
         self._recent_yolo_boxes: List[
             tuple[tuple[int, int, int, int], float]
         ] = []
@@ -94,6 +97,7 @@ class YoloSFaceAdminRecognizer:
                     import torch as torch_runtime  # type: ignore
                 except ImportError as exc:
                     raise RuntimeError("GPU-required YOLO needs PyTorch CUDA runtime") from exc
+            self._torch_runtime = torch_runtime
             if not torch_runtime.cuda.is_available():
                 raise RuntimeError("GPU-required YOLO: CUDA is unavailable")
             if int(inference_device[5:]) >= torch_runtime.cuda.device_count():
@@ -184,6 +188,14 @@ class YoloSFaceAdminRecognizer:
             self._match_threshold,
         )
 
+    def set_performance_profiler(self, profiler) -> None:
+        self._performance_profiler = profiler
+
+    def _measure(self, stage: str):
+        if self._performance_profiler is None:
+            return nullcontext()
+        return self._performance_profiler.measure(stage)
+
     @staticmethod
     def _load_templates(path: str):
         if not os.path.isfile(path):
@@ -246,9 +258,10 @@ class YoloSFaceAdminRecognizer:
             # SFace still has to prove identity on every Authorized frame.
             if any(_same_face(bbox, candidate) for candidate in gate_boxes):
                 try:
-                    aligned = self._face_recognizer.alignCrop(image_bgr, face)
-                    embedding = _normalized(self._face_recognizer.feature(aligned))
-                    identity_score = float(np.max(self._templates @ embedding))
+                    with self._measure("sface_cpu"):
+                        aligned = self._face_recognizer.alignCrop(image_bgr, face)
+                        embedding = _normalized(self._face_recognizer.feature(aligned))
+                        identity_score = float(np.max(self._templates @ embedding))
                     if identity_score >= self._match_threshold:
                         status = DetectionStatus.AUTHORIZED
                         name = self._admin_display_name
@@ -274,17 +287,19 @@ class YoloSFaceAdminRecognizer:
 
     def _detect_faces(self, image_bgr) -> List[np.ndarray]:
         height, width = image_bgr.shape[:2]
-        scale = min(1.0, self._detector_max_side / float(max(height, width)))
-        detection_image = image_bgr
-        if scale < 1.0:
-            detection_image = cv2.resize(
-                image_bgr,
-                (max(1, round(width * scale)), max(1, round(height * scale))),
-                interpolation=cv2.INTER_AREA,
-            )
+        with self._measure("image_preprocess"):
+            scale = min(1.0, self._detector_max_side / float(max(height, width)))
+            detection_image = image_bgr
+            if scale < 1.0:
+                detection_image = cv2.resize(
+                    image_bgr,
+                    (max(1, round(width * scale)), max(1, round(height * scale))),
+                    interpolation=cv2.INTER_AREA,
+                )
         detect_height, detect_width = detection_image.shape[:2]
         self._face_detector.setInputSize((detect_width, detect_height))
-        _, faces = self._face_detector.detect(detection_image)
+        with self._measure("yunet_cpu"):
+            _, faces = self._face_detector.detect(detection_image)
         if faces is None:
             return []
         output = []
@@ -296,12 +311,31 @@ class YoloSFaceAdminRecognizer:
         return output
 
     def _yolo_candidates(self, image_bgr) -> List[tuple[int, int, int, int]]:
-        prediction = self._model.predict(
-            image_bgr,
-            conf=self._admin_min_confidence / 100.0,
-            verbose=False,
-            device=self._inference_device,
-        )[0]
+        profiler = self._performance_profiler
+        if (
+            profiler is not None
+            and profiler.enabled
+            and self._inference_device.startswith("cuda:")
+        ):
+            if self._torch_runtime is None:
+                import torch as torch_runtime  # type: ignore
+                self._torch_runtime = torch_runtime
+            timing = profiler.measure_cuda(
+                "yolo_cuda", self._torch_runtime, self._inference_device
+            )
+        else:
+            timing = self._measure(
+                "yolo_cuda"
+                if self._inference_device.startswith("cuda:")
+                else "yolo_cpu"
+            )
+        with timing:
+            prediction = self._model.predict(
+                image_bgr,
+                conf=self._admin_min_confidence / 100.0,
+                verbose=False,
+                device=self._inference_device,
+            )[0]
         actual = str(getattr(self._model, "device", "unknown"))
         if self._gpu_required and actual != self._inference_device:
             raise RuntimeError(
