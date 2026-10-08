@@ -110,7 +110,10 @@ class DetectionEngine:
         configure_logging(self._cfg.log_level, self._cfg.log_json)
 
         self._stop = threading.Event()
-        self._metrics = MetricsRegistry()
+        self._metrics = MetricsRegistry(
+            performance_profiling_enabled=self._cfg.performance_profiling_enabled,
+            performance_profiling_max_samples=self._cfg.performance_profiling_max_samples,
+        )
         self._metrics.on_inference_status({
             "gpu_required": self._cfg.gpu_required,
             "requested_inference_device": self._cfg.inference_device,
@@ -205,6 +208,7 @@ class DetectionEngine:
                 stop_event=stop_event,
                 capture_demand_event=capture_demand,
                 recording_authority=recording_authority,
+                performance_profiler=metrics.profiler,
             )
             if cfg.stream_enabled else None
         )
@@ -235,7 +239,8 @@ class DetectionEngine:
             # The original detector frame remains untouched for inference,
             # alerts, evidence and authority attribution.
             if cfg.capture_on_demand:
-                annotated = annotate_detection_frame(result, frame)
+                with metrics.profiler.measure("frame_render"):
+                    annotated = annotate_detection_frame(result, frame)
                 recorder.submit_annotated(annotated)
                 if stream is not None:
                     stream.submit_annotated(annotated)

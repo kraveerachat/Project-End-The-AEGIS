@@ -17,6 +17,8 @@ import time
 from collections import deque
 from typing import Deque, Dict, Optional
 
+from .performance_profiler import PerformanceProfiler
+
 
 class _RollingRate:
     """Counts events over a sliding time window to derive a per-second rate."""
@@ -69,9 +71,14 @@ class MetricsRegistry:
     dict copy so callers can serialize it without holding the lock.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, performance_profiling_enabled: bool = False,
+                 performance_profiling_max_samples: int = 600) -> None:
         self._lock = threading.Lock()
         self._started_monotonic = time.monotonic()
+        self.profiler = PerformanceProfiler(
+            enabled=performance_profiling_enabled,
+            max_samples=performance_profiling_max_samples,
+        )
 
         # rates & latencies
         self._capture_fps = _RollingRate()
@@ -205,7 +212,7 @@ class MetricsRegistry:
         """Return a consistent, JSON-serializable copy of all metrics."""
         now = time.monotonic()
         with self._lock:
-            return {
+            snapshot = {
                 "type": "metrics",
                 "uptime_s": round(now - self._started_monotonic, 1),
                 "camera_connected": self._camera_connected,
@@ -226,3 +233,5 @@ class MetricsRegistry:
                 "last_detection": self._last_detection,
                 **self._inference_status,
             }
+        snapshot["performance_profile"] = self.profiler.snapshot()
+        return snapshot
