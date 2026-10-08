@@ -21,7 +21,7 @@ function destroySession(req) {
   })
 }
 
-export function createAuthRouter({ config, loginLimiter, repository }) {
+export function createAuthRouter({ config, loginLimiter, repository, demoRegistry }) {
   const router = Router()
   const rateLimitAuditKeys = new Set()
 
@@ -70,6 +70,8 @@ export function createAuthRouter({ config, loginLimiter, repository }) {
         })
       }
 
+      // A new login never inherits simulated state from the session it replaces.
+      demoRegistry?.reset(req.sessionID)
       await regenerateSession(req)
       const csrfToken = randomBytes(32).toString('hex')
       try {
@@ -102,6 +104,7 @@ export function createAuthRouter({ config, loginLimiter, repository }) {
         category: 'AUTH', action: 'LOGOUT', outcome: 'SUCCESS', actorRef: 'session-admin',
         resourceType: 'session', resourceId: 'current',
       })
+      demoRegistry?.reset(req.sessionID)
       await destroySession(req)
       res.status(204).end()
     } catch (error) {
