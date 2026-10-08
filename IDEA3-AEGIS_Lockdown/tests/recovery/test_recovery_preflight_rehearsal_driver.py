@@ -39,8 +39,10 @@ esac
 exit 0
 """
 SUDO_STUB = """#!/bin/sh
+d=$(dirname "$0")/stub
 [ "$1" = -n ] && shift
-echo "$*" >> "$STUB_LOG/real-sudo"
+echo "$*" >> "$d/real-sudo"
+env > "$d/stub-env"
 case "${1##*/}" in systemctl | nft) echo "stubbed-$1"; exit 0 ;; esac   # never the real host systemctl / nft
 exec "$@"
 """
@@ -114,8 +116,8 @@ def rig(tmp_path: Path) -> Rig:
 def test_a_fully_passing_rehearsal_is_a_preflight_pass_that_is_explicitly_not_authorization(rig: Rig) -> None:
     proc = rig.run()
     out = parse(proc)
-    assert "rc=0" in proc.stdout, proc.stderr
-    assert out["RESULT"] == "PREFLIGHT_PASS_NOT_AUTHORIZATION"
+    assert "rc=20" in proc.stdout, proc.stderr                       # partial: never exit 0
+    assert out["RESULT"] == "PREFLIGHT_PASS_PARTIAL_NOT_AUTHORIZATION"
     assert (out["ATTEMPT_UNCONSUMED"], out["PREGATES"], out["REGATE"], out["RELEASE_CLI_PARSE"]) == ("PASS", "PASS", "PASS", "PASS")
     assert (out["AUTHORIZES_RECOVERY"], out["IS_AUTHORITY_TOKEN"], out["ATTEMPT_CONSUMED_BY_REHEARSAL"], out["PRODUCTION_MUTATION_BY_REHEARSAL"], out["DEVICE_COMMANDS"]) == ("NO", "NO", "NO", "NO", "0")
     assert "NOT_AUTHORIZATION" in out["PASS_MEANS"] and out["MARKER_PRESENT"] == "NO" and out["MODE"] == "READ_ONLY_NON_CONSUMING_PREFLIGHT"
@@ -126,7 +128,7 @@ def test_everything_that_was_not_rehearsed_is_reported_not_rehearsed_and_never_p
     out = parse(rig.run())
     for name in ("BASELINE_AND_ROOT_CAPTURES", "D4_EXACT_TERMINAL_REFUSAL", "ATTEMPT_MARKER", "ISOLATE_D4_RESTORE_CLOSE_FINAL_VERIFY"):
         assert out[name] == "NOT_REHEARSED", name
-    assert "RECOVERY_REHEARSAL_RESULT=PREFLIGHT_PASS_NOT_AUTHORIZATION" in rig.run().stdout
+    assert "RECOVERY_REHEARSAL_RESULT=PREFLIGHT_PASS_PARTIAL_NOT_AUTHORIZATION" in rig.run().stdout
     assert not re.search(r"RECOVERY_REHEARSAL_(ATTEMPT_MARKER|ISOLATE\w*|BASELINE\w*|D4\w*)=PASS", rig.run().stdout)
 
 
@@ -241,7 +243,7 @@ def test_a_consumed_marker_is_reported_blocked_and_is_never_modified_or_removed(
 def test_repeating_the_rehearsal_consumes_nothing_and_leaves_no_residue(rig: Rig) -> None:
     rig.canon.mkdir(mode=0o700)
     results = [rig.run() for _ in range(4)]
-    assert all("rc=0" in r.stdout and parse(r)["RESULT"] == "PREFLIGHT_PASS_NOT_AUTHORIZATION" for r in results)
+    assert all("rc=20" in r.stdout and parse(r)["RESULT"] == "PREFLIGHT_PASS_PARTIAL_NOT_AUTHORIZATION" for r in results)
     assert rig.canon_listing() == []                # still no marker, no work directory, no file
     assert rig.leftovers() == []                    # the private rehearsal directory is always removed
     blocked = [rig.run(pregates="return 1") for _ in range(3)]
@@ -264,75 +266,302 @@ def test_the_cleanup_removes_only_the_directory_it_created(rig: Rig) -> None:
     assert "still:yes" in proc.stdout
 
 
-# ═════════════════════════════════════════════ default-deny read-only privilege wrapper ═════════════════════════════════════════════
-def wrapper(rig: Rig, *argv: str) -> subprocess.CompletedProcess[str]:
-    """Generate the real wrapper with the driver's own generator and run it with the given privileged command."""
-    script = f'''. "{LIB}"; SUDO=""; . "{rig.driver}"
-RECOVERY_REHEARSAL_REAL_SUDO="{rig.sudo}"; export STUB_LOG="{rig.log}"
+# ═════════════════════════════════════════════ privilege wrapper: exact read-only command contracts ═════════════════════════════════════════════
+PY_PATH = "/usr/bin/python3"
+
+
+def wrapper(rig: Rig, *argv: str, driver: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """Generate the real wrapper with the driver's own generator and run it with the given privileged command (the real sudo is a recording stub)."""
+    script = f'''. "{LIB}"; SUDO=""; . "{driver or rig.driver}"
+RECOVERY_REHEARSAL_REAL_SUDO="{rig.sudo}"
 RH_DIR="{rig.tmpdir}/aegis-recovery-rehearsal.W"; mkdir -p "$RH_DIR"
-recovery_rehearsal_write_sudo_wrapper "$RH_DIR/sudo-ro" "{rig.ctrl}" "/usr/bin/python3"
-"$RH_DIR/sudo-ro" "$@"; echo "wrapper_rc=$?"
+recovery_rehearsal_write_sudo_wrapper "$RH_DIR/sudo-ro" "{rig.ctrl}" "{PY_PATH}"
+/usr/bin/env ${{WRAP_ENV:-}} "$RH_DIR/sudo-ro" "$@"; echo "wrapper_rc=$?"
 '''
-    return subprocess.run(["bash", "-c", script, "_", *argv], text=True, capture_output=True, cwd=rig.tmp)
+    # the hostile variables are given ONLY to the wrapper process (not to the harness shell)
+    return subprocess.run(["/usr/bin/bash", "-c", script, "_", *argv], text=True, capture_output=True, cwd=rig.tmp, env={**os.environ, "WRAP_ENV": " ".join(f"{k}={v}" for k, v in (env or {}).items())})
 
 
-DENIED = [
-    ["mkdir", "-m", "0700", "x"], ["chmod", "0400", "f"], ["chown", "root", "f"], ["chattr", "+i", "f"], ["rm", "-rf", "x"], ["tee", "f"], ["sync", "--", "f"], ["mv", "a", "b"],
-    ["cp", "a", "b"], ["install", "a", "b"], ["ln", "-s", "a", "b"], ["touch", "f"], ["kill", "1"], ["dd", "of=f"], ["systemctl", "restart", "aegis-idea3-core.service"],
-    ["systemctl", "stop", "x"], ["systemctl", "daemon-reload"], ["nft", "add", "table", "inet", "x"], ["nft", "flush", "ruleset"], ["nft", "-f", "rules.nft"],
-    ["bash", "-c", "echo x > f"], ["sh", "-c", "mkdir x"], ["python3", "-c", "open('f','w')"], ["/usr/bin/python3", "/tmp/not-control.py"], ["find", ".", "-delete"],
-    ["find", ".", "-exec", "rm", "{}", ";"], ["find", ".", "-fprint", "f"], ["awk", "BEGIN{system(\"touch f\")}"], ["awk", "{print > \"f\"}"], ["env", "mkdir", "x"],
-    ["env", "-i", "PATH=/bin", "rm", "f"], ["env", "-S", "rm f"], ["curl", "http://x"], ["sudo", "true"], ["mosquitto_pub", "-t", "x"], ["reboot"], [],
-]
-ALLOWED = [
-    ["test", "-e", "/etc"], ["stat", "-c", "%u", "/etc"], ["cat", "/etc/hostname"], ["sha256sum", "/etc/hostname"], ["readlink", "-f", "/etc"], ["find", "/etc", "-maxdepth", "0", "-perm", "/022"],
-    ["grep", "-q", "x", "/etc/hostname"], ["pgrep", "-fc", "nonexistent-xyz"], ["true"], ["systemctl", "show", "-p", "MainPID", "x.service"],
-    ["nft", "list", "tables"], ["nft", "--stateless", "list", "table", "inet", "x"], ["awk", "-F=", "$1 == \"k\" {print $2}", "/etc/os-release"],
-    ["awk", "NF >= 1 {print $1}", "/etc/hostname"], ["env", "-i", "PATH=/usr/bin", "cat", "/etc/hostname"], ["env", "-u", "X", "PYTHONDONTWRITEBYTECODE=1", "true"],
-]
+def stub_calls(rig: Rig) -> list[str]:
+    path = rig.log / "real-sudo"
+    return path.read_text().splitlines() if path.exists() else []
 
 
-@pytest.mark.parametrize("argv", DENIED, ids=lambda a: " ".join(a)[:48] or "empty")
-def test_the_privilege_wrapper_denies_every_mutation_verb_and_anything_unknown(rig: Rig, argv: list[str]) -> None:
-    proc = wrapper(rig, *argv)
-    assert "wrapper_rc=97" in proc.stdout, proc.stderr
+def snapshot(root: Path) -> dict[str, tuple[int, bytes | None]]:
+    out = {}
+    for path in sorted(root.rglob("*")):
+        if "aegis-recovery-rehearsal.W" in path.parts:
+            continue  # the wrapper's own private directory (log and tripwire) is the only thing allowed to change
+        out[str(path)] = (path.lstat().st_mode, path.read_bytes() if path.is_file() and not path.is_symlink() else None)
+    return out
+
+
+def denied(rig: Rig, *argv: str, **kw) -> subprocess.CompletedProcess[str]:
+    before = snapshot(rig.tmp)
+    proc = wrapper(rig, *argv, **kw)
+    assert "wrapper_rc=97" in proc.stdout, (argv, proc.stdout, proc.stderr)
     assert "RECOVERY_REHEARSAL_SUDO_DENIED" in proc.stderr
-    assert not (rig.log / "real-sudo").exists()                       # the real sudo was never even called
+    assert stub_calls(rig) == [], (argv, "reached the privileged stub")
     assert (rig.tmpdir / "aegis-recovery-rehearsal.W" / "TRIPWIRE").read_text().startswith("sudo:")
-    assert not any(p.name in {"x", "f", "b"} for p in rig.tmp.iterdir())
+    assert snapshot(rig.tmp) == before, (argv, "changed files or state")
+    return proc
 
 
-@pytest.mark.parametrize("argv", ALLOWED, ids=lambda a: " ".join(a)[:48])
-def test_the_privilege_wrapper_allows_the_read_only_verbs_the_pregates_use(rig: Rig, argv: list[str]) -> None:
-    proc = wrapper(rig, *argv)
-    assert "RECOVERY_REHEARSAL_SUDO_DENIED" not in proc.stderr, proc.stderr
-    assert (rig.log / "real-sudo").exists()
-
-
-def test_the_wrapper_allows_control_snapshot_python_tools_and_stdin_gates_only(rig: Rig) -> None:
+def reviewed_forms(rig: Rig) -> list[list[str]]:
+    """Every privileged command form that the reviewed Recovery pre-gates actually issue (inventory taken from the sourced libraries)."""
     tool = rig.ctrl / "p4-l7-release-guard.py"
-    tool.write_text("print('ok')\n")
-    assert "SUDO_DENIED" not in wrapper(rig, "/usr/bin/python3", str(tool), "check").stderr
-    assert "SUDO_DENIED" not in wrapper(rig, "env", "PYTHONDONTWRITEBYTECODE=1", "/usr/bin/python3", str(tool), "check-runtime").stderr
-    assert "SUDO_DENIED" not in wrapper(rig, "/usr/bin/python3", "-I", "-").stderr
-    assert "SUDO_DENIED" in wrapper(rig, "/usr/bin/python3", "-I", "-B", "/tmp/elsewhere.py").stderr
-    assert "SUDO_DENIED" in wrapper(rig, "/usr/bin/python3", "-c", "print(1)").stderr
-    assert "SUDO_DENIED" in wrapper(rig, "/opt/other/python", str(tool)).stderr
+    tool.write_text("print('L7_RELEASE_GUARD=PASS')\n")
+    return [
+        ["true"],
+        ["test", "-d", "/etc"], ["test", "-e", "/etc"], ["test", "-L", "/etc"],
+        ["stat", "-c", "%u", "/etc"],
+        ["find", "/etc", "-maxdepth", "0", "-perm", "/022"],
+        ["find", "/etc", "-maxdepth", "1", "-type", "f", "(", "-name", "CTU-GLOBAL-CLOSEOUT-PASS", "-o", "-name", "CTU-GLOBAL-CLOSEOUT-FAIL", ")", "-printf", "%f\\n"],
+        ["awk", "NF >= 1 {print $1}", "/etc/os-release"],
+        ["awk", "-F=", "NF >= 2 {print $1}", "/etc/os-release"],
+        ["awk", "-F=", '$1 == "CTU_EXPECTED_MAIN" {print $2}', "/etc/os-release"],
+        ["awk", "-F=", '$1 == "CTV_DETECTOR_BASELINE_MODE" {print $2}', "/etc/os-release"],
+        ["sha256sum", "/etc/os-release"],
+        ["readlink", "/etc/os-release"],
+        ["systemctl", "show", "-p", "LoadState", "-p", "ActiveState", "-p", "MainPID", "aegis-idea3-detector.service"],
+        ["pgrep", "-fc", "aegis_soc[.]production_detector"],
+        ["nft", "list", "tables"],
+        ["nft", "--stateless", "list", "table", "inet", "aegis_idea3_r1i"],
+        [PY_PATH, str(tool), "check", "--logical-path", "/opt/aegis-idea3/releases/912b18005bb2fc80bb4e8d1fe8aa88803ac27314", "--host-path", "/opt/aegis-idea3/releases/912b18005bb2fc80bb4e8d1fe8aa88803ac27314", "--expect-owner", "root"],
+    ]
 
 
-def test_the_wrapper_allows_only_the_one_reviewed_proc_environ_probe_through_a_shell(rig: Rig) -> None:
-    probe = 'tr "\\0" "\\n" < "/proc/$1/environ" | grep -qx "AEGIS_ALERT_SOURCE_UID=$2"'
-    assert "SUDO_DENIED" not in wrapper(rig, "bash", "-c", probe, "_", "1", "0").stderr
-    assert "SUDO_DENIED" in wrapper(rig, "bash", "-c", probe + "; touch f", "_", "1", "0").stderr
-    assert "SUDO_DENIED" in wrapper(rig, "bash", probe).stderr
+def test_every_privileged_form_used_by_the_reviewed_prefix_is_still_allowed(rig: Rig) -> None:
+    for argv in reviewed_forms(rig):
+        (rig.log / "real-sudo").unlink(missing_ok=True)
+        proc = wrapper(rig, *argv)
+        assert "RECOVERY_REHEARSAL_SUDO_DENIED" not in proc.stderr, (argv, proc.stderr)
+        assert len(stub_calls(rig)) == 1, argv
 
 
-def test_a_positive_rehearsal_runs_only_read_verbs_through_the_real_sudo(rig: Rig) -> None:
-    proc = rig.run(pregates='$SUDO test -e /etc; $SUDO stat -c %u /etc; $SUDO cat /etc/hostname >/dev/null; $SUDO find /etc -maxdepth 0; $SUDO true',
-                   regate='$SUDO systemctl show -p MainPID x; $SUDO nft list tables')
-    assert "rc=0" in proc.stdout, proc.stderr
-    verbs = {line.split()[0] for line in (rig.log / "real-sudo").read_text().splitlines()}
-    assert verbs <= {"test", "stat", "cat", "find", "true", "systemctl", "nft"}
+def test_the_allowed_command_runs_a_fixed_resolved_program_in_a_clean_environment(rig: Rig) -> None:
+    wrapper(rig, "stat", "-c", "%u", "/etc", env={"LD_PRELOAD": "/evil.so", "PATH": "/evil", "BASH_ENV": "/evil.sh", "PYTHONPATH": "/evil", "IFS": "x", "SHELLOPTS": "xtrace"})
+    (call,) = stub_calls(rig)
+    assert call.startswith("/usr/bin/stat ") or call.startswith("/bin/stat ")      # a fixed absolute path, never the caller's PATH
+    env_dump = (rig.log / "stub-env").read_text()
+    assert "PATH=/usr/sbin:/usr/bin:/sbin:/bin" in env_dump and "LC_ALL=C" in env_dump
+    for dangerous in ("LD_PRELOAD", "BASH_ENV", "PYTHONPATH", "IFS=", "SHELLOPTS", "/evil"):
+        assert dangerous not in env_dump, dangerous
+
+
+FORBIDDEN = {
+    # awk: variable/ARGV writes, programs from files, includes, pipes, system, getline, any non-reviewed program
+    "awk-variable-write": ["awk", "-v", "f=OUT", 'BEGIN{print "x" > f}'],
+    "awk-argv-write": ["awk", 'BEGIN{print "x" > ARGV[1]}', "OUT"],
+    "awk-append": ["awk", 'BEGIN{print "x" >> ARGV[1]}', "OUT"],
+    "awk-system": ["awk", 'BEGIN{system("touch OUT")}'],
+    "awk-pipe": ["awk", 'BEGIN{print "x" | "tee OUT"}'],
+    "awk-getline": ["awk", 'BEGIN{"id" | getline x; print x}'],
+    "awk-program-file": ["awk", "-f", "/etc/os-release", "/etc/os-release"],
+    "awk-include": ["awk", "--include", "x", "NF >= 1 {print $1}", "/etc/os-release"],
+    "awk-other-program": ["awk", "{print}", "/etc/os-release"],
+    "awk-two-files": ["awk", "NF >= 1 {print $1}", "/etc/os-release", "/etc/hostname"],
+    "awk-relative-file": ["awk", "NF >= 1 {print $1}", "relative-file"],
+    "awk-bad-key": ["awk", "-F=", '$1 == "lower;case" {print $2}', "/etc/os-release"],
+    # sort / uniq output files, and the other text verbs no pre-gate runs privileged
+    "sort-output": ["sort", "-o", "OUT", "/etc/os-release"],
+    "sort-output-long": ["sort", "--output=OUT", "/etc/os-release"],
+    "uniq-output-operand": ["uniq", "/etc/os-release", "OUT"],
+    "date-set": ["date", "-s", "2000-01-01"],
+    "date-plain": ["date"],
+    "journalctl-vacuum": ["journalctl", "--vacuum-time=1s"],
+    "journalctl-rotate": ["journalctl", "--rotate"],
+    "journalctl-flush": ["journalctl", "--flush"],
+    "journalctl-readonly-looking": ["journalctl", "-o", "json", "--no-pager", "-n", "1"],
+    "cat": ["cat", "/etc/os-release"], "grep": ["grep", "-q", "x", "/etc/os-release"], "cmp": ["cmp", "-s", "/etc/os-release", "/etc/hostname"],
+    "tee": ["tee", "OUT"], "dd": ["dd", "of=OUT"], "touch": ["touch", "OUT"], "mkdir": ["mkdir", "-m", "0700", "OUT"], "rm": ["rm", "-rf", "OUT"],
+    "chmod": ["chmod", "0777", "OUT"], "chattr": ["chattr", "+i", "OUT"], "sync": ["sync", "--", "OUT"], "mv": ["mv", "a", "b"], "cp": ["cp", "a", "b"], "ln": ["ln", "-s", "a", "OUT"],
+    "kill": ["kill", "1"], "reboot": ["reboot"], "curl": ["curl", "http://127.0.0.1/"], "sudo": ["sudo", "true"], "empty": [],
+    # alternative executable paths
+    "absolute-allowed-name": ["/tmp/x/cat", "/etc/os-release"], "absolute-stat": ["/tmp/x/stat", "-c", "%u", "/etc"], "relative-path": ["./stat", "-c", "%u", "/etc"],
+    "absolute-python-other": ["/tmp/x/python3", "SCRIPT", "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root"],
+    "bare-python": ["python3", "SCRIPT", "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root"],
+    "assignment-as-program": ["LD_PRELOAD=/evil.so", "stat", "-c", "%u", "/etc"],
+    # env and shells: never allowed, so no variable (LD_*, PATH, PYTHON*, BASH_ENV, ENV, IFS, SHELLOPTS) can be forwarded
+    "env-ld-preload": ["env", "LD_PRELOAD=/evil.so", "stat", "-c", "%u", "/etc"],
+    "env-path": ["env", "PATH=/evil", "stat", "-c", "%u", "/etc"],
+    "env-pythonpath": ["env", "PYTHONPATH=/evil", PY_PATH, "SCRIPT", "check"],
+    "env-bash-env": ["env", "BASH_ENV=/evil.sh", "true"], "env-env": ["env", "ENV=/evil.sh", "true"], "env-ifs": ["env", "IFS=x", "true"], "env-shellopts": ["env", "SHELLOPTS=xtrace", "true"],
+    "env-harmless-assignment": ["env", "PYTHONDONTWRITEBYTECODE=1", "true"], "env-clear": ["env", "-i", "true"], "env-split-string": ["env", "-S", "rm OUT"],
+    "bash-c": ["bash", "-c", "echo x > OUT"], "sh-c": ["sh", "-c", "touch OUT"], "bash-proc-probe": ["bash", "-c", 'tr "\\0" "\\n" < "/proc/$1/environ" | grep -qx "AEGIS_ALERT_SOURCE_UID=$2"', "_", "1", "0"],
+    # python: path traversal, outside the control snapshot, stdin, -c, wrong subcommand/arguments
+    "python-traversal": [PY_PATH, "CTRL/../evil.py", "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root"],
+    "python-outside-ctrl": [PY_PATH, "/tmp/elsewhere.py", "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root"],
+    "python-stdin": [PY_PATH, "-I", "-"], "python-dash-c": [PY_PATH, "-c", "open('OUT','w')"],
+    "python-unreviewed-tool": [PY_PATH, "CTRL/p4-other-tool.py", "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root"],
+    "python-other-subcommand": [PY_PATH, "CTRL/p4-l7-release-guard.py", "install", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root"],
+    "python-bad-logical-path": [PY_PATH, "CTRL/p4-l7-release-guard.py", "check", "--logical-path", "/etc/shadow", "--host-path", "/opt/x", "--expect-owner", "root"],
+    "python-extra-argument": [PY_PATH, "CTRL/p4-l7-release-guard.py", "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root", "--fix"],
+    "python-owner-not-root": [PY_PATH, "CTRL/p4-l7-release-guard.py", "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "nobody"],
+    # nft: chaining, newline injection, mutation, scripts
+    "nft-chain-semicolon": ["nft", "list tables; flush ruleset"], "nft-chain-in-operand": ["nft", "list", "tables; add table ip x"],
+    "nft-newline": ["nft", "list", "tables\nflush ruleset"], "nft-newline-in-table": ["nft", "--stateless", "list", "table", "inet", "aegis_idea3_r1i\nflush ruleset"],
+    "nft-braces": ["nft", "--stateless", "list", "table", "inet", "x { }"], "nft-add": ["nft", "add", "table", "inet", "x"], "nft-flush": ["nft", "flush", "ruleset"],
+    "nft-file": ["nft", "-f", "rules.nft"], "nft-interactive": ["nft", "-i"], "nft-extra-operand": ["nft", "list", "tables", "extra"],
+    "nft-bad-family": ["nft", "--stateless", "list", "table", "bridge;x", "aegis_idea3_r1i"], "nft-list-ruleset": ["nft", "list", "ruleset"],
+    # other verbs with unreviewed options
+    "stat-printf": ["stat", "--printf=%n", "/etc"], "stat-other-format": ["stat", "-c", "%n", "/etc"], "stat-follow": ["stat", "-L", "-c", "%u", "/etc"],
+    "test-write-flag": ["test", "-w", "/etc"], "test-negation": ["test", "!", "-e", "/etc"], "test-relative": ["test", "-e", "relative"],
+    "readlink-canonicalize": ["readlink", "-f", "/etc"], "readlink-relative": ["readlink", "x"],
+    "sha256sum-check": ["sha256sum", "-c", "/etc/os-release"], "sha256sum-two": ["sha256sum", "/etc/os-release", "/etc/hostname"], "sha256sum-option": ["sha256sum", "--tag", "/etc/os-release"],
+    "find-delete": ["find", "/etc", "-delete"], "find-exec": ["find", "/etc", "-maxdepth", "0", "-exec", "rm", "{}", ";"], "find-fprint": ["find", "/etc", "-maxdepth", "0", "-fprint", "OUT"],
+    "find-wrong-perm": ["find", "/etc", "-maxdepth", "0", "-perm", "-o+w"], "find-deeper": ["find", "/etc", "-maxdepth", "5", "-perm", "/022"],
+    "find-printf-other": ["find", "/etc", "-maxdepth", "1", "-type", "f", "(", "-name", "A", "-o", "-name", "B", ")", "-printf", "%p\\n"],
+    "find-name-glob-injection": ["find", "/etc", "-maxdepth", "1", "-type", "f", "(", "-name", "A;B", "-o", "-name", "B", ")", "-printf", "%f\\n"],
+    "systemctl-restart": ["systemctl", "restart", "aegis-idea3-core.service"], "systemctl-restart-with-p": ["systemctl", "restart", "-p", "MainPID", "x.service"],
+    "systemctl-stop": ["systemctl", "stop", "x.service"], "systemctl-daemon-reload": ["systemctl", "daemon-reload"], "systemctl-show-no-property": ["systemctl", "show", "x.service"],
+    "systemctl-show-bad-property": ["systemctl", "show", "-p", "A;B", "x.service"], "systemctl-show-bad-unit": ["systemctl", "show", "-p", "MainPID", "x.socket"],
+    "systemctl-show-option": ["systemctl", "show", "--value", "-p", "MainPID", "x.service"], "systemctl-show-trailing": ["systemctl", "show", "-p", "MainPID", "x.service", "y.service"],
+    "pgrep-other-pattern": ["pgrep", "-f", "anything"], "pgrep-signal": ["pgrep", "-fc", "x", "--signal", "9"], "pkill": ["pkill", "-f", "x"],
+    "true-args": ["true", "x"],
+    "control-character": ["test", "-e", "/etc\n/shadow"],
+}
+
+
+def materialise(rig: Rig, argv: list[str]) -> list[str]:
+    out = []
+    for arg in argv:
+        out.append(arg.replace("OUT", str(rig.tmp / "OUT")).replace("CTRL", str(rig.ctrl)).replace("SCRIPT", str(rig.ctrl / "p4-l7-release-guard.py")))
+    return out
+
+
+@pytest.mark.parametrize("name", sorted(FORBIDDEN))
+def test_the_privilege_wrapper_denies_every_bypass_class_before_privileged_execution(rig: Rig, name: str) -> None:
+    (rig.ctrl / "p4-l7-release-guard.py").write_text("print('x')\n")
+    (rig.ctrl / "p4-other-tool.py").write_text("print('x')\n")
+    argv = materialise(rig, FORBIDDEN[name])
+    denied(rig, *argv)
+    assert not (rig.tmp / "OUT").exists() and not (rig.tmp / "a").exists() and not (rig.tmp / "b").exists()
+
+
+def test_a_symlink_inside_the_control_snapshot_that_points_outside_is_denied(rig: Rig) -> None:
+    outside = rig.tmp / "outside.py"
+    outside.write_text("print('evil')\n")
+    (rig.ctrl / "p4-l7-release-guard.py").symlink_to(outside)
+    denied(rig, PY_PATH, str(rig.ctrl / "p4-l7-release-guard.py"), "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root")
+
+
+def test_the_wrapper_refuses_to_be_generated_with_a_path_that_could_inject_into_the_script(rig: Rig) -> None:
+    for bad in (f"{rig.tmp}/a&b", f"{rig.tmp}/a\\b", f"{rig.tmp}/a b", f"{rig.tmp}/a;b", f"{rig.tmp}/a$b", f"{rig.tmp}/../b", "relative"):
+        script = f'''. "{LIB}"; SUDO=""; . "{rig.driver}"
+RECOVERY_REHEARSAL_REAL_SUDO="{rig.sudo}"; RH_DIR="{rig.tmpdir}/aegis-recovery-rehearsal.W"; mkdir -p "$RH_DIR"
+recovery_rehearsal_write_sudo_wrapper "$RH_DIR/sudo-ro" '{bad}' "{PY_PATH}"; echo "generated=$?"
+'''
+        proc = subprocess.run(["bash", "-c", script], text=True, capture_output=True)
+        assert proc.returncode == 97 and "generated=" not in proc.stdout, bad
+        assert not (rig.tmpdir / "aegis-recovery-rehearsal.W" / "sudo-ro").exists()
+
+
+def test_a_positive_rehearsal_runs_only_reviewed_read_verbs_through_the_real_sudo(rig: Rig) -> None:
+    proc = rig.run(pregates='$SUDO test -e /etc; $SUDO stat -c %u /etc; $SUDO find /etc -maxdepth 0 -perm /022; $SUDO sha256sum /etc/os-release >/dev/null; $SUDO true',
+                   regate='$SUDO systemctl show -p MainPID -p ActiveState x.service; $SUDO nft list tables')
+    assert "rc=20" in proc.stdout, proc.stderr
+    verbs = {Path(line.split()[0]).name for line in stub_calls_run(rig)}
+    assert verbs <= {"test", "stat", "find", "sha256sum", "true", "systemctl", "nft"}
+
+
+def stub_calls_run(rig: Rig) -> list[str]:
+    return (rig.tmp / "stub" / "real-sudo").read_text().splitlines() if (rig.tmp / "stub" / "real-sudo").exists() else []
+
+
+# ═════════════════════════════════════════════ mutation tests of the wrapper guards ═════════════════════════════════════════════
+def weaken_wrapper(tmp_path: Path, old: str, new: str) -> Path:
+    text = DRIVER.read_text()
+    assert text.count(old) == 1, old
+    path = tmp_path / "weak-driver.sh"
+    path.write_text(text.replace(old, new))
+    return path
+
+
+def reached(rig: Rig) -> bool:
+    return bool(stub_calls(rig))
+
+
+def test_mutation_dotdot_guard_removed_a_traversing_path_is_accepted(tmp_path: Path) -> None:
+    weak = Rig(tmp_path / "weak", driver=weaken_wrapper(tmp_path, '[[ "$1" =~ ^/[A-Za-z0-9._/@:+,=%-]*$ ]] && [[ "$1" != *..* ]]', '[[ "$1" =~ ^/[A-Za-z0-9._/@:+,=%-]*$ ]]'))
+    wrapper(weak, "test", "-e", "/etc/../etc/hostname", driver=weak.driver)
+    assert reached(weak)
+    strict = Rig(tmp_path / "strict")
+    denied(strict, "test", "-e", "/etc/../etc/hostname")
+
+
+def test_mutation_control_snapshot_prefix_guard_removed_a_script_outside_it_is_accepted(tmp_path: Path) -> None:
+    old = '[[ "$script" == "$ctrl_real"/* && "$script" != *..* ]] || deny "python-script-outside-control-snapshot"'
+    weak = Rig(tmp_path / "weak", driver=weaken_wrapper(tmp_path, old, ":"))
+    outside = weak.tmp / "p4-l7-release-guard.py"
+    outside.write_text("print('evil')\n")
+    wrapper(weak, PY_PATH, str(outside), "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root", driver=weak.driver)
+    assert reached(weak)
+    strict = Rig(tmp_path / "strict")
+    (strict.tmp / "p4-l7-release-guard.py").write_text("print('evil')\n")
+    denied(strict, PY_PATH, str(strict.tmp / "p4-l7-release-guard.py"), "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root")
+
+
+def test_mutation_awk_exact_program_guard_removed_a_writing_awk_runs(tmp_path: Path) -> None:
+    weak = Rig(tmp_path / "weak", driver=weaken_wrapper(tmp_path, 'else deny "awk-program-or-arguments"; fi ;;', "else :; fi ;;"))
+    out = weak.tmp / "OUT"
+    wrapper(weak, "awk", 'BEGIN{print "x" > ARGV[1]}', str(out), driver=weak.driver)
+    assert out.exists()
+    strict = Rig(tmp_path / "strict")
+    denied(strict, "awk", 'BEGIN{print "x" > ARGV[1]}', str(strict.tmp / "OUT"))
+    assert not (strict.tmp / "OUT").exists()
+
+
+def test_mutation_env_i_removed_the_callers_dangerous_environment_reaches_the_privileged_command(tmp_path: Path) -> None:
+    weak = Rig(tmp_path / "weak", driver=weaken_wrapper(tmp_path, 'exec /usr/bin/env -i PATH="$FIXED_PATH" LC_ALL=C "$REAL" -n', 'exec "$REAL" -n'))
+    wrapper(weak, "stat", "-c", "%u", "/etc", driver=weak.driver, env={"LD_PRELOAD": "/evil.so"})
+    assert "LD_PRELOAD=/evil.so" in (weak.log / "stub-env").read_text()
+    strict = Rig(tmp_path / "strict")
+    wrapper(strict, "stat", "-c", "%u", "/etc", env={"LD_PRELOAD": "/evil.so"})
+    assert "LD_PRELOAD" not in (strict.log / "stub-env").read_text()
+
+
+def test_mutation_nft_list_exactness_removed_a_chained_command_is_accepted(tmp_path: Path) -> None:
+    weak = Rig(tmp_path / "weak", driver=weaken_wrapper(tmp_path, '[ "${args[1]}" = list ] && [ "${args[2]}" = tables ]', '[ "${args[1]}" = list ]'))
+    wrapper(weak, "nft", "list", "tables; flush ruleset", driver=weak.driver)
+    assert reached(weak)
+    denied(Rig(tmp_path / "strict"), "nft", "list", "tables; flush ruleset")
+
+
+def test_mutation_systemctl_show_only_removed_a_restart_is_accepted(tmp_path: Path) -> None:
+    weak = Rig(tmp_path / "weak", driver=weaken_wrapper(tmp_path, '[ "$n" -ge 5 ] && [ "${args[1]}" = show ] || deny "systemctl-form"', '[ "$n" -ge 5 ] || deny "systemctl-form"'))
+    wrapper(weak, "systemctl", "restart", "-p", "MainPID", "aegis-idea3-core.service", driver=weak.driver)
+    assert reached(weak)
+    denied(Rig(tmp_path / "strict"), "systemctl", "restart", "-p", "MainPID", "aegis-idea3-core.service")
+
+
+def test_mutation_interpreter_equality_removed_another_python_is_accepted(tmp_path: Path) -> None:
+    weak = Rig(tmp_path / "weak", driver=weaken_wrapper(tmp_path, '  "$PY")\n', '  */python3)\n'))
+    tool = weak.ctrl / "p4-l7-release-guard.py"
+    tool.write_text("print('x')\n")
+    fake = weak.tmp / "evil" / "python3"
+    fake.parent.mkdir()
+    fake.write_text("#!/bin/sh\necho EVIL_INTERPRETER_RAN >> \"$(dirname \"$0\")/ran\"\n")
+    fake.chmod(0o755)
+    wrapper(weak, str(fake), str(tool), "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root", driver=weak.driver)
+    assert reached(weak)
+    strict = Rig(tmp_path / "strict")
+    (strict.ctrl / "p4-l7-release-guard.py").write_text("print('x')\n")
+    denied(strict, str(fake), str(strict.ctrl / "p4-l7-release-guard.py"), "check", "--logical-path", "/opt/aegis-idea3/releases/r1", "--host-path", "/opt/x", "--expect-owner", "root")
+
+
+def test_mutation_default_deny_removed_an_unknown_program_runs(tmp_path: Path) -> None:
+    weak = Rig(tmp_path / "weak", driver=weaken_wrapper(tmp_path, '  *) deny "program:${prog:0:40}" ;;', "  *) ;;"))
+    wrapper(weak, "mkdir", "OUTDIR", driver=weak.driver)
+    assert (weak.tmp / "OUTDIR").is_dir()
+    denied(Rig(tmp_path / "strict"), "mkdir", "OUTDIR")
+
+
+def test_the_wrapper_contract_has_no_env_shell_or_text_verb_allowance_left() -> None:
+    wrapper_src = DRIVER.read_text().split("<<'WRAPPER'", 1)[1].split("\nWRAPPER", 1)[0]
+    allowed = set(re.findall(r"^  ([a-z0-9]+)\)", wrapper_src, re.M)) | {"python"}
+    assert allowed == {"true", "test", "stat", "readlink", "sha256sum", "find", "awk", "pgrep", "systemctl", "nft", "python"}
+    assert not re.search(r"\b(env|bash|sh|grep|cat|cmp|sort|uniq|date|journalctl)\)", wrapper_src)
 
 
 # ═════════════════════════════════════════════ real attempt authority (read-only) as root-in-a-userns ═════════════════════════════════════════════
@@ -343,7 +572,7 @@ def test_the_real_unconsumed_gate_runs_through_the_wrapper_and_creates_nothing(t
     script = rig.script(pregates="return 0", regate="return 0", unconsumed="", post="", frozen=FROZEN_SHA)
     proc = sup.userns_bash(f'export CLI_MODE=ok\n{script}')
     out = parse(proc)
-    assert "rc=0" in proc.stdout, proc.stderr + proc.stdout
+    assert "rc=20" in proc.stdout, proc.stderr + proc.stdout
     assert out["ATTEMPT_UNCONSUMED"] == "PASS" and rig.canon_listing() == []
     (rig.canon / MARKER).write_text("RECOVERY_ATTEMPT_CONSUMED=YES\n")
     blocked = parse(sup.userns_bash(f'export CLI_MODE=ok\n{script}'))
@@ -398,17 +627,6 @@ def test_mutation_without_the_final_tripwire_check_a_fired_tripwire_would_be_rep
     assert "rc=97" not in proc.stdout and "PREFLIGHT_PASS" in proc.stdout  # the unmutated driver returns 97 (asserted in the tripwire tests above)
 
 
-def test_mutation_without_the_wrapper_deny_for_mkdir_the_real_sudo_would_create_a_directory(tmp_path: Path) -> None:
-    text = DRIVER.read_text()
-    weak_path = tmp_path / "weak-driver.sh"
-    weak_path.write_text(text.replace("  *) deny \"program:$prog\" ;;", "  *) ;;"))
-    weak = Rig(tmp_path / "weak", driver=weak_path)
-    proc = wrapper(weak, "mkdir", "x")
-    assert "wrapper_rc=0" in proc.stdout and (weak.tmp / "x").is_dir()      # an unknown program would run
-    strict = Rig(tmp_path / "strict")
-    assert "wrapper_rc=97" in wrapper(strict, "mkdir", "x").stdout and not (strict.tmp / "x").exists()
-
-
 def test_mutation_if_a_failed_pregate_were_not_counted_the_rehearsal_would_wrongly_pass(tmp_path: Path) -> None:
     old = '    recovery_rehearsal_section PREGATES BLOCKED "see the GATE_FAIL lines above"; blocked=1\n'
     weak = Rig(tmp_path, driver=mutated(tmp_path, old, old.replace("blocked=1", "true")))
@@ -430,3 +648,23 @@ def test_mutation_if_the_cli_check_ran_restore_instead_of_help_the_restore_detec
     strict = Rig(tmp_path / "strict")
     strict.run()
     assert not (strict.release / "calls" / "restore-ran").exists()
+
+
+# ═════════════════════════════════════════════ secondary findings: truthful output contract (M3, M4, M6) ═════════════════════════════════════════════
+def test_m4_a_partial_rehearsal_can_never_exit_zero_or_look_like_a_complete_pass(rig: Rig) -> None:
+    proc = rig.run()
+    assert "rc=20" in proc.stdout and "rc=0" not in proc.stdout
+    out = parse(proc)
+    assert out["RESULT"] == "PREFLIGHT_PASS_PARTIAL_NOT_AUTHORIZATION" and "PARTIAL" in out["RESULT"]
+    body = DRIVER.read_text().split("recovery_rehearse() {", 1)[1]
+    assert "return 0" not in body                                    # no path of the rehearsal returns success
+
+
+def test_m3_the_output_discloses_that_the_runner_pregates_fetch_from_the_remote(rig: Rig) -> None:
+    note = parse(rig.run())["REMOTE_TRACKING_NOTE"]
+    assert "git fetch origin" in note and "network" in note and "remote-tracking refs" in note and "never its files or HEAD" in note
+
+
+def test_m6_the_output_discloses_that_sigkill_and_power_loss_leave_the_private_directory(rig: Rig) -> None:
+    note = parse(rig.run())["CLEANUP_LIMIT"]
+    assert "SIGKILL_OR_POWER_LOSS_LEAVES" in note and "SAFE_TO_DELETE" in note and "SIGHUP" in note

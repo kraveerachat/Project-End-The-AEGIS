@@ -80,6 +80,15 @@ class World:
         return subprocess.run(["sh", str(script), str(frozen or self.frozen), str(self.repo), str(self.auth), reason], text=True, capture_output=True,
                               env={"PATH": "/usr/bin:/bin", **(env or {})})
 
+    def remain(self) -> None:
+        """Commit working-tree edits to the exact-main repository and re-render the frozen runner for the new main."""
+        self.main = sup.commit_all(self.repo)
+        self.pins["EXPECTED_MAIN"] = self.main
+        self.frozen_text = freeze.render(freeze.read_template(self.repo, self.main), self.pins)
+        self.frozen.chmod(0o755)
+        self.frozen.write_text(self.frozen_text)
+        self.frozen.chmod(0o555)
+
     def retemplate(self, edit) -> None:
         """Change the REVIEWED template in the exact-main repository (a future template edit), commit it, and re-render the frozen runner from it."""
         template = self.repo / REL / "owner-run" / "run-recovery-owner.sh"
@@ -218,14 +227,8 @@ def test_without_the_preset_guard_the_clean_start_silently_neutralises_overrides
     assert "ENVIRONMENT_OVERRIDE_SET" not in proc.stderr and "RECOVERY_REHEARSAL_BUILD=OK" in proc.stdout
 
 
-def test_the_entry_point_refuses_an_unpinned_tool_a_dirty_worktree_and_a_wrong_head(world: World) -> None:
+def test_the_entry_point_refuses_a_dirty_worktree_and_a_wrong_head(world: World) -> None:
     before = tmp_rehearsal_dirs()
-    # a tool file that differs from the pinned-main object
-    builder = world.tool_dir / "recovery_rehearsal_build.py"
-    builder.write_text(builder.read_text() + "\n# local edit\n")
-    proc = world.entry()
-    assert proc.returncode == 2 and "TOOL_FILE_DIFFERS_FROM_THE_PINNED_MAIN:recovery_rehearsal_build.py" in proc.stderr or "WORKTREE_NOT_CLEAN" in proc.stderr
-    subprocess.run(["git", "-C", str(world.repo), "checkout", "--", "."], check=True)
     (world.repo / "stray").write_text("x")
     assert "WORKTREE_NOT_CLEAN" in world.entry().stderr
     (world.repo / "stray").unlink()
@@ -235,6 +238,56 @@ def test_the_entry_point_refuses_an_unpinned_tool_a_dirty_worktree_and_a_wrong_h
     assert tmp_rehearsal_dirs() == before
 
 
+@pytest.mark.parametrize("victim", ["recovery_rehearsal_build.py", "recovery_preflight_rehearsal.sh", "recovery_runner_freeze.py", "recovery_verifier_snapshot.py", "recovery-preflight-rehearse.sh"])
+def test_a_tool_file_whose_bytes_differ_from_the_pinned_main_blob_is_refused_even_when_git_status_is_clean(world: World, victim: str) -> None:
+    # `skip-worktree` hides the edit from `git status`, so only the per-file blob digest check can catch it (M1: a surviving mutant before)
+    target = world.tool_dir / victim
+    target.write_text(target.read_text() + "\n# local edit\n")
+    subprocess.run(["git", "-C", str(world.repo), "update-index", "--skip-worktree", f"{REL}/recovery-acceptance/{victim}"], check=True)
+    assert subprocess.run(["git", "-C", str(world.repo), "status", "--porcelain"], capture_output=True, text=True).stdout == ""
+    proc = world.entry()
+    assert proc.returncode == 2 and f"TOOL_FILE_DIFFERS_FROM_THE_PINNED_MAIN:{victim}" in proc.stderr, proc.stderr
+
+
+@pytest.mark.skipif(not shutil.which("unshare") or subprocess.run(["unshare", "-r", "true"], capture_output=True).returncode != 0, reason="user namespace unavailable")
+def test_the_entry_point_refuses_to_run_as_root(world: World) -> None:
+    script = world.tool_dir / "recovery-preflight-rehearse.sh"
+    proc = subprocess.run(["unshare", "-r", "sh", str(script), str(world.frozen), str(world.repo), str(world.auth), "reason"], text=True, capture_output=True, env={"PATH": "/usr/bin:/bin"})
+    assert proc.returncode == 2 and "RUN_AS_THE_OPERATOR_NOT_ROOT" in proc.stderr
+
+
+def test_a_prefix_that_would_reach_the_attempt_call_before_the_tail_is_refused(world: World) -> None:
+    # M1: a reviewed template that mentions/calls recovery_run_attempt BEFORE the final block must never be turned into a rehearsal copy
+    world.retemplate(lambda t: t.replace("\nif recovery_run_attempt; then\n", "\n: recovery_run_attempt would be called here\nif recovery_run_attempt; then\n", 1))
+    proc = world.build()
+    assert proc.returncode == 1 and "ATTEMPT_CALL_REACHABLE_BEFORE_THE_TAIL" in proc.stderr, proc.stderr
+
+
+def _swapping_builder(world: World) -> None:
+    builder = world.tool_dir / "recovery_rehearsal_build.py"
+    text = builder.read_text()
+    marker = '    print("RECOVERY_REHEARSAL_BUILD=OK")'
+    assert marker in text
+    builder.write_text(text.replace(marker, '    os.chmod(target, 0o600)\n    open(target, "a").write("# swapped after the build\\n")\n' + marker, 1))
+    world.remain()
+
+
+def test_m2_a_derived_copy_that_changes_after_the_build_is_refused_before_it_runs(world: World) -> None:
+    _swapping_builder(world)
+    proc = world.entry()
+    assert proc.returncode == 2 and "DERIVED_COPY_CHANGED_AFTER_THE_BUILD" in proc.stderr and "RECOVERY_REHEARSAL_STAGE" not in proc.stdout, proc.stderr
+
+
+def test_m2_mutation_without_the_rehash_the_swapped_copy_would_run(world: World) -> None:
+    _swapping_builder(world)
+    entry = world.tool_dir / "recovery-preflight-rehearse.sh"
+    text = entry.read_text()
+    old = '[ "$(sha256sum -- "$derived" | cut -d\' \' -f1)" = "$want_derived_sha" ] && [ ! -L "$derived" ] || fail DERIVED_COPY_CHANGED_AFTER_THE_BUILD'
+    assert old in text
+    entry.write_text(text.replace(old, ":", 1))
+    world.remain()
+    proc = world.entry()
+    assert "DERIVED_COPY_CHANGED_AFTER_THE_BUILD" not in proc.stderr and "RECOVERY_REHEARSAL_START=YES" in proc.stdout
 def test_the_entry_point_must_run_from_the_pinned_worktree_with_group_unwritable_files(world: World) -> None:
     elsewhere = world.tmp / "elsewhere"
     shutil.copytree(world.tool_dir, elsewhere)

@@ -50,14 +50,18 @@ chmod 700 "$WORKDIR"
 build=$(/usr/bin/python3 -I -B "$HERE/recovery_rehearsal_build.py" --repo "$REPO" --frozen "$FROZEN" --out-dir "$WORKDIR") || fail DERIVED_COPY_REFUSED
 printf '%s\n' "$build" | grep -E '^RECOVERY_REHEARSAL_(BUILD|FROZEN_RUNNER_SHA256|DERIVED_SHA256|FROZEN_RUNNER_MODIFIED)='
 derived=$(printf '%s\n' "$build" | sed -n 's/^RECOVERY_REHEARSAL_DERIVED_PATH=//p')
+want_derived_sha=$(printf '%s\n' "$build" | sed -n 's/^RECOVERY_REHEARSAL_DERIVED_SHA256=//p')
 [ "$derived" = "$WORKDIR/rehearsal-runner.sh" ] && [ -f "$derived" ] && [ ! -L "$derived" ] || fail DERIVED_PATH_INVALID
+[[ "$want_derived_sha" =~ ^[0-9a-f]{64}$ ]] || fail DERIVED_DIGEST_INVALID
 printf 'RECOVERY_REHEARSAL_START=YES (read-only; the frozen runner is not executed and the attempt block is not present in the copy)\n'
+# The copy is operator-owned (no privilege boundary is crossed), so it is re-hashed immediately before it runs: a swap after the build is refused.
+[ "$(sha256sum -- "$derived" | cut -d' ' -f1)" = "$want_derived_sha" ] && [ ! -L "$derived" ] || fail DERIVED_COPY_CHANGED_AFTER_THE_BUILD
 set +e
 /bin/bash --noprofile --norc "$derived" "$AUTH_DIR" "$REASON"
 rc=$?
 set -e
 case "$rc" in
-  0) printf 'RECOVERY_REHEARSAL_ENTRY=COMPLETE exit=0 (PREFLIGHT_PASS_NOT_AUTHORIZATION)\n' ;;
+  20) printf 'RECOVERY_REHEARSAL_ENTRY=COMPLETE exit=20 (PREFLIGHT_PASS_PARTIAL_NOT_AUTHORIZATION: every rehearsed check passed; sections remain NOT_REHEARSED)\n' ;;
   10) printf 'RECOVERY_REHEARSAL_ENTRY=COMPLETE exit=10 (BLOCKED: see the sections above)\n' ;;
   97) printf 'RECOVERY_REHEARSAL_ENTRY=SAFETY_TRIPWIRE exit=97 (a forbidden call was refused; nothing was consumed)\n' ;;
   *) printf 'RECOVERY_REHEARSAL_RESULT=BLOCKED reason=RUNNER_PREFIX_REFUSED_BEFORE_THE_REHEARSAL_DRIVER exit=%s\n' "$rc" ;;
