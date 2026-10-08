@@ -3,7 +3,7 @@ title: Task Receipt — IDEA3 third Recovery successor contract and offline read
 date: 2026-10-08T16:00:00+07:00
 owner: music
 area: idea3
-branch: detached HEAD d34d3eb9a07e0e2aa3de98b536518f28b8babb89 (PR #407 recovery sandbox)
+branch: feat/idea3-third-recovery-successor-readiness
 status: partial
 edit_policy: append-by-new-file
 ---
