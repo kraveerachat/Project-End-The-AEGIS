@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from http.cookiejar import CookieJar
 from pathlib import Path
@@ -444,8 +445,15 @@ def test_s10_a_command_for_another_device_is_dropped_and_forged_foreign_evidence
     topic, payload = forged.periodic_status()
     before = list(db.fetch_all_logs())
     e2e.to_core(topic, payload)
-    assert [r[3] for r in db.fetch_all_logs()] == [r[3] for r in before] or "DEVICE_STATUS" not in {r[3] for r in db.fetch_all_logs()} - {r[3] for r in before}
+    after = list(db.fetch_all_logs())
+    before_counts = Counter(before)
+    after_counts = Counter(after)
+    assert not before_counts - after_counts, "pre-existing audit evidence must remain unchanged"
+    new_rows = list((after_counts - before_counts).elements())
+    allowed_rejection_events = {"P1_EVIDENCE_REJECTED", "DEVICE_STATUS_REJECTED"}
+    assert {row[3] for row in new_rows} <= allowed_rejection_events, "a foreign-device STATUS must never be recorded as DEVICE_STATUS"
     assert e2e.stages() == ["PUBLISHED"]
+    assert db.verify_chain()[0] is True
 
 
 # ── scenario 11: delayed or missing ACK ──────────────────────────────────────────────────────────────────────────────────────────────────
