@@ -153,6 +153,9 @@ def world(tmp_path: Path) -> AttestWorld:
     return AttestWorld(tmp_path)
 
 
+PARTIAL_RC = 3  # sections A-C pass, but a Recovery prerequisite is BLOCKED/UNKNOWN: the verdict is PARTIAL and the exit status is non-zero
+
+
 def facts(proc: subprocess.CompletedProcess[str]) -> dict[str, str]:
     return dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
 
@@ -164,9 +167,9 @@ def reason(proc: subprocess.CompletedProcess[str]) -> str:
 # ──────────────────────────────────────────────── valid history and read-only behaviour ────────────────────────────────────────────────
 def test_valid_trusted_fail_history_is_attested_without_promoting_or_authorizing_anything(world: AttestWorld) -> None:
     proc = world.run()
-    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert proc.returncode == PARTIAL_RC, proc.stderr + proc.stdout   # release/CLI is UNKNOWN, so the verdict can only be PARTIAL
     f = facts(proc)
-    assert f["CTV_FAIL_SUCCESSOR_ATTESTATION"] == "PASS"
+    assert f["CTV_FAIL_SUCCESSOR_ATTESTATION"] == "PARTIAL" and f["CTV_FAIL_SUCCESSOR_HISTORY_AND_CURRENT_STATE"] == "PASS"
     assert f["CTV_FAIL_SUCCESSOR_STAGE"] == "CTv-fail-successor-attestation"
     assert f["CTV_FAIL_SUCCESSOR_CTV_HISTORY"] == "IMMUTABLE_FAIL"
     assert f["CTV_FAIL_SUCCESSOR_CLOSEOUT_SHA256"] == world.closeout_sha
@@ -190,7 +193,7 @@ def test_historical_s10_stays_fail_and_preservation_is_not_claimed(world: Attest
 def test_zero_production_side_effects_and_only_read_verbs_were_used(world: AttestWorld) -> None:
     before = world.tree()
     proc = world.run()
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == PARTIAL_RC, proc.stderr
     assert world.tree() == before  # no file created, removed, rewritten, re-moded or re-timed
     calls = (world.tmp / "calls").read_text().splitlines()
     assert calls and all(c.startswith(("systemctl show", "nft list tables", "nft --stateless list table")) for c in calls)
@@ -450,7 +453,8 @@ def test_r1i_prerequisite_is_blocked_not_passed_when_it_cannot_be_proven(world: 
         (world.bin / "nft").unlink()
     proc = world.run()
     f = facts(proc)
-    assert proc.returncode == 0  # the CTv/runtime attestation itself is unaffected
+    assert proc.returncode == PARTIAL_RC and f["CTV_FAIL_SUCCESSOR_ATTESTATION"] == "PARTIAL"  # B1: BLOCKED is never PASS and never exit 0
+    assert f["CTV_FAIL_SUCCESSOR_HISTORY_AND_CURRENT_STATE"] == "PASS"                          # the history proof itself is unaffected
     assert f["CTV_FAIL_SUCCESSOR_PREREQ_R1I"] == "BLOCKED" and f["CTV_FAIL_SUCCESSOR_PREREQ_R1I_REASON"] == expected
     assert f["CTV_FAIL_SUCCESSOR_RECOVERY_PREREQUISITES"] == "BLOCKED"
     assert f["CTV_FAIL_SUCCESSOR_RECOVERY_AUTHORIZED"] == "NO"
@@ -460,7 +464,7 @@ def test_r1b_incident_authority_is_blocked_when_the_reviewed_gate_cannot_pass(tm
     world = AttestWorld(tmp_path, logs=False)  # the exact-main repository carries no R1B/R1Bv receipts
     proc = world.run()
     f = facts(proc)
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == PARTIAL_RC and f["CTV_FAIL_SUCCESSOR_ATTESTATION"] == "PARTIAL", proc.stderr
     assert f["CTV_FAIL_SUCCESSOR_PREREQ_R1B_AUTHORITY"] == "BLOCKED"
     assert f["CTV_FAIL_SUCCESSOR_PREREQ_R1B_AUTHORITY_REASON"].startswith("R1BV")
     assert f["CTV_FAIL_SUCCESSOR_RECOVERY_PREREQUISITES"] == "BLOCKED"
@@ -494,9 +498,9 @@ def test_environment_cannot_override_production_authority_or_inject_a_shell_file
     injected = world.tmp / "inject.sh"
     injected.write_text(f"touch {world.tmp}/INJECTED\n")
     env = world.env(CTV_SUDO="/bin/false", SUDO="/bin/false", CTV_CANONICAL_DIR="/nonexistent", CTV_UNIT_DEST="/nonexistent", PATH="/nonexistent")
-    assert world.run(env=env).returncode == 0  # all of the above are ignored: the clean start and the guard pin them
+    assert world.run(env=env).returncode == PARTIAL_RC  # all of the above are ignored: the clean start and the guard pin them
     # Executed through its `bash -p` shebang, BASH_ENV is never processed at all.
-    assert world.run(env=world.env(BASH_ENV=str(injected))).returncode == 0
+    assert world.run(env=world.env(BASH_ENV=str(injected))).returncode == PARTIAL_RC
     assert not (world.tmp / "INJECTED").exists()
     # Run through an explicit `bash <file>` the shell has already processed BASH_ENV, so the script can only refuse (and does).
     proc = subprocess.run(["/bin/bash", str(world.attest), *world.common(), "--closeout-sha256", world.closeout_sha], text=True, capture_output=True,
@@ -536,7 +540,7 @@ def _tamper_sidecar(w: AttestWorld) -> None:
     ("CTV_NAMESPACE_NOT_EXACT", '|| fail CTV_NAMESPACE_NOT_EXACT', lambda w: (w.canon / "CTV-GLOBAL-CLOSEOUT-PASS").write_text("CTV_RESULT=CLOSED_PASS\n")),
     ("CLOSEOUT_SCHEMA_NOT_EXACT", 'strict_schema "$closeout_text" $CLOSEOUT_KEYS || fail CLOSEOUT_SCHEMA_NOT_EXACT', lambda w: w.write_history(extra="CTV_UNKNOWN_FIELD=1\n")),
     ("CLOSEOUT_FIELD_INVALID_CTV_RESULT", '|| fail "CLOSEOUT_FIELD_INVALID_${want%%=*}"', lambda w: w.write_history(set_={"CTV_RESULT": "CLOSED_PASS"})),
-    ("CLOSEOUT_SIDECAR_INVALID", '[ "$(read_exact "$sidecar")" = "$closeout_sha  $CLOSEOUT_NAME" ] || fail CLOSEOUT_SIDECAR_INVALID', _tamper_sidecar),
+    ("CLOSEOUT_SIDECAR_INVALID", 'exact_text sidecar_raw && [ "$sidecar_raw" = "$closeout_sha  $CLOSEOUT_NAME" ] || fail CLOSEOUT_SIDECAR_INVALID', _tamper_sidecar),
     ("MARKER_FIELD_INVALID", '|| fail MARKER_FIELD_INVALID', lambda w: w.write_history(marker_set={"CTV_RERUN_ALLOWED": "YES"})),
 ])
 def test_weakening_a_critical_guard_removes_that_guards_rejection(tmp_path: Path, own_reason: str, old: str, tamper) -> None:
@@ -562,3 +566,236 @@ def test_weakening_a_critical_guard_removes_that_guards_rejection(tmp_path: Path
     pin = weak.closeout_sha if own_reason == "CLOSEOUT_SHA256_NOT_THE_PINNED_RECORD" else sha(weak.canon / "CTV-GLOBAL-CLOSEOUT-FAIL")
     result = weak.run(closeout_sha=pin)
     assert own_reason not in reason(result), (own_reason, reason(result))
+
+
+# ═════════════════════════════════════════════ B1: the verdict, the mode label and the two digests ═════════════════════════════════════════════
+def _body(proc: subprocess.CompletedProcess[str]) -> str:
+    return proc.stdout
+
+
+def test_b1_r1i_blocked_is_never_pass_and_never_exit_zero(world: AttestWorld) -> None:
+    (world.tmp / "nft_tables").write_text("")
+    proc = world.run()
+    assert proc.returncode != 0 and facts(proc)["CTV_FAIL_SUCCESSOR_ATTESTATION"] != "PASS"
+    assert "CTV_FAIL_SUCCESSOR_ATTESTATION=PASS" not in _body(proc) and facts(proc)["CTV_FAIL_SUCCESSOR_RECOVERY_READINESS"] == "PARTIAL"
+
+
+def test_b1_r1b_blocked_is_never_pass_and_never_exit_zero(tmp_path: Path) -> None:
+    proc = AttestWorld(tmp_path, logs=False).run()
+    assert proc.returncode != 0 and facts(proc)["CTV_FAIL_SUCCESSOR_ATTESTATION"] != "PASS" and facts(proc)["CTV_FAIL_SUCCESSOR_PREREQ_R1B_AUTHORITY"] == "BLOCKED"
+
+
+def test_b1_release_cli_unknown_alone_prevents_pass_even_when_everything_else_passes(world: AttestWorld) -> None:
+    proc = world.run()
+    f = facts(proc)
+    assert (f["CTV_FAIL_SUCCESSOR_PREREQ_R1I"], f["CTV_FAIL_SUCCESSOR_PREREQ_R1B_AUTHORITY"], f["CTV_FAIL_SUCCESSOR_PREREQ_RELEASE_CLI"]) == ("PASS", "PASS", "UNKNOWN")
+    assert proc.returncode == PARTIAL_RC and f["CTV_FAIL_SUCCESSOR_ATTESTATION"] == "PARTIAL" and f["CTV_FAIL_SUCCESSOR_RECOVERY_READINESS"] == "PARTIAL"
+    assert f["CTV_FAIL_SUCCESSOR_RECOVERY_PREREQUISITES"] == "PARTIAL_RELEASE_CLI_UNKNOWN"
+
+
+def test_b1_the_execution_mode_is_labelled_and_a_hermetic_run_can_never_look_like_production(world: AttestWorld) -> None:
+    f = facts(world.run())
+    assert f["CTV_FAIL_SUCCESSOR_MODE"] == "HERMETIC_TEST"
+    text = ATTEST_SRC.read_text()
+    assert 'MODE=HERMETIC_TEST' in text and 'MODE=PRODUCTION' in text
+    # the mode is part of the readiness digest, so a test-world digest can never equal a production one
+    assert re.search(r"printf 'readiness_v1\\nbinding=%s\\nmode=%s", text)
+
+
+def test_b1_changing_runtime_prerequisite_status_changes_readiness_but_not_the_historical_binding(world: AttestWorld) -> None:
+    base = facts(world.run())
+    (world.tmp / "nft_tables").write_text("")                      # R1I PASS -> BLOCKED
+    blocked = facts(world.run())
+    assert blocked["CTV_FAIL_SUCCESSOR_PREREQ_R1I"] == "BLOCKED"
+    assert blocked["CTV_FAIL_SUCCESSOR_BINDING_SHA256"] == base["CTV_FAIL_SUCCESSOR_BINDING_SHA256"]       # stable history unchanged
+    assert blocked["CTV_FAIL_SUCCESSOR_READINESS_SHA256"] != base["CTV_FAIL_SUCCESSOR_READINESS_SHA256"]   # runtime readiness is bound
+    (world.tmp / "nft_r1i").write_text(R1I_STATE.replace("policy accept", "policy drop"))
+    (world.tmp / "nft_tables").write_text(f"table {r1i.FAMILY} {r1i.TABLE}\n")
+    shape = facts(world.run())
+    assert shape["CTV_FAIL_SUCCESSOR_READINESS_SHA256"] not in {base["CTV_FAIL_SUCCESSOR_READINESS_SHA256"], blocked["CTV_FAIL_SUCCESSOR_READINESS_SHA256"]}
+    assert shape["CTV_FAIL_SUCCESSOR_BINDING_SHA256"] == base["CTV_FAIL_SUCCESSOR_BINDING_SHA256"]
+
+
+def test_b1_readiness_also_binds_the_current_runtime_state_the_binding_does_not(world: AttestWorld) -> None:
+    before = facts(world.run())
+    world.edit_state("core", InvocationID="fedcba9876543210fedcba9876543210")   # the Core was restarted: a different current runtime state
+    after = facts(world.run())
+    assert after["CTV_FAIL_SUCCESSOR_CURRENT_STATE_SHA256"] != before["CTV_FAIL_SUCCESSOR_CURRENT_STATE_SHA256"]
+    assert after["CTV_FAIL_SUCCESSOR_READINESS_SHA256"] != before["CTV_FAIL_SUCCESSOR_READINESS_SHA256"]
+    assert after["CTV_FAIL_SUCCESSOR_BINDING_SHA256"] == before["CTV_FAIL_SUCCESSOR_BINDING_SHA256"]
+
+
+def test_b1_both_digests_state_that_they_are_not_a_credential_or_authorization(world: AttestWorld) -> None:
+    f = facts(world.run())
+    assert f["CTV_FAIL_SUCCESSOR_BINDING_SCOPE"] == "STABLE_HISTORY_ONLY_NOT_FRESH_RUNTIME_PROOF_NOT_RECOVERY_AUTHORIZATION"
+    scope = f["CTV_FAIL_SUCCESSOR_READINESS_SCOPE"]
+    assert "NOT_FRESHNESS" in scope and "NOT_A_CREDENTIAL" in scope and "NOT_PERMISSION" in scope
+    assert f["CTV_FAIL_SUCCESSOR_RECOVERY_AUTHORIZED"] == "NO"
+    header = ATTEST_SRC.read_text().split("set -Eeuo pipefail", 1)[0]
+    assert "STABLE HISTORY ONLY" in header and "not a freshness" in header and "never authorizes Recovery" in header
+
+
+def test_b1_history_and_s10_stay_unchanged_and_nothing_is_consumed_or_authorized_in_every_verdict(world: AttestWorld) -> None:
+    for tweak in (lambda: None, lambda: (world.tmp / "nft_tables").write_text("")):
+        tweak()
+        before = world.tree()
+        proc = world.run()
+        f = facts(proc)
+        assert world.tree() == before and not list(world.canon.glob("RECOVERY-*"))
+        assert (f["CTV_FAIL_SUCCESSOR_HISTORICAL_RESULT"], f["CTV_FAIL_SUCCESSOR_PROMOTES_CTV_TO_PASS"], f["CTV_FAIL_SUCCESSOR_HISTORICAL_S10"]) == ("FAIL_IMMUTABLE", "NO", "FAIL")
+        assert (f["CTV_FAIL_SUCCESSOR_ATTEMPT_CONSUMED"], f["CTV_FAIL_SUCCESSOR_PRODUCTION_MUTATION"], f["CTV_FAIL_SUCCESSOR_RECOVERY_AUTHORIZED"]) == ("NO", "NO", "NO")
+
+
+def test_b1_a_consumer_cannot_mistake_partial_for_pass(world: AttestWorld) -> None:
+    proc = world.run()
+    assert proc.returncode != 0
+    assert not re.search(r"^CTV_FAIL_SUCCESSOR_ATTESTATION=PASS$", proc.stdout, re.M)
+    assert not re.search(r"^CTV_FAIL_SUCCESSOR_RECOVERY_READINESS=PASS$", proc.stdout, re.M)
+    assert re.search(r"^CTV_FAIL_SUCCESSOR_ATTESTATION=PARTIAL$", proc.stdout, re.M)
+    assert proc.stdout.rstrip().splitlines()[-1] == "CTV_FAIL_SUCCESSOR_ATTESTATION=PARTIAL"  # the verdict is the last line
+
+
+def test_b1_the_only_code_path_that_prints_attestation_pass_requires_every_prerequisite() -> None:
+    code = "\n".join(line for line in ATTEST_SRC.read_text().splitlines() if not line.lstrip().startswith("#"))
+    assert code.count("ATTESTATION=PASS") == 1
+    guard = code[: code.index("ATTESTATION=PASS")].rsplit("\nif ", 1)[1].split("\n", 1)[0]
+    assert all(term in guard for term in ('"$r1i_status" = PASS', '"$r1b_status" = PASS', '"$release_status" = PASS')), guard
+    assert code.index("exit 0") > code.index("ATTESTATION=PASS") and code.count("exit 0") == 1
+    assert 'release_status=UNKNOWN release_reason=NO_TRUSTED_PIN_INPUT' in code and "release_status=PASS" not in code
+
+
+def _forced(world_dir: Path, replacement: str) -> AttestWorld:
+    world = AttestWorld(world_dir)
+    text = world.attest.read_text()
+    assert "release_status=UNKNOWN release_reason=NO_TRUSTED_PIN_INPUT" in text
+    world.attest.write_text(text.replace("release_status=UNKNOWN release_reason=NO_TRUSTED_PIN_INPUT", replacement, 1))
+    world.recommit()
+    world.write_history()
+    return world
+
+
+def test_b1_pass_is_reachable_only_when_all_three_prerequisites_pass_and_still_authorizes_nothing(tmp_path: Path) -> None:
+    (tmp_path / "all").mkdir()
+    ok = _forced(tmp_path / "all", "release_status=PASS release_reason=TEST_FORCED_TRUSTED_PIN")  # hypothetical future trusted pin
+    proc = ok.run()
+    f = facts(proc)
+    assert proc.returncode == 0 and f["CTV_FAIL_SUCCESSOR_ATTESTATION"] == "PASS" and f["CTV_FAIL_SUCCESSOR_RECOVERY_READINESS"] == "PASS"
+    assert f["CTV_FAIL_SUCCESSOR_MODE"] == "HERMETIC_TEST" and f["CTV_FAIL_SUCCESSOR_RECOVERY_AUTHORIZED"] == "NO"
+    (tmp_path / "blocked").mkdir()
+    still = _forced(tmp_path / "blocked", "release_status=PASS release_reason=TEST_FORCED_TRUSTED_PIN")
+    (still.tmp / "nft_tables").write_text("")                    # the trusted pin does not rescue a BLOCKED R1I
+    blocked = still.run()
+    assert blocked.returncode == PARTIAL_RC and facts(blocked)["CTV_FAIL_SUCCESSOR_ATTESTATION"] == "PARTIAL"
+
+
+# ═════════════════════════════════════════════ M1-M6 ═════════════════════════════════════════════
+def test_m1_a_hard_linked_history_file_is_rejected(world: AttestWorld) -> None:
+    for name, expected in (("CTV-GLOBAL-CLOSEOUT-FAIL", "CLOSEOUT_UNTRUSTED"), ("CTV-GLOBAL-ATTEMPT-CONSUMED", "MARKER_UNTRUSTED"), ("CTV-GLOBAL-CLOSEOUT-FAIL.sha256", "SIDECAR_UNTRUSTED")):
+        world.write_history()
+        link = world.tmp / f"hardlink-{name}"
+        os.link(world.canon / name, link)
+        proc = world.run()
+        assert proc.returncode != 0 and expected in reason(proc), (name, reason(proc))
+        link.unlink()
+
+
+def test_m2_the_closeout_is_hashed_and_parsed_from_one_read() -> None:
+    code = ATTEST_SRC.read_text()
+    assert code.count('slurp closeout_raw "$closeout"') == 1
+    assert 'closeout_sha=$(printf \'%s\' "$closeout_raw" | sha256sum' in code and 'closeout_sha=$(ro sha256sum' not in code
+    assert 'closeout_text=$closeout_raw' in code and 'ro cat -- "$closeout")' not in code.split("# ── B + C.")[0]
+
+
+def test_m3_the_guard_is_sourced_from_the_bytes_that_were_hashed_and_never_by_path() -> None:
+    code = "\n".join(line for line in ATTEST_SRC.read_text().splitlines() if not line.lstrip().startswith("#"))
+    assert re.search(r'^\s*\.\s+"\$GUARD"', code, re.M) is None and "source " not in code
+    assert code.index('"$GUARD_SHA" ] || fail GUARD_CHANGED_BEFORE_SOURCE') < code.index('eval "$guard_bytes"') < code.index("ob_guard_init")
+
+
+def _function(name: str) -> str:
+    text = ATTEST_SRC.read_text()
+    return re.search(rf"^{name}\(\) \{{.*?\n(?=\S)|^{name}\(\) \{{[^\n]*\}}$", text, re.M | re.S).group(0).splitlines()[0]
+
+
+def test_m4_trusted_bin_rejects_a_binary_not_owned_by_root(tmp_path: Path) -> None:
+    helper = _function("trusted_bin")
+    mine = tmp_path / "python3"
+    mine.write_text("#!/bin/sh\n")
+    mine.chmod(0o755)
+    proc = subprocess.run(["bash", "-c", f"{helper}\ntrusted_bin '{mine}'; echo \"rc=$?\""], text=True, capture_output=True)
+    assert "rc=1" in proc.stdout                              # owned by the (non-root) invoking user: never trusted
+    assert "rc=0" not in subprocess.run(["bash", "-c", f"{helper}\ntrusted_bin '{tmp_path}/absent'; echo \"rc=$?\""], text=True, capture_output=True).stdout
+
+
+@pytest.mark.skipif(not shutil.which("unshare") or subprocess.run(["unshare", "-r", "true"], capture_output=True).returncode != 0, reason="user namespace unavailable")
+def test_m4_trusted_bin_accepts_a_root_owned_non_writable_binary_and_rejects_a_writable_one(tmp_path: Path) -> None:
+    helper = _function("trusted_bin")
+    good, bad = tmp_path / "good", tmp_path / "bad"
+    for path, mode in ((good, 0o755), (bad, 0o775)):
+        path.write_text("x")
+        path.chmod(mode)
+    proc = subprocess.run(["unshare", "-r", "bash", "-c", f"{helper}\ntrusted_bin '{good}'; echo \"good=$?\"; trusted_bin '{bad}'; echo \"bad=$?\""], text=True, capture_output=True)
+    assert "good=0" in proc.stdout and "bad=1" in proc.stdout
+
+
+def test_m4_production_mode_checks_python_and_nft_trust() -> None:
+    code = ATTEST_SRC.read_text()
+    assert "trusted_bin /usr/bin/python3 || fail PYTHON_NOT_ROOT_TRUSTED" in code and "trusted_bin \"$nft_bin\" || fail NFT_NOT_ROOT_TRUSTED" in code
+
+
+def test_m5_the_r1b_prerequisite_states_that_it_proves_committed_receipts_only(world: AttestWorld) -> None:
+    f = facts(world.run())
+    assert f["CTV_FAIL_SUCCESSOR_PREREQ_R1B_AUTHORITY_SCOPE"] == "COMMITTED_RECEIPTS_AT_PINNED_MAIN_NOT_LIVE_INCIDENT_OR_AUDIT_CHAIN"
+
+
+def _mutating_verifier(world: AttestWorld) -> None:
+    """A committed (so hash-valid) verifier that rewrites the closeout in place, after the attestation has already pinned it."""
+    verifier = world.repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/ctv-incident/ctv-option-b-verify.sh"
+    marker = "# ── 1. Exact merged authority"
+    text = verifier.read_text()
+    assert marker in text
+    verifier.write_text(text.replace(marker, 'printf "# changed\\n" >> "$CANON/CTV-GLOBAL-CLOSEOUT-FAIL"\n' + marker, 1))
+
+
+def test_m6a_history_that_changes_while_the_verifier_runs_is_detected(world: AttestWorld) -> None:
+    _mutating_verifier(world)
+    world.recommit()
+    world.write_history()
+    proc = world.run()
+    assert proc.returncode != 0 and "HISTORY_CHANGED_DURING_ATTESTATION" in reason(proc), reason(proc)
+
+
+def test_m6a_mutation_without_the_recheck_the_same_change_is_accepted(tmp_path: Path) -> None:
+    (tmp_path / "weak").mkdir()
+    w = AttestWorld(tmp_path / "weak")
+    _mutating_verifier(w)
+    text = w.attest.read_text()
+    old = "fail HISTORY_CHANGED_DURING_ATTESTATION"
+    assert text.count(old) == 2
+    w.attest.write_text(text.replace(old, "true", 2))
+    w.recommit()
+    w.write_history()
+    result = w.run()
+    assert "HISTORY_CHANGED_DURING_ATTESTATION" not in reason(result) and result.returncode == PARTIAL_RC
+
+
+def test_m6b_production_mode_requires_root() -> None:
+    code = ATTEST_SRC.read_text()
+    snippet = code[code.index('if [ "$HERMETIC" = YES ]; then\n  [ -z "$PATH_PREFIX" ]'):code.index("ro() {")]
+    assert "fail ROOT_REQUIRED" in snippet
+    if os.getuid() != 0:
+        proc = subprocess.run(["bash", "-c", f'fail() {{ echo "FAILED:$1"; exit 1; }}\nHERMETIC=NO PATH_PREFIX=\n{snippet}\necho REACHED'], text=True, capture_output=True)
+        assert "FAILED:ROOT_REQUIRED" in proc.stdout and "REACHED" not in proc.stdout
+
+
+def test_m6c_the_s10_promoted_fact_is_checked_a_second_time_and_a_changed_verifier_fact_is_rejected(world: AttestWorld) -> None:
+    code = ATTEST_SRC.read_text()
+    assert "CTV_OPTION_B_S10_PROMOTED_TO_PASS=NO" in code and "CTV_FAIL_SUCCESSOR_PROMOTES_CTV_TO_PASS=NO" in code
+    verifier = world.repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/ctv-incident/ctv-option-b-verify.sh"
+    text = verifier.read_text()
+    assert "CTV_OPTION_B_S10_PROMOTED_TO_PASS=NO" in text
+    verifier.write_text(text.replace("CTV_OPTION_B_S10_PROMOTED_TO_PASS=NO", "CTV_OPTION_B_S10_PROMOTED_TO_PASS=YES", 1))
+    world.recommit()
+    world.write_history()
+    proc = world.run()
+    assert proc.returncode != 0 and "VERIFIER_FACT_INVALID_CTV_OPTION_B_S10_PROMOTED_TO_PASS" in reason(proc)

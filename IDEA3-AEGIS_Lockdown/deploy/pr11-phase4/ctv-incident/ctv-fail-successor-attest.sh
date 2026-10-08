@@ -13,9 +13,20 @@
 #   D. Recovery prerequisites that can be read without consuming anything. Each is PASS, BLOCKED or UNKNOWN; none is invented.
 #
 # What it does NOT do: it does not turn CTv into PASS, does not repair the historical S10 FAIL, does not claim PRE-to-POST preservation
-# passed, and does not authorize Recovery (CTV_FAIL_SUCCESSOR_RECOVERY_AUTHORIZED=NO). A later, separately reviewed and authorized stage
-# would have to define a third predecessor authority that binds CTV_FAIL_SUCCESSOR_BINDING_SHA256; nothing here changes the existing
-# CTu PASS or CTv PASS gates.
+# passed, and does not authorize Recovery (CTV_FAIL_SUCCESSOR_RECOVERY_AUTHORIZED=NO).
+#
+# OUTPUT CONTRACT (read this before consuming the output):
+#   * CTV_FAIL_SUCCESSOR_MODE is PRODUCTION or HERMETIC_TEST. A HERMETIC_TEST transcript is a test-world result and is never Production evidence.
+#   * CTV_FAIL_SUCCESSOR_ATTESTATION=PASS (exit 0) is printed ONLY when sections A-C pass AND every section D prerequisite is PASS. Otherwise the
+#     verdict is PARTIAL (exit 3): the A-C facts above it are still true, but Recovery readiness is NOT established. Any failure of A-C is FAIL
+#     (exit 1 or 2) on stderr. While the pinned release/CLI proof is UNKNOWN (today: always) the verdict can never be PASS.
+#   * CTV_FAIL_SUCCESSOR_BINDING_SHA256 covers STABLE HISTORY ONLY (closeout, marker, pins, evidence digests, tool digests). It is NOT a fresh runtime
+#     attestation and NOT a Recovery authorization; any consumer must re-run this script instead of caching it.
+#   * CTV_FAIL_SUCCESSOR_READINESS_SHA256 binds the stable binding, the mode, the current verified runtime-state digest and the R1I / R1B /
+#     release-CLI statuses with their reasons. It is only an integrity binding of the facts printed in the same run: it is not a freshness
+#     guarantee, not an authentication credential, and not permission to execute anything. It never authorizes Recovery.
+# A later, separately reviewed and authorized stage would have to define a third predecessor authority; nothing here changes the existing
+# CTu PASS or CTv PASS gates, and this script must not be wired into the live Recovery runner.
 #
 # usage: ctv-fail-successor-attest.sh --repo R --main SHA40 --canon DIR --work DIR --device ID
 #        Test seams (--hermetic ...) are refused unless CTV_OPTION_B_TEST_ONLY=YES and every path is inside a safe CTV_OPTION_B_TEST_ROOT
@@ -99,8 +110,10 @@ SELF_SHA=$(sha256sum -- "$SELF" | cut -d' ' -f1)
 GUARD_SHA=$(sha256sum -- "$GUARD" | cut -d' ' -f1)
 VERIFIER_SHA=$(sha256sum -- "$VERIFIER" | cut -d' ' -f1)
 
-# shellcheck source=/dev/null
-. "$GUARD"
+# The guard is sourced from the very bytes that were hashed against the exact-main blob (no second read of the file between check and use).
+guard_bytes=$(cat -- "$GUARD"; printf x); guard_bytes=${guard_bytes%x}
+[ "$(printf '%s' "$guard_bytes" | sha256sum | cut -d' ' -f1)" = "$GUARD_SHA" ] || fail GUARD_CHANGED_BEFORE_SOURCE
+eval "$guard_bytes"
 ob_guard_init
 for f in "${EXEC_FILES[@]}"; do
   ob_trusted_file "$f" || fail EXEC_PATH_NOT_TRUSTED
@@ -117,7 +130,10 @@ else
   [ "$(id -u)" = 0 ] || fail ROOT_REQUIRED
 fi
 ro() { if [ -n "$CTV_SUDO" ]; then "$CTV_SUDO" "$@"; else "$@"; fi; }
-printf 'CTV_FAIL_SUCCESSOR_STAGE=%s\nCTV_FAIL_SUCCESSOR_AUTHORITY=PASS\nCTV_FAIL_SUCCESSOR_EXPECTED_MAIN=%s\n' "$STAGE" "$MAIN"
+# trusted_bin PATH — the resolved binary is owned by root and not group/world writable (root runs it; parity with the Option B verifier's interpreter check).
+trusted_bin() { local r; r=$(realpath -e -- "$1" 2>/dev/null) && [ "$(stat -c %u -- "$r")" = 0 ] && [ -z "$(find "$r" -maxdepth 0 -perm /022)" ]; }
+if [ "$HERMETIC" = YES ]; then MODE=HERMETIC_TEST; else MODE=PRODUCTION; trusted_bin /usr/bin/python3 || fail PYTHON_NOT_ROOT_TRUSTED; fi
+printf 'CTV_FAIL_SUCCESSOR_STAGE=%s\nCTV_FAIL_SUCCESSOR_MODE=%s\nCTV_FAIL_SUCCESSOR_AUTHORITY=PASS\nCTV_FAIL_SUCCESSOR_EXPECTED_MAIN=%s\n' "$STAGE" "$MODE" "$MAIN"
 
 # ── A. CTv immutable history -------------------------------------------------------------------------------------------------------
 if [ "$HERMETIC" = YES ]; then ob_chain "$CANON" "$CTV_OPTION_B_TEST_ROOT" "$GUARD_UID" || fail CANONICAL_DIR_NOT_TRUSTED
@@ -126,24 +142,24 @@ marker="$CANON/$MARKER_NAME"; closeout="$CANON/$CLOSEOUT_NAME"; sidecar="$closeo
 # The CTv namespace holds EXACTLY the attempt marker, one FAIL closeout and its sidecar: no PASS closeout, no sidecar of one, no temp file.
 entries=$(ro find "$CANON" -maxdepth 1 -name 'CTV-*' -printf '%f\n' | LC_ALL=C sort)
 [ "$entries" = "$(printf '%s\n%s\n%s\n' "$CLOSEOUT_NAME" "$CLOSEOUT_NAME.sha256" "$MARKER_NAME" | LC_ALL=C sort)" ] || fail CTV_NAMESPACE_NOT_EXACT
-file_ident() { ro stat -c '%F:%u:%a' -- "$1"; }
-[ "$(file_ident "$marker")" = "regular file:$GUARD_UID:600" ] || fail MARKER_UNTRUSTED
-[ "$(file_ident "$closeout")" = "regular file:$GUARD_UID:600" ] || fail CLOSEOUT_UNTRUSTED
-[ "$(file_ident "$sidecar")" = "regular file:$GUARD_UID:444" ] || fail SIDECAR_UNTRUSTED
-closeout_sha=$(ro sha256sum -- "$closeout" | cut -d' ' -f1)
-marker_sha=$(ro sha256sum -- "$marker" | cut -d' ' -f1)
+# file_ident also requires a link count of 1 (a hard link elsewhere could change the bytes behind the checked path).
+file_ident() { ro stat -c '%F:%u:%a:%h' -- "$1"; }
+[ "$(file_ident "$marker")" = "regular file:$GUARD_UID:600:1" ] || fail MARKER_UNTRUSTED
+[ "$(file_ident "$closeout")" = "regular file:$GUARD_UID:600:1" ] || fail CLOSEOUT_UNTRUSTED
+[ "$(file_ident "$sidecar")" = "regular file:$GUARD_UID:444:1" ] || fail SIDECAR_UNTRUSTED
+# slurp VAR FILE — the file's bytes in ONE read, trailing newlines preserved (the digest and the parse below use this same value).
+slurp() { local r; r=$(ro cat -- "$2"; printf x) || return 1; printf -v "$1" '%s' "${r%x}"; }
+# exact_text VAR — require exactly ONE trailing newline and no blank line, then strip it (command substitution alone would hide extra newlines).
+exact_text() { local v=${!1}; [[ "$v" == *$'\n' && "$v" != *$'\n\n'* && "$v" != $'\n'* ]] || return 1; printf -v "$1" '%s' "${v%$'\n'}"; }
+slurp closeout_raw "$closeout" || fail CLOSEOUT_UNREADABLE
+slurp marker_raw "$marker" || fail MARKER_UNREADABLE
+slurp sidecar_raw "$sidecar" || fail SIDECAR_UNREADABLE
+closeout_sha=$(printf '%s' "$closeout_raw" | sha256sum | cut -d' ' -f1)
+marker_sha=$(printf '%s' "$marker_raw" | sha256sum | cut -d' ' -f1)
 [ "$closeout_sha" = "$PIN_CLOSEOUT_SHA256" ] || fail CLOSEOUT_SHA256_NOT_THE_PINNED_RECORD
-# read_exact FILE — the file's bytes with exactly ONE trailing newline and no blank line (command substitution alone would hide extra newlines).
-read_exact() {
-  local raw
-  raw=$(ro cat -- "$1"; printf x) || return 1
-  raw=${raw%x}
-  [[ "$raw" == *$'\n' && "$raw" != *$'\n\n'* && "$raw" != $'\n'* ]] || return 1
-  printf '%s' "${raw%$'\n'}"
-}
-[ "$(read_exact "$sidecar")" = "$closeout_sha  $CLOSEOUT_NAME" ] || fail CLOSEOUT_SIDECAR_INVALID
-closeout_text=$(read_exact "$closeout") || fail CLOSEOUT_SCHEMA_NOT_EXACT
-marker_text=$(read_exact "$marker") || fail MARKER_SCHEMA_NOT_EXACT
+exact_text sidecar_raw && [ "$sidecar_raw" = "$closeout_sha  $CLOSEOUT_NAME" ] || fail CLOSEOUT_SIDECAR_INVALID
+closeout_text=$closeout_raw; exact_text closeout_text || fail CLOSEOUT_SCHEMA_NOT_EXACT
+marker_text=$marker_raw; exact_text marker_text || fail MARKER_SCHEMA_NOT_EXACT
 
 # strict_schema TEXT KEY... — every line is KEY=VALUE with a bounded charset, no duplicate key, and the key set is EXACTLY the given list.
 strict_schema() {
@@ -234,7 +250,7 @@ r1i_status=BLOCKED r1i_reason=NFT_UNAVAILABLE
 # Production resolves nft under the fixed system PATH; hermetic mode may use ONLY the stub in its own path prefix (never the real host nft).
 nft_bin=
 if [ "$HERMETIC" = YES ]; then [ -n "$PATH_PREFIX" ] && [ -x "$PATH_PREFIX/nft" ] && nft_bin=$PATH_PREFIX/nft || true
-else nft_bin=$(command -v nft || true); fi
+else nft_bin=$(command -v nft || true); [ -z "$nft_bin" ] || trusted_bin "$nft_bin" || fail NFT_NOT_ROOT_TRUSTED; fi
 if [ -n "$nft_bin" ]; then
   if ro "$nft_bin" list tables 2>/dev/null | grep -qxF "table $R1I_TABLE"; then
     if ro "$nft_bin" --stateless list table $R1I_TABLE 2>/dev/null | /usr/bin/python3 -I -B -X pycache_prefix=/nonexistent-ctv-successor-pycache "${EXEC_FILES[${#EXEC_FILES[@]}-1]}" validate-state /dev/stdin >/dev/null 2>&1; then
@@ -252,21 +268,38 @@ else
   r1b_reason=$(printf '%s' "${r1b_err%%$'\n'*}" | tr -cd 'A-Za-z0-9_' | cut -c1-96); [ -n "$r1b_reason" ] || r1b_reason=R1B_PREDECESSOR_GATE_FAILED
 fi
 printf 'CTV_FAIL_SUCCESSOR_PREREQ_R1B_AUTHORITY=%s\nCTV_FAIL_SUCCESSOR_PREREQ_R1B_AUTHORITY_REASON=%s\n' "$r1b_status" "$r1b_reason"
+# The R1B check proves ONLY the committed R1B/R1Bv receipts at the pinned main (read from git). It does not prove the live open incident or the audit
+# chain: Recovery's own BASELINE step does that.
+printf 'CTV_FAIL_SUCCESSOR_PREREQ_R1B_AUTHORITY_SCOPE=COMMITTED_RECEIPTS_AT_PINNED_MAIN_NOT_LIVE_INCIDENT_OR_AUDIT_CHAIN\n'
 [ "$r1b_status" = PASS ] || prereq_blocked=1
-# D4. Pinned release and restore-CLI identity: the trusted pins (release id, CLI digest, release manifest digest) are Recovery
-# Authorization inputs that do not exist in the repository, so this stage cannot prove them and must not guess.
-printf 'CTV_FAIL_SUCCESSOR_PREREQ_RELEASE_CLI=UNKNOWN\nCTV_FAIL_SUCCESSOR_PREREQ_RELEASE_CLI_REASON=NO_TRUSTED_PIN_INPUT\n'
-printf 'CTV_FAIL_SUCCESSOR_RECOVERY_PREREQUISITES=%s\n' "$([ "$prereq_blocked" = 0 ] && echo PARTIAL_RELEASE_CLI_UNKNOWN || echo BLOCKED)"
+# D4. Pinned release and restore-CLI identity: the trusted pins (release id, CLI digest, release manifest digest) are Recovery Authorization inputs that
+# do not exist in the repository, so this stage cannot prove them and must not guess. It stays UNKNOWN until a reviewed change supplies a trusted pin.
+release_status=UNKNOWN release_reason=NO_TRUSTED_PIN_INPUT
+printf 'CTV_FAIL_SUCCESSOR_PREREQ_RELEASE_CLI=%s\nCTV_FAIL_SUCCESSOR_PREREQ_RELEASE_CLI_REASON=%s\n' "$release_status" "$release_reason"
+if [ "$prereq_blocked" = 1 ]; then prereq_summary=BLOCKED
+elif [ "$release_status" != PASS ]; then prereq_summary=PARTIAL_RELEASE_CLI_UNKNOWN
+else prereq_summary=ALL_PROVEN; fi
+printf 'CTV_FAIL_SUCCESSOR_RECOVERY_PREREQUISITES=%s\n' "$prereq_summary"
 
-# ── Binding digest for a future, separately reviewed third predecessor authority; it covers only stable facts. ----------------------
+# ── Bindings ---------------------------------------------------------------------------------------------------------------------------------
+# BINDING: stable history only (not a fresh runtime attestation, not an authorization).
 binding=$({
   printf 'stage=%s\nmain=%s\ndevice=%s\n' "$STAGE" "$MAIN" "$DEVICE"
   printf 'closeout=%s\nmarker=%s\nunit=%s\npreimage=%s\n' "$closeout_sha" "$marker_sha" "$PIN_UNIT_SHA256" "$PIN_PREIMAGE_SHA256"
   printf 'pre=%s\npost=%s\ncompare=%s\nattest=%s\nguard=%s\nverifier=%s\n' "$pre_d" "$post_d" "$cmp_d" "$SELF_SHA" "$GUARD_SHA" "$VERIFIER_SHA"
 } | sha256sum | cut -d' ' -f1)
-cat <<EOF
+# READINESS: integrity binding of the facts reported in THIS run (not freshness, not a credential, not permission).
+state_digest=$(kv "$vout" CTV_OPTION_B_STATE_SHA256)
+readiness=$({
+  printf 'readiness_v1\nbinding=%s\nmode=%s\nstate=%s\n' "$binding" "$MODE" "$state_digest"
+  printf 'r1i=%s:%s\nr1b=%s:%s\nrelease_cli=%s:%s\n' "$r1i_status" "$r1i_reason" "$r1b_status" "$r1b_reason" "$release_status" "$release_reason"
+} | sha256sum | cut -d' ' -f1)
+cat <<REPORT
 CTV_FAIL_SUCCESSOR_BINDING_SHA256=$binding
-CTV_FAIL_SUCCESSOR_ATTESTATION=PASS
+CTV_FAIL_SUCCESSOR_BINDING_SCOPE=STABLE_HISTORY_ONLY_NOT_FRESH_RUNTIME_PROOF_NOT_RECOVERY_AUTHORIZATION
+CTV_FAIL_SUCCESSOR_READINESS_SHA256=$readiness
+CTV_FAIL_SUCCESSOR_READINESS_SCOPE=INTEGRITY_BINDING_OF_THE_REPORTED_FACTS_ONLY_NOT_FRESHNESS_NOT_A_CREDENTIAL_NOT_PERMISSION
+CTV_FAIL_SUCCESSOR_HISTORY_AND_CURRENT_STATE=PASS
 CTV_FAIL_SUCCESSOR_RECOVERY_AUTHORIZED=NO
 CTV_FAIL_SUCCESSOR_READ_ONLY=YES
 CTV_FAIL_SUCCESSOR_PRODUCTION_MUTATION=NO
@@ -274,4 +307,11 @@ CTV_FAIL_SUCCESSOR_ATTEMPT_CONSUMED=NO
 CTV_FAIL_SUCCESSOR_CORE_RESTART=NO
 CTV_FAIL_SUCCESSOR_DEVICE_COMMANDS=0
 CTV_FAIL_SUCCESSOR_WIRED_INTO_RECOVERY=NO
-EOF
+REPORT
+# VERDICT. PASS (exit 0) is reachable ONLY through the guard below: every prerequisite, including the release/CLI proof, must be PASS.
+if [ "$r1i_status" = PASS ] && [ "$r1b_status" = PASS ] && [ "$release_status" = PASS ]; then
+  printf 'CTV_FAIL_SUCCESSOR_RECOVERY_READINESS=PASS\nCTV_FAIL_SUCCESSOR_ATTESTATION=PASS\n'
+  exit 0
+fi
+printf 'CTV_FAIL_SUCCESSOR_RECOVERY_READINESS=PARTIAL\nCTV_FAIL_SUCCESSOR_ATTESTATION=PARTIAL\n'
+exit 3
