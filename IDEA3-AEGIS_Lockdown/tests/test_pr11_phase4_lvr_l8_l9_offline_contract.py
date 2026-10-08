@@ -43,7 +43,13 @@ def _today() -> str:
     return dt.datetime.now(ZoneInfo("Asia/Bangkok")).strftime("%Y-%m-%d")
 
 
-def _gate(tmp_path: Path, stage: str, mode: str, extra: str = "") -> subprocess.CompletedProcess[str]:
+def _gate(
+    tmp_path: Path,
+    stage: str,
+    mode: str,
+    extra: str = "",
+    gate: Path = GATE,
+) -> subprocess.CompletedProcess[str]:
     auth = tmp_path / f"auth-{stage}-{mode}.txt"
     k3 = tmp_path / f"k3-{stage}-{mode}.txt"
     auth.write_text(
@@ -55,8 +61,12 @@ def _gate(tmp_path: Path, stage: str, mode: str, extra: str = "") -> subprocess.
     auth.chmod(0o600)
     k3.chmod(0o600)
     return subprocess.run(
-        ["bash", str(GATE), "--stage", stage, "--mode", mode, "--authorization", str(auth), "--k3", str(k3)],
+        ["bash", str(gate), "--stage", stage, "--mode", mode, "--authorization", str(auth), "--k3", str(k3)],
         capture_output=True, text=True, timeout=30, check=False)
+
+
+def _never_authorizes_live(output: str) -> bool:
+    return "LIVE_STAGE_AUTHORIZED=NO" in output and "LIVE_STAGE_AUTHORIZED=YES" not in output
 
 
 def test_registry_order_places_recovery_then_l8_then_l9_with_nothing_between() -> None:
@@ -87,10 +97,10 @@ def test_l8_record_without_recovery_authorization_is_malformed(tmp_path: Path) -
 
 
 # FINDING (not fixed here): p4-stage-gate.sh accepts a recovery_authorization field on an L9 record although its own
-# comment declares the field L8-only. The gate is digest-frozen (tests/test_pr11_phase4_l34_v8_scope_contract.py,
+# comment declares the field L8-only. The gate is byte-pinned by the shared contract tests (tests/test_pr11_phase4_l34_v8_scope_contract.py,
 # tests/test_pr11_phase4_dnsmasq_unit_repair_reboot_and_scope.py) and a frozen predecessor gate, so this offline task does
-# not edit it. Impact is limited: the gate never authorizes live (LIVE_STAGE_AUTHORIZED=NO) and L9 apply refuses live.
-# strict=True turns this into a failure the moment the gate is changed, so the xfail cannot silently go stale.
+# not edit it. This xfail covers only that malformed-record acceptance gap. The separate non-xfail tests below protect
+# the independent fail-closed output invariant against future regressions.
 _L9_GATE_GAP = pytest.mark.xfail(
     strict=True, reason="frozen p4-stage-gate.sh accepts recovery_authorization on L9; needs an owner-approved gate successor")
 
@@ -100,7 +110,43 @@ def test_recovery_authorization_is_l8_only(tmp_path: Path, stage: str) -> None:
     res = _gate(tmp_path, stage, "live", extra=f"recovery_authorization={REF}\n")
     assert res.returncode != 0
     assert "AUTHORIZATION_MALFORMED" in res.stdout + res.stderr
-    assert "LIVE_STAGE_AUTHORIZED=YES" not in res.stdout
+
+
+UNEXPECTED_RECOVERY_AUTH_STAGES = [
+    "L9", "Recovery", "CTv", "CTu", "L7u", "L8p", "F1i", "F1r", "F1", "F1u",
+    "R1A", "R1Du", "R1D", "R1Dv", "R1Bv", "R1B", "RRu",
+]
+
+
+@pytest.mark.parametrize("stage", UNEXPECTED_RECOVERY_AUTH_STAGES)
+def test_unexpected_recovery_authorization_never_authorizes_live(
+        tmp_path: Path, stage: str) -> None:
+    res = _gate(tmp_path, stage, "live", extra=f"recovery_authorization={REF}\n")
+    assert _never_authorizes_live(res.stdout)
+
+
+def test_authorization_output_guard_rejects_disposable_yes_mutation(tmp_path: Path) -> None:
+    """The safety assertion must fail if a disposable gate fixture emits YES."""
+    mutated_gate = tmp_path / "p4-stage-gate-mutated.sh"
+    source = GATE.read_text()
+    mutated = source.replace(
+        "printf 'LIVE_STAGE_AUTHORIZED=NO\\n'",
+        "printf 'LIVE_STAGE_AUTHORIZED=YES\\n'",
+        1,
+    )
+    assert mutated != source
+    mutated_gate.write_text(mutated)
+    mutated_gate.chmod(GATE.stat().st_mode & 0o777)
+
+    res = _gate(
+        tmp_path,
+        "L9",
+        "live",
+        extra=f"recovery_authorization={REF}\n",
+        gate=mutated_gate,
+    )
+    assert "LIVE_STAGE_AUTHORIZED=YES" in res.stdout
+    assert not _never_authorizes_live(res.stdout)
 
 
 @pytest.mark.parametrize("stage,extra", [("L8", f"recovery_authorization={REF}\n"), ("L9", "")])
@@ -110,7 +156,7 @@ def test_gate_never_authorizes_l8_or_l9_live_or_reports_a_production_mutation(
     res = _gate(tmp_path, stage, mode, extra=extra)
     out = res.stdout
     assert "ROLLBACK_HANDLER=REGISTERED" in out
-    assert "LIVE_STAGE_AUTHORIZED=NO" in out and "LIVE_STAGE_AUTHORIZED=YES" not in out
+    assert _never_authorizes_live(out)
     assert "PRODUCTION_MUTATION_PERFORMED=NO" in out
     assert re.search(r"^REPOSITORY_GAP_MERGE_STATE=NOT_VERIFIED_BY_GATE$", out, re.MULTILINE), "the gate must not claim merge state"
 
@@ -128,7 +174,7 @@ def test_stale_authorization_for_l9_is_refused(tmp_path: Path) -> None:
     res = subprocess.run(["bash", str(GATE), "--stage", "L9", "--mode", "live", "--authorization", str(auth),
                           "--k3", str(k3)], capture_output=True, text=True, timeout=30, check=False)
     assert res.returncode != 0
-    assert "LIVE_STAGE_AUTHORIZED=YES" not in res.stdout
+    assert _never_authorizes_live(res.stdout)
 
 
 def test_a_cross_stage_authorization_cannot_be_replayed_for_l9(tmp_path: Path) -> None:
@@ -141,7 +187,7 @@ def test_a_cross_stage_authorization_cannot_be_replayed_for_l9(tmp_path: Path) -
         capture_output=True, text=True, timeout=30, check=False)
     assert res.returncode != 0
     assert "AUTHORIZATION_RECORD=VALID" not in res.stdout
-    assert "LIVE_STAGE_AUTHORIZED=YES" not in res.stdout
+    assert _never_authorizes_live(res.stdout)
 
 
 @pytest.mark.skipif(RECOVERY_STAGE_PY is None, reason="no recovery acceptance module")

@@ -11,6 +11,23 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 PR405 B1 authorization-output remediation — repository-only — 2026-10-08
+
+The PR405 B1 regression guard is narrowed correctly. The strict xfail covers
+only the known L9 malformed-record acceptance gap: the byte-pinned predecessor
+`p4-stage-gate.sh` still accepts an unexpected `recovery_authorization` field
+on L9, and this task does not edit that frozen gate. A separate non-xfail
+contract now checks that L9 and every affected historical stage always emit
+`LIVE_STAGE_AUTHORIZED=NO` for that field. A disposable copy of the gate was
+mutated to emit `LIVE_STAGE_AUTHORIZED=YES`; the new safety predicate rejected
+that output. Focused offline verification is 33 passed / 1 expected xfail.
+
+The earlier PR405 receipt's full-suite count of 163 failures plus 56 errors is
+not a valid baseline claim for this remediation: it was not reproduced here
+and is not promoted as evidence. That immutable historical receipt remains
+unchanged; this section records the corrected current interpretation. No
+Production, hardware, broker, Recovery, CTu, or CTv action was performed.
+
 ## IDEA3 CTv final pre-live proof closure — repository-only — 2026-10-08
 
 The CTv pre-live repair is complete in repository bytes only. Non-hermetic CTv now validates the frozen `DEVICE_ID` against the actual Production `core.env`, derives the governed detector baseline from actual host state, and records neither value as `UNKNOWN`. Hermetic fixtures remain limited to hermetic tests; non-hermetic execution captures fresh L0 PRE/POST evidence and runs the reviewed comparator plus fresh runtime checks for Core state, effective unit hardening, exact unit digest, exact drop-ins, detector preservation, Recovery unconsumed state, and device identity. Recovery now separates `CTV_EXECUTION_MAIN` from the current reviewed successor main and requires a successor receipt bound to the immutable host closeout digest and all relevant CTv digests. The runner records `CTV_REPOSITORY_RECEIPT=POSTLIVE_REVIEW_REQUIRED` and never promotes the pre-live partial receipt to a LIVE PASS receipt.
