@@ -111,8 +111,13 @@ def validate_backup(evidence: dict, backup_path: Path) -> dict:
         "verdict": "PASS",
         "flash_size_bytes": len(data),
         "sha256": digest,
-        "write_or_erase_detected": False,
-        "restore_tested": False,
+        "offline_validation_scope": "OWNER_SUPPLIED_ARTIFACTS_ONLY",
+        "owner_declared_evidence": {
+            "firmware_writing": evidence["firmware_writing"],
+            "flash_erasing": evidence["flash_erasing"],
+            "backup_restoration_tested": evidence["backup_restoration_tested"],
+        },
+        "hardware_behavior_observed": "NOT_OBSERVED",
         "historical_460800_failure_preserved": True,
     }
 

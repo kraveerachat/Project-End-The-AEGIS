@@ -33,8 +33,15 @@ python3 deploy/pr11-phase4/flash-backup-diagnostics.py \
 ```
 
 The command emits machine-readable JSON. `verdict = PASS` supports only the
-read-only backup claims above. It does not prove board identity, firmware
-provenance, electrical relay behavior, restoration, or production readiness.
+read-only backup claims above. Its `owner_declared_evidence` values are copied
+from the owner-supplied JSON record; `hardware_behavior_observed` is always
+`NOT_OBSERVED` because this validator has no serial, flash, or physical-device
+observation channel. It does not prove board identity, firmware provenance,
+electrical relay behavior, restoration, or production readiness.
+
+The result deliberately does not expose a `write_or_erase_detected` or
+`restore_tested` field: an offline file check cannot report whether those
+physical actions occurred.
 
 ## Safety boundary
 

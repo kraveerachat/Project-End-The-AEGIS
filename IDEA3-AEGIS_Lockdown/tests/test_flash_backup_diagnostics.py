@@ -48,10 +48,18 @@ def test_valid_read_only_backup_is_pass_and_preserves_historical_failure(tmp_pat
         "verdict": "PASS",
         "flash_size_bytes": 4194304,
         "sha256": digest,
-        "write_or_erase_detected": False,
-        "restore_tested": False,
+        "offline_validation_scope": "OWNER_SUPPLIED_ARTIFACTS_ONLY",
+        "owner_declared_evidence": {
+            "firmware_writing": "NO",
+            "flash_erasing": "NO",
+            "backup_restoration_tested": "NO",
+        },
+        "hardware_behavior_observed": "NOT_OBSERVED",
         "historical_460800_failure_preserved": True,
     }
+
+    assert "write_or_erase_detected" not in result
+    assert "restore_tested" not in result
 
 
 def test_digest_or_header_mismatch_fails_closed(tmp_path):
@@ -110,4 +118,13 @@ def test_cli_reads_json_and_emits_machine_readable_result(tmp_path, capsys):
     assert DIAGNOSTICS.main(["--evidence", str(evidence), "--backup", str(backup)]) == 0
     output = json.loads(capsys.readouterr().out)
     assert output["verdict"] == "PASS"
+    assert output["offline_validation_scope"] == "OWNER_SUPPLIED_ARTIFACTS_ONLY"
+    assert output["owner_declared_evidence"] == {
+        "firmware_writing": "NO",
+        "flash_erasing": "NO",
+        "backup_restoration_tested": "NO",
+    }
+    assert output["hardware_behavior_observed"] == "NOT_OBSERVED"
+    assert "write_or_erase_detected" not in output
+    assert "restore_tested" not in output
     assert output["historical_460800_failure_preserved"] is True
