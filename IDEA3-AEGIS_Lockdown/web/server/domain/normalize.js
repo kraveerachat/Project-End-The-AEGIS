@@ -135,10 +135,40 @@ function malformedRuntime(raw) {
     || Array.isArray(raw.components)
 }
 
-export function normalizeRuntimeStatus(raw, { now = new Date(), maxAgeMs = 120_000 } = {}) {
-  if (malformedRuntime(raw)) {
+/**
+ * The Core's versioned projection (aegis_soc.runtime.safe_status_projection) speaks the Core's own vocabulary: components broker/device/uplink
+ * carry CONNECTED|ONLINE|NORMAL|LOCKDOWN..., armed is a string, issues are bare codes. Translate ONLY those documented values to the canonical
+ * statuses. Anything else stays UNKNOWN, and relay, heartbeat and ACK are never inferred (the Core projection carries no physical or per-message
+ * evidence for them). Document-supplied canonical component statuses always win, so the original contract is unchanged.
+ */
+const CORE_COMPONENT_VOCABULARY = Object.freeze({
+  broker: Object.freeze({ source: 'broker', values: Object.freeze({ CONNECTED: 'HEALTHY', DISCONNECTED: 'FAILED' }) }),
+  esp32: Object.freeze({ source: 'device', values: Object.freeze({ ONLINE: 'HEALTHY', OFFLINE: 'FAILED' }) }),
+  uplink: Object.freeze({ source: 'uplink', values: Object.freeze({ NORMAL: 'HEALTHY', LOCKDOWN: 'DEGRADED' }) }),
+})
+
+function adaptCoreProjection(raw) {
+  const components = { ...raw.components }
+  for (const [id, { source, values }] of Object.entries(CORE_COMPONENT_VOCABULARY)) {
+    if (isCanonicalStatus(components[id])) continue
+    const mapped = Object.hasOwn(values, raw.components[source]) ? values[raw.components[source]] : undefined
+    if (mapped) components[id] = mapped
+  }
+  if (!isCanonicalStatus(components.runtime) && raw.evidenceSource === 'RUNTIME_STATUS_FILE') components.runtime = raw.status
+  const modes = { ...raw.modes }
+  if (typeof modes.armed === 'string') {
+    modes.monitorOnly = modes.monitorOnly === true || modes.armed === 'MONITOR_ONLY'
+    modes.armed = modes.armed === 'ARMED'
+  }
+  const issues = Array.isArray(raw.issues) ? raw.issues.map((issue) => (typeof issue === 'string' ? { code: issue } : issue)) : raw.issues
+  return { ...raw, components, modes, issues }
+}
+
+export function normalizeRuntimeStatus(rawInput, { now = new Date(), maxAgeMs = 120_000 } = {}) {
+  if (malformedRuntime(rawInput)) {
     return unknownRuntime('MALFORMED', [createOperationalError('MALFORMED_RUNTIME_STATUS', { occurredAt: now.toISOString() })])
   }
+  const raw = adaptCoreProjection(rawInput)
 
   const freshness = evaluateFreshness({ generatedAt: raw.generatedAt, now, maxAgeMs })
   const forceUnknown = freshness.status === 'UNKNOWN'
