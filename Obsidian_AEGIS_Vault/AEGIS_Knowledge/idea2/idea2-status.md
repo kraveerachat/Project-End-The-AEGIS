@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-07
+updated: 2026-10-08
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,41 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## Machine C Live signed-clock compatibility — source checkpoint, 2026-10-08
+
+Machine C's authenticated `/producer/boot` proof returned HTTP 200 with valid
+MAC, nonce, Node, and boot ID, but its observed 607 ms clock distance exceeded
+the former Monitor 500 ms offset rejection rule. The 500 ms *probe-duration*
+limit remains unchanged. This stacked source task on PR #348 accepts a signed
+Engine-minus-Monitor offset interval only when **both** interval endpoints are
+inside ±1,000 ms. It derives that interval from the signed Engine timestamp
+and the Monitor send/receive wall times, with monotonic RTT and wall-clock
+continuity checks. Machine C's observed +559 ms offset is covered; Machine A's
+near-synchronized case remains covered. Browser input cannot choose an offset,
+generation, Node, or physical camera.
+
+Attach/refresh grant expiry is bounded by the earlier of:
+`DB lease expiry + signed Engine offset lower bound - 500 ms - 150 ms` and
+`Monitor mint time + signed Engine offset lower bound + 29,000 ms - 150 ms`.
+The 500 ms is the **full** provisional DB-versus-Monitor absolute-offset bound
+throughout the signed Engine observation through grant mint, not an
+extrapolation from the earlier DB query (which could be stale after a common
+DB/Engine clock step). The 150 ms comprises a provisional 100 ms maximum
+DB-versus-Engine relative divergence from the actual signed Engine sample
+through lease expiry plus two independent 25 ms Monitor wall/monotonic
+observation allowances. This is a conditional safety proof, **not** Production
+clock-discipline evidence.
+
+`PRODUCTION_CLOCK_GATE=BLOCKED`: before deployment, the owner must establish
+the actual DB/Monitor absolute offset throughout signed observation to mint
+and a defensible maximum DB/Engine relative divergence from the signed sample
+over the remaining 30-second lease, including clock steps/slews and
+synchronization changes. If either 500 ms or 100 ms bound
+cannot be justified, do not deploy this candidate; revise the bound/design
+through review. No Production, Engine, Windows Time, Machine A/C runtime, or
+camera was changed by this source checkpoint. Real Machine C Live recovery
+remains **NOT_TESTED** until separately approved post-merge acceptance.
 
 ## PR #370 SOC passive Live post-merge reconciliation — 2026-10-07
 

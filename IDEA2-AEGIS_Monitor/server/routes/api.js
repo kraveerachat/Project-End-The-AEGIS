@@ -678,8 +678,8 @@ apiRouter.get('/cameras/:id/stream', requireAuth, async (req, res, next) => {
       if (!lifecycle.closed) {
         engineBoot = await readEngineBoot({ url: engineUrl, nodeId: demandHandle.nodeId,
           secret: engineSecret, signal: ctrl.signal })
-        demandGrant = mintDemandGrant({ handle: demandHandle, bootId: engineBoot.bootId,
-          secret: engineSecret, clockUncertaintyMs: engineBoot.uncertaintyMs, action: 'attach' })
+        demandGrant = mintDemandGrant({ handle: demandHandle, boot: engineBoot,
+          secret: engineSecret, action: 'attach' })
       }
     }
     if (lifecycle.closed) return

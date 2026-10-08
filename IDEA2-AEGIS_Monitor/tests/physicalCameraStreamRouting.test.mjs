@@ -318,10 +318,13 @@ async function streamHarness(t, scenario = 'normal', service = null) {
     legacySource: () => assert.fail('strict route must not use logical fallback'),
     acquire: async ({ access, sessionBinding }) => {
       assert.equal(sessionBinding, binding)
+      const observedAt = Date.now(), observedAtMono = Math.floor(performance.now())
       const handle = service ? await service.acquire({ access, sessionBinding })
         : { ...access, producerGeneration: generation, demandOwnerId: randomBytes(32).toString('base64url'),
-          sessionBindingHash: `v1:${'a'.repeat(64)}`, leaseExpiresAtMs: Date.now() + 30000,
-          dbNowMs: Date.now(), dbObservationStartMs: Date.now(), dbObservationEndMs: Date.now() }
+          sessionBindingHash: `v1:${'a'.repeat(64)}`, leaseExpiresAtMs: observedAt + 30000,
+          dbNowMs: observedAt, dbObservationStartMs: observedAt,
+          dbObservationEndMs: observedAt, dbObservationStartMonoMs: observedAtMono,
+          dbObservationEndMonoMs: observedAtMono }
       state.acquired.push(handle)
       state.active.add(handle.demandOwnerId)
       if (scenario === 'acquire-denied') {
@@ -345,8 +348,11 @@ async function streamHarness(t, scenario = 'normal', service = null) {
           throw new CameraAccessError(403, 'PRODUCER_AUTHORITY_DENIED')
         if (scenario === 'slow-renewal') await new Promise(resolve => setTimeout(resolve, 40))
         if (service) return await service.renew({ handle, access, sessionBinding })
-        Object.assign(handle, { leaseExpiresAtMs: Date.now() + 30000,
-          dbNowMs: Date.now(), dbObservationStartMs: Date.now(), dbObservationEndMs: Date.now() })
+        const observedAt = Date.now(), observedAtMono = Math.floor(performance.now())
+        Object.assign(handle, { leaseExpiresAtMs: observedAt + 30000,
+          dbNowMs: observedAt, dbObservationStartMs: observedAt,
+          dbObservationEndMs: observedAt, dbObservationStartMonoMs: observedAtMono,
+          dbObservationEndMonoMs: observedAtMono })
         return handle
       } finally { renewing -= 1; state.events.push('renew-end') }
     },
@@ -383,7 +389,8 @@ async function streamHarness(t, scenario = 'normal', service = null) {
 
       const bootByte = scenario === 'boot-change-on-retry' && state.bootCalls >= 3 ? 5 : 4
       const claims = { engineBootId: Buffer.alloc(32, bootByte).toString('base64url'),
-        nodeId: 'machine-a-node', nonce: options.headers['X-Aegis-Clock-Nonce'], engineNowMs: Date.now() }
+        nodeId: 'machine-a-node', nonce: options.headers['X-Aegis-Clock-Nonce'],
+        engineNowMs: Date.now() + (scenario === 'machine-c-clock' ? 559 : 0) }
       const raw = Buffer.from(JSON.stringify(claims, Object.keys(claims).sort()))
       const key = createHmac('sha256', 'server-only-engine-key').update('AEGIS-demand-grant-v1-key').digest()
       const mac = createHmac('sha256', key).update('aegis-producer-clock-v1\n').update(raw).digest('base64url')
@@ -741,6 +748,16 @@ test('strict_stream_sends_server_generation_and_key; client_generation_claim_can
   assert.ok(!body.includes(generation) && !body.includes(binding) && !body.includes('machine-a-node')
     && !body.includes('server-only-engine-key'))
   assert.deepEqual(state.released, state.acquired)
+})
+
+test('Machine C-style signed +559ms Boot offset opens a strict stream without browser authority', async t => {
+  const { state, open, settle } = await streamHarness(t, 'machine-c-clock')
+  const response = await open()
+  await settle(response)
+  assert.equal(response.statusCode, 200)
+  assert.equal(state.acquired.length, 1)
+  assert.equal(state.fetched.length, 1)
+  assert.equal(state.released.length, 1)
 })
 
 test('unauthorized_assignment_has_zero_side_effects', async t => {

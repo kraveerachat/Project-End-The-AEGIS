@@ -57,9 +57,11 @@ export function createProducerLifecycle() {
       const fixture = globalThis.__physicalLinkFixture;
       if (sessionBinding !== fixture.sessionBinding || access.keyVersion !== 1)
         throw new Error('fixture requires authenticated binding and key version');
+      const observedAt = Date.now(), observedAtMono = Math.floor(performance.now());
       const handle = { ...access, producerGeneration: '9007199254740993', demandOwnerId: Buffer.alloc(32, 5).toString('base64url'),
-        sessionBindingHash: 'v1:' + 'a'.repeat(64), leaseExpiresAtMs: Date.now() + 30000,
-        dbNowMs: Date.now(), dbObservationStartMs: Date.now(), dbObservationEndMs: Date.now() };
+        sessionBindingHash: 'v1:' + 'a'.repeat(64), leaseExpiresAtMs: observedAt + 30000,
+        dbNowMs: observedAt, dbObservationStartMs: observedAt, dbObservationEndMs: observedAt,
+        dbObservationStartMonoMs: observedAtMono, dbObservationEndMonoMs: observedAtMono };
       fixture.acquireCalls.push(handle);
       return handle;
     },
