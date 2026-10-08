@@ -1,6 +1,6 @@
 ---
 title: Task Receipt — IDEA3 CTv core.env Device ID validator hotfix
-date: 2026-10-08T13:00:00+07:00
+date: 2026-10-08T07:30:35+07:00
 owner: music
 area: idea3
 branch: fix/idea3-ctv-core-env-device-id-validator
