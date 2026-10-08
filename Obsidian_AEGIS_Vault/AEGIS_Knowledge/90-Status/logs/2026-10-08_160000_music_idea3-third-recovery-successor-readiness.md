@@ -20,12 +20,12 @@ edit_policy: append-by-new-file
 
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/recovery-acceptance/recovery_third_successor_readiness.py` — verifier.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/recovery-acceptance/THIRD-SUCCESSOR-CONTRACT.md` — blockers, 15-point contract, authorization candidate schema, un-activated gate proposal.
-- `IDEA3-AEGIS_Lockdown/tests/recovery/test_recovery_third_successor_readiness.py` — 145 hermetic tests (history, pins, transcripts, authorization, file/env/tool-authority attacks, no side effects, in-process decision logic, 16 mutation tests).
+- `IDEA3-AEGIS_Lockdown/tests/recovery/test_recovery_third_successor_readiness.py` — 146 hermetic tests (history, pins, transcripts, authorization, file/env/tool-authority attacks, no side effects, in-process decision logic, 16 mutation tests).
 
 ## Verification evidence
 
-- `pytest tests/recovery/test_recovery_third_successor_readiness.py` — 145 passed. Includes the real `recovery_ctv_successor_gate` refusing a CTv FAIL history (`RECOVERY_CTV_FAIL_CLOSEOUT_PRESENT`) without creating a marker.
-- `pytest tests/recovery tests/rru tests/r1bv tests/test_recovery_stage.py tests/test_pr11_phase4_harness.py` — 1353 passed, 3 failed (the known stale stage-order tests, identical on unchanged main).
+- `pytest tests/recovery/test_recovery_third_successor_readiness.py` — 146 passed (merged main 2cb731ae; plus the merged #402 and #403 suites, which still pass). Includes the real `recovery_ctv_successor_gate` refusing a CTv FAIL history (`RECOVERY_CTV_FAIL_CLOSEOUT_PRESENT`) without creating a marker.
+- `pytest tests/recovery tests/rru tests/r1bv tests/test_recovery_stage.py tests/test_pr11_phase4_harness.py` — 1353 passed, 3 failed (before merging main; 1108 passed, 3 failed on the impacted subset after it) (the known stale stage-order tests, identical on unchanged main).
 - Release-builder, guard/installer, l7u, CTv and CTu suites — 5 failed, 56 errors (`No module named pip`), identical to a worktree at exact main 6ed42345 reproduced earlier in this session.
 - `git diff --check` and vault validation — see the PR.
 

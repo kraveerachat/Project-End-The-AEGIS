@@ -819,3 +819,18 @@ def test_mutation_gate_anchor_check_removed_lets_a_weakened_gate_pass(tmp_path):
     w = mutant(tmp_path, "    return all(a in lib for a in anchors)", "    return True")
     w2 = World(tmp_path / "x", tool_text=w.tool.read_text(), lib_text=LIB_SRC.replace("CTV_RESULT=CLOSED_PASS", "CTV_RESULT=ANY")) if (tmp_path / "x").mkdir() is None else None
     assert full(w2)["RECOVERY_PREDECESSOR_GATE"].startswith("STILL_REQUIRES")
+
+
+# ── compatibility with the merged PR #402 attestation (its printed keys are exactly what this verifier requires) ────────────────────────────
+ATTEST = REPO_ROOT / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/ctv-incident/ctv-fail-successor-attest.sh"
+
+
+@pytest.mark.skipif(not ATTEST.exists(), reason="PR #402 attestation not in this tree")
+def test_every_attestation_key_the_verifier_requires_is_printed_by_the_merged_attestation_script():
+    src = ATTEST.read_text()
+    required = ["MODE", "AUTHORITY", "EXPECTED_MAIN", "CTV_HISTORY", "CLOSEOUT_SHA256", "CURRENT_RUNTIME", "CURRENT_STATE_SCOPE", "EVIDENCE_INTEGRITY", "HISTORICAL_S10",
+                "PROMOTES_CTV_TO_PASS", "PREREQ_RECOVERY_ATTEMPT", "PREREQ_R1I", "PREREQ_R1B_AUTHORITY", "ATTESTATION", "RECOVERY_AUTHORIZED", "READ_ONLY",
+                "PRODUCTION_MUTATION", "ATTEMPT_CONSUMED", "WIRED_INTO_RECOVERY"]
+    for key in required:
+        assert f"CTV_FAIL_SUCCESSOR_{key}" in src, key
+    assert "TRUSTEDCLOCK_NOW" in src
