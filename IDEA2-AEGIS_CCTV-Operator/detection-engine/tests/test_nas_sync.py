@@ -1,7 +1,10 @@
 import os
+import shutil
+import subprocess
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 from aegis_engine.config import EngineConfig
 from aegis_engine.metrics import MetricsRegistry
@@ -188,6 +191,70 @@ class NASSyncTruthTests(unittest.TestCase):
             worker._sync_one(segment(path, camera_id="CAM-02", producer_generation=7))
             self.assertTrue(os.path.exists(path))
             self.assertEqual(1, len(monitor.clips))
+            nas = worker._metrics.snapshot()["nas"]
+            self.assertEqual("failed", nas["last_status"])
+            self.assertEqual(0, nas["synced_total"])
+
+    def test_browser_transcode_maps_optional_audio_to_aac(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._file(directory)
+            worker = NASSyncWorker(EngineConfig(), MetricsRegistry())
+            commands = []
+
+            def fake_run(command, **_kwargs):
+                commands.append(command)
+                with open(command[-1], "wb") as handle:
+                    handle.write(b"synthetic-transcoded-mp4")
+                return (0, "", "")
+
+            worker._run = fake_run
+            with mock.patch("aegis_engine.nas_sync.shutil.which", return_value="ffmpeg"):
+                self.assertTrue(worker._prepare_browser_playback(path))
+
+            command = commands[0]
+            self.assertNotIn("-an", command)
+            self.assertEqual("0:v:0", command[command.index("-map") + 1])
+            self.assertEqual("0:a:0?", command[command.index("-map", command.index("-map") + 1) + 1])
+            self.assertEqual("aac", command[command.index("-c:a") + 1])
+            self.assertEqual("libx264", command[command.index("-c:v") + 1])
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "offline ffmpeg tools unavailable")
+    def test_synthetic_video_and_aac_survive_browser_transcode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "synthetic.mp4")
+            subprocess.run([
+                "ffmpeg", "-v", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=1",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1",
+                "-c:v", "mpeg4", "-c:a", "aac", "-shortest", path,
+            ], check=True, capture_output=True)
+            worker = NASSyncWorker(EngineConfig(), MetricsRegistry())
+            self.assertTrue(worker._prepare_browser_playback(path))
+            probe = subprocess.run([
+                "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name",
+                "-of", "csv=p=0", path,
+            ], check=True, capture_output=True, text=True)
+            streams = probe.stdout.splitlines()
+            self.assertIn("h264,video", streams)
+            self.assertIn("aac,audio", streams)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "offline ffmpeg tools unavailable")
+    def test_legacy_video_only_survives_optional_audio_mapping(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "legacy-video-only.mp4")
+            subprocess.run([
+                "ffmpeg", "-v", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=1",
+                "-c:v", "mpeg4", path,
+            ], check=True, capture_output=True)
+            worker = NASSyncWorker(EngineConfig(), MetricsRegistry())
+            self.assertTrue(worker._prepare_browser_playback(path))
+            probe = subprocess.run([
+                "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name",
+                "-of", "csv=p=0", path,
+            ], check=True, capture_output=True, text=True)
+            self.assertIn("h264,video", probe.stdout.splitlines())
+            self.assertNotIn("aac,audio", probe.stdout.splitlines())
 
 
 if __name__ == "__main__":
