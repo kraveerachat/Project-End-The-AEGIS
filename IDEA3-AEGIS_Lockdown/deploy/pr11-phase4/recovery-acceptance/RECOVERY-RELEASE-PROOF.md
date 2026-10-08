@@ -31,6 +31,8 @@ The reviewed `p4-l7-release-guard.py` (layout, no symlink/special file, nothing 
 manifest equals the release-commit blob; the host CLI/Core/detector files equal the derived digests and are manifested; the interpreter is a trusted manifested executable; `current` names exactly this release.
 `--frozen-runner` additionally refuses any frozen pin (`RELEASE_ID`, the three digests) that is not the derived value.
 
+Malformed host proof input is deterministic and fail-closed. An undecodable or unreadable `RELEASE-SHA256SUMS` is refused as `RELEASE_GUARD_INPUT_UNDECODABLE` or `RELEASE_GUARD_INPUT_MALFORMED`; a malformed checksum line is refused by the reviewed guard, and the proof's independent parser also refuses `RELEASE_SUMS_LINE_MALFORMED`. These input failures return exit 1 and never expose a traceback.
+
 ## Inputs still required from the Human Owner (the tool never invents them)
 
 1. **`RELEASE_SUMS_SHA256`** — the digest of the deployed `RELEASE-SHA256SUMS`. It covers the venv, which only the host holds, so it cannot be derived from the repository. The owner reads it on the host after

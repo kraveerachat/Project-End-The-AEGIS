@@ -272,6 +272,23 @@ def test_a_wrong_or_invented_sums_pin_fails_and_exits_one(world: World) -> None:
         assert proc.returncode == 1 and re.search(r"RELEASE_SUMS_PIN_(NOT_THE_HOST_MANIFEST|MALFORMED)", reason(proc)), (bad, reason(proc))
 
 
+@pytest.mark.parametrize(
+    "contents,expected",
+    [
+        (b"\xff\xfe\n", "RELEASE_GUARD_INPUT_UNDECODABLE"),
+        (b"not a checksum line\n", "RELEASE_GUARD_REFUSED:CHECKSUM_LINE_MALFORMED"),
+        (b"" , "RELEASE_GUARD_REFUSED:CHECKSUM_ENTRY_MISSING"),
+    ],
+)
+def test_malformed_or_undecodable_release_sums_fail_closed_without_a_traceback(world: World, contents: bytes, expected: str) -> None:
+    sums = world.host_release / "RELEASE-SHA256SUMS"
+    sums.write_bytes(contents)
+    proc = world.run(pin=False)
+    assert proc.returncode == 1
+    assert "Traceback" not in proc.stderr
+    assert expected in reason(proc)
+
+
 def test_the_proof_is_deterministic(world: World) -> None:
     first, second = world.run(), world.run()
     assert first.stdout == second.stdout and first.returncode == second.returncode == 0

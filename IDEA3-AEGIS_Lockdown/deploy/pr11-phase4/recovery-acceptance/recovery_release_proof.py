@@ -253,6 +253,10 @@ def verify_host(repo: Path, main: str, derived: dict[str, str], *, guard: types.
     report.add("HOST_RELEASE_PATH_TRUST_CHAIN", "PASS")
     try:
         guard_id, guard_sha = guard.check(logical, release, "any" if hermetic else "root")
+    except UnicodeDecodeError:
+        raise ProofError("RELEASE_GUARD_INPUT_UNDECODABLE") from None
+    except (OSError, ValueError):
+        raise ProofError("RELEASE_GUARD_INPUT_MALFORMED") from None
     except guard.Refusal as exc:
         raise ProofError(f"RELEASE_GUARD_REFUSED:{exc}") from None
     if guard_id != release_id or guard_sha != derived["release_commit"]:
@@ -260,10 +264,20 @@ def verify_host(repo: Path, main: str, derived: dict[str, str], *, guard: types.
     report.add("HOST_RELEASE_GUARD", "PASS")
     report.add("HOST_MANIFEST_RELEASE_ID_AND_SOURCE_COMMIT", "MATCH_THE_DERIVED_RELEASE")
     sums_path = release / guard.SUMS
-    sums_bytes = sums_path.read_bytes()
+    try:
+        sums_bytes = sums_path.read_bytes()
+    except OSError:
+        raise ProofError("RELEASE_SUMS_UNREADABLE") from None
+    try:
+        sums_text = sums_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ProofError("RELEASE_SUMS_UNDECODABLE") from None
     listed = {}
-    for line in sums_bytes.decode("utf-8").splitlines():
-        digest, rel = line.split("  ", 1)
+    for line in sums_text.splitlines():
+        parsed = re.fullmatch(r"([0-9a-f]{64})  (\S.*)", line)
+        if not parsed:
+            raise ProofError("RELEASE_SUMS_LINE_MALFORMED")
+        digest, rel = parsed.groups()
         listed[rel] = digest
     aegis = {rel: digest for rel, digest in listed.items() if rel.startswith("aegis_soc/")}
     if len(aegis) < 3:
