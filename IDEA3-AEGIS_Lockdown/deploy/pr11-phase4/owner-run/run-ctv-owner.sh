@@ -60,6 +60,8 @@ CTV_CANONICAL_DIR=$CANONICAL_DIR
 CTV_TEST_ONLY_CANONICAL_DIR_ENABLED=YES
 CTV_TEST_ONLY_CANONICAL_DIR=$CANONICAL_DIR
 export CTV_CANONICAL_DIR CTV_TEST_ONLY_CANONICAL_DIR_ENABLED CTV_TEST_ONLY_CANONICAL_DIR
+# The rollback restores the pre-image to the same destination apply installed to, in every mode.
+CTV_UNIT_DEST=$UNIT_DEST; export CTV_UNIT_DEST
 if [ "$HERMETIC" = YES ]; then CTV_SUDO=; CTV_TEST_MODE=YES; CTV_UNIT_DEST=$UNIT_DEST; CTV_CORE_RESTARTS_FILE=$WORK_DIR/core-restarts; export CTV_SUDO CTV_TEST_MODE CTV_UNIT_DEST CTV_CORE_RESTARTS_FILE; fi
 CTV_FAIL_PHASE=$FAIL_PHASE
 export CTV_FAIL_PHASE
@@ -105,7 +107,7 @@ if [ "$HERMETIC" = YES ]; then
 else
   JOURNAL_SINCE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
   mkdir -m 700 "$WORK_DIR/pre-root"
-  ctv_run env EVID_DIR="$WORK_DIR/pre-root" CAPTURE_LABEL=ctv-pre JOURNAL_SINCE="$JOURNAL_SINCE" bash "$BUNDLE_DIR/p4-l0-capture.sh" || exit 1
+  ctv_run env EVID_DIR="$WORK_DIR/pre-root" CAPTURE_LABEL=ctv-pre JOURNAL_SINCE="$JOURNAL_SINCE" PYTHONDONTWRITEBYTECODE=1 bash "$BUNDLE_DIR/p4-l0-capture.sh" || exit 1
   grep -q 'L0_CAPTURE=COMPLETE' "$WORK_DIR/pre-root/capture.log" || exit 1
 fi
 ctv_live_abort() {
@@ -132,7 +134,7 @@ ctv_failpoint post-runtime-verify || exit 1
 if [ "$HERMETIC" = YES ]; then
   ctv_capture_state "$WORK_DIR/post" "$FIXTURE_ROOT" POST || exit 1
 else
-  ctv_run env EVID_DIR="$WORK_DIR/post-root" CAPTURE_LABEL=ctv-post JOURNAL_SINCE="$JOURNAL_SINCE" bash "$BUNDLE_DIR/p4-l0-capture.sh" || exit 1
+  ctv_run env EVID_DIR="$WORK_DIR/post-root" CAPTURE_LABEL=ctv-post JOURNAL_SINCE="$JOURNAL_SINCE" PYTHONDONTWRITEBYTECODE=1 bash "$BUNDLE_DIR/p4-l0-capture.sh" || exit 1
   grep -q 'L0_CAPTURE=COMPLETE' "$WORK_DIR/post-root/capture.log" || exit 1
 fi
 ctv_failpoint post-capture || exit 1
