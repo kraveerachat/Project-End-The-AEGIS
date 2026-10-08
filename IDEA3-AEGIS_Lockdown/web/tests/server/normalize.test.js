@@ -96,6 +96,60 @@ describe('upstream evidence normalization', () => {
     expect(normalized.modes.monitorOnly).toBe(true)
   })
 
+  describe('Core runtime projection vocabulary (aegis_soc.runtime.safe_status_projection)', () => {
+    const coreRaw = Object.freeze({
+      schemaVersion: 1,
+      generatedAt: '2026-09-03T00:12:20.000Z',
+      status: 'HEALTHY',
+      dispatch: 'ACTIVE',
+      components: { broker: 'CONNECTED', device: 'ONLINE', uplink: 'LOCKDOWN', detector: 'RUNNING' },
+      modes: { profile: 'production', dryRun: false, autoContain: false, armed: 'ARMED' },
+      issues: [],
+      evidenceSource: 'RUNTIME_STATUS_FILE',
+    })
+    const statusOf = (normalized, id) => normalized.components.find((component) => component.id === id)?.status
+
+    it('maps only the documented Core values and never infers relay, heartbeat or ACK', () => {
+      const normalized = normalizeRuntimeStatus(coreRaw, { now: fixedNow, maxAgeMs: 120_000 })
+      expect(normalized.status).toBe('HEALTHY')
+      expect(['runtime', 'broker', 'esp32', 'uplink'].map((id) => statusOf(normalized, id))).toEqual(['HEALTHY', 'HEALTHY', 'HEALTHY', 'DEGRADED'])
+      expect(['relay', 'heartbeat', 'ack'].map((id) => statusOf(normalized, id))).toEqual(['UNKNOWN', 'UNKNOWN', 'UNKNOWN'])
+      expect(normalized.modes).toEqual(expect.objectContaining({ armed: true, monitorOnly: false, recoveryAuthorized: false }))
+    })
+
+    it.each([
+      [{ broker: 'DISCONNECTED', device: 'OFFLINE', uplink: 'NORMAL' }, ['FAILED', 'FAILED', 'HEALTHY']],
+      [{ broker: 'UNKNOWN', device: 'UNKNOWN', uplink: 'UNKNOWN' }, ['UNKNOWN', 'UNKNOWN', 'UNKNOWN']],
+      [{ broker: 'connected', device: 'Online', uplink: 'ISOLATED' }, ['UNKNOWN', 'UNKNOWN', 'UNKNOWN']],
+      [{ broker: '__proto__', device: 'constructor', uplink: 'toString' }, ['UNKNOWN', 'UNKNOWN', 'UNKNOWN']],
+    ])('maps %j to %j and anything undocumented stays UNKNOWN', (components, expected) => {
+      const normalized = normalizeRuntimeStatus({ ...coreRaw, components }, { now: fixedNow, maxAgeMs: 120_000 })
+      expect(['broker', 'esp32', 'uplink'].map((id) => statusOf(normalized, id))).toEqual(expected)
+    })
+
+    it('keeps MONITOR_ONLY and DISARMED honest and still forces stale or future evidence to UNKNOWN', () => {
+      const monitor = normalizeRuntimeStatus({ ...coreRaw, modes: { ...coreRaw.modes, armed: 'MONITOR_ONLY' } }, { now: fixedNow, maxAgeMs: 120_000 })
+      const disarmed = normalizeRuntimeStatus({ ...coreRaw, modes: { ...coreRaw.modes, armed: 'DISARMED' } }, { now: fixedNow, maxAgeMs: 120_000 })
+      expect([monitor.modes.armed, monitor.modes.monitorOnly, disarmed.modes.armed, disarmed.modes.monitorOnly]).toEqual([false, true, false, false])
+      for (const generatedAt of ['2026-09-03T00:00:00.000Z', '2026-09-03T00:15:00.000Z']) {
+        const normalized = normalizeRuntimeStatus({ ...coreRaw, generatedAt }, { now: fixedNow, maxAgeMs: 120_000 })
+        expect(normalized.status).toBe('UNKNOWN')
+        expect(normalized.components.every((component) => component.status === 'UNKNOWN')).toBe(true)
+      }
+    })
+
+    it('a document-supplied canonical component status wins over the Core vocabulary', () => {
+      const normalized = normalizeRuntimeStatus({ ...coreRaw, components: { ...coreRaw.components, esp32: 'FAILED', relay: 'HEALTHY' } }, { now: fixedNow, maxAgeMs: 120_000 })
+      expect([statusOf(normalized, 'esp32'), statusOf(normalized, 'relay')]).toEqual(['FAILED', 'HEALTHY'])
+    })
+
+    it('turns bare Core issue codes into safe operational errors', () => {
+      const normalized = normalizeRuntimeStatus({ ...coreRaw, issues: ['MQTT_DISCONNECTED', 'ESP32_UNAVAILABLE', 'NOT_A_CODE'] }, { now: fixedNow, maxAgeMs: 120_000 })
+      expect(normalized.operationalErrors.map((error) => error.code)).toEqual(expect.arrayContaining(['MQTT_DISCONNECTED', 'ESP32_UNAVAILABLE']))
+      expect(normalized.operationalErrors.map((error) => error.code)).not.toContain('NOT_A_CODE')
+    })
+  })
+
   it.each(['ERROR', 'STALE', 'UNAVAILABLE', 'TIMEOUT', 'UNKNOWN'])('never promotes %s runtime evidence to HEALTHY', (state) => {
     const normalized = normalizeRuntimeStatus({
       ...healthyRuntimeRaw,
