@@ -46,7 +46,7 @@ edit_policy: append-by-new-file
   outside the repository and fails before assertions are surfaced.
 - `node --test tests/vaultStructure.test.mjs` — PASS.
 - `git diff --check` — PASS.
-- `git add <five exact paths>; git diff --cached --check; git commit -m 'docs(idea3): reconcile h0 network security evidence'` — BLOCKED by the linked worktree Git metadata authority: `.git/worktrees/h0-codex3-report/index.lock` is read-only. No bypass or alternate worktree was used.
+- Historical Codex sandbox staging attempt — BLOCKED by read-only linked-worktree Git metadata; no bypass was attempted by the agent. Subsequently on the owner Arch host, exact five-file staging and `git diff --cached --check` passed, commit `2ba2256c` was created, `origin/main` at `31a68fa222a64c309cb064f32f82ed9faf5d37e0` was merged to branch HEAD `b152bbe1f816cb998e1d6deab4eab84ba8e96823`, the post-merge offline suite passed 199 tests with 10 skipped, and the branch was pushed as Draft PR #415. These Git actions do not constitute hardware or Production acceptance.
 
 ## Canonical notes updated
 
@@ -74,4 +74,4 @@ edit_policy: append-by-new-file
 - Isolated hardware acceptance, broker/TLS/ACL negotiation, packet capture, Production acceptance, and Recovery execution remain unverified/prohibited.
 - PR #413 and PR #414 are merged current-main source/evidence, but must not be represented as physical or Production acceptance.
 - The current task remains `partial`; no claim promotes offline or owner-reported evidence to physical or Production acceptance.
-- The owner must run the exact Git staging/commit commands above from an authorized host-side Git context, then push/open or update the Draft PR; no merge or deploy is authorized.
+- Git checkpoint is complete on the owner Arch host: five report paths committed and branch pushed to Draft PR #415. Independent review, CI, and human merge remain separate gates; no Production deployment or live Recovery is authorized.
